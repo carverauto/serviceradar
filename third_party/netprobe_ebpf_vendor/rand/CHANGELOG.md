@@ -8,7 +8,28 @@ A [separate changelog is kept for rand_core](rand_core/CHANGELOG.md).
 
 You may also find the [Upgrade Guide](https://rust-random.github.io/book/update.html) useful.
 
-## [0.9.2 — 2025-07-20]
+## [0.9.5] — 2026-07-02
+### Fixes
+- Fix possible memory safety violation due to deserialization of `UniformChar` from bad source ([#1803])
+
+[#1803]: https://github.com/rust-random/rand/pull/1803
+
+## [0.9.4] — 2026-04-13
+### Fixes
+- Fix doc build ([#1766])
+
+[#1766]: https://github.com/rust-random/rand/pull/1766
+
+## [0.9.3] — 2026-04-11
+This release back-ports a fix from v0.10. See also [#1763].
+
+### Changes
+- Deprecate feature `log` (#1764)
+- Replace usages of `doc_auto_cfg` (#1764)
+
+[#1763]: https://github.com/rust-random/rand/pull/1763
+
+## [0.9.2] — 2025-07-20
 ### Deprecated
 - Deprecate `rand::rngs::mock` module and `StepRng` generator (#1634)
 
@@ -820,3 +841,5 @@ when updating from `rand 0.7.0` without also updating `rand_core`.
 ## [0.10-pre] - 2014-03-02
 ### Added
 - Separate `rand` out of the standard library
+
+[0.9.3]: https://github.com/rust-random/rand/compare/0.9.2...0.9.3

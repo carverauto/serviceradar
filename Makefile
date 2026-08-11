@@ -27,6 +27,29 @@ GOLANGCI_LINT_TIMEOUT ?= 30m
 GO_LINT_PACKAGES ?= ./go/... ./proto/...
 SWIFTLINT ?= swiftlint
 
+# Canonical full-workspace Bazel arguments. The cache-proxy targets below reuse the existing
+# build/test recipes with target-specific flag overrides so they cannot drift from the
+# commands developers and CI already run.
+BAZEL ?= bazel
+BAZEL_CI_FLAGS ?= -c opt --config=ci
+# EMPTY ON PURPOSE, AND IT MUST NOT NAME A PROFILE THAT NO LONGER EXISTS.
+#
+# The cache proxy used to be opt-in via `--config=cache_proxy`. It is now the default for
+# every remote build: //.bazelrc sends `build:remote_base --remote_cache` to the shared Envoy
+# edge, and both --config=ci and --config=remote inherit remote_base. There is nothing left to
+# opt into, so the `-cache` targets below are aliases that differ only in using the CI flags.
+#
+# Left as a variable rather than deleted so those target names keep working. Do NOT put a
+# `--config=` value here speculatively: Bazel treats an undefined config as a hard error
+# ("Config value 'cache_proxy' is not defined in any .rc file", exit 2), so a stale name takes
+# the whole target out rather than degrading it. //buildbuddy_cache_proxy_config_test.py
+# asserts that every --config this file names is defined in //.bazelrc.
+BAZEL_CACHE_PROXY_CONFIG ?=
+BAZEL_WORKSPACE_BUILD_FLAGS ?= --config=remote
+BAZEL_WORKSPACE_TARGETS ?= //...
+BAZEL_UNIT_TEST_FLAGS ?= $(BAZEL_CI_FLAGS)
+BAZEL_UNIT_TEST_FILTERS ?= --test_tag_filters=-integration_test,-acceptance_test
+
 # Every Mix project under elixir/, in the order CI walks them. Keep this in step with
 # run_quality in .forgejo/workflows/elixir-quality.yml -- that workflow is what gates a PR.
 #
@@ -131,7 +154,11 @@ build: ## Build all OCI images with Bazel (remote)
 
 .PHONY: build-workspace
 build-workspace: ## Build the full workspace with Bazel (remote)
-	@bazel build --config=remote //...
+	@$(BAZEL) build $(BAZEL_WORKSPACE_BUILD_FLAGS) $(BAZEL_WORKSPACE_TARGETS)
+
+.PHONY: build-workspace-cache
+build-workspace-cache: BAZEL_WORKSPACE_BUILD_FLAGS = $(BAZEL_CI_FLAGS) $(BAZEL_CACHE_PROXY_CONFIG)
+build-workspace-cache: build-workspace ## Build the full workspace through the BuildBuddy cache proxy
 
 .PHONY: build-web-ng
 build-web-ng: ## Build just the web-ng OCI image with Bazel (remote)
@@ -429,7 +456,11 @@ lint-go: get-golangcilint ## Run Go linting checks
 .PHONY: test
 test: ## Run every unit test the way CI does (bazel, remote, opt)
 	@echo "$(COLOR_BOLD)Running all unit tests via bazel$(COLOR_RESET)"
-	@bazel test -c opt --config=ci //... --test_tag_filters=-integration_test,-acceptance_test
+	@$(BAZEL) test $(BAZEL_UNIT_TEST_FLAGS) $(BAZEL_WORKSPACE_TARGETS) $(BAZEL_UNIT_TEST_FILTERS)
+
+.PHONY: test-cache
+test-cache: BAZEL_UNIT_TEST_FLAGS = $(BAZEL_CI_FLAGS) $(BAZEL_CACHE_PROXY_CONFIG)
+test-cache: test ## Run the canonical unit-test sweep through the BuildBuddy cache proxy
 
 # Everything CI runs before it will accept a release, in one command. `test-toolchains`
 # below is the per-language path (go test / cargo test / vitest / mix precommit); it is

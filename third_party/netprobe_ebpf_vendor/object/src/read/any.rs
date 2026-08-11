@@ -19,9 +19,10 @@ use crate::read::xcoff;
 use crate::read::{
     self, Architecture, BinaryFormat, CodeView, ComdatKind, CompressedData, CompressedFileRange,
     Error, Export, FileFlags, FileKind, Import, Object, ObjectComdat, ObjectKind, ObjectMap,
-    ObjectSection, ObjectSegment, ObjectSymbol, ObjectSymbolTable, ReadRef, Relocation,
-    RelocationMap, Result, SectionFlags, SectionIndex, SectionKind, SegmentFlags, SubArchitecture,
-    SymbolFlags, SymbolIndex, SymbolKind, SymbolMap, SymbolMapName, SymbolScope, SymbolSection,
+    ObjectSection, ObjectSegment, ObjectSymbol, ObjectSymbolTable, Permissions, ReadRef,
+    Relocation, RelocationMap, Result, SectionFlags, SectionIndex, SectionKind, SegmentFlags,
+    SubArchitecture, SymbolFlags, SymbolIndex, SymbolKind, SymbolMap, SymbolMapName, SymbolScope,
+    SymbolSection,
 };
 
 /// Evaluate an expression on the contents of a file format enum.
@@ -616,6 +617,7 @@ impl<'data, 'file, R: ReadRef<'data>> fmt::Debug for Segment<'data, 'file, R> {
         }
         s.field("address", &self.address())
             .field("size", &self.size())
+            .field("permissions", &self.permissions())
             .finish()
     }
 }
@@ -657,6 +659,10 @@ impl<'data, 'file, R: ReadRef<'data>> ObjectSegment<'data> for Segment<'data, 'f
 
     fn flags(&self) -> SegmentFlags {
         with_inner!(self.inner, SegmentInternal, |x| x.flags())
+    }
+
+    fn permissions(&self) -> Permissions {
+        with_inner!(self.inner, SegmentInternal, |x| x.permissions())
     }
 }
 

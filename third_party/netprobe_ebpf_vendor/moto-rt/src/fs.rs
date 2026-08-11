@@ -41,10 +41,16 @@ pub const FILETYPE_DIRECTORY: u8 = 2;
 // File permissions.
 pub const PERM_READ: u64 = 1;
 pub const PERM_WRITE: u64 = 2;
+pub const PERM_EXEC: u64 = 4;
 
 // Open options.
 pub const O_READ: u32 = 1 << 0;
 pub const O_WRITE: u32 = 1 << 1;
+/// Open for appending: every write goes to the end of the file.
+///
+/// Unlike POSIX's `O_APPEND` — a modifier on a separate access mode — this
+/// grants write access by itself, so `O_APPEND` alone is a valid way to open a
+/// file for appending and does not need `O_WRITE`. (Both together are fine.)
 pub const O_APPEND: u32 = 1 << 2;
 pub const O_TRUNCATE: u32 = 1 << 3;
 pub const O_CREATE: u32 = 1 << 4;
@@ -59,6 +65,12 @@ pub const SEEK_SET: u8 = 0;
 pub const SEEK_CUR: u8 = 1;
 pub const SEEK_END: u8 = 2;
 
+pub const LOCK_SHARED: u8 = 1;
+pub const LOCK_EXCLUSIVE: u8 = 2;
+pub const TRY_LOCK_SHARED: u8 = 3;
+pub const TRY_LOCK_EXCLUSIVE: u8 = 4;
+pub const UNLOCK: u8 = 5;
+
 #[repr(C, align(16))]
 #[derive(Clone, Copy, PartialEq, Eq, Default)]
 pub struct FileAttr {
@@ -70,12 +82,18 @@ pub struct FileAttr {
     pub created: u128,
     pub modified: u128,
     pub accessed: u128,
+    /// v2: the filesystem entry id — a unique file identity (motor-fs:
+    /// low u64 = block_no, high u64 = generation). 0 = unknown / not a
+    /// filesystem object. The VDSO writes this field (and the fields of
+    /// any future version) only when the caller-stamped `version` says
+    /// the caller's struct has room for it.
+    pub entry_id: u128,
 }
 
 impl FileAttr {
-    pub const VERSION: u64 = 1;
+    pub const VERSION: u64 = 2;
 
-    fn new() -> Self {
+    pub fn new() -> Self {
         Self {
             version: Self::VERSION,
             ..Default::default()
@@ -94,8 +112,15 @@ pub struct DirEntry {
     pub fname: [u8; MAX_FILENAME_LEN],
 }
 
+impl core::default::Default for DirEntry {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl DirEntry {
-    pub const VERSION: u64 = 1;
+    // v2: `attr` grew (FileAttr v2); the fname block moved 16 bytes up.
+    pub const VERSION: u64 = 2;
 
     fn new() -> Self {
         Self {
@@ -152,6 +177,16 @@ pub fn close(rt_fd: RtFd) -> Result<()> {
     };
 
     into_result(vdso_close(rt_fd))
+}
+
+pub fn file_lock(rt_fd: RtFd, operation: u8) -> Result<()> {
+    let entry = RtVdsoVtable::get().fs_file_lock.load(Ordering::Relaxed);
+    if entry == 0 {
+        return Err(Error::NotImplemented);
+    }
+    let vdso_file_lock: extern "C" fn(RtFd, u8) -> ErrorCode =
+        unsafe { core::mem::transmute(entry as usize as *const ()) };
+    into_result(vdso_file_lock(rt_fd, operation))
 }
 
 pub fn get_file_attr(rt_fd: RtFd) -> Result<FileAttr> {
@@ -313,6 +348,26 @@ pub fn rename(old: &str, new: &str) -> Result<()> {
     let old = old.as_bytes();
     let new = new.as_bytes();
     into_result(vdso_rename(
+        old.as_ptr(),
+        old.len(),
+        new.as_ptr(),
+        new.len(),
+    ))
+}
+
+pub fn move_noreplace(old: &str, new: &str) -> Result<()> {
+    let entry = RtVdsoVtable::get()
+        .fs_move_noreplace
+        .load(Ordering::Relaxed);
+    if entry == 0 {
+        return Err(Error::NotImplemented);
+    }
+    let vdso_move_noreplace: extern "C" fn(*const u8, usize, *const u8, usize) -> ErrorCode =
+        unsafe { core::mem::transmute(entry as usize as *const ()) };
+
+    let old = old.as_bytes();
+    let new = new.as_bytes();
+    into_result(vdso_move_noreplace(
         old.as_ptr(),
         old.len(),
         new.as_ptr(),

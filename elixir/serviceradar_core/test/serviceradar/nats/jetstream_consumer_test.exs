@@ -26,6 +26,33 @@ defmodule ServiceRadar.NATS.JetstreamConsumerTest do
     assert payload["discard"] == "old"
   end
 
+  test "reconciled stream payload can skip shape thrash when collector owns retention" do
+    config = %{
+      "name" => "flows",
+      "subjects" => ["flows.raw.sflow"],
+      "max_age" => 7_200_000_000_000,
+      "max_bytes" => 8_589_934_592,
+      "num_replicas" => 3
+    }
+
+    assert {:ok, payload} =
+             JetstreamConsumer.reconciled_stream_payload(
+               config,
+               "flows",
+               "flows.raw.netflow",
+               reconcile_stream_shape: false,
+               stream_max_bytes: 53_687_091_200,
+               stream_max_age: 21_600_000_000_000,
+               stream_replicas: 1
+             )
+
+    assert payload["subjects"] == ["flows.raw.sflow", "flows.raw.netflow"]
+    # Collector-owned limits must remain untouched.
+    assert payload["max_bytes"] == 8_589_934_592
+    assert payload["max_age"] == 7_200_000_000_000
+    assert payload["num_replicas"] == 3
+  end
+
   test "reconciled stream payload preserves existing limits when no replacement is configured" do
     config = %{
       "name" => "metrics",
@@ -252,5 +279,35 @@ defmodule ServiceRadar.NATS.JetstreamConsumerTest do
            )
 
     refute JetstreamConsumer.immutable_consumer_shape_error?("consumer already exists")
+  end
+
+  test "consumer_payload omits deliver_policy when unset" do
+    payload =
+      JetstreamConsumer.consumer_payload(
+        "events",
+        "serviceradar-event-writer-netflow-raw",
+        "flows.raw.netflow",
+        ack_policy: :explicit
+      )
+
+    refute Map.has_key?(payload.config, :deliver_policy)
+    refute Map.has_key?(payload.config, "deliver_policy")
+  end
+
+  test "consumer_payload includes explicit deliver_policy for create" do
+    payload =
+      JetstreamConsumer.consumer_payload(
+        "events",
+        "serviceradar-event-writer-netflow-raw",
+        "flows.raw.netflow",
+        deliver_policy: :new
+      )
+
+    assert payload.config[:deliver_policy] == :new or payload.config["deliver_policy"] == :new
+  end
+
+  test "deliver_policy_immutable_error? matches NATS 10012" do
+    assert JetstreamConsumer.deliver_policy_immutable_error?(%{"err_code" => 10_012})
+    assert JetstreamConsumer.deliver_policy_immutable_error?("deliver policy can not be updated")
   end
 end

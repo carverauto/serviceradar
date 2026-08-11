@@ -12,6 +12,7 @@ defmodule ServiceRadar.Automation.Northbound.ActionDescriptor do
   alias ServiceRadar.Policies.Checks.ActorHasPermission
 
   @view_check {ActorHasPermission, permission: "northbound.actions.view"}
+  @launch_check {ActorHasPermission, permission: "northbound.actions.launch"}
   @manage_check {ActorHasPermission, permission: "northbound.actions.manage"}
 
   @fields [
@@ -32,6 +33,8 @@ defmodule ServiceRadar.Automation.Northbound.ActionDescriptor do
     :enabled,
     :metadata
   ]
+
+  @launch_read_fields [:id | @fields]
 
   postgres do
     table "northbound_action_descriptors"
@@ -61,6 +64,8 @@ defmodule ServiceRadar.Automation.Northbound.ActionDescriptor do
     define :get_by_id, action: :by_id, args: [:id]
     define :list_by_provider, action: :by_provider, args: [:provider_id]
     define :list_enabled_for_scope, action: :enabled_for_scope, args: [:scope]
+    define :get_launch_candidate_by_id, action: :launch_candidate_by_id, args: [:id]
+    define :list_launchable_for_scope, action: :launchable_for_scope, args: [:scope]
     define :upsert_descriptor, action: :upsert
     define :update_descriptor, action: :update
     define :destroy_descriptor, action: :destroy
@@ -87,6 +92,21 @@ defmodule ServiceRadar.Automation.Northbound.ActionDescriptor do
       prepare build(load: [:provider], select: [:id, :inserted_at, :updated_at | @fields])
     end
 
+    read :launchable_for_scope do
+      argument :scope, :string, allow_nil?: false
+
+      filter expr(enabled == true and fragment("? = ANY(?)", ^arg(:scope), scopes))
+      prepare build(select: @launch_read_fields)
+    end
+
+    read :launch_candidate_by_id do
+      argument :id, :uuid, allow_nil?: false
+      get? true
+
+      filter expr(id == ^arg(:id))
+      prepare build(select: @launch_read_fields)
+    end
+
     read :by_provider do
       argument :provider_id, :uuid, allow_nil?: false
 
@@ -110,6 +130,7 @@ defmodule ServiceRadar.Automation.Northbound.ActionDescriptor do
 
     system_bypass()
     action_with_permission([:read, :by_id, :enabled_for_scope, :by_provider], @view_check)
+    action_with_permission([:launchable_for_scope, :launch_candidate_by_id], @launch_check)
     action_type_with_permission([:create, :update, :destroy], @manage_check)
   end
 

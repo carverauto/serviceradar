@@ -89,6 +89,79 @@ defmodule ServiceRadar.Plugins.AddonRolloutEligibilityTest do
     assert Eligibility.supervision_ready?(helper, %{state: "staged", active: false})
   end
 
+  # Every reason string below is one the demo fleet actually reported on
+  # 2026-08-09; see openspec/changes/fix-stuck-addon-rollouts. Rollout gating
+  # asks supervision_state_ready?/2, which is about whether the add-on came up.
+  # supervision_ready?/2 keeps the stricter meaning for convergence display.
+  describe "advisory degradation versus supervision state" do
+    test "a running add-on that reports an unenforceable host policy has still come up" do
+      service = package(supervision: :systemd_service)
+
+      status = %{
+        state: "running",
+        active: true,
+        degradation_reason:
+          "resource limits not enforced: enable parent controllers for addon cgroup root " <>
+            "/sys/fs/cgroup/serviceradar.slice/serviceradar-addons.slice: required cgroup " <>
+            "controller unavailable in /sys/fs/cgroup/serviceradar.slice: need cpu,memory,pids, " <>
+            "available memory,pids"
+      }
+
+      assert Eligibility.supervision_state_ready?(service, status),
+             "an undelegated cpu controller is a property of the host, not of the candidate"
+
+      assert Eligibility.degraded?(status)
+      refute Eligibility.supervision_ready?(service, status)
+    end
+
+    test "supervision state still requires the supervision model to be satisfied" do
+      service = package(supervision: :systemd_service)
+
+      refute Eligibility.supervision_state_ready?(service, %{
+               state: "unhealthy",
+               active: false,
+               degradation_reason: "systemd unit failed"
+             })
+
+      refute Eligibility.supervision_state_ready?(service, %{
+               state: "unhealthy",
+               active: false,
+               degradation_reason:
+                 "dial netprobe socket: dial unix /run/serviceradar/netprobe/ipc.sock: " <>
+                   "connect: connection refused"
+             })
+    end
+
+    test "the agent's degraded state counts as having come up" do
+      service = package(supervision: :systemd_service)
+      timer = package(supervision: :systemd_timer)
+
+      # powerdns's shape: the add-on returns HealthStatus::Degraded, and since
+      # the agent now reports that distinctly instead of collapsing it into
+      # "unhealthy", the rollout gate can see it came up.
+      degraded = %{
+        state: "degraded",
+        active: true,
+        degradation_reason: "no PowerDNS Recursor protobuf producer connected to 127.0.0.1:6000"
+      }
+
+      assert Eligibility.supervision_state_ready?(service, degraded)
+      assert Eligibility.supervision_state_ready?(timer, degraded)
+
+      # ...and it is still degraded, so convergence display still says so.
+      refute Eligibility.supervision_ready?(service, degraded)
+      assert Eligibility.degraded?(degraded)
+    end
+
+    test "supervision_ready? remains the stricter question for convergence display" do
+      service = package(supervision: :systemd_service)
+      clean = %{state: "running", active: true, degradation_reason: nil}
+
+      assert Eligibility.supervision_ready?(service, clean)
+      refute Eligibility.degraded?(clean)
+    end
+  end
+
   defp source do
     %{
       release_channel: "stable",

@@ -21,9 +21,9 @@ everything `helpdesk` can, and so on.
 
 | Role | Intended for | What it can do |
 | --- | --- | --- |
-| `viewer` | Read-only stakeholders | View dashboards, devices, services, observability data (logs, metrics, traces, events, NetFlow, alerts), rules, the playbook catalog, and Ansible/northbound run history. Export device inventory and view its own CLI sessions. Cannot change anything. |
+| `viewer` | Read-only stakeholders | View dashboards, devices, services, observability data (logs, metrics, traces, events, NetFlow, alerts), rules, the playbook catalog, Ansible operation history, and northbound action history. Export device inventory and view its own CLI sessions. Cannot change anything. |
 | `helpdesk` | First-line responders | Everything a `viewer` can do, **plus** acknowledge and resolve alerts. |
-| `operator` | Day-to-day operations staff | Everything `helpdesk` can do, **plus** create and update devices, services, observability rules, sweep groups, integrations, SNMP/Sysmon profiles, and NetFlow settings. Run sweeps, discovery, services, and Ansible/northbound actions. View settings pages and the audit/security event stream. Operators generally cannot perform destructive auth/security actions or manage RBAC. |
+| `operator` | Day-to-day operations staff | Everything `helpdesk` can do, **plus** create and update devices, services, observability rules, sweep groups, integrations, SNMP/Sysmon profiles, and NetFlow settings. Run sweeps, discovery, services, reviewed Ansible playbooks, and northbound actions. View settings pages and the audit/security event stream. Operators generally cannot perform destructive auth/security actions or manage RBAC. |
 | `admin` | Platform administrators | Full access. Everything `operator` can do, **plus** manage users, roles, and auth settings; manage RBAC role profiles; manage credentials, plugins, edge packages, jobs, remote-access targets and host keys; approve plugin packages and northbound providers; open and review remote-access sessions; and manage audit/security state. |
 
 The role each user holds is the primary access decision. Permissions below are
@@ -45,7 +45,7 @@ The catalog covers these areas:
 | **Observability** | Viewing logs, metrics, traces, events, NetFlow, and alerts; creating/updating/deleting observability rules; acknowledging and resolving alerts. |
 | **Settings** | Viewing settings; managing users and auth; managing RBAC; managing networks, NetFlow, integrations, credentials, SNMP/Sysmon profiles, jobs, plugins, edge packages, remote-access host keys and targets; viewing and managing the audit/security state. |
 | **Plugins** | Viewing, staging, approving, and assigning plugin packages. |
-| **Ansible** | Viewing/managing AWX controllers and playbook repositories; viewing, launching, and cancelling Ansible runs; managing schedules. |
+| **Ansible** | Viewing/managing AWX controllers and playbook repositories; viewing canonical operation history; launching reviewed playbooks; authorizing operation cancellation. Reserved schedule keys expose no workflow. |
 | **Northbound Actions** | Viewing, managing, launching, and cancelling provider-neutral northbound actions; managing event handlers. |
 | **Network Ops** | Triggering on-demand sweeps and discovery jobs. |
 | **CLI Sessions** | Approving CLI device authorizations; viewing and revoking your own (or any) CLI sessions; managing CLI auth policy. |

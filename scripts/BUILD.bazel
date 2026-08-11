@@ -6,9 +6,11 @@ exports_files([
     "check-addon-binary-size.sh",
     "check-oci-chart-version-available.sh",
     "check-native-addon-version-bumps.sh",
+    "prepare-flow-collector-rollback.sh",
     "check-rust-vendor-tracked.py",
     "swiftlint_bazel.sh",
     "test-native-addon-version-bumps.sh",
+    "test-prepare-flow-collector-rollback.sh",
     "test-release-publish-contracts.sh",
     "test-external-wasm-plugin-release-workflow.sh",
     "test-verify-native-addon-publish-negative.sh",
@@ -18,6 +20,14 @@ exports_files([
     "verify-oci-publish.sh",
     "verify-native-addon-publish.sh",
 ])
+
+sh_test(
+    name = "prepare_flow_collector_rollback_test",
+    timeout = "short",
+    srcs = ["test-prepare-flow-collector-rollback.sh"],
+    args = ["$(rootpath :prepare-flow-collector-rollback.sh)"],
+    data = ["prepare-flow-collector-rollback.sh"],
+)
 
 sh_test(
     name = "release_publish_contracts_test",

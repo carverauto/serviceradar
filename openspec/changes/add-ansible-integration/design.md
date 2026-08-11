@@ -11,25 +11,25 @@ The relevant primitives that already exist:
 
 ARA is being prototyped in the cluster to capture playbook telemetry, but it duplicates a UI, a schema, and a Python service — none of which fit the ServiceRadar architecture, and none of which integrate with our RBAC, SRQL, or observability stack.
 
-The user's primary use case is *"go into a device and run a playbook on it"* with full visibility into the run. The execution backend is **AWX/AAP** (REST API, k8s/Docker/VM-deployable, already vault-aware, lives in the customer network). The catalog source is **git** (operators want one source of truth for playbooks, decoupled from AWX project config). Scope is one cohesive proposal, on-demand execution, single-device-at-a-time UI.
+The user's primary use case is *"go into a device and run a playbook on it"* with durable evidence about exactly what was authorized and targeted. The execution backend is **AWX/AAP** (REST API, k8s/Docker/VM-deployable, already vault-aware, lives in the customer network). Git and AWX both feed catalog discovery, but hardened execution uses only an AWX-sourced playbook with a current approved immutable binding. Scope is on-demand execution for one or more exact targets in a single controller/inventory partition.
 
 ## Goals / Non-Goals
 
 ### Goals
-- Operators can mark a device as Ansible-managed and link it to an AWX inventory host.
+- ServiceRadar derives Ansible-managed status from AWX discovery and links canonical devices to durable AWX memberships.
 - Operators can register git repos as the canonical playbook catalog; metadata is parsed and indexed.
-- Operators can launch a playbook against a single device from its detail page in two clicks.
-- A run produces a queryable hierarchical record (run → plays → tasks → results × hosts) replacing ARA's role.
-- Runs stream live to the LiveView via PubSub and are tailable from `/ansible/runs/:id`.
+- Operators can launch a reviewed AWX-sourced playbook against one or more exact devices through the hardened launch service.
+- Hardened launches persist canonical operation, child-execution, and exact-target evidence before dispatch.
+- Operators inspect that evidence through `/ansible/operations` and `/ansible/operations/:id`; the retained internal run hierarchy is not created by hardened interactive launches or exposed as a second history UI.
 - All authorization flows through the existing RBAC catalog; no bespoke permission system.
-- Run state is encoded as an Ash State Machine, so transitions are auditable and can't go backward.
+- Canonical operation and execution lifecycle evidence is immutable or constrained to explicit state transitions.
 
 ### Non-Goals (v1)
 - Pushing devices into AWX inventory from ServiceRadar (we only *link* to existing AWX hosts).
 - Storing SSH keys, become passwords, or vault passwords (AWX owns these).
 - Direct `ansible-playbook` execution by a ServiceRadar agent (AWX-only in v1).
-- Scheduled / recurring runs from the UI (AshOban could do it; deferred).
-- Multi-device fan-out from the UI (operators can script via API in v1).
+- Scheduled / recurring execution or schedule controls. Retained schedule rows remain disabled until a separate immutable-delegation design is approved.
+- Raw JSON/YAML, undeclared variables, sensitive survey fields, or git `vars_prompt` as launch inputs.
 - A new general-purpose "automation" framework — this proposal is Ansible-specific. If a second backend (e.g., direct exec) lands later, we'll generalize then.
 
 ## Decisions
@@ -42,22 +42,23 @@ The user's primary use case is *"go into a device and run a playbook on it"* wit
 - *Direct exec from a ServiceRadar agent + custom callback plugin (ARA's model).* Rejected for v1: it forces ServiceRadar into the credential-storage business and re-implements AWX's executor/inventory/vault. Could be a v2 plugin if there's demand from operators without AWX.
 - *Use `ansible-runner` library directly.* Same drawbacks as direct exec, plus a Python runtime in our agent. Rejected.
 
-### Decision 2: Catalog has multiple source types — git AND AWX — and operators choose.
+### Decision 2: Catalog has git and AWX source types; hardened launch uses reviewed AWX entries.
 
 The `Playbook` resource is polymorphic. It carries a `source_type` discriminator with two values in v1:
 
-- `git` — ServiceRadar clones a registered `PlaybookRepository`, parses YAML, derives metadata (name, description, declared `vars_prompt`, top-level vars, tags, hosts pattern). Variable prompts come from `vars_prompt` blocks.
-- `awx` — ServiceRadar pulls AWX Job Templates via `awx.list_templates`, treats each Job Template as a catalog entry, and uses AWX's `survey_spec` for variable prompts. The Job Template binding is implicit (the catalog entry *is* a Job Template).
+- `git` — ServiceRadar clones a registered `PlaybookRepository`, parses YAML, and derives metadata (name, description, declared `vars_prompt`, top-level vars, tags, hosts pattern) for discovery and review.
+- `awx` — ServiceRadar pulls AWX Job Templates via `awx.list_templates` and treats each Job Template as a catalog entry. Survey data is retained as mutable catalog metadata, not used directly as the secure browser input contract.
 
-Both sources can coexist. An operator who has organized their playbooks as a git repo gets that catalog. An operator who has invested in AWX project + template configuration gets that catalog. An operator with both gets both — the same playbook may appear twice if discoverable via both sources, with a small badge on each catalog entry identifying its origin.
+Both sources can coexist and the same playbook may appear twice, with a source badge identifying its origin. This is catalog visibility, not launch authority.
 
-For execution: a `git`-sourced playbook still requires an `awx_job_template_id` binding to be launchable (operator must point it at a corresponding AWX Job Template). An `awx`-sourced playbook is launchable by definition.
+For execution, only a parse-valid AWX-sourced row is eligible for the hardened launch picker. Selection and submit must resolve a current approved immutable template binding, exact durable memberships, current human authority, and live AWX preflight. A template ID on a git-sourced row does not make it launchable. Browser inputs come only from the approved binding's typed non-secret schema; mutable `survey_spec`, git `vars_prompt`, raw JSON/YAML, and secret fields cannot enlarge it.
 
-**Why:** Per the user's direction. Reality is that some operators standardize on git-as-source-of-truth, others standardize on AWX as their automation control plane, and many do both. We support all three shapes without forcing operators to migrate.
+**Why:** Operators benefit from discovering both repository and AWX metadata, but a catalog record is not an authorization boundary. Restricting execution to a reviewed AWX template binding keeps target, credential, revision, execution-environment, and input authority explicit.
 
 **Alternatives considered:**
-- *Git-only.* Forces operators with mature AWX setups to re-register everything as a git repo. Rejected.
-- *AWX-only mirror.* Forces operators who don't yet have AWX Project sync configured to set it up. Rejected.
+- *Git-only catalog.* Forces operators with mature AWX setups to re-register everything as a git repo. Rejected.
+- *AWX-only catalog.* Hides useful source-repository discovery metadata. Rejected.
+- *Treat a git row plus template ID as executable.* Rejected because it bypasses the reviewed AWX binding and immutable live-preflight contract.
 - *Polymorphic via STI subclassing in Ash.* Considered; too much ceremony for two source types. Single resource with a `source_type` enum + nullable `repository_id` / `controller_id` + jsonb `source_metadata` is fine.
 
 ### Decision 3: WASM plugin is the network bridge to AWX, controller-agnostic, with no long-lived streams.
@@ -109,21 +110,21 @@ Operators do not click a checkbox to mark a device as Ansible-managed. The `awx`
 - *Elixir-side `InventorySyncWorker` pulling via verb commands.* Considered (and proposed in earlier revisions). Inferior — duplicates the existing plugin → DIRE pipeline that already handles proxmox / armis / unifi inventory ingestion, and forces ansible inventory through a different code path than every other discovery source.
 - *Manual override on top of derivation.* Considered for the case where DIRE matches incorrectly (e.g., two devices with the same hostname). Deferred — DIRE already supports merge-overrides as a general inventory primitive; if needed, ansible benefits from that work without a special override path here.
 
-### Decision 3b: Multi-device fan-out via a generic Device Actions modal.
+### Decision 3b: Hardened launch surfaces persist canonical operation evidence.
 
-Launching a playbook against many devices uses AWX's native `limit:` parameter — one AWX job, N hosts. Operators select N devices in the inventory list, click `Run Task`, the **Device Actions** modal opens, they choose `Run Playbook`, fill any required `vars_prompt` / `survey_spec` inputs, and confirm. ServiceRadar creates **one** `PlaybookRun` with **N** `PlaybookRunTarget` rows; per-device status is tracked through the targets, and AWX events are attributed back to targets via host name.
+Launching a playbook against many devices uses AWX's native `limit:` parameter — one AWX job, N exact hosts. Inventory selection navigates to `/ansible/launch`; device detail uses an in-panel launch modal for the current device. Both surfaces call the same `SecureLaunchService`, accept only approved typed non-secret binding inputs, and re-resolve the current human, binding, live AWX preflight, and durable memberships on submit. ServiceRadar first persists **one** canonical `AutomationOperation`, an inventory-bound `AutomationExecution`, and **N** immutable `AutomationExecutionTarget` rows. The reviewed plan then dispatches one AWX job for those exact targets. Interactive launch does not create a `PlaybookRun`.
 
-The modal is structured as an extensible action registry (each action is a behaviour module: title, icon, requires-permission, target-selection-rule, render-form, on-confirm). v1 ships with a single registered action — `Run Playbook`. Future changes register additional actions (Run MTR, Perform Network Scan, etc.) without touching the modal infrastructure. The user explicitly called these out as future scope.
+The browser never supplies AWX membership IDs, inventory, host limit, credentials, callback policy, raw `extra_vars`, or secret inputs. Launch success navigates to `/ansible/operations/:id`; operation and device history read only canonical operation evidence.
 
 **Why:** The user's actual use case is "run this playbook on these 15 devices." Single-device-at-a-time would force fifteen identical clicks. AWX's `limit:` parameter is purpose-built for this; we'd be inventing problems by launching N separate AWX jobs.
 
-**Schema implication:** `PlaybookRun` has many `PlaybookRunTarget` rows (1:N). The earlier `PlaybookHostStat` resource is folded into `PlaybookRunTarget` — same data, but now the per-device record is the primary target entity, not a stats sidecar.
+**Schema implication:** canonical launch evidence has one operation with inventory-bound child executions and exact target rows. The retained `PlaybookRun` / `PlaybookRunTarget` hierarchy remains an internal ingestion and audit concern until a separately approved backend migration replaces or retires it; it does not drive the operator history UI.
 
 ### Decision 3c: Telemetry projects to OCSF events, no extra OTEL hop.
 
 `EventIngestor` does dual writes per task result:
 
-1. The structured Ash row (`PlaybookTaskResult` referencing a `PlaybookRunTarget`) — drives the run-detail UI, queryable via SRQL, source of truth for hierarchy.
+1. The structured Ash row (`PlaybookTaskResult` referencing a `PlaybookRunTarget`) — retained for ingestion, audit, retention, and SRQL; it does not drive a separate run-detail UI.
 2. An OCSF-shaped event into the existing observability events stream — drives the universal log viewer for free, queryable alongside other system signals.
 
 We do **not** route this through the OTEL collector. Pushing into OTEL just to have it land back in our own observability tables adds a hop, an external dependency, and a serialization round-trip that buys us nothing because we're the producer *and* the consumer. OCSF is already the schema the events table speaks; emitting the right shape directly is the path of least resistance.
@@ -132,11 +133,11 @@ OCSF class selection (implementation detail, not locked here): each task result 
 
 **Why:** Direct write keeps the data path honest — same producer for both projections, no risk of one diverging from the other. The user's framing "we don't have to re-invent the wheel here" is exactly right; the wheel is the existing observability events table, not a new sink.
 
-### Decision 3d: AshPaperTrail for audit on controller / repository / run lifecycle.
+### Decision 3d: AshPaperTrail for retained controller / repository / run lifecycle.
 
 `AnsibleController`, `PlaybookRepository`, and `PlaybookRun` are tracked by AshPaperTrail. This gives us:
 
-- Who launched a run, with what extra_vars, against which target list (and the exact catalog Playbook + AWX template at launch time, not "current state").
+- Historical internal run attribution and state changes, without accepting or retaining raw requested variables on current create/update actions.
 - Who canceled a run.
 - Who registered / rotated / removed a controller.
 - The full state-machine transition history of a run, with timestamps and triggering actor (system vs. operator).
@@ -156,27 +157,11 @@ Two configurable knobs, both in `helm/serviceradar/values.yaml` and `docker-comp
 
 **Why:** "Forever" is a footgun in customers with lots of automation; aggressive defaults are also a footgun in customers who need history for compliance. Operator-tunable with reasonable defaults is the only honest answer.
 
-### Decision 3f: Scheduled / recurring runs ship in v1, backed by AshOban.
+### Decision 3f: Scheduled execution remains fail-closed pending immutable delegation.
 
-Operators can register a `PlaybookSchedule` that pairs a launchable `Playbook`, a list of target devices, optional `extra_vars`, and a cron expression. An AshOban worker evaluates schedules at their cadence and creates a `PlaybookRun` exactly as if a human had clicked through the Device Actions modal. Schedules are first-class Ash resources with their own RBAC, audit (AshPaperTrail), enable/disable toggle, and SRQL alias.
+`PlaybookSchedule`, its PaperTrail history, and `ScheduleEvaluatorWorker` remain internal compatibility surfaces until a separate approved migration either replaces or retires them. Schedule rows default disabled, the enable action rejects, raw requested variables are not accepted by create/update actions, and the evaluator's call into the retired launcher fails closed. No schedule tab, schedule form, enable/disable control, schedule detail route, or "Schedule this playbook" affordance is part of the supported UI.
 
-Why pull this in for v1 (rather than deferring): AshOban already handles cron-driven jobs with retry, dedup, and isolation primitives we need anyway for `RunPulseWorker` and `RetentionWorker`. Adding `PlaybookSchedule` is an Ash resource + a worker + a screen — small marginal cost on top of the v1 plumbing, and the user's actual use case (cron runs against device fleets) needs it from day one. Delaying would mean operators stand up some external cron + API caller, which is the kind of glue we should not push onto them.
-
-What the schedule resource holds:
-- `name`, `enabled`, `owner_id`
-- `playbook_id`, `target_device_uids[]` (must all share one controller; same launch-authorization rules as ad-hoc runs)
-- `extra_vars` (jsonb)
-- `cron` (standard 5-field cron, validated at write time)
-- `timezone`
-- `last_evaluated_at`, `last_run_id`, `next_run_at`
-
-Concurrency: a schedule that fires while its previous `PlaybookRun` is still non-terminal SHALL skip the new firing and record a `skipped_overlap` reason on the schedule, rather than launching a second concurrent run. Operators can opt out per-schedule (`allow_concurrent: true`) but the default is "skip overlap".
-
-**RBAC:** `ansible.schedules.view`, `ansible.schedules.manage`. Manage subsumes create / update / enable / disable / delete.
-
-**UI:** a `Schedules` tab on `/ansible` plus a "Schedule this playbook" affordance from the Device Actions modal — same form as ad-hoc launch, plus a cron picker.
-
-**Out of scope (still):** advanced calendar features (timezones-per-target, blackout windows, holiday calendars). Cron is enough for v1.
+Future scheduled execution must define an expiring/revocable `AutomationExecutionDelegation`, reauthorize its immutable ceilings at fire time, accept only approved typed non-secret inputs, and persist resulting evidence as an `AutomationOperation`. System workers may transport an approved plan but cannot become the authorizing principal. That capability is outside this change.
 
 
 
@@ -190,7 +175,7 @@ States: `pending → launching → running → (succeeded | partial | failed | u
 
 The `AnsibleController` Ash resource stores the AWX `base_url`, version, and a reference to a **credential broker** entry that holds the API token. This matches the existing pattern for plugin secrets (proxmox API tokens, UniFi tokens, AlienVault keys all flow this way today): operators register the controller, the API token is written into the broker, and the resource holds only the broker reference. When Elixir issues an AWX command, it requests a short-lived broker grant and embeds the grant in the `CommandRequest`. The plugin resolves the grant at the edge, decrypts the token, makes the call, and the grant expires.
 
-SSH keys, become passwords, vault passwords are *never* sent to or stored by ServiceRadar — operators configure them in AWX once. The launch command payload contains only the AWX job_template_id, the host limit, and `extra_vars` (which may be empty).
+SSH keys, become passwords, and vault passwords are *never* sent to or stored by ServiceRadar — operators configure them in AWX once. The launch body is produced server-side from the immutable binding and exact target snapshot. It carries only reviewed typed non-secret inputs plus reserved dispatch markers; the browser cannot provide arbitrary `extra_vars`.
 
 **Alternatives considered:**
 - *Store the token directly on `AnsibleController` via AshCloak.* Workable but inconsistent with existing plugin-secret patterns and gives Elixir an in-process plaintext token at decryption time. The broker keeps secrets at the edge of decryption.
@@ -226,14 +211,14 @@ We add SRQL resource aliases for `ansible_runs`, `ansible_playbooks`, `ansible_c
 | AWX API rate limits under heavy poll load. | One `RunPulseWorker` per controller, not per run; tick interval configurable; watermark cursor avoids re-fetching; plugin applies exponential backoff on 429 within a tick; ticks with zero active runs are no-ops. |
 | Git catalog parser misreads playbook metadata (yaml is permissive). | Parse via the same library as `ansible-lint`; on parse error, store raw playbook with `parse_status: error` and a diagnostic so it's still visible in the catalog as "broken" rather than missing. |
 | AWX outage causes runs to appear stuck in `launching`/`running`. | Watchdog: any run in non-terminal state for >2× its job_template `timeout` (or 1h fallback) transitions to `unreachable` with a diagnostic. |
-| Operator binds catalog playbook to wrong AWX job template. | UI shows AWX template name + project + branch on the run-launch confirmation; operator reviews before clicking "Run". |
+| An AWX template or project drifts from its approved binding. | Selection and submit resolve the current approved binding and live AWX preflight; drift keeps launch unavailable until an authorized reviewer creates a new binding version. |
 | Credential broker token rotation. | Existing broker rotation paths apply; controller resource holds only a stable reference. Same as proxmox/unifi today. |
 | Agent or plugin restart mid-run. | No special handling needed. The next `RunPulseWorker` tick after the agent reconnects reads `last_event_id` from the DB and resumes from the last event Elixir actually persisted. No lost connections to clean up. |
 | AWX inventory drifts from ServiceRadar inventory. | `InventorySyncWorker` re-runs on a schedule; DIRE handles disappearance the same way it handles any other vanished discovery source. `ansible_managed` flips back to false on next sync if the AWX host is gone. |
 | DIRE merges an AWX host with the wrong ServiceRadar device (hostname collision). | DIRE already supports merge-overrides as a generic primitive; ansible inherits that. UI shows the AWX host name + inventory on the device page so operators can spot mis-merges. |
 | Multi-device run with one slow host blocks the entire run. | AWX has its own `forks` and per-host timeout; we don't change that. UI shows per-target progress so operators can see the slow host without ambiguity. |
 | OCSF event class for ansible task results is wrong. | Class selection is implementation-time, not spec-locked. Easy to migrate by re-projecting from the structured tables. |
-| Retention worker deletes detail rows that an operator was actively viewing. | Worker excludes runs touched (read or written) within the last hour; UI shows a banner when a run's detail has been pruned. |
+| Retention removes internal task detail. | Canonical immutable operation evidence is stored separately and is not removed or altered by internal run-detail pruning. |
 | Run-launch flow leaks AWX-only error messages to UI. | All AWX errors normalized through `Serviceradar.Automation.Ansible.AwxClient` into typed errors with operator-safe summaries. |
 | Long-running runs hold a poll worker. | Each run has its own AshOban job; concurrency capped per-controller; finished runs deschedule themselves. |
 
@@ -244,8 +229,8 @@ This is a purely additive change. No existing tables, schemas, or APIs change be
 1. Ship Ash resources (codegen migration) + RBAC permissions in a deploy that's idle until a controller is configured.
 2. Operators register their first AWX controller via `/settings/ansible`; health check goes live.
 3. Operators register one or more git repositories; catalog populates.
-4. Operators mark devices as Ansible-managed; UI shows the Run Playbook action.
-5. First runs launch; ingestor populates the run hierarchy.
+4. AWX inventory discovery creates durable memberships and derives Ansible-managed device status.
+5. An authorized reviewer approves an AWX template binding; hardened launches create canonical operation/execution/target evidence before dispatch.
 
 Rollback: feature is gated by absence of any `AnsibleController` rows. Drop those rows and the feature is effectively off; data is retained for forensics.
 
@@ -265,7 +250,7 @@ This is enough of a sketch to commit to *not* doing it in v1 without losing the 
 
 ## Open Questions
 
-1. **`extra_vars` UX for git-sourced playbooks.** Default proposal: parse `vars_prompt` from the playbook and render a launch dialog with typed inputs; for unknown vars, allow a raw-YAML override behind a toggle. AWX-sourced playbooks use the AWX `survey_spec` natively — no question there.
+1. **Future git-sourced execution.** Git rows remain catalog-only. Any future executable mapping must produce the same reviewed immutable AWX binding and typed non-secret input contract; it cannot add a raw-variable escape hatch.
 2. **Catalog git auth.** Catalog repo sync runs in Elixir (the *catalog*, unlike the AWX network calls, is fetchable from the SaaS plane — git repos generally live on github/gitlab.com). Default proposal: HTTPS deploy token via the existing credential broker; SSH deferred. If a customer hosts a private git server inside their own network, the sync moves to a plugin verb — v2 concern.
 3. **OCSF class selection for task results.** "Application Activity" (6003) vs. "Process Activity" (1007). Default proposal: pick during implementation by looking at how operator searches actually shape up. Easy to re-project from the structured tables if we get it wrong.
 4. **DIRE matching keys for AWX hosts.** AWX hosts carry `name` (free-form) and a `variables` blob that *may* contain `ansible_host` (IP / hostname). Default proposal: try in order — exact `ansible_host` IP match, exact `ansible_host` hostname match, AWX `name` matched against device hostname. Surface unmatched AWX hosts in the `/settings/ansible` page so operators can resolve manually.

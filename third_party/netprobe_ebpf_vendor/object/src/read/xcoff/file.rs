@@ -9,7 +9,7 @@ use crate::read::{
     self, Architecture, Error, Export, FileFlags, Import, NoDynamicRelocationIterator, Object,
     ObjectKind, ObjectSection, ReadError, ReadRef, Result, SectionIndex, SymbolIndex,
 };
-use crate::xcoff;
+use crate::{xcoff, SkipDebugList};
 
 use super::{
     CsectAux, FileAux, Rel, SectionHeader, SectionTable, Symbol, SymbolTable, XcoffComdat,
@@ -22,11 +22,20 @@ use super::{
 /// This is a file that starts with [`xcoff::FileHeader32`], and corresponds
 /// to [`crate::FileKind::Xcoff32`].
 pub type XcoffFile32<'data, R = &'data [u8]> = XcoffFile<'data, xcoff::FileHeader32, R>;
+
 /// A 64-bit XCOFF object file.
 ///
 /// This is a file that starts with [`xcoff::FileHeader64`], and corresponds
 /// to [`crate::FileKind::Xcoff64`].
 pub type XcoffFile64<'data, R = &'data [u8]> = XcoffFile<'data, xcoff::FileHeader64, R>;
+
+/// The XCOFF file format that matches the pointer width of the target platform.
+#[cfg(target_pointer_width = "32")]
+pub type NativeXcoffFile<'data, R = &'data [u8]> = XcoffFile32<'data, R>;
+
+/// The XCOFF file format that matches the pointer width of the target platform.
+#[cfg(target_pointer_width = "64")]
+pub type NativeXcoffFile<'data, R = &'data [u8]> = XcoffFile64<'data, R>;
 
 /// A partially parsed XCOFF file.
 ///
@@ -37,7 +46,7 @@ where
     Xcoff: FileHeader,
     R: ReadRef<'data>,
 {
-    pub(super) data: R,
+    pub(super) data: SkipDebugList<R>,
     pub(super) header: &'data Xcoff,
     pub(super) aux_header: Option<&'data Xcoff::AuxHeader>,
     pub(super) sections: SectionTable<'data, Xcoff>,
@@ -58,7 +67,7 @@ where
         let symbols = header.symbols(data)?;
 
         Ok(XcoffFile {
-            data,
+            data: SkipDebugList(data),
             header,
             aux_header,
             sections,
@@ -68,7 +77,7 @@ where
 
     /// Returns the raw data.
     pub fn data(&self) -> R {
-        self.data
+        self.data.0
     }
 
     /// Returns the raw XCOFF file header.

@@ -53,6 +53,25 @@ defmodule ServiceRadar.Identity.RBAC.CatalogTest do
     "notifications.silences.manage" => [:operator, :admin],
     "notifications.stream.subscribe" => [:operator, :admin]
   }
+  test "Ansible catalog presents canonical operations and non-executable schedule keys" do
+    section = Enum.find(Catalog.catalog(), &(&1.section == "ansible"))
+    permissions = Map.new(section.permissions, &{&1.key, &1})
+
+    assert map_size(permissions) == 10
+    assert permissions["ansible.runs.view"].label == "View Ansible operations"
+    assert permissions["ansible.runs.launch"].label == "Launch Ansible playbooks"
+    assert permissions["ansible.runs.cancel"].label == "Cancel Ansible operations"
+
+    for key <- ["ansible.schedules.view", "ansible.schedules.manage"] do
+      label = permissions[key].label
+      description = permissions[key].description
+
+      assert label =~ "Reserved Ansible schedule"
+      assert description =~ "Reserved permission key"
+      refute description =~ "Create, edit, enable"
+      refute description =~ "scheduled / recurring Ansible playbook runs"
+    end
+  end
 
   test "visibility profile permissions are catalog keys with phase one defaults" do
     keys = Catalog.permission_keys()

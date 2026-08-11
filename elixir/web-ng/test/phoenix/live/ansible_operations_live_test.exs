@@ -4,6 +4,7 @@ defmodule ServiceRadarWebNGWeb.AnsibleOperationsLiveTest do
   import Phoenix.LiveViewTest
 
   alias ServiceRadarWebNG.Accounts.Scope
+  alias ServiceRadarWebNG.AccountsFixtures
   alias ServiceRadarWebNG.AshTestHelpers
   alias ServiceRadarWebNG.Repo
   alias ServiceRadarWebNGWeb.AnsibleLive.AutomationHistory
@@ -14,7 +15,7 @@ defmodule ServiceRadarWebNGWeb.AnsibleOperationsLiveTest do
     %{conn: log_in_user(conn, user), scope: Scope.for_user(user, permissions: permissions)}
   end
 
-  test "secure history index and detail use the modern operation route without exposing authority", %{
+  test "operation history index and detail use the canonical route without exposing authority", %{
     conn: conn,
     scope: scope
   } do
@@ -58,19 +59,31 @@ defmodule ServiceRadarWebNGWeb.AnsibleOperationsLiveTest do
 
     {:ok, index, _html} = live(conn, ~p"/ansible/operations")
 
+    assert has_element?(index, "#ops-topbar")
+    assert has_element?(index, ".sr-ops-sidebar[aria-label='Primary navigation']")
+    assert has_element?(index, ".sr-ops-page-title", "Ansible operations")
+    assert has_element?(index, "#select-ansible-launch-devices[href='/devices']", "Select Devices")
+    refute has_element?(index, "a[href='/ansible/launch']")
+
     assert has_element?(
              index,
              "#secure-operation-history a[href='/ansible/operations/#{operation_id}']",
              "View evidence"
            )
 
-    assert has_element?(index, "a[href='/ansible/runs']", "Legacy run history")
+    refute has_element?(index, "a[href='/ansible/runs']")
+    refute has_element?(index, "#secure-ansible-operations", "Legacy")
 
     {:ok, detail, _html} = live(conn, ~p"/ansible/operations/#{operation_id}")
 
+    assert has_element?(detail, "#ops-topbar")
+    assert has_element?(detail, ".sr-ops-sidebar[aria-label='Primary navigation']")
+    assert has_element?(detail, ".sr-ops-page-title", "Ansible operation #{short_id(operation_id)}")
     assert has_element?(detail, "#secure-ansible-operation-detail")
     assert has_element?(detail, "[data-testid=automation-state-alert]", "dispatch outcome is ambiguous")
     assert has_element?(detail, "#secure-operation-no-executions")
+    refute has_element?(detail, "a[href='/ansible/runs']")
+    refute has_element?(detail, "#secure-ansible-operation-detail", "Legacy")
 
     refute has_element?(
              detail,
@@ -90,4 +103,20 @@ defmodule ServiceRadarWebNGWeb.AnsibleOperationsLiveTest do
              "callback-secret-must-not-render"
            )
   end
+
+  test "retired legacy run routes return not found", %{conn: conn} do
+    assert get(conn, "/ansible/runs").status == 404
+    assert get(conn, "/ansible/runs/retired-run").status == 404
+  end
+
+  test "view-only users are not offered the launch workflow" do
+    viewer = AccountsFixtures.user_fixture(%{role: :viewer})
+    conn = log_in_user(Phoenix.ConnTest.build_conn(), viewer)
+
+    {:ok, index, _html} = live(conn, ~p"/ansible/operations")
+
+    refute has_element?(index, "#select-ansible-launch-devices")
+  end
+
+  defp short_id(id), do: String.slice(id, 0, 8) <> "…"
 end

@@ -141,15 +141,15 @@ filegroup(
 # Shared between the :test and :prod compilations below, which differ only in mix_env.
 WEB_NG_SRCS = [
     ":compile_srcs",
-        # Signal display contracts, read at compile time and baked in with
-        # @external_resource (lib/serviceradar_web_ng/observability/signal_display.ex).
-        # It resolves them against Path.expand("../..", File.cwd!()), i.e. the repo root,
-        # which is why mix_app mirrors the workspace layout inside the action.
-        "//addons/powerdns:powerdns_manifest",
-        "//go/cmd/wasm-plugins/axis:srcs",
-        "//go/cmd/wasm-plugins/proxmox:srcs",
-        "//go/cmd/wasm-plugins/unifi-protect:srcs",
-        "//go/pkg/trivysidecar:display_contracts",
+    # Signal display contracts, read at compile time and baked in with
+    # @external_resource (lib/serviceradar_web_ng/observability/signal_display.ex).
+    # It resolves them against Path.expand("../..", File.cwd!()), i.e. the repo root,
+    # which is why mix_app mirrors the workspace layout inside the action.
+    "//addons/powerdns:powerdns_manifest",
+    "//go/cmd/wasm-plugins/axis:srcs",
+    "//go/cmd/wasm-plugins/proxmox:srcs",
+    "//go/cmd/wasm-plugins/unifi-protect:srcs",
+    "//go/pkg/trivysidecar:display_contracts",
     "//integrations/falco:display_contracts",
 ]
 
@@ -165,50 +165,50 @@ WEB_NG_NATIVE_LIBS = {
 # serviceradar_core is deliberately absent: each mix_app below prepends the build of it
 # that matches its own env. Listing it here too would duplicate the label.
 WEB_NG_DEPS = [
-        "//third_party/hex_vendored/connection:erlang_app",
-        "//elixir/datasvc:erlang_app",
-        "//elixir/serviceradar_srql:erlang_app",
-        "@hex_adbc//:erlang_app",
-        "@hex_ash_phoenix//:erlang_app",
-        "@hex_bandit//:erlang_app",
-        "@hex_bcrypt_elixir//:erlang_app",
-        "@hex_boundary//:erlang_app",
-        "@hex_broadway_dashboard//:erlang_app",
-        "@hex_castore//:erlang_app",
-        "@hex_dns_cluster//:erlang_app",
-        "@hex_ecto_sql//:erlang_app",
-        "@hex_elixlsx//:erlang_app",
-        "@hex_esbuild//:erlang_app",
-        "@hex_gen_smtp//:erlang_app",
-        "@hex_gettext//:erlang_app",
-        "@hex_gnat//:erlang_app",
-        "@hex_guardian//:erlang_app",
-        "@hex_jason//:erlang_app",
-        "@hex_mdex//:erlang_app",
-        "@hex_oban_web//:erlang_app",
-        "@hex_open_api_spex//:erlang_app",
-        "@hex_permit//:erlang_app",
-        "@hex_permit_ecto//:erlang_app",
-        "@hex_permit_phoenix//:erlang_app",
-        "@hex_phoenix//:erlang_app",
-        "@hex_phoenix_ecto//:erlang_app",
-        "@hex_phoenix_html//:erlang_app",
-        "@hex_phoenix_live_dashboard//:erlang_app",
-        "@hex_phoenix_live_view//:erlang_app",
-        "@hex_phoenix_react_ng//:erlang_app",
-        "@hex_postgrex//:erlang_app",
-        "@hex_protobuf//:erlang_app",
-        "@hex_redoc_ui_plug//:erlang_app",
-        "@hex_req//:erlang_app",
-        "@hex_samly//:erlang_app",
-        "@hex_stream_data//:erlang_app",
-        "@hex_swoosh//:erlang_app",
-        "@hex_tailwind//:erlang_app",
-        "@hex_telemetry_metrics//:erlang_app",
-        "@hex_telemetry_metrics_prometheus_core//:erlang_app",
-        "@hex_telemetry_poller//:erlang_app",
-        "@hex_ueberauth//:erlang_app",
-    "@hex_ueberauth_oidcc//:erlang_app",
+    "//third_party/hex_vendored/connection:erlang_app",
+    "//elixir/datasvc:erlang_app",
+    "//elixir/serviceradar_srql:erlang_app",
+    "@hexpm//:adbc",
+    "@hexpm//:ash_phoenix",
+    "@hexpm//:bandit",
+    "@hexpm//:bcrypt_elixir",
+    "@hexpm//:boundary",
+    "@hexpm//:broadway_dashboard",
+    "@hexpm//:castore",
+    "@hexpm//:dns_cluster",
+    "@hexpm//:ecto_sql",
+    "@hexpm//:elixlsx",
+    "@hexpm//:esbuild",
+    "@hexpm//:gen_smtp",
+    "@hexpm//:gettext",
+    "@hexpm//:gnat",
+    "@hexpm//:guardian",
+    "@hexpm//:jason",
+    "@hexpm//:mdex",
+    "@hexpm//:oban_web",
+    "@hexpm//:open_api_spex",
+    "@hexpm//:permit",
+    "@hexpm//:permit_ecto",
+    "@hexpm//:permit_phoenix",
+    "@hexpm//:phoenix",
+    "@hexpm//:phoenix_ecto",
+    "@hexpm//:phoenix_html",
+    "@hexpm//:phoenix_live_dashboard",
+    "@hexpm//:phoenix_live_view",
+    "@hexpm//:phoenix_react_ng",
+    "@hexpm//:postgrex",
+    "@hexpm//:protobuf",
+    "@hexpm//:redoc_ui_plug",
+    "@hexpm//:req",
+    "@hexpm//:samly",
+    "@hexpm//:stream_data",
+    "@hexpm//:swoosh",
+    "@hexpm//:tailwind",
+    "@hexpm//:telemetry_metrics",
+    "@hexpm//:telemetry_metrics_prometheus_core",
+    "@hexpm//:telemetry_poller",
+    "@hexpm//:ueberauth",
+    "@hexpm//:ueberauth_oidcc",
     "@rules_elixir//elixir",
 ]
 
@@ -221,18 +221,18 @@ WEB_NG_DEPS = [
 #
 # Kept on the :test target, which is the env that actually resolves them.
 WEB_NG_DEV_DEPS = [
-        "@hex_ash_credo//:erlang_app",
-        "@hex_credo//:erlang_app",
-        "@hex_dialyxir//:erlang_app",
-        "@hex_ex_dna//:erlang_app",
-        "@hex_ex_slop//:erlang_app",
-        "@hex_igniter//:erlang_app",
-        "@hex_jump_credo_checks//:erlang_app",
-        "@hex_lazy_html//:erlang_app",
-        "@hex_mix_audit//:erlang_app",
-        "@hex_phoenix_live_reload//:erlang_app",
-        "@hex_sobelow//:erlang_app",
-        "@hex_styler//:erlang_app",
+    "@hexpm//:ash_credo",
+    "@hexpm//:credo",
+    "@hexpm//:dialyxir",
+    "@hexpm//:ex_dna",
+    "@hexpm//:ex_slop",
+    "@hexpm//:igniter",
+    "@hexpm//:jump_credo_checks",
+    "@hexpm//:lazy_html",
+    "@hexpm//:mix_audit",
+    "@hexpm//:phoenix_live_reload",
+    "@hexpm//:sobelow",
+    "@hexpm//:styler",
 ]
 
 # Compiled by Mix inside a single hermetic Bazel action. mix_env is "test" because
@@ -277,8 +277,8 @@ elixir_release(
         "//elixir/serviceradar_srql:mix.exs",
         "//third_party/hex_vendored/opentelemetry_oban:mix.exs",
     ],
-    app = ":erlang_app_prod",
     out = "serviceradar-web-ng-release.tar.gz",
+    app = ":erlang_app_prod",
     # The same list :erlang_app_prod compiled with. `mix release` compares every
     # Application.compile_env/2 key against its compile-time value and refuses to assemble
     # if they differ, so these have to agree -- hence the shared variable rather than two
@@ -288,11 +288,11 @@ elixir_release(
         "config :serviceradar_core, ServiceRadar.Observability.Zen.Native, skip_compilation?: true",
         "config :serviceradar_core, ServiceRadar.Observability.DispositionKernels, skip_compilation?: true",
     ],
-    # Named release matches mix.exs releases/0 (validate_compile_env: false).
-    release_name = "serviceradar_web_ng",
     overlays = {
         "//elixir/web-ng/assets:static": "priv",
     },
+    # Named release matches mix.exs releases/0 (validate_compile_env: false).
+    release_name = "serviceradar_web_ng",
 )
 
 ex_unit_tests(

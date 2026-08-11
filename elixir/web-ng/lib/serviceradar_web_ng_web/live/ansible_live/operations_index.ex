@@ -1,10 +1,9 @@
 defmodule ServiceRadarWebNGWeb.AnsibleLive.OperationsIndex do
   @moduledoc """
-  Read-only history for hardened `AutomationOperation` launches.
+  Read-only history for Ansible `AutomationOperation` launches.
 
-  This is intentionally separate from legacy `PlaybookRun` history. All reads
-  are authorized with the authenticated human scope and pass through the
-  secret-safe `AutomationHistory` projection.
+  All reads are authorized with the authenticated human scope and pass through
+  the secret-safe `AutomationHistory` projection.
   """
 
   use ServiceRadarWebNGWeb, :live_view
@@ -51,8 +50,9 @@ defmodule ServiceRadarWebNGWeb.AnsibleLive.OperationsIndex do
     if RBAC.can?(scope, "ansible.runs.view") do
       socket =
         socket
-        |> assign(:page_title, "Secure Ansible operations")
+        |> assign(:page_title, "Ansible operations")
         |> assign(:page_limit, 100)
+        |> assign(:can_launch, RBAC.can?(scope, "ansible.runs.launch"))
         |> assign(:state_filter, "all")
         |> assign(:state_filters, @state_filters)
         |> assign(:operation_count, 0)
@@ -64,7 +64,7 @@ defmodule ServiceRadarWebNGWeb.AnsibleLive.OperationsIndex do
     else
       {:ok,
        socket
-       |> put_flash(:error, "You don't have permission to view Ansible runs.")
+       |> put_flash(:error, "You don't have permission to view Ansible operations.")
        |> push_navigate(to: ~p"/dashboard")}
     end
   end
@@ -83,134 +83,131 @@ defmodule ServiceRadarWebNGWeb.AnsibleLive.OperationsIndex do
   @impl true
   def render(assigns) do
     ~H"""
-    <div id="secure-ansible-operations" class="mx-auto w-full max-w-7xl space-y-5 p-6">
-      <header class="flex flex-wrap items-start justify-between gap-4">
-        <div class="space-y-1">
-          <div class="flex flex-wrap items-center gap-2">
-            <h1 class="text-2xl font-semibold">Secure Ansible operations</h1>
-            <.ui_badge size="sm" variant="success">ServiceRadar secured</.ui_badge>
+    <Layouts.app
+      flash={@flash}
+      current_scope={@current_scope}
+      current_path="/ansible/operations"
+      page_title={@page_title}
+      shell={:operations}
+    >
+      <div id="secure-ansible-operations" class="mx-auto w-full max-w-7xl space-y-5 p-6">
+        <header class="flex flex-wrap items-start justify-between gap-4">
+          <div class="space-y-1">
+            <h1 class="text-2xl font-semibold">Ansible operations</h1>
+            <p class="text-sm text-sr-muted">
+              {@operation_count} operation{if @operation_count == 1, do: "", else: "s"} shown
+              (capped at {@page_limit}).
+            </p>
           </div>
-          <p class="text-sm text-sr-muted">
-            {@operation_count} operation{if @operation_count == 1, do: "", else: "s"} shown
-            (capped at {@page_limit}).
-          </p>
-        </div>
-        <div class="flex items-center gap-2">
-          <.ui_button navigate={~p"/ansible/launch"} size="sm" variant="primary">
-            <.icon name="hero-play" class="size-4" /> Launch
-          </.ui_button>
-          <.ui_button type="button" phx-click="refresh" size="sm" variant="neutral">
-            <.icon name="hero-arrow-path" class="size-4" /> Refresh
-          </.ui_button>
-        </div>
-      </header>
+          <div class="flex items-center gap-2">
+            <.ui_button
+              :if={@can_launch}
+              id="select-ansible-launch-devices"
+              navigate={~p"/devices"}
+              size="sm"
+              variant="primary"
+            >
+              <.icon name="hero-computer-desktop" class="size-4" /> Select Devices
+            </.ui_button>
+            <.ui_button type="button" phx-click="refresh" size="sm" variant="neutral">
+              <.icon name="hero-arrow-path" class="size-4" /> Refresh
+            </.ui_button>
+          </div>
+        </header>
 
-      <div role="note" class={ui_alert_class("info")}>
-        <.icon name="hero-information-circle" class="size-5" />
-        <div class="flex-1">
-          <p class="font-medium">Hardened operation history</p>
-          <p class="text-sm">
-            These records preserve immutable authority, controller scope, and exact target evidence.
-            They are not legacy PlaybookRun records.
-          </p>
+        <div class="flex flex-wrap items-center gap-2" aria-label="Operation state filter">
+          <span class="mr-1 text-sm text-sr-muted">Filter:</span>
+          <.ui_button
+            :for={{label, state} <- @state_filters}
+            type="button"
+            phx-click="filter_state"
+            phx-value-state={label}
+            size="xs"
+            variant={if(label == @state_filter, do: "primary", else: "ghost")}
+            active={label == @state_filter}
+          >
+            {state || label}
+          </.ui_button>
         </div>
-        <.ui_button navigate={~p"/ansible/runs"} size="sm" variant="ghost">
-          Legacy run history
-        </.ui_button>
-      </div>
 
-      <div class="flex flex-wrap items-center gap-2" aria-label="Operation state filter">
-        <span class="mr-1 text-sm text-sr-muted">Filter:</span>
-        <.ui_button
-          :for={{label, state} <- @state_filters}
-          type="button"
-          phx-click="filter_state"
-          phx-value-state={label}
-          size="xs"
-          variant={if(label == @state_filter, do: "primary", else: "ghost")}
-          active={label == @state_filter}
+        <div :if={@history_error} role="alert" class={ui_alert_class("error")}>
+          <.icon name="hero-exclamation-circle" class="size-5" />
+          <span>{@history_error}</span>
+        </div>
+
+        <div
+          :if={not @history_loaded}
+          id="secure-operations-loading"
+          role="status"
+          class="flex items-center gap-2 p-4 text-sm text-sr-muted"
         >
-          {state || label}
-        </.ui_button>
-      </div>
+          <.ui_spinner size="sm" /> Loading Ansible operation history…
+        </div>
 
-      <div :if={@history_error} role="alert" class={ui_alert_class("error")}>
-        <.icon name="hero-exclamation-circle" class="size-5" />
-        <span>{@history_error}</span>
-      </div>
+        <div
+          :if={@history_loaded and @operation_count == 0 and is_nil(@history_error)}
+          id="secure-operations-empty"
+          role="status"
+          class="rounded-sr-surface border border-dashed border-sr-line p-8 text-center text-sm text-sr-muted"
+        >
+          No Ansible operations match the current filter.
+        </div>
 
-      <div
-        :if={not @history_loaded}
-        id="secure-operations-loading"
-        role="status"
-        class="flex items-center gap-2 p-4 text-sm text-sr-muted"
-      >
-        <.ui_spinner size="sm" /> Loading secure operation history…
+        <div :if={@operation_count > 0} class="overflow-x-auto border border-sr-line bg-sr-surface">
+          <table class={ui_table_class(zebra: true)}>
+            <thead>
+              <tr>
+                <th>State</th>
+                <th>Action</th>
+                <th>Human initiator</th>
+                <th>Source</th>
+                <th>Mode</th>
+                <th>Started</th>
+                <th>Ended</th>
+                <th>Operation</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody id="secure-operation-history" phx-update="stream">
+              <tr :for={{dom_id, operation} <- @streams.operations} id={dom_id}>
+                <td>
+                  <span class={AutomationHistoryComponents.state_badge_classes(operation.state)}>
+                    {operation.state}
+                  </span>
+                </td>
+                <td><code class="text-xs">{operation.action}</code></td>
+                <td>
+                  <span class="text-xs">{operation.initiator_principal_type}</span>
+                  <code class="block max-w-56 break-all text-xs">
+                    {operation.initiator_principal_id}
+                  </code>
+                </td>
+                <td>{operation.request_source}</td>
+                <td>
+                  <.ui_badge size="sm" variant="ghost">{operation_mode(operation)}</.ui_badge>
+                </td>
+                <td class="whitespace-nowrap">
+                  {AutomationHistoryComponents.format_timestamp(operation.started_at)}
+                </td>
+                <td class="whitespace-nowrap">
+                  {AutomationHistoryComponents.format_timestamp(operation.ended_at)}
+                </td>
+                <td><code class="text-xs">{short_id(operation.id)}</code></td>
+                <td>
+                  <.ui_button
+                    navigate={~p"/ansible/operations/#{operation.id}"}
+                    size="xs"
+                    variant="neutral"
+                  >
+                    View evidence
+                  </.ui_button>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
       </div>
-
-      <div
-        :if={@history_loaded and @operation_count == 0 and is_nil(@history_error)}
-        id="secure-operations-empty"
-        role="status"
-        class="rounded-sr-surface border border-dashed border-sr-line p-8 text-center text-sm text-sr-muted"
-      >
-        No secure operations match the current filter.
-      </div>
-
-      <div :if={@operation_count > 0} class="overflow-x-auto border border-sr-line bg-sr-surface">
-        <table class={ui_table_class(zebra: true)}>
-          <thead>
-            <tr>
-              <th>State</th>
-              <th>Action</th>
-              <th>Human initiator</th>
-              <th>Source</th>
-              <th>Mode</th>
-              <th>Started</th>
-              <th>Ended</th>
-              <th>Operation</th>
-              <th></th>
-            </tr>
-          </thead>
-          <tbody id="secure-operation-history" phx-update="stream">
-            <tr :for={{dom_id, operation} <- @streams.operations} id={dom_id}>
-              <td>
-                <span class={AutomationHistoryComponents.state_badge_classes(operation.state)}>
-                  {operation.state}
-                </span>
-              </td>
-              <td><code class="text-xs">{operation.action}</code></td>
-              <td>
-                <span class="text-xs">{operation.initiator_principal_type}</span>
-                <code class="block max-w-56 break-all text-xs">
-                  {operation.initiator_principal_id}
-                </code>
-              </td>
-              <td>{operation.request_source}</td>
-              <td>
-                <.ui_badge size="sm" variant="ghost">{operation_mode(operation)}</.ui_badge>
-              </td>
-              <td class="whitespace-nowrap">
-                {AutomationHistoryComponents.format_timestamp(operation.started_at)}
-              </td>
-              <td class="whitespace-nowrap">
-                {AutomationHistoryComponents.format_timestamp(operation.ended_at)}
-              </td>
-              <td><code class="text-xs">{short_id(operation.id)}</code></td>
-              <td>
-                <.ui_button
-                  navigate={~p"/ansible/operations/#{operation.id}"}
-                  size="xs"
-                  variant="neutral"
-                >
-                  View evidence
-                </.ui_button>
-              </td>
-            </tr>
-          </tbody>
-        </table>
-      </div>
-    </div>
+    </Layouts.app>
     """
   end
 
@@ -226,12 +223,12 @@ defmodule ServiceRadarWebNGWeb.AnsibleLive.OperationsIndex do
         |> stream(:operations, operations, reset: true)
 
       {:error, _reason} ->
-        Logger.warning("Could not load secure Ansible operation history")
+        Logger.warning("Could not load Ansible operation history")
 
         socket
         |> assign(:operation_count, 0)
         |> assign(:history_loaded, true)
-        |> assign(:history_error, "Secure operation history could not be loaded.")
+        |> assign(:history_error, "Ansible operation history could not be loaded.")
         |> stream(:operations, [], reset: true)
     end
   end

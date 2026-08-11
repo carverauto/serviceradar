@@ -29,4 +29,4 @@ ServiceRadar SHALL fail deferred action targets that exceed their configured max
 - **GIVEN** a deferred action target has exceeded its deadline
 - **WHEN** the poll scheduler evaluates it
 - **THEN** the target SHALL be marked failed or expired with a clear error message
-- **AND** Task History SHALL show the terminal failure state
+- **AND** Action History SHALL show the terminal failure state

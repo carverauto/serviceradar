@@ -123,11 +123,84 @@ defmodule ServiceRadar.Plugins.AddonRolloutCoordinator do
          true <- rollout.state in @active_rollout_states,
          {:ok, targets} <- rollout_targets(rollout.id, actor),
          {:ok, packages} <- packages_for_rollout(rollout, targets, actor),
+         :continue <- supersede_if_converged(rollout, targets, packages, actor, now),
          {:ok, targets} <- evaluate_targets(rollout, targets, packages, actor, now) do
       finish_or_advance(rollout, targets, actor, now)
     else
       false -> :ok
+      :superseded -> :ok
       {:error, reason} -> {:error, reason}
+    end
+  end
+
+  # Runs before anything else in advance/2, and deliberately before
+  # finish_or_advance/4's `rollout.state == :paused -> :ok` short-circuit: a
+  # paused rollout is exactly the one that needs reaping, and that clause is why
+  # four of them sat on the demo fleet for 19 days offering Resume / Roll back /
+  # Cancel for work the fleet had already done.
+  #
+  # The decision reads OBSERVED fleet state rather than this rollout's own batch
+  # progress, so convergence by any other route counts -- a later rollout, a
+  # direct assignment, an operator reinstalling on the host.
+  defp supersede_if_converged(rollout, targets, packages, actor, now) do
+    candidate = Map.get(packages, to_string(rollout.candidate_package_id))
+    in_scope = Enum.reject(targets, &(&1.state in [:excluded, :canceled]))
+
+    cond do
+      # Only a paused rollout is reaped. A rollout that can still make progress
+      # must be allowed to: an in-flight rollout whose targets report the
+      # candidate has just SUCCEEDED, and belongs in promote_source/4 as
+      # :completed, not here as :superseded. Reaping on observed version alone
+      # cannot tell those apart -- it hijacked three existing rollout tests
+      # before this guard, turning healthy promotions into supersessions.
+      rollout.state != :paused ->
+        :continue
+
+      is_nil(candidate) or in_scope == [] ->
+        :continue
+
+      converged_on_candidate?(in_scope, rollout.addon_id, candidate, actor) ->
+        mark_superseded(rollout, candidate, length(in_scope), actor, now)
+
+      true ->
+        :continue
+    end
+  end
+
+  defp converged_on_candidate?(targets, addon_id, candidate, actor) do
+    statuses = load_statuses(targets, addon_id, actor)
+
+    Enum.all?(targets, fn target ->
+      case Map.get(statuses, target.agent_uid) do
+        nil ->
+          false
+
+        status ->
+          Eligibility.version_at_least?(status.version, candidate.version)
+      end
+    end)
+  end
+
+  defp mark_superseded(rollout, candidate, target_count, actor, now) do
+    details = %{candidate_version: candidate.version, target_count: target_count}
+
+    case update_rollout(
+           rollout,
+           %{
+             state: :superseded,
+             completed_at: now,
+             paused_at: nil,
+             blocked_reason: "fleet_already_on_candidate"
+           },
+           actor
+         ) do
+      {:ok, updated} ->
+        audit(:supersede, updated, details)
+        emit(:superseded, updated, details)
+        :superseded
+
+      {:error, reason} ->
+        {:error, reason}
     end
   end
 
@@ -864,19 +937,29 @@ defmodule ServiceRadar.Plugins.AddonRolloutCoordinator do
     end
   end
 
+  # Readiness deliberately uses supervision_state_ready?/2, not supervision_ready?/2:
+  # an advisory degradation must not keep a candidate that has come up from ever
+  # being considered ready. Otherwise the target sits un-ready until its deadline
+  # and fails as `candidate_health_timeout`, which is how a host-level cgroup
+  # misconfiguration held anomaly three versions behind for a week.
   defp candidate_ready?(status, candidate, applied_at) do
     fresh_status?(status, applied_at) and status.version == candidate.version and
-      Eligibility.supervision_ready?(candidate, status)
+      Eligibility.supervision_state_ready?(candidate, status)
   end
 
   defp explicit_failure?(nil, _applied_at), do: false
 
+  # A candidate fails on its reported STATE. It does not fail merely because the
+  # add-on also reported a degradation reason: that reason is advisory, describes
+  # the deployment around the add-on as often as the add-on itself, and is
+  # identical before and after an upgrade -- so gating on it could only ever wedge
+  # the rollout, never protect it. The reason is still recorded and surfaced; see
+  # advisory_degradation/1 and the fleet row.
   defp explicit_failure?(status, applied_at) do
     state = status.state |> to_string() |> String.downcase()
 
     fresh_status?(status, applied_at) and
-      (present?(status.degradation_reason) or
-         state in ["circuit_open", "failed", "unhealthy", "verification_failed"])
+      state in ["circuit_open", "failed", "unhealthy", "verification_failed"]
   end
 
   defp fresh_status?(%AddonStatus{reported_at: %DateTime{} = reported_at}, %DateTime{} = since),
@@ -1182,8 +1265,6 @@ defmodule ServiceRadar.Plugins.AddonRolloutCoordinator do
 
   defp normalize_ash_result_with_notifications({:ok, record}), do: {:ok, record, []}
   defp normalize_ash_result_with_notifications({:error, reason}), do: {:error, reason}
-
-  defp present?(value), do: is_binary(value) and String.trim(value) != ""
 
   defp audit(action, rollout, details) do
     AuditWriter.write_async(

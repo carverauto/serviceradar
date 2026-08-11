@@ -4,7 +4,7 @@ version = 4
 
 [[package]]
 name = "rustc-literal-escaper"
-version = "0.0.7"
+version = "0.0.8"
 dependencies = [
  "rustc-std-workspace-core",
 ]

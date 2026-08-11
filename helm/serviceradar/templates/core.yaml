@@ -467,6 +467,43 @@ spec:
         # so anomaly findings/alerts surface without per-deployment extraEnv.
         - name: EVENT_WRITER_ENABLED
           value: {{ default true $eventWriter.enabled | quote }}
+
+        {{- /* Exact EventWriter flow consumer subjects: concrete flows.raw.* only. */ -}}
+        {{- /* flow.host-slice.* is attribution intermediate (joiner), not ocsf consumers. */ -}}
+        {{- /* Whole-token wildcards that cover the raw-flow namespace fail closed. */ -}}
+        {{- $extraFlowSubjects := list -}}
+        {{- $fcConfig := dict -}}
+        {{- if and .Values.flowCollector .Values.flowCollector.config }}
+          {{- $fcConfig = .Values.flowCollector.config -}}
+        {{- end }}
+        {{- range (default list (get $fcConfig "stream_subjects")) }}
+          {{- $subj := . | toString -}}
+          {{- if $subj }}
+            {{- /* Reject any whole-token wildcard filter: *.>, *.raw.>, flows.>, > all cover flows.raw.*. Binary Config::validate is the source of truth for NATS-pattern overlap. */ -}}
+            {{- if regexMatch "(^|\\.)(\\*|\\>)(\\.|$)" $subj }}
+              {{- fail (printf "flowCollector.config.stream_subjects entry %q uses a whole-token NATS wildcard. Use concrete flows.raw.<name> leaves; ownership filters (including *.> / flows.>) leave extensions unconsumed and can overlap events." $subj) -}}
+            {{- end }}
+            {{- if and (ne $subj "flows.raw.netflow") (ne $subj "flows.raw.sflow") (hasPrefix "flows.raw." $subj) }}
+              {{- $extraFlowSubjects = append $extraFlowSubjects $subj -}}
+            {{- end }}
+          {{- end }}
+        {{- end }}
+        {{- range (default list (get $fcConfig "listeners")) }}
+          {{- $subj := default "" .subject -}}
+          {{- if $subj }}
+            {{- /* Publish subjects must always be concrete — unconditional wildcard reject. */ -}}
+            {{- if regexMatch "(^|\\.)(\\*|\\>)(\\.|$)" $subj }}
+              {{- fail (printf "flowCollector.config.listeners subject %q uses a whole-token NATS wildcard. Listener publish subjects must be concrete." $subj) -}}
+            {{- end }}
+            {{- if and (ne $subj "flows.raw.netflow") (ne $subj "flows.raw.sflow") (hasPrefix "flows.raw." $subj) }}
+              {{- $extraFlowSubjects = append $extraFlowSubjects $subj -}}
+            {{- end }}
+          {{- end }}
+        {{- end }}
+        {{- if $extraFlowSubjects }}
+        - name: EVENT_WRITER_FLOW_EXTRA_SUBJECTS
+          value: {{ $extraFlowSubjects | uniq | join "," | quote }}
+        {{- end }}
         - name: SERVICERADAR_CAPACITY_FORECAST_CONFIG_HORIZON_SECONDS
           value: {{ default 7776000 $capacityForecastConfig.forecastHorizonSeconds | int64 | quote }}
         - name: SERVICERADAR_CAPACITY_FORECAST_CONFIG_WARNING_HORIZON_SECONDS
@@ -609,7 +646,12 @@ spec:
                alerts — the safety net that stops a stalled exporter from
                filling the primary — can never fire (review F34). Rendered
                whenever CNPG is chart-managed so the value is always present. */}}
-        {{- if default true $cnpg.enabled }}
+        {{- /* Skip when the caller already supplies it through core.extraEnv:
+               two entries with the same name make the rendered Deployment
+               invalid, and a strategic-merge upgrade fails with "The order in
+               patch list ... doesn't match $setElementOrder list". Same guard
+               as SERVICERADAR_LOCAL_MAILER above. */}}
+        {{- if and (default true $cnpg.enabled) (not (hasKey (default (dict) $coreVals.extraEnv) "SERVICERADAR_CNPG_STORAGE_SIZE")) }}
         - name: SERVICERADAR_CNPG_STORAGE_SIZE
           value: {{ default "100Gi" $cnpg.storageSize | quote }}
         {{- end }}

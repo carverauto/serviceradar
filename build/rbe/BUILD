@@ -1,8 +1,6 @@
 # Custom RBE platform for the BuildBuddy executor fleet.
 #
-# The action image is Ubuntu 24.04 (//docker/Dockerfile.rbe), not Oracle Linux -- the EL9
-# image (//docker/Dockerfile.rbe-ora9) is a separate thing used only by --config=el9 and
-# moves independently.
+# The action image is Ubuntu 24.04 (//docker/Dockerfile.rbe).
 #
 # This is the platform //.bazelrc actually references. Note there is a SECOND, unused
 # `rbe_platform` in the root //BUILD.bazel with different constraints; nothing points at

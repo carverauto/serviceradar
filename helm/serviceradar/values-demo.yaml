@@ -110,10 +110,10 @@ cnpg:
 
 logCollector:
   replicaCount: 3
-  # Keep the shared events stream at 3 replicas in demo, but with a smaller
-  # reservation so JetStream placement fits within the account budget.
+  # Shared events stream (logs/OTEL/falco) — not used for raw NetFlow.
+  # Sized independently of the dedicated flows stream.
   streamReplicas: 3
-  streamMaxBytes: 1073741824
+  streamMaxBytes: 2147483648
   # Use the dedicated UDP Service when the collector must record the actual
   # device address. The shared Envoy UDPRoute remains enabled below for
   # compatibility, but Envoy Gateway's UDP forwarding path rewrites the
@@ -771,14 +771,23 @@ flowCollector:
   # external UDP ingress single-replica until collector-side exporter sharding
   # or shared template state is implemented.
   replicaCount: 1
-  # flow-collector also reconciles the shared events stream.
-  streamReplicas: 3
+  # Dedicated flows stream at R=3 (same HA topology as production). Size is
+  # smaller than prod 10 GiB default but isolated from logs/OTEL on the events
+  # stream. HA is only config.stream_replicas (serialized into the ConfigMap).
   config:
-    stream_max_bytes: 1073741824
+    stream_name: "flows"
+    rehome_state_path: "/var/lib/serviceradar/flow-collector-rehome.json"
+    # 8 GiB / 2h / R=3 — dedicated flows budget (design). Demo reduces
+    # datasvc object/KV reservations so this fits 30Gi PVC + maxFileStore.
+    # No volumeClaimTemplate mutation.
+    stream_max_bytes: 8589934592
+    stream_max_age_secs: 7200
     stream_replicas: 3
+  # Persist rehome marker + ready file across Recreate / pod replacement.
+  # JetStream holds flow durability; this PVC is only for local cutover state.
   data:
-    # flow collector is stateless in demo; raw flow durability is in JetStream.
-    enabled: false
+    enabled: true
+    size: 1Gi
   service:
     type: LoadBalancer
     annotations:
@@ -852,6 +861,7 @@ bmpCollector:
     natsTlsClientCertPath: "/etc/serviceradar/certs/bmp-collector.pem"
     natsTlsClientKeyPath: "/etc/serviceradar/certs/bmp-collector-key.pem"
   data:
+    # Keep false: three HA replicas cannot safely share one RWO PVC.
     enabled: false
   service:
     type: LoadBalancer
@@ -861,3 +871,8 @@ bmpCollector:
     externalTrafficPolicy: Local
 nats:
   replicas: 3
+  jetstream:
+    maxMemoryStore: 1G
+    # Within existing 30Gi PVC. Do not change persistence.size here — STS
+    # volumeClaimTemplates are immutable and block Helm upgrades.
+    maxFileStore: 30G

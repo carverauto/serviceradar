@@ -17,7 +17,7 @@ filegroup(
 
 # The vendored boombox, compiled by Mix inside a hermetic Bazel action.
 #
-# This is NOT the Hex package. @hex_boombox is deliberately unbuildable here: it reaches
+# This is NOT the Hex package. @hexpm//:boombox is deliberately unbuildable here: it reaches
 # for Membrane.Hackney.Source, and hackney was dropped because it pulls h2, which collides
 # with grpcbox's chatterbox (same h2_* modules) during `mix release`. This copy has that
 # source removed -- see the comment in mix.exs and internal_bin/storage_endpoints.ex.
@@ -35,29 +35,29 @@ mix_app(
     app_name = "boombox",
     mix_env = "prod",
     deps = [
+        "@hexpm//:image",
+        "@hexpm//:membrane_core",
+        "@hexpm//:membrane_ffmpeg_swresample_plugin",
+        "@hexpm//:membrane_ffmpeg_swscale_plugin",
+        "@hexpm//:membrane_http_adaptive_stream_plugin",
+        "@hexpm//:membrane_ivf_plugin",
+        "@hexpm//:membrane_mp4_plugin",
+        "@hexpm//:membrane_ogg_plugin",
+        "@hexpm//:membrane_realtimer_plugin",
+        "@hexpm//:membrane_rtmp_plugin",
+        "@hexpm//:membrane_rtp_aac_plugin",
+        "@hexpm//:membrane_rtp_format",
+        "@hexpm//:membrane_rtp_h264_plugin",
+        "@hexpm//:membrane_rtp_h265_plugin",
+        "@hexpm//:membrane_rtp_opus_plugin",
+        "@hexpm//:membrane_rtp_plugin",
+        "@hexpm//:membrane_rtsp_plugin",
+        "@hexpm//:membrane_srt_plugin",
+        "@hexpm//:membrane_stream_plugin",
+        "@hexpm//:membrane_transcoder_plugin",
+        "@hexpm//:membrane_vpx_plugin",
+        "@hexpm//:membrane_wav_plugin",
+        "@hexpm//:membrane_webrtc_plugin",
         "@rules_elixir//elixir",
-        "@hex_image//:erlang_app",
-        "@hex_membrane_core//:erlang_app",
-        "@hex_membrane_ffmpeg_swresample_plugin//:erlang_app",
-        "@hex_membrane_ffmpeg_swscale_plugin//:erlang_app",
-        "@hex_membrane_http_adaptive_stream_plugin//:erlang_app",
-        "@hex_membrane_ivf_plugin//:erlang_app",
-        "@hex_membrane_mp4_plugin//:erlang_app",
-        "@hex_membrane_ogg_plugin//:erlang_app",
-        "@hex_membrane_realtimer_plugin//:erlang_app",
-        "@hex_membrane_rtmp_plugin//:erlang_app",
-        "@hex_membrane_rtp_aac_plugin//:erlang_app",
-        "@hex_membrane_rtp_format//:erlang_app",
-        "@hex_membrane_rtp_h264_plugin//:erlang_app",
-        "@hex_membrane_rtp_h265_plugin//:erlang_app",
-        "@hex_membrane_rtp_opus_plugin//:erlang_app",
-        "@hex_membrane_rtp_plugin//:erlang_app",
-        "@hex_membrane_rtsp_plugin//:erlang_app",
-        "@hex_membrane_srt_plugin//:erlang_app",
-        "@hex_membrane_stream_plugin//:erlang_app",
-        "@hex_membrane_transcoder_plugin//:erlang_app",
-        "@hex_membrane_vpx_plugin//:erlang_app",
-        "@hex_membrane_wav_plugin//:erlang_app",
-        "@hex_membrane_webrtc_plugin//:erlang_app",
     ],
 )

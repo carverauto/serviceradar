@@ -1,0 +1,4 @@
+# palisade is not built by Bazel, but its lock still takes part in resolving the Hex
+# closure: a Bazel repository name is global, so //third_party/hex:gen has to see every
+# project's mix.lock at once or it will resolve a version some project disagrees with.
+exports_files(["mix.lock"])

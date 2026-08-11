@@ -18,6 +18,7 @@ defmodule ServiceRadar.EventWriter.Supervisor do
   use Supervisor
 
   alias ServiceRadar.EventWriter.Config
+  alias ServiceRadar.EventWriter.Pipeline
 
   require Logger
 
@@ -31,20 +32,45 @@ defmodule ServiceRadar.EventWriter.Supervisor do
   @impl true
   def init(_opts) do
     config = Config.load()
+    flow_config = Config.load_flow()
 
     Logger.info("Starting EventWriter supervisor",
       enabled: config.enabled,
-      streams: length(config.streams)
+      streams: length(config.streams),
+      flow_streams: length(flow_config.streams)
     )
 
+    # Lag reporter watches both demand domains (shared + flow).
+    lag_config = merge_lag_streams(config, flow_config)
+
     children =
-      [
-        {ServiceRadar.EventWriter.Pipeline, config},
-        {ServiceRadar.EventWriter.ConsumerLagReporter, config},
+      []
+      |> maybe_pipeline(config, Pipeline)
+      |> maybe_pipeline(flow_config, ServiceRadar.EventWriter.FlowPipeline)
+      |> Kernel.++([
+        {ServiceRadar.EventWriter.ConsumerLagReporter, lag_config},
         ServiceRadar.FlowAttribution.Correlator
-      ]
+      ])
 
     Supervisor.init(children, strategy: :one_for_one)
+  end
+
+  defp merge_lag_streams(%Config{} = config, %Config{} = flow_config) do
+    %{config | streams: config.streams ++ flow_config.streams}
+  end
+
+  defp maybe_pipeline(children, %Config{streams: streams} = config, name)
+       when is_list(streams) and streams != [] do
+    children ++ [{Pipeline, {config, [name: name]}}]
+  end
+
+  defp maybe_pipeline(children, %Config{} = config, name) do
+    Logger.warning("Skipping EventWriter pipeline with no streams configured",
+      pipeline: name,
+      consumer_name: config.consumer_name
+    )
+
+    children
   end
 
   @doc """

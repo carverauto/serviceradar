@@ -53,7 +53,7 @@
     all(feature = "simd_support", target_feature = "avx512bw"),
     feature(stdarch_x86_avx512)
 )]
-#![cfg_attr(docsrs, feature(doc_auto_cfg))]
+#![cfg_attr(docsrs, feature(doc_cfg))]
 #![allow(
     clippy::float_cmp,
     clippy::neg_cmp_op_on_partial_ord,
@@ -65,37 +65,6 @@
 extern crate alloc;
 #[cfg(feature = "std")]
 extern crate std;
-
-#[allow(unused)]
-macro_rules! trace { ($($x:tt)*) => (
-    #[cfg(feature = "log")] {
-        log::trace!($($x)*)
-    }
-) }
-#[allow(unused)]
-macro_rules! debug { ($($x:tt)*) => (
-    #[cfg(feature = "log")] {
-        log::debug!($($x)*)
-    }
-) }
-#[allow(unused)]
-macro_rules! info { ($($x:tt)*) => (
-    #[cfg(feature = "log")] {
-        log::info!($($x)*)
-    }
-) }
-#[allow(unused)]
-macro_rules! warn { ($($x:tt)*) => (
-    #[cfg(feature = "log")] {
-        log::warn!($($x)*)
-    }
-) }
-#[allow(unused)]
-macro_rules! error { ($($x:tt)*) => (
-    #[cfg(feature = "log")] {
-        log::error!($($x)*)
-    }
-) }
 
 // Re-export rand_core itself
 pub use rand_core;

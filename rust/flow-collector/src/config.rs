@@ -19,8 +19,18 @@ pub struct Config {
     pub stream_subjects: Option<Vec<String>>,
     #[serde(default = "default_stream_max_bytes")]
     pub stream_max_bytes: i64,
+    /// JetStream MaxAge for the dedicated flows stream (seconds).
+    /// Default 6 hours — sized for recovery lag, not demo thrift.
+    #[serde(default = "default_stream_max_age_secs")]
+    pub stream_max_age_secs: u64,
     #[serde(default = "default_stream_replicas")]
     pub stream_replicas: usize,
+    /// Durable path for in-progress subject rehome markers (survives pod restart).
+    #[serde(default)]
+    pub rehome_state_path: Option<PathBuf>,
+    /// Explicit readiness marker path (must match the K8s readinessProbe path).
+    #[serde(default)]
+    pub ready_state_path: Option<PathBuf>,
     #[serde(default = "default_partition")]
     pub partition: String,
 
@@ -245,7 +255,15 @@ fn default_partition() -> String {
 }
 
 fn default_stream_max_bytes() -> i64 {
+    // 10 GiB for the dedicated `flows` stream (order-of-magnitude above the
+    // historical 1 GiB shared-events pin). Docker/tenant/helm overlays override
+    // with capacity-safe values. Must NEVER reshape the shared `events` stream.
     10 * 1024 * 1024 * 1024
+}
+
+fn default_stream_max_age_secs() -> u64 {
+    // 6 hours.
+    6 * 60 * 60
 }
 
 fn default_stream_replicas() -> usize {
@@ -294,6 +312,12 @@ impl Config {
         if self.stream_replicas == 0 {
             anyhow::bail!("stream_replicas must be > 0");
         }
+        if self.stream_max_age_secs == 0 {
+            anyhow::bail!("stream_max_age_secs must be > 0");
+        }
+        if self.stream_max_bytes <= 0 {
+            anyhow::bail!("stream_max_bytes must be > 0");
+        }
         if self.channel_size == 0 {
             anyhow::bail!("channel_size must be > 0");
         }
@@ -310,6 +334,14 @@ impl Config {
             }
             if listener.subject().is_empty() {
                 anyhow::bail!("listener[{}]: subject cannot be empty", i);
+            }
+            // NATS publish subjects must be concrete (no whole-token * / >).
+            if !crate::publisher::is_valid_listener_publish_subject(listener.subject()) {
+                anyhow::bail!(
+                    "listener[{}]: subject {:?} must be a concrete NATS subject (no whole-token * or >)",
+                    i,
+                    listener.subject()
+                );
             }
             if !seen_addrs.insert(addr.to_string()) {
                 anyhow::bail!("listener[{}]: duplicate listen_addr '{}'", i, addr);
@@ -373,6 +405,30 @@ impl Config {
         }
         validate_host_slice_allowlist(&self.host_slice_allowlist)?;
 
+        // stream_subjects: reject filters that overlap the raw-flow namespace via
+        // NATS pattern coverage (not just a flows.raw. textual prefix). This is
+        // the source of truth; Helm is an early UX check only.
+        if let Some(subjects) = &self.stream_subjects {
+            for (i, subject) in subjects.iter().enumerate() {
+                if subject.is_empty() {
+                    anyhow::bail!("stream_subjects[{i}]: subject cannot be empty");
+                }
+                if !crate::publisher::is_protocol_valid_nats_subject(subject) {
+                    anyhow::bail!(
+                        "stream_subjects[{i}]: {subject:?} is not a protocol-valid NATS subject \
+                         (no whitespace/empty tokens; a whole-token '>' wildcard must be terminal)"
+                    );
+                }
+                if crate::publisher::pattern_overlaps_flow_namespace(subject) {
+                    anyhow::bail!(
+                        "stream_subjects[{i}]: {subject:?} uses a NATS filter that intersects \
+                         flows.raw.> or flow.host-slice.>; use concrete leaves (EventWriter \
+                         requires exact subjects; wildcards block rehome and leave extensions unconsumed)"
+                    );
+                }
+            }
+        }
+
         Ok(())
     }
 
@@ -411,7 +467,7 @@ mod tests {
     fn test_valid_multi_listener_config() {
         let json = r#"{
             "nats_url": "nats://localhost:4222",
-            "stream_name": "events",
+            "stream_name": "flows",
             "listeners": [
                 {
                     "protocol": "sflow",
@@ -430,6 +486,54 @@ mod tests {
         assert_eq!(config.listeners.len(), 2);
         assert_eq!(config.channel_size, 10000);
         assert_eq!(config.batch_size, 100);
+        assert_eq!(config.stream_max_age_secs, 6 * 60 * 60);
+        assert_eq!(config.stream_max_bytes, 10 * 1024 * 1024 * 1024);
+    }
+
+    #[test]
+    fn test_rehomeable_flow_subject_is_prefix_safe() {
+        use crate::publisher::is_rehomeable_flow_subject;
+
+        let required = vec![
+            "flows.raw.netflow".to_string(),
+            "flow.host-slice.agent-1".to_string(),
+        ];
+        assert!(is_rehomeable_flow_subject("flows.raw.netflow", &required));
+        assert!(is_rehomeable_flow_subject("flows.raw.sflow", &required));
+        assert!(is_rehomeable_flow_subject(
+            "flow.host-slice.agent-1",
+            &required
+        ));
+        // Not configured host-slice — leave on events.
+        assert!(!is_rehomeable_flow_subject(
+            "flow.host-slice.other",
+            &required
+        ));
+        // Unrelated events subjects must never rehome.
+        assert!(!is_rehomeable_flow_subject("logs.syslog", &required));
+        assert!(!is_rehomeable_flow_subject("k8s.inventory", &required));
+        assert!(!is_rehomeable_flow_subject("events.>", &required));
+    }
+
+    #[test]
+    fn test_stream_max_age_secs_override() {
+        let json = r#"{
+            "nats_url": "nats://localhost:4222",
+            "stream_name": "flows",
+            "stream_max_age_secs": 7200,
+            "stream_max_bytes": 10737418240,
+            "listeners": [
+                {
+                    "protocol": "netflow",
+                    "listen_addr": "0.0.0.0:2055",
+                    "subject": "flows.raw.netflow"
+                }
+            ]
+        }"#;
+        let config: Config = serde_json::from_str(json).unwrap();
+        assert!(config.validate().is_ok());
+        assert_eq!(config.stream_max_age_secs, 7200);
+        assert_eq!(config.stream_max_bytes, 10737418240);
     }
 
     #[test]
@@ -529,6 +633,92 @@ mod tests {
         assert!(subjects.contains(&"flows.raw.sflow".to_string()));
         assert!(subjects.contains(&"flows.raw.netflow".to_string()));
         assert!(subjects.contains(&"flows.raw.extra".to_string()));
+    }
+
+    #[test]
+    fn validate_rejects_listener_wildcard_publish_subject() {
+        let json = r#"{
+            "nats_url": "nats://localhost:4222",
+            "stream_name": "flows",
+            "listeners": [
+                {
+                    "protocol": "netflow",
+                    "listen_addr": "0.0.0.0:2055",
+                    "subject": "flows.>"
+                }
+            ]
+        }"#;
+        let config: Config = serde_json::from_str(json).unwrap();
+        let err = config.validate().unwrap_err().to_string();
+        assert!(err.contains("concrete"), "{err}");
+    }
+
+    #[test]
+    fn validate_rejects_stream_subject_namespace_wildcards() {
+        for subject in ["*.>", "flows.>", "*.raw.>", "flows.raw.>"] {
+            let json = format!(
+                r#"{{
+                "nats_url": "nats://localhost:4222",
+                "stream_name": "flows",
+                "stream_subjects": ["{subject}"],
+                "listeners": [{{
+                    "protocol": "netflow",
+                    "listen_addr": "0.0.0.0:2055",
+                    "subject": "flows.raw.netflow"
+                }}]
+            }}"#
+            );
+            let config: Config = serde_json::from_str(&json).unwrap();
+            let err = config.validate().unwrap_err().to_string();
+            assert!(
+                err.contains("covers") || err.contains("wildcard") || err.contains("flows.raw"),
+                "subject={subject} err={err}"
+            );
+        }
+    }
+
+    #[test]
+    fn validate_rejects_nonterminal_tail_wildcards() {
+        for subject in ["logs.>.vendor", "logs.>.>"] {
+            let json = format!(
+                r#"{{
+                "nats_url": "nats://localhost:4222",
+                "stream_name": "flows",
+                "stream_subjects": ["{subject}"],
+                "listeners": [{{
+                    "protocol": "netflow",
+                    "listen_addr": "0.0.0.0:2055",
+                    "subject": "flows.raw.netflow"
+                }}]
+            }}"#
+            );
+            let config: Config = serde_json::from_str(&json).unwrap();
+            let err = config.validate().unwrap_err().to_string();
+            assert!(
+                err.contains("protocol-valid"),
+                "subject={subject} err={err}"
+            );
+        }
+    }
+
+    #[test]
+    fn validate_preserves_embedded_literal_wildcard_characters() {
+        for subject in ["logs.vend*or", "logs.vendor>.tail"] {
+            let json = format!(
+                r#"{{
+                "nats_url": "nats://localhost:4222",
+                "stream_name": "flows",
+                "stream_subjects": ["{subject}"],
+                "listeners": [{{
+                    "protocol": "netflow",
+                    "listen_addr": "0.0.0.0:2055",
+                    "subject": "flows.raw.netflow"
+                }}]
+            }}"#
+            );
+            let config: Config = serde_json::from_str(&json).unwrap();
+            config.validate().unwrap();
+        }
     }
 
     #[test]
@@ -707,5 +897,85 @@ mod tests {
         let config: Config = serde_json::from_str(json).unwrap();
         let err = config.validate().unwrap_err();
         assert!(err.to_string().contains("channel_size"));
+    }
+
+    #[test]
+    fn test_normalize_stream_subjects_drops_covered_exacts() {
+        use crate::publisher::{normalize_stream_subjects, subject_covers};
+
+        assert!(subject_covers("flows.raw.>", "flows.raw.netflow"));
+        assert!(subject_covers("flows.raw.>", "flows.raw.sflow"));
+        assert!(subject_covers("flows.raw.>", "flows.raw.ipfix.v9"));
+        assert!(!subject_covers("flows.raw.netflow", "flows.raw.sflow"));
+        assert!(!subject_covers("flows.raw.*", "flows.raw.ipfix.v9"));
+        assert!(subject_covers("flows.raw.*", "flows.raw.ipfix"));
+
+        // Wildcard vs wildcard: * must NOT cover >; > covers *.
+        assert!(!subject_covers("flows.raw.*", "flows.raw.>"));
+        assert!(subject_covers("flows.raw.>", "flows.raw.*"));
+        assert!(!subject_covers("flows.*.netflow", "flows.raw.sflow"));
+        assert!(subject_covers("flows.*.netflow", "flows.raw.netflow"));
+        assert!(!subject_covers(
+            "flows.*.netflow",
+            "flows.raw.other.netflow"
+        ));
+
+        let normalized = normalize_stream_subjects(vec![
+            "flows.raw.>".to_string(),
+            "flows.raw.netflow".to_string(),
+            "flows.raw.sflow".to_string(),
+        ]);
+        assert_eq!(normalized, vec!["flows.raw.>".to_string()]);
+
+        let star_and_gt = normalize_stream_subjects(vec![
+            "flows.raw.>".to_string(),
+            "flows.raw.*".to_string(),
+            "flows.raw.netflow".to_string(),
+        ]);
+        assert_eq!(star_and_gt, vec!["flows.raw.>".to_string()]);
+
+        let star = normalize_stream_subjects(vec![
+            "flows.raw.*".to_string(),
+            "flows.raw.netflow".to_string(),
+            "flows.raw.sflow".to_string(),
+        ]);
+        assert_eq!(star, vec!["flows.raw.*".to_string()]);
+
+        let mixed = normalize_stream_subjects(vec![
+            "flows.raw.netflow".to_string(),
+            "flows.raw.sflow".to_string(),
+            "events.device".to_string(),
+        ]);
+        assert_eq!(
+            mixed,
+            vec![
+                "events.device".to_string(),
+                "flows.raw.netflow".to_string(),
+                "flows.raw.sflow".to_string(),
+            ]
+        );
+    }
+
+    #[test]
+    fn image_baked_config_targets_flows_with_capacity_safe_cap() {
+        let raw = include_str!("../flow-collector.json");
+        let config: Config = serde_json::from_str(raw).expect("flow-collector.json parses");
+        assert_eq!(config.stream_name, "flows");
+        // Image/docker bake uses a capacity-safe override, not the 10 GiB binary default.
+        assert_eq!(config.stream_max_bytes, 1024 * 1024 * 1024);
+        assert!(config.stream_max_age_secs > 0);
+    }
+
+    #[test]
+    fn omitted_retention_fields_default_but_events_name_is_legacy() {
+        let raw = r#"{
+            "nats_url": "nats://localhost:4222",
+            "stream_name": "events",
+            "listeners": [{"protocol":"netflow","listen_addr":"0.0.0.0:2055","subject":"flows.raw.netflow"}]
+        }"#;
+        let config: Config = serde_json::from_str(raw).unwrap();
+        assert_eq!(config.stream_name, "events");
+        // Defaults apply for parsing; publisher must not reshape events with them.
+        assert_eq!(config.stream_max_bytes, 10 * 1024 * 1024 * 1024);
     }
 }

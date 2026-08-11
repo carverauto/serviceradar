@@ -370,7 +370,7 @@ func TestStageAddonArtifactRejectsUnsafePath(t *testing.T) {
 
 func TestStageAddonArtifactFailsClosedWhenSignedButKeyUnset(t *testing.T) {
 	// No release verification key configured...
-	t.Setenv(releasePublicKeyEnv, "")
+	setReleaseVerificationKey(t, "")
 
 	root := t.TempDir()
 	payload := []byte("signed-but-unverifiable")
@@ -464,7 +464,7 @@ func TestStageAddonArtifactVerifiesSignature(t *testing.T) {
 		t.Fatalf("generate key: %v", err)
 	}
 	// stageAddonArtifact reuses the agent release ed25519 trust root.
-	t.Setenv(releasePublicKeyEnv, hex.EncodeToString(pub))
+	setReleaseVerificationKey(t, hex.EncodeToString(pub))
 
 	root := t.TempDir()
 	payload := []byte("signed-addon-binary")
@@ -833,7 +833,7 @@ func TestStageAddonArtifactViaGatewayHTTP(t *testing.T) {
 	if err != nil {
 		t.Fatalf("generate key: %v", err)
 	}
-	t.Setenv(releasePublicKeyEnv, hex.EncodeToString(pub))
+	setReleaseVerificationKey(t, hex.EncodeToString(pub))
 
 	payload := []byte("gateway-delivered-addon-binary")
 	const wantToken = "signed-download-token"
@@ -1014,4 +1014,22 @@ func TestAddonResourcesFromProto(t *testing.T) {
 	if got != want {
 		t.Fatalf("addonResourcesFromProto = %+v, want %+v", got, want)
 	}
+}
+
+// setReleaseVerificationKey points the agent's release trust root at key for the duration of t.
+//
+// It sets BOTH channels that releaseVerificationKey() consults, and the package variable is the
+// one that matters: ReleaseSigningPublicKey is embedded from a committed source file and takes
+// precedence, so the env var alone is only honoured when that embedded value is empty. It used
+// to be empty in every non-release build -- the key was injected by --stamp, which only the
+// release job passed -- so setting the env var alone happened to work here while testing a
+// configuration that never shipped.
+func setReleaseVerificationKey(t *testing.T, key string) {
+	t.Helper()
+
+	t.Setenv(releasePublicKeyEnv, key)
+
+	previous := ReleaseSigningPublicKey
+	ReleaseSigningPublicKey = key
+	t.Cleanup(func() { ReleaseSigningPublicKey = previous })
 }

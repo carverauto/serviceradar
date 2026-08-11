@@ -1,6 +1,6 @@
 defmodule ServiceRadarWebNGWeb.DeviceLive.AnsiblePanelComponents do
   @moduledoc """
-  Device-detail Ansible panel: run history for the device plus an in-page
+  Device-detail Ansible panel: automation operation history plus an in-page
   launch modal (playbook picker + typed variable form).
 
   Rendered only for AWX-managed devices. Reads/launch dispatch live in
@@ -13,12 +13,11 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnsiblePanelComponents do
 
   attr(:device_uid, :string, required: true)
   attr(:device_awx_managed, :boolean, default: false)
-  attr(:can_view_ansible_runs, :boolean, default: false)
+  attr(:can_view_ansible_operations, :boolean, default: false)
   attr(:can_run_ansible, :boolean, default: false)
   attr(:device_deleted, :boolean, default: false)
   attr(:ansible_controller_id, :string, default: nil)
-  attr(:secure_history, :list, default: [])
-  attr(:runs, :list, default: [])
+  attr(:operation_history, :list, default: [])
   attr(:playbooks, :list, default: [])
   attr(:launch_open, :boolean, default: false)
   attr(:selected_playbook_id, :string, default: nil)
@@ -30,17 +29,15 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnsiblePanelComponents do
   attr(:launch_readiness, :string, default: nil)
   attr(:launch_form, :any, required: true)
 
-  def ansible_runs_section(assigns) do
+  def ansible_operations_section(assigns) do
     assigns =
       assigns
       |> assign(:launchable?, assigns.can_run_ansible and not assigns.device_deleted and assigns.playbooks != [])
-      |> assign(:has_secure_history, assigns.secure_history != [])
-      |> assign(:has_legacy_runs, assigns.runs != [])
-      |> assign(:has_history, assigns.secure_history != [] or assigns.runs != [])
+      |> assign(:has_history, assigns.operation_history != [])
 
     ~H"""
     <section
-      :if={@device_awx_managed and @can_view_ansible_runs}
+      :if={@device_awx_managed and (@can_view_ansible_operations or @can_run_ansible)}
       class="rounded-xl border border-sr-line bg-sr-surface"
       data-testid="device-ansible-panel"
     >
@@ -52,23 +49,18 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnsiblePanelComponents do
           <div>
             <h2 class="text-sm font-semibold text-sr-ink">Ansible</h2>
             <p class="text-xs text-sr-muted">
-              AWX inventory member · secure operations and legacy run history
+              AWX inventory member · Ansible operations
             </p>
           </div>
         </div>
 
         <div class="flex items-center gap-2">
           <.link
+            :if={@can_view_ansible_operations}
             navigate={~p"/ansible/operations"}
             class="text-sr-brand hover:underline text-xs text-sr-muted"
           >
-            Secure operations
-          </.link>
-          <.link
-            navigate={~p"/ansible/runs"}
-            class="text-sr-brand hover:underline text-xs text-sr-muted"
-          >
-            Legacy runs
+            All operations
           </.link>
           <.ui_button
             :if={@can_run_ansible and not @device_deleted}
@@ -79,31 +71,33 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnsiblePanelComponents do
             size="sm"
             variant="primary"
           >
-            <.icon name="hero-play" class="size-4" /> Run Task
+            <.icon name="hero-play" class="size-4" /> Launch Playbook
           </.ui_button>
         </div>
       </div>
 
-      <div :if={not @has_history} class="px-4 py-6 text-sm text-sr-muted">
-        No playbook runs have targeted this device yet.
+      <div
+        :if={@can_view_ansible_operations and not @has_history}
+        class="px-4 py-6 text-sm text-sr-muted"
+      >
+        No Ansible operations have targeted this device yet.
         <span :if={@can_run_ansible and @playbooks == []} class="block text-xs mt-1">
           No launchable playbooks are bound to this device's AWX controller.
         </span>
       </div>
 
-      <div :if={@has_secure_history} class="border-b border-sr-line">
+      <div :if={@can_view_ansible_operations and @has_history}>
         <div class="flex flex-wrap items-center justify-between gap-2 px-4 py-3">
           <div>
-            <h3 class="text-sm font-semibold">Secure operation history</h3>
+            <h3 class="text-sm font-semibold">Recent operations</h3>
             <p class="text-xs text-sr-muted">
               Immutable controller, inventory, and AWX host identity.
             </p>
           </div>
-          <.ui_badge size="sm" variant="success">ServiceRadar secured</.ui_badge>
         </div>
 
         <div class="sr-ui-table-shell">
-          <table class={ui_table_class(size: "sm")} data-testid="device-secure-ansible-history">
+          <table class={ui_table_class(size: "sm")} data-testid="device-ansible-operation-history">
             <thead>
               <tr>
                 <th>Operation</th>
@@ -116,7 +110,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnsiblePanelComponents do
               </tr>
             </thead>
             <tbody>
-              <tr :for={record <- @secure_history}>
+              <tr :for={record <- @operation_history}>
                 <td>
                   <.ui_badge size="sm" variant={state_badge_variant(record.operation.state)}>
                     {record.operation.state}
@@ -178,75 +172,6 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnsiblePanelComponents do
                     variant="ghost"
                   >
                     Evidence
-                  </.ui_button>
-                </td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
-      </div>
-
-      <div :if={@has_legacy_runs}>
-        <div class="flex flex-wrap items-center justify-between gap-2 px-4 py-3">
-          <div>
-            <h3 class="text-sm font-semibold">Legacy PlaybookRun history</h3>
-            <p class="text-xs text-sr-muted">
-              Pre-hardening task/event records; not secure operation evidence.
-            </p>
-          </div>
-          <.ui_badge size="sm" variant="outline">Legacy</.ui_badge>
-        </div>
-
-        <div class="sr-ui-table-shell">
-          <table class={ui_table_class(size: "sm")}>
-            <thead>
-              <tr>
-                <th>Playbook</th>
-                <th>Run</th>
-                <th>Host result</th>
-                <th>Tasks</th>
-                <th>Started</th>
-                <th></th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr :for={target <- @runs}>
-                <td class="max-w-[16rem] truncate" title={playbook_name(target)}>
-                  {playbook_name(target)}
-                </td>
-                <td>
-                  <.ui_badge size="sm" variant={state_badge_variant(run_state(target))}>
-                    {run_state(target)}
-                  </.ui_badge>
-                </td>
-                <td>
-                  <.ui_badge size="sm" variant={target_badge_variant(target.status)}>
-                    {target.status}
-                  </.ui_badge>
-                </td>
-                <td class="whitespace-nowrap text-xs text-sr-muted">
-                  <span class="text-success">{target.ok_count} ok</span>
-                  <span :if={target.changed_count > 0} class="text-warning">
-                    · {target.changed_count} chg
-                  </span>
-                  <span :if={target.failed_count > 0} class="text-error">
-                    · {target.failed_count} fail
-                  </span>
-                  <span :if={target.unreachable_count > 0} class="text-error">
-                    · {target.unreachable_count} unreachable
-                  </span>
-                </td>
-                <td class="whitespace-nowrap text-xs">
-                  {fmt_ts(target.started_at || target.inserted_at)}
-                </td>
-                <td>
-                  <.ui_button
-                    :if={run_id(target)}
-                    navigate={~p"/ansible/runs/#{run_id(target)}"}
-                    size="xs"
-                    variant="ghost"
-                  >
-                    View
                   </.ui_button>
                 </td>
               </tr>
@@ -416,8 +341,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnsiblePanelComponents do
   ## Variable inputs -----------------------------------------------------------
 
   @doc """
-  Typed input for a single `%Var{}`. Shared with the bulk Devices "Run Task"
-  modal so both ansible surfaces render identical variable forms.
+  Typed input for a single `%Var{}` in the reviewed Ansible launch form.
 
   `name` overrides the HTML field name so a caller can namespace the inputs
   (e.g. `action[vars][hostname]`); it defaults to the bare variable name.
@@ -562,15 +486,6 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnsiblePanelComponents do
   defp launch_disabled_reason(true, _controller_id), do: nil
   defp launch_disabled_reason(false, nil), do: "This device isn't bound to an AWX controller."
   defp launch_disabled_reason(false, _controller_id), do: "No launchable playbooks for this device's AWX controller."
-
-  defp playbook_name(%{run: %{playbook: %{name: name}}}) when is_binary(name), do: name
-  defp playbook_name(_), do: "—"
-
-  defp run_state(%{run: %{state: state}}), do: state
-  defp run_state(_), do: :pending
-
-  defp run_id(%{run: %{id: id}}) when is_binary(id), do: id
-  defp run_id(_), do: nil
 
   defp controller_name(%{name: name}) when is_binary(name) and name != "", do: name
   defp controller_name(_controller), do: "Controller"

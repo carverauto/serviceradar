@@ -4,6 +4,7 @@ use crate::flowpb::{AttributedFlowMessage, FlowMessage};
 use crate::host_slice::HostSliceRouter;
 use crate::metrics::{ListenerMetrics, SubjectDropRegistry};
 use crate::netflow::NetflowHandler;
+use crate::publisher::OutboundFlow;
 use crate::sflow::SflowHandler;
 use anyhow::Result;
 use log::{error, info, warn};
@@ -11,6 +12,7 @@ use prost::Message;
 use std::net::SocketAddr;
 use std::sync::Arc;
 use std::sync::atomic::Ordering;
+use std::time::Instant;
 use std::time::{SystemTime, UNIX_EPOCH};
 use tokio::net::UdpSocket;
 use tokio::sync::mpsc;
@@ -90,7 +92,7 @@ pub struct Listener {
     /// is `DropNewest` (tokio `mpsc::try_send` rejects the incoming message
     /// when the channel is full); see `config.rs` for why we do not expose
     /// a `DropOldest` policy.
-    tx: mpsc::Sender<(String, Vec<u8>)>,
+    tx: mpsc::Sender<OutboundFlow>,
     subject: String,
     host_slice_router: Arc<HostSliceRouter>,
     metrics: Arc<ListenerMetrics>,
@@ -108,7 +110,7 @@ impl Listener {
         buffer_size: usize,
         subject: String,
         host_slice_router: Arc<HostSliceRouter>,
-        tx: mpsc::Sender<(String, Vec<u8>)>,
+        tx: mpsc::Sender<OutboundFlow>,
         metrics: Arc<ListenerMetrics>,
         subject_drops: Arc<SubjectDropRegistry>,
     ) -> Self {
@@ -181,9 +183,11 @@ impl Listener {
         subject: String,
         encoded: Vec<u8>,
     ) -> Result<bool> {
-        match self.tx.try_send((subject, encoded)) {
+        // Stamp ingress at UDP accept so publisher never-attempted TTL bounds
+        // hold time across both channel layers.
+        match self.tx.try_send((subject, encoded, Instant::now())) {
             Ok(_) => Ok(true),
-            Err(mpsc::error::TrySendError::Full((dropped_subject, _))) => {
+            Err(mpsc::error::TrySendError::Full((dropped_subject, _, _))) => {
                 warn!(
                     "[{}] Publisher channel full, dropping flow message for subject '{}'",
                     protocol, dropped_subject
@@ -310,6 +314,9 @@ mod tests {
         } else {
             second.1.as_slice()
         };
+        // Ingress timestamps must be present on both channel items.
+        let _ = first.2;
+        let _ = second.2;
         let decoded = AttributedFlowMessage::decode(host_slice_payload).expect("host slice decode");
 
         assert_eq!(decoded.event_type, "host_slice_flow");
@@ -387,10 +394,13 @@ mod tests {
         Config {
             nats_url: "nats://localhost:4222".to_string(),
             nats_creds_file: None,
-            stream_name: "events".to_string(),
+            stream_name: "flows".to_string(),
             stream_subjects: None,
             stream_max_bytes: 1024,
+            stream_max_age_secs: 3600,
             stream_replicas: 1,
+            rehome_state_path: None,
+            ready_state_path: None,
             partition: "default".to_string(),
             channel_size: 100,
             batch_size: 10,

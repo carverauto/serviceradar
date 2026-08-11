@@ -1,6 +1,6 @@
 [package]
 name = "object"
-version = "0.37.3"
+version = "0.39.1"
 edition = "2018"
 keywords = ["object", "elf", "mach-o", "pe", "coff"]
 license = "Apache-2.0 OR MIT"
@@ -26,10 +26,10 @@ features = ['doc']
 [dependencies]
 crc32fast = { version = "1.2", default-features = false, optional = true }
 flate2 = { version = "1", optional = true }
-indexmap = { version = "2.0", default-features = false, optional = true }
-wasmparser = { version = "0.236.0", default-features = false, optional = true }
+indexmap = { version = "2.14", default-features = false, optional = true }
+wasmparser = { version = "0.247.0", default-features = false, optional = true }
 memchr = { version = "2.4.1", default-features = false }
-hashbrown = { version = "0.15.0", features = ["default-hasher"], default-features = false, optional = true }
+hashbrown = { version = "0.17.0", features = ["default-hasher"], default-features = false, optional = true }
 ruzstd = { version = "0.8.1", optional = true }
 
 # Internal feature, only used when building as part of libstd, not part of the
@@ -43,8 +43,8 @@ alloc = { version = '1.0.0', optional = true, package = 'rustc-std-workspace-all
 
 # Core read support. You will need to enable some file formats too.
 read_core = []
-# Read support for most file formats (including unaligned files).
-read = ["read_core", "archive", "coff", "elf", "macho", "pe", "xcoff", "unaligned"]
+# Read support for most file formats.
+read = ["read_core", "archive", "coff", "elf", "macho", "pe", "xcoff"]
 # Core write support. You will need to enable some file formats too.
 write_core = ["dep:crc32fast", "dep:indexmap", "dep:hashbrown"]
 # Core write support with libstd features. You will need to enable some file formats too.
@@ -65,12 +65,6 @@ std = ["memchr/std"]
 # Enable decompression of compressed sections.
 # This feature is not required if you want to do your own decompression.
 compression = ["dep:flate2", "dep:ruzstd", "std"]
-# Treat all types as unaligned.
-# Normally types use the alignment required by the specifications, but
-# sometimes files do not strictly follow the specifications.
-# This may be useful to enable when processing files for architectures
-# that have no alignment constraints.
-unaligned = []
 
 #=======================================
 # File format features.
@@ -96,12 +90,11 @@ all = ["read", "write", "build", "std", "compression", "wasm"]
 cargo-all = []
 
 #=======================================
-# Documentation should be generated with everything in "all" except for "unaligned".
-doc = [
-  "read_core", "write_std", "build_core",
-  "std", "compression",
-  "archive", "coff", "elf", "macho", "pe", "wasm", "xcoff",
-]
+doc = ["all"]
+
+#=======================================
+# Deprecated features.
+unaligned = []
 
 #=======================================
 # Unstable features. Breaking changes in these features will not affect versioning.

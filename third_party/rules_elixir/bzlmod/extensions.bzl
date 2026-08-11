@@ -1,3 +1,4 @@
+load("@bazel_tools//tools/build_defs/repo:http.bzl", "http_archive")
 load(
     "//repositories:elixir_config.bzl",
     "INSTALLATION_TYPE_EXTERNAL",
@@ -83,5 +84,71 @@ elixir_config = module_extension(
         "external_elixir_from_path": external_elixir_from_path,
         "internal_elixir_from_http_archive": internal_elixir_from_http_archive,
         "internal_elixir_from_github_release": internal_elixir_from_github_release,
+    },
+)
+
+# Hex, the package manager, built from source as a Mix archive.
+#
+# Not for fetching anything. Mix needs Hex installed as an archive before it can resolve a
+# project at all: without it, `{:dep, "~> x.y"}` in a mix.exs aborts with "Could not find an
+# SCM for dependency", even for a dev-only dep that would never be compiled. A build that
+# supplies every dependency from Bazel and runs `mix --no-deps-check` still trips over this.
+#
+# Hex has no dependencies of its own, so it bootstraps through mix_archive_build with an
+# empty dep graph -- which is why this can live here rather than in the consuming module.
+DEFAULT_HEX_VERSION = "2.5.1"
+
+DEFAULT_HEX_SHA256 = "dabd99ea48ba8064c32bc2e97d59ab1b1055a38a1dd178c5389d95c35e985d2d"
+
+_HEX_BUILD_FILE = """\
+load("@rules_elixir//:mix_archive_build.bzl", "mix_archive_build")
+
+# Consumed via `mix archive.install`, not as an ERL_LIBS dependency, so it has to be a .ez.
+mix_archive_build(
+    name = "archive",
+    srcs = ["mix.exs"] + glob(["lib/**/*"]),
+    out = "hex.ez",
+    visibility = ["//visibility:public"],
+)
+"""
+
+def _hex(ctx):
+    version = DEFAULT_HEX_VERSION
+    sha256 = DEFAULT_HEX_SHA256
+
+    # Last tag wins, and the root module's tags are evaluated last, so a consumer can pin a
+    # version without every dependency in the graph having to agree on one.
+    for mod in ctx.modules:
+        for hex in mod.tags.from_github_release:
+            version = hex.version
+            sha256 = hex.sha256
+
+    http_archive(
+        name = "hex",
+        build_file_content = _HEX_BUILD_FILE,
+        sha256 = sha256,
+        strip_prefix = "hex-{}".format(version),
+        urls = ["https://github.com/hexpm/hex/archive/refs/tags/v{}.zip".format(version)],
+    )
+
+    return ctx.extension_metadata(
+        root_module_direct_deps = ["hex"],
+        root_module_direct_dev_deps = [],
+        reproducible = True,
+    )
+
+from_github_release = tag_class(attrs = {
+    "version": attr.string(
+        default = DEFAULT_HEX_VERSION,
+    ),
+    "sha256": attr.string(
+        default = DEFAULT_HEX_SHA256,
+    ),
+})
+
+hex = module_extension(
+    implementation = _hex,
+    tag_classes = {
+        "from_github_release": from_github_release,
     },
 )

@@ -81,7 +81,7 @@ impl<'data, Elf: FileHeader> AttributesSubsectionIterator<'data, Elf> {
         // First read the subsection length.
         let mut data = self.data;
         let length = data
-            .read::<endian::U32Bytes<Elf::Endian>>()
+            .read::<endian::U32<Elf::Endian>>()
             .read_error("ELF attributes section is too short")?
             .get(self.endian);
 
@@ -180,7 +180,7 @@ impl<'data, Elf: FileHeader> AttributesSubsubsectionIterator<'data, Elf> {
             .read::<u8>()
             .read_error("ELF attributes subsection is too short")?;
         let length = data
-            .read::<endian::U32Bytes<Elf::Endian>>()
+            .read::<endian::U32<Elf::Endian>>()
             .read_error("ELF attributes subsection is too short")?
             .get(self.endian);
 

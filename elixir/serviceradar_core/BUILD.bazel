@@ -111,23 +111,23 @@ filegroup(
 # Shared between the :test and :prod compilations below, which differ only in mix_env.
 CORE_SRCS = [
     ":compile_srcs",
-        # Read at compile time, from outside this package. The *_addon_package_seeder
-        # modules do Path.expand("../../../../../addons/<x>/config.schema.json", __DIR__)
-        # and bake the result in with @external_resource, so these have to be declared
-        # action inputs -- existing in the source tree is not enough. mix_app stages srcs
-        # under their own package path, which is what makes the five-levels-up path
-        # resolve here the same way it resolves to the repo root under plain mix.
-        "//addons/bumblebee-scan:bumblebee_scan_manifest",
-        "//addons/netprobe:netprobe_manifest",
-        "//addons/otel-collector:otel_collector_manifest",
-        "//addons/scalibr-endpoint-inventory:scalibr_endpoint_inventory_manifest",
-        "//addons/workload-identity:workload_identity_manifest",
-        # Same reason, different consumer. ServiceRadar.Plugins.AddonConfigContractFixtures
-        # pins @repo_root Path.expand("../../../../..", __DIR__) at compile time, so under
-        # mix_app that resolves inside the build tree and the committed fixtures have to be
-        # staged there too. Declaring them on the test target instead puts them in the test's
-        # runfiles, which is a different directory and not the one the baked-in path points
-        # at -- the drift test then fails with "could not read file .../erlang_app_mix/go/...".
+    # Read at compile time, from outside this package. The *_addon_package_seeder
+    # modules do Path.expand("../../../../../addons/<x>/config.schema.json", __DIR__)
+    # and bake the result in with @external_resource, so these have to be declared
+    # action inputs -- existing in the source tree is not enough. mix_app stages srcs
+    # under their own package path, which is what makes the five-levels-up path
+    # resolve here the same way it resolves to the repo root under plain mix.
+    "//addons/bumblebee-scan:bumblebee_scan_manifest",
+    "//addons/netprobe:netprobe_manifest",
+    "//addons/otel-collector:otel_collector_manifest",
+    "//addons/scalibr-endpoint-inventory:scalibr_endpoint_inventory_manifest",
+    "//addons/workload-identity:workload_identity_manifest",
+    # Same reason, different consumer. ServiceRadar.Plugins.AddonConfigContractFixtures
+    # pins @repo_root Path.expand("../../../../..", __DIR__) at compile time, so under
+    # mix_app that resolves inside the build tree and the committed fixtures have to be
+    # staged there too. Declaring them on the test target instead puts them in the test's
+    # runfiles, which is a different directory and not the one the baked-in path points
+    # at -- the drift test then fails with "could not read file .../erlang_app_mix/go/...".
     "//go/pkg/agent:addonconfig_contract_fixtures",
 ]
 
@@ -146,54 +146,54 @@ CORE_NATIVE_LIBS = {
 }
 
 CORE_DEPS = [
-        "//third_party/hex_vendored/connection:erlang_app",
-        "//third_party/hex_vendored/elixir_uuid:erlang_app",
-        "//elixir/serviceradar_srql:erlang_app",
-        "//third_party/hex_vendored/opentelemetry_oban:erlang_app",
-        "@hex_ash//:erlang_app",
-        "@hex_ash_admin//:erlang_app",
-        "@hex_ash_cloak//:erlang_app",
-        "@hex_ash_json_api//:erlang_app",
-        "@hex_ash_oban//:erlang_app",
-        "@hex_ash_paper_trail//:erlang_app",
-        "@hex_ash_postgres//:erlang_app",
-        "@hex_ash_state_machine//:erlang_app",
-        "@hex_bcrypt_elixir//:erlang_app",
-        "@hex_boundary//:erlang_app",
-        "@hex_broadway//:erlang_app",
-        "@hex_broadway_dashboard//:erlang_app",
-        "@hex_castore//:erlang_app",
-        "@hex_cloak//:erlang_app",
-        "@hex_ecto_sql//:erlang_app",
-        "@hex_ex_json_schema//:erlang_app",
-        "@hex_file_system//:erlang_app",
-        "@hex_geolix_adapter_mmdb2//:erlang_app",
-        "@hex_gnat//:erlang_app",
-        "@hex_grpc//:erlang_app",
-        "@hex_gun//:erlang_app",
-        "@hex_horde//:erlang_app",
-        "@hex_jason//:erlang_app",
-        "@hex_libcluster//:erlang_app",
-        "@hex_oban//:erlang_app",
-        "@hex_open_api_spex//:erlang_app",
-        "@hex_opentelemetry//:erlang_app",
-        "@hex_opentelemetry_api//:erlang_app",
-        "@hex_opentelemetry_api_experimental//:erlang_app",
-        "@hex_opentelemetry_bandit//:erlang_app",
-        "@hex_opentelemetry_ecto//:erlang_app",
-        "@hex_opentelemetry_experimental//:erlang_app",
-        "@hex_opentelemetry_exporter//:erlang_app",
-        "@hex_opentelemetry_phoenix//:erlang_app",
-        "@hex_opentelemetry_semantic_conventions//:erlang_app",
-        "@hex_postgrex//:erlang_app",
-        "@hex_protobuf//:erlang_app",
-        "@hex_req//:erlang_app",
-        "@hex_rustler//:erlang_app",
-        "@hex_simple_sat//:erlang_app",
-        "@hex_swoosh//:erlang_app",
-        "@hex_telemetry//:erlang_app",
-        "@hex_telemetry_metrics//:erlang_app",
-    "@hex_yaml_elixir//:erlang_app",
+    "//third_party/hex_vendored/connection:erlang_app",
+    "//third_party/hex_vendored/elixir_uuid:erlang_app",
+    "//elixir/serviceradar_srql:erlang_app",
+    "//third_party/hex_vendored/opentelemetry_oban:erlang_app",
+    "@hexpm//:ash",
+    "@hexpm//:ash_admin",
+    "@hexpm//:ash_cloak",
+    "@hexpm//:ash_json_api",
+    "@hexpm//:ash_oban",
+    "@hexpm//:ash_paper_trail",
+    "@hexpm//:ash_postgres",
+    "@hexpm//:ash_state_machine",
+    "@hexpm//:bcrypt_elixir",
+    "@hexpm//:boundary",
+    "@hexpm//:broadway",
+    "@hexpm//:broadway_dashboard",
+    "@hexpm//:castore",
+    "@hexpm//:cloak",
+    "@hexpm//:ecto_sql",
+    "@hexpm//:ex_json_schema",
+    "@hexpm//:file_system",
+    "@hexpm//:geolix_adapter_mmdb2",
+    "@hexpm//:gnat",
+    "@hexpm//:grpc",
+    "@hexpm//:gun",
+    "@hexpm//:horde",
+    "@hexpm//:jason",
+    "@hexpm//:libcluster",
+    "@hexpm//:oban",
+    "@hexpm//:open_api_spex",
+    "@hexpm//:opentelemetry",
+    "@hexpm//:opentelemetry_api",
+    "@hexpm//:opentelemetry_api_experimental",
+    "@hexpm//:opentelemetry_bandit",
+    "@hexpm//:opentelemetry_ecto",
+    "@hexpm//:opentelemetry_experimental",
+    "@hexpm//:opentelemetry_exporter",
+    "@hexpm//:opentelemetry_phoenix",
+    "@hexpm//:opentelemetry_semantic_conventions",
+    "@hexpm//:postgrex",
+    "@hexpm//:protobuf",
+    "@hexpm//:req",
+    "@hexpm//:rustler",
+    "@hexpm//:simple_sat",
+    "@hexpm//:swoosh",
+    "@hexpm//:telemetry",
+    "@hexpm//:telemetry_metrics",
+    "@hexpm//:yaml_elixir",
     "@rules_elixir//elixir",
 ]
 
@@ -206,14 +206,14 @@ CORE_DEPS = [
 #
 # Kept on the :test target, which is the env that actually resolves them.
 CORE_DEV_DEPS = [
-        "@hex_ash_credo//:erlang_app",
-        "@hex_credo//:erlang_app",
-        "@hex_dialyxir//:erlang_app",
-        "@hex_ex_dna//:erlang_app",
-        "@hex_ex_slop//:erlang_app",
-        "@hex_mix_audit//:erlang_app",
-        "@hex_sourceror//:erlang_app",
-        "@hex_styler//:erlang_app",
+    "@hexpm//:ash_credo",
+    "@hexpm//:credo",
+    "@hexpm//:dialyxir",
+    "@hexpm//:ex_dna",
+    "@hexpm//:ex_slop",
+    "@hexpm//:mix_audit",
+    "@hexpm//:sourceror",
+    "@hexpm//:styler",
 ]
 
 # serviceradar_core compiled by Mix inside a single hermetic Bazel action.
@@ -388,7 +388,6 @@ ex_unit_tests(
             # set of names from the same shard list.
             "SERVICERADAR_TEST_DB_SHARD": shard,
         },
-
         tags = ["integration_test"],
         # NO exec_properties, deliberately.
         target_compatible_with = requires_shared_fixture(),

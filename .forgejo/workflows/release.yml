@@ -49,11 +49,6 @@ on:
         required: false
         type: boolean
         default: true
-      allow_local_fallback:
-        description: "Allow local Bazel fallback if remote execution fails."
-        required: false
-        type: boolean
-        default: false
 
 concurrency:
   group: release-${{ github.event_name == 'workflow_dispatch' && github.event.inputs.tag || github.ref_name || github.run_id }}
@@ -89,14 +84,16 @@ jobs:
       OCI_CHART_REPOSITORY: serviceradar/charts
       OCI_USERNAME: ${{ secrets.HARBOR_ROBOT_USERNAME }}
       OCI_TOKEN: ${{ secrets.HARBOR_ROBOT_SECRET }}
-      # Harbor above is where this job PUSHES. These two are where Bazel PULLS base images
-      # from: MODULE.bazel fetches 7 from docker.io and 3 from ghcr.io. Without them the
-      # release path pulls all ten anonymously, against Docker Hub's 100-per-6h-per-IP limit
-      # and ghcr's equivalent -- a throttled fetch surfaces as a Bazel "no such package"
-      # loading error, which does not look like a rate limit at all. main.yml already passes
-      # these; buildbuddy_setup_docker_auth.sh writes an entry per registry.
-      GHCR_USERNAME: ${{ secrets.GHCR_USERNAME }}
-      GHCR_TOKEN: ${{ secrets.GHCR_TOKEN }}
+      # Harbor above is where this job PUSHES. The pair below is where Bazel still PULLS from
+      # upstream, and it is now down to a SINGLE image.
+      #
+      # The base images were mirrored into Harbor: of the oci pulls in //MODULE.bazel, 11 now
+      # resolve to registry.carverauto.dev and exactly one does not --
+      #   image = "docker.io/pgduckdb/pgduckdb"   (@pgduckdb_18, base of the analytics head)
+      # DOCKERHUB_* stays for that one pull. Anonymous fetches hit Docker Hub's
+      # 100-per-6h-per-IP limit, and a throttled fetch surfaces as a Bazel "no such package"
+      # loading error rather than anything resembling a rate limit.
+      # buildbuddy_setup_docker_auth.sh writes an entry per registry.
       DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
       DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
       COSIGN_KEYLESS: ${{ secrets.COSIGN_KEYLESS }}
@@ -119,8 +116,9 @@ jobs:
       COSIGN_CERTIFICATE_OIDC_ISSUER_REGEXP: ${{ secrets.COSIGN_CERTIFICATE_OIDC_ISSUER_REGEXP }}
       # (Wasm plugin upload-signing secrets moved to wasm-plugins.yml, which now owns
       # publishing the plugins on `v*` tags.)
-      ALLOW_LOCAL_FALLBACK: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.allow_local_fallback || 'false' }}
       BAZELISK_HOME: ${{ github.workspace }}/.cache/bazelisk
+      # This job now shares its configuration with every CI build, so it reuses that cache.
+      BAZEL_BUILD_FLAGS: -c opt --config=ci --remote_download_outputs=all
     steps:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # actions/checkout@v6.0.2
@@ -172,69 +170,33 @@ jobs:
         with:
           path: |
             ${{ env.BAZELISK_HOME }}
-          key: ${{ runner.os }}-bazel-${{ hashFiles('.bazelversion', '.bazelrc', 'MODULE.bazel', 'MODULE.bazel.lock') }}
+          # Keyed on .bazelversion ONLY. This cache holds just the downloaded bazel binaries.
+          key: ${{ runner.os }}-bazelisk-${{ hashFiles('.bazelversion') }}
           restore-keys: |
-            ${{ runner.os }}-bazel-
-
-      - name: Ensure rpmbuild available for rules_pkg toolchain
+            ${{ runner.os }}-bazelisk-
+            
+      # Only the credential and the three strategy overrides belong here now. Everything else is
+      # inherited, so it cannot drift from //.bazelrc.
+      - name: Configure BuildBuddy remote cache
         run: |
-          ./scripts/ci/ensure-forgejo-tools.sh release-rpm
-          if ! command -v rpmbuild >/dev/null 2>&1; then
-            echo "rpmbuild not found after install" >&2
+          set -euo pipefail
+
+          if [ -z "${BUILDBUDDY_ORG_API_KEY:-}" ]; then
+            echo "BUILDBUDDY_ORG_API_KEY is unavailable; --config=ci cannot authenticate." >&2
             exit 1
           fi
-          rpmbuild --version
 
-      - name: Refresh Bazel externals after rpm install
-        run: |
-          # Force the rules_pkg rpmbuild toolchain to re-detect the system rpmbuild binary.
-          if command -v bazel >/dev/null 2>&1; then
-            bazel clean --expunge
-          else
-            echo "bazel not yet installed; skipping clean (Bazelisk step will follow)" >&2
-          fi
-
-      - name: Configure BuildBuddy remote cache
-        if: ${{ env.BUILDBUDDY_ORG_API_KEY != '' }}
-        run: |
           umask 077
-          cat <<'EOF' | sed 's/^ *//' > .bazelrc.remote
-            build --bes_results_url=https://carverauto.buildbuddy.io/invocation/
-            build --bes_backend=grpcs://carverauto.buildbuddy.io
-            build --remote_cache=grpcs://carverauto.buildbuddy.io
-            build --remote_executor=grpcs://carverauto.buildbuddy.io
-            build --remote_timeout=10m
-            build --remote_download_minimal
-            build --remote_upload_local_results
-            build --jobs=100
-            build --strategy=ExpandTemplate=local
-            build --strategy=NpmPackageExtract=local
-            build --strategy=CopyDirectory=local
-          EOF
-          printf 'common --remote_header=x-buildbuddy-api-key=%s\n' "${BUILDBUDDY_ORG_API_KEY}" >> .bazelrc.remote
+          printf 'common --remote_header=x-buildbuddy-api-key=%s\n' "${BUILDBUDDY_ORG_API_KEY}" > .bazelrc.remote
 
       - name: Install Bazelisk
         run: ./scripts/install-bazelisk.sh
-
-      - name: Setup Go
-        uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # actions/setup-go@v6.4.0
-        with:
-          go-version-file: go.mod
 
       - name: Install Cosign
         run: ./scripts/install-cosign.sh
 
       - name: Install ORAS
         run: ./scripts/install-oras.sh
-
-      - name: Verify Bazel version
-        run: |
-          set -euo pipefail
-          expected="$(tr -d '\r\n' < .bazelversion)"
-          actual="$(bazel --version | awk '{print $NF}')"
-          echo "Expected Bazel: ${expected}"
-          echo "Resolved Bazel: ${actual}"
-          test "${actual}" = "${expected}"
 
       - name: Resolve release metadata
         id: release
@@ -311,12 +273,21 @@ jobs:
           SERVICERADAR_AGENT_RELEASE_PRIVATE_KEY: ${{ secrets.SERVICERADAR_AGENT_RELEASE_PRIVATE_KEY }}
         run: |
           set -euo pipefail
-          public_key="$(go run ./tools/go/derive_agent_release_public_key)"
+
+          # `bazel run`, not `go run`: this was the only consumer of actions/setup-go in the
+          # job, and building the tool through bazel means it compiles on the executors under
+          # the same configuration as everything else instead of needing a host Go toolchain.
+          # The tool still EXECUTES locally, so the signing secret in this step's env reaches
+          # it and never leaves the runner. Same pattern as native-addons.yml.
+          public_key="$(bazel run ${BAZEL_BUILD_FLAGS} \
+            //tools/go/derive_agent_release_public_key 2>/dev/null | tail -n1)"
           if [[ -z "${public_key}" ]]; then
             echo "derived managed agent release public key is empty" >&2
             exit 1
           fi
-          printf '%s\n' "${public_key}" > .bazel-agent-release-public-key
+
+          # The env var below is still needed: verify-agent-release-key-stamp.sh takes it as the
+          # EXPECTED value and asserts the committed key matches what the signing secret derives.
           echo "SERVICERADAR_AGENT_RELEASE_PUBLIC_KEY=${public_key}" >> "$GITHUB_ENV"
 
       - name: Generate release notes from CHANGELOG
@@ -370,8 +341,30 @@ jobs:
           chmod +x ./buildbuddy_setup_docker_auth.sh
           ./buildbuddy_setup_docker_auth.sh
 
+      # Was `--config=remote -c opt`. That is a different profile from the --config=ci used by
+      # every other bazel call here, so this step analyzed and built the agent in its own
+      # configuration and shared nothing with the push graph that rebuilds the same binary
+      # moments later. The script appends --stamp and --remote_download_outputs=all itself; the
+      # duplicates are harmless (same values) and keeping one flag source is worth more.
       - name: Verify managed agent release key stamp
-        run: ./scripts/verify-agent-release-key-stamp.sh --config=remote -c opt
+        run: |
+          set -euo pipefail
+
+          # ASSERT THE FLAGS ARRIVED. Unquoted ${BAZEL_BUILD_FLAGS} is deliberate -- the flags
+          # have to word-split into separate arguments -- but that also means an empty or
+          # renamed variable expands to NOTHING, and the script's `bazel_args=("$@")` becomes an
+          # empty array. Bazel would then build //go/cmd/agent:agent with no config: locally, in
+          # fastbuild, on a runner with no C toolchain, sharing nothing with the release cache.
+          #
+          # And it would still PASS. The release key is embedded from a committed source file
+          # now, so the key check succeeds regardless of how the binary was built -- the step
+          # would go green having verified a binary nothing like the one that ships.
+          if [[ -z "${BAZEL_BUILD_FLAGS:-}" ]]; then
+            echo "BAZEL_BUILD_FLAGS is empty; refusing to build the agent without a config." >&2
+            exit 1
+          fi
+
+          ./scripts/verify-agent-release-key-stamp.sh ${BAZEL_BUILD_FLAGS}
 
       - name: Publish container images
         env:
@@ -415,39 +408,19 @@ jobs:
           fi
 
           if [[ "${skip_push}" != "true" ]]; then
-            # --config=ci, matching buildbuddy.yaml, plus the one flag the deleted
-            # `remote_push` config carried that `ci` does not: --remote_download_outputs=all.
-            # ci inherits --remote_download_minimal from remote_base, which leaves the image
-            # layer tars in the CAS -- and sign-oci-publish.sh below reads them back out of
-            # `bazel info bazel-bin`. A later flag beats the one the config sets, which is why
-            # this belongs on the command line rather than in a publish-only config.
+            # BAZEL_BUILD_FLAGS is defined once at job level -- see the comment there.
             run_remote_publish() {
-              bazel run -c opt --config=ci --remote_download_outputs=all --stamp //:push "${extra_args[@]}"
+              bazel run ${BAZEL_BUILD_FLAGS} //:push "${extra_args[@]}"
             }
 
+            # ONE RETRY, THEN FAIL. 
+            # the first link with `collect2: cannot find 'ld'`.
             if ! run_remote_publish; then
               echo "Remote bazel run failed; retrying once with the completed action cache." >&2
               bazel shutdown || true
               sleep 5
 
-              if run_remote_publish; then
-                echo "Remote bazel publish retry succeeded."
-              elif [[ "${ALLOW_LOCAL_FALLBACK:-false}" == "true" ]]; then
-                echo "Remote bazel retry failed; retrying locally without remote executor/cache" >&2
-                bazel run \
-                  -c opt \
-                  --remote_executor= \
-                  --remote_cache= \
-                  --noremote_accept_cached \
-                  --noremote_upload_local_results \
-                  --jobs=8 \
-                  --stamp \
-                  //:push \
-                  "${extra_args[@]}"
-              else
-                echo "Remote bazel retry failed; local fallback disabled." >&2
-                exit 1
-              fi
+              run_remote_publish
             fi
           fi
 
@@ -563,37 +536,43 @@ jobs:
             args+=("--overwrite_assets=${OVERWRITE_ASSETS}")
           fi
 
-          run_remote() {
-            bazel run \
-              -c opt \
-              --config=ci \
-              --remote_download_outputs=all \
-              --platforms=//build/platforms:linux_pkg_local \
-              --stamp \
-              //build/release:publish_packages \
-              -- "${args[@]}"
-          }
-
-          run_local() {
-            bazel run \
-              -c opt \
-              --config=no_remote \
-              --host_platform=@local_config_platform//:host \
-              --platforms=//build/platforms:linux_pkg_local \
-              --stamp \
-              //build/release:publish_packages \
-              -- "${args[@]}"
-          }
-
-          if ! run_remote; then
-            if [[ "${ALLOW_LOCAL_FALLBACK:-false}" == "true" ]]; then
-              echo "Remote packaging failed; retrying locally without remote executor/cache" >&2
-              run_local
-            else
-              echo "Remote packaging failed; local fallback disabled." >&2
-              exit 1
-            fi
-          fi
+          # EXACTLY the same flags as every other bazel call in this job. No --platforms override.
+          #
+          # This step used to append --platforms=//build/platforms:linux_pkg_local, which
+          # OVERRODE the --platforms=//build/rbe:rbe_platform that --config=ci sets (later
+          # occurrence of the same flag wins). The consequence was not local execution -- actions
+          # still went to the executors -- but a private CONFIGURATION:
+          #
+          #   push step      (--config=ci):                  //go/cmd/agent:agent (c78306a)
+          #   packaging step (+ --platforms=linux_pkg_local): //go/cmd/agent:agent (7f63100)
+          #
+          # so every binary common to the images and the packages was built TWICE per release,
+          # sharing no cache with the push step or with any CI build.
+          #
+          # NOTHING REQUIRED THE OVERRIDE. rules_pkg's rpm targets are
+          # `target_compatible_with = ["@platforms//os:linux"]`, which rbe_platform satisfies;
+          # `rpm_disable_remote` (the only other branch) has zero users; the rpmbuild toolchain
+          # resolves to rbe_platform either way; and the `@rules_pkg//pkg:not_compatible`
+          # constraint that platform carries exists for the LEGACY make_rpm path, which
+          # //build/packaging/package_rules.bzl does not use (it passes `srcs=`, selecting
+          # pkg_rpm_pfg).
+          #
+          # VERIFIED BY BUILDING BOTH WAYS AND COMPARING BITS, not by argument. The agent binary
+          # differs in exactly 14 embedded `bazel-out/<platform>-opt/...` path strings -- an
+          # artifact of --experimental_platform_in_output_dir naming the platform -- and in
+          # nothing else: substantive string counts are identical (114,835 each) and there are
+          # ZERO differences that are not one of those paths.
+          #
+          # Removing it also fixes a real inconsistency: the container images are built without
+          # the override, so the .rpm used to ship a DIFFERENT build of the agent than the image
+          # did, from the same commit. Now they are the same artifact.
+          #
+          # No local fallback here either, for the reasons given at the image-publish step: this
+          # job signs what it builds.
+          bazel run \
+            ${BAZEL_BUILD_FLAGS} \
+            //build/release:publish_packages \
+            -- "${args[@]}"
 
       # Parallel assets are checked by the unprivileged finalizer job after this
       # signing job exits, so waiting never occupies a signing runner.

@@ -596,9 +596,10 @@
     },
     "@@rules_elixir+//bzlmod:extensions.bzl%elixir_config": {
       "general": {
-        "bzlTransitiveDigest": "TTUZulTBD4S++NWPsUfH8UW2a0GrbXDCjed/tEdVJo0=",
+        "bzlTransitiveDigest": "yTiFUqi7O9jlXbQRGa5Ln6U86f4xXLzhKKxujFed38Q=",
         "usagesDigest": "9rXXP2Tl1m7jq79pzn5XvnynY7K3IRMzT+N3ZLheAls=",
         "recordedInputs": [
+          "REPO_MAPPING:rules_elixir+,bazel_tools bazel_tools",
           "REPO_MAPPING:rules_elixir+,rules_erlang rules_erlang+"
         ],
         "generatedRepoSpecs": {
@@ -5165,7 +5166,7 @@
     "@@toolchains_buildbuddy+//:extensions.bzl%buildbuddy": {
       "general": {
         "bzlTransitiveDigest": "CB99E/Z/YyJGsdCDVO6Z2TyaYcn8GeqsQ9EjEhdthS4=",
-        "usagesDigest": "qoe+G4KrNWG0ZGh22U5beA3UafzBnwPv6+W2Bg7Q3AU=",
+        "usagesDigest": "4CoXr6YnMap9/puuBMSNhjB5Svi/Y/di8C9IC0iJ5jo=",
         "recordedInputs": [],
         "generatedRepoSpecs": {
           "buildbuddy_toolchain": {
@@ -5182,11 +5183,6 @@
               "windows_kits_release": "10",
               "windows_kits_version": "10.0.22621.0",
               "extra_cxx_builtin_include_directories": [
-                "/opt/rh/gcc-toolset-13/root/usr/include/c++/13",
-                "/opt/rh/gcc-toolset-13/root/usr/include/c++/13/x86_64-redhat-linux",
-                "/opt/rh/gcc-toolset-13/root/usr/include/c++/13/backward",
-                "/opt/rh/gcc-toolset-13/root/usr/lib/gcc/x86_64-redhat-linux/13/include",
-                "/opt/rh/gcc-toolset-13/root/usr/lib/gcc/x86_64-redhat-linux/13/include-fixed",
                 "/usr/lib/gcc/x86_64-linux-gnu/10/include",
                 "/usr/lib/gcc/x86_64-linux-gnu/10/include-fixed",
                 "/usr/lib/gcc/x86_64-linux-gnu/11/include",

@@ -1,6 +1,6 @@
 defmodule ServiceRadarWebNGWeb.AnsibleLive.AutomationHistoryComponents do
   @moduledoc """
-  Presentation-only components for hardened Ansible operation history.
+  Presentation-only components for Ansible operation history.
 
   Inputs are plain, allowlisted maps produced by `AutomationHistory`; these
   components never receive Ash resources containing credential or authority
@@ -16,30 +16,22 @@ defmodule ServiceRadarWebNGWeb.AnsibleLive.AutomationHistoryComponents do
     <div id="secure-ansible-operation-detail" class="mx-auto w-full max-w-[96rem] space-y-6 p-6">
       <nav class=" text-sm" aria-label="Breadcrumb">
         <ul>
-          <li><.link navigate={~p"/ansible/operations"}>Secure Ansible operations</.link></li>
+          <li><.link navigate={~p"/ansible/operations"}>Ansible operations</.link></li>
           <li>Operation {short_id(@bundle.operation.id)}</li>
         </ul>
       </nav>
 
       <header class="flex flex-wrap items-start justify-between gap-4">
         <div class="space-y-2">
-          <div class="flex flex-wrap items-center gap-2">
-            <.ui_badge size="sm" variant="success">ServiceRadar secured</.ui_badge>
-            <span class={state_badge_classes(@bundle.operation.state)}>
-              {@bundle.operation.state}
-            </span>
-          </div>
+          <span class={state_badge_classes(@bundle.operation.state)}>
+            {@bundle.operation.state}
+          </span>
           <h1 class="text-2xl font-semibold">Ansible operation {short_id(@bundle.operation.id)}</h1>
           <p class="font-mono text-xs text-sr-muted break-all">{@bundle.operation.id}</p>
         </div>
-        <div class="flex items-center gap-2">
-          <.ui_button navigate={~p"/ansible/runs"} size="sm" variant="ghost">
-            Legacy run history
-          </.ui_button>
-          <.ui_button type="button" phx-click="refresh" size="sm" variant="neutral">
-            <.icon name="hero-arrow-path" class="size-4" /> Refresh
-          </.ui_button>
-        </div>
+        <.ui_button type="button" phx-click="refresh" size="sm" variant="neutral">
+          <.icon name="hero-arrow-path" class="size-4" /> Refresh
+        </.ui_button>
       </header>
 
       <.state_alert state={@bundle.operation.state} subject="Operation" />
@@ -81,16 +73,13 @@ defmodule ServiceRadarWebNGWeb.AnsibleLive.AutomationHistoryComponents do
       </section>
 
       <section class="space-y-3" aria-labelledby="operation-executions-heading">
-        <div class="flex flex-wrap items-end justify-between gap-2">
-          <div>
-            <h2 id="operation-executions-heading" class="text-lg font-semibold">
-              Controller executions
-            </h2>
-            <p class="text-sm text-sr-muted">
-              {length(@bundle.executions)} inventory-bound child execution{plural(@bundle.executions)}.
-            </p>
-          </div>
-          <.ui_badge size="sm" variant="outline">Secure model · not a legacy PlaybookRun</.ui_badge>
+        <div>
+          <h2 id="operation-executions-heading" class="text-lg font-semibold">
+            Controller executions
+          </h2>
+          <p class="text-sm text-sr-muted">
+            {length(@bundle.executions)} inventory-bound child execution{plural(@bundle.executions)}.
+          </p>
         </div>
 
         <div

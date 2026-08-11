@@ -416,7 +416,7 @@ pub extern "C-unwind" fn _Unwind_Backtrace(
             }
             if let Some(frame) = frame {
                 if skipping {
-                    if frame.initial_address() == _Unwind_Backtrace as usize {
+                    if frame.initial_address() == _Unwind_Backtrace as *const () as usize {
                         skipping = false;
                     }
                 }

@@ -278,6 +278,148 @@ defmodule ServiceRadar.Plugins.AddonRolloutDbTest do
     assert get_rollout_target(rollout.id, actor).state == :canceled
   end
 
+  # openspec/changes/fix-stuck-addon-rollouts. Four rollouts sat paused on the
+  # demo fleet for 19 days naming a candidate version the fleet already ran.
+  test "a rollout whose candidate the fleet already runs is reaped as superseded" do
+    actor = SystemActor.system(:addon_rollout_supersede_test)
+    fixture = rollout_fixture(actor)
+
+    assert {:ok, rollout} =
+             AddonRolloutCoordinator.start(fixture.assignment, fixture.candidate,
+               actor: actor,
+               now: fixture.started_at,
+               trigger: :manual
+             )
+
+    assert :ok = AddonRolloutCoordinator.pause(rollout.id, actor: actor)
+    assert get_rollout(rollout.id, actor).state == :paused
+
+    # The agent reached the candidate by some other route entirely.
+    later = DateTime.add(fixture.started_at, 60)
+    report_status(fixture, fixture.candidate.version, "running", true, later, actor)
+
+    assert :ok = AddonRolloutCoordinator.advance(rollout.id, actor: actor, now: later)
+
+    reaped = get_rollout(rollout.id, actor)
+    assert reaped.state == :superseded
+    assert reaped.blocked_reason == "fleet_already_on_candidate"
+
+    # Terminal: none of the operator actions apply any more.
+    assert {:error, :rollout_not_paused} =
+             AddonRolloutCoordinator.resume(rollout.id, actor: actor)
+
+    assert {:error, :rollout_not_active} =
+             AddonRolloutCoordinator.cancel(rollout.id, actor: actor)
+  end
+
+  test "a fleet already past the candidate is reaped without rolling anything back" do
+    actor = SystemActor.system(:addon_rollout_supersede_ahead_test)
+    fixture = rollout_fixture(actor)
+
+    assert {:ok, rollout} =
+             AddonRolloutCoordinator.start(fixture.assignment, fixture.candidate,
+               actor: actor,
+               now: fixture.started_at,
+               trigger: :manual
+             )
+
+    assert :ok = AddonRolloutCoordinator.pause(rollout.id, actor: actor)
+
+    # workload-identity's shape: candidate 0.1.5, agents already on 0.1.7.
+    later = DateTime.add(fixture.started_at, 60)
+    report_status(fixture, "1.2.0", "running", true, later, actor)
+
+    assert :ok = AddonRolloutCoordinator.advance(rollout.id, actor: actor, now: later)
+
+    reaped = get_rollout(rollout.id, actor)
+    assert reaped.state == :superseded
+    refute get_rollout_target(rollout.id, actor).state in [:rolled_back, :rollback_pending]
+  end
+
+  test "an advancing rollout that reaches the candidate completes rather than being superseded" do
+    actor = SystemActor.system(:addon_rollout_not_superseded_test)
+    fixture = rollout_fixture(actor)
+
+    assert {:ok, rollout} =
+             AddonRolloutCoordinator.start(fixture.assignment, fixture.candidate,
+               actor: actor,
+               now: fixture.started_at,
+               trigger: :manual
+             )
+
+    # Reaping on observed version alone cannot tell "the fleet converged
+    # elsewhere" from "this rollout just delivered the candidate". Without the
+    # paused precondition this hijacked three existing rollout tests, turning
+    # healthy promotions into supersessions.
+    later = DateTime.add(fixture.started_at, 60)
+    report_status(fixture, fixture.candidate.version, "running", true, later, actor)
+
+    assert :ok = AddonRolloutCoordinator.advance(rollout.id, actor: actor, now: later)
+    refute get_rollout(rollout.id, actor).state == :superseded
+  end
+
+  test "a partially converged rollout is left alone" do
+    actor = SystemActor.system(:addon_rollout_partial_test)
+    fixture = rollout_fixture(actor)
+
+    assert {:ok, rollout} =
+             AddonRolloutCoordinator.start(fixture.assignment, fixture.candidate,
+               actor: actor,
+               now: fixture.started_at,
+               trigger: :manual
+             )
+
+    # scalibr's shape: candidate 0.1.3 while the fleet sits on 0.1.2. Lexically
+    # "1.0.5" >= "1.1.0" is false, but so is the semantic comparison -- this
+    # asserts the version check is not fooled either way.
+    later = DateTime.add(fixture.started_at, 60)
+    report_status(fixture, "1.0.5", "running", true, later, actor)
+
+    assert :ok = AddonRolloutCoordinator.advance(rollout.id, actor: actor, now: later)
+    refute get_rollout(rollout.id, actor).state == :superseded
+  end
+
+  test "a running candidate reporting only an advisory degradation still converges" do
+    actor = SystemActor.system(:addon_rollout_advisory_test)
+    fixture = rollout_fixture(actor)
+
+    assert {:ok, rollout} =
+             AddonRolloutCoordinator.start(fixture.assignment, fixture.candidate,
+               actor: actor,
+               now: fixture.started_at,
+               trigger: :manual
+             )
+
+    # anomaly's shape on ns01-ns05: running the candidate, reporting only that
+    # the host has not delegated the cpu cgroup controller. Before the gate fix
+    # this failed as candidate_reported_unhealthy.
+    later = DateTime.add(fixture.started_at, 60)
+
+    {:ok, _} =
+      AddonStatus
+      |> Ash.Changeset.for_create(
+        :report,
+        %{
+          agent_uid: fixture.agent_uid,
+          addon_id: fixture.addon_id,
+          state: "running",
+          active: true,
+          version: fixture.candidate.version,
+          degradation_reason:
+            "resource limits not enforced: enable parent controllers for addon cgroup root " <>
+              "/sys/fs/cgroup/serviceradar.slice/serviceradar-addons.slice",
+          reported_at: later
+        },
+        actor: actor
+      )
+      |> Ash.create(actor: actor)
+
+    assert :ok = AddonRolloutCoordinator.advance(rollout.id, actor: actor, now: later)
+
+    refute get_rollout_target(rollout.id, actor).state in [:rolled_back, :rollback_pending],
+           "an advisory degradation must not fail the candidate"
+  end
+
   test "candidate failure rolls the target back and requires fresh prior-version recovery evidence" do
     actor = SystemActor.system(:addon_rollout_failure_test)
     fixture = rollout_fixture(actor)

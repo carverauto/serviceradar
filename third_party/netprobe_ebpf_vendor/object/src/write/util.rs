@@ -83,6 +83,7 @@ impl WritableBuffer for Vec<u8> {
 /// A [`WritableBuffer`] that streams data to a [`Write`](std::io::Write) implementation.
 ///
 /// [`Self::result`] must be called to determine if an I/O error occurred during writing.
+/// Alternatively, [`Self::flush`] will both check for errors and flush.
 ///
 /// It is advisable to use a buffered writer like [`BufWriter`](std::io::BufWriter)
 /// instead of an unbuffered writer like [`File`](std::fs::File).
@@ -113,6 +114,15 @@ impl<W> StreamingBuffer<W> {
     /// Returns any error that occurred during writing.
     pub fn result(&mut self) -> Result<(), io::Error> {
         mem::replace(&mut self.result, Ok(()))
+    }
+}
+
+#[cfg(feature = "std")]
+impl<W: io::Write> StreamingBuffer<W> {
+    /// Flushes after first checking if any error previously occurred during writing.
+    pub fn flush(&mut self) -> Result<(), io::Error> {
+        self.result()?;
+        self.writer.flush()
     }
 }
 

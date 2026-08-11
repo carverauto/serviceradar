@@ -29,8 +29,8 @@ defmodule ServiceRadarWebNGWeb.Settings.Catalog do
   The RBAC permission catalog lives in `serviceradar_core` because permissions
   are shared by web-ng and the API. This navigation catalog references
   web-ng-only concerns (LiveView modules, `~p` routes, heroicon names, feature
-  flags), so it belongs in web-ng. It does **not** inline permission strings:
-  each view's `:permission` field carries a KEY that must exist in
+  flags), so it belongs in web-ng. It does **not** invent permission strings:
+  each view's `:permission` field carries a key or OR-list of keys that must exist in
   `ServiceRadar.Identity.RBAC.Catalog.permission_keys/0` (a symbolic reference,
   validated by the catalog test), analogous to how the RBAC catalog references
   role constants.
@@ -89,7 +89,7 @@ defmodule ServiceRadarWebNGWeb.Settings.Catalog do
           icon: String.t(),
           route: String.t(),
           live_view: module(),
-          permission: String.t() | nil,
+          permission: String.t() | [String.t()] | nil,
           order: non_neg_integer(),
           has_own_stats: boolean(),
           feature_flag: atom() | nil,
@@ -189,7 +189,8 @@ defmodule ServiceRadarWebNGWeb.Settings.Catalog do
   #
   # Every entry maps to an existing route + LiveView verified against the router
   # (the orphan detector in the catalog test enforces this). `permission:` carries
-  # a KEY validated against `ServiceRadar.Identity.RBAC.Catalog.permission_keys/0`.
+  # a key or OR-list validated against
+  # `ServiceRadar.Identity.RBAC.Catalog.permission_keys/0`.
   # `match_prefixes:` is set only where a view must also own a legacy `/admin/*`
   # duplicate route so the shell highlights the correct view there.
   # ---------------------------------------------------------------------------
@@ -1161,17 +1162,17 @@ defmodule ServiceRadarWebNGWeb.Settings.Catalog do
       parent_group: :edge_automation,
       subgroup: nil,
       title: "Ansible",
-      description: "Manage Ansible controllers, repositories, and schedules.",
+      description: "Manage Ansible controllers and repositories.",
       icon: "hero-command-line",
       route: "/settings/ansible",
       live_view: ServiceRadarWebNGWeb.Settings.AnsibleLive,
-      permission: "ansible.controllers.manage",
+      permission: ["ansible.controllers.manage", "ansible.repositories.manage"],
       order: 410,
       has_own_stats: false,
       feature_flag: nil,
       capability: nil,
       match_prefixes: nil,
-      keywords: ["ansible", "automation", "playbook", "controllers"],
+      keywords: ["ansible", "automation", "playbook", "controllers", "repositories"],
       badge: nil,
       hidden_from_nav: false
     }
@@ -1235,8 +1236,8 @@ defmodule ServiceRadarWebNGWeb.Settings.Catalog do
     end
   end
 
-  @doc "The permission key that gates a view id (`nil` when ungated)."
-  @spec permission(atom()) :: String.t() | nil
+  @doc "The permission key or OR-list that gates a view id (`nil` when ungated)."
+  @spec permission(atom()) :: String.t() | [String.t()] | nil
   def permission(view_id) when is_atom(view_id) do
     case view(view_id) do
       %{permission: permission} -> permission
@@ -1316,7 +1317,13 @@ defmodule ServiceRadarWebNGWeb.Settings.Catalog do
   does not resolve to a view, only the root `Settings` crumb is returned.
   """
   @spec breadcrumbs_for_path(String.t() | nil) :: [%{label: String.t(), route: String.t() | nil}]
-  def breadcrumbs_for_path(path) do
+  def breadcrumbs_for_path(path), do: breadcrumbs_for_path(path, nil)
+
+  @doc "Scope-aware breadcrumb trail whose category crumb lands on a visible view."
+  @spec breadcrumbs_for_path(String.t() | nil, term()) :: [
+          %{label: String.t(), route: String.t() | nil}
+        ]
+  def breadcrumbs_for_path(path, scope) do
     root = %{label: "Settings", route: settings_landing_route()}
 
     case view_for_path(path) do
@@ -1328,7 +1335,7 @@ defmodule ServiceRadarWebNGWeb.Settings.Catalog do
 
         [
           root,
-          %{label: category_title(category), route: category_landing_route(category)},
+          %{label: category_title(category), route: category_landing_route(scope, category)},
           %{label: view.title, route: view.route}
         ]
     end
@@ -1357,6 +1364,18 @@ defmodule ServiceRadarWebNGWeb.Settings.Catalog do
     case views_for_category(category_id) do
       [%{route: route} | _] -> route
       _ -> "/settings/cluster"
+    end
+  end
+
+  @doc "The first category view visible to `scope`, with the global route as fallback."
+  @spec category_landing_route(term(), atom() | map()) :: String.t()
+  def category_landing_route(nil, category), do: category_landing_route(category)
+  def category_landing_route(scope, %{id: id}), do: category_landing_route(scope, id)
+
+  def category_landing_route(scope, category_id) when is_atom(category_id) do
+    case visible_views(scope, category_id) do
+      [%{route: route} | _] -> route
+      _ -> category_landing_route(category_id)
     end
   end
 
@@ -1514,6 +1533,10 @@ defmodule ServiceRadarWebNGWeb.Settings.Catalog do
   # permission: nil means "no gate" (visible to any authenticated scope).
   defp permitted?(_scope, nil), do: true
   defp permitted?(scope, permission) when is_binary(permission), do: RBAC.can?(scope, permission)
+
+  defp permitted?(scope, permissions) when is_list(permissions) do
+    permissions != [] and Enum.any?(permissions, &RBAC.can?(scope, &1))
+  end
 
   # feature_flag: nil means "always on". Known flags map to FeatureFlags.
   defp feature_enabled?(nil), do: true
