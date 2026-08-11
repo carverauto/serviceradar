@@ -210,7 +210,7 @@ shared-corpus shape. They stay with 1.4-a unless ownership is explicitly moved.
 | `MaxPrincipalBytes` | string bytes, post-decode; **THREE sites** -- record producer context, edge publication slot, service publication slot | `ValidateAuthenticatedPrincipal` from `validateProducerContext` and both slots / `PublicationIdentity` slots ONLY -- **no record-level check** | **NORMATIVE**; Go evidence only, and SELF-ADJUSTING (built from the constant) | literal-pin; per-site control+negative; the Elixir record site attaches to **1.5-n**'s structural record boundary |
 | `MaxTraceStrBytes` at `abort_reason` | string bytes, post-decode; LIFECYCLE, not MTR; **CONDITIONAL on kind ABORTED** | `ValidateSweepExecutionEvent` / **none** (1.6-c owns the peer) | **NORMATIVE** as a conditional rule; no vectors either side | delegated to **1.6-c**, whose evidence obligation is WIDENED for it -- the version row it already owns cannot prove a string length. The FOUR MTR predicates stay 1.4-a |
 | `MaxPlanHeaderBytes` | raw header bytes, pre-decode -- **NAMED SCOPE EXCEPTION** | `ValidatePlanFromRaw` / `decode_plan_header` | **NORMATIVE ALREADY** -- "Only a raw-byte plan boundary may claim physical enforcement" states the header ceiling on received bytes. Go VECTOR COMPLETE (`TestPlanHeaderExactByteCeiling`, literal-pinned, production entrypoint); no shared vector | shared evidence and a NAMED Elixir ceiling ONLY. It SHALL NOT author a second requirement |
-| `MaxRangeStrBytes` | string bytes, PRE-PARSE guard; THREE fields (`cidr`, `first`, `last`) | `plan.go` x3 predicates before `rangeSpanSize` / `PlanValidate` x3 | **NORMATIVE** -- value, GUARD class, and the zone prohibition are frozen | the THREE-PART shape below -- **NOT** an at-ceiling/one-over pair |
+| `MaxRangeStrBytes` | string bytes, PRE-PARSE guard; THREE fields (`cidr`, `first`, `last`) | `plan.go` zone + length preflight before `rangeSpanSize` / `PlanValidate` the same | **NORMATIVE**, and LANDED: zone gate in both runtimes, three-part corpus in both | Go's rows are mutation-killing; ELIXIR'S ZONE ROWS ARE REGRESSION ROWS ONLY -- see below |
 | `MaxTransportProvenanceHeaderBytes` | header bytes, PRE-PARSE guard; **ONE testable site** -- `DecodeTransportProvenance` on receive. The emit-side check is DEFENCE IN DEPTH over output it just built | `DecodeTransportProvenance` / `PublicationIdentity` | **NORMATIVE** now (value + GUARD class); task 1.14 shipped the grammar and left neither. 1.5-h is REMEDIATION | stage-sensitive evidence: the parser was not entered |
 | `MaxManifestPages` **(recovery, RAW)** | supplied page-list length, pre-decode | `ValidateManifestChainFromRaw` -- correctly staged / `RecoveryValidate.bound_received` -- **now bounded** | LANDED: bounded traversal + a call-site improper-tail row | shared accepted-N/proper-N+1 evidence STILL OUTSTANDING -- the improper-tail row proves the traversal stops, not the ceiling |
 | `MaxManifestPages` **(recovery, DECODED)** | page-list length on decoded pages | `ValidateManifestChain` / `RecoveryValidate.manifest_chain` -- **both now count first** | LANDED: precedence rows in both runtimes, mutation-verified | shared N/N+1 corpus still OUTSTANDING |
@@ -298,6 +298,60 @@ Go already HAS the load-bearing count control (`MtrWindowCommitment(0, ceiling+1
 be mutation-killed at all. That is the third shadowed arm across both ceilings, and it belongs
 to THIS bound -- not to `MaxMtrCompletionOrdinals`, where an earlier revision filed it.
 
+### The zone prohibition is load-bearing in ONE runtime, and a regression pin in the other
+
+Go's `netip.ParseAddr` accepts a scoped IPv6 address and round-trips it canonically, so without
+the gate Go ADMITS a zoned range string -- at the ceiling, since a zone is arbitrary-length
+text. Disabling the gate fails rows there; forging the handoff past the preflight fails the
+whole-validator row.
+
+This runtime never admitted one. `:inet.parse_strict_address/1` accepts the zoned text and
+silently DISCARDS the zone, after which the canonical-spelling check refuses the mismatch. No
+zoned value can round-trip, so the spelling rule catches every one -- and reports the SAME
+`:plan_range` atom the zone gate would. Removing the gate there changes no verdict, measured.
+
+THE GATE IS STILL REQUIRED THERE: the frozen rule says a zone is refused BEFORE either parser,
+and the spelling rule runs after. At the VALIDATOR that stage is unobservable -- both paths
+report the same reason, and distinguishing them would need the zone to carry its own, which is
+refusal taxonomy and 1.5-l's. So the validator-level Elixir rows are REGRESSION rows: they
+catch a change that made that runtime ADMIT a zoned address, and claim nothing more.
+
+THE SEAM IS WHERE BOTH RUNTIMES PROVE IT. A preflight that PARSES NOTHING is addressed
+directly, so an input refused there demonstrably never reached a parser, and the checked-value
+handoff makes the order hard to get wrong: the parser takes the checked value, not the range.
+THE HANDOFF IS NOT UNFORGEABLE, and the two runtimes are NOT in the same position about it.
+Go's checked struct and Elixir's tagged tuple are both ordinary in-module values, so code
+inside either can construct one.
+
+In GO the forgery is caught: replacing the preflight call with a forged handoff fails the
+whole-validator zoned row, because Go would otherwise ADMIT a zoned equal-endpoint span.
+
+IN ELIXIR NO VERDICT CATCHES IT. Measured across zoned spans, zoned CIDRs, over-length values
+in each field, and valid controls: every candidate returns an IDENTICAL verdict with the
+preflight and with it forged away, because everything the preflight refuses is ALSO refused
+downstream -- zones by the canonical-spelling check, over-length values by the parser.
+
+A VERDICT IS NOT THE ONLY OBSERVABLE. OTP CALL TRACING sees the stage directly: a worker runs
+the real `PlanValidate.validate/2` while `__check_range_strings__/3` is traced `:local` and
+`:inet.parse_strict_address/1` globally, and a zoned or over-length input must show the
+preflight called and the parser NOT called. A valid control proves the parser trace is live,
+so "parser not called" cannot pass because the pattern was dead. Forging the handoff fails
+every row. This needs no production change and no new refusal reason, so the earlier claim
+that a production-path observer and the no-new-taxonomy rule were jointly unsatisfiable was
+WRONG -- it mistook "no verdict distinguishes them" for "nothing does".
+
+TWO TRAPS THAT MAKE A TRACED ROW VACUOUS, both closed here. `trace_pattern/3` on a module the
+VM has not loaded yet matches ZERO functions and reports so without raising -- which is how
+the first test in a file silently traces nothing while the rest pass. The modules are loaded
+first and the MATCH COUNT is asserted. And trace messages reach the tracer asynchronously, so
+a timeout-based drain can return before the last one arrives and report a race as "the parser
+was not called"; `trace_delivered/1` synchronises instead. THE SEAM IS ALSO THE ONLY
+PLACE THE FROZEN CEILING CAN BE PINNED: no canonical address reaches 64 bytes, so a
+whole-validator at-64 acceptance does not exist, and a 65-byte refusal driven through the
+validator survives the bound drifting anywhere from 43 to 65 because the parser refuses those
+lengths anyway. Measured: at the seam, drifting the bound to 128 and tightening `>` to `>=`
+each fail rows in both runtimes; through the validator, neither does.
+
 ### Two NAMED exceptions to 1.5-h's "no raw bounds" scope
 
 1.5-h's scope says it does not own raw or pre-parse bounds, and it owns two anyway:
@@ -344,11 +398,12 @@ one forks a plan's identity from the bytes its author signed.
 constant.** Forbidding zones and then demanding an at-ceiling/one-over pair would
 be asking for a vector the chosen rule forbids. The corpus for this bound is three parts:
 
-1. **zone-present refusal in BOTH runtimes** -- the new rule, and the only row that would
-   change verdict if the prohibition were dropped;
-2. **accepted controls at the largest valid syntax** -- 43 bytes for `cidr`, 39 for `first`
-   and `last`, each its own field;
-3. **one over-limit control per field, stage-sensitive** -- the parser was not entered.
+1. **zone-present refusal, per field** -- load-bearing in Go, which admits a zoned address
+   without it; a REGRESSION row in Elixir, whose spelling check already refuses one with the
+   same reason, so removing that gate changes no validator verdict;
+2. **accepted controls** -- at the frozen ceiling for the PREFLIGHT SEAM, and at the largest
+   valid syntax for the whole validator;
+3. **one over-limit control per field**, addressed at the seam so the stage is structural.
 
 Only part 1 is a semantic rule. Parts 2 and 3 are what a defensive guard can honestly prove:
 that valid input passes and that over-limit input is refused before parsing, never that the

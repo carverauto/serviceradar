@@ -169,6 +169,51 @@ defmodule ServiceRadar.Edge.PlanValidate do
     end)
   end
 
+  @doc false
+  # THE field preflight for a range's address strings: length bounds, then the IPv6-zone
+  # prohibition. It PARSES NOTHING.
+  #
+  # IT RETURNS THE EXISTING `:plan_range` AND NOTHING NEW. `@doc false` and a `__` name do not
+  # make a function private -- a test can call it, and any tag it returns is observable, so
+  # distinct `:length`/`:zone` tags would BE a refusal class however they were labelled. That
+  # is task 1.5-l's to mint, not this subtask's. Separate INPUTS prove the two predicates
+  # independently, which is what the corpus needs; a distinct tag adds nothing it could not
+  # already show.
+  #
+  # It is reachable from the corpus because that is the ONLY way to pin the frozen ceiling in
+  # this runtime: no canonical address reaches it, and a one-over refusal driven through
+  # `validate/2` survives the bound drifting anywhere between the longest valid address and the
+  # ceiling, because the address parser refuses those lengths regardless.
+  #
+  # LENGTH FIRST, so an over-length value is not scanned at all. Then the ZONE: a zone names an
+  # interface on the machine that WROTE the string and has no meaning at the receiver.
+  #
+  # THE ZONE IS REFUSED, NEVER STRIPPED. These strings feed the range, page, plan-root, header
+  # and assignment digest chain, so repairing one forks a plan's identity from the bytes its
+  # author signed.
+  #
+  # THE CHECK IS EXPLICIT rather than a consequence of parsing.
+  # `:inet.parse_strict_address/1` ACCEPTS a zoned address and silently DISCARDS the zone, so
+  # without this rule the value is refused downstream as a non-canonical SPELLING -- a
+  # different stage, and a reason that names neither the zone nor the peer's cause.
+  @spec __check_range_strings__(term(), term(), term()) ::
+          {:ok, {:checked, binary(), binary(), binary()}} | {:error, :plan_range}
+  def __check_range_strings__(cidr, first, last) do
+    vals = [cidr, first, last]
+
+    cond do
+      not Enum.all?(vals, &is_binary/1) -> {:error, :plan_range}
+      Enum.any?(vals, &(byte_size(&1) > @max_range_str_bytes)) -> {:error, :plan_range}
+      Enum.any?(vals, &zoned?/1) -> {:error, :plan_range}
+      # AN OPAQUE CHECKED VALUE, not the bare strings. `span_size/1` takes only this shape, so
+      # the parser cannot be reached with values the preflight has not returned.
+      true -> {:ok, {:checked, cidr, first, last}}
+    end
+  end
+
+  defp zoned?(s) when is_binary(s), do: :binary.match(s, "%") != :nomatch
+  defp zoned?(_), do: false
+
   defp ranges_of(%{ranges: ranges}), do: ranges
   defp ranges_of(_), do: :absent
 
@@ -283,6 +328,22 @@ defmodule ServiceRadar.Edge.PlanValidate do
     cidr = Map.get(r, :cidr) || ""
     first = Map.get(r, :first_address) || ""
     last = Map.get(r, :last_address) || ""
+
+    # THE ADDRESS-STRING PREFLIGHT RUNS ONCE, HERE, and its result is the ONLY route to the
+    # parser below. Its internal `:length`/`:zone` tags are mapped to `:plan_range` and never
+    # escape -- naming a zone fault publicly is refusal taxonomy, which task 1.5-l owns.
+    case __check_range_strings__(cidr, first, last) do
+      {:error, _} -> {:error, :plan_range}
+      {:ok, checked} -> validate_checked_range(r, checked, page_check_set, header_policy)
+    end
+  end
+
+  defp validate_checked_range(
+         r,
+         {:checked, cidr, first, last} = checked,
+         page_check_set,
+         header_policy
+       ) do
     has_cidr = cidr != ""
     has_span = first != "" or last != ""
 
@@ -296,15 +357,6 @@ defmodule ServiceRadar.Edge.PlanValidate do
         {:error, :plan_range}
 
       HashGrammar.range_digest(r) != Map.get(r, :range_sha256) ->
-        {:error, :plan_range}
-
-      byte_size(cidr) > @max_range_str_bytes ->
-        {:error, :plan_range}
-
-      byte_size(first) > @max_range_str_bytes ->
-        {:error, :plan_range}
-
-      byte_size(last) > @max_range_str_bytes ->
         {:error, :plan_range}
 
       has_cidr == has_span ->
@@ -332,15 +384,15 @@ defmodule ServiceRadar.Edge.PlanValidate do
         {:error, :plan_range}
 
       true ->
-        span_matches(r, cidr, first, last)
+        span_matches(r, checked)
     end
   end
 
   # The range expands to EXACTLY its address span, so the covered work set is
   # deterministic. Mirrors Go's rangeSpanSize, including the CANONICAL-SPELLING rule:
   # one network must not have two content digests.
-  defp span_matches(r, cidr, first, last) do
-    case span_size(cidr, first, last) do
+  defp span_matches(r, {:checked, _, _, _} = checked) do
+    case span_size(checked) do
       {:ok, size} ->
         if Map.get(r, :target_count) == size, do: :ok, else: {:error, :plan_range}
 
@@ -349,7 +401,7 @@ defmodule ServiceRadar.Edge.PlanValidate do
     end
   end
 
-  defp span_size("", first, last) do
+  defp span_size({:checked, "", first, last}) do
     with {:ok, f} <- parse_addr(first),
          {:ok, l} <- parse_addr(last),
          # Family mismatch is not a span.
@@ -370,7 +422,7 @@ defmodule ServiceRadar.Edge.PlanValidate do
     end
   end
 
-  defp span_size(cidr, _first, _last) do
+  defp span_size({:checked, cidr, _first, _last}) do
     with [addr, bits] <- String.split(cidr, "/", parts: 2),
          {bits_int, ""} <- Integer.parse(bits),
          {:ok, a} <- parse_addr(addr),
