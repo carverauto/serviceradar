@@ -682,6 +682,13 @@ Always use Ash concepts, almost never Ecto concepts directly. Think hard about t
 
 When a change must remain atomic, implement `atomic/3` or refactor the action to stay atomic. Do not use `require_atomic? false` to silence atomicity warnings.
 
+Ash rebuilds atomic updates from a second changeset. Put compare-and-set filters on the
+pending caller changeset, not in an action-level `change filter(...)`. When `change/3`
+registers an `after_action` hook, `atomic/3` must return `{:ok, change(changeset, opts,
+context)}` rather than bare `:ok`. In an atomic callback, read proposed values from
+`changeset.atomics` or `Ash.Changeset.fetch_change/2`; `Ash.Changeset.get_attribute/2`
+can return old data or raise when original data is unavailable.
+
 ## Multitenancy Guardrails
 
 ServiceRadar is single-deployment. Do not add multitenancy features, per-customer routing, or multitenancy bypass modes (`:bypass`, `:bypass_all`, `allow_global` overrides). Keep all access scoped to the deployment and schema defined by the database connection.
