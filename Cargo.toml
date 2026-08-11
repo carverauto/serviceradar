@@ -126,6 +126,12 @@ notify = { version = "8", default-features = false }
 once_cell = "1.21"
 # Exact-pinned: anchors the from-source C builds that scripts/vendor.sh patches.
 openssl-sys = "=0.9.116"
+# ECDSA P-521 signature verification, used ONLY by the add-on SDK. go-plugin
+# AutoMTLS hardcodes elliptic.P521() and the rustls `ring` provider does not
+# implement that curve, so without this a Rust add-on cannot verify the agent's
+# client certificate. Pure Rust on purpose: aws-lc-rs supports P-521 but brings
+# 2.1M lines of vendored BoringSSL back into every crate (see bad32bfc5e).
+p521 = { version = "0.13", default-features = false, features = ["ecdsa"] }
 parking_lot = "0.12"
 pcap = "2.4.0"
 pem = "3"

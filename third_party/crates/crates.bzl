@@ -343,7 +343,6 @@ _CRATE_EDITIONS = {
     "rust/kvutil": "2024",
     "rust/log-collector": "2024",
     "rust/metric-proto": "2024",
-    "rust/metrics-delta-writer": "2024",
     "rust/netprobe": "2024",
     "rust/otel": "2024",
     "rust/otel-addon": "2024",
@@ -420,6 +419,7 @@ _NORMAL_DEPENDENCIES = {
             "anyhow": Label("//third_party/crates/anyhow-1.0.104:anyhow"),
             "base64": Label("//third_party/crates/base64-0.22.1:base64"),
             "hex": Label("//third_party/crates/hex-0.4.3:hex"),
+            "p521": Label("//third_party/crates/p521-0.13.3:p521"),
             "prost": Label("//third_party/crates/prost-0.14.4:prost"),
             "rcgen": Label("//third_party/crates/rcgen-0.12.1:rcgen"),
             "rustls": Label("//third_party/crates/rustls-0.23.43:rustls"),
@@ -666,21 +666,6 @@ _NORMAL_DEPENDENCIES = {
     "rust/metric-proto": {
         _COMMON_CONDITION: {
             "prost": Label("//third_party/crates/prost-0.14.4:prost"),
-        },
-    },
-    "rust/metrics-delta-writer": {
-        _COMMON_CONDITION: {
-            "anyhow": Label("//third_party/crates/anyhow-1.0.104:anyhow"),
-            "async-nats": Label("//third_party/crates/async-nats-0.50.0:async_nats"),
-            "envy": Label("//third_party/crates/envy-0.4.2:envy"),
-            "futures": Label("//third_party/crates/futures-0.3.33:futures"),
-            "prost": Label("//third_party/crates/prost-0.14.4:prost"),
-            "serde": Label("//third_party/crates/serde-1.0.229:serde"),
-            "thiserror": Label("//third_party/crates/thiserror-2.0.19:thiserror"),
-            "tokio": Label("//third_party/crates/tokio-1.53.1:tokio"),
-            "tokio-postgres": Label("//third_party/crates/tokio-postgres-0.7.18:tokio_postgres"),
-            "tracing": Label("//third_party/crates/tracing-0.1.44:tracing"),
-            "tracing-subscriber": Label("//third_party/crates/tracing-subscriber-0.3.23:tracing_subscriber"),
         },
     },
     "rust/netprobe": {
@@ -1044,10 +1029,6 @@ _NORMAL_ALIASES = {
         _COMMON_CONDITION: {
         },
     },
-    "rust/metrics-delta-writer": {
-        _COMMON_CONDITION: {
-        },
-    },
     "rust/netprobe": {
         _COMMON_CONDITION: {
         },
@@ -1209,11 +1190,6 @@ _NORMAL_DEV_DEPENDENCIES = {
     },
     "rust/metric-proto": {
     },
-    "rust/metrics-delta-writer": {
-        _COMMON_CONDITION: {
-            "pretty_assertions": Label("//third_party/crates/pretty_assertions-1.4.1:pretty_assertions"),
-        },
-    },
     "rust/netprobe": {
         _COMMON_CONDITION: {
             "tempfile": Label("//third_party/crates/tempfile-3.27.0:tempfile"),
@@ -1340,10 +1316,6 @@ _NORMAL_DEV_ALIASES = {
     },
     "rust/metric-proto": {
     },
-    "rust/metrics-delta-writer": {
-        _COMMON_CONDITION: {
-        },
-    },
     "rust/netprobe": {
         _COMMON_CONDITION: {
         },
@@ -1458,8 +1430,6 @@ _PROC_MACRO_DEPENDENCIES = {
     },
     "rust/metric-proto": {
     },
-    "rust/metrics-delta-writer": {
-    },
     "rust/netprobe": {
     },
     "rust/otel": {
@@ -1568,8 +1538,6 @@ _PROC_MACRO_ALIASES = {
     },
     "rust/metric-proto": {
     },
-    "rust/metrics-delta-writer": {
-    },
     "rust/netprobe": {
     },
     "rust/otel": {
@@ -1662,8 +1630,6 @@ _PROC_MACRO_DEV_DEPENDENCIES = {
     "rust/log-collector": {
     },
     "rust/metric-proto": {
-    },
-    "rust/metrics-delta-writer": {
     },
     "rust/netprobe": {
     },
@@ -1771,10 +1737,6 @@ _PROC_MACRO_DEV_ALIASES = {
     "rust/log-collector": {
     },
     "rust/metric-proto": {
-    },
-    "rust/metrics-delta-writer": {
-        _COMMON_CONDITION: {
-        },
     },
     "rust/netprobe": {
         _COMMON_CONDITION: {
@@ -1901,8 +1863,6 @@ _BUILD_DEPENDENCIES = {
         _COMMON_CONDITION: {
             "tonic-prost-build": Label("//third_party/crates/tonic-prost-build-0.14.6:tonic_prost_build"),
         },
-    },
-    "rust/metrics-delta-writer": {
     },
     "rust/netprobe": {
         _COMMON_CONDITION: {
@@ -2033,8 +1993,6 @@ _BUILD_ALIASES = {
         _COMMON_CONDITION: {
         },
     },
-    "rust/metrics-delta-writer": {
-    },
     "rust/netprobe": {
         _COMMON_CONDITION: {
         },
@@ -2140,8 +2098,6 @@ _BUILD_PROC_MACRO_DEPENDENCIES = {
     },
     "rust/metric-proto": {
     },
-    "rust/metrics-delta-writer": {
-    },
     "rust/netprobe": {
     },
     "rust/otel": {
@@ -2234,8 +2190,6 @@ _BUILD_PROC_MACRO_ALIASES = {
     "rust/log-collector": {
     },
     "rust/metric-proto": {
-    },
-    "rust/metrics-delta-writer": {
     },
     "rust/netprobe": {
     },

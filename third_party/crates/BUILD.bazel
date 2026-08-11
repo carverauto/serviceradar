@@ -716,6 +716,18 @@ alias(
 )
 
 alias(
+    name = "p521-0.13.3",
+    actual = "//third_party/crates/p521-0.13.3:p521",
+    tags = ["manual"],
+)
+
+alias(
+    name = "p521",
+    actual = "//third_party/crates/p521-0.13.3:p521",
+    tags = ["manual"],
+)
+
+alias(
     name = "parking_lot-0.12.5",
     actual = "//third_party/crates/parking_lot-0.12.5:parking_lot",
     tags = ["manual"],
