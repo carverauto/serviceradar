@@ -40,6 +40,7 @@ rust_library(
     ),
     crate_features = [
         "more_lengths",
+        "zeroize",
     ],
     crate_root = "src/lib.rs",
     edition = "2015",
@@ -117,6 +118,7 @@ rust_library(
     deps = [
         ":build_script_build",
         "//third_party/crates/typenum-1.20.1:typenum",
+        "//third_party/crates/zeroize-1.9.0:zeroize",
     ],
 )
 
@@ -144,6 +146,7 @@ cargo_build_script(
     ),
     crate_features = [
         "more_lengths",
+        "zeroize",
     ],
     crate_name = "build_script_build",
     crate_root = "build.rs",

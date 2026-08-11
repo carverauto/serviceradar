@@ -23,6 +23,7 @@ ADDON_SDK_DEPS = crate_deps([
     "anyhow",
     "base64",
     "hex",
+    "p521",
     "prost",
     "rcgen",
     "rustls",
@@ -63,6 +64,16 @@ rust_binary(
     deps = ADDON_SDK_DEPS + [":addon_sdk"],
     proc_macro_deps = ADDON_SDK_PROC_MACROS,
     visibility = ["//visibility:public"],
+)
+
+# The crate's inline #[cfg(test)] modules (src/tls.rs). Without this target they
+# compile under `cargo test` and never run under Bazel, which is how the P-521
+# scheme guard would have gone unnoticed -- the very regression it exists to
+# catch. `crate` inherits ADDON_SDK_DEPS, so nothing is re-listed here; naming an
+# inherited crate again duplicates the label and puts the package in error.
+rust_test(
+    name = "addon_sdk_lib_test",
+    crate = ":addon_sdk",
 )
 
 rust_test(

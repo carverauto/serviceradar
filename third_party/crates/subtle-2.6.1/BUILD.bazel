@@ -36,6 +36,7 @@ rust_library(
     ),
     crate_features = [
         "const-generics",
+        "i128",
     ],
     crate_root = "src/lib.rs",
     edition = "2018",

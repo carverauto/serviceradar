@@ -42,17 +42,106 @@
 //! with the host cert as the sole `ClientCAs`, self-signed). The server's own
 //! cert is still a self-signed CA so the Go host's standard verifier accepts it.
 
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
 
 use base64::Engine as _;
 use rcgen::{
     BasicConstraints, Certificate, CertificateParams, DistinguishedName, DnType,
     ExtendedKeyUsagePurpose, IsCa, KeyUsagePurpose, SanType,
 };
+use rustls::crypto::WebPkiSupportedAlgorithms;
+use rustls::pki_types::{
+    AlgorithmIdentifier, InvalidSignature, SignatureVerificationAlgorithm, alg_id,
+};
 use rustls::pki_types::{CertificateDer, PrivateKeyDer, PrivatePkcs8KeyDer, UnixTime};
 use rustls::server::WebPkiClientVerifier;
 use rustls::server::danger::{ClientCertVerified, ClientCertVerifier};
 use rustls::{DigitallySignedStruct, DistinguishedName as RustlsDn, ServerConfig, SignatureScheme};
+
+/// ECDSA P-521 / SHA-512 signature verification, in pure Rust.
+///
+/// go-plugin's AutoMTLS hardcodes `ecdsa.GenerateKey(elliptic.P521(), ...)`
+/// (`go-plugin/mtls.go`), so P-521 is the ONLY curve a go-plugin host will ever
+/// present as its client certificate. The rustls `ring` provider implements
+/// P-256 and P-384 but not P-521, so with `ring` alone the handshake fails with
+/// `tls: certificate required` -- the client cert is offered and rejected.
+///
+/// `aws-lc-rs` does implement P-521, but adopting it here would reintroduce
+/// ~2.1M lines of vendored BoringSSL to every crate in the workspace, because
+/// crates_vendor resolves the workspace as one feature universe. bad32bfc5e
+/// removed it deliberately as the most host-sensitive crate in the graph.
+///
+/// The trust decision does NOT rest on this code. `PinnedClientCertVerifier`
+/// accepts a client certificate only when its DER is byte-identical to the
+/// `PLUGIN_CLIENT_CERT` the host advertised out of band. This verifies the
+/// handshake signature, which proves the peer holds that pinned certificate's
+/// private key rather than replaying the certificate itself.
+#[derive(Debug)]
+struct EcdsaP521Sha512;
+
+impl SignatureVerificationAlgorithm for EcdsaP521Sha512 {
+    fn verify_signature(
+        &self,
+        public_key: &[u8],
+        message: &[u8],
+        signature: &[u8],
+    ) -> Result<(), InvalidSignature> {
+        use p521::ecdsa::signature::Verifier as _;
+
+        // `public_key` is the subjectPublicKey BIT STRING contents: an
+        // uncompressed SEC1 point (0x04 || X || Y).
+        let point = p521::EncodedPoint::from_bytes(public_key).map_err(|_| InvalidSignature)?;
+        let key =
+            p521::ecdsa::VerifyingKey::from_encoded_point(&point).map_err(|_| InvalidSignature)?;
+
+        // TLS carries ECDSA signatures DER-encoded as SEQUENCE { r, s }.
+        let sig = p521::ecdsa::Signature::from_der(signature).map_err(|_| InvalidSignature)?;
+
+        // `message` is unhashed; p521's Verifier applies SHA-512, which is the
+        // hash TLS pairs with P-521 (ecdsa_secp521r1_sha512).
+        key.verify(message, &sig).map_err(|_| InvalidSignature)
+    }
+
+    fn public_key_alg_id(&self) -> AlgorithmIdentifier {
+        alg_id::ECDSA_P521
+    }
+
+    fn signature_alg_id(&self) -> AlgorithmIdentifier {
+        alg_id::ECDSA_SHA512
+    }
+}
+
+/// The `ring` provider's verification algorithms, plus P-521.
+///
+/// Returned instead of `ring::default_provider().signature_verification_algorithms`
+/// so every verification path in this file agrees on the same set; advertising a
+/// scheme we cannot verify (or verifying one we never advertised) is how this
+/// breaks silently.
+///
+/// Built exactly once. `WebPkiSupportedAlgorithms` holds `&'static` slices, so
+/// assembling one means leaking the backing allocations -- fine for a one-time
+/// init, an unbounded leak if done per call. Both callers are per-handshake.
+fn supported_algorithms() -> WebPkiSupportedAlgorithms {
+    static P521: &dyn SignatureVerificationAlgorithm = &EcdsaP521Sha512;
+    static ALGORITHMS: OnceLock<WebPkiSupportedAlgorithms> = OnceLock::new();
+
+    *ALGORITHMS.get_or_init(|| {
+        let base = rustls::crypto::ring::default_provider().signature_verification_algorithms;
+
+        let mut all = base.all.to_vec();
+        all.push(P521);
+
+        let mut mapping = base.mapping.to_vec();
+        // The mapping's value is a &'static slice, not a Vec.
+        static P521_ONLY: &[&dyn SignatureVerificationAlgorithm] = &[P521];
+        mapping.push((SignatureScheme::ECDSA_NISTP521_SHA512, P521_ONLY));
+
+        WebPkiSupportedAlgorithms {
+            all: Box::leak(all.into_boxed_slice()),
+            mapping: Box::leak(mapping.into_boxed_slice()),
+        }
+    })
+}
 
 /// The AutoMTLS material the server needs to build its rustls `ServerConfig`.
 pub struct ServerMtls {
@@ -229,12 +318,7 @@ impl ClientCertVerifier for PinnedClientCertVerifier {
         // Verify the handshake signature with the platform crypto provider, so
         // the client genuinely controls the pinned cert's private key (rejecting
         // a replayed certificate without the key).
-        rustls::crypto::verify_tls12_signature(
-            message,
-            cert,
-            dss,
-            &rustls::crypto::ring::default_provider().signature_verification_algorithms,
-        )
+        rustls::crypto::verify_tls12_signature(message, cert, dss, &supported_algorithms())
     }
 
     fn verify_tls13_signature(
@@ -243,18 +327,11 @@ impl ClientCertVerifier for PinnedClientCertVerifier {
         cert: &CertificateDer<'_>,
         dss: &DigitallySignedStruct,
     ) -> Result<rustls::client::danger::HandshakeSignatureValid, rustls::Error> {
-        rustls::crypto::verify_tls13_signature(
-            message,
-            cert,
-            dss,
-            &rustls::crypto::ring::default_provider().signature_verification_algorithms,
-        )
+        rustls::crypto::verify_tls13_signature(message, cert, dss, &supported_algorithms())
     }
 
     fn supported_verify_schemes(&self) -> Vec<SignatureScheme> {
-        rustls::crypto::ring::default_provider()
-            .signature_verification_algorithms
-            .supported_schemes()
+        supported_algorithms().supported_schemes()
     }
 }
 
@@ -269,4 +346,89 @@ fn _webpki_client_verifier_is_the_rejected_alternative() {
 /// the host role to confirm the handshake line is parseable.
 pub fn decode_server_cert_b64(b64: &str) -> Result<Vec<u8>, base64::DecodeError> {
     base64::engine::general_purpose::STANDARD_NO_PAD.decode(b64)
+}
+
+#[cfg(test)]
+mod p521_tests {
+    use super::*;
+
+    /// Guards the one property that makes go-plugin AutoMTLS work at all.
+    ///
+    /// go-plugin generates its client certificate with `elliptic.P521()` and
+    /// offers no way to choose another curve, so if this scheme is missing the
+    /// handshake fails with `tls: certificate required` -- a cross-language
+    /// failure that only the slow, path-filtered Rust/Go interop job catches.
+    /// Swapping the rustls provider back to a P-521-less one (as bad32bfc5e did)
+    /// should fail here, in one line, instead.
+    #[test]
+    fn advertises_the_curve_go_plugin_mandates() {
+        let schemes = supported_algorithms().supported_schemes();
+
+        assert!(
+            schemes.contains(&SignatureScheme::ECDSA_NISTP521_SHA512),
+            "go-plugin AutoMTLS uses ECDSA P-521 exclusively; without it every \
+             Rust add-on fails the agent's mTLS handshake. Got: {schemes:?}"
+        );
+    }
+
+    /// The ring provider's own schemes must survive being augmented -- a P-521
+    /// entry is no use if adding it dropped everything else.
+    #[test]
+    fn retains_the_base_provider_schemes() {
+        let base = rustls::crypto::ring::default_provider()
+            .signature_verification_algorithms
+            .supported_schemes();
+        let augmented = supported_algorithms().supported_schemes();
+
+        for scheme in base {
+            assert!(
+                augmented.contains(&scheme),
+                "augmenting the provider dropped {scheme:?}"
+            );
+        }
+    }
+
+    /// A signature that is not valid must be rejected. The interop test proves
+    /// the positive path against a real go-plugin certificate; this proves
+    /// verify_signature is actually verifying rather than returning Ok whenever
+    /// its inputs happen to parse.
+    #[test]
+    fn verifies_a_real_signature_and_rejects_everything_else() {
+        use p521::ecdsa::signature::Signer as _;
+        use p521::elliptic_curve::rand_core::OsRng;
+
+        let signing = p521::ecdsa::SigningKey::random(&mut OsRng);
+        let verifying = p521::ecdsa::VerifyingKey::from(&signing);
+        let point = verifying.to_encoded_point(false);
+        let sig: p521::ecdsa::Signature = signing.sign(b"the signed message");
+        let der = sig.to_der();
+
+        assert!(
+            EcdsaP521Sha512
+                .verify_signature(point.as_bytes(), b"the signed message", der.as_bytes())
+                .is_ok(),
+            "a genuine P-521 signature must verify"
+        );
+
+        assert!(
+            EcdsaP521Sha512
+                .verify_signature(point.as_bytes(), b"a different message", der.as_bytes())
+                .is_err(),
+            "a signature over different data must not verify"
+        );
+
+        assert!(
+            EcdsaP521Sha512
+                .verify_signature(point.as_bytes(), b"the signed message", b"not der")
+                .is_err(),
+            "a malformed signature must not verify"
+        );
+
+        assert!(
+            EcdsaP521Sha512
+                .verify_signature(b"not a point", b"the signed message", der.as_bytes())
+                .is_err(),
+            "a malformed public key must not verify"
+        );
+    }
 }
