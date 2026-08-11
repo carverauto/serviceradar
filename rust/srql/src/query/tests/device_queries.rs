@@ -840,3 +840,79 @@ fn devices_rejects_unsafe_tag_key() {
         "unsafe tag key must be rejected in a group-by too"
     );
 }
+
+// JSONB keys are case-sensitive in Postgres and tag ingestion preserves the
+// operator's casing, so `tags.Gate` must not be folded to `tags->>'gate'` --
+// in a filter or in a GROUP BY, and identically in both.
+#[test]
+fn devices_preserves_tag_key_casing() {
+    let plan = plan_for("in:devices tags.Gate:B40");
+    let (sql, _params) = devices::to_sql_and_params(&plan).expect("should build SQL");
+    assert!(
+        sql.contains("tags->>'Gate'"),
+        "filter must probe the key as written, got: {sql}"
+    );
+
+    let plan = plan_for("in:devices stats:count() as total by tags.Gate");
+    let (sql, _params) = devices::to_sql_and_params(&plan).expect("should build grouped stats SQL");
+    assert!(
+        sql.contains("tags->>'Gate'"),
+        "group-by must probe the key as written, got: {sql}"
+    );
+
+    // The namespace itself stays case-insensitive.
+    let plan = plan_for("in:devices TAGS.Gate:B40");
+    let (sql, _params) = devices::to_sql_and_params(&plan).expect("should build SQL");
+    assert!(
+        sql.contains("tags->>'Gate'"),
+        "namespace should fold while the key does not, got: {sql}"
+    );
+}
+
+// os.* / hw_info.* share apply_jsonb_text_filter with tags.*, so the row filter
+// and its separate bind-param collector must accept the same operator set.
+#[test]
+fn devices_fixed_jsonb_fields_support_list_form() {
+    let plan = plan_for("in:devices os.name:(Linux,Windows)");
+    let (sql, params) = devices::to_sql_and_params(&plan).expect("should build SQL");
+    assert!(
+        sql.to_lowercase().contains("os->>'name' = any("),
+        "expected an ANY(...) membership test, got: {sql}"
+    );
+    assert!(
+        params
+            .iter()
+            .any(|param| matches!(param, BindParam::TextArray(values) if values == &vec!["Linux".to_string(), "Windows".to_string()])),
+        "expected the os.name list bound as a text array, got: {params:?}"
+    );
+}
+
+// The grouped-stats builder emits `?`; Postgres wants `$n`. Translation always
+// rewrote, execution did not -- so a *filtered* grouped query was a syntax
+// error in production while these tests passed. Both paths now share the
+// rewrite, and no raw `?` may survive on either.
+#[test]
+fn devices_grouped_stats_sql_never_leaks_a_raw_placeholder() {
+    for query in [
+        "in:devices vendor_name:Cisco stats:count() as total by type limit:10",
+        "in:devices tags.site:ZZA stats:count() as total by tags.gate limit:100",
+        "in:devices hostname:%core% stats:count() as total by is_available limit:10",
+    ] {
+        let plan = plan_for(query);
+        let (sql, params) =
+            devices::to_sql_and_params(&plan).expect("should build grouped stats SQL");
+        assert_eq!(
+            sql.matches('?').count(),
+            0,
+            "raw ? survived rewriting for `{query}`, got: {sql}"
+        );
+        assert!(
+            sql.contains("$1"),
+            "expected a rewritten $n placeholder for `{query}`, got: {sql}"
+        );
+        assert!(
+            !params.is_empty(),
+            "expected bind params for `{query}`, got none"
+        );
+    }
+}

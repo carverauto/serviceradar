@@ -25,9 +25,7 @@ pub(in crate::query::devices) enum DeviceGroupField {
 
 impl DeviceGroupField {
     pub(super) fn from_str(s: &str) -> Option<Self> {
-        let lowered = s.to_lowercase();
-
-        match lowered.as_str() {
+        match s.to_lowercase().as_str() {
             "type" | "device_type" => return Some(Self::Type),
             "vendor_name" | "vendor" => return Some(Self::VendorName),
             "risk_level" | "risk" => return Some(Self::RiskLevel),
@@ -40,10 +38,16 @@ impl DeviceGroupField {
         // `tags.<key>` / `metadata.<key>`. Only the first `.` separates the
         // column from the key; `is_valid_jsonb_key` rejects any remaining dot,
         // so nested paths are refused rather than silently truncated.
-        let (column, key) = lowered.split_once('.')?;
+        //
+        // Only the column name is case-folded. JSONB keys are case-sensitive in
+        // Postgres and tag ingestion preserves whatever casing the operator
+        // used, so lowercasing `tags.Gate` here would read `tags->>'gate'` and
+        // bucket every real "Gate" row under 'Unknown'.
+        let (column, key) = s.split_once('.')?;
+        let column_lowered = column.to_lowercase();
         let column = JSONB_GROUP_COLUMNS
             .iter()
-            .find(|candidate| **candidate == column)?;
+            .find(|candidate| **candidate == column_lowered)?;
 
         if !is_valid_jsonb_key(key) {
             return None;
