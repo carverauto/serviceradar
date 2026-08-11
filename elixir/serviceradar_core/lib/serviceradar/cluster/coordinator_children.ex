@@ -405,7 +405,13 @@ defmodule ServiceRadar.Cluster.CoordinatorChildren do
 
   defp event_writer_child do
     if enabled?("EVENT_WRITER_ENABLED", :event_writer_enabled, false) do
-      Supervisor.child_spec(ServiceRadar.EventWriter.Supervisor, restart: :temporary)
+      # restart: :permanent, NOT :temporary. Any transient fault -- a NATS restart
+      # during an upgrade or node drain, a broker disconnect -- must not permanently
+      # disable ingestion. With :temporary the supervisor is never restarted:
+      # collectors keep publishing, JetStream keeps growing, nothing consumes, and
+      # every pod still reports healthy. Observed after a routine
+      # `kubectl rollout restart statefulset/serviceradar-nats`.
+      Supervisor.child_spec(ServiceRadar.EventWriter.Supervisor, restart: :permanent)
     end
   end
 
