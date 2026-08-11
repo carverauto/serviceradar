@@ -259,8 +259,9 @@ defmodule ServiceRadar.Edge.BoundsPrecedenceTest do
       # It was picked by MEASUREMENT: with the descriptor gate reverted, this is one of the
       # modules the value-driven design wrongly passes. Most messages hide the defect, because
       # an unsupported SINGULAR scalar still has a zero value to trip over.
+      # The BEHAVIOURAL refusal is the whole proof; the closure needs no accessor to expose it,
+      # and one existing only for this row would be API surface a test invented.
       outside = Google.Api.Expr.V1alpha1.Constant
-      refute MapSet.member?(WireShape.supported_modules(), outside)
 
       refute WireShape.wire_shaped?(struct(outside)),
              "an EMPTY struct outside the supported closure must still be refused"

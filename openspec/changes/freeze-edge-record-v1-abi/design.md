@@ -311,14 +311,26 @@ zoned value can round-trip, so the spelling rule catches every one -- and report
 `:plan_range` atom the zone gate would. Removing the gate there changes no verdict, measured.
 
 THE GATE IS STILL REQUIRED THERE: the frozen rule says a zone is refused BEFORE either parser,
-and the spelling rule runs after. At the VALIDATOR that stage is unobservable -- both paths
-report the same reason, and distinguishing them would need the zone to carry its own, which is
-refusal taxonomy and 1.5-l's. So the validator-level Elixir rows are REGRESSION rows: they
-catch a change that made that runtime ADMIT a zoned address, and claim nothing more.
+and the spelling rule runs after. NO VERDICT distinguishes the two, so the validator-level
+Elixir rows are REGRESSION rows -- they catch a change that made that runtime ADMIT a zoned
+address, and claim nothing more.
 
-THE SEAM IS WHERE BOTH RUNTIMES PROVE IT. A preflight that PARSES NOTHING is addressed
-directly, so an input refused there demonstrably never reached a parser, and the checked-value
-handoff makes the order hard to get wrong: the parser takes the checked value, not the range.
+THE STAGE ITSELF IS OBSERVED AT THE VALIDATOR, by CALL TRACING through the real
+`PlanValidate.validate/2`: the preflight must be called and `:inet.parse_strict_address/1` must
+not. So "unobservable" was only ever true of verdicts, and no distinct refusal reason was
+needed.
+
+WHAT EACH KIND OF ROW PROVES, kept apart because they are not interchangeable:
+
+- THE SEAM proves the PREDICATES and pins the FROZEN CEILING. It parses nothing, so an
+  at-ceiling acceptance exists there when none exists through the whole validator.
+- GO'S WHOLE-VALIDATOR ZONED ROW proves ATTACHMENT in that runtime: forge the handoff and it
+  fails, because Go would otherwise admit a zoned equal-endpoint span.
+- ELIXIR'S TRACED STAGE TEST proves attachment there, where no verdict can: the preflight must
+  be called and `:inet.parse_strict_address/1` must not.
+
+A seam row does NOT prove attachment, and a validator row does not pin the ceiling. Treating
+either as the other is how a suite ends up green over a bypass.
 THE HANDOFF IS NOT UNFORGEABLE, and the two runtimes are NOT in the same position about it.
 Go's checked struct and Elixir's tagged tuple are both ordinary in-module values, so code
 inside either can construct one.
@@ -489,8 +501,9 @@ every bound in its residue was an inclusive semantic maximum, then over-correcte
 of them unreachable. `MaxTransportProvenanceHeaderBytes` always was a defensive guard.
 `MaxRangeStrBytes` was NOT -- it is reachable at exactly the ceiling through a scoped IPv6
 address, which the first measurement missed by enumerating only the address shapes it thought
-of. FORBIDDING ZONES PUT IT BACK OUT OF REACH, so with that prohibition frozen it is now
-guard-class too, and its evidence follows the guard shape rather than an at-ceiling pair.
+of. FORBIDDING ZONES PUT IT BACK OUT OF REACH, so with that prohibition frozen and IMPLEMENTED
+it is guard-class too, and its evidence follows the guard shape rather than an at-ceiling pair
+-- pinned at the preflight seam, which is the only place an at-ceiling acceptance exists.
 A measurement establishes what the sample reached, never what the parser accepts -- the
 parser's grammar is the thing to read.
 
