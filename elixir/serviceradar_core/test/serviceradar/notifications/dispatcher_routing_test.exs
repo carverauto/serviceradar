@@ -187,6 +187,61 @@ defmodule ServiceRadar.Notifications.DispatcherRoutingTest do
     end
   end
 
+  describe "a suppressed dispatch to a :stream channel (task 4.4.2a)" do
+    test "publishes no envelope and still records the suppression", %{actor: actor} do
+      # Two surfaces, and conflating them is the easy mistake: the firehose must
+      # carry NOTHING for a withheld notification, while the Delivery Log must
+      # still show it and say why. "Nothing published" and "nothing recorded" are
+      # very different failures and only the first is correct here.
+      _channel = create_stream_channel!(actor)
+      {alert, now} = fired_alert!(actor)
+
+      Phoenix.PubSub.subscribe(ServiceRadar.PubSub, "notifications:stream")
+
+      # Prove the subscription is live BEFORE relying on a refute. Without this
+      # the refute below passes just as happily against a topic nobody is
+      # listening to, which is the classic vacuous negative assertion.
+      Phoenix.PubSub.broadcast(
+        ServiceRadar.PubSub,
+        "notifications:stream",
+        {:notification_envelope, %{"probe" => true}}
+      )
+
+      assert_receive {:notification_envelope, %{"probe" => true}}, 500
+
+      assert {:ok, %{planned: [], suppressed: [delivery_id]}} =
+               Dispatcher.route(alert.id, :fire, actor: actor, now: now)
+
+      # Suppression is decided BEFORE a transport is called, so there is no
+      # "suppressed envelope" for a subscriber to receive - by construction, not
+      # by a filter that could be forgotten.
+      refute_receive {:notification_envelope, _envelope}, 200
+
+      assert [delivery] = deliveries_for(alert, actor)
+      assert delivery.id == delivery_id
+      assert delivery.state == :suppressed
+      assert delivery.suppression_reason
+    end
+
+    test "the withheld row reaches the Delivery Log through the shared read", %{actor: actor} do
+      _channel = create_stream_channel!(actor)
+      {alert, now} = fired_alert!(actor)
+
+      assert {:ok, %{suppressed: [delivery_id]}} =
+               Dispatcher.route(alert.id, :fire, actor: actor, now: now)
+
+      withheld =
+        NotificationDelivery
+        |> Ash.Query.for_read(:suppressed)
+        |> Ash.read!(actor: actor)
+
+      row = Enum.find(withheld, &(&1.id == delivery_id))
+
+      assert row, "a suppressed stream dispatch must not be invisible to the Delivery Log"
+      assert row.suppression_reason
+    end
+  end
+
   describe "route/3 with no matching route" do
     test "records one suppressed delivery with :no_matching_route", %{actor: actor} do
       {alert, now} = fired_alert!(actor)
@@ -316,6 +371,41 @@ defmodule ServiceRadar.Notifications.DispatcherRoutingTest do
       :create,
       %{
         name: "channel-#{System.unique_integer([:positive])}",
+        provider_id: provider.id,
+        config: %{}
+      },
+      actor: actor
+    )
+    |> Ash.create!(actor: actor)
+  end
+
+  defp create_stream_channel!(actor) do
+    # `implementation_module` MUST be nil: the
+    # notification_providers_native_module CHECK admits one only on a :native
+    # row, and `:stream` is a provider_type rather than an extensibility tier.
+    provider =
+      NotificationProvider
+      |> Ash.Changeset.for_create(
+        :create,
+        %{
+          provider_key: "stream-#{System.unique_integer([:positive])}",
+          provider_type: :stream,
+          display_name: "Test firehose",
+          capabilities: [:send, :test],
+          supported_routes: [:control_plane],
+          payload_formats: [:json],
+          config_schema: %{},
+          implementation_module: nil
+        },
+        actor: actor
+      )
+      |> Ash.create!(actor: actor)
+
+    NotificationChannel
+    |> Ash.Changeset.for_create(
+      :create,
+      %{
+        name: "stream-channel-#{System.unique_integer([:positive])}",
         provider_id: provider.id,
         config: %{}
       },

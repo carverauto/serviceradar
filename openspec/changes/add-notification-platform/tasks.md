@@ -1956,7 +1956,7 @@ directories are still on that branch at their original commits.
       audit like any other channel - never a parallel unaudited egress. `:stream`
       is a `provider_type`, not a fourth extensibility tier: operators cannot
       author one.
-- [ ] 4.2.1a Implement stream suppression correctly, because two different
+- [x] 4.2.1a Implement stream suppression correctly, because two different
       surfaces are involved and conflating them is the easy mistake. A suppressed
       dispatch to a `:stream` channel publishes NO envelope on the stream, and
       writes a `NotificationDelivery` row with `state: :suppressed`. Separately,
@@ -2002,7 +2002,7 @@ one is a silent-failure source if done per-provider.
       response budget and `apply_native/2` opens a `Repo.transaction`. Doing that
       work inline is fragile under load; the callback verifies, enqueues, and
       acknowledges, and the job applies the capability.
-- [ ] 4.3.0d Platform seam: idempotency keyed on the provider's own event id.
+- [x] 4.3.0d Platform seam: idempotency keyed on the provider's own event id.
       Northbound has no equivalent and all three providers retry.
 - [x] 4.3.1 Slack Block Kit acknowledge / snooze / resolve buttons, posting to the
       notification callback route. Interactive mode defaults OFF; when on, `url`
@@ -2047,7 +2047,7 @@ one is a silent-failure source if done per-provider.
       `provider_key: "pagerduty"` and the subscription id as
       `external_app_id`. Consider the custom-header callback token from 4.3.4a at
       the same time, since both are set at subscription-create.
-- [ ] 4.3.3d PagerDuty inbound idempotency on `event.id`. Lower priority than it
+- [x] 4.3.3d PagerDuty inbound idempotency on `event.id`. Lower priority than it
       looks: `apply_native/2` already disposes an alert in the target state as
       `:already_applied`, so a retry cannot double-transition. What a store would
       add is suppressing the duplicate AUDIT row a retry writes. Worth doing
@@ -2141,7 +2141,7 @@ one is a silent-failure source if done per-provider.
       timestamp beyond tolerance, and tampered body.
 - [x] 4.4.2 Phoenix Channel authorization test asserting a user without
       `notifications.stream.subscribe` cannot join the firehose topic.
-- [ ] 4.4.2a Stream-suppression test: a suppressed dispatch to a `:stream` channel
+- [x] 4.4.2a Stream-suppression test: a suppressed dispatch to a `:stream` channel
       publishes nothing to subscribers and still writes a `:suppressed` delivery
       row that the Delivery Log renders with its reason.
 - [x] 4.4.2b Stream action-link exemption test: no envelope published on the

@@ -184,7 +184,10 @@ defmodule ServiceRadar.Notifications.Callbacks.PagerDuty do
          action: action,
          alert_id: alert_id,
          delivery_id: nil,
-         external_principal: principal(event)
+         external_principal: principal(event),
+         # PagerDuty has no transport-level replay defence, so its own event id
+         # is what makes a redelivery idempotent. A ULID, unique per event.
+         event_id: Map.get(event, :event_id)
        }}
     end
   end

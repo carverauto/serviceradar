@@ -198,6 +198,18 @@ defmodule ServiceRadar.Notifications.Callbacks.PagerDutyTest do
       assert {:error, :unsupported_event_type} = PagerDuty.capability(event)
     end
 
+    test "carries the event id so a redelivery can be deduped" do
+      # PagerDuty has no transport-level replay defence, so its own event id is
+      # the only thing that makes a redelivery idempotent rather than a second
+      # audit row.
+      raw = body()
+
+      assert {:ok, event} = PagerDuty.decode_interaction(request(raw))
+      assert {:ok, capability} = PagerDuty.capability(event)
+
+      assert capability.event_id == "01BWDWL3NYY7LUFPZCC28QUCMK"
+    end
+
     test "refuses an incident ServiceRadar did not open" do
       # No incident_key means the incident was not created from a ServiceRadar
       # alert, so there is nothing to correlate and nothing to guess.

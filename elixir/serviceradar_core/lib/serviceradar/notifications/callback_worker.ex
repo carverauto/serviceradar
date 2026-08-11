@@ -38,6 +38,12 @@ defmodule ServiceRadar.Notifications.CallbackWorker do
 
   require Logger
 
+  # How long two deliveries of one provider event are treated as the same event.
+  # Comfortably wider than any provider's retry span - PagerDuty's is ~20
+  # minutes - so a redelivery lands inside the window rather than just outside
+  # it, which is the failure that makes a dedupe window look like it works.
+  @dedupe_window_seconds 3600
+
   @actions %{
     "acknowledge" => :acknowledge,
     "snooze" => :snooze,
@@ -52,18 +58,40 @@ defmodule ServiceRadar.Notifications.CallbackWorker do
   """
   @spec build(map()) :: Oban.Job.changeset()
   def build(%{action: action, alert_id: alert_id, delivery_id: delivery_id} = capability) do
-    %{
-      "action" => to_string(action),
-      "alert_id" => alert_id,
-      "delivery_id" => delivery_id,
-      "snooze_seconds" => Map.get(capability, :snooze_seconds),
-      "external_principal" => Map.get(capability, :external_principal),
-      "provider_key" => to_string(Map.get(capability, :provider_key, "unknown"))
-    }
-    |> Enum.reject(fn {_key, value} -> is_nil(value) end)
-    |> Map.new()
-    |> new()
+    args =
+      %{
+        "action" => to_string(action),
+        "alert_id" => alert_id,
+        "delivery_id" => delivery_id,
+        "snooze_seconds" => Map.get(capability, :snooze_seconds),
+        "external_principal" => Map.get(capability, :external_principal),
+        "provider_key" => to_string(Map.get(capability, :provider_key, "unknown")),
+        "event_id" => Map.get(capability, :event_id)
+      }
+      |> Enum.reject(fn {_key, value} -> is_nil(value) end)
+      |> Map.new()
+
+    new(args, dedupe_opts(args))
   end
+
+  # Uniqueness is applied ONLY when the provider gave us an event id, and that
+  # condition is the whole point. Slack's block_actions payload carries no event
+  # id, so a blanket `unique` on these keys would compare two distinct clicks on
+  # a missing value and collapse them into one - silently dropping the second
+  # operator's acknowledgement. A provider without an event id is left to the
+  # `:already_applied` disposition, which absorbs a retry without conflating two
+  # real interactions.
+  defp dedupe_opts(%{"event_id" => event_id}) when is_binary(event_id) and event_id != "" do
+    [
+      unique: [
+        keys: [:provider_key, :event_id],
+        period: @dedupe_window_seconds,
+        states: [:available, :scheduled, :executing, :retryable, :completed]
+      ]
+    ]
+  end
+
+  defp dedupe_opts(_args), do: []
 
   @impl Oban.Worker
   def perform(%Oban.Job{args: args}) do
