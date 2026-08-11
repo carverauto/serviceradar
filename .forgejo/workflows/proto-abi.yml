@@ -263,6 +263,19 @@ jobs:
       - name: Edge bounds precedence, bounded traversal and wire shape (Elixir)
         working-directory: elixir/serviceradar_core
         run: mix test --no-start test/serviceradar/edge/bounds_precedence_test.exs
+      # The IPv6-ZONE prohibition and the guard bound it puts out of reach. Gated because the
+      # rule is normative, and because the split matters: this runtime's VALIDATOR-level zone
+      # row is a regression pin (its spelling check already refuses a zoned address), while the
+      # SEAM rows pin the frozen ceiling and tell a zone fault from a length fault.
+      - name: Edge plan range-string corpus (Elixir)
+        working-directory: elixir/serviceradar_core
+        run: mix test --no-start test/serviceradar/edge/range_string_corpus_test.exs
+      # The STAGE, observed by call tracing rather than by verdict: everything the preflight
+      # refuses is also refused downstream here, so only a trace can show the parser was not
+      # entered. Runs async: false -- trace patterns are node-global.
+      - name: Edge plan range-string stage (Elixir)
+        working-directory: elixir/serviceradar_core
+        run: mix test --no-start test/serviceradar/edge/range_string_stage_test.exs
       # The ELIXIR-SIDE drift gate for the claims oneof, pinned against GENERATED metadata.
       # Go pins the same oneof exactly (TestFrozenSchemaInventories, assignment_test.go),
       # so a proto-side variant addition already fails there; this is the peer that keeps

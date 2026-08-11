@@ -1232,10 +1232,21 @@ here.
         THE SYNTAX IS DECIDED AND FROZEN: a zone names an interface on the writing machine and
         cannot be interpreted at the receiver, so zones are REFUSED and never stripped. That
         PUTS THE CEILING BACK OUT OF REACH and makes this the SECOND guard-class bound. What
-        remains here is the runtime gate and its evidence. Its corpus is three parts: a ZONE-PRESENT
-        REFUSAL in both runtimes (the only row that changes verdict if the prohibition is
-        dropped); ACCEPTED CONTROLS at the largest valid syntax, per field; and ONE
-        OVER-LIMIT, PARSER-NOT-ENTERED control per field.
+        remains here is the runtime gate and its evidence.
+        THE EVIDENCE ADDRESSES A PREFLIGHT SEAM, not the whole validator, and that is forced
+        rather than chosen: no canonical address reaches the ceiling once zones are forbidden,
+        so a whole-validator at-ceiling acceptance does not exist to construct -- and a
+        one-over refusal driven through the validator survives the bound drifting anywhere
+        between the longest valid address and the ceiling, because the address parser refuses
+        those lengths regardless. Only a seam that PARSES NOTHING can distinguish them, and
+        addressing it also makes the ORDER structural instead of asserted through diagnostic
+        wording no requirement owns.
+        THE ZONE ROW IS LOAD-BEARING IN GO AND A REGRESSION ROW IN ELIXIR. Go admits a zoned
+        address without the rule; the Elixir spelling check already refuses one and reports the
+        SAME reason the gate would, so removing that runtime's gate changes no verdict at the
+        validator. Its seam rows DO distinguish it. Naming a stage difference at the validator
+        would need a distinct refusal reason, which 1.5-l owns and this subtask SHALL NOT
+        annex.
         RUNTIME WORK, NOT ONLY VECTORS. This subtask owns the count-stage ORDERING in both
         runtimes' decoded validators and the N+1-bounded traversal at every bounded-count
         site, each with its own stage-sensitive evidence. Go's raw entrypoints
