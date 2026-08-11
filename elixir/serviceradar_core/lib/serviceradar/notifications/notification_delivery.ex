@@ -144,7 +144,8 @@ defmodule ServiceRadar.Notifications.NotificationDelivery do
     :execution_route,
     :agent_uid,
     :command_id,
-    :queued_at
+    :queued_at,
+    :lifecycle_reason
   ]
 
   @suppression_fields [
@@ -703,6 +704,22 @@ defmodule ServiceRadar.Notifications.NotificationDelivery do
       public? true
       default :control_plane
       constraints one_of: [:control_plane, :edge_agent]
+    end
+
+    attribute :lifecycle_reason, :atom do
+      description """
+      Why the lifecycle emitted this delivery: `:fire`, `:renotify`, `:escalate`,
+      `:resolve`. Recorded because it is not knowable at render time otherwise,
+      and an incident API needs it - a resolving alert must tell PagerDuty to
+      resolve rather than trigger on the same dedup_key (task 4.3.3b).
+
+      Nullable: rows written before this existed have no honest value, and a null
+      renders as `trigger`, which is what they already did.
+      """
+
+      allow_nil? true
+      public? true
+      constraints one_of: [:fire, :renotify, :escalate, :resolve]
     end
 
     attribute :agent_uid, :string, allow_nil?: true, public?: true

@@ -129,7 +129,7 @@ defmodule ServiceRadar.Notifications.Declarative.Catalog do
   # and the fix ships without taking effect. This version is independent of
   # `ProviderSeeder`'s: the two catalogs are reconciled separately, and sharing a
   # constant would reseed one on the other's unrelated change.
-  @template_version "2"
+  @template_version "3"
 
   # The retry sets nearly every HTTP destination wants: a request timeout, a rate
   # limit, and a server-side fault are worth repeating; every other non-2xx is a
@@ -143,7 +143,8 @@ defmodule ServiceRadar.Notifications.Declarative.Catalog do
     "description" =>
       "Trigger a PagerDuty incident through the Events API v2. The alert id is the " <>
         "dedup_key, so repeated occurrences of one ServiceRadar alert update a single " <>
-        "PagerDuty incident instead of opening a new one.",
+        "PagerDuty incident instead of opening a new one, and resolving the alert " <>
+        "resolves that incident.",
     "icon" => "pagerduty",
     "capabilities" => ["send", "test", "rich_payload"],
     "payload_formats" => ["plain"],
@@ -194,7 +195,16 @@ defmodule ServiceRadar.Notifications.Declarative.Catalog do
       "body_format" => "json",
       "body" => %{
         "routing_key" => "{{ secrets.routing_key }}",
-        "event_action" => "trigger",
+        # Derived from the routing lifecycle, NOT hardcoded (task 4.3.3b). With
+        # "trigger" here a resolving ServiceRadar alert sent PagerDuty a trigger
+        # on the dedup_key of the incident it should have closed, so the incident
+        # was updated and stayed open until a human closed it by hand.
+        # `default:` is load-bearing, not decoration. An unresolved variable
+        # renders as "" and PagerDuty rejects an empty event_action outright, so
+        # a context that somehow lacks the delivery namespace would turn a
+        # working notification into a 400. Falling back to "trigger" restores
+        # exactly the previous behaviour instead.
+        "event_action" => "{{ delivery.event_action | default: \"trigger\" }}",
         "dedup_key" => "{{ alert.id }}",
         "client" => "{{ system.name | default: \"ServiceRadar\" }}",
         "payload" => %{

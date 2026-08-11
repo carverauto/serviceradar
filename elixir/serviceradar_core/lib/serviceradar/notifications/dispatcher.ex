@@ -719,12 +719,12 @@ defmodule ServiceRadar.Notifications.Dispatcher do
 
     with_request_lock(scope.alert, lifecycle_reason, dedupe_key, opts, fn ->
       Enum.reduce(decision.matched, {:ok, empty_result()}, fn match, acc ->
-        merge_result(acc, route_match(scope, match, actor, opts))
+        merge_result(acc, route_match(scope, match, lifecycle_reason, actor, opts))
       end)
     end)
   end
 
-  defp route_match(scope, match, actor, opts) do
+  defp route_match(scope, match, lifecycle_reason, actor, opts) do
     route = match.route
     dedupe_key = dedupe_key(scope.alert, route, opts)
     policy = load_policy(match.escalation_policy_id, actor)
@@ -742,11 +742,11 @@ defmodule ServiceRadar.Notifications.Dispatcher do
 
       log_plan_diagnostics(scope.alert, route, plan)
 
-      persist_plan(scope, route, policy, dedupe_key, plan, actor)
+      persist_plan(scope, route, policy, dedupe_key, plan, lifecycle_reason, actor)
     end
   end
 
-  defp persist_plan(scope, route, policy, dedupe_key, plan, actor) do
+  defp persist_plan(scope, route, policy, dedupe_key, plan, lifecycle_reason, actor) do
     channels = policy_channels(policy)
     steps = policy_steps_by_number(policy)
 
@@ -755,7 +755,11 @@ defmodule ServiceRadar.Notifications.Dispatcher do
       policy: policy,
       steps: steps,
       channels: channels,
-      dedupe_key: dedupe_key
+      dedupe_key: dedupe_key,
+      # Carried to the delivery row because it is not recoverable at render
+      # time, and an incident API needs it: a resolving alert must tell PagerDuty
+      # to resolve rather than trigger on the same dedup_key (task 4.3.3b).
+      lifecycle_reason: lifecycle_reason
     }
 
     {planned, planned_notifications} =
@@ -802,7 +806,8 @@ defmodule ServiceRadar.Notifications.Dispatcher do
       # `now` is what lets the Delivery Log show a late page as late, and it is
       # the value `Escalation.plan/1` reads back as `:dispatched`.
       queued_at: due_at,
-      next_attempt_at: due_at
+      next_attempt_at: due_at,
+      lifecycle_reason: Map.get(placement, :lifecycle_reason)
     }
 
     case create_delivery(:record_dispatch, attrs, actor) do
@@ -1097,7 +1102,10 @@ defmodule ServiceRadar.Notifications.Dispatcher do
           payload_format: negotiated_format(nil, fallback.provider),
           provider_version: field(fallback.provider, :definition_version),
           queued_at: now,
-          next_attempt_at: now
+          next_attempt_at: now,
+          # A failover of a resolve notice is still a resolve notice. Dropping it
+          # here would make the second attempt tell PagerDuty to trigger.
+          lifecycle_reason: delivery.lifecycle_reason
         }
 
         case create_delivery(:record_dispatch, attrs, actor) do
@@ -1463,6 +1471,7 @@ defmodule ServiceRadar.Notifications.Dispatcher do
           # its token. Without it `Content.action_controls/1` returns [] rather
           # than minting a control bound to an alert alone.
           delivery_id: field(delivery, :id),
+          event_action: event_action(field(delivery, :lifecycle_reason)),
           interactive?: interactive_channel?(scope.channel),
           # ActionRedaction matches on KEY names, and a capability token sits
           # inside a `url` VALUE where there is no sensitive key to match. Without
@@ -1604,9 +1613,28 @@ defmodule ServiceRadar.Notifications.Dispatcher do
       "external_correlation_id" => delivery.external_correlation_id,
       "queued_at" => iso8601(delivery.queued_at),
       "started_at" => iso8601(delivery.started_at),
-      "finished_at" => iso8601(delivery.finished_at)
+      "finished_at" => iso8601(delivery.finished_at),
+      "lifecycle_reason" => to_string(delivery.lifecycle_reason || ""),
+      "event_action" => to_string(event_action(delivery.lifecycle_reason))
     }
   end
+
+  @doc """
+  The action an incident API is told to take, derived from the lifecycle reason.
+
+  Public so a renderer and a declarative document agree on one mapping. It has to
+  be derived rather than written in a template: templates are restricted
+  substitution with no conditionals, so `:renotify -> :trigger` cannot be
+  expressed as a document expression.
+
+  Everything that is not a resolution is a trigger, including `nil`. Rows written
+  before `lifecycle_reason` existed therefore render exactly as they did before,
+  and a reason added later without thought fails safe toward "open an incident"
+  rather than toward "close one".
+  """
+  @spec event_action(atom()) :: :trigger | :resolve
+  def event_action(:resolve), do: :resolve
+  def event_action(_reason), do: :trigger
 
   defp namespace(nil, _keys), do: %{}
 

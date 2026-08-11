@@ -67,6 +67,31 @@ defmodule ServiceRadar.Notifications.DispatcherRoutingTest do
       assert delivery.attempt_count == 0
     end
 
+    test "the routing lifecycle reason lands on the delivery (task 4.3.3b)", %{actor: actor} do
+      # Without this the reason stops at routing and nothing has it at render
+      # time, so every notification renders as a trigger - and a resolving alert
+      # tells PagerDuty to trigger on the dedup_key of the incident it should
+      # have closed.
+      {alert, now} = fired_alert!(actor)
+
+      assert {:ok, %{planned: [_id]}} = Dispatcher.route(alert.id, :fire, actor: actor, now: now)
+
+      assert [delivery] = deliveries_for(alert, actor)
+      assert delivery.lifecycle_reason == :fire
+      assert Dispatcher.event_action(delivery.lifecycle_reason) == :trigger
+    end
+
+    test "a resolve routes as a resolve, not a trigger", %{actor: actor} do
+      {alert, now} = fired_alert!(actor)
+
+      assert {:ok, %{planned: [_id]}} =
+               Dispatcher.route(alert.id, :resolve, actor: actor, now: now)
+
+      assert [delivery] = deliveries_for(alert, actor)
+      assert delivery.lifecycle_reason == :resolve
+      assert Dispatcher.event_action(delivery.lifecycle_reason) == :resolve
+    end
+
     test "a second identical request creates nothing", %{actor: actor} do
       {alert, now} = fired_alert!(actor)
 

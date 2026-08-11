@@ -2047,7 +2047,7 @@ one is a silent-failure source if done per-provider.
       dedup_key "disagreement" follows from that: the catalog's `{{ alert.id }}`
       is what ships, consistently, and an inbound lookup should be written
       against it.
-- [ ] 4.3.3b PagerDuty incidents never auto-resolve. Confirmed live defect,
+- [x] 4.3.3b PagerDuty incidents never auto-resolve. Confirmed live defect,
       independent of interactivity. `:resolve` is a dispatched lifecycle reason
       (`routing_worker.ex:83`, `dispatcher.ex:320`), but nothing in the
       notification path ever passes `:event_action` to `Renderer.render/4`, so

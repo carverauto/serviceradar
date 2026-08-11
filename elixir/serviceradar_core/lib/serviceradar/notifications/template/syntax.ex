@@ -145,6 +145,13 @@ defmodule ServiceRadar.Notifications.Template.Syntax do
                       "delivery.payload_format",
                       "delivery.suppression_reason",
                       "delivery.external_correlation_id",
+                      # Why the lifecycle emitted this delivery, and the action an
+                      # incident API should take because of it. `event_action` is
+                      # derived rather than raw precisely because this engine has
+                      # no conditionals: a document cannot map renotify onto
+                      # trigger itself (task 4.3.3b).
+                      "delivery.lifecycle_reason",
+                      "delivery.event_action",
                       "delivery.queued_at",
                       "delivery.started_at",
                       "delivery.finished_at",

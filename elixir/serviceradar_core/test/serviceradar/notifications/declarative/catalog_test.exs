@@ -646,6 +646,69 @@ defmodule ServiceRadar.Notifications.Declarative.CatalogTest do
       flunk("no catalog entry #{provider_key}")
   end
 
+  describe "PagerDuty resolves the incident it opened (task 4.3.3b)" do
+    test "a resolving alert sends event_action resolve on the same dedup_key" do
+      # The bug this pins: with event_action hardcoded to "trigger", a resolving
+      # ServiceRadar alert sent PagerDuty a trigger on the dedup_key of the
+      # incident it should have closed - so the incident was updated and stayed
+      # open until a human closed it by hand.
+      context =
+        Map.put(@context, "delivery", %{
+          "lifecycle_reason" => "resolve",
+          "event_action" => "resolve"
+        })
+
+      deliver("pagerduty",
+        config: %{"api_base_url" => "https://#{@host}"},
+        secrets: %{"routing_key" => @secret},
+        context: context,
+        plug: json_plug(202, %{"status" => "success", "dedup_key" => "pd-9"})
+      )
+
+      assert_received {:sent, sent}
+      body = Jason.decode!(sent.body)
+
+      assert body["event_action"] == "resolve"
+      # Same key, or PagerDuty resolves nothing.
+      assert body["dedup_key"] == @alert["id"]
+    end
+
+    test "every other lifecycle reason still triggers" do
+      for reason <- ["fire", "renotify", "escalate"] do
+        context =
+          Map.put(@context, "delivery", %{
+            "lifecycle_reason" => reason,
+            "event_action" => "trigger"
+          })
+
+        deliver("pagerduty",
+          config: %{"api_base_url" => "https://#{@host}"},
+          secrets: %{"routing_key" => @secret},
+          context: context,
+          plug: json_plug(202, %{"status" => "success", "dedup_key" => "pd-9"})
+        )
+
+        assert_received {:sent, sent}
+        assert Jason.decode!(sent.body)["event_action"] == "trigger"
+      end
+    end
+
+    test "a context with no delivery namespace falls back to trigger, not empty" do
+      # An unresolved variable renders as "" and PagerDuty rejects an empty
+      # event_action outright, so the `default:` filter is what keeps a missing
+      # namespace from turning a working notification into a 400.
+      deliver("pagerduty",
+        config: %{"api_base_url" => "https://#{@host}"},
+        secrets: %{"routing_key" => @secret},
+        context: Map.delete(@context, "delivery"),
+        plug: json_plug(202, %{"status" => "success", "dedup_key" => "pd-9"})
+      )
+
+      assert_received {:sent, sent}
+      assert Jason.decode!(sent.body)["event_action"] == "trigger"
+    end
+  end
+
   defp deliver(provider_key, opts) do
     Declarative.deliver(
       %Request{
@@ -659,7 +722,7 @@ defmodule ServiceRadar.Notifications.Declarative.CatalogTest do
         secrets: Keyword.get(opts, :secrets, %{})
       },
       definition: definition!(provider_key),
-      context: @context,
+      context: Keyword.get(opts, :context, @context),
       req_options: Keyword.take(opts, [:plug])
     )
   end
