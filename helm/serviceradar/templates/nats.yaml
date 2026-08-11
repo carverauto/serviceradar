@@ -205,6 +205,15 @@ spec:
                       "flows.raw.>",
                       "flows.*.processed",
                       "logs.>",
+                      # Internal log fan-out (Serviceradar.Events.InternalLogPublisher
+                      # publishes live.logs.internal.<subject>). Omitting this does far
+                      # more than drop a log line: the broker answers with
+                      #   Permissions Violation for Publish to "live.logs.internal.health"
+                      # which kills the EventWriter supervisor, so nothing consumes the
+                      # JetStream streams. Collectors keep publishing, the streams keep
+                      # growing, every pod still reports Ready, and telemetry silently
+                      # never lands. Cost us a full outage on a clean install.
+                      "live.logs.internal.>",
                       "pdns.ocsf",
                       "pdns.ocsf.>",
                       "signals.analytics.>",
