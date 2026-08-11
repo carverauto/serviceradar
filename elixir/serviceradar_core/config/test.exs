@@ -311,6 +311,7 @@ config :serviceradar_core,
     ServiceRadar.Monitoring,
     ServiceRadar.Notifications,
     ServiceRadar.Observability,
+    ServiceRadar.ColdTier,
     ServiceRadar.PrefixTags,
     ServiceRadar.SNMPProfiles,
     ServiceRadar.SweepJobs,
@@ -322,6 +323,7 @@ config :serviceradar_core,
     ServiceRadar.Automation.Northbound,
     ServiceRadar.Automation.Ansible,
     ServiceRadar.Automation.Callbacks,
+    ServiceRadar.Scans,
     ServiceRadar.Security
   ]
 
