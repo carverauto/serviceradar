@@ -404,10 +404,13 @@ func validateTargetRange(r *edgev1.TargetRangeV1, pageCheckSet, headerPolicy []b
 // 64 bits). It rejects a non-canonical CIDR (host bits set), an unparseable
 // address, a family mismatch, or first > last.
 // checkedRangeStrings holds a range's address strings AFTER the field preflight. It exists so
-// the ORDER is structural rather than remembered: rangeSpanSize takes this type and not a
-// TargetRangeV1, so no caller can reach an address parser without the preflight having run and
-// returned. A rule a caller must remember to apply first is not a rule -- the same reasoning
-// that made the plan page-only path unexported.
+// the ORDER is hard to get wrong rather than remembered: rangeSpanSize takes this type and not
+// a TargetRangeV1, so reaching a parser means having gone through the preflight -- the same
+// reasoning that made the plan page-only path unexported.
+//
+// IT IS NOT UNFORGEABLE. This is an ordinary same-package struct, so anything in this package
+// can construct one and bypass the preflight entirely. What catches that is the whole-validator
+// zoned row in the corpus, not the type.
 type checkedRangeStrings struct{ cidr, first, last string }
 
 // checkRangeStrings is THE field preflight for a range's address strings: length bounds, then

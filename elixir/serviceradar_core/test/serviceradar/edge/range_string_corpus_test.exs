@@ -10,8 +10,10 @@ defmodule ServiceRadar.Edge.RangeStringCorpusTest do
        always-refusing validator satisfies part 3.
     3. ONE OVER-LIMIT, PARSER-NOT-ENTERED control per field.
 
-  There is NO at-ceiling/one-over pair: once zones are forbidden no canonical address reaches
-  `MaxRangeStrBytes`, so an accepted-at-the-ceiling input does not exist to construct.
+  There is no WHOLE-VALIDATOR at-ceiling/one-over pair: once zones are forbidden no canonical
+  address reaches `MaxRangeStrBytes`, so an input accepted at the ceiling by the whole
+  validator does not exist to construct. The SEAM has such a pair, and that is where the
+  frozen literal is pinned.
 
   ## WHERE EACH ROW PROVES SOMETHING, and where it only pins a verdict
 
@@ -39,9 +41,10 @@ defmodule ServiceRadar.Edge.RangeStringCorpusTest do
   returns. A verdict assertion cannot separate them.
 
   The gate is still correct and still required: the frozen rule says a zone is refused BEFORE
-  either parser, and the spelling rule runs after. What is missing is a way to OBSERVE that
-  stage from outside, which would need the zone to carry its own reason -- refusal taxonomy,
-  which task 1.5-l owns and this subtask must not quietly annex.
+  either parser, and the spelling rule runs after. THE STAGE IS OBSERVED AT THE VALIDATOR --
+  `range_string_stage_test.exs` traces the preflight and `:inet.parse_strict_address/1` through
+  the real `PlanValidate.validate/2` -- so no distinct refusal reason was ever needed. What no
+  row in THIS file can do is separate the two by verdict.
 
   So these are REGRESSION rows: they pin the current verdict per field, and they would catch a
   change that made this runtime ADMIT a zoned address. They do not claim to prove the gate.
@@ -57,8 +60,8 @@ defmodule ServiceRadar.Edge.RangeStringCorpusTest do
   @fixtures Path.expand("../../../../../proto/edge/v1/testdata", __DIR__)
 
   describe "the preflight seam" do
-    # THE SEAM IS ADDRESSED DIRECTLY. `check_range_strings/3` parses nothing, so a row against
-    # it establishes the ORDER structurally -- an input refused there never reached a parser.
+    # THE SEAM IS ADDRESSED DIRECTLY. `__check_range_strings__/3` parses nothing, so a row
+    # against it constrains the ORDER -- an input refused there never reached a parser.
     # It is also the ONLY place the frozen ceiling can be pinned in this runtime: no canonical
     # address reaches 64 bytes, and a 65-byte refusal driven through `validate/2` survives the
     # bound drifting anywhere from 43 to 65, because the address parser refuses those lengths
@@ -107,13 +110,12 @@ defmodule ServiceRadar.Edge.RangeStringCorpusTest do
       assert :ok = validate_range(%{r | target_count: 1})
     end
 
-    test "a zoned address does not reach acceptance, and the tags stay internal" do
+    test "a zoned address does not reach acceptance, and the reason stays :plan_range" do
       # A REGRESSION row for the VERDICT -- this runtime already refused zoned addresses
       # through its spelling check, so removing the gate does not change it. What it would
       # catch is a change that made this runtime ADMIT one.
       #
-      # It also pins the REASON: `:plan_range`, never the seam's internal `:length`/`:zone`.
-      # Those tags exist so the corpus can tell the two faults apart; letting one escape here
+      # It also pins the REASON as the existing `:plan_range`. A fault-specific tag here
       # would be this subtask quietly minting a refusal class that 1.5-l owns.
       zoned = %{range() | cidr: "", first_address: "fe80::1%eth0", last_address: "fe80::1%eth0"}
       over = %{range() | cidr: String.duplicate("z", 65), first_address: "", last_address: ""}
