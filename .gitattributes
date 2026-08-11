@@ -3,3 +3,4 @@
 # them on checkout or commit.
 third_party/crates/** -text
 third_party/netprobe_ebpf_vendor/** -text
+third_party/netprobe_corpora/** -text
