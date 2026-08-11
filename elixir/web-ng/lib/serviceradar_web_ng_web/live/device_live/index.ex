@@ -92,6 +92,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
      # CSV import
      |> assign(:csv_preview, nil)
      |> assign(:csv_errors, [])
+     |> assign(:csv_warnings, [])
      |> assign(:import_status, nil)
      |> allow_upload(:csv_file,
        accept: ~w(.csv),

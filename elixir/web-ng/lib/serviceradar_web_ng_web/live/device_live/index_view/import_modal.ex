@@ -6,6 +6,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexView.ImportModal do
   attr(:uploads, :any, required: true)
   attr(:csv_preview, :any, default: nil)
   attr(:csv_errors, :list, default: [])
+  attr(:csv_warnings, :list, default: [])
 
   def import_csv_modal(assigns) do
     ~H"""
@@ -15,20 +16,32 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexView.ImportModal do
         Upload a CSV file to bulk import devices into your inventory.
       </p>
 
+      <%!--
+      Two distinct states, never conflated: a parse warning means the file was
+      partly usable and the rest still previews, while an error means nothing
+      was imported or the run failed part-way through.
+      --%>
       <!-- Error Display -->
-      <div
-        :if={@csv_errors != []}
-        class={ui_alert_class(variant: if(@csv_preview, do: "warning", else: "error"), class: "my-4")}
-      >
+      <div :if={@csv_errors != []} class={ui_alert_class(variant: "error", class: "my-4")}>
         <.icon name="hero-exclamation-circle" class="size-5" />
         <div>
-          <%!-- A preview alongside messages means rows were skipped, not that the import failed. --%>
-          <div class="font-semibold">
-            {if @csv_preview, do: "Skipped Rows", else: "Import Error"}
-          </div>
+          <div class="font-semibold">Import Error</div>
           <ul class="text-sm list-disc list-inside">
             <%= for error <- @csv_errors do %>
               <li>{error}</li>
+            <% end %>
+          </ul>
+        </div>
+      </div>
+
+      <!-- Skipped-row Display -->
+      <div :if={@csv_warnings != []} class={ui_alert_class(variant: "warning", class: "my-4")}>
+        <.icon name="hero-exclamation-triangle" class="size-5" />
+        <div>
+          <div class="font-semibold">Skipped Rows</div>
+          <ul class="text-sm list-disc list-inside">
+            <%= for warning <- @csv_warnings do %>
+              <li>{warning}</li>
             <% end %>
           </ul>
         </div>

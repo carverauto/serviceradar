@@ -23,7 +23,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexHelpersTest do
              hostname: "router, core",
              ip: "192.0.2.10",
              type: "network",
-             tags: ["site=lab", "role=edge"]
+             tags: ["site=lab", "role=edge"],
+             source_line: 2
            }
   end
 
@@ -123,5 +124,51 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexHelpersTest do
     assert IndexData.parse_page_param(%{"page" => "3"}) == 3
     assert IndexData.parse_page_param(%{"page" => "-1"}) == 1
     assert IndexData.parse_page_param(%{}) == 1
+  end
+
+  test "parse_csv_file matches headers regardless of case or padding" do
+    path =
+      csv_fixture("""
+      HostName, IP ,Type
+      host-a.example,192.0.2.20,rids
+      """)
+
+    assert {:ok, [device], []} = IndexCsvImport.parse_csv_file(path)
+    assert device.hostname == "host-a.example"
+    assert device.ip == "192.0.2.20"
+    assert device.type == "rids"
+  end
+
+  # A quoted field may contain newlines, so the Nth record is not line N. A
+  # warning naming the wrong line is worse than naming none.
+  test "parse_csv_file reports physical lines across a multiline quoted field" do
+    path =
+      csv_fixture("""
+      hostname,ip,type
+      "multi
+      line host",192.0.2.21,rids
+      ,
+      host-c.example,192.0.2.23,rids
+      """)
+
+    assert {:ok, devices, warnings} = IndexCsvImport.parse_csv_file(path)
+    assert length(devices) == 2
+    # The record spans lines 2-3, so the blank record sits on line 4.
+    assert warnings == ["Row 4 skipped: needs a hostname or an ip"]
+
+    assert [%{hostname: "multi\nline host", source_line: 2}, %{source_line: 5}] =
+             Enum.sort_by(devices, & &1.source_line)
+  end
+
+  test "parse_csv_file tags each device with the line it came from" do
+    path =
+      csv_fixture("""
+      hostname,ip
+      ,
+      host-b.example,192.0.2.24
+      """)
+
+    assert {:ok, [device], _warnings} = IndexCsvImport.parse_csv_file(path)
+    assert device.source_line == 3
   end
 end

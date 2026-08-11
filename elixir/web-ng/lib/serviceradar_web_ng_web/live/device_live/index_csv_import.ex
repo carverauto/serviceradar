@@ -30,18 +30,16 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexCsvImport do
       {:ok, []} ->
         {:error, ["CSV file is empty"]}
 
-      {:ok, [header | data_rows]} ->
-        headers = Enum.map(header, &String.trim/1)
-        downcased = Enum.map(headers, &String.downcase/1)
+      {:ok, [{_line, header} | data_rows]} ->
+        # Validation and lookup must normalize headers the same way, or a file
+        # headed `HostName` passes the column check and then every row is
+        # skipped as missing both fields.
+        header_map = build_header_map(header)
 
-        if "hostname" in downcased or "ip" in downcased do
-          header_map = headers |> Enum.with_index() |> Map.new()
-
-          # Row 1 is the header, so data rows start at line 2.
+        if Map.has_key?(header_map, "hostname") or Map.has_key?(header_map, "ip") do
           {devices, skipped} =
             data_rows
-            |> Enum.with_index(2)
-            |> Enum.map(fn {values, line} -> parse_device_row(values, header_map, line) end)
+            |> Enum.map(fn {line, values} -> parse_device_row(values, header_map, line) end)
             |> Enum.split_with(&match?({:ok, _}, &1))
 
           devices = Enum.map(devices, fn {:ok, device} -> device end)
@@ -74,78 +72,96 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexCsvImport do
     end
   end
 
+  # Every record is emitted as {physical_line, fields}. A quoted field may span
+  # newlines, so a record's ordinal is not its line number -- and a warning that
+  # points at the wrong line is worse than no line at all.
+  #
+  # `pos` is {line_of_the_char_being_read, line_the_current_record_started_on}.
   defp parse_csv_rows(content) when is_binary(content) do
     content
     |> String.to_charlist()
-    |> parse_csv_field([], [], [], :field_start)
+    |> parse_csv_field([], [], [], :field_start, {1, 1})
   end
 
-  defp parse_csv_field([], field, row, rows, _state) do
+  defp parse_csv_field([], field, row, rows, _state, {_line, row_start}) do
     final_row = finish_row_fields(field, row)
-    {:ok, finalize_csv_rows([final_row | rows])}
+    {:ok, finalize_csv_rows([{row_start, final_row} | rows])}
   end
 
-  defp parse_csv_field([?" | rest], [], row, rows, :field_start) do
-    parse_csv_field(rest, [], row, rows, :quoted)
+  defp parse_csv_field([?" | rest], [], row, rows, :field_start, pos) do
+    parse_csv_field(rest, [], row, rows, :quoted, pos)
   end
 
-  defp parse_csv_field([?, | rest], field, row, rows, state) when state in [:field_start, :unquoted] do
+  defp parse_csv_field([?, | rest], field, row, rows, state, pos) when state in [:field_start, :unquoted] do
     new_field = finish_field(field)
-    parse_csv_field(rest, [], [new_field | row], rows, :field_start)
+    parse_csv_field(rest, [], [new_field | row], rows, :field_start, pos)
   end
 
-  defp parse_csv_field([?\r, ?\n | rest], field, row, rows, state) when state in [:field_start, :unquoted] do
-    finish_csv_row(rest, field, row, rows)
+  defp parse_csv_field([?\r, ?\n | rest], field, row, rows, state, pos) when state in [:field_start, :unquoted] do
+    finish_csv_row(rest, field, row, rows, pos)
   end
 
-  defp parse_csv_field([?\r | rest], field, row, rows, state) when state in [:field_start, :unquoted] do
-    finish_csv_row(rest, field, row, rows)
+  defp parse_csv_field([?\r | rest], field, row, rows, state, pos) when state in [:field_start, :unquoted] do
+    finish_csv_row(rest, field, row, rows, pos)
   end
 
-  defp parse_csv_field([?\n | rest], field, row, rows, state) when state in [:field_start, :unquoted] do
-    finish_csv_row(rest, field, row, rows)
+  defp parse_csv_field([?\n | rest], field, row, rows, state, pos) when state in [:field_start, :unquoted] do
+    finish_csv_row(rest, field, row, rows, pos)
   end
 
-  defp parse_csv_field([char | rest], field, row, rows, state) when state in [:field_start, :unquoted] do
-    parse_csv_field(rest, [char | field], row, rows, :unquoted)
+  defp parse_csv_field([char | rest], field, row, rows, state, pos) when state in [:field_start, :unquoted] do
+    parse_csv_field(rest, [char | field], row, rows, :unquoted, pos)
   end
 
-  defp parse_csv_field([?", ?" | rest], field, row, rows, :quoted) do
-    parse_csv_field(rest, [?" | field], row, rows, :quoted)
+  defp parse_csv_field([?", ?" | rest], field, row, rows, :quoted, pos) do
+    parse_csv_field(rest, [?" | field], row, rows, :quoted, pos)
   end
 
-  defp parse_csv_field([?" | rest], field, row, rows, :quoted) do
-    parse_csv_field(rest, field, row, rows, :quote_end)
+  defp parse_csv_field([?" | rest], field, row, rows, :quoted, pos) do
+    parse_csv_field(rest, field, row, rows, :quote_end, pos)
   end
 
-  defp parse_csv_field([char | rest], field, row, rows, :quoted) do
-    parse_csv_field(rest, [char | field], row, rows, :quoted)
+  # A newline inside quotes stays part of the field but still advances the
+  # physical line, which is the whole reason records and lines diverge.
+  defp parse_csv_field([?\r, ?\n | rest], field, row, rows, :quoted, {line, row_start}) do
+    parse_csv_field(rest, [?\n, ?\r | field], row, rows, :quoted, {line + 1, row_start})
   end
 
-  defp parse_csv_field([?, | rest], field, row, rows, :quote_end) do
+  defp parse_csv_field([newline | rest], field, row, rows, :quoted, {line, row_start}) when newline in [?\r, ?\n] do
+    parse_csv_field(rest, [newline | field], row, rows, :quoted, {line + 1, row_start})
+  end
+
+  defp parse_csv_field([char | rest], field, row, rows, :quoted, pos) do
+    parse_csv_field(rest, [char | field], row, rows, :quoted, pos)
+  end
+
+  defp parse_csv_field([?, | rest], field, row, rows, :quote_end, pos) do
     new_field = finish_field(field)
-    parse_csv_field(rest, [], [new_field | row], rows, :field_start)
+    parse_csv_field(rest, [], [new_field | row], rows, :field_start, pos)
   end
 
-  defp parse_csv_field([?\r, ?\n | rest], field, row, rows, :quote_end), do: finish_csv_row(rest, field, row, rows)
+  defp parse_csv_field([?\r, ?\n | rest], field, row, rows, :quote_end, pos),
+    do: finish_csv_row(rest, field, row, rows, pos)
 
-  defp parse_csv_field([?\r | rest], field, row, rows, :quote_end), do: finish_csv_row(rest, field, row, rows)
+  defp parse_csv_field([?\r | rest], field, row, rows, :quote_end, pos), do: finish_csv_row(rest, field, row, rows, pos)
 
-  defp parse_csv_field([?\n | rest], field, row, rows, :quote_end), do: finish_csv_row(rest, field, row, rows)
+  defp parse_csv_field([?\n | rest], field, row, rows, :quote_end, pos), do: finish_csv_row(rest, field, row, rows, pos)
 
-  defp parse_csv_field([char | rest], field, row, rows, :quote_end) do
-    parse_csv_field(rest, [char | field], row, rows, :unquoted)
+  defp parse_csv_field([char | rest], field, row, rows, :quote_end, pos) do
+    parse_csv_field(rest, [char | field], row, rows, :unquoted, pos)
   end
 
-  defp finish_csv_row(rest, field, row, rows) do
+  defp finish_csv_row(rest, field, row, rows, {line, row_start}) do
     new_row = finish_row_fields(field, row)
-    parse_csv_field(rest, [], [], [new_row | rows], :field_start)
+    next_line = line + 1
+    parse_csv_field(rest, [], [], [{row_start, new_row} | rows], :field_start, {next_line, next_line})
   end
 
   defp finish_field(field), do: field |> Enum.reverse() |> List.to_string()
   defp finish_row_fields(field, row), do: Enum.reverse([finish_field(field) | row])
 
-  defp finalize_csv_rows([[""] | rest]), do: Enum.reverse(rest)
+  # A trailing newline leaves one empty record behind; drop it.
+  defp finalize_csv_rows([{_line, [""]} | rest]), do: Enum.reverse(rest)
   defp finalize_csv_rows(rows), do: Enum.reverse(rows)
 
   defp parse_device_row(values, header_map, line) do
@@ -160,9 +176,22 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexCsvImport do
          hostname: hostname,
          ip: ip,
          type: get_csv_value(values, header_map, "type") || "",
-         tags: parse_tags(get_csv_value(values, header_map, "tags"))
+         tags: parse_tags(get_csv_value(values, header_map, "tags")),
+         # Kept so a creation failure can name the line the operator wrote,
+         # not a running tally. ManualDeviceCreator builds its own attribute
+         # map and ignores this.
+         source_line: line
        }}
     end
+  end
+
+  # Headers are matched case-insensitively and trimmed, so `HostName`, ` IP `,
+  # and `hostname` all resolve. First occurrence wins on a duplicated column.
+  defp build_header_map(header) do
+    header
+    |> Enum.map(&(&1 |> String.trim() |> String.downcase()))
+    |> Enum.with_index()
+    |> Enum.reduce(%{}, fn {name, index}, acc -> Map.put_new(acc, name, index) end)
   end
 
   defp trimmed_csv_value(values, header_map, column) do
@@ -172,13 +201,9 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexCsvImport do
     |> String.trim()
   end
 
+  # `column` is always already lowercase here, matching build_header_map/1.
   defp get_csv_value(values, header_map, column) do
-    index =
-      Map.get(header_map, column) ||
-        Map.get(header_map, String.capitalize(column)) ||
-        Map.get(header_map, String.upcase(column))
-
-    if index, do: Enum.at(values, index)
+    if index = Map.get(header_map, column), do: Enum.at(values, index)
   end
 
   defp parse_tags(nil), do: []
@@ -225,10 +250,15 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexCsvImport do
         {created, skipped + 1, errors}
 
       {:error, reason} ->
-        error_msg = "Row #{created + skipped + 1}: #{format_create_error(reason)}"
-        {created, skipped, [error_msg | errors]}
+        # created + skipped + 1 counts successes, not source rows: every
+        # parser-skipped row and every earlier failure shifted it, so a failure
+        # on line 9 could report itself as "Row 3".
+        {created, skipped, ["#{row_label(device_data)}: #{format_create_error(reason)}" | errors]}
     end
   end
+
+  defp row_label(%{source_line: line}) when is_integer(line), do: "Row #{line}"
+  defp row_label(_device_data), do: "Row (unknown)"
 
   def create_device(scope, params) do
     ManualDeviceCreator.create(scope, %{
