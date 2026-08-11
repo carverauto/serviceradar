@@ -1950,7 +1950,7 @@ directories are still on that branch at their original commits.
 
 ### 4.2 Stream provider
 
-- [ ] 4.2.1 Implement the built-in `:stream` provider type behind the same
+- [x] 4.2.1 Implement the built-in `:stream` provider type behind the same
       `Transport` behaviour (`deliver/2`, `validate_config/1`, `capabilities/0`,
       `test/2`) so the firehose traverses routing, suppression, redaction, and
       audit like any other channel - never a parallel unaudited egress. `:stream`
@@ -1966,11 +1966,11 @@ directories are still on that branch at their original commits.
 - [x] 4.2.2 Add the RBAC-scoped Phoenix Channel topic in web-ng, authorizing on
       `notifications.stream.subscribe` and filtering the envelope to what the
       subscriber may see.
-- [ ] 4.2.3 Define and document the canonical notification envelope shape. It
+- [x] 4.2.3 Define and document the canonical notification envelope shape. It
       carries alert and delivery identifiers that a subscriber resolves through
       the authenticated API, and it carries NO action link or capability token
       (1.6.2a).
-- [ ] 4.2.4 Seed the `:stream` `NotificationProvider` row as a first-party
+- [x] 4.2.4 Seed the `:stream` `NotificationProvider` row as a first-party
       `managed` provider alongside `slack`, `discord`, `webhook`, and `email`,
       using the same `managed` / `template_version` / `template_fingerprint`
       reconciliation as those four (1.4.9). It is seeded, not operator-authored,
@@ -2004,7 +2004,7 @@ one is a silent-failure source if done per-provider.
       acknowledges, and the job applies the capability.
 - [ ] 4.3.0d Platform seam: idempotency keyed on the provider's own event id.
       Northbound has no equivalent and all three providers retry.
-- [ ] 4.3.1 Slack Block Kit acknowledge / snooze / resolve buttons, posting to the
+- [x] 4.3.1 Slack Block Kit acknowledge / snooze / resolve buttons, posting to the
       notification callback route. Interactive mode defaults OFF; when on, `url`
       is removed from the action buttons so the click is a pure interaction.
       `api_app_id` and the signing-secret ref are required channel config, and
@@ -2085,7 +2085,7 @@ one is a silent-failure source if done per-provider.
       `delivery.event_action` ("trigger" | "resolve") in the template variable
       catalog, pass `:event_action` from the dispatcher for native renderers
       too, and bump the declarative catalog version again.
-- [ ] 4.3.4 AMENDED. This task previously required all three callback paths to
+- [x] 4.3.4 AMENDED. This task previously required all three callback paths to
       "reuse the northbound stack verbatim: token from header / Bearer / body,
       sha256-only persistence, `Edge.Crypto`-encrypted HMAC secret,
       `Plug.Crypto.secure_compare`, and HMAC-SHA256 over
@@ -2127,17 +2127,17 @@ one is a silent-failure source if done per-provider.
       against a re-encoded body - which breaks exactly the providers that sign
       bytes. Extend the registered prefix list if a provider needs a route outside
       it, and cover it with the byte-identity test from 1.6.4a.
-- [ ] 4.3.6 Record `actor_kind: :external_principal` for identities that are not
+- [x] 4.3.6 Record `actor_kind: :external_principal` for identities that are not
       mapped platform users, and write a `NotificationAcknowledgement` row with
       `source: :callback` for every accepted native interaction, exactly as the
       action-link path does in 1.6.6.
-- [ ] 4.3.7 Halt escalation on a native acknowledgement on the same code path as
+- [x] 4.3.7 Halt escalation on a native acknowledgement on the same code path as
       an action-link acknowledgement. Interactive components are a second ingress
       to one acknowledgement mechanism, not a second acknowledgement mechanism.
 
 ### 4.4 Phase 4 tests, docs, and gates
 
-- [ ] 4.4.1 HMAC verification tests: valid signature, wrong secret, replayed
+- [x] 4.4.1 HMAC verification tests: valid signature, wrong secret, replayed
       timestamp beyond tolerance, and tampered body.
 - [x] 4.4.2 Phoenix Channel authorization test asserting a user without
       `notifications.stream.subscribe` cannot join the firehose topic.
