@@ -175,8 +175,8 @@ defmodule ServiceRadar.Edge.PlanValidate do
   #
   # IT RETURNS THE EXISTING `:plan_range` AND NOTHING NEW. `@doc false` and a `__` name do not
   # make a function private -- a test can call it, and any tag it returns is observable, so
-  # distinct `:length`/`:zone` tags would BE a refusal class however they were labelled. That
-  # is task 1.5-l's to mint, not this subtask's. Separate INPUTS prove the two predicates
+  # a distinct tag per fault would BE a refusal class however it was labelled. That is task
+  # 1.5-l's to mint, not this subtask's. Separate INPUTS prove the two predicates
   # independently, which is what the corpus needs; a distinct tag adds nothing it could not
   # already show.
   #
@@ -205,8 +205,10 @@ defmodule ServiceRadar.Edge.PlanValidate do
       not Enum.all?(vals, &is_binary/1) -> {:error, :plan_range}
       Enum.any?(vals, &(byte_size(&1) > @max_range_str_bytes)) -> {:error, :plan_range}
       Enum.any?(vals, &zoned?/1) -> {:error, :plan_range}
-      # AN OPAQUE CHECKED VALUE, not the bare strings. `span_size/1` takes only this shape, so
-      # the parser cannot be reached with values the preflight has not returned.
+      # A CHECKED VALUE, not the bare strings: `span_size/1` takes only this shape, so reaching
+      # the parser means having gone through here. It is NOT opaque -- a tagged tuple anything
+      # in this module can build -- so what catches a bypass is the traced stage test, not the
+      # shape.
       true -> {:ok, {:checked, cidr, first, last}}
     end
   end
@@ -330,8 +332,8 @@ defmodule ServiceRadar.Edge.PlanValidate do
     last = Map.get(r, :last_address) || ""
 
     # THE ADDRESS-STRING PREFLIGHT RUNS ONCE, HERE, and its result is the ONLY route to the
-    # parser below. Its internal `:length`/`:zone` tags are mapped to `:plan_range` and never
-    # escape -- naming a zone fault publicly is refusal taxonomy, which task 1.5-l owns.
+    # parser below. It reports the existing `:plan_range` for every fault -- naming a zone
+    # fault distinctly is refusal taxonomy, which task 1.5-l owns.
     case __check_range_strings__(cidr, first, last) do
       {:error, _} -> {:error, :plan_range}
       {:ok, checked} -> validate_checked_range(r, checked, page_check_set, header_policy)

@@ -266,7 +266,7 @@ jobs:
       # The IPv6-ZONE prohibition and the guard bound it puts out of reach. Gated because the
       # rule is normative, and because the split matters: this runtime's VALIDATOR-level zone
       # row is a regression pin (its spelling check already refuses a zoned address), while the
-      # SEAM rows pin the frozen ceiling and tell a zone fault from a length fault.
+      # SEAM rows pin the frozen ceiling, which no whole-validator row can reach.
       - name: Edge plan range-string corpus (Elixir)
         working-directory: elixir/serviceradar_core
         run: mix test --no-start test/serviceradar/edge/range_string_corpus_test.exs

@@ -132,25 +132,24 @@ defmodule ServiceRadar.Edge.WireShape do
                       end).()
 
   @doc """
-  The generated modules this helper accepts: the descriptor closure of the recovery manifest
-  page, every field kind in which is implemented here.
-  """
-  @spec supported_modules() :: MapSet.t(module())
-  def supported_modules, do: @supported_closure
+  True when `msg` is one of the SUPPORTED CLOSURE's generated structs and every declared field
+  in it holds a wire-shaped term, recursively.
 
-  @doc """
-  True when `msg` is a generated struct whose every declared field holds a wire-shaped term,
-  recursively.
+  FALSE FOR ANYTHING OUTSIDE THAT CLOSURE, whatever its contents. This is not a general
+  "is this message well-shaped" predicate and SHALL NOT be read as one: it answers only for the
+  recovery-manifest graph, and it refuses everything else so a new caller finds out on its
+  first call rather than after shipping.
 
-  An absent optional message (`nil`) is wire-shaped. A repeated field must be a PROPER list
+  An absent embedded message (`nil`) is wire-shaped. A repeated field must be a PROPER list
   whose every element is wire-shaped.
   """
   @spec wire_shaped?(term()) :: boolean()
   def wire_shaped?(msg), do: shaped?(msg, :deep)
 
   @doc """
-  True when `msg`'s own SCALAR fields are wire-shaped, ignoring embedded messages, repeated
-  fields and oneof bodies.
+  True when `msg` is in the SUPPORTED CLOSURE and its own SCALAR fields are wire-shaped,
+  ignoring embedded messages, repeated fields and oneof bodies. FALSE for anything outside the
+  closure, same as `wire_shaped?/1`.
 
   Callers use this where a nested fault has its OWN reason: checking a page recursively would
   report a malformed classification body as a page fault, losing the distinction between "this

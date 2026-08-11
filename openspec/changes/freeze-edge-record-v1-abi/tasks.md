@@ -1214,39 +1214,33 @@ here.
         That predicate is DERIVED and SHALL be centralized, removed, or recorded as derived;
         it SHALL NOT get a site row. `MaxPrincipalBytes` has THREE real sites (record producer
         context, edge publication slot, service publication slot).
-        TWO OF THIS SUBTASK'S BOUNDS ADMIT NO AT-CEILING/ONE-OVER PAIR once their rules are
-        settled, and demanding one would produce a vacuous row in each case.
+        TWO OF THIS SUBTASK'S BOUNDS ADMIT NO WHOLE-VALIDATOR VALID-INPUT PAIR once their
+        rules are settled, and demanding one would produce a vacuous row in each case. Their
+        PREFLIGHT SEAMS still carry an at-ceiling/one-over pair, which is where each frozen
+        literal is pinned.
         `MaxTransportProvenanceHeaderBytes` is a DEFENSIVE PRE-PARSE GUARD, not an inclusive
         semantic maximum: the largest valid header is well below it, so an accepted-at-ceiling
         control cannot exist. It SHALL be evidenced stage-sensitively -- the parser was not
         entered.
-        `MaxRangeStrBytes` ARRIVES THERE BY A DIFFERENT ROUTE. It is REACHABLE today, and that
-        is a SYNTAX-PARITY DEFECT rather than a guard: `netip.ParseAddr` accepts SCOPED IPv6
-        addresses and a zone is arbitrary-length text, so a link-local address with a long
-        enough zone reaches the ceiling exactly and Go admits it as a first/last span with
-        equal endpoints. This runtime refuses it, and NOT by rejecting the zone:
-        `:inet.parse_strict_address/1` accepts the text and silently DISCARDS the zone, after
-        which the canonical-spelling check refuses it as a mis-spelling. Two parsers, one
-        contract, opposite verdicts. The measured figures are in `design.md`; this entry names
-        the bound, never its value.
-        THE SYNTAX IS DECIDED AND FROZEN: a zone names an interface on the writing machine and
-        cannot be interpreted at the receiver, so zones are REFUSED and never stripped. That
-        PUTS THE CEILING BACK OUT OF REACH and makes this the SECOND guard-class bound. What
-        remains here is the runtime gate and its evidence.
-        THE EVIDENCE ADDRESSES A PREFLIGHT SEAM, not the whole validator, and that is forced
-        rather than chosen: no canonical address reaches the ceiling once zones are forbidden,
-        so a whole-validator at-ceiling acceptance does not exist to construct -- and a
-        one-over refusal driven through the validator survives the bound drifting anywhere
-        between the longest valid address and the ceiling, because the address parser refuses
-        those lengths regardless. Only a seam that PARSES NOTHING can distinguish them, and
-        addressing it also makes the ORDER structural instead of asserted through diagnostic
-        wording no requirement owns.
+        `MaxRangeStrBytes` IS GUARD-CLASS ONLY BECAUSE ZONES ARE FORBIDDEN -- the two rules
+        travel together and neither stands alone. Why it was reachable before, which parser
+        does what, and the measured maxima are in `design.md`; this entry names the bound and
+        never its value.
+        THE SYNTAX IS FROZEN AND THE GATE IS LANDED: a zone names an interface on the writing
+        machine and cannot be interpreted at the receiver, so zones are REFUSED and never
+        stripped, in both runtimes, in the field preflight ahead of every address parser. That
+        PUTS THE CEILING BACK OUT OF REACH and makes this the SECOND guard-class bound.
+        THE CEILING IS PINNED AT A PREFLIGHT SEAM, because no WHOLE-VALIDATOR at-ceiling
+        acceptance exists to construct once zones are forbidden, and a one-over refusal driven
+        through the validator survives the bound drifting anywhere between the longest valid
+        address and the ceiling. THE STAGE is proven at the validator by CALL TRACING, which
+        needs no distinct refusal reason and no diagnostic-wording assertion.
         THE ZONE ROW IS LOAD-BEARING IN GO AND A REGRESSION ROW IN ELIXIR. Go admits a zoned
         address without the rule; the Elixir spelling check already refuses one and reports the
         SAME reason the gate would, so removing that runtime's gate changes no verdict at the
-        validator. Its seam rows DO distinguish it. Naming a stage difference at the validator
-        would need a distinct refusal reason, which 1.5-l owns and this subtask SHALL NOT
-        annex.
+        validator. THE STAGE IS OBSERVED AT THE VALIDATOR ANYWAY, by call tracing, so no
+        distinct refusal reason is needed and none is minted -- naming a zone fault is 1.5-l's
+        and this subtask SHALL NOT annex it.
         RUNTIME WORK, NOT ONLY VECTORS. This subtask owns the count-stage ORDERING in both
         runtimes' decoded validators and the N+1-bounded traversal at every bounded-count
         site, each with its own stage-sensitive evidence. Go's raw entrypoints

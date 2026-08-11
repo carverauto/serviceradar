@@ -27,11 +27,13 @@ import (
 // anywhere from 43 to 65, since the parser refuses those lengths anyway. Only the preflight
 // can distinguish them, so that is where 64 and 65 are asserted.
 
-// THE SEAM IS TESTED DIRECTLY. `checkRangeStrings` parses nothing, so a row against it proves
-// the ORDER structurally: an input refused here never reached a parser, and the checked-value
-// handoff means no caller can reach one without it. Asserting order through the whole
-// validator would have required matching on DIAGNOSTIC WORDING, which no requirement owns and
-// which a reword would silently break.
+// THE SEAM IS TESTED DIRECTLY. `checkRangeStrings` parses nothing, so a row against it shows
+// what the PREDICATES do and pins the frozen ceiling, without matching on DIAGNOSTIC WORDING
+// that no requirement owns.
+//
+// IT DOES NOT PROVE ATTACHMENT. The checked value is an ordinary same-package struct, so a
+// caller here can forge one and skip the preflight entirely. What catches that is the
+// WHOLE-VALIDATOR zoned row below; in Elixir it is the traced stage test.
 func TestRangeStringPreflightPinsTheFrozenLiteral(t *testing.T) {
 	// LITERAL-PINNED. Building the vectors from the constant makes them move with it, so a
 	// bound drifting to 43 or 128 would keep every row green. The frozen value is stated here
