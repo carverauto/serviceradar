@@ -35,7 +35,8 @@ INSERT INTO ocsf_devices (
         discovery_sources,
         is_available,
         is_active,
-        metadata
+        metadata,
+        tags
     )
 SELECT 'device-alpha',
     12,  -- Router
@@ -59,7 +60,8 @@ SELECT 'device-alpha',
     ARRAY ['sweep','armis'],
     TRUE,
     TRUE,
-    '{"site":"dfw-edge","packet_loss_bucket":"low"}'::jsonb
+    '{"site":"dfw-edge","packet_loss_bucket":"low"}'::jsonb,
+    '{"site":"DFW","Gate":"A1","role":"edge"}'::jsonb
 FROM base
 UNION ALL
 SELECT 'device-beta',
@@ -84,7 +86,8 @@ SELECT 'device-beta',
     ARRAY ['armis'],
     FALSE,
     FALSE,
-    '{"site":"dfw-edge","packet_loss_bucket":"medium"}'::jsonb
+    '{"site":"dfw-edge","packet_loss_bucket":"medium"}'::jsonb,
+    '{"site":"DFW","Gate":"A1","role":"core"}'::jsonb
 FROM base
 UNION ALL
 SELECT 'device-gamma',
@@ -109,7 +112,8 @@ SELECT 'device-gamma',
     ARRAY ['sweep'],
     TRUE,
     TRUE,
-    '{"site":"phx-edge","packet_loss_bucket":"high"}'::jsonb
+    '{"site":"phx-edge","packet_loss_bucket":"high"}'::jsonb,
+    '{"site":"DFW","Gate":"B2","role":"edge"}'::jsonb
 FROM base
 UNION ALL
 SELECT 'device-delta',
@@ -134,7 +138,8 @@ SELECT 'device-delta',
     ARRAY ['sweep'],
     TRUE,
     TRUE,
-    '{"site":"phx-edge","packet_loss_bucket":"low"}'::jsonb
+    '{"site":"phx-edge","packet_loss_bucket":"low"}'::jsonb,
+    '{}'::jsonb
 FROM base;
 
 WITH base AS (
