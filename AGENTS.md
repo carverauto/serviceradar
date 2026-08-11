@@ -268,7 +268,42 @@ Reference `docs/docs/agents.md` for: faker deployment details, CNPG truncate/res
 - bazel is our build system, we use it to build and push images
 - Sysmon-vm hostfreq sampler buffers ~5 minutes of 250 ms samples; keep gateways querying at least once per retention window so cached CPU data stays fresh.
 
+## Where Unreleased Code Gets Deployed
+
+Pick the target cluster by what you are doing. Getting this wrong puts an unreleased build
+in front of an audience.
+
+| Namespace / cluster | Purpose | Image tags |
+| --- | --- | --- |
+| `serviceradar` on **farm01** | Dev + integration. Prove unreleased fixes here. | `sha-<full-git-sha>` |
+| `demo` | **Official releases only.** | semver, e.g. `v1.4.30` |
+| `tonka01` | Separate production cluster. Never a dev target. | semver |
+
+- **Dev builds → farm01.** Use the `$farm-dev-rollout` skill. farm01 runs no Kyverno
+  signature enforcement, no OpenBao cosign signer, and no ArgoCD Image Updater, so a plain
+  `helm upgrade` against
+  `~/src/gitops/clusters/farm01/serviceradar/values.yaml` with
+  `global.imageTag: sha-<full-git-sha>` is the whole rollout.
+- **`demo` is for official releases.** Do not point it at a `sha-` tag to test a fix, and do
+  not drag its ArgoCD/Kyverno/OpenBao machinery into dev work. Use
+  `$release-cut-and-demo-roll` for a real release and `$demo-local-rollout` only when the
+  user explicitly asks to stage something in `demo`.
+- Publishing a dev image is the same pipeline as a release image — see
+  [Publishing container images](#publishing-container-images). On a macOS workstation you
+  cannot run the push target; dispatch CI with
+  `fj actions dispatch publish-oci.yml <branch>`.
+- Push the branch **before** publishing. `--stamp` derives the tag from the commit, so an
+  unpushed commit cannot be built.
+- Verify the tag exists in Harbor before rolling. A green pipeline is not proof; RBE returns
+  transient `UNAVAILABLE: ... reset reason: overflow` failures that fail the publish job, and
+  those are worth simply re-dispatching.
+- Any fix that farm01 needs in its values file to install cleanly is a **chart bug**. Fix the
+  chart too, or every OSS installer stays broken.
+
 ## Demo Namespace Helm Refresh
+
+**Official releases only** — see [Where Unreleased Code Gets Deployed](#where-unreleased-code-gets-deployed).
+For unreleased dev builds use farm01 and the `$farm-dev-rollout` skill instead.
 
 - Build and push release artifacts: `make build` then `make push_all`.
 - Deploy to demo: `helm upgrade --install serviceradar ./helm/serviceradar -n demo -f helm/serviceradar/values-demo.yaml --set global.imageTag="sha-<git-sha>" --rollback-on-failure`.
