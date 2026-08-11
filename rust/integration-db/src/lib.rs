@@ -168,9 +168,7 @@ pub fn redacted_database_url(url: &str) -> String {
     let Some((scheme, rest)) = url.split_once("://") else {
         return "<unparseable>".to_string();
     };
-    let end = rest
-        .find(|character| character == '?' || character == '#')
-        .unwrap_or(rest.len());
+    let end = rest.find(['?', '#']).unwrap_or(rest.len());
     let authority_and_path = &rest[..end];
 
     match authority_and_path.rsplit_once('@') {
