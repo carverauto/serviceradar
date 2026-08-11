@@ -39,10 +39,9 @@ defmodule ServiceRadar.Repo.Migrations.AllowPagerdutyCallbackApps do
       )
     )
 
-    # The restored Slack-only constraint cannot validate while PagerDuty rows
-    # remain. Rolling back provider support necessarily removes those bindings;
-    # do it explicitly inside the migration transaction instead of failing
-    # halfway through the rollback with a check-constraint violation.
+    # serviceradar:allow-startup-maintenance - rollback-only, schema-critical
+    # cleanup that never runs on first boot. The small operator-managed registry
+    # must lose PagerDuty bindings before its Slack-only constraint is restored.
     execute("DELETE FROM platform.notification_callback_apps WHERE provider_key = 'pagerduty'")
 
     create(
