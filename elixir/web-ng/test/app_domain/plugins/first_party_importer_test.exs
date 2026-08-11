@@ -37,6 +37,15 @@ defmodule ServiceRadarWebNG.Plugins.FirstPartyImporterTest do
     }
   }
   @wasm "hello wasm payload"
+  @display_contract %{
+    "id" => "com.example.activity.display",
+    "version" => "1.0.0",
+    "schema_id" => "com.example.activity",
+    "schema_version" => "1.0.0",
+    "widgets" => [
+      %{"type" => "summary", "title" => "title", "message" => "message"}
+    ]
+  }
 
   defmodule ForgejoClient do
     @moduledoc false
@@ -279,6 +288,25 @@ defmodule ServiceRadarWebNG.Plugins.FirstPartyImporterTest do
              })
   end
 
+  test "rejects the package when a display contract is invalid" do
+    Process.put(
+      :first_party_bundle,
+      bundle_with_entries([
+        {~c"display/event_log_activity.display.json", Jason.encode!(%{"widgets" => []})}
+      ])
+    )
+
+    assert {:error, {:invalid_display_contracts, errors}} =
+             FirstPartyImporter.import(%{
+               "repo_url" => @repo_url,
+               "release_tag" => "v1.2.3",
+               "plugin_id" => "hello-wasm",
+               "version" => "1.2.3"
+             })
+
+    assert Enum.any?(errors, &String.contains?(&1, "display/event_log_activity.display.json"))
+  end
+
   test "rejects malformed first-party import index assets" do
     Process.put(:first_party_index_body, "[not-an-object]")
 
@@ -453,17 +481,23 @@ defmodule ServiceRadarWebNG.Plugins.FirstPartyImporterTest do
     path = Path.join(System.tmp_dir!(), "hello-wasm-#{System.unique_integer([:positive])}.zip")
 
     try do
+      base_entries =
+        [
+          {~c"plugin.yaml", @manifest_yaml},
+          {~c"plugin.wasm", @wasm},
+          {~c"config.schema.json", Jason.encode!(%{"type" => "object"})},
+          {~c"display_contract.json", Jason.encode!(%{"schema_version" => 1})},
+          {~c"display/event_log_activity.display.json", Jason.encode!(@display_contract)},
+          {~c"schemas/ocsf_event_log_activity.schema.json", Jason.encode!(%{"type" => "object"})}
+        ]
+
+      replacement_names = MapSet.new(extra_entries, fn {name, _payload} -> to_string(name) end)
+      base_entries = Enum.reject(base_entries, fn {name, _payload} -> to_string(name) in replacement_names end)
+
       {:ok, _zip} =
         :zip.create(
           String.to_charlist(path),
-          [
-            {~c"plugin.yaml", @manifest_yaml},
-            {~c"plugin.wasm", @wasm},
-            {~c"config.schema.json", Jason.encode!(%{"type" => "object"})},
-            {~c"display_contract.json", Jason.encode!(%{"schema_version" => 1})},
-            {~c"display/event_log_activity.display.json", Jason.encode!(%{"widgets" => []})},
-            {~c"schemas/ocsf_event_log_activity.schema.json", Jason.encode!(%{"type" => "object"})}
-          ] ++ extra_entries
+          base_entries ++ extra_entries
         )
 
       File.read!(path)

@@ -1,6 +1,8 @@
 defmodule ServiceRadar.NetworkDiscovery.TopologyGraph.CanonicalRebuildTest do
   use ExUnit.Case, async: true
 
+  import ExUnit.CaptureLog
+
   alias ServiceRadar.NetworkDiscovery.RuntimeTopologyProjection
   alias ServiceRadar.NetworkDiscovery.TopologyGraph.CanonicalRebuild
   alias ServiceRadar.NetworkDiscovery.TopologyGraph.HealthConditions
@@ -16,6 +18,11 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph.CanonicalRebuildTest do
   @frozen_evidence_max "2026-06-25T07:51:15Z"
   @fresh_evidence_max "2026-07-04T09:00:00Z"
 
+  @doc false
+  def forward_telemetry(event, measurements, metadata, pid) do
+    send(pid, {:telemetry, event, measurements, metadata})
+  end
+
   defp unique_condition(tag) do
     condition = {:canonical_rebuild_test, tag, System.unique_integer([:positive])}
     on_exit(fn -> HealthConditions.clear(condition) end)
@@ -29,9 +36,7 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph.CanonicalRebuildTest do
       :telemetry.attach(
         handler_id,
         event,
-        fn ev, measurements, metadata, pid ->
-          send(pid, {:telemetry, ev, measurements, metadata})
-        end,
+        &__MODULE__.forward_telemetry/4,
         self()
       )
 
@@ -324,14 +329,19 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph.CanonicalRebuildTest do
 
       counts = %{before_edges: 675, mapper_evidence_edges: 675, after_upsert_edges: 675}
 
-      assert :ok =
-               CanonicalRebuild.report_starvation(
-                 counts,
-                 @stale_cutoff,
-                 @frozen_evidence_max,
-                 0,
-                 condition: condition
-               )
+      log =
+        capture_log(fn ->
+          assert :ok =
+                   CanonicalRebuild.report_starvation(
+                     counts,
+                     @stale_cutoff,
+                     @frozen_evidence_max,
+                     0,
+                     condition: condition
+                   )
+        end)
+
+      assert log =~ "Canonical topology rebuild starved"
 
       assert_receive {:telemetry, [:serviceradar, :topology, :canonical_rebuild, :starved],
                       measurements, metadata}
@@ -348,17 +358,21 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph.CanonicalRebuildTest do
       condition = unique_condition(:starved_repeat)
       counts = %{before_edges: 675, mapper_evidence_edges: 675, after_upsert_edges: 675}
 
-      for _ <- 1..3 do
-        assert :ok =
-                 CanonicalRebuild.report_starvation(
-                   counts,
-                   @stale_cutoff,
-                   @frozen_evidence_max,
-                   0,
-                   condition: condition
-                 )
-      end
+      log =
+        capture_log(fn ->
+          for _ <- 1..3 do
+            assert :ok =
+                     CanonicalRebuild.report_starvation(
+                       counts,
+                       @stale_cutoff,
+                       @frozen_evidence_max,
+                       0,
+                       condition: condition
+                     )
+          end
+        end)
 
+      assert log =~ "Canonical topology rebuild starved"
       assert %{occurrences: 3} = HealthConditions.get(condition)
     end
   end
@@ -369,14 +383,19 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph.CanonicalRebuildTest do
 
       counts = %{before_edges: 675, mapper_evidence_edges: 675, after_upsert_edges: 675}
 
-      assert :ok =
-               CanonicalRebuild.report_prune_refusal(
-                 :mass_deletion,
-                 675,
-                 counts,
-                 @stale_cutoff,
-                 0.5
-               )
+      log =
+        capture_log(fn ->
+          assert :ok =
+                   CanonicalRebuild.report_prune_refusal(
+                     :mass_deletion,
+                     675,
+                     counts,
+                     @stale_cutoff,
+                     0.5
+                   )
+        end)
+
+      assert log =~ "Canonical topology stale prune refused"
 
       assert_receive {:telemetry, [:serviceradar, :topology, :canonical_rebuild, :prune_refused],
                       measurements, metadata}
@@ -394,12 +413,17 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph.CanonicalRebuildTest do
       attach_telemetry([:serviceradar, :topology, :canonical_rebuild, :self_heal_failed])
       condition = unique_condition(:self_heal_failed)
 
-      result =
-        CanonicalRebuild.finalize_self_heal_outcome(0, 0, 675, 1, condition: condition)
+      log =
+        capture_log(fn ->
+          result =
+            CanonicalRebuild.finalize_self_heal_outcome(0, 0, 675, 1, condition: condition)
 
-      assert result.status == :failed
-      assert result.reason == :canonical_edges_below_threshold
-      assert result.after == 0
+          assert result.status == :failed
+          assert result.reason == :canonical_edges_below_threshold
+          assert result.after == 0
+        end)
+
+      assert log =~ "Canonical topology self-heal FAILED"
 
       assert_receive {:telemetry,
                       [:serviceradar, :topology, :canonical_rebuild, :self_heal_failed],
@@ -414,27 +438,42 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph.CanonicalRebuildTest do
     test "repeated identical failures deduplicate into one ongoing condition" do
       condition = unique_condition(:self_heal_dedup)
 
-      for _ <- 1..3 do
-        assert %{status: :failed} =
-                 CanonicalRebuild.finalize_self_heal_outcome(0, 0, 675, 1, condition: condition)
-      end
+      log =
+        capture_log(fn ->
+          for _ <- 1..3 do
+            assert %{status: :failed} =
+                     CanonicalRebuild.finalize_self_heal_outcome(0, 0, 675, 1,
+                       condition: condition
+                     )
+          end
+        end)
 
+      assert log =~ "Canonical topology self-heal FAILED"
       assert %{occurrences: 3} = HealthConditions.get(condition)
     end
 
     test "(e) recovery above the threshold completes and clears the condition" do
       condition = unique_condition(:self_heal_recovery)
 
-      assert %{status: :failed} =
-               CanonicalRebuild.finalize_self_heal_outcome(0, 0, 675, 1, condition: condition)
+      log =
+        capture_log(fn ->
+          assert %{status: :failed} =
+                   CanonicalRebuild.finalize_self_heal_outcome(0, 0, 675, 1, condition: condition)
+        end)
 
+      assert log =~ "Canonical topology self-heal FAILED"
       assert HealthConditions.unhealthy?(condition)
 
-      result =
-        CanonicalRebuild.finalize_self_heal_outcome(0, 42, 675, 1, condition: condition)
+      recovery_log =
+        capture_log([level: :info], fn ->
+          result =
+            CanonicalRebuild.finalize_self_heal_outcome(0, 42, 675, 1, condition: condition)
 
-      assert result.status == :completed
-      assert result.after == 42
+          assert result.status == :completed
+          assert result.after == 42
+        end)
+
+      assert recovery_log =~ "Canonical topology self-heal recovered canonical edges"
       refute HealthConditions.unhealthy?(condition)
     end
   end

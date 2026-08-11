@@ -1,0 +1,191 @@
+defmodule ServiceRadar.Observability.StatefulAlertEngine.StateMachineResolutionRetryTest do
+  use ExUnit.Case, async: true
+
+  import ExUnit.CaptureLog
+
+  alias ServiceRadar.Observability.StatefulAlertEngine.Bucketing
+  alias ServiceRadar.Observability.StatefulAlertEngine.Diagnostics
+  alias ServiceRadar.Observability.StatefulAlertEngine.StateMachine
+
+  @alert_id "alert-awaiting-durable-resolution"
+
+  setup do
+    table = :ets.new(:state_machine_resolution_retry, [:set, :private])
+    {:ok, table: table}
+  end
+
+  test "a failed stale recovery keeps the alert attached for the next sweep", %{table: table} do
+    now = ~U[2026-08-11 12:00:00Z]
+    rule = rule()
+    key = {rule.id, "global"}
+    snapshot = snapshot(rule, now, last_seen_at: DateTime.add(now, -120, :second))
+    :ets.insert(table, {key, snapshot})
+
+    calls = :counters.new(1, [])
+    state = state(table, failing_resolver(calls))
+    cutoff = DateTime.add(now, -60, :second)
+
+    log =
+      capture_log(fn ->
+        assert StateMachine.sweep_stale_anomalies(rule, cutoff, now, state) == 0
+        assert StateMachine.sweep_stale_anomalies(rule, cutoff, now, state) == 0
+      end)
+
+    assert log =~ "Keeping alert #{@alert_id} open after recovery failed"
+    assert :counters.get(calls, 1) == 2
+    assert [{^key, retained}] = :ets.lookup(table, key)
+    assert retained.alert_id == @alert_id
+    assert retained.last_notification_at == snapshot.last_notification_at
+  end
+
+  test "a failed incident rollover keeps the existing alert instead of opening a new one", %{
+    table: table
+  } do
+    now = ~U[2026-08-11 12:00:00Z]
+    rule = rule()
+    key = {rule.id, "global"}
+
+    # Keep the current bucket aligned with the new event. The old last-seen
+    # timestamp still crosses the rollover gap, while avoiding an unrelated
+    # persistence flush in this pure state-machine regression.
+    snapshot =
+      snapshot(rule, now,
+        last_seen_at: DateTime.add(now, -61, :second),
+        current_bucket_start: Bucketing.to_bucket_start(now, rule.bucket_seconds)
+      )
+
+    :ets.insert(table, {key, snapshot})
+
+    calls = :counters.new(1, [])
+    state = state(table, failing_resolver(calls))
+
+    log =
+      capture_log(fn ->
+        assert :ok = StateMachine.process_event_rules(event(now), [rule], state)
+      end)
+
+    assert log =~ "Keeping alert #{@alert_id} open after rollover resolution failed"
+    assert :counters.get(calls, 1) == 1
+    assert [{^key, retained}] = :ets.lookup(table, key)
+    assert retained.alert_id == @alert_id
+    assert retained.last_notification_at == snapshot.last_notification_at
+  end
+
+  test "the record after a failed rollover retries and opens the replacement incident", %{
+    table: table
+  } do
+    now = ~U[2026-08-11 12:00:00Z]
+    next_seen_at = DateTime.add(now, 1, :second)
+    rule = rule()
+    key = {rule.id, "global"}
+
+    snapshot =
+      snapshot(rule, now,
+        last_seen_at: DateTime.add(now, -61, :second),
+        current_bucket_start: Bucketing.to_bucket_start(now, rule.bucket_seconds)
+      )
+
+    :ets.insert(table, {key, snapshot})
+
+    resolve_calls = :counters.new(1, [])
+    create_calls = :counters.new(1, [])
+
+    resolver = fn @alert_id, _rule, _snapshot, _now ->
+      :counters.add(resolve_calls, 1, 1)
+
+      if :counters.get(resolve_calls, 1) == 1,
+        do: {:error, {:routing_enqueue_failed, :queue_down}},
+        else: :ok
+    end
+
+    creator = fn _rule, _snapshot, _record, _now ->
+      :counters.add(create_calls, 1, 1)
+      {:ok, "replacement-alert"}
+    end
+
+    state =
+      table
+      |> state(resolver)
+      |> Map.put(:create_event_and_alert, creator)
+      |> Map.put(:persist_snapshot, fn _snapshot, _rule, _state -> :ok end)
+
+    capture_log(fn ->
+      assert :ok = StateMachine.process_event_rules(event(now), [rule], state)
+      assert :ok = StateMachine.process_event_rules(event(next_seen_at), [rule], state)
+    end)
+
+    assert :counters.get(resolve_calls, 1) == 2
+    assert :counters.get(create_calls, 1) == 1
+    assert [{^key, replacement}] = :ets.lookup(table, key)
+    assert replacement.alert_id == "replacement-alert"
+    assert replacement.last_fired_at == next_seen_at
+  end
+
+  defp state(table, resolver) do
+    %{
+      table: table,
+      resolve_alert: resolver
+    }
+  end
+
+  defp failing_resolver(calls) do
+    fn @alert_id, _rule, _snapshot, _now ->
+      :counters.add(calls, 1, 1)
+      {:error, {:routing_enqueue_failed, :queue_down}}
+    end
+  end
+
+  defp rule do
+    %{
+      id: "resolution-retry-rule",
+      name: "resolution retry rule",
+      signal: :event,
+      enabled: true,
+      match: %{"always" => true},
+      group_by: [],
+      threshold: 1,
+      window_seconds: 120,
+      bucket_seconds: 60,
+      cooldown_seconds: 60,
+      renotify_seconds: 0
+    }
+  end
+
+  defp snapshot(rule, now, overrides) do
+    bucket_start = Bucketing.to_bucket_start(now, rule.bucket_seconds)
+
+    Map.merge(
+      %{
+        rule_id: rule.id,
+        group_key: "global",
+        group_values: %{},
+        window_seconds: rule.window_seconds,
+        bucket_seconds: rule.bucket_seconds,
+        current_bucket_start: bucket_start,
+        bucket_counts: %{bucket_start => 0},
+        window_count: 0,
+        last_seen_at: DateTime.add(now, -30, :second),
+        last_fired_at: DateTime.add(now, -300, :second),
+        last_notification_at: DateTime.add(now, -300, :second),
+        cooldown_until: nil,
+        alert_id: @alert_id,
+        first_seen_at: DateTime.add(now, -300, :second),
+        diagnostics: Diagnostics.empty_diagnostics(),
+        bucket_changed: false,
+        flush_required: false
+      },
+      Map.new(overrides)
+    )
+  end
+
+  defp event(now) do
+    %{
+      id: "rollover-event",
+      time: now,
+      log_name: "test.rollover",
+      log_provider: "test",
+      metadata: %{},
+      unmapped: %{}
+    }
+  end
+end

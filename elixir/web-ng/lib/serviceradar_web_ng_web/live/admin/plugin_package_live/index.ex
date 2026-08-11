@@ -9,6 +9,7 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
 
   alias ServiceRadar.Infrastructure.Agent
   alias ServiceRadar.Plugins.Manifest
+  alias ServiceRadarWebNG.Observability.ContractRegistry
   alias ServiceRadarWebNG.Plugins.Assignments
   alias ServiceRadarWebNG.Plugins.CredentialCoverage
   alias ServiceRadarWebNG.Plugins.FirstPartyImporter
@@ -1822,6 +1823,30 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
               <pre class="mt-2 bg-sr-subtle/50 p-3 rounded-lg text-xs font-mono overflow-x-auto max-h-48">
     <%= format_json_value(@package.display_contract) %>
     </pre>
+            </div>
+
+            <div class="rounded-xl border border-sr-line p-4 space-y-2">
+              <div class="text-sm font-semibold">Runtime Display Contracts</div>
+              <p class="text-xs text-sr-muted">
+                Contracts this package ships, resolved at runtime by the UI. A package needs no
+                web-ng release to render its own signals; a contract listed as refused renders
+                through the generic view instead.
+              </p>
+              <div :if={@package.display_contracts == %{}} class="text-xs text-sr-muted">
+                This package ships no display contracts.
+              </div>
+              <div
+                :for={key <- Enum.sort(Map.keys(@package.display_contracts))}
+                class="text-xs font-mono"
+              >
+                {key}
+              </div>
+              <div
+                :for={diagnostic <- display_contract_diagnostics(@package)}
+                class="text-xs text-warning"
+              >
+                {diagnostic.source}: {diagnostic.reason}
+              </div>
             </div>
 
             <div class="rounded-xl border border-sr-line p-4 space-y-2">
@@ -4627,6 +4652,36 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
   defp format_json_value(value) when is_map(value), do: Jason.encode!(value, pretty: true)
   defp format_json_value(value) when is_binary(value), do: value
   defp format_json_value(_), do: ""
+
+  # 3.5.3: a refused contract must be diagnosable from the package that shipped
+  # it, not merely absent from the pages it would have rendered. Read from the
+  # runtime index rather than re-validated here, so what is shown is exactly what
+  # the renderer decided.
+  defp display_contract_diagnostics(package) do
+    producer_id = Map.get(package, :plugin_id) || Map.get(package, :addon_id)
+    version = Map.get(package, :version)
+
+    runtime =
+      Enum.filter(ContractRegistry.diagnostics(), fn diagnostic ->
+        diagnostic.package == producer_id and diagnostic.version == version
+      end)
+
+    runtime ++ import_display_contract_diagnostics(package)
+  end
+
+  # Contracts the bundle shipped and the importer refused. They were never
+  # stored, so the runtime index cannot report them; the importer recorded the
+  # reasons here instead.
+  defp import_display_contract_diagnostics(package) do
+    package
+    |> Map.get(:source_metadata)
+    |> case do
+      %{} = metadata -> Map.get(metadata, "display_contract_errors") || []
+      _other -> []
+    end
+    |> List.wrap()
+    |> Enum.map(fn reason -> %{source: "at import", reason: to_string(reason)} end)
+  end
 
   defp format_hash(nil), do: "—"
   defp format_hash(""), do: "—"

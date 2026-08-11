@@ -111,7 +111,7 @@ defmodule ServiceRadar.Security.RateLimiterClusterTest do
   end
 
   defp start_peer(name) do
-    {:ok, peer, node} =
+    {:ok, _peer, node} =
       :peer.start_link(%{
         name: name,
         host: ~c"127.0.0.1",

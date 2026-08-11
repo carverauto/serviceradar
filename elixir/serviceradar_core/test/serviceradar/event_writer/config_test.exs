@@ -1,5 +1,5 @@
 defmodule ServiceRadar.EventWriter.ConfigTest do
-  use ExUnit.Case, async: true
+  use ExUnit.Case, async: false
 
   alias ServiceRadar.EventWriter.Config
   alias ServiceRadar.EventWriter.Processors.Flows

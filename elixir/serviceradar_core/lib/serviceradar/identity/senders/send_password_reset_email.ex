@@ -5,7 +5,7 @@ defmodule ServiceRadar.Identity.Senders.SendPasswordResetEmail do
   Uses Swoosh for email delivery via the configured mailer.
   """
 
-  alias ServiceRadar.Identity.Senders.EmailDelivery
+  alias ServiceRadar.OutboundMail
 
   @doc """
   Sends a password reset email to the user.
@@ -20,7 +20,7 @@ defmodule ServiceRadar.Identity.Senders.SendPasswordResetEmail do
     - {:error, reason} on failure
   """
   def send(user, token, _opts \\ []) do
-    EmailDelivery.deliver(
+    OutboundMail.deliver_transactional(
       user,
       "Reset your ServiceRadar password",
       build_reset_url(token),
@@ -33,6 +33,6 @@ defmodule ServiceRadar.Identity.Senders.SendPasswordResetEmail do
   end
 
   defp build_reset_url(token) do
-    "#{EmailDelivery.base_url()}/auth/password-reset/#{token}"
+    "#{OutboundMail.base_url()}/auth/password-reset/#{token}"
   end
 end

@@ -7,6 +7,25 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine.AlertLifecycle do
 
   All Ash writes run as the `:alert_engine` system actor; the DB connection's
   search_path determines the schema.
+
+  ## Notification
+
+  This module is the single choke point where an incident fires, resolves, or is
+  re-notified, which design D8 makes the ONLY path allowed to originate a new
+  incident notification: it is where incident identity, dedup state, and the
+  alert row are already consistent. Each of the three emits one
+  `ServiceRadar.Notifications.RoutingWorker` job - `:fire`, `:resolve`,
+  `:renotify` - and decides nothing else. Matching, deduplication, escalation,
+  suppression, rendering, and the retry rule are
+  `ServiceRadar.Notifications.Dispatcher`'s, and through it the pure cores'.
+
+  Firing remains fail-open because `Alert.:needs_notification` can recover an
+  alert that was recorded before its first routing job was accepted. Resolution
+  is different: once an alert is terminal there is no later scan that can infer
+  that its previously notified channels are owed a close-out. The resolve
+  transition and its durable `:resolve` job therefore commit in one database
+  transaction. If the job insert fails, the alert transition rolls back so the
+  incident is not falsely terminal without its close-out work.
   """
 
   import ServiceRadar.Observability.StatefulAlertEngine.Bucketing
@@ -19,9 +38,10 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine.AlertLifecycle do
   alias ServiceRadar.Monitoring.Alert
   alias ServiceRadar.Monitoring.AlertGenerator
   alias ServiceRadar.Monitoring.OcsfEvent
-  alias ServiceRadar.Monitoring.WebhookNotifier
+  alias ServiceRadar.Notifications.RoutingWorker
   alias ServiceRadar.Observability.StatefulAlertRuleHistory
   alias ServiceRadar.Observability.StatefulAlertRuleState
+  alias ServiceRadar.Repo
 
   require Logger
 
@@ -34,12 +54,17 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine.AlertLifecycle do
     with {:ok, ocsf_event} <- record_event(event, actor) do
       case AlertGenerator.from_event(ocsf_event,
              actor: actor,
-             alert: alert_config(rule, record),
-             notify?: not synthetic_liveness_check?
+             alert: alert_config(rule, record)
            ) do
         {:ok, %Alert{} = alert} ->
           if !synthetic_liveness_check? do
             record_history(rule, snapshot, :fired, now, alert.id, %{"event_id" => ocsf_event.id})
+
+            # Inside the guard on purpose. A synthetic liveness probe is an
+            # internal check on the anomaly pipeline, not an incident anyone is
+            # on call for, and routing it would page for ServiceRadar watching
+            # itself.
+            enqueue_routing(alert.id, :fire)
           end
 
           {:ok, alert.id}
@@ -60,71 +85,135 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine.AlertLifecycle do
     |> Ash.create()
   end
 
-  def resolve_alert(alert_id, rule, snapshot, now) when is_binary(alert_id) do
+  def resolve_alert(alert_id, rule, snapshot, now, opts \\ [])
+
+  def resolve_alert(alert_id, rule, snapshot, now, opts)
+      when is_binary(alert_id) and is_list(opts) do
     # DB connection's search_path determines the schema
     actor = SystemActor.system(:alert_engine)
+    synthetic_liveness? = synthetic_liveness_snapshot?(snapshot)
 
-    case Alert.get_by_id(alert_id, actor: actor) do
-      {:ok, %Alert{status: status}} when status in [:resolved, :suppressed] ->
-        # Already terminal (resolved out-of-band via REST/sweep/duplicate clear).
-        # Idempotent no-op; do not re-fire :resolve (NoMatchingTransition) or
-        # re-record :recovered history (duplicate-row spam on every retry).
+    case Repo.transaction(fn ->
+           resolve_in_transaction(alert_id, actor, synthetic_liveness?, opts)
+         end) do
+      {:ok, {:already_terminal, []}} ->
         :ok
 
-      {:ok, alert} ->
-        alert
-        |> Ash.Changeset.for_update(:resolve, %{resolved_by: "system"}, actor: actor)
-        |> Ash.update()
-        |> case do
-          {:ok, _} ->
-            if !synthetic_liveness_snapshot?(snapshot) do
-              record_history(rule, snapshot, :recovered, now, alert_id, %{})
-            end
+      {:ok, {:not_found, []}} ->
+        :ok
 
-            :ok
+      {:ok, {:resolved, notifications}} ->
+        _ = Ash.Notifier.notify(notifications)
 
-          {:error, reason} ->
-            Logger.warning("Failed to resolve alert #{alert_id}: #{inspect(reason)}")
-            :error
+        if !synthetic_liveness? do
+          record_history(rule, snapshot, :recovered, now, alert_id, %{})
         end
-
-      {:error, _} ->
-        :ok
-    end
-  end
-
-  def resolve_alert(_alert_id, _rule, _snapshot, _now), do: :ok
-
-  def send_renotify(alert_id, _rule, _snapshot, now) when is_binary(alert_id) do
-    # DB connection's search_path determines the schema
-    actor = SystemActor.system(:alert_engine)
-
-    case Alert.get_by_id(alert_id, actor: actor) do
-      {:ok, alert} ->
-        alert_key = %WebhookNotifier.Alert{
-          level: severity_to_level(alert.severity),
-          title: alert.title,
-          message: alert.description,
-          timestamp: DateTime.to_iso8601(now),
-          gateway_id: "core",
-          service_name: nil,
-          details: alert.metadata || %{}
-        }
-
-        _ = WebhookNotifier.send_alert(alert_key)
-
-        alert
-        |> Ash.Changeset.for_update(:record_notification, %{}, actor: actor)
-        |> Ash.update()
 
         :ok
 
       {:error, reason} ->
+        Logger.warning("Failed to resolve alert #{alert_id}: #{inspect(reason)}")
         {:error, reason}
     end
   end
 
+  def resolve_alert(_alert_id, _rule, _snapshot, _now, _opts), do: :ok
+
+  defp resolve_in_transaction(alert_id, actor, synthetic_liveness?, opts) do
+    loader = Keyword.get(opts, :load_alert, &Alert.get_by_id/2)
+
+    case loader.(alert_id, actor: actor) do
+      {:ok, %Alert{status: status}} when status in [:resolved, :suppressed] ->
+        # Already terminal (resolved out-of-band via REST/sweep/duplicate clear).
+        # Idempotent no-op; do not re-fire :resolve (NoMatchingTransition) or
+        # re-record :recovered history (duplicate-row spam on every retry).
+        {:already_terminal, []}
+
+      {:ok, alert} ->
+        with {:ok, _resolved, notifications} <-
+               alert
+               |> Ash.Changeset.for_update(:resolve, %{resolved_by: "system"}, actor: actor)
+               |> Ash.update(return_notifications?: true),
+             :ok <- maybe_enqueue_resolution(alert_id, synthetic_liveness?, opts) do
+          {:resolved, notifications}
+        else
+          {:error, reason} -> Repo.rollback(reason)
+        end
+
+      {:error, reason} ->
+        if ash_not_found?(reason) do
+          {:not_found, []}
+        else
+          Repo.rollback({:alert_load_failed, reason})
+        end
+    end
+  end
+
+  defp ash_not_found?(%Ash.Error.Query.NotFound{}), do: true
+
+  defp ash_not_found?(%{errors: errors}) when is_list(errors) do
+    errors != [] and Enum.all?(errors, &ash_not_found?/1)
+  end
+
+  defp ash_not_found?(_reason), do: false
+
+  defp maybe_enqueue_resolution(_alert_id, true, _opts), do: :ok
+
+  defp maybe_enqueue_resolution(alert_id, false, opts) do
+    enqueue = Keyword.get(opts, :enqueue_routing, &RoutingWorker.enqueue/2)
+
+    case enqueue.(alert_id, :resolve) do
+      :ok -> :ok
+      {:ok, _job} -> :ok
+      {:error, reason} -> {:error, {:routing_enqueue_failed, reason}}
+      other -> {:error, {:routing_enqueue_failed, other}}
+    end
+  end
+
+  def send_renotify(alert_id, _rule, _snapshot, _now) when is_binary(alert_id) do
+    # DB connection's search_path determines the schema
+    actor = SystemActor.system(:alert_engine)
+
+    with {:ok, alert} <- Alert.get_by_id(alert_id, actor: actor),
+         :ok <- enqueue_routing_result(alert.id, :renotify),
+         {:ok, _alert} <-
+           alert
+           |> Ash.Changeset.for_update(:record_notification, %{}, actor: actor)
+           |> Ash.update() do
+      # Bookkeeping advances only after the routing request is durable. If the
+      # enqueue fails, the cadence remains due and the continuation scan tries
+      # again on its next tick.
+      :ok
+    end
+  end
+
   def send_renotify(_alert_id, _rule, _snapshot, _now), do: {:error, :missing_alert_id}
+
+  # Never raises and never returns an error: see the "Notification" section of
+  # the moduledoc. A routing request that could not be enqueued is a logged
+  # notification failure, not a reason to abandon the incident record that the
+  # caller has already written.
+  defp enqueue_routing(alert_id, lifecycle_reason) do
+    case enqueue_routing_result(alert_id, lifecycle_reason) do
+      :ok ->
+        :ok
+
+      {:error, reason} ->
+        Logger.warning(
+          "Failed to enqueue #{lifecycle_reason} notification routing for alert " <>
+            "#{alert_id}: #{inspect(reason)}"
+        )
+
+        :ok
+    end
+  end
+
+  defp enqueue_routing_result(alert_id, lifecycle_reason) do
+    case RoutingWorker.enqueue(alert_id, lifecycle_reason) do
+      {:ok, _job} -> :ok
+      {:error, reason} -> {:error, reason}
+    end
+  end
 
   def sync_active_incident(snapshot, rule, now, opts \\ []) do
     if is_binary(snapshot.alert_id) do

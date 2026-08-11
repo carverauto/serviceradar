@@ -317,6 +317,38 @@ core:
   kubernetesNodeBasename: "serviceradar_core"
   ashObanSchedulerEnabled: true
   logPromotionConsumerEnabled: true
+  # Outbound mail for the native email notification transport and the auth
+  # senders (confirmation, password reset).
+  #
+  # Left empty the mailer resolves to Swoosh.Adapters.Test, which accepts every
+  # message, reports success, and delivers nothing. That is deliberately NOT a
+  # working default: an email notification channel refuses to validate while it
+  # is in that state, so the failure surfaces when an operator saves the channel
+  # instead of during the incident the channel was supposed to page for.
+  #
+  # Setting `relay` is enough - a relay host selects the SMTP adapter.
+  mailer:
+    # "smtp", "local", "sendgrid", ... Leave empty to infer SMTP from `relay`.
+    adapter: ""
+    relay: ""
+    port: 587
+    # HELO/EHLO name this deployment announces; empty lets the relay decide.
+    hostname: ""
+    # always | never | if_available
+    auth: "if_available"
+    tls: "if_available"
+    # Implicit TLS (port 465). STARTTLS is `tls`, above.
+    ssl: false
+    from:
+      name: "ServiceRadar"
+      email: "noreply@serviceradar.cloud"
+    # Relay credentials are read from an existing Secret and are never values:
+    # a password here ends up in the rendered manifest, in `helm get values`,
+    # and in whatever GitOps repository holds this file. Create the Secret with
+    # the two keys below and name it here.
+    existingSecret: ""
+    usernameKey: "smtp-username"
+    passwordKey: "smtp-password"
   # Core-owned advisory vulnerability feed ingestion (CISA KEV, VulnCheck KEV,
   # VulnCheck nist-nvd2, NVD CVE 2.0). Feeds are AshOban-scheduled in core,
   # disk-staged on a PVC, and bulk-loaded into CNPG — no agent involvement.
@@ -509,6 +541,26 @@ core:
     queueIntervalMs: 2000
     timeoutMs: 120000
     poolTimeoutMs: 120000
+  # Notification platform (openspec add-notification-platform).
+  notifications:
+    # Which serviceradar-agent runs `:control_plane` wasm notification plugins.
+    # There is exactly one Wasm host in the product - wazero inside the agent -
+    # so a platform-egress plugin notification is dispatched to the agent this
+    # chart already deploys, through the same plugin.run_action command an edge
+    # dispatch uses. Left empty, both fields fall back to `agent.agentId` and
+    # the deployment partition. Set them only when the platform-resident agent
+    # lives outside this release; with `agent.enabled: false` and no override,
+    # nothing is configured and a :control_plane plugin channel fails with
+    # `platform_agent_unconfigured` rather than dispatching somewhere arbitrary.
+    platformAgent:
+      agentId: ""
+      partitionId: ""
+    # The bounded sweep that closes out an agent-routed delivery whose command
+    # result never came back. It reads only what core itself wrote, so it does
+    # not depend on STATUS_HANDLER_ENABLED. Disabling it leaves those rows to
+    # the blind stall sweep, which re-sends rather than settling.
+    receiptSweep:
+      enabled: true
   obanQueues:
     default: 10
     maintenance: 5

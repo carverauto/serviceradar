@@ -90,6 +90,50 @@ defmodule ServiceRadarCoreElx.ProductionRuntimeConfigTest do
     assert swoosh_config[:local] == true
   end
 
+  # The deployed image evaluates only this tree's runtime.exs, so the Helm
+  # mailer environment reaching serviceradar_core's runtime.exs proves nothing
+  # about production. These three assert the whole chain: Helm sets
+  # SMTP_RELAY_*, this runtime.exs turns it into a mailer, and an unconfigured
+  # deployment is left in the state OutboundMail.diagnose/0 refuses rather than
+  # one that reports every send as successful.
+  test "prod config builds an SMTP mailer from the Helm relay environment" do
+    with_env("SMTP_RELAY_HOST", "smtp.example.com")
+    with_env("SMTP_RELAY_PORT", "2525")
+    with_env("SMTP_RELAY_USERNAME", "serviceradar")
+    with_env("SMTP_RELAY_PASSWORD", "relay-password")
+
+    mailer = read_prod_config()[:serviceradar_core][ServiceRadar.Mailer]
+
+    assert mailer[:adapter] == Swoosh.Adapters.SMTP
+    assert mailer[:relay] == "smtp.example.com"
+    assert mailer[:port] == 2525
+    assert mailer[:username] == "serviceradar"
+    assert :ok = ServiceRadar.OutboundMail.diagnose(mailer)
+  end
+
+  test "prod config leaves an unconfigured deployment in a state that fails validation" do
+    with_env("SMTP_RELAY_HOST", nil)
+    with_env("SERVICERADAR_MAILER_ADAPTER", nil)
+    with_env("SERVICERADAR_LOCAL_MAILER", nil)
+
+    mailer = read_prod_config()[:serviceradar_core][ServiceRadar.Mailer]
+
+    assert mailer[:adapter] == Swoosh.Adapters.Test
+
+    assert {:error, {:non_delivering_adapter, message}} =
+             ServiceRadar.OutboundMail.diagnose(mailer)
+
+    assert message =~ "SMTP_RELAY_HOST"
+  end
+
+  test "prod config selects the local mailbox when SERVICERADAR_LOCAL_MAILER is set" do
+    with_env("SERVICERADAR_LOCAL_MAILER", "true")
+
+    mailer = read_prod_config()[:serviceradar_core][ServiceRadar.Mailer]
+
+    assert mailer[:adapter] == Swoosh.Adapters.Local
+  end
+
   test "prod config carries the seasonal disposition worker options" do
     opts =
       read_prod_config()[:serviceradar_core][

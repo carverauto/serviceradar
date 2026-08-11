@@ -9,6 +9,12 @@ alias ServiceRadar.EventWriter.Processors.AnalyticsSignals
 alias ServiceRadar.EventWriter.Processors.Flows
 alias ServiceRadar.Jobs.AlertsRetentionWorker
 alias ServiceRadar.Jobs.RefreshTraceSummariesWorker
+alias ServiceRadar.Notifications.ContinuationWorker, as: NotificationContinuationWorker
+alias ServiceRadar.Notifications.DeliveryRetentionWorker, as: NotificationRetentionWorker
+alias ServiceRadar.Notifications.DispatchSchedule
+alias ServiceRadar.Notifications.PluginTarget, as: NotificationPluginTarget
+alias ServiceRadar.Notifications.ReceiptWorker, as: NotificationReceiptWorker
+alias ServiceRadar.Notifications.SilenceExpiryWorker, as: NotificationSilenceExpiryWorker
 alias ServiceRadar.Observability.CapacityForecasting.Worker, as: CapacityForecastingWorker
 alias ServiceRadar.Observability.DataRetentionWorker
 alias ServiceRadar.Observability.ProductionSchedule
@@ -881,7 +887,9 @@ if config_env() == :prod do
       # large deletes do not overlap.
       {System.get_env("SERVICERADAR_CREDENTIAL_BROKER_RETENTION_CRON") || "43 3 * * *",
        ServiceRadar.Credentials.BrokerRetentionWorker, queue: :maintenance}
-    ] ++ capacity_forecasting_crontab ++ ProductionSchedule.cron_entries()
+    ] ++
+      capacity_forecasting_crontab ++
+      ProductionSchedule.cron_entries() ++ DispatchSchedule.cron_entries()
 
   add_cron_entries = fn config, entries ->
     plugins =
@@ -901,13 +909,14 @@ if config_env() == :prod do
 
   oban_config = add_cron_entries.(oban_config, extra_cron_entries)
 
-  local_mailer =
-    case System.get_env("SERVICERADAR_LOCAL_MAILER") do
-      "true" -> true
-      "1" -> true
-      "yes" -> true
-      _ -> false
-    end
+  # The mailer is derived from the environment by
+  # `ServiceRadar.OutboundMail.RuntimeConfig`, the same module
+  # `serviceradar_core`'s own runtime configuration uses, so one set of
+  # variables cannot resolve to two different adapters. `SERVICERADAR_LOCAL_MAILER`
+  # still selects the in-memory development mailbox; `SERVICERADAR_MAILER_ADAPTER`
+  # and `SMTP_RELAY_*` are what a deployment that actually sends mail sets.
+  mailer_env = System.get_env()
+  local_mailer = ServiceRadar.OutboundMail.RuntimeConfig.local?(mailer_env)
 
   config :serviceradar_core, AlertsRetentionWorker,
     retention_days: alerts_retention_days,
@@ -941,6 +950,36 @@ if config_env() == :prod do
     dataset_snapshot_retention_days: "SERVICERADAR_DATASET_SNAPSHOT_RETENTION_DAYS" |> parse_int_env.(14) |> max(1),
     topology_link_retention_days: "SERVICERADAR_TOPOLOGY_LINK_RETENTION_DAYS" |> parse_int_env.(30) |> max(1)
 
+  # Notification continuation, silence expiry, and delivery retention. Kept in
+  # step with serviceradar_core's own runtime.exs through
+  # ServiceRadar.Notifications.DispatchSchedule -- this one is what the release
+  # actually loads.
+  config :serviceradar_core,
+         NotificationContinuationWorker,
+         DispatchSchedule.continuation_worker_config()
+
+  # The platform-resident serviceradar-agent that runs :control_plane wasm
+  # notification plugins (design D3, tasks 3.3.1). There is deliberately no
+  # default: guessing an agent id would dispatch notifications to whichever
+  # agent happened to match, so an unset value fails the delivery with
+  # `platform_agent_unconfigured` instead.
+  config :serviceradar_core,
+         NotificationPluginTarget,
+         platform_agent_uid: System.get_env("SERVICERADAR_NOTIFICATION_PLATFORM_AGENT_ID"),
+         platform_agent_partition_id: System.get_env("SERVICERADAR_NOTIFICATION_PLATFORM_AGENT_PARTITION")
+
+  config :serviceradar_core,
+         NotificationReceiptWorker,
+         DispatchSchedule.receipt_worker_config()
+
+  config :serviceradar_core,
+         NotificationRetentionWorker,
+         DispatchSchedule.delivery_retention_worker_config()
+
+  config :serviceradar_core,
+         NotificationSilenceExpiryWorker,
+         DispatchSchedule.silence_expiry_worker_config()
+
   config :serviceradar_core, Oban, if(oban_enabled, do: oban_config, else: false)
   config :serviceradar_core, RefreshTraceSummariesWorker, retention_days: trace_summary_retention_days
 
@@ -967,16 +1006,16 @@ if config_env() == :prod do
     config :serviceradar_core, key, value
   end
 
-  if local_mailer do
-    config :serviceradar_core, ServiceRadar.Mailer, adapter: Swoosh.Adapters.Local
+  config :serviceradar_core,
+         ServiceRadar.Mailer,
+         ServiceRadar.OutboundMail.RuntimeConfig.mailer_config(mailer_env)
 
+  if local_mailer do
     config :swoosh, local: true
   else
-    config :serviceradar_core, ServiceRadar.Mailer, adapter: Swoosh.Adapters.Test
-
-    config :swoosh, :api_client, false
-
-    # NATS connection configuration (core publisher)
+    # Left as prod.exs set it (`Swoosh.ApiClient.Req`) rather than forced to
+    # `false`: an API adapter with no HTTP client raises on every send, and
+    # this branch is now reached by a deployment that configured a real one.
     config :swoosh, local: false
   end
 

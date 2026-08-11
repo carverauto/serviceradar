@@ -26,11 +26,30 @@ defmodule ServiceRadar.Monitoring.AlertGenerator do
         last_seen_at: ~U[2025-01-01 12:00:00Z],
         details: %{"ip" => "192.168.1.100"}
       )
+
+  ## Notification
+
+  Every function here does exactly one thing: it writes an `Alert` row. It sends
+  nothing, and it enqueues nothing.
+
+  The alert row IS the notification request. An alert created here has
+  `notification_count == 0`, which is precisely what `Alert.:needs_notification`
+  selects, so the `:send_notifications` AshOban trigger picks it up on the next
+  tick and runs `Alert.:send_notification` - the action that emits the `:fire`
+  routing request into `ServiceRadar.Notifications`. That scan is the
+  first-notification safety net design D8 sanctions for the alert-creation paths
+  that do not go through `AlertLifecycle` (`LogPromotion` and `TrivyReports` are
+  the two in tree), and it is why this module must NOT enqueue a routing request
+  of its own: D8 reserves originating a new incident notification for
+  `AlertLifecycle`, and a second emission from here would race it.
+
+  This module used to call `ServiceRadar.Monitoring.WebhookNotifier` after each
+  create. Nothing supervised that GenServer, so every one of those calls took the
+  `{:error, :not_running}` branch and delivered nothing; the module is gone.
   """
 
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Monitoring.Alert
-  alias ServiceRadar.Monitoring.WebhookNotifier
   alias ServiceRadar.Observability.EventTitle
 
   require Logger
@@ -82,7 +101,7 @@ defmodule ServiceRadar.Monitoring.AlertGenerator do
       metadata: build_metadata(opts)
     }
 
-    create_alert_and_notify(attrs, opts)
+    create_alert(attrs, opts)
   end
 
   @doc """
@@ -91,11 +110,6 @@ defmodule ServiceRadar.Monitoring.AlertGenerator do
   @spec service_recovered(keyword()) :: {:ok, Alert.t()} | {:error, term()}
   def service_recovered(opts) do
     service_name = Keyword.get(opts, :service_name, "Unknown Service")
-
-    # Mark service as recovered in webhook notifier
-    if service_id = Keyword.get(opts, :service_check_id) do
-      WebhookNotifier.mark_service_recovered(service_id)
-    end
 
     attrs = %{
       title: "Service Recovered: #{service_name}",
@@ -109,7 +123,7 @@ defmodule ServiceRadar.Monitoring.AlertGenerator do
       metadata: build_metadata(opts)
     }
 
-    create_alert_and_notify(attrs, opts)
+    create_alert(attrs, opts)
   end
 
   @doc """
@@ -136,7 +150,7 @@ defmodule ServiceRadar.Monitoring.AlertGenerator do
       metadata: build_metadata(opts)
     }
 
-    create_alert_and_notify(attrs, opts)
+    create_alert(attrs, opts)
   end
 
   @doc """
@@ -162,7 +176,7 @@ defmodule ServiceRadar.Monitoring.AlertGenerator do
       metadata: build_metadata(opts)
     }
 
-    create_alert_and_notify(attrs, opts)
+    create_alert(attrs, opts)
   end
 
   @doc """
@@ -171,9 +185,6 @@ defmodule ServiceRadar.Monitoring.AlertGenerator do
   @spec gateway_recovered(keyword()) :: {:ok, Alert.t()} | {:error, term()}
   def gateway_recovered(opts) do
     gateway_id = Keyword.fetch!(opts, :gateway_id)
-
-    # Mark gateway as recovered in webhook notifier
-    WebhookNotifier.mark_gateway_recovered(gateway_id)
 
     attrs = %{
       title: "Node Online",
@@ -185,7 +196,7 @@ defmodule ServiceRadar.Monitoring.AlertGenerator do
       metadata: build_metadata(opts)
     }
 
-    create_alert_and_notify(attrs, opts)
+    create_alert(attrs, opts)
   end
 
   @doc """
@@ -205,7 +216,7 @@ defmodule ServiceRadar.Monitoring.AlertGenerator do
       metadata: build_metadata(opts)
     }
 
-    create_alert_and_notify(attrs, opts)
+    create_alert(attrs, opts)
   end
 
   @doc """
@@ -248,7 +259,7 @@ defmodule ServiceRadar.Monitoring.AlertGenerator do
       metadata: build_metadata(opts)
     }
 
-    create_alert_and_notify(attrs, opts)
+    create_alert(attrs, opts)
   end
 
   @doc """
@@ -257,7 +268,6 @@ defmodule ServiceRadar.Monitoring.AlertGenerator do
   Options:
     - `:alert` - map of overrides (title, description, severity, metadata)
     - `:actor` - Ash actor to use for policy checks (optional)
-    - `:notify?` - whether to send the immediate webhook notification (defaults to true)
   """
   @spec from_event(map(), keyword()) :: {:ok, Alert.t() | :skipped} | {:error, term()}
   def from_event(event, opts \\ []) when is_map(event) do
@@ -281,7 +291,7 @@ defmodule ServiceRadar.Monitoring.AlertGenerator do
         metadata: event_alert_metadata(event, alert_config)
       }
 
-      create_alert_and_notify(attrs, opts)
+      create_alert(attrs, opts)
     end
   end
 
@@ -289,9 +299,16 @@ defmodule ServiceRadar.Monitoring.AlertGenerator do
   Handle stats anomaly alert (non-canonical devices filtered).
 
   Port of Go's handleStatsAnomaly function.
+
+  The in-module cooldown above is retained deliberately: it is a guard on alert
+  CREATION, not on delivery. Without it a rising `skipped_non_canonical` count
+  would write a new alert row on every aggregation cycle. Notification cadence
+  for the rows it does write belongs to the notification platform
+  (route `throttle_seconds`, rule `cooldown_seconds`, `renotify_seconds`), not
+  here.
   """
   @spec stats_anomaly(map(), keyword()) :: :ok | {:error, term()}
-  def stats_anomaly(meta, _opts \\ []) do
+  def stats_anomaly(meta, opts \\ []) do
     skipped = meta[:skipped_non_canonical] || meta["skipped_non_canonical"] || 0
 
     # Check cooldown
@@ -302,7 +319,7 @@ defmodule ServiceRadar.Monitoring.AlertGenerator do
       :ok
     else
       set_last_stats_alert(skipped, now)
-      maybe_send_stats_alert(meta, skipped, last_count, now)
+      maybe_create_stats_alert(meta, skipped, last_count, opts)
     end
   end
 
@@ -311,33 +328,29 @@ defmodule ServiceRadar.Monitoring.AlertGenerator do
       DateTime.diff(now, last_time, :millisecond) < @stats_alert_cooldown
   end
 
-  defp maybe_send_stats_alert(meta, skipped, last_count, now) do
+  defp maybe_create_stats_alert(meta, skipped, last_count, opts) do
     delta = skipped - last_count
 
     if delta > 0 do
-      alert = build_stats_alert(meta, skipped, delta, now)
-
-      case WebhookNotifier.send_alert(alert) do
-        :ok -> :ok
-        {:error, :not_running} -> :ok
-        error -> error
+      case create_alert(stats_alert_attrs(meta, skipped, delta), opts) do
+        {:ok, _alert} -> :ok
+        {:error, reason} -> {:error, reason}
       end
     else
       :ok
     end
   end
 
-  defp build_stats_alert(meta, skipped, delta, now) do
-    message =
-      "Stats aggregator filtered #{delta} newly detected non-canonical devices (total filtered: #{skipped})."
-
-    %WebhookNotifier.Alert{
-      level: :warning,
+  defp stats_alert_attrs(meta, skipped, delta) do
+    %{
       title: "Non-canonical devices filtered from stats",
-      message: message,
-      timestamp: DateTime.to_iso8601(now),
-      gateway_id: "core",
-      details: build_stats_alert_details(meta, skipped, delta)
+      description:
+        "Stats aggregator filtered #{delta} newly detected non-canonical devices " <>
+          "(total filtered: #{skipped}).",
+      severity: :warning,
+      source_type: :system,
+      source_id: "stats-aggregator",
+      metadata: build_stats_alert_details(meta, skipped, delta)
     }
   end
 
@@ -358,109 +371,23 @@ defmodule ServiceRadar.Monitoring.AlertGenerator do
     |> Map.new()
   end
 
-  @doc """
-  Send startup notification.
-  """
-  @spec startup_notification(keyword()) :: :ok
-  def startup_notification(opts \\ []) do
-    hostname = Keyword.get(opts, :hostname, get_hostname())
-    version = Keyword.get(opts, :version, "unknown")
-
-    alert = %WebhookNotifier.Alert{
-      level: :info,
-      title: "Core Service Started",
-      message:
-        "ServiceRadar core service initialized at #{DateTime.to_iso8601(DateTime.utc_now())}",
-      timestamp: DateTime.to_iso8601(DateTime.utc_now()),
-      gateway_id: "core",
-      details: %{
-        "version" => version,
-        "hostname" => hostname
-      }
-    }
-
-    case WebhookNotifier.send_alert(alert) do
-      :ok -> :ok
-      {:error, _} -> :ok
-    end
-  end
-
-  @doc """
-  Send shutdown notification.
-  """
-  @spec shutdown_notification(keyword()) :: :ok
-  def shutdown_notification(opts \\ []) do
-    hostname = Keyword.get(opts, :hostname, get_hostname())
-
-    alert = %WebhookNotifier.Alert{
-      level: :warning,
-      title: "Core Service Stopping",
-      message:
-        "ServiceRadar core service shutting down at #{DateTime.to_iso8601(DateTime.utc_now())}",
-      timestamp: DateTime.to_iso8601(DateTime.utc_now()),
-      gateway_id: "core",
-      details: %{
-        "hostname" => hostname
-      }
-    }
-
-    case WebhookNotifier.send_alert(alert) do
-      :ok -> :ok
-      {:error, _} -> :ok
-    end
-  end
-
   # Private functions
 
-  defp create_alert_and_notify(attrs, opts) do
+  # Writing the row is the whole job: the row IS the notification request. See
+  # the "Notification" section of the moduledoc for why nothing is enqueued here.
+  defp create_alert(attrs, opts) do
     # DB connection's search_path determines the schema
     actor = Keyword.get(opts, :actor) || SystemActor.system(:alert_generator)
 
     # Create the alert in the database
-    case Alert
-         |> Ash.Changeset.for_create(:trigger, attrs, actor: actor)
-         |> Ash.create() do
-      {:ok, alert} ->
-        if Keyword.get(opts, :notify?, true) do
-          send_webhook_notification(alert, opts)
-        end
-
-        {:ok, alert}
-
-      {:error, error} ->
-        Logger.error("Failed to create alert: #{inspect(error)}")
-        {:error, error}
+    with {:error, error} <-
+           Alert
+           |> Ash.Changeset.for_create(:trigger, attrs, actor: actor)
+           |> Ash.create() do
+      Logger.error("Failed to create alert: #{inspect(error)}")
+      {:error, error}
     end
   end
-
-  defp send_webhook_notification(alert, opts) do
-    webhook_alert = %WebhookNotifier.Alert{
-      level: severity_to_level(alert.severity),
-      title: alert.title,
-      message: alert.description,
-      timestamp: DateTime.to_iso8601(alert.triggered_at),
-      gateway_id: Keyword.get(opts, :gateway_id, "core"),
-      service_name: nil,
-      details: alert.metadata || %{}
-    }
-
-    case WebhookNotifier.send_alert(webhook_alert) do
-      :ok ->
-        Logger.debug("Webhook notification sent for alert: #{alert.title}")
-
-      {:error, :not_running} ->
-        :ok
-
-      {:error, reason} ->
-        Logger.warning("Failed to send webhook notification: #{inspect(reason)}")
-    end
-  end
-
-  defp severity_to_level(:emergency), do: :error
-  defp severity_to_level(:critical), do: :error
-  defp severity_to_level(:warning), do: :warning
-  defp severity_to_level(:info), do: :info
-  defp severity_to_level(_), do: :warning
 
   defp build_metadata(opts) do
     details = Keyword.get(opts, :details, %{})
@@ -576,11 +503,4 @@ defmodule ServiceRadar.Monitoring.AlertGenerator do
   defp atom_key("severity"), do: :severity
   defp atom_key("metadata"), do: :metadata
   defp atom_key(_), do: nil
-
-  defp get_hostname do
-    case :inet.gethostname() do
-      {:ok, hostname} -> to_string(hostname)
-      _ -> "unknown"
-    end
-  end
 end

@@ -289,6 +289,7 @@ defmodule ServiceRadarWebNGWeb.Api.PluginPackageController do
       manifest: package.manifest,
       config_schema: package.config_schema,
       display_contract: package.display_contract,
+      display_contracts: package.display_contracts,
       signal_schemas: package.signal_schemas,
       wasm_object_key: package.wasm_object_key,
       content_hash: package.content_hash,
@@ -336,6 +337,10 @@ defmodule ServiceRadarWebNGWeb.Api.PluginPackageController do
       manifest: params["manifest"],
       config_schema: params["config_schema"],
       display_contract: params["display_contract"],
+      # Validated by `ServiceRadar.Plugins.Validations.DisplayContracts` on the
+      # resource, so an API-supplied contract is held to the same rules as one
+      # that arrived inside a signed bundle.
+      display_contracts: params["display_contracts"],
       content_hash: params["content_hash"],
       signature: params["signature"],
       source_type: normalize_source_type(params["source_type"]),

@@ -2,8 +2,7 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine.Severity do
   @moduledoc """
   Severity resolution for stateful alert events: deriving the OCSF severity id
   from rule overrides (or the source record when `severity_from: source`),
-  mapping severity names to ids, and the inverse log-level / webhook-level
-  projections.
+  mapping severity names to ids, and the inverse log-level projection.
   """
 
   import ServiceRadar.Observability.StatefulAlertEngine.Record
@@ -79,10 +78,4 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine.Severity do
       _ -> "unknown"
     end
   end
-
-  def severity_to_level(:emergency), do: :error
-  def severity_to_level(:critical), do: :error
-  def severity_to_level(:warning), do: :warning
-  def severity_to_level(:info), do: :info
-  def severity_to_level(_), do: :warning
 end

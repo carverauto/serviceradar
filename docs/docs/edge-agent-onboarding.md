@@ -131,3 +131,37 @@ Discovery runs inside `serviceradar-agent` and is configured from the UI.
 3. Verify interfaces and topology are flowing into inventory and the graph
 
 See: [Discovery Guide](./discovery.md)
+
+### Notification Delivery From This Site (Edge Route)
+
+An enrolled agent can also be the thing that **delivers** a notification, for a
+destination that is only reachable from inside this network - an internal
+ticketing system, an on-premises chat server, an SMS gateway on a private
+segment. That is the `edge_agent` execution route on a notification channel.
+
+1. Import and approve a Wasm plugin package whose manifest declares a
+   `notifications:` block and requests the `notify:v1` capability.
+2. Assign that package to this agent. The assignment's narrowed capability set
+   must still include `notify:v1`; the agent checks it, so denying it on either
+   the approval or the assignment stops delivery.
+3. Create a notification provider bound to the package and one declared notifier
+   key, then a channel on the `edge_agent` route naming this agent.
+
+Three things to know before you route a page through an edge agent:
+
+- **The edge route is for unreachable destinations only.** Everything reachable
+  from the platform should stay on the control plane, which is the default.
+- **The command path is at-most-once with no store-and-forward.** If the agent
+  has no live control session when a notification is dispatched, the command is
+  refused and nothing re-drains it on reconnect. An escalation policy whose only
+  reachable channel is an edge agent therefore **cannot deliver the page that
+  says this site went dark** - the platform detects the outage, and the agent it
+  would have paged through went dark with it. Always give an edge-routed channel
+  a control-plane fallback.
+- **Slack and Discord incoming webhooks cannot run on the edge route**, because
+  their webhook URL carries the secret in the path and no credential-injection
+  mode rewrites a path. Use the bot-token mode for those destinations; it works
+  on either route.
+
+See: [Notification Plugins (Wasm)](./notification-plugin-authoring.md) and
+[Notifications](./notifications.md#execution-route-control-plane-vs-edge-agent)

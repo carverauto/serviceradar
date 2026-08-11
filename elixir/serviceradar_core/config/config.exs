@@ -24,6 +24,11 @@ config :ash_oban,
   oban_name: Oban,
   oban_module: ServiceRadar.Oban.Router
 
+# Export is opt-in at the host boundary. Core can be started standalone by
+# tests and tooling that do not evaluate a host application's runtime.exs; in
+# those contexts the SDK's default localhost HTTP exporter is unintended.
+config :opentelemetry, traces_exporter: :none
+
 # Default Oban configuration (can be overridden by host app)
 config :serviceradar_core, Oban,
   engine: Oban.Engines.Basic,
@@ -134,6 +139,10 @@ config :serviceradar_core, ServiceRadar.Security.RateLimiter,
     oauth_client_credentials: [limit: 20, window_seconds: 60],
     remote_access_ssh_certificate_issue: [limit: 10, window_seconds: 60],
     automation_callback_grant: [limit: 30, window_seconds: 60],
+    # Notification action links. Unauthenticated by design, so this limit is the
+    # only cost of guessing at one. Generous enough that a shared office egress
+    # IP acknowledging a page storm is never throttled.
+    notification_action: [limit: 60, window_seconds: 60],
     api_default: [limit: 120, window_seconds: 60]
   }
 
@@ -183,6 +192,7 @@ config :serviceradar_core,
     ServiceRadar.Inventory,
     ServiceRadar.Infrastructure,
     ServiceRadar.Monitoring,
+    ServiceRadar.Notifications,
     ServiceRadar.Observability,
     ServiceRadar.ColdTier,
     ServiceRadar.PrefixTags,
@@ -237,7 +247,13 @@ config :serviceradar_core,
 
 config :serviceradar_core,
   remote_access_desktop_rdp_enabled: false,
-  northbound_callback_base_url: nil
+  northbound_callback_base_url: nil,
+  # Base URL the signed notification action links point at (design D7 Phase 1).
+  # Unset means no action links are rendered at all: a bare
+  # "/api/notifications/actions/..." path is a dead link in a mail client, and a
+  # notification with no links is better than one that looks broken.
+  # `SERVICERADAR_NOTIFICATION_ACTION_BASE_URL` is read as a fallback.
+  notification_action_base_url: nil
 
 config :serviceradar_core,
   remote_access_ssh_certificate_policy: %{}

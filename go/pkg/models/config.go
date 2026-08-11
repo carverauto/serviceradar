@@ -84,32 +84,7 @@ type GatewayConfig struct {
 	Agents       map[string]AgentDefinition `json:"agents"`        // Map of agent ID to agent definition
 	CloudAddress string                     `json:"cloud_address"` // Address of cloud service
 	PollInterval Duration                   `json:"poll_interval"` // How often to poll agents
-	GatewayID     string                     `json:"gateway_id"`     // Unique identifier for this gateway
-}
-
-// WebhookConfig represents a webhook notification configuration.
-type WebhookConfig struct {
-	Enabled  bool     `json:"enabled"`
-	URL      string   `json:"url"`
-	Cooldown Duration `json:"cooldown"`
-	Template string   `json:"template"`
-	Headers  []Header `json:"headers,omitempty"` // Optional custom headers
-}
-
-// Header represents a custom HTTP header.
-type Header struct {
-	Key   string `json:"key"`
-	Value string `json:"value"`
-}
-
-// CloudConfig represents the configuration for the cloud service.
-type CloudConfig struct {
-	ListenAddr     string          `json:"listen_addr"`
-	GrpcAddr       string          `json:"grpc_addr,omitempty"`
-	DBPath         string          `json:"db_path"`
-	AlertThreshold Duration        `json:"alert_threshold"`
-	KnownGateways   []string        `json:"known_gateways"`
-	Webhooks       []WebhookConfig `json:"webhooks,omitempty"`
+	GatewayID    string                     `json:"gateway_id"`    // Unique identifier for this gateway
 }
 
 var (
@@ -193,25 +168,25 @@ type IdentityReconciliationConfig struct {
 // CoreServiceConfig represents the configuration for the core service.
 // This was previously named DBConfig but contains much more than database configuration.
 type CoreServiceConfig struct {
-	ListenAddr      string        `json:"listen_addr"`
-	GrpcAddr        string        `json:"grpc_addr"`
-	DBPath          string        `json:"db_path"` // Keep for compatibility, can be optional
-	AlertThreshold  time.Duration `json:"alert_threshold"`
-	GatewayPatterns []string      `json:"gateway_patterns"`
-	KnownGateways   []string      `json:"known_gateways,omitempty"`
-	Metrics        Metrics                `json:"metrics"`
-	SNMP           SNMPConfig             `json:"snmp"`
-	Security       *SecurityConfig        `json:"security"`
-	KVSecurity     *SecurityConfig        `json:"kv_security,omitempty"`
-	Auth           *AuthConfig            `json:"auth,omitempty"`
-	CORS           CORSConfig             `json:"cors,omitempty"`
-	CNPG           *CNPGDatabase          `json:"cnpg"`
-	WriteBuffer    WriteBufferConfig      `json:"write_buffer,omitempty"`
-	NATS           *NATSConfig            `json:"nats,omitempty"`
-	Events         *EventsConfig          `json:"events,omitempty"`
-	Logging        *logger.Config         `json:"logging,omitempty"`
-	MCP            *MCPConfigRef          `json:"mcp,omitempty"`
-	SRQL           *SRQLConfig            `json:"srql,omitempty"`
+	ListenAddr      string            `json:"listen_addr"`
+	GrpcAddr        string            `json:"grpc_addr"`
+	DBPath          string            `json:"db_path"` // Keep for compatibility, can be optional
+	AlertThreshold  time.Duration     `json:"alert_threshold"`
+	GatewayPatterns []string          `json:"gateway_patterns"`
+	KnownGateways   []string          `json:"known_gateways,omitempty"`
+	Metrics         Metrics           `json:"metrics"`
+	SNMP            SNMPConfig        `json:"snmp"`
+	Security        *SecurityConfig   `json:"security"`
+	KVSecurity      *SecurityConfig   `json:"kv_security,omitempty"`
+	Auth            *AuthConfig       `json:"auth,omitempty"`
+	CORS            CORSConfig        `json:"cors,omitempty"`
+	CNPG            *CNPGDatabase     `json:"cnpg"`
+	WriteBuffer     WriteBufferConfig `json:"write_buffer,omitempty"`
+	NATS            *NATSConfig       `json:"nats,omitempty"`
+	Events          *EventsConfig     `json:"events,omitempty"`
+	Logging         *logger.Config    `json:"logging,omitempty"`
+	MCP             *MCPConfigRef     `json:"mcp,omitempty"`
+	SRQL            *SRQLConfig       `json:"srql,omitempty"`
 	// KV endpoints for admin config operations (hub/leaf mappings)
 	KVEndpoints    []KVEndpoint                  `json:"kv_endpoints,omitempty"`
 	SpireAdmin     *SpireAdminConfig             `json:"spire_admin,omitempty"`
@@ -250,7 +225,7 @@ type EdgeOnboardingConfig struct {
 	DownstreamPathTemplate string                       `json:"downstream_path_template,omitempty"`
 	JoinTokenTTL           Duration                     `json:"join_token_ttl,omitempty"`
 	DownloadTokenTTL       Duration                     `json:"download_token_ttl,omitempty"`
-	GatewayIDPrefix         string                       `json:"gateway_id_prefix,omitempty"`
+	GatewayIDPrefix        string                       `json:"gateway_id_prefix,omitempty"`
 	MTLSCertBaseDir        string                       `json:"mtls_cert_base_dir,omitempty"`
 }
 

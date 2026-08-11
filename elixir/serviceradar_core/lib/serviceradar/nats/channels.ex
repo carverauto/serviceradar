@@ -13,7 +13,28 @@ defmodule ServiceRadar.NATS.Channels do
   - `agents.status` - Agent status updates
   - `metrics.ingest` - Metrics ingestion
   - `events.device` - Device events
-  - `events.alert` - Alert events
+
+  ## There is deliberately no alert subject here
+
+  `alert_events: "events.alert"` used to be declared in `standard_channels/0`
+  with zero producers and zero consumers, and it is deliberately gone rather
+  than wired up.
+
+  Notification delivery is decided in
+  `ServiceRadar.Notifications` - routed, deduplicated, suppressed, redacted, and
+  recorded as a `NotificationDelivery` row - and the way an alert reaches a
+  message bus is the built-in `:stream` provider, which traverses that same
+  path (design D10, `openspec/changes/add-notification-platform/design.md`).
+  Publishing alerts onto a bare subject from anywhere else would be a second,
+  unaudited egress: no suppression, no delivery record, and nothing able to
+  answer "why was I not paged?".
+
+  The `:stream` provider's durable half gets its own JetStream subject
+  namespace, its own stream with a durable cursor, and matching per-CN publish
+  and subscribe entries in `helm/serviceradar/templates/nats.yaml` (new subject
+  namespaces are DENIED at the broker by default). Reviving `events.alert` in
+  anticipation of that would only have to be rewritten against those
+  allowlists.
   """
 
   @type channel :: String.t()
@@ -49,9 +70,8 @@ defmodule ServiceRadar.NATS.Channels do
       metrics_ingest: "metrics.ingest",
       metrics_batch: "metrics.batch",
 
-      # Event channels
+      # Event channels. Alerts are deliberately absent; see the moduledoc.
       device_events: "events.device",
-      alert_events: "events.alert",
       config_events: "events.config"
     }
   end

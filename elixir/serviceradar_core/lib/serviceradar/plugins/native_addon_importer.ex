@@ -56,6 +56,7 @@ defmodule ServiceRadar.Plugins.NativeAddonImporter do
     :install_path,
     :capabilities,
     :config_schema,
+    :display_contracts,
     :signal_schemas,
     :producer_schedules,
     :artifacts,
@@ -96,6 +97,10 @@ defmodule ServiceRadar.Plugins.NativeAddonImporter do
     * `:actor` — the Ash actor creating the package (a `ServiceRadar.Actors.SystemActor`
       for background callers; never `authorize?: false`). Required.
     * `:config_schema` — the add-on config JSON Schema map (from the bundle). Default `%{}`.
+    * `:display_contracts` — the add-on's validated display contracts, keyed by
+      `"<contract_id>@<contract_version>"` (from the bundle). Default `%{}`.
+    * `:display_contract_errors` — reasons any bundled contract was refused, recorded
+      in `source_metadata`. Default `[]`.
     * `:release_tag` — the source release tag. Default `nil`.
     * `:now` — import timestamp. Default `DateTime.utc_now/0`.
   """
@@ -494,6 +499,7 @@ defmodule ServiceRadar.Plugins.NativeAddonImporter do
          install_path: string_value(exec, "install_path") || "/usr/local/lib/serviceradar/bin",
          capabilities: List.wrap(Map.get(manifest, "capabilities", [])),
          config_schema: Keyword.get(opts, :config_schema, %{}),
+         display_contracts: Keyword.get(opts, :display_contracts) || %{},
          signal_schemas: List.wrap(Map.get(manifest, "signal_schemas", [])),
          producer_schedules: List.wrap(Map.get(manifest, "producer_schedules", [])),
          artifacts: artifacts,
@@ -502,7 +508,8 @@ defmodule ServiceRadar.Plugins.NativeAddonImporter do
          source_type: :first_party,
          source_oci_ref: string_value(entry, "oci_ref"),
          source_oci_digest: string_value(entry, "oci_digest"),
-         source_metadata: source_metadata(entry),
+         source_metadata:
+           source_metadata(entry, Keyword.get(opts, :display_contract_errors) || []),
          source_release_tag: Keyword.get(opts, :release_tag),
          imported_at: DateTime.truncate(now, :second),
          verification_status: "verified",
@@ -533,10 +540,20 @@ defmodule ServiceRadar.Plugins.NativeAddonImporter do
     end
   end
 
-  defp source_metadata(entry) do
-    case string_value(entry, "bundle_digest") do
-      nil -> %{}
-      bundle_digest -> %{"bundle_digest" => bundle_digest}
+  # Display contracts a bundle shipped and the current release refused. Recorded
+  # on the package rather than dropped on the floor: the contract is not stored
+  # (only known-good data reaches the renderer), so this is the only place an
+  # operator can learn that a package tried to ship one and why it was refused.
+  defp source_metadata(entry, display_contract_errors) do
+    metadata =
+      case string_value(entry, "bundle_digest") do
+        nil -> %{}
+        bundle_digest -> %{"bundle_digest" => bundle_digest}
+      end
+
+    case display_contract_errors do
+      [] -> metadata
+      errors -> Map.put(metadata, "display_contract_errors", errors)
     end
   end
 

@@ -46,6 +46,8 @@ defmodule ServiceRadar.Edge.AgentCommandBus do
     "awx.cancel_job",
     "awx.delete_callback_credential"
   ]
+  @notification_command_type "plugin.run_action"
+  @notification_envelope_schema "serviceradar.notification_delivery.v1"
   @callback_command_context_schema "serviceradar.automation_callback_command/v1"
   @secure_execution_command_context_schema "serviceradar.automation_execution_command/v1"
   @secure_execution_command_types [
@@ -168,6 +170,14 @@ defmodule ServiceRadar.Edge.AgentCommandBus do
 
   defp normalize_preallocated_command_id(command_type, command_id)
        when command_type in @preallocated_callback_command_types and is_binary(command_id) do
+    case Ecto.UUID.cast(command_id) do
+      {:ok, normalized} -> {:ok, normalized}
+      :error -> {:error, :invalid_preallocated_command_id}
+    end
+  end
+
+  defp normalize_preallocated_command_id(@notification_command_type, command_id)
+       when is_binary(command_id) do
     case Ecto.UUID.cast(command_id) do
       {:ok, normalized} -> {:ok, normalized}
       :error -> {:error, :invalid_preallocated_command_id}
@@ -2157,6 +2167,10 @@ defmodule ServiceRadar.Edge.AgentCommandBus do
        when command_type in @preallocated_callback_command_types and is_binary(value),
        do: canonical_command_id(value)
 
+  defp canonical_optional_command_id(@notification_command_type, value, _payload)
+       when is_binary(value),
+       do: canonical_command_id(value)
+
   defp canonical_optional_command_id(_command_type, _value, _payload),
     do: {:error, :preallocated_command_id_not_allowed}
 
@@ -2203,6 +2217,31 @@ defmodule ServiceRadar.Edge.AgentCommandBus do
 
       command_type == "awx.create_callback_credential" ->
         {:error, :preallocated_callback_attempt_context_required}
+
+      true ->
+        :ok
+    end
+  end
+
+  defp validate_preallocated_transmit_payload(@notification_command_type, payload, opts) do
+    context = opts |> Keyword.get(:context, %{}) |> normalize_context()
+    command_id = Keyword.get(opts, :command_id)
+
+    cond do
+      Keyword.get(opts, :notification_delivery_attempt) == true ->
+        with true <- is_binary(command_id),
+             true <- normalize_source(Keyword.get(opts, :source, :on_demand)) == :automation,
+             true <- payload["schema"] == @notification_envelope_schema,
+             delivery_id when is_binary(delivery_id) and delivery_id != "" <-
+               payload["delivery_id"],
+             true <- context["notification_delivery_id"] == delivery_id do
+          :ok
+        else
+          _ -> {:error, :preallocated_notification_attempt_context_required}
+        end
+
+      not is_nil(command_id) ->
+        {:error, :preallocated_notification_attempt_context_required}
 
       true ->
         :ok
