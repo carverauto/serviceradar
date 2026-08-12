@@ -43,3 +43,15 @@ py_test(
         "templates/flow-collector-strategy-migration-job.yaml",
     ],
 )
+
+py_test(
+    name = "web_ng_public_url_test",
+    srcs = ["web_ng_public_url_test.py"],
+    data = [
+        "templates/_helpers.tpl",
+        "templates/agent-gateway.yaml",
+        "templates/core.yaml",
+        "templates/web.yaml",
+        "values.yaml",
+    ],
+)

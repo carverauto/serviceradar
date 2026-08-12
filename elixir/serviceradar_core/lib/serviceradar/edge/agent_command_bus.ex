@@ -1601,16 +1601,46 @@ defmodule ServiceRadar.Edge.AgentCommandBus do
 
   defp valid_control_session_entry?(_entry, _partition_id, _agent_id), do: false
 
-  defp list_online_sessions do
-    if ProcessRegistry.registry_present?() do
-      :agent_control
-      |> ProcessRegistry.select_by_type()
-      |> Enum.map(&build_online_session/1)
-      |> Enum.filter(&valid_online_session?/1)
-    else
-      []
-    end
+  defp list_online_sessions, do: list_online_sessions([])
+
+  defp list_online_sessions(opts) do
+    :agent_control
+    |> control_session_registry_entries(opts)
+    |> Enum.uniq_by(&control_session_registry_entry_identity/1)
+    |> Enum.map(&build_online_session/1)
+    |> Enum.filter(&valid_online_session?/1)
   end
+
+  # web-ng deliberately does not join the Horde registry. Keep unassigned
+  # command selection on the same remote-read path as exact, assigned-agent
+  # lookup so a live mapper session on a gateway remains discoverable there.
+  defp control_session_registry_entries(type, opts) do
+    registry_present? =
+      Keyword.get_lazy(opts, :registry_present?, &ProcessRegistry.registry_present?/0)
+
+    if registry_present? do
+      local_reader =
+        Keyword.get(opts, :local_registry_reader, &ProcessRegistry.select_by_type/1)
+
+      local_reader.(type)
+    else
+      remote_reader = Keyword.get(opts, :registry_rpc, &registry_rpc/2)
+      remote_reader.(:select_by_type, [type])
+    end
+  rescue
+    error ->
+      Logger.warning(
+        "[AgentCommandBus] control-session registry enumeration failed: #{inspect(error)}"
+      )
+
+      []
+  end
+
+  # Every registry host may return the same CRDT entry over RPC. Preserve
+  # distinct replacement pids for a key, but collapse repeated snapshots of
+  # the same session even when metadata convergence is briefly out of sync.
+  defp control_session_registry_entry_identity({key, pid, _metadata}), do: {key, pid}
+  defp control_session_registry_entry_identity(entry), do: entry
 
   defp build_online_session(
          {{:agent_control, partition_id, agent_id, _gateway_node} = key, pid, metadata}
@@ -1670,8 +1700,12 @@ defmodule ServiceRadar.Edge.AgentCommandBus do
 
   defp valid_online_session?(_session), do: false
 
-  defp pick_online_agent(partition, capability) do
-    list_online_sessions()
+  defp pick_online_agent(partition, capability), do: pick_online_agent(partition, capability, [])
+
+  @doc false
+  def pick_online_agent(partition, capability, opts) when is_list(opts) do
+    opts
+    |> list_online_sessions()
     |> Enum.filter(fn session ->
       session.canonical_principal? and session.partition_id == partition and
         (capability == nil or capability in session.capabilities)

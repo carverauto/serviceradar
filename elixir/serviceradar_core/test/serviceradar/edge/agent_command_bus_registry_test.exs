@@ -80,6 +80,52 @@ defmodule ServiceRadar.Edge.AgentCommandBusRegistryTest do
              AgentCommandBus.resolve_control_session_evidence(agent_id)
   end
 
+  test "online enumeration preserves canonical mapper session evidence" do
+    agent_id = "mapper-agent-#{System.unique_integer([:positive])}"
+    gateway_node = :gateway@mapper
+    pid = start_session(agent_id, "default", gateway_node, :mapper, ["mapper", "icmp"])
+
+    assert eventually(fn ->
+             Enum.any?(AgentCommandBus.list_online_agents(), fn session ->
+               session.agent_id == agent_id and session.partition_id == "default" and
+                 session.pid == pid and session.capabilities == ["mapper", "icmp"] and
+                 session.canonical_principal?
+             end)
+           end)
+  end
+
+  test "unassigned selection uses remote registry entries when no local registry is present" do
+    agent_id = "remote-mapper-#{System.unique_integer([:positive])}"
+    gateway_node = :serviceradar_agent_gateway@remote
+
+    metadata = %{
+      agent_id: agent_id,
+      partition_id: "default",
+      gateway_node: gateway_node,
+      capabilities: ["mapper"]
+    }
+
+    entry =
+      {{:agent_control, "default", agent_id, gateway_node}, self(), metadata}
+
+    test_pid = self()
+
+    remote_reader = fn function, args ->
+      send(test_pid, {:registry_rpc, function, args})
+      [entry, entry]
+    end
+
+    assert {:ok, ^agent_id, pid, ^metadata} =
+             AgentCommandBus.pick_online_agent("default", "mapper",
+               registry_present?: false,
+               local_registry_reader: fn _type -> flunk("local registry should not be read") end,
+               registry_rpc: remote_reader
+             )
+
+    assert pid == self()
+    assert_received {:registry_rpc, :select_by_type, [:agent_control]}
+  end
+
   test "registry node discovery includes every core and gateway but excludes web nodes" do
     nodes = [
       :serviceradar_web_ng@web,
@@ -96,24 +142,24 @@ defmodule ServiceRadar.Edge.AgentCommandBusRegistryTest do
            ]
   end
 
-  defp start_session(agent_id, partition_id, gateway_node, marker) do
+  defp start_session(agent_id, partition_id, gateway_node, marker, capabilities \\ ["test"]) do
     start_supervised!(
       {Session,
        name:
          ProcessRegistry.via(
            {:agent_control, partition_id, agent_id, gateway_node},
-           control_metadata(agent_id, partition_id, gateway_node)
+           control_metadata(agent_id, partition_id, gateway_node, capabilities)
          )},
       id: {:control_session, marker, agent_id}
     )
   end
 
-  defp control_metadata(agent_id, partition_id, gateway_node) do
+  defp control_metadata(agent_id, partition_id, gateway_node, capabilities \\ ["test"]) do
     %{
       agent_id: agent_id,
       partition_id: partition_id,
       gateway_node: gateway_node,
-      capabilities: ["test"]
+      capabilities: capabilities
     }
   end
 

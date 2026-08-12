@@ -552,7 +552,7 @@ type EnrollHandler struct{}
 func (EnrollHandler) Parse(args []string, cfg *CmdConfig) error {
 	fs := flag.NewFlagSet("enroll", flag.ExitOnError)
 	token := fs.String("token", "", "Enrollment token (edgepkg-v3 or collectorpkg-v2)")
-	coreURL := fs.String("core-url", "", "Core API base URL (required only when the signed token does not embed one)")
+	coreURL := fs.String("core-url", "", "HTTPS Core API base URL override (otherwise uses the signed token URL)")
 	hostIP := fs.String("host-ip", "", "Override detected host IP (agent enrollment only)")
 	configPath := fs.String("config", "/etc/serviceradar/agent.json", "Agent config path")
 	configDir := fs.String("config-dir", "/etc/serviceradar", "Collector config directory")
