@@ -731,7 +731,8 @@ here.
     as dependencies of 1.5-h. THE LIST IS EXHAUSTIVE and is FIVE rows, not three: the
     lifecycle `abort_reason` bound is delegated to 1.6-c on the same rule, whose evidence
     obligation is widened for it there, and the signed tombstone's `manifest_page_count`
-    bound -- the TARGET rule 1..`MaxManifestPages`, not today's `> 0` arm -- is delegated to
+    bound -- the TARGET rule 1..`MaxManifestPages`, not the FORMER pre-follow-up `> 0` arm --
+    is delegated to
     1.6-d, which creates the only Elixir boundary that could run it. WITH PROJECTED COST as a sixth, Go-only RELATIONAL group, the final inventory is SIX
     PROOF GROUPS, not five -- the delegated-row count and the proof-group count are different
     numbers and SHALL NOT be reconciled by dropping one.
@@ -1266,55 +1267,38 @@ here.
         implementation return the same verdict on the same inputs: the gate behind the one
         under test refuses for the same reason. Every bounded-count site therefore carries a
         verdict pair AND, where a stage claim is made, a separate witness for it.
-        OUTSTANDING -- THE LOWER ARM OF THE COUNT SITES, DEFERRED TO A DEDICATED FOLLOW-UP.
-        The count corpus proves each site's UPPER arm (N accepted, N+1 refused). SEVEN
-        COLLECTION SITES REACHABLE THROUGH PUBLIC VALIDATORS also EFFECTIVELY REJECT EMPTY
-        input, and NO SHARED-CORPUS ROW exercises that today. THE PROOF TOPOLOGY IS NOT YET ESTABLISHED and SHALL NOT be
-        assumed: several of the local `== 0` predicates are SHADOWED by downstream checks, so
-        they are not each independently mutation-killable and a mechanical extension of the
-        eight-site upper table would assert proofs that do not exist. The follow-up builds the
-        lower-bound inventory on its own terms -- 0 refused AND 1 accepted per lower rule,
-        existing controls cited where they already suffice, shadowed predicates labelled as
-        shadowed -- rather than one empty row per gate.
-        THE NORMATIVE PARTITION IS RECORDED HERE AND IS FOUR-WAY, because "per normative lower
-        rule" alone would MISS one: not every boundary that refuses empty has a stated minimum.
-          * PLAN page list and ranges-per-page -- minima ALREADY NORMATIVE and 1.5-h's.
-          * RECOVERY MANIFEST PAGE LIST -- NO MINIMUM IS STATED ANYWHERE. Both runtimes refuse
-            an empty manifest, but the spec states a minimum for PLAN page lists only, so this
-            is a NEW NORMATIVE MINIMUM OF 1 AND IT IS 1.5-H'S TO AUTHOR. Recorded now,
-            authored in the follow-up; it SHALL NOT be delegated, because no other subtask
-            owns the recovery PAGE-LIST MINIMUM.
-          * RECOVERY SPANS-PER-PAGE -- minimum ALREADY NORMATIVE under 1.6a; the follow-up
-            cites it rather than re-authoring it.
-          * The SIGNED SINGLE-PAGE peer -- delegated to 1.6-d, which has no boundary to run it
-            against until that subtask lands.
-        A FIFTH SITE SITS OUTSIDE THAT PARTITION, and its CURRENT GO GATE IS LOWER-ONLY: the
-        signed tombstone's `manifest_page_count` check in `recoveryControlBody`, which today
-        tests `== 0` and applies no ceiling. It is NOT one of the seven
-        collection sites -- it bounds a DECLARED SCALAR COUNT, not a supplied list -- and it is
-        load-bearing rather than shadowed: nothing downstream refuses a zero declaration on that
-        path. NO DEDICATED COUNT-SPECIFIC PAIR EXISTS ON EITHER SIDE: Go's signed reason rows
-        do exercise a count of 1 INCIDENTALLY, because every wrapper they build declares one
-        page, but nothing varies the count or asserts a verdict on it, so a gate deleted or
-        re-aimed would not be caught.
-        THE FOLLOW-UP OWNS ALL FOUR GO CONTROLS, not the lower pair alone: count 0 REFUSED,
-        count 1 ACCEPTED, `MaxManifestPages` ACCEPTED, one over REFUSED. It authors the ceiling
-        on that path as part of the same work, so the upper pair is not a later increment --
-        owing only 0/1 would leave the follow-up's own evidence narrower than the rule it
-        freezes. 1.6-d MIRRORS ALL FOUR for the signed Elixir peer, and what is delegated is
-        the TARGET bound 1..`MaxManifestPages`: handing over only what is implemented today
-        would freeze the peer narrower than the rule it is meant to mirror.
-        IT IS NOT UPPER-BOUNDED TODAY, and an earlier note here said otherwise. That claim
-        confused two functions: `ValidateTombstone` bounds a SUPPLIED PAGE LIST and reconciles
-        the declaration against it, but `recoveryControlBody` -- the only path a SIGNED
-        tombstone reaches -- receives no list and checks `manifest_page_count == 0` alone, so a
-        declaration of 2^32-1 is admitted there.
-        DECIDED: FREEZE 1..`MaxManifestPages` ON THE SIGNED PATH, with FOUR controls -- 0
-        refused, 1 accepted, `MaxManifestPages` accepted, one over refused. The alternative,
-        defining it lower-only and deferring upper enforcement to chain assembly, was REJECTED:
-        the scope digest is taken over the tombstone as signed, so a declaration nothing on
-        that path bounds is committed and carried before any assembly step could reject it.
-        This is a RUNTIME CHANGE and belongs to the follow-up, not to the scalar slice.
+        THE LOWER ARM OF THE COUNT SITES -- DELIVERED, with its topology stated rather than
+        assumed. The count corpus proves each site's UPPER arm; the LOWER-BOUND CORPUS is a
+        SEPARATE inventory, because one empty row per site would assert EIGHT independent proofs
+        where Go provides SIX and this runtime FOUR of its six peers. Each row carries 0 REFUSED and 1 ACCEPTED at the
+        boundary -- a zero refusal alone does not pin a minimum of 1, since an implementation
+        demanding two elements refuses zero unchanged -- plus a MEASURED per-runtime class for
+        what removing the LOCAL arm does: `admits`, `crashes`, `retags`, `silent`, `combined`.
+        Only the first three are killable by a row, and the manifest says which is which.
+        MEASURED, and stated as MATCHES and EXCEPTIONS rather than a general agreement with
+        caveats, because the caveats are what a reader needs first.
+        MATCHING, both runtimes:
+          * plan ranges `admits` -- the load-bearing plan arm; removing it admits a rangeless
+            page outright.
+          * decoded recovery pages `crashes` -- removing it indexes page zero of an empty
+            slice, so it is what keeps a public validator from panicking.
+          * decoded plan pages and CHAIN spans `retags` -- the boundary still refuses under a
+            different reason, so their rows assert the EXACT refusal reason.
+          * raw recovery `silent` -- no verdict-based row can kill the removal.
+        DIFFERING, one runtime each:
+          * raw plan -- Go `silent`; here `combined`, one conjunction over the declared count,
+            the ceiling and the supplied length, with no separable zero arm to remove.
+          * SINGLE-PAGE spans -- Go `retags`; NO PEER here, recorded `n/a` with owner 1.6-d.
+        SPAN FALLBACKS ARE RECORDED, NOT CENTRALIZED. Restructuring a validator so a shadowed
+        arm becomes independently killable changes production code to suit a test.
+        TWO NORMATIVE RULES WERE AUTHORED HERE, and only two. The RECOVERY MANIFEST PAGE LIST
+        gained a minimum: the shared ceiling was stated for a recovery manifest but its minimum
+        column spoke for the PLAN page list alone. The SIGNED TOMBSTONE'S DECLARED COUNT gained
+        `1..MaxManifestPages` as a distinct SCALAR rule, with the runtime change in
+        `recoveryControlBody` and four Go controls. NOTHING ELSE WAS RESTATED: plan page and
+        range minima are already in the residual-bounds table, every manifest page already
+        SHALL carry at least one span, and `MaxSweepHostsPerBatch` deliberately carries NO
+        minimum and is untouched.
         Closure SHALL NOT claim an upper-arm-only proof is complete, having just required a
         length-1 acceptance of the scalar sites for the symmetric reason.
         `design.md` holds the site-by-site findings and the mutation results.
@@ -1615,22 +1599,27 @@ here.
             before any production claim is asserted, so a stale signature cannot masquerade as
             ceiling evidence.
           * `MaxSpansPerPage` in `validateSingleManifestPage`, a DIFFERENT site from the chain
-            validator this runtime already peers. The INHERITED pair is `MaxSpansPerPage`
-            ACCEPTED and one over REFUSED, reusing the shared span vector rather than minting a
-            fixture. Go's gate is `len(spans) == 0 || len(spans) > MaxSpansPerPage`, so a LOWER
-            arm exists too, but 1.5-h proves the upper arm only and the lower arm's proof
-            topology is deferred -- see the deferred-lower-arm note under 1.5-h. This entry
-            inherits whatever that follow-up establishes; it SHALL NOT assume an empty control
-            here is independently mutation-killable before that work classifies it.
-          * the signed tombstone's `manifest_page_count` bound -- the TARGET bound, which
-            1.5-h's follow-up applies in Go's `recoveryControlBody` on this same signed path.
+            validator this runtime already peers -- FOUR controls, all inherited: 0 spans
+            REFUSED, 1 span ACCEPTED, `MaxSpansPerPage` ACCEPTED, one over REFUSED. Go's gate
+            is `len(spans) == 0 || len(spans) > MaxSpansPerPage` and 1.5-h now proves BOTH
+            arms, so nothing here is deferred. The upper pair reuses the shared span vector;
+            the lower pair is its own. ALL FOUR run through the SIGNED boundary -- the page is
+            reachable only via `ValidateRecoveryControl` -- with `ValidateRecordSigned`
+            asserted before the production claim, which is half of what this site is.
+            The local arm is classed `retags`: with it removed the boundary still refuses under
+            the span-body reason, so this peer's rows SHALL assert the EXACT refusal reason
+            rather than merely that a refusal occurred.
+          * the signed tombstone's `manifest_page_count` bound -- the TARGET bound, which 1.5-h
+            NOW APPLIES in Go's `recoveryControlBody` on this same signed path.
             FOUR controls, and this peer owes all four: count 0 REFUSED, count 1 ACCEPTED,
             `MaxManifestPages` ACCEPTED, one over REFUSED. This is a DECLARED SCALAR, not a
             supplied list, so it is a different site from the page-list bound
             `ValidateTombstone` applies and shares no fixture with it.
             What is delegated is the TARGET rule 1..`MaxManifestPages`, NOT the `== 0` arm Go
-            carried before the follow-up: delegating that arm would freeze this peer
-            permanently narrower than the rule it mirrors.
+            carried BEFORE that change: delegating that arm would have frozen this peer
+            permanently narrower than the rule it mirrors. Go's four controls are the shape to
+            mirror, including the ordering they depend on -- each rescopes and re-signs a fresh
+            record and passes `ValidateRecordSigned` before the production claim.
         All three flip to both-runtime here.
         NO NEW VECTORS FOR THE SCOPE ROWS: when it lands, the three scope transcripts flip from
         `go_only` to `both` and REUSE the committed records and the committed issuer key. The

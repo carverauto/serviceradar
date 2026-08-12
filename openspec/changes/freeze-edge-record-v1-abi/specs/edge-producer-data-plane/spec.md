@@ -3148,6 +3148,58 @@ refusal and never a crash.
 - **WHEN** a supplied collection exceeds its ceiling
 - **THEN** the refusal is produced without examining elements beyond `ceiling + 1`
 
+### Requirement: A recovery manifest's page list SHALL be bounded BELOW as well as above
+A recovery manifest's supplied page list SHALL admit exactly `1..MaxManifestPages` pages: an
+EMPTY list SHALL be refused, and a list of exactly ONE page SHALL be admitted. This holds at the
+RAW and at the DECODED representation alike, because each is an independently reachable
+boundary.
+
+NARROWLY SCOPED, AND THE OTHER MINIMA ARE NOT RESTATED. A plan's page list and each page's
+range list already carry a minimum of 1 in the residual-bounds table, and every manifest page
+already SHALL carry at least one span. `MaxSweepHostsPerBatch` deliberately carries NO minimum
+and is untouched here. What was missing is only this one: the shared `MaxManifestPages` ceiling
+is stated for a recovery manifest, but its minimum column speaks for the PLAN page list alone,
+so an empty recovery manifest was refused by both implementations without any requirement
+saying it must be.
+
+BOTH CONTROLS ARE REQUIRED, and the second is not redundant. A refusal of the empty case alone
+does not pin the minimum: an implementation tightened to demand two pages refuses the empty case
+exactly as before, so a conforming and a non-conforming implementation are indistinguishable
+without the ONE-page acceptance.
+
+WHAT THIS DOES NOT CLAIM. Refusing an empty list is a property of the BOUNDARY, not evidence
+that an implementation's local emptiness predicate is independently removable. At the raw
+boundary in particular the check may be shadowed by the decoded one, which refuses the same
+input for the same reason. Conformance is judged at the boundary.
+
+#### Scenario: An empty recovery manifest page list is refused
+- **WHEN** a supplied recovery manifest page list is empty, in either its raw or its decoded representation
+- **THEN** the boundary refuses it
+
+#### Scenario: A single-page recovery manifest is admitted
+- **WHEN** a recovery manifest carries exactly one page and is otherwise conforming
+- **THEN** the boundary admits it
+
+### Requirement: A signed tombstone's declared manifest page count SHALL be bounded 1..MaxManifestPages
+A `SpoolLossTombstoneV1` reaching the SIGNED recovery-control boundary SHALL declare a
+`manifest_page_count` of `1..MaxManifestPages`: 0 SHALL be refused, 1 SHALL be admitted,
+`MaxManifestPages` SHALL be admitted and one over SHALL be refused.
+
+A DISTINCT RULE FROM THE PAGE-LIST BOUND, because it bounds a DECLARED SCALAR rather than a
+supplied list. Where a tombstone is validated ALONGSIDE its pages, the declaration is reconciled
+against the pages actually present and the list's own bound governs. On the signed path NO PAGE
+LIST ACCOMPANIES IT: nothing reconciles the declaration, and the scope digest commits it exactly
+as signed. A count bounded only from below therefore travels signed and unbounded, to be
+questioned -- if ever -- only at assembly.
+
+#### Scenario: A signed tombstone declaring zero pages is refused
+- **WHEN** a signed recovery-control tombstone declares `manifest_page_count` of 0
+- **THEN** the signed boundary refuses it
+
+#### Scenario: A signed tombstone declaring more pages than the ceiling is refused
+- **WHEN** a signed recovery-control tombstone declares a `manifest_page_count` above `MaxManifestPages`
+- **THEN** the signed boundary refuses it
+
 ### Requirement: A record's declared projected cost SHALL NOT exceed the maxima its production capability carries
 A record's `cost_model_version` SHALL equal the one in its production capability, and its
 `projected_row_count` and `projected_write_bytes` SHALL each be less than or equal to the
