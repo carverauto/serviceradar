@@ -107,7 +107,21 @@ knobs). Rather than duplicate that reference here, see:
 Inspect the current defaults for your chart version with
 `helm show values oci://registry.carverauto.dev/serviceradar/charts/serviceradar --version <chart-version>`.
 
-Key value: canonical public web origin
+## Public web and edge-agent endpoints
+
+ServiceRadar publishes two independent paths during agent onboarding:
+
+| Path | Helm values | Used for |
+| --- | --- | --- |
+| Public web/API | `webNg.host`, `webNg.publicUrl` | Browser access, Phoenix URL generation, the generated `--core-url`, and the API origin signed into onboarding tokens |
+| Agent gateway | `webNg.gatewayAddress`, `agentGateway.publicHostname` | The `gateway_addr` and default TLS server name placed in the downloaded bundle, plus the public artifact endpoint |
+
+### Canonical public web origin
+
+- Set `webNg.host` to the public web DNS name and `webNg.publicUrl` to its bare
+  HTTPS origin. Do this even when `gatewayApi.host` or `ingress.host` has the
+  same value; keeping the application origin explicit prevents an exposure
+  change from altering newly issued onboarding tokens.
 - Set `webNg.publicUrl` to the bare, externally reachable HTTPS origin, with no
   path, query, fragment, or credentials (for example,
   `https://serviceradar.example.com`). A trailing root slash is canonicalized
@@ -122,13 +136,105 @@ Key value: canonical public web origin
 
 ```yaml
 webNg:
+  host: serviceradar.example.com
   publicUrl: https://serviceradar.example.com
 ```
 
-Key values: edge gateway address
-- `webNg.gatewayAddress`: Optional external gateway address for edge agents (`host:port`).
-  - If unset, the chart derives it from `ingress.host` (port 50052).
-  - If neither is set, it falls back to the in-cluster service name.
+### Edge gateway address
+
+- Set `webNg.gatewayAddress` to the externally reachable agent-gateway
+  `host:port`, normally TCP `50052`. It is not an HTTP URL and it need not use
+  the web hostname.
+- Set `agentGateway.publicHostname` to the same DNS name, without a port. The
+  chart uses this hostname for the public artifact URL on
+  `agentGateway.service.artifactPort` (default `50053`). The bundle's TLS server
+  name defaults to the host in `webNg.gatewayAddress`; ensure the certificate
+  presented by the gateway is issued or reissued with that name.
+- If `webNg.gatewayAddress` is unset, the chart derives `<web-host>:50052` from
+  the public web host. That fallback is correct only when the same L4 address
+  actually exposes the agent-gateway port. It does not make an HTTP-only
+  Gateway listen on `50052`.
+
+Choose one exposure pattern:
+
+1. **Dedicated agent-gateway LoadBalancer.** Give the Service a dedicated DNS
+   name, expose `50052` and `50053`, and point `webNg.gatewayAddress` at it.
+   This is the pattern used by the bundled `values-demo.yaml` overlay.
+
+   ```yaml
+   webNg:
+     host: serviceradar.example.com
+     publicUrl: https://serviceradar.example.com
+     gatewayAddress: agent-gateway.example.com:50052
+
+   agentGateway:
+     publicHostname: agent-gateway.example.com
+     service:
+       type: LoadBalancer
+       annotations:
+         external-dns.alpha.kubernetes.io/hostname: agent-gateway.example.com.
+   ```
+
+2. **Shared Gateway API data plane.** Route the agent-gateway ports through the
+   same Envoy data-plane Service as the web endpoint. The parent Gateway must
+   have TCP listeners for `50052` and `50053`; an `HTTPRoute` on `443` cannot
+   carry this traffic. In `managed` mode the chart creates the listeners. In
+   `attach` mode, enable `gatewayApi.agentGateway` and supply `parentRefs` for
+   existing listener section names.
+
+   ```yaml
+   webNg:
+     host: serviceradar.example.com
+     publicUrl: https://serviceradar.example.com
+     gatewayAddress: agent-gateway.example.com:50052
+
+   agentGateway:
+     publicHostname: agent-gateway.example.com
+     service:
+       type: ClusterIP
+
+   # The existing Gateway must already define TCP listeners named
+   # agent-grpc (50052) and agent-artifacts (50053).
+   gatewayApi:
+     enabled: true
+     mode: attach
+     host: serviceradar.example.com
+     # Web HTTPS route. The existing Gateway listener must allow routes from
+     # the ServiceRadar release namespace.
+     parentRefs:
+       - group: gateway.networking.k8s.io
+         kind: Gateway
+         name: serviceradar-shared-gateway
+         namespace: serviceradar-system
+         sectionName: https-web
+     agentGateway:
+       enabled: true
+       grpc:
+         parentRefs:
+           - group: gateway.networking.k8s.io
+             kind: Gateway
+             name: serviceradar-shared-gateway
+             namespace: serviceradar-system
+             sectionName: agent-grpc
+       artifacts:
+         enabled: true
+         parentRefs:
+           - group: gateway.networking.k8s.io
+             kind: Gateway
+             name: serviceradar-shared-gateway
+             namespace: serviceradar-system
+             sectionName: agent-artifacts
+   ```
+
+   Every referenced listener must allow routes from the ServiceRadar release
+   namespace. A cross-namespace `parentRef` to a Gateway is authorized by that
+   listener's `allowedRoutes`; a `ReferenceGrant` is needed only if a route also
+   refers to a backend in a different namespace.
+
+For a shared public IP, both DNS names can resolve to that IP. Using a dedicated
+gateway DNS name remains useful because the bundle and certificate identity do
+not then depend on the web hostname. Confirm the chosen address accepts both
+ports before issuing onboarding packages.
 
 Key values: in-cluster agent storage
 - `agent.checkersStorage`: PVC-backed checker config at `/var/lib/serviceradar/checkers`.

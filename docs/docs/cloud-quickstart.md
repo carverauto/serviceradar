@@ -285,17 +285,35 @@ updater, and the systemd unit `serviceradar-agent.service`.
 **Where:** **Settings → Agent Deploy** (`/settings/agents/deploy`)
 
 Before issuing packages, the environment's canonical public web origin must be
-configured. ServiceRadar Cloud provisioning normally does this for you. For a
-chart-managed environment, set the bare HTTPS origin explicitly:
+configured, as must the distinct agent-gateway endpoint. ServiceRadar Cloud
+provisioning normally supplies both. For a chart-managed environment with a
+dedicated agent-gateway address, configure them explicitly:
 
 ```yaml
 webNg:
+  host: <YOUR_SERVICERADAR_WEB_HOST>
   publicUrl: https://<YOUR_SERVICERADAR_WEB_HOST>
+  gatewayAddress: <YOUR_AGENT_GATEWAY_HOST>:50052
+
+agentGateway:
+  publicHostname: <YOUR_AGENT_GATEWAY_HOST>
 ```
 
-This value is embedded in signed onboarding tokens. If a generated command
-contains an in-cluster name such as `https://serviceradar-web-ng`, stop and have
-the environment operator correct `webNg.publicUrl`, then create a new package.
+`webNg.publicUrl` is embedded in signed onboarding tokens and is used to
+download the bundle over HTTPS. The bundle separately contains
+`gateway_addr`, derived from `webNg.gatewayAddress`, for the agent's long-lived
+mTLS gRPC connection. The public gateway hostname must resolve to an endpoint
+that accepts TCP `50052`, and the certificate presented there must cover that
+hostname. `agentGateway.publicHostname` should use the same name so artifact
+delivery on `50053` stays aligned with the gRPC endpoint.
+
+If a generated command contains an in-cluster name such as
+`https://serviceradar-web-ng`, stop and have the environment operator correct
+`webNg.host` and `webNg.publicUrl`, then create a new package. If the command is
+correct but the enrolled agent tries the web hostname on `50052`, correct
+`webNg.gatewayAddress` and `agentGateway.publicHostname` and issue a new
+package. An explicit `--core-url` can rescue a stale token download; it does not
+replace the bundle's gRPC address.
 
 1. Click **Create Agent Package** (opens edge package creation for
    `component_type=agent`, under `/admin/edge-packages/new`).
@@ -322,6 +340,10 @@ Notes:
 - A signed token normally carries the public web origin. An explicit
   `--core-url` takes precedence over that embedded origin, which is useful for
   recovering from a stale hostname; it is still required to use HTTPS.
+- After download, the agent connects to the separate gateway address carried in
+  the bundle. The deployment can publish `50052`/`50053` through a dedicated L4
+  LoadBalancer or through explicitly configured Gateway API TCP listeners and
+  routes. A web-only `80`/`443` Gateway is insufficient.
 - Treat the token as a secret; create a new package to re-enroll.
 - Deeper walkthrough: [Edge Agent Onboarding](./edge-agent-onboarding.md).
 
@@ -334,6 +356,11 @@ sudo journalctl -u serviceradar-agent -n 100 --no-pager
 ```
 
 In the UI: last-seen timestamp updating, no persistent offline state.
+
+If enrollment reports success but the agent stays offline, inspect
+`gateway_addr` in `/etc/serviceradar/agent.json` and test outbound TCP
+connectivity to that exact host and port. Do not test only the web URL: HTTPS
+enrollment and the subsequent mTLS gRPC session are separate network paths.
 
 ---
 
