@@ -87,3 +87,22 @@ rust_test(
     tags = ["manual"],
     deps = SRQL_IT_DEPS,
 )
+
+# Grouped device stats have to be exercised against a real Postgres: the
+# placeholder-rewriting bug they cover is invisible to translation-only tests,
+# which never hand the SQL to a server.
+rust_test(
+    name = "srql_device_grouped_stats_test",
+    srcs = [
+        "tests/device_grouped_stats.rs",
+        "tests/support/harness.rs",
+        "tests/support/mod.rs",
+    ],
+    crate_name = "srql_device_grouped_stats_tests",
+    crate_root = "tests/device_grouped_stats.rs",
+    data = SRQL_IT_DATA,
+    edition = "2021",
+    proc_macro_deps = SRQL_IT_PROC_MACROS,
+    tags = ["manual"],
+    deps = SRQL_IT_DEPS,
+)

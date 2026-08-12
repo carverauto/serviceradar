@@ -716,3 +716,285 @@ fn devices_rejects_unsafe_metadata_key() {
         "error should flag the invalid metadata key, got: {err}"
     );
 }
+
+#[test]
+fn devices_stats_groups_by_tag_subkey() {
+    let query = "in:devices stats:count() as total by tags.gate limit:100";
+    let plan = plan_for(query);
+
+    let (sql, _params) = devices::to_sql_and_params(&plan).expect("should build grouped stats SQL");
+    let lower = sql.to_lowercase();
+    assert!(
+        lower.contains("coalesce(tags->>'gate', 'unknown')"),
+        "expected group expression over the tags sub-key, got: {sql}"
+    );
+    assert!(
+        lower.contains("group by coalesce(tags->>'gate'"),
+        "tag sub-key should appear in GROUP BY, got: {sql}"
+    );
+    assert!(
+        sql.contains("'tags.gate'"),
+        "response key should name the full tag path, got: {sql}"
+    );
+}
+
+// The dashboard case: narrow to one airport, then count devices per gate.
+#[test]
+fn devices_stats_filters_and_groups_by_different_tags() {
+    let query = "in:devices tags.site:ZZA stats:count() as total by tags.gate limit:100";
+    let plan = plan_for(query);
+
+    let (sql, params) = devices::to_sql_and_params(&plan).expect("should build grouped stats SQL");
+    let lower = sql.to_lowercase();
+    assert!(
+        lower.contains("tags->>'site' = $"),
+        "expected the tags.site filter in the stats path, got: {sql}"
+    );
+    assert!(
+        lower.contains("coalesce(tags->>'gate', 'unknown')"),
+        "expected the tags.gate group expression, got: {sql}"
+    );
+    assert!(
+        params
+            .iter()
+            .any(|param| matches!(param, BindParam::Text(value) if value == "ZZA")),
+        "tag value must be bound, not interpolated, got: {params:?}"
+    );
+}
+
+// `?` is both a bind placeholder in the grouped-stats SQL builder and the
+// Postgres JSONB existence operator. If the key-existence check is spelled with
+// the operator, `rewrite_placeholders` turns it into a `$n` and the query no
+// longer parses -- so this path must use jsonb_exists.
+#[test]
+fn devices_stats_tag_existence_does_not_collide_with_placeholders() {
+    let query = "in:devices tags:gate stats:count() as total by type limit:10";
+    let plan = plan_for(query);
+
+    let (sql, params) = devices::to_sql_and_params(&plan).expect("should build grouped stats SQL");
+    assert!(
+        sql.contains("jsonb_exists(coalesce(tags, '{}'::jsonb), $"),
+        "expected jsonb_exists rather than the ? operator, got: {sql}"
+    );
+    assert_eq!(
+        sql.matches('?').count(),
+        0,
+        "no raw ? may survive placeholder rewriting, got: {sql}"
+    );
+    assert!(
+        params
+            .iter()
+            .any(|param| matches!(param, BindParam::Text(value) if value == "gate")),
+        "expected the tag key bound as a parameter, got: {params:?}"
+    );
+}
+
+#[test]
+fn devices_tag_subkey_supports_list_form() {
+    let query = "in:devices tags.gate:(B40,B41)";
+    let plan = plan_for(query);
+
+    let (sql, params) = devices::to_sql_and_params(&plan).expect("should build SQL");
+    assert!(
+        sql.to_lowercase().contains("tags->>'gate' = any("),
+        "expected an ANY(...) membership test, got: {sql}"
+    );
+    assert!(
+        params
+            .iter()
+            .any(|param| matches!(param, BindParam::TextArray(values) if values == &vec!["B40".to_string(), "B41".to_string()])),
+        "expected the gate list bound as a text array, got: {params:?}"
+    );
+}
+
+#[test]
+fn devices_negated_tag_subkey_list_keeps_devices_missing_the_tag() {
+    let query = "in:devices !tags.gate:(B40,B41)";
+    let plan = plan_for(query);
+
+    let (sql, _params) = devices::to_sql_and_params(&plan).expect("should build SQL");
+    let lower = sql.to_lowercase();
+    assert!(
+        lower.contains("tags->>'gate' is null or not"),
+        "a device with no gate tag is 'not in' the list, got: {sql}"
+    );
+}
+
+// Same whitelist reasoning as the metadata key test above: the tag key is
+// interpolated, so an unsafe one must never reach SQL -- via a filter or a
+// GROUP BY.
+#[test]
+fn devices_rejects_unsafe_tag_key() {
+    let plan = plan_for(r#"in:devices tags.node'or'1:x"#);
+    let result = devices::to_sql_and_params(&plan);
+    assert!(result.is_err(), "unsafe tag key must be rejected");
+    assert!(
+        result.unwrap_err().to_string().contains("invalid tags key"),
+        "error should flag the invalid tag key"
+    );
+
+    let plan = plan_for(r#"in:devices stats:count() as total by tags.a'b"#);
+    let result = devices::to_sql_and_params(&plan);
+    assert!(
+        result.is_err(),
+        "unsafe tag key must be rejected in a group-by too"
+    );
+}
+
+// JSONB keys are case-sensitive in Postgres and tag ingestion preserves the
+// operator's casing, so `tags.Gate` must not be folded to `tags->>'gate'` --
+// in a filter or in a GROUP BY, and identically in both.
+#[test]
+fn devices_preserves_tag_key_casing() {
+    let plan = plan_for("in:devices tags.Gate:B40");
+    let (sql, _params) = devices::to_sql_and_params(&plan).expect("should build SQL");
+    assert!(
+        sql.contains("tags->>'Gate'"),
+        "filter must probe the key as written, got: {sql}"
+    );
+
+    let plan = plan_for("in:devices stats:count() as total by tags.Gate");
+    let (sql, _params) = devices::to_sql_and_params(&plan).expect("should build grouped stats SQL");
+    assert!(
+        sql.contains("tags->>'Gate'"),
+        "group-by must probe the key as written, got: {sql}"
+    );
+
+    // The namespace itself stays case-insensitive.
+    let plan = plan_for("in:devices TAGS.Gate:B40");
+    let (sql, _params) = devices::to_sql_and_params(&plan).expect("should build SQL");
+    assert!(
+        sql.contains("tags->>'Gate'"),
+        "namespace should fold while the key does not, got: {sql}"
+    );
+}
+
+// os.* / hw_info.* share apply_jsonb_text_filter with tags.*, so the row filter
+// and its separate bind-param collector must accept the same operator set.
+#[test]
+fn devices_fixed_jsonb_fields_support_list_form() {
+    let plan = plan_for("in:devices os.name:(Linux,Windows)");
+    let (sql, params) = devices::to_sql_and_params(&plan).expect("should build SQL");
+    assert!(
+        sql.to_lowercase().contains("os->>'name' = any("),
+        "expected an ANY(...) membership test, got: {sql}"
+    );
+    assert!(
+        params
+            .iter()
+            .any(|param| matches!(param, BindParam::TextArray(values) if values == &vec!["Linux".to_string(), "Windows".to_string()])),
+        "expected the os.name list bound as a text array, got: {params:?}"
+    );
+}
+
+#[test]
+fn devices_grouped_stats_fixed_jsonb_filters_match_row_query_operators() {
+    let plan =
+        plan_for("in:devices os.name:(Linux,Windows) stats:count() as total by type limit:10");
+    let (sql, params) =
+        devices::to_sql_and_params(&plan).expect("grouped stats should accept the list filter");
+
+    assert!(
+        sql.to_lowercase().contains("os->>'name' = any("),
+        "expected grouped stats to use JSONB list membership, got: {sql}"
+    );
+    assert!(
+        params
+            .iter()
+            .any(|param| matches!(param, BindParam::TextArray(values) if values == &vec!["Linux".to_string(), "Windows".to_string()])),
+        "expected the grouped query to bind the OS list as a text array, got: {params:?}"
+    );
+}
+
+#[test]
+fn devices_tag_wildcards_generate_like_clauses() {
+    for (query, expected) in [
+        ("in:devices tags.Role:%edge%", "tags->>'Role' ILIKE"),
+        ("in:devices !tags.Role:%edge%", "tags->>'Role' NOT ILIKE"),
+    ] {
+        let plan = plan_for(query);
+        let (sql, _params) = devices::to_sql_and_params(&plan).expect("should build SQL");
+        assert!(
+            sql.contains(expected),
+            "expected `{expected}` for `{query}`, got: {sql}"
+        );
+    }
+}
+
+#[test]
+fn devices_jsonb_group_sort_keeps_sub_key_casing() {
+    for (sort_field, expected_key, unexpected_key) in
+        [("tags.Gate", "Gate", "gate"), ("tags.gate", "gate", "Gate")]
+    {
+        let plan = plan_for(&format!(
+            "in:devices stats:count() as total by tags.Gate,tags.gate sort:{sort_field}:asc"
+        ));
+        let (sql, _params) =
+            devices::to_sql_and_params(&plan).expect("should build grouped stats SQL");
+        let order = sql
+            .split("ORDER BY ")
+            .nth(1)
+            .expect("grouped SQL should include ORDER BY")
+            .split("\nLIMIT")
+            .next()
+            .expect("ORDER BY should precede LIMIT");
+
+        assert!(
+            order.contains(&format!("tags->>'{expected_key}'")),
+            "sort:{sort_field} selected the wrong JSONB expression: {order}"
+        );
+        assert!(
+            !order.contains(&format!("tags->>'{unexpected_key}'")),
+            "sort:{sort_field} must not fold onto a different key: {order}"
+        );
+    }
+}
+
+// The grouped-stats builder emits `?`; Postgres wants `$n`. Translation always
+// rewrote, execution did not -- so a *filtered* grouped query was a syntax
+// error in production while these tests passed. Both paths now share the
+// rewrite, and no raw `?` may survive on either.
+#[test]
+fn devices_grouped_stats_sql_never_leaks_a_raw_placeholder() {
+    for query in [
+        "in:devices vendor_name:Cisco stats:count() as total by type limit:10",
+        "in:devices tags.site:ZZA stats:count() as total by tags.gate limit:100",
+        "in:devices hostname:%core% stats:count() as total by is_available limit:10",
+    ] {
+        let plan = plan_for(query);
+        let (sql, params) =
+            devices::to_sql_and_params(&plan).expect("should build grouped stats SQL");
+        assert_eq!(
+            sql.matches('?').count(),
+            0,
+            "raw ? survived rewriting for `{query}`, got: {sql}"
+        );
+        assert!(
+            sql.contains("$1"),
+            "expected a rewritten $n placeholder for `{query}`, got: {sql}"
+        );
+        assert!(
+            !params.is_empty(),
+            "expected bind params for `{query}`, got none"
+        );
+    }
+}
+
+#[test]
+fn devices_grouped_stats_apply_the_documented_limits() {
+    let plan = plan_for("in:devices stats:count() as total by type");
+    assert_eq!(plan.limit, 20, "grouped stats default to twenty groups");
+    let (sql, _params) = devices::to_sql_and_params(&plan).expect("should build grouped stats SQL");
+    assert!(sql.contains("LIMIT 20"), "unexpected default limit: {sql}");
+
+    let plan = plan_for("in:devices stats:count() as total by type limit:101");
+    assert_eq!(plan.limit, 100, "grouped stats cap explicit limits at 100");
+    let (sql, _params) = devices::to_sql_and_params(&plan).expect("should build grouped stats SQL");
+    assert!(sql.contains("LIMIT 100"), "unexpected capped limit: {sql}");
+
+    let plan = plan_for("in:devices stats:count() as by");
+    assert_eq!(
+        plan.limit, 100,
+        "an ungrouped query whose alias is `by` must retain the global default"
+    );
+}

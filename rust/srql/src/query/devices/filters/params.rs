@@ -97,40 +97,70 @@ pub(in crate::query::devices) fn collect_filter_params(
             params.push(BindParam::TextArray(values));
             Ok(())
         }
-        // JSONB path fields - all use text bind params
+        // Fixed JSONB path fields. These share apply_jsonb_text_filter with the
+        // dynamic tags.*/metadata.* fields, so they must accept the same
+        // operators -- otherwise `os.name:(Linux,Windows)` executes but fails
+        // to translate.
         "os.name"
         | "os.version"
         | "os.type"
         | "hw_info.serial_number"
         | "hw_info.cpu_type"
         | "hw_info.cpu_architecture" => {
-            params.push(BindParam::Text(filter.value.as_scalar()?.to_string()));
-            Ok(())
+            let (column, key) = filter
+                .field
+                .split_once('.')
+                .expect("fixed JSONB field always contains a dot");
+            collect_jsonb_subkey_params(params, filter, column, key)
         }
         // Dynamic metadata.* fields
         field if field.starts_with("metadata.") => {
             let key = field.strip_prefix("metadata.").unwrap();
-            if !is_valid_jsonb_key(key) {
-                return Err(ServiceError::InvalidRequest(format!(
-                    "invalid metadata key '{key}'"
-                )));
-            }
-            params.push(BindParam::Text(filter.value.as_scalar()?.to_string()));
-            Ok(())
+            collect_jsonb_subkey_params(params, filter, "metadata", key)
         }
         // Dynamic tags.* fields
         field if field.starts_with("tags.") => {
             let key = field.strip_prefix("tags.").unwrap();
-            if !is_valid_jsonb_key(key) {
-                return Err(ServiceError::InvalidRequest(format!(
-                    "invalid tags key '{key}'"
-                )));
-            }
-            params.push(BindParam::Text(filter.value.as_scalar()?.to_string()));
-            Ok(())
+            collect_jsonb_subkey_params(params, filter, "tags", key)
         }
         other => Err(ServiceError::InvalidRequest(format!(
             "unsupported filter field '{other}'"
+        ))),
+    }
+}
+
+/// Bind params for a `tags.<key>` / `metadata.<key>` filter.
+///
+/// This must accept exactly the operators `jsonb::apply_jsonb_text_filter`
+/// builds SQL for -- the two run over the same filter and a mismatch shows up
+/// as a placeholder/parameter arity error at execution time, not here.
+fn collect_jsonb_subkey_params(
+    params: &mut Vec<BindParam>,
+    filter: &Filter,
+    column: &str,
+    key: &str,
+) -> Result<()> {
+    if !is_valid_jsonb_key(key) {
+        return Err(ServiceError::InvalidRequest(format!(
+            "invalid {column} key '{key}'"
+        )));
+    }
+
+    match filter.op {
+        FilterOp::Eq | FilterOp::NotEq | FilterOp::Like | FilterOp::NotLike => {
+            params.push(BindParam::Text(filter.value.as_scalar()?.to_string()));
+            Ok(())
+        }
+        FilterOp::In | FilterOp::NotIn => {
+            let values = filter.value.as_list()?.to_vec();
+            if values.is_empty() {
+                return Ok(());
+            }
+            params.push(BindParam::TextArray(values));
+            Ok(())
+        }
+        _ => Err(ServiceError::InvalidRequest(format!(
+            "JSONB field '{column}.{key}' only supports equality, LIKE, and list filters"
         ))),
     }
 }

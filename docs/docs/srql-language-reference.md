@@ -187,6 +187,28 @@ in:cpu_metrics time:last_24h stats:avg(usage_percent) as avg_cpu
 in:flows time:last_1h stats:sum(bytes_total) as bytes by src_ip sort:bytes:desc
 ```
 
+### Grouping devices by a tag or metadata key
+
+`in:devices` can group on a JSONB sub-key as well as a column, which is how you
+chart a dimension that only exists as a tag:
+
+```srql
+in:devices stats:count() as total by tags.gate limit:100
+in:devices tags.site:ZZA stats:count() as total by tags.gate limit:100
+in:devices stats:count() as total by metadata.integration_type
+```
+
+Devices missing the key are counted under `Unknown` rather than dropped. The
+grouped result names the column with its full path (`tags.gate`), which is also
+what `sort:` expects: `sort:tags.gate:asc`.
+
+Groupable device fields: `type`, `vendor_name`, `risk_level`, `is_available`,
+`is_active`, `gateway_id`, `tags.<key>`, `metadata.<key>`.
+
+Grouped queries return at most **100** rows and default to **20**, so set
+`limit:` explicitly when a dimension has more distinct values than that —
+otherwise the chart silently shows a subset.
+
 ## Downsampling with `bucket`
 
 For time-series charts, `bucket:` groups rows into fixed time buckets.
@@ -272,7 +294,7 @@ subsection heading matches the `in:` name used to select the entity.
 | `is_available` | `available` | Currently reachable (`true`/`false`) |
 | `is_active` | `active` | Lifecycle state (`true`/`false`) |
 | `discovery_sources` | | Sources that discovered the device (array; list form) |
-| `tags` | | Device tags (array; list form). Sub-key form: `tags.<key>:<value>` |
+| `tags` | | Device tags (JSONB map). Bare `tags:<key>` tests whether the key exists; list form `tags:(a,b)` matches any of them. Sub-key form: `tags.<key>:<value>` |
 | `metadata.<key>` | | Match an arbitrary metadata key, e.g. `metadata.integration_type:armis` |
 
 Sortable fields include `hostname`, `ip`, `first_seen` / `first_seen_time`,

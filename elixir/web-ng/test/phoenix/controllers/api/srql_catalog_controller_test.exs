@@ -18,6 +18,9 @@ defmodule ServiceRadarWebNGWeb.Api.SrqlCatalogControllerTest do
       assert is_map(response["entities"])
       assert is_map(response["entities"]["devices"])
       assert "hostname" in response["entities"]["devices"]["fields"]["filter"]
+      device_stats_fields = response["entities"]["devices"]["fields"]["stats"]
+      assert "tags.<key>" in device_stats_fields
+      assert "metadata.<key>" in device_stats_fields
       addon_fleet_fields = response["entities"]["addon_fleet"]["fields"]
       assert "category" in addon_fleet_fields["filter"]
       assert "reason_code" in addon_fleet_fields["filter"]
