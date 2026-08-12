@@ -166,6 +166,9 @@ defmodule ServiceRadar.SweepJobs.SweepResultsFlowE2ETest do
     assert execution.hosts_failed == 1
     assert execution.sweep_group_id == group.id
     assert execution.agent_id == agent_id
+
+    {:ok, reloaded_group} = Ash.get(SweepGroup, group.id, actor: actor)
+    assert %DateTime{} = reloaded_group.last_run_at
   end
 
   test "records banner grab audit summary on the sweep execution version", %{

@@ -1086,7 +1086,12 @@ defmodule ServiceRadarWebNGWeb.Settings.NotificationsLive.Index do
     form
     |> Map.put(:params, merged_params)
     |> Map.put(:provider, provider)
-    |> Map.put(:config_params, Map.merge(form.config_params || %{}, config || %{}))
+    |> Map.put(
+      :config_params,
+      form.config_params
+      |> Kernel.||(%{})
+      |> Map.merge(drop_unused_config_keys(config || %{}))
+    )
     |> Map.put(:warnings, channel_warnings(merged_params, socket.assigns.channel_index))
   end
 
@@ -1136,6 +1141,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NotificationsLive.Index do
     {secrets, config} =
       form
       |> Map.get(:config_params, %{})
+      |> drop_unused_config_keys()
       |> Enum.split_with(fn {key, _value} -> to_string(key) in keys end)
 
     {Map.new(config), Map.new(secrets)}
@@ -2127,6 +2133,16 @@ defmodule ServiceRadarWebNGWeb.Settings.NotificationsLive.Index do
 
   defp put_if(map, _key, nil), do: map
   defp put_if(map, key, value), do: Map.put(map, key, value)
+
+  defp drop_unused_config_keys(params) when is_map(params) do
+    params
+    |> Enum.reject(fn {key, _value} ->
+      key |> to_string() |> String.starts_with?("_unused_")
+    end)
+    |> Map.new()
+  end
+
+  defp drop_unused_config_keys(_params), do: %{}
 
   defp blank_to_nil(value) when is_binary(value) do
     case String.trim(value) do

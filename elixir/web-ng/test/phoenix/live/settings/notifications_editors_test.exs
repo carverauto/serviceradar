@@ -76,6 +76,37 @@ defmodule ServiceRadarWebNGWeb.Settings.NotificationsEditorsTest do
       assert channel.enabled
     end
 
+    test "saves a channel when LiveView unused-input keys are in the config", %{
+      conn: conn,
+      provider: provider
+    } do
+      {:ok, lv, _html} = live(conn, ~p"/settings/notifications/channels")
+
+      lv |> element("button[phx-click='new_channel']") |> render_click()
+
+      html =
+        render_click(lv, "save_channel", %{
+          "channel" => %{
+            "name" => "NOC webhook unused",
+            "provider_id" => to_string(provider.id),
+            "execution_route" => "control_plane",
+            "max_attempts" => "3"
+          },
+          "config" => %{
+            "url" => "https://hooks.example.com/unused",
+            "_unused_url" => "",
+            "_unused_method" => ""
+          }
+        })
+
+      assert html =~ "Channel saved"
+
+      channel = channel_named("NOC webhook unused")
+
+      assert channel.config["url"] == "https://hooks.example.com/unused"
+      refute Map.has_key?(channel.config, "_unused_url")
+    end
+
     test "a rejected save reports why and stores nothing", %{conn: conn, provider: provider} do
       {:ok, lv, _html} = live(conn, ~p"/settings/notifications/channels")
 
