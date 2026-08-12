@@ -278,6 +278,15 @@ jobs:
       - name: Edge structural-count corpus (Elixir)
         working-directory: elixir/serviceradar_core
         run: mix test --no-start test/serviceradar/edge/count_corpus_test.exs
+      # THE SHARED SCALAR / CARRIER CORPUS: FIVE bounds, eight sites. Control count is per site
+      # -- FOUR for a two-sided gate (a frozen minimum of 1 needs BOTH a zero refusal and a
+      # length-1 acceptance, or the minimum is free to move up), at/over plus a stage witness
+      # for the one-sided raw header, six for the kind-conditional abort reason. Gated because
+      # the principal sites share one helper: removing a single carrier's CALL to it is
+      # invisible to a helper-level row and fails exactly one row here.
+      - name: Edge scalar corpus (Elixir)
+        working-directory: elixir/serviceradar_core
+        run: mix test --no-start test/serviceradar/edge/scalar_corpus_test.exs
       # The STAGE, observed by call tracing rather than by verdict: everything the preflight
       # refuses is also refused downstream here, so only a trace can show the parser was not
       # entered. Runs async: false -- trace patterns are node-global.

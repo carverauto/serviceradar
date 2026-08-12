@@ -728,9 +728,14 @@ here.
     1.5-h DEPENDS ON NOTHING. Its single closure policy is that a single-runtime row closes
     once its owner is NAMED, so the `MaxReasonBytes`, single-page `MaxSpansPerPage` and
     record-level `MaxPrincipalBytes` rows are DELEGATED, NOT AWAITED, and SHALL NOT be listed
-    as dependencies of 1.5-h. THE LIST IS EXHAUSTIVE and is FOUR rows, not three: the
+    as dependencies of 1.5-h. THE LIST IS EXHAUSTIVE and is FIVE rows, not three: the
     lifecycle `abort_reason` bound is delegated to 1.6-c on the same rule, whose evidence
-    obligation is widened for it there. Compression admission (1.5-f) is CLOSED, delivered on
+    obligation is widened for it there, and the signed tombstone's `manifest_page_count`
+    bound -- the TARGET rule 1..`MaxManifestPages`, not today's `> 0` arm -- is delegated to
+    1.6-d, which creates the only Elixir boundary that could run it. WITH PROJECTED COST as a sixth, Go-only RELATIONAL group, the final inventory is SIX
+    PROOF GROUPS, not five -- the delegated-row count and the proof-group count are different
+    numbers and SHALL NOT be reconciled by dropping one.
+    Compression admission (1.5-f) is CLOSED, delivered on
     `usp-32-compression-admission`; #4734 remains closed unmerged and is prior art, not
     delivery.
   - EVIDENCE: `dispatchContract` in `go/pkg/edge/edgerecord/domain.go`,
@@ -1148,8 +1153,14 @@ here.
         `MaxPlanHeaderBytes` IS ALREADY NORMATIVE -- the requirement "Only a raw-byte plan
         boundary may claim physical enforcement" states the header ceiling on received bytes --
         and this subtask SHALL NOT author a second one. Go's proof is complete and
-        literal-pinned at a production entrypoint; what is owed is the SHARED EVIDENCE and a
-        NAMED Elixir ceiling, which today borrows the record constant at the same value.
+        literal-pinned at a production entrypoint. BOTH remaining halves LANDED under 1.5-h:
+        the shared evidence is the scalar corpus's `plan_header_raw` row -- 524288 accepted,
+        524289 refused in both runtimes, each encoding padded with an inert duplicate field and
+        asserted to decode to the same header -- and Elixir gained `@max_plan_header_bytes`,
+        used directly in `decode_plan_header/1` rather than borrowing the record constant.
+        A STAGE WITNESS accompanies the pair each side, because at/over proves the ceiling and
+        never the pre-decode ordering. NOTHING REMAINS OWED HERE, and no second requirement was
+        authored.
         `MaxTransportProvenanceHeaderBytes` was claimed by task 1.14, which defined and
         implemented that grammar and is checked, but left no requirement for the bound and no
         evidence. This subtask is REMEDIATION for that, not first ownership.
@@ -1211,8 +1222,11 @@ here.
         provable carriers -- the plan header and `SweepAssignmentRecordV1` -- not three: the
         plan RANGE predicate is `len > Max OR != headerPolicy`, and because the header is
         already bounded and the range must equal it, no input reaches the length arm alone.
-        That predicate is DERIVED and SHALL be centralized, removed, or recorded as derived;
-        it SHALL NOT get a site row. `MaxPrincipalBytes` has THREE real sites (record producer
+        CENTRALIZED AND REMOVED under 1.5-h -- both runtimes are now equality-only at the
+        range. The choice among "centralize, remove, or record as derived" was not free: the
+        arm ACTIVELY SHADOWED the header's proof, refusing a CONSISTENT over-limit policy with
+        the header bound deleted, so recording it as derived would have left a header row
+        passing over a missing header gate. It gets no site row. `MaxPrincipalBytes` has THREE real sites (record producer
         context, edge publication slot, service publication slot).
         TWO OF THIS SUBTASK'S BOUNDS ADMIT NO WHOLE-VALIDATOR VALID-INPUT PAIR once their
         rules are settled, and demanding one would produce a vacuous row in each case. Their
@@ -1252,17 +1266,81 @@ here.
         implementation return the same verdict on the same inputs: the gate behind the one
         under test refuses for the same reason. Every bounded-count site therefore carries a
         verdict pair AND, where a stage claim is made, a separate witness for it.
+        OUTSTANDING -- THE LOWER ARM OF THE COUNT SITES, DEFERRED TO A DEDICATED FOLLOW-UP.
+        The count corpus proves each site's UPPER arm (N accepted, N+1 refused). SEVEN
+        COLLECTION SITES REACHABLE THROUGH PUBLIC VALIDATORS also EFFECTIVELY REJECT EMPTY
+        input, and NO SHARED-CORPUS ROW exercises that today. THE PROOF TOPOLOGY IS NOT YET ESTABLISHED and SHALL NOT be
+        assumed: several of the local `== 0` predicates are SHADOWED by downstream checks, so
+        they are not each independently mutation-killable and a mechanical extension of the
+        eight-site upper table would assert proofs that do not exist. The follow-up builds the
+        lower-bound inventory on its own terms -- 0 refused AND 1 accepted per lower rule,
+        existing controls cited where they already suffice, shadowed predicates labelled as
+        shadowed -- rather than one empty row per gate.
+        THE NORMATIVE PARTITION IS RECORDED HERE AND IS FOUR-WAY, because "per normative lower
+        rule" alone would MISS one: not every boundary that refuses empty has a stated minimum.
+          * PLAN page list and ranges-per-page -- minima ALREADY NORMATIVE and 1.5-h's.
+          * RECOVERY MANIFEST PAGE LIST -- NO MINIMUM IS STATED ANYWHERE. Both runtimes refuse
+            an empty manifest, but the spec states a minimum for PLAN page lists only, so this
+            is a NEW NORMATIVE MINIMUM OF 1 AND IT IS 1.5-H'S TO AUTHOR. Recorded now,
+            authored in the follow-up; it SHALL NOT be delegated, because no other subtask
+            owns the recovery PAGE-LIST MINIMUM.
+          * RECOVERY SPANS-PER-PAGE -- minimum ALREADY NORMATIVE under 1.6a; the follow-up
+            cites it rather than re-authoring it.
+          * The SIGNED SINGLE-PAGE peer -- delegated to 1.6-d, which has no boundary to run it
+            against until that subtask lands.
+        A FIFTH SITE SITS OUTSIDE THAT PARTITION, and its CURRENT GO GATE IS LOWER-ONLY: the
+        signed tombstone's `manifest_page_count` check in `recoveryControlBody`, which today
+        tests `== 0` and applies no ceiling. It is NOT one of the seven
+        collection sites -- it bounds a DECLARED SCALAR COUNT, not a supplied list -- and it is
+        load-bearing rather than shadowed: nothing downstream refuses a zero declaration on that
+        path. NO DEDICATED COUNT-SPECIFIC PAIR EXISTS ON EITHER SIDE: Go's signed reason rows
+        do exercise a count of 1 INCIDENTALLY, because every wrapper they build declares one
+        page, but nothing varies the count or asserts a verdict on it, so a gate deleted or
+        re-aimed would not be caught.
+        THE FOLLOW-UP OWNS ALL FOUR GO CONTROLS, not the lower pair alone: count 0 REFUSED,
+        count 1 ACCEPTED, `MaxManifestPages` ACCEPTED, one over REFUSED. It authors the ceiling
+        on that path as part of the same work, so the upper pair is not a later increment --
+        owing only 0/1 would leave the follow-up's own evidence narrower than the rule it
+        freezes. 1.6-d MIRRORS ALL FOUR for the signed Elixir peer, and what is delegated is
+        the TARGET bound 1..`MaxManifestPages`: handing over only what is implemented today
+        would freeze the peer narrower than the rule it is meant to mirror.
+        IT IS NOT UPPER-BOUNDED TODAY, and an earlier note here said otherwise. That claim
+        confused two functions: `ValidateTombstone` bounds a SUPPLIED PAGE LIST and reconciles
+        the declaration against it, but `recoveryControlBody` -- the only path a SIGNED
+        tombstone reaches -- receives no list and checks `manifest_page_count == 0` alone, so a
+        declaration of 2^32-1 is admitted there.
+        DECIDED: FREEZE 1..`MaxManifestPages` ON THE SIGNED PATH, with FOUR controls -- 0
+        refused, 1 accepted, `MaxManifestPages` accepted, one over refused. The alternative,
+        defining it lower-only and deferring upper enforcement to chain assembly, was REJECTED:
+        the scope digest is taken over the tombstone as signed, so a declaration nothing on
+        that path bounds is committed and carried before any assembly step could reject it.
+        This is a RUNTIME CHANGE and belongs to the follow-up, not to the scalar slice.
+        Closure SHALL NOT claim an upper-arm-only proof is complete, having just required a
+        length-1 acceptance of the scalar sites for the symmetric reason.
         `design.md` holds the site-by-site findings and the mutation results.
         PARITY IS CLAIMED ONLY WHERE BOTH RUNTIMES HAVE PRODUCTION VALIDATORS. ONE CLOSURE
         POLICY, APPLIED UNIFORMLY: a single-runtime row may close this subtask if and only if
         the missing side has a NAMED OWNING SUBTASK. Not "an owner is recorded somewhere" --
         a subtask id. This subtask SHALL NOT close while any single-runtime row names no
         owner, and SHALL NOT wait on a row whose owner is named.
-        By that rule, and EXHAUSTIVELY -- four rows, not three: the `MaxReasonBytes` row
+        By that rule, and EXHAUSTIVELY -- FIVE rows, not three: the `MaxReasonBytes` row
         records 1.6-d, the Elixir record-level `MaxPrincipalBytes` site records 1.5-n, the
-        `MaxSpansPerPage` single-page site records 1.6-d, and the lifecycle `abort_reason`
+        `MaxSpansPerPage` single-page site records 1.6-d, the signed tombstone's
+        `manifest_page_count` bound records 1.6-d, and the lifecycle `abort_reason`
         bound records 1.6-c, whose evidence obligation is widened there because the version
-        row it already owns cannot prove a string length. 1.5-h CLOSES WITH THOSE OWNERS RECORDED and does not wait for any of
+        row it already owns cannot prove a string length. THAT WIDENING IS ALL SIX CONTROLS,
+        not the upper bound alone: `abort_reason` is TWO independently removable predicates --
+        an ABORTED event SHALL carry a reason of 1..`MaxTraceStrBytes`, and every other kind
+        SHALL carry NONE -- so 1.6-c owes, on the ABORTED arm, length 0 REFUSED, length 1
+        ACCEPTED, at ACCEPTED and over REFUSED, AND both non-ABORTED controls. The length-1
+        acceptance is not optional either: a frozen minimum of 1 is not pinned by a zero
+        refusal, which a peer tightened to reject length 1 satisfies unchanged. The non-ABORTED ACCEPTED control is not optional: without it a
+        peer that refused every non-aborted event would satisfy the negative row.
+        PROJECTED COST IS NOT ONE OF THOSE FIVE: it is a Go-only RELATIONAL group, not a
+        delegated bound-site row, so the closing inventory is FIVE DELEGATED ROWS PLUS
+        PROJECTED COST -- SIX PROOF GROUPS. The two numbers are different and SHALL NOT be
+        reconciled by dropping one.
+        1.5-h CLOSES WITH THOSE OWNERS RECORDED and does not wait for any of
         them; each owner stays independently open and flips its own row to both-runtime when
         it lands. A subtask that both delegates a gap and blocks on it has not delegated it.
         NORMATIVE VALUES LIVE IN THE SPEC. Bounds this subtask freezes that have no normative
@@ -1272,12 +1350,17 @@ here.
         the NORMATIVE REQUIREMENT is 1.5-h's. Both exist, so the bound is CLOSED, and 1.5-h
         SHALL NOT re-author vectors 1.3 holds. `MaxManifestPages`'s PLAN use and
         `MaxRangesPerPage` are stated alongside it; neither is outstanding.
-        THE EMPTY TOMBSTONE REASON IS DECIDED AND FROZEN: refused. THREE controls remain, not
-        two -- EMPTY refused, the MAXIMUM accepted, one over refused. The empty arm is a
-        SEPARATE rule from the ceiling and a pair that omits it leaves the newly frozen lower
-        bound unproven. The reason gate is NOT in `ValidateTombstone` -- it is on
-        the signed recovery-control body path, so its Elixir peer is 1.6-d's to build. That
-        is a RECORDED OWNER, so this row closes here and flips when 1.6-d lands.
+        THE EMPTY TOMBSTONE REASON IS DECIDED AND FROZEN: refused. FOUR controls, not two --
+        length 0 REFUSED, length 1 ACCEPTED, the MAXIMUM accepted, one over refused. The lower
+        arm is a SEPARATE rule from the ceiling, and it needs BOTH of its controls: a pair
+        omitting the refusal leaves the frozen bound unproven, and a refusal without the
+        length-1 acceptance leaves the minimum free to move up.
+        GO'S FOUR LANDED under 1.5-h, driven through the signed recovery-control path with the
+        tombstone sealed before its scope digest is taken and `ValidateRecordSigned` asserted
+        before any production claim. What remains is the ELIXIR PEER only: the reason gate is
+        NOT in `ValidateTombstone` -- it is on the signed recovery-control body path, which this
+        runtime does not yet have, so the peer is 1.6-d's to build. That is a RECORDED OWNER, so
+        this row closes here and flips when 1.6-d lands.
   - [ ] 1.5-i SEMANTIC-ENVELOPE GRAMMAR coverage, and its DIGEST SEPARATION from gateway
         receipt, physical placement, spool coordinates and renewable delivery proof
   - [ ] 1.5-j BROKER PUBLICATION IDENTITY defined separately from the semantic envelope
@@ -1322,7 +1405,15 @@ here.
         is.
         IT ALSO CARRIES the record-level `MaxPrincipalBytes` check, which 1.5-h records as a
         single-runtime row: this runtime bounds a principal in both publication slots and not
-        on the record, and the boundary created here is what that check attaches to.
+        on the record, and the boundary created here is what that check attaches to. THE
+        INHERITED CONTROLS ARE FOUR, EXHAUSTIVELY -- length 0 REFUSED, length 1 ACCEPTED,
+        `MaxPrincipalBytes` ACCEPTED, one over REFUSED. The gate is a lower AND an upper bound,
+        and EACH bound needs two controls: a pair proves only the upper, and a zero-refusal
+        alone leaves the frozen minimum of 1 free to move up, because a peer tightened to
+        reject length 1 refuses zero exactly as before. They are owed AT THE RECORD SITE specifically: this runtime's
+        two slot rows already exercise the shared predicate, and 1.5-h MEASURED that removing
+        one carrier's CALL to that predicate fails only that carrier's row. A helper-level row
+        cannot stand in for this one.
         UNDER 1.5, NOT 1.6. Parent 1.6 is the VERSION-CORPUS parity task and its rule is that
         both runtimes prove every inventory member; projected-cost admission is not an
         inventory member, so filing it there would make 1.6's 15/19 figure mean two different
@@ -1479,10 +1570,24 @@ here.
         Those are distinct boundaries; pulling them in would make this slice sprawl.
         ALSO CARRIES THE LIFECYCLE `abort_reason` BOUND, which 1.5-h delegates here because
         this subtask creates the only Elixir boundary that could enforce it. IT NEEDS ITS OWN
-        VECTORS: the bound is CONDITIONAL -- 1..`MaxTraceStrBytes` when the kind is ABORTED and
-        exactly empty otherwise -- so it owes an at-ceiling and one-over pair for the ABORTED
-        arm plus a non-empty refusal for a non-aborted kind. The `mtr_completion` version row
-        cannot serve: it proves a digest-version relation and says nothing about a string
+        VECTORS, AND THEY ARE SIX CONTROLS, NOT THREE. The bound is TWO INDEPENDENTLY
+        REMOVABLE PREDICATES, not one conditional ceiling: an ABORTED event SHALL carry a
+        reason of 1..`MaxTraceStrBytes`, and every other kind SHALL carry NONE. This subtask
+        therefore owes, exhaustively:
+          1. ABORTED + length 0 -> REFUSED.
+          2. ABORTED + length 1 -> ACCEPTED. A FROZEN MINIMUM OF 1 NEEDS BOTH CONTROLS: a
+             zero-refusal alone leaves the minimum free to move up, because a peer tightened
+             to reject length 1 refuses zero exactly as before.
+          3. ABORTED + `MaxTraceStrBytes` -> ACCEPTED.
+          4. ABORTED + one over -> REFUSED.
+          5. NOT ABORTED + empty -> ACCEPTED. NOT OPTIONAL: without an accepted control, a
+             peer that refused every non-aborted event would satisfy control 6 while enforcing
+             something else entirely.
+          6. NOT ABORTED + non-empty -> REFUSED.
+        Control 5's fixture SHALL use a kind carrying no further obligations -- START, not
+        COMPLETED, whose completion-proof rules would refuse it for another reason. Go's six
+        landed under 1.5-h and are the shape to mirror. The `mtr_completion` version row cannot
+        serve any of them: it proves a digest-version relation and says nothing about a string
         length or a kind-conditional rule.
         NO NEW VECTORS FOR THE VERSION ROW: when it lands, `mtr_completion` flips from `go_only` to `both`
         and REUSES the committed control and alternate artifacts. Parent 1.6 then needs 1.6-d as
@@ -1499,14 +1604,38 @@ here.
         recovery-control body and compare the recomputed scope digest to the SIGNED claim --
         the same order Go uses. `HashGrammar` already supplies all three digests; what is
         missing is the signed path that reaches them.
-        ALSO CARRIES TWO ROWS 1.5-h DELEGATES, because both need the boundary this subtask
-        creates and neither is a version-corpus member: the tombstone `MaxReasonBytes` bound,
-        which Go applies in `recoveryControlBody` on this same signed path, and the
-        `MaxSpansPerPage` check in `validateSingleManifestPage`, which is a DIFFERENT site
-        from the chain validator this runtime already peers. Both flip to both-runtime here.
-        NO NEW VECTORS FOR THE SCOPE ROWS: when it lands, the three flip from `go_only` to
-        `both` and REUSE the committed records and the committed issuer key. The two delegated
-        rows DO need vectors, which is why they are named rather than assumed.
+        ALSO CARRIES THREE ROWS 1.5-h DELEGATES, because each needs the boundary this subtask
+        creates and none is a version-corpus member. Their INHERITED CONTROLS are exact:
+          * tombstone `MaxReasonBytes`, which Go applies in `recoveryControlBody` on this same
+            signed path -- FOUR controls: length 0 REFUSED, length 1 ACCEPTED (a frozen
+            minimum of 1 needs both, or a peer tightened to reject length 1 would satisfy the
+            zero row unchanged), `MaxReasonBytes` ACCEPTED, one over REFUSED. Go's four landed
+            under 1.5-h and are the shape to mirror, including the ordering they depend on: the body
+            is sealed before its scope digest is taken, and `ValidateRecordSigned` passes
+            before any production claim is asserted, so a stale signature cannot masquerade as
+            ceiling evidence.
+          * `MaxSpansPerPage` in `validateSingleManifestPage`, a DIFFERENT site from the chain
+            validator this runtime already peers. The INHERITED pair is `MaxSpansPerPage`
+            ACCEPTED and one over REFUSED, reusing the shared span vector rather than minting a
+            fixture. Go's gate is `len(spans) == 0 || len(spans) > MaxSpansPerPage`, so a LOWER
+            arm exists too, but 1.5-h proves the upper arm only and the lower arm's proof
+            topology is deferred -- see the deferred-lower-arm note under 1.5-h. This entry
+            inherits whatever that follow-up establishes; it SHALL NOT assume an empty control
+            here is independently mutation-killable before that work classifies it.
+          * the signed tombstone's `manifest_page_count` bound -- the TARGET bound, which
+            1.5-h's follow-up applies in Go's `recoveryControlBody` on this same signed path.
+            FOUR controls, and this peer owes all four: count 0 REFUSED, count 1 ACCEPTED,
+            `MaxManifestPages` ACCEPTED, one over REFUSED. This is a DECLARED SCALAR, not a
+            supplied list, so it is a different site from the page-list bound
+            `ValidateTombstone` applies and shares no fixture with it.
+            What is delegated is the TARGET rule 1..`MaxManifestPages`, NOT the `== 0` arm Go
+            carried before the follow-up: delegating that arm would freeze this peer
+            permanently narrower than the rule it mirrors.
+        All three flip to both-runtime here.
+        NO NEW VECTORS FOR THE SCOPE ROWS: when it lands, the three scope transcripts flip from
+        `go_only` to `both` and REUSE the committed records and the committed issuer key. The
+        THREE DELEGATED ROWS above DO need boundary evidence of their own, which is why each is
+        named with its exact controls rather than assumed to ride along with the transcripts.
 
 - [x] 1.6a **Freeze the loss-classification span shape BEFORE the 1.7 ABI freeze.**
   Replace the ad-hoc `lost_ranges` + `affected` pairing on
