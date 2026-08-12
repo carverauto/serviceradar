@@ -14,6 +14,15 @@
 
 - **Ash only.** Every table gets an Ash resource. No Ecto-only schemas, no raw SQL in business logic. Bulk `Repo.update_all` / `Repo.delete_all` inside a materializer is acceptable and has precedent (`inventory/availability_source_profile_materializer.ex`).
 - **Migrations are Ash codegen.** `mix ash.codegen <name>` then `mix ash.migrate`. NEVER `mix ecto.gen.migration` or `mix ecto.migrate`. Hand-written migrations are only for the TimescaleDB/composite-key cases, which this plan does not have.
+- **A new Ash domain must be registered in BOTH `config/config.exs` AND `config/test.exs`.** Both files declare `:ash_domains`, and the `test.exs` declaration *replaces* the one in `config.exs`. Since codegen and tests run under `MIX_ENV=test`, registering only in `config.exs` makes the resource invisible: `mix ash.codegen` reports "No changes detected" and silently generates nothing.
+- **`priv/resource_snapshots/` is gitignored** (`.gitignore:238`), so a fresh worktree has none. The first `mix ash.codegen` in a new worktree therefore treats all ~218 tables as new and emits a ~475KB create-everything migration. Delete that migration, keep the snapshots it wrote, and re-run codegen — the second pass diffs correctly and emits only your table. Always read the generated migration before applying it; a migration containing tables you did not touch is this failure, not a real diff.
+- **There are two migration ledgers.** `platform.schema_migrations` is canonical (what `mix ash.migrate` and production use); `public.schema_migrations` is legacy, and production syncs it forward at startup (`cluster/startup_migrations.ex:1067-1081`). The `srql-fixtures-db-tests` skill bootstraps with `mix ecto.migrate`, which writes only the **legacy** ledger — so a later `mix ash.migrate` sees ~1 applied migration and replays from the first one, failing on `relation "edge_sites" already exists`. After bootstrapping a scratch DB, run the same sync production does before any `ash.migrate`:
+  ```sql
+  INSERT INTO platform.schema_migrations (version, inserted_at)
+  SELECT version, inserted_at FROM public.schema_migrations
+  ON CONFLICT (version) DO NOTHING;
+  ```
+- **Long migrations need a raised ownership timeout.** A full bootstrap against the shared `srql-fixtures` cluster exceeds the default 120s and dies mid-run with `owner ... timed out because it owned the connection for longer than 120000ms`, leaving the DB half-migrated (DDL committed, `schema_migrations` rolled back) and unrecoverable — drop and recreate the scratch DB. Export `SERVICERADAR_TEST_DATABASE_OWNERSHIP_TIMEOUT_MS=1800000` before the first migrate.
 - **Schema is `platform`.** Every table, index, and constraint sets `schema "platform"` in the resource and `prefix: "platform"` in any hand-written migration. Never `public`.
 - **No `authorize?: false`.** Background work uses `ServiceRadar.Actors.SystemActor.system(:component_name)`. A Credo check fails the build on `authorize?: false`.
 - **No `require_atomic? false`.** If an action cannot be atomic, implement `atomic/3` or restructure it.
@@ -176,7 +185,7 @@ defmodule ServiceRadar.CompositeChecks do
 end
 ```
 
-Append `ServiceRadar.CompositeChecks` to the `ash_domains` list in `config/config.exs`.
+Append `ServiceRadar.CompositeChecks` to the `ash_domains` list in `config/config.exs` **and** to the separate `ash_domains` list in `config/test.exs`. The test-env list replaces rather than extends the base one, and codegen runs under `MIX_ENV=test` — registering in only one file makes codegen report "No changes detected" and generate nothing.
 
 Note: the domain references all four resources, so `mix compile` will fail until Tasks 2–4 create them. That is expected; the tests in this task run only after Task 4. If you want a green intermediate state, comment out the three not-yet-created `resource` lines and uncomment them as each task lands.
 
