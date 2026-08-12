@@ -14,5 +14,6 @@ defmodule ServiceRadar.CompositeChecks do
 
   resources do
     resource ServiceRadar.CompositeChecks.CompositeCheck
+    resource ServiceRadar.CompositeChecks.CompositeCheckInput
   end
 end
