@@ -25,6 +25,11 @@ injection), plus farm-tested identity and sweep/notification fixes.
   ports, drop unsupported ARP before it reaches the agent, and strip LiveView
   `_unused_*` keys so Discord notification-channel save is not rejected by
   `additionalProperties: false`.
+- Discord Send test no longer treats a typed webhook URL as a missing
+  credential reference. The persist contract still requires a stored
+  reference; the test path accepts the just-typed secret (or the saved
+  reference if the password box is left blank) and does not run the
+  outbound URL policy against a `secretref:` handle.
 
 # ServiceRadar v1.4.30
 
