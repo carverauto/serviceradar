@@ -13,6 +13,9 @@
 
 export default {
   mounted() {
+    // showModal() owns this attribute in the browser. Keep LiveView patches
+    // from stripping it and reopening the dialog, which would reset focus.
+    this.js().ignoreAttributes(this.el, ["open"])
     this._onCancel = (e) => this._handleCancel(e)
     this._onClick = (e) => this._handleOutsideClick(e)
     this.el.addEventListener("cancel", this._onCancel)
