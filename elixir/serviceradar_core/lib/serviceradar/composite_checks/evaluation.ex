@@ -30,6 +30,7 @@ defmodule ServiceRadar.CompositeChecks.Evaluation do
   alias ServiceRadar.CompositeChecks.Evaluator
   alias ServiceRadar.CompositeChecks.Resolvers
   alias ServiceRadar.CompositeChecks.Scope
+  alias ServiceRadar.CompositeChecks.VerdictEventWriter
   alias ServiceRadar.Inventory.Device
   alias ServiceRadar.Inventory.DeviceAgentAvailability
   alias ServiceRadar.Repo
@@ -66,6 +67,12 @@ defmodule ServiceRadar.CompositeChecks.Evaluation do
       # Only reached when every page succeeded; a page failure raises out of
       # run_pages/7 above and leaves existing verdicts untouched.
       removed = sweep_out_of_scope(check, started_at)
+
+      # Opt-out exists so the authoring preview can reuse the pass without
+      # polluting the event stream. Defaults on, so production needs no opt-in.
+      if Keyword.get(opts, :emit_events?, true) do
+        VerdictEventWriter.write_transitions(check, transitions)
+      end
 
       {:ok, %{evaluated: evaluated, transitions: transitions, removed: removed}}
     end

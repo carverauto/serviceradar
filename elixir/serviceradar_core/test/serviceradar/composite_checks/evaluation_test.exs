@@ -264,6 +264,39 @@ defmodule ServiceRadar.CompositeChecks.EvaluationTest do
     end
   end
 
+  describe "verdict events" do
+    defp verdict_events do
+      require Ash.Query
+
+      ServiceRadar.Monitoring.OcsfEvent
+      |> Ash.Query.filter(log_name == ^ServiceRadar.CompositeChecks.VerdictEventWriter.log_name())
+      |> Ash.read!(actor: actor())
+    end
+
+    test "a pass emits an event on transition and stays silent when unchanged", %{check: check} do
+      now = DateTime.utc_now()
+      availability("device-1", "agent-a", true, now)
+      availability("device-1", "agent-b", false, now)
+
+      assert {:ok, _} = run(check)
+      assert [event] = verdict_events()
+      assert event.unmapped["to_verdict"] == "isolated_verified"
+
+      assert {:ok, _} = run(check)
+      assert length(verdict_events()) == 1
+    end
+
+    test "emit_events? false lets a pass run without touching the event stream", %{check: check} do
+      now = DateTime.utc_now()
+      availability("device-1", "agent-a", true, now)
+      availability("device-1", "agent-b", false, now)
+
+      assert {:ok, summary} = run(check, emit_events?: false)
+      assert [_transition] = summary.transitions
+      assert verdict_events() == []
+    end
+  end
+
   test "evaluate_devices resolves without persisting", %{check: check} do
     now = DateTime.utc_now()
     availability("device-1", "agent-a", true, now)

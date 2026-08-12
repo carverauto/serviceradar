@@ -10,6 +10,7 @@ defmodule ServiceRadar.CompositeChecks.CompositeCheck do
   use Ash.Resource,
     domain: ServiceRadar.CompositeChecks,
     data_layer: AshPostgres.DataLayer,
+    notifiers: [ServiceRadar.CompositeChecks.ScheduleNotifier],
     authorizers: [Ash.Policy.Authorizer]
 
   alias ServiceRadar.CompositeChecks.Changes.DeriveSlug
