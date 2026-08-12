@@ -83,6 +83,34 @@ defmodule ServiceRadarWebNGWeb.Settings.ShellTest do
     refute html =~ "System Event Logs"
   end
 
+  test "catalog links use ordinary navigation across LiveView session boundaries" do
+    assigns = catalog_assigns("/admin/edge-packages")
+
+    html =
+      rendered_to_string(~H"""
+      <Shell.settings_chrome
+        current_path={@current_path}
+        current_scope={@current_scope}
+        active_view={@active_view}
+        active_category={@active_category}
+        breadcrumbs={@breadcrumbs}
+        nav_tree={@nav_tree}
+        palette={@palette}
+        stats={@stats}
+      >
+        <p>edge packages</p>
+      </Shell.settings_chrome>
+      """)
+
+    history_link =
+      html
+      |> LazyHTML.from_fragment()
+      |> LazyHTML.query(~s(a[href="/settings/audit/history"]))
+
+    assert LazyHTML.text(history_link) =~ "History"
+    assert LazyHTML.attribute(history_link, "data-phx-link") == []
+  end
+
   test "catalog shell renders the phase-3 surfaces (header, search, status, palette)" do
     assigns = catalog_assigns("/settings/audit/events")
 

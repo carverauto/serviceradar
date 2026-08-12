@@ -83,13 +83,25 @@ defmodule ServiceRadar.Observability.GeoIP do
       |> Enum.filter(&is_map/1)
       |> Enum.each(fn db ->
         try do
-          :ok = Geolix.load_database(db)
+          case Geolix.load_database(db) do
+            :ok ->
+              :ok
+
+            {:error, :enoent} ->
+              Logger.debug("GeoIP: configured database is unavailable",
+                id: Map.get(db, :id),
+                source: Map.get(db, :source)
+              )
+
+            {:error, reason} ->
+              log_database_failure(db, reason)
+
+            unexpected ->
+              log_database_failure(db, {:unexpected_result, unexpected})
+          end
         rescue
           e ->
-            Logger.warning("GeoIP: failed to load GeoLite database",
-              id: Map.get(db, :id),
-              error: Exception.message(e)
-            )
+            log_database_failure(db, Exception.message(e))
         end
       end)
 
@@ -98,6 +110,14 @@ defmodule ServiceRadar.Observability.GeoIP do
       {:error, _} = err ->
         err
     end
+  end
+
+  defp log_database_failure(db, reason) do
+    Logger.warning("GeoIP: failed to load configured database",
+      id: Map.get(db, :id),
+      source: Map.get(db, :source),
+      error: inspect(reason)
+    )
   end
 
   defp ensure_started(app) when is_atom(app) do
