@@ -6,25 +6,146 @@ defmodule ServiceRadarWebNGWeb.StatsTest do
   alias ServiceRadarWebNGWeb.Stats.Query
 
   describe "log severity query helpers" do
-    test "use canonical aliases without redundant case variants" do
-      assert Query.log_severity_values(:fatal) == ~w(fatal critical emergency alert)
-      assert Query.log_severity_values(:error) == ~w(error err)
-      assert Query.log_severity_values(:warning) == ~w(warning warn)
-      assert Query.log_severity_values(:info) == ~w(info information informational notice)
-      assert Query.log_severity_values(:debug) == ~w(debug trace)
+    test "use canonical aliases plus every OTel enum variant" do
+      assert Query.log_severity_values(:error) ==
+               ~w(error err severity_number_error severity_number_error2 severity_number_error3 severity_number_error4)
+
+      assert Query.log_severity_values(:warning) ==
+               ~w(warning warn severity_number_warn severity_number_warn2 severity_number_warn3 severity_number_warn4)
+
+      debug = Query.log_severity_values(:debug)
+      assert Enum.take(debug, 2) == ~w(debug trace)
+      assert "severity_number_debug4" in debug
+      assert "severity_number_trace4" in debug
     end
 
     test "builds click-through queries from shared severity groups" do
-      assert Query.logs_severity_data_query(:debug, limit: 100) ==
-               "in:logs severity_text:(debug,trace) time:last_24h sort:timestamp:desc limit:100"
+      debug_query = Query.logs_severity_data_query(:debug, limit: 100)
+      assert debug_query =~ "in:logs severity:(debug,trace,"
+      assert debug_query =~ "severity_number_debug4"
+      assert debug_query =~ "severity_number_trace4"
+      assert debug_query =~ "severity_number:(1,2,3,4,5,6,7,8) severity_match:any"
+      assert String.ends_with?(debug_query, "time:last_24h sort:timestamp:desc limit:100")
 
-      assert Query.logs_severity_data_query([:fatal, :error]) ==
-               "in:logs severity_text:(fatal,critical,emergency,alert,error,err) time:last_24h sort:timestamp:desc"
+      error_query = Query.logs_severity_data_query([:fatal, :error])
+      assert error_query =~ "severity_number_fatal4"
+      assert error_query =~ "severity_number_error4"
+      assert error_query =~ "severity_number:(21,22,23,24,17,18,19,20) severity_match:any"
+      assert String.ends_with?(error_query, "time:last_24h sort:timestamp:desc")
     end
 
     test "builds fallback count queries from the same severity groups" do
-      assert Query.logs_severity_count_query(:fatal) ==
-               ~s|in:logs severity_text:(fatal,critical,emergency,alert) time:last_24h stats:"count() as total"|
+      query = Query.logs_severity_count_query(:fatal)
+      assert query =~ "severity:(fatal,critical,emergency,alert,"
+      assert query =~ "severity_number_fatal4"
+      assert query =~ "severity_number:(21,22,23,24) severity_match:any"
+      assert String.ends_with?(query, ~s|time:last_24h stats:"count() as total"|)
+    end
+  end
+
+  describe "logs severity rollup result" do
+    defmodule LogsSeverityStubSRQL do
+      @moduledoc false
+
+      def query(query, %{scope: scope}) do
+        send(self(), {:logs_severity_query, query, scope})
+
+        {:ok,
+         %{
+           "results" => [
+             %{
+               "total" => "42",
+               "fatal" => 1,
+               "error" => 2,
+               "warning" => 3,
+               "info" => 35,
+               "debug" => 1
+             }
+           ]
+         }}
+      end
+    end
+
+    defmodule LogsSeverityErrorStubSRQL do
+      @moduledoc false
+      def query(_query, _opts), do: {:error, :undefined_table}
+    end
+
+    test "preserves successful stats and scope" do
+      assert {:ok, %{total: 42, fatal: 1, error: 2, warning: 3, info: 35, debug: 1}} =
+               Stats.logs_severity_result(srql_module: LogsSeverityStubSRQL, scope: :tenant_a)
+
+      assert_received {:logs_severity_query, "in:logs time:last_24h rollup_stats:severity", :tenant_a}
+    end
+
+    test "preserves rollup errors for panes while retaining the compatibility helper" do
+      assert {:error, :undefined_table} =
+               Stats.logs_severity_result(srql_module: LogsSeverityErrorStubSRQL)
+
+      assert Stats.logs_severity(srql_module: LogsSeverityErrorStubSRQL) ==
+               Stats.empty_logs_severity()
+    end
+  end
+
+  describe "assess_logs_rollup_status/1" do
+    test "treats an empty current window as healthy when the rollup exists" do
+      status =
+        Stats.assess_logs_rollup_status(
+          rollup_present?: true,
+          raw_latest_timestamp: nil,
+          raw_window_start_timestamp: nil,
+          rollup_latest_bucket: nil,
+          rollup_window_start_bucket: nil
+        )
+
+      assert status.healthy?
+      assert status.messages == []
+    end
+
+    test "reports a populated 24-hour rollup as healthy" do
+      status =
+        Stats.assess_logs_rollup_status(
+          rollup_present?: true,
+          raw_latest_timestamp: ~U[2026-08-12 12:04:00Z],
+          raw_window_start_timestamp: ~U[2026-08-11 12:05:00Z],
+          rollup_latest_bucket: ~U[2026-08-12 12:00:00Z],
+          rollup_window_start_bucket: ~U[2026-08-11 12:05:00Z],
+          stale_threshold_seconds: 900,
+          coverage_grace_seconds: 300
+        )
+
+      assert status.healthy?
+      assert status.lag_seconds == 240
+      assert status.coverage_gap_seconds == 0
+      assert status.messages == []
+    end
+
+    test "reports missing, stale, and partial rollups" do
+      missing =
+        Stats.assess_logs_rollup_status(
+          rollup_present?: false,
+          raw_latest_timestamp: ~U[2026-08-12 12:04:00Z]
+        )
+
+      refute missing.healthy?
+      assert Enum.any?(missing.messages, &String.contains?(&1, "Missing log severity rollup"))
+
+      stale =
+        Stats.assess_logs_rollup_status(
+          rollup_present?: true,
+          raw_latest_timestamp: ~U[2026-08-12 12:04:00Z],
+          raw_window_start_timestamp: ~U[2026-08-11 12:05:00Z],
+          rollup_latest_bucket: ~U[2026-08-12 11:30:00Z],
+          rollup_window_start_bucket: ~U[2026-08-11 14:05:00Z],
+          stale_threshold_seconds: 900,
+          coverage_grace_seconds: 300
+        )
+
+      refute stale.healthy?
+      assert stale.lag_seconds == 2_040
+      assert stale.coverage_gap_seconds == 7_200
+      assert Enum.any?(stale.messages, &String.contains?(&1, "lags raw logs"))
+      assert Enum.any?(stale.messages, &String.contains?(&1, "24-hour card window"))
     end
   end
 

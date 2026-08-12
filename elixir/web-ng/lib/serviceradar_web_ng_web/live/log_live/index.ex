@@ -129,6 +129,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
      |> assign(:netflows_live?, false)
      |> assign(:current_params, %{})
      |> assign(:log_view_params, %{})
+     |> assign(:logs_rollup_status, Stats.empty_logs_rollup_status())
      |> assign(:trace_rollup_status, Stats.empty_trace_rollup_status())
      |> assign(:metrics_stats, empty_metrics_stats())
      |> assign(:metrics_view, "samples")
@@ -1287,6 +1288,16 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
             </div>
           </div>
 
+          <div :if={@active_tab == "logs" and logs_rollup_warning?(@logs_rollup_status)}>
+            <div id="logs-rollup-warning" role="alert" class={ui_alert_class("warning")}>
+              <.icon name="hero-exclamation-triangle" class="size-5" />
+              <div class="text-sm">
+                <div class="font-semibold">Log level rollup unavailable</div>
+                <div>{logs_rollup_warning_text(@logs_rollup_status)}</div>
+              </div>
+            </div>
+          </div>
+
           <.log_summary :if={@active_tab == "logs"} summary={@summary} />
           <.event_summary :if={@active_tab == "events"} summary={@event_summary} />
           <.alert_summary :if={@active_tab == "alerts"} summary={@alert_summary} />
@@ -1507,7 +1518,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
       |> assign(:debug, debug)
 
     ~H"""
-    <div class="rounded-xl border border-sr-line bg-sr-surface p-4 font-sans">
+    <div id="logs-level-summary" class="rounded-xl border border-sr-line bg-sr-surface p-4 font-sans">
       <div class="mb-3 flex items-center justify-between">
         <div class="flex items-center gap-3">
           <div class="text-[11px] font-semibold uppercase tracking-wider text-sr-muted">
@@ -7675,10 +7686,11 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
 
   defp apply_tab_assigns(socket, _tab, srql_module) do
     scope = Map.get(socket.assigns, :current_scope)
-    summary = maybe_load_log_summary(socket, srql_module, scope)
+    {summary, logs_rollup_status} = maybe_load_log_summary(socket, srql_module, scope)
 
     socket
     |> assign(:summary, summary)
+    |> assign(:logs_rollup_status, logs_rollup_status)
     |> assign(:_summary_loaded, true)
     |> assign(:event_summary, empty_event_summary())
     |> assign(:alert_summary, empty_alert_summary())
@@ -8047,7 +8059,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
     # counts are pending), don't re-query on every handle_params/refresh call.
     # The summary shows overall 24h breakdown — it doesn't change per-query.
     if socket.assigns[:_summary_loaded] do
-      socket.assigns.summary
+      {socket.assigns.summary, socket.assigns.logs_rollup_status}
     else
       fetch_log_summary(socket, srql_module, scope)
     end
@@ -8056,7 +8068,10 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
   defp fetch_log_summary(_socket, srql_module, scope) do
     # Use the same simple call as the analytics page — no query-specific filters.
     # The stat cards always show the overall 24h picture.
-    Stats.logs_severity(srql_module: srql_module, scope: scope)
+    case Stats.logs_severity_result(srql_module: srql_module, scope: scope) do
+      {:ok, summary} -> {summary, Stats.logs_rollup_status()}
+      {:error, _reason} -> {Stats.empty_logs_severity(), unavailable_logs_rollup_status()}
+    end
   end
 
   defp maybe_load_netflow_summary(socket, srql_module, scope) do
@@ -9668,4 +9683,21 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
   end
 
   defp trace_rollup_warning_text(_), do: "Trace observability data may be stale."
+
+  defp logs_rollup_warning?(%{healthy?: false}), do: true
+  defp logs_rollup_warning?(_), do: false
+
+  defp logs_rollup_warning_text(%{messages: messages}) when is_list(messages) do
+    messages
+    |> Enum.reject(&(&1 in [nil, ""]))
+    |> Enum.join(" ")
+  end
+
+  defp logs_rollup_warning_text(_), do: "Log severity rollup data may be unavailable or stale."
+
+  defp unavailable_logs_rollup_status do
+    Stats.empty_logs_rollup_status()
+    |> Map.put(:healthy?, false)
+    |> Map.put(:messages, ["The severity breakdown could not be loaded. Log rows below are still available."])
+  end
 end
