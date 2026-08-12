@@ -190,8 +190,7 @@ fn severity_any_branches(plan: &QueryPlan) -> Result<Option<Vec<TopNBranch>>> {
     let branch_count = values
         .text_values
         .len()
-        .checked_add(values.number_values.len())
-        .unwrap_or(usize::MAX);
+        .saturating_add(values.number_values.len());
     if branch_count > MAX_TOPN_SEVERITY_ANY_BRANCHES {
         return Ok(None);
     }
