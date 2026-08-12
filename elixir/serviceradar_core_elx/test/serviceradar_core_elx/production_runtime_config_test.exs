@@ -15,6 +15,7 @@ defmodule ServiceRadarCoreElx.ProductionRuntimeConfigTest do
 
   @required_production_workers [
     ServiceRadar.Jobs.AlertsRetentionWorker,
+    ServiceRadar.Jobs.RefreshLogsSeverityStatsWorker,
     ServiceRadar.Observability.AnomalyAddonConfigProjector,
     ServiceRadar.Observability.AnomalyAlertLivenessWorker,
     ServiceRadar.Observability.AnomalyEpisodeStaleCloseWorker,

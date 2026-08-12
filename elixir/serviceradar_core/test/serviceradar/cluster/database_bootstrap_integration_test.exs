@@ -99,6 +99,18 @@ defmodule ServiceRadar.Cluster.DatabaseBootstrapIntegrationTest do
     assert first["baseline_count"] == 1
     assert first["migration_count"] > 0
     assert first["platform_object_count"] > 0
+    assert first["logs_severity_rollup_present"] == true
+
+    assert first["logs_severity_rollup_columns"] == [
+             "bucket",
+             "service_name",
+             "total_count",
+             "fatal_count",
+             "error_count",
+             "warning_count",
+             "info_count",
+             "debug_count"
+           ]
 
     assert first["auth_settings"] == %{
              "count" => 1,
@@ -113,6 +125,8 @@ defmodule ServiceRadar.Cluster.DatabaseBootstrapIntegrationTest do
     assert second["baseline_count"] == 1
     assert second["migration_count"] == first["migration_count"]
     assert second["platform_object_count"] == first["platform_object_count"]
+    assert second["logs_severity_rollup_present"] == true
+    assert second["logs_severity_rollup_columns"] == first["logs_severity_rollup_columns"]
     assert second["auth_settings"] == first["auth_settings"]
   end
 
@@ -201,6 +215,24 @@ defmodule ServiceRadar.Cluster.DatabaseBootstrapIntegrationTest do
       AND c.relkind IN ('r', 'p', 'S', 'v', 'm', 'f')
       """)
 
+    %{rows: [[logs_severity_rollup_present]]} =
+      ServiceRadar.Repo.query!("""
+      SELECT EXISTS (
+        SELECT 1
+        FROM timescaledb_information.continuous_aggregates
+        WHERE view_schema = 'platform'
+          AND view_name = 'logs_severity_stats_5m'
+      )
+      """)
+
+    %{rows: [[logs_severity_rollup_columns]]} =
+      ServiceRadar.Repo.query!("""
+      SELECT array_agg(column_name::text ORDER BY ordinal_position)
+      FROM information_schema.columns
+      WHERE table_schema = 'platform'
+        AND table_name = 'logs_severity_stats_5m'
+      """)
+
     %{rows: auth_rows} =
       ServiceRadar.Repo.query!("""
       SELECT mode, is_enabled, allow_password_fallback, sso_auto_provision
@@ -227,6 +259,8 @@ defmodule ServiceRadar.Cluster.DatabaseBootstrapIntegrationTest do
       migration_count: migration_count,
       baseline_count: baseline_count,
       platform_object_count: platform_object_count,
+      logs_severity_rollup_present: logs_severity_rollup_present,
+      logs_severity_rollup_columns: logs_severity_rollup_columns,
       auth_settings: auth_settings
     }))
     '''

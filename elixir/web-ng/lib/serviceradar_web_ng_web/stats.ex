@@ -67,6 +67,18 @@ defmodule ServiceRadarWebNGWeb.Stats do
 
   @type anomaly_findings_summary :: Extract.anomaly_findings()
 
+  @type logs_rollup_status :: %{
+          healthy?: boolean(),
+          rollup_present?: boolean(),
+          raw_latest_timestamp: DateTime.t() | nil,
+          raw_window_start_timestamp: DateTime.t() | nil,
+          rollup_latest_bucket: DateTime.t() | nil,
+          rollup_window_start_bucket: DateTime.t() | nil,
+          lag_seconds: non_neg_integer() | nil,
+          coverage_gap_seconds: non_neg_integer() | nil,
+          messages: [String.t()]
+        }
+
   @type trace_rollup_status :: %{
           healthy?: boolean(),
           summary_table_present?: boolean(),
@@ -88,7 +100,6 @@ defmodule ServiceRadarWebNGWeb.Stats do
 
     * `:time` - Time range filter (default: "last_24h")
     * `:service_name` - Filter by service name (optional)
-    * `:source` - Filter by log source (optional)
     * `:srql_module` - SRQL module to use (default from config)
 
   ## Examples
@@ -99,13 +110,136 @@ defmodule ServiceRadarWebNGWeb.Stats do
   """
   @spec logs_severity(keyword()) :: Extract.logs_severity()
   def logs_severity(opts \\ []) do
+    case logs_severity_result(opts) do
+      {:ok, stats} -> stats
+      {:error, _reason} -> Extract.empty_logs_severity()
+    end
+  end
+
+  @doc """
+  Fetch logs severity stats while preserving rollup failures.
+
+  Pane code should use this variant when it can surface an unavailable rollup
+  to the operator. `logs_severity/1` retains the zero-map compatibility contract
+  for callers that cannot render a degraded state yet.
+  """
+  @spec logs_severity_result(keyword()) ::
+          {:ok, Extract.logs_severity()} | {:error, term()}
+  def logs_severity_result(opts \\ []) do
     srql_module = Keyword.get(opts, :srql_module, default_srql_module())
     scope = Keyword.get(opts, :scope)
     query = Query.logs_severity(opts)
 
-    query
-    |> srql_module.query(%{scope: scope})
-    |> Extract.logs_severity()
+    case srql_module.query(query, %{scope: scope}) do
+      {:ok, %{"results" => [%{} | _]}} = response ->
+        {:ok, Extract.logs_severity(response)}
+
+      {:ok, response} ->
+        Logger.warning("Logs severity rollup returned an invalid response",
+          response: inspect(response, limit: 10)
+        )
+
+        {:error, :invalid_rollup_response}
+
+      {:error, reason} ->
+        Logger.warning("Logs severity rollup is unavailable", reason: inspect(reason, limit: 10))
+        {:error, reason}
+    end
+  end
+
+  @doc """
+  Check whether the log severity aggregate exists, is current with raw ingest,
+  and covers the 24-hour window displayed by the cards.
+  """
+  @spec logs_rollup_status(keyword()) :: logs_rollup_status()
+  def logs_rollup_status(opts \\ []) do
+    case Application.get_env(:serviceradar_web_ng, :logs_rollup_status_fun) do
+      status_fun when is_function(status_fun, 0) -> status_fun.()
+      _ -> if(repo_started?(), do: do_logs_rollup_status(opts), else: empty_logs_rollup_status())
+    end
+  end
+
+  defp do_logs_rollup_status(opts) do
+    stale_threshold_seconds =
+      Keyword.get(opts, :stale_threshold_seconds, logs_rollup_stale_threshold_seconds())
+
+    coverage_grace_seconds = Keyword.get(opts, :coverage_grace_seconds, 5 * 60)
+    rollup_present? = logs_rollup_exists?()
+    raw_latest_timestamp = raw_logs_latest_timestamp()
+    raw_window_start_timestamp = raw_logs_window_start_timestamp()
+
+    rollup_latest_bucket =
+      if rollup_present?, do: logs_rollup_latest_bucket()
+
+    rollup_window_start_bucket =
+      if rollup_present?, do: logs_rollup_window_start_bucket()
+
+    assess_logs_rollup_status(
+      rollup_present?: rollup_present?,
+      raw_latest_timestamp: raw_latest_timestamp,
+      raw_window_start_timestamp: raw_window_start_timestamp,
+      rollup_latest_bucket: rollup_latest_bucket,
+      rollup_window_start_bucket: rollup_window_start_bucket,
+      stale_threshold_seconds: stale_threshold_seconds,
+      coverage_grace_seconds: coverage_grace_seconds
+    )
+  rescue
+    error ->
+      Logger.warning("logs rollup health verification failed: #{Exception.message(error)}")
+
+      empty_logs_rollup_status()
+      |> Map.put(:healthy?, false)
+      |> Map.put(:messages, ["Log severity rollup health could not be verified."])
+  end
+
+  @doc false
+  @spec assess_logs_rollup_status(keyword()) :: logs_rollup_status()
+  def assess_logs_rollup_status(opts) do
+    rollup_present? = Keyword.get(opts, :rollup_present?, false)
+    raw_latest_timestamp = Keyword.get(opts, :raw_latest_timestamp)
+    raw_window_start_timestamp = Keyword.get(opts, :raw_window_start_timestamp)
+    rollup_latest_bucket = Keyword.get(opts, :rollup_latest_bucket)
+    rollup_window_start_bucket = Keyword.get(opts, :rollup_window_start_bucket)
+    stale_threshold_seconds = Keyword.get(opts, :stale_threshold_seconds, 15 * 60)
+    coverage_grace_seconds = Keyword.get(opts, :coverage_grace_seconds, 5 * 60)
+
+    lag_seconds = lag_seconds(raw_latest_timestamp, rollup_latest_bucket)
+    coverage_gap_seconds = lag_seconds(rollup_window_start_bucket, raw_window_start_timestamp)
+
+    messages =
+      []
+      |> maybe_add_message(
+        not rollup_present?,
+        "Missing log severity rollup: platform.logs_severity_stats_5m."
+      )
+      |> maybe_add_message(
+        raw_latest_timestamp && rollup_present? && is_nil(rollup_latest_bucket),
+        "Log severity rollup is empty while raw logs exist."
+      )
+      |> maybe_add_message(
+        stale?(lag_seconds, stale_threshold_seconds),
+        "Log severity rollup lags raw logs by #{format_lag(lag_seconds)}."
+      )
+      |> maybe_add_message(
+        raw_window_start_timestamp && rollup_present? && is_nil(rollup_window_start_bucket),
+        "Log severity rollup has not populated the 24-hour card window."
+      )
+      |> maybe_add_message(
+        stale?(coverage_gap_seconds, coverage_grace_seconds),
+        "Log severity rollup is missing #{format_lag(coverage_gap_seconds)} from the 24-hour card window."
+      )
+
+    %{
+      healthy?: messages == [],
+      rollup_present?: rollup_present?,
+      raw_latest_timestamp: raw_latest_timestamp,
+      raw_window_start_timestamp: raw_window_start_timestamp,
+      rollup_latest_bucket: rollup_latest_bucket,
+      rollup_window_start_bucket: rollup_window_start_bucket,
+      lag_seconds: lag_seconds,
+      coverage_gap_seconds: coverage_gap_seconds,
+      messages: messages
+    }
   end
 
   @doc """
@@ -458,6 +592,21 @@ defmodule ServiceRadarWebNGWeb.Stats do
     }
   end
 
+  @spec empty_logs_rollup_status() :: logs_rollup_status()
+  def empty_logs_rollup_status do
+    %{
+      healthy?: true,
+      rollup_present?: true,
+      raw_latest_timestamp: nil,
+      raw_window_start_timestamp: nil,
+      rollup_latest_bucket: nil,
+      rollup_window_start_bucket: nil,
+      lag_seconds: nil,
+      coverage_gap_seconds: nil,
+      messages: []
+    }
+  end
+
   # Get the configured SRQL module
   defp default_srql_module do
     Application.get_env(:serviceradar_web_ng, :srql_module, ServiceRadarWebNG.SRQL)
@@ -475,6 +624,79 @@ defmodule ServiceRadarWebNGWeb.Stats do
   # name made this guard permanently false and silently disabled every
   # caller (the metrics cards were hardwired to zero for that reason).
   defp repo_started?, do: is_pid(Process.whereis(CoreRepo))
+
+  defp logs_rollup_exists? do
+    case SQL.query(
+           CoreRepo,
+           """
+           SELECT EXISTS(
+             SELECT 1
+             FROM timescaledb_information.continuous_aggregates
+             WHERE view_schema = 'platform' AND view_name = 'logs_severity_stats_5m'
+           )
+           """,
+           []
+         ) do
+      {:ok, %{rows: [[value]]}} -> value == true
+      _ -> false
+    end
+  end
+
+  defp raw_logs_latest_timestamp do
+    case SQL.query(
+           CoreRepo,
+           "SELECT max(timestamp) FROM logs WHERE timestamp >= now() - INTERVAL '24 hours'",
+           []
+         ) do
+      {:ok, %{rows: [[value]]}} -> normalize_datetime(value)
+      _ -> nil
+    end
+  end
+
+  defp raw_logs_window_start_timestamp do
+    case SQL.query(
+           CoreRepo,
+           """
+           SELECT timestamp
+           FROM logs
+           WHERE timestamp >= now() - INTERVAL '24 hours'
+           ORDER BY timestamp ASC
+           LIMIT 1
+           """,
+           []
+         ) do
+      {:ok, %{rows: [[value]]}} -> normalize_datetime(value)
+      _ -> nil
+    end
+  end
+
+  defp logs_rollup_latest_bucket do
+    case SQL.query(
+           CoreRepo,
+           "SELECT max(bucket) FROM logs_severity_stats_5m WHERE bucket >= now() - INTERVAL '24 hours'",
+           []
+         ) do
+      {:ok, %{rows: [[value]]}} -> normalize_datetime(value)
+      _ -> nil
+    end
+  end
+
+  defp logs_rollup_window_start_bucket do
+    case SQL.query(
+           CoreRepo,
+           """
+           SELECT bucket
+           FROM logs_severity_stats_5m
+           WHERE bucket >= now() - INTERVAL '24 hours'
+           ORDER BY bucket ASC
+           LIMIT 1
+           """,
+           []
+         ) do
+      {:ok, %{rows: [[value]]}} -> normalize_datetime(value)
+      _ -> nil
+    end
+  end
 
   defp traces_rollup_exists? do
     case SQL.query(
@@ -526,6 +748,10 @@ defmodule ServiceRadarWebNGWeb.Stats do
 
   defp trace_rollup_stale_threshold_seconds do
     Application.get_env(:serviceradar_web_ng, :trace_rollup_stale_threshold_seconds, 30 * 60)
+  end
+
+  defp logs_rollup_stale_threshold_seconds do
+    Application.get_env(:serviceradar_web_ng, :logs_rollup_stale_threshold_seconds, 15 * 60)
   end
 
   defp stale?(lag_seconds, threshold_seconds) when is_integer(lag_seconds) and is_integer(threshold_seconds) do

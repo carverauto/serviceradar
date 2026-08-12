@@ -1,4 +1,7 @@
-use super::{build_query, collect_base_params, enforce_list_limit};
+use super::{
+    RECOGNIZED_SEVERITY_TEXTS, build_query, collect_base_params, enforce_list_limit,
+    severity_match_any,
+};
 use crate::{
     error::{Result, ServiceError},
     models::LogRow,
@@ -16,8 +19,21 @@ use diesel::sql_query;
 use diesel_async::{AsyncPgConnection, RunQueryDsl};
 
 const MAX_TOPN_SEVERITY_VALUES: usize = 16;
+const MAX_TOPN_SEVERITY_ANY_BRANCHES: usize = 32;
 const MAX_TOPN_CANDIDATE_ROWS: i64 = 100_000;
 const TOPN_ALIAS: &str = "severity_topn";
+
+struct TopNBranch {
+    plan: QueryPlan,
+    numeric_fallback: bool,
+}
+
+struct SeverityAnyValues {
+    text_filter_index: usize,
+    number_filter_index: usize,
+    text_values: Vec<String>,
+    number_values: Vec<i32>,
+}
 
 pub(super) struct SeverityTopNQuery {
     sql: String,
@@ -47,14 +63,15 @@ impl SeverityTopNQuery {
 /// PostgreSQL cannot preserve effective-timestamp ordering across multiple values
 /// of the leading `lower(severity_text)` index key. The ordinary `= ANY($n)`
 /// plan therefore favors the timestamp-only index and filters millions of rows.
-/// Each scalar branch can use the composite severity/timestamp index in order;
-/// merging the bounded branch heads preserves the exact global top-N result.
+/// Each scalar text or numeric-fallback branch can use its corresponding
+/// severity/effective-timestamp index in order; merging the bounded, disjoint
+/// branch heads preserves the exact global top-N result.
 pub(super) fn build(plan: &QueryPlan) -> Result<Option<SeverityTopNQuery>> {
     if !has_supported_timestamp_order(plan) {
         return Ok(None);
     }
 
-    let Some((filter_index, values)) = severity_values(plan)? else {
+    let Some(mut branches) = severity_branches(plan)? else {
         return Ok(None);
     };
 
@@ -64,34 +81,42 @@ pub(super) fn build(plan: &QueryPlan) -> Result<Option<SeverityTopNQuery>> {
     if branch_limit <= 0 {
         return Ok(None);
     }
-    let Some(candidate_rows) = branch_limit.checked_mul(values.len() as i64) else {
+    let Some(candidate_rows) = branch_limit.checked_mul(branches.len() as i64) else {
         return Ok(None);
     };
     if candidate_rows > MAX_TOPN_CANDIDATE_ROWS {
         return Ok(None);
     }
 
-    let mut sql_branches = Vec::with_capacity(values.len());
+    let mut sql_branches = Vec::with_capacity(branches.len());
     let mut params = Vec::new();
 
-    for value in values {
-        let mut branch = plan.clone();
-        branch.filters[filter_index] = Filter {
-            field: branch.filters[filter_index].field.clone(),
-            op: FilterOp::Eq,
-            value: FilterValue::Scalar(value),
-        };
-        branch.limit = branch_limit;
-        branch.offset = 0;
+    for branch in &mut branches {
+        branch.plan.limit = branch_limit;
+        branch.plan.offset = 0;
 
+        let query = build_query(&branch.plan)?;
+        let query = if branch.numeric_fallback {
+            super::filters::apply_numeric_severity_fallback_guard(query)
+        } else {
+            query
+        };
         let query = match primary_timestamp_direction(plan) {
-            OrderDirection::Asc => build_query(&branch)?.then_order_by(col_id.asc()),
-            OrderDirection::Desc => build_query(&branch)?.then_order_by(col_id.desc()),
+            OrderDirection::Asc => query.then_order_by(col_id.asc()),
+            OrderDirection::Desc => query.then_order_by(col_id.desc()),
         }
         .limit(branch_limit)
         .offset(0);
         let branch_sql = crate::query::diesel_sql(&query)?;
-        let mut branch_params = collect_base_params(&branch)?;
+        let mut branch_params = collect_base_params(&branch.plan)?;
+        if branch.numeric_fallback {
+            branch_params.push(BindParam::TextArray(
+                RECOGNIZED_SEVERITY_TEXTS
+                    .iter()
+                    .map(|value| (*value).to_string())
+                    .collect(),
+            ));
+        }
         reconcile_limit_offset_binds(&branch_sql, &mut branch_params, branch_limit, 0)?;
 
         let expected = max_dollar_placeholder(&branch_sql);
@@ -128,6 +153,183 @@ pub(super) fn build(plan: &QueryPlan) -> Result<Option<SeverityTopNQuery>> {
     }
 
     Ok(Some(SeverityTopNQuery { sql, params }))
+}
+
+fn severity_branches(plan: &QueryPlan) -> Result<Option<Vec<TopNBranch>>> {
+    if severity_match_any(plan) {
+        return severity_any_branches(plan);
+    }
+
+    let Some((filter_index, values)) = severity_values(plan)? else {
+        return Ok(None);
+    };
+
+    Ok(Some(
+        values
+            .into_iter()
+            .map(|value| {
+                let mut branch = plan.clone();
+                branch.filters[filter_index] = Filter {
+                    field: branch.filters[filter_index].field.clone(),
+                    op: FilterOp::Eq,
+                    value: FilterValue::Scalar(value),
+                };
+                TopNBranch {
+                    plan: branch,
+                    numeric_fallback: false,
+                }
+            })
+            .collect(),
+    ))
+}
+
+fn severity_any_branches(plan: &QueryPlan) -> Result<Option<Vec<TopNBranch>>> {
+    let Some(values) = severity_any_values(plan)? else {
+        return Ok(None);
+    };
+    let branch_count = values
+        .text_values
+        .len()
+        .checked_add(values.number_values.len())
+        .unwrap_or(usize::MAX);
+    if branch_count > MAX_TOPN_SEVERITY_ANY_BRANCHES {
+        return Ok(None);
+    }
+
+    let mut branches = Vec::with_capacity(branch_count);
+    for value in values.text_values {
+        branches.push(TopNBranch {
+            plan: severity_any_branch_plan(
+                plan,
+                values.text_filter_index,
+                values.number_filter_index,
+                Filter {
+                    field: plan.filters[values.text_filter_index].field.clone(),
+                    op: FilterOp::Eq,
+                    value: FilterValue::Scalar(value),
+                },
+                true,
+            ),
+            numeric_fallback: false,
+        });
+    }
+    for value in values.number_values {
+        branches.push(TopNBranch {
+            plan: severity_any_branch_plan(
+                plan,
+                values.text_filter_index,
+                values.number_filter_index,
+                Filter {
+                    field: "severity_number".into(),
+                    op: FilterOp::Eq,
+                    value: FilterValue::Scalar(value.to_string()),
+                },
+                false,
+            ),
+            numeric_fallback: true,
+        });
+    }
+
+    Ok(Some(branches))
+}
+
+fn severity_any_branch_plan(
+    plan: &QueryPlan,
+    text_filter_index: usize,
+    number_filter_index: usize,
+    replacement: Filter,
+    text_branch: bool,
+) -> QueryPlan {
+    let replacement_index = if text_branch {
+        text_filter_index
+    } else {
+        number_filter_index
+    };
+    let removed_index = if text_branch {
+        number_filter_index
+    } else {
+        text_filter_index
+    };
+    let mut branch = plan.clone();
+    branch.filters = plan
+        .filters
+        .iter()
+        .enumerate()
+        .filter_map(|(index, filter)| {
+            if index == replacement_index {
+                Some(replacement.clone())
+            } else if index == removed_index || filter.field == "severity_match" {
+                None
+            } else {
+                Some(filter.clone())
+            }
+        })
+        .collect();
+    branch
+}
+
+fn severity_any_values(plan: &QueryPlan) -> Result<Option<SeverityAnyValues>> {
+    let mut text_match = None;
+    let mut number_match = None;
+
+    for (index, filter) in plan.filters.iter().enumerate() {
+        if is_severity_field(&filter.field) {
+            if text_match.is_some() || !matches!(filter.op, FilterOp::In) {
+                return Ok(None);
+            }
+            enforce_list_limit(&filter.field, filter.value.as_list()?.len())?;
+            let mut values = Vec::new();
+            for value in filter.value.as_list()? {
+                let normalized = value.to_lowercase();
+                if !values.contains(&normalized) {
+                    values.push(normalized);
+                }
+            }
+            text_match = Some((index, values));
+        } else if filter.field == "severity_number" {
+            if number_match.is_some() || !matches!(filter.op, FilterOp::In) {
+                return Ok(None);
+            }
+            enforce_list_limit(&filter.field, filter.value.as_list()?.len())?;
+            let mut values = Vec::new();
+            for value in filter.value.as_list()? {
+                let parsed = value.parse::<i32>().map_err(|_| {
+                    ServiceError::InvalidRequest("severity_number list must be integers".into())
+                })?;
+                if !values.contains(&parsed) {
+                    values.push(parsed);
+                }
+            }
+            number_match = Some((index, values));
+        }
+    }
+
+    let (Some((text_filter_index, text_values)), Some((number_filter_index, number_values))) =
+        (text_match, number_match)
+    else {
+        return Ok(None);
+    };
+    if text_values.is_empty() || number_values.is_empty() {
+        return Ok(None);
+    }
+    // Numeric fallback intentionally includes unrecognized text. If a caller
+    // also selected that same unrecognized text explicitly, UNION ALL could
+    // return the row from both branches. The card helpers only emit canonical
+    // recognized values, so keep that common path indexable and let custom
+    // values use the ordinary OR query.
+    if text_values
+        .iter()
+        .any(|value| !RECOGNIZED_SEVERITY_TEXTS.contains(&value.as_str()))
+    {
+        return Ok(None);
+    }
+
+    Ok(Some(SeverityAnyValues {
+        text_filter_index,
+        number_filter_index,
+        text_values,
+        number_values,
+    }))
 }
 
 fn has_supported_timestamp_order(plan: &QueryPlan) -> bool {
@@ -208,7 +410,9 @@ fn outer_order_sql(plan: &QueryPlan) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{MAX_TOPN_CANDIDATE_ROWS, MAX_TOPN_SEVERITY_VALUES, build};
+    use super::{
+        MAX_TOPN_CANDIDATE_ROWS, MAX_TOPN_SEVERITY_ANY_BRANCHES, MAX_TOPN_SEVERITY_VALUES, build,
+    };
     use crate::{
         parser::{Filter, FilterOp, FilterValue, OrderClause, OrderDirection},
         query::{BindParam, logs::test_support::data_plan, max_dollar_placeholder},
@@ -413,6 +617,140 @@ mod tests {
         plan.order = vec![timestamp_order(OrderDirection::Desc)];
 
         assert!(build(&plan).unwrap().is_none());
+    }
+
+    #[test]
+    fn builds_disjoint_text_and_numeric_fallback_branches() {
+        let mut plan = data_plan(vec![
+            severity_filter(&["error", "severity_number_error"]),
+            Filter {
+                field: "severity_number".into(),
+                op: FilterOp::In,
+                value: FilterValue::List(vec!["17".into(), "18".into(), "17".into()]),
+            },
+            Filter {
+                field: "severity_match".into(),
+                op: FilterOp::Eq,
+                value: FilterValue::Scalar("any".into()),
+            },
+        ]);
+        plan.order = vec![timestamp_order(OrderDirection::Desc)];
+
+        let (sql, params) = build(&plan).unwrap().unwrap().into_parts();
+
+        assert_eq!(sql.matches(" UNION ALL ").count(), 3, "{sql}");
+        assert_eq!(
+            sql.matches("lower(\"logs\".\"severity_text\") = lower(")
+                .count(),
+            2,
+            "text matches must be scalar branches: {sql}"
+        );
+        assert_eq!(
+            sql.matches("\"logs\".\"severity_number\" = $").count(),
+            2,
+            "numeric matches must be scalar branches: {sql}"
+        );
+        assert_eq!(
+            sql.matches("\"logs\".\"severity_text\" IS NULL").count(),
+            2,
+            "each numeric branch must allow absent text: {sql}"
+        );
+        assert_eq!(
+            sql.matches("lower(\"logs\".\"severity_text\") != ALL(")
+                .count(),
+            2,
+            "each numeric branch must reject recognized text: {sql}"
+        );
+        assert!(
+            !sql.contains("lower(\"logs\".\"severity_text\") = ANY(")
+                && !sql.contains("\"logs\".\"severity_number\" = ANY("),
+            "branches replace the broad selected-text/numeric OR scan: {sql}"
+        );
+        assert_eq!(
+            params
+                .iter()
+                .filter(|param| matches!(param, BindParam::TextArray(values) if values.len() == 38))
+                .count(),
+            2,
+            "each numeric fallback branch binds the recognized-text guard"
+        );
+        assert_eq!(max_dollar_placeholder(&sql), params.len());
+    }
+
+    #[test]
+    fn repeats_service_filter_with_correct_branch_bind_order() {
+        let mut plan = data_plan(vec![
+            severity_filter(&["error"]),
+            Filter {
+                field: "severity_number".into(),
+                op: FilterOp::In,
+                value: FilterValue::List(vec!["17".into()]),
+            },
+            Filter {
+                field: "severity_match".into(),
+                op: FilterOp::Eq,
+                value: FilterValue::Scalar("any".into()),
+            },
+            Filter {
+                field: "service_name".into(),
+                op: FilterOp::Eq,
+                value: FilterValue::Scalar("serviceradar-core".into()),
+            },
+        ]);
+        plan.order = vec![timestamp_order(OrderDirection::Desc)];
+
+        let (sql, params) = build(&plan).unwrap().unwrap().into_parts();
+
+        assert_eq!(
+            sql.matches("\"logs\".\"service_name\" = $").count(),
+            2,
+            "{sql}"
+        );
+        assert_eq!(max_dollar_placeholder(&sql), params.len());
+        assert!(matches!(&params[2], BindParam::Text(value) if value == "error"));
+        assert!(matches!(&params[3], BindParam::Text(value) if value == "serviceradar-core"));
+        assert!(matches!(&params[8], BindParam::Int(17)));
+        assert!(matches!(&params[9], BindParam::Text(value) if value == "serviceradar-core"));
+        assert!(matches!(&params[10], BindParam::TextArray(values) if values.len() == 38));
+    }
+
+    #[test]
+    fn falls_back_when_any_text_is_unrecognized_or_branch_count_is_excessive() {
+        let mut custom = data_plan(vec![
+            severity_filter(&["custom-severity"]),
+            Filter {
+                field: "severity_number".into(),
+                op: FilterOp::In,
+                value: FilterValue::List(vec!["17".into()]),
+            },
+            Filter {
+                field: "severity_match".into(),
+                op: FilterOp::Eq,
+                value: FilterValue::Scalar("any".into()),
+            },
+        ]);
+        custom.order = vec![timestamp_order(OrderDirection::Desc)];
+        assert!(build(&custom).unwrap().is_none());
+
+        let text_count = MAX_TOPN_SEVERITY_ANY_BRANCHES / 2;
+        let number_count = MAX_TOPN_SEVERITY_ANY_BRANCHES - text_count + 1;
+        let mut excessive = data_plan(vec![
+            severity_filter(&super::super::RECOGNIZED_SEVERITY_TEXTS[..text_count]),
+            Filter {
+                field: "severity_number".into(),
+                op: FilterOp::In,
+                value: FilterValue::List(
+                    (0..number_count).map(|value| value.to_string()).collect(),
+                ),
+            },
+            Filter {
+                field: "severity_match".into(),
+                op: FilterOp::Eq,
+                value: FilterValue::Scalar("any".into()),
+            },
+        ]);
+        excessive.order = vec![timestamp_order(OrderDirection::Desc)];
+        assert!(build(&excessive).unwrap().is_none());
     }
 
     #[test]

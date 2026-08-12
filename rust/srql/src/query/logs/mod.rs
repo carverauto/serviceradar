@@ -33,6 +33,50 @@ type LogsQuery<'a> = BoxedSelectStatement<'a, <LogsTable as AsQuery>::SqlType, L
 
 const MAX_LIST_FILTER_VALUES: usize = 200;
 
+/// Every category-bearing severity text understood by the log cards. Text in
+/// this set is authoritative; numeric severity is only a fallback for absent
+/// or unrecognized text.
+pub(super) const RECOGNIZED_SEVERITY_TEXTS: &[&str] = &[
+    "fatal",
+    "critical",
+    "emergency",
+    "alert",
+    "error",
+    "err",
+    "warning",
+    "warn",
+    "info",
+    "information",
+    "informational",
+    "notice",
+    "debug",
+    "trace",
+    "severity_number_fatal",
+    "severity_number_fatal2",
+    "severity_number_fatal3",
+    "severity_number_fatal4",
+    "severity_number_error",
+    "severity_number_error2",
+    "severity_number_error3",
+    "severity_number_error4",
+    "severity_number_warn",
+    "severity_number_warn2",
+    "severity_number_warn3",
+    "severity_number_warn4",
+    "severity_number_info",
+    "severity_number_info2",
+    "severity_number_info3",
+    "severity_number_info4",
+    "severity_number_debug",
+    "severity_number_debug2",
+    "severity_number_debug3",
+    "severity_number_debug4",
+    "severity_number_trace",
+    "severity_number_trace2",
+    "severity_number_trace3",
+    "severity_number_trace4",
+];
+
 pub(super) async fn execute(conn: &mut AsyncPgConnection, plan: &QueryPlan) -> Result<Vec<Value>> {
     ensure_entity(plan)?;
 
@@ -122,8 +166,33 @@ fn collect_base_params(plan: &QueryPlan) -> Result<Vec<BindParam>> {
         params.push(BindParam::timestamptz(*end));
     }
 
+    let severity_any = severity_match_any(plan);
+    let mut deferred_text = None;
+    let mut deferred_numeric = None;
+
     for filter in &plan.filters {
-        collect_filter_params(&mut params, filter)?;
+        match filter.field.as_str() {
+            "severity_match" if severity_any => {}
+            "severity_text" | "severity" | "level" if severity_any => deferred_text = Some(filter),
+            "severity_number" if severity_any => deferred_numeric = Some(filter),
+            _ => collect_filter_params(&mut params, filter)?,
+        }
+    }
+
+    if severity_any {
+        let (Some(text_filter), Some(number_filter)) = (deferred_text, deferred_numeric) else {
+            return Err(ServiceError::InvalidRequest(
+                "severity_match:any requires severity and severity_number filters".into(),
+            ));
+        };
+        collect_filter_params(&mut params, text_filter)?;
+        params.push(BindParam::TextArray(
+            RECOGNIZED_SEVERITY_TEXTS
+                .iter()
+                .map(|value| (*value).to_string())
+                .collect(),
+        ));
+        collect_filter_params(&mut params, number_filter)?;
     }
 
     Ok(params)
@@ -149,12 +218,33 @@ fn build_query(plan: &QueryPlan) -> Result<LogsQuery<'static>> {
         );
     }
 
+    let severity_any = severity_match_any(plan);
+    let mut severity_text = None;
+    let mut severity_number = None;
+
     for filter in &plan.filters {
-        query = apply_filter(query, filter)?;
+        match filter.field.as_str() {
+            "severity_match" if severity_any => {}
+            "severity_text" | "severity" | "level" if severity_any => severity_text = Some(filter),
+            "severity_number" if severity_any => severity_number = Some(filter),
+            _ => query = apply_filter(query, filter)?,
+        }
+    }
+
+    if severity_any {
+        query = filters::apply_severity_any_filter(query, severity_text, severity_number)?;
     }
 
     query = apply_ordering(query, &plan.order);
     Ok(query)
+}
+
+fn severity_match_any(plan: &QueryPlan) -> bool {
+    plan.filters.iter().any(|filter| {
+        filter.field == "severity_match"
+            && matches!(filter.op, crate::parser::FilterOp::Eq)
+            && matches!(filter.value.as_scalar(), Ok("any"))
+    })
 }
 
 fn enforce_list_limit(field: &str, len: usize) -> Result<()> {

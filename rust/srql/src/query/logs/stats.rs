@@ -1,10 +1,11 @@
 use super::stats_clauses::{build_lowered_text_clause, build_numeric_clause, build_text_clause};
 use super::stats_expr::parse_stats_expressions;
 use super::time::effective_timestamp_sql;
+use super::{RECOGNIZED_SEVERITY_TEXTS, severity_match_any};
 use crate::{
     error::{Result, ServiceError},
     jsonb::DbJson,
-    parser::Filter,
+    parser::{Filter, FilterOp},
     query::{BindParam, QueryPlan},
     time::TimeRange,
 };
@@ -13,7 +14,7 @@ use diesel::deserialize::QueryableByName;
 use diesel::pg::Pg;
 use diesel::query_builder::{BoxedSqlQuery, SqlQuery};
 use diesel::sql_query;
-use diesel::sql_types::{Int4, Jsonb, Nullable, Text, Timestamptz};
+use diesel::sql_types::{Array, Int4, Jsonb, Nullable, Text, Timestamptz};
 
 #[derive(Debug, Clone)]
 pub(super) struct LogsStatsSql {
@@ -41,6 +42,7 @@ pub(super) struct LogsStatsPayload {
 #[derive(Debug, Clone)]
 pub(super) enum SqlBindValue {
     Text(String),
+    TextArray(Vec<String>),
     Int(i32),
     Timestamp(DateTime<Utc>),
 }
@@ -49,6 +51,7 @@ impl SqlBindValue {
     fn apply<'a>(&self, query: BoxedSqlQuery<'a, Pg, SqlQuery>) -> BoxedSqlQuery<'a, Pg, SqlQuery> {
         match self {
             SqlBindValue::Text(value) => query.bind::<Text, _>(value.clone()),
+            SqlBindValue::TextArray(value) => query.bind::<Array<Text>, _>(value.clone()),
             SqlBindValue::Int(value) => query.bind::<Int4, _>(*value),
             SqlBindValue::Timestamp(value) => query.bind::<Timestamptz, _>(*value),
         }
@@ -58,6 +61,7 @@ impl SqlBindValue {
 pub(super) fn bind_param_from_stats(value: SqlBindValue) -> BindParam {
     match value {
         SqlBindValue::Text(value) => BindParam::Text(value),
+        SqlBindValue::TextArray(value) => BindParam::TextArray(value),
         SqlBindValue::Int(value) => BindParam::Int(i64::from(value)),
         SqlBindValue::Timestamp(value) => BindParam::timestamptz(value),
     }
@@ -86,11 +90,28 @@ pub(super) fn build_stats_query(plan: &QueryPlan) -> Result<Option<LogsStatsSql>
         binds.push(SqlBindValue::Timestamp(*end));
     }
 
+    let severity_any = severity_match_any(plan);
+    let mut severity_text = None;
+    let mut severity_number = None;
+
     for filter in &plan.filters {
-        if let Some((clause, mut values)) = build_stats_filter_clause(filter)? {
-            clauses.push(clause);
-            binds.append(&mut values);
+        match filter.field.as_str() {
+            "severity_match" if severity_any => {}
+            "severity_text" | "severity" | "level" if severity_any => severity_text = Some(filter),
+            "severity_number" if severity_any => severity_number = Some(filter),
+            _ => {
+                if let Some((clause, mut values)) = build_stats_filter_clause(filter)? {
+                    clauses.push(clause);
+                    binds.append(&mut values);
+                }
+            }
         }
+    }
+
+    if severity_any {
+        let (clause, mut values) = build_severity_any_stats_clause(severity_text, severity_number)?;
+        clauses.push(clause);
+        binds.append(&mut values);
     }
 
     let mut parts = Vec::new();
@@ -107,6 +128,52 @@ pub(super) fn build_stats_query(plan: &QueryPlan) -> Result<Option<LogsStatsSql>
     }
 
     Ok(Some(LogsStatsSql { sql, binds }))
+}
+
+fn build_severity_any_stats_clause(
+    text_filter: Option<&Filter>,
+    number_filter: Option<&Filter>,
+) -> Result<(String, Vec<SqlBindValue>)> {
+    let (Some(text_filter), Some(number_filter)) = (text_filter, number_filter) else {
+        return Err(ServiceError::InvalidRequest(
+            "severity_match:any requires severity and severity_number filters".into(),
+        ));
+    };
+
+    if !matches!(text_filter.op, FilterOp::In) || !matches!(number_filter.op, FilterOp::In) {
+        return Err(ServiceError::InvalidRequest(
+            "severity_match:any requires IN-list filters".into(),
+        ));
+    }
+
+    let Some((text_clause, mut text_binds)) =
+        build_lowered_text_clause("severity_text", text_filter)?
+    else {
+        return Err(ServiceError::InvalidRequest(
+            "severity_match:any requires non-empty IN-list filters".into(),
+        ));
+    };
+    let Some((number_clause, number_binds)) =
+        build_numeric_clause("severity_number", number_filter)?
+    else {
+        return Err(ServiceError::InvalidRequest(
+            "severity_match:any requires non-empty IN-list filters".into(),
+        ));
+    };
+
+    text_binds.push(SqlBindValue::TextArray(
+        RECOGNIZED_SEVERITY_TEXTS
+            .iter()
+            .map(|value| (*value).to_string())
+            .collect(),
+    ));
+    text_binds.extend(number_binds);
+    Ok((
+        format!(
+            "({text_clause} OR ((severity_text IS NULL OR lower(severity_text) <> ALL(?)) AND {number_clause}))"
+        ),
+        text_binds,
+    ))
 }
 
 fn build_stats_filter_clause(filter: &Filter) -> Result<Option<(String, Vec<SqlBindValue>)>> {
@@ -153,7 +220,7 @@ pub(super) fn rewrite_placeholders(sql: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::super::test_support::{data_plan, scalar_filter};
-    use super::build_stats_query;
+    use super::{SqlBindValue, build_stats_query};
     use crate::parser::{Entity, Filter, FilterOp, FilterValue};
     use crate::query::QueryPlan;
     use crate::time::TimeRange;
@@ -274,6 +341,61 @@ mod tests {
             "severity stats IN filter should lower each placeholder: {}",
             stats_sql.sql
         );
+    }
+
+    #[test]
+    fn severity_match_any_stats_ors_filters_after_service_bind() {
+        let mut plan = data_plan(vec![
+            Filter {
+                field: "severity".into(),
+                op: FilterOp::In,
+                value: FilterValue::List(vec!["error".into(), "severity_number_error".into()]),
+            },
+            Filter {
+                field: "severity_number".into(),
+                op: FilterOp::In,
+                value: FilterValue::List(vec!["17".into(), "18".into(), "19".into(), "20".into()]),
+            },
+            Filter {
+                field: "severity_match".into(),
+                op: FilterOp::Eq,
+                value: FilterValue::Scalar("any".into()),
+            },
+            Filter {
+                field: "service_name".into(),
+                op: FilterOp::Eq,
+                value: FilterValue::Scalar("serviceradar-core".into()),
+            },
+        ]);
+        plan.stats = Some(crate::parser::StatsSpec::from_raw("count() as total"));
+
+        let stats_sql = build_stats_query(&plan)
+            .expect("stats query should parse")
+            .expect("stats SQL expected");
+
+        assert!(
+            stats_sql.sql.contains(
+                "service_name = ? AND (lower(severity_text) IN (lower(?), lower(?)) OR ((severity_text IS NULL OR lower(severity_text) <> ALL(?)) AND severity_number IN (?, ?, ?, ?)))"
+            ),
+            "{}",
+            stats_sql.sql
+        );
+        assert_eq!(stats_sql.binds.len(), 10);
+        assert!(
+            matches!(&stats_sql.binds[2], SqlBindValue::Text(value) if value == "serviceradar-core")
+        );
+        assert!(matches!(&stats_sql.binds[3], SqlBindValue::Text(value) if value == "error"));
+        assert!(
+            matches!(&stats_sql.binds[4], SqlBindValue::Text(value) if value == "severity_number_error")
+        );
+        assert!(
+            matches!(&stats_sql.binds[5], SqlBindValue::TextArray(values)
+                if values.len() == 38
+                    && values.contains(&"fatal".to_string())
+                    && values.contains(&"severity_number_trace4".to_string()))
+        );
+        assert!(matches!(&stats_sql.binds[6], SqlBindValue::Int(17)));
+        assert!(matches!(&stats_sql.binds[9], SqlBindValue::Int(20)));
     }
 
     #[test]
