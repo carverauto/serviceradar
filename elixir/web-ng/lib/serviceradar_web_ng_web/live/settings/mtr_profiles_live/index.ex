@@ -279,7 +279,7 @@ defmodule ServiceRadarWebNGWeb.Settings.MtrProfilesLive.Index do
              put_flash(
                socket,
                :error,
-               "Saved MTR settings, but retention policy reconciliation failed: #{inspect(reason)}"
+               "Saved MTR settings, but retention policy reconciliation failed: #{format_retention_error(reason)}"
              )}
         end
 
@@ -1101,11 +1101,17 @@ defmodule ServiceRadarWebNGWeb.Settings.MtrProfilesLive.Index do
     case Map.get(tables, table) do
       %{configured?: true, drop_after: drop_after} when is_binary(drop_after) -> drop_after
       %{configured?: true} -> "configured"
+      %{hypertable?: false} -> "not a hypertable"
       _ -> "not found"
     end
   end
 
   defp table_policy(_status, _table), do: "unknown"
+
+  defp format_retention_error(%Postgrex.Error{postgres: %{message: message}}) when is_binary(message),
+    do: message
+
+  defp format_retention_error(reason), do: inspect(reason)
 
   defp save_profile(:new_profile, _profile, attrs, scope), do: MtrPolicy.create_policy(attrs, scope: scope)
 
