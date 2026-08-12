@@ -10,12 +10,16 @@ defmodule ServiceRadarWebNGWeb.Api.SrqlCatalogController do
 
   use ServiceRadarWebNGWeb, :controller
 
+  alias ServiceRadar.CompositeChecks.CompositeCheck
+  alias ServiceRadar.CompositeChecks.CompositeCheckRule
   alias ServiceRadarWebNGWeb.SRQL.Catalog
+
+  require Logger
 
   @cache_control "private, max-age=300, must-revalidate"
 
   def show(conn, _params) do
-    catalog = Catalog.structured()
+    catalog = catalog_for(conn)
     etag = Catalog.etag(catalog)
 
     conn =
@@ -28,6 +32,52 @@ defmodule ServiceRadarWebNGWeb.Api.SrqlCatalogController do
     else
       json(conn, catalog)
     end
+  end
+
+  # Composite fields are the one runtime-varying part of the catalog: slugs and
+  # verdicts are operator-authored, so they cannot live in the static list. The
+  # version is a content hash of the whole payload, so adding or renaming a
+  # check invalidates the ETag on its own.
+  #
+  # A failure here degrades to the static catalog rather than failing the
+  # request: losing composite completions is a much smaller problem than an
+  # editor that cannot load its catalog at all.
+  defp catalog_for(conn) do
+    case composite_checks(conn) do
+      [] ->
+        Catalog.structured()
+
+      checks ->
+        Catalog.entities()
+        |> Catalog.with_composite_checks(checks)
+        |> Catalog.structured_from_entities()
+    end
+  end
+
+  defp composite_checks(conn) do
+    scope = conn.assigns[:current_scope]
+
+    case CompositeCheck.list_enabled(scope: scope) do
+      {:ok, checks} -> Enum.map(checks, &check_with_verdicts(&1, scope))
+      {:error, _reason} -> []
+    end
+  rescue
+    exception ->
+      Logger.warning("SRQL catalog omitted composite fields",
+        reason: Exception.message(exception)
+      )
+
+      []
+  end
+
+  defp check_with_verdicts(check, scope) do
+    verdicts =
+      case CompositeCheckRule.list_by_check(check.id, scope: scope) do
+        {:ok, rules} -> rules |> Enum.map(& &1.verdict) |> Enum.uniq()
+        {:error, _reason} -> []
+      end
+
+    %{slug: check.slug, name: check.name, verdicts: verdicts}
   end
 
   defp fresh?(conn, etag) do
