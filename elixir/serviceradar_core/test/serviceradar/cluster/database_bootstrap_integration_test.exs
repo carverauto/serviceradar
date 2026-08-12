@@ -100,11 +100,20 @@ defmodule ServiceRadar.Cluster.DatabaseBootstrapIntegrationTest do
     assert first["migration_count"] > 0
     assert first["platform_object_count"] > 0
 
+    assert first["auth_settings"] == %{
+             "count" => 1,
+             "mode" => "password_only",
+             "is_enabled" => false,
+             "allow_password_fallback" => true,
+             "sso_auto_provision" => false
+           }
+
     second = run_startup_migrations!(admin_url, scratch_db)
 
     assert second["baseline_count"] == 1
     assert second["migration_count"] == first["migration_count"]
     assert second["platform_object_count"] == first["platform_object_count"]
+    assert second["auth_settings"] == first["auth_settings"]
   end
 
   defp run_startup_migrations!(admin_url, database) do
@@ -192,10 +201,33 @@ defmodule ServiceRadar.Cluster.DatabaseBootstrapIntegrationTest do
       AND c.relkind IN ('r', 'p', 'S', 'v', 'm', 'f')
       """)
 
+    %{rows: auth_rows} =
+      ServiceRadar.Repo.query!("""
+      SELECT mode, is_enabled, allow_password_fallback, sso_auto_provision
+      FROM platform.auth_settings
+      ORDER BY inserted_at
+      """)
+
+    auth_settings =
+      case auth_rows do
+        [[mode, is_enabled, allow_password_fallback, sso_auto_provision]] ->
+          %{
+            count: 1,
+            mode: mode,
+            is_enabled: is_enabled,
+            allow_password_fallback: allow_password_fallback,
+            sso_auto_provision: sso_auto_provision
+          }
+
+        rows ->
+          %{count: length(rows)}
+      end
+
     IO.puts("BOOTSTRAP_RESULT:" <> Jason.encode!(%{
       migration_count: migration_count,
       baseline_count: baseline_count,
-      platform_object_count: platform_object_count
+      platform_object_count: platform_object_count,
+      auth_settings: auth_settings
     }))
     '''
   end

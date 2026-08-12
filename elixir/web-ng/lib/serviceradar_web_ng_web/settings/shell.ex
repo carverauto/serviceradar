@@ -204,7 +204,7 @@ defmodule ServiceRadarWebNGWeb.Settings.Shell do
       <.link
         :for={category <- @categories}
         role="tab"
-        navigate={Catalog.category_landing_route(@current_scope, category)}
+        href={Catalog.category_landing_route(@current_scope, category)}
         aria-selected={active_category?(@active_category, category)}
         title={category.title}
         class={[
@@ -292,7 +292,7 @@ defmodule ServiceRadarWebNGWeb.Settings.Shell do
             <ul class="sr-ui-menu w-full gap-0.5 p-0">
               <li :for={view <- section.views} data-view-search={view_search(view)}>
                 <.link
-                  navigate={view.route}
+                  href={view.route}
                   aria-current={active_view?(@active_view, view) && "page"}
                   class={[
                     "gap-2 rounded-lg",
@@ -352,7 +352,7 @@ defmodule ServiceRadarWebNGWeb.Settings.Shell do
                 </:item>
                 <:item :for={view <- @views}>
                   <.link
-                    navigate={view.route}
+                    href={view.route}
                     class={active_view?(@active_view, view) && "font-semibold text-sr-brand"}
                   >
                     <.icon name={view.icon} class="size-4 shrink-0" />
@@ -366,7 +366,7 @@ defmodule ServiceRadarWebNGWeb.Settings.Shell do
                 </:item>
               </.ui_dropdown>
             <% crumb.route -> %>
-              <.link navigate={crumb.route}>{crumb.label}</.link>
+              <.link href={crumb.route}>{crumb.label}</.link>
             <% true -> %>
               <span>{crumb.label}</span>
           <% end %>
@@ -393,7 +393,7 @@ defmodule ServiceRadarWebNGWeb.Settings.Shell do
         <%= for card <- @stats do %>
           <.link
             :if={card_nav(card)}
-            navigate={card_nav(card)}
+            href={card_nav(card)}
             class="stat py-2 group cursor-pointer transition-colors hover:bg-sr-subtle"
           >
             <div class="sr-ui-stat-title text-xs flex items-center gap-1">
@@ -463,7 +463,7 @@ defmodule ServiceRadarWebNGWeb.Settings.Shell do
             data-search={palette_search(item)}
           >
             <.link
-              navigate={item.route}
+              href={item.route}
               class="flex items-start gap-3"
               data-command-palette-link
             >
