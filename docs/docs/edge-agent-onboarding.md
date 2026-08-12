@@ -14,9 +14,46 @@ That is it. The agent enrolls, receives config, and starts streaming results.
 
 ## Prereqs
 
-- You can reach the web UI for your deployment.
-- The host can reach your `agent-gateway` endpoint (outbound).
+- You can reach the public web UI/API origin for your deployment over HTTPS.
+- The host can reach the public `agent-gateway` gRPC endpoint on TCP `50052`
+  (outbound). This may be a different hostname or IP from the web UI.
 - You have `sudo` on the host.
+- For Helm deployments, configure the public web and agent-gateway endpoints
+  before creating an onboarding package. A common deployment uses separate DNS
+  names and a dedicated agent-gateway `LoadBalancer`:
+
+  ```yaml
+  webNg:
+    host: serviceradar.example.com
+    publicUrl: https://serviceradar.example.com
+    gatewayAddress: agent-gateway.example.com:50052
+
+  agentGateway:
+    publicHostname: agent-gateway.example.com
+    service:
+      type: LoadBalancer
+      annotations:
+        external-dns.alpha.kubernetes.io/hostname: agent-gateway.example.com.
+  ```
+
+  `webNg.host` is Phoenix's public host and `webNg.publicUrl` is the bare HTTPS
+  origin used by generated install commands and signed tokens. The CLI uses it
+  only to download the onboarding bundle. `webNg.gatewayAddress` is the
+  externally reachable `host:port` written into that bundle as `gateway_addr`;
+  the installed agent uses it for its long-lived mTLS gRPC connection.
+
+  `agentGateway.publicHostname` should match the gateway DNS name and is used
+  for the public artifact endpoint on TCP `50053`. The bundle verifies the
+  gateway using the hostname from `webNg.gatewayAddress`, so the certificate
+  presented by the gateway must cover that name. Changing the name can require
+  certificate reissuance. Do not set any of these public values to a Kubernetes
+  Service name.
+
+  The agent-gateway can instead share a Gateway API data-plane address, but
+  enabling the web `HTTPRoute` alone does not expose gRPC. The parent Gateway
+  must have TCP listeners for `50052` and, when enabled, `50053`; then configure
+  `gatewayApi.agentGateway.enabled` and the matching `parentRefs`. See
+  [Helm Deployment and Configuration](./helm-configuration.md#public-web-and-edge-agent-endpoints).
 
 ## 1. Install The Agent (RPM/DEB)
 
@@ -47,7 +84,7 @@ In the web UI:
 The enroll command looks like:
 
 ```bash
-sudo /usr/local/bin/serviceradar-cli enroll --core-url https://<SERVICERADAR_HOST> --token edgepkg-v2:<token>
+sudo /usr/local/bin/serviceradar-cli enroll --core-url https://<SERVICERADAR_HOST> --token edgepkg-v3:<token>
 ```
 
 ## 3. Enroll The Host
@@ -55,7 +92,7 @@ sudo /usr/local/bin/serviceradar-cli enroll --core-url https://<SERVICERADAR_HOS
 On the host where you installed the agent, paste the enroll command from the UI:
 
 ```bash
-sudo /usr/local/bin/serviceradar-cli enroll --core-url https://<SERVICERADAR_HOST> --token edgepkg-v2:<token>
+sudo /usr/local/bin/serviceradar-cli enroll --core-url https://<SERVICERADAR_HOST> --token edgepkg-v3:<token>
 ```
 
 Notes:
@@ -65,8 +102,28 @@ Notes:
   distribute certificates by hand for standard Cloud or chart-managed installs.
 - Bundle/package download tokens are accepted only in explicit request headers or POST bodies, never in URL query strings.
 - Enrollment requires verified HTTPS. `serviceradar-cli enroll` no longer supports an insecure TLS bypass.
-- Only signed `edgepkg-v2` tokens are accepted for agent enrollment.
+- Newly issued agent enrollment tokens use the signed `edgepkg-v3` format.
+  Signed `edgepkg-v2` tokens remain accepted for upgrade compatibility.
+- The signed token embeds the deployment's public API origin. When
+  `--core-url` is supplied, the explicit CLI value overrides the embedded
+  origin after the same HTTPS validation. This lets an operator recover from a
+  token minted with a stale hostname; create a new package after correcting the
+  deployment value.
+- `--core-url` does **not** override the agent's gRPC destination. The downloaded
+  bundle supplies `gateway_addr`, which comes from `webNg.gatewayAddress` in a
+  Helm deployment. Correct that deployment value and issue a new package if the
+  agent is dialing the web hostname on `50052` or another unreachable endpoint.
 - If you need to re-enroll, generate a new agent package to get a fresh token.
+
+If enrollment tries to resolve `serviceradar-web-ng`, the token was minted with
+an internal endpoint. Set `webNg.publicUrl` correctly and issue a new package,
+or use `--core-url https://<PUBLIC_HOST>` as a temporary override.
+
+If enrollment succeeds but the agent later times out connecting to
+`<WEB_HOST>:50052`, the web URL is no longer the problem. Verify the
+`gateway_addr` in `/etc/serviceradar/agent.json`, confirm it names the actual
+agent-gateway L4 endpoint, and test TCP reachability to port `50052`. A web-only
+Gateway normally exposes `80`/`443`, not the agent-gateway ports.
 
 ## 4. Verify
 

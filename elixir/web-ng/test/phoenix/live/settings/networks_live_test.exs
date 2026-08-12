@@ -207,6 +207,33 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLiveTest do
     assert has_element?(lv, "#run-mapper-job-#{job.id}")
   end
 
+  test "run now shows an actionable validation message when no mapper agent is online", %{
+    conn: conn,
+    scope: scope
+  } do
+    unique = System.unique_integer([:positive])
+
+    {:ok, job} =
+      MapperJob
+      |> Ash.Changeset.for_create(:create, %{
+        name: "Offline Discovery #{unique}",
+        enabled: false
+      })
+      |> Ash.create(scope: scope)
+
+    {:ok, lv, _html} = live(conn, ~p"/settings/networks/discovery")
+
+    html =
+      lv
+      |> element("#run-mapper-job-#{job.id}")
+      |> render_click()
+
+    assert html =~
+             "Failed to run discovery job: No online mapper-capable agent is available for this discovery job."
+
+    refute html =~ "Ash.Error"
+  end
+
   test "shows masked placeholders for stored controller credentials", %{conn: conn, scope: scope} do
     unique = System.unique_integer([:positive])
 
