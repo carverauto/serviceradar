@@ -59,6 +59,7 @@ defmodule ServiceRadar.CompositeChecks.CompositeCheck do
       accept @create_fields
       change DeriveSlug
       validate ScopeQuery
+      change after_action(&create_catch_all_rule/3)
     end
 
     update :update do
@@ -129,5 +130,29 @@ defmodule ServiceRadar.CompositeChecks.CompositeCheck do
 
   identities do
     identity :unique_slug, [:slug]
+  end
+
+  @doc false
+  # Every check is born with a catch-all rule. It is what makes the decision
+  # table total: any input combination that matches no authored rule lands here
+  # instead of leaving the device with no verdict at all.
+  def create_catch_all_rule(_changeset, check, context) do
+    ServiceRadar.CompositeChecks.CompositeCheckRule
+    |> Ash.Changeset.for_create(
+      :create_catch_all,
+      %{
+        check_id: check.id,
+        verdict: "inconclusive",
+        verdict_label: "Inconclusive",
+        verdict_description:
+          "One or more inputs were unknown or stale, so no verdict can be asserted"
+      },
+      actor: context.actor
+    )
+    |> Ash.create()
+    |> case do
+      {:ok, _rule} -> {:ok, check}
+      {:error, error} -> {:error, error}
+    end
   end
 end

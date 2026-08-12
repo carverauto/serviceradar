@@ -10,8 +10,17 @@ defmodule ServiceRadar.CompositeChecks.Validations.ScopeQuery do
   alias ServiceRadar.SRQLAst
   alias ServiceRadar.SRQLQuery
 
+  # Delegate rather than returning a bare `:ok`: a validation whose `atomic/3`
+  # returns `:ok` is treated as having nothing to check and is skipped entirely
+  # when the action runs atomically, which would let an invalid scope through on
+  # update.
   @impl true
-  def atomic(_changeset, _opts, _context), do: :ok
+  def atomic(changeset, opts, context) do
+    case validate(changeset, opts, context) do
+      :ok -> :ok
+      {:error, error} -> {:error, error}
+    end
+  end
 
   @impl true
   def validate(changeset, _opts, _context) do

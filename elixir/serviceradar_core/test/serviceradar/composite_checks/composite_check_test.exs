@@ -51,6 +51,22 @@ defmodule ServiceRadar.CompositeChecks.CompositeCheckTest do
       assert renamed.slug == "original-name"
       assert renamed.name == "Different Name"
     end
+
+    # Guards a real hole: a validation whose `atomic/3` returns a bare `:ok` is
+    # skipped when the action runs atomically, so scope validation would apply
+    # on create but silently not on update.
+    test "rejects a non-device scope on update, not just on create" do
+      {:ok, check} = create(%{name: "Scope Update", scope_query: "in:devices"})
+
+      assert {:error, error} =
+               check
+               |> Ash.Changeset.for_update(:update, %{scope_query: "in:flows src_ip:10.0.0.1"},
+                 actor: actor()
+               )
+               |> Ash.update()
+
+      assert Exception.message(error) =~ "must target devices"
+    end
   end
 
   describe "authorization" do
