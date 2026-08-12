@@ -278,6 +278,13 @@ jobs:
       - name: Edge structural-count corpus (Elixir)
         working-directory: elixir/serviceradar_core
         run: mix test --no-start test/serviceradar/edge/count_corpus_test.exs
+      # THE SHARED LOWER-BOUND CORPUS: eight sites, zero refused AND one accepted at each,
+      # because a zero refusal alone does not pin a minimum of 1. Gated because its
+      # `*_removal` columns are MEASURED claims about what each local arm is worth -- an arm
+      # that becomes shadowed still passes every verdict row, so only the inventory notices.
+      - name: Edge lower-bound corpus (Elixir)
+        working-directory: elixir/serviceradar_core
+        run: mix test --no-start test/serviceradar/edge/lower_bound_corpus_test.exs
       # THE SHARED SCALAR / CARRIER CORPUS: FIVE bounds, eight sites. Control count is per site
       # -- FOUR for a two-sided gate (a frozen minimum of 1 needs BOTH a zero refusal and a
       # length-1 acceptance, or the minimum is free to move up), at/over plus a stage witness

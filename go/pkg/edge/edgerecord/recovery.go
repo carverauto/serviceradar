@@ -642,8 +642,16 @@ func recoveryControlBody(pl *edgev1.EdgeRecoveryControlPayloadV1) (rid, scope []
 		if t.GetDigestVersion() != RecoveryDigestVersion || len(t.GetManifestRootSha256()) != sha256Len {
 			return nil, nil, fmt.Errorf("%w: tombstone digest", ErrTombstoneMismatch)
 		}
-		if t.GetManifestPageCount() == 0 || t.GetDetectedAtUnixNano() <= 0 {
-			return nil, nil, fmt.Errorf("%w: tombstone page-count/time", ErrTombstoneMismatch)
+		// BOUNDED 1..MaxManifestPages, not merely non-zero. This path receives NO page list --
+		// `ValidateTombstone` is what reconciles a declaration against supplied pages -- so the
+		// declaration is committed by the scope digest exactly as signed. An unbounded count
+		// therefore travels signed and is only questioned, if ever, at assembly.
+		if c := t.GetManifestPageCount(); c == 0 || c > MaxManifestPages {
+			return nil, nil, fmt.Errorf("%w: tombstone page count", ErrTombstoneMismatch)
+		}
+
+		if t.GetDetectedAtUnixNano() <= 0 {
+			return nil, nil, fmt.Errorf("%w: tombstone detected-at", ErrTombstoneMismatch)
 		}
 		if l := len(t.GetReason()); l == 0 || l > MaxReasonBytes {
 			return nil, nil, fmt.Errorf("%w: tombstone reason", ErrTombstoneMismatch)
