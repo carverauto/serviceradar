@@ -86,6 +86,16 @@ impl DeviceGroupField {
             Self::Jsonb { column, key } => format!("{column}.{key}"),
         }
     }
+
+    pub(super) fn matches_order_field(&self, field: &str) -> bool {
+        match self {
+            // Arbitrary JSONB keys are case-sensitive, so `tags.Gate` and
+            // `tags.gate` are different sort targets just as they are
+            // different filter and GROUP BY targets.
+            Self::Jsonb { .. } => self.response_key() == field,
+            _ => self.response_key().eq_ignore_ascii_case(field),
+        }
+    }
 }
 
 #[cfg(test)]
@@ -116,6 +126,10 @@ mod tests {
             field.column(),
             "COALESCE(metadata->>'integration_type', 'Unknown')"
         );
+
+        let upper = DeviceGroupField::from_str("tags.Gate").expect("tags.Gate should parse");
+        assert!(upper.matches_order_field("tags.Gate"));
+        assert!(!upper.matches_order_field("tags.gate"));
     }
 
     #[test]

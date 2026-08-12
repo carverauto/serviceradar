@@ -66,7 +66,7 @@ async fn grouped_device_stats_execute_against_postgres() {
         let (status, body) = read_json(
             harness
                 .query(request(
-                    "in:devices stats:count() as total by tags.role limit:100",
+                    "in:devices include_inactive:true stats:count() as total by tags.role limit:100",
                 ))
                 .await,
         )
@@ -86,7 +86,7 @@ async fn grouped_device_stats_execute_against_postgres() {
         let (status, body) = read_json(
             harness
                 .query(request(
-                    "in:devices tags.site:DFW stats:count() as total by tags.role limit:100",
+                    "in:devices include_inactive:true tags.site:DFW stats:count() as total by tags.role limit:100",
                 ))
                 .await,
         )
@@ -127,7 +127,7 @@ async fn grouped_device_stats_execute_against_postgres() {
         let (status, body) = read_json(
             harness
                 .query(request(
-                    "in:devices tags:role stats:count() as total by type limit:100",
+                    "in:devices include_inactive:true tags:role stats:count() as total by type limit:100",
                 ))
                 .await,
         )
@@ -160,7 +160,7 @@ async fn jsonb_sub_key_lookups_are_case_sensitive_end_to_end() {
         let (status, body) = read_json(
             harness
                 .query(request(
-                    "in:devices stats:count() as total by tags.Gate limit:100",
+                    "in:devices include_inactive:true stats:count() as total by tags.Gate limit:100",
                 ))
                 .await,
         )
@@ -178,7 +178,7 @@ async fn jsonb_sub_key_lookups_are_case_sensitive_end_to_end() {
 
         let (status, body) = read_json(
             harness
-                .query(request("in:devices tags.Gate:A1"))
+                .query(request("in:devices include_inactive:true tags.Gate:A1"))
                 .await,
         )
         .await;
@@ -198,7 +198,9 @@ async fn tag_sub_key_list_filter_executes() {
     with_srql_harness(|harness| async move {
         let (status, body) = read_json(
             harness
-                .query(request("in:devices tags.role:(edge,core)"))
+                .query(request(
+                    "in:devices include_inactive:true tags.role:(edge,core)",
+                ))
                 .await,
         )
         .await;
@@ -213,7 +215,9 @@ async fn tag_sub_key_list_filter_executes() {
         // it has to survive rather than being dropped by NULL semantics.
         let (status, body) = read_json(
             harness
-                .query(request("in:devices !tags.role:(edge)"))
+                .query(request(
+                    "in:devices include_inactive:true !tags.role:(edge)",
+                ))
                 .await,
         )
         .await;
@@ -226,6 +230,42 @@ async fn tag_sub_key_list_filter_executes() {
             body["results"].as_array().unwrap().len(),
             2,
             "the core device and the untagged device should both remain: {body}"
+        );
+    })
+    .await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn tag_sub_key_wildcard_filter_executes_as_like() {
+    with_srql_harness(|harness| async move {
+        let (status, body) = read_json(
+            harness
+                .query(request("in:devices include_inactive:true tags.role:%dg%"))
+                .await,
+        )
+        .await;
+        assert_eq!(status, http::StatusCode::OK, "tags.role wildcard: {body}");
+        assert_eq!(
+            body["results"].as_array().unwrap().len(),
+            2,
+            "the wildcard should match both edge-tagged devices: {body}"
+        );
+
+        let (status, body) = read_json(
+            harness
+                .query(request("in:devices include_inactive:true !tags.role:%dg%"))
+                .await,
+        )
+        .await;
+        assert_eq!(
+            status,
+            http::StatusCode::OK,
+            "negated tags.role wildcard: {body}"
+        );
+        assert_eq!(
+            body["results"].as_array().unwrap().len(),
+            2,
+            "the core and untagged devices should survive negated LIKE: {body}"
         );
     })
     .await;

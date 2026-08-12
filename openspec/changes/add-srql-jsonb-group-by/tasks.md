@@ -18,12 +18,16 @@
 - [x] 2.3 Collect bind params for the same operator set in
       `collect_filter_params`, including the fixed `os.*` / `hw_info.*` paths,
       so execution and translation cannot diverge
+- [x] 2.4 Promote wildcard values on `tags.<key>` to LIKE / NotLike and route
+      fixed `os.*` / `hw_info.*` paths through the grouped-stats filter builder
 
 ## 3. Case sensitivity
 
 - [x] 3.1 Case-fold only the namespace in `parse_group_field`
 - [x] 3.2 Case-fold only the namespace in the parser's field normalization, so a
       filter and a group-by address the same key
+- [x] 3.3 Preserve JSONB sub-key casing in `sort:` and resolve dynamic grouped
+      fields case-sensitively
 
 ## 4. Execution correctness
 
@@ -40,9 +44,12 @@
       including the filtered case that the unit tests structurally cannot catch
 - [x] 5.4 Seed device `tags` in the SRQL integration fixtures, with one
       deliberately mixed-case key and one untagged device
+- [x] 5.5 Run the DB-backed grouped-stats target explicitly in CI and keep its
+      inactive-device expectations aligned with the fixture's query defaults
 
 ## 6. Docs
 
 - [x] 6.1 Document JSONB grouping, the `Unknown` bucket, and the 20/100 limits
 - [x] 6.2 Correct the `tags` field description: it is a JSONB map, and the bare
       form is a key-existence test
+- [x] 6.3 Advertise `tags.<key>` and `metadata.<key>` through the SRQL catalog

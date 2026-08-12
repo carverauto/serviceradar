@@ -887,6 +887,69 @@ fn devices_fixed_jsonb_fields_support_list_form() {
     );
 }
 
+#[test]
+fn devices_grouped_stats_fixed_jsonb_filters_match_row_query_operators() {
+    let plan =
+        plan_for("in:devices os.name:(Linux,Windows) stats:count() as total by type limit:10");
+    let (sql, params) =
+        devices::to_sql_and_params(&plan).expect("grouped stats should accept the list filter");
+
+    assert!(
+        sql.to_lowercase().contains("os->>'name' = any("),
+        "expected grouped stats to use JSONB list membership, got: {sql}"
+    );
+    assert!(
+        params
+            .iter()
+            .any(|param| matches!(param, BindParam::TextArray(values) if values == &vec!["Linux".to_string(), "Windows".to_string()])),
+        "expected the grouped query to bind the OS list as a text array, got: {params:?}"
+    );
+}
+
+#[test]
+fn devices_tag_wildcards_generate_like_clauses() {
+    for (query, expected) in [
+        ("in:devices tags.Role:%edge%", "tags->>'Role' ILIKE"),
+        ("in:devices !tags.Role:%edge%", "tags->>'Role' NOT ILIKE"),
+    ] {
+        let plan = plan_for(query);
+        let (sql, _params) = devices::to_sql_and_params(&plan).expect("should build SQL");
+        assert!(
+            sql.contains(expected),
+            "expected `{expected}` for `{query}`, got: {sql}"
+        );
+    }
+}
+
+#[test]
+fn devices_jsonb_group_sort_keeps_sub_key_casing() {
+    for (sort_field, expected_key, unexpected_key) in
+        [("tags.Gate", "Gate", "gate"), ("tags.gate", "gate", "Gate")]
+    {
+        let plan = plan_for(&format!(
+            "in:devices stats:count() as total by tags.Gate,tags.gate sort:{sort_field}:asc"
+        ));
+        let (sql, _params) =
+            devices::to_sql_and_params(&plan).expect("should build grouped stats SQL");
+        let order = sql
+            .split("ORDER BY ")
+            .nth(1)
+            .expect("grouped SQL should include ORDER BY")
+            .split("\nLIMIT")
+            .next()
+            .expect("ORDER BY should precede LIMIT");
+
+        assert!(
+            order.contains(&format!("tags->>'{expected_key}'")),
+            "sort:{sort_field} selected the wrong JSONB expression: {order}"
+        );
+        assert!(
+            !order.contains(&format!("tags->>'{unexpected_key}'")),
+            "sort:{sort_field} must not fold onto a different key: {order}"
+        );
+    }
+}
+
 // The grouped-stats builder emits `?`; Postgres wants `$n`. Translation always
 // rewrote, execution did not -- so a *filtered* grouped query was a syntax
 // error in production while these tests passed. Both paths now share the
@@ -915,4 +978,23 @@ fn devices_grouped_stats_sql_never_leaks_a_raw_placeholder() {
             "expected bind params for `{query}`, got none"
         );
     }
+}
+
+#[test]
+fn devices_grouped_stats_apply_the_documented_limits() {
+    let plan = plan_for("in:devices stats:count() as total by type");
+    assert_eq!(plan.limit, 20, "grouped stats default to twenty groups");
+    let (sql, _params) = devices::to_sql_and_params(&plan).expect("should build grouped stats SQL");
+    assert!(sql.contains("LIMIT 20"), "unexpected default limit: {sql}");
+
+    let plan = plan_for("in:devices stats:count() as total by type limit:101");
+    assert_eq!(plan.limit, 100, "grouped stats cap explicit limits at 100");
+    let (sql, _params) = devices::to_sql_and_params(&plan).expect("should build grouped stats SQL");
+    assert!(sql.contains("LIMIT 100"), "unexpected capped limit: {sql}");
+
+    let plan = plan_for("in:devices stats:count() as by");
+    assert_eq!(
+        plan.limit, 100,
+        "an ungrouped query whose alias is `by` must retain the global default"
+    );
 }

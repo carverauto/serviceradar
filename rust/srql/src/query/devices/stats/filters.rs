@@ -49,6 +49,26 @@ pub(super) fn build_grouped_stats_filter_clause(
         "awx_managed" => build_awx_managed_clause(filter)?,
         "discovery_sources" => build_discovery_sources_clause(filter, &mut binds)?,
         "tags" => clauses::build_grouped_tags_clause(filter, &mut binds)?,
+        "os.name" => clauses::build_grouped_jsonb_text_clause("os", "name", filter, &mut binds)?,
+        "os.version" => {
+            clauses::build_grouped_jsonb_text_clause("os", "version", filter, &mut binds)?
+        }
+        "os.type" => clauses::build_grouped_jsonb_text_clause("os", "type", filter, &mut binds)?,
+        "hw_info.serial_number" => clauses::build_grouped_jsonb_text_clause(
+            "hw_info",
+            "serial_number",
+            filter,
+            &mut binds,
+        )?,
+        "hw_info.cpu_type" => {
+            clauses::build_grouped_jsonb_text_clause("hw_info", "cpu_type", filter, &mut binds)?
+        }
+        "hw_info.cpu_architecture" => clauses::build_grouped_jsonb_text_clause(
+            "hw_info",
+            "cpu_architecture",
+            filter,
+            &mut binds,
+        )?,
         field if field.starts_with("metadata.") => {
             let key = field.strip_prefix("metadata.").unwrap();
             if !super::super::filters::is_valid_jsonb_key(key) {

@@ -8,11 +8,11 @@ TRUNCATE endpoint_inventory_current_package_counts;
 TRUNCATE endpoint_inventory_current_cpe_counts;
 TRUNCATE endpoint_inventory_package_counts_hourly;
 TRUNCATE endpoint_inventory_cpe_counts_hourly;
-TRUNCATE ocsf_devices CASCADE;
+TRUNCATE public.ocsf_devices CASCADE;
 WITH base AS (
     SELECT NOW() AS now_ts
 )
-INSERT INTO ocsf_devices (
+INSERT INTO public.ocsf_devices (
         uid,
         type_id,
         type,

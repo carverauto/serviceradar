@@ -139,14 +139,16 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexEvents.DeviceManagement do
              socket
              |> assign(:csv_preview, devices)
              |> assign(:csv_warnings, warnings)
-             |> assign(:csv_errors, [])}
+             |> assign(:csv_errors, [])
+             |> assign(:import_status, nil)}
 
           {:error, errors} ->
             {:noreply,
              socket
              |> assign(:csv_preview, nil)
              |> assign(:csv_warnings, [])
-             |> assign(:csv_errors, errors)}
+             |> assign(:csv_errors, errors)
+             |> assign(:import_status, nil)}
         end
     end
   end
@@ -167,15 +169,19 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexEvents.DeviceManagement do
              |> assign(:csv_preview, nil)
              |> assign(:csv_warnings, [])
              |> assign(:csv_errors, [])
+             |> assign(:import_status, nil)
              |> put_flash(:info, IndexCsvImport.import_success_message(created, skipped))
              |> push_patch(to: ~p"/devices")}
 
-          {:error, errors} when is_list(errors) ->
+          {:error, %{created: created, skipped: skipped, errors: errors}} ->
             {:noreply,
              socket
              |> assign(:csv_preview, nil)
-             |> assign(:csv_warnings, [])
-             |> assign(:csv_errors, errors)}
+             |> assign(:csv_errors, errors)
+             |> assign(
+               :import_status,
+               IndexCsvImport.import_partial_message(created, skipped, length(errors))
+             )}
         end
 
       _ ->

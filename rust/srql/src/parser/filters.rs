@@ -56,7 +56,7 @@ pub(super) fn build_filter(key: &str, value: FilterValue) -> Filter {
 /// for `tags->>'gate'` that silently matches nothing. Only the namespace is
 /// folded. Fixed dotted fields (`os.name`, `hw_info.cpu_type`) name real
 /// columns and stay fully folded.
-fn normalize_field_name(field: &str) -> String {
+pub(super) fn normalize_field_name(field: &str) -> String {
     const DYNAMIC_JSONB_NAMESPACES: [&str; 2] = ["tags", "metadata"];
 
     if let Some((namespace, key)) = field.split_once('.') {
@@ -71,7 +71,7 @@ fn normalize_field_name(field: &str) -> String {
 
 fn supports_implicit_like(field: &str) -> bool {
     let field = field.to_ascii_lowercase();
-    if field.starts_with("metadata.") {
+    if field.starts_with("metadata.") || field.starts_with("tags.") {
         return true;
     }
 

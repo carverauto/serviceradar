@@ -11,9 +11,9 @@ DROP TABLE IF EXISTS endpoint_inventory_package_counts_hourly;
 DROP TABLE IF EXISTS endpoint_inventory_cpe_counts_hourly;
 -- CASCADE: the virtualization_* tables (dropped further below) hold FKs to
 -- ocsf_devices, and seeding retries re-run this file over a populated schema.
-DROP TABLE IF EXISTS ocsf_devices CASCADE;
+DROP TABLE IF EXISTS public.ocsf_devices CASCADE;
 
-CREATE TABLE ocsf_devices (
+CREATE TABLE public.ocsf_devices (
     -- OCSF Core Identity
     uid                 TEXT        PRIMARY KEY,
     type_id             INT         NOT NULL DEFAULT 0,
@@ -59,6 +59,7 @@ CREATE TABLE ocsf_devices (
     is_available        BOOLEAN,
     is_active           BOOLEAN     NOT NULL DEFAULT TRUE,
     metadata            JSONB,
+    tags                JSONB,
     deleted_at          TIMESTAMPTZ,
     deleted_by          TEXT,
     deleted_reason      TEXT
@@ -73,7 +74,7 @@ CREATE OR REPLACE VIEW platform.ocsf_devices AS SELECT * FROM public.ocsf_device
 
 CREATE TABLE device_agent_availability (
     id                  UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
-    device_uid          TEXT        NOT NULL REFERENCES ocsf_devices(uid) ON DELETE CASCADE,
+    device_uid          TEXT        NOT NULL REFERENCES public.ocsf_devices(uid) ON DELETE CASCADE,
     agent_id            TEXT        NOT NULL,
     agent_name          TEXT,
     is_available        BOOLEAN     NOT NULL,
@@ -567,7 +568,7 @@ CREATE TABLE virtualization_hosts (
     provider           TEXT        NOT NULL,
     provider_ref       TEXT        NOT NULL,
     cluster_id         UUID        REFERENCES virtualization_clusters(id),
-    device_uid         TEXT        REFERENCES ocsf_devices(uid),
+    device_uid         TEXT        REFERENCES public.ocsf_devices(uid),
     name               TEXT        NOT NULL,
     status             TEXT,
     version            TEXT,
@@ -586,7 +587,7 @@ CREATE TABLE virtualization_guests (
     provider           TEXT        NOT NULL,
     provider_ref       TEXT        NOT NULL,
     host_id            UUID        REFERENCES virtualization_hosts(id),
-    device_uid         TEXT        REFERENCES ocsf_devices(uid),
+    device_uid         TEXT        REFERENCES public.ocsf_devices(uid),
     name               TEXT,
     guest_type         TEXT        NOT NULL,
     vmid               BIGINT,
@@ -629,7 +630,7 @@ CREATE TABLE virtualization_host_disks (
     provider     TEXT        NOT NULL,
     provider_ref TEXT        NOT NULL,
     host_id      UUID        NOT NULL REFERENCES virtualization_hosts(id),
-    device_uid   TEXT        REFERENCES ocsf_devices(uid),
+    device_uid   TEXT        REFERENCES public.ocsf_devices(uid),
     path         TEXT,
     by_id        TEXT,
     disk_type    TEXT,
@@ -652,7 +653,7 @@ CREATE TABLE virtualization_network_interfaces (
     host_id        UUID        NOT NULL REFERENCES virtualization_hosts(id),
     guest_id       UUID        REFERENCES virtualization_guests(id),
     guest_provider_ref TEXT,
-    device_uid     TEXT        REFERENCES ocsf_devices(uid),
+    device_uid     TEXT        REFERENCES public.ocsf_devices(uid),
     name           TEXT        NOT NULL,
     interface_type TEXT,
     active         BOOLEAN,

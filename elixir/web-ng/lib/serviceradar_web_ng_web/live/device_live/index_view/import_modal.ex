@@ -7,6 +7,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexView.ImportModal do
   attr(:csv_preview, :any, default: nil)
   attr(:csv_errors, :list, default: [])
   attr(:csv_warnings, :list, default: [])
+  attr(:import_status, :any, default: nil)
 
   def import_csv_modal(assigns) do
     ~H"""
@@ -21,6 +22,17 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexView.ImportModal do
       partly usable and the rest still previews, while an error means nothing
       was imported or the run failed part-way through.
       --%>
+      <div
+        :if={is_binary(@import_status)}
+        class={ui_alert_class(variant: "warning", class: "my-4")}
+      >
+        <.icon name="hero-exclamation-triangle" class="size-5" />
+        <div>
+          <div class="font-semibold">Partial Import</div>
+          <p class="text-sm">{@import_status}</p>
+        </div>
+      </div>
+
       <!-- Error Display -->
       <div :if={@csv_errors != []} class={ui_alert_class(variant: "error", class: "my-4")}>
         <.icon name="hero-exclamation-circle" class="size-5" />
@@ -68,7 +80,9 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexView.ImportModal do
                 <td>
                   <.ui_badge size="xs" variant="warning">Either</.ui_badge>
                 </td>
-                <td>Device hostname (resolved to an IP when the ip column is empty)</td>
+                <td>
+                  Device hostname (resolved to an IP when the ip column is empty; max 100 per import)
+                </td>
               </tr>
               <tr>
                 <td class="font-mono">ip</td>

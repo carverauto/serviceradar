@@ -225,7 +225,9 @@ defmodule ServiceRadarWebNGWeb.SRQL.Catalog do
         "risk_level",
         "is_available",
         "is_active",
-        "gateway_id"
+        "gateway_id",
+        "tags.<key>",
+        "metadata.<key>"
       ],
       downsample: false
     },

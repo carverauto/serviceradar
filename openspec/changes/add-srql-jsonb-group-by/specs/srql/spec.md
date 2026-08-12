@@ -33,6 +33,43 @@ The response SHALL return a JSONB array of objects, each containing the group fi
 - **WHEN** a client issues `in:devices stats:count() as total by type`
 - **THEN** the service SHALL return one object per distinct device type, each carrying the type and its count, ordered by count descending
 
+#### Scenario: Group devices by vendor
+
+- **GIVEN** devices exist with various vendor_name values
+- **WHEN** a client sends `in:devices stats:count() as count by vendor_name`
+- **THEN** SRQL returns `{"results": [{"vendor_name": "Cisco", "count": 200}, {"vendor_name": "Dell", "count": 150}, ...]}`
+- **AND** results are limited to top 20 vendors
+
+#### Scenario: Group devices by availability
+
+- **GIVEN** devices exist with is_available true and false
+- **WHEN** a client sends `in:devices stats:count() as count by is_available`
+- **THEN** SRQL returns `{"results": [{"is_available": true, "count": 950}, {"is_available": false, "count": 50}]}`
+
+#### Scenario: Group devices by risk level
+
+- **GIVEN** devices exist with various risk_level values
+- **WHEN** a client sends `in:devices stats:count() as count by risk_level`
+- **THEN** SRQL returns `{"results": [{"risk_level": "Low", "count": 800}, {"risk_level": "High", "count": 50}, ...]}`
+
+#### Scenario: Combined filter with grouping
+
+- **GIVEN** devices exist from multiple vendors with various types
+- **WHEN** a client sends `in:devices vendor_name:Cisco stats:count() as count by type`
+- **THEN** SRQL returns only Cisco devices grouped by type
+
+#### Scenario: Null values handled as Unknown
+
+- **GIVEN** devices exist with NULL vendor_name values
+- **WHEN** a client sends `in:devices stats:count() as count by vendor_name`
+- **THEN** devices with NULL vendor_name SHALL be grouped under "Unknown"
+
+#### Scenario: Unsupported group field returns error
+
+- **GIVEN** a client wants to group by an unsupported field
+- **WHEN** they send `in:devices stats:count() as count by hostname`
+- **THEN** SRQL returns an error indicating the field does not support grouping
+
 #### Scenario: Group devices by a tag sub-key
 
 - **WHEN** a client issues `in:devices stats:count() as total by tags.gate limit:100`
@@ -48,6 +85,11 @@ The response SHALL return a JSONB array of objects, each containing the group fi
 - **WHEN** a client issues `in:devices stats:count() as total by tags.Gate`
 - **THEN** the service SHALL read the key exactly as written and SHALL NOT fold it to `tags.gate`
 
+#### Scenario: Sort case-sensitive JSONB groups independently
+
+- **WHEN** a client groups by both `tags.Gate,tags.gate` and sorts by `tags.gate`
+- **THEN** the service SHALL order by the lowercase `gate` group expression and SHALL NOT substitute the distinct `Gate` key
+
 #### Scenario: Reject a grouping key that is not safe to interpolate
 
 - **WHEN** a client issues a grouping field whose JSONB key contains a character outside the permitted set, such as `by tags.a'b`
@@ -57,6 +99,8 @@ The response SHALL return a JSONB array of objects, each containing the group fi
 
 - **WHEN** any grouped device stats query carries at least one filter, so that the generated SQL contains bind parameters
 - **THEN** the service SHALL rewrite placeholders to the PostgreSQL `$n` form before execution and the query SHALL succeed rather than fail as a syntax error
+
+## ADDED Requirements
 
 ### Requirement: Device JSONB Sub-key Filters
 
@@ -74,6 +118,11 @@ The bare form `tags:<key>` SHALL test whether the key exists on the device, not 
 
 - **WHEN** a client issues `in:devices tags.gate:B40`
 - **THEN** the service SHALL return only devices whose `gate` tag equals `B40`
+
+#### Scenario: Filter a tag value with a wildcard
+
+- **WHEN** a client issues `in:devices tags.role:%edge%`
+- **THEN** the service SHALL apply a case-insensitive LIKE match to the `role` tag rather than compare the literal string `%edge%` for equality
 
 #### Scenario: Filter by a list of tag values
 

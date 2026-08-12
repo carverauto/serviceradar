@@ -254,8 +254,8 @@ actions:
           # `manual`, which removes a target from //... expansion before tag filters are considered.
           #
           # NO --test_tag_filters and NO --//build:enable_integration_tests, both deliberate. These
-          # two carry only `manual` -- neither `integration_test` nor `acceptance_test` -- so any
-          # tag filter naming those two tags would select neither and the step would fail with
+          # three carry only `manual` -- neither `integration_test` nor `acceptance_test` -- so any
+          # tag filter naming those tags would select none and the step would fail with
           # "no test targets were found".
           #
           # THEY DO USE THE SHARED FIXTURE, and their position in this step is load-bearing: they
@@ -266,9 +266,8 @@ actions:
           # They carry no requires_shared_fixture() guard, unlike the tier above -- that skip is
           # what keeps them safe rather than the guard. Worth reconciling one day; until then do
           # not "fix" it by adding --//build:enable_integration_tests, which they do not read.
-          bazel test -c opt --config=ci  //integration_tests/srql:srql_api_test  //integration_tests/srql:srql_comprehensive_test
+          bazel test -c opt --config=ci  //integration_tests/srql:srql_api_test  //integration_tests/srql:srql_comprehensive_test  //integration_tests/srql:srql_device_grouped_stats_test
 
 
       # Largely a cache hit from the //... build above;
       - run: "bazel build -c opt --config=ci //:images"
-

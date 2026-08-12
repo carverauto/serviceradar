@@ -11,6 +11,9 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexCsvImport do
   # How many skipped rows to name individually before collapsing the rest into
   # a count. Naming every row in a mostly-bad 10k-row file would bury the UI.
   @max_reported_skips 10
+  @max_hostname_only_rows 100
+  @dns_max_concurrency 10
+  @dns_timeout 2_000
 
   @doc """
   Parses an uploaded CSV into device maps.
@@ -24,9 +27,16 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexCsvImport do
   """
   @sobelow_skip ["Traversal.FileModule"]
   def parse_csv_file(path) do
-    content = File.read!(path)
+    # Spreadsheet applications commonly prefix UTF-8 CSV files with a BOM.
+    # It is not whitespace to String.trim/1, so leaving it attached to the
+    # first header either rejects a hostname-only file or silently loses every
+    # hostname when an `ip` column also happens to validate.
+    content = path |> File.read!() |> String.trim_leading("\uFEFF")
 
     case parse_csv_rows(content) do
+      {:error, error} ->
+        {:error, [error]}
+
       {:ok, []} ->
         {:error, ["CSV file is empty"]}
 
@@ -83,9 +93,19 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexCsvImport do
     |> parse_csv_field([], [], [], :field_start, {1, 1})
   end
 
+  # Reaching EOF immediately after a record separator creates no new record.
+  # Track it by parser state instead of dropping any final [""] record by
+  # content: an explicitly quoted empty record (`""`) is real input and must
+  # still produce a skipped-row warning.
+  defp parse_csv_field([], [], [], rows, :field_start, _pos), do: {:ok, Enum.reverse(rows)}
+
+  defp parse_csv_field([], _field, _row, _rows, :quoted, {_line, row_start}) do
+    {:error, "Row #{row_start}: unterminated quoted field"}
+  end
+
   defp parse_csv_field([], field, row, rows, _state, {_line, row_start}) do
     final_row = finish_row_fields(field, row)
-    {:ok, finalize_csv_rows([{row_start, final_row} | rows])}
+    {:ok, Enum.reverse([{row_start, final_row} | rows])}
   end
 
   defp parse_csv_field([?" | rest], [], row, rows, :field_start, pos) do
@@ -160,10 +180,6 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexCsvImport do
   defp finish_field(field), do: field |> Enum.reverse() |> List.to_string()
   defp finish_row_fields(field, row), do: Enum.reverse([finish_field(field) | row])
 
-  # A trailing newline leaves one empty record behind; drop it.
-  defp finalize_csv_rows([{_line, [""]} | rest]), do: Enum.reverse(rest)
-  defp finalize_csv_rows(rows), do: Enum.reverse(rows)
-
   defp parse_device_row(values, header_map, line) do
     hostname = trimmed_csv_value(values, header_map, "hostname")
     ip = trimmed_csv_value(values, header_map, "ip")
@@ -229,20 +245,128 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexCsvImport do
   end
 
   def import_devices(scope, devices) do
-    do_import_devices(devices, scope)
+    import_devices(
+      scope,
+      devices,
+      &ManualDeviceCreator.create/2,
+      &ManualDeviceCreator.resolve_hostname/1
+    )
   end
 
-  defp do_import_devices(devices, scope) do
+  @doc false
+  def import_devices(scope, devices, create_device) when is_function(create_device, 2) do
+    import_devices(scope, devices, create_device, &ManualDeviceCreator.resolve_hostname/1)
+  end
+
+  @doc false
+  def import_devices(scope, devices, create_device, resolve_hostname, opts \\ [])
+      when is_list(devices) and is_function(create_device, 2) and is_function(resolve_hostname, 1) and is_list(opts) do
+    case prepare_hostname_rows(devices, resolve_hostname, opts) do
+      {:ok, prepared_rows} ->
+        do_import_devices(prepared_rows, scope, create_device)
+
+      {:error, errors} ->
+        {:error, %{created: 0, skipped: 0, errors: errors}}
+    end
+  end
+
+  defp prepare_hostname_rows(devices, resolve_hostname, opts) do
+    candidates =
+      devices
+      |> Enum.with_index()
+      |> Enum.filter(fn {device, _index} -> hostname_only?(device) end)
+
+    max_rows = Keyword.get(opts, :max_hostname_only_rows, @max_hostname_only_rows)
+
+    if length(candidates) > max_rows do
+      {:error,
+       [
+         "CSV contains #{length(candidates)} hostname-only rows; the maximum is #{max_rows} per import"
+       ]}
+    else
+      resolutions = resolve_hostname_rows(candidates, resolve_hostname, opts)
+
+      prepared_rows =
+        devices
+        |> Enum.with_index()
+        |> Enum.map(fn {device, index} ->
+          Map.get(resolutions, index, {:device, device})
+        end)
+
+      {:ok, prepared_rows}
+    end
+  end
+
+  defp resolve_hostname_rows([], _resolve_hostname, _opts), do: %{}
+
+  defp resolve_hostname_rows(candidates, resolve_hostname, opts) do
+    task_opts = [
+      max_concurrency: Keyword.get(opts, :dns_max_concurrency, @dns_max_concurrency),
+      timeout: Keyword.get(opts, :dns_timeout, @dns_timeout),
+      on_timeout: :kill_task,
+      ordered: true
+    ]
+
+    candidates
+    |> Task.async_stream(
+      fn {device, _index} -> resolve_hostname.(hostname(device)) end,
+      task_opts
+    )
+    |> Enum.zip(candidates)
+    |> Enum.reduce(%{}, fn {task_result, {device, index}}, acc ->
+      Map.put(acc, index, resolution_result(device, task_result))
+    end)
+  end
+
+  defp resolution_result(device, {:ok, {:ok, ip}}) when is_binary(ip) do
+    case String.trim(ip) do
+      "" -> resolution_error(device, :empty_address)
+      resolved_ip -> {:device, Map.put(device, :ip, resolved_ip)}
+    end
+  end
+
+  defp resolution_result(device, {:ok, {:error, reason}}), do: resolution_error(device, reason)
+
+  defp resolution_result(device, {:exit, :timeout}) do
+    {:error, "#{row_label(device)}: hostname resolution timed out for '#{hostname(device)}'"}
+  end
+
+  defp resolution_result(device, {:exit, reason}), do: resolution_error(device, {:resolver_exit, reason})
+
+  defp resolution_result(device, {:ok, result}), do: resolution_error(device, {:unexpected_resolver_result, result})
+
+  defp resolution_error(device, reason) do
+    {:error, "#{row_label(device)}: unable to resolve hostname '#{hostname(device)}': #{inspect(reason)}"}
+  end
+
+  defp hostname_only?(device), do: blank?(ip(device)) and not blank?(hostname(device))
+
+  defp hostname(device), do: Map.get(device, :hostname) || Map.get(device, "hostname")
+  defp ip(device), do: Map.get(device, :ip) || Map.get(device, "ip")
+
+  defp blank?(nil), do: true
+  defp blank?(value) when is_binary(value), do: String.trim(value) == ""
+  defp blank?(_value), do: false
+
+  defp do_import_devices(prepared_rows, scope, create_device) do
     {created, skipped, errors} =
-      Enum.reduce(devices, {0, 0, []}, fn device_data, acc ->
-        process_device_import(device_data, scope, acc)
+      Enum.reduce(prepared_rows, {0, 0, []}, fn
+        {:device, device_data}, acc ->
+          process_device_import(device_data, scope, acc, create_device)
+
+        {:error, error}, {created, skipped, errors} ->
+          {created, skipped, [error | errors]}
       end)
 
-    if errors == [], do: {:ok, {created, skipped}}, else: {:error, Enum.reverse(errors)}
+    if errors == [] do
+      {:ok, {created, skipped}}
+    else
+      {:error, %{created: created, skipped: skipped, errors: Enum.reverse(errors)}}
+    end
   end
 
-  defp process_device_import(device_data, scope, {created, skipped, errors}) do
-    case ManualDeviceCreator.create(scope, device_data) do
+  defp process_device_import(device_data, scope, {created, skipped, errors}, create_device) do
+    case create_device.(scope, device_data) do
       {:ok, _device} ->
         {created + 1, skipped, errors}
 
@@ -254,6 +378,13 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexCsvImport do
         # parser-skipped row and every earlier failure shifted it, so a failure
         # on line 9 could report itself as "Row 3".
         {created, skipped, ["#{row_label(device_data)}: #{format_create_error(reason)}" | errors]}
+    end
+  end
+
+  def import_partial_message(created, skipped, failed) do
+    if created + skipped > 0 do
+      "Import partially completed: #{created} device(s) created or updated, " <>
+        "#{skipped} already existed, and #{failed} failed."
     end
   end
 

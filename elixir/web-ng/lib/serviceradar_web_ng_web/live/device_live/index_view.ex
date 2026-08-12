@@ -93,6 +93,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexView do
         csv_preview={@csv_preview}
         csv_errors={@csv_errors}
         csv_warnings={@csv_warnings}
+        import_status={@import_status}
       />
 
       <!-- Bulk Edit Modal -->
