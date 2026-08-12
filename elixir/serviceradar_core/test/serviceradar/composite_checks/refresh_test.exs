@@ -93,7 +93,7 @@ defmodule ServiceRadar.CompositeChecks.RefreshTest do
 
     {:ok, enabled} =
       check
-      |> Ash.Changeset.for_update(:set_state, %{state: :enabled}, actor: actor())
+      |> Ash.Changeset.for_update(:enable, %{acknowledge_coverage_gap: true}, actor: actor())
       |> Ash.update()
 
     now = DateTime.utc_now()

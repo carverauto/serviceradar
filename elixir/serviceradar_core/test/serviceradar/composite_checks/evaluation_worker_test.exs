@@ -20,7 +20,7 @@ defmodule ServiceRadar.CompositeChecks.EvaluationWorkerTest do
     if state == :enabled do
       {:ok, enabled} =
         check
-        |> Ash.Changeset.for_update(:set_state, %{state: :enabled}, actor: actor())
+        |> Ash.Changeset.for_update(:enable, %{acknowledge_coverage_gap: true}, actor: actor())
         |> Ash.update()
 
       enabled
@@ -77,7 +77,9 @@ defmodule ServiceRadar.CompositeChecks.EvaluationWorkerTest do
 
     assert {:ok, enabled} =
              check
-             |> Ash.Changeset.for_update(:set_state, %{state: :enabled}, actor: actor())
+             |> Ash.Changeset.for_update(:enable, %{acknowledge_coverage_gap: true},
+               actor: actor()
+             )
              |> Ash.update()
 
     assert enabled.state == :enabled

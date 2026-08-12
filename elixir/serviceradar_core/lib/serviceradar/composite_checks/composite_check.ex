@@ -14,6 +14,7 @@ defmodule ServiceRadar.CompositeChecks.CompositeCheck do
     authorizers: [Ash.Policy.Authorizer]
 
   alias ServiceRadar.CompositeChecks.Changes.DeriveSlug
+  alias ServiceRadar.CompositeChecks.Validations.EnforceReadiness
   alias ServiceRadar.CompositeChecks.Validations.ScopeQuery
 
   @create_fields [:name, :description, :scope_query, :evaluation_interval_seconds]
@@ -69,7 +70,18 @@ defmodule ServiceRadar.CompositeChecks.CompositeCheck do
     end
 
     update :set_state do
+      description "Disable or return a check to draft. Enabling goes through :enable."
       accept [:state]
+      validate attribute_does_not_equal(:state, :enabled)
+    end
+
+    update :enable do
+      description "Enable a check after confirming it can produce meaningful verdicts"
+
+      argument :acknowledge_coverage_gap, :boolean, default: false
+
+      change set_attribute(:state, :enabled)
+      validate EnforceReadiness
     end
   end
 
@@ -79,6 +91,7 @@ defmodule ServiceRadar.CompositeChecks.CompositeCheck do
     system_bypass()
     read_viewer_plus()
     operator_action_type([:create, :update])
+    operator_action(:enable)
     admin_action_type(:destroy)
   end
 
