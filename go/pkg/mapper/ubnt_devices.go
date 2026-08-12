@@ -19,6 +19,8 @@ package mapper
 import (
 	"context"
 	"fmt"
+	"net/url"
+	"strings"
 )
 
 func (e *DiscoveryEngine) queryUniFiDevices(
@@ -152,7 +154,7 @@ func (e *DiscoveryEngine) createDiscoveredDevice(
 	// Generate standardized device ID
 	deviceID := GenerateDeviceID(device.MAC)
 
-	return &DiscoveredDevice{
+	discovered := &DiscoveredDevice{
 		DeviceID: deviceID,
 		IP:       device.IPAddress,
 		MAC:      device.MAC,
@@ -167,6 +169,44 @@ func (e *DiscoveryEngine) createDiscoveredDevice(
 			"unifi_device_id": device.ID, // Store the UniFi internal device ID
 		},
 	}
+
+	// The UniFi gateway's reported management IP is often the WAN address
+	// while the controller URL (and mapper seed) is a LAN address on the
+	// same box. Stamp that host as an alternate IP so a later SNMP poll of
+	// the seed attaches to this device instead of minting a sibling.
+	if unifiDeviceIsController(device, apiConfig) {
+		if host := unifiControllerHost(apiConfig.BaseURL); host != "" && host != device.IPAddress {
+			discovered.Metadata = addAlternateIP(discovered.Metadata, host)
+		}
+	}
+
+	return discovered
+}
+
+func unifiDeviceIsController(device *UniFiDevice, apiConfig UniFiAPIConfig) bool {
+	if device == nil {
+		return false
+	}
+
+	name := strings.TrimSpace(device.Name)
+	controller := strings.TrimSpace(apiConfig.Name)
+	return name != "" && controller != "" && strings.EqualFold(name, controller)
+}
+
+func unifiControllerHost(baseURL string) string {
+	baseURL = strings.TrimSpace(baseURL)
+	if baseURL == "" {
+		return ""
+	}
+
+	parsed, err := url.Parse(baseURL)
+	if err != nil || parsed.Hostname() == "" {
+		if parsed, err = url.Parse("https://" + baseURL); err != nil {
+			return ""
+		}
+	}
+
+	return strings.TrimSpace(parsed.Hostname())
 }
 
 func (e *DiscoveryEngine) querySingleUniFiDevices(

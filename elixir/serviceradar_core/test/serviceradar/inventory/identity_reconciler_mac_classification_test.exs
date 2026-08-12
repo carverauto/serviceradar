@@ -221,6 +221,99 @@ defmodule ServiceRadar.Inventory.IdentityReconcilerMacClassificationTest do
     end
   end
 
+  describe "distinct_mac_conflict?/3" do
+    test "UAA/LAA NIC siblings are not distinct hardware", %{actor: actor} do
+      {:ok, unifi} = create_device(actor, "farm01-unifi")
+      {:ok, snmp} = create_device(actor, "farm01-snmp")
+
+      assert {:ok, _} = register_identifier(actor, unifi.uid, :mac, "F492BF75C721", :strong)
+      assert {:ok, _} = register_identifier(actor, snmp.uid, :mac, "F692BF75C721", :medium)
+
+      refute ServiceRadar.Inventory.Identity.AliasGuard.distinct_mac_conflict?(
+               unifi.uid,
+               snmp.uid,
+               actor
+             )
+    end
+  end
+
+  describe "hardware_mac_siblings?/2" do
+    test "detects the UniFi burned-in / locally-administered pair" do
+      assert IdentityReconciler.hardware_mac_siblings?("F492BF75C721", "F692BF75C721")
+      refute IdentityReconciler.hardware_mac_siblings?("F492BF75C721", "F492BF75C722")
+      refute IdentityReconciler.hardware_mac_siblings?("F492BF75C721", "F492BF75C721")
+    end
+  end
+
+  describe "resolve_device_id/2 hardware MAC siblings" do
+    test "first SNMP LAN sighting attaches to the existing UniFi WAN identity", %{actor: actor} do
+      {:ok, unifi} = create_device(actor, "farm01-unifi")
+      assert {:ok, _} = register_identifier(actor, unifi.uid, :mac, "F492BF75C721", :strong)
+
+      assert {:ok, resolved} =
+               IdentityReconciler.resolve_device_id(
+                 %{
+                   device_id: nil,
+                   ip: "192.168.1.1",
+                   mac: "f6:92:bf:75:c7:21",
+                   partition: "default",
+                   metadata: %{}
+                 },
+                 actor: actor
+               )
+
+      assert resolved == unifi.uid
+    end
+
+    test "heals an existing UniFi WAN / SNMP LAN split onto the UAA survivor", %{actor: actor} do
+      {:ok, unifi} = create_device(actor, "farm01-unifi")
+      {:ok, snmp} = create_device(actor, "farm01-snmp")
+
+      assert {:ok, _} = register_identifier(actor, unifi.uid, :mac, "F492BF75C721", :strong)
+      assert {:ok, _} = register_identifier(actor, snmp.uid, :mac, "F692BF75C721", :medium)
+
+      assert {:ok, resolved} =
+               IdentityReconciler.resolve_device_id(
+                 %{
+                   device_id: nil,
+                   ip: "192.168.1.1",
+                   mac: "f6:92:bf:75:c7:21",
+                   partition: "default",
+                   metadata: %{}
+                 },
+                 actor: actor
+               )
+
+      assert resolved == unifi.uid
+      assert {:ok, %Device{deleted_at: deleted_at}} = Device.get_by_uid(snmp.uid, true, actor: actor)
+      assert deleted_at
+    end
+
+    test "merges a UniFi WAN identity onto the SNMP LAN sibling via alt_mac", %{actor: actor} do
+      {:ok, unifi} = create_device(actor, "farm01-unifi")
+      {:ok, snmp} = create_device(actor, "farm01-snmp")
+
+      assert {:ok, _} = register_identifier(actor, unifi.uid, :mac, "F492BF75C721", :strong)
+      assert {:ok, _} = register_identifier(actor, snmp.uid, :mac, "F692BF75C721", :medium)
+
+      assert {:ok, resolved} =
+               IdentityReconciler.resolve_device_id(
+                 %{
+                   device_id: nil,
+                   ip: "152.117.116.178",
+                   mac: "f4:92:bf:75:c7:21",
+                   partition: "default",
+                   metadata: %{"alt_mac:f692bf75c721" => "1"}
+                 },
+                 actor: actor
+               )
+
+      assert resolved == unifi.uid
+      assert {:ok, %Device{deleted_at: deleted_at}} = Device.get_by_uid(snmp.uid, true, actor: actor)
+      assert deleted_at
+    end
+  end
+
   defp create_device(actor, hostname) do
     attrs = %{
       uid: "sr:" <> Ecto.UUID.generate(),
