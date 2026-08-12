@@ -392,8 +392,11 @@ func validateTargetRange(r *edgev1.TargetRangeV1, pageCheckSet, headerPolicy []b
 	if len(pageCheckSet) != 0 && !bytes.Equal(r.GetCheckSetSha256(), pageCheckSet) {
 		return ErrPlanCheckSet
 	}
-	// Reconcile the range availability policy with the header's, and bound it.
-	if len(r.GetAvailabilityPolicyId()) > MaxPolicyIDBytes || !bytes.Equal(r.GetAvailabilityPolicyId(), headerPolicy) {
+	// EQUALITY ONLY -- the length bound is CENTRALIZED at the header. `ValidatePlanHeader` bounds
+	// the policy before any range is reached, and a range must equal that already-bounded value.
+	// A second length arm here would be unreachable on its own AND would mask a missing header
+	// bound, so the rule lives in exactly one place.
+	if !bytes.Equal(r.GetAvailabilityPolicyId(), headerPolicy) {
 		return fmt.Errorf("%w: range availability policy", ErrPlanRange)
 	}
 	return nil

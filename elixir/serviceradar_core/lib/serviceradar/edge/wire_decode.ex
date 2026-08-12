@@ -125,6 +125,14 @@ defmodule ServiceRadar.Edge.WireDecode do
   # The standalone execution grant's ceiling, frozen in the ABI bounds table.
   @max_execution_grant_bytes 16 * 1024
   @max_plan_page_bytes 128 * 1024
+  # The PLAN HEADER's own physical ceiling, mirroring Go's `edgerecord.MaxPlanHeaderBytes`.
+  # DELIBERATELY INDEPENDENT of `@max_record_bytes` even though both are 512 KiB today: the
+  # header is not a record and does not inherit a record's budget, so aliasing them would make
+  # the two runtimes agree by coincidence of VALUE rather than by construction. The shared
+  # scalar corpus freezes the value and both runtimes check their own constant against it, so
+  # a move on either side is caught -- this constant is what gives this runtime something to
+  # move.
+  @max_plan_header_bytes 512 * 1024
   @max_delivery_envelope_bytes 16 * 1024
   @max_frame_bytes @max_record_bytes + @max_delivery_envelope_bytes
   @max_client_message_bytes @max_frame_bytes + 8
@@ -237,7 +245,7 @@ defmodule ServiceRadar.Edge.WireDecode do
   """
   @spec decode_plan_header(binary()) :: outcome()
   def decode_plan_header(bytes),
-    do: run(Serviceradar.Edge.V1.ScheduledPlanHeaderV1, @max_record_bytes, bytes)
+    do: run(Serviceradar.Edge.V1.ScheduledPlanHeaderV1, @max_plan_header_bytes, bytes)
 
   @doc "Decode one immutable scheduler plan PAGE from raw bytes. See decode_plan_header/1."
   @spec decode_plan_page(binary()) :: outcome()

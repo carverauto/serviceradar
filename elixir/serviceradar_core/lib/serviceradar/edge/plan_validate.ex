@@ -379,9 +379,9 @@ defmodule ServiceRadar.Edge.PlanValidate do
       Map.get(r, :check_set_sha256) != page_check_set ->
         {:error, :check_set}
 
-      not bounded_bytes?(Map.get(r, :availability_policy_id), 0, @max_policy_id_bytes) ->
-        {:error, :plan_range}
-
+      # EQUALITY ONLY -- the length bound is CENTRALIZED at the header, which `validate/2`
+      # reaches before any range. A second length arm here would be unreachable on its own AND
+      # would mask a missing header bound, so the rule lives in exactly one place.
       Map.get(r, :availability_policy_id) != header_policy ->
         {:error, :plan_range}
 
