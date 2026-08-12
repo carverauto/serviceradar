@@ -107,6 +107,24 @@ knobs). Rather than duplicate that reference here, see:
 Inspect the current defaults for your chart version with
 `helm show values oci://registry.carverauto.dev/serviceradar/charts/serviceradar --version <chart-version>`.
 
+Key value: canonical public web origin
+- Set `webNg.publicUrl` to the bare, externally reachable HTTPS origin, with no
+  path, query, fragment, or credentials (for example,
+  `https://serviceradar.example.com`). A trailing root slash is canonicalized
+  away. Only the standard HTTPS port 443 is supported.
+- This is the canonical origin embedded in edge onboarding tokens and generated
+  `serviceradar-cli enroll` commands. It also drives Phoenix external URL
+  generation. Never use an in-cluster Service name here.
+- When `webNg.publicUrl` is empty, the chart falls back through `webNg.host`,
+  `ingress.host`, and `gatewayApi.host`. Set `webNg.publicUrl` explicitly in
+  production so changing the exposure implementation does not change issued
+  tokens.
+
+```yaml
+webNg:
+  publicUrl: https://serviceradar.example.com
+```
+
 Key values: edge gateway address
 - `webNg.gatewayAddress`: Optional external gateway address for edge agents (`host:port`).
   - If unset, the chart derives it from `ingress.host` (port 50052).

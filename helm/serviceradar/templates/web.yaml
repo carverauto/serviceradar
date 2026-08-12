@@ -39,8 +39,14 @@
 {{- if hasKey $webNgObanQueues "maintenance" -}}{{- $webNgObanQueueMaintenance = get $webNgObanQueues "maintenance" -}}{{- end -}}
 {{- $webNgObanQueueWebMaintenance := 2 -}}
 {{- if hasKey $webNgObanQueues "webMaintenance" -}}{{- $webNgObanQueueWebMaintenance = get $webNgObanQueues "webMaintenance" -}}{{- end -}}
-{{- $webHost := default .Values.ingress.host $webNg.host -}}
-{{- $webNgPublicUrl := default "" $webNg.publicUrl -}}
+{{- $webNgPublicUrl := include "serviceradar.webNgPublicUrl" . -}}
+{{- $gatewayApi := default (dict) .Values.gatewayApi -}}
+{{- $webHost := coalesce $webNg.host .Values.ingress.host $gatewayApi.host "serviceradar-web-ng" -}}
+{{- if $webNgPublicUrl -}}
+{{- $parsedPublicUrl := urlParse $webNgPublicUrl -}}
+{{- $publicUrlHost := default "" (get $parsedPublicUrl "host") -}}
+{{- $webHost = trimSuffix ":443" $publicUrlHost -}}
+{{- end -}}
 {{- $pluginStorage := default (dict) $webNg.pluginStorage -}}
 {{- $gateway := default (dict) .Values.agentGateway -}}
 {{- $gatewayService := default (dict) $gateway.service -}}
@@ -308,7 +314,7 @@ spec:
         - name: SERVICERADAR_RELEASE_VERSION
           value: {{ .Values.global.releaseVersion | default (printf "v%s" .Chart.AppVersion) | quote }}
         - name: PHX_HOST
-          value: {{ default "serviceradar-web-ng" $webHost | quote }}
+          value: {{ $webHost | quote }}
         - name: PHX_CHECK_ORIGIN
           value: {{ default "true" $webNg.checkOrigin | quote }}
         - name: SERVICERADAR_GOD_VIEW_ENABLED

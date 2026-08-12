@@ -154,7 +154,12 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index.EventHandlers.Groups 
         {:noreply, put_flash(socket, :error, "Discovery job not found")}
 
       {:error, reason} ->
-        {:noreply, put_flash(socket, :error, "Failed to run discovery job: #{format_error(reason)}")}
+        {:noreply,
+         put_flash(
+           socket,
+           :error,
+           "Failed to run discovery job: #{format_mapper_run_error(reason)}"
+         )}
     end
   end
 end

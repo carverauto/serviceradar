@@ -17,6 +17,16 @@ That is it. The agent enrolls, receives config, and starts streaming results.
 - You can reach the web UI for your deployment.
 - The host can reach your `agent-gateway` endpoint (outbound).
 - You have `sudo` on the host.
+- For Helm deployments, `webNg.publicUrl` is set to the externally reachable,
+  bare HTTPS web origin before you create an onboarding package:
+
+  ```yaml
+  webNg:
+    publicUrl: https://serviceradar.example.com
+  ```
+
+  The chart uses this origin for generated install commands and the signed
+  token's API endpoint. Do not set it to a Kubernetes Service name.
 
 ## 1. Install The Agent (RPM/DEB)
 
@@ -47,7 +57,7 @@ In the web UI:
 The enroll command looks like:
 
 ```bash
-sudo /usr/local/bin/serviceradar-cli enroll --core-url https://<SERVICERADAR_HOST> --token edgepkg-v2:<token>
+sudo /usr/local/bin/serviceradar-cli enroll --core-url https://<SERVICERADAR_HOST> --token edgepkg-v3:<token>
 ```
 
 ## 3. Enroll The Host
@@ -55,7 +65,7 @@ sudo /usr/local/bin/serviceradar-cli enroll --core-url https://<SERVICERADAR_HOS
 On the host where you installed the agent, paste the enroll command from the UI:
 
 ```bash
-sudo /usr/local/bin/serviceradar-cli enroll --core-url https://<SERVICERADAR_HOST> --token edgepkg-v2:<token>
+sudo /usr/local/bin/serviceradar-cli enroll --core-url https://<SERVICERADAR_HOST> --token edgepkg-v3:<token>
 ```
 
 Notes:
@@ -65,8 +75,18 @@ Notes:
   distribute certificates by hand for standard Cloud or chart-managed installs.
 - Bundle/package download tokens are accepted only in explicit request headers or POST bodies, never in URL query strings.
 - Enrollment requires verified HTTPS. `serviceradar-cli enroll` no longer supports an insecure TLS bypass.
-- Only signed `edgepkg-v2` tokens are accepted for agent enrollment.
+- Newly issued agent enrollment tokens use the signed `edgepkg-v3` format.
+  Signed `edgepkg-v2` tokens remain accepted for upgrade compatibility.
+- The signed token embeds the deployment's public API origin. When
+  `--core-url` is supplied, the explicit CLI value overrides the embedded
+  origin after the same HTTPS validation. This lets an operator recover from a
+  token minted with a stale hostname; create a new package after correcting the
+  deployment value.
 - If you need to re-enroll, generate a new agent package to get a fresh token.
+
+If enrollment tries to resolve `serviceradar-web-ng`, the token was minted with
+an internal endpoint. Set `webNg.publicUrl` correctly and issue a new package,
+or use `--core-url https://<PUBLIC_HOST>` as a temporary override.
 
 ## 4. Verify
 

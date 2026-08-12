@@ -284,6 +284,19 @@ updater, and the systemd unit `serviceradar-agent.service`.
 
 **Where:** **Settings → Agent Deploy** (`/settings/agents/deploy`)
 
+Before issuing packages, the environment's canonical public web origin must be
+configured. ServiceRadar Cloud provisioning normally does this for you. For a
+chart-managed environment, set the bare HTTPS origin explicitly:
+
+```yaml
+webNg:
+  publicUrl: https://<YOUR_SERVICERADAR_WEB_HOST>
+```
+
+This value is embedded in signed onboarding tokens. If a generated command
+contains an in-cluster name such as `https://serviceradar-web-ng`, stop and have
+the environment operator correct `webNg.publicUrl`, then create a new package.
+
 1. Click **Create Agent Package** (opens edge package creation for
    `component_type=agent`, under `/admin/edge-packages/new`).
 2. Complete the package form (label, gateway defaults, partition/site as prompted).
@@ -293,7 +306,7 @@ updater, and the systemd unit `serviceradar-agent.service`.
 ```bash
 sudo /usr/local/bin/serviceradar-cli enroll \
   --core-url https://<YOUR_SERVICERADAR_WEB_HOST> \
-  --token edgepkg-v2:<token>
+  --token edgepkg-v3:<token>
 ```
 
 5. Confirm the agent appears **Online** under **Agents** in the product UI.
@@ -306,6 +319,9 @@ What enroll does for you:
 Notes:
 
 - Enrollment requires verified HTTPS (no insecure TLS bypass flag).
+- A signed token normally carries the public web origin. An explicit
+  `--core-url` takes precedence over that embedded origin, which is useful for
+  recovering from a stale hostname; it is still required to use HTTPS.
 - Treat the token as a secret; create a new package to re-enroll.
 - Deeper walkthrough: [Edge Agent Onboarding](./edge-agent-onboarding.md).
 
