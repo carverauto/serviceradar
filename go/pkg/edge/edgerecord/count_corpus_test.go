@@ -236,7 +236,7 @@ func rawPagesOf(t *testing.T, pages []*edgev1.EdgeLossManifestPageV1) [][]byte {
 		total += len(b)
 	}
 
-	// THE BYTE CEILING MUST NOT SHADOW THE COUNT CEILING. If the aggregate reached
+	// THE BYTE CEILING MUST NOT SHADOW THE COUNT CEILING. If the aggregate exceeded
 	// MaxManifestBytes the raw gate would refuse for size, and every row below would pass
 	// while proving a bound it does not name.
 	if total > MaxManifestBytes {
