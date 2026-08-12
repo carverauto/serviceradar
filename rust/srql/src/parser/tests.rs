@@ -277,6 +277,18 @@ fn parses_capacity_forecast_entity_aliases() {
 }
 
 #[test]
+fn parses_composite_results_entity_aliases() {
+    for raw in [
+        "composite_results",
+        "composite_check_results",
+        "composite_verdicts",
+    ] {
+        let ast = parse(&format!("in:{raw} check:pci-isolation limit:10")).unwrap();
+        assert_eq!(ast.entity, Entity::CompositeResults, "entity alias {raw}");
+    }
+}
+
+#[test]
 fn parses_dashboard_service_view_entities() {
     let cases = [
         ("service_availability", Entity::ServiceAvailability),

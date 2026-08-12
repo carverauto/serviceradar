@@ -115,6 +115,7 @@ pub fn meta_for_plan(plan: &QueryPlan) -> Option<VizMeta> {
         Entity::EndpointPackages => sbom::endpoint_packages(),
         Entity::EndpointPackageCatalog => sbom::endpoint_package_catalog(),
         Entity::Devices => inventory::devices(),
+        Entity::CompositeResults => inventory::composite_results(),
         Entity::WifiSites => wifi::sites(),
         Entity::WifiSiteSnapshots => wifi::site_snapshots(),
         Entity::WifiAccessPoints => wifi::access_points(),
