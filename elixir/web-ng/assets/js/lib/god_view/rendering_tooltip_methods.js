@@ -180,7 +180,10 @@ export const godViewRenderingTooltipMethods = {
   handleHover(info) {
     const layerId = info?.layer?.id || ""
     const nextNodeIndex =
-      (layerId === "god-view-nodes" || layerId === "god-view-node-labels") && Number.isInteger(info?.object?.index)
+      (layerId === "god-view-nodes" ||
+        layerId === "god-view-nodes-halo" ||
+        layerId === "god-view-nodes-hitbox" ||
+        layerId === "god-view-node-labels") && Number.isInteger(info?.object?.index)
         ? info.object.index
         : null
     const isMtrPath = layerId === "god-view-mtr-paths"

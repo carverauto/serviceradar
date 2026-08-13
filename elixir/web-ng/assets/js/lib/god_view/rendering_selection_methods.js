@@ -39,15 +39,19 @@ export const godViewRenderingSelectionMethods = {
     const typeLabel = typeof d.type === "string" ? d.type : ""
     const typeId = this.parseTypeId(d.type_id)
     const typeIcon = this.nodeTypeHeroIcon(typeLabel, typeId)
-    const detailId = d.id || node.id
+    const detailId = d.device_uid || d.id || node.id
     const rawIp = typeof d.ip === "string" ? d.ip.trim() : ""
     const hasRealIp =
       rawIp !== "" && !["unknown", "n/a", "na", "null", "undefined", "-"].includes(rawIp.toLowerCase())
     const ipText = this.escapeHtml(hasRealIp ? rawIp : "unknown")
-    const ipHref = hasRealIp ? this.deviceDetailsHref(detailId) : null
-    const ipLine = ipHref
-      ? `<div>IP: <button type="button" class="link link-primary" data-device-href="${this.escapeHtml(ipHref)}">${ipText}</button></div>`
-      : `<div>IP: ${ipText}</div>`
+    const idText = this.escapeHtml(d.id || node.id || "unknown")
+    const deviceHref = this.deviceDetailsHref(detailId)
+    const deviceLink = (label) =>
+      deviceHref
+        ? `<a class="link link-hover link-primary" href="${this.escapeHtml(deviceHref)}" data-device-href="${this.escapeHtml(deviceHref)}">${label}</a>`
+        : label
+    const idLine = `<div>ID: ${deviceLink(idText)}</div>`
+    const ipLine = `<div>IP: ${hasRealIp && deviceHref ? deviceLink(ipText) : ipText}</div>`
     const nodeMap = this.nodeIndexLookup((this.state.lastGraph?.nodes || []))
     const reason = this.escapeHtml(node.stateReason || this.defaultStateReason(node.state))
     const rootRef = this.nodeReferenceAction(
@@ -155,7 +159,7 @@ export const godViewRenderingSelectionMethods = {
         : ""
     const detailLines = [
       `<div class="font-semibold text-sm mb-1 flex items-center justify-between gap-2"><span>${this.escapeHtml(node.label || "node")}</span><span class="inline-flex items-center justify-end min-w-4">${typeIcon ? `<span class="${this.escapeHtml(typeIcon)} size-4 text-base-content/70" title="${this.escapeHtml(typeLabel || "unknown")}"></span>` : ""}</span></div>`,
-      `<div>ID: ${this.escapeHtml(d.id || node.id || "unknown")}</div>`,
+      idLine,
       ipLine,
       `<div>Type: ${this.escapeHtml(d.type || "unknown")}</div>`,
       placementState ? `<div>Placement: ${this.escapeHtml(placementState)}</div>` : "",

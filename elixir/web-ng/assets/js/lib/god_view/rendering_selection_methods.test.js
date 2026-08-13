@@ -71,7 +71,12 @@ describe("rendering_selection_methods", () => {
 
     expect(ctx.state.details.classList.contains("hidden")).toEqual(false)
     expect(ctx.state.details.innerHTML).toContain("hero-arrows-right-left")
-    expect(ctx.state.details.innerHTML).toContain("IP: <button type=\"button\" class=\"link link-primary\" data-device-href=\"/devices/sr%3Atest-01\">192.0.2.10</button>")
+    expect(ctx.state.details.innerHTML).toContain(
+      'ID: <a class="link link-hover link-primary" href="/devices/sr%3Atest-01" data-device-href="/devices/sr%3Atest-01">sr:test-01</a>',
+    )
+    expect(ctx.state.details.innerHTML).toContain(
+      'IP: <a class="link link-hover link-primary" href="/devices/sr%3Atest-01" data-device-href="/devices/sr%3Atest-01">192.0.2.10</a>',
+    )
     expect(ctx.state.details.innerHTML).toContain("Type: router")
     expect(ctx.state.details.innerHTML).toContain("Vendor/Model: Acme XR-500")
     expect(ctx.state.details.innerHTML).toContain("ASN: 64512")
