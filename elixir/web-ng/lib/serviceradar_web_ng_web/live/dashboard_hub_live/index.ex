@@ -183,7 +183,7 @@ defmodule ServiceRadarWebNGWeb.DashboardHubLive.Index do
             <p class="text-sm font-medium text-sr-brand">Dashboards</p>
             <h1 class="mt-1 text-2xl font-semibold tracking-tight text-sr-ink">Dashboard Library</h1>
             <p class="mt-2 max-w-3xl text-sm text-sr-muted">
-              Find your dashboards, shared dashboards, dashboard packages, and favorites in one place.
+              Find your dashboards, shared dashboards, dashboard packages, scheduled reports, and favorites in one place.
             </p>
           </div>
           <div class="flex flex-wrap gap-2">
@@ -241,6 +241,18 @@ defmodule ServiceRadarWebNGWeb.DashboardHubLive.Index do
           </h2>
           <div class="grid grid-cols-1 gap-3 lg:grid-cols-2">
             <.dashboard_card :for={item <- favorite_items(@items)} item={item} />
+          </div>
+        </section>
+
+        <section :if={!@loading? and report_items(@items) != []} class="space-y-3">
+          <h2 class="text-sm font-semibold uppercase tracking-normal text-sr-muted">
+            Reports
+          </h2>
+          <p class="text-sm text-sr-muted">
+            System SRQL reports. Open one and use Email Reports to send it on a schedule.
+          </p>
+          <div class="grid grid-cols-1 gap-3 lg:grid-cols-2">
+            <.dashboard_card :for={item <- report_items(@items)} item={item} />
           </div>
         </section>
 
@@ -357,7 +369,8 @@ defmodule ServiceRadarWebNGWeb.DashboardHubLive.Index do
       slug: dashboard.slug,
       status: to_string(dashboard.status),
       search_text: Enum.join([dashboard.title, dashboard.description, dashboard.slug, dashboard.status, "authored"], " "),
-      kind_label: "Authored",
+      kind_label: if(system_report?(dashboard), do: "Report", else: "Authored"),
+      report?: system_report?(dashboard),
       favorite?: favorite?(preference),
       default?: default?(preference),
       updated_at: dashboard.updated_at
@@ -389,6 +402,7 @@ defmodule ServiceRadarWebNGWeb.DashboardHubLive.Index do
           " "
         ),
       kind_label: "Package",
+      report?: false,
       favorite?: favorite?(preference),
       default?: default?(preference) or instance.is_default,
       updated_at: instance.updated_at
@@ -405,6 +419,12 @@ defmodule ServiceRadarWebNGWeb.DashboardHubLive.Index do
   defp package_description(_package), do: "Signed dashboard package"
 
   defp favorite_items(items), do: Enum.filter(items, & &1.favorite?)
+
+  defp report_items(items), do: Enum.filter(items, & &1.report?)
+
+  defp system_report?(%{metadata: %{"system_report" => true}}), do: true
+  defp system_report?(%{metadata: %{system_report: true}}), do: true
+  defp system_report?(_dashboard), do: false
 
   defp favorite?(%{favorite: true}), do: true
   defp favorite?(_preference), do: false

@@ -177,7 +177,9 @@ defmodule ServiceRadarWebNGWeb.SRQL.Catalog do
         "awx_managed",
         "tags",
         "include_inactive",
-        "include_deleted"
+        "include_deleted",
+        "first_seen",
+        "first_seen_time"
       ],
       boolean_fields: [
         "is_available",

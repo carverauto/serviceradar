@@ -39,6 +39,7 @@ defmodule ServiceRadarWebNG.Application do
       |> maybe_add_first_party_plugin_sync_scheduler()
       |> maybe_add_native_addon_sync_scheduler()
       |> maybe_add_first_party_dashboard_seeder()
+      |> maybe_add_system_report_seeder()
       |> Kernel.++([
         # DNS cluster for Kubernetes deployments
         {DNSCluster, query: Application.get_env(:serviceradar_web_ng, :dns_cluster_query) || :ignore}
@@ -176,6 +177,14 @@ defmodule ServiceRadarWebNG.Application do
   defp maybe_add_first_party_dashboard_seeder(children) do
     if Application.get_env(:serviceradar_core, :seeders_enabled, true) do
       children ++ [ServiceRadarWebNG.Dashboards.FirstPartyPackages]
+    else
+      children
+    end
+  end
+
+  defp maybe_add_system_report_seeder(children) do
+    if Application.get_env(:serviceradar_core, :seeders_enabled, true) do
+      children ++ [ServiceRadarWebNG.Dashboards.SystemReports]
     else
       children
     end
