@@ -11,6 +11,7 @@ defmodule ServiceRadar.Inventory.Identity.AliasGuard do
   alias ServiceRadar.Inventory.Device
   alias ServiceRadar.Inventory.DeviceIdentifier
   alias ServiceRadar.Inventory.Identity.Ids
+  alias ServiceRadar.Inventory.Identity.Mac
   alias ServiceRadar.Inventory.Identity.MergeEngine
   alias ServiceRadar.Inventory.Identity.Resolver
 
@@ -74,7 +75,8 @@ defmodule ServiceRadar.Inventory.Identity.AliasGuard do
     macs_b = device_macs(device_b, actor)
 
     macs_a != [] and macs_b != [] and
-      MapSet.disjoint?(MapSet.new(macs_a), MapSet.new(macs_b))
+      MapSet.disjoint?(MapSet.new(macs_a), MapSet.new(macs_b)) and
+      not Mac.any_hardware_mac_siblings?(macs_a, macs_b)
   end
 
   defp device_macs(device_id, actor) do

@@ -39,6 +39,55 @@ func (e *DiscoveryEngine) lookupLocalDeviceID(job *DiscoveryJob, targetIP string
 	return strings.TrimSpace(deviceID)
 }
 
+func (e *DiscoveryEngine) lookupKnownDeviceName(job *DiscoveryJob, targetIP string) string {
+	if job == nil || job.Results == nil {
+		return ""
+	}
+
+	job.mu.RLock()
+	defer job.mu.RUnlock()
+
+	targetIP = strings.TrimSpace(targetIP)
+	if targetIP == "" {
+		return ""
+	}
+
+	for _, device := range job.Results.Devices {
+		if device == nil {
+			continue
+		}
+
+		if strings.TrimSpace(device.IP) == targetIP ||
+			deviceHasAlternateIP(device, targetIP) {
+			return firstNonEmpty(device.Hostname, device.SysName)
+		}
+	}
+
+	return ""
+}
+
+func deviceHasAlternateIP(device *DiscoveredDevice, ip string) bool {
+	if device == nil || device.Metadata == nil || ip == "" {
+		return false
+	}
+
+	if _, ok := device.Metadata["alt_ip:"+ip]; ok {
+		return true
+	}
+	_, ok := device.Metadata["ip_alias:"+ip]
+	return ok
+}
+
+func describeSNMPTarget(ip, hostname string) string {
+	ip = strings.TrimSpace(ip)
+	hostname = strings.TrimSpace(hostname)
+	if hostname == "" || hostname == ip {
+		return ip
+	}
+
+	return fmt.Sprintf("%s (%s)", ip, hostname)
+}
+
 func (e *DiscoveryEngine) localIPv4Subnets(job *DiscoveryJob, targetIP string) map[string]struct{} {
 	subnets := make(map[string]struct{})
 	addIfIPv4Subnet(subnets, targetIP)

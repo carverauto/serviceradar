@@ -635,6 +635,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NotificationsLive.Index do
 
   defp handle_authorized("validate_policy", %{"policy" => params}, socket) do
     form = merge_policy_form(socket.assigns.policy_form, params)
+
     {:noreply, assign(socket, :policy_form, with_policy_warning(form, socket.assigns.channel_index))}
   end
 
@@ -698,6 +699,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NotificationsLive.Index do
 
   defp handle_authorized("validate_silence", %{"silence" => params}, socket) do
     form = merge_silence_form(socket.assigns.silence_form, params)
+
     {:noreply, assign(socket, :silence_form, with_blast_radius(form, socket.assigns.current_scope))}
   end
 
@@ -1086,7 +1088,12 @@ defmodule ServiceRadarWebNGWeb.Settings.NotificationsLive.Index do
     form
     |> Map.put(:params, merged_params)
     |> Map.put(:provider, provider)
-    |> Map.put(:config_params, Map.merge(form.config_params || %{}, config || %{}))
+    |> Map.put(
+      :config_params,
+      form.config_params
+      |> Kernel.||(%{})
+      |> Map.merge(drop_unused_config_keys(config || %{}))
+    )
     |> Map.put(:warnings, channel_warnings(merged_params, socket.assigns.channel_index))
   end
 
@@ -1136,6 +1143,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NotificationsLive.Index do
     {secrets, config} =
       form
       |> Map.get(:config_params, %{})
+      |> drop_unused_config_keys()
       |> Enum.split_with(fn {key, _value} -> to_string(key) in keys end)
 
     {Map.new(config), Map.new(secrets)}
@@ -1155,7 +1163,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NotificationsLive.Index do
       |> Enum.flat_map(fn field ->
         case blank_to_nil(Map.get(params, field)) do
           nil -> []
-          value -> if String.starts_with?(value, "secretref:"), do: [], else: [{field, value}]
+          value -> if SecretRefs.secret_ref?(value), do: [], else: [{field, value}]
         end
       end)
       |> Map.new()
@@ -1595,7 +1603,12 @@ defmodule ServiceRadarWebNGWeb.Settings.NotificationsLive.Index do
 
     case recent_alerts(scope, 1) do
       [alert | _rest] ->
-        decision = NotificationRouter.match(alert_subject(alert), Enum.map(routes, &route_map/1), DateTime.utc_now())
+        decision =
+          NotificationRouter.match(
+            alert_subject(alert),
+            Enum.map(routes, &route_map/1),
+            DateTime.utc_now()
+          )
 
         %{
           description:
@@ -1621,7 +1634,12 @@ defmodule ServiceRadarWebNGWeb.Settings.NotificationsLive.Index do
 
       cond do
         id == halted ->
-          row(route, "Matched - evaluation stops here", "warning", "continue is off on this route")
+          row(
+            route,
+            "Matched - evaluation stops here",
+            "warning",
+            "continue is off on this route"
+          )
 
         MapSet.member?(matched_ids, id) ->
           row(route, "Matched", "success", "continue is on, evaluation falls through")
@@ -1709,7 +1727,11 @@ defmodule ServiceRadarWebNGWeb.Settings.NotificationsLive.Index do
       %{
         "delay_seconds" => to_string(step.delay_seconds),
         "condition" => to_string(step.condition),
-        "channel_ids" => step |> Map.get(:step_channels, []) |> List.wrap() |> Enum.map(&to_string(&1.channel_id))
+        "channel_ids" =>
+          step
+          |> Map.get(:step_channels, [])
+          |> List.wrap()
+          |> Enum.map(&to_string(&1.channel_id))
       }
     end)
   end
@@ -1983,6 +2005,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NotificationsLive.Index do
   defp save_silence(_scope, _form, _attrs), do: {:error, :no_silence}
 
   defp silence_error(:missing_datetime), do: "Both the start and the end of the window are required."
+
   defp silence_error(:invalid_datetime), do: "The window timestamps could not be read."
   defp silence_error(reason), do: predicate_error(reason)
 
@@ -1995,7 +2018,10 @@ defmodule ServiceRadarWebNGWeb.Settings.NotificationsLive.Index do
 
         matched =
           Enum.filter(alerts, fn alert ->
-            match?({:ok, true}, Evaluator.evaluate(document, NotificationRouter.subject(alert_subject(alert))))
+            match?(
+              {:ok, true},
+              Evaluator.evaluate(document, NotificationRouter.subject(alert_subject(alert)))
+            )
           end)
 
         Map.put(form, :preview, %{
@@ -2128,6 +2154,16 @@ defmodule ServiceRadarWebNGWeb.Settings.NotificationsLive.Index do
   defp put_if(map, _key, nil), do: map
   defp put_if(map, key, value), do: Map.put(map, key, value)
 
+  defp drop_unused_config_keys(params) when is_map(params) do
+    params
+    |> Enum.reject(fn {key, _value} ->
+      key |> to_string() |> String.starts_with?("_unused_")
+    end)
+    |> Map.new()
+  end
+
+  defp drop_unused_config_keys(_params), do: %{}
+
   defp blank_to_nil(value) when is_binary(value) do
     case String.trim(value) do
       "" -> nil
@@ -2168,7 +2204,9 @@ defmodule ServiceRadarWebNGWeb.Settings.NotificationsLive.Index do
 
   defp error_message(%Ash.Error.Forbidden{}), do: "you are not authorized to make that change"
   defp error_message(reason) when is_binary(reason), do: reason
+
   defp error_message(reason) when is_atom(reason), do: reason |> to_string() |> String.replace("_", " ")
+
   defp error_message(reason), do: inspect(reason)
 
   defp ash_error_message(%{field: field, message: message}) when not is_nil(field) do

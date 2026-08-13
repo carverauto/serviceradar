@@ -3,7 +3,7 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Data.TrafficSparklines do
 
   defmacro __using__(_opts) do
     quote do
-      defp dashboard_sparklines(time_window, security_trend, mtr_overlays) do
+      defp dashboard_sparklines(time_window, security_trend) do
         %{
           assets: device_activity_sparkline(time_window),
           threats: security_trend |> Enum.map(&(&1.high + &1.critical)) |> sparkline_tail(),
@@ -12,8 +12,8 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Data.TrafficSparklines do
           survey: survey_sample_sparkline(time_window),
           throughput: flow_traffic_sparkline(time_window, :bps),
           service_health: service_availability_sparkline(time_window),
-          latency: trace_sparkline(time_window, :latency_ms, mtr_overlays),
-          packet_loss: mtr_overlay_sparkline(mtr_overlays, :loss_pct)
+          latency: mtr_timeseries_sparkline(time_window, :latency_ms),
+          packet_loss: mtr_timeseries_sparkline(time_window, :loss_pct)
         }
       rescue
         _ -> empty_sparklines()

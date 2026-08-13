@@ -173,9 +173,17 @@ defmodule GenHexBazel do
 
   defp parse(_name, _other), do: nil
 
-  # A package is built by Mix when :mix is among its build tools; anything else
-  # (rebar3, plain erlang.mk makefiles) compiles as an Erlang app.
-  defp tool(%{tools: tools}), do: if(:mix in tools, do: :mix, else: :erlang)
+  # A package is built by Mix when :mix is among its build tools. Hex sometimes
+  # records an empty tool list for Mix packages (phoenix 1.8.11, ex_sdp 1.2.0);
+  # those still ship mix.exs and cannot be compiled as a bare erlang_app.
+  # Rebar/erlang.mk packages always list :rebar3 or :make.
+  defp tool(%{tools: tools}) do
+    cond do
+      :mix in tools -> :mix
+      tools == [] -> :mix
+      true -> :erlang
+    end
+  end
 
   # Optional deps that were never resolved into the lock are not real edges --
   # except where a first-party path override is why the dep is missing.

@@ -334,6 +334,43 @@ defmodule ServiceRadarWebNGWeb.Stats do
     _ -> empty_events_summary()
   end
 
+  @type events_hourly_point :: %{
+          bucket: DateTime.t() | NaiveDateTime.t() | term(),
+          total: non_neg_integer(),
+          low: non_neg_integer(),
+          medium: non_neg_integer(),
+          high: non_neg_integer(),
+          critical: non_neg_integer()
+        }
+
+  @doc """
+  Hourly event severity buckets for the dashboard Events Over Time chart.
+
+  Uses the hourly CAGG for closed hours when that rollup has data. If the
+  rollup exists but is empty (a leftover view or an unrefreshed CAGG), the
+  same window is aggregated from raw `ocsf_events` so the chart is not blank
+  while events still exist.
+  """
+  @spec events_hourly_trend(DateTime.t()) :: [events_hourly_point()]
+  def events_hourly_trend(%DateTime{} = cutoff) do
+    cutoff
+    |> event_hourly_trend_rows()
+    |> Enum.map(fn [bucket, total, low, medium, high, critical] ->
+      %{
+        bucket: bucket,
+        total: to_int(total),
+        low: to_int(low),
+        medium: to_int(medium),
+        high: to_int(high),
+        critical: to_int(critical)
+      }
+    end)
+  rescue
+    _ -> []
+  end
+
+  def events_hourly_trend(_), do: []
+
   @doc """
   Fetch span RED (rate/errors/duration) stats using the rollup_stats pattern.
 
@@ -786,9 +823,50 @@ defmodule ServiceRadarWebNGWeb.Stats do
   # The query text is a fixed private function and `cutoff` is bound as $1.
   @sobelow_skip ["SQL.Query"]
   defp event_summary_rows(cutoff) do
-    case SQL.query(CoreRepo, event_summary_rollup_sql(), [cutoff]) do
-      {:ok, %{rows: rows}} -> normalize_event_summary_rows(rows)
-      _ -> raw_event_summary_rows(cutoff)
+    if closed_hour_event_rollup_present?(cutoff) do
+      case SQL.query(CoreRepo, event_summary_rollup_sql(), [cutoff]) do
+        {:ok, %{rows: rows}} -> normalize_event_summary_rows(rows)
+        _ -> raw_event_summary_rows(cutoff)
+      end
+    else
+      raw_event_summary_rows(cutoff)
+    end
+  end
+
+  @sobelow_skip ["SQL.Query"]
+  defp event_hourly_trend_rows(cutoff) do
+    if closed_hour_event_rollup_present?(cutoff) do
+      case SQL.query(CoreRepo, event_hourly_trend_rollup_sql(), [cutoff]) do
+        {:ok, %{rows: rows}} -> rows
+        _ -> raw_event_hourly_trend_rows(cutoff)
+      end
+    else
+      raw_event_hourly_trend_rows(cutoff)
+    end
+  end
+
+  @sobelow_skip ["SQL.Query"]
+  defp raw_event_hourly_trend_rows(cutoff) do
+    case SQL.query(CoreRepo, event_hourly_trend_raw_sql(), [cutoff]) do
+      {:ok, %{rows: rows}} -> rows
+      _ -> []
+    end
+  end
+
+  @sobelow_skip ["SQL.Query"]
+  defp closed_hour_event_rollup_present?(cutoff) do
+    sql = """
+    SELECT EXISTS (
+      SELECT 1
+      FROM ocsf_events_hourly_stats
+      WHERE bucket >= $1 AND bucket < date_trunc('hour', now())
+      LIMIT 1
+    )
+    """
+
+    case SQL.query(CoreRepo, sql, [cutoff]) do
+      {:ok, %{rows: [[true]]}} -> true
+      _ -> false
     end
   end
 
@@ -835,6 +913,61 @@ defmodule ServiceRadarWebNGWeb.Stats do
     FROM ocsf_events
     WHERE time >= $1
     GROUP BY 1
+    """
+  end
+
+  defp event_hourly_trend_rollup_sql do
+    """
+    WITH hourly AS (
+      SELECT bucket, severity_id, total_count
+      FROM ocsf_events_hourly_stats
+      WHERE bucket >= $1 AND bucket < date_trunc('hour', now())
+      UNION ALL
+      SELECT
+        date_trunc('hour', time) AS bucket,
+        COALESCE(severity_id, 0) AS severity_id,
+        COUNT(*)::bigint AS total_count
+      FROM ocsf_events
+      WHERE time >= date_trunc('hour', now())
+      GROUP BY 1, 2
+    ),
+    recent AS (
+      SELECT
+        bucket,
+        SUM(total_count)::bigint AS total,
+        COALESCE(SUM(total_count) FILTER (WHERE severity_id BETWEEN 1 AND 2), 0)::bigint AS low,
+        COALESCE(SUM(total_count) FILTER (WHERE severity_id = 3), 0)::bigint AS medium,
+        COALESCE(SUM(total_count) FILTER (WHERE severity_id = 4), 0)::bigint AS high,
+        COALESCE(SUM(total_count) FILTER (WHERE severity_id >= 5), 0)::bigint AS critical
+      FROM hourly
+      GROUP BY bucket
+      ORDER BY bucket DESC
+      LIMIT 48
+    )
+    SELECT bucket, total, low, medium, high, critical
+    FROM recent
+    ORDER BY bucket ASC
+    """
+  end
+
+  defp event_hourly_trend_raw_sql do
+    """
+    SELECT bucket, total, low, medium, high, critical
+    FROM (
+      SELECT
+        date_trunc('hour', time) AS bucket,
+        COUNT(*)::bigint AS total,
+        COALESCE(COUNT(*) FILTER (WHERE COALESCE(severity_id, 0) BETWEEN 1 AND 2), 0)::bigint AS low,
+        COALESCE(COUNT(*) FILTER (WHERE COALESCE(severity_id, 0) = 3), 0)::bigint AS medium,
+        COALESCE(COUNT(*) FILTER (WHERE COALESCE(severity_id, 0) = 4), 0)::bigint AS high,
+        COALESCE(COUNT(*) FILTER (WHERE COALESCE(severity_id, 0) >= 5), 0)::bigint AS critical
+      FROM ocsf_events
+      WHERE time >= $1
+      GROUP BY 1
+      ORDER BY 1 DESC
+      LIMIT 48
+    ) recent
+    ORDER BY bucket ASC
     """
   end
 

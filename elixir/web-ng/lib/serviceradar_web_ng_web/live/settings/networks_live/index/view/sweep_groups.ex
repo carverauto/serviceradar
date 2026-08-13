@@ -2,7 +2,9 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index.View.SweepGroups do
   @moduledoc false
   use ServiceRadarWebNGWeb, :html
 
-  import ServiceRadarWebNGWeb.Settings.NetworksLive.ActiveScansComponents, only: [format_last_run: 1]
+  import ServiceRadarWebNGWeb.Settings.NetworksLive.ActiveScansComponents,
+    only: [format_last_run: 1, group_last_run_at: 1, persisted_sweep_command_status: 1]
+
   import ServiceRadarWebNGWeb.Settings.NetworksLive.FormComponents
   import ServiceRadarWebNGWeb.Settings.NetworksLive.Index.CommandStatus
 
@@ -82,10 +84,12 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index.View.SweepGroups do
                   {group.agent_id || "All"}
                 </td>
                 <td class="text-xs text-sr-muted">
-                  {format_last_run(group.last_run_at)}
+                  {format_last_run(group_last_run_at(group))}
                 </td>
                 <td class="text-xs">
-                  <%= if status = Map.get(@sweep_command_statuses, group.id) do %>
+                  <%= if status =
+                           Map.get(@sweep_command_statuses, group.id) ||
+                             persisted_sweep_command_status(group) do %>
                     <.ui_badge variant={command_status_variant(status)} size="xs">
                       {command_status_label(status)}
                     </.ui_badge>

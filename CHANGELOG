@@ -1,3 +1,42 @@
+# ServiceRadar v1.4.31
+
+Emergency Ash 3.31.3 upgrade for CVE-2026-67579 (keyset pagination cursor
+injection), plus farm-tested identity and sweep/notification fixes.
+
+## Whats New
+
+**1.4.31**
+- Security: upgrade Ash from 3.31.2 to 3.31.3 to close CVE-2026-67579. A
+  forged keyset `page[:after]` / `page[:before]` cursor could inject an
+  `Ash.Query.Call` filter, which AshPostgres inlined as SQL and ETS/Simple
+  evaluated in-process. The floor is now `~> 3.31.3` in `serviceradar_core`.
+- Hex lock updates that came with the Ash bump: reactor 1.0.6, splode 0.3.2,
+  and stream_data 1.4.0 across the Elixir apps; web-ng also takes Req 0.7.2,
+  igniter 0.8.3, and related compiler-tool patches; core-elx takes Phoenix
+  1.8.11 and ex_sdp 1.2.0.
+- UniFi/SNMP identity: stamp the UniFi controller host as an alternate IP on
+  the named gateway, and treat IEEE UAA/LAA NIC siblings as one DIRE device
+  so WAN UniFi and LAN SNMP identities converge. Recursive SNMP now includes
+  UniFi wired clients that already have a management IPv4.
+- Mapper SNMP skip and failure logs now name the target IP and any known
+  hostname so a timeout is not an anonymous "Failed to query system info".
+- Sweep Groups stamp `last_run_at` when results land and show the latest
+  execution time/status. Scanner profiles no longer compile TCP without
+  ports, drop unsupported ARP before it reaches the agent, and strip LiveView
+  `_unused_*` keys so Discord notification-channel save is not rejected by
+  `additionalProperties: false`.
+- Discord Send test no longer treats a typed webhook URL as a missing
+  credential reference. The persist contract still requires a stored
+  reference; the test path accepts the just-typed secret (or the saved
+  reference if the password box is left blank) and does not run the
+  outbound URL policy against a `secretref:` handle.
+- MTR History Retention now converts `mtr_traces`/`mtr_hops` to hypertables
+  and attaches Timescale policies, so Save no longer reports "policy missing"
+  after a successful write (fj#4955). Dashboard Latency/Packet Loss read
+  those tables instead of OTEL `traces_stats_5m`. Events Over Time falls
+  back to raw `ocsf_events` when the hourly rollup is an empty leftover
+  view, and a repair migration replaces that view with a real CAGG.
+
 # ServiceRadar v1.4.30
 
 Rebuilt the CNPG database image so its compiled extensions actually load, and

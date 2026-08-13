@@ -30,6 +30,25 @@ Keep this managed block so 'openspec update' can refresh the instructions.
   sets up) silently redirects the push to **staging**. Create feature worktrees with
   `git worktree add --no-track -b <name> origin/staging`, and verify the push line says
   `-> <name>`, never `-> staging`.
+- **After `git worktree add` (or any extra checkout), symlink the gitignored
+  Bazel rc files before any `bazel` command.** `.bazelrc` try-imports
+  `%workspace%/.bazelrc.remote` and `.bazelrc.local`. Both are gitignored:
+  they hold the BuildBuddy API key and the remote cache/executor overrides.
+  `git worktree add` only checks out tracked files, so a new worktree has
+  neither. Without them `--config=remote` / `--config=ci` cannot authenticate:
+  Bazel prints `PERMISSION_DENIED: Missing API key` and never reaches RBE
+  (local crawl or abort). `bb view` still works from the primary clone — that
+  is not proof the worktree is wired for remote execution. From the checkout
+  that already has the files:
+
+  ```
+  ln -sfn "$PRIMARY/.bazelrc.remote" "$WT/.bazelrc.remote"
+  test -e "$PRIMARY/.bazelrc.local" && ln -sfn "$PRIMARY/.bazelrc.local" "$WT/.bazelrc.local"
+  test -f "$WT/.bazelrc.remote"
+  ```
+
+  Same rule for `/tmp/...` trees, `jj workspace add`, and extra clones. Never
+  commit those files.
 - **Cut releases with `scripts/cut-release.sh`.** Update `CHANGELOG` and `VERSION`
   first (the script validates a CHANGELOG entry for the version, and updates
   `VERSION`, `helm/serviceradar/Chart.yaml`, and the demo ArgoCD source). The
@@ -133,7 +152,8 @@ This file applies repo-wide, but subdirectories may include their own `AGENTS.md
 - Lint: `make lint`.
 - Focused Go packages: `go test ./go/pkg/...`.
 - SRQL (Rust) integration tests: `cd rust/srql && cargo test`.
-- Bazel images: `bazel run //docker/images:<target>_push`.
+- Bazel images: `bazel run //docker/images:<target>_push`. A worktree without
+  `.bazelrc.remote` is not on RBE — copy the gitignored rc files first (Hard Rules).
 - First-party Wasm plugins: `make build_wasm_plugins`, `make push_wasm_plugins`, `make verify_wasm_plugins`. Bazel fetches the pinned TinyGo toolchain automatically; local `oras` is still required for publish/inspect workflows. `make push_all` is the container-image path; `make push_all_release` adds the Wasm publish/sign/verify path for release-style runs.
 - Rust dep bump (cargo + Bazel in one go): `make update-rust-deps REPIN=workspace`, or `scripts/update-rust-bazel-deps.sh [update-mode] [verify-target]` — runs `cargo update` → `cargo check` → `scripts/vendor.sh` → `bazel build`. To only regenerate the vendored tree after hand-editing the root `Cargo.toml`: `scripts/vendor.sh`. See [Rust Dependency Management](#rust-dependency-management).
 - Elixir workspace quality contract: `./scripts/elixir_quality.sh --project elixir/<project>` and add `--phoenix` for Phoenix apps such as `elixir/web-ng`.
@@ -199,8 +219,11 @@ Reference `docs/docs/agents.md` for: faker deployment details, CNPG truncate/res
 - Check demo pods: `kubectl get pods -n demo`.
 - Scale sync: `kubectl scale deployment/serviceradar-sync -n demo --replicas=<n>`.
 - GH client is installed and authenticated
-- 'bb' (BuildBuddy) client is available for any build issues
-- bazel is our build system, we use it to build and push images
+- 'bb' (BuildBuddy) client is available for any build issues. `bb view`
+  does not need `.bazelrc.remote`; `bazel --config=ci` / `--config=remote` does.
+- bazel is our build system, we use it to build and push images. Isolated
+  checkouts must symlink `.bazelrc.remote` from the primary clone or they
+  never hit RBE (Hard Rules).
 - Sysmon-vm hostfreq sampler buffers ~5 minutes of 250 ms samples; keep gateways querying at least once per retention window so cached CPU data stays fresh.
 
 ## Demo Namespace Helm Refresh
@@ -675,6 +698,7 @@ Restart the checker using the persisted config:
 
 - Add new build/test commands when tooling changes.
 - Keep instructions synchronized with the latest bead notes and related documentation updates.
+- If Bazel credentials or worktree setup change, keep the `.bazelrc.remote` hard rule accurate.
 
 ## Ash First
 

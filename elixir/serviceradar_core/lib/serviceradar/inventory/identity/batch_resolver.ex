@@ -24,6 +24,7 @@ defmodule ServiceRadar.Inventory.Identity.BatchResolver do
   alias ServiceRadar.Inventory.DeviceIdentifier
   alias ServiceRadar.Inventory.Identity.Ids
   alias ServiceRadar.Inventory.Identity.Mac
+  alias ServiceRadar.Inventory.Identity.MergeEngine
   alias ServiceRadar.Inventory.Identity.Resolver
 
   require Ash.Query
@@ -79,6 +80,12 @@ defmodule ServiceRadar.Inventory.Identity.BatchResolver do
     # Phase 2: one bulk query finds tombstoned candidates; only those are
     # canonical-followed (merged-away IDs must not be resurrected).
     canonical = canonical_mapping(candidates, actor)
+
+    # Phase 3: if this batch already owns both sides of a UAA/LAA NIC pair
+    # on different devices, merge the LAA sibling into the UAA survivor
+    # before upsert. Identifier ownership is never stolen by upsert.
+    candidates =
+      heal_hardware_mac_siblings(candidates, lookups.identifiers, actor)
 
     candidates
     |> Enum.reduce({[], MapSet.new()}, fn {update, ids, device_id}, {acc, strong} ->
@@ -160,7 +167,9 @@ defmodule ServiceRadar.Inventory.Identity.BatchResolver do
       |> Enum.find_value(fn value ->
         case Map.get(identifier_map, {id_type, value, ids.partition}) do
           nil ->
-            nil
+            if id_type == :mac do
+              hardware_mac_sibling_match(value, ids, identifier_map)
+            end
 
           device_id ->
             cond do
@@ -275,6 +284,62 @@ defmodule ServiceRadar.Inventory.Identity.BatchResolver do
     case ids.ip do
       ip when is_binary(ip) and ip != "" -> Map.get(ip_map, ip)
       _ -> nil
+    end
+  end
+
+  # First-sighting attach: the incoming MAC is new, but its IEEE LAA/UAA
+  # sibling is already registered. Resolve onto that device so SNMP F6
+  # never mints a second farm01 next to UniFi F4.
+  defp hardware_mac_sibling_match(mac, ids, identifier_map) do
+    case Mac.hardware_mac_sibling(mac) do
+      nil ->
+        nil
+
+      sibling ->
+        Map.get(identifier_map, {:mac, sibling, ids.partition})
+    end
+  end
+
+  defp heal_hardware_mac_siblings(candidates, identifier_map, actor) do
+    Enum.map(candidates, fn {update, ids, device_id} ->
+      {update, ids, maybe_merge_hardware_mac_sibling(device_id, ids, identifier_map, actor)}
+    end)
+  end
+
+  defp maybe_merge_hardware_mac_sibling(device_id, ids, identifier_map, actor) do
+    :mac
+    |> Ids.get_identifier_values(ids)
+    |> Enum.reduce(device_id, fn mac, acc ->
+      merge_loaded_hardware_mac_sibling(acc, mac, ids, identifier_map, actor)
+    end)
+  end
+
+  defp merge_loaded_hardware_mac_sibling(device_id, mac, ids, identifier_map, actor) do
+    sibling = Mac.hardware_mac_sibling(mac)
+    other_id = sibling && Map.get(identifier_map, {:mac, sibling, ids.partition})
+
+    if is_binary(other_id) and other_id != device_id do
+      {from_id, to_id} =
+        if Mac.locally_administered_mac?(mac) do
+          {device_id, other_id}
+        else
+          {other_id, device_id}
+        end
+
+      case MergeEngine.merge_devices(from_id, to_id,
+             actor: actor,
+             reason: "hardware_mac_sibling",
+             details: %{
+               source: "batch_resolver",
+               mac: mac,
+               sibling_mac: sibling
+             }
+           ) do
+        :ok -> to_id
+        _ -> device_id
+      end
+    else
+      device_id
     end
   end
 
