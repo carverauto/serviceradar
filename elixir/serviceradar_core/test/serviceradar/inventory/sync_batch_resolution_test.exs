@@ -925,7 +925,10 @@ defmodule ServiceRadar.Inventory.SyncBatchResolutionTest do
 
     assert :ok = SyncIngestor.ingest_updates([update], actor: actor)
     assert device_for_mac("F692BF75C721", actor) == unifi.uid
-    assert {:ok, %Device{deleted_at: deleted_at}} = Device.get_by_uid(snmp.uid, true, actor: actor)
+
+    assert {:ok, %Device{deleted_at: deleted_at}} =
+             Device.get_by_uid(snmp.uid, true, actor: actor)
+
     assert deleted_at
   end
 

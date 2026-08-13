@@ -285,7 +285,10 @@ defmodule ServiceRadar.Inventory.IdentityReconcilerMacClassificationTest do
                )
 
       assert resolved == unifi.uid
-      assert {:ok, %Device{deleted_at: deleted_at}} = Device.get_by_uid(snmp.uid, true, actor: actor)
+
+      assert {:ok, %Device{deleted_at: deleted_at}} =
+               Device.get_by_uid(snmp.uid, true, actor: actor)
+
       assert deleted_at
     end
 
@@ -309,7 +312,10 @@ defmodule ServiceRadar.Inventory.IdentityReconcilerMacClassificationTest do
                )
 
       assert resolved == unifi.uid
-      assert {:ok, %Device{deleted_at: deleted_at}} = Device.get_by_uid(snmp.uid, true, actor: actor)
+
+      assert {:ok, %Device{deleted_at: deleted_at}} =
+               Device.get_by_uid(snmp.uid, true, actor: actor)
+
       assert deleted_at
     end
   end

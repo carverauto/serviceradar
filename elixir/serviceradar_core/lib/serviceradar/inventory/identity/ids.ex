@@ -98,12 +98,10 @@ defmodule ServiceRadar.Inventory.Identity.Ids do
     |> Enum.flat_map(fn {key, _value} ->
       key = to_string(key)
 
-      cond do
-        String.starts_with?(key, "alt_mac:") ->
-          Mac.normalize_mac_list(String.trim_leading(key, "alt_mac:"))
-
-        true ->
-          []
+      if String.starts_with?(key, "alt_mac:") do
+        Mac.normalize_mac_list(String.trim_leading(key, "alt_mac:"))
+      else
+        []
       end
     end)
     |> Enum.uniq()
