@@ -1164,7 +1164,11 @@ here.
         authored.
         `MaxTransportProvenanceHeaderBytes` was claimed by task 1.14, which defined and
         implemented that grammar and is checked, but left no requirement for the bound and no
-        evidence. This subtask is REMEDIATION for that, not first ownership.
+        evidence. This subtask is REMEDIATION for that, not first ownership. THE REQUIREMENT
+        HALF WAS ALREADY AUTHORED HERE -- the residual-bounds requirement carries the value,
+        the GUARD class, and the guard-class obligation that the bound apply BEFORE the parser
+        it protects is entered. What was outstanding was the EVIDENCE, and it now lands in both
+        runtimes.
         MTR SEMANTIC LIMITS STAY WITH 1.4-a and SHALL NOT be duplicated here unless ownership
         is explicitly moved. They have no Elixir peer because this runtime has no MTR body
         validator at all -- an absent boundary, not a missing rule -- so shared rows would be
@@ -1237,6 +1241,23 @@ here.
         semantic maximum: the largest valid header is well below it, so an accepted-at-ceiling
         control cannot exist. It SHALL be evidenced stage-sensitively -- the parser was not
         entered.
+        LANDED, BOTH RUNTIMES. The witness is a PAIR malformed IDENTICALLY and differing only
+        in LENGTH, because an oversize header and a malformed one are both refused and a
+        verdict pair therefore says nothing about which check ran. At the ceiling the decoder
+        MUST be reached and MUST object as the decoder -- that arm is the LIVE-WITNESS control,
+        without which "the parser did not run" is also what a broken observation reports. One
+        byte over, it MUST NOT be reached.
+        OBSERVED WITH WHAT ALREADY EXISTS: Go reads it from the `base64.CorruptInputError` the
+        decode path already wraps with `%w`, and this runtime from its existing `:bad_base64`
+        and `:too_large` tags. NO ERROR CLASS WAS MINTED and NO DIAGNOSTIC TEXT IS FROZEN -- the
+        typed Go error is WHITE-BOX STAGE EVIDENCE ONLY and SHALL NOT be read as a newly
+        normative refusal taxonomy; consumers keep matching the package sentinel.
+        THE GUARD CLASS IS ASSERTED, not assumed: the largest CONFORMING header is 468 bytes and
+        the corpus pins that exact length, so an envelope that shrank could not leave the
+        headroom claim resting on a header no longer representing the maximum -- and if it ever
+        reached the ceiling the bound would owe an attainable-maximum pair instead.
+        The EMIT-side check gets NO ROW: it is defence in depth over output the same function
+        just built, and a row that cannot fail for its own reason is a vacuous row.
         `MaxRangeStrBytes` IS GUARD-CLASS ONLY BECAUSE ZONES ARE FORBIDDEN -- the two rules
         travel together and neither stands alone. Why it was reachable before, which parser
         does what, and the measured maxima are in `design.md`; this entry names the bound and
