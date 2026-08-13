@@ -16,6 +16,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
     ]
 
   alias ServiceRadar.Inventory.DevicePubSub
+  alias ServiceRadarWebNGWeb.CompositeChecks.Catalog, as: CompositeCatalog
   alias ServiceRadarWebNGWeb.DeviceLive.IndexData
   alias ServiceRadarWebNGWeb.DeviceLive.IndexEvents
   alias ServiceRadarWebNGWeb.DeviceLive.IndexView
@@ -85,6 +86,14 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
      )
      |> assign(:breakdown_modal, nil)
      |> assign(:breakdown_search, "")
+     # Enabled composite checks and their authored verdicts, for the verdict
+     # filter. Loaded once on mount: checks change on operator action, not on
+     # every device refresh.
+     |> assign(
+       :composite_checks,
+       CompositeCatalog.enabled_with_verdicts(scope: socket.assigns.current_scope)
+     )
+     |> assign(:composite_verdicts_by_device, %{})
      # Device management modals
      |> assign(:show_add_device_modal, false)
      |> assign(:show_import_modal, false)

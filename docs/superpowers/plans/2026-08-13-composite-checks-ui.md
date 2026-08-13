@@ -459,21 +459,53 @@ local one still renders.
 **Files:** modify `live/device_live/availability_data.ex`, `availability_components.ex`, `index_data.ex`, `index_view.ex`
 **Spec:** verdict + per-input breakdown on detail with unknown reasons stated not blank; optional verdict column and filter on the list.
 
-- [ ] **Step 1: Read the per-agent availability section**
+- [x] **Step 1: Read the per-agent availability section**
 
 That section answers the same shape of question and sits where the verdict belongs — directly beside the vantage-point data that produced it.
 
-- [ ] **Step 2: Write failing tests**
+- [x] **Step 2: Write failing tests**
 
 Detail shows verdict and status for a device in an enabled check's scope; an input with no result shows "unknown" and its reason, not blank or raw JSON; the list filters by verdict.
 
-- [ ] **Step 3: Implement detail**
+- [x] **Step 3: Implement detail**
 
 Load `DeviceCompositeCheckResult.list_by_device/2`, render verdict, status, and the `inputs` snapshot — each input's value, observation age, and `reason` when unknown. Link to the check.
 
-- [ ] **Step 4: Implement the list filter**
+- [x] **Step 4: Implement the list filter**
 
 Use Plan 2's `composite.<slug>` SRQL field rather than a bespoke query, so the list filter and the query language agree.
+
+**What the implementation settled beyond the plan:**
+
+- Snapshot rendering moved to `ServiceRadarWebNGWeb.CompositeChecks.Snapshot`,
+  shared with the authoring preview, so the unknown-not-blank rule the spec
+  pins lives in one place. The preview passes the evaluation's own `now`;
+  device detail passes the wall clock — the one difference that is legitimate.
+- The detail breakdown is driven by the *check's inputs*, not by the recorded
+  snapshot's keys, so an input with no result still renders as unknown. The
+  reverse case — a snapshot key with no matching input — renders marked as no
+  longer part of the check rather than being dropped.
+- `composite_verdicts` is defaulted in **both** `device_mount_assigns.ex` and
+  `show.ex`. The template renders before supplemental data lands and a missing
+  assign raises at render time, not compile time; the sibling
+  `agent_availability` assign is defaulted in exactly those two places.
+- The enabled-checks-with-verdicts lookup was extracted from the SRQL catalog
+  controller into `ServiceRadarWebNGWeb.CompositeChecks.Catalog`, shared with
+  the device list. A picker offering a verdict the query language cannot
+  express is a bug the user discovers by getting zero results.
+- Filter chips rather than a select: every other quick filter in that component
+  is a `navigate` link, and a select would need an event handler to do the same
+  job. Only enabled checks are offered — `composite.<slug>` matches nothing for
+  a draft.
+- The verdict column appears only when the query already filters on one check.
+  A device can hold verdicts for several checks at once, so "the" verdict
+  column is only well-defined once the list is narrowed. An unfiltered list
+  runs no extra query at all.
+- **Regex trap caught by a test:** `\bcomposite\.([a-z0-9][a-z0-9-]*)\b(?!\.status)`
+  returned `"dmz-"` for `composite.dmz-isolation.status:down`. The greedy slug
+  backtracked to a shorter match whose next characters were not `.status`, and
+  the column would have named a check that does not exist. Fixed with
+  `(?![a-z0-9-])` to forbid a match that ends mid-slug.
 
 - [ ] **Step 5–6:** run, commit.
 

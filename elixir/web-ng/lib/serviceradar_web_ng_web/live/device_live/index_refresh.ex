@@ -168,6 +168,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexRefresh do
          sysmon_presence: enrichments.sysmon_presence,
          sysmon_profiles_by_device: enrichments.sysmon_profiles_by_device,
          agent_device_uids: enrichments.agent_device_uids,
+         composite_verdicts_by_device: enrichments.composite_verdicts_by_device,
          total_device_count: enrichments.total_device_count
        )}
     else

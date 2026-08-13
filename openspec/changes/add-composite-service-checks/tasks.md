@@ -144,7 +144,10 @@
       one would misstate which ports are actually probed.
 - [x] 8.8 Add the composite verdict section to device detail with the per-input
       breakdown and unknown reasons stated rather than blank.
-- [ ] 8.9 Add the optional composite column and filter to the device list.
+- [x] 8.9 Add the optional composite column and filter to the device list. The
+      column appears only when the query already filters on one check, which is
+      what makes "the" verdict well-defined: a device can hold a verdict for
+      several checks at once.
 - [x] 8.10 Enforce the `composite_checks` RBAC permissions in LiveView mount
       and every `handle_event`. (The catalog section itself was added with the
       device fact endpoint in section 6.)
