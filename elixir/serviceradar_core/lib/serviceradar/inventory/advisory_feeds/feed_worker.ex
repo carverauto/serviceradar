@@ -30,9 +30,6 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.FeedWorker do
       states: :incomplete
     ]
 
-  @impl Oban.Worker
-  def timeout(_job), do: 180_000
-
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Inventory.AdvisoryFeeds.Acquisition
   alias ServiceRadar.Inventory.AdvisoryFeeds.Config
@@ -45,6 +42,9 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.FeedWorker do
 
   require Ash.Query
   require Logger
+
+  @impl Oban.Worker
+  def timeout(_job), do: 180_000
 
   @stale_running_seconds 15 * 60
 
