@@ -72,10 +72,30 @@ defmodule ServiceRadar.Observability.GeoIP do
 
   def lookup(_), do: {:error, :invalid_ip}
 
+  @doc """
+  Returns only the Geolix database specs whose source files exist on disk.
+  """
+  @spec present_databases([map()]) :: [map()]
+  def present_databases(databases) when is_list(databases) do
+    Enum.filter(databases, fn
+      %{source: source} when is_binary(source) -> File.regular?(source)
+      _ -> false
+    end)
+  end
+
+  defp candidate_databases do
+    Application.get_env(
+      :serviceradar_core,
+      :geolite_databases,
+      Application.get_env(:geolix, :databases, [])
+    )
+  end
+
   defp load_all_databases do
     with {:ok, _} <- ensure_started(:geolix),
          {:ok, _} <- ensure_started(:mmdb2_decoder) do
-      databases = Application.get_env(:geolix, :databases, [])
+      databases = present_databases(candidate_databases())
+      Application.put_env(:geolix, :databases, databases)
 
       # `Geolix.reload_databases/0` only reloads already-loaded DBs; ensure each configured
       # DB is loaded at least once for this node.

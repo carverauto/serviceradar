@@ -319,7 +319,11 @@ endpoint_inventory_addon_config =
       endpoint_inventory_addon_config
   end
 
-config :geolix, databases: base_geolite_dbs ++ city_geolite_dbs ++ ipinfo_dbs
+geolite_dbs = base_geolite_dbs ++ city_geolite_dbs ++ ipinfo_dbs
+
+config :serviceradar_core, :geolite_databases, geolite_dbs
+
+config :geolix, databases: ServiceRadar.Observability.GeoIP.present_databases(geolite_dbs)
 
 config :serviceradar_core,
        :endpoint_inventory_native_addon_package,

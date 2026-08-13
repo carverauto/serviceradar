@@ -59,13 +59,12 @@ defmodule ServiceRadarWebNG.Application do
     # react_children = [Phoenix.React]
 
     children =
-      pubsub_children ++
-        base_children ++
-        field_survey_adbc_children() ++
-        [
-          ServiceRadarWebNG.FieldSurveyStreamLimiter,
-          {Task.Supervisor, name: ServiceRadarWebNG.TaskSupervisor}
-        ]
+      maybe_add_geoip_bootstrap(
+        pubsub_children ++
+          base_children ++
+          field_survey_adbc_children() ++
+          [ServiceRadarWebNG.FieldSurveyStreamLimiter, {Task.Supervisor, name: ServiceRadarWebNG.TaskSupervisor}]
+      )
 
     # Ensure ServiceRadar.Repo is started (may already be started by serviceradar_core)
     ensure_repo_started()
@@ -177,6 +176,26 @@ defmodule ServiceRadarWebNG.Application do
   defp maybe_add_first_party_dashboard_seeder(children) do
     if Application.get_env(:serviceradar_core, :seeders_enabled, true) do
       children ++ [ServiceRadarWebNG.Dashboards.FirstPartyPackages]
+    else
+      children
+    end
+  end
+
+  defp maybe_add_geoip_bootstrap(children) do
+    enabled? =
+      "GEOLITE_MMDB_DOWNLOAD_ENABLED"
+      |> System.get_env("false")
+      |> String.downcase()
+      |> Kernel.in(["1", "true", "yes", "on"])
+
+    if enabled? do
+      children ++
+        [
+          {Task,
+           fn ->
+             _ = ServiceRadar.Observability.GeoLiteMmdbDownloadWorker.sync_missing_files()
+           end}
+        ]
     else
       children
     end
