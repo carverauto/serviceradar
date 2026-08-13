@@ -26,7 +26,6 @@ import (
 	"sort"
 	"strconv"
 	"strings"
-	"sync"
 	"time"
 
 	agentaddon "github.com/carverauto/serviceradar/go/pkg/agent/addon"
@@ -374,25 +373,16 @@ func agentCapabilities(options agentCapabilityOptions) []string {
 	return capabilities
 }
 
-var (
-	icmpMTRProbeOnce sync.Once
-	icmpMTRProbeOK   bool
-)
-
 func probeICMPAndMTRSockets() (icmpOK bool, mtrOK bool) {
-	icmpMTRProbeOnce.Do(func() {
-		sock, err := mtr.NewRawSocket(false)
-		if err != nil {
-			icmpMTRProbeOK = false
-			return
-		}
-		if closeErr := sock.Close(); closeErr != nil {
-			icmpMTRProbeOK = false
-			return
-		}
-		icmpMTRProbeOK = true
-	})
-	return icmpMTRProbeOK, icmpMTRProbeOK
+	sock, err := mtr.NewRawSocket(false)
+	if err != nil {
+		return false, false
+	}
+	if closeErr := sock.Close(); closeErr != nil {
+		return false, false
+	}
+
+	return true, true
 }
 
 func hostNetworkVisibilityFingerprintStatus(capabilities []string) string {
