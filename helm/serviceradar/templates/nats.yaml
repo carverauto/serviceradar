@@ -210,6 +210,9 @@ spec:
                       "flows.raw.>",
                       "flows.*.processed",
                       "logs.>",
+                      # Live tail copies of logs.internal.* (health/audit/jobs).
+                      # web-ng is subscribe-only; core is the publisher.
+                      "live.logs.>",
                       "pdns.ocsf",
                       "pdns.ocsf.>",
                       "signals.analytics.>",

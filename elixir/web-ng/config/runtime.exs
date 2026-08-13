@@ -745,6 +745,10 @@ config :serviceradar_core, ServiceRadar.NATS.Connection,
   tls: nats_tls_config
 
 config :serviceradar_core,
+       :internal_log_live_nats,
+       to_bool.(System.get_env("SERVICERADAR_INTERNAL_LOG_LIVE_NATS", "false")) == true
+
+config :serviceradar_core,
   device_enrichment_rules_dir:
     System.get_env("DEVICE_ENRICHMENT_RULES_DIR", "/var/lib/serviceradar/rules/device-enrichment")
 

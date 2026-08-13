@@ -24,6 +24,31 @@ defmodule ServiceRadar.Events.InternalLogPublisherTest do
     assert_receive {:published_log, "live.logs.internal.audit", ^json}
   end
 
+  test "skips the live NATS copy when internal_log_live_nats is disabled" do
+    previous = Application.get_env(:serviceradar_core, :internal_log_live_nats)
+
+    Application.put_env(:serviceradar_core, :internal_log_live_nats, false)
+
+    on_exit(fn ->
+      if is_nil(previous) do
+        Application.delete_env(:serviceradar_core, :internal_log_live_nats)
+      else
+        Application.put_env(:serviceradar_core, :internal_log_live_nats, previous)
+      end
+    end)
+
+    assert :ok =
+             InternalLogPublisher.publish(
+               "health",
+               %{severity_text: "INFO", body: "heartbeat"},
+               log_processor: {__MODULE__, :process_logs, [self()]},
+               publisher: {__MODULE__, :publish, [self()]}
+             )
+
+    assert_receive {:persisted_logs, [%{metadata: %{subject: "logs.internal.health"}}]}
+    refute_receive {:published_log, "live.logs.internal.health", _json}
+  end
+
   test "treats live NATS publish failure as best-effort after persistence" do
     assert :ok =
              InternalLogPublisher.publish(
@@ -52,7 +77,7 @@ defmodule ServiceRadar.Events.InternalLogPublisherTest do
 
   def process_logs([%{metadata: %{subject: subject}} = message] = messages, pid) do
     send(pid, {:persisted_logs, messages})
-    assert subject in ["logs.internal.audit", "logs.internal.jobs"]
+    assert subject in ["logs.internal.audit", "logs.internal.jobs", "logs.internal.health"]
     assert is_binary(message.data)
     {:ok, 1}
   end
