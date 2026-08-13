@@ -54,14 +54,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
      |> assign(:managed_device_limit_exceeded, false)
      |> assign(:current_page, 1)
      # Device stats for cards
-     |> assign(:device_stats, %{
-       total: 0,
-       available: 0,
-       unavailable: 0,
-       by_type: [],
-       by_vendor: [],
-       by_risk_level: []
-     })
+     |> assign(:device_stats, IndexData.default_device_stats())
      |> assign(:device_stats_loading, true)
      |> assign(:device_stats_loaded, false)
      # Bulk selection

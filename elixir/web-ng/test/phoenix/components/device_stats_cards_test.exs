@@ -37,7 +37,10 @@ defmodule ServiceRadarWebNGWeb.Components.DeviceStatsCardsTest do
           unavailable: 4,
           by_type: facet_items("Type", 12),
           by_vendor: facet_items("Vendor", 12),
-          by_risk_level: []
+          by_risk_level: [],
+          new_today: 2,
+          new_last_7d: 5,
+          new_last_30d: 9
         },
         loading: false
       })
@@ -55,6 +58,31 @@ defmodule ServiceRadarWebNGWeb.Components.DeviceStatsCardsTest do
     # The overflow is deliberately NOT inlined into the card any more.
     refute html =~ "Type 12"
     refute html =~ "Vendor 12"
+  end
+
+  test "the new-devices card shows today / 7d / 30d counts and first_seen filters" do
+    html =
+      render_component(&DeviceStats.device_stats_cards/1, %{
+        stats: %{
+          total: 103,
+          available: 43,
+          unavailable: 60,
+          by_type: [],
+          by_vendor: [],
+          by_risk_level: [],
+          new_today: 3,
+          new_last_7d: 12,
+          new_last_30d: 28
+        },
+        loading: false
+      })
+
+    assert html =~ "New devices"
+    assert html =~ "Today 3"
+    assert html =~ "30d 28"
+    assert html =~ "in:devices first_seen:today"
+    assert html =~ "in:devices first_seen:last_7d"
+    assert html =~ "in:devices first_seen:last_30d"
   end
 
   test "the breakdown modal lists every facet option inside a bounded scroll container" do
