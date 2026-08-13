@@ -131,7 +131,7 @@
       bidirectional round-trip and a device count.
 - [x] 8.4 Add the vantage point section with agent picker, expectation selector,
       and liveness-witness / isolation-probe labelling.
-- [ ] 8.5 Add the editable verdict rule table with reordering and the protected
+- [x] 8.5 Add the editable verdict rule table with reordering and the protected
       catch-all row.
 - [ ] 8.6 Add the live preview panel: sampled device, per-input breakdown with
       ages, resulting verdict, and rollup counts with the unreachable-population

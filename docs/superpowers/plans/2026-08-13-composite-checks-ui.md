@@ -240,15 +240,41 @@ Adding a vantage point with `expected: "available"` labels it liveness witness; 
 
 **The two invariants Plan 1 enforces server-side, which this UI must not fight:** the catch-all cannot be reordered, rematched, or deleted (policy-enforced, returns `Ash.Error.Forbidden`), and a non-catch-all rule must constrain at least one input (check constraint). Render the catch-all row without reorder/delete affordances and with only its label editable, so the UI never offers an action the server will refuse.
 
-- [ ] **Step 1: Write failing tests**
+- [x] **Step 1: Write failing tests**
 
 Generating from expectations produces the isolation rows; editing a verdict label persists; the catch-all row renders without delete/reorder controls; regenerating warns before discarding edits.
 
-- [ ] **Step 2: Wire generation**
+- [x] **Step 2: Wire generation**
 
 Call `RuleGenerator.generate/1` with the current inputs. It returns rule attrs with positions; the catch-all already exists from check creation and must not be duplicated.
 
-- [ ] **Step 3–5:** implement edit/reorder/delete events, the regeneration confirmation, run, commit.
+- [x] **Step 3–5:** implement edit/reorder/delete events, the regeneration confirmation, run, commit.
+
+**What the implementation settled beyond the plan:**
+
+- The table lives outside `#composite-check-form`, and each row is its own
+  `<form phx-change="update_rule">`. A form nested in a form is invalid HTML —
+  the browser drops the inner one and the row silently stops submitting. That
+  ruled out a `<table>` too (`<form>` is not valid inside `<tr>`), so the rows
+  are a CSS grid with a runtime-built `grid-template-columns`.
+- Columns come from the check's *persisted* inputs, not the unsaved vantage
+  point rows. A column for an input that does not exist yet produces a rule that
+  can never match. A new check therefore says so instead of rendering an empty
+  table.
+- "Any" is stored as an absent key, matching what the generator writes, rather
+  than the wildcard `"*"` — one representation for one meaning.
+- A cell holding a list of literals has no single-select representation. It
+  renders as "any" but is carried through untouched unless the operator picks a
+  value, so editing a status cannot silently widen a hand-written match.
+- Setting every cell to "any" is *not* prevented in the form. The database check
+  constraint rejects it with the message the operator needs to read; duplicating
+  that rule client-side would let the two drift.
+- Rule edits persist immediately rather than batching into the check's Save. The
+  rules are their own resource with their own policies, and the catch-all takes
+  `:relabel` while authored rules take `:update` — the action is chosen from the
+  rule, not from the form, because `:update` on the catch-all returns Forbidden.
+- `Ash.destroy/2` returns a bare `:ok`, not `{:ok, record}`. Matching only the
+  tuple crashed the delete handler; the test caught it.
 
 ---
 

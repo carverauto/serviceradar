@@ -11,6 +11,7 @@ defmodule ServiceRadarWebNGWeb.Settings.CompositeChecksLive.Components do
   use ServiceRadarWebNGWeb, :html
 
   alias ServiceRadar.CompositeChecks.Rollup
+  alias ServiceRadarWebNGWeb.Settings.CompositeChecksLive.RuleTable
 
   attr :entries, :list, required: true
   attr :can_manage, :boolean, default: false
@@ -382,6 +383,231 @@ defmodule ServiceRadarWebNGWeb.Settings.CompositeChecksLive.Components do
     </ul>
     """
   end
+
+  attr :rules, :list, required: true
+  attr :columns, :list, required: true
+  attr :mode, :atom, required: true
+  attr :confirm_regenerate, :boolean, default: false
+  attr :error, :string, default: nil
+
+  @doc """
+  The decision table: rules in evaluation order, first match wins.
+
+  Rendered outside the check form rather than inside it. Rule edits persist
+  immediately against their own resource, and a form inside a form is invalid
+  HTML — the browser drops the inner one and the row silently stops submitting.
+  """
+  def rule_table(assigns) do
+    ~H"""
+    <section class="space-y-3 rounded-sr-control border border-sr-border bg-sr-surface p-4">
+      <div class="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h2 class="text-sm font-semibold text-sr-ink">Verdict rules</h2>
+          <p class="text-xs text-sr-ink-muted">
+            Evaluated top to bottom; the first row whose cells all match wins.
+          </p>
+        </div>
+        <button
+          :if={@mode == :edit}
+          type="button"
+          phx-click="generate_rules"
+          class="rounded-sr-control border border-sr-border px-3 py-1.5 text-xs text-sr-ink-muted hover:text-sr-ink"
+        >
+          Generate from expectations
+        </button>
+      </div>
+
+      <p :if={@mode == :new} class="text-xs text-sr-ink-muted">
+        Save the check to build its decision table. Rules match on vantage point keys, which do not
+        exist until the vantage points are saved.
+      </p>
+
+      <div
+        :if={@confirm_regenerate}
+        class="space-y-2 rounded-sr-control border border-amber-500/40 bg-amber-500/5 p-3"
+      >
+        <p class="text-xs text-amber-400">
+          Generating replaces every rule below with a fresh table. Any edits to verdicts,
+          descriptions, statuses, or matching will be lost.
+        </p>
+        <div class="flex gap-2">
+          <button
+            type="button"
+            phx-click="confirm_regenerate"
+            class="rounded-sr-control border border-amber-500/40 px-3 py-1 text-xs text-amber-400"
+          >
+            Replace the table
+          </button>
+          <button
+            type="button"
+            phx-click="cancel_regenerate"
+            class="rounded-sr-control border border-sr-border px-3 py-1 text-xs text-sr-ink-muted"
+          >
+            Keep my edits
+          </button>
+        </div>
+      </div>
+
+      <p :if={@error} class="text-xs text-rose-400">{@error}</p>
+
+      <p :if={@mode == :edit and @rules == []} class="text-xs text-sr-ink-muted">
+        No rules yet. Generate a table from the vantage point expectations, or add rules once the
+        vantage points are saved.
+      </p>
+
+      <div :if={@rules != []} class="overflow-x-auto">
+        <div class="min-w-[52rem] space-y-1 text-xs">
+          <div
+            class={["grid gap-2 px-1 text-sr-ink-muted", "font-medium"]}
+            style={grid_style(@columns)}
+          >
+            <span :for={column <- @columns}>{column.label}</span>
+            <span>Verdict</span>
+            <span>Label</span>
+            <span>Status</span>
+            <span class="sr-only">Actions</span>
+          </div>
+
+          <.rule_row
+            :for={rule <- @rules}
+            rule={rule}
+            columns={@columns}
+            first={rule == List.first(authored(@rules))}
+            last={rule == List.last(authored(@rules))}
+          />
+        </div>
+      </div>
+    </section>
+    """
+  end
+
+  attr :rule, :map, required: true
+  attr :columns, :list, required: true
+  attr :first, :boolean, default: false
+  attr :last, :boolean, default: false
+
+  # Each row is its own form: rule edits persist immediately against their own
+  # resource, and the whole table sits outside the check form because a form
+  # nested in a form is invalid HTML — the browser drops the inner one and the
+  # row silently stops submitting.
+  defp rule_row(assigns) do
+    ~H"""
+    <form
+      id={rule_form_id(@rule)}
+      phx-change="update_rule"
+      class={[
+        "grid items-center gap-2 rounded-sr-control border border-sr-border px-1 py-1.5",
+        @rule.catch_all && "bg-sr-surface-muted"
+      ]}
+      style={grid_style(@columns)}
+    >
+      <input type="hidden" name="rule_id" value={@rule.id} />
+
+      <div :for={column <- @columns}>
+        <select
+          :if={!@rule.catch_all}
+          name={"match[#{column.key}]"}
+          aria-label={"#{column.label} match"}
+          class="w-full rounded-sr-control border border-sr-border bg-sr-surface-muted px-2 py-1 text-sr-ink"
+        >
+          <option
+            :for={{value, label} <- column.options}
+            value={value}
+            selected={RuleTable.cell_value(@rule.match, column) == value}
+          >
+            {label}
+          </option>
+        </select>
+        <span :if={@rule.catch_all} class="px-2 text-sr-ink-muted">any</span>
+      </div>
+
+      <input
+        type="text"
+        name="verdict"
+        value={@rule.verdict}
+        aria-label="Verdict"
+        class="w-full rounded-sr-control border border-sr-border bg-sr-surface-muted px-2 py-1 font-mono text-sr-ink"
+      />
+
+      <input
+        type="text"
+        name="verdict_label"
+        value={@rule.verdict_label}
+        aria-label="Verdict label"
+        class="w-full rounded-sr-control border border-sr-border bg-sr-surface-muted px-2 py-1 text-sr-ink"
+      />
+
+      <div>
+        <select
+          :if={!@rule.catch_all}
+          name="status"
+          aria-label="Status"
+          class="w-full rounded-sr-control border border-sr-border bg-sr-surface-muted px-2 py-1 text-sr-ink"
+        >
+          <option
+            :for={status <- RuleTable.statuses()}
+            value={status}
+            selected={@rule.status == status}
+          >
+            {status}
+          </option>
+        </select>
+        <span :if={@rule.catch_all} class="px-2 text-sr-ink-muted">unknown</span>
+      </div>
+
+      <div :if={!@rule.catch_all} class="flex items-center justify-end gap-1">
+        <button
+          type="button"
+          phx-click="move_rule"
+          phx-value-id={@rule.id}
+          phx-value-direction="up"
+          disabled={@first}
+          aria-label="Move rule up"
+          class="text-sr-ink-muted hover:text-sr-ink disabled:opacity-30"
+        >
+          <.icon name="hero-arrow-up-mini" class="size-4" />
+        </button>
+        <button
+          type="button"
+          phx-click="move_rule"
+          phx-value-id={@rule.id}
+          phx-value-direction="down"
+          disabled={@last}
+          aria-label="Move rule down"
+          class="text-sr-ink-muted hover:text-sr-ink disabled:opacity-30"
+        >
+          <.icon name="hero-arrow-down-mini" class="size-4" />
+        </button>
+        <button
+          type="button"
+          phx-click="delete_rule"
+          phx-value-id={@rule.id}
+          aria-label="Delete rule"
+          class="text-sr-ink-muted hover:text-rose-400"
+        >
+          <.icon name="hero-x-mark-mini" class="size-4" />
+        </button>
+      </div>
+
+      <span
+        :if={@rule.catch_all}
+        class="text-right text-[10px] uppercase tracking-wide text-sr-ink-muted"
+      >
+        fallback
+      </span>
+    </form>
+    """
+  end
+
+  # The column count is the number of inputs, so the track list is built rather
+  # than declared: a Tailwind class cannot carry a runtime-sized repeat().
+  defp grid_style(columns) do
+    "grid-template-columns: repeat(#{length(columns)}, minmax(7rem, 1fr)) 10rem 10rem 8rem 6rem"
+  end
+
+  defp rule_form_id(rule), do: "rule-form-#{rule.id}"
+
+  defp authored(rules), do: Enum.reject(rules, & &1.catch_all)
 
   defp percent(_count, 0), do: 0
   defp percent(count, total), do: Float.round(count / total * 100, 2)

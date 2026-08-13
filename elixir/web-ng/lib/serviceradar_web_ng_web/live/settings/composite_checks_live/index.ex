@@ -18,10 +18,13 @@ defmodule ServiceRadarWebNGWeb.Settings.CompositeChecksLive.Index do
 
   alias ServiceRadar.CompositeChecks.CompositeCheck
   alias ServiceRadar.CompositeChecks.CompositeCheckInput
+  alias ServiceRadar.CompositeChecks.CompositeCheckRule
   alias ServiceRadar.CompositeChecks.Rollup
+  alias ServiceRadar.CompositeChecks.RuleGenerator
   alias ServiceRadar.Infrastructure.Agent
   alias ServiceRadarWebNG.RBAC
   alias ServiceRadarWebNGWeb.Settings.CompositeChecksLive.FormState
+  alias ServiceRadarWebNGWeb.Settings.CompositeChecksLive.RuleTable
   alias ServiceRadarWebNGWeb.Settings.Shell
   alias ServiceRadarWebNGWeb.SRQL.ScopeBuilder
 
@@ -52,6 +55,10 @@ defmodule ServiceRadarWebNGWeb.Settings.CompositeChecksLive.Index do
        |> assign(:scope_count, nil)
        |> assign(:vantage_points, [])
        |> assign(:agents, [])
+       |> assign(:rules, [])
+       |> assign(:rule_columns, [])
+       |> assign(:rule_error, nil)
+       |> assign(:confirm_regenerate, false)
        |> assign(:checks, list_checks(socket))}
     else
       {:ok,
@@ -78,6 +85,8 @@ defmodule ServiceRadarWebNGWeb.Settings.CompositeChecksLive.Index do
       |> assign(:page_title, "New Composite Check")
       |> assign(:editing, :new)
       |> load_form(FormState.default_form())
+      |> assign(:rules, [])
+      |> assign(:rule_columns, [])
     else
       forbid(socket)
     end
@@ -88,10 +97,14 @@ defmodule ServiceRadarWebNGWeb.Settings.CompositeChecksLive.Index do
 
     with true <- socket.assigns.can_manage,
          {:ok, check} <- CompositeCheck.get_by_id(id, scope: scope) do
+      inputs = load_inputs(check, scope)
+
       socket
       |> assign(:page_title, "Edit Composite Check")
       |> assign(:editing, check)
-      |> load_form(FormState.form_from_check(check), load_vantage_points(check, scope))
+      |> load_form(FormState.form_from_check(check), FormState.vantage_points_from_inputs(inputs))
+      |> assign(:rule_columns, RuleTable.columns(inputs))
+      |> load_rules(check)
     else
       false ->
         forbid(socket)
@@ -131,11 +144,27 @@ defmodule ServiceRadarWebNGWeb.Settings.CompositeChecksLive.Index do
     end
   end
 
-  defp load_vantage_points(check, scope) do
+  defp load_inputs(check, scope) do
     case CompositeCheckInput.list_by_check(check.id, scope: scope) do
-      {:ok, inputs} -> FormState.vantage_points_from_inputs(inputs)
+      {:ok, inputs} -> inputs
       {:error, _reason} -> []
     end
+  end
+
+  # Rules are read back from the resource rather than tracked in the form: every
+  # edit is persisted immediately, so the loaded list is the only version of the
+  # table that exists.
+  defp load_rules(socket, check) do
+    rules =
+      case CompositeCheckRule.list_by_check(check.id, scope: socket.assigns.current_scope) do
+        {:ok, rules} -> rules
+        {:error, _reason} -> []
+      end
+
+    socket
+    |> assign(:rules, rules)
+    |> assign(:rule_error, nil)
+    |> assign(:confirm_regenerate, false)
   end
 
   defp forbid(socket) do
@@ -179,6 +208,62 @@ defmodule ServiceRadarWebNGWeb.Settings.CompositeChecksLive.Index do
       {:noreply, assign_vantage_points(socket, rows)}
     else
       {:noreply, forbid(socket)}
+    end
+  end
+
+  # Generation is destructive to hand edits, so an existing authored table gets
+  # a confirmation step. An empty table has nothing to lose and generates
+  # straight away — a confirmation nobody can answer wrong is just a click.
+  def handle_event("generate_rules", _params, socket) do
+    cond do
+      not socket.assigns.can_manage -> {:noreply, forbid(socket)}
+      authored_rules(socket.assigns.rules) == [] -> {:noreply, regenerate(socket)}
+      true -> {:noreply, assign(socket, :confirm_regenerate, true)}
+    end
+  end
+
+  def handle_event("confirm_regenerate", _params, socket) do
+    if socket.assigns.can_manage do
+      {:noreply, regenerate(socket)}
+    else
+      {:noreply, forbid(socket)}
+    end
+  end
+
+  def handle_event("cancel_regenerate", _params, socket) do
+    {:noreply, assign(socket, :confirm_regenerate, false)}
+  end
+
+  def handle_event("update_rule", %{"rule_id" => id} = params, socket) do
+    with true <- socket.assigns.can_manage,
+         %{} = rule <- find_rule(socket, id) do
+      {:noreply, apply_rule_update(socket, rule, params)}
+    else
+      false -> {:noreply, forbid(socket)}
+      nil -> {:noreply, socket}
+    end
+  end
+
+  def handle_event("move_rule", %{"id" => id, "direction" => direction}, socket) do
+    if socket.assigns.can_manage do
+      ordered = RuleTable.move(socket.assigns.rules, id, move_direction(direction))
+      {:noreply, persist_positions(socket, ordered)}
+    else
+      {:noreply, forbid(socket)}
+    end
+  end
+
+  def handle_event("delete_rule", %{"id" => id}, socket) do
+    with true <- socket.assigns.can_manage,
+         %{} = rule <- find_rule(socket, id),
+         # `Ash.destroy/2` returns a bare `:ok` unless the action returns the
+         # destroyed record, so both shapes are the success case.
+         :ok <- destroy_rules([rule], socket.assigns.current_scope) do
+      {:noreply, load_rules(socket, socket.assigns.editing)}
+    else
+      false -> {:noreply, forbid(socket)}
+      nil -> {:noreply, socket}
+      {:error, error} -> {:noreply, assign(socket, :rule_error, FormState.error_message(error))}
     end
   end
 
@@ -268,6 +353,118 @@ defmodule ServiceRadarWebNGWeb.Settings.CompositeChecksLive.Index do
   end
 
   defp blank_filter, do: %{"field" => "", "op" => "equals", "value" => ""}
+
+  defp authored_rules(rules), do: Enum.reject(rules, & &1.catch_all)
+
+  defp find_rule(socket, id), do: Enum.find(socket.assigns.rules, &(&1.id == id))
+
+  defp move_direction("up"), do: :up
+  defp move_direction(_direction), do: :down
+
+  # Regeneration replaces the authored rows and leaves the catch-all alone. The
+  # catch-all is created with the check and cannot be destroyed, so generating
+  # must never try to produce one.
+  defp regenerate(socket) do
+    check = socket.assigns.editing
+    scope = socket.assigns.current_scope
+    inputs = load_inputs(check, scope)
+
+    with :ok <- destroy_rules(authored_rules(socket.assigns.rules), scope),
+         :ok <- create_rules(check, RuleGenerator.generate(inputs), scope) do
+      socket
+      |> assign(:rule_columns, RuleTable.columns(inputs))
+      |> load_rules(check)
+    else
+      {:error, error} ->
+        socket
+        |> assign(:confirm_regenerate, false)
+        |> assign(:rule_error, FormState.error_message(error))
+    end
+  end
+
+  defp destroy_rules(rules, scope) do
+    Enum.reduce_while(rules, :ok, fn rule, :ok ->
+      case Ash.destroy(rule, scope: scope) do
+        :ok -> {:cont, :ok}
+        {:ok, _destroyed} -> {:cont, :ok}
+        {:error, error} -> {:halt, {:error, error}}
+      end
+    end)
+  end
+
+  defp create_rules(check, attrs_list, scope) do
+    Enum.reduce_while(attrs_list, :ok, fn attrs, :ok ->
+      CompositeCheckRule
+      |> Ash.Changeset.for_create(:create, Map.put(attrs, :check_id, check.id), scope: scope)
+      |> Ash.create()
+      |> case do
+        {:ok, _rule} -> {:cont, :ok}
+        {:error, error} -> {:halt, {:error, error}}
+      end
+    end)
+  end
+
+  # The catch-all takes `:relabel`, which is the only update its policy allows.
+  # Routing it through `:update` would return Forbidden for an edit the UI does
+  # offer, so the action is chosen from the rule, not from the form.
+  defp apply_rule_update(socket, rule, params) do
+    scope = socket.assigns.current_scope
+
+    changeset =
+      if rule.catch_all do
+        Ash.Changeset.for_update(rule, :relabel, relabel_attrs(params), scope: scope)
+      else
+        Ash.Changeset.for_update(rule, :update, rule_attrs(socket, rule, params), scope: scope)
+      end
+
+    case Ash.update(changeset) do
+      {:ok, _updated} -> load_rules(socket, socket.assigns.editing)
+      {:error, error} -> assign(socket, :rule_error, FormState.error_message(error))
+    end
+  end
+
+  # Only the fields the row actually submitted. A missing key means the form did
+  # not render that control, and defaulting it to "" would blank a required
+  # attribute rather than leave it alone.
+  defp relabel_attrs(params) do
+    Enum.reduce(
+      %{verdict: "verdict", verdict_label: "verdict_label", verdict_description: "verdict_description"},
+      %{},
+      fn {attr, key}, acc ->
+        case Map.fetch(params, key) do
+          {:ok, value} -> Map.put(acc, attr, String.trim(to_string(value)))
+          :error -> acc
+        end
+      end
+    )
+  end
+
+  defp rule_attrs(socket, rule, params) do
+    params
+    |> relabel_attrs()
+    |> Map.put(:status, params["status"])
+    |> Map.put(:match, RuleTable.match_from_params(socket.assigns.rule_columns, params, rule.match))
+  end
+
+  defp persist_positions(socket, ordered) do
+    scope = socket.assigns.current_scope
+
+    ordered
+    |> RuleTable.repositions()
+    |> Enum.reduce_while(:ok, fn {rule, position}, :ok ->
+      rule
+      |> Ash.Changeset.for_update(:update, %{position: position}, scope: scope)
+      |> Ash.update()
+      |> case do
+        {:ok, _updated} -> {:cont, :ok}
+        {:error, error} -> {:halt, {:error, error}}
+      end
+    end)
+    |> case do
+      :ok -> load_rules(socket, socket.assigns.editing)
+      {:error, error} -> assign(socket, :rule_error, FormState.error_message(error))
+    end
+  end
 
   defp persist(socket) do
     scope = socket.assigns.current_scope
@@ -426,6 +623,16 @@ defmodule ServiceRadarWebNGWeb.Settings.CompositeChecksLive.Index do
           vantage_points={@vantage_points}
           agents={@agents}
         />
+
+        <div :if={@editing} class="mt-6">
+          <.rule_table
+            rules={@rules}
+            columns={@rule_columns}
+            mode={if @editing == :new, do: :new, else: :edit}
+            confirm_regenerate={@confirm_regenerate}
+            error={@rule_error}
+          />
+        </div>
 
         <div :if={is_nil(@editing)} class="space-y-6">
           <header class="flex items-start justify-between gap-4">
