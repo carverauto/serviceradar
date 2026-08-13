@@ -642,7 +642,7 @@ defmodule ServiceRadarWebNGWeb.Settings.CompositeChecksLive.Index do
 
     case result do
       {:ok, check} ->
-        case sync_vantage_points(check, socket.assigns.vantage_points, scope) do
+        case sync_vantage_points(check, socket.assigns, scope) do
           :ok -> {:noreply, saved(socket, check)}
           {:error, error} -> {:noreply, assign(socket, :save_error, FormState.error_message(error))}
         end
@@ -683,16 +683,20 @@ defmodule ServiceRadarWebNGWeb.Settings.CompositeChecksLive.Index do
   # would be more code and more ways to leave a stale row behind. Rules
   # reference inputs by key, not by id, so recreating an input with the same key
   # leaves the rule table intact.
-  defp sync_vantage_points(check, rows, scope) do
+  defp sync_vantage_points(check, assigns, scope) do
+    labels = agent_labels(assigns.agents)
+
     with {:ok, existing} <- CompositeCheckInput.list_by_check(check.id, scope: scope),
          :ok <- destroy_all(Enum.filter(existing, &(&1.kind == :vantage_point)), scope) do
-      rows
+      assigns.vantage_points
       |> Enum.with_index()
       |> Enum.reduce_while(:ok, fn {row, index}, :ok ->
+        label = Map.get(labels, String.trim(row["agent_id"] || ""))
+
         CompositeCheckInput
         |> Ash.Changeset.for_create(
           :create,
-          FormState.vantage_point_attrs(check.id, row, index),
+          FormState.vantage_point_attrs(check.id, row, index, label),
           scope: scope
         )
         |> Ash.create()
@@ -702,6 +706,15 @@ defmodule ServiceRadarWebNGWeb.Settings.CompositeChecksLive.Index do
         end
       end)
     end
+  end
+
+  # The input's stored label is what the rule table, the preview breakdown, and
+  # the sweep coverage panel show. It has to match what the vantage point picker
+  # displays, or the same agent is named two different ways on one page.
+  defp agent_labels(agents) do
+    Map.new(agents, fn agent ->
+      {agent.uid, if(is_binary(agent.name) and agent.name != "", do: agent.name, else: agent.uid)}
+    end)
   end
 
   defp destroy_all(inputs, scope) do
@@ -824,6 +837,7 @@ defmodule ServiceRadarWebNGWeb.Settings.CompositeChecksLive.Index do
             error={@enable_error}
             mode={if @editing == :new, do: :new, else: :edit}
             state={if @editing == :new, do: nil, else: @editing.state}
+            labels={Map.new(@rule_columns, &{&1.key, &1.label})}
           />
         </div>
 

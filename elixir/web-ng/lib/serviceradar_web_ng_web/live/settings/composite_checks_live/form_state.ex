@@ -66,14 +66,21 @@ defmodule ServiceRadarWebNGWeb.Settings.CompositeChecksLive.FormState do
     end)
   end
 
-  @doc "Attributes for creating a `CompositeCheckInput` from a vantage point row."
-  def vantage_point_attrs(check_id, row, position) do
+  @doc """
+  Attributes for creating a `CompositeCheckInput` from a vantage point row.
+
+  `label` is the agent's display name, and it is what the rule table columns,
+  the preview breakdown, and the sweep coverage panel show. Defaulting it to the
+  agent id would name the same vantage point two different ways on one page —
+  the picker shows the agent's name, so those surfaces must too.
+  """
+  def vantage_point_attrs(check_id, row, position, label \\ nil) do
     agent_id = String.trim(row["agent_id"] || "")
 
     %{
       check_id: check_id,
       key: agent_id,
-      label: agent_id,
+      label: blank_to_nil(label) || agent_id,
       position: position,
       kind: :vantage_point,
       expected: row["expected"],

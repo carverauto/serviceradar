@@ -601,8 +601,11 @@ defmodule ServiceRadarWebNGWeb.Settings.CompositeChecksLive.Components do
 
   # The column count is the number of inputs, so the track list is built rather
   # than declared: a Tailwind class cannot carry a runtime-sized repeat().
+  # Verdict slugs run long — `inverted_reachability` is 21 mono characters — and
+  # a column that truncates the value reads as data loss even though the input
+  # still holds it.
   defp grid_style(columns) do
-    "grid-template-columns: repeat(#{length(columns)}, minmax(7rem, 1fr)) 10rem 10rem 8rem 6rem"
+    "grid-template-columns: repeat(#{length(columns)}, minmax(7rem, 1fr)) 13rem 12rem 8rem 6rem"
   end
 
   attr :entries, :list, default: []
@@ -642,8 +645,8 @@ defmodule ServiceRadarWebNGWeb.Settings.CompositeChecksLive.Components do
       </p>
 
       <div :for={entry <- @entries} class="space-y-1" data-sweep-input={entry.key}>
-        <p class="text-xs">
-          <span class="font-mono text-sr-ink">{entry.agent_id}</span>
+        <p class="flex flex-wrap items-center gap-2 text-xs">
+          <span class="font-mono text-sr-ink">{entry.label}</span>
           <span class="text-sr-ink-muted">{"in partition #{entry.partition}"}</span>
         </p>
 
@@ -707,9 +710,15 @@ defmodule ServiceRadarWebNGWeb.Settings.CompositeChecksLive.Components do
   attr :error, :string, default: nil
   attr :mode, :atom, required: true
   attr :state, :atom, default: nil
+  attr :labels, :map, default: %{}
 
   @doc """
   Whether the check is safe to enable, and what stops it.
+
+  Coverage rows show the vantage point's label *and* its agent id. The blocking
+  and warning messages are composed in `Readiness` and name the agent id, which
+  is the durable handle an operator carries to sweep administration; showing
+  both here is what connects that prose to the name they picked in the builder.
 
   Every problem shown here is produced by `Readiness.check/2` — the same call the
   `:enable` action validates with. The panel renders the report; it never
@@ -795,7 +804,8 @@ defmodule ServiceRadarWebNGWeb.Settings.CompositeChecksLive.Components do
             data-coverage-covered={row.covered}
             data-coverage-total={row.total}
           >
-            <span class="font-mono text-sr-ink">{row.agent_id}</span>
+            <span class="text-sr-ink">{Map.get(@labels, row.input_key, row.agent_id)}</span>
+            <span class="font-mono text-sr-ink-muted">{row.agent_id}</span>
             <span class="text-sr-ink-muted">
               {"#{row.covered} of #{row.total} devices in scope have fresh results"}
             </span>
