@@ -224,7 +224,7 @@ describe("rendering_graph_layer_node_methods", () => {
       })),
     ], "local")
 
-    expect(labels.filter((node) => String(node.id).startsWith("endpoint-"))).toHaveLength(10)
+    expect(labels.filter((node) => String(node.id).startsWith("endpoint-"))).toHaveLength(16)
     expect(labels.at(0).id).toEqual("endpoint-1")
     expect(labels.map((node) => node.id)).toContain("router-a")
   })

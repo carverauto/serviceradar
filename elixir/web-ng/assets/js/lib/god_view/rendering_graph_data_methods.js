@@ -2,6 +2,11 @@ function isEndpointCensusSummary(node) {
   return String(node?.details?.cluster_kind || "").trim() === "endpoint-summary"
 }
 
+function isClusterExpanded(node) {
+  const value = node?.details?.cluster_expanded
+  return value === true || value === "true" || value === 1
+}
+
 export const godViewRenderingGraphDataMethods = {
   buildVisibleGraphData(effective) {
     const states = Uint8Array.from(effective.nodes.map((node) => node.state))
@@ -37,8 +42,7 @@ export const godViewRenderingGraphDataMethods = {
       const source = effective.nodes[Number(edge?.source)]
       const target = effective.nodes[Number(edge?.target)]
       const expandedMember = (node) =>
-        String(node?.details?.cluster_kind || "").trim() === "endpoint-member" &&
-        (node?.details?.cluster_expanded === true || node?.details?.cluster_expanded === "true")
+        String(node?.details?.cluster_kind || "").trim() === "endpoint-member" && isClusterExpanded(node)
       return expandedMember(source) || expandedMember(target)
     }
 
@@ -66,20 +70,21 @@ export const godViewRenderingGraphDataMethods = {
       const details = node?.details && typeof node.details === "object" ? node.details : {}
       const stateVisible = stateMask[i] === 1
       const clusterKind = String(details.cluster_kind || "").trim()
+      const expandedSummary = isEndpointCensusSummary(node) && isClusterExpanded(node)
       const attachmentCensusVisible =
-        topologyLayers.backbone !== false && isEndpointCensusSummary(node)
+        topologyLayers.backbone !== false && isEndpointCensusSummary(node) && !expandedSummary
       const expandedMemberVisible =
-        clusterKind === "endpoint-member" &&
-        (details.cluster_expanded === true || details.cluster_expanded === "true")
+        clusterKind === "endpoint-member" && isClusterExpanded(node)
       const endpointAnchorVisible = clusterKind === "endpoint-anchor"
       const endpointLayerVisible =
-        !endpointIncidentFlags ||
-        topologyLayers.endpoints !== false ||
-        attachmentCensusVisible ||
-        expandedMemberVisible ||
-        endpointAnchorVisible ||
-        endpointIncidentFlags[i].nonEndpoint ||
-        !endpointIncidentFlags[i].endpoint
+        !expandedSummary &&
+        (!endpointIncidentFlags ||
+          topologyLayers.endpoints !== false ||
+          attachmentCensusVisible ||
+          expandedMemberVisible ||
+          endpointAnchorVisible ||
+          endpointIncidentFlags[i].nonEndpoint ||
+          !endpointIncidentFlags[i].endpoint)
 
       mask[i] = stateVisible && endpointLayerVisible ? 1 : 0
     }
@@ -92,19 +97,29 @@ export const godViewRenderingGraphDataMethods = {
       zHeight: 0,
     }))
     const visibleById = new Map(visibleNodes.map((node) => [node.id, node]))
+    const resolveVisibleEndpoint = (node) => {
+      if (!node) return null
+      if (node.visible) return node
+      if (!isEndpointCensusSummary(node) || !isClusterExpanded(node)) return null
+      const anchorId = String(node?.details?.cluster_anchor_id || "").trim()
+      if (anchorId === "") return null
+      const anchor = visibleById.get(anchorId)
+      return anchor?.visible ? anchor : null
+    }
 
     const rawEdgeData = effective.edges
       .filter((edge) => this.edgeEnabledByTopologyLayer(edge) || attachmentCensusEdge(edge) || expandedMemberEdge(edge))
       .map((edge, edgeIndex) => {
         const src =
           effective.shape === "local"
-            ? visibleNodes[edge.source]
+            ? resolveVisibleEndpoint(visibleNodes[edge.source])
             : visibleById.get(edge.sourceCluster)
         const dst =
           effective.shape === "local"
-            ? visibleNodes[edge.target]
+            ? resolveVisibleEndpoint(visibleNodes[edge.target])
             : visibleById.get(edge.targetCluster)
         if (!src || !dst || !src.visible || !dst.visible) return null
+        if (src.id === dst.id) return null
         const label =
           effective.shape === "local"
             ? String(edge.label || `${src.label || src.id || "node"} -> ${dst.label || dst.id || "node"}`)

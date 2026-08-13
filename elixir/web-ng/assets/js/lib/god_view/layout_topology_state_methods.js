@@ -73,8 +73,12 @@ function clusterKindForNode(node) {
   return typeof clusterKind === "string" && clusterKind.trim() !== "" ? clusterKind.trim() : ""
 }
 
+function isClusterExpandedFlag(value) {
+  return value === true || value === "true" || value === 1
+}
+
 function isExpandedClusterNode(node) {
-  return graphNodeDetails(node).cluster_expanded === true
+  return isClusterExpandedFlag(graphNodeDetails(node).cluster_expanded)
 }
 
 function isEndpointSummaryNode(node) {
@@ -150,7 +154,8 @@ function mergeNodeDetails(existing, incoming) {
   return {
     ...existing,
     ...incoming,
-    cluster_expanded: existing?.cluster_expanded === true || incoming?.cluster_expanded === true,
+    cluster_expanded:
+      isClusterExpandedFlag(existing?.cluster_expanded) || isClusterExpandedFlag(incoming?.cluster_expanded),
   }
 }
 
@@ -1222,45 +1227,59 @@ export const godViewLayoutTopologyStateMethods = {
       if (!Number.isFinite(anchorX) || !Number.isFinite(anchorY)) continue
 
       const occupiedNodes = this.endpointProjectionOccupiedNodes(nodes, cluster)
+      const summaryIndex = nodeIndexById.get(cluster.summaryNodeId)
+
+      if (cluster.expanded && cluster.memberNodeIds.length > 0) {
+        const metrics = this.expandedClusterGridMetrics(cluster.memberNodeIds.length)
+        const placement = this.chooseExpandedClusterPlacement(anchorX, anchorY, metrics, occupiedNodes)
+
+        if (Number.isInteger(summaryIndex)) {
+          const summary = nodes[summaryIndex]
+          nodes[summaryIndex] = {
+            ...summary,
+            x: placement.originX + ((metrics.columns - 1) * metrics.colGap) / 2,
+            y: placement.originY + ((metrics.rows - 1) * metrics.rowGap) / 2,
+            details: {
+              ...(summary?.details && typeof summary.details === "object" ? summary.details : {}),
+              cluster_expanded: true,
+              cluster_anchor_id: cluster.anchorNodeId,
+            },
+          }
+        }
+
+        for (let memberIndex = 0; memberIndex < cluster.memberNodeIds.length; memberIndex += 1) {
+          const memberId = cluster.memberNodeIds[memberIndex]
+          const graphIndex = nodeIndexById.get(memberId)
+          if (!Number.isInteger(graphIndex)) continue
+
+          const point = this.expandedClusterGridPosition(memberIndex, metrics, placement)
+          nodes[graphIndex] = {
+            ...nodes[graphIndex],
+            x: point.x,
+            y: point.y,
+          }
+        }
+        continue
+      }
+
       const baseAngle = this.resolveEndpointProjectionAngle(nodes, nodeIndexById, cluster, anchorNode)
       const clusterAngle = this.endpointProjectionSlotAngle(
-        this.resolveEndpointProjectionBearing(baseAngle, anchorNode, occupiedNodes, cluster.expanded),
+        this.resolveEndpointProjectionBearing(baseAngle, anchorNode, occupiedNodes, false),
         cluster.slotIndex,
         cluster.slotCount,
       )
       const hubDistance = this.endpointProjectionHubDistance(
         cluster.memberNodeIds.length,
-        cluster.expanded,
-        this.endpointProjectionClearanceDistance(anchorNode, clusterAngle, occupiedNodes, cluster.expanded),
+        false,
+        this.endpointProjectionClearanceDistance(anchorNode, clusterAngle, occupiedNodes, false),
       )
       const hubOffset = rotatePoint(hubDistance, 0, clusterAngle)
-      const hubX = anchorX + hubOffset.x
-      const hubY = anchorY + hubOffset.y
-      const summaryIndex = nodeIndexById.get(cluster.summaryNodeId)
 
       if (Number.isInteger(summaryIndex)) {
         nodes[summaryIndex] = {
           ...nodes[summaryIndex],
-          x: hubX,
-          y: hubY,
-        }
-      }
-
-      if (!cluster.expanded || cluster.memberNodeIds.length === 0) continue
-
-      const metrics = this.expandedClusterGridMetrics(cluster.memberNodeIds.length)
-
-      for (let memberIndex = 0; memberIndex < cluster.memberNodeIds.length; memberIndex += 1) {
-        const memberId = cluster.memberNodeIds[memberIndex]
-        const graphIndex = nodeIndexById.get(memberId)
-        if (!Number.isInteger(graphIndex)) continue
-
-        const offset = this.expandedClusterGridOffset(memberIndex, metrics)
-        const rotated = rotatePoint(offset.x, offset.y, clusterAngle)
-        nodes[graphIndex] = {
-          ...nodes[graphIndex],
-          x: hubX + rotated.x,
-          y: hubY + rotated.y,
+          x: anchorX + hubOffset.x,
+          y: anchorY + hubOffset.y,
         }
       }
     }
@@ -1397,28 +1416,67 @@ export const godViewLayoutTopologyStateMethods = {
   },
   expandedClusterGridMetrics(memberCount) {
     const count = Math.max(1, Number(memberCount || 1))
-    const columns = Math.min(7, Math.max(3, Math.ceil(Math.sqrt(count))))
+    const columns = Math.min(6, Math.max(3, Math.ceil(Math.sqrt(count))))
     const rows = Math.max(1, Math.ceil(count / columns))
     return {
       columns,
       rows,
-      colGap: 88,
-      rowGap: 66,
-      originX: 96,
+      colGap: 112,
+      rowGap: 80,
+      pad: 156,
     }
   },
-  expandedClusterGridOffset(memberIndex, metrics) {
-    const idx = Math.max(0, Number(memberIndex || 0))
+  chooseExpandedClusterPlacement(anchorX, anchorY, metrics, occupiedNodes) {
     const columns = Math.max(1, Number(metrics?.columns || 1))
     const rows = Math.max(1, Number(metrics?.rows || 1))
-    const colGap = Number(metrics?.colGap || 88)
-    const rowGap = Number(metrics?.rowGap || 66)
-    const originX = Number(metrics?.originX || 96)
+    const colGap = Number(metrics?.colGap || 112)
+    const rowGap = Number(metrics?.rowGap || 80)
+    const pad = Number(metrics?.pad || 156)
+    const width = Math.max(0, (columns - 1) * colGap)
+    const height = Math.max(0, (rows - 1) * rowGap)
+    const candidates = [
+      {name: "right", originX: anchorX + pad, originY: anchorY - height / 2},
+      {name: "left", originX: anchorX - pad - width, originY: anchorY - height / 2},
+      {name: "down", originX: anchorX - width / 2, originY: anchorY + pad},
+      {name: "up", originX: anchorX - width / 2, originY: anchorY - pad - height},
+    ]
+
+    let best = candidates[0]
+    let bestScore = -Infinity
+
+    for (const candidate of candidates) {
+      const minX = candidate.originX - 36
+      const maxX = candidate.originX + width + 36
+      const minY = candidate.originY - 36
+      const maxY = candidate.originY + height + 36
+      let hits = 0
+
+      for (const node of occupiedNodes || []) {
+        const x = Number(node?.x)
+        const y = Number(node?.y)
+        if (!Number.isFinite(x) || !Number.isFinite(y)) continue
+        if (x >= minX && x <= maxX && y >= minY && y <= maxY) hits += 1
+      }
+
+      const score = -hits * 1000 - Math.hypot(candidate.originX - anchorX, candidate.originY - anchorY) * 0.01
+      if (score > bestScore) {
+        bestScore = score
+        best = candidate
+      }
+    }
+
+    return best
+  },
+  expandedClusterGridPosition(memberIndex, metrics, placement) {
+    const idx = Math.max(0, Number(memberIndex || 0))
+    const columns = Math.max(1, Number(metrics?.columns || 1))
+    const colGap = Number(metrics?.colGap || 112)
+    const rowGap = Number(metrics?.rowGap || 80)
     const col = idx % columns
     const row = Math.floor(idx / columns)
     return {
-      x: originX + col * colGap,
-      y: -(((rows - 1) * rowGap) / 2) + row * rowGap,
+      x: Number(placement?.originX || 0) + col * colGap,
+      y: Number(placement?.originY || 0) + row * rowGap,
     }
   },
   graphTopologyStamp(graph) {

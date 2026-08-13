@@ -330,7 +330,7 @@ describe("rendering_graph_data_methods", () => {
       shape: "local",
       nodes: [
         {id: "switch", x: 3, y: 4, state: 1, label: "Switch", pps: 20, operUp: 2, details: {cluster_kind: "endpoint-anchor"}},
-        {id: "census", x: 5, y: 6, state: 1, label: "12 endpoints", pps: 5, operUp: 1, details: {cluster_kind: "endpoint-summary", cluster_expanded: true}},
+        {id: "census", x: 5, y: 6, state: 1, label: "12 endpoints", pps: 5, operUp: 1, details: {cluster_kind: "endpoint-summary", cluster_expanded: true, cluster_anchor_id: "switch"}},
         {
           id: "client",
           x: 7,
@@ -350,7 +350,8 @@ describe("rendering_graph_data_methods", () => {
 
     const out = ctx.buildVisibleGraphData(effective)
 
-    expect(out.nodeData.map((node) => node.id)).toEqual(["switch", "census", "client"])
+    expect(out.nodeData.map((node) => node.id)).toEqual(["switch", "client"])
+    expect(out.edgeData.map((edge) => [edge.sourceId, edge.targetId])).toEqual([["client", "switch"]])
   })
 
   it("buildVisibleGraphData keeps endpoint nodes visible when the endpoint layer is enabled", () => {

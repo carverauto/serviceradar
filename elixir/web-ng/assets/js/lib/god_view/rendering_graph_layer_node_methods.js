@@ -38,7 +38,7 @@ export const godViewRenderingGraphLayerNodeMethods = {
   expandedEndpointMemberLabelBudgetForShape(shape) {
     switch (shape) {
       case "local":
-        return 10
+        return 16
       case "regional":
         return 4
       default:
@@ -55,7 +55,7 @@ export const godViewRenderingGraphLayerNodeMethods = {
   },
   expandedEndpointMemberLabel(node) {
     return String(node?.details?.cluster_kind || "") === "endpoint-member"
-      && node?.details?.cluster_expanded === true
+      && (node?.details?.cluster_expanded === true || node?.details?.cluster_expanded === "true")
   },
   unplacedNodeLabel(node) {
     return node?.details?.topology_unplaced === true
