@@ -9,6 +9,7 @@ defmodule ServiceRadar.Inventory.DeviceHostnameRdns do
   import Ash.Expr
 
   alias ServiceRadar.Actors.SystemActor
+  alias ServiceRadar.Ash.Page
   alias ServiceRadar.Inventory.Device
   alias ServiceRadar.Observability.IpRdnsCache
   alias ServiceRadar.Observability.ReverseDns
@@ -33,9 +34,9 @@ defmodule ServiceRadar.Inventory.DeviceHostnameRdns do
     timeout_ms = Map.get(settings, :timeout_ms) || 250
 
     devices =
-      Keyword.get_lazy(opts, :devices, fn ->
-        list_candidates(settings, actor, now)
-      end)
+      opts
+      |> Keyword.get_lazy(:devices, fn -> list_candidates(settings, actor, now) end)
+      |> unwrap_devices()
 
     stats =
       Enum.reduce(devices, empty_stats(), fn device, acc ->
@@ -82,16 +83,25 @@ defmodule ServiceRadar.Inventory.DeviceHostnameRdns do
     |> Ash.Query.select([:uid, :ip, :hostname, :metadata, :last_seen_time])
     |> Ash.Query.sort(last_seen_time: :desc)
     |> Ash.Query.limit(batch_size * 5)
-    |> Ash.read(actor: actor)
+    |> Ash.read(actor: actor, page: false)
     |> case do
-      {:ok, devices} ->
-        devices
-        |> Enum.filter(&candidate?(&1, settings, now))
-        |> Enum.take(batch_size)
-
       {:error, reason} ->
         Logger.warning("DeviceHostnameRdns: failed to list candidates", reason: inspect(reason))
         []
+
+      result ->
+        result
+        |> unwrap_devices()
+        |> Enum.filter(&candidate?(&1, settings, now))
+        |> Enum.take(batch_size)
+    end
+  end
+
+  defp unwrap_devices(result) do
+    case Page.unwrap(result) do
+      {:ok, devices} when is_list(devices) -> devices
+      {:ok, _} -> []
+      {:error, _} -> []
     end
   end
 

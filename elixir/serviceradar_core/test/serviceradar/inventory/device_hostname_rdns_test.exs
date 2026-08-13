@@ -96,4 +96,26 @@ defmodule ServiceRadar.Inventory.DeviceHostnameRdnsTest do
                cache?: false
              )
   end
+
+  test "run unwraps an Ash keyset page of devices" do
+    device = %{
+      uid: "sr:test-device",
+      ip: "10.0.0.8",
+      hostname: nil,
+      metadata: %{}
+    }
+
+    page = %Ash.Page.Keyset{results: [device], more?: false, limit: 1}
+    lookup = fn "10.0.0.8", _opts -> {"core-sw.farm.lan", "ok", nil} end
+    persist = fn _device, _hostname, _status, _error, _now, _actor -> :updated end
+
+    assert {:ok, %{looked_up: 1, updated: 1, skipped: 0, errors: 0}} =
+             DeviceHostnameRdns.run(
+               %{batch_size: 10, timeout_ms: 250, overwrite_existing: false},
+               devices: page,
+               lookup: lookup,
+               persist: persist,
+               cache?: false
+             )
+  end
 end
