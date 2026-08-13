@@ -7,8 +7,15 @@ module(
 # --- Bazel dependencies  ----------------------------------
 bazel_dep(name = "rules_go", version = "0.62.0", repo_name = "io_bazel_rules_go")
 bazel_dep(name = "gazelle", version = "0.51.3", repo_name = "bazel_gazelle")
-bazel_dep(name = "rules_rust", version = "0.73.0")
-bazel_dep(name = "rules_rust_prost", version = "0.73.0")
+bazel_dep(name = "rules_rs", version = "0.0.99")
+
+# Local fork carrying crate.from_cargo(vendor_dir = ...), which lets registry crates resolve
+# from //third_party/crates instead of being downloaded. Not upstream yet.
+local_path_override(
+    module_name = "rules_rs",
+    path = "../rules_rs",
+)
+
 bazel_dep(name = "rules_python", version = "2.2.0")
 bazel_dep(name = "rules_nodejs", version = "6.7.5")
 bazel_dep(name = "rules_proto", version = "7.1.0")
@@ -37,13 +44,8 @@ bazel_dep(name = "aspect_rules_ts", version = "3.7.0")
 bazel_dep(name = "rules_cc", version = "0.2.22")
 bazel_dep(name = "buildifier_prebuilt", version = "8.5.1.3")
 bazel_dep(name = "aspect_bazel_lib", version = "2.22.5")
+bazel_dep(name = "llvm", version = "0.8.17")
 bazel_dep(name = "toolchains_buildbuddy", version = "0.0.4", repo_name = "io_buildbuddy_buildbuddy_toolchain")
-# FORKED for one attribute: `use_ld` on the gcc_toolchain tag.
-git_override(
-    module_name = "toolchains_buildbuddy",
-    commit = "22e5bbd9748cd041e16416226ac00b32d78f0fdc",
-    remote = "https://github.com/marvin-hansen/buildbuddy-toolchain.git",
-)
 
 # rules_go/gazelle pull package_metadata transitively. Prefer the Bazel mirror
 # first so CI does not fail analysis when GitHub releases transiently returns 502.
@@ -161,6 +163,7 @@ toolchain_resolution_overrides = {
 # selected for whichever machine runs the action. That is toolchain resolution,
 # so it lives behind @rules_aya_ebpf//:toolchain_type.
 bazel_dep(name = "rules_aya_ebpf", version = "0.1.0")
+
 # Pinned by commit
 git_override(
     module_name = "rules_aya_ebpf",
@@ -227,131 +230,234 @@ cc_compat_ext = use_extension("@rules_cc//cc:extensions.bzl", "compatibility_pro
 use_repo(cc_compat_ext, "cc_compatibility_proxy")
 
 # --- BuildBuddy Toolchain  ----------------------------------
-
 buildbuddy_toolchain_ext = use_extension(
     "@io_buildbuddy_buildbuddy_toolchain//:extensions.bzl",
     "buildbuddy",
 )
 
-buildbuddy_toolchain_ext.gcc_toolchain(
-    extra_cxx_builtin_include_directories = [
-        "/opt/rh/gcc-toolset-13/root/usr/include/c++/13",
-        "/opt/rh/gcc-toolset-13/root/usr/include/c++/13/x86_64-redhat-linux",
-        "/opt/rh/gcc-toolset-13/root/usr/include/c++/13/backward",
-        "/opt/rh/gcc-toolset-13/root/usr/lib/gcc/x86_64-redhat-linux/13/include",
-        "/opt/rh/gcc-toolset-13/root/usr/lib/gcc/x86_64-redhat-linux/13/include-fixed",
-        # Debian bullseye toolchain paths (GCC 10) used in the RBE image.
-        "/usr/lib/gcc/x86_64-linux-gnu/10/include",
-        "/usr/lib/gcc/x86_64-linux-gnu/10/include-fixed",
-        # Allow Debian/Ubuntu GCC 11 built-ins when remote execution falls back to distro toolchain.
-        "/usr/lib/gcc/x86_64-linux-gnu/11/include",
-        "/usr/lib/gcc/x86_64-linux-gnu/11/include-fixed",
-        # Allow local Fedora/RHEL-family GCC 11 built-ins for host tool compilation.
-        "/usr/lib/gcc/x86_64-redhat-linux/11/include",
-        # Debian/Ubuntu GCC 5 built-ins used by older remote workers.
-        "/usr/lib/gcc/x86_64-linux-gnu/5/include",
-        "/usr/lib/gcc/x86_64-linux-gnu/5/include-fixed",
-    ],
-    gcc_major_version = "13",
-    # Replaces gold, which is deprecated, with LLD from LLVM.
-    use_ld = "lld",
-)
-
-# Make the generated platform default to our custom executor image.
+# Only the execution platform.
 buildbuddy_toolchain_ext.platform(
-    container_image = "docker://registry.carverauto.dev/serviceradar/rbe-executor:v1.0.24.3",
+    container_image = "docker://registry.carverauto.dev/serviceradar/rbe-executor:v1.0.25.1",
 )
 use_repo(buildbuddy_toolchain_ext, "buildbuddy_toolchain")
 
-register_toolchains(
-    # These are the GLIBC cc toolchains only. musl targets are served by @toolchains_musl
-    # below; see the comment there for why we do not hand-roll a musl cc toolchain.
-    #
-    # Both entries declare //build/platforms:linux_glibc in target_compatible_with, which is
-    # what keeps them from matching a musl platform. Resolution takes the FIRST registered
-    # toolchain whose constraints the target platform satisfies -- not the most specific one --
-    # so without that constraint :rbe_cc_toolchain, asking only for (x86_64, linux), also
-    # matches (x86_64, linux, linux_musl) and wins by virtue of being listed here.
-    "//build/toolchains:rbe_cc_toolchain",
-    "//build/toolchains:rbe_cc_toolchain_arm64",
+# --- Hermetic-llvm: the cc toolchain ----------------------------------------
+# github.com/hermeticbuild/hermetic-llvm, BCR module name literally "llvm".
+llvm = use_extension("@llvm//extensions:llvm.bzl", "llvm")
+
+# Matches the LLVM that rustc 1.97.1 is built on, which is RUST_DEFAULT_VERSION below.
+# Confirmed with `rustc --version --verbose`, which reports "LLVM version: 22.1.6".
+# Keep the two in step. Rust and C/C++ objects are linked into the same binaries here, and
+# for the musl targets they are linked statically, so a mismatched LLVM shows up as bitcode
+# and runtime-library incompatibility rather than as a clean error.
+# The tag is mandatory: with no llvm.version the extension fails with "Missing llvm.version(...)".
+llvm.version(llvm_version = "22.1.6")
+
+# The macOS sysroot, overriding the one @llvm pins for faster download.
+osx = use_extension("@llvm//extensions:osx.bzl", "osx")
+osx.from_archive(
+    sha256 = "beee7212d265a6d2867d0236cc069314b38d5fb3486a6515734e76fa210c784c",
+    strip_prefix = "MacOSX26.1.sdk",
+    type = "tar.xz",
+    urls = [
+        "https://github.com/joseluisq/macosx-sdks/releases/download/26.1/MacOSX26.1.sdk.tar.xz",
+    ],
 )
 
-# --- musl cc toolchain (bazel-contrib/musl-toolchain) ---------------
-#
-# This replaces a hand-written cc_toolchain_config that was NOT a musl toolchain: it named
-# plain /usr/bin/gcc, set `target_libc = "musl"` as a free-text label, and tried to get
-# staticness from `-static` in link_flags. Since the compiler and its libstdc++/libm were the
-# distro's glibc ones, "musl" was a naming convention and nothing more -- and
-# //rust/netprobe:static_linkage_test caught it once ld.lld started faithfully recording the
-# DT_NEEDED entries that ld.gold had quietly resolved away.
-#
-# @toolchains_musl downloads a real musl-targeting gcc and enables the `fully_static_link`
-# feature itself, so `-static`, the static libstdc++/libm and the absence of a dynamic loader
-# all come from the toolchain rather than from flags we have to remember to keep in sync.
-#
-# `extra_target_compatible_with` is what binds it to our own libc constraint; without it these
-# toolchains match ANY linux platform, including the glibc ones. This mirrors rules_rust's
-# examples/cross_compile_musl, which keys its toolchains on a `linker_config:musl` constraint
-# for the same reason.
-#
-bazel_dep(name = "toolchains_musl", version = "0.1.27.bcr.1")
+register_toolchains("@llvm//toolchain:all")
 
-toolchains_musl = use_extension("@toolchains_musl//:toolchains_musl.bzl", "toolchains_musl")
-toolchains_musl.config(
-    extra_target_compatible_with = ["//build/platforms:linux_musl"],
-)
-use_repo(toolchains_musl, "musl_toolchains_hub")
-
-# REGISTERED HERE, in the root module, and that is load-bearing.
-#
-# @toolchains_musl already registers this from its own MODULE.bazel, but a DEPENDENCY's
-# registrations are ordered after every one of the root module's. Any root-module cc
-# toolchain whose target_compatible_with is [cpu, os] with nothing about libc therefore
-# matches a musl target platform and, being registered first, wins.
-#
-# That is not hypothetical. @toolchains_llvm used to be registered below this line and
-# generated its toolchain set from the HOST, so on linux-x86_64 it emitted
-# `cc-toolchain-x86_64-linux`, which matched musl. It made musl builds host-dependent: on a
-# macOS host @toolchains_llvm emitted only darwin/none toolchains, none matching musl, so
-# the musl hub won and `bazel build //...` passed. The same commit failed on the Linux
-# workflow runner, compiling musl targets with glibc headers and failing at link on symbols
-# musl does not have (`__memcpy_chk` from zstd-sys, `__isoc23_sscanf` from aws-lc-sys).
-#
-# @toolchains_llvm is gone now, so nothing currently races this. Keep the registration
-# anyway: it costs nothing, and it is what makes the ordering explicit rather than a
-# property of which dependencies happen to register what.
-register_toolchains("@musl_toolchains_hub//:all")
-
-# --- hermetic-llvm (github.com/hermeticbuild/hermetic-llvm) ------------------
-#
-# Replaces @toolchains_llvm, which was removed with its `llvm_ext` extension and its
-# `register_toolchains("@llvm_toolchain//:all")`. That module downloaded a per-host LLVM and
-# generated toolchains from the host, which is the root of the musl race described above.
-# hermetic-llvm instead declares one cc toolchain per (exec, target) pair and reads libc off
-# the TARGET platform, so a musl target selects a musl toolchain by construction.
-#
-# The BCR module name is literally "llvm".
-#
-# Deliberately NOT registered. Every toolchain above wins on registration order, so adding
-# this dependency changes no build until one opts in explicitly:
-#
-#   bazel build //... --extra_toolchains=@llvm//toolchain:all
-#
-# That is the point of landing it inert: the baseline stays provable, and the switch is a
-# separate, reviewable change. See //build/platforms:BUILD.bazel for the two constraint
-# values the musl platforms carry, which are likewise inert until something opts in.
-bazel_dep(name = "llvm", version = "0.8.17")
+# The only consumer here is //third_party/perl, whose configure_make builds the Perl that
+# OpenSSL's Configure needs. Bootstrapping a make to build a perl to build an openssl is a
+# lot of source builds to keep working through a compiler upgrade; the executor image
+# already carries make. Registering here puts it ahead of the built_ toolchain, since a
+# dependency's registrations are ordered after the root module's.
+register_toolchains("@rules_foreign_cc//toolchains:preinstalled_make_toolchain")
 
 # --- RBE Toolchain and platforms  ----------------------------------
 register_execution_platforms(
-    "//build/platforms:linux_amd64",
-    "//build/platforms:linux_arm64",
-    "//build/platforms:darwin_amd64",
-    "//build/platforms:darwin_arm64",
+    "//build/platforms:linux_x86_64",
+    "//build/platforms:linux_aarch64",
+    "//build/platforms:darwin_x86_64",
+    "//build/platforms:darwin_aarch64",
+)
+
+# --- Rust toolchain bootstrap -----------------------------------------------
+rules_rs_rules_rust = use_extension("@rules_rs//rs:rules_rust.bzl", "rules_rust")
+use_repo(rules_rs_rules_rust, "rules_rust")
+
+rules_rust_prost = use_extension("@rules_rs//rs:rules_rust_prost.bzl", "rules_rust_prost")
+use_repo(rules_rust_prost, "rules_rust_prost")
+
+RUST_DEFAULT_VERSION = "1.97.1"
+
+RUST_EDITION = "2024"
+
+toolchains = use_extension("@rules_rs//rs/toolchains:module_extension.bzl", "toolchains")
+toolchains.toolchain(
+    edition = RUST_EDITION,
+    version = RUST_DEFAULT_VERSION,
+)
+use_repo(toolchains, "default_rust_toolchains")
+
+register_toolchains("@default_rust_toolchains//:all")
+
+# Custom Prost toolchain
+register_toolchains(
+    "//build/rust/prost_toolchain",
+    "//build/rust/proto_toolchain",
+)
+
+# Rust crate dependencies
+
+# Every exec and target triple that can take part in a build. The musl pair is what
+# //rust/netprobe and the add-on bundles link against; the darwin entry is the dev host and
+# the linux-gnu pair covers CI, RBE, an prod.
+RUST_PLATFORMS = [
+    "aarch64-apple-darwin",
+    "aarch64-unknown-linux-gnu",
+    "aarch64-unknown-linux-musl",
+    "x86_64-unknown-linux-gnu",
+    "x86_64-unknown-linux-musl",
+]
+
+# rules_rs's crate extension, for the same reason as the toolchains above: @rules_rust is
+# use_repo'd by the facade and cannot source a use_extension. Note the attribute names differ
+# from crate_universe's -- cargo_lock/cargo_toml rather than cargo_lockfile/manifests.
+#
+# //third_party/crates KEEPS the crate sources and loses everything else. crates_vendor wrote
+# a crate_universe BUILD.bazel next to every crate plus a defs.bzl/crates.bzl hub; rules_rs
+# generates its own BUILD file per crate and its own hub, so those files are gone and the
+# tree is now what `cargo vendor --versioned-dirs` produces. `vendor_dir` below is what makes
+# rules_rs read it: a registry crate found at third_party/crates/<name>-<version> is
+# symlinked from there instead of downloaded, and anything missing still falls back to the
+# registry. See openspec migrate-bazel-rust-crate-vendoring for the tree's history.
+crate = use_extension("@rules_rs//rs:extensions.bzl", "crate")
+crate.from_cargo(
+    name = "crates",
+    cargo_lock = "//:Cargo.lock",
+    cargo_toml = "//:Cargo.toml",
+    platform_triples = RUST_PLATFORMS,
+    # Keeps //third_party/crates as the source of truth for crate sources
+    vendor_dir = "third_party/crates",
+)
+
+# The protoc plugins //build/rust/prost_toolchain runs. crates_vendor could conjure a crate
+# out of nothing through its `packages` attribute; rules_rs resolves the Cargo lockfile and
+# nothing else, so a plugin reaches the graph only by being a real dependency of a real
+# workspace member. That member is //rust/protoc-plugins, whose entire job is to pin them --
+# which is a more honest statement of the fact than a `crate.spec` was.
+crate.annotation(
+    crate = "protoc-gen-prost",
+    gen_binaries = ["protoc-gen-prost"],
+    repositories = ["crates"],
+)
+crate.annotation(
+    crate = "protoc-gen-tonic",
+    gen_binaries = ["protoc-gen-tonic"],
+    repositories = ["crates"],
+)
+
+# openssl-src: expose its C source tree to openssl-sys' build script.
+#
+# `extra_aliased_targets` is load-bearing and not cosmetic. A label written in a
+# crate.annotation is resolved against MODULE.bazel -- the root repository -- so a relative
+# label cannot name a target in the generated crate package the way crates_vendor's
+# annotations could. Aliasing each filegroup into the hub gives openssl-sys below a label it
+# can actually write. Every alias here is also emitted unversioned, because openssl-src has
+# exactly one version in //:Cargo.lock.
+#
+# The source patch itself is NOT declared here: scripts/vendor.sh applies it to the vendored
+# tree on disk, and `vendor_dir` symlinks that tree in. Declaring it as an annotation patch
+# would apply it a second time, to an already-patched source.
+crate.annotation(
+    additive_build_file_content = """
+filegroup(
+    name = "openssl_src_runfiles",
+    srcs = glob(
+        allow_empty = True,
+        include = ["**"],
+        exclude = [
+            "**/* *",
+            ".tmp_git_root/**/*",
+            "BUILD",
+            "BUILD.bazel",
+            "WORKSPACE",
+            "WORKSPACE.bazel",
+        ],
+    ),
+    visibility = ["//visibility:public"],
+)
+
+filegroup(
+    name = "openssl_src_readme",
+    srcs = ["README.md"],
+    visibility = ["//visibility:public"],
+)
+
+# A single stable file INSIDE the openssl/ C-source dir. Its $(location) parent is
+# the OpenSSL source root, which the patched source_dir() uses to locate the source.
+filegroup(
+    name = "openssl_src_version_marker",
+    srcs = ["openssl/VERSION.dat"],
+    visibility = ["//visibility:public"],
+)
+""",
+    crate = "openssl-src",
+    extra_aliased_targets = {
+        "openssl_src_readme": "openssl_src_readme",
+        "openssl_src_runfiles": "openssl_src_runfiles",
+        "openssl_src_version_marker": "openssl_src_version_marker",
+    },
+    repositories = ["crates"],
+)
+
+# openssl-sys: perl wrapper + point the build at the vendored openssl-src source. openssl-sys
+# builds a from-source (vendored) OpenSSL for libpq (pq-sys bundled), which is what makes the
+# build portable.
+crate.annotation(
+    build_script_data = [
+        "//third_party/rust_patches:openssl_perl_wrapper",
+        "@crates//:openssl_src_readme",
+        "@crates//:openssl_src_runfiles",
+        "@crates//:openssl_src_version_marker",
+    ],
+    build_script_env = {
+        "OPENSSL_SRC_PERL": "$(execpath @@//third_party/rust_patches:openssl_perl_wrapper)",
+        # Absolute $(location) into the vendored openssl/ source. The patched
+        # openssl-src source_dir() reads this (a marker file) and uses its parent as the
+        # OpenSSL source root -- robust against the crate's stale baked CARGO_MANIFEST_DIR
+        # under Bazel sandboxing.
+        "RULES_RUST_OPENSSL_SRC_DIR": "$(location @crates//:openssl_src_version_marker)",
+    },
+    crate = "openssl-sys",
+    repositories = ["crates"],
+)
+use_repo(crate, "crates")
+
+# rdp-connector-probe is deliberately detached from the workspace (its own Cargo.lock), so it
+# resolves into its own hub.
+rdp_connector_crates = use_extension("@rules_rs//rs:extensions.bzl", "crate")
+rdp_connector_crates.from_cargo(
+    name = "rdp_connector_crates",
+    cargo_lock = "//rust/rdp-connector-probe:Cargo.lock",
+    cargo_toml = "//rust/rdp-connector-probe:Cargo.toml",
+    platform_triples = RUST_PLATFORMS,
+)
+
+# libz-sys must build the zlib it bundles and `static` is the only lever that works.
+# Annotation crate_features are merged with the resolved ones (compute_select treats them as
+# the always-on set), so this adds `static`.
+rdp_connector_crates.annotation(
+    crate = "libz-sys",
+    crate_features = ["static"],
+    repositories = ["rdp_connector_crates"],
+)
+use_repo(
+    rdp_connector_crates,
+    "rdp_connector_crates",
 )
 
 # --- OCI Toolchain  ----------------------------------
-
 oci_ext = use_extension("@rules_oci//oci:extensions.bzl", "oci")
 oci_ext.pull(
     name = "ubuntu_jammy",
@@ -545,7 +651,6 @@ repo_alias(
 )
 
 # --- Xcode Toolchain  ----------------------------------
-
 xcode_configure_ext = use_extension(
     "@bazel_tools//tools/osx:xcode_configure.bzl",
     "xcode_configure_extension",
@@ -553,7 +658,6 @@ xcode_configure_ext = use_extension(
 use_repo(xcode_configure_ext, "local_config_xcode")
 
 # --- Go toolchain & dependency management ----------------------------------
-
 go_sdk = use_extension(
     "@io_bazel_rules_go//go:extensions.bzl",
     "go_sdk",
@@ -658,80 +762,6 @@ use_repo(
     "org_golang_x_net",
     "org_golang_x_sys",
     "org_uber_go_mock",
-)
-
-# --- Rust toolchain bootstrap -----------------------------------------------
-RUST_DEFAULT_VERSION = "1.97.1"
-
-RUST_EDITION = "2024"
-
-rust = use_extension("@rules_rust//rust:extensions.bzl", "rust")
-rust.toolchain(
-    edition = RUST_EDITION,
-    extra_target_triples = [
-        "aarch64-unknown-linux-gnu",
-        "aarch64-unknown-linux-musl",
-        "x86_64-unknown-linux-musl",
-    ],
-    versions = [RUST_DEFAULT_VERSION],
-)
-use_repo(rust, "rust_toolchains")
-use_repo(
-    rust,
-    "rust_linux_x86_64__aarch64-unknown-linux-musl__stable_tools",
-    "rust_linux_x86_64__x86_64-unknown-linux-musl__stable_tools",
-)
-
-# MUST precede @rust_toolchains//:all. Bazel picks the FIRST registered toolchain that
-# matches, not the most specific one, and rules_rust derives a toolchain's
-# target_compatible_with from the triple alone -- @platforms has no musl constraint, so
-# `x86_64-unknown-linux-gnu` declares exactly [os:linux, cpu:x86_64]. That is a subset of
-# //build/platforms:linux_x86_64_musl, so the glibc toolchain matches the musl platform and,
-# registered first, wins. netprobe then built dynamically linked against glibc while the
-# --platforms flag said musl, and only the shape assertions in rust-musl.yml caught it.
-#
-# These wrappers are what encode the distinction: target_compatible_with carries
-# //build/platforms:linux_musl and target_settings pins the matching config_setting, so they
-# are inert for a non-musl linux platform and resolution falls through to gnu as before.
-#
-# Note this only ever misresolved on a linux-x86_64 executor. extra_target_triples requests
-# no x86_64-unknown-linux-gnu toolchain -- that triple exists only because it is the CI
-# executor's own host triple, so from a macOS or arm64 host the musl toolchain was the only
-# match and the bug was invisible.
-register_toolchains(
-    "//build/rust:linux_aarch64_musl_toolchain",
-    "//build/rust:linux_x86_64_musl_toolchain",
-)
-
-register_toolchains("@rust_toolchains//:all")
-
-# Custom Prost toolchain
-register_toolchains(
-    "//build/rust/prost_toolchain",
-    "//build/rust/proto_toolchain",
-)
-
-# TODO(bazel-migration): add rust_host_tools for pinned host binaries and expand
-# crate_universe coverage as additional Rust targets migrate.
-
-# --- Rust crate dependencies (crate_universe) --------------------------------
-
-# The former `@rust_crates` crate_universe from_cargo extension (with its cri-api/
-# openssl-sys/openssl-src annotations and libzetta/ironrdp specs) was removed here:
-# Rust third-party deps are now locally vendored under //third_party/crates via the
-# crates_vendor rule in //third_party/BUILD.bazel. Consumers load
-# //third_party/crates:defs.bzl. Removing this extension eliminates the slow Cargo
-# splicing step. See openspec migrate-bazel-rust-crate-vendoring.
-
-rdp_connector_crates = use_extension("@rules_rust//crate_universe:extensions.bzl", "crate")
-rdp_connector_crates.from_cargo(
-    name = "rdp_connector_crates",
-    cargo_lockfile = "//rust/rdp-connector-probe:Cargo.lock",
-    manifests = ["//rust/rdp-connector-probe:Cargo.toml"],
-)
-use_repo(
-    rdp_connector_crates,
-    "rdp_connector_crates",
 )
 
 # --- Node.js toolchain -------------------------------------------------------

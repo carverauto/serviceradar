@@ -1,6 +1,7 @@
-load("@rules_rust//cargo:defs.bzl", "cargo_build_script")
-load("@rules_rust//rust:defs.bzl", "rust_binary", "rust_library", "rust_test")
-load("//third_party/crates:defs.bzl", "crate_deps")
+load("@rules_rs//rs:cargo_build_script.bzl", "cargo_build_script")
+load("@rules_rs//rs:rust_binary.bzl", "rust_binary")
+load("@rules_rs//rs:rust_library.bzl", "rust_library")
+load("@rules_rs//rs:rust_test.bzl", "rust_test")
 load("//build/rbe:exec_properties.bzl", "NATIVE_ADDON_EXEC_PROPERTIES")
 
 package(default_visibility = ["//visibility:public"])
@@ -14,44 +15,46 @@ cargo_build_script(
     crate_root = "build.rs",
     data = ["proto/dnsmessage.proto"],
     tools = ["@bazel_tools//tools/proto:protoc"],
-    deps = crate_deps(["prost-build"]),
+    deps = ["@crates//:prost-build"],
 )
 
-POWERDNS_DEPS = crate_deps([
-    "anyhow",
-    "hex",
-    "prost",
-    "serde",
-    "serde_json",
-    "sha2",
-    "tokio",
-    "tokio-stream",
-    "tonic",
-]) + [
+POWERDNS_DEPS = [
+    "@crates//:anyhow",
+    "@crates//:hex",
+    "@crates//:prost",
+    "@crates//:serde",
+    "@crates//:serde_json",
+    "@crates//:sha2",
+    "@crates//:tokio",
+    "@crates//:tokio-stream",
+    "@crates//:tonic",
+] + [
     ":build_script",
     "//rust/addon-sdk:addon_sdk",
 ]
 
-POWERDNS_PROC_MACROS = crate_deps(["async-trait"])
+POWERDNS_PROC_MACROS = ["@crates//:async-trait"]
 
 rust_library(
     name = "powerdns_addon",
-    srcs = glob(["src/**/*.rs"], exclude = ["src/bin/**"]),
-    crate_root = "src/lib.rs",
+    srcs = glob(
+        ["src/**/*.rs"],
+        exclude = ["src/bin/**"],
+    ),
     crate_name = "serviceradar_powerdns_addon",
-    deps = POWERDNS_DEPS,
+    crate_root = "src/lib.rs",
     proc_macro_deps = POWERDNS_PROC_MACROS,
+    deps = POWERDNS_DEPS,
 )
 
 rust_binary(
     name = "serviceradar-powerdns-addon",
-    exec_properties = NATIVE_ADDON_EXEC_PROPERTIES,
     srcs = ["src/bin/serviceradar-powerdns-addon.rs"],
     crate_root = "src/bin/serviceradar-powerdns-addon.rs",
-    deps = POWERDNS_DEPS + [":powerdns_addon"],
+    exec_properties = NATIVE_ADDON_EXEC_PROPERTIES,
     proc_macro_deps = POWERDNS_PROC_MACROS,
+    deps = POWERDNS_DEPS + [":powerdns_addon"],
 )
-
 
 rust_test(
     name = "powerdns_addon_test",

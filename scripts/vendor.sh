@@ -11,30 +11,38 @@ cd "$REPO_ROOT"
 
 # Regenerate all vendored crates under //third_party/crates.
 #
-# Regular vs system deps. Routine updates (`cargo update` + this script) are expected
-# to churn the whole tree -- crates_vendor resolves //:Cargo.lock as one universe, and
-# there is no way to vendor a subset (no exclude attr, and a second crates_vendor
-# target would duplicate rather than isolate). The four system crates -- openssl-src,
-# openssl-sys, pq-src, pq-sys -- are instead held still by two mechanisms:
-#   1. exact-version pins on openssl-sys/pq-sys in the root Cargo.toml, and
-#   2. the version-derived asserts below, which fail this script if any of the four
-#      moves, since both source patches are keyed to an exact upstream version.
-# So a system-crate bump is always a deliberate, reviewable act: re-pin, regenerate the
-# patch, update third_party/BUILD.bazel's labels. It can never happen by accident.
+# The tree is plain `cargo vendor` output -- crate sources and nothing else. It used to be
+# `crates_vendor` output, which wrote a crate_universe BUILD.bazel next to every crate and a
+# defs.bzl/crates.bzl hub alongside them; rules_rs generates its own BUILD file per crate and
+# its own hub, so those files are gone. `crate.from_cargo(vendor_dir = "third_party/crates")`
+# in //MODULE.bazel is what makes rules_rs read this tree: a registry crate found at
+# third_party/crates/<name>-<version> is symlinked from here instead of downloaded.
 #
-# Clear the vendor dir ourselves first: crates_vendor's own recursive delete is
-# unreliable on macOS and intermittently aborts with
-# `Failed to delete .../third_party/crates: Directory not empty (os error 66)`,
-# leaving a half-deleted (broken) tree. Removing it up-front makes the run
-# deterministic on Linux and macOS alike.
+# Regular vs system deps. Routine updates (`cargo update` + this script) are expected to
+# churn the whole tree -- there is no way to vendor a subset. The four system crates --
+# openssl-src, openssl-sys, pq-src, pq-sys -- are instead held still by two mechanisms:
+#   1. exact-version pins on openssl-sys/pq-sys in the root Cargo.toml, and
+#   2. the version-derived asserts below, which fail this script if either patched crate
+#      moves, since both source patches are keyed to an exact upstream version.
+# So a system-crate bump is always a deliberate, reviewable act: re-pin and regenerate the
+# patch. It can never happen by accident.
+#
+# Clear the vendor dir ourselves first so a rename (cargo names a directory after the raw
+# semver, build metadata and all) cannot leave a stale copy behind next to the new one.
 rm -rf third_party/crates
 
-# Run the vendor command to download all deps
-command bazel run //third_party:crates_vendor
+# --versioned-dirs is required, not cosmetic: rules_rs looks the crate up by
+# <name>-<version>, and without it cargo writes bare <name> directories that nothing matches
+# (and that collide for the crates this workspace has at two versions).
+# stdout is the `[source]` snippet for a .cargo/config.toml, which we do not use -- Bazel
+# never invokes cargo to build.
+cargo vendor --versioned-dirs --locked third_party/crates >/dev/null
 
-# crates_vendor (local mode) applies BUILD-file annotations but does NOT apply the
-# annotation `patches` to the on-disk vendored sources (that only happens on the
-# repository-rule/remote path). Re-apply the required source patches here.
+# `cargo vendor` writes pristine upstream sources, so the two source patches are applied
+# here, to the tree on disk. They are deliberately NOT declared as `crate.annotation(patches
+# = ...)` in //MODULE.bazel: rules_rs symlinks a vendored crate's files into its repository,
+# and Bazel's native patch implementation rewrites in place through a symlink -- an
+# annotation patch would edit this checked-in tree, and edit it again on every refetch.
 #
 # Both patches are keyed to an exact upstream version. Deriving the directory from
 # Cargo.lock (rather than hardcoding it) and hard-asserting is deliberate: a silently
@@ -42,11 +50,13 @@ command bazel run //third_party:crates_vendor
 # so a skipped patch leaves Linux CI green and breaks a developer's machine later, far
 # from the cause. Fail at vendor time instead, where the fix is obvious.
 
-# Resolve a vendored crate dir from Cargo.lock. crates_vendor names each directory
-# <name>-<version> and sanitizes '+' to '-' (openssl-src 300.6.1+3.6.3 becomes
-# openssl-src-300.6.1-3.6.3).
+# Resolve a vendored crate dir from Cargo.lock. `cargo vendor --versioned-dirs` names each
+# directory after the raw semver, build metadata included, so openssl-src 300.6.1+3.6.3 is
+# openssl-src-300.6.1+3.6.3. crates_vendor used to sanitize the '+' to '-'; the sanitized
+# spelling is accepted here as a fallback so this script still works against a tree vendored
+# before the switch (rules_rs accepts either spelling for the same reason).
 vendored_dir() {
-  local name="$1" version
+  local name="$1" version dir
   version="$(python3 -c '
 import re, sys
 name = sys.argv[1]
@@ -54,11 +64,19 @@ m = re.search(r"\[\[package\]\]\nname = \"%s\"\nversion = \"([^\"]+)\"" % re.esc
               open("Cargo.lock").read())
 if not m:
     sys.exit(1)
-print(m.group(1).replace("+", "-"))
+print(m.group(1))
 ' "$name")" || {
     echo "ERROR: '$name' not found in Cargo.lock." >&2
     exit 1
   }
+  for dir in "third_party/crates/${name}-${version}" \
+             "third_party/crates/${name}-${version//+/-}"; do
+    if [ -d "$dir" ]; then
+      printf '%s' "$dir"
+      return 0
+    fi
+  done
+  # Report the name cargo would produce; the caller turns a missing dir into the error.
   printf 'third_party/crates/%s-%s' "$name" "$version"
 }
 
@@ -71,8 +89,7 @@ apply_vendor_patch() {
   if [ ! -d "$dir" ]; then
     echo "ERROR: expected vendored crate '$dir' is missing." >&2
     echo "       '$crate' changed version, so $patch no longer matches the source." >&2
-    echo "       Regenerate the patch against the new upstream source (and update any" >&2
-    echo "       hardcoded version labels in third_party/BUILD.bazel) before re-running." >&2
+    echo "       Regenerate the patch against the new upstream source before re-running." >&2
     exit 1
   fi
   if ! grep -q "$marker" "$dir/$probe"; then
@@ -107,115 +124,6 @@ apply_vendor_patch openssl-src \
 apply_vendor_patch pq-src \
   "third_party/rust_patches/pq_src_fortify_patch" \
   "_FORTIFY_SOURCE=0" "build.rs"
-
-# third_party/BUILD.bazel hardcodes the openssl-src package path in openssl-sys'
-# build_script_data/env labels. Those are a separate copy of the version, so assert
-# they still point at what we just vendored.
-OPENSSL_SRC_PKG="$(basename "$(vendored_dir openssl-src)")"
-if ! grep -q "$OPENSSL_SRC_PKG" third_party/BUILD.bazel; then
-  echo "ERROR: third_party/BUILD.bazel does not reference '$OPENSSL_SRC_PKG'." >&2
-  echo "       openssl-src moved; update the hardcoded labels in that file." >&2
-  exit 1
-fi
-
-# Repair three cargo-bazel rendering bugs in the generated files. Both are upstream bugs
-# in how crates_vendor renders, not something the vendored sources can express, so they
-# have to be fixed after the fact -- and re-fixed on every vendor run, since the files
-# are regenerated. Each step asserts its own assumptions instead of editing blindly.
-python3 - <<'PY'
-import pathlib
-import re
-import sys
-
-crates = pathlib.Path("third_party/crates")
-
-# (1) Build metadata ('+') in a version is sanitized to '-' for the on-disk directory
-# and for alias `actual` labels, but NOT for the package path emitted into the macro file.
-# Any direct dependency whose version carries build metadata (e.g. toml
-# 1.1.3+spec-1.1.0) therefore renders a label pointing at a package that cannot exist.
-defs = crates / "defs.bzl"
-crates_bzl = crates / "crates.bzl"
-
-# crate_universe renders the macro API into `crates.bzl` and leaves `defs.bzl` as a
-# deprecated shim re-exporting it. Older versions put everything in `defs.bzl`. The
-# labels below are emitted into whichever file actually carries the macros, so resolve
-# that first -- targeting the wrong one silently no-ops and the '+' labels survive.
-macros = crates_bzl if crates_bzl.is_file() else defs
-text = macros.read_text()
-
-
-def sanitize(match):
-    package = match.group(1).replace("+", "-")
-    if not (crates / package).is_dir():
-        sys.exit(f"ERROR: {macros} references '{package}', which was not vendored.")
-    return f"//third_party/crates/{package}:"
-
-
-patched, count = re.subn(r'//third_party/crates/([^:"\s]*\+[^:"\s]*):', sanitize, text)
-if count:
-    macros.write_text(patched)
-    print(f"Sanitized {count} '+' package label(s) in {macros}")
-
-# (2) A "weak" optional-dependency reference in a feature definition (`dep?/feature`,
-# meaning "only if dep is already enabled") is rendered as a real Bazel dep edge even
-# when the gating feature is off. oneio's `rustls` feature names `rust-s3?/sync-rustls-tls`
-# while its `s3` feature stays off, so Bazel builds a rust-s3 -> aws-creds -> rust-ini
-# chain that Cargo never resolves. Those crates are rendered with no crate_features, so
-# ordered-multimap loses its default `std` and rust-ini fails to compile.
-#
-# This disappears entirely once arancini-lib stops pulling bgpkit-parser with default
-# features (that is what drags oneio in) -- at which point oneio leaves Cargo.lock and
-# this step no-ops. Until then, drop the edge that Cargo itself does not have.
-oneio = next(iter(sorted(crates.glob("oneio-*"))), None)
-if oneio is not None:
-    build = oneio / "BUILD.bazel"
-    content = build.read_text()
-    library = re.search(r"rust_library\(.*?\n\)", content, re.S)
-    if library and re.search(r'^\s+"s3",$', library.group(0), re.M):
-        sys.exit(
-            "ERROR: oneio now enables its 's3' feature, so the rust-s3 dep edge is "
-            "legitimate. Remove this fixup instead of silently stripping a real dep."
-        )
-    stripped, hits = re.subn(
-        r'^\s+"//third_party/crates/rust-s3-[^:]+:s3",\n', "", content, flags=re.M
-    )
-    if hits:
-        build.write_text(stripped)
-        print(f"Removed {hits} unreachable rust-s3 dep edge(s) from {build}")
-
-# (3) crate_universe now renders the macro API into `crates.bzl` and leaves `defs.bzl`
-# behind as a deprecated shim that re-exports it. The shim re-exports
-# `crate_repositories` unconditionally, but that macro is only emitted for
-# repository-based crate universes -- a LOCAL vendor has no repositories to declare --
-# so the generated shim cannot load itself:
-#
-#     Error: file ':crates.bzl' does not contain symbol 'crate_repositories'
-#
-# Nothing outside the vendored tree calls crate_repositories, so drop the dangling
-# re-export. The alternative is repointing ~45 BUILD files at :crates.bzl, which buys
-# nothing: the shim is exactly what upstream provides for compatibility.
-if crates_bzl.is_file():
-    if "def crate_repositories(" in crates_bzl.read_text():
-        # Upstream started emitting it. The shim is consistent again; stop editing it.
-        print("crates.bzl now defines crate_repositories; remove this fixup.")
-    else:
-        shim = defs.read_text()
-        shim, hits = re.subn(
-            r'^ *_crate_repositories = "crate_repositories",\n'
-            r'|^crate_repositories = _crate_repositories\n',
-            "",
-            shim,
-            flags=re.M,
-        )
-        if hits:
-            defs.write_text(shim)
-            print(f"Dropped {hits} dangling crate_repositories re-export(s) from {defs}")
-        elif "crate_repositories" in defs.read_text():
-            sys.exit(
-                "ERROR: defs.bzl still references crate_repositories but the expected "
-                "re-export lines did not match; the shim's shape changed."
-            )
-PY
 
 # Record the exact Cargo inputs that produced the committed vendor tree. The root
 # crate universe no longer has a from_cargo extension in MODULE.bazel, so its input
@@ -274,6 +182,11 @@ mv "${VENDOR_INPUTS_TMP}" "${VENDOR_INPUTS}"
 trap - EXIT
 echo "Recorded Cargo vendor inputs in ${VENDOR_INPUTS}"
 
-# Build all vendored deps with those two patches applied;
-# In case the patch is incompatible with a newer version, it will fail here.
-bazel build  //third_party/crates/...
+# Build every crate in the hub with those two patches applied. If a patch is incompatible
+# with a newer version, it fails here rather than in whatever target happens to pull the
+# crate in first.
+#
+# @crates//... and not //third_party/crates/... : the vendored tree has no BUILD files any
+# more, so it declares no Bazel packages at all. The targets live in the hub rules_rs
+# generates from it.
+bazel build @crates//...

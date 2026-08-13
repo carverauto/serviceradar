@@ -29,48 +29,30 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && curl -fsSL https://download.docker.com/linux/ubuntu/gpg -o /etc/apt/keyrings/docker.asc \
     && chmod a+r /etc/apt/keyrings/docker.asc \
     && sh -c 'echo "deb [arch=amd64 signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/ubuntu noble stable" > /etc/apt/sources.list.d/docker.list' \
-    && dpkg --add-architecture arm64 \
-    && awk '{print} /^Signed-By:/ {print "Architectures: amd64"}' /etc/apt/sources.list.d/ubuntu.sources > /tmp/ubuntu.sources \
-    && mv /tmp/ubuntu.sources /etc/apt/sources.list.d/ubuntu.sources \
-    && printf '%s\n' \
-        'Types: deb' \
-        'URIs: http://ports.ubuntu.com/ubuntu-ports' \
-        'Suites: noble noble-updates noble-backports' \
-        'Components: main restricted universe multiverse' \
-        'Architectures: arm64' \
-        'Signed-By: /usr/share/keyrings/ubuntu-archive-keyring.gpg' \
-        '' \
-        'Types: deb' \
-        'URIs: http://ports.ubuntu.com/ubuntu-ports' \
-        'Suites: noble-security' \
-        'Components: main restricted universe multiverse' \
-        'Architectures: arm64' \
-        'Signed-By: /usr/share/keyrings/ubuntu-archive-keyring.gpg' \
-        > /etc/apt/sources.list.d/ubuntu-arm64.sources \
+    # No `dpkg --add-architecture arm64` and no ports.ubuntu.com sources. They existed only
+    # to install the :arm64 cross libraries removed above, and they cost more than their
+    # bytes: a foreign architecture makes apt fetch an arm64 index for every repo that does
+    # not pin one, which is why the Docker CE list above pins arch=amd64 and why ubuntu.sources
+    # needed the `Architectures: amd64` awk rewrite. All three are gone together.
     && apt-get update && apt-get install -y --no-install-recommends \
         # Build Tools & Compilers
         build-essential \
         gcc \
         g++ \
-        gcc-aarch64-linux-gnu \
-        g++-aarch64-linux-gnu \
-        binutils-aarch64-linux-gnu \
-        clang \
-        llvm \
-        llvm-dev \
-        # THE LINKER the cc toolchain selects, and NOT implied by anything above.
-        # `clang` and `llvm` do not provide ld.lld -- clang ships no linker at all and drives
-        # whatever -fuse-ld names; `lld` is a separate package supplying /usr/bin/ld.lld.
+        # NO aarch64 cross-gcc. hermetic-llvm cross-compiles aarch64 with its own clang and
+        # its own glibc 2.28 headers/sysroot; the host cross-gcc is not merely unused, it was
+        # actively harmful -- cc-rs prefers a target-specific CC_<triple>, so the ENV pointing
+        # at it made every cc-rs crate build aarch64 with gcc and clang's CFLAGS.
+        # NO clang / llvm / llvm-dev / lld. hermetic-llvm (the `llvm` bazel_dep) downloads
+        # its own clang and ld.lld and every cc action resolves to those --
+        # external/llvm++llvm_toolchain_minimal+.../bin/clang++ ... -fuse-ld=lld. Nothing in
+        # //.bazelrc or //MODULE.bazel names a host compiler or linker any more.
         #
-        # //MODULE.bazel sets use_ld = "lld" on the buildbuddy toolchain. Without this package
-        # every C/C++ and Rust link in the image fails with
-        #   collect2: error: cannot find 'ld.lld'
+        # `lld` used to be justified by `use_ld = "lld"` on the buildbuddy gcc_toolchain; that
+        # toolchain tag is gone. These four packages were 619 MB of /usr/lib/llvm-18.
         #
-        # It replaces gold, which rustc warns about on every Rust link ("has known bugs with
-        # Rust") and which binutils keeps in maintenance-only mode. bfd is NOT an option: it
-        # rejects --start-lib, which Bazel's C++ rules emit, so it dies on protoc and the upb
-        # generators. Of the three, lld is the only one that both works and is not deprecated.
-        lld \
+        # gcc/g++ below STAY: mix/Bundlex compile Elixir NIFs with the system cc, outside
+        # Bazel's cc toolchain.
         make \
         cmake \
         bison \
@@ -90,13 +72,27 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         docker-buildx-plugin \
         docker-compose-plugin \
         # Database / Libs
-        postgresql-server-dev-18 \
+        # NOT postgresql-server-dev-18: it Depends on clang-19 and llvm-19-dev for
+        # PostgreSQL's JIT, which is a second complete LLVM (/usr/lib/llvm-19, 408 MB) that
+        # nothing here compiles against. The CNPG extension layers that genuinely need the
+        # PGXS headers take the .deb as a declared Bazel input instead
+        # (@postgresql_server_dev_18_deb//file, see //docker/images/cnpg_image.bzl), so the
+        # image copy was redundant as well as enormous. libpq-dev alone covers the headers.
         libpq-dev \
-        libc6-dev-arm64-cross \
-        linux-libc-dev-arm64-cross \
-        libstdc++-13-dev-arm64-cross \
         libssl-dev \
-        libssl-dev:arm64 \
+        # OTP's erts/configure probes tgetent in -ltinfo/-lncurses/-lcurses/-ltermcap and
+        # aborts with "No curses library functions found" without a linkable one. This used
+        # to arrive transitively via llvm-dev (LLVM links terminfo), so removing LLVM took it
+        # out and broke `rules_erlang` building OTP 28.1 from source -- which had been coasting
+        # on a remote cache hit and only rebuilt once the container image changed the action
+        # key. Declared explicitly now, because OTP needs it and a compiler package is not a
+        # legitimate way to acquire it.
+        #
+        # The other four dev packages llvm-dev pulled -- libxml2-dev, libz3-dev, libicu-dev,
+        # libffi-dev -- are deliberately NOT restored: those were LLVM's own (Z3 for the
+        # static analyzer, libxml2 for Windows manifests) and nothing here compiles against
+        # them.
+        libncurses-dev \
         zlib1g-dev \
         liblz4-dev \
         libzstd-dev \
@@ -153,16 +149,13 @@ ENV XDG_RUNTIME_DIR=/run/user/0 \
     CARGO_HOME=/opt/cargo \
     PATH=/opt/cargo/bin:$PATH \
     # pkg-config lookup paths
-    PKG_CONFIG_PATH=/usr/lib/postgresql/18/lib/pkgconfig:/usr/lib/pkgconfig:/usr/share/pkgconfig \
-    CC_aarch64_unknown_linux_gnu=/usr/bin/aarch64-linux-gnu-gcc \
-    CXX_aarch64_unknown_linux_gnu=/usr/bin/aarch64-linux-gnu-g++ \
-    AR_aarch64_unknown_linux_gnu=/usr/bin/aarch64-linux-gnu-ar \
-    CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER=/usr/bin/aarch64-linux-gnu-gcc \
-    PKG_CONFIG_SYSROOT_DIR_aarch64_unknown_linux_gnu=/ \
-    PKG_CONFIG_PATH_aarch64_unknown_linux_gnu=/usr/lib/postgresql/18/lib/pkgconfig:/usr/lib/aarch64-linux-gnu/pkgconfig:/usr/lib/pkgconfig:/usr/share/pkgconfig \
-    AARCH64_UNKNOWN_LINUX_GNU_OPENSSL_DIR=/usr \
-    AARCH64_UNKNOWN_LINUX_GNU_OPENSSL_LIB_DIR=/usr/lib/aarch64-linux-gnu \
-    AARCH64_UNKNOWN_LINUX_GNU_OPENSSL_INCLUDE_DIR=/usr/include/aarch64-linux-gnu
+    # NO CC_/CXX_/AR_/CARGO_TARGET_*_LINKER HERE. Compiler config is all done in the Hermetic LLVM toolchain in MODULE.bazel.
+    # The PKG_CONFIG_*_aarch64 and AARCH64_*_OPENSSL_* vars are gone with the arm64 cross
+    # libraries they pointed at -- those paths no longer exist in this image, and openssl-sys
+    # builds a vendored OpenSSL from source regardless (the `vendored` feature short-circuits
+    # OPENSSL_DIR entirely).
+    PKG_CONFIG_PATH=/usr/lib/postgresql/18/lib/pkgconfig:/usr/lib/pkgconfig:/usr/share/pkgconfig
+
 
 RUN mkdir -p /run/user/0 && chmod 700 /run/user/0
 
