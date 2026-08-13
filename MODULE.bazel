@@ -9,11 +9,13 @@ bazel_dep(name = "rules_go", version = "0.62.0", repo_name = "io_bazel_rules_go"
 bazel_dep(name = "gazelle", version = "0.51.3", repo_name = "bazel_gazelle")
 bazel_dep(name = "rules_rs", version = "0.0.99")
 
-# Local fork carrying crate.from_cargo(vendor_dir = ...), which lets registry crates resolve
-# from //third_party/crates instead of being downloaded. Not upstream yet.
-local_path_override(
+# Pinned by commit so the pin is immutable. Fork carrying crate.from_cargo(vendor_dir = ...),
+# which lets registry crates resolve from //third_party/crates instead of being downloaded --
+# drop this override once it is upstream and the bazel_dep above resolves on its own.
+git_override(
     module_name = "rules_rs",
-    path = "../rules_rs",
+    commit = "d994e538b82c46806af45c17377131c5443aa501",
+    remote = "https://github.com/marvin-hansen/rules_rs.git",
 )
 
 bazel_dep(name = "rules_python", version = "2.2.0")
