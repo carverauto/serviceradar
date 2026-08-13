@@ -14,7 +14,10 @@ defmodule ServiceRadarWebNGWeb.Settings.CompositeChecksLive.Index do
 
   use ServiceRadarWebNGWeb, :live_view
 
+  import ServiceRadarWebNGWeb.Settings.CompositeChecksLive.Components
+
   alias ServiceRadar.CompositeChecks.CompositeCheck
+  alias ServiceRadar.CompositeChecks.Rollup
   alias ServiceRadarWebNG.RBAC
   alias ServiceRadarWebNGWeb.Settings.Shell
 
@@ -78,17 +81,59 @@ defmodule ServiceRadarWebNGWeb.Settings.CompositeChecksLive.Index do
 
   # Reads run in mount, which LiveView calls twice — once disconnected for the
   # static render and again on connect. Loading a bounded settings list in both
-  # is what the sibling settings views do; anything expensive belongs behind
-  # `connected?/1`.
+  # is what the sibling settings views do; the scope count is the expensive part
+  # and is deferred to the connected render.
   defp list_checks(socket) do
+    scope = socket.assigns.current_scope
+
     CompositeCheck
-    |> Ash.Query.for_read(:read, %{}, scope: socket.assigns.current_scope)
+    |> Ash.Query.for_read(:read, %{}, scope: scope)
     |> Ash.Query.sort(name: :asc)
     |> Ash.read()
     |> case do
-      {:ok, checks} -> checks
+      {:ok, checks} -> decorate(checks, scope, connected?(socket))
       {:error, _reason} -> []
     end
+  end
+
+  defp decorate(checks, scope, count_scopes?) do
+    rollups = Rollup.for_checks(Enum.map(checks, & &1.id))
+
+    Enum.map(checks, fn check ->
+      %{
+        check: check,
+        rollup: Map.get(rollups, check.id),
+        scope_count: count_scopes? && count_scope(scope, check.scope_query)
+      }
+    end)
+  end
+
+  # One SRQL stats query per check. Mirrors the approach in
+  # `visibility_profiles_live/index.ex`, which already handles the `in:`-prefixed
+  # and bare-filter forms. Returns nil rather than raising: a scope that no
+  # longer parses should not take the index down with it.
+  defp count_scope(_scope, query) when query in [nil, ""], do: nil
+
+  defp count_scope(scope, query) when is_binary(query) do
+    trimmed = String.trim(query)
+
+    full =
+      cond do
+        trimmed == "" -> ~s|in:devices stats:"count() as total"|
+        String.starts_with?(trimmed, "in:") -> ~s|#{trimmed} stats:"count() as total"|
+        true -> ~s|in:devices #{trimmed} stats:"count() as total"|
+      end
+
+    case srql_module().query(full, %{scope: scope}) do
+      {:ok, %{"results" => [%{"total" => count} | _]}} when is_integer(count) -> count
+      _ -> nil
+    end
+  rescue
+    _ -> nil
+  end
+
+  defp srql_module do
+    Application.get_env(:serviceradar_web_ng, :srql_module, ServiceRadarWebNG.SRQL)
   end
 
   @impl true
@@ -133,22 +178,7 @@ defmodule ServiceRadarWebNGWeb.Settings.CompositeChecksLive.Index do
             </p>
           </div>
 
-          <ul :if={@checks != []} class="space-y-2">
-            <li
-              :for={check <- @checks}
-              class="rounded-sr-control border border-sr-border bg-sr-surface p-4"
-            >
-              <div class="flex items-center justify-between gap-4">
-                <div class="min-w-0">
-                  <p class="truncate text-sm font-medium text-sr-ink">{check.name}</p>
-                  <p class="mt-0.5 truncate font-mono text-xs text-sr-ink-muted">
-                    {check.scope_query}
-                  </p>
-                </div>
-                <span class="shrink-0 text-xs text-sr-ink-muted">{check.state}</span>
-              </div>
-            </li>
-          </ul>
+          <.check_list :if={@checks != []} entries={@checks} can_manage={@can_manage} />
         </div>
       </Shell.settings_chrome>
     </Layouts.app>
