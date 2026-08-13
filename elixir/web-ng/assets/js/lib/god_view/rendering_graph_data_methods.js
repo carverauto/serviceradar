@@ -160,7 +160,7 @@ export const godViewRenderingGraphDataMethods = {
       })
       .filter(Boolean)
 
-    const edgeData = this.aggregateVisibleEdges(rawEdgeData)
+    const edgeData = this.aggregateVisibleEdges(this.collapseExpandedMemberTrunks(rawEdgeData, visibleNodes))
     const edgeKeys = new Set(edgeData.map((edge) => edge.interactionKey))
     if (this.state.hoveredEdgeKey && !edgeKeys.has(this.state.hoveredEdgeKey)) this.state.hoveredEdgeKey = null
     if (this.state.selectedEdgeKey && !edgeKeys.has(this.state.selectedEdgeKey)) this.state.selectedEdgeKey = null
@@ -196,6 +196,58 @@ export const godViewRenderingGraphDataMethods = {
         : nodeData.find((node) => node.index === this.state.selectedNodeIndex)
 
     return {edgeData, edgeLabelData, nodeData, rootPulseNodes, selectedVisibleNode}
+  },
+  collapseExpandedMemberTrunks(edgeData, visibleNodes) {
+    if (!Array.isArray(edgeData) || edgeData.length === 0) return []
+
+    const nodeById = new Map((visibleNodes || []).map((node) => [node.id, node]))
+    const trunks = new Map()
+    const kept = []
+
+    for (const edge of edgeData) {
+      const clusterId = this.expandedMemberTrunkClusterId(edge, nodeById)
+      if (!clusterId) {
+        kept.push(edge)
+        continue
+      }
+
+      const length = Math.hypot(
+        Number(edge.sourcePosition?.[0] || 0) - Number(edge.targetPosition?.[0] || 0),
+        Number(edge.sourcePosition?.[1] || 0) - Number(edge.targetPosition?.[1] || 0),
+      )
+      const current = trunks.get(clusterId)
+      if (!current || length < current.length) {
+        trunks.set(clusterId, {edge, length})
+      }
+    }
+
+    for (const {edge} of trunks.values()) kept.push(edge)
+    return kept
+  },
+  expandedMemberTrunkClusterId(edge, nodeById) {
+    const source = nodeById.get(edge?.sourceId)
+    const target = nodeById.get(edge?.targetId)
+    if (!source || !target) return ""
+
+    const member = this.expandedEndpointMemberNode(source)
+      ? source
+      : (this.expandedEndpointMemberNode(target) ? target : null)
+    const other = member === source ? target : source
+    if (!member || !other) return ""
+
+    const clusterId = String(member.details?.cluster_id || "").trim()
+    if (clusterId === "") return ""
+
+    const anchorId = String(member.details?.cluster_anchor_id || "").trim()
+    const otherIsAnchor =
+      (anchorId !== "" && other.id === anchorId) ||
+      (String(other.details?.cluster_kind || "").trim() === "endpoint-anchor" &&
+        String(other.details?.cluster_id || "").trim() === clusterId)
+
+    return otherIsAnchor ? clusterId : ""
+  },
+  expandedEndpointMemberNode(node) {
+    return String(node?.details?.cluster_kind || "").trim() === "endpoint-member" && isClusterExpanded(node)
   },
   aggregateVisibleEdges(edgeData) {
     if (!Array.isArray(edgeData) || edgeData.length === 0) return []

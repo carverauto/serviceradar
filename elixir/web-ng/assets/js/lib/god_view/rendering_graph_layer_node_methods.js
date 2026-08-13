@@ -38,12 +38,31 @@ export const godViewRenderingGraphLayerNodeMethods = {
   expandedEndpointMemberLabelBudgetForShape(shape) {
     switch (shape) {
       case "local":
-        return 16
+        return 48
       case "regional":
-        return 4
+        return 12
       default:
         return 0
     }
+  },
+  nodeLabelPixelOffset(node) {
+    const side = String(node?.details?.cluster_panel_side || "").trim()
+    if (side === "right") return [14, 0]
+    if (side === "left") return [-14, 0]
+    if (side === "down") return [0, 16]
+    return [0, -16]
+  },
+  nodeLabelTextAnchor(node) {
+    const side = String(node?.details?.cluster_panel_side || "").trim()
+    if (side === "right") return "start"
+    if (side === "left") return "end"
+    return "middle"
+  },
+  nodeLabelAlignmentBaseline(node) {
+    const side = String(node?.details?.cluster_panel_side || "").trim()
+    if (side === "right" || side === "left") return "center"
+    if (side === "down") return "top"
+    return "bottom"
   },
   opaqueIdentityLabel(node) {
     const label = String(node?.label || "")
@@ -272,9 +291,16 @@ export const godViewRenderingGraphLayerNodeMethods = {
               getColor: this.state.visual.label,
               fontFamily: "Inter, system-ui, sans-serif",
               fontWeight: 600,
-              getPixelOffset: [0, -16],
+              getPixelOffset: (d) => this.nodeLabelPixelOffset(d),
+              getTextAnchor: (d) => this.nodeLabelTextAnchor(d),
+              getAlignmentBaseline: (d) => this.nodeLabelAlignmentBaseline(d),
               billboard: true,
               pickable: true,
+              updateTriggers: {
+                getPixelOffset: labelData.map((node) => node?.details?.cluster_panel_side || "").join("|"),
+                getTextAnchor: labelData.map((node) => node?.details?.cluster_panel_side || "").join("|"),
+                getAlignmentBaseline: labelData.map((node) => node?.details?.cluster_panel_side || "").join("|"),
+              },
             }),
           ]
         : []),

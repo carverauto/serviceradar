@@ -210,7 +210,7 @@ describe("rendering_graph_layer_node_methods", () => {
 
     const labels = ctx.selectNodeLabels([
       {id: "router-a", label: "Router A", clusterCount: 1, pps: 200, state: 2, selected: false, details: {}},
-      ...Array.from({length: 30}, (_, index) => ({
+      ...Array.from({length: 60}, (_, index) => ({
         id: `endpoint-${index + 1}`,
         label: `192.0.2.${index + 1}`,
         clusterCount: 1,
@@ -224,7 +224,7 @@ describe("rendering_graph_layer_node_methods", () => {
       })),
     ], "local")
 
-    expect(labels.filter((node) => String(node.id).startsWith("endpoint-"))).toHaveLength(16)
+    expect(labels.filter((node) => String(node.id).startsWith("endpoint-"))).toHaveLength(48)
     expect(labels.at(0).id).toEqual("endpoint-1")
     expect(labels.map((node) => node.id)).toContain("router-a")
   })
@@ -253,6 +253,17 @@ describe("rendering_graph_layer_node_methods", () => {
     ], "local")
 
     expect(labels.map((node) => node.id)).toEqual(["router-a"])
+  })
+
+  it("nodeLabelPixelOffset places expanded roster labels beside the panel", () => {
+    const ctx = createStateBackedContext({}, {})
+    Object.assign(ctx, bindApi(ctx, godViewRenderingGraphLayerNodeMethods))
+
+    expect(ctx.nodeLabelPixelOffset({details: {cluster_panel_side: "right"}})).toEqual([14, 0])
+    expect(ctx.nodeLabelTextAnchor({details: {cluster_panel_side: "right"}})).toEqual("start")
+    expect(ctx.nodeLabelPixelOffset({details: {cluster_panel_side: "left"}})).toEqual([-14, 0])
+    expect(ctx.nodeLabelTextAnchor({details: {cluster_panel_side: "left"}})).toEqual("end")
+    expect(ctx.nodeLabelPixelOffset({details: {}})).toEqual([0, -16])
   })
 
   it("visualClusterCount only scales endpoint summaries", () => {

@@ -1232,6 +1232,7 @@ export const godViewLayoutTopologyStateMethods = {
       if (cluster.expanded && cluster.memberNodeIds.length > 0) {
         const metrics = this.expandedClusterGridMetrics(cluster.memberNodeIds.length)
         const placement = this.chooseExpandedClusterPlacement(anchorX, anchorY, metrics, occupiedNodes)
+        const orderedMemberIds = this.orderExpandedClusterMembers(nodes, nodeIndexById, cluster.memberNodeIds)
 
         if (Number.isInteger(summaryIndex)) {
           const summary = nodes[summaryIndex]
@@ -1243,20 +1244,28 @@ export const godViewLayoutTopologyStateMethods = {
               ...(summary?.details && typeof summary.details === "object" ? summary.details : {}),
               cluster_expanded: true,
               cluster_anchor_id: cluster.anchorNodeId,
+              cluster_panel_side: placement.name,
             },
           }
         }
 
-        for (let memberIndex = 0; memberIndex < cluster.memberNodeIds.length; memberIndex += 1) {
-          const memberId = cluster.memberNodeIds[memberIndex]
+        for (let memberIndex = 0; memberIndex < orderedMemberIds.length; memberIndex += 1) {
+          const memberId = orderedMemberIds[memberIndex]
           const graphIndex = nodeIndexById.get(memberId)
           if (!Number.isInteger(graphIndex)) continue
 
           const point = this.expandedClusterGridPosition(memberIndex, metrics, placement)
+          const member = nodes[graphIndex]
           nodes[graphIndex] = {
-            ...nodes[graphIndex],
+            ...member,
             x: point.x,
             y: point.y,
+            details: {
+              ...(member?.details && typeof member.details === "object" ? member.details : {}),
+              cluster_expanded: true,
+              cluster_anchor_id: cluster.anchorNodeId,
+              cluster_panel_side: placement.name,
+            },
           }
         }
         continue
@@ -1416,24 +1425,35 @@ export const godViewLayoutTopologyStateMethods = {
   },
   expandedClusterGridMetrics(memberCount) {
     const count = Math.max(1, Number(memberCount || 1))
-    const columns = Math.min(6, Math.max(3, Math.ceil(Math.sqrt(count))))
+    const columns = count <= 10 ? 1 : 2
     const rows = Math.max(1, Math.ceil(count / columns))
     return {
       columns,
       rows,
-      colGap: 112,
-      rowGap: 80,
-      pad: 156,
+      colGap: 240,
+      rowGap: 46,
+      pad: 188,
     }
+  },
+  orderExpandedClusterMembers(nodes, nodeIndexById, memberNodeIds) {
+    return [...(memberNodeIds || [])].sort((leftId, rightId) => {
+      const leftNode = nodes[nodeIndexById.get(leftId)]
+      const rightNode = nodes[nodeIndexById.get(rightId)]
+      const leftLabel = String(leftNode?.label || leftId || "")
+      const rightLabel = String(rightNode?.label || rightId || "")
+      return leftLabel.localeCompare(rightLabel, undefined, {numeric: true, sensitivity: "base"}) ||
+        String(leftId).localeCompare(String(rightId))
+    })
   },
   chooseExpandedClusterPlacement(anchorX, anchorY, metrics, occupiedNodes) {
     const columns = Math.max(1, Number(metrics?.columns || 1))
     const rows = Math.max(1, Number(metrics?.rows || 1))
-    const colGap = Number(metrics?.colGap || 112)
-    const rowGap = Number(metrics?.rowGap || 80)
-    const pad = Number(metrics?.pad || 156)
+    const colGap = Number(metrics?.colGap || 240)
+    const rowGap = Number(metrics?.rowGap || 46)
+    const pad = Number(metrics?.pad || 188)
     const width = Math.max(0, (columns - 1) * colGap)
     const height = Math.max(0, (rows - 1) * rowGap)
+    const labelPad = 92
     const candidates = [
       {name: "right", originX: anchorX + pad, originY: anchorY - height / 2},
       {name: "left", originX: anchorX - pad - width, originY: anchorY - height / 2},
@@ -1445,12 +1465,24 @@ export const godViewLayoutTopologyStateMethods = {
     let bestScore = -Infinity
 
     for (const candidate of candidates) {
-      const minX = candidate.originX - 36
-      const maxX = candidate.originX + width + 36
-      const minY = candidate.originY - 36
-      const maxY = candidate.originY + height + 36
-      let hits = 0
+      let minX = candidate.originX - 28
+      let maxX = candidate.originX + width + 28
+      let minY = candidate.originY - 28
+      let maxY = candidate.originY + height + 28
 
+      if (candidate.name === "right") {
+        minX = anchorX + 24
+        maxX += labelPad
+      } else if (candidate.name === "left") {
+        maxX = anchorX - 24
+        minX -= labelPad
+      } else if (candidate.name === "down") {
+        minY = anchorY + 24
+      } else if (candidate.name === "up") {
+        maxY = anchorY - 24
+      }
+
+      let hits = 0
       for (const node of occupiedNodes || []) {
         const x = Number(node?.x)
         const y = Number(node?.y)
@@ -1458,7 +1490,8 @@ export const godViewLayoutTopologyStateMethods = {
         if (x >= minX && x <= maxX && y >= minY && y <= maxY) hits += 1
       }
 
-      const score = -hits * 1000 - Math.hypot(candidate.originX - anchorX, candidate.originY - anchorY) * 0.01
+      const sideBonus = candidate.name === "right" || candidate.name === "left" ? 80 : 0
+      const score = -hits * 1000 + sideBonus - Math.hypot(candidate.originX - anchorX, candidate.originY - anchorY) * 0.01
       if (score > bestScore) {
         bestScore = score
         best = candidate
@@ -1470,8 +1503,8 @@ export const godViewLayoutTopologyStateMethods = {
   expandedClusterGridPosition(memberIndex, metrics, placement) {
     const idx = Math.max(0, Number(memberIndex || 0))
     const columns = Math.max(1, Number(metrics?.columns || 1))
-    const colGap = Number(metrics?.colGap || 112)
-    const rowGap = Number(metrics?.rowGap || 80)
+    const colGap = Number(metrics?.colGap || 240)
+    const rowGap = Number(metrics?.rowGap || 46)
     const col = idx % columns
     const row = Math.floor(idx / columns)
     return {

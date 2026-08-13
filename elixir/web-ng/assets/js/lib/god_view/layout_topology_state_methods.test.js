@@ -590,11 +590,12 @@ describe("layout_topology_state_methods", () => {
     }
 
     expect(members).toHaveLength(42)
-    expect(xs.size).toBeGreaterThan(3)
-    expect(ys.size).toBeGreaterThan(3)
-    expect(minPair).toBeGreaterThan(75)
+    expect(xs.size).toBeLessThanOrEqual(2)
+    expect(ys.size).toBeGreaterThan(10)
+    expect(minPair).toBeGreaterThan(40)
     const rowYs = [...ys].sort((left, right) => left - right)
     expect(rowYs.some((y) => members.filter((node) => Math.round(node.y) === y).length > 1)).toEqual(true)
+    expect(members.every((node) => node.details.cluster_panel_side === "right" || node.details.cluster_panel_side === "left")).toEqual(true)
   })
 
   it("requiresFullElkLayout detects endpoint-heavy graphs", () => {
