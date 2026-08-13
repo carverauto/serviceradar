@@ -139,6 +139,7 @@ const sidebars: SidebarsConfig = {
         {type: 'doc', id: 'tools', label: 'Tools Pod'},
         {type: 'doc', id: 'cli-reference', label: 'ServiceRadar CLI'},
         {type: 'doc', id: 'configuration-system', label: 'Configuration & KV Store'},
+        {type: 'doc', id: 'outbound-mail', label: 'Outbound Mail'},
         {type: 'doc', id: 'notifications', label: 'Notifications'},
         {type: 'doc', id: 'notification-providers', label: 'Notification Providers'},
         {type: 'doc', id: 'notification-plugin-authoring', label: 'Notification Plugins (Wasm)'},

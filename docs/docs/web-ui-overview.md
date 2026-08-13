@@ -84,6 +84,8 @@ platform. Common sections include:
   (`/settings/flows`).
 - **SNMP / Host Health** — SNMP profiles (`/settings/snmp`) and Sysmon host
   metrics (`/settings/sysmon`).
+- **Mail** — deployment-wide outbound email (`/settings/mail`). SMTP relay,
+  From address, credentials. See [Outbound Mail](./outbound-mail.md).
 - **Rules** — Zen log normalization, event promotion, and alerts
   (`/settings/rules`). See the [Rule Builder](./rule-builder.md).
 - **Agents** — deploy (`/settings/agents/deploy`), releases, plugins manager,
