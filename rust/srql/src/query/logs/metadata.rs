@@ -1,4 +1,4 @@
-use super::{LogsQuery, enforce_list_limit};
+use super::{enforce_list_limit, LogsQuery};
 use crate::{
     error::{Result, ServiceError},
     parser::{Filter, FilterOp},
@@ -167,6 +167,12 @@ fn device_alias_log_match_clause(alias_expr: &str) -> String {
     ));
     clauses.push(format!(
         "COALESCE(body, '') ILIKE ({escaped_alias} || ':%') ESCAPE '\\'"
+    ));
+    // Syslog ingest stores the emitter on logs.source_ip, not device_id
+    // attributes. Device pages query device_id:<uid>, so match inventory
+    // IPs/hostnames against that column.
+    clauses.push(format!(
+        "(logs.source_ip IS NOT NULL AND logs.source_ip = {alias_expr})"
     ));
 
     clauses.join(" OR ")

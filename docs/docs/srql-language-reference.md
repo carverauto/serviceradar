@@ -335,7 +335,7 @@ Sortable fields: `time` (aliases `event_timestamp`, `timestamp`).
 | Field | Aliases | Description |
 |-------|---------|-------------|
 | `id` | | Log record identifier |
-| `device_id` | `uid`, `source_device_uid` | Associated device |
+| `device_id` | `uid`, `source_device_uid` | Associated device. Matches inventory uid/hostname/IP against log attributes and `source_ip` (syslog emitter IP). |
 | `gateway_id` | | Associated gateway ID |
 | `agent_id` | | Associated agent ID |
 | `trace_id` | | OpenTelemetry trace ID |
@@ -344,6 +344,7 @@ Sortable fields: `time` (aliases `event_timestamp`, `timestamp`).
 | `service_version` | | Service version |
 | `service_instance` | | Service instance identifier |
 | `source` | | Log source |
+| `source_ip` | | Emitter IP (syslog `_remote_addr` / `source_ip`) |
 | `scope_name` | | Instrumentation scope name |
 | `scope_version` | | Instrumentation scope version |
 | `severity_text` | `severity`, `level` | Severity text (e.g. `error`, `warn`) |
