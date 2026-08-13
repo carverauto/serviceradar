@@ -326,6 +326,25 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.FormComponents do
           <label class="text-sm font-medium text-sr-ink">Enable this sweep group</label>
         </div>
 
+        <div class="space-y-1">
+          <div class="flex items-center gap-2">
+            <.input
+              type="checkbox"
+              field={@form[:emit_availability_events]}
+              class={ui_checkbox_class()}
+            />
+            <label class="text-sm font-medium text-sr-ink">
+              Emit availability events
+            </label>
+          </div>
+          <p class="text-xs text-sr-muted pl-7">
+            When a sweep flips a device to unreachable, write a
+            <code class="bg-sr-subtle px-1 rounded">device.unavailable</code>
+            event. Recovery writes <code class="bg-sr-subtle px-1 rounded">device.available</code>
+            and clears the matching alert.
+          </p>
+        </div>
+
         <!-- Actions -->
         <div class="flex justify-end gap-2 pt-4 border-t border-sr-line">
           <.link navigate={~p"/settings/networks"}>
@@ -743,6 +762,12 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.FormComponents do
           </div>
           <div :if={@group.static_targets == [] and @group.target_query in [nil, ""]}>
             <p class="text-sr-muted">No targets configured.</p>
+          </div>
+          <div class="pt-2 text-xs text-sr-muted">
+            Availability events:
+            <span class="text-sr-ink">
+              {if(@group.emit_availability_events, do: "on", else: "off")}
+            </span>
           </div>
         </div>
       </.ui_panel>

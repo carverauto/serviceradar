@@ -45,6 +45,7 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
   alias ServiceRadar.Inventory.DeviceAgentAvailability
   alias ServiceRadar.Inventory.IdentityReconciler
   alias ServiceRadar.Repo
+  alias ServiceRadar.SweepJobs.AvailabilityEvents
   alias ServiceRadar.SweepJobs.MapperPromotion
   alias ServiceRadar.SweepJobs.SweepGroup
   alias ServiceRadar.SweepJobs.SweepGroupExecution
@@ -929,16 +930,24 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
 
     # DB connection's search_path determines the schema
     # Mark available devices (resets failure count)
-    update_device_statuses_available(available_uids, status_timestamp, agent_id)
+    recovered_rows = update_device_statuses_available(available_uids, status_timestamp, agent_id)
 
     # Apply hysteresis for unavailable devices
     # Only mark unavailable after consecutive failure threshold is exceeded
     # "Available wins" window is based on sweep interval
-    update_device_statuses_with_hysteresis(
-      unavailable_uids,
-      status_timestamp,
+    down_rows =
+      update_device_statuses_with_hysteresis(
+        unavailable_uids,
+        status_timestamp,
+        sweep_group_id,
+        agent_id
+      )
+
+    maybe_emit_availability_events(
+      recovered_rows ++ down_rows,
       sweep_group_id,
-      agent_id
+      agent_id,
+      execution_id
     )
 
     maybe_add_sweep_source(Enum.uniq(available_uids ++ unavailable_uids))
@@ -1198,41 +1207,50 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
   end
 
   # Mark devices as available and reset consecutive failure count
-  defp update_device_statuses_available([], _timestamp, _agent_id), do: :ok
+  defp update_device_statuses_available([], _timestamp, _agent_id), do: []
 
   defp update_device_statuses_available(device_uids, timestamp, agent_id) do
     # DB connection's search_path determines the schema
     # Reset consecutive failure count to 0 when device becomes available
     sql = """
-    UPDATE ocsf_devices
+    UPDATE ocsf_devices AS d
     SET
       is_available = true,
       last_seen_time = $2::timestamptz,
       modified_time = $2::timestamptz,
       metadata = jsonb_set(
         jsonb_set(
-          COALESCE(metadata, '{}'::jsonb),
+          COALESCE(d.metadata, '{}'::jsonb),
           '{sweep_consecutive_failures}',
           '0'
         ),
         '{sweep_last_available_at}',
         to_jsonb($2::timestamptz)
       )
-    WHERE uid = ANY($1)
+    FROM (
+      SELECT uid, is_available AS was_available, hostname, ip
+      FROM ocsf_devices
+      WHERE uid = ANY($1)
+    ) old
+    WHERE d.uid = old.uid
       AND (
-        NULLIF(BTRIM(availability_source_agent_id), '') IS NULL
-        OR availability_source_agent_id = $3
+        NULLIF(BTRIM(d.availability_source_agent_id), '') IS NULL
+        OR d.availability_source_agent_id = $3
       )
+    RETURNING d.uid, old.was_available, d.is_available, old.hostname, old.ip
     """
 
     case Repo.query(sql, [device_uids, timestamp, agent_id]) do
-      {:ok, %{num_rows: count}} ->
+      {:ok, %{num_rows: count, rows: rows}} ->
         Logger.debug(
           "SweepResultsIngestor: Marked #{count} devices as available (reset failure count)"
         )
 
+        rows
+
       {:error, reason} ->
         Logger.error("SweepResultsIngestor: Failed to mark devices available: #{inspect(reason)}")
+        []
     end
   end
 
@@ -1242,7 +1260,7 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
   # Apply hysteresis for unavailable devices
   # Only marks device as unavailable after threshold consecutive failures
   # "Available wins" - skips devices recently marked available by another sweep
-  defp update_device_statuses_with_hysteresis([], _timestamp, _sweep_group_id, _agent_id), do: :ok
+  defp update_device_statuses_with_hysteresis([], _timestamp, _sweep_group_id, _agent_id), do: []
 
   defp update_device_statuses_with_hysteresis(device_uids, timestamp, sweep_group_id, agent_id) do
     # DB connection's search_path determines the schema
@@ -1265,41 +1283,47 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
     available_wins_cutoff = DateTime.add(timestamp, -available_wins_window, :second)
 
     sql = """
-    UPDATE ocsf_devices
+    UPDATE ocsf_devices AS d
     SET
       metadata = jsonb_set(
-        COALESCE(metadata, '{}'::jsonb),
+        COALESCE(d.metadata, '{}'::jsonb),
         '{sweep_consecutive_failures}',
-        to_jsonb(COALESCE((metadata->>'sweep_consecutive_failures')::int, 0) + 1)
+        to_jsonb(COALESCE((d.metadata->>'sweep_consecutive_failures')::int, 0) + 1)
       ),
       is_available = CASE
-        WHEN COALESCE((metadata->>'sweep_consecutive_failures')::int, 0) + 1 >= $2
+        WHEN COALESCE((d.metadata->>'sweep_consecutive_failures')::int, 0) + 1 >= $2
         THEN false
-        ELSE is_available
+        ELSE d.is_available
       END,
       modified_time = $3
-    WHERE uid = ANY($1)
+    FROM (
+      SELECT uid, is_available AS was_available, hostname, ip
+      FROM ocsf_devices
+      WHERE uid = ANY($1)
+    ) old
+    WHERE d.uid = old.uid
       -- "Available wins" - skip devices recently marked available by another sweep
       -- This prevents multi-agent flapping when one agent can reach device and another can't
       AND NOT (
-        is_available = true
-        AND COALESCE((metadata->>'sweep_last_available_at')::timestamptz > $4, false)
+        d.is_available = true
+        AND COALESCE((d.metadata->>'sweep_last_available_at')::timestamptz > $4, false)
       )
       AND NOT EXISTS (
         SELECT 1
         FROM device_agent_availability daa
-        WHERE daa.device_uid = ocsf_devices.uid
+        WHERE daa.device_uid = d.uid
           AND daa.is_available = true
           AND daa.checked_at > $4
           AND (
-            NULLIF(BTRIM(ocsf_devices.availability_source_agent_id), '') IS NULL
-            OR daa.agent_id = ocsf_devices.availability_source_agent_id
+            NULLIF(BTRIM(d.availability_source_agent_id), '') IS NULL
+            OR daa.agent_id = d.availability_source_agent_id
           )
       )
       AND (
-        NULLIF(BTRIM(availability_source_agent_id), '') IS NULL
-        OR availability_source_agent_id = $5
+        NULLIF(BTRIM(d.availability_source_agent_id), '') IS NULL
+        OR d.availability_source_agent_id = $5
       )
+    RETURNING d.uid, old.was_available, d.is_available, old.hostname, old.ip
     """
 
     case Repo.query(sql, [
@@ -1309,7 +1333,7 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
            available_wins_cutoff,
            agent_id
          ]) do
-      {:ok, %{num_rows: count}} ->
+      {:ok, %{num_rows: count, rows: rows}} ->
         skipped = length(device_uids) - count
 
         if skipped > 0 do
@@ -1323,8 +1347,38 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
           )
         end
 
+        rows
+
       {:error, reason} ->
         Logger.error("SweepResultsIngestor: Failed to apply hysteresis: #{inspect(reason)}")
+        []
+    end
+  end
+
+  defp maybe_emit_availability_events(rows, sweep_group_id, agent_id, execution_id) do
+    case availability_event_context(sweep_group_id, agent_id, execution_id) do
+      nil ->
+        :ok
+
+      context ->
+        rows
+        |> AvailabilityEvents.transitions_from_rows()
+        |> AvailabilityEvents.emit(context)
+    end
+  end
+
+  defp availability_event_context(sweep_group_id, agent_id, execution_id) do
+    case sweep_group_id && Repo.get(SweepGroup, sweep_group_id) do
+      %SweepGroup{emit_availability_events: true} = group ->
+        %{
+          sweep_group_id: group.id,
+          sweep_group_name: group.name,
+          agent_id: agent_id,
+          execution_id: execution_id
+        }
+
+      _ ->
+        nil
     end
   end
 
