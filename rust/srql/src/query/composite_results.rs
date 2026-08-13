@@ -13,9 +13,12 @@ use crate::{
     schema::{composite_checks, device_composite_check_results},
     time::TimeRange,
 };
+use diesel::dsl::sql;
+use diesel::expression::SqlLiteral;
 use diesel::pg::Pg;
 use diesel::prelude::*;
 use diesel::query_builder::{BoxedSelectStatement, FromClause};
+use diesel::sql_types::Text;
 use diesel_async::{AsyncPgConnection, RunQueryDsl};
 
 type ResultsJoin = diesel::helper_types::InnerJoinQuerySource<
@@ -23,11 +26,20 @@ type ResultsJoin = diesel::helper_types::InnerJoinQuerySource<
     composite_checks::table,
 >;
 type ResultsFromClause = FromClause<ResultsJoin>;
+/// The two joined columns are selected through SQL fragments so they carry
+/// explicit `check_slug` / `check_name` names.
+///
+/// This matters because there are two consumers with different deserialization
+/// paths. The Rust service loads rows into `CompositeResultRow` and serializes
+/// by struct field name; Elixir translates to SQL and reads whatever column
+/// names Postgres returns. Selecting `composite_checks.slug` bare gives the
+/// Elixir path a key of `slug` and the Rust path a key of `check_slug` — the
+/// same query returning two different shapes depending on who ran it.
 type SelectTuple = (
     device_composite_check_results::device_uid,
     device_composite_check_results::check_id,
-    composite_checks::slug,
-    composite_checks::name,
+    SqlLiteral<Text>,
+    SqlLiteral<Text>,
     device_composite_check_results::verdict,
     device_composite_check_results::status,
     device_composite_check_results::matched_rule_id,
@@ -43,8 +55,8 @@ fn select_tuple() -> SelectTuple {
     (
         device_composite_check_results::device_uid,
         device_composite_check_results::check_id,
-        composite_checks::slug,
-        composite_checks::name,
+        sql::<Text>("composite_checks.slug AS check_slug"),
+        sql::<Text>("composite_checks.name AS check_name"),
         device_composite_check_results::verdict,
         device_composite_check_results::status,
         device_composite_check_results::matched_rule_id,

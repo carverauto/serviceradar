@@ -690,6 +690,27 @@ fn composite_results_defaults_to_most_recently_evaluated_first() {
 }
 
 #[test]
+fn composite_results_aliases_the_joined_check_columns() {
+    // Three consumers read this row and two of them key by column name: the
+    // Elixir SRQL runner reads whatever Postgres returns, and the viz metadata
+    // declares check_slug/check_name. Selecting composite_checks.slug bare gives
+    // the Elixir path a `slug` key while the Rust path serializes `check_slug`
+    // from the struct -- the same query returning two shapes.
+    let plan = plan_for("in:composite_results check:pci-isolation");
+    let (sql, _params) =
+        composite_results::to_sql_and_params(&plan).expect("should build composite results SQL");
+
+    assert!(
+        sql.contains("AS check_slug"),
+        "expected the slug column to be aliased, got: {sql}"
+    );
+    assert!(
+        sql.contains("AS check_name"),
+        "expected the name column to be aliased, got: {sql}"
+    );
+}
+
+#[test]
 fn composite_results_rejects_an_unsupported_filter_field() {
     let plan = plan_for("in:composite_results hostname:anything");
     assert!(
