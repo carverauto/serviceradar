@@ -181,7 +181,9 @@ defmodule ServiceRadarWebNGWeb.DashboardHubLive.Index do
         <section class="flex flex-col gap-3 border-b border-sr-line pb-5 lg:flex-row lg:items-end lg:justify-between">
           <div>
             <p class="text-sm font-medium text-sr-brand">Dashboards</p>
-            <h1 class="mt-1 text-2xl font-semibold tracking-tight text-sr-ink">Dashboard Library</h1>
+            <h1 class="mt-1 text-2xl font-semibold tracking-tight text-sr-ink">
+              Dashboard &amp; Report Library
+            </h1>
             <p class="mt-2 max-w-3xl text-sm text-sr-muted">
               Find your dashboards, shared dashboards, dashboard packages, scheduled reports, and favorites in one place.
             </p>
@@ -368,7 +370,11 @@ defmodule ServiceRadarWebNGWeb.DashboardHubLive.Index do
       href: ~p"/dashboard/#{Dashboards.authored_dashboard_route_ref(dashboard)}",
       slug: dashboard.slug,
       status: to_string(dashboard.status),
-      search_text: Enum.join([dashboard.title, dashboard.description, dashboard.slug, dashboard.status, "authored"], " "),
+      search_text:
+        Enum.join(
+          [dashboard.title, dashboard.description, dashboard.slug, dashboard.status, "authored"],
+          " "
+        ),
       kind_label: if(system_report?(dashboard), do: "Report", else: "Authored"),
       report?: system_report?(dashboard),
       favorite?: favorite?(preference),
@@ -449,7 +455,10 @@ defmodule ServiceRadarWebNGWeb.DashboardHubLive.Index do
   defp dashboard_query_filters(_query), do: []
 
   defp dashboard_control_token?(token) do
-    Enum.any?(~w(in: limit: sort: time: stats: rollup_stats: group_by:), &String.starts_with?(token, &1))
+    Enum.any?(
+      ~w(in: limit: sort: time: stats: rollup_stats: group_by:),
+      &String.starts_with?(token, &1)
+    )
   end
 
   defp dashboard_query_filter("title:" <> value), do: clean_filter(:title, value)

@@ -77,6 +77,7 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.FeedWorker do
   @doc "Enqueue a single feed now (operator \"Run now\")."
   @spec enqueue(String.t()) :: {:ok, Oban.Job.t()} | {:error, term()}
   def enqueue(feed) when feed in @feeds do
+    _ = cancel_incomplete(feed)
     %{feed: feed} |> new() |> ObanSupport.safe_insert()
   end
 
@@ -94,6 +95,36 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.FeedWorker do
         _ = ObanSupport.safe_insert(new(%{feed: feed}, schedule_in: 5))
         :ok
     end
+  end
+
+  defp mark_disabled(feed) do
+    actor = SystemActor.system(:advisory_feed_worker)
+
+    mark_status(
+      feed,
+      %{
+        last_status: "error",
+        last_failure_at: DateTime.utc_now(),
+        last_error:
+          "advisory feed ingestion is disabled on this deployment (enable core.advisoryFeeds)"
+      },
+      actor
+    )
+  end
+
+  defp cancel_incomplete(feed) do
+    import Ecto.Query
+
+    ServiceRadar.Repo.delete_all(
+      from(j in Oban.Job,
+        where: j.worker == ^to_string(__MODULE__),
+        where: j.state in ["available", "scheduled", "retryable"],
+        where: fragment("?->>'feed' = ?", j.args, ^feed)
+      ),
+      prefix: ObanSupport.prefix()
+    )
+  rescue
+    _ -> {0, nil}
   end
 
   defp already_scheduled?(feed) do
@@ -117,6 +148,7 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.FeedWorker do
     cond do
       not Config.enabled?() ->
         Logger.info("advisory_feeds: disabled, skipping #{feed}")
+        mark_disabled(feed)
         :ok
 
       not Config.feed_enabled?(feed) ->

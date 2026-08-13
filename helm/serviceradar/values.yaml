@@ -361,6 +361,8 @@ core:
     # independently when this is false.
     nistNvd2Enabled: false
     # Persistent staging volume (download.zip + extracted *.json.gz shards).
+    # Set emptyDir: true on multi-replica cores that cannot share an RWO PVC.
+    emptyDir: false
     stagingDir: "/var/lib/serviceradar/advisory-feeds"
     size: "5Gi"
     accessModes:
@@ -1051,7 +1053,10 @@ coldTier:
 geoipMmdb:
   # Disabled by default because the bundled claim is ReadWriteOnce. Enable only
   # with a single web-ng replica, an existing RWX claim, or an external updater.
+  # Multi-replica cores (farm01) should set emptyDir: true so each pod downloads
+  # its own MMDB without a shared PVC.
   enabled: false
+  emptyDir: false
   basePath: "/var/lib/serviceradar/geoip"
   existingClaim: ""
   accessModes:

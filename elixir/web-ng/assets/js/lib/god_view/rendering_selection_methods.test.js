@@ -71,7 +71,9 @@ describe("rendering_selection_methods", () => {
 
     expect(ctx.state.details.classList.contains("hidden")).toEqual(false)
     expect(ctx.state.details.innerHTML).toContain("hero-arrows-right-left")
-    expect(ctx.state.details.innerHTML).toContain("IP: <button type=\"button\" class=\"link link-primary\" data-device-href=\"/devices/sr%3Atest-01\">192.0.2.10</button>")
+    expect(ctx.state.details.innerHTML).toContain("data-device-href=\"/devices/sr%3Atest-01\"")
+    expect(ctx.state.details.innerHTML).toContain("ID:")
+    expect(ctx.state.details.innerHTML).toContain("underline")
     expect(ctx.state.details.innerHTML).toContain("Type: router")
     expect(ctx.state.details.innerHTML).toContain("Vendor/Model: Acme XR-500")
     expect(ctx.state.details.innerHTML).toContain("ASN: 64512")

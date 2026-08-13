@@ -252,7 +252,7 @@ defmodule ServiceRadar.OutboundMail do
          {:ok, api_key} <- resolved_secret(settings.api_key_secret_id, settings.api_key) do
       config =
         [adapter: adapter]
-        |> maybe_put(:relay, settings.relay)
+        |> maybe_put(:relay, smtp_relay(settings))
         |> maybe_put(:port, settings.port)
         |> maybe_put(:hostname, settings.hostname)
         |> maybe_put(:username, settings.username)
@@ -437,7 +437,7 @@ defmodule ServiceRadar.OutboundMail do
         {:error,
          {:smtp_relay_missing,
           "Swoosh.Adapters.SMTP is configured with no relay host; set SMTP_RELAY_HOST, " <>
-            "or set the relay in Settings > Mail"}}
+            "or set SMTP hostname / relay in Settings > Mail"}}
 
       true ->
         :ok
@@ -510,6 +510,17 @@ defmodule ServiceRadar.OutboundMail do
   end
 
   defp provider_options(_options), do: []
+
+  # Settings has both "SMTP relay / endpoint" and "SMTP hostname". Operators
+  # routinely fill hostname and leave relay blank. Swoosh SMTP connects to
+  # `:relay`; `:hostname` is only the HELO name. Fall back so the filled field
+  # actually sends mail.
+  defp smtp_relay(%{relay: relay} = settings) do
+    if present_host?(relay), do: relay, else: Map.get(settings, :hostname)
+  end
+
+  defp present_host?(value) when is_binary(value), do: String.trim(value) != ""
+  defp present_host?(_value), do: false
 
   defp maybe_put(config, _key, nil), do: config
   defp maybe_put(config, _key, ""), do: config

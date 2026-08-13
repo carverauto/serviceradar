@@ -77,8 +77,9 @@ defmodule ServiceRadarWebNGWeb.Components.DeviceStatsCardsTest do
         loading: false
       })
 
-    assert html =~ "New devices"
-    assert html =~ "Today 3"
+    assert html =~ "Devices"
+    assert html =~ "today 3"
+    assert html =~ "7d 12"
     assert html =~ "30d 28"
     assert html =~ "in:devices first_seen:today"
     assert html =~ "in:devices first_seen:last_7d"

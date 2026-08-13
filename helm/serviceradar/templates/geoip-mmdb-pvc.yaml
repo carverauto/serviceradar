@@ -1,5 +1,5 @@
 {{- $geoipMmdb := default (dict) .Values.geoipMmdb -}}
-{{- if and ($geoipMmdb.enabled) (not $geoipMmdb.existingClaim) }}
+{{- if and ($geoipMmdb.enabled) (not $geoipMmdb.existingClaim) (not $geoipMmdb.emptyDir) }}
 ---
 apiVersion: v1
 kind: PersistentVolumeClaim

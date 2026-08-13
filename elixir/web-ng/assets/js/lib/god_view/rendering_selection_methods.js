@@ -46,8 +46,13 @@ export const godViewRenderingSelectionMethods = {
     const ipText = this.escapeHtml(hasRealIp ? rawIp : "unknown")
     const ipHref = hasRealIp ? this.deviceDetailsHref(detailId) : null
     const ipLine = ipHref
-      ? `<div>IP: <button type="button" class="link link-primary" data-device-href="${this.escapeHtml(ipHref)}">${ipText}</button></div>`
+      ? `<div>IP: <a class="link link-primary underline underline-offset-2" href="${this.escapeHtml(ipHref)}" data-device-href="${this.escapeHtml(ipHref)}">${ipText}</a></div>`
       : `<div>IP: ${ipText}</div>`
+    const idText = this.escapeHtml(d.id || node.id || "unknown")
+    const idHref = this.deviceDetailsHref(detailId)
+    const idLine = idHref
+      ? `<div>ID: <a class="link link-primary underline underline-offset-2 font-mono break-all" href="${this.escapeHtml(idHref)}" data-device-href="${this.escapeHtml(idHref)}">${idText}</a></div>`
+      : `<div>ID: ${idText}</div>`
     const nodeMap = this.nodeIndexLookup((this.state.lastGraph?.nodes || []))
     const reason = this.escapeHtml(node.stateReason || this.defaultStateReason(node.state))
     const rootRef = this.nodeReferenceAction(
@@ -155,7 +160,7 @@ export const godViewRenderingSelectionMethods = {
         : ""
     const detailLines = [
       `<div class="font-semibold text-sm mb-1 flex items-center justify-between gap-2"><span>${this.escapeHtml(node.label || "node")}</span><span class="inline-flex items-center justify-end min-w-4">${typeIcon ? `<span class="${this.escapeHtml(typeIcon)} size-4 text-base-content/70" title="${this.escapeHtml(typeLabel || "unknown")}"></span>` : ""}</span></div>`,
-      `<div>ID: ${this.escapeHtml(d.id || node.id || "unknown")}</div>`,
+      idLine,
       ipLine,
       `<div>Type: ${this.escapeHtml(d.type || "unknown")}</div>`,
       placementState ? `<div>Placement: ${this.escapeHtml(placementState)}</div>` : "",
@@ -299,13 +304,27 @@ export const godViewRenderingSelectionMethods = {
             }
           : (clickedNode || graphNode || null)
       const clusterDetails = node?.details || {}
-      const clusterId = typeof clusterDetails?.cluster_id === "string" ? clusterDetails.cluster_id.trim() : ""
+      const clusterIdFromDetails = typeof clusterDetails?.cluster_id === "string" ? clusterDetails.cluster_id.trim() : ""
+      const clusterIdFromNode = typeof node?.id === "string" && String(node.id).startsWith("cluster:endpoints:")
+        ? String(node.id).trim()
+        : ""
+      const clusterId = clusterIdFromDetails || clusterIdFromNode
       const clusterKind = typeof clusterDetails?.cluster_kind === "string" ? clusterDetails.cluster_kind.trim() : ""
-      const clusterExpandable = clusterDetails?.cluster_expandable === true
-      const clusterExpanded = clusterDetails?.cluster_expanded === true
-      const directExpandKinds = clusterKind === "endpoint-summary" || clusterKind === "endpoint-anchor"
+      const clusterExpandable = clusterDetails?.cluster_expandable === true || clusterDetails?.cluster_expandable === "true"
+      const clusterExpanded = clusterDetails?.cluster_expanded === true || clusterDetails?.cluster_expanded === "true"
+      const labelText = typeof node?.label === "string" ? node.label : ""
+      const looksLikeEndpointCluster = /\d+\s+endpoints/i.test(labelText)
+      const directExpandKinds =
+        clusterKind === "endpoint-summary" ||
+        clusterKind === "endpoint-anchor" ||
+        (clusterKind === "" && looksLikeEndpointCluster)
 
-      if (clusterId !== "" && clusterExpandable && directExpandKinds && typeof this.deps?.setClusterExpanded === "function") {
+      if (
+        clusterId !== "" &&
+        (clusterExpandable || looksLikeEndpointCluster) &&
+        directExpandKinds &&
+        typeof this.deps?.setClusterExpanded === "function"
+      ) {
         this.state.selectedNodeIndex = null
         this.state.selectedEdgeKey = null
         this.deps.setClusterExpanded(clusterId, !clusterExpanded)

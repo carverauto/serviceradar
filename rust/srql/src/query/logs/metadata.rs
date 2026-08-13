@@ -129,7 +129,25 @@ fn device_inventory_identity_clause(value: &str) -> String {
            ) AS device_alias \
            WHERE (d.uid = {device_value} OR d.uid_alt = {device_value}) \
              AND device_alias.alias_value IS NOT NULL \
-             AND ({})\
+             AND ({}) \
+         ) OR EXISTS (\
+           SELECT 1 \
+           FROM platform.device_identifiers AS di \
+           WHERE (di.device_id = {device_value}) \
+             AND di.identifier_type IN ('ip', 'hostname') \
+             AND ( \
+               (logs.source_ip IS NOT NULL AND logs.source_ip = di.identifier_value) \
+               OR (logs.source IS NOT NULL AND logs.source = di.identifier_value) \
+             ) \
+         ) OR EXISTS (\
+           SELECT 1 \
+           FROM platform.discovered_interfaces AS di_if \
+           CROSS JOIN LATERAL unnest(COALESCE(di_if.ip_addresses, ARRAY[]::text[])) AS if_ip \
+           WHERE di_if.device_id = {device_value} \
+             AND ( \
+               (logs.source_ip IS NOT NULL AND logs.source_ip = if_ip) \
+               OR (logs.source_ip IS NOT NULL AND logs.source_ip = di_if.device_ip) \
+             ) \
          )",
         device_alias_log_match_clause("device_alias.alias_value")
     )
@@ -168,11 +186,13 @@ fn device_alias_log_match_clause(alias_expr: &str) -> String {
     clauses.push(format!(
         "COALESCE(body, '') ILIKE ({escaped_alias} || ':%') ESCAPE '\\'"
     ));
-    // Syslog ingest stores the emitter on logs.source_ip, not device_id
-    // attributes. Device pages query device_id:<uid>, so match inventory
-    // IPs/hostnames against that column.
+    // Syslog ingest stores the emitter on logs.source_ip / logs.source,
+    // not device_id attributes. Device pages query device_id:<uid>.
     clauses.push(format!(
         "(logs.source_ip IS NOT NULL AND logs.source_ip = {alias_expr})"
+    ));
+    clauses.push(format!(
+        "(logs.source IS NOT NULL AND logs.source = {alias_expr})"
     ));
 
     clauses.join(" OR ")

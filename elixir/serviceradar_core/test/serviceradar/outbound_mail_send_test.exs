@@ -67,6 +67,29 @@ defmodule ServiceRadar.OutboundMailSendTest do
     assert Keyword.fetch!(config, :relay) == "smtp.example.com"
   end
 
+  test "uses SMTP hostname as the relay when relay is blank" do
+    settings =
+      settings(
+        adapter: "smtp",
+        relay: nil,
+        hostname: "mail.serviceradar.cloud",
+        from_email: "noreply@serviceradar.cloud"
+      )
+
+    owner = self()
+
+    assert {:ok, :accepted} =
+             OutboundMail.send_test(settings, "ops@example.com",
+               deliver: fn email, config ->
+                 send(owner, {:mail, email, config})
+                 {:ok, :accepted}
+               end
+             )
+
+    assert_receive {:mail, _email, config}
+    assert Keyword.fetch!(config, :relay) == "mail.serviceradar.cloud"
+  end
+
   defp settings(overrides) do
     defaults = [
       enabled: true,

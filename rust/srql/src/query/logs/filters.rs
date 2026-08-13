@@ -527,6 +527,18 @@ mod tests {
             sql.contains("platform.ocsf_devices"),
             "device_id should resolve aliases from inventory, got: {sql}"
         );
+        assert!(
+            sql.contains("platform.device_identifiers"),
+            "device_id should also match registered IP/hostname identifiers, got: {sql}"
+        );
+        assert!(
+            sql.contains("logs.source IS NOT NULL AND logs.source ="),
+            "device_id should match syslog source hostname, got: {sql}"
+        );
+        assert!(
+            sql.contains("platform.discovered_interfaces"),
+            "device_id should match discovered interface IPs, got: {sql}"
+        );
     }
 
     #[test]
