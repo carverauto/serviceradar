@@ -310,47 +310,54 @@ export const godViewRenderingSelectionMethods = {
         this.state.selectedEdgeKey = this.state.selectedEdgeKey === key ? null : key
         if (this.state.lastGraph) this.renderGraph(this.state.lastGraph)
         this.forceDeckRedraw()
-        return
       }
-
       return
     }
 
-    const clickedNode = info?.object || null
+    // deck.gl empty-canvas clicks are `{picked:false, object:null, index:-1}`.
+    // Treating -1 as a node used to apply the 3-hop mask and wipe the graph.
+    if (info?.picked === false) return
+    if (typeof this.nodeLayerId === "function" && !this.nodeLayerId(layerId)) return
+
+    const clickedNode = info?.object
+    if (!clickedNode || typeof clickedNode !== "object") return
+
     const picked =
-      Number.isInteger(clickedNode?.index)
-        ? clickedNode.index
-        : (Number.isInteger(info?.index) ? info.index : null)
-    if (Number.isInteger(picked)) {
-      const graphNode = this.state.lastGraph?.nodes?.[picked] || null
-      const node =
-        graphNode && clickedNode
-          ? {
-              ...graphNode,
-              ...clickedNode,
-              details: {
-                ...(graphNode?.details || {}),
-                ...(clickedNode?.details || {}),
-              },
-            }
-          : (clickedNode || graphNode || null)
-      const clusterId = this.expandableEndpointClusterId(node)
-      const clusterExpanded =
-        node?.details?.cluster_expanded === true || node?.details?.cluster_expanded === "true"
+      typeof this.pickedNodeIndex === "function"
+        ? this.pickedNodeIndex(info)
+        : (Number.isInteger(clickedNode.index) && clickedNode.index >= 0 ? clickedNode.index : null)
+    if (!Number.isInteger(picked) || picked < 0) return
 
-      if (clusterId !== "" && typeof this.deps?.setClusterExpanded === "function") {
-        this.state.selectedNodeIndex = null
-        this.state.selectedEdgeKey = null
-        this.deps.setClusterExpanded(clusterId, !clusterExpanded)
-        if (this.state.lastGraph) this.renderGraph(this.state.lastGraph)
-        return
-      }
+    const graphNode = this.state.lastGraph?.nodes?.[picked] || null
+    const node = {
+      ...(graphNode || {}),
+      ...clickedNode,
+      index: picked,
+      details: {
+        ...(graphNode?.details || {}),
+        ...(clickedNode?.details || {}),
+      },
+    }
+    const clusterId = this.expandableEndpointClusterId(node)
+    const clusterExpanded =
+      node?.details?.cluster_expanded === true || node?.details?.cluster_expanded === "true"
+    const expandCluster =
+      typeof this.deps?.setClusterExpanded === "function"
+        ? (...args) => this.deps.setClusterExpanded(...args)
+        : typeof this.setClusterExpanded === "function"
+          ? (...args) => this.setClusterExpanded(...args)
+          : null
 
-      this.state.selectedNodeIndex = this.state.selectedNodeIndex === picked ? null : picked
-
-      this.scheduleSelectionRefresh()
+    if (clusterId !== "" && expandCluster) {
+      this.state.selectedNodeIndex = null
+      this.state.selectedEdgeKey = null
+      expandCluster(clusterId, !clusterExpanded)
+      if (this.state.lastGraph) this.renderGraph(this.state.lastGraph)
       return
     }
+
+    this.state.selectedNodeIndex = this.state.selectedNodeIndex === picked ? null : picked
+    this.scheduleSelectionRefresh()
   },
   selectEdgeLabels(edgeData, shape) {
     if (!Array.isArray(edgeData) || edgeData.length === 0) return []

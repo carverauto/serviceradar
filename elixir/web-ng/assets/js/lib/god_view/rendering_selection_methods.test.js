@@ -39,6 +39,17 @@ function buildContext() {
     forceDeckRedraw: godViewRenderingSelectionMethods.forceDeckRedraw,
     scheduleSelectionRefresh: godViewRenderingSelectionMethods.scheduleSelectionRefresh,
     expandableEndpointClusterId: godViewRenderingSelectionMethods.expandableEndpointClusterId,
+    nodeLayerId: (layerId) =>
+      layerId === "god-view-nodes" ||
+      layerId === "god-view-nodes-hitbox" ||
+      layerId === "god-view-node-labels",
+    pickedNodeIndex: (info) => {
+      const objectIndex = info?.object?.index
+      if (Number.isInteger(objectIndex) && objectIndex >= 0) return objectIndex
+      const infoIndex = info?.index
+      if (Number.isInteger(infoIndex) && infoIndex >= 0) return infoIndex
+      return null
+    },
     deviceDetailsHref: godViewRenderingSelectionMethods.deviceDetailsHref,
     parseTypeId: godViewRenderingSelectionMethods.parseTypeId,
     nodeTypeHeroIcon: godViewRenderingSelectionMethods.nodeTypeHeroIcon,
@@ -314,6 +325,32 @@ describe("rendering_selection_methods", () => {
     expect(ctx.state.deck.redraw).not.toHaveBeenCalled()
   })
 
+  it("handlePick ignores deck.gl empty-canvas picks that report index -1", () => {
+    const ctx = buildContext()
+    ctx.state.selectedNodeIndex = 2
+    ctx.state.selectedEdgeKey = "local:test"
+    ctx.state.lastGraph = {nodes: [{id: "n1"}, {id: "n2"}, {id: "n3"}]}
+    ctx.renderGraph = vi.fn()
+    ctx.renderSelectionDetails = vi.fn()
+    ctx.edgeLayerId = () => false
+    ctx.deps.setClusterExpanded = vi.fn()
+    ctx.state.deck = {redraw: vi.fn()}
+    ctx.handlePick = godViewRenderingSelectionMethods.handlePick.bind(ctx)
+    ctx.forceDeckRedraw = godViewRenderingSelectionMethods.forceDeckRedraw.bind(ctx)
+    ctx.scheduleSelectionRefresh = godViewRenderingSelectionMethods.scheduleSelectionRefresh.bind(ctx)
+
+    ctx.handlePick({picked: false, object: null, index: -1, layer: null})
+    ctx.handlePick({object: null, index: -1, layer: null})
+    ctx.handlePick({object: undefined, index: -1})
+
+    expect(ctx.state.selectedNodeIndex).toEqual(2)
+    expect(ctx.state.selectedEdgeKey).toEqual("local:test")
+    expect(ctx.deps.setClusterExpanded).not.toHaveBeenCalled()
+    expect(ctx.renderSelectionDetails).not.toHaveBeenCalled()
+    expect(ctx.renderGraph).not.toHaveBeenCalled()
+    expect(ctx.state.deck.redraw).not.toHaveBeenCalled()
+  })
+
   it("handlePick ignores edge-layer clicks without an interaction key", () => {
     const ctx = buildContext()
     ctx.state.selectedNodeIndex = 1
@@ -489,6 +526,46 @@ describe("rendering_selection_methods", () => {
         details: {},
       },
       layer: {id: "god-view-nodes"},
+    })
+
+    expect(ctx.deps.setClusterExpanded).toHaveBeenCalledWith("cluster:endpoints:sr:farm-switch", true)
+    expect(ctx.state.selectedNodeIndex).toEqual(null)
+  })
+
+  it("handlePick expands census bubbles from the larger hitbox layer", () => {
+    const ctx = buildContext()
+    ctx.state.lastGraph = {
+      nodes: [
+        {
+          id: "cluster:endpoints:sr:farm-switch",
+          label: "42 endpoints",
+          details: {
+            cluster_id: "cluster:endpoints:sr:farm-switch",
+            cluster_kind: "endpoint-summary",
+            cluster_expandable: true,
+            cluster_expanded: false,
+          },
+        },
+      ],
+    }
+    ctx.renderGraph = vi.fn()
+    ctx.edgeLayerId = () => false
+    ctx.deps.setClusterExpanded = vi.fn()
+    ctx.handlePick = godViewRenderingSelectionMethods.handlePick.bind(ctx)
+    ctx.expandableEndpointClusterId = godViewRenderingSelectionMethods.expandableEndpointClusterId.bind(ctx)
+
+    ctx.handlePick({
+      picked: true,
+      object: {
+        index: 0,
+        id: "cluster:endpoints:sr:farm-switch",
+        label: "42 endpoints",
+        details: {
+          cluster_id: "cluster:endpoints:sr:farm-switch",
+          cluster_kind: "endpoint-summary",
+        },
+      },
+      layer: {id: "god-view-nodes-hitbox"},
     })
 
     expect(ctx.deps.setClusterExpanded).toHaveBeenCalledWith("cluster:endpoints:sr:farm-switch", true)
