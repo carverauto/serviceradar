@@ -5,6 +5,7 @@ defmodule ServiceRadarWebNGWeb.Settings.DeviceHostnameRdnsLive do
 
   use ServiceRadarWebNGWeb, :live_view
 
+  alias ServiceRadar.Inventory.DeviceHostnameRdns
   alias ServiceRadar.Inventory.DeviceHostnameRdnsSettings
   alias ServiceRadarWebNG.RBAC
   alias ServiceRadarWebNGWeb.Settings.Shell
@@ -25,7 +26,9 @@ defmodule ServiceRadarWebNGWeb.Settings.DeviceHostnameRdnsLive do
        |> assign(:current_path, @current_path)
        |> assign(:settings, settings)
        |> assign(:form, settings_to_form(settings))
-       |> assign(:running?, false)}
+       |> assign(:running?, false)
+       |> assign(:preview, nil)
+       |> assign(:previewing?, false)}
     else
       {:ok,
        socket
@@ -58,6 +61,19 @@ defmodule ServiceRadarWebNGWeb.Settings.DeviceHostnameRdnsLive do
 
   def handle_event("run_now", _params, %{assigns: %{running?: true}} = socket) do
     {:noreply, socket}
+  end
+
+  def handle_event("preview", _params, socket) do
+    query =
+      socket.assigns.form
+      |> form_value("srql_query")
+      |> to_string()
+      |> String.trim()
+
+    {:noreply,
+     socket
+     |> assign(:previewing?, true)
+     |> start_async(:preview_rdns_cohort, fn -> DeviceHostnameRdns.preview(query, limit: 10) end)}
   end
 
   def handle_event("run_now", _params, socket) do
@@ -100,6 +116,25 @@ defmodule ServiceRadarWebNGWeb.Settings.DeviceHostnameRdnsLive do
      |> put_flash(:error, "Reverse-DNS run crashed: #{inspect(reason)}")}
   end
 
+  def handle_async(:preview_rdns_cohort, {:ok, {:ok, preview}}, socket) do
+    {:noreply, socket |> assign(:previewing?, false) |> assign(:preview, preview)}
+  end
+
+  def handle_async(:preview_rdns_cohort, {:ok, {:error, reason}}, socket) do
+    {:noreply,
+     socket
+     |> assign(:previewing?, false)
+     |> assign(:preview, nil)
+     |> put_flash(:error, "SRQL preview failed: #{format_error(reason)}")}
+  end
+
+  def handle_async(:preview_rdns_cohort, {:exit, reason}, socket) do
+    {:noreply,
+     socket
+     |> assign(:previewing?, false)
+     |> put_flash(:error, "SRQL preview crashed: #{inspect(reason)}")}
+  end
+
   @impl true
   def render(assigns) do
     ~H"""
@@ -119,10 +154,9 @@ defmodule ServiceRadarWebNGWeb.Settings.DeviceHostnameRdnsLive do
             <div>
               <h1 class="text-xl font-semibold">Device Hostnames</h1>
               <p class="mt-1 text-sm text-sr-muted">
-                Periodically resolve PTR records for devices in
-                <code class="text-xs">ocsf_devices</code>
-                and fill blank or IP-shaped hostnames. Disable this if your resolver
-                should not see inventory addresses.
+                Periodically resolve PTR records for devices selected by an SRQL
+                query and fill blank or IP-shaped hostnames. Disable this if your
+                resolver should not see those addresses.
               </p>
             </div>
             <.ui_button
@@ -162,6 +196,46 @@ defmodule ServiceRadarWebNGWeb.Settings.DeviceHostnameRdnsLive do
                 placeholder="0 * * * *"
               />
               <.input field={@form[:timezone]} type="text" label="Timezone" placeholder="Etc/UTC" />
+              <.input
+                field={@form[:srql_query]}
+                type="textarea"
+                rows="3"
+                label="Device cohort (SRQL)"
+                placeholder="in:devices sort:last_seen:desc"
+              />
+              <p class="text-xs text-sr-muted">
+                Only devices returned by this query are considered. Narrow with
+                SRQL filters, for example <code class="text-xs">in:devices ip:192.168.2.0/24 sort:last_seen:desc</code>.
+                Existing non-IP hostnames are skipped unless overwrite is enabled.
+              </p>
+              <div class="flex flex-wrap items-center gap-2">
+                <.ui_button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  phx-click="preview"
+                  phx-disable-with="Previewing…"
+                  disabled={@previewing?}
+                >
+                  <.icon name="hero-eye" class="size-4" />
+                  {if @previewing?, do: "Previewing…", else: "Preview cohort"}
+                </.ui_button>
+              </div>
+              <div
+                :if={@preview}
+                class="rounded-lg border border-sr-line bg-sr-canvas px-3 py-2 text-xs"
+              >
+                <div class="font-medium text-sr-ink">
+                  {length(@preview.rows)} sample row(s) for <code>{@preview.query}</code>
+                </div>
+                <ul class="mt-2 space-y-1 text-sr-muted">
+                  <li :for={row <- @preview.rows}>
+                    {row.ip || "no-ip"}
+                    <span :if={row.hostname}> · {row.hostname}</span>
+                    <span :if={row.uid} class="font-mono"> · {row.uid}</span>
+                  </li>
+                </ul>
+              </div>
               <.input field={@form[:batch_size]} type="number" label="Batch size" min="1" />
               <.input
                 field={@form[:timeout_ms]}
@@ -201,6 +275,14 @@ defmodule ServiceRadarWebNGWeb.Settings.DeviceHostnameRdnsLive do
                   <dd class="text-sr-ink">{format_dt(@settings && @settings.next_run_at)}</dd>
                 </div>
                 <div>
+                  <dt class="text-xs uppercase tracking-wide">SRQL rows / eligible</dt>
+                  <dd class="text-sr-ink">
+                    {(@settings && @settings.last_cohort_rows) || 0} / {(@settings &&
+                                                                           @settings.last_candidates) ||
+                      0}
+                  </dd>
+                </div>
+                <div>
                   <dt class="text-xs uppercase tracking-wide">Looked up / updated</dt>
                   <dd class="text-sr-ink">
                     {(@settings && @settings.last_looked_up) || 0} / {(@settings &&
@@ -208,8 +290,14 @@ defmodule ServiceRadarWebNGWeb.Settings.DeviceHostnameRdnsLive do
                   </dd>
                 </div>
                 <div :if={@settings && @settings.last_error}>
-                  <dt class="text-xs uppercase tracking-wide">Error</dt>
-                  <dd class="text-error">{@settings.last_error}</dd>
+                  <dt class="text-xs uppercase tracking-wide">
+                    {if @settings.last_status == "error", do: "Error", else: "Note"}
+                  </dt>
+                  <dd class={
+                    if @settings.last_status == "error", do: "text-error", else: "text-sr-ink"
+                  }>
+                    {@settings.last_error}
+                  </dd>
                 </div>
               </dl>
               <p class="text-xs text-sr-muted">
@@ -270,6 +358,7 @@ defmodule ServiceRadarWebNGWeb.Settings.DeviceHostnameRdnsLive do
         "enabled" => settings.enabled,
         "cron" => settings.cron,
         "timezone" => settings.timezone,
+        "srql_query" => settings.srql_query || DeviceHostnameRdnsSettings.default_srql_query(),
         "batch_size" => settings.batch_size,
         "timeout_ms" => settings.timeout_ms,
         "retry_after_minutes" => settings.retry_after_minutes,
@@ -284,6 +373,7 @@ defmodule ServiceRadarWebNGWeb.Settings.DeviceHostnameRdnsLive do
       "enabled" => true,
       "cron" => DeviceHostnameRdnsSettings.default_cron(),
       "timezone" => "Etc/UTC",
+      "srql_query" => DeviceHostnameRdnsSettings.default_srql_query(),
       "batch_size" => 200,
       "timeout_ms" => 250,
       "retry_after_minutes" => 1_440,
@@ -297,6 +387,7 @@ defmodule ServiceRadarWebNGWeb.Settings.DeviceHostnameRdnsLive do
         "enabled" => checkbox_bool(params["enabled"]),
         "cron" => params["cron"] || "",
         "timezone" => params["timezone"] || "Etc/UTC",
+        "srql_query" => params["srql_query"] || DeviceHostnameRdnsSettings.default_srql_query(),
         "batch_size" => params["batch_size"],
         "timeout_ms" => params["timeout_ms"],
         "retry_after_minutes" => params["retry_after_minutes"],
@@ -311,6 +402,7 @@ defmodule ServiceRadarWebNGWeb.Settings.DeviceHostnameRdnsLive do
       enabled: checkbox_bool(params["enabled"]),
       cron: String.trim(params["cron"] || ""),
       timezone: String.trim(params["timezone"] || "Etc/UTC"),
+      srql_query: String.trim(params["srql_query"] || DeviceHostnameRdnsSettings.default_srql_query()),
       batch_size: parse_int(params["batch_size"], 200),
       timeout_ms: parse_int(params["timeout_ms"], 250),
       retry_after_minutes: parse_int(params["retry_after_minutes"], 1_440),
@@ -320,6 +412,9 @@ defmodule ServiceRadarWebNGWeb.Settings.DeviceHostnameRdnsLive do
 
   defp checkbox_bool(value) when value in [true, "true", "on", "1"], do: true
   defp checkbox_bool(_value), do: false
+
+  defp form_value(%{source: %{} = source}, key), do: Map.get(source, key) || ""
+  defp form_value(_form, _key), do: ""
 
   defp parse_int(value, _default) when is_integer(value), do: value
 

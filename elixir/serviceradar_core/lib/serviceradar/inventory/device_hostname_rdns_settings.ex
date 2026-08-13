@@ -16,6 +16,8 @@ defmodule ServiceRadar.Inventory.DeviceHostnameRdnsSettings do
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Inventory.DeviceHostnameRdns
   alias ServiceRadar.Policies.Checks.ActorIsNil
+  alias ServiceRadar.SRQLAst
+  alias ServiceRadar.SRQLQuery
 
   require Logger
 
@@ -23,6 +25,7 @@ defmodule ServiceRadar.Inventory.DeviceHostnameRdnsSettings do
     :enabled,
     :cron,
     :timezone,
+    :srql_query,
     :batch_size,
     :timeout_ms,
     :retry_after_minutes,
@@ -30,6 +33,7 @@ defmodule ServiceRadar.Inventory.DeviceHostnameRdnsSettings do
   ]
 
   @default_cron "0 * * * *"
+  @default_srql_query DeviceHostnameRdns.default_srql_query()
 
   postgres do
     table "device_hostname_rdns_settings"
@@ -80,6 +84,7 @@ defmodule ServiceRadar.Inventory.DeviceHostnameRdnsSettings do
       accept @settings_fields
       change set_attribute(:key, "default")
       validate &validate_cron/2
+      validate &validate_srql/2
       change &set_initial_next_run/2
     end
 
@@ -88,6 +93,7 @@ defmodule ServiceRadar.Inventory.DeviceHostnameRdnsSettings do
       require_atomic? false
       accept @settings_fields
       validate &validate_cron/2
+      validate &validate_srql/2
       change &refresh_next_run_on_schedule_change/2
     end
 
@@ -95,8 +101,8 @@ defmodule ServiceRadar.Inventory.DeviceHostnameRdnsSettings do
       description "Run reverse-DNS hostname enrichment (AshOban or operator Run now)"
       require_atomic? false
 
-      change fn changeset, context ->
-        apply_run(changeset, context)
+      change fn changeset, _context ->
+        apply_run(changeset)
       end
     end
   end
@@ -143,6 +149,14 @@ defmodule ServiceRadar.Inventory.DeviceHostnameRdnsSettings do
       public? true
       constraints max_length: 50
       description "Timezone used to evaluate the cron expression"
+    end
+
+    attribute :srql_query, :string do
+      allow_nil? false
+      default @default_srql_query
+      public? true
+      constraints min_length: 1, max_length: 4_000
+      description "SRQL query that selects the reverse-DNS device cohort"
     end
 
     attribute :batch_size, :integer do
@@ -208,10 +222,26 @@ defmodule ServiceRadar.Inventory.DeviceHostnameRdnsSettings do
       public? true
     end
 
+    attribute :last_cohort_rows, :integer do
+      allow_nil? false
+      default 0
+      public? true
+      description "SRQL rows scanned in the last run"
+    end
+
+    attribute :last_candidates, :integer do
+      allow_nil? false
+      default 0
+      public? true
+      description "Devices eligible for reverse DNS after last-run filters"
+    end
+
     timestamps()
   end
 
   def default_cron, do: @default_cron
+
+  def default_srql_query, do: @default_srql_query
 
   defp validate_cron(changeset, _context) do
     cron = Ash.Changeset.get_attribute(changeset, :cron)
@@ -246,24 +276,59 @@ defmodule ServiceRadar.Inventory.DeviceHostnameRdnsSettings do
     Enum.any?([:enabled, :cron, :timezone], &Ash.Changeset.changing_attribute?(changeset, &1))
   end
 
-  defp apply_run(changeset, context) do
+  defp apply_run(changeset) do
     settings = changeset.data
     now = DateTime.utc_now()
-    actor = context.actor || SystemActor.system(:device_hostname_rdns)
 
-    Logger.info("DeviceHostnameRdns: starting run")
+    Logger.info("DeviceHostnameRdns: starting run", query: settings.srql_query)
 
-    {:ok, stats} = DeviceHostnameRdns.run(settings, actor: actor, now: now)
-    next_run_at = next_run_after(settings, now, stats)
+    # Device reads/updates always use the system actor so operator Run now is
+    # not blocked by a missing devices.view / devices.update grant.
+    case DeviceHostnameRdns.run(settings,
+           actor: SystemActor.system(:device_hostname_rdns),
+           now: now
+         ) do
+      {:ok, stats} ->
+        changeset
+        |> Ash.Changeset.change_attribute(:last_run_at, now)
+        |> Ash.Changeset.change_attribute(:last_success_at, now)
+        |> Ash.Changeset.change_attribute(:next_run_at, next_run_after(settings, now, stats))
+        |> Ash.Changeset.change_attribute(:last_status, "ok")
+        |> Ash.Changeset.change_attribute(:last_error, empty_run_hint(stats))
+        |> Ash.Changeset.change_attribute(:last_looked_up, stats.looked_up)
+        |> Ash.Changeset.change_attribute(:last_updated, stats.updated)
+        |> Ash.Changeset.change_attribute(:last_cohort_rows, stats.cohort_rows)
+        |> Ash.Changeset.change_attribute(:last_candidates, stats.candidates)
 
-    changeset
-    |> Ash.Changeset.change_attribute(:last_run_at, now)
-    |> Ash.Changeset.change_attribute(:last_success_at, now)
-    |> Ash.Changeset.change_attribute(:next_run_at, next_run_at)
-    |> Ash.Changeset.change_attribute(:last_status, "ok")
-    |> Ash.Changeset.change_attribute(:last_error, nil)
-    |> Ash.Changeset.change_attribute(:last_looked_up, stats.looked_up)
-    |> Ash.Changeset.change_attribute(:last_updated, stats.updated)
+      {:error, reason} ->
+        Logger.warning("DeviceHostnameRdns: run failed", reason: inspect(reason))
+
+        changeset
+        |> Ash.Changeset.change_attribute(:last_run_at, now)
+        |> Ash.Changeset.change_attribute(:next_run_at, DateTime.add(now, 60, :second))
+        |> Ash.Changeset.change_attribute(:last_status, "error")
+        |> Ash.Changeset.change_attribute(:last_error, format_run_error(reason))
+        |> Ash.Changeset.change_attribute(:last_looked_up, 0)
+        |> Ash.Changeset.change_attribute(:last_updated, 0)
+        |> Ash.Changeset.change_attribute(:last_cohort_rows, 0)
+        |> Ash.Changeset.change_attribute(:last_candidates, 0)
+    end
+  end
+
+  defp empty_run_hint(stats) do
+    cond do
+      stats.looked_up > 0 ->
+        nil
+
+      stats.cohort_rows == 0 ->
+        "SRQL matched 0 devices"
+
+      stats.candidates == 0 ->
+        "SRQL matched #{stats.cohort_rows} device(s); none were eligible (already named, no IP, or recently looked up)"
+
+      true ->
+        "Selected #{stats.candidates} eligible device(s) but none could be loaded"
+    end
   end
 
   defp next_run_after(settings, now, stats) do
@@ -294,6 +359,36 @@ defmodule ServiceRadar.Inventory.DeviceHostnameRdnsSettings do
       _ -> true
     end
   end
+
+  defp validate_srql(changeset, _context) do
+    query = Ash.Changeset.get_attribute(changeset, :srql_query)
+
+    if is_nil(query) or String.trim(to_string(query)) == "" do
+      {:error, field: :srql_query, message: "cannot be empty"}
+    else
+      normalized = SRQLQuery.ensure_target(query, :devices)
+
+      if SRQLAst.entity(normalized) == "devices" do
+        case SRQLAst.validate(normalized) do
+          :ok ->
+            :ok
+
+          {:error, reason} ->
+            {:error, field: :srql_query, message: "is not valid SRQL (#{inspect(reason)})"}
+        end
+      else
+        {:error, field: :srql_query, message: "must target devices"}
+      end
+    end
+  end
+
+  defp format_run_error(reason) when is_binary(reason), do: reason
+  defp format_run_error(reason) when is_atom(reason), do: Atom.to_string(reason)
+
+  defp format_run_error({reason, detail}) when is_atom(reason),
+    do: "#{reason}: #{inspect(detail)}"
+
+  defp format_run_error(reason), do: inspect(reason)
 
   defp normalize_timezone(timezone) when timezone in ["UTC", "Etc/UTC"], do: "Etc/UTC"
   defp normalize_timezone(_timezone), do: "Etc/UTC"

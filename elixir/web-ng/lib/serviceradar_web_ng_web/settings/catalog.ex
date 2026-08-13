@@ -730,7 +730,7 @@ defmodule ServiceRadarWebNGWeb.Settings.Catalog do
       parent_group: :net_discovery,
       subgroup: nil,
       title: "Device Hostnames",
-      description: "Schedule reverse-DNS lookups that fill device hostnames.",
+      description: "SRQL-scoped reverse-DNS lookups that fill device hostnames.",
       icon: "hero-globe-alt",
       route: "/settings/networks/hostname-rdns",
       live_view: ServiceRadarWebNGWeb.Settings.DeviceHostnameRdnsLive,
