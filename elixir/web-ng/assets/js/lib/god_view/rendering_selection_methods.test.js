@@ -38,6 +38,7 @@ function buildContext() {
     nodeReferenceAction: () => "",
     forceDeckRedraw: godViewRenderingSelectionMethods.forceDeckRedraw,
     scheduleSelectionRefresh: godViewRenderingSelectionMethods.scheduleSelectionRefresh,
+    expandableEndpointClusterId: godViewRenderingSelectionMethods.expandableEndpointClusterId,
     deviceDetailsHref: godViewRenderingSelectionMethods.deviceDetailsHref,
     parseTypeId: godViewRenderingSelectionMethods.parseTypeId,
     nodeTypeHeroIcon: godViewRenderingSelectionMethods.nodeTypeHeroIcon,
@@ -243,6 +244,7 @@ describe("rendering_selection_methods", () => {
     ctx.deps.setClusterExpanded = vi.fn()
     ctx.handlePick = godViewRenderingSelectionMethods.handlePick.bind(ctx)
     ctx.scheduleSelectionRefresh = godViewRenderingSelectionMethods.scheduleSelectionRefresh.bind(ctx)
+    ctx.expandableEndpointClusterId = godViewRenderingSelectionMethods.expandableEndpointClusterId.bind(ctx)
 
     ctx.handlePick({object: {index: 0}, layer: {id: "god-view-nodes"}})
 
@@ -269,6 +271,7 @@ describe("rendering_selection_methods", () => {
     ctx.deps.setClusterExpanded = vi.fn()
     ctx.handlePick = godViewRenderingSelectionMethods.handlePick.bind(ctx)
     ctx.scheduleSelectionRefresh = godViewRenderingSelectionMethods.scheduleSelectionRefresh.bind(ctx)
+    ctx.expandableEndpointClusterId = godViewRenderingSelectionMethods.expandableEndpointClusterId.bind(ctx)
 
     ctx.handlePick({
       object: {
@@ -459,5 +462,63 @@ describe("rendering_selection_methods", () => {
     expect(ctx.state.details.innerHTML).toContain("data-cluster-id=\"cluster:endpoints:sr:switch-01\"")
     expect(ctx.state.details.innerHTML).toContain("Expand endpoints")
     expect(ctx.state.details.innerHTML).not.toContain("Cluster Anchor:")
+  })
+
+  it("handlePick expands census bubbles from label and id even when layout stripped cluster flags", () => {
+    const ctx = buildContext()
+    ctx.state.lastGraph = {
+      nodes: [
+        {
+          id: "cluster:endpoints:sr:farm-switch",
+          label: "42 endpoints",
+          details: {},
+        },
+      ],
+    }
+    ctx.renderGraph = vi.fn()
+    ctx.edgeLayerId = () => false
+    ctx.deps.setClusterExpanded = vi.fn()
+    ctx.handlePick = godViewRenderingSelectionMethods.handlePick.bind(ctx)
+    ctx.expandableEndpointClusterId = godViewRenderingSelectionMethods.expandableEndpointClusterId.bind(ctx)
+
+    ctx.handlePick({
+      object: {
+        index: 0,
+        id: "cluster:endpoints:sr:farm-switch",
+        label: "42 endpoints",
+        details: {},
+      },
+      layer: {id: "god-view-nodes"},
+    })
+
+    expect(ctx.deps.setClusterExpanded).toHaveBeenCalledWith("cluster:endpoints:sr:farm-switch", true)
+    expect(ctx.state.selectedNodeIndex).toEqual(null)
+  })
+
+  it("handlePick does not treat expanded endpoint members as clusters", () => {
+    const ctx = buildContext()
+    ctx.state.lastGraph = {
+      nodes: [
+        {
+          id: "sr:laptop",
+          label: "laptop-01",
+          details: {
+            cluster_id: "cluster:endpoints:sr:switch",
+            cluster_kind: "endpoint-member",
+            cluster_expanded: true,
+          },
+        },
+      ],
+    }
+    ctx.renderGraph = vi.fn()
+    ctx.edgeLayerId = () => false
+    ctx.deps.setClusterExpanded = vi.fn()
+    ctx.handlePick = godViewRenderingSelectionMethods.handlePick.bind(ctx)
+    ctx.expandableEndpointClusterId = godViewRenderingSelectionMethods.expandableEndpointClusterId.bind(ctx)
+
+    ctx.handlePick({object: {index: 0}, layer: {id: "god-view-nodes"}})
+
+    expect(ctx.deps.setClusterExpanded).not.toHaveBeenCalled()
+    expect(ctx.state.selectedNodeIndex).toEqual(0)
   })
 })

@@ -6,7 +6,6 @@ export const godViewRenderingGraphDataMethods = {
   buildVisibleGraphData(effective) {
     const states = Uint8Array.from(effective.nodes.map((node) => node.state))
     const stateMask = this.visibilityMask(states)
-    const traversalMask = effective.shape === "local" ? this.computeTraversalMask(effective) : null
     const mask = new Uint8Array(effective.nodes.length)
     const topologyLayers = this.state.topologyLayers || {}
     const endpointIncidentFlags =
@@ -33,6 +32,16 @@ export const godViewRenderingGraphDataMethods = {
       return isEndpointCensusSummary(source) || isEndpointCensusSummary(target)
     }
 
+    const expandedMemberEdge = (edge) => {
+      if (effective.shape !== "local") return false
+      const source = effective.nodes[Number(edge?.source)]
+      const target = effective.nodes[Number(edge?.target)]
+      const expandedMember = (node) =>
+        String(node?.details?.cluster_kind || "").trim() === "endpoint-member" &&
+        (node?.details?.cluster_expanded === true || node?.details?.cluster_expanded === "true")
+      return expandedMember(source) || expandedMember(target)
+    }
+
     if (endpointIncidentFlags) {
       for (const edge of effective.edges) {
         const topologyClass = edgeTopologyClass(edge)
@@ -53,18 +62,26 @@ export const godViewRenderingGraphDataMethods = {
     }
 
     for (let i = 0; i < effective.nodes.length; i += 1) {
+      const node = effective.nodes[i]
+      const details = node?.details && typeof node.details === "object" ? node.details : {}
       const stateVisible = stateMask[i] === 1
-      const traversalVisible = !traversalMask || traversalMask[i] === 1
+      const clusterKind = String(details.cluster_kind || "").trim()
       const attachmentCensusVisible =
-        topologyLayers.backbone !== false && isEndpointCensusSummary(effective.nodes[i])
+        topologyLayers.backbone !== false && isEndpointCensusSummary(node)
+      const expandedMemberVisible =
+        clusterKind === "endpoint-member" &&
+        (details.cluster_expanded === true || details.cluster_expanded === "true")
+      const endpointAnchorVisible = clusterKind === "endpoint-anchor"
       const endpointLayerVisible =
         !endpointIncidentFlags ||
         topologyLayers.endpoints !== false ||
         attachmentCensusVisible ||
+        expandedMemberVisible ||
+        endpointAnchorVisible ||
         endpointIncidentFlags[i].nonEndpoint ||
         !endpointIncidentFlags[i].endpoint
 
-      mask[i] = stateVisible && traversalVisible && endpointLayerVisible ? 1 : 0
+      mask[i] = stateVisible && endpointLayerVisible ? 1 : 0
     }
 
     const visibleNodes = effective.nodes.map((node, index) => ({
@@ -77,7 +94,7 @@ export const godViewRenderingGraphDataMethods = {
     const visibleById = new Map(visibleNodes.map((node) => [node.id, node]))
 
     const rawEdgeData = effective.edges
-      .filter((edge) => this.edgeEnabledByTopologyLayer(edge) || attachmentCensusEdge(edge))
+      .filter((edge) => this.edgeEnabledByTopologyLayer(edge) || attachmentCensusEdge(edge) || expandedMemberEdge(edge))
       .map((edge, edgeIndex) => {
         const src =
           effective.shape === "local"

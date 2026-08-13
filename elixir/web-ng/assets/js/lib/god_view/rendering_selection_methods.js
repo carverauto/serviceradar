@@ -65,13 +65,12 @@ export const godViewRenderingSelectionMethods = {
       "Parent",
       nodeMap,
     )
-    const clusterId = typeof d.cluster_id === "string" ? d.cluster_id.trim() : ""
+    const clusterId = this.expandableEndpointClusterId(node)
     const clusterKind = typeof d.cluster_kind === "string" ? d.cluster_kind.trim() : ""
-    const clusterCount = Number(d.cluster_member_count || 0)
-    const clusterExpanded = d.cluster_expanded === true
-    const clusterExpandable = d.cluster_expandable === true
+    const clusterCount = Number(d.cluster_member_count || node.clusterCount || 0)
+    const clusterExpanded = d.cluster_expanded === true || d.cluster_expanded === "true"
     const clusterAction =
-      clusterId !== "" && clusterExpandable
+      clusterId !== ""
         ? `<div class="pt-2"><button type="button" class="btn btn-xs btn-primary" data-cluster-id="${this.escapeHtml(clusterId)}" data-cluster-expand="${clusterExpanded ? "false" : "true"}">${clusterExpanded ? "Collapse endpoints" : "Expand endpoints"}</button></div>`
         : ""
     const cameraAvailability =
@@ -193,6 +192,38 @@ export const godViewRenderingSelectionMethods = {
       this.state.details.classList.remove("hidden")
     }
   },
+  expandableEndpointClusterId(node) {
+    const details = node?.details && typeof node.details === "object" ? node.details : {}
+    const kind = typeof details.cluster_kind === "string" ? details.cluster_kind.trim() : ""
+    if (kind === "endpoint-member") return ""
+
+    const nodeId = typeof node?.id === "string" ? node.id.trim() : ""
+    const detailId = typeof details.id === "string" ? details.id.trim() : ""
+    const detailClusterId = typeof details.cluster_id === "string" ? details.cluster_id.trim() : ""
+    const label = typeof node?.label === "string" ? node.label.trim() : ""
+    const memberCount = Number(details.cluster_member_count || node?.clusterCount || 0)
+    const expandable =
+      details.cluster_expandable === true ||
+      details.cluster_expandable === "true" ||
+      details.cluster_expandable === 1
+    const clusterPrefixed =
+      nodeId.startsWith("cluster:endpoints:") ||
+      detailId.startsWith("cluster:endpoints:") ||
+      detailClusterId.startsWith("cluster:endpoints:")
+    const looksLikeCensus = /\d+\s+endpoints/i.test(label) || kind === "endpoint-summary"
+
+    if (
+      kind !== "endpoint-summary" &&
+      kind !== "endpoint-anchor" &&
+      !clusterPrefixed &&
+      !looksLikeCensus &&
+      !(expandable && memberCount > 1)
+    ) {
+      return ""
+    }
+
+    return detailClusterId || (clusterPrefixed ? (detailId || nodeId) : "") || detailId || nodeId
+  },
   deviceDetailsHref(deviceId) {
     if (typeof deviceId !== "string" || deviceId.trim() === "") return null
     return `/devices/${encodeURIComponent(deviceId.trim())}`
@@ -303,28 +334,11 @@ export const godViewRenderingSelectionMethods = {
               },
             }
           : (clickedNode || graphNode || null)
-      const clusterDetails = node?.details || {}
-      const clusterIdFromDetails = typeof clusterDetails?.cluster_id === "string" ? clusterDetails.cluster_id.trim() : ""
-      const clusterIdFromNode = typeof node?.id === "string" && String(node.id).startsWith("cluster:endpoints:")
-        ? String(node.id).trim()
-        : ""
-      const clusterId = clusterIdFromDetails || clusterIdFromNode
-      const clusterKind = typeof clusterDetails?.cluster_kind === "string" ? clusterDetails.cluster_kind.trim() : ""
-      const clusterExpandable = clusterDetails?.cluster_expandable === true || clusterDetails?.cluster_expandable === "true"
-      const clusterExpanded = clusterDetails?.cluster_expanded === true || clusterDetails?.cluster_expanded === "true"
-      const labelText = typeof node?.label === "string" ? node.label : ""
-      const looksLikeEndpointCluster = /\d+\s+endpoints/i.test(labelText)
-      const directExpandKinds =
-        clusterKind === "endpoint-summary" ||
-        clusterKind === "endpoint-anchor" ||
-        (clusterKind === "" && looksLikeEndpointCluster)
+      const clusterId = this.expandableEndpointClusterId(node)
+      const clusterExpanded =
+        node?.details?.cluster_expanded === true || node?.details?.cluster_expanded === "true"
 
-      if (
-        clusterId !== "" &&
-        (clusterExpandable || looksLikeEndpointCluster) &&
-        directExpandKinds &&
-        typeof this.deps?.setClusterExpanded === "function"
-      ) {
+      if (clusterId !== "" && typeof this.deps?.setClusterExpanded === "function") {
         this.state.selectedNodeIndex = null
         this.state.selectedEdgeKey = null
         this.deps.setClusterExpanded(clusterId, !clusterExpanded)
