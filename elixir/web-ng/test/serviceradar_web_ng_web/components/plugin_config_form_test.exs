@@ -86,6 +86,25 @@ defmodule ServiceRadarWebNGWeb.PluginConfigFormTest do
     refute html =~ "Provided by credential rules"
   end
 
+  test "a stored network credential reference is treated as a kept secret" do
+    schema = %{
+      "type" => "object",
+      "properties" => %{
+        "webhook_url" => %{"type" => "string", "secretRef" => true, "title" => "Webhook URL"}
+      }
+    }
+
+    html =
+      render_fields(%{
+        schema: schema,
+        params: %{"webhook_url" => "credentialref:network-credential-secret:abc"},
+        base_name: "config"
+      })
+
+    assert html =~ "Leave blank to keep existing secret"
+    assert html =~ "credentialref:network-credential-secret:abc"
+  end
+
   test "schema required arrays still mark fields as required" do
     schema = %{
       "type" => "object",

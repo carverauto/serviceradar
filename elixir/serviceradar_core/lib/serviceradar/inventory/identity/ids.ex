@@ -90,8 +90,24 @@ defmodule ServiceRadar.Inventory.Identity.Ids do
         get_mac_list_field(metadata["mac_addresses"]) ||
         []
 
-    Enum.uniq(Mac.normalize_mac_list(update[:mac]) ++ extra)
+    Enum.uniq(Mac.normalize_mac_list(update[:mac]) ++ extra ++ alt_macs_from_metadata(metadata))
   end
+
+  defp alt_macs_from_metadata(metadata) when is_map(metadata) do
+    metadata
+    |> Enum.flat_map(fn {key, _value} ->
+      key = to_string(key)
+
+      if String.starts_with?(key, "alt_mac:") do
+        Mac.normalize_mac_list(String.trim_leading(key, "alt_mac:"))
+      else
+        []
+      end
+    end)
+    |> Enum.uniq()
+  end
+
+  defp alt_macs_from_metadata(_), do: []
 
   defp get_mac_list_field(value) when is_list(value) do
     value

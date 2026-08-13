@@ -100,6 +100,60 @@ func TestRecursiveTopologyLinkEligibleRejectsEndpointAttachment(t *testing.T) {
 	}
 }
 
+func TestRecursiveTopologyLinkEligibleAcceptsUniFiWiredClientWithMgmtIP(t *testing.T) {
+	link := &TopologyLink{
+		Protocol:         "UniFi-API",
+		NeighborMgmtAddr: "192.168.2.55",
+		Metadata: map[string]string{
+			"source":            "unifi-api-wired-client",
+			"evidence_class":    "endpoint-attachment",
+			"confidence_reason": "controller_wired_client_switch_level",
+		},
+	}
+
+	if !recursiveTopologyLinkEligible(link) {
+		t.Fatal("expected UniFi wired client with a management IP to seed recursive SNMP")
+	}
+}
+
+func TestRecursiveTopologyLinkEligibleRejectsWirelessClient(t *testing.T) {
+	link := &TopologyLink{
+		Protocol:         "UniFi-API",
+		NeighborMgmtAddr: "192.168.1.50",
+		Metadata: map[string]string{
+			"source":         "unifi-api-wireless-client",
+			"evidence_class": "endpoint-attachment",
+		},
+	}
+
+	if recursiveTopologyLinkEligible(link) {
+		t.Fatal("expected wireless client associations to stay out of recursive SNMP")
+	}
+}
+
+func TestCollectRecursiveSNMPTargetsIncludesUniFiWiredClient(t *testing.T) {
+	engine := &DiscoveryEngine{}
+	job := &DiscoveryJob{
+		Results: &DiscoveryResults{
+			TopologyLinks: []*TopologyLink{
+				{
+					Protocol:         "UniFi-API",
+					NeighborMgmtAddr: "192.168.2.55",
+					Metadata: map[string]string{
+						"source":         "unifi-api-wired-client",
+						"evidence_class": "endpoint-attachment",
+					},
+				},
+			},
+		},
+	}
+
+	targets := engine.collectRecursiveSNMPTargets(job, map[string]bool{"192.168.1.1": true})
+	if !targets["192.168.2.55"] {
+		t.Fatalf("expected recursive target 192.168.2.55, got %#v", targets)
+	}
+}
+
 func TestRecursiveTopologyLinkEligibleRejectsWeakInference(t *testing.T) {
 	link := &TopologyLink{
 		Protocol: "SNMP-L2",

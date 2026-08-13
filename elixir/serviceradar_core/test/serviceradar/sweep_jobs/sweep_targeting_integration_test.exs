@@ -10,6 +10,7 @@ defmodule ServiceRadar.SweepJobs.SweepTargetingIntegrationTest do
   """
   use ServiceRadar.DataCase, async: false
 
+  alias ServiceRadar.AgentConfig.Compilers.SweepCompiler
   alias ServiceRadar.AgentConfig.ConfigServer
   alias ServiceRadar.Infrastructure.Agent
   alias ServiceRadar.Integrations.IntegrationSource
@@ -245,6 +246,80 @@ defmodule ServiceRadar.SweepJobs.SweepTargetingIntegrationTest do
       assert compiled_group
       assert prod_device.ip in device_target_networks(compiled_group)
       # Dev device should not be in targets (different tag value)
+    end
+
+    test "does not enable TCP when group has no profile and no ports", %{
+      actor: actor,
+      unique_id: unique_id
+    } do
+      partition = "icmp-only-#{unique_id}"
+
+      {:ok, group} =
+        SweepGroup
+        |> Ash.Changeset.for_create(
+          :create,
+          %{
+            name: "No Profile #{unique_id}",
+            partition: partition,
+            interval: "1h",
+            static_targets: ["192.168.1.0/24"],
+            enabled: true
+          },
+          actor: actor
+        )
+        |> Ash.create()
+
+      {:ok, config} = SweepCompiler.compile(partition, nil, actor: actor)
+
+      compiled_group = Enum.find(config["groups"], &(&1["id"] == group.id))
+
+      assert compiled_group
+      assert compiled_group["ports"] == []
+      assert compiled_group["modes"] == ["icmp"]
+    end
+
+    test "inherits scanner profile ports and TCP mode", %{
+      actor: actor,
+      unique_id: unique_id
+    } do
+      partition = "profile-ports-#{unique_id}"
+
+      {:ok, profile} =
+        SweepProfile
+        |> Ash.Changeset.for_create(
+          :create,
+          %{
+            name: "Profile #{unique_id}",
+            ports: [22, 80, 443, 8080],
+            sweep_modes: ["icmp", "tcp", "arp"]
+          },
+          actor: actor
+        )
+        |> Ash.create()
+
+      {:ok, group} =
+        SweepGroup
+        |> Ash.Changeset.for_create(
+          :create,
+          %{
+            name: "With Profile #{unique_id}",
+            partition: partition,
+            interval: "1h",
+            static_targets: ["192.168.1.0/24"],
+            profile_id: profile.id,
+            enabled: true
+          },
+          actor: actor
+        )
+        |> Ash.create()
+
+      {:ok, config} = SweepCompiler.compile(partition, nil, actor: actor)
+
+      compiled_group = Enum.find(config["groups"], &(&1["id"] == group.id))
+
+      assert compiled_group
+      assert compiled_group["ports"] == [22, 80, 443, 8080]
+      assert compiled_group["modes"] == ["icmp", "tcp"]
     end
 
     test "skips comma-separated device IP fields when compiling sweep targets", %{

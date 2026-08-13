@@ -63,6 +63,8 @@ defmodule ServiceRadar.Inventory.IdentityReconciler do
   defdelegate normalize_mac(mac), to: Mac
   defdelegate normalize_mac_list(raw), to: Mac
   defdelegate locally_administered_mac?(mac), to: Mac
+  defdelegate hardware_mac_sibling(mac), to: Mac
+  defdelegate hardware_mac_siblings?(left, right), to: Mac
   defdelegate mac_confidence(mac), to: Mac
 
   # Registration

@@ -11,6 +11,8 @@ defmodule ServiceRadar.Inventory.IdentityReconcilerMacValidationTest do
   use ExUnit.Case, async: true
 
   alias ServiceRadar.Inventory.IdentityReconciler
+  alias ServiceRadar.Inventory.Sync.Lookups
+  alias ServiceRadar.Inventory.Sync.Normalize
 
   describe "normalize_mac/1" do
     test "normalizes a single MAC with separators" do
@@ -89,6 +91,35 @@ defmodule ServiceRadar.Inventory.IdentityReconcilerMacValidationTest do
       assert ids.mac == "001AA0B94040"
       assert ids.macs == ["001AA0B94040"]
       assert ids.legacy_mac == nil
+    end
+
+    test "harvests mapper alt_mac metadata as additional identity MACs" do
+      ids =
+        IdentityReconciler.extract_strong_identifiers(%{
+          device_id: nil,
+          ip: "152.117.116.178",
+          mac: "f4:92:bf:75:c7:21",
+          partition: "default",
+          metadata: %{"alt_mac:f692bf75c721" => "1"}
+        })
+
+      assert ids.mac == "F492BF75C721"
+      assert ids.macs == ["F492BF75C721", "F692BF75C721"]
+    end
+
+    test "bulk identifier extraction looks up the hardware MAC sibling" do
+      updates = [
+        Normalize.normalize_update(%{
+          "ip" => "192.168.1.1",
+          "mac" => "f6:92:bf:75:c7:21",
+          "source" => "mapper",
+          "metadata" => %{"identity_mac_kind" => "primary"}
+        })
+      ]
+
+      extracted = Lookups.extract_all_identifiers(updates)
+      assert {:mac, "F692BF75C721", "default"} in extracted
+      assert {:mac, "F492BF75C721", "default"} in extracted
     end
 
     test "consumes the metadata mac_addresses list emitted by the agent" do
