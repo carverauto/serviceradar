@@ -22,6 +22,14 @@ defmodule ServiceRadarWebNGWeb.Settings.NetflowLiveTest do
     assert html =~ "Open anomaly settings"
   end
 
+  test "local CIDR form offers a map picker or a Mapbox setup hint", %{conn: conn} do
+    {:ok, _lv, html} = live(conn, ~p"/settings/flows/new")
+
+    assert html =~ "Map Anchor (optional)"
+    assert html =~ "Click the map to set coordinates" or
+             html =~ "Configure Mapbox under Settings → Integrations"
+  end
+
   test "creates a local CIDR entry", %{conn: conn, scope: scope} do
     {:ok, lv, _html} = live(conn, ~p"/settings/flows/new")
 

@@ -343,6 +343,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.FormComponents do
   attr :show_form, :atom, required: true
   attr :can_enable_banner_grab, :boolean, default: false
   attr :banner_preview_device_count, :any, default: nil
+  attr :banner_grab_draft, :any, default: nil
 
   def profile_form(assigns) do
     ~H"""
@@ -464,7 +465,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.FormComponents do
           <label class="text-sm font-medium text-sr-ink">Enabled</label>
         </div>
 
-        <% banner_grab = banner_grab_form_value(@form) %>
+        <% banner_grab = @banner_grab_draft || banner_grab_form_value(@form) %>
         <% banner_preview = banner_grab_preview(banner_grab, @banner_preview_device_count) %>
         <div class="rounded-lg border border-sr-line p-4 space-y-4">
           <div class="flex flex-wrap items-start justify-between gap-3">

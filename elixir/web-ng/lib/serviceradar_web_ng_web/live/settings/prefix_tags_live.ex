@@ -446,21 +446,6 @@ defmodule ServiceRadarWebNGWeb.Settings.PrefixTagsLive do
                     class={ui_field_class(size: "sm", mono: true)}
                   />
                 </div>
-                <div class="flex flex-col gap-1.5 sm:col-span-2">
-                  <label class="flex items-center justify-between gap-2">
-                    <span class="text-sm font-medium text-sr-ink">
-                      Tags (comma or space separated)
-                    </span>
-                  </label>
-                  <input
-                    type="text"
-                    name="prefix_tag[tags]"
-                    value={@form["tags"]}
-                    required
-                    placeholder="site:hq role:wifi"
-                    class={ui_field_class(size: "sm", mono: true)}
-                  />
-                </div>
                 <div class="flex flex-col gap-1.5">
                   <label class="flex items-center justify-between gap-2">
                     <span class="text-sm font-medium text-sr-ink">Site</span>
@@ -469,6 +454,7 @@ defmodule ServiceRadarWebNGWeb.Settings.PrefixTagsLive do
                     type="text"
                     name="prefix_tag[site]"
                     value={@form["site"]}
+                    placeholder="hq"
                     class={ui_field_class(size: "sm")}
                   />
                 </div>
@@ -480,6 +466,7 @@ defmodule ServiceRadarWebNGWeb.Settings.PrefixTagsLive do
                     type="text"
                     name="prefix_tag[role]"
                     value={@form["role"]}
+                    placeholder="wifi"
                     class={ui_field_class(size: "sm")}
                   />
                 </div>
@@ -502,8 +489,37 @@ defmodule ServiceRadarWebNGWeb.Settings.PrefixTagsLive do
                     type="text"
                     name="prefix_tag[status]"
                     value={@form["status"]}
+                    placeholder="active"
                     class={ui_field_class(size: "sm")}
                   />
+                </div>
+                <div class="flex flex-col gap-1.5 sm:col-span-2">
+                  <label class="flex items-center justify-between gap-2">
+                    <span class="text-sm font-medium text-sr-ink">Extra tags (optional)</span>
+                  </label>
+                  <input
+                    type="text"
+                    name="prefix_tag[tags]"
+                    value={@form["tags"]}
+                    placeholder="zone:dmz env:prod"
+                    class={ui_field_class(size: "sm", mono: true)}
+                  />
+                  <p class="text-xs text-sr-muted">
+                    Site, role, tenant, and status become tags automatically
+                    (<span class="font-mono">site:hq</span>,
+                    <span class="font-mono">role:wifi</span>, …). Use this box only for
+                    additional tags. Fill at least one structured field or one extra tag.
+                    See
+                    <a
+                      href="https://docs.serviceradar.cloud/docs/prefix-tags"
+                      class="link link-hover"
+                      target="_blank"
+                      rel="noopener"
+                    >
+                      Prefix Tags
+                    </a>
+                    .
+                  </p>
                 </div>
               </div>
               <div class="flex justify-end gap-2">
@@ -823,16 +839,31 @@ defmodule ServiceRadarWebNGWeb.Settings.PrefixTagsLive do
   end
 
   defp tag_to_form(%PrefixTag{} = tag) do
+    extra_tags =
+      tag.tags
+      |> List.wrap()
+      |> Enum.reject(&structured_tag?/1)
+      |> Enum.join(" ")
+
     %{
       "prefix" => to_string(tag.prefix || ""),
       "vrf" => tag.vrf || "",
-      "tags" => tag.tags |> List.wrap() |> Enum.join(" "),
+      "tags" => extra_tags,
       "site" => tag.site || "",
       "role" => tag.role || "",
       "tenant" => tag.tenant || "",
       "status" => tag.status || ""
     }
   end
+
+  defp structured_tag?(tag) when is_binary(tag) do
+    case String.split(tag, ":", parts: 2) do
+      [key, _] -> key in ~w(site role tenant status)
+      _ -> false
+    end
+  end
+
+  defp structured_tag?(_), do: false
 
   defp normalize_form_params(params) when is_map(params) do
     params = stringify_map(params)
@@ -868,6 +899,15 @@ defmodule ServiceRadarWebNGWeb.Settings.PrefixTagsLive do
 
   defp manual_tag?(%PrefixTag{snapshot: %{source: "manual"}}), do: true
   defp manual_tag?(%PrefixTag{}), do: false
+
+  defp format_error(:tags_required) do
+    "Add at least one tag, or fill site, role, tenant, or status."
+  end
+
+  defp format_error(:tags_invalid), do: "Tags are invalid."
+  defp format_error(:tag_empty), do: "Tags cannot include an empty value."
+  defp format_error(:tag_too_long), do: "A tag is longer than the allowed length."
+  defp format_error({:tag_invalid_chars, tag}), do: "Tag #{tag} has invalid characters."
 
   defp format_error(%Ash.Error.Invalid{errors: errors}) do
     Enum.map_join(errors, "; ", fn

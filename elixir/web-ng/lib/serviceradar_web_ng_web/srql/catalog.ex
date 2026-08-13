@@ -986,6 +986,7 @@ defmodule ServiceRadarWebNGWeb.SRQL.Catalog do
         "dst_country_iso2",
         "src_cidr",
         "dst_cidr",
+        "device_id",
         "tag",
         "src_tag",
         "dst_tag",
@@ -1321,6 +1322,7 @@ defmodule ServiceRadarWebNGWeb.SRQL.Catalog do
       filter_fields: [
         "uid",
         "device_id",
+        "interface_uid",
         "if_name",
         "if_index",
         "mac",

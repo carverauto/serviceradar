@@ -18,6 +18,26 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLiveTest do
     assert has_element?(lv, "input[name='form[community]']")
   end
 
+  test "reuse-credential checkbox stays checked after validate", %{conn: conn} do
+    {:ok, lv, _html} = live(conn, ~p"/settings/snmp/new")
+
+    html =
+      lv
+      |> form("form[phx-submit='save_profile']", %{
+        "form" => %{
+          "name" => "Reusable",
+          "save_credential_as_reusable" => "true",
+          "credential_name" => "Core switches"
+        }
+      })
+      |> render_change()
+
+    assert html =~ ~s(name="form[save_credential_as_reusable]")
+    assert html =~ ~s(value="true")
+    assert html =~ "checked"
+    assert html =~ ~s(value="Core switches")
+  end
+
   test "edit form keeps stored credentials masked", %{conn: conn, scope: scope} do
     unique = System.unique_integer([:positive])
 

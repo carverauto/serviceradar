@@ -15,6 +15,8 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.Events.Profiles d
      socket
      |> assign(:ash_form, ash_form)
      |> assign(:form, to_form(ash_form))
+     |> assign(:save_credential_as_reusable, reuse_flag?(params["save_credential_as_reusable"]))
+     |> assign(:credential_name, to_string(params["credential_name"] || ""))
      |> Targeting.assign_target_preview(target_query)}
   end
 
@@ -205,4 +207,9 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.Events.Profiles d
   defp blank?(nil), do: true
   defp blank?(value) when is_binary(value), do: String.trim(value) == ""
   defp blank?(_value), do: false
+
+  # These controls are not Ash fields, so phx-change must keep them in assigns
+  # or the checkbox re-renders unchecked.
+  defp reuse_flag?(flag) when flag in [true, "true", "on", "1"], do: true
+  defp reuse_flag?(_flag), do: false
 end

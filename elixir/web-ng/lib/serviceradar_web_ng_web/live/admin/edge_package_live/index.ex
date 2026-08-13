@@ -49,7 +49,7 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgePackageLive.Index do
         |> assign(:host_ip_value, "")
         |> assign(:gateway_options, gateway_options)
         |> assign(:default_gateway_id, default_gateway_id)
-        |> assign(:approved_addons, AddonPackages.list_approved(scope: scope))
+        |> assign(:approved_addons, AddonPackages.list_approved_latest(scope: scope))
 
       if connected?(socket) do
         EdgePubSub.subscribe_packages()
@@ -112,7 +112,7 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgePackageLive.Index do
      |> assign(:host_ip_value, "")
      |> assign(:gateway_options, gateway_options)
      |> assign(:default_gateway_id, default_gateway_id)
-     |> assign(:approved_addons, AddonPackages.list_approved(scope: socket.assigns.current_scope))}
+     |> assign(:approved_addons, AddonPackages.list_approved_latest(scope: socket.assigns.current_scope))}
   end
 
   def handle_event("close_create_modal", _params, socket) do
@@ -129,7 +129,7 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgePackageLive.Index do
       |> assign(:host_ip_value, "")
       |> assign(:gateway_options, gateway_options)
       |> assign(:default_gateway_id, default_gateway_id)
-      |> assign(:approved_addons, AddonPackages.list_approved(scope: socket.assigns.current_scope))
+      |> assign(:approved_addons, AddonPackages.list_approved_latest(scope: socket.assigns.current_scope))
       |> maybe_return_to_index()
 
     {:noreply, socket}
@@ -664,7 +664,9 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgePackageLive.Index do
                       <% end %>
                     </select>
                     <p class="mt-1 text-xs text-sr-muted">
-                      Selected add-ons are assigned to the generated agent identity when the package is created.
+                      Only the latest approved version of each add-on is listed. Selected
+                      add-ons are assigned to the generated agent identity when the package
+                      is created.
                     </p>
                     <p :if={@approved_addons == []} class="mt-1 text-xs text-warning">
                       No approved add-ons are available yet.
