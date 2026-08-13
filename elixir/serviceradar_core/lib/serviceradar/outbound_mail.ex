@@ -357,6 +357,55 @@ defmodule ServiceRadar.OutboundMail do
   @spec non_delivering_adapters() :: [module()]
   def non_delivering_adapters, do: @non_delivering_adapters
 
+  @doc """
+  Sends one test message through the saved outbound-mail settings.
+
+  This is the Settings -> Mail "Send test email" path. It uses the saved row,
+  not unsaved form values, and it refuses Local/Test the same way
+  `diagnose/1` does: those adapters return success and deliver nothing.
+
+  `opts[:deliver]` is a test seam. Production leaves it unset so the message
+  goes through `deliver/2`.
+  """
+  @spec send_test(String.t()) :: {:ok, term()} | {:error, term()}
+  def send_test(to_email) when is_binary(to_email) do
+    case get_settings() do
+      {:ok, %OutboundMailSettings{enabled: true} = settings} ->
+        send_test(settings, to_email)
+
+      {:ok, _settings} ->
+        {:error,
+         {:disabled, "outbound mail is disabled; enable it and save before sending a test"}}
+
+      {:error, reason} ->
+        if settings_absent?(reason) do
+          {:error, {:disabled, "save outbound mail settings before sending a test"}}
+        else
+          {:error, reason}
+        end
+    end
+  end
+
+  def send_test(_to_email), do: {:error, {:invalid_recipient, "enter a valid email address"}}
+
+  @spec send_test(OutboundMailSettings.t(), String.t(), keyword()) ::
+          {:ok, term()} | {:error, term()}
+  def send_test(settings, to_email, opts \\ [])
+
+  def send_test(%OutboundMailSettings{enabled: false}, _to_email, _opts) do
+    {:error, {:disabled, "outbound mail is disabled; enable it and save before sending a test"}}
+  end
+
+  def send_test(%OutboundMailSettings{} = settings, to_email, opts) do
+    deliver = Keyword.get(opts, :deliver, &deliver/2)
+
+    with {:ok, recipient} <- normalize_recipient(to_email),
+         {:ok, config} <- config(settings),
+         :ok <- diagnose(config) do
+      deliver.(test_email(recipient, settings), config)
+    end
+  end
+
   # --- diagnostics ----------------------------------------------------------
 
   defp non_delivering_message(Test) do
@@ -474,6 +523,40 @@ defmodule ServiceRadar.OutboundMail do
   defp blank?(nil), do: true
   defp blank?(value) when is_binary(value), do: String.trim(value) == ""
   defp blank?(_value), do: false
+
+  defp normalize_recipient(value) when is_binary(value) do
+    email = String.trim(value)
+
+    if Regex.match?(~r/^[^\s@]+@[^\s@]+\.[^\s@]+$/, email) do
+      {:ok, email}
+    else
+      {:error, {:invalid_recipient, "enter a valid email address"}}
+    end
+  end
+
+  defp normalize_recipient(_value),
+    do: {:error, {:invalid_recipient, "enter a valid email address"}}
+
+  defp test_email(to, settings) do
+    sent_at = DateTime.utc_now() |> DateTime.truncate(:second) |> DateTime.to_iso8601()
+    adapter = settings.adapter || "unknown"
+    from_name = settings.from_name || "ServiceRadar"
+    from_email = settings.from_email || "noreply@serviceradar.cloud"
+
+    Swoosh.Email.new()
+    |> Swoosh.Email.to(to)
+    |> Swoosh.Email.from({from_name, from_email})
+    |> Swoosh.Email.subject("ServiceRadar outbound mail test")
+    |> Swoosh.Email.text_body("""
+    This is a test message from Settings -> Mail.
+
+    Adapter: #{adapter}
+    From: #{from_name} <#{from_email}>
+    Sent at: #{sent_at}
+
+    If you received this, the mail server accepted the message.
+    """)
+  end
 
   # --- transactional bodies -------------------------------------------------
 

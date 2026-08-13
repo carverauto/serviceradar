@@ -1015,6 +1015,8 @@ Operators who prefer not to use Helm for this can configure outbound mail
 entirely in the UI under Settings > Mail; a settings row takes precedence over
 the deployment environment, and its password resolves through the credential
 broker. A missing settings row is not an error - it means "no operator override".
+After saving SMTP, use **Send test email** on that page to prove the mail
+server accepts a message before wiring a notification channel.
 
 ## Permissions
 

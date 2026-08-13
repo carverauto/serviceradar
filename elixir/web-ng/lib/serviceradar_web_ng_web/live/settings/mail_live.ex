@@ -27,7 +27,10 @@ defmodule ServiceRadarWebNGWeb.Settings.MailLive do
        |> assign(:settings, socket_settings(settings))
        |> assign(:mail_form, settings_to_form(settings))
        |> assign(:credential_options, credential_options(scope))
-       |> assign(:test_result, nil)}
+       |> assign(:test_result, nil)
+       |> assign(:send_result, nil)
+       |> assign(:test_sending, false)
+       |> assign(:test_to, default_test_recipient(scope))}
     else
       {:ok,
        socket
@@ -54,7 +57,8 @@ defmodule ServiceRadarWebNGWeb.Settings.MailLive do
          |> put_flash(:info, "Outbound mail settings saved")
          |> assign(:settings, socket_settings(reloaded || settings))
          |> assign(:mail_form, settings_to_form(reloaded || settings))
-         |> assign(:test_result, nil)}
+         |> assign(:test_result, nil)
+         |> assign(:send_result, nil)}
 
       {:error, reason} ->
         {:noreply, put_flash(socket, :error, "Failed to save outbound mail settings: #{format_error(reason)}")}
@@ -78,6 +82,38 @@ defmodule ServiceRadarWebNGWeb.Settings.MailLive do
       _ ->
         {:noreply, assign(socket, :test_result, {:error, "Save settings before testing."})}
     end
+  end
+
+  def handle_event("send_test", _params, %{assigns: %{test_sending: true}} = socket) do
+    {:noreply, socket}
+  end
+
+  def handle_event("send_test", params, socket) do
+    to = test_recipient(params)
+
+    socket =
+      socket
+      |> assign(:test_to, to)
+      |> assign(:send_result, nil)
+      |> assign(:test_sending, true)
+      |> start_async(:send_test_email, fn -> OutboundMail.send_test(to) end)
+
+    {:noreply, socket}
+  end
+
+  @impl true
+  def handle_async(:send_test_email, {:ok, result}, socket) do
+    {:noreply,
+     socket
+     |> assign(:test_sending, false)
+     |> assign(:send_result, normalize_send_result(result))}
+  end
+
+  def handle_async(:send_test_email, {:exit, reason}, socket) do
+    {:noreply,
+     socket
+     |> assign(:test_sending, false)
+     |> assign(:send_result, {:error, format_send_error(reason)})}
   end
 
   @impl true
@@ -205,6 +241,39 @@ defmodule ServiceRadarWebNGWeb.Settings.MailLive do
               ]}
             >
               {test_result_message(@test_result)}
+            </div>
+
+            <div class="space-y-2 border-t border-sr-line pt-4">
+              <h2 class="text-sm font-semibold">Send test email</h2>
+              <p class="text-xs text-sr-muted">
+                Uses the saved settings, not unsaved form values. Acceptance by the
+                mail server is as far as ServiceRadar can see.
+              </p>
+              <form id="mail-send-test" phx-submit="send_test" class="space-y-2">
+                <.input
+                  id="mail-test-to"
+                  name="to"
+                  type="email"
+                  label="Send to"
+                  value={@test_to}
+                  required
+                  autocomplete="email"
+                />
+                <.ui_button type="submit" size="sm" variant="neutral" disabled={@test_sending}>
+                  <.icon name="hero-paper-airplane" class="size-4" />
+                  {if @test_sending, do: "Sending…", else: "Send test email"}
+                </.ui_button>
+              </form>
+            </div>
+            <div
+              :if={@send_result}
+              class={[
+                "rounded-lg border p-3 text-xs",
+                match?({:ok, _}, @send_result) && "border-success/30 text-success",
+                match?({:error, _}, @send_result) && "border-error/30 text-error"
+              ]}
+            >
+              {send_result_message(@send_result)}
             </div>
           </aside>
         </section>
@@ -373,6 +442,33 @@ defmodule ServiceRadarWebNGWeb.Settings.MailLive do
 
   defp test_result_message({:ok, adapter}), do: "Runtime config is valid for #{adapter}."
   defp test_result_message({:error, reason}), do: "Runtime config failed: #{reason}"
+
+  defp default_test_recipient(%{user: %{email: email}}) when not is_nil(email), do: to_string(email)
+  defp default_test_recipient(_scope), do: ""
+
+  defp test_recipient(%{"to" => to}) when is_binary(to), do: String.trim(to)
+  defp test_recipient(_params), do: ""
+
+  defp normalize_send_result({:ok, _metadata}) do
+    {:ok, "Test email accepted by the mail server. Check the inbox (and spam)."}
+  end
+
+  defp normalize_send_result({:error, {_class, message}}) when is_binary(message) do
+    {:error, message}
+  end
+
+  defp normalize_send_result({:error, reason}), do: {:error, format_send_error(reason)}
+  defp normalize_send_result(other), do: {:error, format_send_error(other)}
+
+  defp send_result_message({:ok, message}), do: message
+  defp send_result_message({:error, reason}), do: "Test email failed: #{reason}"
+
+  defp format_send_error({:retries_exceeded, reason}), do: format_send_error(reason)
+  defp format_send_error({:network_failure, host, reason}), do: "#{host}: #{format_send_error(reason)}"
+  defp format_send_error({:error, reason}), do: format_send_error(reason)
+  defp format_send_error(reason) when is_atom(reason), do: Atom.to_string(reason)
+  defp format_send_error(reason) when is_binary(reason), do: reason
+  defp format_send_error(reason), do: inspect(reason)
 
   defp blank_to_nil(value) when is_binary(value) do
     value = String.trim(value)
