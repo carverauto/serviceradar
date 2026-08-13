@@ -230,11 +230,12 @@ defmodule ServiceRadar.Notifications.ActionRedemptionTest do
       alert: alert,
       delivery: delivery
     } do
-      links = issue!(delivery, actor)
-
       # `Alert.snooze` validates `snooze_until` against the wall clock, so this
-      # is one of the few places the real clock has to be the input.
+      # is one of the few places the real clock has to be the input. Issue the
+      # token at that same instant; a frozen `@now` older than the 3-day TTL
+      # makes redeem return `:token_expired`.
       now = DateTime.utc_now()
+      links = issue!(delivery, actor, now: now)
 
       assert {:ok, outcome} =
                ActionRedemption.redeem(token_for(links, :snooze), actor: actor, now: now)
@@ -259,8 +260,8 @@ defmodule ServiceRadar.Notifications.ActionRedemptionTest do
       alert: alert,
       delivery: delivery
     } do
-      links = issue!(delivery, actor, snooze_seconds: 600)
       now = DateTime.utc_now()
+      links = issue!(delivery, actor, now: now, snooze_seconds: 600)
 
       assert {:ok, _outcome} =
                ActionRedemption.redeem(token_for(links, :snooze),
