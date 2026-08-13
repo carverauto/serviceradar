@@ -11,7 +11,7 @@ defmodule ServiceRadar.SweepJobs.SweepProfile do
   - `name`: Human-readable profile name
   - `description`: Optional description of the profile's purpose
   - `ports`: List of TCP ports to scan (e.g., [22, 80, 443, 8080])
-  - `sweep_modes`: Scan modes to use ("icmp", "tcp", "arp")
+  - `sweep_modes`: Scan modes to use ("icmp", "tcp")
   - `concurrency`: Max concurrent host scans
   - `timeout`: Per-host timeout (e.g., "3s", "5s")
   - `icmp_settings`: ICMP-specific settings (count, interval)
@@ -130,7 +130,7 @@ defmodule ServiceRadar.SweepJobs.SweepProfile do
       allow_nil? false
       public? true
       default ["icmp", "tcp"]
-      description "Scan modes: icmp, tcp, arp"
+      description "Scan modes the agent sweeper implements: icmp, tcp"
     end
 
     attribute :concurrency, :integer do

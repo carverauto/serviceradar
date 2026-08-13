@@ -44,7 +44,10 @@ defmodule ServiceRadarWebNGWeb.Settings.NotificationsEditorsTest do
       assert html =~ "Provider configuration"
     end
 
-    test "saves a channel with the configuration that was typed", %{conn: conn, provider: provider} do
+    test "saves a channel with the configuration that was typed", %{
+      conn: conn,
+      provider: provider
+    } do
       {:ok, lv, _html} = live(conn, ~p"/settings/notifications/channels")
 
       lv |> element("button[phx-click='new_channel']") |> render_click()
@@ -74,6 +77,37 @@ defmodule ServiceRadarWebNGWeb.Settings.NotificationsEditorsTest do
       assert channel.max_attempts == 5
       assert channel.config["url"] == "https://hooks.example.com/noc"
       assert channel.enabled
+    end
+
+    test "saves a channel when LiveView unused-input keys are in the config", %{
+      conn: conn,
+      provider: provider
+    } do
+      {:ok, lv, _html} = live(conn, ~p"/settings/notifications/channels")
+
+      lv |> element("button[phx-click='new_channel']") |> render_click()
+
+      html =
+        render_click(lv, "save_channel", %{
+          "channel" => %{
+            "name" => "NOC webhook unused",
+            "provider_id" => to_string(provider.id),
+            "execution_route" => "control_plane",
+            "max_attempts" => "3"
+          },
+          "config" => %{
+            "url" => "https://hooks.example.com/unused",
+            "_unused_url" => "",
+            "_unused_method" => ""
+          }
+        })
+
+      assert html =~ "Channel saved"
+
+      channel = channel_named("NOC webhook unused")
+
+      assert channel.config["url"] == "https://hooks.example.com/unused"
+      refute Map.has_key?(channel.config, "_unused_url")
     end
 
     test "a rejected save reports why and stores nothing", %{conn: conn, provider: provider} do
@@ -141,7 +175,10 @@ defmodule ServiceRadarWebNGWeb.Settings.NotificationsEditorsTest do
   end
 
   describe "test send" do
-    test "refuses a non-public destination before any request is made", %{conn: conn, provider: provider} do
+    test "refuses a non-public destination before any request is made", %{
+      conn: conn,
+      provider: provider
+    } do
       {:ok, lv, _html} = live(conn, ~p"/settings/notifications/channels")
 
       lv |> element("button[phx-click='new_channel']") |> render_click()
@@ -180,6 +217,29 @@ defmodule ServiceRadarWebNGWeb.Settings.NotificationsEditorsTest do
       assert html =~ "Outbound URL refused"
       assert html =~ "url: only https:// URLs are allowed"
       refute html =~ "rejected by the outbound URL policy"
+    end
+
+    test "a typed Discord webhook is a test secret, not a missing credential ref", %{
+      conn: conn
+    } do
+      provider = NotificationsFixtures.provider_fixture("discord")
+      {:ok, lv, _html} = live(conn, ~p"/settings/notifications/channels")
+
+      lv |> element("button[phx-click='new_channel']") |> render_click()
+
+      render_click(lv, "validate_channel", %{
+        "channel" => %{"name" => "Farm discord", "provider_id" => to_string(provider.id)},
+        "config" => %{
+          "webhook_url" =>
+            "https://127.0.0.1/api/webhooks/1234567890/abcdefghijklmnopqrstuvwxyz012345"
+        }
+      })
+
+      html = render_click(lv, "test_channel", %{})
+
+      refute html =~ "is required and must be a stored credential reference"
+      assert html =~ "Outbound URL refused"
+      assert html =~ "webhook_url: the host is not allowed"
     end
 
     test "a test send from an unsaved form persists no channel", %{conn: conn, provider: provider} do
@@ -231,11 +291,18 @@ defmodule ServiceRadarWebNGWeb.Settings.NotificationsEditorsTest do
 
       assert route.priority == 10
       assert route.escalation_policy_id == policy.id
-      assert route.match_expression == %{"all" => [%{"field" => "alert.severity", "equals" => "critical"}]}
+
+      assert route.match_expression == %{
+               "all" => [%{"field" => "alert.severity", "equals" => "critical"}]
+             }
+
       assert route.enabled
     end
 
-    test "a field outside the allow-list is refused with an actionable message", %{conn: conn, policy: policy} do
+    test "a field outside the allow-list is refused with an actionable message", %{
+      conn: conn,
+      policy: policy
+    } do
       {:ok, lv, _html} = live(conn, ~p"/settings/notifications/routes")
 
       before = length(NotificationsFixtures.read_all(NotificationRoute))
@@ -260,7 +327,10 @@ defmodule ServiceRadarWebNGWeb.Settings.NotificationsEditorsTest do
       assert length(NotificationsFixtures.read_all(NotificationRoute)) == before
     end
 
-    test "toggling a route off is an auditable act that keeps the row", %{conn: conn, policy: policy} do
+    test "toggling a route off is an auditable act that keeps the row", %{
+      conn: conn,
+      policy: policy
+    } do
       route = NotificationsFixtures.route_fixture(%{escalation_policy_id: policy.id})
 
       {:ok, lv, _html} = live(conn, ~p"/settings/notifications/routes")
@@ -302,7 +372,11 @@ defmodule ServiceRadarWebNGWeb.Settings.NotificationsEditorsTest do
       silence = silence_named("DB maintenance")
 
       assert silence.comment == "Planned failover"
-      assert silence.matchers == %{"all" => [%{"field" => "alert.severity", "equals" => "warning"}]}
+
+      assert silence.matchers == %{
+               "all" => [%{"field" => "alert.severity", "equals" => "warning"}]
+             }
+
       assert silence.created_by_user_id == user.id
       refute silence.created_by_user_id == other.id
       assert silence.state == :scheduled

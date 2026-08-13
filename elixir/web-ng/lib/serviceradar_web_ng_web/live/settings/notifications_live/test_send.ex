@@ -46,7 +46,14 @@ defmodule ServiceRadarWebNGWeb.Settings.NotificationsLive.TestSend do
   alias ServiceRadar.Notifications.Transport.Request
   alias ServiceRadar.Notifications.Transport.Result
   alias ServiceRadar.Notifications.Transports.Registry
+  alias ServiceRadar.Plugins.SecretRefs
   alias ServiceRadar.Policies.OutboundURLPolicy
+
+  # Persist-time `validate_config/1` requires secretRef fields to be stored
+  # references. A test send that just received plaintext in `secrets` has no
+  # reference yet; this stand-in satisfies that contract without putting the
+  # typed secret back into `config`.
+  @test_send_secret_ref "secretref:test-send:pending"
 
   @redaction_policy "northbound-action-redaction-v1"
 
@@ -77,8 +84,8 @@ defmodule ServiceRadarWebNGWeb.Settings.NotificationsLive.TestSend do
   @spec run(term(), map(), map(), keyword()) :: {:ok, outcome()} | {:error, outcome()}
   def run(provider, config, secrets, opts \\ []) do
     with {:ok, module} <- transport_module(provider),
-         :ok <- validate_urls(config, opts),
-         :ok <- validate_config(module, config),
+         :ok <- validate_urls(config, secrets, opts),
+         :ok <- validate_config(module, config, secrets),
          {:ok, rendered} <- render(provider) do
       request = request(provider, config, secrets, rendered)
 
@@ -96,7 +103,8 @@ defmodule ServiceRadarWebNGWeb.Settings.NotificationsLive.TestSend do
   # persisted channel today. A `:declarative` or `:wasm_plugin` provider is
   # refused with the reason rather than silently reporting success, because a
   # test that cannot run is not a passing test.
-  defp transport_module(%{provider_type: :native, implementation_module: module}) when is_binary(module) do
+  defp transport_module(%{provider_type: :native, implementation_module: module})
+       when is_binary(module) do
     case Registry.resolve(module) do
       {:ok, resolved} ->
         {:ok, resolved}
@@ -115,14 +123,15 @@ defmodule ServiceRadarWebNGWeb.Settings.NotificationsLive.TestSend do
   end
 
   defp transport_module(_provider) do
-    {:error, failure("Select a provider first", "A test send needs a provider to dispatch through.")}
+    {:error,
+     failure("Select a provider first", "A test send needs a provider to dispatch through.")}
   end
 
   # --- validation ------------------------------------------------------------
 
-  defp validate_urls(config, opts) do
-    config
-    |> url_values()
+  defp validate_urls(config, secrets, opts) do
+    (url_values(config) ++ url_values(secrets))
+    |> Enum.uniq_by(&elem(&1, 0))
     |> Enum.reduce_while(:ok, fn {key, url}, :ok ->
       case OutboundURLPolicy.validate_https_public_url(url, Keyword.get(opts, :url_policy, [])) do
         {:ok, _uri} ->
@@ -139,15 +148,16 @@ defmodule ServiceRadarWebNGWeb.Settings.NotificationsLive.TestSend do
     end)
   end
 
-  defp url_values(config) when is_map(config) do
-    config
+  defp url_values(map) when is_map(map) do
+    map
     |> Enum.filter(fn {key, value} ->
-      is_binary(value) and String.trim(value) != "" and to_string(key) in @url_keys
+      is_binary(value) and String.trim(value) != "" and to_string(key) in @url_keys and
+        not SecretRefs.secret_ref?(String.trim(value))
     end)
     |> Enum.map(fn {key, value} -> {to_string(key), String.trim(value)} end)
   end
 
-  defp url_values(_config), do: []
+  defp url_values(_map), do: []
 
   # These heads must match the atoms the policy ACTUALLY returns. The full surface is
   # `:invalid_url`, `:disallowed_scheme`, `:disallowed_port` from
@@ -170,12 +180,33 @@ defmodule ServiceRadarWebNGWeb.Settings.NotificationsLive.TestSend do
   defp url_rejection(:invalid_cidr), do: "the configured address policy is invalid"
   defp url_rejection(reason), do: "rejected by the outbound URL policy (#{inspect(reason)})"
 
-  defp validate_config(module, config) do
-    case module.validate_config(config) do
+  defp validate_config(module, config, secrets) do
+    case module.validate_config(config_for_validation(config, secrets)) do
       :ok -> :ok
       {:error, errors} -> {:error, failure("Configuration is not valid", config_errors(errors))}
     end
   end
+
+  defp config_for_validation(config, secrets) when is_map(config) and is_map(secrets) do
+    Enum.reduce(secrets, stringify_keys(config), fn {key, value}, acc ->
+      field = to_string(key)
+
+      if present_secret?(value) and not present_secret?(Map.get(acc, field)) do
+        Map.put(acc, field, @test_send_secret_ref)
+      else
+        acc
+      end
+    end)
+  end
+
+  defp config_for_validation(config, _secrets), do: config
+
+  defp stringify_keys(map) when is_map(map) do
+    Map.new(map, fn {key, value} -> {to_string(key), value} end)
+  end
+
+  defp present_secret?(value) when is_binary(value), do: String.trim(value) != ""
+  defp present_secret?(_value), do: false
 
   defp config_errors(errors) when is_list(errors) do
     Enum.map_join(errors, "; ", &config_error/1)
@@ -204,7 +235,8 @@ defmodule ServiceRadarWebNGWeb.Settings.NotificationsLive.TestSend do
         {:ok, rendered}
 
       {:error, reason} ->
-        {:error, failure("The test notification could not be rendered", Renderer.describe_error(reason))}
+        {:error,
+         failure("The test notification could not be rendered", Renderer.describe_error(reason))}
     end
   end
 
@@ -271,7 +303,9 @@ defmodule ServiceRadarWebNGWeb.Settings.NotificationsLive.TestSend do
     {:error, failure("The transport returned an unexpected result", inspect(other))}
   end
 
-  defp headline(:retryable_failure), do: "The destination refused the test, and a retry could succeed"
+  defp headline(:retryable_failure),
+    do: "The destination refused the test, and a retry could succeed"
+
   defp headline(_disposition), do: "The destination refused the test"
 
   defp summary(%Result{result_summary: summary}, sensitive) when is_map(summary) do

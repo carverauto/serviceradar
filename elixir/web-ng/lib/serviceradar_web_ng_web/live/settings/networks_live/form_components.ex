@@ -3,7 +3,8 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.FormComponents do
 
   use ServiceRadarWebNGWeb, :html
 
-  import ServiceRadarWebNGWeb.Settings.NetworksLive.ActiveScansComponents, only: [format_last_run: 1]
+  import ServiceRadarWebNGWeb.Settings.NetworksLive.ActiveScansComponents,
+    only: [format_last_run: 1, group_last_run_at: 1]
 
   alias ServiceRadar.SweepJobs.SweepProfile.BannerGrab
   alias ServiceRadarWebNGWeb.SRQL.Catalog
@@ -455,16 +456,6 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.FormComponents do
               />
               <span>TCP</span>
             </label>
-            <label class="flex items-center gap-2 cursor-pointer">
-              <input
-                type="checkbox"
-                name="form[sweep_modes][]"
-                value="arp"
-                class={ui_checkbox_class()}
-                checked={Enum.member?(selected_modes, "arp")}
-              />
-              <span>ARP</span>
-            </label>
           </div>
         </div>
 
@@ -724,7 +715,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.FormComponents do
           </div>
           <div>
             <div class="text-xs text-sr-muted uppercase">Last Run</div>
-            <div class="mt-1">{format_last_run(@group.last_run_at)}</div>
+            <div class="mt-1">{format_last_run(group_last_run_at(@group))}</div>
           </div>
         </div>
       </.ui_panel>
