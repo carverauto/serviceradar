@@ -1,0 +1,27 @@
+suite: notification action base URL
+templates:
+  - templates/core.yaml
+  - templates/web.yaml
+tests:
+  - it: copies webNg.publicUrl onto web-ng and core for Discord/Slack deep links
+    set:
+      webNg.publicUrl: https://demo.serviceradar.cloud
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: SERVICERADAR_NOTIFICATION_ACTION_BASE_URL
+            value: https://demo.serviceradar.cloud
+          count: 1
+        documentSelector:
+          path: metadata.name
+          value: serviceradar-web-ng
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: SERVICERADAR_NOTIFICATION_ACTION_BASE_URL
+            value: https://demo.serviceradar.cloud
+          count: 1
+        documentSelector:
+          path: metadata.name
+          value: serviceradar-core

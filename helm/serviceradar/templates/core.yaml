@@ -424,6 +424,10 @@ spec:
         - name: SERVICERADAR_NOTIFICATION_PLATFORM_AGENT_PARTITION
           value: {{ $notificationAgentPartition | quote }}
         {{- end }}
+        {{- if $webNgPublicUrl }}
+        - name: SERVICERADAR_NOTIFICATION_ACTION_BASE_URL
+          value: {{ $webNgPublicUrl | quote }}
+        {{- end }}
         {{- if not $notificationReceiptSweepEnabled }}
         # The receipt sweep is what closes out an agent-routed delivery whose
         # command result never came back, without depending on
