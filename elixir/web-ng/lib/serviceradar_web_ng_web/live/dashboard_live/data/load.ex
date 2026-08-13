@@ -86,6 +86,7 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Data.Load do
             traffic_links: {fn -> traffic_links(time_window) end, []},
             topology_links: {fn -> topology_links(time_window) end, []},
             mtr_overlays: {fn -> mtr_overlays() end, []},
+            mtr_timeseries: {fn -> mtr_timeseries_summary(time_window) end, empty_mtr_summary()},
             camera_summary: {fn -> camera_summary(scope) end, empty_camera_summary()},
             alert_summary: {fn -> ServiceRadarWebNGWeb.Stats.alerts_summary(scope: scope) end, %{}},
             alert_feed: {fn -> alert_feed(time_window) end, []},
@@ -105,6 +106,7 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Data.Load do
           traffic_links: traffic_links,
           topology_links: topology_links,
           mtr_overlays: mtr_overlays,
+          mtr_timeseries: mtr_timeseries,
           camera_summary: camera_summary,
           alert_summary: alert_summary,
           alert_feed: alert_feed,
@@ -123,9 +125,9 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Data.Load do
             max(length(traffic_links), length(topology_links))
           )
 
-        mtr_summary = summarize_mtr_overlays(mtr_overlays)
+        mtr_summary = merge_mtr_summaries(mtr_timeseries, summarize_mtr_overlays(mtr_overlays))
         survey_summary = empty_survey_summary()
-        sparklines = dashboard_sparklines(time_window, security_trend, mtr_overlays)
+        sparklines = dashboard_sparklines(time_window, security_trend)
 
         module_states =
           module_states(

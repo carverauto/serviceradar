@@ -92,6 +92,65 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Data.Mtr do
           degraded_count: Enum.count(overlays, &(&1.loss_pct > 0 or &1.avg_us > 100_000))
         }
       end
+
+      defp merge_mtr_summaries(%{path_count: count} = timeseries, _overlays) when is_integer(count) and count > 0,
+        do: timeseries
+
+      defp merge_mtr_summaries(_timeseries, overlays_summary), do: overlays_summary
+
+      @sobelow_skip ["SQL.Query"]
+      defp mtr_timeseries_summary(time_window) do
+        if relation_exists?("platform.mtr_traces") and relation_exists?("platform.mtr_hops") do
+          sql = """
+          WITH selected_traces AS (
+            SELECT id
+            FROM mtr_traces
+            WHERE time >= $1
+          ),
+          last_hops AS (
+            SELECT DISTINCT ON (h.trace_id) h.trace_id, h.avg_us
+            FROM mtr_hops h
+            INNER JOIN selected_traces st ON st.id = h.trace_id
+            WHERE h.addr IS NOT NULL
+            ORDER BY h.trace_id, h.hop_number DESC
+          ),
+          hop_loss AS (
+            SELECT h.trace_id, AVG(h.loss_pct)::float AS avg_loss_pct
+            FROM mtr_hops h
+            INNER JOIN selected_traces st ON st.id = h.trace_id
+            GROUP BY h.trace_id
+          )
+          SELECT
+            COUNT(st.id)::bigint,
+            COALESCE(AVG(NULLIF(lh.avg_us, 0)), 0)::float / 1000.0,
+            COALESCE(AVG(hl.avg_loss_pct), 0)::float,
+            COUNT(st.id) FILTER (
+              WHERE COALESCE(hl.avg_loss_pct, 0) > 0
+                 OR COALESCE(lh.avg_us, 0) > 100000
+            )::bigint
+          FROM selected_traces st
+          LEFT JOIN last_hops lh ON lh.trace_id = st.id
+          LEFT JOIN hop_loss hl ON hl.trace_id = st.id
+          """
+
+          case ServiceRadarWebNG.Repo.query(sql, [cutoff_for_time_window(time_window)]) do
+            {:ok, %{rows: [[path_count, avg_latency_ms, avg_loss_pct, degraded_count]]}} ->
+              %{
+                path_count: to_int(path_count),
+                avg_latency_ms: Float.round(to_float(avg_latency_ms), 1),
+                avg_loss_pct: Float.round(to_float(avg_loss_pct), 2),
+                degraded_count: to_int(degraded_count)
+              }
+
+            _ ->
+              empty_mtr_summary()
+          end
+        else
+          empty_mtr_summary()
+        end
+      rescue
+        _ -> empty_mtr_summary()
+      end
     end
   end
 end
