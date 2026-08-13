@@ -222,12 +222,13 @@ defmodule ServiceRadarWebNGWeb.Settings.NotificationsLive.TestSend do
   defp render(provider) do
     formats = Map.get(provider, :payload_formats) || []
 
-    template = %{subject_template: @subject, body_template: @body}
+    template = %{subject_template: @subject, body_template: body_template()}
 
     case Renderer.render(sample_alert(), template, nil,
            supported_formats: formats,
            provider_version: Map.get(provider, :definition_version),
-           include_action_links?: false
+           include_action_links?: false,
+           links: test_links()
          ) do
       {:ok, rendered} ->
         {:ok, rendered}
@@ -249,6 +250,39 @@ defmodule ServiceRadarWebNGWeb.Settings.NotificationsLive.TestSend do
       "source" => "serviceradar",
       "is_test" => true
     }
+  end
+
+  defp body_template do
+    case public_base_url() do
+      nil -> @body
+      base -> @body <> " Open ServiceRadar: #{base}/alerts"
+    end
+  end
+
+  defp test_links do
+    case public_base_url() do
+      nil -> %{}
+      base -> %{"alert" => base <> "/alerts"}
+    end
+  end
+
+  defp public_base_url do
+    env = System.get_env("SERVICERADAR_NOTIFICATION_ACTION_BASE_URL")
+
+    cond do
+      is_binary(env) and String.trim(env) != "" ->
+        env |> String.trim() |> String.trim_trailing("/")
+
+      true ->
+        case ServiceRadarWebNGWeb.Endpoint.url() do
+          url when is_binary(url) ->
+            trimmed = url |> String.trim() |> String.trim_trailing("/")
+            if trimmed == "", do: nil, else: trimmed
+
+          _other ->
+            nil
+        end
+    end
   end
 
   defp request(provider, config, secrets, rendered) do
