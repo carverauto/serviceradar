@@ -25,7 +25,7 @@ function buildContext() {
     },
   }
 
-  return {
+  const ctx = {
     state: {
       details,
       lastGraph: {nodes: []},
@@ -39,6 +39,9 @@ function buildContext() {
     forceDeckRedraw: godViewRenderingSelectionMethods.forceDeckRedraw,
     scheduleSelectionRefresh: godViewRenderingSelectionMethods.scheduleSelectionRefresh,
     expandableEndpointClusterId: godViewRenderingSelectionMethods.expandableEndpointClusterId,
+    hideSelectionDetails: godViewRenderingSelectionMethods.hideSelectionDetails,
+    clearSelection: godViewRenderingSelectionMethods.clearSelection,
+    renderSelectionDetails: godViewRenderingSelectionMethods.renderSelectionDetails,
     nodeLayerId: (layerId) =>
       layerId === "god-view-nodes" ||
       layerId === "god-view-nodes-hitbox" ||
@@ -55,6 +58,10 @@ function buildContext() {
     nodeTypeHeroIcon: godViewRenderingSelectionMethods.nodeTypeHeroIcon,
     escapeHtml: godViewRenderingSelectionMethods.escapeHtml,
   }
+  ctx.hideSelectionDetails = godViewRenderingSelectionMethods.hideSelectionDetails.bind(ctx)
+  ctx.clearSelection = godViewRenderingSelectionMethods.clearSelection.bind(ctx)
+  ctx.renderSelectionDetails = godViewRenderingSelectionMethods.renderSelectionDetails.bind(ctx)
+  return ctx
 }
 
 describe("rendering_selection_methods", () => {
@@ -83,9 +90,10 @@ describe("rendering_selection_methods", () => {
 
     expect(ctx.state.details.classList.contains("hidden")).toEqual(false)
     expect(ctx.state.details.innerHTML).toContain("hero-arrows-right-left")
-    expect(ctx.state.details.innerHTML).toContain("data-device-href=\"/devices/sr%3Atest-01\"")
-    expect(ctx.state.details.innerHTML).toContain("ID:")
-    expect(ctx.state.details.innerHTML).toContain("underline")
+    expect(ctx.state.details.innerHTML).toContain("data-close-details")
+    expect(ctx.state.details.innerHTML).toContain("ID: <a class=\"link link-primary underline underline-offset-2 font-mono break-all\" href=\"/devices/sr%3Atest-01\" data-device-href=\"/devices/sr%3Atest-01\">sr:test-01</a>")
+    expect(ctx.state.details.innerHTML).toContain("IP: 192.0.2.10")
+    expect(ctx.state.details.innerHTML).not.toMatch(/IP:.*data-device-href/)
     expect(ctx.state.details.innerHTML).toContain("Type: router")
     expect(ctx.state.details.innerHTML).toContain("Vendor/Model: Acme XR-500")
     expect(ctx.state.details.innerHTML).toContain("ASN: 64512")
@@ -303,13 +311,13 @@ describe("rendering_selection_methods", () => {
     expect(ctx.renderGraph).toHaveBeenCalledTimes(1)
   })
 
-  it("handlePick ignores empty-canvas clicks", () => {
+  it("handlePick clears the details card on empty-canvas clicks", () => {
     const ctx = buildContext()
     ctx.state.selectedNodeIndex = 2
     ctx.state.selectedEdgeKey = "local:test"
     ctx.state.lastGraph = {nodes: [{id: "n1"}]}
+    ctx.state.details.classList.remove("hidden")
     ctx.renderGraph = vi.fn()
-    ctx.renderSelectionDetails = vi.fn()
     ctx.edgeLayerId = () => false
     ctx.state.deck = {redraw: vi.fn()}
     ctx.handlePick = godViewRenderingSelectionMethods.handlePick.bind(ctx)
@@ -318,20 +326,19 @@ describe("rendering_selection_methods", () => {
 
     ctx.handlePick({picked: false, object: null, layer: null})
 
-    expect(ctx.state.selectedNodeIndex).toEqual(2)
-    expect(ctx.state.selectedEdgeKey).toEqual("local:test")
-    expect(ctx.renderSelectionDetails).not.toHaveBeenCalled()
-    expect(ctx.renderGraph).not.toHaveBeenCalled()
-    expect(ctx.state.deck.redraw).not.toHaveBeenCalled()
+    expect(ctx.state.selectedNodeIndex).toEqual(null)
+    expect(ctx.state.selectedEdgeKey).toEqual(null)
+    expect(ctx.state.details.classList.contains("hidden")).toEqual(true)
+    expect(ctx.renderGraph).toHaveBeenCalledTimes(1)
   })
 
-  it("handlePick ignores deck.gl empty-canvas picks that report index -1", () => {
+  it("handlePick treats deck.gl index -1 as a dismiss, not a node", () => {
     const ctx = buildContext()
     ctx.state.selectedNodeIndex = 2
     ctx.state.selectedEdgeKey = "local:test"
     ctx.state.lastGraph = {nodes: [{id: "n1"}, {id: "n2"}, {id: "n3"}]}
+    ctx.state.details.classList.remove("hidden")
     ctx.renderGraph = vi.fn()
-    ctx.renderSelectionDetails = vi.fn()
     ctx.edgeLayerId = () => false
     ctx.deps.setClusterExpanded = vi.fn()
     ctx.state.deck = {redraw: vi.fn()}
@@ -340,25 +347,42 @@ describe("rendering_selection_methods", () => {
     ctx.scheduleSelectionRefresh = godViewRenderingSelectionMethods.scheduleSelectionRefresh.bind(ctx)
 
     ctx.handlePick({picked: false, object: null, index: -1, layer: null})
-    ctx.handlePick({object: null, index: -1, layer: null})
-    ctx.handlePick({object: undefined, index: -1})
 
-    expect(ctx.state.selectedNodeIndex).toEqual(2)
-    expect(ctx.state.selectedEdgeKey).toEqual("local:test")
+    expect(ctx.state.selectedNodeIndex).toEqual(null)
+    expect(ctx.state.selectedEdgeKey).toEqual(null)
+    expect(ctx.state.details.classList.contains("hidden")).toEqual(true)
     expect(ctx.deps.setClusterExpanded).not.toHaveBeenCalled()
-    expect(ctx.renderSelectionDetails).not.toHaveBeenCalled()
+    expect(ctx.renderGraph).toHaveBeenCalledTimes(1)
+    expect(ctx.state.lastGraph.nodes).toHaveLength(3)
+  })
+
+  it("handlePick leaves an already-empty selection alone on empty-canvas clicks", () => {
+    const ctx = buildContext()
+    ctx.state.selectedNodeIndex = null
+    ctx.state.selectedEdgeKey = null
+    ctx.state.lastGraph = {nodes: [{id: "n1"}]}
+    ctx.renderGraph = vi.fn()
+    ctx.edgeLayerId = () => false
+    ctx.state.deck = {redraw: vi.fn()}
+    ctx.handlePick = godViewRenderingSelectionMethods.handlePick.bind(ctx)
+    ctx.forceDeckRedraw = godViewRenderingSelectionMethods.forceDeckRedraw.bind(ctx)
+    ctx.scheduleSelectionRefresh = godViewRenderingSelectionMethods.scheduleSelectionRefresh.bind(ctx)
+
+    ctx.handlePick({picked: false, object: null, index: -1, layer: null})
+
+    expect(ctx.state.selectedNodeIndex).toEqual(null)
     expect(ctx.renderGraph).not.toHaveBeenCalled()
     expect(ctx.state.deck.redraw).not.toHaveBeenCalled()
   })
 
-  it("handlePick ignores edge-layer clicks without an interaction key", () => {
+  it("handlePick dismisses details on edge-layer clicks without an interaction key", () => {
     const ctx = buildContext()
     ctx.state.selectedNodeIndex = 1
     ctx.state.selectedEdgeKey = "local:test"
     ctx.state.lastGraph = {nodes: [{id: "n1"}]}
+    ctx.state.details.classList.remove("hidden")
     ctx.state.deck = {redraw: vi.fn()}
     ctx.renderGraph = vi.fn()
-    ctx.renderSelectionDetails = vi.fn()
     ctx.edgeLayerId = (layerId) => layerId === "god-view-edges-crust"
     ctx.handlePick = godViewRenderingSelectionMethods.handlePick.bind(ctx)
     ctx.forceDeckRedraw = godViewRenderingSelectionMethods.forceDeckRedraw.bind(ctx)
@@ -366,11 +390,10 @@ describe("rendering_selection_methods", () => {
 
     ctx.handlePick({picked: false, object: null, layer: {id: "god-view-edges-crust"}})
 
-    expect(ctx.state.selectedNodeIndex).toEqual(1)
-    expect(ctx.state.selectedEdgeKey).toEqual("local:test")
-    expect(ctx.renderSelectionDetails).not.toHaveBeenCalled()
-    expect(ctx.renderGraph).not.toHaveBeenCalled()
-    expect(ctx.state.deck.redraw).not.toHaveBeenCalled()
+    expect(ctx.state.selectedNodeIndex).toEqual(null)
+    expect(ctx.state.selectedEdgeKey).toEqual(null)
+    expect(ctx.state.details.classList.contains("hidden")).toEqual(true)
+    expect(ctx.renderGraph).toHaveBeenCalledTimes(1)
   })
 
   it("handlePick ignores undefined pick metadata", () => {
@@ -388,21 +411,20 @@ describe("rendering_selection_methods", () => {
 
     ctx.handlePick({object: null, layer: null})
 
-    expect(ctx.state.selectedNodeIndex).toEqual(2)
-    expect(ctx.state.selectedEdgeKey).toEqual("local:test")
-    expect(ctx.renderSelectionDetails).not.toHaveBeenCalled()
-    expect(ctx.renderGraph).not.toHaveBeenCalled()
-    expect(ctx.state.deck.redraw).not.toHaveBeenCalled()
+    expect(ctx.state.selectedNodeIndex).toEqual(null)
+    expect(ctx.state.selectedEdgeKey).toEqual(null)
+    expect(ctx.state.details.classList.contains("hidden")).toEqual(true)
+    expect(ctx.renderGraph).toHaveBeenCalledTimes(1)
   })
 
-  it("handlePick ignores edge-layer clicks without an interaction key even without picked=false", () => {
+  it("handlePick dismisses details on edge-layer clicks without an interaction key even without picked=false", () => {
     const ctx = buildContext()
     ctx.state.selectedNodeIndex = 1
     ctx.state.selectedEdgeKey = "local:test"
     ctx.state.lastGraph = {nodes: [{id: "n1"}]}
+    ctx.state.details.classList.remove("hidden")
     ctx.state.deck = {redraw: vi.fn()}
     ctx.renderGraph = vi.fn()
-    ctx.renderSelectionDetails = vi.fn()
     ctx.edgeLayerId = (layerId) => layerId === "god-view-edges-crust"
     ctx.handlePick = godViewRenderingSelectionMethods.handlePick.bind(ctx)
     ctx.forceDeckRedraw = godViewRenderingSelectionMethods.forceDeckRedraw.bind(ctx)
@@ -410,11 +432,10 @@ describe("rendering_selection_methods", () => {
 
     ctx.handlePick({object: {}, layer: {id: "god-view-edges-crust"}})
 
-    expect(ctx.state.selectedNodeIndex).toEqual(1)
-    expect(ctx.state.selectedEdgeKey).toEqual("local:test")
-    expect(ctx.renderSelectionDetails).not.toHaveBeenCalled()
-    expect(ctx.renderGraph).not.toHaveBeenCalled()
-    expect(ctx.state.deck.redraw).not.toHaveBeenCalled()
+    expect(ctx.state.selectedNodeIndex).toEqual(null)
+    expect(ctx.state.selectedEdgeKey).toEqual(null)
+    expect(ctx.state.details.classList.contains("hidden")).toEqual(true)
+    expect(ctx.renderGraph).toHaveBeenCalledTimes(1)
   })
 
   it("renderSelectionDetails avoids rewriting identical detail HTML", () => {

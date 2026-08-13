@@ -22,16 +22,32 @@ export const godViewRenderingSelectionMethods = {
     this.renderGraph(this.state.lastGraph)
     this.forceDeckRedraw()
   },
+  hideSelectionDetails() {
+    if (!this.state.details) return
+    if (!this.state.details.classList.contains("hidden")) {
+      this.state.details.classList.add("hidden")
+    }
+    if (this.state.details.style) {
+      this.state.details.style.display = "none"
+    }
+    if (this.state.details.textContent !== "Select a node for details") {
+      this.state.details.textContent = "Select a node for details"
+    }
+    this.state.lastDetailsHtml = null
+  },
+  clearSelection() {
+    const hadSelection = this.state.selectedNodeIndex !== null || this.state.selectedEdgeKey != null
+    const detailsOpen = Boolean(this.state.details && !this.state.details.classList.contains("hidden"))
+    this.state.selectedNodeIndex = null
+    this.state.selectedEdgeKey = null
+    this.hideSelectionDetails()
+    if (!hadSelection && !detailsOpen) return
+    this.scheduleSelectionRefresh()
+  },
   renderSelectionDetails(node) {
     if (!this.state.details) return
     if (!node) {
-      if (!this.state.details.classList.contains("hidden")) {
-        this.state.details.classList.add("hidden")
-      }
-      if (this.state.details.textContent !== "Select a node for details") {
-        this.state.details.textContent = "Select a node for details"
-      }
-      this.state.lastDetailsHtml = null
+      this.hideSelectionDetails()
       return
     }
 
@@ -44,10 +60,7 @@ export const godViewRenderingSelectionMethods = {
     const hasRealIp =
       rawIp !== "" && !["unknown", "n/a", "na", "null", "undefined", "-"].includes(rawIp.toLowerCase())
     const ipText = this.escapeHtml(hasRealIp ? rawIp : "unknown")
-    const ipHref = hasRealIp ? this.deviceDetailsHref(detailId) : null
-    const ipLine = ipHref
-      ? `<div>IP: <a class="link link-primary underline underline-offset-2" href="${this.escapeHtml(ipHref)}" data-device-href="${this.escapeHtml(ipHref)}">${ipText}</a></div>`
-      : `<div>IP: ${ipText}</div>`
+    const ipLine = `<div>IP: ${ipText}</div>`
     const idText = this.escapeHtml(d.id || node.id || "unknown")
     const idHref = this.deviceDetailsHref(detailId)
     const idLine = idHref
@@ -158,7 +171,7 @@ export const godViewRenderingSelectionMethods = {
           })()
         : ""
     const detailLines = [
-      `<div class="font-semibold text-sm mb-1 flex items-center justify-between gap-2"><span>${this.escapeHtml(node.label || "node")}</span><span class="inline-flex items-center justify-end min-w-4">${typeIcon ? `<span class="${this.escapeHtml(typeIcon)} size-4 text-base-content/70" title="${this.escapeHtml(typeLabel || "unknown")}"></span>` : ""}</span></div>`,
+      `<div class="font-semibold text-sm mb-1 flex items-center justify-between gap-2"><span>${this.escapeHtml(node.label || "node")}</span><span class="inline-flex items-center justify-end gap-1 min-w-4">${typeIcon ? `<span class="${this.escapeHtml(typeIcon)} size-4 text-base-content/70" title="${this.escapeHtml(typeLabel || "unknown")}"></span>` : ""}<button type="button" class="btn btn-ghost btn-xs btn-square" data-close-details aria-label="Close details">×</button></span></div>`,
       idLine,
       ipLine,
       `<div>Type: ${this.escapeHtml(d.type || "unknown")}</div>`,
@@ -190,6 +203,9 @@ export const godViewRenderingSelectionMethods = {
     }
     if (this.state.details.classList.contains("hidden")) {
       this.state.details.classList.remove("hidden")
+    }
+    if (this.state.details.style) {
+      this.state.details.style.display = ""
     }
   },
   expandableEndpointClusterId(node) {
@@ -310,23 +326,38 @@ export const godViewRenderingSelectionMethods = {
         this.state.selectedEdgeKey = this.state.selectedEdgeKey === key ? null : key
         if (this.state.lastGraph) this.renderGraph(this.state.lastGraph)
         this.forceDeckRedraw()
+        return
       }
+      this.clearSelection()
       return
     }
 
     // deck.gl empty-canvas clicks are `{picked:false, object:null, index:-1}`.
-    // Treating -1 as a node used to apply the 3-hop mask and wipe the graph.
-    if (info?.picked === false) return
-    if (typeof this.nodeLayerId === "function" && !this.nodeLayerId(layerId)) return
+    // Never treat -1 as a node (that used to apply the 3-hop mask and wipe
+    // the graph). Dismiss the details card instead.
+    if (info?.picked === false) {
+      this.clearSelection()
+      return
+    }
+    if (typeof this.nodeLayerId === "function" && !this.nodeLayerId(layerId)) {
+      this.clearSelection()
+      return
+    }
 
     const clickedNode = info?.object
-    if (!clickedNode || typeof clickedNode !== "object") return
+    if (!clickedNode || typeof clickedNode !== "object") {
+      this.clearSelection()
+      return
+    }
 
     const picked =
       typeof this.pickedNodeIndex === "function"
         ? this.pickedNodeIndex(info)
         : (Number.isInteger(clickedNode.index) && clickedNode.index >= 0 ? clickedNode.index : null)
-    if (!Number.isInteger(picked) || picked < 0) return
+    if (!Number.isInteger(picked) || picked < 0) {
+      this.clearSelection()
+      return
+    }
 
     const graphNode = this.state.lastGraph?.nodes?.[picked] || null
     const node = {
