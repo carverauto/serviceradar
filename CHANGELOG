@@ -30,6 +30,12 @@ injection), plus farm-tested identity and sweep/notification fixes.
   reference; the test path accepts the just-typed secret (or the saved
   reference if the password box is left blank) and does not run the
   outbound URL policy against a `secretref:` handle.
+- MTR History Retention now converts `mtr_traces`/`mtr_hops` to hypertables
+  and attaches Timescale policies, so Save no longer reports "policy missing"
+  after a successful write (fj#4955). Dashboard Latency/Packet Loss read
+  those tables instead of OTEL `traces_stats_5m`. Events Over Time falls
+  back to raw `ocsf_events` when the hourly rollup is an empty leftover
+  view, and a repair migration replaces that view with a real CAGG.
 
 # ServiceRadar v1.4.30
 
