@@ -37,8 +37,18 @@ defmodule ServiceRadarWebNGWeb.SRQL.ScopeBuilder do
       {default_builder_state(), true}
     else
       case parse_filters_from_query(query) do
-        {:ok, filters} when filters != [] -> {%{"filters" => filters}, true}
-        _ -> {default_builder_state(), false}
+        {:ok, filters} when filters != [] ->
+          {%{"filters" => filters}, true}
+
+        # A query of only control tokens (`in:devices`, `limit:`, `sort:`) has no
+        # filter rows to show, which the builder represents exactly. Reporting it
+        # out of sync would make every entity-only scope — including the default
+        # a new check opens with — render a "cannot represent this" warning.
+        {:ok, []} ->
+          {default_builder_state(), true}
+
+        _ ->
+          {default_builder_state(), false}
       end
     end
   end

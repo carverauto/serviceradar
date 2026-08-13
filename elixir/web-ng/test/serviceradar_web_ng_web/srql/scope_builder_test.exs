@@ -38,6 +38,16 @@ defmodule ServiceRadarWebNGWeb.SRQL.ScopeBuilderTest do
       assert [%{"field" => "source"}] = filters(builder)
     end
 
+    test "an entity-only query is in sync with no filter rows" do
+      # A scope of just `in:devices` has nothing to show as filter rows, which
+      # the builder represents exactly. Treating it as unrepresentable would
+      # warn on every new check's default scope.
+      assert {builder, true} = ScopeBuilder.parse_query_to_builder("in:devices")
+      assert [%{"value" => ""}] = filters(builder)
+
+      assert {_builder, true} = ScopeBuilder.parse_query_to_builder("in:devices limit:10")
+    end
+
     test "reports out of sync for a query it cannot represent" do
       # The flag is the contract: the caller must leave the raw string
       # authoritative rather than overwrite it with a lossy round-trip.

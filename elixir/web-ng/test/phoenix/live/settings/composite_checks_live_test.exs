@@ -145,4 +145,138 @@ defmodule ServiceRadarWebNGWeb.Settings.CompositeChecksLiveTest do
       assert html =~ "Composite Check"
     end
   end
+
+  describe "the scope panel" do
+    test "editing the raw SRQL updates the visual filter rows", %{conn: conn} do
+      {:ok, live, _html} = live(conn, @path <> "/new")
+
+      html =
+        live
+        |> form("#composite-check-form", %{"form" => %{"scope_query" => "source:armis tag:managed"}})
+        |> render_change()
+
+      assert html =~ "value=\"source\""
+      assert html =~ "value=\"armis\""
+      assert html =~ "value=\"tag\""
+      assert html =~ "value=\"managed\""
+    end
+
+    test "an unparseable query warns and leaves the raw string authoritative", %{conn: conn} do
+      {:ok, live, _html} = live(conn, @path <> "/new")
+
+      html =
+        live
+        |> form("#composite-check-form", %{"form" => %{"scope_query" => ~s|in:devices stats:"count() as total"|}})
+        |> render_change()
+
+      assert html =~ "cannot represent"
+      assert html =~ "SRQL above is what will be saved"
+    end
+
+    test "adding a filter row keeps the raw query in step", %{conn: conn} do
+      {:ok, live, _html} = live(conn, @path <> "/new")
+
+      html = live |> element("button", "Add filter") |> render_click()
+
+      assert html =~ "Filter field"
+    end
+
+    test "saving persists the scope and returns to the index", %{conn: conn} do
+      {:ok, live, _html} = live(conn, @path <> "/new")
+
+      {:ok, _index, html} =
+        live
+        |> form("#composite-check-form", %{
+          "form" => %{
+            "name" => "Scoped Check",
+            "scope_query" => "in:devices source:armis",
+            "evaluation_interval_seconds" => "300"
+          }
+        })
+        |> render_submit()
+        |> follow_redirect(conn, @path)
+
+      assert html =~ "Scoped Check"
+      assert html =~ "in:devices source:armis"
+    end
+
+    test "a scope that does not target devices is rejected by the resource", %{conn: conn} do
+      {:ok, live, _html} = live(conn, @path <> "/new")
+
+      html =
+        live
+        |> form("#composite-check-form", %{
+          "form" => %{
+            "name" => "Bad Scope",
+            "scope_query" => "in:flows src_ip:10.0.0.1",
+            "evaluation_interval_seconds" => "300"
+          }
+        })
+        |> render_submit()
+
+      # Surfaced from Ash rather than re-implemented in the form.
+      assert html =~ "must target devices"
+    end
+
+    test "a blank name is caught before hitting the resource", %{conn: conn} do
+      {:ok, live, _html} = live(conn, @path <> "/new")
+
+      html =
+        live
+        |> form("#composite-check-form", %{"form" => %{"name" => "", "scope_query" => "in:devices"}})
+        |> render_submit()
+
+      assert html =~ "Name is required"
+    end
+
+    test "an out-of-range interval is caught locally", %{conn: conn} do
+      {:ok, live, _html} = live(conn, @path <> "/new")
+
+      html =
+        live
+        |> form("#composite-check-form", %{
+          "form" => %{
+            "name" => "Fast Check",
+            "scope_query" => "in:devices",
+            "evaluation_interval_seconds" => "5"
+          }
+        })
+        |> render_submit()
+
+      assert html =~ "at least 60 seconds"
+    end
+
+    test "editing an existing check loads its scope", %{conn: conn} do
+      check = create_check(%{scope_query: "in:devices tag:managed"})
+
+      {:ok, _live, html} = live(conn, @path <> "/#{check.id}/edit")
+
+      assert html =~ "in:devices tag:managed"
+      assert html =~ check.name
+    end
+
+    test "renaming a check keeps its slug", %{conn: conn} do
+      check = create_check(%{})
+      original_slug = check.slug
+
+      {:ok, live, _html} = live(conn, @path <> "/#{check.id}/edit")
+
+      live
+      |> form("#composite-check-form", %{
+        "form" => %{
+          "name" => "Renamed Check",
+          "scope_query" => check.scope_query,
+          "evaluation_interval_seconds" => "300"
+        }
+      })
+      |> render_submit()
+
+      {:ok, reloaded} = CompositeCheck.get_by_id(check.id, actor: system_actor())
+
+      assert reloaded.name == "Renamed Check"
+      # The slug is the SRQL handle; saved queries referencing it must keep
+      # resolving after a rename.
+      assert reloaded.slug == original_slug
+    end
+  end
 end

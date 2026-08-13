@@ -101,6 +101,172 @@ defmodule ServiceRadarWebNGWeb.Settings.CompositeChecksLive.Components do
     """
   end
 
+  attr :form, :map, required: true
+  attr :errors, :list, default: []
+  attr :mode, :atom, required: true
+  attr :scope_count, :integer, default: nil
+  attr :builder, :map, required: true
+  attr :builder_in_sync, :boolean, default: true
+  attr :save_error, :string, default: nil
+
+  def check_form(assigns) do
+    ~H"""
+    <.form
+      for={%{}}
+      as={:form}
+      id="composite-check-form"
+      phx-change="validate"
+      phx-submit="save"
+      class="space-y-6"
+    >
+      <div class="flex items-start justify-between gap-4">
+        <div>
+          <h1 class="text-xl font-semibold text-sr-ink">
+            {if @mode == :new, do: "New Composite Check", else: "Edit Composite Check"}
+          </h1>
+          <p class="mt-1 text-sm text-sr-ink-muted">
+            Scope the devices this check answers for, then say what each vantage point should see.
+          </p>
+        </div>
+        <div class="flex shrink-0 gap-2">
+          <.button navigate={~p"/settings/networks/composite-checks"}>Cancel</.button>
+          <.button variant="primary">Save</.button>
+        </div>
+      </div>
+
+      <div :if={@save_error} class="rounded-sr-control border border-rose-500/40 bg-rose-500/5 p-3">
+        <p class="text-sm text-rose-400">{@save_error}</p>
+      </div>
+
+      <section class="space-y-3 rounded-sr-control border border-sr-border bg-sr-surface p-4">
+        <.input type="text" name="form[name]" value={@form["name"]} label="Name" />
+        <.input
+          type="text"
+          name="form[description]"
+          value={@form["description"]}
+          label="Description"
+        />
+        <.input
+          type="number"
+          name="form[evaluation_interval_seconds]"
+          value={@form["evaluation_interval_seconds"]}
+          label="Evaluation interval (seconds)"
+        />
+        <.field_errors errors={@errors} />
+      </section>
+
+      <.scope_panel
+        form={@form}
+        scope_count={@scope_count}
+        builder={@builder}
+        builder_in_sync={@builder_in_sync}
+      />
+    </.form>
+    """
+  end
+
+  attr :form, :map, required: true
+  attr :scope_count, :integer, default: nil
+  attr :builder, :map, required: true
+  attr :builder_in_sync, :boolean, default: true
+
+  def scope_panel(assigns) do
+    ~H"""
+    <section class="space-y-3 rounded-sr-control border border-sr-border bg-sr-surface p-4">
+      <div>
+        <h2 class="text-sm font-semibold text-sr-ink">Scope</h2>
+        <p class="text-xs text-sr-ink-muted">Which devices this check runs against.</p>
+      </div>
+
+      <.input
+        type="text"
+        name="form[scope_query]"
+        value={@form["scope_query"]}
+        label="SRQL"
+        class="w-full rounded-sr-control border border-sr-border bg-sr-surface-muted px-3 py-2 font-mono text-sm text-sr-ink"
+      />
+
+      <p :if={@scope_count} class="text-xs text-sr-ink-muted">
+        <span class="font-medium text-sr-ink">{@scope_count}</span>
+        devices in scope · membership refreshes as inventory syncs
+      </p>
+
+      <div
+        :if={!@builder_in_sync}
+        class="rounded-sr-control border border-amber-500/40 bg-amber-500/5 p-3"
+      >
+        <p class="text-xs text-amber-400">
+          This query uses syntax the visual builder cannot represent, so the filter rows below are
+          not editing it. The SRQL above is what will be saved.
+        </p>
+      </div>
+
+      <div :if={@builder_in_sync} class="space-y-2">
+        <p class="text-xs font-medium text-sr-ink-muted">Filters</p>
+        <div
+          :for={{filter, index} <- Enum.with_index(Map.get(@builder, "filters", []))}
+          class="flex flex-wrap items-center gap-2"
+        >
+          <input
+            type="text"
+            name={"builder[filters][#{index}][field]"}
+            value={filter["field"]}
+            aria-label="Filter field"
+            class="w-40 rounded-sr-control border border-sr-border bg-sr-surface-muted px-2 py-1 text-sm text-sr-ink"
+          />
+          <select
+            name={"builder[filters][#{index}][op]"}
+            aria-label="Filter operator"
+            class="rounded-sr-control border border-sr-border bg-sr-surface-muted px-2 py-1 text-sm text-sr-ink"
+          >
+            <option
+              :for={op <- ~w(equals not_equals contains not_contains)}
+              value={op}
+              selected={filter["op"] == op}
+            >
+              {String.replace(op, "_", " ")}
+            </option>
+          </select>
+          <input
+            type="text"
+            name={"builder[filters][#{index}][value]"}
+            value={filter["value"]}
+            aria-label="Filter value"
+            class="w-48 rounded-sr-control border border-sr-border bg-sr-surface-muted px-2 py-1 text-sm text-sr-ink"
+          />
+          <button
+            type="button"
+            phx-click="remove_filter"
+            phx-value-index={index}
+            class="text-sr-ink-muted hover:text-sr-ink"
+            aria-label="Remove filter"
+          >
+            <.icon name="hero-x-mark-mini" class="size-4" />
+          </button>
+        </div>
+
+        <button
+          type="button"
+          phx-click="add_filter"
+          class="rounded-sr-control border border-dashed border-sr-border px-3 py-1.5 text-xs text-sr-ink-muted hover:text-sr-ink"
+        >
+          + Add filter
+        </button>
+      </div>
+    </section>
+    """
+  end
+
+  attr :errors, :list, default: []
+
+  def field_errors(assigns) do
+    ~H"""
+    <ul :if={@errors != []} class="space-y-1">
+      <li :for={{_field, message} <- @errors} class="text-xs text-rose-400">{message}</li>
+    </ul>
+    """
+  end
+
   defp percent(_count, 0), do: 0
   defp percent(count, total), do: Float.round(count / total * 100, 2)
 

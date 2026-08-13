@@ -19,7 +19,9 @@ defmodule ServiceRadarWebNGWeb.Settings.CompositeChecksLive.Index do
   alias ServiceRadar.CompositeChecks.CompositeCheck
   alias ServiceRadar.CompositeChecks.Rollup
   alias ServiceRadarWebNG.RBAC
+  alias ServiceRadarWebNGWeb.Settings.CompositeChecksLive.FormState
   alias ServiceRadarWebNGWeb.Settings.Shell
+  alias ServiceRadarWebNGWeb.SRQL.ScopeBuilder
 
   require Ash.Query
 
@@ -39,6 +41,13 @@ defmodule ServiceRadarWebNGWeb.Settings.CompositeChecksLive.Index do
        |> assign(:current_path, @current_path)
        |> assign(:can_manage, RBAC.can?(scope, @manage_permission))
        |> assign(:can_evaluate, RBAC.can?(scope, @evaluate_permission))
+       |> assign(:editing, nil)
+       |> assign(:form, FormState.default_form())
+       |> assign(:errors, [])
+       |> assign(:save_error, nil)
+       |> assign(:builder, ScopeBuilder.default_builder_state())
+       |> assign(:builder_in_sync, true)
+       |> assign(:scope_count, nil)
        |> assign(:checks, list_checks(socket))}
     else
       {:ok,
@@ -54,29 +63,172 @@ defmodule ServiceRadarWebNGWeb.Settings.CompositeChecksLive.Index do
   end
 
   defp apply_action(socket, :index, _params) do
-    assign(socket, :page_title, "Composite Checks")
+    socket
+    |> assign(:page_title, "Composite Checks")
+    |> assign(:editing, nil)
   end
 
   defp apply_action(socket, :new, _params) do
     if socket.assigns.can_manage do
-      assign(socket, :page_title, "New Composite Check")
+      socket
+      |> assign(:page_title, "New Composite Check")
+      |> assign(:editing, :new)
+      |> load_form(FormState.default_form())
     else
       forbid(socket)
     end
   end
 
-  defp apply_action(socket, :edit, _params) do
-    if socket.assigns.can_manage do
-      assign(socket, :page_title, "Edit Composite Check")
+  defp apply_action(socket, :edit, %{"id" => id}) do
+    scope = socket.assigns.current_scope
+
+    with true <- socket.assigns.can_manage,
+         {:ok, check} <- CompositeCheck.get_by_id(id, scope: scope) do
+      socket
+      |> assign(:page_title, "Edit Composite Check")
+      |> assign(:editing, check)
+      |> load_form(FormState.form_from_check(check))
     else
-      forbid(socket)
+      false ->
+        forbid(socket)
+
+      {:error, _reason} ->
+        socket
+        |> put_flash(:error, "That composite check no longer exists")
+        |> push_patch(to: @current_path)
     end
+  end
+
+  defp load_form(socket, form) do
+    {builder, in_sync?} = ScopeBuilder.parse_query_to_builder(form["scope_query"])
+
+    socket
+    |> assign(:form, form)
+    |> assign(:errors, [])
+    |> assign(:save_error, nil)
+    |> assign(:builder, builder)
+    |> assign(:builder_in_sync, in_sync?)
+    |> assign(:scope_count, count_scope(socket.assigns.current_scope, form["scope_query"]))
   end
 
   defp forbid(socket) do
     socket
     |> put_flash(:error, "You do not have permission to manage composite checks")
     |> push_patch(to: @current_path)
+  end
+
+  @impl true
+  def handle_event("validate", params, socket) do
+    {:noreply, revalidate(socket, params)}
+  end
+
+  def handle_event("add_filter", _params, socket) do
+    filters = Map.get(socket.assigns.builder, "filters", []) ++ [blank_filter()]
+    {:noreply, sync_from_builder(socket, %{"filters" => filters})}
+  end
+
+  def handle_event("remove_filter", %{"index" => index}, socket) do
+    index = String.to_integer(index)
+    filters = socket.assigns.builder |> Map.get("filters", []) |> List.delete_at(index)
+
+    # Never leave the operator with no way to add the first row back.
+    filters = if filters == [], do: [blank_filter()], else: filters
+
+    {:noreply, sync_from_builder(socket, %{"filters" => filters})}
+  end
+
+  def handle_event("save", params, socket) do
+    if socket.assigns.can_manage do
+      socket = revalidate(socket, params)
+
+      case socket.assigns.errors do
+        [] -> persist(socket)
+        _errors -> {:noreply, socket}
+      end
+    else
+      {:noreply, forbid(socket)}
+    end
+  end
+
+  # The raw SRQL field is authoritative. The builder rows live inside the same
+  # form, so their params arrive on every change and every submit — deriving the
+  # query from them unconditionally would let an empty default filter row wipe
+  # whatever the operator typed. Only a change originating from a builder input
+  # rewrites the query, which `_target` is what tells us.
+  defp revalidate(socket, params) do
+    form = FormState.normalize_form(params["form"])
+
+    form =
+      if builder_target?(params["_target"]) do
+        Map.put(form, "scope_query", query_from_builder(socket, params["builder"]))
+      else
+        form
+      end
+
+    {builder, in_sync?} = ScopeBuilder.parse_query_to_builder(form["scope_query"])
+
+    socket
+    |> assign(:form, form)
+    |> assign(:errors, FormState.validate(form))
+    |> assign(:builder_in_sync, in_sync?)
+    |> assign(:scope_count, count_scope(socket.assigns.current_scope, form["scope_query"]))
+    |> then(fn socket -> if in_sync?, do: assign(socket, :builder, builder), else: socket end)
+  end
+
+  defp builder_target?(["builder" | _rest]), do: true
+  defp builder_target?(_target), do: false
+
+  defp query_from_builder(socket, builder_params) when is_map(builder_params) do
+    socket.assigns.builder
+    |> ScopeBuilder.update_builder(builder_params)
+    |> ScopeBuilder.build_query()
+  end
+
+  defp query_from_builder(socket, _builder_params), do: socket.assigns.form["scope_query"]
+
+  defp sync_from_builder(socket, builder) do
+    query = ScopeBuilder.build_query(builder)
+    form = Map.put(socket.assigns.form, "scope_query", query)
+
+    socket
+    |> assign(:builder, builder)
+    |> assign(:builder_in_sync, true)
+    |> assign(:form, form)
+    |> assign(:errors, FormState.validate(form))
+    |> assign(:scope_count, count_scope(socket.assigns.current_scope, query))
+  end
+
+  defp blank_filter, do: %{"field" => "", "op" => "equals", "value" => ""}
+
+  defp persist(socket) do
+    scope = socket.assigns.current_scope
+    attrs = FormState.to_attrs(socket.assigns.form)
+
+    result =
+      case socket.assigns.editing do
+        :new ->
+          CompositeCheck
+          |> Ash.Changeset.for_create(:create, attrs, scope: scope)
+          |> Ash.create()
+
+        check ->
+          # Renaming is allowed; the slug is writable? false and stays put, so
+          # saved SRQL referencing composite.<slug> keeps working.
+          check
+          |> Ash.Changeset.for_update(:update, attrs, scope: scope)
+          |> Ash.update()
+      end
+
+    case result do
+      {:ok, _check} ->
+        {:noreply,
+         socket
+         |> put_flash(:info, "Composite check saved")
+         |> push_navigate(to: @current_path)}
+
+      {:error, error} ->
+        {:noreply, assign(socket, :save_error, FormState.error_message(error))}
+    end
   end
 
   # Reads run in mount, which LiveView calls twice — once disconnected for the
@@ -150,7 +302,18 @@ defmodule ServiceRadarWebNGWeb.Settings.CompositeChecksLive.Index do
         palette={@settings_palette}
         stats={@settings_stats}
       >
-        <div class="space-y-6">
+        <.check_form
+          :if={@editing}
+          form={@form}
+          errors={@errors}
+          mode={if @editing == :new, do: :new, else: :edit}
+          scope_count={@scope_count}
+          builder={@builder}
+          builder_in_sync={@builder_in_sync}
+          save_error={@save_error}
+        />
+
+        <div :if={is_nil(@editing)} class="space-y-6">
           <header class="flex items-start justify-between gap-4">
             <div>
               <h1 class="text-xl font-semibold text-sr-ink">Composite Checks</h1>
@@ -159,13 +322,13 @@ defmodule ServiceRadarWebNGWeb.Settings.CompositeChecksLive.Index do
                 configuration NCO reports. Checks read existing sweep results; they never probe.
               </p>
             </div>
-            <.link
+            <.button
               :if={@can_manage}
+              variant="primary"
               navigate={~p"/settings/networks/composite-checks/new"}
-              class="shrink-0"
             >
-              <.button>New check</.button>
-            </.link>
+              New check
+            </.button>
           </header>
 
           <div :if={@checks == []} class="rounded-sr-control border border-sr-border p-8 text-center">
