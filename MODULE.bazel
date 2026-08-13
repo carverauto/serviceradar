@@ -5,23 +5,22 @@ module(
 )
 
 # --- Bazel dependencies  ----------------------------------
-bazel_dep(name = "rules_go", version = "0.60.0", repo_name = "io_bazel_rules_go")
-bazel_dep(name = "gazelle", version = "0.45.0", repo_name = "bazel_gazelle")
+bazel_dep(name = "rules_go", version = "0.62.0", repo_name = "io_bazel_rules_go")
+bazel_dep(name = "gazelle", version = "0.51.3", repo_name = "bazel_gazelle")
 bazel_dep(name = "rules_rust", version = "0.73.0")
 bazel_dep(name = "rules_rust_prost", version = "0.73.0")
-bazel_dep(name = "rules_python", version = "1.7.0")
+bazel_dep(name = "rules_python", version = "2.2.0")
 bazel_dep(name = "rules_nodejs", version = "6.7.5")
 bazel_dep(name = "rules_proto", version = "7.1.0")
-bazel_dep(name = "protobuf", version = "33.4", repo_name = "com_google_protobuf")
+bazel_dep(name = "protobuf", version = "35.1", repo_name = "com_google_protobuf")
 bazel_dep(name = "rules_oci", version = "2.3.0")
 bazel_dep(name = "rules_pkg", version = "1.2.0")
-bazel_dep(name = "rules_erlang", version = "3.16.0")
-bazel_dep(name = "rules_elixir", version = "1.1.0")
+bazel_dep(name = "rules_erlang", version = "3.19.0")
+bazel_dep(name = "rules_elixir", version = "1.2.0")
 bazel_dep(name = "platforms", version = "1.1.0")
 bazel_dep(name = "bazel_features", version = "1.51.0", repo_name = "bazel_features")
-bazel_dep(name = "rules_java", version = "9.0.3", repo_name = "rules_java")
-bazel_dep(name = "rules_multirun", version = "0.13.0")
-bazel_dep(name = "swiftlint", version = "0.63.2", repo_name = "SwiftLint")
+bazel_dep(name = "rules_multirun", version = "0.14.0")
+bazel_dep(name = "swiftlint", version = "0.65.0", repo_name = "SwiftLint")
 
 # NOTE: rules_multirun uses Python, which causes issues with `bazel run` when
 # using remote execution from a different host platform (e.g., macOS -> Linux RBE).
@@ -30,14 +29,14 @@ bazel_dep(name = "swiftlint", version = "0.63.2", repo_name = "SwiftLint")
 # Workaround: Push images from CI (Linux) or use scripts/push_all_images.sh,
 # which runs the per-image push targets sequentially without rules_multirun.
 bazel_dep(name = "rules_license", version = "1.0.0", repo_name = "rules_license")
-bazel_dep(name = "rules_shell", version = "0.6.1", repo_name = "rules_shell")
-bazel_dep(name = "bazel_skylib", version = "1.9.0", repo_name = "bazel_skylib")
+bazel_dep(name = "rules_shell", version = "0.8.0", repo_name = "rules_shell")
+bazel_dep(name = "bazel_skylib", version = "1.9.2", repo_name = "bazel_skylib")
 bazel_dep(name = "rules_foreign_cc", version = "0.15.1")
 bazel_dep(name = "aspect_rules_js", version = "2.6.0")
 bazel_dep(name = "aspect_rules_ts", version = "3.7.0")
-bazel_dep(name = "rules_cc", version = "0.2.16")
+bazel_dep(name = "rules_cc", version = "0.2.22")
 bazel_dep(name = "toolchains_llvm", version = "1.6.0")
-bazel_dep(name = "buildifier_prebuilt", version = "6.4.0")
+bazel_dep(name = "buildifier_prebuilt", version = "8.5.1.3")
 bazel_dep(name = "aspect_bazel_lib", version = "2.22.5")
 bazel_dep(name = "toolchains_buildbuddy", version = "0.0.4", repo_name = "io_buildbuddy_buildbuddy_toolchain")
 # FORKED for one attribute: `use_ld` on the gcc_toolchain tag.
@@ -90,31 +89,20 @@ archive_override(
     ],
 )
 
-single_version_override(
-    module_name = "rules_java",
-    patch_strip = 0,
-    patches = ["//third_party/patches/rules_java:openbsd_jni_header.patch"],
-)
-
-# VENDORED, not patched. rabbitmq/rules_erlang is ARCHIVED upstream -- last release 3.16.0,
-# roughly two years ago, and the repository states it is no longer maintained. The six local
-# fixes were therefore never going to land, which made the patch files a permanent tax: they
-# apply by context, break silently, and cannot express a design change.
-#
-# //third_party/rules_erlang is the 3.16.0 source with those six fixes already applied.
-# See //third_party/rules_erlang/VENDORING.md for the per-fix rationale and for how to diff
-# this tree against upstream 3.16.0.
-local_path_override(
+# Pinned by commit so the pin is immutable. Not yet on the Bazel Central
+# Registry -- drop this override once it is published and the bazel_dep above resolves on its own.
+git_override(
     module_name = "rules_erlang",
-    path = "third_party/rules_erlang",
+    commit = "3a2534057cf8e43157fc1ef18412f9be20b146f4",
+    remote = "https://github.com/bazelverse/rules_erlang.git",
 )
 
-# VENDORED, not patched -- same reasoning as rules_erlang above. //third_party/rules_elixir
-# is the 1.1.0 source with its six local fixes already applied; the per-fix rationale lives
-# in //third_party/rules_elixir/VENDORING.md.
-local_path_override(
+# Pinned by commit so the pin is immutable. Not yet on the Bazel Central
+# Registry -- drop this override once it is published and the bazel_dep above resolves on its own.
+git_override(
     module_name = "rules_elixir",
-    path = "third_party/rules_elixir",
+    commit = "ee1e69b9c8165d301f66fdd13b025d6c54a24ac1",
+    remote = "https://github.com/bazelverse/rules_elixir.git",
 )
 
 # --- Hex packages ------------------------------------------------------------
@@ -199,34 +187,6 @@ aya_ebpf_ext.bpf_linker(
     archive_extension = "tar.zst",
     sha256 = "4dda77daab6c5f120a468e6d3ede2498f5bd47ece712172cfb7290176d93d015",
     version = "0.10.4",
-)
-
-# --- Java Toolchain  ----------------------------------
-
-java = use_extension("@rules_java//java:extensions.bzl", "toolchains")
-use_repo(
-    java,
-    "local_jdk",
-    "remote_java_tools",
-    "remote_java_tools_darwin_arm64",
-    "remote_java_tools_darwin_x86_64",
-    "remote_java_tools_linux",
-    "remote_java_tools_windows",
-    "remotejdk11_linux",
-    "remotejdk11_macos",
-    "remotejdk11_macos_aarch64",
-)
-
-register_toolchains(
-    "@remote_java_tools//:all",
-    "@remote_java_tools_linux//:all",
-    "@remote_java_tools_darwin_x86_64//:all",
-    "@remote_java_tools_darwin_arm64//:all",
-    "@remote_java_tools_windows//:all",
-    "@local_jdk//:all",
-    "@remotejdk11_linux//:all",
-    "@remotejdk11_macos//:all",
-    "@remotejdk11_macos_aarch64//:all",
 )
 
 # --- Python toolchain (hermetic for all platforms) -------------------
@@ -617,11 +577,6 @@ use_repo(
 go_deps = use_extension(
     "@bazel_gazelle//:extensions.bzl",
     "go_deps",
-)
-go_deps.module_override(
-    patch_strip = 1,
-    patches = ["//third_party/patches:go-spiffe-go-proto.patch"],
-    path = "github.com/spiffe/go-spiffe/v2",
 )
 go_deps.gazelle_override(
     build_file_generation = "on",
