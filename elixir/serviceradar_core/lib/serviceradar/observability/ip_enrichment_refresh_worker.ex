@@ -30,6 +30,7 @@ defmodule ServiceRadar.Observability.IpEnrichmentRefreshWorker do
   alias ServiceRadar.Observability.IpIpinfoCache
   alias ServiceRadar.Observability.IpRdnsCache
   alias ServiceRadar.Observability.NetflowSettings
+  alias ServiceRadar.Observability.ReverseDns
   alias ServiceRadar.Observability.SRQLRunner
   alias ServiceRadar.Repo
   alias ServiceRadar.SweepJobs.ObanSupport
@@ -415,47 +416,10 @@ defmodule ServiceRadar.Observability.IpEnrichmentRefreshWorker do
   end
 
   defp rdns_lookup(ip, timeout_ms) when is_binary(ip) and is_integer(timeout_ms) do
-    case parse_ip(ip) do
-      {:ok, ip_tuple} ->
-        task = Task.async(fn -> reverse_dns(ip_tuple) end)
-
-        case Task.yield(task, timeout_ms) || Task.shutdown(task, :brutal_kill) do
-          {:ok, {:ok, hostname}} ->
-            {to_string(hostname), "ok", nil}
-
-          {:ok, {:error, reason}} ->
-            {nil, "error", inspect(reason)}
-
-          nil ->
-            {nil, "timeout", "timeout"}
-        end
-
-      {:error, reason} ->
-        {nil, "error", reason}
-    end
+    ReverseDns.lookup_status(ip, timeout_ms: timeout_ms)
   end
 
   defp rdns_lookup(_ip, _timeout_ms), do: {nil, "error", "invalid_ip"}
-
-  defp reverse_dns(ip_tuple) do
-    # Uses system resolver; wrapped in a strict timeout at the process level.
-    case :inet.gethostbyaddr(ip_tuple) do
-      {:ok, {:hostent, hostname, _aliases, _addrtype, _len, _addrs}} ->
-        {:ok, hostname}
-
-      {:error, reason} ->
-        {:error, reason}
-    end
-  end
-
-  defp parse_ip(ip) when is_binary(ip) do
-    ip = ip |> String.trim() |> String.split("/", parts: 2) |> List.first()
-
-    case :inet.parse_address(String.to_charlist(ip)) do
-      {:ok, tuple} -> {:ok, tuple}
-      {:error, _} -> {:error, "invalid_ip"}
-    end
-  end
 
   defp private_ip?(ip) when is_binary(ip) do
     ip = normalize_ip_string(ip)

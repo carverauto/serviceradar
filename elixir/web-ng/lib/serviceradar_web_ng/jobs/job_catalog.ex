@@ -18,6 +18,7 @@ defmodule ServiceRadarWebNG.Jobs.JobCatalog do
   alias ServiceRadar.Edge.OnboardingPackage
   alias ServiceRadar.Integrations.ArmisNorthboundRunWorker
   alias ServiceRadar.Integrations.IntegrationSource
+  alias ServiceRadar.Inventory.DeviceHostnameRdnsSettings
   alias ServiceRadar.Monitoring.Alert
   alias ServiceRadar.Monitoring.PollingSchedule
   alias ServiceRadar.Monitoring.ServiceCheck
@@ -226,7 +227,8 @@ defmodule ServiceRadarWebNG.Jobs.JobCatalog do
       PollingSchedule,
       ServiceCheck,
       Alert,
-      OnboardingPackage
+      OnboardingPackage,
+      DeviceHostnameRdnsSettings
     ]
   end
 
@@ -587,6 +589,8 @@ defmodule ServiceRadarWebNG.Jobs.JobCatalog do
   defp resource_description(Alert), do: "Sends alert notifications for active alert rules"
 
   defp resource_description(OnboardingPackage), do: "Expires edge onboarding packages"
+
+  defp resource_description(DeviceHostnameRdnsSettings), do: "Resolves reverse-DNS hostnames onto inventory devices"
 
   defp resource_description(_), do: "Executes scheduled actions for Ash resources"
 

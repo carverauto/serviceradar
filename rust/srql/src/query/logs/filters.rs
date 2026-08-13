@@ -539,6 +539,10 @@ mod tests {
             sql.contains("platform.discovered_interfaces"),
             "device_id should match discovered interface IPs, got: {sql}"
         );
+        assert!(
+            !sql.contains("ILIKE"),
+            "device_id must not scan log attributes with ILIKE, got: {sql}"
+        );
     }
 
     #[test]

@@ -61,6 +61,12 @@ defmodule ServiceRadarWebNG.Dashboards.SystemReports do
     end
   end
 
+  @spec new_devices_query() :: String.t()
+  def new_devices_query, do: @new_devices_query
+
+  @spec new_devices_slug() :: String.t()
+  def new_devices_slug, do: @new_devices_slug
+
   @spec seed_all(keyword()) :: {:ok, [AuthoredDashboard.t()]} | {:error, term()}
   def seed_all(opts \\ []) do
     if repo_enabled?() do

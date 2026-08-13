@@ -16,6 +16,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
     ]
 
   alias ServiceRadar.Inventory.DevicePubSub
+  alias ServiceRadarWebNG.Dashboards.SystemReports
   alias ServiceRadarWebNGWeb.DeviceLive.IndexData
   alias ServiceRadarWebNGWeb.DeviceLive.IndexEvents
   alias ServiceRadarWebNGWeb.DeviceLive.IndexView
@@ -35,7 +36,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
 
     {:ok,
      socket
-     |> assign(:page_title, "Devices")
+     |> assign(:page_title, page_title(socket.assigns.live_action))
      |> assign(:devices, [])
      |> assign(:icmp_sparklines, %{})
      |> assign(:icmp_error, nil)
@@ -98,6 +99,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
 
   @impl true
   def handle_params(params, uri, socket) do
+    params = maybe_put_new_devices_query(socket.assigns.live_action, params)
+
     {:noreply,
      socket
      |> cancel_device_refresh_timer()
@@ -218,4 +221,19 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
 
   @impl true
   def render(assigns), do: IndexView.render(assigns)
+
+  defp page_title(:new_devices), do: "New devices"
+  defp page_title(_live_action), do: "Devices"
+
+  defp maybe_put_new_devices_query(:new_devices, params) do
+    query = Map.get(params, "q")
+
+    if is_binary(query) and String.trim(query) != "" do
+      params
+    else
+      Map.put(params, "q", SystemReports.new_devices_query())
+    end
+  end
+
+  defp maybe_put_new_devices_query(_live_action, params), do: params
 end

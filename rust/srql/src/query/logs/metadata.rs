@@ -20,27 +20,6 @@ pub(super) const LOG_DEVICE_IDENTITY_KEYS: &[&str] = &[
     "uid",
     "id",
 ];
-const LOG_DEVICE_HOST_KEYS: &[&str] = &[
-    "host",
-    "hostname",
-    "host.name",
-    "source.host",
-    "source.hostname",
-    "source.ip",
-    "ip",
-];
-const DEVICE_INVENTORY_ALIAS_EXPRESSIONS: &[&str] = &[
-    "d.uid",
-    "d.uid_alt",
-    "d.hostname",
-    "d.name",
-    "d.ip",
-    "d.metadata->>'sys_name'",
-    "d.metadata->>'snmp_name'",
-    "d.metadata->>'controller_name'",
-    "d.metadata->>'unifi_device_id'",
-    "d.metadata->>'device_id'",
-];
 
 pub(super) fn apply_metadata_identity_filter<'a>(
     query: LogsQuery<'a>,
@@ -69,11 +48,12 @@ pub(super) fn apply_metadata_identity_filter<'a>(
     let mut clauses = Vec::new();
 
     for value in values {
-        clauses.push(metadata_identity_clause(&value, keys));
-
-        if keys == LOG_DEVICE_IDENTITY_KEYS {
-            clauses.push(metadata_identity_clause(&value, LOG_DEVICE_HOST_KEYS));
+        if keys == LOG_DEVICE_IDENTITY_KEYS && device_id_field(&filter.field) {
+            // Device pages query device_id:<uid>. Attribute ILIKE over last_24h
+            // logs times out; match syslog source columns and inventory IPs only.
             clauses.push(device_inventory_identity_clause(&value));
+        } else {
+            clauses.push(metadata_identity_clause(&value, keys));
         }
     }
 
@@ -111,25 +91,24 @@ fn metadata_identity_clause(value: &str, keys: &[&str]) -> String {
     format!("({})", clauses.join(" OR "))
 }
 
+fn device_id_field(field: &str) -> bool {
+    matches!(field, "device_id" | "uid")
+}
+
 fn device_inventory_identity_clause(value: &str) -> String {
     let device_value = sql_string_literal(value);
-    let alias_values = DEVICE_INVENTORY_ALIAS_EXPRESSIONS
-        .iter()
-        .map(|expr| format!("({expr})"))
-        .collect::<Vec<_>>()
-        .join(", ");
 
     format!(
         "EXISTS (\
            SELECT 1 \
            FROM platform.ocsf_devices AS d \
-           CROSS JOIN LATERAL (\
-             SELECT DISTINCT NULLIF(BTRIM(alias_value), '') AS alias_value \
-             FROM (VALUES {alias_values}) AS aliases(alias_value)\
-           ) AS device_alias \
            WHERE (d.uid = {device_value} OR d.uid_alt = {device_value}) \
-             AND device_alias.alias_value IS NOT NULL \
-             AND ({}) \
+             AND ( \
+               (logs.source_ip IS NOT NULL AND logs.source_ip = d.ip) \
+               OR (logs.source IS NOT NULL AND logs.source = d.ip) \
+               OR (logs.source IS NOT NULL AND logs.source = d.hostname) \
+               OR (logs.source IS NOT NULL AND logs.source = d.name) \
+             ) \
          ) OR EXISTS (\
            SELECT 1 \
            FROM platform.device_identifiers AS di \
@@ -148,54 +127,8 @@ fn device_inventory_identity_clause(value: &str) -> String {
                (logs.source_ip IS NOT NULL AND logs.source_ip = if_ip) \
                OR (logs.source_ip IS NOT NULL AND logs.source_ip = di_if.device_ip) \
              ) \
-         )",
-        device_alias_log_match_clause("device_alias.alias_value")
+         )"
     )
-}
-
-fn device_alias_log_match_clause(alias_expr: &str) -> String {
-    let escaped_alias = format!(
-        "replace(replace(replace({alias_expr}, E'\\\\', E'\\\\\\\\'), '%', E'\\\\%'), '_', E'\\\\_')"
-    );
-
-    let mut clauses = Vec::new();
-
-    for key in LOG_DEVICE_HOST_KEYS
-        .iter()
-        .chain(LOG_DEVICE_IDENTITY_KEYS.iter())
-    {
-        let key_pattern = escape_like_fragment(key);
-
-        clauses.push(format!(
-            "COALESCE(resource_attributes, '') ILIKE ('%\"{key_pattern}\"%\"' || {escaped_alias} || '\"%') ESCAPE '\\'"
-        ));
-        clauses.push(format!(
-            "COALESCE(attributes, '') ILIKE ('%\"{key_pattern}\"%\"' || {escaped_alias} || '\"%') ESCAPE '\\'"
-        ));
-        clauses.push(format!(
-            "COALESCE(resource_attributes, '') ILIKE ('%{key_pattern}=' || {escaped_alias} || '%') ESCAPE '\\'"
-        ));
-        clauses.push(format!(
-            "COALESCE(attributes, '') ILIKE ('%{key_pattern}=' || {escaped_alias} || '%') ESCAPE '\\'"
-        ));
-    }
-
-    clauses.push(format!(
-        "COALESCE(body, '') ILIKE ({escaped_alias} || ' %') ESCAPE '\\'"
-    ));
-    clauses.push(format!(
-        "COALESCE(body, '') ILIKE ({escaped_alias} || ':%') ESCAPE '\\'"
-    ));
-    // Syslog ingest stores the emitter on logs.source_ip / logs.source,
-    // not device_id attributes. Device pages query device_id:<uid>.
-    clauses.push(format!(
-        "(logs.source_ip IS NOT NULL AND logs.source_ip = {alias_expr})"
-    ));
-    clauses.push(format!(
-        "(logs.source IS NOT NULL AND logs.source = {alias_expr})"
-    ));
-
-    clauses.join(" OR ")
 }
 
 fn escape_like_fragment(value: &str) -> String {

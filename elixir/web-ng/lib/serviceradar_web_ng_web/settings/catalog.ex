@@ -725,6 +725,26 @@ defmodule ServiceRadarWebNGWeb.Settings.Catalog do
       hidden_from_nav: false
     },
     %{
+      id: :device_hostname_rdns,
+      category: :network_services,
+      parent_group: :net_discovery,
+      subgroup: nil,
+      title: "Device Hostnames",
+      description: "Schedule reverse-DNS lookups that fill device hostnames.",
+      icon: "hero-globe-alt",
+      route: "/settings/networks/hostname-rdns",
+      live_view: ServiceRadarWebNGWeb.Settings.DeviceHostnameRdnsLive,
+      permission: "settings.networks.manage",
+      order: 55,
+      has_own_stats: false,
+      feature_flag: nil,
+      capability: nil,
+      match_prefixes: nil,
+      keywords: ["hostname", "rdns", "ptr", "dns", "reverse", "devices"],
+      badge: nil,
+      hidden_from_nav: false
+    },
+    %{
       id: :availability_sources,
       category: :network_services,
       parent_group: :net_discovery,
