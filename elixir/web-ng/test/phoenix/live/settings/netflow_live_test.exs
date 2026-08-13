@@ -26,6 +26,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetflowLiveTest do
     {:ok, _lv, html} = live(conn, ~p"/settings/flows/new")
 
     assert html =~ "Map Anchor (optional)"
+
     assert html =~ "Click the map to set coordinates" or
              html =~ "Configure Mapbox under Settings → Integrations"
   end

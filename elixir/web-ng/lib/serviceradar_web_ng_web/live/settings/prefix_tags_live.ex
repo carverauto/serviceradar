@@ -506,8 +506,7 @@ defmodule ServiceRadarWebNGWeb.Settings.PrefixTagsLive do
                   />
                   <p class="text-xs text-sr-muted">
                     Site, role, tenant, and status become tags automatically
-                    (<span class="font-mono">site:hq</span>,
-                    <span class="font-mono">role:wifi</span>, …). Use this box only for
+                    (<span class="font-mono">site:hq</span>, <span class="font-mono">role:wifi</span>, …). Use this box only for
                     additional tags. Fill at least one structured field or one extra tag.
                     See
                     <a
