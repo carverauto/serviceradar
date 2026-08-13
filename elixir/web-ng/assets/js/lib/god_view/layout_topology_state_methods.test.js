@@ -547,6 +547,55 @@ describe("layout_topology_state_methods", () => {
     expect(members.every((node) => Math.hypot(node.x - 380, node.y - 220) > 150)).toEqual(true)
   })
 
+  it("applyEndpointProjectionLayout fans expanded members into a spaced side grid", () => {
+    const context = makeContext()
+    const memberIds = Array.from({length: 42}, (_, index) => `endpoint-${index + 1}`)
+    const graph = {
+      nodes: [
+        {id: "anchor", x: 200, y: 240, details: {cluster_id: "cluster:endpoints:test", cluster_kind: "endpoint-anchor", cluster_expanded: true}},
+        {id: "summary", x: 0, y: 0, details: {cluster_id: "cluster:endpoints:test", cluster_kind: "endpoint-summary", cluster_expanded: true}},
+        ...memberIds.map((id) => ({
+          id,
+          x: 0,
+          y: 0,
+          details: {cluster_id: "cluster:endpoints:test", cluster_kind: "endpoint-member", cluster_expanded: true},
+        })),
+      ],
+      edges: [],
+    }
+    const clusterLayout = {
+      groups: [
+        {
+          clusterId: "cluster:endpoints:test",
+          anchorNodeId: "anchor",
+          parentNodeId: null,
+          summaryNodeId: "summary",
+          memberNodeIds: memberIds,
+          slotIndex: 0,
+          slotCount: 1,
+          expanded: true,
+        },
+      ],
+    }
+
+    const out = context.applyEndpointProjectionLayout(graph, clusterLayout)
+    const members = out.nodes.filter((node) => String(node.id).startsWith("endpoint-"))
+    const xs = new Set(members.map((node) => Math.round(node.x)))
+    const ys = new Set(members.map((node) => Math.round(node.y)))
+    let minPair = Infinity
+    for (let i = 0; i < members.length; i += 1) {
+      for (let j = i + 1; j < members.length; j += 1) {
+        minPair = Math.min(minPair, Math.hypot(members[i].x - members[j].x, members[i].y - members[j].y))
+      }
+    }
+
+    expect(members).toHaveLength(42)
+    expect(xs.size).toBeGreaterThan(3)
+    expect(ys.size).toBeGreaterThan(3)
+    expect(minPair).toBeGreaterThan(60)
+    expect(members.every((node) => node.x > 200)).toEqual(true)
+  })
+
   it("requiresFullElkLayout detects endpoint-heavy graphs", () => {
     const context = makeContext()
     const graph = {

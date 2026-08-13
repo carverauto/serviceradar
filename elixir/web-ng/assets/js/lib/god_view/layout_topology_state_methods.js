@@ -1248,14 +1248,14 @@ export const godViewLayoutTopologyStateMethods = {
 
       if (!cluster.expanded || cluster.memberNodeIds.length === 0) continue
 
-      const metrics = this.expandedClusterSpiralMetrics(cluster.memberNodeIds.length)
+      const metrics = this.expandedClusterGridMetrics(cluster.memberNodeIds.length)
 
       for (let memberIndex = 0; memberIndex < cluster.memberNodeIds.length; memberIndex += 1) {
         const memberId = cluster.memberNodeIds[memberIndex]
         const graphIndex = nodeIndexById.get(memberId)
         if (!Number.isInteger(graphIndex)) continue
 
-        const offset = this.expandedClusterSpiralOffset(memberIndex, metrics, memberId)
+        const offset = this.expandedClusterGridOffset(memberIndex, metrics)
         const rotated = rotatePoint(offset.x, offset.y, clusterAngle)
         nodes[graphIndex] = {
           ...nodes[graphIndex],
@@ -1391,34 +1391,35 @@ export const godViewLayoutTopologyStateMethods = {
   },
   endpointProjectionHubDistance(memberCount, expanded, clearanceDistance = 0) {
     const count = Math.max(1, Number(memberCount || 1))
-    const base = expanded ? 156 : 82
-    const intrinsic = base + Math.min(72, Math.sqrt(count) * (expanded ? 18 : 9))
+    const base = expanded ? 168 : 82
+    const intrinsic = base + Math.min(96, Math.sqrt(count) * (expanded ? 16 : 9))
     return Math.max(intrinsic, Number(clearanceDistance || 0))
   },
-  expandedClusterSpiralMetrics(memberCount) {
+  expandedClusterGridMetrics(memberCount) {
     const count = Math.max(1, Number(memberCount || 1))
+    const columns = Math.min(7, Math.max(3, Math.ceil(Math.sqrt(count))))
+    const rows = Math.max(1, Math.ceil(count / columns))
     return {
-      forwardBase: 42 + Math.sqrt(count) * 14,
-      baseRadius: 18,
-      radiusStep: 34,
-      angleStep: 1.02,
-      lateralScale: 1.14,
+      columns,
+      rows,
+      colGap: 88,
+      rowGap: 66,
+      originX: 96,
     }
   },
-  expandedClusterSpiralOffset(memberIndex, metrics, memberId) {
+  expandedClusterGridOffset(memberIndex, metrics) {
     const idx = Math.max(0, Number(memberIndex || 0))
-    const radius = metrics.baseRadius + metrics.radiusStep * Math.sqrt(idx + 1)
-    const theta = idx * metrics.angleStep + this.endpointAngleOffset(memberId) * 0.12
+    const columns = Math.max(1, Number(metrics?.columns || 1))
+    const rows = Math.max(1, Number(metrics?.rows || 1))
+    const colGap = Number(metrics?.colGap || 88)
+    const rowGap = Number(metrics?.rowGap || 66)
+    const originX = Number(metrics?.originX || 96)
+    const col = idx % columns
+    const row = Math.floor(idx / columns)
     return {
-      x: metrics.forwardBase + radius * (1 + Math.cos(theta)) * 0.82,
-      y: metrics.lateralScale * radius * Math.sin(theta),
+      x: originX + col * colGap,
+      y: -(((rows - 1) * rowGap) / 2) + row * rowGap,
     }
-  },
-  endpointAngleOffset(value) {
-    const text = String(value || "")
-    let hash = 0
-    for (let i = 0; i < text.length; i += 1) hash = ((hash << 5) - hash + text.charCodeAt(i)) | 0
-    return ((hash % 360) * Math.PI) / 180
   },
   graphTopologyStamp(graph) {
     if (!graph || !Array.isArray(graph.nodes) || !Array.isArray(graph.edges)) return "0:0"
