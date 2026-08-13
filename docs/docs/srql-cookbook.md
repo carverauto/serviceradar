@@ -24,6 +24,15 @@ in:devices sort:last_seen:desc limit:25
 
 The 25 devices that checked in most recently.
 
+### List newly added devices
+
+```srql
+in:devices first_seen:last_30d sort:first_seen:desc limit:200
+```
+
+Devices first discovered in the last 30 days. `time:last_30d` still means
+last seen, not first seen.
+
 ### Find a device by hostname
 
 ```srql

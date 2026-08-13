@@ -294,6 +294,7 @@ subsection heading matches the `in:` name used to select the entity.
 | `is_available` | `available` | Currently reachable (`true`/`false`) |
 | `is_active` | `active` | Lifecycle state (`true`/`false`) |
 | `discovery_sources` | | Sources that discovered the device (array; list form) |
+| `first_seen` | `first_seen_time` | When the device was first added. Accepts the same window tokens as `time:` (`last_7d`, `last_30d`, `today`, `[start,end]`). This does **not** change `time:`, which still filters `last_seen_time`. |
 | `tags` | | Device tags (JSONB map). Bare `tags:<key>` tests whether the key exists; list form `tags:(a,b)` matches any of them. Sub-key form: `tags.<key>:<value>` |
 | `metadata.<key>` | | Match an arbitrary metadata key, e.g. `metadata.integration_type:armis` |
 

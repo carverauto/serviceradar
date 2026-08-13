@@ -138,7 +138,7 @@ other ServiceRadar features can use the same user groups over time.
 
 Reports are authored SRQL dashboards, not a separate sidebar product. The
 dashboard library has a **Reports** section for system reports such as **New
-devices** (inventory sorted by first seen). Device pages also show **Added**
+devices** (`in:devices first_seen:last_30d`). Device pages also show **Added**
 next to Last Seen.
 
 Dashboards can be emailed on a schedule when outbound mail is configured under

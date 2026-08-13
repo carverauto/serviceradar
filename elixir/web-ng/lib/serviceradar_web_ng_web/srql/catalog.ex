@@ -202,6 +202,8 @@ defmodule ServiceRadarWebNGWeb.SRQL.Catalog do
       # `discovery_sources:(awx)`) instead of guessing `%awx%`. Static by design:
       # never run `SELECT DISTINCT` per keystroke.
       known_values: %{
+        "first_seen" => ["last_7d", "last_30d", "last_90d", "today"],
+        "first_seen_time" => ["last_7d", "last_30d", "last_90d", "today"],
         "discovery_sources" => [
           "agent",
           "sweep",

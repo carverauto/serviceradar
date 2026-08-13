@@ -74,6 +74,8 @@ defmodule ServiceRadarWebNGWeb.SRQL.BuilderTest do
     assert "armis" in devices.known_values["discovery_sources"]
     refute "example-inventory" in devices.known_values["discovery_sources"]
     refute Enum.any?(devices.filter_fields, &String.contains?(&1, "example_inventory"))
+    assert "first_seen" in devices.filter_fields
+    assert "last_30d" in devices.known_values["first_seen"]
   end
 
   test "flows catalog includes device_id used by device-scoped explorer links" do

@@ -19,6 +19,9 @@ defmodule ServiceRadarWebNG.Dashboards.SystemReports do
   @seed_delay_ms 7_000
   @retry_delay_ms 30_000
   @new_devices_slug "new-devices"
+  @new_devices_query "in:devices first_seen:last_30d sort:first_seen:desc limit:200"
+  @new_devices_description "Devices first seen in the last 30 days. Schedule this dashboard to email the list."
+  @new_devices_panel_title "Recently added devices"
 
   @spec child_spec(keyword()) :: Supervisor.child_spec()
   def child_spec(opts) do
@@ -74,7 +77,7 @@ defmodule ServiceRadarWebNG.Dashboards.SystemReports do
   @spec ensure_new_devices_report(map()) :: {:ok, AuthoredDashboard.t()} | {:error, term()}
   def ensure_new_devices_report(actor) do
     case existing_new_devices_report(actor) do
-      {:ok, dashboard} -> {:ok, dashboard}
+      {:ok, dashboard} -> reconcile_new_devices_report(actor, dashboard)
       {:error, :not_found} -> create_new_devices_report(actor)
       {:error, reason} -> {:error, reason}
     end
@@ -103,11 +106,11 @@ defmodule ServiceRadarWebNG.Dashboards.SystemReports do
     attrs = %{
       dashboard_ref: Enum.random(1_000_000..9_999_999),
       title: "New devices",
-      description: "Inventory added most recently. Schedule this dashboard to email the list.",
+      description: @new_devices_description,
       slug: @new_devices_slug,
       visibility: :public,
       status: :active,
-      default_time_range: "last_90d",
+      default_time_range: "last_30d",
       metadata: %{
         "system_report" => true,
         "report_kind" => "new_devices"
@@ -129,12 +132,60 @@ defmodule ServiceRadarWebNG.Dashboards.SystemReports do
     end
   end
 
+  defp reconcile_new_devices_report(actor, dashboard) do
+    with {:ok, dashboard} <- maybe_update_new_devices_dashboard(actor, dashboard) do
+      maybe_update_new_devices_panel(actor, dashboard)
+    end
+  end
+
+  defp maybe_update_new_devices_dashboard(actor, dashboard) do
+    attrs =
+      %{}
+      |> maybe_put(:description, dashboard.description, @new_devices_description)
+      |> maybe_put(:default_time_range, dashboard.default_time_range, "last_30d")
+
+    if attrs == %{} do
+      {:ok, dashboard}
+    else
+      dashboard
+      |> Ash.Changeset.for_update(:update, attrs)
+      |> Ash.update(actor: actor)
+    end
+  end
+
+  defp maybe_update_new_devices_panel(actor, dashboard) do
+    case List.first(List.wrap(dashboard.panels)) do
+      nil ->
+        create_new_devices_panel(actor, dashboard)
+
+      panel ->
+        attrs =
+          %{}
+          |> maybe_put(:srql_query, panel.srql_query, @new_devices_query)
+          |> maybe_put(:title, panel.title, @new_devices_panel_title)
+
+        if attrs == %{} do
+          {:ok, dashboard}
+        else
+          case panel
+               |> Ash.Changeset.for_update(:update, attrs)
+               |> Ash.update(actor: actor) do
+            {:ok, _panel} -> {:ok, dashboard}
+            {:error, reason} -> {:error, reason}
+          end
+        end
+    end
+  end
+
+  defp maybe_put(attrs, _key, current, expected) when current == expected, do: attrs
+  defp maybe_put(attrs, key, _current, expected), do: Map.put(attrs, key, expected)
+
   defp create_new_devices_panel(actor, dashboard) do
     case DashboardPanel
          |> Ash.Changeset.for_create(:create, %{
            dashboard_id: dashboard.id,
-           title: "Newest devices",
-           srql_query: "in:devices sort:first_seen:desc limit:200",
+           title: @new_devices_panel_title,
+           srql_query: @new_devices_query,
            visual_type: :table,
            position: 0
          })

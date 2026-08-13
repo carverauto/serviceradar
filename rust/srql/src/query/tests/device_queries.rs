@@ -998,3 +998,96 @@ fn devices_grouped_stats_apply_the_documented_limits() {
         "an ungrouped query whose alias is `by` must retain the global default"
     );
 }
+
+#[test]
+fn devices_first_seen_relative_window_filters_first_seen_time() {
+    let query = "in:devices first_seen:last_7d sort:first_seen:desc limit:20";
+    let plan = plan_for(query);
+
+    assert!(plan.time_range.is_none(), "first_seen must not reuse time:");
+    assert!(
+        plan.filters
+            .iter()
+            .any(|filter| filter.field == "first_seen" && matches!(filter.op, FilterOp::Eq))
+    );
+    assert_eq!(plan.order[0].field, "first_seen");
+
+    let (sql, params) = devices::to_sql_and_params(&plan).expect("should build first_seen SQL");
+    let lower = sql.to_lowercase();
+    assert!(
+        lower.contains("\"first_seen_time\" >= $1") && lower.contains("\"first_seen_time\" <= $2"),
+        "expected first_seen_time window, got: {sql}"
+    );
+    assert!(
+        !lower.contains("\"last_seen_time\" >=") && !lower.contains("\"last_seen_time\" <="),
+        "first_seen must not filter last_seen_time, got: {sql}"
+    );
+
+    let timestamps: Vec<_> = params
+        .iter()
+        .filter_map(|param| match param {
+            BindParam::Timestamptz(value) => Some(value.as_str()),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(
+        timestamps.len(),
+        2,
+        "expected start/end first_seen binds, got: {params:?}"
+    );
+
+    let start = chrono::DateTime::parse_from_rfc3339(timestamps[0])
+        .expect("start bind should be rfc3339")
+        .with_timezone(&chrono::Utc);
+    let end = chrono::DateTime::parse_from_rfc3339(timestamps[1])
+        .expect("end bind should be rfc3339")
+        .with_timezone(&chrono::Utc);
+    assert_eq!(end.signed_duration_since(start), ChronoDuration::days(7));
+}
+
+#[test]
+fn devices_first_seen_time_alias_matches_first_seen() {
+    let plan = plan_for("in:devices first_seen_time:last_30d");
+    let (sql, params) = devices::to_sql_and_params(&plan).expect("should build first_seen_time SQL");
+    assert!(
+        sql.to_lowercase().contains("first_seen_time"),
+        "expected first_seen_time window, got: {sql}"
+    );
+    let timestamps = params
+        .iter()
+        .filter(|param| matches!(param, BindParam::Timestamptz(_)))
+        .count();
+    assert_eq!(
+        timestamps, 2,
+        "expected two first_seen binds, got: {params:?}"
+    );
+}
+
+#[test]
+fn devices_stats_first_seen_filters_grouped_query() {
+    let plan = plan_for("in:devices first_seen:last_7d stats:count() as total by type limit:10");
+    let (sql, params) = devices::to_sql_and_params(&plan).expect("should build grouped first_seen SQL");
+    let lower = sql.to_lowercase();
+    assert!(
+        lower.contains("first_seen_time >= $") && lower.contains("first_seen_time <= $"),
+        "expected grouped stats first_seen window, got: {sql}"
+    );
+    assert!(
+        params
+            .iter()
+            .filter(|param| matches!(param, BindParam::Timestamptz(_)))
+            .count()
+            >= 2,
+        "expected first_seen timestamp binds, got: {params:?}"
+    );
+}
+
+#[test]
+fn devices_first_seen_rejects_comparison_operators() {
+    let plan = plan_for("in:devices first_seen:>=last_7d");
+    let err = devices::to_sql_and_params(&plan).expect_err("comparison ops are not first_seen windows");
+    assert!(
+        err.to_string().contains("first_seen"),
+        "expected first_seen operator error, got: {err}"
+    );
+}
