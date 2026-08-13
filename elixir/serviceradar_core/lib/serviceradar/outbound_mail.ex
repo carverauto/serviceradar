@@ -312,8 +312,8 @@ defmodule ServiceRadar.OutboundMail do
       is_nil(adapter) ->
         {:error,
          {:mailer_not_configured,
-          "no outbound mail adapter is configured; set SERVICERADAR_MAILER_ADAPTER=smtp with " <>
-            "SMTP_RELAY_HOST, or enable outbound mail in Settings > Mail"}}
+          "outbound mail is not configured; open Settings > Mail, enable outbound mail, " <>
+            "and choose SMTP (or another delivering adapter)"}}
 
       adapter in @non_delivering_adapters ->
         {:error, {:non_delivering_adapter, non_delivering_message(adapter)}}
@@ -361,16 +361,14 @@ defmodule ServiceRadar.OutboundMail do
 
   defp non_delivering_message(Test) do
     "the mailer resolves to Swoosh.Adapters.Test, which reports every send as " <>
-      "successful and delivers nothing; set SERVICERADAR_MAILER_ADAPTER=smtp with " <>
-      "SMTP_RELAY_HOST (and SMTP_RELAY_PORT / SMTP_RELAY_USERNAME / SMTP_RELAY_PASSWORD " <>
-      "as the relay requires), or enable outbound mail in Settings > Mail"
+      "successful and delivers nothing; open Settings > Mail, enable outbound mail, " <>
+      "set Adapter to SMTP, and fill the relay"
   end
 
   defp non_delivering_message(_local) do
     "the mailer resolves to Swoosh.Adapters.Local, the in-memory development " <>
       "mailbox: it reports every send as successful and no mail leaves this deployment; " <>
-      "unset SERVICERADAR_LOCAL_MAILER and set SERVICERADAR_MAILER_ADAPTER=smtp with " <>
-      "SMTP_RELAY_HOST, or enable outbound mail in Settings > Mail"
+      "open Settings > Mail, enable outbound mail, set Adapter to SMTP, and fill the relay"
   end
 
   # `gen_smtp` is swoosh's *optional* dependency, so `Swoosh.Adapters.SMTP`
@@ -387,8 +385,8 @@ defmodule ServiceRadar.OutboundMail do
       blank?(Keyword.get(config, :relay)) ->
         {:error,
          {:smtp_relay_missing,
-          "Swoosh.Adapters.SMTP is configured with no relay host; set SMTP_RELAY_HOST, " <>
-            "or set the relay in Settings > Mail"}}
+          "Swoosh.Adapters.SMTP is configured with no relay host; open Settings > Mail " <>
+            "and set SMTP relay / endpoint"}}
 
       true ->
         :ok

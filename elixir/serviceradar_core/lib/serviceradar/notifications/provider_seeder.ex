@@ -748,13 +748,17 @@ defmodule ServiceRadar.Notifications.ProviderSeeder do
         "cc" => %{
           "type" => "array",
           "title" => "Cc",
+          "description" => "Optional. Leave blank if you do not need carbon copies.",
           "items" => %{"type" => "string", "minLength" => 3, "maxLength" => 256},
+          "minItems" => 0,
           "maxItems" => 100
         },
         "bcc" => %{
           "type" => "array",
           "title" => "Bcc",
+          "description" => "Optional. Leave blank if you do not need blind carbon copies.",
           "items" => %{"type" => "string", "minLength" => 3, "maxLength" => 256},
+          "minItems" => 0,
           "maxItems" => 100
         },
         "from" => %{

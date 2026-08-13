@@ -272,6 +272,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NotificationsLive.Components do
       |> assign(:provider, assigns.form[:provider])
       |> assign(:config_contract, Contracts.config_contract(assigns.form[:provider]))
       |> assign(:warnings, assigns.form[:warnings] || [])
+      |> assign(:mailer_warning, assigns.form[:mailer_warning])
 
     ~H"""
     <.ui_panel>
@@ -413,6 +414,14 @@ defmodule ServiceRadarWebNGWeb.Settings.NotificationsLive.Components do
           <p :for={diagnostic <- @config_contract.diagnostics} class="mb-2 text-xs text-warning">
             {diagnostic}
           </p>
+          <div :if={@mailer_warning} class="mb-3 rounded-sr-surface border border-warning/40 bg-warning/10 p-3 text-sm text-warning">
+            <div class="font-medium">Outbound mail is not ready</div>
+            <p class="mt-1 text-xs">{@mailer_warning}</p>
+            <p class="mt-1 text-xs">
+              Email channels use the deployment mailer. Configure it under
+              Settings -&gt; Mail before sending.
+            </p>
+          </div>
           <PluginConfigForm.plugin_config_fields
             schema={@config_contract.schema}
             params={@form.config_params || %{}}
