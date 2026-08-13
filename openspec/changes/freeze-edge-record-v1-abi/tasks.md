@@ -72,9 +72,9 @@ PR. Compression is the NEXT PR.
 
 ### Estimate discipline
 
-The remaining freeze is NOT one to two weeks. SEVEN open parents and TWENTY-TWO unchecked
-named subtasks remain (1.3 and 1.17 are closed and do not count), including SEVEN of 1.5's
-FOURTEEN obligations. Fourteen, not eleven: three obligations the body carried had no subtask,
+The remaining freeze is NOT one to two weeks. SEVEN open parents and TWENTY-ONE unchecked
+named subtasks remain (1.3 and 1.17 are closed and do not count), including SIX of 1.5's
+FOURTEEN obligations -- 1.5-h closed and its residual-bounds admission is delivered. Fourteen, not eleven: three obligations the body carried had no subtask,
 and the exhaustiveness rule below requires one each -- 1.5-l (refusal classification), 1.5-m
 (Elixir framing parity for the lifecycle and recovery ingresses) and 1.5-n (the Elixir
 projected-cost comparison). COMPRESSION ADMISSION (1.5-f) IS CLOSED, and closing it released the
@@ -720,7 +720,7 @@ here.
   STATUS
   - LANDED: the enum-compatibility parity analysis and the Elixir `SemanticValidate` /
     `WireDecode` / `WireValidate` gates.
-  - REMAINING: 1.5-h..1.5-n. 1.5-a..1.5-g are CLOSED. The subtask list is
+  - REMAINING: 1.5-i..1.5-n. 1.5-a..1.5-h are CLOSED. The subtask list is
     exhaustive against this task's body -- see the EXHAUSTIVENESS note under the subtasks.
   - DEPENDS ON: 1.6-d, and ONLY for 1.5-m. That subtask adds the framing rule to Elixir's
     signed recovery-control path, and 1.6-d is what creates the path. Every other 1.5 subtask
@@ -1135,7 +1135,17 @@ here.
         prove only that a helper can refuse its own inputs.
         FIXTURES: 1.5-g's committed rows are SWEEP records and cannot serve these ingresses, so
         this subtask authors lifecycle and recovery-framing fixtures of its own.
-  - [ ] 1.5-h RESIDUAL DOMAIN-SEMANTIC bounds admission -- string, count, and relational.
+  - [x] 1.5-h RESIDUAL DOMAIN-SEMANTIC bounds admission -- string, count, and relational.
+        CLOSED. Delivered on `usp-41-bounds-impl` as five CORPUS AND FOLLOW-UP slices -- the
+        structural-count corpus, the scalar/carrier corpus, the lower bounds, the
+        transport-provenance guard, and the projected-cost relation with a DERIVED
+        six-proof-group inventory -- PLUS the earlier decision, count-stage hardening, zone-gate
+        and reconciliation commits this subtask also carried. The five are the corpus slices,
+        NOT the whole of 1.5-h. Every single-runtime
+        row names an owning subtask, and `TestProofGroupInventoryIsExact` REBUILDS that
+        inventory from the shared manifests rather than trusting this prose -- which is the
+        closure condition, mechanised. Five delegated bound sites (1.5-n, 1.6-c, 1.6-d x3) plus
+        the projected-cost relational group; none is awaited, each owner flips its own row.
         SCOPE IS RESIDUE, NOT AN INVENTORY. This subtask owns ONLY the per-family
         string/count/canonical-body limits that no other task owns, plus VERIFYING THE
         RELATION that a declared projected cost does not exceed the capability's declared
