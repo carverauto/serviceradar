@@ -514,7 +514,7 @@ func TestScalarSitePrincipalProducerContext(t *testing.T) {
 		e := validRecord(t)
 		e.GetProducerContext().OriginPrincipalId = id
 
-		// THE MATCHING CAPABILITY CLAIM MOVES WITH IT. `validateProductionGrant` compares
+		// THE MATCHING CAPABILITY CLAIM MOVES WITH IT. `validateProductionCapability` compares
 		// claims.origin_principal_id byte-for-byte against producer_context, so a record
 		// re-pointed on one side alone is refused for a CLAIM MISMATCH (ErrProductionGrant) --
 		// another rule's outcome standing in for the ceiling's.

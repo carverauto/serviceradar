@@ -278,6 +278,13 @@ jobs:
       - name: Edge structural-count corpus (Elixir)
         working-directory: elixir/serviceradar_core
         run: mix test --no-start test/serviceradar/edge/count_corpus_test.exs
+      # THE PROJECTED-COST RELATION: this runtime does not COMPARE these fields -- it digests
+      # them -- so the vectors are Go's and this gate asserts the SHAPE OF THE GAP instead:
+      # every conjunct Go-only, every one owned by 1.5-n, and the inclusivity half of each
+      # at_most relation preserved so a peer built later cannot inherit `>=`.
+      - name: Edge projected-cost relation (Elixir)
+        working-directory: elixir/serviceradar_core
+        run: mix test --no-start test/serviceradar/edge/projected_cost_corpus_test.exs
       # THE TRANSPORT-PROVENANCE GUARD: one bound, one testable site, and the obligation is the
       # STAGE rather than the refusal -- an oversize header and a malformed one are both
       # refused, so only a witness pair malformed IDENTICALLY and differing in length shows
