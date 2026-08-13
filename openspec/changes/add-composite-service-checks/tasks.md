@@ -142,7 +142,7 @@
       an agent is covered by every group assigned to it plus every unassigned
       group in its partition. There is no single profile to show, and picking
       one would misstate which ports are actually probed.
-- [ ] 8.8 Add the composite verdict section to device detail with the per-input
+- [x] 8.8 Add the composite verdict section to device detail with the per-input
       breakdown and unknown reasons stated rather than blank.
 - [ ] 8.9 Add the optional composite column and filter to the device list.
 - [x] 8.10 Enforce the `composite_checks` RBAC permissions in LiveView mount
