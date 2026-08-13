@@ -229,7 +229,6 @@
     "https://bcr.bazel.build/modules/rules_java/8.3.2/MODULE.bazel": "7336d5511ad5af0b8615fdc7477535a2e4e723a357b6713af439fe8cf0195017",
     "https://bcr.bazel.build/modules/rules_java/8.5.1/MODULE.bazel": "d8a9e38cc5228881f7055a6079f6f7821a073df3744d441978e7a43e20226939",
     "https://bcr.bazel.build/modules/rules_java/8.6.1/MODULE.bazel": "f4808e2ab5b0197f094cabce9f4b006a27766beb6a9975931da07099560ca9c2",
-    "https://bcr.bazel.build/modules/rules_java/9.0.3/MODULE.bazel": "1f98ed015f7e744a745e0df6e898a7c5e83562d6b759dfd475c76456dda5ccea",
     "https://bcr.bazel.build/modules/rules_java/9.1.0/MODULE.bazel": "ee63f27e36a3fada80342869361182f120a9819c74320e8e65b1e04ba0cd7a9d",
     "https://bcr.bazel.build/modules/rules_java/9.1.0/source.json": "da589573c1dee2c9ac4a568b301269a2e8191110ff0345c1a959fa7ea6c4dfd6",
     "https://bcr.bazel.build/modules/rules_jvm_external/4.4.2/MODULE.bazel": "a56b85e418c83eb1839819f0b515c431010160383306d13ec21959ac412d2fe7",
@@ -363,7 +362,7 @@
     },
     "@@aspect_rules_js+//npm:extensions.bzl%pnpm": {
       "general": {
-        "bzlTransitiveDigest": "VBxZ9TeovqLaZjSlHjnpenojxCz/EzlTYDyIa4A2a6Y=",
+        "bzlTransitiveDigest": "3BvbdnrDBOXRCtAUsCCz+ZSYXsmMlSrceuaCSGXR75k=",
         "usagesDigest": "nZsztwJYOdbgW8q0XMkWF4tgDJotYArkhTox/UTNYS0=",
         "recordedInputs": [
           "REPO_MAPPING:aspect_bazel_lib+,bazel_lib bazel_lib+",
@@ -460,6 +459,21 @@
         }
       }
     },
+    "@@protobuf+//python/dist:system_python.bzl%system_python_extension": {
+      "general": {
+        "bzlTransitiveDigest": "qh0n9IrXU/xS94wxKQrG1J63zrLkA1Wy2Y3BQxptPcI=",
+        "usagesDigest": "gM2v8KEcm9rpUrlYSngytVomDKFCsh+Qb9pL3rcZurY=",
+        "recordedInputs": [],
+        "generatedRepoSpecs": {
+          "system_python": {
+            "repoRuleId": "@@protobuf+//python/dist:system_python.bzl%system_python",
+            "attributes": {
+              "minimum_python_version": "3.9"
+            }
+          }
+        }
+      }
+    },
     "@@pybind11_bazel+//:internal_configure.bzl%internal_configure_extension": {
       "general": {
         "bzlTransitiveDigest": "NRXra7941UfmNUyIxnLt82V5hULluVGL2nBsijTl4j4=",
@@ -518,7 +532,7 @@
     "@@rules_erlang+//bzlmod:extensions.bzl%erlang_config": {
       "general": {
         "bzlTransitiveDigest": "F8WG4LR4TD4jIerobVdzOZQB4AwYOpYrhbYd4nnTEzA=",
-        "usagesDigest": "nxMFLNGHvIISAno83lxXxtPm6SC46AovxfGXH542gnY=",
+        "usagesDigest": "UeAVff1edoXCsXghcsHj47alVm00XOoxVhpw+3gjw6E=",
         "recordedInputs": [
           "REPO_MAPPING:rules_erlang+,bazel_skylib bazel_skylib+",
           "REPO_MAPPING:rules_erlang+,bazel_tools bazel_tools"
@@ -563,8 +577,8 @@
     },
     "@@rules_erlang+//bzlmod:extensions.bzl%erlang_package": {
       "general": {
-        "bzlTransitiveDigest": "TqwJMsx/mF9wKeHdtUZh1MsHCCPPw4jwJWCoWK3xOXs=",
-        "usagesDigest": "bs36ABPgTLegCpEEtJUVK5xDt82UfUy+VxI7N3yo93o=",
+        "bzlTransitiveDigest": "F8WG4LR4TD4jIerobVdzOZQB4AwYOpYrhbYd4nnTEzA=",
+        "usagesDigest": "teN+iU5kW7y2dTGDw3k0ML87K1D0N6joZ2NCIM0aTak=",
         "recordedInputs": [
           "REPO_MAPPING:rules_erlang+,bazel_skylib bazel_skylib+",
           "REPO_MAPPING:rules_erlang+,bazel_tools bazel_tools",
@@ -4717,12 +4731,13 @@
     },
     "@@rules_rust+//crate_universe/private:internal_extensions.bzl%cu_nr": {
       "general": {
-        "bzlTransitiveDigest": "Cl9KTp4NOSB8qsaIN4Du7MHyf5jVA+4T/Te1LTE5rVE=",
+        "bzlTransitiveDigest": "RvA41ddCJEKlWW/OCgJ+TDItC0diNzhwVFN4XTVZ1vY=",
         "usagesDigest": "+1w4EnEfZLFpf8Ak18jhmCWsOTE75Noy2i16whyXYWs=",
         "recordedInputs": [
           "REPO_MAPPING:apple_support+,bazel_skylib bazel_skylib+",
           "REPO_MAPPING:bazel_features+,bazel_features_globals bazel_features++version_extension+bazel_features_globals",
           "REPO_MAPPING:bazel_features+,bazel_features_version bazel_features++version_extension+bazel_features_version",
+          "REPO_MAPPING:rules_cc+,bazel_features bazel_features+",
           "REPO_MAPPING:rules_cc+,bazel_skylib bazel_skylib+",
           "REPO_MAPPING:rules_cc+,bazel_tools bazel_tools",
           "REPO_MAPPING:rules_cc+,cc_compatibility_proxy rules_cc++compatibility_proxy+cc_compatibility_proxy",
