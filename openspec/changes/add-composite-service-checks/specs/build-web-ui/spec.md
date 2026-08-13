@@ -106,18 +106,36 @@ naming the specific problem.
 - **WHEN** the operator attempts to enable the check
 - **THEN** enabling SHALL require an explicit acknowledgement of the gap
 
-### Requirement: Scan Configuration Is Referenced, Not Edited
+### Requirement: Sweep Configuration Is Referenced, Not Edited
 
 The composite check builder SHALL display the sweep configuration that produces
 its vantage point signals as read-only context, and SHALL link to the sweep
 administration UI for changes.
 
-#### Scenario: Scan profile shown read-only
+A vantage point names an agent, and an agent is covered by every sweep group
+explicitly assigned to it plus every group assigned to no agent in its
+partition. The builder SHALL therefore display all covering groups rather than a
+single profile, and SHALL state when there are none.
 
-- **WHEN** an operator views a check whose vantage points are fed by a sweep
-  profile
-- **THEN** the profile's probes and ports SHALL be displayed as context
+#### Scenario: Sweep coverage shown read-only
+
+- **WHEN** an operator views a check whose vantage point is covered by one or
+  more sweep groups
+- **THEN** each covering group's probes and ports SHALL be displayed as context
 - **AND** editing them SHALL navigate to the sweep administration UI
+
+#### Scenario: Every covering group is shown
+
+- **GIVEN** a vantage point whose agent is covered by more than one sweep group
+- **WHEN** the builder renders sweep context
+- **THEN** every covering group SHALL be listed
+- **AND** no single group SHALL be presented as the check's scan profile
+
+#### Scenario: A vantage point with no sweep coverage is named
+
+- **GIVEN** a vantage point whose agent is covered by no sweep group
+- **WHEN** the builder renders sweep context
+- **THEN** it SHALL state that no sweep group covers that agent
 
 ### Requirement: Device Composite Verdict Surfacing
 

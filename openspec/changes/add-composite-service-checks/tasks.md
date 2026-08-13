@@ -93,7 +93,7 @@
 
 ## 7. SRQL
 
-- [ ] 7.1 Add `composite.<slug>` and `composite.<slug>.status` device field
+- [x] 7.1 Add `composite.<slug>` and `composite.<slug>.status` device field
       resolution in `rust/srql` as a correlated `EXISTS` over
       `device_composite_check_results` joined to `composite_checks` on slug,
       following `filters/availability.rs` (`apply_agent_availability_filter`).
@@ -101,9 +101,9 @@
       the same table and shares only the dotted-key token shape. `DeviceQuery`
       is boxed over `ocsf_devices` alone, so a JOIN would change its type across
       the module.
-- [ ] 7.2 Add the `composite_results` entity with check/verdict filters and
+- [x] 7.2 Add the `composite_results` entity with check/verdict filters and
       per-status counts.
-- [ ] 7.3 Add the arm in `query/devices/filters/params.rs` that mirrors the
+- [x] 7.3 Add the arm in `query/devices/filters/params.rs` that mirrors the
       `apply_filter` arm. These are parallel matches on the same field names in
       different files; a field added to one and not the other fails at query
       time with a placeholder/parameter mismatch, not at compile time.
@@ -111,9 +111,9 @@
       `web-ng` translates through the NIF (`SRQL.Native` -> `ServiceRadarSRQL.Native`)
       and executes the SQL; the `AshAdapter` named in AGENTS.md and the
       `serviceradar_srql` moduledoc does not exist in the tree.)
-- [ ] 7.4 Extend the SRQL catalog so the visual builder offers composite fields
+- [x] 7.4 Extend the SRQL catalog so the visual builder offers composite fields
       and each enabled check's authored verdict slugs as values.
-- [ ] 7.5 Validate composite slugs in the Elixir layer, failing with an error
+- [x] 7.5 Validate composite slugs in the Elixir layer, failing with an error
       naming the unknown check. The translator cannot do this: it is a pure
       query compiler with no database connection. It does guarantee the safety
       half for free -- because the predicate joins `composite_checks` on slug, an
@@ -135,13 +135,19 @@
 - [ ] 8.6 Add the live preview panel: sampled device, per-input breakdown with
       ages, resulting verdict, and rollup counts with the unreachable-population
       explanation.
-- [ ] 8.7 Add the read-only scan configuration reference with a link to sweep
-      administration.
+- [ ] 8.7 Add the read-only sweep coverage reference with a link to sweep
+      administration, listing every sweep group that covers each vantage
+      point's agent and naming the case where none do. Not "the scan profile":
+      `SweepGroup.agent_id` is nullable and means "any agent in partition", so
+      an agent is covered by every group assigned to it plus every unassigned
+      group in its partition. There is no single profile to show, and picking
+      one would misstate which ports are actually probed.
 - [ ] 8.8 Add the composite verdict section to device detail with the per-input
       breakdown and unknown reasons stated rather than blank.
 - [ ] 8.9 Add the optional composite column and filter to the device list.
-- [ ] 8.10 Add the `composite_checks` RBAC section (`view`, `manage`,
-      `evaluate`) and enforce it in LiveView mount and every `handle_event`.
+- [ ] 8.10 Enforce the `composite_checks` RBAC permissions in LiveView mount
+      and every `handle_event`. (The catalog section itself was added with the
+      device fact endpoint in section 6.)
 
 ## 9. Northbound
 
