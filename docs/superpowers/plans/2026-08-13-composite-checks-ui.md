@@ -513,11 +513,46 @@ Use Plan 2's `composite.<slug>` SRQL field rather than a bespoke query, so the l
 
 ### Task 10: Verification
 
-- [ ] **Step 1:** `bash <scratchpad>/run-webng.sh ui test test/phoenix/live/settings/composite_checks_live_test.exs test/phoenix/live/device_live_test.exs`
-- [ ] **Step 2:** `./scripts/elixir_quality.sh --project elixir/web-ng --phoenix --skip-dialyzer`
-- [ ] **Step 3:** Visual verification with the `local web-ng + Playwright` loop — author a check, add two vantage points, generate rules, run the preview, screenshot at 1680×945 and 390×844, and **read the PNGs**. A LiveView test asserting on HTML does not tell you the rule table is legible.
-- [ ] **Step 4:** `openspec validate add-composite-service-checks --strict`
-- [ ] **Step 5:** Update `openspec/changes/add-composite-service-checks/tasks.md` section 8 to `- [x]`.
+- [x] **Step 1:** `bash <scratchpad>/run-webng.sh ui test test/phoenix/live/settings/composite_checks_live_test.exs test/phoenix/live/device_live_test.exs`
+
+145 tests, 0 failures across the eight composite suites. `device_live_test.exs`
+is 28/91 red and was **verified pre-existing** by checking out the parent commit
+and reproducing the identical count; one traced to `Show.metadata_summary_section/1`,
+moved to `VisibilityComponents` by 280f28ef2f while its test kept calling `Show`.
+
+- [x] **Step 2:** `./scripts/elixir_quality.sh --project elixir/web-ng --phoenix --skip-dialyzer`
+
+Failed only on the Ash CVE-2026-67579 advisory. Fixed by merging `origin/staging`
+(ash 3.31.3); the one merge conflict was `MODULE.bazel.lock`, where this branch
+carried incidental local-toolchain noise from a bazel run and staging's
+hermetic-llvm work is authoritative. Passes end to end after the merge.
+
+- [x] **Step 3:** Visual verification with the `local web-ng + Playwright` loop — author a check, add two vantage points, generate rules, run the preview, screenshot at 1680×945 and 390×844, and **read the PNGs**. A LiveView test asserting on HTML does not tell you the rule table is legible.
+
+**This step earned its place in the plan.** All 145 tests passed on a build with
+three real UI defects, because no assertion compares what two panels call the
+same thing:
+
+1. The rule table, preview, and sweep coverage showed the agent **uid** while
+   the vantage point picker showed the agent **name** — the same vantage point
+   named two ways on one page, so no operator could tell which rule column was
+   which agent.
+2. `agent-868in partition default` — adjacent spans whose whitespace HEEx trims.
+   Fixed with a flex gap, since a literal space would be trimmed again.
+3. The Verdict column clipped `inverted_reachability` at 10rem.
+
+Also surfaced: Readiness names the agent id in prose composed by core (a core
+test pins it, and the id is the handle an operator carries to sweep
+administration), so the coverage rows now show label *and* id to connect them.
+
+The demo-CNPG path was not usable — these tables exist only on the scratch DB —
+so this used the documented static-harness fallback with **real** JIT-scanned
+Tailwind built from the current tree, driven by a `:visual` tagged capture test
+that renders a fully populated builder. Mobile stacks correctly and the dense
+rule table scrolls inside its own container rather than the page.
+
+- [x] **Step 4:** `openspec validate add-composite-service-checks --strict`
+- [x] **Step 5:** Update `openspec/changes/add-composite-service-checks/tasks.md` section 8 to `- [x]`.
 
 ## Plan Self-Review
 
