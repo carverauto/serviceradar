@@ -36,6 +36,7 @@ go_test(
         "assignment_test.go",
         "bounds_precedence_test.go",
         "count_corpus_test.go",
+        "provenance_corpus_test.go",
         "lower_bound_corpus_test.go",
         "scalar_corpus_test.go",
         "range_string_corpus_test.go",
