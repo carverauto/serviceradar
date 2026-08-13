@@ -135,7 +135,7 @@
 - [x] 8.6 Add the live preview panel: sampled device, per-input breakdown with
       ages, resulting verdict, and rollup counts with the unreachable-population
       explanation.
-- [ ] 8.7 Add the read-only sweep coverage reference with a link to sweep
+- [x] 8.7 Add the read-only sweep coverage reference with a link to sweep
       administration, listing every sweep group that covers each vantage
       point's agent and naming the case where none do. Not "the scan profile":
       `SweepGroup.agent_id` is nullable and means "any agent in partition", so

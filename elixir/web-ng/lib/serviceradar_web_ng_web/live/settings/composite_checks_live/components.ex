@@ -605,6 +605,104 @@ defmodule ServiceRadarWebNGWeb.Settings.CompositeChecksLive.Components do
     "grid-template-columns: repeat(#{length(columns)}, minmax(7rem, 1fr)) 10rem 10rem 8rem 6rem"
   end
 
+  attr :entries, :list, default: []
+  attr :mode, :atom, required: true
+
+  @doc """
+  The sweeps that actually feed each vantage point, read-only.
+
+  A vantage point maps to zero or more sweep groups, not to one scan profile:
+  `SweepGroup.agent_id` is nullable and means "any agent in partition". Naming
+  one group as the check's profile would misstate which ports are probed.
+  """
+  def sweep_context(assigns) do
+    ~H"""
+    <section class="space-y-3 rounded-sr-control border border-sr-border bg-sr-surface p-4">
+      <div class="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h2 class="text-sm font-semibold text-sr-ink">Sweep coverage</h2>
+          <p class="text-xs text-sr-ink-muted">
+            Composite checks read what these sweeps produce; they never probe.
+          </p>
+        </div>
+        <.link
+          navigate={~p"/settings/networks"}
+          class="shrink-0 text-xs text-sr-ink-muted hover:text-sr-ink hover:underline"
+        >
+          Edit in sweep administration
+        </.link>
+      </div>
+
+      <p :if={@mode == :new} class="text-xs text-sr-ink-muted">
+        Save the check to see which sweeps feed its vantage points.
+      </p>
+
+      <p :if={@mode == :edit and @entries == []} class="text-xs text-sr-ink-muted">
+        No vantage points yet, so nothing feeds this check.
+      </p>
+
+      <div :for={entry <- @entries} class="space-y-1" data-sweep-input={entry.key}>
+        <p class="text-xs">
+          <span class="font-mono text-sr-ink">{entry.agent_id}</span>
+          <span class="text-sr-ink-muted">{"in partition #{entry.partition}"}</span>
+        </p>
+
+        <p
+          :if={entry.groups == []}
+          class="rounded-sr-control border border-amber-500/40 bg-amber-500/5 p-3 text-xs text-amber-400"
+          data-sweep-uncovered={entry.agent_id}
+        >
+          No sweep group covers this agent, so this vantage point will resolve unknown for every
+          device and the check will stay inconclusive.
+        </p>
+
+        <ul :if={entry.groups != []} class="space-y-1">
+          <li
+            :for={group <- entry.groups}
+            class="flex flex-wrap items-center gap-x-3 gap-y-1 rounded-sr-control border border-sr-border px-3 py-2 text-xs"
+            data-sweep-group={group.id}
+          >
+            <.link
+              navigate={~p"/settings/networks/groups/#{group.id}"}
+              class="font-medium text-sr-ink hover:underline"
+            >
+              {group.name}
+            </.link>
+
+            <span class="text-sr-ink-muted">
+              {if group.assigned?, do: "assigned to this agent", else: "any agent in partition"}
+            </span>
+
+            <span :if={group.interval} class="text-sr-ink-muted">every {group.interval}</span>
+
+            <span :if={group.modes != []} class="font-mono text-sr-ink-muted">
+              {Enum.join(group.modes, ", ")}
+            </span>
+
+            <span :if={group.ports != []} class="font-mono text-sr-ink-muted">
+              {"ports #{ports_summary(group.ports)}"}
+            </span>
+
+            <span :if={group.ports == []} class="text-sr-ink-muted">no ports configured</span>
+          </li>
+        </ul>
+      </div>
+    </section>
+    """
+  end
+
+  @ports_shown 12
+
+  # A profile can carry hundreds of ports. The full list is sweep
+  # administration's to render; here it is context, and an unbounded list would
+  # push everything else off the panel.
+  defp ports_summary(ports) do
+    case Enum.split(ports, @ports_shown) do
+      {shown, []} -> Enum.join(shown, ", ")
+      {shown, rest} -> "#{Enum.join(shown, ", ")} +#{length(rest)} more"
+    end
+  end
+
   attr :readiness, :map, default: nil
   attr :error, :string, default: nil
   attr :mode, :atom, required: true

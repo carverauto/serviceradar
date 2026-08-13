@@ -393,7 +393,7 @@ Render `blocking` and `warnings` in place. The acknowledgement checkbox maps to 
 **Files:** Create `sweep_context.ex`; modify `components.ex`; modify `specs/build-web-ui/spec.md`
 **Spec (amended):** show every sweep group that could feed each vantage point, with its profile's probes and ports, read-only, linking to sweep administration; say plainly when none exist.
 
-- [ ] **Step 1: Amend the spec delta first**
+- [x] **Step 1: Amend the spec delta first**
 
 Replace the "Scan profile shown read-only" scenario with one that matches the data model:
 
@@ -416,11 +416,41 @@ Add a note recording why: `SweepGroup.agent_id` is nullable and means "any agent
 
 Run: `openspec validate add-composite-service-checks --strict`
 
-- [ ] **Step 2: Implement the resolver**
+- [x] **Step 2: Implement the resolver**
 
-`SweepGroup` has a `by_agent` read (`sweep_jobs/sweep_group.ex:165-175`) whose filter is `agent_id == ^arg or is_nil(agent_id)` — exactly the "explicitly assigned plus partition-wide" set. Use it, then load each group's profile for ports and modes.
+~~`SweepGroup` has a `by_agent` read (`sweep_jobs/sweep_group.ex:165-175`) whose filter is `agent_id == ^arg or is_nil(agent_id)` — exactly the "explicitly assigned plus partition-wide" set.~~
 
-- [ ] **Step 3–5:** failing tests (one group renders its ports; several groups all render; no groups renders the named gap), implement, run, commit.
+**The plan named the wrong read.** `:by_agent` is agent-or-nil and **ignores
+partition entirely**, so it would credit a vantage point with partition-wide
+groups from a partition its agent cannot see. The spec says "every group
+assigned to no agent *in its partition*", which is `:for_agent_partition` —
+`enabled and partition == ^partition and (agent_id == ^agent_id or
+is_nil(agent_id))`. A test asserts a foreign-partition group is excluded while a
+local one still renders.
+
+- [x] **Step 3–5:** failing tests (one group renders its ports; several groups all render; no groups renders the named gap), implement, run, commit.
+
+**What the implementation settled beyond the plan:**
+
+- An agent's partition is `agent.metadata["partition_id"] || "default"`. That is
+  the convention `networks_live/index/mapper_options.ex` already uses, and it
+  agrees with `SweepGroup.partition`'s own `"default"` default, so an agent that
+  reports no partition needs no special case.
+- Group `ports` and `sweep_modes` are *overrides* of the profile's. The panel
+  shows the override when present and the profile's otherwise — rendering the
+  group's own nil would claim no ports are probed when the profile names a dozen.
+- Ports are truncated to 12 with "+N more". A profile can carry hundreds; the
+  full list belongs to sweep administration, and an unbounded one pushes every
+  other panel off the page.
+- Disabled groups are not coverage. `:for_agent_partition` already filters
+  `enabled == true`, so a disabled group correctly falls into the "no sweep
+  group covers this agent" case.
+- **Latent bug found while wiring this:** `keep_readiness_for/2` ran *after*
+  `assign(:editing, check)`, so its guard compared the check against itself and
+  always matched. Unreachable today — the index links to edit routes with
+  `navigate` (fresh mount), and the only patch is the post-create one where
+  keeping is correct — but the guard was decorative. Reordered so it compares
+  the check being opened against the one already open.
 
 ---
 

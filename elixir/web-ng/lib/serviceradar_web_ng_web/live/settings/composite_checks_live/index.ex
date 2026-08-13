@@ -27,6 +27,7 @@ defmodule ServiceRadarWebNGWeb.Settings.CompositeChecksLive.Index do
   alias ServiceRadarWebNGWeb.Settings.CompositeChecksLive.FormState
   alias ServiceRadarWebNGWeb.Settings.CompositeChecksLive.Preview
   alias ServiceRadarWebNGWeb.Settings.CompositeChecksLive.RuleTable
+  alias ServiceRadarWebNGWeb.Settings.CompositeChecksLive.SweepContext
   alias ServiceRadarWebNGWeb.Settings.Shell
   alias ServiceRadarWebNGWeb.SRQL.ScopeBuilder
 
@@ -65,6 +66,7 @@ defmodule ServiceRadarWebNGWeb.Settings.CompositeChecksLive.Index do
        |> assign(:preview_error, nil)
        |> assign(:readiness, nil)
        |> assign(:enable_error, nil)
+       |> assign(:sweep_context, [])
        |> assign(:checks, list_checks(socket))}
     else
       {:ok,
@@ -93,6 +95,7 @@ defmodule ServiceRadarWebNGWeb.Settings.CompositeChecksLive.Index do
       |> load_form(FormState.default_form())
       |> assign(:rules, [])
       |> assign(:rule_columns, [])
+      |> assign(:sweep_context, [])
       |> clear_preview()
       |> clear_readiness()
     else
@@ -109,12 +112,15 @@ defmodule ServiceRadarWebNGWeb.Settings.CompositeChecksLive.Index do
 
       socket
       |> assign(:page_title, "Edit Composite Check")
+      # Before `:editing` is reassigned: the guard compares the check being
+      # opened against the one already open.
+      |> keep_readiness_for(check)
       |> assign(:editing, check)
       |> load_form(FormState.form_from_check(check), FormState.vantage_points_from_inputs(inputs))
       |> assign(:rule_columns, RuleTable.columns(inputs))
       |> load_rules(check)
+      |> load_sweep_context(inputs)
       |> clear_preview()
-      |> keep_readiness_for(check)
     else
       false ->
         forbid(socket)
@@ -152,6 +158,15 @@ defmodule ServiceRadarWebNGWeb.Settings.CompositeChecksLive.Index do
       {:ok, agents} -> agents
       {:error, _reason} -> []
     end
+  end
+
+  # Runs after `load_form/3`, which is what assigns `:agents` — the partition a
+  # vantage point's agent belongs to comes from that agent's metadata.
+  defp load_sweep_context(socket, inputs) do
+    entries =
+      SweepContext.for_inputs(inputs, socket.assigns.agents, scope: socket.assigns.current_scope)
+
+    assign(socket, :sweep_context, entries)
   end
 
   defp load_inputs(check, scope) do
@@ -654,6 +669,7 @@ defmodule ServiceRadarWebNGWeb.Settings.CompositeChecksLive.Index do
       |> assign(:vantage_points, FormState.vantage_points_from_inputs(inputs))
       |> assign(:rule_columns, RuleTable.columns(inputs))
       |> load_rules(check)
+      |> load_sweep_context(inputs)
       |> clear_preview()
       |> load_readiness()
 
@@ -796,6 +812,11 @@ defmodule ServiceRadarWebNGWeb.Settings.CompositeChecksLive.Index do
             mode={if @editing == :new, do: :new, else: :edit}
             can_evaluate={@can_evaluate}
             state={if @editing == :new, do: nil, else: @editing.state}
+          />
+
+          <.sweep_context
+            entries={@sweep_context}
+            mode={if @editing == :new, do: :new, else: :edit}
           />
 
           <.readiness_panel

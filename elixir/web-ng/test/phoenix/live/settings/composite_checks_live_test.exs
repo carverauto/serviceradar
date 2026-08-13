@@ -1262,4 +1262,163 @@ defmodule ServiceRadarWebNGWeb.Settings.CompositeChecksLiveTest do
       assert html =~ ~s(phx-click="disable")
     end
   end
+
+  describe "sweep context" do
+    setup do
+      %{gateway: gateway_fixture(), tag: "sw#{System.unique_integer([:positive])}"}
+    end
+
+    defp sweep_profile(attrs) do
+      ServiceRadar.SweepJobs.SweepProfile
+      |> Ash.Changeset.for_create(
+        :create,
+        Map.merge(
+          %{name: "Profile #{System.unique_integer([:positive])}", ports: [22, 443]},
+          attrs
+        ),
+        actor: system_actor()
+      )
+      |> Ash.create!()
+    end
+
+    defp sweep_group(attrs) do
+      ServiceRadar.SweepJobs.SweepGroup
+      |> Ash.Changeset.for_create(
+        :create,
+        Map.merge(
+          %{name: "Group #{System.unique_integer([:positive])}", partition: "default"},
+          attrs
+        ),
+        actor: system_actor()
+      )
+      |> Ash.create!()
+    end
+
+    test "a new check says sweep context needs a saved check", %{conn: conn} do
+      {:ok, _live, html} = live(conn, @path <> "/new")
+
+      assert html =~ "Save the check to see which sweeps feed its vantage points"
+    end
+
+    test "a group assigned to the agent renders its ports and cadence", %{
+      conn: conn,
+      gateway: gateway
+    } do
+      {check, witness, _probe} = saved_check_with_vantage_points(conn, gateway, "Swept")
+
+      group =
+        sweep_group(%{
+          agent_id: witness.uid,
+          ports: [22, 3389],
+          sweep_modes: ["tcp"],
+          interval: "15m"
+        })
+
+      {:ok, _live, html} = live(conn, @path <> "/#{check.id}/edit")
+
+      assert html =~ ~s(data-sweep-group="#{group.id}")
+      assert html =~ "ports 22, 3389"
+      assert html =~ "every 15m"
+      assert html =~ "assigned to this agent"
+    end
+
+    test "an unassigned group in the partition also covers the agent", %{
+      conn: conn,
+      gateway: gateway
+    } do
+      {check, _witness, _probe} = saved_check_with_vantage_points(conn, gateway, "Partitionwide")
+
+      group = sweep_group(%{agent_id: nil, ports: [443], interval: "1h"})
+
+      {:ok, _live, html} = live(conn, @path <> "/#{check.id}/edit")
+
+      # `SweepGroup.agent_id` nil means "any agent in partition", so this group
+      # feeds the vantage point even though it names no agent.
+      assert html =~ ~s(data-sweep-group="#{group.id}")
+      assert html =~ "any agent in partition"
+    end
+
+    test "a group in another partition does not count as coverage", %{
+      conn: conn,
+      gateway: gateway
+    } do
+      {check, _witness, _probe} = saved_check_with_vantage_points(conn, gateway, "Elsewhere")
+
+      elsewhere = sweep_group(%{agent_id: nil, partition: "somewhere-else", ports: [443]})
+      here = sweep_group(%{agent_id: nil, partition: "default", ports: [22]})
+
+      {:ok, _live, html} = live(conn, @path <> "/#{check.id}/edit")
+
+      # `:by_agent` would have credited the foreign one: its filter is
+      # agent-or-nil and ignores partition entirely. Asserting the local group
+      # renders too is what keeps this from passing on an empty panel.
+      assert html =~ ~s(data-sweep-group="#{here.id}")
+      refute html =~ ~s(data-sweep-group="#{elsewhere.id}")
+    end
+
+    test "every covering group is listed, none singled out as the profile", %{
+      conn: conn,
+      gateway: gateway
+    } do
+      {check, witness, _probe} = saved_check_with_vantage_points(conn, gateway, "Several")
+
+      assigned = sweep_group(%{agent_id: witness.uid, ports: [22]})
+      partition_wide = sweep_group(%{agent_id: nil, ports: [443]})
+
+      {:ok, _live, html} = live(conn, @path <> "/#{check.id}/edit")
+
+      assert html =~ ~s(data-sweep-group="#{assigned.id}")
+      assert html =~ ~s(data-sweep-group="#{partition_wide.id}")
+    end
+
+    test "a vantage point with no covering group is named", %{conn: conn, gateway: gateway} do
+      {check, witness, probe} = saved_check_with_vantage_points(conn, gateway, "Uncovered")
+
+      {:ok, _live, html} = live(conn, @path <> "/#{check.id}/edit")
+
+      # The silent case: without this the panel renders nothing and the operator
+      # cannot tell "no sweeps" from "not loaded".
+      assert html =~ ~s(data-sweep-uncovered="#{witness.uid}")
+      assert html =~ ~s(data-sweep-uncovered="#{probe.uid}")
+      assert html =~ "will resolve unknown for every"
+    end
+
+    test "a group's ports fall back to its profile's", %{conn: conn, gateway: gateway} do
+      {check, witness, _probe} = saved_check_with_vantage_points(conn, gateway, "Inherited")
+
+      profile = sweep_profile(%{ports: [161, 162], sweep_modes: ["icmp"]})
+      sweep_group(%{agent_id: witness.uid, profile_id: profile.id, ports: nil, sweep_modes: nil})
+
+      {:ok, _live, html} = live(conn, @path <> "/#{check.id}/edit")
+
+      # Group ports are an override of the profile's. Rendering the group's nil
+      # would claim no ports are probed when the profile names two.
+      assert html =~ "ports 161, 162"
+      assert html =~ "icmp"
+    end
+
+    test "a disabled group is not shown as coverage", %{conn: conn, gateway: gateway} do
+      {check, witness, _probe} = saved_check_with_vantage_points(conn, gateway, "Disabled Sweep")
+
+      group = sweep_group(%{agent_id: witness.uid, ports: [22], enabled: false})
+
+      {:ok, _live, html} = live(conn, @path <> "/#{check.id}/edit")
+
+      refute html =~ ~s(data-sweep-group="#{group.id}")
+      assert html =~ ~s(data-sweep-uncovered="#{witness.uid}")
+    end
+
+    test "the panel links to sweep administration rather than editing in place", %{
+      conn: conn,
+      gateway: gateway
+    } do
+      {check, witness, _probe} = saved_check_with_vantage_points(conn, gateway, "Linked")
+      group = sweep_group(%{agent_id: witness.uid, ports: [22]})
+
+      {:ok, _live, html} = live(conn, @path <> "/#{check.id}/edit")
+
+      assert html =~ "Edit in sweep administration"
+      assert html =~ ~s(href="/settings/networks/groups/#{group.id}")
+    end
+  end
 end
