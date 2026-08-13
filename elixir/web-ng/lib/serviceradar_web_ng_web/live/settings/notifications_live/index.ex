@@ -467,8 +467,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NotificationsLive.Index do
          |> do_load_tab("channels")}
 
       {:error, reason} ->
-        {:noreply,
-         put_flash(socket, :error, "Could not save the channel: #{error_message(reason)}")}
+        {:noreply, put_flash(socket, :error, "Could not save the channel: #{error_message(reason)}")}
     end
   end
 
@@ -637,8 +636,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NotificationsLive.Index do
   defp handle_authorized("validate_policy", %{"policy" => params}, socket) do
     form = merge_policy_form(socket.assigns.policy_form, params)
 
-    {:noreply,
-     assign(socket, :policy_form, with_policy_warning(form, socket.assigns.channel_index))}
+    {:noreply, assign(socket, :policy_form, with_policy_warning(form, socket.assigns.channel_index))}
   end
 
   defp handle_authorized("save_policy", %{"policy" => params}, socket) do
@@ -646,8 +644,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NotificationsLive.Index do
 
     cond do
       form.steps == [] ->
-        {:noreply,
-         assign(socket, :policy_form, Map.put(form, :error, "A policy needs at least one step."))}
+        {:noreply, assign(socket, :policy_form, Map.put(form, :error, "A policy needs at least one step."))}
 
       Enum.any?(form.steps, &((&1["channel_ids"] || []) == [])) ->
         {:noreply,
@@ -703,8 +700,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NotificationsLive.Index do
   defp handle_authorized("validate_silence", %{"silence" => params}, socket) do
     form = merge_silence_form(socket.assigns.silence_form, params)
 
-    {:noreply,
-     assign(socket, :silence_form, with_blast_radius(form, socket.assigns.current_scope))}
+    {:noreply, assign(socket, :silence_form, with_blast_radius(form, socket.assigns.current_scope))}
   end
 
   defp handle_authorized("save_silence", %{"silence" => params}, socket) do
@@ -750,12 +746,10 @@ defmodule ServiceRadarWebNGWeb.Settings.NotificationsLive.Index do
        |> do_load_tab("silences")}
     else
       nil ->
-        {:noreply,
-         socket |> assign(:confirmation, nil) |> put_flash(:error, "Silence unavailable.")}
+        {:noreply, socket |> assign(:confirmation, nil) |> put_flash(:error, "Silence unavailable.")}
 
       {:error, reason} ->
-        {:noreply,
-         socket |> assign(:confirmation, nil) |> put_flash(:error, error_message(reason))}
+        {:noreply, socket |> assign(:confirmation, nil) |> put_flash(:error, error_message(reason))}
     end
   end
 
@@ -1075,8 +1069,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NotificationsLive.Index do
       # Only the public part of `secret_refs` reaches the form. A stored secret
       # renders as an empty password input with a "leave blank to keep" hint; the
       # resolved value never enters assigns or the DOM.
-      config_params:
-        Map.merge(channel.config || %{}, SecretRefs.public_params(channel.secret_refs || %{})),
+      config_params: Map.merge(channel.config || %{}, SecretRefs.public_params(channel.secret_refs || %{})),
       warnings: []
     }
   end
@@ -1198,9 +1191,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NotificationsLive.Index do
 
   defp save_channel(scope, %{mode: :new}, attrs, provider_id) do
     NotificationChannel
-    |> Ash.Changeset.for_create(:create, Map.put(attrs, :provider_id, blank_to_nil(provider_id)),
-      scope: scope
-    )
+    |> Ash.Changeset.for_create(:create, Map.put(attrs, :provider_id, blank_to_nil(provider_id)), scope: scope)
     |> Ash.create()
   end
 
@@ -1225,12 +1216,10 @@ defmodule ServiceRadarWebNGWeb.Settings.NotificationsLive.Index do
        |> do_load_tab("channels")}
     else
       nil ->
-        {:noreply,
-         socket |> assign(:confirmation, nil) |> put_flash(:error, "Channel unavailable.")}
+        {:noreply, socket |> assign(:confirmation, nil) |> put_flash(:error, "Channel unavailable.")}
 
       {:error, reason} ->
-        {:noreply,
-         socket |> assign(:confirmation, nil) |> put_flash(:error, error_message(reason))}
+        {:noreply, socket |> assign(:confirmation, nil) |> put_flash(:error, error_message(reason))}
     end
   end
 
@@ -1247,12 +1236,10 @@ defmodule ServiceRadarWebNGWeb.Settings.NotificationsLive.Index do
        |> do_load_tab("providers")}
     else
       nil ->
-        {:noreply,
-         socket |> assign(:confirmation, nil) |> put_flash(:error, "Provider unavailable.")}
+        {:noreply, socket |> assign(:confirmation, nil) |> put_flash(:error, "Provider unavailable.")}
 
       {:error, reason} ->
-        {:noreply,
-         socket |> assign(:confirmation, nil) |> put_flash(:error, error_message(reason))}
+        {:noreply, socket |> assign(:confirmation, nil) |> put_flash(:error, error_message(reason))}
     end
   end
 
@@ -1325,9 +1312,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NotificationsLive.Index do
 
   defp create_definition(socket, form, definition) do
     NotificationProvider
-    |> Ash.Changeset.for_create(:create, ProviderUpload.create_attrs(definition),
-      scope: socket.assigns.current_scope
-    )
+    |> Ash.Changeset.for_create(:create, ProviderUpload.create_attrs(definition), scope: socket.assigns.current_scope)
     |> Ash.create()
     |> case do
       {:ok, provider} ->
@@ -1407,8 +1392,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NotificationsLive.Index do
          )}
 
       {:error, reason} ->
-        {:noreply,
-         socket |> assign(:confirmation, nil) |> put_flash(:error, error_message(reason))}
+        {:noreply, socket |> assign(:confirmation, nil) |> put_flash(:error, error_message(reason))}
     end
   end
 
@@ -1923,9 +1907,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NotificationsLive.Index do
   defp attach_channels(scope, step, channel_ids) do
     Enum.reduce_while(channel_ids, :ok, fn channel_id, :ok ->
       NotificationEscalationStepChannel
-      |> Ash.Changeset.for_create(:attach, %{step_id: step.id, channel_id: channel_id},
-        scope: scope
-      )
+      |> Ash.Changeset.for_create(:attach, %{step_id: step.id, channel_id: channel_id}, scope: scope)
       |> Ash.create()
       |> case do
         {:ok, _link} -> {:cont, :ok}
@@ -2022,8 +2004,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NotificationsLive.Index do
 
   defp save_silence(_scope, _form, _attrs), do: {:error, :no_silence}
 
-  defp silence_error(:missing_datetime),
-    do: "Both the start and the end of the window are required."
+  defp silence_error(:missing_datetime), do: "Both the start and the end of the window are required."
 
   defp silence_error(:invalid_datetime), do: "The window timestamps could not be read."
   defp silence_error(reason), do: predicate_error(reason)
@@ -2224,8 +2205,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NotificationsLive.Index do
   defp error_message(%Ash.Error.Forbidden{}), do: "you are not authorized to make that change"
   defp error_message(reason) when is_binary(reason), do: reason
 
-  defp error_message(reason) when is_atom(reason),
-    do: reason |> to_string() |> String.replace("_", " ")
+  defp error_message(reason) when is_atom(reason), do: reason |> to_string() |> String.replace("_", " ")
 
   defp error_message(reason), do: inspect(reason)
 

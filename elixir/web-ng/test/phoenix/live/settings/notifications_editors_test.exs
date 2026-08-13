@@ -230,8 +230,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NotificationsEditorsTest do
       render_click(lv, "validate_channel", %{
         "channel" => %{"name" => "Farm discord", "provider_id" => to_string(provider.id)},
         "config" => %{
-          "webhook_url" =>
-            "https://127.0.0.1/api/webhooks/1234567890/abcdefghijklmnopqrstuvwxyz012345"
+          "webhook_url" => "https://127.0.0.1/api/webhooks/1234567890/abcdefghijklmnopqrstuvwxyz012345"
         }
       })
 
