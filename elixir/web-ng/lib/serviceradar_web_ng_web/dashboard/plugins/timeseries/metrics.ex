@@ -99,22 +99,16 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries.Metrics do
 
   def format_value(_, _), do: "—"
 
-  def humanize_series_name("ifInOctets"), do: "Inbound Traffic"
-  def humanize_series_name("ifOutOctets"), do: "Outbound Traffic"
-  def humanize_series_name("ifInErrors"), do: "Inbound Errors"
-  def humanize_series_name("ifOutErrors"), do: "Outbound Errors"
-  def humanize_series_name("ifInDiscards"), do: "Inbound Discards"
-  def humanize_series_name("ifOutDiscards"), do: "Outbound Discards"
-  def humanize_series_name("ifInUcastPkts"), do: "Inbound Packets"
-  def humanize_series_name("ifOutUcastPkts"), do: "Outbound Packets"
-  def humanize_series_name("ifHCInOctets"), do: "Inbound Traffic (64-bit)"
-  def humanize_series_name("ifHCOutOctets"), do: "Outbound Traffic (64-bit)"
+  def humanize_series_name(name) when is_binary(name) do
+    humanize_base_series_name(series_base_name(name))
+  end
+
   def humanize_series_name(name), do: name
 
-  def traffic_series?("ifInOctets"), do: true
-  def traffic_series?("ifOutOctets"), do: true
-  def traffic_series?("ifHCInOctets"), do: true
-  def traffic_series?("ifHCOutOctets"), do: true
+  def traffic_series?(name) when is_binary(name) do
+    series_base_name(name) in ["ifInOctets", "ifOutOctets", "ifHCInOctets", "ifHCOutOctets"]
+  end
+
   def traffic_series?(_), do: false
 
   def compute_utilization(value, max_speed) when is_number(value) and is_number(max_speed) and max_speed > 0 do
@@ -128,6 +122,29 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries.Metrics do
   def utilization_badge_variant(pct) when pct >= 75, do: "warning"
   def utilization_badge_variant(pct) when pct >= 50, do: "info"
   def utilization_badge_variant(_), do: "success"
+
+  defp humanize_base_series_name("ifInOctets"), do: "Inbound Traffic"
+  defp humanize_base_series_name("ifOutOctets"), do: "Outbound Traffic"
+  defp humanize_base_series_name("ifInErrors"), do: "Inbound Errors"
+  defp humanize_base_series_name("ifOutErrors"), do: "Outbound Errors"
+  defp humanize_base_series_name("ifInDiscards"), do: "Inbound Discards"
+  defp humanize_base_series_name("ifOutDiscards"), do: "Outbound Discards"
+  defp humanize_base_series_name("ifInUcastPkts"), do: "Inbound Packets"
+  defp humanize_base_series_name("ifOutUcastPkts"), do: "Outbound Packets"
+  defp humanize_base_series_name("ifHCInOctets"), do: "Inbound Traffic"
+  defp humanize_base_series_name("ifHCOutOctets"), do: "Outbound Traffic"
+  defp humanize_base_series_name("ifHCInUcastPkts"), do: "Inbound Packets"
+  defp humanize_base_series_name("ifHCOutUcastPkts"), do: "Outbound Packets"
+  defp humanize_base_series_name(name), do: name
+
+  defp series_base_name(name) when is_binary(name) do
+    case String.split(name, "::", parts: 2) do
+      [base | _] -> base
+      _ -> name
+    end
+  end
+
+  defp series_base_name(name), do: name
 
   defp normalize_counter_series({series, points}), do: {series, normalize_points(points), %{}}
 
