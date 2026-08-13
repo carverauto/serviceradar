@@ -178,7 +178,7 @@ bazel_dep(name = "rules_aya_ebpf", version = "0.1.0")
 git_override(
     module_name = "rules_aya_ebpf",
     commit = "201ade2cba47809a2409d19acf72d7bc791aa89e",
-    remote = "https://github.com/Bazelverse/rules_aya_ebpf.git",
+    remote = "https://github.com/bazelverse/rules_aya_ebpf.git",
 )
 
 # `-Z build-std` compiles core from source, so it resolves the std workspace's own
