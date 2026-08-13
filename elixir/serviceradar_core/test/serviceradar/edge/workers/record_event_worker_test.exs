@@ -104,9 +104,12 @@ defmodule ServiceRadar.Edge.Workers.RecordEventWorkerTest do
 
     test "the old wrap puts event_type under a nested args key" do
       changeset = RecordEventWorker.new(%{args: %{"event_type" => "created"}})
+      stored = changeset.changes.args
+      nested = stored["args"] || stored[:args]
 
-      assert changeset.changes.args["args"]["event_type"] == "created"
-      refute Map.has_key?(changeset.changes.args, "event_type")
+      assert is_map(nested)
+      assert nested["event_type"] == "created"
+      refute Map.has_key?(stored, "event_type")
     end
   end
 
