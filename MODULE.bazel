@@ -16,7 +16,7 @@ bazel_dep(name = "protobuf", version = "35.1", repo_name = "com_google_protobuf"
 bazel_dep(name = "rules_oci", version = "2.3.0")
 bazel_dep(name = "rules_pkg", version = "1.2.0")
 bazel_dep(name = "rules_erlang", version = "3.18.0")
-bazel_dep(name = "rules_elixir", version = "1.1.0")
+bazel_dep(name = "rules_elixir", version = "1.2.0")
 bazel_dep(name = "platforms", version = "1.1.0")
 bazel_dep(name = "bazel_features", version = "1.51.0", repo_name = "bazel_features")
 bazel_dep(name = "rules_java", version = "9.0.3", repo_name = "rules_java")
@@ -96,29 +96,20 @@ single_version_override(
     patches = ["//third_party/patches/rules_java:openbsd_jni_header.patch"],
 )
 
-# The vendored 3.16.0 tree that used to live in //third_party/rules_erlang is now released
-# as 3.18.0 from bazelverse/rules_erlang, which continues the archived rabbitmq line. It
-# carries the same eight fixes plus the hex_packages extension this repository depends on.
-#
-# Pinned by commit rather than tag so the pin is immutable. Not yet on the Bazel Central
-# Registry -- drop this override once it is published and the bazel_dep above resolves on
-# its own. To develop the two together, point this at a sibling checkout with
-# local_path_override instead.
-#
-# Raises four shared dependencies by taking the max of both graphs: rules_go 0.60.0 ->
-# 0.62.0, gazelle 0.45.0 -> 0.51.3, bazel_skylib 1.9.0 -> 1.9.2, rules_shell 0.6.1 -> 0.8.0.
+# Pinned by commit so the pin is immutable. Not yet on the Bazel Central
+# Registry -- drop this override once it is published and the bazel_dep above resolves on its own.
 git_override(
     module_name = "rules_erlang",
     commit = "5531a30ab87ed7e2a63eb1a901c4eeac1bb2bcc6",
     remote = "https://github.com/bazelverse/rules_erlang.git",
 )
 
-# VENDORED, not patched -- same reasoning as rules_erlang above. //third_party/rules_elixir
-# is the 1.1.0 source with its six local fixes already applied; the per-fix rationale lives
-# in //third_party/rules_elixir/VENDORING.md.
-local_path_override(
+# Pinned by commit so the pin is immutable. Not yet on the Bazel Central
+# Registry -- drop this override once it is published and the bazel_dep above resolves on its own.
+git_override(
     module_name = "rules_elixir",
-    path = "third_party/rules_elixir",
+    commit = "ee1e69b9c8165d301f66fdd13b025d6c54a24ac1",
+    remote = "https://github.com/bazelverse/rules_elixir.git",
 )
 
 # --- Hex packages ------------------------------------------------------------

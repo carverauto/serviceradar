@@ -485,7 +485,7 @@
     "@@rules_elixir+//bzlmod:extensions.bzl%elixir_config": {
       "general": {
         "bzlTransitiveDigest": "yTiFUqi7O9jlXbQRGa5Ln6U86f4xXLzhKKxujFed38Q=",
-        "usagesDigest": "9rXXP2Tl1m7jq79pzn5XvnynY7K3IRMzT+N3ZLheAls=",
+        "usagesDigest": "ZpU7vlENZ84N3diaRj9RZvFvz6rv5GOlMR0bOntz0wI=",
         "recordedInputs": [
           "REPO_MAPPING:rules_elixir+,bazel_tools bazel_tools",
           "REPO_MAPPING:rules_elixir+,rules_erlang rules_erlang+"
