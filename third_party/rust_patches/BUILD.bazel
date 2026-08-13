@@ -1,5 +1,25 @@
+load("@bazel_skylib//rules:write_file.bzl", "write_file")
+
 package(default_visibility = ["//visibility:public"])
 
 exports_files([
     "openssl_src_runfiles_patch",
 ])
+
+# OpenSSL's Configure is a perl script, and openssl-sys' build script runs whatever
+# $OPENSSL_SRC_PERL names. This wrapper is that name.
+#
+# It lives here rather than in the generated openssl-sys crate package because a label in a
+# crate.annotation is resolved against MODULE.bazel: `$(execpath ...)` in build_script_env
+# needs a root-module target, which an annotation's own additive_build_file_content cannot
+# provide. See the openssl-sys annotation in //MODULE.bazel.
+write_file(
+    name = "openssl_perl_wrapper",
+    out = "openssl-perl-wrapper.sh",
+    content = [
+        "#!/usr/bin/env bash",
+        "set -euo pipefail",
+        'exec perl "$@"',
+    ],
+    is_executable = True,
+)

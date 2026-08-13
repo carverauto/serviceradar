@@ -102,17 +102,27 @@ func (e *DiscoveryEngine) connectSNMPClient(
 		connectDone <- client.Connect()
 	}()
 
+	hostname := e.lookupKnownDeviceName(job, snmpTargetIP)
+	target := describeSNMPTarget(snmpTargetIP, hostname)
+
 	select {
 	case err := <-connectDone:
 		if err != nil {
-			e.logger.Error().Str("job_id", job.ID).Str("target_ip", snmpTargetIP).Err(err).
-				Msg("Failed to connect SNMP")
+			e.logger.Error().
+				Str("job_id", job.ID).
+				Str("target_ip", snmpTargetIP).
+				Str("hostname", hostname).
+				Err(err).
+				Msgf("Failed to connect SNMP for %s", target)
 
 			return err
 		}
 	case <-connectCtx.Done():
-		e.logger.Warn().Str("job_id", job.ID).Str("target_ip", snmpTargetIP).
-			Msg("SNMP connect timeout, skipping")
+		e.logger.Warn().
+			Str("job_id", job.ID).
+			Str("target_ip", snmpTargetIP).
+			Str("hostname", hostname).
+			Msgf("SNMP connect timeout for %s, skipping", target)
 
 		return ErrConnectionTimeout
 	}
@@ -181,13 +191,24 @@ func (e *DiscoveryEngine) performTopologyDiscovery(
 func (e *DiscoveryEngine) scanTargetForSNMP(
 	ctx context.Context, job *DiscoveryJob, snmpTargetIP string, mode snmpPollingMode,
 ) {
-	e.logger.Debug().Str("job_id", job.ID).Str("target_ip", snmpTargetIP).Msg("SNMP Scanning target")
+	hostname := e.lookupKnownDeviceName(job, snmpTargetIP)
+	target := describeSNMPTarget(snmpTargetIP, hostname)
+
+	e.logger.Debug().
+		Str("job_id", job.ID).
+		Str("target_ip", snmpTargetIP).
+		Str("hostname", hostname).
+		Msgf("SNMP scanning %s", target)
 
 	// Setup SNMP client
 	client, err := e.setupSNMPClient(job, snmpTargetIP)
 	if err != nil {
-		e.logger.Error().Str("job_id", job.ID).Str("target_ip", snmpTargetIP).Err(err).
-			Msg("Failed to setup SNMP client")
+		e.logger.Error().
+			Str("job_id", job.ID).
+			Str("target_ip", snmpTargetIP).
+			Str("hostname", hostname).
+			Err(err).
+			Msgf("Failed to setup SNMP client for %s", target)
 
 		return
 	}
@@ -209,8 +230,12 @@ func (e *DiscoveryEngine) scanTargetForSNMP(
 	// Query system information
 	deviceSNMP, err := e.querySysInfoWithTimeout(client, job, snmpTargetIP, 15*time.Second)
 	if err != nil {
-		e.logger.Warn().Str("job_id", job.ID).Str("target_ip", snmpTargetIP).Err(err).
-			Msg("Failed to query system info via SNMP, skipping")
+		e.logger.Warn().
+			Str("job_id", job.ID).
+			Str("target_ip", snmpTargetIP).
+			Str("hostname", hostname).
+			Err(err).
+			Msgf("Failed to query system info via SNMP for %s, skipping", target)
 
 		// For topology mode, continue with LLDP/CDP/L2 polling when the target
 		// is already known from other evidence (e.g., UniFi inventory).

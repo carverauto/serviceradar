@@ -13,6 +13,14 @@ defmodule ServiceRadarWebNGWeb.LogLive.IndexTest do
     old = Application.get_env(:serviceradar_web_ng, :srql_module)
     Application.put_env(:serviceradar_web_ng, :srql_module, __MODULE__.RecordingSRQLStub)
 
+    old_status = Application.get_env(:serviceradar_web_ng, :logs_rollup_status_fun)
+
+    Application.put_env(
+      :serviceradar_web_ng,
+      :logs_rollup_status_fun,
+      fn -> ServiceRadarWebNGWeb.Stats.empty_logs_rollup_status() end
+    )
+
     :persistent_term.put({__MODULE__, :test_pid}, self())
 
     on_exit(fn ->
@@ -22,6 +30,12 @@ defmodule ServiceRadarWebNGWeb.LogLive.IndexTest do
         Application.delete_env(:serviceradar_web_ng, :srql_module)
       else
         Application.put_env(:serviceradar_web_ng, :srql_module, old)
+      end
+
+      if is_nil(old_status) do
+        Application.delete_env(:serviceradar_web_ng, :logs_rollup_status_fun)
+      else
+        Application.put_env(:serviceradar_web_ng, :logs_rollup_status_fun, old_status)
       end
     end)
 
@@ -43,6 +57,44 @@ defmodule ServiceRadarWebNGWeb.LogLive.IndexTest do
 
     assert drain_srql_calls() == []
     assert has_element?(lv, "#logs-live-status", "Off")
+  end
+
+  test "log level cards render the severity rollup payload", %{conn: conn} do
+    {:ok, lv, _html} =
+      live(conn, ~p"/observability?#{%{tab: "logs", q: "in:logs time:last_24h sort:timestamp:desc", limit: 20}}")
+
+    assert has_element?(lv, "#logs-level-summary", "100")
+    assert has_element?(lv, "#logs-level-summary", "Fatal")
+    assert has_element?(lv, "#logs-level-summary", "Warning")
+    refute has_element?(lv, "#logs-rollup-warning")
+  end
+
+  test "logs pane surfaces an unavailable severity rollup instead of silent zeros", %{conn: conn} do
+    :persistent_term.put({__MODULE__, :logs_rollup_error?}, true)
+
+    on_exit(fn ->
+      :persistent_term.erase({__MODULE__, :logs_rollup_error?})
+    end)
+
+    {:ok, lv, html} =
+      live(conn, ~p"/observability?#{%{tab: "logs", q: "in:logs time:last_24h sort:timestamp:desc", limit: 20}}")
+
+    assert has_element?(lv, "#logs-rollup-warning", "Log level rollup unavailable")
+    assert html =~ "Page 1 log"
+  end
+
+  test "logs pane surfaces a stale or partially populated severity rollup", %{conn: conn} do
+    Application.put_env(:serviceradar_web_ng, :logs_rollup_status_fun, fn ->
+      ServiceRadarWebNGWeb.Stats.empty_logs_rollup_status()
+      |> Map.put(:healthy?, false)
+      |> Map.put(:messages, ["Log severity rollup has not populated the 24-hour card window."])
+    end)
+
+    {:ok, lv, _html} =
+      live(conn, ~p"/observability?#{%{tab: "logs", q: "in:logs time:last_24h", limit: 20}}")
+
+    assert has_element?(lv, "#logs-rollup-warning", "24-hour card window")
+    assert has_element?(lv, "#logs-level-summary", "100")
   end
 
   test "stale deferred log loads do not overwrite the current card query", %{conn: conn} do
@@ -359,10 +411,20 @@ defmodule ServiceRadarWebNGWeb.LogLive.IndexTest do
           :ok
       end
 
+      if String.contains?(query, "rollup_stats:severity") and
+           :persistent_term.get({IndexTest, :logs_rollup_error?}, false) do
+        {:error, :undefined_table}
+      else
+        query_success(query, opts)
+      end
+    end
+
+    defp query_success(query, opts) do
       cursor = Map.get(opts, :cursor)
 
       results =
         cond do
+          String.contains?(query, "rollup_stats:severity") -> [logs_severity_rollup_payload()]
           String.contains?(query, "rollup_stats:red") -> [red_rollup_payload()]
           String.contains?(query, "rollup_stats:summary") -> [traces_rollup_payload()]
           String.starts_with?(query, "in:otel_trace_summaries") -> maybe_sample_trace_summaries()
@@ -394,6 +456,17 @@ defmodule ServiceRadarWebNGWeb.LogLive.IndexTest do
         "p50_duration_ms" => 8.0,
         "p95_duration_ms" => 42.0,
         "max_duration_ms" => 480.0
+      }
+    end
+
+    defp logs_severity_rollup_payload do
+      %{
+        "total" => 100,
+        "fatal" => 2,
+        "error" => 8,
+        "warning" => 15,
+        "info" => 70,
+        "debug" => 5
       }
     end
 

@@ -58,7 +58,8 @@ defmodule ServiceRadarCore.MixProject do
       {:serviceradar_srql, path: "../serviceradar_srql"},
 
       # Ash Framework
-      {:ash, "~> 3.22"},
+      # CVE-2026-67579: keyset cursor injection is fixed in 3.31.3.
+      {:ash, "~> 3.31.3"},
       {:ash_postgres, "~> 2.4"},
       {:ash_oban, "~> 0.4"},
       {:ash_state_machine, "~> 0.2"},

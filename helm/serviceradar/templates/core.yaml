@@ -22,7 +22,7 @@
 {{- $advisoryFeeds := default (dict) (get (default (dict) .Values.core) "advisoryFeeds") -}}
 {{- $advisoryFeedsEnabled := default false $advisoryFeeds.enabled -}}
 {{- $advisoryFeedsDir := default "/var/lib/serviceradar/advisory-feeds" $advisoryFeeds.stagingDir -}}
-{{- $webNgPublicUrl := default "" $webNg.publicUrl -}}
+{{- $webNgPublicUrl := include "serviceradar.webNgPublicUrl" . -}}
 {{- $gatewayArtifactPublicUrl := "" -}}
 {{- if $gateway.publicHostname -}}
 {{- $gatewayArtifactPublicUrl = printf "https://%s:%v" $gateway.publicHostname (default 50053 $gatewayService.artifactPort) -}}

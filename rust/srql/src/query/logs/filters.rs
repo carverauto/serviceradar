@@ -1,5 +1,5 @@
 use super::metadata::{LOG_DEVICE_IDENTITY_KEYS, apply_metadata_identity_filter};
-use super::{LogsQuery, enforce_list_limit};
+use super::{LogsQuery, RECOGNIZED_SEVERITY_TEXTS, enforce_list_limit};
 use crate::{
     error::{Result, ServiceError},
     parser::{Filter, FilterOp},
@@ -203,6 +203,84 @@ fn apply_severity_filter<'a>(query: LogsQuery<'a>, filter: &Filter) -> Result<Lo
     Ok(next)
 }
 
+pub(super) fn apply_severity_any_filter<'a>(
+    query: LogsQuery<'a>,
+    text_filter: Option<&Filter>,
+    number_filter: Option<&Filter>,
+) -> Result<LogsQuery<'a>> {
+    let (Some(text_filter), Some(number_filter)) = (text_filter, number_filter) else {
+        return Err(ServiceError::InvalidRequest(
+            "severity_match:any requires severity and severity_number filters".into(),
+        ));
+    };
+
+    if !matches!(text_filter.op, FilterOp::In) || !matches!(number_filter.op, FilterOp::In) {
+        return Err(ServiceError::InvalidRequest(
+            "severity_match:any requires IN-list filters".into(),
+        ));
+    }
+
+    let text_values: Vec<String> = text_filter
+        .value
+        .as_list()?
+        .iter()
+        .map(|value| value.to_lowercase())
+        .collect();
+    if text_values.is_empty() {
+        return Err(ServiceError::InvalidRequest(
+            "severity_match:any requires non-empty IN-list filters".into(),
+        ));
+    }
+    enforce_list_limit(&text_filter.field, text_values.len())?;
+
+    let number_values: Vec<i32> = number_filter
+        .value
+        .as_list()?
+        .iter()
+        .map(|value| value.parse::<i32>())
+        .collect::<std::result::Result<Vec<_>, _>>()
+        .map_err(|_| {
+            ServiceError::InvalidRequest("severity_number list must be integers".into())
+        })?;
+    if number_values.is_empty() {
+        return Err(ServiceError::InvalidRequest(
+            "severity_match:any requires non-empty IN-list filters".into(),
+        ));
+    }
+    enforce_list_limit(&number_filter.field, number_values.len())?;
+
+    let recognized_text_values = RECOGNIZED_SEVERITY_TEXTS
+        .iter()
+        .map(|value| (*value).to_string())
+        .collect::<Vec<_>>();
+    let text_is_missing_or_unknown = col_severity_text
+        .is_null()
+        .or(lower_text(col_severity_text).ne_all(recognized_text_values));
+
+    Ok(query.filter(
+        lower_text(col_severity_text)
+            .eq_any(text_values)
+            .or(text_is_missing_or_unknown.and(col_severity_number.eq_any(number_values))),
+    ))
+}
+
+/// Restrict a numeric-severity top-N branch to rows where the text cannot
+/// classify the record. This keeps the branch disjoint from every scalar text
+/// branch and preserves the card contract that recognized text is
+/// authoritative over a conflicting numeric severity.
+pub(super) fn apply_numeric_severity_fallback_guard<'a>(query: LogsQuery<'a>) -> LogsQuery<'a> {
+    let recognized_text_values = RECOGNIZED_SEVERITY_TEXTS
+        .iter()
+        .map(|value| (*value).to_string())
+        .collect::<Vec<_>>();
+
+    query.filter(
+        col_severity_text
+            .is_null()
+            .or(lower_text(col_severity_text).ne_all(recognized_text_values)),
+    )
+}
+
 fn collect_text_params(params: &mut Vec<BindParam>, filter: &Filter) -> Result<()> {
     match filter.op {
         FilterOp::Eq | FilterOp::NotEq | FilterOp::Like | FilterOp::NotLike => {
@@ -268,6 +346,7 @@ pub(super) fn collect_filter_params(params: &mut Vec<BindParam>, filter: &Filter
             collect_text_params(params, filter)
         }
         "severity_text" | "severity" | "level" => collect_severity_params(params, filter),
+        "severity_match" => Ok(()),
         "device_id" | "uid" | "source_device_uid" | "gateway_id" | "agent_id" => Ok(()),
         "severity_number" => match filter.op {
             FilterOp::Eq | FilterOp::NotEq => {
@@ -536,6 +615,59 @@ mod tests {
             matches!(&params[2], BindParam::TextArray(values)
                 if values == &vec!["severe".to_string(), "error".to_string(), "warning".to_string()]),
             "params: {params:?}"
+        );
+    }
+
+    #[test]
+    fn severity_match_any_defers_both_severity_binds_after_service_filter() {
+        let plan = data_plan(vec![
+            Filter {
+                field: "severity".into(),
+                op: FilterOp::In,
+                value: FilterValue::List(vec!["error".into(), "severity_number_error".into()]),
+            },
+            Filter {
+                field: "severity_number".into(),
+                op: FilterOp::In,
+                value: FilterValue::List(vec!["17".into(), "18".into(), "19".into(), "20".into()]),
+            },
+            Filter {
+                field: "severity_match".into(),
+                op: FilterOp::Eq,
+                value: FilterValue::Scalar("any".into()),
+            },
+            Filter {
+                field: "service_name".into(),
+                op: FilterOp::Eq,
+                value: FilterValue::Scalar("serviceradar-core".into()),
+            },
+        ]);
+
+        let (sql, params) = to_sql_and_params(&plan).expect("SQL should generate");
+
+        assert!(
+            sql.contains("\"logs\".\"service_name\" = $3"),
+            "service filter must bind before the deferred severity predicate: {sql}"
+        );
+        assert!(
+            sql.contains(
+                "(lower(\"logs\".\"severity_text\") = ANY($4)) OR (((\"logs\".\"severity_text\" IS NULL) OR (lower(\"logs\".\"severity_text\") != ALL($5))) AND (\"logs\".\"severity_number\" = ANY($6)))"
+            ),
+            "{sql}"
+        );
+        assert_eq!(
+            params.len(),
+            8,
+            "time, service, selected/recognized/numeric severity arrays, limit, offset"
+        );
+        assert!(matches!(&params[2], BindParam::Text(value) if value == "serviceradar-core"));
+        assert!(matches!(&params[3], BindParam::TextArray(values) if values[0] == "error"));
+        assert!(matches!(&params[4], BindParam::TextArray(values)
+                if values.len() == 38
+                    && values.contains(&"fatal".to_string())
+                    && values.contains(&"severity_number_trace4".to_string())));
+        assert!(
+            matches!(&params[5], BindParam::IntArray(values) if values == &vec![17, 18, 19, 20])
         );
     }
 

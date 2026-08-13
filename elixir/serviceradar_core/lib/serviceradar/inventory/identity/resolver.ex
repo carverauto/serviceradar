@@ -11,6 +11,7 @@ defmodule ServiceRadar.Inventory.Identity.Resolver do
   alias ServiceRadar.Inventory.DeviceIdentifier
   alias ServiceRadar.Inventory.Identity.AliasGuard
   alias ServiceRadar.Inventory.Identity.Ids
+  alias ServiceRadar.Inventory.Identity.Mac
   alias ServiceRadar.Inventory.Identity.MergeEngine
   alias ServiceRadar.Inventory.MergeAudit
 
@@ -43,10 +44,17 @@ defmodule ServiceRadar.Inventory.Identity.Resolver do
     case lookup_by_strong_identifiers(ids, actor, update.device_id) do
       {:ok, device_id} when is_binary(device_id) and device_id != "" ->
         _ = AliasGuard.maybe_merge_ip_alias_device(device_id, ids, actor)
-        {:ok, device_id}
+        {:ok, maybe_merge_hardware_mac_siblings(device_id, ids, update, actor)}
 
       _ ->
-        resolve_fallback_device_id(update, ids, actor)
+        case lookup_hardware_mac_sibling_device(ids, update, actor) do
+          {:ok, device_id} when is_binary(device_id) and device_id != "" ->
+            _ = AliasGuard.maybe_merge_ip_alias_device(device_id, ids, actor)
+            {:ok, device_id}
+
+          _ ->
+            resolve_fallback_device_id(update, ids, actor)
+        end
     end
   end
 
@@ -337,6 +345,99 @@ defmodule ServiceRadar.Inventory.Identity.Resolver do
       end
     end)
   end
+
+  defp lookup_hardware_mac_sibling_device(ids, update, actor) do
+    partition = Ids.ids_get_partition(ids)
+
+    ids
+    |> sibling_mac_candidates(update)
+    |> Enum.map(&Mac.hardware_mac_sibling/1)
+    |> Enum.reject(&is_nil/1)
+    |> Enum.find_value(fn sibling ->
+      case lookup_device_identifier(:mac, sibling, partition, actor) do
+        {:ok, device_id} when is_binary(device_id) and device_id != "" -> device_id
+        _ -> nil
+      end
+    end)
+    |> case do
+      device_id when is_binary(device_id) -> {:ok, device_id}
+      _ -> {:ok, nil}
+    end
+  end
+
+  # Prefer the universally-administered MAC as the survivor so a UniFi WAN
+  # identity absorbs the SNMP LAN sibling, not the other way around.
+  defp maybe_merge_hardware_mac_siblings(device_id, ids, update, actor) do
+    partition = Ids.ids_get_partition(ids)
+
+    ids
+    |> sibling_mac_candidates(update)
+    |> Enum.reduce(device_id, fn mac, acc ->
+      merge_hardware_mac_sibling(acc, mac, partition, actor)
+    end)
+  end
+
+  defp merge_hardware_mac_sibling(device_id, mac, partition, actor) do
+    sibling = Mac.hardware_mac_sibling(mac)
+
+    with true <- is_binary(sibling),
+         {:ok, other_id} when is_binary(other_id) and other_id != device_id <-
+           lookup_device_identifier(:mac, sibling, partition, actor) do
+      {from_id, to_id} = hardware_mac_merge_direction(device_id, other_id, mac)
+
+      case MergeEngine.merge_devices(from_id, to_id,
+             actor: actor,
+             reason: "hardware_mac_sibling",
+             details: %{
+               source: "identity_reconciler",
+               mac: mac,
+               sibling_mac: sibling
+             }
+           ) do
+        :ok -> to_id
+        _ -> device_id
+      end
+    else
+      _ -> device_id
+    end
+  end
+
+  defp hardware_mac_merge_direction(device_id, other_id, incoming_mac) do
+    if Mac.locally_administered_mac?(incoming_mac) do
+      {device_id, other_id}
+    else
+      {other_id, device_id}
+    end
+  end
+
+  defp sibling_mac_candidates(ids, update) do
+    metadata =
+      case update do
+        %{metadata: metadata} when is_map(metadata) -> metadata
+        %{"metadata" => metadata} when is_map(metadata) -> metadata
+        _ -> %{}
+      end
+
+    (Ids.mac_lookup_values(ids) ++ alt_macs_from_metadata(metadata))
+    |> Enum.reject(&is_nil/1)
+    |> Enum.uniq()
+  end
+
+  defp alt_macs_from_metadata(metadata) when is_map(metadata) do
+    metadata
+    |> Enum.flat_map(fn {key, _} ->
+      key = to_string(key)
+
+      if String.starts_with?(key, "alt_mac:") do
+        Mac.normalize_mac_list(String.trim_leading(key, "alt_mac:"))
+      else
+        []
+      end
+    end)
+    |> Enum.uniq()
+  end
+
+  defp alt_macs_from_metadata(_), do: []
 
   def most_recent_device_id([], _actor), do: nil
 

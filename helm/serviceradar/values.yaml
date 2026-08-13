@@ -1109,6 +1109,12 @@ webNg:
     # staged packages. Approval and assignment remain operator-controlled.
     autoApproveAddonIds: []
   host: ""
+  # Canonical externally reachable HTTPS origin for web-ng (for example,
+  # https://serviceradar.example.com). A trailing root slash is accepted and
+  # canonicalized away; explicit ports other than 443 are rejected. Edge
+  # onboarding tokens and generated
+  # install commands embed this origin. Set it for every deployment exposed
+  # through Ingress or Gateway API; do not use an in-cluster Service name.
   publicUrl: ""
   godViewEnabled: "true"
   # Keep Phoenix/LiveView WebSocket origin checks enabled by default.

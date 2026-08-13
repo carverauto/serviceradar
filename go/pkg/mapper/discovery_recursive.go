@@ -69,6 +69,10 @@ func recursiveTopologyLinkEligible(link *TopologyLink) bool {
 		return recursiveCandidateOnlyTopologyLinkEligible(link)
 	}
 
+	if recursiveWiredNeighborEligible(link) {
+		return true
+	}
+
 	evidenceClass := normalizeTopologyEvidenceClass(link.Metadata["evidence_class"])
 
 	switch evidenceClass {
@@ -77,6 +81,23 @@ func recursiveTopologyLinkEligible(link *TopologyLink) bool {
 	default:
 		return false
 	}
+}
+
+// UniFi (and similar controller) wired clients carry a management IPv4 but
+// stay endpoint-attachment in the mapper job — ingest later classifies them
+// as direct-physical. Recursion must use the same neighbor IP or a Catalyst
+// on a non-seed VLAN is never SNMP'd.
+func recursiveWiredNeighborEligible(link *TopologyLink) bool {
+	if link == nil || link.Metadata == nil {
+		return false
+	}
+
+	if !isIPv4(strings.TrimSpace(link.NeighborMgmtAddr)) {
+		return false
+	}
+
+	source := strings.ToLower(strings.TrimSpace(link.Metadata["source"]))
+	return strings.Contains(source, "wired-client")
 }
 
 func recursiveCandidateOnlyTopologyLinkEligible(link *TopologyLink) bool {

@@ -5,7 +5,7 @@
 {{- $clusterNodeBasename := default "serviceradar_agent_gateway" $gateway.kubernetesNodeBasename -}}
 {{- $coreVals := default (dict) .Values.core -}}
 {{- $webNg := default (dict) .Values.webNg -}}
-{{- $webNgPublicUrl := default "" $webNg.publicUrl -}}
+{{- $webNgPublicUrl := include "serviceradar.webNgPublicUrl" . -}}
 {{- $gatewayService := default (dict) $gateway.service -}}
 {{- $gatewayServiceType := default "ClusterIP" $gatewayService.type -}}
 {{- $gatewayArtifactPublicUrl := "" -}}

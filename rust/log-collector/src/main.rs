@@ -7,7 +7,9 @@ use log::{error, info};
 use std::io::{Write, stderr};
 use std::net::SocketAddr;
 use std::sync::Once;
+#[cfg(feature = "otel")]
 use std::time::Duration;
+use tokio::task::{JoinError, JoinSet};
 use tonic_health::ServingStatus;
 use tonic_health::server::health_reporter;
 
@@ -75,7 +77,7 @@ async fn run() -> Result<()> {
         cfg.flowgger.enabled, cfg.otel.enabled
     );
 
-    let mut handles = Vec::new();
+    let mut pipelines: JoinSet<&'static str> = JoinSet::new();
 
     // --- Flowgger (syslog/GELF) pipeline ---
     #[cfg(feature = "syslog")]
@@ -84,10 +86,10 @@ async fn run() -> Result<()> {
         info!("Starting Flowgger pipeline with config: {flowgger_config}");
 
         // Flowgger uses sync threads internally, so we run it in a blocking task.
-        let handle = tokio::task::spawn_blocking(move || {
+        pipelines.spawn_blocking(move || {
             flowgger::start(&flowgger_config);
+            "flowgger"
         });
-        handles.push(handle);
     }
 
     // --- OTEL gRPC collector ---
@@ -96,7 +98,7 @@ async fn run() -> Result<()> {
         let otel_config_path = cfg.otel.config_file.clone();
         info!("Starting OTEL collector with config: {otel_config_path}");
 
-        let handle = tokio::spawn(async move {
+        pipelines.spawn(async move {
             let mut backoff_secs: u64 = 1;
             loop {
                 if let Err(e) = start_otel(&otel_config_path).await {
@@ -108,10 +110,9 @@ async fn run() -> Result<()> {
                 backoff_secs = (backoff_secs * 2).min(30);
             }
         });
-        handles.push(handle);
     }
 
-    if handles.is_empty() {
+    if pipelines.is_empty() {
         anyhow::bail!("No inputs enabled — enable at least one of [flowgger] or [otel]");
     }
 
@@ -150,11 +151,24 @@ async fn run() -> Result<()> {
         }
     });
 
-    // Wait for shutdown signal
-    tokio::signal::ctrl_c().await?;
-    info!("Shutdown signal received, stopping...");
+    tokio::select! {
+        shutdown = tokio::signal::ctrl_c() => {
+            shutdown?;
+            info!("Shutdown signal received, stopping...");
+            Ok(())
+        }
+        completed = pipelines.join_next() => unexpected_pipeline_exit(completed),
+    }
+}
 
-    Ok(())
+fn unexpected_pipeline_exit(
+    completed: Option<std::result::Result<&'static str, JoinError>>,
+) -> Result<()> {
+    match completed {
+        Some(Ok(name)) => anyhow::bail!("{name} pipeline exited unexpectedly"),
+        Some(Err(err)) => anyhow::bail!("log collector pipeline task failed: {err}"),
+        None => anyhow::bail!("all log collector pipelines exited unexpectedly"),
+    }
 }
 
 /// Boot the OTEL collector from its own config file.
@@ -231,4 +245,28 @@ async fn start_otel(config_path: &str) -> Result<()> {
     .await
     .map_err(|e| anyhow::anyhow!("{e}"))?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn completed_pipeline_is_an_error() {
+        let err = unexpected_pipeline_exit(Some(Ok("flowgger"))).unwrap_err();
+
+        assert_eq!(err.to_string(), "flowgger pipeline exited unexpectedly");
+    }
+
+    #[tokio::test]
+    async fn panicked_pipeline_is_an_error() {
+        let join_error = tokio::spawn(async { panic!("pipeline panic") })
+            .await
+            .unwrap_err();
+
+        let err = unexpected_pipeline_exit(Some(Err(join_error))).unwrap_err();
+
+        assert!(err.to_string().contains("pipeline task failed"));
+        assert!(err.to_string().contains("panicked"));
+    }
 }

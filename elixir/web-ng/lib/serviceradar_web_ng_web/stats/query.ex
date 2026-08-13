@@ -14,6 +14,20 @@ defmodule ServiceRadarWebNGWeb.Stats.Query do
     info: ~w(info information informational notice),
     debug: ~w(debug trace)
   }
+  @otel_severity_prefixes %{
+    fatal: ~w(fatal),
+    error: ~w(error),
+    warning: ~w(warn),
+    info: ~w(info),
+    debug: ~w(debug trace)
+  }
+  @severity_number_values %{
+    fatal: Enum.to_list(21..24),
+    error: Enum.to_list(17..20),
+    warning: Enum.to_list(13..16),
+    info: Enum.to_list(9..12),
+    debug: Enum.to_list(1..8)
+  }
 
   @doc """
   Build SRQL query for logs severity stats.
@@ -25,14 +39,12 @@ defmodule ServiceRadarWebNGWeb.Stats.Query do
   def logs_severity(opts \\ []) do
     time = Keyword.get(opts, :time, @default_time_window)
     service_name = Keyword.get(opts, :service_name)
-    source = Keyword.get(opts, :source)
 
     base = "in:logs time:#{time} rollup_stats:severity"
 
     filters =
       []
       |> maybe_add_filter("service_name", service_name)
-      |> maybe_add_filter("source", source)
       |> Enum.join(" ")
 
     if filters == "" do
@@ -46,8 +58,8 @@ defmodule ServiceRadarWebNGWeb.Stats.Query do
   Return the canonical `severity_text` values used for a log severity group.
 
   Log severity filters are case-insensitive in both SRQL data and stats queries,
-  matching the rollup CAGG's `lower(severity_text)` groups. Keeping one lowercase
-  value per alias avoids redundant bind values in click-through queries.
+  matching the rollup CAGG's `lower(severity_text)` groups. OTel SDK enum names
+  are included so a card click returns the same rows the rollup counted.
   """
   @spec log_severity_values(atom() | [atom()]) :: [String.t()]
   def log_severity_values(levels) when is_list(levels) do
@@ -56,11 +68,26 @@ defmodule ServiceRadarWebNGWeb.Stats.Query do
     |> Enum.uniq()
   end
 
-  def log_severity_values(level) when is_atom(level), do: Map.fetch!(@log_severity_values, level)
+  def log_severity_values(level) when is_atom(level) do
+    canonical = Map.fetch!(@log_severity_values, level)
 
-  @doc "Build an exact-match SRQL severity_text filter for one or more log severity groups."
+    otel =
+      @otel_severity_prefixes
+      |> Map.fetch!(level)
+      |> Enum.flat_map(&otel_severity_values/1)
+
+    canonical ++ otel
+  end
+
+  @doc "Build an exact-match SRQL severity filter for one or more log severity groups."
   @spec log_severity_filter(atom() | [atom()]) :: String.t()
-  def log_severity_filter(levels), do: "severity_text:(#{levels |> log_severity_values() |> Enum.join(",")})"
+  def log_severity_filter(levels) do
+    levels = List.wrap(levels)
+    text_values = levels |> log_severity_values() |> Enum.join(",")
+    number_values = levels |> log_severity_number_values() |> Enum.join(",")
+
+    "severity:(#{text_values}) severity_number:(#{number_values}) severity_match:any"
+  end
 
   @doc "Build a log data query for a severity group using the shared severity mapping."
   @spec logs_severity_data_query(atom() | [atom()], keyword()) :: String.t()
@@ -85,6 +112,16 @@ defmodule ServiceRadarWebNGWeb.Stats.Query do
     alias_name = Keyword.get(opts, :alias, "total")
 
     ~s|in:logs #{log_severity_filter(levels)} time:#{time} stats:"count() as #{alias_name}"|
+  end
+
+  defp otel_severity_values(prefix) do
+    ["severity_number_#{prefix}" | Enum.map(2..4, &"severity_number_#{prefix}#{&1}")]
+  end
+
+  defp log_severity_number_values(levels) do
+    levels
+    |> Enum.flat_map(&Map.fetch!(@severity_number_values, &1))
+    |> Enum.uniq()
   end
 
   @doc """

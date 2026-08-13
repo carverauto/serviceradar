@@ -416,7 +416,7 @@ defmodule ServiceRadarWebNGWeb.PluginConfigForm do
   defp current_secret_ref(params, name) do
     case Map.get(params, name) do
       value when is_binary(value) ->
-        if String.starts_with?(value, "secretref:"), do: value
+        if SecretRefs.secret_ref?(value), do: value
 
       _ ->
         nil

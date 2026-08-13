@@ -19,7 +19,24 @@ Do not expose internal service ports directly. Public traffic should terminate a
 | OTLP HTTP ingest | 443 | HTTPS | `serviceradar-otlp:4318` | Shared or dedicated Gateway route, DNS record, TLS certificate | Recommended external path for OTLP/HTTP because the Gateway can present a public certificate and forward plaintext in-cluster. |
 | OTLP gRPC ingest | 50052 | TLS passthrough | `serviceradar-otlp:4317` | Shared or dedicated TLS Gateway listener with SNI routing | With passthrough, senders see the ServiceRadar collector certificate and must trust the ServiceRadar root CA or explicitly skip verification. |
 
-The web, edge-agent TCP, and OTLP HTTP routes are good candidates for a shared public Gateway with per-deployment hostnames or listener ports. OTLP gRPC can also share a Gateway listener if the cloud/Gateway implementation supports TLS passthrough and SNI routing.
+The web, edge-agent TCP, and OTLP HTTP routes can share a public Gateway
+data-plane address, but they still require separate listeners and routes. A web
+`HTTPRoute` on `443` does not expose the edge-agent TCP service on `50052` or
+`50053`. Alternatively, give `serviceradar-agent-gateway` its own L4
+LoadBalancer and DNS name. OTLP gRPC can also share a Gateway listener if the
+cloud/Gateway implementation supports TLS passthrough and SNI routing.
+
+For Helm installs, keep the endpoint roles explicit:
+
+- `webNg.host` and `webNg.publicUrl` name the public HTTPS web/API origin used
+  during enrollment.
+- `webNg.gatewayAddress` names the external `host:port` stored in the agent
+  bundle for its post-enrollment gRPC session.
+- `agentGateway.publicHostname` identifies the public gateway name used for
+  artifact delivery. The certificate presented on the gateway ports must cover
+  the hostname in `webNg.gatewayAddress`.
+- `gatewayApi.agentGateway` renders the agent-gateway TCP routes; the parent
+  Gateway still needs matching listeners in `attach` mode.
 
 ## Optional Telemetry Collectors
 

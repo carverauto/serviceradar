@@ -1394,6 +1394,10 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
     update_execution_row(execution_id, inc_fields, set_fields)
     maybe_set_expected_total(execution_id, expected_total_hosts, updated_at)
 
+    if is_final do
+      record_group_execution(sweep_group_id, actor)
+    end
+
     maybe_record_banner_grab_phase(
       execution_id,
       sweep_group_id,
@@ -1707,7 +1711,7 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
          agent_id,
          config_version,
          expected_total_hosts,
-         _actor
+         actor
        ) do
     # DB connection's search_path determines the schema
     # Check if execution exists
@@ -1728,7 +1732,8 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
           sweep_group_id,
           agent_id,
           config_version,
-          expected_total_hosts
+          expected_total_hosts,
+          actor
         )
       else
         Logger.warning(
@@ -1782,7 +1787,8 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
          sweep_group_id,
          agent_id,
          config_version,
-         expected_total_hosts
+         expected_total_hosts,
+         actor
        ) do
     now = DateTime.utc_now()
     started_at = DateTime.truncate(now, :second)
@@ -1827,6 +1833,7 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
         }
 
         SweepPubSub.broadcast_started(execution)
+        record_group_execution(sweep_group_id, actor)
 
         :ok
 
@@ -1839,6 +1846,35 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
     e ->
       Logger.error("SweepResultsIngestor: Failed to create execution: #{inspect(e)}")
       {:error, e}
+  end
+
+  defp record_group_execution(sweep_group_id, _actor) when sweep_group_id in [nil, ""], do: :ok
+
+  defp record_group_execution(sweep_group_id, actor) do
+    case Ash.get(SweepGroup, sweep_group_id, actor: actor) do
+      {:ok, group} ->
+        group
+        |> Ash.Changeset.for_update(:record_execution, %{}, actor: actor)
+        |> Ash.update(actor: actor)
+        |> case do
+          {:ok, _updated} ->
+            :ok
+
+          {:error, reason} ->
+            Logger.warning(
+              "SweepResultsIngestor: failed to record last_run_at for group #{sweep_group_id}: #{inspect(reason)}"
+            )
+
+            :ok
+        end
+
+      {:error, reason} ->
+        Logger.debug(
+          "SweepResultsIngestor: sweep group #{sweep_group_id} not found for last_run_at: #{inspect(reason)}"
+        )
+
+        :ok
+    end
   end
 
   defp mark_superseded_executions(nil, _agent_id, _now), do: :ok

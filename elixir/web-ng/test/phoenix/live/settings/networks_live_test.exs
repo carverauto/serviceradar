@@ -8,6 +8,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLiveTest do
   alias ServiceRadar.NetworkDiscovery.MapperMikrotikController
   alias ServiceRadar.NetworkDiscovery.MapperUnifiController
   alias ServiceRadar.SweepJobs.SweepGroup
+  alias ServiceRadar.SweepJobs.SweepGroupExecution
   alias ServiceRadar.SweepJobs.SweepProfile
   alias ServiceRadarWebNG.Accounts.Scope
   alias ServiceRadarWebNG.AccountsFixtures
@@ -31,6 +32,34 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLiveTest do
 
     assert html =~ "Sweep Groups"
     assert html =~ group.name
+  end
+
+  test "shows last run and status from latest execution", %{conn: conn, scope: scope} do
+    unique = System.unique_integer([:positive])
+
+    {:ok, group} =
+      SweepGroup
+      |> Ash.Changeset.for_create(:create, %{name: "Ran Group #{unique}"})
+      |> Ash.create(scope: scope)
+
+    {:ok, execution} =
+      SweepGroupExecution
+      |> Ash.Changeset.for_create(:start, %{
+        sweep_group_id: group.id,
+        agent_id: "farm01"
+      })
+      |> Ash.create(scope: scope)
+
+    {:ok, execution} =
+      execution
+      |> Ash.Changeset.for_update(:complete, %{hosts_total: 99, hosts_available: 42})
+      |> Ash.update(scope: scope)
+
+    {:ok, _lv, html} = live(conn, ~p"/settings/networks")
+
+    assert html =~ group.name
+    assert html =~ "Completed"
+    assert html =~ Calendar.strftime(execution.completed_at || execution.started_at, "%Y-%m-%d %H:%M")
   end
 
   test "switches to profiles tab and lists profiles", %{conn: conn, scope: scope} do
@@ -205,6 +234,33 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLiveTest do
     {:ok, lv, _html} = live(conn, ~p"/settings/networks/discovery")
 
     assert has_element?(lv, "#run-mapper-job-#{job.id}")
+  end
+
+  test "run now shows an actionable validation message when no mapper agent is online", %{
+    conn: conn,
+    scope: scope
+  } do
+    unique = System.unique_integer([:positive])
+
+    {:ok, job} =
+      MapperJob
+      |> Ash.Changeset.for_create(:create, %{
+        name: "Offline Discovery #{unique}",
+        enabled: false
+      })
+      |> Ash.create(scope: scope)
+
+    {:ok, lv, _html} = live(conn, ~p"/settings/networks/discovery")
+
+    html =
+      lv
+      |> element("#run-mapper-job-#{job.id}")
+      |> render_click()
+
+    assert html =~
+             "Failed to run discovery job: No online mapper-capable agent is available for this discovery job."
+
+    refute html =~ "Ash.Error"
   end
 
   test "shows masked placeholders for stored controller credentials", %{conn: conn, scope: scope} do

@@ -605,6 +605,29 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.ActiveScansComponents do
 
   def format_last_run(_), do: "—"
 
+  def group_last_run_at(%{last_run_at: %DateTime{} = last_run_at}), do: last_run_at
+
+  def group_last_run_at(group) do
+    case latest_group_execution(group) do
+      %{completed_at: %DateTime{} = completed_at} -> completed_at
+      %{started_at: %DateTime{} = started_at} -> started_at
+      _ -> nil
+    end
+  end
+
+  def persisted_sweep_command_status(group) do
+    case latest_group_execution(group) do
+      %{status: :completed} -> %{state: :success}
+      %{status: :failed} -> %{state: :error}
+      %{status: :running} -> %{state: :progress}
+      %{status: :pending} -> %{state: :sent}
+      _ -> nil
+    end
+  end
+
+  defp latest_group_execution(%{executions: [%{} = execution | _]}), do: execution
+  defp latest_group_execution(_group), do: nil
+
   defp latest_execution(executions) do
     Enum.max_by(executions, &latest_execution_time/1, fn -> nil end)
   end
