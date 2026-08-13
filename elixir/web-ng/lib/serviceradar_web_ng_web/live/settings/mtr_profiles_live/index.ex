@@ -1108,8 +1108,7 @@ defmodule ServiceRadarWebNGWeb.Settings.MtrProfilesLive.Index do
 
   defp table_policy(_status, _table), do: "unknown"
 
-  defp format_retention_error(%Postgrex.Error{postgres: %{message: message}}) when is_binary(message),
-    do: message
+  defp format_retention_error(%Postgrex.Error{postgres: %{message: message}}) when is_binary(message), do: message
 
   defp format_retention_error(reason), do: inspect(reason)
 

@@ -103,8 +103,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NotificationsLive.TestSend do
   # persisted channel today. A `:declarative` or `:wasm_plugin` provider is
   # refused with the reason rather than silently reporting success, because a
   # test that cannot run is not a passing test.
-  defp transport_module(%{provider_type: :native, implementation_module: module})
-       when is_binary(module) do
+  defp transport_module(%{provider_type: :native, implementation_module: module}) when is_binary(module) do
     case Registry.resolve(module) do
       {:ok, resolved} ->
         {:ok, resolved}
@@ -123,8 +122,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NotificationsLive.TestSend do
   end
 
   defp transport_module(_provider) do
-    {:error,
-     failure("Select a provider first", "A test send needs a provider to dispatch through.")}
+    {:error, failure("Select a provider first", "A test send needs a provider to dispatch through.")}
   end
 
   # --- validation ------------------------------------------------------------
@@ -235,8 +233,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NotificationsLive.TestSend do
         {:ok, rendered}
 
       {:error, reason} ->
-        {:error,
-         failure("The test notification could not be rendered", Renderer.describe_error(reason))}
+        {:error, failure("The test notification could not be rendered", Renderer.describe_error(reason))}
     end
   end
 
@@ -303,8 +300,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NotificationsLive.TestSend do
     {:error, failure("The transport returned an unexpected result", inspect(other))}
   end
 
-  defp headline(:retryable_failure),
-    do: "The destination refused the test, and a retry could succeed"
+  defp headline(:retryable_failure), do: "The destination refused the test, and a retry could succeed"
 
   defp headline(_disposition), do: "The destination refused the test"
 
