@@ -736,6 +736,14 @@ here.
     1.6-d, which creates the only Elixir boundary that could run it. WITH PROJECTED COST as a sixth, Go-only RELATIONAL group, the final inventory is SIX
     PROOF GROUPS, not five -- the delegated-row count and the proof-group count are different
     numbers and SHALL NOT be reconciled by dropping one.
+    THE INVENTORY IS DERIVED, NOT HAND-COUNTED. `TestProofGroupInventoryIsExact` rebuilds it
+    from the SHARED MANIFESTS -- every row whose peer column is `n/a`, keyed by site and owner
+    -- and fails if the set or any owner drifts. A hand count is what let "four rows, not
+    three" survive two review rounds; this one fails instead, naming the sites it found. The
+    projected-cost relation is counted SEPARATELY there for the same reason it is here: its
+    rows are delegated too, but it is a RELATION between values that travel together, not a
+    bound with a frozen value, and collapsing it into the bound sites would make the two
+    numbers identical and hide the distinction.
     Compression admission (1.5-f) is CLOSED, delivered on
     `usp-32-compression-admission`; #4734 remains closed unmerged and is prior art, not
     delivery.
