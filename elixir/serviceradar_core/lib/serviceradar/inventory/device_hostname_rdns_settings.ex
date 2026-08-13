@@ -112,7 +112,9 @@ defmodule ServiceRadar.Inventory.DeviceHostnameRdnsSettings do
 
     system_bypass()
 
-    bypass action([:due, :run]) do
+    # AshOban scheduler uses :due; the worker reloads via worker_read_action
+    # :read (and then runs :run) with a nil actor.
+    bypass action([:due, :read, :get_singleton, :run]) do
       authorize_if ActorIsNil
     end
 
