@@ -65,6 +65,9 @@ defmodule ServiceRadar.OutboundMailSendTest do
     assert email.text_body =~ "Adapter: smtp"
     assert Keyword.fetch!(config, :adapter) == SMTP
     assert Keyword.fetch!(config, :relay) == "smtp.example.com"
+    assert Keyword.fetch!(config, :tls_options)[:verify] == :verify_peer
+    assert is_list(Keyword.fetch!(config, :tls_options)[:cacerts])
+    assert Keyword.fetch!(config, :tls_options)[:cacerts] != :undefined
   end
 
   test "uses SMTP hostname as the relay when relay is blank" do

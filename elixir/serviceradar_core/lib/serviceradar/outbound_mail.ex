@@ -48,6 +48,7 @@ defmodule ServiceRadar.OutboundMail do
   alias ServiceRadar.Credentials.SecretBroker
   alias ServiceRadar.Integrations.OutboundMailSettings
   alias ServiceRadar.Mailer
+  alias ServiceRadar.OutboundMail.SmtpTls
   alias Swoosh.Adapters.Brevo
   alias Swoosh.Adapters.Local
   alias Swoosh.Adapters.Mailgun
@@ -263,6 +264,7 @@ defmodule ServiceRadar.OutboundMail do
         |> Keyword.put(:ssl, settings.ssl || false)
         |> Keyword.put(:retries, settings.retries || 1)
         |> Keyword.merge(provider_options(settings.provider_options || %{}))
+        |> maybe_attach_smtp_tls(adapter)
 
       {:ok, config}
     end
@@ -525,6 +527,9 @@ defmodule ServiceRadar.OutboundMail do
   defp maybe_put(config, _key, nil), do: config
   defp maybe_put(config, _key, ""), do: config
   defp maybe_put(config, key, value), do: Keyword.put(config, key, value)
+
+  defp maybe_attach_smtp_tls(config, @smtp_adapter), do: SmtpTls.attach(config)
+  defp maybe_attach_smtp_tls(config, _adapter), do: config
 
   defp mode_atom("always", _default), do: :always
   defp mode_atom("never", _default), do: :never
