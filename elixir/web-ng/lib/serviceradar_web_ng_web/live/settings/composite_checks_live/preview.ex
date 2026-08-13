@@ -16,30 +16,19 @@ defmodule ServiceRadarWebNGWeb.Settings.CompositeChecksLive.Preview do
   alias ServiceRadar.CompositeChecks.CompositeCheckRule
   alias ServiceRadar.CompositeChecks.Evaluation
   alias ServiceRadar.CompositeChecks.Scope
+  alias ServiceRadarWebNGWeb.CompositeChecks.Snapshot
 
   @sample_size 25
 
   @doc "How many devices a preview evaluates."
   def sample_size, do: @sample_size
 
-  @type input_view :: %{
-          key: String.t(),
-          label: String.t(),
-          kind: atom(),
-          expected: String.t() | nil,
-          value: String.t(),
-          observed_at: DateTime.t() | nil,
-          age: String.t(),
-          stale: boolean(),
-          reason: String.t() | nil
-        }
-
   @type row :: %{
           device_uid: String.t(),
           verdict: String.t(),
           status: atom(),
           explanation: String.t() | nil,
-          inputs: [input_view()]
+          inputs: [Snapshot.view()]
         }
 
   @type result :: %{
@@ -142,65 +131,8 @@ defmodule ServiceRadarWebNGWeb.Settings.CompositeChecksLive.Preview do
       verdict: row.verdict,
       status: row.status,
       explanation: matched && matched.verdict_description,
-      inputs: Enum.map(inputs, &input_view(&1, Map.get(row.inputs, &1.key), now))
+      inputs: Enum.map(inputs, &Snapshot.view(&1, Map.get(row.inputs, &1.key), now))
     }
-  end
-
-  defp input_view(input, snapshot, now) do
-    observed_at = parse_observed_at(snapshot)
-
-    %{
-      key: input.key,
-      label: input.label || input.key,
-      kind: input.kind,
-      expected: input.expected,
-      value: snapshot_value(snapshot),
-      observed_at: observed_at,
-      age: age(observed_at, now),
-      stale: snapshot && Map.get(snapshot, "stale") == true,
-      reason: snapshot && Map.get(snapshot, "reason")
-    }
-  end
-
-  # An input with no snapshot is `unknown`, not blank. A blank cell reads as
-  # "nothing to say"; `unknown` with its reason is the actual state, and it is
-  # the state that keeps a check from being enabled.
-  defp snapshot_value(nil), do: "unknown"
-
-  defp snapshot_value(snapshot) do
-    case Map.get(snapshot, "value") do
-      value when is_binary(value) and value != "" -> value
-      _other -> "unknown"
-    end
-  end
-
-  defp parse_observed_at(nil), do: nil
-
-  defp parse_observed_at(snapshot) do
-    case Map.get(snapshot, "observed_at") do
-      value when is_binary(value) ->
-        case DateTime.from_iso8601(value) do
-          {:ok, datetime, _offset} -> datetime
-          _error -> nil
-        end
-
-      _other ->
-        nil
-    end
-  end
-
-  # Ages are measured against the evaluation's own `now`, not the wall clock, so
-  # the rendered age and the resolver's staleness verdict cannot disagree.
-  defp age(nil, _now), do: "never"
-
-  defp age(observed_at, now) do
-    case DateTime.diff(now, observed_at, :second) do
-      seconds when seconds < 0 -> "just now"
-      seconds when seconds < 60 -> "#{seconds}s ago"
-      seconds when seconds < 3600 -> "#{div(seconds, 60)}m ago"
-      seconds when seconds < 86_400 -> "#{div(seconds, 3600)}h ago"
-      seconds -> "#{div(seconds, 86_400)}d ago"
-    end
   end
 
   defp verdict_counts(views) do

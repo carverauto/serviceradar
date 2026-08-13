@@ -6,6 +6,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.DeviceSupplementalData do
 
   alias ServiceRadarWebNGWeb.DeviceLive.AvailabilityData
   alias ServiceRadarWebNGWeb.DeviceLive.BumblebeeData
+  alias ServiceRadarWebNGWeb.DeviceLive.CompositeVerdictData
   alias ServiceRadarWebNGWeb.DeviceLive.DeviceTaskData
   alias ServiceRadarWebNGWeb.DeviceLive.DiscoveryData
   alias ServiceRadarWebNGWeb.DeviceLive.EndpointInventoryData
@@ -172,6 +173,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.DeviceSupplementalData do
     base_assigns = %{
       availability: Map.get(parallel_results, :availability, %{}),
       agent_availability: Map.get(parallel_results, :agent_availability, []),
+      composite_verdicts: Map.get(parallel_results, :composite_verdicts, []),
       healthcheck_summary: Map.get(parallel_results, :healthcheck, %{}),
       endpoint_inventory_scan: Map.get(endpoint_inventory, :scan),
       endpoint_inventory_scans: Map.get(endpoint_inventory, :scans, []),
@@ -255,6 +257,9 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.DeviceSupplementalData do
       end),
       DeviceTaskData.timed(slow_device_task_ms, :agent_availability, fn ->
         AvailabilityData.load_agent_availability(scope, uid)
+      end),
+      DeviceTaskData.timed(slow_device_task_ms, :composite_verdicts, fn ->
+        CompositeVerdictData.load(uid, scope: scope)
       end),
       DeviceTaskData.timed(slow_device_task_ms, :healthcheck, fn ->
         AvailabilityData.load_healthcheck_summary(srql_module, uid, scope)
