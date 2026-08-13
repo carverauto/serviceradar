@@ -122,13 +122,14 @@
 
 ## 8. UI
 
-- [ ] 8.1 Add the composite check index with state, scope size, and verdict
+- [x] 8.1 Add the composite check index with state, scope size, and verdict
       rollup per check.
 - [ ] 8.2 Add the builder shell with scope, vantage points, verdict table, and
-      preview sections.
-- [ ] 8.3 Wire the scope section to the existing SRQL visual builder with
+      preview sections. (Shell, scope, and vantage point sections are in; closes
+      with 8.5 and 8.6.)
+- [x] 8.3 Wire the scope section to the existing SRQL visual builder with
       bidirectional round-trip and a device count.
-- [ ] 8.4 Add the vantage point section with agent picker, expectation selector,
+- [x] 8.4 Add the vantage point section with agent picker, expectation selector,
       and liveness-witness / isolation-probe labelling.
 - [ ] 8.5 Add the editable verdict rule table with reordering and the protected
       catch-all row.
@@ -145,7 +146,7 @@
 - [ ] 8.8 Add the composite verdict section to device detail with the per-input
       breakdown and unknown reasons stated rather than blank.
 - [ ] 8.9 Add the optional composite column and filter to the device list.
-- [ ] 8.10 Enforce the `composite_checks` RBAC permissions in LiveView mount
+- [x] 8.10 Enforce the `composite_checks` RBAC permissions in LiveView mount
       and every `handle_event`. (The catalog section itself was added with the
       device fact endpoint in section 6.)
 

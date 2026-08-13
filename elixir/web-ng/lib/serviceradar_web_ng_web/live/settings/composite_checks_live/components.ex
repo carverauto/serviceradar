@@ -108,6 +108,8 @@ defmodule ServiceRadarWebNGWeb.Settings.CompositeChecksLive.Components do
   attr :builder, :map, required: true
   attr :builder_in_sync, :boolean, default: true
   attr :save_error, :string, default: nil
+  attr :vantage_points, :list, default: []
+  attr :agents, :list, default: []
 
   def check_form(assigns) do
     ~H"""
@@ -160,6 +162,12 @@ defmodule ServiceRadarWebNGWeb.Settings.CompositeChecksLive.Components do
         scope_count={@scope_count}
         builder={@builder}
         builder_in_sync={@builder_in_sync}
+      />
+
+      <.vantage_points
+        rows={@vantage_points}
+        agents={@agents}
+        errors={Enum.filter(@errors, fn {field, _msg} -> field == "vantage_points" end)}
       />
     </.form>
     """
@@ -255,6 +263,114 @@ defmodule ServiceRadarWebNGWeb.Settings.CompositeChecksLive.Components do
       </div>
     </section>
     """
+  end
+
+  attr :rows, :list, required: true
+  attr :agents, :list, required: true
+  attr :errors, :list, default: []
+
+  def vantage_points(assigns) do
+    ~H"""
+    <section class="space-y-3 rounded-sr-control border border-sr-border bg-sr-surface p-4">
+      <div>
+        <h2 class="text-sm font-semibold text-sr-ink">Vantage points</h2>
+        <p class="text-xs text-sr-ink-muted">
+          Each agent below is asked the same question. Set what you expect it to see.
+        </p>
+      </div>
+
+      <div :for={{row, index} <- Enum.with_index(@rows)} class="flex flex-wrap items-center gap-2">
+        <select
+          name={"vantage_points[#{index}][agent_id]"}
+          aria-label="Agent"
+          class="min-w-56 rounded-sr-control border border-sr-border bg-sr-surface-muted px-2 py-1 text-sm text-sr-ink"
+        >
+          <option value="">Select an agent…</option>
+          <option :for={agent <- @agents} value={agent.uid} selected={row["agent_id"] == agent.uid}>
+            {agent_label(agent)}
+          </option>
+        </select>
+
+        <span class="text-xs text-sr-ink-muted">should see</span>
+
+        <select
+          name={"vantage_points[#{index}][expected]"}
+          aria-label="Expectation"
+          class="rounded-sr-control border border-sr-border bg-sr-surface-muted px-2 py-1 text-sm text-sr-ink"
+        >
+          <option value="available" selected={row["expected"] == "available"}>available</option>
+          <option value="blocked" selected={row["expected"] == "blocked"}>blocked</option>
+        </select>
+
+        <.vantage_role_badge expected={row["expected"]} />
+
+        <button
+          type="button"
+          phx-click="remove_vantage_point"
+          phx-value-index={index}
+          class="ml-auto text-sr-ink-muted hover:text-sr-ink"
+          aria-label="Remove vantage point"
+        >
+          <.icon name="hero-x-mark-mini" class="size-4" />
+        </button>
+      </div>
+
+      <button
+        type="button"
+        phx-click="add_vantage_point"
+        class="rounded-sr-control border border-dashed border-sr-border px-3 py-1.5 text-xs text-sr-ink-muted hover:text-sr-ink"
+      >
+        + Add vantage point
+      </button>
+
+      <.field_errors errors={@errors} />
+
+      <div
+        :if={!has_witness?(@rows) and length(@rows) > 1}
+        class="rounded-sr-control border border-amber-500/40 bg-amber-500/5 p-3"
+      >
+        <p class="text-xs text-amber-400">
+          <span class="font-medium">At least one agent must be a liveness witness.</span>
+          Without one, a powered-off device is indistinguishable from a perfectly isolated one, so
+          this check cannot be enabled.
+        </p>
+      </div>
+    </section>
+    """
+  end
+
+  attr :expected, :string, default: nil
+
+  def vantage_role_badge(assigns) do
+    ~H"""
+    <span
+      :if={@expected == "available"}
+      class="rounded-sr-control bg-emerald-500/10 px-2 py-0.5 font-mono text-[10px] uppercase tracking-wide text-emerald-400"
+    >
+      liveness witness
+    </span>
+    <span
+      :if={@expected == "blocked"}
+      class="rounded-sr-control bg-sr-surface-muted px-2 py-0.5 font-mono text-[10px] uppercase tracking-wide text-sr-ink-muted"
+    >
+      isolation probe
+    </span>
+    """
+  end
+
+  defp has_witness?(rows), do: Enum.any?(rows, &(&1["expected"] == "available"))
+
+  defp agent_label(agent) do
+    case {agent.name, agent.host} do
+      {name, host} when is_binary(name) and name != "" and is_binary(host) and host != "" ->
+        "#{name} · #{host}"
+
+      {name, _host} when is_binary(name) and name != "" ->
+        name
+
+      _ ->
+        agent.uid
+    end
   end
 
   attr :errors, :list, default: []

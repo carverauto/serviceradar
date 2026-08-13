@@ -17,7 +17,9 @@ defmodule ServiceRadarWebNGWeb.Settings.CompositeChecksLive.Index do
   import ServiceRadarWebNGWeb.Settings.CompositeChecksLive.Components
 
   alias ServiceRadar.CompositeChecks.CompositeCheck
+  alias ServiceRadar.CompositeChecks.CompositeCheckInput
   alias ServiceRadar.CompositeChecks.Rollup
+  alias ServiceRadar.Infrastructure.Agent
   alias ServiceRadarWebNG.RBAC
   alias ServiceRadarWebNGWeb.Settings.CompositeChecksLive.FormState
   alias ServiceRadarWebNGWeb.Settings.Shell
@@ -48,6 +50,8 @@ defmodule ServiceRadarWebNGWeb.Settings.CompositeChecksLive.Index do
        |> assign(:builder, ScopeBuilder.default_builder_state())
        |> assign(:builder_in_sync, true)
        |> assign(:scope_count, nil)
+       |> assign(:vantage_points, [])
+       |> assign(:agents, [])
        |> assign(:checks, list_checks(socket))}
     else
       {:ok,
@@ -87,7 +91,7 @@ defmodule ServiceRadarWebNGWeb.Settings.CompositeChecksLive.Index do
       socket
       |> assign(:page_title, "Edit Composite Check")
       |> assign(:editing, check)
-      |> load_form(FormState.form_from_check(check))
+      |> load_form(FormState.form_from_check(check), load_vantage_points(check, scope))
     else
       false ->
         forbid(socket)
@@ -99,7 +103,7 @@ defmodule ServiceRadarWebNGWeb.Settings.CompositeChecksLive.Index do
     end
   end
 
-  defp load_form(socket, form) do
+  defp load_form(socket, form, vantage_points \\ []) do
     {builder, in_sync?} = ScopeBuilder.parse_query_to_builder(form["scope_query"])
 
     socket
@@ -108,7 +112,30 @@ defmodule ServiceRadarWebNGWeb.Settings.CompositeChecksLive.Index do
     |> assign(:save_error, nil)
     |> assign(:builder, builder)
     |> assign(:builder_in_sync, in_sync?)
+    |> assign(:vantage_points, vantage_points)
+    |> assign(:agents, list_agents(socket))
     |> assign(:scope_count, count_scope(socket.assigns.current_scope, form["scope_query"]))
+  end
+
+  # Every agent, not just connected ones. A vantage point is durable
+  # configuration: an agent that is temporarily down should stay selected, and
+  # its input correctly resolves `unknown` until it reports again.
+  defp list_agents(socket) do
+    Agent
+    |> Ash.Query.for_read(:read, %{}, scope: socket.assigns.current_scope)
+    |> Ash.Query.sort(name: :asc)
+    |> Ash.read()
+    |> case do
+      {:ok, agents} -> agents
+      {:error, _reason} -> []
+    end
+  end
+
+  defp load_vantage_points(check, scope) do
+    case CompositeCheckInput.list_by_check(check.id, scope: scope) do
+      {:ok, inputs} -> FormState.vantage_points_from_inputs(inputs)
+      {:error, _reason} -> []
+    end
   end
 
   defp forbid(socket) do
@@ -135,6 +162,24 @@ defmodule ServiceRadarWebNGWeb.Settings.CompositeChecksLive.Index do
     filters = if filters == [], do: [blank_filter()], else: filters
 
     {:noreply, sync_from_builder(socket, %{"filters" => filters})}
+  end
+
+  def handle_event("add_vantage_point", _params, socket) do
+    if socket.assigns.can_manage do
+      rows = socket.assigns.vantage_points ++ [FormState.blank_vantage_point()]
+      {:noreply, assign_vantage_points(socket, rows)}
+    else
+      {:noreply, forbid(socket)}
+    end
+  end
+
+  def handle_event("remove_vantage_point", %{"index" => index}, socket) do
+    if socket.assigns.can_manage do
+      rows = List.delete_at(socket.assigns.vantage_points, String.to_integer(index))
+      {:noreply, assign_vantage_points(socket, rows)}
+    else
+      {:noreply, forbid(socket)}
+    end
   end
 
   def handle_event("save", params, socket) do
@@ -167,12 +212,36 @@ defmodule ServiceRadarWebNGWeb.Settings.CompositeChecksLive.Index do
 
     {builder, in_sync?} = ScopeBuilder.parse_query_to_builder(form["scope_query"])
 
+    rows = vantage_points_from_params(socket, params["vantage_points"])
+
     socket
     |> assign(:form, form)
-    |> assign(:errors, FormState.validate(form))
+    |> assign(:vantage_points, rows)
+    |> assign(:errors, FormState.validate(form) ++ FormState.validate_vantage_points(rows))
     |> assign(:builder_in_sync, in_sync?)
     |> assign(:scope_count, count_scope(socket.assigns.current_scope, form["scope_query"]))
     |> then(fn socket -> if in_sync?, do: assign(socket, :builder, builder), else: socket end)
+  end
+
+  # Indexed params must sort numerically: lexical ordering puts "10" between
+  # "1" and "2" and silently reorders the vantage points.
+  defp vantage_points_from_params(socket, params) when is_map(params) do
+    params
+    |> Enum.sort_by(fn {key, _value} -> String.to_integer(key) end)
+    |> Enum.map(fn {_key, value} -> Map.merge(FormState.blank_vantage_point(), value) end)
+  rescue
+    _ -> socket.assigns.vantage_points
+  end
+
+  defp vantage_points_from_params(socket, _params), do: socket.assigns.vantage_points
+
+  defp assign_vantage_points(socket, rows) do
+    socket
+    |> assign(:vantage_points, rows)
+    |> assign(
+      :errors,
+      FormState.validate(socket.assigns.form) ++ FormState.validate_vantage_points(rows)
+    )
   end
 
   defp builder_target?(["builder" | _rest]), do: true
@@ -220,15 +289,58 @@ defmodule ServiceRadarWebNGWeb.Settings.CompositeChecksLive.Index do
       end
 
     case result do
-      {:ok, _check} ->
-        {:noreply,
-         socket
-         |> put_flash(:info, "Composite check saved")
-         |> push_navigate(to: @current_path)}
+      {:ok, check} ->
+        case sync_vantage_points(check, socket.assigns.vantage_points, scope) do
+          :ok ->
+            {:noreply,
+             socket
+             |> put_flash(:info, "Composite check saved")
+             |> push_navigate(to: @current_path)}
+
+          {:error, error} ->
+            {:noreply, assign(socket, :save_error, FormState.error_message(error))}
+        end
 
       {:error, error} ->
         {:noreply, assign(socket, :save_error, FormState.error_message(error))}
     end
+  end
+
+  # Replace the check's vantage point inputs with the submitted rows.
+  #
+  # Delete-then-create rather than a diff: the input key is the agent id, so a
+  # reassigned row is a different input entirely, and reconciling that by hand
+  # would be more code and more ways to leave a stale row behind. Rules
+  # reference inputs by key, not by id, so recreating an input with the same key
+  # leaves the rule table intact.
+  defp sync_vantage_points(check, rows, scope) do
+    with {:ok, existing} <- CompositeCheckInput.list_by_check(check.id, scope: scope),
+         :ok <- destroy_all(Enum.filter(existing, &(&1.kind == :vantage_point)), scope) do
+      rows
+      |> Enum.with_index()
+      |> Enum.reduce_while(:ok, fn {row, index}, :ok ->
+        CompositeCheckInput
+        |> Ash.Changeset.for_create(
+          :create,
+          FormState.vantage_point_attrs(check.id, row, index),
+          scope: scope
+        )
+        |> Ash.create()
+        |> case do
+          {:ok, _input} -> {:cont, :ok}
+          {:error, error} -> {:halt, {:error, error}}
+        end
+      end)
+    end
+  end
+
+  defp destroy_all(inputs, scope) do
+    Enum.reduce_while(inputs, :ok, fn input, :ok ->
+      case Ash.destroy(input, scope: scope) do
+        :ok -> {:cont, :ok}
+        {:error, error} -> {:halt, {:error, error}}
+      end
+    end)
   end
 
   # Reads run in mount, which LiveView calls twice — once disconnected for the
@@ -311,6 +423,8 @@ defmodule ServiceRadarWebNGWeb.Settings.CompositeChecksLive.Index do
           builder={@builder}
           builder_in_sync={@builder_in_sync}
           save_error={@save_error}
+          vantage_points={@vantage_points}
+          agents={@agents}
         />
 
         <div :if={is_nil(@editing)} class="space-y-6">

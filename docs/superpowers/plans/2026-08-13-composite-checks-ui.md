@@ -78,7 +78,7 @@ Enabled checks read persisted `DeviceCompositeCheckResult` rows: cheap, full sco
 
 **Why this is its own task:** it establishes the RBAC gate and the nav registration, which every later task depends on and which a reviewer can accept independently of any composite behaviour.
 
-- [ ] **Step 1: Read the analog end to end**
+- [x] **Step 1: Read the analog end to end**
 
 ```bash
 sed -n '1,60p' elixir/web-ng/lib/serviceradar_web_ng_web/live/settings/visibility_profiles_live/index.ex
@@ -88,7 +88,7 @@ grep -n "visibility-profiles" elixir/web-ng/lib/serviceradar_web_ng_web/router.e
 
 Note the mount shape: `RBAC.can?(scope, permission)` guarded, `current_path` assigned for the settings shell, and a redirect otherwise. Match it.
 
-- [ ] **Step 2: Write the failing test**
+- [x] **Step 2: Write the failing test**
 
 ```elixir
 defmodule ServiceRadarWebNGWeb.Settings.CompositeChecksLiveTest do
@@ -117,12 +117,12 @@ end
 
 Confirm the login helper name first — `rg -n "def log_in_user|def log_in_api_user" elixir/web-ng/test/support/conn_case.ex`.
 
-- [ ] **Step 3: Run and watch it fail**
+- [x] **Step 3: Run and watch it fail**
 
 Run: `bash <scratchpad>/run-webng.sh cc-live test test/phoenix/live/settings/composite_checks_live_test.exs`
 Expected: FAIL — no route.
 
-- [ ] **Step 4: Add the routes**
+- [x] **Step 4: Add the routes**
 
 Beside the visibility-profiles routes in `router.ex`:
 
@@ -132,15 +132,15 @@ Beside the visibility-profiles routes in `router.ex`:
       live("/settings/composite-checks/:id/edit", Settings.CompositeChecksLive.Index, :edit)
 ```
 
-- [ ] **Step 5: Add the nav entry**
+- [x] **Step 5: Add the nav entry**
 
 In `settings/catalog.ex`, mirroring the visibility-profiles entry. Site it near Networks — composite checks consume the sweeps authored there. Use `permission: "composite_checks.view"`, an icon from the existing `hero-*` set, and keywords `["composite", "isolation", "verdict", "segmentation"]`.
 
-- [ ] **Step 6: Implement the mount**
+- [x] **Step 6: Implement the mount**
 
 Gate on `composite_checks.view`, assign `page_title`, `current_path`, `checks` (empty list for now), and the two capability flags `can_manage` / `can_evaluate` from `composite_checks.manage` / `.evaluate`. Assign capabilities in mount rather than checking inline in templates, matching the analog.
 
-- [ ] **Step 7: Run, format, commit**
+- [x] **Step 7: Run, format, commit**
 
 ```bash
 cd elixir/web-ng && mix format
@@ -162,23 +162,23 @@ git commit -m "feat(web-ng): add the composite checks settings route and RBAC ga
 
 Per D4, a draft check has no rows — show its scope count and "not yet evaluated", not a zero rollup that looks like a real answer.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Cover: an enabled check with results renders its verdict counts; a draft check renders "not yet evaluated" rather than a rollup; counts sum to the number of result rows.
 
-- [ ] **Step 2: Implement the rollup query**
+- [x] **Step 2: Implement the rollup query**
 
 Group `DeviceCompositeCheckResult` by verdict and status for each check id. One grouped query for all checks, not one per check — the index is a list page and N+1 here is a real cost as check count grows.
 
-- [ ] **Step 3: Implement the scope count**
+- [x] **Step 3: Implement the scope count**
 
 Reuse the SRQL stats approach from `visibility_profiles_live/index.ex:393-409` (`stats:"count() as total"`). It already handles the `in:`-prefixed and bare-filter cases.
 
-- [ ] **Step 4: Render**
+- [x] **Step 4: Render**
 
 Name, state badge, scope count, and a proportional bar of verdict counts coloured by `status` (never by verdict slug — those are operator-defined).
 
-- [ ] **Step 5: Run, format, commit**
+- [x] **Step 5: Run, format, commit**
 
 ---
 
@@ -187,13 +187,13 @@ Name, state badge, scope count, and a proportional bar of verdict counts coloure
 **Files:** Create `scope_builder.ex`; modify `index.ex`, `components.ex`
 **Spec:** "SHALL reuse the existing SRQL visual query builder so that the raw SRQL string and the visual filter rows edit the same state in either direction"; an unparseable query "SHALL leave the raw string authoritative and warn".
 
-- [ ] **Step 1: Read the existing round-trip**
+- [x] **Step 1: Read the existing round-trip**
 
 Run: `cat elixir/web-ng/lib/serviceradar_web_ng_web/live/settings/visibility_profiles_live/target_builder.ex`
 
 It returns `{builder_state, in_sync?}` from `parse_target_query_to_builder/1`, and the LiveView only overwrites builder state when `in_sync?` is true — that is precisely the "raw string stays authoritative" behaviour the spec asks for. Copy the shape; do not reimplement SRQL parsing.
 
-- [ ] **Step 2–5:** failing tests (visual edit updates raw; raw edit updates visual; unparseable raw warns and leaves visual untouched; device count updates), implement, run, commit.
+- [x] **Step 2–5:** failing tests (visual edit updates raw; raw edit updates visual; unparseable raw warns and leaves visual untouched; device count updates), implement, run, commit.
 
 ---
 
@@ -202,15 +202,34 @@ It returns `{builder_state, in_sync?}` from `parse_target_query_to_builder/1`, a
 **Files:** modify `form_state.ex`, `components.ex`, `index.ex`
 **Spec:** "SHALL be recorded with that expectation AND SHALL be labelled as the liveness witness".
 
-- [ ] **Step 1: Load selectable agents**
+- [x] **Step 1: Load selectable agents**
 
 Find the existing agent picker source — `rg -n "list_online_agents|Infrastructure.Agent" elixir/web-ng/lib --glob '*.ex' | head`. Reuse it rather than querying agents ad hoc.
 
-- [ ] **Step 2: Write failing tests**
+Done: `Agent |> Ash.Query.for_read(:read, ...)`, deliberately every agent rather
+than only connected ones. A vantage point is durable configuration; an agent
+that is temporarily down must stay selected and resolve `unknown`.
+
+- [x] **Step 2: Write failing tests**
 
 Adding a vantage point with `expected: "available"` labels it liveness witness; `expected: "blocked"` labels it isolation probe; removing the only witness surfaces the readiness warning (the gate itself is Plan 1's and is asserted at enable time in Task 7).
 
-- [ ] **Step 3–5:** implement add/remove/change-expectation events (each authorized on `composite_checks.manage`), render the badges, run, commit.
+- [x] **Step 3–5:** implement add/remove/change-expectation events (each authorized on `composite_checks.manage`), render the badges, run, commit.
+
+**What the tests pinned down beyond the plan:**
+
+- A new row defaults to `blocked`, not `available`. Defaulting to available
+  would make adding a second vantage point silently produce two witnesses.
+- The witness warning only fires once there is more than one row. One row is a
+  half-built check, not a broken one — the real gate is at enable time.
+- The input `key` is the agent id, which is what makes `unique_key_per_check`
+  enforce one vantage point per agent and what rule match maps address.
+- Save replaces the vantage point inputs rather than diffing them. Rules
+  reference inputs by key, so recreating an input with the same key leaves the
+  rule table intact.
+- The viewer case is already covered by the route guard: a viewer is
+  live-redirected away from `/new` entirely, so there is no vantage-point-
+  specific viewer assertion to make.
 
 ---
 

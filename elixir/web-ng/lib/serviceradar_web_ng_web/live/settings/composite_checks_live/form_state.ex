@@ -30,6 +30,87 @@ defmodule ServiceRadarWebNGWeb.Settings.CompositeChecksLive.FormState do
     }
   end
 
+  @default_max_age 900
+
+  @doc """
+  A blank vantage point row.
+
+  `expected` defaults to blocked so that adding a second vantage point does not
+  silently produce two witnesses; the operator picks which one is the witness.
+  """
+  def blank_vantage_point do
+    %{
+      "agent_id" => "",
+      "expected" => "blocked",
+      "max_age_seconds" => Integer.to_string(@default_max_age)
+    }
+  end
+
+  @doc """
+  Vantage point rows for an existing check's inputs.
+
+  The input `key` is the agent id: it is unique per check by construction, which
+  is what makes `unique_key_per_check` enforce one vantage point per agent, and
+  it keeps rule match maps readable.
+  """
+  def vantage_points_from_inputs(inputs) do
+    inputs
+    |> Enum.filter(&(&1.kind == :vantage_point))
+    |> Enum.sort_by(& &1.position)
+    |> Enum.map(fn input ->
+      %{
+        "agent_id" => Map.get(input.config, "agent_id", ""),
+        "expected" => input.expected || "blocked",
+        "max_age_seconds" => input.config |> Map.get("max_age_seconds", @default_max_age) |> to_string()
+      }
+    end)
+  end
+
+  @doc "Attributes for creating a `CompositeCheckInput` from a vantage point row."
+  def vantage_point_attrs(check_id, row, position) do
+    agent_id = String.trim(row["agent_id"] || "")
+
+    %{
+      check_id: check_id,
+      key: agent_id,
+      label: agent_id,
+      position: position,
+      kind: :vantage_point,
+      expected: row["expected"],
+      config: %{
+        "agent_id" => agent_id,
+        "max_age_seconds" => parse_interval(row["max_age_seconds"]) || @default_max_age
+      }
+    }
+  end
+
+  @doc """
+  Validation for the vantage point rows the form can catch locally.
+
+  The liveness witness rule is deliberately NOT enforced here. It gates
+  *enabling*, not saving, and is owned by `CompositeChecks.Readiness` — an
+  operator must be able to save a half-built check.
+  """
+  def validate_vantage_points(rows) do
+    agent_ids = rows |> Enum.map(&String.trim(&1["agent_id"] || "")) |> Enum.reject(&(&1 == ""))
+
+    []
+    |> then(fn errors ->
+      if Enum.any?(rows, &(String.trim(&1["agent_id"] || "") == "")) do
+        [{"vantage_points", "Every vantage point needs an agent"} | errors]
+      else
+        errors
+      end
+    end)
+    |> then(fn errors ->
+      if length(Enum.uniq(agent_ids)) == length(agent_ids) do
+        errors
+      else
+        [{"vantage_points", "Each agent can only be a vantage point once"} | errors]
+      end
+    end)
+  end
+
   @doc "Coerces raw form params into the shape the rest of the LiveView expects."
   def normalize_form(params) when is_map(params) do
     Map.merge(default_form(), stringify(params))
