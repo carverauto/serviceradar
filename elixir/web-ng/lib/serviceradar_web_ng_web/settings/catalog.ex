@@ -725,6 +725,26 @@ defmodule ServiceRadarWebNGWeb.Settings.Catalog do
       hidden_from_nav: false
     },
     %{
+      id: :composite_checks,
+      category: :network_services,
+      parent_group: :net_discovery,
+      subgroup: nil,
+      title: "Composite Checks",
+      description: "Derive isolation verdicts from what several agents can reach.",
+      icon: "hero-shield-check",
+      route: "/settings/networks/composite-checks",
+      live_view: ServiceRadarWebNGWeb.Settings.CompositeChecksLive.Index,
+      permission: "composite_checks.view",
+      order: 65,
+      has_own_stats: false,
+      feature_flag: nil,
+      capability: nil,
+      match_prefixes: nil,
+      keywords: ["composite", "isolation", "verdict", "segmentation", "vantage"],
+      badge: nil,
+      hidden_from_nav: false
+    },
+    %{
       id: :availability_sources,
       category: :network_services,
       parent_group: :net_discovery,

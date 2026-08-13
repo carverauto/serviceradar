@@ -1022,6 +1022,15 @@ defmodule ServiceRadarWebNGWeb.Router do
       live("/settings/networks/visibility-profiles", Settings.VisibilityProfilesLive.Index, :index)
       live("/settings/networks/visibility-profiles/new", Settings.VisibilityProfilesLive.Index, :new_profile)
       live("/settings/networks/visibility-profiles/:id/edit", Settings.VisibilityProfilesLive.Index, :edit_profile)
+      live("/settings/networks/composite-checks", Settings.CompositeChecksLive.Index, :index)
+      live("/settings/networks/composite-checks/new", Settings.CompositeChecksLive.Index, :new)
+
+      live(
+        "/settings/networks/composite-checks/:id/edit",
+        Settings.CompositeChecksLive.Index,
+        :edit
+      )
+
       live("/settings/networks/credentials", Settings.NetworkCredentialRulesLive, :index)
       live("/settings/networks/credentials/new", Settings.NetworkCredentialRulesLive, :new)
       live("/settings/networks/credentials/:id/edit", Settings.NetworkCredentialRulesLive, :edit)
