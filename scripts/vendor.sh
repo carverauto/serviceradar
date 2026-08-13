@@ -88,9 +88,14 @@ apply_vendor_patch() {
 }
 
 # openssl-src: source_dir() must honor RULES_RUST_OPENSSL_SRC_DIR (the crate's baked
-# CARGO_MANIFEST_DIR is a stale sandbox path under Bazel), and Configure must ignore
-# Bazel's `-no-canonical-prefixes` cc flag. Without this, vendored OpenSSL (used by
-# libpq via pq-sys bundled) fails to build.
+# CARGO_MANIFEST_DIR is a stale sandbox path under Bazel), and Configure must ignore two
+# cc flags it cannot parse: `-no-canonical-prefixes` (rejected outright, exit 255) and the
+# separated `-target <triple>` form a clang toolchain emits, which Configure reads as a
+# second positional target ("target already defined"). Without this, vendored OpenSSL
+# (used by libpq via pq-sys bundled) fails to build.
+#
+# The marker below only probes the first hunk. errexit plus patch's non-zero exit on a
+# rejected hunk is what actually guards the rest.
 apply_vendor_patch openssl-src \
   "third_party/rust_patches/openssl_src_runfiles_patch" \
   "RULES_RUST_OPENSSL_SRC_DIR" "src/lib.rs"

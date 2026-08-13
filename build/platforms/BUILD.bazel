@@ -95,12 +95,24 @@ platform(
     visibility = ["//visibility:public"],
 )
 
+# EXPERIMENT: the two `@llvm//constraints/...` values below are for hermetic-llvm.
+#
+# They are inert for every toolchain registered in //MODULE.bazel -- none of those
+# constrain on @llvm//constraints/libc:variant or :pie -- so the musl build is unchanged
+# until a build opts in with --extra_toolchains=@llvm//toolchain:...
+#
+# They are needed because hermetic-llvm has no musl TOOLCHAIN. It declares one cc toolchain
+# per (exec, target) pair and picks libc from the target platform, which is the structural
+# fix for the resolution races documented on :linux_libc above. pie:off is required because
+# rustc forces -no-pie on musl targets.
 platform(
     name = "linux_x86_64_musl",
     constraint_values = [
         "@platforms//os:linux",
         "@platforms//cpu:x86_64",
         ":linux_musl",
+        "@llvm//constraints/libc:musl",
+        "@llvm//constraints/pie:off",
     ],
     visibility = ["//visibility:public"],
 )
@@ -111,6 +123,8 @@ platform(
         "@platforms//os:linux",
         "@platforms//cpu:aarch64",
         ":linux_musl",
+        "@llvm//constraints/libc:musl",
+        "@llvm//constraints/pie:off",
     ],
     visibility = ["//visibility:public"],
 )

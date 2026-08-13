@@ -35,7 +35,6 @@ bazel_dep(name = "rules_foreign_cc", version = "0.15.1")
 bazel_dep(name = "aspect_rules_js", version = "2.6.0")
 bazel_dep(name = "aspect_rules_ts", version = "3.7.0")
 bazel_dep(name = "rules_cc", version = "0.2.22")
-bazel_dep(name = "toolchains_llvm", version = "1.6.0")
 bazel_dep(name = "buildifier_prebuilt", version = "8.5.1.3")
 bazel_dep(name = "aspect_bazel_lib", version = "2.22.5")
 bazel_dep(name = "toolchains_buildbuddy", version = "0.0.4", repo_name = "io_buildbuddy_buildbuddy_toolchain")
@@ -303,46 +302,45 @@ toolchains_musl.config(
 )
 use_repo(toolchains_musl, "musl_toolchains_hub")
 
-# REGISTERED HERE, AND BEFORE @llvm_toolchain BELOW. Both facts are load-bearing.
+# REGISTERED HERE, in the root module, and that is load-bearing.
 #
 # @toolchains_musl already registers this from its own MODULE.bazel, but a DEPENDENCY's
-# registrations are ordered after every one of the root module's -- including
-# `register_toolchains("@llvm_toolchain//:all")` further down. @toolchains_llvm generates
-# its toolchain set from the HOST, and on a linux-x86_64 host that set includes
-# `cc-toolchain-x86_64-linux`, whose target_compatible_with is [x86_64, linux] with nothing
-# about libc. It therefore matches a musl target platform and, being registered first, wins.
+# registrations are ordered after every one of the root module's. Any root-module cc
+# toolchain whose target_compatible_with is [cpu, os] with nothing about libc therefore
+# matches a musl target platform and, being registered first, wins.
 #
-# That made musl builds host-dependent, which is a miserable failure mode: on a macOS host
-# @toolchains_llvm emits only darwin/none toolchains, none of which match musl, so the musl
-# hub won and `bazel build //...` passed. The same commit failed on the Linux workflow
-# runner, compiling musl targets with glibc headers and failing at link on symbols musl does
-# not have (`__memcpy_chk` from zstd-sys, `__isoc23_sscanf` from aws-lc-sys).
+# That is not hypothetical. @toolchains_llvm used to be registered below this line and
+# generated its toolchain set from the HOST, so on linux-x86_64 it emitted
+# `cc-toolchain-x86_64-linux`, which matched musl. It made musl builds host-dependent: on a
+# macOS host @toolchains_llvm emitted only darwin/none toolchains, none matching musl, so
+# the musl hub won and `bazel build //...` passed. The same commit failed on the Linux
+# workflow runner, compiling musl targets with glibc headers and failing at link on symbols
+# musl does not have (`__memcpy_chk` from zstd-sys, `__isoc23_sscanf` from aws-lc-sys).
 #
-# Repeating the registration here puts it in root-module order, ahead of @llvm_toolchain.
-# Do not move it below that line, and do not drop it as redundant.
+# @toolchains_llvm is gone now, so nothing currently races this. Keep the registration
+# anyway: it costs nothing, and it is what makes the ordering explicit rather than a
+# property of which dependencies happen to register what.
 register_toolchains("@musl_toolchains_hub//:all")
 
-# --- LLVM Toolchain (clang/lld) ----------------------------------
-llvm_ext = use_extension(
-    "@toolchains_llvm//toolchain/extensions:llvm.bzl",
-    "llvm",
-)
-llvm_ext.toolchain(
-    name = "llvm_toolchain",
-    llvm_versions = {
-        # Fallback for hosts whose distro-specific key is not listed below
-        # (e.g. ubuntu-24.04-x86_64, debian-12-x86_64).
-        "": "17.0.4",
-        # Explicit generic Linux key to cover distros like Oracle Linux 9.
-        "linux-x86_64": "17.0.4",
-        "darwin-aarch64": "17.0.4",
-        "darwin-x86_64": "15.0.7",
-        "ubuntu-22.04-x86_64": "17.0.4",
-    },
-)
-use_repo(llvm_ext, "llvm_toolchain")
-
-register_toolchains("@llvm_toolchain//:all")
+# --- hermetic-llvm (github.com/hermeticbuild/hermetic-llvm) ------------------
+#
+# Replaces @toolchains_llvm, which was removed with its `llvm_ext` extension and its
+# `register_toolchains("@llvm_toolchain//:all")`. That module downloaded a per-host LLVM and
+# generated toolchains from the host, which is the root of the musl race described above.
+# hermetic-llvm instead declares one cc toolchain per (exec, target) pair and reads libc off
+# the TARGET platform, so a musl target selects a musl toolchain by construction.
+#
+# The BCR module name is literally "llvm".
+#
+# Deliberately NOT registered. Every toolchain above wins on registration order, so adding
+# this dependency changes no build until one opts in explicitly:
+#
+#   bazel build //... --extra_toolchains=@llvm//toolchain:all
+#
+# That is the point of landing it inert: the baseline stays provable, and the switch is a
+# separate, reviewable change. See //build/platforms:BUILD.bazel for the two constraint
+# values the musl platforms carry, which are likewise inert until something opts in.
+bazel_dep(name = "llvm", version = "0.8.17")
 
 # --- RBE Toolchain and platforms  ----------------------------------
 register_execution_platforms(
