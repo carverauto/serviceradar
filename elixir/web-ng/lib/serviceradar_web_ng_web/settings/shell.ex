@@ -376,10 +376,14 @@ defmodule ServiceRadarWebNGWeb.Settings.Shell do
     """
   end
 
-  # --- Contextual status card strip (daisyUI stats) --------------------------
+  # --- Contextual status card strip ----------------------------------------
   # Renders whatever card list the shell is handed. Suppressed entirely when the
   # active page renders its own metrics (`:suppressed`) or there are no cards.
   # Each card value degrades to an em dash when nil.
+  #
+  # daisyUI `stats` is not compiled in this app (the plugin is commented out),
+  # so a joined stats bar collapses to stacked title/value text. These are
+  # real `card` tiles in a responsive grid instead.
   #
   # A card that carries a `:navigate` destination renders as a link to the page
   # that manages the underlying resource (with a hover affordance); cards without
@@ -388,29 +392,39 @@ defmodule ServiceRadarWebNGWeb.Settings.Shell do
 
   defp status_strip(assigns) do
     ~H"""
-    <div :if={is_list(@stats) and @stats != []} class="px-3 pt-3 md:px-4">
-      <div class="stats stats-vertical sm:stats-horizontal w-full overflow-x-auto border border-sr-line bg-sr-surface shadow-sm">
-        <%= for card <- @stats do %>
-          <.link
-            :if={card_nav(card)}
-            href={card_nav(card)}
-            class="stat py-2 group cursor-pointer transition-colors hover:bg-sr-subtle"
-          >
-            <div class="sr-ui-stat-title text-xs flex items-center gap-1">
+    <div
+      :if={is_list(@stats) and @stats != []}
+      class="grid grid-cols-2 gap-3 px-3 pt-3 md:px-4 xl:grid-cols-4"
+      data-settings-status-cards
+    >
+      <%= for card <- @stats do %>
+        <.link
+          :if={card_nav(card)}
+          href={card_nav(card)}
+          class="card group cursor-pointer border border-sr-line bg-sr-surface no-underline transition-colors hover:bg-sr-subtle"
+        >
+          <div class="card-body gap-1 p-4">
+            <div class="flex items-center gap-1 text-xs font-medium text-sr-muted">
               {card.title}
               <.icon
                 name="hero-arrow-up-right"
                 class="size-3 opacity-0 transition-opacity group-hover:opacity-60"
               />
             </div>
-            <div class="sr-ui-stat-value text-lg">{stat_display(card.value)}</div>
-          </.link>
-          <div :if={!card_nav(card)} class="stat py-2">
-            <div class="sr-ui-stat-title text-xs">{card.title}</div>
-            <div class="sr-ui-stat-value text-lg">{stat_display(card.value)}</div>
+            <div class="text-2xl font-semibold leading-tight text-sr-ink">
+              {stat_display(card.value)}
+            </div>
           </div>
-        <% end %>
-      </div>
+        </.link>
+        <div :if={!card_nav(card)} class="card border border-sr-line bg-sr-surface">
+          <div class="card-body gap-1 p-4">
+            <div class="text-xs font-medium text-sr-muted">{card.title}</div>
+            <div class="text-2xl font-semibold leading-tight text-sr-ink">
+              {stat_display(card.value)}
+            </div>
+          </div>
+        </div>
+      <% end %>
     </div>
     """
   end
