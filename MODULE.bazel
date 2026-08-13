@@ -5,8 +5,8 @@ module(
 )
 
 # --- Bazel dependencies  ----------------------------------
-bazel_dep(name = "rules_go", version = "0.60.0", repo_name = "io_bazel_rules_go")
-bazel_dep(name = "gazelle", version = "0.45.0", repo_name = "bazel_gazelle")
+bazel_dep(name = "rules_go", version = "0.62.0", repo_name = "io_bazel_rules_go")
+bazel_dep(name = "gazelle", version = "0.51.3", repo_name = "bazel_gazelle")
 bazel_dep(name = "rules_rust", version = "0.73.0")
 bazel_dep(name = "rules_rust_prost", version = "0.73.0")
 bazel_dep(name = "rules_python", version = "1.7.0")
@@ -14,14 +14,14 @@ bazel_dep(name = "rules_nodejs", version = "6.7.5")
 bazel_dep(name = "rules_proto", version = "7.1.0")
 bazel_dep(name = "protobuf", version = "33.4", repo_name = "com_google_protobuf")
 bazel_dep(name = "rules_oci", version = "2.3.0")
-bazel_dep(name = "rules_pkg", version = "1.2.0")
-bazel_dep(name = "rules_erlang", version = "3.16.0")
+bazel_dep(name = "rules_pkg", version = "1.3.0")
+bazel_dep(name = "rules_erlang", version = "3.18.0")
 bazel_dep(name = "rules_elixir", version = "1.1.0")
 bazel_dep(name = "platforms", version = "1.1.0")
 bazel_dep(name = "bazel_features", version = "1.51.0", repo_name = "bazel_features")
 bazel_dep(name = "rules_java", version = "9.0.3", repo_name = "rules_java")
 bazel_dep(name = "rules_multirun", version = "0.13.0")
-bazel_dep(name = "swiftlint", version = "0.63.2", repo_name = "SwiftLint")
+bazel_dep(name = "swiftlint", version = "0.65.0", repo_name = "SwiftLint")
 
 # NOTE: rules_multirun uses Python, which causes issues with `bazel run` when
 # using remote execution from a different host platform (e.g., macOS -> Linux RBE).
@@ -30,12 +30,12 @@ bazel_dep(name = "swiftlint", version = "0.63.2", repo_name = "SwiftLint")
 # Workaround: Push images from CI (Linux) or use scripts/push_all_images.sh,
 # which runs the per-image push targets sequentially without rules_multirun.
 bazel_dep(name = "rules_license", version = "1.0.0", repo_name = "rules_license")
-bazel_dep(name = "rules_shell", version = "0.6.1", repo_name = "rules_shell")
-bazel_dep(name = "bazel_skylib", version = "1.9.0", repo_name = "bazel_skylib")
+bazel_dep(name = "rules_shell", version = "0.8.0", repo_name = "rules_shell")
+bazel_dep(name = "bazel_skylib", version = "1.9.2", repo_name = "bazel_skylib")
 bazel_dep(name = "rules_foreign_cc", version = "0.15.1")
 bazel_dep(name = "aspect_rules_js", version = "2.6.0")
 bazel_dep(name = "aspect_rules_ts", version = "3.7.0")
-bazel_dep(name = "rules_cc", version = "0.2.16")
+bazel_dep(name = "rules_cc", version = "0.2.22")
 bazel_dep(name = "toolchains_llvm", version = "1.6.0")
 bazel_dep(name = "buildifier_prebuilt", version = "6.4.0")
 bazel_dep(name = "aspect_bazel_lib", version = "2.22.5")
@@ -96,17 +96,21 @@ single_version_override(
     patches = ["//third_party/patches/rules_java:openbsd_jni_header.patch"],
 )
 
-# VENDORED, not patched. rabbitmq/rules_erlang is ARCHIVED upstream -- last release 3.16.0,
-# roughly two years ago, and the repository states it is no longer maintained. The six local
-# fixes were therefore never going to land, which made the patch files a permanent tax: they
-# apply by context, break silently, and cannot express a design change.
+# The vendored 3.16.0 tree that used to live in //third_party/rules_erlang is now released
+# as 3.18.0 from bazelverse/rules_erlang, which continues the archived rabbitmq line. It
+# carries the same eight fixes plus the hex_packages extension this repository depends on.
 #
-# //third_party/rules_erlang is the 3.16.0 source with those six fixes already applied.
-# See //third_party/rules_erlang/VENDORING.md for the per-fix rationale and for how to diff
-# this tree against upstream 3.16.0.
-local_path_override(
+# Pinned by commit rather than tag so the pin is immutable. Not yet on the Bazel Central
+# Registry -- drop this override once it is published and the bazel_dep above resolves on
+# its own. To develop the two together, point this at a sibling checkout with
+# local_path_override instead.
+#
+# Raises four shared dependencies by taking the max of both graphs: rules_go 0.60.0 ->
+# 0.62.0, gazelle 0.45.0 -> 0.51.3, bazel_skylib 1.9.0 -> 1.9.2, rules_shell 0.6.1 -> 0.8.0.
+git_override(
     module_name = "rules_erlang",
-    path = "third_party/rules_erlang",
+    commit = "5531a30ab87ed7e2a63eb1a901c4eeac1bb2bcc6",
+    remote = "https://github.com/bazelverse/rules_erlang.git",
 )
 
 # VENDORED, not patched -- same reasoning as rules_erlang above. //third_party/rules_elixir
@@ -617,11 +621,6 @@ use_repo(
 go_deps = use_extension(
     "@bazel_gazelle//:extensions.bzl",
     "go_deps",
-)
-go_deps.module_override(
-    patch_strip = 1,
-    patches = ["//third_party/patches:go-spiffe-go-proto.patch"],
-    path = "github.com/spiffe/go-spiffe/v2",
 )
 go_deps.gazelle_override(
     build_file_generation = "on",
