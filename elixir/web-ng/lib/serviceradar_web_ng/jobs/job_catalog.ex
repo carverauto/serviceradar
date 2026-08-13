@@ -58,6 +58,18 @@ defmodule ServiceRadarWebNG.Jobs.JobCatalog do
   end
 
   @doc """
+  Human-readable name and description for a worker module.
+
+  Used by the Jobs admin list. Modules whose last segment is `Worker` are
+  labeled from the parent (CapacityForecasting.Worker -> "Capacity forecasting")
+  instead of rendering a blank name.
+  """
+  @spec worker_label(module()) :: %{name: String.t(), description: String.t()}
+  def worker_label(worker) when is_atom(worker) do
+    %{name: worker_name(worker), description: worker_description(worker)}
+  end
+
+  @doc """
   Get a single job by its ID.
   """
   @spec get_job(String.t()) :: {:ok, job_entry()} | {:error, :not_found}
@@ -529,31 +541,66 @@ defmodule ServiceRadarWebNG.Jobs.JobCatalog do
     {cron, worker, opts}
   end
 
-  # Get human-readable name from worker module
+  # Modules whose last segment is just `Worker` used to render as a blank
+  # name (`"Worker"` -> strip suffix -> ""). Production releases also strip
+  # `@moduledoc`, so `Code.fetch_docs/1` cannot fill the description.
+  @worker_copy %{
+    ServiceRadar.Observability.CapacityForecasting.Worker => %{
+      name: "Capacity forecasting",
+      description: "Refresh long-horizon capacity forecasts from SRQL CAGGs."
+    },
+    ServiceRadar.Observability.SeasonalDisposition.Worker => %{
+      name: "Seasonal disposition",
+      description: "Dispose central-seasonal anomalies from the hour-of-week profile."
+    }
+  }
+
   defp worker_name(worker) when is_atom(worker) do
-    worker
-    |> Module.split()
-    |> List.last()
-    |> String.replace("Worker", "")
-    |> Macro.underscore()
-    |> String.replace("_", " ")
-    |> String.capitalize()
+    case Map.get(@worker_copy, worker) do
+      %{name: name} -> name
+      _ -> humanize_worker_module(worker)
+    end
   end
 
-  # Get description from worker module doc
   defp worker_description(worker) when is_atom(worker) do
-    case Code.fetch_docs(worker) do
-      {:docs_v1, _, _, _, %{"en" => doc}, _, _} ->
-        doc
-        |> String.split("\n")
-        |> List.first()
-        |> String.trim()
+    case Map.get(@worker_copy, worker) do
+      %{description: description} ->
+        description
 
       _ ->
-        "No description available"
+        case fetch_worker_doc(worker) do
+          nil -> "Scheduled #{worker_name(worker)} job."
+          doc -> doc
+        end
+    end
+  end
+
+  defp humanize_worker_module(worker) do
+    parts = Module.split(worker)
+    last = List.last(parts)
+
+    label =
+      cond do
+        last in ["Worker", "Job"] and length(parts) > 1 -> Enum.at(parts, -2)
+        true -> String.replace(last, ~r/(Worker|Job)$/, "")
+      end
+
+    case label |> Macro.underscore() |> String.replace("_", " ") |> String.trim() do
+      "" -> inspect(worker)
+      name -> String.capitalize(name)
+    end
+  end
+
+  defp fetch_worker_doc(worker) do
+    case Code.fetch_docs(worker) do
+      {:docs_v1, _, _, _, %{"en" => doc}, _, _} ->
+        doc |> String.split("\n") |> List.first() |> String.trim()
+
+      _ ->
+        nil
     end
   rescue
-    _ -> "No description available"
+    _ -> nil
   end
 
   # Humanize AshOban trigger name
