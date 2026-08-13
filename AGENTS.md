@@ -150,6 +150,27 @@ This file applies repo-wide, but subdirectories may include their own `AGENTS.md
   vitest / `mix precommit`). Useful for a fast local loop; **not** a substitute for
   `make test`, and `make check-coverage` depends on it for the `cover.*.profile` files.
 - Lint: `make lint`.
+- **A FRESH WORKTREE OR jj WORKSPACE RUNS BAZEL FULLY LOCAL, SILENTLY.** `.bazelrc` ends with
+  `try-import %workspace%/.bazelrc.remote`, and that file is gitignored — it carries the
+  BuildBuddy credentials. `try-import` does not warn when the file is absent, so a new checkout
+  builds and tests with **no shared cache and no remote execution** and nothing says so. Copy it
+  in before the first build:
+
+  ```bash
+  cp -p ~/src/serviceradar/.bazelrc.remote .   # 0600; matched by .gitignore, never committed
+  ```
+
+  `.bazelrc.local` is the same shape if you use one. **Verify** with
+  `bazel test --config=remote //some:target` — a run that streams to
+  `https://carverauto.buildbuddy.io` has picked the file up.
+- **Remote pays off on WIDE graphs, not narrow gates.** Measured on a two-target gate in a
+  warm workspace, `--config=remote` took ~274s against ~75s fully local: the test action itself
+  got faster, but uploading the workspace and fetching outputs cost more than it saved. Use
+  `--config=ci` / `--config=remote` for source-tree-wide runs (`//go/...`, `//elixir/...`),
+  after a rebase onto staging, and for anything CI has already built; stay local for a
+  repeatedly-rebuilt focused target. Pair it with
+  `--repository_cache=$HOME/.cache/bazel-sr-repo`, or the first remote run also re-downloads
+  external toolchains (the Elixir tarball is the slow one).
 - Focused Go packages: `go test ./go/pkg/...`.
 - SRQL (Rust) integration tests: `cd rust/srql && cargo test`.
 - Bazel images: `bazel run //docker/images:<target>_push`. A worktree without
