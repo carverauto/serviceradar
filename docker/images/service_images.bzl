@@ -6,10 +6,10 @@ load("@rules_pkg//pkg:pkg.bzl", "pkg_tar")
 _DEFAULT_PATH = "/usr/local/bin:/usr/bin:/bin"
 _SERVICERADAR_UID = "10001"
 _SERVICERADAR_GID = "10001"
-_LINUX_ARM64_PLATFORM = "//build/platforms:linux_arm64"
+_LINUX_ARM64_PLATFORM = "//build/platforms:linux_aarch64"
 _LINUX_ARM64_SELECT = "//build/platforms:target_linux_arm64"
 _LINUX_MULTIARCH_PLATFORMS = [
-    "//build/platforms:linux_amd64",
+    "//build/platforms:linux_x86_64",
     _LINUX_ARM64_PLATFORM,
 ]
 

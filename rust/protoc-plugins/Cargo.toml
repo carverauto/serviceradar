@@ -1,0 +1,24 @@
+[package]
+name = "serviceradar-protoc-plugins"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+publish = false
+
+# Pins the protoc plugins the Bazel prost toolchain runs (see //build/rust/prost_toolchain).
+#
+# Nothing links this crate and it has no code of its own; it exists so the plugins are real
+# dependencies of a real workspace member. rules_rs resolves //:Cargo.lock and nothing else,
+# so a crate that no member declares is simply not in the build graph -- there is no
+# equivalent of crate_universe's `packages` attribute to conjure one.
+#
+# prost-types is here for the same reason in a weaker form: it is already in the lockfile
+# transitively, and being a direct dependency is what gives it a stable unversioned
+# @crates//:prost-types alias for rust_prost_toolchain to name.
+[dependencies]
+prost-types = { workspace = true }
+protoc-gen-prost = { workspace = true }
+protoc-gen-tonic = { workspace = true }
+
+[lib]
+path = "src/lib.rs"
