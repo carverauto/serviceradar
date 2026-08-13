@@ -30,7 +30,10 @@ defmodule ServiceRadar.Observability.OcsfEventsHourlyStatsCaggRepairMigrationTes
     assert replay_body =~ "timescaledb_information.continuous_aggregates"
     assert replay_body =~ "view_name = 'ocsf_events_hourly_stats'"
     assert promotion_body =~ "ALTER VIEW \#{@view} RENAME TO ocsf_events_hourly_stats_stale_view"
-    assert promotion_body =~ "ALTER MATERIALIZED VIEW \#{@view} RENAME TO ocsf_events_hourly_stats_stale_view"
+
+    assert promotion_body =~
+             "ALTER MATERIALIZED VIEW \#{@view} RENAME TO ocsf_events_hourly_stats_stale_view"
+
     assert promotion_body =~ "ALTER MATERIALIZED VIEW \#{@candidate_view}"
     assert promotion_body =~ "RENAME TO ocsf_events_hourly_stats"
     refute migration =~ ~r/\bDROP\b/
