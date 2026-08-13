@@ -278,6 +278,14 @@ jobs:
       - name: Edge structural-count corpus (Elixir)
         working-directory: elixir/serviceradar_core
         run: mix test --no-start test/serviceradar/edge/count_corpus_test.exs
+      # THE TRANSPORT-PROVENANCE GUARD: one bound, one testable site, and the obligation is the
+      # STAGE rather than the refusal -- an oversize header and a malformed one are both
+      # refused, so only a witness pair malformed IDENTICALLY and differing in length shows
+      # which check ran first. Gated because a reordering that parses before bounding returns
+      # the same verdict.
+      - name: Edge transport-provenance guard (Elixir)
+        working-directory: elixir/serviceradar_core
+        run: mix test --no-start test/serviceradar/edge/provenance_corpus_test.exs
       # THE SHARED LOWER-BOUND CORPUS: eight sites, zero refused AND one accepted at each,
       # because a zero refusal alone does not pin a minimum of 1. Gated because its
       # `*_removal` columns are MEASURED claims about what each local arm is worth -- an arm
