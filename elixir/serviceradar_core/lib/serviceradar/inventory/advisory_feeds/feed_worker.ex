@@ -30,6 +30,9 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.FeedWorker do
       states: :incomplete
     ]
 
+  @impl Oban.Worker
+  def timeout(_job), do: 180_000
+
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Inventory.AdvisoryFeeds.Acquisition
   alias ServiceRadar.Inventory.AdvisoryFeeds.Config
@@ -42,6 +45,8 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.FeedWorker do
 
   require Ash.Query
   require Logger
+
+  @stale_running_seconds 15 * 60
 
   # NOTE: "nvd-api" is intentionally excluded — `do_run("nvd-api")` is an
   # unimplemented stub, so scheduling it only produces error+reschedule noise.
@@ -56,6 +61,9 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.FeedWorker do
   @spec ensure_scheduled() :: {:ok, :scheduled} | {:error, term()}
   def ensure_scheduled do
     if ObanSupport.available?() do
+      _ = Staging.reap_orphans()
+      reconcile_stale_runs()
+
       if Config.enabled?() do
         Enum.each(@feeds, &maybe_enqueue/1)
       end
@@ -135,47 +143,94 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.FeedWorker do
     started = DateTime.utc_now()
     mark_status(feed, %{last_status: "running", last_attempt_at: started}, actor)
 
-    case do_run(feed) do
-      {:ok, result} ->
-        Logger.info("advisory_feeds: #{feed} loaded", result: inspect(result))
+    try do
+      case do_run(feed) do
+        {:ok, result} ->
+          Logger.info("advisory_feeds: #{feed} loaded", result: inspect(result))
 
-        mark_status(
-          feed,
-          %{
-            last_status: "success",
-            last_success_at: DateTime.utc_now(),
-            last_message: "loaded #{result.advisories_upserted} advisories",
-            last_error: nil,
-            metadata: %{
-              "advisories" => result.advisories_upserted,
-              "coordinates" => result.coordinates_upserted,
-              "generation" => result.generation
-            }
-          },
-          actor
-        )
+          mark_status(
+            feed,
+            %{
+              last_status: "success",
+              last_success_at: DateTime.utc_now(),
+              last_message: "loaded #{result.advisories_upserted} advisories",
+              last_error: nil,
+              metadata: %{
+                "advisories" => result.advisories_upserted,
+                "coordinates" => result.coordinates_upserted,
+                "generation" => result.generation
+              }
+            },
+            actor
+          )
 
-        schedule_next(feed)
-        :ok
+          schedule_next(feed)
+          :ok
 
-      {:error, reason} ->
-        Logger.warning("advisory_feeds: #{feed} failed: #{inspect(reason)}",
-          reason: inspect(reason)
-        )
-
-        mark_status(
-          feed,
-          %{
-            last_status: "error",
-            last_failure_at: DateTime.utc_now(),
-            last_error: inspect(reason)
-          },
-          actor
-        )
-
-        schedule_next(feed)
-        {:error, reason}
+        {:error, reason} ->
+          fail_feed(feed, reason, actor)
+      end
+    rescue
+      exception ->
+        fail_feed(feed, exception, actor)
+        reraise exception, __STACKTRACE__
     end
+  end
+
+  defp fail_feed(feed, reason, actor) do
+    Logger.warning("advisory_feeds: #{feed} failed: #{inspect(reason)}",
+      reason: inspect(reason)
+    )
+
+    mark_status(
+      feed,
+      %{
+        last_status: "error",
+        last_failure_at: DateTime.utc_now(),
+        last_error: inspect(reason)
+      },
+      actor
+    )
+
+    schedule_next(feed)
+    {:error, reason}
+  end
+
+  @doc false
+  def reconcile_stale_runs(now \\ DateTime.utc_now()) do
+    actor = SystemActor.system(:advisory_feed_worker)
+
+    Enum.each(@feeds, fn feed ->
+      {provider, feed_key} = provider_feed(feed)
+
+      case read_definition(provider, feed_key, actor) do
+        {:ok, %{last_status: "running", last_attempt_at: %DateTime{} = attempted_at} = definition} ->
+          if DateTime.diff(now, attempted_at, :second) >= @stale_running_seconds and
+               not already_scheduled?(feed) do
+            mark_status(
+              feed,
+              %{
+                last_status: "error",
+                last_failure_at: now,
+                last_error: definition.last_error || "stale running status; no in-flight job"
+              },
+              actor
+            )
+          end
+
+        _ ->
+          :ok
+      end
+    end)
+
+    :ok
+  end
+
+  defp read_definition(provider, feed_key, actor) do
+    VulnerabilityFeedDefinition
+    |> Ash.Query.for_read(:read)
+    |> Ash.Query.filter(provider == ^provider and feed_key == ^feed_key)
+    |> Ash.read_one(actor: actor)
   end
 
   # --- per-feed pipelines ---------------------------------------------------

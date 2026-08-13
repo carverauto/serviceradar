@@ -177,6 +177,7 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.Acquisition do
     case Req.get(url,
            headers: [{"user-agent", @user_agent} | headers],
            decode_body: :json,
+           connect_options: [timeout: 15_000],
            receive_timeout: @default_timeout_ms,
            retry: :transient,
            max_retries: 3,
@@ -195,8 +196,9 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.Acquisition do
       [
         url: url,
         headers: [{"user-agent", @user_agent}],
+        connect_options: [timeout: 15_000],
         retry: :transient,
-        max_retries: 3,
+        max_retries: 1,
         finch: ServiceRadar.Finch
       ] ++ opts
     )
