@@ -10,9 +10,9 @@ defmodule ServiceRadarWebNGWeb.Settings.NetflowLive.Index do
 
   alias Ash.Page.Keyset
   alias AshPhoenix.Form
+  alias ServiceRadar.Integrations.MapboxSettings
   alias ServiceRadar.Observability.GeoLiteMmdbDownloadWorker
   alias ServiceRadar.Observability.IpEnrichmentRefreshWorker
-  alias ServiceRadar.Integrations.MapboxSettings
   alias ServiceRadar.Observability.NetflowAppClassificationRule
   alias ServiceRadar.Observability.NetflowLocalCidr
   alias ServiceRadar.Observability.NetflowSettings
@@ -464,6 +464,12 @@ defmodule ServiceRadarWebNGWeb.Settings.NetflowLive.Index do
 
                   <div class="rounded-lg border border-sr-line bg-sr-subtle/30 p-3">
                     <div class="text-xs font-semibold">ipinfo.io/lite</div>
+                    <div class="text-xs text-sr-muted mt-1">
+                      Lite supplies country and ASN only — no city coordinates. The
+                      dashboard map still uses GeoLite City plus Local CIDR anchors
+                      for placement, and falls back to the ipinfo country when those
+                      are missing.
+                    </div>
                     <div class="mt-2 grid grid-cols-1 gap-3">
                       <.input
                         field={@settings_form[:ipinfo_enabled]}

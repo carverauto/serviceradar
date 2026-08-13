@@ -112,6 +112,26 @@ describe("OperationsTrafficMap netflow links", () => {
     expect(links).toEqual([])
   })
 
+  it("spreads colocated local endpoints so LAN conversations stay visible", () => {
+    const [link] = OperationsTrafficMap._normalizeTrafficLinks(
+      [
+        {
+          source_label: "10.0.2.3",
+          target_label: "192.168.10.31",
+          geo_from: [-93.4687, 44.9212],
+          geo_to: [-93.4687, 44.9212],
+          bytes: 4096,
+        },
+      ],
+      "netflow",
+    )
+
+    expect(link.geoMapped).toBe(true)
+    expect(link.from).toEqual([-93.4687, 44.9212])
+    expect(link.to[0]).not.toEqual(link.from[0])
+    expect(link.to[1]).not.toEqual(link.from[1])
+  })
+
   it("keeps fully mapped geographic conversations", () => {
     const [link] = OperationsTrafficMap._normalizeTrafficLinks(
       [

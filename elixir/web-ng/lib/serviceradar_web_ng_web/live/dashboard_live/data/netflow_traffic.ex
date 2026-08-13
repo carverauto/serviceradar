@@ -40,6 +40,7 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Data.NetflowTraffic do
         flow_count_expr = flow_count_expr(relation)
         time_predicate = netflow_map_time_predicate(time_column)
         has_geo? = relation_exists?("platform.ip_geo_enrichment_cache")
+        has_ipinfo? = relation_exists?("platform.ip_ipinfo_cache")
         has_threat? = relation_exists?("platform.ip_threat_intel_cache")
         has_anchor? = netflow_location_anchors_available?()
         anchor_partition_filter = anchor_partition_filter(relation)
@@ -55,12 +56,30 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Data.NetflowTraffic do
 
         src_lat = anchored_expr(has_anchor?, "src_anchor.latitude", src_geo_lat)
         src_lon = anchored_expr(has_anchor?, "src_anchor.longitude", src_geo_lon)
-        src_city = anchored_label_expr(has_anchor?, "src_anchor", src_geo_city)
-        src_country = anchored_country_expr(has_anchor?, "src_anchor", src_geo_country)
+
+        src_city =
+          ipinfo_coalesce(has_ipinfo?, anchored_label_expr(has_anchor?, "src_anchor", src_geo_city), "src_ipinfo.city")
+
+        src_country =
+          ipinfo_coalesce(
+            has_ipinfo?,
+            anchored_country_expr(has_anchor?, "src_anchor", src_geo_country),
+            "src_ipinfo.country_code"
+          )
+
         dst_lat = anchored_expr(has_anchor?, "dst_anchor.latitude", dst_geo_lat)
         dst_lon = anchored_expr(has_anchor?, "dst_anchor.longitude", dst_geo_lon)
-        dst_city = anchored_label_expr(has_anchor?, "dst_anchor", dst_geo_city)
-        dst_country = anchored_country_expr(has_anchor?, "dst_anchor", dst_geo_country)
+
+        dst_city =
+          ipinfo_coalesce(has_ipinfo?, anchored_label_expr(has_anchor?, "dst_anchor", dst_geo_city), "dst_ipinfo.city")
+
+        dst_country =
+          ipinfo_coalesce(
+            has_ipinfo?,
+            anchored_country_expr(has_anchor?, "dst_anchor", dst_geo_country),
+            "dst_ipinfo.country_code"
+          )
+
         src_anchor_label = anchor_label_select_expr(has_anchor?, "src_anchor")
         dst_anchor_label = anchor_label_select_expr(has_anchor?, "dst_anchor")
         src_local_anchor = local_anchor_select_expr(has_anchor?, "src_anchor")
@@ -88,6 +107,16 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Data.NetflowTraffic do
             """
             LEFT JOIN platform.ip_geo_enrichment_cache src_geo ON src_geo.ip = NULLIF(f.src_endpoint_ip, '')
             LEFT JOIN platform.ip_geo_enrichment_cache dst_geo ON dst_geo.ip = NULLIF(f.dst_endpoint_ip, '')
+            """
+          else
+            ""
+          end
+
+        ipinfo_join =
+          if has_ipinfo? do
+            """
+            LEFT JOIN platform.ip_ipinfo_cache src_ipinfo ON src_ipinfo.ip = NULLIF(f.src_endpoint_ip, '')
+            LEFT JOIN platform.ip_ipinfo_cache dst_ipinfo ON dst_ipinfo.ip = NULLIF(f.dst_endpoint_ip, '')
             """
           else
             ""
@@ -151,6 +180,7 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Data.NetflowTraffic do
           #{attribution_select}
         FROM #{relation} f
         #{geo_join}
+        #{ipinfo_join}
         #{anchor_join}
         #{threat_join}
         WHERE #{time_predicate}
@@ -205,8 +235,8 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Data.NetflowTraffic do
               magnitude = to_int(bytes)
               topology_from = point_for(src)
               topology_to = point_for(dst)
-              geo_from = geo_point(src_lon, src_lat)
-              geo_to = geo_point(dst_lon, dst_lat)
+              geo_from = geo_point_or_country(src_lon, src_lat, src_country)
+              geo_to = geo_point_or_country(dst_lon, dst_lat, dst_country)
               threat_matched = src_threat_matched == true or dst_threat_matched == true
               threat_sources = threat_sources(src_threat_sources, dst_threat_sources)
 

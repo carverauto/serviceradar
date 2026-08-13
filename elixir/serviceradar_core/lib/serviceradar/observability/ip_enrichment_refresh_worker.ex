@@ -366,7 +366,9 @@ defmodule ServiceRadar.Observability.IpEnrichmentRefreshWorker do
     error_count = if is_nil(err), do: 0, else: existing_error_count + 1
 
     attrs =
-      Map.merge(attrs || %{}, %{
+      (attrs || %{})
+      |> Map.drop([:latitude, :longitude])
+      |> Map.merge(%{
         ip: ip,
         looked_up_at: now,
         expires_at: expires_at,
