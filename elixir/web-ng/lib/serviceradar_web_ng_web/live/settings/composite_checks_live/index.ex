@@ -19,6 +19,7 @@ defmodule ServiceRadarWebNGWeb.Settings.CompositeChecksLive.Index do
   alias ServiceRadar.CompositeChecks.CompositeCheck
   alias ServiceRadar.CompositeChecks.CompositeCheckInput
   alias ServiceRadar.CompositeChecks.CompositeCheckRule
+  alias ServiceRadar.CompositeChecks.Readiness
   alias ServiceRadar.CompositeChecks.Rollup
   alias ServiceRadar.CompositeChecks.RuleGenerator
   alias ServiceRadar.Infrastructure.Agent
@@ -62,6 +63,8 @@ defmodule ServiceRadarWebNGWeb.Settings.CompositeChecksLive.Index do
        |> assign(:confirm_regenerate, false)
        |> assign(:preview, nil)
        |> assign(:preview_error, nil)
+       |> assign(:readiness, nil)
+       |> assign(:enable_error, nil)
        |> assign(:checks, list_checks(socket))}
     else
       {:ok,
@@ -91,6 +94,7 @@ defmodule ServiceRadarWebNGWeb.Settings.CompositeChecksLive.Index do
       |> assign(:rules, [])
       |> assign(:rule_columns, [])
       |> clear_preview()
+      |> clear_readiness()
     else
       forbid(socket)
     end
@@ -110,6 +114,7 @@ defmodule ServiceRadarWebNGWeb.Settings.CompositeChecksLive.Index do
       |> assign(:rule_columns, RuleTable.columns(inputs))
       |> load_rules(check)
       |> clear_preview()
+      |> keep_readiness_for(check)
     else
       false ->
         forbid(socket)
@@ -286,6 +291,30 @@ defmodule ServiceRadarWebNGWeb.Settings.CompositeChecksLive.Index do
     end
   end
 
+  def handle_event("check_readiness", _params, socket) do
+    if socket.assigns.can_manage do
+      {:noreply, load_readiness(socket)}
+    else
+      {:noreply, forbid(socket)}
+    end
+  end
+
+  def handle_event("enable", params, socket) do
+    if socket.assigns.can_manage do
+      {:noreply, enable(socket, params["acknowledge_coverage_gap"] == "true")}
+    else
+      {:noreply, forbid(socket)}
+    end
+  end
+
+  def handle_event("disable", _params, socket) do
+    if socket.assigns.can_manage do
+      {:noreply, set_state(socket, :disabled)}
+    else
+      {:noreply, forbid(socket)}
+    end
+  end
+
   def handle_event("save", params, socket) do
     if socket.assigns.can_manage do
       socket = revalidate(socket, params)
@@ -388,6 +417,80 @@ defmodule ServiceRadarWebNGWeb.Settings.CompositeChecksLive.Index do
     case Preview.run(socket.assigns.editing, opts) do
       {:ok, preview} -> socket |> assign(:preview, preview) |> assign(:preview_error, nil)
       {:error, message} -> socket |> assign(:preview, nil) |> assign(:preview_error, message)
+    end
+  end
+
+  defp clear_readiness(socket) do
+    socket
+    |> assign(:readiness, nil)
+    |> assign(:enable_error, nil)
+  end
+
+  # Creating a check patches to the route of the check it just wrote, which
+  # re-enters `:edit`. Clearing readiness there would drop the coverage report
+  # the save just produced — the report that has to be visible at save time.
+  # Any other arrival at this route starts with no report.
+  defp keep_readiness_for(socket, check) do
+    case socket.assigns.editing do
+      %{id: id} when id == check.id -> assign(socket, :enable_error, nil)
+      _other -> clear_readiness(socket)
+    end
+  end
+
+  # Readiness walks the whole scope counting coverage, so it runs on demand
+  # rather than on every mount of the builder. The gate itself is server-side in
+  # `EnforceReadiness`; this only shows the operator what it will say.
+  defp load_readiness(socket) do
+    case Readiness.check(socket.assigns.editing, actor: actor(socket)) do
+      {:ok, report} -> assign(socket, :readiness, report)
+      {:error, reason} -> assign(socket, :enable_error, FormState.error_message(reason))
+    end
+  end
+
+  # `Readiness.check/2` takes a plain actor, not a scope. Deriving it through the
+  # same protocol Ash uses is what guarantees the report is computed under
+  # exactly the actor the `:enable` validation will re-run it with.
+  defp actor(socket) do
+    case Ash.Scope.ToOpts.get_actor(socket.assigns.current_scope) do
+      {:ok, actor} -> actor
+      :error -> nil
+    end
+  end
+
+  # A failed enable refreshes readiness so the operator sees the full report,
+  # including the acknowledgement checkbox for a coverage gap. Without it the
+  # message names a problem the page offers no way to answer.
+  defp enable(socket, acknowledged?) do
+    check = socket.assigns.editing
+    scope = socket.assigns.current_scope
+
+    check
+    |> Ash.Changeset.for_update(:enable, %{acknowledge_coverage_gap: acknowledged?}, scope: scope)
+    |> Ash.update()
+    |> case do
+      {:ok, enabled} ->
+        socket
+        |> assign(:editing, enabled)
+        |> assign(:enable_error, nil)
+        |> load_readiness()
+
+      {:error, error} ->
+        socket
+        |> assign(:enable_error, FormState.error_message(error))
+        |> load_readiness()
+    end
+  end
+
+  defp set_state(socket, state) do
+    check = socket.assigns.editing
+    scope = socket.assigns.current_scope
+
+    check
+    |> Ash.Changeset.for_update(:set_state, %{state: state}, scope: scope)
+    |> Ash.update()
+    |> case do
+      {:ok, updated} -> socket |> assign(:editing, updated) |> assign(:enable_error, nil)
+      {:error, error} -> assign(socket, :enable_error, FormState.error_message(error))
     end
   end
 
@@ -525,19 +628,36 @@ defmodule ServiceRadarWebNGWeb.Settings.CompositeChecksLive.Index do
     case result do
       {:ok, check} ->
         case sync_vantage_points(check, socket.assigns.vantage_points, scope) do
-          :ok ->
-            {:noreply,
-             socket
-             |> put_flash(:info, "Composite check saved")
-             |> push_navigate(to: @current_path)}
-
-          {:error, error} ->
-            {:noreply, assign(socket, :save_error, FormState.error_message(error))}
+          :ok -> {:noreply, saved(socket, check)}
+          {:error, error} -> {:noreply, assign(socket, :save_error, FormState.error_message(error))}
         end
 
       {:error, error} ->
         {:noreply, assign(socket, :save_error, FormState.error_message(error))}
     end
+  end
+
+  # Saving stays on the builder rather than returning to the index. Coverage
+  # gaps are reported at save time, and a check that has just been saved is
+  # usually about to gain vantage points, rules, and an enable — all of which
+  # live here. Creating navigates to the new check's own route so the URL
+  # matches what is on screen and a refresh does not reopen a blank form.
+  defp saved(socket, check) do
+    created? = socket.assigns.editing == :new
+    inputs = load_inputs(check, socket.assigns.current_scope)
+
+    socket =
+      socket
+      |> put_flash(:info, "Composite check saved")
+      |> assign(:editing, check)
+      |> assign(:save_error, nil)
+      |> assign(:vantage_points, FormState.vantage_points_from_inputs(inputs))
+      |> assign(:rule_columns, RuleTable.columns(inputs))
+      |> load_rules(check)
+      |> clear_preview()
+      |> load_readiness()
+
+    if created?, do: push_patch(socket, to: "#{@current_path}/#{check.id}/edit"), else: socket
   end
 
   # Replace the check's vantage point inputs with the submitted rows.
@@ -675,6 +795,13 @@ defmodule ServiceRadarWebNGWeb.Settings.CompositeChecksLive.Index do
             error={@preview_error}
             mode={if @editing == :new, do: :new, else: :edit}
             can_evaluate={@can_evaluate}
+            state={if @editing == :new, do: nil, else: @editing.state}
+          />
+
+          <.readiness_panel
+            readiness={@readiness}
+            error={@enable_error}
+            mode={if @editing == :new, do: :new, else: :edit}
             state={if @editing == :new, do: nil, else: @editing.state}
           />
         </div>

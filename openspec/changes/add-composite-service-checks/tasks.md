@@ -148,6 +148,10 @@
 - [x] 8.10 Enforce the `composite_checks` RBAC permissions in LiveView mount
       and every `handle_event`. (The catalog section itself was added with the
       device fact endpoint in section 6.)
+- [x] 8.11 Surface readiness on the builder: blocking problems, coverage
+      warnings with counts, per-agent coverage, and the enable/disable controls.
+      The coverage report is produced at save time as well as on demand, which
+      is why saving stays on the builder instead of returning to the index.
 
 ## 9. Northbound
 

@@ -339,19 +339,52 @@ Preview is `composite_checks.evaluate`. It is the one read-ish action that costs
 
 Plan 1 enforces all three server-side (`Readiness`, `EnforceReadiness`, and the `:enable` action). This task surfaces them; it must not duplicate the logic.
 
-- [ ] **Step 1: Write failing tests**
+- [x] **Step 1: Write failing tests**
 
 Enabling a witness-less check shows the "powered-off device is indistinguishable" explanation and does not enable; a partial-coverage check shows "N of M"; a zero-coverage check requires ticking the acknowledgement before enable succeeds.
 
-- [ ] **Step 2: Call `Readiness.check/2` on the builder**
+- [x] **Step 2: Call `Readiness.check/2` on the builder**
 
 Render `blocking` and `warnings` in place. The acknowledgement checkbox maps to the `acknowledge_coverage_gap` argument on `:enable`.
 
-- [ ] **Step 3: Map the enable error**
+- [x] **Step 3: Map the enable error**
 
 `:enable` returns an `Ash.Error.Invalid` whose message is the problem text. Surface it rather than a generic "could not save".
 
-- [ ] **Step 4–5:** run, commit.
+- [x] **Step 4–5:** run, commit.
+
+**What the implementation settled beyond the plan:**
+
+- Readiness runs on demand, not on mount. `Coverage.for_check/3` walks the whole
+  scope counting per-agent freshness; paying that on every open of the builder
+  would make the page cost scale with the device population.
+- A failed enable refreshes the readiness report. Without it the error names a
+  problem the page offers no way to answer — the acknowledgement checkbox only
+  exists once the report says there is a coverage gap.
+- The acknowledgement is offered only when a coverage gap is the *only* blocking
+  problem. A witness-less check with no coverage has both, and the first version
+  rendered the checkbox there too — sending the operator to tick a box that
+  changes nothing, because `EnforceReadiness` only drops `:no_coverage` from the
+  blocking list. Caught by a `refute`.
+- `Readiness.check/2` takes a plain `actor:`, not a `scope:`. The actor is
+  derived through `Ash.Scope.ToOpts.get_actor/1` — the same protocol Ash itself
+  uses for `scope:` — so the report is computed under exactly the actor the
+  `:enable` validation re-runs it with. Passing `scope:` raises `KeyError`.
+- Enable is a form submit rather than a click, because the acknowledgement
+  checkbox has to travel with it. Once enabled, the form is not rendered at all,
+  so there is no way to submit it twice.
+- Disable goes through `:set_state`, which rejects `:enabled` — the only path to
+  enabled is `:enable`, and therefore through the readiness gate.
+- **The save flow changed to satisfy the spec.** The scenario "Coverage gap is
+  reported with counts" fires *on save*, but save navigated to the index, so
+  there was nowhere to report it. Saving now stays on the builder; creating
+  patches to the new check's own route so the URL matches what is on screen and
+  a refresh does not reopen a blank form. `apply_action(:edit, ...)` keeps an
+  already-computed report when the patch is for the same check, otherwise
+  clears it — a fresh arrival at the route starts with no report.
+- Save therefore pays one full-scope coverage walk. That is the spec's price for
+  reporting counts at save time, and save is a deliberate action; the manual
+  "Check readiness" button exists to re-run it without saving.
 
 ---
 

@@ -197,10 +197,10 @@ defmodule ServiceRadarWebNGWeb.Settings.CompositeChecksLiveTest do
       assert html =~ "Filter field"
     end
 
-    test "saving persists the scope and returns to the index", %{conn: conn} do
+    test "saving a new check stays on the builder at the new check's route", %{conn: conn} do
       {:ok, live, _html} = live(conn, @path <> "/new")
 
-      {:ok, _index, html} =
+      html =
         live
         |> form("#composite-check-form", %{
           "form" => %{
@@ -210,9 +210,23 @@ defmodule ServiceRadarWebNGWeb.Settings.CompositeChecksLiveTest do
           }
         })
         |> render_submit()
-        |> follow_redirect(conn, @path)
 
-      assert html =~ "Scoped Check"
+      check = check_named!("Scoped Check")
+
+      # The URL follows the check that was just written, so a refresh reopens
+      # the saved check rather than a blank form.
+      assert_patch(live, @path <> "/#{check.id}/edit")
+
+      assert html =~ "in:devices source:armis"
+      assert check.scope_query == "in:devices source:armis"
+    end
+
+    test "the index lists a saved check", %{conn: conn} do
+      create_check(%{name: "Listed Check", scope_query: "in:devices source:armis"})
+
+      {:ok, _live, html} = live(conn, @path)
+
+      assert html =~ "Listed Check"
       assert html =~ "in:devices source:armis"
     end
 
@@ -449,7 +463,6 @@ defmodule ServiceRadarWebNGWeb.Settings.CompositeChecksLiveTest do
         %{"agent_id" => witness.uid, "expected" => "available"},
         %{"agent_id" => probe.uid, "expected" => "blocked"}
       ])
-      |> follow_redirect(conn, @path)
 
       check = check_named!("Witness Check")
 
@@ -481,7 +494,6 @@ defmodule ServiceRadarWebNGWeb.Settings.CompositeChecksLiveTest do
       |> submit_check("Replaced Check", [
         %{"agent_id" => original.uid, "expected" => "available"}
       ])
-      |> follow_redirect(conn, @path)
 
       check = check_named!("Replaced Check")
 
@@ -489,12 +501,7 @@ defmodule ServiceRadarWebNGWeb.Settings.CompositeChecksLiveTest do
       assert html =~ original.uid
       assert html =~ "liveness witness"
 
-      live
-      |> submit_check("Replaced Check", [
-        %{"agent_id" => replacement.uid, "expected" => "available"}
-      ])
-      |> follow_redirect(conn, @path)
-
+      submit_check(live, "Replaced Check", [%{"agent_id" => replacement.uid, "expected" => "available"}])
       {:ok, inputs} = CompositeCheckInput.list_by_check(check.id, actor: system_actor())
 
       assert [only] = Enum.filter(inputs, &(&1.kind == :vantage_point))
@@ -581,7 +588,6 @@ defmodule ServiceRadarWebNGWeb.Settings.CompositeChecksLiveTest do
         %{"agent_id" => witness.uid, "expected" => "available"},
         %{"agent_id" => probe.uid, "expected" => "blocked"}
       ])
-      |> follow_redirect(conn, @path)
 
       {check_named!(name), witness, probe}
     end
@@ -864,7 +870,6 @@ defmodule ServiceRadarWebNGWeb.Settings.CompositeChecksLiveTest do
           ])
       })
       |> render_submit()
-      |> follow_redirect(conn, @path)
 
       check = check_named!("Preview #{tag}")
 
@@ -1028,6 +1033,233 @@ defmodule ServiceRadarWebNGWeb.Settings.CompositeChecksLiveTest do
         |> Ash.read(actor: system_actor())
 
       assert results == []
+    end
+  end
+
+  describe "readiness and enable" do
+    setup do
+      %{gateway: gateway_fixture(), tag: "rd#{System.unique_integer([:positive])}"}
+    end
+
+    # A check whose scope is exactly the devices this test created, with
+    # `expectations` as its vantage points.
+    defp scoped_check(conn, gateway, tag, expectations) do
+      agents = Enum.map(expectations, fn _expected -> agent_fixture(gateway) end)
+
+      rows =
+        agents
+        |> Enum.zip(expectations)
+        |> Enum.map(fn {agent, expected} ->
+          %{"agent_id" => agent.uid, "expected" => expected}
+        end)
+
+      {:ok, live, _html} = live(conn, @path <> "/new")
+
+      live
+      |> add_rows(length(rows))
+      |> form("#composite-check-form", %{
+        "form" => %{
+          "name" => "Readiness #{tag}",
+          "scope_query" => "in:devices hostname:#{tag}%",
+          "evaluation_interval_seconds" => "300"
+        },
+        "vantage_points" => indexed(rows)
+      })
+      |> render_submit()
+
+      {check_named!("Readiness #{tag}"), agents}
+    end
+
+    defp reload(check) do
+      {:ok, reloaded} = CompositeCheck.get_by_id(check.id, actor: system_actor())
+      reloaded
+    end
+
+    # Enable is a form submit, not a click: the acknowledgement checkbox has to
+    # travel with it, and a checkbox outside a form submits nothing.
+    defp submit_enable(live, params \\ %{}) do
+      live |> form("form[phx-submit=enable]", params) |> render_submit()
+    end
+
+    test "a new check says readiness needs a saved check", %{conn: conn} do
+      {:ok, _live, html} = live(conn, @path <> "/new")
+
+      assert html =~ "Save the check to see whether it is ready to enable"
+      refute html =~ "Check readiness"
+    end
+
+    test "saving reports the coverage gap without a second click", %{
+      conn: conn,
+      gateway: gateway,
+      tag: tag
+    } do
+      witness = agent_fixture(gateway)
+      probe = agent_fixture(gateway)
+
+      covered = device_fixture(%{hostname: "#{tag}-covered.local"})
+      device_fixture(%{hostname: "#{tag}-uncovered.local"})
+
+      now = DateTime.utc_now()
+      availability(covered.uid, witness.uid, true, now)
+      availability(covered.uid, probe.uid, false, now)
+
+      {:ok, live, _html} = live(conn, @path <> "/new")
+
+      html =
+        live
+        |> add_rows(2)
+        |> form("#composite-check-form", %{
+          "form" => %{
+            "name" => "Saved Readiness #{tag}",
+            "scope_query" => "in:devices hostname:#{tag}%",
+            "evaluation_interval_seconds" => "300"
+          },
+          "vantage_points" =>
+            indexed([
+              %{"agent_id" => witness.uid, "expected" => "available"},
+              %{"agent_id" => probe.uid, "expected" => "blocked"}
+            ])
+        })
+        |> render_submit()
+
+      # The spec reports coverage at save time, so the save has to stay on the
+      # builder and carry the report through the patch to the new check's route.
+      assert html =~ ~s(data-readiness-warning="partial_coverage")
+      assert html =~ "1 of 2 devices in scope"
+    end
+
+    test "a witness-less check cannot be enabled and is told why", %{
+      conn: conn,
+      gateway: gateway,
+      tag: tag
+    } do
+      {check, _agents} = scoped_check(conn, gateway, tag, ["blocked", "blocked"])
+      device_fixture(%{hostname: "#{tag}-a.local"})
+
+      {:ok, live, _html} = live(conn, @path <> "/#{check.id}/edit")
+      html = submit_enable(live)
+
+      assert html =~ ~s(data-readiness-blocking="no_liveness_witness")
+      assert html =~ "powered-off device is indistinguishable"
+      assert reload(check).state == :draft
+    end
+
+    test "a missing witness is not acknowledgeable", %{conn: conn, gateway: gateway, tag: tag} do
+      {check, _agents} = scoped_check(conn, gateway, tag, ["blocked", "blocked"])
+      device_fixture(%{hostname: "#{tag}-a.local"})
+
+      {:ok, live, _html} = live(conn, @path <> "/#{check.id}/edit")
+      html = live |> element("button", "Check readiness") |> render_click()
+
+      # A correctness fault, not a timing one. Offering a checkbox would promise
+      # an override the resource refuses.
+      assert html =~ ~s(data-readiness-blocking="no_liveness_witness")
+      refute html =~ "acknowledge_coverage_gap"
+    end
+
+    test "zero coverage blocks enabling until it is acknowledged", %{
+      conn: conn,
+      gateway: gateway,
+      tag: tag
+    } do
+      {check, _agents} = scoped_check(conn, gateway, tag, ["available", "blocked"])
+      device_fixture(%{hostname: "#{tag}-a.local"})
+
+      {:ok, live, _html} = live(conn, @path <> "/#{check.id}/edit")
+
+      html = submit_enable(live)
+
+      assert html =~ ~s(data-readiness-blocking="no_coverage")
+      assert html =~ "Every device will evaluate as inconclusive"
+      assert reload(check).state == :draft
+
+      # The failed enable is what surfaces the acknowledgement, so the message
+      # names a problem the page now offers a way to answer.
+      assert html =~ "acknowledge_coverage_gap"
+
+      submit_enable(live, %{"acknowledge_coverage_gap" => "true"})
+
+      assert reload(check).state == :enabled
+    end
+
+    test "partial coverage is a warning, not a block", %{conn: conn, gateway: gateway, tag: tag} do
+      {check, [witness, probe]} = scoped_check(conn, gateway, tag, ["available", "blocked"])
+
+      covered = device_fixture(%{hostname: "#{tag}-covered.local"})
+      device_fixture(%{hostname: "#{tag}-uncovered.local"})
+
+      now = DateTime.utc_now()
+      availability(covered.uid, witness.uid, true, now)
+      availability(covered.uid, probe.uid, false, now)
+
+      {:ok, live, _html} = live(conn, @path <> "/#{check.id}/edit")
+      html = live |> element("button", "Check readiness") |> render_click()
+
+      assert html =~ ~s(data-readiness-warning="partial_coverage")
+      assert html =~ "1 of 2 devices in scope"
+      refute html =~ ~s(data-readiness-blocking=)
+
+      submit_enable(live)
+
+      assert reload(check).state == :enabled
+    end
+
+    test "full coverage reports ready and enables cleanly", %{
+      conn: conn,
+      gateway: gateway,
+      tag: tag
+    } do
+      {check, [witness, probe]} = scoped_check(conn, gateway, tag, ["available", "blocked"])
+
+      device = device_fixture(%{hostname: "#{tag}-full.local"})
+      now = DateTime.utc_now()
+      availability(device.uid, witness.uid, true, now)
+      availability(device.uid, probe.uid, false, now)
+
+      {:ok, live, _html} = live(conn, @path <> "/#{check.id}/edit")
+      html = live |> element("button", "Check readiness") |> render_click()
+
+      assert html =~ "Every vantage point has coverage"
+      assert html =~ ~s(data-coverage-agent="#{witness.uid}" data-coverage-covered="1")
+      assert html =~ ~s(data-coverage-agent="#{probe.uid}" data-coverage-covered="1")
+
+      html = submit_enable(live)
+
+      assert reload(check).state == :enabled
+      assert html =~ "enabled"
+    end
+
+    test "an enabled check can be disabled", %{conn: conn, gateway: gateway, tag: tag} do
+      {check, [witness, probe]} = scoped_check(conn, gateway, tag, ["available", "blocked"])
+
+      device = device_fixture(%{hostname: "#{tag}-cycle.local"})
+      now = DateTime.utc_now()
+      availability(device.uid, witness.uid, true, now)
+      availability(device.uid, probe.uid, false, now)
+
+      {:ok, live, _html} = live(conn, @path <> "/#{check.id}/edit")
+      submit_enable(live)
+      assert reload(check).state == :enabled
+
+      live |> element("button", "Disable") |> render_click()
+      assert reload(check).state == :disabled
+    end
+
+    test "an enabled check offers no enable control", %{conn: conn, gateway: gateway, tag: tag} do
+      {check, [witness, probe]} = scoped_check(conn, gateway, tag, ["available", "blocked"])
+
+      device = device_fixture(%{hostname: "#{tag}-once.local"})
+      now = DateTime.utc_now()
+      availability(device.uid, witness.uid, true, now)
+      availability(device.uid, probe.uid, false, now)
+
+      {:ok, live, _html} = live(conn, @path <> "/#{check.id}/edit")
+      html = submit_enable(live)
+
+      # The enable form is gone once the check is enabled, so there is no way to
+      # submit it twice.
+      refute html =~ ~s(phx-submit="enable")
+      assert html =~ ~s(phx-click="disable")
     end
   end
 end

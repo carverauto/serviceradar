@@ -605,6 +605,138 @@ defmodule ServiceRadarWebNGWeb.Settings.CompositeChecksLive.Components do
     "grid-template-columns: repeat(#{length(columns)}, minmax(7rem, 1fr)) 10rem 10rem 8rem 6rem"
   end
 
+  attr :readiness, :map, default: nil
+  attr :error, :string, default: nil
+  attr :mode, :atom, required: true
+  attr :state, :atom, default: nil
+
+  @doc """
+  Whether the check is safe to enable, and what stops it.
+
+  Every problem shown here is produced by `Readiness.check/2` — the same call the
+  `:enable` action validates with. The panel renders the report; it never
+  re-derives a rule, so it cannot disagree with the gate.
+  """
+  def readiness_panel(assigns) do
+    assigns = assign(assigns, :coverage_gap?, coverage_gap?(assigns.readiness))
+
+    ~H"""
+    <section class="space-y-3 rounded-sr-control border border-sr-border bg-sr-surface p-4">
+      <div class="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h2 class="text-sm font-semibold text-sr-ink">Readiness</h2>
+          <p class="text-xs text-sr-ink-muted">
+            Whether this check can produce meaningful verdicts before you enable it.
+          </p>
+        </div>
+
+        <div :if={@mode == :edit} class="flex shrink-0 items-center gap-2">
+          <span class="text-xs text-sr-ink-muted">State</span>
+          <.state_badge state={@state} />
+        </div>
+      </div>
+
+      <p :if={@mode == :new} class="text-xs text-sr-ink-muted">
+        Save the check to see whether it is ready to enable.
+      </p>
+
+      <div :if={@mode == :edit} class="flex flex-wrap gap-2">
+        <button
+          type="button"
+          phx-click="check_readiness"
+          class="rounded-sr-control border border-sr-border px-3 py-1.5 text-xs text-sr-ink-muted hover:text-sr-ink"
+        >
+          Check readiness
+        </button>
+
+        <button
+          :if={@state == :enabled}
+          type="button"
+          phx-click="disable"
+          class="rounded-sr-control border border-sr-border px-3 py-1.5 text-xs text-sr-ink-muted hover:text-sr-ink"
+        >
+          Disable
+        </button>
+      </div>
+
+      <p :if={@error} class="text-xs text-rose-400">{@error}</p>
+
+      <div :if={@readiness} class="space-y-2">
+        <p
+          :if={@readiness.blocking == [] and @readiness.warnings == []}
+          class="text-xs text-emerald-400"
+        >
+          Every vantage point has coverage and a liveness witness is declared.
+        </p>
+
+        <ul :if={@readiness.blocking != []} class="space-y-1">
+          <li
+            :for={problem <- @readiness.blocking}
+            class="rounded-sr-control border border-rose-500/40 bg-rose-500/5 p-3 text-xs text-rose-400"
+            data-readiness-blocking={problem.code}
+          >
+            {problem.message}
+          </li>
+        </ul>
+
+        <ul :if={@readiness.warnings != []} class="space-y-1">
+          <li
+            :for={problem <- @readiness.warnings}
+            class="rounded-sr-control border border-amber-500/40 bg-amber-500/5 p-3 text-xs text-amber-400"
+            data-readiness-warning={problem.code}
+          >
+            {problem.message}
+          </li>
+        </ul>
+
+        <ul :if={@readiness.coverage != []} class="space-y-1">
+          <li
+            :for={row <- @readiness.coverage}
+            class="flex flex-wrap items-center gap-2 text-xs"
+            data-coverage-agent={row.agent_id}
+            data-coverage-covered={row.covered}
+            data-coverage-total={row.total}
+          >
+            <span class="font-mono text-sr-ink">{row.agent_id}</span>
+            <span class="text-sr-ink-muted">
+              {"#{row.covered} of #{row.total} devices in scope have fresh results"}
+            </span>
+          </li>
+        </ul>
+      </div>
+
+      <form :if={@mode == :edit and @state != :enabled} phx-submit="enable" class="space-y-2">
+        <label :if={@coverage_gap?} class="flex items-start gap-2 text-xs text-sr-ink-muted">
+          <input type="checkbox" name="acknowledge_coverage_gap" value="true" class="mt-0.5" />
+          <span>
+            I understand a vantage point has no coverage and every device will evaluate as
+            inconclusive until its sweep is running.
+          </span>
+        </label>
+
+        <button
+          type="submit"
+          class="rounded-sr-control border border-sr-border px-3 py-1.5 text-xs text-sr-ink hover:bg-sr-surface-muted"
+        >
+          Enable
+        </button>
+      </form>
+    </section>
+    """
+  end
+
+  # The acknowledgement is offered only when a coverage gap is the *only* thing
+  # blocking. A missing liveness witness is not acknowledgeable — it is a
+  # correctness fault, not a timing one — and showing the checkbox alongside it
+  # would promise an override the resource refuses, sending the operator to tick
+  # a box that changes nothing.
+  defp coverage_gap?(nil), do: false
+  defp coverage_gap?(%{blocking: []}), do: false
+
+  defp coverage_gap?(%{blocking: blocking}) do
+    Enum.all?(blocking, &(&1.code == :no_coverage))
+  end
+
   attr :preview, :map, default: nil
   attr :error, :string, default: nil
   attr :mode, :atom, required: true
