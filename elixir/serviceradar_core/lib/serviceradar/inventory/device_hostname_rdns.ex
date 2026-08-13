@@ -345,7 +345,7 @@ defmodule ServiceRadar.Inventory.DeviceHostnameRdns do
       |> Ash.Query.for_read(:read, %{include_deleted: false}, actor: actor)
       |> Ash.Query.filter(expr(uid in ^uids))
       |> Ash.Query.select([:uid, :ip, :hostname, :metadata, :last_seen_time])
-      |> Ash.read(actor: actor, page: false)
+      |> Ash.read(actor: actor, page: [limit: max(length(uids), 1)])
       |> case do
         {:error, reason} ->
           {:error, {:device_load_failed, reason}}
