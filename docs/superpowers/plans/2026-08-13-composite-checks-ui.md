@@ -283,11 +283,11 @@ Call `RuleGenerator.generate/1` with the current inputs. It returns rule attrs w
 **Files:** Create `preview.ex`; modify `index.ex`, `components.ex`
 **Spec:** per-vantage-point outcome, each fact's value and age, verdict and explanation, rollup counts, the unreachable-population sentence, and draft rollups labelled sampled-vs-total.
 
-- [ ] **Step 1: Write failing tests**
+- [x] **Step 1: Write failing tests**
 
 A sampled device renders each input's resolved value and age; an input with no result renders "unknown" with its reason rather than blank; the rollup states how many devices no vantage point can see; a draft rollup shows sampled-of-total.
 
-- [ ] **Step 2: Implement via the shared evaluator**
+- [x] **Step 2: Implement via the shared evaluator**
 
 ```elixir
 {:ok, rows} = Evaluation.evaluate_devices(check, inputs, rules, uids, now: now)
@@ -295,13 +295,38 @@ A sampled device renders each input's resolved value and age; an input with no r
 
 Take `uids` from `Scope.stream_uids/2` bounded to a sample (start at 25, matching the preview limit `AvailabilitySourceProfileMaterializer` uses). Nothing persists and no events emit — `evaluate_devices/5` writes nothing by construction.
 
-- [ ] **Step 3: Render the explanation**
+- [x] **Step 3: Render the explanation**
 
 The verdict's `verdict_description` is the explanation; the unreachable count comes from rows whose inputs are all non-`available`. State it in the words the spec uses: these devices cannot be counted as compliant.
 
-- [ ] **Step 4: Authorize**
+- [x] **Step 4: Authorize**
 
 Preview is `composite_checks.evaluate`. It is the one read-ish action that costs real query work, which is why it has its own permission.
+
+**What the implementation settled beyond the plan:**
+
+- `total` is passed in rather than counted. The builder already renders the
+  scope size beside the SRQL; counting again would walk the whole population to
+  display a number already on screen.
+- The preview runs against the *saved* check, not the form state. Previewing
+  unsaved edits would show a verdict the scheduled pass cannot reproduce, which
+  is the one thing a preview must never do. A new check says so instead.
+- `Scope.stream_uids/2` raises on a runner error, which is correct for the
+  evaluation pass — a partial pass must not sweep. Preview has nothing to
+  corrupt, so it rescues and turns the failure into a message.
+- Ages are measured against the evaluation's own `now`, not the wall clock, so
+  the rendered age and the resolver's staleness verdict cannot disagree. That is
+  why this does not reuse `format_relative_time/1` from the scans components.
+- A check with no vantage points has *no* unreachable population, rather than
+  every device being trivially unreachable.
+- The rows carry `data-preview-*` attributes. Every value the panel renders —
+  verdicts, expectations, statuses — also appears in the rule table and the
+  vantage point selects above it, so assertions on visible text alone passed
+  with the panel entirely empty. Caught by re-reading the first green run.
+- The `!can_evaluate` branch is unreachable with the default catalog:
+  `composite_checks.manage` and `composite_checks.evaluate` both default to
+  `@operator_roles`, so no default role can reach the builder without evaluate.
+  The branch stays because permissions are customizable per deployment.
 
 - [ ] **Step 5–6:** run, commit.
 

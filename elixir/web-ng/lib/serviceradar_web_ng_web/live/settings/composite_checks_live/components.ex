@@ -605,6 +605,148 @@ defmodule ServiceRadarWebNGWeb.Settings.CompositeChecksLive.Components do
     "grid-template-columns: repeat(#{length(columns)}, minmax(7rem, 1fr)) 10rem 10rem 8rem 6rem"
   end
 
+  attr :preview, :map, default: nil
+  attr :error, :string, default: nil
+  attr :mode, :atom, required: true
+  attr :can_evaluate, :boolean, default: false
+  attr :state, :atom, default: nil
+
+  @doc """
+  What the check would decide, right now, for a sample of its scope.
+
+  Runs the same evaluation the scheduled pass runs, so preview and production
+  cannot disagree. Nothing is persisted and no verdict events are emitted.
+  """
+  def preview_panel(assigns) do
+    ~H"""
+    <section class="space-y-3 rounded-sr-control border border-sr-border bg-sr-surface p-4">
+      <div class="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h2 class="text-sm font-semibold text-sr-ink">Preview</h2>
+          <p class="text-xs text-sr-ink-muted">
+            Evaluates the saved check over a sample of its scope. Nothing is recorded.
+          </p>
+        </div>
+        <button
+          :if={@mode == :edit and @can_evaluate}
+          type="button"
+          phx-click="run_preview"
+          class="rounded-sr-control border border-sr-border px-3 py-1.5 text-xs text-sr-ink-muted hover:text-sr-ink"
+        >
+          Run preview
+        </button>
+      </div>
+
+      <p :if={@mode == :new} class="text-xs text-sr-ink-muted">
+        Save the check to preview it. The preview evaluates what is stored, not what is on screen,
+        so it always agrees with the scheduled pass.
+      </p>
+
+      <p :if={@mode == :edit and !@can_evaluate} class="text-xs text-sr-ink-muted">
+        Previewing a check requires the evaluate permission.
+      </p>
+
+      <p :if={@error} class="text-xs text-rose-400">{@error}</p>
+
+      <div :if={@preview} class="space-y-3">
+        <.preview_rollup preview={@preview} state={@state} />
+
+        <p :if={@preview.rows == []} class="text-xs text-sr-ink-muted">
+          No devices are in scope, so there is nothing to evaluate.
+        </p>
+
+        <ul :if={@preview.rows != []} class="space-y-2">
+          <.preview_row :for={row <- @preview.rows} row={row} />
+        </ul>
+      </div>
+    </section>
+    """
+  end
+
+  attr :preview, :map, required: true
+  attr :state, :atom, default: nil
+
+  defp preview_rollup(assigns) do
+    ~H"""
+    <div class="space-y-2 rounded-sr-control border border-sr-border bg-sr-surface-muted p-3">
+      <p class="text-xs text-sr-ink-muted">
+        <span :if={@preview.total && @preview.sampled < @preview.total}>
+          Sampled <span class="font-medium text-sr-ink">{@preview.sampled}</span>
+          of {@preview.total} devices in scope.
+        </span>
+        <span :if={is_nil(@preview.total) or @preview.sampled >= (@preview.total || 0)}>
+          Evaluated <span class="font-medium text-sr-ink">{@preview.sampled}</span> devices in scope.
+        </span>
+        <span :if={@state == :draft}>
+          This check is a draft, so these counts come from the sample, not from stored verdicts.
+        </span>
+      </p>
+
+      <ul class="flex flex-wrap gap-x-4 gap-y-1">
+        <li :for={entry <- @preview.verdicts} class="flex items-center gap-1.5 text-xs">
+          <span class={["size-1.5 rounded-full", status_bar_class(entry.status)]} />
+          <span class="font-mono text-sr-ink">{entry.verdict}</span>
+          <span class="text-sr-ink-muted">{entry.count}</span>
+        </li>
+      </ul>
+
+      <p :if={@preview.unreachable > 0} class="text-xs text-amber-400">
+        <span class="font-medium">{@preview.unreachable}</span>
+        of these devices are visible from no vantage point. They cannot be counted as compliant:
+        a powered-off device is unreachable from everywhere, exactly like a perfectly isolated one.
+      </p>
+    </div>
+    """
+  end
+
+  attr :row, :map, required: true
+
+  # The data-preview-* attributes are the addressable version of what this row
+  # says. Every value it renders — a verdict, an expectation, a status — also
+  # appears in the rule table and the vantage point selects above it, so a test
+  # asserting on the visible text alone would pass without the preview having
+  # rendered anything.
+  defp preview_row(assigns) do
+    ~H"""
+    <li
+      class="rounded-sr-control border border-sr-border p-3"
+      data-preview-device={@row.device_uid}
+      data-preview-verdict={@row.verdict}
+      data-preview-status={@row.status}
+    >
+      <div class="flex flex-wrap items-center gap-2">
+        <span class="font-mono text-xs text-sr-ink">{@row.device_uid}</span>
+        <span class={["size-1.5 rounded-full", status_bar_class(@row.status)]} />
+        <span class="font-mono text-xs text-sr-ink">{@row.verdict}</span>
+      </div>
+
+      <p :if={@row.explanation} class="mt-1 text-xs text-sr-ink-muted">{@row.explanation}</p>
+
+      <ul class="mt-2 space-y-1">
+        <li
+          :for={input <- @row.inputs}
+          class="flex flex-wrap items-center gap-2 text-xs"
+          data-preview-input={input.key}
+          data-preview-value={input.value}
+          data-preview-age={input.age}
+          data-preview-reason={input.reason}
+        >
+          <span class="text-sr-ink-muted">{input.label}</span>
+          <span class={["font-mono", input.stale && "text-amber-400", !input.stale && "text-sr-ink"]}>
+            {input.value}
+          </span>
+          <span :if={input.expected} class="text-sr-ink-muted">
+            {"expected #{input.expected}"}
+          </span>
+          <span class="text-sr-ink-muted">{input.age}</span>
+          <span :if={input.stale} class="text-amber-400">stale</span>
+          <span :if={input.reason} class="font-mono text-sr-ink-muted">{input.reason}</span>
+        </li>
+      </ul>
+    </li>
+    """
+  end
+
   defp rule_form_id(rule), do: "rule-form-#{rule.id}"
 
   defp authored(rules), do: Enum.reject(rules, & &1.catch_all)

@@ -7,6 +7,7 @@ defmodule ServiceRadarWebNGWeb.Settings.CompositeChecksLiveTest do
   alias ServiceRadar.CompositeChecks.CompositeCheck
   alias ServiceRadar.CompositeChecks.CompositeCheckInput
   alias ServiceRadar.CompositeChecks.CompositeCheckRule
+  alias ServiceRadar.CompositeChecks.DeviceCompositeCheckResult
   alias ServiceRadarWebNG.AccountsFixtures
 
   require Ash.Query
@@ -98,7 +99,7 @@ defmodule ServiceRadarWebNGWeb.Settings.CompositeChecksLiveTest do
             {"idx-b", "isolated_verified", :healthy},
             {"idx-c", "not_isolated", :down}
           ] do
-        ServiceRadar.CompositeChecks.DeviceCompositeCheckResult
+        DeviceCompositeCheckResult
         |> Ash.Changeset.for_create(
           :upsert,
           %{
@@ -817,6 +818,216 @@ defmodule ServiceRadarWebNGWeb.Settings.CompositeChecksLiveTest do
 
       refute first.id in (check |> authored_rules() |> Enum.map(& &1.id))
       assert check |> rules_for() |> Enum.count(& &1.catch_all) == 1
+    end
+  end
+
+  describe "live preview" do
+    setup do
+      %{gateway: gateway_fixture(), tag: "pv#{System.unique_integer([:positive])}"}
+    end
+
+    defp availability(device_uid, agent_id, is_available, checked_at) do
+      ServiceRadar.Inventory.DeviceAgentAvailability
+      |> Ash.Changeset.for_create(
+        :create,
+        %{
+          device_uid: device_uid,
+          agent_id: agent_id,
+          is_available: is_available,
+          checked_at: checked_at
+        },
+        actor: system_actor()
+      )
+      |> Ash.create!()
+    end
+
+    # A check whose scope is exactly the devices this test created, with its
+    # rule table generated from the two vantage points.
+    defp previewable_check(conn, gateway, tag) do
+      witness = agent_fixture(gateway)
+      probe = agent_fixture(gateway)
+
+      {:ok, live, _html} = live(conn, @path <> "/new")
+
+      live
+      |> add_rows(2)
+      |> form("#composite-check-form", %{
+        "form" => %{
+          "name" => "Preview #{tag}",
+          "scope_query" => "in:devices hostname:#{tag}%",
+          "evaluation_interval_seconds" => "300"
+        },
+        "vantage_points" =>
+          indexed([
+            %{"agent_id" => witness.uid, "expected" => "available"},
+            %{"agent_id" => probe.uid, "expected" => "blocked"}
+          ])
+      })
+      |> render_submit()
+      |> follow_redirect(conn, @path)
+
+      check = check_named!("Preview #{tag}")
+
+      {:ok, live, _html} = live(conn, @path <> "/#{check.id}/edit")
+      live |> element("button", "Generate from expectations") |> render_click()
+
+      {check, witness, probe}
+    end
+
+    test "a new check says the preview needs a saved check", %{conn: conn} do
+      {:ok, _live, html} = live(conn, @path <> "/new")
+
+      assert html =~ "Save the check to preview it"
+      refute html =~ "Run preview"
+    end
+
+    test "an operator is offered the preview on a saved check", %{conn: conn, gateway: gateway} do
+      {check, _witness, _probe} = saved_check_with_vantage_points(conn, gateway, "Previewable")
+
+      {:ok, _live, html} = live(conn, @path <> "/#{check.id}/edit")
+
+      assert html =~ "Run preview"
+    end
+
+    test "the preview resolves each vantage point with its value and age", %{
+      conn: conn,
+      gateway: gateway,
+      tag: tag
+    } do
+      {check, witness, probe} = previewable_check(conn, gateway, tag)
+
+      device = device_fixture(%{hostname: "#{tag}-isolated.local"})
+      now = DateTime.utc_now()
+      availability(device.uid, witness.uid, true, now)
+      availability(device.uid, probe.uid, false, now)
+
+      {:ok, live, _html} = live(conn, @path <> "/#{check.id}/edit")
+      html = live |> element("button", "Run preview") |> render_click()
+
+      # Asserted on the preview row's own attributes rather than on visible
+      # text: every verdict and expectation this panel renders also appears in
+      # the rule table and the vantage point selects above it, so a text match
+      # would pass with the preview panel entirely empty.
+      assert html =~ ~s(data-preview-device="#{device.uid}")
+      assert html =~ ~s(data-preview-verdict="isolated_verified")
+      assert html =~ ~s(data-preview-input="#{witness.uid}" data-preview-value="available")
+      assert html =~ ~s(data-preview-input="#{probe.uid}" data-preview-value="blocked")
+      assert html =~ ~r/data-preview-age="\d+s ago"/
+
+      # The explanation is the matched rule's description, not a UI string.
+      assert html =~ "Isolation observed from every vantage point"
+    end
+
+    test "an input with no result reads unknown rather than blank", %{
+      conn: conn,
+      gateway: gateway,
+      tag: tag
+    } do
+      {check, witness, probe} = previewable_check(conn, gateway, tag)
+
+      device = device_fixture(%{hostname: "#{tag}-partial.local"})
+      availability(device.uid, witness.uid, true, DateTime.utc_now())
+
+      {:ok, live, _html} = live(conn, @path <> "/#{check.id}/edit")
+      html = live |> element("button", "Run preview") |> render_click()
+
+      # The probe never reported. A blank cell would read as "nothing to say";
+      # unknown with a reason is the actual state, and it is what keeps the
+      # check from being enabled.
+      assert html =~
+               ~s(data-preview-input="#{probe.uid}" data-preview-value="unknown" data-preview-age="never" data-preview-reason="no_result")
+
+      assert html =~ ~s(data-preview-input="#{witness.uid}" data-preview-value="available")
+    end
+
+    test "the rollup names the population no vantage point can see", %{
+      conn: conn,
+      gateway: gateway,
+      tag: tag
+    } do
+      {check, witness, probe} = previewable_check(conn, gateway, tag)
+
+      dark = device_fixture(%{hostname: "#{tag}-dark.local"})
+      now = DateTime.utc_now()
+      availability(dark.uid, witness.uid, false, now)
+      availability(dark.uid, probe.uid, false, now)
+
+      {:ok, live, _html} = live(conn, @path <> "/#{check.id}/edit")
+      html = live |> element("button", "Run preview") |> render_click()
+
+      assert html =~ "visible from no vantage point"
+      assert html =~ "cannot be counted as compliant"
+      assert html =~ ~s(data-preview-verdict="device_unreachable")
+    end
+
+    test "a reachable device is not counted as unreachable", %{
+      conn: conn,
+      gateway: gateway,
+      tag: tag
+    } do
+      {check, witness, probe} = previewable_check(conn, gateway, tag)
+
+      device = device_fixture(%{hostname: "#{tag}-live.local"})
+      now = DateTime.utc_now()
+      availability(device.uid, witness.uid, true, now)
+      availability(device.uid, probe.uid, false, now)
+
+      {:ok, live, _html} = live(conn, @path <> "/#{check.id}/edit")
+      html = live |> element("button", "Run preview") |> render_click()
+
+      refute html =~ "visible from no vantage point"
+    end
+
+    test "a draft check's counts are labelled as coming from the sample", %{
+      conn: conn,
+      gateway: gateway,
+      tag: tag
+    } do
+      {check, _witness, _probe} = previewable_check(conn, gateway, tag)
+      device_fixture(%{hostname: "#{tag}-draft.local"})
+
+      assert check.state == :draft
+
+      {:ok, live, _html} = live(conn, @path <> "/#{check.id}/edit")
+      html = live |> element("button", "Run preview") |> render_click()
+
+      # A draft has no stored verdicts, so these numbers must not read like a
+      # rollup over the whole scope.
+      assert html =~ "not from stored verdicts"
+    end
+
+    test "an empty scope says so instead of rendering an empty rollup", %{
+      conn: conn,
+      gateway: gateway,
+      tag: tag
+    } do
+      {check, _witness, _probe} = previewable_check(conn, gateway, tag)
+
+      {:ok, live, _html} = live(conn, @path <> "/#{check.id}/edit")
+      html = live |> element("button", "Run preview") |> render_click()
+
+      assert html =~ "No devices are in scope"
+    end
+
+    test "the preview persists nothing", %{conn: conn, gateway: gateway, tag: tag} do
+      {check, witness, probe} = previewable_check(conn, gateway, tag)
+
+      device = device_fixture(%{hostname: "#{tag}-clean.local"})
+      now = DateTime.utc_now()
+      availability(device.uid, witness.uid, true, now)
+      availability(device.uid, probe.uid, false, now)
+
+      {:ok, live, _html} = live(conn, @path <> "/#{check.id}/edit")
+      live |> element("button", "Run preview") |> render_click()
+
+      # `evaluate_devices/5` writes nothing by construction; this asserts the
+      # preview really goes through it rather than through `run/2`.
+      {:ok, results} =
+        DeviceCompositeCheckResult
+        |> Ash.Query.filter(check_id == ^check.id)
+        |> Ash.read(actor: system_actor())
+
+      assert results == []
     end
   end
 end

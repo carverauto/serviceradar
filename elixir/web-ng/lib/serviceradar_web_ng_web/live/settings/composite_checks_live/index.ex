@@ -24,6 +24,7 @@ defmodule ServiceRadarWebNGWeb.Settings.CompositeChecksLive.Index do
   alias ServiceRadar.Infrastructure.Agent
   alias ServiceRadarWebNG.RBAC
   alias ServiceRadarWebNGWeb.Settings.CompositeChecksLive.FormState
+  alias ServiceRadarWebNGWeb.Settings.CompositeChecksLive.Preview
   alias ServiceRadarWebNGWeb.Settings.CompositeChecksLive.RuleTable
   alias ServiceRadarWebNGWeb.Settings.Shell
   alias ServiceRadarWebNGWeb.SRQL.ScopeBuilder
@@ -59,6 +60,8 @@ defmodule ServiceRadarWebNGWeb.Settings.CompositeChecksLive.Index do
        |> assign(:rule_columns, [])
        |> assign(:rule_error, nil)
        |> assign(:confirm_regenerate, false)
+       |> assign(:preview, nil)
+       |> assign(:preview_error, nil)
        |> assign(:checks, list_checks(socket))}
     else
       {:ok,
@@ -87,6 +90,7 @@ defmodule ServiceRadarWebNGWeb.Settings.CompositeChecksLive.Index do
       |> load_form(FormState.default_form())
       |> assign(:rules, [])
       |> assign(:rule_columns, [])
+      |> clear_preview()
     else
       forbid(socket)
     end
@@ -105,6 +109,7 @@ defmodule ServiceRadarWebNGWeb.Settings.CompositeChecksLive.Index do
       |> load_form(FormState.form_from_check(check), FormState.vantage_points_from_inputs(inputs))
       |> assign(:rule_columns, RuleTable.columns(inputs))
       |> load_rules(check)
+      |> clear_preview()
     else
       false ->
         forbid(socket)
@@ -267,6 +272,20 @@ defmodule ServiceRadarWebNGWeb.Settings.CompositeChecksLive.Index do
     end
   end
 
+  # Preview is the one read that costs real query work — a scope stream plus an
+  # availability and metadata query — so it has its own permission rather than
+  # riding on `view`.
+  def handle_event("run_preview", _params, socket) do
+    if socket.assigns.can_evaluate do
+      {:noreply, run_preview(socket)}
+    else
+      {:noreply,
+       socket
+       |> put_flash(:error, "You do not have permission to evaluate composite checks")
+       |> assign(:preview, nil)}
+    end
+  end
+
   def handle_event("save", params, socket) do
     if socket.assigns.can_manage do
       socket = revalidate(socket, params)
@@ -353,6 +372,24 @@ defmodule ServiceRadarWebNGWeb.Settings.CompositeChecksLive.Index do
   end
 
   defp blank_filter, do: %{"field" => "", "op" => "equals", "value" => ""}
+
+  defp clear_preview(socket) do
+    socket
+    |> assign(:preview, nil)
+    |> assign(:preview_error, nil)
+  end
+
+  # The preview runs against what is *saved*, not what is on screen. Running it
+  # over unsaved edits would show a verdict the scheduled pass cannot reproduce,
+  # which is the one thing a preview must never do.
+  defp run_preview(socket) do
+    opts = [scope: socket.assigns.current_scope, total: socket.assigns.scope_count]
+
+    case Preview.run(socket.assigns.editing, opts) do
+      {:ok, preview} -> socket |> assign(:preview, preview) |> assign(:preview_error, nil)
+      {:error, message} -> socket |> assign(:preview, nil) |> assign(:preview_error, message)
+    end
+  end
 
   defp authored_rules(rules), do: Enum.reject(rules, & &1.catch_all)
 
@@ -624,13 +661,21 @@ defmodule ServiceRadarWebNGWeb.Settings.CompositeChecksLive.Index do
           agents={@agents}
         />
 
-        <div :if={@editing} class="mt-6">
+        <div :if={@editing} class="mt-6 space-y-6">
           <.rule_table
             rules={@rules}
             columns={@rule_columns}
             mode={if @editing == :new, do: :new, else: :edit}
             confirm_regenerate={@confirm_regenerate}
             error={@rule_error}
+          />
+
+          <.preview_panel
+            preview={@preview}
+            error={@preview_error}
+            mode={if @editing == :new, do: :new, else: :edit}
+            can_evaluate={@can_evaluate}
+            state={if @editing == :new, do: nil, else: @editing.state}
           />
         </div>
 

@@ -124,16 +124,15 @@
 
 - [x] 8.1 Add the composite check index with state, scope size, and verdict
       rollup per check.
-- [ ] 8.2 Add the builder shell with scope, vantage points, verdict table, and
-      preview sections. (Shell, scope, and vantage point sections are in; closes
-      with 8.5 and 8.6.)
+- [x] 8.2 Add the builder shell with scope, vantage points, verdict table, and
+      preview sections.
 - [x] 8.3 Wire the scope section to the existing SRQL visual builder with
       bidirectional round-trip and a device count.
 - [x] 8.4 Add the vantage point section with agent picker, expectation selector,
       and liveness-witness / isolation-probe labelling.
 - [x] 8.5 Add the editable verdict rule table with reordering and the protected
       catch-all row.
-- [ ] 8.6 Add the live preview panel: sampled device, per-input breakdown with
+- [x] 8.6 Add the live preview panel: sampled device, per-input breakdown with
       ages, resulting verdict, and rollup counts with the unreachable-population
       explanation.
 - [ ] 8.7 Add the read-only sweep coverage reference with a link to sweep
