@@ -135,4 +135,33 @@ defmodule ServiceRadarWebNG.JobCatalogTest do
     refute release_reason == :no_worker
     refute plugin_reason == :no_worker
   end
+
+  @tag :db_free
+  test "workers whose last segment is Worker get a parent-module name and copy" do
+    capacity =
+      JobCatalog.worker_label(ServiceRadar.Observability.CapacityForecasting.Worker)
+
+    assert capacity.name == "Capacity forecasting"
+    assert capacity.description =~ "capacity forecast"
+    refute capacity.name == ""
+    refute capacity.description == "No description available"
+
+    seasonal =
+      JobCatalog.worker_label(ServiceRadar.Observability.SeasonalDisposition.Worker)
+
+    assert seasonal.name == "Seasonal disposition"
+    assert seasonal.description =~ "seasonal"
+    refute seasonal.name == ""
+    refute seasonal.description == "No description available"
+  end
+
+  @tag :db_free
+  test "workers with a descriptive last segment keep a humanized name" do
+    label =
+      JobCatalog.worker_label(ServiceRadar.Observability.SeasonalDisposition.EdgeBaselineProducer)
+
+    assert label.name == "Edge baseline producer"
+    assert is_binary(label.description) and label.description != ""
+    refute label.description == "No description available"
+  end
 end
