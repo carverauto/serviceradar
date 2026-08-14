@@ -35,10 +35,26 @@ defmodule ServiceRadarWebNG.MixProject do
     [
       serviceradar_web_ng: [
         include_executables_for: [:unix],
+        include_erts: &shipped_erts/0,
         validate_compile_env: false,
         steps: [:assemble]
       ]
     ]
+  end
+
+  # Which ERTS the release embeds.
+  #
+  # `true` -- the default, and what every amd64 build gets -- copies ERTS and the OTP
+  # applications from the VM running `mix release`. That is right whenever the build host and
+  # the target share an architecture, and wrong the moment they do not: a release assembled on
+  # amd64 for arm64 ships an x86-64 beam.smp regardless of what the build system was told.
+  #
+  # Mix also accepts a path, and resolves the OTP applications relative to it, so pointing at
+  # the erts-* directory of a second OTP root redirects the whole runtime -- VM and NIFs both.
+  # //build:elixir_release.bzl sets this variable when it stages such a tree; unset, this is
+  # exactly the previous behaviour.
+  defp shipped_erts do
+    System.get_env("SERVICERADAR_RELEASE_ERTS") || true
   end
 
   # Configuration for the OTP application.
@@ -69,7 +85,18 @@ defmodule ServiceRadarWebNG.MixProject do
   defp elixirc_paths(_), do: ["lib"]
 
   defp boundary_compilers do
-    [:boundary]
+    # dev/test only. Under :prod this is pure cost with a sharp edge: the boundary compiler
+    # calls Boundary.Definition.get/2 for EVERY module of every checked app, which reaches
+    # `boundary.__info__(:attributes)` and so forces each module to load. For a module backed
+    # by a Rustler NIF that runs @on_load -- and cross-compiling to arm64 means dlopen()ing an
+    # aarch64 .so on the amd64 build machine, which glibc reports as
+    # "cannot open shared object file: No such file or directory" (elf/dl-load.c sets ENOENT
+    # by hand on an e_machine mismatch). The compile then dies in :boundary with
+    # `function ...Native.__info__/1 is undefined`, naming neither NIFs nor architecture.
+    #
+    # Nothing is lost: boundary checks run in dev and test, which is where `make test` and the
+    # editor exercise them. //elixir/datasvc has been written this way already.
+    if Mix.env() in [:dev, :test], do: [:boundary], else: []
   end
 
   # Specifies your project dependencies.

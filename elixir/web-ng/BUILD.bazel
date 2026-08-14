@@ -1,7 +1,12 @@
 load("@aspect_bazel_lib//lib:copy_to_bin.bzl", "copy_to_bin")
 load("@serviceradar//build:elixir_tests.bzl", "ex_unit_tests")
 load("@serviceradar//build:mix_app.bzl", "mix_app")
-load("//build:elixir_release.bzl", "elixir_release")
+load(
+    "//build:elixir_release.bzl",
+    "SHIPPED_ERTS_OTP_ROOT",
+    "SHIPPED_ERTS_ROOT_MARKER",
+    "elixir_release",
+)
 
 # REMOVED FOR NOW: :precommit / :precommit_check, and the two mix_deps cache layers
 # (:deps_cache, :path_deps_cache) that existed only to feed them.
@@ -285,6 +290,9 @@ elixir_release(
     ],
     out = "serviceradar-web-ng-release.tar.gz",
     app = ":erlang_app_prod",
+    # Named release matches mix.exs releases/0 (validate_compile_env: false).
+    erts_otp_root = SHIPPED_ERTS_OTP_ROOT,
+    erts_root_marker = SHIPPED_ERTS_ROOT_MARKER,
     # The same list :erlang_app_prod compiled with. `mix release` compares every
     # Application.compile_env/2 key against its compile-time value and refuses to assemble
     # if they differ, so these have to agree -- hence the shared variable rather than two
@@ -297,7 +305,6 @@ elixir_release(
     overlays = {
         "//elixir/web-ng/assets:static": "priv",
     },
-    # Named release matches mix.exs releases/0 (validate_compile_env: false).
     release_name = "serviceradar_web_ng",
 )
 

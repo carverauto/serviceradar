@@ -39,7 +39,18 @@ defmodule ServiceRadarAgentGateway.MixProject do
   defp elixirc_paths(_), do: ["lib"]
 
   defp boundary_compilers do
-    [:boundary]
+    # dev/test only. Under :prod this is pure cost with a sharp edge: the boundary compiler
+    # calls Boundary.Definition.get/2 for EVERY module of every checked app, which reaches
+    # `boundary.__info__(:attributes)` and so forces each module to load. For a module backed
+    # by a Rustler NIF that runs @on_load -- and cross-compiling to arm64 means dlopen()ing an
+    # aarch64 .so on the amd64 build machine, which glibc reports as
+    # "cannot open shared object file: No such file or directory" (elf/dl-load.c sets ENOENT
+    # by hand on an e_machine mismatch). The compile then dies in :boundary with
+    # `function ...Native.__info__/1 is undefined`, naming neither NIFs nor architecture.
+    #
+    # Nothing is lost: boundary checks run in dev and test, which is where `make test` and the
+    # editor exercise them. //elixir/datasvc has been written this way already.
+    if Mix.env() in [:dev, :test], do: [:boundary], else: []
   end
 
   defp deps do
@@ -96,6 +107,7 @@ defmodule ServiceRadarAgentGateway.MixProject do
     [
       serviceradar_agent_gateway: [
         include_executables_for: [:unix],
+        include_erts: &shipped_erts/0,
         applications: [
           runtime_tools: :permanent,
           serviceradar_agent_gateway: :permanent
@@ -107,5 +119,15 @@ defmodule ServiceRadarAgentGateway.MixProject do
         rel_templates_path: "rel"
       ]
     ]
+  end
+
+  # Which ERTS the release embeds. `true` -- the default, and what every amd64 build gets --
+  # copies ERTS and the OTP applications from the VM running `mix release`, which is wrong
+  # the moment the build host and the target differ in architecture. Mix also accepts a path
+  # and resolves the OTP applications relative to it, so naming the erts-* directory of a
+  # second OTP root redirects VM and NIFs together. //build:elixir_release.bzl sets this
+  # variable when it stages such a tree; unset, this is the previous behaviour exactly.
+  defp shipped_erts do
+    System.get_env("SERVICERADAR_RELEASE_ERTS") || true
   end
 end

@@ -1,6 +1,11 @@
 load("@serviceradar//build:elixir_tests.bzl", "ex_unit_tests")
 load("@serviceradar//build:mix_app.bzl", "mix_app")
-load("//build:elixir_release.bzl", "elixir_release")
+load(
+    "//build:elixir_release.bzl",
+    "SHIPPED_ERTS_OTP_ROOT",
+    "SHIPPED_ERTS_ROOT_MARKER",
+    "elixir_release",
+)
 
 package(default_visibility = ["//visibility:public"])
 
@@ -139,6 +144,8 @@ elixir_release(
     ],
     out = "serviceradar-agent-gateway-release.tar.gz",
     app = ":erlang_app_prod",
+    erts_otp_root = SHIPPED_ERTS_OTP_ROOT,
+    erts_root_marker = SHIPPED_ERTS_ROOT_MARKER,
     release_name = "serviceradar_agent_gateway",
 )
 
