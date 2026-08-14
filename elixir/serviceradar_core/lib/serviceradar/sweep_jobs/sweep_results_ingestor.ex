@@ -1065,6 +1065,10 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
 
     Logger.debug("SweepResultsIngestor: Upserted #{count} per-agent availability rows")
 
+    # Fire-and-forget: always returns :ok, so ingestion never fails because a
+    # composite check refresh could not be scheduled.
+    ServiceRadar.CompositeChecks.Refresh.enqueue_many(Enum.map(records, & &1.device_uid))
+
     :ok
   rescue
     e ->

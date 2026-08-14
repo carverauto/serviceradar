@@ -1,6 +1,7 @@
-load("@rules_rust//cargo:defs.bzl", "cargo_build_script")
-load("@rules_rust//rust:defs.bzl", "rust_binary", "rust_library", "rust_test")
-load("//third_party/crates:defs.bzl", "all_crate_deps", "crate_deps")
+load("@rules_rs//rs:cargo_build_script.bzl", "cargo_build_script")
+load("@rules_rs//rs:rust_binary.bzl", "rust_binary")
+load("@rules_rs//rs:rust_library.bzl", "rust_library")
+load("@rules_rs//rs:rust_test.bzl", "rust_test")
 
 package(default_visibility = ["//visibility:public"])
 
@@ -8,51 +9,54 @@ package(default_visibility = ["//visibility:public"])
 cargo_build_script(
     name = "build_script",
     srcs = ["build.rs"],
-    crate_root = "build.rs",
     build_script_env = {
         "PROTOC": "$(execpath @bazel_tools//tools/proto:protoc)",
     },
+    crate_root = "build.rs",
     data = [
         "proto/agent/addon/v1/addon.proto",
     ],
     tools = ["@bazel_tools//tools/proto:protoc"],
-    deps = crate_deps(["tonic-prost-build"]),
+    deps = ["@crates//:tonic-prost-build"],
 )
 
-ADDON_SDK_DEPS = crate_deps([
-    "anyhow",
-    "base64",
-    "hex",
-    "p521",
-    "prost",
-    "rcgen",
-    "rustls",
-    "rustls-pemfile",
-    "sha2",
-    "thiserror",
-    "tokio",
-    "tokio-rustls",
-    "tokio-stream",
-    "tonic",
-    "tonic-prost",
-    "tonic-health",
-]) + [
+ADDON_SDK_DEPS = [
+    "@crates//:anyhow",
+    "@crates//:base64",
+    "@crates//:hex",
+    "@crates//:p521",
+    "@crates//:prost",
+    "@crates//:rcgen",
+    "@crates//:rustls",
+    "@crates//:rustls-pemfile",
+    "@crates//:sha2",
+    "@crates//:thiserror",
+    "@crates//:tokio",
+    "@crates//:tokio-rustls",
+    "@crates//:tokio-stream",
+    "@crates//:tonic",
+    "@crates//:tonic-prost",
+    "@crates//:tonic-health",
+] + [
     ":build_script",
     "//rust/metric-proto:serviceradar_metric_proto",
 ]
 
 # async-trait is a pure proc-macro crate; rules_rust requires proc-macros in
 # proc_macro_deps, not deps (otherwise the target fails to analyze).
-ADDON_SDK_PROC_MACROS = crate_deps(["async-trait"])
+ADDON_SDK_PROC_MACROS = ["@crates//:async-trait"]
 
 rust_library(
     name = "addon_sdk",
-    srcs = glob(["src/**/*.rs"], exclude = ["src/bin/**"]),
-    crate_root = "src/lib.rs",
+    srcs = glob(
+        ["src/**/*.rs"],
+        exclude = ["src/bin/**"],
+    ),
     crate_name = "addon_sdk",
-    deps = ADDON_SDK_DEPS,
+    crate_root = "src/lib.rs",
     proc_macro_deps = ADDON_SDK_PROC_MACROS,
     visibility = ["//visibility:public"],
+    deps = ADDON_SDK_DEPS,
 )
 
 # Rust reference add-on, mirroring //go/cmd/serviceradar-sample-addon. Supervised
@@ -61,9 +65,9 @@ rust_binary(
     name = "serviceradar-rust-sample-addon",
     srcs = ["src/bin/rust_sample_addon.rs"],
     crate_root = "src/bin/rust_sample_addon.rs",
-    deps = ADDON_SDK_DEPS + [":addon_sdk"],
     proc_macro_deps = ADDON_SDK_PROC_MACROS,
     visibility = ["//visibility:public"],
+    deps = ADDON_SDK_DEPS + [":addon_sdk"],
 )
 
 # The crate's inline #[cfg(test)] modules (src/tls.rs). Without this target they
@@ -80,12 +84,12 @@ rust_test(
     name = "addon_sdk_handshake_mtls_test",
     srcs = ["tests/handshake_mtls.rs"],
     crate_root = "tests/handshake_mtls.rs",
+    proc_macro_deps = ADDON_SDK_PROC_MACROS,
     # rcgen is already in ADDON_SDK_DEPS; adding it again duplicates the dep label
     # and puts the package in error. Only test-only crates belong here.
-    deps = ADDON_SDK_DEPS + [":addon_sdk"] + crate_deps([
-        "tempfile",
-        "tower",
-        "hyper-util",
-    ]),
-    proc_macro_deps = ADDON_SDK_PROC_MACROS,
+    deps = ADDON_SDK_DEPS + [":addon_sdk"] + [
+        "@crates//:hyper-util",
+        "@crates//:tempfile",
+        "@crates//:tower",
+    ],
 )

@@ -35,7 +35,7 @@ platform(
         "OSFamily": "Linux",
         "Arch": "amd64",
         "dockerNetwork": "host",
-        "container-image": "docker://registry.carverauto.dev/serviceradar/rbe-executor:v1.0.24.3",
+        "container-image": "docker://registry.carverauto.dev/serviceradar/rbe-executor:v1.0.25.1",
     },
     visibility = ["//visibility:public"],
 )
