@@ -8,6 +8,7 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.Show do
   import ServiceRadarWebNGWeb.AuthoredDashboardLive.WorkbenchComponents
 
   alias ServiceRadarWebNG.Dashboards
+  alias ServiceRadarWebNG.Dashboards.SystemReports
   alias ServiceRadarWebNGWeb.AuthoredDashboardLive.AccessControls
   alias ServiceRadarWebNGWeb.AuthoredDashboardLive.CanvasState
   alias ServiceRadarWebNGWeb.AuthoredDashboardLive.DashboardVariables
@@ -89,19 +90,23 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.Show do
       ) do
     dashboard = Map.put(dashboard, :panels, panels)
 
-    {:noreply,
-     socket
-     |> assign(:dashboard, dashboard)
-     |> assign(:panel_results, results)
-     |> assign(:trend_results, trends)
-     |> assign(:variable_values, variable_values)
-     |> assign(:clone_targets, clone_targets)
-     |> assign(:clone_target_id, RuntimeData.default_clone_target_id(clone_targets))
-     |> assign(access)
-     |> assign(:page_title, dashboard.title)
-     |> assign(:loading?, false)
-     |> assign_grant_forms()
-     |> assign_panel_form()}
+    if new_devices_report?(dashboard) do
+      {:noreply, push_navigate(socket, to: ~p"/dashboard/new-devices")}
+    else
+      {:noreply,
+       socket
+       |> assign(:dashboard, dashboard)
+       |> assign(:panel_results, results)
+       |> assign(:trend_results, trends)
+       |> assign(:variable_values, variable_values)
+       |> assign(:clone_targets, clone_targets)
+       |> assign(:clone_target_id, RuntimeData.default_clone_target_id(clone_targets))
+       |> assign(access)
+       |> assign(:page_title, dashboard.title)
+       |> assign(:loading?, false)
+       |> assign_grant_forms()
+       |> assign_panel_form()}
+    end
   end
 
   def handle_async({:load_dashboard, _dashboard_id}, {:ok, {:error, :not_found}}, socket) do
@@ -851,6 +856,11 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.Show do
       </div>
     </Layouts.app>
     """
+  end
+
+  defp new_devices_report?(dashboard) do
+    dashboard.slug == SystemReports.new_devices_slug() or
+      Map.get(dashboard.metadata || %{}, "report_kind") == "new_devices"
   end
 
   defp panel_csv_export_url(dashboard, panel, variable_values) do

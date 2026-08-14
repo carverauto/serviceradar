@@ -16,6 +16,9 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexView.Stats do
     by_type = Map.get(stats, :by_type, [])
     by_vendor = Map.get(stats, :by_vendor, [])
     by_risk_level = Map.get(stats, :by_risk_level, [])
+    new_today = Map.get(stats, :new_today, 0)
+    new_last_7d = Map.get(stats, :new_last_7d, 0)
+    new_last_30d = Map.get(stats, :new_last_30d, 0)
 
     # Get top items for display
     top_type = List.first(by_type)
@@ -31,81 +34,81 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexView.Stats do
       |> assign(:by_risk_level, by_risk_level)
       |> assign(:top_type, top_type)
       |> assign(:top_vendor, top_vendor)
+      |> assign(:new_today, new_today)
+      |> assign(:new_last_7d, new_last_7d)
+      |> assign(:new_last_30d, new_last_30d)
 
     ~H"""
     <div class="mb-6">
-      <div :if={@loading} class="grid grid-cols-2 md:grid-cols-4 gap-3">
-        <div class="rounded-xl border border-sr-line bg-sr-surface p-4 h-24 animate-pulse">
-          <div class="h-4 bg-sr-subtle rounded w-1/2 mb-2" />
-          <div class="h-6 bg-sr-subtle rounded w-3/4" />
-        </div>
-        <div class="rounded-xl border border-sr-line bg-sr-surface p-4 h-24 animate-pulse">
-          <div class="h-4 bg-sr-subtle rounded w-1/2 mb-2" />
-          <div class="h-6 bg-sr-subtle rounded w-3/4" />
-        </div>
-        <div class="rounded-xl border border-sr-line bg-sr-surface p-4 h-24 animate-pulse">
-          <div class="h-4 bg-sr-subtle rounded w-1/2 mb-2" />
-          <div class="h-6 bg-sr-subtle rounded w-3/4" />
-        </div>
-        <div class="rounded-xl border border-sr-line bg-sr-surface p-4 h-24 animate-pulse">
+      <div :if={@loading} class="grid grid-cols-1 md:grid-cols-3 gap-3">
+        <div
+          :for={_ <- 1..3}
+          class="rounded-xl border border-sr-line bg-sr-surface p-4 min-h-[7rem] animate-pulse"
+        >
           <div class="h-4 bg-sr-subtle rounded w-1/2 mb-2" />
           <div class="h-6 bg-sr-subtle rounded w-3/4" />
         </div>
       </div>
 
-      <div :if={not @loading} class="grid grid-cols-2 md:grid-cols-4 gap-3">
-        <!-- Total Devices -->
-        <.link navigate={~p"/devices"} class="block group">
-          <div class="rounded-xl border border-sr-line bg-sr-surface p-4 hover:shadow-md transition-shadow cursor-pointer flex items-center gap-3">
-            <div class="p-2.5 rounded-lg bg-sr-brand/10">
+      <div :if={not @loading} class="grid grid-cols-1 md:grid-cols-3 gap-3 items-stretch">
+        <div class="rounded-xl border border-sr-line bg-sr-surface p-4 h-full min-h-[7rem]">
+          <div class="flex items-start gap-3">
+            <div class="p-2.5 rounded-lg bg-sr-brand/10 shrink-0">
               <.icon name="hero-server" class="size-5 text-sr-brand" />
             </div>
-            <div class="flex-1 min-w-0">
-              <div class="text-xl font-bold text-sr-ink">{format_stat_number(@total)}</div>
-              <div class="text-xs text-sr-muted">Total Devices</div>
+            <div class="min-w-0 flex-1 space-y-2">
+              <div class="text-xs font-medium uppercase tracking-wide text-sr-muted">Devices</div>
+              <div class="flex flex-wrap items-end gap-x-5 gap-y-2">
+                <.link navigate={~p"/devices"} class="group block">
+                  <div class="text-xl font-bold text-sr-ink group-hover:text-sr-brand">
+                    {format_stat_number(@total)}
+                  </div>
+                  <div class="text-xs text-sr-muted">Total</div>
+                </.link>
+                <.link
+                  navigate={~p"/devices?q=in:devices is_available:true"}
+                  class="group block"
+                >
+                  <div class="flex items-baseline gap-1">
+                    <span class={[
+                      "text-xl font-bold",
+                      if(@unavailable > 0, do: "text-error", else: "text-success")
+                    ]}>
+                      {format_stat_number(@available)}
+                    </span>
+                    <span :if={@unavailable > 0} class="text-sm text-error/80">
+                      / {format_stat_number(@unavailable)} offline
+                    </span>
+                  </div>
+                  <div class="text-xs text-sr-muted">
+                    {if @unavailable == 0, do: "All online", else: "Available"}
+                  </div>
+                </.link>
+              </div>
+              <div class="flex flex-wrap items-center gap-x-3 gap-y-0.5 text-[11px] leading-4 text-sr-muted">
+                <span class="text-sr-ink/80">New</span>
+                <.link
+                  navigate={~p"/devices?q=in:devices first_seen:today"}
+                  class="hover:text-sr-brand"
+                >
+                  today {format_stat_number(@new_today)}
+                </.link>
+                <.link
+                  navigate={~p"/devices?q=in:devices first_seen:last_7d"}
+                  class="hover:text-sr-brand"
+                >
+                  7d {format_stat_number(@new_last_7d)}
+                </.link>
+                <.link
+                  navigate={~p"/devices?q=in:devices first_seen:last_30d"}
+                  class="hover:text-sr-brand"
+                >
+                  30d {format_stat_number(@new_last_30d)}
+                </.link>
+              </div>
             </div>
           </div>
-        </.link>
-
-        <!-- Availability -->
-        <.link
-          navigate={~p"/devices?q=in:devices is_available:true"}
-          class="block group"
-        >
-          <div class={[
-            "rounded-xl border p-4 hover:shadow-md transition-shadow cursor-pointer flex items-center gap-3",
-            if(@unavailable > 0,
-              do: "border-error/30 bg-error/5",
-              else: "border-success/30 bg-success/5"
-            )
-          ]}>
-            <div class={[
-              "p-2.5 rounded-lg",
-              if(@unavailable > 0, do: "bg-error/10", else: "bg-success/10")
-            ]}>
-              <.icon
-                name={if(@unavailable > 0, do: "hero-signal-slash", else: "hero-signal")}
-                class={["size-5", if(@unavailable > 0, do: "text-error", else: "text-success")]}
-              />
-            </div>
-            <div class="flex-1 min-w-0">
-              <div class="flex items-baseline gap-1">
-                <span class={[
-                  "text-xl font-bold",
-                  if(@unavailable > 0, do: "text-error", else: "text-success")
-                ]}>
-                  {format_stat_number(@available)}
-                </span>
-                <span :if={@unavailable > 0} class="text-sm text-error/80">
-                  / {format_stat_number(@unavailable)} offline
-                </span>
-              </div>
-              <div class="text-xs text-sr-muted">
-                {if @unavailable == 0, do: "All Online", else: "Available"}
-              </div>
-            </div>
-          </div>
-        </.link>
+        </div>
 
         <!-- Top Device Type -->
         <Breakdown.device_breakdown_card

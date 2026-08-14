@@ -226,6 +226,8 @@ defmodule ServiceRadarWebNGWeb.InterfaceLive.MetricsTest do
     test "formats packet metrics" do
       assert format_series_name("ifInUcastPkts") == "In Packets"
       assert format_series_name("ifOutUcastPkts") == "Out Packets"
+      assert format_series_name("ifHCInUcastPkts") == "In Packets"
+      assert format_series_name("ifHCOutUcastPkts") == "Out Packets"
     end
 
     test "passes through unknown metrics unchanged" do
@@ -337,6 +339,8 @@ defmodule ServiceRadarWebNGWeb.InterfaceLive.MetricsTest do
       "ifOutDiscards" -> "Out Discards"
       "ifInUcastPkts" -> "In Packets"
       "ifOutUcastPkts" -> "Out Packets"
+      "ifHCInUcastPkts" -> "In Packets"
+      "ifHCOutUcastPkts" -> "Out Packets"
       _ -> name
     end
   end

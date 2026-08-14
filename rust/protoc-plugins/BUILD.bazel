@@ -1,0 +1,13 @@
+load("@rules_rs//rs:rust_library.bzl", "rust_library")
+
+package(default_visibility = ["//visibility:public"])
+
+# The crate is a version anchor for the protoc plugins (see Cargo.toml); the target exists so
+# the workspace-member alias rules_rs emits for it -- @crates//:serviceradar-protoc-plugins --
+# resolves. Nothing depends on either.
+rust_library(
+    name = "protoc-plugins",
+    srcs = ["src/lib.rs"],
+    crate_name = "serviceradar_protoc_plugins",
+    crate_root = "src/lib.rs",
+)

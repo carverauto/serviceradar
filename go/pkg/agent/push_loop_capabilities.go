@@ -32,6 +32,7 @@ import (
 	agentnetprobe "github.com/carverauto/serviceradar/go/pkg/agent/netprobe"
 	"github.com/carverauto/serviceradar/go/pkg/agent/remoteaccess"
 	"github.com/carverauto/serviceradar/go/pkg/agent/sidecar"
+	"github.com/carverauto/serviceradar/go/pkg/mtr"
 	"github.com/carverauto/serviceradar/proto"
 )
 
@@ -194,6 +195,8 @@ type agentCapabilityOptions struct {
 	sweepBannerGrabAvailable                bool
 	bumblebee                               bool
 	endpointInventory                       bool
+	icmpAvailable                           bool
+	mtrAvailable                            bool
 }
 
 func getAgentCapabilities(cfg *ServerConfig) []string {
@@ -287,6 +290,7 @@ func getAgentCapabilitiesForSidecarsWithRDPPath(
 	sweepBannerGrabAvailable bool,
 	rdpAdapterPath string,
 ) []string {
+	icmpAvailable, mtrAvailable := probeICMPAndMTRSockets()
 	return agentCapabilities(agentCapabilityOptions{
 		enhancedBPF:                             remoteaccess.PlatformEnhancedRecordingAvailable(),
 		desktopRDP:                              remoteAccessRDPCapabilityEnabledAtPath(cfg, rdpAdapterPath),
@@ -295,13 +299,20 @@ func getAgentCapabilitiesForSidecarsWithRDPPath(
 		sweepBannerGrabAvailable:                sweepBannerGrabAvailable,
 		bumblebee:                               cfg != nil && cfg.Bumblebee != nil && cfg.Bumblebee.Enabled,
 		endpointInventory:                       cfg != nil && cfg.EndpointInventory != nil && cfg.EndpointInventory.Enabled,
+		icmpAvailable:                           icmpAvailable,
+		mtrAvailable:                            mtrAvailable,
 	})
 }
 
 func agentCapabilities(options agentCapabilityOptions) []string {
-	capabilities := []string{
-		"icmp",
-		"mtr",
+	capabilities := make([]string, 0, 24)
+	if options.icmpAvailable {
+		capabilities = append(capabilities, "icmp")
+	}
+	if options.mtrAvailable {
+		capabilities = append(capabilities, "mtr")
+	}
+	capabilities = append(capabilities,
 		sweepType,
 		commandTypeAdhocScan,
 		"snmp",
@@ -319,7 +330,7 @@ func agentCapabilities(options agentCapabilityOptions) []string {
 		proxmoxSemanticConnectorCapabilityV1,
 		proxmoxConsolePolicyBindingCapabilityV1,
 		proxmoxIdentityCapabilityV3,
-	}
+	)
 	if options.hostNetworkVisibilitySupported {
 		capabilities = append(capabilities, capabilityHostNetworkVisibility)
 	}
@@ -360,6 +371,18 @@ func agentCapabilities(options agentCapabilityOptions) []string {
 	}
 
 	return capabilities
+}
+
+func probeICMPAndMTRSockets() (icmpOK bool, mtrOK bool) {
+	sock, err := mtr.NewRawSocket(false)
+	if err != nil {
+		return false, false
+	}
+	if closeErr := sock.Close(); closeErr != nil {
+		return false, false
+	}
+
+	return true, true
 }
 
 func hostNetworkVisibilityFingerprintStatus(capabilities []string) string {

@@ -154,9 +154,13 @@ defmodule ServiceRadarWebNGWeb.Settings.ShellTest do
 
     # Contextual status-card strip: on an audit page the cards are the AUDIT set
     # (never cluster-health), each degrading to an em dash with no data source.
+    # They render as a card grid, not a stacked daisyUI stats bar.
     assert html =~ "Audit events (24h)"
     assert html =~ "Config changes"
+    assert html =~ ~s(data-settings-status-cards)
+    assert html =~ ~s(class="card )
     refute html =~ "Cluster health"
+    refute html =~ "stats-vertical"
 
     # Command palette rows surface the per-view description + section header.
     assert html =~ "Settings &amp; Deep Sections"
@@ -245,24 +249,17 @@ defmodule ServiceRadarWebNGWeb.Settings.ShellTest do
 
     assert html =~ "API keys"
     assert html =~ "hero-arrow-up-right"
-
-    # The plain card (no destination) renders as a non-interactive `div.stat`
-    # (its class ends exactly at `stat py-2`, so it is not the linked variant).
-    assert html =~ ~s(class="stat py-2">)
     assert html =~ "Uptime"
+    assert html =~ ~s(data-settings-status-cards)
 
-    # Precise structural check: the linked card is an <a>, the plain card a <div>.
+    # Precise structural check: the linked card is an <a class="card">, the
+    # plain card a <div class="card">.
     doc = LazyHTML.from_fragment(html)
-    linked = LazyHTML.query(doc, ~s(a.stat[href="/settings/api-credentials"]))
+    linked = LazyHTML.query(doc, ~s(a.card[href="/settings/api-credentials"]))
     assert LazyHTML.text(linked) =~ "API keys"
-
-    # The clickable affordance, read off the element rather than matched as a class literal.
-    # This used to assert the full class string, which broke when the hover colour moved from
-    # DaisyUI's base-200 to sr-subtle -- a restyle that changed nothing about whether the card
-    # is interactive, which is what the test is for.
     assert linked |> LazyHTML.attribute("class") |> List.first() =~ "cursor-pointer"
 
-    plain = LazyHTML.query(doc, ".stats div.stat")
+    plain = LazyHTML.query(doc, "[data-settings-status-cards] div.card")
     assert LazyHTML.text(plain) =~ "Uptime"
   end
 
@@ -319,7 +316,7 @@ defmodule ServiceRadarWebNGWeb.Settings.ShellTest do
       """)
 
     refute html =~ "Cluster health"
-    refute html =~ ~s(class="stat py-2")
+    refute html =~ ~s(data-settings-status-cards)
   end
 
   describe "pending-approval badges" do

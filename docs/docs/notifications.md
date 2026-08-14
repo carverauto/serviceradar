@@ -5,12 +5,15 @@ title: Notifications
 # Notifications
 
 ServiceRadar turns an alert into a page through a chain of small, separately
-configurable objects. This page is the operator guide to that chain: what each
-object does, which knob belongs to which object, and - most importantly - how to
-answer the question every notification system eventually gets asked, **"why was
+configurable objects. This page is the reference for that chain: what each
+object does, which knob belongs to which object, and how to answer **"why was
 I not paged?"**
 
-If you read nothing else, read two sections:
+To stand up Discord, Slack, or email for the first time, start with the
+[Notifications Quickstart](./notification-quickstart.md). Come back here for
+escalation, silences, suppression reasons, and RBAC.
+
+If you read nothing else on *this* page, read two sections:
 [Retry, failover, and escalation are three different things](#retry-failover-and-escalation-are-three-different-things)
 and [Suppression is auditable](#suppression-is-auditable-nothing-is-dropped-silently).
 Those two are where almost every misconfiguration lives.
@@ -49,24 +52,11 @@ a row too, with a `suppression_reason`. See
 
 ## Quick start
 
-The smallest working configuration is four objects:
-
-1. **Channel.** Channels tab > New channel. Pick the `slack` provider, paste the
-   incoming-webhook URL, name it `Slack #noc`. Leave `execution_route` on
-   **Control plane** (the default and the recommendation).
-2. **Test-send.** Use the Test button *before* saving. It performs a real send
-   with the real configuration and shows you the redacted transport result. The
-   resulting row is marked `is_test` in the Delivery Log and counts toward
-   nothing.
-3. **Escalation policy.** Routes and Escalation tab > New policy. Add step 1 with
-   `delay_seconds: 0` and your channel in the fan-out set. That single-step
-   policy is a perfectly valid "just tell me once" configuration.
-4. **Route.** Routes and Escalation tab > New route. Give it a match expression
-   (leave it empty to match every alert), bind the policy, and enable it.
-
-Then confirm it worked in the **Delivery Log**, not in Slack. Slack shows you
-what arrived; the Delivery Log shows you everything that was decided, including
-what was withheld and why.
+The walkthrough (Discord first, then Slack and email, plus "why was I not
+paged?") lives on the [Notifications Quickstart](./notification-quickstart.md).
+The smallest working configuration is still four objects: one channel, a
+test-send, a one-step escalation policy, and an enabled route. Confirm it in
+the **Delivery Log**, not at the destination.
 
 ## Providers
 
@@ -1023,6 +1013,8 @@ Operators who prefer not to use Helm for this can configure outbound mail
 entirely in the UI under Settings > Mail; a settings row takes precedence over
 the deployment environment, and its password resolves through the credential
 broker. A missing settings row is not an error - it means "no operator override".
+After saving SMTP, use **Send test email** on that page to prove the mail
+server accepts a message before wiring a notification channel.
 
 ## Permissions
 

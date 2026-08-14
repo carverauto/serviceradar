@@ -4,6 +4,7 @@ mod identity;
 mod ip;
 mod jsonb;
 mod params;
+mod seen;
 mod text;
 
 pub(super) use self::{
@@ -13,6 +14,7 @@ pub(super) use self::{
     ip::safe_device_ip_inet_sql,
     jsonb::{is_valid_jsonb_key, parse_bool},
     params::collect_filter_params,
+    seen::first_seen_range,
 };
 
 use self::{
@@ -21,6 +23,7 @@ use self::{
     identity::{apply_device_type_filter, apply_mac_filter},
     ip::apply_ip_filter,
     jsonb::{apply_jsonb_text_filter, apply_tags_filter},
+    seen::apply_first_seen_filter,
 };
 use super::DeviceQuery;
 use crate::{
@@ -48,7 +51,8 @@ use diesel::sql_types::{Array, Bool, Text};
 /// boolean, never NULL), so wrapping it in `NOT (...)` produces the exact
 /// complement. It binds no user input — every literal is hard-coded — so it
 /// contributes zero placeholders to the query.
-pub(in crate::query::devices) const AWX_MANAGED_PREDICATE: &str = "(metadata -> 'awx' ->> 'host_id' IS NOT NULL \
+pub(in crate::query::devices) const AWX_MANAGED_PREDICATE: &str =
+    "(metadata -> 'awx' ->> 'host_id' IS NOT NULL \
      OR metadata -> 'awx' ->> 'controller_id' IS NOT NULL \
      OR COALESCE(discovery_sources, ARRAY[]::text[]) && ARRAY['awx', 'ansible']::text[])";
 
@@ -124,6 +128,11 @@ pub(super) fn apply_filter<'a>(
                 parse_bool(filter.value.as_scalar()?)?,
                 "is_available only supports equality"
             )?;
+        }
+        // Added-at window. `time:` still filters last_seen_time; this is the
+        // first-seen equivalent (`first_seen:last_7d`).
+        "first_seen" | "first_seen_time" => {
+            query = apply_first_seen_filter(query, filter)?;
         }
         "is_active" => {
             query = apply_active_filter(query, filter)?;

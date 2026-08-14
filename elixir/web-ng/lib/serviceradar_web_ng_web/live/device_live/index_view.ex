@@ -70,17 +70,20 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexView do
 
     ~H"""
     <Layouts.app flash={@flash} current_scope={@current_scope} srql={@srql}>
-      <div class="mx-auto max-w-7xl p-6">
+      <div class="mx-auto flex min-h-[calc(100vh-8rem)] max-w-7xl flex-col p-6">
         <Header.render {assigns} />
 
         <.device_stats_cards
+          :if={@live_action != :new_devices}
           stats={@device_stats}
           loading={@device_stats_loading}
         />
 
         <Filters.render {assigns} />
         <BulkActions.render {assigns} />
-        <Table.render {assigns} />
+        <div class="mt-4 flex min-h-0 flex-1 flex-col">
+          <Table.render {assigns} />
+        </div>
       </div>
 
       <!-- Add Device Modal -->

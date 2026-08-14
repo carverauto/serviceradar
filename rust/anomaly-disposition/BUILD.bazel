@@ -1,5 +1,6 @@
-load("@rules_rust//rust:defs.bzl", "rust_library", "rust_test")
-load("//third_party/crates:defs.bzl", "all_crate_deps")
+load("@crates//:defs.bzl", "all_crate_deps")
+load("@rules_rs//rs:rust_library.bzl", "rust_library")
+load("@rules_rs//rs:rust_test.bzl", "rust_test")
 
 filegroup(
     name = "srcs",
@@ -24,10 +25,12 @@ rust_library(
     ),
     crate_name = "serviceradar_anomaly_disposition",
     crate_root = "src/lib.rs",
-    proc_macro_deps = all_crate_deps(proc_macro = True),
     visibility = ["//visibility:public"],
     # path-dep on the shared substrate (the sibling bazel target) + deep_causality_core.
-    deps = all_crate_deps(normal = True) + [
+    deps = all_crate_deps(
+        cargo_only = True,
+        normal = True,
+    ) + [
         "//rust/anomaly-core:serviceradar_anomaly_core",
     ],
 )
@@ -46,9 +49,11 @@ rust_library(
     crate_features = ["rustler"],
     crate_name = "serviceradar_anomaly_disposition",
     crate_root = "src/lib.rs",
-    proc_macro_deps = all_crate_deps(proc_macro = True),
     visibility = ["//visibility:public"],
-    deps = all_crate_deps(normal = True) + [
+    deps = all_crate_deps(
+        cargo_only = True,
+        normal = True,
+    ) + [
         "//rust/anomaly-core:serviceradar_anomaly_core",
     ],
 )
@@ -56,8 +61,8 @@ rust_library(
 rust_test(
     name = "serviceradar_anomaly_disposition_test",
     crate = ":serviceradar_anomaly_disposition",
-    proc_macro_deps = all_crate_deps(proc_macro = True),
     deps = all_crate_deps(
+        cargo_only = True,
         normal = True,
         normal_dev = True,
     ) + [

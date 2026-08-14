@@ -107,4 +107,12 @@ defmodule ServiceRadar.Plugins.PluginInputsTest do
              PluginInputs.payload_size_bytes(payload) <= 1200
            end)
   end
+
+  test "envelope_keys/0 is exactly the platform-owned top-level key set" do
+    # AssignmentParams drops these before checking a package config_schema, so
+    # adding an operator-facing property to @schema without noticing would
+    # silently exempt it from schema validation.
+    assert PluginInputs.envelope_keys() ==
+             ~w(agent_id generated_at inputs policy_id policy_version schema template)
+  end
 end

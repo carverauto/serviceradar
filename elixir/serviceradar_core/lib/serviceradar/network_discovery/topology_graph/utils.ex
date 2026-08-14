@@ -30,6 +30,18 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph.Utils do
   def packet_metric_names, do: @packet_metric_names
   def octet_metric_names, do: @octet_metric_names
 
+  def base_metric_name(name) when is_binary(name) do
+    case String.split(name, "::", parts: 2) do
+      [base | _] -> String.trim(base)
+      _ -> name
+    end
+  end
+
+  def base_metric_name(name) when is_atom(name) and not is_nil(name),
+    do: base_metric_name(Atom.to_string(name))
+
+  def base_metric_name(_), do: nil
+
   def stale_cutoff_iso8601 do
     stale_minutes =
       :serviceradar_core

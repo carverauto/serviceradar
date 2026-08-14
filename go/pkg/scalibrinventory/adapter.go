@@ -46,10 +46,11 @@ import (
 )
 
 const (
-	ProducerID       = "serviceradar.scalibr.endpoint_inventory"
-	ProducerVersion  = "0.1.3"
-	DefaultScannerID = "osv-scalibr"
-	defaultCadence   = "24h"
+	ProducerID            = "serviceradar.scalibr.endpoint_inventory"
+	ProducerVersion       = "0.1.4"
+	DefaultScannerID      = "osv-scalibr"
+	DefaultScannerVersion = "v0.5.2"
+	defaultCadence        = "24h"
 
 	metadataScannerActivityKey = "scanner_activity"
 	metadataScannerFindingsKey = "scanner_findings"
@@ -101,6 +102,7 @@ func DefaultConfig() Config {
 	return Config{
 		Config:         base,
 		ScannerID:      DefaultScannerID,
+		ScannerVersion: DefaultScannerVersion,
 		ScaLibrPlugins: []string{"os/dpkg", "os/rpm", "os/apk"},
 		ScanRoots:      []string{"/"},
 	}

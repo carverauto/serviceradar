@@ -536,7 +536,8 @@ rather than looking healthy and paging nobody. An unrecognised
 which is a deployment that does not start rather than one that starts and mails
 nowhere.
 
-Also relevant for notifications: set
-`SERVICERADAR_NOTIFICATION_ACTION_BASE_URL` (via `core.extraEnv`) to the
-externally reachable base URL of the web UI, so acknowledge / snooze / resolve
-links inside notifications resolve to a real address.
+Also relevant for notifications: set `webNg.publicUrl` to the externally
+reachable HTTPS origin of the web UI. Recent charts copy that value to
+`SERVICERADAR_NOTIFICATION_ACTION_BASE_URL` on `web-ng` and `core` so
+acknowledge / snooze / resolve links inside notifications resolve to a real
+address. See the [Notifications Quickstart](./notification-quickstart.md).

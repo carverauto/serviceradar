@@ -1,5 +1,5 @@
-load("@rules_rust//rust:defs.bzl", "rust_test")
-load("//third_party/crates:defs.bzl", "all_crate_deps")
+load("@crates//:defs.bzl", "all_crate_deps")
+load("@rules_rs//rs:rust_test.bzl", "rust_test")
 
 # SRQL integration tests.
 #
@@ -38,8 +38,9 @@ load("//third_party/crates:defs.bzl", "all_crate_deps")
 # forwards SRQL_TEST_DATABASE_CA_CERT, and the harness materializes it to a temp file when
 # PGSSLROOTCERT does not name a readable path (it never does on an executor).
 #
-# `all_crate_deps(package_name = "integration_tests/srql")` resolves this crate's own
-# dev-dependencies from //integration_tests/srql/Cargo.toml.
+# `all_crate_deps(..., cargo_only = True)` resolves this crate's own dev-dependencies from
+# //integration_tests/srql/Cargo.toml. `cargo_only` keeps the result to third-party crates:
+# rules_rs also reports first-party workspace members, and //rust/srql is already named above.
 
 SRQL_IT_DATA = [
     "tests/fixtures/schema.sql",
@@ -47,13 +48,9 @@ SRQL_IT_DATA = [
 ]
 
 SRQL_IT_DEPS = ["//rust/srql:srql_lib"] + all_crate_deps(
+    cargo_only = True,
     normal = True,
     normal_dev = True,
-)
-
-SRQL_IT_PROC_MACROS = all_crate_deps(
-    proc_macro = True,
-    proc_macro_dev = True,
 )
 
 rust_test(
@@ -67,7 +64,6 @@ rust_test(
     crate_root = "tests/api.rs",
     data = SRQL_IT_DATA,
     edition = "2021",
-    proc_macro_deps = SRQL_IT_PROC_MACROS,
     tags = ["manual"],
     deps = SRQL_IT_DEPS,
 )
@@ -83,7 +79,6 @@ rust_test(
     crate_root = "tests/comprehensive_queries.rs",
     data = SRQL_IT_DATA,
     edition = "2021",
-    proc_macro_deps = SRQL_IT_PROC_MACROS,
     tags = ["manual"],
     deps = SRQL_IT_DEPS,
 )
@@ -102,7 +97,6 @@ rust_test(
     crate_root = "tests/device_grouped_stats.rs",
     data = SRQL_IT_DATA,
     edition = "2021",
-    proc_macro_deps = SRQL_IT_PROC_MACROS,
     tags = ["manual"],
     deps = SRQL_IT_DEPS,
 )

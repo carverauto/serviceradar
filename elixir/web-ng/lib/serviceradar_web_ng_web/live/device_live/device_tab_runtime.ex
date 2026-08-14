@@ -3,7 +3,9 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.DeviceTabRuntime do
 
   import Phoenix.Component, only: [assign: 3]
   import Phoenix.LiveView, only: [connected?: 1, start_async: 3]
-  import ServiceRadarWebNGWeb.DeviceLive.VisibilityComponents, only: [active_fingerprint_tab_visible?: 2]
+
+  import ServiceRadarWebNGWeb.DeviceLive.VisibilityComponents,
+    only: [active_fingerprint_tab_visible?: 2]
 
   alias ServiceRadarWebNGWeb.DeviceLive.FlowData
   alias ServiceRadarWebNGWeb.DeviceLive.InterfaceData
@@ -142,8 +144,10 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.DeviceTabRuntime do
     if connected?(socket) do
       logs_limit = Keyword.fetch!(opts, :logs_limit)
 
+      identities = device_log_identities(socket)
+
       start_async(socket, {:device_logs, uid, request_ref}, fn ->
-        QueryData.load_logs(srql_module, uid, scope, cursor, logs_limit)
+        QueryData.load_logs(srql_module, uid, scope, cursor, logs_limit, identities)
       end)
     else
       socket
@@ -201,7 +205,9 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.DeviceTabRuntime do
       |> assign(:has_ifaces, true)
       |> assign(:interfaces_request_ref, request_ref)
       |> start_async({:device_interfaces, uid, request_ref}, fn ->
-        {network_interfaces, interfaces_error} = InterfaceData.load_interfaces(srql_module, uid, scope)
+        {network_interfaces, interfaces_error} =
+          InterfaceData.load_interfaces(srql_module, uid, scope)
+
         interface_settings = InterfaceData.load_interface_settings(scope, uid)
 
         network_interfaces =
@@ -260,4 +266,28 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.DeviceTabRuntime do
       row -> Map.get(row, "ip")
     end
   end
+
+  defp device_log_identities(socket) do
+    row = Map.get(socket.assigns, :device_row) || List.first(socket.assigns[:results] || [])
+
+    [
+      get_device_ip(socket.assigns[:results] || []),
+      row_value(row, "ip"),
+      row_value(row, "hostname"),
+      row_value(row, "name")
+    ]
+    |> Enum.reject(&is_nil/1)
+    |> Enum.uniq()
+  end
+
+  defp row_value(row, key) when is_map(row) and is_binary(key) do
+    Map.get(row, key) || Map.get(row, known_row_atom(key))
+  end
+
+  defp row_value(_row, _key), do: nil
+
+  defp known_row_atom("ip"), do: :ip
+  defp known_row_atom("hostname"), do: :hostname
+  defp known_row_atom("name"), do: :name
+  defp known_row_atom(_), do: nil
 end

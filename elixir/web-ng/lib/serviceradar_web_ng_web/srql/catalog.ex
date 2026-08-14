@@ -177,7 +177,9 @@ defmodule ServiceRadarWebNGWeb.SRQL.Catalog do
         "awx_managed",
         "tags",
         "include_inactive",
-        "include_deleted"
+        "include_deleted",
+        "first_seen",
+        "first_seen_time"
       ],
       boolean_fields: [
         "is_available",
@@ -200,6 +202,8 @@ defmodule ServiceRadarWebNGWeb.SRQL.Catalog do
       # `discovery_sources:(awx)`) instead of guessing `%awx%`. Static by design:
       # never run `SELECT DISTINCT` per keystroke.
       known_values: %{
+        "first_seen" => ["last_7d", "last_30d", "last_90d", "today"],
+        "first_seen_time" => ["last_7d", "last_30d", "last_90d", "today"],
         "discovery_sources" => [
           "agent",
           "sweep",
@@ -986,6 +990,7 @@ defmodule ServiceRadarWebNGWeb.SRQL.Catalog do
         "dst_country_iso2",
         "src_cidr",
         "dst_cidr",
+        "device_id",
         "tag",
         "src_tag",
         "dst_tag",
@@ -1321,6 +1326,7 @@ defmodule ServiceRadarWebNGWeb.SRQL.Catalog do
       filter_fields: [
         "uid",
         "device_id",
+        "interface_uid",
         "if_name",
         "if_index",
         "mac",
