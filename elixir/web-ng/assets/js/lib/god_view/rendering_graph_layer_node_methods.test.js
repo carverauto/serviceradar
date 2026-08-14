@@ -26,9 +26,12 @@ describe("rendering_graph_layer_node_methods", () => {
 
     const labelLayer = layers.find((layer) => layer.id === "god-view-node-labels")
     const hitboxLayer = layers.find((layer) => layer.id === "god-view-nodes-hitbox")
+    const haloLayer = layers.find((layer) => layer.id === "god-view-nodes-halo")
 
     expect(hitboxLayer).toBeTruthy()
     expect(hitboxLayer.props.pickable).toEqual(true)
+    expect(haloLayer).toBeTruthy()
+    expect(haloLayer.props.pickable).toEqual(true)
     expect(labelLayer).toBeTruthy()
     expect(labelLayer.props.pickable).toEqual(true)
   })
@@ -50,11 +53,19 @@ describe("rendering_graph_layer_node_methods", () => {
       {id: "switch", label: "Switch", clusterCount: 1, pps: 1000, state: 2, selected: false, details: {}},
       {id: "endpoint-1", label: "192.0.2.10", clusterCount: 1, pps: 0, state: 2, selected: false, details: {cluster_kind: "endpoint-member"}},
       {id: "ghost", label: "192.0.2.11", clusterCount: 1, pps: 0, state: 3, selected: false, details: {identity_source: "mapper_topology_sighting"}},
+      {id: "sr:sighting", label: "sr:deadbeef", clusterCount: 1, pps: 50, state: 2, selected: false, details: {identity_source: "mapper_topology_sighting"}},
       {id: "sr:a0", label: "sr:a0", clusterCount: 1, pps: 100, state: 2, selected: false, details: {}},
       {id: "selected-endpoint", label: "Laptop", clusterCount: 1, pps: 0, state: 2, selected: true, details: {cluster_kind: "endpoint-member"}},
     ], "local")
 
-    expect(labels.map((node) => node.id)).toEqual(["selected-endpoint", "switch", "summary", "summary-2", "summary-3"])
+    expect(labels.map((node) => node.id)).toEqual([
+      "selected-endpoint",
+      "switch",
+      "ghost",
+      "summary",
+      "summary-2",
+      "summary-3",
+    ])
   })
 
   it("selectNodeLabels enforces a per-shape budget", () => {

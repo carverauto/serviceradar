@@ -278,8 +278,11 @@ export const godViewLifecycleDomSetupMethods = {
         if (!this.state.isProgrammaticViewUpdate) this.state.userCameraLocked = true
         this.state.isProgrammaticViewUpdate = false
         if (this.state.zoomMode === "auto") {
-          const radialOverviewAutoFit = this.state.lastGraph?._layoutMode === "client-radial" && !this.state.userCameraLocked
-          const nextTier = radialOverviewAutoFit ? "local" : this.deps.resolveZoomTier(viewState.zoom || 0)
+          // client-radial already authored the overview. Switching to
+          // regional/global reclustering after the first pan/click moves the
+          // nodes out from under the camera and the canvas looks empty.
+          const clientRadial = this.state.lastGraph?._layoutMode === "client-radial"
+          const nextTier = clientRadial ? "local" : this.deps.resolveZoomTier(viewState.zoom || 0)
           this.deps.setZoomTier(nextTier, false)
         }
       },

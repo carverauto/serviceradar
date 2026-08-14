@@ -59,7 +59,7 @@ describe("lifecycle_dom_setup_methods", () => {
     }
   })
 
-  it("createDeckInstance keeps radial auto-fit in local tier until the user moves the camera", () => {
+  it("createDeckInstance keeps client-radial overview in local tier after the user moves the camera", () => {
     const state = {
       canvas: {},
       deck: null,
@@ -88,7 +88,8 @@ describe("lifecycle_dom_setup_methods", () => {
     deps.setZoomTier.mockClear()
     state.isProgrammaticViewUpdate = false
     instance.props.onViewStateChange({viewState: {zoom: -0.4, target: [0, 0, 0]}})
-    expect(deps.setZoomTier).toHaveBeenCalledWith("regional", false)
+    expect(deps.setZoomTier).toHaveBeenCalledWith("local", false)
+    expect(deps.resolveZoomTier).not.toHaveBeenCalled()
     expect(state.userCameraLocked).toBe(true)
   })
 

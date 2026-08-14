@@ -44,6 +44,7 @@ function buildContext() {
     renderSelectionDetails: godViewRenderingSelectionMethods.renderSelectionDetails,
     nodeLayerId: (layerId) =>
       layerId === "god-view-nodes" ||
+      layerId === "god-view-nodes-halo" ||
       layerId === "god-view-nodes-hitbox" ||
       layerId === "god-view-node-labels",
     pickedNodeIndex: (info) => {
