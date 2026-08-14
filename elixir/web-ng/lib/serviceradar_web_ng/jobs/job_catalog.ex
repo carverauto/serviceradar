@@ -580,9 +580,10 @@ defmodule ServiceRadarWebNG.Jobs.JobCatalog do
     last = List.last(parts)
 
     label =
-      cond do
-        last in ["Worker", "Job"] and length(parts) > 1 -> Enum.at(parts, -2)
-        true -> String.replace(last, ~r/(Worker|Job)$/, "")
+      if last in ["Worker", "Job"] and length(parts) > 1 do
+        Enum.at(parts, -2)
+      else
+        String.replace(last, ~r/(Worker|Job)$/, "")
       end
 
     case label |> Macro.underscore() |> String.replace("_", " ") |> String.trim() do
