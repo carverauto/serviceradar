@@ -547,4 +547,120 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLiveTest do
       assert source.credentials["api_key"] == "armis-api-key"
     end
   end
+
+  describe "composite export in run status" do
+    defp composite_run!(scope, source, metadata) do
+      create_run!(scope, source.id, %{
+        status_action: :finish_success,
+        device_count: 4,
+        updated_count: 4,
+        skipped_count: 0,
+        error_count: 0,
+        metadata: Map.merge(%{trigger: "manual"}, metadata)
+      })
+    end
+
+    test "a run that exported a composite check shows its slug and value form", %{
+      conn: conn,
+      scope: scope
+    } do
+      source = create_armis_source!(scope, %{})
+
+      composite_run!(scope, source, %{
+        composite_check_slug: "pci-isolation",
+        composite_value_form: "verdict",
+        composite_custom_field: "sr_isolation"
+      })
+
+      {:ok, _lv, html} = live(conn, ~p"/settings/networks/integrations/#{source.id}")
+
+      assert html =~ "Composite"
+      assert html =~ "pci-isolation"
+      assert html =~ "(verdict)"
+    end
+
+    test "the status value form is distinguishable from the verdict form", %{
+      conn: conn,
+      scope: scope
+    } do
+      source = create_armis_source!(scope, %{})
+
+      composite_run!(scope, source, %{
+        composite_check_slug: "pci-isolation",
+        composite_value_form: "status"
+      })
+
+      {:ok, _lv, html} = live(conn, ~p"/settings/networks/integrations/#{source.id}")
+
+      # Verdict slugs are operator vocabulary and status is a fixed enum, so an
+      # operator reading run history has to be able to tell which one went out.
+      assert html =~ "(status)"
+      refute html =~ "(verdict)"
+    end
+
+    test "a run with no composite export renders a dash rather than a blank cell", %{
+      conn: conn,
+      scope: scope
+    } do
+      source = create_armis_source!(scope, %{})
+
+      create_run!(scope, source.id, %{
+        status_action: :finish_success,
+        device_count: 2,
+        updated_count: 2,
+        skipped_count: 0,
+        error_count: 0
+      })
+
+      {:ok, _lv, html} = live(conn, ~p"/settings/networks/integrations/#{source.id}")
+
+      assert html =~ "Recent Runs"
+      refute html =~ "(verdict)"
+      refute html =~ "(status)"
+    end
+
+    test "the column reads the run's own metadata, not the source's current selection", %{
+      conn: conn,
+      scope: scope
+    } do
+      # The source is configured for one check while an older run exported a
+      # different one. Reading the live selection would retroactively relabel
+      # that run's history.
+      source =
+        create_armis_source!(scope, %{
+          settings: %{
+            "composite" => %{
+              "check_slug" => "current-selection",
+              "value_form" => "status",
+              "custom_field" => "sr_isolation"
+            }
+          }
+        })
+
+      composite_run!(scope, source, %{
+        composite_check_slug: "older-selection",
+        composite_value_form: "verdict"
+      })
+
+      {:ok, _lv, html} = live(conn, ~p"/settings/networks/integrations/#{source.id}")
+
+      assert html =~ "older-selection"
+      refute html =~ "current-selection"
+    end
+
+    test "a half-written metadata entry renders the dash rather than a partial label", %{
+      conn: conn,
+      scope: scope
+    } do
+      source = create_armis_source!(scope, %{})
+
+      composite_run!(scope, source, %{composite_check_slug: "pci-isolation"})
+
+      {:ok, _lv, html} = live(conn, ~p"/settings/networks/integrations/#{source.id}")
+
+      # A slug with no value form does not say what actually went out, so it is
+      # not shown at all.
+      refute html =~ "pci-isolation"
+    end
+  end
 end
