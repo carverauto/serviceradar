@@ -42,8 +42,7 @@ defmodule ServiceRadarWebNG.Application do
       |> maybe_add_system_report_seeder()
       |> Kernel.++([
         # DNS cluster for Kubernetes deployments
-        {DNSCluster,
-         query: Application.get_env(:serviceradar_web_ng, :dns_cluster_query) || :ignore}
+        {DNSCluster, query: Application.get_env(:serviceradar_web_ng, :dns_cluster_query) || :ignore}
       ])
       |> maybe_add_local_mailer_storage()
 
@@ -138,11 +137,7 @@ defmodule ServiceRadarWebNG.Application do
 
         listener =
           Supervisor.child_spec(
-            {Bandit,
-             plug: ServiceRadarWebNGWeb.ControlPlaneRuntimeRouter,
-             scheme: :http,
-             ip: {0, 0, 0, 0},
-             port: port},
+            {Bandit, plug: ServiceRadarWebNGWeb.ControlPlaneRuntimeRouter, scheme: :http, ip: {0, 0, 0, 0}, port: port},
             id: ServiceRadarWebNG.ControlPlaneRuntimeListener
           )
 
@@ -224,9 +219,7 @@ defmodule ServiceRadarWebNG.Application do
         if adbc_postgresql_driver_present?() do
           [
             {Adbc.Database,
-             driver: :postgresql,
-             uri: uri,
-             process_options: [name: ServiceRadarWebNG.FieldSurveyAdbcDatabase]}
+             driver: :postgresql, uri: uri, process_options: [name: ServiceRadarWebNG.FieldSurveyAdbcDatabase]}
           ]
         else
           # Bazel OCI builds of web-ng have historically omitted the ADBC

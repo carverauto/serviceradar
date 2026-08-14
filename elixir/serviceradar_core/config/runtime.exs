@@ -321,14 +321,13 @@ endpoint_inventory_addon_config =
 
 geolite_dbs = base_geolite_dbs ++ city_geolite_dbs ++ ipinfo_dbs
 
-config :serviceradar_core, :geolite_databases, geolite_dbs
-
 config :geolix, databases: ServiceRadar.Observability.GeoIP.present_databases(geolite_dbs)
 
 config :serviceradar_core,
        :endpoint_inventory_native_addon_package,
        endpoint_inventory_addon_config
 
+config :serviceradar_core, :geolite_databases, geolite_dbs
 config :serviceradar_core, :netprobe_native_addon_package, netprobe_addon_config
 config :serviceradar_core, :otel_collector_native_addon_package, otel_collector_addon_config
 
