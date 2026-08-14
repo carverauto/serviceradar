@@ -181,8 +181,9 @@
       per check on the surviving UID.
 - [x] 10.8 Fact API tests: bounds enforcement, reserved keys, back-dating
       ignored, unauthorized rejected, unknown device rejected.
-- [ ] 10.9 SRQL tests for verdict and status filters, the rollup entity, and the
-      unknown-slug error.
+- [x] 10.9 SRQL tests for verdict and status filters, the rollup entity, and the
+      unknown-slug error. 22 Rust tests (`cargo test --lib composite`) plus the
+      Elixir end-to-end "an unknown slug returns nothing rather than everything".
 - [x] 10.10 LiveView tests for the three save-time validations and the scope
       round-trip.
 - [x] 10.11 Run DB-backed tests against the `srql-fixtures` scratch database.
