@@ -80,7 +80,7 @@ defmodule ServiceRadarWebNG.JobCatalogTest do
     assert plugin_job.name == "Plugin blob retention"
     assert plugin_job.source == :manual
     assert plugin_job.cron == "manual"
-    assert plugin_job.queue == :maintenance
+    assert plugin_job.queue == :web_maintenance
     assert plugin_job.worker == @plugin_blob_retention_worker
     assert plugin_job.args_filter == %{"manual" => true}
   end
