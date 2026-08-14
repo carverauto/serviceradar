@@ -8,7 +8,7 @@ common --experimental_platform_in_output_dir
 common --noannounce_rc
 common --experimental_convenience_symlinks=clean
 common --color=yes
-common --curses=yes
+common --ui_event_filters=-INFO
 # Do NOT put repository_cache / disk_cache / distdir under the source tree.
 # Use Bazel defaults (~/.cache/bazel) or machine-local .bazelrc.local instead.
 # Allow platform-specific build:* sections (linux/macos/windows).
