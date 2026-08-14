@@ -1,5 +1,7 @@
-load("@rules_rust//rust:defs.bzl", "rust_binary", "rust_library", "rust_test")
-load("//third_party/crates:defs.bzl", "all_crate_deps")
+load("@crates//:defs.bzl", "all_crate_deps")
+load("@rules_rs//rs:rust_binary.bzl", "rust_binary")
+load("@rules_rs//rs:rust_library.bzl", "rust_library")
+load("@rules_rs//rs:rust_test.bzl", "rust_test")
 
 filegroup(
     name = "srcs",
@@ -22,11 +24,13 @@ rust_library(
     crate_name = "serviceradar_anomaly_core",
     crate_root = "src/lib.rs",
     edition = "2024",
+    visibility = ["//visibility:public"],
     # deep_causality_core + deep_causality_data_structures. The `rustler` feature is
     # off by default, so its optional proc-macro dep is not pulled into this target.
-    deps = all_crate_deps(normal = True),
-    proc_macro_deps = all_crate_deps(proc_macro = True),
-    visibility = ["//visibility:public"],
+    deps = all_crate_deps(
+        cargo_only = True,
+        normal = True,
+    ),
 )
 
 rust_binary(
@@ -34,18 +38,20 @@ rust_binary(
     srcs = ["src/bin/anomaly-backtest.rs"],
     crate_root = "src/bin/anomaly-backtest.rs",
     edition = "2024",
-    deps = all_crate_deps(normal = True) + [":serviceradar_anomaly_core"],
-    proc_macro_deps = all_crate_deps(proc_macro = True),
+    deps = all_crate_deps(
+        cargo_only = True,
+        normal = True,
+    ) + [":serviceradar_anomaly_core"],
 )
 
 rust_test(
     name = "serviceradar_anomaly_core_test",
     crate = ":serviceradar_anomaly_core",
     deps = all_crate_deps(
+        cargo_only = True,
         normal = True,
         normal_dev = True,
     ),
-    proc_macro_deps = all_crate_deps(proc_macro = True),
 )
 
 # Labeled-corpus scorecard floor gate (OpenSpec overhaul-anomaly-engine-reliability
@@ -62,8 +68,8 @@ rust_test(
         "testdata/scorecard/truth.csv.gz",
     ],
     deps = all_crate_deps(
+        cargo_only = True,
         normal = True,
         normal_dev = True,
     ) + [":serviceradar_anomaly_core"],
-    proc_macro_deps = all_crate_deps(proc_macro = True),
 )

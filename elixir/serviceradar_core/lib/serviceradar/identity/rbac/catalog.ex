@@ -132,6 +132,14 @@ defmodule ServiceRadar.Identity.RBAC.Catalog do
           default_roles: @operator_roles
         },
         %{
+          key: "devices.facts.write",
+          label: "Write device facts",
+          description:
+            "Set bounded scalar facts on device metadata via the API, used by external " <>
+              "validation tools. Does not grant any other device edit.",
+          default_roles: @operator_roles
+        },
+        %{
           key: "devices.import",
           label: "Import devices",
           description: "Import devices via CSV",
@@ -269,6 +277,31 @@ defmodule ServiceRadar.Identity.RBAC.Catalog do
           description:
             "Trigger device-scoped fresh endpoint software inventory scans through the agent command bus",
           default_roles: @admin_roles
+        }
+      ]
+    },
+    %{
+      section: "composite_checks",
+      label: "Composite Checks",
+      permissions: [
+        %{
+          key: "composite_checks.view",
+          label: "View composite checks",
+          description: "View composite check definitions and per-device verdicts",
+          default_roles: @all_roles
+        },
+        %{
+          key: "composite_checks.manage",
+          label: "Manage composite checks",
+          description: "Create, edit, enable, and delete composite checks",
+          default_roles: @operator_roles
+        },
+        %{
+          key: "composite_checks.evaluate",
+          label: "Run composite check previews",
+          description:
+            "Run an on-demand composite check evaluation without persisting results or events",
+          default_roles: @operator_roles
         }
       ]
     },

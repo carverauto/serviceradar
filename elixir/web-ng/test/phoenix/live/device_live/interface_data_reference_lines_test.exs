@@ -14,6 +14,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.InterfaceDataReferenceLinesTest do
     @impl true
     def query(query, _opts) do
       assert query =~ "agg:rate"
+      assert query =~ "bucket:1m"
+      refute query =~ "bucket:5m"
       refute query =~ "agg:max"
 
       now = DateTime.to_iso8601(~U[2026-07-04 12:00:00Z])

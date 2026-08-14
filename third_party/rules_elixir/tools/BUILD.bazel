@@ -1,9 +1,0 @@
-load(
-    ":elixir_vars.bzl",
-    "elixir_vars",
-)
-
-elixir_vars(
-    name = "elixir_vars",
-    visibility = ["//visibility:public"],
-)

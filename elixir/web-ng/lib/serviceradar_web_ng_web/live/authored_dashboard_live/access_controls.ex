@@ -66,8 +66,13 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.AccessControls do
   def can_schedule_dashboard?(nil, _assigns), do: false
 
   def can_schedule_dashboard?(dashboard, assigns) do
-    can_manage?(dashboard, assigns) and Map.get(assigns, :can_schedule_reports?, false)
+    Map.get(assigns, :can_schedule_reports?, false) and
+      (can_manage?(dashboard, assigns) or public_or_shared?(dashboard))
   end
+
+  defp public_or_shared?(%{visibility: visibility}) when visibility in [:public, :shared, "public", "shared"], do: true
+
+  defp public_or_shared?(_dashboard), do: false
 
   def dashboard_owner?(%{owner_id: owner_id}, %{user: %{id: user_id}})
       when not is_nil(owner_id) and not is_nil(user_id) do

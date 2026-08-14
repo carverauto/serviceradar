@@ -44,6 +44,8 @@ defmodule ServiceRadar.Observability.GeoLiteMmdbDownloadWorker do
       "https://raw.githubusercontent.com/P3TERX/GeoLite.mmdb/download/GeoLite2-Country.mmdb"
   }
 
+  @required_files ["GeoLite2-ASN.mmdb", "GeoLite2-Country.mmdb"]
+
   @doc """
   Schedules the download job if not already scheduled.
   """
@@ -55,6 +57,8 @@ defmodule ServiceRadar.Observability.GeoLiteMmdbDownloadWorker do
     failure_reschedule_seconds =
       Keyword.get(config, :failure_reschedule_seconds, @default_failure_reschedule_seconds)
 
+    dir = Keyword.get(config, :dir, System.get_env("GEOLITE_MMDB_DIR") || @default_dir)
+
     cond do
       not enabled?(config) ->
         {:ok, :disabled}
@@ -62,12 +66,62 @@ defmodule ServiceRadar.Observability.GeoLiteMmdbDownloadWorker do
       not ObanSupport.available?() ->
         {:error, :oban_unavailable}
 
-      true ->
-        if check_existing_job(failure_reschedule_seconds) do
-          {:ok, :already_scheduled}
-        else
-          %{} |> new() |> ObanSupport.safe_insert()
+      not required_files_present?(dir) ->
+        case promote_scheduled_now() do
+          {:ok, :promoted} ->
+            {:ok, :already_scheduled}
+
+          :none ->
+            %{} |> new() |> ObanSupport.safe_insert()
         end
+
+      check_existing_job(failure_reschedule_seconds) ->
+        {:ok, :already_scheduled}
+
+      true ->
+        %{} |> new() |> ObanSupport.safe_insert()
+    end
+  end
+
+  @doc """
+  Downloads any missing required MMDB files without going through Oban.
+
+  Used by web-ng (no maintenance queue) when each pod has its own emptyDir.
+  """
+  @spec sync_missing_files(keyword()) :: :ok | {:error, term()}
+  def sync_missing_files(opts \\ []) do
+    config = Application.get_env(:serviceradar_core, __MODULE__, [])
+
+    dir =
+      Keyword.get(opts, :dir) ||
+        Keyword.get(config, :dir, System.get_env("GEOLITE_MMDB_DIR") || @default_dir)
+
+    timeout_ms =
+      Keyword.get(opts, :timeout_ms) || Keyword.get(config, :timeout_ms, @default_timeout_ms)
+
+    files = Keyword.get(opts, :files) || Keyword.get(config, :files, @default_files)
+
+    if required_files_present?(dir) do
+      :ok
+    else
+      case File.mkdir_p(dir) do
+        :ok ->
+          Enum.each(files, fn {name, url} ->
+            dest = Path.join(dir, name)
+
+            if File.regular?(dest) do
+              :ok
+            else
+              _ = download_file(url, dest, timeout_ms)
+            end
+          end)
+
+          _ = GeoIP.reload()
+          :ok
+
+        {:error, reason} ->
+          {:error, reason}
+      end
     end
   end
 
@@ -113,8 +167,10 @@ defmodule ServiceRadar.Observability.GeoLiteMmdbDownloadWorker do
     force? = Map.get(job.args || %{}, "force") == true
     settings = load_settings(actor)
 
-    # Throttle: this job may be manually triggered; skip if we've refreshed recently unless forced.
-    if not force? and recently_succeeded?(settings, now, reschedule_seconds) do
+    # Throttle only when this pod still has the files. emptyDir is wiped on
+    # restart; a global last_success_at must not skip the re-download.
+    if not force? and required_files_present?(dir) and
+         recently_succeeded?(settings, now, reschedule_seconds) do
       schedule_in = seconds_until_next(settings, now, reschedule_seconds)
       ObanSupport.safe_insert(new(%{}, schedule_in: schedule_in))
       :ok
@@ -282,6 +338,25 @@ defmodule ServiceRadar.Observability.GeoLiteMmdbDownloadWorker do
   defp record_handled_failure_event(%Oban.Job{} = job, message) when is_binary(message) do
     _ = ObanFailureEventReporter.record_job_failure(job, :error, %RuntimeError{message: message})
     :ok
+  end
+
+  defp required_files_present?(dir) when is_binary(dir) do
+    Enum.all?(@required_files, &File.regular?(Path.join(dir, &1)))
+  end
+
+  defp promote_scheduled_now do
+    now = DateTime.utc_now()
+
+    query =
+      from(j in Oban.Job,
+        where: j.worker == ^to_string(__MODULE__),
+        where: j.state == "scheduled"
+      )
+
+    case Repo.update_all(query, [set: [scheduled_at: now]], prefix: ObanSupport.prefix()) do
+      {count, _} when count > 0 -> {:ok, :promoted}
+      _ -> :none
+    end
   end
 
   defp recently_succeeded?(%NetflowSettings{} = s, %DateTime{} = now, seconds)

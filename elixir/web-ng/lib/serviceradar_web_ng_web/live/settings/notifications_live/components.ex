@@ -414,7 +414,10 @@ defmodule ServiceRadarWebNGWeb.Settings.NotificationsLive.Components do
           <p :for={diagnostic <- @config_contract.diagnostics} class="mb-2 text-xs text-warning">
             {diagnostic}
           </p>
-          <div :if={@mailer_warning} class="mb-3 rounded-sr-surface border border-warning/40 bg-warning/10 p-3 text-sm text-warning">
+          <div
+            :if={@mailer_warning}
+            class="mb-3 rounded-sr-surface border border-warning/40 bg-warning/10 p-3 text-sm text-warning"
+          >
             <div class="font-medium">Outbound mail is not ready</div>
             <p class="mt-1 text-xs">{@mailer_warning}</p>
             <p class="mt-1 text-xs">

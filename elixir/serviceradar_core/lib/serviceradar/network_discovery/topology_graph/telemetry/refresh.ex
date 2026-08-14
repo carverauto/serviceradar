@@ -111,7 +111,7 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph.Telemetry.Refresh do
       flow_bps_ba: flow_bps_ba
     }
 
-    Map.merge(base, telemetry_status_fields(flow_pps, flow_bps, capacity_bps, observed_at))
+    Map.merge(base, telemetry_status_fields(flow_pps, flow_bps, observed_at))
   end
 
   defp directional_metrics(source, device_id, if_index),
@@ -123,10 +123,12 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph.Telemetry.Refresh do
   defp directional_min_flow(primary, secondary),
     do: Utils.min_non_zero(Map.get(primary, :out, 0), Map.get(secondary, :in, 0))
 
-  defp telemetry_status_fields(flow_pps, flow_bps, capacity_bps, observed_at) do
+  defp telemetry_status_fields(flow_pps, flow_bps, observed_at) do
     flow_present? = flow_pps > 0 or flow_bps > 0
-    capacity_present? = capacity_bps > 0
-    eligible? = flow_present? and capacity_present?
+    # Capacity is still attached for utilization labels. Particles only need a
+    # rate series: UniFi–Cisco L2 edges often have speed on one side only, and
+    # requiring both flow and capacity left the Traffic toggle looking static.
+    eligible? = flow_present?
 
     %{
       telemetry_eligible: eligible?,

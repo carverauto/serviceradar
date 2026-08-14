@@ -1,5 +1,6 @@
-load("@rules_rust//rust:defs.bzl", "rust_library", "rust_test")
-load("//third_party/crates:defs.bzl", "all_crate_deps")
+load("@crates//:defs.bzl", "all_crate_deps")
+load("@rules_rs//rs:rust_library.bzl", "rust_library")
+load("@rules_rs//rs:rust_test.bzl", "rust_test")
 
 # NOTE: not verified locally (Bazel is broken on non-x86); validated in CI (x86).
 # The new crates.io deps (deep_causality_algebra, deep_causality_uncertain) require a
@@ -10,17 +11,19 @@ rust_library(
     srcs = glob(["src/**/*.rs"]),
     crate_name = "serviceradar_causal_model",
     crate_root = "src/lib.rs",
-    deps = all_crate_deps(normal = True),
-    proc_macro_deps = all_crate_deps(proc_macro = True),
     visibility = ["//visibility:public"],
+    deps = all_crate_deps(
+        cargo_only = True,
+        normal = True,
+    ),
 )
 
 rust_test(
     name = "serviceradar_causal_model_test",
     crate = ":serviceradar_causal_model",
     deps = all_crate_deps(
+        cargo_only = True,
         normal = True,
         normal_dev = True,
     ),
-    proc_macro_deps = all_crate_deps(proc_macro = True),
 )

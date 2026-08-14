@@ -1,9 +1,0 @@
-{application,own_header_include_lib,
-             [{description,"Test lib"},
-              {vsn,"0.1.0"},
-              {licenses,[]},
-              {links,[]},
-              {modules,[]},
-              {registered,[]},
-              {applications,[kernel,stdlib]},
-              {env,[]}]}.

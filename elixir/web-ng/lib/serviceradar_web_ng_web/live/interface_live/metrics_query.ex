@@ -1,24 +1,29 @@
 defmodule ServiceRadarWebNGWeb.InterfaceLive.MetricsQuery do
   @moduledoc false
 
+  alias ServiceRadarWebNGWeb.InterfaceLive.SnmpMetricNames
+
   @counter_window "last_24h"
   @counter_bucket "1m"
   @buckets_per_window 24 * 60
   @minimum_limit 3_600
 
-  def build_snmp_counter_query(device_uid, if_index, metric_names) do
+  def build_snmp_counter_query(device_uid, if_index, metric_names, opts \\ []) do
     names = normalize_metric_names(metric_names)
+    time_range = Keyword.get(opts, :time_range, @counter_window)
+    bucket = Keyword.get(opts, :bucket, @counter_bucket)
+    limit = Keyword.get(opts, :limit, row_limit(names))
 
     [
       "in:snmp_metrics",
       ~s(device_id:"#{escape_value(device_uid)}"),
       "if_index:#{if_index}",
       metric_filter(names),
-      "time:#{@counter_window}",
-      "bucket:#{@counter_bucket}",
+      "time:#{time_range}",
+      "bucket:#{bucket}",
       "agg:rate",
       "series:metric_name",
-      "limit:#{row_limit(names)}"
+      "limit:#{limit}"
     ]
     |> Enum.reject(&blank?/1)
     |> Enum.join(" ")
@@ -48,8 +53,7 @@ defmodule ServiceRadarWebNGWeb.InterfaceLive.MetricsQuery do
     |> Enum.map(&to_string/1)
     |> Enum.map(&String.trim/1)
     |> Enum.reject(&(&1 == "" or &1 == "Unknown"))
-    |> Enum.uniq()
-    |> Enum.sort()
+    |> SnmpMetricNames.expand()
   end
 
   defp normalize_metric_names(_metric_names), do: []

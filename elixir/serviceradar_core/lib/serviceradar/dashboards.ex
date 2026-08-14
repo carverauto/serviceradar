@@ -10,10 +10,14 @@ defmodule ServiceRadar.Dashboards do
   """
 
   use Ash.Domain,
-    extensions: [AshAdmin.Domain]
+    extensions: [AshAdmin.Domain, AshPaperTrail.Domain]
 
   admin do
     show?(true)
+  end
+
+  paper_trail do
+    include_versions? true
   end
 
   resources do
