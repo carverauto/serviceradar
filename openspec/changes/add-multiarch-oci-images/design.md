@@ -1,93 +1,119 @@
 ## Context
 
-Six of eighteen publishable images already publish a multi-arch index, and the mechanism
-is already the right one: `declare_multiarch_image_index` wraps `oci_image_index`, which
-transitions a single platform-aware image target across `//build/platforms:linux_x86_64`
-and `linux_aarch64`. There is no separate arm64 build graph to maintain, and there never
-was one to remove.
+Six of eighteen publishable images already published a multi-arch index, and the mechanism
+was already the right one: `declare_multiarch_image_index` wraps `oci_image_index`, which
+transitions a single platform-aware image target across `//build/platforms:linux_x86_64` and
+`linux_aarch64`. There is no separate arm64 build graph to maintain.
 
-The hermetic-LLVM migration is what makes the rest tractable. It deleted the hand-rolled
-`aarch64_linux_gnu_cc_toolchain` that hardcoded `/usr/bin/aarch64-linux-gnu-*`, and the
-existing arm64 indexes still build — cross-compilation now runs through the hermetic
-toolchain, where libc is a target-platform property rather than a host installation.
-Verified on the migrated branch before it landed:
-`bazel build //docker/images:trapd_image_multiarch //docker/images:faker_image_multiarch`.
+The hermetic-LLVM migration is what makes the rest tractable: it deleted the hand-rolled
+`aarch64_linux_gnu_cc_toolchain` that hardcoded `/usr/bin/aarch64-linux-gnu-*`, so
+cross-compilation now runs through the hermetic toolchain where libc is a target-platform
+property. Cross-compilation of our own binaries was never the problem here.
 
-That is the load-bearing fact for this change: arm64 cross-compilation works today for
-both Rust and Go, and `faker` proves the Go half specifically.
+**The problem was the layers underneath them.** Adding the six index targets produced indexes
+that built successfully and were wrong. Two distinct defects, both invisible:
 
-Full survey in `openspec/notes/multiarch-oci-plan.md`; the migration it depends on is
-written up in `openspec/notes/hermetic-llvm-rust-migration.md`.
+1. `alpine_netutils_service_image_amd64` hardcoded `base = "@alpine_3_20_linux_amd64//..."`
+   and `tars = [":alpine_netutils_rootfs_amd64", ":common_tools_amd64"]`, bypassing the
+   `_platform_select` its sibling helpers already used. The arm64 entry was our aarch64
+   binaries on an x86-64 userland.
+2. Because the image config inherits `architecture` from the base, both children of the index
+   were then labelled `linux/amd64` — an index advertising the same platform twice.
+
+Full investigation in `openspec/notes/multiarch-oci-plan.md` (superseded on the Tier-1
+assessment) and the migration it depends on in
+`openspec/notes/hermetic-llvm-rust-migration.md`.
 
 ## Goals / Non-Goals
 
 **Goals**
 
-- Twelve of eighteen images publishing `linux/amd64` + `linux/arm64`.
-- An eligibility rule in the spec, so the remaining six are a recorded decision.
-- A verification step that can actually fail — see the first decision below.
+- Twelve of eighteen images publishing genuinely native `linux/amd64` + `linux/arm64`.
+- An eligibility rule stated over *every layer an image packages*, not just first-party
+  binaries — the distinction the original audit missed.
+- A test that fails when an index's contents and labels disagree.
 
 **Non-Goals**
 
-- arm64 for the CNPG images. Deferred deliberately, not overlooked: if the database runs
-  on amd64 nodes this can be deferred indefinitely at no cost. Multi-arch is per-image.
-- arm64 for the Elixir images. Genuine research, tracked separately.
-- Native arm64 RBE executors. Considered below and rejected for this change.
+- arm64 for the CNPG images. Confirmed out of scope by the maintainer.
+- arm64 for the Elixir images. Genuine research; tracked separately.
+- Native arm64 RBE executors. Not needed for anything in this change.
+- Moving `agent`, `datasvc` or `config_updater` to scratch. Reachable, but each needs
+  application changes (see below) and none of them blocks arm64.
 
 ## Decisions
 
-**Verification asserts machine type, not manifest shape.** The plan's step 3 named the
-failure mode precisely: an index that *claims* two platforms while both entries hold amd64
-binaries. Such an index passes `docker manifest inspect`, passes every existing scenario in
-the spec, and fails on an arm64 node. So the check extracts the binary and reads its ELF
-machine type. Task 4.3 runs the same check against an already-shipping index as a control —
-a verification step that has never been observed to fail is not yet known to work.
+**Static linking was never the constraint; the userland was.** All seven Go binaries in these
+images were already static — cgo is off repo-wide. So "can it be scratch?" reduces entirely to
+what else the image needs. That split the six cleanly: `trivy_sidecar` and `k8s_inventory`
+ship one binary, exec nothing, and are probed over HTTP, so they need no userland at all.
+`datasvc` and `config_updater` have shell-script entrypoints (used by helm, not only compose),
+`agent` has a `CMD-SHELL` healthcheck and a large plugin/subprocess surface, and `tools` is an
+interactive bash/psql/nats shell by definition.
 
-**Six images land together, not one at a time.** Each target platform is a new cache
-generation, because the cc toolchain is part of every action key; arm64 actions share no
-cache with amd64. The hermetic migration measured what a cold CAS costs here — 69% of build
-capacity spent moving bytes, and a 50-minute build that ran in 4.1s warm. Landing six
-separate changes pays that entry cost six times for one arm64 toolchain.
+**Dropping the netutils bundle beat twinning it.** The obvious fix was to build an arm64
+netutils rootfs. But nothing in `agent`, `trivy_sidecar`, `k8s_inventory`, `datasvc` or
+`config_updater` invokes `ping`, `nmap`, `nc` or `telnet` — the bundle came from
+`Dockerfile.agent` and was flattened onto every service by the macro. Worse, two of its
+binaries could not execute in any of these images: `nmap` is missing four shared-library
+dependencies and `telnet` is missing `libncursesw`. Deleting the bundle from those images is
+less work than twinning it, ships less, and removes two binaries that were already broken.
+`tools` is the one image where the bundle genuinely earns its place, and there it is twinned.
 
-**Eligibility is stated as a payload property.** "Every artifact comes from a Bazel
-toolchain that resolves for the target platform" is checkable by reading the image
-definition. "This image is eligible" is a label someone has to maintain. The distinction
-matters for the CNPG images, where the blocker is not the compiler at all but a pinned
-`http_file`.
+**The netprobe swap is the keystone, and it removes an otherwise permanent blocker.** The
+agent packaged `//rust/netprobe:netprobe` untransitioned, which under the release platform is
+a glibc-dynamic build. That is the sole reason the image carried the sgerrand
+`alpine-pkg-glibc` APK and a hand-made `/lib64/ld-linux-x86-64.so.2`. That APK is x86_64-only
+by design — its own APKINDEX declares `A:x86_64` and no aarch64 asset exists in any release —
+so no amount of base-selector work would have produced an arm64 agent. Static-musl netprobe
+already existed for both architectures with a CI assertion on its linkage; the image just
+wasn't using it.
 
-**Alternatives considered for the Elixir images:** cross-compiling OTP (`--host`/`--build`
-plus `erl_xcomp` files) needs a host bootstrap compiler and `rules_erlang` plumbing — a
-research task, not a configuration change. Native arm64 RBE executors turn that into a
-provisioning task, which is what most BEAM shops do, at the cost of a second executor image
-and a second cold cache. Neither unblocks `core_elx`, whose Membrane archives are amd64-only
-regardless of compiler or executor. Both belong in their own change.
+**Verification asserts ELF machine type, not manifest shape.** An index whose entries are
+mislabelled passes `docker manifest inspect` and every "does it have two entries" check, then
+fails on an arm64 node. `//docker/images:multiarch_index_test` therefore reads the ELF header
+of the packaged binaries. It was negative-controlled: reintroducing the defect made it fail,
+naming exactly the affected images.
+
+**Alternatives considered.** Twinning the netutils rootfs for arm64 (rejected: more work,
+ships broken binaries). Keeping glibc and building an aarch64 glibc APK from source (rejected:
+the dependency was removable outright). Native arm64 RBE executors (rejected: unnecessary —
+cross-compilation works).
 
 ## Risks / Trade-offs
 
-- **A mislabelled arm64 entry ships.** This is the risk the change is organised around;
-  mitigated by task 4.2 and the control in 4.3.
-- **cgo is re-enabled for a Go service later**, silently making an eligible image
-  ineligible. The repo-wide `pure` setting makes this a visible per-target override rather
-  than a default, but nothing enforces it. Accepted for now.
-- **Cold-cache cost lands on whoever builds next.** Bounded, one-time, and measured.
-- **The six untouched images keep publishing amd64-only.** Intended; the spec now says so
-  explicitly rather than leaving it as an unexplained gap.
+- **The four ex-netutils images lose tools operators may expect interactively.** `ping` and
+  `nc` remain as busybox applets in the Alpine base; `nmap` and `telnet` are gone, but neither
+  could execute in these images before. If an undocumented operator workflow depended on them,
+  it was already broken. → `kubectl debug` ephemeral containers.
+- **`tools` on arm64 has no glibc-compat layer.** Every executable it ships is a musl APK or a
+  static Go binary, and `tools-profile.sh` only prepends `/usr/glibc-compat` to
+  `LD_LIBRARY_PATH` defensively. Not verified by running `ldd` inside the image. amd64 keeps
+  glibc, so this risk is arm64-only. → Mitigation is that arm64 Alpine has no glibc-compat
+  concept at all; anything needing it would have to be rebuilt regardless.
+- **No arm64 container has been executed.** Everything here is ELF inspection of built
+  artifacts. → The first arm64 deployment should be treated as a smoke test.
+- **Mixed `variant` annotations**: Alpine entries are `linux/arm64/v8`, scratch entries are
+  `linux/arm64`. Docker and containerd match both. → Unverified against Kyverno admission and
+  the cosign flow; flagged as a follow-up rather than assumed benign.
+- **cgo could be re-enabled for a Go service later**, silently making a scratch image
+  unloadable. The repo-wide `pure` setting makes that a visible per-target override.
 
 ## Migration Plan
 
-Additive. The `push_image` key redirects the aggregate publish path to the index target;
-repositories and tag sets are unchanged, and the amd64 artifact inside each index is the
-same artifact published today. Rollback is removing the `push_image` key, which returns
-that image to pushing its amd64 target — no registry-side cleanup required, since the
-previously published tags are untouched.
+Additive for the index targets: `push_image` redirects the aggregate publish path to the index,
+and repositories and tag sets are unchanged. Not purely additive for image *contents* — the
+four images leaving `alpine_netutils` ship a smaller amd64 userland than before. Rollback for
+any single image is reverting its `runtime` value; rollback for the publish behaviour is
+dropping its `push_image` key, with no registry-side cleanup since prior tags are untouched.
 
 ## Open Questions
 
-- Is arm64 a release requirement, or an Apple Silicon developer convenience? If the latter,
-  native arm64 executors are less attractive than they look, since a laptop can run amd64
-  images under emulation.
-- Do the database images need arm64 at all? Worth closing out explicitly rather than
-  leaving open.
-- Should arm64 archives be raised with `membraneframework-precompiled`? It gates `core_elx`,
-  is outside our control, and has a long lead time — so it is worth asking early even though
-  it is out of scope here.
+- Is `config_updater` still deployed? No helm template references it and compose runs a
+  different script on a stock `alpine:3.20`. If it is dead, deleting it is cheaper than
+  maintaining it on two architectures.
+- Should `agent`, `datasvc` and `config_updater` eventually go to scratch? Each needs its
+  entrypoint script's work moved into its Go binary. Worth pricing separately; none of it
+  blocks arm64.
+- Is arm64 a release requirement or an Apple Silicon developer convenience? It changes how
+  much the remaining six images matter.

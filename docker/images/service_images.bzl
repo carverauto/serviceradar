@@ -331,7 +331,7 @@ def alpine_service_image_amd64(
         image_title = image_title,
     )
 
-def alpine_netutils_service_image_amd64(
+def scratch_service_image_amd64(
         name,
         layer,
         image_title,
@@ -344,26 +344,49 @@ def alpine_netutils_service_image_amd64(
         user = "10001",
         target_compatible_with = None,
         visibility = None):
-    """Create an Alpine-based service image with netutils and common tools."""
+    """Create a base-less (scratch) image for a service that is one static binary.
+
+    Only for services that ship a single statically linked binary, call nothing through
+    os/exec, and are probed over the network rather than by a shell. There is no libc, no
+    shell and no busybox in here, so a script entrypoint or a CMD-SHELL healthcheck will not
+    run, and neither failure is visible at build time.
+
+    `os` and `architecture` are literal attributes that rules_oci requires when there is no
+    base image to inherit them from, and the oci_image_index platform transition does NOT
+    populate them. Hardcoding architecture is precisely how an index comes to advertise two
+    platforms while both entries report amd64, so it goes through the same _platform_select
+    every base image uses.
+    """
 
     if env == None:
         env = {}
     if extra_tars == None:
         extra_tars = []
+    if entrypoint == None:
+        entrypoint = []
+    if cmd == None:
+        cmd = []
+    if exposed_ports == None:
+        exposed_ports = []
+    if target_compatible_with == None:
+        target_compatible_with = []
 
-    service_image_amd64(
+    oci_image(
         name = name,
-        base = "@alpine_3_20_linux_amd64//:alpine_3_20_linux_amd64",
-        tars = [":alpine_netutils_rootfs_amd64", ":common_tools_amd64"] + extra_tars + [layer],
+        architecture = _platform_select("amd64", "arm64"),
+        os = "linux",
+        tars = [":serviceradar_user_layer"] + extra_tars + [layer],
         entrypoint = entrypoint,
         cmd = cmd,
         env = _service_env(env),
         workdir = workdir,
-        exposed_ports = exposed_ports,
         user = user,
+        exposed_ports = exposed_ports,
         target_compatible_with = target_compatible_with,
+        labels = {
+            "org.opencontainers.image.title": image_title,
+        },
         visibility = visibility,
-        image_title = image_title,
     )
 
 def ubuntu_service_image_amd64(
@@ -505,20 +528,6 @@ def declare_service_container_amd64(
             target_compatible_with = target_compatible_with,
             visibility = visibility,
         )
-    elif runtime == "alpine_netutils":
-        alpine_netutils_service_image_amd64(
-            name = name,
-            layer = layer_label,
-            image_title = image_title,
-            entrypoint = entrypoint,
-            cmd = cmd,
-            env = env,
-            workdir = workdir,
-            exposed_ports = exposed_ports,
-            extra_tars = extra_tars,
-            target_compatible_with = target_compatible_with,
-            visibility = visibility,
-        )
     elif runtime == "ubuntu":
         ubuntu_service_image_amd64(
             name = name,
@@ -535,6 +544,20 @@ def declare_service_container_amd64(
         )
     elif runtime == "debian":
         debian_service_image_amd64(
+            name = name,
+            layer = layer_label,
+            image_title = image_title,
+            entrypoint = entrypoint,
+            cmd = cmd,
+            env = env,
+            workdir = workdir,
+            exposed_ports = exposed_ports,
+            extra_tars = extra_tars,
+            target_compatible_with = target_compatible_with,
+            visibility = visibility,
+        )
+    elif runtime == "scratch":
+        scratch_service_image_amd64(
             name = name,
             layer = layer_label,
             image_title = image_title,

@@ -520,6 +520,7 @@ oci_ext.pull(
     image = "registry.carverauto.dev/mirror/library/alpine:3.24",
     platforms = [
         "linux/amd64",
+        "linux/arm64/v8",
     ],
 )
 oci_ext.pull(
@@ -629,6 +630,7 @@ use_repo(
     "alpine_3_20_linux_arm64_v8",
     "alpine_3_24",
     "alpine_3_24_linux_amd64",
+    "alpine_3_24_linux_arm64_v8",
     "arc_runner",
     "arc_runner_linux_amd64",
     "cloudnativepg_postgresql_18",
@@ -1527,10 +1529,26 @@ http_file(
 )
 
 http_file(
+    name = "alpine_iputils_ping_apk_arm64",
+    sha256 = "ea1a562e247b8656ce3acd39378f2e8747b867175b01ad6189504daf4a3937c5",
+    urls = [
+        "https://dl-cdn.alpinelinux.org/alpine/v3.20/main/aarch64/iputils-ping-20240117-r0.apk",
+    ],
+)
+
+http_file(
     name = "alpine_nmap_apk",
     sha256 = "4259d97c8f0d59c74e090950d1b33d303da3d1122ea3a636308786292996d131",
     urls = [
         "https://dl-cdn.alpinelinux.org/alpine/v3.20/main/x86_64/nmap-7.95-r0.apk",
+    ],
+)
+
+http_file(
+    name = "alpine_nmap_apk_arm64",
+    sha256 = "c3f029f9d57cea11918aced42eeafda13dd522619868a196f0b36d03d9bd2043",
+    urls = [
+        "https://dl-cdn.alpinelinux.org/alpine/v3.20/main/aarch64/nmap-7.95-r0.apk",
     ],
 )
 
@@ -1543,10 +1561,26 @@ http_file(
 )
 
 http_file(
+    name = "alpine_netcat_openbsd_apk_arm64",
+    sha256 = "d7a07cf53de0584b12ae3233df7640e7815db2fc5c6ba69a76510668b0c70733",
+    urls = [
+        "https://dl-cdn.alpinelinux.org/alpine/v3.20/main/aarch64/netcat-openbsd-1.226-r0.apk",
+    ],
+)
+
+http_file(
     name = "alpine_inetutils_telnet_apk",
     sha256 = "75e4ddbbd4f2f59558ca2603f38ef22cc48bb8f0b20f2f232a7e8ed1a40e07f6",
     urls = [
         "https://dl-cdn.alpinelinux.org/alpine/v3.20/community/x86_64/inetutils-telnet-2.5-r0.apk",
+    ],
+)
+
+http_file(
+    name = "alpine_inetutils_telnet_apk_arm64",
+    sha256 = "d115b06dde9d1163fa1ce9e96a99492c7a5b559bc87b854f80bd4fcdffbc7974",
+    urls = [
+        "https://dl-cdn.alpinelinux.org/alpine/v3.20/community/aarch64/inetutils-telnet-2.5-r0.apk",
     ],
 )
 
@@ -1559,10 +1593,26 @@ http_file(
 )
 
 http_file(
+    name = "alpine_libcap2_apk_arm64",
+    sha256 = "80cfbaffa9b278a4a4cbb0ebe0290232925dcaa9d6b45673b2b1cd6c6d92b200",
+    urls = [
+        "https://dl-cdn.alpinelinux.org/alpine/v3.20/main/aarch64/libcap2-2.78-r0.apk",
+    ],
+)
+
+http_file(
     name = "alpine_libpcap_apk",
     sha256 = "79b8536d0854612169de44eea053423daa07fde6ab836edaee9444143090d8f3",
     urls = [
         "https://dl-cdn.alpinelinux.org/alpine/v3.20/main/x86_64/libpcap-1.10.4-r1.apk",
+    ],
+)
+
+http_file(
+    name = "alpine_libpcap_apk_arm64",
+    sha256 = "ad4265e548c457143d2b43f0b972c17670150bc2dfe6ad65da8ed6fdb0b7b920",
+    urls = [
+        "https://dl-cdn.alpinelinux.org/alpine/v3.20/main/aarch64/libpcap-1.10.4-r1.apk",
     ],
 )
 
@@ -1575,6 +1625,14 @@ http_file(
 )
 
 http_file(
+    name = "alpine_libbsd_apk_arm64",
+    sha256 = "5685d7302b4bbb5665e6ad3e59c61e4cfa69bd2c78911f4fae5d2439b0088eba",
+    urls = [
+        "https://dl-cdn.alpinelinux.org/alpine/v3.20/main/aarch64/libbsd-0.12.2-r0.apk",
+    ],
+)
+
+http_file(
     name = "alpine_libmd_apk",
     sha256 = "831be0b851d8dbf0cb9e9412cba2e799d24cebea966660bb863426c6d18e88eb",
     urls = [
@@ -1583,10 +1641,26 @@ http_file(
 )
 
 http_file(
+    name = "alpine_libmd_apk_arm64",
+    sha256 = "48ef621c994f1ed7a56b6ecac6534a0dff889e067384e5863a742adf73b3b2c2",
+    urls = [
+        "https://dl-cdn.alpinelinux.org/alpine/v3.20/main/aarch64/libmd-1.1.0-r0.apk",
+    ],
+)
+
+http_file(
     name = "alpine_bash_apk",
     sha256 = "132bb6f77fcad208b44b54d1fd73cb5e02cfea18f884b399f8de0e38b5134a93",
     urls = [
         "https://dl-cdn.alpinelinux.org/alpine/v3.20/main/x86_64/bash-5.2.26-r0.apk",
+    ],
+)
+
+http_file(
+    name = "alpine_bash_apk_arm64",
+    sha256 = "081b0a361203d37732fdc65412c9bb2d5944e7dc198c76d23b4cb30743d8c461",
+    urls = [
+        "https://dl-cdn.alpinelinux.org/alpine/v3.20/main/aarch64/bash-5.2.26-r0.apk",
     ],
 )
 
@@ -1607,10 +1681,26 @@ http_file(
 )
 
 http_file(
+    name = "alpine_libncursesw_apk_arm64",
+    sha256 = "0def98cbfab5e85e4ddfacd85840d79039f60a7e9a7717294ffa68a9c63370d8",
+    urls = [
+        "https://dl-cdn.alpinelinux.org/alpine/v3.20/main/aarch64/libncursesw-6.4_p20240420-r2.apk",
+    ],
+)
+
+http_file(
     name = "alpine_ncurses_terminfo_base_apk",
     sha256 = "555948e6b67d4bddc213673843a63bbd3d30548133bdff8aff9e66988285ae7e",
     urls = [
         "https://dl-cdn.alpinelinux.org/alpine/v3.20/main/x86_64/ncurses-terminfo-base-6.4_p20240420-r2.apk",
+    ],
+)
+
+http_file(
+    name = "alpine_ncurses_terminfo_base_apk_arm64",
+    sha256 = "82141d0035a58317791e139a0b68c0837c98c0836bc0bafb10bb16adf0bcc7bd",
+    urls = [
+        "https://dl-cdn.alpinelinux.org/alpine/v3.20/main/aarch64/ncurses-terminfo-base-6.4_p20240420-r2.apk",
     ],
 )
 
@@ -1623,10 +1713,26 @@ http_file(
 )
 
 http_file(
+    name = "alpine_readline_apk_arm64",
+    sha256 = "9e69da5ea8ff8c0bdde1ffa272ec4287684eebda8fdfe0f4a45d842d0ff787e6",
+    urls = [
+        "https://dl-cdn.alpinelinux.org/alpine/v3.20/main/aarch64/readline-8.2.10-r0.apk",
+    ],
+)
+
+http_file(
     name = "alpine_3_24_bash_apk",
     sha256 = "4ad962f26fb3c68365171233fe61e3c51bbee1cab35e8dc661198233daeab0dd",
     urls = [
         "https://dl-cdn.alpinelinux.org/alpine/v3.24/main/x86_64/bash-5.3.9-r1.apk",
+    ],
+)
+
+http_file(
+    name = "alpine_3_24_bash_apk_arm64",
+    sha256 = "95f4f976bdf2f4ca18ff41c32916eb6d7b12a0dae12504d55d04427460d6542f",
+    urls = [
+        "https://dl-cdn.alpinelinux.org/alpine/v3.24/main/aarch64/bash-5.3.9-r1.apk",
     ],
 )
 
@@ -1639,10 +1745,26 @@ http_file(
 )
 
 http_file(
+    name = "alpine_3_24_openssl_apk_arm64",
+    sha256 = "d024c35b869e5d4f92478affbcefe09c99c2ba2ada6816f6885b3fad1151cdbc",
+    urls = [
+        "https://dl-cdn.alpinelinux.org/alpine/v3.24/main/aarch64/openssl-3.5.7-r0.apk",
+    ],
+)
+
+http_file(
     name = "alpine_3_24_libssl3_apk",
     sha256 = "84b1da6cb64ab8018c3dcfb80647c03b14d609de3d49ff90dd8356f63836217e",
     urls = [
         "https://dl-cdn.alpinelinux.org/alpine/v3.24/main/x86_64/libssl3-3.5.7-r0.apk",
+    ],
+)
+
+http_file(
+    name = "alpine_3_24_libssl3_apk_arm64",
+    sha256 = "7b8f7b8b83d799987ad892ff16efd838368e778b4406bd5f4b046547ab7e5551",
+    urls = [
+        "https://dl-cdn.alpinelinux.org/alpine/v3.24/main/aarch64/libssl3-3.5.7-r0.apk",
     ],
 )
 
@@ -1655,10 +1777,26 @@ http_file(
 )
 
 http_file(
+    name = "alpine_3_24_libcrypto3_apk_arm64",
+    sha256 = "936ce77a0f5621c9ebc91395d01c62d1127b13e6981d5eb55cdcae7a389540d0",
+    urls = [
+        "https://dl-cdn.alpinelinux.org/alpine/v3.24/main/aarch64/libcrypto3-3.5.7-r0.apk",
+    ],
+)
+
+http_file(
     name = "alpine_3_24_readline_apk",
     sha256 = "766911ecb986a6c5cf0841a6b556cd1e9dbbf22b3559726de32416486cd15c81",
     urls = [
         "https://dl-cdn.alpinelinux.org/alpine/v3.24/main/x86_64/readline-8.3.3-r1.apk",
+    ],
+)
+
+http_file(
+    name = "alpine_3_24_readline_apk_arm64",
+    sha256 = "9f0ae0923c02b0d6aba62e9173542b65396ba3f0efefcbf087ea32f1120e7b34",
+    urls = [
+        "https://dl-cdn.alpinelinux.org/alpine/v3.24/main/aarch64/readline-8.3.3-r1.apk",
     ],
 )
 
@@ -1671,10 +1809,26 @@ http_file(
 )
 
 http_file(
+    name = "alpine_3_24_libncursesw_apk_arm64",
+    sha256 = "51a7aa4b3ec40b144d0801c0544e0a9f62e2a41d04b6067bb5e95786040741c6",
+    urls = [
+        "https://dl-cdn.alpinelinux.org/alpine/v3.24/main/aarch64/libncursesw-6.6_p20260516-r0.apk",
+    ],
+)
+
+http_file(
     name = "alpine_3_24_ncurses_terminfo_base_apk",
     sha256 = "ce83be6d0bd10584a53c3a5868cc1595ce5f0f8e0b621f8f7f70b6144e521fc9",
     urls = [
         "https://dl-cdn.alpinelinux.org/alpine/v3.24/main/x86_64/ncurses-terminfo-base-6.6_p20260516-r0.apk",
+    ],
+)
+
+http_file(
+    name = "alpine_3_24_ncurses_terminfo_base_apk_arm64",
+    sha256 = "e0c546b9461bdce206a90bc720cb69aa4628b5a5b8d908c3e5084e00f28f6a9d",
+    urls = [
+        "https://dl-cdn.alpinelinux.org/alpine/v3.24/main/aarch64/ncurses-terminfo-base-6.6_p20260516-r0.apk",
     ],
 )
 
@@ -1687,10 +1841,26 @@ http_file(
 )
 
 http_file(
+    name = "alpine_3_24_postgresql_common_apk_arm64",
+    sha256 = "ecddbd6272f5034f30d78ff59634c07f862a13a2ad3d29078c0e7985b827fc73",
+    urls = [
+        "https://dl-cdn.alpinelinux.org/alpine/v3.24/main/aarch64/postgresql-common-1.3-r0.apk",
+    ],
+)
+
+http_file(
     name = "alpine_3_24_postgresql18_client_apk",
     sha256 = "d7edf2ff2d70dcb63a88d7b95b08134c4de644a4f5467807bed2ba70327f6011",
     urls = [
         "https://dl-cdn.alpinelinux.org/alpine/v3.24/main/x86_64/postgresql18-client-18.4-r0.apk",
+    ],
+)
+
+http_file(
+    name = "alpine_3_24_postgresql18_client_apk_arm64",
+    sha256 = "a92cb2f06b43d262521b84f85f529f774d75362cceae9d3e8aaeb45406befa8b",
+    urls = [
+        "https://dl-cdn.alpinelinux.org/alpine/v3.24/main/aarch64/postgresql18-client-18.4-r0.apk",
     ],
 )
 
@@ -1703,6 +1873,14 @@ http_file(
 )
 
 http_file(
+    name = "alpine_3_24_libpq_apk_arm64",
+    sha256 = "d6e4808216810535808523980a78608569be2318cf05e6034ffb03f519e91a56",
+    urls = [
+        "https://dl-cdn.alpinelinux.org/alpine/v3.24/main/aarch64/libpq-18.4-r0.apk",
+    ],
+)
+
+http_file(
     name = "alpine_3_24_lz4_libs_apk",
     sha256 = "3ad4912ab8ecf5f6236fdb751f88243006b3a8f152684e455b781e16284dd298",
     urls = [
@@ -1711,10 +1889,26 @@ http_file(
 )
 
 http_file(
+    name = "alpine_3_24_lz4_libs_apk_arm64",
+    sha256 = "af6cbe553adda941e04ac40cf0123455b714d65392472389113e7d6dcebbd8d8",
+    urls = [
+        "https://dl-cdn.alpinelinux.org/alpine/v3.24/main/aarch64/lz4-libs-1.10.0-r1.apk",
+    ],
+)
+
+http_file(
     name = "alpine_3_24_zstd_libs_apk",
     sha256 = "23c6065b0049b2406441564bcf0032515a43f78e80d76fcb85535a3803ef5d4e",
     urls = [
         "https://dl-cdn.alpinelinux.org/alpine/v3.24/main/x86_64/zstd-libs-1.5.7-r2.apk",
+    ],
+)
+
+http_file(
+    name = "alpine_3_24_zstd_libs_apk_arm64",
+    sha256 = "2bb5136c89f5b0bbe1554c8915a3b520d5aa63ae2a51d4d821eb81698db5a818",
+    urls = [
+        "https://dl-cdn.alpinelinux.org/alpine/v3.24/main/aarch64/zstd-libs-1.5.7-r2.apk",
     ],
 )
 
@@ -1751,6 +1945,18 @@ exports_files(["nats"])
     strip_prefix = "nats-0.3.0-linux-amd64",
     urls = [
         "https://github.com/nats-io/natscli/releases/download/v0.3.0/nats-0.3.0-linux-amd64.zip",
+    ],
+)
+
+http_archive(
+    name = "natscli_linux_arm64",
+    build_file_content = """
+exports_files(["nats"])
+""",
+    sha256 = "88020e82d4b65037d22b6d0313e61f1ceae5a24c68cad0dd405e54c4a4d7fe1c",
+    strip_prefix = "nats-0.3.0-linux-arm64",
+    urls = [
+        "https://github.com/nats-io/natscli/releases/download/v0.3.0/nats-0.3.0-linux-arm64.zip",
     ],
 )
 
