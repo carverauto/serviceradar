@@ -103,7 +103,9 @@ defmodule ServiceRadarWebNGWeb.SRQL.CatalogCompositeTest do
       entity = Enum.find(Catalog.entities(), &(&1.id == "composite_results"))
 
       assert entity
-      assert entity.route == "/settings/networks"
+      # The builder route now exists, so the catalog points at it rather than at
+      # the parent Networks page it fell back to before plan 3 landed.
+      assert entity.route == "/settings/networks/composite-checks"
       assert "check" in entity.filter_fields
       assert "verdict" in entity.filter_fields
       assert "status" in entity.filter_fields
