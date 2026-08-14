@@ -191,6 +191,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index.EventHandlers.Profile
 
   def handle_event("validate_profile", %{"form" => params}, socket) do
     params = transform_profile_params(params)
+    banner_grab_draft = Map.get(params, "banner_grab") || socket.assigns[:banner_grab_draft]
 
     ash_form = Form.validate(socket.assigns.ash_form, params)
 
@@ -215,6 +216,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index.EventHandlers.Profile
     {:noreply,
      socket
      |> assign(:ash_form, ash_form)
-     |> assign(:form, to_form(ash_form))}
+     |> assign(:form, to_form(ash_form))
+     |> assign(:banner_grab_draft, banner_grab_draft)}
   end
 end

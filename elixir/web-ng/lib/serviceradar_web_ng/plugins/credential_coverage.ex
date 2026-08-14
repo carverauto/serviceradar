@@ -91,7 +91,8 @@ defmodule ServiceRadarWebNG.Plugins.CredentialCoverage do
   @spec warning_message(coverage() | term(), String.t()) :: String.t() | nil
   def warning_message(%{state: :uncovered, provider: provider, purpose: purpose}, agent_uid) do
     "No enabled #{provider} #{purpose} credential rule covers agent #{agent_uid}. " <>
-      "Materialized inputs will be missing at runtime until a matching rule is enabled."
+      "Create the secret and rule in Settings -> Networks -> Credentials, then assign this plugin. " <>
+      "Do not paste passwords into the plugin form."
   end
 
   def warning_message(_coverage, _agent_uid), do: nil

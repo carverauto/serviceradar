@@ -17,8 +17,11 @@ defmodule ServiceRadarWebNG.JobCatalogTest do
   use ExUnit.Case, async: false
 
   alias ServiceRadar.Integrations.ArmisNorthboundRunWorker
+  alias ServiceRadar.Inventory.DeviceHostnameRdnsSettings.Scheduler
   alias ServiceRadar.ObjectStore.RetentionWorker, as: ObjectStoreRetentionWorker
   alias ServiceRadarWebNG.Jobs.JobCatalog
+
+  @moduletag :db_free
 
   @plugin_blob_retention_worker Module.concat([
                                   "ServiceRadarWebNG",
@@ -96,6 +99,21 @@ defmodule ServiceRadarWebNG.JobCatalogTest do
     assert {:ok, plugin_job} = JobCatalog.get_job("manual:plugin_blob_retention")
     assert plugin_job.source == :manual
     assert plugin_job.worker == @plugin_blob_retention_worker
+  end
+
+  test "ash_oban hostname rDNS catalog entry points Run at the scheduler" do
+    job =
+      Enum.find(
+        JobCatalog.ash_oban_jobs(),
+        &(&1.resource == ServiceRadar.Inventory.DeviceHostnameRdnsSettings)
+      )
+
+    assert job
+    assert job.worker == ServiceRadar.Inventory.DeviceHostnameRdnsSettings.Worker
+    assert job.scheduler == Scheduler
+
+    assert JobCatalog.ash_oban_trigger_module(job) ==
+             Scheduler
   end
 
   test "trigger_job delegates manual Armis entries to the worker entrypoint" do

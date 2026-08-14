@@ -495,6 +495,31 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLiveTest do
     refute html =~ "name=\"partition_id\""
   end
 
+  test "does not enable assign until the selected agent has a live control session", %{
+    conn: conn,
+    actor: actor
+  } do
+    gateway =
+      gateway_fixture(%{id: "plugin-offline-preview-gw", component_id: "plugin-offline-preview-component"})
+
+    agent =
+      agent_fixture(gateway, %{uid: "agent-offline-preview-plugin", name: "Agent Offline Preview Plugin"})
+
+    package = create_approved_package_version!(actor, "live-offline-preview-plugin", "1.0.0")
+    {:ok, lv, _html} = live(conn, ~p"/admin/plugins/#{package.id}")
+
+    html =
+      lv
+      |> form("form[phx-submit='create_assignment']", %{
+        "assignment" => %{"agent_uid" => agent.uid}
+      })
+      |> render_change()
+
+    assert html =~ "Authenticated partition: unavailable"
+    assert html =~ "No live authenticated control session"
+    assert html =~ ~s(disabled)
+  end
+
   test "hides quarantined manual history from the normal assignment workflow", %{
     conn: conn,
     actor: actor

@@ -65,6 +65,9 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Data.DbTimeHelpers do
       defp anchored_expr(true, anchor_expr, fallback_expr), do: "COALESCE(#{anchor_expr}, #{fallback_expr})"
       defp anchored_expr(false, _anchor_expr, fallback_expr), do: fallback_expr
 
+      defp ipinfo_coalesce(true, primary_expr, ipinfo_expr), do: "COALESCE(#{primary_expr}, #{ipinfo_expr})"
+      defp ipinfo_coalesce(false, primary_expr, _ipinfo_expr), do: primary_expr
+
       defp anchored_label_expr(true, anchor_alias, fallback_expr),
         do: "COALESCE(#{anchor_alias}.location_label, #{anchor_alias}.label, #{fallback_expr})"
 

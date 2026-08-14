@@ -7,7 +7,7 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph.Telemetry.Metrics do
   alias ServiceRadar.NetworkDiscovery.TopologyGraph.Utils
   alias ServiceRadar.Repo
 
-  @telemetry_window_minutes 10
+  @telemetry_window_minutes 30
 
   def telemetry_metric_keys(edges) when is_list(edges) do
     edges
@@ -98,7 +98,12 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph.Telemetry.Metrics do
             type(^accepted_metric_ips, {:array, :string})
           ),
         where: fragment("? = ANY(?)", m.if_index, type(^if_indexes, {:array, :integer})),
-        where: fragment("? = ANY(?)", m.metric_name, type(^metric_names, {:array, :string})),
+        where:
+          fragment(
+            "split_part(?, '::', 1) = ANY(?)",
+            m.metric_name,
+            type(^metric_names, {:array, :string})
+          ),
         where: m.timestamp > ago(@telemetry_window_minutes, "minute"),
         distinct: [m.device_id, m.target_device_ip, m.if_index, m.metric_name],
         order_by: [
@@ -174,19 +179,19 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph.Telemetry.Metrics do
     end
   end
 
-  defp packet_metric_direction(metric_name)
-       when metric_name in ["ifInUcastPkts", "ifHCInUcastPkts"], do: :in
+  defp packet_metric_direction(metric_name) do
+    case Utils.base_metric_name(metric_name) do
+      name when name in ["ifInUcastPkts", "ifHCInUcastPkts"] -> :in
+      name when name in ["ifOutUcastPkts", "ifHCOutUcastPkts"] -> :out
+      _ -> nil
+    end
+  end
 
-  defp packet_metric_direction(metric_name)
-       when metric_name in ["ifOutUcastPkts", "ifHCOutUcastPkts"], do: :out
-
-  defp packet_metric_direction(_), do: nil
-
-  defp octet_metric_direction(metric_name) when metric_name in ["ifInOctets", "ifHCInOctets"],
-    do: :in
-
-  defp octet_metric_direction(metric_name) when metric_name in ["ifOutOctets", "ifHCOutOctets"],
-    do: :out
-
-  defp octet_metric_direction(_), do: nil
+  defp octet_metric_direction(metric_name) do
+    case Utils.base_metric_name(metric_name) do
+      name when name in ["ifInOctets", "ifHCInOctets"] -> :in
+      name when name in ["ifOutOctets", "ifHCOutOctets"] -> :out
+      _ -> nil
+    end
+  end
 end

@@ -31,6 +31,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/exporters/otlp/otlplog/otlploggrpc"
 	log "go.opentelemetry.io/otel/log"
 	"go.opentelemetry.io/otel/log/global"
@@ -186,7 +187,7 @@ func (w *OTelWriter) Write(p []byte) (n int, err error) {
 	}
 
 	if message, ok := logEntry["message"].(string); ok {
-		record.SetBody(log.StringValue(message))
+		record.SetBody(attribute.StringValue(message))
 		delete(logEntry, "message")
 	}
 
@@ -215,11 +216,11 @@ func (w *OTelWriter) Write(p []byte) (n int, err error) {
 	// Add all remaining fields as attributes.
 	sanitized, truncatedKeys := sanitizeLogEntry(logEntry)
 	for key, value := range sanitized {
-		record.AddAttributes(log.String(key, value))
+		record.AddAttributes(attribute.String(key, value))
 	}
 
 	if len(truncatedKeys) > 0 {
-		record.AddAttributes(log.String(truncatedKeysAttribute, strings.Join(truncatedKeys, ",")))
+		record.AddAttributes(attribute.String(truncatedKeysAttribute, strings.Join(truncatedKeys, ",")))
 	}
 
 	logger.Emit(w.ctx, record)

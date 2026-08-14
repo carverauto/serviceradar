@@ -53,7 +53,8 @@ defmodule ServiceRadar.SweepJobs.SweepGroup do
     :ports,
     :sweep_modes,
     :overrides,
-    :profile_id
+    :profile_id,
+    :emit_availability_events
   ]
 
   postgres do
@@ -225,6 +226,13 @@ defmodule ServiceRadar.SweepJobs.SweepGroup do
       public? true
       default true
       description "Whether this group is active"
+    end
+
+    attribute :emit_availability_events, :boolean do
+      allow_nil? false
+      public? true
+      default false
+      description "Emit device.unavailable / device.available logs when sweep flips is_available"
     end
 
     # Schedule configuration

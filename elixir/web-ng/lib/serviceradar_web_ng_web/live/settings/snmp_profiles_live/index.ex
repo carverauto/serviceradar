@@ -56,6 +56,8 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index do
         |> assign(:available_templates, Data.load_all_templates(scope))
         |> assign(:selected_template_ids, [])
         |> assign(:agents, Data.load_agents(scope))
+        |> assign(:save_credential_as_reusable, false)
+        |> assign(:credential_name, "")
 
       {:ok, socket}
     else

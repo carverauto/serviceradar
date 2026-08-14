@@ -92,6 +92,29 @@ describe("lifecycle_dom_setup_methods", () => {
     expect(state.userCameraLocked).toBe(true)
   })
 
+  it("handleDetailsPanelClick closes the details card", () => {
+    const state = {}
+    const deps = {focusNodeByIndex: vi.fn(), handlePick: vi.fn()}
+    const ctx = createStateBackedContext(state, deps)
+    Object.assign(ctx, bindApi(ctx, godViewLifecycleDomSetupMethods))
+
+    const action = {getAttribute: () => null}
+    const event = {
+      target: {
+        closest: (selector) => (selector === "[data-close-details]" ? action : null),
+      },
+      preventDefault: vi.fn(),
+      stopPropagation: vi.fn(),
+    }
+
+    ctx.handleDetailsPanelClick(event)
+
+    expect(event.preventDefault).toHaveBeenCalledTimes(1)
+    expect(event.stopPropagation).toHaveBeenCalledTimes(1)
+    expect(deps.handlePick).toHaveBeenCalledWith({picked: false, object: null, index: -1, layer: null})
+    expect(deps.focusNodeByIndex).not.toHaveBeenCalled()
+  })
+
   it("handleDetailsPanelClick navigates device links", () => {
     const state = {}
     const deps = {focusNodeByIndex: vi.fn()}

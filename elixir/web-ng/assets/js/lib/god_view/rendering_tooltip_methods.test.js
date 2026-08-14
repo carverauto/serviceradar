@@ -20,6 +20,7 @@ function buildContext() {
     escapeHtml: (value) => String(value == null ? "" : value),
     renderGraph: () => {},
     edgeLayerId: godViewRenderingTooltipMethods.edgeLayerId,
+    nodeLayerId: godViewRenderingTooltipMethods.nodeLayerId,
     displayNodeLabel: godViewRenderingTooltipMethods.displayNodeLabel,
   }
 }
@@ -185,6 +186,10 @@ describe("rendering_tooltip_methods", () => {
 
     ctx.handleHover({layer: {id: "god-view-node-labels"}, object: {index: 5}})
     expect(ctx.state.hoveredNodeIndex).toEqual(5)
+    expect(ctx.state.canvas.style.cursor).toEqual("pointer")
+
+    ctx.handleHover({layer: {id: "god-view-nodes-hitbox"}, object: {index: 7}})
+    expect(ctx.state.hoveredNodeIndex).toEqual(7)
     expect(ctx.state.canvas.style.cursor).toEqual("pointer")
 
     ctx.handleHover({layer: {id: "god-view-nodes"}, object: null})

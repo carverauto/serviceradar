@@ -16,27 +16,19 @@ defmodule ServiceRadar.Edge.Workers.RecordEventWorker do
   alias ServiceRadar.Edge.OnboardingEvent
   alias ServiceRadar.Oban.Router
 
+  @event_types [:created, :delivered, :activated, :revoked, :deleted, :expired]
+
   @impl Oban.Worker
   def perform(%Oban.Job{args: args}) do
-    event_time = parse_event_time(args["event_time"])
+    with {:ok, attrs} <- cast_args(args) do
+      actor = SystemActor.system(:record_event)
 
-    # Simple actor - DB connection's search_path determines the schema
-    actor = SystemActor.system(:record_event)
-
-    attrs = %{
-      event_time: event_time,
-      package_id: args["package_id"],
-      event_type: String.to_existing_atom(args["event_type"]),
-      actor: args["actor"],
-      source_ip: args["source_ip"],
-      details_json: args["details"] || %{}
-    }
-
-    case OnboardingEvent
-         |> Ash.Changeset.for_create(:record, attrs, actor: actor)
-         |> Ash.create() do
-      {:ok, _event} -> :ok
-      {:error, error} -> {:error, error}
+      case OnboardingEvent
+           |> Ash.Changeset.for_create(:record, attrs, actor: actor)
+           |> Ash.create() do
+        {:ok, _event} -> :ok
+        {:error, error} -> {:error, error}
+      end
     end
   end
 
@@ -44,24 +36,80 @@ defmodule ServiceRadar.Edge.Workers.RecordEventWorker do
   Enqueues an event recording job.
   """
   @spec enqueue(String.t(), String.t() | atom(), keyword()) ::
-          {:ok, Oban.Job.t()} | {:error, Ecto.Changeset.t()}
+          {:ok, Oban.Job.t()} | {:error, term()}
   def enqueue(package_id, event_type, opts \\ []) do
-    event_type_str =
-      if is_atom(event_type), do: Atom.to_string(event_type), else: event_type
-
-    args = %{
-      "package_id" => package_id,
-      "event_type" => event_type_str,
-      "event_time" => DateTime.to_iso8601(DateTime.utc_now()),
-      "actor" => Keyword.get(opts, :actor),
-      "source_ip" => Keyword.get(opts, :source_ip),
-      "details" => Keyword.get(opts, :details, %{})
-    }
-
-    %{args: args}
-    |> new()
-    |> Router.insert()
+    with {:ok, event_type_atom} <- normalize_event_type(event_type) do
+      %{
+        "package_id" => package_id,
+        "event_type" => Atom.to_string(event_type_atom),
+        "event_time" => DateTime.to_iso8601(DateTime.utc_now()),
+        "actor" => stringify_actor(Keyword.get(opts, :actor)),
+        "source_ip" => stringify_optional(Keyword.get(opts, :source_ip)),
+        "details" => Keyword.get(opts, :details, %{})
+      }
+      |> new()
+      |> Router.insert()
+    end
   end
+
+  @doc false
+  def cast_args(args) when is_map(args) do
+    args = unwrap_args(args)
+
+    with {:ok, event_type} <- normalize_event_type(fetch_arg(args, "event_type")) do
+      {:ok,
+       %{
+         event_time: parse_event_time(fetch_arg(args, "event_time")),
+         package_id: fetch_arg(args, "package_id"),
+         event_type: event_type,
+         actor: stringify_actor(fetch_arg(args, "actor")),
+         source_ip: stringify_optional(fetch_arg(args, "source_ip")),
+         details_json: fetch_arg(args, "details") || %{}
+       }}
+    end
+  end
+
+  def cast_args(_), do: {:discard, :invalid_event_args}
+
+  # Old enqueue/3 called `new(%{args: inner})`, so Oban stored
+  # %{"args" => %{"event_type" => ..., ...}}. perform/1 then saw a nil
+  # event_type and crashed in String.to_existing_atom/1.
+  defp unwrap_args(%{"args" => inner}) when is_map(inner), do: unwrap_args(inner)
+  defp unwrap_args(%{args: inner}) when is_map(inner), do: unwrap_args(inner)
+  defp unwrap_args(args), do: args
+
+  defp fetch_arg(args, "event_type"),
+    do: Map.get(args, "event_type") || Map.get(args, :event_type)
+
+  defp fetch_arg(args, "event_time"),
+    do: Map.get(args, "event_time") || Map.get(args, :event_time)
+
+  defp fetch_arg(args, "package_id"),
+    do: Map.get(args, "package_id") || Map.get(args, :package_id)
+
+  defp fetch_arg(args, "actor"), do: Map.get(args, "actor") || Map.get(args, :actor)
+  defp fetch_arg(args, "source_ip"), do: Map.get(args, "source_ip") || Map.get(args, :source_ip)
+  defp fetch_arg(args, "details"), do: Map.get(args, "details") || Map.get(args, :details)
+
+  defp normalize_event_type(type) when type in @event_types, do: {:ok, type}
+
+  defp normalize_event_type(type) when is_binary(type) do
+    case Enum.find(@event_types, &(Atom.to_string(&1) == type)) do
+      nil -> {:discard, :invalid_event_type}
+      atom -> {:ok, atom}
+    end
+  end
+
+  defp normalize_event_type(_), do: {:discard, :invalid_event_type}
+
+  defp stringify_actor(nil), do: "system"
+  defp stringify_actor(actor) when is_binary(actor), do: actor
+  defp stringify_actor(%{email: email}) when is_binary(email), do: email
+  defp stringify_actor(_), do: "system"
+
+  defp stringify_optional(nil), do: nil
+  defp stringify_optional(value) when is_binary(value), do: value
+  defp stringify_optional(value), do: to_string(value)
 
   defp parse_event_time(nil), do: DateTime.utc_now()
 
@@ -72,5 +120,6 @@ defmodule ServiceRadar.Edge.Workers.RecordEventWorker do
     end
   end
 
-  defp parse_event_time(ts), do: ts
+  defp parse_event_time(%DateTime{} = ts), do: ts
+  defp parse_event_time(_), do: DateTime.utc_now()
 end

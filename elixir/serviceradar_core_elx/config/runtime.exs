@@ -399,10 +399,13 @@ topologies =
     []
   end
 
-config :geolix, databases: base_geolite_dbs ++ city_geolite_dbs ++ ipinfo_dbs
+geolite_dbs = base_geolite_dbs ++ city_geolite_dbs ++ ipinfo_dbs
 
 config :serviceradar_core,
-  geolite_mmdb_dir: geolite_dir
+  geolite_mmdb_dir: geolite_dir,
+  geolite_databases: geolite_dbs
+
+config :geolix, databases: ServiceRadar.Observability.GeoIP.present_databases(geolite_dbs)
 
 if topologies != [] do
   config :libcluster, topologies: topologies

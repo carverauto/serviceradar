@@ -31,14 +31,19 @@ Each bundle contains the canonical import shape:
 
 ## Config
 
+Do not put passwords or API keys in the plugin assignment form. Create a UniFi
+Protect credential rule (Settings → Networks → Credentials). The rule
+materializes host and auth into the plugin. See `docs/docs/unifi-protect.md`.
+
+Runtime config after materialization looks like:
+
 ```json
 {
   "host": "udm.example.local",
   "scheme": "https",
-  "username": "local-admin",
-  "password": "secret",
+  "api_key_secret_ref": "credentialref:network-credential-secret:<id>",
   "insecure_skip_verify": true,
-  "timeout": "10s",
+  "timeout_ms": 30000,
   "bootstrap_path": "/proxy/protect/api/bootstrap",
   "login_path": "/api/auth/login",
   "rtsp_port": 7447

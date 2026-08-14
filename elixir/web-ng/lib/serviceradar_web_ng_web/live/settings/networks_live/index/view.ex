@@ -67,6 +67,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index.View do
                 show_form={@show_form}
                 can_enable_banner_grab={@can_enable_banner_grab}
                 banner_preview_device_count={@banner_preview_device_count}
+                banner_grab_draft={Map.get(assigns, :banner_grab_draft)}
               />
             <% else %>
               <%= if @show_form == :show_group do %>
