@@ -1,4 +1,5 @@
 mod availability;
+mod composite;
 mod defaults;
 mod identity;
 mod ip;
@@ -19,6 +20,7 @@ pub(super) use self::{
 
 use self::{
     availability::{apply_agent_availability_filter, apply_availability_source_freshness_filter},
+    composite::{apply_composite_verdict_filter, parse_composite_field},
     defaults::apply_active_filter,
     identity::{apply_device_type_filter, apply_mac_filter},
     ip::apply_ip_filter,
@@ -272,6 +274,15 @@ pub(super) fn apply_filter<'a>(
         }
         "hw_info.cpu_architecture" => {
             query = apply_jsonb_text_filter(query, filter, "hw_info", "cpu_architecture")?;
+        }
+        // Derived from composite check results; not backed by a device column.
+        // Compiled to a correlated EXISTS in filters/composite.rs. Must stay in
+        // lockstep with the matching arm in filters/params.rs.
+        field if field.starts_with("composite.") => {
+            let (slug, column) = parse_composite_field(field).ok_or_else(|| {
+                ServiceError::InvalidRequest(format!("invalid composite check field '{field}'"))
+            })?;
+            query = apply_composite_verdict_filter(query, filter, &slug, column)?;
         }
         // JSONB path queries for metadata (arbitrary keys)
         field if field.starts_with("metadata.") => {

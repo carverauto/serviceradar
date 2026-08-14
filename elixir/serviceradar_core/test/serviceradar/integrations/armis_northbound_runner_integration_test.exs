@@ -329,4 +329,212 @@ defmodule ServiceRadar.Integrations.ArmisNorthboundRunnerIntegrationTest do
 
   defp single_result([result]), do: result
   defp single_result(result), do: result
+
+  describe "composite export wiring" do
+    defp composite_check!(actor, name) do
+      check =
+        ServiceRadar.CompositeChecks.CompositeCheck
+        |> Ash.Changeset.for_create(
+          :create,
+          %{name: name, scope_query: "in:devices"},
+          actor: actor
+        )
+        |> Ash.create!()
+
+      ServiceRadar.CompositeChecks.CompositeCheckInput
+      |> Ash.Changeset.for_create(
+        :create,
+        %{
+          check_id: check.id,
+          key: "witness",
+          label: "witness",
+          position: 0,
+          kind: :vantage_point,
+          expected: "available",
+          config: %{"agent_id" => "witness"}
+        },
+        actor: actor
+      )
+      |> Ash.create!()
+
+      check
+      |> Ash.Changeset.for_update(:enable, %{acknowledge_coverage_gap: true}, actor: actor)
+      |> Ash.update!()
+    end
+
+    defp nb_device!(actor, ip, uid) do
+      create_device!(actor, %{uid: uid, hostname: "nb-#{uid}", ip: ip})
+    end
+
+    defp composite_result!(actor, device_uid, check, verdict, status) do
+      now = DateTime.utc_now()
+
+      ServiceRadar.CompositeChecks.DeviceCompositeCheckResult
+      |> Ash.Changeset.for_create(
+        :upsert,
+        %{
+          device_uid: device_uid,
+          check_id: check.id,
+          verdict: verdict,
+          status: status,
+          inputs: %{},
+          evaluated_at: now,
+          changed_at: now
+        },
+        actor: actor,
+        upsert?: true,
+        upsert_identity: :unique_device_check
+      )
+      |> Ash.create!()
+    end
+
+    defp capture_payloads(source, candidates, actor) do
+      parent = self()
+
+      request = fn _path, _method, _headers, body, _opts ->
+        send(parent, {:payload, body})
+        {:ok, %{status: 200, body: %{"success" => true}}}
+      end
+
+      assert {:ok, _result} =
+               ArmisNorthboundRunner.execute_batches(source, candidates,
+                 token_fetcher: fn _source -> {:ok, "token"} end,
+                 request: request,
+                 actor: actor
+               )
+
+      receive do
+        {:payload, body} -> body
+      after
+        1_000 -> flunk("no bulk payload was sent")
+      end
+    end
+
+    test "a run with a configured export sends the verdict alongside availability", %{
+      actor: actor
+    } do
+      device = nb_device!(actor, "192.0.2.90", "armis-composite-1")
+      check = composite_check!(actor, "NB Verdict #{System.unique_integer([:positive])}")
+      composite_result!(actor, device.uid, check, "not_isolated", :down)
+
+      source =
+        create_source!(actor, "armis-composite-verdict",
+          settings: %{
+            "composite" => %{
+              "check_slug" => check.slug,
+              "value_form" => "verdict",
+              "custom_field" => "sr_isolation"
+            }
+          }
+        )
+
+      candidates = [
+        %{
+          armis_device_id: "armis-composite-1",
+          is_available: true,
+          device_ids: [device.uid],
+          sync_service_ids: [source.id],
+          metadata: %{}
+        }
+      ]
+
+      payload = capture_payloads(source, candidates, actor)
+
+      assert Enum.any?(payload, fn entry ->
+               match?(%{"customProperties" => %{"sr_isolation" => "not_isolated"}}, entry)
+             end),
+             "expected the composite value in #{inspect(payload)}"
+    end
+
+    test "a run with the status form sends the status enum", %{actor: actor} do
+      device = nb_device!(actor, "192.0.2.91", "armis-composite-2")
+      check = composite_check!(actor, "NB Status #{System.unique_integer([:positive])}")
+      composite_result!(actor, device.uid, check, "not_isolated", :down)
+
+      source =
+        create_source!(actor, "armis-composite-status",
+          settings: %{
+            "composite" => %{
+              "check_slug" => check.slug,
+              "value_form" => "status",
+              "custom_field" => "sr_isolation"
+            }
+          }
+        )
+
+      candidates = [
+        %{
+          armis_device_id: "armis-composite-2",
+          is_available: true,
+          device_ids: [device.uid],
+          sync_service_ids: [source.id],
+          metadata: %{}
+        }
+      ]
+
+      payload = capture_payloads(source, candidates, actor)
+
+      assert Enum.any?(payload, fn entry ->
+               match?(%{"customProperties" => %{"sr_isolation" => "down"}}, entry)
+             end),
+             "expected the status value in #{inspect(payload)}"
+    end
+
+    test "a device with no result sends no composite key at all", %{actor: actor} do
+      device = nb_device!(actor, "192.0.2.92", "armis-composite-3")
+      check = composite_check!(actor, "NB Absent #{System.unique_integer([:positive])}")
+
+      source =
+        create_source!(actor, "armis-composite-absent",
+          settings: %{
+            "composite" => %{
+              "check_slug" => check.slug,
+              "value_form" => "verdict",
+              "custom_field" => "sr_isolation"
+            }
+          }
+        )
+
+      candidates = [
+        %{
+          armis_device_id: "armis-composite-3",
+          is_available: true,
+          device_ids: [device.uid],
+          sync_service_ids: [source.id],
+          metadata: %{}
+        }
+      ]
+
+      payload = capture_payloads(source, candidates, actor)
+
+      # No placeholder, no empty string, no entry.
+      refute Enum.any?(payload, fn entry ->
+               entry |> Map.get("customProperties", %{}) |> Map.has_key?("sr_isolation")
+             end)
+
+      assert Enum.any?(payload, fn entry ->
+               entry |> Map.get("customProperties", %{}) |> Map.has_key?("availability")
+             end)
+    end
+
+    test "a source with no export configured sends availability only", %{actor: actor} do
+      device = nb_device!(actor, "192.0.2.93", "armis-composite-4")
+      source = create_source!(actor, "armis-composite-none")
+
+      candidates = [
+        %{
+          armis_device_id: "armis-composite-4",
+          is_available: true,
+          device_ids: [device.uid],
+          sync_service_ids: [source.id],
+          metadata: %{}
+        }
+      ]
+
+      payload = capture_payloads(source, candidates, actor)
+
+      assert [%{"customProperties" => properties}] = payload
+      assert Map.keys(properties) == ["availability"]
+    end
+  end
 end

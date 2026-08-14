@@ -1,11 +1,11 @@
 use super::{
     PaginationMeta, QueryRequest, TranslateResponse, addon_fleet, addon_statuses, agents, alerts,
-    bmp_events, build_query_plan, capacity_forecasts, cpu_metrics, dashboard_service_views,
-    dashboards, device_graph, devices, disk_metrics, downsample, endpoint_inventory_scans,
-    endpoint_package_catalog, endpoint_packages, events, field_survey, flows, gateways,
-    graph_cypher, interfaces, is_full_profile_query, logs, memory_metrics, otel_metric_points,
-    otel_metrics, process_metrics, public_endpoints, services, timeseries_metrics, trace_summaries,
-    traces, virtualization, viz, wifi_map,
+    bmp_events, build_query_plan, capacity_forecasts, composite_results, cpu_metrics,
+    dashboard_service_views, dashboards, device_graph, devices, disk_metrics, downsample,
+    endpoint_inventory_scans, endpoint_package_catalog, endpoint_packages, events, field_survey,
+    flows, gateways, graph_cypher, interfaces, is_full_profile_query, logs, memory_metrics,
+    otel_metric_points, otel_metrics, process_metrics, public_endpoints, services,
+    timeseries_metrics, trace_summaries, traces, virtualization, viz, wifi_map,
 };
 use crate::{
     config::AppConfig,
@@ -56,6 +56,7 @@ pub fn translate_request(config: &AppConfig, request: QueryRequest) -> Result<Tr
             | Entity::DnsActivity => events::to_sql_and_params(&plan)?,
             Entity::BmpEvents => bmp_events::to_sql_and_params(&plan)?,
             Entity::CapacityForecasts => capacity_forecasts::to_sql_and_params(&plan)?,
+            Entity::CompositeResults => composite_results::to_sql_and_params(&plan)?,
             Entity::FieldSurveySessions
             | Entity::FieldSurveyRasters
             | Entity::FieldSurveyArtifacts

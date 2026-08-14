@@ -3,12 +3,15 @@
 ### Requirement: Composite Verdict Device Fields
 
 SRQL SHALL expose each composite check's verdict as a device field addressed by
-the check's slug, following the existing dynamic dotted-key convention used for
-device tags.
+the check's slug, using the same dotted-key token shape as device tags.
 
 `composite.<slug>` SHALL filter on the verdict slug and
 `composite.<slug>.status` SHALL filter on the fixed status enum. Devices with no
 result row for a check SHALL NOT match a verdict or status filter for it.
+
+The filter SHALL be compiled as a correlated subquery rather than a join,
+because composite results live in a separate table from devices while the
+device query selects from the device table alone.
 
 #### Scenario: Filter devices by verdict
 
@@ -28,11 +31,34 @@ result row for a check SHALL NOT match a verdict or status filter for it.
 - **WHEN** a verdict filter for that check is applied
 - **THEN** the device SHALL NOT appear in the results
 
-#### Scenario: Unknown slug is a query error
+#### Scenario: Unknown slug never widens the result set
 
-- **WHEN** a user filters on a composite slug that does not exist
-- **THEN** the query SHALL fail with an error naming the unknown check
+- **WHEN** a query filters on a composite slug that does not exist
+- **THEN** the compiled filter SHALL match no devices
 - **AND** SHALL NOT silently return every device
+
+#### Scenario: Unknown slug is reported to the caller
+
+- **GIVEN** a caller that validates a query before running it
+- **WHEN** the query references a composite slug with no matching check
+- **THEN** validation SHALL fail with an error naming the unknown slug
+
+### Requirement: Composite Slug Validation Boundary
+
+Slug existence SHALL be validated where a database connection is available, not
+in the query translator. The translator is a pure query compiler and cannot know
+which checks exist.
+
+#### Scenario: Translation does not require knowing the slug set
+
+- **WHEN** a query referencing any syntactically valid composite slug is
+  translated
+- **THEN** translation SHALL succeed without consulting stored checks
+
+#### Scenario: A malformed composite field is rejected at translation
+
+- **WHEN** a query references a composite field whose slug is not slug-shaped
+- **THEN** translation SHALL fail with an error naming the field
 
 ### Requirement: Composite Results Entity
 

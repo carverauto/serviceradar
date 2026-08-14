@@ -183,8 +183,8 @@ build:darwin_pkg --repo_env=BAZEL=/usr/local/bin/bazel
 build:darwin_pkg --repo_env=BAZEL_DO_NOT_DETECT_CPP_TOOLCHAIN=1
 # macOS local builds must keep exec tools on Darwin when remote execution is disabled.
 # Usage: bazel build --config=darwin_local <targets>
-build:darwin_local --host_platform=//build/platforms:darwin_arm64
-build:darwin_local --extra_execution_platforms=//build/platforms:darwin_arm64
+build:darwin_local --host_platform=//build/platforms:darwin_aarch64
+build:darwin_local --extra_execution_platforms=//build/platforms:darwin_aarch64
 build:darwin_local --extra_toolchains=@local_config_cc_toolchains//:all
 build:darwin_local --copt=-Wno-unused-command-line-argument
 build:darwin_local --host_copt=-Wno-unused-command-line-argument
@@ -196,7 +196,7 @@ build:darwin_local --action_env=RULES_PKG_PYTHON=/usr/bin/python3
 
 # Plain local Bazel tests on Apple Silicon also need Darwin exec tools; otherwise
 # registered Linux exec platforms can be selected for generated protobuf tools.
-build:macos --extra_execution_platforms=//build/platforms:darwin_arm64
+build:macos --extra_execution_platforms=//build/platforms:darwin_aarch64
 build:macos --config=darwin_local
 test:macos --config=darwin_local
 

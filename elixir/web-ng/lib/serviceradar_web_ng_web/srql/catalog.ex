@@ -289,6 +289,32 @@ defmodule ServiceRadarWebNGWeb.SRQL.Catalog do
       downsample: false
     },
     %{
+      id: "composite_results",
+      label: "Composite Check Results",
+      # Must match the router. `page_test.exs` asserts every catalog route is
+      # routable, which is what caught this pointing at a path that never
+      # existed — composite checks live under Networks.
+      route: "/settings/networks/composite-checks",
+      default_time: "",
+      default_sort_field: "evaluated_at",
+      default_sort_dir: "desc",
+      default_filter_field: "check",
+      filter_fields: [
+        "check",
+        "check_name",
+        "verdict",
+        "status",
+        "device_uid"
+      ],
+      # Verdict slugs are operator-defined per check, so they cannot be listed
+      # statically. `status` is a fixed enum and can be.
+      known_values: %{
+        "status" => ["healthy", "degraded", "down", "unknown"]
+      },
+      stats_fields: ["verdict", "status", "check"],
+      downsample: false
+    },
+    %{
       id: "capacity_forecasts",
       label: "Capacity Forecasts",
       route: "/observability/health",
@@ -1619,6 +1645,51 @@ defmodule ServiceRadarWebNGWeb.SRQL.Catalog do
         :persistent_term.put(cache_key, catalog)
         catalog
     end
+  end
+
+  @composite_statuses ["healthy", "degraded", "down", "unknown"]
+
+  @doc """
+  Injects one `composite.<slug>` filter field per authored check into the
+  devices entity, with that check's verdicts as completions.
+
+  Composite fields are the only runtime-varying part of the catalog: slugs and
+  verdicts are operator-authored data, not a static vocabulary, so a hardcoded
+  list would be wrong on every deployment but the one it was written for.
+
+  Pure by design — the caller loads the checks and passes them in, which keeps
+  the catalog free of database access and lets the content-hash version pick up
+  changes automatically.
+
+  Each check contributes two fields: `composite.<slug>` matching verdict slugs,
+  and `composite.<slug>.status` matching the fixed status enum.
+  """
+  @spec with_composite_checks([map()], [map()]) :: [map()]
+  def with_composite_checks(entities, []) when is_list(entities), do: entities
+
+  def with_composite_checks(entities, checks) when is_list(entities) and is_list(checks) do
+    Enum.map(entities, fn
+      %{id: "devices"} = devices -> inject_composite_fields(devices, checks)
+      entity -> entity
+    end)
+  end
+
+  defp inject_composite_fields(devices, checks) do
+    fields =
+      Enum.flat_map(checks, fn check ->
+        ["composite.#{check.slug}", "composite.#{check.slug}.status"]
+      end)
+
+    values =
+      Enum.reduce(checks, %{}, fn check, acc ->
+        acc
+        |> Map.put("composite.#{check.slug}", Map.get(check, :verdicts, []))
+        |> Map.put("composite.#{check.slug}.status", @composite_statuses)
+      end)
+
+    devices
+    |> Map.update!(:filter_fields, &(&1 ++ fields))
+    |> Map.update(:known_values, values, &Map.merge(&1, values))
   end
 
   def structured_from_entities(entities) when is_list(entities) do

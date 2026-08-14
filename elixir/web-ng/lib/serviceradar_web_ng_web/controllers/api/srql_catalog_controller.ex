@@ -10,12 +10,13 @@ defmodule ServiceRadarWebNGWeb.Api.SrqlCatalogController do
 
   use ServiceRadarWebNGWeb, :controller
 
+  alias ServiceRadarWebNGWeb.CompositeChecks.Catalog, as: CompositeCatalog
   alias ServiceRadarWebNGWeb.SRQL.Catalog
 
   @cache_control "private, max-age=300, must-revalidate"
 
   def show(conn, _params) do
-    catalog = Catalog.structured()
+    catalog = catalog_for(conn)
     etag = Catalog.etag(catalog)
 
     conn =
@@ -28,6 +29,33 @@ defmodule ServiceRadarWebNGWeb.Api.SrqlCatalogController do
     else
       json(conn, catalog)
     end
+  end
+
+  # Composite fields are the one runtime-varying part of the catalog: slugs and
+  # verdicts are operator-authored, so they cannot live in the static list. The
+  # version is a content hash of the whole payload, so adding or renaming a
+  # check invalidates the ETag on its own.
+  #
+  # A failure here degrades to the static catalog rather than failing the
+  # request: losing composite completions is a much smaller problem than an
+  # editor that cannot load its catalog at all.
+  defp catalog_for(conn) do
+    case composite_checks(conn) do
+      [] ->
+        Catalog.structured()
+
+      checks ->
+        Catalog.entities()
+        |> Catalog.with_composite_checks(checks)
+        |> Catalog.structured_from_entities()
+    end
+  end
+
+  # Shared with the device list's verdict picker. The two must offer the same
+  # vocabulary: a picker showing a verdict the query language cannot express is
+  # a bug the user discovers by getting zero results.
+  defp composite_checks(conn) do
+    CompositeCatalog.enabled_with_verdicts(scope: conn.assigns[:current_scope])
   end
 
   defp fresh?(conn, etag) do
