@@ -118,7 +118,16 @@ defmodule ServiceRadarWebNG.Dashboards.Authored.Preview do
       defp maybe_append_default_time(tokens, true), do: tokens
       defp maybe_append_default_time(tokens, false), do: tokens ++ ["time:#{"last_24h"}"]
 
-      defp time_token?(token), do: token |> String.downcase() |> String.starts_with?("time:")
+      defp time_token?(token) do
+        key =
+          token
+          |> String.downcase()
+          |> String.split(":", parts: 2)
+          |> List.first()
+
+        key in ["time", "timeframe", "first_seen", "first_seen_time"]
+      end
+
       defp limit_token?(token), do: token |> String.downcase() |> String.starts_with?("limit:")
     end
   end

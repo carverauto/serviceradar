@@ -9,6 +9,7 @@ defmodule ServiceRadar.Inventory.Identity.MergeEngine do
   """
 
   alias ServiceRadar.Actors.SystemActor
+  alias ServiceRadar.CompositeChecks.DeviceCompositeCheckResult
   alias ServiceRadar.Identity.DeviceAliasState
   alias ServiceRadar.Infrastructure.Agent
   alias ServiceRadar.Inventory.Device
@@ -217,6 +218,7 @@ defmodule ServiceRadar.Inventory.Identity.MergeEngine do
       Alert,
       Agent,
       DeviceAgentAvailability,
+      DeviceCompositeCheckResult,
       DeviceAliasState
     ]
 
@@ -232,6 +234,8 @@ defmodule ServiceRadar.Inventory.Identity.MergeEngine do
            :ok <- Reassignments.reassign_alerts(from_device_id, to_device_id, actor),
            :ok <- Reassignments.reassign_agents(from_device_id, to_device_id, actor),
            :ok <- Reassignments.reassign_availability(from_device_id, to_device_id, actor),
+           :ok <-
+             Reassignments.reassign_composite_results(from_device_id, to_device_id, actor),
            :ok <- Reassignments.reassign_alias_states(from_device_id, to_device_id, actor),
            :ok <- Reassignments.reassign_interfaces(from_device_id, to_device_id, actor),
            :ok <-

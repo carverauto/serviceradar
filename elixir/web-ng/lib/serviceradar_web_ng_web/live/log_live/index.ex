@@ -1145,7 +1145,9 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
         end
 
       attrs =
-        Map.merge(attrs || %{}, %{
+        (attrs || %{})
+        |> Map.drop([:latitude, :longitude])
+        |> Map.merge(%{
           ip: ip,
           looked_up_at: now,
           expires_at: expires_at,

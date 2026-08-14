@@ -256,6 +256,85 @@ defmodule ServiceRadarWebNGWeb.Api.DeviceController do
     |> Map.fetch!(:results)
   end
 
+  @doc """
+  Sets bounded scalar facts on a device's metadata.
+
+  Phase-1 ingress for external validation tools such as OpenText Network
+  Automation. The value is written plainly so existing metadata consumers see
+  it, and server-stamped provenance is recorded alongside so composite checks
+  can enforce a maximum age. Caller-supplied timestamps are ignored.
+  """
+  def update_metadata(conn, %{"uid" => uid} = params) do
+    scope = get_scope(conn)
+
+    # The lookup and the write are handled separately on purpose. Ash returns a
+    # bare Ash.Error.Invalid ("record not found") for a missing device, which is
+    # indistinguishable from a rejected fact if both flow through one `else`.
+    with {:ok, parsed_uid} <- parse_uid(uid),
+         {:ok, facts} <- parse_facts(Map.get(params, "facts")),
+         {:ok, device} <- fetch_device(parsed_uid, scope) do
+      apply_facts(conn, device, facts, scope)
+    else
+      {:error, :not_found} ->
+        conn
+        |> put_status(:not_found)
+        |> json(%{"error" => "device not found"})
+
+      {:error, reason} when is_binary(reason) ->
+        conn
+        |> put_status(:bad_request)
+        |> json(%{"error" => reason})
+    end
+  end
+
+  defp fetch_device(uid, scope) do
+    case Device.get_by_uid(uid, false, scope: scope) do
+      {:ok, device} -> {:ok, device}
+      {:error, _reason} -> {:error, :not_found}
+    end
+  end
+
+  defp apply_facts(conn, device, facts, scope) do
+    device
+    |> Ash.Changeset.for_update(:write_facts, %{facts: facts}, scope: scope)
+    |> Ash.update()
+    |> case do
+      {:ok, updated} ->
+        json(conn, %{"data" => %{"uid" => updated.uid, "facts" => rendered_facts(updated)}})
+
+      {:error, %Ash.Error.Forbidden{}} ->
+        conn
+        |> put_status(:forbidden)
+        |> json(%{"error" => "not authorized to write device facts"})
+
+      {:error, error} ->
+        conn
+        |> put_status(:unprocessable_entity)
+        |> json(%{"error" => Exception.message(error)})
+    end
+  end
+
+  defp parse_facts(facts) when is_map(facts) and map_size(facts) > 0, do: {:ok, facts}
+  defp parse_facts(facts) when is_map(facts), do: {:error, "facts must not be empty"}
+  defp parse_facts(_facts), do: {:error, "facts must be an object"}
+
+  # Only externally written facts are echoed back. Reporting the whole metadata
+  # map would leak internal enrichment to a caller that only holds
+  # devices.facts.write.
+  defp rendered_facts(device) do
+    metadata = device.metadata || %{}
+    provenance = Map.get(metadata, "__fact_provenance", %{})
+
+    Map.new(provenance, fn {key, entry} ->
+      {key,
+       %{
+         "value" => Map.get(metadata, key),
+         "source" => Map.get(entry, "source"),
+         "updated_at" => Map.get(entry, "updated_at")
+       }}
+    end)
+  end
+
   defp get_scope(conn) do
     conn.assigns[:current_scope]
   end

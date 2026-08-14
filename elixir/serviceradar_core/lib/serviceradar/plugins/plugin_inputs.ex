@@ -71,6 +71,15 @@ defmodule ServiceRadar.Plugins.PluginInputs do
     }
   }
 
+  # The top-level keys the control plane owns in a `serviceradar.plugin_inputs.v1`
+  # payload. Derived from @schema rather than restated, so the list and the schema
+  # that enforces it cannot drift.
+  #
+  # A package `config_schema` describes the knobs an OPERATOR may set. None of
+  # these are operator config: the reconciler generates them, and the operator's
+  # knobs live one level down under "template".
+  @envelope_keys @schema |> Map.fetch!("properties") |> Map.keys() |> Enum.sort()
+
   @type input_descriptor :: %{
           required(:name) => String.t(),
           required(:entity) => String.t(),
@@ -79,6 +88,9 @@ defmodule ServiceRadar.Plugins.PluginInputs do
 
   @spec schema_id() :: String.t()
   def schema_id, do: @schema_id
+
+  @spec envelope_keys() :: [String.t()]
+  def envelope_keys, do: @envelope_keys
 
   @spec soft_limit_bytes() :: pos_integer()
   def soft_limit_bytes, do: @soft_limit_bytes

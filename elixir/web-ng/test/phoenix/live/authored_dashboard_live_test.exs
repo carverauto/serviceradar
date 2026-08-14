@@ -318,7 +318,7 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLiveTest do
     {:ok, view, _html} = live(conn, ~p"/dashboards")
     html = render_async(view, 5_000)
 
-    assert html =~ "Dashboard Library"
+    assert html =~ "Dashboard &amp; Report Library"
     assert has_element?(view, ".sr-ops-page-title", "Dashboards")
     assert has_element?(view, "#srql-query-bar input[name='q'][value='in:dashboards limit:100']")
     assert has_element?(view, "a[href='/dashboards'][aria-current='page']")

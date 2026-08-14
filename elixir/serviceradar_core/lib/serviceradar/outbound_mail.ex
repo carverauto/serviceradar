@@ -48,6 +48,7 @@ defmodule ServiceRadar.OutboundMail do
   alias ServiceRadar.Credentials.SecretBroker
   alias ServiceRadar.Integrations.OutboundMailSettings
   alias ServiceRadar.Mailer
+  alias ServiceRadar.OutboundMail.SmtpTls
   alias Swoosh.Adapters.Brevo
   alias Swoosh.Adapters.Local
   alias Swoosh.Adapters.Mailgun
@@ -252,7 +253,7 @@ defmodule ServiceRadar.OutboundMail do
          {:ok, api_key} <- resolved_secret(settings.api_key_secret_id, settings.api_key) do
       config =
         [adapter: adapter]
-        |> maybe_put(:relay, settings.relay)
+        |> maybe_put(:relay, smtp_relay(settings))
         |> maybe_put(:port, settings.port)
         |> maybe_put(:hostname, settings.hostname)
         |> maybe_put(:username, settings.username)
@@ -263,6 +264,7 @@ defmodule ServiceRadar.OutboundMail do
         |> Keyword.put(:ssl, settings.ssl || false)
         |> Keyword.put(:retries, settings.retries || 1)
         |> Keyword.merge(provider_options(settings.provider_options || %{}))
+        |> maybe_attach_smtp_tls(adapter)
 
       {:ok, config}
     end
@@ -357,6 +359,99 @@ defmodule ServiceRadar.OutboundMail do
   @spec non_delivering_adapters() :: [module()]
   def non_delivering_adapters, do: @non_delivering_adapters
 
+  @doc """
+  Sends one test message through the saved outbound-mail settings.
+
+  This is the Settings -> Mail "Send test email" path. It uses the saved row,
+  not unsaved form values, and it refuses Local/Test the same way
+  `diagnose/1` does: those adapters return success and deliver nothing.
+
+  `opts[:deliver]` is a test seam. Production leaves it unset so the message
+  goes through `deliver/2`.
+  """
+  @spec send_test(String.t()) :: {:ok, term()} | {:error, term()}
+  def send_test(to_email) when is_binary(to_email) do
+    case get_settings() do
+      {:ok, %OutboundMailSettings{enabled: true} = settings} ->
+        send_test(settings, to_email)
+
+      {:ok, _settings} ->
+        {:error,
+         {:disabled, "outbound mail is disabled; enable it and save before sending a test"}}
+
+      {:error, reason} ->
+        if settings_absent?(reason) do
+          {:error, {:disabled, "save outbound mail settings before sending a test"}}
+        else
+          {:error, reason}
+        end
+    end
+  end
+
+  def send_test(_to_email), do: {:error, {:invalid_recipient, "enter a valid email address"}}
+
+  @spec send_test(OutboundMailSettings.t(), String.t(), keyword()) ::
+          {:ok, term()} | {:error, term()}
+  def send_test(settings, to_email, opts \\ [])
+
+  def send_test(%OutboundMailSettings{enabled: false}, _to_email, _opts) do
+    {:error, {:disabled, "outbound mail is disabled; enable it and save before sending a test"}}
+  end
+
+  def send_test(%OutboundMailSettings{} = settings, to_email, opts) do
+    deliver = Keyword.get(opts, :deliver, &deliver/2)
+
+    with {:ok, recipient} <- normalize_recipient(to_email),
+         {:ok, config} <- config(settings),
+         :ok <- diagnose(config) do
+      case deliver.(test_email(recipient, settings), config) do
+        {:ok, _} = ok ->
+          ok
+
+        {:error, reason} ->
+          {:error, {:delivery_failed, format_delivery_error(reason, settings)}}
+      end
+    end
+  end
+
+  @doc """
+  Turns a Swoosh/gen_smtp delivery error into an operator-readable sentence.
+
+  `settings` is optional. When the relay rejected the envelope sender because
+  the SMTP user does not own `from_email`, the sentence names the From address
+  and the username so the operator can change the right field.
+  """
+  @spec format_delivery_error(term(), OutboundMailSettings.t() | nil) :: String.t()
+  def format_delivery_error(reason, settings \\ nil)
+
+  def format_delivery_error({:retries_exceeded, reason}, settings),
+    do: format_delivery_error(reason, settings)
+
+  def format_delivery_error({:send, reason}, settings),
+    do: format_delivery_error(reason, settings)
+
+  def format_delivery_error({:error, reason}, settings),
+    do: format_delivery_error(reason, settings)
+
+  def format_delivery_error({:network_failure, host, reason}, settings) do
+    "#{stringify_smtp(host)}: #{format_delivery_error(reason, settings)}"
+  end
+
+  def format_delivery_error({:permanent_failure, host, message}, settings) do
+    text = message |> stringify_smtp() |> String.trim()
+    "#{stringify_smtp(host)}: #{text}#{sender_ownership_hint(text, settings)}"
+  end
+
+  def format_delivery_error({:temporary_failure, host, message}, _settings) do
+    text = message |> stringify_smtp() |> String.trim()
+    "#{stringify_smtp(host)}: #{text}"
+  end
+
+  def format_delivery_error(reason, _settings) when is_atom(reason), do: Atom.to_string(reason)
+  def format_delivery_error(reason, _settings) when is_binary(reason), do: reason
+  def format_delivery_error(reason, _settings) when is_list(reason), do: stringify_smtp(reason)
+  def format_delivery_error(reason, _settings), do: inspect(reason)
+
   # --- diagnostics ----------------------------------------------------------
 
   defp non_delivering_message(Test) do
@@ -388,7 +483,7 @@ defmodule ServiceRadar.OutboundMail do
         {:error,
          {:smtp_relay_missing,
           "Swoosh.Adapters.SMTP is configured with no relay host; set SMTP_RELAY_HOST, " <>
-            "or set the relay in Settings > Mail"}}
+            "or set SMTP hostname / relay in Settings > Mail"}}
 
       true ->
         :ok
@@ -462,9 +557,23 @@ defmodule ServiceRadar.OutboundMail do
 
   defp provider_options(_options), do: []
 
+  # Settings has both "SMTP relay / endpoint" and "SMTP hostname". Operators
+  # routinely fill hostname and leave relay blank. Swoosh SMTP connects to
+  # `:relay`; `:hostname` is only the HELO name. Fall back so the filled field
+  # actually sends mail.
+  defp smtp_relay(%{relay: relay} = settings) do
+    if present_host?(relay), do: relay, else: Map.get(settings, :hostname)
+  end
+
+  defp present_host?(value) when is_binary(value), do: String.trim(value) != ""
+  defp present_host?(_value), do: false
+
   defp maybe_put(config, _key, nil), do: config
   defp maybe_put(config, _key, ""), do: config
   defp maybe_put(config, key, value), do: Keyword.put(config, key, value)
+
+  defp maybe_attach_smtp_tls(config, @smtp_adapter), do: SmtpTls.attach(config)
+  defp maybe_attach_smtp_tls(config, _adapter), do: config
 
   defp mode_atom("always", _default), do: :always
   defp mode_atom("never", _default), do: :never
@@ -474,6 +583,81 @@ defmodule ServiceRadar.OutboundMail do
   defp blank?(nil), do: true
   defp blank?(value) when is_binary(value), do: String.trim(value) == ""
   defp blank?(_value), do: false
+
+  defp normalize_recipient(value) when is_binary(value) do
+    email = String.trim(value)
+
+    if Regex.match?(~r/^[^\s@]+@[^\s@]+\.[^\s@]+$/, email) do
+      {:ok, email}
+    else
+      {:error, {:invalid_recipient, "enter a valid email address"}}
+    end
+  end
+
+  defp normalize_recipient(_value),
+    do: {:error, {:invalid_recipient, "enter a valid email address"}}
+
+  defp sender_ownership_hint(text, %OutboundMailSettings{} = settings) do
+    if sender_ownership_rejected?(text) do
+      from = settings.from_email
+      user = settings.username
+
+      cond do
+        present_email?(from) and present_email?(user) and from != user ->
+          " Set From email to #{user} (the SMTP username) and save before retrying."
+
+        present_email?(user) ->
+          " Set From email to an address this SMTP user (#{user}) is allowed to send as, then save."
+
+        true ->
+          " Set From email to an address the SMTP user owns, then save."
+      end
+    else
+      ""
+    end
+  end
+
+  defp sender_ownership_hint(_text, _settings), do: ""
+
+  defp sender_ownership_rejected?(text) when is_binary(text) do
+    down = String.downcase(text)
+
+    String.contains?(down, "not owned by user") or
+      String.contains?(down, "sender address rejected")
+  end
+
+  defp sender_ownership_rejected?(_text), do: false
+
+  defp present_email?(value) when is_binary(value), do: String.trim(value) != ""
+  defp present_email?(_value), do: false
+
+  defp stringify_smtp(value) when is_list(value) do
+    if List.ascii_printable?(value), do: List.to_string(value), else: inspect(value)
+  end
+
+  defp stringify_smtp(value) when is_binary(value), do: value
+  defp stringify_smtp(value), do: to_string(value)
+
+  defp test_email(to, settings) do
+    sent_at = DateTime.utc_now() |> DateTime.truncate(:second) |> DateTime.to_iso8601()
+    adapter = settings.adapter || "unknown"
+    from_name = settings.from_name || "ServiceRadar"
+    from_email = settings.from_email || "noreply@serviceradar.cloud"
+
+    Swoosh.Email.new()
+    |> Swoosh.Email.to(to)
+    |> Swoosh.Email.from({from_name, from_email})
+    |> Swoosh.Email.subject("ServiceRadar outbound mail test")
+    |> Swoosh.Email.text_body("""
+    This is a test message from Settings -> Mail.
+
+    Adapter: #{adapter}
+    From: #{from_name} <#{from_email}>
+    Sent at: #{sent_at}
+
+    If you received this, the mail server accepted the message.
+    """)
+  end
 
   # --- transactional bodies -------------------------------------------------
 

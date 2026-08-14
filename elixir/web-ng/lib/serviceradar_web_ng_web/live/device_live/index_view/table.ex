@@ -11,7 +11,10 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexView.Table do
 
   def render(assigns) do
     ~H"""
-    <.ui_panel>
+    <.ui_panel
+      class="flex h-full min-h-[28rem] flex-col"
+      body_class="flex min-h-0 flex-1 flex-col"
+    >
       <:header>
         <div class="flex w-full flex-wrap items-center justify-between gap-3">
           <div class="min-w-0">
@@ -32,7 +35,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexView.Table do
         </div>
       </:header>
 
-      <div class="sr-ui-table-shell">
+      <div class="sr-ui-table-shell min-h-0 flex-1 overflow-auto">
         <table class={ui_table_class(size: "sm", zebra: true, class: "w-full")}>
           <thead>
             <tr>

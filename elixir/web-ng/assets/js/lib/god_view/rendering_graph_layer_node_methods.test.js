@@ -198,7 +198,7 @@ describe("rendering_graph_layer_node_methods", () => {
     ])
   })
 
-  it("selectNodeLabels keeps all expanded endpoint members even when they exceed the normal shape budget", () => {
+  it("selectNodeLabels caps expanded endpoint-member labels so a large cluster stays readable", () => {
     const state = {
       animationPhase: 0,
       layers: {mantle: true, crust: true, atmosphere: true, security: true},
@@ -210,7 +210,7 @@ describe("rendering_graph_layer_node_methods", () => {
 
     const labels = ctx.selectNodeLabels([
       {id: "router-a", label: "Router A", clusterCount: 1, pps: 200, state: 2, selected: false, details: {}},
-      ...Array.from({length: 30}, (_, index) => ({
+      ...Array.from({length: 60}, (_, index) => ({
         id: `endpoint-${index + 1}`,
         label: `192.0.2.${index + 1}`,
         clusterCount: 1,
@@ -224,9 +224,46 @@ describe("rendering_graph_layer_node_methods", () => {
       })),
     ], "local")
 
-    expect(labels).toHaveLength(31)
+    expect(labels.filter((node) => String(node.id).startsWith("endpoint-"))).toHaveLength(48)
     expect(labels.at(0).id).toEqual("endpoint-1")
-    expect(labels.at(-1).id).toEqual("router-a")
+    expect(labels.map((node) => node.id)).toContain("router-a")
+  })
+
+  it("selectNodeLabels hides the census bubble label once a cluster is expanded", () => {
+    const state = {
+      animationPhase: 0,
+      layers: {mantle: true, crust: true, atmosphere: true, security: true},
+      visual: {label: [255, 255, 255, 255], edgeLabel: [200, 200, 200, 255]},
+    }
+
+    const ctx = createStateBackedContext(state, {})
+    Object.assign(ctx, bindApi(ctx, godViewRenderingGraphLayerNodeMethods))
+
+    const labels = ctx.selectNodeLabels([
+      {
+        id: "summary",
+        label: "42 endpoints",
+        clusterCount: 42,
+        pps: 10,
+        state: 3,
+        selected: false,
+        details: {cluster_kind: "endpoint-summary", cluster_expanded: true},
+      },
+      {id: "router-a", label: "Router A", clusterCount: 1, pps: 200, state: 2, selected: false, details: {}},
+    ], "local")
+
+    expect(labels.map((node) => node.id)).toEqual(["router-a"])
+  })
+
+  it("nodeLabelPixelOffset places expanded roster labels beside the panel", () => {
+    const ctx = createStateBackedContext({}, {})
+    Object.assign(ctx, bindApi(ctx, godViewRenderingGraphLayerNodeMethods))
+
+    expect(ctx.nodeLabelPixelOffset({details: {cluster_panel_side: "right"}})).toEqual([14, 0])
+    expect(ctx.nodeLabelTextAnchor({details: {cluster_panel_side: "right"}})).toEqual("start")
+    expect(ctx.nodeLabelPixelOffset({details: {cluster_panel_side: "left"}})).toEqual([-14, 0])
+    expect(ctx.nodeLabelTextAnchor({details: {cluster_panel_side: "left"}})).toEqual("end")
+    expect(ctx.nodeLabelPixelOffset({details: {}})).toEqual([0, -16])
   })
 
   it("visualClusterCount only scales endpoint summaries", () => {
@@ -240,6 +277,10 @@ describe("rendering_graph_layer_node_methods", () => {
     Object.assign(ctx, bindApi(ctx, godViewRenderingGraphLayerNodeMethods))
 
     expect(ctx.visualClusterCount({clusterCount: 18, details: {cluster_kind: "endpoint-summary"}})).toEqual(18)
+    expect(ctx.visualClusterCount({
+      clusterCount: 42,
+      details: {cluster_kind: "endpoint-summary", cluster_expanded: true},
+    })).toEqual(1)
     expect(ctx.visualClusterCount({clusterCount: 18, details: {cluster_kind: "endpoint-anchor"}})).toEqual(1)
     expect(ctx.visualClusterCount({clusterCount: 18, details: {}})).toEqual(1)
   })

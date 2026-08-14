@@ -1,3 +1,0 @@
-# gazelle:erlang_generate_fewer_bytecode_rules
-
-# gazelle:erlang_app_path_ignore test/foo.*

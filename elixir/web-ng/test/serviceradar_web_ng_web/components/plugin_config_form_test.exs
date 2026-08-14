@@ -72,6 +72,34 @@ defmodule ServiceRadarWebNGWeb.PluginConfigFormTest do
     assert html =~ "No enabled unifi-protect/camera_inventory credential rule matches this agent"
   end
 
+  test "password and api_key fields never render as assignment inputs" do
+    schema = %{
+      "type" => "object",
+      "properties" => %{
+        "host" => %{
+          "type" => "string",
+          "x-serviceradar-ui-hidden" => true,
+          "x-serviceradar-credential-materialized" => true
+        },
+        "username" => %{"type" => "string", "description" => "Protect local account username"},
+        "password" => %{"type" => "string", "description" => "Protect local account password"},
+        "api_key" => %{"type" => "string", "description" => "Optional Protect API key"},
+        "cookie" => %{"type" => "string", "description" => "Optional cookie"},
+        "scheme" => %{"type" => "string", "default" => "https"}
+      }
+    }
+
+    html = render_fields(%{schema: schema, params: %{}, base_name: "assignment[params]"})
+
+    assert html =~ ~s(data-credential-materialized="host")
+    assert html =~ ~s(name="assignment[params][scheme]")
+    refute html =~ ~s(name="assignment[params][password]")
+    refute html =~ ~s(name="assignment[params][api_key]")
+    refute html =~ ~s(name="assignment[params][username]")
+    refute html =~ ~s(name="assignment[params][cookie]")
+    refute html =~ "Protect local account password"
+  end
+
   test "ui-hidden fields without the annotation stay hidden" do
     schema = %{
       "type" => "object",
