@@ -378,6 +378,13 @@ guard's requirement and stage-sensitive corpus in both runtimes.
 They remain EXCEPTIONS BY NAME, not a widening: any further raw bound belongs to a raw-bound
 owner, and adding a third to this list requires saying which owner declined it.
 
+### What this index does NOT own: the semantic-envelope transcript
+
+An earlier draft inventoried it here. It is not a bound -- no ceiling, no value to freeze, only
+the SHAPE of a transcript -- so carrying it in a BOUND ownership index invited exactly the
+category error the index exists to prevent. It is frozen as a grammar in
+[section 3](#3-identity-semantics-grammars-and-version-inventory) under task 1.5-i.
+
 ### The range-string guard is REACHABLE, and the runtimes disagree
 
 The first version of this index called `MaxRangeStrBytes` unreachable on a measurement that
@@ -678,6 +685,218 @@ Every SIGNING/DIGEST grammar below is byte-frozen and interoperable ONLY when Go
 and Elixir implement it byte-for-byte. A grammar that does not pin all of the
 common framing rules is not yet frozen and MUST NOT be relied on for
 cross-language identity.
+
+### The semantic-envelope transcript is frozen as a GRAMMAR (task 1.5-i)
+
+It is not a ceiling and has no value to freeze, so it is inventoried here with the other
+grammars rather than in the bounds tables: what is frozen is the SHAPE of a transcript.
+
+SEVEN KEYED SETS, EACH GUARDED ON ITS OWN, WITH NO GRAND TOTAL, because they count different
+proof units -- a root slot is a CLOSURE VIEW over the record, a framer operation is a LEXICAL
+WRITE inside one framer, a state case is an ALTERNATIVE branch, a composition edge is a
+CALLER-TO-FRAMER occurrence, a separation row is a quantity that must NOT reach the transcript.
+Adding them would invent a number that means nothing.
+
+| set | count | what it counts |
+| --- | --- | --- |
+| `op` | 125 framer-local operations | 89 at a framing seam, 22 through the public digest entry point, 14 discharged via state evidence. Deliberately NOT "every primitive callsite", which would be 138: the root slots contribute 13 direct writes on top |
+| `slot` | 17 root slots | version + 12 direct + 4 composite, classified from the descriptor by BOTH consumers; `version` is REUSED evidence from the version corpus, since only Go can parameterise the grammar version |
+| `state` | 8 cases, 28 artifacts | includes the ONLY optU64 site (absent / present-zero / present-one), BOTH capability carriers, and each delivery-transition variant POPULATED as well as defaulted |
+| `edge` | 13 composition edges | all derived from descriptors and compared BIDIRECTIONALLY |
+| `sep` | 5 separation rows | 4 vary a live quantity; 1 is schema closure |
+| `excl` | 2 exclusions | field 17 (`self`) and field 18 (`raw`) |
+| `rel` | 1 relation | field 18 committed transitively through field 6 |
+
+DESCRIPTOR CLOSURE IS BIDIRECTIONAL AT THREE LEVELS. At the ROOT, fields 1..18 are classified as
+{number, name, classification} TUPLES with duplicate numbers rejected -- parsing only the number
+lets a duplicate overwrite its predecessor, classifying one field twice and another not at all
+while the counts still balance. Across the NINE nested grammar roots, the walk discovers paths
+from the DESCRIPTORS and the manifest classifies what was found; deriving the expected paths
+from the manifest instead would make the closure agree with itself. And across the COMPOSITION
+GRAPH, all thirteen edges are derived -- four from the nested walk, four from the record's
+composite slots, five from the claims oneof, whose {field number, child root} pairs are pinned
+because those numbers ARE the transcript's discriminant values.
+
+THREE PROPERTIES NEEDED EVIDENCE NOTHING ELSE COULD GIVE:
+
+- ORDER. Per-field inequality cannot see it -- reordering two writes leaves every such row
+  green. Committed POPULATED vectors catch it, and at the root an ORDERED SEVENTEEN-CHUNK
+  decomposition -- one chunk per direct write, one per composite child's framed output --
+  is concatenated and hashed back to the production digest, so the decomposition cannot drift
+  from the grammar it describes. Each pair is then exchanged IN PLACE and the COMPLETE preimages
+  compared, across every committed variant: comparing `A||B` with `B||A` is unsound, since with
+  A="a", a middle M="b" and B="aba" those differ while the full arrangements are both "ababa".
+  The single
+  base shape's vectors -- `root.shape.base.v0..v2` -- NAME the witness. They are not the only
+  KEYS that move: `root.shape.base.v0` shares its value with the four `state.<slot>.present`
+  rows, which are the same whole-envelope measurement under other names. What is unique is the
+  evidence CLASS: no child vector and no edge row changes at all. It rests on a fixture where every write is distinct
+  within its FRAMER TRANSCRIPT, inlined children included, so no two are exchangeable without
+  moving a byte.
+- CONDITIONAL OMISSION. A populated baseline cannot see it: a framer that skipped zero-valued
+  fields would frame the populated case identically and diverge only on defaults. Hence a
+  DEFAULT vector per framer, and populated bodies for each delivery-transition variant -- a
+  defaulted renewal writes two zero i64s and a defaulted rollover two empty byte strings, so
+  swapping either pair is a NO-OP without them.
+- PRESENCE, DISCRIMINANTS AND THE OPTIONAL MARKER. Inequality is VACUOUS there: absent and
+  present already frame differently for unrelated reasons, and changing a oneof variant also
+  changes the branch BODY, so both survive DELETING the marker. Only frozen expected values
+  discriminate them.
+
+VALUE DISTINCTNESS IS SCOPED TO THE WHOLE FLAT TRANSCRIPT, because there is no smaller scope.
+The preimage is an UNTAGGED CONCATENATION -- no length prefix, no intermediate hash, no framing
+around a child block -- so every write coexists with every other, and two writes of the same wire
+class carrying the same value are exchangeable without moving a byte. THE WIRE CLASS IS THE
+WIDTH: `i64` is `u64(uint64(v))` and `str` is `bytes([]byte(s))`, so those pairs are
+indistinguishable and are guarded as one class.
+
+A HELPER IS NOT A BOUNDARY, and two earlier scopes assumed otherwise. Per MESSAGE let
+`execution_grant_claims.traffic_class` and its inlined `source_identity.kind` both take 0. Per
+HELPER -- after `producerContext` was extracted -- let the root's `traffic_class` and
+`producer_context.origin_kind` both take 0, because the extracted helper appends to the SAME
+buffer and changed no byte. Composition edges prove ATTACHMENT not POSITION, and the
+caller-level chunk guard sees a parent's whole output as ONE chunk, so neither reaches inside.
+Only length-framing or hashing child blocks would create a real boundary, and either would
+change the ABI. The `producer_context` extraction is retained because it matches the Elixir
+peer's existing shape, NOT because it separates anything.
+
+ONE FIXTURE CANNOT SEPARATE THE ROOT, and that is arithmetic. Its transcript carries thirteen
+enum writes -- SEVEN with a range of 0..2 -- plus constants at 3, 7 and 8. Seven positions cannot
+take seven distinct values from three. So a position's identity is its SIGNATURE, the tuple of
+values it takes ACROSS the committed fixtures, and THREE record variants are needed: the record
+must avoid the all-equal tuples, which are reserved for the claim baselines (populated once, so
+their signatures are constant), leaving only six varying tuples per range-3 enum over two
+variants against seven positions. Two positions collide only if they agree IN EVERY FIXTURE WHERE
+BOTH OCCUR -- asking per shape is stronger and wrong, since the two `claims` discriminants are
+necessarily equal in the shape where both capabilities carry `source`, and are 7 and 8 in the
+base shape.
+
+EVERY WHOLE-RECORD SHAPE IS A FIXTURE, NOT JUST A RECONSTRUCTION. Byte-for-byte reconstruction
+shows the mirror agrees with production for a shape; it says nothing about whether two writes
+INSIDE it are exchangeable. Guarding only the base left `payload_family` and `compression` --
+both zero in the first variant -- freely swappable whenever the capability carried `collection`,
+and the record's `event_id` swappable with a spliced claim's `network_scope_id`. AND A SINGLE-AXIS MATRIX
+IS NOT COMBINATION EVIDENCE: varying ONE capability carrier at a time leaves every mutation
+conditioned on a PAIR of carrier states undetectable, because no committed record holds that
+pair. `capability` is framed from BOTH slots and the schema restricts neither, so two-way
+coverage over two factors is the FULL CROSS PRODUCT -- ten states each, 100 combinations, plus
+the base and four carrier-absent shapes: 105 shapes at three variants, 315 whole-record vectors
+of 361 in all, every one consumed by both runtimes. Three mutations conditioned on a single
+carrier and one conditioned on a PAIR were each reproduced and killed.
+
+THE CLAIM BASELINES ARE TWO SETS, PER VARIANT. A spliced baseline's writes land in the record's
+own transcript, and the cross product puts a claim body in BOTH carriers at once; splicing one
+artifact into both made every corresponding field pair equal, and disjoint VALUES cannot separate
+them either -- `production_claims` alone needs three distinct values from fields of range 3, 4
+and 3, exhausting the range-3 space for one carrier. Separation is by SIGNATURE across variants.
+Measured: one shared set gave 202 collisions, two constant-valued sets still gave 39, per-variant
+sets give none.
+
+THE PRIMITIVE INVENTORY IS AN ORDERED MIRROR BOUND BYTE FOR BYTE. Every conclusion above rests on
+"these are exactly the writes, in exactly this order", and a width SUM cannot establish that: it
+is blind to an equal-width omission paired with an equal-width addition, and to any substitution.
+The mirror emits each primitive's exact bytes in transcript order and its concatenation must
+EQUAL the preimage the seventeen chunks reconstruct -- itself proven equal to production by
+hashing -- for every committed variant, every carrier-absent shape and every composed capability
+shape. Presence markers and zero-length writes are excluded from the SIGNATURE guard by name:
+they carry no value, and exchanging identical writes is not observable in principle. Presence is
+discharged by the `state` rows, which vary it.
+
+THE CARRIER'S OWN DECISIONS NEEDED THEIR OWN ROWS, and neither seam vectors nor attachment edges
+supplied them. A seam vector freezes what a framer does when TOLD a carrier is absent; replacing
+the root's `c != nil` with a literal `true` was invisible until a whole-record ABSENT witness
+existed for each of the four carriers. And the claim bodies and discriminant have vectors, but
+neither sees the capability transcript AROUND them, so reordering the claims against the
+signature FOR ONE VARIANT the record never carried was invisible until all six composed
+capability shapes were framed at the root. Both runtimes consume every committed vector.
+
+VECTORS ARE FROZEN AND BASELINES ARE COMMITTED `.bin` ARTIFACTS read by both runtimes. Within
+this grammar it is the only place the two implementations must produce IDENTICAL BYTES for the
+same input rather than each merely being internally consistent -- which is how a grammar drifts
+apart runtime by runtime with every suite green. Recomputing an expected value with the live
+framer would compare the grammar against itself; building a baseline independently in each
+runtime would compare two different messages and agree by luck. The Elixir peer carries an
+EXACT key-set guard, so a vector cannot be added in Go without it.
+
+RUNTIME SPLIT, HONESTLY BOUNDED. Go exercises its complete signed frame boundary through
+`ValidateFrameSigned`, and the `delivery_capability` row asserts the decision moves from FRESH
+to RENEWAL -- otherwise "the digest did not move" would be equally true of bytes the validator
+ignored entirely. Elixir decodes the same committed artifact and recomputes the inner digest
+WITHOUT claiming a frame boundary it does not have. The two runtimes also reach the claim bodies
+at different depths: Go calls each framer directly, Elixir only through `claims_framed/1`, so
+its adapter slices the discriminant off -- and that prefix is covered by the discriminant
+vectors instead, so the gap is closed by a different row rather than left open.
+
+The frame FIELDS are not 1.5-j's; 1.5-j owns broker PUBLICATION IDENTITY, a different object.
+
+
+### Mutation record (1.5-i)
+
+EXACT, NOT AGGREGATED. An earlier draft reported "41 retained" by adding the first audit's 19 to
+every survivor round, which DOUBLE-COUNTED: the 19 already contained the first two rounds. Every
+row below was re-run against the landed tree in one pass; the counts are the number of test
+functions that failed, measured, not remembered. Overlap is expected and recorded -- one deleted
+call can fail rows in several sets.
+
+| mutation | Go rows | Elixir rows |
+| --- | --- | --- |
+| reverse `route_profile`/`traffic_class` ONLY for production=`collection` AND nested=`delivery.renewal` | 1 | 1 |
+| inline `producerContext` + swap `traffic_class` / `origin_kind` | 4 | - |
+| swap `traffic_class` / inlined `source_identity.kind` | 4 | - |
+| swap root `route_profile` / `traffic_class` | 6 | - |
+| move `producer_context` after `route_profile` | 15 | - |
+| `producer_context.origin_kind` -> `run_shard` | 18 | - |
+| swap `capability` / `source_auth` blocks | 15 | 7 |
+| drop `producer_context` from the chunk decomposition | 2 | - |
+| `outputContract(c, c != nil)` -> `(c, true)` | 2 | 3 |
+| nested `sourceAuth` capability presence -> `true` | 4 | - |
+| reorder claims / signature ONLY for `collection` | 2 | 1 |
+| reorder claims / signature ONLY when claims unset | 2 | 1 |
+| swap `payload_family` / `compression` ONLY for `collection` | 1 | 1 |
+| the same swap ONLY when `output_contract` is absent | 1 | 1 |
+| `collection`-only root `event_id` / claim `network_scope_id` | 1 | - |
+| every shape vector checked at variant 0 only | consumption guard | - |
+| Elixir shape loop restricted to variants 0-1 | - | consumption guard |
+| drop the read-guard scanner buffer | scan error | - |
+| mirror omits the capability `signature` write | 1 | - |
+| split `u64`/`i64` wire classes in the mirror | 1 | - |
+| widen the capability oneof exception | 1 | - |
+| drop the `IsSynthetic` half of that predicate | 1 | - |
+| delete the schema-scan recursion | 1 | - |
+| swap claims discriminants 9 and 11 | 1 | - |
+| stop deriving root composition edges | 1 | - |
+| manifest: slot `01.event_id` direct -> composite | 1 | 1 |
+| manifest: excl 17 `self` -> `raw` | 1 | 1 |
+| manifest: rel `transitive` -> `direct` | 1 | 1 |
+| manifest: rename one `edge` key | 2 | 1 |
+| manifest: rename one `state` key | 1 | 1 |
+| manifest: rename one `op` key | 2 | **0, Go owns it** |
+| Elixir: swap renewal `not_before` / `expires` | - | 2 |
+| Elixir: swap rollover `recovery_id` / `prior_spool_id` | - | 2 |
+| vectors: append a duplicate key | - | 14 |
+
+THIRTY-FOUR ROWS HERE. The first audit's nineteen are recorded separately above and are NOT
+re-added; the survivor rounds are represented by the rows that now kill them rather than by a
+count. Every row was re-run against the landed tree in one pass, and the counts are the number of
+test functions that failed -- measured, not remembered.
+
+THREE ROWS FAIL THROUGH A GUARD RATHER THAN A TEST FUNCTION, and the table says which. Restricting
+the shape vectors to fewer variants leaves every assertion green and is caught by the
+after-the-run check that every committed vector was actually READ -- once per runtime. Dropping
+the read guard's scanner buffer is caught by its error check, and is only OBSERVABLE with an
+over-long row present, which is the condition it was measured under: with the buffer intact that
+row is reported unread; with it removed the scan error is reported instead. Without either, an
+over-long line silently truncated the scan and every remaining key counted as read.
+
+THE CONSUMPTION GUARD ALSO FIRES ALONGSIDE A GENUINE FAILURE, because a failing test aborts
+before reading the rest. The test-failure count is the primary signal and the guard is recorded
+next to it rather than smoothed away. ONE ROW MEASURES ZERO IN ELIXIR BY DESIGN: Go owns the
+125-key `op` closure, and restating those leaf paths in the peer would be duplication, not
+independent evidence. ONE ROW MEASURES ZERO IN ELIXIR BY DESIGN and the table says which runtime kills
+it: Go owns the 125-key `op` closure, and restating those leaf paths in the peer would be
+duplication, not independent evidence.
+
+
 
 ### Common framing rules
 

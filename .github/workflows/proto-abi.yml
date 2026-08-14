@@ -1,3 +1,21 @@
+# MIGRATED FROM .forgejo/workflows/proto-abi.yml after the move back to GitHub. The Forgejo host
+# is READ-ONLY now, so the copy there no longer runs; this is the live gate.
+#
+# ONE CLAIM BELOW DOES NOT HOLD YET ON THIS HOST. The note about `main.yml` already running the
+# full Go/Elixir/Bazel graph on every pull request describes the FORGEJO suite, which has not been
+# migrated -- only this workflow was. Until that graph is ported, the edge Bazel build is NOT
+# gated here, and this file is a proto/ABI drift guard only. Do not read it as full coverage.
+#
+# THIS WORKFLOW HAS NEVER RUN. It was migrated ahead of any pull request, and GitHub has no
+# required status checks configured, so nothing here is demonstrated -- only ported. Treat the
+# first PR that touches these paths as the gate's real first execution.
+#
+# AND IF IT IS EVER MADE A REQUIRED CHECK, THE `paths:` FILTER BELOW MUST GO FIRST. A workflow-level
+# path filter means the job never STARTS on an unrelated pull request, and a required check that
+# never starts sits pending forever rather than passing. The fix is to drop the workflow-level
+# filter and decide inside the job -- always report, skip the work -- not to mark it required as
+# it stands.
+#
 name: Proto ABI
 
 # Stack-aware ABI gate: this runs on EVERY pull request that touches the proto ABI,
@@ -46,7 +64,7 @@ on:
       - 'elixir/serviceradar_core/mix.lock'
       - 'elixir/serviceradar_core/.formatter.exs'
       - 'Makefile'
-      - '.forgejo/workflows/proto-abi.yml'
+      - '.github/workflows/proto-abi.yml'
   push:
     branches: [staging]
     paths:
@@ -76,7 +94,7 @@ on:
       - 'elixir/serviceradar_core/mix.lock'
       - 'elixir/serviceradar_core/.formatter.exs'
       - 'Makefile'
-      - '.forgejo/workflows/proto-abi.yml'
+      - '.github/workflows/proto-abi.yml'
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && github.event.pull_request.head.ref || github.ref }}
@@ -87,7 +105,7 @@ permissions:
 
 jobs:
   proto-abi:
-    runs-on: ubuntu24
+    runs-on: [self-hosted, Linux, X64, arc-runner-set]
     steps:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd

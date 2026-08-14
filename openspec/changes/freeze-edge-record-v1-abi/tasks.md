@@ -72,9 +72,10 @@ PR. Compression is the NEXT PR.
 
 ### Estimate discipline
 
-The remaining freeze is NOT one to two weeks. SEVEN open parents and TWENTY-ONE unchecked
-named subtasks remain (1.3 and 1.17 are closed and do not count), including SIX of 1.5's
-FOURTEEN obligations -- 1.5-h closed and its residual-bounds admission is delivered. Fourteen, not eleven: three obligations the body carried had no subtask,
+The remaining freeze is NOT one to two weeks. SEVEN open parents and TWENTY unchecked
+named subtasks remain (1.3 and 1.17 are closed and do not count), including FIVE of 1.5's
+FOURTEEN obligations -- 1.5-h and 1.5-i are both closed, delivering the residual-bounds
+admission and the semantic-envelope transcript inventory. Fourteen, not eleven: three obligations the body carried had no subtask,
 and the exhaustiveness rule below requires one each -- 1.5-l (refusal classification), 1.5-m
 (Elixir framing parity for the lifecycle and recovery ingresses) and 1.5-n (the Elixir
 projected-cost comparison). COMPRESSION ADMISSION (1.5-f) IS CLOSED, and closing it released the
@@ -695,9 +696,11 @@ here.
   compression-admission half, **#4734** (base `usp-01-proposal`), is CLOSED WITHOUT BEING
   MERGED -- #4734 itself owns no landed code, and is prior art rather than delivery. The
   obligation is now met by `usp-32-compression-admission`; see 1.5-f. Define the
-  immutable semantic-envelope digest separately from gateway receipt, physical
-  placement, spool coordinates, and renewable delivery proof; define broker
-  publication identity separately. Make projected row cost cover every
+  immutable semantic-envelope digest separately from producer-receipt identity
+  (`submission_sha256`), physical artifact identity (`record_sha256`), spool
+  coordinates, and the `delivery_capability`; define broker publication identity
+  separately. "Gateway receipt" and "physical placement" named no defined object
+  and are not used: 1.5-i repudiated them and named the objects instead. Make projected row cost cover every
   synchronous ledger/domain/outbox/work/current-state mutation, and canonicalize
   nanoseconds to PostgreSQL microseconds ONLY for projection-domain STORAGE AND ORDERING
   coordinates -- no projection hash or identity comparison consumes a canonicalized time --
@@ -720,7 +723,7 @@ here.
   STATUS
   - LANDED: the enum-compatibility parity analysis and the Elixir `SemanticValidate` /
     `WireDecode` / `WireValidate` gates.
-  - REMAINING: 1.5-i..1.5-n. 1.5-a..1.5-h are CLOSED. The subtask list is
+  - REMAINING: 1.5-j..1.5-n. 1.5-a..1.5-i are CLOSED. The subtask list is
     exhaustive against this task's body -- see the EXHAUSTIVENESS note under the subtasks.
   - DEPENDS ON: 1.6-d, and ONLY for 1.5-m. That subtask adds the framing rule to Elixir's
     signed recovery-control path, and 1.6-d is what creates the path. Every other 1.5 subtask
@@ -757,13 +760,13 @@ here.
     is `proto/edge/v1/testdata/zstd_*.bin` + `compression_corpus.txt` at the FRAME stage and
     `record_admit_*.bin` + `record_admit_corpus.txt` at the RECORD stage, both written by Go
     and derived by the peer, and all four suites are gated in
-    `.forgejo/workflows/proto-abi.yml`.
+    `.github/workflows/proto-abi.yml`.
     ASN OBSERVATION SEMANTICS (1.5-e): the requirement "An MTR hop's ASN is diagnostic
     enrichment, not an allocation claim"; the evidence is the 14-vector shared corpus
     `proto/edge/v1/testdata/asn_*.bin` + `asn_corpus.txt`, exercised by
     `go/pkg/edge/edgerecord/asn_corpus_test.go` and
     `elixir/serviceradar_core/test/serviceradar/edge/asn_corpus_test.exs`, both gated in
-    `.forgejo/workflows/proto-abi.yml`. No ASN-SPECIFIC allocation-status filter exists in
+    `.github/workflows/proto-abi.yml`. No ASN-SPECIFIC allocation-status filter exists in
     either runtime, by decision -- the generic validators still run over these records, and the
     corpus asserts they admit every value.
     TIMESTAMP CANONICALIZATION (1.5-c): the requirement "Nanosecond time is canonicalized to
@@ -773,7 +776,7 @@ here.
     `canonical_hash_*.bin` records, exercised by
     `go/pkg/edge/edgerecord/canonical_micros_corpus_test.go` and
     `elixir/serviceradar_core/test/serviceradar/edge/canonical_micros_corpus_test.exs`, both
-    gated in `.forgejo/workflows/proto-abi.yml`.
+    gated in `.github/workflows/proto-abi.yml`.
 
   SUBTASKS (parent stays unchecked until all close)
   - [x] 1.5-a UNKNOWN-FIELD / UNKNOWN-ENUM ADMISSION -- the VERDICT, not the mechanism.
@@ -1384,8 +1387,79 @@ here.
         NOT in `ValidateTombstone` -- it is on the signed recovery-control body path, which this
         runtime does not yet have, so the peer is 1.6-d's to build. That is a RECORDED OWNER, so
         this row closes here and flips when 1.6-d lands.
-  - [ ] 1.5-i SEMANTIC-ENVELOPE GRAMMAR coverage, and its DIGEST SEPARATION from gateway
-        receipt, physical placement, spool coordinates and renewable delivery proof
+  - [x] 1.5-i SEMANTIC-ENVELOPE GRAMMAR coverage, and its DIGEST SEPARATION from
+        producer-receipt identity, physical artifact identity, spool coordinates and the
+        `delivery_capability`
+        TERMINOLOGY CORRECTED WHILE LANDING. The old wording said "gateway receipt" and
+        "physical placement", and NEITHER NAMES A DEFINED OBJECT. The producer-receipt identity
+        is `submission_sha256`; the physical artifact identity is `record_sha256`, which is a
+        different thing from BROKER PLACEMENT METADATA -- spool coordinates and
+        `delivery_capability`. 1.5-j owns broker PUBLICATION IDENTITY, which is a DIFFERENT
+        OBJECT from those frame FIELDS; it does not own the fields themselves. Inventing a test for an undefined object would have
+        preserved the ambiguity and encroached on 1.5-j, so the objects are named instead.
+        `submission_sha256` DOES NOT EXIST IN ANY EDGE PROTO -- its row is SCHEMA CLOSURE, not
+        an invariance measurement, and the corpus says so rather than presenting five uniform
+        separation rows.
+        CLOSED. Delivered as SEVEN KEYED SETS, each guarded on its own with NO GRAND TOTAL:
+        125 framer-local operations (89 proven at a framing seam, 22 through the public digest
+        entry point, 14 DISCHARGED VIA STATE EVIDENCE), 17 root slots, 8 state cases expanding to
+        28 artifacts, 13 composition edges,
+        5 separation rows, 2 exclusions and 1 payload relation. Adding them would invent a
+        number that means nothing -- a root slot is a closure view, an operation is a lexical
+        write, a state case is a branch, an edge is a composition-graph edge.
+        DESCRIPTOR CLOSURE IS BIDIRECTIONAL AT THREE LEVELS: over the record's fields 1..18,
+        over the NINE nested grammar roots (which is what catches a nested field added with no
+        row), and over the COMPOSITION GRAPH -- all thirteen edges DERIVED, four from the nested
+        walk, four from the record's composite slots and five from the claims oneof, whose
+        {field number, child root} pairs are pinned because those numbers ARE the framed
+        discriminant values. The walk discovers paths from the DESCRIPTORS and the manifest
+        classifies what was found; deriving the expected paths from the manifest would make the
+        closure agree with itself. BOTH RUNTIMES derive the slot classes and the claims
+        discriminants from their OWN descriptors and bind the shared file's {key, detail, probe}
+        tuples; Go additionally owns the nested-leaf closure.
+        THE VECTORS ARE FROZEN AND THE BASELINES ARE COMMITTED ARTIFACTS. Within THIS
+        semantic-envelope grammar it is the only place the two implementations must produce
+        IDENTICAL BYTES for the same input
+        rather than each being internally consistent. Recomputing an expected value with the
+        live framer would compare the grammar against itself; building a baseline separately in
+        each runtime would compare two different messages.
+        ORDER AND CONDITIONAL OMISSION NEEDED THEIR OWN EVIDENCE. Per-field inequality cannot
+        see field ORDER -- reordering two writes leaves every such row green -- and a populated
+        baseline cannot see CONDITIONAL OMISSION of zero-valued fields. Committed populated AND
+        default vectors cover both; the mutation audit confirms reordering is caught only by
+        them.
+        MUTATION AUDIT: THIRTY-FOUR ROWS, EXACT AND INDIVIDUALLY LISTED in design.md's 1.5-i
+        mutation record, all re-run against the landed tree in one pass. An earlier draft
+        reported "41 retained" by adding the first audit's nineteen to every survivor round,
+        which DOUBLE-COUNTED -- the nineteen already contained the first two rounds. The
+        nineteen are recorded separately and are NOT re-added.
+        TWO ROWS MEASURE ZERO IN ONE RUNTIME AND ARE KILLED IN THE OTHER, which the table records
+        rather than hiding: renaming an `op` key fails in GO, not Elixir, because GO OWNS THAT
+        CLOSURE; splitting the wire classes fails the CLASSIFIER test, not a fixture row, because
+        the merged guard rejects the fixture that would expose it.
+        THE CARRIER'S OWN DECISIONS GOT THEIR OWN ROWS. Seam vectors freeze what a framer does
+        when TOLD a carrier is absent, so the root's `c != nil` inference was unproven until a
+        whole-record ABSENT witness existed for all four carriers; and the composed capability
+        transcript was unproven for every claims shape the record does not carry, so reordering
+        the claims against the signature for one variant was invisible.
+        AND A SINGLE-AXIS MATRIX IS NOT COMBINATION EVIDENCE: varying ONE capability carrier at a
+        time left every mutation conditioned on a PAIR of carrier states undetectable. Two-way
+        coverage over two carriers is the FULL CROSS PRODUCT -- 105 shapes at three variants,
+        315 whole-record vectors of 361, consumed by BOTH runtimes.
+        OVERLAPPING FAILURE SETS ARE RECORDED rather than engineered away: deleting a presence
+        marker or a discriminant is caught ONLY by the state vectors, because absent and present
+        already differ for unrelated reasons and inequality alone survives the deletion.
+        VECTOR ALIASING IS RECORDED: 361 committed keys carry fewer distinct values.
+        `state.<slot>.present` IS the whole-envelope digest, so `root.shape.base.v0` shares its
+        value with four of them. Those are the SAME MEASUREMENT under different names, so a root
+        reordering fails five keys rather than one; `root.shape.base.v*` NAMES that measurement
+        as the order witness. What is unique to it as a CLASS is that no child vector and no edge
+        row moves at all.
+        THE MANIFEST CLOSURE IS SPLIT AND THE SPLIT IS ASSERTED: Go owns the 125-key `op` set and
+        the nested-leaf closure over all nine grammar roots; this runtime owns the slot and
+        claims-discriminant derivations FROM ITS OWN DESCRIPTORS, the exact {key, detail, probe}
+        tuples of every other set, and frozen-vector parity over all 361 vectors -- proved by an
+        OBSERVED-READ guard in BOTH runtimes, not a named list.
   - [ ] 1.5-j BROKER PUBLICATION IDENTITY defined separately from the semantic envelope
   - [ ] 1.5-k PROJECTED ROW COST covering every synchronous ledger / domain / outbox / work
         / current-state mutation

@@ -30,6 +30,20 @@ Keep this managed block so 'openspec update' can refresh the instructions.
   sets up) silently redirects the push to **staging**. Create feature worktrees with
   `git worktree add --no-track -b <name> origin/staging`, and verify the push line says
   `-> <name>`, never `-> staging`.
+- **`origin` is GitHub (`git@github.com:carverauto/serviceradar.git`). The Forgejo host
+  at `code.carverauto.dev` is READ-ONLY and is a trap.** It still answers `git fetch`,
+  `git ls-remote` and `git clone`, so a stale `origin` looks healthy right up to the
+  push, which is refused for "access rights" — after the work is done. Two things follow.
+  First: **git worktrees share the main clone's config**, so repointing `origin` once in
+  `~/src/serviceradar` fixes every worktree; there is no per-worktree remote to update,
+  and a worktree that pushes to Forgejo means the MAIN clone is stale. Second: **verify
+  the destination host in the push output**, not just the branch name — `-> <name>` is
+  necessary but not sufficient when two remotes carry the same refs.
+- **CI now lives in `.github/workflows/`, not `.forgejo/workflows/`.** Only
+  `proto-abi.yml` has been migrated so far; the rest of the Forgejo suite (`main.yml`
+  and the Bazel/Go/Elixir graph it drives) has NOT been ported, so those gates are not
+  running on pull requests yet. Do not cite a `.forgejo` workflow as evidence that
+  something is gated.
 - **Cut releases with `scripts/cut-release.sh`.** Update `CHANGELOG` and `VERSION`
   first (the script validates a CHANGELOG entry for the version, and updates
   `VERSION`, `helm/serviceradar/Chart.yaml`, and the demo ArgoCD source). The
