@@ -100,6 +100,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AnsibleLive do
        socket
        |> assign(:show_controller_form, true)
        |> assign(:editing_controller_id, nil)
+       |> assign(:pending_controller_tokens, empty_pending_controller_tokens())
        |> assign(:controller_form, to_form(default_controller_form(), as: :controller))}
     end)
   end
@@ -112,6 +113,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AnsibleLive do
            socket
            |> assign(:show_controller_form, true)
            |> assign(:editing_controller_id, ctrl.id)
+           |> assign(:pending_controller_tokens, empty_pending_controller_tokens())
            |> assign(:controller_form, to_form(controller_form_from(ctrl), as: :controller))}
 
         _ ->
@@ -122,18 +124,29 @@ defmodule ServiceRadarWebNGWeb.Settings.AnsibleLive do
 
   def handle_event("cancel_controller_form", _params, socket) do
     with_current_permission(socket, @controller_permission, fn socket ->
-      {:noreply, assign(socket, :show_controller_form, false)}
+      {:noreply,
+       socket
+       |> assign(:show_controller_form, false)
+       |> assign(:pending_controller_tokens, empty_pending_controller_tokens())}
     end)
   end
 
   def handle_event("validate_controller", %{"controller" => params}, socket) do
     with_current_permission(socket, @controller_permission, fn socket ->
-      {:noreply, assign(socket, :controller_form, to_form(params, as: :controller))}
+      {:noreply,
+       socket
+       |> remember_pending_controller_tokens(params)
+       |> assign(
+         :controller_form,
+         to_form(sanitize_controller_form_params(params), as: :controller)
+       )}
     end)
   end
 
   def handle_event("save_controller", %{"controller" => params}, socket) do
     with_current_permission(socket, @controller_permission, fn socket ->
+      params = merge_pending_controller_tokens(params, socket.assigns.pending_controller_tokens)
+
       case socket.assigns.editing_controller_id do
         nil -> create_controller(socket, params)
         id -> update_controller(socket, id, params)
@@ -248,6 +261,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AnsibleLive do
     |> assign(:awx_credential_secrets, [])
     |> assign(:show_controller_form, false)
     |> assign(:editing_controller_id, nil)
+    |> assign(:pending_controller_tokens, empty_pending_controller_tokens())
     |> assign(:controller_form, to_form(default_controller_form(), as: :controller))
     |> stream(:controllers, [], reset: true)
     |> assign(:controller_count, 0)
@@ -650,6 +664,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AnsibleLive do
               id="controller-sync-awx-api-token"
               name="controller[sync_awx_api_token]"
               value=""
+              phx-update="ignore"
               class={ui_field_class(size: "sm", mono: true)}
               autocomplete="off"
               placeholder={if @editing_id, do: "Paste only to rotate sync", else: "Paste sync token"}
@@ -706,6 +721,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AnsibleLive do
               id="controller-execution-awx-api-token"
               name="controller[execution_awx_api_token]"
               value=""
+              phx-update="ignore"
               class={ui_field_class(size: "sm", mono: true)}
               autocomplete="off"
               placeholder={
@@ -763,6 +779,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AnsibleLive do
               id="controller-callback-awx-api-token"
               name="controller[callback_awx_api_token]"
               value=""
+              phx-update="ignore"
               class={ui_field_class(size: "sm", mono: true)}
               autocomplete="off"
               placeholder={
@@ -1073,6 +1090,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AnsibleLive do
          socket
          |> put_flash(:info, "Controller \"#{ctrl.name}\" created.")
          |> assign(:show_controller_form, false)
+         |> assign(:pending_controller_tokens, empty_pending_controller_tokens())
          |> assign(:awx_credential_secrets, list_awx_secrets())
          |> stream_insert(:controllers, ctrl)
          |> update(:controller_count, &(&1 + 1))}
@@ -1097,6 +1115,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AnsibleLive do
        socket
        |> put_flash(:info, "Controller \"#{updated.name}\" updated.")
        |> assign(:show_controller_form, false)
+       |> assign(:pending_controller_tokens, empty_pending_controller_tokens())
        |> assign(:awx_credential_secrets, list_awx_secrets())
        |> stream_insert(:controllers, updated)}
     else
@@ -1481,8 +1500,18 @@ defmodule ServiceRadarWebNGWeb.Settings.AnsibleLive do
   defp format_controller_error({:missing_awx_credential, :sync}),
     do: "Enter a sync AWX API token or select an existing sync credential."
 
+  defp format_controller_error(missing_awx_credential: :sync),
+    do: format_controller_error({:missing_awx_credential, :sync})
+
   defp format_controller_error({:invalid_credential_secret_id, purpose}),
     do: "The #{purpose} credential secret ID must be a UUID."
+
+  defp format_controller_error(%{value: value})
+       when value in [{:missing_awx_credential, :sync}, [missing_awx_credential: :sync]] do
+    format_controller_error(value)
+  end
+
+  defp format_controller_error(%{errors: [error | _]}), do: format_controller_error(error)
 
   defp format_controller_error(other), do: format_ash_error(other)
 
@@ -1494,6 +1523,51 @@ defmodule ServiceRadarWebNGWeb.Settings.AnsibleLive do
     params
     |> Map.put("awx_api_token", "")
     |> Map.put("sync_awx_api_token", "")
+    |> Map.put("execution_awx_api_token", "")
+    |> Map.put("callback_awx_api_token", "")
+  end
+
+  defp empty_pending_controller_tokens do
+    %{sync: nil, execution: nil, callback: nil}
+  end
+
+  defp remember_pending_controller_tokens(socket, params) do
+    pending = socket.assigns.pending_controller_tokens
+
+    assign(socket, :pending_controller_tokens, %{
+      sync:
+        pending_token(
+          params["sync_awx_api_token"] || params["awx_api_token"],
+          pending.sync
+        ),
+      execution: pending_token(params["execution_awx_api_token"], pending.execution),
+      callback: pending_token(params["callback_awx_api_token"], pending.callback)
+    })
+  end
+
+  # A later phx-change that omits the ignored password input must not forget
+  # a token the operator already pasted. An explicit blank value does clear it.
+  defp pending_token(value, previous) do
+    case value do
+      nil -> previous
+      token -> nilify_blank(token)
+    end
+  end
+
+  defp merge_pending_controller_tokens(params, pending) do
+    params
+    |> Map.put(
+      "sync_awx_api_token",
+      nilify_blank(params["sync_awx_api_token"]) || pending.sync
+    )
+    |> Map.put(
+      "execution_awx_api_token",
+      nilify_blank(params["execution_awx_api_token"]) || pending.execution
+    )
+    |> Map.put(
+      "callback_awx_api_token",
+      nilify_blank(params["callback_awx_api_token"]) || pending.callback
+    )
   end
 
   defp awx_token_secret_name(name, purpose) do

@@ -180,6 +180,100 @@ defmodule ServiceRadarWebNGWeb.Settings.AnsibleLiveTest do
     refute inspect(secret) =~ raw_token
   end
 
+  test "keeps a pasted sync token across phx-change so save does not report missing sync", %{
+    conn: conn
+  } do
+    controller_name = "AWX Controller #{System.unique_integer([:positive])}"
+    raw_token = "awx-test-token-#{System.unique_integer([:positive])}"
+
+    {:ok, lv, _html} = live(conn, ~p"/settings/ansible")
+
+    form_html =
+      lv
+      |> element("button", "+ Add controller")
+      |> render_click()
+
+    assert form_html =~ ~s(id="controller-sync-awx-api-token")
+    assert form_html =~ ~s(phx-update="ignore")
+    assert form_html =~ ~s(id="controller-execution-awx-api-token")
+    assert form_html =~ ~s(id="controller-callback-awx-api-token")
+
+    lv
+    |> form("#ansible-controller-form", %{
+      "controller" => %{
+        "name" => controller_name,
+        "agent_id" => "k8s-agent",
+        "description" => "",
+        "base_url" => "http://awx-service.awx.svc.cluster.local",
+        "sync_awx_api_token" => raw_token,
+        "credential_secret_id" => "",
+        "sync_credential_secret_id" => "",
+        "execution_credential_secret_id" => "",
+        "callback_credential_secret_id" => "",
+        "inventory_sync_interval_seconds" => "300",
+        "catalog_sync_interval_seconds" => "600"
+      }
+    })
+    |> render_change()
+
+    # Browser LiveView patches wipe hardcoded value="" password inputs. Save
+    # after validate therefore often arrives with an empty token field; the
+    # pending assign must still create the controller.
+    html =
+      lv
+      |> form("#ansible-controller-form", %{
+        "controller" => %{
+          "name" => controller_name,
+          "agent_id" => "k8s-agent",
+          "description" => "",
+          "base_url" => "http://awx-service.awx.svc.cluster.local",
+          "sync_awx_api_token" => "",
+          "credential_secret_id" => "",
+          "sync_credential_secret_id" => "",
+          "execution_credential_secret_id" => "",
+          "callback_credential_secret_id" => "",
+          "inventory_sync_interval_seconds" => "300",
+          "catalog_sync_interval_seconds" => "600"
+        }
+      })
+      |> render_submit()
+
+    refute html =~ "missing_awx_credential"
+    refute html =~ "Ash.Error.Unknown"
+    assert html =~ "Controller \"#{controller_name}\" created."
+
+    controller = controller_by_name!(controller_name)
+    assert controller.sync_credential_secret_id
+  end
+
+  test "missing sync credential flashes an operator message instead of Ash.Error", %{
+    conn: conn
+  } do
+    {:ok, lv, _html} = live(conn, ~p"/settings/ansible")
+
+    lv
+    |> element("button", "+ Add controller")
+    |> render_click()
+
+    html =
+      lv
+      |> form("#ansible-controller-form", %{
+        "controller" => %{
+          "name" => "Missing Sync #{System.unique_integer([:positive])}",
+          "agent_id" => "k8s-agent",
+          "base_url" => "http://awx-service.awx.svc.cluster.local",
+          "sync_awx_api_token" => "",
+          "sync_credential_secret_id" => "",
+          "credential_secret_id" => ""
+        }
+      })
+      |> render_submit()
+
+    assert html =~ "Enter a sync AWX API token or select an existing sync credential."
+    refute html =~ "Ash.Error.Unknown"
+    refute html =~ "missing_awx_credential"
+  end
+
   test "links a DB-backed AWX secret selected from the credential dropdown", %{
     conn: conn,
     scope: scope
