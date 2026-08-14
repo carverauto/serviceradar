@@ -8,6 +8,8 @@ defmodule ServiceRadar.Plugins.ProxmoxHostAuthority do
   finite set of target identity fields.
   """
 
+  require Logger
+
   @schema "serviceradar.plugin_host_authority.v1"
   @provider "proxmox"
   @inventory_plugin_id "proxmox-inventory"
@@ -86,12 +88,28 @@ defmodule ServiceRadar.Plugins.ProxmoxHostAuthority do
             )
 
           if bindings == [] do
+            Logger.warning(
+              "Proxmox host authority: no bindings built for assignment " <>
+                "#{inspect(assignment_id)} (plugin=#{plugin_id}); the assignment will be " <>
+                "skipped as :proxmox_host_authority_unavailable"
+            )
+
             nil
           else
             %{"schema" => @schema, "bindings" => bindings}
           end
         else
-          _ -> nil
+          # Returning a bare nil is what makes :proxmox_host_authority_unavailable
+          # uninformative upstream: it can mean no broker grant, a policy-binding
+          # failure, or an SSH host-key-policy failure. Same control flow as the
+          # `_ -> nil` this replaces; the value is now named and logged.
+          other ->
+            Logger.warning(
+              "Proxmox host authority: host binding unavailable for assignment " <>
+                "#{inspect(assignment_id)} (plugin=#{plugin_id}): #{inspect(other)}"
+            )
+
+            nil
         end
 
       {public_params, host_params}
