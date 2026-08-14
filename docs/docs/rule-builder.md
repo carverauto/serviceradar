@@ -62,6 +62,10 @@ edit incident controls on stateful alert rules:
 - `cooldown_seconds` prevents repeated immediate notifications for duplicate bursts.
 - `renotify_seconds` controls reminder cadence for long-lived incidents.
 
+Alerts do not page by themselves. After a rule fires, a notification **route**
+must match it and send it to a **channel**. See the
+[Notifications Quickstart](./notification-quickstart.md).
+
 The default Falco rule ships with `group_by = ["rule", "hostname"]`, so repeated
 critical detections from the same rule on the same host stay within one active
 incident unless the cooldown gap is exceeded.

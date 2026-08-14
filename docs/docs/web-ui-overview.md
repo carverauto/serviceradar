@@ -86,6 +86,9 @@ platform. Common sections include:
   metrics (`/settings/sysmon`).
 - **Rules** — Zen log normalization, event promotion, and alerts
   (`/settings/rules`). See the [Rule Builder](./rule-builder.md).
+- **Notifications** — channels, routes, escalation, and the Delivery Log
+  (`/settings/notifications`). Start with the
+  [Notifications Quickstart](./notification-quickstart.md).
 - **Agents** — deploy (`/settings/agents/deploy`), releases, plugins manager,
   and native add-ons catalog/fleet.
 - **API credentials & CLI sessions** — API keys for programmatic access and
