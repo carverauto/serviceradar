@@ -269,20 +269,26 @@ defmodule ServiceRadarWebNGWeb.Settings.NotificationsLive.TestSend do
   defp public_base_url do
     env = System.get_env("SERVICERADAR_NOTIFICATION_ACTION_BASE_URL")
 
-    cond do
-      is_binary(env) and String.trim(env) != "" ->
-        env |> String.trim() |> String.trim_trailing("/")
-
-      true ->
-        case ServiceRadarWebNGWeb.Endpoint.url() do
-          url when is_binary(url) ->
-            trimmed = url |> String.trim() |> String.trim_trailing("/")
-            if trimmed == "", do: nil, else: trimmed
-
-          _other ->
-            nil
-        end
+    if is_binary(env) and String.trim(env) != "" do
+      env |> String.trim() |> String.trim_trailing("/")
+    else
+      endpoint_public_base_url()
     end
+  end
+
+  # Endpoint.url/0 reads persistent_term and raises when the endpoint is not
+  # started. db_free CI (`unit_tests_phoenix_live`) runs with --no-start.
+  defp endpoint_public_base_url do
+    case ServiceRadarWebNGWeb.Endpoint.url() do
+      url when is_binary(url) ->
+        trimmed = url |> String.trim() |> String.trim_trailing("/")
+        if trimmed == "", do: nil, else: trimmed
+
+      _other ->
+        nil
+    end
+  rescue
+    _ -> nil
   end
 
   defp request(provider, config, secrets, rendered) do
