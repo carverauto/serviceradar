@@ -1510,6 +1510,43 @@ EXCEPTION
         RAISE NOTICE 'Skipping AGE graph seed due to insufficient privileges';
 END $$;
 
+-- Device identity for the log correlation path.
+--
+-- `in:logs device_id:"..."` deliberately does NOT match on resource_attributes:
+-- rust/srql/src/query/logs/metadata.rs routes device_id filters to
+-- device_inventory_identity_clause only, because an attribute ILIKE over
+-- last_24h logs times out. It correlates the log's syslog source columns
+-- against device inventory instead.
+--
+-- The in-window log below carries source_ip 198.51.100.42, while device-alpha's
+-- ocsf_devices row has ip 10.10.10.5 -- so the ocsf_devices branch cannot match
+-- it. The identifier row here is what ties that source_ip to device-alpha, which
+-- is what `in:logs device_id:"device-alpha" time:last_10m` expects to find.
+INSERT INTO device_identifiers (
+        device_id,
+        identifier_type,
+        identifier_value,
+        partition,
+        confidence,
+        source,
+        first_seen,
+        last_seen,
+        verified,
+        metadata
+    )
+VALUES (
+        'device-alpha',
+        'ip',
+        '198.51.100.42',
+        'default',
+        'high',
+        'sweep',
+        NOW() - INTERVAL '14 days',
+        NOW() - INTERVAL '1 minute',
+        TRUE,
+        '{}'::jsonb
+    );
+
 CREATE OR REPLACE FUNCTION public.age_device_neighborhood(
     p_device_id text,
     p_collector_owned_only boolean DEFAULT false,
