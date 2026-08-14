@@ -105,6 +105,22 @@ py_test(
 #
 # `data` must list every file the test reads; a missing entry fails under the sandbox only, which
 # is exactly the environment CI uses.
+# Same class of bug as the agent release key below, caught the hard way: the Cosign public key
+# that verifies first-party Wasm plugins was set only in the demo overlay, so every other Helm
+# install rendered no key env var and could not import a single plugin. This asserts the key is
+# present -- not merely consistent -- everywhere it is embedded.
+py_test(
+    name = "first_party_plugin_cosign_key_consistency_test",
+    size = "small",
+    srcs = ["first_party_plugin_cosign_key_consistency_test.py"],
+    data = [
+        "//docs:cosign.pub",
+        "//elixir/web-ng:config/config.exs",
+        "//helm/serviceradar:values-demo.yaml",
+        "//helm/serviceradar:values.yaml",
+    ],
+)
+
 py_test(
     name = "agent_release_key_consistency_test",
     size = "small",

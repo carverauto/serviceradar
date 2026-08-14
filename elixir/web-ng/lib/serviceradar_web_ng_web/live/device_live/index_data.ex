@@ -29,6 +29,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexData do
     as: :availability_source_agent_options
 
   defdelegate load_device_stats(srql_module, scope), to: Stats
+  defdelegate default_device_stats(), to: Stats
   defdelegate get_total_matching_count(scope, query), to: Query
   defdelegate include_inactive_inventory_params(params), to: Query
   defdelegate parse_page_param(params), to: Query

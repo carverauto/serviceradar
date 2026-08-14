@@ -15,9 +15,11 @@ and the platform has a new provider. There is no Elixir module behind the shippe
 catalog either: delete the catalog file and the platform loses nine destinations,
 not a line of delivery code.
 
-This page is the authoring reference for that document. For the operator guide to
-routes, escalation, suppression, and the Delivery Log, see
-[Notifications](./notifications.md).
+This page is the authoring reference for that document. To page Discord or
+Slack for the first time, see the
+[Notifications Quickstart](./notification-quickstart.md). For routes,
+escalation, suppression, and the Delivery Log, see
+[How Notifications Work](./notifications.md).
 
 ## Before you start
 

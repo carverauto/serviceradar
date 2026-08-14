@@ -11,9 +11,13 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexView.Header do
     <!-- Header with Action Buttons -->
     <div class="mb-6 flex flex-wrap items-center justify-between gap-4">
       <div>
-        <h1 class="text-2xl font-semibold text-sr-ink">Devices</h1>
+        <h1 class="text-2xl font-semibold text-sr-ink">{@page_title}</h1>
         <p class="text-sm text-sr-muted">
-          Manage and monitor your network devices
+          <%= if @live_action == :new_devices do %>
+            Devices first seen in the last 30 days. Edit the SRQL query to refine the report.
+          <% else %>
+            Manage and monitor your network devices
+          <% end %>
         </p>
       </div>
       <div class="flex flex-wrap items-center gap-2">

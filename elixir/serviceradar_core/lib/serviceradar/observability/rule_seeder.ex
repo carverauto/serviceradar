@@ -284,6 +284,21 @@ defmodule ServiceRadar.Observability.RuleSeeder do
         }
       },
       %{
+        name: "sweep_device_availability_events",
+        enabled: true,
+        priority: 50,
+        source_type: :log,
+        source: %{},
+        match: %{
+          "subject_prefix" => "logs.internal.sweep",
+          "event_type" => ["device.unavailable", "device.available"]
+        },
+        event: %{
+          "log_name" => "sweep.device.availability",
+          "alert" => false
+        }
+      },
+      %{
         name: "copyfail_falco_logs_to_security_events",
         enabled: true,
         priority: 35,
@@ -311,6 +326,38 @@ defmodule ServiceRadar.Observability.RuleSeeder do
   @doc false
   def default_stateful_rules do
     [
+      %{
+        name: "sweep_device_unavailable",
+        managed: true,
+        template_version: 1,
+        description:
+          "Open one availability incident per device when sweep marks it unreachable, and clear it when the device recovers.",
+        priority: 55,
+        enabled: true,
+        signal: :event,
+        match: %{
+          "subject_prefix" => "sweep.device.availability",
+          "attribute_equals" => %{"event_type" => "device.unavailable"},
+          "recovery" => %{
+            "subject_prefix" => "sweep.device.availability",
+            "attribute_equals" => %{"event_type" => "device.available"}
+          }
+        },
+        group_by: ["device"],
+        threshold: 1,
+        window_seconds: 300,
+        bucket_seconds: 60,
+        cooldown_seconds: 300,
+        renotify_seconds: 21_600,
+        event: %{
+          "log_name" => "alert.availability.sweep.device",
+          "message" => "Device is unreachable from sweep checks"
+        },
+        alert: %{
+          "title" => "Device Unreachable",
+          "severity" => "warning"
+        }
+      },
       %{
         name: "endpoint_inventory_vulnerability",
         managed: true,

@@ -252,8 +252,9 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
               <h1 class="text-xl font-semibold">Credential Rules</h1>
               <p class="mt-1 text-sm text-sr-muted">
                 Scoped rules bind encrypted credentials to eligible targets and consumers without
-                placing secret material in integration configuration. Available providers and
-                credential fields come from approved integration descriptors.
+                placing secret material in plugin assignment forms. Available providers and
+                credential fields come from approved integration descriptors. For UniFi Protect,
+                create the API key here, then assign the camera plugin to a covered agent.
               </p>
             </div>
             <div class="flex flex-wrap gap-2">
@@ -841,6 +842,22 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
             {@integration_profile["description"] || @integration_profile["label"]} Credentials are
             resolved by the trusted host and delivered only through scoped runtime grants.
           </div>
+          <div
+            :if={@provider_value == "unifi-protect"}
+            class="rounded-lg border border-info/20 bg-info/10 p-3 text-sm text-sr-ink/90 space-y-2"
+          >
+            <p>
+              Do not put the Protect password on the plugin assignment form. Create an API key
+              secret (preferred) or a local-account secret, then this rule materializes it into
+              the UniFi Protect camera plugins.
+            </p>
+            <p>
+              The plugin talks to UniFi OS, not each camera: login at <span class="font-mono">https://&lt;controller&gt;/api/auth/login</span>,
+              Protect bootstrap at <span class="font-mono">https://&lt;controller&gt;/proxy/protect/api/bootstrap</span>,
+              RTSP/RTSPS relay on port 7447 (sometimes 7441). Create the key in UniFi OS under
+              Settings → Control Plane → Integrations.
+            </p>
+          </div>
 
           <div class="grid gap-4 md:grid-cols-2">
             <.input field={@form[:name]} label="Name" required />
@@ -960,11 +977,19 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
               label="Scope Value"
               required
             />
-            <.input
-              :if={@show_controller_host?}
-              field={@form[:controller_host]}
-              label="Controller Host Override"
-            />
+            <div :if={@show_controller_host?} class="space-y-2 md:col-span-2">
+              <.input
+                field={@form[:controller_host]}
+                label="UniFi OS / Protect controller"
+                placeholder="192.168.1.1 or unifi.lan"
+              />
+              <p class="text-xs text-sr-muted">
+                This is the UniFi OS / Dream Machine address that serves Protect, not a camera
+                IP. Hostname, IP, or <span class="font-mono">https://192.168.1.1</span> all work;
+                ServiceRadar strips the URL down to the host. Leave blank only when the target
+                query already resolves that controller device.
+              </p>
+            </div>
             <.input
               :if={@show_tls_policy?}
               field={@form[:tls_policy]}
@@ -989,13 +1014,21 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
             name={@form[:target_query].name}
             value="in:agents"
           />
-          <.input
-            :if={@show_target_query?}
-            field={@form[:target_query]}
-            type="textarea"
-            label="Target Query"
-            required
-          />
+          <div :if={@show_target_query?} class="space-y-2">
+            <.input
+              field={@form[:target_query]}
+              type="textarea"
+              label="Target Query"
+              required
+            />
+            <p :if={@provider_value == "unifi-protect"} class="text-xs text-sr-muted">
+              SRQL devices this rule applies to. Prefer
+              <span class="font-mono">in:devices vendor:"Ubiquiti"</span>
+              when the controller is in inventory. If it is not, keep a seed query that
+              still matches at least one in-scope device and set the controller field
+              above — the plugin calls that host, not the seed row IP.
+            </p>
+          </div>
           <fieldset :if={@plugin_integration?} class="space-y-4 border-t border-sr-line pt-4">
             <legend class="text-sm font-semibold">{@integration_profile["label"]}</legend>
             <PluginConfigForm.plugin_config_fields

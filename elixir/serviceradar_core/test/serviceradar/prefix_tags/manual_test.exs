@@ -8,8 +8,6 @@ defmodule ServiceRadar.PrefixTags.ManualTest do
   alias ServiceRadar.PrefixTags.PrefixTag
   alias ServiceRadar.PrefixTags.Snapshot
 
-  @moduletag :requires_app
-
   @manager %{
     id: "prefix-tag-manager",
     role: :operator,
@@ -40,10 +38,29 @@ defmodule ServiceRadar.PrefixTags.ManualTest do
     end
   end
 
+  describe "merge_structured_tags/1" do
+    test "builds tags from site and role when the freeform box is empty" do
+      assert Manual.merge_structured_tags(%{"site" => "hq", "role" => "wifi", "tags" => ""})[
+               "tags"
+             ] == ["site:hq", "role:wifi"]
+    end
+
+    test "keeps extra tags and lets structured fields win on the same key" do
+      attrs =
+        Manual.merge_structured_tags(%{
+          "site" => "austin",
+          "tags" => "site:hq zone:dmz"
+        })
+
+      assert attrs["tags"] == ["site:austin", "zone:dmz"]
+    end
+  end
+
   test "source_name is manual" do
     assert Manual.source_name() == "manual"
   end
 
+  @tag :requires_app
   test "generic create is importer-only while managers use create_manual" do
     refute Ash.can?({PrefixTag, :create}, @manager)
     assert Ash.can?({PrefixTag, :create}, @system)

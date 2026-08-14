@@ -2,11 +2,10 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.InterfaceData do
   @moduledoc false
 
   alias ServiceRadar.Inventory.InterfaceSettings
-  alias ServiceRadarWebNGWeb.Dashboard.Engine
-  alias ServiceRadarWebNGWeb.Dashboard.Plugins.Table, as: TablePlugin
+  alias ServiceRadarWebNGWeb.InterfaceLive.MetricsPanels
+  alias ServiceRadarWebNGWeb.InterfaceLive.MetricsQuery
 
   @interfaces_limit 200
-  @snmp_metrics_limit 3_600
 
   def load_interfaces(srql_module, device_uid, scope) do
     query = default_interfaces_query(device_uid)
@@ -79,6 +78,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.InterfaceData do
         setting ->
           iface
           |> Map.put("metrics_enabled", metrics_enabled_setting?(setting))
+          |> Map.put("metrics_selected", setting.metrics_selected || [])
           |> Map.put("favorited", setting.favorited)
           |> Map.put("metric_thresholds", setting.metric_thresholds || %{})
           |> Map.put("threshold_enabled", setting.threshold_enabled)
@@ -280,7 +280,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.InterfaceData do
             Map.get(iface, "if_name") || Map.get(iface, "if_descr") ||
               "Interface #{Map.get(iface, "if_index")}",
           max_speed_bytes_per_sec: if_speed_bytes_per_sec,
-          reference_lines: interface_reference_lines(iface, if_speed_bytes_per_sec)
+          reference_lines: interface_reference_lines(iface, if_speed_bytes_per_sec),
+          metrics_selected: Map.get(iface, "metrics_selected") || []
         }
       end)
 
@@ -336,17 +337,20 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.InterfaceData do
   end
 
   defp query_interface_metric_panels(srql_module, device_uid, fav_iface, scope, opts) do
-    %{if_index: if_index, name: iface_name, max_speed_bytes_per_sec: max_speed, reference_lines: reference_lines} =
-      normalize_metric_interface(fav_iface)
+    %{
+      if_index: if_index,
+      name: iface_name,
+      max_speed_bytes_per_sec: _max_speed,
+      reference_lines: reference_lines,
+      metrics_selected: metrics_selected
+    } = normalize_metric_interface(fav_iface)
 
-    query =
-      "in:snmp_metrics device_id:\"#{escape_value(device_uid)}\" if_index:#{if_index} " <>
-        "time:#{Keyword.get(opts, :time_range, "last_24h")} " <>
-        "bucket:#{Keyword.get(opts, :bucket, "5m")} agg:rate series:metric_name limit:#{Keyword.get(opts, :limit, @snmp_metrics_limit)}"
+    query_opts = Keyword.take(opts, [:time_range, :bucket, :limit])
+    query = MetricsQuery.build_snmp_counter_query(device_uid, if_index, metrics_selected, query_opts)
 
     case srql_module.query(query, %{scope: scope}) do
       {:ok, %{"results" => results} = response} when is_list(results) and results != [] ->
-        interface_panels = build_interface_panels(response, iface_name, if_index, max_speed, reference_lines)
+        interface_panels = build_interface_panels(response, iface_name, if_index, reference_lines)
         {:ok, interface_panels}
 
       {:ok, %{"results" => []}} ->
@@ -360,7 +364,17 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.InterfaceData do
     end
   end
 
-  defp normalize_metric_interface(%{if_index: _if_index} = iface), do: iface
+  defp normalize_metric_interface(%{if_index: _if_index} = iface) do
+    Map.merge(
+      %{
+        name: "Interface #{iface.if_index}",
+        max_speed_bytes_per_sec: nil,
+        reference_lines: [],
+        metrics_selected: []
+      },
+      iface
+    )
+  end
 
   defp normalize_metric_interface(iface) when is_map(iface) do
     if_speed_bps = Map.get(iface, "speed_bps") || Map.get(iface, "if_speed")
@@ -371,7 +385,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.InterfaceData do
       if_index: if_index,
       name: Map.get(iface, "if_name") || Map.get(iface, "if_descr") || "Interface #{if_index}",
       max_speed_bytes_per_sec: if_speed_bytes_per_sec,
-      reference_lines: interface_reference_lines(iface, if_speed_bytes_per_sec)
+      reference_lines: interface_reference_lines(iface, if_speed_bytes_per_sec),
+      metrics_selected: Map.get(iface, "metrics_selected") || Map.get(iface, :metrics_selected) || []
     }
   end
 
@@ -380,7 +395,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.InterfaceData do
       if_index: if_index,
       name: "Interface #{if_index}",
       max_speed_bytes_per_sec: nil,
-      reference_lines: []
+      reference_lines: [],
+      metrics_selected: []
     }
   end
 
@@ -412,25 +428,13 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.InterfaceData do
 
   defp parse_integer(_), do: nil
 
-  defp build_interface_panels(srql_response, iface_name, if_index, _max_speed, reference_lines) do
-    srql_response
-    |> Engine.build_panels()
-    |> Enum.reject(&(&1.plugin == TablePlugin))
-    |> Enum.map(fn panel ->
-      assigns =
-        panel.assigns
-        |> Map.put(:interface_label, "#{iface_name} (ifIndex: #{if_index})")
-        # max_speed is intentionally dropped: without the synthetic capacity
-        # reference line the "interface rate" footer and "(0.0%)" utilization
-        # label are meaningless, and clamping rates to link capacity is what
-        # pinned the chart. Charts now auto-scale to the observed traffic.
-        |> Map.put(:max_speed_bytes_per_sec, nil)
-        |> Map.put(:chart_mode, :combined)
-        |> Map.put(:rate_mode, :rate)
-        |> Map.put(:reference_lines, reference_lines)
-
-      %{panel | assigns: assigns}
-    end)
+  defp build_interface_panels(srql_response, iface_name, if_index, reference_lines) do
+    MetricsPanels.from_srql(srql_response,
+      chart_mode: :combined,
+      interface_label: "#{iface_name} (ifIndex: #{if_index})",
+      max_speed_bytes_per_sec: nil,
+      reference_lines: reference_lines
+    )
   end
 
   def interface_reference_lines(interface, max_speed_bytes_per_sec) when is_map(interface) do

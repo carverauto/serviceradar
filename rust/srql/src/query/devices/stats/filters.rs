@@ -40,6 +40,7 @@ pub(super) fn build_grouped_stats_filter_clause(
         "model" => clauses::build_grouped_text_clause("model", filter, &mut binds)?,
         "risk_level" => clauses::build_grouped_text_clause("risk_level", filter, &mut binds)?,
         "is_available" => build_bool_clause("is_available", filter, &mut binds)?,
+        "first_seen" | "first_seen_time" => build_first_seen_clause(filter, &mut binds)?,
         "is_active" => build_active_clause(filter, &mut binds)?,
         "include_inactive" => {
             let _ = super::super::filters::parse_bool(filter.value.as_scalar()?)?;
@@ -95,6 +96,22 @@ pub(super) fn build_grouped_stats_filter_clause(
     };
 
     Ok(Some((clause, binds)))
+}
+
+fn build_first_seen_clause(filter: &Filter, binds: &mut Vec<DeviceSqlBindValue>) -> Result<String> {
+    let range = super::super::filters::first_seen_range(filter)?;
+    binds.push(DeviceSqlBindValue::Timestamp(range.start));
+    binds.push(DeviceSqlBindValue::Timestamp(range.end));
+
+    match filter.op {
+        FilterOp::Eq => Ok("first_seen_time >= ? AND first_seen_time <= ?".to_string()),
+        FilterOp::NotEq => Ok(
+            "(first_seen_time IS NULL OR first_seen_time < ? OR first_seen_time > ?)".to_string(),
+        ),
+        _ => Err(ServiceError::InvalidRequest(
+            "first_seen filter only supports equality (for example first_seen:last_7d)".into(),
+        )),
+    }
 }
 
 fn build_type_id_clause(filter: &Filter, binds: &mut Vec<DeviceSqlBindValue>) -> Result<String> {

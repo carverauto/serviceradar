@@ -26,6 +26,28 @@ describe("lifecycle_bootstrap_channel_event_methods", () => {
     expect(state.pendingClusterFocus).toEqual({clusterId: "cluster:endpoints:sr:test", expanded: true})
     expect(state.userCameraLocked).toBe(false)
     expect(state.hasAutoFit).toBe(false)
+    expect(state.topologyLayers.endpoints).toBe(true)
+    expect(channel.push).toHaveBeenCalledWith("cluster:set_expanded", {
+      cluster_id: "cluster:endpoints:sr:test",
+      expanded: true,
+    })
+  })
+
+  it("setClusterExpanded enables the endpoints layer before asking the server to expand", () => {
+    const channel = {push: vi.fn()}
+    const pushEvent = vi.fn()
+    const state = {
+      channel,
+      pushEvent,
+      topologyLayers: {backbone: true, inferred: false, endpoints: false},
+    }
+    const ctx = createStateBackedContext(state, {})
+    Object.assign(ctx, bindApi(ctx, godViewLifecycleBootstrapChannelEventMethods))
+
+    ctx.setClusterExpanded("cluster:endpoints:sr:test", true)
+
+    expect(state.topologyLayers.endpoints).toBe(true)
+    expect(pushEvent).toHaveBeenCalledWith("enable_attachment_layers", {})
     expect(channel.push).toHaveBeenCalledWith("cluster:set_expanded", {
       cluster_id: "cluster:endpoints:sr:test",
       expanded: true,

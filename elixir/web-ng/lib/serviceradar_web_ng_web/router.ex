@@ -915,6 +915,7 @@ defmodule ServiceRadarWebNGWeb.Router do
       ] do
       live("/analytics", AuthoredDashboardLive.Index, :index)
       live("/dashboard", DashboardLive.Index, :index)
+      live("/dashboard/new-devices", DeviceLive.Index, :new_devices)
       live("/dashboard/:dashboard_id", AuthoredDashboardLive.Show, :show)
       live("/dashboards", DashboardHubLive.Index, :index)
       live("/dashboards/:route_slug", DashboardPackageLive.Show, :show)
@@ -1018,6 +1019,7 @@ defmodule ServiceRadarWebNGWeb.Router do
       live("/settings/networks/discovery/new", Settings.NetworksLive.Index, :new_mapper_job)
       live("/settings/networks/discovery/:id/edit", Settings.NetworksLive.Index, :edit_mapper_job)
       live("/settings/networks/device-enrichment", Settings.DeviceEnrichmentRulesLive, :index)
+      live("/settings/networks/hostname-rdns", Settings.DeviceHostnameRdnsLive, :index)
       live("/settings/networks/availability-sources", Settings.AvailabilitySourceProfilesLive, :index)
       live("/settings/networks/visibility-profiles", Settings.VisibilityProfilesLive.Index, :index)
       live("/settings/networks/visibility-profiles/new", Settings.VisibilityProfilesLive.Index, :new_profile)

@@ -23,11 +23,13 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexRefresh do
     preserve_async_data? = Keyword.get(opts, :preserve_async_data?, false)
     stats_loaded? = Map.get(socket.assigns, :device_stats_loaded, false)
 
+    {default_limit, max_limit} = list_limits(socket)
+
     socket =
       socket
       |> SRQLPage.load_list(params, uri, :devices,
-        default_limit: @default_limit,
-        max_limit: @max_limit
+        default_limit: default_limit,
+        max_limit: max_limit
       )
       |> assign_managed_device_limit_advisory()
 
@@ -188,4 +190,10 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexRefresh do
       {:noreply, socket}
     end
   end
+
+  defp list_limits(%{assigns: %{live_action: :new_devices}}) do
+    {200, 200}
+  end
+
+  defp list_limits(_socket), do: {@default_limit, @max_limit}
 end

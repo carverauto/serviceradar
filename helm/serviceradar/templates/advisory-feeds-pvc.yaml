@@ -1,5 +1,5 @@
 {{- $advisoryFeeds := default (dict) (get (default (dict) .Values.core) "advisoryFeeds") -}}
-{{- if and ($advisoryFeeds.enabled) (not $advisoryFeeds.existingClaim) }}
+{{- if and ($advisoryFeeds.enabled) (not $advisoryFeeds.existingClaim) (not $advisoryFeeds.emptyDir) }}
 ---
 apiVersion: v1
 kind: PersistentVolumeClaim
