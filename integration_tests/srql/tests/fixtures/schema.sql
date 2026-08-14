@@ -689,3 +689,32 @@ CREATE TABLE virtualization_storage_systems (
     inserted_at         TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at          TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
+
+-- Device identity correlation for log lookups.
+--
+-- `in:logs device_id:"..."` correlates through platform.device_identifiers
+-- (rust/srql/src/query/logs/metadata.rs), and this fixture never defined it, so
+-- the statement failed to plan at all:
+--
+--   ERROR srql::server: srql query failed
+--     error=Internal(relation "platform.device_identifiers" does not exist)
+--
+-- Unqualified, like every other table here: the fixture role's search_path is
+-- "platform, public, ag_catalog", so this lands in platform -- which is the
+-- schema the engine qualifies. Column set mirrors the production table; only the
+-- three columns the engine reads are constrained NOT NULL.
+DROP TABLE IF EXISTS device_identifiers;
+
+CREATE TABLE device_identifiers (
+    id                  BIGSERIAL   PRIMARY KEY,
+    device_id           TEXT        NOT NULL,
+    identifier_type     TEXT        NOT NULL,
+    identifier_value    TEXT        NOT NULL,
+    partition           TEXT,
+    confidence          TEXT,
+    source              TEXT,
+    first_seen          TIMESTAMPTZ,
+    last_seen           TIMESTAMPTZ,
+    verified            BOOLEAN,
+    metadata            JSONB
+);
