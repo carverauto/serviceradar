@@ -328,7 +328,9 @@ CREATE TABLE service_status (
     PRIMARY KEY (timestamp, gateway_id, service_name)
 );
 
-DROP TABLE IF EXISTS discovered_interfaces;
+-- CASCADE: platform.discovered_interfaces (created at the end of this file) is a
+-- view over this table, and seeding retries re-run this file over a populated schema.
+DROP TABLE IF EXISTS discovered_interfaces CASCADE;
 CREATE TABLE discovered_interfaces (
     timestamp       TIMESTAMPTZ NOT NULL,
     agent_id        TEXT,
@@ -692,18 +694,24 @@ CREATE TABLE virtualization_storage_systems (
 
 -- Device identity correlation for log lookups.
 --
--- `in:logs device_id:"..."` correlates through platform.device_identifiers
--- (rust/srql/src/query/logs/metadata.rs), and this fixture never defined it, so
--- the statement failed to plan at all:
+-- `in:logs device_id:"..."` correlates a device through THREE relations, all
+-- schema-qualified by the engine (rust/srql/src/query/logs/metadata.rs):
+-- platform.ocsf_devices, platform.device_identifiers and
+-- platform.discovered_interfaces. Only the first was exposed, so the statement
+-- failed to plan and the whole query errored:
 --
 --   ERROR srql::server: srql query failed
 --     error=Internal(relation "platform.device_identifiers" does not exist)
 --
--- Unqualified, like every other table here: the fixture role's search_path is
--- "platform, public, ag_catalog", so this lands in platform -- which is the
--- schema the engine qualifies. Column set mirrors the production table; only the
--- three columns the engine reads are constrained NOT NULL.
-DROP TABLE IF EXISTS device_identifiers;
+-- The fixture role's search_path is "$user", public, so tables in this file live
+-- in public and platform is reached through views -- exactly as ocsf_devices
+-- does above. device_identifiers has no fixture table at all, so it is created
+-- here first. Its column set mirrors the production table; only the three
+-- columns the engine reads are NOT NULL.
+--
+-- CASCADE on the drop: the view below depends on the table, and the harness
+-- re-runs this file over a populated schema.
+DROP TABLE IF EXISTS device_identifiers CASCADE;
 
 CREATE TABLE device_identifiers (
     id                  BIGSERIAL   PRIMARY KEY,
@@ -718,3 +726,9 @@ CREATE TABLE device_identifiers (
     verified            BOOLEAN,
     metadata            JSONB
 );
+
+CREATE OR REPLACE VIEW platform.device_identifiers AS
+    SELECT * FROM public.device_identifiers;
+
+CREATE OR REPLACE VIEW platform.discovered_interfaces AS
+    SELECT * FROM public.discovered_interfaces;
