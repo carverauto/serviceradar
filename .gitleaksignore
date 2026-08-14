@@ -42,3 +42,10 @@ ddc5367687b6cbb2303b4b6a14954a3529773490:scripts/sign-wasm-plugin-publish.sh:gen
 # the same digests are published by crates.io and are how cargo verifies the
 # vendored tree has not been altered.
 0bec5dc3110877921f71ec044047edda52153cd0:third_party/netprobe_ebpf_vendor/libc/.cargo-checksum.json:generic-api-key:1
+# PyPI package checksum, not a credential: the line maps
+# https://files.pythonhosted.org/.../SecretStorage-3.3.3.tar.gz to its published
+# SHA-256, and `generic-api-key` matches only because the URL path contains
+# "Secret". Already on staging; listed so a push range that re-scans that commit
+# -- any branch far enough behind that remote_oid..local_oid spans it -- does
+# not block on it.
+75fe4330a71c9dc675ac2b1bd2a442c60775f934:MODULE.bazel.lock:generic-api-key:1998
