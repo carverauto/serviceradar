@@ -162,6 +162,11 @@ defmodule ServiceRadarWebNGWeb.Settings.MailLive do
               <.input field={@mail_form[:from_name]} type="text" label="From name" />
               <.input field={@mail_form[:from_email]} type="email" label="From email" />
             </div>
+            <p class="text-xs text-sr-muted">
+              From email must be an address the SMTP user is allowed to send as.
+              Many relays reject a default like noreply@ if the username is a
+              different mailbox.
+            </p>
 
             <div class="grid grid-cols-1 gap-4 md:grid-cols-2">
               <.input field={@mail_form[:relay]} type="text" label="SMTP relay / endpoint" />
@@ -463,12 +468,7 @@ defmodule ServiceRadarWebNGWeb.Settings.MailLive do
   defp send_result_message({:ok, message}), do: message
   defp send_result_message({:error, reason}), do: "Test email failed: #{reason}"
 
-  defp format_send_error({:retries_exceeded, reason}), do: format_send_error(reason)
-  defp format_send_error({:network_failure, host, reason}), do: "#{host}: #{format_send_error(reason)}"
-  defp format_send_error({:error, reason}), do: format_send_error(reason)
-  defp format_send_error(reason) when is_atom(reason), do: Atom.to_string(reason)
-  defp format_send_error(reason) when is_binary(reason), do: reason
-  defp format_send_error(reason), do: inspect(reason)
+  defp format_send_error(reason), do: OutboundMail.format_delivery_error(reason)
 
   defp blank_to_nil(value) when is_binary(value) do
     value = String.trim(value)

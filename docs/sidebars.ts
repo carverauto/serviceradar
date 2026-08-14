@@ -81,6 +81,7 @@ const sidebars: SidebarsConfig = {
         {type: 'doc', id: 'prefix-tags', label: 'Prefix Tags'},
         {type: 'doc', id: 'ansible', label: 'Ansible'},
         {type: 'doc', id: 'proxmox', label: 'Proxmox VE'},
+        {type: 'doc', id: 'unifi-protect', label: 'UniFi Protect'},
         {type: 'doc', id: 'remote-access', label: 'Remote Access'},
         {type: 'doc', id: 'remote-access-rdp', label: 'Remote Access: RDP'},
       ],

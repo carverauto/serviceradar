@@ -93,6 +93,30 @@ defmodule ServiceRadar.OutboundMailSendTest do
     assert Keyword.fetch!(config, :relay) == "mail.serviceradar.cloud"
   end
 
+  test "translates a sender-ownership reject into an operator sentence" do
+    settings =
+      settings(
+        adapter: "smtp",
+        hostname: "mail.serviceradar.cloud",
+        username: "farm01@serviceradar.cloud",
+        from_email: "noreply@serviceradar.cloud"
+      )
+
+    assert {:error, {:delivery_failed, message}} =
+             OutboundMail.send_test(settings, "ops@example.com",
+               deliver: fn _email, _config ->
+                 {:error,
+                  {:send,
+                   {:permanent_failure, ~c"23.138.124.21",
+                    ~c"553 5.7.1 <noreply@serviceradar.cloud>: Sender address rejected: not owned by user farm01@serviceradar.cloud\r\n"}}}
+               end
+             )
+
+    assert message =~ "553 5.7.1"
+    assert message =~ "not owned by user farm01@serviceradar.cloud"
+    assert message =~ "Set From email to farm01@serviceradar.cloud"
+  end
+
   defp settings(overrides) do
     defaults = [
       enabled: true,

@@ -404,9 +404,53 @@ defmodule ServiceRadar.OutboundMail do
     with {:ok, recipient} <- normalize_recipient(to_email),
          {:ok, config} <- config(settings),
          :ok <- diagnose(config) do
-      deliver.(test_email(recipient, settings), config)
+      case deliver.(test_email(recipient, settings), config) do
+        {:ok, _} = ok ->
+          ok
+
+        {:error, reason} ->
+          {:error, {:delivery_failed, format_delivery_error(reason, settings)}}
+      end
     end
   end
+
+  @doc """
+  Turns a Swoosh/gen_smtp delivery error into an operator-readable sentence.
+
+  `settings` is optional. When the relay rejected the envelope sender because
+  the SMTP user does not own `from_email`, the sentence names the From address
+  and the username so the operator can change the right field.
+  """
+  @spec format_delivery_error(term(), OutboundMailSettings.t() | nil) :: String.t()
+  def format_delivery_error(reason, settings \\ nil)
+
+  def format_delivery_error({:retries_exceeded, reason}, settings),
+    do: format_delivery_error(reason, settings)
+
+  def format_delivery_error({:send, reason}, settings),
+    do: format_delivery_error(reason, settings)
+
+  def format_delivery_error({:error, reason}, settings),
+    do: format_delivery_error(reason, settings)
+
+  def format_delivery_error({:network_failure, host, reason}, settings) do
+    "#{stringify_smtp(host)}: #{format_delivery_error(reason, settings)}"
+  end
+
+  def format_delivery_error({:permanent_failure, host, message}, settings) do
+    text = message |> stringify_smtp() |> String.trim()
+    "#{stringify_smtp(host)}: #{text}#{sender_ownership_hint(text, settings)}"
+  end
+
+  def format_delivery_error({:temporary_failure, host, message}, _settings) do
+    text = message |> stringify_smtp() |> String.trim()
+    "#{stringify_smtp(host)}: #{text}"
+  end
+
+  def format_delivery_error(reason, _settings) when is_atom(reason), do: Atom.to_string(reason)
+  def format_delivery_error(reason, _settings) when is_binary(reason), do: reason
+  def format_delivery_error(reason, _settings) when is_list(reason), do: stringify_smtp(reason)
+  def format_delivery_error(reason, _settings), do: inspect(reason)
 
   # --- diagnostics ----------------------------------------------------------
 
@@ -552,6 +596,47 @@ defmodule ServiceRadar.OutboundMail do
 
   defp normalize_recipient(_value),
     do: {:error, {:invalid_recipient, "enter a valid email address"}}
+
+  defp sender_ownership_hint(text, %OutboundMailSettings{} = settings) do
+    if sender_ownership_rejected?(text) do
+      from = settings.from_email
+      user = settings.username
+
+      cond do
+        present_email?(from) and present_email?(user) and from != user ->
+          " Set From email to #{user} (the SMTP username) and save before retrying."
+
+        present_email?(user) ->
+          " Set From email to an address this SMTP user (#{user}) is allowed to send as, then save."
+
+        true ->
+          " Set From email to an address the SMTP user owns, then save."
+      end
+    else
+      ""
+    end
+  end
+
+  defp sender_ownership_hint(_text, _settings), do: ""
+
+  defp sender_ownership_rejected?(text) when is_binary(text) do
+    down = String.downcase(text)
+
+    String.contains?(down, "not owned by user") or
+      String.contains?(down, "sender address rejected")
+  end
+
+  defp sender_ownership_rejected?(_text), do: false
+
+  defp present_email?(value) when is_binary(value), do: String.trim(value) != ""
+  defp present_email?(_value), do: false
+
+  defp stringify_smtp(value) when is_list(value) do
+    if List.ascii_printable?(value), do: List.to_string(value), else: inspect(value)
+  end
+
+  defp stringify_smtp(value) when is_binary(value), do: value
+  defp stringify_smtp(value), do: to_string(value)
 
   defp test_email(to, settings) do
     sent_at = DateTime.utc_now() |> DateTime.truncate(:second) |> DateTime.to_iso8601()
