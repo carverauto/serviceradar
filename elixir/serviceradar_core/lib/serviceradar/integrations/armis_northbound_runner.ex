@@ -77,6 +77,72 @@ defmodule ServiceRadar.Integrations.ArmisNorthboundRunner do
     end
   end
 
+  @typedoc """
+  An operator's selection of a composite check to export alongside availability.
+  """
+  @type composite_export :: %{
+          check_slug: String.t(),
+          value_form: :verdict | :status,
+          custom_field: String.t()
+        }
+
+  @doc """
+  The composite check export configured on this source, or nil.
+
+  Lives in `settings` rather than as a second `custom_fields` entry: the
+  selection is three coupled values, and a positional entry would silently
+  become the composite field for any source that happens to configure two.
+
+  All three values are required. A half-configured export reads as "not
+  configured" rather than partially applying — there is no useful behaviour for
+  "a check and a value form but nowhere to write them".
+  """
+  @spec composite_export(struct() | map()) :: composite_export() | nil
+  def composite_export(source) do
+    source
+    |> Map.get(:settings, %{})
+    |> case do
+      settings when is_map(settings) -> Map.get(settings, "composite")
+      _other -> nil
+    end
+    |> build_composite_export()
+  end
+
+  defp build_composite_export(config) when is_map(config) do
+    with slug when is_binary(slug) <- present(config, "check_slug"),
+         field when is_binary(field) <- present(config, "custom_field"),
+         form when form in [:verdict, :status] <- value_form(config) do
+      %{check_slug: slug, value_form: form, custom_field: field}
+    else
+      _incomplete -> nil
+    end
+  end
+
+  defp build_composite_export(_config), do: nil
+
+  # An unrecognised form disables the export. Guessing would publish the wrong
+  # vocabulary to a downstream system, which is worse than publishing nothing.
+  defp value_form(config) do
+    case present(config, "value_form") do
+      "verdict" -> :verdict
+      "status" -> :status
+      _other -> nil
+    end
+  end
+
+  defp present(config, key) do
+    case Map.get(config, key) do
+      value when is_binary(value) ->
+        case String.trim(value) do
+          "" -> nil
+          trimmed -> trimmed
+        end
+
+      _other ->
+        nil
+    end
+  end
+
   @spec credentials(struct() | map()) :: map()
   def credentials(source) do
     source

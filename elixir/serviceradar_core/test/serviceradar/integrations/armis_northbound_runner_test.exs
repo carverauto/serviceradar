@@ -47,6 +47,84 @@ defmodule ServiceRadar.Integrations.ArmisNorthboundRunnerTest do
              })
   end
 
+  describe "composite_export/1" do
+    defp composite_settings(overrides) do
+      %{
+        settings: %{
+          "composite" =>
+            Map.merge(
+              %{
+                "check_slug" => "pci-isolation",
+                "value_form" => "verdict",
+                "custom_field" => "sr_pci_isolation"
+              },
+              overrides
+            )
+        }
+      }
+    end
+
+    test "is nil when nothing is configured" do
+      assert ArmisNorthboundRunner.composite_export(%{settings: %{}}) == nil
+      assert ArmisNorthboundRunner.composite_export(%{}) == nil
+      assert ArmisNorthboundRunner.composite_export(%{settings: nil}) == nil
+    end
+
+    test "reads the selection from settings" do
+      assert %{
+               check_slug: "pci-isolation",
+               value_form: :verdict,
+               custom_field: "sr_pci_isolation"
+             } = ArmisNorthboundRunner.composite_export(composite_settings(%{}))
+    end
+
+    test "reads the status value form" do
+      assert %{value_form: :status} =
+               ArmisNorthboundRunner.composite_export(
+                 composite_settings(%{"value_form" => "status"})
+               )
+    end
+
+    test "is nil when any of the three values is missing or blank" do
+      # All three are needed to send anything at all, so a half-configured
+      # export must read as "not configured" rather than partially applying.
+      for blank <- ["", "   "] do
+        for key <- ["check_slug", "value_form", "custom_field"] do
+          source = composite_settings(%{key => blank})
+
+          assert ArmisNorthboundRunner.composite_export(source) == nil,
+                 "expected nil when #{key} is #{inspect(blank)}"
+        end
+      end
+
+      assert ArmisNorthboundRunner.composite_export(%{
+               settings: %{"composite" => %{"check_slug" => "pci-isolation"}}
+             }) == nil
+    end
+
+    test "is nil for an unknown value form rather than guessing" do
+      assert ArmisNorthboundRunner.composite_export(
+               composite_settings(%{"value_form" => "whatever"})
+             ) == nil
+    end
+
+    test "trims surrounding whitespace" do
+      assert %{check_slug: "pci-isolation", custom_field: "sr_pci_isolation"} =
+               ArmisNorthboundRunner.composite_export(
+                 composite_settings(%{
+                   "check_slug" => "  pci-isolation  ",
+                   "custom_field" => " sr_pci_isolation ",
+                   "value_form" => " verdict "
+                 })
+               )
+    end
+
+    test "is nil when the composite setting is not a map" do
+      assert ArmisNorthboundRunner.composite_export(%{settings: %{"composite" => "verdict"}}) ==
+               nil
+    end
+  end
+
   test "northbound_ready? allows manual runs even when recurring northbound is disabled" do
     source = %{
       northbound_enabled: false,
