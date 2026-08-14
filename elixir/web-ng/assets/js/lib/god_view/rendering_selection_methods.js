@@ -55,7 +55,7 @@ export const godViewRenderingSelectionMethods = {
     const typeLabel = typeof d.type === "string" ? d.type : ""
     const typeId = this.parseTypeId(d.type_id)
     const typeIcon = this.nodeTypeHeroIcon(typeLabel, typeId)
-    const detailId = d.id || node.id
+    const detailId = d.device_uid || d.id || node.id
     const rawIp = typeof d.ip === "string" ? d.ip.trim() : ""
     const hasRealIp =
       rawIp !== "" && !["unknown", "n/a", "na", "null", "undefined", "-"].includes(rawIp.toLowerCase())

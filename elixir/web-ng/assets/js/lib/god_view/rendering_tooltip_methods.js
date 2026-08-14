@@ -180,6 +180,7 @@ export const godViewRenderingTooltipMethods = {
   nodeLayerId(layerId) {
     return (
       layerId === "god-view-nodes" ||
+      layerId === "god-view-nodes-halo" ||
       layerId === "god-view-nodes-hitbox" ||
       layerId === "god-view-node-labels"
     )

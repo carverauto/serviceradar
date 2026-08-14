@@ -11,6 +11,9 @@ export const godViewRenderingGraphLayerNodeMethods = {
     }
     return 1
   },
+  nodeHaloRadiusPixels(node) {
+    return Math.min(8 + (this.visualClusterCount(node) - 1) * 0.45, 26) * 2.5
+  },
   labelBudgetForShape(shape, candidateCount = 0) {
     switch (shape) {
       case "local":
@@ -129,7 +132,15 @@ export const godViewRenderingGraphLayerNodeMethods = {
       const clusterKind = String(details?.cluster_kind || "")
       const expandedEndpointMember = this.expandedEndpointMemberLabel(node)
       if (clusterKind === "endpoint-member" && !expandedEndpointMember) return false
-      if (String(details?.identity_source || "") === "mapper_topology_sighting" && !expandedEndpointMember) return false
+      // Topology sightings with a human hostname (switchcff8f2) should stay
+      // labeled. Only suppress opaque sr: identities from that source.
+      if (
+        String(details?.identity_source || "") === "mapper_topology_sighting" &&
+        !expandedEndpointMember &&
+        this.opaqueIdentityLabel(node)
+      ) {
+        return false
+      }
       if (this.opaqueIdentityLabel(node)) return false
       return true
     })
@@ -201,11 +212,11 @@ export const godViewRenderingGraphLayerNodeMethods = {
         data: nodeData,
         coordinateSystem: COORDINATE_SYSTEM.CARTESIAN,
         getPosition: (d) => d.position,
-        getRadius: (d) => Math.min(8 + (this.visualClusterCount(d) - 1) * 0.45, 26) * 2.5,
+        getRadius: (d) => this.nodeHaloRadiusPixels(d),
         radiusUnits: "pixels",
         filled: true,
         stroked: false,
-        pickable: false,
+        pickable: true,
         getFillColor: (d) => {
           const baseColor = this.state.layers.security ? this.nodeColor(d.state) : this.nodeNeutralColor(d.operUp)
           return [baseColor[0], baseColor[1], baseColor[2], 15]
@@ -248,7 +259,7 @@ export const godViewRenderingGraphLayerNodeMethods = {
         data: nodeData,
         coordinateSystem: COORDINATE_SYSTEM.CARTESIAN,
         getPosition: (d) => d.position,
-        getRadius: (d) => Math.max(16, Math.min(20 + (this.visualClusterCount(d) - 1) * 0.35, 34)),
+        getRadius: (d) => this.nodeHaloRadiusPixels(d),
         radiusUnits: "pixels",
         stroked: false,
         filled: true,

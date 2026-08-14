@@ -96,7 +96,7 @@ archive_override(
 # Registry -- drop this override once it is published and the bazel_dep above resolves on its own.
 git_override(
     module_name = "rules_erlang",
-    commit = "3a2534057cf8e43157fc1ef18412f9be20b146f4",
+    commit = "aea7fae760ec8338f2fff36e1a5e2c8a143bd0cf",
     remote = "https://github.com/bazelverse/rules_erlang.git",
 )
 
@@ -104,7 +104,7 @@ git_override(
 # Registry -- drop this override once it is published and the bazel_dep above resolves on its own.
 git_override(
     module_name = "rules_elixir",
-    commit = "ee1e69b9c8165d301f66fdd13b025d6c54a24ac1",
+    commit = "8e13ada66e2abcea001256346acaeb06f97f1eb5",
     remote = "https://github.com/bazelverse/rules_elixir.git",
 )
 
@@ -128,17 +128,28 @@ use_repo(version_ext, "serviceradar_version")
 
 # --- Erlang/Elixir toolchains (hermetic for web-ng builds) -------------------
 erlang_config_ext = use_extension("@rules_erlang//bzlmod:extensions.bzl", "erlang_config")
-erlang_config_ext.internal_erlang_from_github_release(
+
+# Prebuilt OTP binary release rather than an otp_src build. Same version as before; the
+# sha256 is the one builds.hex.pm publishes for this archive in its builds.txt, and the
+# ubuntu-24.04 build matches both the RBE executor and the ubuntu_noble image bases.
+erlang_config_ext.prebuilt_erlang_from_hex_builds(
     name = "otp_28_1",
-    sha256 = "c7c6fe06a3bf0031187d4cb10d30e11de119b38bdba7cd277898f75d53bdb218",
+    arch = "amd64",
+    os = "ubuntu-24.04",
+    sha256 = "6f7a95250a83f999909cf64dc375fd08809eb057f61b24eecdf2b3b44fe621ab",
     version = "28.1",
 )
 use_repo(erlang_config_ext, "erlang_config")
 
 elixir_config_ext = use_extension("@rules_elixir//bzlmod:extensions.bzl", "elixir_config")
-elixir_config_ext.internal_elixir_from_github_release(
+
+# Precompiled Elixir rather than a source build. Elixir is architecture-independent BEAM
+# bytecode, so one archive serves every platform; the sha256 is the one builds.hex.pm
+# publishes for it in builds.txt.
+elixir_config_ext.prebuilt_elixir_from_hex_builds(
     name = "elixir_1_19_4",
-    sha256 = "a2df9d5411fc53d97ec17c069765c8fb781f8dc36c4e06ec1cd4b189340d364b",
+    otp_major = "28",
+    sha256 = "8fd7b5705b756c0e1ec71f9e8281b4b75801b9564f0205b5035319e8505ad2b4",
     version = "1.19.4",
 )
 use_repo(elixir_config_ext, "elixir_config")

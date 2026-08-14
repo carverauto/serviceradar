@@ -710,14 +710,18 @@ defmodule ServiceRadar.Notifications.Transports.Email do
 
   defp normalize_recipients(nil), do: {:ok, []}
 
+  # Empty textareas arrive as "" or [""]. Optional fields (cc/bcc) must treat
+  # that as "no recipients", not as a blank address.
   defp normalize_recipients(value) when is_binary(value) do
-    case normalize_address(value) do
-      {:ok, address} -> {:ok, [address]}
-      {:error, message} -> {:error, message}
+    case String.trim(value) do
+      "" -> {:ok, []}
+      trimmed -> normalize_recipients([trimmed])
     end
   end
 
   defp normalize_recipients(values) when is_list(values) do
+    values = Enum.reject(values, &blank_recipient?/1)
+
     cond do
       values == [] ->
         {:ok, []}
@@ -738,6 +742,18 @@ defmodule ServiceRadar.Notifications.Transports.Email do
   defp normalize_recipients(_value) do
     {:error, "must be a list of recipient addresses"}
   end
+
+  defp blank_recipient?(nil), do: true
+
+  defp blank_recipient?(value) when is_binary(value), do: String.trim(value) == ""
+
+  defp blank_recipient?(value) when is_map(value) and not is_struct(value) do
+    value = stringify(value)
+    address = Map.get(value, "email") || Map.get(value, "address")
+    is_nil(address) or (is_binary(address) and String.trim(address) == "")
+  end
+
+  defp blank_recipient?(_value), do: false
 
   defp normalize_address(value) when is_binary(value) do
     validate_address(value)

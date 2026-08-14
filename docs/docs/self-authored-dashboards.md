@@ -142,8 +142,10 @@ devices** (`in:devices first_seen:last_30d`). Device pages also show **Added**
 next to Last Seen.
 
 Dashboards can be emailed on a schedule when outbound mail is configured under
-**Settings -> Mail**. Owners can schedule their own dashboards. Users with the
-report-schedule permission can also subscribe to public or shared reports.
+**Settings -> Mail**. See [Outbound Mail](./outbound-mail.md) for adapters
+(Local vs Test vs SMTP) and the SMTP field-by-field setup. Owners can schedule
+their own dashboards. Users with the report-schedule permission can also
+subscribe to public or shared reports.
 
 Creating or changing a dashboard or schedule is recorded in AshPaperTrail and
 shows up in Settings -> Audit -> History.

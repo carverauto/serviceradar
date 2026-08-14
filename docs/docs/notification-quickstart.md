@@ -78,7 +78,7 @@ CIDRs.
 | --- | --- |
 | Discord | `discord.com` is Cloudflare. Pin `162.159.128.0/18` (resolved 2026-08-13) and re-resolve if it moves. |
 | Slack | Slack / AWS edge IPs. Pin the current `hooks.slack.com` CIDR the same way. |
-| Email | Does not use this path. See [Outbound Mail](./helm-configuration.md#outbound-mail-smtp). |
+| Email | Does not use this path. See [Outbound Mail](./outbound-mail.md). |
 
 See [Helm NetworkPolicy](./helm-configuration.md#kubernetes-networkpolicy-recommended).
 
@@ -187,7 +187,7 @@ outbound mailer (the same path as password-reset mail).
 
 1. Configure SMTP under Helm `core.mailer` or **Settings → Mail**. Until a
    relay is configured, an email channel will not validate. See
-   [Outbound Mail](./helm-configuration.md#outbound-mail-smtp).
+   [Outbound Mail](./outbound-mail.md).
 2. Create a channel on the `email` provider with the destination address.
 3. Policy + route as above.
 

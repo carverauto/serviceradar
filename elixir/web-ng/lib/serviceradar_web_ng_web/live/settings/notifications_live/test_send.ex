@@ -222,12 +222,13 @@ defmodule ServiceRadarWebNGWeb.Settings.NotificationsLive.TestSend do
   defp render(provider) do
     formats = Map.get(provider, :payload_formats) || []
 
-    template = %{subject_template: @subject, body_template: @body}
+    template = %{subject_template: @subject, body_template: body_template()}
 
     case Renderer.render(sample_alert(), template, nil,
            supported_formats: formats,
            provider_version: Map.get(provider, :definition_version),
-           include_action_links?: false
+           include_action_links?: false,
+           links: test_links()
          ) do
       {:ok, rendered} ->
         {:ok, rendered}
@@ -249,6 +250,45 @@ defmodule ServiceRadarWebNGWeb.Settings.NotificationsLive.TestSend do
       "source" => "serviceradar",
       "is_test" => true
     }
+  end
+
+  defp body_template do
+    case public_base_url() do
+      nil -> @body
+      base -> @body <> " Open ServiceRadar: #{base}/alerts"
+    end
+  end
+
+  defp test_links do
+    case public_base_url() do
+      nil -> %{}
+      base -> %{"alert" => base <> "/alerts"}
+    end
+  end
+
+  defp public_base_url do
+    env = System.get_env("SERVICERADAR_NOTIFICATION_ACTION_BASE_URL")
+
+    if is_binary(env) and String.trim(env) != "" do
+      env |> String.trim() |> String.trim_trailing("/")
+    else
+      endpoint_public_base_url()
+    end
+  end
+
+  # Endpoint.url/0 reads persistent_term and raises when the endpoint is not
+  # started. db_free CI (`unit_tests_phoenix_live`) runs with --no-start.
+  defp endpoint_public_base_url do
+    case ServiceRadarWebNGWeb.Endpoint.url() do
+      url when is_binary(url) ->
+        trimmed = url |> String.trim() |> String.trim_trailing("/")
+        if trimmed == "", do: nil, else: trimmed
+
+      _other ->
+        nil
+    end
+  rescue
+    _ -> nil
   end
 
   defp request(provider, config, secrets, rendered) do

@@ -192,6 +192,10 @@ describe("rendering_tooltip_methods", () => {
     expect(ctx.state.hoveredNodeIndex).toEqual(7)
     expect(ctx.state.canvas.style.cursor).toEqual("pointer")
 
+    ctx.handleHover({layer: {id: "god-view-nodes-halo"}, object: {index: 9}})
+    expect(ctx.state.hoveredNodeIndex).toEqual(9)
+    expect(ctx.state.canvas.style.cursor).toEqual("pointer")
+
     ctx.handleHover({layer: {id: "god-view-nodes"}, object: null})
     expect(ctx.state.hoveredNodeIndex).toEqual(null)
     expect(ctx.state.canvas.style.cursor).toEqual("grab")

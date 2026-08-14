@@ -4,6 +4,7 @@
 //! consumers keep using `crate::models::X` paths unchanged.
 
 mod common;
+mod composite_checks;
 mod endpoint_inventory;
 mod events;
 mod inventory;
@@ -11,6 +12,7 @@ mod metrics;
 mod observability;
 mod system_metrics;
 
+pub use composite_checks::CompositeResultRow;
 pub use endpoint_inventory::{
     EndpointInventoryScanRow, EndpointPackageCatalogRow, EndpointPackageRow,
 };

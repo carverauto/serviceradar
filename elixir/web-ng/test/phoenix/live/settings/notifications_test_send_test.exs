@@ -40,11 +40,14 @@ defmodule ServiceRadarWebNGWeb.Settings.NotificationsTestSendTest do
   end
 
   test "a stored credential reference is not treated as an outbound URL" do
+    # public_base_url/0 falls back to Endpoint.url/0. That raises when the
+    # endpoint is not started; bazel unit_tests_phoenix_live runs --no-start.
     assert {:error, outcome} =
              TestSend.run(discord_provider(), %{"webhook_url" => @stored_ref}, %{})
 
     refute outcome.headline == "Outbound URL refused"
     refute outcome.headline == "Configuration is not valid"
+    refute outcome.headline == "The test notification could not be rendered"
     assert outcome.detail =~ "webhook_url"
   end
 

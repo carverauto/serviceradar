@@ -71,21 +71,22 @@ Work through the documentation in roughly this order:
    configuration
 4. **[Kubernetes (Helm)](./helm-configuration.md)** - Production-style deployments
 5. **[Authentication](./auth-configuration.md)** - Users, sessions, and SSO integration
+6. **[Outbound Mail](./outbound-mail.md)** - SMTP for reports, alert email, and account mail
 
 ### Get data in
-6. **[Device Configuration](./device-configuration.md)** - Configure network devices for
+7. **[Device Configuration](./device-configuration.md)** - Configure network devices for
    SNMP, Syslog, and trap collection
-7. **[Data Pipeline](./data-pipeline.md)** - JetStream consumers and CNPG persistence
+8. **[Data Pipeline](./data-pipeline.md)** - JetStream consumers and CNPG persistence
 
 ### Query and analyze
-8. **[SRQL Tutorial](./srql-tutorial.md)** - Learn ServiceRadar's query language
-9. **[Rule Builder](./rule-builder.md)** - Turn queries into alerts
-10. **[Notifications Quickstart](./notification-quickstart.md)** - Page Discord, Slack, or email when an alert fires
+9. **[SRQL Tutorial](./srql-tutorial.md)** - Learn ServiceRadar's query language
+10. **[Rule Builder](./rule-builder.md)** - Turn queries into alerts
+11. **[Notifications Quickstart](./notification-quickstart.md)** - Page Discord, Slack, or email when an alert fires
 
 ### Go deeper
-11. **[Architecture](./architecture.md)** - Understand the system architecture
-12. **[Edge Model](./edge-model.md)** - Agent lifecycle, config flow, and command bus
-13. **[Wasm Plugins](./wasm-plugins.md)** - Sandboxed plugin system and SDKs
+12. **[Architecture](./architecture.md)** - Understand the system architecture
+13. **[Edge Model](./edge-model.md)** - Agent lifecycle, config flow, and command bus
+14. **[Wasm Plugins](./wasm-plugins.md)** - Sandboxed plugin system and SDKs
 
 **Recommended**: Start with the [Cloud Quickstart](./cloud-quickstart.md) for hosted
 SaaS, or the [Self-hosted Quickstart](./quickstart.md) when you install the stack.

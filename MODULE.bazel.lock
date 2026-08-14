@@ -495,8 +495,8 @@
     },
     "@@rules_elixir+//bzlmod:extensions.bzl%elixir_config": {
       "general": {
-        "bzlTransitiveDigest": "yTiFUqi7O9jlXbQRGa5Ln6U86f4xXLzhKKxujFed38Q=",
-        "usagesDigest": "ZpU7vlENZ84N3diaRj9RZvFvz6rv5GOlMR0bOntz0wI=",
+        "bzlTransitiveDigest": "WbShFnh2LhnhtiMhC4il2oiux1Uls62kQKSDaOxiVY4=",
+        "usagesDigest": "GHJ+wgLpNvF1uUTg18MCvk7ZjcY7e2IGVySpYGyIAoQ=",
         "recordedInputs": [
           "REPO_MAPPING:rules_elixir+,bazel_tools bazel_tools",
           "REPO_MAPPING:rules_elixir+,rules_erlang rules_erlang+"
@@ -506,19 +506,19 @@
             "repoRuleId": "@@rules_elixir+//repositories:elixir_config.bzl%elixir_config",
             "attributes": {
               "types": {
-                "elixir_1_19_4": "internal"
+                "elixir_1_19_4": "prebuilt"
               },
               "versions": {
                 "elixir_1_19_4": "1.19.4"
               },
               "urls": {
-                "elixir_1_19_4": "https://github.com/elixir-lang/elixir/archive/refs/tags/v1.19.4.tar.gz"
+                "elixir_1_19_4": "https://builds.hex.pm/builds/elixir/v1.19.4-otp-28.zip"
               },
               "strip_prefixs": {
-                "elixir_1_19_4": "elixir-1.19.4"
+                "elixir_1_19_4": ""
               },
               "sha256s": {
-                "elixir_1_19_4": "a2df9d5411fc53d97ec17c069765c8fb781f8dc36c4e06ec1cd4b189340d364b"
+                "elixir_1_19_4": "8fd7b5705b756c0e1ec71f9e8281b4b75801b9564f0205b5035319e8505ad2b4"
               },
               "elixir_homes": {}
             }
@@ -528,8 +528,8 @@
     },
     "@@rules_erlang+//bzlmod:extensions.bzl%erlang_config": {
       "general": {
-        "bzlTransitiveDigest": "F8WG4LR4TD4jIerobVdzOZQB4AwYOpYrhbYd4nnTEzA=",
-        "usagesDigest": "UeAVff1edoXCsXghcsHj47alVm00XOoxVhpw+3gjw6E=",
+        "bzlTransitiveDigest": "dNlQ+F2O+znXmSu6Cco11dVaJc+0Ugxnt+VcuG1kPqs=",
+        "usagesDigest": "fmwoZT/PY79spAgwHRK6kw3G4i1iI5lcs7JML1WoD3M=",
         "recordedInputs": [
           "REPO_MAPPING:rules_erlang+,bazel_skylib bazel_skylib+",
           "REPO_MAPPING:rules_erlang+,bazel_tools bazel_tools"
@@ -540,31 +540,26 @@
             "attributes": {
               "rules_erlang_workspace": "@rules_erlang",
               "types": {
-                "otp_28_1": "internal"
+                "otp_28_1": "prebuilt"
               },
               "versions": {
                 "otp_28_1": "28.1"
               },
               "urls": {
-                "otp_28_1": "https://github.com/erlang/otp/releases/download/OTP-28.1/otp_src_28.1.tar.gz"
+                "otp_28_1": "https://builds.hex.pm/builds/otp/amd64/ubuntu-24.04/OTP-28.1.tar.gz"
               },
               "strip_prefixs": {
-                "otp_28_1": "otp_src_28.1"
+                "otp_28_1": "OTP-28.1"
               },
               "sha256s": {
-                "otp_28_1": "c7c6fe06a3bf0031187d4cb10d30e11de119b38bdba7cd277898f75d53bdb218"
+                "otp_28_1": "6f7a95250a83f999909cf64dc375fd08809eb057f61b24eecdf2b3b44fe621ab"
               },
               "erlang_homes": {},
-              "pre_configure_cmdss": {
-                "otp_28_1": []
-              },
-              "extra_configure_optss": {
-                "otp_28_1": []
-              },
-              "post_configure_cmdss": {
-                "otp_28_1": []
-              },
-              "extra_make_optss": {
+              "pre_configure_cmdss": {},
+              "extra_configure_optss": {},
+              "post_configure_cmdss": {},
+              "extra_make_optss": {},
+              "extra_exec_constraintss": {
                 "otp_28_1": []
               }
             }
@@ -574,8 +569,8 @@
     },
     "@@rules_erlang+//bzlmod:extensions.bzl%erlang_package": {
       "general": {
-        "bzlTransitiveDigest": "F8WG4LR4TD4jIerobVdzOZQB4AwYOpYrhbYd4nnTEzA=",
-        "usagesDigest": "R0hJHcaZNhZUICQ5ZAjZ7CA43edWGuTw0nw/TaiXooA=",
+        "bzlTransitiveDigest": "dNlQ+F2O+znXmSu6Cco11dVaJc+0Ugxnt+VcuG1kPqs=",
+        "usagesDigest": "91zn1N4ftVTLhGkFjCpD/7lresFdkPgXiLhBgxyeCu0=",
         "recordedInputs": [
           "REPO_MAPPING:rules_erlang+,bazel_skylib bazel_skylib+",
           "REPO_MAPPING:rules_erlang+,bazel_tools bazel_tools",

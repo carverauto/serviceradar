@@ -37,7 +37,9 @@ ServiceRadar supports three instance-level modes:
 Users authenticate with email + password.
 
 - Sign-in UI: `GET /users/log-in`
-- Password reset: `POST /auth/password-reset` (the reset link is valid for 1 hour)
+- Password reset: `POST /auth/password-reset` (the reset link is valid for 1 hour).
+  Delivery uses the shared outbound mailer. Configure SMTP under
+  **Settings -> Mail**; see [Outbound Mail](./outbound-mail.md).
 
 ## Direct SSO (OIDC / SAML)
 

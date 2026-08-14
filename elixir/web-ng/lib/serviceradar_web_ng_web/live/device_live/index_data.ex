@@ -2,6 +2,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexData do
   @moduledoc false
 
   alias ServiceRadarWebNGWeb.DeviceLive.IndexData.Availability
+  alias ServiceRadarWebNGWeb.DeviceLive.IndexData.Composite
   alias ServiceRadarWebNGWeb.DeviceLive.IndexData.Query
   alias ServiceRadarWebNGWeb.DeviceLive.IndexData.Stats
   alias ServiceRadarWebNGWeb.DeviceLive.IndexData.Telemetry
@@ -18,6 +19,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexData do
       sysmon_presence: sysmon_presence,
       sysmon_profiles_by_device: load_sysmon_profiles_for_devices(scope, devices),
       agent_device_uids: Availability.agent_device_uids(devices, scope),
+      composite_verdicts_by_device: Composite.verdicts_by_device(scope, query, devices),
       total_device_count: Query.get_total_matching_count(scope, query)
     }
   end

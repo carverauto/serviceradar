@@ -35,16 +35,12 @@ project dropped Bazel in March 2025. Two deliberate departures from upstream:
 """
 
 load("@bazel_skylib//lib:shell.bzl", "shell")
-load(
-    "@rules_foreign_cc//foreign_cc/private:cc_toolchain_util.bzl",
-    "absolutize_path_in_str",
-)
 load("@rules_cc//cc:action_names.bzl", "ACTION_NAMES")
+load("@rules_cc//cc:find_cc_toolchain.bzl", "find_cc_toolchain", "use_cc_toolchain")
 
 # The full cc_common, not the restricted global of the same name -- the global exposes
 # neither configure_features nor create_compile_variables.
 load("@rules_cc//cc/common:cc_common.bzl", "cc_common")
-load("@rules_cc//cc:find_cc_toolchain.bzl", "find_cc_toolchain", "use_cc_toolchain")
 load(
     "@rules_elixir//private:elixir_toolchain.bzl",
     "elixir_dirs",
@@ -61,6 +57,10 @@ load(
     "@rules_erlang//private:util.bzl",
     "additional_file_dest_relative_path",
     "erl_libs_contents",
+)
+load(
+    "@rules_foreign_cc//foreign_cc/private:cc_toolchain_util.bzl",
+    "absolutize_path_in_str",
 )
 
 # Emitted into the staged project when a package uses Bundlex. See the call site for why a
@@ -227,7 +227,24 @@ def _impl(ctx):
 
     # Mix insists on writing into the project tree (_build, .mix). Give it a
     # declared directory of its own rather than letting it scribble anywhere.
-    mix_invocation_dir = ctx.actions.declare_directory("{}_mix".format(ctx.label.name))
+    # Only a package that ships bundlex.exs ever has this tree read back: the consumer loop
+    # below stages the POST-COMPILE tree of its `bundlex_deps` to pick up Unifex-generated
+    # headers, and selects those deps by looking for bundlex.exs in ErlangAppInfo.srcs --
+    # which is ctx.files.srcs, exactly what is tested here.
+    #
+    # For everything else it is staging scratch nothing reads, and declaring it as an output
+    # made Bazel capture and upload it to the CAS on every execution: ~241 MB across ~4000
+    # files for serviceradar_core alone, twice over since that app builds in both test and
+    # prod env. Undeclared, it goes to a temp dir the action deletes on exit.
+    ships_bundlex = False
+    for f in ctx.files.srcs:
+        if f.basename == "bundlex.exs":
+            ships_bundlex = True
+            break
+
+    mix_invocation_dir = None
+    if ships_bundlex:
+        mix_invocation_dir = ctx.actions.declare_directory("{}_mix".format(ctx.label.name))
 
     erl_libs_dir = ctx.label.name + "_deps"
 
@@ -442,6 +459,7 @@ def _impl(ctx):
             "CXXFLAGS": _flags(ACTION_NAMES.cpp_compile, compile_variables),
             "LDFLAGS": _flags(ACTION_NAMES.cpp_link_executable, link_variables),
         }
+
         # Double quotes, NOT shell.quote: $ORIGINAL_DIR has to be expanded HERE, by the
         # shell, so the variables carry literal absolute paths. Single-quoting them passes
         # the string "$ORIGINAL_DIR/..." through to make, which expands `$O` as an undefined
@@ -451,7 +469,6 @@ def _impl(ctx):
             for k, v in cc_env.items()
         ])
         cc_inputs = [cc_toolchain.all_files]
-
 
     # ONLY the dependencies that actually DECLARE natives, not the whole closure.
     #
@@ -681,6 +698,7 @@ export LANG="en_US.UTF-8"
 export LC_ALL="en_US.UTF-8"
 
 MIX_INVOCATION_DIR="{mix_invocation_dir}"
+{mix_dir_cleanup}
 
 {copy_srcs_commands}
 
@@ -822,7 +840,8 @@ find . -type l -delete
         erl_libs_path = erl_libs_path,
         erlang_home = erlang_home,
         elixir_home = elixir_home,
-        mix_invocation_dir = mix_invocation_dir.path,
+        mix_invocation_dir = mix_invocation_dir.path if ships_bundlex else "$(mktemp -d)",
+        mix_dir_cleanup = "" if ships_bundlex else 'trap \'rm -rf "${MIX_INVOCATION_DIR}"\' EXIT',
         project_dir = ctx.label.package,
         copy_srcs_commands = "\n".join(copy_srcs_commands + dep_source_commands + precompiled_commands),
         archives = " ".join([shell.quote(a.path) for a in ctx.files.archives]),
@@ -858,7 +877,7 @@ find . -type l -delete
 
     ctx.actions.run_shell(
         inputs = inputs,
-        outputs = [ebin, priv, mix_invocation_dir],
+        outputs = [ebin, priv] + ([mix_invocation_dir] if ships_bundlex else []),
         command = script,
         mnemonic = "MIX",
         progress_message = "Compiling Mix package %s" % app_name,
@@ -895,7 +914,7 @@ find . -type l -delete
         # The generated headers only exist inside the producing action, and ErlangAppInfo
         # carries neither them nor a place to put them -- but the Mix invocation directory
         # is already a declared output, so it is simply surfaced here.
-        OutputGroupInfo(mix_tree = depset([mix_invocation_dir])),
+        OutputGroupInfo(mix_tree = depset([mix_invocation_dir] if ships_bundlex else [])),
     ]
 
 mix_app = rule(
