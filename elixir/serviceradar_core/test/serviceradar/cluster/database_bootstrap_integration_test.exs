@@ -603,13 +603,28 @@ defmodule ServiceRadar.Cluster.DatabaseBootstrapIntegrationTest do
 
   defp drop_database!(admin_opts, database) do
     with_admin_connection!(admin_opts, fn conn ->
+      # Runs from on_exit, and it used to take the whole shard down with
+      # `57014 query_canceled`.
+      #
+      # pg_terminate_backend/1 only REQUESTS termination; it returns before the
+      # backend is gone. DROP DATABASE then waits for every remaining session,
+      # so any backend still dying -- or one that reconnected in the gap --
+      # blocked the drop until statement_timeout cancelled it, failing a
+      # cleanup callback rather than a test.
+      #
+      # WITH (FORCE) folds the terminate into the drop itself (PG13+; the
+      # fixture is PG18), which removes the gap. Clearing statement_timeout
+      # covers the other half: a drop that is progressing but slow on a loaded
+      # shard should not be cancelled out from under the cleanup.
+      Postgrex.query!(conn, "SET statement_timeout = 0", [])
+
       Postgrex.query!(
         conn,
-        "SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = $1",
+        "SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = $1 AND pid <> pg_backend_pid()",
         [database]
       )
 
-      Postgrex.query!(conn, "DROP DATABASE IF EXISTS #{quote_ident(database)}", [])
+      Postgrex.query!(conn, "DROP DATABASE IF EXISTS #{quote_ident(database)} WITH (FORCE)", [])
     end)
   end
 
