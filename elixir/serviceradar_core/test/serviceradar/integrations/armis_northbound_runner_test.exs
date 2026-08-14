@@ -1590,4 +1590,161 @@ defmodule ServiceRadar.Integrations.ArmisNorthboundRunnerTest do
 
     :gen_tcp.send(socket, response)
   end
+
+  describe "build_bulk_payload/3 with a composite export" do
+    defp candidate(armis_device_id, device_ids, is_available \\ true) do
+      %{
+        armis_device_id: armis_device_id,
+        is_available: is_available,
+        device_ids: device_ids,
+        sync_service_ids: ["source-1"],
+        metadata: %{}
+      }
+    end
+
+    test "appends a composite entry for a device that has a value" do
+      payload =
+        ArmisNorthboundRunner.build_bulk_payload(
+          "availability",
+          [candidate("1", ["dev-a"])],
+          composite: %{custom_field: "sr_isolation", values: %{"dev-a" => "isolated_verified"}}
+        )
+
+      # One key per entry in the upsert shape, so a second field is a second
+      # entry rather than a second key on the same one.
+      assert payload == [
+               %{"upsert" => %{"deviceId" => 1, "key" => "availability", "value" => "false"}},
+               %{
+                 "upsert" => %{
+                   "deviceId" => 1,
+                   "key" => "sr_isolation",
+                   "value" => "isolated_verified"
+                 }
+               }
+             ]
+    end
+
+    test "a device with no composite value gets no composite entry" do
+      payload =
+        ArmisNorthboundRunner.build_bulk_payload(
+          "availability",
+          [candidate("1", ["dev-a"])],
+          composite: %{custom_field: "sr_isolation", values: %{}}
+        )
+
+      # Not a placeholder, not an empty string — nothing at all.
+      assert payload == [
+               %{"upsert" => %{"deviceId" => 1, "key" => "availability", "value" => "false"}}
+             ]
+    end
+
+    test "only the devices that have values gain an entry" do
+      payload =
+        ArmisNorthboundRunner.build_bulk_payload(
+          "availability",
+          [candidate("1", ["dev-a"]), candidate("2", ["dev-b"])],
+          composite: %{custom_field: "sr_isolation", values: %{"dev-b" => "not_isolated"}}
+        )
+
+      assert [
+               %{"upsert" => %{"deviceId" => 1, "key" => "availability"}},
+               %{"upsert" => %{"deviceId" => 2, "key" => "availability"}},
+               %{
+                 "upsert" => %{
+                   "deviceId" => 2,
+                   "key" => "sr_isolation",
+                   "value" => "not_isolated"
+                 }
+               }
+             ] = payload
+    end
+
+    test "a candidate collapsed from several device ids picks the first uid with a value" do
+      # `collapse_candidates/1` merges rows by armis_device_id, so one Armis
+      # device can carry several ServiceRadar uids. Two entries for one Armis
+      # device would be a last-writer-wins race inside a single batch, so the
+      # choice is made here and pinned rather than left to iteration order.
+      payload =
+        ArmisNorthboundRunner.build_bulk_payload(
+          "availability",
+          [candidate("1", ["dev-a", "dev-b"])],
+          composite: %{
+            custom_field: "sr_isolation",
+            values: %{"dev-a" => "isolated_verified", "dev-b" => "not_isolated"}
+          }
+        )
+
+      assert [
+               _availability,
+               %{"upsert" => %{"key" => "sr_isolation", "value" => "isolated_verified"}}
+             ] = payload
+    end
+
+    test "a collapsed candidate falls through to a later uid when the first has no value" do
+      payload =
+        ArmisNorthboundRunner.build_bulk_payload(
+          "availability",
+          [candidate("1", ["dev-a", "dev-b"])],
+          composite: %{custom_field: "sr_isolation", values: %{"dev-b" => "not_isolated"}}
+        )
+
+      assert [_availability, %{"upsert" => %{"value" => "not_isolated"}}] = payload
+    end
+
+    test "the customProperties fallback carries both keys on one entry" do
+      payload =
+        ArmisNorthboundRunner.build_bulk_payload(
+          "availability",
+          [candidate("armis-1", ["dev-a"], false)],
+          composite: %{custom_field: "sr_isolation", values: %{"dev-a" => "healthy"}}
+        )
+
+      # That shape can hold several keys, so it stays one entry per device.
+      assert payload == [
+               %{
+                 "id" => "armis-1",
+                 "customProperties" => %{"availability" => "true", "sr_isolation" => "healthy"}
+               }
+             ]
+    end
+
+    test "the customProperties fallback omits the key entirely when there is no value" do
+      payload =
+        ArmisNorthboundRunner.build_bulk_payload(
+          "availability",
+          [candidate("armis-1", ["dev-a"], false)],
+          composite: %{custom_field: "sr_isolation", values: %{}}
+        )
+
+      assert payload == [%{"id" => "armis-1", "customProperties" => %{"availability" => "true"}}]
+    end
+
+    test "no composite option leaves the payload exactly as before" do
+      # The existing export must be untouched when nothing is configured.
+      without =
+        ArmisNorthboundRunner.build_bulk_payload("availability", [candidate("1", ["dev-a"])])
+
+      with_empty =
+        ArmisNorthboundRunner.build_bulk_payload("availability", [candidate("1", ["dev-a"])],
+          composite: nil
+        )
+
+      assert without == with_empty
+
+      assert without == [
+               %{"upsert" => %{"deviceId" => 1, "key" => "availability", "value" => "false"}}
+             ]
+    end
+
+    test "a candidate with no device ids gets no composite entry" do
+      payload =
+        ArmisNorthboundRunner.build_bulk_payload(
+          "availability",
+          [candidate("1", [])],
+          composite: %{custom_field: "sr_isolation", values: %{"dev-a" => "isolated_verified"}}
+        )
+
+      assert length(payload) == 1
+    end
+  end
 end

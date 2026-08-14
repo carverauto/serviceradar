@@ -837,32 +837,71 @@ defmodule ServiceRadar.Integrations.ArmisNorthboundRunner do
     Enum.chunk_every(candidates, batch_size)
   end
 
+  @doc """
+  The bulk payload for a batch of collapsed candidates.
+
+  `opts[:composite]` is `%{custom_field: String.t(), values: %{device_uid =>
+  value}}`. A device absent from `values` produces no composite output at all —
+  not an empty string, not a placeholder — which is the northbound contract for
+  a device outside the check's scope.
+  """
   @spec build_bulk_payload(String.t(), [collapsed_candidate()], keyword()) :: [map()]
-  def build_bulk_payload(custom_field, candidates, _opts \\ [])
+  def build_bulk_payload(custom_field, candidates, opts \\ [])
       when is_binary(custom_field) and custom_field != "" do
-    Enum.map(candidates, fn candidate ->
+    composite = Keyword.get(opts, :composite)
+
+    Enum.flat_map(candidates, fn candidate ->
       value = northbound_value(candidate.is_available)
+      composite_value = composite_value_for(composite, candidate)
 
       case parse_armis_device_id(candidate.armis_device_id) do
         {:ok, device_id} ->
-          %{
-            "upsert" => %{
-              "deviceId" => device_id,
-              "key" => custom_field,
-              "value" => value
-            }
-          }
+          # The upsert shape carries exactly one key per entry, so a second
+          # field is a second entry rather than a second key.
+          [upsert_entry(device_id, custom_field, value)] ++
+            composite_upsert(device_id, composite, composite_value)
 
         :error ->
-          %{
-            "id" => candidate.armis_device_id,
-            "customProperties" => %{
-              custom_field => value
-            }
-          }
+          properties =
+            put_composite_property(%{custom_field => value}, composite, composite_value)
+
+          [%{"id" => candidate.armis_device_id, "customProperties" => properties}]
       end
     end)
   end
+
+  defp upsert_entry(device_id, key, value) do
+    %{"upsert" => %{"deviceId" => device_id, "key" => key, "value" => value}}
+  end
+
+  defp composite_upsert(_device_id, _composite, nil), do: []
+
+  defp composite_upsert(device_id, %{custom_field: field}, value) do
+    [upsert_entry(device_id, field, value)]
+  end
+
+  # The customProperties shape can hold several keys, so it stays one entry per
+  # device rather than splitting like the upsert form.
+  defp put_composite_property(properties, _composite, nil), do: properties
+
+  defp put_composite_property(properties, %{custom_field: field}, value) do
+    Map.put(properties, field, value)
+  end
+
+  # One Armis device can collapse from several ServiceRadar UIDs, so "the"
+  # composite value for it is ambiguous by construction. The first UID that has
+  # a value wins, in the order `collapse_candidates/1` produced them: emitting
+  # one entry per UID would be a last-writer-wins race inside a single batch,
+  # and picking by map iteration order would make the winner unpredictable.
+  defp composite_value_for(nil, _candidate), do: nil
+
+  defp composite_value_for(%{values: values}, candidate) when map_size(values) > 0 do
+    candidate
+    |> Map.get(:device_ids, [])
+    |> Enum.find_value(fn uid -> Map.get(values, uid) end)
+  end
+
+  defp composite_value_for(_composite, _candidate), do: nil
 
   defp northbound_value(is_available), do: to_string(not is_available)
 
