@@ -1448,6 +1448,26 @@ http_file(
     ],
 )
 
+# arm64 siblings of the two above, same snapshot and same version-revision string, for the
+# multi-arch agent_gateway image. Debian publishes both architectures from one source upload,
+# so these track the amd64 pins exactly -- bump the four together or the image ships mismatched
+# OpenSSL across its two entries.
+http_file(
+    name = "debian_openssl_arm64_deb",
+    sha256 = "e7ba824de1e659c12e81f885bc0757a50c4d7a9f71de02687ad63d5a9e936e00",
+    urls = [
+        "https://snapshot.debian.org/archive/debian-security/20260609T214505Z/pool/updates/main/o/openssl/openssl_3.0.20-1~deb12u2_arm64.deb",
+    ],
+)
+
+http_file(
+    name = "debian_libssl3_arm64_deb",
+    sha256 = "a256e03cc3abd7243ac5c6ee91a9deb56478221ef0d3c2b0748551e13140c0bf",
+    urls = [
+        "https://snapshot.debian.org/archive/debian-security/20260609T214505Z/pool/updates/main/o/openssl/libssl3_3.0.20-1~deb12u2_arm64.deb",
+    ],
+)
+
 http_archive(
     name = "crane_linux_amd64",
     build_file_content = """

@@ -11,7 +11,7 @@ PUBLISHABLE_IMAGES = [
     {"image": "flow_collector_image_amd64", "push_image": "flow_collector_image_multiarch", "repository": "registry.carverauto.dev/serviceradar/serviceradar-flow-collector"},
     {"image": "bmp_collector_image_amd64", "push_image": "bmp_collector_image_multiarch", "repository": "registry.carverauto.dev/serviceradar/arancini"},
     {"image": "rperf_client_image_amd64", "push_image": "rperf_client_image_multiarch", "repository": "registry.carverauto.dev/serviceradar/serviceradar-rperf-client"},
-    {"image": "agent_gateway_image_amd64", "repository": "registry.carverauto.dev/serviceradar/serviceradar-agent-gateway"},
+    {"image": "agent_gateway_image_amd64", "push_image": "agent_gateway_image_multiarch", "repository": "registry.carverauto.dev/serviceradar/serviceradar-agent-gateway"},
     {"image": "faker_image_amd64", "push_image": "faker_image_multiarch", "repository": "registry.carverauto.dev/serviceradar/serviceradar-faker"},
     {"image": "config_updater_image_amd64", "push_image": "config_updater_image_multiarch", "repository": "registry.carverauto.dev/serviceradar/serviceradar-config-updater"},
     {"image": "web_ng_image_amd64", "repository": "registry.carverauto.dev/serviceradar/serviceradar-web-ng"},

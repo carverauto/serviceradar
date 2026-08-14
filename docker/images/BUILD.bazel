@@ -144,13 +144,42 @@ declare_elixir_release_container_amd64(
 
 # elixir agent-gateway -------------------------------------------------------
 
+# The two OpenSSL debs the gateway overlays, selected per target architecture.
+#
+# Aliases rather than a select on `deb_packages` directly: that macro builds its genrule command
+# by string-formatting $(location) for each package at LOADING time, where a select is not
+# iterable. Wrapping each label keeps the list static and defers the choice to analysis, which
+# is the same device :agent_netprobe uses for the netprobe binary.
+alias(
+    name = "agent_gateway_openssl_deb",
+    actual = select({
+        "//build/platforms:target_linux_arm64": "@debian_openssl_arm64_deb//file",
+        "//conditions:default": "@debian_openssl_amd64_deb//file",
+    }),
+)
+
+alias(
+    name = "agent_gateway_libssl3_deb",
+    actual = select({
+        "//build/platforms:target_linux_arm64": "@debian_libssl3_arm64_deb//file",
+        "//conditions:default": "@debian_libssl3_amd64_deb//file",
+    }),
+)
+
+# First Elixir image to go multi-arch. The release itself was the hard part and is solved
+# upstream of here: //elixir/serviceradar_agent_gateway:release_tar embeds an arm64 ERTS and
+# arm64 OTP applications via include_erts, so this file only has to stop pinning the two
+# amd64-only layers wrapped around it -- the base and the OpenSSL debs.
 declare_elixir_release_container_with_debs_amd64(
     name = "agent_gateway_image_amd64",
-    base = "@ubuntu_noble_linux_amd64//:ubuntu_noble_linux_amd64",
+    base = select({
+        "//build/platforms:target_linux_arm64": "@ubuntu_noble_linux_arm64_v8//:ubuntu_noble_linux_arm64_v8",
+        "//conditions:default": "@ubuntu_noble_linux_amd64//:ubuntu_noble_linux_amd64",
+    }),
     cmd = ["start"],
     deb_packages = [
-        "@debian_openssl_amd64_deb//file",
-        "@debian_libssl3_amd64_deb//file",
+        ":agent_gateway_openssl_deb",
+        ":agent_gateway_libssl3_deb",
     ],
     entrypoint = ["/app/bin/serviceradar_agent_gateway"],
     env = {
@@ -162,6 +191,11 @@ declare_elixir_release_container_with_debs_amd64(
     local_repo_tag = "registry.carverauto.dev/serviceradar/serviceradar-agent-gateway:local",
     release_tar = "//elixir/serviceradar_agent_gateway:release_tar",
     workdir = "/app",
+)
+
+declare_multiarch_image_index(
+    name = "agent_gateway_image_multiarch",
+    image = ":agent_gateway_image_amd64",
 )
 
 # The netprobe the agent image ships, selected per target architecture.
@@ -695,6 +729,7 @@ declare_oci_push_targets()
 # then our aarch64 binaries on an x86-64 userland, labelled amd64. That state built cleanly
 # and nothing in the graph objected, which is why this is a test rather than a review note.
 _MULTIARCH_INDEXES = [
+    "agent_gateway_image_multiarch",
     "agent_image_multiarch",
     "bmp_collector_image_multiarch",
     "cert_generator_image_multiarch",

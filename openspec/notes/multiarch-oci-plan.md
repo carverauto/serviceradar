@@ -7,7 +7,7 @@
 | Date | 2026-08-14 |
 | Basis | `feat/hermetic-llvm` @ `3e3b8d1340` |
 | Goal | linux/amd64 + linux/arm64 manifests for the publishable image set |
-| Status | Tier 1 **done** — 12 of 16 in-scope images verified multi-arch. See `openspec/changes/add-multiarch-oci-images` |
+| Status | **14 of 16 in-scope images verified multi-arch.** See `openspec/changes/add-multiarch-oci-images` |
 
 ---
 
@@ -27,7 +27,7 @@
 
 ## Current state — what is multi-arch now
 
-Twelve of sixteen in-scope. Every row marked multi-arch was verified by reading the ELF machine type of
+Fourteen of sixteen in-scope. Every row marked multi-arch was verified by reading the ELF machine type of
 the binaries in each advertised platform entry, enforced on every build by
 `//docker/images:multiarch_index_test`. Three were additionally executed on an arm64 host.
 
@@ -45,9 +45,9 @@ the binaries in each advertised platform entry, enforced on every build by
 | 10 | tools | **yes** | alpine 3.24 (select) | go + 24 aarch64 APKs | ELF + **ran on arm64** |
 | 11 | trivy_sidecar | **yes** | none — scratch | go | ELF + **ran on arm64** |
 | 12 | k8s_inventory | **yes** | none — scratch | go | ELF |
-| 13 | cert_generator | no | alpine 3.24 (**pinned amd64**) | shell + 3 APKs | — |
+| 13 | cert_generator | **yes** | alpine 3.24 (select) | shell + 3 APKs | ELF |
 | 14 | core_elx | no | ubuntu noble 24.04 (**pinned amd64**) | elixir release | — |
-| 15 | agent_gateway | no | ubuntu noble 24.04 (**pinned amd64**) | elixir release + 2 amd64 debs | — |
+| 15 | agent_gateway | **yes** | ubuntu noble 24.04 (select) | elixir release (arm64 ERTS) + 2 debs (select) | ELF |
 | 16 | web_ng | no | ubuntu noble 24.04 (**pinned amd64**) | elixir release | — |
 
 "(select)" means the base resolves through `_platform_select` on the target platform;
@@ -56,8 +56,33 @@ the binaries in each advertised platform entry, enforced on every build by
 `MODULE.bazel` — for rows 13-16 the base is pinned by the call site, not unavailable.
 
 `cnpg` and `cnpg_analytics` are out of scope by decision, not by blocker: the database runs on
-amd64 nodes and multi-arch is per-image, so they are excluded from the accounting above. Twelve
+amd64 nodes and multi-arch is per-image, so they are excluded from the accounting above. Fourteen
 of sixteen in-scope images are multi-arch.
+
+### The two that remain
+
+**Blocker A is solved.** OTP is no longer built from source for the host: it is a prebuilt pinned
+per architecture, and an Elixir release now embeds an arm64 ERTS through `include_erts` given a
+path into a second OTP root -- which redirects the OTP application tree with it, so kernel,
+stdlib, crypto and ssl and their NIFs all come from the arm64 tree. `agent_gateway` proves the
+whole path end to end.
+
+A second blocker, not anticipated by this note, sat in front of it: the `:boundary` compiler
+walks every module of every checked dependency and calls `__info__(:attributes)`, forcing each to
+load and firing Rustler's `@on_load`. Cross-compiling means dlopen()ing an aarch64 `.so` on the
+amd64 builder, which glibc reports as ENOENT -- it sets that errno by hand on an `e_machine`
+mismatch -- so the compile died naming neither NIFs nor architecture. Guarding `:boundary` to
+dev/test removes it from every release build.
+
+| Image | What is left | Fixable here |
+|---|---|---|
+| web_ng | `adbc` drives CMake and derives its triple from the BUILD VM, so it ignores `CC`; `mdex_native` | yes, with a CMake toolchain file |
+| core_elx | ten `*_linux_x86` Membrane archives with no arm64 upstream; `ex_dtls`/`ex_libsrt` pinned to the executor's gcc by `_SYSTEM_CC_APPS` | **no** |
+
+**Blocker B stands unchanged**, and it is the one that decides the ceiling. `core_elx` cannot be
+made multi-arch from inside this repository; it needs arm64 builds from
+`membraneframework-precompiled`. The honest target is therefore 15 of 16, with `core_elx` a
+declared holdout on the same footing as the CNPG decision.
 
 Runtime evidence, on an Apple Silicon host with no `--platform` flag so Docker selected the entry
 itself: `tools` reports `uname -m` = `aarch64` with bash identifying as
