@@ -141,10 +141,7 @@ fn bidirectional_cidr_clause(filter: &Filter) -> Result<(String, Vec<SqlBindValu
     match filter.op {
         FilterOp::Eq | FilterOp::NotEq => {
             let cidr = normalize_cidr_literal(filter.value.as_scalar()?)?;
-            let binds = vec![
-                SqlBindValue::Text(cidr.clone()),
-                SqlBindValue::Text(cidr),
-            ];
+            let binds = vec![SqlBindValue::Text(cidr.clone()), SqlBindValue::Text(cidr)];
             let clause = match filter.op {
                 FilterOp::Eq => "(try_inet(NULLIF(src_endpoint_ip, '')) <<= ?::cidr \
                      OR try_inet(NULLIF(dst_endpoint_ip, '')) <<= ?::cidr)"

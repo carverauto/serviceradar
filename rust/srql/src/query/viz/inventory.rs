@@ -142,6 +142,41 @@ pub(super) fn devices() -> VizMeta {
     }
 }
 
+pub(super) fn composite_results() -> VizMeta {
+    VizMeta {
+        columns: vec![
+            col("device_uid", ColumnType::Text, Some(ColumnSemantic::Id)),
+            col("check_id", ColumnType::Text, Some(ColumnSemantic::Id)),
+            col("check_slug", ColumnType::Text, Some(ColumnSemantic::Label)),
+            col("check_name", ColumnType::Text, Some(ColumnSemantic::Label)),
+            col("verdict", ColumnType::Text, None),
+            col("status", ColumnType::Text, None),
+            col(
+                "matched_rule_id",
+                ColumnType::Text,
+                Some(ColumnSemantic::Id),
+            ),
+            col("inputs", ColumnType::Jsonb, None),
+            col(
+                "evaluated_at",
+                ColumnType::Timestamptz,
+                Some(ColumnSemantic::Time),
+            ),
+            col(
+                "changed_at",
+                ColumnType::Timestamptz,
+                Some(ColumnSemantic::Time),
+            ),
+        ],
+        suggestions: vec![VizSuggestion {
+            kind: VizKind::Table,
+            x: None,
+            y: None,
+            series: None,
+        }],
+    }
+}
+
 pub(super) fn gateways() -> VizMeta {
     VizMeta {
         columns: vec![

@@ -1,107 +1,124 @@
 ## 1. Investigation
 
-- [ ] 1.1 Confirm the exact read path and freshness semantics of
+- [x] 1.1 Confirm the exact read path and freshness semantics of
       `platform.device_agent_availability` (`checked_at` update cadence, what
       `is_available` collapses per sweep mode) so `blocked` is specified against
       real behavior, not assumed behavior.
-- [ ] 1.2 Trace the DIRE merge path that calls
+- [x] 1.2 Trace the DIRE merge path that calls
       `DeviceAgentAvailability.reassign_device` and identify every call site a
       new result resource must be added to.
-- [ ] 1.3 Confirm the OCSF attribute set and severity helpers a verdict event
+- [x] 1.3 Confirm the OCSF attribute set and severity helpers a verdict event
       should use, following the system-actor `Ash.create(OcsfEvent, action:
       :record)` pattern in `credentials/credential_event_writer.ex:281`.
-- [ ] 1.4 Confirm how `rust/srql` resolves dotted dynamic keys for `tags.<key>`
+- [x] 1.4 Confirm how `rust/srql` resolves dotted dynamic keys for `tags.<key>`
       and what the equivalent resolution for `composite.<slug>` requires on both
       the translator and Ash adapter sides.
-- [ ] 1.5 Confirm the `target_builder` round-trip contract used by
+- [x] 1.5 Confirm the `target_builder` round-trip contract used by
       `visibility_profiles_live` so the scope panel reuses it rather than
       reimplementing SRQL parsing.
 
 ## 2. Data Model
 
-- [ ] 2.1 Add the migration creating `platform.composite_checks`,
+- [x] 2.1 Add the migration creating `platform.composite_checks`,
       `composite_check_inputs`, `composite_check_rules`, and
       `device_composite_check_results`, with the `(device_uid, check_id)` unique
       index and scope/lookup indexes.
-- [ ] 2.2 Add `ServiceRadar.CompositeChecks.CompositeCheck` with slug
+- [x] 2.2 Add `ServiceRadar.CompositeChecks.CompositeCheck` with slug
       immutability after first enable, `in:devices` scope validation, state
       transitions, and Ash policies.
-- [ ] 2.3 Add `CompositeCheckInput` with the `vantage_point` and
+- [x] 2.3 Add `CompositeCheckInput` with the `vantage_point` and
       `device_metadata` kinds, per-kind config validation, and unique keys per
       check.
-- [ ] 2.4 Add `CompositeCheckRule` with ordered positions, the match map, the
+- [x] 2.4 Add `CompositeCheckRule` with ordered positions, the match map, the
       operator-defined verdict slug, and the fixed status enum.
-- [ ] 2.5 Enforce the mandatory trailing catch-all rule: auto-created on check
+- [x] 2.5 Enforce the mandatory trailing catch-all rule: auto-created on check
       creation, undeletable, always last.
-- [ ] 2.6 Add `DeviceCompositeCheckResult` including the input snapshot,
+- [x] 2.6 Add `DeviceCompositeCheckResult` including the input snapshot,
       `evaluated_at`, `changed_at`, and a `reassign_device` action.
-- [ ] 2.7 Wire `DeviceCompositeCheckResult.reassign_device` into every DIRE merge
+- [x] 2.7 Wire `DeviceCompositeCheckResult.reassign_device` into every DIRE merge
       call site found in 1.2.
 
 ## 3. Input Resolution
 
-- [ ] 3.1 Add the vantage point resolver over `device_agent_availability` with
+- [x] 3.1 Add the vantage point resolver over `device_agent_availability` with
       missing-row and `max_age` staleness handling.
-- [ ] 3.2 Add the device metadata resolver reading the value and its provenance,
+- [x] 3.2 Add the device metadata resolver reading the value and its provenance,
       with absent, stale, no-provenance, and type-mismatch all yielding `unknown`.
-- [ ] 3.3 Define the resolver behaviour/contract that a future input kind
+- [x] 3.3 Define the resolver behaviour/contract that a future input kind
       implements, and add a test proving a new kind needs no evaluator, storage,
       or rule-structure change.
 
 ## 4. Evaluation
 
-- [ ] 4.1 Add `CompositeChecks.Evaluator.verdict/2` as a pure function returning
+- [x] 4.1 Add `CompositeChecks.Evaluator.verdict/2` as a pure function returning
       `{verdict, status, matched_rule_id}`.
-- [ ] 4.2 Add `CompositeChecks.EvaluationWorker`: resolve scope via the SRQL Ash
+- [x] 4.2 Add `CompositeChecks.EvaluationWorker`: resolve scope via the SRQL Ash
       adapter, page 1000 UIDs, one availability query and one metadata query per
       page, bulk upsert, diff against prior verdict.
-- [ ] 4.3 Delete result rows for devices that no longer match the scope.
-- [ ] 4.4 Schedule the worker per enabled check on its `evaluation_interval`, and
+- [x] 4.3 Delete result rows for devices that no longer match the scope.
+- [x] 4.4 Schedule the worker per enabled check on its `evaluation_interval`, and
       reconcile schedules on check create/enable/disable/delete/interval change.
-- [ ] 4.5 Add the debounced per-device refresh triggered by sweep result
+- [x] 4.5 Add the debounced per-device refresh triggered by sweep result
       ingestion and by device fact writes.
-- [ ] 4.6 Record verdict transition OCSF events under a system actor, logging
+- [x] 4.6 Record verdict transition OCSF events under a system actor, logging
       and swallowing failures so they never fail the evaluation.
-- [ ] 4.7 Add evaluation telemetry: pass duration, devices evaluated, verdict
+- [x] 4.7 Add evaluation telemetry: pass duration, devices evaluated, verdict
       transition count, per-input unknown rate.
-- [ ] 4.8 Retain and mark stale (never clear) existing results when a pass fails,
+- [x] 4.8 Retain and mark stale (never clear) existing results when a pass fails,
       and let Oban retry.
 
 ## 5. Coverage And Validation
 
-- [ ] 5.1 Add per-vantage-point coverage computation over a check's scope.
-- [ ] 5.2 Block enabling at zero coverage without explicit acknowledgement;
+- [x] 5.1 Add per-vantage-point coverage computation over a check's scope.
+- [x] 5.2 Block enabling at zero coverage without explicit acknowledgement;
       surface partial coverage with counts.
-- [ ] 5.3 Add the liveness witness validation for checks with two or more vantage
+- [x] 5.3 Add the liveness witness validation for checks with two or more vantage
       points.
-- [ ] 5.4 Add expectation-seeded rule generation, and the regeneration warning
+- [x] 5.4 Add expectation-seeded rule generation, and the regeneration warning
       when rules were edited after generation.
-- [ ] 5.5 Surface a configuration error on the check when an input references an
+- [x] 5.5 Surface a configuration error on the check when an input references an
       agent or path that no longer resolves, without failing the pass.
 
 ## 6. External Fact Ingress
 
-- [ ] 6.1 Add `PATCH /api/devices/:uid/metadata` in web-ng writing the plain
+- [x] 6.1 Add `PATCH /api/devices/:uid/metadata` in web-ng writing the plain
       value plus server-stamped provenance per key.
-- [ ] 6.2 Enforce the write bounds: key pattern, scalar values only, per-device
+- [x] 6.2 Enforce the write bounds: key pattern, scalar values only, per-device
       fact cap, reserved internal keys rejected, whole request rejected on any
       invalid fact.
-- [ ] 6.3 Add the `devices.facts.write` permission to the RBAC catalog and gate
+- [x] 6.3 Add the `devices.facts.write` permission to the RBAC catalog and gate
       the endpoint on it for both session and API token principals.
-- [ ] 6.4 Document the NCO phase-1 integration: endpoint, auth, payload, and the
+- [x] 6.4 Document the NCO phase-1 integration: endpoint, auth, payload, and the
       `max_age` implication of provenance.
 
 ## 7. SRQL
 
 - [ ] 7.1 Add `composite.<slug>` and `composite.<slug>.status` device field
-      resolution in `rust/srql`, following the `tags.<key>` precedent.
+      resolution in `rust/srql` as a correlated `EXISTS` over
+      `device_composite_check_results` joined to `composite_checks` on slug,
+      following `filters/availability.rs` (`apply_agent_availability_filter`).
+      NOT the `tags.<key>` precedent: that is a JSONB path filter on a column of
+      the same table and shares only the dotted-key token shape. `DeviceQuery`
+      is boxed over `ocsf_devices` alone, so a JOIN would change its type across
+      the module.
 - [ ] 7.2 Add the `composite_results` entity with check/verdict filters and
       per-status counts.
-- [ ] 7.3 Add the Ash adapter side for both.
-- [ ] 7.4 Extend `srql_catalog_controller.ex` so the visual builder offers
-      composite fields and each check's authored verdict slugs as values.
-- [ ] 7.5 Fail a query referencing an unknown composite slug with a named error
-      rather than returning every device.
+- [ ] 7.3 Add the arm in `query/devices/filters/params.rs` that mirrors the
+      `apply_filter` arm. These are parallel matches on the same field names in
+      different files; a field added to one and not the other fails at query
+      time with a placeholder/parameter mismatch, not at compile time.
+      (Supersedes "add the Ash adapter side": there is no SRQL Ash adapter.
+      `web-ng` translates through the NIF (`SRQL.Native` -> `ServiceRadarSRQL.Native`)
+      and executes the SQL; the `AshAdapter` named in AGENTS.md and the
+      `serviceradar_srql` moduledoc does not exist in the tree.)
+- [ ] 7.4 Extend the SRQL catalog so the visual builder offers composite fields
+      and each enabled check's authored verdict slugs as values.
+- [ ] 7.5 Validate composite slugs in the Elixir layer, failing with an error
+      naming the unknown check. The translator cannot do this: it is a pure
+      query compiler with no database connection. It does guarantee the safety
+      half for free -- because the predicate joins `composite_checks` on slug, an
+      unknown slug matches nothing, so the filter returns zero devices rather
+      than degrading to "match everything".
 
 ## 8. UI
 
@@ -136,27 +153,27 @@
 
 ## 10. Verification
 
-- [ ] 10.1 Table-driven evaluator tests over the full input cross-product,
+- [x] 10.1 Table-driven evaluator tests over the full input cross-product,
       including the six-row isolation table as a named fixture.
-- [ ] 10.2 Property test: for any input combination exactly one rule matches.
-- [ ] 10.3 Test that preview and periodic evaluation produce identical results
+- [x] 10.2 Property test: for any input combination exactly one rule matches.
+- [x] 10.3 Test that preview and periodic evaluation produce identical results
       for identical inputs.
-- [ ] 10.4 End-to-end test with two agents reporting different availability for
+- [x] 10.4 End-to-end test with two agents reporting different availability for
       one device, following `sweep_results_flow_e2e_test.exs`.
-- [ ] 10.5 Staleness test: a fact aging past `max_age` flips the verdict on the
+- [x] 10.5 Staleness test: a fact aging past `max_age` flips the verdict on the
       next periodic pass with no triggering event.
-- [ ] 10.6 Scope-exit test: a device leaving scope loses its result row and drops
+- [x] 10.6 Scope-exit test: a device leaving scope loses its result row and drops
       out of the rollup.
-- [ ] 10.7 Device merge test: verdicts survive a DIRE merge with exactly one row
+- [x] 10.7 Device merge test: verdicts survive a DIRE merge with exactly one row
       per check on the surviving UID.
-- [ ] 10.8 Fact API tests: bounds enforcement, reserved keys, back-dating
+- [x] 10.8 Fact API tests: bounds enforcement, reserved keys, back-dating
       ignored, unauthorized rejected, unknown device rejected.
 - [ ] 10.9 SRQL tests for verdict and status filters, the rollup entity, and the
       unknown-slug error.
-- [ ] 10.10 LiveView tests for the three save-time validations and the scope
+- [x] 10.10 LiveView tests for the three save-time validations and the scope
       round-trip.
-- [ ] 10.11 Run DB-backed tests against the `srql-fixtures` scratch database.
-- [ ] 10.12 Run `./scripts/elixir_quality.sh --project elixir/serviceradar_core`
+- [x] 10.11 Run DB-backed tests against the `srql-fixtures` scratch database.
+- [x] 10.12 Run `./scripts/elixir_quality.sh --project elixir/serviceradar_core`
       and `--project elixir/web-ng --phoenix`, plus `cargo fmt` / `cargo clippy`
       on `rust/srql`.
-- [ ] 10.13 Run `openspec validate add-composite-service-checks --strict`.
+- [x] 10.13 Run `openspec validate add-composite-service-checks --strict`.

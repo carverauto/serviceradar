@@ -53,6 +53,7 @@ pub enum Entity {
     DiskMetrics,
     ProcessMetrics,
     CapacityForecasts,
+    CompositeResults,
     TimeseriesMetrics,
     TimeseriesMetricInterfaceHourly,
     SnmpMetrics,

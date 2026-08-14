@@ -998,3 +998,124 @@ fn devices_grouped_stats_apply_the_documented_limits() {
         "an ungrouped query whose alias is `by` must retain the global default"
     );
 }
+
+#[test]
+fn composite_verdict_filter_compiles_to_a_correlated_exists() {
+    let plan = plan_for("in:devices composite.pci-isolation:not_isolated");
+    let (sql, _params) =
+        devices::to_sql_and_params(&plan).expect("should build composite filter SQL");
+
+    assert!(sql.contains("EXISTS"), "expected EXISTS, got: {sql}");
+    assert!(
+        sql.contains("device_composite_check_results"),
+        "expected the results table, got: {sql}"
+    );
+    assert!(
+        sql.contains("composite_checks"),
+        "expected the checks table, got: {sql}"
+    );
+    assert!(
+        sql.contains("r.device_uid = ocsf_devices.uid"),
+        "expected the correlation predicate, got: {sql}"
+    );
+    // DeviceQuery is boxed over ocsf_devices alone; a join on the outer query
+    // would change its type across the module.
+    assert!(
+        !sql.contains("JOIN device_composite_check_results"),
+        "composite results must be correlated, not joined onto the device query: {sql}"
+    );
+}
+
+#[test]
+fn composite_verdict_filter_binds_slug_then_values() {
+    let plan = plan_for("in:devices composite.pci-isolation:not_isolated");
+    let (_sql, params) =
+        devices::to_sql_and_params(&plan).expect("should build composite filter SQL");
+
+    // apply_filter binds the slug then the value array; collect_filter_params
+    // must push them in the same order. A drift here fails at query time rather
+    // than at compile time, so the positions are asserted explicitly. The
+    // trailing binds are the standard limit/offset.
+    assert!(
+        matches!(&params[0], BindParam::Text(slug) if slug == "pci-isolation"),
+        "first bind must be the slug, got: {params:?}"
+    );
+    assert!(
+        matches!(&params[1], BindParam::TextArray(values) if values == &["not_isolated"]),
+        "second bind must be the value array, got: {params:?}"
+    );
+}
+
+#[test]
+fn composite_status_filter_targets_the_status_column() {
+    let plan = plan_for("in:devices composite.pci-isolation.status:degraded");
+    let (sql, _params) = devices::to_sql_and_params(&plan).expect("should build status filter SQL");
+
+    assert!(sql.contains("r.status"), "expected r.status, got: {sql}");
+    assert!(
+        !sql.contains("r.verdict"),
+        "status filter must not compare the verdict column: {sql}"
+    );
+}
+
+#[test]
+fn composite_verdict_filter_supports_lists() {
+    let plan = plan_for("in:devices composite.pci-isolation:(not_isolated,inverted_reachability)");
+    let (sql, params) = devices::to_sql_and_params(&plan).expect("should build list filter SQL");
+
+    assert!(sql.contains("ANY("), "expected ANY(), got: {sql}");
+    assert!(
+        matches!(
+            &params[1],
+            BindParam::TextArray(values)
+                if values == &["not_isolated", "inverted_reachability"]
+        ),
+        "a list must bind as one array, not one param per value: {params:?}"
+    );
+}
+
+#[test]
+fn a_negated_composite_filter_compiles_to_not_exists() {
+    let plan = plan_for("in:devices !composite.pci-isolation:not_isolated");
+    let (sql, _params) =
+        devices::to_sql_and_params(&plan).expect("should build negated composite SQL");
+
+    let lower = sql.to_lowercase();
+    assert!(lower.contains("not"), "expected a negation, got: {sql}");
+    assert!(lower.contains("exists"), "expected EXISTS, got: {sql}");
+    // NOT EXISTS also matches devices with no result row for this check. That is
+    // the intended reading of "does not hold that verdict" -- a device outside
+    // the check's scope does not hold it either. Changing this is a behaviour
+    // change, not a refactor.
+}
+
+#[test]
+fn a_malformed_composite_field_is_a_query_error() {
+    for query in [
+        "in:devices composite.:x",
+        "in:devices composite.-leading:x",
+        "in:devices composite.trailing-:x",
+        "in:devices composite.a.b.c:x",
+    ] {
+        let plan = plan_for(query);
+        assert!(
+            devices::to_sql_and_params(&plan).is_err(),
+            "expected a query error for {query}"
+        );
+    }
+}
+
+#[test]
+fn a_mixed_case_composite_field_is_normalized_rather_than_rejected() {
+    // normalize_field_name lowercases any field outside the tags/metadata
+    // namespaces, and slugs are lowercase by construction, so `composite.PCI`
+    // addresses the check slugged `pci` rather than failing.
+    let plan = plan_for("in:devices composite.PCI-Isolation:not_isolated");
+    let (_sql, params) =
+        devices::to_sql_and_params(&plan).expect("mixed case should normalize, not error");
+
+    assert!(
+        matches!(&params[0], BindParam::Text(slug) if slug == "pci-isolation"),
+        "expected the slug to be lowercased, got: {params:?}"
+    );
+}
