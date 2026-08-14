@@ -1,17 +1,8 @@
 #!/usr/bin/env bash
-# Materialise the shared SRQL fixture's TLS material and export its connection settings.
-#
-# Shared by .forgejo/workflows/main.yml and .forgejo/workflows/integration-core.yml. Both
-# need it, for different reasons, which is why it lives here rather than in either workflow:
-#
-#   * main.yml consumes SERVICERADAR_RUN_CORE_INTEGRATION to decide whether to drop
-#     //rust/srql:srql_api_test and //rust/srql:srql_comprehensive_test from the Bazel sweep,
-#     and passes the exported PGSSL*/SRQL_* variables through as --test_env.
-#   * integration-core.yml consumes the same flag to decide whether to run the
-#     serviceradar_core suite at all.
-#
-# Duplicating ~100 lines of secret plumbing across two workflows is how the two copies end up
-# disagreeing about which secret is required, so there is exactly one copy.
+# Materialise the shared SRQL fixture's TLS material for the dedicated Forgejo database job.
+# This is a permitted credential-handling exception to the no-shell rule: fixture secrets must
+# exist in the Bazel client's environment before the guarded local TestRunner actions start, and
+# making them ordinary action inputs would upload them into REAPI metadata.
 #
 # Reads (environment):
 #   SRQL_TEST_DATABASE_URL      required  DSN of the shared fixture database
@@ -22,10 +13,9 @@
 #   RUNNER_TEMP                 required  where the PEM files are written
 #   GITHUB_ENV                  required  appended to, not overwritten
 #
-# Writes: PEM files under $RUNNER_TEMP, and the variables above plus
-# SERVICERADAR_RUN_CORE_INTEGRATION (1 when the server accepts a TCP connection, else 0) to
-# $GITHUB_ENV. A caller that reaches this script has already decided the secrets are present;
-# a missing one is a configuration error and fails loudly rather than silently skipping.
+# Writes: normalized verify-full DSNs, TLS server-name bridges, and PEM file paths under
+# $RUNNER_TEMP to $GITHUB_ENV. A caller that reaches this script has already decided the secrets
+# are present; missing or malformed input fails loudly rather than silently weakening TLS.
 
 set -euo pipefail
 
@@ -48,16 +38,7 @@ fi
 
 ca_file="${RUNNER_TEMP}/srql-fixture-ca.crt"
 printf "%s" "${SRQL_TEST_DATABASE_CA_CERT}" > "${ca_file}"
-
-{
-  echo "SRQL_TEST_DATABASE_URL=${SRQL_TEST_DATABASE_URL}"
-  echo "SRQL_TEST_ADMIN_URL=${SRQL_TEST_ADMIN_URL}"
-  echo "PGSSLROOTCERT=${ca_file}"
-  echo "CNPG_CA_FILE=${ca_file}"
-  echo "SERVICERADAR_TEST_DATABASE_CA_CERT_FILE=${ca_file}"
-  echo "SRQL_TEST_DATABASE_CA_CERT_FILE=${ca_file}"
-  echo "SERVICERADAR_SKIP_UNREACHABLE_INTEGRATION_DB=1"
-} >> "${GITHUB_ENV}"
+chmod 600 "${ca_file}"
 
 # Client certificate and key are optional, but only as a pair -- half a pair means a renamed
 # or half-rotated secret, which would otherwise surface much later as an opaque TLS handshake
@@ -89,54 +70,68 @@ if [ -z "${parser}" ]; then
   exit 1
 fi
 
-"${parser}" - <<'PY' >> "${GITHUB_ENV}"
+SRQL_FIXTURE_CA_FILE="${ca_file}" "${parser}" - <<'PY' >> "${GITHUB_ENV}"
 import os
-import socket
-from urllib.parse import urlparse, parse_qs
+from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 
-def parse(url):
-    u = urlparse(url)
-    qs = parse_qs(u.query)
+def normalize(url):
+    if "\n" in url or "\r" in url:
+        raise SystemExit("SRQL fixture DSNs must not contain line breaks")
+
+    parsed = urlsplit(url)
+    query = [
+        (key, value)
+        for key, value in parse_qsl(parsed.query, keep_blank_values=True)
+        if key != "sslmode"
+    ]
+    query.append(("sslmode", "verify-full"))
+    normalized = urlunsplit(
+        (parsed.scheme, parsed.netloc, parsed.path, urlencode(query), parsed.fragment)
+    )
     return {
-        "user": u.username or "",
-        "password": u.password or "",
-        "host": u.hostname or "",
-        "port": str(u.port or 5432),
-        "sslmode": (qs.get("sslmode") or [""])[0],
+        "url": normalized,
+        "user": parsed.username or "",
+        "password": parsed.password or "",
+        "host": parsed.hostname or "",
+        "port": str(parsed.port or 5432),
+        "database": parsed.path.lstrip("/"),
     }
 
 
-db = parse(os.environ["SRQL_TEST_DATABASE_URL"])
-admin = parse(os.environ["SRQL_TEST_ADMIN_URL"])
+db = normalize(os.environ["SRQL_TEST_DATABASE_URL"])
+admin = normalize(os.environ["SRQL_TEST_ADMIN_URL"])
 host = admin["host"] or db["host"]
 port = admin["port"] or db["port"]
 user = admin["user"]
 password = admin["password"]
+server_name = (
+    os.environ.get("SRQL_TEST_DATABASE_SERVER_NAME")
+    or os.environ.get("PGSSLSERVERNAME")
+    or "srql-fixture-rw.srql-fixtures.svc.cluster.local"
+)
 
-if not host or not user:
+if not host or not user or not server_name:
     raise SystemExit("SRQL_TEST_ADMIN_URL must include host and username")
+if any(char in server_name for char in "\r\n"):
+    raise SystemExit("SRQL fixture TLS server name must not contain line breaks")
 
+print(f"SRQL_TEST_DATABASE_URL={db['url']}")
+print(f"SRQL_TEST_ADMIN_URL={admin['url']}")
+print(f"SRQL_TEST_DATABASE_SERVER_NAME={server_name}")
+print(f"SERVICERADAR_TEST_DATABASE_SERVER_NAME={server_name}")
+print(f"PGSSLSERVERNAME={server_name}")
+print(f"CNPG_TLS_SERVER_NAME={server_name}")
+print("CNPG_SSL_MODE=verify-full")
+print(f"PGSSLROOTCERT={os.environ['SRQL_FIXTURE_CA_FILE']}")
+print(f"CNPG_CA_FILE={os.environ['SRQL_FIXTURE_CA_FILE']}")
+print(f"SERVICERADAR_TEST_DATABASE_CA_CERT_FILE={os.environ['SRQL_FIXTURE_CA_FILE']}")
+print(f"SRQL_TEST_DATABASE_CA_CERT_FILE={os.environ['SRQL_FIXTURE_CA_FILE']}")
 print(f"TEST_CNPG_HOST={host}")
 print(f"TEST_CNPG_PORT={port}")
+print(f"TEST_CNPG_DATABASE={admin['database'] or 'postgres'}")
 print(f"TEST_CNPG_USERNAME={user}")
 print(f"TEST_CNPG_PASSWORD={password}")
 print(f"CNPG_HOST={host}")
 print(f"CNPG_PORT={port}")
-
-sslmode = db["sslmode"] or "require"
-print(f"CNPG_SSL_MODE={sslmode}")
-print(f"CNPG_TLS_SERVER_NAME={host}")
-
-# The fixture lives in a cluster that is not always reachable from a runner. Probing here,
-# once, is what lets both workflows degrade to "skip" rather than "fail" -- a fixture outage
-# should not look identical to a broken migration.
-reachable = False
-try:
-    with socket.create_connection((host, int(port)), timeout=5):
-        reachable = True
-except OSError:
-    reachable = False
-
-print(f"SERVICERADAR_RUN_CORE_INTEGRATION={'1' if reachable else '0'}")
 PY

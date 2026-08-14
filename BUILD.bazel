@@ -87,10 +87,18 @@ py_test(
     size = "small",
     srcs = ["buildbuddy_cache_proxy_config_test.py"],
     data = [
+        ".agents/skills/demo-local-rollout/SKILL.md",
+        ".agents/skills/srql-fixtures-db-tests/SKILL.md",
         ".bazelrc",
+        ".forgejo/workflows/elixir-integration-sr-core.yml",
+        ".forgejo/workflows/main.yml",
         "Makefile",
         "buildbuddy.yaml",
+        "buildbuddy_setup_fixture_env.sh",
         "k8s/buildbuddy/values-cache-proxy.yaml",
+        "//build/buildbuddy:release_pipeline.sh",
+        "//scripts:push_all_images.sh",
+        "//scripts:ci/configure-srql-fixture.sh",
     ],
 )
 
@@ -130,8 +138,8 @@ py_test(
     # cache-proxy test above can use bare paths only because k8s/buildbuddy has no BUILD file.
     data = [
         "//go/pkg/agent:release_signing_key.txt",
-        "//helm/serviceradar:values-demo.yaml",
         "//helm/serviceradar:values.yaml",
+        "//helm/serviceradar:values-demo.yaml",
     ],
 )
 
@@ -156,10 +164,10 @@ sh_binary(
 ###############################################################################
 # CI INTEGRATION-FIXTURE CREDENTIALS
 #
-# Same credential carve-out as the docker auth target above: a test action cannot fetch
-# these itself (remote executor, no kubeconfig, sandboxed), so they must reach the bazel
-# CLIENT's environment before `bazel test` runs. Reads the srql-fixtures K8s secrets when
-# the caller has cluster access, otherwise trusts pre-set BuildBuddy workflow secrets.
+# Same credential carve-out as the docker auth target above: a sandboxed test action must not
+# fetch cluster secrets itself, so they reach the Bazel CLIENT's environment before `bazel test`
+# starts. Reads the srql-fixtures K8s secrets when the caller has cluster access, otherwise trusts
+# pre-set BuildBuddy workflow secrets.
 ###############################################################################
 sh_binary(
     name = "buildbuddy_setup_fixture_env",

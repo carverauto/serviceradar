@@ -3,7 +3,8 @@
 Single source of truth, because two packages have to agree exactly:
 
   * //elixir/serviceradar_core generates one ex_unit_test per shard;
-  * //rust/integration-db:provision_db clones one database per shard.
+  * //rust/integration-db:provision_db clones every shard database for CI;
+  * //rust/integration-db:provision_db_sN clones one matching database for focused runs.
 
 A mismatch is not a build error -- it is a suite that runs against a database nothing
 provisioned, so the number lives here and both sides read it.
@@ -86,7 +87,7 @@ def partition_by_shard(srcs):
 
     Returns:
       A dict of shard name -> list of srcs. Every shard is present even when empty, so the
-      generated target list always matches the database list //rust/integration-db provisions.
+      generated target list always matches the all-shard and focused provision targets.
     """
     names = integration_shard_names()
     buckets = {name: [] for name in names}

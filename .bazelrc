@@ -80,57 +80,89 @@ test --test_output=errors
 # //elixir/web-ng:precommit already does.
 #test --test_strategy=standalone
 test --remote_executor=
-# THE FIXTURE DSNs. //rust/integration-db resolves the shared CNPG fixture through these --
-# provision_db, teardown_db and sweep_stale_dbs all derive their database from
-# SRQL_TEST_DATABASE_URL, and database_bootstrap_integration_test.exs reads
-# SRQL_TEST_ADMIN_URL. A variable that is exported by the fixture setup but NOT named here
-# never reaches the test action at all, and the failure reads as an unreachable fixture
-# rather than a missing --test_env line.
-test --test_env=SRQL_TEST_DATABASE_URL
-test --test_env=SRQL_TEST_ADMIN_URL
-test --test_env=CNPG_HOST
-test --test_env=CNPG_PORT
-test --test_env=CNPG_DATABASE
-test --test_env=CNPG_USERNAME
-test --test_env=CNPG_PASSWORD
-test --test_env=CNPG_SSL_MODE
-test --test_env=CNPG_CERT_DIR
-test --test_env=TEST_CNPG_HOST
-test --test_env=TEST_CNPG_PORT
-test --test_env=TEST_CNPG_DATABASE
-test --test_env=TEST_CNPG_USERNAME
-test --test_env=TEST_CNPG_PASSWORD
-test --test_env=SRQL_TEST_DATABASE_CA_CERT --test_env=PGSSLROOTCERT --test_env=PGSSLSERVERNAME --test_env=SERVICERADAR_TEST_DATABASE_URL --test_env=SERVICERADAR_TEST_ADMIN_URL --test_env=SERVICERADAR_TEST_DATABASE_OWNER --test_env=GITHUB_RUN_ID --test_env=GITHUB_RUN_ATTEMPT
-test --test_env=NATS_URL
-test --test_env=NATS_SERVER_NAME
-test --test_env=NATS_CA_FILE
-test --test_env=NATS_CERT_FILE
-test --test_env=NATS_KEY_FILE
-test --test_env=NATS_CA_B64
-test --test_env=NATS_CERT_B64
-test --test_env=NATS_KEY_B64
+# THE FIXTURE ENVIRONMENT IS OPT-IN. These values include live DSNs and client-key paths.
+# Forwarding them from the global `test` profile puts them in every remote unit-test action's
+# command environment and cache metadata, even when that test never opens a database. Only the
+# guarded, TestRunner-local, non-uploaded database invocations select `--config=database_env`.
+#
+# Keep SRQL_TEST_* as the base URLs. SERVICERADAR_TEST_DATABASE_URL and
+# SERVICERADAR_TEST_ADMIN_URL are intentionally absent: those are final per-test overrides and
+# suppress integration_env.exs' per-shard database-name derivation when inherited accidentally.
+test:database_env --test_env=SRQL_TEST_DATABASE_URL
+test:database_env --test_env=SRQL_TEST_ADMIN_URL
+test:database_env --test_env=SRQL_TEST_DATABASE_CA_CERT
+test:database_env --test_env=SRQL_TEST_DATABASE_CA_CERT_FILE
+test:database_env --test_env=SRQL_TEST_DATABASE_CERT
+test:database_env --test_env=SRQL_TEST_DATABASE_KEY
+test:database_env --test_env=SRQL_TEST_DATABASE_SERVER_NAME
+test:database_env --test_env=SERVICERADAR_TEST_DATABASE_CA_CERT
+test:database_env --test_env=SERVICERADAR_TEST_DATABASE_CA_CERT_FILE
+test:database_env --test_env=SERVICERADAR_TEST_DATABASE_CERT
+test:database_env --test_env=SERVICERADAR_TEST_DATABASE_KEY
+test:database_env --test_env=SERVICERADAR_TEST_DATABASE_OWNER
+test:database_env --test_env=SERVICERADAR_TEST_DATABASE_SERVER_NAME
+test:database_env --test_env=PGSSLROOTCERT
+test:database_env --test_env=PGSSLSERVERNAME
+test:database_env --test_env=PGSSLCERT
+test:database_env --test_env=PGSSLKEY
+test:database_env --test_env=CNPG_HOST
+test:database_env --test_env=CNPG_PORT
+test:database_env --test_env=CNPG_DATABASE
+test:database_env --test_env=CNPG_USERNAME
+test:database_env --test_env=CNPG_PASSWORD
+test:database_env --test_env=CNPG_ADMIN_USERNAME
+test:database_env --test_env=CNPG_ADMIN_PASSWORD
+test:database_env --test_env=CNPG_SSL_MODE
+test:database_env --test_env=CNPG_CERT_DIR
+test:database_env --test_env=CNPG_CA_FILE
+test:database_env --test_env=CNPG_CERT_FILE
+test:database_env --test_env=CNPG_KEY_FILE
+test:database_env --test_env=CNPG_TLS_SERVER_NAME
+test:database_env --test_env=TEST_CNPG_HOST
+test:database_env --test_env=TEST_CNPG_PORT
+test:database_env --test_env=TEST_CNPG_DATABASE
+test:database_env --test_env=TEST_CNPG_USERNAME
+test:database_env --test_env=TEST_CNPG_PASSWORD
+test:database_env --test_env=GITHUB_RUN_ID
+test:database_env --test_env=GITHUB_RUN_ATTEMPT
+# NATS URLs and key material are likewise opt-in. Database integration inherits this profile
+# because a subset of the core shards exercises the event pipeline; other NATS-facing callers
+# must select it explicitly rather than leaking credentials into the generic remote sweep.
+test:database_env --config=nats_env
+test:nats_env --test_env=NATS_URL
+test:nats_env --test_env=NATS_SERVER_NAME
+test:nats_env --test_env=NATS_CA_FILE
+test:nats_env --test_env=NATS_CERT_FILE
+test:nats_env --test_env=NATS_KEY_FILE
+test:nats_env --test_env=NATS_CA_B64
+test:nats_env --test_env=NATS_CERT_B64
+test:nats_env --test_env=NATS_KEY_B64
 test --@io_bazel_rules_go//go/config:pure
 test --flaky_test_attempts=2
 
 # Metadata for buildbuddy
 build --workspace_status_command=$(pwd)/scripts/workspace_status.sh
 
-# Remote execution profile settings shared by CI and --config=remote.\
+# Cache/BES transport without execution ownership. This profile is safe to combine with a
+# host-native platform for database-facing integration tests: it deliberately selects no remote
+# executor, host/target platform, remote JDK, toolchain, or Linux-only environment.
+# Remote Cache CDC https://www.buildbuddy.io/blog/content-defined-chunking
+build:cache_only --experimental_remote_cache_chunking
+# Remote Cache reduction and compression
+build:cache_only --remote_cache_compression
+build:cache_only --experimental_remote_cache_compression_threshold=100
+# The cache proxy is the cache hop; BuildBuddy remains the bytestream/BES authority.
+build:cache_only --remote_bytestream_uri_prefix=carverauto.buildbuddy.io
+build:cache_only --remote_cache=grpcs://cache-proxy.carverauto.dev:443
+build:cache_only --bes_backend=grpcs://carverauto.buildbuddy.io
+build:cache_only --bes_results_url=https://carverauto.buildbuddy.io/invocation/
+
+# Remote execution profile settings inherited by CI.
+build:remote_base --config=cache_only
 # Number of parallel jobs on remote executors
 build:remote_base --jobs=100
-# Remote Cache CDC https://www.buildbuddy.io/blog/content-defined-chunking
-build:remote_base  --experimental_remote_cache_chunking
-# Remote Cache reduction and compression
 build:remote_base --remote_download_minimal
-build:remote_base --remote_cache_compression
-build:remote_base --experimental_remote_cache_compression_threshold=100
-# Remote Build and Remote Cache
-# The BuildBuddy cache proxy's public TLS edge (//k8s/buildbuddy/README.md, "Cache proxy").
-build:remote_base --remote_bytestream_uri_prefix=carverauto.buildbuddy.io
 build:remote_base --remote_executor=grpcs://carverauto.buildbuddy.io
-build:remote_base --remote_cache=grpcs://cache-proxy.carverauto.dev:443
-build:remote_base --bes_backend=grpcs://carverauto.buildbuddy.io
-build:remote_base --bes_results_url=https://carverauto.buildbuddy.io/invocation/
 # Remote platforms
 build:remote_base --host_platform=//build/rbe:rbe_platform
 build:remote_base --platforms=//build/rbe:rbe_platform
@@ -147,12 +179,6 @@ build:remote_base --action_env=OPENSSL_INCLUDE_DIR=/usr/include
 build:remote_base --action_env=NEXT_PRIVATE_SKIP_TURBOPACK=1
 build:remote_base --action_env=TURBOPACK=
 build:remote_base --action_env=NEXT_SKIP_TURBO=1
-test:remote --action_env=OPENSSL_DIR=/usr
-test:remote --action_env=OPENSSL_LIB_DIR=/usr/lib/x86_64-linux-gnu
-test:remote --action_env=OPENSSL_INCLUDE_DIR=/usr/include
-test:remote --action_env=NEXT_PRIVATE_SKIP_TURBOPACK=1
-test:remote --action_env=TURBOPACK=
-test:remote --action_env=NEXT_SKIP_TURBO=1
 
 # CI profile on top of the remote config
 build:ci --config=remote_base
@@ -205,7 +231,7 @@ try-import %workspace%/.bazelrc.local
 
 # Remote credentials and local overrides live in .bazelrc.remote (kept out of version control).
 # CI jobs generate it to carry the BuildBuddy API key. No cache opt-in is written there any
-# more: the proxy is `build:remote_base --remote_cache` above, which every remote build inherits.
+# more: the proxy is `build:cache_only --remote_cache` above, which `remote_base` inherits.
 #
 # KEEP THIS IMPORT LAST. An rc file can only override configs defined before it, so an override
 # placed above build:remote_base is silently overwritten by it -- the build looks entirely

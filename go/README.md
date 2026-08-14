@@ -195,8 +195,8 @@ The three Go tests under `//build/...` are release tooling rather than product c
 ## 9. The `integration` build tag runs nowhere
 
 Six files carry `//go:build integration`. Nothing compiles them. `GO_TEST_TAGS` in the Makefile
-is `-tags=hostfreq_embed` or empty, `make test-integration` runs the Elixir and SRQL suite
-through Bazel, and no workflow passes the tag. There is no Bazel target either, because Bazel
+is `-tags=hostfreq_embed` or empty, the database-backed Elixir suite uses explicit Bazel targets,
+and no workflow passes the Go tag. There is no Bazel target either, because Bazel
 cannot apply a Go build constraint per target: it would need
 `--@io_bazel_rules_go//go/config:tags=integration`, which forks the whole Go configuration the
 way the race flags do.

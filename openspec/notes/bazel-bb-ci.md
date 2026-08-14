@@ -1,59 +1,64 @@
-Reality
+# Bazel and BuildBuddy CI notes
 
-Bazel builds and tests 
-- Go source tree
-- Rust source tree 
-- JS source tree
-- Proto source tree
-- The elixir source tree
-- The bulk of OCI images
+## Current build boundary
 
-Known gaps 
-- CI is a total mess
+Bazel builds and tests the Go, Rust, JavaScript, protobuf, Elixir, and OCI-image graphs. Remote
+profiles use BuildBuddy for execution and BES. Their cache traffic uses the authenticated public
+cache proxy through the shared Envoy edge.
 
-Vision
+`build:cache_only` owns cache/BES transport without choosing an executor or platform.
+`build:remote_base` inherits it and adds the Linux RBE platform, executor, remote toolchain, and
+remote-only environment. `build:ci` inherits `build:remote_base`.
 
-Build all of the repo via a Bazel and migrate CI to Bazel RBE and remote cache.  
+That split is load-bearing for database integration tests. A macOS workstation can compile against
+the remote cache while producing a Darwin test binary and running `TestRunner` locally. Selecting
+`build:ci` there would build a Linux binary and fail when local execution attempts to run it.
 
-A Bazel CI Workflow would look like this:
+## Core integration lifecycle
 
-# 1 Build
-bazel build -c opt //... --config=remote
+Forgejo, BuildBuddy workflows, and developers use the same ordered Bazel targets:
 
-# 2 Unit tests 
-bazel test -c opt //... --config=remote --test_tag_filters=-integration_test,-acceptance_test
+```text
+//rust/integration-db:sweep_stale_dbs
+//rust/integration-db:prepare_template
+//elixir/serviceradar_core:migrate_template   (only when pending)
+//rust/integration-db:provision_db            (CI/all shards)
+//rust/integration-db:provision_db_sN         (focused local shard)
+//elixir/serviceradar_core:integration_tests  (or matching integration_tests_sN)
+//rust/integration-db:teardown_db
+```
 
-# Integration setup
-bazel test -c opt //rust/integration-db:sweep_stale_dbs   --config=remote --test_tag_filters= --//build:enable_integration_tests
+All lifecycle targets are deliberately `manual` and guarded by
+`--//build:enable_integration_tests`. Test invocations clear `--test_tag_filters`, prepare clears
+`--build_tag_filters`, and every database-facing `TestRunner` action stays local to the runner that
+can reach CNPG. Compile actions remain eligible for remote cache/RBE according to the selected
+profile. Shard runs use `--nocache_test_results` because fixture state is external to the action
+graph. Forgejo and BuildBuddy additionally use `--remote_upload_local_results=false` because
+compilation is remote there; a cache-only workstation must not use that broad flag or its locally
+compiled misses will never populate the shared cache.
 
-bazel test -c opt //elixir/serviceradar_core:migrate_template --config=remote --test_tag_filters= --//build:enable_integration_tests
+Fixture and NATS credentials are opt-in through `test:database_env` / `test:nats_env`. Generic
+remote unit tests never receive those values in their action environment. Every DB-facing
+invocation selects `--config=database_env` only alongside local TestRunner placement and disabled
+test-result upload.
 
-bazel test -c opt //rust/integration-db:provision_db   --config=remote --test_tag_filters= --//build:enable_integration_tests
+The base fixture variables are `SRQL_TEST_DATABASE_URL` and `SRQL_TEST_ADMIN_URL`. The caller sets
+one unique numeric `GITHUB_RUN_ID`/`GITHUB_RUN_ATTEMPT` pair for the sequence; Rust and Elixir
+derive the same disposable `sr_core_test_<run>_<attempt>[_sN]` database names from them. Never
+pre-export the base URL as `SERVICERADAR_TEST_DATABASE_URL`, because that suppresses per-shard
+derivation.
 
-# Integration run tests
-bazel test -c opt //... --config=remote --test_tag_filters=integration_test,-acceptance_test --//build:enable_integration_tests
+For workstation NodePort runs, set both `PGSSLSERVERNAME` and
+`SRQL_TEST_DATABASE_SERVER_NAME` to the CNPG certificate's DNS name so the Rust and Elixir clients
+verify the same certificate. Locally the caller must invoke teardown after a red shard; Bazel has
+no ordered-test or cross-invocation finalizer. Forgejo owns its sequence and uses an `always()`
+teardown step; BuildBuddy keeps the sequence in one shell with an EXIT trap that preserves the
+primary failure and reports cleanup failure. A stale-database sweep handles cases where no cleanup
+can run.
 
-// Add more integration tests here that require the DB fixture
+## Credentials
 
-# Integration teardown 
-bazel test -c opt //rust/integration-db:teardown_db --config=remote --test_tag_filters= --//build:enable_integration_tests
-
-# 4 Build images
-bazel build -c opt //:images --config=remote
-
-# 5 Push images to registry 
-bazel run -c opt //:push --config=remote
-
-
-Side effects
-- BB remote build is leveraged throughout
-- BB remote cache is used consistently
-- CI can replicate these steps and gain speedup from BB remote cache and build
-- Most existing CI GH actions will be replaced with a single BB CI workflow
-
-What must be true for the vision to become the new reality?
-
-- The remaining Elixir targets must build and test via Bazel
-- ALl Service Radar OCI images must use internal Bazel targets only
-- zero scripts should be used unless explicistly permitted for hard corner cases. e.g. Docker Authentication.
-
+BuildBuddy credentials belong in runner configuration or ignored `.bazelrc.remote` files. Fixture
+credentials and CA material come from runner secrets or the credential-only
+`//:buildbuddy_setup_fixture_env` target. No secret value belongs in Bazel flags, source files,
+logs, or an action uploaded to the public cache.

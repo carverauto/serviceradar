@@ -15,8 +15,8 @@ Create a Harbor robot account with push/pull permission on the `serviceradar` pr
 
 | Secret name | Value                                             |
 |-------------|---------------------------------------------------|
-| `OCI_USERNAME` | Harbor robot username (for example `robot$serviceradar-ci`) |
-| `OCI_TOKEN`    | Harbor robot secret                                         |
+| `HARBOR_USERNAME` | Harbor robot username (for example `robot$serviceradar-ci`) |
+| `HARBOR_TOKEN`    | Harbor robot secret                                         |
 
 Set `OCI_REGISTRY=registry.carverauto.dev` when the workflow does not already export it.
 
@@ -26,47 +26,47 @@ Alternatively, you can store an entire Docker auth configuration JSON in a singl
 
 The repository includes `buildbuddy_setup_docker_auth.sh`. The script materialises `~/.docker/config.json` before any build steps run, so rule-based tooling such as `rules_oci` can reuse the credentials transparently.
 
-The script supports three input modes. Set exactly one of them via BuildBuddy secrets (replace placeholders with the matching `@@SECRET_NAME@@` syntax):
+The bootstrap script itself supports three input modes:
 
 1. `DOCKER_AUTH_CONFIG_JSON` – a raw docker config snippet.
 2. `OCI_DOCKER_AUTH` – a base64 encoded `username:token` pair for the registry.
 3. `OCI_USERNAME` and `OCI_TOKEN` – the script performs the base64 encoding for you. Optional `OCI_REGISTRY` overrides `registry.carverauto.dev`.
 
-Example BuildBuddy workflow fragment:
+The checked-in `buildbuddy.yaml` uses the third mode: it reads the exact secret-store names
+`HARBOR_USERNAME` and `HARBOR_TOKEN`, then explicitly exports them as `OCI_USERNAME` and
+`OCI_TOKEN` immediately before invoking the bootstrap target.
 
-```toml
+Example BuildBuddy workflow fragment using the current action-level `env` and `steps` schema:
+
+```yaml
 actions:
   - name: "Build, test and publish containers"
-    bazel_commands = [
-      "build --config=remote //...",
-      "test  --config=remote //...",
-      "run  --config=remote --stamp //:push",
-    ]
-    env = {
-      OCI_REGISTRY = "registry.carverauto.dev",
-      OCI_USERNAME = "@@OCI_USERNAME@@",
-      OCI_TOKEN = "@@OCI_TOKEN@@",
-    }
+    env:
+      OCI_REGISTRY: "registry.carverauto.dev"
+    steps:
+      - run: |
+          set -euo pipefail
+          export OCI_USERNAME="${HARBOR_USERNAME}"
+          export OCI_TOKEN="${HARBOR_TOKEN}"
+          export OCI_DOCKER_AUTH=""
+          bazel run -c opt --config=ci //:buildbuddy_setup_docker_auth
+          bazel build -c opt --config=ci //...
+          bazel test -c opt --config=ci //... --test_tag_filters=-integration_test,-acceptance_test
+          bazel run -c opt --config=ci --stamp //:push
 ```
+
+`HARBOR_USERNAME` and `HARBOR_TOKEN` are configured in the BuildBuddy secret store and are
+exposed to the workflow environment automatically; do not put their values in the checked-in
+workflow.
 
 Running the auth bootstrap ensures that `rules_oci` can reuse the same credentials whether the later Bazel steps run locally or on BuildBuddy RBE.
 
 ## Passing secrets to Bazel in BuildBuddy Workflows
 
-When configuring the BuildBuddy workflow that invokes the publish step, export the secrets as environment variables before Bazel runs. One simple option is to use an `env:` block in the workflow definition:
-
-```yaml
-steps:
-  - name: "Push Harbor images"
-    env:
-      OCI_REGISTRY: "registry.carverauto.dev"
-      OCI_USERNAME: "@@OCI_USERNAME@@"
-      OCI_TOKEN: "@@OCI_TOKEN@@"
-    script: |
-      bazel run --config=remote --stamp //:push -- --tag "v${BUILD_TAG}"
-```
-
-BuildBuddy replaces the `@@SECRET_NAME@@` placeholders with the stored secret values while keeping them out of the Bazel command line history.
+BuildBuddy exposes configured secrets to the action environment automatically. Keep only
+non-secret values such as `OCI_REGISTRY` in the action-level `env:` mapping, bootstrap Docker
+authentication in a `steps: - run:` command, and keep the secret values out of both the YAML and
+the Bazel command line.
 
 If you prefer the script style locally, just run:
 
@@ -89,10 +89,10 @@ make push_all PUSH_TAG="v$(git describe --tags --always)"
 - `make push_all` – pushes all container images with the default `latest` and `sha-<commit>` tags. Set `LOCAL_COSIGN_SIGN=1` to also sign the OCI images and run `make verify_publish`.
 - `make push_all PUSH_TAG=v1.2.3` – pushes all container images with an extra tag. Set `LOCAL_COSIGN_SIGN=1` to also sign the OCI images and verify `latest`, `sha-<commit>`, and `v1.2.3`.
 - `make push_all_release` – runs `make push_all LOCAL_COSIGN_SIGN=1`, then `make push_wasm_plugins LOCAL_COSIGN_SIGN=1`, so OCI images and first-party Wasm plugin OCI artifacts are both published, signed, and verified for the same tag.
-- `bazel build --config=remote //:images` – builds the canonical publishable image set, including current multi-arch image indexes.
+- `bazel build -c opt --config=ci //:images` – builds the canonical publishable image set, including current multi-arch image indexes.
 - `bazel run --stamp //:push` – pushes all images with the default `latest` and `sha-<commit>` tags.
 - `bazel run --stamp //docker/images:core_elx_image_amd64_push -- --tag 1.2.3` – pushes only the core-elx image and adds an extra `1.2.3` tag.
-- `bazel run --config=remote --stamp //:push -- --tag $GIT_COMMIT` – builds using BuildBuddy remote execution, downloads the OCI artifacts locally, then pushes from the workflow runner.
+- `bazel run -c opt --config=ci --stamp //:push -- --tag $GIT_COMMIT` – builds using BuildBuddy remote execution, downloads the OCI artifacts locally, then pushes from the workflow runner.
 
 On macOS, `make push_all` uses [scripts/push_all_images.sh](/Users/mfreeman/src/serviceradar/scripts/push_all_images.sh) instead of `//:push` because the aggregate `rules_multirun` launcher can try to execute a Linux Python runtime on the host. The helper runs the same Bazel `*_push` targets sequentially and rewrites each generated launcher to use the Bazel-fetched Darwin `crane` and `jq` binaries rather than the Linux toolchain runfiles.
 

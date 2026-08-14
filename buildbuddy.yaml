@@ -128,9 +128,10 @@ actions:
       # //elixir/serviceradar_core:unit_tests_* are directory-named groups, not tag-derived, so
       # `unit_tests_integration` and `unit_tests_external` are selected by this filter and carry
       # no tags at all. Each project's test_helper.exs branches on whether a database URL is
-      # merely PRESENT, which made a green unit tier depend on a variable being absent --
-      # something no target could guarantee while //.bazelrc forwards all four valuelessly.
-      # //build/elixir_tests.bzl now pins the four to "" on every generated unit target, and both
+      # merely PRESENT, which made a green unit tier depend on a variable being absent. The old
+      # global //.bazelrc forwarding made that unavoidable; the database_env profile now scopes
+      # the values to DB runs. //build/elixir_tests.bzl still pins the four to "" on every
+      # generated unit target as defense against target-local or user rc forwarding, and both
       # test_helper.exs files treat blank as absent. Do not "simplify" either half: Bazel can set
       # a variable for an action but never unset one, so "" is the only lever, and without
       # blank-means-absent the pinning forces the wrong branch instead of preventing it.
@@ -159,11 +160,11 @@ actions:
       # `if: always()`, so the only way to guarantee teardown after a red suite is a trap in the
       # same shell that provisioned.
       #
-      # This executes on the runner, not an executor, which is what makes `self_hosted: true`
-      # load-bearing beyond pool selection: every target here is `no-remote-exec`, and only an
-      # in-cluster runner resolves srql-fixture-rw.srql-fixtures.svc.cluster.local. A
-      # BuildBuddy-hosted runner fails these four while the 8 remote shards succeed, and the
-      # shards then connect to databases nothing provisioned.
+      # Database-facing TestRunner actions execute on the runner, not an executor, which is what
+      # makes `self_hosted: true` load-bearing beyond pool selection. Only the in-cluster runner
+      # resolves srql-fixture-rw.srql-fixtures.svc.cluster.local. `--strategy=TestRunner=local`
+      # moves only the test action; compile/dependency actions remain remote and cached. A target
+      # tag cannot make that distinction and would also drag compilation onto the runner.
       #
       # --//build:enable_integration_tests on every call, and all of them need it: every target
       # carries target_compatible_with = requires_shared_fixture(), which resolves to
@@ -172,28 +173,67 @@ actions:
       # these run DDL against a fixture concurrent branches share.
       #
       # prepare_template is `bazel run`, not `bazel test`: it reports needs_migration by
-      # appending to $GITHUB_OUTPUT, and under --config=ci a test executes on a remote executor
-      # with no access to this filesystem. `bazel run` builds remotely and runs locally, and it
-      # takes --build_tag_filters because it is a rust_binary. $GITHUB_OUTPUT is a GitHub Actions
+      # appending to $GITHUB_OUTPUT. `bazel run` builds eligible actions remotely and launches
+      # the binary on this runner, where the output file exists; it takes --build_tag_filters
+      # because it is a rust_binary. $GITHUB_OUTPUT is a GitHub Actions
       # concept BuildBuddy does not set, so this points it at a temp file and reads it back,
       # reusing the existing mechanism rather than changing the Rust.
       - run: |
           set -euo pipefail
 
-          export GITHUB_OUTPUT="$(mktemp)"
+          umask 077
+          export GITHUB_OUTPUT="$(mktemp "${TMPDIR:-/tmp}/sr-core-template-output.XXXXXX")"
+          export SERVICERADAR_FIXTURE_ENV_FILE="$(mktemp "${TMPDIR:-/tmp}/serviceradar-fixture-env.XXXXXX")"
 
-          # THE FIXTURE CREDENTIALS. Without this the DSN is simply absent: //.bazelrc carries
-          # SRQL_TEST_DATABASE_URL / SRQL_TEST_ADMIN_URL / SRQL_TEST_DATABASE_CA_CERT the last
-          # hop with `test --test_env=NAME`, but --test_env only FORWARDS a variable -- nothing
-          # sets one. The chain is
+          # BuildBuddy does not guarantee GitHub Actions run variables. Derive one numeric,
+          # per-step identity from host/process/time entropy so concurrent runners never fall
+          # back to the shared sr_core_test_local database names.
+          run_entropy="${BUILDBUDDY_INVOCATION_ID:-${HOSTNAME:-runner}}-$(date +%s)-$$-${RANDOM:-0}"
+          run_checksum="$(printf '%s' "$run_entropy" | cksum | awk '{print $1}')"
+          export GITHUB_RUN_ID="$(date +%s)${run_checksum}"
+          export GITHUB_RUN_ATTEMPT=1
+          provision_attempted=0
+
+          # Drop a partially or fully provisioned run even when a later command is red. Install
+          # the trap before credential setup so its 0600 file is removed on every exit. A
+          # cancelled VM may never execute a trap, which is what the next run's sweep is for.
+          teardown() {
+            status=$?
+            trap - EXIT
+            set +e
+            teardown_status=0
+            credential_cleanup_status=0
+            if [ "$provision_attempted" -eq 1 ]; then
+              bazel test -c opt --config=ci --config=database_env --strategy=TestRunner=local \
+                --//build:enable_integration_tests --test_tag_filters= --test_output=errors \
+                --nocache_test_results --remote_upload_local_results=false --flaky_test_attempts=1 \
+                //rust/integration-db:teardown_db
+              teardown_status=$?
+            fi
+            rm -f "$GITHUB_OUTPUT" "$SERVICERADAR_FIXTURE_ENV_FILE" || credential_cleanup_status=$?
+            if [ "$status" -ne 0 ]; then
+              exit "$status"
+            fi
+            if [ "$teardown_status" -ne 0 ]; then
+              exit "$teardown_status"
+            fi
+            exit "$credential_cleanup_status"
+          }
+          trap teardown EXIT
+
+          # THE FIXTURE CREDENTIALS. Without this the DSN is simply absent: the explicit
+          # `database_env` profile carries SRQL_TEST_DATABASE_URL / SRQL_TEST_ADMIN_URL /
+          # SRQL_TEST_DATABASE_CA_CERT the last hop, but --test_env only FORWARDS a variable --
+          # nothing sets one. The chain is
           #
-          #   K8s secret or BB secret -> env on this runner -> --test_env -> test action
+          #   K8s secret or BB secret -> runner env -> database_env -> local test action
           #
           # and this step is the first link. The Forgejo tier used
           # scripts/ci/configure-srql-fixture.sh, which writes to $GITHUB_ENV and $RUNNER_TEMP
           # -- BuildBuddy sets neither, so it could not be reused. //:buildbuddy_setup_fixture_env
           # is its BuildBuddy-native counterpart and additionally emits the CA as PEM CONTENT
-          # rather than a path, which is what lets a remotely executed test verify TLS.
+          # rather than a path, keeping the action independent of runner-local paths and
+          # placement-safe.
           #
           # It writes a 0600 file instead of printing `export` lines because a process cannot
           # set its parent's environment, and `bazel run` streams stdout into the build log --
@@ -212,33 +252,41 @@ actions:
           # neither, it exits 1 and prints exactly what to provide.
           bazel run -c opt --config=ci //:buildbuddy_setup_fixture_env
           set -a
-          . "${SERVICERADAR_FIXTURE_ENV_FILE:-${TMPDIR:-/tmp}/serviceradar-fixture-env}"
+          . "$SERVICERADAR_FIXTURE_ENV_FILE"
           set +a
 
-          # Collect databases leaked by cancelled runs, before this one adds to the fixture.
-          bazel test -c opt --config=ci --//build:enable_integration_tests //rust/integration-db:sweep_stale_dbs
+          # These are final database overrides, not fixture bases. An ambient BuildBuddy secret
+          # under either name would suppress integration_env.exs' per-shard URL derivation.
+          unset SERVICERADAR_TEST_DATABASE_URL SERVICERADAR_TEST_ADMIN_URL
 
-          # Drop the per-run database even when the suite is red. A cancelled run never reaches
-          # this at all, which is what the sweep above exists for.
-          teardown() {
-            bazel test -c opt --config=ci --//build:enable_integration_tests //rust/integration-db:teardown_db || true
-          }
-          trap teardown EXIT
+          # Collect databases leaked by cancelled runs, before this one adds to the fixture.
+          bazel test -c opt --config=ci --config=database_env --strategy=TestRunner=local \
+            --//build:enable_integration_tests --test_tag_filters= --test_output=errors \
+            --nocache_test_results --remote_upload_local_results=false --flaky_test_attempts=1 \
+            //rust/integration-db:sweep_stale_dbs
 
           # Creates sr_core_template if absent -- with extensions, AGE graphs and grants -- and
           # reports whether it is behind the migrations on disk.
-          bazel run -c opt --config=ci --//build:enable_integration_tests //rust/integration-db:prepare_template
+          bazel run -c opt --config=ci --//build:enable_integration_tests --build_tag_filters= \
+            //rust/integration-db:prepare_template
 
           # The one step that needs the BEAM, and the reason the previous one exists: on a
           # branch adding no migrations nothing starts an Erlang VM. Running it against a
           # current template is a documented no-op, so this is an optimisation rather than a
           # correctness requirement.
           if grep -q '^needs_migration=true$' "$GITHUB_OUTPUT"; then
-            bazel test -c opt --config=ci --//build:enable_integration_tests //elixir/serviceradar_core:migrate_template
+            bazel test -c opt --config=ci --config=database_env --strategy=TestRunner=local \
+              --//build:enable_integration_tests --test_tag_filters= --test_output=errors \
+              --nocache_test_results --remote_upload_local_results=false --flaky_test_attempts=1 \
+              //elixir/serviceradar_core:migrate_template
           fi
 
           # Clones a per-run database from the template.
-          bazel test -c opt --config=ci --//build:enable_integration_tests //rust/integration-db:provision_db
+          provision_attempted=1
+          bazel test -c opt --config=ci --config=database_env --strategy=TestRunner=local \
+            --//build:enable_integration_tests --test_tag_filters= --test_output=errors \
+            --nocache_test_results --remote_upload_local_results=false --flaky_test_attempts=1 \
+            //rust/integration-db:provision_db
 
           # The test suites. Selects //elixir/serviceradar_core:integration_tests_s0..s7 and nothing
           # else: `manual` keeps banner_grab and //integration_tests/srql out of //... expansion
@@ -248,25 +296,23 @@ actions:
           # incompatible target under a wildcard is SKIPPED, not an error -- so without it this
           # line exits 0 having run zero integration shards and the step reads green. The named
           # calls at least fail loudly.
-          bazel test -c opt --config=ci --//build:enable_integration_tests --test_tag_filters=integration_test,-acceptance_test //...
+          bazel test -c opt --config=ci --config=database_env --strategy=TestRunner=local \
+            --//build:enable_integration_tests \
+            --test_tag_filters=integration_test,-acceptance_test --test_output=errors \
+            --nocache_test_results --remote_upload_local_results=false --flaky_test_attempts=1 //...
           
           # Named explicitly because no wildcard reaches them: //integration_tests/srql is tagged
           # `manual`, which removes a target from //... expansion before tag filters are considered.
           #
-          # NO --test_tag_filters and NO --//build:enable_integration_tests, both deliberate. These
-          # three carry only `manual` -- neither `integration_test` nor `acceptance_test` -- so any
-          # tag filter naming those tags would select none and the step would fail with
-          # "no test targets were found".
-          #
-          # THEY DO USE THE SHARED FIXTURE, and their position in this step is load-bearing: they
-          # read SRQL_TEST_DATABASE_URL / SRQL_TEST_ADMIN_URL from the environment provisioned
-          # above. tests/support/harness.rs SKIPS when those are absent, so run from a step that
-          # lacks them this line still exits 0 having asserted nothing.
-          #
-          # They carry no requires_shared_fixture() guard, unlike the tier above -- that skip is
-          # what keeps them safe rather than the guard. Worth reconciling one day; until then do
-          # not "fix" it by adding --//build:enable_integration_tests, which they do not read.
-          bazel test -c opt --config=ci  //integration_tests/srql:srql_api_test  //integration_tests/srql:srql_comprehensive_test  //integration_tests/srql:srql_device_grouped_stats_test
+          # They also carry the shared-fixture compatibility guard. The explicit empty tag filter
+          # admits their `manual` tag, while the opt-in flag arms their fixture access; omitting
+          # either must fail or select nothing rather than silently skip all assertions.
+          bazel test -c opt --config=ci --config=database_env --strategy=TestRunner=local \
+            --//build:enable_integration_tests --test_tag_filters= --test_output=errors \
+            --nocache_test_results --remote_upload_local_results=false \
+            --flaky_test_attempts=1 //integration_tests/srql:srql_api_test \
+            //integration_tests/srql:srql_comprehensive_test \
+            //integration_tests/srql:srql_device_grouped_stats_test
 
 
       # Largely a cache hit from the //... build above;

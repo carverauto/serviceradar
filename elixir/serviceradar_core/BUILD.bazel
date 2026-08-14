@@ -331,10 +331,11 @@ ex_unit_test(
 #
 # The fix is a database per shard, not fewer shards. That is only affordable because
 # provisioning is now a `CREATE DATABASE ... TEMPLATE` file copy (~0.7s) off a pre-migrated
-# template rather than a 368-migration replay. //rust/integration-db:provision_db clones one
-# database per shard from the same //build:integration_shards.bzl list these targets are
-# generated from, and test/db/integration_env.exs turns SERVICERADAR_TEST_DB_SHARD into the
-# matching name. One list, both sides.
+# template rather than a 368-migration replay. //rust/integration-db:provision_db clones every
+# shard for CI; provision_db_sN clones only one for a focused local run. Both come from the
+# same //build:integration_shards.bzl list these targets are generated from, and
+# test/db/integration_env.exs turns SERVICERADAR_TEST_DB_SHARD into the matching name. One
+# list, both sides.
 #
 # Shard count and the arithmetic behind it are documented in //build:integration_shards.bzl.
 [
@@ -432,6 +433,7 @@ ex_unit_test(
 test_suite(
     name = "integration_tests",
     tags = ["integration_test"],
+    target_compatible_with = requires_shared_fixture(),
     tests = [
         ":integration_tests_{}".format(shard)
         for shard in integration_shard_names()
@@ -457,19 +459,17 @@ test_suite(
 #
 # `external` disables Bazel's test caching. Without it a rerun would be a cache hit that
 # applied no migrations -- a green job that changed nothing. `manual` keeps it out of //...
-# so an ordinary `bazel test` never points DDL at the shared fixture. `no-remote-exec` pins it
-# to the runner, where the fixture CA file actually exists -- see //rust/integration-db.
+# so an ordinary `bazel test` never points DDL at the shared fixture. The workflow selects
+# `--strategy=TestRunner=local`; a target tag would also drag this expensive BEAM compilation
+# onto the runner instead of leaving eligible actions on RBE/cache.
 #
-# Credentials arrive the same way as everywhere else now: the three SRQL_TEST_* variables
-# come through the `test --test_env=` list in //.bazelrc, read from the bazel client's
-# environment. In CI scripts/ci/configure-srql-fixture.sh puts them there;
-# //:buildbuddy_setup_fixture_env does it on a workstation.
+# Credentials come through the explicit `test:database_env --test_env=` list in //.bazelrc,
+# read from the Bazel client's environment. Generic remote unit tests do not select that profile.
+# In CI scripts/ci/configure-srql-fixture.sh puts them there;
+# //:buildbuddy_setup_fixture_env does it on a workstation or BuildBuddy runner.
 #
-# This target never had the `test.env-secrets` exec_property the integration shards used to
-# carry, because that was a REMOTE EXECUTION platform property and `no-remote-exec` means this
-# action never leaves the runner. The distinction stopped mattering when env-secrets was
-# removed from the shards; the note survives only so nobody reintroduces a backend-specific
-# secret mechanism here on the assumption it would do something.
+# Do not reintroduce the old backend-specific `test.env-secrets` exec property. Fixture values
+# are supplied by the Bazel client and the database-facing TestRunner stays local.
 ex_unit_test(
     name = "migrate_template",
     size = "enormous",
@@ -505,7 +505,6 @@ ex_unit_test(
     tags = [
         "external",
         "manual",
-        "no-remote-exec",
     ],
     target_compatible_with = requires_shared_fixture(),
     deps = [":erlang_app"],

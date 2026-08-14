@@ -14,9 +14,9 @@ defmodule ServiceRadar.Scans.AdhocScanNatsE2ETest do
   NATS_TEST_CERT_DIR must contain).
 
   NOTE on tags: `:external` alone does NOT keep this out of a run. An ExUnit
-  `--include` filter OVERRIDES `--exclude`, so `mix test --include integration`
-  (what scripts/test-integration.sh runs in CI) matches the `:integration` tag
-  and pulls this test in regardless of `:external`. The env guard below is what
+  `--include` filter OVERRIDES `--exclude`, so a manual
+  `mix test --include integration` matches the `:integration` tag and pulls this
+  test in regardless of `:external`. The env guard below is what
   actually keeps it from failing when the fixture is not wired up -- it SKIPS
   rather than flunks, so an unconfigured runner is green instead of red.
 

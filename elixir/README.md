@@ -3,7 +3,8 @@
 How the Elixir tree is built and tested by Bazel, and what you have to do to add a package,
 a dependency, a test tier, or a NIF.
 
-This document covers local mechanics only. CI wiring lives in `.forgejo/workflows/`.
+This document covers local mechanics only. CI wiring lives in `.forgejo/workflows/` and the root
+`buildbuddy.yaml` workflow.
 
 ## Contents
 
@@ -251,7 +252,7 @@ Two things `extra_config` has to tolerate, both real:
 
 ### Inspecting build outputs locally
 
-`--config=remote` sets `--remote_download_minimal`, so **build outputs are not downloaded**.
+`--config=ci` sets `--remote_download_minimal`, so **build outputs are not downloaded**.
 An `oci_image` layout will appear to contain only `blobs/` with no `index.json`, a `.digest`
 file will be empty, and a release tarball simply will not be there. None of that means the
 build failed -- the artifacts are on the remote.
@@ -259,11 +260,12 @@ build failed -- the artifacts are on the remote.
 To inspect anything locally, ask for it:
 
 ```sh
-bazel build --config=remote --remote_download_outputs=all //some:target
+bazel build -c opt --config=ci --remote_download_outputs=all //some:target
 ```
 
-`--config=remote_push` already sets this, which is why pushing works while poking at
-`bazel-out` by hand does not.
+`bazel run` materializes the runfiles its executable needs. Workflows that inspect generated
+files directly must request `--remote_download_outputs=all` or the narrower `toplevel` mode
+explicitly; there is no separate `remote_push` profile.
 
 ## How tests work
 
@@ -388,9 +390,7 @@ creating databases, extensions, AGE graphs, sweeping, teardown -- is Rust, which
 | Tag | Meaning here |
 | --- | --- |
 | `manual` | Keeps the target out of `//...`, so an ordinary `bazel test` never points DDL at the shared fixture, and never reports a vacuous pass when the fixture URL is absent. Every database target has it. |
-| `external` | Disables Bazel's **test caching**. Load-bearing on the lifecycle targets: a cached "pass" would mean a rerun provisioned nothing and dropped nothing. **Not** on the shard targets -- their result is a function of their declared inputs, so a remote cache hit is a legitimate hit. |
-
-Do not add `external` to the shard targets. It is pure loss there.
+| `external` | Disables Bazel's **test caching**. Load-bearing on the lifecycle targets: a cached "pass" would mean a rerun provisioned nothing and dropped nothing. Supported shard invocations pass `--nocache_test_results` because shard outcomes depend on mutable fixture state. CI additionally disables uploading local test results; a workstation does not, so locally compiled cache misses can still populate the shared cache. |
 
 ## Native NIFs
 
@@ -609,11 +609,13 @@ lifecycle targets (`migrate_db_test.exs` and its helpers), declared individually
 partitioned -- they are not suite tests. Do not put an ordinary test there.
 
 **3. If the test is slow**, add it to `_HEAVY_SRCS` in `//build:integration_shards.bzl` so it
-does not share a shard with another slow file. Measure first:
+does not share a shard with another slow file. Measure it as the shard step of the
+[canonical fixture lifecycle](../.agents/skills/srql-fixtures-db-tests/SKILL.md), after the
+matching `provision_db_s6` target:
 
 ```sh
-bazel test //elixir/serviceradar_core:integration_tests_s6 \
-  --test_env=SERVICERADAR_TEST_SLOWEST=15 --test_output=all
+bazel test "${TEST_FLAGS[@]}" --test_env=SERVICERADAR_TEST_SLOWEST=15 \
+  --test_output=all //elixir/serviceradar_core:integration_tests_s6
 ```
 
 That list is a hint, not a contract -- a stale entry costs a slightly worse balance, a missing
@@ -769,19 +771,24 @@ one deliberately.
 You do **not** need to create `serviceradar_bootstrap_test` -- `StartupMigrations` creates the
 application role itself, which is part of what the bootstrap test exercises.
 
-Then:
+Then establish one numeric run identity for the entire lifecycle. Keep the fixture URL in
+`SRQL_TEST_DATABASE_URL`; the integration target derives its disposable shard URL inside the test
+action:
 
 ```sh
-export SRQL_TEST_DATABASE_URL="postgres://serviceradar@127.0.0.1:55433/postgres?sslmode=disable"
+export SRQL_TEST_DATABASE_URL="postgres://serviceradar@127.0.0.1:55433/serviceradar_test?sslmode=disable"
 export SRQL_TEST_ADMIN_URL="postgres://postgres:postgres@127.0.0.1:55433/postgres?sslmode=disable"
-export SERVICERADAR_TEST_ADMIN_URL="$SRQL_TEST_ADMIN_URL"
-
-bazel run  //rust/integration-db:prepare_template
-bazel test //elixir/serviceradar_core:migrate_template     # only if prepare_template says it is behind
-bazel test //rust/integration-db:provision_db
-bazel test //elixir/serviceradar_core:integration_tests    # the test_suite over all 8 shards
-bazel test //rust/integration-db:teardown_db
+unset SERVICERADAR_TEST_DATABASE_URL SERVICERADAR_TEST_ADMIN_URL
+export GITHUB_RUN_ID="$(date +%s)${RANDOM:-0}$$"
+export GITHUB_RUN_ATTEMPT=1
 ```
+
+Invoke the Bazel targets with the caller-owned cleanup trap in
+`.agents/skills/srql-fixtures-db-tests/SKILL.md`. For this Docker fixture, reuse the recipe from
+`run_entropy` onward with the two URLs and run identity above; omit its Kubernetes host/TLS
+exports plus `buildbuddy_setup_fixture_env`/source lines, and use matching `provision_db_sN` and
+`integration_tests_sN` labels. The canonical cleanup preserves a red shard status and also fails
+an otherwise-green run when teardown fails.
 
 **Put a password in the admin DSN even on a `trust` fixture.** `StartupMigrations` discards
 admin credentials whose password is empty and silently falls back to the unprivileged
@@ -793,11 +800,9 @@ The fixture URLs reach the test through `--test_env` entries in `.bazelrc`. If t
 absent, `test_helper.exs` takes the no-database branch and excludes every test -- which is
 why the integration targets are `manual`, so that never reads as a pass.
 
-A single shard, when you know where the failure is:
-
-```sh
-bazel test //elixir/serviceradar_core:integration_tests_s5 --test_output=all --nocache_test_results
-```
+With an ignored mode-0600 `.bazelrc.remote` credential, the skill selects `--config=cache_only`.
+Bazel then reuses and populates the authenticated cache while `TestRunner` stays on the native
+workstation. Do not use `--config=ci` locally: it selects the Linux RBE platform.
 
 ### Compiling only
 
@@ -843,7 +848,7 @@ reads Rust sources.
 | `the application :X has a different value set for key :Y during runtime compared to compile time` | A Hex dependency read `Y` with `compile_env` and was compiled without it. Add it to `HEX_COMPILE_ENV_CONFIG` in `//build:hex_compile_env.bzl`. Never `validate_compile_env: false` -- see [Compile-time config a dependency reads](#compile-time-config-a-dependency-reads). |
 | `undefined function config/2` while compiling a Hex package | That package's `config/config.exs` exists but is empty, so nothing imported `Config`. `mix_app` handles this; if you see it, the guard regressed. |
 | `function config/2 imported from both Config and Mix.Config` | That package uses the deprecated `use Mix.Config`. Same guard, other direction. |
-| An `oci_image` layout has only `blobs/`, a `.digest` is empty, a release tar is missing | Nothing failed. `--config=remote` implies `--remote_download_minimal`. Rebuild with `--remote_download_outputs=all` to inspect locally. |
+| An `oci_image` layout has only `blobs/`, a `.digest` is empty, a release tar is missing | Nothing failed. `--config=ci` implies `--remote_download_minimal`. Rebuild with `--remote_download_outputs=all` to inspect locally. |
 
 ## See also
 

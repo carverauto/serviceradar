@@ -118,7 +118,8 @@ jobs:
       # `bazel-build`, not `service-build`. The extras that profile adds over this one are
       # rpmbuild, rpm2cpio and psql, and nothing in this job uses any of them: RPM packaging
       # belongs to release.yml, and configure-srql-fixture.sh talks to CNPG through Bazel
-      # tests rather than a psql client. Every other Bazel workflow already uses bazel-build.
+      # database integration belongs to its dedicated workflow. Every other Bazel workflow already
+      # uses bazel-build.
       #
       # Whether even this is needed is an open question. It requires gcc, g++, make,
       # pkg-config, protoc, cmake, flex, bison, file, readelf and libpcap on the RUNNER, but
@@ -162,30 +163,6 @@ jobs:
       # directives and the `# keep` markers in //BUILD.bazel and elsewhere still matter --
       # without them that command deletes //proto/dgraph:proto_dgraph and rewrites the proto
       # compiler lists.
-
-      - name: Report unavailable SRQL fixture secrets
-        if: ${{ secrets.SRQL_TEST_DATABASE_URL == '' || secrets.SRQL_TEST_ADMIN_URL == '' || secrets.SRQL_TEST_DATABASE_CA_CERT == '' }}
-        run: |
-          {
-            echo "## SRQL Fixture"
-            echo
-            echo "SRQL fixture secrets are unavailable in this workflow context."
-            echo "Skipping fixture-dependent configuration and serviceradar_core integration tests."
-          } >> "${GITHUB_STEP_SUMMARY}"
-
-      - name: Configure SRQL fixture database for tests
-        if: ${{ secrets.SRQL_TEST_DATABASE_URL != '' && secrets.SRQL_TEST_ADMIN_URL != '' && secrets.SRQL_TEST_DATABASE_CA_CERT != '' }}
-        env:
-          SRQL_TEST_DATABASE_URL: ${{ secrets.SRQL_TEST_DATABASE_URL }}
-          SRQL_TEST_ADMIN_URL: ${{ secrets.SRQL_TEST_ADMIN_URL }}
-          SRQL_TEST_DATABASE_CA_CERT: ${{ secrets.SRQL_TEST_DATABASE_CA_CERT }}
-          SRQL_TEST_DATABASE_CERT: ${{ secrets.SRQL_TEST_DATABASE_CERT }}
-          SRQL_TEST_DATABASE_KEY: ${{ secrets.SRQL_TEST_DATABASE_KEY }}
-        # Shared with integration-core.yml. This job still needs it after the core suite moved
-        # out: the Test step below reads SERVICERADAR_RUN_CORE_INTEGRATION to decide whether to
-        # drop the //rust/srql tests, and passes the exported PGSSL*/SRQL_* through as
-        # --test_env.
-        run: ./scripts/ci/configure-srql-fixture.sh
 
       - name: Configure remote cache
         if: ${{ env.BUILDBUDDY_ORG_API_KEY != '' }}
@@ -236,8 +213,6 @@ jobs:
 
       - name: Test
         id: bazel_tests
-        env:
-          SRQL_TEST_DATABASE_CA_CERT: ${{ secrets.SRQL_TEST_DATABASE_CA_CERT }}
         run: |
           # attr() takes exactly three arguments, so the two excluded tags are one
           # alternation pattern rather than two arguments. Integration tests are excluded
@@ -257,14 +232,6 @@ jobs:
           # Whoever does that should decide again whether it wants its own workflow, and
           # re-add the exclusion here only if so.
           target_query='tests(//...) except attr("tags", "manual|integration_test", tests(//...))'
-          # These two live in //integration_tests/srql, not //rust/srql -- they were moved and
-          # this exclusion was left behind. A stale label here does not degrade gracefully:
-          # `set()` hard-errors with "no such target", so on the one path this branch exists to
-          # serve (fixture unreachable) the query died instead of skipping the tests.
-          if [ "${SERVICERADAR_RUN_CORE_INTEGRATION:-1}" = "0" ]; then
-            target_query="${target_query} except set(//integration_tests/srql:srql_api_test //integration_tests/srql:srql_comprehensive_test)"
-          fi
-
           # Fail on a bad query rather than silently testing nothing: mapfile swallows the
           # exit status through the process substitution, so an errored query would otherwise
           # produce an empty target list and a green build.
@@ -283,21 +250,6 @@ jobs:
             -c opt \
             --config=ci \
             --test_tag_filters=-manual \
-            --test_env=PGSSLROOTCERT \
-            --test_env=PGSSLCERT \
-            --test_env=PGSSLKEY \
-            --test_env=SERVICERADAR_TEST_DATABASE_CERT \
-            --test_env=SERVICERADAR_TEST_DATABASE_KEY \
-            --test_env=SRQL_TEST_DATABASE_CERT \
-            --test_env=SRQL_TEST_DATABASE_KEY \
-            --test_env=CNPG_CA_FILE \
-            --test_env=SRQL_TEST_DATABASE_URL \
-            --test_env=SRQL_TEST_ADMIN_URL \
-            --test_env=SRQL_TEST_DATABASE_CA_CERT \
-            --test_env=SRQL_TEST_DATABASE_CA_CERT_FILE \
-            --test_env=SERVICERADAR_TEST_DATABASE_URL \
-            --test_env=SERVICERADAR_TEST_ADMIN_URL \
-            --test_env=SERVICERADAR_TEST_DATABASE_CA_CERT_FILE \
             "${bazel_targets[@]}"
 
       - name: Dump Bazel test logs

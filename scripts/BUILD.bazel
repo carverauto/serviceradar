@@ -8,6 +8,8 @@ exports_files([
     "check-native-addon-version-bumps.sh",
     "prepare-flow-collector-rollback.sh",
     "check-rust-vendor-tracked.py",
+    "ci/configure-srql-fixture.sh",
+    "push_all_images.sh",
     "swiftlint_bazel.sh",
     "test-native-addon-version-bumps.sh",
     "test-prepare-flow-collector-rollback.sh",

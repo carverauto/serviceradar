@@ -8,7 +8,7 @@ The build system SHALL only build `serviceradar-web-ng` (Phoenix) UI artifacts. 
 
 #### Scenario: Bazel wildcard build produces web-ng only
 - **GIVEN** a clean checkout
-- **WHEN** `bazel build //... --config=remote` runs
+- **WHEN** `bazel build -c opt --config=ci //...` runs
 - **THEN** `web-ng` artifacts are built
 - **AND** no legacy `web/` directory or targets exist in the codebase.
 
@@ -1319,4 +1319,3 @@ The web UI SHALL consolidate the previous bespoke NetFlow "Capacity Planning" se
 #### Scenario: Bespoke placeholders replaced
 - **WHEN** the capacity-forecast and anomaly surfaces are live
 - **THEN** the bespoke NetFlow capacity-planning and anomaly-detection placeholders SHALL be removed or redirected to the consolidated surfaces
-

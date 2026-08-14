@@ -35,8 +35,8 @@ BAZEL_CI_FLAGS ?= -c opt --config=ci
 # EMPTY ON PURPOSE, AND IT MUST NOT NAME A PROFILE THAT NO LONGER EXISTS.
 #
 # The cache proxy used to be opt-in via `--config=cache_proxy`. It is now the default for
-# every remote build: //.bazelrc sends `build:remote_base --remote_cache` to the shared Envoy
-# edge, and both --config=ci and --config=remote inherit remote_base. There is nothing left to
+# every remote build: //.bazelrc sends `build:cache_only --remote_cache` to the shared Envoy
+# edge, and remote_base/--config=ci inherit cache_only. There is nothing left to
 # opt into, so the `-cache` targets below are aliases that differ only in using the CI flags.
 #
 # Left as a variable rather than deleted so those target names keep working. Do NOT put a
@@ -45,7 +45,7 @@ BAZEL_CI_FLAGS ?= -c opt --config=ci
 # the whole target out rather than degrading it. //buildbuddy_cache_proxy_config_test.py
 # asserts that every --config this file names is defined in //.bazelrc.
 BAZEL_CACHE_PROXY_CONFIG ?=
-BAZEL_WORKSPACE_BUILD_FLAGS ?= --config=remote
+BAZEL_WORKSPACE_BUILD_FLAGS ?= $(BAZEL_CI_FLAGS)
 BAZEL_WORKSPACE_TARGETS ?= //...
 BAZEL_UNIT_TEST_FLAGS ?= $(BAZEL_CI_FLAGS)
 BAZEL_UNIT_TEST_FILTERS ?= --test_tag_filters=-integration_test,-acceptance_test
@@ -150,7 +150,7 @@ compose-upgrade: ## Pull images and recreate containers without destroying volum
 
 .PHONY: build
 build: ## Build all OCI images with Bazel (remote)
-	@bazel build --config=remote //:images
+	@$(BAZEL) build $(BAZEL_CI_FLAGS) //:images
 
 .PHONY: build-workspace
 build-workspace: ## Build the full workspace with Bazel (remote)
@@ -162,7 +162,7 @@ build-workspace-cache: build-workspace ## Build the full workspace through the B
 
 .PHONY: build-web-ng
 build-web-ng: ## Build just the web-ng OCI image with Bazel (remote)
-	@bazel build --config=remote //docker/images:web_ng_image_amd64
+	@$(BAZEL) build $(BAZEL_CI_FLAGS) //docker/images:web_ng_image_amd64
 
 .PHONY: generate-agent-ebpf
 generate-agent-ebpf: ## Regenerate checked-in agent eBPF probe artifacts
@@ -173,8 +173,12 @@ verify-agent-ebpf: ## Verify checked-in agent eBPF probe artifacts are current
 	@./scripts/generate-agent-ebpf.sh --check
 
 .PHONY: push-web-ng
-push-web-ng: ## Build and push just the web-ng OCI image to the configured OCI registry (remote)
-	@bazel run --config=remote --stamp //docker/images:web_ng_image_amd64_push
+push-web-ng: ## Build and push just web-ng on Linux/CI (macOS must use make push_all)
+	@if [ "$(HOST_OS)" = "Darwin" ]; then \
+		echo "error: the single-image launcher is Linux-only; use 'make push_all' on macOS" >&2; \
+		exit 2; \
+	fi
+	@$(BAZEL) run $(BAZEL_CI_FLAGS) --stamp //docker/images:web_ng_image_amd64_push
 
 .PHONY: push_all
 push_all: ## Build and push all OCI container images (set LOCAL_COSIGN_SIGN=1 to also sign+verify locally)
@@ -205,7 +209,7 @@ push_all: ## Build and push all OCI container images (set LOCAL_COSIGN_SIGN=1 to
 	if [ "$(HOST_OS)" = "Darwin" ]; then \
 		./scripts/push_all_images.sh --tag "$${effective_tag}"; \
 	else \
-		bazel run --config=remote --stamp //:push -- --tag "$${effective_tag}"; \
+		$(BAZEL) run $(BAZEL_CI_FLAGS) --stamp //:push -- --tag "$${effective_tag}"; \
 	fi; \
 	if [ "$${LOCAL_COSIGN_SIGN:-0}" = "1" ]; then \
 		./scripts/sign-oci-publish.sh; \
@@ -333,11 +337,25 @@ demo-staging-canary: ## Configure demo-staging ArgoCD app for canary tags (web=l
 
 .PHONY: demo-staging-web
 demo-staging-web: ## Push web-ng image (latest) and restart serviceradar-web-ng in demo-staging
-	@./scripts/demo-staging-web.sh demo-staging
+	@if [ "$(HOST_OS)" = "Darwin" ]; then \
+		$(MAKE) push_all; \
+	else \
+		$(BAZEL) run $(BAZEL_CI_FLAGS) --stamp //docker/images:web_ng_image_amd64_push; \
+	fi
+	@kubectl -n demo-staging rollout restart deployment/serviceradar-web-ng
+	@kubectl -n demo-staging rollout status deployment/serviceradar-web-ng --timeout=300s
+	@kubectl -n demo-staging get deploy serviceradar-web-ng -o jsonpath='{.spec.template.spec.containers[0].image}{"\n"}'
 
 .PHONY: demo-staging-core
 demo-staging-core: ## Push core image (latest) and restart serviceradar-core in demo-staging
-	@./scripts/demo-staging-core.sh demo-staging
+	@if [ "$(HOST_OS)" = "Darwin" ]; then \
+		$(MAKE) push_all; \
+	else \
+		$(BAZEL) run $(BAZEL_CI_FLAGS) --stamp //docker/images:core_image_amd64_push; \
+	fi
+	@kubectl -n demo-staging rollout restart deployment/serviceradar-core
+	@kubectl -n demo-staging rollout status deployment/serviceradar-core --timeout=300s
+	@kubectl -n demo-staging get deploy serviceradar-core -o jsonpath='{.spec.template.spec.containers[0].image}{"\n"}'
 
 .PHONY: cnpg-smoke
 cnpg-smoke: ## Run CNPG API smoke tests (set NAMESPACE=<ns>, default demo-staging)
@@ -493,15 +511,11 @@ test-toolchains: $(TEST_PREREQS) get-bun ## Per-language tests + Go coverage pro
 	if [ -f "$${ENV_FILE}" ]; then set -a; . "$${ENV_FILE}"; set +a; fi; \
 	cd elixir/web-ng && mix precommit
 
-.PHONY: test-integration
-test-integration: ## Run serviceradar_core integration tests (requires SRQL/CNPG fixture)
-	@./scripts/test-integration.sh
-
 .PHONY: test-all
-test-all: test test-toolchains test-integration ## Bazel unit tests + per-language tests + integration tests
+test-all: test test-toolchains ## Bazel unit tests + per-language tests (database integration is explicit)
 
 .PHONY: check
-check: ## Pre-push gate: pull, then build + test + race-test everything on the remote cache
+check: ## Pre-push gate: build + test + race-test everything on the remote cache
 	@./scripts/check.sh
 
 .PHONY: check-coverage
@@ -527,7 +541,7 @@ release: ## Create and push a new release
 .PHONY: web-ng-release-check
 web-ng-release-check: ## Build web-ng Bazel release tarball preflight (same path used by MixRelease CI)
 	@echo "$(COLOR_BOLD)Running web-ng release preflight$(COLOR_RESET)"
-	@bazel build --config=remote //elixir/web-ng:release_tar
+	@$(BAZEL) build $(BAZEL_CI_FLAGS) //elixir/web-ng:release_tar
 
 
 .PHONY: version

@@ -34,7 +34,10 @@ Edge proxies terminate TLS and route traffic; the control plane compiles configu
 
 ### Testing Strategy
 - `make lint` / `make test` (or targeted `go test ./pkg/... ./cmd/...`) cover Go services; run `golangci-lint` locally when touching critical paths.
-- Bazel: `bazel test --config=remote //...` or scoped targets for multi-language integration before release builds.
+- Bazel unit/workspace sweep: `bazel test -c opt --config=ci //...`.
+- Database-backed core integration: use the explicit cache-only/local-TestRunner lifecycle in
+  `AGENTS.md` and `.agents/skills/srql-fixtures-db-tests/SKILL.md`; do not select the Linux RBE
+  platform for a host-native database action.
 - SRQL: `cd rust/srql && cargo test` when editing the parser/planner.
 - Rust: `cargo test` by crate; collectors also run `cargo clippy --all-targets`.
 - Web UI: `cd web && npm install && npm run lint && npm run build` (CI mirrors this) plus component-level tests where present.

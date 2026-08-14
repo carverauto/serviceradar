@@ -2,16 +2,13 @@
 
 set -euo pipefail
 
-echo "Git:Pull"
-git pull origin
-
-echo "Build:remote"
+echo "Build:ci"
 bazel build -c opt --config=ci //...
 
-echo "Test:remote"
+echo "Test:ci"
 bazel test -c opt --config=ci  //... --test_tag_filters=-integration_test,-acceptance_test
 
-echo "RaceCheck:remote"
+echo "RaceCheck:ci"
 bazel test -c opt --config=ci  //go/... \
           --@io_bazel_rules_go//go/config:pure=false \
           --@io_bazel_rules_go//go/config:race \
@@ -23,6 +20,6 @@ bazel test -c opt --config=ci  //go/... \
           --test_arg=-test.shuffle=on
 
 echo ""
-echo "Build:remote: PASSED"
-echo "Test:remote: PASSED"
-echo "RaceCheck:remote: PASSED"
+echo "Build:ci: PASSED"
+echo "Test:ci: PASSED"
+echo "RaceCheck:ci: PASSED"
