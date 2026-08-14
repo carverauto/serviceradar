@@ -1110,8 +1110,6 @@ defmodule ServiceRadarWebNGWeb.Settings.NotificationsLive.Index do
         :ok -> nil
         {:error, {_class, message}} -> message
       end
-    else
-      nil
     end
   end
 
