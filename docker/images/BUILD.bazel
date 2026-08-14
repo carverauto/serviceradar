@@ -545,17 +545,30 @@ declare_multiarch_image_index(
 
 declare_custom_base_service_container_amd64(
     name = "cert_generator_image_amd64",
-    base = "@alpine_3_24_linux_amd64//:alpine_3_24_linux_amd64",
+    base = select({
+        "//build/platforms:target_linux_arm64": "@alpine_3_24_linux_arm64_v8//:alpine_3_24_linux_arm64_v8",
+        "//conditions:default": "@alpine_3_24_linux_amd64//:alpine_3_24_linux_amd64",
+    }),
     empty_dirs = ["certs"],
     entrypoint = [
         "/bin/sh",
         "/entrypoint-certs.sh",
     ],
-    extra_tars = [
-        ":apk_tools_openssl_rootfs_amd64.tar",
-        ":apk_tools_libssl3_rootfs_amd64.tar",
-        ":apk_tools_libcrypto3_rootfs_amd64.tar",
-    ],
+    # The openssl CLI and its two libraries are the whole payload; the entrypoint is a POSIX
+    # shell script and the base supplies the shell. declare_apk_rootfs_targets emits both
+    # architectures for every apk, so the arm64 rootfs targets already exist.
+    extra_tars = select({
+        "//build/platforms:target_linux_arm64": [
+            ":apk_tools_openssl_rootfs_arm64.tar",
+            ":apk_tools_libssl3_rootfs_arm64.tar",
+            ":apk_tools_libcrypto3_rootfs_arm64.tar",
+        ],
+        "//conditions:default": [
+            ":apk_tools_openssl_rootfs_amd64.tar",
+            ":apk_tools_libssl3_rootfs_amd64.tar",
+            ":apk_tools_libcrypto3_rootfs_amd64.tar",
+        ],
+    }),
     files = {
         "//docker/compose:entrypoint-certs.sh": "entrypoint-certs.sh",
     },
@@ -564,6 +577,11 @@ declare_custom_base_service_container_amd64(
         "entrypoint-certs.sh": "0755",
     },
     repo_tags = ["registry.carverauto.dev/serviceradar/serviceradar-cert-generator:local"],
+)
+
+declare_multiarch_image_index(
+    name = "cert_generator_image_multiarch",
+    image = ":cert_generator_image_amd64",
 )
 
 declare_postgresql_client_symlink_layer(
@@ -679,6 +697,7 @@ declare_oci_push_targets()
 _MULTIARCH_INDEXES = [
     "agent_image_multiarch",
     "bmp_collector_image_multiarch",
+    "cert_generator_image_multiarch",
     "config_updater_image_multiarch",
     "datasvc_image_multiarch",
     "faker_image_multiarch",
