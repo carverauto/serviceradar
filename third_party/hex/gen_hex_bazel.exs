@@ -30,6 +30,28 @@ defmodule GenHexBazel do
   # get added with a reason as we hit packages Bazel cannot build.
   @skip %{}
 
+  # Edges the lock resolves but a release must not carry, as %{parent => [dep, ...]}.
+  #
+  # A mix.lock records what the resolver saw and nothing about WHY. There is no MIX_ENV and
+  # no `only:`, so a dependency some project pulls in for :test alone is indistinguishable
+  # here from a runtime one and gets emitted as a hard edge. `optional: true` cannot stand in
+  # for that judgement either -- plenty of optional deps are genuinely used.
+  #
+  # Not merely dead weight in a release, which is why this map exists rather than a comment:
+  # lazy_html builds through cc_precompiler, which DOWNLOADS a prebuilt .so from GitHub
+  # releases keyed on the BUILD machine's architecture instead of compiling one. It therefore
+  # ignores the target platform completely, and put an x86-64 liblazy_html.so inside the
+  # linux/arm64 agent-gateway release. Nothing in the build objected; it was found by reading
+  # the ELF machine of every artifact in the tarball. Anything else reaching a release through
+  # cc_precompiler (adbc is the next one) has the same defect.
+  #
+  # Drops the EDGE, not the package: @hex_lazy_html is still generated, and web-ng's test
+  # target still reaches it through WEB_NG_DEV_DEPS -- the env that actually uses it, since
+  # Phoenix.LiveViewTest is its only consumer.
+  @drop_edges %{
+    "phoenix_live_view" => ["lazy_html"]
+  }
+
   # First-party projects that override a Hex dependency via `path:` in mix.exs.
   # These never appear as mix.lock entries -- the override replaces the registry
   # resolution entirely -- but Hex packages still declare a dependency edge to
@@ -187,10 +209,12 @@ defmodule GenHexBazel do
 
   # Optional deps that were never resolved into the lock are not real edges --
   # except where a first-party path override is why the dep is missing.
-  defp resolved_deps(%{deps: deps}, in_lock) do
+  defp resolved_deps(%{name: name, deps: deps}, in_lock) do
     deps
     |> Enum.filter(fn {dep, optional} ->
-      (MapSet.member?(in_lock, dep) or Map.has_key?(@path_deps, dep)) and not skipped?(dep, optional)
+      (MapSet.member?(in_lock, dep) or Map.has_key?(@path_deps, dep)) and
+        not skipped?(dep, optional) and
+        dep not in Map.get(@drop_edges, name, [])
     end)
     |> Enum.map(&elem(&1, 0))
     |> Enum.sort()

@@ -48,11 +48,17 @@ actions:
     # and nothing to this image, and it is still rebuilt and pushed at .3.
     #
     # A BUMP MEANS: push BOTH images at the new tag, then update every reference. As of this
-    # commit, seven places in six files:
+    # commit, five places in five files:
     #   this line and //k8s/buildbuddy/values-workflows.yaml     (runner)
     #   //MODULE.bazel, //build/rbe/BUILD,                       (executor)
-    #   //build/platforms/BUILD.bazel  (TWO entries),
     #   //k8s/buildbuddy/values.yaml   (warmup_additional_images)
+    #
+    # //MODULE.bazel.lock carries the MODULE.bazel value too, but it is regenerated rather than
+    # edited. //build/platforms/BUILD.bazel used to hold TWO more copies; they belonged to the
+    # dead rbe_linux_amd64/rbe_linux_arm64 platforms and went with them -- see the note left in
+    # their place. They are why this list said seven: two of the seven references were on
+    # targets no build could select, and they were kept at the newest tag for ten months while
+    # //k8s/buildbuddy/values.yaml, which a build DOES read, sat a release behind.
     #
     container_image: "docker://registry.carverauto.dev/serviceradar/buildbuddy-workflow-runner:v1.0.24.3"
 

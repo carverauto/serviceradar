@@ -528,8 +528,8 @@
     },
     "@@rules_erlang+//bzlmod:extensions.bzl%erlang_config": {
       "general": {
-        "bzlTransitiveDigest": "dNlQ+F2O+znXmSu6Cco11dVaJc+0Ugxnt+VcuG1kPqs=",
-        "usagesDigest": "fmwoZT/PY79spAgwHRK6kw3G4i1iI5lcs7JML1WoD3M=",
+        "bzlTransitiveDigest": "OgcfRyye2yjPFp64bfpVeqXSqSU1uXV0tZS2hbWUSDE=",
+        "usagesDigest": "4Q7u3zQLRdP3kte22zxrVvVac+TwuFP+myCPWQV8keQ=",
         "recordedInputs": [
           "REPO_MAPPING:rules_erlang+,bazel_skylib bazel_skylib+",
           "REPO_MAPPING:rules_erlang+,bazel_tools bazel_tools"
@@ -540,27 +540,45 @@
             "attributes": {
               "rules_erlang_workspace": "@rules_erlang",
               "types": {
+                "otp_28_1_darwin": "internal",
                 "otp_28_1": "prebuilt"
               },
               "versions": {
+                "otp_28_1_darwin": "28.1",
                 "otp_28_1": "28.1"
               },
               "urls": {
+                "otp_28_1_darwin": "https://github.com/erlang/otp/releases/download/OTP-28.1/otp_src_28.1.tar.gz",
                 "otp_28_1": "https://builds.hex.pm/builds/otp/amd64/ubuntu-24.04/OTP-28.1.tar.gz"
               },
               "strip_prefixs": {
+                "otp_28_1_darwin": "otp_src_28.1",
                 "otp_28_1": "OTP-28.1"
               },
               "sha256s": {
+                "otp_28_1_darwin": "c7c6fe06a3bf0031187d4cb10d30e11de119b38bdba7cd277898f75d53bdb218",
                 "otp_28_1": "6f7a95250a83f999909cf64dc375fd08809eb057f61b24eecdf2b3b44fe621ab"
               },
               "erlang_homes": {},
-              "pre_configure_cmdss": {},
-              "extra_configure_optss": {},
-              "post_configure_cmdss": {},
-              "extra_make_optss": {},
+              "pre_configure_cmdss": {
+                "otp_28_1_darwin": []
+              },
+              "extra_configure_optss": {
+                "otp_28_1_darwin": []
+              },
+              "post_configure_cmdss": {
+                "otp_28_1_darwin": []
+              },
+              "extra_make_optss": {
+                "otp_28_1_darwin": []
+              },
               "extra_exec_constraintss": {
-                "otp_28_1": []
+                "otp_28_1_darwin": [
+                  "@platforms//os:macos"
+                ],
+                "otp_28_1": [
+                  "@platforms//os:linux"
+                ]
               }
             }
           }
@@ -569,8 +587,8 @@
     },
     "@@rules_erlang+//bzlmod:extensions.bzl%erlang_package": {
       "general": {
-        "bzlTransitiveDigest": "dNlQ+F2O+znXmSu6Cco11dVaJc+0Ugxnt+VcuG1kPqs=",
-        "usagesDigest": "91zn1N4ftVTLhGkFjCpD/7lresFdkPgXiLhBgxyeCu0=",
+        "bzlTransitiveDigest": "OgcfRyye2yjPFp64bfpVeqXSqSU1uXV0tZS2hbWUSDE=",
+        "usagesDigest": "mh/c+83j26slrg7nDcdsni0zGoKa6qtjVGg7TNl9xxM=",
         "recordedInputs": [
           "REPO_MAPPING:rules_erlang+,bazel_skylib bazel_skylib+",
           "REPO_MAPPING:rules_erlang+,bazel_tools bazel_tools",

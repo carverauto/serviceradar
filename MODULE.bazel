@@ -96,7 +96,7 @@ archive_override(
 # Registry -- drop this override once it is published and the bazel_dep above resolves on its own.
 git_override(
     module_name = "rules_erlang",
-    commit = "aea7fae760ec8338f2fff36e1a5e2c8a143bd0cf",
+    commit = "13977b3309fd0b0d6795f322cffd86a8c161be64",
     remote = "https://github.com/bazelverse/rules_erlang.git",
 )
 
@@ -132,11 +132,31 @@ erlang_config_ext = use_extension("@rules_erlang//bzlmod:extensions.bzl", "erlan
 # Prebuilt OTP binary release rather than an otp_src build. Same version as before; the
 # sha256 is the one builds.hex.pm publishes for this archive in its builds.txt, and the
 # ubuntu-24.04 build matches both the RBE executor and the ubuntu_noble image bases.
+# exec_compatible_with is what keeps this from matching on a Mac. It is a Linux ELF; without
+# the constraint it also wins resolution on darwin, and `bazel run` of any Elixir target dies
+# with "Exit 126: cannot execute" -- which reads as a broken target, not a wrong toolchain.
 erlang_config_ext.prebuilt_erlang_from_hex_builds(
     name = "otp_28_1",
     arch = "amd64",
+    exec_compatible_with = ["@platforms//os:linux"],
     os = "ubuntu-24.04",
     sha256 = "6f7a95250a83f999909cf64dc375fd08809eb057f61b24eecdf2b3b44fe621ab",
+    version = "28.1",
+)
+
+# macOS builds OTP from source because there is nothing to download: builds.hex.pm publishes
+# OTP for Linux distributions only (ubuntu-22.04 and ubuntu-24.04 answer; every macOS spelling
+# 404s), and Homebrew/asdf/kerl offer no pinnable URL with a checksum. Same version as the
+# Linux pin, so the two toolchains stay interchangeable.
+#
+# This is the slow path -- a from-source OTP build, several minutes, once per developer -- but
+# it is confined to darwin exec. CI and RBE resolve the prebuilt above and keep the ~12s fetch.
+# Only local `bazel run`/`bazel test` of an Elixir target needs an OTP that runs on the host;
+# every sanctioned workflow goes through --config=ci and executes on Linux executors.
+erlang_config_ext.internal_erlang_from_github_release(
+    name = "otp_28_1_darwin",
+    exec_compatible_with = ["@platforms//os:macos"],
+    sha256 = "c7c6fe06a3bf0031187d4cb10d30e11de119b38bdba7cd277898f75d53bdb218",
     version = "28.1",
 )
 use_repo(erlang_config_ext, "erlang_config")
@@ -154,9 +174,21 @@ elixir_config_ext.prebuilt_elixir_from_hex_builds(
 )
 use_repo(elixir_config_ext, "elixir_config")
 
+# The arm64 counterpart is @otp_28_1_linux_arm64, declared with the other http_archives below.
+# It is a shipped payload, not a toolchain, so it is deliberately not registered here.
+
+# Linux first: it is the one every action resolves. The darwin pair is only reachable on a
+# Mac, where the Linux toolchains no longer match at all, so order between them is not load
+# bearing -- but keeping the hot one first means resolution stops at the first candidate for
+# every build that matters.
+#
+# One Elixir toolchain serves both. Elixir is BEAM bytecode, which is why
+# prebuilt_elixir_from_hex_builds takes no arch; it runs on whichever OTP resolves.
 register_toolchains(
     "@erlang_config//otp_28_1:toolchain_major",
     "@erlang_config//otp_28_1:toolchain_major_minor",
+    "@erlang_config//otp_28_1_darwin:toolchain_major",
+    "@erlang_config//otp_28_1_darwin:toolchain_major_minor",
     "@elixir_config//elixir_1_19_4:toolchain",
 )
 
@@ -427,6 +459,11 @@ filegroup(
 # openssl-sys: perl wrapper + point the build at the vendored openssl-src source. openssl-sys
 # builds a from-source (vendored) OpenSSL for libpq (pq-sys bundled), which is what makes the
 # build portable.
+#
+# Do NOT take rules_rs's "well-known annotation" suggestion of @openssl + OPENSSL_NO_VENDOR=1:
+# pq-src links against the OpenSSL openssl-sys builds, which is why both are pinned and
+# patched here. gen_build_script = "on" only silences that warning -- rules_rs branches on
+# "off" alone (repository_utils.bzl:117), so it changes nothing.
 crate.annotation(
     build_script_data = [
         "//third_party/rust_patches:openssl_perl_wrapper",
@@ -443,6 +480,7 @@ crate.annotation(
         "RULES_RUST_OPENSSL_SRC_DIR": "$(location @crates//:openssl_src_version_marker)",
     },
     crate = "openssl-sys",
+    gen_build_script = "on",
     repositories = ["crates"],
 )
 use_repo(crate, "crates")
@@ -460,9 +498,24 @@ rdp_connector_crates.from_cargo(
 # libz-sys must build the zlib it bundles and `static` is the only lever that works.
 # Annotation crate_features are merged with the resolved ones (compute_select treats them as
 # the always-on set), so this adds `static`.
+#
+# It is genuinely compiled: winscard asks flate2 for `zlib` on every non-wasm32 target.
+# rules_rs suggests @zlib (BCR) with the build script off, which would delete this workaround
+# outright -- worth doing, but it is a module-graph change needing a build across all five
+# RUST_PLATFORMS triples.
 rdp_connector_crates.annotation(
     crate = "libz-sys",
     crate_features = ["static"],
+    repositories = ["rdp_connector_crates"],
+)
+
+# aws-lc-sys is never compiled. Both rustls consumers here -- the probe and sspi -- pin
+# `ring`/`std`/`tls12` with default-features off, so aws-lc-rs is never enabled. rules_rs warns
+# anyway because it checks every lockfile package rather than what builds; adopting its
+# suggestion would add the @aws-lc module and a bindgen toolchain for zero actions.
+rdp_connector_crates.annotation(
+    crate = "aws-lc-sys",
+    gen_build_script = "on",
     repositories = ["rdp_connector_crates"],
 )
 use_repo(
@@ -866,6 +919,49 @@ http_file = use_repo_rule(
 http_archive = use_repo_rule(
     "@bazel_tools//tools/build_defs/repo:http.bzl",
     "http_archive",
+)
+
+# The arm64 OTP an arm64 Elixir image SHIPS. The amd64 pin above stays the one that RUNS the
+# build; `mix release` collapses both roles into one OTP, which is what blocks arm64 Elixir.
+#
+# NOT a second prebuilt_erlang_from_hex_builds. Neither rules_erlang nor rules_elixir puts a
+# CPU constraint on its toolchains, so resolution cannot pick an OTP by target arch -- a second
+# registered toolchain would be ambiguous, not selective. `include_erts:` in a release's
+# releases/0 is the seam instead, and it takes a path.
+#
+# That path must name the erts-* directory INSIDE a complete OTP root: Mix derives the OTP
+# application tree as dirname(erts_source)/lib, so kernel/stdlib/crypto and their priv/*.so
+# come from here too. A bare ERTS tree ships an aarch64 beam.smp with an x86-64 crypto.so --
+# assembles clean, dies at the first TLS handshake.
+#
+# Raw hex archive rather than a relocated one because Mix.Release.copy_erts/1 rewrites bin/erl
+# with a relative ROOTDIR. Same version and upstream ref as the amd64 pin, so both carry
+# erts-16.1 -- the boot script names that version and the two must agree.
+http_archive(
+    name = "otp_28_1_linux_arm64",
+    build_file_content = """
+# `Install` is the archive's only top-level FILE, so its $(location) parent is the OTP root --
+# which a filegroup of 30k files in unspecified order cannot give you.
+filegroup(
+    name = "root_marker",
+    srcs = ["Install"],
+    visibility = ["//visibility:public"],
+)
+
+filegroup(
+    name = "otp_root",
+    # Excluded paths hold spaces and cannot be passed to the action shell; all are test data.
+    srcs = glob(
+        allow_empty = False,
+        include = ["**"],
+        exclude = ["**/* *"],
+    ),
+    visibility = ["//visibility:public"],
+)
+""",
+    sha256 = "4585a32725c8eebcd9154cd8884366c93077895d1044974f1b728df5eae2cee9",
+    strip_prefix = "OTP-28.1",
+    urls = ["https://builds.hex.pm/builds/otp/arm64/ubuntu-24.04/OTP-28.1.tar.gz"],
 )
 
 # Hex, the package manager itself, built from source as a Mix archive by rules_elixir.
