@@ -281,6 +281,7 @@ Important notes:
 - Edge hosts running `serviceradar-agent` outside Kubernetes need their own egress controls (host firewall/VPC/NACL). This policy only governs Kubernetes workloads.
 - External telemetry collectors have dedicated pod-scoped ingress policies. Use them for syslog, NetFlow, sFlow, SNMP traps, and BMP so opening a collector port does not also expose unrelated workloads. See [Kubernetes External Ingestion](./kubernetes-ingestion.md).
 - Plugins and integrations that call public services need explicit egress. For AlienVault OTX, allow `otx.alienvault.com` with an FQDN-aware policy. Its CDN addresses rotate, so a static `allowedCIDRs` entry requires ongoing DNS resolution and CIDR maintenance.
+- Control-plane notification webhooks (Discord, Slack, Teams, generic HTTPS) egress from the `web-ng` pods. Kubernetes NetworkPolicy cannot match FQDNs, so add the current CDN CIDR for each destination to `networkPolicy.egress.allowedCIDRs`. Discord incoming webhooks currently land on Cloudflare `162.159.128.0/18` (resolved 2026-08-13); if a Discord test send times out with `timeout contacting discord.com`, re-resolve `discord.com:443` and update that CIDR. The demo overlay (`values-demo.yaml`) already includes this range.
 
 Example:
 

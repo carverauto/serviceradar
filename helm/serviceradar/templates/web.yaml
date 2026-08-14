@@ -315,6 +315,13 @@ spec:
           value: {{ .Values.global.releaseVersion | default (printf "v%s" .Chart.AppVersion) | quote }}
         - name: PHX_HOST
           value: {{ $webHost | quote }}
+        {{- if $webNgPublicUrl }}
+        # ActionLinks and Discord/Slack embeds use this as the origin for
+        # /alerts/<id> deep links. Without it, pages go out with no way back
+        # into ServiceRadar.
+        - name: SERVICERADAR_NOTIFICATION_ACTION_BASE_URL
+          value: {{ $webNgPublicUrl | quote }}
+        {{- end }}
         - name: PHX_CHECK_ORIGIN
           value: {{ default "true" $webNg.checkOrigin | quote }}
         - name: SERVICERADAR_GOD_VIEW_ENABLED

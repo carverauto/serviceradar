@@ -18,6 +18,15 @@ tests:
         documentSelector:
           path: kind
           value: Deployment
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: SERVICERADAR_NOTIFICATION_ACTION_BASE_URL
+            value: https://serviceradar.example.com
+          count: 1
+        documentSelector:
+          path: kind
+          value: Deployment
 
   - it: canonicalizes the public URL used by automation callbacks
     set:

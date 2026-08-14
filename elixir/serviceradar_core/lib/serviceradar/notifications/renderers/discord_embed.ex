@@ -64,10 +64,18 @@ defmodule ServiceRadar.Notifications.Renderers.DiscordEmbed do
         field("Severity", content.severity, true),
         field("Class", content.alert_class, true),
         field("Source", content.source, true),
+        open_field(content),
         field("Actions", action_field(content), false)
       ],
       &is_nil/1
     )
+  end
+
+  defp open_field(content) do
+    case presence(content.alert_url) do
+      nil -> nil
+      url -> field("Open in ServiceRadar", "[Open alert](#{url})", false)
+    end
   end
 
   defp field(name, value, inline?) do
