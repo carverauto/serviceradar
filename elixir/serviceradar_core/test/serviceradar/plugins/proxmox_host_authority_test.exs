@@ -392,6 +392,66 @@ defmodule ServiceRadar.Plugins.ProxmoxHostAuthorityTest do
     end
   end
 
+  test "inventory accepts the unsuffixed policy id the materializer actually emits" do
+    # PluginAssignmentMaterializer.policy_id_for_rule/2 emits
+    # "network-credential-rule:<rule>" for inventory_enrichment -- deliberately,
+    # to "preserve the original inventory policy id for upgrade compatibility" --
+    # and NOT the ":inventory_enrichment"-suffixed form. Requiring the suffix here
+    # made every materialized Proxmox inventory assignment fail host-authority
+    # binding, so it was silently skipped at config generation and the plugin was
+    # never delivered.
+    params = %{
+      "credential_rule_id" => "rule-inventory",
+      "policy_id" => "network-credential-rule:rule-inventory",
+      "policy_version" => 3
+    }
+
+    assert {:ok, binding} =
+             ProxmoxHostAuthority.assignment_policy_binding(
+               "proxmox-inventory",
+               "run_check",
+               params,
+               "assignment-inventory"
+             )
+
+    assert binding.credential_rule_id == "rule-inventory"
+    assert binding.policy_version == 3
+    assert binding.policy_id == "network-credential-rule:rule-inventory"
+  end
+
+  test "inventory still binds the suffixed policy id and rejects mismatches" do
+    suffixed = %{
+      "credential_rule_id" => "rule-inventory",
+      "policy_id" => "network-credential-rule:rule-inventory:inventory_enrichment",
+      "policy_version" => 3
+    }
+
+    assert {:ok, _binding} =
+             ProxmoxHostAuthority.assignment_policy_binding(
+               "proxmox-inventory",
+               "run_check",
+               suffixed,
+               "assignment-inventory"
+             )
+
+    # Accepting the unsuffixed form must not degrade into accepting a policy id
+    # for a different rule, or one scoped to console access.
+    for change <- [
+          %{"policy_id" => "network-credential-rule:other-rule"},
+          %{"policy_id" => "network-credential-rule:rule-inventory:console_access"},
+          %{"credential_rule_id" => "different-rule"},
+          %{"policy_version" => 0}
+        ] do
+      assert {:error, :invalid_assignment_policy_binding} =
+               ProxmoxHostAuthority.assignment_policy_binding(
+                 "proxmox-inventory",
+                 "run_check",
+                 Map.merge(suffixed, change),
+                 "assignment-inventory"
+               )
+    end
+  end
+
   defp partition(plugin_id, entrypoint, params, assignment_id) do
     {rule_id, purpose} =
       case plugin_id do
