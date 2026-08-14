@@ -6,17 +6,21 @@ title: Helm Deployment and Configuration
 This guide shows how to deploy ServiceRadar via the bundled Helm chart. For sweep behavior, tuning, and concepts, see [Network Sweeps](./network-sweeps.md) and [SYN Scanner Tuning and Conntrack Mitigation](./syn-scanner-tuning.md).
 
 :::note Chart version
-The examples below pin `<chart-version>` and image tags to `1.2.73`, the
-current chart release. Always check the [latest published chart
-version](https://registry.carverauto.dev/serviceradar/charts/serviceradar) and
-substitute it before deploying.
+`<chart-version>` below is a placeholder. Look up the current release before
+deploying:
+
+```bash
+helm show chart oci://registry.carverauto.dev/serviceradar/charts/serviceradar | grep '^version'
+```
+
+This page deliberately does not name a specific version: a hardcoded example
+goes stale silently, and readers reasonably copy it as fact.
 :::
 
 Install/upgrade
 - Namespace: create once: `kubectl create ns serviceradar` (or change `namespace` in chart values).
 - Deploy from the official OCI chart (recommended):
   - `helm upgrade --install serviceradar oci://registry.carverauto.dev/serviceradar/charts/serviceradar --version <chart-version> -n serviceradar --create-namespace -f my-values.yaml`
-  - Example with the current release: `--version 1.2.73`.
 - Deploy from a repo checkout (development):
   - `helm upgrade --install serviceradar ./helm/serviceradar -n serviceradar -f my-values.yaml`
 - Quick overrides without a file: add `--set` flags (examples below).
@@ -25,11 +29,16 @@ OCI chart quick start
 - Inspect chart metadata and defaults:
   - `helm show chart oci://registry.carverauto.dev/serviceradar/charts/serviceradar --version <chart-version>`
   - `helm show values oci://registry.carverauto.dev/serviceradar/charts/serviceradar --version <chart-version> > values.yaml`
-- Pin images to a release tag (recommended):
-  - `--set global.imageTag="v1.2.73"` (use the release that matches your chart version).
+- Image tags follow the chart by default:
+  - If you leave `global.imageTag` empty (the default), every first-party
+    ServiceRadar image uses the chart's `appVersion`. The chart and the
+    application it deploys are released together, so this is normally what you
+    want and needs no configuration.
+- Pin images explicitly (immutable rollouts):
+  - `--set global.imageTag="sha-<gitsha>"`, or pin per-service digests with
+    `image.digests.*`.
 - Track mutable images (staging/dev):
   - `--set global.imageTag="latest" --set global.imagePullPolicy="Always"`
-  - If you omit `global.imageTag`, the chart defaults to `latest`.
 
 HA profile overlay
 - `values.yaml` stays conservative by default. Most stateful or queue-backed services start at `1` replica unless you opt into a larger topology.
@@ -98,10 +107,134 @@ knobs). Rather than duplicate that reference here, see:
 Inspect the current defaults for your chart version with
 `helm show values oci://registry.carverauto.dev/serviceradar/charts/serviceradar --version <chart-version>`.
 
-Key values: edge gateway address
-- `webNg.gatewayAddress`: Optional external gateway address for edge agents (`host:port`).
-  - If unset, the chart derives it from `ingress.host` (port 50052).
-  - If neither is set, it falls back to the in-cluster service name.
+## Public web and edge-agent endpoints
+
+ServiceRadar publishes two independent paths during agent onboarding:
+
+| Path | Helm values | Used for |
+| --- | --- | --- |
+| Public web/API | `webNg.host`, `webNg.publicUrl` | Browser access, Phoenix URL generation, the generated `--core-url`, and the API origin signed into onboarding tokens |
+| Agent gateway | `webNg.gatewayAddress`, `agentGateway.publicHostname` | The `gateway_addr` and default TLS server name placed in the downloaded bundle, plus the public artifact endpoint |
+
+### Canonical public web origin
+
+- Set `webNg.host` to the public web DNS name and `webNg.publicUrl` to its bare
+  HTTPS origin. Do this even when `gatewayApi.host` or `ingress.host` has the
+  same value; keeping the application origin explicit prevents an exposure
+  change from altering newly issued onboarding tokens.
+- Set `webNg.publicUrl` to the bare, externally reachable HTTPS origin, with no
+  path, query, fragment, or credentials (for example,
+  `https://serviceradar.example.com`). A trailing root slash is canonicalized
+  away. Only the standard HTTPS port 443 is supported.
+- This is the canonical origin embedded in edge onboarding tokens and generated
+  `serviceradar-cli enroll` commands. It also drives Phoenix external URL
+  generation. Never use an in-cluster Service name here.
+- When `webNg.publicUrl` is empty, the chart falls back through `webNg.host`,
+  `ingress.host`, and `gatewayApi.host`. Set `webNg.publicUrl` explicitly in
+  production so changing the exposure implementation does not change issued
+  tokens.
+
+```yaml
+webNg:
+  host: serviceradar.example.com
+  publicUrl: https://serviceradar.example.com
+```
+
+### Edge gateway address
+
+- Set `webNg.gatewayAddress` to the externally reachable agent-gateway
+  `host:port`, normally TCP `50052`. It is not an HTTP URL and it need not use
+  the web hostname.
+- Set `agentGateway.publicHostname` to the same DNS name, without a port. The
+  chart uses this hostname for the public artifact URL on
+  `agentGateway.service.artifactPort` (default `50053`). The bundle's TLS server
+  name defaults to the host in `webNg.gatewayAddress`; ensure the certificate
+  presented by the gateway is issued or reissued with that name.
+- If `webNg.gatewayAddress` is unset, the chart derives `<web-host>:50052` from
+  the public web host. That fallback is correct only when the same L4 address
+  actually exposes the agent-gateway port. It does not make an HTTP-only
+  Gateway listen on `50052`.
+
+Choose one exposure pattern:
+
+1. **Dedicated agent-gateway LoadBalancer.** Give the Service a dedicated DNS
+   name, expose `50052` and `50053`, and point `webNg.gatewayAddress` at it.
+   This is the pattern used by the bundled `values-demo.yaml` overlay.
+
+   ```yaml
+   webNg:
+     host: serviceradar.example.com
+     publicUrl: https://serviceradar.example.com
+     gatewayAddress: agent-gateway.example.com:50052
+
+   agentGateway:
+     publicHostname: agent-gateway.example.com
+     service:
+       type: LoadBalancer
+       annotations:
+         external-dns.alpha.kubernetes.io/hostname: agent-gateway.example.com.
+   ```
+
+2. **Shared Gateway API data plane.** Route the agent-gateway ports through the
+   same Envoy data-plane Service as the web endpoint. The parent Gateway must
+   have TCP listeners for `50052` and `50053`; an `HTTPRoute` on `443` cannot
+   carry this traffic. In `managed` mode the chart creates the listeners. In
+   `attach` mode, enable `gatewayApi.agentGateway` and supply `parentRefs` for
+   existing listener section names.
+
+   ```yaml
+   webNg:
+     host: serviceradar.example.com
+     publicUrl: https://serviceradar.example.com
+     gatewayAddress: agent-gateway.example.com:50052
+
+   agentGateway:
+     publicHostname: agent-gateway.example.com
+     service:
+       type: ClusterIP
+
+   # The existing Gateway must already define TCP listeners named
+   # agent-grpc (50052) and agent-artifacts (50053).
+   gatewayApi:
+     enabled: true
+     mode: attach
+     host: serviceradar.example.com
+     # Web HTTPS route. The existing Gateway listener must allow routes from
+     # the ServiceRadar release namespace.
+     parentRefs:
+       - group: gateway.networking.k8s.io
+         kind: Gateway
+         name: serviceradar-shared-gateway
+         namespace: serviceradar-system
+         sectionName: https-web
+     agentGateway:
+       enabled: true
+       grpc:
+         parentRefs:
+           - group: gateway.networking.k8s.io
+             kind: Gateway
+             name: serviceradar-shared-gateway
+             namespace: serviceradar-system
+             sectionName: agent-grpc
+       artifacts:
+         enabled: true
+         parentRefs:
+           - group: gateway.networking.k8s.io
+             kind: Gateway
+             name: serviceradar-shared-gateway
+             namespace: serviceradar-system
+             sectionName: agent-artifacts
+   ```
+
+   Every referenced listener must allow routes from the ServiceRadar release
+   namespace. A cross-namespace `parentRef` to a Gateway is authorized by that
+   listener's `allowedRoutes`; a `ReferenceGrant` is needed only if a route also
+   refers to a backend in a different namespace.
+
+For a shared public IP, both DNS names can resolve to that IP. Using a dedicated
+gateway DNS name remains useful because the bundle and certificate identity do
+not then depend on the web hostname. Confirm the chosen address accepts both
+ports before issuing onboarding packages.
 
 Key values: in-cluster agent storage
 - `agent.checkersStorage`: PVC-backed checker config at `/var/lib/serviceradar/checkers`.
@@ -334,3 +467,75 @@ UI management:
 - Open **Settings → Network → Device Enrichment**.
 - Use the typed rule editor to create/update/delete rules.
 - For writable UI-managed rules in Kubernetes, back the mount with a PVC (`existingClaim`) rather than ConfigMap/Secret.
+
+## Outbound Mail (SMTP)
+
+Outbound mail carries identity messages (confirmation, password reset) and the
+`email` notification transport. Both go through one mail path, so configuring it
+here configures both. See [Notifications](./notifications.md) for the channel
+side.
+
+Configure it with the `core.mailer` block:
+
+```yaml
+core:
+  mailer:
+    # "smtp", "local", "sendgrid", ... Leave empty to infer SMTP from `relay`.
+    adapter: ""
+    relay: "smtp.example.com"
+    port: 587
+    # HELO/EHLO name this deployment announces; empty lets the relay decide.
+    hostname: ""
+    auth: "if_available"     # always | never | if_available
+    tls: "if_available"      # STARTTLS
+    ssl: false               # implicit TLS (port 465)
+    from:
+      name: "ServiceRadar"
+      email: "noreply@example.com"
+    # Relay credentials come from an existing Secret, never from values.
+    existingSecret: "serviceradar-smtp"
+    usernameKey: "smtp-username"
+    passwordKey: "smtp-password"
+```
+
+Create the credential Secret separately:
+
+```bash
+kubectl create secret generic serviceradar-smtp \
+  -n serviceradar \
+  --from-literal=smtp-username='serviceradar' \
+  --from-literal=smtp-password='...'
+```
+
+The password is deliberately not a chart value. A password in `values.yaml` is a
+password in the rendered manifest, in `helm get values`, and in whatever GitOps
+repository holds the file.
+
+The block renders into these container environment variables on
+`serviceradar-core`:
+
+| Variable | From | Meaning |
+| --- | --- | --- |
+| `SERVICERADAR_MAILER_ADAPTER` | `core.mailer.adapter` | `smtp`, `local`, `test`, or an API adapter name |
+| `SMTP_RELAY_HOST` | `core.mailer.relay` | Relay hostname. Setting it alone selects the SMTP adapter |
+| `SMTP_RELAY_PORT` | `core.mailer.port` | Default 587 |
+| `SMTP_RELAY_HOSTNAME` | `core.mailer.hostname` | HELO/EHLO name |
+| `SMTP_RELAY_AUTH` | `core.mailer.auth` | `always`, `never`, `if_available` |
+| `SMTP_RELAY_TLS` | `core.mailer.tls` | STARTTLS mode |
+| `SMTP_RELAY_SSL` | `core.mailer.ssl` | `true` for implicit TLS |
+| `SMTP_RELAY_USERNAME` / `SMTP_RELAY_PASSWORD` | `core.mailer.existingSecret` | Relay credentials, by Secret reference |
+| `SERVICERADAR_MAIL_FROM_NAME` / `SERVICERADAR_MAIL_FROM_EMAIL` | `core.mailer.from` | Default `From:` |
+
+With none of this set, the mailer resolves to a non-delivering test adapter that
+reports every send as successful. That is why an email notification channel
+refuses to validate until a relay is configured here (or in Settings > Mail)
+rather than looking healthy and paging nobody. An unrecognised
+`SERVICERADAR_MAILER_ADAPTER` value fails the pod's boot with the accepted list,
+which is a deployment that does not start rather than one that starts and mails
+nowhere.
+
+Also relevant for notifications: set `webNg.publicUrl` to the externally
+reachable HTTPS origin of the web UI. Recent charts copy that value to
+`SERVICERADAR_NOTIFICATION_ACTION_BASE_URL` on `web-ng` and `core` so
+acknowledge / snooze / resolve links inside notifications resolve to a real
+address. See the [Notifications Quickstart](./notification-quickstart.md).

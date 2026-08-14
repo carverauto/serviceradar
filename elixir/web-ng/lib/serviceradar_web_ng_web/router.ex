@@ -165,6 +165,20 @@ defmodule ServiceRadarWebNGWeb.Router do
     plug(SecurityHeaders)
   end
 
+  # Notification action links (design D7 Phase 1, task 1.6.3). Deliberately
+  # excludes fetch_session, every auth plug, and `protect_from_forgery`: the
+  # per-delivery capability token in the URL IS the authorisation, and a CSRF
+  # token would add a cookie dependency to a page routinely opened straight from
+  # a mail client while buying nothing (an attacker who could forge the
+  # submission would need the token to address it, and holding it could POST
+  # directly). HTML rather than JSON, because a human clicked a link.
+  pipeline :notification_action do
+    plug(:accepts, ["html"])
+    plug(:put_root_layout, html: {ServiceRadarWebNGWeb.Layouts, :root})
+    plug(:put_secure_browser_headers, %{"content-security-policy" => @csp})
+    plug(SecurityHeaders)
+  end
+
   # Token-scope gate for the CLI dashboard-publish endpoints. Layered on top of
   # `:api_key_auth` so the bearer token is validated first, then this plug
   # rejects any request whose `scopes` claim does not include
@@ -283,6 +297,45 @@ defmodule ServiceRadarWebNGWeb.Router do
     )
   end
 
+  # The action-link endpoint is unauthenticated, so a per-IP limit is the only
+  # thing that makes guessing a 43-character secret cost anything (task 1.6.5).
+  # `:json` rather than `:auto`: the HTML denial path redirects to the login
+  # page, which for a link clicked out of an email would read as "your
+  # acknowledgement needs an account" - the opposite of what happened.
+  # Inbound provider interactions (design D7 phase 2, task 4.3.0b). Accepts the
+  # content types providers actually send - Slack posts urlencoded, others post
+  # JSON - which is why this cannot reuse `:notification_action`, whose
+  # `accepts ["html"]` would answer a provider POST with 406.
+  #
+  # Deliberately excludes fetch_session, every auth plug, and
+  # `protect_from_forgery`: the request arrives from a provider with no cookie
+  # and no CSRF token, and the provider's signature over the raw body IS the
+  # authorisation. The routes below sit under `/api/notifications/callbacks/`,
+  # which `ServiceRadarWebNGWeb.Api.RawBodyReader` buffers - without that the
+  # signature would be checked against a re-encoded body and never match.
+  pipeline :notification_callback do
+    plug(:accepts, ["json", "urlencoded"])
+    plug(SecurityHeaders)
+  end
+
+  # Its own bucket, not the action-link one. A provider retrying a delivery must
+  # not exhaust the budget an on-call engineer needs to click Acknowledge.
+  pipeline :rate_limit_notification_callback do
+    plug(RateLimit,
+      bucket: :notification_callback,
+      subject: :ip,
+      response_mode: :json
+    )
+  end
+
+  pipeline :rate_limit_notification_action do
+    plug(RateLimit,
+      bucket: :notification_action,
+      subject: :ip,
+      response_mode: :json
+    )
+  end
+
   # CSP violation reports are sent by the browser as
   # `application/csp-report` (or `application/reports+json`). The standard
   # `:api` pipeline calls `:accepts ["json"]`, which would reject those
@@ -310,6 +363,33 @@ defmodule ServiceRadarWebNGWeb.Router do
     pipe_through([:api, :rate_limit_api_default])
 
     post("/action-callbacks/:job_id", NorthboundActionCallbackController, :create)
+  end
+
+  # Acknowledge / Snooze / Resolve from inside a notification (design D7 Phase 1,
+  # task 1.6.3). `ServiceRadar.Notifications.ActionLinks` builds these URLs; the
+  # path names neither the alert nor the action, both of which are bound into the
+  # token and read back off the persisted row.
+  #
+  # The GET renders a confirmation interstitial and changes NOTHING. Mail
+  # scanners and link previewers fetch every URL in a message before a human sees
+  # it, so an acting GET would let a spam filter acknowledge the fleet. Only the
+  # POST redeems.
+  scope "/api/notifications", ServiceRadarWebNGWeb.Api do
+    pipe_through([:notification_action, :rate_limit_notification_action])
+
+    get("/actions/:token", NotificationActionController, :show)
+    post("/actions/:token", NotificationActionController, :create)
+  end
+
+  # The provider segment is part of the path so each provider gets a distinct URL
+  # to register with, and so the prefix stays under
+  # `/api/notifications/callbacks/` - RawBodyReader matches on
+  # `String.starts_with?`, so a route at the bare `/api/notifications/callbacks`
+  # would NOT be buffered and every signature check would fail confusingly.
+  scope "/api/notifications/callbacks", ServiceRadarWebNGWeb.Api do
+    pipe_through([:notification_callback, :rate_limit_notification_callback])
+
+    post("/:provider", NotificationCallbackController, :create)
   end
 
   scope "/api/v1/automation", ServiceRadarWebNGWeb.Api do
@@ -383,6 +463,7 @@ defmodule ServiceRadarWebNGWeb.Router do
     get("/devices", DeviceController, :index)
     get("/devices/ocsf/export", DeviceController, :ocsf_export)
     get("/devices/:uid", DeviceController, :show)
+    patch("/devices/:uid/metadata", DeviceController, :update_metadata)
     post("/camera-relay-sessions", CameraRelaySessionController, :create)
     get("/camera-relay-sessions/:id", CameraRelaySessionController, :show)
     post("/camera-relay-sessions/:id/close", CameraRelaySessionController, :close)
@@ -468,6 +549,20 @@ defmodule ServiceRadarWebNGWeb.Router do
     post("/users/:id/deactivate", UserController, :deactivate)
     post("/users/:id/reactivate", UserController, :reactivate)
     post("/users/:id/local-login", UserController, :set_local_login)
+
+    # The provider applications whose signatures authorise an inbound
+    # notification callback (task 4.3.1a). Authorisation is the resource's own
+    # `notifications.providers.manage` policy, reached through the request scope.
+    get("/notification-callback-apps", NotificationCallbackAppController, :index)
+    post("/notification-callback-apps", NotificationCallbackAppController, :create)
+
+    post(
+      "/notification-callback-apps/:id/rotate-secret",
+      NotificationCallbackAppController,
+      :rotate_secret
+    )
+
+    delete("/notification-callback-apps/:id", NotificationCallbackAppController, :delete)
 
     get("/authorization-settings", AuthorizationSettingsController, :show)
     put("/authorization-settings", AuthorizationSettingsController, :update)
@@ -820,6 +915,7 @@ defmodule ServiceRadarWebNGWeb.Router do
       ] do
       live("/analytics", AuthoredDashboardLive.Index, :index)
       live("/dashboard", DashboardLive.Index, :index)
+      live("/dashboard/new-devices", DeviceLive.Index, :new_devices)
       live("/dashboard/:dashboard_id", AuthoredDashboardLive.Show, :show)
       live("/dashboards", DashboardHubLive.Index, :index)
       live("/dashboards/:route_slug", DashboardPackageLive.Show, :show)
@@ -906,6 +1002,12 @@ defmodule ServiceRadarWebNGWeb.Router do
       live("/settings/rules", Settings.RulesLive.Index, :index)
       live("/settings/anomaly-detection", Settings.AnomalyDetectionLive, :index)
 
+      # Notification platform. The tab is a nested path segment so it is
+      # deep-linkable and shareable; both paths resolve to the same LiveView,
+      # and `/settings/notifications` patches to the first permitted tab.
+      live("/settings/notifications", Settings.NotificationsLive.Index, :index)
+      live("/settings/notifications/:tab", Settings.NotificationsLive.Index, :tab)
+
       # Network sweep configuration
       live("/settings/networks", Settings.NetworksLive.Index, :index)
       live("/settings/networks/groups/new", Settings.NetworksLive.Index, :new_group)
@@ -917,6 +1019,7 @@ defmodule ServiceRadarWebNGWeb.Router do
       live("/settings/networks/discovery/new", Settings.NetworksLive.Index, :new_mapper_job)
       live("/settings/networks/discovery/:id/edit", Settings.NetworksLive.Index, :edit_mapper_job)
       live("/settings/networks/device-enrichment", Settings.DeviceEnrichmentRulesLive, :index)
+      live("/settings/networks/hostname-rdns", Settings.DeviceHostnameRdnsLive, :index)
       live("/settings/networks/availability-sources", Settings.AvailabilitySourceProfilesLive, :index)
       live("/settings/networks/visibility-profiles", Settings.VisibilityProfilesLive.Index, :index)
       live("/settings/networks/visibility-profiles/new", Settings.VisibilityProfilesLive.Index, :new_profile)

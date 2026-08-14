@@ -25,7 +25,7 @@ spec:
           type: RuntimeDefault
       initContainers:
       - name: init-debug-tools
-        image: {{ include "serviceradar.imageRef" (dict "Values" .Values "name" "serviceradar-tools" "service" "tools") }}
+        image: {{ include "serviceradar.imageRef" (dict "Values" .Values "Chart" .Chart "name" "serviceradar-tools" "service" "tools") }}
         imagePullPolicy: Always
         securityContext:
           allowPrivilegeEscalation: false
@@ -104,7 +104,7 @@ spec:
           mountPath: /shared
       containers:
       - name: tools
-        image: {{ include "serviceradar.imageRef" (dict "Values" .Values "name" "serviceradar-tools" "service" "tools") }}
+        image: {{ include "serviceradar.imageRef" (dict "Values" .Values "Chart" .Chart "name" "serviceradar-tools" "service" "tools") }}
         imagePullPolicy: Always
         command: ["/bin/bash", "-c"]
         args:

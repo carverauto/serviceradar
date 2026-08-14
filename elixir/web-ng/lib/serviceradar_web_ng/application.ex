@@ -27,7 +27,11 @@ defmodule ServiceRadarWebNG.Application do
     base_children =
       [
         # Web telemetry
-        ServiceRadarWebNG.Topology.RuntimeGraph
+        ServiceRadarWebNG.Topology.RuntimeGraph,
+        # Runtime index of package-shipped display and config contracts. Owns an
+        # ETS table so a LiveView mount - including a disconnected one - resolves
+        # a contract without querying.
+        ServiceRadarWebNG.Observability.ContractRegistry
       ]
       |> Kernel.++(web_runtime().web_children())
       |> maybe_add_control_plane_runtime_listener()
@@ -35,6 +39,7 @@ defmodule ServiceRadarWebNG.Application do
       |> maybe_add_first_party_plugin_sync_scheduler()
       |> maybe_add_native_addon_sync_scheduler()
       |> maybe_add_first_party_dashboard_seeder()
+      |> maybe_add_system_report_seeder()
       |> Kernel.++([
         # DNS cluster for Kubernetes deployments
         {DNSCluster, query: Application.get_env(:serviceradar_web_ng, :dns_cluster_query) || :ignore}
@@ -54,13 +59,15 @@ defmodule ServiceRadarWebNG.Application do
     # react_children = [Phoenix.React]
 
     children =
-      pubsub_children ++
-        base_children ++
-        field_survey_adbc_children() ++
-        [
-          ServiceRadarWebNG.FieldSurveyStreamLimiter,
-          {Task.Supervisor, name: ServiceRadarWebNG.TaskSupervisor}
-        ]
+      maybe_add_geoip_bootstrap(
+        pubsub_children ++
+          base_children ++
+          field_survey_adbc_children() ++
+          [
+            ServiceRadarWebNG.FieldSurveyStreamLimiter,
+            {Task.Supervisor, name: ServiceRadarWebNG.TaskSupervisor}
+          ]
+      )
 
     # Ensure ServiceRadar.Repo is started (may already be started by serviceradar_core)
     ensure_repo_started()
@@ -172,6 +179,35 @@ defmodule ServiceRadarWebNG.Application do
   defp maybe_add_first_party_dashboard_seeder(children) do
     if Application.get_env(:serviceradar_core, :seeders_enabled, true) do
       children ++ [ServiceRadarWebNG.Dashboards.FirstPartyPackages]
+    else
+      children
+    end
+  end
+
+  defp maybe_add_geoip_bootstrap(children) do
+    enabled? =
+      "GEOLITE_MMDB_DOWNLOAD_ENABLED"
+      |> System.get_env("false")
+      |> String.downcase()
+      |> Kernel.in(["1", "true", "yes", "on"])
+
+    if enabled? do
+      children ++
+        [
+          {Task,
+           fn ->
+             _ = ServiceRadar.Observability.GeoLiteMmdbDownloadWorker.sync_missing_files()
+             _ = ServiceRadar.Observability.IpinfoMmdbDownloadWorker.sync_missing_files()
+           end}
+        ]
+    else
+      children
+    end
+  end
+
+  defp maybe_add_system_report_seeder(children) do
+    if Application.get_env(:serviceradar_core, :seeders_enabled, true) do
+      children ++ [ServiceRadarWebNG.Dashboards.SystemReports]
     else
       children
     end

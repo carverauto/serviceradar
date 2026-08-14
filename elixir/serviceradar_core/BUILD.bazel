@@ -14,7 +14,12 @@ package(default_visibility = ["//visibility:public"])
 # lifecycle targets (migrate_template), not suite tests -- they are declared individually.
 ALL_TEST_SRCS = glob(
     ["test/**/*_test.exs"],
-    exclude = ["test/db/**"],
+    exclude = [
+        "test/db/**",
+        # This brings up real peer nodes and has its own discoverable target
+        # below so the normal helper's :cluster exclusion cannot skip it.
+        "test/serviceradar/edge/agent_command_bus_rpc_registry_test.exs",
+    ],
 )
 
 # Disjoint partition of ALL_TEST_SRCS, one bucket per integration shard.
@@ -281,6 +286,17 @@ ex_unit_tests(
         "//go/cmd/wasm-plugins/proxmox:srcs",
         "//go/cmd/wasm-plugins/sample-northbound:srcs",
         "//go/cmd/wasm-plugins/unifi-protect:srcs",
+        # Read at runtime by test/serviceradar/plugins/display_contract_test.exs.
+        # The three Wasm-plugin display contracts above arrive through their
+        # package srcs; these non-Wasm contracts need their own runfile inputs.
+        "//addons/powerdns:display/dns_activity.display.json",
+        "//go/pkg/trivysidecar:display_contracts",
+        "//integrations/falco:display_contracts",
+        # Read at runtime by test/serviceradar/notifications/edge_command_contract_test.exs,
+        # which asserts the agent's notify capability gate, envelope schema, and credential
+        # injection modes still match what the Elixir manifest validator allows. A contract
+        # test between two languages has to read the other language's source.
+        "//go/pkg/agent:notification_contract_srcs",
         # Module level in test/serviceradar/observability/helm_config_contract_test.exs,
         # which guards that the chart still exposes the env vars AnomalyConfigSeeder reads.
         # It belongs in this tier, not the database-backed one: it reads two files and
@@ -288,6 +304,21 @@ ex_unit_tests(
         "//helm/serviceradar:values",
     ],
     test_helper = "test/test_helper.exs",
+    deps = [":erlang_app"],
+)
+
+# A real web-node -> registry-node RPC regression. The general test helper
+# deliberately excludes :cluster, so this target owns the explicit opt-in and
+# keeps the test visible to tests(//...).
+ex_unit_test(
+    name = "agent_command_bus_rpc_registry_test",
+    size = "medium",
+    srcs = ["test/serviceradar/edge/agent_command_bus_rpc_registry_test.exs"],
+    data = ["test/cluster_test_helper.exs"],
+    elixir_opts = [
+        "-r",
+        "test/cluster_test_helper.exs",
+    ],
     deps = [":erlang_app"],
 )
 

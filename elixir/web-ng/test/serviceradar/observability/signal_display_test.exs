@@ -1,7 +1,10 @@
 defmodule ServiceRadarWebNG.Observability.SignalDisplayTest do
   use ExUnit.Case, async: true
 
+  alias ServiceRadar.Plugins.DisplayContract
   alias ServiceRadarWebNG.Observability.SignalDisplay
+
+  @moduletag :db_free
 
   @event %{
     "message" => "RPZ blocked suspicious.example",
@@ -199,5 +202,97 @@ defmodule ServiceRadarWebNG.Observability.SignalDisplayTest do
     assert {:ok, [%{title: title}]} = SignalDisplay.render(event, contract)
     assert String.length(title) == 243
     assert String.ends_with?(title, "...")
+  end
+
+  describe "degradation (tasks 3.5.3)" do
+    # The validator decides what a package may DECLARE; this list decides what
+    # this release can DRAW. They are allowed to diverge across a rollout, but a
+    # silent divergence would mean a contract that imports and renders nothing.
+    test "every widget type the validator accepts is one this release renders" do
+      assert Enum.sort(SignalDisplay.renderable_widget_types()) ==
+               Enum.sort(DisplayContract.widget_types())
+    end
+
+    test "an unknown widget type is dropped with a diagnostic, not raised on" do
+      contract = %{
+        "widgets" => [
+          %{"type" => "producer_html", "html" => "<script></script>"},
+          %{"type" => "facts", "fields" => [%{"label" => "Domain", "path" => "query.hostname"}]}
+        ]
+      }
+
+      assert {[%{type: :facts}], diagnostics} =
+               SignalDisplay.render_with_diagnostics(@event, contract)
+
+      assert [%{kind: :unknown_widget, detail: detail}] = diagnostics
+      assert detail =~ "producer_html"
+    end
+
+    test "a widget whose paths match nothing reports why it is absent" do
+      contract = %{
+        "widgets" => [%{"type" => "facts", "fields" => [%{"label" => "X", "path" => "nope"}]}]
+      }
+
+      assert {[], [%{kind: :empty_widget, detail: detail}]} =
+               SignalDisplay.render_with_diagnostics(@event, contract)
+
+      assert detail =~ "facts"
+    end
+
+    test "a contract that renders nothing degrades to the generic view" do
+      contract = %{"widgets" => [%{"type" => "unknown"}]}
+
+      assert {widgets, diagnostics} = SignalDisplay.render_or_generic(@event, contract)
+      assert Enum.any?(widgets, &(&1.type == :facts))
+      assert Enum.any?(diagnostics, &(&1.kind == :degraded))
+    end
+
+    test "no contract at all still renders the generic view" do
+      assert {widgets, []} = SignalDisplay.render_or_generic(%{"a" => "1", "b" => 2}, nil)
+
+      assert [%{type: :facts, fields: fields}] = widgets
+      assert Enum.map(fields, & &1.label) == ["A", "B"]
+      assert Enum.map(fields, & &1.value) == ["1", "2"]
+    end
+
+    test "the generic view separates scalars from containers and bounds both" do
+      record =
+        1..40
+        |> Map.new(fn index -> {"key_#{index}", "value"} end)
+        |> Map.put("nested", %{"a" => 1})
+
+      assert [%{type: :facts, fields: fields}, %{type: :json_section, sections: sections}] =
+               SignalDisplay.generic_widgets(record, title: "Detail")
+
+      assert length(fields) == 24
+      assert [%{path: "nested"}] = sections
+    end
+
+    test "the generic view carries no package-supplied labels" do
+      # Labels are derived from the record's own keys, so a rejected contract
+      # cannot smuggle text into the page through the fallback path.
+      assert [%{type: :facts, fields: [%{label: "Alarm Zone"}]}] =
+               SignalDisplay.generic_widgets(%{"alarm_zone" => "4"})
+    end
+
+    test "a non-map record and a non-map contract are both survivable" do
+      assert {[], [%{kind: :invalid_contract}]} = SignalDisplay.render_with_diagnostics(@event, nil)
+      assert {[], []} = SignalDisplay.render_or_generic(nil, nil)
+    end
+  end
+
+  describe "resolution source" do
+    test "a first-party signal reports the built-in map as its source" do
+      assert {:ok, _contract, :built_in} = SignalDisplay.resolve_contract_with_source(@event)
+    end
+
+    test "an explicit contracts map wins over both other sources" do
+      contract = %{"widgets" => [%{"type" => "summary", "title" => "message"}]}
+
+      key = {"powerdns", "0.1.0", "com.carverauto.powerdns.dns_activity", "1.0.0"}
+
+      assert {:ok, ^contract, :override} =
+               SignalDisplay.resolve_contract_with_source(@event, contracts: %{key => contract})
+    end
   end
 end

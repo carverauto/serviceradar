@@ -1256,9 +1256,28 @@ defmodule ServiceRadar.Cluster.StartupMigrations do
         Enum.each(statements, fn statement ->
           ServiceRadar.Repo.query!(statement, [], timeout: :infinity)
         end)
+
+        seed_required_baseline_data!()
       end,
       timeout: :infinity
     )
+  end
+
+  # The supported baseline generator deliberately uses pg_dump --schema-only.
+  # Keep required singleton data in the application-owned bootstrap transaction
+  # so regenerating the baseline cannot silently discard it.
+  defp seed_required_baseline_data! do
+    ServiceRadar.Repo.query!("""
+    INSERT INTO platform.auth_settings (
+      id,
+      mode,
+      is_enabled,
+      allow_password_fallback,
+      sso_auto_provision
+    )
+    VALUES (gen_random_uuid(), 'password_only', false, true, false)
+    ON CONFLICT DO NOTHING
+    """)
   end
 
   defp mark_baseline_migrations_applied!(migrations_path, %{

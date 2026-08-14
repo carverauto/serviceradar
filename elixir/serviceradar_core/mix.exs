@@ -58,7 +58,8 @@ defmodule ServiceRadarCore.MixProject do
       {:serviceradar_srql, path: "../serviceradar_srql"},
 
       # Ash Framework
-      {:ash, "~> 3.22"},
+      # CVE-2026-67579: keyset cursor injection is fixed in 3.31.3.
+      {:ash, "~> 3.31.3"},
       {:ash_postgres, "~> 2.4"},
       {:ash_oban, "~> 0.4"},
       {:ash_state_machine, "~> 0.2"},
@@ -134,8 +135,13 @@ defmodule ServiceRadarCore.MixProject do
       # Policy SAT solver for Ash policies
       {:simple_sat, "~> 0.1"},
 
-      # Email (for auth senders)
+      # Email (auth senders and the native notification email transport).
+      # `gen_smtp` is what makes `Swoosh.Adapters.SMTP` exist at runtime: swoosh
+      # declares it *optional*, so without it an SMTP relay configuration
+      # compiles, deploys, and then fails at the first send. It is a direct
+      # dependency rather than an optional one for exactly that reason.
       {:swoosh, "~> 1.5"},
+      {:gen_smtp, "~> 1.2"},
 
       # Password hashing (for authentication)
       {:bcrypt_elixir, "~> 3.0"},

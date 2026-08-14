@@ -225,6 +225,13 @@ filter, time window, sort, and limit:
 in:devices is_available:true time:last_7d sort:last_seen:desc limit:20
 ```
 
+`time:` on devices is last seen. To ask "added recently" instead, filter
+`first_seen:`:
+
+```srql
+in:devices first_seen:last_30d sort:first_seen:desc limit:20
+```
+
 ---
 
 ## Step 8: Query across different entities

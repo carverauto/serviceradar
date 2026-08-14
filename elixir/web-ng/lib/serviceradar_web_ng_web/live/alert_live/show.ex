@@ -5,6 +5,8 @@ defmodule ServiceRadarWebNGWeb.AlertLive.Show do
   import ServiceRadarWebNGWeb.UIComponents
 
   alias ServiceRadar.Observability.EventTitle
+  alias ServiceRadarWebNG.AlertActions
+  alias ServiceRadarWebNG.RBAC
   alias ServiceRadarWebNGWeb.AnomalySeriesKey
   alias ServiceRadarWebNGWeb.Observability.DetailStreamComponents
   alias ServiceRadarWebNGWeb.SRQL.Builder
@@ -15,12 +17,24 @@ defmodule ServiceRadarWebNGWeb.AlertLive.Show do
 
   @impl true
   def mount(_params, _session, socket) do
+    scope = socket.assigns[:current_scope]
+
     {:ok,
      socket
      |> assign(:page_title, "Alert Details")
      |> assign(:alert_id, nil)
      |> assign(:alert, nil)
      |> assign(:error, nil)
+     |> assign(:alert_record, nil)
+     |> assign(:action_states, AlertActions.action_states(nil))
+     |> assign(:alert_snoozed?, false)
+     |> assign(:deliveries, [])
+     |> assign(:delivery_counts, AlertActions.delivery_counts([]))
+     |> assign(:deliveries_error, nil)
+     |> assign(:snooze_duration, AlertActions.default_snooze_value())
+     |> assign(:snooze_custom_minutes, "")
+     |> assign(:can_manage_alerts?, RBAC.can?(scope, AlertActions.permission()))
+     |> assign(:can_view_deliveries?, RBAC.can?(scope, AlertActions.deliveries_permission()))
      |> assign(:stream_entries, [])
      |> assign(:stream_severity, "all")
      |> assign(:stream_query, nil)
@@ -57,7 +71,8 @@ defmodule ServiceRadarWebNGWeb.AlertLive.Show do
      |> assign(:stream_severity, "all")
      |> assign(:show_raw_json, false)
      |> assign(:page_title, page_title_for(alert, alert_id))
-     |> prefill_srql_bar(detail_query, uri, alert_id)}
+     |> prefill_srql_bar(detail_query, uri, alert_id)
+     |> load_lifecycle_state(alert_id)}
   end
 
   @impl true
@@ -151,6 +166,64 @@ defmodule ServiceRadarWebNGWeb.AlertLive.Show do
     {:noreply, SRQLPage.handle_event(socket, "srql_builder_remove_filter", params, entity: "alerts")}
   end
 
+  # -- acknowledgement controls ----------------------------------------------
+  #
+  # Every clause below re-authorizes before it does anything. A hidden button is
+  # not authorization: these events are reachable by anyone who can open a
+  # socket to this LiveView, so `authorized_to_manage?/1` runs first and
+  # `AlertActions` re-derives the caller's authority from persistence again
+  # before it touches the engine.
+
+  def handle_event("alert_snooze_duration", %{"duration" => duration} = params, socket) when is_binary(duration) do
+    {:noreply,
+     socket
+     |> assign(:snooze_duration, whitelisted_duration(duration))
+     |> assign(:snooze_custom_minutes, custom_minutes_value(Map.get(params, "custom_minutes")))}
+  end
+
+  def handle_event("alert_snooze_duration", _params, socket), do: {:noreply, socket}
+
+  def handle_event("alert_acknowledge", _params, socket) do
+    with_authorized_alert(socket, fn scope, alert_id ->
+      AlertActions.acknowledge(scope, alert_id)
+    end)
+  end
+
+  def handle_event("alert_resolve", _params, socket) do
+    with_authorized_alert(socket, fn scope, alert_id ->
+      AlertActions.resolve(scope, alert_id)
+    end)
+  end
+
+  def handle_event("alert_unsnooze", _params, socket) do
+    with_authorized_alert(socket, fn scope, alert_id ->
+      AlertActions.unsnooze(scope, alert_id)
+    end)
+  end
+
+  def handle_event("alert_snooze", params, socket) do
+    params = if is_map(params), do: params, else: %{}
+
+    if authorized_to_manage?(socket) do
+      socket =
+        socket
+        |> assign(:snooze_duration, whitelisted_duration(Map.get(params, "duration")))
+        |> assign(:snooze_custom_minutes, custom_minutes_value(Map.get(params, "custom_minutes")))
+
+      case AlertActions.snooze_seconds(params) do
+        {:ok, seconds} ->
+          with_authorized_alert(socket, fn scope, alert_id ->
+            AlertActions.snooze(scope, alert_id, seconds)
+          end)
+
+        :error ->
+          {:noreply, put_flash(socket, :error, AlertActions.describe_error(:invalid_duration))}
+      end
+    else
+      {:noreply, put_flash(socket, :error, AlertActions.describe_error(:not_authorized))}
+    end
+  end
+
   @impl true
   def render(assigns) do
     assigns =
@@ -197,12 +270,27 @@ defmodule ServiceRadarWebNGWeb.AlertLive.Show do
 
           <section class="flex min-h-0 min-w-0 flex-col overflow-hidden lg:border-l lg:border-sr-line">
             <.alert_detail_header alert={@alert} alert_id={@alert_id} />
+            <.alert_lifecycle_bar
+              alert_record={@alert_record}
+              action_states={@action_states}
+              snoozed?={@alert_snoozed?}
+              snooze_duration={@snooze_duration}
+              snooze_custom_minutes={@snooze_custom_minutes}
+              can_manage?={@can_manage_alerts?}
+            />
             <.alert_meta_strip alert={@alert} />
 
             <div class="min-h-0 min-w-0 flex-1 space-y-5 overflow-x-hidden overflow-y-auto px-3 py-5 sm:px-5">
               <.alert_message_hero alert={@alert} />
               <.stateful_incident_summary :if={stateful_incident?(@alert)} alert={@alert} />
               <.alert_context_panel alert={@alert} />
+              <.notification_history
+                :if={@can_view_deliveries?}
+                alert_id={@alert_id}
+                deliveries={@deliveries}
+                counts={@delivery_counts}
+                error={@deliveries_error}
+              />
               <.related_links alert={@alert} />
               <.alert_raw_toggle alert={@alert} open?={@show_raw_json} />
             </div>
@@ -211,6 +299,98 @@ defmodule ServiceRadarWebNGWeb.AlertLive.Show do
       </div>
     </Layouts.app>
     """
+  end
+
+  # -- acknowledgement plumbing ----------------------------------------------
+
+  # Runs `fun` only for a caller that currently holds the manage permission,
+  # then re-reads the alert so the rendered state is the state the engine
+  # returned. No optimistic update is applied anywhere on this page.
+  defp with_authorized_alert(socket, fun) when is_function(fun, 2) do
+    alert_id = socket.assigns[:alert_id]
+
+    cond do
+      not authorized_to_manage?(socket) ->
+        {:noreply, put_flash(socket, :error, AlertActions.describe_error(:not_authorized))}
+
+      not is_binary(alert_id) or alert_id == "" ->
+        {:noreply, put_flash(socket, :error, AlertActions.describe_error(:not_found))}
+
+      true ->
+        case fun.(socket.assigns.current_scope, alert_id) do
+          {:ok, _alert} ->
+            {:noreply,
+             socket
+             |> put_flash(:info, "Alert updated")
+             |> load_lifecycle_state(alert_id)}
+
+          {:error, reason} ->
+            {:noreply,
+             socket
+             |> put_flash(:error, AlertActions.describe_error(reason))
+             |> load_lifecycle_state(alert_id)}
+        end
+    end
+  end
+
+  defp authorized_to_manage?(socket) do
+    RBAC.can?(socket.assigns[:current_scope], AlertActions.permission())
+  end
+
+  # Enumerated durations only; never `String.to_atom/1` on the submitted value.
+  defp whitelisted_duration(value) when is_binary(value) do
+    known = Enum.map(AlertActions.snooze_options(), & &1.value) ++ [AlertActions.custom_snooze_value()]
+
+    if value in known, do: value, else: AlertActions.default_snooze_value()
+  end
+
+  defp whitelisted_duration(_value), do: AlertActions.default_snooze_value()
+
+  defp custom_minutes_value(value) when is_binary(value), do: String.slice(String.trim(value), 0, 8)
+  defp custom_minutes_value(_value), do: ""
+
+  # Loads the authoritative lifecycle state (and the alert's notification
+  # history) from the engine. Deliberately skipped on the disconnected render:
+  # the LiveView Iron Laws forbid a database query in a disconnected mount, and
+  # the static HTML is replaced as soon as the socket connects.
+  defp load_lifecycle_state(socket, alert_id) do
+    if connected?(socket) and is_binary(alert_id) and alert_id != "" do
+      scope = socket.assigns[:current_scope]
+
+      record =
+        case AlertActions.load(scope, alert_id) do
+          {:ok, alert} -> alert
+          {:error, _reason} -> nil
+        end
+
+      socket
+      |> assign(:alert_record, record)
+      |> assign(:action_states, AlertActions.action_states(record))
+      |> assign(:alert_snoozed?, AlertActions.snoozed?(record))
+      |> load_deliveries(alert_id)
+    else
+      socket
+    end
+  end
+
+  defp load_deliveries(socket, alert_id) do
+    if socket.assigns[:can_view_deliveries?] do
+      case AlertActions.deliveries(socket.assigns[:current_scope], alert_id) do
+        {:ok, deliveries} ->
+          socket
+          |> assign(:deliveries, deliveries)
+          |> assign(:delivery_counts, AlertActions.delivery_counts(deliveries))
+          |> assign(:deliveries_error, nil)
+
+        {:error, _reason} ->
+          socket
+          |> assign(:deliveries, [])
+          |> assign(:delivery_counts, AlertActions.delivery_counts([]))
+          |> assign(:deliveries_error, "Notification history is unavailable.")
+      end
+    else
+      socket
+    end
   end
 
   # -- data loading -----------------------------------------------------------
@@ -573,6 +753,343 @@ defmodule ServiceRadarWebNGWeb.AlertLive.Show do
       query = ~s|in:alerts #{field}:"#{escape_value(value)}" time:last_7d sort:timestamp:desc|
       ~p"/observability/alerts?#{%{q: query}}"
     end
+  end
+
+  # -- lifecycle controls -----------------------------------------------------
+
+  attr :alert_record, :map, default: nil
+  attr :action_states, :map, required: true
+  attr :snoozed?, :boolean, default: false
+  attr :snooze_duration, :string, required: true
+  attr :snooze_custom_minutes, :string, default: ""
+  attr :can_manage?, :boolean, default: false
+
+  defp alert_lifecycle_bar(assigns) do
+    assigns =
+      assigns
+      |> assign(:snooze_options, AlertActions.snooze_options())
+      |> assign(:custom_value, AlertActions.custom_snooze_value())
+      |> assign(:min_minutes, AlertActions.min_custom_snooze_minutes())
+      |> assign(:max_minutes, AlertActions.max_custom_snooze_minutes())
+      |> assign(:acknowledgement, acknowledgement_summary(assigns.alert_record))
+      |> assign(:snooze_until, snooze_until_display(assigns.alert_record))
+      |> assign(:acknowledge_state, Map.get(assigns.action_states, :acknowledge))
+      |> assign(:snooze_state, Map.get(assigns.action_states, :snooze))
+      |> assign(:unsnooze_state, Map.get(assigns.action_states, :unsnooze))
+      |> assign(:resolve_state, Map.get(assigns.action_states, :resolve))
+
+    ~H"""
+    <div
+      :if={is_map(@alert_record)}
+      class="flex flex-wrap items-center gap-x-4 gap-y-2 border-b border-sr-line bg-sr-subtle/20 px-4 py-3 sm:px-6"
+    >
+      <div class="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
+        <%!--
+          "Snoozed" is a derived condition, not a status: the state machine has
+          no such state. It is rendered as its own badge so it can never be
+          mistaken for one.
+        --%>
+        <.ui_badge :if={@snoozed?} variant="warning" size="xs">
+          Snoozed until {@snooze_until}
+        </.ui_badge>
+
+        <div :if={@acknowledgement} class="flex min-w-0 flex-wrap items-center gap-1.5">
+          <.ui_badge variant={@acknowledgement.variant} size="xs" title={@acknowledgement.title}>
+            {@acknowledgement.kind_label}
+          </.ui_badge>
+          <span class="truncate font-sans text-xs text-sr-muted">
+            Acknowledged by <span class="text-sr-ink">{@acknowledgement.actor}</span>
+            <span :if={@acknowledgement.at}>on {@acknowledgement.at}</span>
+          </span>
+        </div>
+      </div>
+
+      <div
+        :if={@can_manage?}
+        class="flex flex-wrap items-center gap-1.5 sm:ml-auto"
+        role="group"
+        aria-label="Alert lifecycle actions"
+      >
+        <.ui_button
+          type="button"
+          variant="primary"
+          size="xs"
+          phx-click="alert_acknowledge"
+          disabled={not @acknowledge_state.enabled?}
+          title={@acknowledge_state.reason}
+          aria-label={control_label("Acknowledge alert", @acknowledge_state)}
+        >
+          Acknowledge
+        </.ui_button>
+
+        <form
+          id="alert-snooze-form"
+          phx-submit="alert_snooze"
+          phx-change="alert_snooze_duration"
+          class="flex flex-wrap items-center gap-1.5"
+        >
+          <label for="alert-snooze-duration" class="sr-only">Snooze duration</label>
+          <select
+            id="alert-snooze-duration"
+            name="duration"
+            disabled={not @snooze_state.enabled?}
+            class={ui_field_class(size: "xs", class: "w-auto")}
+          >
+            <option
+              :for={option <- @snooze_options}
+              value={option.value}
+              selected={option.value == @snooze_duration}
+            >
+              {option.label}
+            </option>
+            <option value={@custom_value} selected={@custom_value == @snooze_duration}>
+              Custom
+            </option>
+          </select>
+
+          <label :if={@snooze_duration == @custom_value} for="alert-snooze-minutes" class="sr-only">
+            Snooze minutes ({@min_minutes} to {@max_minutes})
+          </label>
+          <input
+            :if={@snooze_duration == @custom_value}
+            id="alert-snooze-minutes"
+            type="number"
+            name="custom_minutes"
+            value={@snooze_custom_minutes}
+            min={@min_minutes}
+            max={@max_minutes}
+            step="1"
+            placeholder="minutes"
+            disabled={not @snooze_state.enabled?}
+            class={ui_field_class(size: "xs", class: "w-24")}
+          />
+
+          <.ui_button
+            type="submit"
+            variant="outline"
+            size="xs"
+            disabled={not @snooze_state.enabled?}
+            title={@snooze_state.reason}
+            aria-label={control_label("Snooze alert", @snooze_state)}
+          >
+            Snooze
+          </.ui_button>
+        </form>
+
+        <.ui_button
+          :if={@unsnooze_state.enabled?}
+          type="button"
+          variant="ghost"
+          size="xs"
+          phx-click="alert_unsnooze"
+          aria-label="Clear the snooze on this alert"
+        >
+          Clear snooze
+        </.ui_button>
+
+        <.ui_button
+          type="button"
+          variant="outline"
+          size="xs"
+          phx-click="alert_resolve"
+          disabled={not @resolve_state.enabled?}
+          title={@resolve_state.reason}
+          aria-label={control_label("Resolve alert", @resolve_state)}
+          data-confirm="Resolve this alert? Pending notifications for it stop."
+        >
+          Resolve
+        </.ui_button>
+      </div>
+    </div>
+    """
+  end
+
+  defp control_label(label, %{enabled?: false, reason: reason}) when is_binary(reason),
+    do: label <> " (unavailable: " <> reason <> ")"
+
+  defp control_label(label, _state), do: label
+
+  # `acknowledged_by_user_id` is a real foreign key. A row without it but with
+  # the free-text `acknowledged_by` was acknowledged by an external principal -
+  # someone who clicked an emailed action link - and is labelled as such rather
+  # than presented as a platform user.
+  defp acknowledgement_summary(%{acknowledged_at: %DateTime{} = at} = alert) do
+    user_id = Map.get(alert, :acknowledged_by_user_id)
+    free_text = Map.get(alert, :acknowledged_by)
+
+    if is_binary(user_id) do
+      %{
+        kind_label: "Platform user",
+        variant: "info",
+        title: "Acknowledged by a ServiceRadar user account",
+        actor: display_actor(free_text, user_id),
+        at: format_any_time(at)
+      }
+    else
+      %{
+        kind_label: "External principal",
+        variant: "outline",
+        title: "Acknowledged outside ServiceRadar, through a signed action link",
+        actor: display_actor(free_text, nil),
+        at: format_any_time(at)
+      }
+    end
+  end
+
+  defp acknowledgement_summary(_alert), do: nil
+
+  defp display_actor(free_text, _user_id) when is_binary(free_text) and free_text != "", do: free_text
+
+  defp display_actor(_free_text, user_id) when is_binary(user_id), do: "user " <> String.slice(user_id, 0, 8)
+
+  defp display_actor(_free_text, _user_id), do: "unknown"
+
+  defp snooze_until_display(%{snooze_until: %DateTime{} = until}), do: format_any_time(until)
+  defp snooze_until_display(_alert), do: nil
+
+  # -- notification history ---------------------------------------------------
+
+  attr :alert_id, :string, required: true
+  attr :deliveries, :list, default: []
+  attr :counts, :map, required: true
+  attr :error, :string, default: nil
+
+  defp notification_history(assigns) do
+    assigns = assign(assigns, :delivery_log_href, AlertActions.delivery_log_path(assigns.alert_id))
+
+    ~H"""
+    <div class="overflow-hidden rounded-sr-surface border border-sr-line bg-sr-surface shadow-sr-surface">
+      <div class="flex flex-wrap items-center justify-between gap-2 border-b border-sr-line bg-sr-subtle/30 px-4 py-2.5">
+        <span class="font-sans text-xs font-medium uppercase tracking-wide text-sr-muted">
+          Notifications
+        </span>
+        <div class="flex flex-wrap items-center gap-1.5">
+          <.ui_badge variant="ghost" size="xs">{@counts.total} recorded</.ui_badge>
+          <.ui_badge :if={@counts.sent > 0} variant="success" size="xs">
+            {@counts.sent} sent
+          </.ui_badge>
+          <.ui_badge :if={@counts.suppressed > 0} variant="warning" size="xs">
+            {@counts.suppressed} suppressed
+          </.ui_badge>
+          <.ui_badge :if={@counts.pending > 0} variant="info" size="xs">
+            {@counts.pending} pending retry
+          </.ui_badge>
+          <.ui_badge :if={@counts.failed > 0} variant="error" size="xs">
+            {@counts.failed} failed
+          </.ui_badge>
+          <.ui_badge
+            :if={@counts.test > 0}
+            variant="outline"
+            size="xs"
+            title="Test sends are not counted"
+          >
+            {@counts.test} test (not counted)
+          </.ui_badge>
+          <.ui_button href={@delivery_log_href} size="xs" variant="ghost">
+            Delivery log
+          </.ui_button>
+        </div>
+      </div>
+
+      <div :if={@error} class="px-4 py-3">
+        <div class={ui_alert_class(variant: "warning")}>
+          <.icon name="hero-exclamation-triangle" class="size-5 shrink-0" />
+          <p>{@error}</p>
+        </div>
+      </div>
+
+      <p :if={is_nil(@error) and @deliveries == []} class="px-4 py-4 text-sm text-sr-muted">
+        No notification was recorded for this alert. Nothing was sent and nothing was withheld.
+      </p>
+
+      <div :if={is_nil(@error) and @deliveries != []} class="sr-ui-table-shell">
+        <table class={ui_table_class(size: "xs", class: "w-full")}>
+          <thead>
+            <tr>
+              <th class="whitespace-nowrap text-xs font-semibold text-sr-muted">State</th>
+              <th class="whitespace-nowrap text-xs font-semibold text-sr-muted">Why</th>
+              <th class="whitespace-nowrap text-xs font-semibold text-sr-muted">Channel</th>
+              <th class="whitespace-nowrap text-xs font-semibold text-sr-muted">Step</th>
+              <th class="whitespace-nowrap text-xs font-semibold text-sr-muted">Attempts</th>
+              <th class="whitespace-nowrap text-xs font-semibold text-sr-muted">Recorded</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr
+              :for={delivery <- @deliveries}
+              class={[
+                "align-top",
+                AlertActions.test_delivery?(delivery) && "bg-sr-subtle/30 italic"
+              ]}
+            >
+              <td class="whitespace-nowrap">
+                <div class="flex flex-wrap items-center gap-1">
+                  <.ui_badge variant={AlertActions.delivery_state_variant(delivery.state)} size="xs">
+                    {AlertActions.delivery_state_label(delivery.state)}
+                  </.ui_badge>
+                  <.ui_badge :if={AlertActions.test_delivery?(delivery)} variant="outline" size="xs">
+                    Test send
+                  </.ui_badge>
+                </div>
+              </td>
+              <td class="text-xs text-sr-ink">
+                <div>{delivery_reason(delivery)}</div>
+                <div :if={delivery.error_class} class="mt-0.5 font-mono text-[11px] text-sr-muted">
+                  {delivery.error_class}
+                </div>
+                <div :if={delivery.error_message} class="mt-0.5 break-words text-[11px] text-sr-muted">
+                  {delivery.error_message}
+                </div>
+              </td>
+              <td class="whitespace-nowrap font-mono text-[11px] text-sr-ink">
+                {delivery_channel(delivery)}
+              </td>
+              <td class="whitespace-nowrap text-xs text-sr-muted">
+                {delivery_step(delivery)}
+              </td>
+              <td class="whitespace-nowrap text-xs text-sr-muted">
+                {delivery.attempt_count}/{delivery.max_attempts}
+                <div :if={delivery.next_attempt_at} class="text-[11px]">
+                  next {format_any_time(delivery.next_attempt_at)}
+                </div>
+              </td>
+              <td class="whitespace-nowrap font-mono text-[11px] text-sr-muted">
+                {format_any_time(delivery_timestamp(delivery))}
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+    """
+  end
+
+  defp delivery_reason(%{state: :suppressed, suppression_reason: reason}) do
+    AlertActions.suppression_reason_label(reason) || "Suppressed"
+  end
+
+  defp delivery_reason(%{state: :sent}), do: "Delivered"
+  defp delivery_reason(%{state: :skipped}), do: "Skipped before dispatch"
+  defp delivery_reason(%{state: :pending}), do: "Awaiting its next attempt"
+  defp delivery_reason(%{state: :dispatching}), do: "In flight"
+  defp delivery_reason(%{state: :failed}), do: "Terminal failure"
+  defp delivery_reason(%{state: :expired}), do: "Expired before delivery"
+  defp delivery_reason(%{state: :cancelled}), do: "Cancelled"
+  defp delivery_reason(_delivery), do: "-"
+
+  defp delivery_channel(%{channel: %{name: name}}) when is_binary(name) and name != "", do: name
+
+  defp delivery_channel(%{channel_id: id}) when is_binary(id), do: String.slice(id, 0, 8)
+
+  defp delivery_channel(_delivery), do: "-"
+
+  defp delivery_step(%{step_number: step}) when is_integer(step), do: "step #{step}"
+  defp delivery_step(_delivery), do: "-"
+
+  defp delivery_timestamp(delivery) do
+    Map.get(delivery, :finished_at) || Map.get(delivery, :started_at) ||
+      Map.get(delivery, :queued_at) || Map.get(delivery, :last_evaluated_at) ||
+      Map.get(delivery, :inserted_at)
   end
 
   # -- body panels ------------------------------------------------------------

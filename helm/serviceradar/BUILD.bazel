@@ -1,3 +1,5 @@
+load("@rules_python//python:py_test.bzl", "py_test")
+
 package(default_visibility = ["//visibility:public"])
 
 # Read by //:agent_release_key_consistency_test, which asserts the agentReleasePublicKey in both
@@ -29,6 +31,27 @@ filegroup(
     name = "values",
     srcs = [
         "templates/core.yaml",
+        "values.yaml",
+    ],
+)
+
+py_test(
+    name = "flow_collector_strategy_migration_test",
+    srcs = ["flow_collector_strategy_migration_test.py"],
+    data = [
+        "templates/flow-collector.yaml",
+        "templates/flow-collector-strategy-migration-job.yaml",
+    ],
+)
+
+py_test(
+    name = "web_ng_public_url_test",
+    srcs = ["web_ng_public_url_test.py"],
+    data = [
+        "templates/_helpers.tpl",
+        "templates/agent-gateway.yaml",
+        "templates/core.yaml",
+        "templates/web.yaml",
         "values.yaml",
     ],
 )

@@ -31,6 +31,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexEvents.DeviceManagement do
        |> assign(:show_import_modal, true)
        |> assign(:csv_preview, nil)
        |> assign(:csv_errors, [])
+       |> assign(:csv_warnings, [])
        |> assign(:import_status, nil)}
     else
       {:noreply, put_flash(socket, :error, "You are not authorized to import devices")}
@@ -43,6 +44,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexEvents.DeviceManagement do
      |> assign(:show_import_modal, false)
      |> assign(:csv_preview, nil)
      |> assign(:csv_errors, [])
+     |> assign(:csv_warnings, [])
      |> assign(:import_status, nil)}
   end
 
@@ -129,11 +131,24 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexEvents.DeviceManagement do
           end)
 
         case result do
-          {:ok, devices} ->
-            {:noreply, socket |> assign(:csv_preview, devices) |> assign(:csv_errors, [])}
+          # Parse warnings are kept apart from import errors: the preview still
+          # shows the rows that parsed, so a partly-bad file is visibly partial,
+          # but a later creation failure must not inherit the warning styling.
+          {:ok, devices, warnings} ->
+            {:noreply,
+             socket
+             |> assign(:csv_preview, devices)
+             |> assign(:csv_warnings, warnings)
+             |> assign(:csv_errors, [])
+             |> assign(:import_status, nil)}
 
           {:error, errors} ->
-            {:noreply, socket |> assign(:csv_preview, nil) |> assign(:csv_errors, errors)}
+            {:noreply,
+             socket
+             |> assign(:csv_preview, nil)
+             |> assign(:csv_warnings, [])
+             |> assign(:csv_errors, errors)
+             |> assign(:import_status, nil)}
         end
     end
   end
@@ -152,12 +167,21 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexEvents.DeviceManagement do
              socket
              |> assign(:show_import_modal, false)
              |> assign(:csv_preview, nil)
+             |> assign(:csv_warnings, [])
              |> assign(:csv_errors, [])
+             |> assign(:import_status, nil)
              |> put_flash(:info, IndexCsvImport.import_success_message(created, skipped))
              |> push_patch(to: ~p"/devices")}
 
-          {:error, errors} when is_list(errors) ->
-            {:noreply, assign(socket, :csv_errors, errors)}
+          {:error, %{created: created, skipped: skipped, errors: errors}} ->
+            {:noreply,
+             socket
+             |> assign(:csv_preview, nil)
+             |> assign(:csv_errors, errors)
+             |> assign(
+               :import_status,
+               IndexCsvImport.import_partial_message(created, skipped, length(errors))
+             )}
         end
 
       _ ->

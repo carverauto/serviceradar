@@ -42,15 +42,36 @@ pub(super) fn build_filter(key: &str, value: FilterValue) -> Filter {
     };
 
     Filter {
-        field: field.to_lowercase(),
+        field: normalize_field_name(field),
         op,
         value: final_value,
     }
 }
 
+/// Field names are case-insensitive, but a JSONB sub-key is not.
+///
+/// `tags.<key>` and `metadata.<key>` address arbitrary keys that ingestion
+/// stores with whatever casing the operator used, and Postgres JSONB lookups
+/// are case-sensitive -- so lowercasing the key turns `tags.Gate` into a probe
+/// for `tags->>'gate'` that silently matches nothing. Only the namespace is
+/// folded. Fixed dotted fields (`os.name`, `hw_info.cpu_type`) name real
+/// columns and stay fully folded.
+pub(super) fn normalize_field_name(field: &str) -> String {
+    const DYNAMIC_JSONB_NAMESPACES: [&str; 2] = ["tags", "metadata"];
+
+    if let Some((namespace, key)) = field.split_once('.') {
+        let namespace = namespace.to_lowercase();
+        if DYNAMIC_JSONB_NAMESPACES.contains(&namespace.as_str()) {
+            return format!("{namespace}.{key}");
+        }
+    }
+
+    field.to_lowercase()
+}
+
 fn supports_implicit_like(field: &str) -> bool {
     let field = field.to_ascii_lowercase();
-    if field.starts_with("metadata.") {
+    if field.starts_with("metadata.") || field.starts_with("tags.") {
         return true;
     }
 

@@ -39,6 +39,8 @@ defmodule ServiceRadar.Cluster.DatabaseBootstrapIntegrationTest do
   end
 
   setup_all do
+    {:ok, _} = Application.ensure_all_started(:postgrex)
+    {:ok, _} = Application.ensure_all_started(:ecto_sql)
     assert_usable_admin_password!(@admin_url)
 
     {subprocess_ca_file, remove_subprocess_ca_file?} = subprocess_ca_file()
@@ -90,7 +92,10 @@ defmodule ServiceRadar.Cluster.DatabaseBootstrapIntegrationTest do
   end
 
   setup %{admin_opts: admin_opts} do
-    scratch_db = "serviceradar_bootstrap_test_#{System.unique_integer([:positive])}"
+    # Integration shards and retries use independent BEAM VMs against the same CNPG fixture,
+    # so System.unique_integer/1 alone cannot make the database name globally unique.
+    suffix = Base.encode16(:crypto.strong_rand_bytes(8), case: :lower)
+    scratch_db = "serviceradar_bootstrap_test_#{suffix}"
 
     create_database!(admin_opts, scratch_db)
 
@@ -111,12 +116,37 @@ defmodule ServiceRadar.Cluster.DatabaseBootstrapIntegrationTest do
     assert first["baseline_count"] == 1
     assert first["migration_count"] > 0
     assert first["platform_object_count"] > 0
+    assert first["logs_hypertable_present"] == true
+    assert first["logs_severity_rollup_present"] == true
+
+    assert first["logs_severity_rollup_columns"] == [
+             "bucket",
+             "service_name",
+             "total_count",
+             "fatal_count",
+             "error_count",
+             "warning_count",
+             "info_count",
+             "debug_count"
+           ]
+
+    assert first["auth_settings"] == %{
+             "count" => 1,
+             "mode" => "password_only",
+             "is_enabled" => false,
+             "allow_password_fallback" => true,
+             "sso_auto_provision" => false
+           }
 
     second = run_startup_migrations!(admin_url, scratch_db, subprocess_ca_file)
 
     assert second["baseline_count"] == 1
     assert second["migration_count"] == first["migration_count"]
     assert second["platform_object_count"] == first["platform_object_count"]
+    assert second["logs_hypertable_present"] == true
+    assert second["logs_severity_rollup_present"] == true
+    assert second["logs_severity_rollup_columns"] == first["logs_severity_rollup_columns"]
+    assert second["auth_settings"] == first["auth_settings"]
   end
 
   defp run_startup_migrations!(admin_url, database, subprocess_ca_file) do
@@ -218,10 +248,64 @@ defmodule ServiceRadar.Cluster.DatabaseBootstrapIntegrationTest do
       AND c.relkind IN ('r', 'p', 'S', 'v', 'm', 'f')
       """)
 
+    %{rows: [[logs_hypertable_present]]} =
+      ServiceRadar.Repo.query!("""
+      SELECT EXISTS (
+        SELECT 1
+        FROM timescaledb_information.hypertables
+        WHERE hypertable_schema = 'platform'
+          AND hypertable_name = 'logs'
+      )
+      """)
+
+    %{rows: [[logs_severity_rollup_present]]} =
+      ServiceRadar.Repo.query!("""
+      SELECT EXISTS (
+        SELECT 1
+        FROM timescaledb_information.continuous_aggregates
+        WHERE view_schema = 'platform'
+          AND view_name = 'logs_severity_stats_5m'
+      )
+      """)
+
+    %{rows: [[logs_severity_rollup_columns]]} =
+      ServiceRadar.Repo.query!("""
+      SELECT array_agg(column_name::text ORDER BY ordinal_position)
+      FROM information_schema.columns
+      WHERE table_schema = 'platform'
+        AND table_name = 'logs_severity_stats_5m'
+      """)
+
+    %{rows: auth_rows} =
+      ServiceRadar.Repo.query!("""
+      SELECT mode, is_enabled, allow_password_fallback, sso_auto_provision
+      FROM platform.auth_settings
+      ORDER BY inserted_at
+      """)
+
+    auth_settings =
+      case auth_rows do
+        [[mode, is_enabled, allow_password_fallback, sso_auto_provision]] ->
+          %{
+            count: 1,
+            mode: mode,
+            is_enabled: is_enabled,
+            allow_password_fallback: allow_password_fallback,
+            sso_auto_provision: sso_auto_provision
+          }
+
+        rows ->
+          %{count: length(rows)}
+      end
+
     IO.puts("BOOTSTRAP_RESULT:" <> Jason.encode!(%{
       migration_count: migration_count,
       baseline_count: baseline_count,
-      platform_object_count: platform_object_count
+      platform_object_count: platform_object_count,
+      logs_hypertable_present: logs_hypertable_present,
+      logs_severity_rollup_present: logs_severity_rollup_present,
+      logs_severity_rollup_columns: logs_severity_rollup_columns,
+      auth_settings: auth_settings
     }))
     '''
   end

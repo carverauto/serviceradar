@@ -15,6 +15,12 @@ alias ServiceRadar.EventWriter.Processors.Flows
 alias ServiceRadar.EventWriter.Processors.PowerDNS
 alias ServiceRadar.Jobs.RefreshTraceSummariesWorker
 alias ServiceRadar.Jobs.RootSpanRatioWorker
+alias ServiceRadar.Notifications.ContinuationWorker, as: NotificationContinuationWorker
+alias ServiceRadar.Notifications.DeliveryRetentionWorker, as: NotificationRetentionWorker
+alias ServiceRadar.Notifications.DispatchSchedule
+alias ServiceRadar.Notifications.PluginTarget, as: NotificationPluginTarget
+alias ServiceRadar.Notifications.ReceiptWorker, as: NotificationReceiptWorker
+alias ServiceRadar.Notifications.SilenceExpiryWorker, as: NotificationSilenceExpiryWorker
 alias ServiceRadar.Observability.CapacityForecasting.Worker, as: CapacityForecastingWorker
 alias ServiceRadar.Observability.DataRetentionWorker
 alias ServiceRadar.Observability.ProductionSchedule
@@ -313,12 +319,15 @@ endpoint_inventory_addon_config =
       endpoint_inventory_addon_config
   end
 
-config :geolix, databases: base_geolite_dbs ++ city_geolite_dbs ++ ipinfo_dbs
+geolite_dbs = base_geolite_dbs ++ city_geolite_dbs ++ ipinfo_dbs
+
+config :geolix, databases: ServiceRadar.Observability.GeoIP.present_databases(geolite_dbs)
 
 config :serviceradar_core,
        :endpoint_inventory_native_addon_package,
        endpoint_inventory_addon_config
 
+config :serviceradar_core, :geolite_databases, geolite_dbs
 config :serviceradar_core, :netprobe_native_addon_package, netprobe_addon_config
 config :serviceradar_core, :otel_collector_native_addon_package, otel_collector_addon_config
 
@@ -1470,6 +1479,37 @@ if config_env() == :prod do
     # source list at run time. A non-empty Settings value overrides this.
     default_source_opt_ins: ProductionSchedule.capacity_source_opt_ins()
 
+  # Notification continuation, silence expiry, and delivery retention. Built by
+  # ServiceRadar.Notifications.DispatchSchedule so this tree and
+  # serviceradar_core_elx's runtime.exs cannot drift; unset env leaves each
+  # worker's own defaults authoritative.
+  config :serviceradar_core,
+         NotificationContinuationWorker,
+         DispatchSchedule.continuation_worker_config()
+
+  # The platform-resident serviceradar-agent that runs :control_plane wasm
+  # notification plugins (design D3, tasks 3.3.1). There is deliberately no
+  # default: guessing an agent id would dispatch notifications to whichever
+  # agent happened to match, so an unset value fails the delivery with
+  # `platform_agent_unconfigured` instead.
+  config :serviceradar_core,
+         NotificationPluginTarget,
+         platform_agent_uid: System.get_env("SERVICERADAR_NOTIFICATION_PLATFORM_AGENT_ID"),
+         platform_agent_partition_id:
+           System.get_env("SERVICERADAR_NOTIFICATION_PLATFORM_AGENT_PARTITION")
+
+  config :serviceradar_core,
+         NotificationReceiptWorker,
+         DispatchSchedule.receipt_worker_config()
+
+  config :serviceradar_core,
+         NotificationRetentionWorker,
+         DispatchSchedule.delivery_retention_worker_config()
+
+  config :serviceradar_core,
+         NotificationSilenceExpiryWorker,
+         DispatchSchedule.silence_expiry_worker_config()
+
   config :serviceradar_core, Oban,
     engine: Oban.Engines.Basic,
     repo: ServiceRadar.Repo,
@@ -1528,7 +1568,8 @@ if config_env() == :prod do
          ] ++
            object_store_retention_crontab ++
            capacity_forecasting_crontab ++
-           ProductionSchedule.cron_entries()}
+           ProductionSchedule.cron_entries() ++
+           DispatchSchedule.cron_entries()}
     ],
     peer: Oban.Peers.Database
 
@@ -1805,4 +1846,28 @@ if config_env() == :prod do
 
     config :serviceradar_core, :event_writer_enabled, true
   end
+end
+
+# Outbound mail.
+#
+# The adapter is derived from the environment in exactly one place -
+# `ServiceRadar.OutboundMail.RuntimeConfig` - so this release and
+# `serviceradar_core_elx` cannot resolve different mailers from the same
+# variables. With nothing set it still resolves to `Swoosh.Adapters.Test`,
+# which is what it did before; the difference is that
+# `ServiceRadar.OutboundMail.diagnose/0` now names that state instead of
+# letting every send report success.
+if config_env() == :prod do
+  mailer_env = System.get_env()
+
+  config :serviceradar_core,
+         ServiceRadar.Mailer,
+         ServiceRadar.OutboundMail.RuntimeConfig.mailer_config(mailer_env)
+
+  # Overrides the compile-time `false` in config.exs: an API adapter with no
+  # HTTP client raises on every send, and config.exs cannot know which adapter
+  # this deployment picked because it is chosen here. `Req` is already a
+  # dependency, so this costs nothing when the adapter needs no HTTP client.
+  config :swoosh, :api_client, Swoosh.ApiClient.Req
+  config :swoosh, local: ServiceRadar.OutboundMail.RuntimeConfig.local?(mailer_env)
 end

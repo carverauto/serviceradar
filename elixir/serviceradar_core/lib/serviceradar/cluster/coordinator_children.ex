@@ -35,8 +35,11 @@ defmodule ServiceRadar.Cluster.CoordinatorChildren do
         zen_rule_seeder_child(),
         zen_rule_sync_child(),
         rule_seeder_child(),
+        notification_provider_seeder_child(),
+        notification_template_seeder_child(),
         job_schedule_seeder_child(),
         device_cleanup_settings_seeder_child(),
+        device_hostname_rdns_settings_seeder_child(),
         snmp_profile_seeder_child(),
         role_profile_seeder_child(),
         mtr_settings_seeder_child(),
@@ -153,6 +156,22 @@ defmodule ServiceRadar.Cluster.CoordinatorChildren do
     end
   end
 
+  # The first-party notification provider catalog. Without it the platform ships
+  # with nothing to bind a NotificationChannel to and cannot page anyone.
+  defp notification_provider_seeder_child do
+    if enabled?(:seeders_enabled, true) do
+      ServiceRadar.Notifications.ProviderSeeder
+    end
+  end
+
+  # The managed notification templates. `Notifications.Renderer` fails a dispatch
+  # outright when no body template resolves for the negotiated payload format.
+  defp notification_template_seeder_child do
+    if enabled?(:seeders_enabled, true) do
+      ServiceRadar.Notifications.TemplateSeeder
+    end
+  end
+
   defp job_schedule_seeder_child do
     if enabled?(:seeders_enabled, true) do
       ServiceRadar.Jobs.JobScheduleSeeder
@@ -162,6 +181,12 @@ defmodule ServiceRadar.Cluster.CoordinatorChildren do
   defp device_cleanup_settings_seeder_child do
     if enabled?(:seeders_enabled, true) do
       ServiceRadar.Inventory.DeviceCleanupSettingsSeeder
+    end
+  end
+
+  defp device_hostname_rdns_settings_seeder_child do
+    if enabled?(:seeders_enabled, true) do
+      ServiceRadar.Inventory.DeviceHostnameRdnsSettingsSeeder
     end
   end
 

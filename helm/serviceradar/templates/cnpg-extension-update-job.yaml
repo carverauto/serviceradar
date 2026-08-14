@@ -97,7 +97,7 @@ spec:
       - name: extension-update
         {{- /* Deliberately the INCOMING CNPG image: its own lib directory is the
                ground truth for which module versions the upgraded cluster will have. */}}
-        image: {{ include "serviceradar.cnpgImageName" (dict "Values" .Values "cnpg" $cnpg) }}
+        image: {{ include "serviceradar.cnpgImageName" (dict "Values" .Values "Chart" .Chart "cnpg" $cnpg) }}
         imagePullPolicy: {{ include "serviceradar.imagePullPolicy" . }}
         {{- include "serviceradar.containerSecurityContext" . | nindent 8 }}
         env:

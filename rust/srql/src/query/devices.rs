@@ -56,7 +56,13 @@ pub(super) async fn execute(
         // Check if this is a grouped stats query
         if !spec.group_fields.is_empty() {
             let grouped_sql = build_grouped_stats_query(plan, &spec)?;
-            let mut query = diesel::sql_query(&grouped_sql.sql).into_boxed();
+            // The grouped-stats builder emits `?` placeholders; Postgres wants
+            // `$n`. Diesel's .bind() supplies the values but never rewrites the
+            // SQL text, so this has to happen here as well as in
+            // to_sql_and_params -- otherwise every *filtered* grouped query is
+            // a syntax error at execution while translation-only tests pass.
+            let sql = rewrite_placeholders(&grouped_sql.sql);
+            let mut query = diesel::sql_query(sql).into_boxed();
             for bind in grouped_sql.binds {
                 query = bind.apply(query);
             }

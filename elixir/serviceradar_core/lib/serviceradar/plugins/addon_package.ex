@@ -21,6 +21,7 @@ defmodule ServiceRadar.Plugins.AddonPackage do
 
   alias ServiceRadar.Changes.AfterAction
   alias ServiceRadar.Plugins.ProducerScheduleCatalog
+  alias ServiceRadar.Plugins.Validations.DisplayContracts
 
   @package_fields [
     :name,
@@ -32,6 +33,7 @@ defmodule ServiceRadar.Plugins.AddonPackage do
     :install_path,
     :capabilities,
     :config_schema,
+    :display_contracts,
     :signal_schemas,
     :producer_schedules,
     :artifacts,
@@ -86,12 +88,14 @@ defmodule ServiceRadar.Plugins.AddonPackage do
 
     create :create do
       accept @package_create_fields
+      validate DisplayContracts
       change &sync_producer_schedule_contracts/2
     end
 
     update :update do
       require_atomic? false
       accept @package_fields
+      validate DisplayContracts
       change &sync_producer_schedule_contracts/2
     end
 
@@ -100,6 +104,7 @@ defmodule ServiceRadar.Plugins.AddonPackage do
       require_atomic? false
       accept @package_fields
 
+      validate DisplayContracts
       change &guard_original_state/2
       change transition_state(:staged)
       change set_attribute(:approved_capabilities, [])
@@ -228,6 +233,19 @@ defmodule ServiceRadar.Plugins.AddonPackage do
       public? true
       default %{}
       description "JSON Schema (config.schema.json) for the add-on configuration"
+    end
+
+    attribute :display_contracts, :map do
+      allow_nil? false
+      public? true
+      default %{}
+
+      description """
+      Package-shipped display contract documents, keyed by "<contract_id>@<contract_version>". \
+      Read at RUNTIME by the UI, which is what lets a third-party add-on ship a renderable \
+      contract without a web-ng recompile. Validated by ServiceRadar.Plugins.DisplayContract \
+      on the way in, never trusted on the way out.\
+      """
     end
 
     attribute :signal_schemas, {:array, :map} do

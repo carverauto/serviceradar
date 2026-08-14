@@ -4,7 +4,11 @@ import {LineLayer, ScatterplotLayer, TextLayer} from "@deck.gl/layers"
 export const godViewRenderingGraphLayerNodeMethods = {
   visualClusterCount(node) {
     const clusterKind = String(node?.details?.cluster_kind || "")
-    if (clusterKind === "endpoint-summary") return Math.max(1, Number(node?.clusterCount || 1))
+    if (clusterKind === "endpoint-summary") {
+      const expanded = node?.details?.cluster_expanded === true || node?.details?.cluster_expanded === "true"
+      if (expanded) return 1
+      return Math.max(1, Number(node?.clusterCount || 1))
+    }
     return 1
   },
   labelBudgetForShape(shape, candidateCount = 0) {
@@ -31,6 +35,35 @@ export const godViewRenderingGraphLayerNodeMethods = {
         return 0
     }
   },
+  expandedEndpointMemberLabelBudgetForShape(shape) {
+    switch (shape) {
+      case "local":
+        return 48
+      case "regional":
+        return 12
+      default:
+        return 0
+    }
+  },
+  nodeLabelPixelOffset(node) {
+    const side = String(node?.details?.cluster_panel_side || "").trim()
+    if (side === "right") return [14, 0]
+    if (side === "left") return [-14, 0]
+    if (side === "down") return [0, 16]
+    return [0, -16]
+  },
+  nodeLabelTextAnchor(node) {
+    const side = String(node?.details?.cluster_panel_side || "").trim()
+    if (side === "right") return "start"
+    if (side === "left") return "end"
+    return "middle"
+  },
+  nodeLabelAlignmentBaseline(node) {
+    const side = String(node?.details?.cluster_panel_side || "").trim()
+    if (side === "right" || side === "left") return "center"
+    if (side === "down") return "top"
+    return "bottom"
+  },
   opaqueIdentityLabel(node) {
     const label = String(node?.label || "")
     const id = String(node?.id || "")
@@ -41,7 +74,7 @@ export const godViewRenderingGraphLayerNodeMethods = {
   },
   expandedEndpointMemberLabel(node) {
     return String(node?.details?.cluster_kind || "") === "endpoint-member"
-      && node?.details?.cluster_expanded === true
+      && (node?.details?.cluster_expanded === true || node?.details?.cluster_expanded === "true")
   },
   unplacedNodeLabel(node) {
     return node?.details?.topology_unplaced === true
@@ -101,14 +134,21 @@ export const godViewRenderingGraphLayerNodeMethods = {
       return true
     })
     const ordered = [...candidates].sort((left, right) => this.compareNodeLabelPriority(left, right))
-    const expandedEndpointMembers = ordered.filter((node) => this.expandedEndpointMemberLabel(node))
+    const memberBudget = this.expandedEndpointMemberLabelBudgetForShape(shape)
+    const expandedEndpointMembers = ordered
+      .filter((node) => this.expandedEndpointMemberLabel(node))
+      .slice(0, memberBudget)
     const unplacedNodes = ordered.filter((node) => this.unplacedNodeLabel(node))
     const nonExpandedCandidates = ordered.filter((node) => !this.expandedEndpointMemberLabel(node))
     const budget = this.labelBudgetForShape(shape, nonExpandedCandidates.length)
     const endpointSummaryBudget = this.endpointSummaryLabelBudgetForShape(shape)
     if (budget <= 0 && selected.length === 0 && expandedEndpointMembers.length === 0 && unplacedNodes.length === 0) return []
     const orderedBackbone = ordered.filter((node) => this.backboneLabelCandidate(node))
-    const orderedEndpointSummaries = ordered.filter((node) => this.endpointSummaryLabel(node))
+    const orderedEndpointSummaries = ordered.filter((node) => {
+      if (!this.endpointSummaryLabel(node)) return false
+      const expanded = node?.details?.cluster_expanded === true || node?.details?.cluster_expanded === "true"
+      return !expanded
+    })
     const picked = []
     const seen = new Set()
     let endpointSummaryCount = 0
@@ -251,9 +291,16 @@ export const godViewRenderingGraphLayerNodeMethods = {
               getColor: this.state.visual.label,
               fontFamily: "Inter, system-ui, sans-serif",
               fontWeight: 600,
-              getPixelOffset: [0, -16],
+              getPixelOffset: (d) => this.nodeLabelPixelOffset(d),
+              getTextAnchor: (d) => this.nodeLabelTextAnchor(d),
+              getAlignmentBaseline: (d) => this.nodeLabelAlignmentBaseline(d),
               billboard: true,
               pickable: true,
+              updateTriggers: {
+                getPixelOffset: labelData.map((node) => node?.details?.cluster_panel_side || "").join("|"),
+                getTextAnchor: labelData.map((node) => node?.details?.cluster_panel_side || "").join("|"),
+                getAlignmentBaseline: labelData.map((node) => node?.details?.cluster_panel_side || "").join("|"),
+              },
             }),
           ]
         : []),

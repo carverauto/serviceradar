@@ -35,14 +35,27 @@ import (
 )
 
 type httpRequestPayload struct {
-	Method             string            `json:"method"`
-	URL                string            `json:"url"`
-	Headers            map[string]string `json:"headers"`
-	Body               string            `json:"body"`
-	BodyBase64         string            `json:"body_base64"`
-	ResponseMode       string            `json:"response_mode"`
-	TimeoutMS          int               `json:"timeout_ms"`
-	InsecureSkipVerify bool              `json:"insecure_skip_verify"`
+	Method              string                     `json:"method"`
+	URL                 string                     `json:"url"`
+	Headers             map[string]string          `json:"headers"`
+	Body                string                     `json:"body"`
+	BodyBase64          string                     `json:"body_base64"`
+	ResponseMode        string                     `json:"response_mode"`
+	TimeoutMS           int                        `json:"timeout_ms"`
+	InsecureSkipVerify  bool                       `json:"insecure_skip_verify"`
+	CredentialInjection *credentialInjectionIntent `json:"credential_injection,omitempty"`
+}
+
+// credentialInjectionIntent is guest-selected authority, not credential
+// material. Notification SDKs attach it only when a request intends host-side
+// authentication. An absent intent must never cause a notification credential
+// to be injected merely because its host ACL happens to match.
+type credentialInjectionIntent struct {
+	Mode                string `json:"mode"`
+	Name                string `json:"name,omitempty"`
+	Scheme              string `json:"scheme,omitempty"`
+	GrantID             string `json:"grant_id,omitempty"`
+	CredentialSecretRef string `json:"credential_secret_ref,omitempty"`
 }
 
 type httpResponsePayload struct {
@@ -117,7 +130,7 @@ func (e *pluginExecution) hostHTTPRequest(ctx context.Context, mod api.Module, r
 		return pluginErrDenied
 	}
 
-	grant, err := e.credentialBrokerGrantForHTTP(method, reqURL)
+	grant, err := e.credentialBrokerGrantForHTTP(method, reqURL, payload.CredentialInjection)
 	if err != nil {
 		e.logPluginHostHTTPDenied(err, reqURL, method)
 		return pluginErrDenied
@@ -362,8 +375,18 @@ func configurePluginHTTPRedirects(
 	}
 }
 
-func (e *pluginExecution) credentialBrokerGrantForHTTP(method string, reqURL *url.URL) (*credentialBrokerGrant, error) {
-	if e == nil || e.mode != pluginExecutionModeAction || len(e.credentialGrants) == 0 {
+func (e *pluginExecution) credentialBrokerGrantForHTTP(
+	method string,
+	reqURL *url.URL,
+	intent *credentialInjectionIntent,
+) (*credentialBrokerGrant, error) {
+	if e == nil || e.mode != pluginExecutionModeAction {
+		return nil, nil
+	}
+	if len(e.credentialGrants) == 0 {
+		if intent != nil {
+			return nil, errCredentialBrokerGrantDenied
+		}
 		return nil, nil
 	}
 
@@ -372,7 +395,7 @@ func (e *pluginExecution) credentialBrokerGrantForHTTP(method string, reqURL *ur
 		now = e.manager.credentialNowTime()
 	}
 
-	return pluginActionGrantForHTTPRequest(e.credentialGrants, method, reqURL, now)
+	return pluginActionGrantForHTTPRequestIntent(e.credentialGrants, method, reqURL, now, intent)
 }
 
 func (e *pluginExecution) applyCredentialBrokerInjection(

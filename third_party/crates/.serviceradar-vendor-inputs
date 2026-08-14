@@ -1,12 +1,12 @@
-FILE:@@//Cargo.lock cded80f7bf6b09dc668d5e1da934cb82652eade7114b214257ed48a3f410f647
-FILE:@@//Cargo.toml 2e92f122e695a021b492b16d24f21f1f8ae43472dea88ec97bb56408eca014fc
+FILE:@@//Cargo.lock 23458b5ea480d9fefaf70e29a24c1dc17abebb9f1b7379649811cf09b87a265c
+FILE:@@//Cargo.toml 61084fc36cefd9da825d55e899c648f61de6f85a9a8b186f9ec44bfa155b497e
 FILE:@@//elixir/serviceradar_core/native/anomaly_disposition_nif/Cargo.toml af22b2f909bb6ec6551effc531319048c5ae284e4138b55b2007b78cef7d9916
 FILE:@@//elixir/serviceradar_core/native/zen_nif/Cargo.toml 234168802da06802477c2b57e3969136f445a4083ab114b6cc3980ce10458bd5
 FILE:@@//elixir/serviceradar_srql/native/srql_nif/Cargo.toml 2816cc9558feba4a7089021aba0718dec230a2f3a3779ec2f2d33d3b08ce17ad
 FILE:@@//elixir/web-ng/native/god_view_nif/Cargo.toml 8a75c7cea5622c8617199a50f5d831c780debb2d9c27a3b29ed0a37ec851142d
 FILE:@@//integration_tests/srql/Cargo.toml c047a421087d35281c3161a948100f0c082c988ecd5a18a56f21abfddd707c6a
 FILE:@@//proto/dgraph/Cargo.toml 122c820729402b715ddba34da04e1deb85a450b50b8fb0f05c5080f1ac0bf535
-FILE:@@//rust/addon-sdk/Cargo.toml 12104af5ed09e07b6aefa1c961c4fdf91cccdf1c55d7c2f5bcdd4d95af0f9695
+FILE:@@//rust/addon-sdk/Cargo.toml 617ec782987bfee399c467d6de639652006365f4f8a7f3d946ea00a5e8cf0427
 FILE:@@//rust/anomaly-addon/Cargo.toml 4cb458cc1fbfddb434e6ce9ab8cd2a66c391e071c6873f56f2ea87d1d461533c
 FILE:@@//rust/anomaly-core/Cargo.toml 3e9c0ec047f5a09c252dd1939053e098c555275ca512b84a1892d083ae60d458
 FILE:@@//rust/anomaly-disposition/Cargo.toml 75f74e6aca6ae4781fa47d6c57818df1975dff4840c7cfac019810612da937b5
@@ -36,6 +36,7 @@ FILE:@@//rust/netprobe/Cargo.toml 645e396ccc7fe6bdbcb78fa68b12e8e7f9422ae31ca6aa
 FILE:@@//rust/otel/Cargo.toml 00fa5cfad93b76777afc387fa594eafffdbeb21f2ce72aa1302454c3d65c7365
 FILE:@@//rust/otel-addon/Cargo.toml b90e667f4d9b3749efd0f5ce400c8975d2ba4a7363ba4c4458de161b88aaa029
 FILE:@@//rust/powerdns/Cargo.toml 74d5aeac047da861bcf515bd74024f1844901a88b7cce59eeab604a399cf611c
+FILE:@@//rust/protoc-plugins/Cargo.toml 29045e0f7562d100f5e2a0a8dd336af97388e99fdab6d46506ea4dfe9751de63
 FILE:@@//rust/rdp-adapter/Cargo.toml e94c0241de8293c9fb9e0d4af6221185ee238d9152b29536a055e56dcf108494
 FILE:@@//rust/rperf-client/Cargo.toml 51834db0def1cb6c850f2dca2b7e0668c1bbdc9ace121f97a0122daf91b80c25
 FILE:@@//rust/srql/Cargo.toml 887ae60c570e3be716a68b1141932788a17a26d7fcee4e31d798b23fc05ab0b0

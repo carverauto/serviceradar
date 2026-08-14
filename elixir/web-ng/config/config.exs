@@ -115,6 +115,10 @@ config :serviceradar_core, Oban,
 # Ash manages all migrations in serviceradar_core/priv/repo/migrations/
 config :serviceradar_core, ServiceRadar.Repo, migration_source: "ash_schema_migrations"
 
+# Heartbeats still persist as logs.internal.* in CNPG. The live.logs.*
+# fan-out is core-only; web-ng's NATS identity cannot publish it.
+config :serviceradar_core, :internal_log_live_nats, false
+
 config :serviceradar_core, :plugin_storage,
   backend: :jetstream,
   upload_ttl_seconds: 900,
@@ -135,7 +139,9 @@ config :serviceradar_core,
     ServiceRadar.Inventory,
     ServiceRadar.Infrastructure,
     ServiceRadar.Monitoring,
+    ServiceRadar.Notifications,
     ServiceRadar.Observability,
+    ServiceRadar.ColdTier,
     ServiceRadar.PrefixTags,
     ServiceRadar.Edge,
     ServiceRadar.Integrations,
@@ -237,7 +243,18 @@ config :serviceradar_web_ng, :first_party_plugin_import,
   sync_release_limit: 10,
   sync_interval_seconds: 3_600,
   cosign_binary: "cosign",
-  cosign_public_key: nil,
+  # Verification key for the first-party plugin artifacts published from the
+  # repo_url above. It pairs with that default: a hardcoded first-party source
+  # with no key to verify it against makes CosignVerifier fail closed, which is
+  # how every install that did not hand-set a key ended up unable to import any
+  # plugin at all. Public release key, byte-identical to docs/cosign.pub, kept in
+  # step by //:first_party_plugin_cosign_key_consistency_test.
+  cosign_public_key: """
+  -----BEGIN PUBLIC KEY-----
+  MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEhJcdPbybyipSl8sNHSKStAYiqhP7
+  cp6jIdZ3L4AkL/WI9oFn5xqJSnwTC29cz+JN/bXzWE807+iPS/DOl3C9EQ==
+  -----END PUBLIC KEY-----
+  """,
   cosign_public_key_file: nil
 
 config :serviceradar_web_ng, :god_view_enabled, false
@@ -270,7 +287,15 @@ config :serviceradar_web_ng, :plugin_verification,
   trusted_github_signers: [],
   trusted_github_owners: [],
   trusted_github_repositories: [],
-  trusted_upload_signing_keys: %{}
+  # Ed25519 public key the release pipeline signs first-party Wasm plugin uploads with.
+  # first_party_importer/3 rejects the whole import with :trusted_upload_signers_not_configured
+  # when this map is empty, so an empty default meant no install could import a first-party
+  # plugin -- the same failure as an unset cosign_public_key, one gate further in. Public
+  # verification key, not a secret; kept in step by
+  # //:first_party_plugin_cosign_key_consistency_test.
+  trusted_upload_signing_keys: %{
+    "serviceradar-first-party-v1" => "L+H5fG0eEraBsWAd2aKMzK7I+AMhbnSxlOKny5/+dLo="
+  }
 
 config :serviceradar_web_ng, :saml_assertion_max_validity_seconds, 300
 
@@ -322,7 +347,9 @@ config :serviceradar_web_ng,
     ServiceRadar.Inventory,
     ServiceRadar.Infrastructure,
     ServiceRadar.Monitoring,
+    ServiceRadar.Notifications,
     ServiceRadar.Observability,
+    ServiceRadar.ColdTier,
     ServiceRadar.PrefixTags,
     ServiceRadar.Edge,
     ServiceRadar.Integrations,

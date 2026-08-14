@@ -5,16 +5,21 @@
 {{/*
 Get image tag for a service.
 Uses global.imageTag if set, otherwise falls back to the service-specific tag.
-Usage: {{ include "serviceradar.imageTag" (dict "Values" .Values "service" "core") }}
+Usage: {{ include "serviceradar.imageTag" (dict "Values" .Values "Chart" .Chart "service" "core") }}
 */}}
 {{- define "serviceradar.imageTag" -}}
 {{- $global := .Values.global | default dict -}}
 {{- $globalTag := $global.imageTag | default "" -}}
-{{- if $globalTag -}}
-{{- $globalTag -}}
-{{- else -}}
-{{- index .Values.image.tags .service -}}
+{{- $svcTag := index (.Values.image.tags | default dict) .service | default "" -}}
+{{- $chartTag := "" -}}
+{{- if .Chart -}}
+{{- $chartTag = printf "v%s" .Chart.AppVersion -}}
 {{- end -}}
+{{- $tag := coalesce $globalTag $svcTag $chartTag -}}
+{{- if not $tag -}}
+{{- fail "serviceradar.imageTag: no tag resolved. Set global.imageTag, image.tags.<service>, or pass Chart so it can default to the chart appVersion." -}}
+{{- end -}}
+{{- $tag -}}
 {{- end -}}
 
 {{/*
@@ -27,7 +32,7 @@ Get the base registry/repository prefix for first-party ServiceRadar images.
 
 {{/*
 Build a first-party ServiceRadar image repository.
-Usage: {{ include "serviceradar.imageRepository" (dict "Values" .Values "name" "serviceradar-web-ng") }}
+Usage: {{ include "serviceradar.imageRepository" (dict "Values" .Values "Chart" .Chart "name" "serviceradar-web-ng") }}
 */}}
 {{- define "serviceradar.imageRepository" -}}
 {{- printf "%s/%s" (include "serviceradar.imageRegistry" .) .name -}}
@@ -36,7 +41,7 @@ Usage: {{ include "serviceradar.imageRepository" (dict "Values" .Values "name" "
 {{/*
 Build an image ref suffix for a service.
 Uses image.digests.<service> when set, otherwise falls back to :tag behavior.
-Usage: {{ include "serviceradar.imageRepository" (dict "Values" .Values "name" "serviceradar-core-elx") }}{{ include "serviceradar.imageRefSuffix" (dict "Values" .Values "service" "core") }}
+Usage: {{ include "serviceradar.imageRepository" (dict "Values" .Values "Chart" .Chart "name" "serviceradar-core-elx") }}{{ include "serviceradar.imageRefSuffix" (dict "Values" .Values "Chart" .Chart "service" "core") }}
 */}}
 {{- define "serviceradar.imageRefSuffix" -}}
 {{- $image := .Values.image | default dict -}}
@@ -55,7 +60,7 @@ Usage: {{ include "serviceradar.imageRepository" (dict "Values" .Values "name" "
 
 {{/*
 Build a full first-party ServiceRadar image reference.
-Usage: {{ include "serviceradar.imageRef" (dict "Values" .Values "name" "serviceradar-core-elx" "service" "core") }}
+Usage: {{ include "serviceradar.imageRef" (dict "Values" .Values "Chart" .Chart "name" "serviceradar-core-elx" "service" "core") }}
 */}}
 {{- define "serviceradar.imageRef" -}}
 {{- printf "%s%s" (include "serviceradar.imageRepository" .) (include "serviceradar.imageRefSuffix" .) -}}
@@ -97,7 +102,7 @@ the full ref when a deployment needs a bespoke database image.
        catalogs while the OLD image is still running, so the incoming image's
        TimescaleDB version must be one the outgoing image can update a catalog TO
        (i.e. the outgoing image's default_version). Skipping a release breaks that. */ -}}
-{{- printf "%s:%s" (include "serviceradar.imageRepository" (dict "Values" .Values "name" "serviceradar-cnpg")) (default (include "serviceradar.cnpgDefaultImageTag" .) $cnpg.imageTag) -}}
+{{- printf "%s:%s" (include "serviceradar.imageRepository" (dict "Values" .Values "Chart" .Chart "name" "serviceradar-cnpg")) (default (include "serviceradar.cnpgDefaultImageTag" .) $cnpg.imageTag) -}}
 {{- end -}}
 {{- end -}}
 
@@ -519,6 +524,33 @@ that opt into cnpg.pooler.route.<workload>.
 
 {{- define "serviceradar.gatewayApiStreamingBackendTrafficPolicyName" -}}
 {{- printf "%s-camera-stream-policy" (include "serviceradar.fullname" .) | trunc 63 | trimSuffix "-" -}}
+{{- end -}}
+
+{{/*
+Return the canonical externally reachable web-ng origin.
+
+The accepted root slash is stripped before the value reaches callback and
+artifact URL consumers. Explicit ports other than the Endpoint's public HTTPS
+port are rejected so PHX_HOST and Endpoint.url cannot disagree.
+*/}}
+{{- define "serviceradar.webNgPublicUrl" -}}
+{{- $webNg := default (dict) .Values.webNg -}}
+{{- $publicUrl := trim (default "" $webNg.publicUrl) -}}
+{{- if $publicUrl -}}
+  {{- $parsed := urlParse $publicUrl -}}
+  {{- $scheme := lower (default "" (get $parsed "scheme")) -}}
+  {{- $host := default "" (get $parsed "host") -}}
+  {{- $path := default "" (get $parsed "path") -}}
+  {{- $query := default "" (get $parsed "query") -}}
+  {{- $fragment := default "" (get $parsed "fragment") -}}
+  {{- $userinfo := default "" (get $parsed "userinfo") -}}
+  {{- $hasExplicitPort := regexMatch ":[0-9]+$" $host -}}
+  {{- $hasSupportedPort := regexMatch ":443$" $host -}}
+  {{- if or (ne $scheme "https") (eq $host "") (and (ne $path "") (ne $path "/")) (ne $query "") (ne $fragment "") (ne $userinfo "") (and $hasExplicitPort (not $hasSupportedPort)) -}}
+    {{- fail "webNg.publicUrl must be a bare HTTPS origin on port 443 (for example, https://serviceradar.example.com)" -}}
+  {{- end -}}
+  {{- trimSuffix "/" $publicUrl -}}
+{{- end -}}
 {{- end -}}
 
 {{/* Fail chart rendering when callback execution is enabled without its exact reviewed contract. */}}

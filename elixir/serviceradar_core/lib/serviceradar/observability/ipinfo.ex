@@ -62,6 +62,8 @@ defmodule ServiceRadar.Observability.IpInfo do
         "country"
       ])
 
+    {latitude, longitude} = location_pair(data)
+
     %{
       country_code: normalize_string(country_code),
       country_name:
@@ -71,6 +73,8 @@ defmodule ServiceRadar.Observability.IpInfo do
       region: normalize_string(get_first(data, [:region, "region"])),
       city: normalize_string(get_first(data, [:city, "city"])),
       timezone: normalize_string(get_first(data, [:timezone, "timezone", :tz, "tz"])),
+      latitude: latitude,
+      longitude: longitude,
       as_number: normalize_asn(get_first(data, [:asn, "asn", [:as, :asn], ["as", "asn"]])),
       as_name:
         normalize_string(get_first(data, [:as_name, "as_name", [:as, :name], ["as", "name"]])),
@@ -80,6 +84,44 @@ defmodule ServiceRadar.Observability.IpInfo do
         )
     }
   end
+
+  defp location_pair(data) do
+    lat = normalize_coord(get_first(data, [:latitude, "latitude", [:location, :latitude]]))
+    lon = normalize_coord(get_first(data, [:longitude, "longitude", [:location, :longitude]]))
+
+    if is_number(lat) and is_number(lon) do
+      {lat, lon}
+    else
+      parse_loc(get_first(data, [:loc, "loc"]))
+    end
+  end
+
+  defp parse_loc(value) when is_binary(value) do
+    case String.split(value, ",", parts: 2) do
+      [lat, lon] ->
+        case {normalize_coord(lat), normalize_coord(lon)} do
+          {lat, lon} when is_number(lat) and is_number(lon) -> {lat, lon}
+          _ -> {nil, nil}
+        end
+
+      _ ->
+        {nil, nil}
+    end
+  end
+
+  defp parse_loc(_), do: {nil, nil}
+
+  defp normalize_coord(value) when is_float(value), do: value
+  defp normalize_coord(value) when is_integer(value), do: value * 1.0
+
+  defp normalize_coord(value) when is_binary(value) do
+    case Float.parse(String.trim(value)) do
+      {parsed, ""} -> parsed
+      _ -> nil
+    end
+  end
+
+  defp normalize_coord(_), do: nil
 
   defp normalize_string(nil), do: nil
 

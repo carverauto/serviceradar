@@ -204,7 +204,6 @@ defmodule ServiceRadar.Edge.OnboardingPackage do
 
     update :deliver do
       description "Mark package as delivered (downloaded)"
-      change filter(expr(status == :issued and is_nil(download_token_consumed_at)))
       change transition_state(:delivered)
       change set_attribute(:delivered_at, &__MODULE__.utc_now_second/0)
       change set_attribute(:download_token_consumed_at, &__MODULE__.utc_now_second/0)

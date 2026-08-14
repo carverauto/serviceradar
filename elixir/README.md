@@ -640,7 +640,7 @@ Two rules for migrations that this tier enforces the hard way:
 
 ```python
 load("@rules_rust//rust:defs.bzl", "rust_shared_library")
-load("//third_party/crates:defs.bzl", "all_crate_deps")
+load("@crates//:defs.bzl", "all_crate_deps")
 
 package(default_visibility = ["//visibility:public"])
 

@@ -202,20 +202,20 @@ func rewriteCollectorConfigNATSCredsPath(configFile, installedCredsPath string) 
 	), nil
 }
 
-func parseCollectorToken(raw, fallbackBaseURL string) (*collectorTokenPayload, error) {
+func parseCollectorToken(raw, overrideBaseURL string) (*collectorTokenPayload, error) {
 	trimmed := strings.TrimSpace(raw)
 	if trimmed == "" {
 		return nil, ErrCollectorTokenInvalid
 	}
 
 	if strings.HasPrefix(trimmed, collectorTokenV2Prefix) {
-		return parseSignedCollectorToken(trimmed, fallbackBaseURL)
+		return parseSignedCollectorToken(trimmed, overrideBaseURL)
 	}
 
 	return nil, ErrCollectorTokenInvalid
 }
 
-func parseSignedCollectorToken(raw, fallbackBaseURL string) (*collectorTokenPayload, error) {
+func parseSignedCollectorToken(raw, overrideBaseURL string) (*collectorTokenPayload, error) {
 	encoded := strings.TrimPrefix(strings.TrimSpace(raw), collectorTokenV2Prefix)
 	encodedPayload, encodedSignature, ok := strings.Cut(encoded, onboardingTokenSignatureSep)
 	if !ok || encodedPayload == "" || encodedSignature == "" {
@@ -255,8 +255,8 @@ func parseSignedCollectorToken(raw, fallbackBaseURL string) (*collectorTokenPayl
 		return nil, ErrCollectorTokenInvalid
 	}
 
-	if payload.BaseURL == "" {
-		payload.BaseURL = strings.TrimSpace(fallbackBaseURL)
+	if baseURL := strings.TrimSpace(overrideBaseURL); baseURL != "" {
+		payload.BaseURL = baseURL
 	}
 
 	normalizedBaseURL, err := normalizeBaseURL(payload.BaseURL)

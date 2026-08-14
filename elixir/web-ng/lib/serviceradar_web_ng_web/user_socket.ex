@@ -6,6 +6,7 @@ defmodule ServiceRadarWebNGWeb.UserSocket do
   alias ServiceRadarWebNG.Auth.Guardian
 
   channel "dashboards:*", ServiceRadarWebNGWeb.DashboardFrameChannel
+  channel "notifications:*", ServiceRadarWebNGWeb.NotificationFirehoseChannel
   channel "topology:*", ServiceRadarWebNGWeb.TopologyChannel
 
   @impl true

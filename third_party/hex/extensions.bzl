@@ -55,7 +55,13 @@ hex = hex_packages_extension(
             # for github.com. Without it `mix deps.compile` downloads ffmpeg and friends
             # inside a build action -- unkeyed, and once per consuming plugin. See the patch
             # header.
-            patches = [Label("//third_party/patches/bundlex:local_precompiled.patch")],
+            patches = [
+                Label("//third_party/patches/bundlex:local_precompiled.patch"),
+                # Build natives with the hermetic $CC/$CXX //build:mix_app.bzl exports
+                # instead of the executor image's gcc. See the patch header for why this
+                # patches the GCC toolchain rather than selecting Toolchain.Custom.
+                Label("//third_party/patches/bundlex:hermetic_cc.patch"),
+            ],
             patch_args = ["-p1"],
         ),
     ],

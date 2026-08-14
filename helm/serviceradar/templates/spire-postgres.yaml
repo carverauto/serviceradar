@@ -44,7 +44,7 @@
   -}}
 {{- $imageName := $pg.imageName }}
 {{- if not $imageName }}
-  {{- $imageRepo := default (include "serviceradar.imageRepository" (dict "Values" .Values "name" "serviceradar-cnpg")) $pg.image }}
+  {{- $imageRepo := default (include "serviceradar.imageRepository" (dict "Values" .Values "Chart" .Chart "name" "serviceradar-cnpg")) $pg.image }}
   {{- /* Shared with cnpg-cluster.yaml. These two templates each used to hardcode their
          own copy of this pin and drifted apart, leaving this cluster on 18.3.0-sr5
          while the main one moved on. Keep the single definition in _helpers.tpl. */ -}}

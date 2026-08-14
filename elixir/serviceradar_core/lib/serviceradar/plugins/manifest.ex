@@ -5,10 +5,52 @@ defmodule ServiceRadar.Plugins.Manifest do
   The manifest is the source of truth for plugin capabilities, permissions,
   and resource requests. Validation is intentionally strict to prevent
   unsafe defaults from being imported.
+
+  ## The `notifications:` block
+
+  A package that ships notifier providers declares them here (design D2, tasks
+  3.1.1). Each entry describes ONE notifier and carries exactly these keys:
+
+      notifications:
+        - key: pagerduty_events_v2      # slug; what NotificationProvider.action_key names
+          display_name: PagerDuty Events v2
+          description: Routes alerts to a PagerDuty Events v2 integration key
+          entrypoint: notify_pagerduty  # exported guest function
+          config_schema:                # JSON Schema subset, ConfigSchema-validated
+            type: object
+            properties:
+              routing_key:
+                type: string
+          capabilities: [send, test, resolve_update]
+          payload_formats: [pagerduty_v2, json]
+          routes: [control_plane, edge_agent]
+          credential_requirements:
+            routing_key:
+              injection_mode: http_header
+              name: Authorization
+              scheme: Bearer
+          inbound:
+            enabled: false
+
+  `key`, `display_name`, `entrypoint`, `capabilities`, and `payload_formats` are
+  required. `routes` defaults to `["control_plane"]`, `config_schema` and
+  `credential_requirements` default to empty, and `inbound` defaults to
+  disabled. Unknown keys are REJECTED rather than ignored, so a manifest that
+  misspells one fails at import instead of shipping a notifier whose
+  credentials or callback configuration silently vanished.
+
+  Two rules bind this block to the rest of the system:
+
+    * `capabilities` MUST contain both `send` and `test` (tasks 3.1.1a).
+    * a package with notifier entries MUST request the `notify:v1` capability,
+      and a package requesting `notify:v1` MUST declare notifier entries. Either
+      half alone is inert - the agent refuses a notifier without the capability,
+      and the capability with no notifier grants nothing.
   """
 
   alias ServiceRadar.Plugins.ConfigSchema
   alias ServiceRadar.Plugins.IntegrationDescriptor
+  alias ServiceRadar.Plugins.NotificationCredentialRequirement
   alias ServiceRadar.Plugins.ValueUtils
 
   @enforce_keys [:id, :name, :version, :entrypoint, :capabilities, :outputs, :resources]
@@ -29,6 +71,7 @@ defmodule ServiceRadar.Plugins.Manifest do
     :display_contract,
     :signal_schemas,
     :producer_schedules,
+    :notifications,
     :integrations
   ]
 
@@ -49,6 +92,7 @@ defmodule ServiceRadar.Plugins.Manifest do
           display_contract: map(),
           signal_schemas: [map()],
           producer_schedules: [map()],
+          notifications: [map()],
           integrations: IntegrationDescriptor.descriptor()
         }
 
@@ -79,8 +123,17 @@ defmodule ServiceRadar.Plugins.Manifest do
     "advisory-feed:v1",
     "producer-schedule:v1",
     "action-result-ingest:v1",
-    "action-only:v1"
+    "action-only:v1",
+    "notify:v1"
   ]
+
+  # `notify:v1` is the ONLY capability in the list above that is enforced by
+  # this validator AND by the runtime host. `go/pkg/agent` refuses a notification
+  # dispatch for an assignment whose narrowed capability set omits it
+  # (`plugin_runtime_notify.go`). `advisory-feed:v1` and `producer-schedule:v1`
+  # are declared here and enforced nowhere, which is the defect this change was
+  # required not to repeat.
+  @notify_capability "notify:v1"
   @allowed_producer_dispatch_scopes ["assignment", "package", "target_query"]
   @allowed_producer_command_types ["plugin.run_action", "addon.run_command"]
   @allowed_producer_schedule_types ["interval", "cron", "manual"]
@@ -120,9 +173,94 @@ defmodule ServiceRadar.Plugins.Manifest do
     class_uid
     type_uid
   )
+  # --- notifications: block (design D2, tasks 3.1.1) ---------------------
+  #
+  # The keys below are the WHOLE contract. Both SDKs emit exactly these names
+  # (tasks 3.8.1) and anything else is rejected rather than ignored, so a
+  # manifest that misspells a key fails at import instead of silently shipping a
+  # notifier with, say, no credential requirements.
+  #
+  # Two near-miss spellings were considered and rejected during design and are
+  # therefore NOT accepted here: `provider_key` (the entry key is `key`; the
+  # provider key is chosen by the operator when the NotificationProvider row is
+  # created) and `inbound_callback` (that is the name of the CAPABILITY; the
+  # block that configures it is `inbound`).
+  @allowed_notification_keys ~w(
+    key
+    display_name
+    description
+    entrypoint
+    config_schema
+    capabilities
+    payload_formats
+    routes
+    credential_requirements
+    inbound
+  )
+
+  # Mirrors `ServiceRadar.Notifications.NotificationProvider` capabilities.
+  # It is deliberately a second literal list rather than a compile-time
+  # reference: `NotificationProvider` belongs_to `Plugins.PluginPackage`, whose
+  # validation calls back into this module, so naming the resource here would
+  # close a compile cycle. `manifest_notifications_test.exs` asserts the two
+  # lists are equal, which is what keeps them from drifting.
+  @allowed_notification_capabilities ~w(
+    send
+    test
+    resolve_update
+    inbound_callback
+    rich_payload
+    attachments
+    threading
+  )
+
+  # Both are mandatory in every tier (design D2, tasks 3.1.1a): "test-send
+  # before saving" only works uniformly if no provider can opt out of `test`.
+  @required_notification_capabilities ~w(send test)
+
+  @allowed_notification_payload_formats ~w(
+    slack_blocks
+    discord_embed
+    markdown
+    plain
+    html
+    pagerduty_v2
+    json
+  )
+
+  @allowed_notification_routes ~w(control_plane edge_agent)
+
+  @allowed_notification_inbound_keys ~w(
+    enabled
+    signature
+    signature_header
+    timestamp_header
+    tolerance_seconds
+    path_suffix
+  )
+
+  @allowed_notification_inbound_signatures ~w(none hmac_sha256)
+
+  # The CANONICAL injection mode names only (design Security, tasks 3.2.4).
+  # `ServiceRadar.Plugins.IntegrationDescriptor` additionally accepts the
+  # shorthands `header`, `http_basic_auth`, `query_param`, and `http_query`;
+  # this block deliberately does not, so a plugin author never learns a spelling
+  # one surface accepts and another does not.
+  #
+  # NOTE: none of these six rewrites a URL PATH. A destination whose secret
+  # lives in the path (Slack and Discord incoming webhooks) cannot be served by
+  # credential injection on the edge route at all; it uses the bot-token API or
+  # `host_params_json`. A `url_path` mode is out of scope for v1 and must not be
+  # added here without adding it to the host first.
+  @allowed_credential_injection_modes NotificationCredentialRequirement.modes()
+
   @max_yaml_bytes 262_144
   @max_signal_ref_length 160
   @max_signal_path_length 240
+  @max_notifications 32
+  @max_notification_credential_requirements 16
+  @default_inbound_tolerance_seconds 300
+  @max_inbound_tolerance_seconds 900
 
   @doc """
   Parse and validate a plugin manifest from YAML.
@@ -189,6 +327,10 @@ defmodule ServiceRadar.Plugins.Manifest do
     {producer_schedules, errors} =
       validate_producer_schedules(fetch(map, :producer_schedules), errors)
 
+    raw_notifications = fetch(map, :notifications)
+    {notifications, errors} = validate_notifications(raw_notifications, errors)
+    errors = validate_notify_capability_coherence(capabilities, raw_notifications, errors)
+
     {integrations, errors} =
       case IntegrationDescriptor.validate(fetch(map, :integrations), producer_schedules) do
         {:ok, integrations} ->
@@ -219,6 +361,7 @@ defmodule ServiceRadar.Plugins.Manifest do
          display_contract: display_contract,
          signal_schemas: signal_schemas,
          producer_schedules: producer_schedules,
+         notifications: notifications,
          integrations: integrations
        }}
     else
@@ -289,10 +432,575 @@ defmodule ServiceRadar.Plugins.Manifest do
     end
   end
 
+  @doc """
+  Validate the optional package-owned `notifications:` block.
+  """
+  @spec validate_notifications([map()] | nil) :: :ok | {:error, [String.t()]}
+  def validate_notifications(nil), do: :ok
+
+  def validate_notifications(notifications) do
+    case validate_notifications(notifications, []) do
+      {_normalized, []} -> :ok
+      {_normalized, errors} -> {:error, Enum.reverse(errors)}
+    end
+  end
+
+  @doc """
+  The notifier keys a package's manifest declares, in declaration order.
+
+  This is the resolver behind `NotificationProvider.action_key` (tasks 3.1.1b):
+  a provider row may only name a notifier its package actually ships. The
+  manifest map is re-validated here rather than trusted, because a stored
+  manifest predates whatever validation the current release performs.
+
+  Returns `{:error, errors}` when the block is present but invalid, and
+  `{:ok, []}` when the package declares no notifiers at all - the caller
+  distinguishes "this package ships no notifier" from "this manifest is broken".
+  """
+  @spec notification_keys(map()) :: {:ok, [String.t()]} | {:error, [String.t()]}
+  def notification_keys(manifest) when is_map(manifest) do
+    with {:ok, entries} <- notification_entries(manifest) do
+      {:ok, Enum.map(entries, &Map.fetch!(&1, "key"))}
+    end
+  end
+
+  def notification_keys(_manifest), do: {:error, ["manifest must be a map"]}
+
+  @doc """
+  The validated notifier entries a package's manifest declares, in declaration
+  order.
+
+  The whole entry, not just its `key`, because the UI resolves a notifier's
+  `config_schema` from HERE at runtime rather than from the copy taken when the
+  provider row was created (tasks 3.5.1, 3.5.4). Re-validating rather than
+  trusting the stored manifest is the same rule `notification_keys/1` follows: a
+  stored manifest predates whatever validation the current release performs.
+  """
+  @spec notification_entries(map()) :: {:ok, [map()]} | {:error, [String.t()]}
+  def notification_entries(manifest) when is_map(manifest) do
+    case validate_notifications(fetch(manifest, :notifications), []) do
+      {normalized, []} -> {:ok, normalized}
+      {_normalized, errors} -> {:error, Enum.reverse(errors)}
+    end
+  end
+
+  def notification_entries(_manifest), do: {:error, ["manifest must be a map"]}
+
+  @doc "The capability a package must request to run any notifier on an agent."
+  @spec notify_capability() :: String.t()
+  def notify_capability, do: @notify_capability
+
+  @doc "Capability names a `notifications:` entry may declare."
+  @spec allowed_notification_capabilities() :: [String.t()]
+  def allowed_notification_capabilities, do: @allowed_notification_capabilities
+
+  @doc "Payload format names a `notifications:` entry may declare."
+  @spec allowed_notification_payload_formats() :: [String.t()]
+  def allowed_notification_payload_formats, do: @allowed_notification_payload_formats
+
+  @doc "Execution routes a `notifications:` entry may declare."
+  @spec allowed_notification_routes() :: [String.t()]
+  def allowed_notification_routes, do: @allowed_notification_routes
+
+  @doc "Canonical credential injection mode names accepted in a `notifications:` entry."
+  @spec allowed_credential_injection_modes() :: [String.t()]
+  def allowed_credential_injection_modes, do: @allowed_credential_injection_modes
+
   defp display_contract_errors(display_contract) do
     case validate_display_contract(display_contract) do
       :ok -> []
       {:error, errs} -> errs
+    end
+  end
+
+  # A `notifications:` block and the `notify:v1` capability are two halves of one
+  # declaration, and either half alone is inert: a block without the capability
+  # is a notifier the agent refuses to run, and the capability without a block is
+  # a permission with nothing behind it. Both directions are rejected so the
+  # incoherence surfaces at import rather than as an undeliverable page.
+  #
+  # The check reads the RAW block rather than the normalized entries: an entry
+  # that failed its own validation is dropped from the normalized list, and
+  # keying on that would bury the real error under a second, misleading one
+  # about a missing block.
+  defp validate_notify_capability_coherence(capabilities, raw_notifications, errors)
+       when is_list(capabilities) do
+    declared? = @notify_capability in capabilities
+    notifiers? = raw_notifications not in [nil, []]
+
+    cond do
+      declared? and not notifiers? ->
+        [
+          "capabilities declare #{@notify_capability} but the manifest has no notifications entries"
+          | errors
+        ]
+
+      notifiers? and not declared? ->
+        [
+          "notifications requires the #{@notify_capability} capability to be declared"
+          | errors
+        ]
+
+      true ->
+        errors
+    end
+  end
+
+  defp validate_notify_capability_coherence(_capabilities, _raw_notifications, errors), do: errors
+
+  defp validate_notifications(nil, errors), do: {[], errors}
+
+  defp validate_notifications(notifications, errors) when is_list(notifications) do
+    if length(notifications) > @max_notifications do
+      {[], ["notifications must declare at most #{@max_notifications} entries" | errors]}
+    else
+      notifications
+      |> Enum.with_index(1)
+      |> Enum.reduce({[], errors}, fn {notification, index}, {acc, errors} ->
+        case validate_notification(notification, index) do
+          {:ok, normalized} -> {[normalized | acc], errors}
+          {:error, notification_errors} -> {acc, notification_errors ++ errors}
+        end
+      end)
+      |> then(fn {entries, errors} ->
+        entries = Enum.reverse(entries)
+        {entries, duplicate_notification_key_errors(entries) ++ errors}
+      end)
+    end
+  end
+
+  defp validate_notifications(_notifications, errors),
+    do: {[], ["notifications must be a list" | errors]}
+
+  # A duplicate key makes `action_key` resolution ambiguous, so the provider
+  # binding in 3.1.1b would admit a row whose target is undecidable.
+  defp duplicate_notification_key_errors(entries) do
+    entries
+    |> Enum.map(&Map.fetch!(&1, "key"))
+    |> Enum.frequencies()
+    |> Enum.filter(fn {_key, count} -> count > 1 end)
+    |> Enum.map(fn {key, _count} -> "notifications key #{key} is declared more than once" end)
+  end
+
+  defp validate_notification(notification, index) when is_map(notification) do
+    notification = normalize_map(notification) || %{}
+    errors = unknown_notification_key_errors(notification, index)
+
+    {key, errors} = required_notification_string(notification, :key, index, errors)
+    errors = validate_notification_key(errors, key, index)
+
+    {display_name, errors} =
+      required_notification_string(notification, :display_name, index, errors)
+
+    {entrypoint, errors} = required_notification_string(notification, :entrypoint, index, errors)
+
+    {description, errors} =
+      optional_notification_string(notification, :description, index, errors)
+
+    {capabilities, errors} =
+      required_notification_enum_list(
+        notification,
+        :capabilities,
+        @allowed_notification_capabilities,
+        index,
+        errors
+      )
+
+    errors = validate_required_notification_capabilities(errors, capabilities, index)
+
+    {payload_formats, errors} =
+      required_notification_enum_list(
+        notification,
+        :payload_formats,
+        @allowed_notification_payload_formats,
+        index,
+        errors
+      )
+
+    {routes, errors} =
+      optional_notification_enum_list(
+        notification,
+        :routes,
+        @allowed_notification_routes,
+        index,
+        errors
+      )
+
+    routes = if routes == [], do: ["control_plane"], else: routes
+
+    {config_schema, errors} = validate_notification_config_schema(notification, index, errors)
+
+    {credential_requirements, errors} =
+      validate_notification_credential_requirements(notification, index, errors)
+
+    {inbound, errors} = validate_notification_inbound(notification, index, errors)
+    errors = validate_inbound_capability_coherence(errors, capabilities, inbound, index)
+
+    if errors == [] do
+      {:ok,
+       maybe_put_string(
+         %{
+           "key" => key,
+           "display_name" => display_name,
+           "entrypoint" => entrypoint,
+           "config_schema" => config_schema,
+           "capabilities" => capabilities,
+           "payload_formats" => payload_formats,
+           "routes" => routes,
+           "credential_requirements" => credential_requirements,
+           "inbound" => inbound
+         },
+         "description",
+         description
+       )}
+    else
+      {:error, errors}
+    end
+  end
+
+  defp validate_notification(_notification, index),
+    do: {:error, ["notifications[#{index}] must be a map"]}
+
+  defp unknown_notification_key_errors(notification, index) do
+    notification
+    |> Map.keys()
+    |> Enum.map(&to_string/1)
+    |> Enum.reject(&(&1 in @allowed_notification_keys))
+    |> Enum.map(&"notifications[#{index}].#{&1} is not allowed")
+  end
+
+  defp validate_notification_key(errors, nil, _index), do: errors
+
+  defp validate_notification_key(errors, value, index) do
+    cond do
+      String.length(value) > @max_signal_ref_length ->
+        ["notifications[#{index}].key exceeds maximum length" | errors]
+
+      Regex.match?(~r/^[a-z0-9][a-z0-9_.-]*$/, value) ->
+        errors
+
+      true ->
+        [
+          "notifications[#{index}].key must use lowercase letters, numbers, dots, underscores, or hyphens"
+          | errors
+        ]
+    end
+  end
+
+  defp validate_required_notification_capabilities(errors, capabilities, index) do
+    case Enum.reject(@required_notification_capabilities, &(&1 in capabilities)) do
+      [] ->
+        errors
+
+      missing ->
+        [
+          "notifications[#{index}].capabilities must include #{Enum.join(@required_notification_capabilities, " and ")}; missing #{Enum.join(missing, ", ")}"
+          | errors
+        ]
+    end
+  end
+
+  defp validate_notification_config_schema(notification, index, errors) do
+    case fetch(notification, :config_schema) do
+      nil ->
+        {%{}, errors}
+
+      value when is_map(value) ->
+        schema = normalize_map(value) || %{}
+
+        if schema == %{} do
+          {schema, errors}
+        else
+          case ConfigSchema.validate_schema(schema) do
+            :ok ->
+              {schema, errors}
+
+            {:error, schema_errors} ->
+              {%{},
+               Enum.map(schema_errors, &"notifications[#{index}].config_schema: #{&1}") ++ errors}
+          end
+        end
+
+      _other ->
+        {%{}, ["notifications[#{index}].config_schema must be a map" | errors]}
+    end
+  end
+
+  defp validate_notification_credential_requirements(notification, index, errors) do
+    case fetch(notification, :credential_requirements) do
+      nil ->
+        {%{}, errors}
+
+      value when is_map(value) ->
+        requirements = normalize_map(value) || %{}
+
+        if map_size(requirements) > @max_notification_credential_requirements do
+          {%{},
+           [
+             "notifications[#{index}].credential_requirements must declare at most #{@max_notification_credential_requirements} entries"
+             | errors
+           ]}
+        else
+          normalize_credential_requirements(requirements, index, errors)
+        end
+
+      _other ->
+        {%{}, ["notifications[#{index}].credential_requirements must be a map" | errors]}
+    end
+  end
+
+  defp normalize_credential_requirements(requirements, index, errors) do
+    Enum.reduce(requirements, {%{}, errors}, fn {name, requirement}, {acc, errors} ->
+      name = to_string(name)
+
+      cond do
+        not Regex.match?(~r/^[a-z0-9][a-z0-9_.-]*$/, name) ->
+          {acc,
+           [
+             "notifications[#{index}].credential_requirements.#{name} must use lowercase letters, numbers, dots, underscores, or hyphens"
+             | errors
+           ]}
+
+        not is_map(requirement) ->
+          {acc,
+           [
+             "notifications[#{index}].credential_requirements.#{name} must be a map"
+             | errors
+           ]}
+
+        true ->
+          path = "notifications[#{index}].credential_requirements.#{name}"
+
+          case NotificationCredentialRequirement.normalize(requirement, path) do
+            {:ok, normalized} ->
+              {Map.put(acc, name, normalized), errors}
+
+            {:error, requirement_errors} ->
+              {acc, Enum.reverse(requirement_errors, errors)}
+          end
+      end
+    end)
+  end
+
+  defp validate_notification_inbound(notification, index, errors) do
+    case fetch(notification, :inbound) do
+      nil ->
+        {default_inbound(), errors}
+
+      value when is_map(value) ->
+        inbound = normalize_map(value) || %{}
+        errors = unknown_inbound_key_errors(inbound, index) ++ errors
+        enabled? = truthy?(fetch(inbound, :enabled))
+
+        {signature, errors} = optional_notification_string(inbound, :signature, index, errors)
+        signature = signature || "none"
+
+        errors =
+          if signature in @allowed_notification_inbound_signatures do
+            errors
+          else
+            [
+              "notifications[#{index}].inbound.signature must be one of: #{Enum.join(@allowed_notification_inbound_signatures, ", ")}"
+              | errors
+            ]
+          end
+
+        {signature_header, errors} =
+          optional_notification_string(inbound, :signature_header, index, errors)
+
+        {timestamp_header, errors} =
+          optional_notification_string(inbound, :timestamp_header, index, errors)
+
+        {path_suffix, errors} =
+          optional_notification_string(inbound, :path_suffix, index, errors)
+
+        {tolerance_seconds, errors} = inbound_tolerance_seconds(inbound, index, errors)
+
+        errors = inbound_coherence_errors(errors, enabled?, signature, signature_header, index)
+        errors = inbound_path_suffix_errors(errors, enabled?, path_suffix, index)
+
+        inbound =
+          %{
+            "enabled" => enabled?,
+            "signature" => signature,
+            "tolerance_seconds" => tolerance_seconds || @default_inbound_tolerance_seconds
+          }
+          |> maybe_put_string("signature_header", signature_header)
+          |> maybe_put_string("timestamp_header", timestamp_header)
+          |> maybe_put_string("path_suffix", path_suffix)
+
+        {inbound, errors}
+
+      _other ->
+        {default_inbound(), ["notifications[#{index}].inbound must be a map" | errors]}
+    end
+  end
+
+  defp default_inbound do
+    %{
+      "enabled" => false,
+      "signature" => "none",
+      "tolerance_seconds" => @default_inbound_tolerance_seconds
+    }
+  end
+
+  defp unknown_inbound_key_errors(inbound, index) do
+    inbound
+    |> Map.keys()
+    |> Enum.map(&to_string/1)
+    |> Enum.reject(&(&1 in @allowed_notification_inbound_keys))
+    |> Enum.map(&"notifications[#{index}].inbound.#{&1} is not allowed")
+  end
+
+  defp inbound_tolerance_seconds(inbound, index, errors) do
+    case normalize_int(fetch(inbound, :tolerance_seconds)) do
+      nil ->
+        {nil, errors}
+
+      value when value > 0 and value <= @max_inbound_tolerance_seconds ->
+        {value, errors}
+
+      _other ->
+        {nil,
+         [
+           "notifications[#{index}].inbound.tolerance_seconds must be a positive integer of at most #{@max_inbound_tolerance_seconds}"
+           | errors
+         ]}
+    end
+  end
+
+  # An enabled callback that signs nothing accepts any caller who guesses the
+  # route, so the signed shape is mandatory rather than a default the author can
+  # forget. The header name is what the verifier reads the signature from, so an
+  # `hmac_sha256` declaration without one cannot be verified at all.
+  defp inbound_coherence_errors(errors, false, _signature, _signature_header, _index), do: errors
+
+  defp inbound_coherence_errors(errors, true, "none", _signature_header, index) do
+    [
+      "notifications[#{index}].inbound.signature must be hmac_sha256 when inbound is enabled"
+      | errors
+    ]
+  end
+
+  defp inbound_coherence_errors(errors, true, _signature, nil, index) do
+    [
+      "notifications[#{index}].inbound.signature_header is required when a signature is declared"
+      | errors
+    ]
+  end
+
+  defp inbound_coherence_errors(errors, true, _signature, _signature_header, _index), do: errors
+
+  defp inbound_path_suffix_errors(errors, false, _path_suffix, _index), do: errors
+
+  defp inbound_path_suffix_errors(errors, true, nil, index) do
+    ["notifications[#{index}].inbound.path_suffix is required when inbound is enabled" | errors]
+  end
+
+  defp inbound_path_suffix_errors(errors, true, path_suffix, index) do
+    if Regex.match?(~r/^[a-z0-9][a-z0-9_-]*$/, path_suffix) do
+      errors
+    else
+      [
+        "notifications[#{index}].inbound.path_suffix must use lowercase letters, numbers, underscores, or hyphens"
+        | errors
+      ]
+    end
+  end
+
+  defp validate_inbound_capability_coherence(errors, capabilities, inbound, index) do
+    declared? = "inbound_callback" in capabilities
+    enabled? = Map.get(inbound, "enabled", false)
+
+    cond do
+      enabled? and not declared? ->
+        [
+          "notifications[#{index}].inbound requires the inbound_callback capability"
+          | errors
+        ]
+
+      declared? and not enabled? ->
+        [
+          "notifications[#{index}].capabilities declare inbound_callback but inbound is not enabled"
+          | errors
+        ]
+
+      true ->
+        errors
+    end
+  end
+
+  defp required_notification_string(notification, key, index, errors) do
+    case normalize_string(fetch(notification, key)) do
+      nil -> {nil, ["notifications[#{index}].#{key} must be a non-empty string" | errors]}
+      "" -> {nil, ["notifications[#{index}].#{key} must be a non-empty string" | errors]}
+      value -> {value, errors}
+    end
+  end
+
+  defp optional_notification_string(notification, key, index, errors) do
+    case fetch(notification, key) do
+      nil ->
+        {nil, errors}
+
+      value ->
+        case normalize_string(value) do
+          nil ->
+            {nil, ["notifications[#{index}].#{key} must be a non-empty string" | errors]}
+
+          "" ->
+            {nil, ["notifications[#{index}].#{key} must be a non-empty string" | errors]}
+
+          normalized ->
+            {normalized, errors}
+        end
+    end
+  end
+
+  # A notifier that declares no capability, or no payload format, cannot deliver
+  # anything: format negotiation would fail at dispatch time on a provider that
+  # saved cleanly. Both lists are therefore required and non-empty.
+  defp required_notification_enum_list(notification, key, allowed, index, errors) do
+    case fetch(notification, key) do
+      nil ->
+        {[], ["notifications[#{index}].#{key} must be a non-empty list of strings" | errors]}
+
+      [] ->
+        {[], ["notifications[#{index}].#{key} must be a non-empty list of strings" | errors]}
+
+      _present ->
+        optional_notification_enum_list(notification, key, allowed, index, errors)
+    end
+  end
+
+  defp optional_notification_enum_list(notification, key, allowed, index, errors) do
+    case fetch(notification, key) do
+      nil ->
+        {[], errors}
+
+      list when is_list(list) ->
+        values = normalize_string_list(list)
+
+        cond do
+          length(values) != length(list) ->
+            {[], ["notifications[#{index}].#{key} must be a list of strings" | errors]}
+
+          (invalid = Enum.reject(values, &(&1 in allowed))) != [] ->
+            {[],
+             [
+               "notifications[#{index}].#{key} contains unsupported entries: #{Enum.join(invalid, ", ")}"
+               | errors
+             ]}
+
+          values != Enum.uniq(values) ->
+            {[], ["notifications[#{index}].#{key} must not repeat an entry" | errors]}
+
+          true ->
+            {values, errors}
+        end
+
+      _other ->
+        {[], ["notifications[#{index}].#{key} must be a list of strings" | errors]}
     end
   end
 

@@ -183,6 +183,41 @@ defmodule ServiceRadar.Plugins.ConfigSchemaTest do
     assert normalized["label"] == "default label"
   end
 
+  test "author-time normalization drops Phoenix unused-input keys" do
+    schema = %{
+      "type" => "object",
+      "additionalProperties" => false,
+      "required" => ["webhook_url"],
+      "properties" => %{
+        "webhook_url" => %{"type" => "string"},
+        "thread_id" => %{"type" => "string"},
+        "wait" => %{"type" => "boolean", "default" => true},
+        "username" => %{"type" => "string"},
+        "avatar_url" => %{"type" => "string", "format" => "uri"}
+      }
+    }
+
+    params = %{
+      "webhook_url" => "https://discord.com/api/webhooks/1/token",
+      "thread_id" => "",
+      "username" => "",
+      "avatar_url" => "",
+      "wait" => "false",
+      "_unused_avatar_url" => "",
+      "_unused_thread_id" => "",
+      "_unused_username" => "",
+      "_unused_wait" => "",
+      "_unused_webhook_url" => ""
+    }
+
+    normalized = ConfigSchema.normalize_params(schema, params)
+
+    refute Enum.any?(Map.keys(normalized), &String.starts_with?(&1, "_unused_"))
+    assert normalized["webhook_url"] == "https://discord.com/api/webhooks/1/token"
+    assert normalized["wait"] == false
+    assert :ok = ConfigSchema.validate_params(schema, normalized)
+  end
+
   describe "coerce_params/2 (delivery-path coercion, fj#4381)" do
     @netprobe_style_schema %{
       "type" => "object",

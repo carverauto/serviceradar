@@ -85,7 +85,7 @@ spec:
               mountPath: /runtime
       containers:
         - name: agent
-          image: {{ include "serviceradar.imageRef" (dict "Values" .Values "name" "serviceradar-agent" "service" "agent") }}
+          image: {{ include "serviceradar.imageRef" (dict "Values" .Values "Chart" .Chart "name" "serviceradar-agent" "service" "agent") }}
           imagePullPolicy: {{ include "serviceradar.imagePullPolicy" . }}
           command: ["/usr/local/lib/serviceradar/agent/serviceradar-agent-seed"]
           args: ["-config", "/etc/serviceradar/agent.json"]

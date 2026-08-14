@@ -54,6 +54,7 @@ defmodule ServiceRadarWebNGWeb.Auth.ConfigCache do
   def get_config do
     case cached_auth_settings() do
       {:ok, settings} -> {:ok, settings}
+      {:error, :not_configured} = error -> error
       :stale -> coordinated_refresh(:stale)
       :miss -> coordinated_refresh(:miss)
     end
@@ -200,11 +201,12 @@ defmodule ServiceRadarWebNGWeb.Auth.ConfigCache do
     case state.refreshing do
       %{ref: ^refresh_ref, waiters: waiters, monitor_ref: monitor_ref} ->
         Process.demonitor(monitor_ref, [:flush])
+        cache_refresh_result(result, state.ttl_ms)
         Enum.each(waiters, &GenServer.reply(&1, result))
-        {:reply, :ok, %{state | refreshing: nil}}
+        {:reply, result, %{state | refreshing: nil}}
 
       _ ->
-        {:reply, :ok, state}
+        effective_refresh_result(result, state)
     end
   end
 
@@ -212,7 +214,16 @@ defmodule ServiceRadarWebNGWeb.Auth.ConfigCache do
   def handle_info({:auth_settings_updated, settings}, state) do
     Logger.info("Auth settings updated, refreshing cache")
     cache_settings(settings, state.ttl_ms)
-    {:noreply, state}
+
+    case state.refreshing do
+      %{waiters: waiters, monitor_ref: monitor_ref} ->
+        Process.demonitor(monitor_ref, [:flush])
+        Enum.each(waiters, &GenServer.reply(&1, {:ok, settings}))
+        {:noreply, %{state | refreshing: nil}}
+
+      nil ->
+        {:noreply, state}
+    end
   end
 
   def handle_info({:DOWN, monitor_ref, :process, _pid, reason}, state) do
@@ -241,10 +252,14 @@ defmodule ServiceRadarWebNGWeb.Auth.ConfigCache do
       {:error, _reason} = error ->
         error
 
-      {:refresh, refresh_ref, ttl_ms} ->
-        result = load_and_cache(ttl_ms)
-        :ok = GenServer.call(__MODULE__, {:complete_refresh, refresh_ref, result}, @refresh_timeout)
-        result
+      {:refresh, refresh_ref, _ttl_ms} ->
+        result = load_settings_result()
+
+        GenServer.call(
+          __MODULE__,
+          {:complete_refresh, refresh_ref, result},
+          @refresh_timeout
+        )
     end
   end
 
@@ -259,6 +274,9 @@ defmodule ServiceRadarWebNGWeb.Auth.ConfigCache do
 
       {_mode, {:ok, settings}, _refreshing} ->
         {:reply, {:ok, settings}, state}
+
+      {_mode, {:error, :not_configured} = error, _refreshing} ->
+        {:reply, error, state}
 
       {_mode, _cached, %{waiters: waiters} = refreshing} ->
         {:noreply, %{state | refreshing: %{refreshing | waiters: [from | waiters]}}}
@@ -277,19 +295,32 @@ defmodule ServiceRadarWebNGWeb.Auth.ConfigCache do
     {new_state, refresh_ref}
   end
 
-  defp load_and_cache(ttl_ms) do
+  defp load_settings_result do
     case load_settings() do
       {:ok, settings} ->
-        cache_settings(settings, ttl_ms)
         {:ok, settings}
 
       {:error, :not_configured} ->
-        Logger.warning("No auth_settings found in database")
+        Logger.debug("Auth settings are not configured; using password-only defaults")
         {:error, :not_configured}
 
       {:error, error} ->
         Logger.error("Failed to load auth_settings: #{inspect(error)}")
         {:error, :load_failed}
+    end
+  end
+
+  defp cache_refresh_result({:ok, settings}, ttl_ms), do: cache_settings(settings, ttl_ms)
+
+  defp cache_refresh_result({:error, :not_configured}, ttl_ms), do: cache_not_configured(ttl_ms)
+
+  defp cache_refresh_result({:error, _reason}, _ttl_ms), do: :ok
+
+  defp effective_refresh_result(result, state) do
+    case cached_auth_settings() do
+      {:ok, _settings} = cached -> {:reply, cached, state}
+      {:error, :not_configured} = cached -> {:reply, cached, state}
+      _miss_or_stale -> {:reply, result, state}
     end
   end
 
@@ -316,11 +347,19 @@ defmodule ServiceRadarWebNGWeb.Auth.ConfigCache do
     :ets.insert(@table, {:auth_settings, settings, expires_at})
   end
 
+  defp cache_not_configured(ttl_ms) do
+    expires_at = System.monotonic_time(:millisecond) + ttl_ms
+    :ets.insert(@table, {:auth_settings, :not_configured, expires_at})
+  end
+
   defp cached_auth_settings do
     case :ets.lookup(@table, :auth_settings) do
-      [{:auth_settings, settings, expires_at}] ->
+      [{:auth_settings, value, expires_at}] ->
         if System.monotonic_time(:millisecond) < expires_at do
-          {:ok, settings}
+          case value do
+            :not_configured -> {:error, :not_configured}
+            settings -> {:ok, settings}
+          end
         else
           :stale
         end

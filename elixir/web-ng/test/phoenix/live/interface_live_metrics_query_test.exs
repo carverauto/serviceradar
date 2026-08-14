@@ -17,17 +17,17 @@ defmodule ServiceRadarWebNGWeb.InterfaceLive.MetricsQueryTest do
     assert query =~ ~s(in:snmp_metrics)
     assert query =~ ~s(device_id:"device-1")
     assert query =~ "if_index:7"
-    assert query =~ ~s(metric_name:["ifInErrors","ifInOctets","ifOutOctets"])
+    assert query =~ ~s(metric_name:["ifHCInOctets","ifHCOutOctets","ifInErrors","ifInOctets","ifOutOctets"])
     assert query =~ "time:last_24h"
     assert query =~ "bucket:1m"
     assert query =~ "agg:rate"
     assert query =~ "series:metric_name"
-    assert query =~ "limit:4320"
+    assert query =~ "limit:7200"
     refute query =~ "bucket:5m"
   end
 
-  test "sizes row limit from unique selected metrics" do
-    assert MetricsQuery.row_limit(["ifInOctets", "ifInOctets", "ifOutOctets"]) == 3_600
+  test "sizes row limit from unique selected metrics including 64-bit aliases" do
+    assert MetricsQuery.row_limit(["ifInOctets", "ifInOctets", "ifOutOctets"]) == 5_760
     assert MetricsQuery.row_limit(Enum.map(1..12, &"metric#{&1}")) == 17_280
   end
 

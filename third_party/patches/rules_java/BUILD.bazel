@@ -1,1 +1,0 @@
-exports_files(["openbsd_jni_header.patch"])

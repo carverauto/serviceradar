@@ -10,6 +10,7 @@ defmodule ServiceRadarWebNG.Plugins.FirstPartyImporter do
 
   import ServiceRadarWebNG.Plugins.ForgejoOciClient, except: [default_repo_url: 0]
 
+  alias ServiceRadar.Plugins.DisplayContract
   alias ServiceRadar.Plugins.Manifest
   alias ServiceRadarWebNG.Plugins.ForgejoOciClient
   alias ServiceRadarWebNG.Plugins.Storage
@@ -126,6 +127,7 @@ defmodule ServiceRadarWebNG.Plugins.FirstPartyImporter do
          {:ok, wasm} <- fetch_bundle_wasm(bundle),
          content_hash = Storage.sha256(wasm),
          :ok <- verify_upload_signature(signature, manifest_map, content_hash),
+         {:ok, display_contracts} <- bundle_display_contracts(bundle),
          :ok <- verify_entry_identity(entry, manifest_struct) do
       now = DateTime.truncate(DateTime.utc_now(), :second)
 
@@ -138,6 +140,7 @@ defmodule ServiceRadarWebNG.Plugins.FirstPartyImporter do
            optional_bundle_json(bundle, "display_contract.json") ||
              Map.get(manifest_map, "display_contract") ||
              %{},
+         display_contracts: display_contracts,
          wasm: wasm,
          content_hash: content_hash,
          signature: signature,
@@ -458,6 +461,29 @@ defmodule ServiceRadarWebNG.Plugins.FirstPartyImporter do
     case get_in(manifest.integrations, ["documentation", "path"]) do
       nil -> :ok
       path when is_binary(path) -> if Map.has_key?(bundle, path), do: :ok, else: {:error, :missing_plugin_documentation}
+    end
+  end
+
+  # Display contracts ship as `display/*.json` bundle entries. They are validated
+  # HERE, at import, rather than at render time: a contract that reaches the
+  # packages table has already been proven to be data, so the renderer never has
+  # to decide whether to trust a stored document.
+  #
+  # Any malformed contract rejects the package/version. Import success is the
+  # trust boundary the renderer relies on: silently dropping one would make the
+  # signed artifact installed in storage differ from the contract operators and
+  # reviewers inspected in the bundle.
+  defp bundle_display_contracts(bundle) do
+    contracts =
+      bundle
+      |> Enum.filter(fn {name, payload} ->
+        is_binary(payload) and String.starts_with?(name, "display/") and Path.extname(name) == ".json"
+      end)
+      |> Map.new()
+
+    case DisplayContract.validate_all(contracts) do
+      {:ok, validated} -> {:ok, validated}
+      {:error, errors} -> {:error, {:invalid_display_contracts, errors}}
     end
   end
 

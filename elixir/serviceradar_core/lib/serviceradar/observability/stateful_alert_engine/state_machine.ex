@@ -88,7 +88,7 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine.StateMachine do
       {:ok, group_key, group_values} ->
         key = {rule.id, group_key}
         snapshot = lookup_snapshot(state.table, key, rule, group_key, group_values, record)
-        updated = update_snapshot(snapshot, rule, record)
+        updated = update_snapshot(snapshot, rule, record, state)
         flushed = maybe_flush_snapshot(updated, rule, state)
         :ets.insert(state.table, {key, flushed})
 
@@ -115,7 +115,7 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine.StateMachine do
               |> Map.put(:last_seen_at, now)
               |> Map.put(:cooldown_until, nil)
               |> Map.put(:diagnostics, update_diagnostics(snapshot.diagnostics, record, now))
-              |> handle_recovery(rule, record, now)
+              |> handle_recovery(rule, record, now, state)
 
             flushed = maybe_flush_snapshot(snapshot, rule, state)
             :ets.insert(state.table, {key, flushed})
@@ -154,7 +154,7 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine.StateMachine do
     end
   end
 
-  defp update_snapshot(snapshot, rule, record) do
+  defp update_snapshot(snapshot, rule, record, state) do
     now = record_timestamp(record)
     bucket_start = record_bucket_start(record, rule.bucket_seconds)
     previous_last_seen_at = snapshot.last_seen_at
@@ -188,31 +188,31 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine.StateMachine do
       |> Map.put(:diagnostics, update_diagnostics(snapshot.diagnostics, record, now))
       |> Map.put_new(:flush_required, false)
 
-    handle_threshold(snapshot, rule, record, now)
+    handle_threshold(snapshot, rule, record, now, state)
   end
 
-  defp handle_threshold(snapshot, rule, record, now) do
+  defp handle_threshold(snapshot, rule, record, now, state) do
     threshold = rule.threshold
     window_count = snapshot.window_count || 0
 
     cond do
       window_count >= threshold ->
-        handle_firing(snapshot, rule, record, now)
+        handle_firing(snapshot, rule, record, now, state)
 
       is_binary(snapshot.alert_id) ->
-        handle_recovery(snapshot, rule, record, now)
+        handle_recovery(snapshot, rule, record, now, state)
 
       true ->
         snapshot
     end
   end
 
-  defp handle_firing(snapshot, rule, record, now) do
+  defp handle_firing(snapshot, rule, record, now, state) do
     cooldown_until = snapshot.cooldown_until
 
     cond do
       is_binary(snapshot.alert_id) and incident_rollover?(snapshot, rule, now) ->
-        rollover_incident(snapshot, rule, record, now)
+        rollover_incident(snapshot, rule, record, now, state)
 
       is_binary(snapshot.alert_id) ->
         snapshot
@@ -227,7 +227,7 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine.StateMachine do
         snapshot
 
       true ->
-        case create_event_and_alert(rule, snapshot, record, now) do
+        case create_snapshot_alert(rule, snapshot, record, now, state) do
           {:ok, alert_id} ->
             snapshot
             |> Map.put(:alert_id, alert_id)
@@ -253,28 +253,65 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine.StateMachine do
       DateTime.diff(now, previous_last_seen_at, :second) > gap_seconds
   end
 
-  defp rollover_incident(snapshot, rule, record, now) do
-    _ = resolve_alert(snapshot.alert_id, rule, snapshot, now)
+  defp rollover_incident(snapshot, rule, record, now, state) do
+    case resolve_snapshot_alert(snapshot, rule, now, state) do
+      :ok ->
+        refreshed_snapshot =
+          snapshot
+          |> Map.put(:alert_id, nil)
+          |> Map.put(:last_notification_at, nil)
+          |> Map.put(:cooldown_until, nil)
+          |> Map.put(:first_seen_at, now)
+          |> Map.put(:diagnostics, update_diagnostics(empty_diagnostics(), record, now))
+          |> Map.put(:flush_required, true)
 
-    refreshed_snapshot =
-      snapshot
-      |> Map.put(:alert_id, nil)
-      |> Map.put(:last_notification_at, nil)
-      |> Map.put(:cooldown_until, nil)
-      |> Map.put(:first_seen_at, now)
-      |> Map.put(:diagnostics, update_diagnostics(empty_diagnostics(), record, now))
-      |> Map.put(:flush_required, true)
+        handle_firing(refreshed_snapshot, rule, record, now, state)
 
-    handle_firing(refreshed_snapshot, rule, record, now)
+      {:error, reason} ->
+        Logger.warning(
+          "Keeping alert #{snapshot.alert_id} open after rollover resolution failed: " <>
+            inspect(reason)
+        )
+
+        # Keep the pre-gap timestamp as the retry marker. `update_snapshot/4`
+        # otherwise advances `last_seen_at` before resolution, so the next
+        # continuously arriving record no longer crosses the cooldown gap and
+        # the old incident remains open forever. This value is also what the
+        # durable snapshot persists, preserving the retry across a shard
+        # restart without introducing a second lifecycle flag.
+        Map.put(snapshot, :last_seen_at, snapshot.previous_last_seen_at)
+    end
   end
 
-  defp handle_recovery(snapshot, rule, _record, now) do
-    resolve_alert(snapshot.alert_id, rule, snapshot, now)
+  defp handle_recovery(snapshot, rule, _record, now, state) do
+    case resolve_snapshot_alert(snapshot, rule, now, state) do
+      :ok ->
+        snapshot
+        |> Map.put(:alert_id, nil)
+        |> Map.put(:last_notification_at, nil)
+        |> Map.put(:flush_required, true)
 
-    snapshot
-    |> Map.put(:alert_id, nil)
-    |> Map.put(:last_notification_at, nil)
-    |> Map.put(:flush_required, true)
+      {:error, reason} ->
+        Logger.warning(
+          "Keeping alert #{snapshot.alert_id} open after recovery failed: #{inspect(reason)}"
+        )
+
+        snapshot
+    end
+  end
+
+  # The state override is a narrow test seam. Production shard state omits it
+  # and always delegates to AlertLifecycle.resolve_alert/4.
+  defp resolve_snapshot_alert(snapshot, rule, now, state) do
+    resolver = Map.get(state, :resolve_alert, &resolve_alert/4)
+    resolver.(snapshot.alert_id, rule, snapshot, now)
+  end
+
+  # Like the resolver override, this is a narrow test seam. Production shard
+  # state omits it and always delegates to AlertLifecycle.create_event_and_alert/4.
+  defp create_snapshot_alert(rule, snapshot, record, now, state) do
+    creator = Map.get(state, :create_event_and_alert, &create_event_and_alert/4)
+    creator.(rule, snapshot, record, now)
   end
 
   # Resolve every open snapshot for `rule` whose last matching record predates
@@ -308,10 +345,20 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine.StateMachine do
 
         acc
       else
-        resolved = handle_recovery(snapshot, rule, nil, now)
-        persist_snapshot(resolved, rule, state)
-        :ets.insert(state.table, {key, resolved})
-        acc + 1
+        resolved = handle_recovery(snapshot, rule, nil, now, state)
+
+        if is_nil(resolved.alert_id) do
+          persist_snapshot(resolved, rule, state)
+          :ets.insert(state.table, {key, resolved})
+          acc + 1
+        else
+          # The lifecycle transaction rolled back (typically because its
+          # durable :resolve job could not be inserted). Leave both the ETS and
+          # durable snapshots pointing at the open alert so the next sweep can
+          # retry instead of reporting a resolution that never committed.
+          :ets.insert(state.table, {key, resolved})
+          acc
+        end
       end
     end)
   end
@@ -353,7 +400,8 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine.StateMachine do
 
   defp maybe_flush_snapshot(snapshot, rule, state) do
     if Map.get(snapshot, :bucket_changed, false) || Map.get(snapshot, :flush_required, false) do
-      persist_snapshot(snapshot, rule, state)
+      persister = Map.get(state, :persist_snapshot, &persist_snapshot/3)
+      persister.(snapshot, rule, state)
 
       snapshot
       |> Map.put(:bucket_changed, false)

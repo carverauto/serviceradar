@@ -4,6 +4,7 @@ defmodule ServiceRadarWebNG.Plugins.GitHubImporter do
   """
 
   alias ServiceRadar.Dashboards.Manifest, as: DashboardManifest
+  alias ServiceRadar.Plugins.DisplayContract
   alias ServiceRadar.Plugins.Manifest, as: PluginManifest
   alias ServiceRadarWebNG.Plugins.Storage
 
@@ -26,8 +27,10 @@ defmodule ServiceRadarWebNG.Plugins.GitHubImporter do
     wasm_path = fetch_value(attrs, [:wasm_path, "wasm_path"]) || @default_wasm_path
     config_schema = fetch_value(attrs, [:config_schema, "config_schema"]) || %{}
     display_contract = fetch_value(attrs, [:display_contract, "display_contract"]) || %{}
+    display_contracts = fetch_value(attrs, [:display_contracts, "display_contracts"]) || %{}
 
-    with {:ok, repo} <- parse_repo_url(repo_url),
+    with {:ok, contracts} <- validate_display_contracts(display_contracts),
+         {:ok, repo} <- parse_repo_url(repo_url),
          :ok <- enforce_repo_boundary(repo),
          {:ok, %{sha: sha, verification: verification}} <- resolve_ref(repo, commit),
          {:ok, manifest_map} <- fetch_manifest(repo, sha, manifest_path),
@@ -43,6 +46,7 @@ defmodule ServiceRadarWebNG.Plugins.GitHubImporter do
          manifest_struct: manifest_struct,
          config_schema: config_schema,
          display_contract: display_contract,
+         display_contracts: contracts,
          wasm: wasm,
          content_hash: Storage.sha256(wasm),
          signature: signature,
@@ -54,6 +58,17 @@ defmodule ServiceRadarWebNG.Plugins.GitHubImporter do
   end
 
   def fetch(_), do: {:error, :invalid_attributes}
+
+  # A GitHub import carries no bundle, so any display contracts arrive as
+  # caller-supplied attributes. They are validated on the same path a bundle's
+  # are, so an operator-pasted contract cannot reach the packages table with
+  # looser rules than one that shipped inside a signed artifact.
+  defp validate_display_contracts(documents) do
+    case DisplayContract.validate_all(documents) do
+      {:ok, contracts} -> {:ok, contracts}
+      {:error, errors} -> {:error, {:invalid_display_contract, errors}}
+    end
+  end
 
   @spec fetch_dashboard(map()) :: {:ok, map()} | {:error, term()}
   def fetch_dashboard(attrs) when is_map(attrs) do

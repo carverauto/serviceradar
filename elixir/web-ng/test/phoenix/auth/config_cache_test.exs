@@ -2,9 +2,9 @@ defmodule ServiceRadarWebNGWeb.Auth.ConfigCacheTest do
   @moduledoc """
   Tests for authentication configuration cache.
 
-  These tests verify the caching functionality (get_cached, put_cached, etc.)
-  which don't require database access. The auth settings tests may return
-  {:error, :not_configured} or actual settings depending on database state.
+  These tests verify the caching functionality without database access. The
+  configured loader keeps auth-settings results deterministic in the db-free
+  Bazel tier.
 
   Run with: mix test test/phoenix/auth/config_cache_test.exs
   """
@@ -13,11 +13,26 @@ defmodule ServiceRadarWebNGWeb.Auth.ConfigCacheTest do
 
   alias ServiceRadarWebNGWeb.Auth.ConfigCache
 
-  # ConfigCache uses ETS which is started by the application
-  # These tests verify the caching functionality
+  @moduletag :db_free
 
   setup do
+    {:ok, _apps} = Application.ensure_all_started(:phoenix_pubsub)
+
+    case Process.whereis(ServiceRadar.PubSub) do
+      nil -> start_supervised!({Phoenix.PubSub, name: ServiceRadar.PubSub})
+      _pid -> :ok
+    end
+
+    case Process.whereis(ConfigCache) do
+      nil -> start_supervised!({ConfigCache, ttl_ms: 60_000})
+      _pid -> :ok
+    end
+
     previous_loader = Application.get_env(:serviceradar_web_ng, :auth_settings_loader)
+
+    Application.put_env(:serviceradar_web_ng, :auth_settings_loader, fn ->
+      {:error, :not_configured}
+    end)
 
     on_exit(fn ->
       if previous_loader do
@@ -144,6 +159,63 @@ defmodule ServiceRadarWebNGWeb.Auth.ConfigCacheTest do
           # Error should be an atom
           assert is_atom(reason)
       end
+    end
+
+    test "caches a missing singleton for the normal TTL" do
+      counter = start_supervised!({Agent, fn -> 0 end})
+
+      Application.put_env(:serviceradar_web_ng, :auth_settings_loader, fn ->
+        Agent.update(counter, &(&1 + 1))
+        {:error, :not_configured}
+      end)
+
+      :ets.delete(ConfigCache, :auth_settings)
+
+      assert {:error, :not_configured} = ConfigCache.get_config()
+      assert {:error, :not_configured} = ConfigCache.get_config()
+      assert Agent.get(counter, & &1) == 1
+    end
+
+    test "a settings broadcast replaces a cached missing singleton immediately" do
+      Application.put_env(:serviceradar_web_ng, :auth_settings_loader, fn ->
+        {:error, :not_configured}
+      end)
+
+      :ets.delete(ConfigCache, :auth_settings)
+      assert {:error, :not_configured} = ConfigCache.get_config()
+
+      settings = %{mode: :active_sso, is_enabled: true}
+      send(ConfigCache, {:auth_settings_updated, settings})
+
+      _ = :sys.get_state(ConfigCache)
+      assert ConfigCache.get_config() == {:ok, settings}
+    end
+
+    test "a stale in-flight miss cannot overwrite a newer settings broadcast" do
+      parent = self()
+
+      Application.put_env(:serviceradar_web_ng, :auth_settings_loader, fn ->
+        send(parent, {:loader_waiting, self()})
+
+        receive do
+          :release_loader -> {:error, :not_configured}
+        end
+      end)
+
+      :ets.delete(ConfigCache, :auth_settings)
+      refresh = Task.async(&ConfigCache.get_config/0)
+
+      assert_receive {:loader_waiting, loader_pid}
+
+      settings = %{mode: :active_sso, is_enabled: true}
+      send(ConfigCache, {:auth_settings_updated, settings})
+      _ = :sys.get_state(ConfigCache)
+      assert ConfigCache.get_config() == {:ok, settings}
+
+      send(loader_pid, :release_loader)
+
+      assert Task.await(refresh) == {:ok, settings}
+      assert ConfigCache.get_config() == {:ok, settings}
     end
   end
 

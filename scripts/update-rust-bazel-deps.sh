@@ -12,11 +12,11 @@ Every step matters:
   1. cargo update      moves the lock
   2. cargo check       catches source breakage early, with --lib --bins --tests
                        (a plain `cargo check` skips test code, and Bazel compiles tests)
-  3. scripts/vendor.sh regenerates //third_party/crates from the new lock, re-applies the
-                       openssl-src / pq-src source patches, and repairs the generated files
+  3. scripts/vendor.sh regenerates //third_party/crates from the new lock (cargo vendor)
+                       and re-applies the openssl-src / pq-src source patches
   4. bazel build       the step that actually decides: a green cargo check does NOT prove
                        the Bazel build (Cargo.lock keeps optional deps cargo never
-                       resolves; crates_vendor vendors the whole lock, so Bazel compiles
+                       resolves; cargo vendor vendors the whole lock, so Bazel compiles
                        crates cargo prunes)
 
 update-mode:

@@ -177,10 +177,24 @@ export const godViewRenderingTooltipMethods = {
   edgeLayerId(layerId) {
     return layerId === "god-view-edges-mantle" || layerId === "god-view-edges-crust"
   },
+  nodeLayerId(layerId) {
+    return (
+      layerId === "god-view-nodes" ||
+      layerId === "god-view-nodes-hitbox" ||
+      layerId === "god-view-node-labels"
+    )
+  },
+  pickedNodeIndex(info) {
+    const objectIndex = info?.object?.index
+    if (Number.isInteger(objectIndex) && objectIndex >= 0) return objectIndex
+    const infoIndex = info?.index
+    if (Number.isInteger(infoIndex) && infoIndex >= 0) return infoIndex
+    return null
+  },
   handleHover(info) {
     const layerId = info?.layer?.id || ""
     const nextNodeIndex =
-      (layerId === "god-view-nodes" || layerId === "god-view-node-labels") && Number.isInteger(info?.object?.index)
+      this.nodeLayerId(layerId) && Number.isInteger(info?.object?.index) && info.object.index >= 0
         ? info.object.index
         : null
     const isMtrPath = layerId === "god-view-mtr-paths"

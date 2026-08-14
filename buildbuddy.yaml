@@ -311,7 +311,8 @@ actions:
             --//build:enable_integration_tests --test_tag_filters= --test_output=errors \
             --nocache_test_results --remote_upload_local_results=false \
             --flaky_test_attempts=1 //integration_tests/srql:srql_api_test \
-            //integration_tests/srql:srql_comprehensive_test
+            //integration_tests/srql:srql_comprehensive_test \
+            //integration_tests/srql:srql_device_grouped_stats_test
 
 
       # Largely a cache hit from the //... build above;

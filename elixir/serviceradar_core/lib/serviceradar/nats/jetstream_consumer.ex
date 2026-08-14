@@ -54,6 +54,7 @@ defmodule ServiceRadar.NATS.JetstreamConsumer do
 
           opts
           |> Keyword.put(:deliver_policy, policy)
+          |> preserve_existing_start_sequence(existing, policy)
           |> Keyword.put(:consumer_already_exists, true)
 
         {:error, _} ->
@@ -469,9 +470,12 @@ defmodule ServiceRadar.NATS.JetstreamConsumer do
        ) do
     case consumer_config(connection_ref, stream_name, consumer_name, domain) do
       {:ok, existing} ->
+        policy = existing_deliver_policy(existing)
+
         opts =
           opts
-          |> Keyword.put(:deliver_policy, existing_deliver_policy(existing))
+          |> Keyword.put(:deliver_policy, policy)
+          |> preserve_existing_start_sequence(existing, policy)
           |> Keyword.put(:consumer_already_exists, true)
 
         # Direct CREATE upsert; do not recurse into handle_create_error forever.
@@ -590,6 +594,10 @@ defmodule ServiceRadar.NATS.JetstreamConsumer do
           # Omit when unset so UPDATE/reconcile does not thrash immutable fields.
           # CREATE still gets server default (all) unless caller sets :new/:all.
           deliver_policy: Keyword.get(opts, :deliver_policy),
+          # `opt_start_seq` is part of the immutable start position for a
+          # by-start-sequence durable. Omitting it while re-upserting that
+          # consumer can reset or invalidate its declared cursor.
+          opt_start_seq: Keyword.get(opts, :opt_start_seq),
           filter_subject: subject,
           deliver_subject: Keyword.get(opts, :deliver_subject),
           inactive_threshold: Keyword.get(opts, :inactive_threshold),
@@ -623,6 +631,20 @@ defmodule ServiceRadar.NATS.JetstreamConsumer do
 
   def deliver_policy_immutable_error?(%{"err_code" => 10_012}), do: true
   def deliver_policy_immutable_error?(_), do: false
+
+  defp preserve_existing_start_sequence(opts, existing, :by_start_sequence) do
+    case Map.get(existing, "opt_start_seq") || Map.get(existing, :opt_start_seq) do
+      sequence when is_integer(sequence) and sequence > 0 ->
+        Keyword.put(opts, :opt_start_seq, sequence)
+
+      _missing ->
+        Keyword.delete(opts, :opt_start_seq)
+    end
+  end
+
+  defp preserve_existing_start_sequence(opts, _existing, _policy) do
+    Keyword.delete(opts, :opt_start_seq)
+  end
 
   @doc false
   # JetStream rejects STREAM.CREATE with err_code 10065 ("subjects overlap

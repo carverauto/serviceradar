@@ -22,7 +22,7 @@
 {{- $advisoryFeeds := default (dict) (get (default (dict) .Values.core) "advisoryFeeds") -}}
 {{- $advisoryFeedsEnabled := default false $advisoryFeeds.enabled -}}
 {{- $advisoryFeedsDir := default "/var/lib/serviceradar/advisory-feeds" $advisoryFeeds.stagingDir -}}
-{{- $webNgPublicUrl := default "" $webNg.publicUrl -}}
+{{- $webNgPublicUrl := include "serviceradar.webNgPublicUrl" . -}}
 {{- $gatewayArtifactPublicUrl := "" -}}
 {{- if $gateway.publicHostname -}}
 {{- $gatewayArtifactPublicUrl = printf "https://%s:%v" $gateway.publicHostname (default 50053 $gatewayService.artifactPort) -}}
@@ -52,6 +52,41 @@
 {{- $deviceEnrichmentFsSecret := default "" $deviceEnrichmentFsOverrides.existingSecret -}}
 {{- $deviceEnrichmentFsClaim := default "" $deviceEnrichmentFsOverrides.existingClaim -}}
 {{- $secrets := default "serviceradar-secrets" .Values.secrets.existingSecretName -}}
+{{- $mailer := default (dict) $coreVals.mailer -}}
+{{- /*
+  Notification platform (openspec add-notification-platform, tasks 3.4.6).
+
+  `:control_plane` wasm notification plugins execute on the platform-resident
+  serviceradar-agent this chart already deploys, through the same
+  plugin.run_action command an edge dispatch uses - which is why there is
+  exactly one Wasm host in the product. Core has to be told which agent that
+  is; there is deliberately no default in the application, because guessing an
+  agent id would dispatch a customer's notifications to whichever agent
+  happened to match. The chart knows the answer, so it supplies it.
+
+  With agent.enabled=false and no explicit override, nothing is set and a
+  :control_plane plugin channel fails with `platform_agent_unconfigured`
+  instead of dispatching somewhere arbitrary.
+*/ -}}
+{{- $notificationAgentVals := default (dict) .Values.agent -}}
+{{- $notificationAgentEnabled := true -}}
+{{- if hasKey $notificationAgentVals "enabled" -}}
+{{- $notificationAgentEnabled = $notificationAgentVals.enabled -}}
+{{- end -}}
+{{- $notificationVals := default (dict) $coreVals.notifications -}}
+{{- $notificationPlatformAgent := default (dict) $notificationVals.platformAgent -}}
+{{- $notificationAgentId := default "" $notificationPlatformAgent.agentId -}}
+{{- if and (eq $notificationAgentId "") $notificationAgentEnabled -}}
+{{- $notificationAgentId = default "k8s-agent" $notificationAgentVals.agentId -}}
+{{- end -}}
+{{- $notificationAgentPartition := default (coalesce .Values.partitionId $notificationAgentVals.partitionId "default") $notificationPlatformAgent.partitionId -}}
+{{- $notificationReceiptSweep := default (dict) $notificationVals.receiptSweep -}}
+{{- $notificationReceiptSweepEnabled := true -}}
+{{- if hasKey $notificationReceiptSweep "enabled" -}}
+{{- $notificationReceiptSweepEnabled = $notificationReceiptSweep.enabled -}}
+{{- end -}}
+{{- $mailerFrom := default (dict) $mailer.from -}}
+{{- $mailerSecret := default "" $mailer.existingSecret -}}
 {{- $automationCallbacks := default (dict) .Values.automationCallbacks -}}
 {{- include "serviceradar.validateAutomationCallbacks" . -}}
 {{- $automationCallbacksEnabled := false -}}
@@ -120,7 +155,7 @@ spec:
       {{- include "serviceradar.elixirReleasePodSecurityContext" . | nindent 6 }}
       containers:
       - name: core-elx
-        image: {{ include "serviceradar.imageRef" (dict "Values" .Values "name" "serviceradar-core-elx" "service" "core") }}
+        image: {{ include "serviceradar.imageRef" (dict "Values" .Values "Chart" .Chart "name" "serviceradar-core-elx" "service" "core") }}
         imagePullPolicy: {{ include "serviceradar.imagePullPolicy" . }}
         {{- include "serviceradar.containerSecurityContext" . | nindent 8 }}
         ports:
@@ -301,6 +336,56 @@ spec:
         - name: SERVICERADAR_LOCAL_MAILER
           value: "false"
         {{- end }}
+        # Outbound mail. With none of this set the mailer resolves to
+        # Swoosh.Adapters.Test, which reports every send as successful and
+        # delivers nothing - so an email notification channel refuses to
+        # validate until a relay is configured here (or in Settings > Mail)
+        # rather than looking healthy and paging nobody.
+        {{- if $mailer.adapter }}
+        - name: SERVICERADAR_MAILER_ADAPTER
+          value: {{ $mailer.adapter | quote }}
+        {{- end }}
+        {{- if $mailer.relay }}
+        - name: SMTP_RELAY_HOST
+          value: {{ $mailer.relay | quote }}
+        - name: SMTP_RELAY_PORT
+          value: {{ default 587 $mailer.port | quote }}
+        {{- if $mailer.hostname }}
+        - name: SMTP_RELAY_HOSTNAME
+          value: {{ $mailer.hostname | quote }}
+        {{- end }}
+        - name: SMTP_RELAY_AUTH
+          value: {{ default "if_available" $mailer.auth | quote }}
+        - name: SMTP_RELAY_TLS
+          value: {{ default "if_available" $mailer.tls | quote }}
+        - name: SMTP_RELAY_SSL
+          value: {{ default false $mailer.ssl | quote }}
+        {{- end }}
+        {{- if $mailerSecret }}
+        # Relay credentials come from an existing Secret, never from values.
+        # A password in values.yaml is a password in the release manifest, in
+        # `helm get values`, and in whatever GitOps repository holds it.
+        - name: SMTP_RELAY_USERNAME
+          valueFrom:
+            secretKeyRef:
+              name: {{ $mailerSecret | quote }}
+              key: {{ default "smtp-username" $mailer.usernameKey | quote }}
+              optional: true
+        - name: SMTP_RELAY_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: {{ $mailerSecret | quote }}
+              key: {{ default "smtp-password" $mailer.passwordKey | quote }}
+              optional: true
+        {{- end }}
+        {{- if $mailerFrom.name }}
+        - name: SERVICERADAR_MAIL_FROM_NAME
+          value: {{ $mailerFrom.name | quote }}
+        {{- end }}
+        {{- if $mailerFrom.email }}
+        - name: SERVICERADAR_MAIL_FROM_EMAIL
+          value: {{ $mailerFrom.email | quote }}
+        {{- end }}
         - name: POOL_SIZE
           value: {{ default 40 $database.poolSize | quote }}
         - name: DATABASE_QUEUE_TARGET_MS
@@ -333,6 +418,20 @@ spec:
           value: {{ default 5 $obanQueues.alerts | quote }}
         - name: OBAN_QUEUE_SERVICE_CHECKS
           value: {{ default 10 $obanQueues.serviceChecks | quote }}
+        {{- if ne $notificationAgentId "" }}
+        - name: SERVICERADAR_NOTIFICATION_PLATFORM_AGENT_ID
+          value: {{ $notificationAgentId | quote }}
+        - name: SERVICERADAR_NOTIFICATION_PLATFORM_AGENT_PARTITION
+          value: {{ $notificationAgentPartition | quote }}
+        {{- end }}
+        {{- if not $notificationReceiptSweepEnabled }}
+        # The receipt sweep is what closes out an agent-routed delivery whose
+        # command result never came back, without depending on
+        # STATUS_HANDLER_ENABLED. Turning it off leaves those rows to the blind
+        # stall sweep, which re-sends rather than settling from the command row.
+        - name: SERVICERADAR_NOTIFICATION_RECEIPT_SWEEP_ENABLED
+          value: "false"
+        {{- end }}
         - name: OBAN_QUEUE_NOTIFICATIONS
           value: {{ default 5 $obanQueues.notifications | quote }}
         - name: OBAN_QUEUE_ONBOARDING
@@ -821,13 +920,21 @@ spec:
       {{- end }}
       {{- if $geoipMmdb.enabled }}
       - name: geoip-mmdb
+        {{- if $geoipMmdb.emptyDir }}
+        emptyDir: {}
+        {{- else }}
         persistentVolumeClaim:
           claimName: {{ default "serviceradar-geoip-mmdb" $geoipMmdb.existingClaim | quote }}
+        {{- end }}
       {{- end }}
       {{- if $advisoryFeedsEnabled }}
       - name: advisory-feeds
+        {{- if $advisoryFeeds.emptyDir }}
+        emptyDir: {}
+        {{- else }}
         persistentVolumeClaim:
           claimName: {{ default "serviceradar-advisory-feeds" $advisoryFeeds.existingClaim | quote }}
+        {{- end }}
       {{- end }}
       {{- if or .Values.natsCreds.platform .Values.natsCreds.system .Values.natsCreds.autoGenerate }}
       - name: nats-creds

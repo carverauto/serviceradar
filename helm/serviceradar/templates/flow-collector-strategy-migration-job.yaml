@@ -1,0 +1,140 @@
+{{- if .Values.flowCollector.enabled }}
+{{- $name := "serviceradar-flow-collector-strategy-migration" -}}
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ $name }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app.kubernetes.io/part-of: serviceradar
+    app.kubernetes.io/component: flow-collector-strategy-migration
+  annotations:
+    "helm.sh/hook": pre-upgrade
+    "helm.sh/hook-weight": "-3"
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ $name }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app.kubernetes.io/part-of: serviceradar
+    app.kubernetes.io/component: flow-collector-strategy-migration
+  annotations:
+    "helm.sh/hook": pre-upgrade
+    "helm.sh/hook-weight": "-3"
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
+rules:
+- apiGroups: ["apps"]
+  resources: ["deployments"]
+  resourceNames: ["serviceradar-flow-collector"]
+  verbs: ["patch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ $name }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app.kubernetes.io/part-of: serviceradar
+    app.kubernetes.io/component: flow-collector-strategy-migration
+  annotations:
+    "helm.sh/hook": pre-upgrade
+    "helm.sh/hook-weight": "-3"
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: {{ $name }}
+subjects:
+- kind: ServiceAccount
+  name: {{ $name }}
+  namespace: {{ .Release.Namespace }}
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ $name }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app.kubernetes.io/part-of: serviceradar
+    app.kubernetes.io/component: flow-collector-strategy-migration
+  annotations:
+    "helm.sh/hook": pre-upgrade
+    "helm.sh/hook-weight": "-2"
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
+spec:
+  ttlSecondsAfterFinished: 300
+  activeDeadlineSeconds: 120
+  backoffLimit: 0
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/part-of: serviceradar
+        app.kubernetes.io/component: flow-collector-strategy-migration
+    spec:
+      serviceAccountName: {{ $name }}
+      restartPolicy: Never
+      {{- include "serviceradar.podSecurityContext" . | nindent 6 }}
+      {{- include "serviceradar.imagePullSecrets" . | nindent 6 }}
+      containers:
+      - name: migrate-strategy
+        image: {{ include "serviceradar.imageRef" (dict "Values" .Values "Chart" .Chart "name" "serviceradar-tools" "service" "tools") }}
+        imagePullPolicy: {{ include "serviceradar.imagePullPolicy" . }}
+        {{- include "serviceradar.nonRootContainerSecurityContext" . | nindent 8 }}
+        env:
+        - name: HOME
+          value: /tmp
+        command: ["/bin/sh", "-ec"]
+        args:
+        - |
+          set -eu
+
+          deployment="serviceradar-flow-collector"
+          serviceaccount_dir="${KUBERNETES_SERVICEACCOUNT_DIR:-/var/run/secrets/kubernetes.io/serviceaccount}"
+          namespace="$(cat "${serviceaccount_dir}/namespace")"
+          token="$(cat "${serviceaccount_dir}/token")"
+          api_url="https://kubernetes.default.svc/apis/apps/v1/namespaces/${namespace}/deployments/${deployment}"
+          work_dir="${TMPDIR:-/tmp}"
+
+          umask 077
+          printf 'header = "Authorization: Bearer %s"\n' "${token}" > "${work_dir}/curl-auth.conf"
+          trap 'rm -f "${work_dir}/curl-auth.conf" "${work_dir}/response.json"' EXIT
+
+          status="$(curl --silent --show-error \
+            --config "${work_dir}/curl-auth.conf" \
+            --cacert "${serviceaccount_dir}/ca.crt" \
+            --header 'Accept: application/json' \
+            --header 'Content-Type: application/strategic-merge-patch+json' \
+            --request PATCH \
+            --data '{"spec":{"strategy":{"$retainKeys":["type"],"type":"Recreate"}}}' \
+            --output "${work_dir}/response.json" \
+            --write-out '%{http_code}' \
+            "${api_url}")"
+
+          case "${status}" in
+            200)
+              if ! jq -e '.spec.strategy.type == "Recreate" and (.spec.strategy | has("rollingUpdate") | not)' "${work_dir}/response.json" >/dev/null; then
+                echo "Kubernetes accepted the strategy patch but did not remove rollingUpdate" >&2
+                exit 1
+              fi
+              echo "Deployment ${deployment} now uses Recreate strategy without rollingUpdate"
+              ;;
+            404)
+              echo "Deployment ${deployment} is absent; the upgrade will create it with Recreate strategy"
+              ;;
+            *)
+              message="$(jq -r '.message // "no API error message"' "${work_dir}/response.json" 2>/dev/null || printf 'unparseable API response')"
+              echo "Failed to migrate Deployment ${deployment} strategy: HTTP ${status}: ${message}" >&2
+              exit 1
+              ;;
+          esac
+        volumeMounts:
+        - name: tmp
+          mountPath: /tmp
+      volumes:
+      - name: tmp
+        emptyDir: {}
+{{- end }}

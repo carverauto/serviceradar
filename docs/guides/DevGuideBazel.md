@@ -2,10 +2,12 @@
 
 ## Prerequisites
 
-Ensure that
-* Bazelisk is installed
-* A BB API key is present in .bazelrc.remote and the file is gitignored
-* A C compiler (GCC or Clang) is installed
+Ensure that:
+
+- Bazelisk is installed.
+- A BuildBuddy API key is present in `.bazelrc.remote`; the file is ignored by
+  Git.
+- A C compiler (GCC or Clang) is installed.
 
 ## Basic concept
 
@@ -20,7 +22,7 @@ the GH Action runners, and the BB CI workflow.
 It is generally recommended to build and test only the source tree one is working on.
 For example, working on the Golang source tree leads to:
 
-```Bash
+```bash
 bazel build -c opt --config=ci //go/...
 
 bazel test -c opt --config=ci //go/...
@@ -29,8 +31,8 @@ bazel test -c opt --config=ci //go/...
 
 For even more specific targets, use the file path. For example:
 
-```Bash
-bazel build -c opt --config=ci //elixir/serviceradar_srql/...
+```bash
+bazel build -c opt --config=ci //elixir/serviceradar_core/...
 ```
 
 Note that the trailing three dots simply mean "anything" below this path. Also note that Bazel 
@@ -41,22 +43,30 @@ Building sub-targets may cause upstream targets to rebuild in case of a
 full repo rebuild. However, it is common to skip the full rebuild until 
 the local work has been completed.
 
-When ready to open a PR, run the following to complete some pre-PR checks:
+When ready to open a PR, update the branch explicitly and then run the standard
+gates:
 
-```Bash
-make check
+```bash
+git fetch origin
+git rebase origin/staging
+make lint
+make test
 ```
 
-This script:
-* Builds the entire repo
-* Runs all unit tests
-* Runs the Golang race condition tests
+Keep the rebase separate from validation. Test commands must not pull or merge
+Git history implicitly. `make test` invokes the repository's Bazel test graph
+with the same BuildBuddy-backed CI profile used by the main build workflow.
+Run a focused Go race test when the changed package needs one, for example:
 
-Synchronize and rebase the feature branch against `origin/staging` separately before this gate;
-`make check` never mutates Git history.
+```bash
+bazel test -c opt --config=ci //go/pkg/... \
+  --@io_bazel_rules_go//go/config:pure=false \
+  --@io_bazel_rules_go//go/config:race
+```
 
-Depending on the scope of local changes, this may take a few minutes. The configuration used
-by the check script is identical to the BB CI config, and it runs on the same BB cluster as the BB CI workflow. 
+Depending on the scope of local changes, these gates may take a few minutes.
+Bazel build and test progress is streamed to the same BuildBuddy cluster used
+by CI.
 
 The build progress can be tracked in the BB dashboard:
 
@@ -67,6 +77,9 @@ When ready, open a PR from a feature branch and follow the CI checks.
 
 ## Outer Dev Loop
 
-CI is split between Forgejo Actions and the self-hosted BuildBuddy workflow. Both use the shared
-cache proxy; database-facing TestRunner actions stay on fixture-reachable workflow runners while
-eligible compile actions remain remote and cached.
+Forgejo owns lint, integration, and repository policy workflows. The root
+`buildbuddy.yaml` workflow and Forgejo's main build both use the shared
+BuildBuddy cache and remote execution cluster for Bazel compilation and
+eligible tests. Database-backed test actions are the intentional exception:
+their compile actions remain remote, while each mutable DB `TestRunner` is
+placed on the workflow runner with the explicit local lifecycle contract.

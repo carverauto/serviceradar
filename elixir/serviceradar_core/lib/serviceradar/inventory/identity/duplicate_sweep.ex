@@ -36,7 +36,7 @@ defmodule ServiceRadar.Inventory.Identity.DuplicateSweep do
     # useful during source-aware ingestion, where conflicting universal MACs
     # can veto convergence, but ambiguous legacy serial rows must not drive an
     # unattended scheduled merge.
-    identifier_duplicates = duplicate_identifier_groups()
+    identifier_duplicates = duplicate_identifier_groups() ++ hardware_mac_sibling_groups()
 
     components =
       identifier_duplicates
@@ -105,6 +105,59 @@ defmodule ServiceRadar.Inventory.Identity.DuplicateSweep do
     |> Enum.map(fn {type, value, partition, device_ids} ->
       {{partition, type, value}, MapSet.new(device_ids)}
     end)
+  end
+
+  # Same 48-bit station, opposite IEEE local bit (UniFi WAN F4 + SNMP LAN F6).
+  # These never share an identifier value, so the exact-value grouping above
+  # cannot see them. Pairing is the identity rule, not a one-off merge.
+  defp hardware_mac_sibling_groups do
+    import Ecto.Query
+
+    rows =
+      ServiceRadar.Repo.all(
+        from(di in DeviceIdentifier,
+          where: di.identifier_type == :mac,
+          # Exclude service-component IDs (`serviceradar:core`, …). Inventory
+          # devices use `sr:<uuid>` and must remain in this scan.
+          where: not like(di.device_id, "serviceradar:%"),
+          where: fragment("? ~ '^[0-9A-F]{12}$'", di.identifier_value),
+          select: {di.identifier_value, di.device_id, di.partition}
+        )
+      )
+
+    rows
+    |> Enum.group_by(fn {_mac, _device_id, partition} -> partition end)
+    |> Enum.flat_map(fn {partition, partition_rows} ->
+      sibling_groups_for_partition(partition, partition_rows)
+    end)
+  end
+
+  defp sibling_groups_for_partition(partition, rows) do
+    by_mac = Map.new(rows, fn {mac, device_id, _partition} -> {mac, device_id} end)
+
+    rows
+    |> Enum.reduce({[], MapSet.new()}, fn {mac, device_id, _partition}, {groups, seen} ->
+      sibling = Mac.hardware_mac_sibling(mac)
+
+      cond do
+        sibling == nil ->
+          {groups, seen}
+
+        MapSet.member?(seen, {mac, sibling}) or MapSet.member?(seen, {sibling, mac}) ->
+          {groups, seen}
+
+        true ->
+          case Map.get(by_mac, sibling) do
+            other_id when is_binary(other_id) and other_id != device_id ->
+              group = {{partition, :mac_sibling, mac}, MapSet.new([device_id, other_id])}
+              {[group | groups], MapSet.put(seen, {mac, sibling})}
+
+            _ ->
+              {groups, seen}
+          end
+      end
+    end)
+    |> elem(0)
   end
 
   @doc false
@@ -228,6 +281,50 @@ defmodule ServiceRadar.Inventory.Identity.DuplicateSweep do
     candidates = Enum.filter(device_ids, &Ids.serviceradar_uuid?/1)
     candidates = if candidates == [], do: device_ids, else: candidates
 
-    Resolver.most_recent_device_id(candidates, actor) || List.first(candidates)
+    uaa_sibling_survivor(candidates, actor) ||
+      Resolver.most_recent_device_id(candidates, actor) ||
+      List.first(candidates)
+  end
+
+  # A UniFi/SNMP NIC pair must keep the universally-administered MAC as the
+  # survivor even if the LAA SNMP sighting is newer.
+  defp uaa_sibling_survivor(device_ids, actor) when length(device_ids) == 2 do
+    [device_a, device_b] = device_ids
+    macs_a = device_macs(device_a, actor)
+    macs_b = device_macs(device_b, actor)
+
+    cond do
+      not Mac.any_hardware_mac_siblings?(macs_a, macs_b) ->
+        nil
+
+      has_universal_mac?(macs_a) and not has_universal_mac?(macs_b) ->
+        device_a
+
+      has_universal_mac?(macs_b) and not has_universal_mac?(macs_a) ->
+        device_b
+
+      true ->
+        nil
+    end
+  end
+
+  defp uaa_sibling_survivor(_device_ids, _actor), do: nil
+
+  defp has_universal_mac?(macs) do
+    Enum.any?(macs, &(not Mac.locally_administered_mac?(&1)))
+  end
+
+  defp device_macs(device_id, actor) do
+    query_opts = if actor, do: [actor: actor], else: []
+
+    DeviceIdentifier
+    |> Ash.Query.filter(device_id == ^device_id and identifier_type == :mac)
+    |> Ash.read(query_opts)
+    |> case do
+      {:ok, identifiers} -> Enum.map(identifiers, & &1.identifier_value)
+      _ -> []
+    end
+  rescue
+    _ -> []
   end
 end

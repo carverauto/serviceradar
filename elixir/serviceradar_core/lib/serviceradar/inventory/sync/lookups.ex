@@ -10,6 +10,7 @@ defmodule ServiceRadar.Inventory.Sync.Lookups do
   alias ServiceRadar.Inventory.Device
   alias ServiceRadar.Inventory.DeviceIdentifier
   alias ServiceRadar.Inventory.Identity.Ids
+  alias ServiceRadar.Inventory.Identity.Mac
   alias ServiceRadar.Inventory.IdentityReconciler
   alias ServiceRadar.Inventory.Sync.SourcePolicy
   alias ServiceRadar.Repo
@@ -26,7 +27,14 @@ defmodule ServiceRadar.Inventory.Sync.Lookups do
       partition = ids.partition
       include_mac? = SourcePolicy.include_mac_identifier?(update)
 
-      mac_values = if include_mac?, do: IdentityReconciler.mac_lookup_values(ids), else: []
+      mac_values =
+        if include_mac? do
+          ids
+          |> IdentityReconciler.mac_lookup_values()
+          |> Mac.lookup_macs_with_siblings()
+        else
+          []
+        end
 
       id_types = SourcePolicy.identifier_types(update, ids)
 

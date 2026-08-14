@@ -48,7 +48,13 @@ defmodule ServiceRadar.Plugins.ConfigSchema do
   @spec normalize_params(map(), map()) :: map()
   def normalize_params(schema, params) when is_map(schema) do
     schema = schema |> stringify_keys() |> assignment_schema()
-    params = stringify_keys(params || %{})
+
+    params =
+      params
+      |> Kernel.||(%{})
+      |> stringify_keys()
+      |> drop_unused_input_keys()
+
     {normalized, _} = normalize_for_schema(schema, params)
     normalized
   end
@@ -533,9 +539,33 @@ defmodule ServiceRadar.Plugins.ConfigSchema do
 
   defp stringify_keys(value), do: MapUtils.stringify_keys_or_empty(value)
 
+  defp drop_unused_input_keys(params) when is_map(params) do
+    params
+    |> Enum.reject(fn {key, _value} -> unused_input_key?(key) end)
+    |> Map.new(fn {key, value} -> {key, drop_unused_input_keys(value)} end)
+  end
+
+  defp drop_unused_input_keys(value), do: value
+
+  defp unused_input_key?(key) when is_binary(key), do: String.starts_with?(key, "_unused_")
+  defp unused_input_key?(_key), do: false
+
   defp normalize_for_schema(%{"type" => "object"} = schema, params) when is_map(params) do
     properties = Map.get(schema, "properties", %{})
-    {normalize_object_params(properties, params), schema}
+    params = drop_unused_input_keys(params)
+    normalized = normalize_object_params(properties, params)
+
+    # Phoenix LiveView submits untouched inputs as `_unused_<name>`. Those keys
+    # are not part of the document, and `additionalProperties: false` schemas
+    # (Discord, Slack, webhook, …) reject them as a save error.
+    normalized =
+      if Map.get(schema, "additionalProperties") == false and is_map(properties) do
+        Map.take(normalized, Map.keys(properties))
+      else
+        normalized
+      end
+
+    {normalized, schema}
   end
 
   defp normalize_for_schema(_schema, params) when is_map(params), do: {params, nil}

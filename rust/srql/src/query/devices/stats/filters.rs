@@ -40,6 +40,7 @@ pub(super) fn build_grouped_stats_filter_clause(
         "model" => clauses::build_grouped_text_clause("model", filter, &mut binds)?,
         "risk_level" => clauses::build_grouped_text_clause("risk_level", filter, &mut binds)?,
         "is_available" => build_bool_clause("is_available", filter, &mut binds)?,
+        "first_seen" | "first_seen_time" => build_first_seen_clause(filter, &mut binds)?,
         "is_active" => build_active_clause(filter, &mut binds)?,
         "include_inactive" => {
             let _ = super::super::filters::parse_bool(filter.value.as_scalar()?)?;
@@ -48,6 +49,27 @@ pub(super) fn build_grouped_stats_filter_clause(
         "deleted" => build_deleted_clause(filter)?,
         "awx_managed" => build_awx_managed_clause(filter)?,
         "discovery_sources" => build_discovery_sources_clause(filter, &mut binds)?,
+        "tags" => clauses::build_grouped_tags_clause(filter, &mut binds)?,
+        "os.name" => clauses::build_grouped_jsonb_text_clause("os", "name", filter, &mut binds)?,
+        "os.version" => {
+            clauses::build_grouped_jsonb_text_clause("os", "version", filter, &mut binds)?
+        }
+        "os.type" => clauses::build_grouped_jsonb_text_clause("os", "type", filter, &mut binds)?,
+        "hw_info.serial_number" => clauses::build_grouped_jsonb_text_clause(
+            "hw_info",
+            "serial_number",
+            filter,
+            &mut binds,
+        )?,
+        "hw_info.cpu_type" => {
+            clauses::build_grouped_jsonb_text_clause("hw_info", "cpu_type", filter, &mut binds)?
+        }
+        "hw_info.cpu_architecture" => clauses::build_grouped_jsonb_text_clause(
+            "hw_info",
+            "cpu_architecture",
+            filter,
+            &mut binds,
+        )?,
         field if field.starts_with("metadata.") => {
             let key = field.strip_prefix("metadata.").unwrap();
             if !super::super::filters::is_valid_jsonb_key(key) {
@@ -57,6 +79,15 @@ pub(super) fn build_grouped_stats_filter_clause(
             }
             clauses::build_grouped_jsonb_text_clause("metadata", key, filter, &mut binds)?
         }
+        field if field.starts_with("tags.") => {
+            let key = field.strip_prefix("tags.").unwrap();
+            if !super::super::filters::is_valid_jsonb_key(key) {
+                return Err(ServiceError::InvalidRequest(format!(
+                    "invalid tags key '{key}'"
+                )));
+            }
+            clauses::build_grouped_jsonb_text_clause("tags", key, filter, &mut binds)?
+        }
         other => {
             return Err(ServiceError::InvalidRequest(format!(
                 "unsupported filter field for device stats: '{other}'"
@@ -65,6 +96,22 @@ pub(super) fn build_grouped_stats_filter_clause(
     };
 
     Ok(Some((clause, binds)))
+}
+
+fn build_first_seen_clause(filter: &Filter, binds: &mut Vec<DeviceSqlBindValue>) -> Result<String> {
+    let range = super::super::filters::first_seen_range(filter)?;
+    binds.push(DeviceSqlBindValue::Timestamp(range.start));
+    binds.push(DeviceSqlBindValue::Timestamp(range.end));
+
+    match filter.op {
+        FilterOp::Eq => Ok("first_seen_time >= ? AND first_seen_time <= ?".to_string()),
+        FilterOp::NotEq => Ok(
+            "(first_seen_time IS NULL OR first_seen_time < ? OR first_seen_time > ?)".to_string(),
+        ),
+        _ => Err(ServiceError::InvalidRequest(
+            "first_seen filter only supports equality (for example first_seen:last_7d)".into(),
+        )),
+    }
 }
 
 fn build_type_id_clause(filter: &Filter, binds: &mut Vec<DeviceSqlBindValue>) -> Result<String> {

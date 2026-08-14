@@ -1,7 +1,9 @@
 export const godViewLifecycleBootstrapChannelEventMethods = {
   setClusterExpanded(clusterId, expanded) {
     const normalized = typeof clusterId === "string" ? clusterId.trim() : ""
-    if (normalized === "" || !this.state.channel) return
+    if (normalized === "") return
+    if (expanded === true) this.ensureEndpointsLayerForClusterExpand()
+    if (!this.state.channel) return
     this.state.pendingClusterFocus =
       expanded === true
         ? {clusterId: normalized, expanded: true}
@@ -12,6 +14,15 @@ export const godViewLifecycleBootstrapChannelEventMethods = {
       cluster_id: normalized,
       expanded: expanded === true,
     })
+  },
+  ensureEndpointsLayerForClusterExpand() {
+    const current = this.state.topologyLayers || {}
+    if (current.endpoints === true) return
+
+    this.state.topologyLayers = {...current, endpoints: true}
+    if (typeof this.state.pushEvent === "function") {
+      this.state.pushEvent("enable_attachment_layers", {})
+    }
   },
   collapseAllClusters() {
     if (!this.state.channel) return

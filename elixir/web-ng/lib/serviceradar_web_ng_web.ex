@@ -23,6 +23,7 @@ defmodule ServiceRadarWebNGWeb do
       ServiceRadarWebNG,
       ServiceRadarWebNG.Accounts,
       ServiceRadarWebNG.AdminApi,
+      ServiceRadarWebNG.AlertActions,
       ServiceRadarWebNG.Audit,
       ServiceRadarWebNG.Auth,
       ServiceRadarWebNG.Collectors,

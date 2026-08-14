@@ -102,6 +102,8 @@ defmodule ServiceRadar.Identity.AuthSettings do
         maybe_encrypt_secret(changeset, :oidc_client_secret, :oidc_client_secret_encrypted)
       end
 
+      change after_action(&broadcast_cache_update/3)
+
       validate fn changeset, _context ->
         validate_passive_proxy_verification_material(changeset)
       end
@@ -147,16 +149,7 @@ defmodule ServiceRadar.Identity.AuthSettings do
         |> maybe_encrypt_secret(:saml_private_key, :saml_private_key_encrypted)
       end
 
-      # Broadcast change for cache invalidation
-      change after_action(fn _changeset, result, _context ->
-               Phoenix.PubSub.broadcast(
-                 ServiceRadar.PubSub,
-                 "auth_settings:changed",
-                 {:auth_settings_updated, result}
-               )
-
-               {:ok, result}
-             end)
+      change after_action(&broadcast_cache_update/3)
 
       validate fn changeset, _context ->
         validate_passive_proxy_verification_material(changeset)
@@ -172,6 +165,16 @@ defmodule ServiceRadar.Identity.AuthSettings do
     read_with_permission(@auth_manage_check)
 
     action_with_permission([:create, :update], @auth_manage_check)
+  end
+
+  defp broadcast_cache_update(_changeset, result, _context) do
+    Phoenix.PubSub.broadcast(
+      ServiceRadar.PubSub,
+      "auth_settings:changed",
+      {:auth_settings_updated, result}
+    )
+
+    {:ok, result}
   end
 
   defp maybe_encrypt_secret(changeset, arg_name, encrypted_attr) do

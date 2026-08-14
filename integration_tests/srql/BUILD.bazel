@@ -1,6 +1,6 @@
-load("@rules_rust//rust:defs.bzl", "rust_test")
+load("@crates//:defs.bzl", "all_crate_deps")
+load("@rules_rs//rs:rust_test.bzl", "rust_test")
 load("//build:integration_tests.bzl", "requires_shared_fixture")
-load("//third_party/crates:defs.bzl", "all_crate_deps")
 
 # SRQL integration tests.
 #
@@ -42,8 +42,9 @@ load("//third_party/crates:defs.bzl", "all_crate_deps")
 # SRQL_TEST_DATABASE_CA_CERT, and the harness materializes it when PGSSLROOTCERT does not name a
 # readable path. Generic remote tests do not receive this credential-bearing environment.
 #
-# `all_crate_deps(package_name = "integration_tests/srql")` resolves this crate's own
-# dev-dependencies from //integration_tests/srql/Cargo.toml.
+# `all_crate_deps(..., cargo_only = True)` resolves this crate's own dev-dependencies from
+# //integration_tests/srql/Cargo.toml. `cargo_only` keeps the result to third-party crates:
+# rules_rs also reports first-party workspace members, and //rust/srql is already named above.
 
 SRQL_IT_DATA = [
     "tests/fixtures/schema.sql",
@@ -51,13 +52,9 @@ SRQL_IT_DATA = [
 ]
 
 SRQL_IT_DEPS = ["//rust/srql:srql_lib"] + all_crate_deps(
+    cargo_only = True,
     normal = True,
     normal_dev = True,
-)
-
-SRQL_IT_PROC_MACROS = all_crate_deps(
-    proc_macro = True,
-    proc_macro_dev = True,
 )
 
 rust_test(
@@ -71,7 +68,6 @@ rust_test(
     crate_root = "tests/api.rs",
     data = SRQL_IT_DATA,
     edition = "2021",
-    proc_macro_deps = SRQL_IT_PROC_MACROS,
     tags = ["manual"],
     target_compatible_with = requires_shared_fixture(),
     deps = SRQL_IT_DEPS,
@@ -88,7 +84,25 @@ rust_test(
     crate_root = "tests/comprehensive_queries.rs",
     data = SRQL_IT_DATA,
     edition = "2021",
-    proc_macro_deps = SRQL_IT_PROC_MACROS,
+    tags = ["manual"],
+    target_compatible_with = requires_shared_fixture(),
+    deps = SRQL_IT_DEPS,
+)
+
+# Grouped device stats have to be exercised against a real Postgres: the
+# placeholder-rewriting bug they cover is invisible to translation-only tests,
+# which never hand the SQL to a server.
+rust_test(
+    name = "srql_device_grouped_stats_test",
+    srcs = [
+        "tests/device_grouped_stats.rs",
+        "tests/support/harness.rs",
+        "tests/support/mod.rs",
+    ],
+    crate_name = "srql_device_grouped_stats_tests",
+    crate_root = "tests/device_grouped_stats.rs",
+    data = SRQL_IT_DATA,
+    edition = "2021",
     tags = ["manual"],
     target_compatible_with = requires_shared_fixture(),
     deps = SRQL_IT_DEPS,

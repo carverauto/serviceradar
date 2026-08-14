@@ -14,5 +14,5 @@ defmodule ServiceRadar.SweepJobs.Changes.DispatchSweepRun do
   end
 
   @impl true
-  def atomic(_changeset, _opts, _context), do: :ok
+  def atomic(changeset, opts, context), do: {:ok, change(changeset, opts, context)}
 end
