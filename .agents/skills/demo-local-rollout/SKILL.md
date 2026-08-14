@@ -80,7 +80,13 @@ Typical **farm01** set: `serviceradar-agent`, `serviceradar-agent-gateway`, `ser
 
 `crane` is on `PATH` (Homebrew). Do not assume `/tmp/gobin/crane`.
 
-Staging no longer defines `--config=remote` / `--config=remote_push`. On a Darwin workstation, `bazel run` of an `oci_push` target builds linux/amd64 on RBE and then tries to execute **linux** `jq`/`crane` from runfiles (`Exec format error`). Do not `bazel run` push targets from macOS.
+Staging no longer defines the legacy `remote` / `remote_push` profiles; the
+surviving ones are `remote_base`, `cache_only`, and `ci`.
+
+On a Darwin workstation, running an `oci_push` target through Bazel builds
+linux/amd64 on RBE and then tries to execute **linux** `jq`/`crane` from
+runfiles (`Exec format error`). On macOS use `make push_all`, which routes
+through `scripts/push_all_images.sh` and pushes with host `crane`.
 
 Build the OCI layouts remotely, then push with host `crane`:
 
@@ -117,7 +123,9 @@ rm -rf "$DEST"
 
 Repeat for each rebuilt image. Capture every digest.
 
-On a Linux host where `build:remote_push` still exists, `bazel run --config=remote_push --stamp //docker/images:<name>_image_amd64_push` is fine.
+On a Linux host the push targets can be run directly, since the runfiles
+`jq`/`crane` are the right architecture there. Use `remote_base` for the build;
+the `remote_push` profile referenced by older runbooks no longer exists.
 
 ## Copy unchanged images forward
 
