@@ -1,6 +1,8 @@
 defmodule ServiceRadarWebNGWeb.SRQL.CatalogCompositeTest do
   use ExUnit.Case, async: true
 
+  @moduletag :db_free
+
   alias ServiceRadarWebNGWeb.SRQL.Catalog
 
   defp devices(entities), do: Enum.find(entities, &(&1.id == "devices"))
@@ -101,6 +103,7 @@ defmodule ServiceRadarWebNGWeb.SRQL.CatalogCompositeTest do
       entity = Enum.find(Catalog.entities(), &(&1.id == "composite_results"))
 
       assert entity
+      assert entity.route == "/settings/networks"
       assert "check" in entity.filter_fields
       assert "verdict" in entity.filter_fields
       assert "status" in entity.filter_fields

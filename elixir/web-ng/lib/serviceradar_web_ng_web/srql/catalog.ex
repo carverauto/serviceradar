@@ -287,7 +287,10 @@ defmodule ServiceRadarWebNGWeb.SRQL.Catalog do
     %{
       id: "composite_results",
       label: "Composite Check Results",
-      route: "/settings/composite-checks",
+      # Dedicated authoring UI is plan 3 (`/settings/networks/composite-checks`).
+      # Until that route exists on this stack, land on the parent Networks page
+      # so the catalog never advertises a 404.
+      route: "/settings/networks",
       default_time: "",
       default_sort_field: "evaluated_at",
       default_sort_dir: "desc",
