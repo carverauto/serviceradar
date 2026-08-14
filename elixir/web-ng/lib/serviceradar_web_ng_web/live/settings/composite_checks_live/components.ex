@@ -110,6 +110,7 @@ defmodule ServiceRadarWebNGWeb.Settings.CompositeChecksLive.Components do
   attr :builder_in_sync, :boolean, default: true
   attr :save_error, :string, default: nil
   attr :vantage_points, :list, default: []
+  attr :device_facts, :list, default: []
   attr :agents, :list, default: []
 
   def check_form(assigns) do
@@ -169,6 +170,11 @@ defmodule ServiceRadarWebNGWeb.Settings.CompositeChecksLive.Components do
         rows={@vantage_points}
         agents={@agents}
         errors={Enum.filter(@errors, fn {field, _msg} -> field == "vantage_points" end)}
+      />
+
+      <.device_facts
+        rows={@device_facts}
+        errors={Enum.filter(@errors, fn {field, _msg} -> field == "device_facts" end)}
       />
     </.form>
     """
@@ -262,6 +268,82 @@ defmodule ServiceRadarWebNGWeb.Settings.CompositeChecksLive.Components do
           + Add filter
         </button>
       </div>
+    </section>
+    """
+  end
+
+  attr :rows, :list, required: true
+  attr :errors, :list, default: []
+
+  @doc """
+  Device facts: the third input kind, alongside the vantage points.
+
+  A vantage point answers "can this agent reach it". A device fact answers "does
+  the device carry the configuration that is supposed to make it unreachable" —
+  today that is NCO writing a boolean through the device fact API. Without it a
+  check can only say a device *is* blocked, never that it is blocked *because it
+  is configured to be*, which is the difference between `isolated_verified` and
+  `isolated_unenforced` in the generated table.
+  """
+  def device_facts(assigns) do
+    ~H"""
+    <section class="space-y-3 rounded-sr-control border border-sr-border bg-sr-surface p-4">
+      <div>
+        <h2 class="text-sm font-semibold text-sr-ink">Device facts</h2>
+        <p class="text-xs text-sr-ink-muted">
+          Optional. A boolean the device carries in its metadata — written by NCO through the
+          device fact API — so the check can tell enforced isolation from incidental isolation.
+        </p>
+      </div>
+
+      <div :for={{row, index} <- Enum.with_index(@rows)} class="flex flex-wrap items-center gap-2">
+        <input
+          type="text"
+          name={"device_facts[#{index}][path]"}
+          value={row["path"]}
+          placeholder="metadata key, e.g. nco_acl_enforced"
+          aria-label="Metadata key"
+          class="min-w-64 rounded-sr-control border border-sr-border bg-sr-surface-muted px-2 py-1 font-mono text-sm text-sr-ink"
+        />
+
+        <span class="text-xs text-sr-ink-muted">is a boolean</span>
+
+        <input
+          type="text"
+          name={"device_facts[#{index}][max_age_seconds]"}
+          value={row["max_age_seconds"]}
+          placeholder="max age (s), optional"
+          aria-label="Fact max age seconds"
+          class="w-40 rounded-sr-control border border-sr-border bg-sr-surface-muted px-2 py-1 text-sm text-sr-ink"
+        />
+
+        <button
+          type="button"
+          phx-click="remove_device_fact"
+          phx-value-index={index}
+          class="ml-auto text-sr-ink-muted hover:text-sr-ink"
+          aria-label="Remove device fact"
+        >
+          <.icon name="hero-x-mark-mini" class="size-4" />
+        </button>
+      </div>
+
+      <button
+        type="button"
+        phx-click="add_device_fact"
+        class="rounded-sr-control border border-dashed border-sr-border px-3 py-1.5 text-xs text-sr-ink-muted hover:text-sr-ink"
+      >
+        + Add device fact
+      </button>
+
+      <.field_errors errors={@errors} />
+
+      <p :if={@rows != []} class="text-xs text-sr-ink-muted">
+        Leave max age blank to trust the stored value however old it is. Set it and the fact
+        resolves <span class="font-mono">unknown</span>
+        unless the write recorded provenance inside that window — which is what stops a check
+        certifying a device on a configuration nobody has confirmed lately.
+      </p>
     </section>
     """
   end

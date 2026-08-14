@@ -1421,4 +1421,212 @@ defmodule ServiceRadarWebNGWeb.Settings.CompositeChecksLiveTest do
       assert html =~ ~s(href="/settings/networks/groups/#{group.id}")
     end
   end
+
+  describe "device facts" do
+    setup do
+      %{gateway: gateway_fixture()}
+    end
+
+    defp fill_facts(live, rows) do
+      live
+      |> form("#composite-check-form", %{"device_facts" => indexed(rows)})
+      |> render_change()
+    end
+
+    defp submit_with_facts(live, name, vantage_rows, fact_rows) do
+      live
+      |> form("#composite-check-form", %{
+        "form" => %{
+          "name" => name,
+          "scope_query" => "in:devices",
+          "evaluation_interval_seconds" => "300"
+        },
+        "vantage_points" => indexed(vantage_rows),
+        "device_facts" => indexed(fact_rows)
+      })
+      |> render_submit()
+    end
+
+    test "the builder offers a device fact section", %{conn: conn} do
+      {:ok, _live, html} = live(conn, @path <> "/new")
+
+      assert html =~ "Device facts"
+      assert html =~ "Add device fact"
+      # The third factor is what separates enforced isolation from incidental
+      # isolation, so the section has to say that rather than just take a key.
+      assert html =~ "enforced isolation from incidental isolation"
+    end
+
+    test "adding a fact renders a metadata key field", %{conn: conn} do
+      {:ok, live, _html} = live(conn, @path <> "/new")
+
+      html = live |> element("button", "Add device fact") |> render_click()
+
+      assert html =~ ~s(name="device_facts[0][path]")
+      assert html =~ ~s(name="device_facts[0][max_age_seconds]")
+    end
+
+    test "saving persists the fact as a device_metadata input", %{conn: conn, gateway: gateway} do
+      witness = agent_fixture(gateway)
+      probe = agent_fixture(gateway)
+
+      {:ok, live, _html} = live(conn, @path <> "/new")
+      add_rows(live, 2)
+      live |> element("button", "Add device fact") |> render_click()
+
+      submit_with_facts(
+        live,
+        "Three Factor",
+        [
+          %{"agent_id" => witness.uid, "expected" => "available"},
+          %{"agent_id" => probe.uid, "expected" => "blocked"}
+        ],
+        [%{"path" => "nco_acl_enforced", "max_age_seconds" => "3600"}]
+      )
+
+      check = check_named!("Three Factor")
+      {:ok, inputs} = CompositeCheckInput.list_by_check(check.id, actor: system_actor())
+
+      assert fact = Enum.find(inputs, &(&1.kind == :device_metadata))
+      assert fact.config["path"] == "nco_acl_enforced"
+      assert fact.config["value_type"] == "boolean"
+      assert fact.config["max_age_seconds"] == 3600
+      # Keyed by the metadata path, which is what rule match maps address.
+      assert fact.key == "nco_acl_enforced"
+
+      # Facts sit after the vantage points so the rule columns read
+      # "who could reach it, then what it is configured to be".
+      assert fact.position == 2
+    end
+
+    test "a blank max age omits the key rather than storing nil", %{conn: conn, gateway: gateway} do
+      witness = agent_fixture(gateway)
+
+      {:ok, live, _html} = live(conn, @path <> "/new")
+      add_rows(live, 1)
+      live |> element("button", "Add device fact") |> render_click()
+
+      submit_with_facts(
+        live,
+        "No Max Age",
+        [%{"agent_id" => witness.uid, "expected" => "available"}],
+        [%{"path" => "nco_acl_enforced", "max_age_seconds" => ""}]
+      )
+
+      check = check_named!("No Max Age")
+      {:ok, inputs} = CompositeCheckInput.list_by_check(check.id, actor: system_actor())
+      fact = Enum.find(inputs, &(&1.kind == :device_metadata))
+
+      # Absent, not nil: without it the resolver trusts the stored value and
+      # needs no provenance, which is what keeps a key written by a path that
+      # records none usable at all.
+      refute Map.has_key?(fact.config, "max_age_seconds")
+    end
+
+    test "a fact with no metadata key is rejected locally", %{conn: conn} do
+      {:ok, live, _html} = live(conn, @path <> "/new")
+      live |> element("button", "Add device fact") |> render_click()
+
+      html = submit_with_facts(live, "No Key", [], [%{"path" => ""}])
+
+      assert html =~ "needs a metadata key"
+      assert {:ok, []} = read_checks_named("No Key")
+    end
+
+    test "the same metadata key cannot be used twice", %{conn: conn} do
+      {:ok, live, _html} = live(conn, @path <> "/new")
+      add_facts(live, 2)
+
+      html =
+        submit_with_facts(live, "Dupe Key", [], [
+          %{"path" => "nco_acl_enforced"},
+          %{"path" => "nco_acl_enforced"}
+        ])
+
+      assert html =~ "only be used once"
+      assert {:ok, []} = read_checks_named("Dupe Key")
+    end
+
+    test "a non-numeric max age is caught before the resource", %{conn: conn} do
+      {:ok, live, _html} = live(conn, @path <> "/new")
+      add_facts(live, 1)
+
+      html =
+        fill_facts(live, [%{"path" => "nco_acl_enforced", "max_age_seconds" => "soon"}])
+
+      assert html =~ "whole number of seconds above zero"
+    end
+
+    test "generating with a fact splits the isolated row on the configuration", %{
+      conn: conn,
+      gateway: gateway
+    } do
+      witness = agent_fixture(gateway)
+      probe = agent_fixture(gateway)
+
+      {:ok, live, _html} = live(conn, @path <> "/new")
+      add_rows(live, 2)
+      live |> element("button", "Add device fact") |> render_click()
+
+      submit_with_facts(
+        live,
+        "Split Table",
+        [
+          %{"agent_id" => witness.uid, "expected" => "available"},
+          %{"agent_id" => probe.uid, "expected" => "blocked"}
+        ],
+        [%{"path" => "nco_acl_enforced", "max_age_seconds" => ""}]
+      )
+
+      check = check_named!("Split Table")
+
+      {:ok, live, _html} = live(conn, @path <> "/#{check.id}/edit")
+      live |> element("button", "Generate from expectations") |> render_click()
+
+      {:ok, rules} = CompositeCheckRule.list_by_check(check.id, actor: system_actor())
+      verdicts = rules |> Enum.reject(& &1.catch_all) |> Enum.map(& &1.verdict)
+
+      # This is the whole point of the third factor: blocked-and-configured is a
+      # different verdict from blocked-but-not-by-config.
+      assert "isolated_verified" in verdicts
+      assert "isolated_unenforced" in verdicts
+
+      verified = Enum.find(rules, &(&1.verdict == "isolated_verified"))
+      unenforced = Enum.find(rules, &(&1.verdict == "isolated_unenforced"))
+
+      assert verified.match["nco_acl_enforced"] == true
+      assert unenforced.match["nco_acl_enforced"] == false
+      assert unenforced.status == :degraded
+    end
+
+    test "editing a check reloads its saved facts", %{conn: conn, gateway: gateway} do
+      witness = agent_fixture(gateway)
+
+      {:ok, live, _html} = live(conn, @path <> "/new")
+      add_rows(live, 1)
+      live |> element("button", "Add device fact") |> render_click()
+
+      submit_with_facts(
+        live,
+        "Reloaded Facts",
+        [%{"agent_id" => witness.uid, "expected" => "available"}],
+        [%{"path" => "nco_acl_enforced", "max_age_seconds" => "1800"}]
+      )
+
+      check = check_named!("Reloaded Facts")
+
+      {:ok, _live, html} = live(conn, @path <> "/#{check.id}/edit")
+
+      assert html =~ ~s(value="nco_acl_enforced")
+      assert html =~ ~s(value="1800")
+    end
+
+    defp add_facts(live, count) do
+      Enum.each(1..count//1, fn _index ->
+        live |> element("button", "Add device fact") |> render_click()
+      end)
+
+      live
+    end
+  end
 end
