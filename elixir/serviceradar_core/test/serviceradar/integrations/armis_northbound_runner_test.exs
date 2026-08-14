@@ -1747,4 +1747,104 @@ defmodule ServiceRadar.Integrations.ArmisNorthboundRunnerTest do
       assert length(payload) == 1
     end
   end
+
+  test "run_for_source records the composite selection in run metadata" do
+    source = %{
+      id: "source-1",
+      northbound_enabled: true,
+      endpoint: "https://armis.example",
+      custom_fields: ["availability"],
+      credentials: %{api_key: "key", api_secret: "secret"},
+      settings: %{
+        "composite" => %{
+          "check_slug" => "pci-isolation",
+          "value_form" => "status",
+          "custom_field" => "sr_isolation"
+        }
+      }
+    }
+
+    parent = self()
+
+    stubs = [
+      actor: %{role: :system},
+      start_run: fn _src, _actor, _opts -> {:ok, %{id: "run-1"}} end,
+      update_source: fn _src, action, attrs, _actor -> {:ok, %{action: action, attrs: attrs}} end,
+      finish_run: fn _run, action, attrs, _actor, _opts ->
+        send(parent, {:finish_run, action, attrs})
+        {:ok, %{action: action, attrs: attrs}}
+      end,
+      record_event: fn attrs, _actor -> {:ok, %{id: "event-1", attrs: attrs}} end,
+      load_candidates: fn _src, _opts -> {:ok, []} end,
+      execute_batches: fn _src, _collapsed, _opts ->
+        {:ok,
+         %{
+           device_count: 0,
+           updated_count: 0,
+           skipped_count: 0,
+           error_count: 0,
+           batch_count: 0,
+           errors: []
+         }}
+      end
+    ]
+
+    assert {:ok, _} = ArmisNorthboundRunner.run_for_source(source, stubs)
+
+    # Recorded on the run rather than read back from the source at display
+    # time: run status has to describe *that* run, and the selection can change
+    # afterwards.
+    assert_received {:finish_run, :finish_success,
+                     %{
+                       metadata: %{
+                         composite_check_slug: "pci-isolation",
+                         composite_value_form: "status",
+                         composite_custom_field: "sr_isolation"
+                       }
+                     }}
+  end
+
+  test "run_for_source records no composite keys when nothing is configured" do
+    source = %{
+      id: "source-1",
+      northbound_enabled: true,
+      endpoint: "https://armis.example",
+      custom_fields: ["availability"],
+      credentials: %{api_key: "key", api_secret: "secret"}
+    }
+
+    parent = self()
+
+    stubs = [
+      actor: %{role: :system},
+      start_run: fn _src, _actor, _opts -> {:ok, %{id: "run-1"}} end,
+      update_source: fn _src, action, attrs, _actor -> {:ok, %{action: action, attrs: attrs}} end,
+      finish_run: fn _run, action, attrs, _actor, _opts ->
+        send(parent, {:finish_run, action, attrs})
+        {:ok, %{action: action, attrs: attrs}}
+      end,
+      record_event: fn attrs, _actor -> {:ok, %{id: "event-1", attrs: attrs}} end,
+      load_candidates: fn _src, _opts -> {:ok, []} end,
+      execute_batches: fn _src, _collapsed, _opts ->
+        {:ok,
+         %{
+           device_count: 0,
+           updated_count: 0,
+           skipped_count: 0,
+           error_count: 0,
+           batch_count: 0,
+           errors: []
+         }}
+      end
+    ]
+
+    assert {:ok, _} = ArmisNorthboundRunner.run_for_source(source, stubs)
+
+    assert_received {:finish_run, :finish_success, %{metadata: metadata}}
+
+    # Omitted entirely rather than stored as nils, which would read like a
+    # lookup that failed.
+    refute Map.has_key?(metadata, :composite_check_slug)
+    refute Map.has_key?(metadata, :composite_value_form)
+  end
 end
