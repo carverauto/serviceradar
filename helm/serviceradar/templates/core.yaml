@@ -22,7 +22,7 @@
 {{- $advisoryFeeds := default (dict) (get (default (dict) .Values.core) "advisoryFeeds") -}}
 {{- $advisoryFeedsEnabled := default false $advisoryFeeds.enabled -}}
 {{- $advisoryFeedsDir := default "/var/lib/serviceradar/advisory-feeds" $advisoryFeeds.stagingDir -}}
-{{- $webNgPublicUrl := default "" $webNg.publicUrl -}}
+{{- $webNgPublicUrl := include "serviceradar.webNgPublicUrl" . -}}
 {{- $gatewayArtifactPublicUrl := "" -}}
 {{- if $gateway.publicHostname -}}
 {{- $gatewayArtifactPublicUrl = printf "https://%s:%v" $gateway.publicHostname (default 50053 $gatewayService.artifactPort) -}}
@@ -423,6 +423,10 @@ spec:
           value: {{ $notificationAgentId | quote }}
         - name: SERVICERADAR_NOTIFICATION_PLATFORM_AGENT_PARTITION
           value: {{ $notificationAgentPartition | quote }}
+        {{- end }}
+        {{- if $webNgPublicUrl }}
+        - name: SERVICERADAR_NOTIFICATION_ACTION_BASE_URL
+          value: {{ $webNgPublicUrl | quote }}
         {{- end }}
         {{- if not $notificationReceiptSweepEnabled }}
         # The receipt sweep is what closes out an agent-routed delivery whose
@@ -920,13 +924,21 @@ spec:
       {{- end }}
       {{- if $geoipMmdb.enabled }}
       - name: geoip-mmdb
+        {{- if $geoipMmdb.emptyDir }}
+        emptyDir: {}
+        {{- else }}
         persistentVolumeClaim:
           claimName: {{ default "serviceradar-geoip-mmdb" $geoipMmdb.existingClaim | quote }}
+        {{- end }}
       {{- end }}
       {{- if $advisoryFeedsEnabled }}
       - name: advisory-feeds
+        {{- if $advisoryFeeds.emptyDir }}
+        emptyDir: {}
+        {{- else }}
         persistentVolumeClaim:
           claimName: {{ default "serviceradar-advisory-feeds" $advisoryFeeds.existingClaim | quote }}
+        {{- end }}
       {{- end }}
       {{- if or .Values.natsCreds.platform .Values.natsCreds.system .Values.natsCreds.autoGenerate }}
       - name: nats-creds

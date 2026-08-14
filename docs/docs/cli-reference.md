@@ -148,7 +148,7 @@ serviceradar enroll -token "<onboarding-token>"
 | Flag | Description |
 |------|-------------|
 | `-token` | Enrollment token. |
-| `-core-url` | Core API base URL (only needed when the token does not embed one). |
+| `-core-url` | Explicit HTTPS Core API base URL. When supplied, it overrides the URL embedded in the signed token; otherwise the embedded URL is used. |
 | `-host-ip` | Override the detected host IP (agent enrollment). |
 | `-config` | Agent config path (default `/etc/serviceradar/agent.json`). |
 | `-config-dir` / `-config-file` | Collector config directory / filename. |

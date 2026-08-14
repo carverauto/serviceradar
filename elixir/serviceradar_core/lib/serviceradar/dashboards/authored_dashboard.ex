@@ -10,6 +10,7 @@ defmodule ServiceRadar.Dashboards.AuthoredDashboard do
   use Ash.Resource,
     domain: ServiceRadar.Dashboards,
     data_layer: AshPostgres.DataLayer,
+    extensions: [AshPaperTrail.Resource],
     authorizers: [Ash.Policy.Authorizer]
 
   alias ServiceRadar.AshContext
@@ -46,6 +47,17 @@ defmodule ServiceRadar.Dashboards.AuthoredDashboard do
     references do
       reference :owner, on_delete: :nilify
     end
+  end
+
+  paper_trail do
+    primary_key_type :uuid
+    table_name "authored_dashboard_versions"
+    mixin {ServiceRadar.Dashboards.PaperTrailMixin, :mixin, []}
+    change_tracking_mode :changes_only
+    store_action_name? true
+    store_action_inputs? true
+    create_version_on_destroy? true
+    ignore_attributes [:inserted_at, :updated_at, :archived_at]
   end
 
   code_interface do

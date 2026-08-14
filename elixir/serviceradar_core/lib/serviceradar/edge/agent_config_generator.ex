@@ -1221,9 +1221,21 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
         download_token: download_request && download_request.token
       }
     else
-      {:error, _reason} ->
+      # The reason belongs in the MESSAGE, not in Logger keyword metadata: the
+      # console metadata allowlist is [:request_id, :node], so a reason: keyword
+      # is silently dropped from the deployed release's logs -- which is how this
+      # skip stayed opaque while a whole integration sat dead.
+      #
+      # inspect/1 rather than bare interpolation: two reachable reasons are
+      # tuples wrapping arbitrary Ash terms, and a Protocol.UndefinedError raised
+      # HERE would unwind into the rescue around the caller and drop every plugin
+      # assignment for the agent, not just this one.
+      {:error, reason} ->
         Logger.warning(
-          "Skipping Proxmox plugin assignment #{assignment.id}: authoritative source and host binding validation failed"
+          "Skipping plugin assignment #{assignment.id}: authoritative source and host " <>
+            "binding validation failed: plugin=#{package.plugin_id} " <>
+            "entrypoint=#{package.entrypoint} agent=#{assignment.agent_uid} " <>
+            "reason=#{inspect(reason)}"
         )
 
         nil

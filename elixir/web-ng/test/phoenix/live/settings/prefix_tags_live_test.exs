@@ -36,6 +36,15 @@ defmodule ServiceRadarWebNGWeb.Settings.PrefixTagsLiveTest do
     assert html =~ "Add prefix"
   end
 
+  test "new prefix form explains structured tags vs extra tags", %{conn: conn} do
+    {:ok, lv, _html} = live(conn, ~p"/settings/networks/prefix-tags")
+    html = render_click(lv, "new", %{})
+
+    assert html =~ "Extra tags (optional)"
+    assert html =~ "Site, role, tenant, and status become tags automatically"
+    refute html =~ ~s(name="prefix_tag[tags]" required)
+  end
+
   test "IP preview uses the local Store trie", %{conn: conn} do
     Store.put_rows("manual", [
       %{prefix: "10.1.2.0/24", tags: ["site:hq", "role:wifi"], source: "manual"}

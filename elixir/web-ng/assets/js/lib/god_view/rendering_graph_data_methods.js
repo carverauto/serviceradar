@@ -2,11 +2,15 @@ function isEndpointCensusSummary(node) {
   return String(node?.details?.cluster_kind || "").trim() === "endpoint-summary"
 }
 
+function isClusterExpanded(node) {
+  const value = node?.details?.cluster_expanded
+  return value === true || value === "true" || value === 1
+}
+
 export const godViewRenderingGraphDataMethods = {
   buildVisibleGraphData(effective) {
     const states = Uint8Array.from(effective.nodes.map((node) => node.state))
     const stateMask = this.visibilityMask(states)
-    const traversalMask = effective.shape === "local" ? this.computeTraversalMask(effective) : null
     const mask = new Uint8Array(effective.nodes.length)
     const topologyLayers = this.state.topologyLayers || {}
     const endpointIncidentFlags =
@@ -33,6 +37,15 @@ export const godViewRenderingGraphDataMethods = {
       return isEndpointCensusSummary(source) || isEndpointCensusSummary(target)
     }
 
+    const expandedMemberEdge = (edge) => {
+      if (effective.shape !== "local") return false
+      const source = effective.nodes[Number(edge?.source)]
+      const target = effective.nodes[Number(edge?.target)]
+      const expandedMember = (node) =>
+        String(node?.details?.cluster_kind || "").trim() === "endpoint-member" && isClusterExpanded(node)
+      return expandedMember(source) || expandedMember(target)
+    }
+
     if (endpointIncidentFlags) {
       for (const edge of effective.edges) {
         const topologyClass = edgeTopologyClass(edge)
@@ -53,18 +66,27 @@ export const godViewRenderingGraphDataMethods = {
     }
 
     for (let i = 0; i < effective.nodes.length; i += 1) {
+      const node = effective.nodes[i]
+      const details = node?.details && typeof node.details === "object" ? node.details : {}
       const stateVisible = stateMask[i] === 1
-      const traversalVisible = !traversalMask || traversalMask[i] === 1
+      const clusterKind = String(details.cluster_kind || "").trim()
+      const expandedSummary = isEndpointCensusSummary(node) && isClusterExpanded(node)
       const attachmentCensusVisible =
-        topologyLayers.backbone !== false && isEndpointCensusSummary(effective.nodes[i])
+        topologyLayers.backbone !== false && isEndpointCensusSummary(node) && !expandedSummary
+      const expandedMemberVisible =
+        clusterKind === "endpoint-member" && isClusterExpanded(node)
+      const endpointAnchorVisible = clusterKind === "endpoint-anchor"
       const endpointLayerVisible =
-        !endpointIncidentFlags ||
-        topologyLayers.endpoints !== false ||
-        attachmentCensusVisible ||
-        endpointIncidentFlags[i].nonEndpoint ||
-        !endpointIncidentFlags[i].endpoint
+        !expandedSummary &&
+        (!endpointIncidentFlags ||
+          topologyLayers.endpoints !== false ||
+          attachmentCensusVisible ||
+          expandedMemberVisible ||
+          endpointAnchorVisible ||
+          endpointIncidentFlags[i].nonEndpoint ||
+          !endpointIncidentFlags[i].endpoint)
 
-      mask[i] = stateVisible && traversalVisible && endpointLayerVisible ? 1 : 0
+      mask[i] = stateVisible && endpointLayerVisible ? 1 : 0
     }
 
     const visibleNodes = effective.nodes.map((node, index) => ({
@@ -75,19 +97,29 @@ export const godViewRenderingGraphDataMethods = {
       zHeight: 0,
     }))
     const visibleById = new Map(visibleNodes.map((node) => [node.id, node]))
+    const resolveVisibleEndpoint = (node) => {
+      if (!node) return null
+      if (node.visible) return node
+      if (!isEndpointCensusSummary(node) || !isClusterExpanded(node)) return null
+      const anchorId = String(node?.details?.cluster_anchor_id || "").trim()
+      if (anchorId === "") return null
+      const anchor = visibleById.get(anchorId)
+      return anchor?.visible ? anchor : null
+    }
 
     const rawEdgeData = effective.edges
-      .filter((edge) => this.edgeEnabledByTopologyLayer(edge) || attachmentCensusEdge(edge))
+      .filter((edge) => this.edgeEnabledByTopologyLayer(edge) || attachmentCensusEdge(edge) || expandedMemberEdge(edge))
       .map((edge, edgeIndex) => {
         const src =
           effective.shape === "local"
-            ? visibleNodes[edge.source]
+            ? resolveVisibleEndpoint(visibleNodes[edge.source])
             : visibleById.get(edge.sourceCluster)
         const dst =
           effective.shape === "local"
-            ? visibleNodes[edge.target]
+            ? resolveVisibleEndpoint(visibleNodes[edge.target])
             : visibleById.get(edge.targetCluster)
         if (!src || !dst || !src.visible || !dst.visible) return null
+        if (src.id === dst.id) return null
         const label =
           effective.shape === "local"
             ? String(edge.label || `${src.label || src.id || "node"} -> ${dst.label || dst.id || "node"}`)
@@ -128,7 +160,7 @@ export const godViewRenderingGraphDataMethods = {
       })
       .filter(Boolean)
 
-    const edgeData = this.aggregateVisibleEdges(rawEdgeData)
+    const edgeData = this.aggregateVisibleEdges(this.collapseExpandedMemberTrunks(rawEdgeData, visibleNodes))
     const edgeKeys = new Set(edgeData.map((edge) => edge.interactionKey))
     if (this.state.hoveredEdgeKey && !edgeKeys.has(this.state.hoveredEdgeKey)) this.state.hoveredEdgeKey = null
     if (this.state.selectedEdgeKey && !edgeKeys.has(this.state.selectedEdgeKey)) this.state.selectedEdgeKey = null
@@ -164,6 +196,58 @@ export const godViewRenderingGraphDataMethods = {
         : nodeData.find((node) => node.index === this.state.selectedNodeIndex)
 
     return {edgeData, edgeLabelData, nodeData, rootPulseNodes, selectedVisibleNode}
+  },
+  collapseExpandedMemberTrunks(edgeData, visibleNodes) {
+    if (!Array.isArray(edgeData) || edgeData.length === 0) return []
+
+    const nodeById = new Map((visibleNodes || []).map((node) => [node.id, node]))
+    const trunks = new Map()
+    const kept = []
+
+    for (const edge of edgeData) {
+      const clusterId = this.expandedMemberTrunkClusterId(edge, nodeById)
+      if (!clusterId) {
+        kept.push(edge)
+        continue
+      }
+
+      const length = Math.hypot(
+        Number(edge.sourcePosition?.[0] || 0) - Number(edge.targetPosition?.[0] || 0),
+        Number(edge.sourcePosition?.[1] || 0) - Number(edge.targetPosition?.[1] || 0),
+      )
+      const current = trunks.get(clusterId)
+      if (!current || length < current.length) {
+        trunks.set(clusterId, {edge, length})
+      }
+    }
+
+    for (const {edge} of trunks.values()) kept.push(edge)
+    return kept
+  },
+  expandedMemberTrunkClusterId(edge, nodeById) {
+    const source = nodeById.get(edge?.sourceId)
+    const target = nodeById.get(edge?.targetId)
+    if (!source || !target) return ""
+
+    const member = this.expandedEndpointMemberNode(source)
+      ? source
+      : (this.expandedEndpointMemberNode(target) ? target : null)
+    const other = member === source ? target : source
+    if (!member || !other) return ""
+
+    const clusterId = String(member.details?.cluster_id || "").trim()
+    if (clusterId === "") return ""
+
+    const anchorId = String(member.details?.cluster_anchor_id || "").trim()
+    const otherIsAnchor =
+      (anchorId !== "" && other.id === anchorId) ||
+      (String(other.details?.cluster_kind || "").trim() === "endpoint-anchor" &&
+        String(other.details?.cluster_id || "").trim() === clusterId)
+
+    return otherIsAnchor ? clusterId : ""
+  },
+  expandedEndpointMemberNode(node) {
+    return String(node?.details?.cluster_kind || "").trim() === "endpoint-member" && isClusterExpanded(node)
   },
   aggregateVisibleEdges(edgeData) {
     if (!Array.isArray(edgeData) || edgeData.length === 0) return []

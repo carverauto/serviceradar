@@ -16,12 +16,14 @@ Those are `wasm_plugin` providers. A package declares its notifiers in a
 import, and the agent's Wasm host runs the module when a delivery is dispatched
 to it.
 
-This page is the authoring reference for the contract between the two. For the
-operator guide to channels, routes, escalation, suppression, and the Delivery
-Log, see [Notifications](./notifications.md). For the no-code tier, see
-[Notification Providers (Declarative)](./notification-providers.md). For the
-plugin sandbox itself - capabilities, permissions, signing, and the import
-workflow - see [Wasm Plugins](./wasm-plugins.md).
+This page is the authoring reference for the contract between the two. To
+page Discord or Slack for the first time, see the
+[Notifications Quickstart](./notification-quickstart.md). For channels, routes,
+escalation, and the Delivery Log, see
+[How Notifications Work](./notifications.md). For the no-code tier, see
+[Declarative Providers](./notification-providers.md). For the plugin sandbox
+itself - capabilities, permissions, signing, and the import workflow - see
+[Wasm Plugins](./wasm-plugins.md).
 
 ## Before you start
 

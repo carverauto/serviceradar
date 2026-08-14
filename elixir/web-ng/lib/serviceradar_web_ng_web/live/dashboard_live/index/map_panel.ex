@@ -94,8 +94,8 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Index.MapPanel do
           class="sr-ops-map-empty"
           data-testid="traffic-map-empty"
         >
-          <p>{map_empty_title(@map_view, @module_states.netflow)}</p>
-          <span>{map_empty_detail(@map_view, @module_states.netflow)}</span>
+          <p>{map_empty_title(@map_view, @module_states.netflow, @traffic_links)}</p>
+          <span>{map_empty_detail(@map_view, @module_states.netflow, @traffic_links)}</span>
         </div>
       </div>
 
@@ -119,30 +119,58 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Index.MapPanel do
   defp map_fullscreen_path(_), do: ~p"/netflow-map"
 
   defp map_empty?("netflow", _topology_links, traffic_links) do
-    traffic_links == []
+    links = List.wrap(traffic_links)
+    links == [] or not Enum.any?(links, &geo_mapped_link?/1)
   end
 
   defp map_empty?(_map_view, topology_links, traffic_links), do: topology_links == [] and traffic_links == []
 
-  defp map_empty_title("netflow", :unconfigured), do: "NetFlow collector not configured"
-  defp map_empty_title("netflow", :configured_empty), do: "Awaiting observed NetFlow summaries"
-  defp map_empty_title("netflow", _state), do: "No NetFlow paths"
-  defp map_empty_title(_map_view, :configured_empty), do: "Awaiting observed NetFlow summaries"
-  defp map_empty_title(_map_view, :unconfigured), do: "NetFlow collector not configured"
-  defp map_empty_title(_map_view, _state), do: "No topology or flow data"
+  defp geo_mapped_link?(link) when is_map(link) do
+    Map.get(link, :geo_mapped, Map.get(link, "geo_mapped", false)) == true
+  end
 
-  defp map_empty_detail("netflow", :unconfigured),
+  defp geo_mapped_link?(_), do: false
+
+  defp map_empty_title("netflow", :unconfigured, _traffic_links), do: "NetFlow collector not configured"
+  defp map_empty_title("netflow", :configured_empty, _traffic_links), do: "Awaiting observed NetFlow summaries"
+
+  defp map_empty_title("netflow", _state, traffic_links) do
+    if unmapped_netflow_links?(traffic_links) do
+      "Flows are not mapped yet"
+    else
+      "No NetFlow paths"
+    end
+  end
+
+  defp map_empty_title(_map_view, :configured_empty, _traffic_links), do: "Awaiting observed NetFlow summaries"
+
+  defp map_empty_title(_map_view, :unconfigured, _traffic_links), do: "NetFlow collector not configured"
+  defp map_empty_title(_map_view, _state, _traffic_links), do: "No topology or flow data"
+
+  defp map_empty_detail("netflow", :unconfigured, _traffic_links),
     do: "Configure a NetFlow, IPFIX, or sFlow collector to enable this map."
 
-  defp map_empty_detail("netflow", :configured_empty),
+  defp map_empty_detail("netflow", :configured_empty, _traffic_links),
     do: "Collector configuration exists, but no recent flow summaries were found."
 
-  defp map_empty_detail("netflow", _state), do: "No recent NetFlow conversations were found in the map window."
+  defp map_empty_detail("netflow", _state, traffic_links) do
+    if unmapped_netflow_links?(traffic_links) do
+      "Recent conversations need coordinates on both ends. Enable GeoIP, add Local CIDR map anchors, or wait for ipinfo/GeoLite enrichment."
+    else
+      "No recent NetFlow conversations were found in the map window."
+    end
+  end
 
-  defp map_empty_detail(_map_view, :configured_empty),
+  defp map_empty_detail(_map_view, :configured_empty, _traffic_links),
     do: "Collector configuration exists, but no recent flow summaries were found."
 
-  defp map_empty_detail(_map_view, :unconfigured), do: "Install a NetFlow, IPFIX, or sFlow collector to animate traffic."
+  defp map_empty_detail(_map_view, :unconfigured, _traffic_links),
+    do: "Install a NetFlow, IPFIX, or sFlow collector to animate traffic."
 
-  defp map_empty_detail(_map_view, _state), do: "No synthetic traffic animation is shown."
+  defp map_empty_detail(_map_view, _state, _traffic_links), do: "No synthetic traffic animation is shown."
+
+  defp unmapped_netflow_links?(traffic_links) do
+    links = List.wrap(traffic_links)
+    links != [] and not Enum.any?(links, &geo_mapped_link?/1)
+  end
 end

@@ -35,6 +35,12 @@ project dropped Bazel in March 2025. Two deliberate departures from upstream:
 """
 
 load("@bazel_skylib//lib:shell.bzl", "shell")
+load("@rules_cc//cc:action_names.bzl", "ACTION_NAMES")
+load("@rules_cc//cc:find_cc_toolchain.bzl", "find_cc_toolchain", "use_cc_toolchain")
+
+# The full cc_common, not the restricted global of the same name -- the global exposes
+# neither configure_features nor create_compile_variables.
+load("@rules_cc//cc/common:cc_common.bzl", "cc_common")
 load(
     "@rules_elixir//private:elixir_toolchain.bzl",
     "elixir_dirs",
@@ -52,6 +58,10 @@ load(
     "additional_file_dest_relative_path",
     "erl_libs_contents",
 )
+load(
+    "@rules_foreign_cc//foreign_cc/private:cc_toolchain_util.bzl",
+    "absolutize_path_in_str",
+)
 
 # Emitted into the staged project when a package uses Bundlex. See the call site for why a
 # lock is required at all. __GRAPH__ is replaced with an Elixir map of app => [children],
@@ -64,22 +74,32 @@ load(
 _MIX_LOCK_SCRIPT = """
 "${ABS_ELIXIR_HOME}"/bin/elixir -e '
   graph = __GRAPH__
+
+  # ERL_LIBS is a colon-separated LIST of directories: most dependencies are referenced
+  # where they were built rather than copied into one tree. Reading it as a single path
+  # silently yields no version for every app, the `vsn != nil` guard below drops them all
+  # from the lock, and Bundlex then fails with :unknown_application because
+  # Mix.Project.deps_paths/0 is built from that lock.
   erl_libs = System.get_env("ERL_LIBS") || ""
+  erl_libs_dirs = String.split(erl_libs, ":", trim: true)
 
   version = fn app ->
     name = Atom.to_string(app)
-    app_file = Path.join([erl_libs, name, "ebin", name <> ".app"])
 
-    case :file.consult(String.to_charlist(app_file)) do
-      {:ok, [{:application, _name, keys}]} ->
-        case Keyword.get(keys, :vsn) do
-          nil -> nil
-          vsn -> to_string(vsn)
-        end
+    Enum.find_value(erl_libs_dirs, fn dir ->
+      app_file = Path.join([dir, name, "ebin", name <> ".app"])
 
-      _ ->
-        nil
-    end
+      case :file.consult(String.to_charlist(app_file)) do
+        {:ok, [{:application, _name, keys}]} ->
+          case Keyword.get(keys, :vsn) do
+            nil -> nil
+            vsn -> to_string(vsn)
+          end
+
+        _ ->
+          nil
+      end
+    end)
   end
 
   lock =
@@ -128,6 +148,68 @@ _nif_opt_transition = transition(
     outputs = ["//command_line_option:compilation_mode"],
 )
 
+# Extensions and filenames that mean "this package will invoke a C compiler".
+#
+# bundlex.exs is the Bundlex signal: `Bundlex.Project.load/1` only finds natives in a
+# package that ships one, so a Membrane package without it compiles no C even though it
+# depends on bundlex. Makefile/Makefile.* is the elixir_make signal (bcrypt_elixir, crc,
+# lazy_html, ...), which shells out to make and picks up $CC from the environment.
+_NATIVE_SOURCE_EXTENSIONS = ["c", "cc", "cpp", "cxx", "m"]
+_NATIVE_BUILD_FILES = ["bundlex.exs", "Makefile"]
+
+# Packages that keep the executor image's gcc instead of the hermetic toolchain.
+#
+# These resolve a system library through pkg-config, which reports only `-lssl -lcrypto`
+# and leaves the header and library directories to the compiler's defaults. gcc has such
+# defaults; the hermetic toolchain is invoked with `--sysroot=/dev/null -nostdlibinc` and
+# deliberately has none, so ex_dtls fails with
+#     dtls.h:3:10: fatal error: 'openssl/err.h' file not found
+#     ld.lld: error: unable to find library -lssl
+# Making these hermetic means giving them a hermetic OpenSSL rather than a hermetic
+# compiler, which is a separate piece of work -- they are already tied to the image today,
+# so keeping them on gcc changes nothing about their current guarantees.
+#
+# Both need OpenSSL: ex_dtls directly, ex_libsrt through libsrt. Their precompiled OS deps
+# resolve fine either way -- ex_libsrt links -lsrt out of the staged archive -- so this is
+# only about the two system libraries pkg-config leaves to the compiler's defaults.
+_SYSTEM_CC_APPS = [
+    "ex_dtls",
+    "ex_libsrt",
+]
+
+def _erl_libs_entry(info):
+    """The directory that makes `info` visible to ERL_LIBS, or None if it needs staging.
+
+    ERL_LIBS is a colon-separated list of directories, each scanned for <app>/ebin. A dep
+    whose compiled output already sits at <parent>/<app>/ebin can therefore be handed to
+    Erlang as <parent>, with no copying at all.
+    """
+    if len(info.beam) != 1:
+        return None
+    ebin = info.beam[0]
+    if not ebin.is_directory:
+        return None
+    suffix = "/{}/ebin".format(info.app_name)
+    if not ebin.path.endswith(suffix):
+        return None
+    parent = ebin.path[:-len(suffix)]
+
+    # priv has to be the sibling ERL_LIBS expects, or the app would lose it.
+    for priv in info.priv:
+        if priv.path != path_join(parent, info.app_name, "priv"):
+            return None
+    return parent
+
+def _compiles_native_code(ctx):
+    if ctx.attr.app_name in _SYSTEM_CC_APPS:
+        return False
+    for f in ctx.files.srcs:
+        if f.extension in _NATIVE_SOURCE_EXTENSIONS:
+            return True
+        if f.basename in _NATIVE_BUILD_FILES or f.basename.startswith("Makefile."):
+            return True
+    return False
+
 def _impl(ctx):
     (erlang_home, _, erlang_runfiles) = erlang_dirs(ctx)
     (elixir_home, elixir_runfiles) = elixir_dirs(ctx)
@@ -145,28 +227,80 @@ def _impl(ctx):
 
     # Mix insists on writing into the project tree (_build, .mix). Give it a
     # declared directory of its own rather than letting it scribble anywhere.
-    mix_invocation_dir = ctx.actions.declare_directory("{}_mix".format(ctx.label.name))
+    # Only a package that ships bundlex.exs ever has this tree read back: the consumer loop
+    # below stages the POST-COMPILE tree of its `bundlex_deps` to pick up Unifex-generated
+    # headers, and selects those deps by looking for bundlex.exs in ErlangAppInfo.srcs --
+    # which is ctx.files.srcs, exactly what is tested here.
+    #
+    # For everything else it is staging scratch nothing reads, and declaring it as an output
+    # made Bazel capture and upload it to the CAS on every execution: ~241 MB across ~4000
+    # files for serviceradar_core alone, twice over since that app builds in both test and
+    # prod env. Undeclared, it goes to a temp dir the action deletes on exit.
+    ships_bundlex = False
+    for f in ctx.files.srcs:
+        if f.basename == "bundlex.exs":
+            ships_bundlex = True
+            break
+
+    mix_invocation_dir = None
+    if ships_bundlex:
+        mix_invocation_dir = ctx.actions.declare_directory("{}_mix".format(ctx.label.name))
 
     erl_libs_dir = ctx.label.name + "_deps"
+
+    # Hand Erlang the dependencies' own output directories instead of copying them.
+    #
+    # erl_libs_contents merges every dependency into one private <target>_deps tree, and a
+    # dependency whose ebin is a directory (every mix_app: see the declare_directory above)
+    # is merged with a `cp -RL` run_shell action. That action is per CONSUMER, so one
+    # dependency is copied once per package that depends on it -- measured on one build:
+    # 88 copy actions for 14 distinct dependencies, bundlex copied 26 times and shmex 23,
+    # every copy byte-identical, 908s in total and not one byte compiled. They cannot even
+    # share a cache entry, because the output PATH is part of the action key.
+    #
+    # None of that merging is required: ERL_LIBS is a colon-separated list precisely so it
+    # can name several directories, and mix_app already emits <target>/<app>/ebin, which is
+    # the layout ERL_LIBS scans for. So the parent directory goes straight on the list.
+    #
+    # A dependency shipping .hrl files still has to be staged: -include_lib resolves the
+    # application directory from the code path and expects include/ NEXT TO ebin/, while
+    # mix_app publishes headers from `hdrs` instead of staging them into <app>/include.
+    direct_entries = []
+    direct_dep_files = []
+    staged_deps = []
+    for dep in flat_deps(ctx.attr.deps):
+        info = dep[ErlangAppInfo]
+        entry = _erl_libs_entry(info) if len(info.include) == 0 else None
+        if entry == None:
+            staged_deps.append(dep)
+        else:
+            if entry not in direct_entries:
+                direct_entries.append(entry)
+            direct_dep_files.extend(info.beam)
+            direct_dep_files.extend(info.priv)
 
     erl_libs_files = erl_libs_contents(
         ctx,
         target_info = None,
         headers = True,
         dir = erl_libs_dir,
-        deps = flat_deps(ctx.attr.deps),
+        deps = staged_deps,
         ez_deps = [],
         expand_ezs = False,
     )
 
-    erl_libs_path = ""
+    erl_libs_entries = []
     if len(erl_libs_files) > 0:
-        erl_libs_path = path_join(
+        erl_libs_entries.append(path_join(
             ctx.bin_dir.path,
             ctx.label.workspace_root,
             ctx.label.package,
             erl_libs_dir,
-        )
+        ))
+    erl_libs_entries.extend(direct_entries)
+
+    # Absolute, because the action cds into the mix invocation directory before Mix reads it.
+    erl_libs_path = ":".join(["$PWD/" + e for e in erl_libs_entries])
 
     # Sources are staged under their own package path, mirroring the workspace layout
     # inside the sandbox, and Mix then runs from this target's package directory. That
@@ -265,6 +399,76 @@ def _impl(ctx):
     for dep in all_deps:
         if dep[ErlangAppInfo].app_name == "bundlex":
             uses_bundlex = True
+
+    # The hermetic C compiler, given ONLY to the packages that actually run one.
+    #
+    # Scoped deliberately. Exporting CC/CFLAGS from every mix_app would put the whole clang
+    # toolchain in 271 packages' action inputs and rekey all of them on every LLVM bump --
+    # a full Elixir rebuild to benefit the ~20 that compile C. The test is the package's own
+    # sources, not its dependency closure: `uses_bundlex` is true for the entire Membrane
+    # closure, but only a package shipping its own bundlex.exs actually declares natives.
+    cc_exports = ""
+    cc_inputs = []
+    if _compiles_native_code(ctx):
+        cc_toolchain = find_cc_toolchain(ctx)
+
+        # cc_common directly rather than rules_foreign_cc's get_tools_info/get_flags_info:
+        # those resolve `defines` by reading CcInfo off every entry in ctx.attr.deps, which
+        # holds ErlangAppInfo mix_app targets here, so they fail analysis outright.
+        feature_configuration = cc_common.configure_features(
+            ctx = ctx,
+            cc_toolchain = cc_toolchain,
+            requested_features = ctx.features,
+            unsupported_features = ctx.disabled_features,
+        )
+        compile_variables = cc_common.create_compile_variables(
+            feature_configuration = feature_configuration,
+            cc_toolchain = cc_toolchain,
+        )
+        link_variables = cc_common.create_link_variables(
+            feature_configuration = feature_configuration,
+            cc_toolchain = cc_toolchain,
+        )
+
+        def _tool(action):
+            return cc_common.get_tool_for_action(
+                feature_configuration = feature_configuration,
+                action_name = action,
+            )
+
+        def _abs(text):
+            return absolutize_path_in_str(ctx.workspace_name, "$ORIGINAL_DIR/", text)
+
+        def _flags(action, variables):
+            return " ".join([
+                _abs(f)
+                for f in cc_common.get_memory_inefficient_command_line(
+                    feature_configuration = feature_configuration,
+                    action_name = action,
+                    variables = variables,
+                )
+            ])
+
+        # Bundlex.Toolchain.Custom reads all five with System.fetch_env! and raises on a
+        # missing one, so these are set together or not at all. elixir_make packages read
+        # only CC/CFLAGS and ignore the rest.
+        cc_env = {
+            "CC": _abs(_tool(ACTION_NAMES.c_compile)),
+            "CXX": _abs(_tool(ACTION_NAMES.cpp_compile)),
+            "CFLAGS": _flags(ACTION_NAMES.c_compile, compile_variables),
+            "CXXFLAGS": _flags(ACTION_NAMES.cpp_compile, compile_variables),
+            "LDFLAGS": _flags(ACTION_NAMES.cpp_link_executable, link_variables),
+        }
+
+        # Double quotes, NOT shell.quote: $ORIGINAL_DIR has to be expanded HERE, by the
+        # shell, so the variables carry literal absolute paths. Single-quoting them passes
+        # the string "$ORIGINAL_DIR/..." through to make, which expands `$O` as an undefined
+        # make variable and invokes `RIGINAL_DIR/.../clang`.
+        cc_exports = "\n".join([
+            'export {}="{}"'.format(k, v)
+            for k, v in cc_env.items()
+        ])
+        cc_inputs = [cc_toolchain.all_files]
 
     # ONLY the dependencies that actually DECLARE natives, not the whole closure.
     #
@@ -476,7 +680,7 @@ def _impl(ctx):
 {maybe_install_erlang}
 
 if [ -n "{erl_libs_path}" ]; then
-    export ERL_LIBS=$PWD/{erl_libs_path}
+    export ERL_LIBS="{erl_libs_path}"
 fi
 
 if [[ "{elixir_home}" == /* ]]; then
@@ -494,6 +698,7 @@ export LANG="en_US.UTF-8"
 export LC_ALL="en_US.UTF-8"
 
 MIX_INVOCATION_DIR="{mix_invocation_dir}"
+{mix_dir_cleanup}
 
 {copy_srcs_commands}
 
@@ -516,14 +721,29 @@ export HEX_OFFLINE=1
 # absent: Bundlex falls back to its original download path.
 export BUNDLEX_LOCAL_PRECOMPILED_DIR="$PWD/.bundlex_precompiled"
 
+# The hermetic C toolchain, for the packages that compile native code. Paths arrive
+# execroot-relative and we have already cd'd into the mix invocation dir, so they are
+# absolutized against $ORIGINAL_DIR rather than $PWD.
+{cc_exports}
+
 for archive in {archives}; do
     "${{ABS_ELIXIR_HOME}}"/bin/mix archive.install --force $ORIGINAL_DIR/$archive
 done
 
 if [[ -n "{erl_libs_path}" ]]; then
     mkdir -p _build/${{MIX_ENV}}/lib
-    for dep in "$ERL_LIBS"/*; do
-        ln -s $dep _build/${{MIX_ENV}}/lib
+    # ERL_LIBS is a colon-separated LIST of directories, not one directory: most
+    # dependencies are referenced where they were built rather than copied into a merged
+    # tree. -n keeps an existing link, so a staged copy of an app wins over a direct one.
+    for erl_libs_entry in $(printf '%s' "$ERL_LIBS" | tr ':' ' '); do
+        for dep in "$erl_libs_entry"/*; do
+            [ -e "$dep" ] || continue
+            dep_name=$(basename "$dep")
+            # First entry wins, matching ERL_LIBS resolution order.
+            if [ ! -e "_build/${{MIX_ENV}}/lib/$dep_name" ]; then
+                ln -s "$dep" "_build/${{MIX_ENV}}/lib/$dep_name"
+            fi
+        done
     done
 fi
 
@@ -620,7 +840,8 @@ find . -type l -delete
         erl_libs_path = erl_libs_path,
         erlang_home = erlang_home,
         elixir_home = elixir_home,
-        mix_invocation_dir = mix_invocation_dir.path,
+        mix_invocation_dir = mix_invocation_dir.path if ships_bundlex else "$(mktemp -d)",
+        mix_dir_cleanup = "" if ships_bundlex else 'trap \'rm -rf "${MIX_INVOCATION_DIR}"\' EXIT',
         project_dir = ctx.label.package,
         copy_srcs_commands = "\n".join(copy_srcs_commands + dep_source_commands + precompiled_commands),
         archives = " ".join([shell.quote(a.path) for a in ctx.files.archives]),
@@ -635,6 +856,7 @@ find . -type l -delete
         app_name = app_name,
         ebin = ebin.path,
         priv = priv.path,
+        cc_exports = cc_exports,
     )
 
     inputs = depset(
@@ -647,12 +869,15 @@ find . -type l -delete
             depset(ctx.files.precompiled_os_deps),
             depset(native_lib_files),
             depset(erl_libs_files),
-        ],
+            # Referenced in place via ERL_LIBS rather than staged, so they have to be
+            # declared here or the action would not see them.
+            depset(direct_dep_files),
+        ] + cc_inputs,
     )
 
     ctx.actions.run_shell(
         inputs = inputs,
-        outputs = [ebin, priv, mix_invocation_dir],
+        outputs = [ebin, priv] + ([mix_invocation_dir] if ships_bundlex else []),
         command = script,
         mnemonic = "MIX",
         progress_message = "Compiling Mix package %s" % app_name,
@@ -689,7 +914,7 @@ find . -type l -delete
         # The generated headers only exist inside the producing action, and ErlangAppInfo
         # carries neither them nor a place to put them -- but the Mix invocation directory
         # is already a declared output, so it is simply surfaced here.
-        OutputGroupInfo(mix_tree = depset([mix_invocation_dir])),
+        OutputGroupInfo(mix_tree = depset([mix_invocation_dir] if ships_bundlex else [])),
     ]
 
 mix_app = rule(
@@ -740,5 +965,6 @@ mix_app = rule(
         "deps": attr.label_list(providers = [ErlangAppInfo]),
     },
     provides = [ErlangAppInfo],
-    toolchains = ["@rules_elixir//:toolchain_type"],
+    toolchains = ["@rules_elixir//:toolchain_type"] + use_cc_toolchain(),
+    fragments = ["cpp"],
 )

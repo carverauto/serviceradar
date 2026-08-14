@@ -39,8 +39,14 @@
 {{- if hasKey $webNgObanQueues "maintenance" -}}{{- $webNgObanQueueMaintenance = get $webNgObanQueues "maintenance" -}}{{- end -}}
 {{- $webNgObanQueueWebMaintenance := 2 -}}
 {{- if hasKey $webNgObanQueues "webMaintenance" -}}{{- $webNgObanQueueWebMaintenance = get $webNgObanQueues "webMaintenance" -}}{{- end -}}
-{{- $webHost := default .Values.ingress.host $webNg.host -}}
-{{- $webNgPublicUrl := default "" $webNg.publicUrl -}}
+{{- $webNgPublicUrl := include "serviceradar.webNgPublicUrl" . -}}
+{{- $gatewayApi := default (dict) .Values.gatewayApi -}}
+{{- $webHost := coalesce $webNg.host .Values.ingress.host $gatewayApi.host "serviceradar-web-ng" -}}
+{{- if $webNgPublicUrl -}}
+{{- $parsedPublicUrl := urlParse $webNgPublicUrl -}}
+{{- $publicUrlHost := default "" (get $parsedPublicUrl "host") -}}
+{{- $webHost = trimSuffix ":443" $publicUrlHost -}}
+{{- end -}}
 {{- $pluginStorage := default (dict) $webNg.pluginStorage -}}
 {{- $gateway := default (dict) .Values.agentGateway -}}
 {{- $gatewayService := default (dict) $gateway.service -}}
@@ -308,7 +314,14 @@ spec:
         - name: SERVICERADAR_RELEASE_VERSION
           value: {{ .Values.global.releaseVersion | default (printf "v%s" .Chart.AppVersion) | quote }}
         - name: PHX_HOST
-          value: {{ default "serviceradar-web-ng" $webHost | quote }}
+          value: {{ $webHost | quote }}
+        {{- if $webNgPublicUrl }}
+        # ActionLinks and Discord/Slack embeds use this as the origin for
+        # /alerts/<id> deep links. Without it, pages go out with no way back
+        # into ServiceRadar.
+        - name: SERVICERADAR_NOTIFICATION_ACTION_BASE_URL
+          value: {{ $webNgPublicUrl | quote }}
+        {{- end }}
         - name: PHX_CHECK_ORIGIN
           value: {{ default "true" $webNg.checkOrigin | quote }}
         - name: SERVICERADAR_GOD_VIEW_ENABLED
@@ -622,6 +635,10 @@ spec:
         {{- if $geoipMmdb.enabled }}
         - name: GEOLITE_MMDB_DIR
           value: {{ default "/var/lib/serviceradar/geoip" $geoipMmdb.basePath | quote }}
+        - name: GEOLITE_MMDB_DOWNLOAD_ENABLED
+          value: "true"
+        - name: IPINFO_MMDB_DOWNLOAD_ENABLED
+          value: "true"
         {{- end }}
         {{- with $.Values.otelExporter }}
         {{- if .enabled }}
@@ -858,8 +875,12 @@ spec:
       {{- end }}
       {{- if $geoipMmdb.enabled }}
       - name: geoip-mmdb
+        {{- if $geoipMmdb.emptyDir }}
+        emptyDir: {}
+        {{- else }}
         persistentVolumeClaim:
           claimName: {{ default "serviceradar-geoip-mmdb" $geoipMmdb.existingClaim | quote }}
+        {{- end }}
       {{- end }}
       {{- if $deviceEnrichmentFsEnabled }}
       - name: device-enrichment-rules

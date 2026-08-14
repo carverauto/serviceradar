@@ -26,6 +26,18 @@ func TestParseStructuredToken(t *testing.T) {
 	require.Equal(t, "https://demo.example.com", payload.CoreURL)
 }
 
+func TestParseStructuredTokenExplicitCoreURLOverridesEmbeddedURL(t *testing.T) {
+	t.Setenv(onboardingTokenPrivateKeyEnv, testOnboardingTokenPrivateKey)
+	t.Setenv(onboardingTokenPublicKeyEnv, testOnboardingTokenPublicKey)
+
+	raw, err := EncodeToken("pkg-123", "dl-456", "https://stale.example.com")
+	require.NoError(t, err)
+
+	payload, err := parseOnboardingToken(raw, "", "https://current.example.com/")
+	require.NoError(t, err)
+	require.Equal(t, "https://current.example.com/", payload.CoreURL)
+}
+
 func TestParseTokenRejectsUnsupportedLegacyFormats(t *testing.T) {
 	_, err := parseOnboardingToken("pkg-001:token-xyz", "", "")
 	require.ErrorIs(t, err, ErrUnsupportedTokenFormat)

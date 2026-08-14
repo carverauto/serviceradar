@@ -61,7 +61,7 @@ defmodule ServiceRadarWebNG.FieldSurveyRawIngestTest do
         ]
       )
 
-    assert review.metrics.wifi_heat_cell_count > 0
+    assert review.metrics.wifi_raster_cell_count > 0
 
     assert Enum.all?(review.wifi_raster, fn cell ->
              cell.x >= review.bounds.min_x and cell.x <= review.bounds.max_x and

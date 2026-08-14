@@ -22,6 +22,8 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.View.ProfileForm 
   attr :available_templates, :list, default: []
   attr :agents, :list, default: []
   attr :snmp_credentials, :list, default: []
+  attr :save_credential_as_reusable, :boolean, default: false
+  attr :credential_name, :string, default: ""
 
   def profile_form(assigns) do
     is_default = assigns.selected_profile && assigns.selected_profile.is_default
@@ -310,11 +312,13 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.View.ProfileForm 
 
             <div class="rounded-md border border-sr-line/60 p-3 space-y-3">
               <label class="flex items-start gap-2">
+                <input type="hidden" name="form[save_credential_as_reusable]" value="false" />
                 <input
                   type="checkbox"
                   name="form[save_credential_as_reusable]"
                   value="true"
-                  class="mt-1"
+                  class="mt-1 checkbox checkbox-sm"
+                  checked={@save_credential_as_reusable}
                 />
                 <span class="text-sm text-sr-ink">
                   Also save this credential for reuse
@@ -332,7 +336,7 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.View.ProfileForm 
                 <.input
                   type="text"
                   name="form[credential_name]"
-                  value=""
+                  value={@credential_name}
                   class={ui_field_class(class: "w-full")}
                   placeholder="e.g., Core switches read-only"
                   autocomplete="off"

@@ -67,6 +67,13 @@ fi
 # active current symlink alone unless it has never been initialized.
 if [ -x /usr/local/lib/serviceradar/agent/serviceradar-agent-seed ]; then
     mkdir -p /var/lib/serviceradar/agent/versions/seed-installed
+    # The DIRECTORY, not just the files below. postinstall runs as root, so mkdir leaves it
+    # root:root while every parent is serviceradar:serviceradar. The agent runs as
+    # User=serviceradar and stages its next binary as serviceradar-agent.new inside this
+    # directory, so a root-owned directory makes it fail with "cp: cannot create regular file
+    # ...serviceradar-agent.new: Permission denied" and crash-loop on restart -- after a
+    # clean install that reported success.
+    chown serviceradar:serviceradar /var/lib/serviceradar/agent/versions/seed-installed
     cp /usr/local/lib/serviceradar/agent/serviceradar-agent-seed /var/lib/serviceradar/agent/versions/seed-installed/serviceradar-agent.new
     chmod 0755 /var/lib/serviceradar/agent/versions/seed-installed/serviceradar-agent.new
     chown serviceradar:serviceradar /var/lib/serviceradar/agent/versions/seed-installed/serviceradar-agent.new

@@ -39,6 +39,7 @@ defmodule ServiceRadar.Cluster.CoordinatorChildren do
         notification_template_seeder_child(),
         job_schedule_seeder_child(),
         device_cleanup_settings_seeder_child(),
+        device_hostname_rdns_settings_seeder_child(),
         snmp_profile_seeder_child(),
         role_profile_seeder_child(),
         mtr_settings_seeder_child(),
@@ -180,6 +181,12 @@ defmodule ServiceRadar.Cluster.CoordinatorChildren do
   defp device_cleanup_settings_seeder_child do
     if enabled?(:seeders_enabled, true) do
       ServiceRadar.Inventory.DeviceCleanupSettingsSeeder
+    end
+  end
+
+  defp device_hostname_rdns_settings_seeder_child do
+    if enabled?(:seeders_enabled, true) do
+      ServiceRadar.Inventory.DeviceHostnameRdnsSettingsSeeder
     end
   end
 

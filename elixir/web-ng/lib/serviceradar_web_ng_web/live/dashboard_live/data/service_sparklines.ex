@@ -32,62 +32,6 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Data.ServiceSparklines do
         _ -> []
       end
 
-      defp trace_sparkline(time_window, metric, mtr_overlays) do
-        rollup_values =
-          if relation_exists?("platform.traces_stats_5m") do
-            trace_rollup_sparkline(time_window, metric)
-          else
-            []
-          end
-
-        if rollup_values == [] and metric == :latency_ms do
-          mtr_overlay_sparkline(mtr_overlays, :avg_latency_ms)
-        else
-          rollup_values
-        end
-      rescue
-        _ -> []
-      end
-
-      defp trace_rollup_sparkline(time_window, :latency_ms) do
-        sql = """
-        SELECT bucket, avg_duration_ms
-        FROM (
-          SELECT bucket, COALESCE(AVG(avg_duration_ms), 0)::float8 AS avg_duration_ms
-          FROM platform.traces_stats_5m
-          WHERE bucket >= $1
-          GROUP BY bucket
-          ORDER BY bucket DESC
-          LIMIT $2
-        ) recent
-        ORDER BY bucket ASC
-        """
-
-        one_value_sparkline(sql, [cutoff_for_time_window(time_window), 48 * 2])
-      end
-
-      defp trace_rollup_sparkline(time_window, :success_pct) do
-        sql = """
-        SELECT bucket, success_pct
-        FROM (
-          SELECT
-            bucket,
-            CASE
-              WHEN COALESCE(SUM(total_count), 0) = 0 THEN 100.0
-              ELSE (1.0 - COALESCE(SUM(error_count), 0)::float8 / COALESCE(SUM(total_count), 0)::float8) * 100.0
-            END AS success_pct
-          FROM platform.traces_stats_5m
-          WHERE bucket >= $1
-          GROUP BY bucket
-          ORDER BY bucket DESC
-          LIMIT $2
-        ) recent
-        ORDER BY bucket ASC
-        """
-
-        one_value_sparkline(sql, [cutoff_for_time_window(time_window), 48 * 2])
-      end
-
       defp device_activity_sparkline(time_window) do
         if relation_exists?("platform.ocsf_devices") do
           sql = """
@@ -201,18 +145,41 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Data.ServiceSparklines do
         end
       end
 
-      defp mtr_overlay_sparkline([], _metric), do: []
+      @sobelow_skip ["SQL.Query"]
+      defp mtr_timeseries_sparkline(time_window, metric) do
+        if relation_exists?("platform.mtr_hops") do
+          value_expr =
+            case metric do
+              :latency_ms -> "COALESCE(AVG(NULLIF(h.avg_us, 0)), 0)::float8 / 1000.0"
+              :loss_pct -> "COALESCE(AVG(h.loss_pct), 0)::float8"
+            end
 
-      defp mtr_overlay_sparkline(overlays, :avg_latency_ms) do
-        overlays
-        |> Enum.map(fn overlay -> to_float(overlay.avg_us) / 1000 end)
-        |> sparkline_tail()
-      end
+          sql = """
+          SELECT bucket, value
+          FROM (
+            SELECT
+              time_bucket(#{bucket_interval_literal(sparkline_bucket_for(time_window))}, h.time) AS bucket,
+              #{value_expr} AS value
+            FROM (
+              SELECT DISTINCT ON (trace_id) time, avg_us, loss_pct
+              FROM mtr_hops
+              WHERE time >= $1
+                AND addr IS NOT NULL
+              ORDER BY trace_id, hop_number DESC
+            ) h
+            GROUP BY 1
+            ORDER BY 1 DESC
+            LIMIT $2
+          ) recent
+          ORDER BY bucket ASC
+          """
 
-      defp mtr_overlay_sparkline(overlays, :loss_pct) do
-        overlays
-        |> Enum.map(&to_float(&1.loss_pct))
-        |> sparkline_tail()
+          one_value_sparkline(sql, [cutoff_for_time_window(time_window), 48 * 2])
+        else
+          []
+        end
+      rescue
+        _ -> []
       end
     end
   end

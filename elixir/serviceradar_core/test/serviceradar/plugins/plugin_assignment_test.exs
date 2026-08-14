@@ -95,6 +95,36 @@ defmodule ServiceRadar.Plugins.PluginAssignmentTest do
     assert Exception.message(error) =~ "plugin is already assigned to this agent by policy"
   end
 
+  test "manual create names the agent when no live control session exists", %{
+    actor: actor,
+    unique_id: unique_id
+  } do
+    plugin_id = "offline-assignment-#{unique_id}"
+    agent_uid = "agent-offline-assignment-#{unique_id}"
+    {:ok, package} = create_approved_package(actor, plugin_id)
+
+    assert {:error, error} =
+             PluginAssignment
+             |> Ash.Changeset.for_create(
+               :create,
+               %{
+                 agent_uid: agent_uid,
+                 plugin_package_id: package.id,
+                 source: :manual,
+                 enabled: true,
+                 interval_seconds: 60,
+                 timeout_seconds: 10,
+                 params: %{}
+               },
+               actor: actor
+             )
+             |> Ash.create()
+
+    message = Exception.message(error)
+    assert message =~ agent_uid
+    assert message =~ "no live authenticated control session"
+  end
+
   test "agents cannot have two enabled assignments for one plugin", %{
     actor: actor,
     unique_id: unique_id

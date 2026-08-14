@@ -403,7 +403,11 @@ func parseSweepModes(modes []string, log logger.Logger) []models.SweepMode {
 			parsed = append(parsed, models.ModeTCP)
 		case string(models.ModeTCPConnect):
 			parsed = append(parsed, models.ModeTCPConnect)
-		case "":
+		case string(models.ModeMTR):
+			parsed = append(parsed, models.ModeMTR)
+		case "arp", "":
+			// Scanner profiles historically offered ARP. The sweeper has no ARP
+			// engine, so drop it without a warning that looks like a fault.
 			continue
 		default:
 			log.Warn().Str("mode", mode).Msg("Ignoring unknown sweep mode")

@@ -10,11 +10,8 @@ defmodule ServiceRadarWebNGWeb.Api.SrqlCatalogController do
 
   use ServiceRadarWebNGWeb, :controller
 
-  alias ServiceRadar.CompositeChecks.CompositeCheck
-  alias ServiceRadar.CompositeChecks.CompositeCheckRule
+  alias ServiceRadarWebNGWeb.CompositeChecks.Catalog, as: CompositeCatalog
   alias ServiceRadarWebNGWeb.SRQL.Catalog
-
-  require Logger
 
   @cache_control "private, max-age=300, must-revalidate"
 
@@ -54,30 +51,11 @@ defmodule ServiceRadarWebNGWeb.Api.SrqlCatalogController do
     end
   end
 
+  # Shared with the device list's verdict picker. The two must offer the same
+  # vocabulary: a picker showing a verdict the query language cannot express is
+  # a bug the user discovers by getting zero results.
   defp composite_checks(conn) do
-    scope = conn.assigns[:current_scope]
-
-    case CompositeCheck.list_enabled(scope: scope) do
-      {:ok, checks} -> Enum.map(checks, &check_with_verdicts(&1, scope))
-      {:error, _reason} -> []
-    end
-  rescue
-    exception ->
-      Logger.warning("SRQL catalog omitted composite fields",
-        reason: Exception.message(exception)
-      )
-
-      []
-  end
-
-  defp check_with_verdicts(check, scope) do
-    verdicts =
-      case CompositeCheckRule.list_by_check(check.id, scope: scope) do
-        {:ok, rules} -> rules |> Enum.map(& &1.verdict) |> Enum.uniq()
-        {:error, _reason} -> []
-      end
-
-    %{slug: check.slug, name: check.name, verdicts: verdicts}
+    CompositeCatalog.enabled_with_verdicts(scope: conn.assigns[:current_scope])
   end
 
   defp fresh?(conn, etag) do

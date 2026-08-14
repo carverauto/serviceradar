@@ -76,6 +76,23 @@ describe("rendering_graph_bitmap_methods", () => {
     expect(Array.from(mask)).toEqual([1, 1, 1, 1, 0])
   })
 
+  it("computeTraversalMask ignores empty-canvas selection indexes", () => {
+    const state = {
+      selectedNodeIndex: -1,
+      wasmReady: false,
+      wasmEngine: null,
+    }
+    const ctx = createStateBackedContext(state, {})
+    Object.assign(ctx, bindApi(ctx, godViewRenderingGraphBitmapMethods))
+
+    const graph = {
+      nodes: [{}, {}],
+      edges: [{source: 0, target: 1}],
+    }
+
+    expect(ctx.computeTraversalMask(graph)).toEqual(null)
+  })
+
   it("visibilityMask fallback obeys filters", () => {
     const state = {
       wasmReady: false,

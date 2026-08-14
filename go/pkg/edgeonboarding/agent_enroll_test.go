@@ -184,6 +184,48 @@ func TestEnrollAgentIgnoresLegacyNATSCredsFromBundle(t *testing.T) {
 	assert.NotContains(t, config, "nats_url")
 }
 
+func TestEnrollAgentCoreHostOverridesEmbeddedTokenURL(t *testing.T) {
+	t.Setenv(onboardingTokenPrivateKeyEnv, testOnboardingTokenPrivateKey)
+	t.Setenv(onboardingTokenPublicKeyEnv, testOnboardingTokenPublicKey)
+
+	dir := t.TempDir()
+	bundle := testAgentBundle(t, "")
+	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		assert.Equal(t, "/api/edge-packages/pkg-override/bundle", r.URL.Path)
+		if _, err := bundle.WriteTo(w); err != nil {
+			t.Errorf("write agent bundle response: %v", err)
+		}
+	}))
+	defer server.Close()
+
+	token, err := EncodeToken("pkg-override", "download-token", "https://serviceradar-web-ng")
+	require.NoError(t, err)
+
+	err = EnrollAgentFromToken(context.Background(), EnrollOptions{
+		Token:          token,
+		CoreHost:       server.URL,
+		ConfigPath:     filepath.Join(dir, "agent.json"),
+		CertDir:        filepath.Join(dir, "certs"),
+		HTTPClient:     server.Client(),
+		RestartService: noopRestartService,
+	})
+	require.NoError(t, err)
+}
+
+func TestEnrollAgentValidatesExplicitCoreHostOverride(t *testing.T) {
+	t.Setenv(onboardingTokenPrivateKeyEnv, testOnboardingTokenPrivateKey)
+	t.Setenv(onboardingTokenPublicKeyEnv, testOnboardingTokenPublicKey)
+
+	token, err := EncodeToken("pkg-override", "download-token", "https://valid.example.com")
+	require.NoError(t, err)
+
+	err = EnrollAgentFromToken(context.Background(), EnrollOptions{
+		Token:    token,
+		CoreHost: "http://insecure.example.com",
+	})
+	require.ErrorIs(t, err, ErrCoreAPIURLMustUseHTTPS)
+}
+
 func TestEnrollCollectorInstallsRoleScopedNATSCredsAndRewritesConfig(t *testing.T) {
 	t.Setenv(onboardingTokenPublicKeyEnv, testOnboardingTokenPublicKey)
 
@@ -253,6 +295,13 @@ func TestParseCollectorTokenRequiresHTTPS(t *testing.T) {
 	token := signedCollectorToken(t, "http://demo.serviceradar.cloud", "pkg-1", "secret")
 	_, err := parseCollectorToken(token, "")
 	require.ErrorIs(t, err, ErrCoreAPIURLMustUseHTTPS)
+}
+
+func TestParseCollectorTokenExplicitBaseURLOverridesEmbeddedURL(t *testing.T) {
+	token := signedCollectorToken(t, "https://stale.example.com", "pkg-1", "secret")
+	payload, err := parseCollectorToken(token, "https://current.example.com/")
+	require.NoError(t, err)
+	require.Equal(t, "https://current.example.com", payload.BaseURL)
 }
 
 func TestParseCollectorTokenRejectsUnsignedFormats(t *testing.T) {

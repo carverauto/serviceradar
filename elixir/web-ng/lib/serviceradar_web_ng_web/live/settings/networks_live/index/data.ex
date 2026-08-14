@@ -4,21 +4,38 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index.Data do
   alias ServiceRadar.Infrastructure.Agent
   alias ServiceRadar.NetworkDiscovery.MapperJob
   alias ServiceRadar.SweepJobs.SweepGroup
+  alias ServiceRadar.SweepJobs.SweepGroupExecution
   alias ServiceRadar.SweepJobs.SweepProfile
   alias ServiceRadarWebNG.RBAC
 
+  require Ash.Query
+
   def load_sweep_groups(scope) do
-    case Ash.read(SweepGroup, scope: scope) do
+    query =
+      SweepGroup
+      |> Ash.Query.for_read(:read)
+      |> Ash.Query.load(executions: latest_execution_query())
+
+    case Ash.read(query, scope: scope) do
       {:ok, groups} -> groups
       {:error, _} -> []
     end
   end
 
   def load_sweep_group(scope, id) do
-    case Ash.get(SweepGroup, id, scope: scope) do
+    case Ash.get(SweepGroup, id,
+           scope: scope,
+           load: [executions: latest_execution_query()]
+         ) do
       {:ok, group} -> group
       {:error, _} -> nil
     end
+  end
+
+  defp latest_execution_query do
+    SweepGroupExecution
+    |> Ash.Query.sort(started_at: :desc)
+    |> Ash.Query.limit(1)
   end
 
   def fetch_sweep_group(scope, id) do

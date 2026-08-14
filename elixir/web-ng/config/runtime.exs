@@ -201,10 +201,13 @@ api_keys =
   System.get_env("SERVICERADAR_API_KEYS") ||
     System.get_env("SERVICERADAR_API_KEY")
 
-config :geolix, databases: base_geolite_dbs ++ city_geolite_dbs ++ ipinfo_dbs
+geolite_dbs = base_geolite_dbs ++ city_geolite_dbs ++ ipinfo_dbs
+
+config :geolix, databases: ServiceRadar.Observability.GeoIP.present_databases(geolite_dbs)
 
 config :serviceradar_core,
-  geolite_mmdb_dir: geolite_dir
+  geolite_mmdb_dir: geolite_dir,
+  geolite_databases: geolite_dbs
 
 if api_keys do
   keys =
@@ -743,6 +746,10 @@ config :serviceradar_core, ServiceRadar.NATS.Connection,
   password: {:system, "NATS_PASSWORD"},
   creds_file: nats_creds_file,
   tls: nats_tls_config
+
+config :serviceradar_core,
+       :internal_log_live_nats,
+       to_bool.(System.get_env("SERVICERADAR_INTERNAL_LOG_LIVE_NATS", "false")) == true
 
 config :serviceradar_core,
   device_enrichment_rules_dir:

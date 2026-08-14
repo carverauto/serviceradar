@@ -41,6 +41,18 @@ pub(in crate::query::devices) fn collect_filter_params(
             params.push(BindParam::timestamptz(freshness_threshold(filter)?));
             Ok(())
         }
+        "first_seen" | "first_seen_time" => {
+            if !matches!(filter.op, FilterOp::Eq | FilterOp::NotEq) {
+                return Err(ServiceError::InvalidRequest(
+                    "first_seen filter only supports equality (for example first_seen:last_7d)"
+                        .into(),
+                ));
+            }
+            let range = super::seen::first_seen_range(filter)?;
+            params.push(BindParam::timestamptz(range.start));
+            params.push(BindParam::timestamptz(range.end));
+            Ok(())
+        }
         "tags" => match filter.op {
             FilterOp::Eq | FilterOp::NotEq => {
                 params.push(BindParam::Text(filter.value.as_scalar()?.to_string()));

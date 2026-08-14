@@ -11,6 +11,7 @@ import DetailsState from "./DetailsState"
 import JdmEditorHook from "./JdmEditorHook"
 import LocalTime from "./LocalTime"
 import MapboxFlowMap from "./MapboxFlowMap"
+import MapboxLocationPicker from "./MapboxLocationPicker"
 import OperationsTrafficMap from "./OperationsTrafficMap"
 import ProxmoxConsoleTerminal from "./ProxmoxConsoleTerminal"
 import RemoteAccessDesktopSession from "./RemoteAccessDesktopSession"
@@ -56,6 +57,7 @@ export default {
   JdmEditorHook,
   LocalTime,
   MapboxFlowMap,
+  MapboxLocationPicker,
   OperationsTrafficMap,
   ProxmoxConsoleTerminal,
   RemoteAccessDesktopSession,

@@ -87,6 +87,11 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.DeviceSummaryComponents do
                 mono
               />
               <.kv_inline
+                label="Added"
+                value={format_timestamp(device_added_at(@device_row))}
+                mono
+              />
+              <.kv_inline
                 label="Last Seen"
                 value={
                   format_timestamp(
@@ -299,6 +304,17 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.DeviceSummaryComponents do
       _ -> "—"
     end
   end
+
+  defp device_added_at(row) when is_map(row) do
+    first_present([
+      Map.get(row, "first_seen"),
+      Map.get(row, "first_seen_time"),
+      Map.get(row, :first_seen),
+      Map.get(row, :first_seen_time)
+    ])
+  end
+
+  defp device_added_at(_row), do: nil
 
   # Agent status comes from the ocsf_agents linkage resolved at load time
   # (DeviceStateData.tag_agent_device/2); the OCSF agent_list column is dead.

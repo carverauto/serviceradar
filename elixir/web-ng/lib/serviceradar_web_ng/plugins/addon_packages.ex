@@ -34,6 +34,9 @@ defmodule ServiceRadarWebNG.Plugins.AddonPackages do
   @spec list_approved(keyword()) :: [AddonPackage.t()]
   def list_approved(opts \\ []), do: list(%{status: :approved}, opts)
 
+  @spec list_approved_latest(keyword()) :: [AddonPackage.t()]
+  def list_approved_latest(opts \\ []), do: list_latest_versions(%{status: :approved}, opts)
+
   @spec list_latest_versions(map(), keyword()) :: [AddonPackage.t()]
   def list_latest_versions(filters \\ %{}, opts \\ []) do
     filters

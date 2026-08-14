@@ -118,7 +118,7 @@ export const godViewRenderingStyleNodeReasonMethods = {
     }
 
     if (key === "unknown_signal_without_identified_root") {
-      return "State unknown: insufficient telemetry to identify a root cause."
+      return "No causal root selected; this node has no failure signal in the current snapshot."
     }
 
     const root = rootRef ? ` Root: ${rootRef}.` : ""

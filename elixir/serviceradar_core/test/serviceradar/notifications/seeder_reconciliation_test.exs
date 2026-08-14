@@ -563,15 +563,18 @@ defmodule ServiceRadar.Notifications.SeederReconciliationTest do
 
       assert channel.config["to"] == ["noc@example.com"]
 
-      # Relay host and credentials are deployment configuration; the closed schema
-      # refuses them rather than letting a notification be aimed at an arbitrary
-      # internal service.
-      assert {:error, _error} =
+      # Relay host and credentials are deployment configuration. Author-time
+      # normalization drops unknown keys (and `_unused_*` form leftovers)
+      # before the closed schema runs, so a typed relay must not persist.
+      assert {:ok, refused} =
                create_channel(
                  "email",
                  %{"to" => ["noc@example.com"], "relay" => "10.0.0.1"},
                  actor
                )
+
+      assert refused.config["to"] == ["noc@example.com"]
+      refute Map.has_key?(refused.config, "relay")
     end
   end
 

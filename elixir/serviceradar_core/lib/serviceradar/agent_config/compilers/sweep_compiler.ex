@@ -208,6 +208,9 @@ defmodule ServiceRadar.AgentConfig.Compilers.SweepCompiler do
     # Guard against TCP modes without ports
     {ports, modes} = enforce_tcp_ports(ports, modes, group)
 
+    # Drop modes the agent sweeper does not implement (historically "arp").
+    modes = drop_unsupported_modes(modes, group)
+
     # Build targets from static CIDRs/IPs and device targets from SRQL rows.
     {targets, device_targets} = compile_targets(group, actor, modes)
 
@@ -428,7 +431,26 @@ defmodule ServiceRadar.AgentConfig.Compilers.SweepCompiler do
     end
   end
 
-  defp merge_modes(nil, group), do: normalize_modes_override(group.sweep_modes, ["icmp", "tcp"])
+  # Modes the Go sweeper actually executes. Profile/UI historically offered
+  # "arp", but parseSweepModes ignores it.
+  @agent_supported_modes ["icmp", "tcp", "tcp_connect", "mtr"]
+
+  defp drop_unsupported_modes(modes, group) do
+    modes = modes || []
+    {supported, dropped} = Enum.split_with(modes, &(&1 in @agent_supported_modes))
+
+    if dropped != [] do
+      Logger.debug(
+        "SweepCompiler: dropping unsupported modes #{inspect(dropped)} for group #{group.name} (#{group.id})"
+      )
+    end
+
+    supported
+  end
+
+  # A group with no profile and no explicit modes is ICMP-only. Enabling TCP
+  # here would immediately trip enforce_tcp_ports/3 and drop TCP anyway.
+  defp merge_modes(nil, group), do: normalize_modes_override(group.sweep_modes, ["icmp"])
 
   defp merge_modes(profile, group) do
     normalize_modes_override(group.sweep_modes, profile.sweep_modes || ["icmp", "tcp"])
