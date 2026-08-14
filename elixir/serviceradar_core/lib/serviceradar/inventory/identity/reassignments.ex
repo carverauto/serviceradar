@@ -5,6 +5,7 @@ defmodule ServiceRadar.Inventory.Identity.Reassignments do
   device during merges.
   """
 
+  alias ServiceRadar.CompositeChecks.DeviceCompositeCheckResult
   alias ServiceRadar.Identity.DeviceAliasState
   alias ServiceRadar.Infrastructure.Agent
   alias ServiceRadar.Inventory.DeviceAgentAvailability
@@ -114,6 +115,41 @@ defmodule ServiceRadar.Inventory.Identity.Reassignments do
         Enum.reduce_while(rows, :ok, fn row, :ok ->
           case DeviceAgentAvailability.get_by_device_agent(to_id, row.agent_id, actor: actor) do
             {:ok, %DeviceAgentAvailability{}} ->
+              case Ash.destroy(row, actor: actor) do
+                :ok -> {:cont, :ok}
+                {:error, error} -> {:halt, {:error, error}}
+              end
+
+            _ ->
+              row
+              |> Ash.Changeset.for_update(:reassign_device, %{device_uid: to_id})
+              |> Ash.update(actor: actor)
+              |> case do
+                {:ok, _} -> {:cont, :ok}
+                {:error, error} -> {:halt, {:error, error}}
+              end
+          end
+        end)
+
+      {:error, error} ->
+        {:error, error}
+    end
+  end
+
+  @doc """
+  Repoint composite check verdicts to the canonical device. A row whose
+  (device, check) pair already exists on the survivor is dropped instead of
+  violating the unique identity — the survivor's own verdict is the current one.
+
+  Without this, every verdict strands on the losing UID after a merge and the
+  device silently loses its compliance state.
+  """
+  def reassign_composite_results(from_id, to_id, actor) do
+    case DeviceCompositeCheckResult.list_by_device(from_id, actor: actor) do
+      {:ok, rows} ->
+        Enum.reduce_while(rows, :ok, fn row, :ok ->
+          case DeviceCompositeCheckResult.get_by_device_check(to_id, row.check_id, actor: actor) do
+            {:ok, %DeviceCompositeCheckResult{}} ->
               case Ash.destroy(row, actor: actor) do
                 :ok -> {:cont, :ok}
                 {:error, error} -> {:halt, {:error, error}}
