@@ -72,6 +72,36 @@ func (d *digestWriter) optU64(v uint64, present bool) {
 	d.u64(v)
 }
 
+// producerContext frames the producer context as one helper, byte-for-byte as the root framed it
+// inline. Extracted to match the Elixir peer, which already had a `producer_context/1` clause, so
+// the two implementations are shaped alike.
+//
+// THIS CREATES NO TRANSCRIPT BOUNDARY, and nothing in the test suite may assume it does. The
+// helper appends to the SAME buffer with no length prefix and no intermediate hash, so the
+// preimage stays one flat, untagged concatenation and every write in it still coexists with
+// every other. Only length-framing or hashing a child block would make it opaque, and either
+// would change the ABI. Separating the positions inside it from the root's own writes is the
+// FIXTURES' job -- see semRecordVariants -- not this function's.
+func (d *digestWriter) producerContext(p *edgev1.EdgeProducerContext, present bool) {
+	d.present(present)
+
+	if !present || p == nil {
+		return
+	}
+
+	d.u64(uint64(p.GetOriginKind()))
+	d.bytes(p.GetOriginPrincipalId())
+	d.bytes(p.GetProducerInstanceId())
+	d.bytes(p.GetProducerAssignmentId())
+	d.bytes(p.GetRunId())
+	d.u64(uint64(p.GetRunShard()))
+	d.optU64(p.GetAuthorityEpoch(), p.AuthorityEpoch != nil)
+	d.bytes(p.GetScopeId())
+	d.bytes(p.GetScopeSha256())
+	d.str(p.GetPackageId())
+	d.bytes(p.GetPackageSha256())
+}
+
 // capability frames a signed capability field-by-field in canonical ascending
 // field order. The oneof claim is written via claimsFramed as an explicit u64
 // discriminant (the set member's proto field number) followed by the inner claim
@@ -145,20 +175,7 @@ func semanticEnvelopeDigestWithVersion(r *edgev1.EdgeRecordV1, version uint64) [
 	d.outputContract(c, c != nil)
 
 	p := r.GetProducerContext()
-	d.present(p != nil)
-	if p != nil {
-		d.u64(uint64(p.GetOriginKind()))
-		d.bytes(p.GetOriginPrincipalId())
-		d.bytes(p.GetProducerInstanceId())
-		d.bytes(p.GetProducerAssignmentId())
-		d.bytes(p.GetRunId())
-		d.u64(uint64(p.GetRunShard()))
-		d.optU64(p.GetAuthorityEpoch(), p.AuthorityEpoch != nil)
-		d.bytes(p.GetScopeId())
-		d.bytes(p.GetScopeSha256())
-		d.str(p.GetPackageId())
-		d.bytes(p.GetPackageSha256())
-	}
+	d.producerContext(p, p != nil)
 
 	d.u64(uint64(r.GetRouteProfile()))
 	d.u64(uint64(r.GetTrafficClass()))
