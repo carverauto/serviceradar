@@ -468,16 +468,18 @@ UI management:
 - Use the typed rule editor to create/update/delete rules.
 - For writable UI-managed rules in Kubernetes, back the mount with a PVC (`existingClaim`) rather than ConfigMap/Secret.
 
-## Outbound Mail (SMTP)
+## Outbound Mail
 
-Outbound mail carries identity messages (confirmation, password reset) and the
-`email` notification transport. Both go through one mail path, so configuring it
-here configures both. See [Notifications](./notifications.md) for the channel
-side.
+Configure SMTP in the Web UI: **Settings -> Mail**. That is the operator
+path. See [Outbound Mail](./outbound-mail.md) for Local vs Test vs SMTP and
+the field-by-field setup.
 
-Configure it with the `core.mailer` block:
+The `core.mailer` block below is a **fallback** for automation. An enabled
+Settings -> Mail row overrides it. Do not put a mailbox password in values;
+the UI stores credentials encrypted.
 
 ```yaml
+# Fallback only. Prefer Settings -> Mail.
 core:
   mailer:
     # "smtp", "local", "sendgrid", ... Leave empty to infer SMTP from `relay`.

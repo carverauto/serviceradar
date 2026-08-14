@@ -140,6 +140,7 @@ const sidebars: SidebarsConfig = {
         {type: 'doc', id: 'tools', label: 'Tools Pod'},
         {type: 'doc', id: 'cli-reference', label: 'ServiceRadar CLI'},
         {type: 'doc', id: 'configuration-system', label: 'Configuration & KV Store'},
+        {type: 'doc', id: 'outbound-mail', label: 'Outbound Mail'},
         {
           type: 'category',
           label: 'Notifications',

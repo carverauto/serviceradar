@@ -68,7 +68,7 @@ providers plus one built-in:
 | `slack` | native | Incoming webhook or bot token |
 | `discord` | native | Incoming webhook |
 | `webhook` | native | Generic HTTPS POST/PUT/PATCH, see [Migrating from the old `webhooks:` block](#migrating-from-the-removed-webhooks-config-block) |
-| `email` | native | Goes through the single outbound mail path, see [Email and SMTP](#email-and-smtp) |
+| `email` | native | Goes through the single outbound mail path. Configure SMTP first: [Outbound Mail](./outbound-mail.md) |
 | `stream` | built-in | Publishes the notification envelope to an RBAC-scoped live topic and durable JetStream subject. Topic joins require `notifications.stream.subscribe` |
 
 First-party providers are **managed** records: they are seeded on start and
@@ -909,7 +909,14 @@ upgrade**, and an untouched managed template is refreshed.
 
 Email notifications go through the **single** outbound mail path,
 `ServiceRadar.OutboundMail`, shared with identity mail (confirmation, password
-reset). There is deliberately no second mailer.
+reset) and dashboard reports. There is deliberately no second mailer.
+
+**Configure the relay in the UI:** [Outbound Mail](./outbound-mail.md)
+(**Settings -> Mail**). Enable outbound mail, pick SMTP, save. An email
+channel will not validate until that page resolves to a delivering adapter.
+
+The rest of this section is the diagnostic model and the Helm/env fallback.
+Day-to-day operators should not need it.
 
 ### Why there is a mailer diagnostic
 
@@ -971,10 +978,11 @@ has exactly one possible outcome.
 With nothing set at all the mailer resolves to the Test adapter, and
 `diagnose/0` is what makes that state visible instead of silent.
 
-### Helm
+### Helm (fallback only)
 
-`values.yaml` carries a `core.mailer` block; `templates/core.yaml` renders it
-into the environment above.
+Prefer [Outbound Mail](./outbound-mail.md) in the UI. `values.yaml` also
+carries a `core.mailer` block; `templates/core.yaml` renders it into the
+environment above when no enabled Settings -> Mail row exists.
 
 ```yaml
 core:

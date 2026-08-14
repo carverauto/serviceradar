@@ -6,6 +6,13 @@ title: Troubleshooting Guide
 
 Use this guide as a first stop when onboarding or operating ServiceRadar. Each section lists fast diagnostics, common failure modes, and references for deeper dives.
 
+## Outbound Mail
+
+Dashboard reports or email notification channels look successful but no inbox
+received mail: the adapter is usually **Test** (discards the message) or
+outbound mail is still disabled. Configure SMTP under **Settings -> Mail**.
+See [Outbound Mail](./outbound-mail.md).
+
 ## Edge Agents
 
 Edge agents are Go binaries that run on monitored hosts outside the Kubernetes cluster, communicating via gRPC with mTLS.
