@@ -287,7 +287,10 @@ defmodule ServiceRadarWebNGWeb.SRQL.Catalog do
     %{
       id: "composite_results",
       label: "Composite Check Results",
-      route: "/settings/composite-checks",
+      # Must match the router. `page_test.exs` asserts every catalog route is
+      # routable, which is what caught this pointing at a path that never
+      # existed — composite checks live under Networks.
+      route: "/settings/networks/composite-checks",
       default_time: "",
       default_sort_field: "evaluated_at",
       default_sort_dir: "desc",
