@@ -158,11 +158,17 @@
 
 ## 9. Northbound
 
-- [ ] 9.1 Add composite check and value-form selection to Armis northbound
-      configuration.
-- [ ] 9.2 Emit the selected verdict or status per in-scope device, omitting
-      devices with no result rather than sending a placeholder.
-- [ ] 9.3 Display the selection in northbound run status.
+- [x] 9.1 Add composite check and value-form selection to Armis northbound
+      configuration. Stored in `settings["composite"]` as check_slug,
+      value_form, and custom_field; all three required, unknown value form
+      disables the export rather than guessing.
+- [x] 9.2 Emit the selected verdict or status per in-scope device, omitting
+      devices with no result rather than sending a placeholder. Omission falls
+      out of the value map's shape — a device with no result is absent from it —
+      rather than being a filter a later step could forget.
+- [x] 9.3 Display the selection in northbound run status, read from the run's
+      own metadata so it describes that run rather than the source's current
+      selection.
 
 ## 10. Verification
 

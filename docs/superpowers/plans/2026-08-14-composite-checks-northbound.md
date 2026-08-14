@@ -30,7 +30,7 @@
 
 **Why `settings` and not a positional `custom_fields` entry:** `custom_field/1` takes `custom_fields` head, and a second positional entry would silently become the composite field for every source that happens to configure two. The selection is three coupled values; one nested map keeps them together and makes "not configured" a single `nil`.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 ```elixir
 test "composite_export is nil when nothing is configured" do
@@ -81,12 +81,12 @@ test "composite_export rejects an unknown value form rather than guessing" do
 end
 ```
 
-- [ ] **Step 2: Run them and watch them fail**
+- [x] **Step 2: Run them and watch them fail**
 
 Run: `cd elixir/serviceradar_core && MIX_ENV=test mix test test/serviceradar/integrations/armis_northbound_runner_test.exs`
 Expected: FAIL, `composite_export/1 is undefined`.
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 ```elixir
 @spec composite_export(struct() | map()) :: composite_export() | nil
@@ -128,7 +128,7 @@ defp trimmed(config, key) do
 end
 ```
 
-- [ ] **Step 4: Run, format, commit**
+- [x] **Step 4: Run, format, commit**
 
 ```bash
 cd elixir/serviceradar_core && mix format && MIX_ENV=test mix test test/serviceradar/integrations/armis_northbound_runner_test.exs
@@ -149,7 +149,7 @@ git add -A && git commit -m "feat(northbound): read the composite export selecti
 
 **Why its own module:** the runner is already 1432 lines and this is a self-contained lookup with its own failure mode (unknown slug, disabled check). Keeping it separate is also what lets Task 3 test payload building with a plain map and no database.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 ```elixir
 test "returns the verdict slug per device in verdict form" do
@@ -186,11 +186,11 @@ test "no device uids means no query at all" do
 end
 ```
 
-- [ ] **Step 2: Implement**
+- [x] **Step 2: Implement**
 
 Resolve the slug through `CompositeCheck.get_by_slug/2`, require `state == :enabled`, then one `DeviceCompositeCheckResult` read filtered by `check_id` and `device_uid in ^uids`. Map `:verdict` to `result.verdict` and `:status` to `to_string(result.status)`.
 
-- [ ] **Step 3–4:** run against the srql-fixtures scratch DB, format, commit.
+- [x] **Step 3–4:** run against the srql-fixtures scratch DB, format, commit.
 
 ---
 
@@ -205,7 +205,7 @@ Resolve the slug through `CompositeCheck.get_by_slug/2`, require `state == :enab
 
 **The shape decision:** each bulk entry carries exactly one `key`/`value` pair in the `upsert` form, so a second field is a second entry, not a second key on the same entry. The `customProperties` fallback form (used when `armis_device_id` is not an integer) *can* carry two keys, and should, so the two shapes stay one-entry-per-device where the API allows it.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 ```elixir
 test "build_bulk_payload appends a composite entry for devices that have a value" do
@@ -264,7 +264,7 @@ test "no composite option leaves the payload exactly as before" do
 end
 ```
 
-- [ ] **Step 2–4:** implement, run the whole runner test file, format, commit.
+- [x] **Step 2–4:** implement, run the whole runner test file, format, commit.
 
 ---
 
@@ -272,19 +272,19 @@ end
 
 **Files:** Modify `armis_northbound_runner.ex` (`do_execute_batches/3`, `execute_bulk_batches/7`, `build_run_attrs/2`)
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 An `execute_batches/3` run with a configured composite export and a stub `request` fn asserts the captured payload contains the composite entries, and that the run metadata carries `composite_check_slug` and `composite_value_form`.
 
-- [ ] **Step 2: Load once per run, not per batch**
+- [x] **Step 2: Load once per run, not per batch**
 
 The uid list is every `device_ids` entry across all candidates. One read per run; a read per batch would be an N+1 in the number of batches.
 
-- [ ] **Step 3: Put the selection in run metadata**
+- [x] **Step 3: Put the selection in run metadata**
 
 `build_run_attrs/2`'s `metadata` is what the run record stores and what Task 5 renders. Add the slug and value form there; omit the keys entirely when no export is configured, so an unconfigured run does not record `nil`s that read like a failed lookup.
 
-- [ ] **Step 4–5:** run, format, commit.
+- [x] **Step 4–5:** run, format, commit.
 
 ---
 
@@ -293,19 +293,52 @@ The uid list is every `device_ids` entry across all candidates. One read per run
 **Files:** Modify `elixir/web-ng/lib/serviceradar_web_ng_web/live/settings/integrations_live/index.ex`
 **Spec:** "the selected composite check and value form SHALL be displayed".
 
-- [ ] **Step 1: Write the failing LiveView test**
+- [x] **Step 1: Write the failing LiveView test**
 
 A source whose last run metadata carries the selection renders both the check slug and the value form in the northbound status block.
 
-- [ ] **Step 2–4:** render from the stored run metadata (not by re-reading source settings — the run status must describe *that run*, which may predate a configuration change), run, commit.
+- [x] **Step 2–4:** render from the stored run metadata (not by re-reading source settings — the run status must describe *that run*, which may predate a configuration change), run, commit.
 
 ---
 
 ### Task 6: Verification
 
-- [ ] **Step 1:** `bash <scratchpad>/run-core.sh test test/serviceradar/integrations/` and the composite suites.
-- [ ] **Step 2:** `./scripts/elixir_quality.sh --project elixir/serviceradar_core` and `--project elixir/web-ng --phoenix --skip-dialyzer`.
-- [ ] **Step 3:** `openspec validate add-composite-service-checks --strict` and mark section 9 `- [x]`.
+- [x] **Step 1:** `bash <scratchpad>/run-core.sh test test/serviceradar/integrations/` and the composite suites.
+
+269 tests, 0 failures, 2 skipped across `test/serviceradar/integrations/` and
+`test/serviceradar/composite_checks/` with `--include integration`. The web-ng
+`integrations_live_test.exs` has one failure, "details modal suppresses stale
+internal timestamp precision errors" — **verified pre-existing** by running the
+file at the parent commit (15 tests, same 1 failure, same line). It concerns the
+Agent Config Dispatch section, untouched by this plan.
+
+- [x] **Step 2:** `./scripts/elixir_quality.sh --project elixir/serviceradar_core` and `--project elixir/web-ng --phoenix --skip-dialyzer`.
+
+Both exit 0, including `hex.audit` and `deps.audit` — the Ash CVE gate was
+cleared by merging staging during Plan 3.
+
+- [x] **Step 3:** `openspec validate add-composite-service-checks --strict` and mark section 9 `- [x]`.
+
+Valid. **Zero unchecked tasks remain in the change** — sections 1 through 10 are
+complete.
+
+**What the implementation settled beyond the plan:**
+
+- The value map's shape is the omission guarantee. A device with no result is
+  absent from it, so `build_bulk_payload/3` emits nothing for that device
+  without a filtering step anyone could forget.
+- The collapsed-candidate ambiguity the plan flagged was real: one Armis device
+  can carry several ServiceRadar UIDs. First UID with a value wins, in collapse
+  order, pinned by two tests. Emitting one entry per UID would have been a
+  last-writer-wins race inside a single batch.
+- The upsert shape carries one key per entry, so the composite field is a second
+  entry; the `customProperties` fallback holds several keys and stays one entry.
+- Run status reads the run's stored metadata, never the source's live settings.
+  Reading live would retroactively relabel history when the selection changes.
+- `CompositeNorthboundValues` degrades to `%{}` on every failure path so a run
+  that cannot resolve the selection still publishes availability — but the read
+  failure is logged, since a silent degrade is otherwise indistinguishable from
+  a check that legitimately has no results.
 
 ## Plan Self-Review
 
