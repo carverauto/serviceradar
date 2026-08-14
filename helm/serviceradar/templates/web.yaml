@@ -630,6 +630,8 @@ spec:
           value: {{ default "/var/lib/serviceradar/geoip" $geoipMmdb.basePath | quote }}
         - name: GEOLITE_MMDB_DOWNLOAD_ENABLED
           value: "true"
+        - name: IPINFO_MMDB_DOWNLOAD_ENABLED
+          value: "true"
         {{- end }}
         {{- with $.Values.otelExporter }}
         {{- if .enabled }}
