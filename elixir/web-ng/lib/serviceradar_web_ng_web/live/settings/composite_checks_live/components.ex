@@ -1033,11 +1033,24 @@ defmodule ServiceRadarWebNGWeb.Settings.CompositeChecksLive.Components do
     <li
       class="rounded-sr-control border border-sr-border p-3"
       data-preview-device={@row.device_uid}
+      data-preview-ip={@row.device_ip}
       data-preview-verdict={@row.verdict}
       data-preview-status={@row.status}
     >
       <div class="flex flex-wrap items-center gap-2">
-        <span class="font-mono text-xs text-sr-ink">{@row.device_uid}</span>
+        <%!-- A new tab, not a navigation: the operator is mid-authoring, and the
+        builder holds unsaved rule edits and a preview that would be lost. --%>
+        <.link
+          href={~p"/devices/#{@row.device_uid}"}
+          target="_blank"
+          rel="noopener noreferrer"
+          class="font-mono text-xs text-sr-ink underline decoration-sr-border underline-offset-2 hover:decoration-sr-ink"
+        >
+          {@row.device_uid}
+        </.link>
+        <span :if={@row.device_ip} class="font-mono text-xs text-sr-ink-muted">
+          {@row.device_ip}
+        </span>
         <span class={["size-1.5 rounded-full", status_bar_class(@row.status)]} />
         <span class="font-mono text-xs text-sr-ink">{@row.verdict}</span>
       </div>

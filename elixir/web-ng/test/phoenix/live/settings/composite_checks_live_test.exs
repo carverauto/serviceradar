@@ -923,6 +923,60 @@ defmodule ServiceRadarWebNGWeb.Settings.CompositeChecksLiveTest do
       assert html =~ "Isolation observed from every vantage point"
     end
 
+    test "a preview row carries the device's address and opens it in a new tab", %{
+      conn: conn,
+      gateway: gateway,
+      tag: tag
+    } do
+      {check, witness, probe} = previewable_check(conn, gateway, tag)
+
+      device = device_fixture(%{hostname: "#{tag}-addressed.local", ip: "192.168.1.171"})
+      now = DateTime.utc_now()
+      availability(device.uid, witness.uid, true, now)
+      availability(device.uid, probe.uid, false, now)
+
+      {:ok, live, _html} = live(conn, @path <> "/#{check.id}/edit")
+      html = live |> element("button", "Run preview") |> render_click()
+
+      # A uid identifies a device; an address is how an operator recognises one.
+      # The address is not on the evaluation row, so this asserts the separate
+      # lookup ran -- and it is a real read against the Device resource, whose
+      # :read action requires pagination, so a wrong call shape fails here
+      # rather than silently rendering every row without an address.
+      assert html =~ ~s(data-preview-ip="192.168.1.171")
+
+      # target=_blank because the operator is mid-authoring: navigating away
+      # discards unsaved rule edits and the preview they just ran. Matched as
+      # one tag rather than three separate string checks, so the attributes are
+      # proven to be on the device link and not on some other anchor.
+      assert [anchor] =
+               Regex.run(~r{<a [^>]*href="/devices/#{Regex.escape(device.uid)}"[^>]*>}, html)
+
+      assert anchor =~ ~s(target="_blank")
+      assert anchor =~ ~s(rel="noopener noreferrer")
+    end
+
+    test "a device with no recorded address still renders its row", %{
+      conn: conn,
+      gateway: gateway,
+      tag: tag
+    } do
+      {check, witness, probe} = previewable_check(conn, gateway, tag)
+
+      device = device_fixture(%{hostname: "#{tag}-anon.local"})
+      now = DateTime.utc_now()
+      availability(device.uid, witness.uid, true, now)
+      availability(device.uid, probe.uid, false, now)
+
+      {:ok, live, _html} = live(conn, @path <> "/#{check.id}/edit")
+      html = live |> element("button", "Run preview") |> render_click()
+
+      # The verdict is the point of the row; a missing address omits the span
+      # rather than dropping the device or rendering an empty slot.
+      assert html =~ ~s(data-preview-device="#{device.uid}")
+      assert html =~ ~s(data-preview-verdict="isolated_verified")
+    end
+
     test "an input with no result reads unknown rather than blank", %{
       conn: conn,
       gateway: gateway,
