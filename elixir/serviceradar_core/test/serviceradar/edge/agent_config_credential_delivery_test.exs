@@ -27,6 +27,15 @@ defmodule ServiceRadar.Edge.AgentConfigCredentialDeliveryTest do
   alias ServiceRadar.Plugins.SecretRefs
   alias ServiceRadar.ProcessRegistry
 
+  # The real shipped manifest, not a stand-in. Its `additionalProperties: false`
+  # is what made a materialized Proxmox assignment unstorable, and with the
+  # fixture's previous `config_schema: %{}` this suite proved nothing about it:
+  # an empty schema short-circuits AssignmentParams to :ok.
+  @proxmox_config_schema "../../../../../go/cmd/wasm-plugins/proxmox/config.schema.json"
+                         |> Path.expand(__DIR__)
+                         |> File.read!()
+                         |> Jason.decode!()
+
   @moduletag :integration
 
   @api_token_payload "root@pam!sr-inventory=abc123-secret"
@@ -111,7 +120,7 @@ defmodule ServiceRadar.Edge.AgentConfigCredentialDeliveryTest do
   test "expired policy broker grant is re-minted, resolved to api_token, and audited",
        %{admin: admin, system: system, agent_uid: agent_uid, unique_id: unique_id} do
     {:ok, _agent} = create_connected_agent(admin, agent_uid)
-    package = create_approved_plugin_package!(admin, unique_id)
+    package = create_approved_plugin_package!(admin, unique_id, @proxmox_config_schema)
     secret = create_proxmox_secret!(admin, unique_id)
     stale_grant = issue_expired_grant!(system, secret, agent_uid)
     stale_payload = CredentialBrokerGrant.to_payload(stale_grant)
@@ -550,7 +559,7 @@ defmodule ServiceRadar.Edge.AgentConfigCredentialDeliveryTest do
     grant
   end
 
-  defp create_approved_plugin_package!(actor, unique_id) do
+  defp create_approved_plugin_package!(actor, unique_id, config_schema \\ %{}) do
     plugin_id = "proxmox-inventory-#{unique_id}"
 
     _plugin =
@@ -584,7 +593,7 @@ defmodule ServiceRadar.Edge.AgentConfigCredentialDeliveryTest do
               "requested_cpu_ms" => 1000
             }
           },
-          config_schema: %{},
+          config_schema: config_schema,
           display_contract: %{},
           content_hash: "sha256:#{unique_id}",
           signature: %{},
