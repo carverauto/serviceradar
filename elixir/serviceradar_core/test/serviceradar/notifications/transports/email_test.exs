@@ -74,6 +74,15 @@ defmodule ServiceRadar.Notifications.Transports.EmailTest do
       assert :ok = Email.validate_config(%{"to" => ["noc@example.com"]}, @working_opts)
     end
 
+    test "treats blank cc and bcc as omitted, not as required addresses" do
+      for blank <- ["", "   ", [], [""], [nil], [%{"email" => ""}], [%{"email" => "   "}]] do
+        config = %{"to" => ["noc@example.com"], "cc" => blank, "bcc" => blank}
+
+        assert :ok = Email.validate_config(config, @working_opts),
+               "expected blank cc/bcc #{inspect(blank)} to be accepted"
+      end
+    end
+
     test "accepts names, cc, bcc, a from override, and a subject prefix" do
       config = %{
         "to" => [%{"name" => "NOC", "email" => "noc@example.com"}, "oncall@example.com"],
@@ -155,8 +164,8 @@ defmodule ServiceRadar.Notifications.Transports.EmailTest do
       message = mailer_message(errors)
       assert message =~ "Swoosh.Adapters.Test"
       assert message =~ "delivers nothing"
-      assert message =~ "SERVICERADAR_MAILER_ADAPTER"
-      assert message =~ "SMTP_RELAY_HOST"
+      assert message =~ "Settings > Mail"
+      assert message =~ "SMTP"
     end
 
     test "the local development mailbox is refused with its own diagnostic" do
@@ -166,14 +175,15 @@ defmodule ServiceRadar.Notifications.Transports.EmailTest do
 
       message = mailer_message(errors)
       assert message =~ "Swoosh.Adapters.Local"
-      assert message =~ "SERVICERADAR_LOCAL_MAILER"
+      assert message =~ "Settings > Mail"
     end
 
-    test "an SMTP adapter with no relay names SMTP_RELAY_HOST" do
+    test "an SMTP adapter with no relay names Settings > Mail" do
       opts = [mailer_config: [adapter: SMTP]]
 
       assert {:error, errors} = Email.validate_config(%{"to" => ["noc@example.com"]}, opts)
-      assert mailer_message(errors) =~ "SMTP_RELAY_HOST"
+      assert mailer_message(errors) =~ "Settings > Mail"
+      assert mailer_message(errors) =~ "relay"
     end
 
     test "an API adapter with no API key is refused" do
@@ -224,7 +234,7 @@ defmodule ServiceRadar.Notifications.Transports.EmailTest do
 
     test "reports a missing adapter" do
       assert {:error, {:mailer_not_configured, message}} = OutboundMail.diagnose([])
-      assert message =~ "SERVICERADAR_MAILER_ADAPTER"
+      assert message =~ "Settings > Mail"
     end
   end
 
@@ -356,7 +366,7 @@ defmodule ServiceRadar.Notifications.Transports.EmailTest do
 
       assert %Result{disposition: :permanent_failure} = result
       assert result.error_class == "email_non_delivering_adapter"
-      assert result.error_message =~ "SERVICERADAR_MAILER_ADAPTER"
+      assert result.error_message =~ "Settings > Mail"
       refute_received :should_not_happen
     end
 

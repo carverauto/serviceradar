@@ -152,7 +152,7 @@ defmodule ServiceRadar.OutboundMail.RuntimeConfigTest do
       assert {:error, {:non_delivering_adapter, message}} =
                ServiceRadar.OutboundMail.diagnose(config)
 
-      assert message =~ "SERVICERADAR_MAILER_ADAPTER"
+      assert message =~ "Settings > Mail"
     end
   end
 end
