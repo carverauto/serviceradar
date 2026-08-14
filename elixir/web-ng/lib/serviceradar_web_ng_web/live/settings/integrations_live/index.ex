@@ -1819,6 +1819,7 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
                         <th>Started</th>
                         <th>Status</th>
                         <th>Source</th>
+                        <th title="Composite check exported by this run">Composite</th>
                         <th>Updated</th>
                         <th>Skipped</th>
                         <th>Errors</th>
@@ -1833,6 +1834,15 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
                           <td><.run_status_badge status={run.status} /></td>
                           <td class="font-mono text-xs text-sr-muted">
                             {run_availability_source_display(run)}
+                          </td>
+                          <td class="text-xs text-sr-muted" data-run-composite={run.id}>
+                            <%= case run_composite_display(run) do %>
+                              <% nil -> %>
+                                <span class="text-sr-muted">—</span>
+                              <% {slug, form} -> %>
+                                <span class="font-mono">{slug}</span>
+                                <span class="ml-1 text-sr-muted">({form})</span>
+                            <% end %>
                           </td>
                           <td class="text-xs text-sr-muted">{run.updated_count || 0}</td>
                           <td class="text-xs text-sr-muted">{run.skipped_count || 0}</td>
@@ -2063,6 +2073,29 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
       Map.get(metadata, "availability_source") ||
       Map.get(metadata, :availability_source) ||
       "canonical"
+  end
+
+  # Read from the run's own metadata, never from the source's current settings:
+  # this column describes what *that* run exported, and reading the live
+  # selection would retroactively relabel history the moment an operator
+  # changes it.
+  #
+  # Both key forms are checked because an Ash `:map` attribute comes back from
+  # the database with string keys but arrives with atoms in-process — the same
+  # reason `run_availability_source_display/1` does it.
+  defp run_composite_display(run) do
+    metadata = Map.get(run, :metadata) || %{}
+
+    slug = metadata_value(metadata, :composite_check_slug)
+    form = metadata_value(metadata, :composite_value_form)
+
+    if is_binary(slug) and slug != "" and is_binary(form) and form != "" do
+      {slug, form}
+    end
+  end
+
+  defp metadata_value(metadata, key) do
+    Map.get(metadata, Atom.to_string(key)) || Map.get(metadata, key)
   end
 
   # Data access helpers

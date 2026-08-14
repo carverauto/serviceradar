@@ -115,7 +115,7 @@ defmodule ServiceRadarWebNGWeb.SecurityDashboardRoutesTest do
     {:ok, view, _html} = live(conn, ~p"/dashboards")
     html = render_async(view, 5_000)
 
-    assert html =~ "Dashboard Library"
+    assert html =~ "Dashboard &amp; Report Library"
     assert html =~ "Security Findings"
     assert html =~ "Endpoint Inventory"
     assert has_element?(view, "a[href='/dashboards/security-findings']")

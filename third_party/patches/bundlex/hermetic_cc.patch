@@ -1,0 +1,64 @@
+Compile native code with $CC/$CXX instead of a hardcoded gcc.
+
+Under Bazel the C toolchain is hermetic: clang, its sysroot and its flags come from
+//MODULE.bazel's llvm toolchain, and //build:mix_app.bzl passes them to the mix action
+as CC/CXX/CFLAGS/CXXFLAGS/LDFLAGS. Bundlex.Toolchain.GCC hardcodes "gcc"/"g++", so every
+Membrane native was built by whatever compiler happened to be in the RBE executor image --
+unversioned, outside the action key, and silently different from the compiler that builds
+the rest of the repo.
+
+Bundlex already ships a toolchain that reads these variables, Bundlex.Toolchain.Custom,
+and it is NOT usable here. It is reached only via Bundlex.Platform.get_module(:custom),
+which needs get_target!/0 to return :custom, which needs CROSSCOMPILE to be set. That
+same variable also feeds Bundlex.get_target/0, and the Membrane plugins derive their
+precompiled OS-dep URLs from it: with CROSSCOMPILE=1 every one of them resolves
+`{:precompiled, nil}`, falls back to pkg_config and dies with "Package mp3lame was not
+found in the pkg-config search path" (likewise opus, vpx, libswresample). Selecting a
+different PLATFORM to change the COMPILER moves far more than the compiler.
+
+So the toolchain stays GCC -- platform :linux, precompiled OS deps resolving exactly as
+before -- and only the compiler binary and the flags become overridable. Every variable
+is optional and falls back to the previous hardcoded value, so this is a no-op outside
+Bazel.
+
+--- a/lib/bundlex/toolchain/gcc.ex
++++ b/lib/bundlex/toolchain/gcc.ex
+@@ -5,8 +5,6 @@
+   alias Bundlex.Native
+   alias Bundlex.Toolchain.Common.{Compilers, Unix}
+ 
+-  @compilers %Compilers{c: "gcc", cpp: "g++"}
+-
+   @impl Toolchain
+   def compiler_commands(native) do
+     {cflags, lflags} =
+@@ -16,7 +14,9 @@
+         %Native{} -> {"", ""}
+       end
+ 
+-    compiler = @compilers |> Map.get(native.language)
++    compiler = compilers() |> Map.get(native.language)
++    cflags = join_env(cflags, env_flags(native.language))
++    lflags = join_env(lflags, System.get_env("LDFLAGS"))
+ 
+     Unix.compiler_commands(
+       native,
+@@ -26,4 +26,18 @@
+       wrap_deps: &"-Wl,--disable-new-dtags,--whole-archive #{&1} -Wl,--no-whole-archive"
+     )
+   end
++
++  defp compilers() do
++    %Compilers{
++      c: System.get_env("CC") || "gcc",
++      cpp: System.get_env("CXX") || "g++"
++    }
++  end
++
++  defp env_flags(:c), do: System.get_env("CFLAGS")
++  defp env_flags(:cpp), do: System.get_env("CXXFLAGS")
++
++  defp join_env(flags, nil), do: flags
++  defp join_env(flags, ""), do: flags
++  defp join_env(flags, env), do: "#{flags} #{env}"
+ end

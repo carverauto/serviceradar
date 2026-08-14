@@ -489,7 +489,10 @@ defmodule ServiceRadar.Notifications.RenderersTest do
       assert embed["timestamp"] == "2026-08-09T12:00:00Z"
 
       names = Enum.map(embed["fields"], & &1["name"])
-      assert names == ["Severity", "Class", "Source", "Actions"]
+      assert names == ["Severity", "Class", "Source", "Open in ServiceRadar", "Actions"]
+
+      open = Enum.find(embed["fields"], &(&1["name"] == "Open in ServiceRadar"))
+      assert open["value"] == "[Open alert](https://sr.example.com/alerts/0198)"
     end
 
     test "colours by severity, with a fixed default for anything unrecognised" do

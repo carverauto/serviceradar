@@ -345,6 +345,11 @@ networkPolicy:
       - "99.84.203.0/24"
       # Observed on 2026-07-10.
       - "3.170.185.0/24"
+      # Discord incoming webhooks (discord.com / discordapp.com). Served by
+      # Cloudflare; Kubernetes NetworkPolicy cannot match FQDNs. Resolved
+      # 2026-08-13 to 162.159.128.233-138.232. Re-resolve if test-sends start
+      # timing out again.
+      - "162.159.128.0/18"
   calicoLogDenied:
     enabled: true
     selector: "all()"

@@ -61,28 +61,20 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.QueryData do
     end
   end
 
-  def load_logs(srql_module, device_uid, scope, cursor, limit) do
-    query = default_logs_query(device_uid)
+  def load_logs(srql_module, device_uid, scope, cursor, limit, identities \\ []) do
     opts = %{scope: scope, limit: limit, cursor: cursor}
 
-    case srql_module.query(query, opts) do
-      {:ok, %{"results" => results, "pagination" => pagination}} when is_list(results) ->
-        {Enum.filter(results, &is_map/1), pagination || %{}, nil}
+    {results, pagination, error} =
+      device_uid
+      |> logs_queries(identities)
+      |> Enum.reduce({[], %{}, nil}, fn query, {acc, page, err} ->
+        case query_log_page(srql_module, query, opts) do
+          {:ok, rows, pagination} -> {acc ++ rows, merge_logs_pagination(page, pagination), err}
+          {:error, reason} -> {acc, page, err || reason}
+        end
+      end)
 
-      {:ok, %{"results" => results}} when is_list(results) ->
-        {Enum.filter(results, &is_map/1), %{}, nil}
-
-      {:ok, %{"error" => error}} when is_binary(error) ->
-        {[], %{}, error}
-
-      {:ok, other} ->
-        Logger.warning("Unexpected SRQL logs response for #{device_uid}: #{inspect(other)}")
-        {[], %{}, "Failed to load logs"}
-
-      {:error, reason} ->
-        Logger.warning("Failed to load device logs for #{device_uid}: #{inspect(reason)}")
-        {[], %{}, "Failed to load logs"}
-    end
+    {dedupe_log_rows(results), pagination, error}
   end
 
   def srql_for_tab_if_needed("interfaces", uid, limit, srql), do: srql_for_tab("interfaces", uid, limit, srql)
@@ -130,6 +122,79 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.QueryData do
 
   def default_logs_query(device_uid) do
     "in:logs device_id:\"#{escape_value(device_uid)}\" time:last_24h sort:timestamp:desc"
+  end
+
+  def logs_queries(device_uid, identities) when is_list(identities) do
+    identity_queries =
+      identities
+      |> Enum.map(&to_string/1)
+      |> Enum.map(&String.trim/1)
+      |> Enum.reject(&(&1 == ""))
+      |> Enum.uniq()
+      |> Enum.flat_map(fn value ->
+        escaped = escape_value(value)
+
+        if ip_identity?(value) do
+          ["in:logs source_ip:\"#{escaped}\" time:last_24h sort:timestamp:desc"]
+        else
+          ["in:logs source:\"#{escaped}\" time:last_24h sort:timestamp:desc"]
+        end
+      end)
+
+    [default_logs_query(device_uid) | identity_queries]
+  end
+
+  defp query_log_page(srql_module, query, opts) do
+    case srql_module.query(query, opts) do
+      {:ok, %{"results" => results, "pagination" => pagination}} when is_list(results) ->
+        {:ok, Enum.filter(results, &is_map/1), pagination || %{}}
+
+      {:ok, %{"results" => results}} when is_list(results) ->
+        {:ok, Enum.filter(results, &is_map/1), %{}}
+
+      {:ok, %{"error" => error}} when is_binary(error) ->
+        {:error, error}
+
+      {:ok, other} ->
+        Logger.warning("Unexpected SRQL logs response: #{inspect(other)}")
+        {:error, "Failed to load logs"}
+
+      {:error, reason} ->
+        Logger.warning("Failed to load device logs: #{inspect(reason)}")
+        {:error, "Failed to load logs"}
+    end
+  end
+
+  defp merge_logs_pagination(%{} = left, %{} = right) when map_size(left) == 0, do: right
+  defp merge_logs_pagination(left, _right), do: left
+
+  defp dedupe_log_rows(rows) do
+    {deduped, _seen} =
+      Enum.reduce(rows, {[], MapSet.new()}, fn row, {acc, seen} ->
+        key = log_row_key(row)
+
+        if MapSet.member?(seen, key) do
+          {acc, seen}
+        else
+          {acc ++ [row], MapSet.put(seen, key)}
+        end
+      end)
+
+    deduped
+  end
+
+  defp log_row_key(row) when is_map(row) do
+    Map.get(row, "id") || Map.get(row, :id) ||
+      {Map.get(row, "timestamp"), Map.get(row, "body"), Map.get(row, "source_ip")}
+  end
+
+  defp log_row_key(row), do: row
+
+  defp ip_identity?(value) do
+    case :inet.parse_address(String.to_charlist(value)) do
+      {:ok, _} -> true
+      _ -> false
+    end
   end
 
   def escape_value(value) when is_binary(value) do

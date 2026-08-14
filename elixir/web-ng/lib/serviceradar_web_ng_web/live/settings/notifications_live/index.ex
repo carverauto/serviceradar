@@ -61,6 +61,8 @@ defmodule ServiceRadarWebNGWeb.Settings.NotificationsLive.Index do
   alias ServiceRadar.Notifications.NotificationRoute
   alias ServiceRadar.Notifications.NotificationSilence
   alias ServiceRadar.Notifications.Router, as: NotificationRouter
+  alias ServiceRadar.OutboundMail
+  alias ServiceRadar.Plugins.ConfigSchema
   alias ServiceRadar.Plugins.SecretRefs
   alias ServiceRadarWebNGWeb.Settings.NotificationsLive.Access
   alias ServiceRadarWebNGWeb.Settings.NotificationsLive.Components
@@ -1042,7 +1044,8 @@ defmodule ServiceRadarWebNGWeb.Settings.NotificationsLive.Index do
         "fail_closed" => "false"
       },
       config_params: %{},
-      warnings: []
+      warnings: [],
+      mailer_warning: email_mailer_warning(provider)
     }
   end
 
@@ -1070,7 +1073,8 @@ defmodule ServiceRadarWebNGWeb.Settings.NotificationsLive.Index do
       # renders as an empty password input with a "leave blank to keep" hint; the
       # resolved value never enters assigns or the DOM.
       config_params: Map.merge(channel.config || %{}, SecretRefs.public_params(channel.secret_refs || %{})),
-      warnings: []
+      warnings: [],
+      mailer_warning: email_mailer_warning(provider || channel.provider)
     }
   end
 
@@ -1095,7 +1099,21 @@ defmodule ServiceRadarWebNGWeb.Settings.NotificationsLive.Index do
       |> Map.merge(drop_unused_config_keys(config || %{}))
     )
     |> Map.put(:warnings, channel_warnings(merged_params, socket.assigns.channel_index))
+    |> Map.put(:mailer_warning, email_mailer_warning(provider))
   end
+
+  defp email_mailer_warning(provider) when is_map(provider) do
+    key = Map.get(provider, :provider_key) || Map.get(provider, "provider_key")
+
+    if to_string(key || "") == "email" do
+      case OutboundMail.diagnose() do
+        :ok -> nil
+        {:error, {_class, message}} -> message
+      end
+    end
+  end
+
+  defp email_mailer_warning(_provider), do: nil
 
   # Failover problems are surfaced before save, not after a delivery fails.
   defp channel_warnings(params, index) do
@@ -1146,7 +1164,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NotificationsLive.Index do
       |> drop_unused_config_keys()
       |> Enum.split_with(fn {key, _value} -> to_string(key) in keys end)
 
-    {Map.new(config), Map.new(secrets)}
+    {normalize_channel_config(schema, Map.new(config)), Map.new(secrets)}
   end
 
   # A test send needs plaintext for a secret the operator just typed, and the
@@ -1175,9 +1193,17 @@ defmodule ServiceRadarWebNGWeb.Settings.NotificationsLive.Index do
       params
       |> Map.drop(Enum.map(secret_fields, &SecretRefs.credential_select_key/1))
       |> Map.drop(Map.keys(secrets))
+      |> then(&normalize_channel_config(schema, &1))
 
     {config, secrets}
   end
+
+  defp normalize_channel_config(schema, config) when is_map(schema) and is_map(config) do
+    ConfigSchema.normalize_params(schema, config)
+  end
+
+  defp normalize_channel_config(_schema, config) when is_map(config), do: config
+  defp normalize_channel_config(_schema, _config), do: %{}
 
   # Resolved through the same runtime contract mechanism the form renders from
   # (tasks 3.5.4). Secret-field detection and the test-send payload MUST see the

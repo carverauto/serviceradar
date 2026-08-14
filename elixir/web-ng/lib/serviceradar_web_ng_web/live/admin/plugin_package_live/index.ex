@@ -8,6 +8,7 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
   import ServiceRadarWebNGWeb.PluginConfigForm
 
   alias ServiceRadar.Infrastructure.Agent
+  alias ServiceRadar.Plugins.IntegrationCatalog
   alias ServiceRadar.Plugins.Manifest
   alias ServiceRadarWebNG.Observability.ContractRegistry
   alias ServiceRadarWebNG.Plugins.Assignments
@@ -1540,6 +1541,7 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
         agents={@agents}
         assignment_form={@assignment_form}
         assignment_coverage={@assignment_coverage}
+        credential_fields={@credential_fields}
         credential_coverage={@credential_coverage}
         authenticated_partition_preview={@authenticated_partition_preview}
         recovery_confirmation={@recovery_confirmation}
@@ -2295,6 +2297,11 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
 
           <div class="rounded-xl border border-sr-line p-4 space-y-3">
             <div class="text-sm font-semibold">Assign to Agent</div>
+            <.credential_rule_assignment_banner
+              :if={is_list(@credential_fields) and @credential_fields != []}
+              plugin_id={@package.plugin_id}
+              coverage={@credential_coverage}
+            />
             <form phx-submit="create_assignment" phx-change="assignment_change" class="space-y-3">
               <div>
                 <label class="flex items-center justify-between gap-2">
@@ -2437,7 +2444,13 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
               <div class="flex justify-end">
                 <.ui_button
                   type="submit"
-                  disabled={@package.status != :approved or not blob_present?(@blob_present)}
+                  disabled={
+                    assignment_submit_disabled?(
+                      @package,
+                      @blob_present,
+                      @authenticated_partition_preview
+                    )
+                  }
                   size="sm"
                   variant="primary"
                 >
@@ -3859,6 +3872,11 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
   defp authenticated_partition_preview_message(_preview),
     do: "The authenticated partition is unavailable. No saved or default partition will be used."
 
+  defp assignment_submit_disabled?(package, blob_present, preview) do
+    package.status != :approved or not blob_present?(blob_present) or
+      not match?(%{state: :available}, preview)
+  end
+
   defp legacy_recovery_confirmation(assignments, id, requested_kind) when is_list(assignments) do
     with assignment when not is_nil(assignment) <-
            Enum.find(assignments, &(assignment_id(&1) == id)),
@@ -4541,6 +4559,53 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
   defp legacy_recovery_failure_message(error) do
     "Recovery was not completed. No live assignment was changed. #{legacy_recovery_error_message(error)}"
   end
+
+  attr :plugin_id, :string, required: true
+  attr :coverage, :map, default: nil
+
+  defp credential_rule_assignment_banner(assigns) do
+    provider =
+      case assigns.coverage do
+        %{provider: provider} when is_binary(provider) and provider != "" -> provider
+        _ -> credential_rule_provider(assigns.plugin_id)
+      end
+
+    assigns =
+      assigns
+      |> assign(:provider, provider)
+      |> assign(:new_rule_path, credential_rule_new_path(provider))
+
+    ~H"""
+    <div class="rounded-lg border border-info/20 bg-info/10 p-3 text-sm space-y-2">
+      <div class="font-semibold">Create a credential rule first</div>
+      <p class="text-xs text-sr-ink/80">
+        Passwords, API keys, and controller logins belong in <span class="font-medium">Settings → Networks → Credentials</span>,
+        not on this assignment. Create a <span class="font-mono">{@provider}</span>
+        rule, attach the secret, then assign this plugin to an agent that rule covers.
+      </p>
+      <p :if={match?(%{state: :uncovered}, @coverage)} class="text-xs text-warning">
+        No enabled {@provider} rule covers the selected agent yet. The plugin will
+        fail at runtime until one does.
+      </p>
+      <.link navigate={@new_rule_path} class="link link-primary text-xs">
+        Open the {@provider} credential rule form
+      </.link>
+    </div>
+    """
+  end
+
+  defp credential_rule_provider(plugin_id) do
+    case IntegrationCatalog.consumer_for_plugin_id(plugin_id) do
+      {:ok, {profile, _consumer}} -> profile["provider"] || "matching"
+      _ -> "matching"
+    end
+  end
+
+  defp credential_rule_new_path(provider) when is_binary(provider) and provider != "matching" do
+    ~p"/settings/networks/credentials/new?provider=#{provider}"
+  end
+
+  defp credential_rule_new_path(_provider), do: ~p"/settings/networks/credentials"
 
   # -- Credential-rule coverage (x-serviceradar-credential-materialized) -------
   #

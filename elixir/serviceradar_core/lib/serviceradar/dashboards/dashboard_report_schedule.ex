@@ -10,6 +10,7 @@ defmodule ServiceRadar.Dashboards.DashboardReportSchedule do
   use Ash.Resource,
     domain: ServiceRadar.Dashboards,
     data_layer: AshPostgres.DataLayer,
+    extensions: [AshPaperTrail.Resource],
     authorizers: [Ash.Policy.Authorizer]
 
   alias ServiceRadar.Dashboards.Checks.ActorCanEditDashboardTarget
@@ -41,6 +42,17 @@ defmodule ServiceRadar.Dashboards.DashboardReportSchedule do
     references do
       reference :dashboard, on_delete: :delete
     end
+  end
+
+  paper_trail do
+    primary_key_type :uuid
+    table_name "dashboard_report_schedule_versions"
+    mixin {ServiceRadar.Dashboards.PaperTrailMixin, :mixin, []}
+    change_tracking_mode :changes_only
+    store_action_name? true
+    store_action_inputs? true
+    create_version_on_destroy? true
+    ignore_attributes [:inserted_at, :updated_at, :last_due_at, :last_delivered_at, :next_due_at]
   end
 
   code_interface do
@@ -136,6 +148,7 @@ defmodule ServiceRadar.Dashboards.DashboardReportSchedule do
     policy action([:create, :update, :enable, :disable, :destroy]) do
       forbid_unless @schedule_check
       authorize_if ActorCanEditDashboardTarget
+      authorize_if ServiceRadar.Dashboards.Checks.ActorCanSchedulePublicDashboard
     end
   end
 

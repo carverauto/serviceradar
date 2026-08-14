@@ -27,7 +27,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexView.Breakdown do
       |> assign(:top_item_link, top_item_link)
 
     ~H"""
-    <div class="rounded-xl border border-sr-line bg-sr-surface p-4 hover:shadow-md transition-shadow">
+    <div class="rounded-xl border border-sr-line bg-sr-surface p-4 h-full min-h-[7rem] hover:shadow-md transition-shadow">
       <div class="flex items-center gap-3">
         <div class="p-2.5 rounded-lg bg-info/10">
           <.icon name={@icon} class="size-5 text-info" />

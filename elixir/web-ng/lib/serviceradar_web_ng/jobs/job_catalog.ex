@@ -18,6 +18,7 @@ defmodule ServiceRadarWebNG.Jobs.JobCatalog do
   alias ServiceRadar.Edge.OnboardingPackage
   alias ServiceRadar.Integrations.ArmisNorthboundRunWorker
   alias ServiceRadar.Integrations.IntegrationSource
+  alias ServiceRadar.Inventory.DeviceHostnameRdnsSettings
   alias ServiceRadar.Monitoring.Alert
   alias ServiceRadar.Monitoring.PollingSchedule
   alias ServiceRadar.Monitoring.ServiceCheck
@@ -41,6 +42,7 @@ defmodule ServiceRadarWebNG.Jobs.JobCatalog do
           queue: atom(),
           enabled: boolean(),
           worker: module() | nil,
+          scheduler: module() | nil,
           resource: module() | nil,
           action: atom() | nil,
           last_run_at: DateTime.t() | nil,
@@ -238,7 +240,8 @@ defmodule ServiceRadarWebNG.Jobs.JobCatalog do
       PollingSchedule,
       ServiceCheck,
       Alert,
-      OnboardingPackage
+      OnboardingPackage,
+      DeviceHostnameRdnsSettings
     ]
   end
 
@@ -259,7 +262,8 @@ defmodule ServiceRadarWebNG.Jobs.JobCatalog do
       cron: trigger.scheduler_cron,
       queue: trigger.queue,
       enabled: true,
-      worker: trigger.worker_module_name,
+      worker: trigger.worker_module_name || trigger.worker,
+      scheduler: trigger.scheduler_module_name || trigger.scheduler,
       resource: resource,
       action: trigger.action,
       last_run_at: nil,
@@ -315,10 +319,17 @@ defmodule ServiceRadarWebNG.Jobs.JobCatalog do
     e -> {:error, Exception.message(e)}
   end
 
-  # For AshOban, we insert the scheduler worker which will process due records
-  def trigger_job(%{source: :ash_oban, worker: worker}) when not is_nil(worker) do
-    job = worker.new(%{})
-    Router.insert(job)
+  # AshOban workers match `%{"primary_key" => ...}`. Empty args crash
+  # perform/1 with FunctionClauseError. The scheduler accepts `{}` and
+  # inserts one worker job per due record.
+  def trigger_job(%{source: :ash_oban} = entry) do
+    case ash_oban_trigger_module(entry) do
+      nil ->
+        {:error, :no_worker}
+
+      module ->
+        Router.insert(module.new(%{}))
+    end
   rescue
     e -> {:error, Exception.message(e)}
   end
@@ -350,6 +361,11 @@ defmodule ServiceRadarWebNG.Jobs.JobCatalog do
   end
 
   def trigger_job(_job), do: {:error, :no_worker}
+
+  @doc false
+  def ash_oban_trigger_module(%{scheduler: scheduler}) when not is_nil(scheduler), do: scheduler
+  def ash_oban_trigger_module(%{worker: worker}) when not is_nil(worker), do: worker
+  def ash_oban_trigger_module(_entry), do: nil
 
   @doc """
   Get execution statistics for a worker over a time period.
@@ -635,6 +651,8 @@ defmodule ServiceRadarWebNG.Jobs.JobCatalog do
   defp resource_description(Alert), do: "Sends alert notifications for active alert rules"
 
   defp resource_description(OnboardingPackage), do: "Expires edge onboarding packages"
+
+  defp resource_description(DeviceHostnameRdnsSettings), do: "Resolves reverse-DNS hostnames onto inventory devices"
 
   defp resource_description(_), do: "Executes scheduled actions for Ash resources"
 

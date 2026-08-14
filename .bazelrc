@@ -8,7 +8,7 @@ common --experimental_platform_in_output_dir
 common --noannounce_rc
 common --experimental_convenience_symlinks=clean
 common --color=yes
-common --curses=yes
+common --ui_event_filters=-INFO
 # Do NOT put repository_cache / disk_cache / distdir under the source tree.
 # Use Bazel defaults (~/.cache/bazel) or machine-local .bazelrc.local instead.
 # Allow platform-specific build:* sections (linux/macos/windows).
@@ -43,11 +43,7 @@ build:linux --action_env=AARCH64_UNKNOWN_LINUX_GNU_OPENSSL_INCLUDE_DIR=/usr/incl
 build:linux --repo_env=OPENSSL_DIR=/usr
 build:linux --repo_env=OPENSSL_LIB_DIR=/usr/lib/x86_64-linux-gnu
 build:linux --repo_env=OPENSSL_INCLUDE_DIR=/usr/include
-
-build --action_env=CC_aarch64_unknown_linux_gnu=/usr/bin/aarch64-linux-gnu-gcc
-build --action_env=CXX_aarch64_unknown_linux_gnu=/usr/bin/aarch64-linux-gnu-g++
-build --action_env=AR_aarch64_unknown_linux_gnu=/usr/bin/aarch64-linux-gnu-ar
-build --action_env=CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER=/usr/bin/aarch64-linux-gnu-gcc
+# NO CC_/CXX_/AR_/CARGO_TARGET_*_LINKER HERE. Compiler config is all done via the Hermetic LLVM toolchain in MODULE.bazel.
 build --action_env=PKG_CONFIG_SYSROOT_DIR_aarch64_unknown_linux_gnu=/
 build --action_env=PKG_CONFIG_PATH_aarch64_unknown_linux_gnu=/usr/lib/postgresql/18/lib/pkgconfig:/usr/lib/aarch64-linux-gnu/pkgconfig:/usr/lib/pkgconfig:/usr/share/pkgconfig
 
@@ -66,8 +62,6 @@ build --repo_env=GOPROXY=https://proxy.golang.org
 build --repo_env=NEXT_SKIP_TURBO=1
 build --repo_env=NEXT_PRIVATE_SKIP_TURBOPACK=1
 build --repo_env=TURBOPACK=
-build --java_runtime_version=local_jdk
-build --tool_java_runtime_version=local_jdk
 build --@io_bazel_rules_go//go/config:pure
 
 # Standard test ergonomics: show failing logs and retry known flaky tests once.
@@ -142,22 +136,9 @@ build:remote_base --host_platform=//build/rbe:rbe_platform
 build:remote_base --platforms=//build/rbe:rbe_platform
 build:remote_base --cpu=k8
 # DELIBERATELY NOT: --extra_toolchains=@buildbuddy_toolchain//:cc_toolchain
-# That alias points at @buildbuddy_toolchain//:ubuntu_cc_toolchain, which is the SAME
-# cc_toolchain that //build/toolchains:rbe_cc_toolchain wraps -- but declared with
-# target_compatible_with = [x86_64, linux] and nothing about libc, and --extra_toolchains
-# outranks every registration in MODULE.bazel. So it claimed //build/rbe:rbe_platform for
-# every target platform including //build/platforms:linux_x86_64_musl, and once an execution
-# platform has a toolchain, resolution reports "Skipping ...; it has already selected a toolchain".
-# The toolchain is still available: //build/toolchains:rbe_cc_toolchain registers the identical
-# cc_toolchain WITH //build/platforms:linux_glibc, so glibc builds are unchanged and musl
-# builds now with @musl_toolchains_hub.
+# Compiler config is all done via the Hermetic LLVM toolchain in MODULE.bazel.
 build:remote_base --extra_execution_platforms=//build/rbe:rbe_platform
 build:remote_base --repo_env=BAZEL_DO_NOT_DETECT_CPP_TOOLCHAIN=1
-build:remote_base --copt=-Wno-use-after-free
-build:remote_base --java_language_version=11
-build:remote_base --tool_java_language_version=11
-build:remote_base --java_runtime_version=remotejdk_11
-build:remote_base --tool_java_runtime_version=remotejdk_11
 build:remote_base --define=EXECUTOR=remote
 build:remote_base --incompatible_strict_action_env
 build:remote_base --action_env=OPENSSL_DIR=/usr
@@ -166,7 +147,6 @@ build:remote_base --action_env=OPENSSL_INCLUDE_DIR=/usr/include
 build:remote_base --action_env=NEXT_PRIVATE_SKIP_TURBOPACK=1
 build:remote_base --action_env=TURBOPACK=
 build:remote_base --action_env=NEXT_SKIP_TURBO=1
-test:remote --copt=-Wno-use-after-free
 test:remote --action_env=OPENSSL_DIR=/usr
 test:remote --action_env=OPENSSL_LIB_DIR=/usr/lib/x86_64-linux-gnu
 test:remote --action_env=OPENSSL_INCLUDE_DIR=/usr/include
@@ -203,8 +183,8 @@ build:darwin_pkg --repo_env=BAZEL=/usr/local/bin/bazel
 build:darwin_pkg --repo_env=BAZEL_DO_NOT_DETECT_CPP_TOOLCHAIN=1
 # macOS local builds must keep exec tools on Darwin when remote execution is disabled.
 # Usage: bazel build --config=darwin_local <targets>
-build:darwin_local --host_platform=//build/platforms:darwin_arm64
-build:darwin_local --extra_execution_platforms=//build/platforms:darwin_arm64
+build:darwin_local --host_platform=//build/platforms:darwin_aarch64
+build:darwin_local --extra_execution_platforms=//build/platforms:darwin_aarch64
 build:darwin_local --extra_toolchains=@local_config_cc_toolchains//:all
 build:darwin_local --copt=-Wno-unused-command-line-argument
 build:darwin_local --host_copt=-Wno-unused-command-line-argument
@@ -216,7 +196,7 @@ build:darwin_local --action_env=RULES_PKG_PYTHON=/usr/bin/python3
 
 # Plain local Bazel tests on Apple Silicon also need Darwin exec tools; otherwise
 # registered Linux exec platforms can be selected for generated protobuf tools.
-build:macos --extra_execution_platforms=//build/platforms:darwin_arm64
+build:macos --extra_execution_platforms=//build/platforms:darwin_aarch64
 build:macos --config=darwin_local
 test:macos --config=darwin_local
 

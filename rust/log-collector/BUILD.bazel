@@ -1,22 +1,25 @@
-load("@rules_rust//rust:defs.bzl", "rust_binary", "rust_test")
-load("//third_party/crates:defs.bzl", "all_crate_deps")
+load("@crates//:defs.bzl", "all_crate_deps")
+load("@rules_rs//rs:rust_binary.bzl", "rust_binary")
+load("@rules_rs//rs:rust_test.bzl", "rust_test")
 
 package(default_visibility = ["//visibility:public"])
 
 rust_binary(
     name = "log-collector",
     srcs = glob(["src/**/*.rs"]),
-    crate_root = "src/main.rs",
     crate_features = [
         "syslog",
         "otel",
     ],
-    deps = all_crate_deps(normal = True) + [
+    crate_root = "src/main.rs",
+    deps = all_crate_deps(
+        cargo_only = True,
+        normal = True,
+    ) + [
+        "//rust/config-bootstrap:config_bootstrap",
         "//rust/flowgger:flowgger_lib",
         "//rust/otel:otel_lib",
-        "//rust/config-bootstrap:config_bootstrap",
     ],
-    proc_macro_deps = all_crate_deps(proc_macro = True),
 )
 
 rust_test(

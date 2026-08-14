@@ -530,6 +530,18 @@ impl Build {
                     continue;
                 }
 
+                // A clang cc toolchain emits the SEPARATED `-target <triple>` form.
+                // Configure has no `-target` flag and takes its target as a positional
+                // argument, so it reads the bare triple as a second target name and dies
+                // with "target already defined - linux-x86_64 (offending arg:
+                // x86_64-linux-gnu)". Dropping the pair loses nothing: the joined
+                // `--target=<triple>` in the same command line already says the same
+                // thing, and Configure parses that one correctly.
+                if arg == "-target" {
+                    skip_next = true;
+                    continue;
+                }
+
                 configure.arg(arg);
             }
 

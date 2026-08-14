@@ -111,6 +111,8 @@ defmodule ServiceRadarWebNG.Plugins.CredentialCoverageTest do
       assert message =~ "example-network"
       assert message =~ "device_inventory"
       assert message =~ "agent-a"
+      assert message =~ "Settings -> Networks -> Credentials"
+      assert message =~ "Do not paste passwords into the plugin form"
     end
 
     test "covered assignments produce no warning" do

@@ -1,5 +1,6 @@
-load("@rules_rust//rust:defs.bzl", "rust_binary", "rust_library")
-load("//third_party/crates:defs.bzl", "all_crate_deps")
+load("@crates//:defs.bzl", "all_crate_deps")
+load("@rules_rs//rs:rust_binary.bzl", "rust_binary")
+load("@rules_rs//rs:rust_library.bzl", "rust_library")
 
 package(default_visibility = ["//visibility:public"])
 
@@ -14,8 +15,10 @@ rust_library(
     crate_name = "rperf",
     crate_root = "src/lib.rs",
     edition = "2021",
-    deps = all_crate_deps(normal = True),
-    proc_macro_deps = all_crate_deps(proc_macro = True),
+    deps = all_crate_deps(
+        cargo_only = True,
+        normal = True,
+    ),
 )
 
 rust_binary(
@@ -24,6 +27,8 @@ rust_binary(
     crate_name = "rperf",
     crate_root = "src/main.rs",
     edition = "2021",
-    deps = [":rperf_lib"] + all_crate_deps(normal = True),
-    proc_macro_deps = all_crate_deps(proc_macro = True),
+    deps = [":rperf_lib"] + all_crate_deps(
+        cargo_only = True,
+        normal = True,
+    ),
 )

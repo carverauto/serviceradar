@@ -15,6 +15,7 @@ defmodule ServiceRadar.Integrations.ArmisNorthboundRunner do
 
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.EventWriter.OCSF
+  alias ServiceRadar.Integrations.CompositeNorthboundValues
   alias ServiceRadar.Integrations.IntegrationSource
   alias ServiceRadar.Integrations.IntegrationUpdateRun
   alias ServiceRadar.Inventory.Device
@@ -74,6 +75,72 @@ defmodule ServiceRadar.Integrations.ArmisNorthboundRunner do
     |> case do
       [value | _] when is_binary(value) and value != "" -> value
       _ -> nil
+    end
+  end
+
+  @typedoc """
+  An operator's selection of a composite check to export alongside availability.
+  """
+  @type composite_export :: %{
+          check_slug: String.t(),
+          value_form: :verdict | :status,
+          custom_field: String.t()
+        }
+
+  @doc """
+  The composite check export configured on this source, or nil.
+
+  Lives in `settings` rather than as a second `custom_fields` entry: the
+  selection is three coupled values, and a positional entry would silently
+  become the composite field for any source that happens to configure two.
+
+  All three values are required. A half-configured export reads as "not
+  configured" rather than partially applying — there is no useful behaviour for
+  "a check and a value form but nowhere to write them".
+  """
+  @spec composite_export(struct() | map()) :: composite_export() | nil
+  def composite_export(source) do
+    source
+    |> Map.get(:settings, %{})
+    |> case do
+      settings when is_map(settings) -> Map.get(settings, "composite")
+      _other -> nil
+    end
+    |> build_composite_export()
+  end
+
+  defp build_composite_export(config) when is_map(config) do
+    with slug when is_binary(slug) <- present(config, "check_slug"),
+         field when is_binary(field) <- present(config, "custom_field"),
+         form when form in [:verdict, :status] <- value_form(config) do
+      %{check_slug: slug, value_form: form, custom_field: field}
+    else
+      _incomplete -> nil
+    end
+  end
+
+  defp build_composite_export(_config), do: nil
+
+  # An unrecognised form disables the export. Guessing would publish the wrong
+  # vocabulary to a downstream system, which is worse than publishing nothing.
+  defp value_form(config) do
+    case present(config, "value_form") do
+      "verdict" -> :verdict
+      "status" -> :status
+      _other -> nil
+    end
+  end
+
+  defp present(config, key) do
+    case Map.get(config, key) do
+      value when is_binary(value) ->
+        case String.trim(value) do
+          "" -> nil
+          trimmed -> trimmed
+        end
+
+      _other ->
+        nil
     end
   end
 
@@ -373,7 +440,17 @@ defmodule ServiceRadar.Integrations.ArmisNorthboundRunner do
           batch_count: length(batches)
         )
 
-        execute_bulk_batches(source, candidates, batches, custom_field, token, request, opts)
+        composite = composite_for_run(source, candidates, opts)
+
+        execute_bulk_batches(
+          source,
+          candidates,
+          batches,
+          custom_field,
+          token,
+          request,
+          Keyword.put(opts, :composite, composite)
+        )
 
       {:error, reason} ->
         Logger.warning("Failed to fetch Armis northbound access token",
@@ -408,7 +485,11 @@ defmodule ServiceRadar.Integrations.ArmisNorthboundRunner do
       batches
       |> Enum.with_index(1)
       |> Enum.reduce_while(initial, fn {batch, batch_number}, acc ->
-        payload = build_bulk_payload(custom_field, batch, source: source)
+        payload =
+          build_bulk_payload(custom_field, batch,
+            source: source,
+            composite: Keyword.get(opts, :composite)
+          )
 
         Logger.info("Sending Armis northbound bulk update batch",
           integration_source_id: inspect(Map.get(source, :id)),
@@ -771,32 +852,123 @@ defmodule ServiceRadar.Integrations.ArmisNorthboundRunner do
     Enum.chunk_every(candidates, batch_size)
   end
 
+  @doc """
+  The bulk payload for a batch of collapsed candidates.
+
+  `opts[:composite]` is `%{custom_field: String.t(), values: %{device_uid =>
+  value}}`. A device absent from `values` produces no composite output at all —
+  not an empty string, not a placeholder — which is the northbound contract for
+  a device outside the check's scope.
+  """
   @spec build_bulk_payload(String.t(), [collapsed_candidate()], keyword()) :: [map()]
-  def build_bulk_payload(custom_field, candidates, _opts \\ [])
+  def build_bulk_payload(custom_field, candidates, opts \\ [])
       when is_binary(custom_field) and custom_field != "" do
-    Enum.map(candidates, fn candidate ->
+    composite = Keyword.get(opts, :composite)
+
+    Enum.flat_map(candidates, fn candidate ->
       value = northbound_value(candidate.is_available)
+      composite_value = composite_value_for(composite, candidate)
 
       case parse_armis_device_id(candidate.armis_device_id) do
         {:ok, device_id} ->
-          %{
-            "upsert" => %{
-              "deviceId" => device_id,
-              "key" => custom_field,
-              "value" => value
-            }
-          }
+          # The upsert shape carries exactly one key per entry, so a second
+          # field is a second entry rather than a second key.
+          [upsert_entry(device_id, custom_field, value)] ++
+            composite_upsert(device_id, composite, composite_value)
 
         :error ->
-          %{
-            "id" => candidate.armis_device_id,
-            "customProperties" => %{
-              custom_field => value
-            }
-          }
+          properties =
+            put_composite_property(%{custom_field => value}, composite, composite_value)
+
+          [%{"id" => candidate.armis_device_id, "customProperties" => properties}]
       end
     end)
   end
+
+  # Resolved once per run, not per batch: a read per batch would be an N+1 in
+  # the number of batches, which grows with the exported device population.
+  #
+  # Returns nil when nothing is configured, which is exactly what
+  # `build_bulk_payload/3` treats as "emit availability only".
+  defp composite_for_run(source, candidates, opts) do
+    case composite_export(source) do
+      nil ->
+        nil
+
+      export ->
+        uids = Enum.flat_map(candidates, &Map.get(&1, :device_ids, []))
+        values = CompositeNorthboundValues.for_devices(export, uids, ash_opts(opts))
+
+        Logger.info("Resolved Armis northbound composite values",
+          integration_source_id: inspect(Map.get(source, :id)),
+          check_slug: export.check_slug,
+          value_form: export.value_form,
+          device_count: length(uids),
+          value_count: map_size(values)
+        )
+
+        %{custom_field: export.custom_field, values: values}
+    end
+  end
+
+  # Recorded on the run, not read back from the source at display time: run
+  # status must describe *that run*, and the source's selection can change after
+  # it. The keys are omitted entirely when nothing is configured, so an
+  # unconfigured run does not store nils that read like a failed lookup.
+  defp maybe_put_composite_export(metadata, source) do
+    case composite_export(source) do
+      nil ->
+        metadata
+
+      export ->
+        Map.merge(metadata, %{
+          composite_check_slug: export.check_slug,
+          composite_value_form: to_string(export.value_form),
+          composite_custom_field: export.custom_field
+        })
+    end
+  end
+
+  # The run's actor, or a system actor for a scheduled run that has none.
+  defp ash_opts(opts) do
+    case Keyword.get(opts, :actor) do
+      nil -> [actor: SystemActor.system(:armis_northbound)]
+      actor -> [actor: actor]
+    end
+  end
+
+  defp upsert_entry(device_id, key, value) do
+    %{"upsert" => %{"deviceId" => device_id, "key" => key, "value" => value}}
+  end
+
+  defp composite_upsert(_device_id, _composite, nil), do: []
+
+  defp composite_upsert(device_id, %{custom_field: field}, value) do
+    [upsert_entry(device_id, field, value)]
+  end
+
+  # The customProperties shape can hold several keys, so it stays one entry per
+  # device rather than splitting like the upsert form.
+  defp put_composite_property(properties, _composite, nil), do: properties
+
+  defp put_composite_property(properties, %{custom_field: field}, value) do
+    Map.put(properties, field, value)
+  end
+
+  # One Armis device can collapse from several ServiceRadar UIDs, so "the"
+  # composite value for it is ambiguous by construction. The first UID that has
+  # a value wins, in the order `collapse_candidates/1` produced them: emitting
+  # one entry per UID would be a last-writer-wins race inside a single batch,
+  # and picking by map iteration order would make the winner unpredictable.
+  defp composite_value_for(nil, _candidate), do: nil
+
+  defp composite_value_for(%{values: values}, candidate) when map_size(values) > 0 do
+    candidate
+    |> Map.get(:device_ids, [])
+    |> Enum.find_value(fn uid -> Map.get(values, uid) end)
+  end
+
+  defp composite_value_for(_composite, _candidate), do: nil
 
   defp northbound_value(is_available), do: to_string(not is_available)
 
@@ -827,6 +999,7 @@ defmodule ServiceRadar.Integrations.ArmisNorthboundRunner do
       |> availability_source_run_metadata()
       |> Map.merge(%{batch_count: result.batch_count, errors: serialize_errors(result.errors)})
       |> maybe_put_identity_conflicts(result)
+      |> maybe_put_composite_export(source)
 
     with {:ok, finished_run} <-
            finish_run.(
@@ -854,6 +1027,7 @@ defmodule ServiceRadar.Integrations.ArmisNorthboundRunner do
       |> availability_source_run_metadata()
       |> Map.merge(%{batch_count: result.batch_count, errors: serialize_errors(result.errors)})
       |> maybe_put_identity_conflicts(result)
+      |> maybe_put_composite_export(source)
 
     error_message = summarize_errors(result.errors)
 

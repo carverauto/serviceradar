@@ -281,6 +281,7 @@ Important notes:
 - Edge hosts running `serviceradar-agent` outside Kubernetes need their own egress controls (host firewall/VPC/NACL). This policy only governs Kubernetes workloads.
 - External telemetry collectors have dedicated pod-scoped ingress policies. Use them for syslog, NetFlow, sFlow, SNMP traps, and BMP so opening a collector port does not also expose unrelated workloads. See [Kubernetes External Ingestion](./kubernetes-ingestion.md).
 - Plugins and integrations that call public services need explicit egress. For AlienVault OTX, allow `otx.alienvault.com` with an FQDN-aware policy. Its CDN addresses rotate, so a static `allowedCIDRs` entry requires ongoing DNS resolution and CIDR maintenance.
+- Control-plane notification webhooks (Discord, Slack, Teams, generic HTTPS) egress from the `web-ng` pods. Kubernetes NetworkPolicy cannot match FQDNs, so add the current CDN CIDR for each destination to `networkPolicy.egress.allowedCIDRs`. Discord incoming webhooks currently land on Cloudflare `162.159.128.0/18` (resolved 2026-08-13); if a Discord test send times out with `timeout contacting discord.com`, re-resolve `discord.com:443` and update that CIDR. The demo overlay (`values-demo.yaml`) already includes this range.
 
 Example:
 
@@ -468,16 +469,18 @@ UI management:
 - Use the typed rule editor to create/update/delete rules.
 - For writable UI-managed rules in Kubernetes, back the mount with a PVC (`existingClaim`) rather than ConfigMap/Secret.
 
-## Outbound Mail (SMTP)
+## Outbound Mail
 
-Outbound mail carries identity messages (confirmation, password reset) and the
-`email` notification transport. Both go through one mail path, so configuring it
-here configures both. See [Notifications](./notifications.md) for the channel
-side.
+Configure SMTP in the Web UI: **Settings -> Mail**. That is the operator
+path. See [Outbound Mail](./outbound-mail.md) for Local vs Test vs SMTP and
+the field-by-field setup.
 
-Configure it with the `core.mailer` block:
+The `core.mailer` block below is a **fallback** for automation. An enabled
+Settings -> Mail row overrides it. Do not put a mailbox password in values;
+the UI stores credentials encrypted.
 
 ```yaml
+# Fallback only. Prefer Settings -> Mail.
 core:
   mailer:
     # "smtp", "local", "sendgrid", ... Leave empty to infer SMTP from `relay`.
@@ -534,7 +537,8 @@ rather than looking healthy and paging nobody. An unrecognised
 which is a deployment that does not start rather than one that starts and mails
 nowhere.
 
-Also relevant for notifications: set
-`SERVICERADAR_NOTIFICATION_ACTION_BASE_URL` (via `core.extraEnv`) to the
-externally reachable base URL of the web UI, so acknowledge / snooze / resolve
-links inside notifications resolve to a real address.
+Also relevant for notifications: set `webNg.publicUrl` to the externally
+reachable HTTPS origin of the web UI. Recent charts copy that value to
+`SERVICERADAR_NOTIFICATION_ACTION_BASE_URL` on `web-ng` and `core` so
+acknowledge / snooze / resolve links inside notifications resolve to a real
+address. See the [Notifications Quickstart](./notification-quickstart.md).

@@ -1,5 +1,6 @@
 use super::{
     availability::freshness_threshold,
+    composite::{filter_values as composite_filter_values, parse_composite_field},
     identity::collect_mac_params,
     ip::collect_ip_params,
     jsonb::{is_valid_jsonb_key, parse_bool},
@@ -38,6 +39,18 @@ pub(in crate::query::devices) fn collect_filter_params(
         }
         "availability_source_fresh_within" | "availability_source_stale_after" => {
             params.push(BindParam::timestamptz(freshness_threshold(filter)?));
+            Ok(())
+        }
+        "first_seen" | "first_seen_time" => {
+            if !matches!(filter.op, FilterOp::Eq | FilterOp::NotEq) {
+                return Err(ServiceError::InvalidRequest(
+                    "first_seen filter only supports equality (for example first_seen:last_7d)"
+                        .into(),
+                ));
+            }
+            let range = super::seen::first_seen_range(filter)?;
+            params.push(BindParam::timestamptz(range.start));
+            params.push(BindParam::timestamptz(range.end));
             Ok(())
         }
         "tags" => match filter.op {
@@ -112,6 +125,27 @@ pub(in crate::query::devices) fn collect_filter_params(
                 .split_once('.')
                 .expect("fixed JSONB field always contains a dot");
             collect_jsonb_subkey_params(params, filter, column, key)
+        }
+        // Dynamic composite.* fields.
+        //
+        // Mirrors the composite arm in `apply_filter`: one Text bind for the
+        // slug, then one Array<Text> bind for the values, in that order. These
+        // are parallel matches in two files, and a drift between them does not
+        // fail to compile -- it produces a placeholder/parameter mismatch when
+        // the query runs. The empty-values early return must mirror it too.
+        field if field.starts_with("composite.") => {
+            let (slug, _column) = parse_composite_field(field).ok_or_else(|| {
+                ServiceError::InvalidRequest(format!("invalid composite check field '{field}'"))
+            })?;
+
+            let values = composite_filter_values(filter);
+            if values.is_empty() {
+                return Ok(());
+            }
+
+            params.push(BindParam::Text(slug));
+            params.push(BindParam::TextArray(values));
+            Ok(())
         }
         // Dynamic metadata.* fields
         field if field.starts_with("metadata.") => {

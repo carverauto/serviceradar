@@ -1029,6 +1029,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
     |> assign(:ip_alias_error, nil)
     |> assign(:availability, nil)
     |> assign(:agent_availability, [])
+    |> assign(:composite_verdicts, [])
     |> assign(:healthcheck_summary, nil)
     |> assign(:virtualization_summary, nil)
     |> assign(:has_virtualization_guests, false)

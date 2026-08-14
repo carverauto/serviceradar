@@ -118,7 +118,7 @@ defmodule ServiceRadar.PrefixTags.Manual do
            attrs
            |> stringify_keys()
            |> Map.put("snapshot_id", snapshot.id)
-           |> normalize_tags_attr(),
+           |> merge_structured_tags(),
          :ok <- validate_tags(Map.get(attrs, "tags")) do
       # record_count ±1 and invalidation run inside/after the Ash action
       # (AdjustManualRecordCount after_action + BroadcastManualInvalidation).
@@ -135,7 +135,7 @@ defmodule ServiceRadar.PrefixTags.Manual do
       attrs =
         attrs
         |> stringify_keys()
-        |> normalize_tags_attr()
+        |> merge_structured_tags()
         |> Map.drop(["snapshot_id", :snapshot_id])
 
       with :ok <- validate_tags(Map.get(attrs, "tags")) do
@@ -376,12 +376,52 @@ defmodule ServiceRadar.PrefixTags.Manual do
     end)
   end
 
-  defp normalize_tags_attr(attrs) do
-    case Map.fetch(attrs, "tags") do
-      {:ok, tags} -> Map.put(attrs, "tags", parse_tags_input(tags))
-      :error -> attrs
+  @structured_tag_keys ~w(site role tenant status)
+
+  @doc """
+  Fold site/role/tenant/status into the tag list.
+
+  Operators can fill the structured fields without also typing `site:hq` in
+  the freeform tags box. Structured values win over same-key tags already
+  present in the freeform list.
+  """
+  @spec merge_structured_tags(map()) :: map()
+  def merge_structured_tags(attrs) when is_map(attrs) do
+    attrs = stringify_keys(attrs)
+    tags = parse_tags_input(Map.get(attrs, "tags"))
+
+    {structured, used_keys} =
+      Enum.reduce(@structured_tag_keys, {[], MapSet.new()}, fn key, {acc, used} ->
+        case blank_to_nil(Map.get(attrs, key)) do
+          nil ->
+            {acc, used}
+
+          value ->
+            {acc ++ ["#{key}:#{value}"], MapSet.put(used, key)}
+        end
+      end)
+
+    leftover =
+      Enum.reject(tags, fn tag ->
+        case String.split(tag, ":", parts: 2) do
+          [key, _] -> key in @structured_tag_keys and MapSet.member?(used_keys, key)
+          _ -> false
+        end
+      end)
+
+    Map.put(attrs, "tags", Enum.uniq(structured ++ leftover))
+  end
+
+  defp blank_to_nil(nil), do: nil
+
+  defp blank_to_nil(value) when is_binary(value) do
+    case String.trim(value) do
+      "" -> nil
+      trimmed -> trimmed
     end
   end
+
+  defp blank_to_nil(value), do: value
 
   defp normalize_tag_list(list) do
     list

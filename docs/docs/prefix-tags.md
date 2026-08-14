@@ -109,6 +109,15 @@ in:flows tag:site:austin time:last_1h
 in:flows dst_tag:role:guest-wifi time:last_1h
 ```
 
+## Manual prefixes in Settings
+
+Settings → Network Services → Prefix Tags (`/settings/networks/prefix-tags`)
+authors the `manual` snapshot. Site, role, tenant, and status are the usual
+tags (`site:hq`, `role:wifi`, …). Filling those fields is enough; you do
+not also have to type them in Extra tags. Extra tags are only for additional
+labels such as `zone:dmz`. At least one structured field or extra tag is
+required.
+
 ## Tag mapping (NetBox)
 
 | NetBox field | Tag form |

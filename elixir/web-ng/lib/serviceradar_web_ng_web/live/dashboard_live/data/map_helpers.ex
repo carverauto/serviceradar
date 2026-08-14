@@ -21,6 +21,10 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Data.MapHelpers do
         end
       end
 
+      defp geo_point_or_country(lon, lat, country_code) do
+        geo_point(lon, lat) || ServiceRadar.Observability.CountryCentroids.point(country_code)
+      end
+
       defp geo_label(nil, nil, _ip), do: nil
 
       defp geo_label(city, country, ip) do

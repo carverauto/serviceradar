@@ -231,6 +231,44 @@ diesel::table! {
 diesel::table! {
     use diesel::sql_types::*;
 
+    composite_checks (id) {
+        id -> Uuid,
+        name -> Text,
+        slug -> Text,
+        description -> Nullable<Text>,
+        scope_query -> Text,
+        evaluation_interval_seconds -> Int8,
+        state -> Text,
+        last_evaluated_at -> Nullable<Timestamptz>,
+        inserted_at -> Timestamptz,
+        updated_at -> Timestamptz,
+    }
+}
+
+diesel::table! {
+    use diesel::sql_types::*;
+
+    device_composite_check_results (id) {
+        id -> Uuid,
+        device_uid -> Text,
+        check_id -> Uuid,
+        verdict -> Text,
+        status -> Text,
+        matched_rule_id -> Nullable<Uuid>,
+        inputs -> Jsonb,
+        evaluated_at -> Timestamptz,
+        changed_at -> Timestamptz,
+        inserted_at -> Timestamptz,
+        updated_at -> Timestamptz,
+    }
+}
+
+diesel::joinable!(device_composite_check_results -> composite_checks (check_id));
+diesel::allow_tables_to_appear_in_same_query!(device_composite_check_results, composite_checks);
+
+diesel::table! {
+    use diesel::sql_types::*;
+
     gateways (gateway_id) {
         gateway_id -> Text,
         component_id -> Nullable<Text>,

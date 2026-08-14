@@ -300,6 +300,7 @@ config :serviceradar_core,
   ash_domains: [
     ServiceRadar.AgentConfig,
     ServiceRadar.Camera,
+    ServiceRadar.CompositeChecks,
     ServiceRadar.Credentials,
     ServiceRadar.Dashboards,
     ServiceRadar.Edge,

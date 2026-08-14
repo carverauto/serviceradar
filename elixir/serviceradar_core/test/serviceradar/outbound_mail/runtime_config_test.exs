@@ -98,6 +98,19 @@ defmodule ServiceRadar.OutboundMail.RuntimeConfigTest do
       assert config[:ssl] == true
       assert config[:from_name] == "NOC"
       assert config[:from_email] == "noc@example.com"
+      assert config[:sockopts][:verify] == :verify_peer
+      assert is_list(config[:sockopts][:cacerts])
+      assert config[:sockopts][:cacerts] != []
+    end
+
+    test "STARTTLS relay configs include CA certs for verify_peer" do
+      config = RuntimeConfig.mailer_config(%{"SMTP_RELAY_HOST" => "smtp.example.com"})
+
+      assert config[:tls] == :if_available
+      assert config[:tls_options][:verify] == :verify_peer
+      assert is_list(config[:tls_options][:cacerts])
+      assert config[:tls_options][:cacerts] != []
+      refute Keyword.has_key?(config, :sockopts)
     end
 
     test "omits credentials that were not supplied" do
@@ -139,7 +152,7 @@ defmodule ServiceRadar.OutboundMail.RuntimeConfigTest do
       assert {:error, {:non_delivering_adapter, message}} =
                ServiceRadar.OutboundMail.diagnose(config)
 
-      assert message =~ "SERVICERADAR_MAILER_ADAPTER"
+      assert message =~ "Settings > Mail"
     end
   end
 end

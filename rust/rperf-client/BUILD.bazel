@@ -1,6 +1,8 @@
-load("@rules_rust//cargo:defs.bzl", "cargo_build_script")
-load("@rules_rust//rust:defs.bzl", "rust_binary", "rust_library", "rust_test")
-load("//third_party/crates:defs.bzl", "all_crate_deps", "crate_deps")
+load("@crates//:defs.bzl", "all_crate_deps")
+load("@rules_rs//rs:cargo_build_script.bzl", "cargo_build_script")
+load("@rules_rs//rs:rust_binary.bzl", "rust_binary")
+load("@rules_rs//rs:rust_library.bzl", "rust_library")
+load("@rules_rs//rs:rust_test.bzl", "rust_test")
 
 package(default_visibility = ["//visibility:public"])
 
@@ -12,37 +14,48 @@ genrule_proto_srcs = [
 cargo_build_script(
     name = "build_script",
     srcs = ["build.rs"],
-    crate_root = "build.rs",
-    deps = crate_deps([
-        "tonic-prost-build",
-        "which",
-    ]),
-    data = genrule_proto_srcs,
-    tools = ["@bazel_tools//tools/proto:protoc"],
     build_script_env = {
         "PROTOC": "$(execpath @bazel_tools//tools/proto:protoc)",
     },
+    crate_root = "build.rs",
+    data = genrule_proto_srcs,
+    tools = ["@bazel_tools//tools/proto:protoc"],
+    deps = [
+        "@crates//:tonic-prost-build",
+        "@crates//:which",
+    ],
 )
 
 rust_library(
     name = "rperf_checker_lib",
-    srcs = glob(["src/**/*.rs"], exclude = ["src/main.rs"]),
-    crate_root = "src/lib.rs",
-    crate_name = "serviceradar_rperf_checker",
+    srcs = glob(
+        ["src/**/*.rs"],
+        exclude = ["src/main.rs"],
+    ),
     compile_data = [
         "config/default_template.json",
     ],
-    deps = all_crate_deps(normal = True) + [
+    crate_name = "serviceradar_rperf_checker",
+    crate_root = "src/lib.rs",
+    deps = all_crate_deps(
+        cargo_only = True,
+        normal = True,
+    ) + [
         ":build_script",
         "//rust/metric-proto:serviceradar_metric_proto",
     ],
-    proc_macro_deps = all_crate_deps(proc_macro = True),
 )
 
 rust_binary(
     name = "rperf_checker",
     srcs = ["src/main.rs"],
-    deps = [":rperf_checker_lib", "//rust/config-bootstrap:config_bootstrap"] + all_crate_deps(normal = True),
+    deps = [
+        ":rperf_checker_lib",
+        "//rust/config-bootstrap:config_bootstrap",
+    ] + all_crate_deps(
+        cargo_only = True,
+        normal = True,
+    ),
 )
 
 rust_test(

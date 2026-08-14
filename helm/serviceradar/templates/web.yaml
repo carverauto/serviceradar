@@ -315,6 +315,13 @@ spec:
           value: {{ .Values.global.releaseVersion | default (printf "v%s" .Chart.AppVersion) | quote }}
         - name: PHX_HOST
           value: {{ $webHost | quote }}
+        {{- if $webNgPublicUrl }}
+        # ActionLinks and Discord/Slack embeds use this as the origin for
+        # /alerts/<id> deep links. Without it, pages go out with no way back
+        # into ServiceRadar.
+        - name: SERVICERADAR_NOTIFICATION_ACTION_BASE_URL
+          value: {{ $webNgPublicUrl | quote }}
+        {{- end }}
         - name: PHX_CHECK_ORIGIN
           value: {{ default "true" $webNg.checkOrigin | quote }}
         - name: SERVICERADAR_GOD_VIEW_ENABLED
@@ -628,6 +635,10 @@ spec:
         {{- if $geoipMmdb.enabled }}
         - name: GEOLITE_MMDB_DIR
           value: {{ default "/var/lib/serviceradar/geoip" $geoipMmdb.basePath | quote }}
+        - name: GEOLITE_MMDB_DOWNLOAD_ENABLED
+          value: "true"
+        - name: IPINFO_MMDB_DOWNLOAD_ENABLED
+          value: "true"
         {{- end }}
         {{- with $.Values.otelExporter }}
         {{- if .enabled }}
@@ -864,8 +875,12 @@ spec:
       {{- end }}
       {{- if $geoipMmdb.enabled }}
       - name: geoip-mmdb
+        {{- if $geoipMmdb.emptyDir }}
+        emptyDir: {}
+        {{- else }}
         persistentVolumeClaim:
           claimName: {{ default "serviceradar-geoip-mmdb" $geoipMmdb.existingClaim | quote }}
+        {{- end }}
       {{- end }}
       {{- if $deviceEnrichmentFsEnabled }}
       - name: device-enrichment-rules

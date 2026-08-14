@@ -9,6 +9,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.ShowTemplate do
   import ServiceRadarWebNGWeb.DeviceLive.AvailabilityComponents
   import ServiceRadarWebNGWeb.DeviceLive.BumblebeeComponents
   import ServiceRadarWebNGWeb.DeviceLive.CameraComponents
+  import ServiceRadarWebNGWeb.DeviceLive.CompositeVerdictComponents
   import ServiceRadarWebNGWeb.DeviceLive.DeviceEditComponents
   import ServiceRadarWebNGWeb.DeviceLive.DeviceHeaderComponents
   import ServiceRadarWebNGWeb.DeviceLive.DevicePropertiesComponents
@@ -241,6 +242,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.ShowTemplate do
                 device_row={@device_row}
                 sweep_results={@sweep_results}
               />
+
+              <.composite_verdict_section entries={@composite_verdicts} />
 
               <.healthcheck_section
                 :if={is_map(@healthcheck_summary)}
