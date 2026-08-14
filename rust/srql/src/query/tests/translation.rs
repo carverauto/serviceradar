@@ -200,8 +200,15 @@ fn translate_logs_device_id_resolves_inventory_aliases() {
         response.sql
     );
     assert!(
-        response.sql.contains("\"host\""),
-        "device-scoped logs should match syslog host attributes, got: {}",
+        response
+            .sql
+            .contains("logs.source_ip IS NOT NULL AND logs.source_ip = d.ip"),
+        "device-scoped logs should match inventory IPs on source_ip, got: {}",
+        response.sql
+    );
+    assert!(
+        !response.sql.contains("ILIKE"),
+        "device-scoped logs must not scan attributes with ILIKE, got: {}",
         response.sql
     );
 }

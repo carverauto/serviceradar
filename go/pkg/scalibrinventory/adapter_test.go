@@ -45,13 +45,13 @@ func TestPayloadFromResultTranslatesPackagesDiagnosticsAndScannerActivity(t *tes
 	cfg.AgentID = scalibrTestAgentID
 	cfg.ScaLibrPlugins = []string{"os"}
 	cfg.ScanRoots = []string{"/"}
-	cfg.ScannerVersion = "v0.4.5"
+	cfg.ScannerVersion = DefaultScannerVersion
 	runner := NewRunner(cfg)
 	started := time.Date(2026, 6, 11, 12, 0, 0, 0, time.UTC)
 	ended := started.Add(2 * time.Second)
 
 	payload, _ := runner.payloadAndPackagesFromResult(started, scalibrTestConfig, &result.ScanResult{
-		Version:   "v0.4.5",
+		Version:   DefaultScannerVersion,
 		StartTime: started,
 		EndTime:   ended,
 		Status:    &plugin.ScanStatus{Status: plugin.ScanStatusSucceeded},
@@ -536,7 +536,7 @@ func TestScaLibrPayloadUsesSharedPendingAckAndReconcileLifecycle(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if first.CollectorVersion != "0.1.3" ||
+	if first.CollectorVersion != ProducerVersion ||
 		first.UploadReason != endpointinventory.UploadReasonChanged ||
 		first.SBOM == nil ||
 		manifest == nil ||

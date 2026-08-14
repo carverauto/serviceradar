@@ -140,6 +140,28 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLiveTest do
     assert html =~ "form[banner_grab][ports][ssh]"
   end
 
+  test "banner grab protocol checkboxes stay selected after validate", %{conn: conn} do
+    {:ok, lv, _html} = live(conn, ~p"/settings/networks/profiles/new")
+
+    html =
+      lv
+      |> form("#scanner-profile-form", %{
+        "form" => %{
+          "name" => "Banner Draft",
+          "banner_grab" => %{
+            "enabled" => "true",
+            "protocols" => ["ssh", "http"]
+          }
+        }
+      })
+      |> render_change()
+
+    assert html =~ ~s(name="form[banner_grab][enabled]")
+    assert html =~ ~s(value="ssh")
+    assert html =~ ~s(value="http")
+    assert html =~ "checked"
+  end
+
   test "saves banner grab controls on scanner profile", %{conn: conn, scope: scope} do
     unique = System.unique_integer([:positive])
     name = "Banner Profile #{unique}"

@@ -862,6 +862,9 @@ defmodule ServiceRadarWebNGWeb.Settings.MtrProfilesLive.Index do
                 {"Auto-select by policy", ""} | Enum.map(@agents, &{agent_label(&1), agent_id(&1)})
               ]}
             />
+            <p class="mt-1 text-xs text-sr-muted">
+              ICMP MTR has to run from a host agent on the same LAN as the targets.
+            </p>
           </div>
           <div>
             <label class="flex items-center justify-between gap-2">
@@ -874,6 +877,18 @@ defmodule ServiceRadarWebNGWeb.Settings.MtrProfilesLive.Index do
               placeholder="default"
             />
           </div>
+        </div>
+
+        <div
+          :if={cluster_icmp_vantage?(@form)}
+          class="rounded-md border border-warning/40 bg-warning/10 px-3 py-2 text-sm text-warning-content"
+        >
+          <strong>k8s-agent</strong>
+          is the in-cluster agent. Helm typically drops NET_RAW and does not use host
+          networking, so ICMP MTR from this vantage produces no traces and the
+          dashboard stays at "No MTR". Pick a host agent on the farm LAN, or enable
+          <code>agent.allowNetRaw</code>
+          and a LAN-routable vantage.
         </div>
 
         <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
@@ -1202,6 +1217,20 @@ defmodule ServiceRadarWebNGWeb.Settings.MtrProfilesLive.Index do
     selector = profile.target_selector || %{}
     Map.get(selector, @selector_agent_id_key)
   end
+
+  defp cluster_icmp_vantage?(%{params: params}) when is_map(params) do
+    protocol = params |> Map.get("baseline_protocol", @protocol_icmp) |> to_string() |> String.downcase()
+    agent = params |> Map.get("preferred_agent_id", "") |> to_string() |> String.trim() |> String.downcase()
+    protocol == @protocol_icmp and cluster_mtr_agent?(agent)
+  end
+
+  defp cluster_icmp_vantage?(_), do: false
+
+  defp cluster_mtr_agent?(agent_id) when is_binary(agent_id) do
+    agent_id in ["k8s-agent", "serviceradar-agent"]
+  end
+
+  defp cluster_mtr_agent?(_), do: false
 
   defp bulk_interval_guidance(_scope, preferred_agent_id, _execution_profile, _target_count, _configured_interval)
        when preferred_agent_id in [nil, ""] do

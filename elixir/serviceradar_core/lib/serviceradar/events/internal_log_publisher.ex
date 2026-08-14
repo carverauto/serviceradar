@@ -81,7 +81,7 @@ defmodule ServiceRadar.Events.InternalLogPublisher do
   end
 
   defp maybe_publish(subject, json, opts) do
-    if Keyword.get(opts, :publish_to_nats?, true) do
+    if nats_live_publish?(opts) do
       case publish_to_nats(publisher(opts), subject, json) do
         :ok ->
           :ok
@@ -97,6 +97,12 @@ defmodule ServiceRadar.Events.InternalLogPublisher do
     else
       :ok
     end
+  end
+
+  defp nats_live_publish?(opts) do
+    Keyword.get_lazy(opts, :publish_to_nats?, fn ->
+      Application.get_env(:serviceradar_core, :internal_log_live_nats, true)
+    end)
   end
 
   defp log_processor(opts) do

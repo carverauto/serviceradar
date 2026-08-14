@@ -72,7 +72,7 @@ describe("rendering_graph_data_methods", () => {
     expect(ctx.state.lastVisibleEdgeCount).toEqual(1)
   })
 
-  it("buildVisibleGraphData applies local traversal mask and resolves selectedVisibleNode", () => {
+  it("buildVisibleGraphData keeps the full graph visible when a node is selected", () => {
     const ctx = baseContext({
       state: {selectedNodeIndex: 1},
       overrides: {computeTraversalMask: vi.fn(() => Uint8Array.from([0, 1]))},
@@ -89,10 +89,11 @@ describe("rendering_graph_data_methods", () => {
 
     const out = ctx.buildVisibleGraphData(effective)
 
-    expect(out.nodeData).toHaveLength(1)
-    expect(out.nodeData[0].id).toEqual("n2")
+    expect(out.nodeData).toHaveLength(2)
+    expect(out.nodeData.map((node) => node.id)).toEqual(["n1", "n2"])
     expect(out.selectedVisibleNode?.id).toEqual("n2")
-    expect(out.edgeData).toHaveLength(0)
+    expect(out.edgeData).toHaveLength(1)
+    expect(ctx.computeTraversalMask).not.toHaveBeenCalled()
   })
 
   it("buildVisibleGraphData handles clustered shape via sourceCluster/targetCluster ids", () => {
@@ -313,6 +314,146 @@ describe("rendering_graph_data_methods", () => {
       ["census", "switch"],
       ["router", "switch"],
     ])
+  })
+
+  it("buildVisibleGraphData keeps expanded cluster members visible while the endpoint layer is off", () => {
+    const ctx = baseContext({
+      state: {
+        topologyLayers: {backbone: true, inferred: false, endpoints: false},
+      },
+      overrides: {
+        edgeEnabledByTopologyLayer: vi.fn((edge) => String(edge.topologyClass) !== "endpoints"),
+      },
+    })
+
+    const effective = {
+      shape: "local",
+      nodes: [
+        {id: "switch", x: 3, y: 4, state: 1, label: "Switch", pps: 20, operUp: 2, details: {cluster_kind: "endpoint-anchor"}},
+        {id: "census", x: 5, y: 6, state: 1, label: "12 endpoints", pps: 5, operUp: 1, details: {cluster_kind: "endpoint-summary", cluster_expanded: true, cluster_anchor_id: "switch"}},
+        {
+          id: "client",
+          x: 7,
+          y: 8,
+          state: 1,
+          label: "Client",
+          pps: 5,
+          operUp: 1,
+          details: {cluster_kind: "endpoint-member", cluster_expanded: true},
+        },
+      ],
+      edges: [
+        {source: 0, target: 1, flowPps: 5, flowBps: 50, capacityBps: 1000, label: "endpoint census", topologyClass: "endpoints"},
+        {source: 1, target: 2, flowPps: 5, flowBps: 50, capacityBps: 1000, label: "endpoint member", topologyClass: "endpoints"},
+      ],
+    }
+
+    const out = ctx.buildVisibleGraphData(effective)
+
+    expect(out.nodeData.map((node) => node.id)).toEqual(["switch", "client"])
+    expect(out.edgeData.map((edge) => [edge.sourceId, edge.targetId])).toEqual([["client", "switch"]])
+  })
+
+  it("buildVisibleGraphData keeps a single trunk from the anchor to an expanded cluster", () => {
+    const ctx = baseContext({
+      state: {
+        topologyLayers: {backbone: true, inferred: false, endpoints: true},
+      },
+    })
+
+    const effective = {
+      shape: "local",
+      nodes: [
+        {
+          id: "switch",
+          x: 0,
+          y: 0,
+          state: 1,
+          label: "Switch",
+          pps: 20,
+          operUp: 2,
+          details: {cluster_id: "cluster:endpoints:test", cluster_kind: "endpoint-anchor"},
+        },
+        {
+          id: "census",
+          x: 10,
+          y: 0,
+          state: 1,
+          label: "4 endpoints",
+          pps: 5,
+          operUp: 1,
+          details: {
+            cluster_id: "cluster:endpoints:test",
+            cluster_kind: "endpoint-summary",
+            cluster_expanded: true,
+            cluster_anchor_id: "switch",
+          },
+        },
+        {
+          id: "client-near",
+          x: 40,
+          y: 0,
+          state: 1,
+          label: "192.168.1.10",
+          pps: 5,
+          operUp: 1,
+          details: {
+            cluster_id: "cluster:endpoints:test",
+            cluster_kind: "endpoint-member",
+            cluster_expanded: true,
+            cluster_anchor_id: "switch",
+          },
+        },
+        {
+          id: "client-far",
+          x: 80,
+          y: 40,
+          state: 1,
+          label: "192.168.1.11",
+          pps: 5,
+          operUp: 1,
+          details: {
+            cluster_id: "cluster:endpoints:test",
+            cluster_kind: "endpoint-member",
+            cluster_expanded: true,
+            cluster_anchor_id: "switch",
+          },
+        },
+        {
+          id: "client-farther",
+          x: 80,
+          y: 80,
+          state: 1,
+          label: "192.168.1.12",
+          pps: 5,
+          operUp: 1,
+          details: {
+            cluster_id: "cluster:endpoints:test",
+            cluster_kind: "endpoint-member",
+            cluster_expanded: true,
+            cluster_anchor_id: "switch",
+          },
+        },
+      ],
+      edges: [
+        {source: 0, target: 1, flowPps: 5, flowBps: 50, capacityBps: 1000, label: "census", topologyClass: "endpoints"},
+        {source: 1, target: 2, flowPps: 5, flowBps: 50, capacityBps: 1000, label: "near", topologyClass: "endpoints"},
+        {source: 1, target: 3, flowPps: 5, flowBps: 50, capacityBps: 1000, label: "far", topologyClass: "endpoints"},
+        {source: 1, target: 4, flowPps: 5, flowBps: 50, capacityBps: 1000, label: "farther", topologyClass: "endpoints"},
+      ],
+    }
+
+    const out = ctx.buildVisibleGraphData(effective)
+
+    expect(out.nodeData.map((node) => node.id).sort()).toEqual([
+      "client-far",
+      "client-farther",
+      "client-near",
+      "switch",
+    ])
+    expect(out.edgeData).toHaveLength(1)
+    expect(out.edgeData[0].sourceId === "switch" || out.edgeData[0].targetId === "switch").toEqual(true)
+    expect([out.edgeData[0].sourceId, out.edgeData[0].targetId]).toContain("client-near")
   })
 
   it("buildVisibleGraphData keeps endpoint nodes visible when the endpoint layer is enabled", () => {

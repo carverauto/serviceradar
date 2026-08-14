@@ -316,10 +316,7 @@ defmodule ServiceRadar.PrefixTags.Loader do
         emit_rebuild_telemetry(agg, duration_us, total_rows, :ok, scope)
         emit_snapshot_age_for_sources(sources_meta)
 
-        Logger.info(
-          "PrefixTags.Loader installed sources=#{inspect(Map.keys(sources_meta))} " <>
-            "rows=#{total_rows} total_prefixes=#{agg.total_prefixes} duration_us=#{duration_us}"
-        )
+        log_install(Map.keys(sources_meta), total_rows, agg.total_prefixes, duration_us, scope)
 
         merged_sources =
           case scope do
@@ -527,6 +524,21 @@ defmodule ServiceRadar.PrefixTags.Loader do
       %{known: known},
       %{source: source}
     )
+  end
+
+  defp log_install(source_names, total_rows, total_prefixes, duration_us, scope) do
+    message =
+      "PrefixTags.Loader installed sources=#{inspect(source_names)} " <>
+        "rows=#{total_rows} total_prefixes=#{total_prefixes} duration_us=#{duration_us}"
+
+    # Empty snapshot reloads (no active CNPG rows) are expected when only
+    # external tries (ti/provider/dns-policy) are populated. Those used to
+    # spam info on every PubSub/nodeup bounce.
+    if source_names == [] and total_rows == 0 do
+      Logger.debug(message, source: inspect(scope))
+    else
+      Logger.info(message)
+    end
   end
 
   defp locally_reloaded?(metadata) do

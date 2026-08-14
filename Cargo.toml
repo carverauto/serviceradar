@@ -45,6 +45,7 @@ members = [
     "rust/causal-mitigation",
     "rust/causal-emit",
     "rust/causal-engine",
+    "rust/protoc-plugins",
 ]
 
 exclude = [
@@ -145,10 +146,18 @@ pretty_assertions = "1"
 prometheus = { version = "0.14", features = ["protobuf"]}
 prost = "0.14"
 prost-build = "0.14"
-# protoc-gen-prost / protoc-gen-tonic are NOT declared here. They are protoc plugins
-# run by the Bazel prost toolchain, not library deps, so no member consumes them and an
-# entry here would vendor nothing (a [workspace.dependencies] entry is only a version
-# catalog). Their versions live on `packages` in //third_party/BUILD.bazel.
+prost-types = "0.14"
+# protoc plugins, not library deps: nothing links them, protoc execs them. They are declared
+# here, and consumed by //rust/protoc-plugins, because rules_rs resolves //:Cargo.lock and
+# nothing else -- a crate reaches the build graph only as a real dependency of a real
+# workspace member. crates_vendor used to conjure them through its own `packages` attribute
+# instead, which is why //third_party/BUILD.bazel used to carry their versions.
+#
+# Keep these in step with the prost/tonic pins here: the plugins emit code that links against
+# the workspace prost, so a plugin from a different prost generation emits code that does not
+# match.
+protoc-gen-prost = "0.5"
+protoc-gen-tonic = "0.5"
 quick-xml = "0.41"
 quickcheck = "1"
 rand = "0.10"

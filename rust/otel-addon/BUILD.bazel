@@ -1,5 +1,6 @@
-load("@rules_rust//rust:defs.bzl", "rust_binary", "rust_test")
-load("//third_party/crates:defs.bzl", "all_crate_deps")
+load("@crates//:defs.bzl", "all_crate_deps")
+load("@rules_rs//rs:rust_binary.bzl", "rust_binary")
+load("@rules_rs//rs:rust_test.bzl", "rust_test")
 load("//build/rbe:exec_properties.bzl", "NATIVE_ADDON_EXEC_PROPERTIES")
 
 package(default_visibility = ["//visibility:public"])
@@ -10,23 +11,27 @@ package(default_visibility = ["//visibility:public"])
 # crate_universe deps.
 rust_binary(
     name = "serviceradar-otel-addon",
-    exec_properties = NATIVE_ADDON_EXEC_PROPERTIES,
     srcs = glob(["src/**/*.rs"]),
     crate_root = "src/main.rs",
-    deps = all_crate_deps(normal = True) + [
+    exec_properties = NATIVE_ADDON_EXEC_PROPERTIES,
+    deps = all_crate_deps(
+        cargo_only = True,
+        normal = True,
+    ) + [
         "//rust/addon-sdk:addon_sdk",
         "//rust/otel:otel_lib",
     ],
-    proc_macro_deps = all_crate_deps(proc_macro = True),
 )
-
 
 rust_test(
     name = "otel_addon_test",
-    crate = ":serviceradar-otel-addon",
     # fj#4383: core-emitted config_json contract fixture, include_str!'d by
     # src/addon.rs's contract test (regenerated via
     # `mix serviceradar.gen.addon_contract_fixtures`).
     compile_data = ["//go/pkg/agent:addonconfig_contract_fixtures"],
-    deps = all_crate_deps(normal_dev = True),
+    crate = ":serviceradar-otel-addon",
+    deps = all_crate_deps(
+        cargo_only = True,
+        normal_dev = True,
+    ),
 )

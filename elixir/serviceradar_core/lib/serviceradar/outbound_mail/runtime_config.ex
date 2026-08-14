@@ -44,6 +44,7 @@ defmodule ServiceRadar.OutboundMail.RuntimeConfig do
   """
 
   alias ServiceRadar.OutboundMail
+  alias ServiceRadar.OutboundMail.SmtpTls
   alias Swoosh.Adapters.Local
 
   @default_port 587
@@ -129,6 +130,7 @@ defmodule ServiceRadar.OutboundMail.RuntimeConfig do
     |> put_present(:username, get(env, "SMTP_RELAY_USERNAME"))
     |> put_present(:password, get(env, "SMTP_RELAY_PASSWORD"))
     |> Enum.reject(fn {_key, value} -> is_nil(value) end)
+    |> SmtpTls.attach()
   end
 
   defp smtp_options(_adapter, _env), do: []

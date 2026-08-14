@@ -158,6 +158,9 @@ defmodule ServiceRadar.Application do
         # Service heartbeat (self-reporting for Elixir services)
         service_heartbeat_child(),
 
+        # Per-pod MMDB fetch for emptyDir volumes (Oban only runs on one replica)
+        geoip_bootstrap_child(),
+
         # SPIFFE certificate expiry monitoring
         cert_monitor_child(),
 
@@ -458,6 +461,36 @@ defmodule ServiceRadar.Application do
       value when value in ["true", "1", "yes"] -> true
       _ -> false
     end
+  end
+
+  defp geoip_bootstrap_child do
+    geolite? = env_flag_enabled?("GEOLITE_MMDB_DOWNLOAD_ENABLED")
+    ipinfo? = env_flag_enabled?("IPINFO_MMDB_DOWNLOAD_ENABLED")
+
+    if geolite? or ipinfo? do
+      {Task,
+       fn ->
+         try do
+           if geolite? do
+             _ = ServiceRadar.Observability.GeoLiteMmdbDownloadWorker.sync_missing_files()
+           end
+
+           if ipinfo? do
+             _ = ServiceRadar.Observability.IpinfoMmdbDownloadWorker.sync_missing_files()
+           end
+         rescue
+           error ->
+             Logger.warning("GeoIP MMDB bootstrap failed: #{Exception.message(error)}")
+         end
+       end}
+    end
+  end
+
+  defp env_flag_enabled?(name) do
+    name
+    |> System.get_env("false")
+    |> String.downcase()
+    |> Kernel.in(["1", "true", "yes", "on"])
   end
 
   defp service_heartbeat_child do

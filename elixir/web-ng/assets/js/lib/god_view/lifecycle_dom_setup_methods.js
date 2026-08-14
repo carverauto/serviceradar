@@ -46,6 +46,16 @@ export const godViewLifecycleDomSetupMethods = {
     }
   },
   handleDetailsPanelClick(event) {
+    const closeAction = event.target?.closest?.("[data-close-details]")
+    if (closeAction) {
+      event.preventDefault()
+      event.stopPropagation?.()
+      if (typeof this.deps?.handlePick === "function") {
+        this.deps.handlePick({picked: false, object: null, index: -1, layer: null})
+      }
+      return
+    }
+
     const deviceLink = event.target?.closest?.("[data-device-href]")
     if (deviceLink) {
       const href = deviceLink.getAttribute("data-device-href")
