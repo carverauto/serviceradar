@@ -200,20 +200,30 @@ defmodule ServiceRadar.Plugins.ProxmoxHostAuthority do
     policy_id = value(params, "policy_id")
     policy_version = value(params, "policy_version")
 
-    expected_policy_id =
+    expected_policy_ids =
       case {plugin_id, entrypoint, credential_rule_id} do
         {@inventory_plugin_id, @inventory_entrypoint, rule_id} when is_binary(rule_id) ->
-          "network-credential-rule:#{rule_id}:inventory_enrichment"
+          # BOTH forms, because the writer emits the unsuffixed one.
+          # PluginAssignmentMaterializer.policy_id_for_rule/2 special-cases
+          # inventory_enrichment to "network-credential-rule:<rule>" to preserve
+          # the original inventory policy id for upgrade compatibility. Accepting
+          # only the suffixed form meant every materialized inventory assignment
+          # failed this binding and was skipped at config generation -- the plugin
+          # was never delivered, and the only symptom was a warning.
+          [
+            "network-credential-rule:#{rule_id}",
+            "network-credential-rule:#{rule_id}:inventory_enrichment"
+          ]
 
         {@console_plugin_id, @console_entrypoint, rule_id} when is_binary(rule_id) ->
-          "network-credential-rule:#{rule_id}:console_access"
+          ["network-credential-rule:#{rule_id}:console_access"]
 
         _other ->
-          nil
+          []
       end
 
     if present?(assignment_id) and present?(credential_rule_id) and
-         policy_id == expected_policy_id and is_integer(policy_version) and policy_version > 0 do
+         policy_id in expected_policy_ids and is_integer(policy_version) and policy_version > 0 do
       canonical =
         Enum.join(
           [
