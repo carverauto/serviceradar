@@ -1093,7 +1093,22 @@ webNg:
     syncReleaseLimit: 10
     syncIntervalSeconds: 3600
     cosignBinary: "/usr/local/bin/cosign"
-    cosignPublicKey: ""
+    # Cosign public key used to verify first-party Wasm plugin OCI artifacts
+    # published alongside each ServiceRadar release. This is the public release
+    # key committed at docs/cosign.pub -- it is not a secret, and the registry
+    # serves these artifacts anonymously, so no pull credential is needed to
+    # verify them. Shipping it empty is what made "Import All" fail with
+    # cosign_public_key_not_configured on every install that was not the demo
+    # overlay: the template below omits the env var when this is empty, and the
+    # verifier fails closed rather than importing an unverified artifact.
+    # Override only when serving first-party plugins signed with your own key.
+    # Kept in step with docs/cosign.pub and the web-ng compiled-in default by
+    # //:first_party_plugin_cosign_key_consistency_test.
+    cosignPublicKey: |
+      -----BEGIN PUBLIC KEY-----
+      MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEhJcdPbybyipSl8sNHSKStAYiqhP7
+      cp6jIdZ3L4AkL/WI9oFn5xqJSnwTC29cz+JN/bXzWE807+iPS/DOl3C9EQ==
+      -----END PUBLIC KEY-----
     cosignPublicKeyFile: ""
     registryDockerConfigSecret: ""
     registryDockerConfigSecretKey: ".dockerconfigjson"
