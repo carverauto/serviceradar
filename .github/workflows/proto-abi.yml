@@ -1,3 +1,6 @@
+# Proto/ABI drift coverage does not establish full Bazel build coverage.
+# Before making this workflow required, replace workflow-level path filters
+# with job-level work selection so unrelated pull requests report a status.
 name: Proto ABI
 
 # Stack-aware ABI gate: this runs on EVERY pull request that touches the proto ABI,
@@ -277,6 +280,14 @@ jobs:
       - name: Edge structural-count corpus (Elixir)
         working-directory: elixir/serviceradar_core
         run: mix test --no-start test/serviceradar/edge/count_corpus_test.exs
+      # THE SEMANTIC-ENVELOPE TRANSCRIPT: seven keyed sets over the grammar that every record
+      # digest is computed from. Gated because this is the ONLY place the two implementations
+      # must produce IDENTICAL BYTES for the same committed input WITHIN THIS GRAMMAR -- elsewhere
+      # they are merely internally consistent, which is how a grammar drifts apart runtime by
+      # runtime while every suite stays green.
+      - name: Edge semantic-envelope transcript (Elixir)
+        working-directory: elixir/serviceradar_core
+        run: mix test --no-start test/serviceradar/edge/semantic_envelope_corpus_test.exs
       # THE PROJECTED-COST RELATION: this runtime does not COMPARE these fields -- it digests
       # them -- so the vectors are Go's and this gate asserts the SHAPE OF THE GAP instead:
       # every conjunct Go-only, every one owned by 1.5-n, and the inclusivity half of each

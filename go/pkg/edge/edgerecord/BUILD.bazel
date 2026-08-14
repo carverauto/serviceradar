@@ -36,6 +36,7 @@ go_test(
         "assignment_test.go",
         "bounds_precedence_test.go",
         "count_corpus_test.go",
+        "semantic_envelope_corpus_test.go",
         "proof_group_inventory_test.go",
         "projected_cost_corpus_test.go",
         "provenance_corpus_test.go",
@@ -69,6 +70,9 @@ go_test(
         "@com_github_klauspost_compress//zstd",
         "@org_golang_google_protobuf//encoding/protowire",
         "@org_golang_google_protobuf//proto",
+        "@org_golang_google_protobuf//reflect/protodesc",
         "@org_golang_google_protobuf//reflect/protoreflect",
+        "@org_golang_google_protobuf//reflect/protoregistry",
+        "@org_golang_google_protobuf//types/descriptorpb",
     ],
 )
