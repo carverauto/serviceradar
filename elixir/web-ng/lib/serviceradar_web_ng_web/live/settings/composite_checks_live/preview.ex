@@ -16,7 +16,10 @@ defmodule ServiceRadarWebNGWeb.Settings.CompositeChecksLive.Preview do
   alias ServiceRadar.CompositeChecks.CompositeCheckRule
   alias ServiceRadar.CompositeChecks.Evaluation
   alias ServiceRadar.CompositeChecks.Scope
+  alias ServiceRadar.Inventory.Device
   alias ServiceRadarWebNGWeb.CompositeChecks.Snapshot
+
+  require Ash.Query
 
   @sample_size 25
 
@@ -25,6 +28,7 @@ defmodule ServiceRadarWebNGWeb.Settings.CompositeChecksLive.Preview do
 
   @type row :: %{
           device_uid: String.t(),
+          device_ip: String.t() | nil,
           verdict: String.t(),
           status: atom(),
           explanation: String.t() | nil,
@@ -58,7 +62,29 @@ defmodule ServiceRadarWebNGWeb.Settings.CompositeChecksLive.Preview do
          {:ok, rules} <- list(CompositeCheckRule, check, scope),
          {:ok, uids} <- sample_uids(normalized, sample_size),
          {:ok, rows} <- Evaluation.evaluate_devices(check, inputs, rules, uids, now: now) do
-      {:ok, summarize(rows, inputs, rules, total, now)}
+      {:ok, summarize(rows, inputs, rules, total, now, addresses(uids, scope))}
+    end
+  end
+
+  # A uid identifies a device; an address is how an operator recognises one. The
+  # evaluation returns uids alone because that is all a verdict needs, so the
+  # addresses are fetched here rather than threaded through the engine for a
+  # display concern.
+  #
+  # A failure yields no addresses rather than failing the preview: an operator
+  # reading verdicts is not helped by losing them because a name lookup broke.
+  defp addresses([], _scope), do: %{}
+
+  defp addresses(uids, scope) do
+    Device
+    |> Ash.Query.for_read(:read, %{}, scope: scope)
+    |> Ash.Query.filter(uid in ^uids)
+    |> Ash.Query.select([:uid, :ip])
+    |> Ash.read(scope: scope, page: [limit: length(uids)])
+    |> case do
+      {:ok, %{results: devices}} -> Map.new(devices, &{&1.uid, &1.ip})
+      {:ok, devices} when is_list(devices) -> Map.new(devices, &{&1.uid, &1.ip})
+      {:error, _reason} -> %{}
     end
   end
 
@@ -91,11 +117,11 @@ defmodule ServiceRadarWebNGWeb.Settings.CompositeChecksLive.Preview do
     error -> {:error, Exception.message(error)}
   end
 
-  defp summarize(rows, inputs, rules, total, now) do
+  defp summarize(rows, inputs, rules, total, now, addresses) do
     rules_by_id = Map.new(rules, &{&1.id, &1})
     vantage_keys = inputs |> Enum.filter(&(&1.kind == :vantage_point)) |> Enum.map(& &1.key)
 
-    views = Enum.map(rows, &row_view(&1, inputs, rules_by_id, now))
+    views = Enum.map(rows, &row_view(&1, inputs, rules_by_id, now, addresses))
 
     %{
       rows: views,
@@ -123,11 +149,12 @@ defmodule ServiceRadarWebNGWeb.Settings.CompositeChecksLive.Preview do
     end)
   end
 
-  defp row_view(row, inputs, rules_by_id, now) do
+  defp row_view(row, inputs, rules_by_id, now, addresses) do
     matched = Map.get(rules_by_id, row.matched_rule_id)
 
     %{
       device_uid: row.device_uid,
+      device_ip: Map.get(addresses, row.device_uid),
       verdict: row.verdict,
       status: row.status,
       explanation: matched && matched.verdict_description,
