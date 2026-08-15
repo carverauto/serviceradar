@@ -44,10 +44,16 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.FeedWorker do
   require Logger
 
   @impl true
-  def timeout(%Oban.Job{args: %{"feed" => "nist-nvd2"}}), do: 1_800_000
+  # farm01 nist-nvd2 inserted ~360k advisories / 2.5M coordinates in 30 minutes
+  # and still had shards left. 60 minutes leaves headroom for a cold PVC.
+  def timeout(%Oban.Job{args: %{"feed" => "nist-nvd2"}}), do: 3_600_000
   def timeout(_job), do: 180_000
 
-  @stale_running_seconds 15 * 60
+  # Must exceed the longest worker timeout. 15 minutes was marking a live
+  # nist-nvd2 run stale because already_scheduled?/1 could not see the job
+  # (it queried "Elixir.ServiceRadar..." while Oban stores the bare module).
+  @stale_running_seconds 75 * 60
+  @worker_name inspect(__MODULE__)
 
   # NOTE: "nvd-api" is intentionally excluded — `do_run("nvd-api")` is an
   # unimplemented stub, so scheduling it only produces error+reschedule noise.
@@ -118,7 +124,7 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.FeedWorker do
 
     ServiceRadar.Repo.delete_all(
       from(j in Oban.Job,
-        where: j.worker == ^to_string(__MODULE__),
+        where: j.worker == ^@worker_name,
         where: j.state in ["available", "scheduled", "retryable"],
         where: fragment("?->>'feed' = ?", j.args, ^feed)
       ),
@@ -133,7 +139,7 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.FeedWorker do
 
     query =
       from(j in Oban.Job,
-        where: j.worker == ^to_string(__MODULE__),
+        where: j.worker == ^@worker_name,
         where: j.state in ["available", "scheduled", "executing", "retryable"],
         where: fragment("?->>'feed' = ?", j.args, ^feed),
         limit: 1
