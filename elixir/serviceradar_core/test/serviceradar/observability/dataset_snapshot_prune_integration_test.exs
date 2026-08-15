@@ -17,9 +17,10 @@ defmodule ServiceRadar.Observability.DatasetSnapshotPruneIntegrationTest do
     Repo.query!("DELETE FROM platform.netflow_provider_cidrs", [])
     Repo.query!("DELETE FROM platform.netflow_provider_dataset_snapshots", [])
 
-    active_id = insert_snapshot(true, ~U[2026-08-14 12:22:44Z], 2)
-    keep_id = insert_snapshot(false, ~U[2026-08-13 08:21:58Z], 2)
-    doomed_id = insert_snapshot(false, ~U[2026-08-07 12:16:37Z], 2)
+    now = DateTime.truncate(DateTime.utc_now(), :second)
+    active_id = insert_snapshot(true, now, 2)
+    keep_id = insert_snapshot(false, DateTime.add(now, -12 * 3600, :second), 2)
+    doomed_id = insert_snapshot(false, DateTime.add(now, -5 * 24 * 3600, :second), 2)
 
     insert_cidr(active_id, "203.0.113.0/24")
     insert_cidr(active_id, "203.0.113.128/25")
@@ -93,7 +94,7 @@ defmodule ServiceRadar.Observability.DatasetSnapshotPruneIntegrationTest do
       """
       INSERT INTO platform.netflow_provider_cidrs
         (snapshot_id, cidr, provider, service, region, ip_version)
-      VALUES ($1, $2::cidr, 'fixture-cloud', 'edge', 'test', 'ipv4')
+      VALUES ($1, ($2::text)::cidr, 'fixture-cloud', 'edge', 'test', 'ipv4')
       """,
       [snapshot_id, cidr]
     )
