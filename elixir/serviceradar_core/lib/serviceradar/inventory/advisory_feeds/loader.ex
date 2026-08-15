@@ -138,9 +138,11 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.Loader do
 
   defp flush_chunk(chunk, provider, feed_key, generation, now) do
     advisory_rows =
-      Enum.map(chunk, fn %{advisory: advisory} ->
+      chunk
+      |> Enum.map(fn %{advisory: advisory} ->
         advisory_row(advisory, provider, feed_key, generation, now)
       end)
+      |> dedupe_advisory_rows()
 
     {_, returned} =
       Repo.insert_all("vulnerability_advisories", advisory_rows,
@@ -196,10 +198,37 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.Loader do
 
   defp insert_coordinates(rows) do
     rows
+    |> dedupe_coordinate_rows()
     |> Enum.chunk_every(@max_coordinate_insert)
     |> Enum.reduce(0, fn batch, acc ->
       acc + insert_coordinate_batch(batch)
     end)
+  end
+
+  # Postgrex ON CONFLICT DO UPDATE cannot touch the same identity twice in one
+  # statement. NVD repeats a CPE + version window under different
+  # matchCriteriaId values, so the parser's Enum.uniq/1 is not enough.
+  @doc false
+  def dedupe_coordinate_rows(rows) do
+    rows
+    |> Enum.reduce(%{}, fn row, acc -> Map.put(acc, coordinate_conflict_key(row), row) end)
+    |> Map.values()
+  end
+
+  defp coordinate_conflict_key(row) do
+    {
+      Map.fetch!(row, :advisory_ref),
+      Map.fetch!(row, :coordinate_type),
+      Map.fetch!(row, :value),
+      Map.get(row, :version_start),
+      Map.get(row, :version_end)
+    }
+  end
+
+  defp dedupe_advisory_rows(rows) do
+    rows
+    |> Enum.reduce(%{}, fn row, acc -> Map.put(acc, row.source_object_id, row) end)
+    |> Map.values()
   end
 
   defp insert_coordinate_batch(rows) do

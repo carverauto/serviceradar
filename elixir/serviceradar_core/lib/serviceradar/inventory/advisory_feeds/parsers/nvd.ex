@@ -68,7 +68,10 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.Parsers.Nvd do
       |> List.wrap()
       |> Enum.flat_map(&node_coordinates/1)
     end)
-    |> Enum.uniq()
+    # Identity is CPE + version window. matchCriteriaId and inclusivity flags
+    # can differ on otherwise identical NVD cpeMatch rows; those extras must
+    # not survive or the coordinate upsert collides.
+    |> Enum.uniq_by(&{&1.value, &1.version_start, &1.version_end})
   end
 
   defp node_coordinates(node) when is_map(node) do

@@ -31,6 +31,45 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.ParsersTest do
       assert :skip = Parsers.Nvd.parse_record(%{"cve" => %{}}, provider: "nvd", feed_key: "x")
     end
 
+    test "collapses cpeMatch rows that share the coordinate identity" do
+      record = %{
+        "cve" => %{
+          "id" => "CVE-2024-0003",
+          "configurations" => [
+            %{
+              "nodes" => [
+                %{
+                  "cpeMatch" => [
+                    %{
+                      "vulnerable" => true,
+                      "criteria" => "cpe:2.3:a:openssl:openssl:*:*:*:*:*:*:*:*",
+                      "versionStartIncluding" => "3.0.0",
+                      "versionEndExcluding" => "3.0.14",
+                      "matchCriteriaId" => "AAAA"
+                    },
+                    %{
+                      "vulnerable" => true,
+                      "criteria" => "cpe:2.3:a:openssl:openssl:*:*:*:*:*:*:*:*",
+                      "versionStartIncluding" => "3.0.0",
+                      "versionEndExcluding" => "3.0.14",
+                      "matchCriteriaId" => "BBBB"
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        }
+      }
+
+      assert {:ok, %{coordinates: [coordinate]}} =
+               Parsers.Nvd.parse_record(record, provider: "nvd", feed_key: "nist-nvd2")
+
+      assert coordinate.value == "cpe:2.3:a:openssl:openssl:*:*:*:*:*:*:*:*"
+      assert coordinate.version_start == "3.0.0"
+      assert coordinate.version_end == "3.0.14"
+    end
+
     test "excludes non-vulnerable cpeMatch entries" do
       record = %{
         "cve" => %{
