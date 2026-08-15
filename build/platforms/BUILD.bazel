@@ -191,45 +191,31 @@ platform(
 # ways -- the binaries differ only in 14 embedded `bazel-out/<platform>-opt/...` path strings
 # (an artifact of --experimental_platform_in_output_dir) and in nothing else.
 
-# Remote execution platforms for BuildBuddy
-platform(
-    name = "rbe_linux_amd64",
-    constraint_values = [
-        "@platforms//os:linux",
-        "@platforms//cpu:x86_64",
-        "@erlang_config//:erlang_internal",
-        "@elixir_config//:elixir_internal",
-    ],
-    exec_properties = {
-        "container-image": "docker://registry.carverauto.dev/serviceradar/rbe-executor:v1.0.25.1",
-        "OSFamily": "linux",
-        "Arch": "amd64",
-        "dockerNetwork": "host",
-        "Pool": "default",
-        # Firecracker microVM size (see #4752/#4755). Rustc+ld and pure-Go
-        # GoLink need headroom above the historical ~2.5Gi default.
-    },
-    visibility = ["//visibility:public"],
-)
-
-platform(
-    name = "rbe_linux_arm64",
-    constraint_values = [
-        "@platforms//os:linux",
-        "@platforms//cpu:aarch64",
-        "@erlang_config//:erlang_internal",
-        "@elixir_config//:elixir_internal",
-    ],
-    exec_properties = {
-        "container-image": "docker://registry.carverauto.dev/serviceradar/rbe-executor:v1.0.25.1",
-        "OSFamily": "linux",
-        # Cross-compiles linux/arm64 targets on the amd64 BuildBuddy executor pool.
-        "Arch": "amd64",
-        "dockerNetwork": "host",
-        "Pool": "default",
-    },
-    visibility = ["//visibility:public"],
-)
+# No `rbe_linux_amd64` / `rbe_linux_arm64`. The RBE platform is //build/rbe:rbe_platform, which
+# is what //.bazelrc names in build:remote_base for --host_platform, --platforms and
+# --extra_execution_platforms.
+#
+# The pair was live for eight days. b43a887d03 (2025-09-21) added them to the ROOT //BUILD.bazel
+# and pointed build:remote at both, `--extra_execution_platforms=//:rbe_linux_amd64,
+# //:rbe_linux_arm64` -- and the arm64 one was HONEST then: `Arch: arm64` against
+# gcr.io/flame-public/rbe-ubuntu22-04, a real request for arm64 remote execution on BuildBuddy
+# Cloud. d2bba552f2 (2025-09-29, "agent now building on remote executor and custom image")
+# repointed the profile at our own executor image and dropped the --extra_execution_platforms
+# line with no replacement. Nothing has named either target in the ~10.5 months since.
+#
+# They were maintained anyway, which is the part worth recording. 14ad8cb4c8 (2026-03-07)
+# rewrote rbe_linux_arm64's `Arch: arm64` into `Arch: amd64` and added the comment
+# "Cross-compiles linux/arm64 targets on the amd64 BuildBuddy executor pool" -- five months
+# after the platform was already unreachable. No build ever executed that configuration, so the
+# comment recorded an intention, not a tested route, while the declaration itself said an action
+# runs on aarch64 hardware and should be dispatched to an amd64 executor. And both carried a
+# copy of the rbe-executor tag, two of seven in the repo that have to move together; these two
+# were the freshest of the set (v1.0.25.1 against v1.0.24.3 in k8s/buildbuddy/values.yaml)
+# despite being the only two that could not affect a build.
+#
+# feb6ccfa56 (2026-08-09) removed the sibling `rbe_linux_el9` as an orphan and reasoned in its
+# message about exactly this failure mode; that sweep was scoped by the string "el9", so these
+# two -- six lines away in this file -- were never looked at.
 
 platform(
     name = "darwin_exec",

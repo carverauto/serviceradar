@@ -104,6 +104,7 @@ defmodule ServiceRadarCoreElx.MixProject do
     [
       serviceradar_core_elx: [
         include_executables_for: [:unix],
+        include_erts: &shipped_erts/0,
         # Avoid boot abort when optional deps (e.g. lazy_html via phoenix_live_view)
         # bake compile-time env that is unset in some runtime paths.
         validate_compile_env: false,
@@ -116,5 +117,18 @@ defmodule ServiceRadarCoreElx.MixProject do
         rel_templates_path: "rel"
       ]
     ]
+  end
+
+  # Which ERTS the release embeds. `true` -- the default, and what every amd64 build gets --
+  # copies ERTS and the OTP applications from the VM running `mix release`, which is wrong
+  # the moment the build host and the target differ in architecture. Mix also accepts a path
+  # and resolves the OTP applications relative to it, so naming the erts-* directory of a
+  # second OTP root redirects VM and NIFs together. //build:elixir_release.bzl sets this
+  # variable when it stages such a tree; unset, this is the previous behaviour exactly.
+  #
+  # Note this alone does not make an arm64 core-elx image possible: the Membrane precompiled
+  # archives this release depends on are published for linux_x86 only.
+  defp shipped_erts do
+    System.get_env("SERVICERADAR_RELEASE_ERTS") || true
   end
 end

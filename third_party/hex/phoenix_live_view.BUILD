@@ -33,7 +33,6 @@ mix_app(
     deps = [
         "@hex_igniter//:erlang_app",
         "@hex_jason//:erlang_app",
-        "@hex_lazy_html//:erlang_app",
         "@hex_phoenix//:erlang_app",
         "@hex_phoenix_html//:erlang_app",
         "@hex_phoenix_template//:erlang_app",

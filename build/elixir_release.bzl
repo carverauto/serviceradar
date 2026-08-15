@@ -96,11 +96,60 @@ print("dedupe: %d files -> symlinks, %.0f MB saved" % (links, saved / 1048576))
 __DEDUPE__
 """
 
+# The two erts_* attributes below, as one condition in one place rather than repeated at each
+# release. Every Elixir release passes both; on amd64 they resolve to None and the rule falls
+# back to `include_erts: true`, which is what the build has always done.
+SHIPPED_ERTS_OTP_ROOT = select({
+    "//build/platforms:target_linux_arm64": "@otp_28_1_linux_arm64//:otp_root",
+    "//conditions:default": None,
+})
+
+SHIPPED_ERTS_ROOT_MARKER = select({
+    "//build/platforms:target_linux_arm64": "@otp_28_1_linux_arm64//:root_marker",
+    "//conditions:default": None,
+})
+
 def _impl(ctx):
     (erlang_home, _, erlang_runfiles) = erlang_dirs(ctx)
     (elixir_home, elixir_runfiles) = elixir_dirs(ctx)
 
     tar_out = ctx.outputs.out
+
+    # The ERTS to SHIP, when it is not the one running the build.
+    #
+    # `mix release` collapses two roles into one OTP: the VM that assembles the release, and
+    # the source of the ERTS + OTP applications it copies into it. Mix takes the second from
+    # :code.root_dir() of the first, so a release assembled by an amd64 VM ships amd64 ERTS no
+    # matter what --platforms says. Nothing in the Erlang or Elixir toolchains carries a CPU
+    # constraint, so toolchain resolution cannot separate the two either.
+    #
+    # `include_erts:` as a path is the only seam Mix offers, and it splits them exactly:
+    # erts_source is copied verbatim, and erts_lib_dir -- derived as dirname(erts_source)/lib
+    # -- becomes the OTP root that load_apps/6 pulls kernel, stdlib, crypto and ssl from,
+    # NIFs included. So one path redirects the whole runtime while the amd64 OTP keeps
+    # running mix itself. See the @otp_28_1_linux_arm64 comment in //MODULE.bazel.
+    #
+    # Left unset, nothing changes: mix.exs falls back to `include_erts: true`, which is the
+    # pre-existing behaviour and remains correct for an amd64 target.
+    erts_export = ""
+    erts_inputs = []
+    if ctx.attr.erts_otp_root:
+        if not ctx.file.erts_root_marker:
+            fail("erts_otp_root requires erts_root_marker, the file whose parent is the OTP root")
+        erts_inputs = ctx.files.erts_otp_root
+        erts_export = """
+# Absolute: mix runs from $WORKDIR, not the execroot, so a relative path would not resolve.
+SHIP_OTP_ROOT="$EXECROOT/{marker_dir}"
+SHIP_ERTS=$(find "$SHIP_OTP_ROOT" -maxdepth 1 -mindepth 1 -type d -name 'erts-*' -print | head -n1)
+if [ -z "$SHIP_ERTS" ]; then
+    echo "no erts-* directory under $SHIP_OTP_ROOT -- erts_otp_root is not an OTP root" >&2
+    exit 1
+fi
+# Read by `include_erts:` in the project's releases/0. The name is checked there rather than
+# here, so a project that has not opted in ignores this and keeps shipping the build's own ERTS.
+export SERVICERADAR_RELEASE_ERTS="$SHIP_ERTS"
+echo "shipping ERTS from $SERVICERADAR_RELEASE_ERTS"
+""".format(marker_dir = ctx.file.erts_root_marker.dirname)
 
     # The whole point of the rule: the applications to ship are read off a provider,
     # transitively, instead of being listed by hand as source directories. `flat_deps`
@@ -231,6 +280,8 @@ export MIX_ENV={mix_env}
 export HEX_OFFLINE=1
 export ERL_COMPILER_OPTIONS=deterministic
 
+{erts_export}
+
 # Mix refuses to start when it cannot resolve an SCM for a dependency named in mix.exs --
 # even one it will never fetch, because HEX_OFFLINE only stops the network, it does not
 # remove the requirement that the Hex SCM be *registered*. Installed from a declared
@@ -356,11 +407,12 @@ tar -czf "$EXECROOT/{tar_out}" --owner=10001 --group=10001 -C "$PACKAGED" .
         # With no name, `mix release` assembles the implicit release named after the app,
         # which is exactly what mix_release did.
         release_name = ctx.attr.release_name + " " if ctx.attr.release_name else "",
+        erts_export = erts_export,
         tar_out = tar_out.path,
     )
 
     inputs = depset(
-        direct = ctx.files.srcs + ctx.files.archives + erl_libs_files + overlay_files,
+        direct = ctx.files.srcs + ctx.files.archives + erl_libs_files + overlay_files + erts_inputs,
         transitive = [
             erlang_runfiles.files,
             elixir_runfiles.files,
@@ -400,6 +452,13 @@ elixir_release = rule(
         # at the emission site: `mix release` refuses to assemble when a compile_env key
         # differs between compile time and release time.
         "extra_config": attr.string_list(),
+        # A complete OTP tree to ship as the release's runtime, for a target architecture the
+        # build host cannot execute. Both attributes or neither: the marker is what locates
+        # the root, because a filegroup's file order is unspecified. Pass them from a
+        # select() on //build/platforms:target_linux_arm64 -- the default (unset) is the
+        # amd64 path, where the build's own OTP is already the right one.
+        "erts_otp_root": attr.label(allow_files = True),
+        "erts_root_marker": attr.label(allow_single_file = True),
         "mix_env": attr.string(default = "prod"),
         "out": attr.output(mandatory = True),
     },

@@ -96,7 +96,7 @@ archive_override(
 # Registry -- drop this override once it is published and the bazel_dep above resolves on its own.
 git_override(
     module_name = "rules_erlang",
-    commit = "aea7fae760ec8338f2fff36e1a5e2c8a143bd0cf",
+    commit = "13977b3309fd0b0d6795f322cffd86a8c161be64",
     remote = "https://github.com/bazelverse/rules_erlang.git",
 )
 
@@ -132,11 +132,31 @@ erlang_config_ext = use_extension("@rules_erlang//bzlmod:extensions.bzl", "erlan
 # Prebuilt OTP binary release rather than an otp_src build. Same version as before; the
 # sha256 is the one builds.hex.pm publishes for this archive in its builds.txt, and the
 # ubuntu-24.04 build matches both the RBE executor and the ubuntu_noble image bases.
+# exec_compatible_with is what keeps this from matching on a Mac. It is a Linux ELF; without
+# the constraint it also wins resolution on darwin, and `bazel run` of any Elixir target dies
+# with "Exit 126: cannot execute" -- which reads as a broken target, not a wrong toolchain.
 erlang_config_ext.prebuilt_erlang_from_hex_builds(
     name = "otp_28_1",
     arch = "amd64",
+    exec_compatible_with = ["@platforms//os:linux"],
     os = "ubuntu-24.04",
     sha256 = "6f7a95250a83f999909cf64dc375fd08809eb057f61b24eecdf2b3b44fe621ab",
+    version = "28.1",
+)
+
+# macOS builds OTP from source because there is nothing to download: builds.hex.pm publishes
+# OTP for Linux distributions only (ubuntu-22.04 and ubuntu-24.04 answer; every macOS spelling
+# 404s), and Homebrew/asdf/kerl offer no pinnable URL with a checksum. Same version as the
+# Linux pin, so the two toolchains stay interchangeable.
+#
+# This is the slow path -- a from-source OTP build, several minutes, once per developer -- but
+# it is confined to darwin exec. CI and RBE resolve the prebuilt above and keep the ~12s fetch.
+# Only local `bazel run`/`bazel test` of an Elixir target needs an OTP that runs on the host;
+# every sanctioned workflow goes through --config=ci and executes on Linux executors.
+erlang_config_ext.internal_erlang_from_github_release(
+    name = "otp_28_1_darwin",
+    exec_compatible_with = ["@platforms//os:macos"],
+    sha256 = "c7c6fe06a3bf0031187d4cb10d30e11de119b38bdba7cd277898f75d53bdb218",
     version = "28.1",
 )
 use_repo(erlang_config_ext, "erlang_config")
@@ -154,9 +174,21 @@ elixir_config_ext.prebuilt_elixir_from_hex_builds(
 )
 use_repo(elixir_config_ext, "elixir_config")
 
+# The arm64 counterpart is @otp_28_1_linux_arm64, declared with the other http_archives below.
+# It is a shipped payload, not a toolchain, so it is deliberately not registered here.
+
+# Linux first: it is the one every action resolves. The darwin pair is only reachable on a
+# Mac, where the Linux toolchains no longer match at all, so order between them is not load
+# bearing -- but keeping the hot one first means resolution stops at the first candidate for
+# every build that matters.
+#
+# One Elixir toolchain serves both. Elixir is BEAM bytecode, which is why
+# prebuilt_elixir_from_hex_builds takes no arch; it runs on whichever OTP resolves.
 register_toolchains(
     "@erlang_config//otp_28_1:toolchain_major",
     "@erlang_config//otp_28_1:toolchain_major_minor",
+    "@erlang_config//otp_28_1_darwin:toolchain_major",
+    "@erlang_config//otp_28_1_darwin:toolchain_major_minor",
     "@elixir_config//elixir_1_19_4:toolchain",
 )
 
@@ -427,6 +459,11 @@ filegroup(
 # openssl-sys: perl wrapper + point the build at the vendored openssl-src source. openssl-sys
 # builds a from-source (vendored) OpenSSL for libpq (pq-sys bundled), which is what makes the
 # build portable.
+#
+# Do NOT take rules_rs's "well-known annotation" suggestion of @openssl + OPENSSL_NO_VENDOR=1:
+# pq-src links against the OpenSSL openssl-sys builds, which is why both are pinned and
+# patched here. gen_build_script = "on" only silences that warning -- rules_rs branches on
+# "off" alone (repository_utils.bzl:117), so it changes nothing.
 crate.annotation(
     build_script_data = [
         "//third_party/rust_patches:openssl_perl_wrapper",
@@ -443,6 +480,7 @@ crate.annotation(
         "RULES_RUST_OPENSSL_SRC_DIR": "$(location @crates//:openssl_src_version_marker)",
     },
     crate = "openssl-sys",
+    gen_build_script = "on",
     repositories = ["crates"],
 )
 use_repo(crate, "crates")
@@ -460,9 +498,24 @@ rdp_connector_crates.from_cargo(
 # libz-sys must build the zlib it bundles and `static` is the only lever that works.
 # Annotation crate_features are merged with the resolved ones (compute_select treats them as
 # the always-on set), so this adds `static`.
+#
+# It is genuinely compiled: winscard asks flate2 for `zlib` on every non-wasm32 target.
+# rules_rs suggests @zlib (BCR) with the build script off, which would delete this workaround
+# outright -- worth doing, but it is a module-graph change needing a build across all five
+# RUST_PLATFORMS triples.
 rdp_connector_crates.annotation(
     crate = "libz-sys",
     crate_features = ["static"],
+    repositories = ["rdp_connector_crates"],
+)
+
+# aws-lc-sys is never compiled. Both rustls consumers here -- the probe and sspi -- pin
+# `ring`/`std`/`tls12` with default-features off, so aws-lc-rs is never enabled. rules_rs warns
+# anyway because it checks every lockfile package rather than what builds; adopting its
+# suggestion would add the @aws-lc module and a bindgen toolchain for zero actions.
+rdp_connector_crates.annotation(
+    crate = "aws-lc-sys",
+    gen_build_script = "on",
     repositories = ["rdp_connector_crates"],
 )
 use_repo(
@@ -520,6 +573,7 @@ oci_ext.pull(
     image = "registry.carverauto.dev/mirror/library/alpine:3.24",
     platforms = [
         "linux/amd64",
+        "linux/arm64/v8",
     ],
 )
 oci_ext.pull(
@@ -629,6 +683,7 @@ use_repo(
     "alpine_3_20_linux_arm64_v8",
     "alpine_3_24",
     "alpine_3_24_linux_amd64",
+    "alpine_3_24_linux_arm64_v8",
     "arc_runner",
     "arc_runner_linux_amd64",
     "cloudnativepg_postgresql_18",
@@ -864,6 +919,49 @@ http_file = use_repo_rule(
 http_archive = use_repo_rule(
     "@bazel_tools//tools/build_defs/repo:http.bzl",
     "http_archive",
+)
+
+# The arm64 OTP an arm64 Elixir image SHIPS. The amd64 pin above stays the one that RUNS the
+# build; `mix release` collapses both roles into one OTP, which is what blocks arm64 Elixir.
+#
+# NOT a second prebuilt_erlang_from_hex_builds. Neither rules_erlang nor rules_elixir puts a
+# CPU constraint on its toolchains, so resolution cannot pick an OTP by target arch -- a second
+# registered toolchain would be ambiguous, not selective. `include_erts:` in a release's
+# releases/0 is the seam instead, and it takes a path.
+#
+# That path must name the erts-* directory INSIDE a complete OTP root: Mix derives the OTP
+# application tree as dirname(erts_source)/lib, so kernel/stdlib/crypto and their priv/*.so
+# come from here too. A bare ERTS tree ships an aarch64 beam.smp with an x86-64 crypto.so --
+# assembles clean, dies at the first TLS handshake.
+#
+# Raw hex archive rather than a relocated one because Mix.Release.copy_erts/1 rewrites bin/erl
+# with a relative ROOTDIR. Same version and upstream ref as the amd64 pin, so both carry
+# erts-16.1 -- the boot script names that version and the two must agree.
+http_archive(
+    name = "otp_28_1_linux_arm64",
+    build_file_content = """
+# `Install` is the archive's only top-level FILE, so its $(location) parent is the OTP root --
+# which a filegroup of 30k files in unspecified order cannot give you.
+filegroup(
+    name = "root_marker",
+    srcs = ["Install"],
+    visibility = ["//visibility:public"],
+)
+
+filegroup(
+    name = "otp_root",
+    # Excluded paths hold spaces and cannot be passed to the action shell; all are test data.
+    srcs = glob(
+        allow_empty = False,
+        include = ["**"],
+        exclude = ["**/* *"],
+    ),
+    visibility = ["//visibility:public"],
+)
+""",
+    sha256 = "4585a32725c8eebcd9154cd8884366c93077895d1044974f1b728df5eae2cee9",
+    strip_prefix = "OTP-28.1",
+    urls = ["https://builds.hex.pm/builds/otp/arm64/ubuntu-24.04/OTP-28.1.tar.gz"],
 )
 
 # Hex, the package manager itself, built from source as a Mix archive by rules_elixir.
@@ -1350,6 +1448,26 @@ http_file(
     ],
 )
 
+# arm64 siblings of the two above, same snapshot and same version-revision string, for the
+# multi-arch agent_gateway image. Debian publishes both architectures from one source upload,
+# so these track the amd64 pins exactly -- bump the four together or the image ships mismatched
+# OpenSSL across its two entries.
+http_file(
+    name = "debian_openssl_arm64_deb",
+    sha256 = "e7ba824de1e659c12e81f885bc0757a50c4d7a9f71de02687ad63d5a9e936e00",
+    urls = [
+        "https://snapshot.debian.org/archive/debian-security/20260609T214505Z/pool/updates/main/o/openssl/openssl_3.0.20-1~deb12u2_arm64.deb",
+    ],
+)
+
+http_file(
+    name = "debian_libssl3_arm64_deb",
+    sha256 = "a256e03cc3abd7243ac5c6ee91a9deb56478221ef0d3c2b0748551e13140c0bf",
+    urls = [
+        "https://snapshot.debian.org/archive/debian-security/20260609T214505Z/pool/updates/main/o/openssl/libssl3_3.0.20-1~deb12u2_arm64.deb",
+    ],
+)
+
 http_archive(
     name = "crane_linux_amd64",
     build_file_content = """
@@ -1527,10 +1645,26 @@ http_file(
 )
 
 http_file(
+    name = "alpine_iputils_ping_apk_arm64",
+    sha256 = "ea1a562e247b8656ce3acd39378f2e8747b867175b01ad6189504daf4a3937c5",
+    urls = [
+        "https://dl-cdn.alpinelinux.org/alpine/v3.20/main/aarch64/iputils-ping-20240117-r0.apk",
+    ],
+)
+
+http_file(
     name = "alpine_nmap_apk",
     sha256 = "4259d97c8f0d59c74e090950d1b33d303da3d1122ea3a636308786292996d131",
     urls = [
         "https://dl-cdn.alpinelinux.org/alpine/v3.20/main/x86_64/nmap-7.95-r0.apk",
+    ],
+)
+
+http_file(
+    name = "alpine_nmap_apk_arm64",
+    sha256 = "c3f029f9d57cea11918aced42eeafda13dd522619868a196f0b36d03d9bd2043",
+    urls = [
+        "https://dl-cdn.alpinelinux.org/alpine/v3.20/main/aarch64/nmap-7.95-r0.apk",
     ],
 )
 
@@ -1543,10 +1677,26 @@ http_file(
 )
 
 http_file(
+    name = "alpine_netcat_openbsd_apk_arm64",
+    sha256 = "d7a07cf53de0584b12ae3233df7640e7815db2fc5c6ba69a76510668b0c70733",
+    urls = [
+        "https://dl-cdn.alpinelinux.org/alpine/v3.20/main/aarch64/netcat-openbsd-1.226-r0.apk",
+    ],
+)
+
+http_file(
     name = "alpine_inetutils_telnet_apk",
     sha256 = "75e4ddbbd4f2f59558ca2603f38ef22cc48bb8f0b20f2f232a7e8ed1a40e07f6",
     urls = [
         "https://dl-cdn.alpinelinux.org/alpine/v3.20/community/x86_64/inetutils-telnet-2.5-r0.apk",
+    ],
+)
+
+http_file(
+    name = "alpine_inetutils_telnet_apk_arm64",
+    sha256 = "d115b06dde9d1163fa1ce9e96a99492c7a5b559bc87b854f80bd4fcdffbc7974",
+    urls = [
+        "https://dl-cdn.alpinelinux.org/alpine/v3.20/community/aarch64/inetutils-telnet-2.5-r0.apk",
     ],
 )
 
@@ -1559,10 +1709,26 @@ http_file(
 )
 
 http_file(
+    name = "alpine_libcap2_apk_arm64",
+    sha256 = "80cfbaffa9b278a4a4cbb0ebe0290232925dcaa9d6b45673b2b1cd6c6d92b200",
+    urls = [
+        "https://dl-cdn.alpinelinux.org/alpine/v3.20/main/aarch64/libcap2-2.78-r0.apk",
+    ],
+)
+
+http_file(
     name = "alpine_libpcap_apk",
     sha256 = "79b8536d0854612169de44eea053423daa07fde6ab836edaee9444143090d8f3",
     urls = [
         "https://dl-cdn.alpinelinux.org/alpine/v3.20/main/x86_64/libpcap-1.10.4-r1.apk",
+    ],
+)
+
+http_file(
+    name = "alpine_libpcap_apk_arm64",
+    sha256 = "ad4265e548c457143d2b43f0b972c17670150bc2dfe6ad65da8ed6fdb0b7b920",
+    urls = [
+        "https://dl-cdn.alpinelinux.org/alpine/v3.20/main/aarch64/libpcap-1.10.4-r1.apk",
     ],
 )
 
@@ -1575,6 +1741,14 @@ http_file(
 )
 
 http_file(
+    name = "alpine_libbsd_apk_arm64",
+    sha256 = "5685d7302b4bbb5665e6ad3e59c61e4cfa69bd2c78911f4fae5d2439b0088eba",
+    urls = [
+        "https://dl-cdn.alpinelinux.org/alpine/v3.20/main/aarch64/libbsd-0.12.2-r0.apk",
+    ],
+)
+
+http_file(
     name = "alpine_libmd_apk",
     sha256 = "831be0b851d8dbf0cb9e9412cba2e799d24cebea966660bb863426c6d18e88eb",
     urls = [
@@ -1583,10 +1757,26 @@ http_file(
 )
 
 http_file(
+    name = "alpine_libmd_apk_arm64",
+    sha256 = "48ef621c994f1ed7a56b6ecac6534a0dff889e067384e5863a742adf73b3b2c2",
+    urls = [
+        "https://dl-cdn.alpinelinux.org/alpine/v3.20/main/aarch64/libmd-1.1.0-r0.apk",
+    ],
+)
+
+http_file(
     name = "alpine_bash_apk",
     sha256 = "132bb6f77fcad208b44b54d1fd73cb5e02cfea18f884b399f8de0e38b5134a93",
     urls = [
         "https://dl-cdn.alpinelinux.org/alpine/v3.20/main/x86_64/bash-5.2.26-r0.apk",
+    ],
+)
+
+http_file(
+    name = "alpine_bash_apk_arm64",
+    sha256 = "081b0a361203d37732fdc65412c9bb2d5944e7dc198c76d23b4cb30743d8c461",
+    urls = [
+        "https://dl-cdn.alpinelinux.org/alpine/v3.20/main/aarch64/bash-5.2.26-r0.apk",
     ],
 )
 
@@ -1607,10 +1797,26 @@ http_file(
 )
 
 http_file(
+    name = "alpine_libncursesw_apk_arm64",
+    sha256 = "0def98cbfab5e85e4ddfacd85840d79039f60a7e9a7717294ffa68a9c63370d8",
+    urls = [
+        "https://dl-cdn.alpinelinux.org/alpine/v3.20/main/aarch64/libncursesw-6.4_p20240420-r2.apk",
+    ],
+)
+
+http_file(
     name = "alpine_ncurses_terminfo_base_apk",
     sha256 = "555948e6b67d4bddc213673843a63bbd3d30548133bdff8aff9e66988285ae7e",
     urls = [
         "https://dl-cdn.alpinelinux.org/alpine/v3.20/main/x86_64/ncurses-terminfo-base-6.4_p20240420-r2.apk",
+    ],
+)
+
+http_file(
+    name = "alpine_ncurses_terminfo_base_apk_arm64",
+    sha256 = "82141d0035a58317791e139a0b68c0837c98c0836bc0bafb10bb16adf0bcc7bd",
+    urls = [
+        "https://dl-cdn.alpinelinux.org/alpine/v3.20/main/aarch64/ncurses-terminfo-base-6.4_p20240420-r2.apk",
     ],
 )
 
@@ -1623,10 +1829,26 @@ http_file(
 )
 
 http_file(
+    name = "alpine_readline_apk_arm64",
+    sha256 = "9e69da5ea8ff8c0bdde1ffa272ec4287684eebda8fdfe0f4a45d842d0ff787e6",
+    urls = [
+        "https://dl-cdn.alpinelinux.org/alpine/v3.20/main/aarch64/readline-8.2.10-r0.apk",
+    ],
+)
+
+http_file(
     name = "alpine_3_24_bash_apk",
     sha256 = "4ad962f26fb3c68365171233fe61e3c51bbee1cab35e8dc661198233daeab0dd",
     urls = [
         "https://dl-cdn.alpinelinux.org/alpine/v3.24/main/x86_64/bash-5.3.9-r1.apk",
+    ],
+)
+
+http_file(
+    name = "alpine_3_24_bash_apk_arm64",
+    sha256 = "95f4f976bdf2f4ca18ff41c32916eb6d7b12a0dae12504d55d04427460d6542f",
+    urls = [
+        "https://dl-cdn.alpinelinux.org/alpine/v3.24/main/aarch64/bash-5.3.9-r1.apk",
     ],
 )
 
@@ -1639,10 +1861,26 @@ http_file(
 )
 
 http_file(
+    name = "alpine_3_24_openssl_apk_arm64",
+    sha256 = "d024c35b869e5d4f92478affbcefe09c99c2ba2ada6816f6885b3fad1151cdbc",
+    urls = [
+        "https://dl-cdn.alpinelinux.org/alpine/v3.24/main/aarch64/openssl-3.5.7-r0.apk",
+    ],
+)
+
+http_file(
     name = "alpine_3_24_libssl3_apk",
     sha256 = "84b1da6cb64ab8018c3dcfb80647c03b14d609de3d49ff90dd8356f63836217e",
     urls = [
         "https://dl-cdn.alpinelinux.org/alpine/v3.24/main/x86_64/libssl3-3.5.7-r0.apk",
+    ],
+)
+
+http_file(
+    name = "alpine_3_24_libssl3_apk_arm64",
+    sha256 = "7b8f7b8b83d799987ad892ff16efd838368e778b4406bd5f4b046547ab7e5551",
+    urls = [
+        "https://dl-cdn.alpinelinux.org/alpine/v3.24/main/aarch64/libssl3-3.5.7-r0.apk",
     ],
 )
 
@@ -1655,10 +1893,26 @@ http_file(
 )
 
 http_file(
+    name = "alpine_3_24_libcrypto3_apk_arm64",
+    sha256 = "936ce77a0f5621c9ebc91395d01c62d1127b13e6981d5eb55cdcae7a389540d0",
+    urls = [
+        "https://dl-cdn.alpinelinux.org/alpine/v3.24/main/aarch64/libcrypto3-3.5.7-r0.apk",
+    ],
+)
+
+http_file(
     name = "alpine_3_24_readline_apk",
     sha256 = "766911ecb986a6c5cf0841a6b556cd1e9dbbf22b3559726de32416486cd15c81",
     urls = [
         "https://dl-cdn.alpinelinux.org/alpine/v3.24/main/x86_64/readline-8.3.3-r1.apk",
+    ],
+)
+
+http_file(
+    name = "alpine_3_24_readline_apk_arm64",
+    sha256 = "9f0ae0923c02b0d6aba62e9173542b65396ba3f0efefcbf087ea32f1120e7b34",
+    urls = [
+        "https://dl-cdn.alpinelinux.org/alpine/v3.24/main/aarch64/readline-8.3.3-r1.apk",
     ],
 )
 
@@ -1671,10 +1925,26 @@ http_file(
 )
 
 http_file(
+    name = "alpine_3_24_libncursesw_apk_arm64",
+    sha256 = "51a7aa4b3ec40b144d0801c0544e0a9f62e2a41d04b6067bb5e95786040741c6",
+    urls = [
+        "https://dl-cdn.alpinelinux.org/alpine/v3.24/main/aarch64/libncursesw-6.6_p20260516-r0.apk",
+    ],
+)
+
+http_file(
     name = "alpine_3_24_ncurses_terminfo_base_apk",
     sha256 = "ce83be6d0bd10584a53c3a5868cc1595ce5f0f8e0b621f8f7f70b6144e521fc9",
     urls = [
         "https://dl-cdn.alpinelinux.org/alpine/v3.24/main/x86_64/ncurses-terminfo-base-6.6_p20260516-r0.apk",
+    ],
+)
+
+http_file(
+    name = "alpine_3_24_ncurses_terminfo_base_apk_arm64",
+    sha256 = "e0c546b9461bdce206a90bc720cb69aa4628b5a5b8d908c3e5084e00f28f6a9d",
+    urls = [
+        "https://dl-cdn.alpinelinux.org/alpine/v3.24/main/aarch64/ncurses-terminfo-base-6.6_p20260516-r0.apk",
     ],
 )
 
@@ -1687,10 +1957,26 @@ http_file(
 )
 
 http_file(
+    name = "alpine_3_24_postgresql_common_apk_arm64",
+    sha256 = "ecddbd6272f5034f30d78ff59634c07f862a13a2ad3d29078c0e7985b827fc73",
+    urls = [
+        "https://dl-cdn.alpinelinux.org/alpine/v3.24/main/aarch64/postgresql-common-1.3-r0.apk",
+    ],
+)
+
+http_file(
     name = "alpine_3_24_postgresql18_client_apk",
     sha256 = "d7edf2ff2d70dcb63a88d7b95b08134c4de644a4f5467807bed2ba70327f6011",
     urls = [
         "https://dl-cdn.alpinelinux.org/alpine/v3.24/main/x86_64/postgresql18-client-18.4-r0.apk",
+    ],
+)
+
+http_file(
+    name = "alpine_3_24_postgresql18_client_apk_arm64",
+    sha256 = "a92cb2f06b43d262521b84f85f529f774d75362cceae9d3e8aaeb45406befa8b",
+    urls = [
+        "https://dl-cdn.alpinelinux.org/alpine/v3.24/main/aarch64/postgresql18-client-18.4-r0.apk",
     ],
 )
 
@@ -1703,6 +1989,14 @@ http_file(
 )
 
 http_file(
+    name = "alpine_3_24_libpq_apk_arm64",
+    sha256 = "d6e4808216810535808523980a78608569be2318cf05e6034ffb03f519e91a56",
+    urls = [
+        "https://dl-cdn.alpinelinux.org/alpine/v3.24/main/aarch64/libpq-18.4-r0.apk",
+    ],
+)
+
+http_file(
     name = "alpine_3_24_lz4_libs_apk",
     sha256 = "3ad4912ab8ecf5f6236fdb751f88243006b3a8f152684e455b781e16284dd298",
     urls = [
@@ -1711,10 +2005,26 @@ http_file(
 )
 
 http_file(
+    name = "alpine_3_24_lz4_libs_apk_arm64",
+    sha256 = "af6cbe553adda941e04ac40cf0123455b714d65392472389113e7d6dcebbd8d8",
+    urls = [
+        "https://dl-cdn.alpinelinux.org/alpine/v3.24/main/aarch64/lz4-libs-1.10.0-r1.apk",
+    ],
+)
+
+http_file(
     name = "alpine_3_24_zstd_libs_apk",
     sha256 = "23c6065b0049b2406441564bcf0032515a43f78e80d76fcb85535a3803ef5d4e",
     urls = [
         "https://dl-cdn.alpinelinux.org/alpine/v3.24/main/x86_64/zstd-libs-1.5.7-r2.apk",
+    ],
+)
+
+http_file(
+    name = "alpine_3_24_zstd_libs_apk_arm64",
+    sha256 = "2bb5136c89f5b0bbe1554c8915a3b520d5aa63ae2a51d4d821eb81698db5a818",
+    urls = [
+        "https://dl-cdn.alpinelinux.org/alpine/v3.24/main/aarch64/zstd-libs-1.5.7-r2.apk",
     ],
 )
 
@@ -1751,6 +2061,18 @@ exports_files(["nats"])
     strip_prefix = "nats-0.3.0-linux-amd64",
     urls = [
         "https://github.com/nats-io/natscli/releases/download/v0.3.0/nats-0.3.0-linux-amd64.zip",
+    ],
+)
+
+http_archive(
+    name = "natscli_linux_arm64",
+    build_file_content = """
+exports_files(["nats"])
+""",
+    sha256 = "88020e82d4b65037d22b6d0313e61f1ceae5a24c68cad0dd405e54c4a4d7fe1c",
+    strip_prefix = "nats-0.3.0-linux-arm64",
+    urls = [
+        "https://github.com/nats-io/natscli/releases/download/v0.3.0/nats-0.3.0-linux-arm64.zip",
     ],
 )
 

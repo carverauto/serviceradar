@@ -203,7 +203,7 @@ Only the Bazel action image is customized today. After updating `docker/Dockerfi
      -t registry.carverauto.dev/serviceradar/rbe-executor:v1.0.24.3 \
      --push .
    ```
-2. Bump the tag everywhere it is referenced for Bazel (`MODULE.bazel`, `MODULE.bazel.lock`, `BUILD.bazel`, `build/rbe/BUILD`, `build/platforms/BUILD.bazel`, `buildbuddy.yaml`, and `warmup_additional_images` in `k8s/buildbuddy/values.yaml`).
+2. Bump the tag everywhere it is referenced for Bazel (`MODULE.bazel`, `MODULE.bazel.lock`, `build/rbe/BUILD`, `buildbuddy.yaml`, and `warmup_additional_images` in `k8s/buildbuddy/values.yaml`). `build/platforms/BUILD.bazel` is no longer on this list: the two RBE platforms that pinned the tag there were dead and have been removed.
 3. (Optional) If we ever choose to run a custom executor pod image, update `k8s/buildbuddy/values.yaml` and redeploy via `./k8s/buildbuddy/deploy.sh`.
 
 Remote builds automatically use the refreshed Bazel action image as soon as the new tag is referenced in the Bazel exec platform configs—no Helm redeploy is required for that step.

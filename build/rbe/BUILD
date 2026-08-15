@@ -2,9 +2,11 @@
 #
 # The action image is Ubuntu 24.04 (//docker/Dockerfile.rbe).
 #
-# This is the platform //.bazelrc actually references. Note there is a SECOND, unused
-# `rbe_platform` in the root //BUILD.bazel with different constraints; nothing points at
-# it. Edit this one.
+# This is the platform //.bazelrc actually references, and now the only one. Two rival
+# definitions have since been removed rather than reconciled: a second `rbe_platform` in the
+# root //BUILD.bazel that claimed clang for a gcc image (see the note left in its place), and
+# the `rbe_linux_amd64` / `rbe_linux_arm64` pair in //build/platforms, orphaned in September
+# 2025 and maintained for ten months after. Edit this one.
 #
 # DELIBERATELY NO EstimatedCPU / EstimatedMemory.
 #
