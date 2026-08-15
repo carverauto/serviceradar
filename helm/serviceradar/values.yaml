@@ -400,7 +400,10 @@ core:
     sweepExecutionDays: 30
     trivyDays: 30
     endpointInventoryDays: 30
-    datasetSnapshotDays: 14
+    # Provider CIDR snapshots are ~410k rows. Keep the active copy plus one
+    # inactive rollback; drop the rest instead of accumulating two weeks.
+    datasetSnapshotDays: 2
+    datasetSnapshotKeepLast: 1
     topologyLinkDays: 30
   # Ansible integration: AWX/AAP playbook execution + observability.
   # Per-controller / per-repository / per-schedule overrides are stored

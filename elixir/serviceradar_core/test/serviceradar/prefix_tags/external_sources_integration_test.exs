@@ -48,6 +48,11 @@ defmodule ServiceRadar.PrefixTags.ExternalSourcesIntegrationTest do
       [provider_snapshot_id]
     )
 
+    Repo.query!(
+      "UPDATE platform.netflow_provider_dataset_snapshots SET record_count = 1 WHERE id = $1",
+      [provider_snapshot_id]
+    )
+
     assert {:ok, %{row_count: 1, snapshot_at: %DateTime{}}} =
              ProviderSource.reload(broadcast?: false)
 

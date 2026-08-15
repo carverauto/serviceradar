@@ -13,6 +13,7 @@ defmodule ServiceRadar.Observability.DataRetentionWorker do
   alias ServiceRadar.ColdTier.RetentionFence
   alias ServiceRadar.Inventory.EndpointInventoryRetention
   alias ServiceRadar.Inventory.EndpointInventorySettingsRuntime
+  alias ServiceRadar.Observability.DatasetSnapshotPrune
   alias ServiceRadar.Repo
 
   require Logger
@@ -40,7 +41,8 @@ defmodule ServiceRadar.Observability.DataRetentionWorker do
   @default_sweep_execution_retention_days 30
   @default_trivy_retention_days 30
   @default_endpoint_inventory_retention_days 30
-  @default_dataset_snapshot_retention_days 4
+  @default_dataset_snapshot_retention_days 2
+  @default_dataset_snapshot_keep_last 1
   @default_topology_link_retention_days 30
   @query_timeout_ms 120_000
 
@@ -65,12 +67,18 @@ defmodule ServiceRadar.Observability.DataRetentionWorker do
       prune_sweep_group_executions(config, batch_size),
       prune_trivy_reports(config, batch_size),
       prune_endpoint_inventory(config, batch_size),
-      prune_inactive_dataset_snapshots(
+      prune_dataset_snapshots(
         "netflow_provider_dataset_snapshots",
+        "netflow_provider_cidrs",
         config,
         batch_size
       ),
-      prune_inactive_dataset_snapshots("netflow_oui_dataset_snapshots", config, batch_size),
+      prune_dataset_snapshots(
+        "netflow_oui_dataset_snapshots",
+        "netflow_oui_prefixes",
+        config,
+        batch_size
+      ),
       prune_mapper_topology_links(config, batch_size)
     ]
 
@@ -397,22 +405,33 @@ defmodule ServiceRadar.Observability.DataRetentionWorker do
     end
   end
 
-  defp prune_inactive_dataset_snapshots(table_name, config, batch_size) do
-    retention_days =
-      Keyword.get(
-        config,
-        :dataset_snapshot_retention_days,
-        @default_dataset_snapshot_retention_days
-      )
+  defp prune_dataset_snapshots(snapshot_table, entry_table, config, batch_size) do
+    case DatasetSnapshotPrune.run(snapshot_table, entry_table,
+           retention_days:
+             Keyword.get(
+               config,
+               :dataset_snapshot_retention_days,
+               @default_dataset_snapshot_retention_days
+             ),
+           keep_last:
+             Keyword.get(
+               config,
+               :dataset_snapshot_keep_last,
+               @default_dataset_snapshot_keep_last
+             ),
+           entry_batch_size: batch_size
+         ) do
+      {:ok, %{deleted_snapshots: snapshots, deleted_entries: entries}} ->
+        snapshots + entries
 
-    prune_by_timestamp(
-      table_name,
-      "id",
-      "fetched_at",
-      retention_days,
-      batch_size,
-      "AND is_active = FALSE"
-    )
+      {:error, reason} ->
+        Logger.warning("Failed to prune retained dataset snapshots",
+          table: snapshot_table,
+          reason: inspect(reason)
+        )
+
+        0
+    end
   end
 
   defp prune_mapper_topology_links(config, batch_size) do
