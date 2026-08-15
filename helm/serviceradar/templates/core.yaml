@@ -688,7 +688,9 @@ spec:
         - name: SERVICERADAR_ENDPOINT_INVENTORY_RETENTION_DAYS
           value: {{ default 30 $observabilityRetention.endpointInventoryDays | quote }}
         - name: SERVICERADAR_DATASET_SNAPSHOT_RETENTION_DAYS
-          value: {{ default 14 $observabilityRetention.datasetSnapshotDays | quote }}
+          value: {{ default 2 $observabilityRetention.datasetSnapshotDays | quote }}
+        - name: SERVICERADAR_DATASET_SNAPSHOT_KEEP_LAST
+          value: {{ default 1 $observabilityRetention.datasetSnapshotKeepLast | quote }}
         - name: SERVICERADAR_TOPOLOGY_LINK_RETENTION_DAYS
           value: {{ default 30 $observabilityRetention.topologyLinkDays | quote }}
         - name: ANSIBLE_RETENTION_RUN_DETAIL_DAYS

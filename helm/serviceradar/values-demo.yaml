@@ -589,6 +589,8 @@ core:
     flowAttributionMinutes: 20
     otelTracesChunkIntervalHours: 6
     logsChunkIntervalHours: 6
+    datasetSnapshotDays: 2
+    datasetSnapshotKeepLast: 1
   deviceEnrichment:
     rulesDir: "/var/lib/serviceradar/rules/device-enrichment"
     filesystemOverrides:

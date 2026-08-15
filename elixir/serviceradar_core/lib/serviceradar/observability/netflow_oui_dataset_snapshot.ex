@@ -4,5 +4,6 @@ defmodule ServiceRadar.Observability.NetflowOuiDatasetSnapshot do
   """
 
   use ServiceRadar.Observability.NetflowDatasetSnapshotResource,
-    table: "netflow_oui_dataset_snapshots"
+    table: "netflow_oui_dataset_snapshots",
+    entry_table: "netflow_oui_prefixes"
 end

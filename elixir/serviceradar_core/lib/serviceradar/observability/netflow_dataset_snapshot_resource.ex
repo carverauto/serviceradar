@@ -3,6 +3,8 @@ defmodule ServiceRadar.Observability.NetflowDatasetSnapshotResource do
 
   defmacro __using__(opts) do
     table = Keyword.fetch!(opts, :table)
+    entry_table = Keyword.fetch!(opts, :entry_table)
+    prune_worker = Module.concat(__CALLER__.module, PruneInactiveWorker)
     is_active_field = Macro.var(:is_active, nil)
     id_field = Macro.var(:id, nil)
 
@@ -25,7 +27,8 @@ defmodule ServiceRadar.Observability.NetflowDatasetSnapshotResource do
       use Ash.Resource,
         domain: ServiceRadar.Observability,
         data_layer: AshPostgres.DataLayer,
-        authorizers: [Ash.Policy.Authorizer]
+        authorizers: [Ash.Policy.Authorizer],
+        extensions: [AshOban]
 
       postgres do
         table unquote(table)
@@ -34,11 +37,23 @@ defmodule ServiceRadar.Observability.NetflowDatasetSnapshotResource do
         migrate? false
       end
 
+      oban do
+        scheduled_actions do
+          schedule :prune_inactive, "37 * * * *" do
+            action :prune_inactive
+            queue :maintenance
+            max_attempts 3
+            worker_module_name unquote(prune_worker)
+          end
+        end
+      end
+
       code_interface do
         define :create, action: :create
         define :active, action: :active
         define :by_id, action: :by_id
         define :promote, action: :promote
+        define :prune_inactive, action: :prune_inactive
       end
 
       actions do
@@ -64,6 +79,15 @@ defmodule ServiceRadar.Observability.NetflowDatasetSnapshotResource do
           change set_attribute(:is_active, true)
           change set_attribute(:promoted_at, &DateTime.utc_now/0)
         end
+
+        action :prune_inactive, :map do
+          run fn _input, _context ->
+            ServiceRadar.Observability.DatasetSnapshotPrune.run(
+              unquote(table),
+              unquote(entry_table)
+            )
+          end
+        end
       end
 
       policies do
@@ -74,6 +98,11 @@ defmodule ServiceRadar.Observability.NetflowDatasetSnapshotResource do
 
         policy action([:create, :promote]) do
           authorize_if actor_attribute_equals(:role, :system)
+        end
+
+        policy action(:prune_inactive) do
+          authorize_if actor_attribute_equals(:role, :system)
+          authorize_if ServiceRadar.Policies.Checks.ActorIsNil
         end
       end
 
