@@ -351,11 +351,13 @@ def scratch_service_image_amd64(
     shell and no busybox in here, so a script entrypoint or a CMD-SHELL healthcheck will not
     run, and neither failure is visible at build time.
 
-    `os` and `architecture` are literal attributes that rules_oci requires when there is no
-    base image to inherit them from, and the oci_image_index platform transition does NOT
-    populate them. Hardcoding architecture is precisely how an index comes to advertise two
-    platforms while both entries report amd64, so it goes through the same _platform_select
-    every base image uses.
+    `os`, `architecture` and `variant` are literal attributes that rules_oci requires
+    when there is no base image to inherit them from, and the oci_image_index platform
+    transition does NOT populate them. Hardcoding architecture is precisely how an index
+    comes to advertise two platforms while both entries report amd64, so they go through
+    the same _platform_select every base image uses. Alpine/Ubuntu arm64 bases already
+    carry variant v8; scratch must set it or the published index is `linux/arm64` and
+    `verify-oci-publish.sh` rejects it as missing `linux/arm64/v8`.
     """
 
     if env == None:
@@ -375,6 +377,7 @@ def scratch_service_image_amd64(
         name = name,
         architecture = _platform_select("amd64", "arm64"),
         os = "linux",
+        variant = _platform_select("", "v8"),
         tars = [":serviceradar_user_layer"] + extra_tars + [layer],
         entrypoint = entrypoint,
         cmd = cmd,

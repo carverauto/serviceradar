@@ -118,6 +118,9 @@ func collectPlatforms(t *testing.T, root, digest string, plat *descriptor, out m
 			t.Fatalf("image manifest %s has no platform descriptor", digest)
 		}
 		key := plat.Platform.OS + "/" + plat.Platform.Architecture
+		if plat.Platform.Variant != "" {
+			key += "/" + plat.Platform.Variant
+		}
 		if prev, dup := out[key]; dup {
 			t.Errorf("platform %s advertised twice (%s and %s): an index with two entries for "+
 				"the same platform is the bug this test exists to catch", key, prev, digest)
@@ -198,7 +201,7 @@ func verifyIndex(t *testing.T, name, root string) {
 		collectPlatforms(t, root, d.Digest, &d, platforms)
 	}
 
-	for _, want := range []string{"linux/amd64", "linux/arm64"} {
+	for _, want := range []string{"linux/amd64", "linux/arm64/v8"} {
 		if _, ok := platforms[want]; !ok {
 			t.Errorf("%s: index does not advertise %s (has %v)", name, want, keys(platforms))
 		}
@@ -212,6 +215,7 @@ func verifyIndex(t *testing.T, name, root string) {
 		readJSON(t, blobPath(root, man.Config.Digest), &cfg)
 
 		arch := strings.TrimPrefix(plat, "linux/")
+		arch, _, _ = strings.Cut(arch, "/")
 		if cfg.Architecture != arch {
 			t.Errorf("%s [%s]: config declares architecture %q but the index descriptor says %q",
 				name, plat, cfg.Architecture, arch)
