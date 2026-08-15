@@ -29,6 +29,11 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.Loader do
   require Logger
 
   @default_chunk_size 2_000
+  # Each coordinate row is ~16 bind params. Postgrex caps a statement at 65_535
+  # params; 2_000 rows stays well under that when a single NVD advisory expands
+  # to tens of CPE rows and the advisory-sized chunk would otherwise flush
+  # 20k+ coordinates in one insert_all.
+  @max_coordinate_insert 2_000
   @schema "platform"
 
   @type load_result :: %{
@@ -190,6 +195,14 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.Loader do
   defp insert_coordinates([]), do: 0
 
   defp insert_coordinates(rows) do
+    rows
+    |> Enum.chunk_every(@max_coordinate_insert)
+    |> Enum.reduce(0, fn batch, acc ->
+      acc + insert_coordinate_batch(batch)
+    end)
+  end
+
+  defp insert_coordinate_batch(rows) do
     {count, _} =
       Repo.insert_all("advisory_coordinates", rows,
         prefix: @schema,
