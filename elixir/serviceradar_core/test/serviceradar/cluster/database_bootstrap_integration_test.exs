@@ -30,6 +30,11 @@ defmodule ServiceRadar.Cluster.DatabaseBootstrapIntegrationTest do
   @moduletag :requires_app
   @moduletag timeout: 180_000
 
+  # Admin DDL (CREATE/DROP DATABASE) runs on its own Postgrex connection, where
+  # DBConnection's default :timeout is 15s. That default is sized for queries,
+  # not for dropping a database on a shared fixture under eight parallel shards.
+  @admin_query_timeout 120_000
+
   @result_prefix "BOOTSTRAP_RESULT:"
   @admin_url System.get_env("SERVICERADAR_TEST_ADMIN_URL") ||
                System.get_env("SRQL_TEST_ADMIN_URL")
@@ -597,19 +602,52 @@ defmodule ServiceRadar.Cluster.DatabaseBootstrapIntegrationTest do
 
   defp create_database!(admin_opts, database) do
     with_admin_connection!(admin_opts, fn conn ->
-      Postgrex.query!(conn, "CREATE DATABASE #{quote_ident(database)}", [])
+      Postgrex.query!(conn, "CREATE DATABASE #{quote_ident(database)}", [],
+        timeout: @admin_query_timeout
+      )
     end)
   end
 
   defp drop_database!(admin_opts, database) do
     with_admin_connection!(admin_opts, fn conn ->
+      # Runs from on_exit, and it used to take the whole shard down with
+      # `57014 query_canceled`.
+      #
+      # pg_terminate_backend/1 only REQUESTS termination; it returns before the
+      # backend is gone. DROP DATABASE then waits for every remaining session,
+      # so any backend still dying -- or one that reconnected in the gap --
+      # blocked the drop until statement_timeout cancelled it, failing a
+      # cleanup callback rather than a test.
+      #
+      # WITH (FORCE) folds the terminate into the drop itself (PG13+; the
+      # fixture is PG18), which removes the gap.
+      #
+      # There are TWO timeouts here and the server-side one is the less
+      # important of the pair. `57014 ... canceling statement due to user
+      # request` is what Postgres reports when the CLIENT cancels, and DBConnection
+      # cancels at its default :timeout of 15s -- the log names it exactly:
+      #
+      #   client #PID<...> (ExUnit.OnExitHandler) timed out because it queued
+      #   and checked out the connection for longer than 15000ms
+      #
+      # So clearing statement_timeout alone does not help: the drop is killed
+      # from this side. @admin_query_timeout is what actually keeps a slow but
+      # progressing drop alive on a loaded shard.
+      Postgrex.query!(conn, "SET statement_timeout = 0", [], timeout: @admin_query_timeout)
+
       Postgrex.query!(
         conn,
-        "SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = $1",
-        [database]
+        "SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = $1 AND pid <> pg_backend_pid()",
+        [database],
+        timeout: @admin_query_timeout
       )
 
-      Postgrex.query!(conn, "DROP DATABASE IF EXISTS #{quote_ident(database)}", [])
+      Postgrex.query!(
+        conn,
+        "DROP DATABASE IF EXISTS #{quote_ident(database)} WITH (FORCE)",
+        [],
+        timeout: @admin_query_timeout
+      )
     end)
   end
 

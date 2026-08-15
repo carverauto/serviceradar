@@ -1,9 +1,9 @@
 defmodule ServiceRadarWebNGWeb.SRQL.CatalogCompositeTest do
   use ExUnit.Case, async: true
 
-  @moduletag :db_free
-
   alias ServiceRadarWebNGWeb.SRQL.Catalog
+
+  @moduletag :db_free
 
   defp devices(entities), do: Enum.find(entities, &(&1.id == "devices"))
 
