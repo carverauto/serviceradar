@@ -57,6 +57,7 @@ defmodule ServiceRadarWebNGWeb.Settings.CompositeChecksLive.Index do
        |> assign(:builder_in_sync, true)
        |> assign(:scope_count, nil)
        |> assign(:vantage_points, [])
+       |> assign(:device_facts, [])
        |> assign(:agents, [])
        |> assign(:rules, [])
        |> assign(:rule_columns, [])
@@ -92,7 +93,7 @@ defmodule ServiceRadarWebNGWeb.Settings.CompositeChecksLive.Index do
       socket
       |> assign(:page_title, "New Composite Check")
       |> assign(:editing, :new)
-      |> load_form(FormState.default_form())
+      |> load_form(FormState.default_form(), [], [])
       |> assign(:rules, [])
       |> assign(:rule_columns, [])
       |> assign(:sweep_context, [])
@@ -116,7 +117,11 @@ defmodule ServiceRadarWebNGWeb.Settings.CompositeChecksLive.Index do
       # opened against the one already open.
       |> keep_readiness_for(check)
       |> assign(:editing, check)
-      |> load_form(FormState.form_from_check(check), FormState.vantage_points_from_inputs(inputs))
+      |> load_form(
+        FormState.form_from_check(check),
+        FormState.vantage_points_from_inputs(inputs),
+        FormState.device_facts_from_inputs(inputs)
+      )
       |> assign(:rule_columns, RuleTable.columns(inputs))
       |> load_rules(check)
       |> load_sweep_context(inputs)
@@ -132,7 +137,7 @@ defmodule ServiceRadarWebNGWeb.Settings.CompositeChecksLive.Index do
     end
   end
 
-  defp load_form(socket, form, vantage_points \\ []) do
+  defp load_form(socket, form, vantage_points, device_facts) do
     {builder, in_sync?} = ScopeBuilder.parse_query_to_builder(form["scope_query"])
 
     socket
@@ -142,6 +147,7 @@ defmodule ServiceRadarWebNGWeb.Settings.CompositeChecksLive.Index do
     |> assign(:builder, builder)
     |> assign(:builder_in_sync, in_sync?)
     |> assign(:vantage_points, vantage_points)
+    |> assign(:device_facts, device_facts)
     |> assign(:agents, list_agents(socket))
     |> assign(:scope_count, count_scope(socket.assigns.current_scope, form["scope_query"]))
   end
@@ -222,6 +228,24 @@ defmodule ServiceRadarWebNGWeb.Settings.CompositeChecksLive.Index do
     if socket.assigns.can_manage do
       rows = socket.assigns.vantage_points ++ [FormState.blank_vantage_point()]
       {:noreply, assign_vantage_points(socket, rows)}
+    else
+      {:noreply, forbid(socket)}
+    end
+  end
+
+  def handle_event("add_device_fact", _params, socket) do
+    if socket.assigns.can_manage do
+      rows = socket.assigns.device_facts ++ [FormState.blank_device_fact()]
+      {:noreply, assign_input_rows(socket, socket.assigns.vantage_points, rows)}
+    else
+      {:noreply, forbid(socket)}
+    end
+  end
+
+  def handle_event("remove_device_fact", %{"index" => index}, socket) do
+    if socket.assigns.can_manage do
+      rows = List.delete_at(socket.assigns.device_facts, String.to_integer(index))
+      {:noreply, assign_input_rows(socket, socket.assigns.vantage_points, rows)}
     else
       {:noreply, forbid(socket)}
     end
@@ -361,11 +385,17 @@ defmodule ServiceRadarWebNGWeb.Settings.CompositeChecksLive.Index do
     {builder, in_sync?} = ScopeBuilder.parse_query_to_builder(form["scope_query"])
 
     rows = vantage_points_from_params(socket, params["vantage_points"])
+    facts = device_facts_from_params(socket, params["device_facts"])
 
     socket
     |> assign(:form, form)
     |> assign(:vantage_points, rows)
-    |> assign(:errors, FormState.validate(form) ++ FormState.validate_vantage_points(rows))
+    |> assign(:device_facts, facts)
+    |> assign(
+      :errors,
+      FormState.validate(form) ++
+        FormState.validate_vantage_points(rows) ++ FormState.validate_device_facts(facts)
+    )
     |> assign(:builder_in_sync, in_sync?)
     |> assign(:scope_count, count_scope(socket.assigns.current_scope, form["scope_query"]))
     |> then(fn socket -> if in_sync?, do: assign(socket, :builder, builder), else: socket end)
@@ -383,12 +413,31 @@ defmodule ServiceRadarWebNGWeb.Settings.CompositeChecksLive.Index do
 
   defp vantage_points_from_params(socket, _params), do: socket.assigns.vantage_points
 
+  defp device_facts_from_params(socket, params) when is_map(params) do
+    params
+    |> Enum.sort_by(fn {key, _value} -> String.to_integer(key) end)
+    |> Enum.map(fn {_key, value} -> Map.merge(FormState.blank_device_fact(), value) end)
+  rescue
+    _ -> socket.assigns.device_facts
+  end
+
+  defp device_facts_from_params(socket, _params), do: socket.assigns.device_facts
+
   defp assign_vantage_points(socket, rows) do
+    assign_input_rows(socket, rows, socket.assigns.device_facts)
+  end
+
+  # Both row kinds are validated together so removing the last bad vantage point
+  # does not leave a stale device fact error on screen, and vice versa.
+  defp assign_input_rows(socket, vantage_points, device_facts) do
     socket
-    |> assign(:vantage_points, rows)
+    |> assign(:vantage_points, vantage_points)
+    |> assign(:device_facts, device_facts)
     |> assign(
       :errors,
-      FormState.validate(socket.assigns.form) ++ FormState.validate_vantage_points(rows)
+      FormState.validate(socket.assigns.form) ++
+        FormState.validate_vantage_points(vantage_points) ++
+        FormState.validate_device_facts(device_facts)
     )
   end
 
@@ -583,7 +632,11 @@ defmodule ServiceRadarWebNGWeb.Settings.CompositeChecksLive.Index do
   # attribute rather than leave it alone.
   defp relabel_attrs(params) do
     Enum.reduce(
-      %{verdict: "verdict", verdict_label: "verdict_label", verdict_description: "verdict_description"},
+      %{
+        verdict: "verdict",
+        verdict_label: "verdict_label",
+        verdict_description: "verdict_description"
+      },
       %{},
       fn {attr, key}, acc ->
         case Map.fetch(params, key) do
@@ -598,7 +651,10 @@ defmodule ServiceRadarWebNGWeb.Settings.CompositeChecksLive.Index do
     params
     |> relabel_attrs()
     |> Map.put(:status, params["status"])
-    |> Map.put(:match, RuleTable.match_from_params(socket.assigns.rule_columns, params, rule.match))
+    |> Map.put(
+      :match,
+      RuleTable.match_from_params(socket.assigns.rule_columns, params, rule.match)
+    )
   end
 
   defp persist_positions(socket, ordered) do
@@ -642,9 +698,12 @@ defmodule ServiceRadarWebNGWeb.Settings.CompositeChecksLive.Index do
 
     case result do
       {:ok, check} ->
-        case sync_vantage_points(check, socket.assigns, scope) do
-          :ok -> {:noreply, saved(socket, check)}
-          {:error, error} -> {:noreply, assign(socket, :save_error, FormState.error_message(error))}
+        case sync_inputs(check, socket.assigns, scope) do
+          :ok ->
+            {:noreply, saved(socket, check)}
+
+          {:error, error} ->
+            {:noreply, assign(socket, :save_error, FormState.error_message(error))}
         end
 
       {:error, error} ->
@@ -676,36 +735,54 @@ defmodule ServiceRadarWebNGWeb.Settings.CompositeChecksLive.Index do
     if created?, do: push_patch(socket, to: "#{@current_path}/#{check.id}/edit"), else: socket
   end
 
-  # Replace the check's vantage point inputs with the submitted rows.
+  # Replace the check's inputs with the submitted rows.
   #
-  # Delete-then-create rather than a diff: the input key is the agent id, so a
-  # reassigned row is a different input entirely, and reconciling that by hand
-  # would be more code and more ways to leave a stale row behind. Rules
-  # reference inputs by key, not by id, so recreating an input with the same key
-  # leaves the rule table intact.
-  defp sync_vantage_points(check, assigns, scope) do
+  # Delete-then-create rather than a diff: the input key is the agent id or the
+  # metadata path, so a reassigned row is a different input entirely, and
+  # reconciling that by hand would be more code and more ways to leave a stale
+  # row behind. Rules reference inputs by key, not by id, so recreating an input
+  # with the same key leaves the rule table intact.
+  #
+  # This destroys every input, not just the kinds it recreates, which is only
+  # safe because the builder renders both of them. A third `kind` added to
+  # CompositeCheckInput must get a section here in the same change, or saving
+  # any check will silently delete every input of that kind.
+  defp sync_inputs(check, assigns, scope) do
     labels = agent_labels(assigns.agents)
+    offset = length(assigns.vantage_points)
 
-    with {:ok, existing} <- CompositeCheckInput.list_by_check(check.id, scope: scope),
-         :ok <- destroy_all(Enum.filter(existing, &(&1.kind == :vantage_point)), scope) do
+    vantage_attrs =
       assigns.vantage_points
       |> Enum.with_index()
-      |> Enum.reduce_while(:ok, fn {row, index}, :ok ->
+      |> Enum.map(fn {row, index} ->
         label = Map.get(labels, String.trim(row["agent_id"] || ""))
-
-        CompositeCheckInput
-        |> Ash.Changeset.for_create(
-          :create,
-          FormState.vantage_point_attrs(check.id, row, index, label),
-          scope: scope
-        )
-        |> Ash.create()
-        |> case do
-          {:ok, _input} -> {:cont, :ok}
-          {:error, error} -> {:halt, {:error, error}}
-        end
+        FormState.vantage_point_attrs(check.id, row, index, label)
       end)
+
+    # Facts are positioned after the vantage points so the rule table's columns
+    # read left to right as "who could reach it, then what it is configured to
+    # be" -- the order the verdict is actually reasoned in.
+    fact_attrs =
+      assigns.device_facts
+      |> Enum.with_index(offset)
+      |> Enum.map(fn {row, index} -> FormState.device_fact_attrs(check.id, row, index) end)
+
+    with {:ok, existing} <- CompositeCheckInput.list_by_check(check.id, scope: scope),
+         :ok <- destroy_all(existing, scope) do
+      create_inputs(vantage_attrs ++ fact_attrs, scope)
     end
+  end
+
+  defp create_inputs(attrs_list, scope) do
+    Enum.reduce_while(attrs_list, :ok, fn attrs, :ok ->
+      CompositeCheckInput
+      |> Ash.Changeset.for_create(:create, attrs, scope: scope)
+      |> Ash.create()
+      |> case do
+        {:ok, _input} -> {:cont, :ok}
+        {:error, error} -> {:halt, {:error, error}}
+      end
+    end)
   end
 
   # The input's stored label is what the rule table, the preview breakdown, and
@@ -807,6 +884,7 @@ defmodule ServiceRadarWebNGWeb.Settings.CompositeChecksLive.Index do
           builder_in_sync={@builder_in_sync}
           save_error={@save_error}
           vantage_points={@vantage_points}
+          device_facts={@device_facts}
           agents={@agents}
         />
 

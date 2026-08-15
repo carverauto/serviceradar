@@ -155,6 +155,19 @@
       warnings with counts, per-agent coverage, and the enable/disable controls.
       The coverage report is produced at save time as well as on demand, which
       is why saving stays on the builder instead of returning to the index.
+- [x] 8.12 Add the device fact section so the builder can author the third
+      factor. Section 8 originally described the builder as scope + vantage
+      points + rules, which left `:device_metadata` inputs creatable only
+      through the API even though the resolver, rule generator, evaluator and
+      rule table all already handled them. Without it the builder could not
+      express the distinction the feature exists for: blocked-and-configured
+      (`isolated_verified`) versus blocked-but-not-by-configuration
+      (`isolated_unenforced`). Facts are positioned after the vantage points so
+      the rule columns read in the order the verdict is reasoned. A blank max
+      age omits the key rather than storing nil, because the resolver treats
+      absent `max_age_seconds` as "resolve on the stored value, no provenance
+      required" -- storing a nil would instead demand provenance and resolve
+      every pre-provenance key `:unknown` forever.
 
 ## 9. Northbound
 
