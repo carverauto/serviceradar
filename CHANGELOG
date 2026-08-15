@@ -1,3 +1,55 @@
+# ServiceRadar v1.4.32
+
+Stops core from OOM-reloading leftover provider CIDR snapshots (the demo
+netflow outage), ships composite service checks, and republishes images
+after Harbor dropped the v1.4.31 tags.
+
+## Whats New
+
+**1.4.32**
+- Provider CIDR snapshots: hourly AshOban prune keeps the active snapshot
+  plus one inactive rollback (2-day floor) and batch-deletes child CIDR
+  rows. `PrefixTags.ProviderSource` skips a trie rebuild when the durable
+  snapshot token already matches the in-memory handle, and no longer parks
+  a previous 410k-prefix persistent_term trie. This is the path that OOM'd
+  core-elx and took netflow down on demo. (PR #4994)
+- Composite service checks: an operator-authored decision table over
+  multi-vantage reachability plus device facts, with SRQL
+  (`composite.<slug>:<verdict>`, `in:composite_results`), a builder at
+  `/settings/networks/composite-checks`, device-list/detail surfacing, and
+  optional Armis northbound export of the verdict. Checks derive, they do
+  not probe. (PRs #4962, #4982, #4993)
+- Images: 14 of 16 in-scope OCI images now publish a multi-arch index.
+  `cnpg` / `cnpg_analytics` stay amd64 by design; `web_ng` and `core_elx`
+  remain amd64 (adbc CMake triple, Membrane `*_linux_x86` archives). Also
+  restores `--config=remote` as an alias of `--config=ci`. (PR #4988)
+- Plugins: first-party Wasm trust anchors (cosign public key and upload
+  signers) ship in chart defaults, so a stock `helm install` can import
+  first-party packages. Policy-envelope `params` are no longer validated
+  against the operator `config_schema` (that made Proxmox inventory
+  unconfigurable since package 0.1.5). Inventory assignments accept the
+  policy id the materializer actually emits. (PRs #4981, #4985, #4990)
+- Web UI: LiveView client is vendored at 1.2.9 to match Hex (flow detail
+  no longer fails with an asset version mismatch). Topology cluster clicks
+  expand, empty-canvas clicks no longer blank the graph, and device ID/IP
+  in the details card are real links. Settings metrics render as a card
+  grid. Pasted AWX controller tokens survive LiveView validate. (PRs
+  #4967, #4968, #4973, #4992)
+- Notifications and mail: Discord test-send is allowed out of demo
+  NetworkPolicy and embeds an Open-in-ServiceRadar link. Email channel
+  Cc/Bcc are optional; the "no relay" warning points at Settings > Mail.
+  (PRs #4969, #4972)
+- Farm/ops follow-ups: `RecordEventWorker` unwraps nested Oban args so
+  edge onboarding events land. SRQL catalog accepts `device_id` on flows
+  and `interface_uid` on interfaces. SNMP reuse, banner-grab protocol
+  toggles, prefix-tag site/role-only save, map-click CIDR lat/long, and
+  agent-package latest-approved add-on versions. Capacity forecasting and
+  Seasonal disposition cron rows now have names in `/admin/jobs`. (PRs
+  #4966, #4977, #4974)
+- Build: hermetic LLVM + rules_rs, faster Erlang/Elixir rules, and
+  host-native Bazel database-integration lifecycle (`cache_only` + local
+  TestRunner). (PRs #4980, #4986, #4921)
+
 # ServiceRadar v1.4.31
 
 Emergency Ash 3.31.3 upgrade for CVE-2026-67579 (keyset pagination cursor
