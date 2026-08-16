@@ -55,7 +55,7 @@ build:linux --repo_env=OPENSSL_INCLUDE_DIR=/usr/include
 # disk_cache and points at ~/.cache/bazel, which is the right home for a cache and an
 # impossible one for vendored sources. These archives are the vendored sources
 # themselves: reviewed, checksum-verified against Cargo.lock, and version controlled,
-# exactly as //third_party/crates was before them. Nothing here is written by a build.
+# exactly as the vendored crate tree was before them. Nothing here is written by a build.
 common --distdir=%workspace%/third_party/crate_mirror
 
 build --action_env=PKG_CONFIG_SYSROOT_DIR_aarch64_unknown_linux_gnu=/

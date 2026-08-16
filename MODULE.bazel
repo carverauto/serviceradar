@@ -374,11 +374,12 @@ RUST_PLATFORMS = [
     "x86_64-unknown-linux-musl",
 ]
 
-# //third_party/crates KEEPS the crate sources and loses everything else. crates_vendor wrote
+# Crate sources are vendored as .crate archives in //third_party/crate_mirror, reached
+# through --distdir rather than through the dependency graph. Historical note: crates_vendor wrote
 # a crate_universe BUILD.bazel next to every crate plus a defs.bzl/crates.bzl hub; rules_rs
 # generates its own BUILD file per crate and its own hub, so those files are gone and the
-# tree is now what `cargo vendor --versioned-dirs` produces. `vendor_dir` below is what makes
-# rules_rs read it: a registry crate found at third_party/crates/<name>-<version> is
+# a BUILD file next to every crate plus a hub; the archive mirror carries sources only, and
+# a BUILD file next to every crate plus a hub; the archive mirror carries sources only and
 # symlinked from there instead of downloaded, and anything missing still falls back to the
 # registry. See openspec migrate-bazel-rust-crate-vendoring for the tree's history.
 crate = use_extension("@rules_rs//rs:extensions.bzl", "crate")
@@ -428,7 +429,7 @@ crate.annotation(
 )
 
 # pq-src builds libpq from source, and its build.rs needs the same treatment openssl-src
-# did: the patch is now a declared input rather than something scripts/vendor.sh applied
+# did: the patch is now a declared input rather than something a vendor script applied
 # invisibly to the vendored tree. See //third_party/rust_patches/pq_src_fortify_patch.
 
 # openssl-src: expose its C source tree to openssl-sys' build script.
@@ -440,8 +441,8 @@ crate.annotation(
 # can actually write. Every alias here is also emitted unversioned, because openssl-src has
 # exactly one version in //:Cargo.lock.
 #
-# The source patch itself is NOT declared here: scripts/vendor.sh applies it to the vendored
-# tree on disk, and `vendor_dir` symlinks that tree in. Declaring it as an annotation patch
+# The source patch is declared as an annotation `patches` entry, so it is a real build
+# input. It used to be applied to the vendored tree on disk instead, which meant
 # would apply it a second time, to an already-patched source.
 
 # openssl-sys: perl wrapper + point the build at the vendored openssl-src source. openssl-sys

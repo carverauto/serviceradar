@@ -4,7 +4,7 @@ load("@rules_rs//rs:rust_test.bzl", "rust_test")
 
 package(default_visibility = ["//visibility:public"])
 
-# Built as a hermetic Bazel target on the locally vendored crates (//third_party/crates)
+# Built as a hermetic Bazel target on the vendored crates (//third_party/crate_mirror)
 # — replaces the former cargo-in-genrule, which invoked `cargo build` and failed under
 # Bazel's sandbox trying to download crates into ~/.cargo.
 rust_binary(

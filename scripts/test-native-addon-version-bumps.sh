@@ -23,7 +23,7 @@ write_vendor_inputs() {
     printf 'FILE:@@//Cargo.lock %s\n' "$(sha256_file Cargo.lock)"
     printf 'FILE:@@//rust/rdp-adapter/Cargo.toml %s\n' \
       "$(sha256_file rust/rdp-adapter/Cargo.toml)"
-  } >third_party/crates/.serviceradar-vendor-inputs
+  } >third_party/crate_mirror/.serviceradar-vendor-inputs
 }
 
 write_module_lock() {
@@ -63,7 +63,7 @@ mkdir -p \
   "${fixture}/rust/otel-addon" \
   "${fixture}/rust/otel/src" \
   "${fixture}/scripts" \
-  "${fixture}/third_party/crates"
+  "${fixture}/third_party/crate_mirror"
 cp "${guard_source}" "${fixture}/scripts/check-native-addon-version-bumps.sh"
 chmod +x "${fixture}/scripts/check-native-addon-version-bumps.sh"
 
@@ -98,8 +98,8 @@ base_commit="$(git rev-parse HEAD)"
 #
 # The crate [package] version and the root vendor snapshot are deliberately NOT dragged
 # along. This case used to assert the opposite: that the gate failed closed until
-# third_party/crates/.serviceradar-vendor-inputs recorded the new Cargo.lock and Cargo.toml
-# hashes. The only way to satisfy that was scripts/vendor.sh, which rewrites 625 crate
+# the vendored tree's input index recorded the new Cargo.lock and Cargo.toml hashes. The
+# only way to satisfy that was a full re-vendor, which rewrites 625 crate
 # directories and discards the Bazel cache for every Rust target -- to restate a version
 # string that changes no third-party crate. So the second half asserts the bump passes with
 # rust/rdp-adapter/Cargo.toml still at 0.1.0 and the vendor snapshot untouched.

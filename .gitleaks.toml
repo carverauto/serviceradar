@@ -4,4 +4,4 @@ useDefault = true
 [allowlist]
 description = "Allow deterministic test UUIDs and Cargo's checksum-indexed upstream vendor snapshot"
 regexes = ['''018f3f56-[0-9a-f]{4}-7[0-9a-f]{3}-8[0-9a-f]{3}-123456789abc''']
-paths = ['''^third_party/crates/''']
+paths = ['''^third_party/crate_mirror/''']

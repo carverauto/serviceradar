@@ -145,8 +145,8 @@ manifest_path() {
 #     to be present. It reaches the generated vendor tree solely as alias labels
 #     (serviceradar-netprobe-<version>) pointing at packages crates_vendor never emits.
 #   * But mirroring it into Cargo.toml edited a manifest, which changed Cargo.lock, which
-#     invalidated third_party/crates/.serviceradar-vendor-inputs, whose documented fix is
-#     scripts/vendor.sh -- rewriting 625 crate directories and discarding the Bazel cache
+#     invalidated the vendored tree's input index, whose documented fix rewrote 625 crate
+#     directories and discarded the Bazel cache
 #     for every Rust target, to restate a version that changed no third-party crate.
 #
 # addons/<id>/addon.yaml is now the single source of truth. bazel_version_path() below

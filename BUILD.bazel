@@ -21,19 +21,10 @@ load("@rules_shell//shell:sh_binary.bzl", "sh_binary")
 # gazelle:exclude go/pkg/agent/testdata
 #
 # third_party is generated and vendored, never hand-authored, so Gazelle has no business
-# rewriting it. Without this exclusion Gazelle walked into //third_party/crates -- the
-# crates_vendor output -- and tried to generate proto_library rules for .proto files that
-# ship inside vendored crates (prost-build fixtures, tonic-health, spiffe, prometheus).
-# Two of those directories hold more than one proto package, which Gazelle cannot express,
-# so it errored:
-#
-#   third_party/crates/prost-build-0.14.4/src/fixtures/alphabet: directory contains
-#   multiple proto packages. Gazelle can only generate a proto_library for one package.
-#
-# That made a repo-wide `-mode=diff` non-zero for reasons no first-party change can fix,
-# which is why the drift check used to be scoped to changed Go directories instead. It also
-# put 13 vendored BUILD files in the diff. scripts/vendor.sh owns that tree; regenerate it
-# there, do not let Gazelle edit it.
+# rewriting it. It historically walked into the vendored crate tree and tried to generate
+# proto_library rules for .proto files shipped inside crates, some of which hold more than
+# one proto package -- which Gazelle cannot express, making a repo-wide `-mode=diff`
+# non-zero for reasons no first-party change could fix.
 # gazelle:exclude third_party
 #
 # Three proto directories that hold UPSTREAM schemas, not Go packages of ours. Gazelle's

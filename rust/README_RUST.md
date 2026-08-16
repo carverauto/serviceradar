@@ -86,14 +86,18 @@ review-only, date-audited IronRDP probe with its own `[workspace]` and lockfile.
 
 ## 2. How Bazel gets its crates
 
-Bazel does **not** download crates. Everything is vendored on disk under
-`//third_party/crates` by `cargo vendor --versioned-dirs` (run through `scripts/vendor.sh`)
-from the same `//:Cargo.toml` + `//:Cargo.lock` that Cargo uses. The tree is crate sources and
-nothing else -- no BUILD files. `rules_rs` reads it because `//MODULE.bazel` says
-`crate.from_cargo(vendor_dir = "third_party/crates")`: a crate found at
-`third_party/crates/<name>-<version>` is symlinked from there instead of downloaded, and one
-that is missing falls back to the registry. Resolving `//:Cargo.lock` as a single universe is
-what keeps the two builds honest: one `prost`, one `tonic`, one `tokio`.
+Bazel does **not** reach the network for crates. Every registry crate is vendored on disk
+under `//third_party/crate_mirror` as its `.crate` archive -- the same file Cargo's own
+registry cache holds -- refreshed by `bazel run //third_party/crate_mirror:sync` from the
+`//:Cargo.lock` that Cargo uses.
+
+Bazel finds them through `--distdir`, set in `//.bazelrc`. `rules_rs` asks crates.io for
+`{crate}/{crate}-{version}.crate` first, and that basename is the only one Bazel's distdir
+matches on, so each archive resolves from disk. It is a fallback rather than an enforcement:
+a crate missing from the mirror is downloaded, so a stale mirror degrades rather than breaks.
+
+Resolving `//:Cargo.lock` as a single universe is what keeps the two builds honest: one
+`prost`, one `tonic`, one `tokio`.
 
 `rules_rs` generates the per-crate BUILD files and a hub repository, `@crates`. Crates
 reference the hub:
@@ -142,9 +146,9 @@ relative path resolves to nothing. Declare the `data` *and* resolve the path (se
 
 ## 3. Updating dependencies
 
-`scripts/vendor.sh` is the **only** supported way to regenerate the vendored tree. Do not run
-`cargo vendor` directly -- it skips the source patches in section 4, and the from-source C
-builds will fail later, far from the cause.
+`bazel run //third_party/crate_mirror:sync` is the **only** supported way to refresh the
+vendored archives. It verifies every download against the checksum `Cargo.lock` already
+records, and prunes archives no longer in the lock.
 
 ### Routine update
 
@@ -172,8 +176,8 @@ $EDITOR Cargo.toml
 cargo check --workspace --lib --bins --tests
 cargo test  --workspace
 
-# 3. Regenerate the vendored tree (~1 GB download, several minutes).
-./scripts/vendor.sh
+# 3. Refresh the vendored archives.
+bazel run //third_party/crate_mirror:sync
 
 # 4. Bazel side. Cargo passing is NOT proof -- see the warning below.
 bazel build //rust/...
@@ -192,7 +196,7 @@ bazel test  //rust/...
 3. If that crate's `BUILD.bazel` names its deps explicitly as `"@crates//:<name>"` labels
    rather than through `all_crate_deps`, **add the label there too** -- Bazel will not infer
    it.
-4. `./scripts/vendor.sh`, then `bazel build //rust/...`.
+4. `bazel run //third_party/crate_mirror:sync`, then `bazel build //rust/...`.
 
 ### Breaking-change migrations
 
@@ -222,12 +226,16 @@ grep -n "rust_test" rust/<crate>/BUILD.bazel  # declared?
 
 ## 4. The two patched system crates
 
-Two vendored crates need **source patches** to build under Bazel. `scripts/vendor.sh`
-applies them to the tree on disk after vendoring, and they are deliberately **not** declared as
-`crate.annotation(patches = ...)` in `//MODULE.bazel`: `rules_rs` symlinks a vendored crate's
-files into its repository, and Bazel's native patch implementation rewrites in place *through*
-a symlink -- an annotation patch would edit this checked-in tree, and edit it again on every
-refetch. Patches live in `//third_party/rust_patches/` and are the source of truth.
+Two crates need **source patches** to build under Bazel. They are declared as
+`patches` on their `crate.annotation`, so `rules_rs` applies them at fetch time and they are
+real, declared build inputs. Patches live in `//third_party/rust_patches/`.
+
+This used to work the other way: a vendor script applied them to the checked-in tree on disk,
+because `rules_rs` symlinked that tree into its repository and Bazel's patch implementation
+would have rewritten the checkout in place. With the tree replaced by `.crate` archives the
+constraint is gone -- and the old arrangement had a real cost, since a patch applied outside
+the build graph stops being applied without anything noticing. That is exactly what happened
+when the vendored tree was removed.
 
 | crate | patch | why |
 |---|---|---|
@@ -252,23 +260,23 @@ The pins do **not** reach their build deps -- `pq-sys` declares `pq-src ">=0.2, 
 
 ### The asserts (do not weaken them)
 
-`scripts/vendor.sh` derives each directory name from `Cargo.lock` and **hard-fails** if the
-crate moved, rather than skipping the patch:
+A patch that does not apply fails the crate's fetch, loudly and at the point of use. Do not
+work around that by dropping the patch:
 
 - A silently skipped patch is the worst outcome available here. `pq-src`'s fix is **macOS
   only**, so a skipped patch leaves Linux CI green and breaks a developer's machine later, far
   from the cause.
-- It also asserts the patch marker is present *after* patching, not just absent before -- a
-  patch that "succeeds" without applying is caught.
+- The pins (`openssl-sys = "=0.9.116"`, `pq-sys = "=0.7.5"`) are what stop a routine
+  `cargo update` from moving these crates out from under their patches.
 
 ### Bumping a patched crate (deliberate, never accidental)
 
 1. Change the pin in the root `Cargo.toml`.
-2. Run `./scripts/vendor.sh`. **It will fail** -- that is the design.
+2. `bazel run //third_party/crate_mirror:sync`, then `bazel build //rust/...`. **The fetch
+   will fail** -- that is the design.
 3. Regenerate the patch against the new upstream source, in
    `//third_party/rust_patches/`.
-4. Re-run `./scripts/vendor.sh`, then `bazel build //rust/...` on **macOS and Linux** -- the
-   pq-src patch only manifests on macOS.
+4. Rebuild on **macOS and Linux** -- the pq-src patch only manifests on macOS.
 
 ---
 
@@ -462,7 +470,7 @@ signature -- model errors as concrete typed variants instead.
 make update-rust-deps [REPIN=<mode>] [VERIFY_TARGET=<label>]
 
 # regenerate the vendored tree only (the only supported way)
-./scripts/vendor.sh
+bazel run //third_party/crate_mirror:sync
 
 # cargo: --lib --bins --tests, or you skip test code.
 # The third_party/rust_patches forks fail --tests on a clean tree (undeclared dev-deps),
@@ -481,8 +489,8 @@ bazel test  //rust/...
 | file | what it is |
 |---|---|
 | `Cargo.toml` (root) | **every** dependency version; alphabetical |
-| `third_party/crates/` | the vendored crate sources (generated -- never hand-edit) |
+| `third_party/crate_mirror/` | the vendored `.crate` archives (generated -- never hand-edit) |
 | `MODULE.bazel` | the `crate.from_cargo` extension + per-crate `crate.annotation` tags |
 | `third_party/rust_patches/` | source patches for the two system crates |
-| `scripts/vendor.sh` | regenerate + patch + repair + assert |
-| `scripts/update-rust-bazel-deps.sh` | the wrapper: `cargo update` -> `cargo check` -> `vendor.sh` -> `bazel build` (`make update-rust-deps`) |
+| `//third_party/crate_mirror:sync` | refresh the archives from `Cargo.lock`, verify checksums, prune |
+| `scripts/update-rust-bazel-deps.sh` | the wrapper: `cargo update` -> `cargo check` -> `crate_mirror:sync` -> `bazel build` (`make update-rust-deps`) |

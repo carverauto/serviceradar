@@ -385,7 +385,7 @@ tidy: ## Tidy and format Go code
 	@cd rust/flowgger && $(RUSTFMT) src/*.rs src/flowgger/*.rs
 
 .PHONY: update-rust-deps
-update-rust-deps: ## Update root Cargo.lock, re-vendor //third_party/crates, verify with Bazel (REPIN=<mode>, VERIFY_TARGET=<label>)
+update-rust-deps: ## Update root Cargo.lock, refresh //third_party/crate_mirror, verify with Bazel (REPIN=<mode>, VERIFY_TARGET=<label>)
 	@./scripts/update-rust-bazel-deps.sh "$(if $(REPIN),$(REPIN),workspace)" "$(if $(VERIFY_TARGET),$(VERIFY_TARGET),//rust/...)"
 
 .PHONY: lint-p0f-additions

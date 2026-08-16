@@ -1,94 +1,118 @@
 #!/usr/bin/env python3
-"""Fail when Cargo's committed vendor snapshot omits checksum-listed files."""
+"""Assert the vendored crate archives are complete and committed.
+
+//third_party/crate_mirror holds one `<name>-<version>.crate` per registry crate in
+//:Cargo.lock. //.bazelrc points --distdir at it, so a build resolves those archives
+from disk instead of crates.io.
+
+--distdir is a fallback rather than an enforcement: an archive that is missing is
+simply downloaded, and the build stays green. That is good for resilience and bad for
+noticing, because a half-committed mirror looks exactly like a complete one until
+someone builds without network access. This gate is what notices.
+
+It replaces a check built around the older `cargo vendor` tree, which asserted a
+`.cargo-checksum.json` and a generated BUILD file per crate directory. Neither exists
+now: the mirror is archives only, and rules_rs generates the BUILD files.
+"""
 
 from __future__ import annotations
 
-import json
 import pathlib
+import re
 import subprocess
 import sys
+
+MIRROR = "third_party/crate_mirror"
+
+# Cargo.lock is generated and its shape is stable: [[package]] tables whose scalar
+# fields are `key = "value"` on one line. A `checksum` means a registry crate, which is
+# the only kind with an archive to vendor.
+_FIELD = re.compile(r'^(name|version|checksum) = "([^"]*)"')
+
+
+def registry_crates(lock_path: pathlib.Path) -> set[str]:
+    packages: list[dict[str, str]] = []
+    current: dict[str, str] | None = None
+    for line in lock_path.read_text(encoding="utf-8").splitlines():
+        line = line.strip()
+        if line == "[[package]]":
+            current = {}
+            packages.append(current)
+            continue
+        if current is None:
+            continue
+        if line.startswith("["):
+            current = None
+            continue
+        match = _FIELD.match(line)
+        if match:
+            current[match.group(1)] = match.group(2)
+
+    return {
+        "{}-{}.crate".format(p["name"], p["version"])
+        for p in packages
+        if p.get("checksum")
+    }
 
 
 def main() -> int:
     root = pathlib.Path(
-        subprocess.check_output(
-            ["git", "rev-parse", "--show-toplevel"], text=True
-        ).strip()
+        subprocess.run(
+            ["git", "rev-parse", "--show-toplevel"],
+            check=True,
+            capture_output=True,
+            text=True,
+        ).stdout.strip()
     )
-    vendor_root = root / "third_party" / "crates"
-    tracked_output = subprocess.check_output(
-        ["git", "ls-files", "-z", "--", "third_party/crates"]
-    )
+
     tracked = {
-        pathlib.PurePosixPath(path.decode())
-        for path in tracked_output.split(b"\0")
-        if path
+        pathlib.PurePosixPath(path).name
+        for path in subprocess.run(
+            ["git", "ls-files", "-z", "--", MIRROR],
+            check=True,
+            capture_output=True,
+            text=True,
+            cwd=root,
+        ).stdout.split("\0")
+        if path.endswith(".crate")
     }
 
-    checksum_files = sorted(vendor_root.glob("*/.cargo-checksum.json"))
-    if not checksum_files:
-        print("error: no vendored Cargo checksum manifests found", file=sys.stderr)
-        return 1
+    wanted = registry_crates(root / "Cargo.lock")
 
-    missing: list[pathlib.PurePosixPath] = []
-    expected = {
-        pathlib.PurePosixPath("third_party/crates/.serviceradar-vendor-inputs"),
-        pathlib.PurePosixPath("third_party/crates/BUILD.bazel"),
-        pathlib.PurePosixPath("third_party/crates/alias_rules.bzl"),
-        # crates_vendor emits crates.bzl alongside defs.bzl and alias_rules.bzl. It
-        # appeared with the rules_rust bump and this allowlist predated it, so the
-        # snapshot check failed on staging for every commit after bad32bfc5e.
-        pathlib.PurePosixPath("third_party/crates/crates.bzl"),
-        pathlib.PurePosixPath("third_party/crates/defs.bzl"),
-    }
-    for checksum_path in checksum_files:
-        checksum_relative = pathlib.PurePosixPath(
-            checksum_path.relative_to(root).as_posix()
-        )
-        expected.add(checksum_relative)
-        expected.add(checksum_relative.parent / "BUILD.bazel")
-        if checksum_relative not in tracked or not checksum_path.is_file():
-            missing.append(checksum_relative)
-
-        checksum = json.loads(checksum_path.read_text(encoding="utf-8"))
-        for crate_relative in checksum.get("files", {}):
-            relative = pathlib.PurePosixPath(
-                checksum_path.parent.relative_to(root).as_posix()
-            ) / pathlib.PurePosixPath(crate_relative)
-            expected.add(relative)
-            if relative not in tracked or not (root / relative).is_file():
-                missing.append(relative)
+    missing = sorted(wanted - tracked)
+    extra = sorted(tracked - wanted)
 
     if missing:
         print(
-            "error: Cargo vendor snapshot omits checksum-listed files:",
+            "error: {} crate archive(s) in Cargo.lock are not committed under {}".format(
+                len(missing), MIRROR
+            ),
             file=sys.stderr,
         )
-        for relative in sorted(set(missing)):
-            print(f"  {relative}", file=sys.stderr)
+        for name in missing[:20]:
+            print("  {}".format(name), file=sys.stderr)
+        if len(missing) > 20:
+            print("  ... and {} more".format(len(missing) - 20), file=sys.stderr)
+
+    if extra:
         print(
-            "run scripts/vendor.sh, then commit the complete "
-            "third_party/crates tree",
+            "error: {} committed archive(s) are no longer in Cargo.lock".format(len(extra)),
+            file=sys.stderr,
+        )
+        for name in extra[:20]:
+            print("  {}".format(name), file=sys.stderr)
+
+    if missing or extra:
+        print(
+            "\nrun `bazel run //third_party/crate_mirror:sync`, then commit "
+            "{}".format(MIRROR),
             file=sys.stderr,
         )
         return 1
 
-    unexpected = sorted(tracked - expected)
-    if unexpected:
-        print(
-            "error: Cargo vendor snapshot contains files absent from its "
-            "checksum manifests:",
-            file=sys.stderr,
-        )
-        for relative in unexpected:
-            print(f"  {relative}", file=sys.stderr)
-        return 1
-
-    print(
-        f"Cargo vendor snapshot is complete: {len(checksum_files)} crate manifests"
-    )
+    print("{} crate archives tracked, matching Cargo.lock".format(len(wanted)))
     return 0
 
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    sys.exit(main())

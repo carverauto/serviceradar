@@ -115,7 +115,7 @@ Not ready to push. Common repairs:
   gate 1  bump addons/<id>/addon.yaml -- that manifest is the single source of truth. Only
           netprobe additionally pins NETPROBE_VERSION in rust/netprobe/BUILD.bazel, which
           must match. Crate [package] versions are deliberately NOT part of this.
-  gate 2  scripts/vendor.sh            (a real third-party dependency change)
+  gate 2  //third_party/crate_mirror:sync  (a real third-party dependency change)
   gate 3  the test log prints the exact formatting diff it wants
 EOF
   exit 1
