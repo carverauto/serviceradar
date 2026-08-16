@@ -537,13 +537,13 @@ fn decode_arrow_payload<T>(
     decode_file: fn(&[u8]) -> Result<Vec<T>, rustler::Error>,
 ) -> Result<Vec<T>, rustler::Error> {
     let cursor = std::io::Cursor::new(data);
-    let mut reader = match arrow_ipc::reader::StreamReader::try_new(cursor, None) {
+    let reader = match arrow_ipc::reader::StreamReader::try_new(cursor, None) {
         Ok(reader) => reader,
         Err(_) => return decode_file(data),
     };
 
     let mut rows = Vec::new();
-    while let Some(batch_result) = reader.next() {
+    for batch_result in reader {
         let batch = batch_result.map_err(|_| rustler::Error::BadArg)?;
         extract_stream_batch(&batch, &mut rows)?;
     }
@@ -555,11 +555,11 @@ fn extract_fieldsurvey_rf_rows_from_file(
     data: &[u8],
 ) -> Result<Vec<FieldSurveyRfObservationRow>, rustler::Error> {
     let cursor = std::io::Cursor::new(data);
-    let mut reader =
+    let reader =
         arrow_ipc::reader::FileReader::try_new(cursor, None).map_err(|_| rustler::Error::BadArg)?;
 
     let mut rows = Vec::new();
-    while let Some(batch_result) = reader.next() {
+    for batch_result in reader {
         let batch = batch_result.map_err(|_| rustler::Error::BadArg)?;
         extract_fieldsurvey_rf_rows(&batch, &mut rows)?;
     }
@@ -571,11 +571,11 @@ fn extract_fieldsurvey_pose_rows_from_file(
     data: &[u8],
 ) -> Result<Vec<FieldSurveyPoseSampleRow>, rustler::Error> {
     let cursor = std::io::Cursor::new(data);
-    let mut reader =
+    let reader =
         arrow_ipc::reader::FileReader::try_new(cursor, None).map_err(|_| rustler::Error::BadArg)?;
 
     let mut rows = Vec::new();
-    while let Some(batch_result) = reader.next() {
+    for batch_result in reader {
         let batch = batch_result.map_err(|_| rustler::Error::BadArg)?;
         extract_fieldsurvey_pose_rows(&batch, &mut rows)?;
     }
@@ -587,11 +587,11 @@ fn extract_fieldsurvey_spectrum_rows_from_file(
     data: &[u8],
 ) -> Result<Vec<FieldSurveySpectrumObservationRow>, rustler::Error> {
     let cursor = std::io::Cursor::new(data);
-    let mut reader =
+    let reader =
         arrow_ipc::reader::FileReader::try_new(cursor, None).map_err(|_| rustler::Error::BadArg)?;
 
     let mut rows = Vec::new();
-    while let Some(batch_result) = reader.next() {
+    for batch_result in reader {
         let batch = batch_result.map_err(|_| rustler::Error::BadArg)?;
         extract_fieldsurvey_spectrum_rows(&batch, &mut rows)?;
     }
