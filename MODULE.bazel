@@ -1275,6 +1275,18 @@ http_file(
     ],
 )
 
+# The arm64 sibling, same version-revision. //third_party/openssl pairs each of these with
+# the matching libssl3 (which owns the libssl.so.3 the -dev symlink points at) to build the
+# per-architecture sysroot that ex_dtls and ex_libsrt resolve `openssl` from via pkg-config.
+# Keep the version in lockstep with the amd64 pin above and with debian_libssl3_{amd64,arm64}.
+http_file(
+    name = "debian_libssl_dev_arm64_deb",
+    sha256 = "c6941a83bebd83d2a1cd2db56418062d8f48b3200786aacafa194b75a93a3702",
+    urls = [
+        "https://deb.debian.org/debian/pool/main/o/openssl/libssl-dev_3.0.20-1~deb12u2_arm64.deb",
+    ],
+)
+
 http_file(
     name = "postgresql_18_postgis_3_amd64_deb",
     sha256 = "5c06e2bb5ac73cd3d81f07a9cf44e4240a0c6e0ae8d4e8627187b6cab83d6606",
@@ -2328,6 +2340,33 @@ http_file(
     sha256 = "944b91342268c0c4d7c924e838b68ef3d6cffee0ea259f598b6f4e4574973a2b",
     urls = [
         "https://github.com/membraneframework-precompiled/precompiled_ffmpeg/releases/download/v6.0.1/ffmpeg_linuxarm64.tar.xz",
+    ],
+)
+
+# vix's precompiled NIF, both architectures, staged by //build:mix_app.bzl into
+# ELIXIR_MAKE_CACHE_DIR. Checksums are vix's own, copied from the `checksum.exs` it ships;
+# elixir_make re-verifies against that same file before extracting, so a wrong pin here
+# fails loudly rather than shipping a mismatched artefact.
+#
+# BOTH are staged for every build, which is deliberate -- see _HOST_NIF_APPS in
+# //build:mix_app.bzl. vix executes its own NIF during `mix compile` to enumerate libvips
+# enums, so the compile needs the EXECUTOR's architecture while the packaged priv needs the
+# TARGET's. The nif-2.17 in the name is OTP 28's NIF version; bump these together with OTP.
+http_file(
+    name = "vix_nif_x86_64",
+    downloaded_file_path = "vix-nif-2.17-x86_64-linux-gnu-0.40.0.tar.gz",
+    sha256 = "26bc9f50d6f1590e5884c8ca9b16579c10a1abc291e358972bac8c56a962470e",
+    urls = [
+        "https://github.com/akash-akya/vix/releases/download/v0.40.0/vix-nif-2.17-x86_64-linux-gnu-0.40.0.tar.gz",
+    ],
+)
+
+http_file(
+    name = "vix_nif_aarch64",
+    downloaded_file_path = "vix-nif-2.17-aarch64-linux-gnu-0.40.0.tar.gz",
+    sha256 = "4af83bfeb0d70a016c16f3f9acfd033f33818cd11bc57223d1fef62e228f831c",
+    urls = [
+        "https://github.com/akash-akya/vix/releases/download/v0.40.0/vix-nif-2.17-aarch64-linux-gnu-0.40.0.tar.gz",
     ],
 )
 

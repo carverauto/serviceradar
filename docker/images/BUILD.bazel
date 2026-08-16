@@ -165,7 +165,10 @@ declare_multiarch_image_index(
 
 declare_elixir_release_container_amd64(
     name = "core_elx_image_amd64",
-    base = "@ubuntu_noble_linux_amd64//:ubuntu_noble_linux_amd64",
+    base = select({
+        "//build/platforms:target_linux_arm64": "@ubuntu_noble_linux_arm64_v8//:ubuntu_noble_linux_arm64_v8",
+        "//conditions:default": "@ubuntu_noble_linux_amd64//:ubuntu_noble_linux_amd64",
+    }),
     cmd = ["start"],
     entrypoint = ["/app/bin/serviceradar_core_elx"],
     env = {
@@ -177,7 +180,20 @@ declare_elixir_release_container_amd64(
     image_title = "serviceradar-core-elx",
     local_repo_tag = "registry.carverauto.dev/serviceradar/serviceradar-core-elx:local",
     release_tar = "//elixir/serviceradar_core_elx:release_tar",
+    target_compatible_with = [],
     workdir = "/app",
+)
+
+# The last image to go multi-arch, and the one that needed real work rather than a base
+# image. Three packages in its closure resolved an architecture from the build host:
+# ex_dtls and ex_libsrt were pinned to the executor's gcc because pkg-config gave them no
+# OpenSSL directories (//third_party/openssl is the sysroot that replaced that), and vix
+# loads its own NIF during `mix compile`, so it needs the executor's artefact to build and
+# the target's to ship (_HOST_NIF_APPS in //build:mix_app.bzl). The ten precompiled Membrane
+# OS deps were the fourth, fixed in Bundlex itself.
+declare_multiarch_image_index(
+    name = "core_elx_image_multiarch",
+    image = ":core_elx_image_amd64",
 )
 
 # elixir agent-gateway -------------------------------------------------------
@@ -772,6 +788,7 @@ _MULTIARCH_INDEXES = [
     "bmp_collector_image_multiarch",
     "cert_generator_image_multiarch",
     "config_updater_image_multiarch",
+    "core_elx_image_multiarch",
     "datasvc_image_multiarch",
     "faker_image_multiarch",
     "flow_collector_image_multiarch",

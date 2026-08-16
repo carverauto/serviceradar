@@ -1,0 +1,109 @@
+"""A per-architecture OpenSSL sysroot for the two Bundlex packages that need one.
+
+ex_dtls and ex_libsrt declare `os_deps: [openssl: :pkg_config]`. Bundlex resolves that by
+shelling out to `pkg-config --cflags --libs openssl`, and Debian's openssl.pc reports only
+
+    -I/usr/include -L/usr/lib/<triple> -lssl -lcrypto
+
+leaving the header and library directories to the compiler's defaults. gcc has such
+defaults; the hermetic toolchain is invoked with `--sysroot=/dev/null -nostdlibinc` and
+deliberately has none, which is why those two packages were pinned to the executor image's
+gcc (_SYSTEM_CC_APPS in //build:mix_app.bzl). That gcc emits amd64 objects wherever it runs,
+so it was also the last thing keeping core_elx off arm64.
+
+The fix is a sysroot, not a compiler. //build:mix_app.bzl extracts the tar for the TARGET
+architecture and points PKG_CONFIG_LIBDIR and PKG_CONFIG_SYSROOT_DIR at it, so the same
+pkg-config call now answers
+
+    -I<staged>/usr/include -L<staged>/usr/lib/<triple> -lssl -lcrypto
+
+with the staged tree holding the target's headers and libraries. PKG_CONFIG_LIBDIR rather
+than PKG_CONFIG_PATH on purpose: LIBDIR REPLACES the default search path, so the executor's
+own openssl.pc cannot be found at all and a missing sysroot fails loudly instead of silently
+resolving to the host's OpenSSL.
+
+Two debs per architecture, because they are split upstream: libssl-dev owns the headers, the
+.pc files and the `libssl.so` development symlink, while libssl3 owns the `libssl.so.3` that
+symlink points at. Staging only -dev leaves a dangling symlink and the link fails.
+
+Dynamic, not static. libssl-dev also ships libssl.a/libcrypto.a, but the BEAM already loads
+OpenSSL through Erlang's own crypto NIF; a second, statically linked copy inside another NIF
+in the same process is a symbol-interposition hazard. Linking against libssl.so.3 keeps one
+OpenSSL per process, which is what upstream ex_dtls does and what the amd64 image has always
+shipped -- the difference is only that the version is now pinned instead of being whatever
+the executor image happened to have.
+"""
+
+package(default_visibility = ["//visibility:public"])
+
+_EXTRACT_CMD = """
+set -euo pipefail
+root="$(@D)/openssl_sysroot_{arch}"
+rm -rf "$${{root}}"
+mkdir -p "$${{root}}"
+dpkg-deb -x "$(location @debian_libssl_dev_{arch}_deb//file)" "$${{root}}"
+dpkg-deb -x "$(location @debian_libssl3_{arch}_deb//file)" "$${{root}}"
+# Assert the pieces that make this a usable sysroot are actually present. A silently empty
+# tree would surface much later as `openssl/err.h: file not found`, far from the cause.
+test -f "$${{root}}/usr/include/openssl/err.h"
+test -f "$${{root}}/usr/lib/{triple}/pkgconfig/openssl.pc"
+test -e "$${{root}}/usr/lib/{triple}/libssl.so"
+test -f "$${{root}}/usr/lib/{triple}/libssl.so.3"
+# Declare Debian's multiarch include directory in the .pc files.
+#
+# Two OpenSSL headers are architecture-specific and Debian ships them at
+# /usr/include/{triple}/openssl/ rather than /usr/include/openssl/: opensslconf.h and
+# configuration.h. Nothing in openssl.pc mentions that directory, because on Debian it is
+# one of gcc's built-in multiarch search paths -- and the hermetic toolchain, run with
+# `--sysroot=/dev/null -nostdlibinc`, has no built-in paths at all. Without this the first
+# `#include <openssl/err.h>` fails two levels down on
+#     openssl/macros.h:14:10: fatal error: 'openssl/opensslconf.h' file not found
+# pkg-config applies PKG_CONFIG_SYSROOT_DIR to every -I it emits, including this one.
+test -f "$${{root}}/usr/include/{triple}/openssl/opensslconf.h"
+for pc in libssl libcrypto; do
+    sed -e 's|^Cflags: -I$${{includedir}}$$|Cflags: -I$${{includedir}} -I$${{includedir}}/{triple}|' \
+        "$${{root}}/usr/lib/{triple}/pkgconfig/$${{pc}}.pc" > "$${{root}}/usr/lib/{triple}/pkgconfig/$${{pc}}.pc.new"
+    mv "$${{root}}/usr/lib/{triple}/pkgconfig/$${{pc}}.pc.new" "$${{root}}/usr/lib/{triple}/pkgconfig/$${{pc}}.pc"
+    grep -q -- '-I$${{includedir}}/{triple}' "$${{root}}/usr/lib/{triple}/pkgconfig/$${{pc}}.pc"
+done
+# Fixed mtime so the tar is reproducible; POSIX `touch -t`, with the non-POSIX `-h` first
+# because the tree contains the libssl.so -> libssl.so.3 symlink.
+find "$${{root}}" -exec touch -h -t 200001010000.00 {{}} + 2>/dev/null || \
+  find "$${{root}}" -exec touch -t 200001010000.00 {{}} +
+tar -C "$${{root}}" -cf "$@" .
+"""
+
+genrule(
+    name = "sysroot_amd64_tar",
+    srcs = [
+        "@debian_libssl3_amd64_deb//file",
+        "@debian_libssl_dev_amd64_deb//file",
+    ],
+    outs = ["openssl_sysroot_amd64.tar"],
+    cmd = _EXTRACT_CMD.format(arch = "amd64", triple = "x86_64-linux-gnu"),
+    # dpkg-deb runs on the EXECUTION platform, which is the Linux RBE executor. Same
+    # constraint and same reason as //third_party/libpcap's extraction genrules.
+    target_compatible_with = ["@platforms//os:linux"],
+)
+
+genrule(
+    name = "sysroot_arm64_tar",
+    srcs = [
+        "@debian_libssl3_arm64_deb//file",
+        "@debian_libssl_dev_arm64_deb//file",
+    ],
+    outs = ["openssl_sysroot_arm64.tar"],
+    cmd = _EXTRACT_CMD.format(arch = "arm64", triple = "aarch64-linux-gnu"),
+    target_compatible_with = ["@platforms//os:linux"],
+)
+
+# Selected on the TARGET platform, so an arm64 build stages aarch64 headers and libraries.
+# Only the packages listed in _OPENSSL_APPS in //build:mix_app.bzl receive this; putting it
+# in every Mix action would add it to 271 packages' inputs for the benefit of two.
+filegroup(
+    name = "sysroot_tar",
+    srcs = select({
+        "//build/platforms:target_linux_arm64": [":sysroot_arm64_tar"],
+        "//conditions:default": [":sysroot_amd64_tar"],
+    }),
+)
