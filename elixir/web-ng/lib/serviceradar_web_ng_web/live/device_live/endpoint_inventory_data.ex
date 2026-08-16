@@ -1,6 +1,7 @@
 defmodule ServiceRadarWebNGWeb.DeviceLive.EndpointInventoryData do
   @moduledoc false
 
+  alias ServiceRadar.Inventory.AdvisoryFeeds.CvePriority
   alias ServiceRadar.Inventory.EndpointInventoryArtifact
   alias ServiceRadar.Inventory.EndpointInventoryPackage
   alias ServiceRadar.Inventory.EndpointInventoryScan
@@ -36,6 +37,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.EndpointInventoryData do
         stored_package_count: stored_package_count,
         artifacts: artifacts,
         vulnerability_matches: vulnerability_matches,
+        cpe_catalog_current: CvePriority.cpe_catalog_current?(),
         error: nil,
         has_inventory: scans != [] or package_page.packages != [] or vulnerability_matches != []
       }
@@ -127,6 +129,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.EndpointInventoryData do
       stored_package_count: 0,
       artifacts: [],
       vulnerability_matches: [],
+      cpe_catalog_current: true,
       error: nil,
       has_inventory: false
     }

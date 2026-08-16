@@ -332,6 +332,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.ShowTemplate do
               stored_package_count={@endpoint_inventory_stored_package_count}
               artifacts={@endpoint_inventory_artifacts}
               vulnerability_matches={@endpoint_inventory_vulnerability_matches}
+              cpe_catalog_current={@endpoint_inventory_cpe_catalog_current}
               error={@endpoint_inventory_error}
               has_inventory={@has_software_inventory}
               show_controls={device_has_agent?(@device_row)}
@@ -464,6 +465,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.ShowTemplate do
         show={@show_endpoint_inventory_package_modal}
         package={@endpoint_inventory_selected_package}
         matches={@endpoint_inventory_selected_package_matches}
+        cpe_catalog_current={@endpoint_inventory_cpe_catalog_current}
       />
 
       <%!-- Interfaces Bulk Edit Modal --%>
