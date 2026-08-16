@@ -18,6 +18,8 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.Parsers.Kev do
   Pure module — no DB, no IO.
   """
 
+  alias ServiceRadar.Inventory.AdvisoryFeeds.Cwes
+
   @doc """
   Map one KEV entry to `%{advisory: map, coordinates: [map]}`.
 
@@ -54,6 +56,7 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.Parsers.Kev do
           kev: true,
           exploit_available: true,
           references: references(entry),
+          metadata: %{"cwes" => Cwes.from_kev_entry(entry)},
           raw: Map.put(entry, "_cve_ids", cve_ids)
         }
 

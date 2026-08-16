@@ -3,6 +3,7 @@ defmodule ServiceRadarWebNG.Plugins.AddonProfiles do
   Context module for query-driven native add-on profiles.
   """
 
+  alias ServiceRadar.Plugins.AddonAssignment
   alias ServiceRadar.Plugins.AddonProfile
 
   require Ash.Query
@@ -66,6 +67,28 @@ defmodule ServiceRadarWebNG.Plugins.AddonProfiles do
     end
   end
 
+  @spec delete(String.t(), keyword()) :: {:ok, AddonProfile.t()} | {:error, term()}
+  def delete(id, opts \\ [])
+
+  def delete(id, opts) when is_binary(id) do
+    scope = Keyword.get(opts, :scope)
+    actor = Keyword.get(opts, :actor)
+
+    with {:ok, profile} <- get(id, scope: scope),
+         :ok <- destroy_profile_assignments(profile, scope, actor) do
+      profile
+      |> Ash.Changeset.for_destroy(:destroy)
+      |> Ash.destroy(ash_opts(scope, actor))
+      |> case do
+        :ok -> {:ok, profile}
+        {:ok, _destroyed} -> {:ok, profile}
+        {:error, reason} -> {:error, reason}
+      end
+    end
+  end
+
+  def delete(_id, _opts), do: {:error, :invalid_attributes}
+
   @spec reconcile(String.t(), keyword()) :: {:ok, map()} | {:error, term()}
   def reconcile(id, opts \\ [])
 
@@ -98,6 +121,21 @@ defmodule ServiceRadarWebNG.Plugins.AddonProfiles do
   end
 
   def preview(_id, _opts), do: {:error, :invalid_attributes}
+
+  defp destroy_profile_assignments(profile, scope, actor) do
+    AddonAssignment
+    |> Ash.Query.for_read(:by_profile, %{addon_profile_id: profile.id})
+    |> read(scope)
+    |> Enum.reduce_while(:ok, fn assignment, :ok ->
+      case assignment
+           |> Ash.Changeset.for_destroy(:destroy)
+           |> Ash.destroy(ash_opts(scope, actor)) do
+        :ok -> {:cont, :ok}
+        {:ok, _destroyed} -> {:cont, :ok}
+        {:error, reason} -> {:halt, {:error, reason}}
+      end
+    end)
+  end
 
   defp read(query, nil), do: Ash.read!(query)
   defp read(query, scope), do: Ash.read!(query, ash_opts(scope, nil))

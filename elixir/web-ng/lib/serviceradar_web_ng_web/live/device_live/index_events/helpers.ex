@@ -4,6 +4,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexEvents.Helpers do
 
   alias Ash.Error.Changes.InvalidAttribute
   alias Ash.Error.Changes.Required
+  alias ServiceRadarWebNGWeb.DeviceLive.IndexPath
   alias ServiceRadarWebNGWeb.SRQL.Builder, as: SRQLBuilder
 
   def format_changeset_errors(changeset) do
@@ -36,10 +37,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexEvents.Helpers do
 
   def toggle_include_deleted_query(_), do: "in:devices include_deleted:true"
 
-  def device_list_path(query, _limit) do
-    params = maybe_put_param(%{}, "q", query)
-
-    ~p"/devices?#{params}"
+  def device_list_path(query, _limit, opts \\ []) do
+    IndexPath.list_path(Keyword.put(opts, :query, query))
   end
 
   def handle_bulk_update_result(result, existing_count, requested_count) do
@@ -88,7 +87,4 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexEvents.Helpers do
       end
     end
   end
-
-  defp maybe_put_param(params, _key, value) when value in [nil, ""], do: params
-  defp maybe_put_param(params, key, value), do: Map.put(params, key, value)
 end

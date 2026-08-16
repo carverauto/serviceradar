@@ -14,6 +14,7 @@ defmodule ServiceRadarWebNGWeb.Api.CollectorController do
   alias ServiceRadarWebNG.Capabilities
   alias ServiceRadarWebNG.Edge.CollectorBundleGenerator
   alias ServiceRadarWebNG.Edge.EnrollmentToken
+  alias ServiceRadarWebNG.Edge.NatsDeploymentStatus
   alias ServiceRadarWebNG.RBAC
   alias ServiceRadarWebNG.Shell
   alias ServiceRadarWebNGWeb.ClientIP
@@ -320,16 +321,18 @@ defmodule ServiceRadarWebNGWeb.Api.CollectorController do
   @doc """
   GET /api/admin/nats/account
 
-  Returns basic readiness and configured account public key.
+  Returns whether this dedicated deployment has a NATS URL for collector
+  enrollment. There is no per-account provisioning step.
   """
   def account_status(conn, _params) do
     with :ok <- require_authenticated(conn),
          :ok <- require_permission(conn, "settings.edge.manage") do
-      nats_configured? = Application.get_env(:serviceradar, :nats_url) != nil
+      status = NatsDeploymentStatus.current()
 
       json(conn, %{
-        status: if(nats_configured?, do: "ready", else: "pending"),
-        account_public_key: Application.get_env(:serviceradar, :nats_account_public_key)
+        status: Atom.to_string(status.status),
+        nats_url: status.nats_url,
+        account_public_key: status.account_public_key
       })
     end
   end

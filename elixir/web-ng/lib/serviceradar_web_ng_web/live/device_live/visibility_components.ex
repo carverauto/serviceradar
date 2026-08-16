@@ -507,13 +507,6 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.VisibilityComponents do
         armis_metadata_group(metadata, sources),
         netbox_metadata_group(metadata, sources),
         device_descriptor_group(metadata),
-        metadata_group("Inventory", "hero-identification", [
-          metadata_item("Manufacturer", metadata_lookup(metadata, "manufacturer")),
-          metadata_item("Model", metadata_lookup(metadata, "model")),
-          metadata_item("OS", metadata_lookup(metadata, "operating_system")),
-          metadata_item("Identity source", metadata_lookup(metadata, "identity_source")),
-          metadata_item("Identity state", metadata_lookup(metadata, "identity_state"))
-        ]),
         metadata_group("Sweep", "hero-signal", [
           metadata_item("Available count", metadata_lookup(metadata, "scan_available_count")),
           metadata_item("Unavailable count", metadata_lookup(metadata, "scan_unavailable_count")),
@@ -671,7 +664,9 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.VisibilityComponents do
 
   # Neutral home for generic device descriptors that any discovery source may
   # populate. These are NOT integration provenance, so they never imply Armis /
-  # NetBox / etc. — they simply describe the device.
+  # NetBox / etc. — they simply describe the device. Hardware/OS and identity
+  # fields live here too so we do not split the same facts across a second
+  # "Inventory" card.
   defp device_descriptor_group(metadata) when is_map(metadata) do
     metadata_group("Device", "hero-computer-desktop", [
       metadata_item(
@@ -679,7 +674,12 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.VisibilityComponents do
         metadata_first_value(metadata, ["device_role", "role", "device_role_name"])
       ),
       metadata_item("Type", metadata_first_value(metadata, ["device_type", "type"])),
-      metadata_item("Status", metadata_first_value(metadata, ["status", "device_status"]))
+      metadata_item("Status", metadata_first_value(metadata, ["status", "device_status"])),
+      metadata_item("Manufacturer", metadata_lookup(metadata, "manufacturer")),
+      metadata_item("Model", metadata_lookup(metadata, "model")),
+      metadata_item("OS", metadata_lookup(metadata, "operating_system")),
+      metadata_item("Identity source", metadata_lookup(metadata, "identity_source")),
+      metadata_item("Identity state", metadata_lookup(metadata, "identity_state"))
     ])
   end
 

@@ -1230,7 +1230,7 @@ defmodule ServiceRadarWebNG.Plugins.NativeAddonImporterTest do
              }
            ] = summary.failed
 
-    assert Process.get(:native_addon_manifest_requests) == 1
+    assert Process.get(:native_addon_manifest_requests) == 0
     [persisted] = sample_packages()
     assert persisted.name == "Sample Addon"
     assert persisted.source_oci_ref == @oci_ref

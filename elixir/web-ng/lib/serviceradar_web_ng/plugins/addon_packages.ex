@@ -78,7 +78,7 @@ defmodule ServiceRadarWebNG.Plugins.AddonPackages do
       [candidate] ->
         case NativeAddonSync.import_or_reuse(
                candidate,
-               Keyword.take(opts, [:scope, :actor, :auto_approve_addon_ids])
+               Keyword.take(opts, [:scope, :actor, :auto_approve_addon_ids, :replace])
              ) do
           {:imported, package} -> {:ok, package, :imported}
           {:skipped, package} -> {:ok, package, :skipped}

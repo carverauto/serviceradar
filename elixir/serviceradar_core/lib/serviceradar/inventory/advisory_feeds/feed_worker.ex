@@ -180,6 +180,7 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.FeedWorker do
   defp run_feed(feed) do
     actor = SystemActor.system(:advisory_feed_worker)
     started = DateTime.utc_now()
+
     mark_status(
       feed,
       %{last_status: "running", last_attempt_at: started, last_error: nil, last_message: nil},

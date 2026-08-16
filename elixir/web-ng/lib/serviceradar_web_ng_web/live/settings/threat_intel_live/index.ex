@@ -21,6 +21,7 @@ defmodule ServiceRadarWebNGWeb.Settings.ThreatIntelLive.Index do
   alias ServiceRadar.Plugins.PluginPackage
   alias ServiceRadarWebNG.Plugins.Assignments
   alias ServiceRadarWebNG.Plugins.Packages
+  alias ServiceRadarWebNGWeb.Observability.ThreatIntelLinks
   alias ServiceRadarWebNGWeb.Settings.Shell
 
   require Ash.Query
@@ -342,7 +343,7 @@ defmodule ServiceRadarWebNGWeb.Settings.ThreatIntelLive.Index do
                 <% end %>
               </div>
 
-              <div class="rounded-xl border border-sr-line bg-sr-surface p-4">
+              <div id="netflow-matches" class="rounded-xl border border-sr-line bg-sr-surface p-4">
                 <div class="mb-3 flex flex-wrap items-center justify-between gap-2">
                   <div class="text-sm font-semibold">Current NetFlow IOC Matches</div>
                   <.ui_badge
@@ -388,7 +389,22 @@ defmodule ServiceRadarWebNGWeb.Settings.ThreatIntelLive.Index do
                       </thead>
                       <tbody>
                         <tr :for={finding <- @netflow_findings.recent}>
-                          <td class="font-mono">{finding.ip}</td>
+                          <td>
+                            <div class="flex flex-wrap items-center gap-2">
+                              <.link
+                                navigate={ThreatIntelLinks.device_path(finding.ip)}
+                                class="link link-hover font-mono"
+                              >
+                                {finding.ip}
+                              </.link>
+                              <.link
+                                href={ThreatIntelLinks.netflow_path(finding.ip)}
+                                class="link link-hover text-xs"
+                              >
+                                Flows
+                              </.link>
+                            </div>
+                          </td>
                           <td>{finding.match_count}</td>
                           <td>{finding.max_severity || 0}</td>
                           <td>{format_datetime(finding.looked_up_at)}</td>

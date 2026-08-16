@@ -47,7 +47,8 @@ defmodule ServiceRadarWebNGWeb.DashboardLiveTest do
     assert has_element?(view, "a.sr-ops-metric-card[href='/diagnostics/mtr']", "Latency (Avg)")
     assert has_element?(view, "a.sr-ops-metric-card[href='/diagnostics/mtr']", "Packet Loss")
     assert has_element?(view, "a.sr-ops-metric-card[href='/services']", "Service Health")
-    assert has_element?(view, "a[data-testid='threat-intel-summary'][href='/settings/networks/threat-intel']")
+    assert has_element?(view, "[data-testid='threat-intel-summary']")
+    assert has_element?(view, "a[href='/settings/networks/threat-intel']", "Manage")
     assert has_element?(view, "a[data-testid='alerts-feed-empty'][href='/observability?tab=alerts']")
   end
 

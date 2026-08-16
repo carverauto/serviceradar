@@ -15,6 +15,7 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.ParsersTest do
       assert advisory.source_object_id == "CVE-2024-0001"
       assert advisory.severity == "high"
       assert advisory.cvss_score == 7.5
+      assert advisory.metadata["cwes"] == ["CWE-787"]
       assert advisory.raw == record
 
       assert [coordinate] = coordinates
@@ -125,13 +126,15 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.ParsersTest do
         "cveID" => "CVE-2021-44228",
         "vendorProject" => "Apache",
         "product" => "Log4j2",
-        "vulnerabilityName" => "Log4Shell"
+        "vulnerabilityName" => "Log4Shell",
+        "cwes" => ["CWE-502"]
       }
 
       assert {:ok, %{advisory: advisory, coordinates: [coordinate]}} =
                Parsers.Kev.parse_record(entry, provider: "cisa", feed_key: "cisa-kev")
 
       assert advisory.cve_id == "CVE-2021-44228"
+      assert advisory.metadata["cwes"] == ["CWE-502"]
       assert coordinate.value == "log4j2"
     end
   end
@@ -227,6 +230,12 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.ParsersTest do
             }
           ]
         },
+        "weaknesses" => [
+          %{
+            "type" => "Primary",
+            "description" => [%{"lang" => "en", "value" => "CWE-787"}]
+          }
+        ],
         "references" => [%{"url" => "https://example.test/CVE-2024-0001"}],
         "configurations" => [
           %{

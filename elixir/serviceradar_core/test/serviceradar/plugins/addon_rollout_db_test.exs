@@ -490,6 +490,46 @@ defmodule ServiceRadar.Plugins.AddonRolloutDbTest do
     assert assignment.rollout_id == retried.id
   end
 
+  test "retry vacates a leftover succeeded target before inserting a new canary" do
+    actor = SystemActor.system(:addon_rollout_retry_succeeded_slot_test)
+    fixture = rollout_fixture(actor)
+
+    assert {:ok, rollout} =
+             AddonRolloutCoordinator.start(fixture.assignment, fixture.candidate,
+               actor: actor,
+               now: fixture.started_at,
+               trigger: :manual
+             )
+
+    target = get_rollout_target(rollout.id, actor)
+    failed_at = DateTime.add(fixture.started_at, 1)
+
+    {:ok, _} =
+      target
+      |> Ash.Changeset.for_update(:update, %{state: :succeeded, completed_at: failed_at})
+      |> Ash.update(actor: actor)
+
+    {:ok, _} =
+      rollout.id
+      |> get_rollout(actor)
+      |> Ash.Changeset.for_update(:update, %{
+        state: :failed,
+        completed_at: failed_at,
+        blocked_reason: "candidate_health_timeout"
+      })
+      |> Ash.update(actor: actor)
+
+    retry_at = DateTime.add(failed_at, 1)
+
+    assert {:ok, retried} =
+             AddonRolloutCoordinator.retry(rollout.id, actor: actor, now: retry_at)
+
+    assert retried.id != rollout.id
+    assert retried.trigger == :retry
+    assert get_rollout_target(rollout.id, actor).state == :promoted
+    assert get_rollout_target(retried.id, actor).state == :waiting_health
+  end
+
   test "whole-rollout rollback restores prior desired state before becoming terminal" do
     actor = SystemActor.system(:addon_rollout_whole_rollback_test)
     fixture = rollout_fixture(actor)

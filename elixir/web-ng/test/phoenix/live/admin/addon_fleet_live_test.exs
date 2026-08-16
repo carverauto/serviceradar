@@ -238,17 +238,32 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonFleetLiveTest do
       |> Ash.update!()
 
     {:ok, lv, html} = live(conn, ~p"/settings/agents/addons/fleet")
+    row_html = rollout_table_html(html)
 
     assert html =~ ~s(data-role="addon-rollout-row")
     assert html =~ "Retry"
-    assert html =~ "candidate health timed out"
+    assert row_html =~ "Rollout Evidence Agent"
+    assert row_html =~ "Direct assignment"
+    assert row_html =~ "Paused"
+    assert row_html =~ "never reported healthy on 1.1.0"
+    assert row_html =~ "rolled that agent back to 1.0.0"
+    refute row_html =~ to_string(assignment.id)
+    refute row_html =~ "assignment ·"
+
+    # The agent inventory row must say what to do, not a bare "action required".
+    assert html =~ "Update blocked"
+    assert html =~ "Review rollout"
+    assert html =~ ~s(data-role="fleet-health-detail")
+    refute fleet_table_html(html) =~ "action required"
 
     html = render_click(lv, "toggle_rollout_details", %{"id" => rollout.id})
     assert html =~ ~s(data-role="addon-rollout-detail")
     assert html =~ ~s(data-role="addon-rollout-target")
+    assert html =~ "Rollout Evidence Agent"
     assert html =~ agent.uid
-    assert html =~ "rolled_back"
-    assert html =~ "candidate health timed out"
+    assert html =~ "Rolled back"
+    assert html =~ "Canary"
+    assert html =~ "candidate never reported healthy in time"
 
     html =
       render_click(lv, "rollout_action", %{"id" => rollout.id, "operation" => "retry"})
@@ -256,11 +271,107 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonFleetLiveTest do
     assert html =~ "Rollout retry accepted."
   end
 
+  test "profile rollouts show the profile name instead of the profile UUID", %{
+    conn: conn,
+    actor: actor
+  } do
+    unique = System.unique_integer([:positive])
+    addon_id = "fleet-rollout-profile-#{unique}"
+    gateway = gateway_fixture(%{id: "fleet-profile-gw-#{unique}", component_id: "fleet-profile-#{unique}"})
+
+    agent =
+      agent_fixture(gateway, %{
+        uid: "fleet-profile-agent-#{unique}",
+        name: "Profile Canary #{unique}"
+      })
+
+    previous = create_addon_package!(actor, addon_id, "2.0.0")
+    candidate = create_addon_package!(actor, addon_id, "2.1.0")
+
+    profile =
+      ServiceRadar.Plugins.AddonProfile
+      |> Ash.Changeset.for_create(
+        :create,
+        %{
+          name: "Linux canaries #{unique}",
+          addon_package_id: previous.id,
+          target_query: "in:agents",
+          params: %{},
+          args: [],
+          enabled: true
+        },
+        actor: actor
+      )
+      |> Ash.create!()
+
+    assignment = create_assignment!(actor, agent.uid, previous.id, enabled: true)
+
+    rollout =
+      AddonRollout
+      |> Ash.Changeset.for_create(
+        :create,
+        %{
+          addon_id: addon_id,
+          source_type: :profile,
+          source_id: profile.id,
+          previous_package_id: previous.id,
+          candidate_package_id: candidate.id,
+          trigger: :track_latest,
+          state: :paused,
+          policy: %{},
+          target_snapshot: %{"eligible" => 1},
+          blocked_reason: "candidate_reported_unhealthy"
+        },
+        actor: actor
+      )
+      |> Ash.create!()
+
+    AddonRolloutTarget
+    |> Ash.Changeset.for_create(
+      :create,
+      %{
+        rollout_id: rollout.id,
+        assignment_id: assignment.id,
+        agent_uid: agent.uid,
+        addon_id: addon_id,
+        source_type: :profile,
+        source_id: profile.id,
+        previous_package_id: previous.id,
+        candidate_package_id: candidate.id,
+        previous_params: %{},
+        previous_args: [],
+        batch_index: 0,
+        classification: :eligible,
+        state: :rolled_back,
+        reason_code: "candidate_reported_unhealthy"
+      },
+      actor: actor
+    )
+    |> Ash.create!()
+
+    {:ok, _lv, html} = live(conn, ~p"/settings/agents/addons/fleet")
+    row_html = rollout_table_html(html)
+
+    assert row_html =~ "Linux canaries #{unique}"
+    assert row_html =~ "Add-on profile"
+    assert row_html =~ "Profile Canary #{unique}"
+    assert row_html =~ "reported 2.1.0 as unhealthy"
+    refute row_html =~ to_string(profile.id)
+    refute row_html =~ "profile ·"
+  end
+
   # The fleet matrix table markup (everything before the catalog inventory
   # panel), so assertions can scope to fleet rows only.
   defp fleet_table_html(html) do
     case String.split(html, "Catalog inventory", parts: 2) do
       [fleet, _catalog] -> fleet
+      [all] -> all
+    end
+  end
+
+  defp rollout_table_html(html) do
+    case String.split(html, "Agent add-on inventory", parts: 2) do
+      [before, _rest] -> before
       [all] -> all
     end
   end

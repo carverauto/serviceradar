@@ -12,6 +12,7 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.Parsers.Nvd do
   """
 
   alias ServiceRadar.Inventory.AdvisoryFeeds.Cpe
+  alias ServiceRadar.Inventory.AdvisoryFeeds.Cwes
   alias ServiceRadar.Inventory.AdvisoryFeeds.VersionRange
 
   @provider "nvd"
@@ -46,6 +47,7 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.Parsers.Nvd do
           kev: false,
           exploit_available: false,
           references: references(cve),
+          metadata: %{"cwes" => Cwes.from_nvd_cve(cve)},
           raw: record
         }
 

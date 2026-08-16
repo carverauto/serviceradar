@@ -9,7 +9,6 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
       cancel_device_refresh_timer: 1,
       clear_task_ref: 3,
       log_device_task_exit: 2,
-      refresh_devices: 1,
       refresh_devices: 2,
       schedule_device_refresh: 1,
       task_ref: 1
@@ -113,9 +112,9 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
     {:noreply,
      socket
      |> cancel_device_refresh_timer()
-     |> assign(:last_params, params)
+     |> assign(:last_params, Map.drop(params, ["page", "cursor"]))
      |> assign(:last_uri, uri)
-     |> refresh_devices()}
+     |> refresh_devices(list_params: params)}
   end
 
   @impl true
