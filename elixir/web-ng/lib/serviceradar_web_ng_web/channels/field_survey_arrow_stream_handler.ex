@@ -5,8 +5,8 @@ defmodule ServiceRadarWebNGWeb.Channels.FieldSurveyArrowStreamHandler do
   @behaviour WebSock
 
   alias ServiceRadar.Repo
-  alias ServiceRadarWebNG.FieldSurveyArrowIngest
   alias ServiceRadarWebNG.FieldSurveyStreamLimiter
+  alias ServiceRadarWebNG.Topology.Native
 
   require Logger
 
@@ -24,12 +24,14 @@ defmodule ServiceRadarWebNGWeb.Channels.FieldSurveyArrowStreamHandler do
         user_id: user_id,
         stream_type: stream_type,
         limiter_token: nil,
-        ingest_connection: nil,
         acquire_stream: Keyword.get(options, :acquire_stream, &FieldSurveyStreamLimiter.acquire/2),
         release_stream: Keyword.get(options, :release_stream, &FieldSurveyStreamLimiter.release/1),
-        open_ingest_connection: Keyword.get(options, :open_ingest_connection, &FieldSurveyArrowIngest.connect/1),
-        close_ingest_connection: Keyword.get(options, :close_ingest_connection, &FieldSurveyArrowIngest.disconnect/1),
-        ingest_arrow: Keyword.get(options, :ingest_arrow, &FieldSurveyArrowIngest.ingest/4),
+        decode_rf_payload: Keyword.get(options, :decode_rf_payload, &decode_rf_payload/1),
+        decode_pose_payload: Keyword.get(options, :decode_pose_payload, &decode_pose_payload/1),
+        decode_spectrum_payload: Keyword.get(options, :decode_spectrum_payload, &decode_spectrum_payload/1),
+        bulk_insert_rf: Keyword.get(options, :bulk_insert_rf, &bulk_insert_rf/2),
+        bulk_insert_pose: Keyword.get(options, :bulk_insert_pose, &bulk_insert_pose/2),
+        bulk_insert_spectrum: Keyword.get(options, :bulk_insert_spectrum, &bulk_insert_spectrum/2),
         archive_frame: Keyword.get(options, :archive_frame, &archive_frame/2),
         message_count: 0,
         bytes_received: 0,
@@ -39,20 +41,8 @@ defmodule ServiceRadarWebNGWeb.Channels.FieldSurveyArrowStreamHandler do
 
     case state.acquire_stream.(to_string(user_id), session_id) do
       {:ok, limiter_token} ->
-        case state.open_ingest_connection.(session_id) do
-          {:ok, ingest_connection} ->
-            Logger.info("FieldSurvey #{stream_type} stream initialized [session: #{session_id}, user: #{user_id}]")
-            {:ok, %{state | limiter_token: limiter_token, ingest_connection: ingest_connection}}
-
-          {:error, reason} ->
-            state.release_stream.(limiter_token)
-
-            Logger.error(
-              "Rejecting FieldSurvey #{stream_type} stream after ADBC connection failure [session: #{session_id}, user: #{user_id}, reason: #{inspect(reason)}]"
-            )
-
-            {:stop, :normal, {1011, "FieldSurvey ingest unavailable"}, state}
-        end
+        Logger.info("FieldSurvey #{stream_type} stream initialized [session: #{session_id}, user: #{user_id}]")
+        {:ok, %{state | limiter_token: limiter_token}}
 
       {:error, reason} ->
         Logger.warning(
@@ -105,7 +95,6 @@ defmodule ServiceRadarWebNGWeb.Channels.FieldSurveyArrowStreamHandler do
 
   @impl true
   def terminate(reason, state) do
-    state.close_ingest_connection.(state.ingest_connection)
     state.release_stream.(state.limiter_token)
 
     Logger.info(
@@ -145,17 +134,85 @@ defmodule ServiceRadarWebNGWeb.Channels.FieldSurveyArrowStreamHandler do
       state
   end
 
-  defp ingest_frame(data, state) do
-    case state.ingest_arrow.(state.ingest_connection, state.stream_type, state.session_id, data) do
-      {:ok, row_count} when is_integer(row_count) and row_count >= 0 ->
-        {:ok, row_count}
-
-      {:error, reason} ->
-        {:error, reason}
-
-      other ->
-        {:error, {:unexpected_ingest_result, other}}
+  # One Arrow IPC RecordBatch per frame, decoded by the Rust NIF and appended through the
+  # resource's `:bulk_insert` action. `session_id` comes from the authenticated route, never
+  # from the payload -- the decoder structs carry no session field, so a client cannot forge
+  # one. The BEFORE INSERT triggers on each table still derive `captured_at`, `inserted_at`
+  # and the feature vector, so this path and any other insert normalise identically.
+  defp ingest_frame(data, %{stream_type: :rf_observations, session_id: session_id} = state) do
+    with {:ok, observations} <- state.decode_rf_payload.(data) do
+      if state.bulk_insert_rf.(session_id, observations) do
+        {:ok, length(observations)}
+      else
+        {:error, :rf_insert_failed}
+      end
     end
+  end
+
+  defp ingest_frame(data, %{stream_type: :pose_samples, session_id: session_id} = state) do
+    with {:ok, samples} <- state.decode_pose_payload.(data) do
+      if state.bulk_insert_pose.(session_id, samples) do
+        {:ok, length(samples)}
+      else
+        {:error, :pose_insert_failed}
+      end
+    end
+  end
+
+  defp ingest_frame(data, %{stream_type: :spectrum_observations, session_id: session_id} = state) do
+    with {:ok, observations} <- state.decode_spectrum_payload.(data) do
+      if state.bulk_insert_spectrum.(session_id, observations) do
+        {:ok, length(observations)}
+      else
+        {:error, :spectrum_insert_failed}
+      end
+    end
+  end
+
+  defp ingest_frame(_data, %{stream_type: stream_type}), do: {:error, {:unsupported_stream_type, stream_type}}
+
+  defp decode_rf_payload(data), do: decode_payload(data, &Native.decode_fieldsurvey_rf_payload/1)
+  defp decode_pose_payload(data), do: decode_payload(data, &Native.decode_fieldsurvey_pose_payload/1)
+
+  defp decode_spectrum_payload(data),
+    do: decode_payload(data, &Native.decode_fieldsurvey_spectrum_payload/1)
+
+  # The NIF returns a bare list; the tuple clauses keep an injected decoder free to return
+  # either shape, and `rescue` turns a NIF-level BadArg into a frame-scoped error rather than
+  # tearing down the socket.
+  defp decode_payload(data, decoder) do
+    case decoder.(data) do
+      {:ok, rows} when is_list(rows) -> {:ok, rows}
+      rows when is_list(rows) -> {:ok, rows}
+      {:error, reason} -> {:error, reason}
+      other -> {:error, {:unexpected_decoder_result, other}}
+    end
+  rescue
+    error -> {:error, error}
+  end
+
+  defp bulk_insert_rf(_session_id, []), do: true
+
+  defp bulk_insert_rf(session_id, observations) do
+    ServiceRadar.Spatial.SurveyRfObservation
+    |> Ash.ActionInput.for_action(:bulk_insert, %{session_id: session_id, observations: observations})
+    |> Ash.run_action!(domain: ServiceRadar.Spatial)
+  end
+
+  defp bulk_insert_pose(_session_id, []), do: true
+
+  defp bulk_insert_pose(session_id, samples) do
+    ServiceRadar.Spatial.SurveyPoseSample
+    |> Ash.ActionInput.for_action(:bulk_insert, %{session_id: session_id, samples: samples})
+    |> Ash.run_action!(domain: ServiceRadar.Spatial)
+  end
+
+  defp bulk_insert_spectrum(_session_id, []), do: true
+
+  defp bulk_insert_spectrum(session_id, observations) do
+    ServiceRadar.Spatial.SurveySpectrumObservation
+    |> Ash.ActionInput.for_action(:bulk_insert, %{session_id: session_id, observations: observations})
+    |> Ash.run_action!(domain: ServiceRadar.Spatial)
   end
 
   defp archive_frame(data, metadata) do

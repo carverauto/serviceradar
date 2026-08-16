@@ -61,6 +61,11 @@ hex = hex_packages_extension(
                 # instead of the executor image's gcc. See the patch header for why this
                 # patches the GCC toolchain rather than selecting Toolchain.Custom.
                 Label("//third_party/patches/bundlex:hermetic_cc.patch"),
+                # Pick the precompiled OS-dep URL from the TARGET triple that
+                # //build:mix_app.bzl exports, not from the executor's BEAM. Without it an
+                # arm64 build asks for `<dep>_linux_x86.tar.gz`, misses the staged arm
+                # archive (matching is by basename) and downloads an x86 library.
+                Label("//third_party/patches/bundlex:target_triple.patch"),
             ],
             patch_args = ["-p1"],
         ),

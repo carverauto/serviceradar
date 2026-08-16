@@ -1022,6 +1022,18 @@ http_file(
     ],
 )
 
+# Same release as the amd64 pin above. Bump the two together: the web-ng image selects
+# between them by target platform, so a version skew would ship a different cosign
+# depending on which entry of the index you pulled.
+http_file(
+    name = "cosign_linux_arm64",
+    executable = True,
+    sha256 = "81398231362031e3c7afd6a7508c57049460cd7e02736f1ebe89a452102253e5",
+    urls = [
+        "https://github.com/sigstore/cosign/releases/download/v3.0.3/cosign-linux-arm64",
+    ],
+)
+
 # curl.se's undated cacert.pem is intentionally mutable; pin a dated bundle.
 http_file(
     name = "mozilla_ca_bundle",
@@ -1260,6 +1272,18 @@ http_file(
     sha256 = "43ef5c109056b1507a0972631ee8292e727029aeda1516b4672cb041730ae3af",
     urls = [
         "https://deb.debian.org/debian/pool/main/o/openssl/libssl-dev_3.0.20-1~deb12u2_amd64.deb",
+    ],
+)
+
+# The arm64 sibling, same version-revision. //third_party/openssl pairs each of these with
+# the matching libssl3 (which owns the libssl.so.3 the -dev symlink points at) to build the
+# per-architecture sysroot that ex_dtls and ex_libsrt resolve `openssl` from via pkg-config.
+# Keep the version in lockstep with the amd64 pin above and with debian_libssl3_{amd64,arm64}.
+http_file(
+    name = "debian_libssl_dev_arm64_deb",
+    sha256 = "c6941a83bebd83d2a1cd2db56418062d8f48b3200786aacafa194b75a93a3702",
+    urls = [
+        "https://deb.debian.org/debian/pool/main/o/openssl/libssl-dev_3.0.20-1~deb12u2_arm64.deb",
     ],
 )
 
@@ -2194,6 +2218,158 @@ filegroup(
     ],
 )
 
+# Precompiled Rustler NIFs, pinned so no Mix action has to reach the network for one.
+#
+# rustler_precompiled downloads these itself from GitHub during `mix compile`, keyed on the
+# target triple. Even with the triple now correct (see _target_triple_env in
+# //build:mix_app.bzl) that is still a network fetch from inside a supposedly hermetic
+# action. Pinning them here makes the artefact a declared input with a verified checksum;
+# //third_party/precompiled_nifs stages the right one per target platform, and
+# RUSTLER_PRECOMPILED_GLOBAL_CACHE_PATH points the library at it.
+#
+# The sha256s are upstream's own, published in mdex_native's
+# checksum-Elixir.MDExNative.Native.exs. Bump both together with the mdex version.
+[
+    http_file(
+        name = "mdex_native_nif_" + arch,
+        downloaded_file_path = "libmdex_native_nif-v0.2.5-nif-2.15-" + arch + "-unknown-linux-gnu.so.tar.gz",
+        sha256 = sha,
+        urls = ["https://github.com/leandrocp/mdex_native/releases/download/v0.2.5/libmdex_native_nif-v0.2.5-nif-2.15-" + arch + "-unknown-linux-gnu.so.tar.gz"],
+    )
+    for arch, sha in [
+        ("x86_64", "d3ec8cd4237c25791dba415ae08acb90f57eee927275de644b2a96dbbe9c6c71"),
+        ("aarch64", "4a842f2427e8fffa19d781d6083ebbfba53ce4b822064276779d4c05d85fbd11"),
+    ]
+]
+
+
+# The arm64 half of the Membrane precompiled set above.
+#
+# These were long believed not to exist -- //openspec called core_elx unfixable because of
+# "ten x86_64-only archives with no arm64 upstream". That was never checked: every one of
+# the ten publishes a Linux ARM build under the SAME release tag as the amd64 archive, so
+# these pins carry identical versions to their siblings. Bump each pair together.
+#
+# Bundlex matches by URL BASENAME, so downloaded_file_path has to be exactly the name it
+# would have fetched, or it downloads the archive again and the pin does nothing.
+
+http_file(
+    name = "membrane_precompiled_fdk_aac_arm64",
+    downloaded_file_path = "fdk-aac_linux_arm.tar.gz",
+    sha256 = "4623d50a83a55f8fb5aa2176d9ce1b5e5be808c99ef82285ef92cc610823bf15",
+    urls = [
+        "https://github.com/membraneframework-precompiled/precompiled_fdk-aac/releases/download/v2.0.3/fdk-aac_linux_arm.tar.gz",
+    ],
+)
+
+http_file(
+    name = "membrane_precompiled_lame_arm64",
+    downloaded_file_path = "lame_linux_arm.tar.gz",
+    sha256 = "c7366da5b295194130eb2965619bb84585e03b5ed6e5389f9b6fb2d0e2ec6990",
+    urls = [
+        "https://github.com/membraneframework-precompiled/precompiled_lame/releases/download/v3.100/lame_linux_arm.tar.gz",
+    ],
+)
+
+http_file(
+    name = "membrane_precompiled_mad_arm64",
+    downloaded_file_path = "mad_linux_arm.tar.gz",
+    sha256 = "28c8b62f5610ec5ea2cc65bf2ba4667598bc2600d7ee0043dbf8b08e556242b4",
+    urls = [
+        "https://github.com/membraneframework-precompiled/precompiled_mad/releases/download/v0.15.1b/mad_linux_arm.tar.gz",
+    ],
+)
+
+http_file(
+    name = "membrane_precompiled_opus_arm64",
+    downloaded_file_path = "opus_linux_arm.tar.gz",
+    sha256 = "d7930fe58aad9f8e12c766be5446763a3f6586954e61c9dfec9ef6ff7ef434f5",
+    urls = [
+        "https://github.com/membraneframework-precompiled/precompiled_opus/releases/download/v1.5.2/opus_linux_arm.tar.gz",
+    ],
+)
+
+http_file(
+    name = "membrane_precompiled_portaudio_arm64",
+    downloaded_file_path = "portaudio_linux_arm.tar.gz",
+    sha256 = "2dc8f96b801d37961b7b38fa513e7a8a86dcd98f474a9bba239abff1b0059516",
+    urls = [
+        "https://github.com/membraneframework-precompiled/precompiled_portaudio/releases/download/v19.7.0/portaudio_linux_arm.tar.gz",
+    ],
+)
+
+http_file(
+    name = "membrane_precompiled_sdl2_arm64",
+    downloaded_file_path = "sdl2_linux_arm.tar.gz",
+    sha256 = "7249e8fb5627b2ad7f12e8ab060edc872083bb1ac5c7c98708584d91714ae435",
+    urls = [
+        "https://github.com/membraneframework-precompiled/precompiled_sdl2/releases/download/v2.32.10/sdl2_linux_arm.tar.gz",
+    ],
+)
+
+http_file(
+    name = "membrane_precompiled_libvpx_arm64",
+    downloaded_file_path = "libvpx_linux_arm.tar.gz",
+    sha256 = "a4f45a0ff09f288ada8d1867287bad648265df9bb28855c82fcbd6ca266d7f87",
+    urls = [
+        "https://github.com/membraneframework-precompiled/precompiled_libvpx/releases/download/v1.15.2/libvpx_linux_arm.tar.gz",
+    ],
+)
+
+http_file(
+    name = "membrane_precompiled_srt_arm64",
+    downloaded_file_path = "srt_linux_arm.tar.gz",
+    sha256 = "a1909e60ec1b51f44a7a088234d0a5ba3246c4c28438618fe61129b6fc4ac8a5",
+    urls = [
+        "https://github.com/membraneframework-precompiled/precompiled_srt/releases/download/v1.5.4/srt_linux_arm.tar.gz",
+    ],
+)
+
+http_file(
+    name = "membrane_precompiled_srtp_arm64",
+    downloaded_file_path = "srtp_linux_arm.tar.gz",
+    sha256 = "31f49db5113df43f6755ddc44731dad6a35061c1776167c20e75e7eba4bbb2c7",
+    urls = [
+        "https://github.com/membraneframework-precompiled/precompiled_srtp/releases/download/v2.7.0/srtp_linux_arm.tar.gz",
+    ],
+)
+
+http_file(
+    name = "membrane_precompiled_ffmpeg_arm64",
+    downloaded_file_path = "ffmpeg_linuxarm64.tar.xz",
+    sha256 = "944b91342268c0c4d7c924e838b68ef3d6cffee0ea259f598b6f4e4574973a2b",
+    urls = [
+        "https://github.com/membraneframework-precompiled/precompiled_ffmpeg/releases/download/v6.0.1/ffmpeg_linuxarm64.tar.xz",
+    ],
+)
+
+# vix's precompiled NIF, both architectures, staged by //build:mix_app.bzl into
+# ELIXIR_MAKE_CACHE_DIR. Checksums are vix's own, copied from the `checksum.exs` it ships;
+# elixir_make re-verifies against that same file before extracting, so a wrong pin here
+# fails loudly rather than shipping a mismatched artefact.
+#
+# BOTH are staged for every build, which is deliberate -- see _HOST_NIF_APPS in
+# //build:mix_app.bzl. vix executes its own NIF during `mix compile` to enumerate libvips
+# enums, so the compile needs the EXECUTOR's architecture while the packaged priv needs the
+# TARGET's. The nif-2.17 in the name is OTP 28's NIF version; bump these together with OTP.
+http_file(
+    name = "vix_nif_x86_64",
+    downloaded_file_path = "vix-nif-2.17-x86_64-linux-gnu-0.40.0.tar.gz",
+    sha256 = "26bc9f50d6f1590e5884c8ca9b16579c10a1abc291e358972bac8c56a962470e",
+    urls = [
+        "https://github.com/akash-akya/vix/releases/download/v0.40.0/vix-nif-2.17-x86_64-linux-gnu-0.40.0.tar.gz",
+    ],
+)
+
+http_file(
+    name = "vix_nif_aarch64",
+    downloaded_file_path = "vix-nif-2.17-aarch64-linux-gnu-0.40.0.tar.gz",
+    sha256 = "4af83bfeb0d70a016c16f3f9acfd033f33818cd11bc57223d1fef62e228f831c",
+    urls = [
+        "https://github.com/akash-akya/vix/releases/download/v0.40.0/vix-nif-2.17-aarch64-linux-gnu-0.40.0.tar.gz",
+    ],
+)
+
 # Bun runtime for Phoenix React Server SSR
 # Used by web-ng for client-side React components (GoRules JDM editor)
 http_archive(
@@ -2206,6 +2382,21 @@ exports_files(["bun"])
     strip_prefix = "bun-linux-x64",
     urls = [
         "https://github.com/oven-sh/bun/releases/download/bun-v1.3.6/bun-linux-x64.zip",
+    ],
+)
+
+# The arm64 half of the pair above; bump both to the same bun version at once. Note the
+# archive's own directory is named for the arch, hence the differing strip_prefix.
+http_archive(
+    name = "bun_linux_aarch64",
+    build_file_content = """
+package(default_visibility = ["//visibility:public"])
+exports_files(["bun"])
+""",
+    sha256 = "5afd12b366ba2d8297245cc29c039416334dd872152c1db02e5c8aa8c66e96b1",
+    strip_prefix = "bun-linux-aarch64",
+    urls = [
+        "https://github.com/oven-sh/bun/releases/download/bun-v1.3.6/bun-linux-aarch64.zip",
     ],
 )
 

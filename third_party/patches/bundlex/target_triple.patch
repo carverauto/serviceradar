@@ -1,0 +1,65 @@
+Resolve precompiled OS deps for the TARGET architecture, not the executor's.
+
+`Bundlex.get_target/0` is what every Membrane plugin's bundlex.exs passes to
+`Membrane.PrecompiledDependencyProvider.get_dependency_url/2`, and that function
+picks `<dep>_linux_x86.tar.gz` vs `<dep>_linux_arm.tar.gz` from it. Without
+CROSSCOMPILE set, `get_target/0` reads `:erlang.system_info(:system_architecture)`
+-- the triple of the BEAM running the build, i.e. the RBE executor. Building for
+linux/arm64 therefore asked for `srtp_linux_x86.tar.gz`, missed the staged
+`srtp_linux_arm.tar.gz` in BUNDLEX_LOCAL_PRECOMPILED_DIR (matching is by
+basename), downloaded the x86 archive from github at build time, and died with
+    ld.lld: error: .../libsrtp2.so is incompatible with aarch64linux
+This is the same shape of bug as lazy_html, adbc and mdex_native: an
+architecture-keyed artefact resolved from the build host rather than the target.
+
+Bundlex already has the override -- the `{:ok, _crosscompile}` branch below reads
+TARGET_ARCH/TARGET_VENDOR/TARGET_OS/TARGET_ABI, the Nerves cross-compilation
+convention that cc_precompiler and rustler_precompiled honour too, and which
+//build:mix_app.bzl exports for every linux-target Mix action. It is unreachable
+here: setting CROSSCOMPILE also flips `Bundlex.Platform.get_target!/0` to
+`:custom`, which swaps Toolchain.GCC for Toolchain.Custom and changes far more
+than the triple (see hermetic_cc.patch).
+
+So read the same four variables in the non-CROSSCOMPILE branch, keeping
+`:erlang.system_info/1` as the fallback when they are absent. The platform, the
+toolchain and every non-Bazel build are untouched: mix_app exports TARGET_ARCH
+only when the target platform is Linux, so a macOS or plain `mix` build takes the
+original path unchanged.
+
+--- a/lib/bundlex.ex
++++ b/lib/bundlex.ex
+@@ -43,15 +43,26 @@
+         end
+       else
+         def get_target() do
+-          [architecture, vendor, os | maybe_abi] =
+-            :erlang.system_info(:system_architecture) |> List.to_string() |> String.split("-")
++          case System.get_env("TARGET_ARCH") do
++            nil ->
++              [architecture, vendor, os | maybe_abi] =
++                :erlang.system_info(:system_architecture) |> List.to_string() |> String.split("-")
+ 
+-          %{
+-            architecture: architecture,
+-            vendor: vendor,
+-            os: os,
+-            abi: List.first(maybe_abi) || "unknown"
+-          }
++              %{
++                architecture: architecture,
++                vendor: vendor,
++                os: os,
++                abi: List.first(maybe_abi) || "unknown"
++              }
++
++            architecture ->
++              %{
++                architecture: architecture,
++                vendor: System.get_env("TARGET_VENDOR", "unknown"),
++                os: System.get_env("TARGET_OS", "unknown"),
++                abi: System.get_env("TARGET_ABI", "unknown")
++              }
++          end
+         end
+       end
+ 

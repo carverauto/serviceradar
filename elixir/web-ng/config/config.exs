@@ -11,8 +11,6 @@ alias ServiceRadar.Automation.Ansible
 alias ServiceRadar.Automation.Callbacks
 alias ServiceRadar.Automation.Northbound
 
-config :adbc, :drivers, [:postgresql]
-
 # Ash configuration
 config :ash,
   include_embedded_source_by_default?: false,

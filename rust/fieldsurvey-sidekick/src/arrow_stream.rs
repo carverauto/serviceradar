@@ -426,4 +426,97 @@ mod tests {
             .unwrap();
         assert_eq!(sdr_id.value(0), "hackrf-0");
     }
+
+    // These two schemas are a wire contract with a consumer in another language: web-ng
+    // decodes them in `god_view_nif` (`decode_fieldsurvey_rf_payload` and friends), which
+    // reads each column by name at a fixed Arrow type. Nothing in either build links the two,
+    // so a type changed here fails at runtime on the far side and nowhere else.
+    //
+    // That is not hypothetical. These columns were once emitted unsigned while the decoder
+    // read them signed, the frames failed to decode, and the response was to replace the
+    // decoder with a second ingest path rather than reconcile the types -- which then shipped
+    // broken for nine months because nothing tested it either.
+    //
+    // So pin the contract. A deliberate change updates this list AND the decoder together; an
+    // accidental one fails here.
+    #[test]
+    fn rf_schema_matches_the_web_ng_decoder_contract() {
+        let expected = vec![
+            ("sidekick_id", DataType::Utf8, false),
+            ("radio_id", DataType::Utf8, false),
+            ("interface_name", DataType::Utf8, false),
+            ("bssid", DataType::Utf8, false),
+            ("ssid", DataType::Utf8, true),
+            ("hidden_ssid", DataType::Boolean, false),
+            ("frame_type", DataType::Utf8, false),
+            ("rssi_dbm", DataType::Int16, true),
+            ("noise_floor_dbm", DataType::Int16, true),
+            ("snr_db", DataType::Int16, true),
+            ("frequency_mhz", DataType::Int32, false),
+            ("channel", DataType::Int32, true),
+            ("channel_width_mhz", DataType::Int32, true),
+            (
+                "captured_at",
+                DataType::Timestamp(TimeUnit::Microsecond, Some("UTC".into())),
+                false,
+            ),
+            ("captured_at_unix_nanos", DataType::Int64, false),
+            ("captured_at_monotonic_nanos", DataType::Int64, true),
+            ("parser_confidence", DataType::Float64, false),
+        ];
+
+        assert_schema(&rf_observation_schema(), &expected);
+    }
+
+    #[test]
+    fn spectrum_schema_matches_the_web_ng_decoder_contract() {
+        let expected = vec![
+            ("sidekick_id", DataType::Utf8, false),
+            ("sdr_id", DataType::Utf8, false),
+            ("device_kind", DataType::Utf8, false),
+            ("serial_number", DataType::Utf8, true),
+            ("sweep_id", DataType::Int64, false),
+            (
+                "started_at",
+                DataType::Timestamp(TimeUnit::Microsecond, Some("UTC".into())),
+                false,
+            ),
+            ("started_at_unix_nanos", DataType::Int64, false),
+            (
+                "captured_at",
+                DataType::Timestamp(TimeUnit::Microsecond, Some("UTC".into())),
+                false,
+            ),
+            ("captured_at_unix_nanos", DataType::Int64, false),
+            ("start_frequency_hz", DataType::Int64, false),
+            ("stop_frequency_hz", DataType::Int64, false),
+            ("bin_width_hz", DataType::Float64, false),
+            ("sample_count", DataType::Int32, false),
+            (
+                "power_bins_dbm",
+                DataType::List(Arc::new(Field::new("item", DataType::Float64, true))),
+                false,
+            ),
+        ];
+
+        assert_schema(&spectrum_observation_schema(), &expected);
+    }
+
+    fn assert_schema(actual: &Schema, expected: &[(&str, DataType, bool)]) {
+        let got: Vec<_> = actual
+            .fields()
+            .iter()
+            .map(|f| (f.name().as_str(), f.data_type().clone(), f.is_nullable()))
+            .collect();
+        let want: Vec<_> = expected
+            .iter()
+            .map(|(n, d, null)| (*n, d.clone(), *null))
+            .collect();
+
+        assert_eq!(
+            got, want,
+            "FieldSurvey Arrow schema drifted from the web-ng decoder contract; \
+             update god_view_nif's decode_fieldsurvey_* in the same change"
+        );
+    }
 }

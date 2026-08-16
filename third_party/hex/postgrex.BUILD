@@ -34,7 +34,6 @@ mix_app(
         "@hex_db_connection//:erlang_app",
         "@hex_decimal//:erlang_app",
         "@hex_jason//:erlang_app",
-        "@hex_table//:erlang_app",
         "@rules_elixir//elixir",
     ],
 )
