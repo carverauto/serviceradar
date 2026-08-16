@@ -10,11 +10,7 @@ defmodule ServiceRadar.Observability.OutboundFeedPolicy do
 
   @spec req_opts(pos_integer()) :: keyword()
   def req_opts(timeout_ms) when is_integer(timeout_ms) and timeout_ms > 0 do
-    [
-      receive_timeout: timeout_ms,
-      retry: false,
-      finch: ServiceRadar.Finch
-    ]
+    ServiceRadar.HTTP.EgressProxy.req_opts(timeout_ms)
   end
 
   def req_opts(_timeout_ms), do: req_opts(20_000)

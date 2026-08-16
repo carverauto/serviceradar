@@ -174,8 +174,7 @@ defmodule ServiceRadarWebNGWeb.Channels.FieldSurveyArrowStreamHandler do
   defp decode_rf_payload(data), do: decode_payload(data, &Native.decode_fieldsurvey_rf_payload/1)
   defp decode_pose_payload(data), do: decode_payload(data, &Native.decode_fieldsurvey_pose_payload/1)
 
-  defp decode_spectrum_payload(data),
-    do: decode_payload(data, &Native.decode_fieldsurvey_spectrum_payload/1)
+  defp decode_spectrum_payload(data), do: decode_payload(data, &Native.decode_fieldsurvey_spectrum_payload/1)
 
   # The NIF returns a bare list; the tuple clauses keep an injected decoder free to return
   # either shape, and `rescue` turns a NIF-level BadArg into a frame-scoped error rather than

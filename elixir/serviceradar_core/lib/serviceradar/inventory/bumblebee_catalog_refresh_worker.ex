@@ -13,6 +13,7 @@ defmodule ServiceRadar.Inventory.BumblebeeCatalogRefreshWorker do
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Edge.AgentArtifacts
   alias ServiceRadar.Edge.AgentCommandBus
+  alias ServiceRadar.HTTP.EgressProxy
   alias ServiceRadar.Inventory.BumblebeeCatalogArtifact
   alias ServiceRadar.Inventory.BumblebeeCatalogEntry
   alias ServiceRadar.Inventory.BumblebeeCatalogParser
@@ -384,12 +385,11 @@ defmodule ServiceRadar.Inventory.BumblebeeCatalogRefreshWorker do
     with :ok <- validate_url(url),
          {:ok, %Req.Response{status: 200} = response} <-
            Req.get(
-             url: url,
-             headers: [{"user-agent", "serviceradar"}],
-             into: bounded_body_collector(max_catalog_bytes),
-             connect_options: [timeout: timeout_ms],
-             retry: false,
-             receive_timeout: timeout_ms
+             [
+               url: url,
+               headers: [{"user-agent", "serviceradar"}],
+               into: bounded_body_collector(max_catalog_bytes)
+             ] ++ EgressProxy.req_opts(timeout_ms)
            ),
          {:ok, body} <- response_body(response, max_catalog_bytes) do
       {:ok, body}
