@@ -1289,6 +1289,120 @@ are gates for this adapter, not requirements that another host use BEAM or Rustl
 | Risk, anomaly, causal, alert, and security analytics | May consume ontology output through explicit versioned contracts; ontology core does not run their algorithms. |
 | Actions, notifications, and remediation | Remain outside the V1 ontology adapter and may consume versioned ontology output only through later approved contracts. |
 
+### 14.6 Edge Record V1 Adapter Boundary
+
+This subsection applies only when a ServiceRadar binding consumes an admitted
+`EdgeRecordV1`. It does not change the portable core or runtime contracts, and it
+does not redefine the Edge Record V1 ABI. That ABI remains the authority for raw
+frame bounds, authenticated carrier and capability checks, record and frame
+integrity, semantic-envelope verification, delivery-slot comparison, and ingest-
+ledger admission.
+
+The ontology adapter may consume only a durable item or authorized canonical
+event view that attests prior completion of that full edge boundary. A raw pre-
+admission frame is not an ontology source, and decoding protobuf successfully is
+not admission. Ontology evaluation remains asynchronous and outside edge
+admission, ACK, delivery, and native canonical-write transactions, including
+EventWriter where applicable.
+
+The adapter preserves, but does not collapse, the edge identity layers:
+
+| Edge quantity | Ontology-adapter treatment |
+| --- | --- |
+| `submission_sha256` | Producer-receipt identity local to the producer journal. It is not required, reconstructed, or placed on the portable source envelope. |
+| `(network_scope_id, event_id)` | Edge ingest-ledger identity. An event-mode edge binding preserves the exact `event_id` as its unordered event revision coordinate; its versioned `record_id` and `source_instance_id` mapping must not use a delivery slot. |
+| `semantic_envelope_sha256` | Verified edge semantic-identity evidence. It is not recomputed from portable JSON or CBOR. |
+| `payload_sha256` | Verified exact payload-artifact evidence committed by the semantic envelope. It is not the `SourceRecord` canonical content hash. |
+| `record_sha256` and, when retained, exact record bytes | Host physical-artifact evidence. A legal protobuf re-encoding may change them without creating a different semantic source record. |
+| Agent or service slot, NATS publication identity, delivery capability or proof, delivery mode, and transport provenance | Host delivery evidence kept outside the portable semantic coordinate and `SourceRecord` canonical content hash under the applicable retention policy. It never implies source supersession, absence, or retraction. |
+| `SourceRecord` canonical content hash | The Section 8.2 logical hash of the canonical `SourceRecord` contract envelope in the `portable-ontology-v1` domain. It never substitutes for an edge artifact, semantic, event-ledger, or publication identity. |
+
+The selected binding defines every adapter-owned coordinate component: the
+trusted opaque-host-scope mapping, source instance, record ID, and host-attested
+reset epoch. The admitted `network_scope_id` must match authenticated server
+context rather than select deployment scope. Delivery, retry, and recovery changes
+do not advance the reset epoch.
+
+`HostActivation` selects an authorized `BindingManifest` independently of source
+payload. That selected binding pins the expected schema-stable edge contract
+identity (`contract_id`, `contract_version`, and `contract_bundle_sha256`) and its
+portable source-contract version and mapping deployment. The adapter equality-
+checks those values against the admitted record while preserving the complete
+`EdgeOutputContractRef`, including registry epoch, registry snapshot, and
+effective grant, as admission evidence. The edge reference is not itself a
+portable `SourceContract`, ontology release, source authority, or mapping
+selector. Likewise, `EDGE_RECORD_DISPOSITION_KIND_ACCEPTED_AUTHORITATIVE` does
+not authorize an ontology observation or projection. That decision remains
+separately pinned by `BindingManifest`, `SourceAuthority`, and `HostActivation`.
+Edge Hello negotiation, lane-open coordinates, and the portable
+`PortCapabilityDescriptor` are separate contracts and are not inferred from one
+another. Authenticated agent or service identity remains trusted carrier
+provenance and is not replaced by producer attribution carried in the record.
+
+Under the same selected immutable binding, portable source-contract and adapter-
+transform versions, coordinate mapping, host-attested reset epoch, and recorded
+first-acceptance `known_at`, retries, legal outer-record re-encodings, and recovery
+rewrapping with the same edge ledger identity and semantic-envelope identity
+produce the same portable semantic input. Repeated portable admission is a no-op;
+a new physical delivery receipt may be appended host-side without mutating the
+accepted `SourceRecord`. A different semantic-envelope identity under the same
+edge ledger key must not reach portable source admission. The native host may
+retain the ledger disposition and conflict evidence, but neither is an ontology
+source.
+Agent spool sequence and service publication sequence are never mapped to
+portable semantic `sequence(u64)` merely because they are ordered delivery
+coordinates.
+
+Edge timestamps remain raw signed nanoseconds through edge decoding, admission,
+and every edge hash or identity comparison. Only after that boundary may source
+adaptation under a named, versioned transform convert a domain timestamp to the
+portable signed-microsecond type. The transform uses the frozen containing-
+microsecond-bucket rule (mathematical floor, including for negative values) and
+retains the original nanoseconds as typed source evidence when replay or audit
+requires their fidelity. Before activation, the adapter change must register
+this new consumer in the enumerated projection-consumer list of the frozen edge
+requirement `Nanosecond time is canonicalized to microseconds only at the
+projection boundary`. A `SourceRecord` canonical content hash therefore never
+masquerades as an edge hash over normalized time. Portable
+`valid_at` comes only from declared domain evidence under the versioned source
+contract, never from UUIDv7 allocation time, broker arrival, or delivery order.
+`known_at` keeps its Section 10.1 meaning: the authorized host clock assigns it
+when the durable ontology runtime first accepts the exact portable coordinate,
+not from producer, payload, broker, spool, or recovery time.
+
+One canonical portable source envelope, including its metadata, must remain
+within the 1 MiB runtime ceiling. Delivery-varying physical evidence stays
+outside that envelope and its canonical content hash. Stable source provenance
+required by the portable source contract remains in the immutable `SourceRecord`.
+Any durable-stream identity included there is a binding-owned logical identity
+that is invariant across original and recovery placement. A concrete NATS stream,
+subject, or lane placement, JetStream consumer cursor, publication coordinate,
+delivery attempt, or receipt belongs to the outer host unit-of-work, idempotency
+fence, and audit record; it does not become a portable source cursor or enter the
+`SourceRecord` canonical content hash. Physical
+receipts need not be duplicated inside the source envelope; when host retention
+policy keeps exact frame or record bytes, protected evidence references or
+verified hashes may identify them. Every value required by pure mapping remains
+in the bounded envelope; the evaluator cannot dereference the host evidence
+handle. An edge-
+source binding requires an explicit worst-case sizing proof and fails without
+truncation, splitting, or partial output when the portable ceiling is exceeded.
+That failure does not alter the already accepted native event.
+
+Portable replay continues to use the exact retained canonical `SourceRecord` and
+historical portable pins from Section 10.8. Replaying the native Edge-to-Source
+adaptation additionally requires exact admitted native evidence, the edge-
+admission version, trusted carrier attestation, selected binding, coordinate
+mapping, and adapter-transform version. A digest or unresolved evidence handle
+alone is not replayability. If host retention no longer preserves the native
+input, native translation is non-replayable even when the already-retained
+portable envelope remains replayable.
+
+If normative edge loss or recovery artifacts are later adapted, they require a
+separately declared source contract. A declared delivery-loss span and a sequence
+outside the declared loss union make no claim about the existence, absence,
+supersession, or retraction of ontology evidence.
+
 ## 15. Non-Normative Source and Domain Examples
 
 No example below is a required provider integration or privileged core concept.
