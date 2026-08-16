@@ -935,8 +935,27 @@ ABS_PRIV="$PWD/{priv}"
 
 export PATH="$ABS_ELIXIR_HOME"/bin:"{erlang_home}"/bin:${{PATH}}
 
-export LANG="en_US.UTF-8"
-export LC_ALL="en_US.UTF-8"
+# C.UTF-8, not en_US.UTF-8. The executor image ships no generated locales, so asking for
+# en_US.UTF-8 made bash print
+#     warning: setlocale: LC_ALL: cannot change locale (en_US.UTF-8)
+# on every Mix action and then fall back to the C locale anyway. C.UTF-8 is built into
+# glibc rather than generated, so it is always present and actually takes effect.
+# //build:mix_release.bzl already used it.
+export LANG="C.UTF-8"
+export LC_ALL="C.UTF-8"
+
+# Set BEFORE the first Elixir invocation, which is the whole point.
+#
+# +fnu forces utf8 filename handling instead of letting the VM infer it from the locale.
+# It was previously set just before `mix compile`, leaving the two Elixir runs that come
+# first -- `mix archive.install` and the lock-generating `elixir -e` -- on the default,
+# which is why every build log carried exactly two copies of
+#     warning: the VM is running with native name encoding of latin1 which may cause
+#     Elixir to malfunction as it expects utf8
+# That is Elixir warning about a real defect, not decoration: those two invocations were
+# genuinely handling filenames as latin1. The scheduler flags are appended later, once the
+# CPU quota is known.
+export ELIXIR_ERL_OPTIONS="+fnu"
 
 MIX_INVOCATION_DIR="{mix_invocation_dir}"
 rm -rf "${{MIX_INVOCATION_DIR}}"
@@ -1069,12 +1088,10 @@ if [ -z "$_SR_CPUS" ] || [ "$_SR_CPUS" -lt 1 ] 2>/dev/null; then
     _SR_CPUS=$(nproc 2>/dev/null || echo 1)
 fi
 
-# +S <total>:<online> pins the scheduler pool to the quota.
-# +fnu fixes a real defect, not a cosmetic one: the executor image has no UTF-8 locale, so
-# setlocale fails and the VM falls back to latin1 filename encoding, which Elixir itself warns
-# "may cause Elixir to malfunction". Forcing utf8 filename handling makes it independent of
-# the image's locale configuration.
-export ELIXIR_ERL_OPTIONS="+S ${{_SR_CPUS}}:${{_SR_CPUS}} +fnu ${{ELIXIR_ERL_OPTIONS:-}}"
+# +S <total>:<online> pins the scheduler pool to the quota. Appended to whatever is already
+# set -- +fnu is exported at the top of this script, before the first Elixir runs, because
+# two of them happen well before this line.
+export ELIXIR_ERL_OPTIONS="+S ${{_SR_CPUS}}:${{_SR_CPUS}} ${{ELIXIR_ERL_OPTIONS:-}}"
 
 "${{ABS_ELIXIR_HOME}}"/bin/mix compile --no-deps-check
 
