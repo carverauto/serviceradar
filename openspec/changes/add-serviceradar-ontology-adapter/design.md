@@ -99,11 +99,16 @@ complete a mapping. Provider fields remain only in source schemas and mappings.
 
 ### 6. DIRE is an optional external identity port
 
-Exact and source-scoped identity require no DIRE call. A manifest may select a
-DIRE-backed external resolver that translates the declared portable identity-key
-schema into typed claims and returns canonical identity, ambiguity, and
-association revision. It cannot guess ambiguity or mutate the key schema. DIRE stays
-authoritative for existing associations outside an admitted manifest.
+Exact and source-scoped identity require no DIRE call, but they are limited to
+ontology-local object types with no existing native identity authority. A
+manifest may select a DIRE-backed external resolver that translates the declared
+portable identity-key schema into typed claims and returns canonical identity,
+ambiguity, and association revision. Canonical ServiceRadar device bindings and
+other DIRE-governed native types must use DIRE. One activated configuration cannot
+mix identity modes for the same object type and identity-key schema. Changing the
+identity authority of an existing native type requires a separate approved ADR,
+migration proposal, and reconciliation plan. Neither mode may guess ambiguity or
+mutate the key schema.
 
 ### 7. Ash and CNPG implement the canonical host store
 

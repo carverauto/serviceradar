@@ -136,17 +136,34 @@ native unions MUST remain in host source schemas and mapping artifacts.
 ### Requirement: Schema-bound DIRE identity without guessing
 
 The adapter SHALL support exact and binding-local source-scoped identity and MAY
-use DIRE as an external identity port. A DIRE request MUST use the target object
-type's declared identity-key schema and exact typed components. The response MUST
-preserve canonical identity, ambiguity, merge/split reassociation, and association
-revision. Ambiguity MUST NOT be guessed. Existing DIRE associations MUST remain
-authoritative outside an explicitly admitted manifest.
+use DIRE as an external identity port. Exact and binding-local identity MUST be
+limited to ontology-local object types for which the host has no existing native
+identity authority. Bindings to canonical ServiceRadar devices and other
+DIRE-governed native types MUST use DIRE. A DIRE request MUST use the target
+object type's declared identity-key schema and exact typed components. The
+response MUST preserve canonical identity, ambiguity, merge/split reassociation,
+and association revision. Ambiguity MUST NOT be guessed. One activated host
+configuration MUST NOT mix identity modes for the same object type and
+identity-key schema. Changing the identity authority for an existing native type
+requires a separately approved migration contract.
 
 #### Scenario: DIRE revises an endpoint through a split
 
 - **WHEN** a split advances the association revision for a linked object
 - **THEN** affected resolved objects and links are invalidated until replay pins
   the new decision
+
+#### Scenario: Canonical device binding attempts to bypass DIRE
+
+- **WHEN** a manifest selects exact or binding-local identity for a canonical
+  ServiceRadar device type
+- **THEN** activation rejects the manifest without admitting observations
+
+#### Scenario: One type declares conflicting identity modes
+
+- **WHEN** an activated configuration would use more than one identity mode for
+  the same object type and identity-key schema
+- **THEN** activation rejects the configuration with a value-free diagnostic
 
 ### Requirement: AGE is a disposable ResolvedLink materialization
 

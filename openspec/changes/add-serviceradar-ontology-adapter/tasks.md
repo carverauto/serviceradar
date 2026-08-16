@@ -31,10 +31,13 @@
   mutation, projection substitution, and semantic query.
 - [ ] 3.3 Implement Ash/CNPG bitemporal object/link store, idempotency tuple,
   tombstone, cursor, protected-evidence, redacted-audit, and atomic fence ports.
-- [ ] 3.4 Implement exact and source-scoped identity plus optional schema-bound
-  DIRE identity, preserving ambiguity and merge/split association revisions.
-- [ ] 3.5 Test cross-deployment isolation, stale pins, replay, audit redaction,
-  multi-source existence, final tombstones, and revision invalidation.
+- [ ] 3.4 Implement exact and source-scoped identity only for ontology-local
+  types without a native identity authority; require schema-bound DIRE identity
+  for canonical device and other DIRE-governed bindings while preserving
+  ambiguity and merge/split association revisions.
+- [ ] 3.5 Reject mixed identity modes for one object type/key schema and test
+  canonical-device bypass, cross-deployment isolation, stale pins, replay, audit
+  redaction, multi-source existence, final tombstones, and revision invalidation.
 
 ## 4. Sources and streaming
 

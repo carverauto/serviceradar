@@ -9,6 +9,8 @@
 
 - Feature branch: [`codex/add-portable-ontology-engine`](https://code.carverauto.dev/carverauto/serviceradar/src/branch/codex/add-portable-ontology-engine)
 - Local worktree: `/private/tmp/serviceradar-wt-portable-ontology-engine`
+- Tracking issue: [#5004](https://code.carverauto.dev/carverauto/serviceradar/issues/5004)
+- Architecture decision record: [adopt a portable operational ontology](https://code.carverauto.dev/carverauto/serviceradar/src/branch/codex/add-portable-ontology-engine/docs/plans/2026-08-16-portable-operational-ontology-engine-adr.md)
 - PRD source: [this document](https://code.carverauto.dev/carverauto/serviceradar/src/branch/codex/add-portable-ontology-engine/docs/plans/2026-08-16-portable-operational-ontology-engine-prd.md)
 - Portable schema/model/compiler proposal: [`add-portable-ontology-core`](https://code.carverauto.dev/carverauto/serviceradar/src/branch/codex/add-portable-ontology-engine/openspec/changes/add-portable-ontology-core)
 - Portable runtime proposal: [`add-portable-ontology-runtime`](https://code.carverauto.dev/carverauto/serviceradar/src/branch/codex/add-portable-ontology-engine/openspec/changes/add-portable-ontology-runtime)
@@ -1207,8 +1209,13 @@ vocabulary or behavior to portable artifacts or crates.
 - OCSF events and devices remain the canonical event and device resources. An
   ontology object type may bind to or project an authorized view of them, but the
   portable runtime does not overwrite canonical OCSF fields.
-- DIRE remains the identity authority. The adapter converts ontology identity
-  evidence into DIRE requests and returns committed association revisions.
+- DIRE remains the identity authority for canonical ServiceRadar device bindings
+  and any other native type already governed by DIRE. An ontology-local type with
+  no existing host identity authority may use exact or binding-local
+  source-scoped identity. One activated host configuration must not mix identity
+  modes for the same object type and identity-key schema. Opting an existing
+  native type out of its identity authority requires a separate approved ADR,
+  migration proposal, and reconciliation plan.
 - Existing AGE-native topology remains owned by its current producers. For links
   defined in the portable ontology, the runtime is the semantic authority and AGE
   is only a revisioned materialization/cache of `ResolvedLink` output. The adapter
@@ -1608,10 +1615,13 @@ security, compatibility, failure, authorization, and rollback design.
 | Adapter transaction models produce partial state. | Specify atomic-visibility semantics, idempotency, fencing, reconciliation, and failure-injection conformance tests. |
 | Query abstraction permits unbounded backend work. | Require declared query capabilities, compile-time validation, traversal/page limits, adapter cost rejection, and keyset pagination. |
 | Provenance and protected evidence leak source data. | Apply monotonic taint, separate protected/redacted artifacts, host authorization, finite retention, and negative inference tests. |
-| Runtime work harms host availability. | Enforce fixed limits, asynchronous delivery, bounded concurrency/backfill, execution-class requirements, and fail-open separation from established host paths. |
+| Runtime work harms host availability. | Enforce fixed limits, asynchronous delivery, bounded concurrency/backfill, execution-class requirements, and failure isolation from established host paths. |
 | Action or workflow semantics creep into mappings. | Permit only object candidates, property/link proposals, and owned retraction proposals; reject kinetic declarations in portable V1. |
 
-## 22. Open Decisions Before Implementation Approval
+## 22. Open Decisions Before Their Applicable Maturity Gate
+
+Items 1 through 5 must be resolved before approval of the proposal that depends
+on them. Item 6 is required only before a general cross-host portability GA claim.
 
 1. What package and crate names will identify the portable project independently
    of the current ServiceRadar repository and branch name?
@@ -1623,8 +1633,10 @@ security, compatibility, failure, authorization, and rollback design.
    corpus without becoming normative product vocabulary?
 5. What protected-evidence retention range and build-retention policy must every
    production adapter support for exact replay?
-6. Which independently maintained non-SQLite adapter will serve as the portability
-   gate, and who owns its long-term conformance runs?
+6. Before general cross-host portability GA, which independently maintained,
+   production-supported, non-SQLite adapter will serve as the portability gate,
+   and who owns its long-term conformance runs? This does not block standalone V1
+   or approval of the portable core and runtime proposals.
 
 ## 23. Approval Gate
 
