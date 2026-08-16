@@ -10,7 +10,7 @@
 - Feature branch: [`codex/add-portable-ontology-engine`](https://code.carverauto.dev/carverauto/serviceradar/src/branch/codex/add-portable-ontology-engine)
 - Local worktree: `/private/tmp/serviceradar-wt-portable-ontology-engine`
 - Tracking issue: [#5004](https://code.carverauto.dev/carverauto/serviceradar/issues/5004)
-- Architecture decision record: [adopt a portable operational ontology](https://code.carverauto.dev/carverauto/serviceradar/src/branch/codex/add-portable-ontology-engine/docs/plans/2026-08-16-portable-operational-ontology-engine-adr.md)
+- Architecture decision record: [standalone ADR review #5006](https://code.carverauto.dev/carverauto/serviceradar/pulls/5006) ([source](https://code.carverauto.dev/carverauto/serviceradar/src/branch/codex/add-portable-ontology-adr/docs/learnings/adr/2026-08-16-portable-operational-ontology-engine.md))
 - PRD source: [this document](https://code.carverauto.dev/carverauto/serviceradar/src/branch/codex/add-portable-ontology-engine/docs/plans/2026-08-16-portable-operational-ontology-engine-prd.md)
 - Portable schema/model/compiler proposal: [`add-portable-ontology-core`](https://code.carverauto.dev/carverauto/serviceradar/src/branch/codex/add-portable-ontology-engine/openspec/changes/add-portable-ontology-core)
 - Portable runtime proposal: [`add-portable-ontology-runtime`](https://code.carverauto.dev/carverauto/serviceradar/src/branch/codex/add-portable-ontology-engine/openspec/changes/add-portable-ontology-runtime)
