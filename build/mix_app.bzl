@@ -200,6 +200,77 @@ def _erl_libs_entry(info):
             return None
     return parent
 
+# The architecture a DOWNLOADED artefact has to match.
+#
+# A package that COMPILES native code learns the target from cc_env below -- that is why
+# bcrypt_elixir and crc cross-compile correctly. A package that DOWNLOADS a prebuilt one
+# had no equivalent signal, so it fell back to :erlang.system_info(:system_architecture),
+# which is the EXECUTOR's triple, not the target's. Building for arm64 on an amd64 RBE
+# executor then fetches an x86-64 .so that links, ships, and fails only at dlopen -- as
+# ENOENT, for a file that is present. adbc, lazy_html and mdex_native all hit this.
+#
+# These are rustler_precompiled's documented cross-compilation override (added for
+# Nerves); cc_precompiler reads TARGET_ARCH/OS/ABI and joins them itself. Exported for
+# EVERY mix_app rather than only the native-compiling ones, because a downloading package
+# ships no C sources and so never reaches the cc_env branch at all.
+def _target_triple_env(ctx):
+    if not ctx.target_platform_has_constraint(
+        ctx.attr._os_linux[platform_common.ConstraintValueInfo],
+    ):
+        # Only linux targets are packaged into images; leave a host build alone.
+        return {}
+
+    arch = "aarch64" if ctx.target_platform_has_constraint(
+        ctx.attr._cpu_aarch64[platform_common.ConstraintValueInfo],
+    ) else "x86_64"
+
+    return {
+        "TARGET_ARCH": arch,
+        "TARGET_VENDOR": "unknown",
+        "TARGET_OS": "linux",
+        "TARGET_ABI": "gnu",
+    }
+
+# Fail the build if a compiled package emitted a NIF for the wrong CPU.
+#
+# This is the guard that actually holds. The action cannot be network-isolated -- the RBE
+# executor has to reach the BuildBuddy cache proxy -- so "forbid downloads" is unenforceable
+# by construction. Checking the OUTPUT is enforceable, and depends on nobody's sandbox
+# policy: a package may fetch whatever it likes, but it may not emit the wrong CPU.
+#
+# e_machine is a 2-byte little-endian field at offset 18 of every ELF header:
+# 0x3e -> x86-64, 0xb7 -> aarch64. `od` is in coreutils, so this needs no new tool.
+#
+# Without this, a mismatched NIF links, ships and fails only at dlopen on the target host,
+# where glibc reports it as ENOENT for a file that is present. That is how adbc, lazy_html
+# and mdex_native each shipped an x86-64 .so inside a linux/arm64 image.
+def _elf_arch_assertion(ctx):
+    env = _target_triple_env(ctx)
+    if not env:
+        return ""
+
+    want, want_name = ("b7", "aarch64") if env["TARGET_ARCH"] == "aarch64" else ("3e", "x86-64")
+
+    return """
+for so in $(find "$ABS_PRIV" -type f -name '*.so*' 2>/dev/null); do
+    # Only real ELF objects, and only regular files. Two false positives found by running
+    # the whole tree rather than one package: macOS-built tars carry AppleDouble "._name"
+    # stubs that match *.so but are not ELF, and phoenix ships a DIRECTORY called
+    # phx.gen.socket. `set -euo pipefail` is in force, so an unguarded od on either aborts
+    # the action instead of skipping the entry.
+    magic=$(od -An -tx1 -N4 "$so" 2>/dev/null | tr -d ' \n' || true)
+    [ "$magic" = "7f454c46" ] || continue
+
+    machine=$(od -An -tx1 -j18 -N1 "$so" 2>/dev/null | tr -d ' \n' || true)
+    if [ -n "$machine" ] && [ "$machine" != "{want}" ]; then
+        echo "ERROR: $(basename "$so") is not {want_name} (ELF e_machine 0x$machine)." >&2
+        echo "  This package emitted or downloaded a NIF for the wrong CPU. It would link," >&2
+        echo "  ship, and fail at dlopen on the target as a misleading ENOENT." >&2
+        exit 1
+    fi
+done
+""".format(want = want, want_name = want_name)
+
 def _compiles_native_code(ctx):
     if ctx.attr.app_name in _SYSTEM_CC_APPS:
         return False
@@ -627,6 +698,16 @@ def _impl(ctx):
                 ),
             )
 
+    if ctx.files.precompiled_nifs:
+        precompiled_commands.append('mkdir -p "${MIX_INVOCATION_DIR}/.precompiled_nifs"')
+        for f in ctx.files.precompiled_nifs:
+            precompiled_commands.append(
+                'cp "{src}" "${{MIX_INVOCATION_DIR}}/.precompiled_nifs/{name}"'.format(
+                    src = f.path,
+                    name = f.basename,
+                ),
+            )
+
     # Staged into the copied source tree so `mix compile` picks them up as part of priv,
     # and mix_app's priv output carries them downstream.
     native_lib_commands = []
@@ -698,6 +779,8 @@ export LANG="en_US.UTF-8"
 export LC_ALL="en_US.UTF-8"
 
 MIX_INVOCATION_DIR="{mix_invocation_dir}"
+rm -rf "${{MIX_INVOCATION_DIR}}"
+mkdir -p "${{MIX_INVOCATION_DIR}}"
 {mix_dir_cleanup}
 
 {copy_srcs_commands}
@@ -712,14 +795,30 @@ export HOME="${{PWD}}"
 export MIX_ENV={mix_env}
 export ERL_COMPILER_OPTIONS=deterministic
 
-# Every dependency is already a Bazel input. If a package ever reaches for the
-# network, fail here rather than succeed on a developer's machine and then fail
-# on a network-isolated RBE executor.
+# Stops MIX resolving dependencies over the network. It does NOT stop a package's own
+# compile-time :httpc call -- cc_precompiler, rustler_precompiled and Adbc.download_driver!
+# all went straight past it, each fetching an artefact keyed on the executor's CPU.
+#
+# There is no sandbox fix for that here: the RBE executor must reach the BuildBuddy cache
+# proxy, so the action cannot be network-isolated. `block-network` was tried and is not
+# honoured by this executor -- verified by sabotaging the artefact cache and watching the
+# download succeed anyway. The enforceable invariant is therefore about the OUTPUT, not the
+# network: see the ELF check at the end of this script.
 export HEX_OFFLINE=1
+
+# What architecture this build is FOR, for packages that fetch a prebuilt artefact
+# instead of compiling one. See _target_triple_env.
+{target_triple_exports}
 
 # Points the patched Bundlex at the Bazel-staged archives. Harmless when the directory is
 # absent: Bundlex falls back to its original download path.
 export BUNDLEX_LOCAL_PRECOMPILED_DIR="$PWD/.bundlex_precompiled"
+
+# rustler_precompiled reads this path VERBATIM (it does not append a subdirectory) and
+# looks for <path>/<exact archive name>, verifying it against the package's checksum file
+# before extracting. Present -> no network. Absent -> it would download, which is what
+# block-network now forbids.
+export RUSTLER_PRECOMPILED_GLOBAL_CACHE_PATH="$PWD/.precompiled_nifs"
 
 # The hermetic C toolchain, for the packages that compile native code. Paths arrive
 # execroot-relative and we have already cd'd into the mix invocation dir, so they are
@@ -835,16 +934,31 @@ fi
 # rejects dangling symlinks in a declared output tree.
 find . -type l -delete
 
+{elf_arch_assertion}
+
 """.format(
         maybe_install_erlang = maybe_install_erlang(ctx),
         erl_libs_path = erl_libs_path,
         erlang_home = erlang_home,
         elixir_home = elixir_home,
-        mix_invocation_dir = mix_invocation_dir.path if ships_bundlex else "$(mktemp -d)",
+        # A DETERMINISTIC scratch directory, not `$(mktemp -d)`.
+        #
+        # Mix records paths of the tree it compiles, and those end up inside the .beam
+        # files, so a random /tmp/tmp.XXXXXXXX made every build of an unchanged package
+        # produce different bytes -- two builds of one target differed ONLY by that path.
+        # Named per target (the label alone is "erlang_app" for all 268 hex packages, so
+        # the app name is what actually disambiguates) and relative to the execroot, which
+        # each action already has to itself.
+        mix_invocation_dir = mix_invocation_dir.path if ships_bundlex else ".mix_{}_{}".format(ctx.label.name, app_name),
         mix_dir_cleanup = "" if ships_bundlex else 'trap \'rm -rf "${MIX_INVOCATION_DIR}"\' EXIT',
         project_dir = ctx.label.package,
         copy_srcs_commands = "\n".join(copy_srcs_commands + dep_source_commands + precompiled_commands),
         archives = " ".join([shell.quote(a.path) for a in ctx.files.archives]),
+        target_triple_exports = "\n".join([
+            "export {}={}".format(k, v)
+            for k, v in sorted(_target_triple_env(ctx).items())
+        ]),
+        elf_arch_assertion = _elf_arch_assertion(ctx),
         mix_env = ctx.attr.mix_env,
         lock_commands = lock_commands,
         extra_config_commands = extra_config_commands,
@@ -867,6 +981,7 @@ find . -type l -delete
             depset(ctx.files.archives),
             depset(dep_source_files),
             depset(ctx.files.precompiled_os_deps),
+            depset(ctx.files.precompiled_nifs),
             depset(native_lib_files),
             depset(erl_libs_files),
             # Referenced in place via ERL_LIBS rather than staged, so they have to be
@@ -961,8 +1076,18 @@ mix_app = rule(
             allow_files = True,
             default = ["//third_party/membrane:precompiled_os_deps"],
         ),
+        # Precompiled Rustler NIF archives, so rustler_precompiled finds its artefact in a
+        # declared input instead of fetching it. Staged for every package; the ones that
+        # use no precompiled NIF never look. See //third_party/precompiled_nifs.
+        "precompiled_nifs": attr.label_list(
+            allow_files = True,
+            default = ["//third_party/precompiled_nifs:precompiled_nifs"],
+        ),
         "mix_env": attr.string(default = "prod"),
         "deps": attr.label_list(providers = [ErlangAppInfo]),
+        # Read only to answer "what CPU is this build FOR". See _target_triple_env.
+        "_cpu_aarch64": attr.label(default = "@platforms//cpu:aarch64"),
+        "_os_linux": attr.label(default = "@platforms//os:linux"),
     },
     provides = [ErlangAppInfo],
     toolchains = ["@rules_elixir//:toolchain_type"] + use_cc_toolchain(),

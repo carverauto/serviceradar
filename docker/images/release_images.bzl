@@ -381,6 +381,7 @@ def declare_web_ng_release_container_amd64(
         build_info_layer_name = None,
         bun_layer_name = None,
         bun_src = "@bun_linux_amd64//:bun",
+        cosign_src = "@cosign_linux_amd64//file",
         cmd = None,
         env = None,
         workdir = "/app",
@@ -431,7 +432,7 @@ def declare_web_ng_release_container_amd64(
 
     file_layer_amd64(
         name = cosign_layer_name,
-        src = "@cosign_linux_amd64//file",
+        src = cosign_src,
         target_path = "usr/local/bin/cosign",
         visibility = visibility,
         target_compatible_with = target_compatible_with,

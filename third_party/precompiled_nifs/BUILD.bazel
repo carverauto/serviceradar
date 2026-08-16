@@ -1,0 +1,27 @@
+"""Precompiled Rustler NIF archives, staged into every Mix compile action.
+
+rustler_precompiled fetches these from GitHub during `mix compile`. That is a network call
+from inside a Bazel action, and it is keyed on the target triple -- which is how an x86-64
+`.so` ended up inside a linux/arm64 web-ng release. //build:mix_app.bzl now supplies the
+triple, and this filegroup supplies the artefact itself as a declared, checksummed input so
+the fetch never has to happen.
+
+Selected on the TARGET platform, so an arm64 image stages the aarch64 archive. The file
+names are exact: rustler_precompiled looks for
+`$RUSTLER_PRECOMPILED_GLOBAL_CACHE_PATH/<file_name>` and verifies it against the package's
+own checksum file before extracting, so a wrong or corrupt archive fails loudly rather than
+silently falling back to the network.
+
+Every mix_app stages this list; packages that use no precompiled NIF simply never look at
+it. Same arrangement as //third_party/membrane:precompiled_os_deps for Bundlex.
+"""
+
+package(default_visibility = ["//visibility:public"])
+
+filegroup(
+    name = "precompiled_nifs",
+    srcs = select({
+        "//build/platforms:target_linux_arm64": ["@mdex_native_nif_aarch64//file"],
+        "//conditions:default": ["@mdex_native_nif_x86_64//file"],
+    }),
+)
