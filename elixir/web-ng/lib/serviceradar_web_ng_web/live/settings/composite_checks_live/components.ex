@@ -111,6 +111,7 @@ defmodule ServiceRadarWebNGWeb.Settings.CompositeChecksLive.Components do
   attr :save_error, :string, default: nil
   attr :vantage_points, :list, default: []
   attr :device_facts, :list, default: []
+  attr :fact_key_suggestions, :list, default: []
   attr :agents, :list, default: []
 
   def check_form(assigns) do
@@ -174,6 +175,7 @@ defmodule ServiceRadarWebNGWeb.Settings.CompositeChecksLive.Components do
 
       <.device_facts
         rows={@device_facts}
+        key_suggestions={@fact_key_suggestions}
         errors={Enum.filter(@errors, fn {field, _msg} -> field == "device_facts" end)}
       />
     </.form>
@@ -274,13 +276,14 @@ defmodule ServiceRadarWebNGWeb.Settings.CompositeChecksLive.Components do
 
   attr :rows, :list, required: true
   attr :errors, :list, default: []
+  attr :key_suggestions, :list, default: []
 
   @doc """
   Device facts: the third input kind, alongside the vantage points.
 
   A vantage point answers "can this agent reach it". A device fact answers "does
   the device carry the configuration that is supposed to make it unreachable" —
-  today that is NCO writing a boolean through the device fact API. Without it a
+  that answer arrives as a boolean written through the device fact API. Without it a
   check can only say a device *is* blocked, never that it is blocked *because it
   is configured to be*, which is the difference between `isolated_verified` and
   `isolated_unenforced` in the generated table.
@@ -291,17 +294,29 @@ defmodule ServiceRadarWebNGWeb.Settings.CompositeChecksLive.Components do
       <div>
         <h2 class="text-sm font-semibold text-sr-ink">Device facts</h2>
         <p class="text-xs text-sr-ink-muted">
-          Optional. A boolean the device carries in its metadata — written by NCO through the
-          device fact API — so the check can tell enforced isolation from incidental isolation.
+          Optional. A boolean the device carries in its metadata — written through the device fact
+          API by whatever validates your device configuration — so the check can tell enforced
+          isolation from incidental isolation.
         </p>
       </div>
+
+      <%!-- A combobox, not a select. The key an operator wants is usually the one
+      their validator is about to start writing, so it does not exist yet and a
+      closed list would make the common case impossible. The datalist offers the
+      keys that DO exist and hold booleans, which is what catches a typo. --%>
+      <datalist id="device-fact-key-options">
+        <option :for={suggestion <- @key_suggestions} value={suggestion.key}>
+          {"#{suggestion.devices} device#{if suggestion.devices == 1, do: "", else: "s"}"}
+        </option>
+      </datalist>
 
       <div :for={{row, index} <- Enum.with_index(@rows)} class="flex flex-wrap items-center gap-2">
         <input
           type="text"
           name={"device_facts[#{index}][path]"}
           value={row["path"]}
-          placeholder="metadata key, e.g. nco_acl_enforced"
+          list="device-fact-key-options"
+          placeholder="metadata key, e.g. acl_enforced"
           aria-label="Metadata key"
           class="min-w-64 rounded-sr-control border border-sr-border bg-sr-surface-muted px-2 py-1 font-mono text-sm text-sr-ink"
         />
@@ -337,6 +352,11 @@ defmodule ServiceRadarWebNGWeb.Settings.CompositeChecksLive.Components do
       </button>
 
       <.field_errors errors={@errors} />
+
+      <p :if={@rows != [] and @key_suggestions != []} class="text-xs text-sr-ink-muted">
+        Existing boolean keys are offered as you type. A key your validator has not written yet
+        will not appear — type it anyway.
+      </p>
 
       <p :if={@rows != []} class="text-xs text-sr-ink-muted">
         Leave max age blank to trust the stored value however old it is. Set it and the fact
