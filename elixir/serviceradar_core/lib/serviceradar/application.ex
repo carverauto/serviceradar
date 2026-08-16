@@ -57,6 +57,7 @@ defmodule ServiceRadar.Application do
     ensure_started(:telemetry)
     ensure_started(:ash_state_machine)
     ensure_started(:ssl)
+    maybe_set_req_finch()
 
     children =
       [
@@ -219,28 +220,26 @@ defmodule ServiceRadar.Application do
 
   defp finch_child do
     if Application.get_env(:serviceradar_core, :http_client_enabled, true) do
-      base = [name: ServiceRadar.Finch]
+      # CAStore + optional SERVICERADAR_EGRESS_PROXY CONNECT hop. Release
+      # images are intentionally minimal and may not include OS CA bundles.
+      opts = [name: ServiceRadar.Finch]
 
-      # Our release images are intentionally minimal and may not include OS CA bundles.
-      # Configure Finch with CAStore so background HTTPS fetches (GeoLite, threat intel, ipinfo)
-      # work reliably in Kubernetes.
       opts =
-        if Code.ensure_loaded?(CAStore) and function_exported?(CAStore, :file_path, 0) do
-          Keyword.put(base, :pools, %{
-            default: [
-              conn_opts: [
-                transport_opts: [
-                  cacertfile: CAStore.file_path()
-                ]
-              ]
-            ]
-          })
-        else
-          base
+        case ServiceRadar.HTTP.EgressProxy.finch_pools() do
+          nil -> opts
+          pools -> Keyword.put(opts, :pools, pools)
         end
 
       {Finch, opts}
     end
+  end
+
+  defp maybe_set_req_finch do
+    if Code.ensure_loaded?(Req) and function_exported?(Req, :default_options, 1) do
+      Req.default_options(finch: ServiceRadar.Finch)
+    end
+
+    :ok
   end
 
   defp oban_child do

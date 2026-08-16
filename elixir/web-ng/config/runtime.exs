@@ -207,7 +207,8 @@ config :geolix, databases: ServiceRadar.Observability.GeoIP.present_databases(ge
 
 config :serviceradar_core,
   geolite_mmdb_dir: geolite_dir,
-  geolite_databases: geolite_dbs
+  geolite_databases: geolite_dbs,
+  egress_proxy: ServiceRadar.HTTP.EgressProxy.from_env()
 
 if api_keys do
   keys =
