@@ -20,9 +20,9 @@ that built successfully and were wrong. Two distinct defects, both invisible:
 2. Because the image config inherits `architecture` from the base, both children of the index
    were then labelled `linux/amd64` — an index advertising the same platform twice.
 
-Full investigation in `openspec/notes/multiarch-oci-plan.md` (superseded on the Tier-1
+Full investigation in `../../notes/archive/multiarch-oci-plan.md` (superseded on the Tier-1
 assessment) and the migration it depends on in
-`openspec/notes/hermetic-llvm-rust-migration.md`.
+`../../notes/archive/hermetic-llvm-rust-migration.md`.
 
 ## Goals / Non-Goals
 

@@ -34,9 +34,9 @@ becomes a plain `cargo vendor` rather than a bespoke rendering step.
 Two hazards are worth knowing if you implement this yourself, because both corrupt the *user's* source
 tree rather than the repository cache:
 
-- **Nested workspace markers.** A vendored crate that ships its own `BUILD`, `BUILD.bazel`, `WORKSPACE*`,
-  `MODULE.bazel` or `REPO.bazel` will, once symlinked into the repository root, make Bazel treat that
-  directory as a nested workspace — and a checked-in `BUILD.bazel` collides with the generated one. Skip
+- **Nested workspace markers.** A vendored crate that ships its own `BUILD`, `../../../BUILD.bazel`, `WORKSPACE*`,
+  `../../../MODULE.bazel` or `REPO.bazel` will, once symlinked into the repository root, make Bazel treat that
+  directory as a nested workspace — and a checked-in `../../../BUILD.bazel` collides with the generated one. Skip
   those names when symlinking.
 - **Patched crates cannot be symlinked.** Bazel's native patch implementation follows symlinks, so the
   patch lands on the checked-in file in your workspace, not on the repository's copy — and re-applies on
@@ -47,7 +47,7 @@ tree rather than the repository cache:
 rules_rust lets you add a crate that no workspace member depends on. rules_rs does not. If you need a
 binary-only crate in the graph — `protoc-gen-prost` and `protoc-gen-tonic` for the prost toolchain, in
 our case — you must create a real workspace member that depends on it. We added `//rust/protoc-plugins`,
-a crate with no code whose entire purpose is its `Cargo.toml`.
+a crate with no code whose entire purpose is its `../../../Cargo.toml`.
 
 ### `all_crate_deps` needs `cargo_only = True`
 
@@ -76,7 +76,7 @@ let path = if Path::new("proto/flow/flow.proto").exists() {
 ```
 
 One extra wrinkle: if the crate has its *own* directory with the same name as the execroot symlink
-(`rust/otel/proto/`), the symlink is shadowed and the file is never found. Stage the file explicitly with
+(`../../../rust/otel/proto`), the symlink is shadowed and the file is never found. Stage the file explicitly with
 `copy_file` instead.
 
 ### `rust_test` does not inherit `crate_features`

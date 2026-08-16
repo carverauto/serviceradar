@@ -51,7 +51,7 @@ actions stay on their native workstation and use unique disposable databases.
   - Image-publishing entry points and the `demo-local-rollout` skill
   - `.agents/skills/srql-fixtures-db-tests/SKILL.md`
   - `AGENTS.md`
-  - `openspec/notes/bazel-bb-ci.md`
+  - `../../notes/archive/bazel-bb-ci.md`
   - `k8s/buildbuddy/README.md`
   - `.forgejo/workflows/elixir-integration-sr-core.yml`
   - `.forgejo/workflows/main.yml` and `scripts/ci/configure-srql-fixture.sh`

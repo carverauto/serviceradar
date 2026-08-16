@@ -75,7 +75,7 @@ Not in scope, and left amd64-only with the reason recorded:
 
 ## Note on the superseded plan
 
-`openspec/notes/multiarch-oci-plan.md` classified these six as "trivial — one macro call
+`../../notes/archive/multiarch-oci-plan.md` classified these six as "trivial — one macro call
 each". That was wrong, and this change records why: the audit behind it checked cgo and
 vendored third-party binaries, which are properties of *our* artifacts, and did not check the
 base image and rootfs layers, which is where every one of the six was actually pinned.

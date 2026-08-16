@@ -41,7 +41,7 @@ what the experiment was for.
 ## Motivation: the compiler is pinned to an image nobody updates
 
 Today the C/C++ toolchain is whatever `rbe-executor:v1.0.24.3` happens to contain. That tag is pinned in three
-places (`MODULE.bazel`, and twice in `build/platforms/BUILD.bazel`), so a compiler bump means an image rebuild,
+places (`../../../MODULE.bazel`, and twice in `../../../build/platforms/BUILD.bazel`), so a compiler bump means an image rebuild,
 a republish, a three-site edit, and a cold cache for everyone.
 
 The sharper problem is that *nothing verifies the image matches the declaration.* The toolchain names builtin
@@ -50,10 +50,10 @@ GCC 5 "for older remote workers" — a museum of executor images that no longer 
 which of those paths are dead: a stale one is silently ignored, a missing live one surfaces as a confusing
 header error far from its cause.
 
-A second unenforced contract sits in `BUILD.md`, which asks Linux developers to install `musl-tools`,
+A second unenforced contract sits in `../../../BUILD.md`, which asks Linux developers to install `musl-tools`,
 `x86_64-linux-musl-gcc`, and `clang-18` by hand.
 
-A hermetic toolchain turns both contracts into a version string in `MODULE.bazel` that Bazel actually enforces,
+A hermetic toolchain turns both contracts into a version string in `../../../MODULE.bazel` that Bazel actually enforces,
 and makes the compiler identical on a laptop and an executor.
 
 ---
@@ -98,7 +98,7 @@ Dropping the pair loses nothing: the same command line also carries `--target=x8
 `Configure` parses correctly.
 
 The patch was applied to both the vendored `src/lib.rs` and the patch file, per the convention in
-`scripts/vendor.sh`, then round-trip verified — reverse-apply followed by forward-apply reproduces the vendored
+`../../../scripts/vendor.sh`, then round-trip verified — reverse-apply followed by forward-apply reproduces the vendored
 tree byte-for-byte, so `apply_vendor_patch` will land it on a fresh vendor.
 
 ### Results
@@ -124,7 +124,7 @@ and no libpcap in any dynamic tag.
 
 hermetic-llvm has no musl *toolchain* — libc comes from the target platform — so the two musl platforms gained
 `@llvm//constraints/libc:musl` and `@llvm//constraints/pie:off` (rustc forces `-no-pie` on musl). A control run
-confirmed those constraints are inert: no toolchain registered in `MODULE.bazel` constrains on them, and the gcc
+confirmed those constraints are inert: no toolchain registered in `../../../MODULE.bazel` constrains on them, and the gcc
 musl build was unchanged.
 
 | Run | Config | Actions | Outcome |
@@ -184,7 +184,7 @@ The complete include path of the OpenSSL compile, taken from the run-2 command l
 ```
 
 Not one path from the executor image. The glibc version is a declared input rather than a property of the base
-image, which is precisely what the speculative include-path list in `MODULE.bazel` was trying and failing to
+image, which is precisely what the speculative include-path list in `../../../MODULE.bazel` was trying and failing to
 approximate.
 
 **The image is demoted, not eliminated.** `AR` and `CC` resolved to hermetic toolchain paths, but openssl-src
@@ -211,12 +211,12 @@ not zero.
 
 | File | Change |
 |---|---|
-| `MODULE.bazel` | `bazel_dep(name = "llvm", version = "0.8.17")` — deliberately **not** registered, so the default build is provably unchanged |
+| `../../../MODULE.bazel` | `bazel_dep(name = "llvm", version = "0.8.17")` — deliberately **not** registered, so the default build is provably unchanged |
 | `MODULE.bazel.lock` | resolution |
-| `build/platforms/BUILD.bazel` | libc + pie constraints on the two musl platforms; verified inert |
-| `third_party/rust_patches/openssl_src_runfiles_patch` | the `-target` filter; round-trip verified |
-| `third_party/crates/openssl-src-300.6.1-3.6.3/src/lib.rs` | the applied copy, per the vendor.sh convention |
-| `scripts/vendor.sh` | comment only — it described one Configure fix and there are now two |
+| `../../../build/platforms/BUILD.bazel` | libc + pie constraints on the two musl platforms; verified inert |
+| `../../../third_party/rust_patches/openssl_src_runfiles_patch` | the `-target` filter; round-trip verified |
+| `../../../third_party/crates/openssl-src-300.6.1-3.6.3/src/lib.rs` | the applied copy, per the vendor.sh convention |
+| `../../../scripts/vendor.sh` | comment only — it described one Configure fix and there are now two |
 
 Total: +94 / -19.
 
@@ -240,7 +240,7 @@ currently registered still wins by registration order, which is what keeps the b
 ## Sequencing
 
 This branch is not ready to land, and should not land first. Both this and
-`refactor/hex-deps-module-extension` edit `MODULE.bazel` heavily.
+`refactor/hex-deps-module-extension` edit `../../../MODULE.bazel` heavily.
 
 1. Land the Hex module-extension work and the `rules_aya_ebpf` extraction, so the dependency declarations are
    already in their final shape.

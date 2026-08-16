@@ -2,8 +2,8 @@
 
 Status: historical consolidation audit. Some findings have since been implemented, but the
 proposed single-master-workflow migration has not. Do not copy lifecycle commands from an older
-section without checking the current `.forgejo/workflows/elixir-integration-sr-core.yml`,
-`buildbuddy.yaml`, and `srql-fixtures-db-tests` skill; the current database contract is summarized
+section without checking the current `../../../.forgejo/workflows/elixir-integration-sr-core.yml`,
+`../../../buildbuddy.yaml`, and `srql-fixtures-db-tests` skill; the current database contract is summarized
 in the integration section below.
 
 Date: 2026-08-04
@@ -16,7 +16,7 @@ bazel. They differ mostly in their `paths:` filter and their target query.
 
 The goal is one master workflow running a fixed sequence. That workflow is also the
 rehearsal for replacing BuildBuddy with NativeLink, because a job that only names
-`--config=ci` can be repointed at a different backend by editing three lines in `.bazelrc`.
+`--config=ci` can be repointed at a different backend by editing three lines in `../../../.bazelrc`.
 
 Decisions already taken:
 
@@ -27,7 +27,7 @@ Decisions already taken:
   green.
 - Go race detection gets its own job, running concurrently with the main test job.
 
-Accepted cost of `-c opt`: no workflow uses it today and `.bazelrc` sets no
+Accepted cost of `-c opt`: no workflow uses it today and `../../../.bazelrc` sets no
 `compilation_mode`, so CI runs `fastbuild`. The first master run is a full cold build, and
 the CAS carries two trees from then on.
 
@@ -45,7 +45,7 @@ actual="$(bazel --version | awk '{print $NF}')"
 test "${actual}" = "${expected}"
 ```
 
-Circular. Bazelisk reads `.bazelversion` to decide which Bazel to fetch, then this compares
+Circular. Bazelisk reads `../../../.bazelversion` to decide which Bazel to fetch, then this compares
 bazelisk's output against the file bazelisk just read. It can only fail if bazelisk itself
 is broken, in which case every later step fails anyway with a better message. Delete.
 
@@ -105,7 +105,7 @@ Needs `git ls-files`, so it cannot be hermetic either.
 This one guards a bug the repo already hit. `.gitignore:294-299` carries a
 `!third_party/crates/**` un-ignore with a comment explaining that the vendor snapshot must
 stay byte-complete "even when an upstream crate contains paths such as debug/, target/,
-*.pem, or *.dll". Line 237 is a bare `target/`, which is exactly what was swallowing them.
+*.pem, or *.dll". Line 237 is a bare `../../../target`, which is exactly what was swallowing them.
 
 A build does not subsume it. Bazel only compiles crates reachable from a built target's
 dependency graph, and rustc never opens a vendored `*.pem` or test fixture. The check also
@@ -147,29 +147,29 @@ platform while `no-remote-exec` runs it on the host.
 
 The root cause of the old narrow scoping was not policy, it was that Gazelle was walking
 `//third_party/crates` and erroring on vendored crates holding multiple proto packages. Three
-exclusions fixed it: `third_party`, `proto/cri`, `proto/dgraph`, plus `google/protobuf`.
+exclusions fixed it: `third_party`, `../../../proto/cri`, `../../../proto/dgraph`, plus `../../../google/protobuf`.
 
 Applying the remaining drift was not cosmetic. Gazelle proposed four changes that would have
 broken the build, and only one was caught by analysis. The rest needed a real compile:
 
 1. Deleting `//proto/dgraph:proto_dgraph` while `rust_prost_library` still referenced it.
-   Triggered by excluding only the nested `proto/dgraph/proto`, which orphaned the parent.
-2. Generating a second `google.golang.org/protobuf/.../wrapperspb` in `google/protobuf`.
+   Triggered by excluding only the nested `../../../proto/dgraph/proto`, which orphaned the parent.
+2. Generating a second `google.golang.org/protobuf/.../wrapperspb` in `../../../google/protobuf`.
 3. Collapsing `compilers` to `go_grpc_v2` alone in `//proto/profiler` and `//proto/rperf`.
    That emits the service stubs without the message types, so the package analyzes fine and
    fails at compile with `undefined: StartProfilingRequest`. Both now carry `# keep`.
 4. Appending duplicate `go_test` rules embedding a `_lib` that does not exist, wherever a
    package's rule names use underscores but its directory name has a hyphen. Hit
-   `go/cmd/tools/sshca-signer`, `go/cmd/tools/mapper-baseline` and `build/release`.
+   `../../../go/cmd/tools/sshca-signer`, `../../../go/cmd/tools/mapper-baseline` and `../../../build/release`.
 
 Standing rule that came out of it: in a hyphenated Go package, name rules the way Gazelle
 does, from the directory. `sshca-signer_lib`, not `sshca_signer_lib`. Four packages already
 did; two did not and broke.
 
 Three packages are marked `# gazelle:ignore` because Gazelle cannot model them:
-`build/release` (names from the source file, plus `data` deps it drops) and
-`build/native_addons` (release gate, mostly py_test/sh_test/genquery/macros).
-`go/pkg/models` keeps a `# keep` on its `srcs` glob.
+`../../../build/release` (names from the source file, plus `data` deps it drops) and
+`../../../build/native_addons` (release gate, mostly py_test/sh_test/genquery/macros).
+`../../../go/pkg/models` keeps a `# keep` on its `srcs` glob.
 
 Verified: drift is zero and stable across repeated runs of `bazel run //:gazelle`, and
 `//go/...`, `//proto/...`, `//tools/...` and `//build/release:all` build with the renamed test
@@ -188,7 +188,7 @@ on the command line and no `bazel cquery --output=files | tail -n 1` to rediscov
 
 It is a `go_test`, not the `sh_test` this note predicted. The `sh_test` was written first
 and failed on the executor with `file(1) is required to assert static linkage`: the RBE
-image does not carry `file`, and `.bazelrc` deliberately withholds `PATH` from test actions,
+image does not carry `file`, and `../../../.bazelrc` deliberately withholds `PATH` from test actions,
 so a test sees only `/bin:/usr/bin:/usr/local/bin`. Go's `debug/elf` is stdlib and
 architecture-neutral, which removes the host-tool dependency and lets one test on an x86_64
 executor check the aarch64 artifact too. `DT_NEEDED` is read as a list rather than grepped
@@ -219,7 +219,7 @@ existing sweep query.
 | `rust-musl.yml` | Absorbed once the linkage assertion is an `sh_test`. |
 | `publish-oci.yml` | Broken and redundant. Delete, see audit item 5. |
 
-Plus `buildbuddy.yaml` and `.buildbuddy/workflows.yaml`, both duplicate paths.
+Plus `../../../buildbuddy.yaml` and `.buildbuddy/workflows.yaml`, both duplicate paths.
 `.buildbuddy/workflows.yaml` is already superseded by `release.yml`. Removing them also
 removes `//build/buildbuddy:release_pipeline`.
 
@@ -275,7 +275,7 @@ Failing here skips everything downstream, which is the point.
 
 ### Job: build_test
 
-Preamble: checkout (a plain `git clean -ffdx` is correct -- `.bazelrc` no longer
+Preamble: checkout (a plain `git clean -ffdx` is correct -- `../../../.bazelrc` no longer
 redirects any Bazel cache into the workspace, so there is nothing in the tree to
 preserve), Socket Firewall, bazelisk, write `.bazelrc.remote`, Docker auth.
 
@@ -356,7 +356,7 @@ broken on `staging` right now, independent of this work.
 It was not renamed, it was withdrawn on purpose. `8fb020fb9` pulled `:precommit` and
 `:precommit_check` because `mix format --check-formatted` fails against pre-existing HEEx
 formatting and was blocking `//elixir/...` from going green. The header of
-`elixir/web-ng/BUILD.bazel` says to restore it once the tree is formatted, and keeps
+`../../../elixir/web-ng/BUILD.bazel` says to restore it once the tree is formatted, and keeps
 `//build:mix_deps.bzl` and `//build:mix_precommit.bzl` untouched for that.
 
 Two things were broken by the withdrawal and are now repaired:
@@ -369,7 +369,7 @@ Two things were broken by the withdrawal and are now repaired:
   `bazel test //elixir/web-ng:precommit`, so every run exited 1. Everything else in it was
   preamble.
 
-Both removals are recorded in the restoration note at the top of `elixir/web-ng/BUILD.bazel`,
+Both removals are recorded in the restoration note at the top of `../../../elixir/web-ng/BUILD.bazel`,
 so whoever formats the tree brings back the target, the workflow and the exclusion together —
 or decides deliberately that the separate red X is not worth a workflow.
 
@@ -378,22 +378,22 @@ and a `set()` or an explicit label in a workflow keeps naming it. The master wor
 prefer tag- and wildcard-based selection over `set()` for exactly this reason.
 
 Two stale comments to correct while the files are open. The `NOTE:` in
-`rust/integration-db/BUILD.bazel` says `prepare_template` does not exist as a target; it
+`../../../rust/integration-db/BUILD.bazel` says `prepare_template` does not exist as a target; it
 does, as a `rust_binary` a few lines below. And the `main.yml` test step attributes
 integration tests to `rust-tests-integration.yml`, a file that does not exist.
 
-`tools/go/derive_agent_release_public_key` is invoked as raw `go run` from `release.yml:317`
+`../../../tools/go/derive_agent_release_public_key` is invoked as raw `go run` from `release.yml:317`
 (and `publish-oci.yml:160`, which is slated for deletion). Gazelle has now given it a BUILD
 file, so `release.yml` can `bazel run //tools/go/derive_agent_release_public_key` instead,
 which removes one more reason for the runner to carry a Go toolchain. Separately,
-`tools/go/gen_agent_release_key.go` is referenced nowhere in the repo and is a deletion
+`../../../tools/go/gen_agent_release_key.go` is referenced nowhere in the repo and is a deletion
 candidate; Gazelle currently generates `//tools/go:go` for it, which is a poor target name
 that would disappear along with the file.
 
 ## Part 5: Database credential and execution boundary
 
 The old `test.env-secrets` executor property is gone. Database and NATS credentials are also no
-longer global `.bazelrc` test environment values: ordinary remote unit-test actions must not carry
+longer global `../../../.bazelrc` test environment values: ordinary remote unit-test actions must not carry
 them in REAPI command metadata. The guarded database callers explicitly select
 `test:database_env`, and NATS-backed callers select `test:nats_env`.
 
@@ -421,7 +421,7 @@ Delete workflows last. A broken master with the old workflows already gone leave
 5. Add `ci-master.yml` alongside the existing workflows. Both run. Direct comparison plus a
    fallback.
 6. Let it settle. Use the BuildBuddy invocation UI to debug the sequence.
-7. Delete the 8 replaced workflows plus `buildbuddy.yaml` and `.buildbuddy/workflows.yaml`.
+7. Delete the 8 replaced workflows plus `../../../buildbuddy.yaml` and `.buildbuddy/workflows.yaml`.
 8. Only then repoint `--remote_executor`, `--remote_cache` and `--bes_backend` at
    NativeLink, as a separate commit.
 

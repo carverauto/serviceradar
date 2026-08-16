@@ -7,7 +7,7 @@
 | Date | 2026-08-14 |
 | Basis | `feat/hermetic-llvm` @ `3e3b8d1340` |
 | Goal | linux/amd64 + linux/arm64 manifests for the publishable image set |
-| Status | **14 of 16 in-scope images verified multi-arch.** See `openspec/changes/add-multiarch-oci-images` |
+| Status | **14 of 16 in-scope images verified multi-arch.** See `../../changes/add-multiarch-oci-images` |
 
 ---
 
@@ -53,7 +53,7 @@ the binaries in each advertised platform entry, enforced on every build by
 "(select)" means the base resolves through `_platform_select` on the target platform;
 "**pinned amd64**" means the base label names the amd64 repository directly. Note that
 `ubuntu_noble` and `alpine_3_24` both already have arm64 variants declared and exported in
-`MODULE.bazel` — for rows 13-16 the base is pinned by the call site, not unavailable.
+`../../../MODULE.bazel` — for rows 13-16 the base is pinned by the call site, not unavailable.
 
 `cnpg` and `cnpg_analytics` are out of scope by decision, not by blocker: the database runs on
 amd64 nodes and multi-arch is per-image, so they are excluded from the accounting above. Fourteen
@@ -168,7 +168,7 @@ per-image, so this costs nothing to leave alone.
 
 ### Tier 3 — the three Elixir images (hard; two distinct blockers)
 
-**Blocker A: the BEAM is built from source, for the host.** `MODULE.bazel` uses
+**Blocker A: the BEAM is built from source, for the host.** `../../../MODULE.bazel` uses
 `internal_erlang_from_github_release`, so OTP is compiled from source. An Elixir *release* embeds
 ERTS, so an arm64 image needs an arm64 OTP and an arm64 ERTS. OTP supports cross-compilation
 upstream (`--host`/`--build` plus `erl_xcomp` files), but it needs a host bootstrap compiler and
