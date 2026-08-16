@@ -184,8 +184,27 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.ParsersTest do
         |> Enum.map(fn {:ok, r} -> r["cve"]["id"] end)
 
       assert records == ["CVE-2024-0001"]
-    after
-      :ok
+      File.rm_rf(dir)
+    end
+
+    test "stream_nvd_shards skips a shard that disappears after listing" do
+      dir = Path.join(System.tmp_dir!(), "advisory-nvd-#{System.unique_integer([:positive])}")
+      File.mkdir_p!(dir)
+
+      shard = %{"vulnerabilities" => [nvd_record()]}
+      gz = :zlib.gzip(Jason.encode!(shard))
+      present = Path.join(dir, "nvdcve-2.0-001.json.gz")
+      missing = Path.join(dir, "nvdcve-2.0-002.json.gz")
+      File.write!(present, gz)
+      File.write!(missing, gz)
+
+      # shard_paths/1 is eager; unlink after the list, before each File.read.
+      stream = StreamReader.stream_nvd_shards(dir)
+      File.rm!(missing)
+
+      records = Enum.map(stream, fn {:ok, r} -> r["cve"]["id"] end)
+      assert records == ["CVE-2024-0001"]
+      File.rm_rf(dir)
     end
   end
 

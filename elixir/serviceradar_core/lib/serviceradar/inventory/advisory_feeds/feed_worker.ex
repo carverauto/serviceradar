@@ -180,7 +180,11 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.FeedWorker do
   defp run_feed(feed) do
     actor = SystemActor.system(:advisory_feed_worker)
     started = DateTime.utc_now()
-    mark_status(feed, %{last_status: "running", last_attempt_at: started}, actor)
+    mark_status(
+      feed,
+      %{last_status: "running", last_attempt_at: started, last_error: nil, last_message: nil},
+      actor
+    )
 
     try do
       case do_run(feed) do
@@ -278,30 +282,28 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.FeedWorker do
     run_id = run_id()
     url = Config.cisa_kev_url()
 
-    with {:ok, acquired} <- Acquisition.acquire_cisa(url, run_id),
-         {:ok, result} <- parse_and_load(acquired, "cisa", "cisa-kev", &parse_kev/1) do
-      Staging.cleanup_run(acquired.run_dir)
-      {:ok, result}
+    with {:ok, acquired} <- Acquisition.acquire_cisa(url, run_id) do
+      with_run_cleanup(acquired, fn ->
+        parse_and_load(acquired, "cisa", "cisa-kev", &parse_kev/1)
+      end)
     end
   end
 
   defp do_run("vulncheck-kev") do
     with {:ok, token} <- Config.vulncheck_token(),
          {:ok, acquired} <-
-           Acquisition.acquire_vulncheck("vulncheck-kev", token, run_id()),
-         {:ok, result} <- parse_and_load(acquired, "vulncheck", "vulncheck-kev", &parse_kev/1) do
-      Staging.cleanup_run(acquired.run_dir)
-      {:ok, result}
+           Acquisition.acquire_vulncheck("vulncheck-kev", token, run_id()) do
+      with_run_cleanup(acquired, fn ->
+        parse_and_load(acquired, "vulncheck", "vulncheck-kev", &parse_kev/1)
+      end)
     end
   end
 
   defp do_run("nist-nvd2") do
     if Staging.volume_available?() do
       with {:ok, token} <- Config.vulncheck_token(),
-           {:ok, acquired} <- Acquisition.acquire_vulncheck("nist-nvd2", token, run_id()),
-           {:ok, result} <- parse_and_load_nvd(acquired) do
-        Staging.cleanup_run(acquired.run_dir)
-        {:ok, result}
+           {:ok, acquired} <- Acquisition.acquire_vulncheck("nist-nvd2", token, run_id()) do
+        with_run_cleanup(acquired, fn -> parse_and_load_nvd(acquired) end)
       end
     else
       Logger.warning(
@@ -316,6 +318,14 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.FeedWorker do
     # NVD CVE 2.0 REST fallback is intentionally a stub in this slice (paginated,
     # rate-limited). VulnCheck nist-nvd2 is the primary CPE source.
     {:error, :nvd_api_not_implemented}
+  end
+
+  # Failed nist-nvd2 runs used to keep the 900 MB extract. On demo that piled
+  # up to 255 GiB and evicted the node. Always drop the run dir.
+  defp with_run_cleanup(acquired, fun) do
+    fun.()
+  after
+    Staging.cleanup_run(acquired.run_dir)
   end
 
   defp parse_and_load(acquired, provider, feed_key, parse_fun) do

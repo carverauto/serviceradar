@@ -91,14 +91,25 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.StreamReader do
   end
 
   defp stream_shard(path) do
-    records =
-      if String.ends_with?(path, ".gz") do
-        path |> File.read!() |> records_from_gzip()
-      else
-        path |> File.read!() |> Jason.decode!() |> Map.get("vulnerabilities", []) |> List.wrap()
-      end
+    case File.read(path) do
+      {:ok, binary} ->
+        records =
+          if String.ends_with?(path, ".gz") do
+            records_from_gzip(binary)
+          else
+            binary |> Jason.decode!() |> Map.get("vulnerabilities", []) |> List.wrap()
+          end
 
-    Enum.map(records, &{:ok, &1})
+        Enum.map(records, &{:ok, &1})
+
+      {:error, reason} ->
+        # Listing the dir and reading each shard is not atomic. A mid-run
+        # cleanup (or a sibling core replica sharing the RWO volume) can
+        # unlink a shard after File.ls/1. Skip it instead of crashing the
+        # whole nist-nvd2 job.
+        Logger.warning("advisory_feeds: skip shard #{path}: #{inspect(reason)}")
+        []
+    end
   end
 
   defp read_json(path) do
