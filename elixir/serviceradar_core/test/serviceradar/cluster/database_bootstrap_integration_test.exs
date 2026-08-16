@@ -28,7 +28,10 @@ defmodule ServiceRadar.Cluster.DatabaseBootstrapIntegrationTest do
 
   @moduletag :integration
   @moduletag :requires_app
-  @moduletag timeout: 180_000
+  # 180s was enough for two bootstrap runs on a quiet fixture and left
+  # almost nothing for on_exit DROP. Under eight shards that leftover
+  # budget was the 57014 cancel. Give cleanup a real window.
+  @moduletag timeout: 300_000
 
   # Admin DDL (CREATE/DROP DATABASE) runs on its own Postgrex connection, where
   # DBConnection's default :timeout is 15s. That default is sized for queries,
@@ -105,7 +108,19 @@ defmodule ServiceRadar.Cluster.DatabaseBootstrapIntegrationTest do
     create_database!(admin_opts, scratch_db)
 
     on_exit(fn ->
-      drop_database!(admin_opts, scratch_db)
+      # The bootstrap assertions already ran. A slow DROP on a loaded
+      # eight-shard fixture must not flip a green test red: sweep_stale_dbs
+      # is the backstop for a leftover scratch database.
+      case drop_database(admin_opts, scratch_db) do
+        :ok ->
+          :ok
+
+        {:error, reason} ->
+          IO.warn(
+            "bootstrap scratch #{scratch_db} drop failed (#{inspect(reason)}); " <>
+              "sweep_stale_dbs will collect it"
+          )
+      end
     end)
 
     {:ok, scratch_db: scratch_db}
@@ -608,31 +623,37 @@ defmodule ServiceRadar.Cluster.DatabaseBootstrapIntegrationTest do
     end)
   end
 
-  defp drop_database!(admin_opts, database) do
+  defp drop_database(admin_opts, database) do
+    Enum.reduce_while(1..5, {:error, :not_attempted}, fn attempt, _acc ->
+      case drop_database_once(admin_opts, database) do
+        :ok ->
+          {:halt, :ok}
+
+        {:error, reason} ->
+          if attempt == 5 do
+            {:halt, {:error, reason}}
+          else
+            Process.sleep(1_000 * attempt)
+            {:cont, {:error, reason}}
+          end
+      end
+    end)
+  end
+
+  defp drop_database_once(admin_opts, database) do
     with_admin_connection!(admin_opts, fn conn ->
-      # Runs from on_exit, and it used to take the whole shard down with
-      # `57014 query_canceled`.
+      # Runs from on_exit. A loaded eight-shard fixture used to take the
+      # whole shard down with `57014 query_canceled`.
       #
-      # pg_terminate_backend/1 only REQUESTS termination; it returns before the
-      # backend is gone. DROP DATABASE then waits for every remaining session,
-      # so any backend still dying -- or one that reconnected in the gap --
-      # blocked the drop until statement_timeout cancelled it, failing a
-      # cleanup callback rather than a test.
+      # pg_terminate_backend/1 only REQUESTS termination. DROP DATABASE then
+      # waits for remaining sessions, so a backend still dying -- or one that
+      # reconnected in the gap -- blocked until the client cancelled.
       #
-      # WITH (FORCE) folds the terminate into the drop itself (PG13+; the
-      # fixture is PG18), which removes the gap.
-      #
-      # There are TWO timeouts here and the server-side one is the less
-      # important of the pair. `57014 ... canceling statement due to user
-      # request` is what Postgres reports when the CLIENT cancels, and DBConnection
-      # cancels at its default :timeout of 15s -- the log names it exactly:
-      #
-      #   client #PID<...> (ExUnit.OnExitHandler) timed out because it queued
-      #   and checked out the connection for longer than 15000ms
-      #
-      # So clearing statement_timeout alone does not help: the drop is killed
-      # from this side. @admin_query_timeout is what actually keeps a slow but
-      # progressing drop alive on a loaded shard.
+      # WITH (FORCE) folds terminate into the drop (PG13+; the fixture is
+      # PG18). There are TWO timeouts: server statement_timeout and the
+      # Postgrex/DBConnection client timeout (default 15s). The 15s client
+      # cancel is what produced 57014 on ExUnit.OnExitHandler. Pass the
+      # admin timeout on the connection AND each query.
       Postgrex.query!(conn, "SET statement_timeout = 0", [], timeout: @admin_query_timeout)
 
       Postgrex.query!(
@@ -648,16 +669,24 @@ defmodule ServiceRadar.Cluster.DatabaseBootstrapIntegrationTest do
         [],
         timeout: @admin_query_timeout
       )
+
+      :ok
     end)
+  rescue
+    e ->
+      {:error, e}
   end
 
   defp with_admin_connection!(opts, fun) do
-    {:ok, conn} = Postgrex.start_link(opts)
+    {:ok, conn} =
+      opts
+      |> Keyword.put(:timeout, @admin_query_timeout)
+      |> Postgrex.start_link()
 
     try do
       fun.(conn)
     after
-      GenServer.stop(conn)
+      GenServer.stop(conn, :normal, @admin_query_timeout)
     end
   end
 
