@@ -4,6 +4,7 @@ load("@bazel_skylib//rules:common_settings.bzl", "bool_flag")
 package(default_visibility = ["//visibility:public"])
 
 exports_files([
+    "check_undefined_cxx.py",
     "elixir_test_config_loader.exs",
     "mix_release_patches.py",
     "repo_alias.bzl",

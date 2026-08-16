@@ -102,10 +102,35 @@ file_layer_amd64(
     target_path = "usr/local/bin/serviceradar-sshca-signer",
 )
 
+# bun (React SSR) and cosign are third-party binaries baked into the web-ng image, so each
+# needs its own arm64 pin. Aliases rather than a select() passed to the macro: both reach
+# file_layer_amd64, which uses `src` as a dict KEY, and a select is unhashable at loading
+# time. Same device as :agent_gateway_openssl_deb and :agent_netprobe.
+alias(
+    name = "web_ng_bun",
+    actual = select({
+        "//build/platforms:target_linux_arm64": "@bun_linux_aarch64//:bun",
+        "//conditions:default": "@bun_linux_amd64//:bun",
+    }),
+)
+
+alias(
+    name = "web_ng_cosign",
+    actual = select({
+        "//build/platforms:target_linux_arm64": "@cosign_linux_arm64//file",
+        "//conditions:default": "@cosign_linux_amd64//file",
+    }),
+)
+
 declare_web_ng_release_container_amd64(
     name = "web_ng_image_amd64",
-    base = "@ubuntu_noble_linux_amd64//:ubuntu_noble_linux_amd64",
+    base = select({
+        "//build/platforms:target_linux_arm64": "@ubuntu_noble_linux_arm64_v8//:ubuntu_noble_linux_arm64_v8",
+        "//conditions:default": "@ubuntu_noble_linux_amd64//:ubuntu_noble_linux_amd64",
+    }),
     base_image_name = "web_ng_image_base_amd64",
+    bun_src = ":web_ng_bun",
+    cosign_src = ":web_ng_cosign",
     cmd = ["start"],
     env = {
         "HOME": "/app",
@@ -123,11 +148,27 @@ declare_web_ng_release_container_amd64(
     workdir = "/app",
 )
 
+# The first Elixir image in the index, and the one that forced //build:mix_app.bzl to learn
+# the target triple. Every architecture-keyed artefact in this release used to be resolved
+# from the BUILD HOST: adbc and lazy_html downloaded a prebuilt keyed on
+# `:erlang.system_info(:system_architecture)`, and mdex_native did the same through
+# rustler_precompiled -- so an arm64 image shipped x86-64 .so files that failed to dlopen at
+# runtime with a misleading ENOENT. mix_app now exports TARGET_ARCH/VENDOR/OS/ABI, stages
+# //third_party/precompiled_nifs as a declared input, and asserts every emitted .so matches
+# the target's ELF e_machine before the action can succeed.
+declare_multiarch_image_index(
+    name = "web_ng_image_multiarch",
+    image = ":web_ng_image_amd64",
+)
+
 # elixir core-elx ------------------------------------------------------------
 
 declare_elixir_release_container_amd64(
     name = "core_elx_image_amd64",
-    base = "@ubuntu_noble_linux_amd64//:ubuntu_noble_linux_amd64",
+    base = select({
+        "//build/platforms:target_linux_arm64": "@ubuntu_noble_linux_arm64_v8//:ubuntu_noble_linux_arm64_v8",
+        "//conditions:default": "@ubuntu_noble_linux_amd64//:ubuntu_noble_linux_amd64",
+    }),
     cmd = ["start"],
     entrypoint = ["/app/bin/serviceradar_core_elx"],
     env = {
@@ -139,7 +180,20 @@ declare_elixir_release_container_amd64(
     image_title = "serviceradar-core-elx",
     local_repo_tag = "registry.carverauto.dev/serviceradar/serviceradar-core-elx:local",
     release_tar = "//elixir/serviceradar_core_elx:release_tar",
+    target_compatible_with = [],
     workdir = "/app",
+)
+
+# The last image to go multi-arch, and the one that needed real work rather than a base
+# image. Three packages in its closure resolved an architecture from the build host:
+# ex_dtls and ex_libsrt were pinned to the executor's gcc because pkg-config gave them no
+# OpenSSL directories (//third_party/openssl is the sysroot that replaced that), and vix
+# loads its own NIF during `mix compile`, so it needs the executor's artefact to build and
+# the target's to ship (_HOST_NIF_APPS in //build:mix_app.bzl). The ten precompiled Membrane
+# OS deps were the fourth, fixed in Bundlex itself.
+declare_multiarch_image_index(
+    name = "core_elx_image_multiarch",
+    image = ":core_elx_image_amd64",
 )
 
 # elixir agent-gateway -------------------------------------------------------
@@ -734,6 +788,7 @@ _MULTIARCH_INDEXES = [
     "bmp_collector_image_multiarch",
     "cert_generator_image_multiarch",
     "config_updater_image_multiarch",
+    "core_elx_image_multiarch",
     "datasvc_image_multiarch",
     "faker_image_multiarch",
     "flow_collector_image_multiarch",
@@ -743,6 +798,7 @@ _MULTIARCH_INDEXES = [
     "tools_image_multiarch",
     "trapd_image_multiarch",
     "trivy_sidecar_image_multiarch",
+    "web_ng_image_multiarch",
 ]
 
 go_test(

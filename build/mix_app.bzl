@@ -157,22 +157,27 @@ _nif_opt_transition = transition(
 _NATIVE_SOURCE_EXTENSIONS = ["c", "cc", "cpp", "cxx", "m"]
 _NATIVE_BUILD_FILES = ["bundlex.exs", "Makefile"]
 
-# Packages that keep the executor image's gcc instead of the hermetic toolchain.
+# Packages that resolve `openssl` through pkg-config and therefore need a target-arch
+# OpenSSL staged for them.
 #
-# These resolve a system library through pkg-config, which reports only `-lssl -lcrypto`
-# and leaves the header and library directories to the compiler's defaults. gcc has such
-# defaults; the hermetic toolchain is invoked with `--sysroot=/dev/null -nostdlibinc` and
-# deliberately has none, so ex_dtls fails with
+# These two used to be pinned to the executor image's gcc instead of the hermetic toolchain,
+# because pkg-config reports only `-lssl -lcrypto` and leaves the header and library
+# directories to the compiler's defaults. gcc has such defaults; the hermetic toolchain is
+# invoked with `--sysroot=/dev/null -nostdlibinc` and deliberately has none, so ex_dtls
+# failed with
 #     dtls.h:3:10: fatal error: 'openssl/err.h' file not found
 #     ld.lld: error: unable to find library -lssl
-# Making these hermetic means giving them a hermetic OpenSSL rather than a hermetic
-# compiler, which is a separate piece of work -- they are already tied to the image today,
-# so keeping them on gcc changes nothing about their current guarantees.
 #
-# Both need OpenSSL: ex_dtls directly, ex_libsrt through libsrt. Their precompiled OS deps
-# resolve fine either way -- ex_libsrt links -lsrt out of the staged archive -- so this is
-# only about the two system libraries pkg-config leaves to the compiler's defaults.
-_SYSTEM_CC_APPS = [
+# Keeping them on gcc was survivable while every image was amd64 and broke the moment one
+# was not: gcc emits amd64 objects wherever it runs, so an arm64 build linked its own
+# aarch64 inputs with an x86-64 linker and died. That made these two the last blocker on a
+# multi-arch core_elx.
+#
+# The answer was a sysroot, not a compiler. //third_party/openssl builds one per
+# architecture out of the pinned libssl-dev and libssl3 debs; the flags below point
+# pkg-config at it, so the same `pkg-config --cflags --libs openssl` call now answers with
+# the target's directories and the hermetic clang can be used like everywhere else.
+_OPENSSL_APPS = [
     "ex_dtls",
     "ex_libsrt",
 ]
@@ -200,9 +205,183 @@ def _erl_libs_entry(info):
             return None
     return parent
 
+# The architecture a DOWNLOADED artefact has to match.
+#
+# A package that COMPILES native code learns the target from cc_env below -- that is why
+# bcrypt_elixir and crc cross-compile correctly. A package that DOWNLOADS a prebuilt one
+# had no equivalent signal, so it fell back to :erlang.system_info(:system_architecture),
+# which is the EXECUTOR's triple, not the target's. Building for arm64 on an amd64 RBE
+# executor then fetches an x86-64 .so that links, ships, and fails only at dlopen -- as
+# ENOENT, for a file that is present. adbc, lazy_html and mdex_native all hit this.
+#
+# These are rustler_precompiled's documented cross-compilation override (added for
+# Nerves); cc_precompiler reads TARGET_ARCH/OS/ABI and joins them itself. Exported for
+# EVERY mix_app rather than only the native-compiling ones, because a downloading package
+# ships no C sources and so never reaches the cc_env branch at all.
+# Packages that must LOAD their own NIF while compiling, and so cannot be told the target.
+#
+# vix generates its enum modules from libvips itself: `Vix.Vips.EnumHelper.__before_compile__/1`
+# calls `Vix.Nif.nif_vips_enum_list/0`. That NIF has to be dlopen-able by the BEAM running the
+# compile -- the EXECUTOR -- while the artefact that ships has to match the TARGET. Handing it
+# TARGET_ARCH like every other package makes elixir_make fetch the target's .so and the compile
+# dies on
+#     Failed to load NIF library: '.../vix.so: cannot open shared object file'
+# which is the wrong-e_machine-reported-as-ENOENT failure, this time at build time.
+#
+# So these packages compile against the executor's artefact and then have the target's
+# unpacked over priv, which is sound because the two halves are independent: the generated
+# .beam files encode libvips ENUM NAMES, identical across architectures for one libvips
+# version, and both artefacts come from the same upstream release. The ELF assertion at the
+# end of the script is what confirms the swap actually happened.
+_HOST_NIF_APPS = ["vix"]
+
+# The CPU this build is for, or None when the target is not Linux.
+#
+# Separate from _target_triple_env because the two answer different questions: this one is
+# "what must the output be", which is also true for _HOST_NIF_APPS, while the env is "what
+# do we TELL the package", which for those packages is deliberately nothing. Folding them
+# together would silently exempt vix from the ELF assertion -- the one package that most
+# needs it, since it is the only one whose priv is assembled from two architectures.
+def _target_arch(ctx):
+    if not ctx.target_platform_has_constraint(
+        ctx.attr._os_linux[platform_common.ConstraintValueInfo],
+    ):
+        # Only linux targets are packaged into images; leave a host build alone.
+        return None
+
+    return "aarch64" if ctx.target_platform_has_constraint(
+        ctx.attr._cpu_aarch64[platform_common.ConstraintValueInfo],
+    ) else "x86_64"
+
+def _target_triple_env(ctx):
+    if ctx.attr.app_name in _HOST_NIF_APPS:
+        # Deliberately unset, so cc_precompiler falls back to :erlang.system_info and
+        # resolves the executor's triple. See _HOST_NIF_APPS.
+        return {}
+
+    arch = _target_arch(ctx)
+    if not arch:
+        return {}
+
+    return {
+        "TARGET_ARCH": arch,
+        "TARGET_VENDOR": "unknown",
+        "TARGET_OS": "linux",
+        "TARGET_ABI": "gnu",
+    }
+
+# Fail the build if a compiled package emitted a NIF for the wrong CPU.
+#
+# This is the guard that actually holds. The action cannot be network-isolated -- the RBE
+# executor has to reach the BuildBuddy cache proxy -- so "forbid downloads" is unenforceable
+# by construction. Checking the OUTPUT is enforceable, and depends on nobody's sandbox
+# policy: a package may fetch whatever it likes, but it may not emit the wrong CPU.
+#
+# e_machine is a 2-byte little-endian field at offset 18 of every ELF header:
+# 0x3e -> x86-64, 0xb7 -> aarch64. `od` is in coreutils, so this needs no new tool.
+#
+# Without this, a mismatched NIF links, ships and fails only at dlopen on the target host,
+# where glibc reports it as ENOENT for a file that is present. That is how adbc, lazy_html
+# and mdex_native each shipped an x86-64 .so inside a linux/arm64 image.
+def _elf_arch_assertion(ctx):
+    arch = _target_arch(ctx)
+    if not arch:
+        return ""
+
+    want, want_name = ("b7", "aarch64") if arch == "aarch64" else ("3e", "x86-64")
+
+    return """
+for so in $(find "$ABS_PRIV" -type f -name '*.so*' 2>/dev/null); do
+    # Only real ELF objects, and only regular files. Two false positives found by running
+    # the whole tree rather than one package: macOS-built tars carry AppleDouble "._name"
+    # stubs that match *.so but are not ELF, and phoenix ships a DIRECTORY called
+    # phx.gen.socket. `set -euo pipefail` is in force, so an unguarded od on either aborts
+    # the action instead of skipping the entry.
+    magic=$(od -An -tx1 -N4 "$so" 2>/dev/null | tr -d ' \n' || true)
+    [ "$magic" = "7f454c46" ] || continue
+
+    machine=$(od -An -tx1 -j18 -N1 "$so" 2>/dev/null | tr -d ' \n' || true)
+    if [ -n "$machine" ] && [ "$machine" != "{want}" ]; then
+        echo "ERROR: $(basename "$so") is not {want_name} (ELF e_machine 0x$machine)." >&2
+        echo "  This package emitted or downloaded a NIF for the wrong CPU. It would link," >&2
+        echo "  ship, and fail at dlopen on the target as a misleading ENOENT." >&2
+        exit 1
+    fi
+done
+""".format(want = want, want_name = want_name)
+
+# Stage //third_party/openssl's per-target sysroot and make pkg-config resolve out of it.
+#
+# PKG_CONFIG_LIBDIR, not PKG_CONFIG_PATH: LIBDIR REPLACES the default search path, so the
+# executor's own openssl.pc becomes unfindable. That turns a missing or malformed sysroot
+# into a loud pkg-config failure rather than a silent fallback to the host's OpenSSL --
+# which, being amd64, is exactly the class of mistake this file exists to prevent.
+def _openssl_sysroot_exports(ctx):
+    if ctx.attr.app_name not in _OPENSSL_APPS:
+        return ""
+
+    arch = _target_arch(ctx)
+    if not arch:
+        return ""
+
+    triple = "{}-linux-gnu".format(arch)
+
+    return """
+mkdir -p "$PWD/.openssl_sysroot"
+tar -xf "$ORIGINAL_DIR/{tar}" -C "$PWD/.openssl_sysroot"
+export PKG_CONFIG_LIBDIR="$PWD/.openssl_sysroot/usr/lib/{triple}/pkgconfig"
+export PKG_CONFIG_SYSROOT_DIR="$PWD/.openssl_sysroot"
+""".format(
+        tar = ctx.file.openssl_sysroot.path,
+        triple = triple,
+    )
+
+# Detected from the sources rather than listed, so a new C++ Bundlex package is handled
+# without anyone remembering this exists. `m` is Objective-C and stays out.
+_CXX_SOURCE_EXTENSIONS = ["cc", "cpp", "cxx"]
+
+# Put the TARGET architecture's NIF back over priv after the compile.
+#
+# The compile ran against the executor's artefact (see _HOST_NIF_APPS), so priv currently
+# holds the wrong architecture. Both artefacts are the same two files -- `vix.so` and
+# `precompiled_libvips/lib/libvips-cpp.so.<v>`, relative to priv -- so unpacking the target's
+# over the top replaces every architecture-specific file and leaves nothing stale behind.
+# The .beam files stay as compiled: they encode libvips ENUM NAMES, which are a property of
+# the libvips version, not of the CPU, and both artefacts ship the same libvips.
+#
+# The ELF assertion runs after this and is what turns "the swap happened" from an assumption
+# into a checked fact.
+def _host_nif_overlay(ctx):
+    if ctx.attr.app_name not in _HOST_NIF_APPS:
+        return ""
+    if not _target_arch(ctx):
+        return ""
+
+    return "\n".join([
+        'tar -xzf "$ORIGINAL_DIR/{}" -C "$ABS_PRIV"'.format(f.path)
+        for f in ctx.files.elixir_make_nifs_target
+    ])
+
+# Fail the build if a compiled NIF left C++ symbols that nothing can resolve.
+#
+# The rule, and why it is not simply "no mangled undefined symbols", is documented in
+# //build:check_undefined_cxx.py. Only for packages this build COMPILED: a downloaded
+# prebuilt is upstream's business, not something this link line got wrong.
+def _undefined_cxx_assertion(ctx):
+    if not _compiles_native_code(ctx):
+        return ""
+
+    return 'python3 "$ORIGINAL_DIR/{}" "$ABS_PRIV"\n'.format(
+        ctx.file._check_undefined_cxx.path,
+    )
+
+def _compiles_cxx(ctx):
+    for f in ctx.files.srcs:
+        if f.extension in _CXX_SOURCE_EXTENSIONS:
+            return True
+    return False
+
 def _compiles_native_code(ctx):
-    if ctx.attr.app_name in _SYSTEM_CC_APPS:
-        return False
     for f in ctx.files.srcs:
         if f.extension in _NATIVE_SOURCE_EXTENSIONS:
             return True
@@ -452,12 +631,47 @@ def _impl(ctx):
         # Bundlex.Toolchain.Custom reads all five with System.fetch_env! and raises on a
         # missing one, so these are set together or not at all. elixir_make packages read
         # only CC/CFLAGS and ignore the rest.
+        ldflags = _flags(ACTION_NAMES.cpp_link_executable, link_variables)
+
+        # A C++ native needs the C++ runtime linked in, and nothing else will do it.
+        #
+        # The toolchain links C++ targets by passing `-nostdlib++` and letting rules_cc add
+        # @llvm//libcxx as an ordinary dependency, in the right position. Bundlex builds its
+        # own link line, so that dependency never appears: srt_nif.so came out with 53
+        # undefined `_ZNSt3__1...` symbols and no libc++ in DT_NEEDED. `-shared` does not
+        # error on undefined symbols, so it linked, and would have failed at dlopen -- the
+        # same shape of runtime-only failure as a wrong-architecture NIF.
+        #
+        # --whole-archive because POSITION IS THE PROBLEM. Bundlex puts $LDFLAGS at the FRONT
+        # of the link line, before the object files, and a linker resolves archives strictly
+        # left to right: a plain `-lc++` there would be scanned before anything referenced it
+        # and contribute nothing. --whole-archive takes every member regardless of what has
+        # been referenced yet, which makes the flag position-independent. `-Wl,--gc-sections`
+        # is already in the toolchain's flags and drops whatever stays unreferenced.
+        #
+        # Explicit archive PATHS, not `-lc++`. The toolchain's -L search directory is
+        # populated by hermetic-llvm's `stub_library`, so libc++.a there is a valid but EMPTY
+        # archive (`!<arch>\n`, 8 bytes) that exists only to keep `-lc++` from erroring while
+        # rules_cc supplies the real library as a dependency. Linking against it succeeds and
+        # resolves nothing -- which is how the first attempt at this produced a .so with the
+        # same 53 undefined symbols and a green build.
+        #
+        # @llvm//runtimes/cxxstdlib:static_runtime_lib is the toolchain's own answer to "the
+        # static C++ runtime for this configuration": it selects libc++/libc++abi/libunwind
+        # or fails loudly for combinations it does not support, so this follows the toolchain
+        # rather than hardcoding a stdlib choice. Static, so the NIF is self-contained -- the
+        # runtime images carry no libc++.
+        if _compiles_cxx(ctx):
+            archives = " ".join([_abs(f.path) for f in ctx.files._cxx_static_runtime])
+            if archives:
+                ldflags += " -Wl,--whole-archive {} -Wl,--no-whole-archive".format(archives)
+
         cc_env = {
             "CC": _abs(_tool(ACTION_NAMES.c_compile)),
             "CXX": _abs(_tool(ACTION_NAMES.cpp_compile)),
             "CFLAGS": _flags(ACTION_NAMES.c_compile, compile_variables),
             "CXXFLAGS": _flags(ACTION_NAMES.cpp_compile, compile_variables),
-            "LDFLAGS": _flags(ACTION_NAMES.cpp_link_executable, link_variables),
+            "LDFLAGS": ldflags,
         }
 
         # Double quotes, NOT shell.quote: $ORIGINAL_DIR has to be expanded HERE, by the
@@ -468,7 +682,11 @@ def _impl(ctx):
             'export {}="{}"'.format(k, v)
             for k, v in cc_env.items()
         ])
-        cc_inputs = [cc_toolchain.all_files]
+        cc_inputs = [
+            cc_toolchain.all_files,
+            depset(ctx.files._cxx_static_runtime),
+            depset([ctx.file._check_undefined_cxx]),
+        ]
 
     # ONLY the dependencies that actually DECLARE natives, not the whole closure.
     #
@@ -627,6 +845,29 @@ def _impl(ctx):
                 ),
             )
 
+    # elixir_make looks in ELIXIR_MAKE_CACHE_DIR/<exact archive name> before downloading and
+    # verifies against the package's own checksum.exs after. Staging BOTH architectures lets
+    # the same tree serve the compile (executor's) and the overlay (target's).
+    if ctx.attr.app_name in _HOST_NIF_APPS:
+        precompiled_commands.append('mkdir -p "${MIX_INVOCATION_DIR}/.elixir_make_cache"')
+        for f in ctx.files.elixir_make_nifs:
+            precompiled_commands.append(
+                'cp "{src}" "${{MIX_INVOCATION_DIR}}/.elixir_make_cache/{name}"'.format(
+                    src = f.path,
+                    name = f.basename,
+                ),
+            )
+
+    if ctx.files.precompiled_nifs:
+        precompiled_commands.append('mkdir -p "${MIX_INVOCATION_DIR}/.precompiled_nifs"')
+        for f in ctx.files.precompiled_nifs:
+            precompiled_commands.append(
+                'cp "{src}" "${{MIX_INVOCATION_DIR}}/.precompiled_nifs/{name}"'.format(
+                    src = f.path,
+                    name = f.basename,
+                ),
+            )
+
     # Staged into the copied source tree so `mix compile` picks them up as part of priv,
     # and mix_app's priv output carries them downstream.
     native_lib_commands = []
@@ -694,10 +935,31 @@ ABS_PRIV="$PWD/{priv}"
 
 export PATH="$ABS_ELIXIR_HOME"/bin:"{erlang_home}"/bin:${{PATH}}
 
-export LANG="en_US.UTF-8"
-export LC_ALL="en_US.UTF-8"
+# C.UTF-8, not en_US.UTF-8. The executor image ships no generated locales, so asking for
+# en_US.UTF-8 made bash print
+#     warning: setlocale: LC_ALL: cannot change locale (en_US.UTF-8)
+# on every Mix action and then fall back to the C locale anyway. C.UTF-8 is built into
+# glibc rather than generated, so it is always present and actually takes effect.
+# //build:mix_release.bzl already used it.
+export LANG="C.UTF-8"
+export LC_ALL="C.UTF-8"
+
+# Set BEFORE the first Elixir invocation, which is the whole point.
+#
+# +fnu forces utf8 filename handling instead of letting the VM infer it from the locale.
+# It was previously set just before `mix compile`, leaving the two Elixir runs that come
+# first -- `mix archive.install` and the lock-generating `elixir -e` -- on the default,
+# which is why every build log carried exactly two copies of
+#     warning: the VM is running with native name encoding of latin1 which may cause
+#     Elixir to malfunction as it expects utf8
+# That is Elixir warning about a real defect, not decoration: those two invocations were
+# genuinely handling filenames as latin1. The scheduler flags are appended later, once the
+# CPU quota is known.
+export ELIXIR_ERL_OPTIONS="+fnu"
 
 MIX_INVOCATION_DIR="{mix_invocation_dir}"
+rm -rf "${{MIX_INVOCATION_DIR}}"
+mkdir -p "${{MIX_INVOCATION_DIR}}"
 {mix_dir_cleanup}
 
 {copy_srcs_commands}
@@ -712,14 +974,38 @@ export HOME="${{PWD}}"
 export MIX_ENV={mix_env}
 export ERL_COMPILER_OPTIONS=deterministic
 
-# Every dependency is already a Bazel input. If a package ever reaches for the
-# network, fail here rather than succeed on a developer's machine and then fail
-# on a network-isolated RBE executor.
+# Stops MIX resolving dependencies over the network. It does NOT stop a package's own
+# compile-time :httpc call -- cc_precompiler, rustler_precompiled and Adbc.download_driver!
+# all went straight past it, each fetching an artefact keyed on the executor's CPU.
+#
+# There is no sandbox fix for that here: the RBE executor must reach the BuildBuddy cache
+# proxy, so the action cannot be network-isolated. `block-network` was tried and is not
+# honoured by this executor -- verified by sabotaging the artefact cache and watching the
+# download succeed anyway. The enforceable invariant is therefore about the OUTPUT, not the
+# network: see the ELF check at the end of this script.
 export HEX_OFFLINE=1
+
+# What architecture this build is FOR, for packages that fetch a prebuilt artefact
+# instead of compiling one. See _target_triple_env.
+{target_triple_exports}
 
 # Points the patched Bundlex at the Bazel-staged archives. Harmless when the directory is
 # absent: Bundlex falls back to its original download path.
 export BUNDLEX_LOCAL_PRECOMPILED_DIR="$PWD/.bundlex_precompiled"
+
+# rustler_precompiled reads this path VERBATIM (it does not append a subdirectory) and
+# looks for <path>/<exact archive name>, verifying it against the package's checksum file
+# before extracting. Present -> no network. Absent -> it would download, which is what
+# block-network now forbids.
+export RUSTLER_PRECOMPILED_GLOBAL_CACHE_PATH="$PWD/.precompiled_nifs"
+
+# The elixir_make equivalent. Absent for every package but _HOST_NIF_APPS, where it is
+# harmless: elixir_make just creates the empty directory and downloads as before.
+export ELIXIR_MAKE_CACHE_DIR="$PWD/.elixir_make_cache"
+
+# A target-architecture OpenSSL for the two packages that resolve it through pkg-config.
+# Empty for every other package. See _openssl_sysroot_exports.
+{openssl_sysroot_exports}
 
 # The hermetic C toolchain, for the packages that compile native code. Paths arrive
 # execroot-relative and we have already cd'd into the mix invocation dir, so they are
@@ -802,12 +1088,10 @@ if [ -z "$_SR_CPUS" ] || [ "$_SR_CPUS" -lt 1 ] 2>/dev/null; then
     _SR_CPUS=$(nproc 2>/dev/null || echo 1)
 fi
 
-# +S <total>:<online> pins the scheduler pool to the quota.
-# +fnu fixes a real defect, not a cosmetic one: the executor image has no UTF-8 locale, so
-# setlocale fails and the VM falls back to latin1 filename encoding, which Elixir itself warns
-# "may cause Elixir to malfunction". Forcing utf8 filename handling makes it independent of
-# the image's locale configuration.
-export ELIXIR_ERL_OPTIONS="+S ${{_SR_CPUS}}:${{_SR_CPUS}} +fnu ${{ELIXIR_ERL_OPTIONS:-}}"
+# +S <total>:<online> pins the scheduler pool to the quota. Appended to whatever is already
+# set -- +fnu is exported at the top of this script, before the first Elixir runs, because
+# two of them happen well before this line.
+export ELIXIR_ERL_OPTIONS="+S ${{_SR_CPUS}}:${{_SR_CPUS}} ${{ELIXIR_ERL_OPTIONS:-}}"
 
 "${{ABS_ELIXIR_HOME}}"/bin/mix compile --no-deps-check
 
@@ -835,16 +1119,37 @@ fi
 # rejects dangling symlinks in a declared output tree.
 find . -type l -delete
 
+{host_nif_overlay}
+
+{elf_arch_assertion}
+{undefined_cxx_assertion}
+
 """.format(
         maybe_install_erlang = maybe_install_erlang(ctx),
         erl_libs_path = erl_libs_path,
         erlang_home = erlang_home,
         elixir_home = elixir_home,
-        mix_invocation_dir = mix_invocation_dir.path if ships_bundlex else "$(mktemp -d)",
+        # A DETERMINISTIC scratch directory, not `$(mktemp -d)`.
+        #
+        # Mix records paths of the tree it compiles, and those end up inside the .beam
+        # files, so a random /tmp/tmp.XXXXXXXX made every build of an unchanged package
+        # produce different bytes -- two builds of one target differed ONLY by that path.
+        # Named per target (the label alone is "erlang_app" for all 268 hex packages, so
+        # the app name is what actually disambiguates) and relative to the execroot, which
+        # each action already has to itself.
+        mix_invocation_dir = mix_invocation_dir.path if ships_bundlex else ".mix_{}_{}".format(ctx.label.name, app_name),
         mix_dir_cleanup = "" if ships_bundlex else 'trap \'rm -rf "${MIX_INVOCATION_DIR}"\' EXIT',
         project_dir = ctx.label.package,
         copy_srcs_commands = "\n".join(copy_srcs_commands + dep_source_commands + precompiled_commands),
         archives = " ".join([shell.quote(a.path) for a in ctx.files.archives]),
+        target_triple_exports = "\n".join([
+            "export {}={}".format(k, v)
+            for k, v in sorted(_target_triple_env(ctx).items())
+        ]),
+        openssl_sysroot_exports = _openssl_sysroot_exports(ctx),
+        host_nif_overlay = _host_nif_overlay(ctx),
+        elf_arch_assertion = _elf_arch_assertion(ctx),
+        undefined_cxx_assertion = _undefined_cxx_assertion(ctx),
         mix_env = ctx.attr.mix_env,
         lock_commands = lock_commands,
         extra_config_commands = extra_config_commands,
@@ -867,6 +1172,12 @@ find . -type l -delete
             depset(ctx.files.archives),
             depset(dep_source_files),
             depset(ctx.files.precompiled_os_deps),
+            depset(ctx.files.precompiled_nifs),
+            depset(ctx.files.elixir_make_nifs if ctx.attr.app_name in _HOST_NIF_APPS else []),
+            depset(ctx.files.elixir_make_nifs_target if ctx.attr.app_name in _HOST_NIF_APPS else []),
+            # Only for _OPENSSL_APPS; _openssl_sysroot_exports is empty otherwise, and an
+            # unreferenced input would just be staged and never read.
+            depset([ctx.file.openssl_sysroot] if ctx.attr.app_name in _OPENSSL_APPS else []),
             depset(native_lib_files),
             depset(erl_libs_files),
             # Referenced in place via ERL_LIBS rather than staged, so they have to be
@@ -961,8 +1272,45 @@ mix_app = rule(
             allow_files = True,
             default = ["//third_party/membrane:precompiled_os_deps"],
         ),
+        # Precompiled Rustler NIF archives, so rustler_precompiled finds its artefact in a
+        # declared input instead of fetching it. Staged for every package; the ones that
+        # use no precompiled NIF never look. See //third_party/precompiled_nifs.
+        "precompiled_nifs": attr.label_list(
+            allow_files = True,
+            default = ["//third_party/precompiled_nifs:precompiled_nifs"],
+        ),
+        # A target-architecture OpenSSL, extracted only for _OPENSSL_APPS. It is an
+        # attribute rather than a hardcoded label so a caller can point a package at a
+        # different OpenSSL without editing this rule. See //third_party/openssl.
+        # Precompiled elixir_make artefacts for BOTH architectures, and separately just the
+        # target's. Only _HOST_NIF_APPS stage either. See //third_party/precompiled_nifs.
+        "elixir_make_nifs": attr.label_list(
+            allow_files = True,
+            default = ["//third_party/precompiled_nifs:elixir_make_nifs"],
+        ),
+        "elixir_make_nifs_target": attr.label_list(
+            allow_files = True,
+            default = ["//third_party/precompiled_nifs:elixir_make_nifs_target"],
+        ),
+        "openssl_sysroot": attr.label(
+            allow_single_file = True,
+            default = "//third_party/openssl:sysroot_tar",
+        ),
         "mix_env": attr.string(default = "prod"),
         "deps": attr.label_list(providers = [ErlangAppInfo]),
+        # The static C++ runtime archives for this configuration, linked into any Bundlex
+        # native that has C++ sources. See the --whole-archive block in _impl.
+        "_check_undefined_cxx": attr.label(
+            allow_single_file = True,
+            default = "//build:check_undefined_cxx.py",
+        ),
+        "_cxx_static_runtime": attr.label(
+            allow_files = True,
+            default = "@llvm//runtimes/cxxstdlib:static_runtime_lib",
+        ),
+        # Read only to answer "what CPU is this build FOR". See _target_triple_env.
+        "_cpu_aarch64": attr.label(default = "@platforms//cpu:aarch64"),
+        "_os_linux": attr.label(default = "@platforms//os:linux"),
     },
     provides = [ErlangAppInfo],
     toolchains = ["@rules_elixir//:toolchain_type"] + use_cc_toolchain(),

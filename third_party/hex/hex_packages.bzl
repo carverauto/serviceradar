@@ -11,7 +11,6 @@ what hex_archive downloads.
 
 HEX_PACKAGES = [
     ("acceptor_pool", "acceptor_pool", "1.0.1", "f172f3d74513e8edd445c257d596fc84dbdd56d2c6fa287434269648ae5a421e"),
-    ("adbc", "adbc", "0.12.1", "99a4f46e8af1c9dfc94c804c9f1d9e6c1923845a90af089765ea278d876da904"),
     ("ash", "ash", "3.31.3", "4c105da2080475d114908c32e70970e69c857a9068a577a4e99dbf2801baa11e"),
     ("ash_admin", "ash_admin", "0.14.0", "d3bc34c266491ae3177f2a76ad97bbe916c4d3a41d56196db9d95e76413b3455"),
     ("ash_cloak", "ash_cloak", "0.3.1", "83a3c73bb7f941a04e7329273e6123d5beb5f1cd3be73e84e609a37884ad0320"),
@@ -257,7 +256,6 @@ HEX_PACKAGES = [
     ("styler", "styler", "1.11.0", "70f36165d0cf238a32b7a456fdef6a9c72e77e657d7ac4a0ace33aeba3f2b8c0"),
     ("sweet_xml", "sweet_xml", "0.7.5", "193b28a9b12891cae351d81a0cead165ffe67df1b73fe5866d10629f4faefb12"),
     ("swoosh", "swoosh", "1.26.3", "c7683d070fe8f8aa9d174e61b01f2d527be73cd8ac40037b7109184941eb569f"),
-    ("table", "table", "0.1.2", "7e99bc7efef806315c7e65640724bf165c3061cdc5d854060f74468367065029"),
     ("tailwind", "tailwind", "0.5.1", "c4e26302a59fec72abc5610ecb6ad2116d9aa31f31aab2d4b8eb6e95d25a689c"),
     ("telemetry", "telemetry", "1.4.2", "928f6495066506077862c0d1646609eed891a4326bee3126ba54b60af61febb1"),
     ("telemetry_metrics", "telemetry_metrics", "1.1.0", "e7b79e8ddfde70adb6db8a6623d1778ec66401f366e9a8f5dd0955c56bc8ce67"),

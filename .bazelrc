@@ -13,6 +13,11 @@ common --ui_event_filters=-INFO
 # Use Bazel defaults (~/.cache/bazel) or machine-local .bazelrc.local instead.
 # Allow platform-specific build:* sections (linux/macos/windows).
 common --enable_platform_specific_config
+# Mirror-first URL rewrites for deps that ship a single download URL. See the file.
+# --downloader_config, not --experimental_downloader_config: Bazel 9.2 warns the latter is
+# deprecated on every invocation. The path is workspace-relative and must NOT use
+# %workspace%, which is not expanded here -- it is taken literally and the file is not found.
+common --downloader_config=tools/bazel/downloader.cfg
 # Detailed profiling in BuildBuddy
 common --noslim_profile
 # common --experimental_profile_include_target_label
