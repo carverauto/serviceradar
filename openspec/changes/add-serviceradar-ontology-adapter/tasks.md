@@ -77,3 +77,33 @@
   disable immutable `BindingManifest`.
 - [ ] 6.5 Reserve kinetic ontology, actions, policies, and workflows for future
   proposals and obtain approval before implementation.
+
+## 7. Frozen Edge Record V1 boundary
+
+- [ ] 7.1 Define a durable admitted-event handoff that attests the applicable
+  frozen edge checks and never makes ontology evaluation part of native
+  acceptance, EventWriter commit, delivery, or ACK.
+- [ ] 7.2 Bind edge logical event identity to an event-tagged source coordinate
+  while preserving producer-receipt, physical-artifact, semantic-envelope,
+  payload, delivery/publication, and portable canonical identities in their
+  separate evidence namespaces. Pin trusted scope, source instance, record ID,
+  and reset epoch independently of delivery coordinates and test cross-scope
+  event IDs plus stable reset across recovery.
+- [ ] 7.3 Make `HostActivation` select the authorized immutable
+  `BindingManifest` before checking the admitted record. Pin the schema-stable
+  output-contract identity, preserve the complete `EdgeOutputContractRef` as
+  evidence, and prove edge capabilities and disposition cannot select portable
+  configuration or ontology authority.
+- [ ] 7.4 Reuse the frozen containing-bucket nanosecond-to-microsecond conversion
+  only after edge admission, amend the enumerated projection-consumer list in the
+  frozen edge timestamp requirement to name the adapter, retain raw nanoseconds
+  as typed evidence, and reuse the first recorded `known_at` on duplicate
+  delivery.
+- [ ] 7.5 Test legal outer re-encoding, edge-ledger semantic conflict,
+  producer-receipt absence, agent/service delivery separation, retry and
+  recovery rewrapping, conditional loss evidence including an uncovered gap,
+  exact portable replay, native translation replayability under retention
+  policy, and ontology unavailability.
+- [ ] 7.6 Enforce the portable source-envelope and output ceilings without
+  truncation, splitting, or raw-artifact duplication, and prove an oversized
+  conversion cannot affect native ingestion.

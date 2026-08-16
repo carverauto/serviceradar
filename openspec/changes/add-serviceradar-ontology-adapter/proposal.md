@@ -26,6 +26,10 @@ runtime.
   ontology authority.
 - Preserve the architectural rule that streaming telemetry reaches NATS
   JetStream before any ontology consumer or database persistence path.
+- Add an explicit Edge Record V1 host boundary that consumes only admitted edge
+  events, preserves semantic and physical identities without collapsing them,
+  and keeps delivery coordinates, publication identity, and recovery evidence
+  out of portable semantic supersession.
 - Prove breadth with OCSF security records, SNMP device/interface inventory, and
   OpenTelemetry resource/service metadata fixtures, all using unchanged portable
   core and runtime binaries.
@@ -43,4 +47,7 @@ runtime.
   ports, source bindings, storage/query adapters, and conformance fixtures
 - Dependency order: requires approved, released, and conformant
   `add-portable-ontology-core`, then `add-portable-ontology-runtime`
+- Edge-source dependency: an Edge Record V1 binding additionally requires the
+  applicable `freeze-edge-record-v1-abi` artifacts to pass their final freeze
+  gate; other adapter sources do not acquire that dependency
 - Existing behavior: unchanged until administrators enable an explicit binding
