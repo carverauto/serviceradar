@@ -64,6 +64,24 @@ defmodule ServiceRadar.HTTP.EgressProxy do
     end
   end
 
+  @doc """
+  Req options that use the named `ServiceRadar.Finch` pool.
+
+  Req 0.7 raises `ArgumentError` if a request sets both `:finch` and
+  `:connect_options`. Connect/TLS/proxy belong on the pool (`finch_pools/1`).
+  Callers that need per-request TLS (SNI-to-IP, `verify: :verify_none`) must
+  drop `:finch` instead of combining the two.
+
+  Do not install these via `Req.default_options/1`. A process-wide `:finch`
+  default makes every remaining `connect_options:` call site crash at run
+  time — that is what failed `BumblebeeCatalogRefreshWorkerTest` on s7
+  after #5003.
+  """
+  @spec req_opts(pos_integer()) :: keyword()
+  def req_opts(timeout_ms) when is_integer(timeout_ms) and timeout_ms > 0 do
+    [receive_timeout: timeout_ms, retry: false, finch: ServiceRadar.Finch]
+  end
+
   defp maybe_put_cacert(conn_opts) do
     if Code.ensure_loaded?(CAStore) and function_exported?(CAStore, :file_path, 0) do
       Keyword.put(conn_opts, :transport_opts, cacertfile: CAStore.file_path())

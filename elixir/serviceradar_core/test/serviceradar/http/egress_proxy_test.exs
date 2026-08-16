@@ -1,6 +1,7 @@
 defmodule ServiceRadar.HTTP.EgressProxyTest do
   use ExUnit.Case, async: true
 
+  alias Req.Request
   alias ServiceRadar.HTTP.EgressProxy
 
   describe "parse/1" do
@@ -79,6 +80,34 @@ defmodule ServiceRadar.HTTP.EgressProxyTest do
 
       assert opts[:proxy] ==
                {:http, "smokescreen.egress.svc.cluster.local", 4750, []}
+    end
+  end
+
+  describe "req_opts/1" do
+    test "uses the named Finch pool without connect_options" do
+      opts = EgressProxy.req_opts(15_000)
+
+      assert Keyword.get(opts, :finch) == ServiceRadar.Finch
+      assert Keyword.get(opts, :receive_timeout) == 15_000
+      assert Keyword.get(opts, :retry) == false
+      refute Keyword.has_key?(opts, :connect_options)
+
+      request = Req.new(opts ++ [url: "https://example.invalid/"])
+      assert Request.get_option(request, :finch) == ServiceRadar.Finch
+      refute Request.get_option(request, :connect_options)
+    end
+
+    test "Req raises when a named Finch is combined with connect_options" do
+      request =
+        Req.new(
+          url: "https://example.invalid/",
+          finch: ServiceRadar.Finch,
+          connect_options: [timeout: 1_000]
+        )
+
+      assert_raise ArgumentError, ~r/cannot set both :finch and :connect_options/, fn ->
+        Request.run_request(request)
+      end
     end
   end
 end

@@ -57,7 +57,6 @@ defmodule ServiceRadar.Application do
     ensure_started(:telemetry)
     ensure_started(:ash_state_machine)
     ensure_started(:ssl)
-    maybe_set_req_finch()
 
     children =
       [
@@ -222,6 +221,12 @@ defmodule ServiceRadar.Application do
     if Application.get_env(:serviceradar_core, :http_client_enabled, true) do
       # CAStore + optional SERVICERADAR_EGRESS_PROXY CONNECT hop. Release
       # images are intentionally minimal and may not include OS CA bundles.
+      #
+      # Call sites opt in with `finch: ServiceRadar.Finch` (see
+      # ServiceRadar.HTTP.EgressProxy.req_opts/1). Do not set
+      # Req.default_options(finch: ...): Req 0.7 raises if a request also
+      # passes :connect_options, and several clients do that on purpose
+      # (SNI-to-IP, verify_none, connect timeouts).
       opts = [name: ServiceRadar.Finch]
 
       opts =
@@ -232,14 +237,6 @@ defmodule ServiceRadar.Application do
 
       {Finch, opts}
     end
-  end
-
-  defp maybe_set_req_finch do
-    if Code.ensure_loaded?(Req) and function_exported?(Req, :default_options, 1) do
-      Req.default_options(finch: ServiceRadar.Finch)
-    end
-
-    :ok
   end
 
   defp oban_child do
