@@ -1,9 +1,10 @@
 --- a/src/lib.rs
 +++ b/src/lib.rs
-@@ -7,6 +7,21 @@
+@@ -7,7 +7,41 @@
  use std::process::Command;
  
  pub fn source_dir() -> PathBuf {
+-    Path::new(env!("CARGO_MANIFEST_DIR")).join("openssl")
 +    // Under Bazel the crate's baked CARGO_MANIFEST_DIR points at a stale sandbox, so
 +    // honor RULES_RUST_OPENSSL_SRC_DIR (an absolute $(location) into the vendored
 +    // openssl/ source, expanded from ${pwd}). A dir is used directly; a marker file
@@ -19,10 +20,30 @@
 +            }
 +        }
 +    }
-     Path::new(env!("CARGO_MANIFEST_DIR")).join("openssl")
++    // No env!("CARGO_MANIFEST_DIR") fallback. `env!` is evaluated at COMPILE time, so it
++    // bakes the absolute path of the sandbox that built this crate straight into the
++    // rlib -- which rules_rs's process wrapper now rejects outright:
++    //
++    //     compiled Rust output libopenssl_src-*.rlib embeds the absolute working
++    //     directory /buildbuddy-execroot
++    //
++    // That check is right: a path from one machine's execroot frozen into a build
++    // artifact is exactly the non-determinism that wrecks cache hit rates, and the
++    // baked value was stale here anyway -- it is why RULES_RUST_OPENSSL_SRC_DIR exists.
++    //
++    // Reading CARGO_MANIFEST_DIR at RUNTIME instead would compile, but it is wrong: this
++    // function is called from openssl-sys' build script, so the runtime value is
++    // openssl-sys' manifest directory rather than this crate's. Failing loudly beats
++    // silently pointing at the wrong tree.
++    panic!(
++        "openssl-src: RULES_RUST_OPENSSL_SRC_DIR is unset. Under Bazel the vendored \
++         openssl/ source is supplied through it; see the openssl-sys annotation in \
++         //MODULE.bazel."
++    )
  }
  
-@@ -506,6 +521,24 @@
+ pub fn version() -> &'static str {
+@@ -506,6 +540,24 @@
  
                  if skip_next {
                      skip_next = false;

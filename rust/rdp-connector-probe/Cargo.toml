@@ -34,3 +34,14 @@ zeroize = { version = "1", default-features = false, features = ["alloc"] }
 
 [dev-dependencies]
 base64 = "0.22"
+
+# Crate build configuration for this hub, moved out of //MODULE.bazel. See the same
+# table in the root Cargo.toml for why it lives here.
+
+# aws-lc-sys is never compiled: both rustls consumers here -- the probe and sspi -- pin
+# ring/std/tls12 with default-features off, so aws-lc-rs is never enabled. rules_rs warns
+# anyway because it checks every lockfile package rather than what actually builds;
+# adopting its suggestion would add the @aws-lc module and a bindgen toolchain for zero
+# actions.
+[workspace.metadata.rules_rs.annotations."aws-lc-sys"]
+gen_build_script = "on"

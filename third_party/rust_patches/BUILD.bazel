@@ -4,6 +4,7 @@ package(default_visibility = ["//visibility:public"])
 
 exports_files([
     "openssl_src_runfiles_patch",
+    "pq_src_fortify_patch",
 ])
 
 # OpenSSL's Configure is a perl script, and openssl-sys' build script runs whatever

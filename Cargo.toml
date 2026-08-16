@@ -214,3 +214,43 @@ rpath = false
 lto = true
 debug-assertions = false
 panic = "abort"
+
+# Crate build configuration, read by rules_rs from Cargo's own metadata table.
+# Binary-only crates: //rust/protoc-plugins exists solely to pin these, and the plugins
+# have to be generated as runnable binaries rather than libraries.
+[workspace.metadata.rules_rs.annotations."protoc-gen-prost"]
+gen_binaries = ["protoc-gen-prost"]
+
+[workspace.metadata.rules_rs.annotations."protoc-gen-tonic"]
+gen_binaries = ["protoc-gen-tonic"]
+
+# openssl-src: expose its C source tree to openssl-sys' build script.
+#
+# additive_build_file points at a real BUILD snippet rather than an escaped string blob,
+# which is both more reviewable and what lets this annotation live here at all --
+# additive_build_file_content could not leave MODULE.bazel.
+[workspace.metadata.rules_rs.annotations."openssl-src"]
+additive_build_file = "//third_party/rust_crate_build:openssl_src_additive.BUILD"
+patch_args = ["-p1"]
+patches = ["//third_party/rust_patches:openssl_src_runfiles_patch"]
+
+[workspace.metadata.rules_rs.annotations."openssl-src".extra_aliased_targets]
+openssl_src_readme = "openssl_src_readme"
+openssl_src_runfiles = "openssl_src_runfiles"
+openssl_src_version_marker = "openssl_src_version_marker"
+
+
+# pq-src builds libpq from source and needs the same patch treatment as openssl-src.
+[workspace.metadata.rules_rs.annotations."pq-src"]
+patch_args = ["-p1"]
+patches = ["//third_party/rust_patches:pq_src_fortify_patch"]
+
+# zstd-sys / libz-sys: use the BCR C libraries rather than each crate's bundled copy.
+# `zstd` and `zlib` are crate.repo_alias names declared in //MODULE.bazel.
+[workspace.metadata.rules_rs.annotations."zstd-sys"]
+deps = ["zstd"]
+gen_build_script = "off"
+
+[workspace.metadata.rules_rs.annotations."libz-sys"]
+deps = ["zlib"]
+gen_build_script = "off"

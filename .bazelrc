@@ -44,6 +44,20 @@ build:linux --repo_env=OPENSSL_DIR=/usr
 build:linux --repo_env=OPENSSL_LIB_DIR=/usr/lib/x86_64-linux-gnu
 build:linux --repo_env=OPENSSL_INCLUDE_DIR=/usr/include
 # NO CC_/CXX_/AR_/CARGO_TARGET_*_LINKER HERE. Compiler config is all done via the Hermetic LLVM toolchain in MODULE.bazel.
+# Vendored crate sources. rules_rs asks crates.io for `<name>-<version>.crate` first
+# (the only basename Bazel's distdir can match on), and //third_party/crate_mirror holds
+# exactly those, so registry crates resolve from the checked-in copy. Refresh with
+# `bazel run //third_party/crate_mirror:sync`. Fallback, not enforcement: anything missing
+# is still downloaded, so a stale mirror degrades rather than breaks.
+#
+# This is a deliberate exception to the "no distdir under the source tree" rule above.
+# That rule is about mutable CACHE state -- it pairs distdir with repository_cache and
+# disk_cache and points at ~/.cache/bazel, which is the right home for a cache and an
+# impossible one for vendored sources. These archives are the vendored sources
+# themselves: reviewed, checksum-verified against Cargo.lock, and version controlled,
+# exactly as //third_party/crates was before them. Nothing here is written by a build.
+common --distdir=%workspace%/third_party/crate_mirror
+
 build --action_env=PKG_CONFIG_SYSROOT_DIR_aarch64_unknown_linux_gnu=/
 build --action_env=PKG_CONFIG_PATH_aarch64_unknown_linux_gnu=/usr/lib/postgresql/18/lib/pkgconfig:/usr/lib/aarch64-linux-gnu/pkgconfig:/usr/lib/pkgconfig:/usr/share/pkgconfig
 
