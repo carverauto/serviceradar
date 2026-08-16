@@ -66,9 +66,16 @@ receive general OpenBao access or reusable signing key material.
 
 Current hardening requirements:
 
-- Forgejo jobs use the OpenBao Transit-backed `hashivault://cosign-release` key
-  for signing. The matching public key is the one used by Kyverno admission in
-  the `demo` namespace.
+- Signing jobs use the OpenBao Transit-backed `hashivault://cosign-release` key
+  for OCI Cosign signatures and `transit/sign/plugin-upload-signing` for first-party
+  Wasm upload signatures. The Cosign public key is the one used by Kyverno
+  admission in the `demo` namespace. The upload-signature public key is
+  `serviceradar-first-party-v2` in `PLUGIN_TRUSTED_UPLOAD_SIGNING_KEYS`.
+- OpenBao is cluster-internal (no public route). GitHub-hosted runners cannot
+  reach it. Release/signing workflows must run on the in-cluster ARC scale set
+  `serviceradar-signing`, which uses the `github-signing-runner` service account
+  and Kubernetes auth. Do not put the upload-signing private key in GitHub
+  secrets once Transit is the publisher.
 - CI workflows must authenticate to OpenBao immediately before signing. The
   token must stay in the current shell step and must not be written to
   `GITHUB_ENV`.

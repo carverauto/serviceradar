@@ -7,7 +7,7 @@ on:
 
 jobs:
   armis-dire-e2e-scale:
-    runs-on: ubuntu24
+    runs-on: arc-runner-set
     permissions:
       contents: read
     env:

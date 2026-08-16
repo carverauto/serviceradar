@@ -116,6 +116,44 @@ func TestResolveStagedAddonUnitEscapeGuard(t *testing.T) {
 	}
 }
 
+func TestScalibrSystemdUnitRelabelsStagedBinary(t *testing.T) {
+	unitBytes, err := os.ReadFile(filepath.Join(
+		"..", "..", "..", "addons", "scalibr-endpoint-inventory",
+		"serviceradar-scalibr-endpoint-inventory.service",
+	))
+	if err != nil {
+		t.Fatalf("read scalibr unit: %v", err)
+	}
+	unit := string(unitBytes)
+	if !strings.Contains(unit, "ExecStartPre=+/bin/sh -c '/usr/bin/chcon -t bin_t ") {
+		t.Fatal("scalibr unit must relabel the staged binary before exec (SELinux var_lib_t -> 203/EXEC)")
+	}
+	if !strings.Contains(unit, "/var/lib/serviceradar/agent/addons/scalibr-endpoint-inventory/current/serviceradar-scalibr-endpoint-inventory") {
+		t.Fatal("scalibr unit ExecStartPre must target the staged current/ binary")
+	}
+}
+
+func TestStagedAddonExecutablesSelectsBinariesOnly(t *testing.T) {
+	tmp := t.TempDir()
+	addonsRoot := filepath.Join(tmp, addonsDirName)
+	stageTestAddonUnit(t, addonsRoot, "serviceradar-np.service", "[Service]\nExecStart=/bin/true\n")
+	versionDir := filepath.Join(addonsRoot, "np", addonVersionsDir, "1.0.0")
+	if err := os.WriteFile(filepath.Join(versionDir, "serviceradar-np"), []byte("bin"), 0o755); err != nil {
+		t.Fatalf("write binary: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(versionDir, "config.json"), []byte(`{}`), 0o644); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(versionDir, "probe.o"), []byte("obj"), 0o755); err != nil {
+		t.Fatalf("write object: %v", err)
+	}
+
+	got := stagedAddonExecutables(tmp, "np")
+	if len(got) != 1 || filepath.Base(got[0]) != "serviceradar-np" {
+		t.Fatalf("stagedAddonExecutables = %v, want [serviceradar-np]", got)
+	}
+}
+
 func TestInstallAddonSystemdUnitsValidation(t *testing.T) {
 	// No units -> ErrAddonSystemdNoUnits (before any systemctl/exec).
 	if err := InstallAddonSystemdUnits(context.Background(), AddonSystemdInstallRequest{AddonID: "np"}); !errors.Is(err, ErrAddonSystemdNoUnits) {

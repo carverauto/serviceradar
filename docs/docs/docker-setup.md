@@ -161,6 +161,9 @@ docker compose up -d
 After bootstrap, use **Settings -> Networks -> MTR** to change the persisted
 retention policy. This updates both `mtr_traces` and `mtr_hops` immediately.
 
+Compose defaults automated MTR baseline **on**. Policy setup, preferred-agent
+targeting, and dashboard **No MTR** are in [MTR Path Monitoring](./mtr.md).
+
 ## Optional NetFlow and IP Enrichment Jobs
 
 Docker Compose disables the heavyweight NetFlow/IP enrichment maintenance

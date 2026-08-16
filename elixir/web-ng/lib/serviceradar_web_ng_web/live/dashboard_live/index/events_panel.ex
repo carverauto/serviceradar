@@ -7,98 +7,121 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Index.EventsPanel do
   alias ServiceRadarWebNGWeb.DashboardLive.Index.Common
 
   attr(:dashboard, :map, required: true)
+  attr(:embedded, :boolean, default: false)
 
   def render(%{dashboard: dashboard} = assigns) do
-    assigns = Map.merge(assigns, dashboard)
+    assigns =
+      assigns
+      |> Map.merge(dashboard)
+      |> Map.put_new(:security_trend, [])
+      |> Map.put_new(:security_trend_max, 0)
+      |> Map.put_new(:time_window_label, "")
 
     ~H"""
-    <Common.panel title="Events Over Time" class="lg:col-span-5">
+    <Common.panel :if={!@embedded} title="Events Over Time" class="lg:col-span-5">
       <:actions>
         <span class="sr-ops-select">{@time_window_label}</span>
       </:actions>
-      <div
-        :if={@security_trend == []}
-        class="sr-ops-empty-chart"
-        data-testid="security-events-empty"
-      >
-        <.icon name="hero-chart-bar" class="size-8 text-slate-500" />
-        <p>No event trend data</p>
-        <span>OCSF events will populate this chart when recent records exist.</span>
-      </div>
-      <.link
-        :if={@security_trend != []}
-        href={~p"/observability/events"}
-        class="sr-ops-security-chart sr-ops-clickable-panel"
-        data-testid="security-events-chart"
-        aria-label="Open event details"
-      >
-        <svg
-          class="sr-ops-events-area-chart"
-          viewBox="0 0 640 220"
-          preserveAspectRatio="none"
-          role="img"
-          aria-label="Events over time"
-        >
-          <g class="sr-ops-events-grid">
-            <line
-              :for={label <- event_axis_labels(@security_trend)}
-              class="sr-ops-events-x-grid"
-              x1={label.x}
-              x2={label.x}
-              y1="26"
-              y2="180"
-            />
-            <line
-              :for={tick <- event_y_axis_ticks(@security_trend_max)}
-              x1="36"
-              x2="616"
-              y1={tick.y}
-              y2={tick.y}
-            />
-            <line class="sr-ops-events-baseline" x1="36" x2="616" y1="180" y2="180" />
-          </g>
-          <path
-            class="sr-ops-events-area-low"
-            d={event_area_path(@security_trend, @security_trend_max, :low)}
-          />
-          <path
-            class="sr-ops-events-area-medium"
-            d={event_area_path(@security_trend, @security_trend_max, :medium)}
-          />
-          <path
-            class="sr-ops-events-area-high"
-            d={event_area_path(@security_trend, @security_trend_max, :high)}
-          />
-          <path
-            class="sr-ops-events-area-critical"
-            d={event_area_path(@security_trend, @security_trend_max, :critical)}
-          />
-          <polyline
-            class="sr-ops-events-line"
-            points={event_line_points(@security_trend, @security_trend_max)}
-          />
-          <g class="sr-ops-events-axis">
-            <text
-              :for={tick <- event_y_axis_ticks(@security_trend_max)}
-              class="sr-ops-events-y-label"
-              x="30"
-              y={tick.y + 4}
-            >
-              {tick.text}
-            </text>
-            <text :for={label <- event_axis_labels(@security_trend)} x={label.x} y="204">
-              {label.text}
-            </text>
-          </g>
-        </svg>
-        <div class="sr-ops-events-legend">
-          <span><i class="sr-ops-events-dot critical"></i>Critical</span>
-          <span><i class="sr-ops-events-dot high"></i>High</span>
-          <span><i class="sr-ops-events-dot medium"></i>Medium</span>
-          <span><i class="sr-ops-events-dot low"></i>Low</span>
-        </div>
-      </.link>
+      <.events_body security_trend={@security_trend} security_trend_max={@security_trend_max} />
     </Common.panel>
+
+    <div :if={@embedded}>
+      <div class="sr-ops-observability-pane-header">
+        <h3>Events Over Time</h3>
+        <span class="sr-ops-select">{@time_window_label}</span>
+      </div>
+      <.events_body security_trend={@security_trend} security_trend_max={@security_trend_max} />
+    </div>
+    """
+  end
+
+  attr(:security_trend, :list, required: true)
+  attr(:security_trend_max, :any, required: true)
+
+  defp events_body(assigns) do
+    ~H"""
+    <div
+      :if={@security_trend == []}
+      class="sr-ops-empty-chart"
+      data-testid="security-events-empty"
+    >
+      <.icon name="hero-chart-bar" class="size-8 text-slate-500" />
+      <p>No event trend data</p>
+      <span>OCSF events will populate this chart when recent records exist.</span>
+    </div>
+    <.link
+      :if={@security_trend != []}
+      href={~p"/observability/events"}
+      class="sr-ops-security-chart sr-ops-clickable-panel"
+      data-testid="security-events-chart"
+      aria-label="Open event details"
+    >
+      <svg
+        class="sr-ops-events-area-chart"
+        viewBox="0 0 640 220"
+        preserveAspectRatio="none"
+        role="img"
+        aria-label="Events over time"
+      >
+        <g class="sr-ops-events-grid">
+          <line
+            :for={label <- event_axis_labels(@security_trend)}
+            class="sr-ops-events-x-grid"
+            x1={label.x}
+            x2={label.x}
+            y1="26"
+            y2="180"
+          />
+          <line
+            :for={tick <- event_y_axis_ticks(@security_trend_max)}
+            x1="36"
+            x2="616"
+            y1={tick.y}
+            y2={tick.y}
+          />
+          <line class="sr-ops-events-baseline" x1="36" x2="616" y1="180" y2="180" />
+        </g>
+        <path
+          class="sr-ops-events-area-low"
+          d={event_area_path(@security_trend, @security_trend_max, :low)}
+        />
+        <path
+          class="sr-ops-events-area-medium"
+          d={event_area_path(@security_trend, @security_trend_max, :medium)}
+        />
+        <path
+          class="sr-ops-events-area-high"
+          d={event_area_path(@security_trend, @security_trend_max, :high)}
+        />
+        <path
+          class="sr-ops-events-area-critical"
+          d={event_area_path(@security_trend, @security_trend_max, :critical)}
+        />
+        <polyline
+          class="sr-ops-events-line"
+          points={event_line_points(@security_trend, @security_trend_max)}
+        />
+        <g class="sr-ops-events-axis">
+          <text
+            :for={tick <- event_y_axis_ticks(@security_trend_max)}
+            class="sr-ops-events-y-label"
+            x="30"
+            y={tick.y + 4}
+          >
+            {tick.text}
+          </text>
+          <text :for={label <- event_axis_labels(@security_trend)} x={label.x} y="204">
+            {label.text}
+          </text>
+        </g>
+      </svg>
+      <div class="sr-ops-events-legend">
+        <span><i class="sr-ops-events-dot critical"></i>Critical</span>
+        <span><i class="sr-ops-events-dot high"></i>High</span>
+        <span><i class="sr-ops-events-dot medium"></i>Medium</span>
+        <span><i class="sr-ops-events-dot low"></i>Low</span>
+      </div>
+    </.link>
     """
   end
 

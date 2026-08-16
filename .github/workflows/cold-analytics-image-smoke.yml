@@ -21,7 +21,7 @@
 
 name: Cold Analytics Image Smoke
 permissions:
-  contents: read
+  contents: write
   pull-requests: read
 
 on:
@@ -31,14 +31,14 @@ on:
       - 'docker/images/**'
       - 'MODULE.bazel'
       - 'scripts/ci/cold-analytics-image-smoke.sh'
-      - '.forgejo/workflows/cold-analytics-image-smoke.yml'
+      - '.github/workflows/cold-analytics-image-smoke.yml'
   pull_request:
     branches: [ staging ]
     paths:
       - 'docker/images/**'
       - 'MODULE.bazel'
       - 'scripts/ci/cold-analytics-image-smoke.sh'
-      - '.forgejo/workflows/cold-analytics-image-smoke.yml'
+      - '.github/workflows/cold-analytics-image-smoke.yml'
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && github.event.pull_request.head.ref || github.ref }}
@@ -47,7 +47,7 @@ concurrency:
 jobs:
   smoke:
     name: Analytics image boot smoke
-    runs-on: ubuntu24
+    runs-on: arc-runner-set
 
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd

@@ -18,9 +18,10 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.Staging do
   require Logger
 
   @default_root "/var/lib/serviceradar/advisory-feeds"
-  # nist-nvd2 may run for an hour; two hours still catches a dead worker
-  # before the next retry fills the volume (local-path has no quota).
-  @orphan_max_age_seconds 2 * 60 * 60
+  # Keep a killed nist-nvd2 extract long enough for a later core to resume
+  # the same shards instead of re-downloading. Daily cadence + a couple of
+  # failed rolls still fits; older dirs are reaped on the next scheduler tick.
+  @orphan_max_age_seconds 36 * 60 * 60
 
   @doc "Staging root directory (env-overridable)."
   @spec root() :: Path.t()
@@ -44,6 +45,45 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.Staging do
       true
     else
       _ -> false
+    end
+  end
+
+  @doc """
+  Newest extract dir for `feed_key` that still has `*.json.gz` shards.
+
+  Used to resume a nist-nvd2 run after the worker pod dies mid-load.
+  """
+  @spec latest_extract(String.t(), Path.t()) :: map() | nil
+  def latest_extract(feed_key, dir \\ root()) do
+    feed_dir = Path.join(dir, feed_key)
+
+    case File.ls(feed_dir) do
+      {:ok, run_ids} ->
+        run_ids
+        |> Enum.map(&extract_info(Path.join(feed_dir, &1)))
+        |> Enum.reject(&is_nil/1)
+        |> Enum.max_by(& &1.mtime, fn -> nil end)
+
+      _ ->
+        nil
+    end
+  end
+
+  defp extract_info(run_dir) do
+    extracted_dir = Path.join(run_dir, "extracted")
+
+    with true <- File.dir?(extracted_dir),
+         {:ok, names} <- File.ls(extracted_dir),
+         true <- Enum.any?(names, &String.ends_with?(&1, ".json.gz")),
+         {:ok, %File.Stat{mtime: mtime}} <- File.stat(run_dir, time: :posix) do
+      %{
+        run_dir: run_dir,
+        extracted_dir: extracted_dir,
+        download_path: Path.join(run_dir, "download.zip"),
+        mtime: mtime
+      }
+    else
+      _ -> nil
     end
   end
 

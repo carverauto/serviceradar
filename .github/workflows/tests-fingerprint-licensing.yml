@@ -9,7 +9,7 @@ on:
       - 'third_party/netprobe_corpora/**'
       - 'scripts/lint-recog-additions.sh'
       - 'scripts/check-netprobe-fingerprint-licenses.sh'
-      - '.forgejo/workflows/tests-fingerprint-licensing.yml'
+      - '.github/workflows/tests-fingerprint-licensing.yml'
   push:
     branches: [staging]
     paths:
@@ -18,7 +18,7 @@ on:
       - 'third_party/netprobe_corpora/**'
       - 'scripts/lint-recog-additions.sh'
       - 'scripts/check-netprobe-fingerprint-licenses.sh'
-      - '.forgejo/workflows/tests-fingerprint-licensing.yml'
+      - '.github/workflows/tests-fingerprint-licensing.yml'
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && github.event.pull_request.head.ref || github.ref }}
@@ -29,7 +29,7 @@ permissions:
 
 jobs:
   netprobe-fingerprint-licenses:
-    runs-on: ubuntu24
+    runs-on: arc-runner-set
     steps:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd

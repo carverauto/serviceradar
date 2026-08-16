@@ -295,7 +295,8 @@ config :serviceradar_web_ng, :plugin_verification,
   # verification key, not a secret; kept in step by
   # //:first_party_plugin_cosign_key_consistency_test.
   trusted_upload_signing_keys: %{
-    "serviceradar-first-party-v1" => "L+H5fG0eEraBsWAd2aKMzK7I+AMhbnSxlOKny5/+dLo="
+    "serviceradar-first-party-v1" => "L+H5fG0eEraBsWAd2aKMzK7I+AMhbnSxlOKny5/+dLo=",
+    "serviceradar-first-party-v2" => "2KMsaqvof357MV3RQl4/0DNXfF6+eIMQ+qjDJfL/N8I="
   }
 
 config :serviceradar_web_ng, :saml_assertion_max_validity_seconds, 300

@@ -63,7 +63,8 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.VulnerableAssetsPanelTest do
       )
 
     assert html =~ "No scored assets yet"
-    assert html =~ "endpoint inventory matching"
+    assert html =~ "endpoint inventory"
+    assert html =~ "ScaLibr"
     assert html =~ "View All Assets"
   end
 end

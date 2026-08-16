@@ -23,7 +23,7 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.Parsers.Nvd do
   Returns `:skip` when the record has no usable CVE id.
   """
   @spec parse_record(map(), keyword()) :: {:ok, map()} | :skip
-  def parse_record(%{"cve" => cve} = record, opts) when is_map(cve) do
+  def parse_record(%{"cve" => cve}, opts) when is_map(cve) do
     feed_key = Keyword.get(opts, :feed_key, "nist-nvd2")
     provider = Keyword.get(opts, :provider, @provider)
 
@@ -48,7 +48,9 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.Parsers.Nvd do
           exploit_available: false,
           references: references(cve),
           metadata: %{"cwes" => Cwes.from_nvd_cve(cve)},
-          raw: record
+          # Do not persist the full NVD object. Writing ~360k fat jsonb values
+          # through a GIN index is what made a nist-nvd2 run take an hour.
+          raw: slim_raw(cve_id, cve)
         }
 
         {:ok, %{advisory: advisory, coordinates: coordinates}}
@@ -110,6 +112,10 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.Parsers.Nvd do
   end
 
   defp cpe_match_coordinate(_), do: nil
+
+  defp slim_raw(cve_id, cve) do
+    %{"cve" => %{"id" => cve_id, "lastModified" => cve["lastModified"]}}
+  end
 
   defp english_description(cve) do
     cve

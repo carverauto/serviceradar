@@ -16,19 +16,41 @@ if [[ ! -f "${file_path}" ]]; then
   exit 1
 fi
 
-forgejo_url="${FORGEJO_URL:-https://code.carverauto.dev}"
-forgejo_repo="${FORGEJO_REPOSITORY:-carverauto/serviceradar}"
-forgejo_token="${FORGEJO_TOKEN:-${GITEA_TOKEN:-${GITHUB_TOKEN:-${GH_TOKEN:-}}}}"
-
-if [[ -z "${forgejo_token}" ]]; then
-  echo "FORGEJO_TOKEN (or GITEA_TOKEN/GITHUB_TOKEN/GH_TOKEN) is required" >&2
+token="${FORGEJO_TOKEN:-${GITEA_TOKEN:-${GITHUB_TOKEN:-${GH_TOKEN:-}}}}"
+if [[ -z "${token}" ]]; then
+  echo "GITHUB_TOKEN (or FORGEJO_TOKEN/GITEA_TOKEN/GH_TOKEN) is required" >&2
   exit 1
 fi
 
-auth_header="Authorization: token ${forgejo_token}"
-accept_header="Accept: application/json"
-release_url="${forgejo_url}/api/v1/repos/${forgejo_repo}/releases/tags/${tag}"
-releases_url="${forgejo_url}/api/v1/repos/${forgejo_repo}/releases?draft=true&limit=100"
+# GitHub Actions (and local gh) use the GitHub Releases API. A Forgejo origin
+# is used only when FORGEJO_URL is an explicit non-GitHub host.
+if [[ -n "${GITHUB_API_URL:-}" || -z "${FORGEJO_URL:-}" || "${FORGEJO_URL}" == *github.com* ]]; then
+  api_base="${GITHUB_API_URL:-https://api.github.com}"
+  repo="${GITHUB_REPOSITORY:-carverauto/serviceradar}"
+  auth_header="Authorization: Bearer ${token}"
+  accept_header="Accept: application/vnd.github+json"
+  release_url="${api_base}/repos/${repo}/releases/tags/${tag}"
+  releases_url="${api_base}/repos/${repo}/releases?per_page=100"
+  release_by_id() { echo "${api_base}/repos/${repo}/releases/${1}"; }
+  asset_delete() { echo "${api_base}/repos/${repo}/releases/assets/${1}"; }
+  asset_upload() {
+    echo "https://uploads.github.com/repos/${repo}/releases/${1}/assets?name=${asset_name}"
+  }
+  github_upload=true
+else
+  forgejo_url="${FORGEJO_URL}"
+  repo="${FORGEJO_REPOSITORY:-carverauto/serviceradar}"
+  auth_header="Authorization: token ${token}"
+  accept_header="Accept: application/json"
+  release_url="${forgejo_url}/api/v1/repos/${repo}/releases/tags/${tag}"
+  releases_url="${forgejo_url}/api/v1/repos/${repo}/releases?draft=true&limit=100"
+  release_by_id() { echo "${forgejo_url}/api/v1/repos/${repo}/releases/${1}"; }
+  asset_delete() { echo "${forgejo_url}/api/v1/repos/${repo}/releases/${release_id}/assets/${1}"; }
+  asset_upload() {
+    echo "${forgejo_url}/api/v1/repos/${repo}/releases/${1}/assets?name=${asset_name}"
+  }
+  github_upload=false
+fi
 
 release_json="$(curl -fsSL -H "${accept_header}" -H "${auth_header}" "${release_url}" 2>/dev/null || true)"
 release_id="$(jq -r '.id // empty' <<<"${release_json}" 2>/dev/null || true)"
@@ -42,14 +64,10 @@ if [[ ! "${release_id}" =~ ^[0-9]+$ ]]; then
   exit 1
 fi
 
-# List responses are not guaranteed to include the complete asset collection.
-release_json="$(curl -fsSL \
-  -H "${accept_header}" \
-  -H "${auth_header}" \
-  "${forgejo_url}/api/v1/repos/${forgejo_repo}/releases/${release_id}")"
+release_json="$(curl -fsSL -H "${accept_header}" -H "${auth_header}" "$(release_by_id "${release_id}")")"
 resolved_release_id="$(jq -r '.id // empty' <<<"${release_json}")"
 if [[ "${resolved_release_id}" != "${release_id}" ]]; then
-  echo "Forgejo returned an unexpected release while resolving tag ${tag}" >&2
+  echo "Release API returned an unexpected release while resolving tag ${tag}" >&2
   exit 1
 fi
 
@@ -60,15 +78,25 @@ if [[ -n "${existing_asset_id}" ]]; then
   curl -fsSL -X DELETE \
     -H "${accept_header}" \
     -H "${auth_header}" \
-    "${forgejo_url}/api/v1/repos/${forgejo_repo}/releases/${release_id}/assets/${existing_asset_id}" \
+    "$(asset_delete "${existing_asset_id}")" \
     >/dev/null
 fi
 
-curl -fsSL \
-  -H "${accept_header}" \
-  -H "${auth_header}" \
-  -F "attachment=@${file_path}" \
-  "${forgejo_url}/api/v1/repos/${forgejo_repo}/releases/${release_id}/assets?name=${asset_name}" \
-  >/dev/null
+if [[ "${github_upload}" == "true" ]]; then
+  curl -fsSL \
+    -H "${accept_header}" \
+    -H "${auth_header}" \
+    -H "Content-Type: application/octet-stream" \
+    --data-binary "@${file_path}" \
+    "$(asset_upload "${release_id}")" \
+    >/dev/null
+else
+  curl -fsSL \
+    -H "${accept_header}" \
+    -H "${auth_header}" \
+    -F "attachment=@${file_path}" \
+    "$(asset_upload "${release_id}")" \
+    >/dev/null
+fi
 
 echo "uploaded ${asset_name} to release ${tag}"

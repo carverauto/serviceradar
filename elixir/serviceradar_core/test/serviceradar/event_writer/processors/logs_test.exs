@@ -142,8 +142,10 @@ defmodule ServiceRadar.EventWriter.Processors.LogsTest do
         })
 
       assert result5.body == "from short_message"
+    end
 
-      result6 =
+    test "does not reconstruct SNMP trap text outside the logs.snmp Zen path" do
+      result =
         Logs.parse_message(%{
           data:
             Jason.encode!(%{
@@ -158,8 +160,83 @@ defmodule ServiceRadar.EventWriter.Processors.LogsTest do
           metadata: %{}
         })
 
-      assert result6.body ==
-               "I 03/08/26 20:28:41 04911 ntp: The NTP Server 162.159.200.1 is unreachable."
+      assert result.body == nil
+    end
+
+    test "does not use SNMPv2 sysUpTime TimeTicks as the trap message" do
+      result =
+        Logs.parse_message(%{
+          data:
+            Jason.encode!(%{
+              "source" => "192.168.1.10:4161",
+              "source_ip" => "192.168.1.10",
+              "version" => "V2C",
+              "community" => "public",
+              "varbinds" => [
+                %{"oid" => "1.3.6.1.2.1.1.3.0", "value" => "TIMETICKS: 38611538"},
+                %{
+                  "oid" => "1.3.6.1.6.3.1.1.4.1.0",
+                  "value" => "OBJECT IDENTIFIER: 1.3.6.1.4.1.9.9.41.2.0.1"
+                },
+                %{
+                  "oid" => "1.3.6.1.4.1.9.9.41.1.2.3.1.5.1",
+                  "value" =>
+                    "OCTET STRING: I 03/08/26 20:28:41 04911 ntp: The NTP Server 162.159.200.1 is unreachable."
+                }
+              ]
+            }),
+          metadata: %{subject: "logs.snmp"}
+        })
+
+      assert result.body ==
+               "SNMP trap 1.3.6.1.4.1.9.9.41.2.0.1 from 192.168.1.10: I 03/08/26 20:28:41 04911 ntp: The NTP Server 162.159.200.1 is unreachable."
+
+      assert result.source_ip == "192.168.1.10"
+      assert result.attributes["snmp"]["trap_oid"] == "1.3.6.1.4.1.9.9.41.2.0.1"
+      assert result.attributes["snmp"]["community"] == "public"
+    end
+
+    test "snmp_severity rebuilds a trap body when the producer copied TimeTicks" do
+      result =
+        Logs.parse_message(%{
+          data:
+            Jason.encode!(%{
+              "source" => "10.0.0.8:162",
+              "source_ip" => "10.0.0.8",
+              "body" => "38611538",
+              "varbinds" => [
+                %{"oid" => "1.3.6.1.2.1.1.3.0", "value" => "TIMETICKS: 38611538"},
+                %{
+                  "oid" => "1.3.6.1.6.3.1.1.4.1.0",
+                  "value" => "OBJECT IDENTIFIER: 1.3.6.1.6.3.1.1.5.3"
+                }
+              ]
+            }),
+          metadata: %{subject: "logs.snmp"}
+        })
+
+      assert result.body == "SNMP trap 1.3.6.1.6.3.1.1.5.3 from 10.0.0.8"
+    end
+
+    test "keeps the trap sender IP when Zen overwrites source with snmp" do
+      result =
+        Logs.parse_message(%{
+          data:
+            Jason.encode!(%{
+              "source" => "192.168.2.55:32768",
+              "varbinds" => [
+                %{"oid" => "1.3.6.1.2.1.1.3.0", "value" => "TIMETICKS: 12"},
+                %{
+                  "oid" => "1.3.6.1.6.3.1.1.4.1.0",
+                  "value" => "OBJECT IDENTIFIER: 1.3.6.1.6.3.1.1.5.1"
+                }
+              ]
+            }),
+          metadata: %{subject: "logs.snmp"}
+        })
+
+      assert result.source_ip == "192.168.2.55"
+      assert result.body == "SNMP trap 1.3.6.1.6.3.1.1.5.1 from 192.168.2.55"
     end
 
     test "uses syslog host as service fallback" do

@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       audience:
-        description: "OIDC audience to request from Forgejo Actions"
+        description: "OIDC audience to request from GitHub Actions"
         required: false
         type: string
         default: sigstore
@@ -14,13 +14,12 @@ concurrency:
   cancel-in-progress: true
 
 permissions:
-  contents: read
+  contents: write
   id-token: write
 
 jobs:
   inspect:
-    runs-on: ubuntu24
-    enable-openid-connect: true
+    runs-on: arc-runner-set
     steps:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd

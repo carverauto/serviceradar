@@ -23,14 +23,14 @@ on:
     branches: [ staging ]
     paths:
       - 'elixir/web-ng/assets/**'
-      - '.forgejo/workflows/web-ng-lint.yml'
+      - '.github/workflows/web-ng-lint.yml'
       - 'scripts/ci/install-sfw.sh'
       - '.tool-versions'
   pull_request:
     branches: [ staging ]
     paths:
       - 'elixir/web-ng/assets/**'
-      - '.forgejo/workflows/web-ng-lint.yml'
+      - '.github/workflows/web-ng-lint.yml'
       - 'scripts/ci/install-sfw.sh'
       - '.tool-versions'
 
@@ -41,7 +41,7 @@ concurrency:
 jobs:
   assets_js:
     name: Assets JS (Bun)
-    runs-on: ubuntu24
+    runs-on: arc-runner-set
     defaults:
       run:
         working-directory: elixir/web-ng/assets

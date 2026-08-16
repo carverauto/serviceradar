@@ -5,23 +5,19 @@ name: Rust Add-on Interop Test
 # prebuilt Rust reference add-on is supplied. This lane builds
 # serviceradar-rust-sample-addon with cargo and points the test at it via
 # SERVICERADAR_RUST_ADDON_BIN so the polyglot proof actually runs in CI.
+#
+# MANUAL-ONLY during the Forgejo -> GitHub migration.
+#
+# The interop coverage is moving into the Bazel graph: //go/pkg/agent/addon:addon_test
+# gains the Rust reference add-on as a declared data dep, so the test resolves the binary
+# from runfiles instead of SERVICERADAR_RUST_ADDON_BIN pointing at a cargo target/ dir.
+# While that wiring lands, an automatic push/pull_request run here would fail on the
+# legacy cargo path for reasons that say nothing about the change under review.
+#
+# Retire this file (not just its triggers) once `bazel test //go/pkg/agent/addon:addon_test`
+# is the single source of truth for the Go<->Rust interop proof.
 on:
-  push:
-    branches: [staging]
-    paths:
-      - 'rust/addon-sdk/**'
-      - 'go/pkg/agent/addon/**'
-      - 'proto/agent/addon/v1/**'
-      - 'Cargo.lock'
-      - '.forgejo/workflows/rust-tests-addon-interop.yml'
-  pull_request:
-    branches: [staging]
-    paths:
-      - 'rust/addon-sdk/**'
-      - 'go/pkg/agent/addon/**'
-      - 'proto/agent/addon/v1/**'
-      - 'Cargo.lock'
-      - '.forgejo/workflows/rust-tests-addon-interop.yml'
+  workflow_dispatch:
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && github.event.pull_request.head.ref || github.ref }}

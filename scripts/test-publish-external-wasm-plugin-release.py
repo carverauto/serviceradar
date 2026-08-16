@@ -7,10 +7,11 @@ import subprocess
 import tempfile
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from urllib.parse import urlparse
+from urllib.parse import parse_qs, urlparse
 
 
 ASSET_NAME = "serviceradar-wasm-plugin-index.json"
+REPO = "carverauto/serviceradar-plugin-example-inventory"
 
 
 class State:
@@ -52,17 +53,17 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_GET(self):
         parsed = urlparse(self.path)
-        if parsed.path.endswith("/releases/tags/v0.1.0"):
+        if parsed.path.endswith(f"/repos/{REPO}/releases/tags/v0.1.0"):
             if not self.state.exists or self.state.draft:
                 self.send_json(404, {"message": "not found"})
                 return
             self.send_json(200, release_document(self.server, self.state))
             return
-        if parsed.path.endswith("/releases") and parsed.query == "draft=true&limit=100":
+        if parsed.path.endswith(f"/repos/{REPO}/releases") and parsed.query == "per_page=100":
             releases = [release_document(self.server, self.state)] if self.state.exists and self.state.draft else []
             self.send_json(200, releases)
             return
-        if parsed.path.endswith("/releases/7"):
+        if parsed.path.endswith(f"/repos/{REPO}/releases/7"):
             self.send_json(200, release_document(self.server, self.state))
             return
         if parsed.path == f"/download/{ASSET_NAME}" and self.state.asset is not None:
@@ -76,20 +77,19 @@ class Handler(BaseHTTPRequestHandler):
     def do_POST(self):
         parsed = urlparse(self.path)
         body = self.rfile.read(int(self.headers.get("Content-Length", "0")))
-        if parsed.path.endswith("/releases"):
+        if parsed.path.endswith(f"/repos/{REPO}/releases"):
             payload = json.loads(body)
             self.state.exists = True
             self.state.draft = payload["draft"]
             self.send_json(201, release_document(self.server, self.state))
             return
-        if parsed.path.endswith("/releases/7/assets"):
-            boundary = self.headers["Content-Type"].split("boundary=", 1)[1].strip().strip('"')
-            for part in body.split(("--" + boundary).encode()):
-                if b'name="attachment"' in part and b"\r\n\r\n" in part:
-                    self.state.asset = part.split(b"\r\n\r\n", 1)[1].removesuffix(b"\r\n")
-                    self.send_json(201, {"id": 11, "name": ASSET_NAME})
-                    return
-            self.send_json(400, {"message": "missing attachment"})
+        query = parse_qs(parsed.query)
+        if (
+            parsed.path.endswith(f"/repos/{REPO}/releases/7/assets")
+            and query.get("name", [""])[0] == ASSET_NAME
+        ):
+            self.state.asset = body
+            self.send_json(201, {"id": 11, "name": ASSET_NAME})
             return
         self.send_json(404, {"message": "not found"})
 
@@ -106,16 +106,18 @@ class Handler(BaseHTTPRequestHandler):
 
 def run(script, index, server, expect_success):
     host, port = server.server_address
+    origin = f"http://{host}:{port}"
     env = os.environ.copy()
     env.update(
         {
-            "FORGEJO_URL": f"http://{host}:{port}",
-            "EXTERNAL_PLUGIN_FORGEJO_PUBLISH_TOKEN": "test-token",
+            "GITHUB_API_URL": origin,
+            "GITHUB_UPLOADS_URL": origin,
+            "EXTERNAL_PLUGIN_GITHUB_PUBLISH_TOKEN": "test-token",
             "EXTERNAL_PLUGIN_TARGET_COMMITISH": "a" * 40,
         }
     )
     result = subprocess.run(
-        [str(script), "carverauto/serviceradar-plugin-example-inventory", "v0.1.0", str(index)],
+        [str(script), REPO, "v0.1.0", str(index)],
         env=env,
         capture_output=True,
         text=True,
@@ -150,7 +152,7 @@ def main():
         server.server_close()
         thread.join(timeout=5)
 
-    print("external Wasm Forgejo release contract verified")
+    print("external Wasm GitHub release contract verified")
 
 
 if __name__ == "__main__":

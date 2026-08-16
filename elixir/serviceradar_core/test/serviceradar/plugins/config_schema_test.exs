@@ -3,6 +3,30 @@ defmodule ServiceRadar.Plugins.ConfigSchemaTest do
 
   alias ServiceRadar.Plugins.ConfigSchema
 
+  test "assignment validation does not require secretRef fields" do
+    schema = %{
+      "type" => "object",
+      "required" => ["api_key_secret_ref", "base_url"],
+      "properties" => %{
+        "api_key_secret_ref" => %{
+          "type" => "string",
+          "secretRef" => true,
+          "description" => "AlienVault OTX API key"
+        },
+        "base_url" => %{"type" => "string"}
+      }
+    }
+
+    assert :ok =
+             ConfigSchema.validate_params(schema, %{
+               "base_url" => "https://otx.alienvault.com"
+             })
+
+    assert {:error, errors} = ConfigSchema.validate_params(schema, %{})
+    assert Enum.any?(errors, &String.contains?(&1, "base_url"))
+    refute Enum.any?(errors, &String.contains?(&1, "api_key_secret_ref"))
+  end
+
   test "assignment validation ignores runtime-injected hidden required fields" do
     schema = %{
       "type" => "object",

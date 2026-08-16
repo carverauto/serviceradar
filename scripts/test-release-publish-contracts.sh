@@ -9,11 +9,11 @@ fi
 
 inventory="${repo_root}/docker/images/image_inventory.bzl"
 verify_script="${repo_root}/scripts/verify-oci-publish.sh"
-release_workflow="${repo_root}/.forgejo/workflows/release.yml"
-native_addons_workflow="${repo_root}/.forgejo/workflows/native-addons.yml"
-wasm_plugins_workflow="${repo_root}/.forgejo/workflows/wasm-plugins.yml"
-source_security_workflow="${repo_root}/.forgejo/workflows/source-security.yml"
-image_security_workflow="${repo_root}/.forgejo/workflows/image-security.yml"
+release_workflow="${repo_root}/.github/workflows/release.yml"
+native_addons_workflow="${repo_root}/.github/workflows/native-addons.yml"
+wasm_plugins_workflow="${repo_root}/.github/workflows/wasm-plugins.yml"
+source_security_workflow="${repo_root}/.github/workflows/source-security.yml"
+image_security_workflow="${repo_root}/.github/workflows/image-security.yml"
 upload_release_asset="${repo_root}/scripts/upload-forgejo-release-asset.sh"
 cut_release="${repo_root}/scripts/cut-release.sh"
 validate_release_tag="${repo_root}/scripts/validate-release-tag.sh"
@@ -61,8 +61,8 @@ PY
 diff -u "${tmp_dir}/expected-specs" "${tmp_dir}/actual-specs"
 
 spec_count="$(wc -l < "${tmp_dir}/actual-specs" | tr -d '[:space:]')"
-if [[ "${spec_count}" != "16" ]]; then
-  echo "expected 16 release image specs, found ${spec_count}" >&2
+if [[ "${spec_count}" != "18" ]]; then
+  echo "expected 18 release image specs, found ${spec_count}" >&2
   exit 1
 fi
 
@@ -328,7 +328,7 @@ required_workflow_fragments = [
     "id: release_assets",
     "release_id: ${{ steps.release_assets.outputs.release_id }}",
     "needs: publish",
-    "runs-on: ubuntu24",
+    "runs-on: ubuntu-24.04",
     "RELEASE_ID: ${{ needs.publish.outputs.release_id }}",
     "RELEASE_ID: ${{ steps.parallel_assets.outputs.release_id }}",
 ]
@@ -437,10 +437,10 @@ if '_index.json"' in sign_oci_publish:
 
 postflight = workflow.index("Rechecking release image digest equality after publish/build handling.")
 signing = workflow.index("source ./scripts/ci/prepare-openbao-cosign-env.sh")
-asset_verification = workflow.index("- name: Verify uploaded release assets via Forgejo API")
+asset_verification = workflow.index("- name: Verify uploaded release assets via GitHub API")
 finalizer_job = workflow.index("  finalize:")
 parallel_asset_verification = workflow.index("- name: Wait for parallel release assets")
-finalization = workflow.index("- name: Finalize Forgejo release")
+finalization = workflow.index("- name: Finalize GitHub release")
 advance = workflow.index("- name: Advance demo release source branch")
 if not (
     postflight
@@ -458,15 +458,15 @@ if not (
 dry_run_guard = "if: ${{ steps.release.outputs.dry_run != 'true' }}"
 asset_verification_step = workflow[asset_verification:finalizer_job]
 if dry_run_guard not in asset_verification_step:
-    raise SystemExit("dry-run does not skip Forgejo asset verification")
-if "releases?draft=true&limit=100" not in asset_verification_step:
-    raise SystemExit("release asset verification cannot discover a Forgejo draft")
+    raise SystemExit("dry-run does not skip GitHub asset verification")
+if "releases?per_page=100" not in asset_verification_step:
+    raise SystemExit("release asset verification cannot discover a GitHub draft")
 
 publish_job = workflow[workflow.index("  publish:"):finalizer_job]
 finalize_job = workflow[finalizer_job:]
 if "runs-on: serviceradar-signing" not in publish_job:
     raise SystemExit("release publication must remain on the signing runner")
-if "runs-on: ubuntu24" not in finalize_job or "needs: publish" not in finalize_job:
+if "runs-on: ubuntu-24.04" not in finalize_job or "needs: publish" not in finalize_job:
     raise SystemExit("release finalization must run after publication on a generic runner")
 if "timeout-minutes: 95" not in finalize_job or "environment: release" not in finalize_job:
     raise SystemExit("release finalizer must have a bounded wait and release credentials")
@@ -562,7 +562,7 @@ for worker_name, worker in (
         'release_tag="${publish_tag}"',
         './scripts/validate-release-tag.sh "${release_tag}"',
         'expected_ref="refs/tags/${release_tag}"',
-        'if [[ "${GITHUB_REF}" != "${expected_ref}" ]]',
+        'if [[ "${GITHUB_EVENT_NAME}" != "workflow_dispatch" && "${GITHUB_REF}" != "${expected_ref}" ]]',
         'file_version="$(git show "${tag_commit}:VERSION")"',
         'if [[ "${release_tag}" != "v${file_version}" ]]',
         "git fetch --no-tags origin +refs/heads/staging:refs/remotes/origin/staging",
@@ -571,15 +571,26 @@ for worker_name, worker in (
         if fragment not in source_gate:
             raise SystemExit(f"{worker_name} release source gate is missing: {fragment}")
 
-    for fragment in (
-        "fetch_release()",
-        '"${api_base}/releases" || true',
-        'release_json="$(fetch_release)"',
-        "releases?draft=true&limit=100",
-        '"${api_base}/releases/${release_id}"',
-        'resolved_release_id="$(echo "${release_json}" | jq -r \'.id // empty\')"',
-        "select(type == \"object\") | .id // empty",
-    ):
+    if worker_name == "Wasm plugin":
+        catalog_fragments = (
+            "fetch_release()",
+            '"${api_base}/releases?per_page=100" || true',
+            'release_json="$(fetch_release)"',
+            '"${api_base}/releases/${release_id}"',
+            'resolved_release_id="$(echo "${release_json}" | jq -r \'.id // empty\')"',
+            "select(type == \"object\") | .id // empty",
+            "https://api.github.com/repos/${GITHUB_REPOSITORY}",
+            "uploads.github.com/repos/${GITHUB_REPOSITORY}/releases/${release_id}/assets",
+        )
+    else:
+        catalog_fragments = (
+            "fetch_release()",
+            '"${api_base}/releases?per_page=100" || true',
+            'release_json="$(fetch_release)"',
+            "https://api.github.com/repos/${GITHUB_REPOSITORY}",
+            "select(type == \"object\") | .id // empty",
+        )
+    for fragment in catalog_fragments:
         if fragment not in worker:
             raise SystemExit(
                 f"{worker_name} catalog publisher is not tolerant of concurrent draft creation: {fragment}"
@@ -600,13 +611,13 @@ for worker_name, worker in (
     ("source security", source_security_workflow),
     ("image security", image_security_workflow),
 ):
-    if 'releases?draft=true&limit=100' not in worker:
+    if 'releases?per_page=100' not in worker:
         raise SystemExit(
-            f"{worker_name} publisher cannot discover a draft release through the Forgejo list API"
+            f"{worker_name} publisher cannot discover a draft release through the GitHub list API"
         )
-if 'releases?draft=true&limit=100' not in upload_release_asset:
+if 'releases?per_page=100' not in upload_release_asset:
     raise SystemExit("release asset upload helper cannot resolve draft releases")
-if '/releases/${release_id}' not in upload_release_asset:
+if '/releases/${1}' not in upload_release_asset:
     raise SystemExit("release asset upload helper does not fetch the full release before replacement")
 
 ancestry_lines = [line for line in cut_release.splitlines() if "git merge-base --is-ancestor" in line]
@@ -627,8 +638,7 @@ import sys
 repo = Path(sys.argv[1])
 packages_bzl = (repo / "build/packaging/packages.bzl").read_text()
 release_targets = (repo / "build/packaging/release_targets.bzl").read_text()
-release_workflow = (repo / ".forgejo/workflows/release.yml").read_text()
-prune_script = repo / "scripts/prune-forgejo-releases.sh"
+release_workflow = (repo / ".github/workflows/release.yml").read_text()
 
 if "RELEASE_PACKAGES" not in packages_bzl:
     raise SystemExit("packages.bzl must declare RELEASE_PACKAGES")
@@ -636,10 +646,8 @@ if "RELEASE_PACKAGES" not in release_targets:
     raise SystemExit("release_targets.bzl must consume RELEASE_PACKAGES")
 if "sorted(PACKAGES.keys())" in release_targets:
     raise SystemExit("release_targets.bzl still ships every PACKAGES entry")
-if not prune_script.is_file():
-    raise SystemExit("scripts/prune-forgejo-releases.sh is missing")
-if "prune-forgejo-releases.sh" not in release_workflow:
-    raise SystemExit("release workflow does not invoke prune-forgejo-releases.sh")
+if "api.github.com" not in release_workflow:
+    raise SystemExit("release workflow does not publish through the GitHub Releases API")
 
 # Parse RELEASE_PACKAGES list roughly.
 match = re.search(r"RELEASE_PACKAGES\s*=\s*\[(.*?)\]", packages_bzl, re.S)

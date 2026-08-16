@@ -1,7 +1,7 @@
 // Asserts the shape of the released netprobe binaries: fully static, no dynamic
 // interpreter, no shared-library dependencies, and above all no libpcap.
 //
-// Replaces the "Verify static linkage" step of .forgejo/workflows/rust-musl.yml together
+// Replaces the "Verify static linkage" step of .github/workflows/rust-musl.yml together
 // with scripts/ci/assert-netprobe-libpcap-free.sh. That step ran `bazel build`, then
 // `bazel cquery --output=files | tail -n 1` to recover the artifact path, then shelled out
 // to file(1), readelf(1) and ldd(1) against it.

@@ -3,6 +3,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.InterfaceComponents do
 
   use ServiceRadarWebNGWeb, :html
 
+  alias ServiceRadarWebNGWeb.DeviceLive.InterfaceData
   alias ServiceRadarWebNGWeb.Helpers.InterfaceTypes
 
   # ---------------------------------------------------------------------------
@@ -22,6 +23,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.InterfaceComponents do
   attr(:northbound_actions_loading, :boolean, default: false)
   attr(:can_launch_northbound, :boolean, default: false)
   attr(:snmp_polling_source, :map, default: nil)
+  attr(:selected_favorited_metrics_key, :string, default: nil)
 
   def interfaces_tab_content(assigns) do
     selected_count = MapSet.size(assigns.selected_interfaces)
@@ -85,6 +87,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.InterfaceComponents do
       metrics={@interface_metrics}
       device_uid={@device_uid}
       snmp_polling_source={@snmp_polling_source}
+      selected_key={@selected_favorited_metrics_key}
     />
 
     <div
@@ -337,8 +340,18 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.InterfaceComponents do
   attr(:metrics, :map, required: true)
   attr(:device_uid, :string, required: true)
   attr(:snmp_polling_source, :map, default: nil)
+  attr(:selected_key, :string, default: nil)
 
-  defp interface_metrics_section(assigns) do
+  def interface_metrics_section(assigns) do
+    panels = Map.get(assigns.metrics, :panels) || []
+    selected_key = InterfaceData.reconcile_favorited_metrics_key(panels, assigns.selected_key)
+
+    assigns =
+      assigns
+      |> assign(:selected_key, selected_key)
+      |> assign(:selected_panel, InterfaceData.selected_favorited_metrics_panel(panels, selected_key))
+      |> assign(:metric_tabs, favorited_metric_tabs(panels))
+
     ~H"""
     <div class="rounded-xl border border-sr-line bg-sr-surface mb-4">
       <div class="px-4 py-3 border-b border-sr-line flex items-center justify-between">
@@ -413,22 +426,89 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.InterfaceComponents do
         </.ui_button>
       </div>
 
-      <%!-- Metrics panels: viewport-filling responsive grid (auto-fit) --%>
-      <div
-        :if={@metrics.panels != []}
-        class="p-4 grid gap-4 grid-cols-[repeat(auto-fit,minmax(22rem,1fr))]"
-      >
-        <%= for {panel, idx} <- Enum.with_index(@metrics.panels) do %>
+      <%!-- One selected interface at a time; each graph is full width. --%>
+      <div :if={@metrics.panels != []} class="p-4 space-y-4">
+        <div
+          :if={length(@metric_tabs) > 1}
+          role="tablist"
+          aria-label="Favorited interfaces"
+          class="sr-ui-tabs sr-ui-tabs-boxed"
+        >
+          <button
+            :for={tab <- @metric_tabs}
+            type="button"
+            role="tab"
+            id={"favorited-metrics-tab-#{tab.key}"}
+            aria-selected={to_string(@selected_key == tab.key)}
+            aria-controls={"favorited-metrics-panel-#{tab.key}"}
+            title={interface_tab_title(tab)}
+            phx-click="select_favorited_interface_metrics"
+            phx-value-key={tab.key}
+            class={["sr-ui-tab", @selected_key == tab.key && "sr-ui-tab-active"]}
+          >
+            {tab.label}
+          </button>
+        </div>
+
+        <p
+          :if={selected_if_index(@selected_panel)}
+          class="text-xs text-sr-muted"
+        >
+          ifIndex {selected_if_index(@selected_panel)}
+        </p>
+
+        <div
+          :if={@selected_panel}
+          id={"favorited-metrics-panel-#{@selected_key}"}
+          role="tabpanel"
+          aria-labelledby={"favorited-metrics-tab-#{@selected_key}"}
+          data-testid="favorited-interface-metrics-panel"
+          class="grid grid-cols-1 gap-4"
+        >
           <.live_component
-            module={panel.plugin}
-            id={"interface-metrics-#{@device_uid}-#{panel.id}-#{idx}"}
-            title={Map.get(panel.assigns, :interface_label, "Interface Metrics")}
-            panel_assigns={Map.put(panel.assigns, :compact, false)}
+            module={@selected_panel.plugin}
+            id={"interface-metrics-#{@device_uid}-#{@selected_panel.id}"}
+            title={Map.get(@selected_panel.assigns, :interface_label, "Interface Metrics")}
+            panel_assigns={stacked_interface_panel_assigns(@selected_panel.assigns)}
           />
-        <% end %>
+        </div>
       </div>
     </div>
     """
+  end
+
+  defp favorited_metric_tabs(panels) when is_list(panels) do
+    Enum.map(panels, fn panel ->
+      %{
+        key: InterfaceData.favorited_metrics_panel_key(panel),
+        label: interface_tab_label(panel),
+        if_index: Map.get(panel.assigns || %{}, :if_index)
+      }
+    end)
+  end
+
+  defp favorited_metric_tabs(_panels), do: []
+
+  defp interface_tab_label(%{assigns: assigns}) when is_map(assigns) do
+    Map.get(assigns, :interface_name) || Map.get(assigns, :interface_label) || "Interface"
+  end
+
+  defp interface_tab_label(_panel), do: "Interface"
+
+  defp interface_tab_title(%{if_index: if_index}) when is_integer(if_index), do: "ifIndex #{if_index}"
+  defp interface_tab_title(_tab), do: nil
+
+  defp selected_if_index(%{assigns: %{if_index: if_index}}) when is_integer(if_index), do: if_index
+  defp selected_if_index(_panel), do: nil
+
+  defp stacked_interface_panel_assigns(assigns) when is_map(assigns) do
+    assigns
+    |> Map.put(:compact, false)
+    |> Map.put(:series_layout, :stack)
+  end
+
+  defp stacked_interface_panel_assigns(_assigns) do
+    %{compact: false, series_layout: :stack}
   end
 
   # ---------------------------------------------------------------------------

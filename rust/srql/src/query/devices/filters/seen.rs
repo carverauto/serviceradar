@@ -3,7 +3,7 @@ use crate::{
     error::{Result, ServiceError},
     parser::{Filter, FilterOp},
     schema::ocsf_devices::dsl::first_seen_time as col_first_seen_time,
-    time::{parse_time_value, TimeRange},
+    time::{TimeRange, parse_time_value},
 };
 use chrono::Utc;
 use diesel::prelude::*;

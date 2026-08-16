@@ -21,6 +21,11 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.FeedRegistryTest do
     assert entry.refresh_interval_seconds > 0
   end
 
+  test "nist-nvd2 defaults to a daily cadence" do
+    assert {:ok, entry} = FeedRegistry.fetch("nist-nvd2")
+    assert entry.refresh_interval_seconds == 86_400
+  end
+
   test "fetch/1 is :error for an unknown feed" do
     assert :error = FeedRegistry.fetch("does-not-exist")
     assert :error = FeedRegistry.fetch(nil)

@@ -30,7 +30,7 @@ permissions:
 jobs:
   lint:
     name: lint
-    runs-on: ubuntu24
+    runs-on: arc-runner-set
     # Removed the invalid job-level env block here
     steps:
       # Added a step to inject GOCACHE into the job's environment

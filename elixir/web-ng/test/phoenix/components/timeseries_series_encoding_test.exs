@@ -61,6 +61,52 @@ defmodule ServiceRadarWebNGWeb.Components.TimeseriesSeriesEncodingTest do
     refute html =~ ~s(stroke-dasharray="2 3")
   end
 
+  test "stacked series layout keeps inbound and outbound charts full width" do
+    points = sample_points()
+
+    html =
+      render_component(Timeseries, %{
+        id: "ts-stacked-layout",
+        title: "br0",
+        panel_assigns: %{
+          chart_mode: :combined,
+          rate_mode: :none,
+          series_layout: :stack
+        },
+        series_points: [
+          {"ifInErrors", points},
+          {"ifOutErrors", points}
+        ]
+      })
+
+    assert html =~ ~s(data-testid="timeseries-series-grid")
+    assert html =~ ~s(data-series-layout="stack")
+    assert html =~ "grid-cols-1"
+    refute html =~ "md:grid-cols-2"
+  end
+
+  test "default series layout still pairs individual charts on medium screens" do
+    points = sample_points()
+
+    html =
+      render_component(Timeseries, %{
+        id: "ts-grid-layout",
+        title: "br0",
+        panel_assigns: %{
+          chart_mode: :combined,
+          rate_mode: :none
+        },
+        series_points: [
+          {"ifInErrors", points},
+          {"ifOutErrors", points}
+        ]
+      })
+
+    assert html =~ ~s(data-testid="timeseries-series-grid")
+    assert html =~ ~s(data-series-layout="grid")
+    assert html =~ "md:grid-cols-2"
+  end
+
   defp sample_points do
     [
       {~U[2025-01-01 00:00:00Z], 1.0},

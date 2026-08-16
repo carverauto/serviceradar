@@ -28,7 +28,8 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Index.VulnerableAssetsPanel do
         <.icon name="hero-shield-exclamation" class="size-7 text-warning" />
         <p>No scored assets yet</p>
         <span>
-          Risk scores appear after endpoint inventory matching or a risk assessment run.
+          Scores come from endpoint inventory on a native agent host. Kubernetes
+          agents skip ScaLibr; a failed systemd unit on a VM host also leaves this empty.
         </span>
       </div>
 

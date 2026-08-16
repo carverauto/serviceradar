@@ -39,14 +39,14 @@ on:
   pull_request:
     branches: [staging]
     paths:
-      - '.forgejo/workflows/elixir-dependency-audit.yml'
+      - '.github/workflows/elixir-dependency-audit.yml'
       - 'scripts/elixir_dep_audit.sh'
       - 'scripts/lib/hex-audit-filter.awk'
       - 'scripts/elixir_quality.sh'
   push:
     branches: [staging]
     paths:
-      - '.forgejo/workflows/elixir-dependency-audit.yml'
+      - '.github/workflows/elixir-dependency-audit.yml'
       - 'scripts/elixir_dep_audit.sh'
       - 'scripts/lib/hex-audit-filter.awk'
       - 'scripts/elixir_quality.sh'
@@ -64,7 +64,7 @@ env:
 jobs:
   audit:
     name: Elixir Dependency Audit
-    runs-on: ubuntu24
+    runs-on: arc-runner-set
     env:
       ImageOS: ubuntu24
     steps:

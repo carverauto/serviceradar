@@ -49,9 +49,12 @@ Traps complement polling by pushing urgent events:
 
 ## Default Trap Rules
 
-- `snmp_severity` normalizes the severity field to a known value if the trap
-  does not supply one. Review the bundled JSON under
-  `elixir/serviceradar_core/priv/zen/rules/snmp_severity.json`.
+- `snmp_severity` is the trap normalizer. It builds a readable `body` from the
+  SNMPv2 trap OID and the first useful varbind (skipping sysUpTime TimeTicks),
+  copies the sender into `source_ip` before rewriting `source` to `snmp`, and
+  attaches `attributes.snmp.*` metadata. Review the bundled JSON under
+  `elixir/serviceradar_core/priv/zen/rules/snmp_severity.json`. Do not add
+  trap-specific body reconstruction to EventWriter; change this rule instead.
 - `passthrough` is available for cases where you only need the `.processed` suffix without transformations; it copies the input event unchanged.
 
 These and the syslog-focused rules share the same GoRules/zen runtime. Use the Rule Builder UI to manage them; see the [Rule Builder](./rule-builder.md) guide.

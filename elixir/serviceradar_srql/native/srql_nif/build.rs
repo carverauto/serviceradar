@@ -2,8 +2,8 @@ fn main() {
     use std::path::PathBuf;
     use std::process::Command;
 
-    let manifest_dir = std::env::var("CARGO_MANIFEST_DIR")
-        .expect("CARGO_MANIFEST_DIR must be set by Cargo");
+    let manifest_dir =
+        std::env::var("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR must be set by Cargo");
     let schema_root = std::path::Path::new(&manifest_dir).join("schemas");
     let schema = schema_root.join("update.capnp");
     let vendored = schema_root.join("update_capnp.rs");

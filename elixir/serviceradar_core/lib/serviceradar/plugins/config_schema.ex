@@ -165,7 +165,11 @@ defmodule ServiceRadar.Plugins.ConfigSchema do
   end
 
   defp runtime_injected_property?(%{} = property) do
-    Map.get(property, "x-serviceradar-credential-materialized") == true or
+    # secretRef fields are never typed on the assignment form: they arrive later
+    # from credential-rule materialization or a dedicated settings page that
+    # stores a secretref. Requiring them here made AlienVault OTX unassignable.
+    Map.get(property, "secretRef") == true or
+      Map.get(property, "x-serviceradar-credential-materialized") == true or
       (Map.get(property, "x-serviceradar-ui-hidden") == true and
          Map.get(property, "default") in [nil, ""])
   end

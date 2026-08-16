@@ -319,7 +319,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
        socket
        |> assign(:interface_metrics, metrics)
        |> assign(:interface_metrics_loading, false)
-       |> assign(:interface_metrics_request_ref, nil)}
+       |> assign(:interface_metrics_request_ref, nil)
+       |> InterfaceRuntime.reconcile_favorited_metrics_selection()}
     else
       {:noreply, socket}
     end
@@ -1026,6 +1027,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
     |> assign(:interface_metrics, nil)
     |> assign(:interface_metrics_loading, false)
     |> assign(:interface_metrics_request_ref, nil)
+    |> assign(:selected_favorited_metrics_key, nil)
     |> assign(:metrics_enabled_interfaces, MapSet.new())
     |> assign(:ip_aliases, [])
     |> assign(:ip_alias_error, nil)
@@ -1561,6 +1563,10 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
 
   def handle_event("enable_favorited_interface_metrics", _params, socket) do
     {:noreply, InterfaceRuntime.enable_favorited_metrics(socket, srql_module())}
+  end
+
+  def handle_event("select_favorited_interface_metrics", %{"key" => key}, socket) do
+    {:noreply, InterfaceRuntime.select_favorited_metrics(socket, key)}
   end
 
   @allowed_flow_filter_fields ~w(

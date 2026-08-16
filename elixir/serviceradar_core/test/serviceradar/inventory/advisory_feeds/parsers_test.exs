@@ -16,7 +16,10 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.ParsersTest do
       assert advisory.severity == "high"
       assert advisory.cvss_score == 7.5
       assert advisory.metadata["cwes"] == ["CWE-787"]
-      assert advisory.raw == record
+
+      assert advisory.raw == %{
+               "cve" => %{"id" => "CVE-2024-0001", "lastModified" => "2024-01-02T00:00:00.000"}
+             }
 
       assert [coordinate] = coordinates
       assert coordinate.coordinate_type == "cpe"
@@ -207,6 +210,23 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.ParsersTest do
 
       records = Enum.map(stream, fn {:ok, r} -> r["cve"]["id"] end)
       assert records == ["CVE-2024-0001"]
+      File.rm_rf(dir)
+    end
+
+    test "nvd_shard_paths can resume after a completed shard" do
+      dir = Path.join(System.tmp_dir!(), "advisory-nvd-#{System.unique_integer([:positive])}")
+      File.mkdir_p!(dir)
+
+      Enum.each(["000", "001", "002"], fn n ->
+        File.write!(Path.join(dir, "nvdcve-2.0-#{n}.json.gz"), "x")
+      end)
+
+      names =
+        dir
+        |> StreamReader.nvd_shard_paths(after: "nvdcve-2.0-000.json.gz")
+        |> Enum.map(&Path.basename/1)
+
+      assert names == ["nvdcve-2.0-001.json.gz", "nvdcve-2.0-002.json.gz"]
       File.rm_rf(dir)
     end
   end

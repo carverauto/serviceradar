@@ -4,24 +4,20 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.StreamReader do
 
   ## Streaming-decoder choice (tasks.md 3.3)
 
-  `serviceradar_core` ships `jason` only (no `jaxon`/`jiffy` streaming decoders).
-  Rather than add a new dependency for this slice, we bound memory at the
-  **shard** level, which the design (D3) already names as the memory unit:
+  Shards are decoded through `AdvisoryFeeds.Json` (Torque/sonic-rs when loaded,
+  otherwise Jason). Memory is bounded at the **shard** level:
 
     * **nist-nvd2** is ~181 `nvdcve-2.0-NNN.json.gz` shards. We process one shard
       at a time: gunzip a single shard into memory (≤ ~25 MB decompressed),
-      `Jason.decode` it, then iterate its `vulnerabilities` array and discard the
-      shard before moving on. The resident working set is one shard, never the
-      full ~360 MB dataset — satisfying the "bounded by a single shard" scenario.
+      decode it, then iterate its `vulnerabilities` array and discard the
+      shard before moving on.
     * **KEV / CISA** feeds are small (≤ a few MB); the single JSON is decoded once.
-
-  If a future feed produces single multi-GB JSON files, swap in a true
-  incremental decoder (Jaxon) or a `jq -c` NDJSON pre-split here without touching
-  callers — they consume the `Stream` this module returns.
 
   All readers return a `Stream` of `{:ok, record}` so the caller can chunk and
   bulk-load without holding the whole feed.
   """
+
+  alias ServiceRadar.Inventory.AdvisoryFeeds.Json
 
   require Logger
 
@@ -29,11 +25,36 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.StreamReader do
   Stream NVD 2.0 `vulnerabilities[]` records from a directory of `*.json.gz`
   shards (or `*.json` shards), one shard decoded at a time.
   """
-  @spec stream_nvd_shards(Path.t()) :: Enumerable.t()
-  def stream_nvd_shards(dir) do
+  @spec stream_nvd_shards(Path.t(), keyword()) :: Enumerable.t()
+  def stream_nvd_shards(dir, opts \\ []) do
+    dir
+    |> nvd_shard_paths(opts)
+    |> Stream.flat_map(&stream_nvd_shard/1)
+  end
+
+  @doc "Stream `vulnerabilities[]` records from a single NVD shard file."
+  @spec stream_nvd_shard(Path.t()) :: Enumerable.t()
+  def stream_nvd_shard(path), do: stream_shard(path)
+
+  @doc """
+  Sorted shard file paths, optionally skipping those through `after:`.
+
+  `after: "nvdcve-2.0-040.json.gz"` yields 041 and later so a restarted
+  worker can continue a generation instead of reloading finished shards.
+  """
+  @spec nvd_shard_paths(Path.t(), keyword()) :: [Path.t()]
+  def nvd_shard_paths(dir, opts \\ []) do
+    after_shard = Keyword.get(opts, :after)
+
     dir
     |> shard_paths()
-    |> Stream.flat_map(&stream_shard/1)
+    |> drop_through(after_shard)
+  end
+
+  defp drop_through(paths, after_shard) when after_shard in [nil, ""], do: paths
+
+  defp drop_through(paths, after_shard) when is_binary(after_shard) do
+    Enum.drop_while(paths, &(Path.basename(&1) <= after_shard))
   end
 
   @doc """
@@ -57,7 +78,7 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.StreamReader do
   """
   @spec records_from_binary(binary(), keyword()) :: Enumerable.t()
   def records_from_binary(binary, opts \\ []) do
-    case Jason.decode(binary) do
+    case Json.decode(binary) do
       {:ok, decoded} -> records_from(decoded, opts)
       {:error, reason} -> raise "failed to decode binary: #{inspect(reason)}"
     end
@@ -71,7 +92,7 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.StreamReader do
   def records_from_gzip(gz_binary) do
     gz_binary
     |> :zlib.gunzip()
-    |> Jason.decode!()
+    |> Json.decode!()
     |> Map.get("vulnerabilities", [])
     |> List.wrap()
   end
@@ -97,7 +118,7 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.StreamReader do
           if String.ends_with?(path, ".gz") do
             records_from_gzip(binary)
           else
-            binary |> Jason.decode!() |> Map.get("vulnerabilities", []) |> List.wrap()
+            binary |> Json.decode!() |> Map.get("vulnerabilities", []) |> List.wrap()
           end
 
         Enum.map(records, &{:ok, &1})
@@ -114,7 +135,7 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.StreamReader do
 
   defp read_json(path) do
     with {:ok, binary} <- File.read(path) do
-      Jason.decode(binary)
+      Json.decode(binary)
     end
   end
 

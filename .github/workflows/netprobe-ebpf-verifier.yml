@@ -15,7 +15,7 @@ on:
       - 'build/rust/**'
       - 'build/toolchains/**'
       - '.bazelrc'
-      - '.forgejo/workflows/netprobe-ebpf-verifier.yml'
+      - '.github/workflows/netprobe-ebpf-verifier.yml'
       - 'MODULE.bazel'
       - 'scripts/ci/ensure-forgejo-tools.sh'
       - 'scripts/ci/install-sfw.sh'
@@ -33,7 +33,7 @@ on:
       - 'build/rust/**'
       - 'build/toolchains/**'
       - '.bazelrc'
-      - '.forgejo/workflows/netprobe-ebpf-verifier.yml'
+      - '.github/workflows/netprobe-ebpf-verifier.yml'
       - 'MODULE.bazel'
       - 'scripts/ci/ensure-forgejo-tools.sh'
       - 'scripts/ci/install-sfw.sh'
@@ -49,7 +49,7 @@ permissions:
 jobs:
   verifier_config:
     name: Resolve verifier configuration
-    runs-on: ubuntu24
+    runs-on: arc-runner-set
     outputs:
       enabled: ${{ steps.config.outputs.enabled }}
     steps:
@@ -68,7 +68,7 @@ jobs:
   verify-ebpf:
     needs: verifier_config
     name: Verify eBPF programs on Linux ${{ matrix.kernel }}
-    runs-on: ${{ needs.verifier_config.outputs.enabled == 'true' && matrix.runner || 'ubuntu24' }}
+    runs-on: ${{ needs.verifier_config.outputs.enabled == 'true' && matrix.runner || 'arc-runner-set' }}
     env:
       BAZELISK_HOME: ${{ github.workspace }}/.cache/bazelisk
       SERVICERADAR_NETPROBE_EXPECT_KERNEL: ${{ matrix.kernel }}
@@ -138,7 +138,7 @@ jobs:
   kernel-too-old:
     needs: verifier_config
     name: Verify eBPF refusal on Linux 5.4
-    runs-on: ${{ needs.verifier_config.outputs.enabled == 'true' && 'netprobe-kernel-5.4' || 'ubuntu24' }}
+    runs-on: ${{ needs.verifier_config.outputs.enabled == 'true' && 'netprobe-kernel-5.4' || 'arc-runner-set' }}
     env:
       SERVICERADAR_NETPROBE_EXPECT_KERNEL: '5.4'
     steps:

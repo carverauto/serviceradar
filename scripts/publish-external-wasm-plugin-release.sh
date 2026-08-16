@@ -10,12 +10,13 @@ repository="$1"
 tag="$2"
 index_path="$3"
 asset_name="serviceradar-wasm-plugin-index.json"
-forgejo_url="${FORGEJO_URL:-https://code.carverauto.dev}"
-forgejo_token="${EXTERNAL_PLUGIN_FORGEJO_PUBLISH_TOKEN:-}"
+api_root="${GITHUB_API_URL:-https://api.github.com}"
+uploads_root="${GITHUB_UPLOADS_URL:-https://uploads.github.com}"
+github_token="${EXTERNAL_PLUGIN_GITHUB_PUBLISH_TOKEN:-${GITHUB_TOKEN:-}}"
 target_commitish="${EXTERNAL_PLUGIN_TARGET_COMMITISH:-${tag}}"
 
 if [[ ! "${repository}" =~ ^[a-z0-9_.-]+/[a-z0-9_.-]+$ ]]; then
-  echo "Invalid Forgejo repository: ${repository}" >&2
+  echo "Invalid GitHub repository: ${repository}" >&2
   exit 1
 fi
 if [[ ! "${tag}" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-[0-9A-Za-z][0-9A-Za-z.-]*)?$ ]]; then
@@ -30,8 +31,8 @@ if [[ ! -s "${index_path}" ]]; then
   echo "Import index is missing or empty: ${index_path}" >&2
   exit 1
 fi
-if [[ -z "${forgejo_token}" ]]; then
-  echo "EXTERNAL_PLUGIN_FORGEJO_PUBLISH_TOKEN is required" >&2
+if [[ -z "${github_token}" ]]; then
+  echo "EXTERNAL_PLUGIN_GITHUB_PUBLISH_TOKEN (or GITHUB_TOKEN) is required" >&2
   exit 1
 fi
 for command_name in curl jq cmp; do
@@ -50,9 +51,10 @@ if ! jq -e --arg tag "${tag}" '
   exit 1
 fi
 
-api_base="${forgejo_url}/api/v1/repos/${repository}"
-auth_header="Authorization: token ${forgejo_token}"
-accept_header="Accept: application/json"
+api_base="${api_root}/repos/${repository}"
+uploads_base="${uploads_root}/repos/${repository}"
+auth_header="Authorization: Bearer ${github_token}"
+accept_header="Accept: application/vnd.github+json"
 tmp_dir="$(mktemp -d)"
 trap 'rm -rf "${tmp_dir}"' EXIT
 
@@ -67,7 +69,7 @@ fetch_release() {
   fi
 
   releases_json="$(curl -fsS -H "${accept_header}" -H "${auth_header}" \
-    "${api_base}/releases?draft=true&limit=100")"
+    "${api_base}/releases?per_page=100")"
   jq -c --arg tag "${tag}" \
     'first(.[] | select(.tag_name == $tag)) // empty' <<<"${releases_json}"
 }
@@ -96,7 +98,7 @@ if [[ -z "${release_id}" ]]; then
 fi
 
 if [[ ! "${release_id}" =~ ^[0-9]+$ ]]; then
-  echo "Unable to resolve Forgejo release for ${tag}" >&2
+  echo "Unable to resolve GitHub release for ${tag}" >&2
   exit 1
 fi
 
@@ -119,19 +121,20 @@ if [[ "${is_draft}" != true ]]; then
     echo "Published release ${tag} contains a different immutable import index" >&2
     exit 1
   fi
-  echo "Forgejo release ${tag} already contains the verified import index"
+  echo "GitHub release ${tag} already contains the verified import index"
   exit 0
 fi
 
 if [[ -n "${asset_id}" ]]; then
   curl -fsS -X DELETE -H "${accept_header}" -H "${auth_header}" \
-    "${api_base}/releases/${release_id}/assets/${asset_id}" >/dev/null
+    "${api_base}/releases/assets/${asset_id}" >/dev/null
 fi
 curl -fsS -X POST \
   -H "${accept_header}" \
   -H "${auth_header}" \
-  -F "attachment=@${index_path}" \
-  "${api_base}/releases/${release_id}/assets?name=${asset_name}" >/dev/null
+  -H "Content-Type: application/octet-stream" \
+  --data-binary "@${index_path}" \
+  "${uploads_base}/releases/${release_id}/assets?name=${asset_name}" >/dev/null
 
 release_json="$(curl -fsS -H "${accept_header}" -H "${auth_header}" \
   "${api_base}/releases/${release_id}")"
@@ -169,13 +172,13 @@ curl -fsS -X PATCH \
 release_json="$(curl -fsS -H "${accept_header}" -H "${auth_header}" \
   "${api_base}/releases/tags/${tag}")"
 if [[ "$(jq -r 'if has("draft") then .draft else true end' <<<"${release_json}")" != false ]]; then
-  echo "Forgejo release ${tag} remained a draft" >&2
+  echo "GitHub release ${tag} remained a draft" >&2
   exit 1
 fi
 if ! jq -e --arg name "${asset_name}" \
   'any(.assets[]?; .name == $name)' <<<"${release_json}" >/dev/null; then
-  echo "Published Forgejo release ${tag} is missing ${asset_name}" >&2
+  echo "Published GitHub release ${tag} is missing ${asset_name}" >&2
   exit 1
 fi
 
-echo "Published verified Forgejo release ${tag}"
+echo "Published verified GitHub release ${tag}"

@@ -45,11 +45,11 @@ sh_test(
         "validate-release-metadata.sh",
         "validate-release-tag.sh",
         "verify-oci-publish.sh",
-        "//:.forgejo/workflows/image-security.yml",
-        "//:.forgejo/workflows/native-addons.yml",
-        "//:.forgejo/workflows/release.yml",
-        "//:.forgejo/workflows/source-security.yml",
-        "//:.forgejo/workflows/wasm-plugins.yml",
+        "//:.github/workflows/image-security.yml",
+        "//:.github/workflows/native-addons.yml",
+        "//:.github/workflows/release.yml",
+        "//:.github/workflows/source-security.yml",
+        "//:.github/workflows/wasm-plugins.yml",
         "//docker/images:image_inventory.bzl",
         "//:k8s/argocd/applications/demo-prod.yaml",
         # Read by the RELEASE_PACKAGES assertions added in 3fd5eac58. The script resolves
@@ -58,18 +58,14 @@ sh_test(
         "//build/packaging:release_targets.bzl",
     ],
     # `manual` keeps this out of the //... unit sweep. It is not a unit test: it makes
-    # literal substring assertions over CI configuration (5 .forgejo workflow YAMLs, 9
+    # literal substring assertions over CI configuration (5 GitHub workflow YAMLs, 9
     # release shell scripts, the image inventory, the ArgoCD app) and exercises no shipped
-    # code path. It is also on borrowed time -- .forgejo/workflows/ is being replaced by
-    # BuildBuddy workflows and scripts/*.sh by Bazel targets, so most of its 49 assertions
-    # are about files that are scheduled to stop existing. Delete it with that tier.
+    # code path. It is also on borrowed time -- scripts/*.sh are being replaced by Bazel
+    # targets, so most of its 49 assertions are about files that are scheduled to stop
+    # existing. Delete it with that tier.
     #
-    # It is currently RED, and correctly so: fa88629ca loosened the release-tag source gate
-    # in wasm-plugins.yml (workflow_dispatch may run from a non-tag ref) without making the
-    # same change to native-addons.yml, and this script asserts the two stay identical.
-    # That finding is written up in openspec/notes/bazel-bb-ci.md so tagging it `manual`
-    # does not lose it. Do NOT "fix" it by relaxing the assertion -- that rubber-stamps the
-    # drift. Run it explicitly:
+    # Keep it `manual`: it asserts CI configuration, not shipped code. Run it explicitly
+    # after changing a publish workflow:
     #
     #   bazel test //scripts:release_publish_contracts_test --test_tag_filters=
     tags = ["manual"],
@@ -85,7 +81,7 @@ sh_test(
         "test-publish-external-wasm-plugin-release.py",
         "test-validate-external-wasm-plugin-bundle.py",
         "validate-external-wasm-plugin-bundle.py",
-        "//:.forgejo/workflows/external-wasm-plugin.yml",
+        "//:.github/workflows/external-wasm-plugin.yml",
         "@jq_linux_amd64//file",
         "@jq_linux_arm64//file",
     ],

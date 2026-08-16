@@ -85,7 +85,7 @@ name: Elixir Integration Tests
 # `--test_tag_filters=` and prepare passes `--build_tag_filters=`. This makes the explicit target
 # selection self-contained while `manual` continues keeping lifecycle targets out of wildcards.
 #
-# NOTE ON `paths`: if this workflow is made a required status check, confirm how Forgejo
+# NOTE ON `paths`: if this workflow is made a required status check, confirm how GitHub
 # treats a path-skipped run before relying on the filter -- a skipped required check can
 # block merges.
 on:
@@ -121,7 +121,7 @@ on:
       - 'MODULE.bazel.lock'
       - 'scripts/ci/configure-srql-fixture.sh'
       - 'scripts/install-bazelisk.sh'
-      - '.forgejo/workflows/elixir-integration-sr-core.yml'
+      - '.github/workflows/elixir-integration-sr-core.yml'
   pull_request:
     branches: [staging]
     paths: *core_integration_paths
@@ -136,7 +136,7 @@ permissions:
 jobs:
   core-integration:
     name: serviceradar_core integration
-    runs-on: ubuntu24
+    runs-on: arc-runner-set
     env:
       ImageOS: ubuntu24
       BUILDBUDDY_ORG_API_KEY: ${{ secrets.BUILDBUDDY_ORG_API_KEY }}

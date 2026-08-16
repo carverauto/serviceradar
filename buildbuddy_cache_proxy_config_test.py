@@ -33,9 +33,9 @@ ROOT = Path(__file__).resolve().parent
 BAZELRC = ROOT / ".bazelrc"
 MAKEFILE = ROOT / "Makefile"
 WORKFLOW = ROOT / "buildbuddy.yaml"
-MAIN_WORKFLOW = ROOT / ".forgejo/workflows/main.yml"
-FORGEJO_INTEGRATION_WORKFLOW = (
-    ROOT / ".forgejo/workflows/elixir-integration-sr-core.yml"
+MAIN_WORKFLOW = ROOT / ".github/workflows/main.yml"
+GITHUB_INTEGRATION_WORKFLOW = (
+    ROOT / ".github/workflows/elixir-integration-sr-core.yml"
 )
 CACHE_PROXY_VALUES = ROOT / "k8s/buildbuddy/values-cache-proxy.yaml"
 RELEASE_PIPELINE = ROOT / "build/buildbuddy/release_pipeline.sh"
@@ -113,7 +113,7 @@ class BuildBuddyCacheProxyConfigTest(unittest.TestCase):
         self.makefile = MAKEFILE.read_text(encoding="utf-8")
         self.workflow = WORKFLOW.read_text(encoding="utf-8")
         self.main_workflow = MAIN_WORKFLOW.read_text(encoding="utf-8")
-        self.forgejo_integration_workflow = FORGEJO_INTEGRATION_WORKFLOW.read_text(
+        self.github_integration_workflow = GITHUB_INTEGRATION_WORKFLOW.read_text(
             encoding="utf-8"
         )
         self.cache_proxy_values = CACHE_PROXY_VALUES.read_text(encoding="utf-8")
@@ -230,7 +230,7 @@ class BuildBuddyCacheProxyConfigTest(unittest.TestCase):
         self.assertIn("--config=database_env", self.srql_fixture_skill)
         self.assertIn("credential_cleanup_status", self.srql_fixture_skill)
 
-        self.assertIn("- 'integration_tests/srql/**'", self.forgejo_integration_workflow)
+        self.assertIn("- 'integration_tests/srql/**'", self.github_integration_workflow)
 
     def test_cache_proxy_endpoint_is_tls(self):
         """Public DNS plus the API key in a header means plaintext would leak the credential.
@@ -318,7 +318,7 @@ class BuildBuddyCacheProxyConfigTest(unittest.TestCase):
 
         for workflow_name, workflow in (
             ("buildbuddy.yaml", self.workflow),
-            ("Forgejo integration workflow", self.forgejo_integration_workflow),
+            ("GitHub integration workflow", self.github_integration_workflow),
         ):
             commands = continued_shell_lines(workflow)
             for label in labels:
@@ -361,7 +361,7 @@ class BuildBuddyCacheProxyConfigTest(unittest.TestCase):
         ):
             self.assertIn(flag, shard_commands[0])
 
-        forgejo_commands = continued_shell_lines(self.forgejo_integration_workflow)
+        forgejo_commands = continued_shell_lines(self.github_integration_workflow)
         forgejo_suite = [
             command
             for command in forgejo_commands
@@ -374,7 +374,7 @@ class BuildBuddyCacheProxyConfigTest(unittest.TestCase):
 
         for workflow_name, commands in (
             ("buildbuddy.yaml", buildbuddy_commands),
-            ("Forgejo integration workflow", forgejo_commands),
+            ("GitHub integration workflow", forgejo_commands),
         ):
             srql_commands = [
                 command
@@ -395,9 +395,9 @@ class BuildBuddyCacheProxyConfigTest(unittest.TestCase):
             ):
                 self.assertIn(flag, srql_commands[0], workflow_name)
 
-    def test_forgejo_database_workflow_fails_closed_without_fixture_credentials(self):
+    def test_github_database_workflow_fails_closed_without_fixture_credentials(self):
         """The authoritative database job cannot pass by silently skipping its suite."""
-        workflow = self.forgejo_integration_workflow
+        workflow = self.github_integration_workflow
         require_start = workflow.index("- name: Require SRQL fixture credentials")
         configure_start = workflow.index("- name: Configure SRQL fixture")
         sweep_start = workflow.index("- name: Sweep stale integration databases")

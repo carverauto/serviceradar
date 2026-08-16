@@ -3,6 +3,23 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.LoaderTest do
 
   alias ServiceRadar.Inventory.AdvisoryFeeds.Loader
 
+  describe "unchanged_advisory?/2" do
+    test "skips a CVE whose modified_at already matches" do
+      record = %{
+        advisory: %{
+          source_object_id: "CVE-2024-0001",
+          modified_at: "2024-01-02T00:00:00.000000Z"
+        },
+        coordinates: []
+      }
+
+      existing = %{"CVE-2024-0001" => ~U[2024-01-02 00:00:00.000000Z]}
+
+      assert Loader.unchanged_advisory?(record, existing)
+      refute Loader.unchanged_advisory?(record, %{})
+    end
+  end
+
   describe "dedupe_coordinate_rows/1" do
     test "keeps one row per advisory + type + value + version window" do
       advisory = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"

@@ -24,19 +24,15 @@ concurrency:
   cancel-in-progress: true
 
 permissions:
-  contents: read
+  contents: write
   id-token: write
 
 jobs:
   publish:
     runs-on: serviceradar-signing
-    container:
-      image: registry.carverauto.dev/serviceradar/forgejo-ci@sha256:4da98b050cbbbc66e6c823977a80a7b67db51a610e48c28fc2e066c1bb164a79
-      options: --user 1000:1000 --group-add 2375 --volume /var/run/secrets/kubernetes.io/serviceaccount/token:/var/run/secrets/kubernetes.io/serviceaccount/token:ro
-    enable-openid-connect: true
     environment: release
     env:
-      BUILDBUDDY_ORG_API_KEY: ${{ secrets.BUILDBUDDY_ORG_API_KEY }}
+      BUILDBUDDY_ORG_API_KEY: ${{ secrets.BUILDBUDDY_ORG_API_KEY || secrets.BUILDBUDDY_API_KEY }}
       OCI_REGISTRY: registry.carverauto.dev
       OCI_PROJECT: serviceradar
       OCI_USERNAME: ${{ secrets.HARBOR_ROBOT_USERNAME }}
@@ -64,9 +60,8 @@ jobs:
       # The OCI bundle's integrity is covered by the Cosign signature; there is no
       # bundle-level upload-signature for native add-ons (unlike wasm plugins).
       SERVICERADAR_AGENT_RELEASE_PRIVATE_KEY: ${{ secrets.SERVICERADAR_AGENT_RELEASE_PRIVATE_KEY }}
-      FORGEJO_TOKEN: ${{ secrets.FORGEJO_TOKEN }}
-      FORGEJO_URL: http://forgejo-http.forgejo.svc.cluster.local:3000
-      FORGEJO_REPOSITORY: carverauto/serviceradar
+      GH_TOKEN: ${{ github.token }}
+      GITHUB_TOKEN: ${{ github.token }}
       BAZELISK_HOME: ${{ github.workspace }}/.cache/bazelisk
       # Used by the publish, import-index and release-asset steps, which must all agree on
       # the tag they are naming. Computed once here rather than repeated per step.
@@ -97,9 +92,20 @@ jobs:
           release_tag="${publish_tag}"
           ./scripts/validate-release-tag.sh "${release_tag}"
           expected_ref="refs/tags/${release_tag}"
-          if [[ "${GITHUB_REF}" != "${expected_ref}" ]]; then
+          # Tag-push must run on the annotated tag ref. workflow_dispatch may
+          # use staging (or another branch) to recover a failed tag publish so
+          # long as the tag still points at a staging-reachable release commit.
+          if [[ "${GITHUB_EVENT_NAME}" != "workflow_dispatch" && "${GITHUB_REF}" != "${expected_ref}" ]]; then
             echo "Release tag ${release_tag} must be published from ${expected_ref}, got ${GITHUB_REF}" >&2
             exit 1
+          fi
+          if [[ "${GITHUB_EVENT_NAME}" == "workflow_dispatch" && "${GITHUB_REF}" != "${expected_ref}" ]]; then
+            echo "workflow_dispatch recovery for ${release_tag} from ${GITHUB_REF} (expected tag ref ${expected_ref})."
+          fi
+
+          git fetch --no-tags origin "+${expected_ref}:${expected_ref}" || true
+          if ! git rev-parse -q --verify "refs/tags/${release_tag}^{commit}" >/dev/null; then
+            git fetch --no-tags origin "refs/tags/${release_tag}:refs/tags/${release_tag}"
           fi
 
           tag_commit="$(git rev-list -n1 "refs/tags/${release_tag}^{commit}")"
@@ -210,7 +216,7 @@ jobs:
           #    analysis cache"
           #
           # --config=ci is REQUIRED, not tidiness. With NO config these targets build
-          # locally on the forgejo-ci runner, which has no linker, so the first Rust tool
+          # locally on the ARC runner, which has no linker, so the first Rust tool
           # bazel needs (rules_rust's process_wrapper) dies with
           #   collect2: fatal error: cannot find 'ld'
           # This step once carried a config that has since been deleted; removing it left the
@@ -228,7 +234,7 @@ jobs:
           # local disk for oras to upload them.
           BAZEL_BUILD_FLAGS: -c opt --config=ci --remote_download_outputs=all
           OPENBAO_ADDR: https://openbao-active.openbao-system.svc.cluster.local:8200
-          OPENBAO_K8S_ROLE: forgejo-signing-runner
+          OPENBAO_K8S_ROLE: github-signing-runner
           COSIGN_KEY_REF: hashivault://cosign-release
         run: |
           set -euo pipefail
@@ -288,10 +294,12 @@ jobs:
           jq '.addons | length' "${RUNNER_TEMP:-/tmp}/serviceradar-native-addon-index.json"
 
       - name: Upload import index release asset
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          if [[ -z "${FORGEJO_TOKEN:-}" ]]; then
-            echo "Missing Forgejo token. Set FORGEJO_TOKEN." >&2
+          if [[ -z "${GITHUB_TOKEN:-}" ]]; then
+            echo "Missing GITHUB_TOKEN." >&2
             exit 1
           fi
 
@@ -307,23 +315,24 @@ jobs:
             exit 1
           fi
 
-          api_base="${FORGEJO_URL}/api/v1/repos/${FORGEJO_REPOSITORY}"
+          api_base="https://api.github.com/repos/${GITHUB_REPOSITORY}"
+          gh_headers=(
+            -H "Accept: application/vnd.github+json"
+            -H "Authorization: Bearer ${GITHUB_TOKEN}"
+            -H "X-GitHub-Api-Version: 2022-11-28"
+          )
+
           fetch_release() {
             local release_json release_id releases_json
-            release_json="$(curl -sS \
-              -H "Accept: application/json" \
-              -H "Authorization: token ${FORGEJO_TOKEN}" \
+            release_json="$(curl -sS "${gh_headers[@]}" \
               "${api_base}/releases/tags/${release_tag}" || true)"
             release_id="$(echo "${release_json}" | jq -r 'select(type == "object") | .id // empty')"
             if [[ -n "${release_id}" ]]; then
               printf '%s\n' "${release_json}"
               return 0
             fi
-
-            releases_json="$(curl -sS \
-              -H "Accept: application/json" \
-              -H "Authorization: token ${FORGEJO_TOKEN}" \
-              "${api_base}/releases?draft=true&limit=100" || true)"
+            releases_json="$(curl -sS "${gh_headers[@]}" \
+              "${api_base}/releases?per_page=100" || true)"
             jq -c --arg tag "${release_tag}" \
               'first(.[] | select(.tag_name == $tag)) // empty' \
               <<<"${releases_json}" 2>/dev/null || true
@@ -331,18 +340,7 @@ jobs:
 
           release_json="$(fetch_release)"
           release_id="$(echo "${release_json}" | jq -r 'select(type == "object") | .id // empty')"
-
           if [[ -z "${release_id}" ]]; then
-            # Create the release as a DRAFT. This workflow runs concurrently with
-            # release.yml and almost always reaches this step first (≈9m in, while
-            # release.yml is still building images and has not created the release
-            # yet). When immutable releases are enforced, assets can only be attached
-            # to a draft — a published release rejects the index upload with HTTP 403.
-            # So we must own the draft here; release.yml's publish_packages then
-            # updates this same release in place (it only overwrites same-named
-            # assets, so our index survives) and its finalizer job publishes it.
-            # Tolerate a concurrent creator by re-fetching after a duplicate-tag
-            # response, matching the Wasm catalog publisher's behavior.
             create_json="$(
               jq -n \
                 --arg tag_name "${release_tag}" \
@@ -358,56 +356,24 @@ jobs:
                   prerelease: true
                 }' |
                 curl -sS -X POST \
-                  -H "Accept: application/json" \
+                  "${gh_headers[@]}" \
                   -H "Content-Type: application/json" \
-                  -H "Authorization: token ${FORGEJO_TOKEN}" \
                   -d @- \
                   "${api_base}/releases" || true
             )"
             release_id="$(echo "${create_json}" | jq -r 'select(type == "object") | .id // empty')"
-            if [[ -n "${release_id}" ]]; then
-              release_json="${create_json}"
-            else
+            if [[ -z "${release_id}" ]]; then
               release_json="$(fetch_release)"
               release_id="$(echo "${release_json}" | jq -r 'select(type == "object") | .id // empty')"
             fi
           fi
-
           if [[ -z "${release_id}" ]]; then
             echo "Unable to resolve or create release id for ${release_tag}" >&2
             exit 1
           fi
 
-          release_json="$(curl -sSf \
-            -H "Accept: application/json" \
-            -H "Authorization: token ${FORGEJO_TOKEN}" \
-            "${api_base}/releases/${release_id}")"
-          resolved_release_id="$(echo "${release_json}" | jq -r '.id // empty')"
-          if [[ "${resolved_release_id}" != "${release_id}" ]]; then
-            echo "Forgejo returned an unexpected release while resolving ${release_tag}" >&2
-            exit 1
-          fi
-
-          existing_asset_id="$(echo "${release_json}" | jq -r '.assets[]? | select(.name == "serviceradar-native-addon-index.json") | .id' | head -n1)"
-          if [[ -n "${existing_asset_id}" ]]; then
-            curl -sSf -X DELETE \
-              -H "Accept: application/json" \
-              -H "Authorization: token ${FORGEJO_TOKEN}" \
-              "${api_base}/releases/${release_id}/assets/${existing_asset_id}" >/dev/null
-          fi
-
-          curl -sSf -X POST \
-            -H "Accept: application/json" \
-            -H "Authorization: token ${FORGEJO_TOKEN}" \
-            -F "attachment=@${index_path}" \
-            "${api_base}/releases/${release_id}/assets?name=serviceradar-native-addon-index.json" >/dev/null
-
-          refreshed_release_json="$(curl -sSf -H "Accept: application/json" -H "Authorization: token ${FORGEJO_TOKEN}" \
-            "${api_base}/releases/${release_id}")"
-          uploaded_asset_id="$(echo "${refreshed_release_json}" | jq -r '.assets[]? | select(.name == "serviceradar-native-addon-index.json") | .id' | head -n1)"
-          if [[ -z "${uploaded_asset_id}" ]]; then
-            echo "Native add-on import index asset was not present after upload for ${release_tag}" >&2
-            exit 1
-          fi
-
+          ./scripts/upload-forgejo-release-asset.sh \
+            "${release_tag}" \
+            "${index_path}" \
+            serviceradar-native-addon-index.json
           echo "Uploaded serviceradar-native-addon-index.json to ${release_tag}"

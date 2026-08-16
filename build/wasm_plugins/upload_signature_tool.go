@@ -5,6 +5,8 @@ import (
 	"bytes"
 	"crypto/ed25519"
 	"crypto/sha256"
+	"crypto/tls"
+	"crypto/x509"
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
@@ -12,8 +14,10 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"net/http"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 
 	"gopkg.in/yaml.v3"
@@ -28,6 +32,8 @@ const (
 	uploadSigningPublicKeyFileEnv  = "PLUGIN_UPLOAD_SIGNING_PUBLIC_KEY_FILE"
 	uploadSigningKeyIDEnv          = "PLUGIN_UPLOAD_SIGNING_KEY_ID"
 	uploadSigningSignerEnv         = "PLUGIN_UPLOAD_SIGNING_SIGNER"
+	uploadSigningTransitKeyEnv     = "PLUGIN_UPLOAD_SIGNING_TRANSIT_KEY"
+	defaultUploadSigningTransitKey = "plugin-upload-signing"
 )
 
 var (
@@ -36,6 +42,10 @@ var (
 	errPublicKeyMissing      = errors.New("upload signing public key is not configured")
 	errPublicKeyInvalid      = errors.New("upload signing public key is invalid")
 	errSigningKeyIDMissing   = errors.New("upload signing key id is not configured")
+	errTransitAddrMissing    = errors.New("OpenBao/Vault address is not configured")
+	errTransitTokenMissing   = errors.New("OpenBao/Vault token is not configured")
+	errTransitSignFailed     = errors.New("transit upload signing failed")
+	errTransitPublicFailed   = errors.New("transit public key lookup failed")
 	errPluginManifestMissing = errors.New("plugin.yaml entry is missing")
 	errPluginWASMMissing     = errors.New("plugin.wasm entry is missing")
 	errUsage                 = errors.New("usage")
@@ -209,6 +219,9 @@ func runPublicKey(args []string) error {
 
 	publicKey, err := uploadSigningPublicKey()
 	if err != nil {
+		if transitConfigured() {
+			return err
+		}
 		privateKey, privateErr := uploadSigningPrivateKey()
 		if privateErr != nil {
 			return err
@@ -227,7 +240,7 @@ func buildUploadSignature(manifestBytes, wasmBytes []byte) (uploadSignature, err
 		return uploadSignature{}, err
 	}
 
-	privateKey, err := uploadSigningPrivateKey()
+	signatureValue, err := signUploadPayload(canonicalPayload)
 	if err != nil {
 		return uploadSignature{}, err
 	}
@@ -242,7 +255,6 @@ func buildUploadSignature(manifestBytes, wasmBytes []byte) (uploadSignature, err
 		signer = keyID
 	}
 
-	signatureValue := ed25519.Sign(privateKey, canonicalPayload)
 	return uploadSignature{
 		Algorithm:   signatureAlgorithm,
 		KeyID:       keyID,
@@ -510,6 +522,9 @@ func uploadSigningPublicKey() (ed25519.PublicKey, error) {
 			keyValue = strings.TrimSpace(string(content))
 		}
 	}
+	if keyValue == "" && transitConfigured() {
+		return transitPublicKey()
+	}
 	if keyValue == "" {
 		privateKey, err := uploadSigningPrivateKey()
 		if err != nil {
@@ -526,6 +541,198 @@ func uploadSigningPublicKey() (ed25519.PublicKey, error) {
 		return nil, fmt.Errorf("%w: expected %d bytes, got %d", errPublicKeyInvalid, ed25519.PublicKeySize, len(keyBytes))
 	}
 	return ed25519.PublicKey(keyBytes), nil
+}
+
+func signUploadPayload(canonicalPayload []byte) ([]byte, error) {
+	if transitConfigured() {
+		return transitSign(canonicalPayload)
+	}
+
+	privateKey, err := uploadSigningPrivateKey()
+	if err != nil {
+		return nil, err
+	}
+	return ed25519.Sign(privateKey, canonicalPayload), nil
+}
+
+func transitConfigured() bool {
+	if strings.TrimSpace(os.Getenv(uploadSigningTransitKeyEnv)) != "" {
+		return true
+	}
+	// A Vault/OpenBao session with no explicit private key means Transit.
+	if firstNonEmptyEnv("VAULT_TOKEN", "BAO_TOKEN") != "" &&
+		firstNonEmptyEnv("VAULT_ADDR", "BAO_ADDR", "OPENBAO_ADDR") != "" &&
+		strings.TrimSpace(os.Getenv(uploadSigningPrivateKeyEnv)) == "" &&
+		strings.TrimSpace(os.Getenv(uploadSigningPrivateKeyFileEnv)) == "" {
+		return true
+	}
+	return false
+}
+
+func transitKeyName() string {
+	if name := strings.TrimSpace(os.Getenv(uploadSigningTransitKeyEnv)); name != "" {
+		return name
+	}
+	return defaultUploadSigningTransitKey
+}
+
+func firstNonEmptyEnv(keys ...string) string {
+	for _, key := range keys {
+		if value := strings.TrimSpace(os.Getenv(key)); value != "" {
+			return value
+		}
+	}
+	return ""
+}
+
+func vaultAddr() string {
+	return strings.TrimRight(firstNonEmptyEnv("VAULT_ADDR", "BAO_ADDR", "OPENBAO_ADDR"), "/")
+}
+
+func vaultToken() string {
+	return firstNonEmptyEnv("VAULT_TOKEN", "BAO_TOKEN")
+}
+
+func vaultHTTPClient() (*http.Client, error) {
+	tlsConfig := &tls.Config{MinVersion: tls.VersionTLS12}
+	if skip := strings.ToLower(firstNonEmptyEnv("VAULT_SKIP_VERIFY", "BAO_SKIP_VERIFY")); skip == "1" || skip == "true" || skip == "yes" {
+		tlsConfig.InsecureSkipVerify = true
+	}
+	if caFile := firstNonEmptyEnv("VAULT_CACERT", "BAO_CACERT", "OPENBAO_CACERT"); caFile != "" {
+		pemBytes, err := os.ReadFile(caFile)
+		if err != nil {
+			return nil, err
+		}
+		pool := x509.NewCertPool()
+		if !pool.AppendCertsFromPEM(pemBytes) {
+			return nil, fmt.Errorf("unable to parse CA file %s", caFile)
+		}
+		tlsConfig.RootCAs = pool
+	}
+	return &http.Client{
+		Transport: &http.Transport{TLSClientConfig: tlsConfig},
+	}, nil
+}
+
+func transitSign(canonicalPayload []byte) ([]byte, error) {
+	if vaultAddr() == "" {
+		return nil, errTransitAddrMissing
+	}
+	if vaultToken() == "" {
+		return nil, errTransitTokenMissing
+	}
+
+	body, err := json.Marshal(map[string]string{
+		"input": base64.StdEncoding.EncodeToString(canonicalPayload),
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	var response struct {
+		Data struct {
+			Signature string `json:"signature"`
+		} `json:"data"`
+		Errors []string `json:"errors"`
+	}
+	if err := vaultJSON(http.MethodPost, "/v1/transit/sign/"+transitKeyName(), body, &response); err != nil {
+		return nil, err
+	}
+	if len(response.Errors) > 0 {
+		return nil, fmt.Errorf("%w: %s", errTransitSignFailed, strings.Join(response.Errors, "; "))
+	}
+
+	sigB64 := response.Data.Signature
+	if idx := strings.LastIndex(sigB64, ":"); idx >= 0 {
+		sigB64 = sigB64[idx+1:]
+	}
+	signature, err := decodeSigningValue(sigB64)
+	if err != nil {
+		return nil, fmt.Errorf("%w: %v", errTransitSignFailed, err)
+	}
+	if len(signature) != ed25519.SignatureSize {
+		return nil, fmt.Errorf("%w: expected %d-byte signature, got %d", errTransitSignFailed, ed25519.SignatureSize, len(signature))
+	}
+	return signature, nil
+}
+
+func transitPublicKey() (ed25519.PublicKey, error) {
+	if vaultAddr() == "" {
+		return nil, errTransitAddrMissing
+	}
+	if vaultToken() == "" {
+		return nil, errTransitTokenMissing
+	}
+
+	var response struct {
+		Data struct {
+			LatestVersion int                       `json:"latest_version"`
+			Keys          map[string]map[string]any `json:"keys"`
+		} `json:"data"`
+		Errors []string `json:"errors"`
+	}
+	if err := vaultJSON(http.MethodGet, "/v1/transit/keys/"+transitKeyName(), nil, &response); err != nil {
+		return nil, err
+	}
+	if len(response.Errors) > 0 {
+		return nil, fmt.Errorf("%w: %s", errTransitPublicFailed, strings.Join(response.Errors, "; "))
+	}
+
+	version := response.Data.LatestVersion
+	if version == 0 {
+		version = 1
+	}
+	entry := response.Data.Keys[strconv.Itoa(version)]
+	if entry == nil {
+		return nil, fmt.Errorf("%w: missing version %d", errTransitPublicFailed, version)
+	}
+	pubValue, _ := entry["public_key"].(string)
+	keyBytes, err := decodeSigningValue(pubValue)
+	if err != nil {
+		return nil, fmt.Errorf("%w: %v", errTransitPublicFailed, err)
+	}
+	if len(keyBytes) > ed25519.PublicKeySize {
+		keyBytes = keyBytes[len(keyBytes)-ed25519.PublicKeySize:]
+	}
+	if len(keyBytes) != ed25519.PublicKeySize {
+		return nil, fmt.Errorf("%w: expected %d-byte public key, got %d", errTransitPublicFailed, ed25519.PublicKeySize, len(keyBytes))
+	}
+	return ed25519.PublicKey(keyBytes), nil
+}
+
+func vaultJSON(method, path string, body []byte, dest any) error {
+	client, err := vaultHTTPClient()
+	if err != nil {
+		return err
+	}
+	var reader io.Reader
+	if body != nil {
+		reader = bytes.NewReader(body)
+	}
+	req, err := http.NewRequest(method, vaultAddr()+path, reader)
+	if err != nil {
+		return err
+	}
+	req.Header.Set("X-Vault-Token", vaultToken())
+	if body != nil {
+		req.Header.Set("Content-Type", "application/json")
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	payload, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return err
+	}
+	if resp.StatusCode >= 300 {
+		return fmt.Errorf("%w: %s: %s", errTransitSignFailed, resp.Status, strings.TrimSpace(string(payload)))
+	}
+	if dest == nil {
+		return nil
+	}
+	return json.Unmarshal(payload, dest)
 }
 
 func decodeSigningValue(value string) ([]byte, error) {

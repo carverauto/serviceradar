@@ -51,7 +51,8 @@ The **Observability** section collects telemetry data:
 
 - **Diagnostics → MTR** — run interactive traceroutes (My Traceroute) to a
   target, review past traces, and compare two traces side by side. For scheduled
-  MTR checks, see [Agent Configuration](./agent-configuration.md).
+  checks, see [Agent Configuration](./agent-configuration.md). For automated
+  baseline and dashboard **No MTR**, see [MTR Path Monitoring](./mtr.md).
 
 ## Querying your data
 

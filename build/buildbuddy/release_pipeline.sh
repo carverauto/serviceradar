@@ -209,7 +209,9 @@ fi
 WASM_PUSH_ARGS+=("--tag" "${TAG}")
 
 if [[ "${PUSH_DRY_RUN:-0}" != "1" ]]; then
-    require_env "PLUGIN_UPLOAD_SIGNING_PRIVATE_KEY"
+    if [[ -z "${PLUGIN_UPLOAD_SIGNING_TRANSIT_KEY:-}" && -z "${VAULT_TOKEN:-}${BAO_TOKEN:-}" ]]; then
+        require_env "PLUGIN_UPLOAD_SIGNING_PRIVATE_KEY"
+    fi
     require_env "PLUGIN_UPLOAD_SIGNING_KEY_ID"
 fi
 

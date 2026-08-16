@@ -14,7 +14,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 #
-# Runs the same two clippy passes as .forgejo/workflows/rust-lint.yml, so a clean run here
+# Runs the same two clippy passes as .github/workflows/rust-lint.yml, so a clean run here
 # means that gate is green. Reachable as `make format`.
 #
 # Clippy is on cargo rather than Bazel because this repo wires up no clippy aspect: there is

@@ -47,7 +47,7 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.FeedRegistry do
       display_name: "VulnCheck nist-nvd2 (NVD CPE)",
       feed_type: @default_feed_type,
       requires_credential: true,
-      refresh_interval_seconds: 21_600
+      refresh_interval_seconds: 86_400
     }
   ]
 
