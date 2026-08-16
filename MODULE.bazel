@@ -29,7 +29,6 @@ git_override(
 # @openssl would break that pairing. zstd and zlib have no such coupling.
 bazel_dep(name = "zstd", version = "1.5.7.bcr.1")
 bazel_dep(name = "zlib", version = "1.3.2")
-
 bazel_dep(name = "rules_python", version = "2.2.0")
 bazel_dep(name = "rules_nodejs", version = "6.7.5")
 bazel_dep(name = "rules_proto", version = "7.1.0")
@@ -56,6 +55,9 @@ bazel_dep(name = "rules_foreign_cc", version = "0.15.1")
 bazel_dep(name = "aspect_rules_js", version = "2.6.0")
 bazel_dep(name = "aspect_rules_ts", version = "3.7.0")
 bazel_dep(name = "rules_cc", version = "0.2.22")
+
+# OpenSSL as cc_library; The one consumer is openssl-sys (annotation below), which in turn feeds pq-src.
+bazel_dep(name = "openssl", version = "3.5.5.bcr.4")
 bazel_dep(name = "buildifier_prebuilt", version = "8.5.1.3")
 bazel_dep(name = "aspect_bazel_lib", version = "2.22.5")
 bazel_dep(name = "llvm", version = "0.8.17")
@@ -309,6 +311,7 @@ llvm = use_extension("@llvm//extensions:llvm.bzl", "llvm")
 # and runtime-library incompatibility rather than as a clean error.
 # The tag is mandatory: with no llvm.version the extension fails with "Missing llvm.version(...)".
 llvm.version(llvm_version = "22.1.6")
+use_repo(llvm, "llvm-project")
 
 # The macOS sysroot, overriding the one @llvm pins for faster download.
 osx = use_extension("@llvm//extensions:osx.bzl", "osx")
@@ -323,13 +326,6 @@ osx.from_archive(
 
 register_toolchains("@llvm//toolchain:all")
 
-# The only consumer here is //third_party/perl, whose configure_make builds the Perl that
-# OpenSSL's Configure needs. Bootstrapping a make to build a perl to build an openssl is a
-# lot of source builds to keep working through a compiler upgrade; the executor image
-# already carries make. Registering here puts it ahead of the built_ toolchain, since a
-# dependency's registrations are ordered after the root module's.
-register_toolchains("@rules_foreign_cc//toolchains:preinstalled_make_toolchain")
-
 # --- RBE Toolchain and platforms  ----------------------------------
 register_execution_platforms(
     "//build/platforms:linux_x86_64",
@@ -340,7 +336,6 @@ register_execution_platforms(
 
 # --- Rust toolchain bootstrap -----------------------------------------------
 rules_rs_rules_rust = use_extension("@rules_rs//rs:rules_rust.bzl", "rules_rust")
-
 use_repo(rules_rs_rules_rust, "rules_rust")
 
 rules_rust_prost = use_extension("@rules_rs//rs:rules_rust_prost.bzl", "rules_rust_prost")
@@ -374,14 +369,9 @@ RUST_PLATFORMS = [
     "x86_64-unknown-linux-musl",
 ]
 
-# Crate sources are vendored as .crate archives in //third_party/crate_mirror, reached
-# through --distdir rather than through the dependency graph. Historical note: crates_vendor wrote
-# a crate_universe BUILD.bazel next to every crate plus a defs.bzl/crates.bzl hub; rules_rs
-# generates its own BUILD file per crate and its own hub, so those files are gone and the
-# a BUILD file next to every crate plus a hub; the archive mirror carries sources only, and
-# a BUILD file next to every crate plus a hub; the archive mirror carries sources only and
-# symlinked from there instead of downloaded, and anything missing still falls back to the
-# registry. See openspec migrate-bazel-rust-crate-vendoring for the tree's history.
+# Crate sources are vendored as .crate archives in //third_party/crate_mirror, reached through
+# --distdir rather than through the dependency graph: rules_rs generates its own BUILD file per
+# crate, so the mirror carries sources only, and anything missing falls back to the registry.
 crate = use_extension("@rules_rs//rs:extensions.bzl", "crate")
 
 # External repositories that Cargo.toml annotations refer to by name.
@@ -389,10 +379,18 @@ crate.repo_alias(
     name = "zstd",
     repo = "@zstd",
 )
-
 crate.repo_alias(
     name = "zlib",
     repo = "@zlib",
+)
+
+# pq-src compiles libpq's TLS sources in its own build-script action. openssl-sys hands it
+# the include path through DEP_OPENSSL_INCLUDE, but a path is not an input: without the tree
+# artifact staged in that action's sandbox too, the compile fails on `openssl/ssl.h` not
+# found while pointing straight at the directory that holds it.
+crate.repo_alias(
+    name = "openssl_gen_dir",
+    repo = "@openssl//:gen_dir",
 )
 
 crate.from_cargo(
@@ -402,57 +400,41 @@ crate.from_cargo(
     platform_triples = RUST_PLATFORMS,
 )
 
+# openssl-sys: link the OpenSSL that @openssl builds, instead of building one.
+#
+# OPENSSL_NO_VENDOR turns off the openssl-src path and OPENSSL_STATIC picks the archives over
+# the shared libraries collated beside them. @openssl//:gen_dir is a directory laid out the
+# way openssl-sys expects: include/openssl/*.h and lib/lib{ssl,crypto}.a.
+#
+# LIB_DIR and INCLUDE_DIR rather than the one OPENSSL_DIR that would imply both. openssl-sys'
+# find_normal.rs reads that pair FIRST and returns before it ever looks at OPENSSL_DIR, so
+# whoever sets the pair decides which OpenSSL gets linked. //.bazelrc used to set it to /usr
+# and no longer does; naming both here means this annotation decides, rather than depending on
+# an env var's continued absence. (The `vendored` feature short-circuited all of this, which is
+# why the old setting was harmless and invisible at the same time.)
+#
+# pq-src reads DEP_OPENSSL_INCLUDE, which openssl-sys emits from this same directory, so
+# libpq's TLS code compiles against the headers the Rust bindings were generated from and
+# links the archives they were checked against. That pairing is why openssl-sys used to have
+# to build OpenSSL itself; it holds here because both sides resolve through one build script.
 crate.annotation(
-    build_script_data = [
-        "//third_party/rust_patches:openssl_perl_wrapper",
-        "@crates//:openssl_src_readme",
-        "@crates//:openssl_src_runfiles",
-        "@crates//:openssl_src_version_marker",
-    ],
+    build_script_data = ["@openssl//:gen_dir"],
     build_script_env = {
-        "OPENSSL_SRC_PERL": "$(execpath @@//third_party/rust_patches:openssl_perl_wrapper)",
-        # Absolute $(location) into the vendored openssl/ source. The patched
-        # openssl-src source_dir() reads this (a marker file) and uses its parent as the
-        # OpenSSL source root -- robust against the crate's stale baked CARGO_MANIFEST_DIR under Bazel sandboxing.
-        "RULES_RUST_OPENSSL_SRC_DIR": "$(location @crates//:openssl_src_version_marker)",
+        "OPENSSL_INCLUDE_DIR": "$(execpath @openssl//:gen_dir)/include",
+        "OPENSSL_LIB_DIR": "$(execpath @openssl//:gen_dir)/lib",
+        "OPENSSL_NO_VENDOR": "1",
+        "OPENSSL_STATIC": "1",
     },
     crate = "openssl-sys",
-    # OpenSSL bakes its own build configuration into libcrypto.a -- ENGINESDIR,
-    # MODULESDIR and the full compiler command line, the strings `openssl version -a`
-    # reports -- and openssl-sys links that archive, so the execroot appears in its
-    # rlib. Measured, not inferred: 15 occurrences, all inside that build-info block.
-    # No Rust source change can remove them, which is why this is a tag rather than a
-    # patch.
-    tags = ["no-check-output-for-working-dir"],
+    data = ["@openssl//:gen_dir"],
     gen_build_script = "on",
     repositories = ["crates"],
 )
 
-# pq-src builds libpq from source, and its build.rs needs the same treatment openssl-src
-# did: the patch is now a declared input rather than something a vendor script applied
-# invisibly to the vendored tree. See //third_party/rust_patches/pq_src_fortify_patch.
+# @openssl is a bazel_dep of the root module, not of the generated hub, so the label above
+# is not resolvable from @crates without this.
+inject_repo(crate, "openssl")
 
-# openssl-src: expose its C source tree to openssl-sys' build script.
-#
-# `extra_aliased_targets` is load-bearing and not cosmetic. A label written in a
-# crate.annotation is resolved against MODULE.bazel -- the root repository -- so a relative
-# label cannot name a target in the generated crate package the way crates_vendor's
-# annotations could. Aliasing each filegroup into the hub gives openssl-sys below a label it
-# can actually write. Every alias here is also emitted unversioned, because openssl-src has
-# exactly one version in //:Cargo.lock.
-#
-# The source patch is declared as an annotation `patches` entry, so it is a real build
-# input. It used to be applied to the vendored tree on disk instead, which meant
-# would apply it a second time, to an already-patched source.
-
-# openssl-sys: perl wrapper + point the build at the vendored openssl-src source. openssl-sys
-# builds a from-source (vendored) OpenSSL for libpq (pq-sys bundled), which is what makes the
-# build portable.
-#
-# Do NOT take rules_rs's "well-known annotation" suggestion of @openssl + OPENSSL_NO_VENDOR=1:
-# pq-src links against the OpenSSL openssl-sys builds, which is why both are pinned and
-# patched here. gen_build_script = "on" only silences that warning -- rules_rs branches on
-# "off" alone (repository_utils.bzl:117), so it changes nothing.
 use_repo(crate, "crates")
 
 # rdp-connector-probe is deliberately detached from the workspace (its own Cargo.lock), so it
@@ -470,9 +452,9 @@ rdp_connector_crates.from_cargo(
 # Cargo.toml because @zlib is an external-repo label; see the zstd-sys note above.
 rdp_connector_crates.annotation(
     crate = "libz-sys",
-    deps = ["@zlib"],
     gen_build_script = "off",
     repositories = ["rdp_connector_crates"],
+    deps = ["@zlib"],
 )
 
 # aws-lc-sys is never compiled. Both rustls consumers here -- the probe and sspi -- pin
@@ -1980,24 +1962,6 @@ http_file(
     sha256 = "1ea16f15f1217bde66ac9c7d0262c7126b7bb1b2d60e14e8fa0982456139ae6e",
     urls = [
         "https://github.com/SocketDev/sfw-free/releases/download/v1.10.0/sfw-free-linux-x86_64",
-    ],
-)
-
-http_archive(
-    name = "perl_src",
-    build_file_content = """
-filegroup(
-    name = "all_sources",
-    srcs = glob(["**"], exclude = ["BUILD", "BUILD.bazel"]),
-    visibility = ["//visibility:public"],
-)
-""",
-    patch_args = ["-p1"],
-    patches = ["//third_party/perl:add_configure_wrapper.patch"],
-    sha256 = "d5325300ad267624cb0b7d512cfdfcd74fa7fe00c455c5b51a6bd53e5e199ef9",
-    strip_prefix = "perl-5.40.0",
-    urls = [
-        "https://www.cpan.org/src/5.0/perl-5.40.0.tar.xz",
     ],
 )
 
