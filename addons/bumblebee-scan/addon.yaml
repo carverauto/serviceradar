@@ -6,7 +6,7 @@
 # spool the non-root agent already ingests.
 id: bumblebee
 name: Bumblebee Exposure Scanner
-version: 0.1.3
+version: 0.1.4
 description: >-
   Root-owned local exposure scanner for developer and package-manager artifacts.
   Runs on a systemd timer and writes sanitized findings to the Bumblebee spool

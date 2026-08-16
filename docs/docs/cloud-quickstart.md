@@ -591,7 +591,10 @@ Flow-derived BGP analytics and BMP notes: [BGP Routing](./bgp-routing.md).
 **Where:** **Settings → MTR** (`/settings/networks/mtr`)
 
 Create scheduled / diagnostic MTR profiles for path baselining. Interactive
-traces also live under **Diagnostics → MTR**.
+traces also live under **Diagnostics → MTR**. Dashboard Latency / Packet
+Loss stay at **No MTR** until traces exist: enable `core.mtrAutomation`
+baseline on Helm installs, then point the policy at a connected agent.
+Setup: [MTR Path Monitoring](./mtr.md).
 
 ---
 

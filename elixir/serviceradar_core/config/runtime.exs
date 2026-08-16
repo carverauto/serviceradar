@@ -337,7 +337,8 @@ config :serviceradar_core,
 
 config :serviceradar_core,
   # AshCloak encryption key (required for PII encryption)
-  geolite_mmdb_dir: geolite_dir
+  geolite_mmdb_dir: geolite_dir,
+  egress_proxy: ServiceRadar.HTTP.EgressProxy.from_env()
 
 if is_map(remote_access_ssh_certificate_policy) and
      map_size(remote_access_ssh_certificate_policy) > 0 do

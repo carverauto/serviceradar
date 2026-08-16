@@ -290,7 +290,9 @@ for the failure mode and recovery instructions.
 
 ### MTR Automation Rollout
 
-Use `core.mtrAutomation` to stage automated MTR behavior on core-elx:
+Operator setup (policy, preferred agent, dashboard **No MTR**) is in
+`docs/docs/mtr.md`. Use `core.mtrAutomation` to stage automated MTR
+behavior on core-elx:
 
 ```yaml
 core:

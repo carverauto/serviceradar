@@ -522,6 +522,9 @@ sudo timeout 30 tcpdump -i any -n port 2055 -w netflow-capture.pcap
 
 ## MTR Automation
 
+Full setup (policy, preferred agent, dashboard **No MTR**) is in
+[MTR Path Monitoring](./mtr.md). This section is the flag matrix only.
+
 ServiceRadar can run automated MTR (My Traceroute) captures to baseline network
 paths and react to state transitions. The behavior is controlled with feature
 flags in `serviceradar_core` — no code changes required.

@@ -28,6 +28,18 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.StagingTest do
     refute File.exists?(paths.run_dir)
   end
 
+  test "latest_extract returns the newest shard dir", %{root: root} do
+    {:ok, older} = Staging.prepare_run("nist-nvd2", "older", root)
+    {:ok, newer} = Staging.prepare_run("nist-nvd2", "newer", root)
+    File.write!(Path.join(older.extracted_dir, "nvdcve-2.0-000.json.gz"), "old")
+    File.write!(Path.join(newer.extracted_dir, "nvdcve-2.0-001.json.gz"), "new")
+    File.touch!(older.run_dir, System.system_time(:second) - 60)
+
+    extract = Staging.latest_extract("nist-nvd2", root)
+    assert extract.run_dir == newer.run_dir
+    assert extract.extracted_dir == newer.extracted_dir
+  end
+
   test "reap_orphans removes only dirs older than the window", %{root: root} do
     {:ok, old} = Staging.prepare_run("nist-nvd2", "old-run", root)
     {:ok, fresh} = Staging.prepare_run("nist-nvd2", "fresh-run", root)

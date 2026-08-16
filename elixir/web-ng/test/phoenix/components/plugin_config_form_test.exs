@@ -87,10 +87,12 @@ defmodule ServiceRadarWebNGWeb.Components.PluginConfigFormTest do
       })
 
     assert html =~ "Timeout"
-    refute html =~ "Password Secret"
-    refute html =~ "API Key Secret"
+    assert html =~ "Password Secret"
+    assert html =~ "API Key Secret"
+    assert html =~ "Provided by credential rules"
     refute html =~ ~s(assignment[params][password_secret_ref])
     refute html =~ ~s(assignment[params][api_key_secret_ref])
+    refute html =~ ~s(type="password")
   end
 
   test "does not render internal broker fields" do

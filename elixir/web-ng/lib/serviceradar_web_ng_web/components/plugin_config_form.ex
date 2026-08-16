@@ -29,7 +29,7 @@ defmodule ServiceRadarWebNGWeb.PluginConfigForm do
       schema
       |> Map.get("properties", %{})
       |> Enum.split_with(fn {name, prop} ->
-        credential_materialized?(prop) and not assignment_secret_property?(name)
+        credential_materialized?(prop) or assignment_secret_coverage_property?(name, prop)
       end)
 
     properties =
@@ -333,6 +333,10 @@ defmodule ServiceRadarWebNGWeb.PluginConfigForm do
   end
 
   defp assignment_secret_property?(_name), do: false
+
+  defp assignment_secret_coverage_property?(name, prop) do
+    assignment_secret_property?(name) and secret_ref?(prop)
+  end
 
   defp advanced?(%{} = prop), do: Map.get(prop, "x-serviceradar-ui-advanced") == true
   defp advanced?(_), do: false

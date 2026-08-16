@@ -382,8 +382,7 @@ fn run_capture(
                 &request.interface_name,
                 captured_at_unix_nanos,
                 captured_at_monotonic_nanos,
-            )
-                && tx.blocking_send(Ok(observation)).is_err()
+            ) && tx.blocking_send(Ok(observation)).is_err()
             {
                 return Ok(false);
             }

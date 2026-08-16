@@ -171,6 +171,22 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.InterfaceRuntime do
     end
   end
 
+  def select_favorited_metrics(socket, key) do
+    panels = get_in(socket.assigns, [:interface_metrics, :panels]) || []
+    assign(socket, :selected_favorited_metrics_key, InterfaceData.reconcile_favorited_metrics_key(panels, key))
+  end
+
+  def reconcile_favorited_metrics_selection(socket) do
+    panels = get_in(socket.assigns, [:interface_metrics, :panels]) || []
+    current = Map.get(socket.assigns, :selected_favorited_metrics_key)
+
+    assign(
+      socket,
+      :selected_favorited_metrics_key,
+      InterfaceData.reconcile_favorited_metrics_key(panels, current)
+    )
+  end
+
   def enable_favorited_metrics(socket, srql_module) do
     favorited = socket.assigns.favorited_interfaces
 

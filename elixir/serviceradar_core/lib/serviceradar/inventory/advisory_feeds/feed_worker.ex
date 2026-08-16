@@ -6,8 +6,9 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.FeedWorker do
 
     * `"cisa-kev"`     — CISA KEV JSON, ~hourly enrichment
     * `"vulncheck-kev"`— VulnCheck KEV backup (CISA-KEV-shaped array), 6h
-    * `"nist-nvd2"`    — VulnCheck nist-nvd2 backup (full NVD CPE dataset), 6h,
-                          gated by both the feature flag and a sub-gate
+    * `"nist-nvd2"`    — VulnCheck nist-nvd2 backup (full NVD CPE dataset), daily,
+                          gated by both the feature flag and a sub-gate. Resumes
+                          an in-progress generation after a core restart.
     * `"nvd-api"`      — NVD CVE 2.0 REST fallback (stub; not wired in this slice
                           and intentionally NOT in `@feeds`, so it is never
                           scheduled — `do_run/1` keeps the stub for future wiring)
@@ -69,6 +70,7 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.FeedWorker do
   def ensure_scheduled do
     if ObanSupport.available?() do
       _ = Staging.reap_orphans()
+      reclaim_dead_node_jobs()
       reconcile_stale_runs()
 
       if Config.enabled?() do
@@ -125,7 +127,7 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.FeedWorker do
     ServiceRadar.Repo.delete_all(
       from(j in Oban.Job,
         where: j.worker == ^@worker_name,
-        where: j.state in ["available", "scheduled", "retryable"],
+        where: j.state in ["available", "scheduled", "retryable", "executing"],
         where: fragment("?->>'feed' = ?", j.args, ^feed)
       ),
       prefix: ObanSupport.prefix()
@@ -197,11 +199,14 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.FeedWorker do
             %{
               last_status: "success",
               last_success_at: DateTime.utc_now(),
-              last_message: "loaded #{result.advisories_upserted} advisories",
+              last_message:
+                "loaded #{result.advisories_upserted} advisories" <>
+                  skip_suffix(result),
               last_error: nil,
               metadata: %{
                 "advisories" => result.advisories_upserted,
                 "coordinates" => result.coordinates_upserted,
+                "skipped" => Map.get(result, :advisories_skipped, 0),
                 "generation" => result.generation
               }
             },
@@ -239,6 +244,101 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.FeedWorker do
     schedule_next(feed)
     {:error, reason}
   end
+
+  @doc false
+  def orphan_executing_job?(job, live_owners, now \\ DateTime.utc_now())
+
+  def orphan_executing_job?(%{state: "executing", args: args} = job, live_owners, now) do
+    owner = job |> Map.get(:attempted_by) |> List.wrap() |> List.first()
+    feed = args["feed"] || args[:feed]
+    age = job_age_seconds(job, now)
+
+    cond do
+      is_binary(owner) and owner not in live_owners -> true
+      is_integer(age) and age >= reclaim_after_seconds(feed) -> true
+      true -> false
+    end
+  end
+
+  def orphan_executing_job?(_job, _live_owners, _now), do: false
+
+  @doc false
+  def live_owner_names(nodes \\ [Node.self() | Node.list()]) do
+    MapSet.new(nodes, &to_string/1)
+  end
+
+  defp reclaim_dead_node_jobs(now \\ DateTime.utc_now()) do
+    live_owners = live_owner_names()
+    actor = SystemActor.system(:advisory_feed_worker)
+
+    Enum.each(@feeds, fn feed ->
+      feed
+      |> executing_jobs()
+      |> Enum.filter(&orphan_executing_job?(&1, live_owners, now))
+      |> Enum.each(fn job ->
+        owner = job |> Map.get(:attempted_by) |> List.wrap() |> List.first()
+        _ = discard_orphan_job(job, now)
+
+        Logger.warning("advisory_feeds: discarded orphaned #{feed} job #{job.id}",
+          owner: owner
+        )
+
+        mark_status(
+          feed,
+          %{
+            last_status: "error",
+            last_failure_at: now,
+            last_error: "orphaned executing job; owner #{owner} is gone"
+          },
+          actor
+        )
+      end)
+    end)
+  end
+
+  defp executing_jobs(feed) do
+    import Ecto.Query
+
+    query =
+      from(j in Oban.Job,
+        where: j.worker == ^@worker_name,
+        where: j.state == "executing",
+        where: fragment("?->>'feed' = ?", j.args, ^feed)
+      )
+
+    ServiceRadar.Repo.all(query, prefix: ObanSupport.prefix())
+  rescue
+    _ -> []
+  end
+
+  defp discard_orphan_job(%Oban.Job{} = job, now) do
+    discarded_at =
+      case now do
+        %DateTime{} = dt -> DateTime.to_naive(dt)
+        other -> other
+      end
+
+    job
+    |> Ecto.Changeset.change(state: "discarded", discarded_at: discarded_at)
+    |> ServiceRadar.Repo.update(prefix: ObanSupport.prefix())
+  rescue
+    error -> {:error, error}
+  end
+
+  defp job_age_seconds(%{attempted_at: %DateTime{} = attempted_at}, %DateTime{} = now) do
+    DateTime.diff(now, attempted_at, :second)
+  end
+
+  defp job_age_seconds(%{attempted_at: %NaiveDateTime{} = attempted_at}, %DateTime{} = now) do
+    NaiveDateTime.diff(DateTime.to_naive(now), attempted_at, :second)
+  end
+
+  defp job_age_seconds(_job, _now), do: 0
+
+  # Just past the Oban timeout so a live run is not discarded, but a
+  # producer that died without releasing `executing` cannot pin unique.
+  defp reclaim_after_seconds("nist-nvd2"), do: 65 * 60
+  defp reclaim_after_seconds(_feed), do: 5 * 60
 
   @doc false
   def reconcile_stale_runs(now \\ DateTime.utc_now()) do
@@ -303,8 +403,15 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.FeedWorker do
   defp do_run("nist-nvd2") do
     if Staging.volume_available?() do
       with {:ok, token} <- Config.vulncheck_token(),
-           {:ok, acquired} <- Acquisition.acquire_vulncheck("nist-nvd2", token, run_id()) do
-        with_run_cleanup(acquired, fn -> parse_and_load_nvd(acquired) end)
+           {:ok, index} <- Acquisition.resolve_backup_index("nist-nvd2", token),
+           {:ok, acquired, resume} <- reuse_or_acquire_nvd(token, index) do
+        result = parse_and_load_nvd(acquired, resume)
+
+        if match?({:ok, _}, result) do
+          Staging.cleanup_run(acquired.run_dir)
+        end
+
+        result
       end
     else
       Logger.warning(
@@ -346,28 +453,241 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.FeedWorker do
     {:ok, result}
   end
 
-  defp parse_and_load_nvd(acquired) do
+  defp parse_and_load_nvd(acquired, resume) do
     provider = "nvd"
     feed_key = "nist-nvd2"
 
-    records =
-      acquired.extracted_dir
-      |> StreamReader.stream_nvd_shards()
-      |> Stream.flat_map(fn {:ok, record} ->
-        case Parsers.Nvd.parse_record(record, provider: provider, feed_key: feed_key) do
-          {:ok, mapped} -> [mapped]
-          :skip -> []
-        end
-      end)
+    generation =
+      case resume.generation do
+        :next -> Loader.next_generation(provider, feed_key)
+        n when is_integer(n) -> n
+      end
 
-    generation = Loader.next_generation(provider, feed_key)
+    Logger.info("advisory_feeds: nist-nvd2 loading generation #{generation}",
+      after_shard: resume.after_shard,
+      extract_dir: acquired.extracted_dir
+    )
+
+    existing_modified = Loader.existing_modified_at(provider, feed_key)
 
     result =
-      Loader.load_stream(records, provider: provider, feed_key: feed_key, generation: generation)
+      acquired.extracted_dir
+      |> StreamReader.nvd_shard_paths(after: resume.after_shard)
+      |> Enum.reduce(
+        %{
+          advisories_upserted: 0,
+          coordinates_upserted: 0,
+          advisories_skipped: 0,
+          generation: generation
+        },
+        fn shard_path, acc ->
+          shard = Path.basename(shard_path)
+
+          shard_result =
+            shard_path
+            |> StreamReader.stream_nvd_shard()
+            |> Stream.flat_map(fn {:ok, record} ->
+              case Parsers.Nvd.parse_record(record, provider: provider, feed_key: feed_key) do
+                {:ok, mapped} -> [mapped]
+                :skip -> []
+              end
+            end)
+            |> Loader.load_stream(
+              provider: provider,
+              feed_key: feed_key,
+              generation: generation,
+              existing_modified: existing_modified
+            )
+
+          persist_nvd_checkpoint(%{
+            "generation" => generation,
+            "extract_dir" => acquired.extracted_dir,
+            "run_dir" => acquired.run_dir,
+            "sha256" => resume.sha256,
+            "last_completed_shard" => shard
+          })
+
+          %{
+            acc
+            | advisories_upserted: acc.advisories_upserted + shard_result.advisories_upserted,
+              coordinates_upserted: acc.coordinates_upserted + shard_result.coordinates_upserted,
+              advisories_skipped: acc.advisories_skipped + shard_result.advisories_skipped
+          }
+        end
+      )
 
     Loader.finalize(provider, feed_key, generation)
+    clear_nvd_checkpoint(result)
     {:ok, result}
   end
+
+  @doc false
+  def resume_plan(opts) when is_list(opts) do
+    resume_plan(
+      Keyword.get(opts, :checkpoint),
+      Keyword.get(opts, :extract),
+      Keyword.get(opts, :in_progress_generation),
+      Keyword.get(opts, :sha256)
+    )
+  end
+
+  def resume_plan(checkpoint, extract, in_progress_generation, sha256) do
+    extract_dir = extract_dir(extract, checkpoint)
+    sha_ok? = sha_matches?(checkpoint, sha256)
+
+    cond do
+      existing_dir?(extract_dir) and sha_ok? and checkpoint_generation(checkpoint) ->
+        {:reuse,
+         %{
+           generation: checkpoint_generation(checkpoint),
+           after_shard: checkpoint_shard(checkpoint),
+           extract: extract || extract_from_checkpoint(checkpoint),
+           sha256: sha256
+         }}
+
+      existing_dir?(extract_dir) and is_integer(in_progress_generation) ->
+        {:reuse,
+         %{
+           generation: in_progress_generation,
+           after_shard: checkpoint_shard(checkpoint),
+           extract: extract || extract_from_checkpoint(checkpoint),
+           sha256: sha256
+         }}
+
+      existing_dir?(extract_dir) ->
+        {:reuse,
+         %{
+           generation: :next,
+           after_shard: nil,
+           extract: extract || extract_from_checkpoint(checkpoint),
+           sha256: sha256
+         }}
+
+      true ->
+        :download
+    end
+  end
+
+  defp reuse_or_acquire_nvd(token, index) when is_map(index) do
+    sha256 = index["sha256"]
+    checkpoint = nvd_checkpoint()
+    extract = Staging.latest_extract("nist-nvd2")
+    in_progress = Loader.in_progress_generation("nvd", "nist-nvd2")
+
+    case resume_plan(checkpoint, extract, in_progress, sha256) do
+      {:reuse, resume} ->
+        Logger.info("advisory_feeds: nist-nvd2 resuming extract",
+          generation: resume.generation,
+          after_shard: resume.after_shard
+        )
+
+        {:ok, acquired_from_extract(resume.extract, sha256), resume}
+
+      :download ->
+        with {:ok, acquired} <- Acquisition.acquire_vulncheck("nist-nvd2", token, run_id()) do
+          {:ok, acquired, %{generation: :next, after_shard: nil, sha256: sha256, extract: nil}}
+        end
+    end
+  end
+
+  defp acquired_from_extract(extract, sha256) when is_map(extract) do
+    %{
+      extracted_dir: extract.extracted_dir || extract["extract_dir"],
+      run_dir: extract.run_dir || extract["run_dir"],
+      download_path: Map.get(extract, :download_path) || Map.get(extract, "download_path"),
+      format: :json_gz_shards,
+      source_url: nil,
+      sha256: sha256
+    }
+  end
+
+  defp nvd_checkpoint do
+    actor = SystemActor.system(:advisory_feed_worker)
+
+    case read_definition("nvd", "nist-nvd2", actor) do
+      {:ok, %{metadata: metadata}} when is_map(metadata) -> metadata["nvd_checkpoint"]
+      _ -> nil
+    end
+  end
+
+  defp persist_nvd_checkpoint(checkpoint) when is_map(checkpoint) do
+    actor = SystemActor.system(:advisory_feed_worker)
+
+    case read_definition("nvd", "nist-nvd2", actor) do
+      {:ok, %{metadata: metadata}} ->
+        mark_status(
+          "nist-nvd2",
+          %{metadata: Map.put(metadata || %{}, "nvd_checkpoint", checkpoint)},
+          actor
+        )
+
+      _ ->
+        :ok
+    end
+  end
+
+  defp clear_nvd_checkpoint(result) when is_map(result) do
+    actor = SystemActor.system(:advisory_feed_worker)
+
+    case read_definition("nvd", "nist-nvd2", actor) do
+      {:ok, %{metadata: metadata}} ->
+        mark_status(
+          "nist-nvd2",
+          %{
+            metadata:
+              (metadata || %{})
+              |> Map.delete("nvd_checkpoint")
+              |> Map.merge(%{
+                "advisories" => result.advisories_upserted,
+                "coordinates" => result.coordinates_upserted,
+                "skipped" => Map.get(result, :advisories_skipped, 0),
+                "generation" => result.generation
+              })
+          },
+          actor
+        )
+
+      _ ->
+        :ok
+    end
+  end
+
+  defp extract_dir(extract, checkpoint) do
+    cond do
+      is_map(extract) -> extract.extracted_dir || extract[:extracted_dir]
+      is_map(checkpoint) -> checkpoint["extract_dir"]
+      true -> nil
+    end
+  end
+
+  defp extract_from_checkpoint(checkpoint) when is_map(checkpoint) do
+    %{
+      extracted_dir: checkpoint["extract_dir"],
+      run_dir: checkpoint["run_dir"],
+      download_path: nil
+    }
+  end
+
+  defp extract_from_checkpoint(_), do: nil
+
+  defp existing_dir?(dir) when is_binary(dir), do: File.dir?(dir)
+  defp existing_dir?(_), do: false
+
+  defp sha_matches?(_checkpoint, sha256) when sha256 in [nil, ""], do: true
+  defp sha_matches?(nil, _sha256), do: true
+
+  defp sha_matches?(checkpoint, sha256) when is_map(checkpoint) do
+    stored = checkpoint["sha256"]
+    stored in [nil, "", sha256]
+  end
+
+  defp sha_matches?(_checkpoint, _sha256), do: true
+
+  defp checkpoint_generation(%{"generation" => n}) when is_integer(n), do: n
+  defp checkpoint_generation(_), do: nil
+
+  defp checkpoint_shard(%{"last_completed_shard" => shard}) when is_binary(shard), do: shard
+  defp checkpoint_shard(_), do: nil
 
   defp parse_kev({record, provider, feed_key}) do
     case Parsers.Kev.parse_record(record, provider: provider, feed_key: feed_key) do
@@ -426,6 +746,11 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.FeedWorker do
 
     :ok
   end
+
+  defp skip_suffix(%{advisories_skipped: skipped}) when is_integer(skipped) and skipped > 0,
+    do: " (#{skipped} unchanged)"
+
+  defp skip_suffix(_result), do: ""
 
   defp run_id do
     DateTime.utc_now()

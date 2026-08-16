@@ -92,4 +92,7 @@ To protect the agent and the network, all remotely supplied MTR values are
 
 MTR checks can also be run interactively from the Web UI under
 **Diagnostics → MTR**, and recurring MTR profiles are managed under
-**Settings → Networks → MTR**.
+**Settings → Networks → MTR**. Automated baseline (the path that fills
+dashboard Latency / Packet Loss) needs Helm `core.mtrAutomation` plus an
+enabled policy pointed at a connected agent. See
+[MTR Path Monitoring](./mtr.md).

@@ -36,6 +36,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"time"
 
 	agentaddon "github.com/carverauto/serviceradar/go/pkg/agent/addon"
 )
@@ -196,6 +197,11 @@ func InstallAddonSystemdUnits(ctx context.Context, req AddonSystemdInstallReques
 		_ = runSystemctl(ctx, "daemon-reload")
 	}
 
+	// Staged binaries under /var/lib inherit SELinux var_lib_t; systemd cannot
+	// exec that label (203/EXEC). Relabel before enable --now so the first start
+	// is not doomed on Enforcing hosts. Missing chcon is ignored.
+	relabelStagedAddonExecutables(req.RuntimeRoot, req.AddonID)
+
 	for _, u := range resolved {
 		dest := filepath.Join(systemdUnitDir, u.name)
 		preExisted := false
@@ -331,6 +337,69 @@ func renderSystemdResourceDropIn(res agentaddon.Resources) string {
 	}
 
 	return b.String()
+}
+
+// relabelStagedAddonExecutables sets SELinux type bin_t on staged add-on
+// binaries so systemd (init_t) can exec them. Files under /var/lib default to
+// var_lib_t, which produces status=203/EXEC on Enforcing hosts. chcon is
+// best-effort: absent SELinux tools or a disabled policy must not fail install.
+func relabelStagedAddonExecutables(runtimeRoot, addonID string) {
+	for _, path := range stagedAddonExecutables(runtimeRoot, addonID) {
+		relabelPathAsBinT(path)
+	}
+}
+
+func stagedAddonExecutables(runtimeRoot, addonID string) []string {
+	if !safeAddonSegment(addonID) {
+		return nil
+	}
+
+	currentDir := filepath.Join(resolveAddonArtifactRoot(runtimeRoot), addonID, addonCurrentLink)
+	entries, err := os.ReadDir(currentDir)
+	if err != nil {
+		return nil
+	}
+
+	var out []string
+	for _, entry := range entries {
+		if entry.IsDir() {
+			continue
+		}
+		info, err := entry.Info()
+		if err != nil || !isStagedAddonExecutable(entry.Name(), info.Mode()) {
+			continue
+		}
+		out = append(out, filepath.Join(currentDir, entry.Name()))
+	}
+	sort.Strings(out)
+
+	return out
+}
+
+func isStagedAddonExecutable(name string, mode os.FileMode) bool {
+	if !mode.IsRegular() || mode&0o111 == 0 {
+		return false
+	}
+	switch {
+	case strings.HasSuffix(name, ".service"),
+		strings.HasSuffix(name, ".timer"),
+		strings.HasSuffix(name, ".json"),
+		strings.HasSuffix(name, ".o"):
+		return false
+	default:
+		return true
+	}
+}
+
+func relabelPathAsBinT(path string) {
+	chcon, err := exec.LookPath("chcon")
+	if err != nil {
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	_ = exec.CommandContext(ctx, chcon, "-t", "bin_t", path).Run()
 }
 
 // containsString reports whether s is in list.

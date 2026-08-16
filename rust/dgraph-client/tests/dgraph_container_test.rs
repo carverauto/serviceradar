@@ -227,7 +227,6 @@ fn dgraph_client_acceptance() {
     let stopped = docker.stop_container(&container_id, false);
     stopped.expect("failed to stop dgraph container");
     println!("✅ all scenarios passed; container '{container_id}' stopped");
-
 }
 
 /// Every scenario, in order. Ordering matters: several call `drop_all`.

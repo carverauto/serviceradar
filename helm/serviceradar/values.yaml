@@ -519,6 +519,10 @@ core:
   #   SERVICERADAR_THREAT_INTEL_ENGINE_MATCH_ENABLED: "true"
   #   SERVICERADAR_GEO_TAG_DERIVATION_ENABLED: "false"
   #   SERVICERADAR_PREFIX_TAGS_LOADER_ENABLED: "true"
+  # FQDN-allowlist CONNECT proxy (Smokescreen). Finch uses this for every
+  # outbound HTTPS fetch (advisory feeds, GeoLite, OTX, …). Pair it with a
+  # default-deny egress NetworkPolicy that admits only that Service:
+  #   SERVICERADAR_EGRESS_PROXY: "http://smokescreen.egress.svc.cluster.local:4750"
   extraEnv: {}
   # Extra environment variables sourced from Kubernetes secrets/configmaps.
   # OpenBao providers can also use Kubernetes auth with the pod service account
@@ -1168,6 +1172,8 @@ webNg:
   # Trusted Ed25519 public key used to verify signed agent release manifests.
   agentReleasePublicKey: "ZY2//cpkD3oVdC6q4Cg6lN1I2M6SgmDMzL4QyQjptH8="
   # Extra environment variables for the web-ng pod.
+  # SERVICERADAR_EGRESS_PROXY: same CONNECT proxy as core.extraEnv. web-ng
+  # starts serviceradar_core, so Finch picks it up from this env.
   extraEnv: {}
   # Extra environment variables sourced from Kubernetes secrets/configmaps.
   # Keep credentials out of extraEnv so Helm release values and rendered

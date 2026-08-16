@@ -86,6 +86,22 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.InterfaceDataMetricsTest do
 
     assert metrics.panels != []
     assert is_nil(metrics.action)
+    [panel] = metrics.panels
+    assert panel.id == "if-29"
+    assert panel.assigns.if_index == 29
+    assert panel.assigns.interface_name == "br0"
+    assert InterfaceData.favorited_metrics_panel_key(panel) == "29"
+  end
+
+  test "reconciles the selected favorited metrics tab to a live panel" do
+    panels = [
+      %{id: "if-29", assigns: %{if_index: 29, interface_name: "br0"}},
+      %{id: "if-9", assigns: %{if_index: 9, interface_name: "eth9"}}
+    ]
+
+    assert InterfaceData.reconcile_favorited_metrics_key(panels, "9") == "9"
+    assert InterfaceData.reconcile_favorited_metrics_key(panels, "missing") == "29"
+    assert InterfaceData.selected_favorited_metrics_panel(panels, "9").assigns.interface_name == "eth9"
   end
 
   test "enabled favorites with no samples point at the polling agent" do

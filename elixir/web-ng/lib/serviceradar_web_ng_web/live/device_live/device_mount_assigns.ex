@@ -97,6 +97,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.DeviceMountAssigns do
     |> assign(:interface_metrics, nil)
     |> assign(:interface_metrics_loading, false)
     |> assign(:interface_metrics_request_ref, nil)
+    |> assign(:selected_favorited_metrics_key, nil)
     |> assign(:metrics_enabled_interfaces, MapSet.new())
     |> assign(:device_flows, [])
     |> assign(:flows_error, nil)

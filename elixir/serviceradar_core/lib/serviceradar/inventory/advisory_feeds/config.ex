@@ -28,7 +28,7 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.Config do
   @refresh_seconds %{
     "cisa-kev" => 3_600,
     "vulncheck-kev" => 21_600,
-    "nist-nvd2" => 21_600,
+    "nist-nvd2" => 86_400,
     "nvd-api" => 21_600
   }
 

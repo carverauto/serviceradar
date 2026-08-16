@@ -67,6 +67,7 @@ const sidebars: SidebarsConfig = {
         {type: 'doc', id: 'sweep-banner-grab', label: 'Sweep Banner Grab'},
         {type: 'doc', id: 'syn-scanner-tuning', label: 'SYN Scanner Tuning'},
         {type: 'doc', id: 'sysmon-profiles', label: 'Sysmon Profiles'},
+        {type: 'doc', id: 'mtr', label: 'MTR Path Monitoring'},
         {type: 'doc', id: 'fingerprint-architecture', label: 'Fingerprint Architecture'},
         {type: 'doc', id: 'rperf', label: 'Network Performance Testing'},
       ],

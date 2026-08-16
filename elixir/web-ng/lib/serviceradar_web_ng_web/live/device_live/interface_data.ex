@@ -141,6 +141,36 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.InterfaceData do
     end
   end
 
+  def favorited_metrics_panel_key(%{assigns: assigns} = panel) when is_map(assigns) do
+    cond do
+      is_integer(Map.get(assigns, :if_index)) -> Integer.to_string(assigns.if_index)
+      is_binary(panel.id) and panel.id != "" -> panel.id
+      is_binary(Map.get(assigns, :interface_name)) -> assigns.interface_name
+      is_binary(Map.get(assigns, :interface_label)) -> assigns.interface_label
+      true -> "metrics"
+    end
+  end
+
+  def favorited_metrics_panel_key(_panel), do: "metrics"
+
+  def selected_favorited_metrics_panel(panels, selected_key) when is_list(panels) do
+    Enum.find(panels, &(favorited_metrics_panel_key(&1) == selected_key)) || List.first(panels)
+  end
+
+  def selected_favorited_metrics_panel(_panels, _selected_key), do: nil
+
+  def reconcile_favorited_metrics_key(panels, selected_key) when is_list(panels) do
+    keys = Enum.map(panels, &favorited_metrics_panel_key/1)
+
+    cond do
+      is_binary(selected_key) and selected_key in keys -> selected_key
+      keys == [] -> nil
+      true -> List.first(keys)
+    end
+  end
+
+  def reconcile_favorited_metrics_key(_panels, _selected_key), do: nil
+
   def upsert_interface_setting(_scope, nil, _interface_uid, _attrs), do: {:error, :no_device}
   def upsert_interface_setting(_scope, _device_uid, nil, _attrs), do: {:error, :no_interface}
 
@@ -471,12 +501,18 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.InterfaceData do
 
   defp build_interface_panels(srql_response, iface_name, if_index, reference_lines) do
     MetricsPanels.from_srql(srql_response,
+      id: interface_panel_id(if_index),
       chart_mode: :combined,
-      interface_label: "#{iface_name} (ifIndex: #{if_index})",
+      interface_label: iface_name,
+      interface_name: iface_name,
+      if_index: if_index,
       max_speed_bytes_per_sec: nil,
       reference_lines: reference_lines
     )
   end
+
+  defp interface_panel_id(if_index) when is_integer(if_index), do: "if-#{if_index}"
+  defp interface_panel_id(_if_index), do: "timeseries"
 
   def interface_reference_lines(interface, max_speed_bytes_per_sec) when is_map(interface) do
     metric_lines =

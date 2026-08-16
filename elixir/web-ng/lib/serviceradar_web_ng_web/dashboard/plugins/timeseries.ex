@@ -78,6 +78,7 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries do
     combined_title = Map.get(panel_assigns || %{}, :combined_title)
     compact_title = Map.get(panel_assigns || %{}, :compact_title)
     rate_mode = Map.get(panel_assigns || %{}, :rate_mode, :none)
+    series_layout = normalize_series_layout(Map.get(panel_assigns || %{}, :series_layout, :grid))
 
     y_scale =
       panel_assigns
@@ -111,6 +112,7 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries do
       |> assign(:combined_title, combined_title)
       |> assign(:compact_title, compact_title)
       |> assign(:rate_mode, rate_mode)
+      |> assign(:series_layout, series_layout)
       |> assign(:y_scale, y_scale)
       |> assign(:chart_width, Paths.chart_width())
       |> assign(:chart_height, Paths.chart_height())
@@ -175,6 +177,7 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries do
       |> assign(:series_data, individual_series)
       |> assign(:combined_charts, combined_charts)
       |> assign(:empty_state, empty_state)
+      |> assign(:series_layout, normalize_series_layout(Map.get(assigns, :series_layout, :grid)))
       |> assign(:first_dt, Points.first_dt(series_points))
       |> assign(:last_dt, Points.last_dt(series_points))
 
@@ -619,6 +622,17 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries do
 
   defp parse_number(_value), do: nil
 
+  defp normalize_series_layout(layout) when layout in [:stack, "stack"], do: :stack
+  defp normalize_series_layout(_layout), do: :grid
+
+  defp series_grid_class(series_data, :stack) when is_list(series_data), do: "grid-cols-1"
+
+  defp series_grid_class(series_data, _layout) when is_list(series_data) and length(series_data) > 1 do
+    "grid-cols-1 md:grid-cols-2"
+  end
+
+  defp series_grid_class(_series_data, _layout), do: "grid-cols-1"
+
   defp safe_to_string(nil), do: ""
   defp safe_to_string(value) when is_binary(value), do: value
   defp safe_to_string(value) when is_integer(value), do: Integer.to_string(value)
@@ -800,10 +814,11 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries do
 
         <div
           :if={@series_data != []}
+          data-testid="timeseries-series-grid"
+          data-series-layout={@series_layout}
           class={[
             "grid gap-4",
-            length(@series_data) > 1 && "grid-cols-1 md:grid-cols-2",
-            length(@series_data) <= 1 && "grid-cols-1"
+            series_grid_class(@series_data, @series_layout)
           ]}
         >
           <%= for data <- @series_data do %>

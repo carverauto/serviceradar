@@ -30,18 +30,17 @@ defmodule ServiceRadarWebNGWeb.InterfaceLive.MetricsPanels do
             plugin: Timeseries,
             title: Keyword.get(opts, :title, "Timeseries"),
             assigns:
-              maybe_put(
-                %{
-                  spec: spec,
-                  series_points: series_points,
-                  chart_mode: Keyword.get(opts, :chart_mode, :combined),
-                  rate_mode: :rate,
-                  max_speed_bytes_per_sec: Keyword.get(opts, :max_speed_bytes_per_sec),
-                  reference_lines: Keyword.get(opts, :reference_lines, [])
-                },
-                :interface_label,
-                Keyword.get(opts, :interface_label)
-              )
+              %{
+                spec: spec,
+                series_points: series_points,
+                chart_mode: Keyword.get(opts, :chart_mode, :combined),
+                rate_mode: :rate,
+                max_speed_bytes_per_sec: Keyword.get(opts, :max_speed_bytes_per_sec),
+                reference_lines: Keyword.get(opts, :reference_lines, [])
+              }
+              |> maybe_put(:interface_label, Keyword.get(opts, :interface_label))
+              |> maybe_put(:interface_name, Keyword.get(opts, :interface_name))
+              |> maybe_put(:if_index, Keyword.get(opts, :if_index))
           }
         ]
 

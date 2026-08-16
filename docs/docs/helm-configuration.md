@@ -107,6 +107,25 @@ knobs). Rather than duplicate that reference here, see:
 Inspect the current defaults for your chart version with
 `helm show values oci://registry.carverauto.dev/serviceradar/charts/serviceradar --version <chart-version>`.
 
+## MTR automation
+
+Helm defaults `core.mtrAutomation.enabled` and `baselineEnabled` to
+`false`. Dashboard Latency / Packet Loss stay at **No MTR** until those
+workers run and an enabled policy dispatches to a connected agent.
+
+```yaml
+core:
+  mtrAutomation:
+    enabled: true
+    baselineEnabled: true
+    triggerEnabled: false
+    consensusEnabled: false
+```
+
+Policy setup, preferred-agent targeting, and verification:
+[MTR Path Monitoring](./mtr.md). Flag matrix and rollback:
+[Troubleshooting](./troubleshooting-guide.md#mtr-automation).
+
 ## Public web and edge-agent endpoints
 
 ServiceRadar publishes two independent paths during agent onboarding:

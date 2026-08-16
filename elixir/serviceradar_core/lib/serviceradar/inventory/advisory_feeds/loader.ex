@@ -39,6 +39,7 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.Loader do
   @type load_result :: %{
           advisories_upserted: non_neg_integer(),
           coordinates_upserted: non_neg_integer(),
+          advisories_skipped: non_neg_integer(),
           generation: integer()
         }
 
@@ -47,16 +48,48 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.Loader do
   """
   @spec next_generation(String.t(), String.t()) :: integer()
   def next_generation(provider, feed_key) do
+    case max_generation(provider, feed_key) do
+      nil -> 1
+      max -> max + 1
+    end
+  end
+
+  @doc """
+  Generation that was written but never finalized (`current` is still false).
+
+  A core restart mid-load leaves rows in this generation. Resume writes
+  the same generation instead of allocating another incomplete copy.
+  """
+  @spec in_progress_generation(String.t(), String.t()) :: integer() | nil
+  def in_progress_generation(provider, feed_key) do
+    current = current_generation(provider, feed_key)
+    newest = max_generation(provider, feed_key)
+
+    cond do
+      is_integer(newest) and is_nil(current) -> newest
+      is_integer(newest) and is_integer(current) and newest > current -> newest
+      true -> nil
+    end
+  end
+
+  defp max_generation(provider, feed_key) do
     query =
       from(a in "vulnerability_advisories",
         where: a.provider == ^provider and a.feed_key == ^feed_key,
         select: max(a.generation)
       )
 
-    case Repo.one(query, prefix: @schema) do
-      nil -> 1
-      max -> max + 1
-    end
+    Repo.one(query, prefix: @schema)
+  end
+
+  defp current_generation(provider, feed_key) do
+    query =
+      from(a in "vulnerability_advisories",
+        where: a.provider == ^provider and a.feed_key == ^feed_key and a.current == true,
+        select: max(a.generation)
+      )
+
+    Repo.one(query, prefix: @schema)
   end
 
   @doc """
@@ -77,20 +110,66 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.Loader do
     chunk_size = Keyword.get(opts, :chunk_size, @default_chunk_size)
     now = Keyword.get(opts, :now, DateTime.utc_now())
 
-    init = %{advisories_upserted: 0, coordinates_upserted: 0, generation: generation}
+    existing_modified =
+      Keyword.get_lazy(opts, :existing_modified, fn ->
+        existing_modified_at(provider, feed_key)
+      end)
+
+    init = %{
+      advisories_upserted: 0,
+      coordinates_upserted: 0,
+      advisories_skipped: 0,
+      generation: generation
+    }
 
     records
     |> Stream.chunk_every(chunk_size)
     |> Enum.reduce(init, fn chunk, acc ->
-      {adv, coord} = flush_chunk(chunk, provider, feed_key, generation, now)
+      {changed, skipped} =
+        Enum.split_with(chunk, &(not unchanged_advisory?(&1, existing_modified)))
+
+      {adv, coord} = flush_chunk(changed, provider, feed_key, generation, now)
 
       %{
         acc
         | advisories_upserted: acc.advisories_upserted + adv,
-          coordinates_upserted: acc.coordinates_upserted + coord
+          coordinates_upserted: acc.coordinates_upserted + coord,
+          advisories_skipped: acc.advisories_skipped + length(skipped)
       }
     end)
   end
+
+  @doc false
+  def existing_modified_at(provider, feed_key) do
+    query =
+      from(a in "vulnerability_advisories",
+        where: a.provider == ^provider and a.feed_key == ^feed_key,
+        select: {a.source_object_id, a.modified_at}
+      )
+
+    query
+    |> Repo.all(prefix: @schema)
+    |> Map.new()
+  end
+
+  @doc false
+  def unchanged_advisory?(%{advisory: advisory}, existing_modified) do
+    source_object_id = fetch(advisory, :source_object_id)
+    incoming = parse_datetime(fetch(advisory, :modified_at))
+
+    case Map.fetch(existing_modified, source_object_id) do
+      {:ok, existing} -> same_modified?(existing, incoming)
+      :error -> false
+    end
+  end
+
+  def unchanged_advisory?(_record, _existing_modified), do: false
+
+  defp same_modified?(%DateTime{} = left, %DateTime{} = right) do
+    DateTime.compare(left, right) == :eq
+  end
+
+  defp same_modified?(_left, _right), do: false
 
   @doc """
   Promote `generation` to current and demote all earlier generations.
@@ -98,19 +177,22 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.Loader do
   """
   @spec finalize(String.t(), String.t(), integer(), keyword()) :: :ok
   def finalize(provider, feed_key, generation, opts \\ []) do
+    # Unchanged CVEs were skipped and still carry the previous generation.
+    # Promote them in place (two cheap columns, no jsonb rewrite) so a
+    # completed incremental run stays one current generation.
     Repo.update_all(
       from(a in "vulnerability_advisories",
-        where: a.provider == ^provider and a.feed_key == ^feed_key and a.generation == ^generation
+        where: a.provider == ^provider and a.feed_key == ^feed_key and a.generation != ^generation
       ),
-      [set: [current: true]],
+      [set: [generation: generation, current: true]],
       prefix: @schema
     )
 
     Repo.update_all(
       from(a in "vulnerability_advisories",
-        where: a.provider == ^provider and a.feed_key == ^feed_key and a.generation != ^generation
+        where: a.provider == ^provider and a.feed_key == ^feed_key and a.generation == ^generation
       ),
-      [set: [current: false]],
+      [set: [current: true]],
       prefix: @schema
     )
 
@@ -135,6 +217,8 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.Loader do
 
     :ok
   end
+
+  defp flush_chunk([], _provider, _feed_key, _generation, _now), do: {0, 0}
 
   defp flush_chunk(chunk, provider, feed_key, generation, now) do
     advisory_rows =
