@@ -2,8 +2,9 @@
 
 Device risk scoring from NVD + KEV + CWE, Findings UI with KEV floor, and
 an EventWriter pull-inflight fix so traces and OTLP metrics stop going
-silent after a long-lived core. Also ships multi-arch web-ng/core-elx and
-moves lint/check CI onto GitHub ARC.
+silent after a long-lived core. Also ships multi-arch web-ng/core-elx,
+moves lint/check CI onto GitHub ARC, and points Settings first-party
+plugin/add-on import at GitHub Releases instead of Forgejo.
 
 ## Whats New
 
@@ -30,10 +31,14 @@ moves lint/check CI onto GitHub ARC.
   #5002)
 - CI: lint and check workflows run on GitHub ARC. SRQL fixture TLS is
   issued with cert-manager and a live CA. Bootstrap scratch DROP
-  cancellation no longer fails core s7. First-party Forgejo imports no
-  longer fail closed when `code.carverauto.dev` resolves privately on
-  RBE. The cache-proxy config test now ships the GitHub integration
-  workflow in its runfiles. (PRs #5010, #3768, #5005)
+  cancellation no longer fails core s7. The cache-proxy config test now
+  ships the GitHub integration workflow in its runfiles. (PRs #5010,
+  #3768, #5005)
+- Plugins: Settings first-party Wasm plugin and native add-on import
+  now reads GitHub Releases (`github.com/carverauto/serviceradar`) plus
+  Harbor OCI, not Forgejo. `ForgejoOciClient` is gone; the shared
+  transport is `FirstPartyReleaseClient`. `GitHubImporter` is unchanged
+  and still fetches source-tree `plugin.yaml`/`plugin.wasm`.
 - Web UI: boolean device-fact keys in composite checks are a combobox,
   not free text. (PR #4997)
 

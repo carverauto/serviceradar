@@ -299,7 +299,7 @@ spec:
           value: "true"
         # The ServiceRadar RELEASE this deployment corresponds to -- not the
         # container image tag. web-ng uses it to fetch plugin and native add-on
-        # assets from the matching Forgejo release, and to show a version in the
+        # assets from the matching GitHub release, and to show a version in the
         # product status UI (`deployed_release_version/0` strips the `v`).
         #
         # These were the same value until now, which only worked when deploying
@@ -488,7 +488,7 @@ spec:
         - name: SERVICERADAR_GOD_VIEW_SNAPSHOT_COALESCE_MS
           value: {{ default 0 $webNgGodView.snapshotCoalesceMs | quote }}
         - name: SERVICERADAR_FIRST_PARTY_PLUGIN_REPO_URL
-          value: {{ default "https://code.carverauto.dev/carverauto/serviceradar" $webNgFirstPartyImport.repoUrl | quote }}
+          value: {{ default "https://github.com/carverauto/serviceradar" $webNgFirstPartyImport.repoUrl | quote }}
         - name: SERVICERADAR_FIRST_PARTY_PLUGIN_INDEX_ASSET
           value: {{ default "serviceradar-wasm-plugin-index.json" $webNgFirstPartyImport.indexAssetName | quote }}
         - name: SERVICERADAR_FIRST_PARTY_PLUGIN_AUTO_SYNC
@@ -522,7 +522,7 @@ spec:
           value: {{ $webNgFirstPartyImport.registryDockerConfigFile | quote }}
         {{- end }}
         - name: SERVICERADAR_NATIVE_ADDON_REPO_URL
-          value: {{ default "https://code.carverauto.dev/carverauto/serviceradar" $webNgNativeAddonImport.repoUrl | quote }}
+          value: {{ default "https://github.com/carverauto/serviceradar" $webNgNativeAddonImport.repoUrl | quote }}
         - name: SERVICERADAR_NATIVE_ADDON_INDEX_ASSET
           value: {{ default "serviceradar-native-addon-index.json" $webNgNativeAddonImport.indexAssetName | quote }}
         - name: SERVICERADAR_NATIVE_ADDON_AUTO_SYNC

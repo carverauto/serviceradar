@@ -1,6 +1,6 @@
 defmodule ServiceRadarWebNG.Plugins.NativeAddonImporter do
   @moduledoc """
-  Imports a first-party native add-on from a trusted Forgejo release into a staged
+  Imports a first-party native add-on from a trusted GitHub release into a staged
   `AddonPackage` (issue 3425, add-native-addon-build-signing §4.1). The web-ng
   counterpart to `FirstPartyImporter`: it owns transport + discovery trust (OCI +
   Cosign) and delegates per-arch artifact trust + persistence to the core
@@ -14,7 +14,8 @@ defmodule ServiceRadarWebNG.Plugins.NativeAddonImporter do
   `config.schema.json` and the assembled per-arch artifacts go to
   `Core.import_entry/4`, which verifies each tarball's agent-release ed25519
   signature, mirrors it (`NativeAddonArtifactMirror`), and creates the staged
-  `AddonPackage`. All HTTP/OCI/Cosign/URL transport is the shared `ForgejoOciClient`.
+  `AddonPackage`. All HTTP/OCI/Cosign/URL transport is the shared
+  `FirstPartyReleaseClient`.
   """
 
   alias ServiceRadar.Actors.SystemActor
@@ -23,7 +24,7 @@ defmodule ServiceRadarWebNG.Plugins.NativeAddonImporter do
   alias ServiceRadar.Plugins.NativeAddonArtifactMirror
   alias ServiceRadar.Plugins.NativeAddonImporter, as: Core
   alias ServiceRadar.Plugins.RetiredNativeAddons
-  alias ServiceRadarWebNG.Plugins.ForgejoOciClient, as: Client
+  alias ServiceRadarWebNG.Plugins.FirstPartyReleaseClient, as: Client
 
   Module.register_attribute(__MODULE__, :sobelow_skip, accumulate: true)
 
@@ -84,11 +85,11 @@ defmodule ServiceRadarWebNG.Plugins.NativeAddonImporter do
   def list_recent_addons_with_summary(_attrs, _limit), do: {:error, :invalid_attributes}
 
   @doc """
-  Lists native add-ons from one exact Forgejo release.
+  Lists native add-ons from one exact GitHub release.
 
   Automatic synchronization uses this path so the catalog is anchored to the
   immutable ServiceRadar release currently running, rather than depending on the
-  ordering or completeness of Forgejo's recent-release feed.
+  ordering or completeness of GitHub's recent-release feed.
   """
   @spec list_release_addons(map(), String.t()) :: {:ok, [map()]} | {:error, term()}
   def list_release_addons(attrs, release_tag) when is_map(attrs) do
