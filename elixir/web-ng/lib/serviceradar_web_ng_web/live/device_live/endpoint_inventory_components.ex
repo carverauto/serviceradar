@@ -3,6 +3,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.EndpointInventoryComponents do
 
   use ServiceRadarWebNGWeb, :html
 
+  alias ServiceRadarWebNGWeb.DeviceLive.EndpointInventoryFindings
+
   @stale_scan_seconds 26 * 60 * 60
 
   attr(:scan, :any, default: nil)
@@ -14,6 +16,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.EndpointInventoryComponents do
   attr(:stored_package_count, :integer, default: 0)
   attr(:artifacts, :list, default: [])
   attr(:vulnerability_matches, :list, default: [])
+  attr(:cpe_catalog_current, :boolean, default: true)
   attr(:error, :string, default: nil)
   attr(:has_inventory, :boolean, default: false)
   attr(:show_controls, :boolean, default: false)
@@ -82,6 +85,16 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.EndpointInventoryComponents do
       </div>
 
       <.software_state_notice state={@software_state} />
+
+      <.ui_alert
+        :if={@cpe_catalog_current == false}
+        variant="warning"
+        class="mx-4 mt-4"
+        data-testid="cpe-catalog-notice"
+      >
+        CPE catalog is not current. Version-accurate NVD matches are unavailable; KEV name
+        matches are lower confidence.
+      </.ui_alert>
 
       <div
         :if={inventory_row_mismatch?(@scan, @stored_package_count)}
@@ -477,13 +490,19 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.EndpointInventoryComponents do
   attr(:show, :boolean, default: false)
   attr(:package, :any, default: nil)
   attr(:matches, :list, default: [])
+  attr(:cpe_catalog_current, :boolean, default: true)
 
   @doc """
   Detail modal for a single Current Packages row. Renders the full package
   coordinate plus any vulnerability matches scoped to this device + package.
   """
   def endpoint_inventory_package_modal(assigns) do
-    assigns = assign(assigns, :match_count, length(assigns.matches || []))
+    findings = EndpointInventoryFindings.group(assigns.matches || [])
+
+    assigns =
+      assigns
+      |> assign(:findings, findings)
+      |> assign(:match_count, length(findings))
 
     ~H"""
     <div
@@ -542,9 +561,19 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.EndpointInventoryComponents do
               Vulnerability Details
             </h4>
             <.ui_badge :if={@match_count > 0} size="sm" variant="error">
-              {@match_count} {if @match_count == 1, do: "match", else: "matches"}
+              {@match_count} {if @match_count == 1, do: "CVE", else: "CVEs"}
             </.ui_badge>
           </div>
+
+          <.ui_alert
+            :if={@cpe_catalog_current == false}
+            variant="warning"
+            class="mb-3"
+            data-testid="cpe-catalog-notice"
+          >
+            CPE catalog is not current. These findings are name matches, not version-accurate
+            NVD CPE hits.
+          </.ui_alert>
 
           <div
             :if={@match_count == 0}
@@ -554,76 +583,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.EndpointInventoryComponents do
           </div>
 
           <div :if={@match_count > 0} class="space-y-3">
-            <div
-              :for={match <- @matches}
-              class="rounded border border-sr-line p-3"
-            >
-              <div class="flex flex-wrap items-center justify-between gap-2">
-                <div class="flex flex-wrap items-center gap-1">
-                  <.ui_badge
-                    size="sm"
-                    variant={vulnerability_severity_class(field(match, :severity))}
-                  >
-                    {vulnerability_severity(match)}
-                  </.ui_badge>
-                  <.ui_badge :if={field(match, :kev)} size="sm" variant="error">KEV</.ui_badge>
-                  <.ui_badge :if={field(match, :exploit_available)} size="sm" variant="warning">
-                    Exploit
-                  </.ui_badge>
-                  <.ui_badge size="sm" variant={match_status_class(field(match, :status))}>
-                    {String.capitalize(to_string(field(match, :status) || "unknown"))}
-                  </.ui_badge>
-                </div>
-                <span class="font-mono text-xs text-sr-muted">
-                  CVSS {empty_dash(field(match, :cvss_score))}
-                </span>
-              </div>
-
-              <div class="mt-2 font-medium">
-                {field(match, :cve_id) || field(match, :advisory_id) || "Advisory"}
-                <span
-                  :if={
-                    field(match, :cve_id) && field(match, :advisory_id) &&
-                      field(match, :cve_id) != field(match, :advisory_id)
-                  }
-                  class="ml-1 font-mono text-xs text-sr-muted"
-                >
-                  ({field(match, :advisory_id)})
-                </span>
-              </div>
-
-              <div class="mt-2 grid gap-x-4 gap-y-1 text-xs sm:grid-cols-2">
-                <div>
-                  <span class="text-sr-muted">Fixed Version:</span>
-                  <span class="font-mono">{empty_dash(field(match, :fixed_version))}</span>
-                </div>
-                <div>
-                  <span class="text-sr-muted">Coordinate:</span>
-                  <span class="font-mono">{match_coordinate(match)}</span>
-                </div>
-                <div>
-                  <span class="text-sr-muted">Source:</span>
-                  <span class="font-mono">
-                    {field(match, :provider)}{feed_suffix(field(match, :feed_key))}
-                  </span>
-                </div>
-                <div>
-                  <span class="text-sr-muted">Confidence:</span>
-                  <span>{String.capitalize(to_string(field(match, :confidence) || "unknown"))}</span>
-                </div>
-              </div>
-
-              <a
-                :for={url <- advisory_reference_urls(match)}
-                href={url}
-                target="_blank"
-                rel="noopener noreferrer"
-                class="mt-2 inline-flex items-center gap-1 text-xs text-info hover:underline"
-              >
-                <.icon name="hero-arrow-top-right-on-square" class="h-3 w-3" />
-                {url}
-              </a>
-            </div>
+            <.cve_finding_card :for={finding <- @findings} finding={finding} />
           </div>
         </div>
       </div>
@@ -660,7 +620,12 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.EndpointInventoryComponents do
   attr(:matches, :list, default: [])
 
   defp vulnerability_matches_section(assigns) do
-    assigns = assign(assigns, :match_count, length(assigns.matches || []))
+    findings = EndpointInventoryFindings.group(assigns.matches || [])
+
+    assigns =
+      assigns
+      |> assign(:findings, findings)
+      |> assign(:match_count, length(findings))
 
     ~H"""
     <div class="overflow-hidden rounded border border-sr-line">
@@ -671,7 +636,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.EndpointInventoryComponents do
               Vulnerability Matches
             </h3>
             <p class="text-xs text-sr-muted">
-              {@match_count} active package matches from central feeds
+              {@match_count} active package CVEs from central feeds
             </p>
           </div>
           <.ui_badge :if={@match_count > 0} size="sm" variant="error">Actionable</.ui_badge>
@@ -694,43 +659,142 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.EndpointInventoryComponents do
               No active vulnerability matches have been produced for this device.
             </td>
           </tr>
-          <tr :for={match <- @matches}>
+          <tr :for={finding <- @findings} data-testid="cve-finding" data-cve={field(finding, :cve_id)}>
             <td>
               <div class="flex flex-wrap gap-1">
-                <.ui_badge size="xs" variant={vulnerability_severity_class(field(match, :severity))}>
-                  {vulnerability_severity(match)}
+                <.ui_badge size="xs" variant={vulnerability_severity_class(field(finding, :severity))}>
+                  {vulnerability_severity(finding)}
                 </.ui_badge>
-                <.ui_badge :if={field(match, :kev)} size="xs" variant="error">KEV</.ui_badge>
-                <.ui_badge :if={field(match, :exploit_available)} size="xs" variant="warning">
+                <.ui_badge :if={field(finding, :kev)} size="xs" variant="error">KEV</.ui_badge>
+                <.ui_badge :if={field(finding, :exploit_available)} size="xs" variant="warning">
                   Exploit
+                </.ui_badge>
+                <.ui_badge :if={field(finding, :name_match_only?)} size="xs" variant="ghost">
+                  Name match
                 </.ui_badge>
               </div>
               <div class="mt-1 font-mono text-[0.65rem] text-sr-muted">
-                CVSS {empty_dash(field(match, :cvss_score))}
+                CVSS {empty_dash(field(finding, :cvss_score))}
+                <span :if={field(finding, :epss_score)}>
+                  · EPSS {format_epss(field(finding, :epss_score))}
+                </span>
               </div>
             </td>
             <td>
-              <div class="font-medium">{field(match, :cve_id) || field(match, :advisory_id)}</div>
+              <div class="font-medium">{field(finding, :cve_id) || field(finding, :advisory_id)}</div>
+              <div :if={field(finding, :due_date)} class="mt-1 text-xs text-sr-muted">
+                Due {field(finding, :due_date)}
+              </div>
               <div class="mt-1 text-xs text-sr-muted">
-                {String.capitalize(to_string(field(match, :confidence) || "unknown"))} confidence
+                {String.capitalize(to_string(field(finding, :confidence) || "unknown"))} confidence
               </div>
             </td>
             <td class="max-w-56">
-              <div class="truncate font-medium">{vulnerability_package_name(match)}</div>
+              <div class="truncate font-medium">{vulnerability_package_name(finding)}</div>
               <div class="truncate font-mono text-xs text-sr-muted">
-                {vulnerability_installed_version(match)}
+                {vulnerability_installed_version(finding)}
               </div>
             </td>
-            <td class="font-mono text-xs">{empty_dash(field(match, :fixed_version))}</td>
+            <td class="font-mono text-xs">{empty_dash(field(finding, :fixed_version))}</td>
             <td>
-              <div class="font-mono text-xs">{field(match, :provider)}</div>
+              <div class="font-mono text-xs">{field(finding, :provider)}</div>
               <div class="font-mono text-[0.65rem] text-sr-muted">
-                {field(match, :feed_key)}
+                {field(finding, :feed_key)}
               </div>
             </td>
           </tr>
         </tbody>
       </table>
+    </div>
+    """
+  end
+
+  attr(:finding, :map, required: true)
+
+  defp cve_finding_card(assigns) do
+    ~H"""
+    <div
+      class="rounded border border-sr-line p-3"
+      data-testid="cve-finding"
+      data-cve={field(@finding, :cve_id) || field(@finding, :advisory_id)}
+    >
+      <div class="flex flex-wrap items-center justify-between gap-2">
+        <div class="flex flex-wrap items-center gap-1">
+          <.ui_badge size="sm" variant={vulnerability_severity_class(field(@finding, :severity))}>
+            {vulnerability_severity(@finding)}
+          </.ui_badge>
+          <.ui_badge :if={field(@finding, :kev)} size="sm" variant="error">KEV</.ui_badge>
+          <.ui_badge :if={field(@finding, :exploit_available)} size="sm" variant="warning">
+            Exploit
+          </.ui_badge>
+          <.ui_badge :if={field(@finding, :name_match_only?)} size="sm" variant="ghost">
+            Name match
+          </.ui_badge>
+          <.ui_badge size="sm" variant={match_status_class(field(@finding, :status))}>
+            {String.capitalize(to_string(field(@finding, :status) || "unknown"))}
+          </.ui_badge>
+        </div>
+        <span class="font-mono text-xs text-sr-muted">
+          CVSS {empty_dash(field(@finding, :cvss_score))}
+        </span>
+      </div>
+
+      <div class="mt-2 font-medium">
+        {field(@finding, :cve_id) || field(@finding, :advisory_id) || "Advisory"}
+        <span
+          :if={
+            field(@finding, :cve_id) && field(@finding, :advisory_id) &&
+              field(@finding, :cve_id) != field(@finding, :advisory_id)
+          }
+          class="ml-1 font-mono text-xs text-sr-muted"
+        >
+          ({field(@finding, :advisory_id)})
+        </span>
+      </div>
+
+      <p :if={field(@finding, :description)} class="mt-1 line-clamp-3 text-xs text-sr-muted">
+        {field(@finding, :description)}
+      </p>
+
+      <div class="mt-2 grid gap-x-4 gap-y-1 text-xs sm:grid-cols-2">
+        <div>
+          <span class="text-sr-muted">Fixed Version:</span>
+          <span class="font-mono">{empty_dash(field(@finding, :fixed_version))}</span>
+        </div>
+        <div>
+          <span class="text-sr-muted">Evidence:</span>
+          <span class="font-mono">{match_coordinate(@finding)}</span>
+        </div>
+        <div :if={field(@finding, :due_date)}>
+          <span class="text-sr-muted">CISA due:</span>
+          <span>{field(@finding, :due_date)}</span>
+        </div>
+        <div :if={field(@finding, :epss_score)}>
+          <span class="text-sr-muted">EPSS:</span>
+          <span class="font-mono">{format_epss(field(@finding, :epss_score))}</span>
+        </div>
+        <div>
+          <span class="text-sr-muted">Source:</span>
+          <span class="font-mono">
+            {field(@finding, :provider)}{feed_suffix(field(@finding, :feed_key))}
+          </span>
+        </div>
+        <div>
+          <span class="text-sr-muted">Confidence:</span>
+          <span>{String.capitalize(to_string(field(@finding, :confidence) || "unknown"))}</span>
+        </div>
+      </div>
+
+      <a
+        :for={url <- advisory_reference_urls(@finding)}
+        href={url}
+        target="_blank"
+        rel="noopener noreferrer"
+        class="mt-2 inline-flex items-center gap-1 text-xs text-info hover:underline"
+      >
+        <.icon name="hero-arrow-top-right-on-square" class="h-3 w-3" />
+        {url}
+      </a>
     </div>
     """
   end
@@ -1267,6 +1331,20 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.EndpointInventoryComponents do
   defp feed_suffix(nil), do: ""
   defp feed_suffix(""), do: ""
   defp feed_suffix(feed_key), do: " / #{feed_key}"
+
+  defp format_epss(value) when is_float(value) and value <= 1.0 do
+    :erlang.float_to_binary(Float.round(value * 100, 1), decimals: 1) <> "%"
+  end
+
+  defp format_epss(value) when is_integer(value) and value <= 1 do
+    format_epss(value * 1.0)
+  end
+
+  defp format_epss(value) when is_number(value) do
+    :erlang.float_to_binary(value / 1, decimals: 1) <> "%"
+  end
+
+  defp format_epss(value), do: empty_dash(value)
 
   defp advisory_reference_urls(match) do
     match

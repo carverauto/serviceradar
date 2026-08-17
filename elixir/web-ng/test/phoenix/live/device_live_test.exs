@@ -2320,6 +2320,236 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
     assert no_match_html =~ "No package rows match the current filters."
   end
 
+  test "groups NVD and KEV rows for the same CVE into one Software-tab card", %{
+    conn: conn,
+    scope: scope
+  } do
+    unique = System.unique_integer([:positive])
+    uid = "sr:test-device-cve-priority-#{unique}"
+    agent_id = "agent-cve-priority-#{unique}"
+    now = DateTime.truncate(DateTime.utc_now(), :second)
+    cve_id = "CVE-2026-#{unique}"
+
+    Repo.insert_all("ocsf_devices", [
+      %{
+        uid: uid,
+        type_id: 0,
+        hostname: "cve-priority-#{unique}",
+        is_available: true,
+        risk_level: "Critical",
+        risk_level_id: 4,
+        risk_score: 90,
+        first_seen_time: now,
+        last_seen_time: now
+      }
+    ])
+
+    {:ok, scan} =
+      EndpointInventoryScan
+      |> Ash.Changeset.for_create(
+        :create,
+        %{
+          device_uid: uid,
+          agent_id: agent_id,
+          scan_id: "scan-cve-priority-#{unique}",
+          collector_name: "serviceradar-endpoint-inventory",
+          collector_version: "test",
+          state: "scanned",
+          coverage_state: "complete",
+          package_count: 1,
+          enabled_sources: ["dpkg"],
+          manager_counts: %{"dpkg" => 1},
+          source_summaries: [%{"source" => "dpkg", "state" => "scanned", "package_count" => 1}],
+          current: true,
+          last_successful_scan_at: now,
+          last_scan_at: now,
+          ingested_at: now,
+          metadata: %{}
+        }
+      )
+      |> Ash.create(scope: scope)
+
+    {:ok, endpoint_package} =
+      EndpointPackage
+      |> Ash.Changeset.for_create(
+        :create,
+        %{
+          coordinate_key: "pkg:deb/openssl-#{unique}@3.0.13",
+          purl_canonical: "pkg:deb/openssl-#{unique}@3.0.13",
+          package_manager: "dpkg",
+          name: "openssl-#{unique}",
+          version: "3.0.13",
+          architecture: "amd64",
+          ecosystem: "deb",
+          source_scope: "host",
+          metadata: %{}
+        }
+      )
+      |> Ash.create(scope: scope)
+
+    {:ok, package_row} =
+      EndpointInventoryPackage
+      |> Ash.Changeset.for_create(
+        :create,
+        %{
+          scan_ref: scan.id,
+          endpoint_package_ref: endpoint_package.id,
+          device_uid: uid,
+          agent_id: agent_id,
+          name: "openssl-#{unique}",
+          version: "3.0.13",
+          architecture: "amd64",
+          package_manager: "dpkg",
+          ecosystem: "deb",
+          purl: "pkg:deb/openssl-#{unique}@3.0.13",
+          purl_canonical: "pkg:deb/openssl-#{unique}@3.0.13",
+          cpes: ["cpe:2.3:a:openssl:openssl:3.0.13:*:*:*:*:*:*:*"],
+          source: "dpkg",
+          current: true,
+          evidence: %{},
+          metadata: %{}
+        }
+      )
+      |> Ash.create(scope: scope)
+
+    {:ok, nvd_advisory} =
+      VulnerabilityAdvisory
+      |> Ash.Changeset.for_create(
+        :upsert,
+        %{
+          provider: "nvd",
+          feed_key: "nist-nvd2",
+          source_object_id: "#{cve_id}-nvd",
+          advisory_id: cve_id,
+          cve_id: cve_id,
+          title: cve_id,
+          description: "OpenSSL overflow for grouping test",
+          severity: "high",
+          cvss_score: 7.5,
+          kev: false,
+          exploit_available: false,
+          affected_coordinates: [],
+          references: ["https://example.test/#{cve_id}"],
+          metadata: %{}
+        }
+      )
+      |> Ash.create(scope: scope)
+
+    {:ok, kev_advisory} =
+      VulnerabilityAdvisory
+      |> Ash.Changeset.for_create(
+        :upsert,
+        %{
+          provider: "cisa",
+          feed_key: "cisa-kev",
+          source_object_id: "#{cve_id}-kev",
+          advisory_id: cve_id,
+          cve_id: cve_id,
+          title: "OpenSSL KEV",
+          description: "Known exploited",
+          kev: true,
+          exploit_available: true,
+          affected_coordinates: [],
+          references: [],
+          metadata: %{"priority" => %{"due_date" => "2024-02-01"}}
+        }
+      )
+      |> Ash.create(scope: scope)
+
+    {:ok, _nvd_match} =
+      EndpointVulnerabilityMatch
+      |> Ash.Changeset.for_create(
+        :upsert,
+        %{
+          device_uid: uid,
+          agent_id: agent_id,
+          scan_ref: scan.id,
+          inventory_package_ref: package_row.id,
+          endpoint_package_ref: endpoint_package.id,
+          advisory_ref: nvd_advisory.id,
+          provider: "nvd",
+          feed_key: "nist-nvd2",
+          advisory_id: cve_id,
+          cve_id: cve_id,
+          coordinate_type: "cpe",
+          coordinate_value: "cpe:2.3:a:openssl:openssl:*:*:*:*:*:*:*:*",
+          version_evidence: %{"installed_version" => "3.0.13"},
+          confidence: "medium",
+          status: "active",
+          severity: "high",
+          cvss_score: 7.5,
+          fixed_version: "3.0.14",
+          kev: false,
+          exploit_available: false,
+          evidence: %{
+            "package" => %{"name" => "openssl-#{unique}", "version" => "3.0.13"}
+          },
+          first_seen_at: now,
+          last_seen_at: now,
+          metadata: %{"description" => "OpenSSL overflow for grouping test"}
+        }
+      )
+      |> Ash.create(scope: scope)
+
+    {:ok, _kev_match} =
+      EndpointVulnerabilityMatch
+      |> Ash.Changeset.for_create(
+        :upsert,
+        %{
+          device_uid: uid,
+          agent_id: agent_id,
+          scan_ref: scan.id,
+          inventory_package_ref: package_row.id,
+          endpoint_package_ref: endpoint_package.id,
+          advisory_ref: kev_advisory.id,
+          provider: "cisa",
+          feed_key: "cisa-kev",
+          advisory_id: cve_id,
+          cve_id: cve_id,
+          coordinate_type: "vendor_product",
+          coordinate_value: "openssl",
+          version_evidence: %{"installed_version" => "3.0.13"},
+          confidence: "low",
+          status: "active",
+          kev: true,
+          exploit_available: true,
+          evidence: %{
+            "package" => %{"name" => "openssl-#{unique}", "version" => "3.0.13"}
+          },
+          first_seen_at: now,
+          last_seen_at: now,
+          metadata: %{
+            "match_kind" => "name",
+            "priority" => %{"due_date" => "2024-02-01"}
+          }
+        }
+      )
+      |> Ash.create(scope: scope)
+
+    {:ok, view, _html} = live(conn, ~p"/devices/#{uid}?tab=software")
+    html = render_until(view, "Vulnerability Matches", 10_000)
+
+    assert html =~ cve_id
+    assert html =~ "KEV"
+    assert html =~ "7.5"
+    assert length(Regex.scan(~r/data-testid="cve-finding"/, html)) == 1
+
+    modal_html =
+      view
+      |> element("tr[phx-click=endpoint_inventory_open_package]", "openssl-#{unique}")
+      |> render_click()
+
+    assert modal_html =~ cve_id
+    assert modal_html =~ "KEV"
+    assert modal_html =~ "OpenSSL overflow for grouping test"
+    assert modal_html =~ "3.0.14"
+    assert modal_html =~ "2024-02-01"
+    assert modal_html =~ "cpe:2.3:a:openssl:openssl"
+    refute modal_html =~ "2 CVEs"
+    # Table row + modal card, still one CVE.
+    assert length(Regex.scan(~r/data-testid="cve-finding"/, modal_html)) == 2
+  end
+
   test "renders endpoint software empty and unhealthy scan states on device details", %{
     conn: conn,
     scope: scope
