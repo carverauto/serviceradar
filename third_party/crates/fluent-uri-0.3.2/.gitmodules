@@ -1,3 +1,0 @@
-[submodule "fuzz/uriparser-sys/uriparser"]
-	path = fuzz/uriparser-sys/uriparser
-	url = https://github.com/uriparser/uriparser.git

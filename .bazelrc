@@ -31,24 +31,12 @@ build --action_env=NEXT_PRIVATE_SKIP_TURBOPACK=1
 build --action_env=TURBOPACK=
 build --action_env=NEXT_SKIP_TURBO=1
 
-# System OpenSSL — scoped to Linux hosts (these are Linux paths). On Linux, both the
-# Erlang/OTP + Elixir crypto builds AND Rust's libpq/openssl-sys use system OpenSSL.
-# `build:linux` is auto-applied on Linux via `--enable_platform_specific_config` (above),
-# so local Linux builds get it too (not just CI). On macOS these vars are absent, so
-# Rust's openssl-sys builds a vendored, from-source OpenSSL (portable); an Elixir Bazel
-# build on macOS would need a build:macos OpenSSL path (e.g. Homebrew). CI/RBE from a
-# macOS host is covered by the build:remote_base OpenSSL vars below (host os = macOS, so
-# build:linux does not apply there). See openspec migrate-bazel-rust-crate-vendoring (D6).
-build:linux --action_env=OPENSSL_DIR=/usr
-build:linux --action_env=OPENSSL_LIB_DIR=/usr/lib/x86_64-linux-gnu
-build:linux --action_env=OPENSSL_INCLUDE_DIR=/usr/include
-build:linux --action_env=AARCH64_UNKNOWN_LINUX_GNU_OPENSSL_DIR=/usr
-build:linux --action_env=AARCH64_UNKNOWN_LINUX_GNU_OPENSSL_LIB_DIR=/usr/lib/aarch64-linux-gnu
-build:linux --action_env=AARCH64_UNKNOWN_LINUX_GNU_OPENSSL_INCLUDE_DIR=/usr/include/aarch64-linux-gnu
-build:linux --repo_env=OPENSSL_DIR=/usr
-build:linux --repo_env=OPENSSL_LIB_DIR=/usr/lib/x86_64-linux-gnu
-build:linux --repo_env=OPENSSL_INCLUDE_DIR=/usr/include
+# NO OPENSSL_DIR / OPENSSL_LIB_DIR / OPENSSL_INCLUDE_DIR HERE, and no AARCH64_* variants.
 # NO CC_/CXX_/AR_/CARGO_TARGET_*_LINKER HERE. Compiler config is all done via the Hermetic LLVM toolchain in MODULE.bazel.
+# This is a deliberate exception to the "no distdir under the source tree" rule above.
+# These are immutable vendored source crates.
+common --distdir=%workspace%/third_party/crate_mirror
+
 build --action_env=PKG_CONFIG_SYSROOT_DIR_aarch64_unknown_linux_gnu=/
 build --action_env=PKG_CONFIG_PATH_aarch64_unknown_linux_gnu=/usr/lib/postgresql/18/lib/pkgconfig:/usr/lib/aarch64-linux-gnu/pkgconfig:/usr/lib/pkgconfig:/usr/share/pkgconfig
 
@@ -178,9 +166,7 @@ build:remote_base --extra_execution_platforms=//build/rbe:rbe_platform
 build:remote_base --repo_env=BAZEL_DO_NOT_DETECT_CPP_TOOLCHAIN=1
 build:remote_base --define=EXECUTOR=remote
 build:remote_base --incompatible_strict_action_env
-build:remote_base --action_env=OPENSSL_DIR=/usr
-build:remote_base --action_env=OPENSSL_LIB_DIR=/usr/lib/x86_64-linux-gnu
-build:remote_base --action_env=OPENSSL_INCLUDE_DIR=/usr/include
+# No OPENSSL_* here either; see the note in the build:linux block.
 build:remote_base --action_env=NEXT_PRIVATE_SKIP_TURBOPACK=1
 build:remote_base --action_env=TURBOPACK=
 build:remote_base --action_env=NEXT_SKIP_TURBO=1

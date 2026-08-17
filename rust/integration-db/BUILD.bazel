@@ -158,6 +158,7 @@ rust_test(
         ],
         target_compatible_with = requires_shared_fixture(),
         deps = all_crate_deps(
+            cargo_only = True,
             normal = True,
             normal_dev = True,
         ) + [

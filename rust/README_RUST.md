@@ -86,14 +86,18 @@ review-only, date-audited IronRDP probe with its own `[workspace]` and lockfile.
 
 ## 2. How Bazel gets its crates
 
-Bazel does **not** download crates. Everything is vendored on disk under
-`//third_party/crates` by `cargo vendor --versioned-dirs` (run through `scripts/vendor.sh`)
-from the same `//:Cargo.toml` + `//:Cargo.lock` that Cargo uses. The tree is crate sources and
-nothing else -- no BUILD files. `rules_rs` reads it because `//MODULE.bazel` says
-`crate.from_cargo(vendor_dir = "third_party/crates")`: a crate found at
-`third_party/crates/<name>-<version>` is symlinked from there instead of downloaded, and one
-that is missing falls back to the registry. Resolving `//:Cargo.lock` as a single universe is
-what keeps the two builds honest: one `prost`, one `tonic`, one `tokio`.
+Bazel does **not** reach the network for crates. Every registry crate is vendored on disk
+under `//third_party/crate_mirror` as its `.crate` archive -- the same file Cargo's own
+registry cache holds -- refreshed by `bazel run //third_party/crate_mirror:sync` from the
+`//:Cargo.lock` that Cargo uses.
+
+Bazel finds them through `--distdir`, set in `//.bazelrc`. `rules_rs` asks crates.io for
+`{crate}/{crate}-{version}.crate` first, and that basename is the only one Bazel's distdir
+matches on, so each archive resolves from disk. It is a fallback rather than an enforcement:
+a crate missing from the mirror is downloaded, so a stale mirror degrades rather than breaks.
+
+Resolving `//:Cargo.lock` as a single universe is what keeps the two builds honest: one
+`prost`, one `tonic`, one `tokio`.
 
 `rules_rs` generates the per-crate BUILD files and a hub repository, `@crates`. Crates
 reference the hub:
@@ -142,9 +146,9 @@ relative path resolves to nothing. Declare the `data` *and* resolve the path (se
 
 ## 3. Updating dependencies
 
-`scripts/vendor.sh` is the **only** supported way to regenerate the vendored tree. Do not run
-`cargo vendor` directly -- it skips the source patches in section 4, and the from-source C
-builds will fail later, far from the cause.
+`bazel run //third_party/crate_mirror:sync` is the **only** supported way to refresh the
+vendored archives. It verifies every download against the checksum `Cargo.lock` already
+records, and prunes archives no longer in the lock.
 
 ### Routine update
 
@@ -172,8 +176,8 @@ $EDITOR Cargo.toml
 cargo check --workspace --lib --bins --tests
 cargo test  --workspace
 
-# 3. Regenerate the vendored tree (~1 GB download, several minutes).
-./scripts/vendor.sh
+# 3. Refresh the vendored archives.
+bazel run //third_party/crate_mirror:sync
 
 # 4. Bazel side. Cargo passing is NOT proof -- see the warning below.
 bazel build //rust/...
@@ -192,7 +196,7 @@ bazel test  //rust/...
 3. If that crate's `BUILD.bazel` names its deps explicitly as `"@crates//:<name>"` labels
    rather than through `all_crate_deps`, **add the label there too** -- Bazel will not infer
    it.
-4. `./scripts/vendor.sh`, then `bazel build //rust/...`.
+4. `bazel run //third_party/crate_mirror:sync`, then `bazel build //rust/...`.
 
 ### Breaking-change migrations
 
@@ -220,73 +224,144 @@ grep -n "rust_test" rust/<crate>/BUILD.bazel  # declared?
 
 ---
 
-## 4. The two patched system crates
+## 4. OpenSSL, libpq, and the one patched crate
 
-Two vendored crates need **source patches** to build under Bazel. `scripts/vendor.sh`
-applies them to the tree on disk after vendoring, and they are deliberately **not** declared as
-`crate.annotation(patches = ...)` in `//MODULE.bazel`: `rules_rs` symlinks a vendored crate's
-files into its repository, and Bazel's native patch implementation rewrites in place *through*
-a symlink -- an annotation patch would edit this checked-in tree, and edit it again on every
-refetch. Patches live in `//third_party/rust_patches/` and are the source of truth.
+### Where OpenSSL comes from
+
+**`@openssl`, the BCR module, built as `cc_library` by our own cc toolchain.** It is a
+`bazel_dep` in `//MODULE.bazel`, and `openssl-sys` is pointed at its output directory:
+
+```python
+crate.annotation(
+    build_script_data = ["@openssl//:gen_dir"],
+    build_script_env = {
+        "OPENSSL_INCLUDE_DIR": "$(execpath @openssl//:gen_dir)/include",
+        "OPENSSL_LIB_DIR": "$(execpath @openssl//:gen_dir)/lib",
+        "OPENSSL_NO_VENDOR": "1",
+        "OPENSSL_STATIC": "1",
+    },
+    crate = "openssl-sys",
+    ...
+)
+```
+
+Three things about this are load-bearing:
+
+- **`OPENSSL_INCLUDE_DIR` and `OPENSSL_LIB_DIR`, not the single `OPENSSL_DIR` that implies
+  both.** The RBE executor image exports `OPENSSL_LIB_DIR=/usr/lib/x86_64-linux-gnu` and
+  `OPENSSL_INCLUDE_DIR=/usr/include`, and `openssl-sys`' `find_normal.rs` reads that pair
+  **first**, returning before it looks at `OPENSSL_DIR`. Setting only `OPENSSL_DIR` links the
+  executor image's OpenSSL and says nothing about it. Naming both overrides the leak.
+- **`pq-src` needs `@openssl//:gen_dir` in `build_script_data` too** (via the
+  `openssl_gen_dir` repo alias, in the root `Cargo.toml`). `openssl-sys` hands it the include
+  path through `DEP_OPENSSL_INCLUDE`, but a path is not an input: its build script is a
+  separate action, and without the tree artifact staged there the compile fails on
+  `openssl/ssl.h` not found while pointing straight at the directory holding it.
+- **`vendored` is off.** `rust/srql` carries a `vendored-openssl` feature, **off by default**,
+  for `cargo test` on a machine with no system OpenSSL. Turning it on inside a Bazel build
+  puts `openssl-src` -- the whole OpenSSL source tree -- back in the graph and compiles a
+  second OpenSSL beside the one being linked.
+
+This replaced a from-source `openssl-src` build driven by OpenSSL's own perl `Configure`.
+What that bought:
+
+- **Cross-compilation is a `select` on the target platform.** Measured: the same
+  `@openssl` yields an `aarch64` `libcrypto.a` for `--platforms=//build/platforms:linux_aarch64`
+  and an `x86-64` one for the default, with `srql_bin` matching each.
+- **No host `perl`.** The old build ran a two-line wrapper whose body was `exec perl "$@"` --
+  the executor image's perl, off `$PATH`, from inside a build action. `@openssl` uses
+  `rules_perl`'s prebuilt hermetic perl for the exec platform. (`//third_party/perl` built a
+  perl 5.40 from source with `configure_make` and was never wired to anything.)
+- **No execroot in the output.** OpenSSL's `Configure` bakes `ENGINESDIR`, `MODULESDIR` and
+  its full compiler command line into `libcrypto.a`, which put 15 copies of the execroot in
+  the archive and forced a `no-check-output-for-working-dir` opt-out on `openssl-sys`. The
+  BCR module compiles with fixed `-DOPENSSLDIR="/etc/ssl"` and friends: measured 0
+  occurrences of `buildbuddy-execroot` in both `libcrypto.a` and `srql_bin`, so the tag is
+  gone and the artifacts are cache-shareable across execroots.
+
+### The patched crate
+
+One crate still needs a **source patch** to build under Bazel. It is declared as `patches` on
+the crate's annotation, so `rules_rs` applies it at fetch time and it is a real, declared
+build input. Patches live in `//third_party/rust_patches/`.
+
+This used to work the other way: a vendor script applied them to the checked-in tree on disk,
+because `rules_rs` symlinked that tree into its repository and Bazel's patch implementation
+would have rewritten the checkout in place. With the tree replaced by `.crate` archives the
+constraint is gone -- and the old arrangement had a real cost, since a patch applied outside
+the build graph stops being applied without anything noticing. That is exactly what happened
+when the vendored tree was removed.
 
 | crate | patch | why |
 |---|---|---|
-| `openssl-src-300.6.1+3.6.3` | `openssl_src_runfiles_patch` | `source_dir()` must honour `RULES_RUST_OPENSSL_SRC_DIR` (the crate's baked `CARGO_MANIFEST_DIR` is a stale sandbox path under Bazel), and Configure must ignore two cc flags it cannot parse: `-no-canonical-prefixes` (rejected outright) and the separated `-target <triple>` form a clang driver emits (read as a second positional target). |
-| `pq-src-0.3.11+libpq-18.3` | `pq_src_fortify_patch` | macOS only: re-assert `-D_FORTIFY_SOURCE=0` at the end of `$CFLAGS` so it overrides Bazel's `-U_FORTIFY_SOURCE` (cc-rs applies env `CFLAGS` last), which otherwise re-enables fortify `strlcat`/`strlcpy` builtins that clash with libpq's bundled copies. |
+| `pq-src-0.3.11+libpq-18.3` | `pq_src_fortify_patch` | macOS only: re-assert `-D_FORTIFY_SOURCE=0` at the end of `$CFLAGS`. The crate sets `-D_FORTIFY_SOURCE=0` for macOS because libpq bundles `strlcat.c`/`strlcpy.c`; the toolchain's `opt` feature then appends `-D_FORTIFY_SOURCE=1`, and cc-rs applies env `CFLAGS` **last**, so fortify ends up on and Darwin's `__builtin___strlcat_chk` collides with those bundled copies. |
 
-These build OpenSSL and libpq **from source**, which is what makes the build portable
-(macOS/Alpine/CI) instead of depending on system OpenSSL paths.
+libpq is still built **from source** (`pq-sys` feature `bundled`), which is what keeps the
+build off system libpq paths.
 
-### Why they are pinned
+### Why it is pinned
 
-Both patches are keyed to an **exact upstream version**, so the root `Cargo.toml` pins them:
+The patch is keyed to an **exact upstream version**, so the root `Cargo.toml` pins it:
 
 ```toml
-openssl-sys = "=0.9.116"
 pq-sys      = "=0.7.5"
+openssl-sys = "=0.9.116"   # not patched; its build script is configured by hand
 ```
 
-The pins do **not** reach their build deps -- `pq-sys` declares `pq-src ">=0.2, <0.4"` and
-`openssl-sys` declares `openssl-src "300.2.0"` -- so `pq-src`/`openssl-src` can still slide on a
-`cargo update`. That is what the asserts are for.
+The pin does **not** reach the build dep -- `pq-sys` declares `pq-src ">=0.2, <0.4"` -- so
+`pq-src` can still slide on a `cargo update`. That is what the asserts are for.
 
 ### The asserts (do not weaken them)
 
-`scripts/vendor.sh` derives each directory name from `Cargo.lock` and **hard-fails** if the
-crate moved, rather than skipping the patch:
+A patch that does not apply fails the crate's fetch, loudly and at the point of use. Do not
+work around that by dropping the patch:
 
 - A silently skipped patch is the worst outcome available here. `pq-src`'s fix is **macOS
   only**, so a skipped patch leaves Linux CI green and breaks a developer's machine later, far
   from the cause.
-- It also asserts the patch marker is present *after* patching, not just absent before -- a
-  patch that "succeeds" without applying is caught.
+- The pin (`pq-sys = "=0.7.5"`) is what stops a routine `cargo update` from moving `pq-src`
+  out from under its patch.
 
 ### Bumping a patched crate (deliberate, never accidental)
 
 1. Change the pin in the root `Cargo.toml`.
-2. Run `./scripts/vendor.sh`. **It will fail** -- that is the design.
+2. `bazel run //third_party/crate_mirror:sync`, then `bazel build //rust/...`. **The fetch
+   will fail** -- that is the design.
 3. Regenerate the patch against the new upstream source, in
    `//third_party/rust_patches/`.
-4. Re-run `./scripts/vendor.sh`, then `bazel build //rust/...` on **macOS and Linux** -- the
-   pq-src patch only manifests on macOS.
+4. Rebuild on **macOS and Linux** -- the pq-src patch only manifests on macOS, and a macOS
+   build is the only thing that can confirm it is still needed.
+
+Bumping `@openssl` is a separate, deliberate act: change the `bazel_dep` version in
+`//MODULE.bazel` and rebuild. `openssl-sys` probes the headers it is pointed at, so a major
+OpenSSL move can require moving the `openssl-sys` pin with it.
 
 ---
 
 ## 5. Crate annotations
 
-Per-crate build tweaks live in `//MODULE.bazel` as `crate.annotation(crate = "<name>", ...)`
-tags, not in a vendor rule. Three crates carry one:
+Per-crate build tweaks are `rules_rs` annotations. **Most live in the root `Cargo.toml`**, in
+`[workspace.metadata.rules_rs.annotations."<crate>"]` tables, so the crate's version and its
+build configuration sit in one file:
 
-| crate | why |
-|---|---|
-| `openssl-src` | Exposes its C source tree as filegroups, aliased into the hub with `extra_aliased_targets` so `openssl-sys` below can name them. |
-| `openssl-sys` | Points the build script at those filegroups and at the perl wrapper in `//third_party/rust_patches`, so OpenSSL builds from the vendored source. |
-| `protoc-gen-prost`, `protoc-gen-tonic` | `gen_binaries`, so the plugin binaries `//build/rust/prost_toolchain` runs actually get targets. |
+| crate | where | why |
+|---|---|---|
+| `pq-src` | `Cargo.toml` | The macOS fortify patch, plus `@openssl//:gen_dir` in `build_script_data` so libpq's TLS sources see the headers. |
+| `zstd-sys`, `libz-sys` | `Cargo.toml` | Use the BCR C libraries instead of each crate's bundled copy, with the build script off. |
+| `protoc-gen-prost`, `protoc-gen-tonic` | `Cargo.toml` | `gen_binaries`, so the plugin binaries `//build/rust/prost_toolchain` runs actually get targets. |
+| `openssl-sys` | `MODULE.bazel` | Points its build script at `@openssl` (section 4). |
 
-**Labels in an annotation are resolved against `MODULE.bazel`**, which is the root repository
--- a relative label cannot name a target in the generated crate package. Expose such a target
-with `extra_aliased_targets` and refer to it as `@crates//:<alias>`, or put it in the main
-workspace and use an absolute label. Both patterns are in use above.
+**An annotation goes in `MODULE.bazel` when it needs something only the module file has.**
+Two things qualify: `$(execpath ...)` / `$(location ...)` make-variable strings, and an
+apparent external repository name. A label written in `Cargo.toml` is resolved against the
+manifest's own repository, so `//third_party/...` works, but `@openssl` does not -- the
+extension cannot see it. Give it a name with `crate.repo_alias` in `MODULE.bazel` and refer
+to that name from the manifest; `zstd`, `zlib` and `openssl_gen_dir` all work this way. Note
+that the alias resolves a **whole string**, so a specific target needs its own alias rather
+than a suffix on an existing one.
+
+There is no merging: two annotations for the same crate and version fail with
+`Duplicate crate.annotation`, so each crate picks exactly one of the two files.
 
 **A crate reaches the graph only as a real dependency of a real workspace member.** There is no
 equivalent of `crate_universe`'s `packages` attribute to conjure one. That is what
@@ -462,7 +537,7 @@ signature -- model errors as concrete typed variants instead.
 make update-rust-deps [REPIN=<mode>] [VERIFY_TARGET=<label>]
 
 # regenerate the vendored tree only (the only supported way)
-./scripts/vendor.sh
+bazel run //third_party/crate_mirror:sync
 
 # cargo: --lib --bins --tests, or you skip test code.
 # The third_party/rust_patches forks fail --tests on a clean tree (undeclared dev-deps),
@@ -481,8 +556,8 @@ bazel test  //rust/...
 | file | what it is |
 |---|---|
 | `Cargo.toml` (root) | **every** dependency version; alphabetical |
-| `third_party/crates/` | the vendored crate sources (generated -- never hand-edit) |
+| `third_party/crate_mirror/` | the vendored `.crate` archives (generated -- never hand-edit) |
 | `MODULE.bazel` | the `crate.from_cargo` extension + per-crate `crate.annotation` tags |
 | `third_party/rust_patches/` | source patches for the two system crates |
-| `scripts/vendor.sh` | regenerate + patch + repair + assert |
-| `scripts/update-rust-bazel-deps.sh` | the wrapper: `cargo update` -> `cargo check` -> `vendor.sh` -> `bazel build` (`make update-rust-deps`) |
+| `//third_party/crate_mirror:sync` | refresh the archives from `Cargo.lock`, verify checksums, prune |
+| `scripts/update-rust-bazel-deps.sh` | the wrapper: `cargo update` -> `cargo check` -> `crate_mirror:sync` -> `bazel build` (`make update-rust-deps`) |

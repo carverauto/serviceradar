@@ -5,9 +5,8 @@ isolated workspace pointing `[source.vendored-sources]` at this directory and
 builds offline. See README.md for the regeneration recipe.
 
 This lives here rather than under rust/netprobe/ebpf/ so that every committed
-third-party source tree sits in one place. It is deliberately NOT under
-third_party/crates/ -- `scripts/vendor.sh` does `rm -rf third_party/crates`
-before regenerating that tree, which would delete this one with it.
+third-party source tree sits in one place, and deliberately outside the vendored
+crate tree, which is regenerated wholesale and would take this with it.
 """
 
 package(default_visibility = ["//visibility:public"])

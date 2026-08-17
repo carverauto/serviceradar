@@ -87,9 +87,19 @@ fn testdata(name: &str) -> PathBuf {
         }
     }
     // cargo test: relative to this crate.
-    Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("testdata/scorecard")
-        .join(name)
+    //
+    // std::env::var, not env!. The macro is evaluated at COMPILE time, so it bakes the
+    // absolute path of the directory that built this crate into the test binary -- under
+    // RBE that is /buildbuddy-execroot/..., which makes the artifact non-reproducible and
+    // is rejected outright by rules_rs's process wrapper. Read at runtime instead: cargo
+    // sets the variable when it runs the test, and Bazel never reaches this branch because
+    // the two runfiles lookups above already resolved.
+    if let Ok(manifest_dir) = std::env::var("CARGO_MANIFEST_DIR") {
+        return Path::new(&manifest_dir)
+            .join("testdata/scorecard")
+            .join(name);
+    }
+    Path::new("testdata/scorecard").join(name)
 }
 
 fn series<'a>(scorecard: &'a Scorecard, key: &str) -> &'a SeriesScore {

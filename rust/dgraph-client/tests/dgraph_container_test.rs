@@ -30,7 +30,7 @@ use tokio::runtime::{Builder, Runtime};
 
 // `Probe`, `ProbeContext` and `WaitStrategy` belong to `wait_utils`, but are reached through
 // `docker_utils`' re-export on purpose: `wait_utils` is only a transitive dependency here,
-// so it has no entry in `//third_party/crates:defs.bzl` and `all_crate_deps()` cannot
+// so it has no entry in the generated `@crates` hub and `all_crate_deps()` cannot
 // resolve it. `use wait_utils::...` compiles under cargo and fails under Bazel.
 use docker_utils::{ContainerConfig, DockerUtil, Probe, ProbeContext, WaitStrategy};
 

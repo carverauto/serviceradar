@@ -1,3 +1,0 @@
-[codespell]
-skip = target,autobahn
-ignore-words-list = crate,ser

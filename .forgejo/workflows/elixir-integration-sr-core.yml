@@ -113,7 +113,7 @@ on:
       - 'build/integration_shards.bzl'
       - 'build/integration_tests.bzl'
       - 'build/mix_app.bzl'
-      - 'third_party/crates/**'
+      - 'third_party/crate_mirror/**'
       - 'third_party/hex/**'
       - '.tool-versions'
       - '.bazelrc'

@@ -1,9 +1,0 @@
-comment:
-  layout: "diff, flags, files"
-  require_changes: true
-
-coverage:
-  status:
-    project:
-      default:
-        informational: true

@@ -380,7 +380,7 @@ database-facing **`TestRunner` action must execute on the runner that can resolv
 cloud runner, lifecycle and shard actions all fail to reach the fixture rather than only the setup
 steps failing.
 
-Full reachability matrix and the fixture-credential design: `openspec/notes/bazel-bb-ci.md`.
+Full reachability matrix and the fixture-credential design: `../../openspec/notes/archive/bazel-bb-ci.md`.
 
 ## Cache proxy
 

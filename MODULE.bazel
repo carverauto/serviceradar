@@ -9,15 +9,26 @@ bazel_dep(name = "rules_go", version = "0.62.0", repo_name = "io_bazel_rules_go"
 bazel_dep(name = "gazelle", version = "0.51.3", repo_name = "bazel_gazelle")
 bazel_dep(name = "rules_rs", version = "0.0.99")
 
-# Pinned by commit so the pin is immutable. Fork carrying crate.from_cargo(vendor_dir = ...),
-# which lets registry crates resolve from //third_party/crates instead of being downloaded --
-# drop this override once it is upstream and the bazel_dep above resolves on its own.
+# Fork carrying the vendoring work: crate annotations read from
+# [workspace.metadata.rules_rs], a distdir-matchable crate URL, and the
+# no-check-output-for-working-dir opt-out. Pinned by commit so the pin is immutable.
+# Drop this override once the branch is upstream.
 git_override(
     module_name = "rules_rs",
-    commit = "d994e538b82c46806af45c17377131c5443aa501",
+    commit = "64dcc3fce2286b7fccbbe1703e4d1f87fbf1cbbd",
     remote = "https://github.com/marvin-hansen/rules_rs.git",
 )
 
+# System libraries for the crates that would otherwise build them from source. rules_rs
+# calls these its "well-known annotations": zstd-sys and libz-sys each ship a bundled C
+# library and a build script to compile it, and pointing them at the BCR module instead
+# removes a from-source C build from every Rust action that touches compression.
+#
+# Contrast //MODULE.bazel's openssl handling below, which deliberately does NOT take the
+# equivalent suggestion: pq-src links the OpenSSL that openssl-sys builds, so swapping in
+# @openssl would break that pairing. zstd and zlib have no such coupling.
+bazel_dep(name = "zstd", version = "1.5.7.bcr.1")
+bazel_dep(name = "zlib", version = "1.3.2")
 bazel_dep(name = "rules_python", version = "2.2.0")
 bazel_dep(name = "rules_nodejs", version = "6.7.5")
 bazel_dep(name = "rules_proto", version = "7.1.0")
@@ -44,6 +55,9 @@ bazel_dep(name = "rules_foreign_cc", version = "0.15.1")
 bazel_dep(name = "aspect_rules_js", version = "2.6.0")
 bazel_dep(name = "aspect_rules_ts", version = "3.7.0")
 bazel_dep(name = "rules_cc", version = "0.2.22")
+
+# OpenSSL as cc_library; The one consumer is openssl-sys (annotation below), which in turn feeds pq-src.
+bazel_dep(name = "openssl", version = "3.5.5.bcr.4")
 bazel_dep(name = "buildifier_prebuilt", version = "8.5.1.3")
 bazel_dep(name = "aspect_bazel_lib", version = "2.22.5")
 bazel_dep(name = "llvm", version = "0.8.17")
@@ -297,6 +311,7 @@ llvm = use_extension("@llvm//extensions:llvm.bzl", "llvm")
 # and runtime-library incompatibility rather than as a clean error.
 # The tag is mandatory: with no llvm.version the extension fails with "Missing llvm.version(...)".
 llvm.version(llvm_version = "22.1.6")
+use_repo(llvm, "llvm-project")
 
 # The macOS sysroot, overriding the one @llvm pins for faster download.
 osx = use_extension("@llvm//extensions:osx.bzl", "osx")
@@ -310,13 +325,6 @@ osx.from_archive(
 )
 
 register_toolchains("@llvm//toolchain:all")
-
-# The only consumer here is //third_party/perl, whose configure_make builds the Perl that
-# OpenSSL's Configure needs. Bootstrapping a make to build a perl to build an openssl is a
-# lot of source builds to keep working through a compiler upgrade; the executor image
-# already carries make. Registering here puts it ahead of the built_ toolchain, since a
-# dependency's registrations are ordered after the root module's.
-register_toolchains("@rules_foreign_cc//toolchains:preinstalled_make_toolchain")
 
 # --- RBE Toolchain and platforms  ----------------------------------
 register_execution_platforms(
@@ -344,7 +352,7 @@ toolchains.toolchain(
 )
 use_repo(toolchains, "default_rust_toolchains")
 
-register_toolchains("@default_rust_toolchains//:all")
+register_toolchains("@default_rust_toolchains//...")
 
 # Custom Prost toolchain
 register_toolchains(
@@ -352,11 +360,7 @@ register_toolchains(
     "//build/rust/proto_toolchain",
 )
 
-# Rust crate dependencies
-
-# Every exec and target triple that can take part in a build. The musl pair is what
-# //rust/netprobe and the add-on bundles link against; the darwin entry is the dev host and
-# the linux-gnu pair covers CI, RBE, an prod.
+# Every exec and target triple that can take part in a build.
 RUST_PLATFORMS = [
     "aarch64-apple-darwin",
     "aarch64-unknown-linux-gnu",
@@ -365,124 +369,72 @@ RUST_PLATFORMS = [
     "x86_64-unknown-linux-musl",
 ]
 
-# rules_rs's crate extension, for the same reason as the toolchains above: @rules_rust is
-# use_repo'd by the facade and cannot source a use_extension. Note the attribute names differ
-# from crate_universe's -- cargo_lock/cargo_toml rather than cargo_lockfile/manifests.
-#
-# //third_party/crates KEEPS the crate sources and loses everything else. crates_vendor wrote
-# a crate_universe BUILD.bazel next to every crate plus a defs.bzl/crates.bzl hub; rules_rs
-# generates its own BUILD file per crate and its own hub, so those files are gone and the
-# tree is now what `cargo vendor --versioned-dirs` produces. `vendor_dir` below is what makes
-# rules_rs read it: a registry crate found at third_party/crates/<name>-<version> is
-# symlinked from there instead of downloaded, and anything missing still falls back to the
-# registry. See openspec migrate-bazel-rust-crate-vendoring for the tree's history.
+# Crate sources are vendored as .crate archives in //third_party/crate_mirror, reached through
+# --distdir rather than through the dependency graph: rules_rs generates its own BUILD file per
+# crate, so the mirror carries sources only, and anything missing falls back to the registry.
 crate = use_extension("@rules_rs//rs:extensions.bzl", "crate")
+
+# External repositories that Cargo.toml annotations refer to by name.
+crate.repo_alias(
+    name = "zstd",
+    repo = "@zstd",
+)
+crate.repo_alias(
+    name = "zlib",
+    repo = "@zlib",
+)
+
+# pq-src compiles libpq's TLS sources in its own build-script action. openssl-sys hands it
+# the include path through DEP_OPENSSL_INCLUDE, but a path is not an input: without the tree
+# artifact staged in that action's sandbox too, the compile fails on `openssl/ssl.h` not
+# found while pointing straight at the directory that holds it.
+crate.repo_alias(
+    name = "openssl_gen_dir",
+    repo = "@openssl//:gen_dir",
+)
+
 crate.from_cargo(
     name = "crates",
     cargo_lock = "//:Cargo.lock",
     cargo_toml = "//:Cargo.toml",
     platform_triples = RUST_PLATFORMS,
-    # Keeps //third_party/crates as the source of truth for crate sources
-    vendor_dir = "third_party/crates",
 )
 
-# The protoc plugins //build/rust/prost_toolchain runs. crates_vendor could conjure a crate
-# out of nothing through its `packages` attribute; rules_rs resolves the Cargo lockfile and
-# nothing else, so a plugin reaches the graph only by being a real dependency of a real
-# workspace member. That member is //rust/protoc-plugins, whose entire job is to pin them --
-# which is a more honest statement of the fact than a `crate.spec` was.
-crate.annotation(
-    crate = "protoc-gen-prost",
-    gen_binaries = ["protoc-gen-prost"],
-    repositories = ["crates"],
-)
-crate.annotation(
-    crate = "protoc-gen-tonic",
-    gen_binaries = ["protoc-gen-tonic"],
-    repositories = ["crates"],
-)
-
-# openssl-src: expose its C source tree to openssl-sys' build script.
+# openssl-sys: link the OpenSSL that @openssl builds, instead of building one.
 #
-# `extra_aliased_targets` is load-bearing and not cosmetic. A label written in a
-# crate.annotation is resolved against MODULE.bazel -- the root repository -- so a relative
-# label cannot name a target in the generated crate package the way crates_vendor's
-# annotations could. Aliasing each filegroup into the hub gives openssl-sys below a label it
-# can actually write. Every alias here is also emitted unversioned, because openssl-src has
-# exactly one version in //:Cargo.lock.
+# OPENSSL_NO_VENDOR turns off the openssl-src path and OPENSSL_STATIC picks the archives over
+# the shared libraries collated beside them. @openssl//:gen_dir is a directory laid out the
+# way openssl-sys expects: include/openssl/*.h and lib/lib{ssl,crypto}.a.
 #
-# The source patch itself is NOT declared here: scripts/vendor.sh applies it to the vendored
-# tree on disk, and `vendor_dir` symlinks that tree in. Declaring it as an annotation patch
-# would apply it a second time, to an already-patched source.
-crate.annotation(
-    additive_build_file_content = """
-filegroup(
-    name = "openssl_src_runfiles",
-    srcs = glob(
-        allow_empty = True,
-        include = ["**"],
-        exclude = [
-            "**/* *",
-            ".tmp_git_root/**/*",
-            "BUILD",
-            "BUILD.bazel",
-            "WORKSPACE",
-            "WORKSPACE.bazel",
-        ],
-    ),
-    visibility = ["//visibility:public"],
-)
-
-filegroup(
-    name = "openssl_src_readme",
-    srcs = ["README.md"],
-    visibility = ["//visibility:public"],
-)
-
-# A single stable file INSIDE the openssl/ C-source dir. Its $(location) parent is
-# the OpenSSL source root, which the patched source_dir() uses to locate the source.
-filegroup(
-    name = "openssl_src_version_marker",
-    srcs = ["openssl/VERSION.dat"],
-    visibility = ["//visibility:public"],
-)
-""",
-    crate = "openssl-src",
-    extra_aliased_targets = {
-        "openssl_src_readme": "openssl_src_readme",
-        "openssl_src_runfiles": "openssl_src_runfiles",
-        "openssl_src_version_marker": "openssl_src_version_marker",
-    },
-    repositories = ["crates"],
-)
-
-# openssl-sys: perl wrapper + point the build at the vendored openssl-src source. openssl-sys
-# builds a from-source (vendored) OpenSSL for libpq (pq-sys bundled), which is what makes the
-# build portable.
+# LIB_DIR and INCLUDE_DIR rather than the one OPENSSL_DIR that would imply both. openssl-sys'
+# find_normal.rs reads that pair FIRST and returns before it ever looks at OPENSSL_DIR, so
+# whoever sets the pair decides which OpenSSL gets linked. //.bazelrc used to set it to /usr
+# and no longer does; naming both here means this annotation decides, rather than depending on
+# an env var's continued absence. (The `vendored` feature short-circuited all of this, which is
+# why the old setting was harmless and invisible at the same time.)
 #
-# Do NOT take rules_rs's "well-known annotation" suggestion of @openssl + OPENSSL_NO_VENDOR=1:
-# pq-src links against the OpenSSL openssl-sys builds, which is why both are pinned and
-# patched here. gen_build_script = "on" only silences that warning -- rules_rs branches on
-# "off" alone (repository_utils.bzl:117), so it changes nothing.
+# pq-src reads DEP_OPENSSL_INCLUDE, which openssl-sys emits from this same directory, so
+# libpq's TLS code compiles against the headers the Rust bindings were generated from and
+# links the archives they were checked against. That pairing is why openssl-sys used to have
+# to build OpenSSL itself; it holds here because both sides resolve through one build script.
 crate.annotation(
-    build_script_data = [
-        "//third_party/rust_patches:openssl_perl_wrapper",
-        "@crates//:openssl_src_readme",
-        "@crates//:openssl_src_runfiles",
-        "@crates//:openssl_src_version_marker",
-    ],
+    build_script_data = ["@openssl//:gen_dir"],
     build_script_env = {
-        "OPENSSL_SRC_PERL": "$(execpath @@//third_party/rust_patches:openssl_perl_wrapper)",
-        # Absolute $(location) into the vendored openssl/ source. The patched
-        # openssl-src source_dir() reads this (a marker file) and uses its parent as the
-        # OpenSSL source root -- robust against the crate's stale baked CARGO_MANIFEST_DIR
-        # under Bazel sandboxing.
-        "RULES_RUST_OPENSSL_SRC_DIR": "$(location @crates//:openssl_src_version_marker)",
+        "OPENSSL_INCLUDE_DIR": "$(execpath @openssl//:gen_dir)/include",
+        "OPENSSL_LIB_DIR": "$(execpath @openssl//:gen_dir)/lib",
+        "OPENSSL_NO_VENDOR": "1",
+        "OPENSSL_STATIC": "1",
     },
     crate = "openssl-sys",
+    data = ["@openssl//:gen_dir"],
     gen_build_script = "on",
     repositories = ["crates"],
 )
+
+# @openssl is a bazel_dep of the root module, not of the generated hub, so the label above
+# is not resolvable from @crates without this.
+inject_repo(crate, "openssl")
+
 use_repo(crate, "crates")
 
 # rdp-connector-probe is deliberately detached from the workspace (its own Cargo.lock), so it
@@ -495,29 +447,20 @@ rdp_connector_crates.from_cargo(
     platform_triples = RUST_PLATFORMS,
 )
 
-# libz-sys must build the zlib it bundles and `static` is the only lever that works.
-# Annotation crate_features are merged with the resolved ones (compute_select treats them as
-# the always-on set), so this adds `static`.
-#
-# It is genuinely compiled: winscard asks flate2 for `zlib` on every non-wasm32 target.
-# rules_rs suggests @zlib (BCR) with the build script off, which would delete this workaround
-# outright -- worth doing, but it is a module-graph change needing a build across all five
-# RUST_PLATFORMS triples.
+# libz-sys for the RDP hub, on @zlib like the main hub -- winscard asks flate2 for `zlib` on
+# every non-wasm32 target, so it is genuinely compiled. Here rather than the probe's
+# Cargo.toml because @zlib is an external-repo label; see the zstd-sys note above.
 rdp_connector_crates.annotation(
     crate = "libz-sys",
-    crate_features = ["static"],
+    gen_build_script = "off",
     repositories = ["rdp_connector_crates"],
+    deps = ["@zlib"],
 )
 
 # aws-lc-sys is never compiled. Both rustls consumers here -- the probe and sspi -- pin
 # `ring`/`std`/`tls12` with default-features off, so aws-lc-rs is never enabled. rules_rs warns
 # anyway because it checks every lockfile package rather than what builds; adopting its
 # suggestion would add the @aws-lc module and a bindgen toolchain for zero actions.
-rdp_connector_crates.annotation(
-    crate = "aws-lc-sys",
-    gen_build_script = "on",
-    repositories = ["rdp_connector_crates"],
-)
 use_repo(
     rdp_connector_crates,
     "rdp_connector_crates",
@@ -622,38 +565,16 @@ oci_ext.pull(
     ],
 )
 
-# 18-bookworm, resolved to its OCI image index digest.
+# Pinned by digest: a tag pull re-resolves against ghcr.io on every refetch, and anonymous
+# token requests are rate limited -- a throttled one fails Bazel's loading phase.
 #
-# This was the only tag-based pull in the file, and `reproducible = False` was rules_oci
-# saying so. A tag pull has to re-resolve tag -> digest against the registry on every refetch,
-# and that resolution is an authenticated call: it fetches a bearer token from
-# https://ghcr.io/token first. Anonymous token requests are rate limited, and a throttled one
-# fails in Bazel's loading phase as "no such package @@rules_oci++oci+cloudnativepg_...",
-# which took out //integration_tests/srql:srql_api_test and :srql_comprehensive_test -- two
-# targets with no visible connection to containers.
-#
-# A digest is content-addressed, so the fetch is cacheable in the repository cache and needs
-# no tag resolution. Every other pull in this file was already pinned this way.
-#
-# To move to a newer image, re-resolve the tag deliberately:
+# Re-resolve deliberately:
 #   crane digest ghcr.io/cloudnative-pg/postgresql:18.4-system-bookworm
 #
-# The tag MUST be `18.<minor>-system-bookworm`. Two ways to get this wrong, both of
-# which have already happened:
-#
-#   `18-bookworm`  -- abandoned upstream at 18~rc1 (2025-09-08) and never moved, so
-#                     it silently builds a release candidate. A build from it was
-#                     pushed over 18.3.0-sr5, which let Harbor garbage-collect the
-#                     manifests demo and srql-fixtures were pinned to.
-#   `18.4`         -- resolves to the BULLSEYE build (18.4-1.pgdg11+1). Postgres
-#                     starts, and then PostGIS does not load: our prebuilt postgis
-#                     deb is a bookworm build wanting libldap-2.5.so.0, and bullseye
-#                     ships 2.4. Timescale, AGE and pgvector give no hint of it.
-#
-# Both parts of the suffix are load-bearing. `system` is the flavor the extension
-# layers are built against, and `bookworm` has to match the Debian release every
-# overlaid deb comes from -- libc6, libc6-dev, libssl-dev, postgis, pgvector. Confirm
-# with the base.name label, which must read debian:bookworm-slim.
+# The tag MUST be 18.<minor>-system-bookworm. `18-bookworm` is abandoned at 18~rc1; `18.4` is
+# a BULLSEYE build whose PostGIS will not load (wants libldap-2.5, bullseye ships 2.4).
+# `system` matches the extension layers, `bookworm` every overlaid deb.
+
 oci_ext.pull(
     name = "cloudnativepg_postgresql_18",
     digest = "sha256:63ba2470bb07cd0f4492c1f088689a6a01bbf20b5c5fc6c6472507353d14002c",
@@ -921,22 +842,11 @@ http_archive = use_repo_rule(
     "http_archive",
 )
 
-# The arm64 OTP an arm64 Elixir image SHIPS. The amd64 pin above stays the one that RUNS the
-# build; `mix release` collapses both roles into one OTP, which is what blocks arm64 Elixir.
-#
-# NOT a second prebuilt_erlang_from_hex_builds. Neither rules_erlang nor rules_elixir puts a
-# CPU constraint on its toolchains, so resolution cannot pick an OTP by target arch -- a second
-# registered toolchain would be ambiguous, not selective. `include_erts:` in a release's
-# releases/0 is the seam instead, and it takes a path.
-#
-# That path must name the erts-* directory INSIDE a complete OTP root: Mix derives the OTP
-# application tree as dirname(erts_source)/lib, so kernel/stdlib/crypto and their priv/*.so
-# come from here too. A bare ERTS tree ships an aarch64 beam.smp with an x86-64 crypto.so --
-# assembles clean, dies at the first TLS handshake.
-#
-# Raw hex archive rather than a relocated one because Mix.Release.copy_erts/1 rewrites bin/erl
-# with a relative ROOTDIR. Same version and upstream ref as the amd64 pin, so both carry
-# erts-16.1 -- the boot script names that version and the two must agree.
+# The arm64 OTP an arm64 Elixir image SHIPS; the amd64 pin above still RUNS the build.
+# `mix release` collapses both roles into one OTP, which is what blocks arm64 Elixir.
+# Not a second prebuilt_erlang_from_hex_builds: no CPU constraint on those toolchains, so a
+# second registration would be ambiguous rather than selective.
+
 http_archive(
     name = "otp_28_1_linux_arm64",
     build_file_content = """
@@ -1127,21 +1037,10 @@ http_file(
     ],
 )
 
-# --- Membrane precompiled OS-deps (x86_64 linux) ----------------------------
-# core-elx pulls ~13 Membrane plugins (via vendored boombox) that use
-# `membrane_precompiled_dependency_provider`. At `mix deps.compile`, Bundlex
-# (pinned to github tag v1.5.4) downloads one precompiled OS-dep tarball per dep
-# from github.com. The Forgejo CI runner lacks github.com egress, so those
-# downloads fail. We pin each tarball here (Bazel repo-fetch DOES have egress),
-# stage them into the build sandbox via //build:mix_release.bzl, and patch
-# Bundlex's `download/2` to copy from the staged dir by URL basename.
-#
-# URLs/versions are taken from each plugin's bundlex.exs `:version` option,
-# resolved through Membrane.PrecompiledDependencyProvider 0.2.2:
-#   generic: .../precompiled_<dep>/releases/download/v<ver>/<dep>_linux_x86.tar.gz
-#   ffmpeg:  .../precompiled_ffmpeg/releases/download/v6.0.1/ffmpeg_linux64.tar.xz
-# `downloaded_file_path` matches the URL basename so the version-independent
-# copy-by-basename patch finds them.
+# --- Membrane precompiled OS-deps ------------------------------------------
+# core-elx pulls ~13 Membrane plugins (via vendored boombox) whose Bundlex downloads one
+# precompiled OS-dep tarball each from github.com at `mix deps.compile`. The Forgejo runner
+# has no github.com egress, so they are pinned here instead (repo fetch does).
 
 http_file(
     name = "membrane_precompiled_fdk_aac",
@@ -1503,43 +1402,13 @@ exports_files(["crane"])
     ],
 )
 
-# Ubuntu .deb dependencies for //third_party/libpcap, twelve rules: six amd64 and six arm64.
+# Ubuntu .deb dependencies for //third_party/libpcap: six amd64, six arm64.
 #
-# EVERY ONE CARRIES TWO URLS ON PURPOSE. Bazel tries them in order and every rule pins a
-# sha256, so a mirror is verified exactly like the origin -- there is no trust cost to listing
-# one, only a resilience gain.
-#
-# The amd64 six are mirrored because archive.ubuntu.com is unreachable, full stop -- not just
-# from CI. Six simultaneous "Connect timed out" failures took down the loading phase and, with
-# it, //third_party/libpcap and everything depending on it:
-#
-#   ERROR: loading failure: ... Error downloading
-#   [http://archive.ubuntu.com/ubuntu/pool/main/libp/libpcap/libpcap0.8-dev_...deb]: Connect timed out
-#   ERROR: //third_party/libpcap:pcap: analysis failure
-#
-# It is NOT a port-80 block, which was the first guess: the arm64 six are also plain HTTP, on
-# ports.ubuntu.com, and none failed in the same run. The host itself is the problem.
-# archive.ubuntu.com is round-robin DNS across a mirror set, serves no HTTPS at all (curl
-# returns 000, so switching scheme in place is not an option), and currently times out from
-# developer machines too.
-#
-# WHY THIS LOOKED CI-SPECIFIC AND WAS NOT. A local `bazel build --config=ci //...` succeeds
-# while CI fails, which reads like an environment difference. It is a warm repository cache:
-# //.bazelrc sets --repository_cache=third_party/bazel-repo-cache, these files landed there
-# during an older fetch, and nothing has needed to reach the network for them since. The cache
-# is content-addressed -- look for content_addressable/sha256/<sha>/file, not for *.deb -- so
-# it is easy to conclude the files are absent when they are not.
-#
-# So the mirror is not a CI workaround. It repairs a single point of failure that any cold
-# checkout hits: a new machine, a fresh clone, a pruned cache. mirrors.edge.kernel.org carries
-# the same pool over HTTPS and answers in ~0.5s.
-#
-# The arm64 six keep ports.ubuntu.com but lead with its HTTPS endpoint, which does answer.
-# They have not failed, so this is prophylactic rather than a fix.
-#
-# distdir is NOT the answer here. //third_party/distdir is gitignored and documented as a
-# cache rather than vendored source, restored in Forgejo through actions/cache -- a mechanism
-# BuildBuddy Workflows has no equivalent of, so a fresh runner starts empty regardless.
+# Two URLs each, on purpose. archive.ubuntu.com times out from any machine (round-robin DNS,
+# no HTTPS at all) and took the loading phase down with it; mirrors.edge.kernel.org serves the
+# same pool over HTTPS. Every rule pins a sha256, so a mirror costs no trust. A warm
+# repository cache hides this, which is why it first looked CI-specific.
+
 http_file(
     name = "ubuntu_noble_libpcap0_8_dev_amd64_deb",
     downloaded_file_path = "libpcap0.8-dev_1.10.4-4.1ubuntu3_amd64.deb",
@@ -2121,24 +1990,6 @@ http_file(
 )
 
 http_archive(
-    name = "perl_src",
-    build_file_content = """
-filegroup(
-    name = "all_sources",
-    srcs = glob(["**"], exclude = ["BUILD", "BUILD.bazel"]),
-    visibility = ["//visibility:public"],
-)
-""",
-    patch_args = ["-p1"],
-    patches = ["//third_party/perl:add_configure_wrapper.patch"],
-    sha256 = "d5325300ad267624cb0b7d512cfdfcd74fa7fe00c455c5b51a6bd53e5e199ef9",
-    strip_prefix = "perl-5.40.0",
-    urls = [
-        "https://www.cpan.org/src/5.0/perl-5.40.0.tar.xz",
-    ],
-)
-
-http_archive(
     name = "remote_coverage_tools",
     sha256 = "aab349130118497d86bc79e3f735f026d3c36e7d38529063e91da1c29cc2ea47",
     urls = [
@@ -2191,27 +2042,9 @@ filegroup(
 """,
     sha256 = "2e503283704eb7b9d9a251cbf4bd1d186a33016e31f4617bbf37a4d60e38ae02",
     strip_prefix = "apache-age-1.7.0",
-    # ARCHIVE FIRST, downloads.apache.org SECOND, and that order is the fix.
-    #
-    # downloads.apache.org carries only the CURRENT release of a project. AGE 1.8.0 shipped,
-    # 1.7.0 was rotated off, and the pinned URL began returning 404 -- breaking `bazel build
-    # //...` in the LOADING phase with an error that names neither Apache nor a network:
-    #
-    #   ERROR: no such package '@@+http_archive+age_src//': ... GET returned 404 Not Found
-    #   ERROR: database/age/BUILD.bazel:6:18: //database/age:source_tree depends on
-    #          @@+http_archive+age_src//:all_srcs ... which failed to fetch
-    #
-    # It stayed invisible on any machine whose repository cache still held the tarball from
-    # before the rotation, so it looked like a CI-only fault for as long as one developer's
-    # cache was warm. Nothing about the build changed; the artifact moved.
-    #
-    # archive.apache.org is the permanent home -- every Apache release stays there forever,
-    # which is exactly the property a pinned dependency needs. Verified byte-identical to the
-    # sha256 above (5,529,925 bytes) before being listed, so this is the same artifact by a
-    # durable URL, not a version bump. Moving to 1.8.0 is a separate, deliberate change.
-    #
-    # downloads.apache.org is kept second: it is faster and mirror-backed while a version is
-    # current, and harmless once it 404s because Bazel simply tries the next URL.
+    # archive.apache.org FIRST: downloads.apache.org carries only the CURRENT release, so a
+    # pinned URL 404s the moment the project ships a new one (AGE 1.8.0 did exactly that,
+    # failing the loading phase). Kept second: faster while current, harmless once it 404s.
     urls = [
         "https://archive.apache.org/dist/age/PG18/1.7.0/apache-age-1.7.0-src.tar.gz",
         "https://downloads.apache.org/age/PG18/1.7.0/apache-age-1.7.0-src.tar.gz",

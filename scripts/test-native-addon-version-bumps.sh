@@ -10,31 +10,6 @@ guard_source="$1"
 fixture="$(mktemp -d "${TMPDIR:-/tmp}/native-addon-version-gate.XXXXXX")"
 trap 'rm -rf "${fixture}"' EXIT
 
-sha256_file() {
-  if command -v sha256sum >/dev/null 2>&1; then
-    sha256sum "$1" | awk '{print $1}'
-  else
-    shasum -a 256 "$1" | awk '{print $1}'
-  fi
-}
-
-write_vendor_inputs() {
-  {
-    printf 'FILE:@@//Cargo.lock %s\n' "$(sha256_file Cargo.lock)"
-    printf 'FILE:@@//rust/rdp-adapter/Cargo.toml %s\n' \
-      "$(sha256_file rust/rdp-adapter/Cargo.toml)"
-  } >third_party/crates/.serviceradar-vendor-inputs
-}
-
-write_module_lock() {
-  {
-    printf 'FILE:@@//rust/rdp-connector-probe/Cargo.lock %s\n' \
-      "$(sha256_file rust/rdp-connector-probe/Cargo.lock)"
-    printf 'FILE:@@//rust/rdp-connector-probe/Cargo.toml %s\n' \
-      "$(sha256_file rust/rdp-connector-probe/Cargo.toml)"
-  } >MODULE.bazel.lock
-}
-
 expect_failure() {
   local expected="$1" output
   shift
@@ -63,7 +38,7 @@ mkdir -p \
   "${fixture}/rust/otel-addon" \
   "${fixture}/rust/otel/src" \
   "${fixture}/scripts" \
-  "${fixture}/third_party/crates"
+  "${fixture}/third_party/crate_mirror"
 cp "${guard_source}" "${fixture}/scripts/check-native-addon-version-bumps.sh"
 chmod +x "${fixture}/scripts/check-native-addon-version-bumps.sh"
 
@@ -88,8 +63,6 @@ mkdir -p rust/otel/src
 printf 'pub fn collector() {}\n' >rust/otel/src/lib.rs
 printf 'version: 0.1.0\n' >addons/bumblebee-scan/addon.yaml
 printf 'package bumblebee\n' >go/pkg/bumblebee/runner.go
-write_vendor_inputs
-write_module_lock
 git add .
 git commit -qm "base"
 base_commit="$(git rev-parse HEAD)"
@@ -98,8 +71,8 @@ base_commit="$(git rev-parse HEAD)"
 #
 # The crate [package] version and the root vendor snapshot are deliberately NOT dragged
 # along. This case used to assert the opposite: that the gate failed closed until
-# third_party/crates/.serviceradar-vendor-inputs recorded the new Cargo.lock and Cargo.toml
-# hashes. The only way to satisfy that was scripts/vendor.sh, which rewrites 625 crate
+# the vendored tree's input index recorded the new Cargo.lock and Cargo.toml hashes. The
+# only way to satisfy that was a full re-vendor, which rewrites 625 crate
 # directories and discards the Bazel cache for every Rust target -- to restate a version
 # string that changes no third-party crate. So the second half asserts the bump passes with
 # rust/rdp-adapter/Cargo.toml still at 0.1.0 and the vendor snapshot untouched.
@@ -115,26 +88,30 @@ git add addons/rdp-adapter/addon.yaml
 git commit -qm "bump rdp add-on manifest only"
 scripts/check-native-addon-version-bumps.sh "${base_commit}" HEAD >/dev/null
 
-# The shipped RDP helper consumes the separate connector universe. Its manifest
-# and lockfile must continue to be pinned by MODULE.bazel.lock independently of
-# the root vendor index.
-printf 'version: 0.1.2\n' >addons/rdp-adapter/addon.yaml
-printf '[package]\nname = "serviceradar-rdp-adapter"\nversion = "0.1.2"\n' \
-  >rust/rdp-adapter/Cargo.toml
+# The shipped RDP helper resolves its connector/CredSSP graph from the separate
+# rdp_connector_crates universe, so that universe's manifest and lockfile are rdp payload
+# even though neither lives under rust/rdp-adapter. Changing them alone must still demand a
+# manifest bump.
+#
+# There is deliberately no MODULE.bazel.lock staleness case here any more; see the long note
+# in the gate for why that check became unsatisfiable under rules_rs.
+# A FRESH BASE, deliberately. The gate compares base..HEAD cumulatively, and rdp's manifest
+# already moved 0.1.0 -> 0.1.1 earlier in this fixture; measuring from base_commit would see
+# that bump and pass regardless of what this case does.
+connector_base="$(git rev-parse HEAD)"
 printf '[package]\nname = "serviceradar-rdp-connector-probe"\nversion = "0.1.0"\ndescription = "updated graph"\n' \
   >rust/rdp-connector-probe/Cargo.toml
 printf 'connector-lock-v2\n' >rust/rdp-connector-probe/Cargo.lock
-write_vendor_inputs
 git add .
-git commit -qm "stale connector module lock"
+git commit -qm "change connector universe without bumping rdp"
 expect_failure \
-  "RDP connector metadata changed but MODULE.bazel.lock is stale" \
-  scripts/check-native-addon-version-bumps.sh "${base_commit}" HEAD
+  "rdp native add-on payload changed" \
+  scripts/check-native-addon-version-bumps.sh "${connector_base}" HEAD
 
-write_module_lock
-git add MODULE.bazel.lock
-git commit -qm "refresh connector module lock"
-scripts/check-native-addon-version-bumps.sh "${base_commit}" HEAD >/dev/null
+printf 'version: 0.1.2\n' >addons/rdp-adapter/addon.yaml
+git add addons/rdp-adapter/addon.yaml
+git commit -qm "bump rdp for the connector universe change"
+scripts/check-native-addon-version-bumps.sh "${connector_base}" HEAD >/dev/null
 
 # Test-only Rust sources do not change the signed add-on runtime payload and
 # therefore must not force a fake package-version bump.

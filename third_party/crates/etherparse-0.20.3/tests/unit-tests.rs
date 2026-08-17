@@ -1,2 +1,0 @@
-use etherparse::*;
-mod transport;
