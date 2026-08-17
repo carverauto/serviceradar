@@ -185,6 +185,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.DeviceSupplementalData do
       endpoint_inventory_stored_package_count: Map.get(endpoint_inventory, :stored_package_count, 0),
       endpoint_inventory_artifacts: Map.get(endpoint_inventory, :artifacts, []),
       endpoint_inventory_vulnerability_matches: Map.get(endpoint_inventory, :vulnerability_matches, []),
+      endpoint_inventory_cpe_catalog_current: Map.get(endpoint_inventory, :cpe_catalog_current, true),
       endpoint_inventory_error: Map.get(endpoint_inventory, :error),
       has_software_inventory: Map.get(endpoint_inventory, :has_inventory, false),
       bumblebee_postures: Map.get(bumblebee, :postures, []),
