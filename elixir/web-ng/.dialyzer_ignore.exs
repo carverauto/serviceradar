@@ -54,7 +54,7 @@
    "The pattern variable _ can never match the type, because it is covered by previous clauses."},
   {"lib/serviceradar_web_ng/dashboards/frame_runner.ex", :pattern_match_cov},
   {"lib/serviceradar_web_ng/plugins/first_party_importer.ex", "The guard clause can never succeed."},
-  {"lib/serviceradar_web_ng/plugins/forgejo_oci_client.ex", "The guard clause can never succeed."},
+  {"lib/serviceradar_web_ng/plugins/first_party_release_client.ex", "The guard clause can never succeed."},
   {"lib/serviceradar_web_ng/plugins/github_importer.ex",
    "The pattern can never match the type {:error, {:invalid_manifest, [binary()]}}."},
   {"lib/serviceradar_web_ng/plugins/github_importer.ex", "Function dashboard_renderer_path/2 will never be called."},

@@ -19,7 +19,7 @@ defmodule ServiceRadarWebNG.Plugins.PackagesTest do
 
   require Ash.Query
 
-  @repo_url "https://code.carverauto.dev/carverauto/serviceradar"
+  @repo_url "https://github.com/carverauto/serviceradar"
   @manifest %{
     "id" => "unifi-protect-camera",
     "name" => "UniFi Protect Camera",
@@ -65,7 +65,7 @@ defmodule ServiceRadarWebNG.Plugins.PackagesTest do
 
     def get(url, _opts) do
       cond do
-        String.contains?(url, "/api/v1/repos/carverauto/serviceradar/releases?per_page=") ->
+        String.contains?(url, "api.github.com/repos/carverauto/serviceradar/releases?per_page=") ->
           Process.put(
             :first_party_recent_release_requests,
             Process.get(:first_party_recent_release_requests, 0) + 1
@@ -83,10 +83,10 @@ defmodule ServiceRadarWebNG.Plugins.PackagesTest do
 
           {:ok, %Req.Response{status: 200, body: releases}}
 
-        String.contains?(url, "/api/v1/repos/carverauto/serviceradar/releases/tags/v1.0.1") ->
+        String.contains?(url, "api.github.com/repos/carverauto/serviceradar/releases/tags/v1.0.1") ->
           {:ok, %Req.Response{status: 200, body: PackagesTest.first_party_release("v1.0.1")}}
 
-        String.contains?(url, "/api/v1/repos/carverauto/serviceradar/releases/tags/v1.0.2") ->
+        String.contains?(url, "api.github.com/repos/carverauto/serviceradar/releases/tags/v1.0.2") ->
           {:ok, %Req.Response{status: 200, body: PackagesTest.first_party_release("v1.0.2")}}
 
         String.contains?(url, "/download/v1.0.2/serviceradar-wasm-plugin-index.json") ->
@@ -580,12 +580,12 @@ defmodule ServiceRadarWebNG.Plugins.PackagesTest do
     %{
       "tag_name" => tag,
       "name" => "ServiceRadar #{tag}",
-      "html_url" => "https://code.carverauto.dev/carverauto/serviceradar/releases/tag/#{tag}",
+      "html_url" => "https://github.com/carverauto/serviceradar/releases/tag/#{tag}",
       "assets" => [
         %{
           "name" => "serviceradar-wasm-plugin-index.json",
           "browser_download_url" =>
-            "https://code.carverauto.dev/carverauto/serviceradar/releases/download/#{tag}/serviceradar-wasm-plugin-index.json"
+            "https://github.com/carverauto/serviceradar/releases/download/#{tag}/serviceradar-wasm-plugin-index.json"
         }
       ]
     }
@@ -602,9 +602,9 @@ defmodule ServiceRadarWebNG.Plugins.PackagesTest do
           "name" => "First-party Dedupe",
           "version" => "1.0.1",
           "bundle_url" =>
-            "https://code.carverauto.dev/carverauto/serviceradar/releases/download/#{tag}/first-party-dedupe#{suffix}.zip",
+            "https://github.com/carverauto/serviceradar/releases/download/#{tag}/first-party-dedupe#{suffix}.zip",
           "upload_signature_url" =>
-            "https://code.carverauto.dev/carverauto/serviceradar/releases/download/#{tag}/first-party-dedupe#{suffix}.upload-signature.json",
+            "https://github.com/carverauto/serviceradar/releases/download/#{tag}/first-party-dedupe#{suffix}.upload-signature.json",
           "bundle_digest" => Storage.sha256(first_party_bundle(tag)),
           "oci_ref" => "registry.carverauto.dev/serviceradar/wasm-plugin-first-party-dedupe:v1.0.1"
         }

@@ -241,7 +241,7 @@ automatically — there is no separate certificate step.
 
 Release assets (DEB, RPM, and signed agent runtime artifacts):
 
-**[https://code.carverauto.dev/carverauto/serviceradar/releases](https://code.carverauto.dev/carverauto/serviceradar/releases)**
+**[https://github.com/carverauto/serviceradar/releases](https://github.com/carverauto/serviceradar/releases)**
 
 The product UI links the same page from **Settings → Agent Deploy**. Prefer the
 latest stable release train for production.

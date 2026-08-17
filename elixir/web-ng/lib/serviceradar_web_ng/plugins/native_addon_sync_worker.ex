@@ -1,6 +1,6 @@
 defmodule ServiceRadarWebNG.Plugins.NativeAddonSyncWorker do
   @moduledoc """
-  Periodically imports verified first-party native add-on packages from Forgejo releases.
+  Periodically imports verified first-party native add-on packages from GitHub Releases.
   """
 
   use Oban.Worker,

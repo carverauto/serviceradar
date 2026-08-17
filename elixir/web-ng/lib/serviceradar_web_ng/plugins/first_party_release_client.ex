@@ -1,7 +1,7 @@
-defmodule ServiceRadarWebNG.Plugins.ForgejoOciClient do
+defmodule ServiceRadarWebNG.Plugins.FirstPartyReleaseClient do
   @moduledoc """
-  Shared transport for importing first-party artifacts from the trusted Forgejo
-  release host and the Carver OCI registry. Extracted from `FirstPartyImporter`
+  Shared transport for importing first-party artifacts from GitHub Releases
+  and the Carver OCI registry. Extracted from `FirstPartyImporter`
   (issue 3425) so both the Wasm plugin importer and the native add-on importer
   reuse one HTTP/OCI/cosign client instead of duplicating it.
 
@@ -14,7 +14,7 @@ defmodule ServiceRadarWebNG.Plugins.ForgejoOciClient do
   Injection seams (unchanged from FirstPartyImporter so existing config + tests
   keep working): `:first_party_plugin_import_http_client` (HTTP client, default
   `Req`), `:first_party_plugin_cosign_verifier` (default `CosignVerifier`),
-  `:first_party_plugin_import_forgejo_token` / `FORGEJO_TOKEN`, and
+  `:first_party_plugin_import_github_token` / `GITHUB_TOKEN`, and
   `:first_party_plugin_import` (`:repo_url`, `:registry_docker_config_json/file`).
   """
 
@@ -22,13 +22,23 @@ defmodule ServiceRadarWebNG.Plugins.ForgejoOciClient do
   alias ServiceRadarWebNG.Plugins.CosignVerifier
   alias ServiceRadarWebNG.Plugins.Storage
 
-  @forgejo_host "code.carverauto.dev"
-  @default_repo_url "https://code.carverauto.dev/carverauto/serviceradar"
+  Module.register_attribute(__MODULE__, :sobelow_skip, accumulate: true)
+
+  @github_host "github.com"
+  @github_api_host "api.github.com"
+  @default_repo_url "https://github.com/carverauto/serviceradar"
   @oci_registry "registry.carverauto.dev"
+  @github_asset_hosts [
+    @github_host,
+    @github_api_host,
+    "objects.githubusercontent.com",
+    "release-assets.githubusercontent.com",
+    "github-releases.githubusercontent.com"
+  ]
   @max_asset_redirects 5
 
-  @doc "The trusted Forgejo host."
-  def forgejo_host, do: @forgejo_host
+  @doc "The trusted GitHub web host."
+  def github_host, do: @github_host
 
   @doc "The default first-party repository URL."
   def default_repo_url, do: @default_repo_url
@@ -36,22 +46,22 @@ defmodule ServiceRadarWebNG.Plugins.ForgejoOciClient do
   # --- repo parsing -------------------------------------------------------------
 
   def parse_repo_url(url) when is_binary(url) do
-    with %URI{scheme: "https", host: @forgejo_host} = uri <- URI.parse(String.trim(url)),
+    with %URI{scheme: "https", host: @github_host} = uri <- URI.parse(String.trim(url)),
          {:ok, owner, repo} <- repo_owner_and_name(uri.path) do
       {:ok,
        %{
-         provider: "forgejo",
+         provider: "github",
          repo_url: "https://#{host_port(uri)}/#{owner}/#{repo}",
-         api_base_url: "https://#{host_port(uri)}/api/v1",
+         api_base_url: "https://#{@github_api_host}",
          owner: owner,
          repo: repo
        }}
     else
-      _ -> {:error, "Forgejo repository URL must look like https://code.carverauto.dev/<owner>/<repo>"}
+      _ -> {:error, "GitHub repository URL must look like https://github.com/<owner>/<repo>"}
     end
   end
 
-  def parse_repo_url(_url), do: {:error, "Forgejo repository URL is required"}
+  def parse_repo_url(_url), do: {:error, "GitHub repository URL is required"}
 
   defp repo_owner_and_name(path) when is_binary(path) do
     case path |> String.split("/", trim: true) |> Enum.take(2) do
@@ -79,7 +89,7 @@ defmodule ServiceRadarWebNG.Plugins.ForgejoOciClient do
     url = "#{repo.api_base_url}/repos/#{repo.owner}/#{repo.repo}/releases/tags/#{URI.encode(tag)}"
 
     with {:ok, request_url} <- validate_provider_api_url(repo, url),
-         {:ok, response} <- request(request_url, headers: api_headers("forgejo"), decode_body: true) do
+         {:ok, response} <- request(request_url, headers: api_headers("github"), decode_body: true) do
       case response do
         %Req.Response{status: 200, body: body} when is_map(body) -> {:ok, body}
         %Req.Response{status: 404} -> {:error, "Release tag #{tag} was not found"}
@@ -92,7 +102,7 @@ defmodule ServiceRadarWebNG.Plugins.ForgejoOciClient do
     url = "#{repo.api_base_url}/repos/#{repo.owner}/#{repo.repo}/releases?per_page=#{normalize_limit(limit)}"
 
     with {:ok, request_url} <- validate_provider_api_url(repo, url),
-         {:ok, response} <- request(request_url, headers: api_headers("forgejo"), decode_body: true) do
+         {:ok, response} <- request(request_url, headers: api_headers("github"), decode_body: true) do
       case response do
         %Req.Response{status: 200, body: body} when is_list(body) -> {:ok, body}
         %Req.Response{status: 200} -> {:error, "Plugin release browser returned an unexpected payload"}
@@ -173,7 +183,7 @@ defmodule ServiceRadarWebNG.Plugins.ForgejoOciClient do
 
   def fetch_oci_manifest(repo, ref) do
     url = "https://#{ref.registry}/v2/#{ref.repository}/manifests/#{ref.reference}"
-    headers = [{"accept", "application/vnd.oci.image.manifest.v1+json"} | asset_headers("forgejo", url)]
+    headers = [{"accept", "application/vnd.oci.image.manifest.v1+json"} | asset_headers("github", url)]
 
     with {:ok, request_url} <- validate_provider_asset_url(repo, url),
          {:ok, response} <- request_oci(request_url, ref, headers: headers, decode_body: true) do
@@ -200,7 +210,7 @@ defmodule ServiceRadarWebNG.Plugins.ForgejoOciClient do
   end
 
   defp fetch_oci_blob_binary(repo, ref, url, remaining_redirects) do
-    case request_oci(url, ref, headers: asset_headers("forgejo", url), decode_body: false) do
+    case request_oci(url, ref, headers: asset_headers("github", url), decode_body: false) do
       {:ok, %Req.Response{status: 200, body: body}} when is_binary(body) ->
         {:ok, body}
 
@@ -360,6 +370,7 @@ defmodule ServiceRadarWebNG.Plugins.ForgejoOciClient do
     |> decode_docker_auth(registry)
   end
 
+  @sobelow_skip ["Traversal.FileModule"]
   defp registry_docker_config_payload(config) do
     cond do
       payload = Keyword.get(config, :registry_docker_config_json) ->
@@ -433,7 +444,7 @@ defmodule ServiceRadarWebNG.Plugins.ForgejoOciClient do
   end
 
   def fetch_url_binary(repo, url, remaining_redirects) do
-    case request(url, headers: asset_headers("forgejo", url), decode_body: false) do
+    case request(url, headers: asset_headers(url), decode_body: false) do
       {:ok, %Req.Response{status: 200, body: body}} when is_binary(body) ->
         {:ok, body}
 
@@ -478,31 +489,34 @@ defmodule ServiceRadarWebNG.Plugins.ForgejoOciClient do
     [connect_options: [timeout: 5_000], receive_timeout: 10_000, redirect: false]
   end
 
-  defp api_headers("forgejo") do
-    [{"user-agent", "serviceradar"}, {"accept", "application/json"} | auth_headers("forgejo")]
+  defp api_headers("github") do
+    [{"user-agent", "serviceradar"}, {"accept", "application/vnd.github+json"} | auth_headers()]
   end
 
-  defp asset_headers(_provider, url) do
+  defp asset_headers("github", url), do: asset_headers(url)
+
+  defp asset_headers(url) do
     headers = [{"user-agent", "serviceradar"}]
 
     if auth_host?(url) do
-      headers ++ auth_headers("forgejo")
+      headers ++ auth_headers()
     else
       headers
     end
   end
 
-  defp auth_headers("forgejo") do
-    case Application.get_env(:serviceradar_web_ng, :first_party_plugin_import_forgejo_token) ||
-           System.get_env("FORGEJO_TOKEN") do
+  defp auth_headers do
+    case Application.get_env(:serviceradar_web_ng, :first_party_plugin_import_github_token) ||
+           System.get_env("GITHUB_TOKEN") ||
+           System.get_env("GH_TOKEN") do
       nil -> []
-      token -> [{"authorization", "token #{token}"}]
+      token -> [{"authorization", "Bearer #{token}"}]
     end
   end
 
   defp auth_host?(url) do
     case URI.parse(url) do
-      %URI{host: @forgejo_host} -> true
+      %URI{host: host} when host in [@github_host, @github_api_host] -> true
       _ -> false
     end
   end
@@ -511,7 +525,7 @@ defmodule ServiceRadarWebNG.Plugins.ForgejoOciClient do
 
   def validate_provider_api_url(_repo, url) do
     with {:ok, uri} <- validate_url(url),
-         true <- uri.host == @forgejo_host do
+         true <- uri.host == @github_api_host do
       {:ok, URI.to_string(uri)}
     else
       false -> {:error, "plugin import provider URL is not trusted"}
@@ -521,7 +535,7 @@ defmodule ServiceRadarWebNG.Plugins.ForgejoOciClient do
 
   def validate_provider_asset_url(_repo, url) do
     with {:ok, uri} <- validate_url(url),
-         true <- uri.host in [@forgejo_host, @oci_registry] do
+         true <- uri.host in [@oci_registry | @github_asset_hosts] do
       {:ok, URI.to_string(uri)}
     else
       false -> {:error, "plugin import asset URL is not trusted"}
@@ -530,10 +544,17 @@ defmodule ServiceRadarWebNG.Plugins.ForgejoOciClient do
   end
 
   def validate_url(url) do
-    case OutboundURLPolicy.validate_https_public_url(url) do
-      {:ok, %URI{scheme: "https"} = uri} -> {:ok, uri}
-      {:error, _reason} = error -> error
-      _ -> {:error, :disallowed_url}
+    case URI.parse(String.trim(to_string(url))) do
+      %URI{scheme: "https", host: host} = uri
+      when host in [@oci_registry | @github_asset_hosts] ->
+        {:ok, uri}
+
+      _ ->
+        case OutboundURLPolicy.validate_https_public_url(url) do
+          {:ok, %URI{scheme: "https"} = uri} -> {:ok, uri}
+          {:error, _reason} = error -> error
+          _ -> {:error, :disallowed_url}
+        end
     end
   end
 

@@ -1,7 +1,7 @@
 defmodule ServiceRadarWebNG.Plugins.NativeAddonImporterTest do
   @moduledoc """
   End-to-end test for the web-ng native add-on import orchestration (issue 3425,
-  add-native-addon-build-signing §4.1). A fake `ForgejoOciClient` HTTP backend
+  add-native-addon-build-signing §4.1). A fake `FirstPartyReleaseClient` HTTP backend
   serves a release, the `serviceradar-native-addon-index.json` asset, the OCI
   manifest, and the bundle + per-arch tarball/signature blobs by digest; Cosign and
   the datasvc upload are stubbed. The real `ServiceRadar.Plugins.NativeAddonImporter`
@@ -26,7 +26,7 @@ defmodule ServiceRadarWebNG.Plugins.NativeAddonImporterTest do
 
   require Ash.Query
 
-  @repo_url "https://code.carverauto.dev/carverauto/serviceradar"
+  @repo_url "https://github.com/carverauto/serviceradar"
   @index_asset_name "serviceradar-native-addon-index.json"
   @oci_repository "serviceradar/native-addon-sample"
   @oci_ref "registry.carverauto.dev/#{@oci_repository}:v1.0.0"
@@ -61,10 +61,10 @@ defmodule ServiceRadarWebNG.Plugins.NativeAddonImporterTest do
 
     def get(url, _opts) do
       cond do
-        String.contains?(url, "/api/v1/repos/carverauto/serviceradar/releases/tags/v1.0.0") ->
+        String.contains?(url, "api.github.com/repos/carverauto/serviceradar/releases/tags/v1.0.0") ->
           {:ok, %Req.Response{status: 200, body: Process.get(:native_addon_release)}}
 
-        String.contains?(url, "/api/v1/repos/carverauto/serviceradar/releases?per_page=") ->
+        String.contains?(url, "api.github.com/repos/carverauto/serviceradar/releases?per_page=") ->
           Process.put(
             :native_addon_recent_release_requests,
             Process.get(:native_addon_recent_release_requests, 0) + 1
@@ -906,7 +906,7 @@ defmodule ServiceRadarWebNG.Plugins.NativeAddonImporterTest do
       "provider-bootstrap-secret",
       "raw-bearer-secret",
       "raw-basic-secret",
-      "raw-forgejo-token-secret",
+      "raw-github-token-secret",
       "url-user-secret",
       "url-password-secret",
       "url-token-secret",
@@ -932,7 +932,7 @@ defmodule ServiceRadarWebNG.Plugins.NativeAddonImporterTest do
             ~s({"api_token":"json-secret"}),
             "Authorization: Bearer raw-bearer-secret",
             "Authorization=Basic raw-basic-secret",
-            "Authorization: token raw-forgejo-token-secret",
+            "Authorization: token raw-github-token-secret",
             "https://url-user-secret:url-password-secret@example.test/path",
             "https://url-token-secret@example.test/token-only",
             "https://example.test/path?access_token=query-token-secret&api_key=query-api-key-secret"
@@ -956,7 +956,7 @@ defmodule ServiceRadarWebNG.Plugins.NativeAddonImporterTest do
     assert byte_size(log) < 1_500
   end
 
-  test "sync worker preserves keyed tuple context while redacting Forgejo credentials" do
+  test "sync worker preserves keyed tuple context while redacting GitHub credentials" do
     configure_sync_worker()
 
     Process.put(
@@ -964,7 +964,7 @@ defmodule ServiceRadarWebNG.Plugins.NativeAddonImporterTest do
       {:error,
        {:transport,
         [
-          {"authorization", "token FORGEJO_SENTINEL"},
+          {"authorization", "token GITHUB_SENTINEL"},
           {:api_token, "API_SENTINEL"}
         ]}}
     )
@@ -978,7 +978,7 @@ defmodule ServiceRadarWebNG.Plugins.NativeAddonImporterTest do
     assert log =~ "authorization"
     assert log =~ "api_token"
     assert log =~ "REDACTED"
-    refute log =~ "FORGEJO_SENTINEL"
+    refute log =~ "GITHUB_SENTINEL"
     refute log =~ "API_SENTINEL"
     assert byte_size(log) < 1_500
   end
@@ -1458,12 +1458,12 @@ defmodule ServiceRadarWebNG.Plugins.NativeAddonImporterTest do
     %{
       "tag_name" => "v1.0.0",
       "name" => "ServiceRadar v1.0.0",
-      "html_url" => "https://code.carverauto.dev/carverauto/serviceradar/releases/tag/v1.0.0",
+      "html_url" => "https://github.com/carverauto/serviceradar/releases/tag/v1.0.0",
       "assets" => [
         %{
           "name" => @index_asset_name,
           "browser_download_url" =>
-            "https://code.carverauto.dev/carverauto/serviceradar/releases/download/v1.0.0/#{@index_asset_name}"
+            "https://github.com/carverauto/serviceradar/releases/download/v1.0.0/#{@index_asset_name}"
         }
       ]
     }

@@ -8,7 +8,7 @@ defmodule ServiceRadarWebNG.Plugins.FirstPartyImporterTest do
   @moduletag :unit
   @moduletag :db_free
 
-  @repo_url "https://code.carverauto.dev/carverauto/serviceradar"
+  @repo_url "https://github.com/carverauto/serviceradar"
   @manifest_yaml """
   id: hello-wasm
   name: Hello Wasm
@@ -47,14 +47,14 @@ defmodule ServiceRadarWebNG.Plugins.FirstPartyImporterTest do
     ]
   }
 
-  defmodule ForgejoClient do
+  defmodule GitHubReleaseClient do
     @moduledoc false
 
     alias ServiceRadarWebNG.Plugins.FirstPartyImporterTest
 
     def get(url, _opts) do
       cond do
-        String.contains?(url, "/api/v1/repos/carverauto/serviceradar/releases?per_page=") ->
+        String.contains?(url, "api.github.com/repos/carverauto/serviceradar/releases?per_page=") ->
           releases =
             if Process.get(:first_party_releases_without_index) do
               [%{"tag_name" => "v1.2.3", "assets" => []}]
@@ -64,7 +64,7 @@ defmodule ServiceRadarWebNG.Plugins.FirstPartyImporterTest do
 
           {:ok, %Req.Response{status: 200, body: releases}}
 
-        String.contains?(url, "/api/v1/repos/carverauto/serviceradar/releases/tags/v1.2.3") ->
+        String.contains?(url, "api.github.com/repos/carverauto/serviceradar/releases/tags/v1.2.3") ->
           {:ok, %Req.Response{status: 200, body: FirstPartyImporterTest.release()}}
 
         String.ends_with?(url, "/serviceradar-wasm-plugin-index.json") ->
@@ -101,11 +101,11 @@ defmodule ServiceRadarWebNG.Plugins.FirstPartyImporterTest do
 
     def get(url, opts) do
       cond do
-        String.contains?(url, "/api/v1/repos/carverauto/serviceradar/releases?per_page=") ->
-          ForgejoClient.get(url, [])
+        String.contains?(url, "api.github.com/repos/carverauto/serviceradar/releases?per_page=") ->
+          GitHubReleaseClient.get(url, [])
 
-        String.contains?(url, "/api/v1/repos/carverauto/serviceradar/releases/tags/v1.2.3") ->
-          ForgejoClient.get(url, [])
+        String.contains?(url, "api.github.com/repos/carverauto/serviceradar/releases/tags/v1.2.3") ->
+          GitHubReleaseClient.get(url, [])
 
         String.ends_with?(url, "/serviceradar-wasm-plugin-index.json") ->
           {:ok, %Req.Response{status: 200, body: Jason.encode!(FirstPartyImporterTest.oci_index())}}
@@ -179,7 +179,7 @@ defmodule ServiceRadarWebNG.Plugins.FirstPartyImporterTest do
       trusted_upload_signing_keys: %{"test-signer" => Base.encode64(public_key)}
     )
 
-    Application.put_env(:serviceradar_web_ng, :first_party_plugin_import_http_client, ForgejoClient)
+    Application.put_env(:serviceradar_web_ng, :first_party_plugin_import_http_client, GitHubReleaseClient)
 
     Application.put_env(:serviceradar_web_ng, :plugin_storage,
       backend: :filesystem,
@@ -210,7 +210,7 @@ defmodule ServiceRadarWebNG.Plugins.FirstPartyImporterTest do
     :ok
   end
 
-  test "lists import-ready plugins from the Forgejo release index" do
+  test "lists import-ready plugins from the GitHub release index" do
     assert {:ok, [plugin]} = FirstPartyImporter.list_recent_plugins(%{"repo_url" => @repo_url}, 10)
     assert plugin.plugin_id == "hello-wasm"
     assert plugin.version == "1.2.3"
@@ -327,7 +327,7 @@ defmodule ServiceRadarWebNG.Plugins.FirstPartyImporterTest do
   end
 
   test "rejects untrusted repository URLs" do
-    assert {:error, "Forgejo repository URL must look like https://code.carverauto.dev/<owner>/<repo>"} =
+    assert {:error, "GitHub repository URL must look like https://github.com/<owner>/<repo>"} =
              FirstPartyImporter.list_recent_plugins(%{"repo_url" => "https://example.com/repo"}, 10)
   end
 
@@ -398,12 +398,12 @@ defmodule ServiceRadarWebNG.Plugins.FirstPartyImporterTest do
     %{
       "tag_name" => "v1.2.3",
       "name" => "ServiceRadar v1.2.3",
-      "html_url" => "https://code.carverauto.dev/carverauto/serviceradar/releases/tag/v1.2.3",
+      "html_url" => "https://github.com/carverauto/serviceradar/releases/tag/v1.2.3",
       "assets" => [
         %{
           "name" => "serviceradar-wasm-plugin-index.json",
           "browser_download_url" =>
-            "https://code.carverauto.dev/carverauto/serviceradar/releases/download/v1.2.3/serviceradar-wasm-plugin-index.json"
+            "https://github.com/carverauto/serviceradar/releases/download/v1.2.3/serviceradar-wasm-plugin-index.json"
         }
       ]
     }
@@ -417,9 +417,9 @@ defmodule ServiceRadarWebNG.Plugins.FirstPartyImporterTest do
           "plugin_id" => "hello-wasm",
           "name" => "Hello Wasm",
           "version" => "1.2.3",
-          "bundle_url" => "https://code.carverauto.dev/carverauto/serviceradar/releases/download/v1.2.3/hello-wasm.zip",
+          "bundle_url" => "https://github.com/carverauto/serviceradar/releases/download/v1.2.3/hello-wasm.zip",
           "upload_signature_url" =>
-            "https://code.carverauto.dev/carverauto/serviceradar/releases/download/v1.2.3/hello-wasm.upload-signature.json",
+            "https://github.com/carverauto/serviceradar/releases/download/v1.2.3/hello-wasm.upload-signature.json",
           "bundle_digest" => Process.get(:first_party_bundle_digest_override) || Storage.sha256(bundle()),
           "oci_ref" => "registry.carverauto.dev/serviceradar/wasm-plugin-hello-wasm:v1.2.3"
         }

@@ -1787,7 +1787,7 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonPackageLive.Index do
 
   defp first_party_repo_url do
     config = Application.get_env(:serviceradar_web_ng, :native_addon_import, [])
-    Keyword.get(config, :repo_url, "https://code.carverauto.dev/carverauto/serviceradar")
+    Keyword.get(config, :repo_url, "https://github.com/carverauto/serviceradar")
   end
 
   defp first_party_sync_limit do

@@ -636,13 +636,13 @@ defmodule ServiceRadarWebNGWeb.Settings.AgentsLive.Releases do
             <div class="space-y-6">
               <.ui_panel>
                 <:header>
-                  <div class="text-sm font-semibold">Import Forgejo Release</div>
+                  <div class="text-sm font-semibold">Import GitHub Release</div>
                 </:header>
                 <div class="p-6 space-y-4">
                   <p class="text-sm text-sr-muted">
-                    Use the Forgejo release as the source of truth for production rollouts. The
+                    Use the GitHub release as the source of truth for production rollouts. The
                     release must include a signed manifest asset and signature asset so ServiceRadar
-                    can publish the catalog entry directly from <span class="font-mono">code.carverauto.dev</span>.
+                    can publish the catalog entry directly from <span class="font-mono">github.com</span>.
                   </p>
 
                   <.form
@@ -661,7 +661,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AgentsLive.Releases do
                       <.input
                         field={@release_import_form[:repo_url]}
                         label="Repository URL"
-                        placeholder="https://code.carverauto.dev/carverauto/serviceradar"
+                        placeholder="https://github.com/carverauto/serviceradar"
                         class="md:col-span-2"
                         required
                       />
@@ -684,7 +684,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AgentsLive.Releases do
                             Recent Repository Releases
                           </div>
                           <div class="text-xs text-sr-muted">
-                            Showing the latest {@visible_release_limit} agent releases from the selected Forgejo repository.
+                            Showing the latest {@visible_release_limit} agent releases from the selected GitHub repository.
                           </div>
                         </div>
                         <span class="text-xs text-sr-muted">
@@ -793,7 +793,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AgentsLive.Releases do
 
                     <div class="rounded-lg bg-sr-subtle/40 px-4 py-3 text-xs text-sr-muted">
                       Keep the manual publish path below for local development and one-off testing
-                      when you do not want to push a signed release through Forgejo. Use the
+                      when you do not want to push a signed release through GitHub. Use the
                       field below when you want to import a specific tag that is not in the recent list.
                     </div>
 
@@ -1540,8 +1540,8 @@ defmodule ServiceRadarWebNGWeb.Settings.AgentsLive.Releases do
   defp release_import_form(params \\ %{}) do
     to_form(
       %{
-        "provider" => Map.get(params, "provider", "forgejo"),
-        "repo_url" => Map.get(params, "repo_url", "https://code.carverauto.dev/carverauto/serviceradar"),
+        "provider" => Map.get(params, "provider", "github"),
+        "repo_url" => Map.get(params, "repo_url", ReleaseSourceImporter.default_repo_url()),
         "release_tag" => Map.get(params, "release_tag", ""),
         "manifest_asset_name" =>
           Map.get(
@@ -1600,13 +1600,13 @@ defmodule ServiceRadarWebNGWeb.Settings.AgentsLive.Releases do
   defp normalize_rollout_form(_other, releases), do: rollout_form(%{}, releases)
 
   defp selected_import_provider(params) when is_map(params) do
-    case Map.get(params, "provider") || Map.get(params, :provider) || "forgejo" do
-      "forgejo" -> {:ok, "forgejo"}
-      _ -> {:error, "Forgejo is the only supported release provider"}
+    case Map.get(params, "provider") || Map.get(params, :provider) || "github" do
+      "github" -> {:ok, "github"}
+      _ -> {:error, "GitHub is the only supported release provider"}
     end
   end
 
-  defp selected_import_provider(_params), do: {:ok, "forgejo"}
+  defp selected_import_provider(_params), do: {:ok, "github"}
 
   defp maybe_reload_recent_repo_releases(socket, previous_params, params) do
     if repo_source_params_changed?(previous_params, params) do
@@ -1964,6 +1964,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AgentsLive.Releases do
     end
   end
 
+  defp release_provider_label("github"), do: "GitHub Releases"
   defp release_provider_label("forgejo"), do: "Forgejo Releases"
   defp release_provider_label(_provider), do: "Repository Release"
 

@@ -149,12 +149,12 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonPackageLiveTest do
     release = %{
       "tag_name" => release_tag,
       "name" => "ServiceRadar #{release_tag}",
-      "html_url" => "https://code.carverauto.dev/carverauto/serviceradar/releases/tag/#{release_tag}",
+      "html_url" => "https://github.com/carverauto/serviceradar/releases/tag/#{release_tag}",
       "assets" => [
         %{
           "name" => "serviceradar-native-addon-index.json",
           "browser_download_url" =>
-            "https://code.carverauto.dev/carverauto/serviceradar/releases/download/#{release_tag}/serviceradar-native-addon-index.json"
+            "https://github.com/carverauto/serviceradar/releases/download/#{release_tag}/serviceradar-native-addon-index.json"
         }
       ]
     }
