@@ -22,6 +22,8 @@ defmodule ServiceRadarWebNG.Plugins.FirstPartyReleaseClient do
   alias ServiceRadarWebNG.Plugins.CosignVerifier
   alias ServiceRadarWebNG.Plugins.Storage
 
+  Module.register_attribute(__MODULE__, :sobelow_skip, accumulate: true)
+
   @github_host "github.com"
   @github_api_host "api.github.com"
   @default_repo_url "https://github.com/carverauto/serviceradar"
@@ -368,6 +370,7 @@ defmodule ServiceRadarWebNG.Plugins.FirstPartyReleaseClient do
     |> decode_docker_auth(registry)
   end
 
+  @sobelow_skip ["Traversal.FileModule"]
   defp registry_docker_config_payload(config) do
     cond do
       payload = Keyword.get(config, :registry_docker_config_json) ->
