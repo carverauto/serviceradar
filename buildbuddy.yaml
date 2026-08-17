@@ -294,31 +294,28 @@ actions:
             --nocache_test_results --remote_upload_local_results=false --flaky_test_attempts=1 \
             //rust/integration-db:provision_db
 
-          # The test suites. Selects //elixir/serviceradar_core:integration_tests_s0..s7 and nothing
-          # else: `manual` keeps banner_grab and //integration_tests/srql out of //... expansion
-          # whatever the tag filter says.
+          # The test suites. Selects //elixir/serviceradar_core:integration_tests_s0..s7 AND
+          # //integration_tests/srql:*.
           #
-          # The flag matters MORE here than on the named targets above, not less. An
-          # incompatible target under a wildcard is SKIPPED, not an error -- so without it this
+          # The srql targets were `manual` until this commit. That removed them from //...
+          # expansion BEFORE tag filters were considered, so no wildcard could reach them and
+          # every caller had to name them by hand -- which is exactly how
+          # srql_device_grouped_stats_test came to run here and not in the Forgejo job. They
+          # carry `integration_test` now, so the tag filter on this line selects them and the
+          # explicit block that used to follow is gone.
+          #
+          # banner_grab_integration_test is STILL `manual`, deliberately. It is not a wiring
+          # accident: it hides a real, reproducible failure (assertIntegrationMatches wants an
+          # `ntp` product match and no recog corpus entry can produce one -- see the comment on
+          # that target). Dropping its tag reds this step on every PR until that call is made.
+          #
+          # An incompatible target under a wildcard is SKIPPED -- so without it this
           # line exits 0 having run zero integration shards and the step reads green. The named
           # calls at least fail loudly.
           bazel test -c opt --config=ci --config=database_env --strategy=TestRunner=local \
             --//build:enable_integration_tests \
             --test_tag_filters=integration_test,-acceptance_test --test_output=errors \
             --nocache_test_results --remote_upload_local_results=false --flaky_test_attempts=1 //...
-          
-          # Named explicitly because no wildcard reaches them: //integration_tests/srql is tagged
-          # `manual`, which removes a target from //... expansion before tag filters are considered.
-          #
-          # They also carry the shared-fixture compatibility guard. The explicit empty tag filter
-          # admits their `manual` tag, while the opt-in flag arms their fixture access; omitting
-          # either must fail or select nothing rather than silently skip all assertions.
-          bazel test -c opt --config=ci --config=database_env --strategy=TestRunner=local \
-            --//build:enable_integration_tests --test_tag_filters= --test_output=errors \
-            --nocache_test_results --remote_upload_local_results=false \
-            --flaky_test_attempts=1 //integration_tests/srql:srql_api_test \
-            //integration_tests/srql:srql_comprehensive_test \
-            //integration_tests/srql:srql_device_grouped_stats_test
 
 
       # Largely a cache hit from the //... build above;

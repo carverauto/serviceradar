@@ -68,7 +68,14 @@ rust_test(
     crate_root = "tests/api.rs",
     data = SRQL_IT_DATA,
     edition = "2021",
-    tags = ["manual"],
+    # integration_test, NOT manual. `manual` removed these from //... expansion BEFORE tag
+    # filters were considered, so no wildcard could ever reach them and every caller had to
+    # name them explicitly -- which is how srql_device_grouped_stats_test ended up running in
+    # buildbuddy.yaml but not in the Forgejo job. The tag is the real filter: the unit sweep
+    # excludes it with -integration_test, the database sweep selects it. requires_shared_fixture()
+    # remains the second guard -- without --//build:enable_integration_tests these are
+    # incompatible and a wildcard skips them.
+    tags = ["integration_test"],
     target_compatible_with = requires_shared_fixture(),
     deps = SRQL_IT_DEPS,
 )
@@ -84,7 +91,14 @@ rust_test(
     crate_root = "tests/comprehensive_queries.rs",
     data = SRQL_IT_DATA,
     edition = "2021",
-    tags = ["manual"],
+    # integration_test, NOT manual. `manual` removed these from //... expansion BEFORE tag
+    # filters were considered, so no wildcard could ever reach them and every caller had to
+    # name them explicitly -- which is how srql_device_grouped_stats_test ended up running in
+    # buildbuddy.yaml but not in the Forgejo job. The tag is the real filter: the unit sweep
+    # excludes it with -integration_test, the database sweep selects it. requires_shared_fixture()
+    # remains the second guard -- without --//build:enable_integration_tests these are
+    # incompatible and a wildcard skips them.
+    tags = ["integration_test"],
     target_compatible_with = requires_shared_fixture(),
     deps = SRQL_IT_DEPS,
 )
@@ -103,7 +117,14 @@ rust_test(
     crate_root = "tests/device_grouped_stats.rs",
     data = SRQL_IT_DATA,
     edition = "2021",
-    tags = ["manual"],
+    # integration_test, NOT manual. `manual` removed these from //... expansion BEFORE tag
+    # filters were considered, so no wildcard could ever reach them and every caller had to
+    # name them explicitly -- which is how srql_device_grouped_stats_test ended up running in
+    # buildbuddy.yaml but not in the Forgejo job. The tag is the real filter: the unit sweep
+    # excludes it with -integration_test, the database sweep selects it. requires_shared_fixture()
+    # remains the second guard -- without --//build:enable_integration_tests these are
+    # incompatible and a wildcard skips them.
+    tags = ["integration_test"],
     target_compatible_with = requires_shared_fixture(),
     deps = SRQL_IT_DEPS,
 )

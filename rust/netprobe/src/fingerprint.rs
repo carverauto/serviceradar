@@ -1027,6 +1027,7 @@ fn recog_signal(service: RecogService) -> FingerprintSignal {
         RecogService::SipBanner => FingerprintSignal::RecogSip,
         RecogService::RdpBanner => FingerprintSignal::RecogRdp,
         RecogService::DnsVersion => FingerprintSignal::RecogDns,
+        RecogService::NtpReadvar => FingerprintSignal::RecogNtp,
     }
 }
 
@@ -1534,6 +1535,7 @@ fn signal_name(signal: FingerprintSignal) -> &'static str {
         FingerprintSignal::RecogSip => "recog_sip",
         FingerprintSignal::RecogRdp => "recog_rdp",
         FingerprintSignal::RecogDns => "recog_dns",
+        FingerprintSignal::RecogNtp => "recog_ntp",
         FingerprintSignal::SatoriTcp => "satori_tcp",
         FingerprintSignal::SatoriDhcp => "satori_dhcp",
         FingerprintSignal::SatoriHttp => "satori_http",

@@ -25,6 +25,36 @@ import (
 	"github.com/carverauto/serviceradar/go/tools/addon-manifest-validator/internal/manifestschema"
 )
 
+// repoFile resolves a path to a file checked in elsewhere in the repo.
+//
+// Under Bazel the file is a declared data dep and lives in the runfiles tree, which
+// TEST_SRCDIR/TEST_WORKSPACE points at ("_main" covers bzlmod's default when
+// TEST_WORKSPACE is unset). Under a plain `go test` there are no runfiles, so fall back
+// to walking up from the package directory.
+//
+// The callers deliberately treat a miss as a FAILURE rather than skipping. These two
+// tests are the only guard against the shipped manifest and the embedded schema drifting
+// from the canonical files under addons/, and a guard that silently skips when it cannot
+// find its input guards nothing -- which is exactly the state this replaced.
+func repoFile(t *testing.T, parts ...string) string {
+	t.Helper()
+
+	if srcDir := strings.TrimSpace(os.Getenv("TEST_SRCDIR")); srcDir != "" {
+		for _, workspace := range []string{strings.TrimSpace(os.Getenv("TEST_WORKSPACE")), "_main"} {
+			if workspace == "" {
+				continue
+			}
+
+			candidate := filepath.Join(append([]string{srcDir, workspace}, parts...)...)
+			if _, err := os.Stat(candidate); err == nil {
+				return candidate
+			}
+		}
+	}
+
+	return filepath.Join(append([]string{"..", "..", "..", "..", ".."}, parts...)...)
+}
+
 func readFixture(t *testing.T, name string) []byte {
 	t.Helper()
 
@@ -99,11 +129,11 @@ func TestInvalidManifestFailsClosed(t *testing.T) {
 // TestRepoSampleManifestIsValid guards the shipped first-party manifest so the
 // schema and the de-facto manifest cannot drift out of sync.
 func TestRepoSampleManifestIsValid(t *testing.T) {
-	path := filepath.Join("..", "..", "..", "..", "..", "addons", "sample-addon", "addon.yaml")
+	path := repoFile(t, "addons", "sample-addon", "addon.yaml")
 
 	data, err := os.ReadFile(path)
 	if err != nil {
-		t.Skipf("sample addon.yaml not found at %s: %v", path, err)
+		t.Fatalf("sample addon.yaml not readable at %s: %v", path, err)
 	}
 
 	res, err := manifestschema.ValidateYAML(data)
@@ -223,11 +253,11 @@ resources:
 // TestEmbeddedSchemaMatchesCanonical guards against the embedded copy drifting
 // away from the canonical schema published under addons/.
 func TestEmbeddedSchemaMatchesCanonical(t *testing.T) {
-	path := filepath.Join("..", "..", "..", "..", "..", "addons", "native-addon-manifest.schema.json")
+	path := repoFile(t, "addons", "native-addon-manifest.schema.json")
 
 	canonical, err := os.ReadFile(path)
 	if err != nil {
-		t.Skipf("canonical schema not found at %s: %v", path, err)
+		t.Fatalf("canonical schema not readable at %s: %v", path, err)
 	}
 
 	if string(canonical) != string(manifestschema.SchemaJSON) {

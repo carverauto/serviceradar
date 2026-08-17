@@ -146,6 +146,13 @@ fn recog_service_for_file(path: &Path) -> Option<&'static str> {
         "snmp_sysdescr.xml" => Some("SnmpBanner"),
         "sip_banners.xml" | "sip_user_agents.xml" => Some("SipBanner"),
         "dns_versionbind.xml" => Some("DnsVersion"),
+        "ntp_banners.xml" => Some("NtpReadvar"),
+        // A file with no mapping is SILENTLY DROPPED -- it ships in the corpus, passes
+        // SHA256SUMS, and contributes zero fingerprints. ntp_banners.xml sat here unmapped
+        // with 75 fingerprints (44 emitting service.product="NTP"), which is why the
+        // banner-grab integration test could never produce an ntp match. Adding a corpus file
+        // means adding it here AND to recog_service() in src/ipc/match_banner.rs; neither
+        // half fails loudly on its own.
         _ => None,
     }
 }

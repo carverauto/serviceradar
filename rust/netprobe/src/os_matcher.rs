@@ -62,6 +62,7 @@ pub enum FingerprintSignal {
     RecogSip,
     RecogRdp,
     RecogDns,
+    RecogNtp,
     SatoriTcp,
     SatoriDhcp,
     SatoriHttp,
@@ -180,7 +181,8 @@ fn multiplier(signal: FingerprintSignal) -> f32 {
         | FingerprintSignal::RecogSnmp
         | FingerprintSignal::RecogSip
         | FingerprintSignal::RecogRdp
-        | FingerprintSignal::RecogDns => RECOG_AGREEMENT_MULTIPLIER,
+        | FingerprintSignal::RecogDns
+        | FingerprintSignal::RecogNtp => RECOG_AGREEMENT_MULTIPLIER,
         FingerprintSignal::SatoriTcp
         | FingerprintSignal::SatoriDhcp
         | FingerprintSignal::SatoriHttp
@@ -349,6 +351,7 @@ fn baseline_weight(signal: FingerprintSignal) -> f32 {
         | FingerprintSignal::RecogSip
         | FingerprintSignal::RecogRdp
         | FingerprintSignal::RecogDns
+        | FingerprintSignal::RecogNtp
         | FingerprintSignal::SatoriDhcp
         | FingerprintSignal::SatoriHttp
         | FingerprintSignal::SatoriSsh
@@ -737,6 +740,7 @@ mod tests {
                 FingerprintSignal::RecogSip => "recog:sip",
                 FingerprintSignal::RecogRdp => "recog:rdp",
                 FingerprintSignal::RecogDns => "recog:dns",
+                FingerprintSignal::RecogNtp => "recog:ntp",
                 FingerprintSignal::SatoriTcp => "satori:tcp",
                 FingerprintSignal::SatoriDhcp => "satori:dhcp",
                 FingerprintSignal::SatoriHttp => "satori:http",
