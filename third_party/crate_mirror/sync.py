@@ -37,6 +37,41 @@ _URL = "https://static.crates.io/crates/{name}/{name}-{version}.crate"
 # line scanner is sufficient and adds no dependency.
 _FIELD = re.compile(r'^(name|version|checksum) = "([^"]*)"')
 
+# Every `cargo_lock = "<label>"` a from_cargo tag names in //MODULE.bazel.
+_CARGO_LOCK_LABEL = re.compile(r'^\s*cargo_lock\s*=\s*"([^"]+)"', re.MULTILINE)
+
+
+def lockfiles(workspace):
+    """Return every Cargo.lock that feeds a rules_rs hub, workspace-relative.
+
+    Derived from //MODULE.bazel rather than hardcoded, because that file is what decides
+    which hubs exist. There is more than one: //rust/rdp-connector-probe is deliberately
+    detached from the workspace with its own [workspace] table and its own lockfile, so
+    the root Cargo.lock does not mention any of its dependencies.
+
+    Reading only the root lockfile is exactly the bug this replaced. `cargo vendor`
+    operated on the root workspace, the mirror inherited that boundary, and 140 of the RDP
+    connector universe's 304 registry crates were therefore never vendored -- downloaded
+    from crates.io on every build instead, because --distdir misses quietly.
+    """
+    module = os.path.join(workspace, "MODULE.bazel")
+    with open(module, "r", encoding="utf-8") as handle:
+        contents = handle.read()
+
+    paths = []
+    for label in _CARGO_LOCK_LABEL.findall(contents):
+        # "//pkg:Cargo.lock" -> "pkg/Cargo.lock"; "//:Cargo.lock" -> "Cargo.lock".
+        package, _, name = label.lstrip("/").partition(":")
+        path = os.path.join(package, name) if package else name
+        if path not in paths:
+            paths.append(path)
+
+    if not paths:
+        sys.exit(
+            "no cargo_lock labels found in MODULE.bazel; the mirror would be emptied"
+        )
+    return paths
+
 
 def _archives(lock_path):
     """Yield (filename, url, sha256) for every registry crate in the lockfile."""
@@ -89,8 +124,26 @@ def main():
     mirror = os.path.join(workspace, "third_party", "crate_mirror")
     os.makedirs(mirror, exist_ok=True)
 
-    wanted = list(_archives(os.path.join(workspace, "Cargo.lock")))
-    expected = {filename for filename, _, _ in wanted}
+    # Deduplicated across hubs by filename: two lockfiles that pin the same crate at the
+    # same version want the same archive, and --distdir matches on basename alone.
+    by_filename = {}
+    for lock in lockfiles(workspace):
+        for filename, url, checksum in _archives(os.path.join(workspace, lock)):
+            previous = by_filename.get(filename)
+            if previous and previous[2] != checksum:
+                # crates.io is immutable, so one name+version cannot legitimately carry
+                # two checksums. Rather than pick one, stop: --distdir keys on the
+                # basename, so whichever archive won would silently feed both hubs.
+                sys.exit(
+                    "conflicting checksums for {}\n  {}\n  {}".format(
+                        filename, previous[2], checksum
+                    )
+                )
+            by_filename[filename] = (filename, url, checksum)
+        print("  {} crates from {}".format(len(by_filename), lock))
+
+    wanted = sorted(by_filename.values())
+    expected = set(by_filename)
 
     fetched = verified = 0
     for filename, url, checksum in wanted:
