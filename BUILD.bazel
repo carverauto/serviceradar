@@ -157,8 +157,9 @@ sh_binary(
 #
 # Same credential carve-out as the docker auth target above: a sandboxed test action must not
 # fetch cluster secrets itself, so they reach the Bazel CLIENT's environment before `bazel test`
-# starts. Reads the srql-fixtures K8s secrets when the caller has cluster access, otherwise trusts
-# pre-set BuildBuddy workflow secrets.
+# starts. Reads DSNs from the srql-fixtures K8s secrets when the caller has cluster access,
+# otherwise from pre-set workflow DSN secrets. The CA is always fetched live (cert-manager
+# Secret or SRQL_FIXTURE_CA_URL), never from a stored PEM.
 ###############################################################################
 sh_binary(
     name = "buildbuddy_setup_fixture_env",

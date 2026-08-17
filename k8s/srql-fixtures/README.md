@@ -11,7 +11,9 @@ fixture-reachable runners.
 - `namespace.yaml` – creates the `srql-fixtures` namespace.
 - `cnpg-test-credentials.yaml` – placeholder secret for the bootstrap user/password (replace before applying).
 - `cnpg-test-admin-credentials.yaml` – placeholder secret for the superuser that can drop/re-create the fixture database (replace before applying).
-- `cnpg-cluster.yaml` – CNPG `Cluster` spec that enables TimescaleDB + AGE using the digest-pinned `registry.carverauto.dev/serviceradar/serviceradar-cnpg:18.4.0-sr4@sha256:e54ee02582dbb2584388c03837911c1b1cb185cea92d60d2be7a08102b5a7910` fixture image.
+- `cnpg-cluster.yaml` – CNPG `Cluster` spec that enables TimescaleDB + AGE using the digest-pinned `registry.carverauto.dev/serviceradar/serviceradar-cnpg:18.4.0-sr4@sha256:e54ee02582dbb2584388c03837911c1b1cb185cea92d60d2be7a08102b5a7910` fixture image (`imagePullPolicy: IfNotPresent`, because Harbor has GC'd that digest before). Server TLS is user-provided from cert-manager (`srql-fixture-server-ca` / `srql-fixture-server-tls`). Pods are kept off `k8s-cp3-worker3`.
+- `cert-manager.yaml` – namespace-local self-signed Issuer, 10-year CA Certificate, CA Issuer, and 90-day server Certificate.
+- `ca-bundle.yaml` – publishes only `ca.crt` at `https://srql-fixture-ca.serviceradar.cloud/ca.crt` via the shared Envoy gateway, plus an in-cluster ClusterIP HTTP Service for ARC.
 - `services.yaml` – exposes a `LoadBalancer` targeting the CNPG primary. It’s annotated with `metallb.universe.tf/address-pool: k3s-pool` and `metallb.universe.tf/allow-shared-ip: serviceradar-public`, so MetalLB assigns one of the public addresses already used by the demo stack (currently `23.138.124.18`). ExternalDNS also sees the `external-dns.alpha.kubernetes.io/hostname: srql-fixture.serviceradar.cloud.` annotation and creates a matching A/AAAA record. In-cluster workloads should continue using the default `srql-fixture-rw` service the operator provisions automatically.
 - No network policy is applied; the LoadBalancer is publicly reachable once MetalLB advertises it. Use the shared secret/DSN guarding to control access.
 
@@ -28,8 +30,11 @@ kubectl -n srql-fixtures get secret registry-carverauto-dev-cred >/dev/null 2>&1
 # Create/update the credentials secrets before the cluster (pick your own passwords).
 kubectl apply -f k8s/srql-fixtures/cnpg-test-credentials.yaml
 kubectl apply -f k8s/srql-fixtures/cnpg-test-admin-credentials.yaml
+kubectl apply -f k8s/srql-fixtures/cert-manager.yaml
+# Wait until srql-fixture-server-ca and srql-fixture-server-tls exist before the Cluster.
 kubectl apply -f k8s/srql-fixtures/cnpg-cluster.yaml
 kubectl apply -f k8s/srql-fixtures/services.yaml
+kubectl apply -f k8s/srql-fixtures/ca-bundle.yaml
 ```
 
 ### Secrets
@@ -56,16 +61,26 @@ kubectl -n srql-fixtures create secret generic srql-test-admin-credentials \
 - Export the CA cert for strict verification (used by Rust + Elixir tests):
 
 ```bash
-kubectl -n srql-fixtures get secret srql-fixture-ca \
+kubectl -n srql-fixtures get secret srql-fixture-server-ca \
   -o jsonpath='{.data.ca\.crt}' | base64 -d > /tmp/srql-fixture-ca.crt
+# Or, with no kubeconfig:
+# curl -fsS https://srql-fixture-ca.serviceradar.cloud/ca.crt > /tmp/srql-fixture-ca.crt
 export PGSSLROOTCERT=/tmp/srql-fixture-ca.crt
 export SRQL_TEST_DATABASE_CA_CERT="$(cat /tmp/srql-fixture-ca.crt)"
 export SRQL_TEST_DATABASE_CA_CERT_FILE=/tmp/srql-fixture-ca.crt
 ```
-- **BuildBuddy**: `//:buildbuddy_setup_fixture_env` materializes both DSNs and the CA into a private
-  per-run file on the self-hosted workflow runner. The workflow sources it before Bazel starts and
-  uses `--strategy=TestRunner=local`; do not mount fixture credentials into remote executors.
-- **Forgejo runners**: Use the `srql-fixture-rw-ext` LoadBalancer IP (allocated from `k3s-pool`, currently `23.138.124.18`) or the managed DNS name `srql-fixture.serviceradar.cloud`. Store the DSNs and CA PEM content as runner secrets; the workflow materializes the PEM into a private temporary file when a path is required.
+- **BuildBuddy**: `//:buildbuddy_setup_fixture_env` materializes both DSNs and the live CA into a
+  private per-run file on the self-hosted in-cluster workflow runner. The CA comes from the
+  cert-manager Secret when the runner has RBAC, otherwise from the in-cluster HTTP bundle
+  (`SRQL_FIXTURE_CA_URL`). Do not store `SRQL_TEST_DATABASE_CA_CERT` in the BuildBuddy secret
+  store, and do not mount fixture credentials into remote executors.
+- **GitHub ARC** (`arc-runner-set` in the carverauto cluster):
+  `.github/workflows/elixir-integration-sr-core.yml` sets
+  `SRQL_FIXTURE_CA_URL=http://srql-fixture-ca-incluster.srql-fixtures.svc.cluster.local/ca.crt`
+  and keeps DSNs in GitHub Actions secrets. The runner is in-cluster, so it also resolves
+  `srql-fixture-rw.srql-fixtures.svc.cluster.local`.
+- **Forgejo leftover**: same `configure-srql-fixture.sh` live-CA rules while that runner is
+  still in service. Do not keep a CA PEM in the Forgejo secret store.
 
 ### Maintenance
 

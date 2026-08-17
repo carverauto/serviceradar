@@ -85,9 +85,14 @@ name: Elixir Integration Tests
 # `--test_tag_filters=` and prepare passes `--build_tag_filters=`. This makes the explicit target
 # selection self-contained while `manual` continues keeping lifecycle targets out of wildcards.
 #
-# NOTE ON `paths`: if this workflow is made a required status check, confirm how Forgejo
-# treats a path-skipped run before relying on the filter -- a skipped required check can
-# block merges.
+# RUNS ON GitHub ARC in the carverauto cluster (arc-systems / arc-runner-set).
+# The runner is inside the same cluster as srql-fixtures, so it resolves the
+# in-cluster Postgres DNS name and fetches the live CA from the ClusterIP HTTP
+# service. It does not use a stored CA PEM. DSNs stay in GitHub Actions secrets.
+#
+# NOTE ON `paths`: if this workflow is made a required status check, GitHub
+# reports a skipped path-filtered run as pending/skipped, not success. Use a
+# separate always-run gate if the check must be required.
 on:
   push:
     branches: [staging]
@@ -113,7 +118,7 @@ on:
       - 'build/integration_shards.bzl'
       - 'build/integration_tests.bzl'
       - 'build/mix_app.bzl'
-      - 'third_party/crate_mirror/**'
+      - 'third_party/crates/**'
       - 'third_party/hex/**'
       - '.tool-versions'
       - '.bazelrc'
@@ -121,7 +126,7 @@ on:
       - 'MODULE.bazel.lock'
       - 'scripts/ci/configure-srql-fixture.sh'
       - 'scripts/install-bazelisk.sh'
-      - '.forgejo/workflows/elixir-integration-sr-core.yml'
+      - '.github/workflows/elixir-integration-sr-core.yml'
   pull_request:
     branches: [staging]
     paths: *core_integration_paths
@@ -136,11 +141,17 @@ permissions:
 jobs:
   core-integration:
     name: serviceradar_core integration
-    runs-on: ubuntu24
+    # Scale sets match their name only. Extra labels (self-hosted, Linux, X64)
+    # never reach the listener and the job stays queued.
+    runs-on: arc-runner-set
     env:
       ImageOS: ubuntu24
+      BUILDBUDDY_API_KEY: ${{ secrets.BUILDBUDDY_API_KEY }}
       BUILDBUDDY_ORG_API_KEY: ${{ secrets.BUILDBUDDY_ORG_API_KEY }}
       BAZELISK_HOME: ${{ github.workspace }}/.cache/bazelisk
+      # Live CA for in-cluster ARC. The runner image has no kubectl; this ClusterIP
+      # serves only ca.crt. Do not point this at a stored GitHub secret.
+      SRQL_FIXTURE_CA_URL: http://srql-fixture-ca-incluster.srql-fixtures.svc.cluster.local/ca.crt
 
       # The dedicated `database_env` profile forwards these only to guarded, local,
       # non-uploaded database TestRunner actions. Generic remote test sweeps never load them.
@@ -172,13 +183,14 @@ jobs:
         run: |
           set -euo pipefail
 
-          if [ -z "${BUILDBUDDY_ORG_API_KEY:-}" ]; then
-            echo "BUILDBUDDY_ORG_API_KEY is unavailable; --config=ci cannot authenticate." >&2
+          bb_key="${BUILDBUDDY_API_KEY:-${BUILDBUDDY_ORG_API_KEY:-}}"
+          if [ -z "${bb_key}" ]; then
+            echo "BUILDBUDDY_API_KEY (or BUILDBUDDY_ORG_API_KEY) is unavailable; --config=ci cannot authenticate." >&2
             exit 1
           fi
 
           umask 077
-          printf 'common --remote_header=x-buildbuddy-api-key=%s\n' "${BUILDBUDDY_ORG_API_KEY}" > .bazelrc.remote
+          printf 'common --remote_header=x-buildbuddy-api-key=%s\n' "${bb_key}" > .bazelrc.remote
 
       # This is the authoritative database-integration job, not an optional fixture smoke.
       # Missing credentials must make the job red; silently skipping would let a required

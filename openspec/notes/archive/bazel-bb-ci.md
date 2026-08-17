@@ -40,7 +40,8 @@ compiled misses will never populate the shared cache.
 Fixture and NATS credentials are opt-in through `test:database_env` / `test:nats_env`. Generic
 remote unit tests never receive those values in their action environment. Every DB-facing
 invocation selects `--config=database_env` only alongside local TestRunner placement and disabled
-test-result upload.
+test-result upload. The fixture CA is fetched live at job start (cert-manager Secret or
+`https://srql-fixture-ca.serviceradar.cloud/ca.crt`); it is not a stored BuildBuddy secret.
 
 The base fixture variables are `SRQL_TEST_DATABASE_URL` and `SRQL_TEST_ADMIN_URL`. The caller sets
 one unique numeric `GITHUB_RUN_ID`/`GITHUB_RUN_ATTEMPT` pair for the sequence; Rust and Elixir
@@ -59,6 +60,7 @@ can run.
 ## Credentials
 
 BuildBuddy credentials belong in runner configuration or ignored `.bazelrc.remote` files. Fixture
-credentials and CA material come from runner secrets or the credential-only
-`//:buildbuddy_setup_fixture_env` target. No secret value belongs in Bazel flags, source files,
-logs, or an action uploaded to the public cache.
+DSNs come from runner secrets or the credential-only `//:buildbuddy_setup_fixture_env` target,
+which also fetches the current fixture CA from the live Secret or the published HTTPS bundle. No
+secret value belongs in Bazel flags, source files, logs, or an action uploaded to the public
+cache. Do not store `SRQL_TEST_DATABASE_CA_CERT` in the BuildBuddy secret store.

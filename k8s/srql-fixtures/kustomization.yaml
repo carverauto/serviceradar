@@ -4,5 +4,7 @@ resources:
   - namespace.yaml
   - cnpg-test-credentials.yaml
   - cnpg-test-admin-credentials.yaml
+  - cert-manager.yaml
   - cnpg-cluster.yaml
   - services.yaml
+  - ca-bundle.yaml

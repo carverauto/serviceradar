@@ -16,8 +16,24 @@ spec:
   # tag, so PostGIS cannot load: libldap-2.5.so.0 is missing. sr4 is the first build
   # on the bookworm base with the extensions compiled under a sysroot from it.
   imageName: registry.carverauto.dev/serviceradar/serviceradar-cnpg:18.4.0-sr4@sha256:e54ee02582dbb2584388c03837911c1b1cb185cea92d60d2be7a08102b5a7910
+  # Harbor has GC'd this digest before. IfNotPresent lets a TLS reload reuse the
+  # node cache instead of taking the only primary down on a registry 404.
+  imagePullPolicy: IfNotPresent
   imagePullSecrets:
     - name: registry-carverauto-dev-cred
+
+  # k8s-cp3-worker3 cannot pull the digest-pinned Harbor CNPG image (ImagePullBackOff).
+  # The BuildBuddy fleets already exclude it. Leave the replica off that node so TLS
+  # reload is not performed on a 1/2 cluster.
+  affinity:
+    nodeAffinity:
+      requiredDuringSchedulingIgnoredDuringExecution:
+        nodeSelectorTerms:
+          - matchExpressions:
+              - key: kubernetes.io/hostname
+                operator: NotIn
+                values:
+                  - k8s-cp3-worker3
 
   storage:
     size: 20Gi
@@ -48,9 +64,12 @@ spec:
       max_connections: "200"
       shared_buffers: 512MB
 
+  # User-provided server TLS from cert-manager (cert-manager.yaml). Distinct
+  # secret names so the operator never fights cert-manager for srql-fixture-ca
+  # / srql-fixture-server. Client / streaming_replica certs stay operator-managed.
   certificates:
-    serverAltDNSNames:
-      - srql-fixture.serviceradar.cloud
+    serverCASecret: srql-fixture-server-ca
+    serverTLSSecret: srql-fixture-server-tls
 
   managed:
     roles:
