@@ -1,0 +1,46 @@
+# ServiceRadar environment configuration: ci
+#
+# GROUND TRUTH. This file is authored and reviewed here; a build action compiles it to a
+# binary message that every implementation loads. Do not edit the generated .binpb.
+#
+# NO SECRETS. Passwords, private keys and certificate material are resolved by
+# SecretManager. A build-time check rejects credential-shaped values in this file.
+
+kind: ENVIRONMENT_KIND_CI
+
+database {
+  # The in-cluster fixture service. Only the in-cluster workflow runner can reach this
+  # name, which is why database tests pin the test action local rather than remote.
+  host: "srql-fixture-rw.srql-fixtures.svc.cluster.local"
+  port: 5432
+  database: "srql_fixture"
+
+  # Identities. Only the password is secret.
+  connecting_role: "srql_test"
+  owning_role: "srql_test"
+
+  # Typed, so it cannot go missing and silently degrade to a plaintext fallback.
+  tls_mode: TLS_MODE_VERIFY_FULL
+
+  # The fixture certificate carries DNS SANs and no IP SANs, so verification must be
+  # performed against this name even when the connection is made by address.
+  tls_server_name: "srql-fixture-rw.srql-fixtures.svc.cluster.local"
+
+  search_path: "platform, ag_catalog"
+  pool_size: 10
+  queue_target_ms: 500
+  queue_interval_ms: 1000
+  ownership_timeout_ms: 60000
+}
+
+nats {
+  url: "nats://nats.serviceradar.svc.cluster.local:4222"
+  server_name: "nats"
+}
+
+core {
+  address: "serviceradar-core:50052"
+  api_url: "http://serviceradar-core:8090"
+  security_mode: SECURITY_MODE_MTLS
+  server_name: "serviceradar-core"
+}

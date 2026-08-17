@@ -27,34 +27,64 @@ ambient environment, a test asserting on `.bazelrc`, and a value read under a di
 
 ## 2. Schema
 
-- [ ] Add `config/proto/config.proto` covering database, NATS, TLS and pool settings
-- [ ] Enumerate every schema-covered setting from `openspec/notes/env-var-inventory.md` §6
-- [ ] Use explicit presence (`optional`) on every field that must be supplied
-- [ ] Reserve `0` as `*_UNSPECIFIED` in every enum
-- [ ] Model TLS mode as an enum; model connecting role and owning role as separate fields
-- [ ] Wire codegen for Rust (prost), Go, and Elixir
+- [x] Add `config/proto/config.proto` covering database, NATS, core, TLS and pool settings
+- [x] Enumerate the schema-covered settings from `openspec/notes/env-var-inventory.md` §6, plus the
+      `CORE_*` family required by Decision 11 (11 variables surveyed:
+      `CORE_{ADDRESS,API_URL,SEC_MODE,SERVER_NAME,TRUST_DOMAIN,SERVER_SPIFFE_ID,WORKLOAD_SOCKET}`;
+      `CORE_{CERT_FILE,KEY_FILE,CA_FILE,CERT_DIR}` deliberately excluded as secret material)
+- [x] Use explicit presence (`optional`) on every field
+- [x] Reserve `0` as `*_UNSPECIFIED` in every enum
+- [x] Model TLS mode as an enum; model connecting role and owning role as separate fields
+- [x] Wire Go codegen (`//config/proto:configpb`) — builds on RBE
+- [x] Wire Rust codegen (prost) — `//config/rust:config_schema`, crate
+      `serviceradar-config-schema`. Registered in the workspace `members` and `Cargo.lock`.
+      Three tests pass on RBE, including `unset_fields_are_absent_not_defaulted`, which proves
+      explicit presence survives prost codegen (`Option`, not a zero value)
+- [x] Wire Elixir codegen — `make generate-proto-elixir-config` (+ `verify-proto-elixir-config`
+      drift guard, mirroring the existing proto targets). Generates
+      `config/elixir/lib/serviceradar_config/proto/{config,rules}.pb.ex` as
+      `Serviceradar.Config.V1.*`; **26 fields carry `proto3_optional: true`**, so presence
+      survives on the Elixir side too. Drift guard verified in sync
+- [ ] Decide where per-target values live that are NOT per-environment
+      (`SERVICERADAR_TEST_DB_SHARDS` is correctly a target `env` attribute today; `SRQL_FIXTURE_ROOT`
+      is still unplaced)
 
 ## 3. Rule set and predicate specification
 
-- [ ] Define the closed predicate vocabulary and its formal semantics, including totality
-- [ ] Specify engine semantics: cascading, short-circuit vs exhaustive, violation ordering,
-      phase interaction (design.md, Decision 4)
+- [x] Define the closed predicate vocabulary and its formal semantics, including totality —
+      `config/SEMANTICS.md` sections 2-3; eight predicates, verdict is
+      `Satisfied | Violated | NotApplicable`, every predicate pure and total
+- [x] Specify engine semantics — `config/SEMANTICS.md` sections 4-6: cascading (an absent
+      required field yields exactly one violation), exhaustive evaluation, total ordering by
+      `(field_path, code)`, and phase/scope gating that skips rather than returns NotApplicable
 - [ ] Model the engine (TLA+/Alloy) against those semantics
-- [ ] Define the rule-set file format: `(field_path, predicate, params, phase, code)`
-- [ ] Author the initial rule set covering every schema field
-- [ ] Implement the meta-rule: every schema field carries at least one rule
-- [ ] Author one violating fixture per rule
+- [x] Define the rule-set file format — `config/proto/rules.proto`; the predicate is a `oneof`
+      so a predicate and its parameters cannot disagree
+- [x] Author the initial rule set covering every schema field — `config/rules/ruleset.textproto`,
+      **37 rules**, compiles to a 3234-byte binary. Negative controls verified on RBE: an unknown
+      predicate and an unknown enum in `scope` each fail the build
+- [ ] Implement the meta-rule: every schema field carries at least one rule (needs the descriptor
+      reader; lands with the validator in phase 6)
+- [x] Define the fixture format and author representative fixtures —
+      `config/rules/fixtures/fixtures.textproto`, **10 cases** covering every predicate kind plus
+      cascading, ordering, and both sides of scope. Fixtures and conformance vectors are the same
+      artifact, so a rule cannot gain one without the other
+- [ ] Generate the per-rule fixture covering all 37 rules (phase 5, from the rule set)
 
 ## 4. Configuration files
 
-- [ ] Add `config/environments/{localhost,ci,saas}.textproto`
+- [x] Add `config/environments/ci.textproto` (first consumer: the fixture lifecycle)
+- [ ] Add `config/environments/{localhost,saas}.textproto`
 - [ ] Add `config/environments/onprem/<id>.textproto` per deployment, in this repository
 - [ ] Expose each as a Bazel target at the granularity components consume (database, NATS, TLS)
 - [ ] Add the build-time validator as a Bazel test over file-phase rules, iterating **every**
       instance including each on-prem one
 - [ ] Add the credential-shape check that rejects secrets in configuration files
-- [ ] Add the Bazel rule that compiles each committed `.textproto` to binary via `protoc --encode`,
-      exposing one target per instance
+- [x] Add the Bazel rule compiling each committed `.textproto` to binary via `protoc --encode`
+      (`//config:defs.bzl` `environment_config`), one target per instance.
+      **Verified on RBE:** `ci.textproto` -> 314-byte binary, and three negative controls each
+      fail the build: unknown field (names `not_a_real_field`), wrong type for `port`, and an
+      invalid enum value (names `TLS_MODE_BOGUS`)
 - [ ] Add the round-trip test asserting each generated binary matches its committed `.textproto`
 - [ ] Ship the compiled binary inside release artifacts — for Elixir, into an app's `priv/`, read at
       boot with `Application.app_dir/2`; never `__DIR__` (see Decision 9)

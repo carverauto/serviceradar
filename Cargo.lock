@@ -6098,6 +6098,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "serviceradar-config-schema"
+version = "0.1.0"
+dependencies = [
+ "prost",
+ "prost-build",
+]
+
+[[package]]
 name = "serviceradar-fieldsurvey-sidekick"
 version = "0.1.0"
 dependencies = [

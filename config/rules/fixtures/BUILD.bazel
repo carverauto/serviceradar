@@ -1,0 +1,14 @@
+# gazelle:ignore
+
+load("//config:defs.bzl", "fixture_set")
+
+# Negative fixtures and conformance vectors -- the same artifact serving both roles.
+# See //config/SEMANTICS.md sections 8 and 10.
+
+exports_files(["fixtures.textproto"])
+
+fixture_set(
+    name = "fixtures",
+    src = "fixtures.textproto",
+    visibility = ["//visibility:public"],
+)
