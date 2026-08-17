@@ -53,8 +53,11 @@ ambient environment, a test asserting on `.bazelrc`, and a value read under a di
 - [ ] Add the build-time validator as a Bazel test over file-phase rules, iterating **every**
       instance including each on-prem one
 - [ ] Add the credential-shape check that rejects secrets in configuration files
-- [ ] Ship the selected instance inside release artifacts (image / release tarball) so it is
-      readable at boot — see Decision 9
+- [ ] Add the Bazel rule that compiles each committed `.textproto` to binary via `protoc --encode`,
+      exposing one target per instance
+- [ ] Add the round-trip test asserting each generated binary matches its committed `.textproto`
+- [ ] Ship the compiled binary inside release artifacts — for Elixir, into an app's `priv/`, read at
+      boot with `Application.app_dir/2`; never `__DIR__` (see Decision 9)
 
 ## 5. Conformance vectors and property tests
 
