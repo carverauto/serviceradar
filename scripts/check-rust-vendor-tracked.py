@@ -2,8 +2,13 @@
 """Assert the vendored crate archives are complete and committed.
 
 //third_party/crate_mirror holds one `<name>-<version>.crate` per registry crate in
-//:Cargo.lock. //.bazelrc points --distdir at it, so a build resolves those archives
-from disk instead of crates.io.
+EVERY Cargo.lock that feeds a rules_rs hub -- not just //:Cargo.lock. //.bazelrc points
+--distdir at it, so a build resolves those archives from disk instead of crates.io.
+
+The lockfile list comes from //third_party/crate_mirror:sync, which derives it from the
+`cargo_lock` labels in //MODULE.bazel. Importing rather than reimplementing is the point:
+when this gate and the tool that populates the mirror disagree about what belongs in it,
+the gate passes while the mirror is wrong, which is the one outcome worth designing away.
 
 --distdir is a fallback rather than an enforcement: an archive that is missing is
 simply downloaded, and the build stays green. That is good for resilience and bad for
@@ -77,15 +82,27 @@ def main() -> int:
         if path.endswith(".crate")
     }
 
-    wanted = registry_crates(root / "Cargo.lock")
+    # sync.py owns which lockfiles feed the mirror; see the module docstring.
+    #
+    # dont_write_bytecode because .gitignore un-ignores third_party/crate_mirror/** to let
+    # the archives through, and that also defeats the global __pycache__ rule -- importing
+    # here would otherwise drop a .pyc into the mirror that `git add` happily commits.
+    sys.dont_write_bytecode = True
+    sys.path.insert(0, str(root / MIRROR))
+    import sync  # noqa: E402  (path has to be set up first)
+
+    locks = sync.lockfiles(str(root))
+    wanted: set[str] = set()
+    for lock in locks:
+        wanted |= registry_crates(root / lock)
 
     missing = sorted(wanted - tracked)
     extra = sorted(tracked - wanted)
 
     if missing:
         print(
-            "error: {} crate archive(s) in Cargo.lock are not committed under {}".format(
-                len(missing), MIRROR
+            "error: {} crate archive(s) from {} are not committed under {}".format(
+                len(missing), ", ".join(locks), MIRROR
             ),
             file=sys.stderr,
         )
@@ -96,7 +113,9 @@ def main() -> int:
 
     if extra:
         print(
-            "error: {} committed archive(s) are no longer in Cargo.lock".format(len(extra)),
+            "error: {} committed archive(s) are in no lockfile ({})".format(
+                len(extra), ", ".join(locks)
+            ),
             file=sys.stderr,
         )
         for name in extra[:20]:
@@ -110,7 +129,9 @@ def main() -> int:
         )
         return 1
 
-    print("{} crate archives tracked, matching Cargo.lock".format(len(wanted)))
+    print(
+        "{} crate archives tracked, matching {}".format(len(wanted), ", ".join(locks))
+    )
     return 0
 
 
