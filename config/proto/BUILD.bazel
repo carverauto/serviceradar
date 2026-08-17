@@ -58,3 +58,4 @@ go_library(
     importpath = "github.com/carverauto/serviceradar/config/proto",
     visibility = ["//visibility:public"],
 )
+

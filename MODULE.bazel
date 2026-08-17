@@ -8,11 +8,7 @@ module(
 bazel_dep(name = "rules_go", version = "0.62.0", repo_name = "io_bazel_rules_go")
 bazel_dep(name = "gazelle", version = "0.51.3", repo_name = "bazel_gazelle")
 bazel_dep(name = "rules_rs", version = "0.0.99")
-
-# Fork carrying the vendoring work: crate annotations read from
-# [workspace.metadata.rules_rs], a distdir-matchable crate URL, and the
-# no-check-output-for-working-dir opt-out. Pinned by commit so the pin is immutable.
-# Drop this override once the branch is upstream.
+# Fork carrying the vendoring work
 git_override(
     module_name = "rules_rs",
     commit = "64dcc3fce2286b7fccbbe1703e4d1f87fbf1cbbd",
@@ -209,6 +205,9 @@ use_repo(elixir_config_ext, "elixir_config")
 # rather than flagged: this is build graph, and a .bazelrc a given invocation might not read
 # would leave NIFs linking no C++ runtime -- which builds clean and fails at dlopen.
 register_toolchains("//build:mix_payloads")
+
+# protoc plus protoc-gen-elixir, built from the protobuf Hex package.
+register_toolchains("//build/elixir_proto:elixir_proto")
 
 register_toolchains(
     "@erlang_config//otp_28_1:toolchain_major",

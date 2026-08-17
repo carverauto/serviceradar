@@ -23,9 +23,4 @@ SHIPPED_ERTS_ROOT_MARKER = select({
 })
 
 def elixir_release(**kwargs):
-    # Mix refuses to resolve a project without Hex installed as an archive, aborting with
-    # "Could not find an SCM for dependency" even though nothing is fetched -- every dep is
-    # already a Bazel repository and mix runs with --no-deps-check.
-    if "archives" not in kwargs:
-        kwargs["archives"] = ["@hex//:archive"]
     return _elixir_release(**kwargs)
