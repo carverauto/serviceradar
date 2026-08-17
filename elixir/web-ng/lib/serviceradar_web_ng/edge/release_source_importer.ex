@@ -350,7 +350,7 @@ defmodule ServiceRadarWebNG.Edge.ReleaseSourceImporter do
   end
 
   defp normalize_provider(value) when is_binary(value) do
-    case String.trim(value) |> String.downcase() do
+    case value |> String.trim() |> String.downcase() do
       "" -> nil
       normalized -> normalized
     end

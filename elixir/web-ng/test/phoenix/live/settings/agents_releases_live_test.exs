@@ -151,8 +151,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AgentsReleasesLiveTest do
     defp release_asset(tag, name, file_name) do
       %{
         "name" => name,
-        "browser_download_url" =>
-          "https://github.com/carverauto/serviceradar/releases/download/#{tag}/#{file_name}"
+        "browser_download_url" => "https://github.com/carverauto/serviceradar/releases/download/#{tag}/#{file_name}"
       }
     end
 
@@ -1690,8 +1689,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AgentsReleasesLiveTest do
           "arch" => "amd64",
           "format" => "tar.gz",
           "entrypoint" => "serviceradar-agent",
-          "url" =>
-            "https://github.com/carverauto/serviceradar/releases/download/v#{version}/serviceradar-agent.tar.gz",
+          "url" => "https://github.com/carverauto/serviceradar/releases/download/v#{version}/serviceradar-agent.tar.gz",
           "sha256" => String.duplicate("a", 64)
         }
       ]
