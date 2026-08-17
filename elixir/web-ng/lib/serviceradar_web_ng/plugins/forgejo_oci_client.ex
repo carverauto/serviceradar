@@ -530,10 +530,21 @@ defmodule ServiceRadarWebNG.Plugins.ForgejoOciClient do
   end
 
   def validate_url(url) do
-    case OutboundURLPolicy.validate_https_public_url(url) do
-      {:ok, %URI{scheme: "https"} = uri} -> {:ok, uri}
-      {:error, _reason} = error -> error
-      _ -> {:error, :disallowed_url}
+    case URI.parse(String.trim(to_string(url))) do
+      %URI{scheme: "https", host: host} = uri
+      when host in [@forgejo_host, @oci_registry] ->
+        # First-party hosts are already pinned by the provider allowlists.
+        # Do not require a public A/AAAA record: split-horizon and RBE
+        # resolvers can return RFC1918 addresses for code.carverauto.dev
+        # and then reject a URL the importer is required to use.
+        {:ok, uri}
+
+      _ ->
+        case OutboundURLPolicy.validate_https_public_url(url) do
+          {:ok, %URI{scheme: "https"} = uri} -> {:ok, uri}
+          {:error, _reason} = error -> error
+          _ -> {:error, :disallowed_url}
+        end
     end
   end
 

@@ -83,6 +83,7 @@ py_test(
         ".bazelrc",
         ".forgejo/workflows/elixir-integration-sr-core.yml",
         ".forgejo/workflows/main.yml",
+        ".github/workflows/elixir-integration-sr-core.yml",
         "Makefile",
         "buildbuddy.yaml",
         "buildbuddy_setup_fixture_env.sh",
