@@ -1,5 +1,5 @@
 load("@rules_elixir//:ex_unit_test.bzl", "ex_unit_test")
-load("@serviceradar//build:elixir_tests.bzl", "ex_unit_tests")
+load("@rules_elixir//:elixir_tests.bzl", "ex_unit_tests")
 load(
     "@serviceradar//build:integration_shards.bzl",
     "integration_shard_names",
@@ -254,6 +254,7 @@ mix_app(
 
 # One Bazel test target per ExUnit file. See //build:elixir_tests.bzl for why per-file.
 ex_unit_tests(
+    config_loader = "//build:elixir_test_config_loader.exs",
     name = "unit_tests",
     srcs = ALL_TEST_SRCS,
     # Files the tests open at runtime. ex_unit_test stages only srcs and data, so anything
