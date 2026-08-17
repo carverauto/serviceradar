@@ -1,0 +1,260 @@
+# Conformance fixtures for the ServiceRadar configuration rule set.
+#
+# Each case serves two roles at once (SEMANTICS.md sections 8 and 10):
+#
+#   NEGATIVE FIXTURE  -- deleting the rule it targets makes this case pass, turning the
+#                        fixture test red. That is what stops a rule being silently weakened.
+#   CONFORMANCE VECTOR -- all three implementations must reproduce these exact violations,
+#                        compared by (code, field_path), not merely accept/reject.
+#
+# Cases below are hand-authored to cover each PREDICATE KIND and the composition rules that
+# three implementations are most likely to disagree on. The per-rule set covering all 37
+# rules is generated from the rule set in phase 5, using this same format.
+
+# --- baseline: a valid instance must produce no violations -------------------
+
+fixtures {
+  name: "valid_ci"
+  description: "The committed ci instance shape. Guards against a rule that rejects good config."
+  phase: PHASE_CONFIG
+  instance {
+    kind: ENVIRONMENT_KIND_CI
+    database {
+      host: "srql-fixture-rw.srql-fixtures.svc.cluster.local"
+      port: 5432
+      database: "srql_fixture"
+      connecting_role: "srql_test"
+      owning_role: "srql_test"
+      tls_mode: TLS_MODE_VERIFY_FULL
+      tls_server_name: "srql-fixture-rw.srql-fixtures.svc.cluster.local"
+      search_path: "platform, ag_catalog"
+      pool_size: 10
+    }
+    nats { url: "nats://nats:4222" server_name: "nats" }
+    core {
+      address: "serviceradar-core:50052"
+      api_url: "http://serviceradar-core:8090"
+      security_mode: SECURITY_MODE_MTLS
+      server_name: "serviceradar-core"
+    }
+  }
+}
+
+# --- cascading: an absent required field yields EXACTLY ONE violation --------
+
+fixtures {
+  name: "absent_port_cascades_to_one_violation"
+  description: "database.port carries both Required and IntRange. Absence must report only DATABASE_PORT_REQUIRED; IntRange returns NotApplicable (SEMANTICS.md section 4)."
+  phase: PHASE_CONFIG
+  instance {
+    kind: ENVIRONMENT_KIND_CI
+    database {
+      host: "db"
+      database: "srql_fixture"
+      connecting_role: "srql_test"
+      owning_role: "srql_test"
+      tls_mode: TLS_MODE_VERIFY_FULL
+      tls_server_name: "db"
+    }
+    nats { url: "nats://nats:4222" }
+    core { address: "core:50052" security_mode: SECURITY_MODE_MTLS }
+  }
+  expected_violations { code: "DATABASE_PORT_REQUIRED" field_path: "database.port" }
+}
+
+# --- IntRange: both bounds are inclusive ------------------------------------
+
+fixtures {
+  name: "port_below_range"
+  description: "Port 0 is below the inclusive minimum of 1."
+  phase: PHASE_CONFIG
+  instance {
+    kind: ENVIRONMENT_KIND_CI
+    database {
+      host: "db"
+      port: 0
+      database: "srql_fixture"
+      connecting_role: "srql_test"
+      owning_role: "srql_test"
+      tls_mode: TLS_MODE_VERIFY_FULL
+      tls_server_name: "db"
+    }
+    nats { url: "nats://nats:4222" }
+    core { address: "core:50052" security_mode: SECURITY_MODE_MTLS }
+  }
+  expected_violations { code: "DATABASE_PORT_RANGE" field_path: "database.port" }
+}
+
+# --- ForbiddenValue: the enum sentinel is not a usable value -----------------
+
+fixtures {
+  name: "tls_mode_unspecified_rejected"
+  description: "An unset TLS mode must be an error, never accidentally the first defined value. This is the class of bug that let sslmode go missing."
+  phase: PHASE_CONFIG
+  instance {
+    kind: ENVIRONMENT_KIND_CI
+    database {
+      host: "db"
+      port: 5432
+      database: "srql_fixture"
+      connecting_role: "srql_test"
+      owning_role: "srql_test"
+      tls_mode: TLS_MODE_UNSPECIFIED
+      tls_server_name: "db"
+    }
+    nats { url: "nats://nats:4222" }
+    core { address: "core:50052" security_mode: SECURITY_MODE_MTLS }
+  }
+  expected_violations {
+    code: "DATABASE_TLS_MODE_NOT_UNSPECIFIED"
+    field_path: "database.tls_mode"
+  }
+  expected_violations {
+    code: "DATABASE_TLS_MODE_VERIFIED_OUTSIDE_LOCALHOST"
+    field_path: "database.tls_mode"
+  }
+}
+
+# --- RequiredIf: conditional requirement fires only on the trigger value -----
+
+fixtures {
+  name: "verify_full_without_server_name"
+  description: "VERIFY_FULL requires a TLS server name: the fixture certificate has DNS SANs and no IP SANs."
+  phase: PHASE_CONFIG
+  instance {
+    kind: ENVIRONMENT_KIND_CI
+    database {
+      host: "10.0.2.11"
+      port: 5432
+      database: "srql_fixture"
+      connecting_role: "srql_test"
+      owning_role: "srql_test"
+      tls_mode: TLS_MODE_VERIFY_FULL
+    }
+    nats { url: "nats://nats:4222" }
+    core { address: "core:50052" security_mode: SECURITY_MODE_MTLS }
+  }
+  expected_violations {
+    code: "DATABASE_TLS_SERVER_NAME_REQUIRED_FOR_VERIFY_FULL"
+    field_path: "database.tls_server_name"
+  }
+}
+
+# --- Scope: the same value is admissible in one kind and not another --------
+
+fixtures {
+  name: "plaintext_tls_allowed_on_localhost"
+  description: "TLS_MODE_DISABLE is admissible on a dev machine. The scoped rule exempts localhost, so this must produce NO violation -- the positive half of the scope semantics."
+  phase: PHASE_CONFIG
+  instance {
+    kind: ENVIRONMENT_KIND_LOCALHOST
+    database {
+      host: "localhost"
+      port: 5432
+      database: "serviceradar_dev"
+      connecting_role: "serviceradar"
+      owning_role: "serviceradar"
+      tls_mode: TLS_MODE_DISABLE
+    }
+    nats { url: "nats://localhost:4222" }
+    core { address: "localhost:50052" security_mode: SECURITY_MODE_NONE }
+  }
+}
+
+fixtures {
+  name: "plaintext_tls_rejected_on_saas"
+  description: "The same value in a deployed environment is a violation. Paired with the case above, this pins the scope semantics from both sides."
+  phase: PHASE_CONFIG
+  instance {
+    kind: ENVIRONMENT_KIND_SAAS
+    database {
+      host: "db"
+      port: 5432
+      database: "serviceradar"
+      connecting_role: "serviceradar"
+      owning_role: "serviceradar"
+      tls_mode: TLS_MODE_DISABLE
+    }
+    nats { url: "nats://nats:4222" }
+    core { address: "core:50052" security_mode: SECURITY_MODE_NONE }
+  }
+  expected_violations {
+    code: "CORE_SECURITY_MODE_SECURE_OUTSIDE_LOCALHOST"
+    field_path: "core.security_mode"
+  }
+  expected_violations {
+    code: "DATABASE_TLS_MODE_VERIFIED_OUTSIDE_LOCALHOST"
+    field_path: "database.tls_mode"
+  }
+}
+
+# --- Matches, and instance identity for on-prem -----------------------------
+
+fixtures {
+  name: "onprem_without_instance"
+  description: "On-prem is multi-instance; the deployment must be named."
+  phase: PHASE_CONFIG
+  instance {
+    kind: ENVIRONMENT_KIND_ONPREM
+    database {
+      host: "db"
+      port: 5432
+      database: "serviceradar"
+      connecting_role: "serviceradar"
+      owning_role: "serviceradar"
+      tls_mode: TLS_MODE_VERIFY_FULL
+      tls_server_name: "db"
+    }
+    nats { url: "nats://nats:4222" }
+    core { address: "core:50052" security_mode: SECURITY_MODE_MTLS }
+  }
+  expected_violations {
+    code: "INSTANCE_REQUIRED_FOR_ONPREM"
+    field_path: "instance"
+  }
+}
+
+fixtures {
+  name: "nats_url_wrong_scheme"
+  description: "A scheme other than nats:// or tls:// is a misconfiguration, not a preference."
+  phase: PHASE_CONFIG
+  instance {
+    kind: ENVIRONMENT_KIND_CI
+    database {
+      host: "db"
+      port: 5432
+      database: "srql_fixture"
+      connecting_role: "srql_test"
+      owning_role: "srql_test"
+      tls_mode: TLS_MODE_VERIFY_FULL
+      tls_server_name: "db"
+    }
+    nats { url: "http://nats:4222" }
+    core { address: "core:50052" security_mode: SECURITY_MODE_MTLS }
+  }
+  expected_violations { code: "NATS_URL_SCHEME" field_path: "nats.url" }
+}
+
+# --- Ordering: violations sort by (field_path, code) ------------------------
+
+fixtures {
+  name: "multiple_violations_are_ordered"
+  description: "Three violations across two fields. Order must be (field_path, code) ascending, or cross-language vectors cannot compare (SEMANTICS.md section 5)."
+  phase: PHASE_CONFIG
+  instance {
+    kind: ENVIRONMENT_KIND_CI
+    database {
+      host: ""
+      port: 99999
+      database: "srql_fixture"
+      connecting_role: "srql_test"
+      owning_role: "srql_test"
+      tls_mode: TLS_MODE_VERIFY_FULL
+      tls_server_name: "db"
+    }
+    nats { url: "nats://nats:4222" }
+    core { address: "core:50052" security_mode: SECURITY_MODE_MTLS }
+  }
+  expected_violations { code: "DATABASE_HOST_NON_EMPTY" field_path: "database.host" }
+  expected_violations { code: "DATABASE_PORT_RANGE" field_path: "database.port" }
+}
