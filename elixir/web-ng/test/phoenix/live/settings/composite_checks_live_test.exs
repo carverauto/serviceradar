@@ -1506,10 +1506,18 @@ defmodule ServiceRadarWebNGWeb.Settings.CompositeChecksLiveTest do
 
       assert html =~ "Device facts"
       assert html =~ "Add device fact"
+
       # The third factor is what separates enforced isolation from incidental
       # isolation, so the section has to say that rather than just take a key.
-      assert html =~ "enforced isolation from incidental isolation"
+      #
+      # Whitespace-normalised because the assertion is about the sentence the
+      # operator reads, not about where the source happens to wrap it -- an
+      # earlier rewrap of this copy broke the match without changing a word of
+      # what renders.
+      assert normalize_space(html) =~ "enforced isolation from incidental isolation"
     end
+
+    defp normalize_space(html), do: String.replace(html, ~r/\s+/, " ")
 
     test "adding a fact renders a metadata key field", %{conn: conn} do
       {:ok, live, _html} = live(conn, @path <> "/new")
@@ -1518,6 +1526,31 @@ defmodule ServiceRadarWebNGWeb.Settings.CompositeChecksLiveTest do
 
       assert html =~ ~s(name="device_facts[0][path]")
       assert html =~ ~s(name="device_facts[0][max_age_seconds]")
+    end
+
+    test "the key field is a combobox, so a key nothing has written yet is still typable", %{
+      conn: conn
+    } do
+      # A device carrying a NON-boolean value at some key. It must not be
+      # suggested: the resolver casts booleans only, so offering it would offer
+      # a choice that resolves `unknown` forever. Observed on a live deployment
+      # where every existing metadata key was non-boolean internal bookkeeping,
+      # which is what a plain dropdown would have listed.
+      device_fixture(%{
+        hostname: "combo-#{System.unique_integer([:positive])}.local",
+        metadata: %{"identity_state" => "canonical", "acl_enforced" => true}
+      })
+
+      {:ok, live, _html} = live(conn, @path <> "/new")
+      html = live |> element("button", "Add device fact") |> render_click()
+
+      # Free text bound to a datalist -- not a <select>, which would make the
+      # common case (a key the validator has not written yet) impossible.
+      assert html =~ ~s(list="device-fact-key-options")
+      refute html =~ ~s(<select name="device_facts[0][path]")
+
+      assert html =~ ~s(<option value="acl_enforced")
+      refute html =~ ~s(<option value="identity_state")
     end
 
     test "saving persists the fact as a device_metadata input", %{conn: conn, gateway: gateway} do

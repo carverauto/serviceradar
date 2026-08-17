@@ -293,6 +293,9 @@ networkPolicy:
     allowSameNamespace: true
     allowedNamespaces:
       - openbao-system
+      # Smokescreen CONNECT proxy. HTTP(S) fetches should go through
+      # SERVICERADAR_EGRESS_PROXY rather than the public CIDRs below.
+      - egress
     allowedCIDRs:
       - "10.0.0.0/8"
       - "192.168.0.0/16"
@@ -423,6 +426,8 @@ webNg:
   extraEnv:
     # City MMDB is large; we only enable it in demo where we can allocate more memory.
     GEOLITE_CITY_ENABLED: "true"
+    # FQDN allowlist; pair with networkPolicy.egress.allowedNamespaces egress.
+    SERVICERADAR_EGRESS_PROXY: "http://smokescreen.egress.svc.cluster.local:4750"
     # Trust first-party Wasm upload signatures published by the release pipeline.
     PLUGIN_TRUSTED_UPLOAD_SIGNING_KEYS: "serviceradar-first-party-v1=L+H5fG0eEraBsWAd2aKMzK7I+AMhbnSxlOKny5/+dLo="
   resources:
@@ -598,6 +603,7 @@ core:
       # Provide existingConfigMap/existingSecret/existingClaim when you want custom rules.
       enabled: true
   extraEnv:
+    SERVICERADAR_EGRESS_PROXY: "http://smokescreen.egress.svc.cluster.local:4750"
     EVENT_WRITER_NATS_CREDS_FILE: "/etc/serviceradar/creds/platform.creds"
     EVENT_WRITER_NATS_URL: "tls://serviceradar-nats:4222"
     EVENT_WRITER_NATS_TLS: "true"

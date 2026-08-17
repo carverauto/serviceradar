@@ -24,6 +24,7 @@ defmodule ServiceRadarWebNGWeb.Settings.CompositeChecksLive.Index do
   alias ServiceRadar.CompositeChecks.RuleGenerator
   alias ServiceRadar.Infrastructure.Agent
   alias ServiceRadarWebNG.RBAC
+  alias ServiceRadarWebNGWeb.Settings.CompositeChecksLive.FactKeys
   alias ServiceRadarWebNGWeb.Settings.CompositeChecksLive.FormState
   alias ServiceRadarWebNGWeb.Settings.CompositeChecksLive.Preview
   alias ServiceRadarWebNGWeb.Settings.CompositeChecksLive.RuleTable
@@ -58,6 +59,7 @@ defmodule ServiceRadarWebNGWeb.Settings.CompositeChecksLive.Index do
        |> assign(:scope_count, nil)
        |> assign(:vantage_points, [])
        |> assign(:device_facts, [])
+       |> assign(:fact_key_suggestions, [])
        |> assign(:agents, [])
        |> assign(:rules, [])
        |> assign(:rule_columns, [])
@@ -148,6 +150,9 @@ defmodule ServiceRadarWebNGWeb.Settings.CompositeChecksLive.Index do
     |> assign(:builder_in_sync, in_sync?)
     |> assign(:vantage_points, vantage_points)
     |> assign(:device_facts, device_facts)
+    # Loaded here rather than in `validate`: this scans device metadata, and the
+    # available keys do not change between keystrokes.
+    |> assign(:fact_key_suggestions, FactKeys.suggestions())
     |> assign(:agents, list_agents(socket))
     |> assign(:scope_count, count_scope(socket.assigns.current_scope, form["scope_query"]))
   end
@@ -885,6 +890,7 @@ defmodule ServiceRadarWebNGWeb.Settings.CompositeChecksLive.Index do
           save_error={@save_error}
           vantage_points={@vantage_points}
           device_facts={@device_facts}
+          fact_key_suggestions={@fact_key_suggestions}
           agents={@agents}
         />
 
@@ -925,7 +931,8 @@ defmodule ServiceRadarWebNGWeb.Settings.CompositeChecksLive.Index do
               <h1 class="text-xl font-semibold text-sr-ink">Composite Checks</h1>
               <p class="mt-1 max-w-2xl text-sm text-sr-ink-muted">
                 Prove a device is isolated by combining what several agents can reach with the
-                configuration NCO reports. Checks read existing sweep results; they never probe.
+                configuration your validation tooling reports. Checks read existing sweep results;
+                they never probe.
               </p>
             </div>
             <.button

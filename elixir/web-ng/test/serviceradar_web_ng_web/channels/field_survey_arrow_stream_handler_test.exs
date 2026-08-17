@@ -5,9 +5,9 @@ defmodule ServiceRadarWebNGWeb.Channels.FieldSurveyArrowStreamHandlerTest do
   # would not run at all under //elixir/web-ng:unit_tests, which sets
   # SERVICERADAR_ALLOW_DB_FREE_TESTS and therefore runs only `:db_free` tests. The untagged
   # version of this file was invisible to CI for the whole time the ADBC path was dead.
-  @moduletag :db_free
-
   alias ServiceRadarWebNGWeb.Channels.FieldSurveyArrowStreamHandler
+
+  @moduletag :db_free
 
   @payload <<1, 2, 3, 4>>
 

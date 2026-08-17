@@ -285,12 +285,38 @@ jobs:
 
       # 5. The suite.
       - name: serviceradar_core integration tests
-        run: bazel test -c opt --config=ci --config=database_env --strategy=TestRunner=local --//build:enable_integration_tests --test_tag_filters= --test_output=errors --nocache_test_results --remote_upload_local_results=false --flaky_test_attempts=1 //elixir/serviceradar_core:integration_tests
+        run: bazel test -c opt --config=ci --config=database_env --strategy=TestRunner=local --//build:enable_integration_tests --test_tag_filters= --test_output=errors --experimental_ui_max_stdouterr_bytes=10485760 --nocache_test_results --remote_upload_local_results=false --flaky_test_attempts=1 //elixir/serviceradar_core:integration_tests
 
       # The named SRQL suites are manual and therefore never enter main.yml's generic wildcard.
       # Run them here under the same explicit fixture guard and local/non-uploaded policy.
       - name: SRQL fixture integration tests
         run: bazel test -c opt --config=ci --config=database_env --strategy=TestRunner=local --//build:enable_integration_tests --test_tag_filters= --test_output=errors --nocache_test_results --remote_upload_local_results=false --flaky_test_attempts=1 //integration_tests/srql:srql_api_test //integration_tests/srql:srql_comprehensive_test
+
+      # --test_output=errors is not enough: a shard that prints more than
+      # --experimental_ui_max_stdouterr_bytes is dropped wholesale, taking the
+      # ExUnit failure with it. Extract numbered failures from the on-disk
+      # test.log (main.yml's first-400-lines dump misses failures past that).
+      - name: Dump failed ExUnit results
+        if: ${{ failure() }}
+        run: |
+          set +e
+          if [ ! -d bazel-testlogs ]; then
+            echo "bazel-testlogs not found"
+            exit 0
+          fi
+          find bazel-testlogs -type f -name test.log | sort | while read -r file; do
+            if ! grep -E -q '^  [0-9]+\) |^[0-9]+ tests, [1-9][0-9]* failure' "${file}"; then
+              continue
+            fi
+            echo "===== ${file} ====="
+            awk '
+              /^  [0-9]+\) / {printing=1; lines=0}
+              printing {print; lines++; if (lines>=50) printing=0}
+              /^[0-9]+ tests,/ {print}
+            ' "${file}"
+            echo
+          done
+          exit 0
 
       # 6. Drop the per-run database. always() rather than success(): a red suite must not
       # leak its database. A cancelled job never reaches this at all, which is what the sweep
