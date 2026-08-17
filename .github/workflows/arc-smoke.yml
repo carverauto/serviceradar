@@ -1,0 +1,23 @@
+name: ARC runner smoke
+
+on:
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.run_id }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  smoke:
+    name: ARC scale set
+    runs-on: arc-runner-set
+    steps:
+      - name: Prove the in-cluster runner
+        run: |
+          set -euo pipefail
+          echo "runner=${RUNNER_NAME:-unknown}"
+          uname -a
+          echo "ok"
