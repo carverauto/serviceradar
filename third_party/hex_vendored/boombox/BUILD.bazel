@@ -1,4 +1,4 @@
-load("@serviceradar//build:mix_app.bzl", "mix_app")
+load("@rules_elixir//:mix_app.bzl", "mix_app")
 
 package(default_visibility = ["//visibility:public"])
 

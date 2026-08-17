@@ -1,6 +1,6 @@
 load("@aspect_bazel_lib//lib:copy_to_bin.bzl", "copy_to_bin")
 load("@rules_elixir//:elixir_tests.bzl", "ex_unit_tests")
-load("@serviceradar//build:mix_app.bzl", "mix_app")
+load("@rules_elixir//:mix_app.bzl", "mix_app")
 load(
     "//build:elixir_release.bzl",
     "SHIPPED_ERTS_OTP_ROOT",

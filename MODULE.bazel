@@ -205,6 +205,11 @@ use_repo(elixir_config_ext, "elixir_config")
 #
 # One Elixir toolchain serves both. Elixir is BEAM bytecode, which is why
 # prebuilt_elixir_from_hex_builds takes no arch; it runs on whichever OTP resolves.
+# The Hex archive, C++ runtime and NIF payloads every mix_app compile stages. Registered
+# rather than flagged: this is build graph, and a .bazelrc a given invocation might not read
+# would leave NIFs linking no C++ runtime -- which builds clean and fails at dlopen.
+register_toolchains("//build:mix_payloads")
+
 register_toolchains(
     "@erlang_config//otp_28_1:toolchain_major",
     "@erlang_config//otp_28_1:toolchain_major_minor",

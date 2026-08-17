@@ -56,25 +56,6 @@ hex_stubs(
         # the release refuses to boot if that disagrees with the sys.config it applies. Each
         # package compiles in its own sandbox, so the root config is handed to it explicitly.
         "extra_config = HEX_COMPILE_ENV_CONFIG,",
-        # Payloads this repository supplies to every Mix compile. They are deliberately not
-        # rules_elixir defaults: a ruleset cannot name a consumer's repositories, and when
-        # these were defaults on the rule they resolved against whichever module happened to
-        # hold it.
-        #
-        # The Hex package manager itself, as a Mix archive. Not used to fetch anything --
-        # every dependency is already a Bazel repository and mix runs with --no-deps-check --
-        # but Mix refuses to resolve a project without it, aborting with "Could not find an
-        # SCM for dependency" even for a dev-only dep nothing would compile.
-        'archives = ["@hex//:archive"],',
-        'precompiled_os_deps = ["@serviceradar//third_party/membrane:precompiled_os_deps"],',
-        'precompiled_nifs = ["@serviceradar//third_party/precompiled_nifs:precompiled_nifs"],',
-        'elixir_make_nifs = ["@serviceradar//third_party/precompiled_nifs:elixir_make_nifs"],',
-        'elixir_make_nifs_target = ["@serviceradar//third_party/precompiled_nifs:elixir_make_nifs_target"],',
-        'openssl_sysroot = "@serviceradar//third_party/openssl:sysroot_tar",',
-        # Hermetic LLVM's C++ static runtime. A Bundlex NIF that compiles C++ (ex_libsrt's
-        # srt_nif) links no C++ runtime without it: the .so builds clean and dlopen fails on
-        # the first unresolved symbol, 45 of them.
-        'cxx_static_runtime = "@llvm//runtimes/cxxstdlib:static_runtime_lib",',
     ],
     extra_mix_loads = {
         "@serviceradar//build:hex_compile_env.bzl": ["HEX_COMPILE_ENV_CONFIG"],

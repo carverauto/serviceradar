@@ -25,13 +25,6 @@ mix_app(
         allow_empty = True,
     ),
     extra_config = HEX_COMPILE_ENV_CONFIG,
-    archives = ["@hex//:archive"],
-    precompiled_os_deps = ["@serviceradar//third_party/membrane:precompiled_os_deps"],
-    precompiled_nifs = ["@serviceradar//third_party/precompiled_nifs:precompiled_nifs"],
-    elixir_make_nifs = ["@serviceradar//third_party/precompiled_nifs:elixir_make_nifs"],
-    elixir_make_nifs_target = ["@serviceradar//third_party/precompiled_nifs:elixir_make_nifs_target"],
-    openssl_sysroot = "@serviceradar//third_party/openssl:sysroot_tar",
-    cxx_static_runtime = "@llvm//runtimes/cxxstdlib:static_runtime_lib",
     deps = [
         "@hex_image//:erlang_app",
         "@hex_plug//:erlang_app",
