@@ -532,7 +532,7 @@
     },
     "@@rules_erlang+//bzlmod:extensions.bzl%erlang_config": {
       "general": {
-        "bzlTransitiveDigest": "OgcfRyye2yjPFp64bfpVeqXSqSU1uXV0tZS2hbWUSDE=",
+        "bzlTransitiveDigest": "s2Ps4azDRHa4AiHziyBtXV++UkmJr/OulTeht13HzwM=",
         "usagesDigest": "4Q7u3zQLRdP3kte22zxrVvVac+TwuFP+myCPWQV8keQ=",
         "recordedInputs": [
           "REPO_MAPPING:rules_erlang+,bazel_skylib bazel_skylib+",

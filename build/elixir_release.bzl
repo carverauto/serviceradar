@@ -37,7 +37,7 @@ load(
     "@rules_elixir//private:elixir_toolchain.bzl",
     "elixir_dirs",
     "erlang_dirs",
-    "maybe_install_erlang",
+    "erlang_preamble",
 )
 load(
     "@rules_erlang//:erlang_app_info.bzl",
@@ -244,7 +244,7 @@ echo "shipping ERTS from $SERVICERADAR_RELEASE_ERTS"
 
     script = """set -euo pipefail
 
-{maybe_install_erlang}
+{erlang_preamble}
 
 EXECROOT=$PWD
 
@@ -253,7 +253,7 @@ if [[ "{elixir_home}" == /* ]]; then
 else
     ABS_ELIXIR_HOME=$PWD/{elixir_home}
 fi
-export PATH="$ABS_ELIXIR_HOME"/bin:"{erlang_home}"/bin:${{PATH}}
+export PATH="$ABS_ELIXIR_HOME"/bin:"$ABS_ERLANG_HOME"/bin:${{PATH}}
 
 export LANG="en_US.UTF-8"
 export LC_ALL="en_US.UTF-8"
@@ -392,7 +392,7 @@ find "$PACKAGED" -exec touch -h -t 200001010000.00 {{}} + 2>/dev/null || \
 tar -czf "$EXECROOT/{tar_out}" --owner=10001 --group=10001 -C "$PACKAGED" .
 """.format(
         dedupe = _DEDUPE_SCRIPT,
-        maybe_install_erlang = maybe_install_erlang(ctx),
+        erlang_preamble = erlang_preamble(ctx),
         erlang_home = erlang_home,
         elixir_home = elixir_home,
         erl_libs_path = erl_libs_path,

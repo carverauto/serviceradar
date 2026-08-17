@@ -20,7 +20,7 @@ load(
     "@rules_elixir//private:elixir_toolchain.bzl",
     "elixir_dirs",
     "erlang_dirs",
-    "maybe_install_erlang",
+    "erlang_preamble",
 )
 load("@rules_erlang//:erlang_app_info.bzl", "ErlangAppInfo", "flat_deps")
 load("@rules_erlang//:util.bzl", "path_join")
@@ -52,7 +52,7 @@ def _impl(ctx):
 
     script = """set -euo pipefail
 
-{maybe_install_erlang}
+{erlang_preamble}
 
 EXECROOT=$PWD
 export ERL_LIBS="$PWD/{erl_libs_path}"
@@ -62,7 +62,7 @@ if [[ "{elixir_home}" == /* ]]; then
 else
     ABS_ELIXIR_HOME=$PWD/{elixir_home}
 fi
-export PATH="$ABS_ELIXIR_HOME"/bin:"{erlang_home}"/bin:${{PATH}}
+export PATH="$ABS_ELIXIR_HOME"/bin:"$ABS_ERLANG_HOME"/bin:${{PATH}}
 export LANG="en_US.UTF-8"
 export LC_ALL="en_US.UTF-8"
 
@@ -93,7 +93,7 @@ elixir -e '
 mkdir -p "$(dirname "$EXECROOT/{tar_out}")"
 tar -czf "$EXECROOT/{tar_out}" --transform 's,^\\./,{prefix}/,' -C "$IN" .
 """.format(
-        maybe_install_erlang = maybe_install_erlang(ctx),
+        erlang_preamble = erlang_preamble(ctx),
         erlang_home = erlang_home,
         elixir_home = elixir_home,
         erl_libs_path = erl_libs_path,

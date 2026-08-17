@@ -61,7 +61,7 @@ def _mix_deps_impl(ctx):
     elixir = toolchain.elixirinfo
 
     erlang_home = otp.erlang_home
-    otp_tar = getattr(otp, "release_dir_tar", None)
+    otp_tar = getattr(otp, "release_dir", None)
 
     # short_path for tree artifacts, so the sandbox symlink forest resolves the binaries.
     # release_dir.path, not short_path: these run as build ACTIONS whose cwd is the
@@ -107,7 +107,7 @@ if [ -n "{otp_tar}" ] && [ -f "{otp_tar}" ]; then
     ERLANG_HOME=$(find "$OTP_ROOT" -maxdepth 2 -type d -name erlang -print | head -n1 | xargs dirname)
   fi
 else
-  ERLANG_HOME="{erlang_home}"
+  ERLANG_HOME="$ABS_ERLANG_HOME"
 fi
 
 # Fixed path, wiped first -- see the "Why the work directory is a fixed path" note above.

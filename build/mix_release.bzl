@@ -9,7 +9,7 @@ def _mix_release_impl(ctx):
     sfw = ctx.file.sfw
 
     erlang_home = otp.erlang_home
-    otp_tar = getattr(otp, "release_dir_tar", None)
+    otp_tar = getattr(otp, "release_dir", None)
 
     # Use short_path for tree artifacts so the symlink forest in the sandbox
     # can find the binaries reliably.
@@ -24,8 +24,8 @@ def _mix_release_impl(ctx):
         otp.version_file,
         elixir.version_file,
     ]
-    if getattr(otp, "release_dir_tar", None):
-        toolchain_inputs.append(otp.release_dir_tar)
+    if getattr(otp, "release_dir", None):
+        toolchain_inputs.append(otp.release_dir)
     if getattr(elixir, "release_dir", None):
         toolchain_inputs.append(elixir.release_dir)
 
@@ -463,7 +463,7 @@ if [ -n "{otp_tar}" ] && [ -f "{otp_tar}" ]; then
     ERLANG_HOME=$(find "$OTP_ROOT" -maxdepth 2 -type d -name erlang -print | head -n1 | xargs dirname)
   fi
 else
-  ERLANG_HOME="{erlang_home}"
+  ERLANG_HOME="$ABS_ERLANG_HOME"
 fi
 echo "OTP_TAR={otp_tar}"
 echo "ERLANG_HOME=$ERLANG_HOME"

@@ -16,7 +16,7 @@ load(
     "@rules_elixir//private:elixir_toolchain.bzl",
     "elixir_dirs",
     "erlang_dirs",
-    "maybe_install_erlang",
+    "erlang_preamble",
 )
 
 # Regenerating writes into this package. Derived from the rule's own label so the two
@@ -29,15 +29,15 @@ def _elixir_preamble(ctx):
     (elixir_home, elixir_runfiles) = elixir_dirs(ctx, short_path = True)
 
     preamble = """\
-{maybe_install_erlang}
+{erlang_preamble}
 if [[ "{elixir_home}" == /* ]]; then
     ABS_ELIXIR_HOME="{elixir_home}"
 else
     ABS_ELIXIR_HOME=$PWD/{elixir_home}
 fi
-export PATH="$ABS_ELIXIR_HOME"/bin:"{erlang_home}"/bin:${{PATH}}
+export PATH="$ABS_ELIXIR_HOME"/bin:"$ABS_ERLANG_HOME"/bin:${{PATH}}
 """.format(
-        maybe_install_erlang = maybe_install_erlang(ctx, short_path = True),
+        erlang_preamble = erlang_preamble(ctx, short_path = True),
         erlang_home = erlang_home,
         elixir_home = elixir_home,
     )

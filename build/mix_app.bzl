@@ -45,7 +45,7 @@ load(
     "@rules_elixir//private:elixir_toolchain.bzl",
     "elixir_dirs",
     "erlang_dirs",
-    "maybe_install_erlang",
+    "erlang_preamble",
 )
 load(
     "@rules_erlang//:erlang_app_info.bzl",
@@ -918,7 +918,7 @@ def _impl(ctx):
 
     script = """set -euo pipefail
 
-{maybe_install_erlang}
+{erlang_preamble}
 
 if [ -n "{erl_libs_path}" ]; then
     export ERL_LIBS="{erl_libs_path}"
@@ -933,7 +933,7 @@ fi
 ABS_EBIN="$PWD/{ebin}"
 ABS_PRIV="$PWD/{priv}"
 
-export PATH="$ABS_ELIXIR_HOME"/bin:"{erlang_home}"/bin:${{PATH}}
+export PATH="$ABS_ELIXIR_HOME"/bin:"$ABS_ERLANG_HOME"/bin:${{PATH}}
 
 # C.UTF-8, not en_US.UTF-8. The executor image ships no generated locales, so asking for
 # en_US.UTF-8 made bash print
@@ -1125,7 +1125,7 @@ find . -type l -delete
 {undefined_cxx_assertion}
 
 """.format(
-        maybe_install_erlang = maybe_install_erlang(ctx),
+        erlang_preamble = erlang_preamble(ctx),
         erl_libs_path = erl_libs_path,
         erlang_home = erlang_home,
         elixir_home = elixir_home,
