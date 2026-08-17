@@ -738,9 +738,16 @@ fn fixture_root() -> PathBuf {
         return path;
     }
 
-    Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("tests")
-        .join("fixtures")
+    // std::env::var, not env!. The macro is evaluated at COMPILE time, so it bakes the
+    // absolute path of the directory that built this crate into the test binary -- under
+    // RBE that is /buildbuddy-execroot/..., which makes the artifact non-reproducible and
+    // is rejected outright by rules_rs's process wrapper. Read at runtime instead: cargo
+    // sets the variable when it runs the test, and Bazel never reaches this branch because
+    // the runfiles lookup above already resolved.
+    if let Ok(manifest_dir) = std::env::var("CARGO_MANIFEST_DIR") {
+        return Path::new(&manifest_dir).join("tests").join("fixtures");
+    }
+    Path::new("tests").join("fixtures")
 }
 
 async fn check_age_available(
