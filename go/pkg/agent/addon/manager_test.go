@@ -47,18 +47,61 @@ func TestMain(m *testing.M) {
 	os.Exit(m.Run())
 }
 
+// resolveBinPath resolves a reference add-on path supplied by the build system or
+// the environment, returning "" when it does not point at an existing file.
+//
+// Bazel supplies these as $(rootpath ...), which is relative to the RUNFILES ROOT --
+// but a go_test's working directory is its own package directory, so filepath.Abs
+// resolves them against go/pkg/agent/addon/ and misses. TEST_SRCDIR/TEST_WORKSPACE is
+// the runfiles root, so try that first; "_main" covers bzlmod's default workspace name
+// when TEST_WORKSPACE is unset. The CWD-relative attempt remains last so a plain
+// `go test` run with an absolute or relative override keeps working.
+func resolveBinPath(bin string) string {
+	if bin == "" {
+		return ""
+	}
+
+	if filepath.IsAbs(bin) {
+		if _, err := os.Stat(bin); err == nil {
+			return bin
+		}
+
+		return ""
+	}
+
+	if srcDir := strings.TrimSpace(os.Getenv("TEST_SRCDIR")); srcDir != "" {
+		for _, workspace := range []string{strings.TrimSpace(os.Getenv("TEST_WORKSPACE")), "_main"} {
+			if workspace == "" {
+				continue
+			}
+
+			if candidate := filepath.Join(srcDir, workspace, bin); fileExists(candidate) {
+				return candidate
+			}
+		}
+	}
+
+	if abs, err := filepath.Abs(bin); err == nil && fileExists(abs) {
+		return abs
+	}
+
+	return ""
+}
+
+func fileExists(path string) bool {
+	info, err := os.Stat(path)
+
+	return err == nil && !info.IsDir()
+}
+
 // resolveSampleAddonBin prefers a prebuilt binary supplied via
 // SERVICERADAR_SAMPLE_ADDON_BIN (e.g. a Bazel data dependency) and otherwise
 // compiles the reference add-on with the Go toolchain.
 func resolveSampleAddonBin() string {
-	if bin := os.Getenv("SERVICERADAR_SAMPLE_ADDON_BIN"); bin != "" {
-		if abs, err := filepath.Abs(bin); err == nil {
-			if _, statErr := os.Stat(abs); statErr == nil {
-				return abs
-			}
-		}
-		// Fall through to building when the supplied path cannot be resolved.
+	if bin := resolveBinPath(os.Getenv("SERVICERADAR_SAMPLE_ADDON_BIN")); bin != "" {
+		return bin
 	}
+	// Fall through to building when the supplied path cannot be resolved.
 
 	if _, err := exec.LookPath("go"); err != nil {
 		return ""
