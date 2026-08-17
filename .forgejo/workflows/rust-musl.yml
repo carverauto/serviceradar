@@ -1,31 +1,9 @@
 name: Rust Static musl
 
-# netprobe ships as a static musl binary, and "it compiled" does not prove that: the
-# assertions here are the actual contract -- statically linked, no interpreter, no NEEDED
-# entries, no libpcap.
-#
-# Its own workflow because it fails for its own reasons. This is the only Rust job that
-# cross-compiles, so a break here is a toolchain or linkage problem, not a test problem, and
-# it should be attributable without reading a log. Keeping it out of rust-tests.yml also
-# means a linkage regression neither blocks nor is blocked by the test sweep.
+# Retire this file aftet the GH migratio
 on:
-  push:
-    branches: [staging]
-    paths: &musl_paths
-      - 'rust/netprobe/**'
-      - 'third_party/crate_mirror/**'
-      - 'build/platforms/**'
-      - 'build/rbe/**'
-      - 'build/toolchains/**'
-      - '.bazelrc'
-      - 'MODULE.bazel'
-      - 'MODULE.bazel.lock'
-      - '.forgejo/workflows/rust-musl.yml'
-      - 'scripts/ci/ensure-forgejo-tools.sh'
-      - 'scripts/ci/install-sfw.sh'
-  pull_request:
-    branches: [staging]
-    paths: *musl_paths
+  workflow_dispatch:
+
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && github.event.pull_request.head.ref || github.ref }}

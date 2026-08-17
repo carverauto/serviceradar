@@ -1,28 +1,7 @@
 name: Rust Security Audit
 
-# RustSec advisories for rust/rdp-connector-probe, the review-only IronRDP probe.
-#
-# Separate from tests and from clippy because it fails for a reason neither of those can:
-# the advisory database moves on its own, so this job can go red on a commit that changed
-# nothing. Folding it into the test workflow would make an unrelated upstream disclosure
-# look like a broken test.
-#
-# That independence is also why it runs on a schedule. A code-triggered audit only tells
-# you about advisories published before your last commit; the weekly run is what catches a
-# disclosure against a dependency nobody has touched in months.
+# Retire this file aftet the GH migratio
 on:
-  push:
-    branches: [staging]
-    paths: &audit_paths
-      - 'rust/rdp-connector-probe/**'
-      - '.forgejo/workflows/rust-audit.yml'
-      - 'scripts/ci/install-sfw.sh'
-  pull_request:
-    branches: [staging]
-    paths: *audit_paths
-  schedule:
-    # Mondays 05:17 UTC. Off the hour so it does not pile onto every other cron.
-    - cron: '17 5 * * 1'
   workflow_dispatch:
 
 concurrency:
