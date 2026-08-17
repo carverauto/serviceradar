@@ -4,7 +4,8 @@ Device risk scoring from NVD + KEV + CWE, Findings UI with KEV floor, and
 an EventWriter pull-inflight fix so traces and OTLP metrics stop going
 silent after a long-lived core. Also ships multi-arch web-ng/core-elx,
 moves lint/check CI onto GitHub ARC, and points Settings first-party
-plugin/add-on import at GitHub Releases instead of Forgejo.
+plugin/add-on and agent-release import at GitHub Releases instead of
+Forgejo.
 
 ## Whats New
 
@@ -38,7 +39,9 @@ plugin/add-on import at GitHub Releases instead of Forgejo.
   now reads GitHub Releases (`github.com/carverauto/serviceradar`) plus
   Harbor OCI, not Forgejo. `ForgejoOciClient` is gone; the shared
   transport is `FirstPartyReleaseClient`. `GitHubImporter` is unchanged
-  and still fetches source-tree `plugin.yaml`/`plugin.wasm`.
+  and still fetches source-tree `plugin.yaml`/`plugin.wasm`. Agent
+  release import (`ReleaseSourceImporter` and Settings → Agents) now
+  uses the same GitHub Releases API; Forgejo URLs are rejected.
 - Web UI: boolean device-fact keys in composite checks are a combobox,
   not free text. (PR #4997)
 
