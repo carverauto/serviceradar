@@ -16,6 +16,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.DeviceSupplementalData do
   alias ServiceRadarWebNGWeb.DeviceLive.MtrRuntime
   alias ServiceRadarWebNGWeb.DeviceLive.NorthboundHistoryData
   alias ServiceRadarWebNGWeb.DeviceLive.QueryData
+  alias ServiceRadarWebNGWeb.DeviceLive.SNMPPollingSource
   alias ServiceRadarWebNGWeb.DeviceLive.SourceObservationData
   alias ServiceRadarWebNGWeb.DeviceLive.SysmonMetrics
   alias ServiceRadarWebNGWeb.DeviceLive.SysmonProfileData
@@ -221,7 +222,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.DeviceSupplementalData do
       has_ifaces: interface_availability != :unavailable,
       has_flows: flow_availability != :unavailable,
       has_logs: has_logs,
-      has_mtr: has_mtr
+      has_mtr: has_mtr,
+      snmp_polling_source: Map.get(parallel_results, :snmp_polling, SNMPPollingSource.empty())
     }
 
     if include_metrics? do
@@ -290,6 +292,9 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.DeviceSupplementalData do
       # loads instead of running serially after Task.yield_many.
       DeviceTaskData.timed(slow_device_task_ms, :has_mtr, fn ->
         MtrRuntime.detect_available(scope, uid, device_ip)
+      end),
+      DeviceTaskData.timed(slow_device_task_ms, :snmp_polling, fn ->
+        SNMPPollingSource.load(scope, uid)
       end)
     ]
 
@@ -349,7 +354,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.DeviceSupplementalData do
     tasks ++
       [
         DeviceTaskData.timed(slow_device_task_ms, :has_ifaces, fn ->
-          detect_has_interfaces(srql_module, uid, scope)
+          InterfaceData.has_interfaces?(srql_module, uid, scope)
         end)
       ]
   end
@@ -478,39 +483,6 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.DeviceSupplementalData do
 
   defp determine_has_logs(false, _logs_error, _device_logs, _probe), do: true
 
-  defp detect_has_interfaces(srql_module, device_uid, scope) do
-    query =
-      "in:interfaces device_id:\"#{QueryData.escape_value(device_uid)}\" latest:true time:last_3d " <>
-        "stats:count() as interface_count"
-
-    case srql_module.query(query, %{scope: scope}) do
-      {:ok, %{"results" => results}} when is_list(results) ->
-        interface_count =
-          results
-          |> List.first(%{})
-          |> Map.get("interface_count", 0)
-
-        if to_safe_number(interface_count) > 0 do
-          true
-        else
-          legacy_detect_has_interfaces(srql_module, device_uid, scope)
-        end
-
-      _ ->
-        legacy_detect_has_interfaces(srql_module, device_uid, scope)
-    end
-  end
-
-  defp legacy_detect_has_interfaces(srql_module, device_uid, scope) do
-    query =
-      "in:interfaces device_id:\"#{QueryData.escape_value(device_uid)}\" latest:true time:last_3d limit:1"
-
-    case srql_module.query(query, %{scope: scope}) do
-      {:ok, %{"results" => [_ | _]}} -> true
-      _ -> false
-    end
-  end
-
   defp detect_has_flows(srql_module, device_uid, scope) do
     query = QueryData.default_flows_query(device_uid) <> " limit:1"
 
@@ -519,16 +491,4 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.DeviceSupplementalData do
       _ -> false
     end
   end
-
-  defp to_safe_number(n) when is_number(n), do: n
-  defp to_safe_number(nil), do: 0
-
-  defp to_safe_number(s) when is_binary(s) do
-    case Float.parse(s) do
-      {f, _} -> f
-      :error -> 0
-    end
-  end
-
-  defp to_safe_number(_), do: 0
 end

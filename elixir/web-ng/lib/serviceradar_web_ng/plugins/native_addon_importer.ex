@@ -142,12 +142,17 @@ defmodule ServiceRadarWebNG.Plugins.NativeAddonImporter do
         config_schema: config_schema,
         display_contracts: contracts.valid,
         display_contract_errors: contracts.errors,
-        release_tag: release_tag
+        release_tag: release_tag,
+        replace_existing: replace_existing?(attrs)
       )
     end
   end
 
   def import_with_disposition(_attrs), do: {:error, :invalid_attributes}
+
+  defp replace_existing?(attrs) do
+    fetch_value(attrs, [:replace_existing, "replace_existing"]) in [true, "true"]
+  end
 
   defp ensure_not_retired_entry(entry) do
     addon_id = entry_string(entry, "addon_id")

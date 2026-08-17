@@ -6,6 +6,8 @@ defmodule ServiceRadar.Inventory.Changes.NormalizeInterfaceMetricsConfig do
 
   use Ash.Resource.Change
 
+  alias ServiceRadar.Inventory.InterfaceMetrics
+
   @impl true
   def change(changeset, _opts, _context) do
     metrics_enabled = Ash.Changeset.get_attribute(changeset, :metrics_enabled)
@@ -20,9 +22,10 @@ defmodule ServiceRadar.Inventory.Changes.NormalizeInterfaceMetricsConfig do
   end
 
   @impl true
-  def atomic(_changeset, _opts, _context), do: :ok
+  def atomic(changeset, opts, context), do: {:ok, change(changeset, opts, context)}
 
-  defp normalize(metrics_selected, metrics_enabled) do
+  @doc false
+  def normalize(metrics_selected, metrics_enabled) do
     selected = normalize_selected(metrics_selected)
 
     enabled =
@@ -32,10 +35,15 @@ defmodule ServiceRadar.Inventory.Changes.NormalizeInterfaceMetricsConfig do
         nil -> selected != []
       end
 
-    if enabled and selected != [] do
-      {selected, true}
-    else
-      {[], false}
+    cond do
+      enabled and selected != [] ->
+        {selected, true}
+
+      enabled ->
+        {InterfaceMetrics.default_selected(), true}
+
+      true ->
+        {[], false}
     end
   end
 

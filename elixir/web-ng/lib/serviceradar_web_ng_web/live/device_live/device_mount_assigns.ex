@@ -11,6 +11,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.DeviceMountAssigns do
   def assign_defaults(socket, opts) when is_list(opts) do
     socket
     |> assign(:page_title, "Device")
+    |> assign(:devices_return_path, "/devices")
     |> assign(:device_uid, nil)
     |> assign(:device_details_request_ref, nil)
     |> assign(:details_loading, false)
@@ -23,6 +24,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.DeviceMountAssigns do
     |> assign(:metric_sections, [])
     |> assign(:sysmon_presence, false)
     |> assign(:sysmon_profile_info, nil)
+    |> assign(:snmp_polling_source, ServiceRadarWebNGWeb.DeviceLive.SNMPPollingSource.empty())
     |> assign(:available_profiles, [])
     |> assign(:availability, nil)
     |> assign(:agent_availability, [])
@@ -41,6 +43,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.DeviceMountAssigns do
     |> assign(:show_endpoint_inventory_package_modal, false)
     |> assign(:endpoint_inventory_selected_package, nil)
     |> assign(:endpoint_inventory_selected_package_matches, [])
+    |> assign(:show_endpoint_inventory_match_modal, false)
+    |> assign(:endpoint_inventory_selected_match_group, nil)
     |> assign(:endpoint_inventory_error, nil)
     |> assign(:has_software_inventory, false)
     |> assign(:bumblebee_postures, [])

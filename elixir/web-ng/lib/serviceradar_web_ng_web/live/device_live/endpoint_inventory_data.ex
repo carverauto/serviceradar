@@ -2,11 +2,14 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.EndpointInventoryData do
   @moduledoc false
 
   alias ServiceRadar.Inventory.AdvisoryFeeds.CvePriority
+  alias ServiceRadar.Inventory.AdvisoryFeeds.Cwes
   alias ServiceRadar.Inventory.EndpointInventoryArtifact
   alias ServiceRadar.Inventory.EndpointInventoryPackage
   alias ServiceRadar.Inventory.EndpointInventoryScan
   alias ServiceRadar.Inventory.EndpointVulnerabilityMatch
+  alias ServiceRadar.Inventory.VulnerabilityAdvisory
 
+  require Ash.Query
   require Logger
 
   @scan_limit 8
@@ -23,7 +26,11 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.EndpointInventoryData do
          latest_scan = List.first(scans),
          {:ok, package_page} <- read_current_packages(scope, device_uid, package_opts),
          {:ok, artifacts} <- read_artifacts(scope, latest_scan) do
-      vulnerability_matches = read_vulnerability_matches_optional(scope, device_uid)
+      vulnerability_matches =
+        scope
+        |> read_vulnerability_matches_optional(device_uid)
+        |> enrich_matches(scope)
+
       stored_package_count = read_stored_package_count(scope, device_uid)
 
       %{
@@ -89,11 +96,64 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.EndpointInventoryData do
     if device_uid == "" or endpoint_package_ref == "" do
       []
     else
-      read_package_vulnerabilities(scope, device_uid, endpoint_package_ref)
+      scope
+      |> read_package_vulnerabilities(device_uid, endpoint_package_ref)
+      |> enrich_matches(scope)
     end
   end
 
   def load_package_vulnerabilities(_scope, _device_uid, _endpoint_package_ref), do: []
+
+  @doc """
+  Loads the advisory relationship onto a match so the match-detail modal can
+  show description and reference URLs. Returns the original match on failure.
+  """
+  def load_match_advisory(scope, %EndpointVulnerabilityMatch{} = match) do
+    case Ash.load(match, [:advisory], scope: scope) do
+      {:ok, loaded} ->
+        loaded
+
+      {:error, reason} ->
+        Logger.warning("Failed to load advisory for vulnerability match: #{inspect(reason)}")
+        match
+    end
+  end
+
+  def load_match_advisory(_scope, match), do: match
+
+  @doc """
+  Overlay NVD CVSS/CWE onto KEV (and other) matches. KEV rows store no score;
+  nist-nvd2 has it, even when that generation is not yet `current`.
+  """
+  def enrich_matches(matches, scope) when is_list(matches) do
+    metrics = nvd_metrics_by_cve(scope, cve_ids(matches))
+
+    Enum.map(matches, fn match ->
+      apply_nvd_metrics(match, metrics)
+    end)
+  end
+
+  def enrich_matches(matches, _scope), do: matches
+
+  def apply_nvd_metrics(match, metrics_by_cve) when is_map(metrics_by_cve) do
+    cve = field(match, :cve_id)
+    nvd = if is_binary(cve), do: Map.get(metrics_by_cve, cve)
+    advisory = match_advisory(match)
+    cwes = merge_cwes(advisory, nvd)
+    cvss = field(match, :cvss_score) || field(nvd, :cvss_score)
+    vector = field(nvd, :cvss_vector)
+    severity = field(match, :severity) || field(nvd, :severity)
+    metadata = overlay_metadata(field(match, :metadata), cwes, vector)
+
+    match
+    |> put_display_field(:cvss_score, cvss)
+    |> put_display_field(:severity, severity)
+    |> put_display_field(:metadata, metadata)
+    |> put_display_field(:cwes, cwes)
+    |> overlay_loaded_advisory(nvd, cwes)
+  end
+
+  def apply_nvd_metrics(match, _metrics_by_cve), do: match
 
   defp read_package_vulnerabilities(scope, device_uid, endpoint_package_ref) do
     EndpointVulnerabilityMatch
@@ -248,4 +308,119 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.EndpointInventoryData do
     |> Ash.Query.limit(12)
     |> Ash.read(scope: scope)
   end
+
+  defp nvd_metrics_by_cve(nil, _cve_ids), do: %{}
+  defp nvd_metrics_by_cve(_scope, []), do: %{}
+
+  defp nvd_metrics_by_cve(scope, cve_ids) do
+    VulnerabilityAdvisory
+    |> Ash.Query.for_read(:read, %{}, scope: scope)
+    |> Ash.Query.filter(provider == "nvd" and cve_id in ^cve_ids)
+    |> Ash.Query.sort(generation: :desc)
+    |> Ash.read(scope: scope)
+    |> case do
+      {:ok, advisories} ->
+        advisories
+        |> Enum.group_by(& &1.cve_id)
+        |> Map.new(fn {cve, rows} ->
+          row = Enum.find(rows, & &1.cvss_score) || List.first(rows)
+          {cve, metrics_from_advisory(row)}
+        end)
+
+      {:error, reason} ->
+        Logger.warning("Failed to load NVD metrics for vulnerability matches: #{inspect(reason)}")
+        %{}
+    end
+  end
+
+  defp metrics_from_advisory(nil), do: %{}
+
+  defp metrics_from_advisory(advisory) do
+    %{
+      cvss_score: field(advisory, :cvss_score),
+      cvss_vector: field(advisory, :cvss_vector),
+      severity: field(advisory, :severity),
+      cwes: Cwes.from_advisory(advisory)
+    }
+  end
+
+  defp cve_ids(matches) do
+    matches
+    |> Enum.map(&field(&1, :cve_id))
+    |> Enum.filter(&(is_binary(&1) and String.starts_with?(&1, "CVE-")))
+    |> Enum.uniq()
+  end
+
+  defp match_advisory(match) do
+    case field(match, :advisory) do
+      %{} = advisory -> advisory
+      _ -> %{}
+    end
+  end
+
+  defp merge_cwes(advisory, nvd) do
+    Enum.uniq(Cwes.from_advisory(advisory) ++ List.wrap(field(nvd, :cwes)))
+  end
+
+  defp overlay_metadata(metadata, cwes, vector) do
+    (metadata || %{})
+    |> Map.put("cwes", cwes)
+    |> then(fn map ->
+      if is_binary(vector) and vector != "" do
+        Map.put(map, "cvss_vector", vector)
+      else
+        map
+      end
+    end)
+  end
+
+  defp overlay_loaded_advisory(match, nvd, cwes) do
+    case field(match, :advisory) do
+      %{__struct__: _} = advisory ->
+        put_display_field(match, :advisory, overlay_advisory(advisory, nvd, cwes))
+
+      %{} = advisory ->
+        put_display_field(match, :advisory, overlay_advisory(advisory, nvd, cwes))
+
+      _ ->
+        match
+    end
+  end
+
+  defp overlay_advisory(advisory, nvd, cwes) when is_map(advisory) do
+    advisory
+    |> put_display_field(:cvss_score, field(advisory, :cvss_score) || field(nvd, :cvss_score))
+    |> put_display_field(:cvss_vector, field(advisory, :cvss_vector) || field(nvd, :cvss_vector))
+    |> put_display_field(:severity, field(advisory, :severity) || field(nvd, :severity))
+    |> put_display_field(
+      :metadata,
+      overlay_metadata(field(advisory, :metadata), cwes, field(nvd, :cvss_vector))
+    )
+  end
+
+  defp overlay_advisory(advisory, _nvd, _cwes), do: advisory
+
+  defp put_display_field(row, :cwes, value) when is_struct(row) do
+    metadata = overlay_metadata(field(row, :metadata), value, nil)
+    put_display_field(row, :metadata, metadata)
+  end
+
+  defp put_display_field(row, key, value) when is_struct(row) do
+    if Map.has_key?(row, key), do: Map.put(row, key, value), else: row
+  end
+
+  defp put_display_field(row, key, value) when is_map(row), do: Map.put(row, key, value)
+  defp put_display_field(row, _key, _value), do: row
+
+  defp field(nil, _key), do: nil
+
+  defp field(%{} = row, key) do
+    cond do
+      Map.has_key?(row, key) -> Map.get(row, key)
+      Map.has_key?(row, to_string(key)) -> Map.get(row, to_string(key))
+      true -> nil
+    end
+  end
+
+  defp field(_row, _key), do: nil
 end

@@ -48,6 +48,27 @@ defmodule ServiceRadarWebNGWeb.Settings.CompositeChecksLive.Components do
               <span :if={is_nil(entry.scope_count)}>Scope size unavailable</span>
             </p>
           </div>
+
+          <div :if={@can_manage} class="flex shrink-0 flex-wrap items-center justify-end gap-2">
+            <button
+              :if={entry.check.state == :enabled}
+              type="button"
+              phx-click="disable"
+              phx-value-id={entry.check.id}
+              class="rounded-sr-control border border-sr-border px-3 py-1.5 text-xs text-sr-ink-muted hover:text-sr-ink"
+            >
+              Disable
+            </button>
+            <button
+              type="button"
+              phx-click="delete_check"
+              phx-value-id={entry.check.id}
+              data-confirm={"Remove #{entry.check.name}? Saved verdicts for this check will be deleted."}
+              class="rounded-sr-control border border-rose-500/40 px-3 py-1.5 text-xs text-rose-400 hover:bg-rose-500/5"
+            >
+              Remove
+            </button>
+          </div>
         </div>
 
         <.verdict_rollup rollup={entry.rollup} />
@@ -105,6 +126,8 @@ defmodule ServiceRadarWebNGWeb.Settings.CompositeChecksLive.Components do
   attr :form, :map, required: true
   attr :errors, :list, default: []
   attr :mode, :atom, required: true
+  attr :check_id, :any, default: nil
+  attr :state, :atom, default: nil
   attr :scope_count, :integer, default: nil
   attr :builder, :map, required: true
   attr :builder_in_sync, :boolean, default: true
@@ -135,6 +158,25 @@ defmodule ServiceRadarWebNGWeb.Settings.CompositeChecksLive.Components do
         </div>
         <div class="flex shrink-0 gap-2">
           <.button navigate={~p"/settings/networks/composite-checks"}>Cancel</.button>
+          <button
+            :if={@mode == :edit and @state == :enabled}
+            type="button"
+            phx-click="disable"
+            phx-value-id={@check_id}
+            class="rounded-sr-control border border-sr-border px-3 py-1.5 text-sm text-sr-ink-muted hover:text-sr-ink"
+          >
+            Disable
+          </button>
+          <button
+            :if={@mode == :edit and not is_nil(@check_id)}
+            type="button"
+            phx-click="delete_check"
+            phx-value-id={@check_id}
+            data-confirm="Remove this composite check? Saved verdicts will be deleted."
+            class="rounded-sr-control border border-rose-500/40 px-3 py-1.5 text-sm text-rose-400 hover:bg-rose-500/5"
+          >
+            Remove
+          </button>
           <.button variant="primary">Save</.button>
         </div>
       </div>
@@ -856,15 +898,6 @@ defmodule ServiceRadarWebNGWeb.Settings.CompositeChecksLive.Components do
           class="rounded-sr-control border border-sr-border px-3 py-1.5 text-xs text-sr-ink-muted hover:text-sr-ink"
         >
           Check readiness
-        </button>
-
-        <button
-          :if={@state == :enabled}
-          type="button"
-          phx-click="disable"
-          class="rounded-sr-control border border-sr-border px-3 py-1.5 text-xs text-sr-ink-muted hover:text-sr-ink"
-        >
-          Disable
         </button>
       </div>
 

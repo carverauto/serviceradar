@@ -20,7 +20,7 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Data.Load do
             camera: :loading,
             fieldsurvey: :loading,
             security_events: :loading,
-            vulnerable_assets: :unconnected,
+            vulnerable_assets: :loading,
             siem: :unconnected
           },
           kpi_cards:
@@ -58,6 +58,7 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Data.Load do
           security_summary: empty_event_summary(),
           threat_intel_summary: empty_threat_intel_summary(),
           alert_feed: [],
+          vulnerable_assets: [],
           camera_summary: empty_camera_summary(),
           survey_summary: empty_survey_summary(),
           virtualization_summary: empty_virtualization_summary()
@@ -95,7 +96,8 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Data.Load do
             trace_summary: {fn -> trace_summary(srql_module, scope, time_window) end, empty_trace_summary()},
             virtualization_summary:
               {fn -> virtualization_summary(srql_module, scope) end, empty_virtualization_summary()},
-            security_trend: {fn -> security_trend(time_window) end, []}
+            security_trend: {fn -> security_trend(time_window) end, []},
+            vulnerable_assets: {fn -> ServiceRadarWebNGWeb.DashboardLive.Data.VulnerableAssets.load() end, []}
           )
 
         %{
@@ -114,7 +116,8 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Data.Load do
           threat_intel_summary: threat_intel_summary,
           trace_summary: trace_summary,
           virtualization_summary: virtualization_summary,
-          security_trend: security_trend
+          security_trend: security_trend,
+          vulnerable_assets: vulnerable_assets
         } = wave1
 
         # Wave 2 — derived results that depend on wave 1 (pure post-processing).
@@ -130,8 +133,8 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Data.Load do
         sparklines = dashboard_sparklines(time_window, security_trend)
 
         module_states =
-          module_states(
-            collector_counts,
+          collector_counts
+          |> module_states(
             flow_summary,
             traffic_links,
             mtr_summary,
@@ -139,6 +142,10 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Data.Load do
             survey_summary,
             event_summary,
             alert_summary
+          )
+          |> Map.put(
+            :vulnerable_assets,
+            if(vulnerable_assets == [], do: :configured_empty, else: :active)
           )
 
         %{
@@ -175,6 +182,7 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Data.Load do
           security_summary: event_summary,
           threat_intel_summary: threat_intel_summary,
           alert_feed: alert_feed,
+          vulnerable_assets: vulnerable_assets,
           camera_summary: camera_summary,
           survey_summary: survey_summary,
           virtualization_summary: virtualization_summary

@@ -102,6 +102,7 @@ defmodule ServiceRadar.Plugins.AddonRolloutCoordinator do
 
     with {:ok, rollout} <- get_rollout(rollout_id, actor),
          true <- rollout.state in @failed_rollout_states,
+         :ok <- vacate_target_slots(rollout, actor),
          {:ok, source} <- source_for_rollout(rollout, actor),
          {:ok, candidate} <- get_package(rollout.candidate_package_id, actor),
          {:ok, retried} <- start(source, candidate, actor: actor, now: now, trigger: :retry) do
@@ -699,15 +700,21 @@ defmodule ServiceRadar.Plugins.AddonRolloutCoordinator do
   end
 
   defp finish_failed_rollout(rollout, terminal, actor, now) do
-    with {:ok, _} <-
-           update_rollout(
-             rollout,
-             %{state: terminal, completed_at: now, error: rollout.blocked_reason},
-             actor
-           ) do
-      audit(terminal, rollout, %{reason: rollout.blocked_reason})
-      emit(terminal, rollout, %{reason: rollout.blocked_reason})
-      :ok
+    case update_rollout(
+           rollout,
+           %{state: terminal, completed_at: now, error: rollout.blocked_reason},
+           actor
+         ) do
+      {:ok, _} ->
+        audit(terminal, rollout, %{reason: rollout.blocked_reason})
+        emit(terminal, rollout, %{reason: rollout.blocked_reason})
+        # Vacate the unique (agent, add-on) slots so a later retry — or another
+        # source — can insert fresh targets. A 1/2 canary otherwise keeps the
+        # succeeded agent in the partial unique index forever.
+        vacate_target_slots(rollout, actor)
+
+      {:error, reason} ->
+        {:error, reason}
     end
   end
 
@@ -1250,6 +1257,46 @@ defmodule ServiceRadar.Plugins.AddonRolloutCoordinator do
   defp source_type(%AddonProfile{}), do: :profile
 
   defp increment(map, key), do: Map.update!(map, key, &(&1 + 1))
+
+  # Partial unique index addon_rollout_targets_one_active_target_index covers
+  # these states. A failed 1/2 canary leaves the healthy agent as :succeeded,
+  # which blocks the next create for the same (agent_uid, addon_id).
+  @slot_holding_target_states [
+    :pending,
+    :waiting_health,
+    :healthy_soak,
+    :succeeded,
+    :rollback_pending
+  ]
+
+  defp vacate_target_slots(rollout, actor) do
+    with {:ok, targets} <- rollout_targets(rollout.id, actor) do
+      Enum.reduce_while(targets, :ok, fn target, :ok ->
+        case vacate_target_slot(target, actor) do
+          :ok -> {:cont, :ok}
+          {:error, reason} -> {:halt, {:error, reason}}
+        end
+      end)
+    end
+  end
+
+  defp vacate_target_slot(target, actor) do
+    if target.state in @slot_holding_target_states do
+      attrs =
+        if target.state == :succeeded do
+          %{state: :promoted, completed_at: target.completed_at || DateTime.utc_now()}
+        else
+          %{state: :canceled, completed_at: DateTime.utc_now()}
+        end
+
+      case update_target(target, attrs, actor) do
+        {:ok, _} -> :ok
+        {:error, reason} -> {:error, reason}
+      end
+    else
+      :ok
+    end
+  end
 
   defp unwrap_transaction({:ok, value}), do: {:ok, value}
   defp unwrap_transaction({:error, reason}), do: {:error, reason}

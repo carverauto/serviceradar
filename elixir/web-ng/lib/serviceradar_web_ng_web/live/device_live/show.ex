@@ -19,6 +19,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
   alias ServiceRadarWebNGWeb.DeviceLive.DeviceTabRuntime
   alias ServiceRadarWebNGWeb.DeviceLive.EndpointInventoryRuntime
   alias ServiceRadarWebNGWeb.DeviceLive.FlowRuntime
+  alias ServiceRadarWebNGWeb.DeviceLive.IndexPath
   alias ServiceRadarWebNGWeb.DeviceLive.InterfaceData
   alias ServiceRadarWebNGWeb.DeviceLive.InterfaceRuntime
   alias ServiceRadarWebNGWeb.DeviceLive.MetadataData
@@ -73,6 +74,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
       socket
       |> assign(:last_params, params)
       |> assign(:last_uri, uri)
+      |> assign(:devices_return_path, devices_return_path(params, socket))
 
     limit = QueryData.parse_limit(Map.get(params, "limit"), @default_limit, @max_limit)
     # Read tab from URL params, fall back to current or default
@@ -1046,6 +1048,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
     |> assign(:camera_inventory_error, nil)
     |> assign(:sysmon_profile_info, nil)
     |> assign(:available_profiles, [])
+    |> assign(:snmp_polling_source, ServiceRadarWebNGWeb.DeviceLive.SNMPPollingSource.empty())
     |> assign(:northbound_device_history, [])
     |> assign(:northbound_device_history_error, nil)
     |> assign(:endpoint_inventory_scan, nil)
@@ -1317,11 +1320,10 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
 
     # Update URL with tab parameter for shareable/bookmarkable links
     path =
-      if tab == "details" do
-        ~p"/devices/#{socket.assigns.device_uid}"
-      else
-        ~p"/devices/#{socket.assigns.device_uid}?tab=#{tab}"
-      end
+      IndexPath.show_path(socket.assigns.device_uid,
+        tab: tab,
+        return_to: socket.assigns.devices_return_path
+      )
 
     uid = socket.assigns.device_uid
 
@@ -1433,6 +1435,14 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
     {:noreply, EndpointInventoryRuntime.close_package_detail(socket)}
   end
 
+  def handle_event("endpoint_inventory_open_match", %{"id" => id}, socket) do
+    {:noreply, EndpointInventoryRuntime.open_match_detail(socket, id)}
+  end
+
+  def handle_event("endpoint_inventory_close_match", _params, socket) do
+    {:noreply, EndpointInventoryRuntime.close_match_detail(socket)}
+  end
+
   def handle_event("open_anomaly_capacity_detail", %{"kind" => kind, "index" => raw_index}, socket) do
     with {index, ""} <- Integer.parse(raw_index),
          rows when is_list(rows) <- anomaly_capacity_detail_rows(socket.assigns.anomaly_capacity, kind),
@@ -1539,11 +1549,19 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
   end
 
   def handle_event("apply_interfaces_bulk_edit", %{"bulk" => params}, socket) do
-    {:noreply, InterfaceRuntime.apply_bulk_edit(socket, params)}
+    {:noreply, InterfaceRuntime.apply_bulk_edit(socket, params, srql_module())}
   end
 
   def handle_event("toggle_interface_favorite", %{"uid" => uid}, socket) do
-    {:noreply, InterfaceRuntime.toggle_favorite(socket, uid)}
+    {:noreply, InterfaceRuntime.toggle_favorite(socket, uid, srql_module())}
+  end
+
+  def handle_event("toggle_interface_metrics", %{"uid" => uid}, socket) do
+    {:noreply, InterfaceRuntime.toggle_metrics(socket, uid, srql_module())}
+  end
+
+  def handle_event("enable_favorited_interface_metrics", _params, socket) do
+    {:noreply, InterfaceRuntime.enable_favorited_metrics(socket, srql_module())}
   end
 
   @allowed_flow_filter_fields ~w(
@@ -1878,6 +1896,13 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
 
   defp srql_module do
     Application.get_env(:serviceradar_web_ng, :srql_module, ServiceRadarWebNG.SRQL)
+  end
+
+  defp devices_return_path(params, socket) do
+    case Map.get(params, "return_to") do
+      value when is_binary(value) -> IndexPath.sanitize(value)
+      _ -> socket.assigns[:devices_return_path] || "/devices"
+    end
   end
 
   defp get_device_ip(results) do

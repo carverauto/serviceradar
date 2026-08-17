@@ -106,6 +106,10 @@ defmodule ServiceRadarWebNGWeb.Settings.ThreatIntelLiveTest do
     assert html =~ "domain: 2"
     assert html =~ "198.51.100.23"
     assert html =~ "203.0.113.77"
+    assert html =~ ~s(id="netflow-matches")
+    assert html =~ "in:devices"
+    assert html =~ "/observability/netflows"
+    assert html =~ "Flows"
     assert html =~ "OTX test indicator"
     assert html =~ "pulse-liveview-1"
   end

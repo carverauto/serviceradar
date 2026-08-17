@@ -15,6 +15,7 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.ParsersTest do
       assert advisory.source_object_id == "CVE-2024-0001"
       assert advisory.severity == "high"
       assert advisory.cvss_score == 7.5
+      assert advisory.metadata["cwes"] == ["CWE-787"]
       assert advisory.raw == record
 
       assert [coordinate] = coordinates
@@ -29,6 +30,45 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.ParsersTest do
 
     test "skips a record with no CVE id" do
       assert :skip = Parsers.Nvd.parse_record(%{"cve" => %{}}, provider: "nvd", feed_key: "x")
+    end
+
+    test "collapses cpeMatch rows that share the coordinate identity" do
+      record = %{
+        "cve" => %{
+          "id" => "CVE-2024-0003",
+          "configurations" => [
+            %{
+              "nodes" => [
+                %{
+                  "cpeMatch" => [
+                    %{
+                      "vulnerable" => true,
+                      "criteria" => "cpe:2.3:a:openssl:openssl:*:*:*:*:*:*:*:*",
+                      "versionStartIncluding" => "3.0.0",
+                      "versionEndExcluding" => "3.0.14",
+                      "matchCriteriaId" => "AAAA"
+                    },
+                    %{
+                      "vulnerable" => true,
+                      "criteria" => "cpe:2.3:a:openssl:openssl:*:*:*:*:*:*:*:*",
+                      "versionStartIncluding" => "3.0.0",
+                      "versionEndExcluding" => "3.0.14",
+                      "matchCriteriaId" => "BBBB"
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        }
+      }
+
+      assert {:ok, %{coordinates: [coordinate]}} =
+               Parsers.Nvd.parse_record(record, provider: "nvd", feed_key: "nist-nvd2")
+
+      assert coordinate.value == "cpe:2.3:a:openssl:openssl:*:*:*:*:*:*:*:*"
+      assert coordinate.version_start == "3.0.0"
+      assert coordinate.version_end == "3.0.14"
     end
 
     test "excludes non-vulnerable cpeMatch entries" do
@@ -92,7 +132,8 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.ParsersTest do
         "vulnerabilityName" => "Log4Shell",
         "shortDescription" => "JNDI lookup RCE",
         "dueDate" => "2021-12-24",
-        "knownRansomwareCampaignUse" => "Known"
+        "knownRansomwareCampaignUse" => "Known",
+        "cwes" => ["CWE-502"]
       }
 
       assert {:ok, %{advisory: advisory, coordinates: [coordinate]}} =
@@ -104,6 +145,7 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.ParsersTest do
       assert advisory.metadata["priority"]["due_date"] == "2021-12-24"
       assert advisory.metadata["priority"]["ransomware_use"] == "Known"
       assert advisory.metadata["priority"]["sources"] == ["cisa-kev"]
+      assert advisory.metadata["cwes"] == ["CWE-502"]
       assert coordinate.value == "log4j2"
     end
   end
@@ -156,8 +198,27 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.ParsersTest do
         |> Enum.map(fn {:ok, r} -> r["cve"]["id"] end)
 
       assert records == ["CVE-2024-0001"]
-    after
-      :ok
+      File.rm_rf(dir)
+    end
+
+    test "stream_nvd_shards skips a shard that disappears after listing" do
+      dir = Path.join(System.tmp_dir!(), "advisory-nvd-#{System.unique_integer([:positive])}")
+      File.mkdir_p!(dir)
+
+      shard = %{"vulnerabilities" => [nvd_record()]}
+      gz = :zlib.gzip(Jason.encode!(shard))
+      present = Path.join(dir, "nvdcve-2.0-001.json.gz")
+      missing = Path.join(dir, "nvdcve-2.0-002.json.gz")
+      File.write!(present, gz)
+      File.write!(missing, gz)
+
+      # shard_paths/1 is eager; unlink after the list, before each File.read.
+      stream = StreamReader.stream_nvd_shards(dir)
+      File.rm!(missing)
+
+      records = Enum.map(stream, fn {:ok, r} -> r["cve"]["id"] end)
+      assert records == ["CVE-2024-0001"]
+      File.rm_rf(dir)
     end
   end
 
@@ -180,6 +241,12 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.ParsersTest do
             }
           ]
         },
+        "weaknesses" => [
+          %{
+            "type" => "Primary",
+            "description" => [%{"lang" => "en", "value" => "CWE-787"}]
+          }
+        ],
         "references" => [%{"url" => "https://example.test/CVE-2024-0001"}],
         "configurations" => [
           %{

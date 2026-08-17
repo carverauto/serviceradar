@@ -11,6 +11,7 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Index.Page do
   alias ServiceRadarWebNGWeb.DashboardLive.Index.MetricsPanel
   alias ServiceRadarWebNGWeb.DashboardLive.Index.ThreatPanel
   alias ServiceRadarWebNGWeb.DashboardLive.Index.VirtualizationPanel
+  alias ServiceRadarWebNGWeb.DashboardLive.Index.VulnerableAssetsPanel
 
   def render(assigns) do
     ~H"""
@@ -45,6 +46,7 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Index.Page do
 
         <section class="sr-ops-grid-bottom">
           <MetricsPanel.render dashboard={assigns} />
+          <VulnerableAssetsPanel.render dashboard={assigns} />
           <VirtualizationPanel.render dashboard={assigns} />
           <ThreatPanel.render dashboard={assigns} />
           <AlertsPanel.render dashboard={assigns} />

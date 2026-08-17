@@ -207,7 +207,13 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonPackageLiveTest do
 
     {:ok, lv, _html} = live(conn, ~p"/settings/agents/addons")
     html = render_click(lv, "sync_first_party_catalog", %{})
+    assert html =~ "Syncing"
 
+    html = render_async(lv, 5_000)
+
+    assert html =~ "Catalog refreshed from the registry"
+    assert html =~ "Nothing was imported"
+    assert html =~ "Last refresh"
     assert html =~ release_tag
     assert html =~ package.id
     assert html =~ "staged"
@@ -367,7 +373,7 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonPackageLiveTest do
     assert Enum.map(assignments, & &1.agent_uid) == [compatible.uid]
   end
 
-  test "profile creation defaults blank SRQL target query to all devices", %{
+  test "profile creation defaults blank SRQL target query to all agents", %{
     conn: conn,
     actor: actor
   } do
@@ -407,12 +413,43 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonPackageLiveTest do
       |> Ash.Query.filter(addon_package_id == ^package.id)
       |> Ash.read!(actor: system_actor())
 
-    assert profile.target_query == "in:devices"
+    assert profile.target_query == "in:agents"
+
+    html =
+      lv
+      |> form("#create-addon-profile-form", %{
+        "profile" => %{
+          "name" => "Inventory devices",
+          "target_query" => "in:devices hostname:dusk*",
+          "priority" => "100",
+          "max_targets" => "10000",
+          "params" => "{}",
+          "args" => ""
+        }
+      })
+      |> render_submit()
+
+    assert html =~ "must target agents"
+    refute html =~ "Inventory devices"
 
     html = render_click(lv, "reconcile_profile", %{"id" => Ecto.UUID.generate()})
 
     assert html =~ "Profile reconcile failed"
     assert render(lv) =~ "Profile assignment"
+
+    html =
+      lv
+      |> element("button[phx-click='delete_profile'][phx-value-id='#{profile.id}']")
+      |> render_click()
+
+    assert html =~ "Add-on profile removed."
+    refute html =~ "Inventory everywhere"
+
+    assert [] =
+             AddonProfile
+             |> Ash.Query.for_read(:read)
+             |> Ash.Query.filter(addon_package_id == ^package.id)
+             |> Ash.read!(actor: system_actor())
   end
 
   test "profile form exposes and enables a schema runtime switch by default", %{
@@ -582,7 +619,7 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonPackageLiveTest do
         %{
           name: "Inventory everywhere",
           addon_package_id: package.id,
-          target_query: "in:devices",
+          target_query: "in:agents",
           params: %{},
           args: []
         },

@@ -1,18 +1,23 @@
 defmodule ServiceRadarWebNGWeb.DeviceLive.InterfaceData do
   @moduledoc false
 
+  alias ServiceRadar.Inventory.InterfaceMetrics
   alias ServiceRadar.Inventory.InterfaceSettings
   alias ServiceRadarWebNGWeb.InterfaceLive.MetricsPanels
   alias ServiceRadarWebNGWeb.InterfaceLive.MetricsQuery
 
   @interfaces_limit 200
+  @snmp_presence_window "last_24h"
 
   def load_interfaces(srql_module, device_uid, scope) do
     query = default_interfaces_query(device_uid)
 
     case srql_module.query(query, %{scope: scope}) do
-      {:ok, %{"results" => results}} when is_list(results) ->
+      {:ok, %{"results" => results}} when is_list(results) and results != [] ->
         {Enum.filter(results, &is_map/1), nil}
+
+      {:ok, %{"results" => []}} ->
+        {load_snmp_derived_interfaces(srql_module, device_uid, scope), nil}
 
       {:ok, other} ->
         {[], "unexpected SRQL response: #{inspect(other)}"}
@@ -20,6 +25,14 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.InterfaceData do
       {:error, reason} ->
         {[], "SRQL error: #{format_error(reason)}"}
     end
+  end
+
+  # Inventory list advertises SNMP metrics independently of interface snapshots.
+  # A UniFi AP can keep writing ifInOctets while `in:interfaces` has nothing in
+  # the last 3 days — still treat that as "this device has interfaces."
+  def has_interfaces?(srql_module, device_uid, scope) do
+    inventory_present?(srql_module, device_uid, scope) or
+      snmp_metrics_present?(srql_module, device_uid, scope)
   end
 
   def filter_interfaces_for_display(interfaces, device_row) when is_list(interfaces) and is_map(device_row) do
@@ -98,32 +111,23 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.InterfaceData do
       has_favorited: false,
       panels: [],
       error: nil,
-      favorited_count: 0
+      favorited_count: 0,
+      action: nil
     }
   end
 
   def load_interface_metrics(srql_module, device_uid, favorited_uids, metrics_enabled_uids, interfaces, scope) do
     total_favorited = MapSet.size(favorited_uids)
-    enabled_favorited_uids = MapSet.intersection(favorited_uids, metrics_enabled_uids)
 
-    if MapSet.size(enabled_favorited_uids) == 0 do
-      %{
-        has_favorited: total_favorited > 0,
-        panels: [],
-        error: nil,
-        favorited_count: total_favorited,
-        message: "Metrics collection is disabled for favorited interfaces."
-      }
-    else
-      build_favorited_interface_metrics(
-        srql_module,
-        device_uid,
-        enabled_favorited_uids,
-        interfaces,
-        scope,
-        total_favorited
-      )
-    end
+    build_favorited_interface_metrics(
+      srql_module,
+      device_uid,
+      favorited_uids,
+      metrics_enabled_uids,
+      interfaces,
+      scope,
+      total_favorited
+    )
   end
 
   def load_interface_metric_section(srql_module, device_uid, interface_ref, interfaces, scope, opts \\ []) do
@@ -176,12 +180,31 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.InterfaceData do
     selected_uids
     |> MapSet.to_list()
     |> Enum.map(fn uid ->
-      case upsert_interface_setting(scope, device_uid, uid, %{metrics_enabled: metrics_enabled}) do
+      attrs = metrics_update_attrs(scope, device_uid, uid, metrics_enabled)
+
+      case upsert_interface_setting(scope, device_uid, uid, attrs) do
         {:ok, _} -> :ok
         {:error, _} -> :error
       end
     end)
     |> Enum.count(&(&1 == :ok))
+  end
+
+  def metrics_update_attrs(scope, device_uid, interface_uid, true) do
+    selected =
+      case InterfaceSettings.get_by_interface(device_uid, interface_uid, scope: scope) do
+        {:ok, %{metrics_selected: selected}} when is_list(selected) and selected != [] ->
+          selected
+
+        _ ->
+          InterfaceMetrics.default_selected()
+      end
+
+    %{metrics_enabled: true, metrics_selected: selected}
+  end
+
+  def metrics_update_attrs(_scope, _device_uid, _interface_uid, _enabled) do
+    %{metrics_enabled: false, metrics_selected: []}
   end
 
   def bulk_update_tags(scope, device_uid, selected_uids, tags) do
@@ -257,22 +280,26 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.InterfaceData do
   defp build_favorited_interface_metrics(
          srql_module,
          device_uid,
-         enabled_favorited_uids,
+         favorited_uids,
+         metrics_enabled_uids,
          interfaces,
          scope,
          total_favorited
        ) do
+    enabled_favorited = MapSet.intersection(favorited_uids, metrics_enabled_uids)
+
     favorited_interfaces =
       interfaces
       |> Enum.filter(fn iface ->
         uid = Map.get(iface, "interface_uid")
 
-        is_binary(uid) and MapSet.member?(enabled_favorited_uids, uid) and
+        is_binary(uid) and MapSet.member?(favorited_uids, uid) and
           is_integer(Map.get(iface, "if_index"))
       end)
       |> Enum.map(fn iface ->
         if_speed_bps = Map.get(iface, "speed_bps") || Map.get(iface, "if_speed")
         if_speed_bytes_per_sec = if is_number(if_speed_bps), do: if_speed_bps / 8
+        selected = Map.get(iface, "metrics_selected") || []
 
         %{
           if_index: Map.get(iface, "if_index"),
@@ -281,7 +308,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.InterfaceData do
               "Interface #{Map.get(iface, "if_index")}",
           max_speed_bytes_per_sec: if_speed_bytes_per_sec,
           reference_lines: interface_reference_lines(iface, if_speed_bytes_per_sec),
-          metrics_selected: Map.get(iface, "metrics_selected") || []
+          metrics_selected: if(selected == [], do: InterfaceMetrics.default_selected(), else: selected)
         }
       end)
 
@@ -291,6 +318,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.InterfaceData do
         panels: [],
         error: nil,
         favorited_count: total_favorited,
+        action: nil,
         message: "No interface metrics available. Favorited interfaces may not have SNMP indices."
       }
     else
@@ -305,7 +333,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.InterfaceData do
             has_favorited: total_favorited > 0,
             panels: all_panels,
             error: nil,
-            favorited_count: total_favorited
+            favorited_count: total_favorited,
+            action: nil
           }
 
         errors != [] ->
@@ -313,7 +342,18 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.InterfaceData do
             has_favorited: total_favorited > 0,
             panels: [],
             error: "Failed to load metrics: #{Enum.join(Enum.uniq(errors), "; ")}",
-            favorited_count: total_favorited
+            favorited_count: total_favorited,
+            action: nil
+          }
+
+        MapSet.size(enabled_favorited) == 0 ->
+          %{
+            has_favorited: total_favorited > 0,
+            panels: [],
+            error: nil,
+            favorited_count: total_favorited,
+            action: :enable_favorited_metrics,
+            message: "Metrics collection is off for these favorites."
           }
 
         true ->
@@ -322,7 +362,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.InterfaceData do
             panels: [],
             error: nil,
             favorited_count: total_favorited,
-            message: "No metrics data available yet. Ensure SNMP polling is configured for this device."
+            action: nil,
+            message: "No SNMP samples yet. Confirm an agent that can reach this device is assigned the SNMP profile."
           }
       end
     end
@@ -606,6 +647,123 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.InterfaceData do
     "in:interfaces device_id:\"#{escape_value(device_uid)}\" latest:true time:last_3d " <>
       "sort:if_name:asc limit:#{@interfaces_limit}"
   end
+
+  defp inventory_present?(srql_module, device_uid, scope) do
+    query =
+      "in:interfaces device_id:\"#{escape_value(device_uid)}\" latest:true time:last_3d " <>
+        "stats:count() as interface_count"
+
+    case srql_module.query(query, %{scope: scope}) do
+      {:ok, %{"results" => results}} when is_list(results) ->
+        count =
+          results
+          |> List.first(%{})
+          |> Map.get("interface_count", 0)
+
+        to_safe_number(count) > 0 or inventory_row_present?(srql_module, device_uid, scope)
+
+      _ ->
+        inventory_row_present?(srql_module, device_uid, scope)
+    end
+  end
+
+  defp inventory_row_present?(srql_module, device_uid, scope) do
+    query =
+      "in:interfaces device_id:\"#{escape_value(device_uid)}\" latest:true time:last_3d limit:1"
+
+    case srql_module.query(query, %{scope: scope}) do
+      {:ok, %{"results" => [_ | _]}} -> true
+      _ -> false
+    end
+  end
+
+  defp snmp_metrics_present?(srql_module, device_uid, scope) do
+    query =
+      "in:snmp_metrics device_id:\"#{escape_value(device_uid)}\" time:#{@snmp_presence_window} limit:1"
+
+    case srql_module.query(query, %{scope: scope}) do
+      {:ok, %{"results" => results}} when is_list(results) and results != [] -> true
+      _ -> false
+    end
+  end
+
+  defp load_snmp_derived_interfaces(srql_module, device_uid, scope) do
+    query =
+      Enum.join(
+        [
+          "in:snmp_metrics",
+          ~s(device_id:"#{escape_value(device_uid)}"),
+          "time:#{@snmp_presence_window}",
+          "bucket:24h",
+          "agg:count",
+          "series:if_index",
+          "limit:#{@interfaces_limit}"
+        ],
+        " "
+      )
+
+    case srql_module.query(query, %{scope: scope}) do
+      {:ok, %{"results" => rows}} when is_list(rows) ->
+        rows
+        |> Enum.filter(&is_map/1)
+        |> Enum.map(&snmp_series_if_index/1)
+        |> Enum.reject(&is_nil/1)
+        |> Enum.uniq()
+        |> Enum.sort()
+        |> Enum.map(&snmp_derived_interface(device_uid, &1))
+
+      _ ->
+        []
+    end
+  end
+
+  defp snmp_series_if_index(row) when is_map(row) do
+    parse_if_index(Map.get(row, "series") || Map.get(row, "if_index"))
+  end
+
+  defp snmp_series_if_index(_row), do: nil
+
+  defp parse_if_index(value) when is_integer(value) and value >= 0, do: value
+
+  defp parse_if_index(value) when is_binary(value) do
+    trimmed = String.trim(value)
+
+    cond do
+      trimmed == "" ->
+        nil
+
+      match = Regex.run(~r/(\d+)\s*$/, trimmed) ->
+        match |> List.last() |> String.to_integer()
+
+      true ->
+        nil
+    end
+  end
+
+  defp parse_if_index(_value), do: nil
+
+  defp snmp_derived_interface(device_uid, if_index) do
+    %{
+      "device_id" => device_uid,
+      "interface_uid" => "#{device_uid}-if#{if_index}",
+      "if_index" => if_index,
+      "if_name" => "if#{if_index}",
+      "if_descr" => "SNMP ifIndex #{if_index}",
+      "inferred_from_metrics" => true
+    }
+  end
+
+  defp to_safe_number(n) when is_number(n), do: n
+  defp to_safe_number(nil), do: 0
+
+  defp to_safe_number(s) when is_binary(s) do
+    case Float.parse(s) do
+      {f, _} -> f
+      :error -> 0
+    end
+  end
+
+  defp to_safe_number(_), do: 0
 
   defp escape_value(value) when is_binary(value) do
     value

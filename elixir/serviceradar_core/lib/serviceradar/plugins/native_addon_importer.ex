@@ -103,6 +103,9 @@ defmodule ServiceRadar.Plugins.NativeAddonImporter do
       in `source_metadata`. Default `[]`.
     * `:release_tag` — the source release tag. Default `nil`.
     * `:now` — import timestamp. Default `DateTime.utc_now/0`.
+    * `:replace_existing` — when true, an operator-initiated replace may restage
+      the existing first-party `addon_id` + `version` onto a later signed
+      bundle. Default false: same-version source drift is a conflict.
   """
   @spec import_entry(map(), map(), [fetched_artifact()], keyword()) ::
           {:ok, AddonPackage.t()} | {:error, term()}
@@ -127,20 +130,23 @@ defmodule ServiceRadar.Plugins.NativeAddonImporter do
          :ok <- ensure_not_retired_native_addon(manifest, entry),
          {:ok, mirrored} <- verify_and_mirror(artifacts, public_key, mirror),
          {:ok, attrs} <- package_attrs(manifest, entry, mirrored, opts) do
-      upsert_package(attrs, actor)
+      upsert_package(attrs, actor, opts)
     end
   end
 
-  defp upsert_package(%{addon_id: addon_id, version: version} = attrs, actor) do
+  defp upsert_package(%{addon_id: addon_id, version: version} = attrs, actor, opts) do
     case find_package(addon_id, version, actor) do
       {:ok, nil} ->
         case create_package(attrs, actor) do
-          {:ok, %AddonPackage{} = package} -> {:ok, package, :created}
-          {:error, create_error} -> reconcile_after_create_error(attrs, actor, create_error)
+          {:ok, %AddonPackage{} = package} ->
+            {:ok, package, :created}
+
+          {:error, create_error} ->
+            reconcile_after_create_error(attrs, actor, create_error, opts)
         end
 
       {:ok, %AddonPackage{} = package} ->
-        reconcile_package(package, attrs, actor)
+        reconcile_package(package, attrs, actor, opts)
 
       {:error, _reason} = error ->
         error
@@ -156,16 +162,17 @@ defmodule ServiceRadar.Plugins.NativeAddonImporter do
   defp reconcile_after_create_error(
          %{addon_id: addon_id, version: version} = attrs,
          actor,
-         create_error
+         create_error,
+         opts
        ) do
     case find_package(addon_id, version, actor) do
-      {:ok, %AddonPackage{} = package} -> reconcile_package(package, attrs, actor)
+      {:ok, %AddonPackage{} = package} -> reconcile_package(package, attrs, actor, opts)
       {:ok, nil} -> {:error, create_error}
       {:error, _reason} = error -> error
     end
   end
 
-  defp reconcile_package(%AddonPackage{} = package, attrs, actor) do
+  defp reconcile_package(%AddonPackage{} = package, attrs, actor, opts) do
     cond do
       package.source_type != :first_party ->
         {:error, source_conflict(package, attrs, :source_type_owned)}
@@ -175,7 +182,7 @@ defmodule ServiceRadar.Plugins.NativeAddonImporter do
           source_bundle_digests_match?(package, attrs) ->
         {:ok, package, :reused}
 
-      source_disagrees?(package, attrs) ->
+      source_disagrees?(package, attrs) and not replace_existing?(opts) ->
         {:error, source_conflict(package, attrs, :oci_source_mismatch)}
 
       true ->
@@ -260,6 +267,8 @@ defmodule ServiceRadar.Plugins.NativeAddonImporter do
       normalized_existing -> normalized_existing != normalize.(discovered)
     end
   end
+
+  defp replace_existing?(opts), do: Keyword.get(opts, :replace_existing, false) == true
 
   defp source_conflict(package, attrs, reason) do
     {:native_addon_version_source_conflict,

@@ -15,8 +15,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexRefresh do
 
   def refresh_devices(socket, opts \\ []) do
     params =
-      socket.assigns
-      |> Map.get(:last_params, %{})
+      opts
+      |> Keyword.get(:list_params, Map.get(socket.assigns, :last_params, %{}))
       |> IndexData.include_inactive_inventory_params()
 
     uri = Map.get(socket.assigns, :last_uri, "/devices")

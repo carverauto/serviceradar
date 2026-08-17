@@ -17,8 +17,8 @@ defmodule ServiceRadar.Credentials.NativeDescriptors do
   is what gets published; until then it is the same data, held in code. What it
   must never become is a *registry* that package-owned providers can be resolved
   through — the change this belongs to is explicit that Wasm providers have no
-  native fallback. Everything here is a protocol with no package, and the list
-  is meant to stay short.
+  native fallback. Everything here is a protocol or core-owned feed with no
+  package, and the list is meant to stay short.
 
   ## Why SNMP is one descriptor with two auth methods
 
@@ -34,11 +34,12 @@ defmodule ServiceRadar.Credentials.NativeDescriptors do
   reaching the poller, so they are asserted in the tests.
   """
 
-  @provider "snmp"
+  @snmp_provider "snmp"
+  @vulncheck_provider "vulncheck"
 
   @doc "Every native descriptor, keyed by provider."
   @spec all() :: %{String.t() => map()}
-  def all, do: %{@provider => snmp()}
+  def all, do: %{@snmp_provider => snmp(), @vulncheck_provider => vulncheck()}
 
   @doc "Fetch a native descriptor by provider, if one exists."
   @spec fetch(String.t() | nil) :: {:ok, map()} | :error
@@ -59,12 +60,13 @@ defmodule ServiceRadar.Credentials.NativeDescriptors do
   @spec snmp() :: map()
   def snmp do
     %{
-      "provider" => @provider,
+      "provider" => @snmp_provider,
       "label" => "SNMP",
       "description" =>
         "Community string or SNMPv3 user credentials, reusable across SNMP profiles and targets.",
       "plugin_id" => "snmp",
       "plugin_version" => "native",
+      "supports_rules" => false,
       "purposes" => ["snmp_monitoring"],
       "scope_types" => ["agent"],
       "auth_methods" => [
@@ -136,6 +138,47 @@ defmodule ServiceRadar.Credentials.NativeDescriptors do
               "public" => false
             }
           ]
+        }
+      ],
+      "provisioning" => %{"mode" => "credential_only"}
+    }
+  end
+
+  @doc """
+  The VulnCheck API-token descriptor used by core advisory feed ingestion.
+
+  There is no VulnCheck plugin package. Core downloads KEV and nist-nvd2 itself,
+  so the credential lives in the same operator store as package-owned secrets
+  (`/settings/networks/credentials`) rather than on a second form.
+  """
+  @spec vulncheck() :: map()
+  def vulncheck do
+    %{
+      "provider" => @vulncheck_provider,
+      "label" => "VulnCheck",
+      "description" =>
+        "API token used by core to download VulnCheck KEV and nist-nvd2 advisory feeds.",
+      "plugin_id" => "vulncheck",
+      "plugin_version" => "native",
+      "supports_rules" => false,
+      "purposes" => ["vulnerability_feed_download"],
+      "scope_types" => [],
+      "auth_methods" => [
+        %{
+          "id" => "api_token",
+          "label" => "API token",
+          "credential_kind" => "api_token",
+          "fields" => [
+            %{
+              "id" => "api_token",
+              "label" => "API token",
+              "control" => "password",
+              "required" => true,
+              "secret" => true,
+              "public" => false
+            }
+          ],
+          "payload" => %{"format" => "scalar", "field" => "api_token"}
         }
       ],
       "provisioning" => %{"mode" => "credential_only"}
