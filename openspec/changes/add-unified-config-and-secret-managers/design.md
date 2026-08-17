@@ -56,8 +56,41 @@ relocated from `System.get_env(x) || default` into the decoder. Therefore:
 - Every enum reserves `0` as `*_UNSPECIFIED`, which validation rejects — so an unset TLS mode is an
   error, never accidentally the first real value.
 
-**Rejected:** TOML/YAML + JSON Schema. Friendlier to author, but yields untyped maps and needs a
-separate validator per language, so drift returns through the back door.
+### Authoring format vs loaded format — settled
+
+**`.textproto` is committed and reviewed; `protoc` compiles it to binary at build time; every
+manager loads the binary.** Two distinct artifacts with two distinct jobs:
+
+| Artifact | Job | Where it lives |
+|---|---|---|
+| `config/environments/**.textproto` | authored, reviewed, diffed — the ground truth | git |
+| compiled binary message | loaded at runtime by all three languages | Bazel action output, shipped in `priv/` for Elixir |
+
+This is what makes the format choice work at all: **no language ever parses text format.** Only Go
+reads textproto natively — `prost` does not, and Elixir's `:protobuf` has no parser at any version
+(0.17.0's `Protobuf.Text` is encode-only). Moving the parse into a `protoc` build action removes the
+requirement from all three implementations at once, and the action is declared, hermetic and cached
+like any other.
+
+A round-trip test asserts the generated binary matches its committed source, so the two cannot
+drift.
+
+**Rejected alternatives, and why:**
+
+- **TOML/YAML + JSON Schema.** Friendlier to author, but yields untyped maps and needs a separate
+  validator per language, so drift returns through the back door.
+- **Declaring configuration programmatically in Rust**, emitting binary from a build target. It
+  removes the parsing problem — but the parsing problem is already removed by the `protoc` step, so
+  the trade buys nothing and costs three things: ground truth stops being reviewable data (a config
+  change becomes a Rust code review); an ops or customer deployment engineer can no longer author an
+  `onprem:<id>` instance, which Decision 10 explicitly places in this repo so they can; and code can
+  read the environment (`std::env::var` in a builder), reintroducing the exact ambient-input disease
+  this change exists to cure.
+- **Starlark-generated instances.** A better version of the same idea — already the build language,
+  a Bazel target by construction, and non-Turing-complete with no I/O, so it *cannot* read the
+  environment. Held in reserve: if shared bases or per-customer overlays later justify computation,
+  this is the escape hatch, emitting `.textproto` or binary. Not adopted now, because static data is
+  the simpler thing and nothing yet needs computing.
 
 ---
 

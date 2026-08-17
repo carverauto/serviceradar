@@ -79,6 +79,10 @@ Fields that must be present SHALL use explicit presence, and every enum SHALL re
 as an `*_UNSPECIFIED` sentinel that validation rejects. Decoding SHALL NOT substitute a type default
 for an absent value.
 
+The committed text-format instance SHALL be the authored ground truth. A build action SHALL compile
+each instance to a binary message, and implementations SHALL load the binary rather than parsing
+text format. A test SHALL assert that each generated binary corresponds to its committed source.
+
 #### Scenario: A setting is added
 
 - **WHEN** a new setting is added to the schema
@@ -98,6 +102,19 @@ for an absent value.
 - **GIVEN** an environment file that does not set a TLS mode
 - **WHEN** validation runs
 - **THEN** it SHALL reject the `*_UNSPECIFIED` sentinel rather than accept the first defined value
+
+#### Scenario: An instance is compiled for loading
+
+- **GIVEN** a committed text-format instance
+- **WHEN** the build runs
+- **THEN** it SHALL produce a binary message for that instance
+- **AND** implementations SHALL load the binary without parsing text format
+
+#### Scenario: A generated binary diverges from its source
+
+- **GIVEN** a generated binary that does not correspond to its committed text-format source
+- **WHEN** the round-trip test runs
+- **THEN** it SHALL fail naming the instance
 
 #### Scenario: A configuration file contains a secret
 
