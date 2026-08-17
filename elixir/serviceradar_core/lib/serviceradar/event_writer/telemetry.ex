@@ -31,6 +31,28 @@ defmodule ServiceRadar.EventWriter.Telemetry do
   end
 
   @doc """
+  Emits a stale pull-inflight expiry. Lost JetStream replies (consumer leader
+  change, dropped empty-status) leave `pull_inflight_by_subject` pinned; the
+  producer clears those slots after `stale_pull_timeout_ms/1`.
+  """
+  @spec emit_stale_pull(non_neg_integer(), non_neg_integer(), String.t() | nil) :: :ok
+  def emit_stale_pull(expired_inflight, age_ms, subject)
+      when is_integer(expired_inflight) and expired_inflight >= 0 and is_integer(age_ms) and
+             age_ms >= 0 do
+    :telemetry.execute(
+      [:serviceradar, :event_writer, :producer, :stale_pull],
+      %{
+        count: 1,
+        expired_inflight: non_negative(expired_inflight),
+        age_ms: non_negative(age_ms)
+      },
+      %{subject_class: subject_class(subject)}
+    )
+
+    :ok
+  end
+
+  @doc """
   Emits a JetStream pull request event.
   """
   @spec emit_pull_request(non_neg_integer(), map(), map()) :: :ok

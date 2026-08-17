@@ -53,6 +53,10 @@ defmodule ServiceRadar.EventWriter.Producer do
   # Slow idle tick while long-polling so reconnect hygiene still runs.
   @long_poll_idle_interval 5_000
   @reconnect_delay 5_000
+  # Slack added to pull_expires so a late empty-status can still arrive.
+  @long_poll_stale_slack_ms 5_000
+  # no_wait pulls should return immediately; 5s covers a lost reply.
+  @no_wait_stale_pull_timeout_ms 5_000
 
   # Hard cap on the number of fully-formed Broadway events buffered in this
   # process while waiting for downstream demand. Sized off the configured
@@ -74,6 +78,7 @@ defmodule ServiceRadar.EventWriter.Producer do
     :pending_count,
     :pull_inflight,
     :pull_inflight_by_subject,
+    :pull_inflight_started_at,
     :sid_to_pull_subject,
     :max_buffered,
     :dropped_overflow,
@@ -107,6 +112,7 @@ defmodule ServiceRadar.EventWriter.Producer do
       pending_count: 0,
       pull_inflight: 0,
       pull_inflight_by_subject: %{},
+      pull_inflight_started_at: %{},
       sid_to_pull_subject: %{},
       max_buffered: max_buffered,
       dropped_overflow: 0,
@@ -131,6 +137,22 @@ defmodule ServiceRadar.EventWriter.Producer do
 
   def max_buffered(%Config{}), do: max(@min_buffer, Config.default_max_ack_pending())
 
+  @doc """
+  How long a pull may stay in `pull_inflight_by_subject` before it is treated as lost.
+
+  Long-poll pipelines get `pull_expires` plus slack so a late empty-status can
+  still land. Shared no_wait pulls use a short fixed deadline: they should
+  return immediately, so anything still counted after that is a dropped reply
+  (consumer leader change, lost inbox frame).
+  """
+  @spec stale_pull_timeout_ms(Config.t()) :: pos_integer()
+  def stale_pull_timeout_ms(%Config{pull_expires_ns: expires})
+      when is_integer(expires) and expires > 0 do
+    div(expires, 1_000_000) + @long_poll_stale_slack_ms
+  end
+
+  def stale_pull_timeout_ms(_config), do: @no_wait_stale_pull_timeout_ms
+
   @impl true
   def handle_demand(incoming_demand, %{demand: demand} = state) do
     new_demand = demand + incoming_demand
@@ -139,6 +161,7 @@ defmodule ServiceRadar.EventWriter.Producer do
     if state.connected and new_demand > 0 do
       {messages, state} =
         state
+        |> expire_stale_pulls(System.monotonic_time(:millisecond))
         |> drain_pending_messages()
         |> maybe_request_pull_messages()
 
@@ -191,6 +214,12 @@ defmodule ServiceRadar.EventWriter.Producer do
   end
 
   def handle_info(:fetch, state) do
+    handle_info({:fetch, System.monotonic_time(:millisecond)}, state)
+  end
+
+  def handle_info({:fetch, now_ms}, state) when is_integer(now_ms) do
+    state = expire_stale_pulls(state, now_ms)
+
     if state.connected and state.demand > 0 do
       {messages, state} =
         state
@@ -216,7 +245,8 @@ defmodule ServiceRadar.EventWriter.Producer do
          conn: nil,
          consumer_context: nil,
          pull_inflight: 0,
-         pull_inflight_by_subject: %{}
+         pull_inflight_by_subject: %{},
+         pull_inflight_started_at: %{}
      }}
   end
 
@@ -822,6 +852,8 @@ defmodule ServiceRadar.EventWriter.Producer do
   defp record_pull_inflight(state, []), do: state
 
   defp record_pull_inflight(state, requested_by_subject) do
+    now_ms = System.monotonic_time(:millisecond)
+
     by_subject =
       Enum.reduce(requested_by_subject, state.pull_inflight_by_subject, fn {pull_subject,
                                                                             batch_size},
@@ -829,7 +861,16 @@ defmodule ServiceRadar.EventWriter.Producer do
         Map.update(acc, pull_subject, batch_size, &(&1 + batch_size))
       end)
 
-    %{state | pull_inflight_by_subject: by_subject}
+    started_at =
+      Enum.reduce(
+        requested_by_subject,
+        pull_inflight_started_at(state),
+        fn {pull_subject, _batch_size}, acc ->
+          Map.put_new(acc, pull_subject, now_ms)
+        end
+      )
+
+    %{state | pull_inflight_by_subject: by_subject, pull_inflight_started_at: started_at}
   end
 
   # Decrement both the global counter and the per-pull-subject remaining budget
@@ -837,17 +878,20 @@ defmodule ServiceRadar.EventWriter.Producer do
   defp decrement_pull_inflight(state, pull_subject) when is_binary(pull_subject) do
     remaining = Map.get(state.pull_inflight_by_subject, pull_subject, 0)
 
-    by_subject =
+    {by_subject, started_at} =
       if remaining <= 1 do
-        Map.delete(state.pull_inflight_by_subject, pull_subject)
+        {Map.delete(state.pull_inflight_by_subject, pull_subject),
+         Map.delete(pull_inflight_started_at(state), pull_subject)}
       else
-        Map.put(state.pull_inflight_by_subject, pull_subject, remaining - 1)
+        {Map.put(state.pull_inflight_by_subject, pull_subject, remaining - 1),
+         pull_inflight_started_at(state)}
       end
 
     %{
       state
       | pull_inflight: max(state.pull_inflight - 1, 0),
-        pull_inflight_by_subject: by_subject
+        pull_inflight_by_subject: by_subject,
+        pull_inflight_started_at: started_at
     }
   end
 
@@ -857,8 +901,41 @@ defmodule ServiceRadar.EventWriter.Producer do
     %{
       state
       | pull_inflight: max(state.pull_inflight - cleared, 0),
-        pull_inflight_by_subject: by_subject
+        pull_inflight_by_subject: by_subject,
+        pull_inflight_started_at: Map.delete(pull_inflight_started_at(state), pull_subject)
     }
+  end
+
+  defp pull_inflight_started_at(%{pull_inflight_started_at: started}) when is_map(started),
+    do: started
+
+  defp pull_inflight_started_at(_state), do: %{}
+
+  defp expire_stale_pulls(state, now_ms) when is_integer(now_ms) do
+    timeout_ms = stale_pull_timeout_ms(state.config)
+
+    state
+    |> pull_inflight_started_at()
+    |> Enum.reduce(state, fn {pull_subject, started_at}, acc ->
+      age_ms = now_ms - started_at
+      remaining = Map.get(acc.pull_inflight_by_subject, pull_subject, 0)
+
+      if remaining > 0 and age_ms > timeout_ms do
+        EventWriterTelemetry.emit_stale_pull(remaining, age_ms, pull_subject)
+
+        Logger.warning(
+          "EventWriter dropping stale JetStream pull inflight; re-arming consumer",
+          pull_subject: pull_subject,
+          expired_inflight: remaining,
+          age_ms: age_ms,
+          timeout_ms: timeout_ms
+        )
+
+        clear_pull_inflight(acc, pull_subject)
+      else
+        acc
+      end
+    end)
   end
 
   defp build_ack_fun(conn, reply_to) when is_binary(reply_to) and reply_to != "" do
