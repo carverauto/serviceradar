@@ -1054,6 +1054,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
     |> assign(:endpoint_inventory_package_total, 0)
     |> assign(:endpoint_inventory_artifacts, [])
     |> assign(:endpoint_inventory_vulnerability_matches, [])
+    |> assign(:endpoint_inventory_cpe_catalog_current, true)
     |> assign(:endpoint_inventory_error, nil)
     |> assign(:has_software_inventory, false)
     |> assign(:bumblebee_postures, [])

@@ -62,7 +62,8 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.ParsersTest do
         "cve" => ["CVE-2017-5638", "CVE-2017-9805"],
         "vulnerabilityName" => "Apache Struts RCE",
         "shortDescription" => "Remote code execution",
-        "dateAdded" => "2021-11-03"
+        "dateAdded" => "2021-11-03",
+        "epss" => %{"epss_score" => 0.91}
       }
 
       assert {:ok, %{advisory: advisory, coordinates: [coordinate]}} =
@@ -72,6 +73,8 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.ParsersTest do
       assert advisory.kev == true
       assert advisory.exploit_available == true
       assert advisory.raw["_cve_ids"] == ["CVE-2017-5638", "CVE-2017-9805"]
+      assert advisory.metadata["priority"]["epss_score"] == 0.91
+      assert advisory.metadata["priority"]["cve_ids"] == ["CVE-2017-5638", "CVE-2017-9805"]
 
       assert coordinate.coordinate_type == "vendor_product"
       assert coordinate.value == "struts"
@@ -86,13 +89,21 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.ParsersTest do
         "cveID" => "CVE-2021-44228",
         "vendorProject" => "Apache",
         "product" => "Log4j2",
-        "vulnerabilityName" => "Log4Shell"
+        "vulnerabilityName" => "Log4Shell",
+        "shortDescription" => "JNDI lookup RCE",
+        "dueDate" => "2021-12-24",
+        "knownRansomwareCampaignUse" => "Known"
       }
 
       assert {:ok, %{advisory: advisory, coordinates: [coordinate]}} =
                Parsers.Kev.parse_record(entry, provider: "cisa", feed_key: "cisa-kev")
 
       assert advisory.cve_id == "CVE-2021-44228"
+      assert advisory.title == "Log4Shell"
+      assert advisory.description == "JNDI lookup RCE"
+      assert advisory.metadata["priority"]["due_date"] == "2021-12-24"
+      assert advisory.metadata["priority"]["ransomware_use"] == "Known"
+      assert advisory.metadata["priority"]["sources"] == ["cisa-kev"]
       assert coordinate.value == "log4j2"
     end
   end

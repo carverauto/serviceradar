@@ -37,6 +37,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.DeviceMountAssigns do
     |> assign(:endpoint_inventory_stored_package_count, 0)
     |> assign(:endpoint_inventory_artifacts, [])
     |> assign(:endpoint_inventory_vulnerability_matches, [])
+    |> assign(:endpoint_inventory_cpe_catalog_current, true)
     |> assign(:show_endpoint_inventory_package_modal, false)
     |> assign(:endpoint_inventory_selected_package, nil)
     |> assign(:endpoint_inventory_selected_package_matches, [])
