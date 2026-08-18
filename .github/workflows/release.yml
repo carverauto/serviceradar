@@ -260,6 +260,11 @@ jobs:
             chmod +x "${RUNNER_TEMP}/sign-oci-publish.sh"
           fi
 
+          if [[ -x scripts/install-skopeo.sh ]]; then
+            cp scripts/install-skopeo.sh "${RUNNER_TEMP}/install-skopeo.sh"
+            chmod +x "${RUNNER_TEMP}/install-skopeo.sh"
+          fi
+
           git checkout --detach "${RELEASE_COMMIT}"
           echo "Checked out release commit ${RELEASE_COMMIT}"
 
@@ -378,7 +383,11 @@ jobs:
           fi
 
           if ! command -v skopeo >/dev/null 2>&1; then
-            ./scripts/install-skopeo.sh
+            skopeo_installer="./scripts/install-skopeo.sh"
+            if [[ -x "${RUNNER_TEMP}/install-skopeo.sh" ]]; then
+              skopeo_installer="${RUNNER_TEMP}/install-skopeo.sh"
+            fi
+            "${skopeo_installer}"
             export PATH="${RUNNER_TEMP:-${HOME}/.local}/bin:${PATH}"
           fi
 
