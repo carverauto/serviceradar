@@ -20,7 +20,7 @@ fn pairs(items: &[(&str, &str)]) -> Vec<Pair> {
 }
 
 #[test]
-#[ignore = "needs artifacts built by Bazel (protoc-compiled .binpb); run //config/validator/rust/tests, which passes --include-ignored"]
+#[ignore = "needs artifacts built by Bazel (protoc-compiled .binpb); run //config/manager_validator/rust/tests, which passes --include-ignored"]
 fn no_committed_instance_contains_a_credential() {
     let mut failed = false;
     for name in INSTANCES {
@@ -38,7 +38,7 @@ fn no_committed_instance_contains_a_credential() {
 /// The negative control, one case per shape. A scanner that finds nothing in four clean files
 /// is indistinguishable from one that never ran.
 #[test]
-#[ignore = "needs artifacts built by Bazel (protoc-compiled .binpb); run //config/validator/rust/tests, which passes --include-ignored"]
+#[ignore = "needs artifacts built by Bazel (protoc-compiled .binpb); run //config/manager_validator/rust/tests, which passes --include-ignored"]
 fn every_credential_shape_is_detected() {
     let cases: &[(&str, &str, &str)] = &[
         (
@@ -75,7 +75,7 @@ fn every_credential_shape_is_detected() {
 /// A field whose NAME denotes a credential is rejected even if its value looks harmless,
 /// because the schema is not supposed to have such a field at all.
 #[test]
-#[ignore = "needs artifacts built by Bazel (protoc-compiled .binpb); run //config/validator/rust/tests, which passes --include-ignored"]
+#[ignore = "needs artifacts built by Bazel (protoc-compiled .binpb); run //config/manager_validator/rust/tests, which passes --include-ignored"]
 fn a_credential_named_field_is_rejected_regardless_of_value() {
     let findings = scan(&pairs(&[("database.password", "\"x\"")]));
     assert_eq!(
@@ -87,7 +87,7 @@ fn a_credential_named_field_is_rejected_regardless_of_value() {
 /// The false-positive control. A shape check that rejects legitimate values gets disabled by
 /// whoever it blocks, so the values this schema actually holds must survive it.
 #[test]
-#[ignore = "needs artifacts built by Bazel (protoc-compiled .binpb); run //config/validator/rust/tests, which passes --include-ignored"]
+#[ignore = "needs artifacts built by Bazel (protoc-compiled .binpb); run //config/manager_validator/rust/tests, which passes --include-ignored"]
 fn legitimate_configuration_values_are_not_flagged() {
     let clean = pairs(&[
         ("database.host", "\"cnpg-rw.serviceradar.svc.cluster.local\""),

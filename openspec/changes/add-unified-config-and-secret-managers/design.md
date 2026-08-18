@@ -375,7 +375,7 @@ Record this in `AGENTS.md`, or a future cleanup will "fix" the layout and undo i
 - **Go:** the module root is `github.com/carverauto/serviceradar`, so `config/go/` is importable as
   `github.com/carverauto/serviceradar/config/go/...`. Consider naming the directory something other
   than `go` to avoid `config/go/go.go`-style paths.
-- **Elixir:** a Mix project at `config/validator/elixir/`, referenced by path from consuming `mix.exs` files.
+- **Elixir:** a Mix project at `config/manager_validator/elixir/`, referenced by path from consuming `mix.exs` files.
   **Naming hazard:** every Mix project already has its own `config/` directory
   (`elixir/web-ng/config/runtime.exs` and three others). A repository-root `config/` is a different
   thing with the same name. Unambiguous in a full path, ambiguous in conversation — worth a

@@ -102,7 +102,7 @@ ambient environment, a test asserting on `.bazelrc`, and a value read under a di
       **37 rules**, compiles to a 3234-byte binary. Negative controls verified on RBE: an unknown
       predicate and an unknown enum in `scope` each fail the build
 - [x] Implement the meta-rule: every schema field carries at least one rule —
-      `//config/validator/rust:meta_rule_test`, over `//config/proto:config_descriptor_set`. The field
+      `//config/manager_validator/rust:meta_rule_test`, over `//config/proto:config_descriptor_set`. The field
       list comes from the schema's OWN DESCRIPTOR, recursed to leaves, not from a list in the test:
       a hand-kept list is one more thing to forget to update, and forgetting is the failure being
       caught. Also checks the reverse — a rule naming a field the schema lacks is dead, since it
@@ -147,7 +147,7 @@ ambient environment, a test asserting on `.bazelrc`, and a value read under a di
       cut by `//config/tools/rust:extract_section`. This is Decision 6 (least privilege), not caching:
       a target that declares one section PHYSICALLY CANNOT SEE the others, because they are not in
       its runfiles — absolute under remote execution, where only declared inputs reach the executor.
-      `//config/validator/rust:section_privilege_test` declares exactly one section and asserts both
+      `//config/manager_validator/rust:section_privilege_test` declares exactly one section and asserts both
       halves. **Negative control verified on RBE:** granting it `ci_binpb` and `ci_nats` makes both
       absence assertions fail, naming the reachable file.
       A tool rather than a protoc invocation because text format cannot be sliced — the section
@@ -158,7 +158,7 @@ ambient environment, a test asserting on `.bazelrc`, and a value read under a di
 - [x] Add the build-time validator as a Bazel test over file-phase rules, iterating **every**
       instance including each on-prem one
 - [x] Add the credential-shape check that rejects secrets in configuration files —
-      `//config/validator/rust:credential_shape_test`. Four shapes (URL userinfo, `password=`-style
+      `//config/manager_validator/rust:credential_shape_test`. Four shapes (URL userinfo, `password=`-style
       connection parameters, PEM material, whole-value base64 runs) plus credential-denoting
       field names. **Verified end to end on RBE:** a DSN with an embedded password planted in
       `demo.textproto` fails the test naming `demo: database.host`.
@@ -175,7 +175,7 @@ ambient environment, a test asserting on `.bazelrc`, and a value read under a di
       fail the build: unknown field (names `not_a_real_field`), wrong type for `port`, and an
       invalid enum value (names `TLS_MODE_BOGUS`)
 - [x] Add the round-trip test asserting each generated binary matches its committed `.textproto`
-      — `//config/validator/rust:round_trip_test`. Both sides are flattened to `path=value` pairs and
+      — `//config/manager_validator/rust:round_trip_test`. Both sides are flattened to `path=value` pairs and
       compared structurally, because the committed file carries comments and blank lines no
       encoder emits, and neither prost nor Elixir's `:protobuf` can parse text format.
       Its weight comes from the two sides being READ FROM DIFFERENT PLACES — source tree vs.
@@ -195,7 +195,7 @@ ambient environment, a test asserting on `.bazelrc`, and a value read under a di
       accept/reject. Three implementations can reject the same input for three different reasons
       and a bare rejection assertion stays green
 - [x] Include the negative fixtures from phase 3 as vectors — same artifact by construction
-- [x] Implement the thin vector harness in **Rust** — `//config/validator/rust:vector_test`. Until it
+- [x] Implement the thin vector harness in **Rust** — `//config/manager_validator/rust:vector_test`. Until it
       existed the fixture file was inert data, and it found two real defects on its first run:
       every pre-existing fixture was stale against the `dgraph` schema addition, and 35 of 45
       rules had no fixture at all — the invariant the rule set file states in its own header and
@@ -204,7 +204,7 @@ ambient environment, a test asserting on `.bazelrc`, and a value read under a di
       `min: 1` to `min: 0` reds `database_pool_size_zero` with `expected [...] actual []`, which
       is the SEMANTICS.md section 8 property — weakening a rule makes its case pass, and the
       harness catches exactly that
-- [x] Implement the thin vector harness in **Go** — `//config/validator/go`, engine plus
+- [x] Implement the thin vector harness in **Go** — `//config/manager_validator/go`, engine plus
       harness. It reproduces all 47 fixtures as an ordered `(code, field_path)` sequence and
       revalidates all five committed instances.
       **Two negative controls verified on RBE.** Breaking `IntRange` to be exclusive at the upper
@@ -212,7 +212,7 @@ ambient environment, a test asserting on `.bazelrc`, and a value read under a di
       minimal counterexample proptest produced in Rust. It did NOT red the vectors, because no
       committed fixture uses a max-boundary value; disabling `NonEmpty` instead failed 10 named
       fixture subtests. The two layers catch different things, which is why both exist
-- [x] Vector harness in **Elixir** — `//config/validator/elixir:unit_tests_validator_vector_test`. It
+- [x] Vector harness in **Elixir** — `//config/manager_validator/elixir:unit_tests_validator_vector_test`. It
       required fixing rules_elixir: `ex_unit_test` staged every test input by `File.path`, so a
       GENERATED `srcs` or `data` entry resolved to `bazel-out/<cfg>/bin/...` and existed nowhere
       at test time. Source inputs hid it because their `path` and `short_path` are equal. Staging
@@ -223,7 +223,7 @@ ambient environment, a test asserting on `.bazelrc`, and a value read under a di
       pass with `--nocache_test_results` against the patched rule — the cached run reported
       "Executed 0 out of 25" and proved nothing
 - [x] Implement property-based tests per predicate law in **Rust** —
-      `//config/validator/rust:predicate_law_test`, 16 tests: eight proptest properties plus eight
+      `//config/manager_validator/rust:predicate_law_test`, 16 tests: eight proptest properties plus eight
       hand-written cases. Both layers are needed. The properties state each law as a universally
       quantified claim and SHRINK to a minimal counterexample on failure; the hand-written cases
       pin the specific points three implementations most easily diverge on.
@@ -286,8 +286,21 @@ ambient environment, a test asserting on `.bazelrc`, and a value read under a di
       SecretManager provides. `sslmode` comes from the typed TLS mode, and userinfo is
       percent-encoded: a password containing `@` or `:` would otherwise truncate the host or the
       role, producing a DSN that parses into something else rather than failing
-- [ ] Implement `SecretManager` in **Go and Elixir**, mirroring the Rust shape
-- [ ] Implement the `explain` command with provenance and redaction
+- [x] Implement `SecretManager` in **Go and Elixir**, mirroring the Rust shape.
+      **Elixir needed a different mechanism, and a test found out why.** A custom `Inspect` impl is
+      not enough on the BEAM: a struct IS a map, so `inspect(term, structs: false)` renders it as
+      one and prints every field, bypassing the protocol -- as does anything that walks the term,
+      including a crash report. The value is therefore held in a CLOSURE, not a field; a closure's
+      environment is not rendered. Verified against `structs: false`, `Map.from_struct/1` and
+      `term_to_binary/1`. Go needed `GoString` as well as `String`, since `%#v` prints the struct
+      literal
+- [x] Implement the `explain` command with provenance and redaction — every reported value
+      carries its origin, including one compiled into the release, because "it was built in" is an
+      answer and omitting it leaves open the question this system exists to close. Enums are
+      reported by NAME, not by number.
+      Secrets are **absent, not redacted**: `Explanation` has no way to reach a secret value at
+      all, which is stronger than remembering to mask one, and a masked value beside a name is one
+      formatting change away from an unmasked one
 
 **Empirical verification.** Every safety property in this phase is verified by MUTATION, not
 asserted. Removing the identity cross-check, skipping validation, accepting an instance on a

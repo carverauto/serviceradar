@@ -29,5 +29,5 @@ rust_library(
     ) + ["//config/proto_bindings/rust:config_schema"],
 )
 
-# The test surface lives in //config/validator/rust/tests, entered through the same
+# The test surface lives in //config/manager_validator/rust/tests, entered through the same
 # lib_tests.rs that `cargo test` uses.

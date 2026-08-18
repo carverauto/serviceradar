@@ -12,7 +12,7 @@ use serviceradar_config_schema::{DatabaseConfig, TlsMode};
 use serviceradar_config_validator::utils_tests::runfile;
 
 #[test]
-#[ignore = "needs artifacts built by Bazel (protoc-compiled .binpb); run //config/validator/rust/tests, which passes --include-ignored"]
+#[ignore = "needs artifacts built by Bazel (protoc-compiled .binpb); run //config/manager_validator/rust/tests, which passes --include-ignored"]
 fn the_declared_section_is_present_and_decodes() {
     let path = runfile("config/environments/ci.database.binpb")
         .expect("ci_database is declared as data on this target");
@@ -27,7 +27,7 @@ fn the_declared_section_is_present_and_decodes() {
 /// The actual privilege assertion. A component that needs the database has no business holding
 /// the NATS coordinates, and the mechanism that stops it is the absence of the file.
 #[test]
-#[ignore = "needs artifacts built by Bazel (protoc-compiled .binpb); run //config/validator/rust/tests, which passes --include-ignored"]
+#[ignore = "needs artifacts built by Bazel (protoc-compiled .binpb); run //config/manager_validator/rust/tests, which passes --include-ignored"]
 fn the_undeclared_sections_are_absent() {
     for undeclared in ["nats", "core", "dgraph"] {
         let path = format!("config/environments/ci.{undeclared}.binpb");
@@ -41,7 +41,7 @@ fn the_undeclared_sections_are_absent() {
 /// The whole instance is absent too. Declaring one section must not be a back door to every
 /// other one via the composite artifact it was cut from.
 #[test]
-#[ignore = "needs artifacts built by Bazel (protoc-compiled .binpb); run //config/validator/rust/tests, which passes --include-ignored"]
+#[ignore = "needs artifacts built by Bazel (protoc-compiled .binpb); run //config/manager_validator/rust/tests, which passes --include-ignored"]
 fn the_full_instance_is_absent() {
     assert!(
         runfile("config/environments/ci.binpb").is_none(),

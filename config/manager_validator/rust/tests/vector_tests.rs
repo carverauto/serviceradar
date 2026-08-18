@@ -30,7 +30,7 @@ fn fixtures() -> FixtureSet {
 }
 
 #[test]
-#[ignore = "needs artifacts built by Bazel (protoc-compiled .binpb); run //config/validator/rust/tests, which passes --include-ignored"]
+#[ignore = "needs artifacts built by Bazel (protoc-compiled .binpb); run //config/manager_validator/rust/tests, which passes --include-ignored"]
 fn every_fixture_produces_exactly_its_expected_violations() {
     let rules = rules();
     let fixtures = fixtures();
@@ -72,7 +72,7 @@ fn every_fixture_produces_exactly_its_expected_violations() {
 /// stay green, because the committed instances are all valid. A rule no case exercises is
 /// indistinguishable from a rule that does nothing.
 #[test]
-#[ignore = "needs artifacts built by Bazel (protoc-compiled .binpb); run //config/validator/rust/tests, which passes --include-ignored"]
+#[ignore = "needs artifacts built by Bazel (protoc-compiled .binpb); run //config/manager_validator/rust/tests, which passes --include-ignored"]
 fn every_rule_is_violated_by_at_least_one_fixture() {
     let rules = rules();
     let fixtures = fixtures();
@@ -105,7 +105,7 @@ fn every_rule_is_violated_by_at_least_one_fixture() {
 
 /// A fixture naming a code no rule defines is dead weight that reads like coverage.
 #[test]
-#[ignore = "needs artifacts built by Bazel (protoc-compiled .binpb); run //config/validator/rust/tests, which passes --include-ignored"]
+#[ignore = "needs artifacts built by Bazel (protoc-compiled .binpb); run //config/manager_validator/rust/tests, which passes --include-ignored"]
 fn every_expected_violation_names_a_rule_that_exists() {
     let codes: std::collections::BTreeSet<String> =
         rules().rules.iter().filter_map(|r| r.code.clone()).collect();

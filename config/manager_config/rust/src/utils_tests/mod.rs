@@ -21,7 +21,7 @@ use serviceradar_config_schema::{
 /// It is also the right fixture on the merits. These tests are about what the manager DOES with
 /// a rule set -- delegate, and refuse to return a value when anything fires -- not about the
 /// contents of the committed one. That the committed rules accept every committed instance is
-/// asserted where it belongs, by `//config/validator/rust:file_phase_test`, against the real
+/// asserted where it belongs, by `//config/manager_validator/rust:file_phase_test`, against the real
 /// artifacts.
 pub fn rules() -> RuleSet {
     use serviceradar_config_schema::{rule::Predicate, OneOf, Phase, Required, Rule, Scope};

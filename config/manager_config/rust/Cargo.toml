@@ -11,7 +11,7 @@ path = "src/lib.rs"
 [dependencies]
 prost = { workspace = true }
 serviceradar-config-schema = { path = "../../proto_bindings/rust" }
-serviceradar-config-validator = { path = "../../validator/rust" }
+serviceradar-config-validator = { path = "../../manager_validator/rust" }
 
 [[test]]
 name = "lib_tests"

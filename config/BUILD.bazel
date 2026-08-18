@@ -16,7 +16,7 @@
 #   rules/            the rule set and the fixtures     (no language)
 #
 #   proto_bindings/{rust,go,elixir}   generated schema bindings
-#   validator/{rust,go,elixir}        the rule engine
+#   manager_validator/{rust,go,elixir} the rule engine
 #   manager_config/{rust,go,elixir}   ConfigManager
 #   manager_secret/{rust,go,elixir}   SecretManager
 #   tools/{rust}                      build tooling for this tree

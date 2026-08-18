@@ -5,7 +5,7 @@ members = [
     "config/manager_config/rust",
     "config/manager_secret/rust",
     "config/tools/rust",
-    "config/validator/rust",
+    "config/manager_validator/rust",
     "rust/integration-db",
     "elixir/serviceradar_core/native/anomaly_disposition_nif",
     "elixir/serviceradar_core/native/zen_nif",

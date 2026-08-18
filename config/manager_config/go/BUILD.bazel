@@ -18,7 +18,7 @@ go_library(
     visibility = ["//visibility:public"],
     deps = [
         "//config/proto_bindings/go:configpb",
-        "//config/validator/go:validator",
+        "//config/manager_validator/go:validator",
         "@org_golang_google_protobuf//proto",
     ],
 )
@@ -28,7 +28,7 @@ go_library(
 #
 # The rule set these tests use is built in code rather than read from //config/rules: they are
 # about what the manager DOES with a rule set, not about the committed one's contents. That the
-# committed rules accept every committed instance is asserted by //config/validator/go.
+# committed rules accept every committed instance is asserted by //config/manager_validator/go.
 go_test(
     name = "manager_test",
     srcs = [

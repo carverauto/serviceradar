@@ -15,7 +15,7 @@ elixir_library(
     visibility = ["//visibility:public"],
     deps = [
         "//config/proto:config_schema",
-        "//config/validator/elixir:validator",
+        "//config/manager_validator/elixir:validator",
         "@hexpm//:protobuf",
         "@rules_elixir//elixir",
     ],
@@ -23,7 +23,7 @@ elixir_library(
 
 # The rule set these tests use is built in code rather than read from //config/rules: they are
 # about what the manager DOES with a rule set, not about the committed one's contents. That the
-# committed rules accept every committed instance is asserted by //config/validator/elixir.
+# committed rules accept every committed instance is asserted by //config/manager_validator/elixir.
 ex_unit_tests(
     name = "unit_tests",
     srcs = glob(["test/**/*_test.exs"]),

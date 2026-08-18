@@ -1,0 +1,22 @@
+# gazelle:ignore
+
+load("@rules_elixir//:elixir_library.bzl", "elixir_library")
+load("@rules_elixir//:elixir_tests.bzl", "ex_unit_tests")
+
+# SecretManager, Elixir. Mirrors //config/manager_secret/{rust,go}: a Secret cannot be inspected,
+# and a name a component did not declare is refused before the provider is consulted.
+elixir_library(
+    name = "secret",
+    app_name = "serviceradar_secret_manager",
+    srcs = glob(["lib/**/*.ex"]),
+    visibility = ["//visibility:public"],
+    deps = ["@rules_elixir//elixir"],
+)
+
+ex_unit_tests(
+    name = "unit_tests",
+    srcs = glob(["test/**/*_test.exs"]),
+    config_loader = "//build:elixir_test_config_loader.exs",
+    test_helper = "test/test_helper.exs",
+    deps = [":secret"],
+)

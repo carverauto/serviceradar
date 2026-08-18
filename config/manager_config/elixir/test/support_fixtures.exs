@@ -4,7 +4,7 @@ defmodule ServiceradarConfig.ManagerFixtures do
 
   These tests are about what the manager DOES with a rule set -- delegate, and refuse to return a
   value when anything fires -- not about the contents of the committed one. That the committed
-  rules accept every committed instance is asserted by `//config/validator/elixir`, against the
+  rules accept every committed instance is asserted by `//config/manager_validator/elixir`, against the
   real artifacts.
   """
 

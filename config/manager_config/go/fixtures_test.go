@@ -10,7 +10,7 @@ import (
 // These tests are about what the manager DOES with a rule set -- delegate, and refuse to return
 // a value when anything fires -- not about the contents of the committed one. That the committed
 // rules accept every committed instance is asserted where it belongs, by
-// //config/validator/go:validator_test, against the real artifacts.
+// //config/manager_validator/go:validator_test, against the real artifacts.
 func fixtureRules() *configpb.RuleSet {
 	str := func(s string) *string { return &s }
 	phase := configpb.Phase_PHASE_CONFIG

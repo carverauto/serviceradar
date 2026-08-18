@@ -1,0 +1,29 @@
+# gazelle:ignore
+
+load("@io_bazel_rules_go//go:def.bzl", "go_library", "go_test")
+
+# SecretManager, Go. Mirrors //config/manager_secret/rust: a Secret cannot be printed, and a name
+# a component did not declare is refused before the provider is consulted.
+go_library(
+    name = "secret",
+    srcs = [
+        "errors.go",
+        "manager.go",
+        "manifest.go",
+        "provider.go",
+        "secret.go",
+    ],
+    importpath = "github.com/carverauto/serviceradar/config/manager_secret/go",
+    visibility = ["//visibility:public"],
+)
+
+# An external test package, so everything is exercised through the public API exactly as a
+# consumer sees it -- which is also the only way the redaction tests mean anything.
+go_test(
+    name = "secret_test",
+    srcs = [
+        "manager_test.go",
+        "secret_test.go",
+    ],
+    deps = [":secret"],
+)

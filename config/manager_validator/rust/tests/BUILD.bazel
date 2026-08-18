@@ -6,7 +6,7 @@ load("@rules_rs//rs:rust_test.bzl", "rust_test")
 #
 # `package_name` is required on every all_crate_deps(cargo_only = True) call here: it otherwise
 # resolves against the package it is called from, and there is no Cargo.toml at
-# config/validator/rust/tests.
+# config/manager_validator/rust/tests.
 #
 # --include-ignored is what makes Bazel the authoritative build. Most of these tests read
 # artifacts protoc compiles during the build -- the rule set, the fixtures, each committed
@@ -44,13 +44,13 @@ rust_test(
     ],
     edition = "2024",
     deps = all_crate_deps(
-        package_name = "config/validator/rust",
+        package_name = "config/manager_validator/rust",
         cargo_only = True,
         normal = True,
         normal_dev = True,
     ) + [
         "//config/proto_bindings/rust:config_schema",
-        "//config/validator/rust:validator",
+        "//config/manager_validator/rust:validator",
     ],
 )
 
@@ -65,12 +65,12 @@ rust_test(
     data = ["//config/environments:ci_database"],
     edition = "2024",
     deps = all_crate_deps(
-        package_name = "config/validator/rust",
+        package_name = "config/manager_validator/rust",
         cargo_only = True,
         normal = True,
         normal_dev = True,
     ) + [
         "//config/proto_bindings/rust:config_schema",
-        "//config/validator/rust:validator",
+        "//config/manager_validator/rust:validator",
     ],
 )

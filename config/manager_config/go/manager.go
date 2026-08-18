@@ -7,8 +7,8 @@ import (
 
 	"google.golang.org/protobuf/proto"
 
+	validator "github.com/carverauto/serviceradar/config/manager_validator/go"
 	configpb "github.com/carverauto/serviceradar/config/proto_bindings/go"
-	validator "github.com/carverauto/serviceradar/config/validator/go"
 )
 
 // MountedInstancePath is where a deployed environment's instance is mounted.

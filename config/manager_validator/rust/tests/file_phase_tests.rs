@@ -26,7 +26,7 @@ fn load_instance(name: &str) -> EnvironmentConfig {
 }
 
 #[test]
-#[ignore = "needs artifacts built by Bazel (protoc-compiled .binpb); run //config/validator/rust/tests, which passes --include-ignored"]
+#[ignore = "needs artifacts built by Bazel (protoc-compiled .binpb); run //config/manager_validator/rust/tests, which passes --include-ignored"]
 fn every_committed_instance_satisfies_the_file_phase_rules() {
     let rules = load_rules();
     assert!(!rules.rules.is_empty(), "rule set decoded empty");
@@ -53,7 +53,7 @@ fn every_committed_instance_satisfies_the_file_phase_rules() {
 /// The negative control. A rule set that never fires is indistinguishable from one that is
 /// never evaluated, so prove the engine rejects something before trusting that it accepts.
 #[test]
-#[ignore = "needs artifacts built by Bazel (protoc-compiled .binpb); run //config/validator/rust/tests, which passes --include-ignored"]
+#[ignore = "needs artifacts built by Bazel (protoc-compiled .binpb); run //config/manager_validator/rust/tests, which passes --include-ignored"]
 fn a_deliberately_broken_instance_is_rejected() {
     let rules = load_rules();
     let mut cfg = load_instance("saas");
@@ -85,7 +85,7 @@ fn a_deliberately_broken_instance_is_rejected() {
 /// Absence reports once, not once per predicate on the same field. database.port carries both
 /// Required and IntRange; dropping it must yield DATABASE_PORT_REQUIRED alone.
 #[test]
-#[ignore = "needs artifacts built by Bazel (protoc-compiled .binpb); run //config/validator/rust/tests, which passes --include-ignored"]
+#[ignore = "needs artifacts built by Bazel (protoc-compiled .binpb); run //config/manager_validator/rust/tests, which passes --include-ignored"]
 fn an_absent_required_field_cascades_to_one_violation() {
     let rules = load_rules();
     let mut cfg = load_instance("saas");
