@@ -15,10 +15,8 @@ oci_chart_repository="${OCI_CHART_REPOSITORY:-serviceradar/charts}"
 oci_chart_name="${OCI_CHART_NAME:-serviceradar}"
 helm_runner="${SERVICERADAR_HELM_RUNNER:-}"
 
-# run-helm.sh is designed for Forgejo jobs, where HOSTNAME names the job
-# container whose volumes must be inherited. Prefer an installed Helm binary
-# for local operator runs so release preflights do not try to mount a developer
-# workstation hostname as a Docker container.
+# Prefer an installed Helm binary. run-helm.sh now installs a native helm
+# when needed; it no longer execs a container runtime.
 if [[ -z "${helm_runner}" ]] && [[ -z "${CI:-}" ]] && command -v helm >/dev/null 2>&1; then
   helm_runner="$(command -v helm)"
 fi
