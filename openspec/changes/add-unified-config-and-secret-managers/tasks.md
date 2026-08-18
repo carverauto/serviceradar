@@ -249,45 +249,51 @@ ambient environment, a test asserting on `.bazelrc`, and a value read under a di
 
 ## 6. Managers
 
-- [~] Implement `ConfigManager` natively in **Rust** — `//config/manager_config/rust`. Go and Elixir
-      mirror this shape and are next.
-      **One built-in item is deliberately deferred:** the set of instances compiled INTO the
-      release is passed in as `BuiltIns` rather than embedded here, because embedding it is the
-      same problem as phase 4's last open item (shipping the binary inside a release artifact).
-      Solving it twice, differently, is how the two drift
-- [~] **Validate at LOAD** — done in Rust. `load()` resolves, decodes AND validates as one
-      operation; there is deliberately no entry point that returns a value without checking it.
-      An invalid instance yields `ConfigError::Invalid` carrying the origin and the full
-      violation list, and no configuration at all
-- [x] Derive the instance SOURCE from the kind rather than from a second variable — `localhost`
-      and `ci` carry theirs in the artifact (neither has a platform to mount anything: `cargo run`
-      and a Bazel test action both have a filesystem nobody provisioned); every deployed kind
-      reads a CONSTANT mount path. A settable path would be a second thing able to disagree with
-      the first
-- [x] Hard-error on unset/unrecognised `SERVICERADAR_ENV`, listing the valid set — and the
-      unset message is treated as part of the interface and ASSERTED by a test, not merely
-      written. It names the variable, says nothing can start without it, says there is no default
-      and why, lists every accepted value, and shows the exact syntax for Kubernetes, Docker,
-      Compose, CI and local dev. A docstring cannot be checked; this is the one failure a reader
-      may meet in a crash loop with no other output
+- [x] Implement `ConfigManager` natively in **Rust, Go and Elixir**, keyed by `SERVICERADAR_ENV` —
+      `//config/manager_config/{rust,go,elixir}`. All three share the shape: one variable, source
+      derived from the kind, identity cross-check, and loading that validates.
+      The set of instances compiled INTO the release is passed in as `BuiltIns` rather than
+      embedded, because embedding is the same problem as shipping the binary in a release
+      artifact; solving it twice, differently, is how the two drift
+- [x] **Validate at LOAD, in every implementation** — `load` resolves, decodes, checks identity
+      AND validates as one operation. There is deliberately no entry point that returns a value
+      having skipped any of the four
 - [x] **Reject the wrong artifact**: the loaded instance's `kind`/`instance` must match what
       `SERVICERADAR_ENV` named. Catches the saas ConfigMap mounted into demo, and one on-prem
-      customer's instance in another's deployment — silent today, and its blast radius is the
-      database a component connects to and the name it verifies TLS against. Free, because the
-      instance is self-describing and the selector is declared
-- **SUPERSEDED:** `SERVICERADAR_CONFIG_URI`. A second selector made two things able to name the
-      configuration, put a path where the design wants a kind, and forfeited the identity check
-      above. One variable plus a mount convention does the same job with less surface; the
-      enterprise case it existed for is served by mounting at the constant path
-
-- [ ] Implement `SecretManager` with providers: localhost file, CI store, Kubernetes/OpenBao
-- [ ] Implement per-component declared secret manifests; provider refuses undeclared names
-- [x] Hard-error on unset/unrecognised `SERVICERADAR_ENV`, listing the valid set — Rust. Every
-      selector error names the offending value and the accepted alternatives
-- [ ] Hard-error on unresolvable secret, naming logical key and provider
-- [ ] Implement startup resolution of everything a component declares
-- [ ] Implement DSN assembly from typed fields plus resolved secrets
+      customer's instance in another's deployment
+- [x] Implement `SecretManager` — `//config/manager_secret/rust`. Two properties are enforced by
+      TYPES rather than by discipline. A `Secret` cannot be printed: `Debug` and `Display` are
+      hand-written to redact, the value is reachable only through `expose()`, and a test proves
+      redaction survives nesting in `Option`, `Vec`, tuples and `Result` — because `{:?}` reaches
+      secrets through tracing spans, `unwrap` panics and error chains, none of which look like
+      printing a password at the call site. And empty is NOT a secret: a provider returning an
+      empty string has failed, and treating it as a value is how a component connects with a blank
+      password
+- [x] Implement per-component declared secret manifests; provider refuses undeclared names —
+      configuration gets least privilege from the build graph, but a secret cannot be a build
+      target, so the symmetric mechanism is the manifest. **Refusal precedes resolution**: an
+      undeclared name is refused identically whether or not the store holds it, because answering
+      it even to say "not found" reveals whether a secret the component may not have exists
+- [x] Hard-error on unresolvable secret, naming logical key and provider — with no default and no
+      empty fallback, and the message states the consequence ("would authenticate with a blank
+      credential") rather than only the fact
+- [x] Implement startup resolution of everything a component declares — `resolve_all`. A component
+      resolving lazily discovers a missing secret when it first needs it, under load and far from
+      the deploy that caused it
+- [x] Implement DSN assembly from typed fields plus resolved secrets — and **the DSN is itself a
+      redacting type**. The DSN is not a schema field precisely because it embeds a password; that
+      reasoning does not stop at the schema, so returning a bare `String` would undo the redaction
+      SecretManager provides. `sslmode` comes from the typed TLS mode, and userinfo is
+      percent-encoded: a password containing `@` or `:` would otherwise truncate the host or the
+      role, producing a DSN that parses into something else rather than failing
+- [ ] Implement `SecretManager` in **Go and Elixir**, mirroring the Rust shape
 - [ ] Implement the `explain` command with provenance and redaction
+
+**Empirical verification.** Every safety property in this phase is verified by MUTATION, not
+asserted. Removing the identity cross-check, skipping validation, accepting an instance on a
+single-instance kind, defaulting an unset variable, printing a `Secret` from `Debug` or `Display`,
+accepting an empty secret, removing the manifest check, printing a `Dsn`, dropping `sslmode`, and
+skipping percent-encoding each fail exactly the tests that name them, with no mutation uncaught.
 
 ## 7. Refactor every known call site onto the managers
 

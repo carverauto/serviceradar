@@ -3,6 +3,7 @@ resolver = "2"
 members = [
     "config/proto_bindings/rust",
     "config/manager_config/rust",
+    "config/manager_secret/rust",
     "config/tools/rust",
     "config/validator/rust",
     "rust/integration-db",

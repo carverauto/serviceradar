@@ -2,11 +2,11 @@
 
 use crate::errors::LoadError;
 use crate::traits::ReadSource;
-use crate::types::{Identity, Source};
+use crate::types::{Dsn, Identity, Source};
 use prost::Message;
 use serviceradar_config_schema::{
     CoreConfig, DatabaseConfig, DgraphConfig, EnvironmentConfig, EnvironmentKind, NatsConfig,
-    RuleSet,
+    RuleSet, TlsMode,
 };
 use serviceradar_config_validator::validate;
 
@@ -89,6 +89,39 @@ impl ConfigManager {
         &self.source
     }
 
+    /// Assembles the database DSN from typed fields plus the resolved password.
+    ///
+    /// The password is taken already exposed, so the call site says `secret.expose()` and the
+    /// read is visible there rather than hidden in here. `sslmode` comes from the typed TLS mode:
+    /// a DSN built by string concatenation is how `sslmode` went missing and tokio-postgres fell
+    /// back to Prefer, permitting a plaintext connection while every test still passed.
+    pub fn database_url(&self, password: &str) -> Option<Dsn> {
+        let db = self.config.database.as_ref()?;
+        let sslmode = match TlsMode::try_from(db.tls_mode?).ok()? {
+            TlsMode::Unspecified => return None,
+            TlsMode::Disable => "disable",
+            TlsMode::Require => "require",
+            TlsMode::VerifyCa => "verify-ca",
+            TlsMode::VerifyFull => "verify-full",
+        };
+
+        let mut url = format!(
+            "postgres://{}:{}@{}:{}/{}?sslmode={sslmode}",
+            encode_userinfo(db.connecting_role.as_deref()?),
+            encode_userinfo(password),
+            db.host.as_deref()?,
+            db.port?,
+            db.database.as_deref()?,
+        );
+        // Required under verify-full because the certificate may carry DNS SANs and no IP SANs,
+        // so an address-based caller must state the name verification is performed against.
+        if let Some(name) = db.tls_server_name.as_deref() {
+            url.push_str("&sslsni=1&host=");
+            url.push_str(name);
+        }
+        Some(Dsn::new(url))
+    }
+
     pub fn database(&self) -> Option<&DatabaseConfig> {
         self.config.database.as_ref()
     }
@@ -115,4 +148,21 @@ fn kind_name(kind: Option<i32>) -> String {
             .to_ascii_lowercase(),
         None => "<unset>".to_string(),
     }
+}
+
+/// Percent-encodes the characters that would otherwise terminate a DSN's userinfo field.
+///
+/// A password containing `@` or `:` would silently truncate the host or the role, producing a DSN
+/// that parses into something else entirely rather than failing.
+fn encode_userinfo(raw: &str) -> String {
+    raw.chars()
+        .map(|c| match c {
+            ':' => "%3A".to_string(),
+            '@' => "%40".to_string(),
+            '/' => "%2F".to_string(),
+            '?' => "%3F".to_string(),
+            '#' => "%23".to_string(),
+            other => other.to_string(),
+        })
+        .collect()
 }

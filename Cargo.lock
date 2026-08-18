@@ -6389,6 +6389,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "serviceradar-secret-manager"
+version = "0.1.0"
+
+[[package]]
 name = "serviceradar-trapd"
 version = "0.1.0"
 dependencies = [
