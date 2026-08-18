@@ -607,6 +607,32 @@ if 'releases?per_page=100' not in upload_release_asset:
 if '/releases/${1}' not in upload_release_asset:
     raise SystemExit("release asset upload helper does not fetch the full release before replacement")
 
+repo_root = Path(sys.argv[1]).resolve().parents[2]
+for worker_name, script_path in (
+    ("native add-on", repo_root / "build/native_addons/publish_addon.sh"),
+    ("Wasm plugin", repo_root / "build/wasm_plugins/publish_plugin.sh"),
+):
+    script = script_path.read_text()
+    for fragment in (
+        'if [[ -n "${extra_tag}" && "${tag}" == "${extra_tag}" ]]',
+        "grep -Eiq 'immutable|already exists|precondition'",
+        "already immutable; leaving the existing artifact.",
+    ):
+        if fragment not in script:
+            raise SystemExit(
+                f"{worker_name} publisher cannot recover an immutable Harbor extra tag: {fragment}"
+            )
+for worker_name, script_path in (
+    ("native add-on", repo_root / "scripts/sign-native-addon-publish.sh"),
+    ("Wasm plugin", repo_root / "scripts/sign-wasm-plugin-publish.sh"),
+    ("OCI image", repo_root / "scripts/sign-oci-publish.sh"),
+):
+    script = script_path.read_text()
+    if "legacy_signature_tag_exists" not in script:
+        raise SystemExit(
+            f"{worker_name} signer cannot skip an existing immutable cosign signature tag"
+        )
+
 ancestry_lines = [line for line in cut_release.splitlines() if "git merge-base --is-ancestor" in line]
 if len(ancestry_lines) != 1:
     raise SystemExit("cut-release must print exactly one post-merge ancestry command")
