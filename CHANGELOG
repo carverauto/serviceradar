@@ -25,6 +25,9 @@ that version.
   yanked `18.4-r0` APKs to live `18.6-r0` so `//:push` analysis can
   fetch them. Release publish now HEAD-checks every Alpine pin in
   `MODULE.bazel` before the image graph. (PR #3786)
+- CI: release retries copy `cosign_common.sh` next to the `RUNNER_TEMP`
+  verifier and pass `SERVICERADAR_REPO_ROOT` so post-push Cosign
+  verification does not die after a successful `//:push`.
 
 # ServiceRadar v1.4.34
 

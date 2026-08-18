@@ -60,6 +60,16 @@ PY
 
 diff -u "${tmp_dir}/expected-specs" "${tmp_dir}/actual-specs"
 
+verify_body="$(<"${verify_script}")"
+for fragment in \
+  'source "${SERVICERADAR_COSIGN_COMMON:-${SCRIPT_DIR}/cosign_common.sh}"' \
+  'REPO_ROOT="${SERVICERADAR_REPO_ROOT:-$(cd "${SCRIPT_DIR}/.." && pwd)}"'; do
+  if [[ "${verify_body}" != *"${fragment}"* ]]; then
+    echo "verify-oci-publish.sh is missing RUNNER_TEMP-safe contract: ${fragment}" >&2
+    exit 1
+  fi
+done
+
 spec_count="$(wc -l < "${tmp_dir}/actual-specs" | tr -d '[:space:]')"
 if [[ "${spec_count}" != "18" ]]; then
   echo "expected 18 release image specs, found ${spec_count}" >&2
@@ -406,6 +416,7 @@ for fragment in (
     'cp scripts/run-helm.sh "${RUNNER_TEMP}/run-helm.sh"',
     'cp scripts/oci_registry.sh "${RUNNER_TEMP}/oci_registry.sh"',
     'cp scripts/verify-oci-publish.sh "${RUNNER_TEMP}/verify-oci-publish.sh"',
+    'cp scripts/cosign_common.sh "${RUNNER_TEMP}/cosign_common.sh"',
 ):
     if fragment not in checkout_step:
         raise SystemExit(f"release retry does not preserve the protected signer: {fragment}")
@@ -419,9 +430,12 @@ for fragment in (
     'SERVICERADAR_REPO_ROOT="${PWD}"',
     'SERVICERADAR_SIGN_REGISTRY_TAG="${release_sha_tag}"',
     '"${sign_script}"',
+    '"${verify_script}" "${verify_tags[@]}"',
 ):
     if fragment not in publish_images_step:
         raise SystemExit(f"release retry is missing registry-digest signing contract: {fragment}")
+if publish_images_step.count('SERVICERADAR_REPO_ROOT="${PWD}"') < 2:
+    raise SystemExit("release retry must pass SERVICERADAR_REPO_ROOT to both sign and verify")
 # Config-agnostic on purpose. This used to name `--config=remote_push`, a config that has
 # since been deleted -- so the guard could never fire again and would have let a rebuild step
 # back in under any other config. Match on the rebuild's shape instead.

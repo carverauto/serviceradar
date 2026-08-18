@@ -258,6 +258,9 @@ jobs:
             cp scripts/verify-oci-publish.sh "${RUNNER_TEMP}/verify-oci-publish.sh"
             chmod +x "${RUNNER_TEMP}/verify-oci-publish.sh"
           fi
+          if [[ -f scripts/cosign_common.sh ]]; then
+            cp scripts/cosign_common.sh "${RUNNER_TEMP}/cosign_common.sh"
+          fi
 
           # Manual retries intentionally execute the current protected workflow
           # while publishing an older immutable tag. Preserve the current signer
@@ -487,7 +490,9 @@ jobs:
           if [[ -x "${RUNNER_TEMP}/verify-oci-publish.sh" ]]; then
             verify_script="${RUNNER_TEMP}/verify-oci-publish.sh"
           fi
-          "${verify_script}" "${verify_tags[@]}"
+          SERVICERADAR_COSIGN_COMMON="${PWD}/scripts/cosign_common.sh" \
+            SERVICERADAR_REPO_ROOT="${PWD}" \
+            "${verify_script}" "${verify_tags[@]}"
           unset VAULT_TOKEN VAULT_ADDR COSIGN_KEY_REF
 
       - name: Publish Helm chart to OCI registry
