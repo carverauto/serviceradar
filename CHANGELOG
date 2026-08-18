@@ -29,6 +29,8 @@ that version.
   verifier and pass `SERVICERADAR_REPO_ROOT` so post-push Cosign
   verification does not die after a successful `//:push`. `oras blob
   fetch` now writes config blobs to stdout (`--output -`) for oras 1.3.
+  Package upload no longer PATCHes `target_commitish` on an existing
+  draft (GitHub 403s that for integration tokens).
 
 # ServiceRadar v1.4.34
 
