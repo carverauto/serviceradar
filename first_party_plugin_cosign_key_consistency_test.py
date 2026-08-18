@@ -67,11 +67,22 @@ ELIXIR_SETTING = re.compile(
 # the release pipeline; this Ed25519 key proves the plugin upload inside it did. Both must be
 # present or first-party import fails closed, and they failed closed one after the other.
 UPLOAD_KEY_ID = "serviceradar-first-party-v1"
+UPLOAD_KEY_ID_V2 = "serviceradar-first-party-v2"
 ELIXIR_UPLOAD_KEYS = re.compile(
     r'"' + re.escape(UPLOAD_KEY_ID) + r'"\s*=>\s*"([^"]+)"',
 )
+ELIXIR_UPLOAD_KEYS_V2 = re.compile(
+    r'"' + re.escape(UPLOAD_KEY_ID_V2) + r'"\s*=>\s*"([^"]+)"',
+)
 CHART_UPLOAD_KEYS = re.compile(
-    r"PLUGIN_TRUSTED_UPLOAD_SIGNING_KEYS:\s*\"" + re.escape(UPLOAD_KEY_ID) + r"=([^\"]+)\"",
+    r"PLUGIN_TRUSTED_UPLOAD_SIGNING_KEYS:\s*\"[^\"]*"
+    + re.escape(UPLOAD_KEY_ID)
+    + r"=([^,\"]+)",
+)
+CHART_UPLOAD_KEYS_V2 = re.compile(
+    r"PLUGIN_TRUSTED_UPLOAD_SIGNING_KEYS:\s*\"[^\"]*"
+    + re.escape(UPLOAD_KEY_ID_V2)
+    + r"=([^,\"]+)",
 )
 
 
@@ -172,6 +183,30 @@ class FirstPartyUploadSigningKeyTest(unittest.TestCase):
             f"{demo.name} trusts a different upload signer than the compiled-in default. The "
             f"overlay wins in demo, so demo would keep importing while every other install "
             f"rejected the same release artifacts.",
+        )
+
+    def test_demo_overlay_trusts_the_transit_signer(self):
+        found_elixir = ELIXIR_UPLOAD_KEYS_V2.findall(WEB_NG_CONFIG.read_text(encoding="utf-8"))
+        self.assertEqual(
+            len(found_elixir),
+            1,
+            f"{WEB_NG_CONFIG.name}: expected exactly one {UPLOAD_KEY_ID_V2} entry, "
+            f"found {len(found_elixir)}",
+        )
+        raw = base64.b64decode(found_elixir[0], validate=True)
+        self.assertEqual(len(raw), 32, "Ed25519 public keys are 32 bytes; this is not one")
+
+        demo = ROOT / "helm/serviceradar/values-demo.yaml"
+        found = CHART_UPLOAD_KEYS_V2.findall(demo.read_text(encoding="utf-8"))
+        self.assertEqual(
+            len(found),
+            1,
+            f"{demo.name}: expected exactly one {UPLOAD_KEY_ID_V2} entry, found {len(found)}",
+        )
+        self.assertEqual(
+            found[0],
+            found_elixir[0],
+            f"{demo.name} is missing the OpenBao Transit upload signer {UPLOAD_KEY_ID_V2}",
         )
 
 
