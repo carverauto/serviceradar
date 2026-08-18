@@ -2,6 +2,9 @@
 
 load("@io_bazel_rules_go//go:def.bzl", "go_library")
 load("@io_bazel_rules_go//proto:def.bzl", "go_proto_library")
+load("@bazel_skylib//rules:diff_test.bzl", "diff_test")
+load("@rules_elixir//:elixir_library.bzl", "elixir_library")
+load("@rules_elixir//:elixir_proto_library.bzl", "elixir_proto_library")
 load("@rules_proto//proto:defs.bzl", "proto_library")
 
 # The environment configuration schema. See config.proto for the two rules that govern
@@ -59,3 +62,52 @@ go_library(
     visibility = ["//visibility:public"],
 )
 
+# Elixir bindings, generated.
+elixir_proto_library(
+    name = "config_ex",
+    deps = [
+        ":config_proto",
+        ":rules_proto",
+    ],
+)
+
+# The generated modules, compiled. srcs is the generator's output directory: its contents are
+# decided by protoc from the proto package names, so they are not knowable at analysis time.
+elixir_library(
+    name = "config_schema",
+    app_name = "serviceradar_config_schema",
+    srcs = [":config_ex"],
+    visibility = ["//visibility:public"],
+    deps = [
+        "@hexpm//:protobuf",
+        "@rules_elixir//elixir",
+    ],
+)
+
+# The checked-in bindings are kept for non-Bazel tooling (mix, IDEs), matching the convention
+# in //config/proto_bindings/go. The Bazel build never reads them -- it compiles :config_ex --
+# so these tests are what stops the two from diverging.
+[
+    genrule(
+        name = "extract_" + f,
+        srcs = [":config_ex"],
+        outs = [f + ".generated.ex"],
+        cmd = "cp $(location :config_ex)/config/proto/" + f + ".pb.ex $@",
+    )
+    for f in [
+        "config",
+        "rules",
+    ]
+]
+
+[
+    diff_test(
+        name = "binding_drift_" + f + "_test",
+        file1 = ":" + f + ".generated.ex",
+        file2 = "//config/proto_bindings/elixir/lib/serviceradar_config/proto:" + f + ".pb.ex",
+    )
+    for f in [
+        "config",
+        "rules",
+    ]
+]

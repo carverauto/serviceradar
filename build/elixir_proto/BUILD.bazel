@@ -9,6 +9,9 @@ package(default_visibility = ["//visibility:public"])
 elixir_escript(
     name = "protoc_gen_elixir",
     app = "@hexpm//:protobuf",
+    # The generator renders its output through EEx templates, and Elixir ships EEx as a
+    # separate OTP application.
+    deps = ["@rules_elixir//elixir:eex"],
     entry_module = "Protobuf.Protoc.CLI",
 )
 

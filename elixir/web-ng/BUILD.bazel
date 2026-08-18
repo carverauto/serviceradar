@@ -17,8 +17,10 @@ load(
 # :deps_cache alone was a 214s `mix deps.get + deps.compile` action -- the second-largest
 # single action in the Elixir tree.
 #
-# Restore from git history once the tree is formatted; //build:mix_deps.bzl and
-# //build:mix_precommit.bzl are untouched.
+# Restore from git history once the tree is formatted. //build:mix_deps.bzl and
+# //build:mix_precommit.bzl are deleted too -- they had no loader left, and mix_deps was
+# superseded by per-package mix_app compilation, which is lockfile-keyed and remotely
+# cacheable rather than one 214s action. Lint runs as `mix precommit` from the Makefile.
 #
 # Two CI references went with it, and both have to come back deliberately:
 #

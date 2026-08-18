@@ -102,27 +102,20 @@ archive_override(
     ],
 )
 
-# TEMPORARY -- in-flight ruleset work, see openspec/notes/rules-elixir-consolidation.md.
-# Restore the git_override pins below once the ruleset commits are pushed.
-#
-#   git_override(
-#       module_name = "rules_erlang",
-#       commit = "13977b3309fd0b0d6795f322cffd86a8c161be64",
-#       remote = "https://github.com/bazelverse/rules_erlang.git",
-#   )
-#   git_override(
-#       module_name = "rules_elixir",
-#       commit = "8e13ada66e2abcea001256346acaeb06f97f1eb5",
-#       remote = "https://github.com/bazelverse/rules_elixir.git",
-#   )
-local_path_override(
+# Pinned by commit so the pin is immutable. Not yet on the Bazel Central
+# Registry -- drop this override once it is published and the bazel_dep above resolves on its own.
+git_override(
     module_name = "rules_erlang",
-    path = "../bzlverse/rules_erlang",
+    commit = "effba3214d0e5637c66430cad67d59810ce8f1c3",
+    remote = "https://github.com/bazelverse/rules_erlang.git",
 )
 
-local_path_override(
+# Pinned by commit so the pin is immutable. Not yet on the Bazel Central
+# Registry -- drop this override once it is published and the bazel_dep above resolves on its own.
+git_override(
     module_name = "rules_elixir",
-    path = "../bzlverse/rules_elixir",
+    commit = "832a95b44eb2e4bc60f133d3bb1101b6458bfb95",
+    remote = "https://github.com/bazelverse/rules_elixir.git",
 )
 
 # --- Hex packages ------------------------------------------------------------

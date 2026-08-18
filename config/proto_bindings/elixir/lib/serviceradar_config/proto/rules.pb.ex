@@ -4,7 +4,7 @@ defmodule Serviceradar.Config.V1.Phase do
   use Protobuf,
     enum: true,
     full_name: "serviceradar.config.v1.Phase",
-    protoc_gen_elixir_version: "0.16.0",
+    protoc_gen_elixir_version: "0.16.1",
     syntax: :proto3
 
   field :PHASE_UNSPECIFIED, 0
@@ -18,7 +18,7 @@ defmodule Serviceradar.Config.V1.Scope do
 
   use Protobuf,
     full_name: "serviceradar.config.v1.Scope",
-    protoc_gen_elixir_version: "0.16.0",
+    protoc_gen_elixir_version: "0.16.1",
     syntax: :proto3
 
   field :kinds, 1, repeated: true, type: Serviceradar.Config.V1.EnvironmentKind, enum: true
@@ -35,7 +35,7 @@ defmodule Serviceradar.Config.V1.Required do
 
   use Protobuf,
     full_name: "serviceradar.config.v1.Required",
-    protoc_gen_elixir_version: "0.16.0",
+    protoc_gen_elixir_version: "0.16.1",
     syntax: :proto3
 end
 
@@ -44,7 +44,7 @@ defmodule Serviceradar.Config.V1.NonEmpty do
 
   use Protobuf,
     full_name: "serviceradar.config.v1.NonEmpty",
-    protoc_gen_elixir_version: "0.16.0",
+    protoc_gen_elixir_version: "0.16.1",
     syntax: :proto3
 end
 
@@ -53,7 +53,7 @@ defmodule Serviceradar.Config.V1.IntRange do
 
   use Protobuf,
     full_name: "serviceradar.config.v1.IntRange",
-    protoc_gen_elixir_version: "0.16.0",
+    protoc_gen_elixir_version: "0.16.1",
     syntax: :proto3
 
   field :min, 1, proto3_optional: true, type: :int64
@@ -65,7 +65,7 @@ defmodule Serviceradar.Config.V1.OneOf do
 
   use Protobuf,
     full_name: "serviceradar.config.v1.OneOf",
-    protoc_gen_elixir_version: "0.16.0",
+    protoc_gen_elixir_version: "0.16.1",
     syntax: :proto3
 
   field :enum_values, 1, repeated: true, type: :string, json_name: "enumValues"
@@ -77,7 +77,7 @@ defmodule Serviceradar.Config.V1.Matches do
 
   use Protobuf,
     full_name: "serviceradar.config.v1.Matches",
-    protoc_gen_elixir_version: "0.16.0",
+    protoc_gen_elixir_version: "0.16.1",
     syntax: :proto3
 
   field :pattern, 1, proto3_optional: true, type: :string
@@ -88,7 +88,7 @@ defmodule Serviceradar.Config.V1.RequiredIf do
 
   use Protobuf,
     full_name: "serviceradar.config.v1.RequiredIf",
-    protoc_gen_elixir_version: "0.16.0",
+    protoc_gen_elixir_version: "0.16.1",
     syntax: :proto3
 
   field :other_field_path, 1, proto3_optional: true, type: :string, json_name: "otherFieldPath"
@@ -105,7 +105,7 @@ defmodule Serviceradar.Config.V1.ForbiddenValue do
 
   use Protobuf,
     full_name: "serviceradar.config.v1.ForbiddenValue",
-    protoc_gen_elixir_version: "0.16.0",
+    protoc_gen_elixir_version: "0.16.1",
     syntax: :proto3
 
   field :enum_value, 1, proto3_optional: true, type: :string, json_name: "enumValue"
@@ -117,7 +117,7 @@ defmodule Serviceradar.Config.V1.EqualAcrossEnvs do
 
   use Protobuf,
     full_name: "serviceradar.config.v1.EqualAcrossEnvs",
-    protoc_gen_elixir_version: "0.16.0",
+    protoc_gen_elixir_version: "0.16.1",
     syntax: :proto3
 end
 
@@ -126,7 +126,7 @@ defmodule Serviceradar.Config.V1.Rule do
 
   use Protobuf,
     full_name: "serviceradar.config.v1.Rule",
-    protoc_gen_elixir_version: "0.16.0",
+    protoc_gen_elixir_version: "0.16.1",
     syntax: :proto3
 
   oneof :predicate, 0
@@ -163,7 +163,7 @@ defmodule Serviceradar.Config.V1.RuleSet do
 
   use Protobuf,
     full_name: "serviceradar.config.v1.RuleSet",
-    protoc_gen_elixir_version: "0.16.0",
+    protoc_gen_elixir_version: "0.16.1",
     syntax: :proto3
 
   field :rules, 1, repeated: true, type: Serviceradar.Config.V1.Rule
@@ -174,7 +174,7 @@ defmodule Serviceradar.Config.V1.ExpectedViolation do
 
   use Protobuf,
     full_name: "serviceradar.config.v1.ExpectedViolation",
-    protoc_gen_elixir_version: "0.16.0",
+    protoc_gen_elixir_version: "0.16.1",
     syntax: :proto3
 
   field :code, 1, proto3_optional: true, type: :string
@@ -186,7 +186,7 @@ defmodule Serviceradar.Config.V1.Fixture do
 
   use Protobuf,
     full_name: "serviceradar.config.v1.Fixture",
-    protoc_gen_elixir_version: "0.16.0",
+    protoc_gen_elixir_version: "0.16.1",
     syntax: :proto3
 
   field :name, 1, proto3_optional: true, type: :string
@@ -205,7 +205,7 @@ defmodule Serviceradar.Config.V1.FixtureSet do
 
   use Protobuf,
     full_name: "serviceradar.config.v1.FixtureSet",
-    protoc_gen_elixir_version: "0.16.0",
+    protoc_gen_elixir_version: "0.16.1",
     syntax: :proto3
 
   field :fixtures, 1, repeated: true, type: Serviceradar.Config.V1.Fixture
