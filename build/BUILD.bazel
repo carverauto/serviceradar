@@ -4,9 +4,7 @@ load("@bazel_skylib//rules:common_settings.bzl", "bool_flag")
 package(default_visibility = ["//visibility:public"])
 
 exports_files([
-    "check_undefined_cxx.py",
     "elixir_test_config_loader.exs",
-    "mix_release_patches.py",
     "repo_alias.bzl",
 ])
 
@@ -33,4 +31,32 @@ bool_flag(
 config_setting(
     name = "integration_tests_enabled",
     flag_values = {":enable_integration_tests": "True"},
+)
+
+load("@rules_elixir//:mix_payloads.bzl", "mix_payloads")
+
+# Inputs every Mix compile in this repository needs. Resolved as a toolchain (registered in
+# //MODULE.bazel), so neither the ~15 first-party call sites nor the 269 generated Hex stubs
+# repeat any of it.
+mix_payloads(
+    name = "payloads",
+    # The Hex package manager itself, as a Mix archive. Not used to fetch anything -- every
+    # dependency is already a Bazel repository and mix runs with --no-deps-check -- but Mix
+    # refuses to resolve a project without it, aborting with "Could not find an SCM for
+    # dependency" even for a dev-only dep nothing would compile.
+    archives = ["@hex//:archive"],
+    # A NIF that compiles C++ and links no C++ runtime builds clean, then fails dlopen on its
+    # first unresolved symbol.
+    cxx_static_runtime = "@llvm//runtimes/cxxstdlib:static_runtime_lib",
+    elixir_make_nifs = ["//third_party/precompiled_nifs:elixir_make_nifs"],
+    elixir_make_nifs_target = ["//third_party/precompiled_nifs:elixir_make_nifs_target"],
+    openssl_sysroot = "//third_party/openssl:sysroot_tar",
+    precompiled_nifs = ["//third_party/precompiled_nifs:precompiled_nifs"],
+    precompiled_os_deps = ["//third_party/membrane:precompiled_os_deps"],
+)
+
+toolchain(
+    name = "mix_payloads",
+    toolchain = ":payloads",
+    toolchain_type = "@rules_elixir//:mix_payloads_toolchain_type",
 )

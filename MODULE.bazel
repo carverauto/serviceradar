@@ -8,11 +8,7 @@ module(
 bazel_dep(name = "rules_go", version = "0.62.0", repo_name = "io_bazel_rules_go")
 bazel_dep(name = "gazelle", version = "0.51.3", repo_name = "bazel_gazelle")
 bazel_dep(name = "rules_rs", version = "0.0.99")
-
-# Fork carrying the vendoring work: crate annotations read from
-# [workspace.metadata.rules_rs], a distdir-matchable crate URL, and the
-# no-check-output-for-working-dir opt-out. Pinned by commit so the pin is immutable.
-# Drop this override once the branch is upstream.
+# Fork carrying the vendoring work
 git_override(
     module_name = "rules_rs",
     commit = "64dcc3fce2286b7fccbbe1703e4d1f87fbf1cbbd",
@@ -110,7 +106,7 @@ archive_override(
 # Registry -- drop this override once it is published and the bazel_dep above resolves on its own.
 git_override(
     module_name = "rules_erlang",
-    commit = "13977b3309fd0b0d6795f322cffd86a8c161be64",
+    commit = "effba3214d0e5637c66430cad67d59810ce8f1c3",
     remote = "https://github.com/bazelverse/rules_erlang.git",
 )
 
@@ -118,7 +114,7 @@ git_override(
 # Registry -- drop this override once it is published and the bazel_dep above resolves on its own.
 git_override(
     module_name = "rules_elixir",
-    commit = "8e13ada66e2abcea001256346acaeb06f97f1eb5",
+    commit = "832a95b44eb2e4bc60f133d3bb1101b6458bfb95",
     remote = "https://github.com/bazelverse/rules_elixir.git",
 )
 
@@ -198,6 +194,14 @@ use_repo(elixir_config_ext, "elixir_config")
 #
 # One Elixir toolchain serves both. Elixir is BEAM bytecode, which is why
 # prebuilt_elixir_from_hex_builds takes no arch; it runs on whichever OTP resolves.
+# The Hex archive, C++ runtime and NIF payloads every mix_app compile stages. Registered
+# rather than flagged: this is build graph, and a .bazelrc a given invocation might not read
+# would leave NIFs linking no C++ runtime -- which builds clean and fails at dlopen.
+register_toolchains("//build:mix_payloads")
+
+# protoc plus protoc-gen-elixir, built from the protobuf Hex package.
+register_toolchains("//build/elixir_proto:elixir_proto")
+
 register_toolchains(
     "@erlang_config//otp_28_1:toolchain_major",
     "@erlang_config//otp_28_1:toolchain_major_minor",

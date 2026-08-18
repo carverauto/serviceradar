@@ -1,6 +1,6 @@
 load("@aspect_bazel_lib//lib:copy_to_bin.bzl", "copy_to_bin")
-load("@serviceradar//build:elixir_tests.bzl", "ex_unit_tests")
-load("@serviceradar//build:mix_app.bzl", "mix_app")
+load("@rules_elixir//:elixir_tests.bzl", "ex_unit_tests")
+load("@rules_elixir//:mix_app.bzl", "mix_app")
 load(
     "//build:elixir_release.bzl",
     "SHIPPED_ERTS_OTP_ROOT",
@@ -17,8 +17,10 @@ load(
 # :deps_cache alone was a 214s `mix deps.get + deps.compile` action -- the second-largest
 # single action in the Elixir tree.
 #
-# Restore from git history once the tree is formatted; //build:mix_deps.bzl and
-# //build:mix_precommit.bzl are untouched.
+# Restore from git history once the tree is formatted. //build:mix_deps.bzl and
+# //build:mix_precommit.bzl are deleted too -- they had no loader left, and mix_deps was
+# superseded by per-package mix_app compilation, which is lockfile-keyed and remotely
+# cacheable rather than one 214s action. Lint runs as `mix precommit` from the Makefile.
 #
 # Two CI references went with it, and both have to come back deliberately:
 #
@@ -308,6 +310,7 @@ elixir_release(
 )
 
 ex_unit_tests(
+    config_loader = "//build:elixir_test_config_loader.exs",
     name = "unit_tests",
     srcs = glob(["test/**/*_test.exs"]),
     data = glob(

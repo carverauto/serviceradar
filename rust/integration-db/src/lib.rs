@@ -156,8 +156,46 @@ pub fn shard_database_name(shard: &str) -> Result<String> {
 pub fn database_url() -> Result<String> {
     let base = env::var("SRQL_TEST_DATABASE_URL")
         .context("SRQL_TEST_DATABASE_URL is required to derive the per-run database URL")?;
+    require_verified_tls(&base, "SRQL_TEST_DATABASE_URL")?;
     let name = database_name()?;
     repoint_database(&base, &name)
+}
+
+/// Refuse a fixture DSN that does not demand verified TLS.
+///
+/// This used to be a property of the CREDENTIAL PIPELINE rather than of the code:
+/// `buildbuddy_setup_fixture_env.sh` rewrote `sslmode=verify-full` into whatever DSN it was
+/// handed, so the guarantee held only for callers that went through the script. A DSN that
+/// arrives straight from a secret store -- which is the whole point of storing it there --
+/// bypassed it.
+///
+/// A missing `sslmode` is not a loud failure, which is what makes it worth a hard error:
+/// tokio-postgres then defaults to `Prefer`, which PERMITS A PLAINTEXT FALLBACK, and Postgrex
+/// historically used `verify_none` even with a CA present. The fixture password crosses the
+/// network in the clear and every test still passes. Fail to connect instead.
+fn require_verified_tls(url: &str, variable: &str) -> Result<()> {
+    let sslmode = url
+        .split_once('?')
+        .map(|(_, query)| query)
+        .unwrap_or_default()
+        .split('&')
+        .find_map(|parameter| {
+            let (key, value) = parameter.split_once('=')?;
+            key.eq_ignore_ascii_case("sslmode").then_some(value)
+        });
+
+    match sslmode {
+        Some(value) if value.eq_ignore_ascii_case("verify-full") => Ok(()),
+        Some(value) => bail!(
+            "{variable} sets sslmode={value}, but the srql fixture requires sslmode=verify-full. \
+             Fix the stored secret rather than weakening this check."
+        ),
+        None => bail!(
+            "{variable} carries no sslmode, but the srql fixture requires sslmode=verify-full. \
+             Without it tokio-postgres defaults to Prefer and may fall back to plaintext. \
+             Append ?sslmode=verify-full to the stored secret."
+        ),
+    }
 }
 
 /// Remove every credential-bearing URL component before writing a database endpoint to logs.
@@ -246,9 +284,12 @@ fn owner_from_url(url: &str) -> Result<String> {
 
 /// The admin URL, which must have rights to CREATE/DROP DATABASE and install extensions.
 pub fn admin_url() -> Result<String> {
-    env::var("SRQL_TEST_ADMIN_URL")
+    let url = env::var("SRQL_TEST_ADMIN_URL")
         .or_else(|_| env::var("SERVICERADAR_TEST_ADMIN_URL"))
-        .context("SRQL_TEST_ADMIN_URL (or SERVICERADAR_TEST_ADMIN_URL) is required")
+        .context("SRQL_TEST_ADMIN_URL (or SERVICERADAR_TEST_ADMIN_URL) is required")?;
+    require_verified_tls(&url, "SRQL_TEST_ADMIN_URL")?;
+
+    Ok(url)
 }
 
 /// Connect with the admin credentials, optionally overriding the database.
@@ -862,5 +903,31 @@ mod tests {
         // Silently defaulting is what produced a role name nothing had configured.
         assert!(owner_from_url("postgres://host:5432/db").is_err());
         assert!(owner_from_url("not a url").is_err());
+    }
+
+    #[test]
+    fn verified_tls_accepts_only_verify_full() {
+        for url in [
+            "postgres://u:p@host:5432/db?sslmode=verify-full",
+            "postgres://u:p@host:5432/db?application_name=x&sslmode=VERIFY-FULL",
+        ] {
+            assert!(require_verified_tls(url, "SRQL_TEST_DATABASE_URL").is_ok(), "{url}");
+        }
+    }
+
+    #[test]
+    fn verified_tls_rejects_a_dsn_that_permits_plaintext() {
+        // No sslmode at all is the dangerous case: tokio-postgres defaults to Prefer, so the
+        // connection succeeds in cleartext and nothing in the suite notices.
+        for url in [
+            "postgres://u:p@host:5432/db",
+            "postgres://u:p@host:5432/db?application_name=x",
+            "postgres://u:p@host:5432/db?sslmode=prefer",
+            "postgres://u:p@host:5432/db?sslmode=require",
+            "postgres://u:p@host:5432/db?sslmode=verify-ca",
+            "postgres://u:p@host:5432/db?sslmode=disable",
+        ] {
+            assert!(require_verified_tls(url, "SRQL_TEST_DATABASE_URL").is_err(), "{url}");
+        }
     }
 }

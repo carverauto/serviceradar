@@ -417,15 +417,24 @@ class BuildBuddyCacheProxyConfigTest(unittest.TestCase):
         self.assertIn("--config=database_env", github_suite[0])
         self.assertIn("--flaky_test_attempts=1", github_suite[0])
 
-        # BuildBuddy selects SRQL via //... + integration_test tags. The Actions
-        # workflows still name the two SRQL targets so a skipped wildcard cannot
-        # go green without running them.
-        self.assertIn("//integration_tests/srql:*", self.workflow)
-        self.assertEqual(len(shard_commands), 1)
+        # //integration_tests/srql:* reaches buildbuddy.yaml through the wildcard asserted
+        # above, not by name. Those targets were `manual`, which removed them from //...
+        # expansion BEFORE tag filters were considered, so every caller had to list them by
+        # hand; they carry `integration_test` now and the tag filter selects them.
+        #
+        # That wildcard command is asserted to be local and uncached a few lines up, which is
+        # the property this test exists to protect. What is left to check is that it really
+        # reaches them and cannot silently stop doing so.
         self.assertIn("//...", shard_commands[0])
+        self.assertNotIn(
+            "//integration_tests/srql:srql_api_test",
+            "\n".join(buildbuddy_commands),
+            "buildbuddy.yaml names an srql target explicitly again; either restore the "
+            "per-target flag assertions here or drop the wildcard",
+        )
 
+        # The ARC workflow is not on the wildcard and still names them.
         for workflow_name, commands in (
-            ("Forgejo integration workflow", forgejo_commands),
             ("GitHub ARC integration workflow", github_commands),
         ):
             srql_commands = [

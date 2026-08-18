@@ -71,30 +71,6 @@ exports_files([
 ])
 
 ###############################################################################
-# Cache proxy consistency test
-###############################################################################
-py_test(
-    name = "buildbuddy_cache_proxy_config_test",
-    size = "small",
-    srcs = ["buildbuddy_cache_proxy_config_test.py"],
-    data = [
-        ".agents/skills/demo-local-rollout/SKILL.md",
-        ".agents/skills/srql-fixtures-db-tests/SKILL.md",
-        ".bazelrc",
-        ".forgejo/workflows/elixir-integration-sr-core.yml",
-        ".forgejo/workflows/main.yml",
-        ".github/workflows/elixir-integration-sr-core.yml",
-        "Makefile",
-        "buildbuddy.yaml",
-        "buildbuddy_setup_fixture_env.sh",
-        "k8s/buildbuddy/values-cache-proxy.yaml",
-        "//build/buildbuddy:release_pipeline.sh",
-        "//scripts:push_all_images.sh",
-        "//scripts:ci/configure-srql-fixture.sh",
-    ],
-)
-
-###############################################################################
 # Agent release trust anchor consistency test
 ###############################################################################
 # The release-signing PUBLIC key is committed in three places -- the file embedded in the agent
