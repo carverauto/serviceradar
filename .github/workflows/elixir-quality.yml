@@ -13,6 +13,25 @@
 # limitations under the License.
 
 name: Elixir Quality
+
+# One job per project.
+#
+# This ran all seven projects sequentially in a single step, which was 18m35s of a 22m job.
+# Each project compiles its OWN dependency closure into its own _build -- 223 lock entries for
+# serviceradar_core_elx, 169 for web-ng, 138 for agent_gateway, 134 for core -- with heavy
+# overlap between them. Sequentially that cost is summed; as a matrix it is the slowest leg.
+#
+# The cache key is per project for the same reason. One key over `elixir/**/mix.lock` plus
+# every .credo.exs and .formatter.exs meant a formatting-config change in palisade invalidated
+# web-ng's 169 compiled dependencies, and the restore-keys fallback then handed back a tree
+# whose priv/native symlinks pointed at uncached NIFs -- which is what the force-recompile
+# repair in scripts/elixir_quality.sh exists to paper over.
+#
+# STILL DUPLICATED, and not fixed here: scripts/elixir_quality.sh runs `mix hex.audit` and
+# `mix deps.audit` per project, and elixir-dependency-audit.yml runs the same audits daily on
+# cron and on mix.lock changes. Those depend on an upstream advisory database rather than on
+# this source tree, so the per-PR copy costs time without adding signal. Removing it needs a
+# --skip-audit flag on the script, which does not have one yet.
 permissions:
   contents: read
   pull-requests: write
@@ -45,8 +64,38 @@ env:
 
 jobs:
   quality:
-    name: Elixir Quality
+    name: Elixir Quality (${{ matrix.name }})
     runs-on: arc-runner-set
+    strategy:
+      # One project's lint failure should not hide the other six.
+      fail-fast: false
+      matrix:
+        include:
+          # `rust` gates the toolchain install and the cargo cache. Only projects that build a
+          # Rustler NIF, or depend on one through serviceradar_core / serviceradar_srql, need
+          # a compiler; datasvc and palisade were paying for a rustup install they never used.
+          - name: datasvc
+            project: elixir/datasvc
+            rust: false
+          - name: palisade
+            project: elixir/palisade
+            rust: false
+          - name: serviceradar_agent_gateway
+            project: elixir/serviceradar_agent_gateway
+            rust: true
+          - name: serviceradar_core
+            project: elixir/serviceradar_core
+            rust: true
+          - name: serviceradar_core_elx
+            project: elixir/serviceradar_core_elx
+            rust: true
+          - name: serviceradar_srql
+            project: elixir/serviceradar_srql
+            rust: true
+          - name: web-ng
+            project: elixir/web-ng
+            rust: true
+            phoenix: true
     env:
       ImageOS: ubuntu24
     steps:
@@ -61,6 +110,7 @@ jobs:
           elixir-version: '1.19.4'
 
       - name: Setup Rust
+        if: ${{ matrix.rust }}
         run: |
           set -euo pipefail
 
@@ -77,64 +127,70 @@ jobs:
           rustc --version
           cargo --version
 
+      # The registry and the built crates. Neither was cached before, so every NIF rebuild --
+      # and the repair path in elixir_quality.sh forces one whenever a restored priv/native
+      # symlink dangles -- started from an empty cargo home.
+      - name: Cache Rust toolchain artifacts
+        if: ${{ matrix.rust }}
+        uses: actions/cache@668228422ae6a00e4ad889ee87cd7109ec5666a7
+        with:
+          # Every NIF crate dir, not just this project's. agent_gateway and core_elx own no
+          # native/ tree -- they build the NIFs through the serviceradar_core path dependency,
+          # so a project-scoped path would cache nothing for them.
+          path: |
+            ~/.cargo/registry/index
+            ~/.cargo/registry/cache
+            ~/.cargo/git/db
+            elixir/serviceradar_core/native/**/target
+            elixir/serviceradar_srql/native/**/target
+            elixir/web-ng/native/**/target
+          key: ${{ runner.os }}-elixir-quality-cargo-${{ matrix.name }}-${{ hashFiles('Cargo.lock', 'elixir/*/native/**/Cargo.toml') }}
+          restore-keys: |
+            ${{ runner.os }}-elixir-quality-cargo-${{ matrix.name }}-
+
       - name: Cache Elixir dependencies and build
         uses: actions/cache@668228422ae6a00e4ad889ee87cd7109ec5666a7
         with:
           path: |
             ~/.hex
             ~/.mix
-            elixir/datasvc/deps
-            elixir/datasvc/_build
-            elixir/palisade/deps
-            elixir/palisade/_build
-            elixir/serviceradar_agent_gateway/deps
-            elixir/serviceradar_agent_gateway/_build
-            elixir/serviceradar_core/deps
-            elixir/serviceradar_core/_build
-            elixir/serviceradar_core_elx/deps
-            elixir/serviceradar_core_elx/_build
-            elixir/serviceradar_srql/deps
-            elixir/serviceradar_srql/_build
-            elixir/web-ng/deps
-            elixir/web-ng/_build
-          key: ${{ runner.os }}-elixir-quality-${{ hashFiles('elixir/**/mix.exs', 'elixir/**/mix.lock', 'elixir/**/.formatter.exs', 'elixir/**/.credo.exs', 'elixir/**/.sobelow-conf', 'elixir/**/.sobelow-skips', 'elixir/**/.deps_audit_ignore', 'elixir/.credo.base.exs', 'elixir/.credo.ex_dna.exs', 'elixir/.credo.ex_slop.exs', '.tool-versions', 'scripts/elixir_quality.sh') }}
+            ${{ matrix.project }}/deps
+            ${{ matrix.project }}/_build
+          key: ${{ runner.os }}-elixir-quality-${{ matrix.name }}-${{ hashFiles(format('{0}/mix.exs', matrix.project), format('{0}/mix.lock', matrix.project), format('{0}/.formatter.exs', matrix.project), format('{0}/.credo.exs', matrix.project), format('{0}/.sobelow-conf', matrix.project), format('{0}/.sobelow-skips', matrix.project), format('{0}/.deps_audit_ignore', matrix.project), 'elixir/.credo.base.exs', 'elixir/.credo.ex_dna.exs', 'elixir/.credo.ex_slop.exs', '.tool-versions', 'scripts/elixir_quality.sh') }}
           restore-keys: |
-            ${{ runner.os }}-elixir-quality-
+            ${{ runner.os }}-elixir-quality-${{ matrix.name }}-
 
       - name: Run Elixir quality contract
         run: |
-          run_quality() {
-            local name="$1"
-            local project="$2"
-            shift 2
+          ./scripts/elixir_quality.sh \
+            --project "${{ matrix.project }}" \
+            --skip-dialyzer \
+            ${{ matrix.phoenix && '--phoenix' || '' }}
 
-            echo "::group::Elixir Quality (${name})"
-            ./scripts/elixir_quality.sh --project "${project}" --skip-dialyzer "$@"
-            echo "::endgroup::"
-          }
-
-          run_quality datasvc elixir/datasvc
-          run_quality palisade elixir/palisade
-          run_quality serviceradar_agent_gateway elixir/serviceradar_agent_gateway
-          run_quality serviceradar_core elixir/serviceradar_core
-          run_quality serviceradar_core_elx elixir/serviceradar_core_elx
-          run_quality serviceradar_srql elixir/serviceradar_srql
-          run_quality web-ng elixir/web-ng --phoenix
-
+      # web-ng only, and deliberately in this leg rather than a job of its own: it needs the
+      # app compiled, which this leg has just done.
+      #
+      # The developer portal fetches this committed artifact from the repo instead of the live
+      # demo site, so it must match the live spec served at /api/v2/open_api. Regenerate and
+      # commit with: (cd elixir/web-ng && mix serviceradar.openapi.dump)
       - name: Check committed OpenAPI spec is up to date
+        if: ${{ matrix.name == 'web-ng' }}
         working-directory: elixir/web-ng
-        run: |
-          # The developer portal fetches this committed artifact from the repo
-          # instead of the live demo site, so it must match the live spec served
-          # at /api/v2/open_api. Regenerate + commit with:
-          #   (cd elixir/web-ng && mix serviceradar.openapi.dump)
-          mix serviceradar.openapi.dump --check
+        run: mix serviceradar.openapi.dump --check
+
+  # Neither script starts a BEAM -- they read files and shell out to jq -- so this needs no
+  # toolchain and no cache, and does not belong behind a seven-way compile matrix.
+  db-checks:
+    name: Baseline metadata and migration startup safety
+    runs-on: arc-runner-set
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
 
       - name: Check baseline metadata and migration startup safety
         run: |
           scripts/db/check-baseline-metadata.sh
           scripts/db/check-migration-startup-safety.sh
 
-      # Live CNPG baseline-vs-migration replay stays on the in-cluster
-      # Forgejo/BuildBuddy fixture path. It needs SRQL_TEST_* and must not run
-      # here. See gitops github/serviceradar-ci-split.md.
+      # Live CNPG baseline-vs-migration replay stays on the in-cluster BuildBuddy fixture
+      # path. It needs SRQL_TEST_* and must not run here.
+      # See gitops github/serviceradar-ci-split.md.
