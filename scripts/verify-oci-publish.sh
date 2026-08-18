@@ -58,10 +58,12 @@ if [[ "${1:-}" == "--list-image-specs" ]]; then
   exit 0
 fi
 
-if ! command -v skopeo >/dev/null 2>&1; then
-  echo "error: skopeo is required" >&2
+if ! command -v oras >/dev/null 2>&1; then
+  echo "error: oras is required" >&2
   exit 1
 fi
+# shellcheck source=scripts/oci_registry.sh
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/oci_registry.sh"
 
 if ! command -v jq >/dev/null 2>&1; then
   echo "error: jq is required" >&2
@@ -125,7 +127,7 @@ assert_contains_env() {
 
 resolve_digest() {
   local ref="$1"
-  skopeo inspect --override-os linux --override-arch amd64 "docker://${ref}" | jq -r '.Digest'
+  oci_registry_digest "${ref}"
 }
 
 check_image_shape() {
@@ -133,7 +135,7 @@ check_image_shape() {
   local ref="$2"
   local kind="$3"
   local raw
-  raw="$(skopeo inspect --raw "docker://${ref}:${tag}")"
+  raw="$(oci_registry_manifest "${ref}:${tag}")"
   local media_type
   media_type="$(jq -r '.mediaType' <<<"$raw")"
 
@@ -153,7 +155,7 @@ check_config() {
   local tag="$1"
   local ref="$2"
   local config
-  config="$(skopeo inspect --override-os linux --override-arch amd64 --config "docker://${ref}:${tag}")"
+  config="$(oci_registry_config "${ref}:${tag}" linux amd64)"
 
   case "${ref##*/}" in
     serviceradar-web-ng)

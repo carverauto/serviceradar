@@ -404,6 +404,8 @@ for fragment in (
     'chmod +x "${RUNNER_TEMP}/sign-oci-publish.sh"',
     'cp scripts/install-download-integrity.sh "${RUNNER_TEMP}/install-download-integrity.sh"',
     'cp scripts/run-helm.sh "${RUNNER_TEMP}/run-helm.sh"',
+    'cp scripts/oci_registry.sh "${RUNNER_TEMP}/oci_registry.sh"',
+    'cp scripts/verify-oci-publish.sh "${RUNNER_TEMP}/verify-oci-publish.sh"',
 ):
     if fragment not in checkout_step:
         raise SystemExit(f"release retry does not preserve the protected signer: {fragment}")
@@ -430,8 +432,8 @@ for fragment in (
     'source "${SERVICERADAR_COSIGN_COMMON:-${SCRIPT_DIR}/cosign_common.sh}"',
     'REPO_ROOT="${SERVICERADAR_REPO_ROOT:-$(cd "${SCRIPT_DIR}/.." && pwd)}"',
     'SIGN_REGISTRY_TAG="${SERVICERADAR_SIGN_REGISTRY_TAG:-}"',
-    'skopeo inspect --format',
-    '"docker://${repository}:${SIGN_REGISTRY_TAG}"',
+    'oci_registry_digest',
+    '"${repository}:${SIGN_REGISTRY_TAG}"',
     'digest_source="published registry tag ${repository}:${SIGN_REGISTRY_TAG}"',
     'digest_file="${IMAGE_METADATA_DIR}/${digest_target}.json.sha256"',
     'digest_source="Bazel OCI digest metadata ${digest_file}"',

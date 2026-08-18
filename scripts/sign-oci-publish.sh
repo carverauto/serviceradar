@@ -36,10 +36,25 @@ if [[ -n "${SIGN_REGISTRY_TAG}" ]]; then
     echo "error: invalid registry tag for OCI signing: ${SIGN_REGISTRY_TAG}" >&2
     exit 1
   fi
-  if ! command -v skopeo >/dev/null 2>&1; then
-    echo "error: skopeo is required when signing published registry digests" >&2
+  if ! command -v oras >/dev/null 2>&1; then
+    echo "error: oras is required when signing published registry digests" >&2
     exit 1
   fi
+  oci_helper=""
+  for candidate in \
+    "${SCRIPT_DIR}/oci_registry.sh" \
+    "${GITHUB_WORKSPACE:-}/scripts/oci_registry.sh"; do
+    if [[ -f "${candidate}" ]]; then
+      oci_helper="${candidate}"
+      break
+    fi
+  done
+  if [[ -z "${oci_helper}" ]]; then
+    echo "error: oci_registry.sh not found" >&2
+    exit 1
+  fi
+  # shellcheck source=scripts/oci_registry.sh
+  source "${oci_helper}"
   IMAGE_METADATA_DIR=""
 else
   BAZEL_BIN="${BAZEL_BIN:-$(cd "${REPO_ROOT}" && bazel info bazel-bin 2>/dev/null)}"
@@ -371,14 +386,11 @@ fi
 for row in "${image_rows[@]}"; do
   IFS='|' read -r repository digest_target <<<"${row}"
   if [[ -n "${SIGN_REGISTRY_TAG}" ]]; then
-    if ! digest_output="$(
-      skopeo inspect --format '{{.Digest}}' \
-        "docker://${repository}:${SIGN_REGISTRY_TAG}" 2>&1
-    )"; then
-      echo "error: failed to resolve published OCI digest for ${repository}:${SIGN_REGISTRY_TAG}: ${digest_output}" >&2
+    if ! digest="$(oci_registry_digest "${repository}:${SIGN_REGISTRY_TAG}")"; then
+      echo "error: failed to resolve published OCI digest for ${repository}:${SIGN_REGISTRY_TAG}" >&2
       exit 1
     fi
-    digest="$(tail -n1 <<<"${digest_output}" | tr -d '[:space:]')"
+    digest="$(tr -d '[:space:]' <<<"${digest}")"
     digest_source="published registry tag ${repository}:${SIGN_REGISTRY_TAG}"
   else
     digest_file="${IMAGE_METADATA_DIR}/${digest_target}.json.sha256"
