@@ -183,7 +183,7 @@ fn evaluate(rule: &Rule, cfg: &EnvironmentConfig) -> Result<Verdict, UnknownFiel
         },
         Some(Predicate::NonEmpty(_)) => match value {
             Value::Absent => Verdict::NotApplicable,
-            Value::Str(s) if s.is_empty() => Verdict::Violated,
+            Value::Str("") => Verdict::Violated,
             _ => Verdict::Satisfied,
         },
         Some(Predicate::IntRange(r)) => match value {

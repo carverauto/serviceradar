@@ -40,10 +40,10 @@ pub fn data_path(relative: &str) -> PathBuf {
             return candidate;
         }
     }
-    if let Ok(runfiles) = Runfiles::create() {
-        if let Some(path) = from_runfiles(&runfiles, relative) {
-            return path;
-        }
+    if let Ok(runfiles) = Runfiles::create()
+        && let Some(path) = from_runfiles(&runfiles, relative)
+    {
+        return path;
     }
     PathBuf::from(relative)
 }

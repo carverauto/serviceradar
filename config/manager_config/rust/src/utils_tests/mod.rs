@@ -11,18 +11,6 @@ use serviceradar_config_schema::{
     NatsConfig, SecurityMode, TlsMode,
 };
 
-/// A rule set built here rather than read from `//config/rules:ruleset_binpb`.
-///
-/// The committed rule set is a BUILD OUTPUT -- protoc compiles it from `.textproto` -- and this
-/// repository removes Bazel's convenience symlinks (`--experimental_convenience_symlinks=clean`),
-/// so `cargo test` has no path to it. Reading it under Bazel and substituting something else
-/// under cargo would leave the two runs testing different things, which is worse than either.
-///
-/// It is also the right fixture on the merits. These tests are about what the manager DOES with
-/// a rule set -- delegate, and refuse to return a value when anything fires -- not about the
-/// contents of the committed one. That the committed rules accept every committed instance is
-/// asserted where it belongs, by `//config/manager_validator/rust:file_phase_test`, against the real
-
 pub fn encode(cfg: &EnvironmentConfig) -> Vec<u8> {
     let mut buf = Vec::new();
     cfg.encode(&mut buf).expect("encode");

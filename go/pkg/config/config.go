@@ -262,7 +262,7 @@ func (c *Config) loadAndValidateWithSource(ctx context.Context, path string, cfg
 func (c *Config) normalizeSecurityConfig(cfg interface{}) error {
 	v := reflect.ValueOf(cfg)
 
-	if v.Kind() != reflect.Ptr || v.IsNil() {
+	if v.Kind() != reflect.Pointer || v.IsNil() {
 		return errInvalidConfigPtr
 	}
 
