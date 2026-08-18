@@ -1428,7 +1428,7 @@ here.
         baseline cannot see CONDITIONAL OMISSION of zero-valued fields. Committed populated AND
         default vectors cover both; the mutation audit confirms reordering is caught only by
         them.
-        MUTATION AUDIT: THIRTY-FOUR ROWS, EXACT AND INDIVIDUALLY LISTED in design.md's 1.5-i
+        MUTATION AUDIT: THIRTY-EIGHT ROWS, EXACT AND INDIVIDUALLY LISTED in design.md's 1.5-i
         mutation record, all re-run against the landed tree in one pass. An earlier draft
         reported "41 retained" by adding the first audit's nineteen to every survivor round,
         which DOUBLE-COUNTED -- the nineteen already contained the first two rounds. The
@@ -1442,14 +1442,17 @@ here.
         whole-record ABSENT witness existed for all four carriers; and the composed capability
         transcript was unproven for every claims shape the record does not carry, so reordering
         the claims against the signature for one variant was invisible.
-        AND A SINGLE-AXIS MATRIX IS NOT COMBINATION EVIDENCE: varying ONE capability carrier at a
-        time left every mutation conditioned on a PAIR of carrier states undetectable. Two-way
-        coverage over two carriers is the FULL CROSS PRODUCT -- 105 shapes at three variants,
-        315 whole-record vectors of 361, consumed by BOTH runtimes.
+        AND NO HAND-PICKED MATRIX EVER CONVERGES: five rounds each found a reordering conditioned
+        on some state no fixture held, and the space of predicates a framer COULD branch on is
+        unbounded. A STATIC GUARD now bounds it -- the framer sources may branch ONLY on carrier
+        presence and oneof discriminants, never a payload value -- and the axes are then finite,
+        so their FULL CROSS PRODUCT is complete: 661 shapes at three variants, 1983 whole-record
+        vectors of 2029, consumed by BOTH runtimes. Separation is asked PER SHAPE, since a
+        mutation executes inside one.
         OVERLAPPING FAILURE SETS ARE RECORDED rather than engineered away: deleting a presence
         marker or a discriminant is caught ONLY by the state vectors, because absent and present
         already differ for unrelated reasons and inequality alone survives the deletion.
-        VECTOR ALIASING IS RECORDED: 361 committed keys carry fewer distinct values.
+        VECTOR ALIASING IS RECORDED: 2029 committed keys carry fewer distinct values.
         `state.<slot>.present` IS the whole-envelope digest, so `root.shape.base.v0` shares its
         value with four of them. Those are the SAME MEASUREMENT under different names, so a root
         reordering fails five keys rather than one; `root.shape.base.v*` NAMES that measurement
@@ -1458,7 +1461,7 @@ here.
         THE MANIFEST CLOSURE IS SPLIT AND THE SPLIT IS ASSERTED: Go owns the 125-key `op` set and
         the nested-leaf closure over all nine grammar roots; this runtime owns the slot and
         claims-discriminant derivations FROM ITS OWN DESCRIPTORS, the exact {key, detail, probe}
-        tuples of every other set, and frozen-vector parity over all 361 vectors -- proved by an
+        tuples of every other set, and frozen-vector parity over all 2029 vectors -- proved by an
         OBSERVED-READ guard in BOTH runtimes, not a named list.
   - [ ] 1.5-j BROKER PUBLICATION IDENTITY defined separately from the semantic envelope
   - [ ] 1.5-k PROJECTED ROW COST covering every synchronous ledger / domain / outbox / work
