@@ -5,7 +5,6 @@
 # Write build outputs in a platform-specific directory;
 # avoid outputs being wiped and rewritten when switching between platforms.
 common --experimental_platform_in_output_dir
-common --noenable_platform_specific_config
 common --noannounce_rc
 common --experimental_convenience_symlinks=clean
 common --color=yes
@@ -136,7 +135,6 @@ test --flaky_test_attempts=2
 
 # Metadata for buildbuddy
 build --workspace_status_command=$(pwd)/scripts/workspace_status.sh
-build --build_metadata=REPO_URL=https://github.com/carverauto/serviceradar.git
 
 # Cache/BES transport without execution ownership. This profile is safe to combine with a
 # host-native platform for database-facing integration tests: it deliberately selects no remote
@@ -162,7 +160,6 @@ build:remote_base --remote_executor=grpcs://carverauto.buildbuddy.io
 build:remote_base --host_platform=//build/rbe:rbe_platform
 build:remote_base --platforms=//build/rbe:rbe_platform
 build:remote_base --cpu=k8
-# DELIBERATELY NOT: --extra_toolchains=@buildbuddy_toolchain//:cc_toolchain
 # Compiler config is all done via the Hermetic LLVM toolchain in MODULE.bazel.
 # No OPENSSL_* here either;
 build:remote_base --extra_execution_platforms=//build/rbe:rbe_platform
@@ -172,21 +169,22 @@ build:remote_base --incompatible_strict_action_env
 build:remote_base --action_env=NEXT_PRIVATE_SKIP_TURBOPACK=1
 build:remote_base --action_env=TURBOPACK=
 build:remote_base --action_env=NEXT_SKIP_TURBO=1
+# THE COMPILATION MODE IS PART OF THE CACHE KEY
+build:remote_base --compilation_mode=opt
+build:remote_base --remote_timeout=15m
+build:remote_base --test_output=errors
+build:remote_base --noenable_platform_specific_config
 
 # CI profile on top of the remote config
 build:ci --config=remote_base
+build:ci --keep_going
+build:ci --build_metadata=REPO_URL=https://github.com/carverauto/serviceradar.git
 build:ci --build_metadata=ROLE=CI
 build:ci --build_metadata=VISIBILITY=PUBLIC
 build:ci --build_metadata=USER=gh
-# THE COMPILATION MODE IS PART OF THE CACHE KEY
-build:ci --compilation_mode=opt
-build:ci --remote_timeout=15m
-test:ci --test_output=errors
 
-# `--config=remote` is an ALIAS for `--config=ci`. It is not a second remote profile.
-build:remote --config=ci
-
-build --build_metadata=REPO_URL=git@github.com:carverauto/serviceradar.git
+# `--config=remote` is an ALIAS for remote_base
+build:remote --config=remote_base
 
 build:darwin_pkg --platforms=//build/platforms:darwin_exec
 build:darwin_pkg --host_platform=//build/platforms:darwin_exec
