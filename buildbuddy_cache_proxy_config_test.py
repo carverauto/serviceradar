@@ -417,8 +417,14 @@ class BuildBuddyCacheProxyConfigTest(unittest.TestCase):
         self.assertIn("--config=database_env", github_suite[0])
         self.assertIn("--flaky_test_attempts=1", github_suite[0])
 
+        # BuildBuddy selects SRQL via //... + integration_test tags. The Actions
+        # workflows still name the two SRQL targets so a skipped wildcard cannot
+        # go green without running them.
+        self.assertIn("//integration_tests/srql:*", self.workflow)
+        self.assertEqual(len(shard_commands), 1)
+        self.assertIn("//...", shard_commands[0])
+
         for workflow_name, commands in (
-            ("buildbuddy.yaml", buildbuddy_commands),
             ("Forgejo integration workflow", forgejo_commands),
             ("GitHub ARC integration workflow", github_commands),
         ):
