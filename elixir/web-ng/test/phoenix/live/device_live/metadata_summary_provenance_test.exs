@@ -133,6 +133,31 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.MetadataSummaryProvenanceTest do
     assert html =~ "reachable"
   end
 
+  test "manufacturer, model, and OS live on the Device card, not a separate Inventory card" do
+    html =
+      render_summary(%{
+        "discovery_sources" => ["armis", "sweep"],
+        "metadata" => %{
+          "device_role" => "Multifunction Printer",
+          "device_type" => "Printer",
+          "status" => "active",
+          "manufacturer" => "Hewlett Packard",
+          "model" => "LaserJet MFP",
+          "operating_system" => "FutureSmart",
+          "identity_source" => "armis",
+          "identity_state" => "confirmed"
+        }
+      })
+
+    assert html =~ "Device"
+    assert html =~ "Hewlett Packard"
+    assert html =~ "LaserJet MFP"
+    assert html =~ "FutureSmart"
+    assert html =~ "confirmed"
+    refute html =~ "Inventory"
+    refute html =~ "hero-identification"
+  end
+
   test "accepts a raw Postgres text-array literal for discovery_sources" do
     html =
       render_summary(%{

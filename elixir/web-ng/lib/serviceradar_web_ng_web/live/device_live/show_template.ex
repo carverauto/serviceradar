@@ -140,6 +140,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.ShowTemplate do
           proxmox_console_action_label={@proxmox_console_action_label}
           rdp_launch_path={@rdp_launch_path}
           rdp_enable_path={@rdp_enable_path}
+          devices_return_path={@devices_return_path}
         />
 
         <div class="grid grid-cols-1 gap-4">
@@ -152,6 +153,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.ShowTemplate do
             device_row={@device_row}
             device_deleted={@device_deleted}
             editing={@editing}
+            snmp_polling_source={@snmp_polling_source}
           />
 
           <.device_edit_section
@@ -182,7 +184,11 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.ShowTemplate do
 
           <div :if={@active_tab == "details"}>
             <div class="grid grid-cols-1 gap-4">
-              <.ocsf_info_section :if={is_map(@device_row)} device_row={@device_row} />
+              <.ocsf_info_section
+                :if={is_map(@device_row)}
+                device_row={@device_row}
+                vulnerability_matches={@endpoint_inventory_vulnerability_matches}
+              />
 
               <.discovery_sources_section
                 :if={is_map(@device_row)}
@@ -368,6 +374,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.ShowTemplate do
               northbound_actions={@northbound_interface_actions}
               northbound_actions_loading={@northbound_interface_actions_loading}
               can_launch_northbound={can_launch_northbound_actions?(@current_scope)}
+              snmp_polling_source={@snmp_polling_source}
             />
           </div>
 
@@ -466,6 +473,11 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.ShowTemplate do
         package={@endpoint_inventory_selected_package}
         matches={@endpoint_inventory_selected_package_matches}
         cpe_catalog_current={@endpoint_inventory_cpe_catalog_current}
+      />
+
+      <.endpoint_inventory_match_modal
+        show={@show_endpoint_inventory_match_modal}
+        group={@endpoint_inventory_selected_match_group}
       />
 
       <%!-- Interfaces Bulk Edit Modal --%>

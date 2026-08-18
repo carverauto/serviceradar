@@ -218,6 +218,13 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.DeviceEditComponents do
             Clear Override
           </.ui_button>
         </div>
+        <p class="mb-4 text-xs text-sr-muted">
+          A device override wins over the matching SNMP profile credential. Profile targeting,
+          poll interval, and OID templates still come from <.link
+            href="/settings/snmp"
+            class="link link-hover"
+          >SNMP profiles</.link>.
+        </p>
 
         <.form
           for={@snmp_credential_form}

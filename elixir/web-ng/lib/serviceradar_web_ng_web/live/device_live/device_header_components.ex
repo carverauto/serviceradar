@@ -23,13 +23,14 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.DeviceHeaderComponents do
   attr(:proxmox_console_action_label, :string, default: "Open console")
   attr(:rdp_launch_path, :string, default: nil)
   attr(:rdp_enable_path, :string, default: nil)
+  attr(:devices_return_path, :string, default: "/devices")
 
   def device_show_header(assigns) do
     ~H"""
     <%!-- Breadcrumb --%>
     <nav class="text-sm  mb-4">
       <ul>
-        <li><.link navigate={~p"/devices"}>Devices</.link></li>
+        <li><.link navigate={@devices_return_path}>Devices</.link></li>
         <li :if={@active_tab == "details"}>
           <span class="text-sr-muted">{@device_display_name}</span>
         </li>
@@ -177,7 +178,9 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.DeviceHeaderComponents do
         >
           <.icon name="hero-trash" class="size-4" /> Delete
         </.ui_button>
-        <.ui_button href={~p"/devices"} variant="ghost" size="sm">Back to devices</.ui_button>
+        <.ui_button navigate={@devices_return_path} variant="ghost" size="sm">
+          Back to devices
+        </.ui_button>
       </:actions>
     </.header>
     """

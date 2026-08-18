@@ -356,8 +356,40 @@ defmodule ServiceRadar.Credentials.CredentialSecretBuilderTest do
 
     test "native? distinguishes protocols from package-owned providers" do
       assert NativeDescriptors.native?("snmp")
+      assert NativeDescriptors.native?("vulncheck")
       refute NativeDescriptors.native?("proxmox")
       refute NativeDescriptors.native?(nil)
+    end
+  end
+
+  describe "native VulnCheck descriptor" do
+    alias ServiceRadar.Credentials.NativeDescriptors
+
+    test "stores the API token as a scalar payload" do
+      assert {:ok, attrs} =
+               CredentialSecretBuilder.build(
+                 NativeDescriptors.vulncheck(),
+                 "api_token",
+                 %{"api_token" => "vc-community-token"},
+                 %{name: "VulnCheck community", description: nil}
+               )
+
+      assert attrs.provider == "vulncheck"
+      assert attrs.credential_kind == :api_token
+      assert attrs.secret_payload == "vc-community-token"
+      assert attrs.metadata["plugin_id"] == "vulncheck"
+      assert attrs.metadata["plugin_version"] == "native"
+      assert attrs.metadata["auth_method"] == "api_token"
+    end
+
+    test "rejects an empty token" do
+      assert {:error, {:missing_credential_field, "api_token"}} =
+               CredentialSecretBuilder.build(
+                 NativeDescriptors.vulncheck(),
+                 "api_token",
+                 %{"api_token" => ""},
+                 %{name: "Blank", description: nil}
+               )
     end
   end
 end

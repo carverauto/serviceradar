@@ -24,7 +24,7 @@ global:
   imageTag: ""
   # The ServiceRadar RELEASE this deployment corresponds to, as a `v<semver>`
   # tag. Distinct from imageTag on purpose: web-ng resolves plugin and native
-  # add-on assets from the Forgejo release with this name, and shows it in the
+  # add-on assets from the GitHub release with this name, and shows it in the
   # product status UI. Immutable rollouts set imageTag to a `sha-<gitsha>`, and
   # no release is ever named that, so the two cannot share one value.
   # Empty means "use the chart appVersion", which is what you want unless you are
@@ -1099,7 +1099,7 @@ webNg:
     snapshotBudgetMs: 2000
     snapshotCoalesceMs: 0
   firstPartyPluginImport:
-    repoUrl: "https://code.carverauto.dev/carverauto/serviceradar"
+    repoUrl: "https://github.com/carverauto/serviceradar"
     indexAssetName: "serviceradar-wasm-plugin-index.json"
     autoSyncEnabled: false
     syncReleaseLimit: 10
@@ -1127,7 +1127,7 @@ webNg:
     registryDockerConfigJson: ""
     registryDockerConfigFile: ""
   nativeAddonImport:
-    repoUrl: "https://code.carverauto.dev/carverauto/serviceradar"
+    repoUrl: "https://github.com/carverauto/serviceradar"
     indexAssetName: "serviceradar-native-addon-index.json"
     autoSyncEnabled: false
     syncReleaseLimit: 10

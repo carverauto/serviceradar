@@ -41,7 +41,7 @@ ADMIN_PASS_ENC=$(printf '%s' "$ADMIN_PASS" | jq -sRr @uri)
 TLS_SERVER_NAME=srql-fixture-rw.srql-fixtures.svc.cluster.local
 CA_FILE="${TMPDIR:-/tmp}/srql-fixture-ca-$$.crt"
 umask 077
-kubectl get secret srql-fixture-ca -n srql-fixtures -o jsonpath='{.data.ca\.crt}' | \
+kubectl get secret srql-fixture-server-ca -n srql-fixtures -o jsonpath='{.data.ca\.crt}' | \
   base64 -d > "$CA_FILE"
 ```
 

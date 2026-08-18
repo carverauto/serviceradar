@@ -10,7 +10,8 @@
 # values have to be in the BAZEL CLIENT's environment before `bazel test` starts, because the
 # explicit `.bazelrc` `database_env` profile carries them the rest of the way:
 #
-#   K8s secret / BB secret -> env on runner -> --config=database_env -> local test action
+#   live CA (kubectl or HTTPS) + K8s/BB DSNs -> env on runner -> --config=database_env
+#   -> local test action
 #
 # WHY IT WRITES A FILE INSTEAD OF PRINTING exports
 #
@@ -27,9 +28,10 @@
 # exports four *_CA_CERT_FILE paths. The database TestRunner now executes locally by caller
 # strategy, while eligible compilation remains remote. It dies with the .forgejo tier.
 #
-# This target differs in two ways: it can SOURCE the credentials from the srql-fixtures K8s
-# secrets rather than requiring them pre-set, and it emits PEM content rather than a path, so
-# the credential contract is independent of a runner-local filesystem path.
+# This target sources DSNs from the srql-fixtures K8s secrets when RBAC exists, otherwise from
+# pre-set workflow DSN secrets. The CA is never taken from a stored CI secret: it comes from
+# the live cert-manager Secret or from SRQL_FIXTURE_CA_URL. It emits PEM content rather than a
+# path, so the credential contract is independent of a runner-local filesystem path.
 #
 # USAGE
 #
@@ -51,10 +53,13 @@ namespace="${SRQL_FIXTURE_NAMESPACE:-srql-fixtures}"
 host="${SRQL_FIXTURE_HOST:-srql-fixture-rw.srql-fixtures.svc.cluster.local}"
 port="${SRQL_FIXTURE_PORT:-5432}"
 database="${SRQL_FIXTURE_DATABASE:-srql_fixture}"
-# verify-full is safe against this hostname: the server cert (secret srql-fixture-server)
-# carries DNS SANs for srql-fixture-{r,ro,rw} at every suffix plus srql-fixture.serviceradar.cloud.
-# It has no IP SANs, so a NodePort caller must also set PGSSLSERVERNAME and
-# SRQL_TEST_DATABASE_SERVER_NAME to the certificate's DNS name.
+# verify-full is safe against this hostname: the cert-manager server cert
+# (secret srql-fixture-server-tls) carries DNS SANs for srql-fixture-{r,ro,rw} at every
+# suffix plus srql-fixture.serviceradar.cloud. It has no IP SANs, so a NodePort caller
+# must also set PGSSLSERVERNAME and SRQL_TEST_DATABASE_SERVER_NAME to the certificate's
+# DNS name.
+ca_secret="${SRQL_FIXTURE_CA_SECRET:-srql-fixture-server-ca}"
+ca_url="${SRQL_FIXTURE_CA_URL:-https://srql-fixture-ca.serviceradar.cloud/ca.crt}"
 sslmode="${SRQL_FIXTURE_SSLMODE:-verify-full}"
 if [[ "${sslmode}" != "verify-full" ]]; then
   echo "SRQL_FIXTURE_SSLMODE must be verify-full; refusing to weaken fixture TLS verification" >&2
@@ -78,6 +83,55 @@ urlencode() {
 
 secret_value() {
   kubectl get secret "$1" -n "${namespace}" -o "jsonpath={.data.$2}" 2>/dev/null | base64 -d
+}
+
+pem_looks_like_cert() {
+  [[ "$1" == *"BEGIN CERTIFICATE"* && "$1" == *"END CERTIFICATE"* ]]
+}
+
+# A stored SRQL_TEST_DATABASE_CA_CERT is not a source. Fail if openssl can see the
+# PEM and it is already expired; skip the check when openssl is missing.
+ca_is_current() {
+  local pem="$1"
+  if ! command -v openssl >/dev/null 2>&1; then
+    return 0
+  fi
+  printf '%s' "${pem}" | openssl x509 -noout -checkend 0 >/dev/null 2>&1
+}
+
+fetch_ca_url() {
+  local url="$1"
+  if [[ "${url}" == file://* ]]; then
+    cat "${url#file://}"
+    return
+  fi
+  if ! command -v curl >/dev/null 2>&1; then
+    echo "curl is required to fetch SRQL_FIXTURE_CA_URL=${url}" >&2
+    return 1
+  fi
+  curl -fsS --max-time 20 "${url}"
+}
+
+resolve_live_ca() {
+  local pem=""
+  if command -v kubectl >/dev/null 2>&1 &&
+    kubectl auth can-i get secrets -n "${namespace}" >/dev/null 2>&1; then
+    pem="$(secret_value "${ca_secret}" 'ca\.crt')"
+    if pem_looks_like_cert "${pem}" && ca_is_current "${pem}"; then
+      SRQL_TEST_DATABASE_CA_CERT="${pem}"
+      ca_source="kubernetes (${namespace}/${ca_secret})"
+      return 0
+    fi
+  fi
+
+  pem="$(fetch_ca_url "${ca_url}" 2>/dev/null || true)"
+  if pem_looks_like_cert "${pem}" && ca_is_current "${pem}"; then
+    SRQL_TEST_DATABASE_CA_CERT="${pem}"
+    ca_source="https (${ca_url})"
+    return 0
+  fi
+
+  return 1
 }
 
 with_sslmode() {
@@ -138,54 +192,67 @@ database_host() {
 }
 
 source_used=""
+ca_source=""
 
-# Path 1: read the K8s secrets directly. srql-fixtures stays the single source of truth, and
-# a CNPG CA rotation (90 days) is picked up automatically rather than needing a re-copy.
+# CA first, from a live source only. A pre-set SRQL_TEST_DATABASE_CA_CERT is the snapshot
+# this helper exists to retire; it is never a source.
+if ! resolve_live_ca; then
+  cat >&2 <<EOF_ERR
+No live SRQL fixture CA available.
+
+The CA must come from the current cert-manager Secret or the published bundle, not from a
+stored CI secret. Provide ONE of:
+
+  * Cluster access -- kubectl on PATH with \`get secrets\` in ${namespace}.
+    Reads ${ca_secret} key ca.crt.
+
+  * ${ca_url} reachable (override with SRQL_FIXTURE_CA_URL).
+    In-cluster runners use the ClusterIP HTTP bundle; workstations can
+    use kubectl or the public HTTPS URL.
+
+A pre-set SRQL_TEST_DATABASE_CA_CERT is ignored on purpose.
+EOF_ERR
+  exit 1
+fi
+
+# DSNs: kubectl when RBAC exists, otherwise pre-set workflow/developer URLs.
 if command -v kubectl >/dev/null 2>&1 &&
   kubectl auth can-i get secrets -n "${namespace}" >/dev/null 2>&1; then
   db_user="$(secret_value srql-test-db-credentials username)"
   db_pass="$(secret_value srql-test-db-credentials password)"
   admin_user="$(secret_value srql-test-admin-credentials username)"
   admin_pass="$(secret_value srql-test-admin-credentials password)"
-  ca_cert="$(secret_value srql-fixture-ca 'ca\.crt')"
 
-  if [[ -n "${db_user}" && -n "${db_pass}" && -n "${admin_user}" && -n "${admin_pass}" && -n "${ca_cert}" ]]; then
+  if [[ -n "${db_user}" && -n "${db_pass}" && -n "${admin_user}" && -n "${admin_pass}" ]]; then
     base="${host}:${port}"
     SRQL_TEST_DATABASE_URL="postgres://$(urlencode "${db_user}"):$(urlencode "${db_pass}")@${base}/${database}?sslmode=${sslmode}"
     SRQL_TEST_ADMIN_URL="postgres://$(urlencode "${admin_user}"):$(urlencode "${admin_pass}")@${base}/postgres?sslmode=${sslmode}"
-    SRQL_TEST_DATABASE_CA_CERT="${ca_cert}"
     source_used="kubernetes (${namespace})"
   fi
 fi
 
-# Path 2: fall back to whatever is already exported -- BuildBuddy workflow secrets, or a
-# developer's own shell. Deliberately NOT an error: a runner without cluster RBAC, or a
-# workstation pointed at a NodePort, is a legitimate caller.
 if [[ -z "${source_used}" ]]; then
-  if [[ -n "${SRQL_TEST_DATABASE_URL:-}" && -n "${SRQL_TEST_ADMIN_URL:-}" && -n "${SRQL_TEST_DATABASE_CA_CERT:-}" ]]; then
-    source_used="pre-set environment (BuildBuddy secrets)"
+  if [[ -n "${SRQL_TEST_DATABASE_URL:-}" && -n "${SRQL_TEST_ADMIN_URL:-}" ]]; then
+    source_used="pre-set DSNs"
   fi
 fi
 
 if [[ -z "${source_used}" ]]; then
   cat >&2 <<'EOF_ERR'
-No srql-fixtures credentials available.
+No srql-fixtures DSNs available.
 
 Provide ONE of:
 
   * Cluster access -- kubectl on PATH with `get secrets` in the srql-fixtures namespace.
-    Reads srql-test-db-credentials, srql-test-admin-credentials and srql-fixture-ca and
-    assembles the DSNs itself. Preferred: rotation is picked up automatically.
+    Reads srql-test-db-credentials and srql-test-admin-credentials and assembles the DSNs.
 
-  * These three already exported (BuildBuddy workflow secrets, same names the outgoing
-    Forgejo workflows use):
+  * These two already exported (BuildBuddy/Forgejo DSN secrets):
         SRQL_TEST_DATABASE_URL
         SRQL_TEST_ADMIN_URL
-        SRQL_TEST_DATABASE_CA_CERT
-    SRQL_TEST_DATABASE_CA_CERT must be PEM CONTENT, not a path. Bazel TestRunner sandboxes
-    must not depend on a caller-owned host path, and the fixture CA rotates independently.
 
-Overrides: SRQL_FIXTURE_{NAMESPACE,HOST,PORT,DATABASE,SSLMODE}.
+The CA is obtained separately from the live cert-manager Secret or SRQL_FIXTURE_CA_URL.
+
+Overrides: SRQL_FIXTURE_{NAMESPACE,HOST,PORT,DATABASE,SSLMODE,CA_SECRET,CA_URL}.
 On a workstation the in-cluster hostname is unreachable; use the LAN NodePort with
 SRQL_FIXTURE_SSLMODE=verify-full plus PGSSLSERVERNAME and SRQL_TEST_DATABASE_SERVER_NAME set
 to srql-fixture-rw.srql-fixtures.svc.cluster.local (the server cert has no IP SANs).
@@ -233,30 +300,11 @@ chmod 600 "${env_file}"
 # Malformed userinfo and query delimiters can make otherwise reasonable endpoint redaction
 # leak a password into build logs, so the private env file is the only DSN output.
 printf 'Fixture credentials from %s -> %s\n' "${source_used}" "${env_file}" >&2
-printf '  CA       : %s bytes of PEM\n' "${#SRQL_TEST_DATABASE_CA_CERT}" >&2
+printf '  CA       : %s bytes of PEM from %s\n' "${#SRQL_TEST_DATABASE_CA_CERT}" "${ca_source}" >&2
 
-# The fixture CA is on a 90-day rotation. Where it arrives as a stored BuildBuddy secret
-# rather than straight from srql-fixture-ca, nothing refreshes it -- so the day it lapses,
-# eight shards start failing TLS verification and it reads as a database outage rather than
-# a stale copy. Say the date out loud while there is still time to act on it.
-#
-# WARNS ONLY, never fails: an expired CA is a real failure the tests themselves will report,
-# and turning credential setup into a second place that can hard-fail on a clock is worse
-# than the confusion it prevents.
 if command -v openssl >/dev/null 2>&1; then
   not_after="$(printf '%s' "${SRQL_TEST_DATABASE_CA_CERT}" | openssl x509 -noout -enddate 2>/dev/null | cut -d= -f2 || true)"
   if [[ -n "${not_after}" ]]; then
-    if printf '%s' "${SRQL_TEST_DATABASE_CA_CERT}" | openssl x509 -noout -checkend 0 >/dev/null 2>&1; then
-      # 21 days: longer than a sprint, short enough to still be urgent.
-      if ! printf '%s' "${SRQL_TEST_DATABASE_CA_CERT}" | openssl x509 -noout -checkend 1814400 >/dev/null 2>&1; then
-        printf '  EXPIRES  : %s -- under 21 days. Refresh the SRQL_TEST_DATABASE_CA_CERT secret from\n' "${not_after}" >&2
-        printf '             kubectl get secret srql-fixture-ca -n %s -o jsonpath=%s | base64 -d\n' \
-          "${namespace}" "'{.data.ca\.crt}'" >&2
-      else
-        printf '  expires  : %s\n' "${not_after}" >&2
-      fi
-    else
-      printf '  EXPIRED  : %s -- TLS verification WILL fail. Refresh the secret before running step 3.\n' "${not_after}" >&2
-    fi
+    printf '  expires  : %s\n' "${not_after}" >&2
   fi
 fi

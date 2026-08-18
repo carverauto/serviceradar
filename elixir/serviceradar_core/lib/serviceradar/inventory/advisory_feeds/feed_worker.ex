@@ -43,10 +43,17 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.FeedWorker do
   require Ash.Query
   require Logger
 
-  @impl Oban.Worker
+  @impl true
+  # farm01 nist-nvd2 inserted ~360k advisories / 2.5M coordinates in 30 minutes
+  # and still had shards left. 60 minutes leaves headroom for a cold PVC.
+  def timeout(%Oban.Job{args: %{"feed" => "nist-nvd2"}}), do: 3_600_000
   def timeout(_job), do: 180_000
 
-  @stale_running_seconds 15 * 60
+  # Must exceed the longest worker timeout. 15 minutes was marking a live
+  # nist-nvd2 run stale because already_scheduled?/1 could not see the job
+  # (it queried "Elixir.ServiceRadar..." while Oban stores the bare module).
+  @stale_running_seconds 75 * 60
+  @worker_name inspect(__MODULE__)
 
   # NOTE: "nvd-api" is intentionally excluded — `do_run("nvd-api")` is an
   # unimplemented stub, so scheduling it only produces error+reschedule noise.
@@ -117,7 +124,7 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.FeedWorker do
 
     ServiceRadar.Repo.delete_all(
       from(j in Oban.Job,
-        where: j.worker == ^to_string(__MODULE__),
+        where: j.worker == ^@worker_name,
         where: j.state in ["available", "scheduled", "retryable"],
         where: fragment("?->>'feed' = ?", j.args, ^feed)
       ),
@@ -132,7 +139,7 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.FeedWorker do
 
     query =
       from(j in Oban.Job,
-        where: j.worker == ^to_string(__MODULE__),
+        where: j.worker == ^@worker_name,
         where: j.state in ["available", "scheduled", "executing", "retryable"],
         where: fragment("?->>'feed' = ?", j.args, ^feed),
         limit: 1
@@ -173,7 +180,12 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.FeedWorker do
   defp run_feed(feed) do
     actor = SystemActor.system(:advisory_feed_worker)
     started = DateTime.utc_now()
-    mark_status(feed, %{last_status: "running", last_attempt_at: started}, actor)
+
+    mark_status(
+      feed,
+      %{last_status: "running", last_attempt_at: started, last_error: nil, last_message: nil},
+      actor
+    )
 
     try do
       case do_run(feed) do
@@ -271,30 +283,28 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.FeedWorker do
     run_id = run_id()
     url = Config.cisa_kev_url()
 
-    with {:ok, acquired} <- Acquisition.acquire_cisa(url, run_id),
-         {:ok, result} <- parse_and_load(acquired, "cisa", "cisa-kev", &parse_kev/1) do
-      Staging.cleanup_run(acquired.run_dir)
-      {:ok, result}
+    with {:ok, acquired} <- Acquisition.acquire_cisa(url, run_id) do
+      with_run_cleanup(acquired, fn ->
+        parse_and_load(acquired, "cisa", "cisa-kev", &parse_kev/1)
+      end)
     end
   end
 
   defp do_run("vulncheck-kev") do
     with {:ok, token} <- Config.vulncheck_token(),
          {:ok, acquired} <-
-           Acquisition.acquire_vulncheck("vulncheck-kev", token, run_id()),
-         {:ok, result} <- parse_and_load(acquired, "vulncheck", "vulncheck-kev", &parse_kev/1) do
-      Staging.cleanup_run(acquired.run_dir)
-      {:ok, result}
+           Acquisition.acquire_vulncheck("vulncheck-kev", token, run_id()) do
+      with_run_cleanup(acquired, fn ->
+        parse_and_load(acquired, "vulncheck", "vulncheck-kev", &parse_kev/1)
+      end)
     end
   end
 
   defp do_run("nist-nvd2") do
     if Staging.volume_available?() do
       with {:ok, token} <- Config.vulncheck_token(),
-           {:ok, acquired} <- Acquisition.acquire_vulncheck("nist-nvd2", token, run_id()),
-           {:ok, result} <- parse_and_load_nvd(acquired) do
-        Staging.cleanup_run(acquired.run_dir)
-        {:ok, result}
+           {:ok, acquired} <- Acquisition.acquire_vulncheck("nist-nvd2", token, run_id()) do
+        with_run_cleanup(acquired, fn -> parse_and_load_nvd(acquired) end)
       end
     else
       Logger.warning(
@@ -309,6 +319,14 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.FeedWorker do
     # NVD CVE 2.0 REST fallback is intentionally a stub in this slice (paginated,
     # rate-limited). VulnCheck nist-nvd2 is the primary CPE source.
     {:error, :nvd_api_not_implemented}
+  end
+
+  # Failed nist-nvd2 runs used to keep the 900 MB extract. On demo that piled
+  # up to 255 GiB and evicted the node. Always drop the run dir.
+  defp with_run_cleanup(acquired, fun) do
+    fun.()
+  after
+    Staging.cleanup_run(acquired.run_dir)
   end
 
   defp parse_and_load(acquired, provider, feed_key, parse_fun) do

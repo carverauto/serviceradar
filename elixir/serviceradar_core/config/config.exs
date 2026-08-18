@@ -99,6 +99,11 @@ config :serviceradar_core, ServiceRadar.Inventory.DeviceIdentifierGcWorker,
   max_batches: 200,
   reschedule_seconds: 86_400
 
+# Device risk assessment (periodic; see DeviceRiskAssessmentWorker). Matching
+# is hourly; this pass re-scores KEV/CVSS/CWE without waiting for a rematch.
+config :serviceradar_core, ServiceRadar.Inventory.DeviceRiskAssessmentWorker,
+  reschedule_seconds: 900
+
 # ng_job_schedules staleness alerting (see ScheduleHealthWorker)
 config :serviceradar_core, ServiceRadar.Jobs.ScheduleHealthWorker, reschedule_seconds: 900
 

@@ -1,4 +1,7 @@
-import wasmUrl from "./god_view_exec.wasm"
+// Vite/Vitest reject `import x from "./file.wasm"` (ESM Wasm proposal).
+// `new URL(..., import.meta.url)` is a file URL in tests and an emitted
+// asset URL under esbuild `--loader:.wasm=file`.
+const wasmUrl = new URL("./god_view_exec.wasm", import.meta.url).href
 
 export class GodViewWasmEngine {
   constructor(instance) {

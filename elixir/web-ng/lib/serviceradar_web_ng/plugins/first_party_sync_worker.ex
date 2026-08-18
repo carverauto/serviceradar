@@ -1,6 +1,6 @@
 defmodule ServiceRadarWebNG.Plugins.FirstPartySyncWorker do
   @moduledoc """
-  Periodically imports verified first-party Wasm plugin packages from Forgejo releases.
+  Periodically imports verified first-party Wasm plugin packages from GitHub Releases.
   """
 
   use Oban.Worker,

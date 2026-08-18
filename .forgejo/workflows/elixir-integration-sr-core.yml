@@ -146,7 +146,6 @@ jobs:
       # non-uploaded database TestRunner actions. Generic remote test sweeps never load them.
       SRQL_TEST_DATABASE_URL: ${{ secrets.SRQL_TEST_DATABASE_URL }}
       SRQL_TEST_ADMIN_URL: ${{ secrets.SRQL_TEST_ADMIN_URL }}
-      SRQL_TEST_DATABASE_CA_CERT: ${{ secrets.SRQL_TEST_DATABASE_CA_CERT }}
       SRQL_TEST_DATABASE_CERT: ${{ secrets.SRQL_TEST_DATABASE_CERT }}
       SRQL_TEST_DATABASE_KEY: ${{ secrets.SRQL_TEST_DATABASE_KEY }}
       SRQL_TEST_DATABASE_SERVER_NAME: srql-fixture-rw.srql-fixtures.svc.cluster.local
@@ -190,8 +189,7 @@ jobs:
           missing=0
           for name in \
             SRQL_TEST_DATABASE_URL \
-            SRQL_TEST_ADMIN_URL \
-            SRQL_TEST_DATABASE_CA_CERT; do
+            SRQL_TEST_ADMIN_URL; do
             if [ -z "${!name:-}" ]; then
               echo "${name} is unavailable; database integration cannot run safely." >&2
               missing=1

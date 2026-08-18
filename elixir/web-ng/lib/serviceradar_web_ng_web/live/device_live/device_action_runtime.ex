@@ -323,6 +323,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.DeviceActionRuntime do
       %{}
       |> maybe_put_param("q", Map.get(socket.assigns.srql || %{}, :query))
       |> maybe_put_param("tab", tab)
+      |> maybe_put_param("return_to", Map.get(socket.assigns, :devices_return_path))
 
     ~p"/devices/#{device_uid}?#{params}"
   end

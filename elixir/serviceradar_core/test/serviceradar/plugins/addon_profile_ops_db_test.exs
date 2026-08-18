@@ -12,15 +12,15 @@ defmodule ServiceRadar.Plugins.AddonProfileOpsDbTest do
   defmodule Resolver do
     @moduledoc false
 
-    def resolve([%{entity: "devices"}], opts) do
+    def resolve([%{entity: entity}], opts) when entity in ["devices", "agents"] do
       agent_uid = Keyword.fetch!(opts, :test_agent_uid)
 
       {:ok,
        [
          %{
            name: "targets",
-           entity: "devices",
-           query: "in:devices",
+           entity: entity,
+           query: "in:#{entity}",
            rows: [
              %{
                "uid" => "device-without-netprobe-capability",
@@ -118,7 +118,7 @@ defmodule ServiceRadar.Plugins.AddonProfileOpsDbTest do
         %{
           name: "Netprobe eligibility test #{unique}",
           addon_package_id: package.id,
-          target_query: "in:devices",
+          target_query: "in:agents",
           enabled: true
         },
         actor: actor

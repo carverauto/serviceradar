@@ -12,6 +12,7 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.Parsers.Nvd do
   """
 
   alias ServiceRadar.Inventory.AdvisoryFeeds.Cpe
+  alias ServiceRadar.Inventory.AdvisoryFeeds.Cwes
   alias ServiceRadar.Inventory.AdvisoryFeeds.VersionRange
 
   @provider "nvd"
@@ -46,6 +47,7 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.Parsers.Nvd do
           kev: false,
           exploit_available: false,
           references: references(cve),
+          metadata: %{"cwes" => Cwes.from_nvd_cve(cve)},
           raw: record
         }
 
@@ -68,7 +70,10 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.Parsers.Nvd do
       |> List.wrap()
       |> Enum.flat_map(&node_coordinates/1)
     end)
-    |> Enum.uniq()
+    # Identity is CPE + version window. matchCriteriaId and inclusivity flags
+    # can differ on otherwise identical NVD cpeMatch rows; those extras must
+    # not survive or the coordinate upsert collides.
+    |> Enum.uniq_by(&{&1.value, &1.version_start, &1.version_end})
   end
 
   defp node_coordinates(node) when is_map(node) do

@@ -18,6 +18,7 @@ defmodule ServiceRadarWebNGWeb.Admin.CollectorLive.Index do
   alias ServiceRadarWebNG.Capabilities
   alias ServiceRadarWebNG.Collectors.PubSub, as: CollectorPubSub
   alias ServiceRadarWebNG.Edge.CollectorBundleGenerator
+  alias ServiceRadarWebNG.Edge.NatsDeploymentStatus
   alias ServiceRadarWebNG.RBAC
   alias ServiceRadarWebNGWeb.Settings.Shell
 
@@ -288,6 +289,7 @@ defmodule ServiceRadarWebNGWeb.Admin.CollectorLive.Index do
 
         <.account_status_card
           account_status={@account_status}
+          nats_url={@nats_url}
           account_public_key={@account_public_key}
         />
 
@@ -331,10 +333,10 @@ defmodule ServiceRadarWebNGWeb.Admin.CollectorLive.Index do
               <div class="rounded-xl border border-dashed border-sr-line bg-sr-surface p-8 text-center">
                 <div class="text-sm font-semibold text-sr-ink">No collectors found</div>
                 <p class="mt-1 text-xs text-sr-muted">
-                  <%= if @account_status != :ready do %>
-                    Your NATS account is being provisioned. Please wait...
-                  <% else %>
+                  <%= if @account_status == :ready do %>
                     Create a new collector package to start sending data.
+                  <% else %>
+                    NATS is not configured for this deployment, so collector packages cannot be created yet.
                   <% end %>
                 </p>
               </div>
@@ -474,40 +476,44 @@ defmodule ServiceRadarWebNGWeb.Admin.CollectorLive.Index do
   end
 
   defp account_status_card(assigns) do
+    variant =
+      case assigns.account_status do
+        :ready -> "success"
+        :error -> "error"
+        _ -> "warning"
+      end
+
+    assigns = assign(assigns, :variant, variant)
+
     ~H"""
-    <div class={ui_alert_class("info")}>
+    <div class={ui_alert_class(@variant)}>
       <div class="flex items-center gap-3">
         <%= case @account_status do %>
           <% :ready -> %>
             <.icon name="hero-check-circle" class="size-6 text-success" />
             <div>
-              <div class="font-semibold">NATS Account Ready</div>
+              <div class="font-semibold">NATS Ready</div>
               <div class="text-xs text-sr-muted font-mono">
-                {String.slice(@account_public_key || "", 0, 20)}...
+                {@nats_url || "Cluster NATS is available for collector enrollment."}
               </div>
-            </div>
-          <% :pending -> %>
-            <.ui_spinner size="sm" />
-            <div>
-              <div class="font-semibold">Provisioning NATS Account</div>
-              <div class="text-xs text-sr-muted">
-                Please wait while your account is being set up...
+              <div :if={@account_public_key} class="text-xs text-sr-muted font-mono">
+                {@account_public_key}
               </div>
             </div>
           <% :error -> %>
             <.icon name="hero-exclamation-triangle" class="size-6 text-error" />
             <div>
-              <div class="font-semibold">NATS Account Error</div>
+              <div class="font-semibold">NATS Error</div>
               <div class="text-xs text-sr-muted">
-                There was an issue provisioning your account. Please contact support.
+                Collector enrollment cannot reach NATS. Check this deployment's NATS_URL.
               </div>
             </div>
           <% _ -> %>
-            <.icon name="hero-clock" class="size-6 text-warning" />
+            <.icon name="hero-exclamation-triangle" class="size-6 text-warning" />
             <div>
-              <div class="font-semibold">NATS Account Not Configured</div>
+              <div class="font-semibold">NATS Not Configured</div>
               <div class="text-xs text-sr-muted">
-                Your account is being set up.
+                This deployment has no NATS URL, so collectors cannot be enrolled.
               </div>
             </div>
         <% end %>
@@ -807,14 +813,12 @@ defmodule ServiceRadarWebNGWeb.Admin.CollectorLive.Index do
   # Data loading
 
   defp load_account_status(socket, _actor) do
-    # In single-deployment mode, NATS account is provisioned by the control plane.
-    # The account is configured via environment variables and is always ready when the
-    # instance is deployed.
-    nats_configured? = Application.get_env(:serviceradar, :nats_url) != nil
+    status = NatsDeploymentStatus.current()
 
     socket
-    |> assign(:account_status, if(nats_configured?, do: :ready, else: :pending))
-    |> assign(:account_public_key, Application.get_env(:serviceradar, :nats_account_public_key))
+    |> assign(:account_status, status.status)
+    |> assign(:nats_url, status.nats_url)
+    |> assign(:account_public_key, status.account_public_key)
   end
 
   defp load_packages(socket, actor) do

@@ -9,6 +9,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexView.Table do
   import ServiceRadarWebNGWeb.DeviceLive.IndexView.Stats, only: [format_stat_number: 1]
   import ServiceRadarWebNGWeb.UIComponents
 
+  alias ServiceRadarWebNGWeb.DeviceLive.IndexPath
+
   def render(assigns) do
     ~H"""
     <.ui_panel
@@ -99,7 +101,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexView.Table do
                     <div class="flex items-center gap-2 min-w-0">
                       <.link
                         :if={is_binary(device_uid)}
-                        navigate={~p"/devices/#{device_uid}"}
+                        navigate={IndexPath.show_path(device_uid, return_to: @devices_return_path)}
                         class="text-sr-brand hover:underline truncate text-sm"
                         title={"UID: #{device_uid}"}
                       >
@@ -161,6 +163,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexView.Table do
                       device_uid={device_uid}
                       has_snmp={has_snmp}
                       has_sysmon={has_sysmon}
+                      return_to={@devices_return_path}
                     />
                     <.sysmon_profile_badge
                       :if={has_sysmon and is_map(Map.get(@sysmon_profiles_by_device, device_uid))}

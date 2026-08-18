@@ -53,31 +53,47 @@ jobs:
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
 
+      # ARC runners have no docker.sock. run-helm.sh is the Forgejo wrapper
+      # that execs alpine/helm via --volumes-from $HOSTNAME. Install the
+      # binary here instead.
+      - name: Install Helm
+        run: |
+          set -euo pipefail
+          version="v${HELM_VERSION}"
+          archive="helm-${version}-linux-amd64.tar.gz"
+          curl -fsSL "https://get.helm.sh/${archive}" -o "${RUNNER_TEMP}/${archive}"
+          echo "a5844ef2c38ef6ddf3b5a8f7d91e7e0e8ebc39a38bb3fc8013d629c1ef29c259  ${RUNNER_TEMP}/${archive}" | sha256sum -c -
+          mkdir -p "${HOME}/.local/bin"
+          tar -xzf "${RUNNER_TEMP}/${archive}" -C "${RUNNER_TEMP}" linux-amd64/helm
+          install -m 0755 "${RUNNER_TEMP}/linux-amd64/helm" "${HOME}/.local/bin/helm"
+          echo "${HOME}/.local/bin" >> "${GITHUB_PATH}"
+          "${HOME}/.local/bin/helm" version --short
+
       - name: Run helm lint
-        run: ./scripts/run-helm.sh lint helm/serviceradar
+        run: helm lint helm/serviceradar
 
       - name: Run helm template (validate rendering)
         run: |
-          ./scripts/run-helm.sh template serviceradar helm/serviceradar \
+          helm template serviceradar helm/serviceradar \
             --set global.imageTag="v1.0.0" \
             --debug > /dev/null
-          ./scripts/run-helm.sh template serviceradar helm/serviceradar \
+          helm template serviceradar helm/serviceradar \
             --set global.imageTag="v1.0.0" \
             --set flowCollector.enabled=true \
             --show-only templates/flow-collector-strategy-migration-job.yaml \
             --debug > /dev/null
 
       - name: Verify web-ng secret-backed environment values
-        run: HELM_BIN=./scripts/run-helm.sh ./scripts/check-web-ng-extra-env-value-from.sh
+        run: ./scripts/check-web-ng-extra-env-value-from.sh
 
       - name: Verify core analytics defaults
-        run: HELM_BIN=./scripts/run-helm.sh ./scripts/check-core-analytics-helm-defaults.sh
+        run: ./scripts/check-core-analytics-helm-defaults.sh
 
       - name: Verify CNPG WAL cap defaults
-        run: HELM_BIN=./scripts/run-helm.sh ./scripts/check-cnpg-wal-cap-helm-defaults.sh
+        run: ./scripts/check-cnpg-wal-cap-helm-defaults.sh
 
       - name: Verify tenant bootstrap hook order
-        run: HELM_BIN=./scripts/run-helm.sh ./scripts/check-tenant-chart-hook-order.sh
+        run: ./scripts/check-tenant-chart-hook-order.sh
 
       - name: Verify hosted runtime certificate boundary
-        run: HELM_BIN=./scripts/run-helm.sh ./scripts/check-hosted-runtime-cert-boundary.sh
+        run: ./scripts/check-hosted-runtime-cert-boundary.sh

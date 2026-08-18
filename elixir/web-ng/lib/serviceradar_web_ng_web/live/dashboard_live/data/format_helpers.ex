@@ -124,6 +124,14 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Data.FormatHelpers do
 
       defp format_alert_time(_), do: ""
 
+      # Feed sync stamps need a calendar date. Alert-row times stay HH:MM because
+      # they already sit next to a 24h feed.
+      defp format_sync_time(%DateTime{} = value), do: Calendar.strftime(value, "%d %b %Y %H:%M")
+
+      defp format_sync_time(%NaiveDateTime{} = value), do: value |> DateTime.from_naive!("Etc/UTC") |> format_sync_time()
+
+      defp format_sync_time(_), do: ""
+
       defp bucket_label(%DateTime{} = bucket), do: DateTime.to_iso8601(bucket)
       defp bucket_label(%NaiveDateTime{} = bucket), do: bucket |> DateTime.from_naive!("Etc/UTC") |> DateTime.to_iso8601()
       defp bucket_label(bucket), do: to_string(bucket)

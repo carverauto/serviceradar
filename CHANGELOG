@@ -1,3 +1,50 @@
+# ServiceRadar v1.4.33
+
+Device risk scoring from NVD + KEV + CWE, Findings UI with KEV floor, and
+an EventWriter pull-inflight fix so traces and OTLP metrics stop going
+silent after a long-lived core. Also ships multi-arch web-ng/core-elx,
+moves lint/check CI onto GitHub ARC, and points Settings first-party
+plugin/add-on and agent-release import at GitHub Releases instead of
+Forgejo.
+
+## Whats New
+
+**1.4.33**
+- Inventory risk: compose NVD and CISA/VulnCheck KEV into one CVE finding
+  with CWE context, a KEV floor of 90 on the Findings overlay, and a
+  periodic DeviceRiskAssessmentWorker that writes `ocsf_devices.risk_score`
+  through DeviceRiskReducer only. Endpoint inventory scores KEV at 90 per
+  payload; device-level Score.compute floors KEV at 70 and folds CWE.
+  IOC exposure is listed on the device. (PRs #5008, #3591)
+- EventWriter: expire stale JetStream pull inflight so a hung fetch no
+  longer parks the otel-traces / otel-metrics / logs durables (last
+  delivery ages out, unprocessed piles up, Observability goes empty while
+  the log-collector is still receiving OTLP). (PR #3764)
+- Egress: Finch HTTP (Bumblebee, advisory feeds, and other Req clients)
+  goes through SERVICERADAR_EGRESS_PROXY. The default Finch connect
+  options no longer crash the Bumblebee s7 integration shard. (PRs
+  #5003, #5007)
+- Images: web-ng and core-elx now publish multi-arch OCI indexes. (PR
+  #5001)
+- Build: Rust crates vendor as .crate archives; OpenSSL is built
+  hermetically in Bazel. The native add-on version gate no longer
+  requires a MODULE.bazel.lock hash that rules_rs cannot satisfy. (PR
+  #5002)
+- CI: lint and check workflows run on GitHub ARC. SRQL fixture TLS is
+  issued with cert-manager and a live CA. Bootstrap scratch DROP
+  cancellation no longer fails core s7. The cache-proxy config test now
+  ships the GitHub integration workflow in its runfiles. (PRs #5010,
+  #3768, #5005)
+- Plugins: Settings first-party Wasm plugin and native add-on import
+  now reads GitHub Releases (`github.com/carverauto/serviceradar`) plus
+  Harbor OCI, not Forgejo. `ForgejoOciClient` is gone; the shared
+  transport is `FirstPartyReleaseClient`. `GitHubImporter` is unchanged
+  and still fetches source-tree `plugin.yaml`/`plugin.wasm`. Agent
+  release import (`ReleaseSourceImporter` and Settings → Agents) now
+  uses the same GitHub Releases API; Forgejo URLs are rejected.
+- Web UI: boolean device-fact keys in composite checks are a combobox,
+  not free text. (PR #4997)
+
 # ServiceRadar v1.4.32
 
 Stops core from OOM-reloading leftover provider CIDR snapshots (the demo

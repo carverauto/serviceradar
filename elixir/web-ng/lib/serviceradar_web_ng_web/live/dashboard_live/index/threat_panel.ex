@@ -5,26 +5,29 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Index.ThreatPanel do
   import ServiceRadarWebNGWeb.DashboardLive.Index.Common
 
   alias ServiceRadarWebNGWeb.DashboardLive.Index.Common
+  alias ServiceRadarWebNGWeb.Observability.ThreatIntelLinks
 
   attr(:dashboard, :map, required: true)
 
   def render(%{dashboard: dashboard} = assigns) do
-    assigns = Map.merge(assigns, dashboard)
+    assigns =
+      assigns
+      |> Map.merge(dashboard)
+      |> Map.put(:recent_matches, recent_matches(dashboard[:threat_intel_summary] || dashboard["threat_intel_summary"]))
 
     ~H"""
     <Common.panel title="Threat Intel" class="lg:col-span-4">
       <:actions>
-        <.link href={~p"/settings/networks/threat-intel"} class="sr-ops-button">
+        <.link href={ThreatIntelLinks.settings_path()} class="sr-ops-button">
           Manage
         </.link>
       </:actions>
-      <.link
-        href={~p"/settings/networks/threat-intel"}
-        class="sr-ops-threat-intel sr-ops-threat-intel-link"
-        data-testid="threat-intel-summary"
-        aria-label="Open Threat Intel settings and match details"
-      >
-        <div class="sr-ops-threat-sync">
+      <div class="sr-ops-threat-intel" data-testid="threat-intel-summary">
+        <.link
+          href={ThreatIntelLinks.settings_path()}
+          class="sr-ops-threat-sync sr-ops-threat-sync-link"
+          aria-label="Open Threat Intel feed settings"
+        >
           <span class={[
             "sr-ops-threat-status",
             threat_status_class(@threat_intel_summary.latest_status)
@@ -33,9 +36,11 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Index.ThreatPanel do
           </span>
           <div>
             <strong>{threat_source_label(@threat_intel_summary)}</strong>
-            <small>{threat_sync_label(@threat_intel_summary)}</small>
+            <small title={sync_timestamp_title(@threat_intel_summary)}>
+              {threat_sync_label(@threat_intel_summary)}
+            </small>
           </div>
-        </div>
+        </.link>
 
         <div class="sr-ops-threat-stat-grid">
           <Common.small_stat
@@ -56,6 +61,40 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Index.ThreatPanel do
           />
         </div>
 
+        <div
+          id="threat-intel-matches"
+          class="sr-ops-threat-matches"
+          data-testid="threat-intel-matches"
+        >
+          <div :if={@recent_matches == []} class="sr-ops-threat-matches-empty">
+            No current NetFlow IOC matches.
+          </div>
+          <div :for={match <- @recent_matches} class="sr-ops-threat-match">
+            <div class="min-w-0">
+              <span class="sr-ops-threat-match-ip">{match.ip}</span>
+              <span class="sr-ops-threat-match-meta">
+                {match_meta_label(match)}
+              </span>
+            </div>
+            <div class="sr-ops-threat-match-links">
+              <.link
+                href={ThreatIntelLinks.device_path(match.ip, match.device_uid)}
+                class="link link-hover"
+                aria-label={"Open inventory for #{match.ip}"}
+              >
+                {if match.device_uid, do: "Device", else: "Inventory"}
+              </.link>
+              <.link
+                href={ThreatIntelLinks.netflow_path(match.ip)}
+                class="link link-hover"
+                aria-label={"Open NetFlow for #{match.ip}"}
+              >
+                Flows
+              </.link>
+            </div>
+          </div>
+        </div>
+
         <div class="sr-ops-threat-detail">
           <span>Max severity</span>
           <strong>{@threat_intel_summary.max_severity}</strong>
@@ -63,7 +102,7 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Index.ThreatPanel do
         <div class="sr-ops-threat-message">
           {threat_message(@threat_intel_summary)}
         </div>
-      </.link>
+      </div>
     </Common.panel>
     """
   end
@@ -108,4 +147,32 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Index.ThreatPanel do
 
   defp present_text?(value) when is_binary(value), do: String.trim(value) != ""
   defp present_text?(_), do: false
+
+  defp recent_matches(%{recent_matches: matches}) when is_list(matches), do: matches
+  defp recent_matches(_summary), do: []
+
+  defp match_meta_label(match) when is_map(match) do
+    [
+      match_host_label(match),
+      match_hits_label(match),
+      match_seen_label(match)
+    ]
+    |> Enum.reject(&(&1 == ""))
+    |> Enum.join(" · ")
+  end
+
+  defp match_meta_label(_match), do: ""
+
+  defp match_host_label(%{hostname: hostname}) when is_binary(hostname) and hostname != "", do: hostname
+  defp match_host_label(_match), do: ""
+
+  defp match_hits_label(%{match_count: count}) when is_integer(count) and count > 0, do: "#{count} hits"
+  defp match_hits_label(_match), do: ""
+
+  defp match_seen_label(%{looked_up_label: label}) when is_binary(label) and label != "", do: label
+  defp match_seen_label(_match), do: ""
+
+  defp sync_timestamp_title(%{latest_success_at: %DateTime{} = value}), do: DateTime.to_iso8601(value)
+  defp sync_timestamp_title(%{latest_attempt_at: %DateTime{} = value}), do: DateTime.to_iso8601(value)
+  defp sync_timestamp_title(_summary), do: nil
 end

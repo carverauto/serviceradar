@@ -59,6 +59,18 @@ defmodule ServiceRadar.Plugins.IntegrationCatalogTest do
              Enum.map(catalog.credential_profiles, &Map.take(&1, ["provider"]))
   end
 
+  test "package catalogs do not include native core descriptors" do
+    assert {:ok, catalog} =
+             IntegrationCatalog.from_packages([
+               package("example-plugin", "1.0.0", "example-inventory", "example-source")
+             ])
+
+    providers = Enum.map(catalog.credential_profiles, & &1["provider"])
+    assert "example-inventory" in providers
+    refute "vulncheck" in providers
+    refute "snmp" in providers
+  end
+
   defp package(plugin_id, version, provider, source) do
     schedule_id = "#{provider}.refresh"
 

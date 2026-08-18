@@ -12,6 +12,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexView do
   import ServiceRadarWebNGWeb.DeviceLive.IndexView.Stats, only: [device_stats_cards: 1]
   import ServiceRadarWebNGWeb.NorthboundActionComponents, only: [northbound_action_modal: 1]
 
+  alias ServiceRadarWebNGWeb.DeviceLive.IndexPath
   alias ServiceRadarWebNGWeb.DeviceLive.IndexView.BulkActions
   alias ServiceRadarWebNGWeb.DeviceLive.IndexView.Filters
   alias ServiceRadarWebNGWeb.DeviceLive.IndexView.Header
@@ -62,6 +63,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexView do
     assigns =
       assigns
       |> assign(:pagination, pagination)
+      |> assign(:devices_return_path, IndexPath.list_path_from_assigns(assigns))
       |> assign(:selected_count, selected_count)
       |> assign(:effective_count, effective_count)
       |> assign(:all_selected, all_selected)

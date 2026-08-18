@@ -546,6 +546,51 @@ defmodule ServiceRadar.Plugins.NativeAddonImporterDBTest do
     assert persisted.source_oci_digest == original_entry["oci_digest"]
   end
 
+  test "replace_existing restages a first-party version onto a later signed envelope", %{
+    actor: actor,
+    uid: uid
+  } do
+    {pub, priv} = :crypto.generate_key(:eddsa, :ed25519)
+    addon_id = "replace-existing-#{uid}"
+    original_entry = entry(addon_id, uid)
+    artifacts = signed_artifacts(priv, uid)
+
+    assert {:ok, package, :created} =
+             Importer.import_entry_with_disposition(
+               manifest(addon_id, uid),
+               original_entry,
+               artifacts,
+               public_key: pub,
+               mirror: mirror(addon_id),
+               actor: actor,
+               release_tag: "v1.0.0"
+             )
+
+    later_entry =
+      entry(addon_id, uid, %{
+        "oci_ref" => "registry.carverauto.dev/serviceradar/#{addon_id}:v1.0.1",
+        "oci_digest" => "sha256:#{String.duplicate("e", 64)}",
+        "bundle_digest" => "sha256:#{String.duplicate("d", 64)}"
+      })
+
+    assert {:ok, replaced, :repaired} =
+             Importer.import_entry_with_disposition(
+               manifest(addon_id, uid),
+               later_entry,
+               artifacts,
+               public_key: pub,
+               mirror: mirror(addon_id),
+               actor: actor,
+               release_tag: "v1.0.1",
+               replace_existing: true
+             )
+
+    assert replaced.id == package.id
+    assert replaced.source_oci_ref == later_entry["oci_ref"]
+    assert replaced.source_oci_digest == later_entry["oci_digest"]
+    assert replaced.status == :staged
+  end
+
   test "rejects a later OCI envelope for a legacy package without bundle provenance", %{
     actor: actor,
     uid: uid

@@ -26,6 +26,10 @@ actions:
     # only registry that matters. GHCR and Docker Hub are no longer pulled from.
     env:
       OCI_REGISTRY: "registry.carverauto.dev"
+      # Self-hosted workflow pool is in the carverauto cluster. Fetch the live
+      # fixture CA from the in-cluster bundle; do not take it from the
+      # BuildBuddy secret store.
+      SRQL_FIXTURE_CA_URL: "http://srql-fixture-ca-incluster.srql-fixtures.svc.cluster.local/ca.crt"
 
     self_hosted: true
 
@@ -232,7 +236,7 @@ actions:
           # SRQL_TEST_DATABASE_CA_CERT the last hop, but --test_env only FORWARDS a variable --
           # nothing sets one. The chain is
           #
-          #   K8s secret or BB secret -> runner env -> database_env -> local test action
+          #   live CA + K8s/BB DSNs -> runner env -> database_env -> local test action
           #
           # and this step is the first link. The Forgejo tier used
           # scripts/ci/configure-srql-fixture.sh, which writes to $GITHUB_ENV and $RUNNER_TEMP
@@ -251,11 +255,11 @@ actions:
           # It must be in THIS step. BuildBuddy steps do not share an environment, so a
           # separate setup step would leave every command below reading an unset DSN.
           #
-          # Two credential sources, tried in order. Path 1 reads the srql-fixtures secrets via
-          # kubectl, so a 90-day CA rotation is picked up automatically. If the runner has no
-          # kubectl or no RBAC it falls back to Path 2, the three secrets pre-set in the
-          # BuildBuddy secret store under the same names the Forgejo workflows used. With
-          # neither, it exits 1 and prints exactly what to provide.
+          # The CA is always live: kubectl reads cert-manager secret srql-fixture-server-ca
+          # when the runner has RBAC, otherwise GET SRQL_FIXTURE_CA_URL (this workflow
+          # sets the in-cluster HTTP bundle). A stored SRQL_TEST_DATABASE_CA_CERT is
+          # ignored. DSNs still come from kubectl or the BuildBuddy secret store.
+          # Missing live CA or DSNs exits 1.
           bazel run -c opt --config=ci //:buildbuddy_setup_fixture_env
           set -a
           . "$SERVICERADAR_FIXTURE_ENV_FILE"

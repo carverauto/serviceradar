@@ -63,6 +63,7 @@ defmodule ServiceRadar.Cluster.CoordinatorChildren do
         netflow_security_scheduler_child(),
         netflow_cache_scheduler_child(),
         endpoint_vulnerability_match_scheduler_child(),
+        device_risk_assessment_scheduler_child(),
         armis_northbound_scheduler_child(),
         mtr_baseline_scheduler_child(),
         mtr_state_trigger_worker_child(),
@@ -331,6 +332,16 @@ defmodule ServiceRadar.Cluster.CoordinatorChildren do
          true
        ) do
       ServiceRadar.Inventory.EndpointVulnerabilityMatchScheduler
+    end
+  end
+
+  defp device_risk_assessment_scheduler_child do
+    if enabled?(
+         "DEVICE_RISK_ASSESSMENT_SCHEDULER_ENABLED",
+         :device_risk_assessment_scheduler_enabled,
+         true
+       ) do
+      ServiceRadar.Inventory.DeviceRiskAssessmentScheduler
     end
   end
 

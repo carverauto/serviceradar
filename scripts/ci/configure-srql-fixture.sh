@@ -7,11 +7,16 @@
 # Reads (environment):
 #   SRQL_TEST_DATABASE_URL      required  DSN of the shared fixture database
 #   SRQL_TEST_ADMIN_URL         required  DSN of an admin role on the same server
-#   SRQL_TEST_DATABASE_CA_CERT  required  PEM used to verify the fixture's TLS
+#   SRQL_FIXTURE_CA_URL         optional  http(s) or file:// URL of the live CA PEM
+#   SRQL_FIXTURE_NAMESPACE      optional  namespace for the kubectl CA read
+#   SRQL_FIXTURE_CA_SECRET      optional  cert-manager CA Secret name
 #   SRQL_TEST_DATABASE_CERT     optional  client certificate, with _KEY or neither
 #   SRQL_TEST_DATABASE_KEY      optional  client key, with _CERT or neither
 #   RUNNER_TEMP                 required  where the PEM files are written
 #   GITHUB_ENV                  required  appended to, not overwritten
+#
+# The CA is obtained live (kubectl Secret, else SRQL_FIXTURE_CA_URL). A stored
+# SRQL_TEST_DATABASE_CA_CERT is not a source.
 #
 # Writes: normalized verify-full DSNs, TLS server-name bridges, and PEM file paths under
 # $RUNNER_TEMP to $GITHUB_ENV. A caller that reaches this script has already decided the secrets
@@ -26,19 +31,62 @@ if [ -z "${SRQL_TEST_DATABASE_URL:-}" ] || [ -z "${SRQL_TEST_ADMIN_URL:-}" ]; th
   exit 1
 fi
 
-if [ -z "${SRQL_TEST_DATABASE_CA_CERT:-}" ]; then
-  echo "SRQL_TEST_DATABASE_CA_CERT secret must be configured to verify SRQL fixture TLS." >&2
-  exit 1
-fi
-
 if [ -z "${RUNNER_TEMP:-}" ] || [ -z "${GITHUB_ENV:-}" ]; then
   echo "RUNNER_TEMP and GITHUB_ENV must be set; this script is only meaningful inside CI." >&2
   exit 1
 fi
 
+namespace="${SRQL_FIXTURE_NAMESPACE:-srql-fixtures}"
+ca_secret="${SRQL_FIXTURE_CA_SECRET:-srql-fixture-server-ca}"
+ca_url="${SRQL_FIXTURE_CA_URL:-https://srql-fixture-ca.serviceradar.cloud/ca.crt}"
+
+pem_looks_like_cert() {
+  [[ "$1" == *"BEGIN CERTIFICATE"* && "$1" == *"END CERTIFICATE"* ]]
+}
+
+ca_is_current() {
+  if ! command -v openssl >/dev/null 2>&1; then
+    return 0
+  fi
+  printf '%s' "$1" | openssl x509 -noout -checkend 0 >/dev/null 2>&1
+}
+
+fetch_ca_url() {
+  local url="$1"
+  if [ "${url#file://}" != "${url}" ]; then
+    cat "${url#file://}"
+    return
+  fi
+  if ! command -v curl >/dev/null 2>&1; then
+    echo "curl is required to fetch SRQL_FIXTURE_CA_URL=${url}" >&2
+    return 1
+  fi
+  curl -fsS --max-time 20 "${url}"
+}
+
+ca_pem=""
+if command -v kubectl >/dev/null 2>&1 &&
+  kubectl auth can-i get secrets -n "${namespace}" >/dev/null 2>&1; then
+  ca_pem="$(kubectl get secret "${ca_secret}" -n "${namespace}" -o 'jsonpath={.data.ca\.crt}' 2>/dev/null | base64 -d || true)"
+fi
+if ! pem_looks_like_cert "${ca_pem}" || ! ca_is_current "${ca_pem}"; then
+  ca_pem="$(fetch_ca_url "${ca_url}" 2>/dev/null || true)"
+fi
+if ! pem_looks_like_cert "${ca_pem}" || ! ca_is_current "${ca_pem}"; then
+  echo "No live SRQL fixture CA available from ${namespace}/${ca_secret} or ${ca_url}." >&2
+  echo "A stored SRQL_TEST_DATABASE_CA_CERT is ignored on purpose." >&2
+  exit 1
+fi
+
 ca_file="${RUNNER_TEMP}/srql-fixture-ca.crt"
-printf "%s" "${SRQL_TEST_DATABASE_CA_CERT}" > "${ca_file}"
+printf "%s" "${ca_pem}" > "${ca_file}"
 chmod 600 "${ca_file}"
+export SRQL_TEST_DATABASE_CA_CERT="${ca_pem}"
+{
+  printf 'SRQL_TEST_DATABASE_CA_CERT<<SRQL_FIXTURE_CA_EOF\n'
+  printf '%s\n' "${ca_pem}"
+  printf 'SRQL_FIXTURE_CA_EOF\n'
+} >> "${GITHUB_ENV}"
 
 # Client certificate and key are optional, but only as a pair -- half a pair means a renamed
 # or half-rotated secret, which would otherwise surface much later as an opaque TLS handshake

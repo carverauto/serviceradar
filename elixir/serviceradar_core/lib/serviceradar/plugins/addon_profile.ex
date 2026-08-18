@@ -16,9 +16,11 @@ defmodule ServiceRadar.Plugins.AddonProfile do
   alias ServiceRadar.Plugins.AddonProfileOps
   alias ServiceRadar.Plugins.Changes.ApplyAddonConfigDefaults
   alias ServiceRadar.Plugins.Changes.ApplyAddonUpdatePolicyDefaults
+  alias ServiceRadar.Plugins.Changes.NormalizeAddonProfileTargetQuery
   alias ServiceRadar.Plugins.Changes.SetAssignmentAddonId
   alias ServiceRadar.Plugins.Validations.AddonAssignmentParams
   alias ServiceRadar.Plugins.Validations.AddonPackageApproved
+  alias ServiceRadar.Plugins.Validations.AddonProfileTargetQuery
   alias ServiceRadar.Plugins.Validations.SingleEnabledAddonProfile
 
   @mutable_fields [
@@ -86,8 +88,10 @@ defmodule ServiceRadar.Plugins.AddonProfile do
       change SetAssignmentAddonId
       change ApplyAddonConfigDefaults
       change ApplyAddonUpdatePolicyDefaults
+      change NormalizeAddonProfileTargetQuery
       validate AddonPackageApproved
       validate AddonAssignmentParams
+      validate AddonProfileTargetQuery
       validate SingleEnabledAddonProfile
     end
 
@@ -102,8 +106,10 @@ defmodule ServiceRadar.Plugins.AddonProfile do
       change SetAssignmentAddonId
       change ApplyAddonConfigDefaults
       change ApplyAddonUpdatePolicyDefaults
+      change NormalizeAddonProfileTargetQuery
       validate AddonPackageApproved
       validate AddonAssignmentParams
+      validate AddonProfileTargetQuery
       validate SingleEnabledAddonProfile
     end
 
@@ -194,7 +200,8 @@ defmodule ServiceRadar.Plugins.AddonProfile do
     attribute :target_query, :string do
       allow_nil? false
       public? true
-      description "SRQL query that selects target devices or agents."
+
+      description "SRQL query that selects target agents. Must use in:agents; extra filters are allowed."
     end
 
     attribute :params, :map do

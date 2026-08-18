@@ -37,13 +37,16 @@ defmodule ServiceRadar.Inventory.Changes.SyncSnmpInterfaceConfig do
         cleanup_target(settings, opts)
       else
         with {:ok, interface} <- load_interface(settings, opts),
-             {:ok, profile} <- load_default_profile(opts),
+             {:ok, profile} <- load_polling_profile(settings, opts),
              {:ok, target} <- get_or_create_target(settings, interface, profile, opts) do
           sync_target_oids(settings, interface, target, opts)
           prune_empty_target(target, opts)
         else
           {:error, reason} ->
-            Logger.debug("SNMP interface config sync skipped: #{inspect(reason)}")
+            Logger.warning(
+              "SNMP interface config sync skipped for #{settings.device_id}/#{settings.interface_uid}: #{inspect(reason)}"
+            )
+
             {:error, reason}
         end
       end
@@ -74,6 +77,18 @@ defmodule ServiceRadar.Inventory.Changes.SyncSnmpInterfaceConfig do
       {:ok, nil} -> {:error, :interface_not_found}
       {:ok, interface} -> {:ok, interface}
       {:error, reason} -> {:error, reason}
+    end
+  end
+
+  defp load_polling_profile(settings, opts) do
+    actor = Keyword.get(opts, :actor)
+
+    case CredentialResolver.describe_for_device(settings.device_id, actor) do
+      {:ok, %{profile: %SNMPProfile{} = profile}} ->
+        {:ok, profile}
+
+      _ ->
+        load_default_profile(opts)
     end
   end
 
@@ -108,7 +123,7 @@ defmodule ServiceRadar.Inventory.Changes.SyncSnmpInterfaceConfig do
 
   defp cleanup_target(settings, opts) do
     with {:ok, interface} <- load_interface(settings, opts),
-         {:ok, profile} <- load_default_profile(opts),
+         {:ok, profile} <- load_polling_profile(settings, opts),
          host when is_binary(host) and host != "" <-
            resolve_target_host(settings, interface, opts),
          {:ok, target} <- find_target(profile.id, host, opts) do

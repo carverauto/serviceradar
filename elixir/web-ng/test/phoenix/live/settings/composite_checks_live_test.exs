@@ -76,6 +76,31 @@ defmodule ServiceRadarWebNGWeb.Settings.CompositeChecksLiveTest do
       assert html =~ check.name
       assert html =~ "in:devices source:armis"
       assert html =~ "draft"
+      assert html =~ ~s(phx-click="delete_check")
+      refute html =~ ~s(phx-click="disable")
+    end
+
+    test "a viewer cannot disable or remove checks", %{conn: conn} do
+      create_check(%{scope_query: "in:devices source:armis"})
+      viewer = AccountsFixtures.user_fixture(%{role: :viewer})
+
+      {:ok, _live, html} = live(log_in_user(conn, viewer), @path)
+
+      refute html =~ ~s(phx-click="delete_check")
+      refute html =~ ~s(phx-click="disable")
+      refute html =~ "New check"
+    end
+
+    test "removing a check from the list deletes it", %{conn: conn} do
+      check = create_check(%{name: "Disposable Check #{System.unique_integer([:positive])}"})
+
+      {:ok, live, _html} = live(conn, @path)
+
+      live
+      |> element(~s(button[phx-click="delete_check"][phx-value-id="#{check.id}"]))
+      |> render_click()
+
+      assert {:ok, []} = read_checks_named(check.name)
     end
 
     test "a draft check says it has not been evaluated rather than showing a zero rollup", %{
@@ -1295,7 +1320,32 @@ defmodule ServiceRadarWebNGWeb.Settings.CompositeChecksLiveTest do
       submit_enable(live)
       assert reload(check).state == :enabled
 
-      live |> element("button", "Disable") |> render_click()
+      live
+      |> element(~s(button[phx-click="disable"][phx-value-id="#{check.id}"]))
+      |> render_click()
+
+      assert reload(check).state == :disabled
+    end
+
+    test "an enabled check can be disabled from the index", %{conn: conn, gateway: gateway, tag: tag} do
+      {check, [witness, probe]} = scoped_check(conn, gateway, tag, ["available", "blocked"])
+
+      device = device_fixture(%{hostname: "#{tag}-index-disable.local"})
+      now = DateTime.utc_now()
+      availability(device.uid, witness.uid, true, now)
+      availability(device.uid, probe.uid, false, now)
+
+      {:ok, live, _html} = live(conn, @path <> "/#{check.id}/edit")
+      submit_enable(live)
+      assert reload(check).state == :enabled
+
+      {:ok, index, html} = live(conn, @path)
+      assert html =~ ~s(phx-click="disable")
+
+      index
+      |> element(~s(button[phx-click="disable"][phx-value-id="#{check.id}"]))
+      |> render_click()
+
       assert reload(check).state == :disabled
     end
 

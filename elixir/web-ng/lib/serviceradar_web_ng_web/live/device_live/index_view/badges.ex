@@ -4,6 +4,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexView.Badges do
 
   import ServiceRadarWebNGWeb.UIComponents
 
+  alias ServiceRadarWebNGWeb.DeviceLive.IndexPath
+
   attr(:available, :any, default: nil)
 
   def availability_badge(assigns) do
@@ -50,28 +52,46 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexView.Badges do
   attr(:device_uid, :string, default: nil)
   attr(:has_snmp, :boolean, default: false)
   attr(:has_sysmon, :boolean, default: false)
+  attr(:return_to, :string, default: "/devices")
 
   def metrics_presence(assigns) do
-    device_path =
-      if is_binary(assigns.device_uid) and String.trim(assigns.device_uid) != "" do
-        ~p"/devices/#{assigns.device_uid}"
+    device_uid = assigns.device_uid
+    return_to = assigns.return_to
+
+    {interfaces_path, profiles_path} =
+      if is_binary(device_uid) and String.trim(device_uid) != "" do
+        {
+          IndexPath.show_path(device_uid,
+            tab: "interfaces",
+            return_to: return_to
+          ),
+          IndexPath.show_path(device_uid,
+            tab: "profiles",
+            return_to: return_to
+          )
+        }
+      else
+        {nil, nil}
       end
 
-    assigns = assign(assigns, :device_path, device_path)
+    assigns =
+      assigns
+      |> assign(:interfaces_path, interfaces_path)
+      |> assign(:profiles_path, profiles_path)
 
     ~H"""
     <div :if={@has_snmp or @has_sysmon} class="flex items-center gap-2">
       <.link
-        :if={@has_snmp and is_binary(@device_path)}
-        navigate={@device_path}
+        :if={@has_snmp and is_binary(@interfaces_path)}
+        navigate={@interfaces_path}
         class="sr-ui-tooltip inline-flex hover:opacity-90"
         data-tip="SNMP metrics available (last 24h)"
-        aria-label="View device details (SNMP metrics available)"
+        aria-label="View device interfaces (SNMP metrics available)"
       >
         <.icon name="hero-chart-bar" class="size-4 text-info" />
       </.link>
       <span
-        :if={@has_snmp and not is_binary(@device_path)}
+        :if={@has_snmp and not is_binary(@interfaces_path)}
         class="sr-ui-tooltip"
         data-tip="SNMP metrics available (last 24h)"
       >
@@ -79,8 +99,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexView.Badges do
       </span>
 
       <.link
-        :if={@has_sysmon and is_binary(@device_path)}
-        navigate={@device_path}
+        :if={@has_sysmon and is_binary(@profiles_path)}
+        navigate={@profiles_path}
         class="sr-ui-tooltip inline-flex hover:opacity-90"
         data-tip="Host Health metrics available (last 24h)"
         aria-label="View device details (Host Health metrics available)"
@@ -88,7 +108,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexView.Badges do
         <.icon name="hero-cpu-chip" class="size-4 text-success" />
       </.link>
       <span
-        :if={@has_sysmon and not is_binary(@device_path)}
+        :if={@has_sysmon and not is_binary(@profiles_path)}
         class="sr-ui-tooltip"
         data-tip="Host Health metrics available (last 24h)"
       >

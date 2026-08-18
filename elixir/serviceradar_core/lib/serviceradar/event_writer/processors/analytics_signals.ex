@@ -695,10 +695,15 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignals do
       event_type = infer_event_type(subject, payload)
 
       severity_id =
-        if inventory_vulnerability_signal?(signal_type, event_type, payload) do
-          cvss_severity_id(payload) || normalize_severity(payload)
-        else
-          normalize_severity(payload)
+        cond do
+          hostile_ioc_exposure_signal?(signal_type, event_type, payload) ->
+            5
+
+          inventory_vulnerability_signal?(signal_type, event_type, payload) ->
+            cvss_severity_id(payload) || normalize_severity(payload)
+
+          true ->
+            normalize_severity(payload)
         end
 
       grouped_contexts =
@@ -712,6 +717,7 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignals do
         payload
         |> signal_domains(signal_type)
         |> maybe_inventory_vulnerability_domains(signal_type, event_type, payload)
+        |> maybe_hostile_ioc_exposure_domains(signal_type, event_type, payload)
 
       {primary_domain, precedence_rank} = primary_domain(domains)
       truncated_contexts = Enum.take(grouped_contexts, @max_grouped_contexts)
@@ -894,6 +900,9 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignals do
     cond do
       inventory_vulnerability_signal?(normalized, payload) ->
         build_inventory_vulnerability_finding_row(normalized, payload, raw_data, metadata)
+
+      hostile_ioc_exposure_signal?(normalized, payload) ->
+        build_hostile_ioc_exposure_finding_row(normalized, payload, raw_data, metadata)
 
       anomaly_detection_signal?(normalized, payload) ->
         build_anomaly_detection_finding_row(normalized, payload, raw_data, metadata)
@@ -1229,6 +1238,16 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignals do
     end
   end
 
+  defp maybe_hostile_ioc_exposure_domains(domains, signal_type, event_type, payload) do
+    if hostile_ioc_exposure_signal?(signal_type, event_type, payload) do
+      (["security", "inventory"] ++ domains)
+      |> Enum.reject(&is_nil/1)
+      |> Enum.uniq()
+    else
+      domains
+    end
+  end
+
   defp normalize_domain(value) when is_binary(value) do
     value
     |> String.trim()
@@ -1485,6 +1504,90 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignals do
   end
 
   defp inventory_vulnerability_signal?(_, _, _), do: false
+
+  defp hostile_ioc_exposure_signal?(normalized, payload) when is_map(normalized) do
+    hostile_ioc_exposure_signal?(
+      normalized["signal_type"],
+      normalized["event_type"],
+      payload
+    )
+  end
+
+  defp hostile_ioc_exposure_signal?(signal_type, event_type, payload) when is_map(payload) do
+    signal_type == "inventory" and
+      normalize_event_type(event_type) in [
+        "hostile_ioc_vulnerable_service",
+        "hostile_ioc_on_vulnerable_service"
+      ]
+  end
+
+  defp hostile_ioc_exposure_signal?(_, _, _), do: false
+
+  defp build_hostile_ioc_exposure_finding_row(normalized, payload, raw_data, metadata) do
+    case payload_device_uid(payload) do
+      nil ->
+        nil
+
+      device_uid ->
+        severity_id = normalized["severity_id"] || 5
+        hostile_ip = payload["hostile_ip"] || get_in(payload, ["src_endpoint", "ip"])
+        dst_ip = payload["dst_ip"] || get_in(payload, ["dst_endpoint", "ip"])
+        dst_port = payload["dst_port"] || get_in(payload, ["dst_endpoint", "port"])
+
+        %{
+          id: Ecto.UUID.dump!(normalized["event_identity"]),
+          time: normalized["event_time"],
+          class_uid: @ocsf_detection_finding_class_uid,
+          category_uid: @ocsf_findings_category_uid,
+          type_uid: @ocsf_detection_finding_type_uid,
+          activity_id: @ocsf_create_activity_id,
+          activity_name: "Create",
+          severity_id: severity_id,
+          severity: severity_name(severity_id),
+          message:
+            payload["message"] || payload["description"] || "hostile IOC on vulnerable service",
+          status_id: nil,
+          status: payload["status"] || "open",
+          status_code: nil,
+          status_detail: payload["status_detail"],
+          metadata: hostile_ioc_exposure_metadata(normalized, payload, device_uid),
+          observables: [],
+          trace_id: nil,
+          span_id: nil,
+          actor: %{},
+          device: %{"uid" => device_uid},
+          src_endpoint: %{"ip" => hostile_ip},
+          dst_endpoint: %{"ip" => dst_ip, "port" => dst_port},
+          log_name: metadata[:subject],
+          log_provider: payload["provider"] || payload["source"] || "device_risk_assessment",
+          log_level: payload["level"],
+          log_version: payload["version"] || @schema_version,
+          unmapped: payload,
+          raw_data: normalize_raw_data(raw_data),
+          created_at: DateTime.utc_now()
+        }
+    end
+  end
+
+  defp hostile_ioc_exposure_metadata(normalized, payload, device_uid) do
+    normalized
+    |> Map.put("primary_domain", "security")
+    |> Map.put("service_radar", %{
+      "source_type" => "hostile_ioc_vulnerable_service",
+      "device_uid" => device_uid,
+      "agent_id" => payload["agent_id"] || payload["agentId"],
+      "ocsf_class" => "detection_finding"
+    })
+    |> Map.put("hostile_ioc_vulnerable_service", %{
+      "cve" => payload["cve"] || payload["cve_id"],
+      "package" => get_in(payload, ["package", "name"]) || payload["package"],
+      "hostile_ip" => payload["hostile_ip"],
+      "dst_port" => payload["dst_port"],
+      "comm" => payload["comm"],
+      "kev" => payload["kev"],
+      "ioc_sources" => payload["ioc_sources"]
+    })
+  end
 
   defp anomaly_detection_signal?(normalized, payload) when is_map(normalized) do
     anomaly_detection_signal?(

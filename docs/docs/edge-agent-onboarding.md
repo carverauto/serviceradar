@@ -6,7 +6,7 @@ title: Edge Agent Onboarding
 
 Edge onboarding is intentionally simple:
 
-1. Install `serviceradar-agent` on the host (RPM/DEB from the [releases page](https://code.carverauto.dev/carverauto/serviceradar/releases)).
+1. Install `serviceradar-agent` on the host (RPM/DEB from the [releases page](https://github.com/carverauto/serviceradar/releases)).
 2. In the UI, create an agent package.
 3. Copy/paste the enroll command on the host.
 
@@ -59,7 +59,7 @@ That is it. The agent enrolls, receives config, and starts streaming results.
 
 Download the latest `serviceradar-agent` package from the ServiceRadar releases page and install it on the target host:
 
-- Releases: [code.carverauto.dev/carverauto/serviceradar/releases](https://code.carverauto.dev/carverauto/serviceradar/releases)
+- Releases: [github.com/carverauto/serviceradar/releases](https://github.com/carverauto/serviceradar/releases)
 - Debian/Ubuntu: install the `.deb`
 - RHEL/Alma/Rocky: install the `.rpm`
 

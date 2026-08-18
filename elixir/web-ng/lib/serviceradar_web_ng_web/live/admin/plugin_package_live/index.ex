@@ -2896,7 +2896,7 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
         "Showing #{length(visible_plugins)} first-party plugin entry(s) from #{selected_release_status_label(visible_plugins)}. Loaded #{length(all_plugins)} entry(s) from #{summary.indexed_releases} indexed release(s)."
 
       summary.indexed_releases == 0 ->
-        "Scanned #{summary.scanned_releases} recent Forgejo release(s), but none had #{summary.index_asset_name}. Publish the Wasm plugin import index to a release before importing."
+        "Scanned #{summary.scanned_releases} recent GitHub release(s), but none had #{summary.index_asset_name}. Publish the Wasm plugin import index to a release before importing."
 
       true ->
         "Scanned #{summary.indexed_releases} indexed release(s), but no import-ready plugin entries were found."

@@ -68,7 +68,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.EndpointInventoryFindings do
       advisory: field(primary, :advisory),
       sources: sources(group, priority),
       match_kind: if(name_only?, do: "name", else: field(primary, :coordinate_type) || "cpe"),
-      name_match_only?: name_only?
+      name_match_only?: name_only?,
+      cwes: group_cwes(group)
     }
   end
 
@@ -178,6 +179,32 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.EndpointInventoryFindings do
       _ -> %{}
     end
   end
+
+  defp group_cwes(group) do
+    group
+    |> Enum.flat_map(&finding_cwes/1)
+    |> Enum.map(&normalize_cwe/1)
+    |> Enum.reject(&is_nil/1)
+    |> Enum.uniq()
+  end
+
+  defp finding_cwes(match) do
+    metadata = field(match, :metadata) || %{}
+    advisory = field(match, :advisory) || %{}
+    advisory_metadata = field(advisory, :metadata) || %{}
+
+    List.wrap(field(match, :cwes)) ++
+      List.wrap(field(metadata, :cwes)) ++
+      List.wrap(field(advisory, :cwes)) ++
+      List.wrap(field(advisory_metadata, :cwes))
+  end
+
+  defp normalize_cwe(value) when is_binary(value) do
+    trimmed = value |> String.trim() |> String.upcase()
+    if String.starts_with?(trimmed, "CWE-"), do: trimmed
+  end
+
+  defp normalize_cwe(_value), do: nil
 
   defp field(nil, _key), do: nil
 

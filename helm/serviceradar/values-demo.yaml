@@ -353,6 +353,13 @@ networkPolicy:
       # 2026-08-13 to 162.159.128.233-138.232. Re-resolve if test-sends start
       # timing out again.
       - "162.159.128.0/18"
+      # VulnCheck backup index currently lands on CloudFront 99.84.203.0/24
+      # (already listed above). The presigned archive is S3 Global MRAP
+      # (*.mrap.accesspoint.s3-global.amazonaws.com). Resolved 2026-08-15 to
+      # 13.248.232.82 and 76.223.103.50. Re-resolve if VulnCheck downloads
+      # start timing out again.
+      - "13.248.232.0/24"
+      - "76.223.103.0/24"
   calicoLogDenied:
     enabled: true
     selector: "all()"

@@ -5,19 +5,20 @@ template, clone a per-run database, tear it down, sweep what earlier runs leaked
 CNPG entirely through environment variables, and **those variables are supplied differently by
 each of the three environments the suite runs in**.
 
-This document exists because the CA is currently delivered as PEM *content* in an environment
-variable, and that is expected to be replaced. Anything that swaps the delivery mechanism has
-to satisfy every row of the tables below, or it will break one environment while leaving the
-other two green — which is exactly how the failures listed at the end reached `staging`.
+This document exists because the CA is delivered as PEM *content* in an environment variable
+after being fetched from a live source (the cert-manager Secret or
+`https://srql-fixture-ca.serviceradar.cloud/ca.crt`). Anything that swaps the delivery
+mechanism has to satisfy every row of the tables below, or it will break one environment
+while leaving the other two green — which is exactly how earlier failures reached `staging`.
 
 ## The three environments
 
-| | local dev | Forgejo Actions | BuildBuddy Workflow |
+| | local dev | GitHub ARC (carverauto) | BuildBuddy Workflow |
 |---|---|---|---|
 | fixture | Docker Postgres or shared `srql-fixtures` NodePort | shared `srql-fixtures` CNPG | shared `srql-fixtures` CNPG |
 | setup | `.agents/skills/srql-fixtures-db-tests` + credential target | `scripts/ci/configure-srql-fixture.sh` | `//:buildbuddy_setup_fixture_env` |
-| CA delivered as | none for Docker; **PEM content** for NodePort | **file path AND PEM content** | **PEM content only** |
-| where tests execute | your machine | the runner | the self-hosted workflow runner |
+| CA delivered as | none for Docker; **PEM content** for NodePort | **file path AND PEM content** from in-cluster HTTP | **PEM content only** |
+| where tests execute | your machine | `arc-runner-set` pod | the self-hosted workflow runner |
 
 The content form keeps the credential contract independent of a runner-local path and remains
 safe if execution ownership changes. The live workflows keep database-facing TestRunner actions
@@ -35,13 +36,16 @@ on their fixture-reachable runners while eligible compilation remains remote and
 | `SRQL_TEST_DATABASE_SERVER_NAME` | DNS name | Postgrex certificate verification |
 | `PGSSLSERVERNAME` | DNS name | Rust certificate verification |
 
-`SRQL_FIXTURE_SSLMODE` is an input knob shared by both credential paths and defaults to
+`SRQL_FIXTURE_SSLMODE` is an input knob shared by both DSN paths and defaults to
 `verify-full`:
 
-- **Path 1, kubectl** — builds the DSN itself and appends `?sslmode=${SRQL_FIXTURE_SSLMODE}`,
+- **DSNs, kubectl** — builds the DSN itself and appends `?sslmode=${SRQL_FIXTURE_SSLMODE}`,
   default `verify-full`.
-- **Path 2, pre-set BuildBuddy secrets** — preserves the credentials/endpoint but adds or replaces
+- **DSNs, pre-set workflow secrets** — preserves the credentials/endpoint but adds or replaces
   `sslmode` with the same configured value.
+- **CA** — never a stored secret. kubectl reads `srql-fixture-server-ca` when RBAC exists,
+  otherwise GET `SRQL_FIXTURE_CA_URL` (default
+  `https://srql-fixture-ca.serviceradar.cloud/ca.crt`).
 
 The run log says which credential source was used without printing userinfo:
 `Fixture credentials from <source>`.

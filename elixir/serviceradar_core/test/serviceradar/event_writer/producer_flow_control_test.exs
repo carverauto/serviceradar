@@ -496,4 +496,101 @@ defmodule ServiceRadar.EventWriter.ProducerFlowControlTest do
                Config.durable_name("serviceradar-event-writer", "NETFLOW_RAW")
     end
   end
+
+  describe "stale pull-inflight expiry" do
+    @stale_netflow "_INBOX.serviceradar.event_writer.pull.test.netflow_raw"
+    @fresh_sflow "_INBOX.serviceradar.event_writer.pull.test.sflow_raw"
+
+    test "long-poll timeout is pull_expires plus slack" do
+      assert Producer.stale_pull_timeout_ms(build_config(pull_expires_ns: 2_000_000_000)) ==
+               7_000
+    end
+
+    test "no_wait timeout is the shared-pipeline deadline" do
+      assert Producer.stale_pull_timeout_ms(build_config(pull_expires_ns: 0)) == 5_000
+      assert Producer.stale_pull_timeout_ms(build_config(pull_expires_ns: nil)) == 5_000
+    end
+
+    test "fetch expires lost long-polls so a durable can pull again" do
+      attach_telemetry([[:serviceradar, :event_writer, :producer, :stale_pull]])
+
+      config = build_config(max_ack_pending: 64, pull_expires_ns: 2_000_000_000)
+      now = 50_000
+      timeout = Producer.stale_pull_timeout_ms(config)
+
+      state =
+        config
+        |> init_state()
+        |> Map.merge(%{
+          demand: 0,
+          pull_inflight: 26,
+          pull_inflight_by_subject: %{@stale_netflow => 4, @fresh_sflow => 22},
+          pull_inflight_started_at: %{
+            @stale_netflow => now - timeout - 1,
+            @fresh_sflow => now - 10
+          },
+          pull_subjects: MapSet.new([@stale_netflow, @fresh_sflow])
+        })
+
+      {:noreply, emitted, state} = Producer.handle_info({:fetch, now}, state)
+
+      assert emitted == []
+      assert state.pull_inflight == 22
+      assert state.pull_inflight_by_subject == %{@fresh_sflow => 22}
+      assert Map.get(state.pull_inflight_started_at, @stale_netflow) == nil
+      assert Map.get(state.pull_inflight_started_at, @fresh_sflow) == now - 10
+      assert Map.get(state.pull_inflight_by_subject, @stale_netflow, 0) == 0
+
+      assert_receive {:telemetry, [:serviceradar, :event_writer, :producer, :stale_pull],
+                      %{count: 1, expired_inflight: 4, age_ms: age_ms}, %{subject_class: "other"}}
+
+      assert age_ms > timeout
+    end
+
+    test "fetch does not expire a pull that is still within the deadline" do
+      config = build_config(max_ack_pending: 8, pull_expires_ns: 2_000_000_000)
+      now = 20_000
+
+      state =
+        config
+        |> init_state()
+        |> Map.merge(%{
+          demand: 0,
+          pull_inflight: 8,
+          pull_inflight_by_subject: %{@stale_netflow => 8},
+          pull_inflight_started_at: %{@stale_netflow => now - 100},
+          pull_subjects: MapSet.new([@stale_netflow])
+        })
+
+      {:noreply, [], state} = Producer.handle_info({:fetch, now}, state)
+
+      assert state.pull_inflight == 8
+      assert state.pull_inflight_by_subject == %{@stale_netflow => 8}
+    end
+
+    test "empty status clears started_at so a later pull is not treated as stale" do
+      config = build_config(max_ack_pending: 8, pull_expires_ns: 2_000_000_000)
+      now = 10_000
+
+      state =
+        config
+        |> init_state()
+        |> Map.merge(%{
+          pull_inflight: 8,
+          pull_inflight_by_subject: %{@stale_netflow => 8},
+          pull_inflight_started_at: %{@stale_netflow => now - 100},
+          pull_subjects: MapSet.new([@stale_netflow])
+        })
+
+      {:noreply, [], state} =
+        Producer.handle_info(
+          {:msg, %{body: "", topic: @stale_netflow, reply_to: nil}},
+          state
+        )
+
+      assert state.pull_inflight == 0
+      assert state.pull_inflight_by_subject == %{}
+      assert state.pull_inflight_started_at == %{}
+    end
+  end
 end

@@ -253,8 +253,10 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
               <p class="mt-1 text-sm text-sr-muted">
                 Scoped rules bind encrypted credentials to eligible targets and consumers without
                 placing secret material in plugin assignment forms. Available providers and
-                credential fields come from approved integration descriptors. For UniFi Protect,
-                create the API key here, then assign the camera plugin to a covered agent.
+                credential fields come from approved integration descriptors and core-owned
+                protocols (SNMP, VulnCheck). For UniFi Protect, create the API key here, then
+                assign the camera plugin to a covered agent. For VulnCheck, create the API token
+                here, then select it on Vulnerability Feeds.
               </p>
             </div>
             <div class="flex flex-wrap gap-2">

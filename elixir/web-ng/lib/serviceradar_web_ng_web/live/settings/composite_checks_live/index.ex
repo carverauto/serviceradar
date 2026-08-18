@@ -351,9 +351,25 @@ defmodule ServiceRadarWebNGWeb.Settings.CompositeChecksLive.Index do
     end
   end
 
+  def handle_event("disable", %{"id" => id}, socket) do
+    if socket.assigns.can_manage do
+      {:noreply, disable_check(socket, id)}
+    else
+      {:noreply, forbid(socket)}
+    end
+  end
+
   def handle_event("disable", _params, socket) do
     if socket.assigns.can_manage do
       {:noreply, set_state(socket, :disabled)}
+    else
+      {:noreply, forbid(socket)}
+    end
+  end
+
+  def handle_event("delete_check", %{"id" => id}, socket) do
+    if socket.assigns.can_manage do
+      {:noreply, delete_check(socket, id)}
     else
       {:noreply, forbid(socket)}
     end
@@ -560,6 +576,95 @@ defmodule ServiceRadarWebNGWeb.Settings.CompositeChecksLive.Index do
     |> case do
       {:ok, updated} -> socket |> assign(:editing, updated) |> assign(:enable_error, nil)
       {:error, error} -> assign(socket, :enable_error, FormState.error_message(error))
+    end
+  end
+
+  defp disable_check(socket, id) do
+    scope = socket.assigns.current_scope
+
+    with {:ok, check} <- fetch_check(socket, id),
+         {:ok, updated} <-
+           check
+           |> Ash.Changeset.for_update(:set_state, %{state: :disabled}, scope: scope)
+           |> Ash.update() do
+      socket
+      |> maybe_assign_editing(updated)
+      |> assign(:enable_error, nil)
+      |> assign(:checks, list_checks(socket))
+    else
+      {:error, error} -> assign(socket, :enable_error, FormState.error_message(error))
+    end
+  end
+
+  defp delete_check(socket, id) do
+    scope = socket.assigns.current_scope
+
+    with {:ok, check} <- fetch_check(socket, id),
+         :ok <- destroy_check(check, scope) do
+      socket
+      |> assign(:checks, list_checks(socket))
+      |> leave_editor_if(check.id)
+      |> put_flash(:info, "Removed #{check.name}")
+    else
+      {:error, error} -> put_flash(socket, :error, FormState.error_message(error))
+    end
+  end
+
+  defp fetch_check(socket, id) do
+    editing = socket.assigns.editing
+
+    cond do
+      is_map(editing) and same_check_id?(editing.id, id) ->
+        {:ok, editing}
+
+      check = listed_check(socket, id) ->
+        {:ok, check}
+
+      true ->
+        CompositeCheck.get_by_id(id, scope: socket.assigns.current_scope)
+    end
+  end
+
+  defp listed_check(socket, id) do
+    Enum.find_value(socket.assigns.checks, fn
+      %{check: check} -> if same_check_id?(check.id, id), do: check
+      _ -> nil
+    end)
+  end
+
+  defp same_check_id?(left, right), do: to_string(left) == to_string(right)
+
+  defp destroy_check(check, scope) do
+    case Ash.destroy(check, scope: scope) do
+      :ok -> :ok
+      {:ok, _destroyed} -> :ok
+      {:error, error} -> {:error, error}
+    end
+  end
+
+  defp maybe_assign_editing(socket, updated) do
+    case socket.assigns.editing do
+      %{id: id} ->
+        if same_check_id?(id, updated.id), do: assign(socket, :editing, updated), else: socket
+
+      _ ->
+        socket
+    end
+  end
+
+  defp leave_editor_if(socket, id) do
+    case socket.assigns.editing do
+      %{id: editing_id} ->
+        if same_check_id?(editing_id, id) do
+          socket
+          |> assign(:editing, nil)
+          |> push_patch(to: @current_path)
+        else
+          socket
+        end
+
+      _ ->
+        socket
     end
   end
 
@@ -884,6 +989,8 @@ defmodule ServiceRadarWebNGWeb.Settings.CompositeChecksLive.Index do
           form={@form}
           errors={@errors}
           mode={if @editing == :new, do: :new, else: :edit}
+          check_id={if is_map(@editing), do: @editing.id}
+          state={if is_map(@editing), do: @editing.state}
           scope_count={@scope_count}
           builder={@builder}
           builder_in_sync={@builder_in_sync}

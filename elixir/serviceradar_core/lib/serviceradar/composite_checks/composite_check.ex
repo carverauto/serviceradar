@@ -90,9 +90,8 @@ defmodule ServiceRadar.CompositeChecks.CompositeCheck do
 
     system_bypass()
     read_viewer_plus()
-    operator_action_type([:create, :update])
+    operator_action_type([:create, :update, :destroy])
     operator_action(:enable)
-    admin_action_type(:destroy)
   end
 
   attributes do
