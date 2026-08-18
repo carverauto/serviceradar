@@ -71,6 +71,10 @@ case "${profile}" in
     if ((${#missing[@]})); then
       install_as_root skopeo || true
     fi
+    if ! command -v skopeo >/dev/null 2>&1 && [[ -x ./scripts/install-skopeo.sh ]]; then
+      ./scripts/install-skopeo.sh
+      missing=()
+    fi
     ;;
   *)
     echo "unknown tool profile: ${profile}" >&2

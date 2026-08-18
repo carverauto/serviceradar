@@ -34,6 +34,7 @@ jobs:
       OCI_TOKEN: ${{ secrets.HARBOR_ROBOT_SECRET }}
       BAZELISK_HOME: ${{ github.workspace }}/.cache/bazelisk
       GH_TOKEN: ${{ github.token }}
+      GITHUB_TOKEN: ${{ github.token }}
 
     steps:
       - name: Checkout
@@ -333,14 +334,6 @@ jobs:
             exit 1
           fi
 
-          # Forgejo is gone: this job is the catalog publisher. Publish v* drafts
-          # so Settings import can see /releases/tags/{tag}. Leave sha-* catalogs draft.
-          if [[ "${release_tag}" == v* && "${is_draft}" == "true" ]]; then
-            curl -sSf -X PATCH "${gh_headers[@]}" \
-              -H "Content-Type: application/json" \
-              -d '{"draft":false,"prerelease":false}' \
-              "${api_base}/releases/${release_id}" >/dev/null
-            echo "Published GitHub Release ${release_tag} with serviceradar-wasm-plugin-index.json"
-          else
-            echo "Uploaded serviceradar-wasm-plugin-index.json to ${release_tag}"
-          fi
+          # Leave v* releases draft. release.yml finalize publishes after
+          # packages, catalogs, and security bundles are all present.
+          echo "Uploaded serviceradar-wasm-plugin-index.json to ${release_tag}"
