@@ -28,7 +28,9 @@ oci_registry_manifest() {
     echo "error: oras is required to fetch ${ref}" >&2
     return 2
   fi
-  oras manifest fetch "$@" "${ref}"
+  # oras 1.3 still prints manifests to stdout; --output - keeps that contract
+  # if a later oras tightens the same required-flag rule as blob fetch.
+  oras manifest fetch --output - "$@" "${ref}"
 }
 
 oci_registry_platform_manifest() {
@@ -70,5 +72,6 @@ oci_registry_config() {
     echo "error: ${ref} is missing a config digest" >&2
     return 1
   fi
-  oras blob fetch "${ref%@*}@${config_digest}"
+  # oras 1.3 blob fetch refuses to write to stdout unless --output is set.
+  oras blob fetch --output - "${ref%@*}@${config_digest}"
 }

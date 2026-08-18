@@ -60,6 +60,12 @@ PY
 
 diff -u "${tmp_dir}/expected-specs" "${tmp_dir}/actual-specs"
 
+oci_registry_body="$(<"${repo_root}/scripts/oci_registry.sh")"
+if [[ "${oci_registry_body}" != *'oras blob fetch --output -'* ]]; then
+  echo "oci_registry.sh must pass --output - to oras blob fetch (oras 1.3 requires it)" >&2
+  exit 1
+fi
+
 verify_body="$(<"${verify_script}")"
 for fragment in \
   'source "${SERVICERADAR_COSIGN_COMMON:-${SCRIPT_DIR}/cosign_common.sh}"' \

@@ -27,7 +27,8 @@ that version.
   `MODULE.bazel` before the image graph. (PR #3786)
 - CI: release retries copy `cosign_common.sh` next to the `RUNNER_TEMP`
   verifier and pass `SERVICERADAR_REPO_ROOT` so post-push Cosign
-  verification does not die after a successful `//:push`.
+  verification does not die after a successful `//:push`. `oras blob
+  fetch` now writes config blobs to stdout (`--output -`) for oras 1.3.
 
 # ServiceRadar v1.4.34
 
