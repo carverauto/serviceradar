@@ -167,3 +167,18 @@ rust_test(
         "//config/proto_bindings/rust:config_schema",
     ],
 )
+
+# Predicate laws. The vectors pin what the RULE SET means; these pin what the PREDICATES mean.
+rust_test(
+    name = "predicate_law_test",
+    srcs = ["src/predicate_law_test.rs"],
+    crate_root = "src/predicate_law_test.rs",
+    deps = all_crate_deps(
+        cargo_only = True,
+        normal = True,
+        normal_dev = True,
+    ) + [
+        ":validator",
+        "//config/proto_bindings/rust:config_schema",
+    ],
+)

@@ -147,6 +147,7 @@ phf_codegen = "0.11"
 # is written against, and a patch that no longer applies fails the fetch.
 pq-sys = "=0.7.5"
 pretty_assertions = "1"
+proptest = "1"
 # default = ["protobuf"]: without it prometheus swaps in its own
 # proto types and netprobe's get_counter().value() stops compiling.
 prometheus = { version = "0.14", features = ["protobuf"]}

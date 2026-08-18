@@ -17,3 +17,6 @@ prost-types = { workspace = true }
 # compiles fine.
 regex-automata = { workspace = true, features = ["meta", "syntax", "unicode-case"] }
 serviceradar-config-schema = { path = "../proto_bindings/rust" }
+
+[dev-dependencies]
+proptest = { workspace = true }
