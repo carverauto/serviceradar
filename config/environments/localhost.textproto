@@ -1,0 +1,52 @@
+# ServiceRadar environment configuration: localhost
+#
+# GROUND TRUTH. This file is authored and reviewed here; a build action compiles it to a
+# binary message that every implementation loads. Do not edit the generated .binpb.
+#
+# NO SECRETS. Passwords, private keys and certificate material are resolved by
+# SecretManager. A build-time check rejects credential-shaped values in this file.
+#
+# A developer machine, running the Docker Compose stack. It is the ONLY kind the rule set
+# exempts from verified TLS and from a secure core transport -- see the two
+# `except_kinds: ENVIRONMENT_KIND_LOCALHOST` rules in //config/rules:ruleset.textproto.
+# That exemption is the reason this file exists as its own kind rather than as a variant of
+# ci: a dev machine has no cluster DNS, no fixture certificate, and no SPIFFE agent.
+
+kind: ENVIRONMENT_KIND_LOCALHOST
+
+database {
+  # docker/compose publishes CNPG on loopback. CNPG_PUBLIC_BIND/CNPG_PUBLIC_PORT widen this
+  # to a LAN interface for the remote-dev playbook; that is a different host, not a
+  # different environment kind.
+  host: "localhost"
+  port: 5455
+  database: "serviceradar"
+
+  connecting_role: "serviceradar"
+  owning_role: "serviceradar"
+
+  # Plaintext, and only legal here. The compose stack can be brought up without the
+  # cert-generator, and requiring TLS would make the first-run path fail on a missing CA
+  # rather than on anything a developer did.
+  tls_mode: TLS_MODE_DISABLE
+
+  search_path: "platform, ag_catalog"
+  pool_size: 10
+  queue_target_ms: 500
+  queue_interval_ms: 1000
+  ownership_timeout_ms: 60000
+}
+
+nats {
+  url: "nats://localhost:4222"
+  server_name: "nats"
+}
+
+core {
+  address: "localhost:50052"
+  api_url: "http://localhost:8090"
+
+  # No mTLS: the compose stack's certificates are generated on demand and a developer
+  # running `mix phx.server` directly has none.
+  security_mode: SECURITY_MODE_NONE
+}

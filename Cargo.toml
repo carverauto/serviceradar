@@ -2,6 +2,7 @@
 resolver = "2"
 members = [
     "config/proto_bindings/rust",
+    "config/validator",
     "rust/integration-db",
     "elixir/serviceradar_core/native/anomaly_disposition_nif",
     "elixir/serviceradar_core/native/zen_nif",

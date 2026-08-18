@@ -1,0 +1,52 @@
+# gazelle:ignore
+
+load("@crates//:defs.bzl", "all_crate_deps")
+load("@rules_rs//rs:rust_library.bzl", "rust_library")
+load("@rules_rs//rs:rust_test.bzl", "rust_test")
+
+filegroup(
+    name = "srcs",
+    srcs = glob(
+        ["**"],
+        exclude = [
+            "target/**",
+            "bazel-*",
+        ],
+    ),
+    visibility = ["//visibility:public"],
+)
+
+# The reference implementation of //config/SEMANTICS.md. Kept separate from the generated
+# types so a schema change and an engine change cannot arrive in one indistinguishable diff.
+rust_library(
+    name = "validator",
+    srcs = ["src/lib.rs"],
+    crate_name = "serviceradar_config_validator",
+    crate_root = "src/lib.rs",
+    visibility = ["//visibility:public"],
+    deps = all_crate_deps(
+        cargo_only = True,
+        normal = True,
+    ) + ["//config/proto_bindings/rust:config_schema"],
+)
+
+# The gate. Inputs are the COMPILED binaries because that is what a runtime loads; validating
+# the .textproto sources would be checking a different artifact.
+rust_test(
+    name = "file_phase_test",
+    srcs = ["src/file_phase_test.rs"],
+    crate_root = "src/file_phase_test.rs",
+    data = [
+        "//config/environments:ci_binpb",
+        "//config/environments:localhost_binpb",
+        "//config/environments:saas_binpb",
+        "//config/rules:ruleset_binpb",
+    ],
+    deps = all_crate_deps(
+        cargo_only = True,
+        normal = True,
+    ) + [
+        ":validator",
+        "//config/proto_bindings/rust:config_schema",
+    ],
+)

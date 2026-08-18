@@ -31,7 +31,7 @@ SWIFTLINT ?= swiftlint
 # build/test recipes with target-specific flag overrides so they cannot drift from the
 # commands developers and CI already run.
 BAZEL ?= bazel
-BAZEL_CI_FLAGS ?= -c opt --config=ci
+BAZEL_CI_FLAGS ?= -c opt --config=remote
 # EMPTY ON PURPOSE, AND IT MUST NOT NAME A PROFILE THAT NO LONGER EXISTS.
 #
 # The cache proxy used to be opt-in via `--config=cache_proxy`. It is now the default for

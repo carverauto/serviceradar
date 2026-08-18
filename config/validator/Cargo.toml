@@ -1,0 +1,13 @@
+[package]
+name = "serviceradar-config-validator"
+version = "0.1.0"
+edition = "2024"
+
+[lib]
+name = "serviceradar_config_validator"
+path = "src/lib.rs"
+
+[dependencies]
+prost = { workspace = true }
+regex-automata = { workspace = true }
+serviceradar-config-schema = { path = "../proto_bindings/rust" }

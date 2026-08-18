@@ -18,3 +18,15 @@ environment_config(
     src = "ci.textproto",
     visibility = ["//visibility:public"],
 )
+
+environment_config(
+    name = "localhost",
+    src = "localhost.textproto",
+    visibility = ["//visibility:public"],
+)
+
+environment_config(
+    name = "saas",
+    src = "saas.textproto",
+    visibility = ["//visibility:public"],
+)

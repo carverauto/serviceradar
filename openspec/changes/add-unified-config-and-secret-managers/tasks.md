@@ -45,9 +45,15 @@ ambient environment, a test asserting on `.bazelrc`, and a value read under a di
       `config/elixir/lib/serviceradar_config/proto/{config,rules}.pb.ex` as
       `Serviceradar.Config.V1.*`; **26 fields carry `proto3_optional: true`**, so presence
       survives on the Elixir side too. Drift guard verified in sync
-- [ ] Decide where per-target values live that are NOT per-environment
+- [x] Decide where per-target values live that are NOT per-environment
       (`SERVICERADAR_TEST_DB_SHARDS` is correctly a target `env` attribute today; `SRQL_FIXTURE_ROOT`
       is still unplaced)
+      DECIDED: EnvironmentConfig describes the DEPLOYED SYSTEM. Anything describing the build
+      or the test harness stays a Bazel target attribute or a runfiles lookup and never enters
+      the schema. `SRQL_FIXTURE_ROOT` is a fixture-directory override in
+      `integration_tests/srql/tests/support/harness.rs:729`; the harness already prefers
+      runfiles, nothing sets the variable, and the inventory records it as inert. It is not
+      configuration and gets no schema field.
 
 ## 3. Rule set and predicate specification
 
@@ -74,10 +80,10 @@ ambient environment, a test asserting on `.bazelrc`, and a value read under a di
 ## 4. Configuration files
 
 - [x] Add `config/environments/ci.textproto` (first consumer: the fixture lifecycle)
-- [ ] Add `config/environments/{localhost,saas}.textproto`
+- [x] Add `config/environments/{localhost,saas}.textproto`
 - [ ] Add `config/environments/onprem/<id>.textproto` per deployment, in this repository
 - [ ] Expose each as a Bazel target at the granularity components consume (database, NATS, TLS)
-- [ ] Add the build-time validator as a Bazel test over file-phase rules, iterating **every**
+- [x] Add the build-time validator as a Bazel test over file-phase rules, iterating **every**
       instance including each on-prem one
 - [ ] Add the credential-shape check that rejects secrets in configuration files
 - [x] Add the Bazel rule compiling each committed `.textproto` to binary via `protoc --encode`
