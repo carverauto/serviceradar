@@ -42,8 +42,10 @@ BAZEL_CI_FLAGS ?= -c opt --config=remote
 # Left as a variable rather than deleted so those target names keep working. Do NOT put a
 # `--config=` value here speculatively: Bazel treats an undefined config as a hard error
 # ("Config value 'cache_proxy' is not defined in any .rc file", exit 2), so a stale name takes
-# the whole target out rather than degrading it. //buildbuddy_cache_proxy_config_test.py
-# asserts that every --config this file names is defined in //.bazelrc.
+# the whole target out rather than degrading it. This used to be enforced by
+# //buildbuddy_cache_proxy_config_test.py, which asserted that every --config named here is
+# defined in //.bazelrc; that test has been deleted and NOTHING enforces it now, so a stale
+# --config value here fails at invocation rather than at test time.
 BAZEL_CACHE_PROXY_CONFIG ?=
 BAZEL_WORKSPACE_BUILD_FLAGS ?= $(BAZEL_CI_FLAGS)
 BAZEL_WORKSPACE_TARGETS ?= //...

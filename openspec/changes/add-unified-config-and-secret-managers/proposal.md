@@ -72,9 +72,10 @@ an identity rather than a credential.
 - **Survives, and should not be conflated with this change:** a small secret path (~3 logical names
   from a provider) and `--strategy=TestRunner=local`, which is required for the unrelated reason
   that the fixture is a cluster-internal ClusterIP.
-- **Must be updated, not deleted:** `//:buildbuddy_cache_proxy_config_test` asserts that specific
-  `--test_env` lines exist in `.bazelrc` (`buildbuddy_cache_proxy_config_test.py:216`); removing
-  them without updating it turns `make test` red.
+- **The `.bazelrc` drift guard must be rebuilt:** `//:buildbuddy_cache_proxy_config_test` asserted
+  that specific `--test_env` lines exist in `.bazelrc`. It has been deleted, so removing those
+  lines is now silent rather than red — which is worse, not better. A replacement Bazel test
+  target is required; see `tasks.md`.
 - **Breaking:** every service and test changes how it reads configuration; deployment manifests must
   set `SERVICERADAR_ENV`. Phased migration is mandatory — see `tasks.md`.
 - **Non-goal:** this does not change what any setting means, only where it comes from and how it is

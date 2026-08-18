@@ -402,10 +402,12 @@ retrieval calls reappears for a schema-covered variable.
 - [ ] Delete `buildbuddy_setup_fixture_env.sh` and its `buildbuddy.yaml` step
 - [ ] Delete `scripts/ci/configure-srql-fixture.sh` with the Forgejo tier
 - [ ] Reduce `.bazelrc` `database_env` to secrets only; delete `nats_env` if it empties
-- [ ] Update `//:buildbuddy_cache_proxy_config_test`, which asserts specific `--test_env` lines
-      (`buildbuddy_cache_proxy_config_test.py:216`) — removing them without this reds `make test`
-- [ ] Extend that test with the missing direction: every forwarded name must be read, and every name
-      the suites read must be forwarded or declared
+- [ ] Build the `.bazelrc` drift guard as a Bazel test target. `buildbuddy_cache_proxy_config_test.py`
+      used to assert the `--test_env` forwarding list and has been DELETED, so nothing enforces it
+      now — and before deletion it had no `py_test` target and errored in `setUp` against a
+      workflow path removed in 8ce61b5a0d, so it had not enforced anything for some time either.
+      The replacement must assert BOTH directions: every forwarded name is read somewhere, and
+      every name the suites read is forwarded or declared in a target `env`.
 - [ ] Update `AGENTS.md` and the `srql-fixtures-db-tests` skill
 
 ## 9. Deployment
