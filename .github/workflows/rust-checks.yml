@@ -32,7 +32,7 @@ on:
       - 'rust/**'
       - 'Cargo.toml'
       - 'Cargo.lock'
-      - 'rust-checks.yml'
+      - '.github/workflows/rust-checks.yml'
       - 'scripts/ci/install-sfw.sh'
   pull_request:
     branches: [staging, main]
@@ -40,7 +40,7 @@ on:
       - 'rust/**'
       - 'Cargo.toml'
       - 'Cargo.lock'
-      - 'rust-checks.yml'
+      - '.github/workflows/rust-checks.yml'
       - 'scripts/ci/install-sfw.sh'
   schedule:
     # Mondays 05:17 UTC. Off the hour so it does not pile onto every other cron.
@@ -97,6 +97,45 @@ jobs:
           rustup default stable
           rustc --version
           cargo --version
+
+      # install protoc.
+      - name: Install protoc
+        env:
+          PROTOC_VERSION: '35.1'
+          PROTOC_SHA256: '6930ebf62bd4ea607b98fff052596c6ee564b9835b4ce172c75a3f53ae9d91b7'
+        run: |
+          set -euo pipefail
+
+          # The checksum above is per-asset, so an unexpected arch must fail rather than
+          # silently download something the pin does not cover.
+          case "$(uname -m)" in
+            x86_64|amd64) asset="protoc-${PROTOC_VERSION}-linux-x86_64.zip" ;;
+            *) echo "unsupported protoc runner architecture: $(uname -m)" >&2; exit 1 ;;
+          esac
+
+          install_dir="${RUNNER_TEMP:-/tmp}/protoc"
+          rm -rf "${install_dir}"
+          mkdir -p "${install_dir}"
+
+          curl -fsSL --retry 3 \
+            "https://github.com/protocolbuffers/protobuf/releases/download/v${PROTOC_VERSION}/${asset}" \
+            -o "${install_dir}/${asset}"
+          printf '%s  %s\n' "${PROTOC_SHA256}" "${install_dir}/${asset}" | sha256sum -c -
+
+          unzip -q "${install_dir}/${asset}" -d "${install_dir}"
+          chmod +x "${install_dir}/bin/protoc"
+
+          # PROTOC as well as PATH: rust/rperf-client/build.rs prefers an injected PROTOC and
+          # otherwise guesses at system paths. PROTOC_INCLUDE keeps the well-known types
+          # (proto/discovery imports google/protobuf/wrappers.proto) resolving to this
+          # release's include/ rather than to a system copy of a different vintage.
+          echo "${install_dir}/bin" >> "${GITHUB_PATH}"
+          {
+            echo "PROTOC=${install_dir}/bin/protoc"
+            echo "PROTOC_INCLUDE=${install_dir}/include"
+          } >> "${GITHUB_ENV}"
+
+          "${install_dir}/bin/protoc" --version
 
       # Cache keys are job-scoped. Both jobs in this workflow populate a registry cache, and
       # a shared key would have them race to save the same entry -- one wins, the other logs
