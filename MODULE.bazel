@@ -52,12 +52,11 @@ bazel_dep(name = "rules_foreign_cc", version = "0.15.1")
 bazel_dep(name = "aspect_rules_js", version = "2.6.0")
 bazel_dep(name = "aspect_rules_ts", version = "3.7.0")
 bazel_dep(name = "rules_cc", version = "0.2.22")
-
 # OpenSSL as cc_library; The one consumer is openssl-sys (annotation below), which in turn feeds pq-src.
 bazel_dep(name = "openssl", version = "3.5.5.bcr.4")
 bazel_dep(name = "buildifier_prebuilt", version = "8.5.1.3")
 bazel_dep(name = "aspect_bazel_lib", version = "2.22.5")
-bazel_dep(name = "llvm", version = "0.8.17")
+bazel_dep(name = "llvm", version = "0.8.18")
 bazel_dep(name = "toolchains_buildbuddy", version = "0.0.4", repo_name = "io_buildbuddy_buildbuddy_toolchain")
 
 # rules_go/gazelle pull package_metadata transitively. Prefer the Bazel mirror
@@ -318,16 +317,38 @@ llvm = use_extension("@llvm//extensions:llvm.bzl", "llvm")
 llvm.version(llvm_version = "22.1.6")
 use_repo(llvm, "llvm-project")
 
-# The macOS sysroot, overriding the one @llvm pins for faster download.
+# The macOS sysroot.
+# This pin is the one hermetic-llvm itself consumes (their MODULE.bazel at v0.8.18), so the
+# archive and the include list are known to agree. The Wayback entry is their fallback: the
+# preceding SDK's Apple URL started returning 503, which is what motivated the switch.
 osx = use_extension("@llvm//extensions:osx.bzl", "osx")
 osx.from_archive(
-    sha256 = "beee7212d265a6d2867d0236cc069314b38d5fb3486a6515734e76fa210c784c",
-    strip_prefix = "MacOSX26.1.sdk",
-    type = "tar.xz",
+    sha256 = "5f044578cd78a3a9b9c965a42d56bad609ee5d252e1d4e6aa7c42fc3f35fee7b",
+    strip_prefix = "Payload/Library/Developer/CommandLineTools/SDKs/MacOSX26.5.sdk",
+    type = "pkg",
     urls = [
-        "https://github.com/joseluisq/macosx-sdks/releases/download/26.1/MacOSX26.1.sdk.tar.xz",
+        "https://swcdn.apple.com/content/downloads/09/08/047-91568-A_Y1CFZWQCD4/4xekpyz43i26dbp4enxfro8eb1q7wiujh5/CLTools_macOSNMOS_SDK.pkg",
+        "https://web.archive.org/web/20260512015547id_/https://swcdn.apple.com/content/downloads/09/08/047-91568-A_Y1CFZWQCD4/4xekpyz43i26dbp4enxfro8eb1q7wiujh5/CLTools_macOSNMOS_SDK.pkg",
     ],
 )
+
+# `System` is not in the extension's default framework set, and every macOS EXECUTABLE needs it:
+# the driver emits `-framework System`, so libraries compile and binaries fail to link with
+# `ld: framework 'System' not found`. Libraries were fine, which is why this surfaces only when
+# something actually links.
+#
+# The six after it are the extension's own defaults, repeated because this tag REPLACES that
+# list rather than extending it (`if not frameworks: frameworks = _DEFAULT_FRAMEWORKS`).
+# Naming only `System` drops the rest and the link fails on `Foundation` instead.
+osx.frameworks(names = [
+    "System",
+    "CoreFoundation",
+    "Foundation",
+    "Kernel",
+    "OSLog",
+    "Security",
+    "SystemConfiguration",
+])
 
 register_toolchains("@llvm//toolchain:all")
 

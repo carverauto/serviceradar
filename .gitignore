@@ -299,3 +299,4 @@ __pycache__/
 # If a future pattern ever does catch an archive, re-add a narrow negation for THAT pattern
 # rather than a directory wildcard. The wildcard is what makes an un-ignore dangerous: it
 # re-admits everything the rest of this file is trying to exclude.
+.local-fixture-certs/
