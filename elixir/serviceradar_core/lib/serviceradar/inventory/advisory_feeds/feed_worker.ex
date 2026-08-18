@@ -68,7 +68,8 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.FeedWorker do
   @spec ensure_scheduled() :: {:ok, :scheduled} | {:error, term()}
   def ensure_scheduled do
     if ObanSupport.available?() do
-      _ = Staging.reap_orphans()
+      nist_keep = if already_scheduled?("nist-nvd2"), do: 1, else: 0
+      _ = Staging.reap_orphans(nist_keep: nist_keep)
       reconcile_stale_runs()
 
       if Config.enabled?() do
@@ -301,17 +302,31 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.FeedWorker do
   end
 
   defp do_run("nist-nvd2") do
-    if Staging.volume_available?() do
-      with {:ok, token} <- Config.vulncheck_token(),
-           {:ok, acquired} <- Acquisition.acquire_vulncheck("nist-nvd2", token, run_id()) do
-        with_run_cleanup(acquired, fn -> parse_and_load_nvd(acquired) end)
-      end
-    else
-      Logger.warning(
-        "advisory_feeds: staging volume unavailable, skipping nist-nvd2 (fail closed)"
-      )
+    # Drop leftover extracts *before* a new download. Timeout uses :kill, so
+    # with_run_cleanup/2 does not run; without this prune each retry added
+    # another zip+extract until the node filled.
+    _ = Staging.prune_feed("nist-nvd2", keep: 0)
 
-      {:error, :staging_volume_unavailable}
+    cond do
+      not Staging.volume_available?() ->
+        Logger.warning(
+          "advisory_feeds: staging volume unavailable, skipping nist-nvd2 (fail closed)"
+        )
+
+        {:error, :staging_volume_unavailable}
+
+      true ->
+        case Staging.ensure_budget() do
+          :ok ->
+            with {:ok, token} <- Config.vulncheck_token(),
+                 {:ok, acquired} <- Acquisition.acquire_vulncheck("nist-nvd2", token, run_id()) do
+              with_run_cleanup(acquired, fn -> parse_and_load_nvd(acquired) end)
+            end
+
+          {:error, reason} = error ->
+            Logger.warning("advisory_feeds: nist-nvd2 staging budget: #{inspect(reason)}")
+            error
+        end
     end
   end
 

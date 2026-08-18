@@ -764,10 +764,8 @@ spec:
           value: {{ $advisoryFeedsEnabled | quote }}
         - name: SERVICERADAR_ADVISORY_STAGING_DIR
           value: {{ $advisoryFeedsDir | quote }}
-        {{- if $advisoryFeeds.nistNvd2Enabled | default false }}
         - name: SERVICERADAR_ADVISORY_NIST_NVD2_ENABLED
-          value: "true"
-        {{- end }}
+          value: {{ $advisoryFeeds.nistNvd2Enabled | default false | quote }}
         {{- with .Values.otelExporter }}
         {{- if .enabled }}
         - name: OTEL_EXPORTER_OTLP_ENDPOINT
