@@ -37,6 +37,9 @@ MAIN_WORKFLOW = ROOT / ".forgejo/workflows/main.yml"
 FORGEJO_INTEGRATION_WORKFLOW = (
     ROOT / ".forgejo/workflows/elixir-integration-sr-core.yml"
 )
+GITHUB_INTEGRATION_WORKFLOW = (
+    ROOT / ".github/workflows/elixir-integration-sr-core.yml"
+)
 CACHE_PROXY_VALUES = ROOT / "k8s/buildbuddy/values-cache-proxy.yaml"
 RELEASE_PIPELINE = ROOT / "build/buildbuddy/release_pipeline.sh"
 DEMO_LOCAL_ROLLOUT = ROOT / ".agents/skills/demo-local-rollout/SKILL.md"
@@ -73,6 +76,33 @@ def active_lines(text: str) -> list[str]:
         for line in text.splitlines()
         if line.strip() and not line.lstrip().startswith("#")
     ]
+
+
+def write_test_ca(directory: Path) -> Path:
+    """Issue a throwaway CA so fixture-setup tests can fetch a live PEM."""
+    cert = directory / "live-ca.crt"
+    key = directory / "live-ca.key"
+    subprocess.run(
+        [
+            "openssl",
+            "req",
+            "-x509",
+            "-newkey",
+            "rsa:2048",
+            "-keyout",
+            str(key),
+            "-out",
+            str(cert),
+            "-days",
+            "3650",
+            "-nodes",
+            "-subj",
+            "/CN=srql-fixture-test-ca",
+        ],
+        check=True,
+        capture_output=True,
+    )
+    return cert
 
 
 def active_bazelrc_lines(text: str, config: str) -> list[str]:
@@ -114,6 +144,9 @@ class BuildBuddyCacheProxyConfigTest(unittest.TestCase):
         self.workflow = WORKFLOW.read_text(encoding="utf-8")
         self.main_workflow = MAIN_WORKFLOW.read_text(encoding="utf-8")
         self.forgejo_integration_workflow = FORGEJO_INTEGRATION_WORKFLOW.read_text(
+            encoding="utf-8"
+        )
+        self.github_integration_workflow = GITHUB_INTEGRATION_WORKFLOW.read_text(
             encoding="utf-8"
         )
         self.cache_proxy_values = CACHE_PROXY_VALUES.read_text(encoding="utf-8")
@@ -319,6 +352,7 @@ class BuildBuddyCacheProxyConfigTest(unittest.TestCase):
         for workflow_name, workflow in (
             ("buildbuddy.yaml", self.workflow),
             ("Forgejo integration workflow", self.forgejo_integration_workflow),
+            ("GitHub ARC integration workflow", self.github_integration_workflow),
         ):
             commands = continued_shell_lines(workflow)
             for label in labels:
@@ -372,9 +406,36 @@ class BuildBuddyCacheProxyConfigTest(unittest.TestCase):
         self.assertIn("--config=database_env", forgejo_suite[0])
         self.assertIn("--flaky_test_attempts=1", forgejo_suite[0])
 
+        github_commands = continued_shell_lines(self.github_integration_workflow)
+        github_suite = [
+            command
+            for command in github_commands
+            if "bazel test" in command
+            and "//elixir/serviceradar_core:integration_tests" in command
+        ]
+        self.assertEqual(len(github_suite), 1)
+        self.assertIn("--config=database_env", github_suite[0])
+        self.assertIn("--flaky_test_attempts=1", github_suite[0])
+
+        # //integration_tests/srql:* reaches buildbuddy.yaml through the wildcard asserted
+        # above, not by name. Those targets were `manual`, which removed them from //...
+        # expansion BEFORE tag filters were considered, so every caller had to list them by
+        # hand; they carry `integration_test` now and the tag filter selects them.
+        #
+        # That wildcard command is asserted to be local and uncached a few lines up, which is
+        # the property this test exists to protect. What is left to check is that it really
+        # reaches them and cannot silently stop doing so.
+        self.assertIn("//...", shard_commands[0])
+        self.assertNotIn(
+            "//integration_tests/srql:srql_api_test",
+            "\n".join(buildbuddy_commands),
+            "buildbuddy.yaml names an srql target explicitly again; either restore the "
+            "per-target flag assertions here or drop the wildcard",
+        )
+
+        # The ARC workflow is not on the wildcard and still names them.
         for workflow_name, commands in (
-            ("buildbuddy.yaml", buildbuddy_commands),
-            ("Forgejo integration workflow", forgejo_commands),
+            ("GitHub ARC integration workflow", github_commands),
         ):
             srql_commands = [
                 command
@@ -408,9 +469,9 @@ class BuildBuddyCacheProxyConfigTest(unittest.TestCase):
         for variable in (
             "SRQL_TEST_DATABASE_URL",
             "SRQL_TEST_ADMIN_URL",
-            "SRQL_TEST_DATABASE_CA_CERT",
         ):
             self.assertIn(variable, require_block)
+        self.assertNotIn("SRQL_TEST_DATABASE_CA_CERT", require_block)
         self.assertIn('test "${missing}" -eq 0', require_block)
 
         configure_block = workflow[configure_start:sweep_start]
@@ -435,6 +496,34 @@ class BuildBuddyCacheProxyConfigTest(unittest.TestCase):
         self.assertIn("env.SRQL_TEST_DATABASE_URL != ''", teardown_block)
         self.assertIn("env.SRQL_TEST_ADMIN_URL != ''", teardown_block)
         self.assertIn("env.SRQL_TEST_DATABASE_CA_CERT != ''", teardown_block)
+
+    def test_github_arc_workflow_fetches_live_ca_in_cluster(self):
+        """GitHub ARC runners in carverauto must not pin a stored CA PEM."""
+        workflow = self.github_integration_workflow
+        self.assertIn("runs-on: arc-runner-set", workflow)
+        self.assertNotIn("self-hosted, Linux, X64, arc-runner-set", workflow)
+        self.assertIn(
+            "http://srql-fixture-ca-incluster.srql-fixtures.svc.cluster.local/ca.crt",
+            workflow,
+        )
+        self.assertIn("secrets.BUILDBUDDY_API_KEY", workflow)
+        self.assertNotIn("secrets.SRQL_TEST_DATABASE_CA_CERT", workflow)
+        require_start = workflow.index("- name: Require SRQL fixture credentials")
+        configure_start = workflow.index("- name: Configure SRQL fixture")
+        require_block = workflow[require_start:configure_start]
+        self.assertNotIn("SRQL_TEST_DATABASE_CA_CERT", require_block)
+
+    def test_buildbuddy_workflow_fetches_live_ca_in_cluster(self):
+        """Self-hosted BB workflows must not take the fixture CA from the secret store."""
+        workflow = self.workflow
+        self.assertIn(
+            "http://srql-fixture-ca-incluster.srql-fixtures.svc.cluster.local/ca.crt",
+            workflow,
+        )
+        self.assertIn("A stored SRQL_TEST_DATABASE_CA_CERT is", workflow)
+        setup = (ROOT / "buildbuddy_setup_fixture_env.sh").read_text(encoding="utf-8")
+        self.assertIn("A stored SRQL_TEST_DATABASE_CA_CERT is not a source", setup)
+        self.assertNotIn("Firecracker", setup)
 
     def test_buildbuddy_lifecycle_owns_identity_and_cleans_credentials(self):
         """Concurrent runs cannot share a DB name or leave credential files behind."""
@@ -464,6 +553,7 @@ class BuildBuddyCacheProxyConfigTest(unittest.TestCase):
             fake_kubectl = fake_bin / "kubectl"
             fake_kubectl.write_text("#!/bin/sh\nexit 1\n", encoding="utf-8")
             fake_kubectl.chmod(0o700)
+            live_ca = write_test_ca(tmp_path)
             env_file = tmp_path / "fixture.env"
             secret = "fixture-secret"
             raw_at_secret = "raw-at-secret"
@@ -475,6 +565,7 @@ class BuildBuddyCacheProxyConfigTest(unittest.TestCase):
                 {
                     "PATH": f"{fake_bin}:/usr/bin:/bin",
                     "SERVICERADAR_FIXTURE_ENV_FILE": str(env_file),
+                    "SRQL_FIXTURE_CA_URL": live_ca.as_uri(),
                     "SRQL_TEST_DATABASE_URL": (
                         f"postgres://app:{secret}@{raw_at_secret}@fixture.example:5432/srql_fixture"
                     ),
@@ -508,10 +599,34 @@ class BuildBuddyCacheProxyConfigTest(unittest.TestCase):
             self.assertEqual(stat.S_IMODE(env_file.stat().st_mode), 0o600)
             contents = env_file.read_text(encoding="utf-8")
             self.assertEqual(contents.count("sslmode=verify-full"), 2)
+            self.assertIn("BEGIN CERTIFICATE", contents)
+            self.assertNotIn("not-a-real-certificate", contents)
             self.assertTrue(
                 f"SRQL_TEST_DATABASE_SERVER_NAME='{server_name}'" in contents
             )
             self.assertTrue(f"PGSSLSERVERNAME='{server_name}'" in contents)
+
+            stored_only = env.copy()
+            stored_only["SERVICERADAR_FIXTURE_ENV_FILE"] = str(
+                tmp_path / "stored-only.env"
+            )
+            stored_only["SRQL_FIXTURE_CA_URL"] = (
+                tmp_path / "missing-ca.crt"
+            ).as_uri()
+            stored_only["SRQL_TEST_DATABASE_CA_CERT"] = live_ca.read_text(
+                encoding="utf-8"
+            )
+            stored = subprocess.run(
+                ["/bin/bash", str(FIXTURE_SETUP)],
+                cwd=ROOT,
+                env=stored_only,
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            self.assertNotEqual(stored.returncode, 0)
+            self.assertIn("ignored on purpose", stored.stderr)
+            self.assertFalse((tmp_path / "stored-only.env").exists())
 
             fragment_env = env.copy()
             fragment_env["SERVICERADAR_FIXTURE_ENV_FILE"] = str(
@@ -555,14 +670,22 @@ class BuildBuddyCacheProxyConfigTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             tmp_path = Path(tmp)
             github_env = tmp_path / "github.env"
+            live_ca = write_test_ca(tmp_path)
+            fake_bin = tmp_path / "bin"
+            fake_bin.mkdir()
+            fake_kubectl = fake_bin / "kubectl"
+            fake_kubectl.write_text("#!/bin/sh\nexit 1\n", encoding="utf-8")
+            fake_kubectl.chmod(0o700)
             secret = "forgejo-db-secret"
             admin_secret = "forgejo-admin-secret"
             server_name = "srql-fixture-rw.srql-fixtures.svc.cluster.local"
             env = os.environ.copy()
             env.update(
                 {
+                    "PATH": f"{fake_bin}:/usr/bin:/bin",
                     "RUNNER_TEMP": str(tmp_path),
                     "GITHUB_ENV": str(github_env),
+                    "SRQL_FIXTURE_CA_URL": live_ca.as_uri(),
                     "SRQL_TEST_DATABASE_URL": (
                         f"postgres://app:{secret}@192.0.2.10:5432/srql_fixture"
                         "?application_name=forgejo-test"
@@ -591,6 +714,8 @@ class BuildBuddyCacheProxyConfigTest(unittest.TestCase):
                 self.assertNotIn(value, result.stderr)
 
             contents = github_env.read_text(encoding="utf-8")
+            self.assertIn("BEGIN CERTIFICATE", contents)
+            self.assertNotIn("not-a-real-certificate", contents)
             self.assertEqual(contents.count("sslmode=verify-full"), 2)
             for assignment in (
                 f"SRQL_TEST_DATABASE_SERVER_NAME={server_name}",
