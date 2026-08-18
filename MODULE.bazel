@@ -1026,7 +1026,7 @@ http_file(
     name = "debian_bison_amd64_deb",
     sha256 = "a414afd7519c53bfa33415ba5b951bc8b4906877004c49723ffda50a6033c3e8",
     urls = [
-        "https://deb.debian.org/debian/pool/main/b/bison/bison_3.8.2+dfsg-1+b1_amd64.deb",
+        "https://snapshot.debian.org/archive/debian/20220919T181143Z/pool/main/b/bison/bison_3.8.2+dfsg-1+b1_amd64.deb",
     ],
 )
 
@@ -1034,7 +1034,7 @@ http_file(
     name = "debian_flex_amd64_deb",
     sha256 = "75f963765232c356d0a2fb70e780dfa9de2425aca036ec60eefb7fc98a2c905b",
     urls = [
-        "https://deb.debian.org/debian/pool/main/f/flex/flex_2.6.4-8.2+b4_amd64.deb",
+        "https://snapshot.debian.org/archive/debian/20250105T040337Z/pool/main/f/flex/flex_2.6.4-8.2+b4_amd64.deb",
     ],
 )
 
@@ -1042,7 +1042,7 @@ http_file(
     name = "debian_libpq_dev_amd64_deb",
     sha256 = "59d348c5a42d2ea3aa62ef4fbbea9bda8f643ac28a752ce1917606643761d38a",
     urls = [
-        "https://deb.debian.org/debian/pool/main/p/postgresql-15/libpq-dev_15.18-0+deb12u1_amd64.deb",
+        "https://snapshot.debian.org/archive/debian/20260517T024156Z/pool/main/p/postgresql-15/libpq-dev_15.18-0+deb12u1_amd64.deb",
     ],
 )
 
@@ -1051,7 +1051,7 @@ http_file(
     # Keep the injected runtime libs aligned with Debian 12 / bookworm.
     sha256 = "1896a2aacf4ad681ff5eacc24a5b0ca4d5d9c9b9c9e4b6de5197bc1e116ea619",
     urls = [
-        "https://deb.debian.org/debian/pool/main/g/gcc-12/gcc-12-base_12.2.0-14+deb12u1_amd64.deb",
+        "https://snapshot.debian.org/archive/debian/20250415T084322Z/pool/main/g/gcc-12/gcc-12-base_12.2.0-14+deb12u1_amd64.deb",
     ],
 )
 
@@ -1059,7 +1059,7 @@ http_file(
     name = "debian_libgcc_s1_amd64_deb",
     sha256 = "3016e62cb4b7cd8038822870601f5ed131befe942774d0f745622cc77d8a88f7",
     urls = [
-        "https://deb.debian.org/debian/pool/main/g/gcc-12/libgcc-s1_12.2.0-14+deb12u1_amd64.deb",
+        "https://snapshot.debian.org/archive/debian/20250415T084322Z/pool/main/g/gcc-12/libgcc-s1_12.2.0-14+deb12u1_amd64.deb",
     ],
 )
 
@@ -1162,7 +1162,7 @@ http_file(
     name = "debian_libc6_amd64_deb",
     sha256 = "ba4f88f73dbc3ae9055f3c20f4523bfdbaf1ad13ff95e258924f77d20b4fbedf",
     urls = [
-        "https://deb.debian.org/debian/pool/main/g/glibc/libc6_2.36-9+deb12u14_amd64.deb",
+        "https://snapshot.debian.org/archive/debian/20260504T025922Z/pool/main/g/glibc/libc6_2.36-9+deb12u14_amd64.deb",
     ],
 )
 
@@ -1175,7 +1175,7 @@ http_file(
     name = "debian_libc6_dev_amd64_deb",
     sha256 = "0218fc2befcd784c1b0c6292c0a137ce89fad054efaa579ad083bee0f2c01aae",
     urls = [
-        "https://deb.debian.org/debian/pool/main/g/glibc/libc6-dev_2.36-9+deb12u14_amd64.deb",
+        "https://snapshot.debian.org/archive/debian/20260504T025922Z/pool/main/g/glibc/libc6-dev_2.36-9+deb12u14_amd64.deb",
     ],
 )
 
@@ -1185,7 +1185,7 @@ http_file(
     name = "debian_linux_libc_dev_amd64_deb",
     sha256 = "8bb258735b9dffbb111da778ebdd024750878e435ffd9dfcadcb6762ede6b4cf",
     urls = [
-        "https://deb.debian.org/debian/pool/main/l/linux/linux-libc-dev_6.1.176-1_amd64.deb",
+        "https://snapshot.debian.org/archive/debian/20260704T211317Z/pool/main/l/linux/linux-libc-dev_6.1.176-1_amd64.deb",
     ],
 )
 
@@ -1196,7 +1196,7 @@ http_file(
     name = "debian_libssl_dev_amd64_deb",
     sha256 = "43ef5c109056b1507a0972631ee8292e727029aeda1516b4672cb041730ae3af",
     urls = [
-        "https://deb.debian.org/debian/pool/main/o/openssl/libssl-dev_3.0.20-1~deb12u2_amd64.deb",
+        "https://snapshot.debian.org/archive/debian/20260612T023739Z/pool/main/o/openssl/libssl-dev_3.0.20-1~deb12u2_amd64.deb",
     ],
 )
 
@@ -1208,7 +1208,7 @@ http_file(
     name = "debian_libssl_dev_arm64_deb",
     sha256 = "c6941a83bebd83d2a1cd2db56418062d8f48b3200786aacafa194b75a93a3702",
     urls = [
-        "https://deb.debian.org/debian/pool/main/o/openssl/libssl-dev_3.0.20-1~deb12u2_arm64.deb",
+        "https://snapshot.debian.org/archive/debian/20260612T023739Z/pool/main/o/openssl/libssl-dev_3.0.20-1~deb12u2_arm64.deb",
     ],
 )
 
@@ -1240,7 +1240,7 @@ http_file(
     name = "debian_libgeos_c1v5_amd64_deb",
     sha256 = "93651aef73ee0f154213010e48fad6a6fc5c3b4e1f916b748aa7ac0dd59b64ff",
     urls = [
-        "https://deb.debian.org/debian/pool/main/g/geos/libgeos-c1v5_3.11.1-1_amd64.deb",
+        "https://snapshot.debian.org/archive/debian/20221116T215112Z/pool/main/g/geos/libgeos-c1v5_3.11.1-1_amd64.deb",
     ],
 )
 
@@ -1248,7 +1248,7 @@ http_file(
     name = "debian_libgeos3_11_1_amd64_deb",
     sha256 = "c7d9b3ec22fe9a5d6f8fa3572bfbe504224c8b2a8a0fc3ebb000581114c47660",
     urls = [
-        "https://deb.debian.org/debian/pool/main/g/geos/libgeos3.11.1_3.11.1-1_amd64.deb",
+        "https://snapshot.debian.org/archive/debian/20221116T215112Z/pool/main/g/geos/libgeos3.11.1_3.11.1-1_amd64.deb",
     ],
 )
 
@@ -1256,7 +1256,7 @@ http_file(
     name = "debian_libproj25_amd64_deb",
     sha256 = "94ebf20612db95dd5994d83f15ced2469dd8ce4c7f54dba598248caf685fdc9c",
     urls = [
-        "https://deb.debian.org/debian/pool/main/p/proj/libproj25_9.1.1-1+b1_amd64.deb",
+        "https://snapshot.debian.org/archive/debian/20230112T090754Z/pool/main/p/proj/libproj25_9.1.1-1+b1_amd64.deb",
     ],
 )
 
@@ -1264,7 +1264,7 @@ http_file(
     name = "debian_proj_data_all_deb",
     sha256 = "efa6a74fba305e664ba27b81c2a5708aa59554ba41659af0e8c325e477f3d955",
     urls = [
-        "https://deb.debian.org/debian/pool/main/p/proj/proj-data_9.1.1-1_all.deb",
+        "https://snapshot.debian.org/archive/debian/20221201T154914Z/pool/main/p/proj/proj-data_9.1.1-1_all.deb",
     ],
 )
 
@@ -1272,7 +1272,7 @@ http_file(
     name = "debian_libjson_c5_amd64_deb",
     sha256 = "d0e1ed8637d1c26b9720f6057d6355f18378bba5cc2553e459d1632783c00d70",
     urls = [
-        "https://deb.debian.org/debian/pool/main/j/json-c/libjson-c5_0.16-2_amd64.deb",
+        "https://snapshot.debian.org/archive/debian/20221003T031714Z/pool/main/j/json-c/libjson-c5_0.16-2_amd64.deb",
     ],
 )
 
@@ -1280,7 +1280,7 @@ http_file(
     name = "debian_libprotobuf_c1_amd64_deb",
     sha256 = "e99b3091938bfbd55b24e95587b868ba735e38e4adbcb9942c6993f2de3ba1bf",
     urls = [
-        "https://deb.debian.org/debian/pool/main/p/protobuf-c/libprotobuf-c1_1.4.1-1+b1_amd64.deb",
+        "https://snapshot.debian.org/archive/debian/20221123T031441Z/pool/main/p/protobuf-c/libprotobuf-c1_1.4.1-1+b1_amd64.deb",
     ],
 )
 
@@ -1288,7 +1288,7 @@ http_file(
     name = "debian_libtiff6_amd64_deb",
     sha256 = "255cd1d9f204355c366638ee21756234a8d43c03a3de18a5af6cdd94765b5053",
     urls = [
-        "https://deb.debian.org/debian/pool/main/t/tiff/libtiff6_4.5.0-6+deb12u4_amd64.deb",
+        "https://snapshot.debian.org/archive/debian/20260418T203406Z/pool/main/t/tiff/libtiff6_4.5.0-6+deb12u4_amd64.deb",
     ],
 )
 
@@ -1296,7 +1296,7 @@ http_file(
     name = "debian_libcurl3_gnutls_amd64_deb",
     sha256 = "bf430ecf80f7808704e0187cddc582fd57fc98789ea356d4797651edad387ef3",
     urls = [
-        "https://deb.debian.org/debian/pool/main/c/curl/libcurl3-gnutls_7.88.1-10+deb12u15_amd64.deb",
+        "https://snapshot.debian.org/archive/debian/20260630T210956Z/pool/main/c/curl/libcurl3-gnutls_7.88.1-10+deb12u15_amd64.deb",
     ],
 )
 
@@ -1304,7 +1304,7 @@ http_file(
     name = "debian_libwebp7_amd64_deb",
     sha256 = "7259b7ce46444694ce536360ad53acb68eb3b47a7ff81d7b1b8a3939b2ac9918",
     urls = [
-        "https://deb.debian.org/debian/pool/main/libw/libwebp/libwebp7_1.2.4-0.2+deb12u1_amd64.deb",
+        "https://snapshot.debian.org/archive/debian/20230916T210334Z/pool/main/libw/libwebp/libwebp7_1.2.4-0.2+deb12u1_amd64.deb",
     ],
 )
 
@@ -1312,7 +1312,7 @@ http_file(
     name = "debian_liblerc4_amd64_deb",
     sha256 = "771f5c47ca69f24ca61e4be0c98c5912b182ce442f921697d17a472f3ded5c9c",
     urls = [
-        "https://deb.debian.org/debian/pool/main/l/lerc/liblerc4_4.0.0+ds-2_amd64.deb",
+        "https://snapshot.debian.org/archive/debian/20221015T150249Z/pool/main/l/lerc/liblerc4_4.0.0+ds-2_amd64.deb",
     ],
 )
 
@@ -1320,7 +1320,7 @@ http_file(
     name = "debian_libjbig0_amd64_deb",
     sha256 = "6b07c77b700a615642888a82ba92a7e7c429d04b9c8669c62b2263f15c4c4059",
     urls = [
-        "https://deb.debian.org/debian/pool/main/j/jbigkit/libjbig0_2.1-6.1_amd64.deb",
+        "https://snapshot.debian.org/archive/debian/20221210T034654Z/pool/main/j/jbigkit/libjbig0_2.1-6.1_amd64.deb",
     ],
 )
 
@@ -1328,7 +1328,7 @@ http_file(
     name = "debian_libjpeg62_turbo_amd64_deb",
     sha256 = "95ec30140789a342add8f8371ed018924de51b539056522b66f207b25cba9cad",
     urls = [
-        "https://deb.debian.org/debian/pool/main/libj/libjpeg-turbo/libjpeg62-turbo_2.1.5-2_amd64.deb",
+        "https://snapshot.debian.org/archive/debian/20230204T031401Z/pool/main/libj/libjpeg-turbo/libjpeg62-turbo_2.1.5-2_amd64.deb",
     ],
 )
 
@@ -1336,7 +1336,7 @@ http_file(
     name = "debian_libdeflate0_amd64_deb",
     sha256 = "3d4b39f94317b64a860db8a7a8b581b555124cd461fe07ec0d347edbdb9f6683",
     urls = [
-        "https://deb.debian.org/debian/pool/main/libd/libdeflate/libdeflate0_1.14-1_amd64.deb",
+        "https://snapshot.debian.org/archive/debian/20221003T212100Z/pool/main/libd/libdeflate/libdeflate0_1.14-1_amd64.deb",
     ],
 )
 
@@ -1344,7 +1344,7 @@ http_file(
     name = "debian_libnghttp2_14_amd64_deb",
     sha256 = "5a5736cee57e51c1baed869979e6ecdbc6495e939e33203d6cfe3b6e5a149e3f",
     urls = [
-        "https://deb.debian.org/debian/pool/main/n/nghttp2/libnghttp2-14_1.52.0-1+deb12u3_amd64.deb",
+        "https://snapshot.debian.org/archive/debian/20260517T024156Z/pool/main/n/nghttp2/libnghttp2-14_1.52.0-1+deb12u3_amd64.deb",
     ],
 )
 
@@ -1352,7 +1352,7 @@ http_file(
     name = "debian_librtmp1_amd64_deb",
     sha256 = "e1f69020dc2c466e421ec6a58406b643be8b5c382abf0f8989011c1d3df91c87",
     urls = [
-        "https://deb.debian.org/debian/pool/main/r/rtmpdump/librtmp1_2.4+20151223.gitfa8646d.1-2+b2_amd64.deb",
+        "https://snapshot.debian.org/archive/debian/20200716T025032Z/pool/main/r/rtmpdump/librtmp1_2.4+20151223.gitfa8646d.1-2+b2_amd64.deb",
     ],
 )
 
@@ -1360,7 +1360,7 @@ http_file(
     name = "debian_libssh2_1_amd64_deb",
     sha256 = "d20a3ee34fa84ad8bd381e8be6e9c2c2ea32347cff5e1169c10e978d43f54f24",
     urls = [
-        "https://deb.debian.org/debian/pool/main/libs/libssh2/libssh2-1_1.10.0-3+b1_amd64.deb",
+        "https://snapshot.debian.org/archive/debian/20220515T152741Z/pool/main/libs/libssh2/libssh2-1_1.10.0-3+b1_amd64.deb",
     ],
 )
 
@@ -1368,7 +1368,7 @@ http_file(
     name = "debian_libpsl5_amd64_deb",
     sha256 = "4f0d35610204e4e754b057748719744114621f2f6f4202d846c314860a981afb",
     urls = [
-        "https://deb.debian.org/debian/pool/main/libp/libpsl/libpsl5_0.21.2-1_amd64.deb",
+        "https://snapshot.debian.org/archive/debian/20230214T212225Z/pool/main/libp/libpsl/libpsl5_0.21.2-1_amd64.deb",
     ],
 )
 
@@ -1376,7 +1376,7 @@ http_file(
     name = "debian_libbrotli1_amd64_deb",
     sha256 = "563b4caec1aa5e876bd3355b36e7a38e1484baf5a293b48d1e8bd22db786e4d7",
     urls = [
-        "https://deb.debian.org/debian/pool/main/b/brotli/libbrotli1_1.0.9-2+b6_amd64.deb",
+        "https://snapshot.debian.org/archive/debian/20230201T153118Z/pool/main/b/brotli/libbrotli1_1.0.9-2+b6_amd64.deb",
     ],
 )
 

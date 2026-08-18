@@ -3,9 +3,6 @@ actions:
     env:
       OCI_REGISTRY: "registry.carverauto.dev"
       OCI_AUTH_REQUIRED: "1"
-      # Self-hosted workflow pool is in the carverauto cluster. Fetch the live
-      # fixture CA from the in-cluster bundle; do not take it from the BuildBuddy secret store.
-      SRQL_FIXTURE_CA_URL: "http://srql-fixture-ca-incluster.srql-fixtures.svc.cluster.local/ca.crt"
 
     # Redirects work to pods in the self hosted cluster.
     self_hosted: true
@@ -63,9 +60,8 @@ actions:
       # target_compatible_with = requires_shared_fixture(), and the guard stays explicit because
       # they run DDL against a fixture concurrent branches share.
       #
-      # `--strategy=TestRunner=local` moves ONLY the test action to the runner, which is the only
-      # host that resolves srql-fixture-rw.srql-fixtures.svc.cluster.local. A target tag cannot
-      # select by mnemonic and would drag rustc onto a runner with no compiler.
+      # `--strategy=TestRunner=local` moves ONLY the test action to the runner, which is the
+      # only host with a route to the fixture database.
       #
       # $SERVICERADAR_TEST_ENV_FLAGS is a BRIDGE from //:buildbuddy_setup_fixture_env for the
       # readers ConfigManager has not taken over yet. It disappears with them.

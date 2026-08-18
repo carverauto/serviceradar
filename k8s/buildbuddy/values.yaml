@@ -121,6 +121,16 @@ config:
 
     enable_oci: true
     default_isolation_type: oci
+    # KEPT ON THIS FLEET, AND ONLY THIS FLEET. Exactly one target asks for it:
+    # //rust/dgraph-client/tests sets `test.workload-isolation-type: firecracker` and
+    # `test.init-dockerd: true` (BUILD.bazel:94-96). It carries `integration_test`, which
+    # //buildbuddy.yaml's last step runs as
+    # `bazel test ... --test_tag_filters=integration_test`, and it names no pool, so it
+    # dispatches here. Remove this and that task finds no executor able to accept its
+    # isolation type -- a scheduling failure, not a test failure, reported as though the
+    # pool were empty. ./values-workflows.yaml deliberately does NOT set it: nothing in the
+    # workflows pool requests firecracker, and running the CI runner in a microVM cost that
+    # pool its route to the cluster (see the note at cache_target there).
     enable_firecracker: true
     firecracker_debug_stream_vm_logs: true
     # Floor for VM sizing; without it predicted sizes are used verbatim and a

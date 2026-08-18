@@ -152,6 +152,9 @@ extraVolumeMounts:
 
 config:
   executor:
+    # Firecracker snapshot sharing. Inert on this fleet now that enable_firecracker is gone
+    # (see below) -- kept rather than deleted because it costs nothing while off and is the
+    # setting to restore first if this pool ever needs microVM isolation again.
     enable_local_snapshot_sharing: true
 
     # Must match ./values.yaml and //.bazelrc `build:remote_base`. This is the control AND
@@ -169,23 +172,43 @@ config:
     # everything around it goes through the proxy.
     #
     # Note this is the EXECUTOR's cache target, which is a different hop from the Bazel
-    # CLIENT running inside the runner VM. That client reaches the same proxy through the
-    # public TLS edge instead, because its network namespace has no route to the service CIDR
-    # -- it inherits `build:cache_only --remote_cache` through remote_base with no opt-in. The two
-    # paths are independent and either works without the other, which is why they may name
-    # different addresses for one proxy.
+    # CLIENT running inside the runner. That client reaches the same proxy through the public
+    # TLS edge -- it inherits `build:cache_only --remote_cache` through remote_base with no
+    # opt-in. The two paths are independent and either works without the other, which is why
+    # they may name different addresses for one proxy.
+    #
+    # The client used the public edge because it HAD to: with enable_firecracker the runner
+    # was a microVM whose network namespace had no route to the service CIDR and no CoreDNS.
+    # That is gone (see enable_firecracker below), so the client could now use an in-cluster
+    # address too. Leave it on the public edge anyway: it is the one address that works from
+    # a microVM, a pod and a workstation alike, and a CI path that depends on the runner's
+    # network topology is a CI path that breaks the next time the topology changes. It broke
+    # exactly that way once -- //buildbuddy.yaml pointed SRQL_FIXTURE_CA_URL at a ClusterIP.
     cache_target: grpc://bb-cache-proxy-buildbuddy-enterprise-cache-proxy.buildbuddy.svc.cluster.local:1985
 
     enable_oci: true
     default_isolation_type: oci
-    # The runner executes in a microVM -- BuildBuddy's own low-memory notice reads "The VM
-    # that executed this invocation", which is what makes the sizing above the VM's sizing.
-    enable_firecracker: true
-    firecracker_debug_stream_vm_logs: true
+    # NO enable_firecracker HERE, AND THAT IS THE POINT OF THIS FLEET.
+    #
+    # A microVM gets its own network namespace with no route to the service CIDR and no
+    # CoreDNS, so a workflow step could reach neither the in-cluster CA bundle nor the
+    # fixture database by cluster DNS. Under OCI isolation the step runs in a container on
+    # this pod, which has ClusterFirst DNS.
+    #
+    # ./values.yaml still sets it, and must: //rust/dgraph-client/tests requests
+    # `test.workload-isolation-type: firecracker` and dispatches to the default pool. Nothing
+    # in the workflows pool requests it. Turning it back on here would silently restore the
+    # network isolation this fleet exists to avoid.
+    #
+    # This trades VM isolation for container isolation on the fleet that runs PR code. The
+    # `pr` trigger in //buildbuddy.yaml is limited to `staging`, so that is repository
+    # collaborators rather than arbitrary forks -- but a workflow step now shares this pod's
+    # network, and a compromised step can reach anything the pod can. Weigh that before
+    # widening the trigger.
 
-    # Floor only, same rationale as ./values.yaml: without it a predicted size can leave a
-    # microVM too small to unpack its own initrd. The runner's real size comes from
-    # resource_requests in //buildbuddy.yaml, which is far above this.
+    # Floor only. The runner's real size comes from resource_requests in //buildbuddy.yaml,
+    # which is far above this; without a floor a predicted size is used verbatim and can
+    # under-reserve a task.
     #
     # int64 byte count, not a k8s quantity: "2Gi" does not parse here.
     default_task_size:
