@@ -1,10 +1,10 @@
 # Software Bill of Materials (SBOM)
 
-ServiceRadar generates SBOMs and vulnerability reports in Forgejo Actions using:
+ServiceRadar generates SBOMs and vulnerability reports in GitHub Actions using:
 
 - **Syft** for SPDX SBOM generation
 - **OSV-Scanner** for vulnerability detection
-- **Forgejo Actions** for automation
+- **GitHub Actions** for automation
 - **Harbor** for published container images
 
 Trivy is intentionally not part of this workflow.
@@ -12,7 +12,7 @@ Trivy is intentionally not part of this workflow.
 ## Workflows
 
 ### 1. Source Security Scan
-**Workflow:** `.forgejo/workflows/source-security.yml`
+**Workflow:** `.github/workflows/source-security.yml`
 
 This workflow scans the repository itself and generates:
 
@@ -32,7 +32,7 @@ For tagged releases, it uploads a bundled archive named:
 - `serviceradar-source-security.tar.gz`
 
 ### 2. Image Security Scan
-**Workflow:** `.forgejo/workflows/image-security.yml`
+**Workflow:** `.github/workflows/image-security.yml`
 
 This workflow scans the released Harbor images for a given tag and generates, for each publishable image:
 
