@@ -79,12 +79,12 @@ impl<'data, 'file, Xcoff: FileHeader, R: ReadRef<'data>> XcoffSection<'data, 'fi
 
     /// Get the raw XCOFF relocation entries for this section.
     pub fn xcoff_relocations(&self) -> Result<&'data [Xcoff::Rel]> {
-        self.section.relocations(self.file.data)
+        self.section.relocations(self.file.data.0)
     }
 
     fn bytes(&self) -> Result<&'data [u8]> {
         self.section
-            .data(self.file.data)
+            .data(self.file.data.0)
             .read_error("Invalid XCOFF section offset or size")
     }
 }

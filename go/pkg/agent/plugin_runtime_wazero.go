@@ -110,6 +110,7 @@ func (m *PluginManager) executeWithWasm(ctx context.Context, assignment *pluginA
 func (m *PluginManager) executeActionWithWasm(
 	ctx context.Context,
 	assignment *pluginAssignment,
+	entrypointName string,
 	wasm []byte,
 	configJSON []byte,
 	credentialGrants []credentialBrokerGrant,
@@ -157,9 +158,9 @@ func (m *PluginManager) executeActionWithWasm(
 		_ = module.Close(ctx)
 	}()
 
-	entrypoint := module.ExportedFunction(assignment.Entrypoint)
+	entrypoint := module.ExportedFunction(entrypointName)
 	if entrypoint == nil {
-		return nil, fmt.Errorf("%w: %s", errEntrypointNotFound, assignment.Entrypoint)
+		return nil, fmt.Errorf("%w: %s", errEntrypointNotFound, entrypointName)
 	}
 
 	if _, err := entrypoint.Call(ctx); err != nil {

@@ -6,6 +6,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexView.ImportModal do
   attr(:uploads, :any, required: true)
   attr(:csv_preview, :any, default: nil)
   attr(:csv_errors, :list, default: [])
+  attr(:csv_warnings, :list, default: [])
+  attr(:import_status, :any, default: nil)
 
   def import_csv_modal(assigns) do
     ~H"""
@@ -15,6 +17,22 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexView.ImportModal do
         Upload a CSV file to bulk import devices into your inventory.
       </p>
 
+      <%!--
+      Two distinct states, never conflated: a parse warning means the file was
+      partly usable and the rest still previews, while an error means nothing
+      was imported or the run failed part-way through.
+      --%>
+      <div
+        :if={is_binary(@import_status)}
+        class={ui_alert_class(variant: "warning", class: "my-4")}
+      >
+        <.icon name="hero-exclamation-triangle" class="size-5" />
+        <div>
+          <div class="font-semibold">Partial Import</div>
+          <p class="text-sm">{@import_status}</p>
+        </div>
+      </div>
+
       <!-- Error Display -->
       <div :if={@csv_errors != []} class={ui_alert_class(variant: "error", class: "my-4")}>
         <.icon name="hero-exclamation-circle" class="size-5" />
@@ -23,6 +41,19 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexView.ImportModal do
           <ul class="text-sm list-disc list-inside">
             <%= for error <- @csv_errors do %>
               <li>{error}</li>
+            <% end %>
+          </ul>
+        </div>
+      </div>
+
+      <!-- Skipped-row Display -->
+      <div :if={@csv_warnings != []} class={ui_alert_class(variant: "warning", class: "my-4")}>
+        <.icon name="hero-exclamation-triangle" class="size-5" />
+        <div>
+          <div class="font-semibold">Skipped Rows</div>
+          <ul class="text-sm list-disc list-inside">
+            <%= for warning <- @csv_warnings do %>
+              <li>{warning}</li>
             <% end %>
           </ul>
         </div>
@@ -47,14 +78,16 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexView.ImportModal do
               <tr>
                 <td class="font-mono">hostname</td>
                 <td>
-                  <.ui_badge size="xs" variant="success">Yes</.ui_badge>
+                  <.ui_badge size="xs" variant="warning">Either</.ui_badge>
                 </td>
-                <td>Device hostname</td>
+                <td>
+                  Device hostname (resolved to an IP when the ip column is empty; max 100 per import)
+                </td>
               </tr>
               <tr>
                 <td class="font-mono">ip</td>
                 <td>
-                  <.ui_badge size="xs" variant="success">Yes</.ui_badge>
+                  <.ui_badge size="xs" variant="warning">Either</.ui_badge>
                 </td>
                 <td>IP address</td>
               </tr>

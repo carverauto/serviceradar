@@ -43,6 +43,18 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.FeedWorker do
   require Ash.Query
   require Logger
 
+  @impl true
+  # farm01 nist-nvd2 inserted ~360k advisories / 2.5M coordinates in 30 minutes
+  # and still had shards left. 60 minutes leaves headroom for a cold PVC.
+  def timeout(%Oban.Job{args: %{"feed" => "nist-nvd2"}}), do: 3_600_000
+  def timeout(_job), do: 180_000
+
+  # Must exceed the longest worker timeout. 15 minutes was marking a live
+  # nist-nvd2 run stale because already_scheduled?/1 could not see the job
+  # (it queried "Elixir.ServiceRadar..." while Oban stores the bare module).
+  @stale_running_seconds 75 * 60
+  @worker_name inspect(__MODULE__)
+
   # NOTE: "nvd-api" is intentionally excluded — `do_run("nvd-api")` is an
   # unimplemented stub, so scheduling it only produces error+reschedule noise.
   # Add it back here once the NVD CVE 2.0 REST fallback is wired.
@@ -56,6 +68,9 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.FeedWorker do
   @spec ensure_scheduled() :: {:ok, :scheduled} | {:error, term()}
   def ensure_scheduled do
     if ObanSupport.available?() do
+      _ = Staging.reap_orphans()
+      reconcile_stale_runs()
+
       if Config.enabled?() do
         Enum.each(@feeds, &maybe_enqueue/1)
       end
@@ -69,6 +84,7 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.FeedWorker do
   @doc "Enqueue a single feed now (operator \"Run now\")."
   @spec enqueue(String.t()) :: {:ok, Oban.Job.t()} | {:error, term()}
   def enqueue(feed) when feed in @feeds do
+    _ = cancel_incomplete(feed)
     %{feed: feed} |> new() |> ObanSupport.safe_insert()
   end
 
@@ -88,12 +104,42 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.FeedWorker do
     end
   end
 
+  defp mark_disabled(feed) do
+    actor = SystemActor.system(:advisory_feed_worker)
+
+    mark_status(
+      feed,
+      %{
+        last_status: "error",
+        last_failure_at: DateTime.utc_now(),
+        last_error:
+          "advisory feed ingestion is disabled on this deployment (enable core.advisoryFeeds)"
+      },
+      actor
+    )
+  end
+
+  defp cancel_incomplete(feed) do
+    import Ecto.Query
+
+    ServiceRadar.Repo.delete_all(
+      from(j in Oban.Job,
+        where: j.worker == ^@worker_name,
+        where: j.state in ["available", "scheduled", "retryable"],
+        where: fragment("?->>'feed' = ?", j.args, ^feed)
+      ),
+      prefix: ObanSupport.prefix()
+    )
+  rescue
+    _ -> {0, nil}
+  end
+
   defp already_scheduled?(feed) do
     import Ecto.Query
 
     query =
       from(j in Oban.Job,
-        where: j.worker == ^to_string(__MODULE__),
+        where: j.worker == ^@worker_name,
         where: j.state in ["available", "scheduled", "executing", "retryable"],
         where: fragment("?->>'feed' = ?", j.args, ^feed),
         limit: 1
@@ -109,6 +155,7 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.FeedWorker do
     cond do
       not Config.enabled?() ->
         Logger.info("advisory_feeds: disabled, skipping #{feed}")
+        mark_disabled(feed)
         :ok
 
       not Config.feed_enabled?(feed) ->
@@ -133,49 +180,101 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.FeedWorker do
   defp run_feed(feed) do
     actor = SystemActor.system(:advisory_feed_worker)
     started = DateTime.utc_now()
-    mark_status(feed, %{last_status: "running", last_attempt_at: started}, actor)
 
-    case do_run(feed) do
-      {:ok, result} ->
-        Logger.info("advisory_feeds: #{feed} loaded", result: inspect(result))
+    mark_status(
+      feed,
+      %{last_status: "running", last_attempt_at: started, last_error: nil, last_message: nil},
+      actor
+    )
 
-        mark_status(
-          feed,
-          %{
-            last_status: "success",
-            last_success_at: DateTime.utc_now(),
-            last_message: "loaded #{result.advisories_upserted} advisories",
-            last_error: nil,
-            metadata: %{
-              "advisories" => result.advisories_upserted,
-              "coordinates" => result.coordinates_upserted,
-              "generation" => result.generation
-            }
-          },
-          actor
-        )
+    try do
+      case do_run(feed) do
+        {:ok, result} ->
+          Logger.info("advisory_feeds: #{feed} loaded", result: inspect(result))
 
-        schedule_next(feed)
-        :ok
+          mark_status(
+            feed,
+            %{
+              last_status: "success",
+              last_success_at: DateTime.utc_now(),
+              last_message: "loaded #{result.advisories_upserted} advisories",
+              last_error: nil,
+              metadata: %{
+                "advisories" => result.advisories_upserted,
+                "coordinates" => result.coordinates_upserted,
+                "generation" => result.generation
+              }
+            },
+            actor
+          )
 
-      {:error, reason} ->
-        Logger.warning("advisory_feeds: #{feed} failed: #{inspect(reason)}",
-          reason: inspect(reason)
-        )
+          schedule_next(feed)
+          :ok
 
-        mark_status(
-          feed,
-          %{
-            last_status: "error",
-            last_failure_at: DateTime.utc_now(),
-            last_error: inspect(reason)
-          },
-          actor
-        )
-
-        schedule_next(feed)
-        {:error, reason}
+        {:error, reason} ->
+          fail_feed(feed, reason, actor)
+      end
+    rescue
+      exception ->
+        fail_feed(feed, exception, actor)
+        reraise exception, __STACKTRACE__
     end
+  end
+
+  defp fail_feed(feed, reason, actor) do
+    Logger.warning("advisory_feeds: #{feed} failed: #{inspect(reason)}",
+      reason: inspect(reason)
+    )
+
+    mark_status(
+      feed,
+      %{
+        last_status: "error",
+        last_failure_at: DateTime.utc_now(),
+        last_error: inspect(reason)
+      },
+      actor
+    )
+
+    schedule_next(feed)
+    {:error, reason}
+  end
+
+  @doc false
+  def reconcile_stale_runs(now \\ DateTime.utc_now()) do
+    actor = SystemActor.system(:advisory_feed_worker)
+
+    Enum.each(@feeds, fn feed ->
+      {provider, feed_key} = provider_feed(feed)
+
+      case read_definition(provider, feed_key, actor) do
+        {:ok, %{last_status: "running", last_attempt_at: %DateTime{} = attempted_at} = definition} ->
+          if DateTime.diff(now, attempted_at, :second) >= @stale_running_seconds and
+               not already_scheduled?(feed) do
+            mark_status(
+              feed,
+              %{
+                last_status: "error",
+                last_failure_at: now,
+                last_error: definition.last_error || "stale running status; no in-flight job"
+              },
+              actor
+            )
+          end
+
+        _ ->
+          :ok
+      end
+    end)
+
+    :ok
+  end
+
+  defp read_definition(provider, feed_key, actor) do
+    VulnerabilityFeedDefinition
+    |> Ash.Query.for_read(:read)
+    |> Ash.Query.filter(provider == ^provider and feed_key == ^feed_key)
+    |> Ash.read_one(actor: actor)
   end
 
   # --- per-feed pipelines ---------------------------------------------------
@@ -184,30 +283,28 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.FeedWorker do
     run_id = run_id()
     url = Config.cisa_kev_url()
 
-    with {:ok, acquired} <- Acquisition.acquire_cisa(url, run_id),
-         {:ok, result} <- parse_and_load(acquired, "cisa", "cisa-kev", &parse_kev/1) do
-      Staging.cleanup_run(acquired.run_dir)
-      {:ok, result}
+    with {:ok, acquired} <- Acquisition.acquire_cisa(url, run_id) do
+      with_run_cleanup(acquired, fn ->
+        parse_and_load(acquired, "cisa", "cisa-kev", &parse_kev/1)
+      end)
     end
   end
 
   defp do_run("vulncheck-kev") do
     with {:ok, token} <- Config.vulncheck_token(),
          {:ok, acquired} <-
-           Acquisition.acquire_vulncheck("vulncheck-kev", token, run_id()),
-         {:ok, result} <- parse_and_load(acquired, "vulncheck", "vulncheck-kev", &parse_kev/1) do
-      Staging.cleanup_run(acquired.run_dir)
-      {:ok, result}
+           Acquisition.acquire_vulncheck("vulncheck-kev", token, run_id()) do
+      with_run_cleanup(acquired, fn ->
+        parse_and_load(acquired, "vulncheck", "vulncheck-kev", &parse_kev/1)
+      end)
     end
   end
 
   defp do_run("nist-nvd2") do
     if Staging.volume_available?() do
       with {:ok, token} <- Config.vulncheck_token(),
-           {:ok, acquired} <- Acquisition.acquire_vulncheck("nist-nvd2", token, run_id()),
-           {:ok, result} <- parse_and_load_nvd(acquired) do
-        Staging.cleanup_run(acquired.run_dir)
-        {:ok, result}
+           {:ok, acquired} <- Acquisition.acquire_vulncheck("nist-nvd2", token, run_id()) do
+        with_run_cleanup(acquired, fn -> parse_and_load_nvd(acquired) end)
       end
     else
       Logger.warning(
@@ -222,6 +319,14 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.FeedWorker do
     # NVD CVE 2.0 REST fallback is intentionally a stub in this slice (paginated,
     # rate-limited). VulnCheck nist-nvd2 is the primary CPE source.
     {:error, :nvd_api_not_implemented}
+  end
+
+  # Failed nist-nvd2 runs used to keep the 900 MB extract. On demo that piled
+  # up to 255 GiB and evicted the node. Always drop the run dir.
+  defp with_run_cleanup(acquired, fun) do
+    fun.()
+  after
+    Staging.cleanup_run(acquired.run_dir)
   end
 
   defp parse_and_load(acquired, provider, feed_key, parse_fun) do

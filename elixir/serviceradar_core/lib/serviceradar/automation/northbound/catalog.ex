@@ -2,14 +2,13 @@ defmodule ServiceRadar.Automation.Northbound.Catalog do
   @moduledoc """
   Eligibility helpers for provider-neutral northbound actions.
 
-  The first implementation exposes configured northbound descriptors and keeps
-  the existing Ansible launch path as a first-party adapter when launchable AWX
-  playbooks exist. That keeps the UI generic while Ansible is migrated behind
-  the shared invocation model.
+  The operator catalog exposes configured, active northbound descriptors.
+  Retained Ansible providers are an internal compatibility surface and are
+  never synchronized or exposed by this read path.
   """
 
   alias ServiceRadar.Automation.Northbound.ActionDescriptor
-  alias ServiceRadar.Automation.Northbound.AnsibleActionSync
+  alias ServiceRadar.Automation.Northbound.ActionProvider
 
   require Ash.Query
 
@@ -31,8 +30,6 @@ defmodule ServiceRadar.Automation.Northbound.Catalog do
 
   @spec eligible_device_actions(term()) :: [action_summary()]
   def eligible_device_actions(scope) do
-    _ = AnsibleActionSync.sync_launchable_playbooks()
-
     descriptor_actions(scope, "device")
   end
 
@@ -49,27 +46,39 @@ defmodule ServiceRadar.Automation.Northbound.Catalog do
 
   defp descriptor_actions(scope, action_scope) do
     ActionDescriptor
-    |> Ash.Query.for_read(:enabled_for_scope, %{scope: action_scope})
-    |> Ash.Query.load(:provider)
+    |> Ash.Query.for_read(:launchable_for_scope, %{scope: action_scope})
     |> Ash.read(scope: scope)
     |> case do
       {:ok, descriptors} ->
-        descriptors
-        |> Enum.filter(&provider_launchable?/1)
-        |> Enum.map(&descriptor_summary(&1, action_scope))
+        descriptor_actions_with_providers(descriptors, scope, action_scope)
 
       {:error, _reason} ->
         []
     end
   end
 
-  defp provider_launchable?(%{provider: %{status: :active}}), do: true
-  defp provider_launchable?(%{provider: %Ash.NotLoaded{}}), do: false
-  defp provider_launchable?(_descriptor), do: false
+  defp descriptor_actions_with_providers([], _scope, _action_scope), do: []
 
-  defp descriptor_summary(descriptor, action_scope) do
-    provider = descriptor.provider
+  defp descriptor_actions_with_providers(descriptors, scope, action_scope) do
+    provider_ids = descriptors |> Enum.map(& &1.provider_id) |> Enum.uniq()
 
+    case ActionProvider.list_launch_candidates_by_ids(provider_ids, scope: scope) do
+      {:ok, providers} ->
+        providers_by_id = Map.new(providers, &{&1.id, &1})
+
+        Enum.flat_map(descriptors, fn descriptor ->
+          case Map.get(providers_by_id, descriptor.provider_id) do
+            nil -> []
+            provider -> [descriptor_summary(descriptor, provider, action_scope)]
+          end
+        end)
+
+      {:error, _reason} ->
+        []
+    end
+  end
+
+  defp descriptor_summary(descriptor, provider, action_scope) do
     %{
       id: "northbound:#{descriptor.id}",
       descriptor_id: descriptor.id,
@@ -83,9 +92,8 @@ defmodule ServiceRadar.Automation.Northbound.Catalog do
       safety_classification: to_string(descriptor.safety_classification),
       requires_confirmation: descriptor.requires_confirmation,
       timeout_seconds: descriptor.timeout_seconds,
-      # Provider-specific descriptor metadata. For AWX/Ansible descriptors this
-      # carries "playbook_id"/"source_type", which the Run Task modal uses to
-      # render a typed variable form (VariableSchema.from_playbook/1).
+      # Provider-specific descriptor metadata used by the provider-neutral
+      # invocation and dispatch paths.
       metadata: descriptor.metadata || %{}
     }
   end

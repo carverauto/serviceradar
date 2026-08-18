@@ -151,7 +151,7 @@ For detailed edge agent deployment, see the [Edge Agent Guide](../docs/docs/edge
 | `agent.checkersStorage.enabled` | Persist agent checker config under `/var/lib/serviceradar/checkers` | `true` |
 | `agent.cacheStorage.enabled` | Persist agent runtime cache under `/var/lib/serviceradar/cache` | `true` |
 | `agent.runtimeStorage.enabled` | Persist managed agent release runtime under `/var/lib/serviceradar/agent` | `true` |
-| `webNg.gatewayAddress` | External gateway address for edge agents (host:port). Set this explicitly when the agent gateway is exposed on a different host than the web ingress. Otherwise it defaults to `ingress.host:50052` when set, or the in-cluster service. | `""` |
+| `webNg.gatewayAddress` | External gateway address for edge agents (`host:port`). Set this explicitly when the agent gateway is exposed on a different host than the web endpoint. Otherwise the chart derives port `50052` from `webNg.host`, `ingress.host`, or `gatewayApi.host` (in that order), then falls back to the in-cluster service name. | `""` |
 
 ### Storage Encryption
 
@@ -208,7 +208,10 @@ Initial scrape inventory:
 
 ### HA And JetStream Sizing
 
-The published chart defaults stay conservative and mostly single-replica so first installs fit smaller clusters. The `demo` overlay in [values-demo.yaml](/home/mfreeman/src/serviceradar/helm/serviceradar/values-demo.yaml) enables the HA profile that has been validated in Kubernetes:
+The base chart defaults the core control plane, shared ingest workers, datasvc,
+and NATS to three replicas. The `demo` overlay in
+[values-demo.yaml](values-demo.yaml) repeats that validated topology and adds
+demo-specific external ingest settings. Its effective replica layout is:
 
 - `core.replicas=3`
 - `webNg.replicas=3`
@@ -217,31 +220,60 @@ The published chart defaults stay conservative and mostly single-replica so firs
 - `logCollector.replicaCount=3`
 - `logCollector.tcpCollector.replicaCount=3`
 - `trapd.replicaCount=3`
-- `flowCollector.replicaCount=3`
-- `bmpCollector.replicaCount=3`
+- `flowCollector.replicaCount=1` (single pod + Recreate + RWO marker PVC; JetStream HA is `config.stream_replicas=3`)
+- `bmpCollector.replicaCount=3` (demo only; `values-ha.yaml` does not enable or scale BMP)
 
 The control-plane and ingest workers above rely on shared JetStream durable consumers or shared streams. The important knobs are:
 
 | Parameter | Purpose | Default |
 |-----------|---------|---------|
-| `datasvc.jetstreamReplicas` | Replica count for KV/object streams owned by datasvc | `1` |
-| `datasvc.bucketMaxBytes` | Max bytes for `KV_serviceradar-datasvc` | `5368709120` |
+| `datasvc.jetstreamReplicas` | Replica count for KV/object streams owned by datasvc | `3` |
+| `datasvc.bucketMaxBytes` | Max bytes for `KV_serviceradar-datasvc` | `4294967296` (4 GiB) |
 | `datasvc.objectMaxBytes` | Max bytes for a single object upload | `536870912` |
-| `datasvc.objectStoreBytes` | Max bytes exposed to datasvc object-store config | `17179869184` |
+| `datasvc.objectStoreBytes` | Max bytes exposed to datasvc object-store config | `10737418240` (10 GiB) |
 | `objectStoreRetention.enabled` | Enables scheduled cleanup for ServiceRadar-owned object-store namespaces | `true` |
 | `objectStoreRetention.dryRun` | Logs retention decisions without deleting eligible objects | `false` |
 | `objectStoreRetention.agentReleaseKeepLatest` | Imported agent releases to retain when not protected by rollout state | `1` |
 | `objectStoreRetention.nativeAddonOrphanGraceSeconds` | Grace period before deleting unreferenced native add-on objects | `604800` |
-| `logCollector.streamReplicas` | Replica count for the shared `events` stream | `1` |
+| `logCollector.streamReplicas` | Replica count for the shared `events` stream | `3` |
 | `logCollector.streamMaxBytes` | Max bytes for the shared `events` stream | `2147483648` |
-| `logCollector.tcpCollector.streamReplicas` | Replica count for TCP syslog writers on `events` | `1` |
-| `trapd.streamReplicas` | Replica count for SNMP trap writers on `events` | `1` |
-| `flowCollector.streamReplicas` | Replica count for flow writers on `events` | `1` |
-| `flowCollector.config.stream_max_bytes` | Max bytes for flow subjects on `events` | `10737418240` |
+| `logCollector.tcpCollector.streamReplicas` | Replica count for TCP syslog writers on `events` | `3` |
+| `trapd.streamReplicas` | Replica count for SNMP trap writers on `events` | `3` |
 | `bmpCollector.config.streamReplicas` | Replica count for the dedicated `ARANCINI_CAUSAL` stream | `1` |
 | `bmpCollector.config.streamMaxBytes` | Max bytes for the dedicated BMP stream | `10737418240` |
 
+Dedicated **`flows`** stream (flow-collector owns ensure/reconcile; not the shared `events` bus):
+
+| Parameter | Purpose | Default |
+|-----------|---------|---------|
+| `flowCollector.config.stream_name` | JetStream stream name for raw flows | `flows` |
+| `flowCollector.config.stream_replicas` | JetStream replica count for the dedicated `flows` stream | `3` |
+| `flowCollector.config.stream_max_bytes` | Max bytes for the dedicated `flows` stream | `10737418240` (10 GiB) |
+| `flowCollector.config.stream_max_age_secs` | Max age for the dedicated `flows` stream | `21600` (6h) |
+
 In `demo`, the shared `events` path runs at `3` replicas with smaller reserved caps so JetStream placement fits within the account budget. Datasvc keeps the KV stream small while leaving object-store headroom for one retained agent release plus a replacement import before retention runs. `bmpCollector` runs with `3` pods in demo, but its dedicated stream is still intentionally left at `1` replica until that stream budget is sized separately.
+
+### Rolling Back Across the Flows Cutover
+
+A plain `helm rollback` is unsafe when the target revision still configures the
+flow collector with `stream_name: events`: Helm restores the old image before
+that image can detach subjects from the dedicated `flows` stream. From a source
+checkout, use the guarded helper so the current image transfers ownership back
+before Helm starts the old image:
+
+```bash
+scripts/prepare-flow-collector-rollback.sh \
+  --release serviceradar \
+  --namespace <namespace> \
+  --revision <legacy-revision>
+```
+
+For GitOps, pause reconciliation and use `--prepare-only --target-config` with
+the target revision's rendered `flow-collector.json`; this mode does not require
+Helm release history. Select the old revision immediately after preparation
+succeeds. See the
+[NetFlow ingest guide](../../docs/docs/netflow.md#downgrading-across-the-stream-ownership-cutover)
+for the failure mode and recovery instructions.
 
 ### Notes
 

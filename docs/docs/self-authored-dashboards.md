@@ -136,10 +136,19 @@ other ServiceRadar features can use the same user groups over time.
 
 ## Reports and email delivery
 
-Dashboards can be used for scheduled reports when outbound mail is configured by
-an administrator. Mail settings are system-wide and live under **Settings** so
-the same outbound mail configuration can be reused by other ServiceRadar
-features.
+Reports are authored SRQL dashboards, not a separate sidebar product. The
+dashboard library has a **Reports** section for system reports such as **New
+devices** (`in:devices first_seen:last_30d`). Device pages also show **Added**
+next to Last Seen.
+
+Dashboards can be emailed on a schedule when outbound mail is configured under
+**Settings -> Mail**. See [Outbound Mail](./outbound-mail.md) for adapters
+(Local vs Test vs SMTP) and the SMTP field-by-field setup. Owners can schedule
+their own dashboards. Users with the report-schedule permission can also
+subscribe to public or shared reports.
+
+Creating or changing a dashboard or schedule is recorded in AshPaperTrail and
+shows up in Settings -> Audit -> History.
 
 Report delivery is asynchronous. A scheduled dashboard report should not block
 interactive dashboard viewing or editing.

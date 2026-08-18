@@ -14,9 +14,10 @@ use config::Config;
 use host_slice::HostSliceRouter;
 use listener::{Listener, build_handler};
 use metrics::{HostSliceMetricsRegistry, ListenerMetrics, MetricsReporter, SubjectDropRegistry};
-use publisher::Publisher;
+use publisher::{OutboundFlow, Publisher};
 use std::sync::Arc;
 use std::sync::Once;
+use std::time::{Duration, Instant};
 use tokio::net::UdpSocket;
 use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
@@ -70,7 +71,7 @@ async fn main() -> Result<()> {
     // publisher consumes from a single merged channel. This isolates noisy
     // listeners from quiet ones — a saturated sflow stream no longer steals
     // capacity from a sparse netflow stream.
-    let (publisher_tx, publisher_rx) = mpsc::channel::<(String, Vec<u8>)>(config.channel_size);
+    let (publisher_tx, publisher_rx) = mpsc::channel::<OutboundFlow>(config.channel_size);
 
     // Spawn publisher
     let publisher_config = Arc::clone(&config);
@@ -79,11 +80,7 @@ async fn main() -> Result<()> {
         publisher_rx,
         Arc::clone(&host_slice_metrics),
     );
-    let publisher_handle = tokio::spawn(async move {
-        if let Err(e) = publisher.run().await {
-            log::error!("Publisher error: {}", e);
-        }
-    });
+    let publisher_handle = tokio::spawn(async move { publisher.run().await });
 
     // Spawn listeners
     let mut listener_handles: Vec<JoinHandle<()>> = Vec::new();
@@ -110,7 +107,7 @@ async fn main() -> Result<()> {
         // `channel_size` but can be overridden per listener so operators can
         // give sflow more headroom than netflow (or vice versa).
         let cap = listener_cfg.channel_size(config.channel_size);
-        let (listener_tx, mut listener_rx) = mpsc::channel::<(String, Vec<u8>)>(cap);
+        let (listener_tx, mut listener_rx) = mpsc::channel::<OutboundFlow>(cap);
 
         // Forwarder: drains this listener's channel into the shared publisher
         // channel. We use `send().await` here (not `try_send`) — by the time
@@ -155,7 +152,8 @@ async fn main() -> Result<()> {
     }
 
     // Drop the original publisher sender so the publisher will shut down when
-    // all forwarders complete (which happens when all listeners stop).
+    // all forwarders complete (which happens when all listeners stop or we
+    // abort them on SIGTERM).
     drop(publisher_tx);
 
     // Spawn metrics reporter
@@ -166,21 +164,106 @@ async fn main() -> Result<()> {
 
     log::info!("Flow collector started successfully");
 
-    // Wait for publisher — if it dies, we exit
+    // Wait for publisher, or SIGTERM/SIGINT for a graceful drain of the retry
+    // queue (Kubernetes termination must enter this path — not only SIGKILL).
+    // Use &mut on the JoinHandle so a signal branch does NOT drop/abort the
+    // publisher task (dropping a JoinHandle aborts it and skips the drain).
+    let mut publisher_handle = publisher_handle;
+    let mut draining = false;
     tokio::select! {
-        result = publisher_handle => {
+        result = &mut publisher_handle => {
             match result {
-                Ok(_) => log::info!("Publisher task completed"),
+                Ok(Ok(())) => log::info!("Publisher task completed"),
+                Ok(Err(e)) => log::error!("Publisher task failed: {}", e),
                 Err(e) => log::error!("Publisher task panicked: {}", e),
             }
         }
         _ = metrics_handle => {
             log::info!("Metrics reporter task completed");
         }
+        _ = shutdown_signal() => {
+            log::info!(
+                "Shutdown signal received; stopping UDP listeners (not forwarders) so queued flows drain"
+            );
+            // Abort only listeners. Each aborted listener drops its mpsc Sender;
+            // forwarders keep draining their Receivers, then drop publisher Senders.
+            for handle in listener_handles {
+                handle.abort();
+            }
+            draining = true;
+        }
+    }
+
+    if draining {
+        // One absolute deadline from signal receipt for forwarder + publisher drain.
+        let grace_secs: u64 = std::env::var("TERMINATION_GRACE_PERIOD_SECONDS")
+            .ok()
+            .and_then(|s| s.parse().ok())
+            .unwrap_or(45)
+            .max(1);
+        // Leave a small teardown margin; never invent a floor above configured grace.
+        let budget_secs = grace_secs.saturating_sub(2).max(1);
+        let deadline = Instant::now() + Duration::from_secs(budget_secs);
+        log::info!(
+            "Drain deadline {:?} from now (grace={}s, budget={}s)",
+            deadline.saturating_duration_since(Instant::now()),
+            grace_secs,
+            budget_secs
+        );
+
+        for handle in _forwarder_handles {
+            let remaining = deadline.saturating_duration_since(Instant::now());
+            if remaining.is_zero() {
+                log::warn!("Drain deadline hit while awaiting forwarders");
+                break;
+            }
+            match tokio::time::timeout(remaining, handle).await {
+                Ok(_) => {}
+                Err(_) => log::warn!("Forwarder drain timed out against absolute deadline"),
+            }
+        }
+
+        let remaining = deadline.saturating_duration_since(Instant::now());
+        if remaining.is_zero() {
+            log::error!("No time left for publisher drain after forwarders");
+        } else {
+            match tokio::time::timeout(remaining, publisher_handle).await {
+                Ok(Ok(Ok(()))) => log::info!("Publisher drained and exited cleanly"),
+                Ok(Ok(Err(e))) => log::error!("Publisher exited with error during drain: {}", e),
+                Ok(Err(e)) => log::error!("Publisher task panicked during drain: {}", e),
+                Err(_) => {
+                    log::error!("Timed out waiting for publisher drain against absolute deadline")
+                }
+            }
+        }
     }
 
     log::info!("Flow collector shutting down");
     Ok(())
+}
+
+async fn shutdown_signal() {
+    let ctrl_c = tokio::signal::ctrl_c();
+    #[cfg(unix)]
+    {
+        let mut sigterm =
+            match tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate()) {
+                Ok(s) => s,
+                Err(err) => {
+                    log::warn!("Failed to install SIGTERM handler: {}", err);
+                    let _ = ctrl_c.await;
+                    return;
+                }
+            };
+        tokio::select! {
+            _ = ctrl_c => {},
+            _ = sigterm.recv() => {},
+        }
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = ctrl_c.await;
+    }
 }
 
 fn ensure_rustls_provider_installed() {

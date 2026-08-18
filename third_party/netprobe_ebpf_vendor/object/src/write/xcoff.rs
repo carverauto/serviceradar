@@ -1,6 +1,5 @@
 use core::mem;
 
-use crate::endian::{BigEndian as BE, I16, U16, U32};
 use crate::write::string::*;
 use crate::write::util::*;
 use crate::write::*;
@@ -56,15 +55,19 @@ impl<'a> Object<'a> {
             ),
             StandardSection::TlsVariables => {
                 // Unsupported section.
-                (&[], &[], SectionKind::TlsVariables, SectionFlags::None)
+                (&[], &[], SectionKind::Unknown, SectionFlags::None)
             }
             StandardSection::Common => {
                 // Unsupported section.
-                (&[], &[], SectionKind::Common, SectionFlags::None)
+                (&[], &[], SectionKind::Unknown, SectionFlags::None)
             }
             StandardSection::GnuProperty => {
                 // Unsupported section.
-                (&[], &[], SectionKind::Note, SectionFlags::None)
+                (&[], &[], SectionKind::Unknown, SectionFlags::None)
+            }
+            StandardSection::EhFrame => {
+                // Unsupported section.
+                (&[], &[], SectionKind::Unknown, SectionFlags::None)
             }
         }
     }
@@ -153,7 +156,10 @@ impl<'a> Object<'a> {
         }
     }
 
-    pub(crate) fn xcoff_translate_relocation(&mut self, reloc: &mut Relocation) -> Result<()> {
+    pub(crate) fn xcoff_translate_relocation(
+        &mut self,
+        reloc: &mut RelocationInternal,
+    ) -> Result<()> {
         let (kind, _encoding, size) = if let RelocationFlags::Generic {
             kind,
             encoding,
@@ -178,7 +184,10 @@ impl<'a> Object<'a> {
         Ok(())
     }
 
-    pub(crate) fn xcoff_adjust_addend(&mut self, relocation: &mut Relocation) -> Result<bool> {
+    pub(crate) fn xcoff_adjust_addend(
+        &mut self,
+        relocation: &mut RelocationInternal,
+    ) -> Result<bool> {
         let r_rtype = if let RelocationFlags::Xcoff { r_rtype, .. } = relocation.flags {
             r_rtype
         } else {
@@ -190,7 +199,7 @@ impl<'a> Object<'a> {
         Ok(true)
     }
 
-    pub(crate) fn xcoff_relocation_size(&self, reloc: &Relocation) -> Result<u8> {
+    pub(crate) fn xcoff_relocation_size(&self, reloc: &RelocationInternal) -> Result<u8> {
         let r_rsize = if let RelocationFlags::Xcoff { r_rsize, .. } = reloc.flags {
             r_rsize
         } else {
@@ -340,29 +349,29 @@ impl<'a> Object<'a> {
         // Write file header.
         if is_64 {
             let header = xcoff::FileHeader64 {
-                f_magic: U16::new(BE, xcoff::MAGIC_64),
-                f_nscns: U16::new(BE, self.sections.len() as u16),
-                f_timdat: U32::new(BE, 0),
-                f_symptr: U64::new(BE, symtab_offset as u64),
-                f_nsyms: U32::new(BE, symtab_count as u32),
-                f_opthdr: U16::new(BE, 0),
+                f_magic: xcoff::MAGIC_64.into(),
+                f_nscns: (self.sections.len() as u16).into(),
+                f_timdat: 0.into(),
+                f_symptr: (symtab_offset as u64).into(),
+                f_nsyms: (symtab_count as u32).into(),
+                f_opthdr: 0.into(),
                 f_flags: match self.flags {
-                    FileFlags::Xcoff { f_flags } => U16::new(BE, f_flags),
-                    _ => U16::default(),
+                    FileFlags::Xcoff { f_flags } => f_flags.into(),
+                    _ => 0.into(),
                 },
             };
             buffer.write(&header);
         } else {
             let header = xcoff::FileHeader32 {
-                f_magic: U16::new(BE, xcoff::MAGIC_32),
-                f_nscns: U16::new(BE, self.sections.len() as u16),
-                f_timdat: U32::new(BE, 0),
-                f_symptr: U32::new(BE, symtab_offset as u32),
-                f_nsyms: U32::new(BE, symtab_count as u32),
-                f_opthdr: U16::new(BE, 0),
+                f_magic: xcoff::MAGIC_32.into(),
+                f_nscns: (self.sections.len() as u16).into(),
+                f_timdat: 0.into(),
+                f_symptr: (symtab_offset as u32).into(),
+                f_nsyms: (symtab_count as u32).into(),
+                f_opthdr: 0.into(),
                 f_flags: match self.flags {
-                    FileFlags::Xcoff { f_flags } => U16::new(BE, f_flags),
-                    _ => U16::default(),
+                    FileFlags::Xcoff { f_flags } => f_flags.into(),
+                    _ => 0.into(),
                 },
             };
             buffer.write(&header);
@@ -390,35 +399,35 @@ impl<'a> Object<'a> {
             if is_64 {
                 let section_header = xcoff::SectionHeader64 {
                     s_name: sectname,
-                    s_paddr: U64::new(BE, section_offsets[index].address),
+                    s_paddr: section_offsets[index].address.into(),
                     // This field has the same value as the s_paddr field.
-                    s_vaddr: U64::new(BE, section_offsets[index].address),
-                    s_size: U64::new(BE, section.data.len() as u64),
-                    s_scnptr: U64::new(BE, section_offsets[index].data_offset as u64),
-                    s_relptr: U64::new(BE, section_offsets[index].reloc_offset as u64),
-                    s_lnnoptr: U64::new(BE, 0),
-                    s_nreloc: U32::new(BE, section.relocations.len() as u32),
-                    s_nlnno: U32::new(BE, 0),
-                    s_flags: U32::new(BE, s_flags),
-                    s_reserve: U32::new(BE, 0),
+                    s_vaddr: section_offsets[index].address.into(),
+                    s_size: (section.data.len() as u64).into(),
+                    s_scnptr: (section_offsets[index].data_offset as u64).into(),
+                    s_relptr: (section_offsets[index].reloc_offset as u64).into(),
+                    s_lnnoptr: 0.into(),
+                    s_nreloc: (section.relocations.len() as u32).into(),
+                    s_nlnno: 0.into(),
+                    s_flags: s_flags.into(),
+                    s_reserve: 0.into(),
                 };
                 buffer.write(&section_header);
             } else {
                 let section_header = xcoff::SectionHeader32 {
                     s_name: sectname,
-                    s_paddr: U32::new(BE, section_offsets[index].address as u32),
+                    s_paddr: (section_offsets[index].address as u32).into(),
                     // This field has the same value as the s_paddr field.
-                    s_vaddr: U32::new(BE, section_offsets[index].address as u32),
-                    s_size: U32::new(BE, section.data.len() as u32),
-                    s_scnptr: U32::new(BE, section_offsets[index].data_offset as u32),
-                    s_relptr: U32::new(BE, section_offsets[index].reloc_offset as u32),
-                    s_lnnoptr: U32::new(BE, 0),
+                    s_vaddr: (section_offsets[index].address as u32).into(),
+                    s_size: (section.data.len() as u32).into(),
+                    s_scnptr: (section_offsets[index].data_offset as u32).into(),
+                    s_relptr: (section_offsets[index].reloc_offset as u32).into(),
+                    s_lnnoptr: 0.into(),
                     // TODO: If more than 65,534 relocation entries are required, the field
                     // value will be 65535, and an STYP_OVRFLO section header will contain
                     // the actual count of relocation entries in the s_paddr field.
-                    s_nreloc: U16::new(BE, section.relocations.len() as u16),
-                    s_nlnno: U16::new(BE, 0),
-                    s_flags: U32::new(BE, s_flags),
+                    s_nreloc: (section.relocations.len() as u16).into(),
+                    s_nlnno: 0.into(),
+                    s_flags: s_flags.into(),
                 };
                 buffer.write(&section_header);
             }
@@ -447,16 +456,16 @@ impl<'a> Object<'a> {
                         };
                     if is_64 {
                         let xcoff_rel = xcoff::Rel64 {
-                            r_vaddr: U64::new(BE, reloc.offset),
-                            r_symndx: U32::new(BE, symbol_offsets[reloc.symbol.0].index as u32),
+                            r_vaddr: reloc.offset.into(),
+                            r_symndx: (symbol_offsets[reloc.symbol.0].index as u32).into(),
                             r_rsize,
                             r_rtype,
                         };
                         buffer.write(&xcoff_rel);
                     } else {
                         let xcoff_rel = xcoff::Rel32 {
-                            r_vaddr: U32::new(BE, reloc.offset as u32),
-                            r_symndx: U32::new(BE, symbol_offsets[reloc.symbol.0].index as u32),
+                            r_vaddr: (reloc.offset as u32).into(),
+                            r_symndx: (symbol_offsets[reloc.symbol.0].index as u32).into(),
                             r_rsize,
                             r_rtype,
                         };
@@ -501,10 +510,10 @@ impl<'a> Object<'a> {
                     symbol_offsets[index].str_id.unwrap()
                 };
                 let xcoff_sym = xcoff::Symbol64 {
-                    n_value: U64::new(BE, n_value),
-                    n_offset: U32::new(BE, strtab.get_offset(str_id) as u32),
-                    n_scnum: I16::new(BE, n_scnum),
-                    n_type: U16::new(BE, n_type),
+                    n_value: n_value.into(),
+                    n_offset: (strtab.get_offset(str_id) as u32).into(),
+                    n_scnum: n_scnum.into(),
+                    n_type: n_type.into(),
                     n_sclass,
                     n_numaux,
                 };
@@ -521,9 +530,9 @@ impl<'a> Object<'a> {
                 }
                 let xcoff_sym = xcoff::Symbol32 {
                     n_name: sym_name,
-                    n_value: U32::new(BE, n_value as u32),
-                    n_scnum: I16::new(BE, n_scnum),
-                    n_type: U16::new(BE, n_type),
+                    n_value: (n_value as u32).into(),
+                    n_scnum: n_scnum.into(),
+                    n_type: n_type.into(),
                     n_sclass,
                     n_numaux,
                 };
@@ -572,10 +581,10 @@ impl<'a> Object<'a> {
                 };
                 if is_64 {
                     let csect_aux = xcoff::CsectAux64 {
-                        x_scnlen_lo: U32::new(BE, (scnlen & 0xFFFFFFFF) as u32),
-                        x_scnlen_hi: U32::new(BE, ((scnlen >> 32) & 0xFFFFFFFF) as u32),
-                        x_parmhash: U32::new(BE, 0),
-                        x_snhash: U16::new(BE, 0),
+                        x_scnlen_lo: ((scnlen & 0xFFFFFFFF) as u32).into(),
+                        x_scnlen_hi: (((scnlen >> 32) & 0xFFFFFFFF) as u32).into(),
+                        x_parmhash: 0.into(),
+                        x_snhash: 0.into(),
                         x_smtyp,
                         x_smclas,
                         pad: 0,
@@ -584,13 +593,13 @@ impl<'a> Object<'a> {
                     buffer.write(&csect_aux);
                 } else {
                     let csect_aux = xcoff::CsectAux32 {
-                        x_scnlen: U32::new(BE, scnlen as u32),
-                        x_parmhash: U32::new(BE, 0),
-                        x_snhash: U16::new(BE, 0),
+                        x_scnlen: (scnlen as u32).into(),
+                        x_parmhash: 0.into(),
+                        x_snhash: 0.into(),
                         x_smtyp,
                         x_smclas,
-                        x_stab: U32::new(BE, 0),
-                        x_snstab: U16::new(BE, 0),
+                        x_stab: 0.into(),
+                        x_snstab: 0.into(),
                     };
                     buffer.write(&csect_aux);
                 }

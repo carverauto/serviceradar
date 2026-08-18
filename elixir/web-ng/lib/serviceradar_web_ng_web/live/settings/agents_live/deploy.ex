@@ -124,12 +124,12 @@ defmodule ServiceRadarWebNGWeb.Settings.AgentsLive.Deploy do
               <div class="flex items-center gap-2 text-xs text-sr-muted">
                 <.icon name="hero-document-arrow-down" class="size-4" />
                 <.link
-                  href="https://code.carverauto.dev/carverauto/serviceradar/releases"
+                  href="https://github.com/carverauto/serviceradar/releases"
                   target="_blank"
                   rel="noopener"
                   class="text-sr-brand hover:underline"
                 >
-                  Download releases from Forgejo
+                  Download releases from GitHub
                 </.link>
               </div>
             </div>

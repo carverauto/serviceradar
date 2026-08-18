@@ -8,11 +8,16 @@ common --experimental_platform_in_output_dir
 common --noannounce_rc
 common --experimental_convenience_symlinks=clean
 common --color=yes
-common --curses=yes
+common --ui_event_filters=-INFO
 # Do NOT put repository_cache / disk_cache / distdir under the source tree.
 # Use Bazel defaults (~/.cache/bazel) or machine-local .bazelrc.local instead.
 # Allow platform-specific build:* sections (linux/macos/windows).
 common --enable_platform_specific_config
+# Mirror-first URL rewrites for deps that ship a single download URL. See the file.
+# --downloader_config, not --experimental_downloader_config: Bazel 9.2 warns the latter is
+# deprecated on every invocation. The path is workspace-relative and must NOT use
+# %workspace%, which is not expanded here -- it is taken literally and the file is not found.
+common --downloader_config=tools/bazel/downloader.cfg
 # Detailed profiling in BuildBuddy
 common --noslim_profile
 # common --experimental_profile_include_target_label
@@ -26,30 +31,18 @@ build --action_env=NEXT_PRIVATE_SKIP_TURBOPACK=1
 build --action_env=TURBOPACK=
 build --action_env=NEXT_SKIP_TURBO=1
 
-# System OpenSSL — scoped to Linux hosts (these are Linux paths). On Linux, both the
-# Erlang/OTP + Elixir crypto builds AND Rust's libpq/openssl-sys use system OpenSSL.
-# `build:linux` is auto-applied on Linux via `--enable_platform_specific_config` (above),
-# so local Linux builds get it too (not just CI). On macOS these vars are absent, so
-# Rust's openssl-sys builds a vendored, from-source OpenSSL (portable); an Elixir Bazel
-# build on macOS would need a build:macos OpenSSL path (e.g. Homebrew). CI/RBE from a
-# macOS host is covered by the build:remote_base OpenSSL vars below (host os = macOS, so
-# build:linux does not apply there). See openspec migrate-bazel-rust-crate-vendoring (D6).
-build:linux --action_env=OPENSSL_DIR=/usr
-build:linux --action_env=OPENSSL_LIB_DIR=/usr/lib/x86_64-linux-gnu
-build:linux --action_env=OPENSSL_INCLUDE_DIR=/usr/include
-build:linux --action_env=AARCH64_UNKNOWN_LINUX_GNU_OPENSSL_DIR=/usr
-build:linux --action_env=AARCH64_UNKNOWN_LINUX_GNU_OPENSSL_LIB_DIR=/usr/lib/aarch64-linux-gnu
-build:linux --action_env=AARCH64_UNKNOWN_LINUX_GNU_OPENSSL_INCLUDE_DIR=/usr/include/aarch64-linux-gnu
-build:linux --repo_env=OPENSSL_DIR=/usr
-build:linux --repo_env=OPENSSL_LIB_DIR=/usr/lib/x86_64-linux-gnu
-build:linux --repo_env=OPENSSL_INCLUDE_DIR=/usr/include
+# NO OPENSSL_DIR / OPENSSL_LIB_DIR / OPENSSL_INCLUDE_DIR HERE, and no AARCH64_* variants.
+# NO CC_/CXX_/AR_/CARGO_TARGET_*_LINKER HERE. Compiler config is all done via the Hermetic LLVM toolchain in MODULE.bazel.
+# This is a deliberate exception to the "no distdir under the source tree" rule above.
+# These are immutable vendored source crates.
+common --distdir=%workspace%/third_party/crate_mirror
 
-build --action_env=CC_aarch64_unknown_linux_gnu=/usr/bin/aarch64-linux-gnu-gcc
-build --action_env=CXX_aarch64_unknown_linux_gnu=/usr/bin/aarch64-linux-gnu-g++
-build --action_env=AR_aarch64_unknown_linux_gnu=/usr/bin/aarch64-linux-gnu-ar
-build --action_env=CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER=/usr/bin/aarch64-linux-gnu-gcc
 build --action_env=PKG_CONFIG_SYSROOT_DIR_aarch64_unknown_linux_gnu=/
 build --action_env=PKG_CONFIG_PATH_aarch64_unknown_linux_gnu=/usr/lib/postgresql/18/lib/pkgconfig:/usr/lib/aarch64-linux-gnu/pkgconfig:/usr/lib/pkgconfig:/usr/share/pkgconfig
+
+# Enable clang-tidy diagnostics via --config=clang-tidy
+build:clang-tidy --features=clang_tidy
+test:clang-tidy --features=clang_tidy
 
 # RULES_ERLANG
 build --repo_env=RULES_ERLANG_SKIP_SYSTEM=1
@@ -62,8 +55,6 @@ build --repo_env=GOPROXY=https://proxy.golang.org
 build --repo_env=NEXT_SKIP_TURBO=1
 build --repo_env=NEXT_PRIVATE_SKIP_TURBOPACK=1
 build --repo_env=TURBOPACK=
-build --java_runtime_version=local_jdk
-build --tool_java_runtime_version=local_jdk
 build --@io_bazel_rules_go//go/config:pure
 
 # Standard test ergonomics: show failing logs and retry known flaky tests once.
@@ -82,146 +73,118 @@ test --test_output=errors
 # //elixir/web-ng:precommit already does.
 #test --test_strategy=standalone
 test --remote_executor=
-# THE FIXTURE DSNs. //rust/integration-db resolves the shared CNPG fixture through these --
-# provision_db, teardown_db and sweep_stale_dbs all derive their database from
-# SRQL_TEST_DATABASE_URL, and database_bootstrap_integration_test.exs reads
-# SRQL_TEST_ADMIN_URL. A variable that is exported by the fixture setup but NOT named here
-# never reaches the test action at all, and the failure reads as an unreachable fixture
-# rather than a missing --test_env line.
-test --test_env=SRQL_TEST_DATABASE_URL
-test --test_env=SRQL_TEST_ADMIN_URL
-test --test_env=CNPG_HOST
-test --test_env=CNPG_PORT
-test --test_env=CNPG_DATABASE
-test --test_env=CNPG_USERNAME
-test --test_env=CNPG_PASSWORD
-test --test_env=CNPG_SSL_MODE
-test --test_env=CNPG_CERT_DIR
-test --test_env=TEST_CNPG_HOST
-test --test_env=TEST_CNPG_PORT
-test --test_env=TEST_CNPG_DATABASE
-test --test_env=TEST_CNPG_USERNAME
-test --test_env=TEST_CNPG_PASSWORD
-test --test_env=SRQL_TEST_DATABASE_CA_CERT --test_env=PGSSLROOTCERT --test_env=PGSSLSERVERNAME --test_env=SERVICERADAR_TEST_DATABASE_URL --test_env=SERVICERADAR_TEST_ADMIN_URL --test_env=SERVICERADAR_TEST_DATABASE_OWNER --test_env=GITHUB_RUN_ID --test_env=GITHUB_RUN_ATTEMPT
-test --test_env=NATS_URL
-test --test_env=NATS_SERVER_NAME
-test --test_env=NATS_CA_FILE
-test --test_env=NATS_CERT_FILE
-test --test_env=NATS_KEY_FILE
-test --test_env=NATS_CA_B64
-test --test_env=NATS_CERT_B64
-test --test_env=NATS_KEY_B64
+# THE FIXTURE ENVIRONMENT IS OPT-IN. These values include live DSNs and client-key paths.
+# Forwarding them from the global `test` profile puts them in every remote unit-test action's
+# command environment and cache metadata, even when that test never opens a database. Only the
+# guarded, TestRunner-local, non-uploaded database invocations select `--config=database_env`.
+#
+# Keep SRQL_TEST_* as the base URLs. SERVICERADAR_TEST_DATABASE_URL and
+# SERVICERADAR_TEST_ADMIN_URL are intentionally absent: those are final per-test overrides and
+# suppress integration_env.exs' per-shard database-name derivation when inherited accidentally.
+test:database_env --test_env=SRQL_TEST_DATABASE_URL
+test:database_env --test_env=SRQL_TEST_ADMIN_URL
+test:database_env --test_env=SRQL_TEST_DATABASE_CA_CERT
+test:database_env --test_env=SRQL_TEST_DATABASE_CA_CERT_FILE
+test:database_env --test_env=SRQL_TEST_DATABASE_CERT
+test:database_env --test_env=SRQL_TEST_DATABASE_KEY
+test:database_env --test_env=SRQL_TEST_DATABASE_SERVER_NAME
+test:database_env --test_env=SERVICERADAR_TEST_DATABASE_CA_CERT
+test:database_env --test_env=SERVICERADAR_TEST_DATABASE_CA_CERT_FILE
+test:database_env --test_env=SERVICERADAR_TEST_DATABASE_CERT
+test:database_env --test_env=SERVICERADAR_TEST_DATABASE_KEY
+test:database_env --test_env=SERVICERADAR_TEST_DATABASE_OWNER
+test:database_env --test_env=SERVICERADAR_TEST_DATABASE_SERVER_NAME
+test:database_env --test_env=PGSSLROOTCERT
+test:database_env --test_env=PGSSLSERVERNAME
+test:database_env --test_env=PGSSLCERT
+test:database_env --test_env=PGSSLKEY
+test:database_env --test_env=CNPG_HOST
+test:database_env --test_env=CNPG_PORT
+test:database_env --test_env=CNPG_DATABASE
+test:database_env --test_env=CNPG_USERNAME
+test:database_env --test_env=CNPG_PASSWORD
+test:database_env --test_env=CNPG_ADMIN_USERNAME
+test:database_env --test_env=CNPG_ADMIN_PASSWORD
+test:database_env --test_env=CNPG_SSL_MODE
+test:database_env --test_env=CNPG_CERT_DIR
+test:database_env --test_env=CNPG_CA_FILE
+test:database_env --test_env=CNPG_CERT_FILE
+test:database_env --test_env=CNPG_KEY_FILE
+test:database_env --test_env=CNPG_TLS_SERVER_NAME
+test:database_env --test_env=TEST_CNPG_HOST
+test:database_env --test_env=TEST_CNPG_PORT
+test:database_env --test_env=TEST_CNPG_DATABASE
+test:database_env --test_env=TEST_CNPG_USERNAME
+test:database_env --test_env=TEST_CNPG_PASSWORD
+test:database_env --test_env=GITHUB_RUN_ID
+test:database_env --test_env=GITHUB_RUN_ATTEMPT
+# NATS URLs and key material are likewise opt-in. Database integration inherits this profile
+# because a subset of the core shards exercises the event pipeline; other NATS-facing callers
+# must select it explicitly rather than leaking credentials into the generic remote sweep.
+test:database_env --config=nats_env
+test:nats_env --test_env=NATS_URL
+test:nats_env --test_env=NATS_SERVER_NAME
+test:nats_env --test_env=NATS_CA_FILE
+test:nats_env --test_env=NATS_CERT_FILE
+test:nats_env --test_env=NATS_KEY_FILE
+test:nats_env --test_env=NATS_CA_B64
+test:nats_env --test_env=NATS_CERT_B64
+test:nats_env --test_env=NATS_KEY_B64
 test --@io_bazel_rules_go//go/config:pure
 test --flaky_test_attempts=2
-
-# Allow developers to extend configuration locally (ignored in version control).
-try-import %workspace%/.bazelrc.local
-
-# Remote caching/execution settings live here; provide BuildBuddy endpoints in
-# .bazelrc.remote (kept out of version control until credentials are ready).
-try-import %workspace%/.bazelrc.remote
 
 # Metadata for buildbuddy
 build --workspace_status_command=$(pwd)/scripts/workspace_status.sh
 
-# Disable remote execution/caching when explicitly requested.
-build:no_remote --remote_executor=
-build:no_remote --remote_cache=
-build:no_remote --remote_upload_local_results=false
-build:no_remote --remote_download_minimal
-build:no_remote --bes_backend=
-build:no_remote --bes_results_url=
+# Cache/BES transport without execution ownership. This profile is safe to combine with a
+# host-native platform for database-facing integration tests: it deliberately selects no remote
+# executor, host/target platform, remote JDK, toolchain, or Linux-only environment.
+# Remote Cache CDC https://www.buildbuddy.io/blog/content-defined-chunking
+build:cache_only --experimental_remote_cache_chunking
+# Remote Cache reduction and compression
+build:cache_only --remote_cache_compression
+build:cache_only --experimental_remote_cache_compression_threshold=100
+# The cache proxy is the cache hop; BuildBuddy remains the bytestream/BES authority.
+build:cache_only --remote_bytestream_uri_prefix=carverauto.buildbuddy.io
+build:cache_only --remote_cache=grpcs://cache-proxy.carverauto.dev:443
+build:cache_only --bes_backend=grpcs://carverauto.buildbuddy.io
+build:cache_only --bes_results_url=https://carverauto.buildbuddy.io/invocation/
 
-# Remote execution profile settings shared by CI and --config=remote.\
+# Remote execution profile settings inherited by CI.
+build:remote_base --config=cache_only
 # Number of parallel jobs on remote executors
 build:remote_base --jobs=100
-# Remote Cache CDC https://www.buildbuddy.io/blog/content-defined-chunking
-build:remote_base  --experimental_remote_cache_chunking
-# Remote Cache compression
-build:remote_base --remote_cache_compression
-build:remote_base --experimental_remote_cache_compression_threshold=100
+build:remote_base --remote_download_minimal
 build:remote_base --remote_executor=grpcs://carverauto.buildbuddy.io
-build:remote_base --remote_cache=grpcs://carverauto.buildbuddy.io
-build:remote_base --bes_backend=grpcs://carverauto.buildbuddy.io
-build:remote_base --bes_results_url=https://carverauto.buildbuddy.io/invocation/
+# Remote platforms
 build:remote_base --host_platform=//build/rbe:rbe_platform
 build:remote_base --platforms=//build/rbe:rbe_platform
 build:remote_base --cpu=k8
-# DELIBERATELY NOT: --extra_toolchains=@buildbuddy_toolchain//:cc_toolchain
-#
-# That alias points at @buildbuddy_toolchain//:ubuntu_cc_toolchain, which is the SAME
-# cc_toolchain that //build/toolchains:rbe_cc_toolchain wraps -- but declared with
-# target_compatible_with = [x86_64, linux] and nothing about libc, and --extra_toolchains
-# outranks every registration in MODULE.bazel. So it claimed //build/rbe:rbe_platform for
-# every target platform including //build/platforms:linux_x86_64_musl, and once an execution
-# platform has a toolchain, resolution reports "Skipping ...; it has already selected a
-# toolchain" for every later candidate.
-#
-# That is why a musl cc toolchain appeared to be selected and yet none of its link_flags ever
-# reached the rustc action: musl targets were being linked by the glibc toolchain, which
-# supplies `-lstdc++ -lm` and no `-static`. Under ld.gold those resolved without recording a
-# dependency; ld.lld records DT_NEEDED, which is what //rust/netprobe:static_linkage_test
-# started failing on. Reordering register_toolchains could never fix it -- the winner was not
-# registered there at all.
-#
-# The toolchain is still available: //build/toolchains:rbe_cc_toolchain registers the identical
-# cc_toolchain WITH //build/platforms:linux_glibc, so glibc builds are unchanged and musl
-# builds now fall through to @musl_toolchains_hub. Keep it that way.
+# Compiler config is all done via the Hermetic LLVM toolchain in MODULE.bazel.
+# No OPENSSL_* here either;
 build:remote_base --extra_execution_platforms=//build/rbe:rbe_platform
 build:remote_base --repo_env=BAZEL_DO_NOT_DETECT_CPP_TOOLCHAIN=1
-build:remote_base --copt=-Wno-use-after-free
-build:remote_base --java_language_version=11
-build:remote_base --tool_java_language_version=11
-build:remote_base --java_runtime_version=remotejdk_11
-build:remote_base --tool_java_runtime_version=remotejdk_11
 build:remote_base --define=EXECUTOR=remote
 build:remote_base --incompatible_strict_action_env
-build:remote_base --remote_download_minimal
-build:remote_base --remote_upload_local_results
-build:remote_base --action_env=OPENSSL_DIR=/usr
-build:remote_base --action_env=OPENSSL_LIB_DIR=/usr/lib/x86_64-linux-gnu
-build:remote_base --action_env=OPENSSL_INCLUDE_DIR=/usr/include
 build:remote_base --action_env=NEXT_PRIVATE_SKIP_TURBOPACK=1
 build:remote_base --action_env=TURBOPACK=
 build:remote_base --action_env=NEXT_SKIP_TURBO=1
-test:remote --copt=-Wno-use-after-free
-test:remote --action_env=OPENSSL_DIR=/usr
-test:remote --action_env=OPENSSL_LIB_DIR=/usr/lib/x86_64-linux-gnu
-test:remote --action_env=OPENSSL_INCLUDE_DIR=/usr/include
-test:remote --action_env=NEXT_PRIVATE_SKIP_TURBOPACK=1
-test:remote --action_env=TURBOPACK=
-test:remote --action_env=NEXT_SKIP_TURBO=1
+# THE COMPILATION MODE IS PART OF THE CACHE KEY
+build:remote_base --compilation_mode=opt
+build:remote_base --remote_timeout=15m
+build:remote_base --test_output=errors
+build:remote_base --noenable_platform_specific_config
 
 # CI profile on top of the remote config
 build:ci --config=remote_base
-# build:ci --keep_going
-build:ci --noenable_platform_specific_config
+build:ci --keep_going
+build:ci --build_metadata=REPO_URL=https://github.com/carverauto/serviceradar.git
 build:ci --build_metadata=ROLE=CI
-# THE COMPILATION MODE IS PART OF THE CACHE KEY
-build:ci --compilation_mode=opt
-build:ci --remote_timeout=15m
-test:ci --test_output=errors
+build:ci --build_metadata=VISIBILITY=PUBLIC
+build:ci --build_metadata=USER=gh
 
-# Remote execution profile on top of the remote config
+# `--config=remote` is an ALIAS for remote_base
 build:remote --config=remote_base
-build:remote --noenable_platform_specific_config
-# Cache/executor/BES come from remote_base. Do not re-point them here.
-build:remote --remote_timeout=10m
-
-# Enable clang-tidy diagnostics via --config=clang-tidy
-build:clang-tidy --features=clang_tidy
-test:clang-tidy --features=clang_tidy
-
-# OCaml toolchain generated via tools_opam is macOS-hosted, which cannot run on
-# Linux remote executors. Force OCaml compilation/linking actions to run locally
-# until a hermetic Linux toolchain is available.
-#build:remote --strategy=CompileOCamlModule=local
-#build:remote --strategy=CompileOCamlLibrary=local
-#build:remote --strategy=CompileOCamlArchive=local
-#build:remote --strategy=OcamlPack=local
-#build:remote --strategy=OcamlLink=local
-
-build --build_metadata=REPO_URL=git@github.com:carverauto/serviceradar.git
 
 build:darwin_pkg --platforms=//build/platforms:darwin_exec
 build:darwin_pkg --host_platform=//build/platforms:darwin_exec
@@ -238,12 +201,10 @@ build:darwin_pkg --remote_default_exec_properties=OSFamily=MacOS
 build:darwin_pkg --repo_env=PATH=/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin:/opt/homebrew/bin
 build:darwin_pkg --repo_env=BAZEL=/usr/local/bin/bazel
 build:darwin_pkg --repo_env=BAZEL_DO_NOT_DETECT_CPP_TOOLCHAIN=1
-build:darwin_pkg --config=no_remote
-
 # macOS local builds must keep exec tools on Darwin when remote execution is disabled.
 # Usage: bazel build --config=darwin_local <targets>
-build:darwin_local --host_platform=//build/platforms:darwin_arm64
-build:darwin_local --extra_execution_platforms=//build/platforms:darwin_arm64
+build:darwin_local --host_platform=//build/platforms:darwin_aarch64
+build:darwin_local --extra_execution_platforms=//build/platforms:darwin_aarch64
 build:darwin_local --extra_toolchains=@local_config_cc_toolchains//:all
 build:darwin_local --copt=-Wno-unused-command-line-argument
 build:darwin_local --host_copt=-Wno-unused-command-line-argument
@@ -255,47 +216,18 @@ build:darwin_local --action_env=RULES_PKG_PYTHON=/usr/bin/python3
 
 # Plain local Bazel tests on Apple Silicon also need Darwin exec tools; otherwise
 # registered Linux exec platforms can be selected for generated protobuf tools.
-build:macos --extra_execution_platforms=//build/platforms:darwin_arm64
+build:macos --extra_execution_platforms=//build/platforms:darwin_aarch64
 build:macos --config=darwin_local
 test:macos --config=darwin_local
 
-# EL9-compatible builds using Oracle Linux 9 RBE executor (glibc 2.34)
-# Use this for RPM packages targeting RHEL/AlmaLinux/Rocky/Oracle Linux 9
-# Note: We duplicate remote_base settings here instead of inheriting, to ensure
-# the EL9 platform takes precedence over the default rbe_platform
-build:el9 --remote_executor=grpcs://carverauto.buildbuddy.io
-build:el9 --noenable_platform_specific_config
-# Same reasoning as build:ci above: this is a release-publish profile, so opt is the only
-# mode it should ever produce, and pinning it here is what stops a caller from silently
-# splitting the cache by leaving `-c opt` off.
-build:el9 --compilation_mode=opt
-build:el9 --host_platform=//build/platforms:rbe_linux_el9
-build:el9 --platforms=//build/platforms:rbe_linux_el9
-build:el9 --extra_execution_platforms=//build/platforms:rbe_linux_el9
-# No --crosstool_top here either -- legacy no-op since Bazel 9. See build:remote_base.
-build:el9 --extra_toolchains=@buildbuddy_toolchain//:cc_toolchain
-build:el9 --repo_env=BAZEL_DO_NOT_DETECT_CPP_TOOLCHAIN=1
-build:el9 --copt=-Wno-use-after-free
-build:el9 --java_language_version=11
-build:el9 --tool_java_language_version=11
-build:el9 --java_runtime_version=remotejdk_11
-build:el9 --tool_java_runtime_version=remotejdk_11
-build:el9 --define=EXECUTOR=remote
-build:el9 --incompatible_strict_action_env
-# Native-addons / EL9 publish path (rustc+ld, large pure-Go links).
-build:el9 --remote_default_exec_properties=EstimatedCPU=4
-build:el9 --remote_default_exec_properties=EstimatedMemory=8Gi
-build:el9 --remote_download_outputs=all
-build:el9 --remote_upload_local_results
-build:el9 --jobs=100
-# No forced-local strategies -- same reason as build:remote_base (exec-platform tools).
-build:el9 --action_env=OPENSSL_DIR=/usr
-build:el9 --action_env=OPENSSL_LIB_DIR=/usr/lib64
-build:el9 --action_env=OPENSSL_INCLUDE_DIR=/usr/include
-build:el9 --action_env=PKG_CONFIG_PATH=/usr/lib64/pkgconfig:/usr/pgsql-16/lib/pkgconfig
-build:el9 --remote_cache=grpcs://carverauto.buildbuddy.io
-build:el9 --bes_backend=grpcs://carverauto.buildbuddy.io
-build:el9 --bes_results_url=https://carverauto.buildbuddy.io/invocation/
-build:el9 --remote_timeout=10m
-# Use remote_default_exec_properties to force the EL9 container for all remote actions
-build:el9 --remote_default_exec_properties=container-image=docker://ghcr.io/carverauto/serviceradar/rbe-executor-el9:v1.0.23
+# Allow developers to extend configuration locally (ignored in version control).
+try-import %workspace%/.bazelrc.local
+
+# Remote credentials and local overrides live in .bazelrc.remote (kept out of version control).
+# CI jobs generate it to carry the BuildBuddy API key. No cache opt-in is written there any
+# more: the proxy is `build:cache_only --remote_cache` above, which `remote_base` inherits.
+#
+# KEEP THIS IMPORT LAST. An rc file can only override configs defined before it, so an override
+# placed above build:remote_base is silently overwritten by it -- the build looks entirely
+# normal and simply ignores the override.
+try-import %workspace%/.bazelrc.remote

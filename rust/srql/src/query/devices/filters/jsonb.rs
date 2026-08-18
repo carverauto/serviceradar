@@ -30,7 +30,7 @@ pub(in crate::query::devices) fn is_valid_jsonb_key(key: &str) -> bool {
 }
 
 /// Applies a text filter to a JSONB field path using the ->> operator.
-/// Supports equality, inequality, and LIKE operations.
+/// Supports equality, inequality, LIKE, and list membership.
 pub(super) fn apply_jsonb_text_filter<'a>(
     query: DeviceQuery<'a>,
     filter: &Filter,
@@ -39,31 +39,59 @@ pub(super) fn apply_jsonb_text_filter<'a>(
 ) -> Result<DeviceQuery<'a>> {
     // Construct the JSONB text extraction expression: column->>'key'
     let jsonb_expr = format!("{column}->>'{key}'");
-    let value = filter.value.as_scalar()?.to_string();
 
     match filter.op {
         FilterOp::Eq => {
+            let value = filter.value.as_scalar()?.to_string();
             let expr = sql::<Bool>(&format!("{jsonb_expr} = ")).bind::<Text, _>(value);
             Ok(query.filter(expr))
         }
         FilterOp::NotEq => {
+            let value = filter.value.as_scalar()?.to_string();
             let expr = sql::<Bool>(&format!("({jsonb_expr} IS NULL OR {jsonb_expr} != "))
                 .bind::<Text, _>(value)
                 .sql(")");
             Ok(query.filter(expr))
         }
         FilterOp::Like => {
+            let value = filter.value.as_scalar()?.to_string();
             let expr = sql::<Bool>(&format!("{jsonb_expr} ILIKE ")).bind::<Text, _>(value);
             Ok(query.filter(expr))
         }
         FilterOp::NotLike => {
+            let value = filter.value.as_scalar()?.to_string();
             let expr = sql::<Bool>(&format!("({jsonb_expr} IS NULL OR {jsonb_expr} NOT ILIKE "))
                 .bind::<Text, _>(value)
                 .sql(")");
             Ok(query.filter(expr))
         }
+        // List form, e.g. tags.gate:(B40,B41). An empty list is a no-op filter
+        // rather than a query that can never match, matching how the
+        // discovery_sources list filter behaves.
+        FilterOp::In | FilterOp::NotIn => {
+            let values = filter.value.as_list()?.to_vec();
+            if values.is_empty() {
+                return Ok(query);
+            }
+
+            if matches!(filter.op, FilterOp::NotIn) {
+                // Devices missing the key entirely are "not in" the list; the
+                // bare `!=` form would drop them because NULL != x is NULL.
+                let expr = sql::<Bool>(&format!(
+                    "({jsonb_expr} IS NULL OR NOT ({jsonb_expr} = ANY("
+                ))
+                .bind::<Array<Text>, _>(values)
+                .sql(")))");
+                Ok(query.filter(expr))
+            } else {
+                let expr = sql::<Bool>(&format!("{jsonb_expr} = ANY("))
+                    .bind::<Array<Text>, _>(values)
+                    .sql(")");
+                Ok(query.filter(expr))
+            }
+        }
         _ => Err(ServiceError::InvalidRequest(format!(
-            "JSONB field '{column}.{key}' only supports equality and LIKE filters"
+            "JSONB field '{column}.{key}' only supports equality, LIKE, and list filters"
         ))),
     }
 }

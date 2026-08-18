@@ -9,6 +9,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.ShowTemplate do
   import ServiceRadarWebNGWeb.DeviceLive.AvailabilityComponents
   import ServiceRadarWebNGWeb.DeviceLive.BumblebeeComponents
   import ServiceRadarWebNGWeb.DeviceLive.CameraComponents
+  import ServiceRadarWebNGWeb.DeviceLive.CompositeVerdictComponents
   import ServiceRadarWebNGWeb.DeviceLive.DeviceEditComponents
   import ServiceRadarWebNGWeb.DeviceLive.DeviceHeaderComponents
   import ServiceRadarWebNGWeb.DeviceLive.DevicePropertiesComponents
@@ -139,6 +140,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.ShowTemplate do
           proxmox_console_action_label={@proxmox_console_action_label}
           rdp_launch_path={@rdp_launch_path}
           rdp_enable_path={@rdp_enable_path}
+          devices_return_path={@devices_return_path}
         />
 
         <div class="grid grid-cols-1 gap-4">
@@ -151,6 +153,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.ShowTemplate do
             device_row={@device_row}
             device_deleted={@device_deleted}
             editing={@editing}
+            snmp_polling_source={@snmp_polling_source}
           />
 
           <.device_edit_section
@@ -181,7 +184,11 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.ShowTemplate do
 
           <div :if={@active_tab == "details"}>
             <div class="grid grid-cols-1 gap-4">
-              <.ocsf_info_section :if={is_map(@device_row)} device_row={@device_row} />
+              <.ocsf_info_section
+                :if={is_map(@device_row)}
+                device_row={@device_row}
+                vulnerability_matches={@endpoint_inventory_vulnerability_matches}
+              />
 
               <.discovery_sources_section
                 :if={is_map(@device_row)}
@@ -197,16 +204,15 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.ShowTemplate do
 
               <.agents_section :if={is_map(@device_row)} device_row={@device_row} />
 
-              <.ansible_runs_section
+              <.ansible_operations_section
                 :if={is_map(@device_row) and @device_awx_managed}
                 device_uid={@device_uid}
                 device_awx_managed={@device_awx_managed}
-                can_view_ansible_runs={@can_view_ansible_runs}
+                can_view_ansible_operations={@can_view_ansible_operations}
                 can_run_ansible={@can_run_ansible}
                 device_deleted={@device_deleted}
                 ansible_controller_id={@ansible_controller_id}
-                secure_history={@ansible_secure_history}
-                runs={@ansible_runs}
+                operation_history={@ansible_operation_history}
                 playbooks={@ansible_playbooks}
                 launch_open={@ansible_launch_open}
                 selected_playbook_id={@ansible_selected_playbook_id}
@@ -243,6 +249,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.ShowTemplate do
                 sweep_results={@sweep_results}
               />
 
+              <.composite_verdict_section entries={@composite_verdicts} />
+
               <.healthcheck_section
                 :if={is_map(@healthcheck_summary)}
                 summary={@healthcheck_summary}
@@ -272,12 +280,12 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.ShowTemplate do
 
               <.northbound_action_history
                 :if={@can_view_northbound_history}
-                title="Task History"
+                title="Action History"
                 subtitle="Recent actions for this device and its interfaces"
                 entries={@northbound_device_history}
                 error={@northbound_device_history_error}
                 notice={@northbound_launch_notice}
-                empty_message="No task invocations have been recorded for this device yet."
+                empty_message="No action invocations have been recorded for this device yet."
               />
 
               <.metric_sections_content
@@ -330,6 +338,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.ShowTemplate do
               stored_package_count={@endpoint_inventory_stored_package_count}
               artifacts={@endpoint_inventory_artifacts}
               vulnerability_matches={@endpoint_inventory_vulnerability_matches}
+              cpe_catalog_current={@endpoint_inventory_cpe_catalog_current}
               error={@endpoint_inventory_error}
               has_inventory={@has_software_inventory}
               show_controls={device_has_agent?(@device_row)}
@@ -365,6 +374,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.ShowTemplate do
               northbound_actions={@northbound_interface_actions}
               northbound_actions_loading={@northbound_interface_actions_loading}
               can_launch_northbound={can_launch_northbound_actions?(@current_scope)}
+              snmp_polling_source={@snmp_polling_source}
             />
           </div>
 
@@ -462,6 +472,12 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.ShowTemplate do
         show={@show_endpoint_inventory_package_modal}
         package={@endpoint_inventory_selected_package}
         matches={@endpoint_inventory_selected_package_matches}
+        cpe_catalog_current={@endpoint_inventory_cpe_catalog_current}
+      />
+
+      <.endpoint_inventory_match_modal
+        show={@show_endpoint_inventory_match_modal}
+        group={@endpoint_inventory_selected_match_group}
       />
 
       <%!-- Interfaces Bulk Edit Modal --%>
@@ -474,7 +490,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.ShowTemplate do
       <.northbound_action_modal
         :if={@show_northbound_interface_action_modal}
         id="northbound_interface_action_modal"
-        title="Run Interface Task"
+        title="Run Interface Action"
         subtitle={"#{MapSet.size(@selected_interfaces)} selected interface(s)"}
         form={@northbound_interface_action_form}
         actions={@northbound_interface_actions}

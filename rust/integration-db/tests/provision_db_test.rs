@@ -36,6 +36,8 @@ use tokio::runtime::Runtime;
 
 /// Shard names, comma-separated, from the Bazel target's `env`.
 ///
+/// The CI target supplies every shard; focused `provision_db_sN` targets supply one.
+///
 /// Deliberately NOT Bazel `args`: libtest treats a bare argv entry as a test-name FILTER, so
 /// passing shard names that way made it match no test, run nothing, and exit 0. The target
 /// went green having provisioned zero databases -- the exact failure `external` exists to
@@ -95,10 +97,10 @@ async fn run() -> anyhow::Result<()> {
         );
     }
 
-    // One database per shard. The suite runs as parallel Bazel targets and Ecto's SQL sandbox
-    // does not isolate across OS processes, so sharing one database deadlocks. Shard names
-    // arrive as test args from //build:integration_shards.bzl, which the Elixir side reads as
-    // SERVICERADAR_TEST_DB_SHARD -- both derive the same names from it.
+    // One database per selected shard. The suite runs as parallel Bazel targets and Ecto's SQL
+    // sandbox does not isolate across OS processes, so sharing one database deadlocks. Shard
+    // names arrive through the target environment from //build:integration_shards.bzl, which
+    // the Elixir side reads as SERVICERADAR_TEST_DB_SHARD -- both derive the same names from it.
     //
     // No args means the unsharded database, which keeps the target usable by hand.
     let shards = shards()?;
@@ -127,13 +129,7 @@ async fn run() -> anyhow::Result<()> {
     // rather than surfacing as a confusing connection error two targets later. Credentials
     // are not printed.
     let url = db::database_url()?;
-    let redacted = url
-        .split_once("://")
-        .map(|(scheme, rest)| match rest.split_once('@') {
-            Some((_, host)) => format!("{scheme}://***@{host}"),
-            None => format!("{scheme}://{rest}"),
-        })
-        .unwrap_or_else(|| "<unparseable>".to_string());
+    let redacted = db::redacted_database_url(&url);
     println!("suite will connect to {redacted}");
 
     Ok(())

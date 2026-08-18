@@ -324,8 +324,18 @@ func TestEngineKeepsLargeSyntheticStreamBounded(t *testing.T) {
 }
 
 func TestEngineKeepsMillionHostSyntheticStreamBounded(t *testing.T) {
+	// Bazel arms the env var on //go/pkg/scan/banner_grab:banner_grab_test, so this runs in the
+	// ordinary unit sweep (2.45s on RBE). The var is kept rather than removed so a plain
+	// `go test ./...` on a workstation still opts out of a 1M-iteration loop by default.
 	if os.Getenv("SERVICERADAR_LARGE_BANNER_GRAB_TEST") != "1" {
 		t.Skip("set SERVICERADAR_LARGE_BANNER_GRAB_TEST=1 to run the 1M-host banner-grab validation")
+	}
+
+	// The race sweep runs this package with -race, -test.count=5 and -test.short. Five
+	// instrumented passes over a million submissions buys nothing the single unraced pass
+	// above does not already assert, so opt out of the short mode explicitly.
+	if testing.Short() {
+		t.Skip("skipping the 1M-host banner-grab validation in short mode")
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)

@@ -5,6 +5,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.EndpointInventoryRuntime do
 
   alias ServiceRadar.Edge.AgentCommandBus
   alias ServiceRadarWebNGWeb.DeviceLive.EndpointInventoryData
+  alias ServiceRadarWebNGWeb.DeviceLive.EndpointInventoryMatchGroups
 
   @cache_query_type "endpoint_inventory.cache_query"
   @force_fresh_type "endpoint_inventory.force_fresh_scan"
@@ -35,6 +36,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.EndpointInventoryRuntime do
     |> assign(:show_endpoint_inventory_package_modal, false)
     |> assign(:endpoint_inventory_selected_package, nil)
     |> assign(:endpoint_inventory_selected_package_matches, [])
+    |> assign(:show_endpoint_inventory_match_modal, false)
+    |> assign(:endpoint_inventory_selected_match_group, nil)
   end
 
   def dispatch_device_query(socket, params, opts \\ []) when is_map(params) do
@@ -256,6 +259,50 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.EndpointInventoryRuntime do
     |> assign(:show_endpoint_inventory_package_modal, false)
     |> assign(:endpoint_inventory_selected_package, nil)
     |> assign(:endpoint_inventory_selected_package_matches, [])
+  end
+
+  @doc """
+  Opens the advisory-detail modal for a Vulnerability Matches row already loaded
+  on the device Software tab. Loads the advisory relationship for description
+  and reference URLs.
+  """
+  def open_match_detail(socket, group_id) when is_binary(group_id) do
+    matches = socket.assigns[:endpoint_inventory_vulnerability_matches] || []
+    groups = EndpointInventoryMatchGroups.group(matches)
+
+    case EndpointInventoryMatchGroups.find(groups, group_id) do
+      nil ->
+        socket
+
+      group ->
+        scope = Map.get(socket.assigns, :current_scope)
+
+        primaries =
+          group.advisories
+          |> Enum.map(& &1.primary)
+          |> Enum.map(&EndpointInventoryData.load_match_advisory(scope, &1))
+          |> EndpointInventoryData.enrich_matches(scope)
+
+        advisories =
+          group.advisories
+          |> Enum.zip(primaries)
+          |> Enum.map(fn {advisory, primary} -> %{advisory | primary: primary} end)
+
+        socket
+        |> assign(:endpoint_inventory_selected_match_group, %{group | advisories: advisories})
+        |> assign(:show_endpoint_inventory_match_modal, true)
+    end
+  end
+
+  def open_match_detail(socket, _group_id), do: socket
+
+  @doc """
+  Closes the advisory-detail modal and clears its selection.
+  """
+  def close_match_detail(socket) do
+    socket
+    |> assign(:show_endpoint_inventory_match_modal, false)
+    |> assign(:endpoint_inventory_selected_match_group, nil)
   end
 
   defp package_id(package) do

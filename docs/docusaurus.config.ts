@@ -10,8 +10,14 @@ const config: Config = {
   tagline: 'Network management, security, and observability',
   favicon: 'img/favicon.ico',
 
+  // Canonical origin (must match Search Console + CNAME).
   url: 'https://docs.serviceradar.cloud',
-  baseUrl: '',
+  // GitHub Pages + Cloudflare: keep baseUrl rooted and set trailingSlash
+  // explicitly. Leaving trailingSlash undefined makes GH Pages rewrite
+  // /path → http://host/path/ (https→http), which floods GSC with
+  // "Alternate page with proper canonical" and "Page with redirect".
+  baseUrl: '/',
+  trailingSlash: false,
 
   organizationName: 'carverauto',
   projectName: 'serviceradar',
@@ -33,7 +39,37 @@ const config: Config = {
   themes: ['@docusaurus/theme-mermaid'],
 
   // Tailwind v4 via PostCSS (utilities + theme only; no global Preflight).
-  plugins: ['./src/plugins/tailwind-config.js'],
+  // Client redirects cover renamed/removed docs paths still in Google's crawl graph.
+  plugins: [
+    './src/plugins/tailwind-config.js',
+    [
+      '@docusaurus/plugin-client-redirects',
+      {
+        // Keep aligned with Search Console "Not found (404)" exports for docs.serviceradar.cloud.
+        redirects: [
+          {from: '/docs/god-view-topology', to: '/docs/network-topology'},
+          {from: '/docs/topology-reset-rebuild', to: '/docs/network-topology'},
+          {from: '/docs/self-signed', to: '/docs/tls-security'},
+          {from: '/docs/falco-integration', to: '/docs/falco'},
+          {from: '/docs/mtr-automation-rollout', to: '/docs/troubleshooting-guide'},
+          {from: '/docs/cnpg-pg18-upgrade-and-search-policy', to: '/docs/cnpg-monitoring'},
+          {from: '/docs/repository-layout', to: '/docs/architecture'},
+          {from: '/docs/rust-bazel-deps', to: '/docs/intro'},
+          {from: '/docs/camera-analysis-reference-worker', to: '/docs/sdks'},
+          {from: '/docs/wifi-map-local-compose', to: '/docs/dashboard-sdk'},
+          {from: '/docs/configuration', to: '/docs/configuration-system'},
+          {from: '/docs/installation', to: '/docs/quickstart'},
+          {from: '/docs/edge-agents', to: '/docs/edge-model'},
+          {from: '/docs/agents', to: '/docs/agent-configuration'},
+          {from: '/docs/cluster', to: '/docs/helm-configuration'},
+          {from: '/docs/spiffe-identity', to: '/docs/workload-identity'},
+          {from: '/docs/edge-onboarding', to: '/docs/edge-agent-onboarding'},
+          {from: '/docs/kv-configuration', to: '/docs/configuration-system'},
+          {from: '/specs/wasm-plugin-system', to: '/docs/wasm-plugins'},
+        ],
+      },
+    ],
+  ],
 
   presets: [
     [

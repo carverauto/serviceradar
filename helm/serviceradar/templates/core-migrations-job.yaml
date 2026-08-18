@@ -15,7 +15,16 @@ kind: Job
 metadata:
   name: serviceradar-core-migrations
   annotations:
-    "helm.sh/hook": pre-install,pre-upgrade
+    # post-install (NOT pre-install) on a fresh release: this Job needs both the
+    # CNPG CA Secret and a reachable database, and both only exist once the CNPG
+    # Cluster in cnpg-cluster.yaml has been applied and reconciled. That Cluster
+    # is an ordinary resource, so on a first install it is created *after* all
+    # pre-install hooks -- a pre-install migration can therefore never succeed,
+    # it just blocks until Helm times out.
+    #
+    # pre-upgrade is still correct: on an upgrade the database already exists and
+    # the schema should be migrated before the new code rolls out.
+    "helm.sh/hook": post-install,pre-upgrade
     "helm.sh/hook-weight": "-1"
     "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
 spec:
@@ -37,7 +46,7 @@ spec:
       {{- include "serviceradar.elixirReleasePodSecurityContext" . | nindent 6 }}
       containers:
       - name: core-migrations
-        image: {{ include "serviceradar.imageRef" (dict "Values" .Values "name" "serviceradar-core-elx" "service" "core") }}
+        image: {{ include "serviceradar.imageRef" (dict "Values" .Values "Chart" .Chart "name" "serviceradar-core-elx" "service" "core") }}
         imagePullPolicy: {{ default (include "serviceradar.imagePullPolicy" .) $migrationVals.imagePullPolicy }}
         {{- include "serviceradar.containerSecurityContext" . | nindent 8 }}
         command: ["/bin/sh", "-c"]
@@ -185,6 +194,11 @@ spec:
       - name: {{ $cnpgClusterName }}-ca
         secret:
           secretName: {{ $cnpgClusterName }}-ca
+          # Do not block pod startup if the CA is not present yet. Without this
+          # the pod sits in ContainerCreating with
+          #   MountVolume.SetUp failed ... secret "cnpg-ca" not found
+          # which surfaces as an opaque Helm timeout rather than a clear error.
+          optional: true
       {{- if .Values.spire.enabled }}
       - name: spire-agent-socket
         hostPath:

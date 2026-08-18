@@ -8,6 +8,8 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index.Actions do
   alias AshPhoenix.Form
   alias ServiceRadar.SweepJobs.SweepGroup
   alias ServiceRadar.SweepJobs.SweepProfile
+  alias ServiceRadar.SweepJobs.SweepProfile.BannerGrab
+  alias ServiceRadarWebNGWeb.Settings.NetworksLive.FormComponents
   alias ServiceRadarWebNGWeb.Settings.NetworksLive.TargetBuilder
 
   def apply_action(socket, :index, _params) do
@@ -173,6 +175,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index.Actions do
     |> assign(:show_form, :new_profile)
     |> assign(:ash_form, ash_form)
     |> assign(:form, to_form(ash_form))
+    |> assign(:banner_grab_draft, BannerGrab.default_input())
     |> assign(:banner_preview_device_count, count_target_devices(scope, "in:devices"))
   end
 
@@ -194,6 +197,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index.Actions do
         |> assign(:selected_profile, profile)
         |> assign(:ash_form, ash_form)
         |> assign(:form, to_form(ash_form))
+        |> assign(:banner_grab_draft, FormComponents.banner_grab_to_map(profile.banner_grab))
         |> assign(:banner_preview_device_count, count_target_devices(scope, "in:devices"))
     end
   end

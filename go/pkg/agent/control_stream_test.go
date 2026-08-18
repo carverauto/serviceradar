@@ -1345,6 +1345,20 @@ func TestHandleConsoleFrameClosesTCPSessionAfterWriteQuotaError(t *testing.T) {
 	}
 }
 
+func TestAgentCapabilitiesOmitICMPAndMTRUnlessSocketsWork(t *testing.T) {
+	t.Parallel()
+
+	base := agentCapabilities(agentCapabilityOptions{})
+	if slices.Contains(base, "icmp") || slices.Contains(base, "mtr") {
+		t.Fatalf("unprobed capabilities must not claim icmp/mtr: %#v", base)
+	}
+
+	available := agentCapabilities(agentCapabilityOptions{icmpAvailable: true, mtrAvailable: true})
+	if !slices.Contains(available, "icmp") || !slices.Contains(available, "mtr") {
+		t.Fatalf("probed capabilities missing icmp/mtr: %#v", available)
+	}
+}
+
 func TestAgentCapabilitiesAdvertiseRemoteAccessAndGateBPF(t *testing.T) {
 	t.Parallel()
 

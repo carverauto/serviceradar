@@ -50,7 +50,14 @@ const (
 const (
 	commandStatusFailed    = "failed"
 	commandStatusSucceeded = "succeeded"
+	notifierContractMajor  = "1"
 )
+
+// northboundActionResultSchema is the default result schema for a
+// plugin.run_action command. Notification deliveries ride the same command type
+// and answer with notificationDeliveryResultSchema instead; see
+// pluginActionResultEnvelope.
+const northboundActionResultSchema = "serviceradar.northbound_action_result.v1"
 
 const (
 	commandTypeMapperRun                   = "mapper.run_job"
@@ -632,26 +639,48 @@ func (p *PushLoop) handleSysmonDebugSpike(cmd *proto.CommandRequest, sender *con
 		map[string]any{"metric": req.Metric, "value": req.Value, "samples": written}))
 }
 
+// handlePluginRunAction runs one plugin.run_action command.
+//
+// A NOTIFICATION delivery rides this same command type on purpose (design D3):
+// the platform-resident agent and a site agent are the same binary running the
+// same wazero host, so a notifier authored for the edge runs unchanged on the
+// control plane. Adding a second command type would fork that. What tells the
+// two apart is the payload's `schema` discriminator, decoded once here and
+// carried through the result as pluginActionResultEnvelope.
+//
+// Only two things differ for a notification: how the target assignment is
+// addressed - a notification channel binds to a provider, not to an assignment,
+// so the payload may name only `plugin_package_id` and
+// resolveNotificationAssignmentID places it - and which correlation identity is
+// stamped on the result.
 func (p *PushLoop) handlePluginRunAction(ctx context.Context, cmd *proto.CommandRequest, sender *controlStreamSender) {
 	payload := pluginRunActionPayload{Payload: cmd.PayloadJson}
 	if len(cmd.PayloadJson) > 0 {
 		if err := json.Unmarshal(cmd.PayloadJson, &payload); err != nil {
-			_ = sender.Send(commandResult(cmd, false, "invalid plugin action payload", map[string]interface{}{
-				"schema": "serviceradar.northbound_action_result.v1",
-				"status": "failed",
-				"error":  "invalid_payload",
-			}))
+			_ = sender.Send(commandResult(cmd, false, "invalid plugin action payload",
+				pluginActionResultEnvelope{}.failure("invalid_payload")))
 			return
 		}
 		payload.Payload = cmd.PayloadJson
 	}
 
-	if strings.TrimSpace(payload.PluginAssignmentID) == "" {
-		_ = sender.Send(commandResult(cmd, false, "missing plugin_assignment_id", map[string]interface{}{
-			"schema": "serviceradar.northbound_action_result.v1",
-			"status": "failed",
-			"error":  "missing_plugin_assignment_id",
-		}))
+	notification, isNotification := decodeNotificationDelivery(payload.Payload)
+	envelope := pluginActionResultEnvelope{
+		notification:   notification,
+		isNotification: isNotification,
+		invocationID:   payload.InvocationID,
+		actionID:       payload.ActionID,
+	}
+
+	if isNotification {
+		if err := notification.validate(); err != nil {
+			_ = sender.Send(commandResult(cmd, false, err.Error(),
+				envelope.failure("invalid_notification_envelope")))
+			return
+		}
+	} else if strings.TrimSpace(payload.PluginAssignmentID) == "" {
+		_ = sender.Send(commandResult(cmd, false, "missing plugin_assignment_id",
+			envelope.failure("missing_plugin_assignment_id")))
 		return
 	}
 
@@ -660,60 +689,203 @@ func (p *PushLoop) handlePluginRunAction(ctx context.Context, cmd *proto.Command
 	p.server.mu.RUnlock()
 
 	if pluginManager == nil {
-		_ = sender.Send(commandResult(cmd, false, "plugin manager unavailable", map[string]interface{}{
-			"schema": "serviceradar.northbound_action_result.v1",
-			"status": "failed",
-			"error":  "plugin_manager_unavailable",
-		}))
+		_ = sender.Send(commandResult(cmd, false, "plugin manager unavailable",
+			envelope.failure("plugin_manager_unavailable")))
 		return
+	}
+
+	assignmentID := strings.TrimSpace(payload.PluginAssignmentID)
+	if isNotification {
+		resolved, err := pluginManager.resolveNotificationAssignmentID(assignmentID, notification)
+		if err != nil {
+			_ = sender.Send(commandResult(cmd, false, err.Error(),
+				envelope.failure(notificationTargetErrorCode(err))))
+			return
+		}
+		assignmentID = resolved
 	}
 
 	timeout := commandRemainingTimeout(cmd, pluginDefaultTimeout)
 	if timeout <= 0 {
-		_ = sender.Send(commandResult(cmd, false, "command expired", map[string]interface{}{
-			"schema": "serviceradar.northbound_action_result.v1",
-			"status": "failed",
-			"error":  "command_expired",
-		}))
+		_ = sender.Send(commandResult(cmd, false, "command expired",
+			envelope.failure("command_expired")))
 		return
 	}
 
-	_ = sender.Send(commandProgress(cmd, 10, "starting plugin action"))
+	_ = sender.Send(commandProgress(cmd, 10, envelope.progressMessage()))
 
-	resultBytes, err := pluginManager.RunAction(ctx, payload.PluginAssignmentID, payload.Payload, timeout)
+	resultBytes, err := pluginManager.RunAction(ctx, assignmentID, payload.Payload, timeout)
 	if err != nil {
-		_ = sender.Send(commandResult(cmd, false, err.Error(), map[string]interface{}{
-			"schema":        "serviceradar.northbound_action_result.v1",
-			"status":        "failed",
-			"error":         err.Error(),
-			"invocation_id": payload.InvocationID,
-			"action_id":     payload.ActionID,
-		}))
+		_ = sender.Send(commandResult(cmd, false, err.Error(), envelope.failure(err.Error())))
 		return
 	}
 
 	resultPayload := map[string]interface{}{}
 	if len(resultBytes) > 0 {
 		if err := json.Unmarshal(resultBytes, &resultPayload); err != nil {
+			status := commandStatusSucceeded
+			if isNotification {
+				status = commandStatusFailed
+			}
 			resultPayload = map[string]interface{}{
-				"schema":            "serviceradar.northbound_action_result.v1",
-				"status":            commandStatusSucceeded,
+				"schema":            envelope.schema(),
+				"status":            status,
 				"raw_result_base64": base64.StdEncoding.EncodeToString(resultBytes),
 			}
 		}
 	}
-	resultPayload["schema"] = firstNonEmptyString(resultPayload["schema"], "serviceradar.northbound_action_result.v1")
-	resultPayload["status"] = firstNonEmptyString(resultPayload["status"], commandStatusSucceeded)
-	resultPayload["invocation_id"] = firstNonEmptyString(resultPayload["invocation_id"], payload.InvocationID)
-	resultPayload["action_id"] = firstNonEmptyString(resultPayload["action_id"], payload.ActionID)
+	if isNotification {
+		enforceNotifierContractVersion(resultPayload)
+	}
+	envelope.stamp(resultPayload)
 
-	commandSucceeded := true
-	message := "plugin action completed"
-	if resultPayload["schema"] == actionResultAckSchema && resultPayload["status"] == commandStatusFailed {
-		commandSucceeded = false
-		message = "plugin action failed"
+	commandSucceeded := pluginActionCommandSucceeded(envelope, resultPayload)
+	message := envelope.completedMessage()
+	if !commandSucceeded {
+		message = envelope.failedMessage()
 	}
 	_ = sender.Send(commandResult(cmd, commandSucceeded, message, resultPayload))
+}
+
+// enforceNotifierContractVersion prevents a successful-looking result from a
+// contract major this host does not understand from settling a delivery. An
+// absent version remains accepted during the pre-release rolling bridge; once
+// a guest declares a version, malformed and unsupported majors fail closed.
+func enforceNotifierContractVersion(resultPayload map[string]interface{}) {
+	rawVersion, exists := resultPayload["sdk_contract_version"]
+	if !exists || rawVersion == nil {
+		return
+	}
+
+	version, ok := rawVersion.(string)
+	version = strings.TrimSpace(version)
+	major := version
+	if before, _, found := strings.Cut(version, "."); found {
+		major = before
+	}
+
+	if !ok || version == "" || major != notifierContractMajor {
+		resultPayload["schema"] = notificationDeliveryResultSchema
+		resultPayload["status"] = commandStatusFailed
+		resultPayload["error_class"] = "sdk_contract_mismatch"
+		resultPayload["error_message"] = "notifier SDK contract major is unsupported"
+	}
+}
+
+func pluginActionCommandSucceeded(
+	envelope pluginActionResultEnvelope,
+	resultPayload map[string]interface{},
+) bool {
+	if envelope.isNotification {
+		// The outer command state is transport, not notifier semantics. Only a
+		// notifier's explicit delivered result is successful; retryable and
+		// permanent failures stay distinguishable in payload_json for core.
+		return resultPayload["schema"] == notificationDeliveryResultSchema &&
+			resultPayload["status"] == "delivered"
+	}
+
+	return resultPayload["status"] != commandStatusFailed ||
+		resultPayload["schema"] != actionResultAckSchema
+}
+
+// pluginActionResultEnvelope is the correlation identity the agent stamps on a
+// plugin.run_action command result, and the one place that decides whether a
+// result is a northbound action result or a notification delivery result.
+//
+// The agent never invents the BODY of a guest result. Whatever the plugin
+// submitted is passed through and only these identity fields plus the
+// schema/status defaults are filled in - the same courier role the northbound
+// path already plays for invocation_id / action_id. Synthesising a notification
+// result shape here would fork the notifier guest ABI the SDKs own (tasks 3.8).
+type pluginActionResultEnvelope struct {
+	notification   notificationDeliveryEnvelope
+	isNotification bool
+	invocationID   string
+	actionID       string
+}
+
+func (e pluginActionResultEnvelope) schema() string {
+	if e.isNotification {
+		return notificationDeliveryResultSchema
+	}
+
+	return northboundActionResultSchema
+}
+
+// failure builds the terminal result for a dispatch that never reached the
+// guest. It still carries the delivery identity, because a delivery the control
+// plane cannot correlate is a delivery it has to time out instead of read.
+func (e pluginActionResultEnvelope) failure(errorCode string) map[string]interface{} {
+	result := map[string]interface{}{
+		"schema": e.schema(),
+		"status": commandStatusFailed,
+		"error":  errorCode,
+	}
+	e.stampIdentity(result)
+
+	return result
+}
+
+func (e pluginActionResultEnvelope) stamp(result map[string]interface{}) {
+	result["schema"] = firstNonEmptyString(result["schema"], e.schema())
+	defaultStatus := commandStatusSucceeded
+	if e.isNotification {
+		// A notifier that omitted its three-state result did not prove delivery.
+		defaultStatus = commandStatusFailed
+	}
+	result["status"] = firstNonEmptyString(result["status"], defaultStatus)
+	e.stampIdentity(result)
+}
+
+func (e pluginActionResultEnvelope) stampIdentity(result map[string]interface{}) {
+	if e.isNotification {
+		result["delivery_id"] = firstNonEmptyString(result["delivery_id"], e.notification.DeliveryID)
+		result["channel_id"] = firstNonEmptyString(result["channel_id"], e.notification.ChannelID)
+		result["action_key"] = firstNonEmptyString(result["action_key"], e.notification.ActionKey)
+		return
+	}
+
+	result["invocation_id"] = firstNonEmptyString(result["invocation_id"], e.invocationID)
+	result["action_id"] = firstNonEmptyString(result["action_id"], e.actionID)
+}
+
+func (e pluginActionResultEnvelope) progressMessage() string {
+	if e.isNotification {
+		return "starting notification delivery"
+	}
+
+	return "starting plugin action"
+}
+
+func (e pluginActionResultEnvelope) completedMessage() string {
+	if e.isNotification {
+		return "notification delivery completed"
+	}
+
+	return "plugin action completed"
+}
+
+func (e pluginActionResultEnvelope) failedMessage() string {
+	if e.isNotification {
+		return "notification delivery failed"
+	}
+
+	return "plugin action failed"
+}
+
+// notificationTargetErrorCode maps an addressing failure to a stable error code
+// the delivery log can group on, rather than to the raw message text.
+func notificationTargetErrorCode(err error) string {
+	switch {
+	case errors.Is(err, errNotificationTargetMissing):
+		return "missing_notification_target"
+	case errors.Is(err, errNotificationTargetAmbiguous):
+		return "ambiguous_notification_target"
+	case errors.Is(err, errPluginAssignmentNotFound):
+		return "notifier_not_assigned"
+	default:
+		return "notification_target_unresolved"
+	}
 }
 
 func (p *PushLoop) handleAddonRunCommand(ctx context.Context, cmd *proto.CommandRequest, sender *controlStreamSender) {

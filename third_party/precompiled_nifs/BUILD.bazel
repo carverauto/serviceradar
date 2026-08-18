@@ -1,0 +1,57 @@
+"""Precompiled Rustler NIF archives, staged into every Mix compile action.
+
+rustler_precompiled fetches these from GitHub during `mix compile`. That is a network call
+from inside a Bazel action, and it is keyed on the target triple -- which is how an x86-64
+`.so` ended up inside a linux/arm64 web-ng release. //build:mix_app.bzl now supplies the
+triple, and this filegroup supplies the artefact itself as a declared, checksummed input so
+the fetch never has to happen.
+
+Selected on the TARGET platform, so an arm64 image stages the aarch64 archive. The file
+names are exact: rustler_precompiled looks for
+`$RUSTLER_PRECOMPILED_GLOBAL_CACHE_PATH/<file_name>` and verifies it against the package's
+own checksum file before extracting, so a wrong or corrupt archive fails loudly rather than
+silently falling back to the network.
+
+Every mix_app stages this list; packages that use no precompiled NIF simply never look at
+it. Same arrangement as //third_party/membrane:precompiled_os_deps for Bundlex.
+"""
+
+package(default_visibility = ["//visibility:public"])
+
+filegroup(
+    name = "precompiled_nifs",
+    srcs = select({
+        "//build/platforms:target_linux_arm64": ["@mdex_native_nif_aarch64//file"],
+        "//conditions:default": ["@mdex_native_nif_x86_64//file"],
+    }),
+)
+
+# The elixir_make equivalent, staged into ELIXIR_MAKE_CACHE_DIR.
+#
+# NOT selected on the target platform, and that is the whole point. vix runs its own NIF
+# during `mix compile` -- `Vix.Vips.EnumHelper.__before_compile__/1` calls
+# `Vix.Nif.nif_vips_enum_list/0` to generate the enum modules -- so the compile needs an
+# artefact the EXECUTOR can dlopen, while the packaged priv needs one for the TARGET. Giving
+# it only the target's produced exactly the failure this repo has now seen five times:
+#     Failed to load NIF library: '.../vix.so: cannot open shared object file'
+# for a file that is present and simply has the wrong e_machine.
+#
+# Both are therefore staged unconditionally and elixir_make picks by triple; which one it
+# picks is decided by whether //build:mix_app.bzl exports TARGET_ARCH for the package. See
+# _HOST_NIF_APPS there for how the target artefact is put back afterwards.
+filegroup(
+    name = "elixir_make_nifs",
+    srcs = [
+        "@vix_nif_aarch64//file",
+        "@vix_nif_x86_64//file",
+    ],
+)
+
+# Just the target architecture's, overlaid onto priv after the compile.
+filegroup(
+    name = "elixir_make_nifs_target",
+    srcs = select({
+        "//build/platforms:target_linux_arm64": ["@vix_nif_aarch64//file"],
+        "//conditions:default": ["@vix_nif_x86_64//file"],
+    }),
+)

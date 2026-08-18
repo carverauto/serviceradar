@@ -38,7 +38,7 @@ type tokenPayload struct {
 	version       int    `json:"-"`
 }
 
-func parseOnboardingToken(raw string, fallbackPackageID, fallbackCoreURL string) (*tokenPayload, error) {
+func parseOnboardingToken(raw string, fallbackPackageID, overrideCoreURL string) (*tokenPayload, error) {
 	raw = strings.TrimSpace(raw)
 	if raw == "" {
 		return nil, ErrTokenRequired
@@ -46,15 +46,15 @@ func parseOnboardingToken(raw string, fallbackPackageID, fallbackCoreURL string)
 
 	switch {
 	case strings.HasPrefix(raw, tokenV3Prefix):
-		return parseSignedStructuredToken(raw, tokenV3Prefix, 3, fallbackPackageID, fallbackCoreURL)
+		return parseSignedStructuredToken(raw, tokenV3Prefix, 3, fallbackPackageID, overrideCoreURL)
 	case strings.HasPrefix(raw, tokenV2Prefix):
-		return parseSignedStructuredToken(raw, tokenV2Prefix, 2, fallbackPackageID, fallbackCoreURL)
+		return parseSignedStructuredToken(raw, tokenV2Prefix, 2, fallbackPackageID, overrideCoreURL)
 	default:
 		return nil, ErrUnsupportedTokenFormat
 	}
 }
 
-func parseSignedStructuredToken(raw, prefix string, version int, fallbackPackageID, fallbackCoreURL string) (*tokenPayload, error) {
+func parseSignedStructuredToken(raw, prefix string, version int, fallbackPackageID, overrideCoreURL string) (*tokenPayload, error) {
 	encoded := strings.TrimPrefix(raw, prefix)
 	encodedPayload, encodedSignature, ok := strings.Cut(encoded, onboardingTokenSignatureSep)
 	if !ok || encodedPayload == "" || encodedSignature == "" {
@@ -88,8 +88,12 @@ func parseSignedStructuredToken(raw, prefix string, version int, fallbackPackage
 	if payload.PackageID == "" {
 		payload.PackageID = fallbackPackageID
 	}
-	if strings.TrimSpace(payload.CoreURL) == "" {
-		payload.CoreURL = strings.TrimSpace(fallbackCoreURL)
+	// A caller-supplied URL is an operator override. The signed token remains
+	// authoritative for package identity and the download secret, but its API
+	// origin must not make an explicit --core-url impossible to use for recovery
+	// after a deployment hostname changes.
+	if coreURL := strings.TrimSpace(overrideCoreURL); coreURL != "" {
+		payload.CoreURL = coreURL
 	}
 	payload.PartitionID = strings.TrimSpace(payload.PartitionID)
 	payload.rawToken = raw

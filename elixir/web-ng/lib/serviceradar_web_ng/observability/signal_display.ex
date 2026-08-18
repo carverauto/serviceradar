@@ -1,7 +1,47 @@
 defmodule ServiceRadarWebNG.Observability.SignalDisplay do
   @moduledoc """
   Resolves and renders package-owned signal display contracts into safe view data.
+
+  ## Where a contract comes from
+
+  Resolution is ordered, and the first hit wins:
+
+    1. an explicit `:contracts` map passed by the caller (tests, and the
+       `:serviceradar_web_ng` application override);
+    2. `ServiceRadarWebNG.Observability.ContractRegistry` - the RUNTIME index of
+       what installed, approved packages actually ship;
+    3. `@built_in_contracts` - the compile-time first-party map.
+
+  Step 2 is the point of tasks 3.5.1. Before it, step 3 was the only source, so a
+  third-party package could not ship a renderable contract without recompiling
+  web-ng even though packages already persist `signal_schemas`. Step 3 is
+  deliberately KEPT rather than migrated: the six first-party contracts it holds
+  are not shipped inside their add-on bundles (`addons/powerdns` ships
+  `addon.yaml` and `config.schema.json` only), so deleting it would stop
+  first-party signals rendering. It is now the fallback for packages that ship
+  no contract of their own.
+
+  ## Degradation
+
+  A contract that is missing resolves to `:error` and the caller renders the page
+  without a contract block, which is what has always happened. A contract that
+  is PRESENT but broken is different: `render_with_diagnostics/2` drops the
+  widgets it cannot render, reports why, and - through
+  `render_or_generic/2` - falls back to a bounded generic view built from the
+  record itself. A third party's malformed contract degrades its own panel; it
+  never takes out the operator's page.
   """
+
+  alias ServiceRadarWebNG.Observability.ContractRegistry
+
+  @typedoc """
+  Why part of a contract did not render. Enumerable rather than logged, so the
+  UI can show an operator the reason next to the panel that degraded.
+  """
+  @type diagnostic :: %{
+          kind: :unknown_widget | :empty_widget | :invalid_contract | :degraded,
+          detail: String.t()
+        }
 
   @contract_roots [
     File.cwd!(),
@@ -87,24 +127,71 @@ defmodule ServiceRadarWebNG.Observability.SignalDisplay do
   @max_table_rows 50
   @max_table_columns 8
   @max_value_length 240
+  @max_generic_fields 24
 
   @doc "Resolve the display contract referenced by a stored event/log row."
   @spec resolve_contract(map(), keyword()) :: {:ok, map()} | :error
   def resolve_contract(record, opts \\ [])
 
   def resolve_contract(record, opts) when is_map(record) do
-    configured = Keyword.get(opts, :contracts) || configured_contracts()
-
-    with %{} = signal_schema <- signal_schema_ref(record),
-         key = contract_key(signal_schema),
-         %{} = contract <- Map.get(configured, key) || built_in_contract(key) do
-      {:ok, contract}
-    else
-      _ -> :error
+    case resolve_contract_with_source(record, opts) do
+      {:ok, contract, _source} -> {:ok, contract}
+      :error -> :error
     end
   end
 
   def resolve_contract(_record, _opts), do: :error
+
+  @doc """
+  Resolve a contract and report which of the three sources supplied it.
+
+  The source is what makes a support question answerable: "the package shipped a
+  contract and it is being used" and "the package shipped nothing and the
+  built-in is being used" produce identical widgets and completely different
+  next steps.
+  """
+  @spec resolve_contract_with_source(map(), keyword()) ::
+          {:ok, map(), :override | :runtime | :built_in} | :error
+  def resolve_contract_with_source(record, opts \\ [])
+
+  def resolve_contract_with_source(record, opts) when is_map(record) do
+    configured = Keyword.get(opts, :contracts) || configured_contracts()
+
+    case signal_schema_ref(record) do
+      %{} = signal_schema ->
+        key = contract_key(signal_schema)
+
+        cond do
+          contract = contract_map(Map.get(configured, key)) -> {:ok, contract, :override}
+          contract = runtime_contract(key) -> {:ok, contract, :runtime}
+          contract = contract_map(built_in_contract(key)) -> {:ok, contract, :built_in}
+          true -> :error
+        end
+
+      _ ->
+        :error
+    end
+  end
+
+  def resolve_contract_with_source(_record, _opts), do: :error
+
+  # The runtime index is best-effort by construction: it is an ETS read against
+  # a table a supervised process owns, and a render must survive that process
+  # not being up yet (boot, a test that starts no application tree) by falling
+  # through to the compile-time map rather than raising in a LiveView mount.
+  defp runtime_contract({producer_id, producer_version, schema_id, schema_version} = key) do
+    if Enum.all?(Tuple.to_list(key), &is_binary/1) do
+      case ContractRegistry.lookup_signal(producer_id, producer_version, schema_id, schema_version) do
+        {:ok, contract} -> contract
+        :error -> nil
+      end
+    end
+  end
+
+  defp runtime_contract(_key), do: nil
+
+  defp contract_map(%{} = contract), do: contract
+  defp contract_map(_value), do: nil
 
   @doc "Render a record through a display contract into bounded widget view data."
   @spec render(map(), map()) :: {:ok, [map()]} | :error
@@ -127,6 +214,150 @@ defmodule ServiceRadarWebNG.Observability.SignalDisplay do
     with {:ok, contract} <- resolve_contract(record, opts) do
       render(record, contract)
     end
+  end
+
+  @doc """
+  Render a record through a contract, reporting what could not be rendered.
+
+  Unrenderable widgets are DROPPED, never raised on and never rendered as
+  themselves. A third-party contract naming a widget type this release does not
+  implement - or naming paths that hold nothing in this particular record - is a
+  normal condition, not a page failure, and the diagnostic is how an operator
+  finds out which it was.
+  """
+  @spec render_with_diagnostics(map(), map()) :: {[map()], [diagnostic()]}
+  def render_with_diagnostics(record, contract) when is_map(record) and is_map(contract) do
+    contract
+    |> Map.get("widgets", [])
+    |> List.wrap()
+    |> Enum.take(@max_widgets)
+    |> Enum.reduce({[], []}, fn widget, {widgets, diagnostics} ->
+      {rendered, widget_diagnostics} = render_widget_diagnosed(record, widget)
+      {widgets ++ rendered, diagnostics ++ widget_diagnostics}
+    end)
+  end
+
+  def render_with_diagnostics(_record, _contract) do
+    {[], [%{kind: :invalid_contract, detail: "contract and record must both be objects"}]}
+  end
+
+  @doc """
+  Render a record through a contract, or through a bounded generic view when
+  there is no usable contract.
+
+  `contract` may be `nil`, which is the "this package ships nothing for this
+  surface" case rather than an error. This is the entry point the notification
+  surfaces use (tasks 3.5.4): a channel's config, a delivery receipt, and a
+  channel's health all render through a package contract when one exists and
+  through the generic view when one does not, so a package that ships no
+  contract and a package whose contract is broken produce the same readable
+  panel instead of a blank one.
+  """
+  @spec render_or_generic(map(), map() | nil, keyword()) :: {[map()], [diagnostic()]}
+  def render_or_generic(record, contract, opts \\ [])
+
+  def render_or_generic(record, %{} = contract, opts) when is_map(record) do
+    case render_with_diagnostics(record, contract) do
+      {[], diagnostics} ->
+        {generic_widgets(record, opts),
+         diagnostics ++
+           [%{kind: :degraded, detail: "contract rendered no widgets; showing a generic view"}]}
+
+      {widgets, diagnostics} ->
+        {widgets, diagnostics}
+    end
+  end
+
+  def render_or_generic(record, nil, opts) when is_map(record) do
+    {generic_widgets(record, opts), []}
+  end
+
+  def render_or_generic(_record, _contract, _opts), do: {[], []}
+
+  @doc """
+  A bounded, contract-free view of a record.
+
+  Scalars become one `facts` widget and containers become one `json_section`,
+  under the same length and count limits a contract-driven render obeys. It
+  carries no package-supplied labels, so it is safe to render for a record whose
+  contract was rejected.
+  """
+  @spec generic_widgets(map(), keyword()) :: [map()]
+  def generic_widgets(record, opts \\ [])
+
+  def generic_widgets(%{} = record, opts) do
+    limit = Keyword.get(opts, :limit, @max_generic_fields)
+    title = Keyword.get(opts, :title)
+
+    {containers, scalars} =
+      record
+      |> Enum.map(fn {key, value} -> {to_string(key), value} end)
+      |> Enum.sort_by(fn {key, _value} -> key end)
+      |> Enum.split_with(fn {_key, value} -> is_map(value) or is_list(value) end)
+
+    fields =
+      scalars
+      |> Enum.take(limit)
+      |> Enum.flat_map(fn {key, value} ->
+        case display_value(value) do
+          blank when blank in [nil, ""] -> []
+          value -> [%{label: humanize(key), path: key, value: value, tone: nil}]
+        end
+      end)
+
+    sections =
+      containers
+      |> Enum.take(limit)
+      |> Enum.map(fn {key, value} ->
+        %{path: key, value: value, json: Jason.encode!(value, pretty: true)}
+      end)
+
+    Enum.reject(
+      [
+        if(fields == [], do: nil, else: %{type: :facts, fields: fields}),
+        if(sections == [], do: nil, else: %{type: :json_section, title: title, sections: sections})
+      ],
+      &is_nil/1
+    )
+  end
+
+  def generic_widgets(_record, _opts), do: []
+
+  # The widget types this release renders. Deliberately a literal rather than a
+  # call into `ServiceRadar.Plugins.DisplayContract`: the validator's list is
+  # what a package may DECLARE and this is what this release can DRAW, and the
+  # two are allowed to differ during a rollout where a newer validator ships
+  # first. `signal_display_test.exs` asserts they agree today, which is what
+  # keeps an accidental divergence from going unnoticed.
+  @renderable_widget_types ~w(summary facts badges timeline json_section table)
+
+  @doc "The widget types this release can render."
+  @spec renderable_widget_types() :: [String.t()]
+  def renderable_widget_types, do: @renderable_widget_types
+
+  defp render_widget_diagnosed(record, widget) when is_map(widget) do
+    type = Map.get(widget, "type")
+
+    if type in @renderable_widget_types do
+      case render_widget(record, widget) do
+        [] -> {[], [%{kind: :empty_widget, detail: "#{type} widget matched no values in this record"}]}
+        widgets -> {widgets, []}
+      end
+    else
+      {[], [%{kind: :unknown_widget, detail: "widget type #{inspect(type)} is not rendered by this release"}]}
+    end
+  end
+
+  defp render_widget_diagnosed(_record, _widget) do
+    {[], [%{kind: :invalid_contract, detail: "widget must be an object"}]}
+  end
+
+  defp humanize(key) do
+    key
+    |> String.replace(["_", "."], " ")
+    |> String.split(" ", trim: true)
+    |> Enum.map_join(" ", &String.capitalize/1)
+    |> clean_label()
   end
 
   defp configured_contracts do

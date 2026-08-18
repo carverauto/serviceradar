@@ -25,7 +25,11 @@ pub(crate) fn build_query_plan(
         validate_other_rollup_request(&ast, requested_limit, request.cursor.as_deref())?;
     }
 
-    let limit = determine_limit(config, requested_limit);
+    let limit = if is_grouped_device_stats(&ast) {
+        determine_grouped_device_limit(config, requested_limit)
+    } else {
+        determine_limit(config, requested_limit)
+    };
     let offset = request
         .cursor
         .as_deref()
@@ -149,6 +153,34 @@ fn determine_limit(config: &AppConfig, candidate: Option<i64>) -> i64 {
     let max = config.max_limit;
     let limit = candidate.unwrap_or(default).max(1);
     if max <= 0 { limit } else { limit.min(max) }
+}
+
+fn is_grouped_device_stats(ast: &QueryAst) -> bool {
+    matches!(ast.entity, Entity::Devices)
+        && ast.stats.as_ref().is_some_and(|stats| {
+            stats
+                .as_raw()
+                .split_whitespace()
+                .nth(3)
+                .is_some_and(|token| token.eq_ignore_ascii_case("by"))
+        })
+}
+
+fn determine_grouped_device_limit(config: &AppConfig, candidate: Option<i64>) -> i64 {
+    const DEFAULT_GROUP_LIMIT: i64 = 20;
+    const MAX_GROUP_LIMIT: i64 = 100;
+
+    let configured_max = if config.max_limit > 0 {
+        config.max_limit.min(MAX_GROUP_LIMIT)
+    } else {
+        MAX_GROUP_LIMIT
+    }
+    .max(1);
+
+    candidate
+        .unwrap_or(DEFAULT_GROUP_LIMIT)
+        .max(1)
+        .min(configured_max)
 }
 
 fn normalize_device_aliases(

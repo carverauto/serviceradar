@@ -8,15 +8,18 @@ defmodule ServiceRadarWebNGWeb.Admin.CollectorLiveTest do
   @public_key "A6EHv/POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg="
 
   setup %{conn: conn} do
-    previous_nats_url = Application.get_env(:serviceradar, :nats_url)
+    previous_web_nats_url = Application.get_env(:serviceradar_web_ng, :nats_url)
+    previous_core_nats_url = Application.get_env(:serviceradar, :nats_url)
     previous_private_key = Application.get_env(:serviceradar_web_ng, :onboarding_token_private_key)
     previous_public_key = Application.get_env(:serviceradar_web_ng, :onboarding_token_public_key)
-    Application.put_env(:serviceradar, :nats_url, "nats://serviceradar-nats:4222")
+    Application.put_env(:serviceradar_web_ng, :nats_url, "tls://serviceradar-nats:4222")
+    Application.delete_env(:serviceradar, :nats_url)
     Application.put_env(:serviceradar_web_ng, :onboarding_token_private_key, @private_key)
     Application.put_env(:serviceradar_web_ng, :onboarding_token_public_key, @public_key)
 
     on_exit(fn ->
-      Application.put_env(:serviceradar, :nats_url, previous_nats_url)
+      restore_env(:serviceradar_web_ng, :nats_url, previous_web_nats_url)
+      restore_env(:serviceradar, :nats_url, previous_core_nats_url)
       Application.put_env(:serviceradar_web_ng, :onboarding_token_private_key, previous_private_key)
       Application.put_env(:serviceradar_web_ng, :onboarding_token_public_key, previous_public_key)
     end)
@@ -24,6 +27,28 @@ defmodule ServiceRadarWebNGWeb.Admin.CollectorLiveTest do
     user = admin_user_fixture()
 
     %{conn: log_in_user(conn, user), user: user}
+  end
+
+  describe "nats deployment status" do
+    test "reads the web-ng NATS URL instead of spinning on provisioning", %{conn: conn} do
+      {:ok, _lv, html} = live(conn, ~p"/admin/collectors")
+
+      assert html =~ "NATS Ready"
+      assert html =~ "tls://serviceradar-nats:4222"
+      refute html =~ "Provisioning NATS Account"
+      refute html =~ "Please wait while your account is being set up"
+    end
+
+    test "says NATS is not configured when no URL is set", %{conn: conn} do
+      Application.delete_env(:serviceradar_web_ng, :nats_url)
+      Application.delete_env(:serviceradar, :nats_url)
+
+      {:ok, _lv, html} = live(conn, ~p"/admin/collectors")
+
+      assert html =~ "NATS Not Configured"
+      refute html =~ "Provisioning NATS Account"
+      refute html =~ "Please wait while your account is being set up"
+    end
   end
 
   describe "falcosidekick creation flow" do
@@ -76,4 +101,7 @@ defmodule ServiceRadarWebNGWeb.Admin.CollectorLiveTest do
       refute html =~ "Data Collectors"
     end
   end
+
+  defp restore_env(app, key, nil), do: Application.delete_env(app, key)
+  defp restore_env(app, key, value), do: Application.put_env(app, key, value)
 end

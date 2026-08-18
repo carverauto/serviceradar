@@ -25,7 +25,7 @@ defmodule ServiceRadar.Observability.IpinfoMmdbDownloadWorker do
   require Logger
 
   @default_dir "/var/lib/serviceradar/geoip"
-  @default_timeout_ms 20_000
+  @default_timeout_ms 180_000
   @default_reschedule_seconds 86_400
   @default_failure_reschedule_seconds 6 * 3600
   @mmdb_filename "ipinfo_lite.mmdb"
@@ -38,6 +38,8 @@ defmodule ServiceRadar.Observability.IpinfoMmdbDownloadWorker do
   def ensure_scheduled do
     config = Application.get_env(:serviceradar_core, __MODULE__, [])
 
+    dir = Keyword.get(config, :dir, System.get_env("GEOLITE_MMDB_DIR") || @default_dir)
+
     cond do
       not enabled?(config) ->
         {:ok, :disabled}
@@ -45,11 +47,65 @@ defmodule ServiceRadar.Observability.IpinfoMmdbDownloadWorker do
       not ObanSupport.available?() ->
         {:error, :oban_unavailable}
 
+      not file_present?(dir) ->
+        case promote_scheduled_now() do
+          {:ok, :promoted} ->
+            {:ok, :already_scheduled}
+
+          :none ->
+            %{} |> new() |> ObanSupport.safe_insert()
+        end
+
       check_existing_job() ->
         {:ok, :already_scheduled}
 
       true ->
         %{} |> new() |> ObanSupport.safe_insert()
+    end
+  end
+
+  @doc """
+  Downloads `ipinfo_lite.mmdb` when it is missing and a token is configured.
+
+  Used by web-ng (no maintenance queue) when each pod has its own emptyDir.
+  """
+  @spec sync_missing_files(keyword()) :: :ok | {:error, term()} | {:ok, :skipped}
+  def sync_missing_files(opts \\ []) do
+    config = Application.get_env(:serviceradar_core, __MODULE__, [])
+
+    dir =
+      Keyword.get(opts, :dir) ||
+        Keyword.get(config, :dir, System.get_env("GEOLITE_MMDB_DIR") || @default_dir)
+
+    timeout_ms =
+      Keyword.get(opts, :timeout_ms) || Keyword.get(config, :timeout_ms, @default_timeout_ms)
+
+    dest = Path.join(dir, @mmdb_filename)
+
+    if file_present?(dir) do
+      :ok
+    else
+      actor = SystemActor.system(:ipinfo_mmdb_download)
+      token = download_token(load_settings(actor))
+
+      if token == "" do
+        {:ok, :skipped}
+      else
+        case File.mkdir_p(dir) do
+          :ok ->
+            case download_file(build_url(token), dest, timeout_ms) do
+              {:ok, _} ->
+                _ = GeoIP.reload()
+                :ok
+
+              {:error, reason} ->
+                {:error, reason}
+            end
+
+          {:error, reason} ->
+            {:error, reason}
+        end
+      end
     end
   end
 
@@ -92,7 +148,7 @@ defmodule ServiceRadar.Observability.IpinfoMmdbDownloadWorker do
 
     cond do
       token == "" ->
-        Logger.debug("Ipinfo MMDB download skipped (missing token or disabled)")
+        Logger.info("Ipinfo MMDB download skipped (token missing or ipinfo disabled)")
         schedule_next(reschedule_seconds)
 
       not force? and recently_updated?(dest, reschedule_seconds) ->
@@ -207,6 +263,25 @@ defmodule ServiceRadar.Observability.IpinfoMmdbDownloadWorker do
       e ->
         File.rm(tmp)
         {:error, e}
+    end
+  end
+
+  defp file_present?(dir) when is_binary(dir) do
+    File.regular?(Path.join(dir, @mmdb_filename))
+  end
+
+  defp promote_scheduled_now do
+    now = DateTime.utc_now()
+
+    query =
+      from(j in Oban.Job,
+        where: j.worker == ^to_string(__MODULE__),
+        where: j.state == "scheduled"
+      )
+
+    case Repo.update_all(query, [set: [scheduled_at: now]], prefix: ObanSupport.prefix()) do
+      {count, _} when count > 0 -> {:ok, :promoted}
+      _ -> :none
     end
   end
 

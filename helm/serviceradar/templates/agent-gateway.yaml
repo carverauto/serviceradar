@@ -5,7 +5,7 @@
 {{- $clusterNodeBasename := default "serviceradar_agent_gateway" $gateway.kubernetesNodeBasename -}}
 {{- $coreVals := default (dict) .Values.core -}}
 {{- $webNg := default (dict) .Values.webNg -}}
-{{- $webNgPublicUrl := default "" $webNg.publicUrl -}}
+{{- $webNgPublicUrl := include "serviceradar.webNgPublicUrl" . -}}
 {{- $gatewayService := default (dict) $gateway.service -}}
 {{- $gatewayServiceType := default "ClusterIP" $gatewayService.type -}}
 {{- $gatewayArtifactPublicUrl := "" -}}
@@ -77,7 +77,7 @@ spec:
       {{- include "serviceradar.elixirReleasePodSecurityContext" . | nindent 6 }}
       containers:
       - name: agent-gateway
-        image: {{ include "serviceradar.imageRef" (dict "Values" .Values "name" "serviceradar-agent-gateway" "service" "agentGateway") }}
+        image: {{ include "serviceradar.imageRef" (dict "Values" .Values "Chart" .Chart "name" "serviceradar-agent-gateway" "service" "agentGateway") }}
         imagePullPolicy: {{ include "serviceradar.imagePullPolicy" . }}
         {{- include "serviceradar.containerSecurityContext" . | nindent 8 }}
         ports:

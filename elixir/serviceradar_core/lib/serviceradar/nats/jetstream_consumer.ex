@@ -37,8 +37,58 @@ defmodule ServiceRadar.NATS.JetstreamConsumer do
          {:ok, stream_name} <- resolve_stream_name(connection_ref, opts, subject),
          {:ok, stream_name} <-
            ensure_stream_for_subject(connection_ref, stream_name, subject, opts),
-         :ok <- create_consumer(connection_ref, stream_name, consumer_name, subject, opts) do
+         :ok <- upsert_consumer(connection_ref, stream_name, consumer_name, subject, opts) do
       {:ok, %{stream_name: stream_name, consumer_name: consumer_name}}
+    end
+  end
+
+  # Prefer CONSUMER.CREATE upsert (NATS 2.12 has no usable CONSUMER.UPDATE responder).
+  # INFO first: preserve existing deliver_policy; if absent, use if_absent / default.
+  defp upsert_consumer(connection_ref, stream_name, consumer_name, subject, opts) do
+    domain = Keyword.get(opts, :domain)
+
+    opts =
+      case consumer_config(connection_ref, stream_name, consumer_name, domain) do
+        {:ok, existing} ->
+          policy = existing_deliver_policy(existing)
+
+          opts
+          |> Keyword.put(:deliver_policy, policy)
+          |> preserve_existing_start_sequence(existing, policy)
+          |> Keyword.put(:consumer_already_exists, true)
+
+        {:error, _} ->
+          case Keyword.fetch(opts, :deliver_policy_if_absent) do
+            {:ok, policy} when not is_nil(policy) ->
+              Keyword.put(opts, :deliver_policy, policy)
+
+            _ ->
+              # Leave deliver_policy unset → server default (all) unless caller set it.
+              opts
+          end
+      end
+
+    create_consumer(connection_ref, stream_name, consumer_name, subject, opts)
+  end
+
+  defp existing_deliver_policy(config) when is_map(config) do
+    case Map.get(config, "deliver_policy") || Map.get(config, :deliver_policy) do
+      policy when is_binary(policy) ->
+        case String.downcase(policy) do
+          "all" -> :all
+          "last" -> :last
+          "new" -> :new
+          "by_start_sequence" -> :by_start_sequence
+          "by_start_time" -> :by_start_time
+          "last_per_subject" -> :last_per_subject
+          other -> other
+        end
+
+      policy when is_atom(policy) and not is_nil(policy) ->
+        policy
+
+      _ ->
+        :all
     end
   end
 
@@ -57,13 +107,14 @@ defmodule ServiceRadar.NATS.JetstreamConsumer do
   defp resolve_stream_name(connection_ref, opts, subject) do
     requested = Keyword.get(opts, :stream_name)
     domain = Keyword.get(opts, :domain)
+    allow_fallback = allow_stream_fallback?(opts)
 
     case find_streams_by_subject(connection_ref, subject, domain) do
       {:ok, []} ->
         resolve_empty_streams(requested, subject)
 
       {:ok, streams} ->
-        resolve_discovered_streams(requested, subject, streams)
+        resolve_discovered_streams(requested, subject, streams, allow_fallback)
 
       {:error, _reason} = error ->
         resolve_discovery_error(requested, subject, error)
@@ -106,11 +157,30 @@ defmodule ServiceRadar.NATS.JetstreamConsumer do
         {:ok, stream_name}
 
       {:error, reason} = error ->
-        if subject_overlap_error?(reason) do
+        if subject_overlap_error?(reason) and allow_stream_fallback?(opts) do
           retry_stream_for_overlap(connection_ref, stream_name, subject, opts, error)
         else
+          if subject_overlap_error?(reason) do
+            Logger.error(
+              "JetStream subject overlap for explicit stream; refusing fallback (would strand consumer)",
+              requested_stream: stream_name,
+              subject: subject,
+              reason: inspect(reason)
+            )
+          end
+
           error
         end
+    end
+  end
+
+  # Explicit stream targets (e.g. dedicated `flows`) must not fall back onto a
+  # legacy owner such as `events` — that strands durables on the wrong stream
+  # after subjects are rehomed. Opt in with allow_stream_fallback: true.
+  defp allow_stream_fallback?(opts) do
+    case Keyword.get(opts, :allow_stream_fallback, true) do
+      false -> false
+      _ -> true
     end
   end
 
@@ -252,17 +322,25 @@ defmodule ServiceRadar.NATS.JetstreamConsumer do
       |> Map.get("subjects", [])
       |> normalized_subjects(subject)
 
+    # When another component owns retention (flow-collector for `flows`), only
+    # merge subjects — never thrash max_bytes/max_age/replicas on reconcile.
     payload =
-      config
-      |> Map.put("name", Map.get(config, "name", stream_name))
-      |> Map.put("subjects", subjects)
-      |> put_configured(opts, :stream_retention, "retention")
-      |> put_configured(opts, :stream_storage, "storage")
-      |> put_configured(opts, :stream_discard, "discard")
-      |> put_configured(opts, :stream_replicas, "num_replicas")
-      |> put_configured(opts, :stream_max_bytes, "max_bytes")
-      |> put_configured(opts, :stream_max_age, "max_age")
-      |> put_configured(opts, :stream_duplicate_window, "duplicate_window")
+      if Keyword.get(opts, :reconcile_stream_shape, true) == false do
+        config
+        |> Map.put("name", Map.get(config, "name", stream_name))
+        |> Map.put("subjects", subjects)
+      else
+        config
+        |> Map.put("name", Map.get(config, "name", stream_name))
+        |> Map.put("subjects", subjects)
+        |> put_configured(opts, :stream_retention, "retention")
+        |> put_configured(opts, :stream_storage, "storage")
+        |> put_configured(opts, :stream_discard, "discard")
+        |> put_configured(opts, :stream_replicas, "num_replicas")
+        |> put_configured(opts, :stream_max_bytes, "max_bytes")
+        |> put_configured(opts, :stream_max_age, "max_age")
+        |> put_configured(opts, :stream_duplicate_window, "duplicate_window")
+      end
 
     {:ok, payload}
   end
@@ -297,62 +375,126 @@ defmodule ServiceRadar.NATS.JetstreamConsumer do
 
     case Util.request(connection_ref, topic, payload) do
       {:ok, %{"error" => %{"description" => description} = err}} when is_binary(description) ->
-        cond do
-          consumer_exists_error?(description) ->
-            reconcile_consumer(connection_ref, stream_name, consumer_name, subject, opts)
-
-          immutable_consumer_shape_error?(description) ->
-            recreate_consumer(connection_ref, stream_name, consumer_name, subject, opts, domain)
-
-          true ->
-            {:error, err}
-        end
+        handle_create_error(
+          connection_ref,
+          stream_name,
+          consumer_name,
+          subject,
+          opts,
+          domain,
+          description,
+          err
+        )
 
       {:ok, %{"error" => error}} ->
-        {:error, error}
+        handle_create_error_map(
+          connection_ref,
+          stream_name,
+          consumer_name,
+          subject,
+          opts,
+          domain,
+          error
+        )
 
       {:ok, _} ->
         :ok
 
       {:error, %{"description" => description} = err} when is_binary(description) ->
-        cond do
-          consumer_exists_error?(description) ->
-            reconcile_consumer(connection_ref, stream_name, consumer_name, subject, opts)
-
-          immutable_consumer_shape_error?(description) ->
-            recreate_consumer(connection_ref, stream_name, consumer_name, subject, opts, domain)
-
-          true ->
-            {:error, err}
-        end
+        handle_create_error(
+          connection_ref,
+          stream_name,
+          consumer_name,
+          subject,
+          opts,
+          domain,
+          description,
+          err
+        )
 
       {:error, reason} ->
         {:error, reason}
     end
   end
 
-  defp update_consumer(connection_ref, stream_name, consumer_name, subject, opts) do
-    domain = Keyword.get(opts, :domain)
-    topic = "#{js_api(domain)}.CONSUMER.UPDATE.#{stream_name}.#{consumer_name}"
-    payload = stream_name |> consumer_payload(consumer_name, subject, opts) |> Jason.encode!()
+  # Existing durables with a different deliver_policy reject CREATE with err 10012
+  # rather than "already exists". Treat that as "exists → reconcile without
+  # deliver_policy" — never recreate (would wipe the ACK cursor).
+  defp handle_create_error(
+         connection_ref,
+         stream_name,
+         consumer_name,
+         subject,
+         opts,
+         domain,
+         description,
+         err
+       ) do
+    cond do
+      consumer_exists_error?(description) or deliver_policy_immutable_error?(description) ->
+        # Re-INFO + filter check + CREATE upsert with existing deliver_policy.
+        reconcile_consumer(connection_ref, stream_name, consumer_name, subject, opts)
 
-    case Util.request(connection_ref, topic, payload) do
-      {:ok, %{"error" => %{"description" => description} = error}}
-      when is_binary(description) ->
-        if immutable_consumer_shape_error?(description) do
-          recreate_consumer(connection_ref, stream_name, consumer_name, subject, opts, domain)
-        else
-          {:error, error}
-        end
+      immutable_consumer_shape_error?(description) ->
+        recreate_consumer(connection_ref, stream_name, consumer_name, subject, opts, domain)
 
-      {:ok, %{"error" => error}} ->
-        {:error, error}
+      true ->
+        {:error, err}
+    end
+  end
 
-      {:ok, _} ->
-        :ok
+  defp handle_create_error_map(
+         connection_ref,
+         stream_name,
+         consumer_name,
+         subject,
+         opts,
+         _domain,
+         error
+       ) do
+    if deliver_policy_immutable_error?(error) or
+         (is_map(error) and consumer_exists_error?(Map.get(error, "description", ""))) do
+      reconcile_consumer(connection_ref, stream_name, consumer_name, subject, opts)
+    else
+      {:error, error}
+    end
+  end
+
+  defp create_with_existing_policy(
+         connection_ref,
+         stream_name,
+         consumer_name,
+         subject,
+         opts,
+         domain
+       ) do
+    case consumer_config(connection_ref, stream_name, consumer_name, domain) do
+      {:ok, existing} ->
+        policy = existing_deliver_policy(existing)
+
+        opts =
+          opts
+          |> Keyword.put(:deliver_policy, policy)
+          |> preserve_existing_start_sequence(existing, policy)
+          |> Keyword.put(:consumer_already_exists, true)
+
+        # Direct CREATE upsert; do not recurse into handle_create_error forever.
+        create_consumer_once(connection_ref, stream_name, consumer_name, subject, opts)
 
       {:error, reason} ->
         {:error, reason}
+    end
+  end
+
+  defp create_consumer_once(connection_ref, stream_name, consumer_name, subject, opts) do
+    domain = Keyword.get(opts, :domain)
+    topic = "#{js_api(domain)}.CONSUMER.DURABLE.CREATE.#{stream_name}.#{consumer_name}"
+    payload = stream_name |> consumer_payload(consumer_name, subject, opts) |> Jason.encode!()
+
+    case Util.request(connection_ref, topic, payload) do
+      {:ok, %{"error" => error}} -> {:error, error}
+      {:ok, _} -> :ok
+      {:error, reason} -> {:error, reason}
     end
   end
 
@@ -370,7 +512,15 @@ defmodule ServiceRadar.NATS.JetstreamConsumer do
         desired_deliver_subject = Keyword.get(opts, :deliver_subject)
 
         if existing_filter == subject and existing_deliver_subject == desired_deliver_subject do
-          update_consumer(connection_ref, stream_name, consumer_name, subject, opts)
+          # Upsert via CREATE with existing deliver_policy (NATS 2.12 has no UPDATE).
+          create_with_existing_policy(
+            connection_ref,
+            stream_name,
+            consumer_name,
+            subject,
+            opts,
+            domain
+          )
         else
           Logger.info("Recreating JetStream durable due to immutable consumer config drift",
             stream: stream_name,
@@ -385,8 +535,14 @@ defmodule ServiceRadar.NATS.JetstreamConsumer do
         end
 
       {:error, _reason} ->
-        # Could not read the existing filter; fall back to a best-effort update.
-        update_consumer(connection_ref, stream_name, consumer_name, subject, opts)
+        create_with_existing_policy(
+          connection_ref,
+          stream_name,
+          consumer_name,
+          subject,
+          opts,
+          domain
+        )
     end
   end
 
@@ -435,7 +591,13 @@ defmodule ServiceRadar.NATS.JetstreamConsumer do
           description: Keyword.get(opts, :description),
           ack_policy: Keyword.get(opts, :ack_policy, :explicit),
           ack_wait: Keyword.get(opts, :ack_wait, @default_ack_wait_ns),
-          deliver_policy: Keyword.get(opts, :deliver_policy, :all),
+          # Omit when unset so UPDATE/reconcile does not thrash immutable fields.
+          # CREATE still gets server default (all) unless caller sets :new/:all.
+          deliver_policy: Keyword.get(opts, :deliver_policy),
+          # `opt_start_seq` is part of the immutable start position for a
+          # by-start-sequence durable. Omitting it while re-upserting that
+          # consumer can reset or invalidate its declared cursor.
+          opt_start_seq: Keyword.get(opts, :opt_start_seq),
           filter_subject: subject,
           deliver_subject: Keyword.get(opts, :deliver_subject),
           inactive_threshold: Keyword.get(opts, :inactive_threshold),
@@ -455,6 +617,33 @@ defmodule ServiceRadar.NATS.JetstreamConsumer do
   def immutable_consumer_shape_error?(description) when is_binary(description) do
     String.contains?(description, "can not update push consumer to pull based") or
       String.contains?(description, "can not update pull consumer to push based")
+  end
+
+  @doc false
+  def deliver_policy_immutable_error?(description) when is_binary(description) do
+    String.contains?(description, "deliver policy can not be updated") or
+      String.contains?(description, "deliver_policy can not be updated")
+  end
+
+  def deliver_policy_immutable_error?(%{"description" => description})
+      when is_binary(description),
+      do: deliver_policy_immutable_error?(description)
+
+  def deliver_policy_immutable_error?(%{"err_code" => 10_012}), do: true
+  def deliver_policy_immutable_error?(_), do: false
+
+  defp preserve_existing_start_sequence(opts, existing, :by_start_sequence) do
+    case Map.get(existing, "opt_start_seq") || Map.get(existing, :opt_start_seq) do
+      sequence when is_integer(sequence) and sequence > 0 ->
+        Keyword.put(opts, :opt_start_seq, sequence)
+
+      _missing ->
+        Keyword.delete(opts, :opt_start_seq)
+    end
+  end
+
+  defp preserve_existing_start_sequence(opts, _existing, _policy) do
+    Keyword.delete(opts, :opt_start_seq)
   end
 
   @doc false
@@ -547,9 +736,9 @@ defmodule ServiceRadar.NATS.JetstreamConsumer do
     end
   end
 
-  defp resolve_discovered_streams(requested, subject, streams) do
+  defp resolve_discovered_streams(requested, subject, streams, allow_fallback) do
     if valid_requested_stream?(requested) do
-      choose_requested_or_first_stream(requested, subject, streams)
+      choose_requested_or_first_stream(requested, subject, streams, allow_fallback)
     else
       {:ok, hd(streams)}
     end
@@ -571,17 +760,31 @@ defmodule ServiceRadar.NATS.JetstreamConsumer do
     end
   end
 
-  defp choose_requested_or_first_stream(requested, subject, streams) do
-    if requested in streams do
-      {:ok, requested}
-    else
-      Logger.warning("Requested stream not matched by subject; using discovered stream",
-        requested_stream: requested,
-        subject: subject,
-        discovered_stream: hd(streams)
-      )
+  defp choose_requested_or_first_stream(requested, subject, streams, allow_fallback) do
+    cond do
+      requested in streams ->
+        {:ok, requested}
 
-      {:ok, hd(streams)}
+      # Strict explicit stream (flows cutover): never bind to a legacy owner such
+      # as events just because STREAM.NAMES found it first.
+      allow_fallback == false ->
+        Logger.info(
+          "Requested stream does not yet own subject; keeping configured stream for ensure",
+          requested_stream: requested,
+          subject: subject,
+          discovered_streams: streams
+        )
+
+        {:ok, requested}
+
+      true ->
+        Logger.warning("Requested stream not matched by subject; using discovered stream",
+          requested_stream: requested,
+          subject: subject,
+          discovered_stream: hd(streams)
+        )
+
+        {:ok, hd(streams)}
     end
   end
 

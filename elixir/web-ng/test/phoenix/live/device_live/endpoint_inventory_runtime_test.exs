@@ -3,6 +3,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.EndpointInventoryRuntimeTest do
 
   alias ServiceRadarWebNGWeb.DeviceLive.EndpointInventoryRuntime
 
+  @moduletag :db_free
+
   defmodule StubCommandBus do
     @moduledoc false
     def dispatch_endpoint_inventory_cache_query(agent_id, payload, opts) do
@@ -169,6 +171,62 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.EndpointInventoryRuntimeTest do
     assert socket.assigns.show_endpoint_inventory_package_modal == false
     assert socket.assigns.endpoint_inventory_selected_package == nil
     assert socket.assigns.endpoint_inventory_selected_package_matches == []
+  end
+
+  test "opens the match detail modal from a loaded vulnerability row" do
+    match = %{
+      id: "match-1",
+      cve_id: "CVE-2025-32463",
+      advisory_id: "CVE-2025-32463",
+      provider: "cisa",
+      feed_key: "cisa-kev",
+      kev: true,
+      evidence: %{"package" => %{"name" => "sudo", "version" => "1.9.15p5"}}
+    }
+
+    socket =
+      socket()
+      |> EndpointInventoryRuntime.assign_defaults()
+      |> Map.update!(
+        :assigns,
+        &Map.put(&1, :endpoint_inventory_vulnerability_matches, [match])
+      )
+      |> EndpointInventoryRuntime.open_match_detail("match-1")
+
+    assert socket.assigns.show_endpoint_inventory_match_modal == true
+    group = socket.assigns.endpoint_inventory_selected_match_group
+    assert group.package_name == "sudo"
+    assert Enum.map(group.advisories, & &1.cve_id) == ["CVE-2025-32463"]
+  end
+
+  test "ignores open request for an unknown match id" do
+    socket =
+      socket()
+      |> EndpointInventoryRuntime.assign_defaults()
+      |> Map.update!(
+        :assigns,
+        &Map.put(&1, :endpoint_inventory_vulnerability_matches, [%{id: "match-1"}])
+      )
+      |> EndpointInventoryRuntime.open_match_detail("missing")
+
+    assert socket.assigns.show_endpoint_inventory_match_modal == false
+    assert socket.assigns.endpoint_inventory_selected_match_group == nil
+  end
+
+  test "closes the match detail modal and clears the selection" do
+    socket =
+      socket()
+      |> EndpointInventoryRuntime.assign_defaults()
+      |> Map.update!(
+        :assigns,
+        &(&1
+          |> Map.put(:show_endpoint_inventory_match_modal, true)
+          |> Map.put(:endpoint_inventory_selected_match_group, %{id: "pkg-1"}))
+      )
+      |> EndpointInventoryRuntime.close_match_detail()
+
+    assert socket.assigns.show_endpoint_inventory_match_modal == false
+    assert socket.assigns.endpoint_inventory_selected_match_group == nil
   end
 
   test "applies relevant command result with freshness payload" do

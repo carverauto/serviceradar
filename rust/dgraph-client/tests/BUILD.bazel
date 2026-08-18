@@ -1,9 +1,10 @@
-load("@rules_rust//rust:defs.bzl", "rust_test", "rust_test_suite")
-load("//third_party/crates:defs.bzl", "all_crate_deps")
+load("@crates//:defs.bzl", "all_crate_deps")
+load("@rules_rs//rs:rust_test.bzl", "rust_test")
+load("@rules_rust//rust:defs.bzl", "rust_test_suite")
 
 # All test targets live here so the whole test surface is declared in one place.
 #
-# `package_name` is required on every all_crate_deps() call in this file: it otherwise
+# `package_name` is required on every all_crate_deps(cargo_only = True) call in this file: it otherwise
 # resolves against the package it is called from, and there is no Cargo.toml at
 # rust/dgraph-client/tests. Without it the load fails with
 # "that package had no Cargo.toml file".
@@ -17,9 +18,10 @@ rust_test(
     crate = "//rust/dgraph-client:dgraph_client",
     edition = "2024",
     deps = all_crate_deps(
+        package_name = "rust/dgraph-client",
+        cargo_only = True,
         normal = True,
         normal_dev = True,
-        package_name = "rust/dgraph-client",
     ) + ["//proto/dgraph:proto_dgraph_bindings"],
 )
 
@@ -37,9 +39,10 @@ rust_test(
     crate_root = "lib_tests.rs",
     edition = "2024",
     deps = all_crate_deps(
+        package_name = "rust/dgraph-client",
+        cargo_only = True,
         normal = True,
         normal_dev = True,
-        package_name = "rust/dgraph-client",
     ) + [
         "//proto/dgraph:proto_dgraph_bindings",
         "//rust/dgraph-client:dgraph_client",
@@ -60,6 +63,12 @@ rust_test(
 # and reuses the already-pulled dgraph image rather than pulling it per test.
 rust_test_suite(
     name = "acceptance_tests",
+    # Without this the target inherits Bazel's default "moderate" (300s), which has to
+    # cover microVM boot, a cold `docker pull` of dgraph/standalone, and the suite's own
+    # 120s readiness budget. That leaves under three minutes for the pull, which is not a
+    # safe margin on a contended executor. This is only a backstop: the test bounds itself
+    # with READY_TIMEOUT, so a genuine hang still fails in about two minutes, not fifteen.
+    timeout = "long",
     srcs = ["dgraph_container_test.rs"],
     # The test is #[ignore] so `cargo test` stays hermetic. Without this flag Bazel would
     # honour that attribute too and the target would report success having run nothing.
@@ -105,17 +114,12 @@ rust_test_suite(
         # CI selector for the acceptance job.
         "acceptance_test",
     ],
-    # Without this the target inherits Bazel's default "moderate" (300s), which has to
-    # cover microVM boot, a cold `docker pull` of dgraph/standalone, and the suite's own
-    # 120s readiness budget. That leaves under three minutes for the pull, which is not a
-    # safe margin on a contended executor. This is only a backstop: the test bounds itself
-    # with READY_TIMEOUT, so a genuine hang still fails in about two minutes, not fifteen.
-    timeout = "long",
     visibility = ["//visibility:public"],
     deps = all_crate_deps(
+        package_name = "rust/dgraph-client",
+        cargo_only = True,
         normal = True,
         normal_dev = True,
-        package_name = "rust/dgraph-client",
     ) + [
         "//proto/dgraph:proto_dgraph_bindings",
         "//rust/dgraph-client:dgraph_client",

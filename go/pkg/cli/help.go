@@ -111,7 +111,7 @@ Options for spire-join-token:
 
 Options for enroll:
   -token string           Enrollment token (edgepkg-v3 or collectorpkg-v2)
-  -core-url string        Core API base URL (required only when the signed token does not embed one)
+  -core-url string        HTTPS Core API base URL override (otherwise uses the signed token URL)
   -host-ip string         Override detected host IP (agent enrollment only)
   -config string          Agent config path (default /etc/serviceradar/agent.json)
   -config-dir string      Collector config directory (default /etc/serviceradar)

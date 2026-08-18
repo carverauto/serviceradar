@@ -12,11 +12,11 @@ Every step matters:
   1. cargo update      moves the lock
   2. cargo check       catches source breakage early, with --lib --bins --tests
                        (a plain `cargo check` skips test code, and Bazel compiles tests)
-  3. scripts/vendor.sh regenerates //third_party/crates from the new lock, re-applies the
-                       openssl-src / pq-src source patches, and repairs the generated files
+  3. bazel run //third_party/crate_mirror:sync refreshes the archives from the new lock
+                       and re-applies the openssl-src / pq-src source patches
   4. bazel build       the step that actually decides: a green cargo check does NOT prove
                        the Bazel build (Cargo.lock keeps optional deps cargo never
-                       resolves; crates_vendor vendors the whole lock, so Bazel compiles
+                       resolves; cargo vendor vendors the whole lock, so Bazel compiles
                        crates cargo prunes)
 
 update-mode:
@@ -101,7 +101,7 @@ cargo check --workspace --lib --bins --tests "${BROKEN_FORKS[@]}"
 
 echo
 echo "==> 3/4 Regenerating the vendored crate tree (this downloads ~1 GB)"
-./scripts/vendor.sh
+bazel run //third_party/crate_mirror:sync
 
 echo
 echo "==> 4/4 Building ${VERIFY_TARGET} with Bazel"
@@ -111,8 +111,7 @@ cat <<EOF
 
 Done. Updated:
   Cargo.lock
-  third_party/crates/                       (regenerated)
-  third_party/crates/.serviceradar-vendor-inputs
+  third_party/crate_mirror/                 (refreshed)
 
 Still worth running before you push:
   cargo test --workspace ${BROKEN_FORKS[*]}

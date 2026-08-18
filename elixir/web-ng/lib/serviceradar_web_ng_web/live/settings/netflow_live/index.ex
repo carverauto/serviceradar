@@ -10,6 +10,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetflowLive.Index do
 
   alias Ash.Page.Keyset
   alias AshPhoenix.Form
+  alias ServiceRadar.Integrations.MapboxSettings
   alias ServiceRadar.Observability.GeoLiteMmdbDownloadWorker
   alias ServiceRadar.Observability.IpEnrichmentRefreshWorker
   alias ServiceRadar.Observability.NetflowAppClassificationRule
@@ -40,7 +41,8 @@ defmodule ServiceRadarWebNGWeb.Settings.NetflowLive.Index do
        |> assign(:selected, nil)
        |> assign(:ash_form, nil)
        |> assign(:form, nil)
-       |> assign(:form_kind, nil)}
+       |> assign(:form_kind, nil)
+       |> assign(:mapbox, load_mapbox(scope))}
     else
       {:ok,
        socket
@@ -152,6 +154,26 @@ defmodule ServiceRadarWebNGWeb.Settings.NetflowLive.Index do
      socket
      |> assign(:ash_form, ash_form)
      |> assign(:form, to_form(ash_form))}
+  end
+
+  def handle_event("map_pick", %{"latitude" => latitude, "longitude" => longitude}, socket) do
+    if socket.assigns.form_kind == :cidr and socket.assigns.ash_form do
+      params =
+        socket.assigns.ash_form
+        |> Form.params()
+        |> stringify_form_params()
+        |> Map.put("latitude", latitude)
+        |> Map.put("longitude", longitude)
+
+      ash_form = Form.validate(socket.assigns.ash_form, params)
+
+      {:noreply,
+       socket
+       |> assign(:ash_form, ash_form)
+       |> assign(:form, to_form(ash_form))}
+    else
+      {:noreply, socket}
+    end
   end
 
   def handle_event("save", %{"form" => params}, socket) do
@@ -442,6 +464,12 @@ defmodule ServiceRadarWebNGWeb.Settings.NetflowLive.Index do
 
                   <div class="rounded-lg border border-sr-line bg-sr-subtle/30 p-3">
                     <div class="text-xs font-semibold">ipinfo.io/lite</div>
+                    <div class="text-xs text-sr-muted mt-1">
+                      Lite supplies country and ASN only — no city coordinates. The
+                      dashboard map still uses GeoLite City plus Local CIDR anchors
+                      for placement, and falls back to the ipinfo country when those
+                      are missing.
+                    </div>
                     <div class="mt-2 grid grid-cols-1 gap-3">
                       <.input
                         field={@settings_form[:ipinfo_enabled]}
@@ -847,6 +875,28 @@ defmodule ServiceRadarWebNGWeb.Settings.NetflowLive.Index do
                               placeholder="-93.6258"
                             />
                           </div>
+                          <%= if mapbox_picker_enabled?(@mapbox) do %>
+                            <div>
+                              <div class="text-xs font-medium">Click the map to set coordinates</div>
+                              <div
+                                id="netflow-cidr-map-picker"
+                                phx-hook="MapboxLocationPicker"
+                                phx-update="ignore"
+                                class="mt-2 h-56 w-full overflow-hidden rounded-lg border border-sr-line"
+                                data-enabled="true"
+                                data-access-token={@mapbox.access_token}
+                                data-style={@mapbox.style_light}
+                                data-lat={form_coord(@form[:latitude])}
+                                data-lng={form_coord(@form[:longitude])}
+                              >
+                              </div>
+                            </div>
+                          <% else %>
+                            <p class="text-xs text-sr-muted">
+                              Configure Mapbox under Settings → Integrations to pick a point on the
+                              map instead of typing coordinates.
+                            </p>
+                          <% end %>
                         </div>
                       </div>
                       <.input field={@form[:enabled]} type="checkbox" label="Enabled" />
@@ -1058,4 +1108,51 @@ defmodule ServiceRadarWebNGWeb.Settings.NetflowLive.Index do
   defp format_dt(%NaiveDateTime{} = ndt), do: NaiveDateTime.to_iso8601(ndt)
   defp format_dt(%DateTime{} = dt), do: DateTime.to_iso8601(dt)
   defp format_dt(_), do: "—"
+
+  defp load_mapbox(scope) do
+    user = scope && Map.get(scope, :user)
+
+    case MapboxSettings.get_settings(actor: user) do
+      {:ok, %MapboxSettings{} = settings} ->
+        token = settings.access_token
+
+        %{
+          enabled: settings.enabled == true,
+          access_token: token,
+          style_light: settings.style_light || "mapbox://styles/mapbox/light-v11",
+          style_dark: settings.style_dark || "mapbox://styles/mapbox/dark-v11"
+        }
+
+      _ ->
+        %{
+          enabled: false,
+          access_token: nil,
+          style_light: "mapbox://styles/mapbox/light-v11",
+          style_dark: "mapbox://styles/mapbox/dark-v11"
+        }
+    end
+  end
+
+  defp mapbox_picker_enabled?(%{enabled: true, access_token: token}) when is_binary(token) do
+    String.trim(token) != ""
+  end
+
+  defp mapbox_picker_enabled?(_), do: false
+
+  defp form_coord(%Phoenix.HTML.FormField{value: value}) do
+    cond do
+      is_number(value) -> value
+      is_binary(value) and String.trim(value) != "" -> value
+      true -> ""
+    end
+  end
+
+  defp form_coord(_), do: ""
+
+  defp stringify_form_params(params) when is_map(params) do
+    Map.new(params, fn
+      {key, value} when is_atom(key) -> {Atom.to_string(key), value}
+      {key, value} -> {key, value}
+    end)
+  end
 end

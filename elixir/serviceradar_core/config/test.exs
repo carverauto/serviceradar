@@ -96,10 +96,9 @@ cnpg_key =
 
 # The fixture CA, preferring the certificate ITSELF over a path to it.
 #
-# `*_CA_CERT` carries the PEM; `*_CA_CERT_FILE` carries a filesystem path. Only the content
-# form works on a remote executor: a path names a file on the machine that launched the
-# build, and an RBE worker has no such file. Reading the path is what forced `no-remote-exec`
-# onto every fixture-touching target.
+# `*_CA_CERT` carries the PEM; `*_CA_CERT_FILE` carries a filesystem path. The content form
+# is independent of the caller's path namespace, so it works inside the runner-local Bazel
+# sandbox without making a rotating host path part of the action contract.
 #
 # The CA cannot become a declared Bazel input instead -- it is a CNPG cluster cert on a
 # 90-day rotation, so a committed copy would expire on a calendar rather than on a change.
@@ -224,8 +223,8 @@ repo_config =
 
       ssl_opts =
         []
-        # `:cacerts` (the decoded certificate) wins over `:cacertfile` (a path), because only
-        # the former survives on a remote executor. Never both: :ssl rejects the combination.
+        # `:cacerts` (the decoded certificate) wins over `:cacertfile` (a caller-owned path)
+        # so the TestRunner sandbox is path-independent. Never both: :ssl rejects the combination.
         |> then(fn opts ->
           if ca_certs in [nil, []] do
             put_if.(opts, :cacertfile, ssl_ca)
@@ -300,6 +299,7 @@ config :serviceradar_core,
   ash_domains: [
     ServiceRadar.AgentConfig,
     ServiceRadar.Camera,
+    ServiceRadar.CompositeChecks,
     ServiceRadar.Credentials,
     ServiceRadar.Dashboards,
     ServiceRadar.Edge,
@@ -309,7 +309,9 @@ config :serviceradar_core,
     ServiceRadar.Inventory,
     ServiceRadar.Jobs,
     ServiceRadar.Monitoring,
+    ServiceRadar.Notifications,
     ServiceRadar.Observability,
+    ServiceRadar.ColdTier,
     ServiceRadar.PrefixTags,
     ServiceRadar.SNMPProfiles,
     ServiceRadar.SweepJobs,
@@ -321,6 +323,7 @@ config :serviceradar_core,
     ServiceRadar.Automation.Northbound,
     ServiceRadar.Automation.Ansible,
     ServiceRadar.Automation.Callbacks,
+    ServiceRadar.Scans,
     ServiceRadar.Security
   ]
 

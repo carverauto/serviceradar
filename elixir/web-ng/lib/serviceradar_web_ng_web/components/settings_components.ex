@@ -90,8 +90,7 @@ defmodule ServiceRadarWebNGWeb.SettingsComponents do
 
   defp can_ansible_tab?(current_scope) do
     RBAC.can?(current_scope, "ansible.controllers.manage") or
-      RBAC.can?(current_scope, "ansible.repositories.manage") or
-      RBAC.can?(current_scope, "ansible.schedules.manage")
+      RBAC.can?(current_scope, "ansible.repositories.manage")
   end
 
   defp cluster_tab(path, current_scope) do
@@ -442,6 +441,11 @@ defmodule ServiceRadarWebNGWeb.SettingsComponents do
             active: String.starts_with?(path, "/settings/networks/device-enrichment")
           },
           %{
+            label: "Device Hostnames",
+            navigate: ~p"/settings/networks/hostname-rdns",
+            active: String.starts_with?(path, "/settings/networks/hostname-rdns")
+          },
+          %{
             label: "Availability Sources",
             navigate: ~p"/settings/networks/availability-sources",
             active: String.starts_with?(path, "/settings/networks/availability-sources")
@@ -512,6 +516,7 @@ defmodule ServiceRadarWebNGWeb.SettingsComponents do
       String.starts_with?(path, "/settings/networks") and
       not String.starts_with?(path, "/settings/networks/discovery") and
       not String.starts_with?(path, "/settings/networks/device-enrichment") and
+      not String.starts_with?(path, "/settings/networks/hostname-rdns") and
       not String.starts_with?(path, "/settings/networks/availability-sources") and
       not String.starts_with?(path, "/settings/networks/visibility-profiles") and
       not String.starts_with?(path, "/settings/networks/credentials") and

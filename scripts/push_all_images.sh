@@ -3,7 +3,7 @@ set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 BAZEL_BIN="${BAZEL_BIN:-bazel}"
-BAZEL_CONFIG="${BAZEL_CONFIG:-remote}"
+BAZEL_CONFIG="${BAZEL_CONFIG:-ci}"
 BAZEL_QUERY='attr(name, ".*_push$", //docker/images:*)'
 HOST_OS="$(uname -s)"
 HOST_ARCH="$(uname -m)"
@@ -27,11 +27,16 @@ cleanup_patched_scripts() {
 }
 trap cleanup_patched_scripts EXIT
 
+# `bazel info bazel-bin` is configuration-dependent: a config that sets
+# `--compilation_mode=opt` reports a different output path than a bare `info`
+# does. Resolving it without the config the build actually uses pointed this
+# script at the fastbuild tree, which does not exist, and it died with
+# "unable to resolve bazel-bin" before pushing anything.
 resolve_bazel_info_path() {
   local key="$1"
   local output
 
-  if ! output="$("${BAZEL_BIN}" info "${key}" 2>&1)"; then
+  if ! output="$("${BAZEL_BIN}" info "--config=${BAZEL_CONFIG}" "${key}" 2>&1)"; then
     printf '%s\n' "${output}" >&2
     echo "error: unable to resolve bazel info ${key}" >&2
     exit 1
@@ -55,7 +60,7 @@ Options:
 
 Environment:
   BAZEL_BIN     Bazel executable to use (default: bazel)
-  BAZEL_CONFIG  Bazel config to use for runs (default: remote)
+  BAZEL_CONFIG  Bazel config to use for runs (default: ci)
 EOF
 }
 

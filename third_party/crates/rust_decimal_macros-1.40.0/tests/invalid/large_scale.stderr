@@ -1,7 +1,0 @@
-error: proc macro panicked
- --> tests/invalid/large_scale.rs:4:13
-  |
-4 |     let _ = dec!(0.00000_00000_00000_00000_00000_0001);
-  |             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  |
-  = help: message: Scale exceeds the maximum precision allowed: 29 > 28.

@@ -1,7 +1,9 @@
-load("@rules_rust//rust:defs.bzl", "rust_binary", "rust_library", "rust_test")
+load("@crates//:defs.bzl", "all_crate_deps")
+load("@rules_rs//rs:rust_binary.bzl", "rust_binary")
+load("@rules_rs//rs:rust_library.bzl", "rust_library")
+load("@rules_rs//rs:rust_test.bzl", "rust_test")
 load("//build:integration_shards.bzl", "integration_shard_names")
 load("//build:integration_tests.bzl", "requires_shared_fixture")
-load("//third_party/crates:defs.bzl", "all_crate_deps")
 
 package(default_visibility = ["//visibility:public"])
 
@@ -21,8 +23,10 @@ rust_library(
     srcs = glob(["src/**/*.rs"]),
     crate_name = "serviceradar_integration_db",
     edition = "2021",
-    proc_macro_deps = all_crate_deps(proc_macro = True),
-    deps = all_crate_deps(normal = True) + [
+    deps = all_crate_deps(
+        cargo_only = True,
+        normal = True,
+    ) + [
         "//rust/srql:srql_lib",
     ],
 )
@@ -33,6 +37,7 @@ rust_test(
     name = "serviceradar_integration_db_test",
     crate = ":serviceradar_integration_db",
     deps = all_crate_deps(
+        cargo_only = True,
         normal = True,
         normal_dev = True,
     ) + [
@@ -47,8 +52,13 @@ rust_test(
 # neither. `manual` keeps them out of //... so an ordinary `bazel test` never points DDL at
 # the shared fixture.
 #
-# THERE IS DELIBERATELY NO `no-remote-exec` HERE ANY MORE. These run fully remote, like the
-# //elixir/serviceradar_core integration shards that use the same fixture.
+# THERE IS DELIBERATELY NO `no-remote-exec` HERE ANY MORE -- but note that the TEST actions
+# are nonetheless pinned to the runner, by `--strategy=TestRunner=local` on the workflow's
+# invocations rather than by a tag here. An RBE executor cannot resolve the fixture hostname
+# ("failed to lookup address information: Name or service not known"), so a fully remote run
+# fails at step 1. `--strategy=` selects per mnemonic, so compiles stay remote and cached
+# while only the test binary moves; a tag cannot make that distinction, which is exactly why
+# it was removed (below).
 #
 # It was load-bearing once. The CA reached the test as a PATH -- PGSSLROOTCERT and friends,
 # written by scripts/ci/configure-srql-fixture.sh into ${RUNNER_TEMP} -- and --test_env forwards
@@ -75,9 +85,6 @@ rust_test(
 #   sweep_stale_dbs -> prepare_template -> (elixir) migrate_template -> provision_db
 #     -> (elixir) integration_tests -> teardown_db
 #
-# NOTE: `prepare_template` in that chain does not exist as a target -- the only tests here
-# are provision_db, sweep_stale_dbs and teardown_db. Either it was never added or it was
-# removed without updating this line; treat the chain as aspirational until that is settled.
 [
     rust_test(
         name = target,
@@ -90,6 +97,7 @@ rust_test(
         ],
         target_compatible_with = requires_shared_fixture(),
         deps = all_crate_deps(
+            cargo_only = True,
             normal = True,
             normal_dev = True,
         ) + [
@@ -125,6 +133,7 @@ rust_test(
     ],
     target_compatible_with = requires_shared_fixture(),
     deps = all_crate_deps(
+        cargo_only = True,
         normal = True,
         normal_dev = True,
     ) + [
@@ -133,18 +142,48 @@ rust_test(
     ],
 )
 
+# Focused developer targets clone only the shard that will run, instead of touching seven
+# additional databases. The shard list still comes from the same .bzl as the Elixir targets.
+[
+    rust_test(
+        name = "provision_db_{}".format(shard),
+        size = "medium",
+        srcs = ["tests/provision_db_test.rs"],
+        crate_root = "tests/provision_db_test.rs",
+        data = ["//elixir/serviceradar_core:migrations"],
+        env = {"SERVICERADAR_TEST_DB_SHARDS": shard},
+        tags = [
+            "external",
+            "manual",
+        ],
+        target_compatible_with = requires_shared_fixture(),
+        deps = all_crate_deps(
+            cargo_only = True,
+            normal = True,
+            normal_dev = True,
+        ) + [
+            ":serviceradar_integration_db",
+            "//rust/srql:srql_lib",
+        ],
+    )
+    for shard in integration_shard_names()
+]
+
 # Creates the template if absent and reports whether it needs migrating.
 #
-# A binary rather than a test because it writes `needs_migration` to $GITHUB_OUTPUT, and a
-# `bazel test` under --config=ci runs on a remote executor with no access to the runner's
-# filesystem. `bazel run` builds remotely and runs locally.
+# A binary rather than a test because it writes `needs_migration` to $GITHUB_OUTPUT.
+# `bazel run` builds eligible actions remotely and launches the binary on the caller, where
+# that output file exists, without depending on a TestRunner placement strategy.
 rust_binary(
     name = "prepare_template",
     srcs = ["src/bin/prepare_template.rs"],
     data = ["//elixir/serviceradar_core:migrations"],
     tags = ["manual"],
     target_compatible_with = requires_shared_fixture(),
-    deps = all_crate_deps(normal = True) + [
+    deps = all_crate_deps(
+        cargo_only = True,
+        normal = True,
+    ) + [
         ":serviceradar_integration_db",
         "//rust/srql:srql_lib",
     ],

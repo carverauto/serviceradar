@@ -53,7 +53,7 @@ pub(in crate::query::devices) fn build_grouped_stats_query(
         .group_fields
         .iter()
         .map(DeviceGroupField::column)
-        .collect::<Vec<_>>();
+        .collect::<Vec<String>>();
     let group_by_sql = group_columns.join(", ");
 
     let mut sql = format!(
@@ -74,11 +74,10 @@ pub(in crate::query::devices) fn build_grouped_stats_query(
         &spec.group_fields,
     ));
 
-    let limit = if plan.limit > 0 && plan.limit <= 100 {
-        plan.limit
-    } else {
-        20
-    };
+    // Planning applies the device-group default (20) and maximum (100). Keep
+    // this defensive clamp so a directly constructed QueryPlan cannot bypass
+    // the public contract.
+    let limit = plan.limit.clamp(1, 100);
     sql.push_str(&format!("\nLIMIT {limit}"));
 
     if plan.offset > 0 {
@@ -103,9 +102,9 @@ fn build_grouped_stats_order_clause(
             "COUNT(*)".to_string()
         } else if let Some(group_field) = group_fields
             .iter()
-            .find(|field| clause.field.eq_ignore_ascii_case(field.response_key()))
+            .find(|field| field.matches_order_field(&clause.field))
         {
-            group_field.column().to_string()
+            group_field.column()
         } else {
             continue;
         };

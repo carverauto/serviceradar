@@ -26,7 +26,18 @@ defmodule ServiceRadarSRQL.MixProject do
   defp elixirc_paths(_), do: ["lib"]
 
   defp boundary_compilers do
-    [:boundary]
+    # dev/test only. Under :prod this is pure cost with a sharp edge: the boundary compiler
+    # calls Boundary.Definition.get/2 for EVERY module of every checked app, which reaches
+    # `boundary.__info__(:attributes)` and so forces each module to load. For a module backed
+    # by a Rustler NIF that runs @on_load -- and cross-compiling to arm64 means dlopen()ing an
+    # aarch64 .so on the amd64 build machine, which glibc reports as
+    # "cannot open shared object file: No such file or directory" (elf/dl-load.c sets ENOENT
+    # by hand on an e_machine mismatch). The compile then dies in :boundary with
+    # `function ...Native.__info__/1 is undefined`, naming neither NIFs nor architecture.
+    #
+    # Nothing is lost: boundary checks run in dev and test, which is where `make test` and the
+    # editor exercise them. //elixir/datasvc has been written this way already.
+    if Mix.env() in [:dev, :test], do: [:boundary], else: []
   end
 
   defp deps do

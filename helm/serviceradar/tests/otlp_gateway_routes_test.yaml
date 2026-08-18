@@ -65,6 +65,12 @@ tests:
       - equal:
           path: spec.rules[0].backendRefs[0].port
           value: 4318
+      - equal:
+          path: spec.rules[0].matches[0].path.type
+          value: PathPrefix
+      - equal:
+          path: spec.rules[0].matches[0].path.value
+          value: /v1
 
   - it: attaches the TLSRoute to the tls passthrough listener with the gRPC backend
     set:

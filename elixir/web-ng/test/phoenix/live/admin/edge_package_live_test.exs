@@ -4,6 +4,7 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgePackageLiveTest do
   import Phoenix.LiveViewTest
   import ServiceRadarWebNG.AshTestHelpers, only: [admin_user_fixture: 0, actor_for_user: 1]
 
+  alias ServiceRadar.Plugins.AddonPackage
   alias ServiceRadarWebNG.Edge.OnboardingPackages
 
   @private_key "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8="
@@ -90,6 +91,23 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgePackageLiveTest do
 
       assert html =~ "Advanced options"
       assert html =~ "Security Mode"
+    end
+
+    test "initial feature set lists only the latest approved version per add-on", %{
+      conn: conn,
+      actor: actor
+    } do
+      unique = System.unique_integer([:positive])
+      addon_id = "netprobe-#{unique}"
+
+      _older = create_approved_addon!(actor, addon_id, "0.1.0")
+      newer = create_approved_addon!(actor, addon_id, "0.2.0")
+
+      {:ok, _lv, html} = live(conn, ~p"/admin/edge-packages/new?component_type=agent")
+
+      assert html =~ "Initial Feature Set"
+      assert html =~ "v#{newer.version}"
+      refute html =~ "v0.1.0"
     end
 
     test "closes modal on cancel", %{conn: conn} do
@@ -256,5 +274,39 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgePackageLiveTest do
 
       assert html =~ "Package revoked" or html =~ "revoked"
     end
+  end
+
+  defp create_approved_addon!(actor, addon_id, version) do
+    attrs = %{
+      addon_id: addon_id,
+      name: "Netprobe #{addon_id}",
+      version: version,
+      description: "Edge package feature-set test add-on",
+      kind: :native,
+      delivery: :pushed_artifact,
+      supervision: :agent_sidecar,
+      binary: "serviceradar-netprobe",
+      install_path: "/usr/local/lib/serviceradar/bin",
+      capabilities: ["addon.run"],
+      config_schema: %{},
+      artifacts: %{},
+      requires: %{},
+      source_type: :first_party,
+      source_oci_ref: "registry.carverauto.dev/serviceradar/addon:test",
+      source_oci_digest: "sha256:test",
+      source_release_tag: "v1.0.0",
+      source_metadata: %{},
+      imported_at: DateTime.utc_now(),
+      verification_status: "verified"
+    }
+
+    package =
+      AddonPackage
+      |> Ash.Changeset.for_create(:create, attrs, actor: actor)
+      |> Ash.create!()
+
+    package
+    |> Ash.Changeset.for_update(:approve, %{approved_capabilities: ["addon.run"]}, actor: actor)
+    |> Ash.update!()
   end
 end

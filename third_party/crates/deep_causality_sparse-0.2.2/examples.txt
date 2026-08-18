@@ -1,3 +1,0 @@
-# Examples
-
-Location: examples/mathematics_examples

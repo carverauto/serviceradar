@@ -1,6 +1,7 @@
 //! Helper for writing ELF files.
 use alloc::string::String;
 use alloc::vec::Vec;
+use core::convert::TryInto;
 use core::mem;
 
 use crate::elf;
@@ -1304,26 +1305,33 @@ impl<'a> Writer<'a> {
     }
 
     /// Write a dynamic string entry.
-    pub fn write_dynamic_string(&mut self, tag: u32, id: StringId) {
-        self.write_dynamic(tag, self.dynstr.get_offset(id) as u64);
+    pub fn write_dynamic_string(&mut self, tag: i64, id: StringId) -> Result<()> {
+        self.write_dynamic(tag, self.dynstr.get_offset(id) as u64)
     }
 
     /// Write a dynamic value entry.
-    pub fn write_dynamic(&mut self, d_tag: u32, d_val: u64) {
+    pub fn write_dynamic(&mut self, d_tag: i64, d_val: u64) -> Result<()> {
         let endian = self.endian;
         if self.is_64 {
             let d = elf::Dyn64 {
-                d_tag: U64::new(endian, d_tag.into()),
+                d_tag: I64::new(endian, d_tag),
                 d_val: U64::new(endian, d_val),
             };
             self.buffer.write(&d);
         } else {
+            let d_tag = d_tag
+                .try_into()
+                .map_err(|_| Error(format!("d_tag overflow: 0x{:x}", d_tag)))?;
+            let d_val = d_val
+                .try_into()
+                .map_err(|_| Error(format!("d_val overflow: 0x{:x}", d_val)))?;
             let d = elf::Dyn32 {
-                d_tag: U32::new(endian, d_tag),
-                d_val: U32::new(endian, d_val as u32),
+                d_tag: I32::new(endian, d_tag),
+                d_val: U32::new(endian, d_val),
             };
             self.buffer.write(&d);
         }
+        Ok(())
     }
 
     /// Reserve the section index for the dynamic table.

@@ -30,6 +30,11 @@ await esbuild.build({
     react: "./node_modules/react",
     "react-dom": "./node_modules/react-dom",
     stream: "stream-browserify",
+    // Hex phoenix_live_view is 1.2.9; the npm package is still 1.1.27 and
+    // 1.2.9's published npm dep is a GitHub morphdom pin that Bazel cannot
+    // fetch. Vendor the self-contained Hex ESM so the client matches the
+    // server. Keep this path in sync with the package.json esbuild scripts.
+    phoenix_live_view: "./vendor/phoenix_live_view.esm.js",
   },
   // `file` emits a content-hashed copy and rewrites the reference. The hashed names are
   // why the Bazel target declares out_dirs rather than individual outs.

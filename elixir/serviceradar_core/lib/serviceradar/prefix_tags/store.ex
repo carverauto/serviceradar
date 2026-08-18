@@ -20,6 +20,11 @@ defmodule ServiceRadar.PrefixTags.Store do
   # compatibility shape for Registry recovery. They let a source retain an
   # identical trie without another expensive persistent_term write.
   @active_rows_fingerprint_key_prefix {__MODULE__, :active_rows_fingerprint}
+  @active_snapshot_token_key_prefix {__MODULE__, :active_snapshot_token}
+  # Don't park a previous persistent_term handle when the outgoing trie is
+  # already this large — that briefly doubles literal_alloc and is what OOM'd
+  # demo core on the 410k-prefix provider dataset.
+  @park_previous_prefix_limit 10_000
   # Previous handles kept briefly so a concurrent reader that already held the
   # old term can finish; not used for lookup indirection.
   @stale_handle_key_prefix {__MODULE__, :stale_handle}
@@ -166,6 +171,28 @@ defmodule ServiceRadar.PrefixTags.Store do
     end)
   end
 
+  @doc "Durable snapshot token currently installed for a source, if any."
+  @spec snapshot_token(source()) :: binary() | nil
+  def snapshot_token(source) when is_binary(source) do
+    :persistent_term.get(active_snapshot_token_key(source), nil)
+  rescue
+    ArgumentError -> nil
+  end
+
+  @doc "Record the durable snapshot token that produced the current trie."
+  @spec put_snapshot_token(source(), binary() | nil) :: :ok
+  def put_snapshot_token(source, nil) when is_binary(source) do
+    :persistent_term.erase(active_snapshot_token_key(source))
+    :ok
+  rescue
+    ArgumentError -> :ok
+  end
+
+  def put_snapshot_token(source, token) when is_binary(source) and is_binary(token) do
+    :persistent_term.put(active_snapshot_token_key(source), token)
+    :ok
+  end
+
   @doc "Install a pre-built trie for a source. Returns the new version."
   @spec put_trie(source(), Engine.t()) :: version()
   def put_trie(source, trie) when is_binary(source) do
@@ -175,6 +202,7 @@ defmodule ServiceRadar.PrefixTags.Store do
       Registry.with_source_lock(source, fn ->
         {version, previous_handle} = install_trie(source, trie)
         :persistent_term.erase(active_rows_fingerprint_key(source))
+        :persistent_term.erase(active_snapshot_token_key(source))
         {version, previous_handle}
       end)
 
@@ -203,6 +231,7 @@ defmodule ServiceRadar.PrefixTags.Store do
 
         :persistent_term.put(active_handle_key(source), {version, empty, :cleared})
         :persistent_term.erase(active_rows_fingerprint_key(source))
+        :persistent_term.erase(active_snapshot_token_key(source))
         Registry.sync_source(source, false)
 
         {version, previous_handle}
@@ -318,6 +347,7 @@ defmodule ServiceRadar.PrefixTags.Store do
 
   defp active_handle_key(source), do: {@active_handle_key_prefix, source}
   defp active_rows_fingerprint_key(source), do: {@active_rows_fingerprint_key_prefix, source}
+  defp active_snapshot_token_key(source), do: {@active_snapshot_token_key_prefix, source}
   defp stale_handle_key(source, version), do: {@stale_handle_key_prefix, source, version}
 
   defp install_trie(source, trie) do
@@ -373,13 +403,28 @@ defmodule ServiceRadar.PrefixTags.Store do
   end
 
   defp schedule_previous_handle_erase(source, version, previous_handle) do
-    case handle_version(previous_handle) do
-      previous_version when is_integer(previous_version) and previous_version != version ->
-        schedule_erase_stale(source, previous_version, previous_handle)
+    if large_handle?(previous_handle) do
+      :ok
+    else
+      case handle_version(previous_handle) do
+        previous_version when is_integer(previous_version) and previous_version != version ->
+          schedule_erase_stale(source, previous_version, previous_handle)
 
-      _other ->
-        :ok
+        _other ->
+          :ok
+      end
     end
+  end
+
+  defp large_handle?({_version, trie}), do: large_trie?(trie)
+  defp large_handle?({_version, trie, _registration}), do: large_trie?(trie)
+  defp large_handle?(_), do: false
+
+  defp large_trie?(trie) do
+    stats = engine().stats(trie)
+    is_integer(stats.total_prefixes) and stats.total_prefixes >= @park_previous_prefix_limit
+  rescue
+    _ -> false
   end
 
   defp handle_version({version, _trie}) when is_integer(version), do: version

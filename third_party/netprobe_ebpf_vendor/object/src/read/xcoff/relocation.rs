@@ -64,6 +64,7 @@ where
                     encoding,
                     size,
                     target,
+                    subtractor: None,
                     addend,
                     implicit_addend: true,
                     flags,

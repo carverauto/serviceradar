@@ -44,6 +44,25 @@ Keep this managed block so 'openspec update' can refresh the instructions.
   and the Bazel/Go/Elixir graph it drives) has NOT been ported, so those gates are not
   running on pull requests yet. Do not cite a `.forgejo` workflow as evidence that
   something is gated.
+- **After `git worktree add` (or any extra checkout), symlink the gitignored
+  Bazel rc files before any `bazel` command.** `.bazelrc` try-imports
+  `%workspace%/.bazelrc.remote` and `.bazelrc.local`. Both are gitignored:
+  they hold the BuildBuddy API key and the remote cache/executor overrides.
+  `git worktree add` only checks out tracked files, so a new worktree has
+  neither. Without them `--config=remote` / `--config=ci` cannot authenticate:
+  Bazel prints `PERMISSION_DENIED: Missing API key` and never reaches RBE
+  (local crawl or abort). `bb view` still works from the primary clone — that
+  is not proof the worktree is wired for remote execution. From the checkout
+  that already has the files:
+
+  ```
+  ln -sfn "$PRIMARY/.bazelrc.remote" "$WT/.bazelrc.remote"
+  test -e "$PRIMARY/.bazelrc.local" && ln -sfn "$PRIMARY/.bazelrc.local" "$WT/.bazelrc.local"
+  test -f "$WT/.bazelrc.remote"
+  ```
+
+  Same rule for `/tmp/...` trees, `jj workspace add`, and extra clones. Never
+  commit those files.
 - **Cut releases with `scripts/cut-release.sh`.** Update `CHANGELOG` and `VERSION`
   first (the script validates a CHANGELOG entry for the version, and updates
   `VERSION`, `helm/serviceradar/Chart.yaml`, and the demo ArgoCD source). The
@@ -95,7 +114,9 @@ Keep this managed block so 'openspec update' can refresh the instructions.
   **The only permitted exception is a hard corner case that genuinely cannot be a Bazel
   action**, and it must be justified in a comment at the top of the file. Today that means
   credential handling that must not become an action input: Docker/registry authentication
-  and cosign/OpenBao signing setup. "It was easier" is not a corner case.
+  and cosign/OpenBao signing setup, plus materializing rotating SRQL fixture credentials in
+  the Bazel client's environment before database test actions start. "It was easier" is not
+  a corner case.
 
   Corollaries:
   - Work an existing script does belongs in a target. `//rust/integration-db` already
@@ -147,9 +168,10 @@ This file applies repo-wide, but subdirectories may include their own `AGENTS.md
 - Lint: `make lint`.
 - Focused Go packages: `go test ./go/pkg/...`.
 - SRQL (Rust) integration tests: `cd rust/srql && cargo test`.
-- Bazel images: `bazel run //docker/images:<target>_push`.
+- Bazel images: `bazel run //docker/images:<target>_push`. A worktree without
+  `.bazelrc.remote` is not on RBE — copy the gitignored rc files first (Hard Rules).
 - First-party Wasm plugins: `make build_wasm_plugins`, `make push_wasm_plugins`, `make verify_wasm_plugins`. Bazel fetches the pinned TinyGo toolchain automatically; local `oras` is still required for publish/inspect workflows. `make push_all` is the container-image path; `make push_all_release` adds the Wasm publish/sign/verify path for release-style runs.
-- Rust dep bump (cargo + Bazel in one go): `make update-rust-deps REPIN=workspace`, or `scripts/update-rust-bazel-deps.sh [update-mode] [verify-target]` — runs `cargo update` → `cargo check` → `scripts/vendor.sh` → `bazel build`. To only regenerate the vendored tree after hand-editing the root `Cargo.toml`: `scripts/vendor.sh`. See [Rust Dependency Management](#rust-dependency-management).
+- Rust dep bump (cargo + Bazel in one go): `make update-rust-deps REPIN=workspace`, or `scripts/update-rust-bazel-deps.sh [update-mode] [verify-target]` — runs `cargo update` → `cargo check` → `bazel run //third_party/crate_mirror:sync` → `bazel build`. To only refresh the vendored archives after hand-editing the root `Cargo.toml`: `bazel run //third_party/crate_mirror:sync`. See [Rust Dependency Management](#rust-dependency-management).
 - Elixir workspace quality contract: `./scripts/elixir_quality.sh --project elixir/<project>` and add `--phoenix` for Phoenix apps such as `elixir/web-ng`.
 
 Prefer Bazel targets when modifying code that already has BUILD files. Always run gofmt/cargo fmt where applicable (Go formatting handled by `gofmt`, Rust by `cargo fmt`).
@@ -164,7 +186,7 @@ A first-party native add-on (`addons/<name>/addon.yaml` + a Go/Rust binary) must
    - **The gate decides "changed" by matching changed PATHS**, and the add-on's `BUILD.bazel` is one of them — so a build-only edit that cannot alter the binary still demands a bump. Do not put anything tunable in an add-on's `BUILD.bazel`: RBE task-size hints live in `//build/rbe:exec_properties.bzl` (`NATIVE_ADDON_EXEC_PROPERTIES`) precisely so tuning them does not force version bumps on add-ons whose artifacts are byte-identical. Do not "fix" a false positive by teaching the gate to skip `BUILD.bazel` — that trades it for a false negative, a changed artifact shipping under an unchanged version, which is the whole point of the gate.
    - A few add-ons cross-check a version constant in Bazel (currently only `NETPROBE_VERSION` in `rust/netprobe/BUILD.bazel`, via `bazel_version_constant`); bump those in the same commit.
    - An add-on that consumes a separate crate-universe extension (currently the RDP connector) additionally requires `MODULE.bazel.lock` to record that extension's `Cargo.lock` and `Cargo.toml` hashes — run `bazel --batch mod deps --lockfile_mode=update` twice if the first pass rewrites the lockfile.
-   - **A Rust add-on's `Cargo.toml` `[package] version` does NOT have to match, and no vendor snapshot needs refreshing for a bump.** That coupling was deliberately removed; see the note at `check-native-addon-version-bumps.sh:117-131`. It was decoration — these crates are binaries nothing depends on as a library — but mirroring the version edited a manifest, which changed `Cargo.lock`, which invalidated `third_party/crates/.serviceradar-vendor-inputs`, whose documented fix rewrites 625 crate directories and discards the Bazel cache for every Rust target, all to restate a version that changed no third-party crate.
+   - **A Rust add-on's `Cargo.toml` `[package] version` does NOT have to match, and no vendor snapshot needs refreshing for a bump.** That coupling was deliberately removed; see the note at `check-native-addon-version-bumps.sh:117-131`. It was decoration — these crates are binaries nothing depends on as a library — but mirroring the version edited a manifest, which changed `Cargo.lock`, which invalidated the vendored tree's input index, whose documented fix rewrote 625 crate directories and discarded the Bazel cache for every Rust target, all to restate a version that changed no third-party crate.
 4. **Manifest-validation gate** — add `//addons/<name>:addon.yaml` to BOTH the `args` and `data` lists of `validate_addon_manifests_test` in `build/native_addons/BUILD.bazel`. The `inventory_consistency_test` enforces that every add-on in `addon_inventory.bzl` is also in that test; it runs ONLY in the native-addons publish gate (not in a plain `bazel build`), so a missing entry fails the **release publish** late, not your local build.
 
 Verify locally before pushing: `bash scripts/check-native-addon-version-bumps.sh origin/staging <commit-sha>` (with jj, git `HEAD` is the parent — pass the real commit, e.g. `jj log -r @ --no-graph -T commit_id`) AND `bazel test //build/native_addons:build_gates_test` (this is the gate the release publish runs; a plain bundle build does not).
@@ -186,12 +208,13 @@ Prefer Socket Firewall for supported dependency-fetching commands. Prefix JavaSc
 Full detail: **`rust/README_RUST.md`**. The rules below are the ones an agent violates by accident.
 
 - **Every dependency version lives in `[workspace.dependencies]` in the root `Cargo.toml`, alphabetically sorted.** A crate under `/rust/` NEVER names a version — it uses `{ workspace = true, features = [...] }`. Cargo and Bazel both read this one list, which is what keeps the two builds from drifting. The only local version is `sha2` in `rust/srql` (documented as BLOCKED at the declaration); `rust/rdp-connector-probe` is deliberately detached.
-- **A green `cargo check` does NOT prove the Bazel build.** Cargo.lock is feature-independent and keeps optional deps that are never activated; `crates_vendor` vendors the whole lock, so Bazel compiles crates Cargo prunes. Finish every dependency change with `bazel build //rust/...` — and use `cargo check --workspace --lib --bins --tests`, because plain `cargo check` skips test code while Bazel compiles tests.
+- **A green `cargo check` does NOT prove the Bazel build.** Cargo.lock is feature-independent and keeps optional deps that are never activated; `cargo vendor` vendors the whole lock, so Bazel compiles crates Cargo prunes. Finish every dependency change with `bazel build //rust/...` — and use `cargo check --workspace --lib --bins --tests`, because plain `cargo check` skips test code while Bazel compiles tests.
 - **`cargo check -p <crate>` must pass standalone.** Workspace builds unify features, so a crate missing `features = ["transport"]` still compiles because another crate enabled it. That is an accident, not a dependency.
 - **`default-features = false` is only safe when the compiler catches the loss.** A dropped default that is a *runtime* backend compiles clean and fails in production — this exact mistake removed `ureq`'s TLS transport. Before disabling defaults, ask what the defaults *do*. Crates whose defaults every consumer needs (`async-nats`, `toml`, `axum`, `prometheus`, `env_logger`, `ureq`) deliberately keep them.
-- **`scripts/vendor.sh` is the only supported way to regenerate `//third_party/crates`.** Never run `bazel run //third_party:crates_vendor` directly — it skips the two source patches and the generated-file repairs, and the from-source C builds fail later, far from the cause. The script `rm -rf`s the tree first, so a failure mid-run leaves it empty until you re-run.
-- **Two system crates are patched and pinned: `openssl-src` and `pq-src`** (patches in `//third_party/rust_patches/`, pins `openssl-sys = "=0.9.116"` / `pq-sys = "=0.7.5"` in the root `Cargo.toml`). They build OpenSSL and libpq from source, which is what makes the build portable. `vendor.sh` hard-fails if either moves — **do not weaken that assert into a skip**: `pq-src`'s patch is macOS-only, so a skipped patch leaves Linux CI green and breaks a developer's machine later. Bumping one is a deliberate act: re-pin, regenerate the patch, update the hardcoded `openssl-src` labels in `third_party/BUILD.bazel`, verify on macOS **and** Linux.
-- **Adding a dep to a crate whose `BUILD.bazel` uses an explicit `crate_deps([...])` list means adding the name there too** — Bazel will not infer it (`all_crate_deps(...)` does). Removing a dep that had an annotation in `third_party/BUILD.bazel` means removing the annotation: `crates_vendor` **errors** on annotations for crates no longer in the graph.
+- **`bazel run //third_party/crate_mirror:sync` is the only supported way to refresh `//third_party/crate_mirror`.** It reads `Cargo.lock`, downloads each registry crate's `.crate` archive, verifies it against the checksum Cargo already recorded, and prunes archives no longer in the lock. `.bazelrc` points `--distdir` at that directory and rules_rs asks for `{crate}-{version}.crate`, which is the only basename Bazel's distdir matches on — so the archives resolve offline. It is a fallback rather than an enforcement: anything missing is downloaded, so a stale mirror degrades instead of breaking. Source patches are `crate.annotation` `patches` entries, applied by rules_rs at fetch time, so they are declared build inputs rather than edits to a tree on disk.
+- **OpenSSL for Rust comes from the `@openssl` BCR module, never from a vendored `openssl-src` build and never from the machine.** It is a `cc_library` compiled by the same cc toolchain as everything else, so it cross-compiles by selecting on the target platform. `openssl-sys` is pointed at it in `//MODULE.bazel`, and `pq-src` links what `openssl-sys` resolves — keep that pairing. Two traps, both measured: the RBE executor image exports `OPENSSL_LIB_DIR`/`OPENSSL_INCLUDE_DIR`, which `openssl-sys` reads **before** `OPENSSL_DIR`, so those two must be set explicitly or the build silently links the executor's OpenSSL; and `pq-src` needs `@openssl//:gen_dir` in its own `build_script_data`, because `DEP_OPENSSL_INCLUDE` gives it a path, not an input. Do **not** re-enable `openssl-sys`' `vendored` feature in a Bazel build — `rust/srql`'s `vendored-openssl` feature is off by default and exists only for `cargo test` without a system OpenSSL.
+- **One system crate is patched and pinned: `pq-src`** (patch in `//third_party/rust_patches/`, pin `pq-sys = "=0.7.5"` in the root `Cargo.toml`). It builds libpq from source, which is what keeps the build off system libpq paths. The patch is declared as an annotation `patches` entry, so a version bump that invalidates it fails the fetch loudly — **do not paper over that**: the patch is macOS-only, so skipping it leaves Linux CI green and breaks a developer's machine later. Bumping is a deliberate act: re-pin, regenerate the patch, verify on macOS **and** Linux.
+- **Adding a dep to a crate whose `BUILD.bazel` names deps explicitly as `@crates//:<name>` labels means adding the label there too** — Bazel will not infer it (`all_crate_deps(...)` does). Always pass `cargo_only = True` to `all_crate_deps`: without it the result also carries first-party workspace members as `//rust/...` labels, which every BUILD file here already lists by hand, and Bazel rejects the duplicate. Per-crate build tweaks are `crate.annotation` tags in `MODULE.bazel`; a crate that no workspace member depends on cannot be added at all (there is no `crate.spec`) — see `//rust/protoc-plugins`.
 - **`rust_test(crate = ":x")` does NOT inherit `crate_features`** — repeat them, or the test compiles a different crate than the one that ships. Test fixtures need `data` **and** a runfiles-aware path (`CARGO_MANIFEST_DIR` → `TEST_SRCDIR` → relative); see `flowgger`'s `fixture_path`.
 - **Every crate with `#[cfg(test)]` code needs a `rust_test` target.** This is not bookkeeping: flowgger silently carried a 2016 `serde_json`, notify 4.x APIs, and fully broken config parsing because nothing ran its tests.
 
@@ -213,8 +236,11 @@ Reference `docs/docs/agents.md` for: faker deployment details, CNPG truncate/res
 - Check demo pods: `kubectl get pods -n demo`.
 - Scale sync: `kubectl scale deployment/serviceradar-sync -n demo --replicas=<n>`.
 - GH client is installed and authenticated
-- 'bb' (BuildBuddy) client is available for any build issues
-- bazel is our build system, we use it to build and push images
+- 'bb' (BuildBuddy) client is available for any build issues. `bb view`
+  does not need `.bazelrc.remote`; `bazel --config=ci` / `--config=remote` does.
+- bazel is our build system, we use it to build and push images. Isolated
+  checkouts must symlink `.bazelrc.remote` from the primary clone or they
+  never hit RBE (Hard Rules).
 - Sysmon-vm hostfreq sampler buffers ~5 minutes of 250 ms samples; keep gateways querying at least once per retention window so cached CPU data stays fresh.
 
 ## Demo Namespace Helm Refresh
@@ -674,9 +700,9 @@ Restart the checker using the persisted config:
    - Execute `scripts/cut-release.sh --version <version>` to stage `VERSION`/`CHANGELOG`, create the release commit, and author the annotated tag (append `--push` when you are ready to publish the refs).
 3. Build and push Bazel release artifacts:
    - Authenticate to Harbor if needed: `./scripts/docker-login.sh`.
-   - Run `bazel build --config=remote $(bazel query 'kind(oci_image, //docker/images:*)')` to ensure every container bakes successfully before publishing.
+   - Run `bazel build -c opt --config=ci $(bazel query 'kind(oci_image, //docker/images:*)')` to ensure every container bakes successfully before publishing.
    - Run `make push_all_release`. This publishes container images plus first-party Wasm plugin OCI artifacts, signs both with cosign, and verifies the published metadata/signatures locally.
-   - If a single image needs republishing, run `bazel run --config=remote //docker/images:<target>_push` (for example `//docker/images:web_ng_image_amd64_push`).
+   - If a single image needs republishing on Linux/CI, use `bazel run -c opt --config=ci --stamp //docker/images:<target>_push` (for example `//docker/images:web_ng_image_amd64_push`). On macOS use `make push_all`; direct `cache_only` image targets preserve the Darwin platform and cannot produce a valid Linux image.
    - If only Wasm plugins need republishing, run `make push_wasm_plugins`.
    - Capture the new image identifiers you care about (for example `git rev-parse HEAD` for the commit tag or the full digest printed during the push). You'll use these when refreshing Kubernetes.
 4. Roll the demo namespace:
@@ -689,12 +715,20 @@ Restart the checker using the persisted config:
 
 - Add new build/test commands when tooling changes.
 - Keep instructions synchronized with the latest bead notes and related documentation updates.
+- If Bazel credentials or worktree setup change, keep the `.bazelrc.remote` hard rule accurate.
 
 ## Ash First
 
 Always use Ash concepts, almost never Ecto concepts directly. Think hard about the "Ash way" to do things. If you don't know, look for information in the rules & docs of Ash & associated packages.
 
 When a change must remain atomic, implement `atomic/3` or refactor the action to stay atomic. Do not use `require_atomic? false` to silence atomicity warnings.
+
+Ash rebuilds atomic updates from a second changeset. Put compare-and-set filters on the
+pending caller changeset, not in an action-level `change filter(...)`. When `change/3`
+registers an `after_action` hook, `atomic/3` must return `{:ok, change(changeset, opts,
+context)}` rather than bare `:ok`. In an atomic callback, read proposed values from
+`changeset.atomics` or `Ash.Changeset.fetch_change/2`; `Ash.Changeset.get_attribute/2`
+can return old data or raise when original data is unavailable.
 
 ## Multitenancy Guardrails
 
@@ -820,51 +854,30 @@ SHOW search_path;
 
 ## SRQL Fixture Integration Tests
 
-Use this when `elixir/serviceradar_core` integration tests need the shared CNPG/AGE fixture in the `srql-fixtures` namespace.
+Use the `srql-fixtures-db-tests` skill when `elixir/serviceradar_core` integration tests need
+the shared CNPG/AGE fixture. There is deliberately no orchestration script: invoke the guarded
+Bazel lifecycle in order as the caller:
 
-### 1. Start a local port-forward to the primary
-
-```bash
-kubectl port-forward -n srql-fixtures pod/srql-fixture-1 5455:5432
+```text
+sweep -> prepare template -> migrate if pending -> provision -> test -> teardown
 ```
 
-If the pod name changes, get the current primary with:
+For one shard, pair `//rust/integration-db:provision_db_sN` with
+`//elixir/serviceradar_core:integration_tests_sN`. CI uses the unsuffixed provision target and
+the eight-shard suite. Every test/lifecycle invocation needs
+`--//build:enable_integration_tests --strategy=TestRunner=local --test_tag_filters=`; prepare is
+`bazel run` and needs `--build_tag_filters=`. Always pass `--nocache_test_results` to the mutable
+database tests, and always invoke `teardown_db` after a red shard. Bazel has no cross-invocation
+finalizer; the stale sweep is the backstop for a killed host.
 
-```bash
-kubectl get cluster -n srql-fixtures
-kubectl get pods -n srql-fixtures -o wide
-```
+Keep fixture base URLs in `SRQL_TEST_DATABASE_URL` and `SRQL_TEST_ADMIN_URL`, set one unique
+numeric `GITHUB_RUN_ID`/`GITHUB_RUN_ATTEMPT` pair for the whole sequence, and leave
+`SERVICERADAR_TEST_DATABASE_URL` unset so each shard derives its disposable database. When using
+a NodePort, export both `PGSSLSERVERNAME` and `SRQL_TEST_DATABASE_SERVER_NAME` with the CNPG
+certificate's DNS name so the Rust and Elixir clients verify the same certificate.
 
-### 2. Export fixture credentials and CA material
-
-```bash
-kubectl get secret srql-fixture-ca -n srql-fixtures \
-  -o jsonpath='{.data.ca\.crt}' | base64 -d > /tmp/srql-fixture-ca.crt
-
-DB_USER="$(kubectl get secret srql-test-db-credentials -n srql-fixtures -o jsonpath='{.data.username}' | base64 -d)"
-DB_PASS="$(kubectl get secret srql-test-db-credentials -n srql-fixtures -o jsonpath='{.data.password}' | base64 -d)"
-ADMIN_USER="$(kubectl get secret srql-test-admin-credentials -n srql-fixtures -o jsonpath='{.data.username}' | base64 -d)"
-ADMIN_PASS="$(kubectl get secret srql-test-admin-credentials -n srql-fixtures -o jsonpath='{.data.password}' | base64 -d)"
-
-export SERVICERADAR_TEST_DATABASE_URL="postgres://${DB_USER}:${DB_PASS}@127.0.0.1:5455/serviceradar_web_ng_test?sslmode=require"
-export SERVICERADAR_TEST_ADMIN_URL="postgres://${ADMIN_USER}:${ADMIN_PASS}@127.0.0.1:5455/postgres?sslmode=require"
-export PGSSLROOTCERT=/tmp/srql-fixture-ca.crt
-export CNPG_CA_FILE=/tmp/srql-fixture-ca.crt
-export SERVICERADAR_TEST_DATABASE_CA_CERT_FILE=/tmp/srql-fixture-ca.crt
-export SRQL_TEST_DATABASE_CA_CERT_FILE=/tmp/srql-fixture-ca.crt
-```
-
-### 3. Reset, migrate, and run `serviceradar_core` integration tests
-
-```bash
-./scripts/reset-test-db.sh "$SERVICERADAR_TEST_ADMIN_URL" "$SERVICERADAR_TEST_DATABASE_URL"
-
-cd elixir/serviceradar_core
-MIX_ENV=test mix ash.migrate
-MIX_ENV=test mix test --include integration --no-start
-```
-
-Notes:
-- The shared fixture is already AGE-enabled; use it when graph-backed tests fail in CI.
-- Prefer the local port-forward over the public load balancer when working interactively; it is more predictable from a workstation.
-- `make test-integration` already wires the same reset + migrate flow if the env vars above are exported first.
+With a mode-0600 ignored `.bazelrc.remote` containing the BuildBuddy credential, add
+`--config=cache_only`: compilation artifacts use the public authenticated cache while
+`TestRunner` remains native. Do not use `--config=ci` for a local database test; it selects the
+Linux RBE platform. Never copy or print fixture or BuildBuddy credentials while diagnosing this
+flow. The skill contains the exact command sequence and cleanup check.

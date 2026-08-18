@@ -210,7 +210,11 @@ func parsePublishConfig() publishConfig {
 	overwriteAssetsFlag := flag.Bool("overwrite_assets", true, "Replace existing assets that share the same name")
 	appendNotesFlag := flag.Bool("append_notes", false, "Append release notes when the release already exists")
 	manifestFlag := flag.String("manifest", defaultManifestRunfile, "Path to the package manifest runfile")
-	forgejoURLFlag := flag.String("forgejo-url", firstNonEmpty(strings.TrimSpace(os.Getenv("FORGEJO_URL")), "https://code.carverauto.dev"), "Base Forgejo URL")
+	forgejoURLFlag := flag.String("forgejo-url", firstNonEmpty(
+		strings.TrimSpace(os.Getenv("GITHUB_API_URL")),
+		strings.TrimSpace(os.Getenv("FORGEJO_URL")),
+		"https://api.github.com",
+	), "GitHub API base URL (https://api.github.com) or a Forgejo origin")
 
 	flag.Parse()
 
@@ -632,7 +636,7 @@ func ensureRelease(client *githubClient, args ensureReleaseArgs) (*release, bool
 			Body:       args.notes,
 			Draft:      args.draft,
 			Prerelease: args.prerelease,
-			UploadURL:  fmt.Sprintf("%s/api/v1/repos/%s/releases/dry-run/assets", client.baseURL, client.repo),
+			UploadURL:  fmt.Sprintf("%s/dry-run/assets", client.releasesURL()),
 		}, true, nil
 	}
 
@@ -691,6 +695,32 @@ func newGithubClient(token, repo, baseURL string, dryRun bool) *githubClient {
 	}
 }
 
+func (c *githubClient) isGitHub() bool {
+	host := strings.ToLower(c.baseURL)
+	return strings.Contains(host, "api.github.com") || strings.Contains(host, "github.com")
+}
+
+func (c *githubClient) apiPrefix() string {
+	if c.isGitHub() {
+		return c.baseURL
+	}
+	return c.baseURL + "/api/v1"
+}
+
+func (c *githubClient) releasesURL() string {
+	return fmt.Sprintf("%s/repos/%s/releases", c.apiPrefix(), c.repo)
+}
+
+func (c *githubClient) authHeader() string {
+	if c.token == "" {
+		return ""
+	}
+	if c.isGitHub() {
+		return "Bearer " + c.token
+	}
+	return "token " + c.token
+}
+
 func (c *githubClient) request(method, endpoint string, body io.Reader, contentType string) (*http.Response, error) {
 	req, err := http.NewRequestWithContext(context.Background(), method, endpoint, body)
 	if err != nil {
@@ -698,11 +728,15 @@ func (c *githubClient) request(method, endpoint string, body io.Reader, contentT
 	}
 
 	if !c.dryRun {
-		if c.token != "" {
-			req.Header.Set("Authorization", "token "+c.token)
+		if auth := c.authHeader(); auth != "" {
+			req.Header.Set("Authorization", auth)
 		}
 	}
-	req.Header.Set("Accept", "application/json")
+	if c.isGitHub() {
+		req.Header.Set("Accept", "application/vnd.github+json")
+	} else {
+		req.Header.Set("Accept", "application/json")
+	}
 	if contentType != "" {
 		req.Header.Set("Content-Type", contentType)
 	}
@@ -727,7 +761,7 @@ func (c *githubClient) request(method, endpoint string, body io.Reader, contentT
 }
 
 func (c *githubClient) getReleaseByTag(tag string) (*release, error) {
-	endpoint := fmt.Sprintf("%s/api/v1/repos/%s/releases/tags/%s", c.baseURL, c.repo, url.PathEscape(tag))
+	endpoint := fmt.Sprintf("%s/tags/%s", c.releasesURL(), url.PathEscape(tag))
 	resp, err := c.request(http.MethodGet, endpoint, nil, "")
 	if err != nil {
 		var apiErr *url.Error
@@ -740,19 +774,39 @@ func (c *githubClient) getReleaseByTag(tag string) (*release, error) {
 		_ = resp.Body.Close()
 	}()
 
-	if resp.StatusCode == http.StatusNotFound {
-		return nil, nil
+	if resp.StatusCode != http.StatusNotFound {
+		var out release
+		if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+			return nil, err
+		}
+		return &out, nil
 	}
 
-	var out release
-	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+	// GitHub hides drafts from /releases/tags/{tag}.
+	listResp, err := c.request(http.MethodGet, c.releasesURL()+"?per_page=100", nil, "")
+	if err != nil {
 		return nil, err
 	}
-	return &out, nil
+	defer func() {
+		_ = listResp.Body.Close()
+	}()
+	if listResp.StatusCode == http.StatusNotFound {
+		return nil, nil
+	}
+	var releases []release
+	if err := json.NewDecoder(listResp.Body).Decode(&releases); err != nil {
+		return nil, err
+	}
+	for i := range releases {
+		if releases[i].TagName == tag {
+			return &releases[i], nil
+		}
+	}
+	return nil, nil
 }
 
 func (c *githubClient) createRelease(tag, name, commit, notes string, draft, prerelease bool) (*release, error) {
-	endpoint := fmt.Sprintf("%s/api/v1/repos/%s/releases", c.baseURL, c.repo)
+	endpoint := c.releasesURL()
 	payload := releaseRequest{
 		TagName:    tag,
 		Name:       name,
@@ -785,7 +839,7 @@ func (c *githubClient) createRelease(tag, name, commit, notes string, draft, pre
 }
 
 func (c *githubClient) updateRelease(id int64, payload releaseRequest) (*release, error) {
-	endpoint := fmt.Sprintf("%s/api/v1/repos/%s/releases/%d", c.baseURL, c.repo, id)
+	endpoint := fmt.Sprintf("%s/%d", c.releasesURL(), id)
 	body, err := json.Marshal(payload)
 	if err != nil {
 		return nil, err
@@ -807,7 +861,7 @@ func (c *githubClient) updateRelease(id int64, payload releaseRequest) (*release
 }
 
 func (c *githubClient) deleteAsset(id int64) error {
-	endpoint := fmt.Sprintf("%s/api/v1/repos/%s/releases/assets/%d", c.baseURL, c.repo, id)
+	endpoint := fmt.Sprintf("%s/assets/%d", c.releasesURL(), id)
 	resp, err := c.request(http.MethodDelete, endpoint, nil, "")
 	if err != nil {
 		return err
@@ -851,18 +905,29 @@ func (c *githubClient) uploadAsset(uploadURL, assetPath, uploadName string) erro
 		return nil
 	}
 
-	body, contentType := multipartFileBody(file, "attachment", name)
+	var body io.Reader
+	contentType := ""
+	if c.isGitHub() {
+		body = file
+	} else {
+		body, contentType = multipartFileBody(file, "attachment", name)
+	}
 
 	req, err := http.NewRequestWithContext(context.Background(), http.MethodPost, endpoint, body)
 	if err != nil {
 		return err
 	}
 
-	if c.token != "" {
-		req.Header.Set("Authorization", "token "+c.token)
+	if auth := c.authHeader(); auth != "" {
+		req.Header.Set("Authorization", auth)
 	}
-	req.Header.Set("Accept", "application/json")
-	req.Header.Set("Content-Type", contentType)
+	if c.isGitHub() {
+		req.Header.Set("Accept", "application/vnd.github+json")
+		req.Header.Set("Content-Type", "application/octet-stream")
+	} else {
+		req.Header.Set("Accept", "application/json")
+		req.Header.Set("Content-Type", contentType)
+	}
 
 	resp, err := c.http.Do(req)
 	if err != nil {
@@ -889,7 +954,9 @@ func (c *githubClient) assetUploadEndpoint(uploadURL, uploadName string) (string
 		return "", err
 	}
 
-	if parsed.IsAbs() {
+	// Forgejo upload_url may advertise an external host; rewrite to the
+	// in-cluster API. GitHub must keep uploads.github.com.
+	if parsed.IsAbs() && !c.isGitHub() {
 		internalBase, err := url.Parse(c.baseURL)
 		if err != nil {
 			return "", err

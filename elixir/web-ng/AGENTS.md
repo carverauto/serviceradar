@@ -26,7 +26,30 @@ ServiceRadar uses the [Ash Framework](https://ash-hq.org/) for domain-driven des
   ```
 
 - **Never** access `changeset.data` fields that don't exist - use `changeset.data.field_name` pattern
-- **Never** use `Ash.Changeset.get_data/1` or `Ash.Changeset.get_data/2` - these don't exist in Ash 3.x. Use `changeset.data` directly
+- `Ash.Changeset.get_data/2` **does** exist in Ash 3.x (`Ash.Changeset.get_data(changeset, :field)`), and is used throughout `serviceradar_core`. There is no `get_data/1`. Reading `changeset.data.field` directly is equivalent and usually clearer.
+- **Do not depend on original data inside a change that runs atomically.** Under an atomic update there is no original row to read: `changeset.data` is an `%Ash.Changeset.OriginalDataNotAvailable{}` struct, and `get_data/2` raises `ArgumentError` rather than returning `nil`. This applies to bulk and query-based atomic updates; a record-based `Ash.update/2` still carries its data.
+  - A guard that inspects prior state is therefore unreliable in exactly the case Ash prefers. Enforce those invariants where the database can see them instead:
+    - **value invariants** → a `check_constraint` in the resource's `postgres` block
+    - **row-level invariants** → a policy `forbid_if expr(...)`, which is evaluated as a filter
+    - **post-commit side effects** → an `Ash.Notifier`, not `change after_action(...)`, which has no `atomic/3` and forces the whole action non-atomic
+  - See `ServiceRadar.CompositeChecks.CompositeCheckRule` for all three in one resource.
+
+- **A validation whose `atomic/3` returns a bare `:ok` is silently skipped when the action runs atomically.** Ash reads that as "this validation has nothing to check atomically", so it runs on create and quietly does not run on update — the validation appears to work and does not.
+  Delegate instead, as `ServiceRadar.Notifications.Validations.ChannelFallbackChain` does:
+
+  ```elixir
+  @impl true
+  def atomic(changeset, opts, context) do
+    case validate(changeset, opts, context) do
+      :ok -> :ok
+      {:error, error} -> {:error, error}
+    end
+  end
+  ```
+
+  Note that a validation reading the *incoming* value has the mirror-image problem to a change reading the original: atomic changes live in `changeset.atomics`, not `changeset.attributes`, so `Ash.Changeset.get_attribute/2` returns `nil` and the validation rejects perfectly valid input. If a validation needs the new value, make it a `check_constraint`.
+
+- **Never reach for `require_atomic? false` to make any of the above go away.** It silences the warning and gives up the atomicity guarantee. If an action genuinely cannot be atomic, implement `atomic/3`; if a guard cannot be expressed atomically, move it to the database as above.
 
 ### Dedicated Deployment Isolation
 

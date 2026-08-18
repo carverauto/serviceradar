@@ -136,6 +136,52 @@ directly to the hermetic cargo without a full Bazel platform transition. Keep
 `scripts/ci/netprobe-ebpf-verify.sh` building the same Bazel target (it stops
 needing host nightly), so the kernel-matrix verifier continues to gate the object.
 
+### Decision 6 — Package the whole thing as a ruleset with a real toolchain (`//third_party/rules_aya_ebpf`)
+
+Decisions 1–5 got the object building hermetically, but left the *mechanism*
+spread across three places that had no business knowing about each other: five
+`http_archive`s in the root `MODULE.bazel` (53 lines), a 110-line
+`build-ebpf-object.sh`, and a `genrule` wiring them together. Three problems with
+that shape, none of them cosmetic:
+
+- **The Linux constraint was on the wrong axis.** The genrule carried
+  `target_compatible_with = ["@platforms//os:linux"]`, which says "this artifact
+  is for Linux". The actual constraint is that the *component tarballs are
+  linux-x86_64 binaries* — a statement about the execution platform, and one that
+  never mentioned x86_64 at all. Toolchain resolution is Bazel's mechanism for
+  exactly this, and getting the axis right is what makes the arm64 follow-up
+  (6.1) a second `toolchain()` registration instead of a genrule edit.
+- **A shell script is a hole in the graph** (see the repo-wide hard rule). Its
+  inputs were `$(location ...)` strings interpolated into a `cmd`, so nothing
+  type-checked them.
+- **None of it is netprobe-specific.** Pinned nightly + `rust-src` + `bpf-linker`
+  + `-Z build-std=core` for `bpfel-unknown-none` is simply *how you build an aya
+  program under Bazel*.
+
+So it is now `//third_party/rules_aya_ebpf`: a vendored Bazel module (alongside
+`rules_erlang` / `rules_elixir`, and listed in `//.bazelignore` the same way) with
+`toolchain_type`, an `aya_ebpf_toolchain` rule, an `ebpf_object` rule that
+generates its action inline, and a module extension that fetches the pins and
+declares the toolchains. The root `MODULE.bazel` keeps a `bazel_dep` +
+`local_path_override` and nothing else; the pins are overridable from the root via
+the extension's `nightly` / `bpf_linker` tag classes.
+
+`exec_compatible_with = [linux, x86_64]` sits on the `toolchain()`; the
+Linux-only-ness of the *artifact* stays on the target. Verified: a darwin
+execution platform is rejected by constraint, a darwin target platform skips the
+target, and an unresolved toolchain fails with an authored explanation rather than
+Bazel's bare "no matching toolchains found".
+
+**The object is byte-identical across the refactor** — sha256
+`4b0addd0526ea358ecf4134321c79788683d710e77fc875990686b6612d69995`, 63,160 bytes,
+before and after, and the same bytes inside the add-on bundle. The recipe did not
+change; only who owns it.
+
+Naming: `rules_aya_ebpf`, not `rules_netprobe_ebpf`, because the eventual home is
+its own repository and nothing in it is about netprobe. The crate directory and
+vendor tree are rule *attributes* for the same reason — the ruleset must never
+name `//rust/netprobe/...`.
+
 ## Risks / Trade-offs
 
 - **bpf-linker ↔ LLVM coupling** → Decision 3 spike; pin both and document.

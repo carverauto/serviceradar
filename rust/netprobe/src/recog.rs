@@ -14,6 +14,7 @@ pub enum RecogService {
     SipBanner,
     RdpBanner,
     DnsVersion,
+    NtpReadvar,
 }
 
 #[derive(Debug, Clone, Eq, PartialEq)]
@@ -337,6 +338,25 @@ mod tests {
         assert_eq!(label.vendor.as_deref(), Some("ISC"));
         assert_eq!(label.product.as_deref(), Some("BIND"));
         assert_eq!(label.version.as_deref(), Some("9.9.4"));
+    }
+
+    // The ntp_banners.xml corpus shipped for months without a recog_service_for_file mapping,
+    // so it compiled into zero fingerprints and no ntp banner could ever match. This asserts
+    // the corpus is actually wired in, not merely present on disk.
+    #[test]
+    fn matches_ntp_readvar_banner() {
+        let label = match_recog_result(
+            RecogService::NtpReadvar,
+            "version=\"ntpd 4.2.8p15@1.3728-o Wed Jun 23 09:31:32 UTC 2021 (1)\", \
+             processor=\"x86_64\", system=\"Linux/5.15.0\", leap=00, stratum=3,",
+        )
+        .expect("Recog patterns compile")
+        .expect("NTP readvar banner matches");
+
+        assert_eq!(label.product.as_deref(), Some("NTP"));
+        // The corpus pattern captures the whole non-space token, build tag included; this is
+        // upstream Recog's behaviour, not a quirk of ours.
+        assert_eq!(label.version.as_deref(), Some("4.2.8p15@1.3728-o"));
     }
 
     #[test]

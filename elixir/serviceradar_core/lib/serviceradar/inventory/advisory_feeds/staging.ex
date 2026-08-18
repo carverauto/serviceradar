@@ -18,7 +18,9 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.Staging do
   require Logger
 
   @default_root "/var/lib/serviceradar/advisory-feeds"
-  @orphan_max_age_seconds 24 * 60 * 60
+  # nist-nvd2 may run for an hour; two hours still catches a dead worker
+  # before the next retry fills the volume (local-path has no quota).
+  @orphan_max_age_seconds 2 * 60 * 60
 
   @doc "Staging root directory (env-overridable)."
   @spec root() :: Path.t()

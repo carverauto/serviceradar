@@ -45,6 +45,7 @@ defmodule ServiceRadar.Jobs.SelfSchedulingWorkerUniquenessTest do
     ServiceRadar.Integrations.ArmisNorthboundScheduleWorker,
     ServiceRadar.Inventory.BumblebeeCatalogRefreshWorker,
     ServiceRadar.Inventory.DeviceCleanupWorker,
+    ServiceRadar.Inventory.DeviceRiskAssessmentWorker,
     ServiceRadar.Inventory.EndpointVulnerabilityMatchWorker,
     ServiceRadar.Inventory.InterfaceThresholdWorker,
     ServiceRadar.Observability.IpinfoMmdbDownloadWorker,

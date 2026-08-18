@@ -68,10 +68,13 @@ spec:
   hostnames:
     - {{ $otlpGateway.httpHostname | quote }}
   rules:
+    # Only OTLP HTTP API paths (/v1/traces|logs|metrics). Do not match `/`:
+    # crawlers GET / and the collector returns 405, which shows up in Search
+    # Console as "Blocked due to other 4xx" on otlp-*.serviceradar.cloud.
     - matches:
         - path:
             type: PathPrefix
-            value: /
+            value: /v1
       backendRefs:
         - group: ""
           kind: Service

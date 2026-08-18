@@ -99,7 +99,8 @@ defmodule ServiceRadar.Automation.Ansible.AwxMembershipReconciler do
       load_existing: Keyword.get(opts, :load_existing, &load_existing/2),
       resolve_links: Keyword.get(opts, :resolve_links, &resolve_links/2),
       upsert: Keyword.get(opts, :upsert, &upsert_membership/2),
-      expire: Keyword.get(opts, :expire, &expire_membership/3)
+      expire: Keyword.get(opts, :expire, &expire_membership/3),
+      notify: Keyword.get(opts, :notify, &Ash.Notifier.notify/1)
     }
   end
 
@@ -108,10 +109,23 @@ defmodule ServiceRadar.Automation.Ansible.AwxMembershipReconciler do
       case dependencies.transaction.(fn ->
              reconcile_aggregate(aggregate, actor, dependencies)
            end) do
-        :ok -> {:cont, :ok}
-        {:ok, :ok} -> {:cont, :ok}
-        {:error, reason} -> {:halt, {:error, reason}}
-        other -> {:halt, {:error, {:invalid_membership_transaction_result, other}}}
+        {:ok, notifications} when is_list(notifications) ->
+          continue_after_notification_dispatch(notifications, dependencies)
+
+        {:ok, {:ok, notifications}} when is_list(notifications) ->
+          continue_after_notification_dispatch(notifications, dependencies)
+
+        :ok ->
+          {:cont, :ok}
+
+        {:ok, :ok} ->
+          {:cont, :ok}
+
+        {:error, reason} ->
+          {:halt, {:error, reason}}
+
+        other ->
+          {:halt, {:error, {:invalid_membership_transaction_result, other}}}
       end
     end)
   end
@@ -122,8 +136,11 @@ defmodule ServiceRadar.Automation.Ansible.AwxMembershipReconciler do
          :ok <- validate_generation(aggregate, existing),
          :ok <- validate_same_generation_source_state(aggregate, existing),
          {:ok, evidence_index} <- dependencies.resolve_links.(aggregate, actor),
-         :ok <- upsert_memberships(aggregate, existing, evidence_index, actor, dependencies) do
-      maybe_expire_absent(aggregate, existing, actor, dependencies)
+         {:ok, upsert_notifications} <-
+           upsert_memberships(aggregate, existing, evidence_index, actor, dependencies),
+         {:ok, expire_notifications} <-
+           maybe_expire_absent(aggregate, existing, actor, dependencies) do
+      {:ok, upsert_notifications ++ expire_notifications}
     end
   end
 
@@ -187,7 +204,8 @@ defmodule ServiceRadar.Automation.Ansible.AwxMembershipReconciler do
   defp upsert_memberships(aggregate, existing, evidence_index, actor, dependencies) do
     existing_by_tuple = Map.new(existing, &{membership_tuple(&1), &1})
 
-    Enum.reduce_while(aggregate.hosts, :ok, fn host, :ok ->
+    aggregate.hosts
+    |> Enum.reduce_while({:ok, []}, fn host, {:ok, notification_batches} ->
       tuple = host_tuple(aggregate.controller_id, host)
       existing_membership = Map.get(existing_by_tuple, tuple)
       matching_device_uids = Map.get(evidence_index, tuple, [])
@@ -211,16 +229,21 @@ defmodule ServiceRadar.Automation.Ansible.AwxMembershipReconciler do
         metadata: host.metadata
       }
 
-      case dependencies.upsert.(attrs, actor) do
-        {:ok, _membership} -> {:cont, :ok}
-        :ok -> {:cont, :ok}
-        {:error, reason} -> {:halt, {:error, {:awx_membership_upsert_failed, tuple, reason}}}
-        other -> {:halt, {:error, {:invalid_membership_upsert_result, tuple, other}}}
+      case write_notifications(dependencies.upsert.(attrs, actor)) do
+        {:ok, notifications} ->
+          {:cont, {:ok, [notifications | notification_batches]}}
+
+        {:error, reason} ->
+          {:halt, {:error, {:awx_membership_upsert_failed, tuple, reason}}}
+
+        {:invalid, other} ->
+          {:halt, {:error, {:invalid_membership_upsert_result, tuple, other}}}
       end
     end)
+    |> flatten_notification_batches()
   end
 
-  defp maybe_expire_absent(%{complete: false}, _existing, _actor, _dependencies), do: :ok
+  defp maybe_expire_absent(%{complete: false}, _existing, _actor, _dependencies), do: {:ok, []}
 
   defp maybe_expire_absent(aggregate, existing, actor, dependencies) do
     seen = MapSet.new(aggregate.hosts, &host_tuple(aggregate.controller_id, &1))
@@ -228,7 +251,7 @@ defmodule ServiceRadar.Automation.Ansible.AwxMembershipReconciler do
     existing
     |> Enum.filter(&(field(&1, :current) == true))
     |> Enum.reject(&MapSet.member?(seen, membership_tuple(&1)))
-    |> Enum.reduce_while(:ok, fn membership, :ok ->
+    |> Enum.reduce_while({:ok, []}, fn membership, {:ok, notification_batches} ->
       tuple = membership_tuple(membership)
 
       attrs = %{
@@ -238,13 +261,58 @@ defmodule ServiceRadar.Automation.Ansible.AwxMembershipReconciler do
         metadata: expiration_metadata(aggregate, membership)
       }
 
-      case dependencies.expire.(membership, attrs, actor) do
-        {:ok, _membership} -> {:cont, :ok}
-        :ok -> {:cont, :ok}
-        {:error, reason} -> {:halt, {:error, {:awx_membership_expire_failed, tuple, reason}}}
-        other -> {:halt, {:error, {:invalid_membership_expire_result, tuple, other}}}
+      case write_notifications(dependencies.expire.(membership, attrs, actor)) do
+        {:ok, notifications} ->
+          {:cont, {:ok, [notifications | notification_batches]}}
+
+        {:error, reason} ->
+          {:halt, {:error, {:awx_membership_expire_failed, tuple, reason}}}
+
+        {:invalid, other} ->
+          {:halt, {:error, {:invalid_membership_expire_result, tuple, other}}}
       end
     end)
+    |> flatten_notification_batches()
+  end
+
+  defp flatten_notification_batches({:ok, batches}) do
+    {:ok, batches |> Enum.reverse() |> List.flatten()}
+  end
+
+  defp flatten_notification_batches({:error, _reason} = error), do: error
+
+  defp write_notifications({:ok, _record, %{notifications: notifications}})
+       when is_list(notifications),
+       do: {:ok, notifications}
+
+  defp write_notifications({:ok, _record, notifications}) when is_list(notifications),
+    do: {:ok, notifications}
+
+  defp write_notifications({:ok, _record}), do: {:ok, []}
+  defp write_notifications(:ok), do: {:ok, []}
+  defp write_notifications({:error, reason}), do: {:error, reason}
+  defp write_notifications(other), do: {:invalid, other}
+
+  defp dispatch_notifications([], _dependencies), do: :ok
+
+  defp dispatch_notifications(notifications, dependencies) do
+    case dependencies.notify.(notifications) do
+      [] ->
+        :ok
+
+      remaining when is_list(remaining) ->
+        {:error, {:awx_membership_notifications_not_dispatched, length(remaining)}}
+
+      other ->
+        {:error, {:invalid_membership_notification_dispatch_result, other}}
+    end
+  end
+
+  defp continue_after_notification_dispatch(notifications, dependencies) do
+    case dispatch_notifications(notifications, dependencies) do
+      :ok -> {:cont, :ok}
+      {:error, _reason} = error -> {:halt, error}
+    end
   end
 
   defp expiration_metadata(aggregate, membership) do
@@ -342,7 +410,8 @@ defmodule ServiceRadar.Automation.Ansible.AwxMembershipReconciler do
     Repo.transaction(
       fn ->
         case fun.() do
-          :ok -> :ok
+          {:ok, notifications} when is_list(notifications) -> notifications
+          :ok -> []
           {:error, reason} -> Repo.rollback(reason)
         end
       end,
@@ -397,7 +466,7 @@ defmodule ServiceRadar.Automation.Ansible.AwxMembershipReconciler do
 
     AwxHostMembership
     |> Ash.Changeset.for_create(:upsert_from_sync, attrs, actor: actor)
-    |> Ash.create(actor: actor, upsert_condition: condition)
+    |> Ash.create(actor: actor, upsert_condition: condition, return_notifications?: true)
   end
 
   defp expire_membership(membership, attrs, actor) do
@@ -406,7 +475,7 @@ defmodule ServiceRadar.Automation.Ansible.AwxMembershipReconciler do
     |> Ash.Changeset.filter(
       Ash.Expr.expr(source_generation <= ^attrs.source_generation and current == true)
     )
-    |> Ash.update(actor: actor)
+    |> Ash.update(actor: actor, return_notifications?: true)
   end
 
   defp unwrap_page({:ok, page}), do: {:ok, page_results(page)}

@@ -4,5 +4,6 @@ defmodule ServiceRadar.Observability.NetflowProviderDatasetSnapshot do
   """
 
   use ServiceRadar.Observability.NetflowDatasetSnapshotResource,
-    table: "netflow_provider_dataset_snapshots"
+    table: "netflow_provider_dataset_snapshots",
+    entry_table: "netflow_provider_cidrs"
 end

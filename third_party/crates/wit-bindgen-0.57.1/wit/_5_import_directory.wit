@@ -1,5 +1,0 @@
-package example:import-directory;
-
-world import-directory {
-    import hello: func() -> string;
-}

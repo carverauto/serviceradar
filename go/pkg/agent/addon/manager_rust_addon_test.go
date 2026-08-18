@@ -44,13 +44,9 @@ var (
 func resolveRustAddonBin(t *testing.T) string {
 	t.Helper()
 	rustAddonBinOnce.Do(func() {
-		if bin := os.Getenv("SERVICERADAR_RUST_ADDON_BIN"); bin != "" {
-			if abs, err := filepath.Abs(bin); err == nil {
-				if _, statErr := os.Stat(abs); statErr == nil {
-					rustAddonBin = abs
-					return
-				}
-			}
+		if bin := resolveBinPath(os.Getenv("SERVICERADAR_RUST_ADDON_BIN")); bin != "" {
+			rustAddonBin = bin
+			return
 		}
 
 		// Optional cargo fallback, gated on SERVICERADAR_BUILD_RUST_ADDON so the

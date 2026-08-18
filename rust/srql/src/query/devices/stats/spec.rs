@@ -1,4 +1,4 @@
-use super::fields::DeviceGroupField;
+use super::fields::{DeviceGroupField, SUPPORTED_GROUP_FIELDS};
 use crate::error::{Result, ServiceError};
 
 #[derive(Debug, Clone)]
@@ -83,8 +83,7 @@ fn parse_group_fields(raw: &str) -> Result<Vec<DeviceGroupField>> {
 fn parse_group_field(raw: &str) -> Result<DeviceGroupField> {
     DeviceGroupField::from_str(raw).ok_or_else(|| {
         ServiceError::InvalidRequest(format!(
-            "unsupported stats group field '{}'. Supported fields: type, vendor_name, risk_level, is_available, is_active, gateway_id",
-            raw
+            "unsupported stats group field '{raw}'. Supported fields: {SUPPORTED_GROUP_FIELDS}"
         ))
     })
 }

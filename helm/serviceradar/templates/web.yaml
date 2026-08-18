@@ -39,8 +39,14 @@
 {{- if hasKey $webNgObanQueues "maintenance" -}}{{- $webNgObanQueueMaintenance = get $webNgObanQueues "maintenance" -}}{{- end -}}
 {{- $webNgObanQueueWebMaintenance := 2 -}}
 {{- if hasKey $webNgObanQueues "webMaintenance" -}}{{- $webNgObanQueueWebMaintenance = get $webNgObanQueues "webMaintenance" -}}{{- end -}}
-{{- $webHost := default .Values.ingress.host $webNg.host -}}
-{{- $webNgPublicUrl := default "" $webNg.publicUrl -}}
+{{- $webNgPublicUrl := include "serviceradar.webNgPublicUrl" . -}}
+{{- $gatewayApi := default (dict) .Values.gatewayApi -}}
+{{- $webHost := coalesce $webNg.host .Values.ingress.host $gatewayApi.host "serviceradar-web-ng" -}}
+{{- if $webNgPublicUrl -}}
+{{- $parsedPublicUrl := urlParse $webNgPublicUrl -}}
+{{- $publicUrlHost := default "" (get $parsedPublicUrl "host") -}}
+{{- $webHost = trimSuffix ":443" $publicUrlHost -}}
+{{- end -}}
 {{- $pluginStorage := default (dict) $webNg.pluginStorage -}}
 {{- $gateway := default (dict) .Values.agentGateway -}}
 {{- $gatewayService := default (dict) $gateway.service -}}
@@ -199,7 +205,7 @@ spec:
       {{- end }}
       {{- if $migrationsEnabled }}
       - name: wait-migrations
-        image: {{ include "serviceradar.imageRef" (dict "Values" .Values "name" "serviceradar-tools" "service" "tools") }}
+        image: {{ include "serviceradar.imageRef" (dict "Values" .Values "Chart" .Chart "name" "serviceradar-tools" "service" "tools") }}
         imagePullPolicy: {{ include "serviceradar.imagePullPolicy" . }}
         {{- include "serviceradar.containerSecurityContext" . | nindent 8 }}
         command: ["/bin/sh", "-c"]
@@ -264,7 +270,7 @@ spec:
       {{- end }}
       containers:
       - name: web-ng
-        image: {{ include "serviceradar.imageRef" (dict "Values" .Values "name" "serviceradar-web-ng" "service" "webNg") }}
+        image: {{ include "serviceradar.imageRef" (dict "Values" .Values "Chart" .Chart "name" "serviceradar-web-ng" "service" "webNg") }}
         imagePullPolicy: {{ include "serviceradar.imagePullPolicy" . }}
         {{- include "serviceradar.containerSecurityContext" . | nindent 8 }}
         ports:
@@ -293,7 +299,7 @@ spec:
           value: "true"
         # The ServiceRadar RELEASE this deployment corresponds to -- not the
         # container image tag. web-ng uses it to fetch plugin and native add-on
-        # assets from the matching Forgejo release, and to show a version in the
+        # assets from the matching GitHub release, and to show a version in the
         # product status UI (`deployed_release_version/0` strips the `v`).
         #
         # These were the same value until now, which only worked when deploying
@@ -308,7 +314,14 @@ spec:
         - name: SERVICERADAR_RELEASE_VERSION
           value: {{ .Values.global.releaseVersion | default (printf "v%s" .Chart.AppVersion) | quote }}
         - name: PHX_HOST
-          value: {{ default "serviceradar-web-ng" $webHost | quote }}
+          value: {{ $webHost | quote }}
+        {{- if $webNgPublicUrl }}
+        # ActionLinks and Discord/Slack embeds use this as the origin for
+        # /alerts/<id> deep links. Without it, pages go out with no way back
+        # into ServiceRadar.
+        - name: SERVICERADAR_NOTIFICATION_ACTION_BASE_URL
+          value: {{ $webNgPublicUrl | quote }}
+        {{- end }}
         - name: PHX_CHECK_ORIGIN
           value: {{ default "true" $webNg.checkOrigin | quote }}
         - name: SERVICERADAR_GOD_VIEW_ENABLED
@@ -475,7 +488,7 @@ spec:
         - name: SERVICERADAR_GOD_VIEW_SNAPSHOT_COALESCE_MS
           value: {{ default 0 $webNgGodView.snapshotCoalesceMs | quote }}
         - name: SERVICERADAR_FIRST_PARTY_PLUGIN_REPO_URL
-          value: {{ default "https://code.carverauto.dev/carverauto/serviceradar" $webNgFirstPartyImport.repoUrl | quote }}
+          value: {{ default "https://github.com/carverauto/serviceradar" $webNgFirstPartyImport.repoUrl | quote }}
         - name: SERVICERADAR_FIRST_PARTY_PLUGIN_INDEX_ASSET
           value: {{ default "serviceradar-wasm-plugin-index.json" $webNgFirstPartyImport.indexAssetName | quote }}
         - name: SERVICERADAR_FIRST_PARTY_PLUGIN_AUTO_SYNC
@@ -509,7 +522,7 @@ spec:
           value: {{ $webNgFirstPartyImport.registryDockerConfigFile | quote }}
         {{- end }}
         - name: SERVICERADAR_NATIVE_ADDON_REPO_URL
-          value: {{ default "https://code.carverauto.dev/carverauto/serviceradar" $webNgNativeAddonImport.repoUrl | quote }}
+          value: {{ default "https://github.com/carverauto/serviceradar" $webNgNativeAddonImport.repoUrl | quote }}
         - name: SERVICERADAR_NATIVE_ADDON_INDEX_ASSET
           value: {{ default "serviceradar-native-addon-index.json" $webNgNativeAddonImport.indexAssetName | quote }}
         - name: SERVICERADAR_NATIVE_ADDON_AUTO_SYNC
@@ -622,6 +635,10 @@ spec:
         {{- if $geoipMmdb.enabled }}
         - name: GEOLITE_MMDB_DIR
           value: {{ default "/var/lib/serviceradar/geoip" $geoipMmdb.basePath | quote }}
+        - name: GEOLITE_MMDB_DOWNLOAD_ENABLED
+          value: "true"
+        - name: IPINFO_MMDB_DOWNLOAD_ENABLED
+          value: "true"
         {{- end }}
         {{- with $.Values.otelExporter }}
         {{- if .enabled }}
@@ -858,8 +875,12 @@ spec:
       {{- end }}
       {{- if $geoipMmdb.enabled }}
       - name: geoip-mmdb
+        {{- if $geoipMmdb.emptyDir }}
+        emptyDir: {}
+        {{- else }}
         persistentVolumeClaim:
           claimName: {{ default "serviceradar-geoip-mmdb" $geoipMmdb.existingClaim | quote }}
+        {{- end }}
       {{- end }}
       {{- if $deviceEnrichmentFsEnabled }}
       - name: device-enrichment-rules

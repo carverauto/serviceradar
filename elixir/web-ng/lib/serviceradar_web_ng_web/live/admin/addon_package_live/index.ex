@@ -67,6 +67,8 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonPackageLive.Index do
        |> assign(:selected_package, nil)
        |> assign(:newer_approved_package, nil)
        |> assign(:import_running?, false)
+       |> assign(:sync_running?, false)
+       |> assign(:first_party_catalog_synced_at, nil)
        |> assign(:assignments, [])
        |> assign(:addon_profiles, [])
        |> assign(:assignment_preview, empty_assignment_preview())
@@ -157,6 +159,30 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonPackageLive.Index do
      |> put_flash(:error, "First-party add-on import failed: #{format_error(reason)}")}
   end
 
+  def handle_async(:sync_first_party_catalog, {:ok, result}, socket) do
+    socket = assign(socket, :sync_running?, false)
+
+    case result do
+      {:ok, summary} ->
+        socket = apply_first_party_catalog_summary(socket, summary)
+
+        {:noreply, put_flash(socket, :info, catalog_sync_flash(socket, summary))}
+
+      {:error, reason} ->
+        {:noreply,
+         socket
+         |> assign(:first_party_catalog_error, format_error(reason))
+         |> put_flash(:error, "Catalog sync failed: #{format_error(reason)}")}
+    end
+  end
+
+  def handle_async(:sync_first_party_catalog, {:exit, reason}, socket) do
+    {:noreply,
+     socket
+     |> assign(:sync_running?, false)
+     |> put_flash(:error, "Catalog sync failed: #{format_error(reason)}")}
+  end
+
   @impl true
   def handle_event("refresh", _params, socket) do
     packages = list_addon_packages(socket.assigns.current_scope)
@@ -167,8 +193,20 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonPackageLive.Index do
      |> assign_first_party_catalog_view(socket.assigns.first_party_catalog_all, socket.assigns.first_party_release_tag)}
   end
 
+  def handle_event("sync_first_party_catalog", _params, %{assigns: %{sync_running?: true}} = socket) do
+    {:noreply, socket}
+  end
+
   def handle_event("sync_first_party_catalog", _params, socket) do
-    {:noreply, load_first_party_catalog(socket)}
+    repo_url = socket.assigns.first_party_repo_url
+    limit = first_party_sync_limit()
+
+    {:noreply,
+     socket
+     |> assign(:sync_running?, true)
+     |> start_async(:sync_first_party_catalog, fn ->
+       NativeAddonImporter.list_recent_addons_with_summary(%{"repo_url" => repo_url}, limit)
+     end)}
   end
 
   def handle_event("select_first_party_release", %{"release_tag" => release_tag}, socket) do
@@ -224,7 +262,7 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonPackageLive.Index do
          |> load_first_party_catalog()}
 
       addon ->
-        import_catalog_addon(socket, addon)
+        import_catalog_addon(socket, addon, replace: params["replace"] == "true")
     end
   end
 
@@ -331,6 +369,14 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonPackageLive.Index do
       {:error, :missing_target_query} ->
         {:noreply, put_flash(socket, :error, "Enter an SRQL target query before creating a profile.")}
 
+      {:error, {:invalid_target_entity, entity}} ->
+        {:noreply,
+         put_flash(
+           socket,
+           :error,
+           "Add-on profiles must target agents (in:agents), not #{entity}."
+         )}
+
       {:error, :invalid_integer} ->
         {:noreply, put_flash(socket, :error, "Priority and max targets must be positive integers.")}
     end
@@ -338,6 +384,27 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonPackageLive.Index do
 
   def handle_event("reconcile_profile", _params, %{assigns: %{can_assign_addons: false}} = socket) do
     {:noreply, put_flash(socket, :error, "You don't have permission to assign add-ons.")}
+  end
+
+  def handle_event("delete_profile", _params, %{assigns: %{can_assign_addons: false}} = socket) do
+    {:noreply, put_flash(socket, :error, "You don't have permission to assign add-ons.")}
+  end
+
+  def handle_event("delete_profile", %{"id" => id}, socket) do
+    scope = socket.assigns.current_scope
+    package = socket.assigns.selected_package
+
+    case AddonProfiles.delete(id, scope: scope) do
+      {:ok, _profile} ->
+        {:noreply,
+         socket
+         |> put_flash(:info, "Add-on profile removed.")
+         |> assign(:addon_profiles, list_profiles_for_package(package.id, scope))
+         |> assign(:assignments, list_assignments_for_package(package.id, scope))}
+
+      {:error, error} ->
+        {:noreply, put_flash(socket, :error, "Failed to remove profile: #{format_error(error)}")}
+    end
   end
 
   def handle_event("reconcile_profile", %{"id" => id}, socket) do
@@ -531,14 +598,22 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonPackageLive.Index do
                     <% end %>
                   </select>
                 </form>
-                <.ui_button variant="ghost" size="sm" phx-click="sync_first_party_catalog">
-                  <.icon name="hero-arrow-path" class="size-4" /> Sync
+                <.ui_button
+                  variant="ghost"
+                  size="sm"
+                  disabled={@sync_running? or @import_running?}
+                  phx-click="sync_first_party_catalog"
+                  title="Re-fetch the first-party catalog from the registry. This does not import add-ons."
+                >
+                  <span :if={@sync_running?} class="sr-ui-spinner sr-ui-spinner-xs"></span>
+                  <.icon :if={not @sync_running?} name="hero-arrow-path" class="size-4" />
+                  {if @sync_running?, do: "Syncing…", else: "Sync"}
                 </.ui_button>
                 <.ui_button
                   :if={@can_review_addons}
                   variant="primary"
                   size="sm"
-                  disabled={@import_running? or import_state.importable == 0}
+                  disabled={@import_running? or @sync_running? or import_state.importable == 0}
                   phx-click="import_first_party_catalog"
                 >
                   <span :if={@import_running?} class="sr-ui-spinner sr-ui-spinner-xs"></span>
@@ -560,6 +635,16 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonPackageLive.Index do
               {@first_party_catalog_status}
             </div>
           <% end %>
+
+          <div
+            :if={import_state.replaceable > 0}
+            class={ui_alert_class(variant: "warning", class: "mb-3 text-sm")}
+          >
+            {import_state.replaceable}
+            {if import_state.replaceable == 1, do: "add-on is", else: "add-ons are"} already imported at this version from an earlier release, with a
+            different build. Import All will not overwrite them. Use Replace on
+            those rows if you want this release's binaries.
+          </div>
 
           <%= cond do %>
             <% catalog_rows == [] and is_nil(@first_party_catalog_error) -> %>
@@ -601,16 +686,32 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonPackageLive.Index do
                         </td>
                         <td class="text-right">
                           <.ui_button
-                            :if={row.package}
+                            :if={row.package || row.version_package}
                             variant="ghost"
                             size="sm"
                             phx-click="view_package"
-                            phx-value-id={row.package.id}
+                            phx-value-id={(row.package || row.version_package).id}
                           >
                             View
                           </.ui_button>
                           <.ui_button
-                            :if={is_nil(row.package) and @can_review_addons and row.import_ready}
+                            :if={replaceable_catalog_row?(row) and @can_review_addons}
+                            variant="ghost"
+                            size="sm"
+                            phx-click="import_first_party_addon"
+                            phx-value-addon_id={row.addon_id}
+                            phx-value-version={row.version}
+                            phx-value-release_tag={row.release_tag}
+                            phx-value-replace="true"
+                            data-confirm={"Replace #{row.addon_id} #{row.version} with the #{row.release_tag} build? The package will go back to staged and must be approved again."}
+                          >
+                            Replace
+                          </.ui_button>
+                          <.ui_button
+                            :if={
+                              is_nil(row.package) and is_nil(row.version_package) and
+                                @can_review_addons and row.import_ready
+                            }
                             variant="ghost"
                             size="sm"
                             phx-click="import_first_party_addon"
@@ -630,379 +731,385 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonPackageLive.Index do
         </.ui_panel>
 
         <%= if @show_details_modal and @selected_package do %>
-          <div class="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-            <div class="w-full max-w-4xl rounded-2xl bg-sr-surface p-6 shadow-xl space-y-4 overflow-y-auto max-h-[90vh]">
-              <div class="flex items-start justify-between gap-4">
-                <div>
-                  <h2 class="text-lg font-semibold text-sr-ink">{@selected_package.name}</h2>
-                  <div class="text-xs text-sr-muted font-mono">
-                    {@selected_package.addon_id} · v{@selected_package.version}
-                  </div>
+          <.ui_modal
+            id="addon-package-details-modal"
+            size="xl"
+            on_cancel="close_details"
+            box_class="max-h-[90vh] overflow-y-auto"
+          >
+            <:title>
+              <div>
+                <div>{@selected_package.name}</div>
+                <div class="text-xs font-mono font-normal text-sr-muted">
+                  {@selected_package.addon_id} · v{@selected_package.version}
                 </div>
-                <.ui_button variant="ghost" size="sm" phx-click="close_details">Close</.ui_button>
               </div>
+            </:title>
 
-              <dl class="grid grid-cols-2 gap-2 text-xs">
-                <div>
-                  <dt class="text-sr-muted">Delivery</dt>
-                  <dd>{@selected_package.delivery}</dd>
-                </div>
-                <div>
-                  <dt class="text-sr-muted">Supervision</dt>
-                  <dd>{@selected_package.supervision}</dd>
-                </div>
-                <div class="col-span-2">
-                  <dt class="text-sr-muted">Capabilities</dt>
-                  <dd>{Enum.join(@selected_package.capabilities || [], ", ")}</dd>
-                </div>
-                <div class="col-span-2">
-                  <dt class="text-sr-muted">Approved capabilities</dt>
-                  <dd>{approved_capabilities_text(@selected_package)}</dd>
-                </div>
-              </dl>
+            <dl class="grid grid-cols-2 gap-2 text-xs">
+              <div>
+                <dt class="text-sr-muted">Delivery</dt>
+                <dd>{@selected_package.delivery}</dd>
+              </div>
+              <div>
+                <dt class="text-sr-muted">Supervision</dt>
+                <dd>{@selected_package.supervision}</dd>
+              </div>
+              <div class="col-span-2">
+                <dt class="text-sr-muted">Capabilities</dt>
+                <dd>{Enum.join(@selected_package.capabilities || [], ", ")}</dd>
+              </div>
+              <div class="col-span-2">
+                <dt class="text-sr-muted">Approved capabilities</dt>
+                <dd>{approved_capabilities_text(@selected_package)}</dd>
+              </div>
+            </dl>
 
-              <div class="grid gap-3 md:grid-cols-2">
-                <div class="rounded-xl border border-sr-line p-4 space-y-2">
-                  <div class="text-sm font-semibold">Manifest & delivery</div>
-                  <dl class="grid grid-cols-2 gap-2 text-xs">
-                    <div>
-                      <dt class="text-sr-muted">Kind</dt>
-                      <dd>{@selected_package.kind}</dd>
-                    </div>
-                    <div>
-                      <dt class="text-sr-muted">Binary</dt>
-                      <dd class="font-mono">{@selected_package.binary || "—"}</dd>
-                    </div>
-                    <div class="col-span-2">
-                      <dt class="text-sr-muted">Install path</dt>
-                      <dd class="font-mono break-all">{@selected_package.install_path}</dd>
-                    </div>
-                    <div class="col-span-2">
-                      <dt class="text-sr-muted">Supported artifacts</dt>
-                      <dd class="flex flex-wrap gap-1">
-                        <%= for platform <- addon_supported_platforms(@selected_package) do %>
-                          <.ui_badge size="xs" variant="ghost" class="font-mono">
-                            {platform}
-                          </.ui_badge>
-                        <% end %>
-                        <span
-                          :if={addon_supported_platforms(@selected_package) == []}
-                          class="text-sr-muted"
-                        >
-                          No per-architecture artifact gate
-                        </span>
-                      </dd>
-                    </div>
-                  </dl>
-                </div>
-
-                <div class="rounded-xl border border-sr-line p-4 space-y-2">
-                  <div class="text-sm font-semibold">Provenance</div>
-                  <dl class="space-y-2 text-xs">
-                    <div>
-                      <dt class="text-sr-muted">Source</dt>
-                      <dd>{@selected_package.source_type}</dd>
-                    </div>
-                    <div>
-                      <dt class="text-sr-muted">Release</dt>
-                      <dd class="font-mono">{@selected_package.source_release_tag || "—"}</dd>
-                    </div>
-                    <div>
-                      <dt class="text-sr-muted">OCI reference</dt>
-                      <dd class="font-mono break-all">{@selected_package.source_oci_ref || "—"}</dd>
-                    </div>
-                    <div>
-                      <dt class="text-sr-muted">Digest</dt>
-                      <dd class="font-mono break-all">
-                        {@selected_package.source_oci_digest || "—"}
-                      </dd>
-                    </div>
-                    <div>
-                      <dt class="text-sr-muted">Verification</dt>
-                      <dd>
-                        <.ui_badge
-                          size="xs"
-                          variant={verification_status_variant(@selected_package)}
-                        >
-                          {verification_status_label(@selected_package)}
+            <div class="grid gap-3 md:grid-cols-2">
+              <div class="rounded-xl border border-sr-line p-4 space-y-2">
+                <div class="text-sm font-semibold">Manifest & delivery</div>
+                <dl class="grid grid-cols-2 gap-2 text-xs">
+                  <div>
+                    <dt class="text-sr-muted">Kind</dt>
+                    <dd>{@selected_package.kind}</dd>
+                  </div>
+                  <div>
+                    <dt class="text-sr-muted">Binary</dt>
+                    <dd class="font-mono">{@selected_package.binary || "—"}</dd>
+                  </div>
+                  <div class="col-span-2">
+                    <dt class="text-sr-muted">Install path</dt>
+                    <dd class="font-mono break-all">{@selected_package.install_path}</dd>
+                  </div>
+                  <div class="col-span-2">
+                    <dt class="text-sr-muted">Supported artifacts</dt>
+                    <dd class="flex flex-wrap gap-1">
+                      <%= for platform <- addon_supported_platforms(@selected_package) do %>
+                        <.ui_badge size="xs" variant="ghost" class="font-mono">
+                          {platform}
                         </.ui_badge>
-                      </dd>
-                    </div>
-                    <div :if={present_text(@selected_package.verification_error)} class="col-span-2">
-                      <dt class="text-sr-muted">Verification error</dt>
-                      <dd class="text-error break-words">{@selected_package.verification_error}</dd>
-                    </div>
-                  </dl>
-                </div>
-              </div>
-
-              <div
-                :if={@newer_approved_package}
-                class="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-info/30 bg-info/5 p-4 text-sm"
-              >
-                <div>
-                  A newer approved version of this add-on is available: <span class="font-mono">v{@newer_approved_package.version}</span>.
-                  New assignments default to the latest approved version.
-                </div>
-                <.ui_button
-                  variant="ghost"
-                  size="sm"
-                  phx-click="view_package"
-                  phx-value-id={@newer_approved_package.id}
-                >
-                  Open latest
-                </.ui_button>
-              </div>
-
-              <div
-                :if={addon_blob_missing?(@selected_package)}
-                class="rounded-xl border border-error/30 bg-error/5 p-4 text-sm text-error"
-              >
-                Object storage no longer has one or more native add-on artifacts for this package.
-                Re-import the add-on before assigning it to agents.
-              </div>
-
-              <div
-                :if={@selected_package.status == :staged}
-                class="rounded-xl border border-warning/30 bg-warning/5 p-4 space-y-3"
-              >
-                <div class="text-sm font-semibold">Approval review</div>
-                <p class="text-xs text-sr-muted">
-                  Approve only the capabilities this add-on should be allowed to expose.
-                </p>
-
-                <form
-                  id={"approve-addon-#{@selected_package.id}"}
-                  phx-submit="approve_package"
-                  phx-value-id={@selected_package.id}
-                  class="space-y-3"
-                >
-                  <div class="flex flex-wrap gap-2">
-                    <%= for cap <- package_capabilities(@selected_package) do %>
-                      <label class="inline-flex items-center gap-2 rounded-lg border border-sr-line px-3 py-2 text-xs">
-                        <input
-                          type="checkbox"
-                          name="review[approved_capabilities][]"
-                          value={cap}
-                          checked
-                          class={ui_checkbox_class(size: "xs")}
-                        />
-                        <span class="font-mono">{cap}</span>
-                      </label>
-                    <% end %>
-                    <span
-                      :if={package_capabilities(@selected_package) == []}
-                      class="text-xs text-sr-muted"
-                    >
-                      This package declares no capabilities.
-                    </span>
+                      <% end %>
+                      <span
+                        :if={addon_supported_platforms(@selected_package) == []}
+                        class="text-sr-muted"
+                      >
+                        No per-architecture artifact gate
+                      </span>
+                    </dd>
                   </div>
-                  <div class="flex flex-wrap justify-end gap-2">
-                    <.ui_button :if={@can_review_addons} type="submit" size="sm" variant="primary">
-                      Approve
-                    </.ui_button>
-                  </div>
-                </form>
-
-                <form
-                  id={"deny-addon-#{@selected_package.id}"}
-                  phx-submit="deny_package"
-                  phx-value-id={@selected_package.id}
-                  class="space-y-2"
-                >
-                  <label class="flex items-center justify-between gap-2">
-                    <span class="text-sm font-medium text-sr-ink">Deny reason</span>
-                  </label>
-                  <textarea
-                    name="review[denied_reason]"
-                    class={ui_field_class(class: "w-full min-h-[64px] py-2.5 text-sm")}
-                    placeholder="Reason this package should not be assigned"
-                  ></textarea>
-                  <div class="flex justify-end">
-                    <.ui_button :if={@can_review_addons} type="submit" size="sm" variant="danger">
-                      Deny
-                    </.ui_button>
-                  </div>
-                </form>
-              </div>
-
-              <div
-                :if={@selected_package.status in [:denied, :revoked]}
-                class="rounded-xl border border-error/30 bg-error/5 p-4 text-sm"
-              >
-                <div class="font-semibold">Not assignable</div>
-                <p class="mt-1 text-xs text-sr-muted">
-                  {denied_reason_text(@selected_package)}
-                </p>
+                </dl>
               </div>
 
               <div class="rounded-xl border border-sr-line p-4 space-y-2">
-                <div class="text-sm font-semibold">Current assignments</div>
-                <%= if @assignments == [] do %>
-                  <p class="text-xs text-sr-muted">Not assigned to any agent yet.</p>
-                <% else %>
-                  <ul class="divide-y divide-sr-line">
-                    <%= for assignment <- @assignments do %>
-                      <li class="flex items-center justify-between gap-2 py-2">
-                        <div class="min-w-0">
-                          <div class="text-xs font-mono">{assignment.agent_uid}</div>
-                          <div class="mt-1 flex flex-wrap gap-1">
-                            <.ui_badge size="xs" variant="ghost">
-                              {assignment_source_text(assignment, @addon_profiles)}
-                            </.ui_badge>
-                            <.ui_badge
-                              :if={assignment_reconcile_status(assignment, @addon_profiles)}
-                              size="xs"
-                              variant={
-                                profile_report_status_variant(
-                                  assignment_reconcile_status(assignment, @addon_profiles)
-                                )
-                              }
-                            >
-                              {profile_report_status_label(
-                                assignment_reconcile_status(assignment, @addon_profiles)
-                              )}
-                            </.ui_badge>
-                            <.ui_badge
-                              :if={assignment_reconciled_at(assignment, @addon_profiles)}
-                              size="xs"
-                              variant="ghost"
-                            >
-                              reconciled
-                            </.ui_badge>
-                            <.ui_badge size="xs" variant="info">
-                              {update_policy_label(assignment.update_policy)}
-                            </.ui_badge>
-                          </div>
-                          <div
-                            :if={assignment_reconcile_error(assignment, @addon_profiles)}
-                            class="mt-1 truncate text-[11px] text-error"
-                          >
-                            {assignment_reconcile_error(assignment, @addon_profiles)}
-                          </div>
-                        </div>
-                        <div class="flex items-center gap-2">
-                          <.ui_badge
-                            size="sm"
-                            variant={if(assignment.enabled, do: "success", else: "ghost")}
-                          >
-                            {if assignment.enabled, do: "enabled", else: "disabled"}
+                <div class="text-sm font-semibold">Provenance</div>
+                <dl class="space-y-2 text-xs">
+                  <div>
+                    <dt class="text-sr-muted">Source</dt>
+                    <dd>{@selected_package.source_type}</dd>
+                  </div>
+                  <div>
+                    <dt class="text-sr-muted">Release</dt>
+                    <dd class="font-mono">{@selected_package.source_release_tag || "—"}</dd>
+                  </div>
+                  <div>
+                    <dt class="text-sr-muted">OCI reference</dt>
+                    <dd class="font-mono break-all">{@selected_package.source_oci_ref || "—"}</dd>
+                  </div>
+                  <div>
+                    <dt class="text-sr-muted">Digest</dt>
+                    <dd class="font-mono break-all">
+                      {@selected_package.source_oci_digest || "—"}
+                    </dd>
+                  </div>
+                  <div>
+                    <dt class="text-sr-muted">Verification</dt>
+                    <dd>
+                      <.ui_badge
+                        size="xs"
+                        variant={verification_status_variant(@selected_package)}
+                      >
+                        {verification_status_label(@selected_package)}
+                      </.ui_badge>
+                    </dd>
+                  </div>
+                  <div :if={present_text(@selected_package.verification_error)} class="col-span-2">
+                    <dt class="text-sr-muted">Verification error</dt>
+                    <dd class="text-error break-words">{@selected_package.verification_error}</dd>
+                  </div>
+                </dl>
+              </div>
+            </div>
+
+            <div
+              :if={@newer_approved_package}
+              class="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-info/30 bg-info/5 p-4 text-sm"
+            >
+              <div>
+                A newer approved version of this add-on is available: <span class="font-mono">v{@newer_approved_package.version}</span>.
+                New assignments default to the latest approved version.
+              </div>
+              <.ui_button
+                variant="ghost"
+                size="sm"
+                phx-click="view_package"
+                phx-value-id={@newer_approved_package.id}
+              >
+                Open latest
+              </.ui_button>
+            </div>
+
+            <div
+              :if={addon_blob_missing?(@selected_package)}
+              class="rounded-xl border border-error/30 bg-error/5 p-4 text-sm text-error"
+            >
+              Object storage no longer has one or more native add-on artifacts for this package.
+              Re-import the add-on before assigning it to agents.
+            </div>
+
+            <div
+              :if={@selected_package.status == :staged}
+              class="rounded-xl border border-warning/30 bg-warning/5 p-4 space-y-3"
+            >
+              <div class="text-sm font-semibold">Approval review</div>
+              <p class="text-xs text-sr-muted">
+                Approve only the capabilities this add-on should be allowed to expose.
+              </p>
+
+              <form
+                id={"approve-addon-#{@selected_package.id}"}
+                phx-submit="approve_package"
+                phx-value-id={@selected_package.id}
+                class="space-y-3"
+              >
+                <div class="flex flex-wrap gap-2">
+                  <%= for cap <- package_capabilities(@selected_package) do %>
+                    <label class="inline-flex items-center gap-2 rounded-lg border border-sr-line px-3 py-2 text-xs">
+                      <input
+                        type="checkbox"
+                        name="review[approved_capabilities][]"
+                        value={cap}
+                        checked
+                        class={ui_checkbox_class(size: "xs")}
+                      />
+                      <span class="font-mono">{cap}</span>
+                    </label>
+                  <% end %>
+                  <span
+                    :if={package_capabilities(@selected_package) == []}
+                    class="text-xs text-sr-muted"
+                  >
+                    This package declares no capabilities.
+                  </span>
+                </div>
+                <div class="flex flex-wrap justify-end gap-2">
+                  <.ui_button :if={@can_review_addons} type="submit" size="sm" variant="primary">
+                    Approve
+                  </.ui_button>
+                </div>
+              </form>
+
+              <form
+                id={"deny-addon-#{@selected_package.id}"}
+                phx-submit="deny_package"
+                phx-value-id={@selected_package.id}
+                class="space-y-2"
+              >
+                <label class="flex items-center justify-between gap-2">
+                  <span class="text-sm font-medium text-sr-ink">Deny reason</span>
+                </label>
+                <textarea
+                  name="review[denied_reason]"
+                  class={ui_field_class(class: "w-full min-h-[64px] py-2.5 text-sm")}
+                  placeholder="Reason this package should not be assigned"
+                ></textarea>
+                <div class="flex justify-end">
+                  <.ui_button :if={@can_review_addons} type="submit" size="sm" variant="danger">
+                    Deny
+                  </.ui_button>
+                </div>
+              </form>
+            </div>
+
+            <div
+              :if={@selected_package.status in [:denied, :revoked]}
+              class="rounded-xl border border-error/30 bg-error/5 p-4 text-sm"
+            >
+              <div class="font-semibold">Not assignable</div>
+              <p class="mt-1 text-xs text-sr-muted">
+                {denied_reason_text(@selected_package)}
+              </p>
+            </div>
+
+            <div class="rounded-xl border border-sr-line p-4 space-y-2">
+              <div class="text-sm font-semibold">Current assignments</div>
+              <%= if @assignments == [] do %>
+                <p class="text-xs text-sr-muted">Not assigned to any agent yet.</p>
+              <% else %>
+                <ul class="divide-y divide-sr-line">
+                  <%= for assignment <- @assignments do %>
+                    <li class="flex items-center justify-between gap-2 py-2">
+                      <div class="min-w-0">
+                        <div class="text-xs font-mono">{assignment.agent_uid}</div>
+                        <div class="mt-1 flex flex-wrap gap-1">
+                          <.ui_badge size="xs" variant="ghost">
+                            {assignment_source_text(assignment, @addon_profiles)}
                           </.ui_badge>
-                          <.ui_button
-                            :if={@can_assign_addons}
-                            type="button"
-                            phx-click="set_assignment_update_policy"
-                            phx-value-id={assignment.id}
-                            phx-value-policy={next_update_policy(assignment.update_policy)}
+                          <.ui_badge
+                            :if={assignment_reconcile_status(assignment, @addon_profiles)}
+                            size="xs"
+                            variant={
+                              profile_report_status_variant(
+                                assignment_reconcile_status(assignment, @addon_profiles)
+                              )
+                            }
+                          >
+                            {profile_report_status_label(
+                              assignment_reconcile_status(assignment, @addon_profiles)
+                            )}
+                          </.ui_badge>
+                          <.ui_badge
+                            :if={assignment_reconciled_at(assignment, @addon_profiles)}
                             size="xs"
                             variant="ghost"
                           >
-                            {update_policy_action_label(assignment.update_policy)}
-                          </.ui_button>
-                          <.ui_button
-                            :if={@can_assign_addons}
-                            type="button"
-                            phx-click="delete_assignment"
-                            phx-value-id={assignment.id}
-                            data-confirm="Remove this add-on assignment?"
-                            size="xs"
-                            variant="ghost"
-                          >
-                            Remove
-                          </.ui_button>
+                            reconciled
+                          </.ui_badge>
+                          <.ui_badge size="xs" variant="info">
+                            {update_policy_label(assignment.update_policy)}
+                          </.ui_badge>
                         </div>
-                      </li>
-                    <% end %>
-                  </ul>
+                        <div
+                          :if={assignment_reconcile_error(assignment, @addon_profiles)}
+                          class="mt-1 truncate text-[11px] text-error"
+                        >
+                          {assignment_reconcile_error(assignment, @addon_profiles)}
+                        </div>
+                      </div>
+                      <div class="flex items-center gap-2">
+                        <.ui_badge
+                          size="sm"
+                          variant={if(assignment.enabled, do: "success", else: "ghost")}
+                        >
+                          {if assignment.enabled, do: "enabled", else: "disabled"}
+                        </.ui_badge>
+                        <.ui_button
+                          :if={@can_assign_addons}
+                          type="button"
+                          phx-click="set_assignment_update_policy"
+                          phx-value-id={assignment.id}
+                          phx-value-policy={next_update_policy(assignment.update_policy)}
+                          size="xs"
+                          variant="ghost"
+                        >
+                          {update_policy_action_label(assignment.update_policy)}
+                        </.ui_button>
+                        <.ui_button
+                          :if={@can_assign_addons}
+                          type="button"
+                          phx-click="delete_assignment"
+                          phx-value-id={assignment.id}
+                          data-confirm="Remove this add-on assignment?"
+                          size="xs"
+                          variant="ghost"
+                        >
+                          Remove
+                        </.ui_button>
+                      </div>
+                    </li>
+                  <% end %>
+                </ul>
+              <% end %>
+            </div>
+
+            <div class="rounded-xl border border-sr-line p-4 space-y-3">
+              <div class="flex items-center justify-between gap-3">
+                <div>
+                  <div class="text-sm font-semibold">Profile assignment</div>
+                  <p class="text-xs text-sr-muted">
+                    Target agents with SRQL starting at <span class="font-mono">in:agents</span>. Add filters to
+                    narrow the set (for example <span class="font-mono">in:agents hostname:dusk*</span>).
+                    Device queries are not valid here.
+                  </p>
+                </div>
+              </div>
+
+              <div
+                :if={not addon_package_assignable?(@selected_package)}
+                class="rounded-lg border border-warning/30 bg-warning/5 px-3 py-2 text-xs text-warning"
+              >
+                <%= if addon_blob_missing?(@selected_package) do %>
+                  Re-import this add-on package before creating profiles or assignments.
+                <% else %>
+                  This add-on package is {@selected_package.status}; approve a verified package for the selected release before creating profiles or assignments.
                 <% end %>
               </div>
 
-              <div class="rounded-xl border border-sr-line p-4 space-y-3">
-                <div class="flex items-center justify-between gap-3">
-                  <div>
-                    <div class="text-sm font-semibold">Profile assignment</div>
-                    <p class="text-xs text-sr-muted">
-                      Target agents with SRQL (e.g. <span class="font-mono">in:agents</span>), then reconcile to materialize eligible agent assignments.
-                    </p>
-                  </div>
-                </div>
-
-                <div
-                  :if={not addon_package_assignable?(@selected_package)}
-                  class="rounded-lg border border-warning/30 bg-warning/5 px-3 py-2 text-xs text-warning"
-                >
-                  <%= if addon_blob_missing?(@selected_package) do %>
-                    Re-import this add-on package before creating profiles or assignments.
-                  <% else %>
-                    This add-on package is {@selected_package.status}; approve a verified package for the selected release before creating profiles or assignments.
-                  <% end %>
-                </div>
-
-                <%= if @addon_profiles == [] do %>
-                  <p class="text-xs text-sr-muted">No profiles for this add-on package.</p>
-                <% else %>
-                  <ul class="divide-y divide-sr-line">
-                    <%= for profile <- @addon_profiles do %>
-                      <% report = profile_reconcile_report(profile) %>
-                      <li class="flex items-center justify-between gap-3 py-2">
-                        <div class="min-w-0">
-                          <div class="truncate text-xs font-semibold">{profile.name}</div>
-                          <div class="truncate font-mono text-[11px] text-sr-muted">
-                            {profile.target_query}
-                          </div>
-                          <div class="mt-1 flex flex-wrap gap-1">
-                            <.ui_badge size="xs" variant="ghost">
-                              priority {profile.priority}
-                            </.ui_badge>
-                            <.ui_badge
-                              size="xs"
-                              variant={if(profile.enabled, do: "success", else: "ghost")}
-                            >
-                              {if profile.enabled, do: "enabled", else: "disabled"}
-                            </.ui_badge>
-                            <.ui_badge
-                              :if={profile.last_reconciled_at}
-                              size="xs"
-                              variant="ghost"
-                            >
-                              reconciled
-                            </.ui_badge>
-                            <.ui_badge size="xs" variant="info">
-                              {update_policy_label(profile.update_policy)}
-                            </.ui_badge>
-                            <.ui_badge
-                              :if={report.status}
-                              size="xs"
-                              variant={profile_report_status_variant(report.status)}
-                            >
-                              {profile_report_status_label(report.status)}
-                            </.ui_badge>
-                            <.ui_badge
-                              :for={chip <- profile_report_chips(report)}
-                              size="xs"
-                              variant="ghost"
-                            >
-                              {chip}
-                            </.ui_badge>
-                          </div>
-                          <div
-                            :if={profile_report_last_error(report)}
-                            class="mt-1 truncate text-[11px] text-error"
-                          >
-                            {profile_report_last_error(report)}
-                          </div>
-                          <div
-                            :if={profile_skip_chips(report) != []}
-                            class="mt-1 flex flex-wrap gap-1"
-                          >
-                            <span
-                              :for={chip <- profile_skip_chips(report)}
-                              class="rounded bg-sr-subtle px-1.5 py-0.5 text-[10px] text-sr-muted"
-                            >
-                              {chip}
-                            </span>
-                          </div>
+              <%= if @addon_profiles == [] do %>
+                <p class="text-xs text-sr-muted">No profiles for this add-on package.</p>
+              <% else %>
+                <ul class="divide-y divide-sr-line">
+                  <%= for profile <- @addon_profiles do %>
+                    <% report = profile_reconcile_report(profile) %>
+                    <li class="flex items-center justify-between gap-3 py-2">
+                      <div class="min-w-0">
+                        <div class="truncate text-xs font-semibold">{profile.name}</div>
+                        <div class="truncate font-mono text-[11px] text-sr-muted">
+                          {profile.target_query}
                         </div>
+                        <div class="mt-1 flex flex-wrap gap-1">
+                          <.ui_badge size="xs" variant="ghost">
+                            priority {profile.priority}
+                          </.ui_badge>
+                          <.ui_badge
+                            size="xs"
+                            variant={if(profile.enabled, do: "success", else: "ghost")}
+                          >
+                            {if profile.enabled, do: "enabled", else: "disabled"}
+                          </.ui_badge>
+                          <.ui_badge
+                            :if={profile.last_reconciled_at}
+                            size="xs"
+                            variant="ghost"
+                          >
+                            reconciled
+                          </.ui_badge>
+                          <.ui_badge size="xs" variant="info">
+                            {update_policy_label(profile.update_policy)}
+                          </.ui_badge>
+                          <.ui_badge
+                            :if={report.status}
+                            size="xs"
+                            variant={profile_report_status_variant(report.status)}
+                          >
+                            {profile_report_status_label(report.status)}
+                          </.ui_badge>
+                          <.ui_badge
+                            :for={chip <- profile_report_chips(report)}
+                            size="xs"
+                            variant="ghost"
+                          >
+                            {chip}
+                          </.ui_badge>
+                        </div>
+                        <div
+                          :if={profile_report_last_error(report)}
+                          class="mt-1 truncate text-[11px] text-error"
+                        >
+                          {profile_report_last_error(report)}
+                        </div>
+                        <div
+                          :if={profile_skip_chips(report) != []}
+                          class="mt-1 flex flex-wrap gap-1"
+                        >
+                          <span
+                            :for={chip <- profile_skip_chips(report)}
+                            class="rounded bg-sr-subtle px-1.5 py-0.5 text-[10px] text-sr-muted"
+                          >
+                            {chip}
+                          </span>
+                        </div>
+                      </div>
+                      <div class="flex items-center gap-2">
                         <.ui_button
                           :if={@can_assign_addons}
                           type="button"
@@ -1025,369 +1132,383 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonPackageLive.Index do
                         >
                           {update_policy_action_label(profile.update_policy)}
                         </.ui_button>
-                      </li>
-                    <% end %>
-                  </ul>
-                <% end %>
+                        <.ui_button
+                          :if={@can_assign_addons}
+                          type="button"
+                          phx-click="delete_profile"
+                          phx-value-id={profile.id}
+                          data-confirm="Remove this add-on profile and its agent assignments?"
+                          size="xs"
+                          variant="ghost"
+                        >
+                          Remove
+                        </.ui_button>
+                      </div>
+                    </li>
+                  <% end %>
+                </ul>
+              <% end %>
 
-                <form
-                  id="create-addon-profile-form"
-                  phx-submit="create_profile"
-                  phx-change="profile_change"
-                  class="space-y-3"
-                >
-                  <div>
-                    <label class="flex items-center justify-between gap-2">
-                      <span class="text-sm font-medium text-sr-ink">Profile Name</span>
-                    </label>
-                    <input
-                      name="profile[name]"
-                      class={ui_field_class(class: "w-full")}
-                      value={@profile_form["name"]}
-                    />
-                  </div>
-                  <div>
-                    <label class="flex items-center justify-between gap-2">
-                      <span class="text-sm font-medium text-sr-ink">SRQL Target Query</span>
-                    </label>
-                    <input
-                      name="profile[target_query]"
-                      class={ui_field_class(mono: true, class: "w-full text-xs")}
-                      value={@profile_form["target_query"]}
-                      placeholder="in:agents"
-                    />
-                  </div>
-                  <.update_policy_fields prefix="profile" form={@profile_form} />
-                  <div
-                    :if={
-                      config_schema_present?(flat_config_form_schema(@selected_package.config_schema))
-                    }
-                    id="addon-profile-configuration"
-                    class="space-y-3 rounded-lg border border-sr-line/70 bg-sr-surface/60 p-3"
-                  >
-                    <div class="text-xs font-semibold text-sr-muted">Configuration</div>
-                    <.plugin_config_fields
-                      schema={flat_config_form_schema(@selected_package.config_schema)}
-                      params={config_params_map(@profile_form)}
-                      base_name="profile[params]"
-                    />
-                  </div>
-                  <details class="rounded border border-sr-line bg-sr-subtle/30">
-                    <summary class="cursor-pointer px-3 py-2 text-xs font-semibold uppercase text-sr-muted">
-                      Advanced Profile Options
-                    </summary>
-                    <div class="space-y-3 border-t border-sr-line p-3">
-                      <div class="grid gap-3 md:grid-cols-2">
-                        <div>
-                          <label class="flex items-center justify-between gap-2">
-                            <span class="text-sm font-medium text-sr-ink">Priority</span>
-                          </label>
-                          <input
-                            name="profile[priority]"
-                            class={ui_field_class(class: "w-full")}
-                            value={@profile_form["priority"]}
-                          />
-                        </div>
-                        <div>
-                          <label class="flex items-center justify-between gap-2">
-                            <span class="text-sm font-medium text-sr-ink">Max Targets</span>
-                          </label>
-                          <input
-                            name="profile[max_targets]"
-                            class={ui_field_class(class: "w-full")}
-                            value={@profile_form["max_targets"]}
-                          />
-                        </div>
-                      </div>
-                      <div>
-                        <label class="flex items-center justify-between gap-2">
-                          <span class="text-sm font-medium text-sr-ink">Args (one per line)</span>
-                        </label>
-                        <textarea
-                          name="profile[args]"
-                          class={
-                            ui_field_class(mono: true, class: "w-full min-h-[42px] py-2.5 text-xs")
-                          }
-                        ><%= @profile_form["args"] %></textarea>
-                      </div>
-                      <div>
-                        <label class="flex items-center justify-between gap-2">
-                          <span class="text-sm font-medium text-sr-ink">
-                            {if config_schema_present?(@selected_package.config_schema),
-                              do: "Raw Params (JSON)",
-                              else: "Params (JSON)"}
-                          </span>
-                        </label>
-                        <textarea
-                          name={
-                            if config_schema_present?(@selected_package.config_schema),
-                              do: "profile[params_raw]",
-                              else: "profile[params]"
-                          }
-                          class={
-                            ui_field_class(mono: true, class: "w-full min-h-[70px] py-2.5 text-xs")
-                          }
-                        ><%= assignment_params_raw(@profile_form) %></textarea>
-                      </div>
-                    </div>
-                  </details>
-                  <div class="flex justify-end">
-                    <.ui_button
-                      type="submit"
-                      disabled={
-                        not addon_package_assignable?(@selected_package) or not @can_assign_addons
-                      }
-                      size="sm"
-                      variant="primary"
-                    >
-                      Create Profile
-                    </.ui_button>
-                  </div>
-                </form>
-              </div>
-
-              <details
-                id="advanced-manual-assignment-override"
-                phx-hook="DetailsState"
-                class="rounded-xl border border-sr-line p-4"
+              <form
+                id="create-addon-profile-form"
+                phx-submit="create_profile"
+                phx-change="profile_change"
+                class="space-y-3"
               >
-                <summary class="cursor-pointer">
-                  <div class="inline-flex flex-col gap-1 align-middle">
-                    <span class="text-sm font-semibold">Advanced Manual Assignment Override</span>
-                    <span class="text-xs text-sr-muted">
-                      Assign directly to agents only when profile ownership is not appropriate.
-                    </span>
-                  </div>
-                </summary>
-                <form
-                  id="create-addon-assignment-form"
-                  phx-submit="create_assignment"
-                  phx-change="assignment_change"
-                  class="mt-3 space-y-3"
+                <div>
+                  <label class="flex items-center justify-between gap-2">
+                    <span class="text-sm font-medium text-sr-ink">Profile Name</span>
+                  </label>
+                  <input
+                    name="profile[name]"
+                    class={ui_field_class(class: "w-full")}
+                    value={@profile_form["name"]}
+                  />
+                </div>
+                <div>
+                  <label class="flex items-center justify-between gap-2">
+                    <span class="text-sm font-medium text-sr-ink">SRQL Target Query</span>
+                  </label>
+                  <input
+                    name="profile[target_query]"
+                    class={ui_field_class(mono: true, class: "w-full text-xs")}
+                    value={@profile_form["target_query"]}
+                    placeholder="in:agents"
+                  />
+                  <p class="mt-1 text-xs text-sr-muted">
+                    Must start from <span class="font-mono">in:agents</span>.
+                    <span class="font-mono">in:devices</span>
+                    cannot assign add-ons.
+                  </p>
+                </div>
+                <.update_policy_fields prefix="profile" form={@profile_form} />
+                <div
+                  :if={
+                    config_schema_present?(flat_config_form_schema(@selected_package.config_schema))
+                  }
+                  id="addon-profile-configuration"
+                  class="space-y-3 rounded-lg border border-sr-line/70 bg-sr-surface/60 p-3"
                 >
-                  <div class="grid gap-3 md:grid-cols-2">
+                  <div class="text-xs font-semibold text-sr-muted">Configuration</div>
+                  <.plugin_config_fields
+                    schema={flat_config_form_schema(@selected_package.config_schema)}
+                    params={config_params_map(@profile_form)}
+                    base_name="profile[params]"
+                  />
+                </div>
+                <details class="rounded border border-sr-line bg-sr-subtle/30">
+                  <summary class="cursor-pointer px-3 py-2 text-xs font-semibold uppercase text-sr-muted">
+                    Advanced Profile Options
+                  </summary>
+                  <div class="space-y-3 border-t border-sr-line p-3">
+                    <div class="grid gap-3 md:grid-cols-2">
+                      <div>
+                        <label class="flex items-center justify-between gap-2">
+                          <span class="text-sm font-medium text-sr-ink">Priority</span>
+                        </label>
+                        <input
+                          name="profile[priority]"
+                          class={ui_field_class(class: "w-full")}
+                          value={@profile_form["priority"]}
+                        />
+                      </div>
+                      <div>
+                        <label class="flex items-center justify-between gap-2">
+                          <span class="text-sm font-medium text-sr-ink">Max Targets</span>
+                        </label>
+                        <input
+                          name="profile[max_targets]"
+                          class={ui_field_class(class: "w-full")}
+                          value={@profile_form["max_targets"]}
+                        />
+                      </div>
+                    </div>
                     <div>
                       <label class="flex items-center justify-between gap-2">
-                        <span class="text-sm font-medium text-sr-ink">Target</span>
-                      </label>
-                      <select name="assignment[target_mode]" class={ui_field_class(class: "w-full")}>
-                        <option value="agent" selected={@assignment_form["target_mode"] == "agent"}>
-                          Single agent
-                        </option>
-                        <option value="cohort" selected={@assignment_form["target_mode"] == "cohort"}>
-                          Cohort
-                        </option>
-                      </select>
-                    </div>
-                    <div :if={@assignment_form["target_mode"] == "cohort"}>
-                      <label class="flex items-center justify-between gap-2">
-                        <span class="text-sm font-medium text-sr-ink">Cohort</span>
-                      </label>
-                      <select name="assignment[cohort]" class={ui_field_class(class: "w-full")}>
-                        <%= for {label, value} <- @cohort_options do %>
-                          <option value={value} selected={@assignment_form["cohort"] == value}>
-                            {label}
-                          </option>
-                        <% end %>
-                      </select>
-                    </div>
-                    <div :if={@assignment_form["target_mode"] != "cohort"} class="md:col-span-2">
-                      <label class="flex items-center justify-between gap-2">
-                        <span class="text-sm font-medium text-sr-ink">Agent</span>
-                      </label>
-                      <select name="assignment[agent_uid]" class={ui_field_class(class: "w-full")}>
-                        <option value="">Select an agent</option>
-                        <%= for agent <- @agents do %>
-                          <option
-                            value={agent.uid}
-                            selected={@assignment_form["agent_uid"] == agent.uid}
-                          >
-                            {agent_label(agent)}
-                          </option>
-                        <% end %>
-                      </select>
-                    </div>
-                    <div :if={@assignment_form["target_mode"] != "cohort"} class="md:col-span-2">
-                      <label class="label">
-                        <span class="label-text">Direct JetStream edge site (optional)</span>
-                      </label>
-                      <select name="assignment[edge_site_id]" class="select select-bordered w-full">
-                        <option value="" selected={@assignment_form["edge_site_id"] == ""}>
-                          Gateway relay / no edge NATS
-                        </option>
-                        <%= for site <- @edge_sites do %>
-                          <option
-                            value={site.id}
-                            selected={@assignment_form["edge_site_id"] == site.id}
-                          >
-                            {edge_site_option_label(site)}
-                          </option>
-                        <% end %>
-                      </select>
-                      <p class="label">
-                        Required only when configuration sets <code>output.backend</code>
-                        to <code>jetstream</code>. The selected leaf must be active and connected;
-                        mTLS paths remain add-on-owned.
-                      </p>
-                    </div>
-                  </div>
-
-                  <div :if={
-                    @assignment_form["target_mode"] == "cohort" and
-                      @assignment_form["cohort"] == "custom"
-                  }>
-                    <label class="flex items-center justify-between gap-2">
-                      <span class="text-sm font-medium text-sr-ink">Custom Agent IDs</span>
-                    </label>
-                    <textarea
-                      name="assignment[agent_ids]"
-                      class={ui_field_class(mono: true, class: "w-full min-h-[80px] py-2.5 text-xs")}
-                      placeholder="agent-1, agent-2 or one per line"
-                    ><%= @assignment_form["agent_ids"] %></textarea>
-                  </div>
-
-                  <.update_policy_fields prefix="assignment" form={@assignment_form} />
-
-                  <div
-                    :if={show_assignment_preview?(@assignment_preview)}
-                    id="addon-compatibility-preview"
-                    class="rounded-lg border border-sr-line bg-sr-subtle/30 px-4 py-3 text-sm"
-                  >
-                    <div class="flex flex-wrap items-center justify-between gap-3">
-                      <div class="font-semibold text-sr-ink">Compatibility Preview</div>
-                      <div class="text-xs text-sr-muted">
-                        {assignment_preview_scope_text(@assignment_preview)}
-                      </div>
-                    </div>
-
-                    <div class="mt-3 flex flex-wrap gap-2">
-                      <.ui_badge variant="ghost" size="xs">
-                        {@assignment_preview.selected_count} selected
-                      </.ui_badge>
-                      <.ui_badge variant="success" size="xs">
-                        {@assignment_preview.compatible_count} compatible
-                      </.ui_badge>
-                      <.ui_badge
-                        :if={@assignment_preview.unsupported_count > 0}
-                        variant="error"
-                        size="xs"
-                      >
-                        {@assignment_preview.unsupported_count} unsupported
-                      </.ui_badge>
-                      <.ui_badge
-                        :if={@assignment_preview.unknown_count > 0}
-                        variant="warning"
-                        size="xs"
-                      >
-                        {@assignment_preview.unknown_count} unresolved
-                      </.ui_badge>
-                    </div>
-
-                    <div
-                      :if={assignment_preview_block_message(@assignment_preview)}
-                      class="mt-3 text-[11px] font-medium text-warning"
-                    >
-                      {assignment_preview_block_message(@assignment_preview)}
-                    </div>
-
-                    <div :if={@assignment_preview.supported_platforms != []} class="mt-3 space-y-2">
-                      <div class="text-[11px] uppercase tracking-wider text-sr-muted">
-                        Add-on Supports
-                      </div>
-                      <div class="flex flex-wrap gap-1">
-                        <%= for platform <- @assignment_preview.supported_platforms do %>
-                          <.ui_badge variant="ghost" size="xs">{platform}</.ui_badge>
-                        <% end %>
-                      </div>
-                    </div>
-
-                    <div
-                      :if={@assignment_preview.unsupported_agents != []}
-                      class="mt-3 space-y-2 text-[11px]"
-                    >
-                      <div class="uppercase tracking-wider text-error">Unsupported Targets</div>
-                      <div class="flex flex-wrap gap-1">
-                        <%= for agent <- @assignment_preview.unsupported_agents do %>
-                          <.ui_badge size="xs" variant="error">
-                            {agent.agent_id} ({agent.platform_label})
-                          </.ui_badge>
-                        <% end %>
-                      </div>
-                    </div>
-                  </div>
-
-                  <%= if config_schema_present?(@selected_package.config_schema) do %>
-                    <div class="rounded-lg border border-sr-line/70 bg-sr-surface/60 p-3 space-y-3">
-                      <div class="text-xs font-semibold text-sr-muted">Configuration</div>
-                      <.plugin_config_fields
-                        schema={@selected_package.config_schema}
-                        params={config_params_map(@assignment_form)}
-                        base_name="assignment[params]"
-                      />
-                    </div>
-
-                    <details class="rounded-lg border border-sr-line/70 bg-sr-surface/60 p-3">
-                      <summary class="cursor-pointer text-xs font-semibold text-sr-muted">
-                        Raw Params (JSON)
-                      </summary>
-                      <div class="mt-3">
-                        <textarea
-                          name="assignment[params_raw]"
-                          class={
-                            ui_field_class(mono: true, class: "w-full min-h-[80px] py-2.5 text-xs")
-                          }
-                        ><%= assignment_params_raw(@assignment_form) %></textarea>
-                      </div>
-                    </details>
-                  <% else %>
-                    <div>
-                      <label class="flex items-center justify-between gap-2">
-                        <span class="text-sm font-medium text-sr-ink">Params (JSON)</span>
+                        <span class="text-sm font-medium text-sr-ink">Args (one per line)</span>
                       </label>
                       <textarea
-                        name="assignment[params]"
+                        name="profile[args]"
+                        class={
+                          ui_field_class(mono: true, class: "w-full min-h-[42px] py-2.5 text-xs")
+                        }
+                      ><%= @profile_form["args"] %></textarea>
+                    </div>
+                    <div>
+                      <label class="flex items-center justify-between gap-2">
+                        <span class="text-sm font-medium text-sr-ink">
+                          {if config_schema_present?(@selected_package.config_schema),
+                            do: "Raw Params (JSON)",
+                            else: "Params (JSON)"}
+                        </span>
+                      </label>
+                      <textarea
+                        name={
+                          if config_schema_present?(@selected_package.config_schema),
+                            do: "profile[params_raw]",
+                            else: "profile[params]"
+                        }
+                        class={
+                          ui_field_class(mono: true, class: "w-full min-h-[70px] py-2.5 text-xs")
+                        }
+                      ><%= assignment_params_raw(@profile_form) %></textarea>
+                    </div>
+                  </div>
+                </details>
+                <div class="flex justify-end">
+                  <.ui_button
+                    type="submit"
+                    disabled={
+                      not addon_package_assignable?(@selected_package) or not @can_assign_addons
+                    }
+                    size="sm"
+                    variant="primary"
+                  >
+                    Create Profile
+                  </.ui_button>
+                </div>
+              </form>
+            </div>
+
+            <details
+              id="advanced-manual-assignment-override"
+              phx-hook="DetailsState"
+              class="rounded-xl border border-sr-line p-4"
+            >
+              <summary class="cursor-pointer">
+                <div class="inline-flex flex-col gap-1 align-middle">
+                  <span class="text-sm font-semibold">Advanced Manual Assignment Override</span>
+                  <span class="text-xs text-sr-muted">
+                    Assign directly to agents only when profile ownership is not appropriate.
+                  </span>
+                </div>
+              </summary>
+              <form
+                id="create-addon-assignment-form"
+                phx-submit="create_assignment"
+                phx-change="assignment_change"
+                class="mt-3 space-y-3"
+              >
+                <div class="grid gap-3 md:grid-cols-2">
+                  <div>
+                    <label class="flex items-center justify-between gap-2">
+                      <span class="text-sm font-medium text-sr-ink">Target</span>
+                    </label>
+                    <select name="assignment[target_mode]" class={ui_field_class(class: "w-full")}>
+                      <option value="agent" selected={@assignment_form["target_mode"] == "agent"}>
+                        Single agent
+                      </option>
+                      <option value="cohort" selected={@assignment_form["target_mode"] == "cohort"}>
+                        Cohort
+                      </option>
+                    </select>
+                  </div>
+                  <div :if={@assignment_form["target_mode"] == "cohort"}>
+                    <label class="flex items-center justify-between gap-2">
+                      <span class="text-sm font-medium text-sr-ink">Cohort</span>
+                    </label>
+                    <select name="assignment[cohort]" class={ui_field_class(class: "w-full")}>
+                      <%= for {label, value} <- @cohort_options do %>
+                        <option value={value} selected={@assignment_form["cohort"] == value}>
+                          {label}
+                        </option>
+                      <% end %>
+                    </select>
+                  </div>
+                  <div :if={@assignment_form["target_mode"] != "cohort"} class="md:col-span-2">
+                    <label class="flex items-center justify-between gap-2">
+                      <span class="text-sm font-medium text-sr-ink">Agent</span>
+                    </label>
+                    <select name="assignment[agent_uid]" class={ui_field_class(class: "w-full")}>
+                      <option value="">Select an agent</option>
+                      <%= for agent <- @agents do %>
+                        <option
+                          value={agent.uid}
+                          selected={@assignment_form["agent_uid"] == agent.uid}
+                        >
+                          {agent_label(agent)}
+                        </option>
+                      <% end %>
+                    </select>
+                  </div>
+                  <div :if={@assignment_form["target_mode"] != "cohort"} class="md:col-span-2">
+                    <label class="label">
+                      <span class="label-text">Direct JetStream edge site (optional)</span>
+                    </label>
+                    <select name="assignment[edge_site_id]" class="select select-bordered w-full">
+                      <option value="" selected={@assignment_form["edge_site_id"] == ""}>
+                        Gateway relay / no edge NATS
+                      </option>
+                      <%= for site <- @edge_sites do %>
+                        <option
+                          value={site.id}
+                          selected={@assignment_form["edge_site_id"] == site.id}
+                        >
+                          {edge_site_option_label(site)}
+                        </option>
+                      <% end %>
+                    </select>
+                    <p class="label">
+                      Required only when configuration sets <code>output.backend</code>
+                      to <code>jetstream</code>. The selected leaf must be active and connected;
+                      mTLS paths remain add-on-owned.
+                    </p>
+                  </div>
+                </div>
+
+                <div :if={
+                  @assignment_form["target_mode"] == "cohort" and
+                    @assignment_form["cohort"] == "custom"
+                }>
+                  <label class="flex items-center justify-between gap-2">
+                    <span class="text-sm font-medium text-sr-ink">Custom Agent IDs</span>
+                  </label>
+                  <textarea
+                    name="assignment[agent_ids]"
+                    class={ui_field_class(mono: true, class: "w-full min-h-[80px] py-2.5 text-xs")}
+                    placeholder="agent-1, agent-2 or one per line"
+                  ><%= @assignment_form["agent_ids"] %></textarea>
+                </div>
+
+                <.update_policy_fields prefix="assignment" form={@assignment_form} />
+
+                <div
+                  :if={show_assignment_preview?(@assignment_preview)}
+                  id="addon-compatibility-preview"
+                  class="rounded-lg border border-sr-line bg-sr-subtle/30 px-4 py-3 text-sm"
+                >
+                  <div class="flex flex-wrap items-center justify-between gap-3">
+                    <div class="font-semibold text-sr-ink">Compatibility Preview</div>
+                    <div class="text-xs text-sr-muted">
+                      {assignment_preview_scope_text(@assignment_preview)}
+                    </div>
+                  </div>
+
+                  <div class="mt-3 flex flex-wrap gap-2">
+                    <.ui_badge variant="ghost" size="xs">
+                      {@assignment_preview.selected_count} selected
+                    </.ui_badge>
+                    <.ui_badge variant="success" size="xs">
+                      {@assignment_preview.compatible_count} compatible
+                    </.ui_badge>
+                    <.ui_badge
+                      :if={@assignment_preview.unsupported_count > 0}
+                      variant="error"
+                      size="xs"
+                    >
+                      {@assignment_preview.unsupported_count} unsupported
+                    </.ui_badge>
+                    <.ui_badge
+                      :if={@assignment_preview.unknown_count > 0}
+                      variant="warning"
+                      size="xs"
+                    >
+                      {@assignment_preview.unknown_count} unresolved
+                    </.ui_badge>
+                  </div>
+
+                  <div
+                    :if={assignment_preview_block_message(@assignment_preview)}
+                    class="mt-3 text-[11px] font-medium text-warning"
+                  >
+                    {assignment_preview_block_message(@assignment_preview)}
+                  </div>
+
+                  <div :if={@assignment_preview.supported_platforms != []} class="mt-3 space-y-2">
+                    <div class="text-[11px] uppercase tracking-wider text-sr-muted">
+                      Add-on Supports
+                    </div>
+                    <div class="flex flex-wrap gap-1">
+                      <%= for platform <- @assignment_preview.supported_platforms do %>
+                        <.ui_badge variant="ghost" size="xs">{platform}</.ui_badge>
+                      <% end %>
+                    </div>
+                  </div>
+
+                  <div
+                    :if={@assignment_preview.unsupported_agents != []}
+                    class="mt-3 space-y-2 text-[11px]"
+                  >
+                    <div class="uppercase tracking-wider text-error">Unsupported Targets</div>
+                    <div class="flex flex-wrap gap-1">
+                      <%= for agent <- @assignment_preview.unsupported_agents do %>
+                        <.ui_badge size="xs" variant="error">
+                          {agent.agent_id} ({agent.platform_label})
+                        </.ui_badge>
+                      <% end %>
+                    </div>
+                  </div>
+                </div>
+
+                <%= if config_schema_present?(@selected_package.config_schema) do %>
+                  <div class="rounded-lg border border-sr-line/70 bg-sr-surface/60 p-3 space-y-3">
+                    <div class="text-xs font-semibold text-sr-muted">Configuration</div>
+                    <.plugin_config_fields
+                      schema={@selected_package.config_schema}
+                      params={config_params_map(@assignment_form)}
+                      base_name="assignment[params]"
+                    />
+                  </div>
+
+                  <details class="rounded-lg border border-sr-line/70 bg-sr-surface/60 p-3">
+                    <summary class="cursor-pointer text-xs font-semibold text-sr-muted">
+                      Raw Params (JSON)
+                    </summary>
+                    <div class="mt-3">
+                      <textarea
+                        name="assignment[params_raw]"
                         class={
                           ui_field_class(mono: true, class: "w-full min-h-[80px] py-2.5 text-xs")
                         }
                       ><%= assignment_params_raw(@assignment_form) %></textarea>
                     </div>
-                  <% end %>
-
+                  </details>
+                <% else %>
                   <div>
                     <label class="flex items-center justify-between gap-2">
-                      <span class="text-sm font-medium text-sr-ink">Args (one per line)</span>
+                      <span class="text-sm font-medium text-sr-ink">Params (JSON)</span>
                     </label>
                     <textarea
-                      name="assignment[args]"
-                      class={ui_field_class(mono: true, class: "w-full min-h-[60px] py-2.5 text-xs")}
-                    ><%= @assignment_form["args"] %></textarea>
+                      name="assignment[params]"
+                      class={ui_field_class(mono: true, class: "w-full min-h-[80px] py-2.5 text-xs")}
+                    ><%= assignment_params_raw(@assignment_form) %></textarea>
                   </div>
-
-                  <div class="flex justify-end">
-                    <.ui_button
-                      type="submit"
-                      disabled={
-                        not addon_package_assignable?(@selected_package) or not @can_assign_addons or
-                          assignment_submit_disabled?(@assignment_form, @assignment_preview)
-                      }
-                      size="sm"
-                      variant="primary"
-                    >
-                      Assign
-                    </.ui_button>
-                  </div>
-                </form>
-                <%= if @selected_package.status != :approved do %>
-                  <p class="text-xs text-sr-muted">
-                    This add-on must be approved before it can be assigned.
-                  </p>
                 <% end %>
-                <p :if={addon_blob_missing?(@selected_package)} class="text-xs text-error">
-                  This add-on cannot be assigned until its missing artifact is re-imported.
+
+                <div>
+                  <label class="flex items-center justify-between gap-2">
+                    <span class="text-sm font-medium text-sr-ink">Args (one per line)</span>
+                  </label>
+                  <textarea
+                    name="assignment[args]"
+                    class={ui_field_class(mono: true, class: "w-full min-h-[60px] py-2.5 text-xs")}
+                  ><%= @assignment_form["args"] %></textarea>
+                </div>
+
+                <div class="flex justify-end">
+                  <.ui_button
+                    type="submit"
+                    disabled={
+                      not addon_package_assignable?(@selected_package) or not @can_assign_addons or
+                        assignment_submit_disabled?(@assignment_form, @assignment_preview)
+                    }
+                    size="sm"
+                    variant="primary"
+                  >
+                    Assign
+                  </.ui_button>
+                </div>
+              </form>
+              <%= if @selected_package.status != :approved do %>
+                <p class="text-xs text-sr-muted">
+                  This add-on must be approved before it can be assigned.
                 </p>
-              </details>
-            </div>
-          </div>
+              <% end %>
+              <p :if={addon_blob_missing?(@selected_package)} class="text-xs text-error">
+                This add-on cannot be assigned until its missing artifact is re-imported.
+              </p>
+            </details>
+          </.ui_modal>
         <% end %>
       </Shell.settings_chrome>
     </Layouts.app>
@@ -1480,15 +1601,25 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonPackageLive.Index do
     """
   end
 
-  defp import_catalog_addon(socket, addon) do
+  defp import_catalog_addon(socket, addon, opts) do
     if RetiredNativeAddons.retired?(addon.addon_id) do
       {:noreply, put_flash(socket, :error, "This add-on is retired: #{RetiredNativeAddons.reason(addon.addon_id)}")}
     else
-      case AddonPackages.import_first_party_addon(addon, scope: socket.assigns.current_scope) do
+      case AddonPackages.import_first_party_addon(
+             addon,
+             Keyword.merge([scope: socket.assigns.current_scope], opts)
+           ) do
         {:ok, package, :imported} ->
           {:noreply,
            socket
-           |> put_flash(:info, "Imported first-party add-on #{package.name} #{package.version}")
+           |> put_flash(
+             :info,
+             if(opts[:replace],
+               do:
+                 "Replaced #{package.name} #{package.version} with this release. Approve it again before agents use the new build.",
+               else: "Imported first-party add-on #{package.name} #{package.version}"
+             )
+           )
            |> assign(:packages, list_addon_packages(socket.assigns.current_scope))
            |> load_first_party_catalog()}
 
@@ -1511,19 +1642,12 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonPackageLive.Index do
   defp list_addon_packages(scope), do: AddonPackages.list(%{limit: 500}, scope: scope)
 
   defp load_first_party_catalog(socket) do
-    case NativeAddonImporter.list_recent_addons(
+    case NativeAddonImporter.list_recent_addons_with_summary(
            %{"repo_url" => socket.assigns.first_party_repo_url},
            first_party_sync_limit()
          ) do
-      {:ok, addons} ->
-        requested_release_tag =
-          if socket.assigns[:first_party_release_selected?] do
-            socket.assigns[:first_party_release_tag]
-          end
-
-        socket
-        |> assign(:first_party_catalog_error, nil)
-        |> assign_first_party_catalog_view(addons, requested_release_tag)
+      {:ok, summary} ->
+        apply_first_party_catalog_summary(socket, summary)
 
       {:error, reason} ->
         release_options = combined_release_options([], socket.assigns.packages)
@@ -1537,8 +1661,23 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonPackageLive.Index do
           selected_first_party_release(release_options, socket.assigns[:first_party_release_tag])
         )
         |> assign(:first_party_catalog_error, format_error(reason))
-        |> assign(:first_party_catalog_status, first_party_catalog_status([], socket.assigns.packages))
+        |> assign(
+          :first_party_catalog_status,
+          first_party_catalog_status([], socket.assigns.packages, socket.assigns[:first_party_catalog_synced_at])
+        )
     end
+  end
+
+  defp apply_first_party_catalog_summary(socket, summary) when is_map(summary) do
+    requested_release_tag =
+      if socket.assigns[:first_party_release_selected?] do
+        socket.assigns[:first_party_release_tag]
+      end
+
+    socket
+    |> assign(:first_party_catalog_error, nil)
+    |> assign(:first_party_catalog_synced_at, DateTime.utc_now())
+    |> assign_first_party_catalog_view(Map.get(summary, :addons, []), requested_release_tag)
   end
 
   defp assign_first_party_catalog_view(socket, addons, requested_release_tag) do
@@ -1554,7 +1693,10 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonPackageLive.Index do
     |> assign(:first_party_release_options, release_options)
     |> assign(:first_party_release_tag, selected_release_tag)
     |> assign(:first_party_catalog, visible_release_addons)
-    |> assign(:first_party_catalog_status, first_party_catalog_status(addons, packages))
+    |> assign(
+      :first_party_catalog_status,
+      first_party_catalog_status(addons, packages, socket.assigns[:first_party_catalog_synced_at])
+    )
   end
 
   defp first_party_release_options(addons) do
@@ -1599,18 +1741,53 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonPackageLive.Index do
     |> Enum.filter(&(&1.release_tag == release_tag))
   end
 
-  defp first_party_catalog_status(addons, packages) do
+  defp first_party_catalog_status(addons, packages, synced_at) do
     visible_addons = visible_first_party_addons(addons)
     visible_packages = visible_addon_packages(packages)
     import_ready = Enum.count(visible_addons, &Map.get(&1, :import_ready?))
     releases = visible_addons |> combined_release_options(visible_packages) |> length()
 
-    "Loaded #{length(visible_addons)} first-party add-on entry(s), #{import_ready} import-ready, #{length(visible_packages)} imported package(s), from #{releases} release(s)."
+    summary =
+      "Loaded #{length(visible_addons)} first-party add-on entry(s), #{import_ready} import-ready, #{length(visible_packages)} imported package(s), from #{releases} release(s)."
+
+    case format_catalog_sync_time(synced_at) do
+      nil -> summary
+      stamp -> "Last refresh #{stamp} UTC. #{summary}"
+    end
   end
+
+  defp catalog_sync_flash(socket, summary) do
+    release = socket.assigns.first_party_release_tag
+    rows = combined_catalog_rows(socket.assigns.first_party_catalog, socket.assigns.packages, release)
+    state = catalog_import_state(rows)
+    scanned = Map.get(summary, :scanned_releases, 0)
+    indexed = Map.get(summary, :indexed_releases, 0)
+
+    release_part =
+      cond do
+        is_binary(release) and release != "" and state.importable > 0 ->
+          "Selected #{release}: #{state.total} add-ons, #{state.importable} not imported."
+
+        is_binary(release) and release != "" ->
+          "Selected #{release}: #{state.total} add-ons, none waiting to import."
+
+        true ->
+          "No official release is selected."
+      end
+
+    "Catalog refreshed from the registry (#{scanned} release(s) scanned, #{indexed} with add-on indexes). #{release_part} Nothing was imported."
+  end
+
+  defp format_catalog_sync_time(%DateTime{} = value), do: Calendar.strftime(value, "%d %b %Y %H:%M")
+
+  defp format_catalog_sync_time(%NaiveDateTime{} = value),
+    do: value |> DateTime.from_naive!("Etc/UTC") |> format_catalog_sync_time()
+
+  defp format_catalog_sync_time(_), do: nil
 
   defp first_party_repo_url do
     config = Application.get_env(:serviceradar_web_ng, :native_addon_import, [])
-    Keyword.get(config, :repo_url, "https://code.carverauto.dev/carverauto/serviceradar")
+    Keyword.get(config, :repo_url, "https://github.com/carverauto/serviceradar")
   end
 
   defp first_party_sync_limit do
@@ -1630,10 +1807,14 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonPackageLive.Index do
     first_party_addons = visible_first_party_addons(first_party_addons)
     packages = visible_addon_packages(packages)
     package_by_key = Map.new(packages, &{package_catalog_key(&1), &1})
+    package_by_version = Map.new(packages, &{{&1.addon_id, &1.version}, &1})
 
     first_party_rows =
       Enum.map(first_party_addons, fn addon ->
         package = Map.get(package_by_key, addon_catalog_key(addon))
+
+        version_package =
+          if is_nil(package), do: Map.get(package_by_version, {addon.addon_id, addon.version})
 
         %{
           addon_id: addon.addon_id,
@@ -1642,6 +1823,7 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonPackageLive.Index do
           release_tag: addon.release_tag,
           platforms: catalog_platforms(addon),
           package: package,
+          version_package: version_package,
           import_ready: Map.get(addon, :import_ready?, false)
         }
       end)
@@ -1660,6 +1842,7 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonPackageLive.Index do
           release_tag: package.source_release_tag,
           platforms: package_platforms(package),
           package: package,
+          version_package: nil,
           import_ready: false
         }
       end)
@@ -1792,12 +1975,23 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonPackageLive.Index do
   defp catalog_import_state(catalog_rows) do
     importable =
       Enum.count(catalog_rows, fn row ->
-        row.import_ready and (is_nil(row.package) or addon_blob_missing?(row.package))
+        row.import_ready and is_nil(row.version_package) and
+          (is_nil(row.package) or addon_blob_missing?(row.package))
       end)
 
+    replaceable = Enum.count(catalog_rows, &replaceable_catalog_row?/1)
     imported = Enum.count(catalog_rows, &(not is_nil(&1.package)))
 
-    %{importable: importable, imported: imported, total: length(catalog_rows)}
+    %{
+      importable: importable,
+      replaceable: replaceable,
+      imported: imported,
+      total: length(catalog_rows)
+    }
+  end
+
+  defp replaceable_catalog_row?(row) do
+    row.import_ready and is_nil(row.package) and not is_nil(row.version_package)
   end
 
   defp import_all_label(true, _state), do: "Importing…"
@@ -1811,13 +2005,30 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonPackageLive.Index do
 
   defp import_summary_message(summary, release_label) do
     skipped = Map.get(summary, :skipped, 0)
-    failed = length(summary.failed)
+    failed = List.wrap(summary.failed)
 
     parts =
       ["#{summary.imported} imported", "#{skipped} skipped (already imported)"] ++
-        if failed > 0, do: ["#{failed} failed"], else: []
+        if failed == [], do: [], else: ["#{length(failed)} failed"]
 
-    "Import finished for #{release_label}: #{Enum.join(parts, ", ")}."
+    message = "Import finished for #{release_label}: #{Enum.join(parts, ", ")}."
+
+    case failed_import_details(failed) do
+      nil -> message
+      details -> "#{message} #{details}"
+    end
+  end
+
+  defp failed_import_details([]), do: nil
+
+  defp failed_import_details(failed) do
+    failed
+    |> Enum.map(fn item ->
+      addon = Map.get(item, :addon_id) || Map.get(item, "addon_id") || "unknown"
+      "#{addon}: #{format_error(Map.get(item, :error) || Map.get(item, "error"))}"
+    end)
+    |> Enum.take(5)
+    |> Enum.join("; ")
   end
 
   # The latest approved package of the same add-on when it is strictly newer
@@ -1839,11 +2050,15 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonPackageLive.Index do
     end
   end
 
+  defp catalog_row_status(%{package: nil, version_package: %{}}), do: "older build imported"
+
   defp catalog_row_status(%{package: nil}), do: "not imported"
 
   defp catalog_row_status(%{package: package}) do
     if addon_blob_missing?(package), do: "blob missing", else: package.status
   end
+
+  defp catalog_row_status_variant(%{package: nil, version_package: %{}}), do: "warning"
 
   defp catalog_row_status_variant(%{package: nil}), do: "ghost"
 
@@ -1937,7 +2152,7 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonPackageLive.Index do
   defp default_profile_form(nil) do
     %{
       "name" => "",
-      "target_query" => "",
+      "target_query" => "in:agents",
       "priority" => "100",
       "max_targets" => "10000",
       "params" => "{}",
@@ -2225,13 +2440,15 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonPackageLive.Index do
   defp default_update_policy(_), do: "manual_pin"
 
   defp profile_target_query(value) when is_binary(value) do
-    case String.trim(value) do
-      "" -> {:ok, "in:devices"}
-      query -> {:ok, query}
+    query = ServiceRadar.SRQLQuery.ensure_target(value, :agents)
+
+    case ServiceRadar.SRQLAst.entity(query, "agents") do
+      "agents" -> {:ok, query}
+      entity -> {:error, {:invalid_target_entity, entity}}
     end
   end
 
-  defp profile_target_query(nil), do: {:ok, "in:devices"}
+  defp profile_target_query(nil), do: {:ok, "in:agents"}
   defp profile_target_query(_value), do: {:error, :missing_target_query}
 
   defp parse_positive_integer(value, default) do
@@ -2694,6 +2911,17 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonPackageLive.Index do
   defp format_error(error) when is_binary(error), do: truncate_error(error)
   defp format_error(error) when is_atom(error), do: error |> Atom.to_string() |> truncate_error()
   defp format_error(%Ash.Error.Invalid{} = error), do: error |> Exception.message() |> truncate_error()
+
+  defp format_error({:native_addon_version_source_conflict, details}) when is_map(details) do
+    addon = Map.get(details, :addon_id) || "addon"
+    version = Map.get(details, :version) || "unknown"
+
+    truncate_error(
+      "#{addon} #{version} is already imported from an earlier release that " <>
+        "rebuilt the same version. Use Replace on that catalog row to take this " <>
+        "release's build; Import All will not overwrite it."
+    )
+  end
 
   defp format_error(error) do
     error

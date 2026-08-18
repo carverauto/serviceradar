@@ -1,0 +1,233 @@
+# Publishes only the fixture CA certificate (ca.crt) at
+# https://srql-fixture-ca.serviceradar.cloud/ca.crt so runners without
+# kubeconfig can fetch the current CA. Do not store that PEM in a CI secret.
+#
+# Public HTTPS is the shared Envoy gateway (23.138.124.5, wildcard
+# *.serviceradar.cloud). A dedicated MetalLB Service on 23.138.124.18:443 is
+# not reachable from workstations, so it cannot be the publish path.
+# In-cluster ARC and the BuildBuddy workflow pool use the ClusterIP HTTP Service.
+#
+# Gateway TLS is the shared wildcard, not the fixture CA — otherwise fetching
+# the CA would require the CA. The fixture CA private key is not in any volume
+# here. The leftover Let's Encrypt Certificate is unused by the route and can
+# be removed later.
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: srql-fixture-ca-bundle-tls
+  namespace: srql-fixtures
+  labels:
+    app: srql-fixture
+    app.kubernetes.io/component: fixture-ca-bundle
+spec:
+  secretName: srql-fixture-ca-bundle-tls
+  duration: 2160h
+  renewBefore: 360h
+  commonName: srql-fixture-ca.serviceradar.cloud
+  dnsNames:
+    - srql-fixture-ca.serviceradar.cloud
+  issuerRef:
+    name: letsencrypt-dns
+    kind: ClusterIssuer
+    group: cert-manager.io
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: srql-fixture-ca-bundle-nginx
+  namespace: srql-fixtures
+  labels:
+    app: srql-fixture
+    app.kubernetes.io/component: fixture-ca-bundle
+data:
+  nginx.conf: |
+    worker_processes 1;
+    error_log /dev/stderr warn;
+    pid /tmp/nginx.pid;
+    events {
+      worker_connections 32;
+    }
+    http {
+      access_log off;
+      server_tokens off;
+      client_body_temp_path /tmp/client_temp;
+      proxy_temp_path /tmp/proxy_temp;
+      fastcgi_temp_path /tmp/fastcgi_temp;
+      uwsgi_temp_path /tmp/uwsgi_temp;
+      scgi_temp_path /tmp/scgi_temp;
+      server {
+        listen 8080;
+        listen 8443 ssl;
+        server_name srql-fixture-ca.serviceradar.cloud
+                    srql-fixture-ca-bundle.srql-fixtures.svc.cluster.local;
+        ssl_certificate /etc/nginx/tls/tls.crt;
+        ssl_certificate_key /etc/nginx/tls/tls.key;
+        ssl_protocols TLSv1.2 TLSv1.3;
+        location = /ca.crt {
+          alias /var/lib/srql-fixture-ca/ca.crt;
+          default_type application/x-pem-file;
+          add_header X-Content-Type-Options nosniff always;
+          add_header Cache-Control "public, max-age=300" always;
+        }
+        location / {
+          return 404;
+        }
+      }
+    }
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: srql-fixture-ca-bundle
+  namespace: srql-fixtures
+  labels:
+    app: srql-fixture
+    app.kubernetes.io/component: fixture-ca-bundle
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: srql-fixture-ca-bundle
+  template:
+    metadata:
+      labels:
+        app: srql-fixture-ca-bundle
+        app.kubernetes.io/component: fixture-ca-bundle
+    spec:
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+              - matchExpressions:
+                  - key: kubernetes.io/hostname
+                    operator: NotIn
+                    values:
+                      - k8s-cp3-worker3
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 101
+        runAsGroup: 101
+        fsGroup: 101
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: nginx
+          image: nginxinc/nginx-unprivileged:1.27-alpine
+          imagePullPolicy: IfNotPresent
+          command:
+            - nginx
+          args:
+            - -c
+            - /etc/nginx/nginx.conf
+            - -g
+            - daemon off;
+          ports:
+            - name: https
+              containerPort: 8443
+            - name: http
+              containerPort: 8080
+          readinessProbe:
+            httpGet:
+              path: /ca.crt
+              port: http
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /ca.crt
+              port: https
+              scheme: HTTPS
+            periodSeconds: 20
+          resources:
+            requests:
+              cpu: 10m
+              memory: 32Mi
+            limits:
+              cpu: 100m
+              memory: 64Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+          volumeMounts:
+            - name: nginx-conf
+              mountPath: /etc/nginx/nginx.conf
+              subPath: nginx.conf
+              readOnly: true
+            - name: bundle-tls
+              mountPath: /etc/nginx/tls
+              readOnly: true
+            - name: fixture-ca
+              mountPath: /var/lib/srql-fixture-ca
+              readOnly: true
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: nginx-conf
+          configMap:
+            name: srql-fixture-ca-bundle-nginx
+        - name: bundle-tls
+          secret:
+            secretName: srql-fixture-ca-bundle-tls
+        - name: fixture-ca
+          secret:
+            secretName: srql-fixture-server-ca
+            items:
+              - key: ca.crt
+                path: ca.crt
+        - name: tmp
+          emptyDir: {}
+---
+# Public path for runners without kubeconfig or cluster DNS.
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: srql-fixture-ca-bundle
+  namespace: srql-fixtures
+  labels:
+    app: srql-fixture
+    app.kubernetes.io/component: fixture-ca-bundle
+  annotations:
+    external-dns.alpha.kubernetes.io/hostname: srql-fixture-ca.serviceradar.cloud
+spec:
+  hostnames:
+    - srql-fixture-ca.serviceradar.cloud
+  parentRefs:
+    - group: gateway.networking.k8s.io
+      kind: Gateway
+      name: serviceradar-shared-gateway
+      namespace: serviceradar-system
+      sectionName: https-web
+    - group: gateway.networking.k8s.io
+      kind: Gateway
+      name: serviceradar-shared-gateway
+      namespace: serviceradar-system
+      sectionName: http-web
+  rules:
+    - matches:
+        - path:
+            type: Exact
+            value: /ca.crt
+      backendRefs:
+        - name: srql-fixture-ca-incluster
+          port: 80
+---
+# In-cluster only. GitHub ARC runners in the carverauto cluster fetch the public
+# CA here so they do not need kubectl or a path to the public VIP.
+apiVersion: v1
+kind: Service
+metadata:
+  name: srql-fixture-ca-incluster
+  namespace: srql-fixtures
+  labels:
+    app: srql-fixture
+    app.kubernetes.io/component: fixture-ca-bundle
+spec:
+  type: ClusterIP
+  selector:
+    app: srql-fixture-ca-bundle
+  ports:
+    - name: http
+      port: 80
+      targetPort: http

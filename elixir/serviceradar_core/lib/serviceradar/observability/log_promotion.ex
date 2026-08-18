@@ -336,7 +336,7 @@ defmodule ServiceRadar.Observability.LogPromotion do
       trace_id: Map.get(log, :trace_id),
       span_id: Map.get(log, :span_id),
       actor: event_actor(event_overrides, log),
-      device: event_overrides["device"] || %{},
+      device: event_device(event_overrides, log),
       src_endpoint: event_overrides["src_endpoint"] || %{},
       dst_endpoint: event_overrides["dst_endpoint"] || %{},
       log_name: event_log_name(event_overrides, subject, log),
@@ -679,6 +679,18 @@ defmodule ServiceRadar.Observability.LogPromotion do
 
   defp event_actor(overrides, log) do
     overrides["actor"] || OCSF.build_actor(app_name: Map.get(log, :service_name))
+  end
+
+  defp event_device(overrides, log) do
+    attributes = Map.get(log, :attributes) || %{}
+
+    overrides["device"] ||
+      get_nested_value(attributes, "device") ||
+      case get_nested_value(attributes, "device_uid") ||
+             get_nested_value(attributes, "device.uid") do
+        uid when is_binary(uid) and uid != "" -> %{"uid" => uid}
+        _ -> %{}
+      end
   end
 
   defp event_log_name(overrides, subject, log) do

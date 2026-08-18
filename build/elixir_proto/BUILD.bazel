@@ -1,0 +1,29 @@
+load("@rules_elixir//:elixir_escript.bzl", "elixir_escript")
+load("@rules_elixir//:elixir_proto_library.bzl", "elixir_proto_toolchain")
+
+package(default_visibility = ["//visibility:public"])
+
+# protoc-gen-elixir, from the protobuf Hex package this repository already resolves. protoc
+# invokes it as a plain executable on PATH, so it has to be a single self-contained file --
+# hence an escript carrying elixir and its stdlib.
+elixir_escript(
+    name = "protoc_gen_elixir",
+    app = "@hexpm//:protobuf",
+    # The generator renders its output through EEx templates, and Elixir ships EEx as a
+    # separate OTP application.
+    deps = ["@rules_elixir//elixir:eex"],
+    entry_module = "Protobuf.Protoc.CLI",
+)
+
+# protoc is the same one Go and Rust use -- see //build/rust/proto_toolchain.
+elixir_proto_toolchain(
+    name = "elixir_proto_impl",
+    plugin = ":protoc_gen_elixir",
+    protoc = "@com_google_protobuf//:protoc",
+)
+
+toolchain(
+    name = "elixir_proto",
+    toolchain = ":elixir_proto_impl",
+    toolchain_type = "@rules_elixir//:elixir_proto_toolchain_type",
+)

@@ -20,7 +20,7 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Data.Load do
             camera: :loading,
             fieldsurvey: :loading,
             security_events: :loading,
-            vulnerable_assets: :unconnected,
+            vulnerable_assets: :loading,
             siem: :unconnected
           },
           kpi_cards:
@@ -58,6 +58,7 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Data.Load do
           security_summary: empty_event_summary(),
           threat_intel_summary: empty_threat_intel_summary(),
           alert_feed: [],
+          vulnerable_assets: [],
           camera_summary: empty_camera_summary(),
           survey_summary: empty_survey_summary(),
           virtualization_summary: empty_virtualization_summary()
@@ -86,6 +87,7 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Data.Load do
             traffic_links: {fn -> traffic_links(time_window) end, []},
             topology_links: {fn -> topology_links(time_window) end, []},
             mtr_overlays: {fn -> mtr_overlays() end, []},
+            mtr_timeseries: {fn -> mtr_timeseries_summary(time_window) end, empty_mtr_summary()},
             camera_summary: {fn -> camera_summary(scope) end, empty_camera_summary()},
             alert_summary: {fn -> ServiceRadarWebNGWeb.Stats.alerts_summary(scope: scope) end, %{}},
             alert_feed: {fn -> alert_feed(time_window) end, []},
@@ -94,7 +96,8 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Data.Load do
             trace_summary: {fn -> trace_summary(srql_module, scope, time_window) end, empty_trace_summary()},
             virtualization_summary:
               {fn -> virtualization_summary(srql_module, scope) end, empty_virtualization_summary()},
-            security_trend: {fn -> security_trend(time_window) end, []}
+            security_trend: {fn -> security_trend(time_window) end, []},
+            vulnerable_assets: {fn -> ServiceRadarWebNGWeb.DashboardLive.Data.VulnerableAssets.load() end, []}
           )
 
         %{
@@ -105,6 +108,7 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Data.Load do
           traffic_links: traffic_links,
           topology_links: topology_links,
           mtr_overlays: mtr_overlays,
+          mtr_timeseries: mtr_timeseries,
           camera_summary: camera_summary,
           alert_summary: alert_summary,
           alert_feed: alert_feed,
@@ -112,7 +116,8 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Data.Load do
           threat_intel_summary: threat_intel_summary,
           trace_summary: trace_summary,
           virtualization_summary: virtualization_summary,
-          security_trend: security_trend
+          security_trend: security_trend,
+          vulnerable_assets: vulnerable_assets
         } = wave1
 
         # Wave 2 — derived results that depend on wave 1 (pure post-processing).
@@ -123,13 +128,13 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Data.Load do
             max(length(traffic_links), length(topology_links))
           )
 
-        mtr_summary = summarize_mtr_overlays(mtr_overlays)
+        mtr_summary = merge_mtr_summaries(mtr_timeseries, summarize_mtr_overlays(mtr_overlays))
         survey_summary = empty_survey_summary()
-        sparklines = dashboard_sparklines(time_window, security_trend, mtr_overlays)
+        sparklines = dashboard_sparklines(time_window, security_trend)
 
         module_states =
-          module_states(
-            collector_counts,
+          collector_counts
+          |> module_states(
             flow_summary,
             traffic_links,
             mtr_summary,
@@ -137,6 +142,10 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Data.Load do
             survey_summary,
             event_summary,
             alert_summary
+          )
+          |> Map.put(
+            :vulnerable_assets,
+            if(vulnerable_assets == [], do: :configured_empty, else: :active)
           )
 
         %{
@@ -173,6 +182,7 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Data.Load do
           security_summary: event_summary,
           threat_intel_summary: threat_intel_summary,
           alert_feed: alert_feed,
+          vulnerable_assets: vulnerable_assets,
           camera_summary: camera_summary,
           survey_summary: survey_summary,
           virtualization_summary: virtualization_summary

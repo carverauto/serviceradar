@@ -102,11 +102,15 @@ resolve_executable() {
   return 1
 }
 
-local_oras="$(resolve_executable oras || true)"
-if [[ -n "${local_oras}" ]]; then
-  oras_bin="${local_oras}"
-else
-  oras_bin="$(resolve_executable "${oras_bin}" || true)"
+# An explicit executable --oras path wins so hermetic tests can inject a
+# fixture. Otherwise prefer a host oras over the Bazel runfiles copy.
+if [[ "${oras_bin}" != /* || ! -x "${oras_bin}" ]]; then
+  local_oras="$(resolve_executable oras || true)"
+  if [[ -n "${local_oras}" ]]; then
+    oras_bin="${local_oras}"
+  else
+    oras_bin="$(resolve_executable "${oras_bin}" || true)"
+  fi
 fi
 
 if [[ -z "${oras_bin}" || ! -x "${oras_bin}" ]]; then
@@ -167,11 +171,23 @@ fi
 
 for tag in "${tags[@]}"; do
   echo "publishing ${repo}:${tag}"
-  "${oras_bin}" push \
-    --artifact-type "${artifact_type}" \
-    "${repo}:${tag}" \
-    "${bundle}:${bundle_media_type}" \
-    "${upload_signature_path}:${upload_signature_media_type}" \
-    --annotation "org.opencontainers.image.title=$(basename "${bundle}")" \
-    --annotation "io.serviceradar.plugin.id=${plugin_id}"
+  if ! push_out="$(
+    "${oras_bin}" push \
+      --artifact-type "${artifact_type}" \
+      "${repo}:${tag}" \
+      "${bundle}:${bundle_media_type}" \
+      "${upload_signature_path}:${upload_signature_media_type}" \
+      --annotation "org.opencontainers.image.title=$(basename "${bundle}")" \
+      --annotation "io.serviceradar.plugin.id=${plugin_id}" 2>&1
+  )"; then
+    if [[ -n "${extra_tag}" && "${tag}" == "${extra_tag}" ]] && \
+       grep -Eiq 'immutable|already exists|precondition' <<<"${push_out}"; then
+      echo "${push_out}"
+      echo "Harbor tag ${repo}:${tag} is already immutable; leaving the existing artifact."
+      continue
+    fi
+    echo "${push_out}" >&2
+    exit 1
+  fi
+  echo "${push_out}"
 done

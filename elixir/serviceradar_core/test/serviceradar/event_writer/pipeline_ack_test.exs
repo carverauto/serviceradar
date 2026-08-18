@@ -333,4 +333,39 @@ defmodule ServiceRadar.EventWriter.PipelineAckTest do
 
     assert %Message{batcher: :default} = Pipeline.handle_message(:default, message, %{})
   end
+
+  test "flow pipeline configures :flows_raw batcher for all raw-flow streams" do
+    config = %Config{
+      enabled: true,
+      nats: %{},
+      batch_size: 100,
+      batch_timeout: 500,
+      consumer_name: "test-consumer",
+      streams: [
+        %{name: "SFLOW_RAW", stream_name: "flows", subject: "flows.raw.sflow"},
+        %{name: "NETFLOW_RAW", stream_name: "flows", subject: "flows.raw.netflow"},
+        %{name: "FLOW_RAW_IPFIX", stream_name: "flows", subject: "flows.raw.ipfix"},
+        %{
+          name: "NETFLOW_RAW_EVENTS_DRAIN",
+          stream_name: "events",
+          subject: "flows.raw.netflow",
+          durable_source_name: "NETFLOW_RAW"
+        }
+      ]
+    }
+
+    names = Pipeline.configured_batcher_names(config)
+    assert :flows_raw in names
+    refute :sflow_raw in names
+    refute :netflow_raw in names
+    refute :flow_raw_ipfix in names
+
+    message = %Message{
+      data: "{}",
+      metadata: %{subject: "flows.raw.netflow"},
+      acknowledger: {Pipeline, :ack_ref, %{ack_fun: fn _ -> :ok end}}
+    }
+
+    assert %Message{batcher: :flows_raw} = Pipeline.handle_message(:default, message, %{})
+  end
 end

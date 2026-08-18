@@ -102,11 +102,11 @@ FROM registry.carverauto.dev/mirror/library/ubuntu:24.04@sha256:d1e2e92c075e5ca1
 # less and a mail transport agent.
 #
 # NOT build-essential. gcc/g++/binutils/make is the single largest thing upstream has that this
-# does not, and the evidence says local actions never invoke it: the `no-remote-exec` targets
-# (//rust/integration-db, //integration_tests/srql, //elixir/serviceradar_core) pin EXECUTION
-# only, while --config=ci resolves their C toolchain to @buildbuddy_toolchain//:cc_toolchain,
-# whose paths exist inside the executor image and not here. If a local link ever fails with
-# "linker `cc` not found", add build-essential -- that is the fix, and it costs ~80 MB.
+# does not. Database callers use --strategy=TestRunner=local, which runs already-built test
+# binaries here while compilation and linking remain eligible for RBE under --config=ci. The
+# remote C toolchain lives in the executor image, not this runner. If a genuine runner-local link
+# ever fails with "linker `cc` not found", add build-essential -- that is the fix, and it costs
+# ~80 MB.
 RUN apt-get update \
  && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
       bzip2 \

@@ -9,6 +9,19 @@ use tempfile::TempDir;
 
 use crate::nats::NATSConfig;
 
+/// Resolved NATS client TLS material: `(cert, key, ca, scratch_dir)`.
+///
+/// The fourth element is the `TempDir` that inline `*_pem` values were written
+/// into, and it is load-bearing rather than incidental: the first three are
+/// paths INTO it, so dropping it deletes the files out from under the client.
+/// Callers keep it alive for as long as the connection may reconnect.
+type MaterializedTls = (
+    Option<PathBuf>,
+    Option<PathBuf>,
+    Option<PathBuf>,
+    Option<Arc<TempDir>>,
+);
+
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct Config {
     #[serde(default)]
@@ -380,14 +393,7 @@ impl Config {
             })
             .transpose()
     }
-    fn materialize_tls(
-        tls: Option<&NATSTLSConfig>,
-    ) -> Result<(
-        Option<PathBuf>,
-        Option<PathBuf>,
-        Option<PathBuf>,
-        Option<Arc<TempDir>>,
-    )> {
+    fn materialize_tls(tls: Option<&NATSTLSConfig>) -> Result<MaterializedTls> {
         let Some(tls) = tls else {
             return Ok((None, None, None, None));
         };

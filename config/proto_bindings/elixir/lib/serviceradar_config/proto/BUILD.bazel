@@ -1,0 +1,6 @@
+# The checked-in Elixir bindings, for non-Bazel tooling. The Bazel build generates from
+# //config/proto instead; //config/proto:binding_drift_*_test keeps the two in step.
+exports_files([
+    "config.pb.ex",
+    "rules.pb.ex",
+])

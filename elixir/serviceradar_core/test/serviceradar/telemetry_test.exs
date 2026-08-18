@@ -505,6 +505,18 @@ defmodule ServiceRadar.TelemetryTest do
       assert [:serviceradar, :camera_relay, :analysis, :dispatch_timed_out, :count] in metric_names
 
       assert [:serviceradar, :camera_relay, :analysis, :dispatch_dropped, :count] in metric_names
+
+      assert [:serviceradar, :event_writer, :consumer, :stream_info_available, :value] in metric_names
+      assert [:serviceradar, :event_writer, :consumer, :stream_bytes, :value] in metric_names
+      assert [:serviceradar, :event_writer, :consumer, :stream_max_bytes, :value] in metric_names
+
+      assert [:serviceradar, :event_writer, :consumer, :stream_byte_utilization, :ratio] in metric_names
+
+      assert [:serviceradar, :event_writer, :consumer, :stream_first_message_age, :seconds] in metric_names
+
+      assert [:serviceradar, :event_writer, :consumer, :stream_max_age, :seconds] in metric_names
+
+      assert [:serviceradar, :event_writer, :consumer, :stream_age_utilization, :ratio] in metric_names
     end
   end
 

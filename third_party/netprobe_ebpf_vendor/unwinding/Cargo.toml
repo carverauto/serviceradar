@@ -13,7 +13,7 @@
 edition = "2024"
 rust-version = "1.88"
 name = "unwinding"
-version = "0.2.8"
+version = "0.2.10"
 authors = ["Gary Guo <gary@garyguo.net>"]
 build = false
 autolib = false
@@ -83,7 +83,7 @@ optional = true
 package = "rustc-std-workspace-core"
 
 [dependencies.gimli]
-version = "0.32"
+version = "0.34"
 features = ["read-core"]
 default-features = false
 
@@ -92,7 +92,7 @@ version = "0.2"
 optional = true
 
 [dependencies.spin]
-version = "0.9.8"
+version = "0.12"
 features = [
     "mutex",
     "spin_mutex",

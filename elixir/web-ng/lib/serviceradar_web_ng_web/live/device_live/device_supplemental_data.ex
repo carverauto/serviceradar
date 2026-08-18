@@ -6,6 +6,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.DeviceSupplementalData do
 
   alias ServiceRadarWebNGWeb.DeviceLive.AvailabilityData
   alias ServiceRadarWebNGWeb.DeviceLive.BumblebeeData
+  alias ServiceRadarWebNGWeb.DeviceLive.CompositeVerdictData
   alias ServiceRadarWebNGWeb.DeviceLive.DeviceTaskData
   alias ServiceRadarWebNGWeb.DeviceLive.DiscoveryData
   alias ServiceRadarWebNGWeb.DeviceLive.EndpointInventoryData
@@ -15,6 +16,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.DeviceSupplementalData do
   alias ServiceRadarWebNGWeb.DeviceLive.MtrRuntime
   alias ServiceRadarWebNGWeb.DeviceLive.NorthboundHistoryData
   alias ServiceRadarWebNGWeb.DeviceLive.QueryData
+  alias ServiceRadarWebNGWeb.DeviceLive.SNMPPollingSource
   alias ServiceRadarWebNGWeb.DeviceLive.SourceObservationData
   alias ServiceRadarWebNGWeb.DeviceLive.SysmonMetrics
   alias ServiceRadarWebNGWeb.DeviceLive.SysmonProfileData
@@ -172,6 +174,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.DeviceSupplementalData do
     base_assigns = %{
       availability: Map.get(parallel_results, :availability, %{}),
       agent_availability: Map.get(parallel_results, :agent_availability, []),
+      composite_verdicts: Map.get(parallel_results, :composite_verdicts, []),
       healthcheck_summary: Map.get(parallel_results, :healthcheck, %{}),
       endpoint_inventory_scan: Map.get(endpoint_inventory, :scan),
       endpoint_inventory_scans: Map.get(endpoint_inventory, :scans, []),
@@ -183,6 +186,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.DeviceSupplementalData do
       endpoint_inventory_stored_package_count: Map.get(endpoint_inventory, :stored_package_count, 0),
       endpoint_inventory_artifacts: Map.get(endpoint_inventory, :artifacts, []),
       endpoint_inventory_vulnerability_matches: Map.get(endpoint_inventory, :vulnerability_matches, []),
+      endpoint_inventory_cpe_catalog_current: Map.get(endpoint_inventory, :cpe_catalog_current, true),
       endpoint_inventory_error: Map.get(endpoint_inventory, :error),
       has_software_inventory: Map.get(endpoint_inventory, :has_inventory, false),
       bumblebee_postures: Map.get(bumblebee, :postures, []),
@@ -218,7 +222,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.DeviceSupplementalData do
       has_ifaces: interface_availability != :unavailable,
       has_flows: flow_availability != :unavailable,
       has_logs: has_logs,
-      has_mtr: has_mtr
+      has_mtr: has_mtr,
+      snmp_polling_source: Map.get(parallel_results, :snmp_polling, SNMPPollingSource.empty())
     }
 
     if include_metrics? do
@@ -256,6 +261,9 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.DeviceSupplementalData do
       DeviceTaskData.timed(slow_device_task_ms, :agent_availability, fn ->
         AvailabilityData.load_agent_availability(scope, uid)
       end),
+      DeviceTaskData.timed(slow_device_task_ms, :composite_verdicts, fn ->
+        CompositeVerdictData.load(uid, scope: scope)
+      end),
       DeviceTaskData.timed(slow_device_task_ms, :healthcheck, fn ->
         AvailabilityData.load_healthcheck_summary(srql_module, uid, scope)
       end),
@@ -284,6 +292,9 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.DeviceSupplementalData do
       # loads instead of running serially after Task.yield_many.
       DeviceTaskData.timed(slow_device_task_ms, :has_mtr, fn ->
         MtrRuntime.detect_available(scope, uid, device_ip)
+      end),
+      DeviceTaskData.timed(slow_device_task_ms, :snmp_polling, fn ->
+        SNMPPollingSource.load(scope, uid)
       end)
     ]
 
@@ -343,7 +354,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.DeviceSupplementalData do
     tasks ++
       [
         DeviceTaskData.timed(slow_device_task_ms, :has_ifaces, fn ->
-          detect_has_interfaces(srql_module, uid, scope)
+          InterfaceData.has_interfaces?(srql_module, uid, scope)
         end)
       ]
   end
@@ -472,39 +483,6 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.DeviceSupplementalData do
 
   defp determine_has_logs(false, _logs_error, _device_logs, _probe), do: true
 
-  defp detect_has_interfaces(srql_module, device_uid, scope) do
-    query =
-      "in:interfaces device_id:\"#{QueryData.escape_value(device_uid)}\" latest:true time:last_3d " <>
-        "stats:count() as interface_count"
-
-    case srql_module.query(query, %{scope: scope}) do
-      {:ok, %{"results" => results}} when is_list(results) ->
-        interface_count =
-          results
-          |> List.first(%{})
-          |> Map.get("interface_count", 0)
-
-        if to_safe_number(interface_count) > 0 do
-          true
-        else
-          legacy_detect_has_interfaces(srql_module, device_uid, scope)
-        end
-
-      _ ->
-        legacy_detect_has_interfaces(srql_module, device_uid, scope)
-    end
-  end
-
-  defp legacy_detect_has_interfaces(srql_module, device_uid, scope) do
-    query =
-      "in:interfaces device_id:\"#{QueryData.escape_value(device_uid)}\" latest:true time:last_3d limit:1"
-
-    case srql_module.query(query, %{scope: scope}) do
-      {:ok, %{"results" => [_ | _]}} -> true
-      _ -> false
-    end
-  end
-
   defp detect_has_flows(srql_module, device_uid, scope) do
     query = QueryData.default_flows_query(device_uid) <> " limit:1"
 
@@ -513,16 +491,4 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.DeviceSupplementalData do
       _ -> false
     end
   end
-
-  defp to_safe_number(n) when is_number(n), do: n
-  defp to_safe_number(nil), do: 0
-
-  defp to_safe_number(s) when is_binary(s) do
-    case Float.parse(s) do
-      {f, _} -> f
-      :error -> 0
-    end
-  end
-
-  defp to_safe_number(_), do: 0
 end

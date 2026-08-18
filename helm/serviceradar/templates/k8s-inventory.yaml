@@ -98,7 +98,7 @@ spec:
       {{- include "serviceradar.podSecurityContext" . | nindent 6 }}
       containers:
         - name: k8s-inventory
-          image: {{ include "serviceradar.imageRef" (dict "Values" .Values "name" "serviceradar-k8s-inventory" "service" "k8sInventory") }}
+          image: {{ include "serviceradar.imageRef" (dict "Values" .Values "Chart" .Chart "name" "serviceradar-k8s-inventory" "service" "k8sInventory") }}
           imagePullPolicy: {{ include "serviceradar.imagePullPolicy" . }}
           {{- include "serviceradar.containerSecurityContext" . | nindent 10 }}
           args: ["run"]

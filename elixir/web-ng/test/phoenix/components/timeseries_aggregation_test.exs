@@ -1,6 +1,7 @@
 defmodule ServiceRadarWebNGWeb.Components.TimeseriesAggregationTest do
   use ExUnit.Case, async: true
 
+  alias ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries.Metrics
   alias ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries.SeriesData
   alias ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries.Spec
 
@@ -68,5 +69,31 @@ defmodule ServiceRadarWebNGWeb.Components.TimeseriesAggregationTest do
     assert series.paths.max == 100.0
     assert series.paths.avg == 0.1
     assert series.paths.latest == 100.0
+  end
+
+  test "humanizes 64-bit packet counters the same as 32-bit names" do
+    assert Metrics.humanize_series_name("ifHCInUcastPkts") == "Inbound Packets"
+    assert Metrics.humanize_series_name("ifHCOutUcastPkts") == "Outbound Packets"
+    assert Metrics.humanize_series_name("ifInUcastPkts::ifindex:21") == "Inbound Packets"
+    assert Metrics.traffic_series?("ifHCInOctets::ifindex:21")
+  end
+
+  test "can extract more than the default six series when asked" do
+    rows =
+      for idx <- 1..8 do
+        %{
+          "timestamp" => "2025-01-01T00:00:00Z",
+          "value" => idx * 1.0,
+          "metric_name" => "metric#{idx}"
+        }
+      end
+
+    spec = %{x: "timestamp", y: "value", series: "metric_name"}
+
+    assert {:ok, default_series, _, _} = Spec.extract_series_points(rows, spec)
+    assert length(default_series) == 6
+
+    assert {:ok, all_series, _, _} = Spec.extract_series_points(rows, spec, max_series: 32)
+    assert length(all_series) == 8
   end
 end

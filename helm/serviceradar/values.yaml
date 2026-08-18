@@ -17,13 +17,14 @@ podDisruptionBudgets:
 
 # Global settings that apply across all services
 global:
-  # Override all ServiceRadar image tags at once. Defaults to the chart
-  # appVersion tag; use a sha-* tag or image.digests.* for production
-  # rollouts that require immutable image references.
-  imageTag: "v1.2.54"
+  # Override all ServiceRadar image tags at once. Leave empty to track the
+  # chart appVersion, which is almost always what you want -- the chart and the
+  # application it deploys are released together. Set a sha-* tag or use
+  # image.digests.* for production rollouts needing immutable references.
+  imageTag: ""
   # The ServiceRadar RELEASE this deployment corresponds to, as a `v<semver>`
   # tag. Distinct from imageTag on purpose: web-ng resolves plugin and native
-  # add-on assets from the Forgejo release with this name, and shows it in the
+  # add-on assets from the GitHub release with this name, and shows it in the
   # product status UI. Immutable rollouts set imageTag to a `sha-<gitsha>`, and
   # no release is ever named that, so the two cannot share one value.
   # Empty means "use the chart appVersion", which is what you want unless you are
@@ -52,8 +53,10 @@ image:
   registry: registry.carverauto.dev/serviceradar
   registryPullSecret: registry-carverauto-dev-cred
   tags:
-    # Default tag for ServiceRadar images. Use global.imageTag to override all at once.
-    appTag: &appTag "v1.2.54"
+    # Default tag for first-party ServiceRadar images. Empty means "use the
+    # chart appVersion" (see serviceradar.imageTag). Do not hardcode a version
+    # here: it silently decouples the images from the chart that ships them.
+    appTag: &appTag ""
     core: *appTag
     webNg: *appTag
     nats: "2.14.0-alpine"
@@ -202,8 +205,15 @@ nats:
   clusterName: "serviceradar"
   jetstream:
     maxMemoryStore: 1G
-    maxFileStore: 10G
+    # Decimal G (10^9). 30G ≈ 27.9 GiB usable for JetStream file store on the
+    # default 30Gi PVC (binary). volumeClaimTemplates are immutable — do not
+    # raise persistence.size via Helm on a live StatefulSet; expand PVCs
+    # out-of-band first if you need larger stream reservations.
+    # Capacity-safe R=3 budget (binary GiB): KV 4 + objects 10 + events 2 + flows 10
+    # = 26 GiB < 30G maxFileStore. Raising flows above 10 GiB requires PVC expand.
+    maxFileStore: 30G
   persistence:
+    # Immutable after first install for this StatefulSet. Keep stable defaults.
     size: 30Gi
     storageClassName: ""
 certs:
@@ -307,6 +317,38 @@ core:
   kubernetesNodeBasename: "serviceradar_core"
   ashObanSchedulerEnabled: true
   logPromotionConsumerEnabled: true
+  # Outbound mail for the native email notification transport and the auth
+  # senders (confirmation, password reset).
+  #
+  # Left empty the mailer resolves to Swoosh.Adapters.Test, which accepts every
+  # message, reports success, and delivers nothing. That is deliberately NOT a
+  # working default: an email notification channel refuses to validate while it
+  # is in that state, so the failure surfaces when an operator saves the channel
+  # instead of during the incident the channel was supposed to page for.
+  #
+  # Setting `relay` is enough - a relay host selects the SMTP adapter.
+  mailer:
+    # "smtp", "local", "sendgrid", ... Leave empty to infer SMTP from `relay`.
+    adapter: ""
+    relay: ""
+    port: 587
+    # HELO/EHLO name this deployment announces; empty lets the relay decide.
+    hostname: ""
+    # always | never | if_available
+    auth: "if_available"
+    tls: "if_available"
+    # Implicit TLS (port 465). STARTTLS is `tls`, above.
+    ssl: false
+    from:
+      name: "ServiceRadar"
+      email: "noreply@serviceradar.cloud"
+    # Relay credentials are read from an existing Secret and are never values:
+    # a password here ends up in the rendered manifest, in `helm get values`,
+    # and in whatever GitOps repository holds this file. Create the Secret with
+    # the two keys below and name it here.
+    existingSecret: ""
+    usernameKey: "smtp-username"
+    passwordKey: "smtp-password"
   # Core-owned advisory vulnerability feed ingestion (CISA KEV, VulnCheck KEV,
   # VulnCheck nist-nvd2, NVD CVE 2.0). Feeds are AshOban-scheduled in core,
   # disk-staged on a PVC, and bulk-loaded into CNPG — no agent involvement.
@@ -319,6 +361,8 @@ core:
     # independently when this is false.
     nistNvd2Enabled: false
     # Persistent staging volume (download.zip + extracted *.json.gz shards).
+    # Set emptyDir: true on multi-replica cores that cannot share an RWO PVC.
+    emptyDir: false
     stagingDir: "/var/lib/serviceradar/advisory-feeds"
     size: "5Gi"
     accessModes:
@@ -356,7 +400,10 @@ core:
     sweepExecutionDays: 30
     trivyDays: 30
     endpointInventoryDays: 30
-    datasetSnapshotDays: 14
+    # Provider CIDR snapshots are ~410k rows. Keep the active copy plus one
+    # inactive rollback; drop the rest instead of accumulating two weeks.
+    datasetSnapshotDays: 2
+    datasetSnapshotKeepLast: 1
     topologyLinkDays: 30
   # Ansible integration: AWX/AAP playbook execution + observability.
   # Per-controller / per-repository / per-schedule overrides are stored
@@ -472,6 +519,10 @@ core:
   #   SERVICERADAR_THREAT_INTEL_ENGINE_MATCH_ENABLED: "true"
   #   SERVICERADAR_GEO_TAG_DERIVATION_ENABLED: "false"
   #   SERVICERADAR_PREFIX_TAGS_LOADER_ENABLED: "true"
+  # FQDN-allowlist CONNECT proxy (Smokescreen). Finch uses this for every
+  # outbound HTTPS fetch (advisory feeds, GeoLite, OTX, …). Pair it with a
+  # default-deny egress NetworkPolicy that admits only that Service:
+  #   SERVICERADAR_EGRESS_PROXY: "http://smokescreen.egress.svc.cluster.local:4750"
   extraEnv: {}
   # Extra environment variables sourced from Kubernetes secrets/configmaps.
   # OpenBao providers can also use Kubernetes auth with the pod service account
@@ -499,6 +550,26 @@ core:
     queueIntervalMs: 2000
     timeoutMs: 120000
     poolTimeoutMs: 120000
+  # Notification platform (openspec add-notification-platform).
+  notifications:
+    # Which serviceradar-agent runs `:control_plane` wasm notification plugins.
+    # There is exactly one Wasm host in the product - wazero inside the agent -
+    # so a platform-egress plugin notification is dispatched to the agent this
+    # chart already deploys, through the same plugin.run_action command an edge
+    # dispatch uses. Left empty, both fields fall back to `agent.agentId` and
+    # the deployment partition. Set them only when the platform-resident agent
+    # lives outside this release; with `agent.enabled: false` and no override,
+    # nothing is configured and a :control_plane plugin channel fails with
+    # `platform_agent_unconfigured` rather than dispatching somewhere arbitrary.
+    platformAgent:
+      agentId: ""
+      partitionId: ""
+    # The bounded sweep that closes out an agent-routed delivery whose command
+    # result never came back. It reads only what core itself wrote, so it does
+    # not depend on STATUS_HANDLER_ENABLED. Disabling it leaves those rows to
+    # the blind stall sweep, which re-sends rather than settling.
+    receiptSweep:
+      enabled: true
   obanQueues:
     default: 10
     maintenance: 5
@@ -924,6 +995,64 @@ cnpg:
   clientCAFromCerts: false
   requireClientCert: false
 
+# Tiered telemetry cold storage (OpenSpec add-tiered-telemetry-offload).
+# Everything below is DISABLED by default and renders nothing. Activation is a
+# deployment decision made by supplying complete cold-tier configuration
+# (object-store location/credentials + this analytics head); there is no
+# supported OSS enablement path.
+coldTier:
+  # The read-only role the analytics head uses to reach hot rows on the primary
+  # over postgres_fdw. Migration 20260716220000 always creates it NOLOGIN with
+  # SELECT-only grants; setting `enabled` here hands login + password to CNPG
+  # `managed.roles`, which is what actually makes it connectable. Leave it off
+  # unless you are running the cold tier: an off deployment carries the role as
+  # an inert grant set that cannot authenticate.
+  exportRole:
+    enabled: false
+    name: cold_reader
+    # Name of a Secret of type kubernetes.io/basic-auth whose `username`
+    # matches `name` above and whose `password` CNPG will set. Required when
+    # enabled; there is no default, because a defaulted database password is
+    # worse than a failed render.
+    passwordSecret: ""
+    # Bounds concurrent cold_reader sessions so a runaway cannot exhaust the
+    # primary's connection slots. Sized for the exporter's export/verify
+    # sessions plus concurrent stitched-view reads; raise alongside
+    # analyticsHead.poolSize.
+    connectionLimit: 10
+  analyticsHead:
+    enabled: false
+    # Dedicated analytics image: PostgreSQL 18 + pg_duckdb, WITHOUT
+    # TimescaleDB/AGE/PostGIS (pg_duckdb is structurally incompatible with a
+    # TimescaleDB-loaded instance — never point this at the primary image).
+    imageName: ""
+    # The analytics image is based on the official pgduckdb image, whose
+    # postgres user is UID/GID 999 — not CloudNativePG's default 26. These
+    # MUST match the image or the instance dies during initdb. Override only
+    # if you build the image on a base with a different postgres UID.
+    postgresUID: 999
+    postgresGID: 999
+    # Defaults to image.registryPullSecret; set only to use a dedicated secret.
+    registryPullSecret: ""
+    clusterName: cnpg-analytics
+    instances: 1
+    storageSize: 20Gi
+    storageClass: ""
+    # ColdRepo pool size drives the memory request:
+    # request = poolSize * duckdb.maxMemoryMb + overheadMb (per-connection
+    # DuckDB memory is NOT accounted inside PostgreSQL's own limits).
+    poolSize: 4
+    overheadMb: 1536
+    duckdb:
+      maxMemoryMb: 1536
+      threads: 2
+      # Spill lives under PGDATA (pg_duckdb default); the cap prevents a
+      # runaway query from filling the volume.
+      maxTempDirectorySize: 10GB
+    # Extra postgresql.parameters merged into the Cluster spec.
+    postgresqlParameters: {}
+    resources: {}
+
 # Shared storage for GeoLite2 MMDB files used by GeoIP/ASN enrichment.
 # This must be mounted wherever enrichment jobs run (core) and anywhere that
 # might need local lookups (web-ng). Enrichment should never do external API calls
@@ -931,7 +1060,10 @@ cnpg:
 geoipMmdb:
   # Disabled by default because the bundled claim is ReadWriteOnce. Enable only
   # with a single web-ng replica, an existing RWX claim, or an external updater.
+  # Multi-replica cores (farm01) should set emptyDir: true so each pod downloads
+  # its own MMDB without a shared PVC.
   enabled: false
+  emptyDir: false
   basePath: "/var/lib/serviceradar/geoip"
   existingClaim: ""
   accessModes:
@@ -967,20 +1099,35 @@ webNg:
     snapshotBudgetMs: 2000
     snapshotCoalesceMs: 0
   firstPartyPluginImport:
-    repoUrl: "https://code.carverauto.dev/carverauto/serviceradar"
+    repoUrl: "https://github.com/carverauto/serviceradar"
     indexAssetName: "serviceradar-wasm-plugin-index.json"
     autoSyncEnabled: false
     syncReleaseLimit: 10
     syncIntervalSeconds: 3600
     cosignBinary: "/usr/local/bin/cosign"
-    cosignPublicKey: ""
+    # Cosign public key used to verify first-party Wasm plugin OCI artifacts
+    # published alongside each ServiceRadar release. This is the public release
+    # key committed at docs/cosign.pub -- it is not a secret, and the registry
+    # serves these artifacts anonymously, so no pull credential is needed to
+    # verify them. Shipping it empty is what made "Import All" fail with
+    # cosign_public_key_not_configured on every install that was not the demo
+    # overlay: the template below omits the env var when this is empty, and the
+    # verifier fails closed rather than importing an unverified artifact.
+    # Override only when serving first-party plugins signed with your own key.
+    # Kept in step with docs/cosign.pub and the web-ng compiled-in default by
+    # //:first_party_plugin_cosign_key_consistency_test.
+    cosignPublicKey: |
+      -----BEGIN PUBLIC KEY-----
+      MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEhJcdPbybyipSl8sNHSKStAYiqhP7
+      cp6jIdZ3L4AkL/WI9oFn5xqJSnwTC29cz+JN/bXzWE807+iPS/DOl3C9EQ==
+      -----END PUBLIC KEY-----
     cosignPublicKeyFile: ""
     registryDockerConfigSecret: ""
     registryDockerConfigSecretKey: ".dockerconfigjson"
     registryDockerConfigJson: ""
     registryDockerConfigFile: ""
   nativeAddonImport:
-    repoUrl: "https://code.carverauto.dev/carverauto/serviceradar"
+    repoUrl: "https://github.com/carverauto/serviceradar"
     indexAssetName: "serviceradar-native-addon-index.json"
     autoSyncEnabled: false
     syncReleaseLimit: 10
@@ -989,6 +1136,13 @@ webNg:
     # staged packages. Approval and assignment remain operator-controlled.
     autoApproveAddonIds: []
   host: ""
+  # Canonical externally reachable HTTPS origin for web-ng (for example,
+  # https://serviceradar.example.com). A trailing root slash is accepted and
+  # canonicalized away; explicit ports other than 443 are rejected. Edge
+  # onboarding tokens, generated install commands, and notification action /
+  # alert deep links (SERVICERADAR_NOTIFICATION_ACTION_BASE_URL) embed this
+  # origin. Set it for every deployment exposed through Ingress or Gateway API;
+  # do not use an in-cluster Service name.
   publicUrl: ""
   godViewEnabled: "true"
   # Keep Phoenix/LiveView WebSocket origin checks enabled by default.
@@ -1018,6 +1172,8 @@ webNg:
   # Trusted Ed25519 public key used to verify signed agent release manifests.
   agentReleasePublicKey: "ZY2//cpkD3oVdC6q4Cg6lN1I2M6SgmDMzL4QyQjptH8="
   # Extra environment variables for the web-ng pod.
+  # SERVICERADAR_EGRESS_PROXY: same CONNECT proxy as core.extraEnv. web-ng
+  # starts serviceradar_core, so Finch picks it up from this env.
   extraEnv: {}
   # Extra environment variables sourced from Kubernetes secrets/configmaps.
   # Keep credentials out of extraEnv so Helm release values and rendered
@@ -1201,14 +1357,15 @@ datasvc:
   # Replica count for datasvc-owned JetStream streams (KV/object metadata).
   jetstreamReplicas: 3
   # Reserved capacity for the KV bucket stream ($KV.serviceradar-datasvc.>).
-  bucketMaxBytes: "5368709120"
+  # 4 GiB — capacity-safe with R=3 flows@10GiB under 30G maxFileStore.
+  bucketMaxBytes: "4294967296"
   # Maximum size for one uploaded object payload.
   objectMaxBytes: "536870912"
   # Reserved capacity for the object stream (OBJ_serviceradar-objects).
-  # Sizing target: retained agent release tarballs + all native add-on tarballs
-  # across supported OS/arch pairs + plugin blobs, then roughly 2x import and
-  # rollback headroom. Keep this comfortably above the active working set.
-  objectStoreBytes: "17179869184"
+  # 10 GiB (down from 16 GiB) so KV+objects+events+flows fit the default
+  # 30Gi PVC / 30G maxFileStore. Expand PVC out-of-band before raising this
+  # back for large multi-arch agent release retention.
+  objectStoreBytes: "10737418240"
   data:
     enabled: false
     accessModes:
@@ -1446,15 +1603,25 @@ trapd:
 flowCollector:
   enabled: false
   replicaCount: 1
-  # flow-collector publishes raw flow subjects into the shared "events" stream.
-  streamReplicas: 3
+  # Must match FLOW_COLLECTOR_READY_PATH / readinessProbe (default path).
+  readyPath: "/var/lib/serviceradar/flow-collector.ready"
+  terminationGracePeriodSeconds: 45
+  # flow-collector publishes raw flow subjects into the dedicated "flows" stream
+  # (isolated from the shared multi-signal "events" bus). Stream HA is only
+  # config.stream_replicas (serialized into flow-collector.json); there is no
+  # top-level flowCollector.streamReplicas key.
   config:
     nats_url: "tls://serviceradar-nats:4222"
     nats_creds_file: "/etc/serviceradar/creds/platform.creds"
-    stream_name: "events"
-    # Reserved capacity for the shared "events" stream when flow collectors reconcile it.
+    stream_name: "flows"
+    # 10 GiB / 6h / R=3 — order-of-magnitude above the historical 1 GiB shared
+    # pin. Fits default 30G maxFileStore with KV 4 + objects 10 + events 2.
+    # Raise further only after out-of-band PVC expand + maxFileStore bump.
     stream_max_bytes: 10737418240
+    stream_max_age_secs: 21600
     stream_replicas: 3
+    rehome_state_path: "/var/lib/serviceradar/flow-collector-rehome.json"
+    ready_state_path: "/var/lib/serviceradar/flow-collector.ready"
     channel_size: 10000
     batch_size: 100
     publish_timeout_ms: 5000

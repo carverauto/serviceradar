@@ -24,6 +24,13 @@ go_test(
         "test_keys_test.go",
         "user_manager_test.go",
     ],
+    data = [
+        "//docker/compose:bmp-collector.docker.json",
+        "//docker/compose:datasvc.mtls.json",
+        "//docker/compose:flow-collector.docker.json",
+        "//docker/compose:nats.docker.conf",
+        "//docker/compose:otel.docker.toml",
+    ],
     embed = [":accounts"],
     deps = [
         "@com_github_nats_io_jwt_v2//:jwt",

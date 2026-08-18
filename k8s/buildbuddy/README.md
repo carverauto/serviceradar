@@ -12,8 +12,8 @@ provide Remote Build Execution (RBE) for the Bazel builds.
 (34.98.106.0 vs 34.98.126.170). The executor's `app_target` and the Bazel client's
 `--remote_executor` must name the *same* instance: the fleet registers with that instance's
 scheduler, so if they diverge the executors sit idle and the build silently runs somewhere
-else. The client side lives in `//.bazelrc` under `build:remote_base`, which every remote
-profile (`ci`, `remote`, `el9`) inherits.
+else. The client side lives in `//.bazelrc`: `build:cache_only` owns cache/BES transport and
+`build:remote_base` (therefore `ci`) inherits it.
 
 ## Configuration
 
@@ -37,7 +37,7 @@ resources:
 extraVolumes:
   - name: cache-volume
     hostPath:
-      path: /var/lib/buildbuddy/cache
+      path: /mnt/buildbuddy/cache
       type: DirectoryOrCreate
 
 extraVolumeMounts:
@@ -58,7 +58,7 @@ config:
   - CPU: 8-16 cores (request-limit)
   - Memory: 16-32Gi (request-limit)
   - Ephemeral Storage: 20-25Gi (request-limit)
-- **Cache path**: `/cache` (hostPath `/var/lib/buildbuddy/cache` on each node)
+- **Cache path**: `/cache` (hostPath `/mnt/buildbuddy/cache` on each node)
 - **Remote builds dir**: `/cache/remotebuilds/`
 
 ### Node Affinity
@@ -168,8 +168,10 @@ If pods are being evicted due to resource pressure:
 ### Cache Backing Storage
 
 - Executors mount a hostPath volume named `cache-volume` at `/cache`.
-- The host path (`/var/lib/buildbuddy/cache`) is created per node and is not shared across nodes.
-- If a node runs out of disk, resize the node storage or adjust `local_cache_size_bytes`.
+- The host path (`/mnt/buildbuddy/cache`) is created per node and is not shared across nodes.
+- **Must stay on `/mnt/buildbuddy` (dedicated ~1.2T disk).** Never use `/var/lib/buildbuddy` — that is on the OS root volume and previously caused node DiskPressure / pod evictions.
+- After a Proxmox resize of the BB volume: `sudo xfs_growfs /mnt/buildbuddy` on each worker.
+- If a node runs out of disk, grow `/mnt/buildbuddy` or adjust `local_cache_size_bytes` / cache-proxy `max_size_bytes`.
 
 ### Connection Issues
 
@@ -201,9 +203,7 @@ Only the Bazel action image is customized today. After updating `docker/Dockerfi
      -t registry.carverauto.dev/serviceradar/rbe-executor:v1.0.24.3 \
      --push .
    ```
-2. Bump the tag everywhere it is referenced for Bazel (`MODULE.bazel`, `MODULE.bazel.lock`, `BUILD.bazel`, `build/rbe/BUILD`, `build/platforms/BUILD.bazel`, `buildbuddy.yaml`, and `warmup_additional_images` in `k8s/buildbuddy/values.yaml`).
-   The `rbe-executor-el9` tag in `.bazelrc` and `build/platforms/BUILD.bazel` is a *different* image
-   (built from `docker/Dockerfile.rbe-ora9`) and moves independently — do not bump it in lockstep.
+2. Bump the tag everywhere it is referenced for Bazel (`MODULE.bazel`, `MODULE.bazel.lock`, `build/rbe/BUILD`, `buildbuddy.yaml`, and `warmup_additional_images` in `k8s/buildbuddy/values.yaml`). `build/platforms/BUILD.bazel` is no longer on this list: the two RBE platforms that pinned the tag there were dead and have been removed.
 3. (Optional) If we ever choose to run a custom executor pod image, update `k8s/buildbuddy/values.yaml` and redeploy via `./k8s/buildbuddy/deploy.sh`.
 
 Remote builds automatically use the refreshed Bazel action image as soon as the new tag is referenced in the Bazel exec platform configs—no Helm redeploy is required for that step.
@@ -215,12 +215,12 @@ confused:
 
 | release | values | pool | replicas | mem requests | hostPath cache | runs |
 |---|---|---|---|---|---|---|
-| `buildbuddy` | `values.yaml` | default (`""`) | 3, KEDA 3-10 | 16Gi | `/var/lib/buildbuddy/cache` | build actions |
-| `buildbuddy-workflows` | `values-workflows.yaml` | `workflows` | 1, unscaled | 56Gi | `/var/lib/buildbuddy/cache-workflows` | the CI runner |
+| `buildbuddy` | `values.yaml` | default (`""`) | 3, KEDA 3-10 | 16Gi | `/mnt/buildbuddy/cache` | build actions |
+| `buildbuddy-workflows` | `values-workflows.yaml` | `workflows` | 1, unscaled | 56Gi | `/mnt/buildbuddy/cache-workflows` | the CI runner |
 
 The workflow runner wants ~32GB — a Bazel server over ~2,000 targets, `--jobs=100` of input
-uploads over the WAN, and every `no-remote-exec` target executing locally. Putting that on the
-build fleet means either it cannot be placed (16Gi advertised) or, if you size the build fleet
+uploads over the WAN, and database-facing TestRunner processes executing locally. Putting that on
+the build fleet means either it cannot be placed (16Gi advertised) or, if you size the build fleet
 up, one runner reserves 56Gi on all three pods and squeezes out the very fan-out it is driving.
 
 Deploy the workflow fleet with the same API key the build fleet uses:
@@ -280,13 +280,13 @@ integration tier: `set -a; . "$FIXTURE_ENV"; set +a` must run in the *same shell
 bazel calls that consume it, so those belong in one multi-line `- run: |` step. Separate
 steps do not share an environment.
 
-### RBE is not on by default
+### RBE is selected by the repository profile
 
-BuildBuddy supplies `--bes_backend`, `--bes_results_url` and the API key header to every
-invocation, but *not* remote cache or remote execution — "the configuration steps are the
-same as when running Bazel locally." `--config=remote` is what enables them. Note that
-`.bazelrc.remote` (which carries `--remote_header=x-buildbuddy-api-key=...`) is gitignored
-and absent in CI; BuildBuddy injects the key itself, so this is fine.
+BuildBuddy supplies the API key header to workflow invocations, but repository profiles still
+own service and platform selection. `--config=ci` inherits `build:remote_base`, which adds the
+Linux executor/platform and inherits cache/BES transport from `build:cache_only`. The ignored
+`.bazelrc.remote` is absent in BuildBuddy workflows because the workflow runtime injects the key;
+developer workstations use that file for the same credential header.
 
 ### `self_hosted: true` requires a matching `pool`
 
@@ -366,19 +366,216 @@ To see what the executors actually register as:
 kubectl exec -n buildbuddy <executor-pod> -- printenv | grep -i pool
 ```
 
-The runner also competes with build actions for these same 3 executors and asks for
-3 CPU / 8 GB by default. Add `resource_requests` to the action if it starves the fan-out.
+The workflow action uses the dedicated `workflows` fleet described above, not these three build
+executors. Its current `resource_requests` live in `buildbuddy.yaml` (50GB memory / 40GB disk);
+change those together with `values-workflows.yaml` when adjusting placement capacity.
 
 ### Where the runner runs decides what it can reach
 
-This is not about fan-out — that works either way, because `--config=remote` names a public
-endpoint a BuildBuddy-hosted runner can dispatch through (a cloud-runner build reached 29
-concurrent actions).
+This is not about fan-out. Compile actions can still use RBE/cache. It matters because every
+database-facing **`TestRunner` action must execute on the runner that can resolve and reach
+`srql-fixture-rw.srql-fixtures.svc.cluster.local`**. The integration workflow therefore uses
+`--strategy=TestRunner=local` for the lifecycle tests and all eight shards. The prepare binary is
+`bazel run`, so Bazel builds it under the selected profile and launches it on the runner. With a
+cloud runner, lifecycle and shard actions all fail to reach the fixture rather than only the setup
+steps failing.
 
-It matters because **`no-remote-exec` targets execute on the runner, not on an executor**.
-The DB lifecycle targets in the integration tier are `no-remote-exec`, and only an
-in-cluster runner resolves `srql-fixture-rw.srql-fixtures.svc.cluster.local`. With
-`self_hosted: false` those four fail while the 8 remote shards succeed, and the shards then
-connect to databases that were never provisioned.
+Full reachability matrix and the fixture-credential design: `../../openspec/notes/archive/bazel-bb-ci.md`.
 
-Full reachability matrix and the fixture-credential design: `openspec/notes/bazel-bb-ci.md`.
+## Cache proxy
+
+Three `bb-cache-proxy-buildbuddy-enterprise-cache-proxy-{0,1,2}` pods run the
+[BuildBuddy Enterprise Cache Proxy](https://www.buildbuddy.io/docs/enterprise-proxy) chart in
+this namespace. The proxy is a read/write-through cache in front of the BuildBuddy Cloud cache
+at `carverauto.buildbuddy.io`: it serves what it already holds from inside the cluster and only
+crosses the WAN for what it does not. Keeping that bulk traffic between our own servers is the
+entire point of running it.
+
+### The failure mode this section exists to prevent
+
+**A cache proxy that nothing addresses is indistinguishable from a healthy one.** It registers
+with the app, appears in the Cache Proxy tab, reports its version and uptime, passes its health
+checks — and carries no traffic, because a proxy is never chosen automatically. Every client
+has to name it. That is the state this cluster was in until the wiring below was added: three
+proxies deployed, registered, visible in the UI, and idle.
+
+There are exactly **two** hops to point at it, and they are independent — either works without
+the other.
+
+### 1. Executors (the bulk of the traffic)
+
+`config.executor.cache_target` in both `values.yaml` and `values-workflows.yaml`.
+
+This is the one that matters. Left unset it **defaults to `app_target`**, so cache traffic
+follows the control plane out to BuildBuddy Cloud. Setting it splits the two: ByteStream, CAS,
+ActionCache, Capabilities and the OCI fetcher move to the proxy, while scheduler registration,
+task assignment and execution status stay on `app_target`. Across 3–10 executors at
+`--jobs=100`, that is every action input read and every action output write.
+
+`app_target` must keep naming the app — the proxy hosts no scheduler, so the two are not
+interchangeable.
+
+Deploy as usual (`./deploy.sh` for the build fleet; the workflow fleet is the hand-typed
+`helm upgrade buildbuddy-workflows ... -f values-workflows.yaml`, see **Two fleets**), then
+confirm the executor actually dialled it:
+
+```bash
+kubectl logs -n buildbuddy -l app.kubernetes.io/name=buildbuddy-executor --tail=200 \
+  | grep 'Connecting to cache target'
+# want: Connecting to cache target "grpc://bb-cache-proxy-...svc.cluster.local:1985"
+```
+
+### 2. Bazel clients through the public TLS edge (the default)
+
+`build:cache_only` in `//.bazelrc` moves only `--remote_cache` to
+`grpcs://cache-proxy.carverauto.dev:443`. That hostname terminates TLS on the shared Envoy
+gateway and forwards HTTP/2 gRPC to the proxy's ClusterIP Service on port 1985. This is what
+provides one authenticated route for developer laptops, Forgejo, cloud action namespaces, and
+self-hosted workflows. The active self-hosted runner can reach the fixture ClusterIP, but it uses
+the public cache endpoint for profile consistency; other clients cannot rely on service-CIDR
+routing (see **Where the runner runs decides what it can reach**).
+
+**There is nothing to opt into.** `--config=ci` inherits `remote_base`, so CI and
+`make test` take the proxy path. A host-native integration run selects `build:cache_only`
+directly, retaining the same cache/BES transport without selecting Linux RBE:
+
+```bash
+make build-workspace-cache    # bazel build -c opt --config=ci //...
+make test                     # bazel test -c opt --config=ci //... (unit tiers)
+bazel test -c opt --config=cache_only --config=database_env --strategy=TestRunner=local \
+  --//build:enable_integration_tests --test_tag_filters= --nocache_test_results \
+  //elixir/serviceradar_core:integration_tests_s0
+```
+
+The shard command assumes the matching disposable database was provisioned first. Follow the
+explicit sweep/prepare/migrate/provision/test/teardown sequence in `AGENTS.md` or the
+`srql-fixtures-db-tests` skill. There is no shell wrapper: Bazel does not order lifecycle targets
+or guarantee a finalizer across invocations.
+
+`make build-workspace-cache` and `make test-cache` still exist, but only as aliases that swap in
+the CI flags — `BAZEL_CACHE_PROXY_CONFIG` in `//Makefile` is deliberately **empty**.
+
+> **Do not write `--config=cache_proxy`.** Its transport settings now live in
+> `build:cache_only`, inherited by `build:remote_base`; the old profile no longer exists. Bazel
+> treats an undefined config as a hard error, not a warning:
+>
+> ```
+> ERROR: Config value 'cache_proxy' is not defined in any .rc file   (exit 2)
+> ```
+>
+> so a stale reference takes out an entire entrypoint rather than quietly skipping the proxy.
+> `//buildbuddy_cache_proxy_config_test.py` asserts that every `--config` named by `//Makefile`
+> or `//buildbuddy.yaml` is defined in `//.bazelrc`, precisely because this already happened
+> once.
+
+The routes are intentionally different:
+
+| hop | endpoint | purpose |
+|---|---|---|
+| executor `cache_target` | `grpc://bb-cache-proxy-buildbuddy-enterprise-cache-proxy.buildbuddy.svc.cluster.local:1985` | bulk CAS/ActionCache traffic stays inside the cluster |
+| Bazel `build:cache_only` `--remote_cache` | `grpcs://cache-proxy.carverauto.dev:443` | authenticated clients use public DNS and TLS |
+| Bazel executor and BES | `grpcs://carverauto.buildbuddy.io` | scheduling and build-event services remain upstream |
+
+The executors keep the in-cluster FQDN rather than the public edge, and that asymmetry is
+deliberate: they are ordinary pods, so their traffic never leaves the cluster and never pays for
+TLS termination at the gateway.
+
+Do not point `--remote_executor`, `--bes_backend`, or `--bes_results_url` at the proxy. It hosts
+none of those services, and the failure is silent rather than loud — the proxy is a BuildBuddy
+server too, so it accepts the RPCs and the build simply stops appearing where anyone looks for
+it. `--remote_bytestream_uri_prefix=carverauto.buildbuddy.io` is likewise required: Bazel derives
+`bytestream://` artifact URIs from `--remote_cache`, while the BES and UI still fetch those
+artifacts through the upstream BuildBuddy hostname. Get it wrong and builds still pass — only the
+timing profile quietly fails to load.
+
+Keep the `try-import` entries at the bottom of `//.bazelrc`. An rc file can only override
+configs defined before it, so an override in `.bazelrc.remote` placed above `build:cache_only`
+or `build:remote_base` is silently overwritten by them.
+
+Measured on a full `//...` from a workstation: **~11 min direct, ~3-4 min through the proxy.**
+The win is round-trip latency, not bandwidth — a `//...` build issues thousands of
+`GetActionResult` and `FindMissingBlobs` calls, each costing a WAN RTT to BuildBuddy Cloud
+against roughly a millisecond to the proxy. Reasoning about bytes predicts a small win and is
+wrong by ~3x, because `--remote_download_minimal` already suppressed the byte volume.
+
+### Authentication and transport boundary
+
+The public listener is TLS-only. Envoy terminates TLS and routes gRPC; it does not replace or
+duplicate BuildBuddy authentication. The cache proxy's native BuildBuddy authentication is the
+authoritative access decision. Clients send their existing BuildBuddy credential, and the proxy
+delegates remote authentication/JWT validation to the upstream BuildBuddy instance with JWT
+reparsing disabled.
+
+The client credential remains in BuildBuddy's runner configuration or the gitignored
+`.bazelrc.remote`; it MUST NOT be committed to `.bazelrc`, the Makefile, workflow YAML, Helm
+values, or the GitOps route. The proxy's own upstream key is separate, lives in the
+`buildbuddy-cache-proxy-api-key` Kubernetes Secret, and is injected with `--set` as documented in
+`values-cache-proxy.yaml`.
+
+Do not use a TCP connect or an anonymous Capabilities response as proof of authorization:
+Capabilities may be readable without a credential. A validation canary MUST execute a protected
+ActionCache/CAS operation. Any real authenticated build — `make build-workspace` or
+`bazel test -c opt --config=ci //...` — does that and is the preferred end-to-end check, since
+both now route through the proxy by default.
+
+### Staged rollout and rollback
+
+1. Deploy the shared-gateway route, certificate reconciliation, DNS record, cross-namespace
+   grant, and h2c edge Service from the GitOps repository. The Helm-managed proxy Service stays
+   `ClusterIP`; no listener, LoadBalancer, or NodePort is added to it.
+2. Confirm public DNS, certificate verification, and HTTP/2 ALPN before sending credentials:
+
+   ```bash
+   openssl s_client -connect cache-proxy.carverauto.dev:443 \
+     -servername cache-proxy.carverauto.dev -alpn h2 </dev/null
+   ```
+
+3. With a local ignored `.bazelrc.remote` holding the credential header, run
+   `make build-workspace-cache`, then `make test`. Confirm the BuildBuddy invocation and the
+   cache-proxy hit/read/write metrics.
+4. Run `bazel test //:buildbuddy_cache_proxy_config_test` to catch endpoint, bytestream-prefix,
+   dangling-`--config`, or Make-alias drift.
+
+**Rollback** is a one-line change of `build:cache_only --remote_cache` in `//.bazelrc` back to
+`grpcs://carverauto.buildbuddy.io`. Because the proxy is now the default rather than an opt-in,
+there is no per-job switch to flip: an edge outage affects every remote build until that line
+changes, which is the trade accepted in exchange for nobody having to remember a flag.
+
+Rollback is still client-first, because that one line is the only client-side dependency on the
+public route. The executor fleet reaches the proxy over the internal ClusterIP path throughout
+and is untouched by it, so the public GitOps route can be withdrawn after clients have reverted
+without interrupting remote execution or its high-volume cache traffic.
+
+The backend service itself must remain private after every chart upgrade:
+
+```bash
+kubectl get svc -n buildbuddy bb-cache-proxy-buildbuddy-enterprise-cache-proxy -o wide
+# want: TYPE ClusterIP, EXTERNAL-IP <none>
+```
+
+### Three releases, one namespace
+
+`values-cache-proxy.yaml` captures this release. Note it is a **different chart** from the two
+executor fleets in **Two fleets** above, so the warnings there about matching release name to
+`-f` apply with one addition: the proxy's API key is not in the file, so an upgrade that omits
+`--set config.cache_proxy.api_key=...` leaves it unable to authenticate upstream.
+
+Each of the three keeps its own hostPath — `/mnt/buildbuddy/cache`, `cache-workflows`, and
+`cache-proxy` — for the reason `values-workflows.yaml` spells out: two caches sharing a
+directory run two eviction loops that delete each other's entries while both believe they are
+under budget. Their size budgets do stack on one disk, though; see the `max_size_bytes` note in
+`values-cache-proxy.yaml` for the DiskPressure arithmetic before raising any of them.
+
+### Measuring the split
+
+`./podmonitor-cache-proxy.yaml` scrapes the proxies, because kube-prometheus-stack discovers
+targets through CRDs and ignores the chart's `prometheus.io/scrape` annotations. The
+hit/miss label is the local-vs-upstream split:
+
+```promql
+sum(rate(buildbuddy_proxy_byte_stream_read_bytes{cache_hit_miss_status="hit"}[1h]))
+  / sum(rate(buildbuddy_proxy_byte_stream_read_bytes[1h]))
+```
+
+A near-zero denominator means nothing is addressing the proxy — recheck the two hops above
+before looking anywhere else. Per-proxy summaries are also in the web UI's Cache Proxy tab.

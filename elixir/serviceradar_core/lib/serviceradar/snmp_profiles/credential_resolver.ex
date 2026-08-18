@@ -133,6 +133,91 @@ defmodule ServiceRadar.SNMPProfiles.CredentialResolver do
     end
   end
 
+  @type description :: %{
+          source: :device_override | :profile | :default_profile | :none,
+          profile: SNMPProfile.t() | nil,
+          override: DeviceSNMPCredential.t() | nil,
+          version: atom() | nil,
+          credential_secret_id: term(),
+          credential_configured?: boolean()
+        }
+
+  @doc """
+  Metadata-only view of what would poll a device.
+
+  Does not decrypt community strings or broker secrets. Use this from UI
+  surfaces that need to name the profile/credential without creating an
+  audit event.
+  """
+  @spec describe_for_device(String.t() | nil, map()) :: {:ok, description()} | {:error, term()}
+  def describe_for_device(nil, _actor), do: {:ok, empty_description()}
+
+  def describe_for_device(device_uid, actor) when is_binary(device_uid) do
+    override =
+      case load_device_override(device_uid, actor) do
+        {:ok, %DeviceSNMPCredential{} = cred} -> cred
+        {:ok, nil} -> nil
+        {:error, reason} -> {:error, reason}
+      end
+
+    case override do
+      {:error, reason} ->
+        {:error, reason}
+
+      override ->
+        targeting = targeting_profile(device_uid, actor)
+        default = get_default_profile(actor)
+        profile = targeting || default
+
+        source =
+          cond do
+            not is_nil(override) -> :device_override
+            not is_nil(targeting) -> :profile
+            not is_nil(default) -> :default_profile
+            true -> :none
+          end
+
+        record = override || profile
+
+        {:ok,
+         %{
+           source: source,
+           profile: profile,
+           override: override,
+           version: record && Map.get(record, :version),
+           credential_secret_id: record && Map.get(record, :credential_secret_id),
+           credential_configured?: record_has_credential?(record)
+         }}
+    end
+  end
+
+  defp empty_description do
+    %{
+      source: :none,
+      profile: nil,
+      override: nil,
+      version: nil,
+      credential_secret_id: nil,
+      credential_configured?: false
+    }
+  end
+
+  defp targeting_profile(device_uid, actor) do
+    case SrqlTargetResolver.resolve_for_device(device_uid, actor) do
+      {:ok, %SNMPProfile{} = profile} -> load_profile(profile.id, actor)
+      _ -> nil
+    end
+  end
+
+  defp record_has_credential?(nil), do: false
+
+  defp record_has_credential?(record) do
+    present?(Map.get(record, :credential_secret_id)) or
+      present?(Map.get(record, :community_encrypted)) or
+      present?(Map.get(record, :username)) or
+      present?(Map.get(record, :auth_password_encrypted))
+  end
+
   @doc """
   Convert a resolved credential map into mapper config credentials.
   """

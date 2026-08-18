@@ -4,8 +4,8 @@ use core::fmt::{self, Debug};
 use core::{mem, slice};
 
 use crate::endian::{Endian, Endianness, U16, U32, U64};
-use crate::macho;
 use crate::read::{Architecture, Error, File, ReadError, ReadRef, Result};
+use crate::{macho, SkipDebugList};
 
 /// A parsed representation of the dyld shared cache.
 #[derive(Debug)]
@@ -90,7 +90,10 @@ where
 
         let mut files = Vec::new();
         let mappings = header.mappings(endian, data)?;
-        files.push(DyldFile { data, mappings });
+        files.push(DyldFile {
+            data: SkipDebugList(data),
+            mappings,
+        });
 
         let symbols_subcache_uuid = header.symbols_subcache_uuid(endian);
         let subcaches_info = header.subcaches(endian, data)?;
@@ -125,7 +128,10 @@ where
                     return Err(Error("Unexpected SubCache UUID"));
                 }
                 let mappings = header.mappings(endian, data)?;
-                files.push(DyldFile { data, mappings });
+                files.push(DyldFile {
+                    data: SkipDebugList(data),
+                    mappings,
+                });
             }
         }
 
@@ -138,7 +144,10 @@ where
                     return Err(Error("Unexpected .symbols SubCache UUID"));
                 }
                 let mappings = header.mappings(endian, data)?;
-                Some(DyldFile { data, mappings })
+                Some(DyldFile {
+                    data: SkipDebugList(data),
+                    mappings,
+                })
             }
             None => None,
         };
@@ -202,7 +211,7 @@ where
     pub fn data_and_offset_for_address(&self, address: u64) -> Option<(R, u64)> {
         for file in &self.files {
             if let Some(file_offset) = file.address_to_file_offset(self.endian, address) {
-                return Some((file.data, file_offset));
+                return Some((file.data.0, file_offset));
             }
         }
         None
@@ -216,7 +225,7 @@ where
     E: Endian,
     R: ReadRef<'data>,
 {
-    data: R,
+    data: SkipDebugList<R>,
     mappings: DyldCacheMappingSlice<'data, E>,
 }
 
@@ -233,7 +242,7 @@ where
         };
         DyldCacheMappingIterator {
             endian,
-            data: self.data,
+            data: self.data.0,
             iter,
         }
     }

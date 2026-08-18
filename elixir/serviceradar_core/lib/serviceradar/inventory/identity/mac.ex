@@ -81,7 +81,7 @@ defmodule ServiceRadar.Inventory.Identity.Mac do
       true
 
       iex> IdentityReconciler.locally_administered_mac?("F492BF75C722")
-      true
+      false
   """
   @spec locally_administered_mac?(String.t() | nil) :: boolean()
   def locally_administered_mac?(nil), do: false
@@ -131,6 +131,78 @@ defmodule ServiceRadar.Inventory.Identity.Mac do
   def distinct_hardware?(%MapSet{} = a, %MapSet{} = b) do
     MapSet.size(a) > 0 and MapSet.size(b) > 0 and MapSet.disjoint?(a, b)
   end
+
+  @doc """
+  The IEEE locally-administered sibling of a MAC: the same 48-bit station
+  with bit 1 of the first octet flipped.
+
+  Returns nil when the input is not a valid MAC. Used as a lookup key so a
+  UniFi WAN identity (`F4…`, universally administered) and the SNMP LAN
+  identity of the same NIC (`F6…`, locally administered) resolve to one device.
+  """
+  @spec hardware_mac_sibling(String.t() | nil) :: String.t() | nil
+  def hardware_mac_sibling(mac) do
+    case normalize_mac(mac) do
+      nil ->
+        nil
+
+      normalized ->
+        {first_byte, _} = Integer.parse(String.slice(normalized, 0, 2), 16)
+
+        flipped =
+          first_byte
+          |> bxor(0x02)
+          |> Integer.to_string(16)
+          |> String.pad_leading(2, "0")
+          |> String.upcase()
+
+        flipped <> String.slice(normalized, 2, 10)
+    end
+  end
+
+  @doc """
+  True when two MACs are the universal/local pair of the same 48-bit station.
+
+  Ubiquiti (and some other vendors) expose the burned-in NIC MAC and a
+  locally-administered variant that differs only by IEEE bit 1 of the first
+  octet. Those are one device, not two hosts sharing a recycled address.
+  """
+  @spec hardware_mac_siblings?(String.t() | nil, String.t() | nil) :: boolean()
+  def hardware_mac_siblings?(left, right) do
+    left = normalize_mac(left)
+    right = normalize_mac(right)
+
+    is_binary(left) and is_binary(right) and hardware_mac_sibling(left) == right
+  end
+
+  @spec any_hardware_mac_siblings?([String.t()], [String.t()]) :: boolean()
+  def any_hardware_mac_siblings?(lefts, rights) when is_list(lefts) and is_list(rights) do
+    Enum.any?(lefts, fn left ->
+      Enum.any?(rights, &hardware_mac_siblings?(left, &1))
+    end)
+  end
+
+  @doc """
+  Observed MACs plus each address's hardware sibling, for identifier *lookup*
+  only. Siblings must never be registered as if they were observed.
+  """
+  @spec lookup_macs_with_siblings([String.t()] | String.t() | nil) :: [String.t()]
+  def lookup_macs_with_siblings(macs) when is_list(macs) do
+    normalized =
+      macs
+      |> Enum.flat_map(&normalize_mac_list/1)
+      |> Enum.uniq()
+
+    siblings =
+      normalized
+      |> Enum.map(&hardware_mac_sibling/1)
+      |> Enum.reject(&is_nil/1)
+
+    Enum.uniq(normalized ++ siblings)
+  end
+
+  def lookup_macs_with_siblings(mac) when is_binary(mac), do: lookup_macs_with_siblings([mac])
+  def lookup_macs_with_siblings(_), do: []
 
   @doc """
   Return the appropriate confidence level for a MAC address.

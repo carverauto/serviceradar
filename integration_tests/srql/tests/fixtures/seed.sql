@@ -8,11 +8,11 @@ TRUNCATE endpoint_inventory_current_package_counts;
 TRUNCATE endpoint_inventory_current_cpe_counts;
 TRUNCATE endpoint_inventory_package_counts_hourly;
 TRUNCATE endpoint_inventory_cpe_counts_hourly;
-TRUNCATE ocsf_devices CASCADE;
+TRUNCATE public.ocsf_devices CASCADE;
 WITH base AS (
     SELECT NOW() AS now_ts
 )
-INSERT INTO ocsf_devices (
+INSERT INTO public.ocsf_devices (
         uid,
         type_id,
         type,
@@ -35,7 +35,8 @@ INSERT INTO ocsf_devices (
         discovery_sources,
         is_available,
         is_active,
-        metadata
+        metadata,
+        tags
     )
 SELECT 'device-alpha',
     12,  -- Router
@@ -59,7 +60,8 @@ SELECT 'device-alpha',
     ARRAY ['sweep','armis'],
     TRUE,
     TRUE,
-    '{"site":"dfw-edge","packet_loss_bucket":"low"}'::jsonb
+    '{"site":"dfw-edge","packet_loss_bucket":"low"}'::jsonb,
+    '{"site":"DFW","Gate":"A1","role":"edge"}'::jsonb
 FROM base
 UNION ALL
 SELECT 'device-beta',
@@ -84,7 +86,8 @@ SELECT 'device-beta',
     ARRAY ['armis'],
     FALSE,
     FALSE,
-    '{"site":"dfw-edge","packet_loss_bucket":"medium"}'::jsonb
+    '{"site":"dfw-edge","packet_loss_bucket":"medium"}'::jsonb,
+    '{"site":"DFW","Gate":"A1","role":"core"}'::jsonb
 FROM base
 UNION ALL
 SELECT 'device-gamma',
@@ -109,7 +112,8 @@ SELECT 'device-gamma',
     ARRAY ['sweep'],
     TRUE,
     TRUE,
-    '{"site":"phx-edge","packet_loss_bucket":"high"}'::jsonb
+    '{"site":"phx-edge","packet_loss_bucket":"high"}'::jsonb,
+    '{"site":"DFW","Gate":"B2","role":"edge"}'::jsonb
 FROM base
 UNION ALL
 SELECT 'device-delta',
@@ -134,7 +138,8 @@ SELECT 'device-delta',
     ARRAY ['sweep'],
     TRUE,
     TRUE,
-    '{"site":"phx-edge","packet_loss_bucket":"low"}'::jsonb
+    '{"site":"phx-edge","packet_loss_bucket":"low"}'::jsonb,
+    '{}'::jsonb
 FROM base;
 
 WITH base AS (
@@ -1504,6 +1509,43 @@ EXCEPTION
     WHEN insufficient_privilege THEN
         RAISE NOTICE 'Skipping AGE graph seed due to insufficient privileges';
 END $$;
+
+-- Device identity for the log correlation path.
+--
+-- `in:logs device_id:"..."` deliberately does NOT match on resource_attributes:
+-- rust/srql/src/query/logs/metadata.rs routes device_id filters to
+-- device_inventory_identity_clause only, because an attribute ILIKE over
+-- last_24h logs times out. It correlates the log's syslog source columns
+-- against device inventory instead.
+--
+-- The in-window log below carries source_ip 198.51.100.42, while device-alpha's
+-- ocsf_devices row has ip 10.10.10.5 -- so the ocsf_devices branch cannot match
+-- it. The identifier row here is what ties that source_ip to device-alpha, which
+-- is what `in:logs device_id:"device-alpha" time:last_10m` expects to find.
+INSERT INTO device_identifiers (
+        device_id,
+        identifier_type,
+        identifier_value,
+        partition,
+        confidence,
+        source,
+        first_seen,
+        last_seen,
+        verified,
+        metadata
+    )
+VALUES (
+        'device-alpha',
+        'ip',
+        '198.51.100.42',
+        'default',
+        'high',
+        'sweep',
+        NOW() - INTERVAL '14 days',
+        NOW() - INTERVAL '1 minute',
+        TRUE,
+        '{}'::jsonb
+    );
 
 CREATE OR REPLACE FUNCTION public.age_device_neighborhood(
     p_device_id text,

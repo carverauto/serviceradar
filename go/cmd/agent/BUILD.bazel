@@ -24,8 +24,9 @@ go_binary(
     # (~2.5Gi) OOMs the linker (signal: killed). Ask for a larger task size.
     exec_properties = NATIVE_ADDON_EXEC_PROPERTIES,
     visibility = ["//visibility:public"],
+    # FULL_VERSION below is NOT a stamp key. It is a Starlark constant from @serviceradar_version,
+    # a repository rule that reads the //VERSION source file.
     x_defs = {
-        "github.com/carverauto/serviceradar/go/pkg/agent.ReleaseSigningPublicKey": "{STABLE_AGENT_RELEASE_PUBLIC_KEY}",
         "github.com/carverauto/serviceradar/go/cmd/agent.Version": FULL_VERSION,
     },
 )

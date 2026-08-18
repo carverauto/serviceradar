@@ -22,7 +22,7 @@
 
 ## 4. UI and Operators
 
-- [x] 4.1 Update Task History to show deferred/polling/result-fetch progress clearly.
+- [x] 4.1 Update Action History to show deferred/polling/result-fetch progress clearly.
 - [x] 4.2 Refresh device/interface history after launch and while visible without blocking LiveView events.
 - [x] 4.3 Document where users find results after launching a task.
 

@@ -282,9 +282,20 @@ tmp/fieldsurvey-local/
 # Local review documents (not for upstream)
 pr-host-net-viz-*.md
 
-# Cargo's committed vendor snapshot must remain byte-complete even when an
-# upstream crate contains paths such as debug/, target/, *.pem, or *.dll that
-# match repository-wide development-output ignores above. The snapshot is
-# validated against each crate's .cargo-checksum.json before CI builds it.
-!third_party/crates/
-!third_party/crates/**
+# Python bytecode. The repository had no rule for this at all, which is why
+# docker/images/__pycache__/ and scripts/__pycache__/ each carry a committed .pyc. Those two
+# stay tracked -- an ignore does not untrack anything -- but nothing new joins them.
+__pycache__/
+*.py[cod]
+
+# NOTHING FOR //third_party/crate_mirror HERE, deliberately.
+#
+# There used to be `!third_party/crate_mirror/` + `/**`, on the theory that repository-wide
+# ignores would otherwise catch some archive names. Measured against all 886: zero match any
+# pattern in this file, because every one ends in `.crate` and nothing here matches that.
+# The un-ignores rescued nothing, and `/**` was broad enough to re-admit __pycache__ -- which
+# is how a .pyc from scripts/check-rust-vendor-tracked.py's `import sync` reached `git add`.
+#
+# If a future pattern ever does catch an archive, re-add a narrow negation for THAT pattern
+# rather than a directory wildcard. The wildcard is what makes an un-ignore dangerous: it
+# re-admits everything the rest of this file is trying to exclude.

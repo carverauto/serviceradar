@@ -1,7 +1,7 @@
 use alloc::vec::Vec;
 use core::fmt::Debug;
 
-use crate::endian::{LittleEndian as LE, U16Bytes, U32Bytes};
+use crate::endian::{LittleEndian as LE, U16, U32};
 use crate::pe;
 use crate::read::{ByteString, Bytes, Error, ReadError, ReadRef, Result};
 
@@ -88,9 +88,9 @@ pub struct ExportTable<'data> {
     data: Bytes<'data>,
     virtual_address: u32,
     directory: &'data pe::ImageExportDirectory,
-    addresses: &'data [U32Bytes<LE>],
-    names: &'data [U32Bytes<LE>],
-    name_ordinals: &'data [U16Bytes<LE>],
+    addresses: &'data [U32<LE>],
+    names: &'data [U32<LE>],
+    name_ordinals: &'data [U16<LE>],
 }
 
 impl<'data> ExportTable<'data> {
@@ -103,7 +103,7 @@ impl<'data> ExportTable<'data> {
         let address_of_functions = directory.address_of_functions.get(LE);
         if address_of_functions != 0 {
             addresses = data
-                .read_slice_at::<U32Bytes<_>>(
+                .read_slice_at::<U32<_>>(
                     address_of_functions.wrapping_sub(virtual_address) as usize,
                     directory.number_of_functions.get(LE) as usize,
                 )
@@ -121,13 +121,13 @@ impl<'data> ExportTable<'data> {
 
             let number = directory.number_of_names.get(LE) as usize;
             names = data
-                .read_slice_at::<U32Bytes<_>>(
+                .read_slice_at::<U32<_>>(
                     address_of_names.wrapping_sub(virtual_address) as usize,
                     number,
                 )
                 .read_error("Invalid PE export name pointer table")?;
             name_ordinals = data
-                .read_slice_at::<U16Bytes<_>>(
+                .read_slice_at::<U16<_>>(
                     address_of_name_ordinals.wrapping_sub(virtual_address) as usize,
                     number,
                 )
@@ -166,14 +166,14 @@ impl<'data> ExportTable<'data> {
     ///
     /// An address table entry may be a local address, or the address of a forwarded export entry.
     /// See [`Self::is_forward`] and [`Self::target_from_address`].
-    pub fn addresses(&self) -> &'data [U32Bytes<LE>] {
+    pub fn addresses(&self) -> &'data [U32<LE>] {
         self.addresses
     }
 
     /// Returns the unparsed name pointer table.
     ///
     /// A name pointer table entry can be used with [`Self::name_from_pointer`].
-    pub fn name_pointers(&self) -> &'data [U32Bytes<LE>] {
+    pub fn name_pointers(&self) -> &'data [U32<LE>] {
         self.names
     }
 
@@ -181,7 +181,7 @@ impl<'data> ExportTable<'data> {
     ///
     /// An ordinal table entry is a 0-based index into the address table.
     /// See [`Self::address_by_index`] and [`Self::target_by_index`].
-    pub fn name_ordinals(&self) -> &'data [U16Bytes<LE>] {
+    pub fn name_ordinals(&self) -> &'data [U16<LE>] {
         self.name_ordinals
     }
 

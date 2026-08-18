@@ -17,6 +17,12 @@
 package accounts
 
 import (
+	"encoding/json"
+	"os"
+	"path/filepath"
+	"regexp"
+	"runtime"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -25,7 +31,7 @@ import (
 )
 
 const dockerComposeMaxFileStoreBytes int64 = 10 * 1000 * 1000 * 1000
-const dockerComposeDatasvcBucketMaxBytes int64 = 5 * 1024 * 1024 * 1024
+const dockerComposeDatasvcBucketMaxBytes int64 = 2 * 1024 * 1024 * 1024
 
 func TestNewAccountSigner(t *testing.T) {
 	op := newTestOperator(t)
@@ -211,6 +217,144 @@ func TestAccountSigner_CreateAccount_DefaultJetStreamLimitsAreFinite(t *testing.
 	if !claims.Limits.MaxBytesRequired {
 		t.Error("MaxBytesRequired = false, want true")
 	}
+}
+
+func TestAccountSigner_DefaultJetStreamLimitsFitComposeNetworkIngest(t *testing.T) {
+	type datasvcBudget struct {
+		BucketMaxBytes   int64 `json:"bucket_max_bytes"`
+		ObjectStoreBytes int64 `json:"object_store_bytes"`
+	}
+	type collectorBudget struct {
+		StreamMaxBytes int64 `json:"stream_max_bytes"`
+	}
+
+	var datasvc datasvcBudget
+	readComposeJSON(t, "docker/compose/datasvc.mtls.json", &datasvc)
+	if datasvc.BucketMaxBytes <= 0 || datasvc.ObjectStoreBytes <= 0 {
+		t.Fatalf(
+			"compose datasvc reservations must be explicit and positive: KV=%d object=%d",
+			datasvc.BucketMaxBytes,
+			datasvc.ObjectStoreBytes,
+		)
+	}
+
+	var flows collectorBudget
+	readComposeJSON(t, "docker/compose/flow-collector.docker.json", &flows)
+	var bmp collectorBudget
+	readComposeJSON(t, "docker/compose/bmp-collector.docker.json", &bmp)
+	events := readIntegerSetting(t, "docker/compose/otel.docker.toml", "max_bytes")
+	serverMax := readSizedSetting(t, "docker/compose/nats.docker.conf", "max_file_store")
+
+	reserved := datasvc.BucketMaxBytes + datasvc.ObjectStoreBytes + events +
+		flows.StreamMaxBytes + bmp.StreamMaxBytes
+	const minimumAccountHeadroom int64 = 512 * 1024 * 1024
+	if reserved+minimumAccountHeadroom > defaultJetStreamDiskBytes {
+		t.Fatalf(
+			"compose network-ingest reservations %d plus headroom %d exceed platform account quota %d",
+			reserved,
+			minimumAccountHeadroom,
+			defaultJetStreamDiskBytes,
+		)
+	}
+
+	// Keep a full decimal GB outside the generated account for NATS server and
+	// system-account overhead. This also guards the binary-GiB/decimal-G unit
+	// mismatch in nats.docker.conf.
+	const minimumServerHeadroom int64 = 1_000_000_000
+	if defaultJetStreamDiskBytes+minimumServerHeadroom > serverMax {
+		t.Fatalf(
+			"platform account quota %d plus server headroom %d exceed compose max_file_store %d",
+			defaultJetStreamDiskBytes,
+			minimumServerHeadroom,
+			serverMax,
+		)
+	}
+}
+
+func readComposeJSON(t *testing.T, name string, target any) {
+	t.Helper()
+	data := readRepoFixture(t, name)
+	if err := json.Unmarshal(data, target); err != nil {
+		t.Fatalf("decode %s: %v", name, err)
+	}
+}
+
+func readIntegerSetting(t *testing.T, name, setting string) int64 {
+	t.Helper()
+	data := readRepoFixture(t, name)
+	pattern := regexp.MustCompile(`(?m)^\s*` + regexp.QuoteMeta(setting) + `\s*=\s*([0-9]+)\s*(?:#.*)?$`)
+	match := pattern.FindSubmatch(data)
+	if len(match) != 2 {
+		t.Fatalf("%s does not contain integer setting %s", name, setting)
+	}
+	value, err := strconv.ParseInt(string(match[1]), 10, 64)
+	if err != nil {
+		t.Fatalf("parse %s %s: %v", name, setting, err)
+	}
+	return value
+}
+
+func readSizedSetting(t *testing.T, name, setting string) int64 {
+	t.Helper()
+	data := readRepoFixture(t, name)
+	pattern := regexp.MustCompile(`(?m)^\s*` + regexp.QuoteMeta(setting) + `\s*:\s*([0-9]+)([KMG]?)\s*(?:#.*)?$`)
+	match := pattern.FindSubmatch(data)
+	if len(match) != 3 {
+		t.Fatalf("%s does not contain sized setting %s", name, setting)
+	}
+	value, err := strconv.ParseInt(string(match[1]), 10, 64)
+	if err != nil {
+		t.Fatalf("parse %s %s: %v", name, setting, err)
+	}
+	multiplier := int64(1)
+	switch string(match[2]) {
+	case "K":
+		multiplier = 1_000
+	case "M":
+		multiplier = 1_000_000
+	case "G":
+		multiplier = 1_000_000_000
+	}
+	return value * multiplier
+}
+
+func readRepoFixture(t *testing.T, name string) []byte {
+	t.Helper()
+	for _, candidate := range repoFixtureCandidates(name) {
+		data, err := os.ReadFile(candidate)
+		if err == nil {
+			return data
+		}
+	}
+	t.Fatalf("cannot locate repository fixture %s", name)
+	return nil
+}
+
+func repoFixtureCandidates(name string) []string {
+	candidates := make([]string, 0, 5)
+	if root := strings.TrimSpace(os.Getenv("BUILD_WORKSPACE_DIRECTORY")); root != "" {
+		candidates = append(candidates, filepath.Join(root, name))
+	}
+	if testSrcDir := strings.TrimSpace(os.Getenv("TEST_SRCDIR")); testSrcDir != "" {
+		for _, workspace := range []string{strings.TrimSpace(os.Getenv("TEST_WORKSPACE")), "_main"} {
+			if workspace != "" {
+				candidates = append(candidates, filepath.Join(testSrcDir, workspace, name))
+			}
+		}
+	}
+	if _, thisFile, _, ok := runtime.Caller(0); ok {
+		candidates = append(candidates, filepath.Clean(filepath.Join(filepath.Dir(thisFile), "../../../../..", name)))
+	}
+	if cwd, err := os.Getwd(); err == nil {
+		for dir := cwd; ; dir = filepath.Dir(dir) {
+			candidates = append(candidates, filepath.Join(dir, name))
+			parent := filepath.Dir(dir)
+			if parent == dir {
+				break
+			}
+		}
+	}
+	return candidates
 }
 
 func TestAccountSigner_CreateAccount_WithCustomMappings(t *testing.T) {

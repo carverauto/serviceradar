@@ -1,5 +1,10 @@
 load("@io_bazel_rules_go//go:def.bzl", "go_library", "go_test")
 
+# Read by //:agent_release_key_consistency_test, which asserts this key matches the
+# agentReleasePublicKey the control plane gets from the helm charts. This package sets no
+# default_visibility, so without the export the label is private and that test cannot see it.
+exports_files(["release_signing_key.txt"])
+
 go_library(
     name = "agent",
     srcs = [
@@ -65,6 +70,7 @@ go_library(
         "plugin_runtime_media.go",
         "plugin_runtime_memory.go",
         "plugin_runtime_network.go",
+        "plugin_runtime_notify.go",
         "plugin_runtime_oauth.go",
         "plugin_runtime_telemetry.go",
         "plugin_runtime_wazero.go",
@@ -109,6 +115,7 @@ go_library(
         "test_helpers.go",
         "types.go",
     ],
+    embedsrcs = ["release_signing_key.txt"],
     importpath = "github.com/carverauto/serviceradar/go/pkg/agent",
     visibility = ["//visibility:public"],
     deps = [
@@ -220,6 +227,7 @@ go_test(
         "plugin_runtime_http_egress_test.go",
         "plugin_runtime_local_test.go",
         "plugin_runtime_network_test.go",
+        "plugin_runtime_notify_test.go",
         "plugin_runtime_test.go",
         "proxmox_console_ssh_test.go",
         "proxmox_console_test.go",
@@ -337,5 +345,20 @@ go_test(
 filegroup(
     name = "addonconfig_contract_fixtures",
     srcs = glob(["testdata/addonconfig_contract/*.json"]),
+    visibility = ["//visibility:public"],
+)
+
+# The two Go files ServiceRadar.Notifications.EdgeCommandContractTest reads at
+# runtime to assert that the agent's notify capability, envelope schema, and
+# credential injection modes still match what the Elixir manifest validator
+# allows. `ex_unit_test` stages only srcs and data, so a test that opens a file
+# outside its own project has to have it declared or it fails in the sandbox
+# with a bare File.Error - which is what happened.
+filegroup(
+    name = "notification_contract_srcs",
+    srcs = [
+        "plugin_runtime.go",
+        "plugin_runtime_notify.go",
+    ],
     visibility = ["//visibility:public"],
 )

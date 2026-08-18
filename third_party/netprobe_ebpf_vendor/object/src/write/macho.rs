@@ -143,6 +143,17 @@ impl<'a> Object<'a> {
                 // Unsupported section.
                 (&[], &[], SectionKind::Note, SectionFlags::None)
             }
+            StandardSection::EhFrame => (
+                &b"__TEXT"[..],
+                &b"__eh_frame"[..],
+                SectionKind::ReadOnlyData,
+                SectionFlags::MachO {
+                    flags: macho::S_COALESCED
+                        | macho::S_ATTR_LIVE_SUPPORT
+                        | macho::S_ATTR_NO_TOC
+                        | macho::S_ATTR_STRIP_STATIC_SYMS,
+                },
+            ),
         }
     }
 
@@ -277,7 +288,11 @@ impl<'a> Object<'a> {
         init_symbol_id
     }
 
-    pub(crate) fn macho_translate_relocation(&mut self, reloc: &mut Relocation) -> Result<()> {
+    pub(crate) fn macho_translate_relocation(
+        &mut self,
+        section: SectionId,
+        reloc: &mut RelocationInternal,
+    ) -> Result<()> {
         use RelocationEncoding as E;
         use RelocationKind as K;
 
@@ -314,17 +329,32 @@ impl<'a> Object<'a> {
             },
             Architecture::X86_64 => match (kind, encoding) {
                 (K::Absolute, E::Generic) => (false, macho::X86_64_RELOC_UNSIGNED),
-                (K::Relative, E::Generic) => (true, macho::X86_64_RELOC_SIGNED),
-                (K::Relative, E::X86RipRelative) => (true, macho::X86_64_RELOC_SIGNED),
+                // TODO: E::Generic might need to use unsigned with a subtractor instead
+                (K::Relative, E::Generic | E::X86RipRelative) => (true, macho::X86_64_RELOC_SIGNED),
                 (K::Relative, E::X86Branch) => (true, macho::X86_64_RELOC_BRANCH),
-                (K::PltRelative, E::X86Branch) => (true, macho::X86_64_RELOC_BRANCH),
+                (K::PltRelative, E::Generic | E::X86Branch) => (true, macho::X86_64_RELOC_BRANCH),
                 (K::GotRelative, E::Generic) => (true, macho::X86_64_RELOC_GOT),
                 (K::GotRelative, E::X86RipRelativeMovq) => (true, macho::X86_64_RELOC_GOT_LOAD),
                 _ => return unsupported_reloc(),
             },
             Architecture::Aarch64 | Architecture::Aarch64_Ilp32 => match (kind, encoding) {
                 (K::Absolute, E::Generic) => (false, macho::ARM64_RELOC_UNSIGNED),
+                (K::Relative, E::Generic) => {
+                    // arm64 doesn't have PC relative relocations for data,
+                    // use ARM64_RELOC_SUBTRACTOR instead.
+                    reloc.subtractor = Some(self.section_symbol(section));
+                    // S - (section + offset) + A = S - section + (A - offset)
+                    reloc.addend -= reloc.offset as i64;
+                    (false, macho::ARM64_RELOC_UNSIGNED)
+                }
                 (K::Relative, E::AArch64Call) => (true, macho::ARM64_RELOC_BRANCH26),
+                (K::PltRelative, E::Generic | E::AArch64Call) => {
+                    (true, macho::ARM64_RELOC_BRANCH26)
+                }
+                _ => return unsupported_reloc(),
+            },
+            Architecture::PowerPc | Architecture::PowerPc64 => match kind {
+                K::Absolute => (false, macho::PPC_RELOC_VANILLA),
                 _ => return unsupported_reloc(),
             },
             _ => {
@@ -342,7 +372,10 @@ impl<'a> Object<'a> {
         Ok(())
     }
 
-    pub(crate) fn macho_adjust_addend(&mut self, relocation: &mut Relocation) -> Result<bool> {
+    pub(crate) fn macho_adjust_addend(
+        &mut self,
+        relocation: &mut RelocationInternal,
+    ) -> Result<bool> {
         let (r_type, r_pcrel) = if let RelocationFlags::MachO {
             r_type, r_pcrel, ..
         } = relocation.flags
@@ -384,7 +417,7 @@ impl<'a> Object<'a> {
         Ok(implicit)
     }
 
-    pub(crate) fn macho_relocation_size(&self, reloc: &Relocation) -> Result<u8> {
+    pub(crate) fn macho_relocation_size(&self, reloc: &RelocationInternal) -> Result<u8> {
         if let RelocationFlags::MachO { r_length, .. } = reloc.flags {
             Ok(8 << r_length)
         } else {
@@ -479,7 +512,16 @@ impl<'a> Object<'a> {
             // Since we don't actually emit the symbol kind, we validate it here too.
             match symbol.kind {
                 SymbolKind::Text | SymbolKind::Data | SymbolKind::Tls | SymbolKind::Unknown => {}
-                SymbolKind::File | SymbolKind::Section => continue,
+                SymbolKind::Section => {
+                    // AArch64 needs temporary section symbols for relative relocations.
+                    if !matches!(
+                        self.architecture,
+                        Architecture::Aarch64 | Architecture::Aarch64_Ilp32
+                    ) {
+                        continue;
+                    }
+                }
+                SymbolKind::File => continue,
                 SymbolKind::Label => {
                     return Err(Error(format!(
                         "unimplemented symbol `{}` kind {:?}",
@@ -520,7 +562,9 @@ impl<'a> Object<'a> {
             let count: usize = section
                 .relocations
                 .iter()
-                .map(|reloc| 1 + usize::from(reloc.addend != 0))
+                .map(|reloc| {
+                    1 + usize::from(reloc.addend != 0) + usize::from(reloc.subtractor.is_some())
+                })
                 .sum();
             if count != 0 {
                 offset = align(offset, pointer_align);
@@ -731,7 +775,7 @@ impl<'a> Object<'a> {
                 write_align(buffer, pointer_align);
                 debug_assert_eq!(section_offsets[index].reloc_offset, buffer.len());
 
-                let mut write_reloc = |reloc: &Relocation| {
+                let mut write_reloc = |reloc: &RelocationInternal| {
                     let (r_type, r_pcrel, r_length) = if let RelocationFlags::MachO {
                         r_type,
                         r_pcrel,
@@ -742,6 +786,27 @@ impl<'a> Object<'a> {
                     } else {
                         return Err(Error("invalid relocation flags".into()));
                     };
+
+                    if let Some(subtractor) = reloc.subtractor {
+                        let r_type = match self.architecture {
+                            Architecture::Aarch64 | Architecture::Aarch64_Ilp32 => {
+                                macho::ARM64_RELOC_SUBTRACTOR
+                            }
+                            Architecture::X86_64 => macho::X86_64_RELOC_SUBTRACTOR,
+                            _ => {
+                                return Err(Error(format!("unimplemented relocation {:?}", reloc)))
+                            }
+                        };
+                        let reloc_info = macho::RelocationInfo {
+                            r_address: reloc.offset as u32,
+                            r_symbolnum: symbol_offsets[subtractor.0].index as u32,
+                            r_pcrel: false,
+                            r_length,
+                            r_extern: true,
+                            r_type,
+                        };
+                        buffer.write(&reloc_info.relocation(endian));
+                    }
 
                     // Write explicit addend.
                     if reloc.addend != 0 {
@@ -791,7 +856,7 @@ impl<'a> Object<'a> {
                 // Relocations are emitted in descending order as otherwise Apple's
                 // new linker crashes. This matches LLVM's behavior too:
                 // https://github.com/llvm/llvm-project/blob/e9b8cd0c8/llvm/lib/MC/MachObjectWriter.cpp#L1001-L1002
-                let need_reverse = |relocs: &[Relocation]| {
+                let need_reverse = |relocs: &[RelocationInternal]| {
                     let Some(first) = relocs.first() else {
                         return false;
                     };
@@ -1112,7 +1177,7 @@ impl<E: Endian> MachO for MachO64<E> {
             n_type: nlist.n_type,
             n_sect: nlist.n_sect,
             n_desc: U16::new(endian, nlist.n_desc),
-            n_value: U64Bytes::new(endian, nlist.n_value),
+            n_value: U64::new(endian, nlist.n_value),
         };
         buffer.write(&nlist);
     }

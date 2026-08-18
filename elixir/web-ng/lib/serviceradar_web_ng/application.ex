@@ -27,7 +27,11 @@ defmodule ServiceRadarWebNG.Application do
     base_children =
       [
         # Web telemetry
-        ServiceRadarWebNG.Topology.RuntimeGraph
+        ServiceRadarWebNG.Topology.RuntimeGraph,
+        # Runtime index of package-shipped display and config contracts. Owns an
+        # ETS table so a LiveView mount - including a disconnected one - resolves
+        # a contract without querying.
+        ServiceRadarWebNG.Observability.ContractRegistry
       ]
       |> Kernel.++(web_runtime().web_children())
       |> maybe_add_control_plane_runtime_listener()
@@ -35,6 +39,7 @@ defmodule ServiceRadarWebNG.Application do
       |> maybe_add_first_party_plugin_sync_scheduler()
       |> maybe_add_native_addon_sync_scheduler()
       |> maybe_add_first_party_dashboard_seeder()
+      |> maybe_add_system_report_seeder()
       |> Kernel.++([
         # DNS cluster for Kubernetes deployments
         {DNSCluster, query: Application.get_env(:serviceradar_web_ng, :dns_cluster_query) || :ignore}
@@ -54,13 +59,14 @@ defmodule ServiceRadarWebNG.Application do
     # react_children = [Phoenix.React]
 
     children =
-      pubsub_children ++
-        base_children ++
-        field_survey_adbc_children() ++
-        [
-          ServiceRadarWebNG.FieldSurveyStreamLimiter,
-          {Task.Supervisor, name: ServiceRadarWebNG.TaskSupervisor}
-        ]
+      maybe_add_geoip_bootstrap(
+        pubsub_children ++
+          base_children ++
+          [
+            ServiceRadarWebNG.FieldSurveyStreamLimiter,
+            {Task.Supervisor, name: ServiceRadarWebNG.TaskSupervisor}
+          ]
+      )
 
     # Ensure ServiceRadar.Repo is started (may already be started by serviceradar_core)
     ensure_repo_started()
@@ -177,49 +183,32 @@ defmodule ServiceRadarWebNG.Application do
     end
   end
 
-  defp field_survey_adbc_children do
-    case Application.get_env(:serviceradar_web_ng, :field_survey_adbc_uri) do
-      uri when is_binary(uri) and uri != "" ->
-        if adbc_postgresql_driver_present?() do
-          [
-            {Adbc.Database,
-             driver: :postgresql, uri: uri, process_options: [name: ServiceRadarWebNG.FieldSurveyAdbcDatabase]}
-          ]
-        else
-          # Bazel OCI builds of web-ng have historically omitted the ADBC
-          # libadbc_driver_postgresql shared library from :adbc priv/. Starting
-          # Adbc.Database then aborts the whole app. Fail open so SRQL and the
-          # rest of web-ng still boot; FieldSurvey Arrow ingest stays off.
-          Logger.warning(
-            "FieldSurvey ADBC disabled: libadbc_driver_postgresql is not present under " <>
-              "#{inspect(adbc_priv_lib_dir())}. SRQL and web-ng will start without Arrow ingest."
-          )
+  defp maybe_add_geoip_bootstrap(children) do
+    enabled? =
+      "GEOLITE_MMDB_DOWNLOAD_ENABLED"
+      |> System.get_env("false")
+      |> String.downcase()
+      |> Kernel.in(["1", "true", "yes", "on"])
 
-          []
-        end
-
-      _ ->
-        []
+    if enabled? do
+      children ++
+        [
+          {Task,
+           fn ->
+             _ = ServiceRadar.Observability.GeoLiteMmdbDownloadWorker.sync_missing_files()
+             _ = ServiceRadar.Observability.IpinfoMmdbDownloadWorker.sync_missing_files()
+           end}
+        ]
+    else
+      children
     end
   end
 
-  defp adbc_postgresql_driver_present? do
-    dir = adbc_priv_lib_dir()
-
-    dir != nil and
-      File.dir?(dir) and
-      dir
-      |> File.ls!()
-      |> Enum.any?(&String.contains?(&1, "libadbc_driver_postgresql"))
-  rescue
-    _ -> false
-  end
-
-  defp adbc_priv_lib_dir do
-    case :code.priv_dir(:adbc) do
-      dir when is_list(dir) -> Path.join(List.to_string(dir), "lib")
-      dir when is_binary(dir) -> Path.join(dir, "lib")
-      _ -> nil
+  defp maybe_add_system_report_seeder(children) do
+    if Application.get_env(:serviceradar_core, :seeders_enabled, true) do
+      children ++ [ServiceRadarWebNG.Dashboards.SystemReports]
+    else
+      children
     end
   end
 

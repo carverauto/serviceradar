@@ -53,6 +53,27 @@ function normalizeGeoPoint(value) {
   return [longitude, latitude]
 }
 
+// Local CIDR anchors often pin both ends of a LAN conversation to the same
+// site. A zero-length arc is invisible, so nudge the destination around the
+// shared point using the endpoint labels.
+function spreadColocatedPoints(from, to, sourceLabel, targetLabel) {
+  if (!from || !to) return [from, to]
+  if (from[0] !== to[0] || from[1] !== to[1]) return [from, to]
+
+  const hash = Math.abs(hashLabel(`${sourceLabel || ""}->${targetLabel || ""}`))
+  const angle = ((hash % 360) * Math.PI) / 180
+  const radius = 0.55
+  return [from, [from[0] + Math.cos(angle) * radius, from[1] + Math.sin(angle) * radius]]
+}
+
+function hashLabel(value) {
+  let hash = 0
+  for (let index = 0; index < value.length; index += 1) {
+    hash = (hash * 31 + value.charCodeAt(index)) | 0
+  }
+  return hash
+}
+
 // Brand flow palette (marketing green — not Nocturne cyan/sky)
 const BRAND_GREEN = [62, 207, 135] // #3ecf87
 const BRAND_GREEN_SOFT = [91, 222, 155] // #5bde9b
@@ -202,8 +223,9 @@ function normalizeTrafficLinks(rawLinks, mapView) {
       // are omitted from geographic arcs until both endpoints have coordinates.
       if (useGeo && !geoMapped) return null
 
-      const from = useGeo ? geoFrom : normalizePoint(topologyFrom)
-      const to = useGeo ? geoTo : normalizePoint(topologyTo)
+      const [from, to] = useGeo
+        ? spreadColocatedPoints(geoFrom, geoTo, link?.source_label, link?.target_label)
+        : [normalizePoint(topologyFrom), normalizePoint(topologyTo)]
       const magnitude = Math.max(0, Number(link?.magnitude || link?.bytes || link?.packets || 0))
       const baseColor = useGeo
         ? netflowLinkColor(link, magnitude)

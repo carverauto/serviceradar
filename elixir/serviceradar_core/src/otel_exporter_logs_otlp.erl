@@ -579,7 +579,6 @@ restart_channel(Channel, Endpoints, Compression) ->
 
 do_restart_channel(Channel, Endpoints, Compression) ->
     EndpointTuples = grpcbox_endpoints(Endpoints),
-    ChannelOpts = channel_opts(Compression),
     case EndpointTuples of
         [] ->
             ?LOG_WARNING("OTLP grpc channel restart skipped: no valid endpoints configured channel=~p",
@@ -591,7 +590,7 @@ do_restart_channel(Channel, Endpoints, Compression) ->
                       [Channel, length(EndpointTuples)]),
             maybe_stop_channel(Channel),
             timer:sleep(100),
-            try grpcbox_channel:start_link(Channel, EndpointTuples, ChannelOpts) of
+            try serviceradar_otel_grpcbox_channel:start(Channel, EndpointTuples, Compression) of
                 {ok, _Pid} ->
                     ok;
                 {error, {already_started, _Pid}} ->
@@ -617,7 +616,6 @@ ensure_channel_started(Channel, Endpoints, Compression) ->
 
 do_ensure_channel_started(Channel, Endpoints, Compression) ->
     EndpointTuples = grpcbox_endpoints(Endpoints),
-    ChannelOpts = channel_opts(Compression),
     case EndpointTuples of
         [] ->
             ?LOG_WARNING("OTLP grpc channel ensure skipped: no valid endpoints configured channel=~p",
@@ -626,7 +624,7 @@ do_ensure_channel_started(Channel, Endpoints, Compression) ->
         _ ->
             ?LOG_INFO("OTLP grpc channel undefined; starting channel=~p endpoints=~p",
                       [Channel, length(EndpointTuples)]),
-            try grpcbox_channel:start_link(Channel, EndpointTuples, ChannelOpts) of
+            try serviceradar_otel_grpcbox_channel:start(Channel, EndpointTuples, Compression) of
                 {ok, _Pid} ->
                     ok;
                 {error, {already_started, _Pid}} ->
@@ -683,10 +681,6 @@ endpoint_key(Endpoints) when is_list(Endpoints) ->
         maps:get(port, Endpoint, undefined)} || Endpoint <- Endpoints]);
 endpoint_key(_) ->
     [].
-
-channel_opts(undefined) -> #{};
-channel_opts(gzip) -> #{encoding => gzip};
-channel_opts(_) -> #{}.
 
 grpcbox_endpoints(Endpoints) ->
     [{scheme(Scheme), Host, Port, maps:get(ssl_options, Endpoint, [])} ||

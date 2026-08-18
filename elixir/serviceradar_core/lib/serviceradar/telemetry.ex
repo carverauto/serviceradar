@@ -325,8 +325,18 @@ defmodule ServiceRadar.Telemetry do
       observability_signal_metrics() ++
       event_writer_metrics() ++
       prefix_tag_metrics() ++
-      capacity_forecasting_metrics() ++ stateful_alert_engine_metrics()
+      capacity_forecasting_metrics() ++
+      stateful_alert_engine_metrics() ++ notification_metrics()
   end
+
+  @doc """
+  Returns notification dispatch, suppression, escalation, and acknowledgement metrics.
+
+  Defined next to the events in `ServiceRadar.Notifications.Telemetry` so the SLIs
+  and their emission sites cannot drift. Without this line the events fire and
+  nothing scrapes them.
+  """
+  def notification_metrics, do: ServiceRadar.Notifications.Telemetry.metrics()
 
   @doc """
   Returns prefix-tag lookup, swap, rebuild, freshness, and import metrics.
@@ -559,7 +569,51 @@ defmodule ServiceRadar.Telemetry do
         measurement: :retention_risk_level,
         tags: [:stream, :durable, :subject_class],
         description:
-          "EventWriter durable retention risk level: 0 clear, 1 backlog, 2 redelivery backlog"
+          "EventWriter flow retention risk: 0 clear, 1 warning, 2 critical from backlog plus stream byte/age utilization"
+      ),
+      last_value("serviceradar.event_writer.consumer.stream_info_available.value",
+        event_name: [:serviceradar, :event_writer, :consumer, :state],
+        measurement: :stream_info_available,
+        tags: [:stream, :durable, :subject_class],
+        description: "Whether authoritative JetStream stream retention INFO was available"
+      ),
+      last_value("serviceradar.event_writer.consumer.stream_bytes.value",
+        event_name: [:serviceradar, :event_writer, :consumer, :state],
+        measurement: :stream_bytes,
+        tags: [:stream, :durable, :subject_class],
+        description: "Current bytes retained by the JetStream stream"
+      ),
+      last_value("serviceradar.event_writer.consumer.stream_max_bytes.value",
+        event_name: [:serviceradar, :event_writer, :consumer, :state],
+        measurement: :stream_max_bytes,
+        tags: [:stream, :durable, :subject_class],
+        description: "Configured JetStream stream MaxBytes limit"
+      ),
+      last_value("serviceradar.event_writer.consumer.stream_byte_utilization.ratio",
+        event_name: [:serviceradar, :event_writer, :consumer, :state],
+        measurement: :stream_byte_utilization_ratio,
+        tags: [:stream, :durable, :subject_class],
+        description: "JetStream stream current bytes divided by configured MaxBytes"
+      ),
+      last_value("serviceradar.event_writer.consumer.stream_first_message_age.seconds",
+        event_name: [:serviceradar, :event_writer, :consumer, :state],
+        measurement: :stream_first_message_age_seconds,
+        tags: [:stream, :durable, :subject_class],
+        unit: :second,
+        description: "Age of the oldest message currently retained by the JetStream stream"
+      ),
+      last_value("serviceradar.event_writer.consumer.stream_max_age.seconds",
+        event_name: [:serviceradar, :event_writer, :consumer, :state],
+        measurement: :stream_max_age_seconds,
+        tags: [:stream, :durable, :subject_class],
+        unit: :second,
+        description: "Configured JetStream stream MaxAge in seconds"
+      ),
+      last_value("serviceradar.event_writer.consumer.stream_age_utilization.ratio",
+        event_name: [:serviceradar, :event_writer, :consumer, :state],
+        measurement: :stream_age_utilization_ratio,
+        tags: [:stream, :durable, :subject_class],
+        description: "Oldest retained message age divided by configured stream MaxAge"
       ),
       counter("serviceradar.event_writer.consumer.poll_error.count",
         event_name: [:serviceradar, :event_writer, :consumer, :poll_error],

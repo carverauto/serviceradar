@@ -11,9 +11,9 @@ DROP TABLE IF EXISTS endpoint_inventory_package_counts_hourly;
 DROP TABLE IF EXISTS endpoint_inventory_cpe_counts_hourly;
 -- CASCADE: the virtualization_* tables (dropped further below) hold FKs to
 -- ocsf_devices, and seeding retries re-run this file over a populated schema.
-DROP TABLE IF EXISTS ocsf_devices CASCADE;
+DROP TABLE IF EXISTS public.ocsf_devices CASCADE;
 
-CREATE TABLE ocsf_devices (
+CREATE TABLE public.ocsf_devices (
     -- OCSF Core Identity
     uid                 TEXT        PRIMARY KEY,
     type_id             INT         NOT NULL DEFAULT 0,
@@ -59,6 +59,7 @@ CREATE TABLE ocsf_devices (
     is_available        BOOLEAN,
     is_active           BOOLEAN     NOT NULL DEFAULT TRUE,
     metadata            JSONB,
+    tags                JSONB,
     deleted_at          TIMESTAMPTZ,
     deleted_by          TEXT,
     deleted_reason      TEXT
@@ -73,7 +74,7 @@ CREATE OR REPLACE VIEW platform.ocsf_devices AS SELECT * FROM public.ocsf_device
 
 CREATE TABLE device_agent_availability (
     id                  UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
-    device_uid          TEXT        NOT NULL REFERENCES ocsf_devices(uid) ON DELETE CASCADE,
+    device_uid          TEXT        NOT NULL REFERENCES public.ocsf_devices(uid) ON DELETE CASCADE,
     agent_id            TEXT        NOT NULL,
     agent_name          TEXT,
     is_available        BOOLEAN     NOT NULL,
@@ -327,7 +328,9 @@ CREATE TABLE service_status (
     PRIMARY KEY (timestamp, gateway_id, service_name)
 );
 
-DROP TABLE IF EXISTS discovered_interfaces;
+-- CASCADE: platform.discovered_interfaces (created at the end of this file) is a
+-- view over this table, and seeding retries re-run this file over a populated schema.
+DROP TABLE IF EXISTS discovered_interfaces CASCADE;
 CREATE TABLE discovered_interfaces (
     timestamp       TIMESTAMPTZ NOT NULL,
     agent_id        TEXT,
@@ -567,7 +570,7 @@ CREATE TABLE virtualization_hosts (
     provider           TEXT        NOT NULL,
     provider_ref       TEXT        NOT NULL,
     cluster_id         UUID        REFERENCES virtualization_clusters(id),
-    device_uid         TEXT        REFERENCES ocsf_devices(uid),
+    device_uid         TEXT        REFERENCES public.ocsf_devices(uid),
     name               TEXT        NOT NULL,
     status             TEXT,
     version            TEXT,
@@ -586,7 +589,7 @@ CREATE TABLE virtualization_guests (
     provider           TEXT        NOT NULL,
     provider_ref       TEXT        NOT NULL,
     host_id            UUID        REFERENCES virtualization_hosts(id),
-    device_uid         TEXT        REFERENCES ocsf_devices(uid),
+    device_uid         TEXT        REFERENCES public.ocsf_devices(uid),
     name               TEXT,
     guest_type         TEXT        NOT NULL,
     vmid               BIGINT,
@@ -629,7 +632,7 @@ CREATE TABLE virtualization_host_disks (
     provider     TEXT        NOT NULL,
     provider_ref TEXT        NOT NULL,
     host_id      UUID        NOT NULL REFERENCES virtualization_hosts(id),
-    device_uid   TEXT        REFERENCES ocsf_devices(uid),
+    device_uid   TEXT        REFERENCES public.ocsf_devices(uid),
     path         TEXT,
     by_id        TEXT,
     disk_type    TEXT,
@@ -652,7 +655,7 @@ CREATE TABLE virtualization_network_interfaces (
     host_id        UUID        NOT NULL REFERENCES virtualization_hosts(id),
     guest_id       UUID        REFERENCES virtualization_guests(id),
     guest_provider_ref TEXT,
-    device_uid     TEXT        REFERENCES ocsf_devices(uid),
+    device_uid     TEXT        REFERENCES public.ocsf_devices(uid),
     name           TEXT        NOT NULL,
     interface_type TEXT,
     active         BOOLEAN,
@@ -688,3 +691,44 @@ CREATE TABLE virtualization_storage_systems (
     inserted_at         TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at          TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
+
+-- Device identity correlation for log lookups.
+--
+-- `in:logs device_id:"..."` correlates a device through THREE relations, all
+-- schema-qualified by the engine (rust/srql/src/query/logs/metadata.rs):
+-- platform.ocsf_devices, platform.device_identifiers and
+-- platform.discovered_interfaces. Only the first was exposed, so the statement
+-- failed to plan and the whole query errored:
+--
+--   ERROR srql::server: srql query failed
+--     error=Internal(relation "platform.device_identifiers" does not exist)
+--
+-- The fixture role's search_path is "$user", public, so tables in this file live
+-- in public and platform is reached through views -- exactly as ocsf_devices
+-- does above. device_identifiers has no fixture table at all, so it is created
+-- here first. Its column set mirrors the production table; only the three
+-- columns the engine reads are NOT NULL.
+--
+-- CASCADE on the drop: the view below depends on the table, and the harness
+-- re-runs this file over a populated schema.
+DROP TABLE IF EXISTS device_identifiers CASCADE;
+
+CREATE TABLE device_identifiers (
+    id                  BIGSERIAL   PRIMARY KEY,
+    device_id           TEXT        NOT NULL,
+    identifier_type     TEXT        NOT NULL,
+    identifier_value    TEXT        NOT NULL,
+    partition           TEXT,
+    confidence          TEXT,
+    source              TEXT,
+    first_seen          TIMESTAMPTZ,
+    last_seen           TIMESTAMPTZ,
+    verified            BOOLEAN,
+    metadata            JSONB
+);
+
+CREATE OR REPLACE VIEW platform.device_identifiers AS
+    SELECT * FROM public.device_identifiers;
+
+CREATE OR REPLACE VIEW platform.discovered_interfaces AS
+    SELECT * FROM public.discovered_interfaces;

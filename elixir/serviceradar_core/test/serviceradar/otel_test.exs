@@ -11,6 +11,10 @@ defmodule ServiceRadar.OtelTest do
     :ok
   end
 
+  test "standalone core disables trace export by default" do
+    assert Application.fetch_env!(:opentelemetry, :traces_exporter) == :none
+  end
+
   describe "span/3" do
     test "returns the function result" do
       assert ServiceRadar.Otel.span("test.span", %{}, fn -> {:ok, 42} end) == {:ok, 42}

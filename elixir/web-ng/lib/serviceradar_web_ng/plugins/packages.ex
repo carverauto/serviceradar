@@ -12,6 +12,7 @@ defmodule ServiceRadarWebNG.Plugins.Packages do
   alias ServiceRadar.Plugins.PluginArtifactMirror
   alias ServiceRadar.Plugins.PluginPackage
   alias ServiceRadar.Plugins.ProducerScheduleCatalog
+  alias ServiceRadarWebNG.Observability.ContractRegistry
   alias ServiceRadarWebNG.Plugins.FirstPartyImporter
   alias ServiceRadarWebNG.Plugins.GitHubImporter
   alias ServiceRadarWebNG.Plugins.Storage
@@ -109,6 +110,7 @@ defmodule ServiceRadarWebNG.Plugins.Packages do
       |> Ash.Changeset.for_update(:approve, attrs)
       |> update_resource_with_opts(ash_opts)
       |> sync_northbound_actions(:approved)
+      |> refresh_contract_index()
     end
   end
 
@@ -154,10 +156,35 @@ defmodule ServiceRadarWebNG.Plugins.Packages do
         other ->
           other
       end
+      |> refresh_contract_index()
     end
   end
 
   def revoke(_id, _attrs, _opts), do: {:error, :invalid_attributes}
+
+  # Approval and revocation are the two transitions that change what the runtime
+  # display-contract index holds, so the local node picks them up immediately
+  # instead of waiting out the registry's refresh interval. Other nodes in a
+  # cluster converge on that interval; the index is a render cache, not a
+  # correctness boundary, so a few minutes of staleness costs a package its
+  # custom rendering, never its data.
+  # `Map.put_new/3` is wrong for an attribute the resource declares `allow_nil?
+  # false`: the API controller builds its attrs map with every key present, so a
+  # caller who simply omitted the field leaves an explicit `nil` that `put_new`
+  # will not replace and Ash then rejects.
+  defp put_default(attrs, key, default) do
+    case Map.get(attrs, key) do
+      nil -> Map.put(attrs, key, default)
+      _value -> attrs
+    end
+  end
+
+  defp refresh_contract_index({:ok, _package} = result) do
+    ContractRegistry.refresh_async()
+    result
+  end
+
+  defp refresh_contract_index(result), do: result
 
   @spec restage(String.t(), keyword()) :: {:ok, PluginPackage.t()} | {:error, term()}
   def restage(id, opts \\ [])
@@ -406,6 +433,11 @@ defmodule ServiceRadarWebNG.Plugins.Packages do
           manifest_struct.producer_schedules ||
           []
 
+      display_contracts =
+        Map.get(attrs, :display_contracts) ||
+          Map.get(attrs, "display_contracts") ||
+          %{}
+
       attrs =
         attrs
         |> Map.put_new(:plugin_id, manifest_struct.id)
@@ -416,6 +448,7 @@ defmodule ServiceRadarWebNG.Plugins.Packages do
         |> Map.put_new(:runtime, manifest_struct.runtime)
         |> Map.put_new(:outputs, manifest_struct.outputs)
         |> Map.put_new(:display_contract, display_contract)
+        |> Map.put(:display_contracts, display_contracts)
         |> Map.put_new(:signal_schemas, signal_schemas)
         |> Map.put_new(:producer_schedules, producer_schedules)
 
@@ -458,6 +491,7 @@ defmodule ServiceRadarWebNG.Plugins.Packages do
       |> Map.put(:manifest, import.manifest)
       |> Map.put_new(:config_schema, import.config_schema || %{})
       |> Map.put_new(:display_contract, import.display_contract || %{})
+      |> put_default(:display_contracts, Map.get(import, :display_contracts) || %{})
       |> Map.put_new(:signal_schemas, import.manifest_struct.signal_schemas || [])
       |> Map.put_new(:producer_schedules, import.manifest_struct.producer_schedules || [])
       |> Map.put(:source_type, :github)
@@ -489,6 +523,7 @@ defmodule ServiceRadarWebNG.Plugins.Packages do
       |> Map.put(:manifest, import.manifest)
       |> Map.put_new(:config_schema, import.config_schema || %{})
       |> Map.put_new(:display_contract, import.display_contract || %{})
+      |> put_default(:display_contracts, Map.get(import, :display_contracts) || %{})
       |> Map.put_new(:signal_schemas, import.manifest_struct.signal_schemas || [])
       |> Map.put_new(:producer_schedules, import.manifest_struct.producer_schedules || [])
       |> Map.put(:source_type, :first_party)

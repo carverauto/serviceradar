@@ -28,6 +28,7 @@
 //! first. The old shell embedded `date +%s`, which is exactly the kind of value that cannot
 //! be recomputed by a later step.
 
+use std::borrow::Cow;
 use std::env;
 use std::io::{BufReader, Cursor};
 use std::sync::Once;
@@ -66,6 +67,22 @@ const REQUIRED_EXTENSIONS: &[&str] = &[
 
 /// AGE graphs the application expects to exist.
 const REQUIRED_GRAPHS: &[&str] = &["serviceradar_topology", "serviceradar", "platform_graph"];
+
+/// Find disposable databases whose own data-directory marker is older than the cutoff.
+///
+/// Every integration clone uses pg_default. Restricting the query to that tablespace is safer
+/// than guessing PostgreSQL's versioned external-tablespace path. Most importantly, the path is
+/// derived from each candidate database's OID, and PG_VERSION is written when CREATE DATABASE
+/// creates that directory but is not touched by ordinary relation activity.
+/// `pg_relation_filepath('pg_database')` names one shared catalog file and therefore gives every
+/// database the same all-or-none age.
+const STALE_DATABASE_QUERY: &str = "SELECT d.datname \
+     FROM pg_database AS d \
+     JOIN pg_tablespace AS t ON t.oid = d.dattablespace \
+     WHERE d.datname LIKE $1 \
+       AND t.spcname = 'pg_default' \
+       AND (pg_stat_file(format('base/%s/PG_VERSION', d.oid), true)).modification \
+           < now() - make_interval(secs => $2::double precision)";
 
 /// rustls installs a process-wide crypto provider, and doing it twice panics.
 static CRYPTO_PROVIDER: Once = Once::new();
@@ -139,8 +156,63 @@ pub fn shard_database_name(shard: &str) -> Result<String> {
 pub fn database_url() -> Result<String> {
     let base = env::var("SRQL_TEST_DATABASE_URL")
         .context("SRQL_TEST_DATABASE_URL is required to derive the per-run database URL")?;
+    require_verified_tls(&base, "SRQL_TEST_DATABASE_URL")?;
     let name = database_name()?;
     repoint_database(&base, &name)
+}
+
+/// Refuse a fixture DSN that does not demand verified TLS.
+///
+/// This used to be a property of the CREDENTIAL PIPELINE rather than of the code:
+/// `buildbuddy_setup_fixture_env.sh` rewrote `sslmode=verify-full` into whatever DSN it was
+/// handed, so the guarantee held only for callers that went through the script. A DSN that
+/// arrives straight from a secret store -- which is the whole point of storing it there --
+/// bypassed it.
+///
+/// A missing `sslmode` is not a loud failure, which is what makes it worth a hard error:
+/// tokio-postgres then defaults to `Prefer`, which PERMITS A PLAINTEXT FALLBACK, and Postgrex
+/// historically used `verify_none` even with a CA present. The fixture password crosses the
+/// network in the clear and every test still passes. Fail to connect instead.
+fn require_verified_tls(url: &str, variable: &str) -> Result<()> {
+    let sslmode = url
+        .split_once('?')
+        .map(|(_, query)| query)
+        .unwrap_or_default()
+        .split('&')
+        .find_map(|parameter| {
+            let (key, value) = parameter.split_once('=')?;
+            key.eq_ignore_ascii_case("sslmode").then_some(value)
+        });
+
+    match sslmode {
+        Some(value) if value.eq_ignore_ascii_case("verify-full") => Ok(()),
+        Some(value) => bail!(
+            "{variable} sets sslmode={value}, but the srql fixture requires sslmode=verify-full. \
+             Fix the stored secret rather than weakening this check."
+        ),
+        None => bail!(
+            "{variable} carries no sslmode, but the srql fixture requires sslmode=verify-full. \
+             Without it tokio-postgres defaults to Prefer and may fall back to plaintext. \
+             Append ?sslmode=verify-full to the stored secret."
+        ),
+    }
+}
+
+/// Remove every credential-bearing URL component before writing a database endpoint to logs.
+///
+/// PostgreSQL accepts passwords in either userinfo or the query string, so stripping only the
+/// text before `@` is insufficient.
+pub fn redacted_database_url(url: &str) -> String {
+    let Some((scheme, rest)) = url.split_once("://") else {
+        return "<unparseable>".to_string();
+    };
+    let end = rest.find(['?', '#']).unwrap_or(rest.len());
+    let authority_and_path = &rest[..end];
+
+    match authority_and_path.rsplit_once('@') {
+        Some((_, endpoint)) => format!("{scheme}://***@{endpoint}"),
+        None => format!("{scheme}://{authority_and_path}"),
+    }
 }
 
 fn repoint_database(url: &str, database: &str) -> Result<String> {
@@ -201,9 +273,7 @@ pub fn database_owner() -> Result<String> {
 }
 
 fn owner_from_url(url: &str) -> Result<String> {
-    let config: PgConfig = url
-        .parse()
-        .context("SRQL_TEST_DATABASE_URL is not a valid PostgreSQL connection string")?;
+    let config = parse_pg_config(url, "SRQL_TEST_DATABASE_URL")?;
 
     config.get_user().map(str::to_string).context(
         "SRQL_TEST_DATABASE_URL must include a user: it names the role that owns the \
@@ -214,9 +284,12 @@ fn owner_from_url(url: &str) -> Result<String> {
 
 /// The admin URL, which must have rights to CREATE/DROP DATABASE and install extensions.
 pub fn admin_url() -> Result<String> {
-    env::var("SRQL_TEST_ADMIN_URL")
+    let url = env::var("SRQL_TEST_ADMIN_URL")
         .or_else(|_| env::var("SERVICERADAR_TEST_ADMIN_URL"))
-        .context("SRQL_TEST_ADMIN_URL (or SERVICERADAR_TEST_ADMIN_URL) is required")
+        .context("SRQL_TEST_ADMIN_URL (or SERVICERADAR_TEST_ADMIN_URL) is required")?;
+    require_verified_tls(&url, "SRQL_TEST_ADMIN_URL")?;
+
+    Ok(url)
 }
 
 /// Connect with the admin credentials, optionally overriding the database.
@@ -224,16 +297,69 @@ pub fn admin_url() -> Result<String> {
 /// The returned [`JoinHandle`] drives the connection; dropping it closes the socket, so it
 /// has to outlive every query the caller makes.
 pub async fn connect_admin(database: Option<&str>) -> Result<(Client, JoinHandle<()>)> {
-    let mut config: PgConfig = admin_url()
-        .context("admin URL unavailable")?
-        .parse()
-        .context("SRQL_TEST_ADMIN_URL is not a valid PostgreSQL connection string")?;
+    let admin_url = admin_url().context("admin URL unavailable")?;
+    let mut config = parse_pg_config(&admin_url, "SRQL_TEST_ADMIN_URL")?;
 
     if let Some(database) = database {
         config.dbname(database);
     }
 
     connect(config).await
+}
+
+/// Parse a libpq-style URL with the subset of SSL modes understood by `tokio-postgres`.
+///
+/// The fixture DSNs are also consumed by Ecto/Postgrex, where `verify-ca` and `verify-full`
+/// are meaningful and turn peer verification on. `tokio-postgres` accepts only `disable`,
+/// `prefer`, and `require`; rejecting the shared DSN before our rustls connector sees it made
+/// the Rust lifecycle incompatible with the verified Elixir connection. Map the two verified
+/// libpq modes to `require` for this parser only. [`tls_connector_from_env`] still supplies the
+/// fixture CA, and `PGSSLSERVERNAME` preserves hostname verification for NodePort addresses.
+fn parse_pg_config(url: &str, variable: &str) -> Result<PgConfig> {
+    normalize_sslmode_for_tokio_postgres(url)
+        .parse()
+        .with_context(|| format!("{variable} is not a valid PostgreSQL connection string"))
+}
+
+fn normalize_sslmode_for_tokio_postgres(url: &str) -> Cow<'_, str> {
+    let Some((base, query)) = url.split_once('?') else {
+        return Cow::Borrowed(url);
+    };
+
+    let must_normalize = query.split('&').any(|parameter| {
+        let Some((key, value)) = parameter.split_once('=') else {
+            return false;
+        };
+
+        key.eq_ignore_ascii_case("sslmode")
+            && (value.eq_ignore_ascii_case("verify-ca")
+                || value.eq_ignore_ascii_case("verify-full"))
+    });
+
+    if !must_normalize {
+        return Cow::Borrowed(url);
+    }
+
+    let normalized = query
+        .split('&')
+        .map(|parameter| {
+            let Some((key, value)) = parameter.split_once('=') else {
+                return Cow::Borrowed(parameter);
+            };
+
+            if key.eq_ignore_ascii_case("sslmode")
+                && (value.eq_ignore_ascii_case("verify-ca")
+                    || value.eq_ignore_ascii_case("verify-full"))
+            {
+                Cow::Owned(format!("{key}=require"))
+            } else {
+                Cow::Borrowed(parameter)
+            }
+        })
+        .collect::<Vec<_>>()
+        .join("&");
+
+    Cow::Owned(format!("{base}?{normalized}"))
 }
 
 async fn connect(config: PgConfig) -> Result<(Client, JoinHandle<()>)> {
@@ -267,15 +393,13 @@ where
 /// The fixture CA as PEM bytes, preferring the certificate ITSELF over a path to it.
 ///
 /// `SRQL_TEST_DATABASE_CA_CERT` carries the PEM; `PGSSLROOTCERT` carries a filesystem path.
-/// Only the first form works on a remote executor: a path names a file on the machine that
-/// launched the build, and an RBE worker has no such file. Reading the path was what forced
-/// `no-remote-exec` onto every fixture-touching target -- the worker died with
-/// `failed to open PGSSLROOTCERT: No such file or directory`.
+/// The content form is independent of the caller's path namespace and therefore works inside
+/// the runner-local Bazel sandbox as well as under any future execution placement.
 ///
 /// The CA cannot become a declared Bazel input instead: it is a CNPG cluster cert on a 90-day
 /// rotation (the current one is valid 2026-06-02..2026-08-31), so a committed copy would
-/// expire on a calendar rather than on a change. Content-in-env is the only form that is both
-/// rotatable and reachable from a remote worker.
+/// expire on a calendar rather than on a change. Content-in-env keeps the rotating trust root
+/// available without coupling the action to a workstation or workflow-runner path.
 ///
 /// The path form is kept as a fallback for a developer pointing at a local fixture by file.
 fn ca_pem_from_env() -> Result<Option<Vec<u8>>> {
@@ -576,17 +700,15 @@ pub async fn teardown(database: &str) -> Result<()> {
 /// runner dies never reach teardown, so without this the fixture accumulates databases.
 /// Returns the names dropped.
 pub async fn sweep_stale(max_age_secs: i64) -> Result<Vec<String>> {
+    validate_stale_age(max_age_secs)?;
     let (admin, _task) = connect_admin(None).await?;
 
-    // pg_database has no creation timestamp, so age comes from the directory's mtime via
-    // pg_stat_file on the database's path. That is what the shell script used too.
+    // pg_database has no creation timestamp, so age comes from each database directory's
+    // PG_VERSION marker. The OID-derived path is per database; using a pg_database relation path
+    // here would age the shared catalog file and classify every disposable database identically.
     let rows = admin
         .query(
-            "SELECT datname \
-             FROM pg_database \
-             WHERE datname LIKE $1 \
-               AND (pg_stat_file(pg_catalog.pg_relation_filepath('pg_database'))).modification \
-                   < now() - make_interval(secs => $2::double precision)",
+            STALE_DATABASE_QUERY,
             &[&like_prefix(DISPOSABLE_PREFIX), &(max_age_secs as f64)],
         )
         .await
@@ -602,13 +724,7 @@ pub async fn sweep_stale(max_age_secs: i64) -> Result<Vec<String>> {
             continue;
         }
 
-        match admin
-            .batch_execute(&format!(
-                "DROP DATABASE IF EXISTS {} WITH (FORCE);",
-                quote_ident(&name)
-            ))
-            .await
-        {
+        match admin.batch_execute(&stale_drop_statement(&name)).await {
             Ok(()) => dropped.push(name),
             // A database another run is actively using is not this sweep's problem.
             Err(err) => eprintln!("could not drop stale database {name}: {err}"),
@@ -616,6 +732,17 @@ pub async fn sweep_stale(max_age_secs: i64) -> Result<Vec<String>> {
     }
 
     Ok(dropped)
+}
+
+fn stale_drop_statement(database: &str) -> String {
+    format!("DROP DATABASE IF EXISTS {};", quote_ident(database))
+}
+
+fn validate_stale_age(max_age_secs: i64) -> Result<()> {
+    if max_age_secs <= 0 {
+        bail!("stale database age must be greater than zero seconds");
+    }
+    Ok(())
 }
 
 /// Quote an identifier. Doubling embedded quotes is what makes it injection-safe.
@@ -670,6 +797,21 @@ mod tests {
     }
 
     #[test]
+    fn stale_database_query_ages_each_candidate_directory() {
+        assert!(STALE_DATABASE_QUERY.contains("format('base/%s/PG_VERSION', d.oid), true"));
+        assert!(STALE_DATABASE_QUERY.contains("t.spcname = 'pg_default'"));
+        assert!(!STALE_DATABASE_QUERY.contains("pg_relation_filepath('pg_database')"));
+        assert!(!stale_drop_statement("sr_core_test_123_1").contains("WITH (FORCE)"));
+    }
+
+    #[test]
+    fn stale_database_sweep_rejects_non_positive_age() {
+        assert!(validate_stale_age(86_400).is_ok());
+        assert!(validate_stale_age(0).is_err());
+        assert!(validate_stale_age(-1).is_err());
+    }
+
+    #[test]
     fn assert_disposable_rejects_the_shared_fixture() {
         assert!(assert_disposable("sr_core_test_123_1").is_ok());
         assert!(assert_disposable("serviceradar_web_ng_test").is_err());
@@ -694,6 +836,21 @@ mod tests {
     }
 
     #[test]
+    fn redacted_database_url_hides_userinfo_and_query_credentials() {
+        assert_eq!(
+            redacted_database_url(
+                "postgres://app:userinfo-secret@fixture.example:5432/db?\
+                 password=query-secret&sslmode=verify-full"
+            ),
+            "postgres://***@fixture.example:5432/db"
+        );
+        assert_eq!(
+            redacted_database_url("postgres://fixture.example/db?password=query-secret"),
+            "postgres://fixture.example/db"
+        );
+    }
+
+    #[test]
     fn owner_comes_from_the_dsn_user_not_a_hardcoded_name() {
         // The regression this guards: a fixture whose application role is not called
         // "serviceradar" got `CREATE DATABASE ... OWNER serviceradar` and failed with
@@ -709,9 +866,68 @@ mod tests {
     }
 
     #[test]
+    fn verified_libpq_ssl_modes_parse_for_the_rust_lifecycle() {
+        for mode in ["verify-ca", "verify-full", "VERIFY-FULL"] {
+            let config = parse_pg_config(
+                &format!(
+                    "postgres://srql_test:p%40ss@192.0.2.10:30818/srql_fixture?\
+                     application_name=integration&sslmode={mode}"
+                ),
+                "SRQL_TEST_DATABASE_URL",
+            )
+            .unwrap();
+
+            assert_eq!(config.get_user(), Some("srql_test"));
+            assert_eq!(config.get_dbname(), Some("srql_fixture"));
+            assert_eq!(config.get_application_name(), Some("integration"));
+        }
+    }
+
+    #[test]
+    fn sslmode_normalization_leaves_other_modes_and_parameters_unchanged() {
+        let require = "postgres://u:p@host/db?sslmode=require&application_name=fixture";
+        let disable = "postgres://u:p@host/db?sslmode=disable";
+
+        assert!(matches!(
+            normalize_sslmode_for_tokio_postgres(require),
+            Cow::Borrowed(value) if value == require
+        ));
+        assert!(matches!(
+            normalize_sslmode_for_tokio_postgres(disable),
+            Cow::Borrowed(value) if value == disable
+        ));
+    }
+
+    #[test]
     fn owner_from_url_requires_a_user() {
         // Silently defaulting is what produced a role name nothing had configured.
         assert!(owner_from_url("postgres://host:5432/db").is_err());
         assert!(owner_from_url("not a url").is_err());
+    }
+
+    #[test]
+    fn verified_tls_accepts_only_verify_full() {
+        for url in [
+            "postgres://u:p@host:5432/db?sslmode=verify-full",
+            "postgres://u:p@host:5432/db?application_name=x&sslmode=VERIFY-FULL",
+        ] {
+            assert!(require_verified_tls(url, "SRQL_TEST_DATABASE_URL").is_ok(), "{url}");
+        }
+    }
+
+    #[test]
+    fn verified_tls_rejects_a_dsn_that_permits_plaintext() {
+        // No sslmode at all is the dangerous case: tokio-postgres defaults to Prefer, so the
+        // connection succeeds in cleartext and nothing in the suite notices.
+        for url in [
+            "postgres://u:p@host:5432/db",
+            "postgres://u:p@host:5432/db?application_name=x",
+            "postgres://u:p@host:5432/db?sslmode=prefer",
+            "postgres://u:p@host:5432/db?sslmode=require",
+            "postgres://u:p@host:5432/db?sslmode=verify-ca",
+            "postgres://u:p@host:5432/db?sslmode=disable",
+        ] {
+            assert!(require_verified_tls(url, "SRQL_TEST_DATABASE_URL").is_err(), "{url}");
+        }
     }
 }

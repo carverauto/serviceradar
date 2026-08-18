@@ -34,8 +34,11 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries.Spec do
     end
   end
 
-  def extract_series_points(results, %{x: x, y: y, series: series_key}) do
+  def extract_series_points(results, spec), do: extract_series_points(results, spec, [])
+
+  def extract_series_points(results, %{x: x, y: y, series: series_key}, opts) when is_list(opts) do
     rows = Enum.filter(results, &is_map/1)
+    max_series = Keyword.get(opts, :max_series, @max_series)
 
     {points, units, metadata} =
       Enum.reduce(rows, {%{}, %{}, %{}}, fn row, {points_acc, units_acc, metadata_acc} ->
@@ -64,7 +67,7 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries.Spec do
         {series, sorted}
       end)
       |> Enum.sort_by(fn {series, _points} -> series end)
-      |> Enum.take(@max_series)
+      |> Enum.take(max_series)
 
     series_units =
       series_points

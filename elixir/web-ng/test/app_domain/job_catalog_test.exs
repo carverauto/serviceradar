@@ -17,8 +17,11 @@ defmodule ServiceRadarWebNG.JobCatalogTest do
   use ExUnit.Case, async: false
 
   alias ServiceRadar.Integrations.ArmisNorthboundRunWorker
+  alias ServiceRadar.Inventory.DeviceHostnameRdnsSettings.Scheduler
   alias ServiceRadar.ObjectStore.RetentionWorker, as: ObjectStoreRetentionWorker
   alias ServiceRadarWebNG.Jobs.JobCatalog
+
+  @moduletag :db_free
 
   @plugin_blob_retention_worker Module.concat([
                                   "ServiceRadarWebNG",
@@ -77,7 +80,7 @@ defmodule ServiceRadarWebNG.JobCatalogTest do
     assert plugin_job.name == "Plugin blob retention"
     assert plugin_job.source == :manual
     assert plugin_job.cron == "manual"
-    assert plugin_job.queue == :maintenance
+    assert plugin_job.queue == :web_maintenance
     assert plugin_job.worker == @plugin_blob_retention_worker
     assert plugin_job.args_filter == %{"manual" => true}
   end
@@ -98,6 +101,21 @@ defmodule ServiceRadarWebNG.JobCatalogTest do
     assert plugin_job.worker == @plugin_blob_retention_worker
   end
 
+  test "ash_oban hostname rDNS catalog entry points Run at the scheduler" do
+    job =
+      Enum.find(
+        JobCatalog.ash_oban_jobs(),
+        &(&1.resource == ServiceRadar.Inventory.DeviceHostnameRdnsSettings)
+      )
+
+    assert job
+    assert job.worker == ServiceRadar.Inventory.DeviceHostnameRdnsSettings.Worker
+    assert job.scheduler == Scheduler
+
+    assert JobCatalog.ash_oban_trigger_module(job) ==
+             Scheduler
+  end
+
   test "trigger_job delegates manual Armis entries to the worker entrypoint" do
     job = Enum.find(JobCatalog.manual_jobs(), &(&1.id == "manual:armis_northbound:source-1"))
 
@@ -116,5 +134,34 @@ defmodule ServiceRadarWebNG.JobCatalogTest do
 
     refute release_reason == :no_worker
     refute plugin_reason == :no_worker
+  end
+
+  @tag :db_free
+  test "workers whose last segment is Worker get a parent-module name and copy" do
+    capacity =
+      JobCatalog.worker_label(ServiceRadar.Observability.CapacityForecasting.Worker)
+
+    assert capacity.name == "Capacity forecasting"
+    assert capacity.description =~ "capacity forecast"
+    refute capacity.name == ""
+    refute capacity.description == "No description available"
+
+    seasonal =
+      JobCatalog.worker_label(ServiceRadar.Observability.SeasonalDisposition.Worker)
+
+    assert seasonal.name == "Seasonal disposition"
+    assert seasonal.description =~ "seasonal"
+    refute seasonal.name == ""
+    refute seasonal.description == "No description available"
+  end
+
+  @tag :db_free
+  test "workers with a descriptive last segment keep a humanized name" do
+    label =
+      JobCatalog.worker_label(ServiceRadar.Observability.SeasonalDisposition.EdgeBaselineProducer)
+
+    assert label.name == "Edge baseline producer"
+    assert is_binary(label.description) and label.description != ""
+    refute label.description == "No description available"
   end
 end

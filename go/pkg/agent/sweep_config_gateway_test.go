@@ -172,6 +172,46 @@ func TestParseGatewaySweepConfig_NoDeviceTargets(t *testing.T) {
 	}
 }
 
+func TestParseGatewaySweepConfig_DropsARPWithoutKeepingIt(t *testing.T) {
+	log := logger.NewTestLogger()
+
+	configJSON := []byte(`{
+		"sweep": {
+			"groups": [{
+				"id": "test-group",
+				"targets": ["10.0.0.0/24"],
+				"ports": [22, 80],
+				"modes": ["icmp", "tcp", "arp"],
+				"schedule": {
+					"type": "interval",
+					"interval": "5m"
+				},
+				"settings": {
+					"concurrency": 5
+				}
+			}]
+		}
+	}`)
+
+	config, err := parseGatewaySweepConfig(configJSON, log)
+	if err != nil {
+		t.Fatalf("parseGatewaySweepConfig failed: %v", err)
+	}
+
+	if config == nil || len(config.Groups) != 1 {
+		t.Fatalf("expected 1 group, got %#v", config)
+	}
+
+	got := config.Groups[0].SweepModes
+	if len(got) != 2 {
+		t.Fatalf("expected icmp+tcp after dropping arp, got %v", got)
+	}
+
+	if got[0] != models.ModeICMP || got[1] != models.ModeTCP {
+		t.Fatalf("expected [icmp tcp], got %v", got)
+	}
+}
+
 func TestParseGatewaySweepConfig_BannerGrab(t *testing.T) {
 	log := logger.NewTestLogger()
 

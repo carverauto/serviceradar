@@ -15,8 +15,8 @@
 #
 # The workflow runner in //buildbuddy.yaml is one long-lived task that wants ~32GB: it holds a
 # Bazel server over ~2,000 targets, uploads inputs for --jobs=100 concurrent remote actions
-# over the WAN, and executes every `no-remote-exec` target locally, including two
-# //integration_tests/srql suites that each start their own Postgres.
+# over the WAN, and runs database-facing TestRunner actions locally against shared CNPG while
+# their compile/link actions remain remote.
 #
 # Raising ./values.yaml to suit it would reserve that on all three build executors, because
 # `requests` is what the kube scheduler holds, not what is used. It would also let one runner
@@ -133,7 +133,8 @@ extraVolumes:
   # under budget -- cache thrash at best, and each one's accounting is wrong.
   - name: cache-volume
     hostPath:
-      path: /var/lib/buildbuddy/cache-workflows
+      # Dedicated BB disk on each worker (xfs /mnt/buildbuddy). Do not use /var/lib (root).
+      path: /mnt/buildbuddy/cache-workflows
       type: DirectoryOrCreate
   - name: dockerhub-auth
     secret:
@@ -158,6 +159,22 @@ config:
     # here. Pointed anywhere else, this pod registers with a scheduler that never sends it
     # the workflow, and the run fails as though the pool were empty.
     app_target: grpcs://carverauto.buildbuddy.io:443
+
+    # Same split as ./values.yaml, and it must match: see the long note there for what moves
+    # to the proxy and what stays on app_target.
+    #
+    # This pod's own cache traffic is small -- it runs the CI runner, which dispatches eligible
+    # compilation actions to the default pool while database TestRunner actions stay runner-local.
+    # It is not zero, so leaving it on app_target would send that traffic over the WAN while
+    # everything around it goes through the proxy.
+    #
+    # Note this is the EXECUTOR's cache target, which is a different hop from the Bazel
+    # CLIENT running inside the runner VM. That client reaches the same proxy through the
+    # public TLS edge instead, because its network namespace has no route to the service CIDR
+    # -- it inherits `build:cache_only --remote_cache` through remote_base with no opt-in. The two
+    # paths are independent and either works without the other, which is why they may name
+    # different addresses for one proxy.
+    cache_target: grpc://bb-cache-proxy-buildbuddy-enterprise-cache-proxy.buildbuddy.svc.cluster.local:1985
 
     enable_oci: true
     default_isolation_type: oci

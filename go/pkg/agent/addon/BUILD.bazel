@@ -40,9 +40,25 @@ go_test(
         "telemetry_env_test.go",
         "telemetry_test.go",
     ],
-    data = ["//go/cmd/serviceradar-sample-addon"],
+    # Both reference add-ons are declared inputs so the supervision tests and the
+    # Go<->Rust interop proof actually run here instead of skipping. The Rust binary
+    # is what makes //rust/addon-sdk's hand-written go-plugin handshake a tested
+    # contract rather than an assumption; without it the polyglot claim is verified
+    # nowhere. The tests exec these as subprocesses (go-plugin over a UDS), so the
+    # executable bit runfiles already preserves is all they need.
+    data = [
+        "//go/cmd/serviceradar-sample-addon",
+        "//rust/addon-sdk:serviceradar-rust-sample-addon",
+    ],
     embed = [":addon"],
+    # $(rootpath ...) is relative to the RUNFILES ROOT, but a go_test runs with its own
+    # package directory as the working directory -- so resolving these with filepath.Abs
+    # looks under go/pkg/agent/addon/... and finds nothing. resolveBinPath in
+    # manager_test.go joins them against TEST_SRCDIR/TEST_WORKSPACE instead. Do not
+    # "simplify" that back to filepath.Abs: the failure mode is a silent t.Skip inside a
+    # target that still reports PASS, which is how these tests sat inert.
     env = {
+        "SERVICERADAR_RUST_ADDON_BIN": "$(rootpath //rust/addon-sdk:serviceradar-rust-sample-addon)",
         "SERVICERADAR_SAMPLE_ADDON_BIN": "$(rootpath //go/cmd/serviceradar-sample-addon)",
     },
     deps = [

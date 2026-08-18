@@ -83,8 +83,8 @@ pub type UnwindTraceFn =
 #[cfg(not(feature = "unwinder"))]
 #[repr(C)]
 pub struct UnwindContext<'a> {
-    opaque: usize,
-    phantom: core::marker::PhantomData<&'a ()>,
+    opaque: core::cell::UnsafeCell<()>,
+    phantom: core::marker::PhantomData<(&'a (), *mut (), core::marker::PhantomPinned)>,
 }
 
 pub type PersonalityRoutine = unsafe extern "C" fn(

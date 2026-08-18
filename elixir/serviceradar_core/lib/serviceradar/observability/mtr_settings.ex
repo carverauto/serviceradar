@@ -16,6 +16,7 @@ defmodule ServiceRadar.Observability.MtrSettings do
 
   @default_retention_days 30
   @mtr_tables ["mtr_traces", "mtr_hops"]
+  @max_automatic_migration_bytes 268_435_456
 
   postgres do
     table "mtr_settings"
@@ -100,7 +101,11 @@ defmodule ServiceRadar.Observability.MtrSettings do
   end
 
   @doc """
-  Applies Timescale retention policies for MTR hypertables using configured days.
+  Converts `mtr_traces`/`mtr_hops` to hypertables when needed, then applies
+  Timescale retention policies using the configured day count.
+
+  Save used to return `:ok` while skipping regular tables, which left the
+  settings UI showing "policy missing" after a successful save.
   """
   @spec apply_retention_policy(map()) :: :ok | {:error, term()}
   def apply_retention_policy(%{mtr_retention_days: days}) when is_integer(days) do
@@ -112,6 +117,7 @@ defmodule ServiceRadar.Observability.MtrSettings do
       table_name text;
       table_ident text;
       ts_schema text;
+      table_bytes bigint;
     BEGIN
       SELECT n.nspname
       INTO ts_schema
@@ -120,32 +126,63 @@ defmodule ServiceRadar.Observability.MtrSettings do
       WHERE e.extname = 'timescaledb';
 
       IF ts_schema IS NULL THEN
-        RETURN;
+        RAISE EXCEPTION 'TimescaleDB extension is required for MTR retention policies';
       END IF;
 
       FOREACH table_name IN ARRAY ARRAY['mtr_traces', 'mtr_hops']
       LOOP
         table_ident := format('%I.%I', 'platform', table_name);
 
-        IF EXISTS (
+        IF to_regclass(table_ident) IS NULL THEN
+          RAISE EXCEPTION 'required MTR table % is missing', table_ident;
+        END IF;
+
+        IF NOT EXISTS (
           SELECT 1
           FROM timescaledb_information.hypertables
           WHERE hypertable_schema = 'platform'
             AND hypertable_name = table_name
         ) THEN
-          EXECUTE format(
-            'SELECT %I.remove_retention_policy(%L::regclass, if_exists => true)',
-            ts_schema,
-            table_ident
-          );
+          SELECT pg_total_relation_size(table_ident::regclass)
+          INTO table_bytes;
+
+          IF table_bytes > #{@max_automatic_migration_bytes} THEN
+            RAISE EXCEPTION
+              '% is a regular table of % bytes; automatic hypertable conversion is limited to #{@max_automatic_migration_bytes} bytes',
+              table_ident,
+              table_bytes
+              USING HINT = 'run create_hypertable during a maintenance window, then retry Save retention';
+          END IF;
 
           EXECUTE format(
-            'SELECT %I.add_retention_policy(%L::regclass, INTERVAL ''%s'', if_not_exists => true)',
+            'SELECT %I.create_hypertable(%L::regclass, %L::name, migrate_data => true, if_not_exists => true)',
             ts_schema,
             table_ident,
-            '#{interval}'
+            'time'
           );
         END IF;
+
+        IF NOT EXISTS (
+          SELECT 1
+          FROM timescaledb_information.hypertables
+          WHERE hypertable_schema = 'platform'
+            AND hypertable_name = table_name
+        ) THEN
+          RAISE EXCEPTION 'failed to convert % to a TimescaleDB hypertable', table_ident;
+        END IF;
+
+        EXECUTE format(
+          'SELECT %I.remove_retention_policy(%L::regclass, if_exists => true)',
+          ts_schema,
+          table_ident
+        );
+
+        EXECUTE format(
+          'SELECT %I.add_retention_policy(%L::regclass, INTERVAL ''%s'', if_not_exists => true)',
+          ts_schema,
+          table_ident,
+          '#{interval}'
+        );
       END LOOP;
     END;
     $$;
@@ -166,12 +203,12 @@ defmodule ServiceRadar.Observability.MtrSettings do
   def retention_status(settings \\ nil) do
     configured_days = configured_days(settings)
 
-    case read_policy_rows() do
-      {:ok, rows} ->
+    case read_table_states() do
+      {:ok, {hypertables, rows}} ->
         table_statuses =
           Map.new(@mtr_tables, fn table ->
             row = Enum.find(rows, &(Map.get(&1, "hypertable_name") == table))
-            {table, policy_status(row, configured_days)}
+            {table, policy_status(row, MapSet.member?(hypertables, table), configured_days)}
           end)
 
         %{
@@ -195,6 +232,30 @@ defmodule ServiceRadar.Observability.MtrSettings do
   defp configured_days(%{mtr_retention_days: days}) when is_integer(days), do: days
   defp configured_days(_), do: @default_retention_days
 
+  defp read_table_states do
+    with {:ok, hypertables} <- read_hypertable_names(),
+         {:ok, rows} <- read_policy_rows() do
+      {:ok, {hypertables, rows}}
+    end
+  end
+
+  defp read_hypertable_names do
+    sql = """
+    SELECT hypertable_name
+    FROM timescaledb_information.hypertables
+    WHERE hypertable_schema = 'platform'
+      AND hypertable_name = ANY($1)
+    """
+
+    case ServiceRadar.Repo.query(sql, [@mtr_tables]) do
+      {:ok, %{rows: rows}} ->
+        {:ok, MapSet.new(rows, fn [name] -> name end)}
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
   defp read_policy_rows do
     sql = """
     SELECT hypertable_name, config ->> 'drop_after' AS drop_after
@@ -213,12 +274,19 @@ defmodule ServiceRadar.Observability.MtrSettings do
     end
   end
 
-  defp policy_status(nil, _configured_days), do: %{configured?: false, matches?: false}
+  defp policy_status(_row, false, _configured_days) do
+    %{configured?: false, matches?: false, hypertable?: false}
+  end
 
-  defp policy_status(%{"drop_after" => drop_after}, configured_days) do
+  defp policy_status(nil, true, _configured_days) do
+    %{configured?: false, matches?: false, hypertable?: true}
+  end
+
+  defp policy_status(%{"drop_after" => drop_after}, true, configured_days) do
     %{
       configured?: true,
       matches?: drop_after_matches?(drop_after, configured_days),
+      hypertable?: true,
       drop_after: drop_after
     }
   end

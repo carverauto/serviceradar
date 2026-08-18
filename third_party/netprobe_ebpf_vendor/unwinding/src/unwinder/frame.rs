@@ -145,10 +145,13 @@ impl Frame {
         new_ctx[Arch::SP] = cfa as _;
         new_ctx[Arch::RA] = 0;
 
-        #[warn(non_exhaustive_omitted_patterns)]
         for (reg, rule) in row.registers() {
             let value = match *rule {
-                RegisterRule::Undefined | RegisterRule::SameValue => ctx[*reg],
+                // For most registers, `Undefined` indicates the value does not need to
+                // be preserved so the value content does not matter. However when RA is
+                // `Undefined` it indicates that the unwinding is complete.
+                RegisterRule::Undefined => 0,
+                RegisterRule::SameValue => ctx[*reg],
                 RegisterRule::Offset(offset) => unsafe {
                     *((cfa.wrapping_add(offset as usize)) as *const usize)
                 },
@@ -161,7 +164,6 @@ impl Frame {
                 RegisterRule::ValExpression(expr) => self.evaluate_expression(ctx, expr)?,
                 RegisterRule::Architectural => unreachable!(),
                 RegisterRule::Constant(value) => value as usize,
-                _ => unreachable!(),
             };
             new_ctx[*reg] = value;
         }

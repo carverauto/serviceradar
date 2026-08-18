@@ -83,28 +83,6 @@ version_from_bazel_constant() {
     '
 }
 
-sha256_from_ref_path() {
-  local ref="$1" path="$2"
-
-  if command -v sha256sum >/dev/null 2>&1; then
-    git show "${ref}:${path}" 2>/dev/null | sha256sum | awk '{print $1}'
-  else
-    git show "${ref}:${path}" 2>/dev/null | shasum -a 256 | awk '{print $1}'
-  fi
-}
-
-hash_index_has_file_hash() {
-  local ref="$1" index_path="$2" path="$3" expected_hash="$4"
-  local hash_index
-
-  hash_index="$(git show "${ref}:${index_path}" 2>/dev/null)" || return 1
-  grep -Fq "FILE:@@//${path} ${expected_hash}" <<<"${hash_index}"
-}
-
-module_lock_has_file_hash() {
-  hash_index_has_file_hash "$1" "MODULE.bazel.lock" "$2" "$3"
-}
-
 addon_ids() {
   cat <<'EOF'
 netprobe
@@ -145,8 +123,8 @@ manifest_path() {
 #     to be present. It reaches the generated vendor tree solely as alias labels
 #     (serviceradar-netprobe-<version>) pointing at packages crates_vendor never emits.
 #   * But mirroring it into Cargo.toml edited a manifest, which changed Cargo.lock, which
-#     invalidated third_party/crates/.serviceradar-vendor-inputs, whose documented fix is
-#     scripts/vendor.sh -- rewriting 625 crate directories and discarding the Bazel cache
+#     invalidated the vendored tree's input index, whose documented fix rewrote 625 crate
+#     directories and discarded the Bazel cache
 #     for every Rust target, to restate a version that changed no third-party crate.
 #
 # addons/<id>/addon.yaml is now the single source of truth. bazel_version_path() below
@@ -181,8 +159,14 @@ path_belongs_to_addon() {
       esac
       ;;
     netprobe)
+      # The vendor tree is what -Z build-std compiles netprobe_ebpf.o against, so it
+      # determines the shipped object's bytes just as much as rust/netprobe does. A
+      # nightly bump touches neither addons/netprobe nor rust/netprobe, and without
+      # it here the gate would let a changed artifact ship under an unchanged
+      # version -- the false negative it exists to prevent.
       case "${path}" in
         addons/netprobe/*|rust/netprobe/*) return 0 ;;
+        third_party/netprobe_ebpf_vendor/*) return 0 ;;
       esac
       ;;
     powerdns)
@@ -313,7 +297,6 @@ version_changed() {
 changed_paths="$(git diff --name-only --no-renames "${BASE_REF}" "${HEAD_REF}")"
 required_bumps=""
 version_checks=""
-rdp_connector_bazel_lock_check=false
 inventory_changed=false
 inventory_mapped=false
 
@@ -349,11 +332,13 @@ while IFS= read -r path; do
     fi
   done < <(addon_ids)
 
+  # The RDP helper resolves its connector/CredSSP graph from the isolated
+  # rdp_connector_crates universe, so that universe's manifest and lockfile are rdp payload
+  # even though neither lives under rust/rdp-adapter.
   case "${path}" in
     rust/rdp-connector-probe/Cargo.lock|rust/rdp-connector-probe/Cargo.toml)
       required_bumps="${required_bumps}rdp"$'\n'
       version_checks="${version_checks}rdp"$'\n'
-      rdp_connector_bazel_lock_check=true
       ;;
   esac
 done <<<"${changed_paths}"
@@ -416,34 +401,24 @@ EOF
 done <<<"${required_bumps}"
 
 
-if [[ "${rdp_connector_bazel_lock_check}" == true ]]; then
-  missing_lock_hashes=""
-
-  for lock_input_path in \
-    "rust/rdp-connector-probe/Cargo.lock" \
-    "rust/rdp-connector-probe/Cargo.toml"; do
-    expected_hash="$(sha256_from_ref_path "${HEAD_REF}" "${lock_input_path}")"
-
-    if ! module_lock_has_file_hash "${HEAD_REF}" "${lock_input_path}" "${expected_hash}"; then
-      missing_lock_hashes="${missing_lock_hashes}  ${lock_input_path}: ${expected_hash}"$'\n'
-    fi
-  done
-
-  if [[ -n "${missing_lock_hashes}" ]]; then
-    cat >&2 <<EOF
-error: RDP connector metadata changed but MODULE.bazel.lock is stale
-${missing_lock_hashes}
-The production RDP helper resolves its connector/CredSSP dependency graph from
-the isolated rdp_connector_crates universe. Run:
-  bazel --batch mod deps --lockfile_mode=update
-
-Run the command twice if the first pass rewrites a Cargo lockfile, then commit
-the refreshed MODULE.bazel.lock so release packaging uses the reviewed isolated
-connector dependency graph.
-EOF
-    exit 1
-  fi
-fi
+# NO MODULE.bazel.lock STALENESS CHECK.
+#
+# There used to be one here, asserting that MODULE.bazel.lock recorded a
+# `FILE:@@//rust/rdp-connector-probe/Cargo.{lock,toml} <sha256>` line, so release packaging
+# resolved the connector graph from a reviewed pin. It worked under crate_universe, which
+# is a non-reproducible module extension: Bazel therefore recorded its file inputs.
+#
+# rules_rs' crate extension returns extension_metadata(reproducible = True), and Bazel does
+# not record results for a reproducible extension at all. 2a9c1eb04b ("migrate Rust to
+# rules_rs") consequently dropped both lines from the lockfile, and no
+# `bazel mod deps --lockfile_mode=update` can put them back -- verified, it is a no-op.
+# The check has been unsatisfiable ever since and only stayed quiet because nothing had
+# touched the probe manifest.
+#
+# The property it protected still holds by a different mechanism. A reproducible extension
+# is a pure function of its inputs, and the input here is rust/rdp-connector-probe/Cargo.lock
+# -- committed, diffed in review, and the same file the case above makes rdp payload. The
+# lockfile recording was a crate_universe implementation detail, not the guarantee itself.
 
 while IFS= read -r addon; do
   [[ -n "${addon}" ]] || continue

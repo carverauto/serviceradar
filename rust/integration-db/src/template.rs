@@ -400,9 +400,17 @@ pub fn migrations_dir() -> PathBuf {
     }
 
     // cargo test: climb out of rust/integration-db to the workspace root.
-    Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("../..")
-        .join(REL)
+    //
+    // std::env::var, not env!. The macro is evaluated at COMPILE time, so it bakes the
+    // absolute path of the directory that built this crate into the library -- under RBE
+    // that is /buildbuddy-execroot/..., which makes the artifact non-reproducible and is
+    // rejected outright by rules_rs's process wrapper. Read at runtime instead: cargo sets
+    // the variable when it runs the test, and Bazel never reaches this branch because the
+    // two runfiles lookups above already resolved.
+    if let Ok(manifest_dir) = std::env::var("CARGO_MANIFEST_DIR") {
+        return Path::new(&manifest_dir).join("../..").join(REL);
+    }
+    PathBuf::from(REL)
 }
 
 #[cfg(test)]

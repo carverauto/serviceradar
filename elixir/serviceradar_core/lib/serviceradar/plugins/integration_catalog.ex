@@ -8,6 +8,7 @@ defmodule ServiceRadar.Plugins.IntegrationCatalog do
   """
 
   alias ServiceRadar.Actors.SystemActor
+  alias ServiceRadar.Credentials.NativeDescriptors
   alias ServiceRadar.Plugins.Manifest
   alias ServiceRadar.Plugins.PluginPackage
 
@@ -22,8 +23,9 @@ defmodule ServiceRadar.Plugins.IntegrationCatalog do
   def load(opts \\ []) do
     actor = Keyword.get(opts, :actor, SystemActor.system(:plugin_integration_catalog))
 
-    with {:ok, packages} <- approved_packages(actor) do
-      from_packages(packages)
+    with {:ok, packages} <- approved_packages(actor),
+         {:ok, catalog} <- from_packages(packages) do
+      {:ok, merge_native_profiles(catalog)}
     end
   end
 
@@ -213,6 +215,18 @@ defmodule ServiceRadar.Plugins.IntegrationCatalog do
 
   defp value(%{} = value, key), do: Map.get(value, key) || Map.get(value, to_string(key))
   defp value(_value, _key), do: nil
+
+  defp merge_native_profiles(catalog) do
+    claimed = MapSet.new(catalog.credential_profiles, & &1["provider"])
+
+    natives =
+      NativeDescriptors.all()
+      |> Map.values()
+      |> Enum.reject(&MapSet.member?(claimed, &1["provider"]))
+      |> Enum.sort_by(&String.downcase(&1["label"] || &1["provider"]))
+
+    %{catalog | credential_profiles: natives ++ catalog.credential_profiles}
+  end
 
   defp empty, do: %{credential_profiles: [], inventory_sources: []}
 end

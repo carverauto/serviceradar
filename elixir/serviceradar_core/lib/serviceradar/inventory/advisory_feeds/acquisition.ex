@@ -171,17 +171,29 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.Acquisition do
     end
   end
 
+  @doc false
+  def req_opts(timeout_ms \\ @default_timeout_ms) do
+    # Req 0.6 refuses :finch and :connect_options together. The named
+    # ServiceRadar.Finch pool already owns connect/TLS settings.
+    [
+      receive_timeout: timeout_ms,
+      retry: :transient,
+      finch: ServiceRadar.Finch
+    ]
+  end
+
   defp default_get_json(url, headers) do
     require_req!()
 
-    case Req.get(url,
-           headers: [{"user-agent", @user_agent} | headers],
-           decode_body: :json,
-           receive_timeout: @default_timeout_ms,
-           retry: :transient,
-           max_retries: 3,
-           finch: ServiceRadar.Finch
-         ) do
+    opts =
+      [
+        url: url,
+        headers: [{"user-agent", @user_agent} | headers],
+        decode_body: :json,
+        max_retries: 3
+      ] ++ req_opts()
+
+    case Req.get(opts) do
       {:ok, %{status: 200, body: body}} when is_map(body) -> {:ok, body}
       {:ok, %{status: status}} -> {:error, {:http_status, status}}
       {:error, reason} -> {:error, reason}
@@ -192,13 +204,7 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.Acquisition do
     require_req!()
 
     Req.get(
-      [
-        url: url,
-        headers: [{"user-agent", @user_agent}],
-        retry: :transient,
-        max_retries: 3,
-        finch: ServiceRadar.Finch
-      ] ++ opts
+      [url: url, headers: [{"user-agent", @user_agent}], max_retries: 1] ++ req_opts() ++ opts
     )
   end
 

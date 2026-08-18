@@ -61,6 +61,30 @@ fn implicitly_promotes_supported_device_jsonb_wildcards_to_like() {
 }
 
 #[test]
+fn implicitly_promotes_dynamic_jsonb_wildcards_to_like() {
+    let ast = parse("in:devices tags.Role:%edge% !metadata.Zone:%legacy%").unwrap();
+
+    assert_eq!(ast.filters.len(), 2);
+    assert_eq!(ast.filters[0].field, "tags.Role");
+    assert!(matches!(ast.filters[0].op, FilterOp::Like));
+    assert_eq!(ast.filters[1].field, "metadata.Zone");
+    assert!(matches!(ast.filters[1].op, FilterOp::NotLike));
+}
+
+#[test]
+fn preserves_dynamic_jsonb_key_casing_in_sort_fields() {
+    let ast = parse("in:devices stats:count() as total by tags.Gate,tags.gate sort:tags.gate:asc")
+        .unwrap();
+
+    assert_eq!(ast.order.len(), 1);
+    assert_eq!(ast.order[0].field, "tags.gate");
+
+    let ast = parse("in:devices stats:count() as total by tags.Gate,tags.gate sort:tags.Gate:asc")
+        .unwrap();
+    assert_eq!(ast.order[0].field, "tags.Gate");
+}
+
+#[test]
 fn implicitly_promotes_flow_ip_wildcards_to_like() {
     for query in [
         "in:flows src_ip:%34.98.126.%",
@@ -249,6 +273,18 @@ fn parses_capacity_forecast_entity_aliases() {
     ] {
         let ast = parse(&format!("in:{raw} status:projected limit:10")).unwrap();
         assert_eq!(ast.entity, Entity::CapacityForecasts, "entity alias {raw}");
+    }
+}
+
+#[test]
+fn parses_composite_results_entity_aliases() {
+    for raw in [
+        "composite_results",
+        "composite_check_results",
+        "composite_verdicts",
+    ] {
+        let ast = parse(&format!("in:{raw} check:pci-isolation limit:10")).unwrap();
+        assert_eq!(ast.entity, Entity::CompositeResults, "entity alias {raw}");
     }
 }
 

@@ -136,9 +136,69 @@ pub(super) fn build_grouped_jsonb_text_clause(
                 "({jsonb_expr} IS NULL OR {jsonb_expr} NOT ILIKE ?)"
             ))
         }
+        // List form, e.g. tags.gate:(B40,B41). Mirrors
+        // `filters::jsonb::apply_jsonb_text_filter` so a filter behaves the
+        // same whether or not the query also carries a `stats:` clause.
+        FilterOp::In | FilterOp::NotIn => {
+            let values = filter.value.as_list()?.to_vec();
+            if values.is_empty() {
+                return Ok("1=1".to_string());
+            }
+
+            binds.push(DeviceSqlBindValue::TextArray(values));
+            if matches!(filter.op, FilterOp::NotIn) {
+                Ok(format!(
+                    "({jsonb_expr} IS NULL OR NOT ({jsonb_expr} = ANY(?)))"
+                ))
+            } else {
+                Ok(format!("{jsonb_expr} = ANY(?)"))
+            }
+        }
         _ => Err(ServiceError::InvalidRequest(format!(
-            "JSONB field '{column}.{key}' only supports equality and LIKE filters"
+            "JSONB field '{column}.{key}' only supports equality, LIKE, and list filters"
         ))),
+    }
+}
+
+/// Bare `tags:<key>` is a JSONB key-existence check, matching
+/// `filters::jsonb::apply_tags_filter`.
+///
+/// This path spells the check as `jsonb_exists` / `jsonb_exists_any` rather
+/// than the `?` and `?|` operators the Diesel path uses. Grouped stats build
+/// raw SQL that `rewrite_placeholders` post-processes, and that pass turns
+/// *every* `?` into `$n` -- a literal `?` operator here would be rewritten into
+/// a bind placeholder and the query would fail to parse.
+pub(super) fn build_grouped_tags_clause(
+    filter: &Filter,
+    binds: &mut Vec<DeviceSqlBindValue>,
+) -> Result<String> {
+    match filter.op {
+        FilterOp::Eq | FilterOp::NotEq => {
+            binds.push(DeviceSqlBindValue::Text(
+                filter.value.as_scalar()?.to_string(),
+            ));
+            if matches!(filter.op, FilterOp::NotEq) {
+                Ok("NOT jsonb_exists(coalesce(tags, '{}'::jsonb), ?)".to_string())
+            } else {
+                Ok("jsonb_exists(coalesce(tags, '{}'::jsonb), ?)".to_string())
+            }
+        }
+        FilterOp::In | FilterOp::NotIn => {
+            let values = filter.value.as_list()?.to_vec();
+            if values.is_empty() {
+                return Ok("1=1".to_string());
+            }
+
+            binds.push(DeviceSqlBindValue::TextArray(values));
+            if matches!(filter.op, FilterOp::NotIn) {
+                Ok("NOT jsonb_exists_any(coalesce(tags, '{}'::jsonb), ?)".to_string())
+            } else {
+                Ok("jsonb_exists_any(coalesce(tags, '{}'::jsonb), ?)".to_string())
+            }
+        }
+        _ => Err(ServiceError::InvalidRequest(
+            "tags filter only supports equality and list filters".into(),
+        )),
     }
 }
 

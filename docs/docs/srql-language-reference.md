@@ -187,6 +187,28 @@ in:cpu_metrics time:last_24h stats:avg(usage_percent) as avg_cpu
 in:flows time:last_1h stats:sum(bytes_total) as bytes by src_ip sort:bytes:desc
 ```
 
+### Grouping devices by a tag or metadata key
+
+`in:devices` can group on a JSONB sub-key as well as a column, which is how you
+chart a dimension that only exists as a tag:
+
+```srql
+in:devices stats:count() as total by tags.gate limit:100
+in:devices tags.site:ZZA stats:count() as total by tags.gate limit:100
+in:devices stats:count() as total by metadata.integration_type
+```
+
+Devices missing the key are counted under `Unknown` rather than dropped. The
+grouped result names the column with its full path (`tags.gate`), which is also
+what `sort:` expects: `sort:tags.gate:asc`.
+
+Groupable device fields: `type`, `vendor_name`, `risk_level`, `is_available`,
+`is_active`, `gateway_id`, `tags.<key>`, `metadata.<key>`.
+
+Grouped queries return at most **100** rows and default to **20**, so set
+`limit:` explicitly when a dimension has more distinct values than that —
+otherwise the chart silently shows a subset.
+
 ## Downsampling with `bucket`
 
 For time-series charts, `bucket:` groups rows into fixed time buckets.
@@ -272,7 +294,8 @@ subsection heading matches the `in:` name used to select the entity.
 | `is_available` | `available` | Currently reachable (`true`/`false`) |
 | `is_active` | `active` | Lifecycle state (`true`/`false`) |
 | `discovery_sources` | | Sources that discovered the device (array; list form) |
-| `tags` | | Device tags (array; list form). Sub-key form: `tags.<key>:<value>` |
+| `first_seen` | `first_seen_time` | When the device was first added. Accepts the same window tokens as `time:` (`last_7d`, `last_30d`, `today`, `[start,end]`). This does **not** change `time:`, which still filters `last_seen_time`. |
+| `tags` | | Device tags (JSONB map). Bare `tags:<key>` tests whether the key exists; list form `tags:(a,b)` matches any of them. Sub-key form: `tags.<key>:<value>` |
 | `metadata.<key>` | | Match an arbitrary metadata key, e.g. `metadata.integration_type:armis` |
 
 Sortable fields include `hostname`, `ip`, `first_seen` / `first_seen_time`,
@@ -312,7 +335,7 @@ Sortable fields: `time` (aliases `event_timestamp`, `timestamp`).
 | Field | Aliases | Description |
 |-------|---------|-------------|
 | `id` | | Log record identifier |
-| `device_id` | `uid`, `source_device_uid` | Associated device |
+| `device_id` | `uid`, `source_device_uid` | Associated device. Matches inventory uid/hostname/IP against log attributes and `source_ip` (syslog emitter IP). |
 | `gateway_id` | | Associated gateway ID |
 | `agent_id` | | Associated agent ID |
 | `trace_id` | | OpenTelemetry trace ID |
@@ -321,6 +344,7 @@ Sortable fields: `time` (aliases `event_timestamp`, `timestamp`).
 | `service_version` | | Service version |
 | `service_instance` | | Service instance identifier |
 | `source` | | Log source |
+| `source_ip` | | Emitter IP (syslog `_remote_addr` / `source_ip`) |
 | `scope_name` | | Instrumentation scope name |
 | `scope_version` | | Instrumentation scope version |
 | `severity_text` | `severity`, `level` | Severity text (e.g. `error`, `warn`) |

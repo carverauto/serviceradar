@@ -3,7 +3,8 @@
 Single source of truth, because two packages have to agree exactly:
 
   * //elixir/serviceradar_core generates one ex_unit_test per shard;
-  * //rust/integration-db:provision_db clones one database per shard.
+  * //rust/integration-db:provision_db clones every shard database for CI;
+  * //rust/integration-db:provision_db_sN clones one matching database for focused runs.
 
 A mismatch is not a build error -- it is a suite that runs against a database nothing
 provisioned, so the number lives here and both sides read it.
@@ -36,12 +37,18 @@ almost nothing while multiplying database load -- N=16 is still ~49s, for twice 
 connections and twice the clones.
 """
 
+load(
+    "@rules_elixir//:shards.bzl",
+    "shard_names",
+    _partition_by_shard = "partition_by_shard",
+)
+
 # Keep in step with nothing else -- everything derives from this.
 INTEGRATION_SHARD_COUNT = 8
 
 def integration_shard_names():
     """Shard suffixes, e.g. ["s0", "s1", ...]. Used in target names and database names."""
-    return ["s{}".format(i) for i in range(INTEGRATION_SHARD_COUNT)]
+    return shard_names(INTEGRATION_SHARD_COUNT)
 
 # Test files whose runtime is dominated by a few very slow tests, dealt out BEFORE everything
 # else so that no two land in the same shard.
@@ -71,35 +78,9 @@ _HEAVY_SRCS = [
 def partition_by_shard(srcs):
     """Split srcs into INTEGRATION_SHARD_COUNT disjoint, deterministic buckets.
 
-    Two passes, both round-robin over a sorted list:
-
-      1. the known-heavy files, so they are spread across different shards;
-      2. everything else, which is uniform enough that file count is a fair proxy.
-
     Deliberately not grouped by directory: shards no longer need to align with subsystems now
     that each has its own database, and serviceradar_core's test tree is far too lopsided for
     directory grouping to balance anything -- one directory holds several hundred files and
     others hold two.
-
-    Args:
-      srcs: the ExUnit test files to partition.
-
-    Returns:
-      A dict of shard name -> list of srcs. Every shard is present even when empty, so the
-      generated target list always matches the database list //rust/integration-db provisions.
     """
-    names = integration_shard_names()
-    buckets = {name: [] for name in names}
-
-    heavy = [src for src in sorted(srcs) if src in _HEAVY_SRCS]
-    rest = [src for src in sorted(srcs) if src not in _HEAVY_SRCS]
-
-    for index, src in enumerate(heavy):
-        buckets[names[index % INTEGRATION_SHARD_COUNT]].append(src)
-
-    # Offset by len(heavy) so the light files keep filling round-robin from where the heavy
-    # pass stopped, rather than piling the first few onto the shards that already hold one.
-    for index, src in enumerate(rest):
-        buckets[names[(index + len(heavy)) % INTEGRATION_SHARD_COUNT]].append(src)
-
-    return buckets
+    return _partition_by_shard(srcs, INTEGRATION_SHARD_COUNT, heavy_srcs = _HEAVY_SRCS)

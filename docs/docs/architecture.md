@@ -70,6 +70,28 @@ These components communicate internally over mTLS-secured Erlang distribution (E
 
 See [Edge Model](./edge-model.md).
 
+## Notification Availability And The Failure Domain
+
+Notification availability is bounded by `core` availability, deliberately and by
+construction.
+
+The alert engine runs in `core`. A `core` outage therefore means there are no
+alerts to notify about, so there is nothing an independently available delivery
+path could deliver. Building notification delivery to survive a `core` outage
+would be a high-availability story with no engine behind it.
+
+This matters because of a distinction that is easy to lose. A notification
+channel can be routed through a `serviceradar-agent` inside a customer network
+(`execution_route: edge_agent`), and that looks like an availability feature. It
+is not one. Agent routing exists for **egress locality** - so a notification
+leaves from inside the customer's own network, reaching a destination the control
+plane cannot see - and an agent-routed channel still depends on `core` to decide
+that a notification should be sent at all.
+
+A genuine high-availability answer requires an edge-resident rule engine, which
+ServiceRadar does not have and which would be a different design. Until then,
+plan `core` availability as the availability of alerting itself.
+
 ## Bulk Telemetry Pipeline (NATS JetStream)
 
 Collectors publish bulk telemetry into JetStream (commonly the `events` and

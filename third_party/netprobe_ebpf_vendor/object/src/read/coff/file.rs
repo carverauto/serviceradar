@@ -2,12 +2,12 @@ use alloc::vec::Vec;
 use core::fmt::Debug;
 
 use crate::endian::LittleEndian as LE;
-use crate::pe;
 use crate::pod::Pod;
 use crate::read::{
     self, Architecture, Export, FileFlags, Import, NoDynamicRelocationIterator, Object, ObjectKind,
     ObjectSection, ReadError, ReadRef, Result, SectionIndex, SubArchitecture, SymbolIndex,
 };
+use crate::{pe, SkipDebugList};
 
 use super::{
     CoffComdat, CoffComdatIterator, CoffSection, CoffSectionIterator, CoffSegment,
@@ -42,7 +42,7 @@ pub struct CoffFile<'data, R: ReadRef<'data> = &'data [u8], Coff: CoffHeader = p
 {
     pub(super) header: &'data Coff,
     pub(super) common: CoffCommon<'data, R, Coff>,
-    pub(super) data: R,
+    pub(super) data: SkipDebugList<R>,
 }
 
 impl<'data, R: ReadRef<'data>, Coff: CoffHeader> CoffFile<'data, R, Coff> {
@@ -60,7 +60,7 @@ impl<'data, R: ReadRef<'data>, Coff: CoffHeader> CoffFile<'data, R, Coff> {
                 symbols,
                 image_base: 0,
             },
-            data,
+            data: SkipDebugList(data),
         })
     }
 

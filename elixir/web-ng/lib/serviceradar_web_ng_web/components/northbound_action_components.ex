@@ -3,14 +3,9 @@ defmodule ServiceRadarWebNGWeb.NorthboundActionComponents do
   use Phoenix.Component
 
   import ServiceRadarWebNGWeb.CoreComponents
-  import ServiceRadarWebNGWeb.DeviceLive.AnsiblePanelComponents, only: [var_input: 1]
   import ServiceRadarWebNGWeb.UIComponents
-  # Reuse the device-detail Ansible panel's typed variable input so the bulk
-  # "Run Task" modal renders an identical variable form.
-  alias ServiceRadarWebNG.Northbound.ActionForm
 
-  # How many non-applicable device names to name before collapsing to "+N more".
-  @non_applicable_display_limit 10
+  alias ServiceRadarWebNG.Northbound.ActionForm
 
   attr(:id, :string, required: true)
   attr(:title, :string, required: true)
@@ -22,18 +17,6 @@ defmodule ServiceRadarWebNGWeb.NorthboundActionComponents do
   attr(:close_event, :string, required: true)
   attr(:change_event, :string, required: true)
   attr(:submit_event, :string, required: true)
-  # Bulk-selection AWX applicability summary: %{applicable_count, total_count,
-  # non_applicable: [%{uid, label}]}. nil when the modal is not device-bulk
-  # (e.g. the device-detail interface actions), which renders no gating block.
-  attr(:applicability, :map, default: nil)
-  # Ansible typed-variable form. `ansible_vars` is a list (possibly empty) for
-  # an Ansible task and nil for non-ansible actions (which fall back to the
-  # descriptor's JSON-schema fields).
-  attr(:ansible_vars, :list, default: nil)
-  attr(:ansible_var_values, :map, default: %{})
-  attr(:raw_extra_vars_open, :boolean, default: false)
-  attr(:raw_extra_vars, :string, default: "")
-  attr(:toggle_raw_event, :string, default: nil)
 
   def northbound_action_modal(assigns) do
     action = assigns.action || List.first(assigns.actions)
@@ -58,73 +41,6 @@ defmodule ServiceRadarWebNGWeb.NorthboundActionComponents do
         </div>
       </div>
 
-      <div :if={applicability_present?(@applicability)} class="mt-4 space-y-3">
-        <div
-          role="status"
-          class={[
-            "flex items-start gap-3 rounded-lg border px-4 py-3 text-sm",
-            if(applicability_blocked?(@applicability),
-              do: "border-warning/30 bg-warning/10",
-              else: "border-info/20 bg-info/10"
-            )
-          ]}
-        >
-          <.icon
-            name={
-              if applicability_blocked?(@applicability),
-                do: "hero-exclamation-triangle",
-                else: "hero-check-circle"
-            }
-            class={[
-              "mt-0.5 size-5 shrink-0",
-              if(applicability_blocked?(@applicability), do: "text-warning", else: "text-info")
-            ]}
-          />
-          <div class="min-w-0">
-            <p class="font-medium text-sr-ink">{applicable_summary_text(@applicability)}</p>
-            <p
-              :if={applicability_blocked?(@applicability)}
-              class="mt-1 text-xs text-sr-muted"
-            >
-              Only AWX-managed devices can run Ansible tasks. Select at least one device that is in an AWX inventory.
-            </p>
-          </div>
-        </div>
-
-        <div
-          :if={non_applicable_any?(@applicability)}
-          role="alert"
-          class="rounded-lg border border-warning/30 bg-warning/10 px-4 py-3 text-sm"
-        >
-          <div class="flex items-start gap-3">
-            <.icon name="hero-exclamation-triangle" class="mt-0.5 size-5 shrink-0 text-warning" />
-            <div class="min-w-0">
-              <p class="font-medium text-sr-ink">
-                Not in an AWX inventory (will be skipped):
-              </p>
-              <div class="mt-2 flex flex-wrap gap-1.5">
-                <.ui_badge
-                  :for={entry <- non_applicable_visible(@applicability)}
-                  size="sm"
-                  variant="warning"
-                  class="max-w-full truncate"
-                  title={entry.uid}
-                >
-                  {entry.label}
-                </.ui_badge>
-                <.ui_badge
-                  :if={non_applicable_more(@applicability) > 0}
-                  size="sm"
-                  variant="ghost"
-                >
-                  +{non_applicable_more(@applicability)} more
-                </.ui_badge>
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
-
       <div :if={@error} role="alert" class={ui_alert_class(variant: "error", class: "mt-4")}>
         <.icon name="hero-exclamation-circle" class="size-5" />
         <span class="text-sm">{@error}</span>
@@ -139,7 +55,7 @@ defmodule ServiceRadarWebNGWeb.NorthboundActionComponents do
       >
         <div class="flex flex-col gap-1.5">
           <label class="flex items-center justify-between gap-2">
-            <span class="text-sm font-medium text-sr-ink">Task</span>
+            <span class="text-sm font-medium text-sr-ink">Action</span>
           </label>
           <select name="action[action_id]" class={ui_field_class(class: "w-full")}>
             <%= for option <- @actions do %>
@@ -174,68 +90,23 @@ defmodule ServiceRadarWebNGWeb.NorthboundActionComponents do
           </p>
         </div>
 
-        <%= if ansible_action?(@ansible_vars) do %>
-          <div :if={@ansible_vars != []} class="space-y-3">
-            <h4 class="text-sm font-medium text-sr-ink">Variables</h4>
-            <.var_input
-              :for={var <- @ansible_vars}
-              var={var}
-              value={Map.get(@ansible_var_values, var.name)}
-              name={"action[vars][#{var.name}]"}
+        <div :if={@properties != []} class="grid gap-4">
+          <%= for {name, schema} <- @properties do %>
+            <.northbound_action_field
+              form={@form}
+              name={name}
+              schema={schema}
+              required={MapSet.member?(@required, name)}
             />
-          </div>
+          <% end %>
+        </div>
 
-          <div
-            :if={@ansible_vars == []}
-            class="rounded-lg border border-sr-line p-4 text-sm text-sr-muted"
-          >
-            This task requires no variables.
-          </div>
-
-          <div class="rounded-lg border border-sr-line">
-            <button
-              type="button"
-              phx-click={@toggle_raw_event}
-              class="flex w-full items-center justify-between px-3 py-2 text-sm text-sr-muted hover:text-sr-ink"
-            >
-              <span class="flex items-center gap-2 font-medium">
-                <.icon name="hero-code-bracket" class="size-4" /> Advanced: raw extra_vars JSON
-              </span>
-              <.icon
-                name={if @raw_extra_vars_open, do: "hero-chevron-up", else: "hero-chevron-down"}
-                class="size-4"
-              />
-            </button>
-            <div :if={@raw_extra_vars_open} class="border-t border-sr-line p-3">
-              <p class="mb-2 text-xs text-sr-muted">
-                Optional. Merged over the fields above (raw keys win). Leave blank to use the form values.
-              </p>
-              <textarea
-                name="action[raw_extra_vars]"
-                class={ui_field_class(mono: true, class: "min-h-24 w-full py-2.5 text-xs")}
-                placeholder="{}"
-              >{@raw_extra_vars}</textarea>
-            </div>
-          </div>
-        <% else %>
-          <div :if={@properties != []} class="grid gap-4">
-            <%= for {name, schema} <- @properties do %>
-              <.northbound_action_field
-                form={@form}
-                name={name}
-                schema={schema}
-                required={MapSet.member?(@required, name)}
-              />
-            <% end %>
-          </div>
-
-          <div
-            :if={@properties == []}
-            class="rounded-lg border border-sr-line p-4 text-sm text-sr-muted"
-          >
-            This task does not require additional input.
-          </div>
-        <% end %>
+        <div
+          :if={@properties == []}
+          class="rounded-lg border border-sr-line p-4 text-sm text-sr-muted"
+        >
+          This action does not require additional input.
+        </div>
 
         <div class="flex justify-end gap-2 pt-2">
           <.ui_button type="button" phx-click={@close_event} size="sm" variant="ghost">
@@ -243,7 +114,7 @@ defmodule ServiceRadarWebNGWeb.NorthboundActionComponents do
           </.ui_button>
           <.ui_button
             type="submit"
-            disabled={launch_disabled?(@action, @applicability)}
+            disabled={is_nil(@action)}
             size="sm"
             variant="primary"
           >
@@ -256,9 +127,9 @@ defmodule ServiceRadarWebNGWeb.NorthboundActionComponents do
   end
 
   attr(:entries, :list, required: true)
-  attr(:title, :string, default: "Task History")
+  attr(:title, :string, default: "Action History")
   attr(:subtitle, :string, default: nil)
-  attr(:empty_message, :string, default: "No task invocations have been recorded yet.")
+  attr(:empty_message, :string, default: "No action invocations have been recorded yet.")
   attr(:error, :string, default: nil)
   attr(:notice, :map, default: nil)
 
@@ -285,9 +156,9 @@ defmodule ServiceRadarWebNGWeb.NorthboundActionComponents do
         <div class="flex gap-3">
           <.icon name="hero-play-circle" class="mt-0.5 size-5 shrink-0 text-info" />
           <div class="min-w-0 space-y-1">
-            <p class="font-semibold">{Map.get(@notice, :title, "Task dispatched")}</p>
+            <p class="font-semibold">{Map.get(@notice, :title, "Action dispatched")}</p>
             <p class="text-xs text-sr-muted">
-              Results update in Task History as the integration reports progress.
+              Results update in Action History as the integration reports progress.
               <span
                 :if={ActionForm.present_text?(Map.get(@notice, :invocation_id))}
                 class="font-mono"
@@ -309,7 +180,7 @@ defmodule ServiceRadarWebNGWeb.NorthboundActionComponents do
       >
         <p>{@empty_message}</p>
         <p class="mt-2 text-xs text-sr-muted">
-          Newly launched tasks appear here with queued, running, succeeded, or failed status.
+          Newly launched actions appear here with queued, running, succeeded, or failed status.
         </p>
       </div>
 
@@ -448,39 +319,6 @@ defmodule ServiceRadarWebNGWeb.NorthboundActionComponents do
     """
   end
 
-  ## Applicability + ansible-form helpers --------------------------------------
-
-  defp ansible_action?(ansible_vars), do: is_list(ansible_vars)
-
-  defp launch_disabled?(action, applicability) do
-    is_nil(action) or applicability_blocked?(applicability)
-  end
-
-  defp applicability_present?(applicability), do: is_map(applicability)
-
-  defp applicability_blocked?(applicability) do
-    is_map(applicability) and Map.get(applicability, :applicable_count, 0) == 0
-  end
-
-  defp applicable_summary_text(applicability) do
-    applicable = Map.get(applicability, :applicable_count, 0)
-    total = Map.get(applicability, :total_count, 0)
-
-    "#{applicable} of #{total} selected device(s) are AWX-managed and will run this task."
-  end
-
-  defp non_applicable_list(applicability), do: Map.get(applicability, :non_applicable, [])
-
-  defp non_applicable_any?(applicability), do: non_applicable_list(applicability) != []
-
-  defp non_applicable_visible(applicability) do
-    applicability |> non_applicable_list() |> Enum.take(@non_applicable_display_limit)
-  end
-
-  defp non_applicable_more(applicability) do
-    max(length(non_applicable_list(applicability)) - @non_applicable_display_limit, 0)
-  end
-
   defp action_state_badge_variant(:succeeded), do: "success"
   defp action_state_badge_variant(:failed), do: "error"
   defp action_state_badge_variant(:canceled), do: "warning"
@@ -572,16 +410,16 @@ defmodule ServiceRadarWebNGWeb.NorthboundActionComponents do
         progress_summary(status, entry)
 
       :expired ->
-        "External task expired"
+        "External action expired"
 
       _ ->
         nil
     end
   end
 
-  defp progress_summary(:result_fetching, entry), do: poll_summary("Fetching external task results", entry)
+  defp progress_summary(:result_fetching, entry), do: poll_summary("Fetching external action results", entry)
 
-  defp progress_summary(_status, entry), do: poll_summary("Waiting for external task", entry)
+  defp progress_summary(_status, entry), do: poll_summary("Waiting for external action", entry)
 
   defp poll_summary(prefix, entry) do
     [

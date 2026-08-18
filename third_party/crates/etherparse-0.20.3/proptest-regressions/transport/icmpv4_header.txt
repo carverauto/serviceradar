@@ -1,8 +1,0 @@
-# Seeds for failure cases proptest has generated in the past. It is
-# automatically read and these particular cases re-run before any
-# novel cases are generated.
-#
-# It is recommended to check this file in to source control so that
-# everyone who runs the test benefits from these saved cases.
-cc bc7b6196699451faa703284f9b393d235597bea7e4f33f227699c1e9e528af37 # shrinks to icmpv4_type = EchoReply(IcmpEchoHeader { id: 0, seq: 0 }), checksum = 0, payload = []
-cc 42e7dbb3e46ac694fc7e996489af2d734b30e753db2fee99cda10dc8e570f4aa # shrinks to icmpv4_type = TimestampRequest(TimestampMessage { id: 0, seq: 0, originate_timestamp: 0, receive_timestamp: 0, transmit_timestamp: 0 }), checksum = 0, payload = []

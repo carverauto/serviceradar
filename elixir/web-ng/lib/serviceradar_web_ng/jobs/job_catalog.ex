@@ -18,6 +18,7 @@ defmodule ServiceRadarWebNG.Jobs.JobCatalog do
   alias ServiceRadar.Edge.OnboardingPackage
   alias ServiceRadar.Integrations.ArmisNorthboundRunWorker
   alias ServiceRadar.Integrations.IntegrationSource
+  alias ServiceRadar.Inventory.DeviceHostnameRdnsSettings
   alias ServiceRadar.Monitoring.Alert
   alias ServiceRadar.Monitoring.PollingSchedule
   alias ServiceRadar.Monitoring.ServiceCheck
@@ -41,6 +42,7 @@ defmodule ServiceRadarWebNG.Jobs.JobCatalog do
           queue: atom(),
           enabled: boolean(),
           worker: module() | nil,
+          scheduler: module() | nil,
           resource: module() | nil,
           action: atom() | nil,
           last_run_at: DateTime.t() | nil,
@@ -55,6 +57,18 @@ defmodule ServiceRadarWebNG.Jobs.JobCatalog do
   @spec list_all_jobs() :: [job_entry()]
   def list_all_jobs do
     cron_jobs() ++ ash_oban_jobs() ++ self_scheduling_jobs() ++ manual_jobs()
+  end
+
+  @doc """
+  Human-readable name and description for a worker module.
+
+  Used by the Jobs admin list. Modules whose last segment is `Worker` are
+  labeled from the parent (CapacityForecasting.Worker -> "Capacity forecasting")
+  instead of rendering a blank name.
+  """
+  @spec worker_label(module()) :: %{name: String.t(), description: String.t()}
+  def worker_label(worker) when is_atom(worker) do
+    %{name: worker_name(worker), description: worker_description(worker)}
   end
 
   @doc """
@@ -226,7 +240,8 @@ defmodule ServiceRadarWebNG.Jobs.JobCatalog do
       PollingSchedule,
       ServiceCheck,
       Alert,
-      OnboardingPackage
+      OnboardingPackage,
+      DeviceHostnameRdnsSettings
     ]
   end
 
@@ -247,7 +262,8 @@ defmodule ServiceRadarWebNG.Jobs.JobCatalog do
       cron: trigger.scheduler_cron,
       queue: trigger.queue,
       enabled: true,
-      worker: trigger.worker_module_name,
+      worker: trigger.worker_module_name || trigger.worker,
+      scheduler: trigger.scheduler_module_name || trigger.scheduler,
       resource: resource,
       action: trigger.action,
       last_run_at: nil,
@@ -303,10 +319,17 @@ defmodule ServiceRadarWebNG.Jobs.JobCatalog do
     e -> {:error, Exception.message(e)}
   end
 
-  # For AshOban, we insert the scheduler worker which will process due records
-  def trigger_job(%{source: :ash_oban, worker: worker}) when not is_nil(worker) do
-    job = worker.new(%{})
-    Router.insert(job)
+  # AshOban workers match `%{"primary_key" => ...}`. Empty args crash
+  # perform/1 with FunctionClauseError. The scheduler accepts `{}` and
+  # inserts one worker job per due record.
+  def trigger_job(%{source: :ash_oban} = entry) do
+    case ash_oban_trigger_module(entry) do
+      nil ->
+        {:error, :no_worker}
+
+      module ->
+        Router.insert(module.new(%{}))
+    end
   rescue
     e -> {:error, Exception.message(e)}
   end
@@ -338,6 +361,11 @@ defmodule ServiceRadarWebNG.Jobs.JobCatalog do
   end
 
   def trigger_job(_job), do: {:error, :no_worker}
+
+  @doc false
+  def ash_oban_trigger_module(%{scheduler: scheduler}) when not is_nil(scheduler), do: scheduler
+  def ash_oban_trigger_module(%{worker: worker}) when not is_nil(worker), do: worker
+  def ash_oban_trigger_module(_entry), do: nil
 
   @doc """
   Get execution statistics for a worker over a time period.
@@ -529,31 +557,67 @@ defmodule ServiceRadarWebNG.Jobs.JobCatalog do
     {cron, worker, opts}
   end
 
-  # Get human-readable name from worker module
+  # Modules whose last segment is just `Worker` used to render as a blank
+  # name (`"Worker"` -> strip suffix -> ""). Production releases also strip
+  # `@moduledoc`, so `Code.fetch_docs/1` cannot fill the description.
+  @worker_copy %{
+    ServiceRadar.Observability.CapacityForecasting.Worker => %{
+      name: "Capacity forecasting",
+      description: "Refresh long-horizon capacity forecasts from SRQL CAGGs."
+    },
+    ServiceRadar.Observability.SeasonalDisposition.Worker => %{
+      name: "Seasonal disposition",
+      description: "Dispose central-seasonal anomalies from the hour-of-week profile."
+    }
+  }
+
   defp worker_name(worker) when is_atom(worker) do
-    worker
-    |> Module.split()
-    |> List.last()
-    |> String.replace("Worker", "")
-    |> Macro.underscore()
-    |> String.replace("_", " ")
-    |> String.capitalize()
+    case Map.get(@worker_copy, worker) do
+      %{name: name} -> name
+      _ -> humanize_worker_module(worker)
+    end
   end
 
-  # Get description from worker module doc
   defp worker_description(worker) when is_atom(worker) do
-    case Code.fetch_docs(worker) do
-      {:docs_v1, _, _, _, %{"en" => doc}, _, _} ->
-        doc
-        |> String.split("\n")
-        |> List.first()
-        |> String.trim()
+    case Map.get(@worker_copy, worker) do
+      %{description: description} ->
+        description
 
       _ ->
-        "No description available"
+        case fetch_worker_doc(worker) do
+          nil -> "Scheduled #{worker_name(worker)} job."
+          doc -> doc
+        end
+    end
+  end
+
+  defp humanize_worker_module(worker) do
+    parts = Module.split(worker)
+    last = List.last(parts)
+
+    label =
+      if last in ["Worker", "Job"] and length(parts) > 1 do
+        Enum.at(parts, -2)
+      else
+        String.replace(last, ~r/(Worker|Job)$/, "")
+      end
+
+    case label |> Macro.underscore() |> String.replace("_", " ") |> String.trim() do
+      "" -> inspect(worker)
+      name -> String.capitalize(name)
+    end
+  end
+
+  defp fetch_worker_doc(worker) do
+    case Code.fetch_docs(worker) do
+      {:docs_v1, _, _, _, %{"en" => doc}, _, _} ->
+        doc |> String.split("\n") |> List.first() |> String.trim()
+
+      _ ->
+        nil
     end
   rescue
-    _ -> "No description available"
+    _ -> nil
   end
 
   # Humanize AshOban trigger name
@@ -587,6 +651,8 @@ defmodule ServiceRadarWebNG.Jobs.JobCatalog do
   defp resource_description(Alert), do: "Sends alert notifications for active alert rules"
 
   defp resource_description(OnboardingPackage), do: "Expires edge onboarding packages"
+
+  defp resource_description(DeviceHostnameRdnsSettings), do: "Resolves reverse-DNS hostnames onto inventory devices"
 
   defp resource_description(_), do: "Executes scheduled actions for Ash resources"
 
@@ -777,6 +843,7 @@ defmodule ServiceRadarWebNG.Jobs.JobCatalog do
     [
       # Inventory + cleanup
       ServiceRadar.Inventory.InterfaceThresholdWorker,
+      ServiceRadar.Inventory.DeviceRiskAssessmentWorker,
       ServiceRadar.Inventory.EndpointVulnerabilityMatchWorker,
       ServiceRadar.Inventory.DeviceCleanupWorker,
       ServiceRadar.Edge.AgentCommandCleanupWorker,

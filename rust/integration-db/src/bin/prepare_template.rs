@@ -18,10 +18,9 @@
 //!
 //! # Why a binary and not a test
 //!
-//! It has to write to `$GITHUB_OUTPUT` on the runner. A `bazel test` cannot: with
-//! `--config=ci` the test executes on a remote executor, in a sandbox, with no access to the
-//! runner's filesystem. `bazel run` builds remotely and runs locally, which is exactly the
-//! split this needs.
+//! It has to write to `$GITHUB_OUTPUT` on the runner. `bazel run` builds eligible actions
+//! remotely and launches the binary on the caller, where that output file exists, without
+//! depending on a TestRunner placement strategy. That is exactly the split this needs.
 //!
 //! Outside CI `GITHUB_OUTPUT` is unset and the result is only printed, which keeps the
 //! binary usable by hand against a developer fixture.

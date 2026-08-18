@@ -130,7 +130,7 @@ defmodule ServiceRadarWebNGWeb.SecurityLive.Index do
               variant="ghost"
               class="text-sr-muted hover:bg-sr-subtle hover:text-sr-ink"
             >
-              Dashboard Library
+              Dashboard &amp; Report Library
             </.ui_button>
           </div>
 
@@ -158,7 +158,7 @@ defmodule ServiceRadarWebNGWeb.SecurityLive.Index do
     """
   end
 
-  attr :overview, :map, required: true
+  attr(:overview, :map, required: true)
 
   defp security_overview_panel(assigns) do
     ~H"""
@@ -222,9 +222,9 @@ defmodule ServiceRadarWebNGWeb.SecurityLive.Index do
     """
   end
 
-  attr :label, :string, required: true
-  attr :value, :any, required: true
-  attr :tone, :string, default: "base"
+  attr(:label, :string, required: true)
+  attr(:value, :any, required: true)
+  attr(:tone, :string, default: "base")
 
   defp security_metric(assigns) do
     ~H"""
@@ -237,8 +237,8 @@ defmodule ServiceRadarWebNGWeb.SecurityLive.Index do
     """
   end
 
-  attr :title, :string, required: true
-  attr :rows, :list, default: []
+  attr(:title, :string, required: true)
+  attr(:rows, :list, default: [])
 
   defp security_count_list(assigns) do
     ~H"""
@@ -255,7 +255,7 @@ defmodule ServiceRadarWebNGWeb.SecurityLive.Index do
     """
   end
 
-  attr :finding, :map, required: true
+  attr(:finding, :map, required: true)
 
   defp recent_security_finding(assigns) do
     ~H"""
@@ -283,10 +283,10 @@ defmodule ServiceRadarWebNGWeb.SecurityLive.Index do
     """
   end
 
-  attr :title, :string, required: true
-  attr :description, :string, required: true
-  attr :href, :string, required: true
-  attr :icon, :string, required: true
+  attr(:title, :string, required: true)
+  attr(:description, :string, required: true)
+  attr(:href, :string, required: true)
+  attr(:icon, :string, required: true)
 
   defp workflow_card(assigns) do
     ~H"""
@@ -307,8 +307,8 @@ defmodule ServiceRadarWebNGWeb.SecurityLive.Index do
     """
   end
 
-  attr :label, :string, required: true
-  attr :query, :string, required: true
+  attr(:label, :string, required: true)
+  attr(:query, :string, required: true)
 
   defp query_shortcut(assigns) do
     ~H"""
@@ -322,7 +322,7 @@ defmodule ServiceRadarWebNGWeb.SecurityLive.Index do
     """
   end
 
-  attr :finding, :any, default: nil
+  attr(:finding, :any, default: nil)
 
   defp selected_trivy_finding_panel(assigns) do
     ~H"""
@@ -392,7 +392,7 @@ defmodule ServiceRadarWebNGWeb.SecurityLive.Index do
     """
   end
 
-  attr :detection, :any, default: nil
+  attr(:detection, :any, default: nil)
 
   defp selected_detection_panel(assigns) do
     assigns =
@@ -453,9 +453,9 @@ defmodule ServiceRadarWebNGWeb.SecurityLive.Index do
     """
   end
 
-  attr :label, :string, required: true
-  attr :value, :any, default: nil
-  attr :mono, :boolean, default: false
+  attr(:label, :string, required: true)
+  attr(:value, :any, default: nil)
+  attr(:mono, :boolean, default: false)
 
   defp security_fact(assigns) do
     ~H"""
@@ -627,6 +627,7 @@ defmodule ServiceRadarWebNGWeb.SecurityLive.Index do
   end
 
   defp image_reference(%{image_digest: digest}) when is_binary(digest) and digest != "", do: digest
+
   defp image_reference(_finding), do: nil
 
   defp owner_reference(%{owner_kind: kind, owner_name: name})
@@ -722,9 +723,14 @@ defmodule ServiceRadarWebNGWeb.SecurityLive.Index do
   defp diagnostic_value(value, path) when is_map(value) and is_list(path) do
     Enum.reduce_while(path, value, fn key, acc ->
       cond do
-        is_map(acc) and Map.has_key?(acc, key) -> {:cont, Map.get(acc, key)}
-        is_map(acc) and Map.has_key?(acc, existing_atom_key(key)) -> {:cont, Map.get(acc, existing_atom_key(key))}
-        true -> {:halt, nil}
+        is_map(acc) and Map.has_key?(acc, key) ->
+          {:cont, Map.get(acc, key)}
+
+        is_map(acc) and Map.has_key?(acc, existing_atom_key(key)) ->
+          {:cont, Map.get(acc, existing_atom_key(key))}
+
+        true ->
+          {:halt, nil}
       end
     end)
   end
@@ -842,6 +848,7 @@ defmodule ServiceRadarWebNGWeb.SecurityLive.Index do
   defp metric_tone_class(_tone), do: "text-sr-ink"
 
   defp normalize_string(value) when is_binary(value), do: value |> String.trim() |> String.downcase()
+
   defp normalize_string(_), do: ""
 
   defp blank?(value), do: is_nil(value) or value == ""

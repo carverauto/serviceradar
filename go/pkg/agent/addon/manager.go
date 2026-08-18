@@ -1064,11 +1064,26 @@ func (r *runner) setHealthy(pid int, h coreaddon.Health) {
 	defer r.mu.Unlock()
 	now := time.Now().UTC()
 
-	if h.Status == coreaddon.HealthDegraded || h.Status == coreaddon.HealthUnhealthy {
+	// The add-on protocol distinguishes three health levels; collapsing Degraded
+	// into StateUnhealthy threw that distinction away at the last hop. The
+	// control plane then could not tell "this build is broken" from "this host
+	// is missing something", and gated rollouts on both -- so powerdns reporting
+	// that no Recursor is attached, and anomaly reporting an undelegated cpu
+	// cgroup controller, each wedged their rollouts indefinitely while the
+	// add-ons ran perfectly well.
+	//
+	// Degraded keeps its own state. The reason is still reported either way, and
+	// the fleet row still flags it, so nothing becomes less visible.
+	switch h.Status {
+	case coreaddon.HealthDegraded:
+		r.status.State = StateDegraded
+		r.status.DegradationReason = h.DegradationReason
+		r.healthySince = time.Time{}
+	case coreaddon.HealthUnhealthy:
 		r.status.State = StateUnhealthy
 		r.status.DegradationReason = h.DegradationReason
 		r.healthySince = time.Time{}
-	} else {
+	case coreaddon.HealthHealthy, coreaddon.HealthUnspecified:
 		r.status.State = StateRunning
 		r.status.DegradationReason = ""
 		if r.healthySince.IsZero() {

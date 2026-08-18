@@ -1,5 +1,7 @@
 use crate::parser::{OrderClause, OrderDirection};
 
+use super::filters::normalize_field_name;
+
 pub(super) fn parse_order(raw: &str) -> Vec<OrderClause> {
     raw.split(',')
         .filter_map(|segment| {
@@ -9,7 +11,7 @@ pub(super) fn parse_order(raw: &str) -> Vec<OrderClause> {
             }
 
             let mut parts = trimmed.splitn(3, ':');
-            let field = parts.next()?.trim().to_lowercase();
+            let field = normalize_field_name(parts.next()?.trim());
             let direction = parts
                 .next()
                 .map(|dir| match dir.to_lowercase().as_str() {

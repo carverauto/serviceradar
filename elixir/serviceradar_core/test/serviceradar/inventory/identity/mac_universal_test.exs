@@ -50,4 +50,21 @@ defmodule ServiceRadar.Inventory.Identity.MacUniversalTest do
       refute Mac.distinct_hardware?(MapSet.new(), MapSet.new())
     end
   end
+
+  describe "hardware_mac_sibling/1" do
+    test "flips IEEE bit 1 of the first octet" do
+      assert Mac.hardware_mac_sibling("F492BF75C721") == "F692BF75C721"
+      assert Mac.hardware_mac_sibling("f6:92:bf:75:c7:21") == "F492BF75C721"
+      assert Mac.hardware_mac_sibling("not-a-mac") == nil
+    end
+  end
+
+  describe "lookup_macs_with_siblings/1" do
+    test "adds the UAA/LAA pair for lookup without dropping the observed MAC" do
+      assert Mac.lookup_macs_with_siblings(["f6:92:bf:75:c7:21"]) == [
+               "F692BF75C721",
+               "F492BF75C721"
+             ]
+    end
+  end
 end

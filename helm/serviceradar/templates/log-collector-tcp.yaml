@@ -40,6 +40,9 @@ data:
     nats_stream = "events"
     nats_stream_replicas = {{ default (default 1 .Values.logCollector.streamReplicas) $tcpCollector.streamReplicas }}
     nats_timeout = 30000
+    nats_connect_attempts = 10
+    nats_connect_initial_backoff_ms = 500
+    nats_connect_max_backoff_ms = 30000
     nats_tls_ca_file = "/etc/serviceradar/certs/root.pem"
     nats_tls_cert = "/etc/serviceradar/certs/log-collector.pem"
     nats_tls_key = "/etc/serviceradar/certs/log-collector-key.pem"
@@ -123,7 +126,7 @@ spec:
       {{- end }}
       containers:
       - name: log-collector
-        image: {{ include "serviceradar.imageRef" (dict "Values" .Values "name" "serviceradar-log-collector" "service" "logCollector") }}
+        image: {{ include "serviceradar.imageRef" (dict "Values" .Values "Chart" .Chart "name" "serviceradar-log-collector" "service" "logCollector") }}
         imagePullPolicy: {{ include "serviceradar.imagePullPolicy" . }}
         {{- include "serviceradar.bindServiceContainerSecurityContext" . | nindent 8 }}
         ports:

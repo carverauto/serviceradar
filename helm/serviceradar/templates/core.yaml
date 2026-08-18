@@ -22,7 +22,7 @@
 {{- $advisoryFeeds := default (dict) (get (default (dict) .Values.core) "advisoryFeeds") -}}
 {{- $advisoryFeedsEnabled := default false $advisoryFeeds.enabled -}}
 {{- $advisoryFeedsDir := default "/var/lib/serviceradar/advisory-feeds" $advisoryFeeds.stagingDir -}}
-{{- $webNgPublicUrl := default "" $webNg.publicUrl -}}
+{{- $webNgPublicUrl := include "serviceradar.webNgPublicUrl" . -}}
 {{- $gatewayArtifactPublicUrl := "" -}}
 {{- if $gateway.publicHostname -}}
 {{- $gatewayArtifactPublicUrl = printf "https://%s:%v" $gateway.publicHostname (default 50053 $gatewayService.artifactPort) -}}
@@ -52,6 +52,41 @@
 {{- $deviceEnrichmentFsSecret := default "" $deviceEnrichmentFsOverrides.existingSecret -}}
 {{- $deviceEnrichmentFsClaim := default "" $deviceEnrichmentFsOverrides.existingClaim -}}
 {{- $secrets := default "serviceradar-secrets" .Values.secrets.existingSecretName -}}
+{{- $mailer := default (dict) $coreVals.mailer -}}
+{{- /*
+  Notification platform (openspec add-notification-platform, tasks 3.4.6).
+
+  `:control_plane` wasm notification plugins execute on the platform-resident
+  serviceradar-agent this chart already deploys, through the same
+  plugin.run_action command an edge dispatch uses - which is why there is
+  exactly one Wasm host in the product. Core has to be told which agent that
+  is; there is deliberately no default in the application, because guessing an
+  agent id would dispatch a customer's notifications to whichever agent
+  happened to match. The chart knows the answer, so it supplies it.
+
+  With agent.enabled=false and no explicit override, nothing is set and a
+  :control_plane plugin channel fails with `platform_agent_unconfigured`
+  instead of dispatching somewhere arbitrary.
+*/ -}}
+{{- $notificationAgentVals := default (dict) .Values.agent -}}
+{{- $notificationAgentEnabled := true -}}
+{{- if hasKey $notificationAgentVals "enabled" -}}
+{{- $notificationAgentEnabled = $notificationAgentVals.enabled -}}
+{{- end -}}
+{{- $notificationVals := default (dict) $coreVals.notifications -}}
+{{- $notificationPlatformAgent := default (dict) $notificationVals.platformAgent -}}
+{{- $notificationAgentId := default "" $notificationPlatformAgent.agentId -}}
+{{- if and (eq $notificationAgentId "") $notificationAgentEnabled -}}
+{{- $notificationAgentId = default "k8s-agent" $notificationAgentVals.agentId -}}
+{{- end -}}
+{{- $notificationAgentPartition := default (coalesce .Values.partitionId $notificationAgentVals.partitionId "default") $notificationPlatformAgent.partitionId -}}
+{{- $notificationReceiptSweep := default (dict) $notificationVals.receiptSweep -}}
+{{- $notificationReceiptSweepEnabled := true -}}
+{{- if hasKey $notificationReceiptSweep "enabled" -}}
+{{- $notificationReceiptSweepEnabled = $notificationReceiptSweep.enabled -}}
+{{- end -}}
+{{- $mailerFrom := default (dict) $mailer.from -}}
+{{- $mailerSecret := default "" $mailer.existingSecret -}}
 {{- $automationCallbacks := default (dict) .Values.automationCallbacks -}}
 {{- include "serviceradar.validateAutomationCallbacks" . -}}
 {{- $automationCallbacksEnabled := false -}}
@@ -120,7 +155,7 @@ spec:
       {{- include "serviceradar.elixirReleasePodSecurityContext" . | nindent 6 }}
       containers:
       - name: core-elx
-        image: {{ include "serviceradar.imageRef" (dict "Values" .Values "name" "serviceradar-core-elx" "service" "core") }}
+        image: {{ include "serviceradar.imageRef" (dict "Values" .Values "Chart" .Chart "name" "serviceradar-core-elx" "service" "core") }}
         imagePullPolicy: {{ include "serviceradar.imagePullPolicy" . }}
         {{- include "serviceradar.containerSecurityContext" . | nindent 8 }}
         ports:
@@ -301,6 +336,56 @@ spec:
         - name: SERVICERADAR_LOCAL_MAILER
           value: "false"
         {{- end }}
+        # Outbound mail. With none of this set the mailer resolves to
+        # Swoosh.Adapters.Test, which reports every send as successful and
+        # delivers nothing - so an email notification channel refuses to
+        # validate until a relay is configured here (or in Settings > Mail)
+        # rather than looking healthy and paging nobody.
+        {{- if $mailer.adapter }}
+        - name: SERVICERADAR_MAILER_ADAPTER
+          value: {{ $mailer.adapter | quote }}
+        {{- end }}
+        {{- if $mailer.relay }}
+        - name: SMTP_RELAY_HOST
+          value: {{ $mailer.relay | quote }}
+        - name: SMTP_RELAY_PORT
+          value: {{ default 587 $mailer.port | quote }}
+        {{- if $mailer.hostname }}
+        - name: SMTP_RELAY_HOSTNAME
+          value: {{ $mailer.hostname | quote }}
+        {{- end }}
+        - name: SMTP_RELAY_AUTH
+          value: {{ default "if_available" $mailer.auth | quote }}
+        - name: SMTP_RELAY_TLS
+          value: {{ default "if_available" $mailer.tls | quote }}
+        - name: SMTP_RELAY_SSL
+          value: {{ default false $mailer.ssl | quote }}
+        {{- end }}
+        {{- if $mailerSecret }}
+        # Relay credentials come from an existing Secret, never from values.
+        # A password in values.yaml is a password in the release manifest, in
+        # `helm get values`, and in whatever GitOps repository holds it.
+        - name: SMTP_RELAY_USERNAME
+          valueFrom:
+            secretKeyRef:
+              name: {{ $mailerSecret | quote }}
+              key: {{ default "smtp-username" $mailer.usernameKey | quote }}
+              optional: true
+        - name: SMTP_RELAY_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: {{ $mailerSecret | quote }}
+              key: {{ default "smtp-password" $mailer.passwordKey | quote }}
+              optional: true
+        {{- end }}
+        {{- if $mailerFrom.name }}
+        - name: SERVICERADAR_MAIL_FROM_NAME
+          value: {{ $mailerFrom.name | quote }}
+        {{- end }}
+        {{- if $mailerFrom.email }}
+        - name: SERVICERADAR_MAIL_FROM_EMAIL
+          value: {{ $mailerFrom.email | quote }}
+        {{- end }}
         - name: POOL_SIZE
           value: {{ default 40 $database.poolSize | quote }}
         - name: DATABASE_QUEUE_TARGET_MS
@@ -333,6 +418,24 @@ spec:
           value: {{ default 5 $obanQueues.alerts | quote }}
         - name: OBAN_QUEUE_SERVICE_CHECKS
           value: {{ default 10 $obanQueues.serviceChecks | quote }}
+        {{- if ne $notificationAgentId "" }}
+        - name: SERVICERADAR_NOTIFICATION_PLATFORM_AGENT_ID
+          value: {{ $notificationAgentId | quote }}
+        - name: SERVICERADAR_NOTIFICATION_PLATFORM_AGENT_PARTITION
+          value: {{ $notificationAgentPartition | quote }}
+        {{- end }}
+        {{- if $webNgPublicUrl }}
+        - name: SERVICERADAR_NOTIFICATION_ACTION_BASE_URL
+          value: {{ $webNgPublicUrl | quote }}
+        {{- end }}
+        {{- if not $notificationReceiptSweepEnabled }}
+        # The receipt sweep is what closes out an agent-routed delivery whose
+        # command result never came back, without depending on
+        # STATUS_HANDLER_ENABLED. Turning it off leaves those rows to the blind
+        # stall sweep, which re-sends rather than settling from the command row.
+        - name: SERVICERADAR_NOTIFICATION_RECEIPT_SWEEP_ENABLED
+          value: "false"
+        {{- end }}
         - name: OBAN_QUEUE_NOTIFICATIONS
           value: {{ default 5 $obanQueues.notifications | quote }}
         - name: OBAN_QUEUE_ONBOARDING
@@ -368,6 +471,43 @@ spec:
         # so anomaly findings/alerts surface without per-deployment extraEnv.
         - name: EVENT_WRITER_ENABLED
           value: {{ default true $eventWriter.enabled | quote }}
+
+        {{- /* Exact EventWriter flow consumer subjects: concrete flows.raw.* only. */ -}}
+        {{- /* flow.host-slice.* is attribution intermediate (joiner), not ocsf consumers. */ -}}
+        {{- /* Whole-token wildcards that cover the raw-flow namespace fail closed. */ -}}
+        {{- $extraFlowSubjects := list -}}
+        {{- $fcConfig := dict -}}
+        {{- if and .Values.flowCollector .Values.flowCollector.config }}
+          {{- $fcConfig = .Values.flowCollector.config -}}
+        {{- end }}
+        {{- range (default list (get $fcConfig "stream_subjects")) }}
+          {{- $subj := . | toString -}}
+          {{- if $subj }}
+            {{- /* Reject any whole-token wildcard filter: *.>, *.raw.>, flows.>, > all cover flows.raw.*. Binary Config::validate is the source of truth for NATS-pattern overlap. */ -}}
+            {{- if regexMatch "(^|\\.)(\\*|\\>)(\\.|$)" $subj }}
+              {{- fail (printf "flowCollector.config.stream_subjects entry %q uses a whole-token NATS wildcard. Use concrete flows.raw.<name> leaves; ownership filters (including *.> / flows.>) leave extensions unconsumed and can overlap events." $subj) -}}
+            {{- end }}
+            {{- if and (ne $subj "flows.raw.netflow") (ne $subj "flows.raw.sflow") (hasPrefix "flows.raw." $subj) }}
+              {{- $extraFlowSubjects = append $extraFlowSubjects $subj -}}
+            {{- end }}
+          {{- end }}
+        {{- end }}
+        {{- range (default list (get $fcConfig "listeners")) }}
+          {{- $subj := default "" .subject -}}
+          {{- if $subj }}
+            {{- /* Publish subjects must always be concrete — unconditional wildcard reject. */ -}}
+            {{- if regexMatch "(^|\\.)(\\*|\\>)(\\.|$)" $subj }}
+              {{- fail (printf "flowCollector.config.listeners subject %q uses a whole-token NATS wildcard. Listener publish subjects must be concrete." $subj) -}}
+            {{- end }}
+            {{- if and (ne $subj "flows.raw.netflow") (ne $subj "flows.raw.sflow") (hasPrefix "flows.raw." $subj) }}
+              {{- $extraFlowSubjects = append $extraFlowSubjects $subj -}}
+            {{- end }}
+          {{- end }}
+        {{- end }}
+        {{- if $extraFlowSubjects }}
+        - name: EVENT_WRITER_FLOW_EXTRA_SUBJECTS
+          value: {{ $extraFlowSubjects | uniq | join "," | quote }}
+        {{- end }}
         - name: SERVICERADAR_CAPACITY_FORECAST_CONFIG_HORIZON_SECONDS
           value: {{ default 7776000 $capacityForecastConfig.forecastHorizonSeconds | int64 | quote }}
         - name: SERVICERADAR_CAPACITY_FORECAST_CONFIG_WARNING_HORIZON_SECONDS
@@ -505,6 +645,20 @@ spec:
           value: {{ default 300000 $mtrAutomation.consensusCohortRetentionMs | quote }}
         - name: MTR_RETENTION_DAYS
           value: {{ default 30 $coreVals.mtrRetentionDays | quote }}
+        {{- /* Authoritative primary volume capacity for the cold-tier pressure
+               monitor. Without it usage_pct is nil and the 70/85/95% disk
+               alerts — the safety net that stops a stalled exporter from
+               filling the primary — can never fire (review F34). Rendered
+               whenever CNPG is chart-managed so the value is always present. */}}
+        {{- /* Skip when the caller already supplies it through core.extraEnv:
+               two entries with the same name make the rendered Deployment
+               invalid, and a strategic-merge upgrade fails with "The order in
+               patch list ... doesn't match $setElementOrder list". Same guard
+               as SERVICERADAR_LOCAL_MAILER above. */}}
+        {{- if and (default true $cnpg.enabled) (not (hasKey (default (dict) $coreVals.extraEnv) "SERVICERADAR_CNPG_STORAGE_SIZE")) }}
+        - name: SERVICERADAR_CNPG_STORAGE_SIZE
+          value: {{ default "100Gi" $cnpg.storageSize | quote }}
+        {{- end }}
         - name: SERVICERADAR_TRACE_SUMMARY_RETENTION_DAYS
           value: {{ default 3 $observabilityRetention.traceSummaryDays | quote }}
         - name: SERVICERADAR_OTEL_TRACES_RETENTION_DAYS
@@ -534,7 +688,9 @@ spec:
         - name: SERVICERADAR_ENDPOINT_INVENTORY_RETENTION_DAYS
           value: {{ default 30 $observabilityRetention.endpointInventoryDays | quote }}
         - name: SERVICERADAR_DATASET_SNAPSHOT_RETENTION_DAYS
-          value: {{ default 14 $observabilityRetention.datasetSnapshotDays | quote }}
+          value: {{ default 2 $observabilityRetention.datasetSnapshotDays | quote }}
+        - name: SERVICERADAR_DATASET_SNAPSHOT_KEEP_LAST
+          value: {{ default 1 $observabilityRetention.datasetSnapshotKeepLast | quote }}
         - name: SERVICERADAR_TOPOLOGY_LINK_RETENTION_DAYS
           value: {{ default 30 $observabilityRetention.topologyLinkDays | quote }}
         - name: ANSIBLE_RETENTION_RUN_DETAIL_DAYS
@@ -770,13 +926,21 @@ spec:
       {{- end }}
       {{- if $geoipMmdb.enabled }}
       - name: geoip-mmdb
+        {{- if $geoipMmdb.emptyDir }}
+        emptyDir: {}
+        {{- else }}
         persistentVolumeClaim:
           claimName: {{ default "serviceradar-geoip-mmdb" $geoipMmdb.existingClaim | quote }}
+        {{- end }}
       {{- end }}
       {{- if $advisoryFeedsEnabled }}
       - name: advisory-feeds
+        {{- if $advisoryFeeds.emptyDir }}
+        emptyDir: {}
+        {{- else }}
         persistentVolumeClaim:
           claimName: {{ default "serviceradar-advisory-feeds" $advisoryFeeds.existingClaim | quote }}
+        {{- end }}
       {{- end }}
       {{- if or .Values.natsCreds.platform .Values.natsCreds.system .Values.natsCreds.autoGenerate }}
       - name: nats-creds

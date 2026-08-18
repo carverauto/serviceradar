@@ -6,8 +6,10 @@ exports_files(
     glob(
         [
             "entrypoint-*.sh",
+            "*.conf",
             "*.docker.json",
             "*.docker.toml",
+            "*.mtls.json",
             "*.sh",
             "*.ts",
             "*.rs",

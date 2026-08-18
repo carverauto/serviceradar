@@ -1659,26 +1659,11 @@ defmodule ServiceRadar.Observability.StatefulAlertEngineTest do
     end
   end
 
-  defp persisted_ocsf_event?(%{id: id, time: %DateTime{} = time}) do
-    {:ok, uuid} = uuid_query_param(id)
-
-    case Repo.query(
-           "SELECT 1 FROM platform.ocsf_events WHERE id = $1::uuid AND time = $2 LIMIT 1",
-           [uuid, time]
-         ) do
-      {:ok, %{num_rows: 1}} -> true
-      _ -> false
-    end
-  end
-
   defp rule_id_for_shard(shard) do
     (&Ash.UUID.generate/0)
     |> Stream.repeatedly()
     |> Enum.find(&(StatefulAlertEngine.shard_for_rule_id(&1) == shard))
   end
-
-  defp uuid_query_param(<<_::128>> = uuid), do: {:ok, uuid}
-  defp uuid_query_param(id) when is_binary(id), do: Ecto.UUID.dump(id)
 
   defp anomaly_key_component(name, value) do
     "#{name}=#{value |> to_string() |> Base.encode16(case: :lower)}"

@@ -41,6 +41,7 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
      |> assign(:device_availability, %{})
      |> assign(:events_summary, %{})
      |> assign(:logs_summary, %{})
+     |> assign(:logs_rollup_status, Stats.empty_logs_rollup_status())
      |> assign(:observability, %{})
      |> assign(:trace_rollup_status, Stats.empty_trace_rollup_status())
      |> assign(:high_utilization, %{})
@@ -49,7 +50,7 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
 
   @impl true
   def handle_params(_params, _uri, socket) do
-    send(self(), :load_analytics)
+    if connected?(socket), do: send(self(), :load_analytics)
     {:noreply, mark_analytics_loading(socket)}
   end
 
@@ -110,6 +111,7 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
         {:event_stats, fn -> get_hourly_event_stats(scope) end},
         {:service_counts, &get_service_counts/0},
         {:logs_severity, fn -> Stats.logs_severity(scope: scope) end},
+        {:logs_rollup_status, &Stats.logs_rollup_status/0},
         {:traces_summary, fn -> Stats.traces_summary_with_computed(scope: scope) end},
         {:trace_rollup_status, &Stats.trace_rollup_status/0}
       ])
@@ -185,6 +187,10 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
     |> assign(:device_availability, device_availability)
     |> assign(:events_summary, events_summary)
     |> assign(:logs_summary, logs_summary)
+    |> assign(
+      :logs_rollup_status,
+      Map.get(initial, :logs_rollup_status, Stats.empty_logs_rollup_status())
+    )
     |> assign(:observability, observability)
     |> assign(
       :trace_rollup_status,
@@ -765,6 +771,17 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
 
   defp trace_rollup_warning_text(_), do: "Trace observability data may be stale."
 
+  defp logs_rollup_warning?(%{healthy?: false}), do: true
+  defp logs_rollup_warning?(_), do: false
+
+  defp logs_rollup_warning_text(%{messages: messages}) when is_list(messages) do
+    messages
+    |> Enum.reject(&(&1 in [nil, ""]))
+    |> Enum.join(" ")
+  end
+
+  defp logs_rollup_warning_text(_), do: "Log severity rollup data may be stale."
+
   defp srql_module do
     Application.get_env(:serviceradar_web_ng, :srql_module, ServiceRadarWebNG.SRQL)
   end
@@ -787,6 +804,16 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
             <div class="text-sm">
               <div class="font-semibold">Trace rollups need attention</div>
               <div>{trace_rollup_warning_text(@trace_rollup_status)}</div>
+            </div>
+          </div>
+        </div>
+
+        <div :if={logs_rollup_warning?(@logs_rollup_status)} class="mb-4">
+          <div role="alert" class={ui_alert_class("warning")}>
+            <.icon name="hero-exclamation-triangle" class="size-5" />
+            <div class="text-sm">
+              <div class="font-semibold">Log rollups need attention</div>
+              <div>{logs_rollup_warning_text(@logs_rollup_status)}</div>
             </div>
           </div>
         </div>

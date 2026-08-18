@@ -4,7 +4,7 @@ use core::fmt::Debug;
 use core::marker::PhantomData;
 use core::str;
 
-use crate::endian::{BigEndian as BE, U32Bytes};
+use crate::endian::{BigEndian as BE, U32};
 use crate::pod::{bytes_of, Pod};
 use crate::read::{
     self, Bytes, Error, ObjectSymbol, ObjectSymbolTable, ReadError, ReadRef, Result, SectionIndex,
@@ -60,7 +60,7 @@ where
             // Parse the string table.
             // Note: don't update data when reading length; the length includes itself.
             let length = data
-                .read_at::<U32Bytes<_>>(offset)
+                .read_at::<U32<_>>(offset)
                 .read_error("Missing XCOFF string table")?
                 .get(BE);
             let str_end = offset
