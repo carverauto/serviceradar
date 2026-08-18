@@ -924,6 +924,8 @@ func (c *githubClient) uploadAsset(uploadURL, assetPath, uploadName string) erro
 		req.Header.Set("Authorization", auth)
 	}
 	if c.isGitHub() {
+		// uploads.github.com rejects chunked bodies with 400 Bad Content-Length.
+		req.ContentLength = info.Size()
 		req.Header.Set("Accept", "application/vnd.github+json")
 		req.Header.Set("Content-Type", "application/octet-stream")
 	} else {
