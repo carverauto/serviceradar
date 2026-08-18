@@ -6,6 +6,8 @@
 
 use prost_types::{field_descriptor_proto::Type, DescriptorProto, FileDescriptorSet};
 
+const UNSPECIFIED_SUFFIX: &str = "_UNSPECIFIED";
+
 const ROOT: &str = "EnvironmentConfig";
 
 #[derive(Debug)]
@@ -55,4 +57,42 @@ pub fn leaf_field_paths(descriptor: &FileDescriptorSet) -> Result<Vec<String>, S
     let mut out = Vec::new();
     walk(&messages, root, "", &mut out)?;
     Ok(out)
+}
+
+/// Every value of the enum at `path`, excluding the `*_UNSPECIFIED` sentinel, or None if the
+/// field is not an enum.
+///
+/// The sentinel is excluded because a separate `ForbiddenValue` rule already rejects it
+/// everywhere; demanding it in a conditional trigger set as well would require every such rule
+/// to restate a constraint the vocabulary handles once.
+pub fn enum_values_at(descriptor: &FileDescriptorSet, path: &str) -> Option<Vec<String>> {
+    let messages: Vec<DescriptorProto> =
+        descriptor.file.iter().flat_map(|f| f.message_type.clone()).collect();
+
+    let mut message = find(&messages, ROOT)?;
+    let mut segments = path.split('.').peekable();
+
+    let type_name = loop {
+        let segment = segments.next()?;
+        let field = message.field.iter().find(|f| f.name() == segment)?;
+        if segments.peek().is_none() {
+            if field.r#type() != Type::Enum {
+                return None;
+            }
+            break field.type_name().rsplit('.').next()?.to_string();
+        }
+        let leaf = field.type_name().rsplit('.').next()?;
+        message = find(&messages, leaf)?;
+    };
+
+    let enums: Vec<_> = descriptor.file.iter().flat_map(|f| f.enum_type.clone()).collect();
+    let found = enums.iter().find(|e| e.name() == type_name)?;
+    Some(
+        found
+            .value
+            .iter()
+            .map(|v| v.name().to_string())
+            .filter(|n| !n.ends_with(UNSPECIFIED_SUFFIX))
+            .collect(),
+    )
 }

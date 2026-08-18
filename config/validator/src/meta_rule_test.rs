@@ -80,3 +80,62 @@ fn the_descriptor_walk_reaches_nested_sections() {
         assert!(!fields.iter().any(|f| f == section), "{section} is a message, not a leaf");
     }
 }
+
+/// A conditional pair keyed on an enum must cover every value of that enum.
+///
+/// This is what stops the `instance` invariant decaying. `RequiredIf` names the one kind that
+/// permits an instance and `ForbiddenIf` names the rest; adding a sixth kind without extending
+/// the forbidding set would silently re-permit an instance identifier there, and the field would
+/// still have rules, so the coverage check above would not notice.
+#[test]
+fn a_conditional_pair_keyed_on_an_enum_is_exhaustive() {
+    use serviceradar_config_schema::rule::Predicate;
+    use serviceradar_config_validator::coverage::enum_values_at;
+
+    let descriptor: FileDescriptorSet = load("config/proto/config.descriptor_set");
+    let rules: RuleSet = load("config/rules/ruleset.binpb");
+
+    let mut checked = 0;
+    for field_path in rules.rules.iter().filter_map(|r| r.field_path.clone()) {
+        let on_field = || rules.rules.iter().filter(|r| r.field_path.as_deref() == Some(&field_path));
+
+        let mut keyed_on: Option<String> = None;
+        let mut covered: BTreeSet<String> = BTreeSet::new();
+        let mut has_required_if = false;
+        let mut has_forbidden_if = false;
+
+        for rule in on_field() {
+            match rule.predicate.as_ref() {
+                Some(Predicate::RequiredIf(c)) => {
+                    has_required_if = true;
+                    keyed_on = c.other_field_path.clone();
+                    covered.extend(c.other_enum_value.clone());
+                }
+                Some(Predicate::ForbiddenIf(c)) => {
+                    has_forbidden_if = true;
+                    keyed_on = c.other_field_path.clone();
+                    covered.extend(c.other_enum_values.iter().cloned());
+                }
+                _ => {}
+            }
+        }
+
+        if !(has_required_if && has_forbidden_if) {
+            continue;
+        }
+        let Some(key) = keyed_on else { continue };
+        let Some(values) = enum_values_at(&descriptor, &key) else { continue };
+
+        checked += 1;
+        let missing: Vec<&String> = values.iter().filter(|v| !covered.contains(*v)).collect();
+        assert!(
+            missing.is_empty(),
+            "{field_path} is conditional on {key}, but these {key} values appear in neither the \
+             required-if nor the forbidden-if trigger, so {field_path} is unconstrained for them: \
+             {missing:#?}"
+        );
+    }
+
+    // A check that examines nothing passes for the wrong reason.
+    assert!(checked > 0, "no conditional pair was examined");
+}

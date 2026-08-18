@@ -50,6 +50,7 @@ Let `v` be the field value and `⊥` denote absence.
 | `Matches(p)` | NotApplicable | Satisfied iff `p` matches `v` (RE2, unanchored unless the pattern anchors) |
 | `ForbiddenValue(x)` | NotApplicable | Satisfied iff `v ≠ x` |
 | `RequiredIf(o,x)` | Violated iff `o` is present and `o = x`; else NotApplicable | Satisfied |
+| `ForbiddenIf(o,S)` | NotApplicable | Violated iff `o` is present and `o ∈ S`; else Satisfied |
 | `EqualAcrossEnvs` | see §6 | see §6 |
 
 **`Required` is the only predicate that treats absence as a violation.** Everything else returns
@@ -57,6 +58,11 @@ Let `v` be the field value and `⊥` denote absence.
 
 Bounds are **inclusive at both ends**. This is stated because it is the most likely point of
 accidental divergence between three implementations, and the conformance vectors pin both edges.
+
+`ForbiddenIf` takes a **set** where `RequiredIf` takes a single value. That asymmetry is
+deliberate: the forbidding side enumerates the complement of what is permitted, so a per-value
+rule would let a newly added enum value become permitted by omission. The meta-rule requires a
+`RequiredIf`/`ForbiddenIf` pair keyed on the same enum to cover every value of it.
 
 `Matches` uses **RE2**, available in all three ecosystems, with no backtracking and therefore no
 pathological-input class. Patterns are unanchored; a rule that means "the whole value" must write

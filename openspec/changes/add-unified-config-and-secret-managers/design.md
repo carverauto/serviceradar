@@ -120,7 +120,7 @@ That is disqualifying, and doubly so given the rule set is the security boundary
 adopting CEL would put a stale, effectively unused pre-1.0 dependency on the critical path in one of
 three languages, and leave that language's validation semantics defined by a library nobody
 exercises. **The closed vocabulary stands.** It needs no third-party expression engine in any
-language, so the Elixir question disappears entirely, and eight predicates are small enough to test
+language, so the Elixir question disappears entirely, and nine predicates are small enough to test
 exhaustively. Adding a predicate later is a deliberate, reviewed act with its own conformance cases.
 
 Revisit only if an Elixir-native protovalidate appears with real adoption; nothing else changes.
@@ -547,21 +547,19 @@ never touches this one.
   channel whose payload is the database host and the TLS posture. Whoever can answer the request
   can point the deployment at their own database, in verify-disabled mode.
 
-**Recommended, and an open call:** require that a remotely fetched artifact's **integrity is
-verifiable against something the client knew before it fetched**. Without that, whoever controls
-the endpoint — or its DNS — controls where the deployment connects and how it verifies TLS.
+**Artifact integrity over `https:` is deferred to the configuration-server specification** and is
+not decided here. The risk is real and stated so it is not lost: without a way to verify a fetched
+artifact against something the client knew beforehand, whoever controls the endpoint — or its DNS —
+controls where the deployment connects and how it verifies TLS.
 
-Require the *property*, not a mechanism, because two mechanisms satisfy it and they suit different
-sources:
+It is deferred rather than settled because the mechanism depends on what serves the artifact, and
+choosing one now would constrain that design. A **digest pin** (`#sha256=<hex>`) suits a static
+artifact in an object store but cannot exist for anything rendered per client; a **signature**
+against a pinned public key suits both but presumes a signing key the server design has not yet
+introduced. The two are not interchangeable, so the choice belongs with the server.
 
-- a **digest pin** in the URI, `https://host/env.binpb#sha256=<hex>` — right for a static artifact
-  in an object store; rotating config means updating the pin, the same discipline the demo
-  namespace already accepts by pinning immutable `sha-...` tags rather than `latest`;
-- a **signature** over the artifact, verified against a public key pinned in the deployment —
-  right for anything that renders per-client, where no client-known digest can exist.
-
-Mandating the digest specifically would quietly foreclose the configuration server below, which is
-exactly the kind of thing that is free to get right now and expensive later.
+Until then, `file:` is the recommended source, and it does not have this exposure: a mounted file
+is delivered by the platform over the same trust path as the container image.
 
 ### The accepted cost
 

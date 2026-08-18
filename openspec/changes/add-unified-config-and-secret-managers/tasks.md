@@ -79,7 +79,7 @@ ambient environment, a test asserting on `.bazelrc`, and a value read under a di
 ## 3. Rule set and predicate specification
 
 - [x] Define the closed predicate vocabulary and its formal semantics, including totality —
-      `config/SEMANTICS.md` sections 2-3; eight predicates, verdict is
+      `config/SEMANTICS.md` sections 2-3; nine predicates, verdict is
       `Satisfied | Violated | NotApplicable`, every predicate pure and total
 - [x] Specify engine semantics — `config/SEMANTICS.md` sections 4-6: cascading (an absent
       required field yields exactly one violation), exhaustive evaluation, total ordering by
@@ -87,6 +87,17 @@ ambient environment, a test asserting on `.bazelrc`, and a value read under a di
 - [ ] Model the engine (TLA+/Alloy) against those semantics
 - [x] Define the rule-set file format — `config/proto/rules.proto`; the predicate is a `oneof`
       so a predicate and its parameters cannot disagree
+- [x] Extend the vocabulary with `ForbiddenIf` — a field must be ABSENT when another holds one
+      of the given values. It closes the half of `instance` that had no predicate: the schema said
+      "required if and only if ONPREM", but only the required half was enforceable, so nothing
+      stopped `ci.textproto` naming an instance. Its trigger is a SET where `RequiredIf` takes a
+      single value, because the forbidding side enumerates the COMPLEMENT of what is permitted and
+      a per-value rule is how a newly added enum value becomes permitted by omission.
+      Guarded by `a_conditional_pair_keyed_on_an_enum_is_exhaustive`: a `RequiredIf`/`ForbiddenIf`
+      pair keyed on the same enum must cover every value of it. **Both negative controls verified
+      on RBE** — naming an instance on `ci` yields `INSTANCE_FORBIDDEN_OUTSIDE_ONPREM`, and adding
+      a sixth kind without extending the trigger set fails naming the uncovered value. The plain
+      coverage check could not catch the latter: the field still has rules
 - [x] Author the initial rule set covering every schema field — `config/rules/ruleset.textproto`,
       **37 rules**, compiles to a 3234-byte binary. Negative controls verified on RBE: an unknown
       predicate and an unknown enum in `scope` each fail the build
@@ -192,12 +203,12 @@ ambient environment, a test asserting on `.bazelrc`, and a value read under a di
 - [ ] Hard-error when both `SERVICERADAR_ENV` and `SERVICERADAR_CONFIG_URI` are set, and when
       neither is. No precedence rule — precedence is where a stale selector becomes invisible
       rather than wrong
-- [ ] **OPEN CALL:** require that a remotely fetched artifact's integrity be verifiable against
-      something the client knew before fetching. Without it, whoever controls the endpoint or its
-      DNS controls the deployment's database host and TLS mode. Require the PROPERTY, not a
-      mechanism: a `#sha256=` digest pin suits a static artifact, a signature suits anything
-      rendered per-client. Mandating the digest specifically would foreclose the configuration
-      server
+- **DEFERRED to the configuration-server specification:** artifact integrity over `https:`. The
+      exposure is real — without verification against something the client knew beforehand,
+      whoever controls the endpoint or its DNS controls the deployment's database host and TLS
+      mode — but the mechanism depends on what serves the artifact (a digest pin cannot exist for
+      anything rendered per client; a signature presumes a signing key the server design has not
+      introduced). `file:` carries no such exposure and is the recommended source until then
 - [ ] Shape the loader as a **resolver keyed by scheme**, returning the instance AND its
       provenance even when provenance is trivially "built-in: saas". An unknown scheme is a
       startup error listing the supported ones

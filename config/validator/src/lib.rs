@@ -265,6 +265,21 @@ fn evaluate(rule: &Rule, cfg: &EnvironmentConfig) -> Result<Verdict, UnknownFiel
             }
             _ => Verdict::Satisfied,
         },
+        Some(Predicate::ForbiddenIf(c)) => {
+            let other_path = c.other_field_path.as_deref().unwrap_or_default();
+            let other = field(cfg, other_path)?;
+            let triggered = match other {
+                Value::Enum(name) => c.other_enum_values.iter().any(|v| v == name),
+                Value::Str(s) => c.other_string_values.iter().any(|v| v == s),
+                _ => false,
+            };
+            match value {
+                // Absence is what the predicate wants; there is nothing to forbid.
+                Value::Absent => Verdict::NotApplicable,
+                _ if triggered => Verdict::Violated,
+                _ => Verdict::Satisfied,
+            }
+        }
         // Ranges over instances rather than within one, so a single-instance pass cannot
         // decide it. The cross-instance check is a separate pass over the whole set.
         Some(Predicate::EqualAcrossEnvs(_)) => Verdict::NotApplicable,

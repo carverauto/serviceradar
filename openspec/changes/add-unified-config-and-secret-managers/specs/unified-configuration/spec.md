@@ -38,6 +38,12 @@ naming the invalid value and listing the accepted kinds, and SHALL NOT fall back
 - **WHEN** a component initialises its ConfigManager
 - **THEN** startup SHALL fail reporting that `ci` does not accept an instance identifier
 
+#### Scenario: A configuration file names an instance for a single-instance kind
+
+- **GIVEN** a committed instance whose kind is not `onprem` and which sets an instance identifier
+- **WHEN** validation runs
+- **THEN** it SHALL report a violation on the `instance` field
+
 #### Scenario: Environment variable is unset
 
 - **GIVEN** `SERVICERADAR_ENV` is not set

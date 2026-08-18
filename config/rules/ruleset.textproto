@@ -372,3 +372,23 @@ rules {
   description: "REQUIRE_NO_VERIFY encrypts without authenticating the server, so it is not a deployment posture."
   one_of { enum_values: "DGRAPH_TLS_MODE_VERIFY_CA" }
 }
+
+# The other half of INSTANCE_REQUIRED_FOR_ONPREM. Without it the schema comment "required if
+# and only if the kind is ONPREM" was half-enforced: nothing stopped ci.textproto naming an
+# instance, and a file that names one describes something it is not.
+#
+# The trigger enumerates every kind that is NOT onprem. The meta-rule checks that enumeration
+# stays exhaustive, so adding a sixth kind cannot silently re-permit an instance identifier.
+rules {
+  field_path: "instance"
+  code: "INSTANCE_FORBIDDEN_OUTSIDE_ONPREM"
+  phase: PHASE_CONFIG
+  description: "Only on-prem is multi-instance."
+  forbidden_if {
+    other_field_path: "kind"
+    other_enum_values: "ENVIRONMENT_KIND_LOCALHOST"
+    other_enum_values: "ENVIRONMENT_KIND_CI"
+    other_enum_values: "ENVIRONMENT_KIND_SAAS"
+    other_enum_values: "ENVIRONMENT_KIND_DEMO"
+  }
+}

@@ -258,3 +258,48 @@ fixtures {
   expected_violations { code: "DATABASE_HOST_NON_EMPTY" field_path: "database.host" }
   expected_violations { code: "DATABASE_PORT_RANGE" field_path: "database.port" }
 }
+
+# --- ForbiddenIf: the other half of a conditional pair -----------------------
+
+fixtures {
+  name: "instance_named_outside_onprem"
+  description: "instance is required when the kind is ONPREM and forbidden otherwise. This is the forbidding half; without INSTANCE_FORBIDDEN_OUTSIDE_ONPREM the case passes, which is what the fixture detects."
+  phase: PHASE_CONFIG
+  instance {
+    kind: ENVIRONMENT_KIND_CI
+    instance: "wrong"
+    database {
+      host: "db"
+      port: 5432
+      database: "srql_fixture"
+      connecting_role: "srql_test"
+      owning_role: "srql_test"
+      tls_mode: TLS_MODE_VERIFY_FULL
+      tls_server_name: "db"
+    }
+    nats { url: "nats://nats:4222" }
+    core { address: "core:50052" security_mode: SECURITY_MODE_MTLS }
+  }
+  expected_violations { code: "INSTANCE_FORBIDDEN_OUTSIDE_ONPREM" field_path: "instance" }
+}
+
+fixtures {
+  name: "instance_named_on_onprem_is_permitted"
+  description: "The permitting side of the same pair. A ForbiddenIf whose trigger set accidentally included ONPREM would reject every on-prem instance, and only a positive case catches that."
+  phase: PHASE_CONFIG
+  instance {
+    kind: ENVIRONMENT_KIND_ONPREM
+    instance: "untd"
+    database {
+      host: "db"
+      port: 5432
+      database: "serviceradar"
+      connecting_role: "serviceradar"
+      owning_role: "serviceradar"
+      tls_mode: TLS_MODE_VERIFY_FULL
+      tls_server_name: "db"
+    }
+    nats { url: "nats://nats:4222" }
+    core { address: "core:50052" security_mode: SECURITY_MODE_MTLS }
+  }
+}
