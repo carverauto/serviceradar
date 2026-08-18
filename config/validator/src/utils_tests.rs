@@ -36,3 +36,15 @@ pub fn read(relative: &str) -> String {
 /// new instance must be added here deliberately, so it cannot land in the tree and silently go
 /// unchecked.
 pub const INSTANCES: &[&str] = &["ci", "demo", "localhost", "saas"];
+
+/// A runfile path, or None if it was not declared. Unlike [`data_path`] this does NOT fall back
+/// to the source tree: the point of the caller is to distinguish declared from undeclared, and a
+/// fallback would find files the target never asked for.
+pub fn runfile(relative: &str) -> Option<std::path::PathBuf> {
+    let srcdir = std::env::var("TEST_SRCDIR").expect("TEST_SRCDIR: this test needs a runfiles tree");
+    let root = std::path::PathBuf::from(srcdir);
+    ["_main", "serviceradar"]
+        .iter()
+        .map(|w| root.join(w).join(relative))
+        .find(|c| c.exists())
+}

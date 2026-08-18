@@ -99,3 +99,19 @@ rust_test(
         normal = True,
     ) + [":validator"],
 )
+
+# Declares ONE section, deliberately. The test asserts both halves of Decision 6: the declared
+# section is there, and the others are not. Adding data here weakens what it proves.
+rust_test(
+    name = "section_privilege_test",
+    srcs = [
+        "src/section_privilege_test.rs",
+        "src/utils_tests.rs",
+    ],
+    crate_root = "src/section_privilege_test.rs",
+    data = ["//config/environments:ci_database"],
+    deps = all_crate_deps(
+        cargo_only = True,
+        normal = True,
+    ) + ["//config/proto_bindings/rust:config_schema"],
+)
