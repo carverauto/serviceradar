@@ -213,6 +213,49 @@ func TestUploadAssetUsesForgejoMultipartAttachment(t *testing.T) {
 	}
 }
 
+func TestUploadAssetGitHubSetsContentLength(t *testing.T) {
+	const assetName = "serviceradar-agent-1.4.35-1-1.4.35-1.x86_64.rpm"
+	assetContent := []byte("fake rpm bytes")
+	uploadPath := filepath.Join(t.TempDir(), assetName)
+	if err := os.WriteFile(uploadPath, assetContent, 0o644); err != nil {
+		t.Fatalf("WriteFile(upload asset) error = %v", err)
+	}
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			t.Fatalf("method = %s, want POST", r.Method)
+		}
+		if got := r.Header.Get("Authorization"); got != "Bearer test-token" {
+			t.Fatalf("authorization header = %q", got)
+		}
+		if got := r.Header.Get("Content-Type"); got != "application/octet-stream" {
+			t.Fatalf("content-type = %q", got)
+		}
+		if r.ContentLength != int64(len(assetContent)) {
+			t.Fatalf("content-length = %d, want %d", r.ContentLength, len(assetContent))
+		}
+		body, err := io.ReadAll(r.Body)
+		if err != nil {
+			t.Fatalf("ReadAll(body) error = %v", err)
+		}
+		if string(body) != string(assetContent) {
+			t.Fatalf("uploaded body = %q", body)
+		}
+		w.WriteHeader(http.StatusCreated)
+	}))
+	t.Cleanup(server.Close)
+
+	client := &githubClient{
+		token:   "test-token",
+		http:    server.Client(),
+		baseURL: "https://api.github.com",
+		repo:    "carverauto/serviceradar",
+	}
+	if err := client.uploadAsset(server.URL+"/repos/carverauto/serviceradar/releases/1/assets{?name,label}", uploadPath, assetName); err != nil {
+		t.Fatalf("uploadAsset() error = %v", err)
+	}
+}
+
 func TestEnsureReleaseDoesNotPatchTargetCommitish(t *testing.T) {
 	var patchBody []byte
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
