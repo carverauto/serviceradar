@@ -633,6 +633,12 @@ for worker_name, script_path in (
             f"{worker_name} signer cannot skip an existing immutable cosign signature tag"
         )
 
+install_skopeo = (repo_root / "scripts/install-skopeo.sh").read_text()
+if "docker create" in install_skopeo or "docker cp" in install_skopeo:
+    raise SystemExit("install-skopeo still requires a docker daemon")
+if "export --platform" not in install_skopeo or "install_crane" not in install_skopeo:
+    raise SystemExit("install-skopeo does not extract skopeo via crane")
+
 ancestry_lines = [line for line in cut_release.splitlines() if "git merge-base --is-ancestor" in line]
 if len(ancestry_lines) != 1:
     raise SystemExit("cut-release must print exactly one post-merge ancestry command")
