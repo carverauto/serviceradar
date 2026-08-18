@@ -378,7 +378,8 @@ jobs:
           fi
 
           if ! command -v skopeo >/dev/null 2>&1; then
-            ./scripts/ci/ensure-forgejo-tools.sh skopeo
+            ./scripts/install-skopeo.sh
+            export PATH="${RUNNER_TEMP:-${HOME}/.local}/bin:${PATH}"
           fi
 
           tag_check_script="./scripts/check-oci-image-tags-exist.sh"
