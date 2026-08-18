@@ -2,7 +2,6 @@
 
 load("@crates//:defs.bzl", "all_crate_deps")
 load("@rules_rs//rs:rust_library.bzl", "rust_library")
-load("@rules_rs//rs:rust_test.bzl", "rust_test")
 
 filegroup(
     name = "srcs",
@@ -20,12 +19,7 @@ filegroup(
 # types so a schema change and an engine change cannot arrive in one indistinguishable diff.
 rust_library(
     name = "validator",
-    srcs = [
-        "src/coverage.rs",
-        "src/credentials.rs",
-        "src/lib.rs",
-        "src/text.rs",
-    ],
+    srcs = glob(["src/**/*.rs"]),
     crate_name = "serviceradar_config_validator",
     crate_root = "src/lib.rs",
     visibility = ["//visibility:public"],
@@ -35,150 +29,5 @@ rust_library(
     ) + ["//config/proto_bindings/rust:config_schema"],
 )
 
-# The gate. Inputs are the COMPILED binaries because that is what a runtime loads; validating
-# the .textproto sources would be checking a different artifact.
-rust_test(
-    name = "file_phase_test",
-    srcs = [
-        "src/file_phase_test.rs",
-        "src/utils_tests.rs",
-    ],
-    crate_root = "src/file_phase_test.rs",
-    data = [
-        "//config/environments:ci_binpb",
-        "//config/environments:demo_binpb",
-        "//config/environments:localhost_binpb",
-        "//config/environments:saas_binpb",
-        "//config/environments/onprem:untd_binpb",
-        "//config/rules:ruleset_binpb",
-    ],
-    deps = all_crate_deps(
-        cargo_only = True,
-        normal = True,
-    ) + [
-        ":validator",
-        "//config/proto_bindings/rust:config_schema",
-    ],
-)
-
-# The committed source and the canonical text of the binary built from it. Both are declared
-# inputs; the point of the test is that they are read from different places.
-rust_test(
-    name = "round_trip_test",
-    srcs = [
-        "src/round_trip_test.rs",
-        "src/utils_tests.rs",
-    ],
-    crate_root = "src/round_trip_test.rs",
-    data = [
-        "//config/environments:ci.textproto",
-        "//config/environments:ci_canonical",
-        "//config/environments:demo.textproto",
-        "//config/environments:demo_canonical",
-        "//config/environments:localhost.textproto",
-        "//config/environments:localhost_canonical",
-        "//config/environments:saas.textproto",
-        "//config/environments:saas_canonical",
-        "//config/environments/onprem:untd.textproto",
-        "//config/environments/onprem:untd_canonical",
-    ],
-    deps = all_crate_deps(
-        cargo_only = True,
-        normal = True,
-    ) + [":validator"],
-)
-
-rust_test(
-    name = "credential_shape_test",
-    srcs = [
-        "src/credential_shape_test.rs",
-        "src/utils_tests.rs",
-    ],
-    crate_root = "src/credential_shape_test.rs",
-    data = [
-        "//config/environments:ci_canonical",
-        "//config/environments:demo_canonical",
-        "//config/environments:localhost_canonical",
-        "//config/environments:saas_canonical",
-        "//config/environments/onprem:untd_canonical",
-    ],
-    deps = all_crate_deps(
-        cargo_only = True,
-        normal = True,
-    ) + [":validator"],
-)
-
-# Declares ONE section, deliberately. The test asserts both halves of Decision 6: the declared
-# section is there, and the others are not. Adding data here weakens what it proves.
-rust_test(
-    name = "section_privilege_test",
-    srcs = [
-        "src/section_privilege_test.rs",
-        "src/utils_tests.rs",
-    ],
-    crate_root = "src/section_privilege_test.rs",
-    data = ["//config/environments:ci_database"],
-    deps = all_crate_deps(
-        cargo_only = True,
-        normal = True,
-    ) + ["//config/proto_bindings/rust:config_schema"],
-)
-
-# The meta-rule. Reads the schema's descriptor, not a list, so a new field is covered the moment
-# it exists.
-rust_test(
-    name = "meta_rule_test",
-    srcs = [
-        "src/meta_rule_test.rs",
-        "src/utils_tests.rs",
-    ],
-    crate_root = "src/meta_rule_test.rs",
-    data = [
-        "//config/proto:config_descriptor_set",
-        "//config/rules:ruleset_binpb",
-    ],
-    deps = all_crate_deps(
-        cargo_only = True,
-        normal = True,
-    ) + [
-        ":validator",
-        "//config/proto_bindings/rust:config_schema",
-    ],
-)
-
-# The fixtures, run. They are simultaneously the negative fixtures and the cross-language
-# conformance vectors, and until this target existed nothing evaluated them.
-rust_test(
-    name = "vector_test",
-    srcs = [
-        "src/utils_tests.rs",
-        "src/vector_test.rs",
-    ],
-    crate_root = "src/vector_test.rs",
-    data = [
-        "//config/rules:ruleset_binpb",
-        "//config/rules/fixtures:fixtures_binpb",
-    ],
-    deps = all_crate_deps(
-        cargo_only = True,
-        normal = True,
-    ) + [
-        ":validator",
-        "//config/proto_bindings/rust:config_schema",
-    ],
-)
-
-# Predicate laws. The vectors pin what the RULE SET means; these pin what the PREDICATES mean.
-rust_test(
-    name = "predicate_law_test",
-    srcs = ["src/predicate_law_test.rs"],
-    crate_root = "src/predicate_law_test.rs",
-    deps = all_crate_deps(
-        cargo_only = True,
-        normal = True,
-        normal_dev = True,
-    ) + [
-        ":validator",
-        "//config/proto_bindings/rust:config_schema",
-    ],
-)
+# The test surface lives in //config/validator/rust/tests, entered through the same
+# lib_tests.rs that `cargo test` uses.

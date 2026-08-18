@@ -19,6 +19,7 @@
 pub mod coverage;
 pub mod credentials;
 pub mod text;
+pub mod utils_tests;
 
 use regex_automata::meta::Regex;
 use serviceradar_config_schema::{

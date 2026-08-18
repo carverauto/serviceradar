@@ -1,0 +1,45 @@
+# gazelle:ignore
+
+load("@io_bazel_rules_go//go:def.bzl", "go_library", "go_test")
+
+# ConfigManager, Go. Mirrors //config/manager_config/rust: the same one variable, the same
+# source-from-kind mapping, the same identity check, and loading that validates.
+#
+# It depends on the CHECKED-IN bindings rather than the generated go_proto_library because a Go
+# source file can only name one import path. //config/proto:binding_drift_go_{config,rules}_test
+# is what makes that safe.
+go_library(
+    name = "manager",
+    srcs = [
+        "manager.go",
+        "selector.go",
+    ],
+    importpath = "github.com/carverauto/serviceradar/config/manager_config/go",
+    visibility = ["//visibility:public"],
+    deps = [
+        "//config/proto_bindings/go:configpb",
+        "//config/validator/go:validator",
+        "@org_golang_google_protobuf//proto",
+    ],
+)
+
+# The whole test surface as an external test package, so everything is exercised through the
+# public API exactly as a consumer sees it.
+#
+# The rule set these tests use is built in code rather than read from //config/rules: they are
+# about what the manager DOES with a rule set, not about the committed one's contents. That the
+# committed rules accept every committed instance is asserted by //config/validator/go.
+go_test(
+    name = "manager_test",
+    srcs = [
+        "fixtures_test.go",
+        "manager_test.go",
+        "selector_message_test.go",
+        "selector_test.go",
+    ],
+    deps = [
+        ":manager",
+        "//config/proto_bindings/go:configpb",
+        "@org_golang_google_protobuf//proto",
+    ],
+)

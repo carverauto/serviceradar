@@ -6,10 +6,8 @@
 //! that source -- which is the property that starts carrying weight the moment the binary is
 //! copied into a release artifact's priv/ rather than read out of bazel-bin.
 
-mod utils_tests;
-
 use serviceradar_config_validator::text::{flatten, Pair};
-use utils_tests::{read, INSTANCES};
+use serviceradar_config_validator::utils_tests::{read, INSTANCES};
 
 fn committed(name: &str) -> Vec<Pair> {
     let src = read(&format!("config/environments/{name}.textproto"));
@@ -22,6 +20,7 @@ fn canonical(name: &str) -> Vec<Pair> {
 }
 
 #[test]
+#[ignore = "needs artifacts built by Bazel (protoc-compiled .binpb); run //config/validator/rust/tests, which passes --include-ignored"]
 fn every_generated_binary_round_trips_to_its_committed_source() {
     for name in INSTANCES {
         let mut source = committed(name);
@@ -49,6 +48,7 @@ fn every_generated_binary_round_trips_to_its_committed_source() {
 /// The negative control. An equality check that cannot fail proves nothing about the pair it
 /// compares, so corrupt one side and confirm the comparison notices.
 #[test]
+#[ignore = "needs artifacts built by Bazel (protoc-compiled .binpb); run //config/validator/rust/tests, which passes --include-ignored"]
 fn a_binary_built_from_a_different_source_is_rejected() {
     let source = committed("saas");
     let mut artifact = canonical("saas");
@@ -68,6 +68,7 @@ fn a_binary_built_from_a_different_source_is_rejected() {
 /// Comments and blank lines are the whole reason the comparison is structural rather than
 /// byte-for-byte, so confirm they are what the flattener drops -- and only that.
 #[test]
+#[ignore = "needs artifacts built by Bazel (protoc-compiled .binpb); run //config/validator/rust/tests, which passes --include-ignored"]
 fn comments_and_blank_lines_do_not_affect_the_comparison() {
     let plain = flatten("a: 1\nb { c: \"x\" }\n");
     assert!(plain.is_err(), "inline braces are not emitted by protoc and are not accepted");

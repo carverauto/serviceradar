@@ -2,6 +2,7 @@
 name = "serviceradar-config-manager"
 version = "0.1.0"
 edition = "2024"
+autotests = false
 
 [lib]
 name = "serviceradar_config_manager"
@@ -11,3 +12,7 @@ path = "src/lib.rs"
 prost = { workspace = true }
 serviceradar-config-schema = { path = "../../proto_bindings/rust" }
 serviceradar-config-validator = { path = "../../validator/rust" }
+
+[[test]]
+name = "lib_tests"
+path = "tests/lib_tests.rs"

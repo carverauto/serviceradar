@@ -1,33 +1,7 @@
-//! Which environment this process is, read from the one variable that decides it.
-//!
-//! `SERVICERADAR_ENV` is the ONLY input. It is required and has no default: a component that
-//! guessed an environment would guess a database, and the wrong guess is silent. Everything
-//! else -- which instance to load, where it comes from, which secret provider resolves
-//! credentials -- is derived from the identity this yields.
+//! Why an environment identity could not be determined.
 
+use crate::types::identity::{ENV_VAR, ONPREM, SINGLE_INSTANCE_KINDS};
 use std::fmt;
-
-pub const ENV_VAR: &str = "SERVICERADAR_ENV";
-
-/// The kinds that do not accept an instance identifier. `onprem` requires one.
-const SINGLE_INSTANCE_KINDS: &[&str] = &["localhost", "ci", "saas", "demo"];
-const ONPREM: &str = "onprem";
-
-/// The environment identity, as `<kind>[":" <instance>]`.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Identity {
-    pub kind: String,
-    pub instance: Option<String>,
-}
-
-impl fmt::Display for Identity {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match &self.instance {
-            Some(i) => write!(f, "{}:{}", self.kind, i),
-            None => write!(f, "{}", self.kind),
-        }
-    }
-}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum SelectorError {
@@ -94,42 +68,3 @@ impl fmt::Display for SelectorError {
 }
 
 impl std::error::Error for SelectorError {}
-
-/// Parses the identity from the variable's value.
-///
-/// Takes the value rather than reading the environment so this stays a total function of its
-/// input and is testable without mutating process state.
-pub fn resolve(value: Option<&str>) -> Result<Identity, SelectorError> {
-    // Empty is unset, not a choice: a shell exporting `SERVICERADAR_ENV=` has selected nothing,
-    // and this repository's build tooling pins several variables to "" deliberately.
-    let value = value.map(str::trim).filter(|s| !s.is_empty());
-    let Some(value) = value else {
-        return Err(SelectorError::Absent);
-    };
-
-    let (kind, instance) = match value.split_once(':') {
-        Some((k, i)) => (k, Some(i.to_string())),
-        None => (value, None),
-    };
-
-    if kind == ONPREM {
-        return match instance {
-            Some(i) if !i.is_empty() => {
-                Ok(Identity { kind: kind.to_string(), instance: Some(i) })
-            }
-            _ => Err(SelectorError::InstanceRequired(kind.to_string())),
-        };
-    }
-    if !SINGLE_INSTANCE_KINDS.contains(&kind) {
-        return Err(SelectorError::UnknownKind(value.to_string()));
-    }
-    if instance.is_some() {
-        return Err(SelectorError::InstanceNotAccepted(kind.to_string()));
-    }
-    Ok(Identity { kind: kind.to_string(), instance: None })
-}
-
-/// Reads the one variable from the process environment.
-pub fn from_env() -> Result<Identity, SelectorError> {
-    resolve(std::env::var(ENV_VAR).ok().as_deref())
-}

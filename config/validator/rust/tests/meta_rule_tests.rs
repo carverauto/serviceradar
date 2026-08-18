@@ -8,14 +8,12 @@
 //! because a hand-kept list is one more thing to forget to update, and forgetting is the failure
 //! being caught.
 
-mod utils_tests;
-
 use prost::Message;
 use prost_types::FileDescriptorSet;
 use serviceradar_config_schema::RuleSet;
 use serviceradar_config_validator::coverage::leaf_field_paths;
 use std::collections::BTreeSet;
-use utils_tests::data_path;
+use serviceradar_config_validator::utils_tests::data_path;
 
 fn load<T: Message + Default>(relative: &str) -> T {
     let path = data_path(relative);
@@ -34,6 +32,7 @@ fn ruled_fields() -> BTreeSet<String> {
 }
 
 #[test]
+#[ignore = "needs artifacts built by Bazel (protoc-compiled .binpb); run //config/validator/rust/tests, which passes --include-ignored"]
 fn every_schema_field_carries_at_least_one_rule() {
     let fields = schema_fields();
     assert!(!fields.is_empty(), "the descriptor yielded no fields");
@@ -50,6 +49,7 @@ fn every_schema_field_carries_at_least_one_rule() {
 /// The other direction. A rule naming a field the schema lacks is dead: it can never fire, so
 /// the constraint it was written to express is simply absent.
 #[test]
+#[ignore = "needs artifacts built by Bazel (protoc-compiled .binpb); run //config/validator/rust/tests, which passes --include-ignored"]
 fn every_rule_names_a_field_the_schema_has() {
     let fields: BTreeSet<String> = schema_fields().into_iter().collect();
     let ruled = ruled_fields();
@@ -61,6 +61,7 @@ fn every_rule_names_a_field_the_schema_has() {
 /// The descriptor walk is the part that could silently under-report: a bug that returns only
 /// top-level fields would make the coverage check pass while constraining nothing nested.
 #[test]
+#[ignore = "needs artifacts built by Bazel (protoc-compiled .binpb); run //config/validator/rust/tests, which passes --include-ignored"]
 fn the_descriptor_walk_reaches_nested_sections() {
     let fields = schema_fields();
     for expected in [
@@ -88,6 +89,7 @@ fn the_descriptor_walk_reaches_nested_sections() {
 /// the forbidding set would silently re-permit an instance identifier there, and the field would
 /// still have rules, so the coverage check above would not notice.
 #[test]
+#[ignore = "needs artifacts built by Bazel (protoc-compiled .binpb); run //config/validator/rust/tests, which passes --include-ignored"]
 fn a_conditional_pair_keyed_on_an_enum_is_exhaustive() {
     use serviceradar_config_schema::rule::Predicate;
     use serviceradar_config_validator::coverage::enum_values_at;

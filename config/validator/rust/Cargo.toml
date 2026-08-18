@@ -2,6 +2,7 @@
 name = "serviceradar-config-validator"
 version = "0.1.0"
 edition = "2024"
+autotests = false
 
 [lib]
 name = "serviceradar_config_validator"
@@ -20,3 +21,13 @@ serviceradar-config-schema = { path = "../../proto_bindings/rust" }
 
 [dev-dependencies]
 proptest = { workspace = true }
+
+[[test]]
+name = "lib_tests"
+path = "tests/lib_tests.rs"
+
+# Its own target for the same reason it is its own Bazel target: it proves that declaring one
+# section does not grant the others, which only holds if its inputs are declared alone.
+[[test]]
+name = "section_privilege_tests"
+path = "tests/section_privilege_tests.rs"
