@@ -206,8 +206,24 @@ ambient environment, a test asserting on `.bazelrc`, and a value read under a di
       harness catches exactly that
 - [ ] Implement the thin vector harness in **Go and Elixir** (blocked on porting the engine;
       lands with phase 6, where Decision 12 requires all three to validate at load)
-- [ ] Implement property-based tests per predicate law (proptest, rapid/gopter, StreamData)
-- [ ] Confirm all suites are untagged and selected by `make test`
+- [x] Implement property-based tests per predicate law in **Rust** —
+      `//config/validator:predicate_law_test`, 16 tests: eight proptest properties plus eight
+      hand-written cases. Both layers are needed. The properties state each law as a universally
+      quantified claim and SHRINK to a minimal counterexample on failure; the hand-written cases
+      pin the specific points three implementations most easily diverge on.
+      **A real defect in the first generator, found by running the control:** breaking the engine
+      to make `IntRange` exclusive at the upper bound was caught by the hand-written edge case but
+      NOT by `prop_int_range_is_inclusive_containment`, which drew `min`, `span` and `v`
+      independently over 400k values and so reached `v == max` only by luck. The property was
+      passing vacuously with respect to the boundary it claims to prove. Fixed by drawing the
+      value RELATIVE to the bounds; the same control now fails and shrinks to
+      `min = 0, span = 0, pick = 0` — the degenerate range `[0,0]` at its own edge.
+      Sampling a boundary is not the same as testing it
+- [ ] Property tests in Go and Elixir (rapid/gopter, StreamData) — land with the engine ports
+- [x] Confirm all suites are untagged and selected by `make test` — verified by
+      `bazel query 'attr(tags, "manual|integration_test|acceptance_test", //config/...)'`: no test
+      target under `//config/...` carries an excluding tag, so all 12 are selected by
+      `--test_tag_filters=-integration_test,-acceptance_test`
 
 ## 6. Managers
 

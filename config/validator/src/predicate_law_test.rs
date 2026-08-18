@@ -352,13 +352,27 @@ fn any_kind() -> impl Strategy<Value = EnvironmentKind> {
 proptest! {
     /// `IntRange(min,max)` is satisfied exactly when `min <= v <= max`, for ANY bounds and ANY
     /// value -- not merely for the bounds the rule set happens to use today.
+    ///
+    /// The value is drawn RELATIVE TO THE BOUNDS, not independently of them. An independent
+    /// draw over 400k values reaches `v == max` only by luck, so the property passed against a
+    /// deliberately off-by-one engine -- it never generated the input that distinguishes
+    /// inclusive from exclusive. Sampling a boundary is not the same as testing it.
     #[test]
     fn prop_int_range_is_inclusive_containment(
         min in 0u32..=200_000,
         span in 0u32..=200_000,
-        v in 0u32..=400_000,
+        pick in 0usize..6,
+        free in 0u32..=400_000,
     ) {
         let max = min.saturating_add(span);
+        let v = match pick {
+            0 => min.saturating_sub(1),
+            1 => min,
+            2 => max,
+            3 => max.saturating_add(1),
+            4 => min.saturating_add(span / 2),
+            _ => free,
+        };
         let rules = one(
             "database.port",
             Predicate::IntRange(IntRange { min: Some(min as i64), max: Some(max as i64) }),
@@ -374,9 +388,18 @@ proptest! {
         span in 0u32..=100_000,
         grow_lo in 0u32..=100_000,
         grow_hi in 0u32..=100_000,
-        v in 0u32..=400_000,
+        pick in 0usize..6,
+        free in 0u32..=400_000,
     ) {
         let max = min.saturating_add(span);
+        let v = match pick {
+            0 => min.saturating_sub(1),
+            1 => min,
+            2 => max,
+            3 => max.saturating_add(1),
+            4 => min.saturating_add(span / 2),
+            _ => free,
+        };
         let narrow = one("database.port",
             Predicate::IntRange(IntRange { min: Some(min as i64), max: Some(max as i64) }));
         let wide = one("database.port", Predicate::IntRange(IntRange {
