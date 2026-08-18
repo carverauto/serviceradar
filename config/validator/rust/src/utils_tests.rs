@@ -10,7 +10,7 @@ use std::path::{Path, PathBuf};
 /// is an execroot path that does not exist when the test runs.
 pub fn data_path(relative: &str) -> PathBuf {
     if let Ok(dir) = std::env::var("CARGO_MANIFEST_DIR") {
-        let candidate = Path::new(&dir).join("../..").join(relative);
+        let candidate = Path::new(&dir).join("../../..").join(relative);
         if candidate.exists() {
             return candidate;
         }

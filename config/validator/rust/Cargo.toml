@@ -16,7 +16,7 @@ prost-types = { workspace = true }
 # these `cargo check -p serviceradar-config-validator` fails on a crate the Bazel build
 # compiles fine.
 regex-automata = { workspace = true, features = ["meta", "syntax", "unicode-case"] }
-serviceradar-config-schema = { path = "../proto_bindings/rust" }
+serviceradar-config-schema = { path = "../../proto_bindings/rust" }
 
 [dev-dependencies]
 proptest = { workspace = true }

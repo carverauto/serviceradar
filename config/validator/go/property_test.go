@@ -6,8 +6,8 @@ import (
 
 	"pgregory.net/rapid"
 
-	"github.com/carverauto/serviceradar/config/go/validator"
 	configpb "github.com/carverauto/serviceradar/config/proto_bindings/go"
+	validator "github.com/carverauto/serviceradar/config/validator/go"
 )
 
 // The Go half of the predicate laws. The vectors prove this engine agrees with Rust on the

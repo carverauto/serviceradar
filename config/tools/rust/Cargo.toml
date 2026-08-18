@@ -9,4 +9,4 @@ path = "src/main.rs"
 
 [dependencies]
 prost = { workspace = true }
-serviceradar-config-schema = { path = "../proto_bindings/rust" }
+serviceradar-config-schema = { path = "../../proto_bindings/rust" }

@@ -115,7 +115,7 @@ git_override(
 # Registry -- drop this override once it is published and the bazel_dep above resolves on its own.
 git_override(
     module_name = "rules_elixir",
-    commit = "832a95b44eb2e4bc60f133d3bb1101b6458bfb95",
+    commit = "31e99980a43598211d2a6c5fbb893a21a9c0644b",
     remote = "https://github.com/bazelverse/rules_elixir.git",
 )
 

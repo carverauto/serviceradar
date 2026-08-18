@@ -375,7 +375,7 @@ Record this in `AGENTS.md`, or a future cleanup will "fix" the layout and undo i
 - **Go:** the module root is `github.com/carverauto/serviceradar`, so `config/go/` is importable as
   `github.com/carverauto/serviceradar/config/go/...`. Consider naming the directory something other
   than `go` to avoid `config/go/go.go`-style paths.
-- **Elixir:** a Mix project at `config/elixir/`, referenced by path from consuming `mix.exs` files.
+- **Elixir:** a Mix project at `config/validator/elixir/`, referenced by path from consuming `mix.exs` files.
   **Naming hazard:** every Mix project already has its own `config/` directory
   (`elixir/web-ng/config/runtime.exs` and three others). A repository-root `config/` is a different
   thing with the same name. Unambiguous in a full path, ambiguous in conversation — worth a
@@ -482,133 +482,102 @@ packaging rather than the design.
 
 ---
 
-## Decision 12 — Configuration may come from outside this repository
+## Decision 12 — One variable, and the environment decides everything else
 
-Decision 10 puts every instance in git. **This repository is public**, and an enterprise on-prem
-customer will not publish their database hosts, service endpoints and certificate subjects to it.
-Decision 10 already named this case — "an exception to negotiate for that customer" — without a
-mechanism. This is the mechanism.
+`SERVICERADAR_ENV` is the **only** input a component reads. It is required, has no default, and
+from the identity it names both managers derive everything: which instance to load, where that
+instance comes from, and which provider resolves secrets. A component never learns a second
+variable name.
 
-**What must not be lost.** Decision 10's real content is not *config lives in git*. It is:
+**No default, deliberately.** A guessed environment is a guessed database, and guessing wrong is
+silent -- the process starts and connects somewhere nobody chose. The failure message is treated
+as part of the interface and asserted by a test, because the one thing worse than this error is
+this error explained badly to someone in a crash loop at 3am.
+
+### The source follows from the kind
+
+| Kind | Instance comes from |
+|---|---|
+| `localhost`, `ci` | carried in the artifact |
+| `saas`, `demo`, `onprem:<id>` | mounted at `/etc/serviceradar/environment.binpb` |
+
+`localhost` and `ci` carry theirs because neither has a platform to mount anything: a developer
+running `cargo run` and a Bazel test action both have a filesystem nobody provisioned. Every
+deployed kind reads the mount, and the mount path is a **constant, not a variable** -- a settable
+path would be a second thing that can disagree with the first.
+
+This is also what solves the enterprise case that motivated this decision. **This repository is
+public**, and an on-prem customer will not publish their database hosts and certificate subjects
+to it. They mount their own compiled instance at that path and set
+`SERVICERADAR_ENV=onprem:<their-id>`. Their topology never enters this tree, and they learn no
+mechanism beyond the one variable every deployment already sets.
+
+*Rejected: a second variable naming the source.* An earlier draft of this decision added
+`SERVICERADAR_CONFIG_URI` beside `SERVICERADAR_ENV`, with both-set as an error. It made two
+things able to name the configuration and put a path where the design wants a kind, and it
+forfeited the identity check below. One variable plus a mount convention does the same job with
+less surface.
+
+### The artifact must describe the environment that was selected
+
+The instance is self-describing -- `kind` and `instance` are fields in the message -- and the
+selector is declared, so the two are compared at load:
+
+> `SERVICERADAR_ENV=onprem:untd` must load an instance whose `kind` is ONPREM and whose
+> `instance` is `untd`. A mismatch is a startup error naming both.
+
+This catches **the wrong artifact being mounted**: the saas ConfigMap in the demo cluster, or one
+customer's instance in another's deployment. That mistake is otherwise completely silent, and its
+blast radius is the database a component connects to and the name it verifies TLS against. It
+costs two comparisons because both halves already existed.
+
+### Validation moves to load time
+
+Decision 10's real content is not *config lives in git*. It is:
 
 > no instance is ever loaded that has not been validated against the committed rule set.
 
-Committing instances is one way to obtain that property. It is not the only way, and it is not
-even the strongest way — a committed instance is validated at BUILD time and then trusted at
-load. So the fix is not to add a loader beside the guarantee; it is to move the guarantee:
-
-**ConfigManager validates whatever it loads, at load, before returning a single value.** The rule
-set ships with the release as a compiled binary, exactly like the instances do. Build-time
-validation of committed instances stays, demoted from *the* check to an *early* check — it fails
-in CI instead of at a customer's deploy. Every instance, committed or not, is now validated at the
-moment it is used.
-
-### Selection: two variables, and never both
-
-| Variable | Meaning |
-|---|---|
-| `SERVICERADAR_ENV=<kind>[:<instance>]` | an instance compiled into the release |
-| `SERVICERADAR_CONFIG_URI=<uri>` | an instance from outside it |
-
-Both set is a startup error naming both. Neither set is a startup error listing the built-in
-kinds. There is no precedence rule, because **precedence is where silently-wrong configuration
-lives**: a rule that says "URI wins" makes a stale `SERVICERADAR_ENV` invisible rather than wrong.
-
-*Rejected: one overloaded variable.* `onprem:untd` and `file:/etc/env.binpb` share a
-`<token>:<rest>` grammar, so a single variable needs a rule distinguishing a kind from a scheme —
-and that rule is exactly where a typo becomes a different source instead of an error.
-
-### Format: the external artifact is the binary, and a CLI compiles it
-
-Decision 2 stands — no implementation parses text format, so the loaded artifact is binary in
-every case. The customer authors `.textproto` and compiles it with a CLI shipped in the release:
-
-```
-serviceradar config compile environment.textproto -o environment.binpb
-```
-
-Go parses text format natively (`prototext`), which is why the CLI can exist at all. It performs
-the same three checks the build performs on a committed instance — schema (unknown field, wrong
-type, bad enum), rule set, and credential shape — and **refuses to emit a binary that fails any of
-them**. That moves discovery from the customer's boot to the customer's authoring, which is the
-only part of this that a mounted file cannot do by itself.
-
-The customer keeps their `.textproto` in their own repository, next to their Helm values, and
-never touches this one.
-
-### Schemes
-
-- **`file:` — the recommended default.** A mounted file, a ConfigMap, a Docker volume. No
-  boot-time network dependency and no new trust question.
-- **`https:` — supported.** Fetch failure is fatal; there is deliberately **no cached fallback**,
-  because a service that silently starts on last week's configuration is worse than one that does
-  not start.
-- **`http:` — rejected, not discouraged.** Configuration over cleartext is a config-injection
-  channel whose payload is the database host and the TLS posture. Whoever can answer the request
-  can point the deployment at their own database, in verify-disabled mode.
-
-**Artifact integrity over `https:` is deferred to the configuration-server specification** and is
-not decided here. The risk is real and stated so it is not lost: without a way to verify a fetched
-artifact against something the client knew beforehand, whoever controls the endpoint — or its DNS —
-controls where the deployment connects and how it verifies TLS.
-
-It is deferred rather than settled because the mechanism depends on what serves the artifact, and
-choosing one now would constrain that design. A **digest pin** (`#sha256=<hex>`) suits a static
-artifact in an object store but cannot exist for anything rendered per client; a **signature**
-against a pinned public key suits both but presumes a signing key the server design has not yet
-introduced. The two are not interchangeable, so the choice belongs with the server.
-
-Until then, `file:` is the recommended source, and it does not have this exposure: a mounted file
-is delivered by the platform over the same trust path as the container image.
-
-### The accepted cost
-
-An external instance is **not covered by this repository's build**. Nothing here can tell a
-customer their file omits a required field or weakens a cross-environment invariant; they learn at
-startup, fail-closed, with the violation list. The CLI's compile-time validation is what keeps
-that from being a surprise, and it is the reason the CLI validates rather than merely converting.
-
-Everything we operate ourselves stays committed, and `onprem/untd.textproto` remains as an example
-so the on-prem path is exercised by the build rather than being a code path nothing runs.
+Committing instances is one way to obtain that and not the strongest -- a committed instance is
+checked at BUILD time and then trusted. So the guarantee moves: **ConfigManager validates whatever
+it loads, before returning a single value**, against a rule set shipped with the release.
+Build-time validation stays, demoted from *the* check to an *early* one that fails in CI rather
+than at a customer's deploy. A mounted instance the build never saw is held to the same rules.
 
 ### Non-goal: the configuration server
 
-A dedicated configuration server — serving instances over an authenticated channel, rendered per
-deployment — is **deliberately out of scope here** and is a follow-up specification. What is in
-scope is that nothing decided now stands in its way. Five constraints, adopted for that reason:
+A dedicated configuration server -- serving instances over an authenticated channel, rendered per
+deployment -- is **out of scope** and a follow-up specification. What is in scope is that nothing
+here stands in its way:
 
-**1. The selector is a URI, not a path.** `SERVICERADAR_CONFIG_URI` rather than
-`SERVICERADAR_CONFIG_FILE`, so a new source is a new scheme rather than a new variable and a new
-precedence rule.
+**1. Loading returns the instance AND its source**, from the first version, even when the source
+is trivially a built-in name. `explain` has to report where a value came from; a server adds
+endpoint, fetch time and verified identity, and there is nowhere to put them if loading returns a
+bare `EnvironmentConfig`.
 
-**2. Schemes are a closed set, and an unknown one is a startup error listing the supported ones.**
-Closed matches the predicate vocabulary (Decision 3) and keeps adding a source a deliberate act —
-but the loader is shaped as a **resolver keyed by scheme**, so adding `srconf:` is adding an entry,
-not restructuring three implementations.
-
-**3. The loader returns the message AND its provenance**, from the first version, even when
-provenance is trivially "built-in: saas". `explain` already has to report where a value came from;
-a server adds endpoint, fetch time and verified identity to that, and there is nowhere to put them
-if the loader's result is a bare `EnvironmentConfig`.
-
-**4. Reaching the config source SHALL NOT require a ServiceRadar-managed secret.** This is the one
-that would actually block a server, and it is a **bootstrap cycle**: a server must authenticate its
+**2. Reaching the source SHALL NOT require a ServiceRadar-managed secret.** This is the one that
+would actually block a server, and it is a **bootstrap cycle**: a server authenticates its
 clients, authenticating needs a credential, credentials come from SecretManager, and SecretManager
-needs configuration to know which provider to use. The cycle is broken by requiring the config
-source to be reachable with **platform-provided workload identity alone** — a Kubernetes service
-account token, a SPIFFE SVID from the workload API socket, or a client certificate the platform
-mounts. ServiceRadar already deploys with SPIFFE and mTLS, so the identity exists before any
-ServiceRadar configuration is read. Any design that would have a component read a config-server
-password out of a secret store is circular and must be rejected on sight.
+needs configuration to know its provider. Broken by requiring the source to be reachable with
+**platform-provided workload identity alone** -- a Kubernetes service account token, a SPIFFE SVID,
+or a platform-mounted client certificate. ServiceRadar already deploys with SPIFFE and mTLS, so
+that identity exists before any ServiceRadar configuration is read. Reading bytes is behind a
+narrow interface for exactly this reason: the manager never decides how a deployment reaches its
+own configuration.
 
-**5. Validation stays on the client.** A server is not trusted to have validated what it serves;
-ConfigManager validates every instance at load regardless of source. This is what makes a server
-*safe* to plug in rather than a new thing to trust, and it falls out of the decision above rather
-than needing anything extra.
+**3. Validation stays on the client.** A server is not trusted to have validated what it serves.
+This is what makes one *safe to plug in* rather than a new thing to trust, and it falls out of the
+decision above rather than needing anything extra.
+
+**4. Artifact integrity over a network is deferred** to that specification. The exposure is real
+and recorded so it is not lost -- without verifying a fetched artifact against something the
+client knew beforehand, whoever controls the endpoint or its DNS controls where a deployment
+connects. It cannot be settled here because the mechanism depends on what serves the artifact: a
+digest pin cannot exist for anything rendered per client, and a signature presumes a signing key
+the server design has not introduced. A mounted file carries no such exposure; it arrives over the
+same trust path as the container image.
 
 **Explicitly not promised: hot reload.** Decision 9 requires the first resolution to be
-synchronous and complete before the application tree starts, so a server must support a
-fetch-at-boot regardless. A push or lease mechanism can be layered on later, but it is an addition
-to the boot fetch, never a replacement for it — and the resolved configuration stays immutable and
-reached through one accessor, so a future refresh replaces a value rather than reworking every call
-site.
+synchronous and complete before the application tree starts, so any server must support a fetch at
+boot. Push or lease can layer on later as an addition to that, never a replacement -- and the
+resolved configuration stays immutable behind one accessor, so a future refresh replaces a value
+rather than reworking every call site.

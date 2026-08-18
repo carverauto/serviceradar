@@ -7,8 +7,8 @@ import (
 
 	"google.golang.org/protobuf/proto"
 
-	"github.com/carverauto/serviceradar/config/go/validator"
 	configpb "github.com/carverauto/serviceradar/config/proto_bindings/go"
+	validator "github.com/carverauto/serviceradar/config/validator/go"
 )
 
 // dataPath resolves a declared input. `go test` runs with the package directory as the working

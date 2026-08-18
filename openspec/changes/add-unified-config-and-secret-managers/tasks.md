@@ -43,7 +43,7 @@ ambient environment, a test asserting on `.bazelrc`, and a value read under a di
       ACL username/password/api key/bearer token/namespace are omitted (the last four are
       SecretManager's, and the schema does not carry fields no instance sets)
 - [x] Wire Go codegen (`//config/proto:configpb`) — builds on RBE
-- [x] Wire Rust codegen (prost) — `//config/rust:config_schema`, crate
+- [x] Wire Rust codegen (prost) — `//config/proto_bindings/rust:config_schema`, crate
       `serviceradar-config-schema`. Registered in the workspace `members` and `Cargo.lock`.
       Three tests pass on RBE, including `unset_fields_are_absent_not_defaulted`, which proves
       explicit presence survives prost codegen (`Option`, not a zero value)
@@ -102,7 +102,7 @@ ambient environment, a test asserting on `.bazelrc`, and a value read under a di
       **37 rules**, compiles to a 3234-byte binary. Negative controls verified on RBE: an unknown
       predicate and an unknown enum in `scope` each fail the build
 - [x] Implement the meta-rule: every schema field carries at least one rule —
-      `//config/validator:meta_rule_test`, over `//config/proto:config_descriptor_set`. The field
+      `//config/validator/rust:meta_rule_test`, over `//config/proto:config_descriptor_set`. The field
       list comes from the schema's OWN DESCRIPTOR, recursed to leaves, not from a list in the test:
       a hand-kept list is one more thing to forget to update, and forgetting is the failure being
       caught. Also checks the reverse — a rule naming a field the schema lacks is dead, since it
@@ -144,10 +144,10 @@ ambient environment, a test asserting on `.bazelrc`, and a value read under a di
       gets added to one check and not the others
 - [x] Expose each as a Bazel target at the granularity components consume — four sections
       (`database`, `nats`, `core`, `dgraph`) per instance, e.g. `//config/environments:ci_database`,
-      cut by `//config/tools:extract_section`. This is Decision 6 (least privilege), not caching:
+      cut by `//config/tools/rust:extract_section`. This is Decision 6 (least privilege), not caching:
       a target that declares one section PHYSICALLY CANNOT SEE the others, because they are not in
       its runfiles — absolute under remote execution, where only declared inputs reach the executor.
-      `//config/validator:section_privilege_test` declares exactly one section and asserts both
+      `//config/validator/rust:section_privilege_test` declares exactly one section and asserts both
       halves. **Negative control verified on RBE:** granting it `ci_binpb` and `ci_nats` makes both
       absence assertions fail, naming the reachable file.
       A tool rather than a protoc invocation because text format cannot be sliced — the section
@@ -158,7 +158,7 @@ ambient environment, a test asserting on `.bazelrc`, and a value read under a di
 - [x] Add the build-time validator as a Bazel test over file-phase rules, iterating **every**
       instance including each on-prem one
 - [x] Add the credential-shape check that rejects secrets in configuration files —
-      `//config/validator:credential_shape_test`. Four shapes (URL userinfo, `password=`-style
+      `//config/validator/rust:credential_shape_test`. Four shapes (URL userinfo, `password=`-style
       connection parameters, PEM material, whole-value base64 runs) plus credential-denoting
       field names. **Verified end to end on RBE:** a DSN with an embedded password planted in
       `demo.textproto` fails the test naming `demo: database.host`.
@@ -175,7 +175,7 @@ ambient environment, a test asserting on `.bazelrc`, and a value read under a di
       fail the build: unknown field (names `not_a_real_field`), wrong type for `port`, and an
       invalid enum value (names `TLS_MODE_BOGUS`)
 - [x] Add the round-trip test asserting each generated binary matches its committed `.textproto`
-      — `//config/validator:round_trip_test`. Both sides are flattened to `path=value` pairs and
+      — `//config/validator/rust:round_trip_test`. Both sides are flattened to `path=value` pairs and
       compared structurally, because the committed file carries comments and blank lines no
       encoder emits, and neither prost nor Elixir's `:protobuf` can parse text format.
       Its weight comes from the two sides being READ FROM DIFFERENT PLACES — source tree vs.
@@ -195,7 +195,7 @@ ambient environment, a test asserting on `.bazelrc`, and a value read under a di
       accept/reject. Three implementations can reject the same input for three different reasons
       and a bare rejection assertion stays green
 - [x] Include the negative fixtures from phase 3 as vectors — same artifact by construction
-- [x] Implement the thin vector harness in **Rust** — `//config/validator:vector_test`. Until it
+- [x] Implement the thin vector harness in **Rust** — `//config/validator/rust:vector_test`. Until it
       existed the fixture file was inert data, and it found two real defects on its first run:
       every pre-existing fixture was stale against the `dgraph` schema addition, and 35 of 45
       rules had no fixture at all — the invariant the rule set file states in its own header and
@@ -204,7 +204,7 @@ ambient environment, a test asserting on `.bazelrc`, and a value read under a di
       `min: 1` to `min: 0` reds `database_pool_size_zero` with `expected [...] actual []`, which
       is the SEMANTICS.md section 8 property — weakening a rule makes its case pass, and the
       harness catches exactly that
-- [x] Implement the thin vector harness in **Go** — `//config/go/validator`, engine plus
+- [x] Implement the thin vector harness in **Go** — `//config/validator/go`, engine plus
       harness. It reproduces all 47 fixtures as an ordered `(code, field_path)` sequence and
       revalidates all five committed instances.
       **Two negative controls verified on RBE.** Breaking `IntRange` to be exclusive at the upper
@@ -212,14 +212,18 @@ ambient environment, a test asserting on `.bazelrc`, and a value read under a di
       minimal counterexample proptest produced in Rust. It did NOT red the vectors, because no
       committed fixture uses a max-boundary value; disabling `NonEmpty` instead failed 10 named
       fixture subtests. The two layers catch different things, which is why both exist
-- [~] Vector harness in **Elixir** — engine and harness written and correct, but BLOCKED by a
-      rules_elixir defect: `private/ex_unit_test.bzl:51` stages every test input with
-      `src = s.path`, which for a GENERATED file is `bazel-out/<cfg>/bin/...` and does not resolve
-      from the test's working directory. Source files work only because `path == short_path` for
-      them. Fix is `src = s.short_path`; pinned commit 832a95b4. The vector test is excluded from
-      the glob with that note rather than left red — see `config/elixir/BUILD.bazel`
+- [x] Vector harness in **Elixir** — `//config/validator/elixir:unit_tests_validator_vector_test`. It
+      required fixing rules_elixir: `ex_unit_test` staged every test input by `File.path`, so a
+      GENERATED `srcs` or `data` entry resolved to `bazel-out/<cfg>/bin/...` and existed nowhere
+      at test time. Source inputs hid it because their `path` and `short_path` are equal. Staging
+      now uses short_path, with external inputs placed under `external/` so they cannot escape
+      TEST_TMPDIR; `srcs_args` had the same latent bug and is fixed with it.
+      **Verified on RBE:** disabling Elixir's `NonEmpty` reds the harness naming
+      `database_name_empty` and `core_address_empty`, and all 25 pre-existing Elixir test targets
+      pass with `--nocache_test_results` against the patched rule — the cached run reported
+      "Executed 0 out of 25" and proved nothing
 - [x] Implement property-based tests per predicate law in **Rust** —
-      `//config/validator:predicate_law_test`, 16 tests: eight proptest properties plus eight
+      `//config/validator/rust:predicate_law_test`, 16 tests: eight proptest properties plus eight
       hand-written cases. Both layers are needed. The properties state each law as a universally
       quantified claim and SHRINK to a minimal counterexample on failure; the hand-written cases
       pin the specific points three implementations most easily diverge on.
@@ -245,36 +249,41 @@ ambient environment, a test asserting on `.bazelrc`, and a value read under a di
 
 ## 6. Managers
 
-- [ ] Implement `ConfigManager` natively in Rust, Go, and Elixir, keyed by `SERVICERADAR_ENV`
-- [ ] **Validate at LOAD, in every implementation**, against the rule set shipped with the release
-      — not only at build time. This is what lets an instance come from outside the repository
-      without losing Decision 10's guarantee, and it is strictly stronger than today: a committed
-      instance is currently validated at build and then trusted at load. See Decision 12
-- [ ] Implement `SERVICERADAR_CONFIG_URI` with `file:` and `https:`; reject `http:`; fetch failure
-      is fatal with NO cached fallback
-- [ ] Hard-error when both `SERVICERADAR_ENV` and `SERVICERADAR_CONFIG_URI` are set, and when
-      neither is. No precedence rule — precedence is where a stale selector becomes invisible
-      rather than wrong
-- **DEFERRED to the configuration-server specification:** artifact integrity over `https:`. The
-      exposure is real — without verification against something the client knew beforehand,
-      whoever controls the endpoint or its DNS controls the deployment's database host and TLS
-      mode — but the mechanism depends on what serves the artifact (a digest pin cannot exist for
-      anything rendered per client; a signature presumes a signing key the server design has not
-      introduced). `file:` carries no such exposure and is the recommended source until then
-- [ ] Shape the loader as a **resolver keyed by scheme**, returning the instance AND its
-      provenance even when provenance is trivially "built-in: saas". An unknown scheme is a
-      startup error listing the supported ones
-- [ ] Enforce that reaching a config source needs **no ServiceRadar-managed secret** — platform
-      workload identity only (K8s SA token, SPIFFE SVID, platform-mounted client cert). A
-      component reading a config-source credential out of SecretManager is a bootstrap cycle:
-      SecretManager needs configuration to know its provider
-- [ ] Ship `serviceradar config compile <in.textproto> -o <out.binpb>` — Go, because only Go parses
-      text format natively. Applies schema + rule set + credential-shape checks and refuses to emit
-      an artifact that fails any of them, moving discovery from the customer's boot to their
-      authoring
+- [~] Implement `ConfigManager` natively in **Rust** — `//config/manager_config/rust`. Go and Elixir
+      mirror this shape and are next.
+      **One built-in item is deliberately deferred:** the set of instances compiled INTO the
+      release is passed in as `BuiltIns` rather than embedded here, because embedding it is the
+      same problem as phase 4's last open item (shipping the binary inside a release artifact).
+      Solving it twice, differently, is how the two drift
+- [~] **Validate at LOAD** — done in Rust. `load()` resolves, decodes AND validates as one
+      operation; there is deliberately no entry point that returns a value without checking it.
+      An invalid instance yields `ConfigError::Invalid` carrying the origin and the full
+      violation list, and no configuration at all
+- [x] Derive the instance SOURCE from the kind rather than from a second variable — `localhost`
+      and `ci` carry theirs in the artifact (neither has a platform to mount anything: `cargo run`
+      and a Bazel test action both have a filesystem nobody provisioned); every deployed kind
+      reads a CONSTANT mount path. A settable path would be a second thing able to disagree with
+      the first
+- [x] Hard-error on unset/unrecognised `SERVICERADAR_ENV`, listing the valid set — and the
+      unset message is treated as part of the interface and ASSERTED by a test, not merely
+      written. It names the variable, says nothing can start without it, says there is no default
+      and why, lists every accepted value, and shows the exact syntax for Kubernetes, Docker,
+      Compose, CI and local dev. A docstring cannot be checked; this is the one failure a reader
+      may meet in a crash loop with no other output
+- [x] **Reject the wrong artifact**: the loaded instance's `kind`/`instance` must match what
+      `SERVICERADAR_ENV` named. Catches the saas ConfigMap mounted into demo, and one on-prem
+      customer's instance in another's deployment — silent today, and its blast radius is the
+      database a component connects to and the name it verifies TLS against. Free, because the
+      instance is self-describing and the selector is declared
+- **SUPERSEDED:** `SERVICERADAR_CONFIG_URI`. A second selector made two things able to name the
+      configuration, put a path where the design wants a kind, and forfeited the identity check
+      above. One variable plus a mount convention does the same job with less surface; the
+      enterprise case it existed for is served by mounting at the constant path
+
 - [ ] Implement `SecretManager` with providers: localhost file, CI store, Kubernetes/OpenBao
 - [ ] Implement per-component declared secret manifests; provider refuses undeclared names
-- [ ] Hard-error on unset/unrecognised `SERVICERADAR_ENV`, listing the valid set
+- [x] Hard-error on unset/unrecognised `SERVICERADAR_ENV`, listing the valid set — Rust. Every
+      selector error names the offending value and the accepted alternatives
 - [ ] Hard-error on unresolvable secret, naming logical key and provider
 - [ ] Implement startup resolution of everything a component declares
 - [ ] Implement DSN assembly from typed fields plus resolved secrets

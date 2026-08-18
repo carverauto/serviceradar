@@ -6144,6 +6144,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "serviceradar-config-manager"
+version = "0.1.0"
+dependencies = [
+ "prost",
+ "serviceradar-config-schema",
+ "serviceradar-config-validator",
+]
+
+[[package]]
 name = "serviceradar-config-schema"
 version = "0.1.0"
 dependencies = [

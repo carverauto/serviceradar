@@ -1,0 +1,66 @@
+# gazelle:ignore
+
+load("@crates//:defs.bzl", "all_crate_deps")
+load("@rules_rs//rs:rust_library.bzl", "rust_library")
+load("@rules_rs//rs:rust_test.bzl", "rust_test")
+
+filegroup(
+    name = "srcs",
+    srcs = glob(
+        ["**"],
+        exclude = [
+            "target/**",
+            "bazel-*",
+        ],
+    ),
+    visibility = ["//visibility:public"],
+)
+
+# ConfigManager. Loading and validation are one operation on purpose: there is no entry point
+# that returns a value without having checked it (Decision 12).
+rust_library(
+    name = "manager",
+    srcs = [
+        "src/lib.rs",
+        "src/selector.rs",
+    ],
+    crate_name = "serviceradar_config_manager",
+    crate_root = "src/lib.rs",
+    visibility = ["//visibility:public"],
+    deps = all_crate_deps(
+        cargo_only = True,
+        normal = True,
+    ) + [
+        "//config/proto_bindings/rust:config_schema",
+        "//config/validator/rust:validator",
+    ],
+)
+
+rust_test(
+    name = "selector_test",
+    srcs = ["src/selector_test.rs"],
+    crate_root = "src/selector_test.rs",
+    deps = all_crate_deps(
+        cargo_only = True,
+        normal = True,
+    ) + [":manager"],
+)
+
+# The real committed rule set is a declared input: a manager tested against invented rules would
+# prove nothing about what it does at boot.
+rust_test(
+    name = "load_test",
+    srcs = [
+        "src/load_test.rs",
+        "src/utils_load.rs",
+    ],
+    crate_root = "src/load_test.rs",
+    data = ["//config/rules:ruleset_binpb"],
+    deps = all_crate_deps(
+        cargo_only = True,
+        normal = True,
+    ) + [
+        ":manager",
+        "//config/proto_bindings/rust:config_schema",
+    ],
+)

@@ -318,78 +318,87 @@ component, showing the provenance of each value, with secrets redacted.
 - **THEN** it SHALL print each resolved value with the file or provider it came from
 - **AND** secret values SHALL be redacted
 
-### Requirement: Configuration may be loaded from outside this repository
+### Requirement: The environment variable is required and its absence is explained
 
-An instance SHALL be loadable from a source outside this repository, so that a deployment whose
-topology is not disclosable is not required to publish it. The source SHALL be named by
-`SERVICERADAR_CONFIG_URI`. Exactly one of `SERVICERADAR_ENV` and `SERVICERADAR_CONFIG_URI` SHALL be
-set; setting both or neither SHALL be a startup error, and there SHALL be no precedence rule
-between them.
+`SERVICERADAR_ENV` SHALL be the only environment variable a component reads to determine its
+configuration. It SHALL have no default. When it is unset or empty, startup SHALL fail with a
+message that names the variable, states that nothing can be loaded without it, lists every
+accepted value, and shows how to set it on each supported platform.
 
-The loaded artifact SHALL be a binary message. A shipped CLI SHALL compile a text-format instance
-to that binary, applying schema validation, the committed rule set, and the credential-shape check,
-and SHALL refuse to emit an artifact that fails any of them.
+#### Scenario: The variable is not set
 
-`file:` and `https:` SHALL be supported. `http:` SHALL be rejected. An unrecognised scheme SHALL be
-a startup error listing the supported schemes. A failed fetch SHALL be a startup error, and a
-previously fetched artifact SHALL NOT be used as a fallback.
+- **GIVEN** `SERVICERADAR_ENV` is unset
+- **WHEN** a component starts
+- **THEN** startup SHALL fail naming `SERVICERADAR_ENV`
+- **AND** the message SHALL list `localhost`, `ci`, `saas`, `demo` and `onprem:<instance>`
+- **AND** the message SHALL show how to set it under Kubernetes, Docker, Compose, CI and local
+  development
+- **AND** it SHALL NOT fall back to any default environment
 
-Reaching a configuration source SHALL NOT require a ServiceRadar-managed secret; a source requiring
-authentication SHALL be reachable with platform-provided workload identity alone. Resolution SHALL
-yield the instance together with its provenance.
+#### Scenario: The variable is set to an empty value
 
-#### Scenario: A deployment loads configuration from a mounted file
+- **GIVEN** `SERVICERADAR_ENV=""`
+- **WHEN** a component starts
+- **THEN** it SHALL be treated as unset rather than as an environment kind
 
-- **GIVEN** `SERVICERADAR_CONFIG_URI=file:///etc/serviceradar/environment.binpb` and
-  `SERVICERADAR_ENV` unset
+### Requirement: The instance source follows from the environment kind
+
+The location an instance is read from SHALL be derived from the kind, not from a second variable.
+Kinds with no provisioning platform SHALL carry their instance in the artifact; deployed kinds
+SHALL read a mounted artifact at a constant path. A deployment whose topology is not disclosable
+SHALL be supported by mounting its own compiled instance at that path.
+
+#### Scenario: A deployed environment reads its mount
+
+- **GIVEN** `SERVICERADAR_ENV=saas` and a compiled instance mounted at the constant path
 - **WHEN** a component initialises its ConfigManager
 - **THEN** it SHALL load that artifact
 - **AND** it SHALL validate it against the shipped rule set before returning any value
 
-#### Scenario: Both selectors are set
+#### Scenario: The mounted artifact is absent
 
-- **GIVEN** `SERVICERADAR_ENV=onprem:untd` and `SERVICERADAR_CONFIG_URI=file:///etc/env.binpb`
+- **GIVEN** `SERVICERADAR_ENV=saas` and no artifact at the mount path
 - **WHEN** a component initialises its ConfigManager
-- **THEN** startup SHALL fail naming both variables
-- **AND** it SHALL NOT choose one of them
+- **THEN** startup SHALL fail naming the path
+- **AND** it SHALL NOT start on any previously read artifact
 
-#### Scenario: An external instance violates a rule
+#### Scenario: An on-prem deployment supplies its own instance
 
-- **GIVEN** an external artifact whose `database.tls_mode` is `TLS_MODE_DISABLE` for a non-localhost kind
+- **GIVEN** `SERVICERADAR_ENV=onprem:<id>` and that deployment's compiled instance mounted at the
+  constant path
 - **WHEN** a component initialises its ConfigManager
-- **THEN** startup SHALL fail listing the violation code and field path
+- **THEN** it SHALL load and validate it
+- **AND** no part of that deployment's topology SHALL be required to exist in this repository
+
+### Requirement: A loaded instance must describe the selected environment
+
+The `kind` and `instance` of a loaded artifact SHALL match the identity named by
+`SERVICERADAR_ENV`. A mismatch SHALL be a startup error naming both the selected identity and the
+one found.
+
+#### Scenario: The wrong artifact is mounted
+
+- **GIVEN** `SERVICERADAR_ENV=demo` and a mounted artifact whose `kind` is `ENVIRONMENT_KIND_SAAS`
+- **WHEN** a component initialises its ConfigManager
+- **THEN** startup SHALL fail naming both `demo` and `saas`
 - **AND** no value from that artifact SHALL be returned
 
-#### Scenario: Configuration is offered over cleartext
+#### Scenario: Another deployment's on-prem instance is mounted
 
-- **GIVEN** `SERVICERADAR_CONFIG_URI=http://config.internal/environment.binpb`
+- **GIVEN** `SERVICERADAR_ENV=onprem:untd` and a mounted artifact whose `instance` is a different
+  identifier
 - **WHEN** a component initialises its ConfigManager
-- **THEN** startup SHALL fail rejecting the scheme
+- **THEN** startup SHALL fail naming both identifiers
 
-#### Scenario: A remote source is unreachable
+### Requirement: Resolution reports where a value came from
 
-- **GIVEN** `SERVICERADAR_CONFIG_URI` names an `https:` source that cannot be fetched
-- **WHEN** a component initialises its ConfigManager
-- **THEN** startup SHALL fail
-- **AND** it SHALL NOT start on a previously fetched artifact
-
-#### Scenario: An invalid instance is compiled
-
-- **GIVEN** a text-format instance omitting a required field
-- **WHEN** the CLI compiles it
-- **THEN** it SHALL fail listing the violations
-- **AND** it SHALL NOT write an output artifact
-
-#### Scenario: An unsupported source scheme is named
-
-- **GIVEN** `SERVICERADAR_CONFIG_URI=srconf://config.internal/environment`
-- **WHEN** a component initialises its ConfigManager
-- **THEN** startup SHALL fail listing the supported schemes
-- **AND** it SHALL NOT fall back to a built-in instance
+Resolution SHALL yield the instance together with its source, whether that source is carried in
+the artifact or mounted. Reaching a configuration source SHALL NOT require a ServiceRadar-managed
+secret; a source requiring authentication SHALL be reachable with platform-provided workload
+identity alone.
 
 #### Scenario: Provenance is reported for a resolved value
 
-- **GIVEN** a component that has resolved its configuration from any source
+- **GIVEN** a component that has resolved its configuration
 - **WHEN** `explain` is invoked
 - **THEN** it SHALL report which source the instance came from
-- **AND** it SHALL do so whether the source was built into the release or external

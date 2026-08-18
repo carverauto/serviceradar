@@ -23,7 +23,7 @@ _SECTIONS = [
     "dgraph",
 ]
 
-_EXTRACT_SECTION = Label("//config/tools:extract_section")
+_EXTRACT_SECTION = Label("//config/tools/rust:extract_section")
 
 def environment_config(name, src, visibility = None):
     """Compiles a committed .textproto environment instance to a binary message.
