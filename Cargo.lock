@@ -6118,6 +6118,7 @@ name = "serviceradar-config-validator"
 version = "0.1.0"
 dependencies = [
  "prost",
+ "prost-types",
  "regex-automata",
  "serviceradar-config-schema",
 ]

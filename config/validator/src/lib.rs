@@ -16,6 +16,7 @@
 
 #![forbid(unsafe_code)]
 
+pub mod coverage;
 pub mod credentials;
 pub mod text;
 

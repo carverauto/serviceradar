@@ -90,8 +90,17 @@ ambient environment, a test asserting on `.bazelrc`, and a value read under a di
 - [x] Author the initial rule set covering every schema field — `config/rules/ruleset.textproto`,
       **37 rules**, compiles to a 3234-byte binary. Negative controls verified on RBE: an unknown
       predicate and an unknown enum in `scope` each fail the build
-- [ ] Implement the meta-rule: every schema field carries at least one rule (needs the descriptor
-      reader; lands with the validator in phase 6)
+- [x] Implement the meta-rule: every schema field carries at least one rule —
+      `//config/validator:meta_rule_test`, over `//config/proto:config_descriptor_set`. The field
+      list comes from the schema's OWN DESCRIPTOR, recursed to leaves, not from a list in the test:
+      a hand-kept list is one more thing to forget to update, and forgetting is the failure being
+      caught. Also checks the reverse — a rule naming a field the schema lacks is dead, since it
+      can never fire — and that the walk reaches nested sections, because a walk returning only
+      top-level fields would pass while constraining nothing.
+      **Negative control verified on RBE:** adding `dgraph.forgotten_field` to the schema without a
+      rule fails with `schema fields with no rule -- they are unvalidated, which reads exactly like
+      valid: ["dgraph.forgotten_field"]`. That is precisely the mistake this session came close to:
+      four `dgraph.*` fields were added by hand and nothing would have caught a missing rule
 - [x] Define the fixture format and author representative fixtures —
       `config/rules/fixtures/fixtures.textproto`, **10 cases** covering every predicate kind plus
       cascading, ordering, and both sides of scope. Fixtures and conformance vectors are the same

@@ -21,6 +21,7 @@ filegroup(
 rust_library(
     name = "validator",
     srcs = [
+        "src/coverage.rs",
         "src/credentials.rs",
         "src/lib.rs",
         "src/text.rs",
@@ -121,4 +122,26 @@ rust_test(
         cargo_only = True,
         normal = True,
     ) + ["//config/proto_bindings/rust:config_schema"],
+)
+
+# The meta-rule. Reads the schema's descriptor, not a list, so a new field is covered the moment
+# it exists.
+rust_test(
+    name = "meta_rule_test",
+    srcs = [
+        "src/meta_rule_test.rs",
+        "src/utils_tests.rs",
+    ],
+    crate_root = "src/meta_rule_test.rs",
+    data = [
+        "//config/proto:config_descriptor_set",
+        "//config/rules:ruleset_binpb",
+    ],
+    deps = all_crate_deps(
+        cargo_only = True,
+        normal = True,
+    ) + [
+        ":validator",
+        "//config/proto_bindings/rust:config_schema",
+    ],
 )

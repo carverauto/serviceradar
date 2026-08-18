@@ -9,6 +9,7 @@ path = "src/lib.rs"
 
 [dependencies]
 prost = { workspace = true }
+prost-types = { workspace = true }
 # `meta` for the Regex engine, `syntax` to compile a pattern string, `unicode-case` for the
 # (?i) shape patterns. Named here rather than assumed: the workspace declaration is
 # default-features = false, and a Bazel build unifies features across every crate, so without

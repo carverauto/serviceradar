@@ -31,6 +31,20 @@ proto_library(
     deps = [":config_proto"],
 )
 
+# The schema as data. The meta-rule -- every field carries at least one rule -- has to
+# enumerate the fields, and the only enumeration that cannot fall behind the schema is the
+# schema's own descriptor. A hand-kept list of field paths would be one more thing to forget
+# to update, which is the failure the meta-rule exists to catch.
+genrule(
+    name = "config_descriptor_set",
+    srcs = ["config.proto"],
+    outs = ["config.descriptor_set"],
+    cmd = ("$(execpath @bazel_tools//tools/proto:protoc) -I. " +
+           "--descriptor_set_out=$@ $(execpath config.proto)"),
+    tools = ["@bazel_tools//tools/proto:protoc"],
+    visibility = ["//visibility:public"],
+)
+
 # The raw sources, for the protoc actions that compile committed .textproto instances and
 # the rule set to binary, and for non-Bazel tooling.
 filegroup(
