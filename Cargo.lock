@@ -5552,6 +5552,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "runfiles"
+version = "0.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "fc1beaa13fbade520858d2f6ed799f2a963d0ef32d15506ccf290b6e14dfd560"
+
+[[package]]
 name = "rust-ini"
 version = "0.21.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -6176,6 +6182,7 @@ dependencies = [
  "prost",
  "prost-types",
  "regex-automata",
+ "runfiles",
  "serviceradar-config-schema",
 ]
 
@@ -6259,6 +6266,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "prost",
+ "runfiles",
  "rustls",
  "rustls-pemfile",
  "serviceradar-config-manager",
@@ -6721,6 +6729,7 @@ dependencies = [
  "axum",
  "http",
  "pretty_assertions",
+ "runfiles",
  "rustls",
  "rustls-pemfile",
  "serde",

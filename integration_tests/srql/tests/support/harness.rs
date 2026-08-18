@@ -1,3 +1,4 @@
+use runfiles::Runfiles;
 use anyhow::Context;
 use axum::{
     body::{self, Body},
@@ -688,34 +689,18 @@ fn log_connection_details(name: &str, url: &str) {
     }
 }
 
+/// Locates a declared build input through the Bazel ecosystem's reference lookup
+/// (`@rules_rust//rust/runfiles`, published as the `runfiles` crate).
+///
+/// This replaced a hand-rolled search that tried, in order, the runfiles root itself,
+/// `$TEST_WORKSPACE`, `__main` and `__main__`. None of those is `_main`, which is the canonical
+/// name Bzlmod actually uses, so three of the four candidates could never match and the fourth
+/// depended on a variable Bazel sets only for tests. The library consults the repo mapping the
+/// build emitted, and finds the tree under `bazel run` and in manifest mode as well.
 fn find_runfile(path: &str) -> Option<PathBuf> {
-    let runfile_rel = Path::new(path);
-
-    let find_in_base = |base: &Path| -> Option<PathBuf> {
-        let mut candidates = vec![base.join(runfile_rel)];
-
-        if let Ok(workspace) = std::env::var("TEST_WORKSPACE") {
-            candidates.push(base.join(&workspace).join(runfile_rel));
-        }
-
-        candidates.push(base.join("__main").join(runfile_rel));
-        candidates.push(base.join("__main__").join(runfile_rel));
-        candidates.into_iter().find(|candidate| candidate.exists())
-    };
-
-    if let Ok(runfiles) = std::env::var("RUNFILES_DIR") {
-        if let Some(path) = find_in_base(Path::new(&runfiles)) {
-            return Some(path);
-        }
-    }
-
-    if let Ok(test_srcdir) = std::env::var("TEST_SRCDIR") {
-        if let Some(path) = find_in_base(Path::new(&test_srcdir)) {
-            return Some(path);
-        }
-    }
-
-    None
+    let runfiles = Runfiles::create().ok()?;
+    let resolved = runfiles.rlocation_from(format!("serviceradar/{path}"), "")?;
+    resolved.exists().then_some(resolved)
 }
 
 fn load_fixture(name: &str) -> anyhow::Result<String> {

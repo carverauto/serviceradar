@@ -56,15 +56,22 @@ impl FileProvider {
     pub fn for_kind(kind: &str) -> Self {
         match kind {
             "localhost" => {
-                // HOME is provided by the platform, not by ServiceRadar configuration, so
-                // reading it is not the ambient dependency this system exists to remove -- it is
-                // the same class as TEST_SRCDIR. An absent HOME falls back to the deployed mount,
-                // which then fails loudly naming a path rather than silently reading nothing.
+                // HOME is a PLATFORM variable, not ServiceRadar configuration, so reading it
+                // adds no setting anyone can point somewhere else -- there is deliberately no
+                // ServiceRadar variable for the store location, because a settable path is a
+                // second thing able to disagree with the environment.
+                //
+                // One caveat belongs here rather than in a caller: Bazel REWRITES HOME to a
+                // per-test scratch directory, so under a test action this resolves inside the
+                // sandbox and finds nothing. The fix is to restore the platform value with
+                // `--test_env=HOME` in the profile that runs these tests, NOT to introduce a
+                // path setting.
                 match std::env::var("HOME") {
                     Ok(home) if !home.is_empty() => {
                         let dir = format!("{home}/{LOCAL_SECRETS_SUBDIR}");
                         Self::new(dir.clone(), format!("file({dir})"))
                     }
+                    // Failing loudly naming a path beats silently reading nothing.
                     _ => Self::mounted(),
                 }
             }

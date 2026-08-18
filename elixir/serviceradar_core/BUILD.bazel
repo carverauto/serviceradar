@@ -473,10 +473,6 @@ test_suite(
 # `--strategy=TestRunner=local`; a target tag would also drag this expensive BEAM compilation
 # onto the runner instead of leaving eligible actions on RBE/cache.
 #
-# Credentials come through the explicit `test:database_env --test_env=` list in //.bazelrc,
-# read from the Bazel client's environment. Generic remote unit tests do not select that profile.
-# In CI scripts/ci/configure-srql-fixture.sh puts them there;
-# //:buildbuddy_setup_fixture_env does it on a workstation or BuildBuddy runner.
 #
 # Do not reintroduce the old backend-specific `test.env-secrets` exec property. Fixture values
 # are supplied by the Bazel client and the database-facing TestRunner stays local.

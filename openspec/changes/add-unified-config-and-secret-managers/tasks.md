@@ -331,13 +331,33 @@ retrieval calls reappears for a schema-covered variable.
     hold one. They became the Bazel flag `--//build:run_id`, materialised by `//build:run_id_file`
     and read from runfiles by both Rust and Elixir -- one producer of the format instead of two
     hand-synced implementations, and no constant fallback for two runs to collide on.
-- [ ] `rust/integration-db/tests/provision_db_test.rs` — `SERVICERADAR_TEST_DB_SHARDS`
-- [ ] `rust/integration-db/src/bin/prepare_template.rs` — resolves through `db::` accessors; confirm
-      no ambient reads remain (note: `bazel run`, so it inherits the client environment)
-- [ ] `integration_tests/srql/tests/support/harness.rs` — 11 reads incl. `PGSSLTARGETNAME`,
-      `SRQL_FIXTURE_ROOT`, `SRQL_TEST_DATABASE_TLS_SERVER_NAME` (none currently forwarded)
+- [x] `rust/integration-db/tests/provision_db_test.rs` — `SERVICERADAR_TEST_DB_SHARDS` needs NO
+      change: it is set by the target's own `env` in BUILD.bazel from
+      `//build:integration_shards.bzl`, so it is a declared build input, not ambient state. It is
+      env rather than `args` because libtest reads a bare argv entry as a test-name FILTER, which
+      once made the target pass having provisioned nothing.
+- [x] `rust/integration-db/src/bin/prepare_template.rs` — now zero ambient reads. `$GITHUB_OUTPUT`
+      is gone: it was a GitHub Actions concept BuildBuddy does not set, faked in the workflow with
+      a temp file that was then grepped back. The caller branches on the line the binary prints,
+      which preserves the skip that saves 28.8-45.6s of BEAM startup.
+- [~] `integration_tests/srql/tests/support/harness.rs` — PARTIAL. The runfiles half is done: the
+      hand-rolled lookup tried the runfiles root, `$TEST_WORKSPACE`, `__main` and `__main__`, none
+      of which is `_main`, the canonical Bzlmod name. It now uses `@rules_rust//rust/runfiles`.
+      REMAINING: the DSN and TLS half (`SRQL_TEST_DATABASE_URL`, `SRQL_TEST_ADMIN_URL`,
+      `SRQL_TEST_DATABASE_CA_CERT`, `PGSSLROOTCERT`, `PGSSLCERT`, `PGSSLKEY`). It carries the same
+      workarounds the typed config already deleted from integration-db --
+      `normalize_sslmode_for_tokio_postgres`, owner-from-URL, DSN re-parsing -- so the conversion
+      is the same transformation, plus extending `Fixture` with the client cert/key secrets.
 - [ ] `rust/srql/src/config.rs` — `PGSSLROOTCERT`, `PGSSLSERVERNAME`, `PGSSLCERT`, `PGSSLKEY`,
-      `PGSSLTARGETNAME`
+      `PGSSLTARGETNAME`. **BLOCKED, and the blocker is a design decision, not an edit.**
+      `ConfigManager::load` takes `&RuleSet` because loading validates (Decision 12). Every
+      consumer today reads that rule set from RUNFILES -- and a service in a container has none.
+      Embedding it with `include_bytes!` hits the Cargo/Bazel split: `ruleset.binpb` is
+      protoc-generated and does not exist under plain `cargo`. Options: (a) `compile_data` plus a
+      Bazel-generated Rust source, with a cargo build.rs producing the same bytes; (b) ship the
+      rule set in the image beside `environment.binpb` and read both from the mount; (c) a
+      committed `.binpb`, which the tree currently avoids. Decide before converting any SERVICE.
+      The prerequisite shape change is already done: `rust/srql/src/tls.rs` takes PEM CONTENT.
 
 ### 7b. Elixir — test configuration
 
@@ -402,12 +422,6 @@ retrieval calls reappears for a schema-covered variable.
 - [ ] Delete `buildbuddy_setup_fixture_env.sh` and its `buildbuddy.yaml` step
 - [ ] Delete `scripts/ci/configure-srql-fixture.sh` with the Forgejo tier
 - [ ] Reduce `.bazelrc` `database_env` to secrets only; delete `nats_env` if it empties
-- [ ] Build the `.bazelrc` drift guard as a Bazel test target. `buildbuddy_cache_proxy_config_test.py`
-      used to assert the `--test_env` forwarding list and has been DELETED, so nothing enforces it
-      now — and before deletion it had no `py_test` target and errored in `setUp` against a
-      workflow path removed in 8ce61b5a0d, so it had not enforced anything for some time either.
-      The replacement must assert BOTH directions: every forwarded name is read somewhere, and
-      every name the suites read is forwarded or declared in a target `env`.
 - [ ] Update `AGENTS.md` and the `srql-fixtures-db-tests` skill
 
 ## 9. Deployment

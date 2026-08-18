@@ -12,11 +12,15 @@
 #![forbid(unsafe_code)]
 
 pub mod errors;
+pub mod secrets;
 pub mod traits;
 pub mod types;
 pub mod utils_tests;
 
 pub use errors::{LoadError, SelectorError};
+pub use secrets::{
+    DATABASE_CA_CERT, DATABASE_CLIENT_CERT, DATABASE_CLIENT_KEY, DATABASE_PASSWORD,
+};
 pub use traits::{Filesystem, ReadSource};
 pub use types::config_manager::BuiltIns;
 pub use types::{ConfigManager, Dsn, Entry, Explanation, Identity, Source, ENV_VAR, MOUNTED_INSTANCE_PATH};

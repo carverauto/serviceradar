@@ -20,6 +20,7 @@
 //! connector directly instead of a string that has to survive a round trip.
 
 use anyhow::{Context, Result};
+use runfiles::Runfiles;
 use serviceradar_config_manager::{ConfigManager, Dsn, Filesystem, Identity};
 use serviceradar_config_schema::{RuleSet, TlsMode};
 use serviceradar_secret_manager::{FileProvider, Manifest, SecretManager};
@@ -30,21 +31,51 @@ pub const DATABASE_PASSWORD: &str = "database.password";
 /// The CA the fixture certificate chains to. A logical name like any other.
 pub const DATABASE_CA_CERT: &str = "database.ca_cert";
 
-/// Locates a compiled artifact staged by Bazel.
+/// This module's own repository, as MODULE.bazel declares it.
 ///
-/// There is deliberately no environment override. Both the rule set and the instance are
-/// declared inputs, so a run cannot read a file the build graph does not know about.
-pub(crate) fn runfile(relative: &str) -> Result<std::path::PathBuf> {
-    let srcdir = std::env::var("TEST_SRCDIR")
-        .or_else(|_| std::env::var("RUNFILES_DIR"))
-        .context("TEST_SRCDIR is unset: this crate's inputs are staged by Bazel")?;
+/// The first segment of an rlocation path is an APPARENT repository name, which the runfiles
+/// repo mapping resolves to the canonical directory (`_main`). Naming it here rather than
+/// guessing the canonical form is the difference between reading a declaration and reading a
+/// coincidence.
+const THIS_REPO: &str = "serviceradar";
 
-    let root = std::path::PathBuf::from(srcdir);
-    ["_main", "serviceradar"]
-        .iter()
-        .map(|w| root.join(w).join(relative))
-        .find(|c| c.exists())
-        .with_context(|| format!("{relative} is not in runfiles; add it to the target's data"))
+/// The main repository's canonical name is empty in the repo mapping, which is what the
+/// `rlocation!` macro passes as `REPOSITORY_NAME`. That macro is not usable here: it resolves
+/// the name at COMPILE time from an environment variable only rules_rust sets, so a crate that
+/// must also build under plain `cargo` cannot call it.
+const THIS_REPO_CANONICAL: &str = "";
+
+/// Locates a declared build input staged by Bazel.
+///
+/// Uses the Bazel ecosystem's reference implementation (`@rules_rust//rust/runfiles`, published
+/// as the `runfiles` crate) rather than a hand-rolled lookup. That is not tidiness -- the
+/// hand-rolled version was measurably wrong twice:
+///
+///   * It read `TEST_SRCDIR`/`RUNFILES_DIR` only. Under `bazel run` -- which is how
+///     `prepare_template` executes -- neither is set, and the runfiles directory has to be
+///     derived from `argv[0]` as `<binary>.runfiles`. `prepare_template` failed on exactly this.
+///   * It located files with `Path::exists`, which cannot work in MANIFEST mode, where runfiles
+///     is a text manifest rather than a symlink tree.
+///
+/// It also guessed the repository directory by trying `_main` then `serviceradar`, where the
+/// library consults the repo mapping the build actually emitted.
+///
+/// There is deliberately no environment override: every input here is declared, so a run must
+/// not be able to read a file the build graph does not know about.
+pub(crate) fn runfile(relative: &str) -> Result<std::path::PathBuf> {
+    let runfiles = Runfiles::create()
+        .map_err(|e| anyhow::anyhow!("{e:?}"))
+        .context("this crate's inputs are staged by Bazel; runfiles could not be located")?;
+
+    let path = runfiles
+        .rlocation_from(format!("{THIS_REPO}/{relative}"), THIS_REPO_CANONICAL)
+        .with_context(|| format!("{relative} is not in runfiles; add it to the target's data"))?;
+
+    if !path.exists() {
+        anyhow::bail!("{relative} resolved to {}, which does not exist", path.display());
+    }
+
+    Ok(path)
 }
 
 /// Everything the fixture needs, resolved once.

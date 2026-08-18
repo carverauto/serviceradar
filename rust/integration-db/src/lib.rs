@@ -35,14 +35,10 @@
 
 use std::borrow::Cow;
 use std::fs;
-use std::io::{BufReader, Cursor};
-use std::sync::Once;
 
 pub mod config;
 
-use anyhow::{anyhow, bail, Context, Result};
-use rustls::{ClientConfig, RootCertStore};
-use rustls_pemfile::certs;
+use anyhow::{bail, Context, Result};
 use srql::db::PgRustlsConnect;
 use tokio::task::JoinHandle;
 use tokio_postgres::{Client, Config as PgConfig, NoTls};
@@ -121,15 +117,6 @@ const STALE_DATABASE_QUERY: &str = "SELECT d.datname \
        AND t.spcname = 'pg_default' \
        AND (pg_stat_file(format('base/%s/PG_VERSION', d.oid), true)).modification \
            < now() - make_interval(secs => $2::double precision)";
-
-/// rustls installs a process-wide crypto provider, and doing it twice panics.
-static CRYPTO_PROVIDER: Once = Once::new();
-
-fn ensure_crypto_provider() {
-    CRYPTO_PROVIDER.call_once(|| {
-        let _ = rustls::crypto::ring::default_provider().install_default();
-    });
-}
 
 /// The per-run database name, read from a declared build input.
 ///
@@ -400,28 +387,15 @@ fn tls_connector_for(fixture: &config::Fixture) -> Result<Option<PgRustlsConnect
         return Ok(None);
     };
 
-    ensure_crypto_provider();
-
-    let mut reader = BufReader::new(Cursor::new(pem));
-    let mut root_store = RootCertStore::empty();
-    for cert in certs(&mut reader) {
-        let cert = cert.context("failed to parse the fixture CA certificate")?;
-        root_store
-            .add(cert)
-            .map_err(|_| anyhow!("invalid certificate in the fixture CA"))?;
-    }
-
-    let config = ClientConfig::builder()
-        .with_root_certificates(root_store)
-        .with_no_client_auth();
-
-    // The name verification is performed against, from the schema field that exists for it.
-    // Required under verify-full because the fixture certificate carries DNS SANs and no IP
-    // SANs, so an address-based caller must state the certificate's name.
-    Ok(Some(PgRustlsConnect::new(
-        config,
-        fixture.tls_server_name().map(str::to_string),
-    )))
+    // Building the connector is `srql::tls`, shared with the SRQL service. Two implementations
+    // of one security decision drift, and these two already had: this one refused client
+    // certificates outright while srql's read its CA from a file path.
+    Ok(Some(srql::tls::postgres_connector(
+        &pem,
+        None,
+        None,
+        fixture.tls_server_name(),
+    )?))
 }
 
 pub(crate) async fn install_extensions(database: &str, owner: &str) -> Result<()> {

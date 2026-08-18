@@ -15,28 +15,28 @@
 # Failing closed is the point: a missing id must stop the suite, not silently repoint it.
 disposable_prefix = "sr_core_test_"
 
-# Bazel runs this out of a runfiles tree where a bare relative path resolves to nothing. Same
-# idiom as ServiceradarConfig.TestPaths.data!/1 and the Rust `runfile` helper; deliberately no
-# environment override, because a variable that can repoint an input lets a run read a file
-# nothing in the build graph declared.
+# Where rules_elixir puts a declared input.
+#
+# `ex_unit_test` copies every `srcs` and `data` file to ${TEST_TMPDIR}/<workspace-relative path>
+# and then cds to ${TEST_TMPDIR}/<package>, so the staged tree mirrors the workspace. That is the
+# rule's contract, and naming it needs no repository name: an earlier version of this reached
+# into TEST_SRCDIR and guessed "_main" then "serviceradar", which worked only because the
+# runfiles tree happens to hold the file too.
+#
+# Deliberately no environment override -- a variable that can repoint an input lets a run read a
+# file nothing in the build graph declared.
 run_id_relative = "build/run_id_file.txt"
 
-srcdir =
-  System.get_env("TEST_SRCDIR") ||
-    raise "TEST_SRCDIR unset: #{run_id_relative} is staged by Bazel"
+tmpdir =
+  System.get_env("TEST_TMPDIR") ||
+    raise "TEST_TMPDIR unset: #{run_id_relative} is staged by Bazel"
 
-run_id_path =
-  ["_main", "serviceradar"]
-  |> Enum.map(&Path.join([srcdir, &1, run_id_relative]))
-  |> Enum.find(&File.exists?/1)
-  |> case do
-    nil ->
-      raise "cannot locate #{run_id_relative} under #{srcdir}; " <>
-              "add //build:run_id_file to this target's data"
+run_id_path = Path.join(tmpdir, run_id_relative)
 
-    path ->
-      path
-  end
+if not File.exists?(run_id_path) do
+  raise "cannot locate #{run_id_relative} at #{run_id_path}; " <>
+          "add //build:run_id_file to this target's data"
+end
 
 base_name = run_id_path |> File.read!() |> String.trim()
 

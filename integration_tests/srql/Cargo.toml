@@ -14,6 +14,8 @@ publish = false
 path = "src/lib.rs"
 
 [dev-dependencies]
+# Bazel's reference runfiles lookup; replaces a hand-rolled search that guessed repo names.
+runfiles = { workspace = true }
 anyhow = { workspace = true }
 axum = { workspace = true, features = ["macros"] }
 http = { workspace = true }

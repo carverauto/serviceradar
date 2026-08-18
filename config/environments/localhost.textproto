@@ -7,10 +7,7 @@
 # SecretManager. A build-time check rejects credential-shaped values in this file.
 #
 # A developer machine. It is the ONLY kind the rule set exempts from verified TLS and from a
-# secure core transport -- see the two `except_kinds: ENVIRONMENT_KIND_LOCALHOST` rules in
-# //config/rules:ruleset.textproto. That exemption is the reason this file exists as its own
-# kind rather than as a variant of ci: a dev machine has no cluster DNS and no SPIFFE agent.
-#
+# secure core transport
 # ---------------------------------------------------------------------------------------
 # THE LOCAL DATABASE FIXTURE
 # ---------------------------------------------------------------------------------------
@@ -59,13 +56,18 @@
 #
 #   docker cp sr-testdb:/tmp/tls/ca.pem .local-fixture-certs/fixture-ca.pem
 #
-# Verified: TLSv1.3 with sslmode=verify-full against host `srql-fixture-local`.
+# Verified: TLSv1.3 with sslmode=verify-full, dialling 127.0.0.1:5455 and verifying the
+# certificate name `srql-fixture-local`.
 
 kind: ENVIRONMENT_KIND_LOCALHOST
 
 database {
-  # The fixture container publishes on loopback.
-  host: "srql-fixture-local"
+  # The DIAL ADDRESS, which is loopback because the container publishes there. It is not the
+  # name TLS verifies: the fixture certificate carries `DNS:srql-fixture-local` and no IP SAN,
+  # so verify-full checks `tls_server_name` below instead. Keeping the two separate is why this
+  # works with no /etc/hosts entry -- a host file is undeclared machine state, and depending on
+  # it would make the committed instance mean different things on different workstations.
+  host: "127.0.0.1"
   port: 5455
   database: "postgres"
 

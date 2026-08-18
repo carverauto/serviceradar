@@ -1,65 +1,26 @@
 actions:
   - name: "BazelCI"
-    # OCI_REGISTRY is required. buildbuddy_setup_docker_auth.sh does
-    #   oci_registry="${OCI_REGISTRY:-ghcr.io}"
-    # so without it every credential is written into ~/.docker/config.json under the `ghcr.io`
-    # key. Harbor then gets no entry at all and rules_oci's repository fetch fails during the
-    # LOADING phase, which surfaces as a package error on targets that have nothing to do with
-    # containers:
-    #
-    #   GET .../v2/mirror/cloudnative-pg/postgresql/manifests/sha256:... returned 401 Unauthorized
-    #   ERROR: no such package '@@rules_oci++oci+cloudnativepg_postgresql_18_linux_amd64//'
-    #
-    # Every oci.pull in MODULE.bazel now resolves to registry.carverauto.dev, so this is the
-    # only registry that matters. GHCR and Docker Hub are no longer pulled from.
     env:
       OCI_REGISTRY: "registry.carverauto.dev"
-      # Turns the two ways buildbuddy_setup_docker_auth.sh can silently succeed into an
-      # immediate failure naming the missing secret: no credentials at all (this runner may
-      # have a config.json already, which the script otherwise reads as "nothing to do"), and
-      # credentials that landed under some registry other than OCI_REGISTRY.
       OCI_AUTH_REQUIRED: "1"
       # Self-hosted workflow pool is in the carverauto cluster. Fetch the live
       # fixture CA from the in-cluster bundle; do not take it from the BuildBuddy secret store.
       SRQL_FIXTURE_CA_URL: "http://srql-fixture-ca-incluster.srql-fixtures.svc.cluster.local/ca.crt"
 
+    # Redirects work to pods in the self hosted cluster.
     self_hosted: true
 
-    # The dedicated workflow fleet in //k8s/buildbuddy/values-workflows.yaml;
-    # Matched against the executor's `poolName`, so the two change together. If the fleet is
-    # not deployed, this fails before any step runs with
-    #   no registered executors in pool "workflows" with os "linux" with arch "amd64"
+    # The dedicated workflow fleet is defined in //k8s/buildbuddy/values-workflows.yaml;
+    # Matched against the executor's `poolName`, so the two must match at all times.
     pool: "workflows"
 
-    # THE RUNNER IMAGE.
-    #
-    # TAGGED IDENTICALLY TO rbe-executor, INCLUDING THE PATCH.
-    # A BUMP MEANS: push BOTH images at the new tag, then update every reference. As of this
-    # commit, five places in five files:
-    #   this line and //k8s/buildbuddy/values-workflows.yaml     (runner)
-    #   //MODULE.bazel, //build/rbe/BUILD,                       (executor)
-    #   //k8s/buildbuddy/values.yaml   (warmup_additional_images)
-    #
-    # //MODULE.bazel.lock carries the MODULE.bazel value too, but it is regenerated rather than
-    # edited. //build/platforms/BUILD.bazel used to hold TWO more copies; they belonged to the
-    # dead rbe_linux_amd64/rbe_linux_arm64 platforms and went with them -- see the note left in
-    # their place. They are why this list said seven: two of the seven references were on
-    # targets no build could select, and they were kept at the newest tag for ten months while
-    # //k8s/buildbuddy/values.yaml, which a build DOES read, sat a release behind.
-    #
+    # TAGGED IDENTICALLY TO rbe-executor,
     container_image: "docker://registry.carverauto.dev/serviceradar/buildbuddy-workflow-runner:v1.0.24.3"
 
     platform_properties:
       OSFamily: "linux"
       Arch: "amd64"
-      # `host` DOES NOT MEAN HOST NETWORKING, and reading it that way cost a day.
-      #
-      # The OCI runtime accepts exactly "", "bridge" and "off" (ociruntime.go: the flag
-      # validates that set, and the only thing derived from it is
-      # `networkEnabled := networkMode != "off"`). Anything else, including "host", is simply
-      # not "off" -- so this action gets BRIDGE networking, the same as if the property were
-      # absent. There is no way to ask for the executor pod's namespace.
-      dockerNetwork: "host"
+      dockerNetwork: "bridge" # The OCI runtime accepts exactly "", "bridge" and "off"
 
     triggers:
       pr:
@@ -95,154 +56,45 @@ actions:
           --test_arg=-test.short
           --test_arg=-test.shuffle=on
 
-      # The database lifecycle, deliberately ONE step.
+      # The database lifecycle. ONE step: the invocations share a shell, and BuildBuddy has no
+      # `if: always()`, so a trap is the only way to guarantee teardown after a red suite.
       #
-      # It cannot be split. Steps do not share an environment, so the needs_migration handoff
-      # between prepare_template and migrate_template would be lost. And BuildBuddy has no
-      # `if: always()`, so the only way to guarantee teardown after a red suite is a trap in the
-      # same shell that provisioned.
+      # `--//build:enable_integration_tests` on every call: these targets are
+      # target_compatible_with = requires_shared_fixture(), and the guard stays explicit because
+      # they run DDL against a fixture concurrent branches share.
       #
-      # Database-facing TestRunner actions execute on the runner, not an executor, which is what
-      # makes `self_hosted: true` load-bearing beyond pool selection. Only the in-cluster runner
-      # resolves srql-fixture-rw.srql-fixtures.svc.cluster.local. `--strategy=TestRunner=local`
-      # moves only the test action; compile/dependency actions remain remote and cached. A target
-      # tag cannot make that distinction and would also drag compilation onto the runner.
+      # `--strategy=TestRunner=local` moves ONLY the test action to the runner, which is the only
+      # host that resolves srql-fixture-rw.srql-fixtures.svc.cluster.local. A target tag cannot
+      # select by mnemonic and would drag rustc onto a runner with no compiler.
       #
-      # --//build:enable_integration_tests on every call, and all of them need it: every target
-      # carries target_compatible_with = requires_shared_fixture(), which resolves to
-      # @platforms//:incompatible without it. A wildcard skips such a target; naming one
-      # explicitly exits 1. It must NOT move to .bazelrc -- the guard exists precisely because
-      # these run DDL against a fixture concurrent branches share.
-      #
-      # prepare_template is `bazel run`, not `bazel test`: it reports needs_migration by
-      # appending to $GITHUB_OUTPUT. `bazel run` builds eligible actions remotely and launches
-      # the binary on this runner, where the output file exists; it takes --build_tag_filters
-      # because it is a rust_binary. $GITHUB_OUTPUT is a GitHub Actions
-      # concept BuildBuddy does not set, so this points it at a temp file and reads it back,
-      # reusing the existing mechanism rather than changing the Rust.
+      # $SERVICERADAR_TEST_ENV_FLAGS is a BRIDGE from //:buildbuddy_setup_fixture_env for the
+      # readers ConfigManager has not taken over yet. It disappears with them.
       - run: |
           set -euo pipefail
-
           umask 077
-          export GITHUB_OUTPUT="$(mktemp "${TMPDIR:-/tmp}/sr-core-template-output.XXXXXX")"
+
+          export SERVICERADAR_ENV=ci
+          export RUN_ID="$(uuidgen | tr -d - | tr 'A-Z' 'a-z' | cut -c1-8)"
           export SERVICERADAR_FIXTURE_ENV_FILE="$(mktemp "${TMPDIR:-/tmp}/serviceradar-fixture-env.XXXXXX")"
 
-          # The run correlation id. Six separate bazel invocations below must agree on ONE
-          # disposable database name and must not collide with a concurrent runner, and they
-          # share no process -- so it is minted once here and passed to every one of them as
-          # --//build:run_id, reaching each step as a declared input rather than as ambient
-          # environment. See //build/run_id.bzl.
-          #
-          # This replaced GITHUB_RUN_ID/GITHUB_RUN_ATTEMPT, which BuildBuddy does not set: the
-          # value was already synthesised from host/process/time entropy and then laundered
-          # through `cksum` into a fake NUMERIC id, purely to satisfy a digits-only validator on
-          # a variable named after a CI vendor that was never the source. Eight hex characters
-          # are ample -- collisions only matter between runs that are live at once.
-          export RUN_ID="$(uuidgen | tr -d - | tr 'A-Z' 'a-z' | cut -c1-8)"
-          echo "run id: $RUN_ID"
-          provision_attempted=0
-
-          # Drop a partially or fully provisioned run even when a later command is red. Install
-          # the trap before credential setup so its 0600 file is removed on every exit. A
-          # cancelled VM may never execute a trap, which is what the next run's sweep is for.
-          teardown() {
-            status=$?
-            trap - EXIT
-            set +e
-            teardown_status=0
-            credential_cleanup_status=0
-            if [ "$provision_attempted" -eq 1 ]; then
-              bazel test -c opt --config=ci --config=database_env --strategy=TestRunner=local \
-                --//build:enable_integration_tests --//build:run_id=$RUN_ID --test_tag_filters= --test_output=errors \
-                --nocache_test_results --remote_upload_local_results=false --flaky_test_attempts=1 \
-                //rust/integration-db:teardown_db
-              teardown_status=$?
-            fi
-            rm -f "$GITHUB_OUTPUT" "$SERVICERADAR_FIXTURE_ENV_FILE" || credential_cleanup_status=$?
-            if [ "$status" -ne 0 ]; then
-              exit "$status"
-            fi
-            if [ "$teardown_status" -ne 0 ]; then
-              exit "$teardown_status"
-            fi
-            exit "$credential_cleanup_status"
-          }
-          trap teardown EXIT
-
-          # THE FIXTURE CREDENTIALS. Without this the DSN is simply absent: the explicit
-          # `database_env` profile carries SRQL_TEST_DATABASE_URL / SRQL_TEST_ADMIN_URL /
-          # SRQL_TEST_DATABASE_CA_CERT the last hop, but --test_env only FORWARDS a variable --
-          # nothing sets one. The chain is
-          #
-          #   live CA + K8s/BB DSNs -> runner env -> database_env -> local test action
-          #
-          # and this step is the first link. The Forgejo tier used
-          # scripts/ci/configure-srql-fixture.sh, which writes to $GITHUB_ENV and $RUNNER_TEMP
-          # -- BuildBuddy sets neither, so it could not be reused. //:buildbuddy_setup_fixture_env
-          # is its BuildBuddy-native counterpart and additionally emits the CA as PEM CONTENT
-          # rather than a path, keeping the action independent of runner-local paths and
-          # placement-safe.
-          #
-          # It writes a 0600 file instead of printing `export` lines because a process cannot
-          # set its parent's environment, and `bazel run` streams stdout into the build log --
-          # where a live DSN would land with its password.
-          #
-          # `set -a` around the source is required: `.` defines the variables but only exports
-          # them with allexport on, and --test_env reads the ENVIRONMENT, not the shell.
-          #
-          # The CA is always live: kubectl reads cert-manager secret srql-fixture-server-ca
-          # when the runner has RBAC, otherwise GET SRQL_FIXTURE_CA_URL (this workflow
-          # sets the in-cluster HTTP bundle). A stored SRQL_TEST_DATABASE_CA_CERT is
-          # ignored. DSNs still come from kubectl or the BuildBuddy secret store.
-          # Missing live CA or DSNs exits 1.
           bazel run -c opt --config=ci //:buildbuddy_setup_fixture_env
-          set -a
-          . "$SERVICERADAR_FIXTURE_ENV_FILE"
-          set +a
+          set -a; . "$SERVICERADAR_FIXTURE_ENV_FILE"; set +a
+            
+          FLAGS="--config=ci --strategy=TestRunner=local --//build:enable_integration_tests
+             --//build:run_id=$RUN_ID --test_env=SERVICERADAR_ENV=ci --flaky_test_attempts=1
+             --test_output=errors $SERVICERADAR_TEST_ENV_FLAGS"
 
-          # These are final database overrides, not fixture bases. An ambient BuildBuddy secret
-          # under either name would suppress integration_env.exs' per-shard URL derivation.
-          unset SERVICERADAR_TEST_DATABASE_URL SERVICERADAR_TEST_ADMIN_URL
+          trap 'bazel test $FLAGS //rust/integration-db:teardown_db; rm -f "$SERVICERADAR_FIXTURE_ENV_FILE"' EXIT
 
-          # Collect databases leaked by cancelled runs, before this one adds to the fixture.
-          bazel test -c opt --config=ci --config=database_env --strategy=TestRunner=local \
-            --//build:enable_integration_tests --//build:run_id=$RUN_ID --test_tag_filters= --test_output=errors \
-            --nocache_test_results --remote_upload_local_results=false --flaky_test_attempts=1 \
-            //rust/integration-db:sweep_stale_dbs
-
-          # Creates sr_core_template if absent -- with extensions, AGE graphs and grants -- and
-          # reports whether it is behind the migrations on disk.
-          bazel run -c opt --config=ci --//build:enable_integration_tests --//build:run_id=$RUN_ID --build_tag_filters= \
-            //rust/integration-db:prepare_template
-
-          # The one step that needs the BEAM, and the reason the previous one exists: on a
-          # branch adding no migrations nothing starts an Erlang VM. Running it against a
-          # current template is a documented no-op, so this is an optimisation rather than a
-          # correctness requirement.
-          if grep -q '^needs_migration=true$' "$GITHUB_OUTPUT"; then
-            bazel test -c opt --config=ci --config=database_env --strategy=TestRunner=local \
-              --//build:enable_integration_tests --//build:run_id=$RUN_ID --test_tag_filters= --test_output=errors \
-              --nocache_test_results --remote_upload_local_results=false --flaky_test_attempts=1 \
-              //elixir/serviceradar_core:migrate_template
-          fi
-
-          # Clones a per-run database from the template.
-          provision_attempted=1
-          bazel test -c opt --config=ci --config=database_env --strategy=TestRunner=local \
-            --//build:enable_integration_tests --//build:run_id=$RUN_ID --test_tag_filters= --test_output=errors \
-            --nocache_test_results --remote_upload_local_results=false --flaky_test_attempts=1 \
-            //rust/integration-db:provision_db
-
-          # The test suites. Selects //elixir/serviceradar_core:integration_tests_s0..s7 AND
-          # //integration_tests/srql:*.
-          #
-          # An incompatible target under a wildcard is SKIPPED -- so without it this
-          # line exits 0 having run zero integration shards and the step reads green. The named
-          # calls at least fail loudly.
-          bazel test -c opt --config=ci --config=database_env --strategy=TestRunner=local \
-            --//build:enable_integration_tests --//build:run_id=$RUN_ID \
-            --test_tag_filters=integration_test,-acceptance_test --test_output=errors \
-            --nocache_test_results --remote_upload_local_results=false --flaky_test_attempts=1 //...
+          bazel test $FLAGS //rust/integration-db:sweep_stale_dbs
+          # Skip the BEAM when the template is already current
+          template="$(bazel run -c opt --config=ci --//build:enable_integration_tests --//build:run_id=$RUN_ID //rust/integration-db:prepare_template)"
+          echo "$template"
+          case "$template" in
+            *"migration(s) pending"*) bazel test $FLAGS //elixir/serviceradar_core:migrate_template ;;
+          esac
+          bazel test $FLAGS //rust/integration-db:provision_db
+          bazel test $FLAGS //... --test_tag_filters=integration_test,-acceptance_test
 
       # Largely a cache hit from the //... build above;
       - run: "bazel build -c opt --config=ci //:images"

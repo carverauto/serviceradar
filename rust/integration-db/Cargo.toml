@@ -11,6 +11,10 @@ serviceradar-config-manager = { path = "../../config/manager_config/rust" }
 serviceradar-config-schema = { path = "../../config/proto_bindings/rust" }
 serviceradar-secret-manager = { path = "../../config/manager_secret/rust" }
 anyhow = { workspace = true }
+# The Bazel ecosystem's reference runfiles lookup, published from rules_rust. Replaces a
+# hand-rolled TEST_SRCDIR reader that could not find runfiles under `bazel run` and could not
+# work in manifest mode at all.
+runfiles = { workspace = true }
 rustls = { workspace = true, features = ["ring"] }
 rustls-pemfile = { workspace = true }
 srql = { path = "../srql" }

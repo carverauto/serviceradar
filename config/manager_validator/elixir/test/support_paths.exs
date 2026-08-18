@@ -2,20 +2,28 @@ defmodule ServiceradarConfig.TestPaths do
   @moduledoc """
   Locates declared build inputs from an ExUnit run.
 
-  Bazel runs the test out of a runfiles tree, where a bare relative path resolves to nothing.
-  There is deliberately no environment override: a variable that can repoint an input lets a
-  run read files nothing in the build graph knows about.
+  `rules_elixir`'s `ex_unit_test` copies every `srcs` and `data` file to
+  `${TEST_TMPDIR}/<workspace-relative path>` and cds to `${TEST_TMPDIR}/<package>`, so the staged
+  tree mirrors the workspace. Naming an input against that tree needs no repository name.
+
+  An earlier version reached into `TEST_SRCDIR` and tried `_main` then `serviceradar` in turn --
+  guessing the canonical and apparent repository names, and working only because the runfiles
+  tree happens to carry the same files.
+
+  There is deliberately no environment override: a variable that can repoint an input lets a run
+  read files nothing in the build graph knows about.
   """
 
   def data!(relative) do
-    srcdir = System.get_env("TEST_SRCDIR") || raise "TEST_SRCDIR unset: this test needs runfiles"
+    tmpdir =
+      System.get_env("TEST_TMPDIR") || raise "TEST_TMPDIR unset: this test's inputs are staged"
 
-    ["_main", "serviceradar"]
-    |> Enum.map(&Path.join([srcdir, &1, relative]))
-    |> Enum.find(&File.exists?/1)
-    |> case do
-      nil -> raise "cannot locate #{relative} under #{srcdir}"
-      path -> path
+    path = Path.join(tmpdir, relative)
+
+    if File.exists?(path) do
+      path
+    else
+      raise "cannot locate #{relative} at #{path}; add it to the target's srcs or data"
     end
   end
 

@@ -293,6 +293,25 @@ umask 077
   emit SRQL_TEST_DATABASE_CA_CERT "${SRQL_TEST_DATABASE_CA_CERT}"
   emit SRQL_TEST_DATABASE_SERVER_NAME "${tls_server_name}"
   emit PGSSLSERVERNAME "${tls_server_name}"
+
+  # BRIDGE -- DELETE WITH THE LAST UNCONVERTED READER.
+  #
+  # `--test_env=NAME` only FORWARDS a variable from the caller's environment; nothing sets one.
+  # These five are the only names this script sets, so they are the only ones worth forwarding,
+  # and they live here rather than in //.bazelrc because that is where the values come from:
+  # a forwarding list kept somewhere else drifts from the thing that produces it. The profile
+  # this replaced forwarded 43 names, 38 of which nothing ever set.
+  #
+  # Every remaining reader is listed in openspec/changes/add-unified-config-and-secret-managers
+  # phase 7. When the Elixir test config and integration_tests/srql/tests/support/harness.rs
+  # resolve through ConfigManager/SecretManager, delete this block: SERVICERADAR_ENV is then the
+  # only variable a component needs, and it is stated at the invocation.
+  emit SERVICERADAR_TEST_ENV_FLAGS "$(printf -- '--test_env=%s ' \
+    SRQL_TEST_DATABASE_URL \
+    SRQL_TEST_ADMIN_URL \
+    SRQL_TEST_DATABASE_CA_CERT \
+    SRQL_TEST_DATABASE_SERVER_NAME \
+    PGSSLSERVERNAME)"
 } >"${env_file}"
 chmod 600 "${env_file}"
 
