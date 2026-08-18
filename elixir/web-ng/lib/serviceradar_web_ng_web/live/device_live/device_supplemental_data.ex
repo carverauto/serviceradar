@@ -212,7 +212,6 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.DeviceSupplementalData do
       camera_inventory_error: camera_inventory_error,
       favorited_interfaces: favorited_interfaces,
       metrics_enabled_interfaces: metrics_enabled_interfaces,
-      interface_metrics: nil,
       ip_aliases: ip_aliases,
       ip_alias_error: ip_alias_error,
       northbound_device_history: northbound_device_history,
