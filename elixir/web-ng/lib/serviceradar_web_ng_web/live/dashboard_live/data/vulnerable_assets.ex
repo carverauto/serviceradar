@@ -5,6 +5,7 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Data.VulnerableAssets do
 
   alias ServiceRadar.Inventory.DeviceRiskReducer
   alias ServiceRadarWebNG.Repo
+  alias ServiceRadarWebNGWeb.DeviceLive.IndexPath
 
   @limit 5
 
@@ -29,7 +30,7 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Data.VulnerableAssets do
       risk_score: score,
       risk_level: level,
       available?: available == true,
-      href: "/devices/#{uid}"
+      href: IndexPath.show_path(uid, tab: "software")
     }
   end
 

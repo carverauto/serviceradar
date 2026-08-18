@@ -5655,6 +5655,102 @@ table:has(.sr-ui-dropdown) td:has(.sr-ui-dropdown) {
   outline: none;
 }
 
+.sr-ops-vuln-assets {
+  width: 100%;
+  min-width: 0;
+}
+
+.sr-ops-vuln-col-asset {
+  width: 42%;
+}
+
+.sr-ops-vuln-col-type {
+  width: 18%;
+}
+
+.sr-ops-vuln-col-score {
+  width: 22%;
+}
+
+.sr-ops-vuln-col-status {
+  width: 18%;
+}
+
+.sr-ops-vuln-asset-link {
+  display: block;
+  overflow: hidden;
+  color: inherit;
+  font-family: inherit;
+  font-size: inherit;
+  font-weight: 600;
+  line-height: 1.3;
+  text-decoration: none;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sr-ops-vuln-asset-link:hover,
+.sr-ops-vuln-asset-link:focus-visible {
+  color: var(--sr-color-brand, #86efac);
+  text-decoration: underline;
+  outline: none;
+}
+
+.sr-ops-vuln-type {
+  overflow: hidden;
+  color: var(--sr-color-muted, #8fa39a);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sr-ops-vuln-score {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  min-width: 0;
+}
+
+.sr-ops-vuln-score-value {
+  flex: 0 0 1.6rem;
+  color: inherit;
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+}
+
+.sr-ops-vuln-bar {
+  display: block;
+  flex: 1 1 auto;
+  min-width: 2.5rem;
+  height: 0.42rem;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--sr-color-subtle) 94%, transparent);
+  overflow: hidden;
+}
+
+.sr-ops-vuln-bar i {
+  display: block;
+  width: var(--sr-ops-vuln, 0%);
+  height: 100%;
+  border-radius: inherit;
+  background: #64748b;
+}
+
+.sr-ops-vuln-bar.is-critical i {
+  background: #f43f5e;
+}
+
+.sr-ops-vuln-bar.is-high i {
+  background: #f59e0b;
+}
+
+.sr-ops-vuln-bar.is-medium i {
+  background: #38bdf8;
+}
+
+.sr-ops-vuln-bar.is-low i {
+  background: #22c55e;
+}
+
 .sr-ops-threat-detail {
   display: flex;
   align-items: center;
