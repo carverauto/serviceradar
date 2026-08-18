@@ -1,3 +1,27 @@
+# ServiceRadar v1.4.35
+
+Recut of the unpublished 1.4.34 contents, plus the rules_elixir / rules_erlang
+unification that landed after the `v1.4.34` tag. Harbor already made the
+`v1.4.34` native add-on tags immutable, and those artifacts were signed with
+the wrong agent-release key, so a formal catalog cannot be published under
+that version.
+
+## Whats New
+
+**1.4.35**
+- Recut of unpublished 1.4.34. Harbor `serviceradar-addon-*:v1.4.34` tags
+  are immutable and were signed with a GitHub secret that did not match
+  the committed agent public key (`ZY2//…`). Agents would reject those
+  packages. GitHub tag `v1.4.34` exists, but the draft never received
+  packages or import catalogs.
+- Build: remaining first-party Mix/OTP rules move onto `rules_elixir` /
+  `rules_erlang` (proto + Mix payload toolchains, restored macOS
+  targets, hermetic OTP contract). (PR #3771)
+- CI: GitHub catalog upload finds draft releases via the list API,
+  skips already-immutable Harbor extra tags and classic Cosign
+  signature tags on retry, and uses `GH_TOKEN` on ARC signing runners.
+  (PRs #3776, #3777, #3778, #3779, #3780)
+
 # ServiceRadar v1.4.34
 
 Device risk scoring from NVD + KEV + CWE, Findings UI with KEV floor, and
