@@ -19,6 +19,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.EndpointInventoryComponents do
   attr(:vulnerability_matches, :list, default: [])
   attr(:cpe_catalog_current, :boolean, default: true)
   attr(:error, :string, default: nil)
+  attr(:loading, :boolean, default: false)
   attr(:has_inventory, :boolean, default: false)
   attr(:show_controls, :boolean, default: false)
   attr(:device_row, :map, default: nil)
@@ -348,7 +349,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.EndpointInventoryComponents do
         </div>
 
         <div class="space-y-4">
-          <.vulnerability_matches_section matches={@vulnerability_matches} />
+          <.vulnerability_matches_section matches={@vulnerability_matches} loading={@loading} />
 
           <div class="overflow-hidden rounded border border-sr-line">
             <div class="border-b border-sr-line bg-sr-subtle/30 p-3">
@@ -1033,6 +1034,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.EndpointInventoryComponents do
   end
 
   attr(:matches, :list, default: [])
+  attr(:loading, :boolean, default: false)
 
   defp vulnerability_matches_section(assigns) do
     findings = EndpointInventoryFindings.group(assigns.matches || [])
@@ -1069,7 +1071,12 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.EndpointInventoryComponents do
           </tr>
         </thead>
         <tbody>
-          <tr :if={@match_count == 0}>
+          <tr :if={@loading and @match_count == 0}>
+            <td colspan="5" class="py-6 text-center text-sm text-sr-muted">
+              Loading vulnerability matches…
+            </td>
+          </tr>
+          <tr :if={not @loading and @match_count == 0}>
             <td colspan="5" class="py-6 text-center text-sm text-sr-muted">
               No active vulnerability matches have been produced for this device.
             </td>

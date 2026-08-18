@@ -47,6 +47,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.DeviceMountAssigns do
     |> assign(:endpoint_inventory_selected_match_group, nil)
     |> assign(:endpoint_inventory_error, nil)
     |> assign(:has_software_inventory, false)
+    |> assign(:endpoint_inventory_loading, false)
+    |> assign(:endpoint_inventory_request_ref, nil)
     |> assign(:bumblebee_postures, [])
     |> assign(:bumblebee_findings, [])
     |> assign(:bumblebee_error, nil)

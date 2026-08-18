@@ -9,7 +9,6 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.DeviceSupplementalData do
   alias ServiceRadarWebNGWeb.DeviceLive.CompositeVerdictData
   alias ServiceRadarWebNGWeb.DeviceLive.DeviceTaskData
   alias ServiceRadarWebNGWeb.DeviceLive.DiscoveryData
-  alias ServiceRadarWebNGWeb.DeviceLive.EndpointInventoryData
   alias ServiceRadarWebNGWeb.DeviceLive.FlowData
   alias ServiceRadarWebNGWeb.DeviceLive.InterfaceData
   alias ServiceRadarWebNGWeb.DeviceLive.IpAliasData
@@ -168,7 +167,6 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.DeviceSupplementalData do
     {northbound_device_history, northbound_device_history_error} =
       Map.get(parallel_results, :northbound_history, {[], nil})
 
-    endpoint_inventory = Map.get(parallel_results, :endpoint_inventory, %{})
     bumblebee = Map.get(parallel_results, :bumblebee, %{})
 
     base_assigns = %{
@@ -176,19 +174,6 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.DeviceSupplementalData do
       agent_availability: Map.get(parallel_results, :agent_availability, []),
       composite_verdicts: Map.get(parallel_results, :composite_verdicts, []),
       healthcheck_summary: Map.get(parallel_results, :healthcheck, %{}),
-      endpoint_inventory_scan: Map.get(endpoint_inventory, :scan),
-      endpoint_inventory_scans: Map.get(endpoint_inventory, :scans, []),
-      endpoint_inventory_packages: Map.get(endpoint_inventory, :packages, []),
-      endpoint_inventory_package_total: Map.get(endpoint_inventory, :package_total, 0),
-      endpoint_inventory_package_page: Map.get(endpoint_inventory, :package_page, 1),
-      endpoint_inventory_package_page_size:
-        Map.get(endpoint_inventory, :package_page_size, EndpointInventoryData.default_page_size()),
-      endpoint_inventory_stored_package_count: Map.get(endpoint_inventory, :stored_package_count, 0),
-      endpoint_inventory_artifacts: Map.get(endpoint_inventory, :artifacts, []),
-      endpoint_inventory_vulnerability_matches: Map.get(endpoint_inventory, :vulnerability_matches, []),
-      endpoint_inventory_cpe_catalog_current: Map.get(endpoint_inventory, :cpe_catalog_current, true),
-      endpoint_inventory_error: Map.get(endpoint_inventory, :error),
-      has_software_inventory: Map.get(endpoint_inventory, :has_inventory, false),
       bumblebee_postures: Map.get(bumblebee, :postures, []),
       bumblebee_findings: Map.get(bumblebee, :findings, []),
       bumblebee_error: Map.get(bumblebee, :error),
@@ -281,9 +266,9 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.DeviceSupplementalData do
       DeviceTaskData.timed(slow_device_task_ms, :northbound_history, fn ->
         NorthboundHistoryData.load(scope, uid)
       end),
-      DeviceTaskData.timed(slow_device_task_ms, :endpoint_inventory, fn ->
-        EndpointInventoryData.load(scope, uid)
-      end),
+      # Endpoint inventory (packages + vulnerability matches) is started from
+      # DeviceLive.Show as its own start_async. Folding it into this yield_many
+      # made Software wait on has_ifaces/has_flows SRQL probes.
       DeviceTaskData.timed(slow_device_task_ms, :bumblebee, fn ->
         BumblebeeData.load(scope, uid)
       end),

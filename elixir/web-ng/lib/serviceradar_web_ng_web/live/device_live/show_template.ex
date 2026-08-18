@@ -341,6 +341,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.ShowTemplate do
               vulnerability_matches={@endpoint_inventory_vulnerability_matches}
               cpe_catalog_current={@endpoint_inventory_cpe_catalog_current}
               error={@endpoint_inventory_error}
+              loading={@endpoint_inventory_loading}
               has_inventory={@has_software_inventory}
               show_controls={device_has_agent?(@device_row)}
               device_row={@device_row}
