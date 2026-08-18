@@ -219,9 +219,19 @@ jobs:
           fi
 
           release_tag="${EXTRA_TAG:-sha-${GITHUB_SHA}}"
-          target_commitish="${GITHUB_SHA}"
+          # GITHUB_SHA on an annotated tag-push is the tag object, not the
+          # commit. GitHub 404/403s if that is sent as target_commitish.
+          # When the git tag already exists, omit the field entirely.
+          target_commitish=""
           if [[ "${release_tag}" =~ ^sha-([0-9a-f]{40})$ ]]; then
             target_commitish="${BASH_REMATCH[1]}"
+          elif git rev-parse -q --verify "refs/tags/${release_tag}" >/dev/null; then
+            target_commitish=""
+          else
+            peeled="$(git rev-parse -q --verify "${GITHUB_SHA}^{commit}" 2>/dev/null || true)"
+            if [[ "${peeled}" =~ ^[0-9a-f]{40}$ ]]; then
+              target_commitish="${peeled}"
+            fi
           fi
 
           index_path="${RUNNER_TEMP:-/tmp}/serviceradar-wasm-plugin-index.json"
@@ -237,22 +247,20 @@ jobs:
             -H "X-GitHub-Api-Version: 2022-11-28"
           )
 
+          # /releases/tags/{tag} hides drafts. Always list first.
           fetch_release() {
-            local release_json release_id releases_json
-            release_json="$(curl -sS "${gh_headers[@]}" \
-              "${api_base}/releases/tags/${release_tag}" || true)"
-            release_id="$(echo "${release_json}" | jq -r 'select(type == "object") | .id // empty')"
-            if [[ -n "${release_id}" ]]; then
+            local release_json releases_json
+            releases_json="$(curl -sS "${gh_headers[@]}" \
+              "${api_base}/releases?per_page=100" || true)"
+            release_json="$(jq -c --arg tag "${release_tag}" \
+              'if type == "array" then first(.[] | select(.tag_name == $tag)) // empty else empty end' \
+              <<<"${releases_json}" 2>/dev/null || true)"
+            if [[ -n "${release_json}" ]]; then
               printf '%s\n' "${release_json}"
               return 0
             fi
-
-            # GitHub hides drafts from /releases/tags/{tag}. List includes drafts.
-            releases_json="$(curl -sS "${gh_headers[@]}" \
-              "${api_base}/releases?per_page=100" || true)"
-            jq -c --arg tag "${release_tag}" \
-              'first(.[] | select(.tag_name == $tag)) // empty' \
-              <<<"${releases_json}" 2>/dev/null || true
+            curl -sS "${gh_headers[@]}" \
+              "${api_base}/releases/tags/${release_tag}" || true
           }
 
           release_json="$(fetch_release)"
@@ -261,30 +269,48 @@ jobs:
           if [[ -z "${release_id}" ]]; then
             # Create a DRAFT so the index can be attached before the release is
             # immutable. A published GitHub immutable release rejects later assets.
-            create_json="$(
-              jq -n \
-                --arg tag_name "${release_tag}" \
-                --arg target_commitish "${target_commitish}" \
-                --arg name "Wasm plugin catalog ${release_tag}" \
-                --arg body "Generated Wasm plugin import catalog for ${release_tag}." \
-                '{
-                  tag_name: $tag_name,
-                  target_commitish: $target_commitish,
-                  name: $name,
-                  body: $body,
-                  draft: true,
-                  prerelease: true
-                }' |
-                curl -sS -X POST \
-                  "${gh_headers[@]}" \
-                  -H "Content-Type: application/json" \
-                  -d @- \
-                  "${api_base}/releases" || true
-            )"
-            release_id="$(echo "${create_json}" | jq -r 'select(type == "object") | .id // empty')"
-            if [[ -n "${release_id}" ]]; then
-              release_json="${create_json}"
+            if [[ -n "${target_commitish}" ]]; then
+              create_body="$(
+                jq -n \
+                  --arg tag_name "${release_tag}" \
+                  --arg target_commitish "${target_commitish}" \
+                  --arg name "Wasm plugin catalog ${release_tag}" \
+                  --arg body "Generated Wasm plugin import catalog for ${release_tag}." \
+                  '{
+                    tag_name: $tag_name,
+                    target_commitish: $target_commitish,
+                    name: $name,
+                    body: $body,
+                    draft: true,
+                    prerelease: true
+                  }'
+              )"
             else
+              create_body="$(
+                jq -n \
+                  --arg tag_name "${release_tag}" \
+                  --arg name "Wasm plugin catalog ${release_tag}" \
+                  --arg body "Generated Wasm plugin import catalog for ${release_tag}." \
+                  '{
+                    tag_name: $tag_name,
+                    name: $name,
+                    body: $body,
+                    draft: true,
+                    prerelease: true
+                  }'
+              )"
+            fi
+            create_json="$(curl -sS -w '\n%{http_code}' -X POST \
+              "${gh_headers[@]}" \
+              -H "Content-Type: application/json" \
+              -d "${create_body}" \
+              "${api_base}/releases" || true)"
+            create_code="$(echo "${create_json}" | tail -n1)"
+            create_json="$(echo "${create_json}" | sed '$d')"
+            echo "Create release HTTP ${create_code}"
+            release_id="$(echo "${create_json}" | jq -r 'select(type == "object") | .id // empty')"
+            if [[ -z "${release_id}" ]]; then
+              echo "${create_json}" | jq -c . >&2 || echo "${create_json}" >&2
               release_json="$(fetch_release)"
               release_id="$(echo "${release_json}" | jq -r 'select(type == "object") | .id // empty')"
             fi

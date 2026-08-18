@@ -583,6 +583,8 @@ for worker_name, worker in (
         'release_json="$(fetch_release)"',
         "https://api.github.com/repos/${GITHUB_REPOSITORY}",
         "select(type == \"object\") | .id // empty",
+        'git rev-parse -q --verify "refs/tags/${release_tag}"',
+        "Create release HTTP",
     ):
         if fragment not in worker:
             raise SystemExit(
