@@ -295,11 +295,13 @@ jobs:
 
       - name: Upload import index release asset
         env:
-          GITHUB_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
-          if [[ -z "${GITHUB_TOKEN:-}" ]]; then
-            echo "Missing GITHUB_TOKEN." >&2
+          token="${GITHUB_TOKEN:-${GH_TOKEN:-}}"
+          if [[ -z "${token}" ]]; then
+            echo "Missing GitHub token (GITHUB_TOKEN/GH_TOKEN)." >&2
             exit 1
           fi
 
@@ -318,30 +320,30 @@ jobs:
           api_base="https://api.github.com/repos/${GITHUB_REPOSITORY}"
           gh_headers=(
             -H "Accept: application/vnd.github+json"
-            -H "Authorization: Bearer ${GITHUB_TOKEN}"
+            -H "Authorization: Bearer ${token}"
             -H "X-GitHub-Api-Version: 2022-11-28"
           )
 
+          # /releases/tags/{tag} hides drafts. Always list first.
           fetch_release() {
-            local release_json release_id releases_json
-            release_json="$(curl -sS "${gh_headers[@]}" \
-              "${api_base}/releases/tags/${release_tag}" || true)"
-            release_id="$(echo "${release_json}" | jq -r 'select(type == "object") | .id // empty')"
-            if [[ -n "${release_id}" ]]; then
+            local release_json releases_json
+            releases_json="$(curl -sS "${gh_headers[@]}" \
+              "${api_base}/releases?per_page=100" || true)"
+            release_json="$(jq -c --arg tag "${release_tag}" \
+              'if type == "array" then first(.[] | select(.tag_name == $tag)) // empty else empty end' \
+              <<<"${releases_json}" 2>/dev/null || true)"
+            if [[ -n "${release_json}" ]]; then
               printf '%s\n' "${release_json}"
               return 0
             fi
-            releases_json="$(curl -sS "${gh_headers[@]}" \
-              "${api_base}/releases?per_page=100" || true)"
-            jq -c --arg tag "${release_tag}" \
-              'first(.[] | select(.tag_name == $tag)) // empty' \
-              <<<"${releases_json}" 2>/dev/null || true
+            curl -sS "${gh_headers[@]}" \
+              "${api_base}/releases/tags/${release_tag}" || true
           }
 
           release_json="$(fetch_release)"
           release_id="$(echo "${release_json}" | jq -r 'select(type == "object") | .id // empty')"
           if [[ -z "${release_id}" ]]; then
-            create_json="$(
+            create_body="$(
               jq -n \
                 --arg tag_name "${release_tag}" \
                 --arg target_commitish "${target_commitish}" \
@@ -354,15 +356,19 @@ jobs:
                   body: $body,
                   draft: true,
                   prerelease: true
-                }' |
-                curl -sS -X POST \
-                  "${gh_headers[@]}" \
-                  -H "Content-Type: application/json" \
-                  -d @- \
-                  "${api_base}/releases" || true
+                }'
             )"
+            create_json="$(curl -sS -w '\n%{http_code}' -X POST \
+              "${gh_headers[@]}" \
+              -H "Content-Type: application/json" \
+              -d "${create_body}" \
+              "${api_base}/releases" || true)"
+            create_code="$(echo "${create_json}" | tail -n1)"
+            create_json="$(echo "${create_json}" | sed '$d')"
+            echo "Create release HTTP ${create_code}"
             release_id="$(echo "${create_json}" | jq -r 'select(type == "object") | .id // empty')"
             if [[ -z "${release_id}" ]]; then
+              echo "${create_json}" | jq -c . >&2 || echo "${create_json}" >&2
               release_json="$(fetch_release)"
               release_id="$(echo "${release_json}" | jq -r 'select(type == "object") | .id // empty')"
             fi
