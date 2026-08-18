@@ -45,12 +45,3 @@ GHSA-g2wm-735q-3f56
 # row carries cowboy's range data (`< 2.16.0`, first patched `2.16.0`) while
 # gun's newest release is 2.5.0, so no gun version can ever satisfy it.
 GHSA-w4f7-4cxr-rv3c
-
-# EEF-CVE-2026-43971 / cowlib Link header directive smuggling in cow_link:link/1
-# (aka CVE-2026-43971). Published after cowlib 2.19.0, which is still the newest
-# release on Hex, so there is no version to upgrade to -- same position as the
-# two cowlib waivers above. Nothing here reaches the affected encoder: no
-# first-party module calls :cow_link, and none of these services emit a Link
-# response header. Remove this waiver as soon as cowlib publishes a patched
-# release or the dependency is replaced.
-EEF-CVE-2026-43971
