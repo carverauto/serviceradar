@@ -81,17 +81,22 @@
 # record never carried was invisible until every composed capability shape was framed at the root.
 #
 # ONE FIXTURE CANNOT SEPARATE THE ROOT, and that is arithmetic. Its transcript carries thirteen
-# enum writes -- SEVEN with a range of 0..2 -- plus constants at 3, 7 and 8. Seven positions
+# enum writes -- SEVEN with a range of 0..2 -- plus the structural constants. Seven positions
 # cannot take seven distinct values from three. So a position's identity is its SIGNATURE, the
-# tuple of values it takes ACROSS THE COMMITTED FIXTURES, and THREE record variants are needed:
-# the record must avoid the all-equal tuples (they are reserved for the claim baselines, which
-# are populated once and therefore have constant signatures), and a range of 3 yields only SIX
-# varying tuples over two variants against SEVEN positions. Three variants yield twenty-four.
+# tuple of values it takes across a shape's VARIANTS, and THREE are needed: no position may take
+# an all-equal tuple (one that never varies could equal a structural constant, and a shape whose
+# only content is root enums would frame identically in every variant -- measured), and a range
+# of 3 yields only SIX varying tuples over two variants against SEVEN positions. Three yield
+# twenty-four. The claim baselines are committed PER VARIANT for the same reason: the cross
+# product puts two claim bodies in one transcript, and constant-valued sets cannot separate them.
 #
-# TWO POSITIONS COLLIDE ONLY IF THEY AGREE IN EVERY FIXTURE WHERE BOTH OCCUR. Asking the question
-# per shape asked something stronger and wrong: in the shape where both capabilities carry
-# `source` claims, the two `claims` discriminants are both 8 and no fixture could make them
-# differ THERE -- but they are 7 and 8 in the base shape, so the pair is separated.
+# TWO POSITIONS COLLIDE ONLY IF THEY AGREE IN EVERY VARIANT OF THE SHAPE THEY BOTH OCCUR IN.
+# Asking it across the whole fixture set is too weak -- a mutation executes inside ONE shape, and
+# `compression` and a claims discriminant were both 0 in the shape where production claims are
+# unset and the nested carrier holds `source`. TWO STRUCTURAL CONSTANTS ARE EXEMPT: two carriers
+# holding the same claims kind write the same discriminant by force of the shape, so no fixture of
+# it can separate them and no swap confined there changes anything for ANY input. A pair with a
+# FIELD on either side is never exempt: its equality is the fixture's choice, not the shape's.
 #
 # THREE SCOPES WERE WRONG BEFORE THIS ONE, each leaving a live survivor: per MESSAGE let
 # `execution_grant_claims.traffic_class` and its inlined `source_identity.kind` both take 0; per
@@ -103,11 +108,34 @@
 # agrees with production for it; it says nothing about whether two writes INSIDE it are
 # exchangeable, so every shape is built at every variant, signature-guarded and committed.
 #
-# AND A SINGLE-AXIS MATRIX IS NOT COMBINATION EVIDENCE. Varying ONE capability carrier at a time
-# leaves every mutation conditioned on a PAIR of carrier states undetectable, because no committed
-# record holds that pair. Two carriers means two-way coverage means the FULL CROSS PRODUCT: ten
-# states each, 100 combinations, plus the base and four carrier-absent shapes -- 105 shapes at
-# three variants.
+# AND NO HAND-PICKED MATRIX EVER CONVERGES. Five review rounds each found a reordering
+# conditioned on some state no fixture held -- a claims variant, a carrier, a PAIR of carriers,
+# then a pair the fixtures held but the guard compared globally -- and each round added the
+# missing case. The space of predicates a framer COULD branch on is unbounded, so no finite
+# fixture set is complete against it.
+#
+# SO THE GRAMMAR IS BOUNDED STATICALLY, AND THE FIXTURES COVER WHAT REMAINS. A static guard reads
+# the framer sources and fails if any control flow branches on anything but CARRIER PRESENCE and
+# ONEOF DISCRIMINANTS -- no payload value, no value switch, no loop. With that established the
+# axes are finite and enumerable, and their FULL CROSS PRODUCT is complete coverage rather than
+# another guess:
+#
+#   output_contract presence   2
+#   producer_context presence  2, and its optional authority_epoch when present -> 3
+#   production capability     10 states
+#   source_authorization      11: absent, or present with its capability in 10 states
+#
+# 2 x 3 x 10 x 11 = 660 shapes, plus the base record, at three variants each. The two halves are
+# worth little apart: the guard says the code cannot branch on anything else, the enumeration says
+# every combination of what it CAN branch on is committed.
+#
+# SEPARATION IS ASKED PER SHAPE, NOT ACROSS THE WHOLE FIXTURE SET. A mutation executes inside ONE
+# shape, so a pair must be separated by a variant OF THAT SHAPE -- asked globally, `compression`
+# and a claims discriminant were both 0 in the shape where production claims are unset and the
+# nested carrier holds `source`, and swapping them there moved no byte. Two STRUCTURAL CONSTANTS
+# are exempt: when both carriers hold the same claims kind their discriminants are forced equal by
+# the shape itself, and a swap confined to such a shape changes nothing for ANY input. A pair with
+# a FIELD on either side is never exempt -- its equality is the fixture's choice.
 #
 # THE CLAIM BASELINES SHARE THE RECORD'S GENERATION PASS, IN TWO SETS, PER VARIANT. A baseline is
 # spliced into a shape, so its writes land in the record's transcript; generated independently, a

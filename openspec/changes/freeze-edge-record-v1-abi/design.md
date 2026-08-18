@@ -775,14 +775,30 @@ EVERY WHOLE-RECORD SHAPE IS A FIXTURE, NOT JUST A RECONSTRUCTION. Byte-for-byte 
 shows the mirror agrees with production for a shape; it says nothing about whether two writes
 INSIDE it are exchangeable. Guarding only the base left `payload_family` and `compression` --
 both zero in the first variant -- freely swappable whenever the capability carried `collection`,
-and the record's `event_id` swappable with a spliced claim's `network_scope_id`. AND A SINGLE-AXIS MATRIX
-IS NOT COMBINATION EVIDENCE: varying ONE capability carrier at a time leaves every mutation
-conditioned on a PAIR of carrier states undetectable, because no committed record holds that
-pair. `capability` is framed from BOTH slots and the schema restricts neither, so two-way
-coverage over two factors is the FULL CROSS PRODUCT -- ten states each, 100 combinations, plus
-the base and four carrier-absent shapes: 105 shapes at three variants, 315 whole-record vectors
-of 361 in all, every one consumed by both runtimes. Three mutations conditioned on a single
-carrier and one conditioned on a PAIR were each reproduced and killed.
+and the record's `event_id` swappable with a spliced claim's `network_scope_id`. AND NO HAND-PICKED MATRIX
+EVER CONVERGES. Five review rounds each found a reordering conditioned on some state no fixture
+held -- a claims variant, a carrier, a PAIR of carriers, then a pair the fixtures held but the
+guard compared globally -- and each round added the missing case. The space of predicates a
+framer COULD branch on is unbounded, so no finite fixture set is complete against it.
+
+SO THE GRAMMAR IS BOUNDED STATICALLY AND THE FIXTURES COVER WHAT REMAINS.
+`TestSemanticFramingBranchesOnlyOnDeclaredAxes` parses the framer sources and fails if any
+control flow branches on anything but CARRIER PRESENCE and ONEOF DISCRIMINANTS -- no payload
+value, no value switch, no loop, and it covers the ROOT function too, not just the
+`*digestWriter` methods (scoped to methods, a payload branch in the root passed it). With that
+established the axes are finite and their FULL CROSS PRODUCT is complete coverage: output_contract
+presence (2), producer_context presence and its optional authority_epoch (3), the production
+capability (10 states), and source_authorization (11: absent, or present with its capability in
+10 states) -- 660 shapes plus the base, at three variants, 1983 whole-record vectors of 2029 in
+all, every one consumed by both runtimes.
+
+SEPARATION IS ASKED PER SHAPE. A mutation executes inside ONE shape, so a pair must be separated
+by a variant OF THAT shape; asked across the whole fixture set, `compression` and a claims
+discriminant were both 0 in one shape and swapping them there moved no byte. Two STRUCTURAL
+CONSTANTS are exempt -- two carriers holding the same claims kind write the same discriminant by
+force of the shape, and a swap confined there changes nothing for any input -- but a pair with a
+FIELD on either side never is, because its equality is the fixture's choice. Discriminant 0 and
+an absent `optU64`'s forced zero are counted as constants for the same reason.
 
 THE CLAIM BASELINES ARE TWO SETS, PER VARIANT. A spliced baseline's writes land in the record's
 own transcript, and the cross product puts a claim body in BOTH carriers at once; splicing one
@@ -840,7 +856,11 @@ call can fail rows in several sets.
 
 | mutation | Go rows | Elixir rows |
 | --- | --- | --- |
-| reverse `route_profile`/`traffic_class` ONLY for production=`collection` AND nested=`delivery.renewal` | 1 | 1 |
+| a framer branches on a payload VALUE (static guard) | 1 | - |
+| a framer uses a value `switch` (static guard) | 1 | - |
+| a framer uses a loop (static guard) | 1 | - |
+| swap `compression` with a claims discriminant in ONE shape | 1 | - |
+| reverse `route_profile`/`traffic_class` ONLY for production=`collection` AND nested=`delivery.renewal` | 2 | 1 |
 | inline `producerContext` + swap `traffic_class` / `origin_kind` | 4 | - |
 | swap `traffic_class` / inlined `source_identity.kind` | 4 | - |
 | swap root `route_profile` / `traffic_class` | 6 | - |
@@ -875,10 +895,16 @@ call can fail rows in several sets.
 | Elixir: swap rollover `recovery_id` / `prior_spool_id` | - | 2 |
 | vectors: append a duplicate key | - | 14 |
 
-THIRTY-FOUR ROWS HERE. The first audit's nineteen are recorded separately above and are NOT
+THIRTY-EIGHT ROWS HERE. The first audit's nineteen are recorded separately above and are NOT
 re-added; the survivor rounds are represented by the rows that now kill them rather than by a
-count. Every row was re-run against the landed tree in one pass, and the counts are the number of
-test functions that failed -- measured, not remembered.
+count. The counts are the number of test functions that failed -- measured, not remembered.
+
+WHAT WAS RE-MEASURED WHEN, STATED PLAINLY. The table was measured in one pass before staging was
+merged. After the merge, THIRTEEN rows were re-run: every survivor any review round reported, the
+three static-guard rows, and three long-standing ones as controls. All thirteen still kill and the
+counts above are the post-merge figures for those; the remainder carry their pre-merge counts.
+The merge touched staging's code, not this grammar or its suite, but that is a reason to expect
+the rest to hold, not evidence that they do.
 
 THREE ROWS FAIL THROUGH A GUARD RATHER THAN A TEST FUNCTION, and the table says which. Restricting
 the shape vectors to fewer variants leaves every assertion green and is caught by the
