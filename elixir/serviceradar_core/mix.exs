@@ -24,7 +24,19 @@ defmodule ServiceRadarCore.MixProject do
 
       # Package
       description: description(),
-      package: package()
+      package: package(),
+      # Keep Hex's advisory gate aligned with the documented, temporary
+      # exceptions in .deps_audit_ignore. See that file for mitigations and
+      # removal criteria for each advisory.
+      hex: [
+        ignore_advisories: [
+          "EEF-CVE-2026-43966",
+          "EEF-CVE-2026-43969",
+          "EEF-CVE-2026-43971",
+          "GHSA-g2wm-735q-3f56",
+          "GHSA-w4f7-4cxr-rv3c"
+        ]
+      ]
     ]
   end
 
