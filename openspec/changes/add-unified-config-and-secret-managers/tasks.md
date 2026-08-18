@@ -48,12 +48,21 @@ ambient environment, a test asserting on `.bazelrc`, and a value read under a di
 - [x] Decide where per-target values live that are NOT per-environment
       (`SERVICERADAR_TEST_DB_SHARDS` is correctly a target `env` attribute today; `SRQL_FIXTURE_ROOT`
       is still unplaced)
-      DECIDED: EnvironmentConfig describes the DEPLOYED SYSTEM. Anything describing the build
-      or the test harness stays a Bazel target attribute or a runfiles lookup and never enters
-      the schema. `SRQL_FIXTURE_ROOT` is a fixture-directory override in
-      `integration_tests/srql/tests/support/harness.rs:729`; the harness already prefers
-      runfiles, nothing sets the variable, and the inventory records it as inert. It is not
-      configuration and gets no schema field.
+      DECIDED, by what a value VARIES WITH. EnvironmentConfig holds what varies by
+      environment -- all four kinds, localhost and ci included. A value that varies by
+      BUILD or CHECKOUT rather than by environment is not environment configuration, and
+      Bazel already models it as a declared input.
+      `SRQL_FIXTURE_ROOT` was a path to test data inside the build tree. It does not differ
+      between ci and saas; it differs between two checkouts of the same environment, which is
+      precisely the ambient-state dependency this system exists to remove. It is DELETED from
+      `integration_tests/srql/tests/support/harness.rs` rather than relocated: no schema
+      field, and no environment override either. Fixture data is a declared input, resolved
+      through runfiles.
+
+      That is the general rule. A value either comes from the configuration system or from a
+      declared build input. Nothing gets an ad-hoc environment override in a script or a
+      test -- an override that can repoint an input is how a run ends up reading something
+      the build graph does not know about, and it is what makes a green result meaningless.
 
 ## 3. Rule set and predicate specification
 

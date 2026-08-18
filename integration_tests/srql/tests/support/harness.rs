@@ -726,13 +726,9 @@ fn load_fixture(name: &str) -> anyhow::Result<String> {
 }
 
 fn fixture_root() -> PathBuf {
-    if let Ok(root) = std::env::var("SRQL_FIXTURE_ROOT") {
-        let candidate = PathBuf::from(root);
-        if candidate.exists() {
-            return candidate;
-        }
-    }
-
+    // No environment override. Fixture data is a declared input, and a variable that can
+    // repoint it lets a run read files nothing in the build graph knows about -- which is
+    // the class of ambient override the configuration system exists to remove.
     const RELATIVE: &str = "integration_tests/srql/tests/fixtures";
     if let Some(path) = find_runfile(RELATIVE) {
         return path;
