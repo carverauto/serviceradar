@@ -145,3 +145,25 @@ rust_test(
         "//config/proto_bindings/rust:config_schema",
     ],
 )
+
+# The fixtures, run. They are simultaneously the negative fixtures and the cross-language
+# conformance vectors, and until this target existed nothing evaluated them.
+rust_test(
+    name = "vector_test",
+    srcs = [
+        "src/utils_tests.rs",
+        "src/vector_test.rs",
+    ],
+    crate_root = "src/vector_test.rs",
+    data = [
+        "//config/rules:ruleset_binpb",
+        "//config/rules/fixtures:fixtures_binpb",
+    ],
+    deps = all_crate_deps(
+        cargo_only = True,
+        normal = True,
+    ) + [
+        ":validator",
+        "//config/proto_bindings/rust:config_schema",
+    ],
+)

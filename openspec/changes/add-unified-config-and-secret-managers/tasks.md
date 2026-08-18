@@ -116,7 +116,11 @@ ambient environment, a test asserting on `.bazelrc`, and a value read under a di
       `config/rules/fixtures/fixtures.textproto`, **10 cases** covering every predicate kind plus
       cascading, ordering, and both sides of scope. Fixtures and conformance vectors are the same
       artifact, so a rule cannot gain one without the other
-- [ ] Generate the per-rule fixture covering all 37 rules (phase 5, from the rule set)
+- [x] Generate the per-rule fixture covering all rules — **47 fixtures, all 45 rules exercised**.
+      Generated SHAPE, authored INTENT: each case is one mutation of a valid baseline, and its
+      expected violations are written by hand from what the rule is FOR, never read back from the
+      engine — which would make the comparison circular and prove nothing. All 35 hand-written
+      expectations matched the engine on the first run
 
 ## 4. Configuration files
 
@@ -184,10 +188,24 @@ ambient environment, a test asserting on `.bazelrc`, and a value read under a di
 
 ## 5. Conformance vectors and property tests
 
-- [ ] Generate the conformance vector file from the predicate specification
-- [ ] Include violation identity (code, field path) in every vector, not just accept/reject
-- [ ] Include the negative fixtures from phase 3 as vectors
-- [ ] Implement the thin vector harness in Rust, Go, and Elixir
+- [x] Generate the conformance vector file from the predicate specification — the fixture set IS
+      the vector file; one artifact, so a rule cannot gain a fixture without gaining a vector
+- [x] Include violation identity (code, field path) in every vector, not just accept/reject —
+      compared as an ORDERED SEQUENCE of `(code, field_path)`, not as a set and not as
+      accept/reject. Three implementations can reject the same input for three different reasons
+      and a bare rejection assertion stays green
+- [x] Include the negative fixtures from phase 3 as vectors — same artifact by construction
+- [x] Implement the thin vector harness in **Rust** — `//config/validator:vector_test`. Until it
+      existed the fixture file was inert data, and it found two real defects on its first run:
+      every pre-existing fixture was stale against the `dgraph` schema addition, and 35 of 45
+      rules had no fixture at all — the invariant the rule set file states in its own header and
+      that nothing enforced.
+      **Negative control verified on RBE:** silently widening `DATABASE_POOL_SIZE_RANGE` from
+      `min: 1` to `min: 0` reds `database_pool_size_zero` with `expected [...] actual []`, which
+      is the SEMANTICS.md section 8 property — weakening a rule makes its case pass, and the
+      harness catches exactly that
+- [ ] Implement the thin vector harness in **Go and Elixir** (blocked on porting the engine;
+      lands with phase 6, where Decision 12 requires all three to validate at load)
 - [ ] Implement property-based tests per predicate law (proptest, rapid/gopter, StreamData)
 - [ ] Confirm all suites are untagged and selected by `make test`
 
