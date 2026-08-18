@@ -381,6 +381,27 @@ jobs:
 
           ./scripts/verify-agent-release-key-stamp.sh ${BAZEL_BUILD_FLAGS}
 
+      # Alpine replaces package revisions in-place on a stable branch. A yanked
+      # http_file pin 404s only after Bazel has already spent the analyze pass
+      # on //:push. Fail here so a missing APK is a 30-second log line.
+      - name: Verify Alpine APK pins
+        run: |
+          set -euo pipefail
+          failed=0
+          while IFS= read -r url; do
+            [[ -z "${url}" ]] && continue
+            code="$(curl -sS -o /dev/null -w '%{http_code}' --max-time 30 -I "${url}" || true)"
+            echo "${code} ${url}"
+            if [[ "${code}" != "200" ]]; then
+              echo "Alpine pin is not fetchable (${code}): ${url}" >&2
+              failed=1
+            fi
+          done < <(grep -oE 'https://dl-cdn\.alpinelinux\.org/[^"]+' MODULE.bazel | sort -u)
+          if [[ "${failed}" -ne 0 ]]; then
+            echo "Update the yanked http_file pins in MODULE.bazel before retrying publish." >&2
+            exit 1
+          fi
+
       - name: Publish container images
         env:
           RELEASE_TAG: ${{ steps.release.outputs.tag }}
