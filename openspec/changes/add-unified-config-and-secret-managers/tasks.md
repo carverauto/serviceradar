@@ -204,8 +204,20 @@ ambient environment, a test asserting on `.bazelrc`, and a value read under a di
       `min: 1` to `min: 0` reds `database_pool_size_zero` with `expected [...] actual []`, which
       is the SEMANTICS.md section 8 property — weakening a rule makes its case pass, and the
       harness catches exactly that
-- [ ] Implement the thin vector harness in **Go and Elixir** (blocked on porting the engine;
-      lands with phase 6, where Decision 12 requires all three to validate at load)
+- [x] Implement the thin vector harness in **Go** — `//config/go/validator`, engine plus
+      harness. It reproduces all 47 fixtures as an ordered `(code, field_path)` sequence and
+      revalidates all five committed instances.
+      **Two negative controls verified on RBE.** Breaking `IntRange` to be exclusive at the upper
+      bound was caught by the property test and shrank to `range [0,0] at 0` — the IDENTICAL
+      minimal counterexample proptest produced in Rust. It did NOT red the vectors, because no
+      committed fixture uses a max-boundary value; disabling `NonEmpty` instead failed 10 named
+      fixture subtests. The two layers catch different things, which is why both exist
+- [~] Vector harness in **Elixir** — engine and harness written and correct, but BLOCKED by a
+      rules_elixir defect: `private/ex_unit_test.bzl:51` stages every test input with
+      `src = s.path`, which for a GENERATED file is `bazel-out/<cfg>/bin/...` and does not resolve
+      from the test's working directory. Source files work only because `path == short_path` for
+      them. Fix is `src = s.short_path`; pinned commit 832a95b4. The vector test is excluded from
+      the glob with that note rather than left red — see `config/elixir/BUILD.bazel`
 - [x] Implement property-based tests per predicate law in **Rust** —
       `//config/validator:predicate_law_test`, 16 tests: eight proptest properties plus eight
       hand-written cases. Both layers are needed. The properties state each law as a universally
@@ -219,7 +231,13 @@ ambient environment, a test asserting on `.bazelrc`, and a value read under a di
       value RELATIVE to the bounds; the same control now fails and shrinks to
       `min = 0, span = 0, pick = 0` — the degenerate range `[0,0]` at its own edge.
       Sampling a boundary is not the same as testing it
-- [ ] Property tests in Go and Elixir (rapid/gopter, StreamData) — land with the engine ports
+- [x] Property tests in **Go and Elixir** — `pgregory.net/rapid` (7 properties) and StreamData
+      (7 properties), mirroring the eight Rust ones. All three draw range values RELATIVE TO THE
+      BOUNDS rather than independently, carrying forward the defect the Rust control exposed: an
+      independent draw reaches `v == max` only by luck, so the property passes against an
+      off-by-one engine. Sampling a boundary is not testing it.
+      `rapid` was added to `go.mod` and registered by `bazel mod tidy` as `net_pgregory_rapid`;
+      `stream_data` was already vendored
 - [x] Confirm all suites are untagged and selected by `make test` — verified by
       `bazel query 'attr(tags, "manual|integration_test|acceptance_test", //config/...)'`: no test
       target under `//config/...` carries an excluding tag, so all 12 are selected by
