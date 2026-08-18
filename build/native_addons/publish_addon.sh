@@ -127,9 +127,21 @@ done
 
 for tag in "${tags[@]}"; do
   echo "publishing ${repo}:${tag}"
-  ( cd "${staging}" && "${oras_bin}" push \
-    --artifact-type "${artifact_type}" \
-    "${repo}:${tag}" \
-    "${layer_specs[@]}" \
-    --annotation "io.serviceradar.addon.id=${addon_id}" )
+  if ! push_out="$(
+    cd "${staging}" && "${oras_bin}" push \
+      --artifact-type "${artifact_type}" \
+      "${repo}:${tag}" \
+      "${layer_specs[@]}" \
+      --annotation "io.serviceradar.addon.id=${addon_id}" 2>&1
+  )"; then
+    if [[ -n "${extra_tag}" && "${tag}" == "${extra_tag}" ]] && \
+       grep -Eiq 'immutable|already exists|precondition' <<<"${push_out}"; then
+      echo "${push_out}"
+      echo "Harbor tag ${repo}:${tag} is already immutable; leaving the existing artifact."
+      continue
+    fi
+    echo "${push_out}" >&2
+    exit 1
+  fi
+  echo "${push_out}"
 done
