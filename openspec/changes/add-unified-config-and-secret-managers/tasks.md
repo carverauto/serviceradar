@@ -174,6 +174,32 @@ ambient environment, a test asserting on `.bazelrc`, and a value read under a di
 ## 6. Managers
 
 - [ ] Implement `ConfigManager` natively in Rust, Go, and Elixir, keyed by `SERVICERADAR_ENV`
+- [ ] **Validate at LOAD, in every implementation**, against the rule set shipped with the release
+      — not only at build time. This is what lets an instance come from outside the repository
+      without losing Decision 10's guarantee, and it is strictly stronger than today: a committed
+      instance is currently validated at build and then trusted at load. See Decision 12
+- [ ] Implement `SERVICERADAR_CONFIG_URI` with `file:` and `https:`; reject `http:`; fetch failure
+      is fatal with NO cached fallback
+- [ ] Hard-error when both `SERVICERADAR_ENV` and `SERVICERADAR_CONFIG_URI` are set, and when
+      neither is. No precedence rule — precedence is where a stale selector becomes invisible
+      rather than wrong
+- [ ] **OPEN CALL:** require that a remotely fetched artifact's integrity be verifiable against
+      something the client knew before fetching. Without it, whoever controls the endpoint or its
+      DNS controls the deployment's database host and TLS mode. Require the PROPERTY, not a
+      mechanism: a `#sha256=` digest pin suits a static artifact, a signature suits anything
+      rendered per-client. Mandating the digest specifically would foreclose the configuration
+      server
+- [ ] Shape the loader as a **resolver keyed by scheme**, returning the instance AND its
+      provenance even when provenance is trivially "built-in: saas". An unknown scheme is a
+      startup error listing the supported ones
+- [ ] Enforce that reaching a config source needs **no ServiceRadar-managed secret** — platform
+      workload identity only (K8s SA token, SPIFFE SVID, platform-mounted client cert). A
+      component reading a config-source credential out of SecretManager is a bootstrap cycle:
+      SecretManager needs configuration to know its provider
+- [ ] Ship `serviceradar config compile <in.textproto> -o <out.binpb>` — Go, because only Go parses
+      text format natively. Applies schema + rule set + credential-shape checks and refuses to emit
+      an artifact that fails any of them, moving discovery from the customer's boot to their
+      authoring
 - [ ] Implement `SecretManager` with providers: localhost file, CI store, Kubernetes/OpenBao
 - [ ] Implement per-component declared secret manifests; provider refuses undeclared names
 - [ ] Hard-error on unset/unrecognised `SERVICERADAR_ENV`, listing the valid set

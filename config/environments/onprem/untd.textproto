@@ -6,10 +6,13 @@
 # NO SECRETS. Passwords, private keys and certificate material are resolved by
 # SecretManager. A build-time check rejects credential-shaped values in this file.
 #
-# A single-tenant customer installation, selected at boot with SERVICERADAR_ENV=onprem:untd.
-# It lives in THIS repository on purpose (Decision 10): a customer file that omits a required
-# field, or sets a weaker TLS mode than the cross-environment invariant permits, fails this
-# repository's build rather than a pipeline this repo does not control.
+# AN EXAMPLE, not a real deployment. It exists so the onprem path -- the multi-instance kind,
+# its own package, the instance identifier in a file path -- is exercised by the same
+# build-time tests as every other instance, rather than being a code path nothing runs.
+#
+# A real enterprise deployment does NOT go here. This repository is public, and a customer's
+# topology is theirs; see design.md Decision 12 for the external-source mechanism they use
+# instead. What lives here is what we operate ourselves, plus this example.
 #
 # The coordinates below are the ServiceRadar chart's DEFAULTS -- an on-prem install runs the
 # same chart, so `cnpg-rw` in namespace `serviceradar` is what a default install produces.

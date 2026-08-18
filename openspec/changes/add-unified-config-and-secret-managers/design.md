@@ -479,3 +479,138 @@ rather than left implied.
 `:protobuf` decodes text format — but it has a sound fallback (committed textproto as ground truth
 plus a build-generated binary companion, with a drift check between them), so it constrains release
 packaging rather than the design.
+
+---
+
+## Decision 12 — Configuration may come from outside this repository
+
+Decision 10 puts every instance in git. **This repository is public**, and an enterprise on-prem
+customer will not publish their database hosts, service endpoints and certificate subjects to it.
+Decision 10 already named this case — "an exception to negotiate for that customer" — without a
+mechanism. This is the mechanism.
+
+**What must not be lost.** Decision 10's real content is not *config lives in git*. It is:
+
+> no instance is ever loaded that has not been validated against the committed rule set.
+
+Committing instances is one way to obtain that property. It is not the only way, and it is not
+even the strongest way — a committed instance is validated at BUILD time and then trusted at
+load. So the fix is not to add a loader beside the guarantee; it is to move the guarantee:
+
+**ConfigManager validates whatever it loads, at load, before returning a single value.** The rule
+set ships with the release as a compiled binary, exactly like the instances do. Build-time
+validation of committed instances stays, demoted from *the* check to an *early* check — it fails
+in CI instead of at a customer's deploy. Every instance, committed or not, is now validated at the
+moment it is used.
+
+### Selection: two variables, and never both
+
+| Variable | Meaning |
+|---|---|
+| `SERVICERADAR_ENV=<kind>[:<instance>]` | an instance compiled into the release |
+| `SERVICERADAR_CONFIG_URI=<uri>` | an instance from outside it |
+
+Both set is a startup error naming both. Neither set is a startup error listing the built-in
+kinds. There is no precedence rule, because **precedence is where silently-wrong configuration
+lives**: a rule that says "URI wins" makes a stale `SERVICERADAR_ENV` invisible rather than wrong.
+
+*Rejected: one overloaded variable.* `onprem:untd` and `file:/etc/env.binpb` share a
+`<token>:<rest>` grammar, so a single variable needs a rule distinguishing a kind from a scheme —
+and that rule is exactly where a typo becomes a different source instead of an error.
+
+### Format: the external artifact is the binary, and a CLI compiles it
+
+Decision 2 stands — no implementation parses text format, so the loaded artifact is binary in
+every case. The customer authors `.textproto` and compiles it with a CLI shipped in the release:
+
+```
+serviceradar config compile environment.textproto -o environment.binpb
+```
+
+Go parses text format natively (`prototext`), which is why the CLI can exist at all. It performs
+the same three checks the build performs on a committed instance — schema (unknown field, wrong
+type, bad enum), rule set, and credential shape — and **refuses to emit a binary that fails any of
+them**. That moves discovery from the customer's boot to the customer's authoring, which is the
+only part of this that a mounted file cannot do by itself.
+
+The customer keeps their `.textproto` in their own repository, next to their Helm values, and
+never touches this one.
+
+### Schemes
+
+- **`file:` — the recommended default.** A mounted file, a ConfigMap, a Docker volume. No
+  boot-time network dependency and no new trust question.
+- **`https:` — supported.** Fetch failure is fatal; there is deliberately **no cached fallback**,
+  because a service that silently starts on last week's configuration is worse than one that does
+  not start.
+- **`http:` — rejected, not discouraged.** Configuration over cleartext is a config-injection
+  channel whose payload is the database host and the TLS posture. Whoever can answer the request
+  can point the deployment at their own database, in verify-disabled mode.
+
+**Recommended, and an open call:** require that a remotely fetched artifact's **integrity is
+verifiable against something the client knew before it fetched**. Without that, whoever controls
+the endpoint — or its DNS — controls where the deployment connects and how it verifies TLS.
+
+Require the *property*, not a mechanism, because two mechanisms satisfy it and they suit different
+sources:
+
+- a **digest pin** in the URI, `https://host/env.binpb#sha256=<hex>` — right for a static artifact
+  in an object store; rotating config means updating the pin, the same discipline the demo
+  namespace already accepts by pinning immutable `sha-...` tags rather than `latest`;
+- a **signature** over the artifact, verified against a public key pinned in the deployment —
+  right for anything that renders per-client, where no client-known digest can exist.
+
+Mandating the digest specifically would quietly foreclose the configuration server below, which is
+exactly the kind of thing that is free to get right now and expensive later.
+
+### The accepted cost
+
+An external instance is **not covered by this repository's build**. Nothing here can tell a
+customer their file omits a required field or weakens a cross-environment invariant; they learn at
+startup, fail-closed, with the violation list. The CLI's compile-time validation is what keeps
+that from being a surprise, and it is the reason the CLI validates rather than merely converting.
+
+Everything we operate ourselves stays committed, and `onprem/untd.textproto` remains as an example
+so the on-prem path is exercised by the build rather than being a code path nothing runs.
+
+### Non-goal: the configuration server
+
+A dedicated configuration server — serving instances over an authenticated channel, rendered per
+deployment — is **deliberately out of scope here** and is a follow-up specification. What is in
+scope is that nothing decided now stands in its way. Five constraints, adopted for that reason:
+
+**1. The selector is a URI, not a path.** `SERVICERADAR_CONFIG_URI` rather than
+`SERVICERADAR_CONFIG_FILE`, so a new source is a new scheme rather than a new variable and a new
+precedence rule.
+
+**2. Schemes are a closed set, and an unknown one is a startup error listing the supported ones.**
+Closed matches the predicate vocabulary (Decision 3) and keeps adding a source a deliberate act —
+but the loader is shaped as a **resolver keyed by scheme**, so adding `srconf:` is adding an entry,
+not restructuring three implementations.
+
+**3. The loader returns the message AND its provenance**, from the first version, even when
+provenance is trivially "built-in: saas". `explain` already has to report where a value came from;
+a server adds endpoint, fetch time and verified identity to that, and there is nowhere to put them
+if the loader's result is a bare `EnvironmentConfig`.
+
+**4. Reaching the config source SHALL NOT require a ServiceRadar-managed secret.** This is the one
+that would actually block a server, and it is a **bootstrap cycle**: a server must authenticate its
+clients, authenticating needs a credential, credentials come from SecretManager, and SecretManager
+needs configuration to know which provider to use. The cycle is broken by requiring the config
+source to be reachable with **platform-provided workload identity alone** — a Kubernetes service
+account token, a SPIFFE SVID from the workload API socket, or a client certificate the platform
+mounts. ServiceRadar already deploys with SPIFFE and mTLS, so the identity exists before any
+ServiceRadar configuration is read. Any design that would have a component read a config-server
+password out of a secret store is circular and must be rejected on sight.
+
+**5. Validation stays on the client.** A server is not trusted to have validated what it serves;
+ConfigManager validates every instance at load regardless of source. This is what makes a server
+*safe* to plug in rather than a new thing to trust, and it falls out of the decision above rather
+than needing anything extra.
+
+**Explicitly not promised: hot reload.** Decision 9 requires the first resolution to be
+synchronous and complete before the application tree starts, so a server must support a
+fetch-at-boot regardless. A push or lease mechanism can be layered on later, but it is an addition
+to the boot fetch, never a replacement for it — and the resolved configuration stays immutable and
+reached through one accessor, so a future refresh replaces a value rather than reworking every call
+site.
