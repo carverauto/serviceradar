@@ -406,6 +406,8 @@ if not (
     < chart_step.index('helm_runner}" push')
 ):
     raise SystemExit("Helm publication guards must run immediately before package and push")
+if "already published; skipping OCI push" not in chart_step:
+    raise SystemExit("Helm publication must skip an already-published chart on retry")
 
 digest_check = '"${tag_check_script}" "${release_sha_tag}" "${RELEASE_TAG}" latest'
 if workflow.count(digest_check) != 2:

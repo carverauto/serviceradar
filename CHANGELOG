@@ -30,7 +30,8 @@ that version.
   verification does not die after a successful `//:push`. `oras blob
   fetch` now writes config blobs to stdout (`--output -`) for oras 1.3.
   Package upload no longer PATCHes `target_commitish` on an existing
-  draft (GitHub 403s that for integration tokens).
+  draft (GitHub 403s that for integration tokens). A retry skips the
+  Helm push when `1.4.35` is already on Harbor.
 
 # ServiceRadar v1.4.34
 
