@@ -531,17 +531,23 @@ jobs:
           login_registry "${CHART_OCI_USERNAME}" "${CHART_OCI_TOKEN}"
 
           ./scripts/validate-release-metadata.sh "${RELEASE_TAG}" "${RELEASE_COMMIT}" >/dev/null
+          set +e
           SERVICERADAR_HELM_RUNNER="${helm_runner}" \
             ./scripts/check-oci-chart-version-available.sh "${VERSION}"
-
-          # Package and push chart
-          "${helm_runner}" package helm/serviceradar
-          "${helm_runner}" push "serviceradar-${VERSION}.tgz" "oci://${OCI_REGISTRY}/${OCI_CHART_REPOSITORY}"
-
-          # Cleanup
-          rm -f "serviceradar-${VERSION}.tgz"
-
-          echo "Published Helm chart: oci://${OCI_REGISTRY}/${OCI_CHART_REPOSITORY}/serviceradar:${VERSION}"
+          chart_status=$?
+          set -e
+          # 0 = version is free (push). 1 = already published (retry skip).
+          # 2 = occupancy probe failed (refuse).
+          if [[ "${chart_status}" -eq 1 ]]; then
+            echo "Helm chart ${VERSION} already published; skipping OCI push"
+          elif [[ "${chart_status}" -ne 0 ]]; then
+            exit "${chart_status}"
+          else
+            "${helm_runner}" package helm/serviceradar
+            "${helm_runner}" push "serviceradar-${VERSION}.tgz" "oci://${OCI_REGISTRY}/${OCI_CHART_REPOSITORY}"
+            rm -f "serviceradar-${VERSION}.tgz"
+            echo "Published Helm chart: oci://${OCI_REGISTRY}/${OCI_CHART_REPOSITORY}/serviceradar:${VERSION}"
+          fi
 
       # Wasm plugins are published, signed, indexed, and attached to the release by
       # wasm-plugins.yml, which runs in parallel on the same `v*` tag (mirroring
