@@ -106,7 +106,19 @@ ambient environment, a test asserting on `.bazelrc`, and a value read under a di
       a saas instance: its own topology, its own admission policy, and every rule scoped
       `except_kinds: LOCALHOST` must reach it
 - [ ] Add `config/environments/onprem/<id>.textproto` per deployment, in this repository
-- [ ] Expose each as a Bazel target at the granularity components consume (database, NATS, TLS)
+- [x] Expose each as a Bazel target at the granularity components consume — four sections
+      (`database`, `nats`, `core`, `dgraph`) per instance, e.g. `//config/environments:ci_database`,
+      cut by `//config/tools:extract_section`. This is Decision 6 (least privilege), not caching:
+      a target that declares one section PHYSICALLY CANNOT SEE the others, because they are not in
+      its runfiles — absolute under remote execution, where only declared inputs reach the executor.
+      `//config/validator:section_privilege_test` declares exactly one section and asserts both
+      halves. **Negative control verified on RBE:** granting it `ci_binpb` and `ci_nats` makes both
+      absence assertions fail, naming the reachable file.
+      A tool rather than a protoc invocation because text format cannot be sliced — the section
+      boundary is structure, and recovering it from source text would be a parser pretending to be
+      a grep. An absent section is an error, not an empty file: zero bytes decode to a message whose
+      every field is absent, which validation would report as a dozen missing values rather than as
+      the one thing actually wrong
 - [x] Add the build-time validator as a Bazel test over file-phase rules, iterating **every**
       instance including each on-prem one
 - [x] Add the credential-shape check that rejects secrets in configuration files —
