@@ -305,7 +305,6 @@ jobs:
             echo "Missing Harbor robot credentials" >&2
             exit 1
           fi
-          echo "${OCI_TOKEN}" | docker login "${OCI_REGISTRY}" -u "${OCI_USERNAME}" --password-stdin
           echo "${OCI_TOKEN}" | oras login "${OCI_REGISTRY}" -u "${OCI_USERNAME}" --password-stdin
 
       - name: Publish, sign, and verify external OCI bundle

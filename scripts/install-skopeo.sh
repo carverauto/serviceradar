@@ -13,8 +13,22 @@ if command -v skopeo >/dev/null 2>&1; then
 fi
 
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+integrity_helper=""
+for candidate in \
+  "${script_dir}/install-download-integrity.sh" \
+  "${GITHUB_WORKSPACE:-}/scripts/install-download-integrity.sh" \
+  "${script_dir}/../scripts/install-download-integrity.sh"; do
+  if [[ -f "${candidate}" ]]; then
+    integrity_helper="${candidate}"
+    break
+  fi
+done
+if [[ -z "${integrity_helper}" ]]; then
+  echo "error: install-download-integrity.sh not found next to install-skopeo.sh" >&2
+  exit 1
+fi
 # shellcheck source=scripts/install-download-integrity.sh
-source "${script_dir}/install-download-integrity.sh"
+source "${integrity_helper}"
 
 install_root="${RUNNER_TEMP:-${HOME}/.local}/bin"
 mkdir -p "${install_root}"
