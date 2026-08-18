@@ -1,3 +1,13 @@
+# ServiceRadar v1.4.36
+
+Dashboard layout fix on top of the published 1.4.35 artifacts.
+
+## Whats New
+
+**1.4.36**
+- Web UI: the operations dashboard Threat Intel card spans the full
+  row instead of a leftover third-width column. (PR #3793)
+
 # ServiceRadar v1.4.35
 
 Recut of the unpublished 1.4.34 contents, plus the rules_elixir / rules_erlang
