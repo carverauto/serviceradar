@@ -561,6 +561,11 @@ defmodule ServiceRadarWebNG.Jobs.JobCatalog do
   # name (`"Worker"` -> strip suffix -> ""). Production releases also strip
   # `@moduledoc`, so `Code.fetch_docs/1` cannot fill the description.
   @worker_copy %{
+    ServiceRadar.Inventory.AdvisoryFeeds.StagingCleanupWorker => %{
+      name: "Advisory feed staging cleanup",
+      description:
+        "Reap leftover nist-nvd2 extracts and aged KEV staging dirs so a killed load cannot refill the node."
+    },
     ServiceRadar.Observability.CapacityForecasting.Worker => %{
       name: "Capacity forecasting",
       description: "Refresh long-horizon capacity forecasts from SRQL CAGGs."
@@ -845,6 +850,7 @@ defmodule ServiceRadarWebNG.Jobs.JobCatalog do
       ServiceRadar.Inventory.InterfaceThresholdWorker,
       ServiceRadar.Inventory.DeviceRiskAssessmentWorker,
       ServiceRadar.Inventory.EndpointVulnerabilityMatchWorker,
+      ServiceRadar.Inventory.AdvisoryFeeds.StagingCleanupWorker,
       ServiceRadar.Inventory.DeviceCleanupWorker,
       ServiceRadar.Edge.AgentCommandCleanupWorker,
 

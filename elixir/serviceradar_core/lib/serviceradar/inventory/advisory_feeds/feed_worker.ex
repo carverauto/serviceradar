@@ -68,8 +68,6 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.FeedWorker do
   @spec ensure_scheduled() :: {:ok, :scheduled} | {:error, term()}
   def ensure_scheduled do
     if ObanSupport.available?() do
-      nist_keep = if already_scheduled?("nist-nvd2"), do: 1, else: 0
-      _ = Staging.reap_orphans(nist_keep: nist_keep)
       reconcile_stale_runs()
 
       if Config.enabled?() do
@@ -81,6 +79,20 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.FeedWorker do
       {:error, :oban_unavailable}
     end
   end
+
+  @doc """
+  True when an incomplete Oban job exists for `feed`.
+
+  Pass `states:` to narrow (e.g. `["executing"]` for the staging reaper).
+  """
+  @spec in_flight?(String.t(), keyword()) :: boolean()
+  def in_flight?(feed, opts \\ [])
+
+  def in_flight?(feed, opts) when feed in @feeds do
+    already_scheduled?(feed, Keyword.get(opts, :states))
+  end
+
+  def in_flight?(_feed, _opts), do: false
 
   @doc "Enqueue a single feed now (operator \"Run now\")."
   @spec enqueue(String.t()) :: {:ok, Oban.Job.t()} | {:error, term()}
@@ -135,13 +147,15 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.FeedWorker do
     _ -> {0, nil}
   end
 
-  defp already_scheduled?(feed) do
+  defp already_scheduled?(feed, states \\ nil) do
     import Ecto.Query
+
+    states = states || ["available", "scheduled", "executing", "retryable"]
 
     query =
       from(j in Oban.Job,
         where: j.worker == ^@worker_name,
-        where: j.state in ["available", "scheduled", "executing", "retryable"],
+        where: j.state in ^states,
         where: fragment("?->>'feed' = ?", j.args, ^feed),
         limit: 1
       )

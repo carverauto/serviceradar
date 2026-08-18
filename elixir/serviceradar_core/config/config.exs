@@ -91,6 +91,10 @@ config :serviceradar_core, ServiceRadar.Inventory.BumblebeeCatalogRefreshWorker,
   failure_reschedule_seconds: 3_600,
   max_entries: 250_000
 
+# Advisory-feed staging reaper. Oban :kill skips FeedWorker after-cleanup.
+config :serviceradar_core, ServiceRadar.Inventory.AdvisoryFeeds.StagingCleanupWorker,
+  reschedule_seconds: 60
+
 # Unseen-identifier TTL garbage collection (daily; see DeviceIdentifierGcWorker)
 config :serviceradar_core, ServiceRadar.Inventory.DeviceIdentifierGcWorker,
   enabled: true,
