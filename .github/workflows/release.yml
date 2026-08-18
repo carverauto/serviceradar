@@ -251,6 +251,13 @@ jobs:
             cp scripts/check-oci-image-tags-exist.sh "${RUNNER_TEMP}/check-oci-image-tags-exist.sh"
             chmod +x "${RUNNER_TEMP}/check-oci-image-tags-exist.sh"
           fi
+          if [[ -f scripts/oci_registry.sh ]]; then
+            cp scripts/oci_registry.sh "${RUNNER_TEMP}/oci_registry.sh"
+          fi
+          if [[ -x scripts/verify-oci-publish.sh ]]; then
+            cp scripts/verify-oci-publish.sh "${RUNNER_TEMP}/verify-oci-publish.sh"
+            chmod +x "${RUNNER_TEMP}/verify-oci-publish.sh"
+          fi
 
           # Manual retries intentionally execute the current protected workflow
           # while publishing an older immutable tag. Preserve the current signer
@@ -390,13 +397,9 @@ jobs:
             extra_args+=(-- --tag "${RELEASE_TAG}")
           fi
 
-          if ! command -v skopeo >/dev/null 2>&1; then
-            skopeo_installer="./scripts/install-skopeo.sh"
-            if [[ -x "${RUNNER_TEMP}/install-skopeo.sh" ]]; then
-              skopeo_installer="${RUNNER_TEMP}/install-skopeo.sh"
-            fi
-            "${skopeo_installer}"
-            export PATH="${RUNNER_TEMP:-${HOME}/.local}/bin:${PATH}"
+          if ! command -v oras >/dev/null 2>&1; then
+            echo "oras is required to inspect published image tags" >&2
+            exit 1
           fi
 
           tag_check_script="./scripts/check-oci-image-tags-exist.sh"
@@ -459,7 +462,11 @@ jobs:
             SERVICERADAR_REPO_ROOT="${PWD}" \
             SERVICERADAR_SIGN_REGISTRY_TAG="${release_sha_tag}" \
             "${sign_script}"
-          ./scripts/verify-oci-publish.sh "${verify_tags[@]}"
+          verify_script="./scripts/verify-oci-publish.sh"
+          if [[ -x "${RUNNER_TEMP}/verify-oci-publish.sh" ]]; then
+            verify_script="${RUNNER_TEMP}/verify-oci-publish.sh"
+          fi
+          "${verify_script}" "${verify_tags[@]}"
           unset VAULT_TOKEN VAULT_ADDR COSIGN_KEY_REF
 
       - name: Publish Helm chart to OCI registry
