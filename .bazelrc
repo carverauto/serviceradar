@@ -135,6 +135,7 @@ test --flaky_test_attempts=2
 
 # Metadata for buildbuddy
 build --workspace_status_command=$(pwd)/scripts/workspace_status.sh
+build --build_metadata=REPO_URL=https://github.com/carverauto/serviceradar.git
 
 # Cache/BES transport without execution ownership. This profile is safe to combine with a
 # host-native platform for database-facing integration tests: it deliberately selects no remote
@@ -162,11 +163,11 @@ build:remote_base --platforms=//build/rbe:rbe_platform
 build:remote_base --cpu=k8
 # DELIBERATELY NOT: --extra_toolchains=@buildbuddy_toolchain//:cc_toolchain
 # Compiler config is all done via the Hermetic LLVM toolchain in MODULE.bazel.
+# No OPENSSL_* here either;
 build:remote_base --extra_execution_platforms=//build/rbe:rbe_platform
 build:remote_base --repo_env=BAZEL_DO_NOT_DETECT_CPP_TOOLCHAIN=1
 build:remote_base --define=EXECUTOR=remote
 build:remote_base --incompatible_strict_action_env
-# No OPENSSL_* here either; see the note in the build:linux block.
 build:remote_base --action_env=NEXT_PRIVATE_SKIP_TURBOPACK=1
 build:remote_base --action_env=TURBOPACK=
 build:remote_base --action_env=NEXT_SKIP_TURBO=1
