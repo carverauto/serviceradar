@@ -340,24 +340,19 @@ retrieval calls reappears for a schema-covered variable.
       is gone: it was a GitHub Actions concept BuildBuddy does not set, faked in the workflow with
       a temp file that was then grepped back. The caller branches on the line the binary prints,
       which preserves the skip that saves 28.8-45.6s of BEAM startup.
-- [~] `integration_tests/srql/tests/support/harness.rs` — PARTIAL. The runfiles half is done: the
-      hand-rolled lookup tried the runfiles root, `$TEST_WORKSPACE`, `__main` and `__main__`, none
-      of which is `_main`, the canonical Bzlmod name. It now uses `@rules_rust//rust/runfiles`.
-      REMAINING: the DSN and TLS half (`SRQL_TEST_DATABASE_URL`, `SRQL_TEST_ADMIN_URL`,
-      `SRQL_TEST_DATABASE_CA_CERT`, `PGSSLROOTCERT`, `PGSSLCERT`, `PGSSLKEY`). It carries the same
-      workarounds the typed config already deleted from integration-db --
-      `normalize_sslmode_for_tokio_postgres`, owner-from-URL, DSN re-parsing -- so the conversion
-      is the same transformation, plus extending `Fixture` with the client cert/key secrets.
-- [ ] `rust/srql/src/config.rs` — `PGSSLROOTCERT`, `PGSSLSERVERNAME`, `PGSSLCERT`, `PGSSLKEY`,
-      `PGSSLTARGETNAME`. **BLOCKED, and the blocker is a design decision, not an edit.**
-      `ConfigManager::load` takes `&RuleSet` because loading validates (Decision 12). Every
-      consumer today reads that rule set from RUNFILES -- and a service in a container has none.
-      Embedding it with `include_bytes!` hits the Cargo/Bazel split: `ruleset.binpb` is
-      protoc-generated and does not exist under plain `cargo`. Options: (a) `compile_data` plus a
-      Bazel-generated Rust source, with a cargo build.rs producing the same bytes; (b) ship the
-      rule set in the image beside `environment.binpb` and read both from the mount; (c) a
-      committed `.binpb`, which the tree currently avoids. Decide before converting any SERVICE.
-      The prerequisite shape change is already done: `rust/srql/src/tls.rs` takes PEM CONTENT.
+- [x] `integration_tests/srql/tests/support/harness.rs` — 1117 -> 691 lines, zero schema-covered
+      env reads (only `CARGO_MANIFEST_DIR`, the cargo fixture-path fallback). The DSNs are
+      assembled from typed fields instead of mined for the owner and database name, which
+      retired `parse_fixture_pg_config`, `normalize_sslmode_for_tokio_postgres`,
+      `normalize_fixture_pg_connection_string`, `normalize_postgres_url`, `parse_host_port`,
+      `quote_pg_keyword_value`, `percent_decode`, `decode_hex_digit`, `read_env_value`,
+      `FixtureRootCert` and `TemporaryCaCert`. TLS resolves through srql's own
+      `DatabaseTls::resolve`, so the harness verifies the fixture by the code path the service
+      uses rather than a second implementation.
+- [x] `rust/srql/src/config.rs` — all five `PGSSL*` reads gone. `DatabaseTls::resolve` takes the
+      posture and verification name from the committed instance and the three PEMs from
+      SecretManager, so no combination of variables can describe a server the process is not
+      talking to. `AppConfig` now carries PEM CONTENT, not paths.
 
 ### 7b. Elixir — test configuration
 

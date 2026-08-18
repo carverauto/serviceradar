@@ -5,35 +5,6 @@ import (
 	"google.golang.org/protobuf/proto"
 )
 
-// A rule set built here rather than read from //config/rules:ruleset_binpb.
-//
-// These tests are about what the manager DOES with a rule set -- delegate, and refuse to return
-// a value when anything fires -- not about the contents of the committed one. That the committed
-// rules accept every committed instance is asserted where it belongs, by
-// //config/manager_validator/go:validator_test, against the real artifacts.
-func fixtureRules() *configpb.RuleSet {
-	str := func(s string) *string { return &s }
-	phase := configpb.Phase_PHASE_CONFIG
-	localhost := configpb.EnvironmentKind_ENVIRONMENT_KIND_LOCALHOST
-
-	return &configpb.RuleSet{Rules: []*configpb.Rule{
-		{
-			FieldPath: str("database.host"),
-			Code:      str("DATABASE_HOST_REQUIRED"),
-			Phase:     &phase,
-			Predicate: &configpb.Rule_Required{Required: &configpb.Required{}},
-		},
-		{
-			FieldPath: str("database.tls_mode"),
-			Code:      str("DATABASE_TLS_MODE_VERIFIED_OUTSIDE_LOCALHOST"),
-			Phase:     &phase,
-			Scope:     &configpb.Scope{ExceptKinds: []configpb.EnvironmentKind{localhost}},
-			Predicate: &configpb.Rule_OneOf{OneOf: &configpb.OneOf{
-				EnumValues: []string{"TLS_MODE_VERIFY_CA", "TLS_MODE_VERIFY_FULL"},
-			}},
-		},
-	}}
-}
 
 // A valid ci instance, the baseline every mutation starts from.
 func validCI() *configpb.EnvironmentConfig {

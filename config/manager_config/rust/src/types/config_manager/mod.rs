@@ -6,7 +6,7 @@ use crate::types::{Dsn, Identity, Source};
 use prost::Message;
 use serviceradar_config_schema::{
     CoreConfig, DatabaseConfig, DgraphConfig, EnvironmentConfig, EnvironmentKind, NatsConfig,
-    RuleSet, TlsMode,
+    TlsMode,
 };
 use serviceradar_config_validator::validate;
 
@@ -30,12 +30,14 @@ impl ConfigManager {
     ///
     /// `reader` is taken by generic bound rather than `dyn`: the transport is a compile-time
     /// choice, and nothing here needs to store one.
+    ///
+    /// Validation happens on every load
     pub fn load<R: ReadSource + ?Sized>(
         identity: &Identity,
         built_ins: BuiltIns<'_>,
-        rules: &RuleSet,
         reader: &R,
     ) -> Result<Self, LoadError> {
+        let rules = crate::rules::embedded();
         let source = Source::for_identity(identity);
 
         let bytes = match &source {

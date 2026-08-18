@@ -107,7 +107,13 @@ func kindName(cfg *configpb.EnvironmentConfig) string {
 
 // Load resolves, decodes, confirms the artifact describes the environment that was selected, and
 // validates it. There is deliberately no entry point that skips any of the four.
-func Load(id Identity, builtIns BuiltIns, rules *configpb.RuleSet, reader ReadSource) (*Loaded, error) {
+//
+// There is no rule-set parameter. Validation still happens on every load -- that invariant is
+// unchanged -- but the rules are an internal dependency of this package rather than something
+// each caller must supply. See rules.go, including why they are embedded rather than read from
+// the same mount as the instance.
+func Load(id Identity, builtIns BuiltIns, reader ReadSource) (*Loaded, error) {
+	rules := EmbeddedRules()
 	source := SourceFor(id)
 
 	var bytes []byte

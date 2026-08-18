@@ -26,6 +26,12 @@ rust_library(
         normal = True,
     ) + [
         "//rust/kvutil",
+        # Database TLS comes from the environment SERVICERADAR_ENV names, not from PGSSL*.
+        # `cargo_only = True` above deliberately excludes first-party members, so these are
+        # named here -- Bazel does not infer them from Cargo.toml.
+        "//config/manager_config/rust:manager",
+        "//config/manager_secret/rust:secret_manager",
+        "//config/proto_bindings/rust:config_schema",
     ],
 )
 

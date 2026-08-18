@@ -1,5 +1,6 @@
 # gazelle:ignore
 
+load("@bazel_skylib//rules:diff_test.bzl", "diff_test")
 load("@io_bazel_rules_go//go:def.bzl", "go_library", "go_test")
 
 # ConfigManager, Go. Mirrors //config/manager_config/rust: the same one variable, the same
@@ -12,8 +13,13 @@ go_library(
     name = "manager",
     srcs = [
         "manager.go",
+        "rules.go",
         "selector.go",
     ],
+    # The embedded rule set. go:embed cannot reach outside its own package, which is why this is
+    # a per-language copy rather than one shared file; :ruleset_drift_test keeps it byte-identical
+    # to protoc's output for //config/rules:ruleset.textproto.
+    embedsrcs = ["ruleset.binpb"],
     importpath = "github.com/carverauto/serviceradar/config/manager_config/go",
     visibility = ["//visibility:public"],
     deps = [
@@ -26,9 +32,9 @@ go_library(
 # The whole test surface as an external test package, so everything is exercised through the
 # public API exactly as a consumer sees it.
 #
-# The rule set these tests use is built in code rather than read from //config/rules: they are
-# about what the manager DOES with a rule set, not about the committed one's contents. That the
-# committed rules accept every committed instance is asserted by //config/manager_validator/go.
+# These tests validate against the REAL committed rule set, because that is the only one the
+# manager will ever use. A synthetic rule set would test the manager against rules no deployment
+# has, which is why the fixture that built one was deleted.
 go_test(
     name = "manager_test",
     srcs = [
@@ -42,4 +48,12 @@ go_test(
         "//config/proto_bindings/go:configpb",
         "@org_golang_google_protobuf//proto",
     ],
+)
+
+# The embedded copy must equal protoc's output for the committed textproto. Same pattern and same
+# reason as //config/proto:binding_drift_go_*_test.
+diff_test(
+    name = "ruleset_drift_test",
+    file1 = "//config/rules:ruleset_binpb",
+    file2 = "ruleset.binpb",
 )

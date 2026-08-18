@@ -7,7 +7,7 @@ defmodule ServiceradarConfig.Manager do
   starts, so it depends on nothing but the generated schema modules and the validator.
   """
 
-  alias Serviceradar.Config.V1.{EnvironmentConfig, RuleSet}
+  alias Serviceradar.Config.V1.EnvironmentConfig
   alias ServiceradarConfig.Manager.{Identity, Source}
   alias ServiceradarConfig.Validator
 
@@ -25,10 +25,16 @@ defmodule ServiceradarConfig.Manager do
   There is deliberately no entry point that skips any of the four. `read_mounted` is a function
   so the manager never decides how a deployment reaches its own configuration -- that is what
   keeps the bootstrap acyclic (Decision 12).
+
+  There is no rule-set parameter. Validation still happens on every load -- that invariant is
+  unchanged -- but the rules are an internal dependency of this module rather than something each
+  caller must supply. See `ServiceradarConfig.Rules`, including why they are embedded rather than
+  read from the same mount as the instance.
   """
-  @spec load(Identity.t(), built_ins(), RuleSet.t(), (String.t() -> {:ok, binary()} | {:error, term()})) ::
+  @spec load(Identity.t(), built_ins(), (String.t() -> {:ok, binary()} | {:error, term()})) ::
           {:ok, t()} | {:error, term()}
-  def load(%Identity{} = identity, built_ins, %RuleSet{} = rules, read_mounted) do
+  def load(%Identity{} = identity, built_ins, read_mounted) do
+    rules = ServiceradarConfig.Rules.embedded()
     source = Source.for_identity(identity)
 
     with {:ok, bytes} <- read(source, built_ins, read_mounted),

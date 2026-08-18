@@ -12,10 +12,15 @@ pub struct AppConfig {
     pub database_url: String,
     pub age_graph_name: String,
     pub max_pool_size: u32,
-    pub pg_ssl_root_cert: Option<String>,
-    pub pg_ssl_cert: Option<String>,
-    pub pg_ssl_key: Option<String>,
-    pub pg_ssl_server_name: Option<String>,
+    /// PEM CONTENT, not paths. A path is meaningful only on the host that resolves it, and
+    /// SecretManager yields content because the same secret is a Kubernetes secret, a Docker
+    /// secret and a developer's file depending on the environment.
+    pub database_ca_pem: Option<Vec<u8>>,
+    pub database_client_cert_pem: Option<Vec<u8>>,
+    pub database_client_key_pem: Option<Vec<u8>>,
+    /// The name TLS verification is performed against -- `DatabaseConfig.tls_server_name`, not an
+    /// environment variable. It reaches the connector, never the DSN.
+    pub database_tls_server_name: Option<String>,
     pub api_key: Option<String>,
     pub api_key_kv_key: Option<String>,
     pub allowed_origins: Option<Vec<String>>,
@@ -103,6 +108,13 @@ const fn default_rate_limit_window_secs() -> u64 {
 
 impl AppConfig {
     pub fn from_env() -> Result<Self> {
+        // Database TLS comes from the environment SERVICERADAR_ENV names: the posture and the
+        // verification name from the committed instance, the PEMs from the provider that same
+        // identity selects. It replaced PGSSLROOTCERT/PGSSLCERT/PGSSLKEY/PGSSLSERVERNAME/
+        // PGSSLTARGETNAME -- five ambient variables that could each disagree with the others and
+        // with the database actually being connected to.
+        let tls = DatabaseTls::resolve()?;
+
         let raw: RawConfig =
             envy::from_env().context("failed to parse SRQL_* environment variables")?;
 
@@ -153,12 +165,10 @@ impl AppConfig {
             database_url,
             age_graph_name,
             max_pool_size: raw.srql_max_pool_size,
-            pg_ssl_root_cert: env::var("PGSSLROOTCERT").ok(),
-            pg_ssl_cert: env::var("PGSSLCERT").ok(),
-            pg_ssl_key: env::var("PGSSLKEY").ok(),
-            pg_ssl_server_name: env::var("PGSSLSERVERNAME")
-                .ok()
-                .or_else(|| env::var("PGSSLTARGETNAME").ok()),
+            database_ca_pem: tls.ca_pem,
+            database_client_cert_pem: tls.client_cert_pem,
+            database_client_key_pem: tls.client_key_pem,
+            database_tls_server_name: tls.server_name,
             api_key,
             api_key_kv_key: raw.srql_api_key_kv_key,
             allowed_origins,
@@ -183,10 +193,10 @@ impl AppConfig {
             database_url,
             age_graph_name: "platform_graph".to_string(),
             max_pool_size: default_pool_size(),
-            pg_ssl_root_cert: None,
-            pg_ssl_cert: None,
-            pg_ssl_key: None,
-            pg_ssl_server_name: None,
+            database_ca_pem: None,
+            database_client_cert_pem: None,
+            database_client_key_pem: None,
+            database_tls_server_name: None,
             api_key: None,
             api_key_kv_key: None,
             allowed_origins: None,
@@ -232,4 +242,74 @@ fn resolve_addr(
         .context("invalid SRQL listen host/port combination")?
         .next()
         .context("listen address resolved to no targets")
+}
+
+/// Database TLS material, resolved from the environment rather than from five variables.
+///
+/// `SERVICERADAR_ENV` names the environment; ConfigManager yields the posture and the
+/// verification name from the committed instance, and SecretManager yields the PEMs from the
+/// provider that same identity selects. Nothing here reads a per-setting variable, so there is no
+/// combination of PGSSL* that can describe a server this process is not talking to.
+pub struct DatabaseTls {
+    pub ca_pem: Option<Vec<u8>>,
+    pub client_cert_pem: Option<Vec<u8>>,
+    pub client_key_pem: Option<Vec<u8>>,
+    pub server_name: Option<String>,
+}
+
+impl DatabaseTls {
+    pub fn resolve() -> Result<Self> {
+        use serviceradar_config_manager::{
+            built_ins, ConfigManager, Filesystem, Identity, DATABASE_CA_CERT,
+            DATABASE_CLIENT_CERT, DATABASE_CLIENT_KEY,
+        };
+        use serviceradar_config_schema::TlsMode;
+        use serviceradar_secret_manager::{FileProvider, Manifest, SecretManager};
+
+        let identity = Identity::from_env().map_err(|e| anyhow::anyhow!("{e}"))?;
+        let manager = ConfigManager::load(&identity, built_ins(), &Filesystem)
+            .map_err(|e| anyhow::anyhow!("{e}"))?;
+
+        let database = manager
+            .database()
+            .context("the environment declares no database section")?;
+
+        // The typed posture decides whether a CA is needed at all -- not the presence of a
+        // variable, which is what let a verifying mode run without one.
+        let verifies = matches!(
+            TlsMode::try_from(database.tls_mode.unwrap_or_default()),
+            Ok(TlsMode::VerifyCa) | Ok(TlsMode::VerifyFull)
+        );
+
+        if !verifies {
+            return Ok(Self {
+                ca_pem: None,
+                client_cert_pem: None,
+                client_key_pem: None,
+                server_name: None,
+            });
+        }
+
+        let secrets = SecretManager::new(
+            FileProvider::for_kind(identity.kind()),
+            Manifest::new([DATABASE_CA_CERT, DATABASE_CLIENT_CERT, DATABASE_CLIENT_KEY]),
+        );
+
+        let ca = secrets
+            .resolve(DATABASE_CA_CERT)
+            .map_err(|e| anyhow::anyhow!("database.tls_mode verifies the server, so {DATABASE_CA_CERT} is required: {e}"))?;
+
+        // Client certificates are optional: a server that does not ask for one is the common
+        // case. Both or neither -- srql::tls rejects half an identity rather than silently
+        // connecting anonymously to a server that requires mTLS.
+        let client_cert = secrets.resolve(DATABASE_CLIENT_CERT).ok();
+        let client_key = secrets.resolve(DATABASE_CLIENT_KEY).ok();
+
+        Ok(Self {
+            ca_pem: Some(ca.expose().as_bytes().to_vec()),
+            client_cert_pem: client_cert.map(|s| s.expose().as_bytes().to_vec()),
+            client_key_pem: client_key.map(|s| s.expose().as_bytes().to_vec()),
+            server_name: database.tls_server_name.clone(),
+        })
+    }
 }

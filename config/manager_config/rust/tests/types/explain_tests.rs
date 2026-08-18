@@ -1,6 +1,6 @@
 //! `explain` reports where every value came from, and cannot report a secret.
 
-use serviceradar_config_manager::utils_tests::{encode, rules, valid_ci};
+use serviceradar_config_manager::utils_tests::{encode, valid_ci};
 use serviceradar_config_manager::{ConfigManager, Explanation, Identity, ReadSource};
 
 struct NoMount;
@@ -14,7 +14,7 @@ fn manager() -> ConfigManager {
     let bytes = encode(&valid_ci());
     let built_ins: &[(&str, &[u8])] = &[("ci", &bytes)];
     let identity = Identity::parse(Some("ci")).unwrap();
-    ConfigManager::load(&identity, built_ins, &rules(), &NoMount).expect("valid")
+    ConfigManager::load(&identity, built_ins, &NoMount).expect("valid")
 }
 
 /// The failure this whole system replaces was SILENT: a value came from somewhere nobody could

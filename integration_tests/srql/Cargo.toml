@@ -14,6 +14,9 @@ publish = false
 path = "src/lib.rs"
 
 [dev-dependencies]
+# The fixture's typed coordinates: host, port, roles, TLS posture and the per-run
+# database name, all from SERVICERADAR_ENV rather than parsed back out of a DSN.
+serviceradar-integration-db = { path = "../../rust/integration-db" }
 # Bazel's reference runfiles lookup; replaces a hand-rolled search that guessed repo names.
 runfiles = { workspace = true }
 anyhow = { workspace = true }

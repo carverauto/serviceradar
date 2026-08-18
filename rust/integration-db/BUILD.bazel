@@ -7,9 +7,10 @@ load("//build:integration_tests.bzl", "requires_shared_fixture")
 
 # Declared inputs every target that opens a connection needs.
 #
-# Loading validates (Decision 12), so the rule set and the committed instances are inputs of
-# ANY target that connects, not only the ones that read migrations. The run id names the
-# database the step is allowed to touch; see //build/run_id.bzl.
+# Loading still validates, but the rule set is no longer among these: it is embedded in
+# //config/manager_config/rust, because it varies by nothing and every caller having to supply
+# it was what kept services from using ConfigManager at all. The committed instances stay --
+# those DO vary, by environment. The run id names the database the step may touch.
 #
 # Hoisted because it was previously repeated per target and had already drifted: provision_db
 # carried the rule set without the instances, and the per-shard variants carried neither.
@@ -17,7 +18,6 @@ FIXTURE_DATA = [
     "//build:run_id_file",
     "//config/environments:ci_binpb",
     "//config/environments:localhost_binpb",
-    "//config/rules:ruleset_binpb",
 ]
 
 package(default_visibility = ["//visibility:public"])

@@ -494,6 +494,38 @@ silent -- the process starts and connects somewhere nobody chose. The failure me
 as part of the interface and asserted by a test, because the one thing worse than this error is
 this error explained badly to someone in a crash loop at 3am.
 
+### REVISED: validation stays, the rule set stops being a parameter
+
+Loading still validates -- there is no entry point that returns an unvalidated value, and that
+invariant is unchanged. What changed is who supplies the rules.
+
+`load` originally took `&RuleSet`, which made the rule set part of every caller's dependency
+graph. That was the wrong shape twice over. It claimed the rules vary, when they vary by nothing:
+not by environment, not by component, not by deployment. And it leaked an implementation concern
+of the config layer into the API of every consumer -- a service had to obtain the rules before it
+could obtain its configuration, and the only mechanism available was runfiles, which a container
+does not have. That is what blocked `rust/srql` from using ConfigManager at all.
+
+The rules are now an internal dependency of the config layer, embedded at build time. All three
+implementations do the same thing: Rust `include_bytes!`, Go `go:embed`, Elixir a compile-time
+module attribute with `@external_resource`.
+
+**Embedded, not mounted beside the instance.** The instance is read from a mount at runtime --
+untrusted, and the thing being verified. Reading the rules from that same mount would let
+whatever supplied a bad instance supply the rules that bless it, which proves nothing. The
+asymmetry is the point: trusted rules, untrusted instance.
+
+**Committed, with a drift guard.** `include_bytes!` and `go:embed` need a real file that `cargo`
+and `go test` can reach, and `go:embed` cannot reach outside its own package -- so there is one
+copy per language, exactly like the generated protobuf bindings, and guarded the same way. Three
+`diff_test`s compare each copy against protoc's output for `config/rules/ruleset.textproto`, so
+the copies cannot disagree with the source or each other.
+
+**No test may inject a rule set.** A manager test that validates against invented rules is not
+testing the system: it tests the manager against rules no deployment has, and it lets the valid
+fixture drift from what the committed rules actually require. The synthetic rule sets in all
+three languages were deleted, and the fixtures now satisfy the real 45 committed rules.
+
 ### The source follows from the kind
 
 | Kind | Instance comes from |

@@ -1,6 +1,6 @@
 //! Loading validates, and a source that fails any check yields no configuration at all.
 
-use serviceradar_config_manager::utils_tests::{encode, rules, valid_ci};
+use serviceradar_config_manager::utils_tests::{encode, valid_ci};
 use serviceradar_config_manager::{ConfigManager, Identity, LoadError, ReadSource, Source};
 use serviceradar_config_schema::{EnvironmentKind, TlsMode};
 
@@ -31,7 +31,7 @@ fn a_built_in_loads_and_exposes_its_sections() {
     let bytes = encode(&valid_ci());
     let built_ins: &[(&str, &[u8])] = &[("ci", &bytes)];
 
-    let manager = ConfigManager::load(&identity("ci"), built_ins, &rules(), &Missing)
+    let manager = ConfigManager::load(&identity("ci"), built_ins, &Missing)
         .expect("the fixture instance is valid");
 
     assert_eq!(manager.source(), &Source::BuiltIn { name: "ci".into() });
@@ -49,11 +49,7 @@ fn an_artifact_describing_another_environment_is_rejected() {
     let mut saas = valid_ci();
     saas.kind = Some(EnvironmentKind::Saas as i32);
 
-    let err = ConfigManager::load(
-        &identity("demo"),
-        NO_BUILT_INS,
-        &rules(),
-        &Mounted(encode(&saas)),
+    let err = ConfigManager::load(&identity("demo"), NO_BUILT_INS, &Mounted(encode(&saas)),
     )
     .expect_err("the artifact says saas; the selector says demo");
 
@@ -73,11 +69,7 @@ fn a_different_onprem_instance_is_rejected() {
     other.kind = Some(EnvironmentKind::Onprem as i32);
     other.instance = Some("someone-else".into());
 
-    let err = ConfigManager::load(
-        &identity("onprem:untd"),
-        NO_BUILT_INS,
-        &rules(),
-        &Mounted(encode(&other)),
+    let err = ConfigManager::load(&identity("onprem:untd"), NO_BUILT_INS, &Mounted(encode(&other)),
     )
     .unwrap_err();
 
@@ -95,7 +87,7 @@ fn an_invalid_instance_is_rejected_at_load_and_yields_nothing() {
     let bytes = encode(&cfg);
     let built_ins: &[(&str, &[u8])] = &[("ci", &bytes)];
 
-    let err = ConfigManager::load(&identity("ci"), built_ins, &rules(), &Missing)
+    let err = ConfigManager::load(&identity("ci"), built_ins, &Missing)
         .expect_err("plaintext TLS outside localhost must not load");
 
     match err {
@@ -112,7 +104,7 @@ fn an_unknown_built_in_lists_what_the_release_carries() {
     let bytes = encode(&valid_ci());
     let built_ins: &[(&str, &[u8])] = &[("ci", &bytes)];
 
-    let err = ConfigManager::load(&identity("localhost"), built_ins, &rules(), &Missing)
+    let err = ConfigManager::load(&identity("localhost"), built_ins, &Missing)
         .unwrap_err();
 
     let text = err.to_string();
@@ -125,7 +117,7 @@ fn an_unknown_built_in_lists_what_the_release_carries() {
 #[test]
 fn a_missing_mount_is_fatal_and_names_the_source() {
     let err =
-        ConfigManager::load(&identity("saas"), NO_BUILT_INS, &rules(), &Missing).unwrap_err();
+        ConfigManager::load(&identity("saas"), NO_BUILT_INS, &Missing).unwrap_err();
 
     match err {
         LoadError::Read { source, .. } => {
@@ -140,10 +132,12 @@ fn a_missing_mount_is_fatal_and_names_the_source() {
 #[test]
 fn a_well_formed_message_of_another_type_is_rejected() {
     let mut buf = Vec::new();
-    prost::Message::encode(&rules(), &mut buf).unwrap();
+    // The embedded rule set: a real artifact of the wrong type, which is the realistic
+    // mistake -- a ConfigMap holding the rules rather than an instance.
+    prost::Message::encode(serviceradar_config_manager::rules::embedded(), &mut buf).unwrap();
 
     let err =
-        ConfigManager::load(&identity("saas"), NO_BUILT_INS, &rules(), &Mounted(buf)).unwrap_err();
+        ConfigManager::load(&identity("saas"), NO_BUILT_INS, &Mounted(buf)).unwrap_err();
 
     assert!(
         matches!(err, LoadError::Decode { .. } | LoadError::IdentityMismatch { .. }),

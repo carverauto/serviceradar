@@ -290,7 +290,7 @@ pub async fn connect_admin(database: Option<&str>) -> Result<(Client, JoinHandle
 /// the Rust lifecycle incompatible with the verified Elixir connection. Map the two verified
 /// libpq modes to `require` for this parser only. [`tls_connector_from_env`] still supplies the
 /// fixture CA, and `PGSSLSERVERNAME` preserves hostname verification for NodePort addresses.
-fn parse_pg_config(url: &str, variable: &str) -> Result<PgConfig> {
+pub fn parse_pg_config(url: &str, variable: &str) -> Result<PgConfig> {
     // No sslmode rewriting. The DSN this crate builds carries `sslmode=verify-full`, which
     // tokio-postgres does not parse -- it understands disable/prefer/require only. Rather than
     // translate the string down to `require` and re-establish verification elsewhere, the mode is
@@ -306,7 +306,7 @@ fn parse_pg_config(url: &str, variable: &str) -> Result<PgConfig> {
 /// The parameter is meaningful to libpq and to this crate's own assembly, but tokio-postgres
 /// rejects the verifying values outright, and leaving it in would make the parse fail on a DSN
 /// that is otherwise correct.
-fn strip_sslmode(url: &str) -> Cow<'_, str> {
+pub fn strip_sslmode(url: &str) -> Cow<'_, str> {
     let Some((base, query)) = url.split_once('?') else {
         return Cow::Borrowed(url);
     };

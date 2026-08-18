@@ -8,7 +8,7 @@
 use prost::Message;
 use serviceradar_config_schema::{
     CoreConfig, DatabaseConfig, DgraphConfig, DgraphTlsMode, EnvironmentConfig, EnvironmentKind,
-    NatsConfig, RuleSet, SecurityMode, TlsMode,
+    NatsConfig, SecurityMode, TlsMode,
 };
 
 /// A rule set built here rather than read from `//config/rules:ruleset_binpb`.
@@ -22,40 +22,6 @@ use serviceradar_config_schema::{
 /// a rule set -- delegate, and refuse to return a value when anything fires -- not about the
 /// contents of the committed one. That the committed rules accept every committed instance is
 /// asserted where it belongs, by `//config/manager_validator/rust:file_phase_test`, against the real
-/// artifacts.
-pub fn rules() -> RuleSet {
-    use serviceradar_config_schema::{rule::Predicate, OneOf, Phase, Required, Rule, Scope};
-
-    let rule = |field_path: &str, code: &str, predicate, scope| Rule {
-        field_path: Some(field_path.to_string()),
-        code: Some(code.to_string()),
-        phase: Some(Phase::Config as i32),
-        scope,
-        description: None,
-        predicate: Some(predicate),
-    };
-
-    RuleSet {
-        rules: vec![
-            rule("database.host", "DATABASE_HOST_REQUIRED", Predicate::Required(Required {}), None),
-            rule(
-                "database.tls_mode",
-                "DATABASE_TLS_MODE_VERIFIED_OUTSIDE_LOCALHOST",
-                Predicate::OneOf(OneOf {
-                    enum_values: vec![
-                        "TLS_MODE_VERIFY_CA".to_string(),
-                        "TLS_MODE_VERIFY_FULL".to_string(),
-                    ],
-                    string_values: vec![],
-                }),
-                Some(Scope {
-                    kinds: vec![],
-                    except_kinds: vec![EnvironmentKind::Localhost as i32],
-                }),
-            ),
-        ],
-    }
-}
 
 pub fn encode(cfg: &EnvironmentConfig) -> Vec<u8> {
     let mut buf = Vec::new();

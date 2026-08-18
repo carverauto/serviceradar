@@ -1,5 +1,6 @@
 # gazelle:ignore
 
+load("@bazel_skylib//rules:diff_test.bzl", "diff_test")
 load("@rules_elixir//:elixir_library.bzl", "elixir_library")
 load("@rules_elixir//:elixir_tests.bzl", "ex_unit_tests")
 
@@ -12,6 +13,10 @@ elixir_library(
     name = "manager",
     app_name = "serviceradar_config_manager",
     srcs = glob(["lib/**/*.ex"]),
+    # The embedded rule set, read at COMPILE time by ServiceradarConfig.Rules so a release
+    # carries no runtime dependency on the file. :ruleset_drift_test keeps it byte-identical to
+    # protoc's output for //config/rules:ruleset.textproto.
+    data = ["priv/ruleset.binpb"],
     visibility = ["//visibility:public"],
     deps = [
         "//config/proto:config_schema",
@@ -31,4 +36,12 @@ ex_unit_tests(
     data = ["test/support_fixtures.exs"],
     test_helper = "test/test_helper.exs",
     deps = [":manager"],
+)
+
+# The embedded copy must equal protoc's output for the committed textproto. Same pattern and same
+# reason as //config/proto:binding_drift_*_test.
+diff_test(
+    name = "ruleset_drift_test",
+    file1 = "//config/rules:ruleset_binpb",
+    file2 = "priv/ruleset.binpb",
 )

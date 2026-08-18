@@ -40,7 +40,7 @@ defmodule ServiceradarConfig.ManagerTest do
     built_ins = %{"ci" => F.encode(F.valid_ci())}
 
     assert {:ok, manager} =
-             Manager.load(identity("ci"), built_ins, F.rules(), F.missing_mount())
+             Manager.load(identity("ci"), built_ins, F.missing_mount())
 
     assert %Source{kind: :built_in, name: "ci"} = Manager.source(manager)
     assert Manager.database(manager).port == 5432
@@ -55,7 +55,7 @@ defmodule ServiceradarConfig.ManagerTest do
     saas = %{F.valid_ci() | kind: :ENVIRONMENT_KIND_SAAS}
 
     assert {:error, {:identity_mismatch, _, "demo", "saas"} = err} =
-             Manager.load(identity("demo"), %{}, F.rules(), F.mounted(F.encode(saas)))
+             Manager.load(identity("demo"), %{}, F.mounted(F.encode(saas)))
 
     message = LoadError.message(err)
     assert message =~ "wrong artifact is mounted"
@@ -67,7 +67,7 @@ defmodule ServiceradarConfig.ManagerTest do
     other = %{F.valid_ci() | kind: :ENVIRONMENT_KIND_ONPREM, instance: "someone-else"}
 
     assert {:error, err} =
-             Manager.load(identity("onprem:untd"), %{}, F.rules(), F.mounted(F.encode(other)))
+             Manager.load(identity("onprem:untd"), %{}, F.mounted(F.encode(other)))
 
     message = LoadError.message(err)
     assert message =~ "onprem:untd"
@@ -81,7 +81,7 @@ defmodule ServiceradarConfig.ManagerTest do
     broken = %{cfg | database: %{cfg.database | tls_mode: :TLS_MODE_DISABLE}}
 
     assert {:error, {:invalid, _, violations} = err} =
-             Manager.load(identity("ci"), %{"ci" => F.encode(broken)}, F.rules(), F.missing_mount())
+             Manager.load(identity("ci"), %{"ci" => F.encode(broken)}, F.missing_mount())
 
     assert Enum.any?(violations, &(&1.code == "DATABASE_TLS_MODE_VERIFIED_OUTSIDE_LOCALHOST"))
     assert LoadError.message(err) =~ "DATABASE_TLS_MODE_VERIFIED_OUTSIDE_LOCALHOST"
@@ -91,9 +91,7 @@ defmodule ServiceradarConfig.ManagerTest do
     assert {:error, err} =
              Manager.load(
                identity("localhost"),
-               %{"ci" => F.encode(F.valid_ci())},
-               F.rules(),
-               F.missing_mount()
+               %{"ci" => F.encode(F.valid_ci())}, F.missing_mount()
              )
 
     message = LoadError.message(err)
@@ -105,7 +103,7 @@ defmodule ServiceradarConfig.ManagerTest do
   # nothing retains bytes across a call.
   test "a missing mount is fatal and names the source" do
     assert {:error, {:read, _, _} = err} =
-             Manager.load(identity("saas"), %{}, F.rules(), F.missing_mount())
+             Manager.load(identity("saas"), %{}, F.missing_mount())
 
     assert LoadError.message(err) =~ Source.mounted_instance_path()
   end

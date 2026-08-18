@@ -1,11 +1,11 @@
 defmodule ServiceradarConfig.ManagerFixtures do
   @moduledoc """
-  A rule set built here rather than read from `//config/rules:ruleset_binpb`.
+  Configuration fixtures for the manager tests.
 
-  These tests are about what the manager DOES with a rule set -- delegate, and refuse to return a
-  value when anything fires -- not about the contents of the committed one. That the committed
-  rules accept every committed instance is asserted by `//config/manager_validator/elixir`, against the
-  real artifacts.
+  There is deliberately no rule set here. These tests validate against the REAL committed rules,
+  which are embedded in `ServiceradarConfig.Rules` and are the only ones the manager will ever
+  use. A synthetic rule set tested the manager against rules no deployment has, and let
+  `valid_ci/0` below drift from what the committed rules actually require.
   """
 
   alias Serviceradar.Config.V1.{
@@ -13,34 +13,8 @@ defmodule ServiceradarConfig.ManagerFixtures do
     DatabaseConfig,
     DgraphConfig,
     EnvironmentConfig,
-    NatsConfig,
-    OneOf,
-    Required,
-    Rule,
-    RuleSet,
-    Scope
+    NatsConfig
   }
-
-  def rules do
-    %RuleSet{
-      rules: [
-        %Rule{
-          field_path: "database.host",
-          code: "DATABASE_HOST_REQUIRED",
-          phase: :PHASE_CONFIG,
-          predicate: {:required, %Required{}}
-        },
-        %Rule{
-          field_path: "database.tls_mode",
-          code: "DATABASE_TLS_MODE_VERIFIED_OUTSIDE_LOCALHOST",
-          phase: :PHASE_CONFIG,
-          scope: %Scope{except_kinds: [:ENVIRONMENT_KIND_LOCALHOST]},
-          predicate:
-            {:one_of, %OneOf{enum_values: ["TLS_MODE_VERIFY_CA", "TLS_MODE_VERIFY_FULL"]}}
-        }
-      ]
-    }
-  end
 
   def valid_ci do
     %EnvironmentConfig{

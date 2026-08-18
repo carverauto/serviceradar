@@ -14,10 +14,10 @@ pub type PgPool = Pool<PgConnectionManager>;
 pub async fn connect_pool(config: &AppConfig) -> Result<PgPool> {
     let manager = PgConnectionManager::new(
         &config.database_url,
-        config.pg_ssl_root_cert.as_deref(),
-        config.pg_ssl_cert.as_deref(),
-        config.pg_ssl_key.as_deref(),
-        config.pg_ssl_server_name.as_deref(),
+        config.database_ca_pem.as_deref(),
+        config.database_client_cert_pem.as_deref(),
+        config.database_client_key_pem.as_deref(),
+        config.database_tls_server_name.as_deref(),
         config.db_statement_timeout,
     )?;
     let pool = Pool::builder()
@@ -51,32 +51,25 @@ enum PgTls {
 impl PgConnectionManager {
     fn new(
         database_url: &str,
-        root_cert: Option<&str>,
-        client_cert: Option<&str>,
-        client_key: Option<&str>,
+        ca_pem: Option<&[u8]>,
+        client_cert_pem: Option<&[u8]>,
+        client_key_pem: Option<&[u8]>,
         server_name: Option<&str>,
         statement_timeout: Duration,
     ) -> Result<Self> {
         let config = database_url
             .parse::<PgConfig>()
             .context("invalid DATABASE_URL")?;
-        // Read the PEM here: the shared builder takes CONTENT, because a path is only
-        // meaningful on the host that resolves it. config.rs still yields paths; when it
-        // resolves through SecretManager instead, this adapter goes and the content is passed
-        // straight through.
-        let tls = if let Some(path) = root_cert {
-            let read = |p: &str| std::fs::read(p).with_context(|| format!("failed to read {p}"));
-            let ca = read(path)?;
-            let cert = client_cert.map(read).transpose()?;
-            let key = client_key.map(read).transpose()?;
-            PgTls::Rustls(crate::tls::postgres_connector(
-                &ca,
-                cert.as_deref(),
-                key.as_deref(),
+        // Content all the way down. config.rs resolves the PEMs through SecretManager, so there
+        // is no path to read and nothing that only exists on one host.
+        let tls = match ca_pem {
+            Some(ca) => PgTls::Rustls(crate::tls::postgres_connector(
+                ca,
+                client_cert_pem,
+                client_key_pem,
                 server_name,
-            )?)
-        } else {
-            PgTls::None
+            )?),
+            None => PgTls::None,
         };
         Ok(Self {
             config,

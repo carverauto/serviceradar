@@ -21,15 +21,11 @@
 
 use anyhow::{Context, Result};
 use runfiles::Runfiles;
-use serviceradar_config_manager::{ConfigManager, Dsn, Filesystem, Identity};
-use serviceradar_config_schema::{RuleSet, TlsMode};
+use serviceradar_config_manager::{
+    ConfigManager, Dsn, Filesystem, Identity, DATABASE_CA_CERT, DATABASE_PASSWORD,
+};
+use serviceradar_config_schema::TlsMode;
 use serviceradar_secret_manager::{FileProvider, Manifest, SecretManager};
-
-/// The logical name of the fixture password, identical in every environment.
-pub const DATABASE_PASSWORD: &str = "database.password";
-
-/// The CA the fixture certificate chains to. A logical name like any other.
-pub const DATABASE_CA_CERT: &str = "database.ca_cert";
 
 /// This module's own repository, as MODULE.bazel declares it.
 ///
@@ -84,27 +80,15 @@ pub struct Fixture {
     password: String,
 }
 
-/// The committed rule set, as a declared build input.
-///
-/// Validation happens at LOAD (Decision 12), so the fixture needs the same rules the build
-/// validated the instance against. Bazel stages it in runfiles; there is deliberately no
-/// environment override that could repoint it.
-fn load_rules() -> Result<RuleSet> {
-    use prost::Message;
-
-    let path = runfile("config/rules/ruleset.binpb")?;
-    let bytes = std::fs::read(&path).with_context(|| format!("read {path:?}"))?;
-    RuleSet::decode(&*bytes).with_context(|| format!("decode {path:?}"))
-}
 
 impl Fixture {
     /// Resolves everything from `SERVICERADAR_ENV`, loading the rule set from runfiles.
     pub fn from_env() -> Result<Self> {
-        Self::resolve(&load_rules()?)
+        Self::resolve()
     }
 
     /// Resolves configuration and the fixture password from `SERVICERADAR_ENV`.
-    pub fn resolve(rules: &RuleSet) -> Result<Self> {
+    pub fn resolve() -> Result<Self> {
         let identity = Identity::from_env().map_err(|e| anyhow::anyhow!("{e}"))?;
 
         // For a test binary, "compiled into the release" means "a declared input in my
@@ -115,7 +99,7 @@ impl Fixture {
         let bytes = std::fs::read(&instance).with_context(|| format!("read {instance:?}"))?;
         let built_ins: &[(&str, &[u8])] = &[(identity.kind(), &bytes)];
 
-        let manager = ConfigManager::load(&identity, built_ins, rules, &Filesystem)
+        let manager = ConfigManager::load(&identity, built_ins, &Filesystem)
             .map_err(|e| anyhow::anyhow!("{e}"))?;
 
         let secrets = SecretManager::new(
@@ -137,6 +121,15 @@ impl Fixture {
     }
 
     /// The role that owns per-run databases. A field, not something recovered from a DSN.
+    /// The database the environment declares, as a field rather than a path parsed back out of
+    /// a DSN.
+    pub fn database_name(&self) -> Result<&str> {
+        self.manager
+            .database()
+            .and_then(|d| d.database.as_deref())
+            .context("the environment declares no database.database")
+    }
+
     pub fn owning_role(&self) -> Result<&str> {
         self.manager
             .database()

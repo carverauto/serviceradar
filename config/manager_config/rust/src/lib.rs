@@ -12,12 +12,14 @@
 #![forbid(unsafe_code)]
 
 pub mod errors;
+pub mod rules;
 pub mod secrets;
 pub mod traits;
 pub mod types;
 pub mod utils_tests;
 
 pub use errors::{LoadError, SelectorError};
+pub use rules::built_ins;
 pub use secrets::{
     DATABASE_CA_CERT, DATABASE_CLIENT_CERT, DATABASE_CLIENT_KEY, DATABASE_PASSWORD,
 };

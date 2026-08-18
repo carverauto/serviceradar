@@ -1,6 +1,6 @@
 //! The DSN is assembled from typed fields, and is as secret as the password inside it.
 
-use serviceradar_config_manager::utils_tests::{encode, rules, valid_ci};
+use serviceradar_config_manager::utils_tests::{encode, valid_ci};
 use serviceradar_config_manager::{ConfigManager, Identity, ReadSource};
 use serviceradar_config_schema::TlsMode;
 
@@ -19,7 +19,7 @@ fn manager_with(tls: TlsMode) -> ConfigManager {
     let bytes = encode(&cfg);
     let built_ins: &[(&str, &[u8])] = &[("ci", &bytes)];
     let identity = Identity::parse(Some("ci")).unwrap();
-    ConfigManager::load(&identity, built_ins, &rules(), &NoMount).expect("valid")
+    ConfigManager::load(&identity, built_ins, &NoMount).expect("valid")
 }
 
 /// The typed TLS mode becomes `sslmode`. A DSN built by concatenation is how `sslmode` went
@@ -49,7 +49,7 @@ fn an_unspecified_tls_mode_never_reaches_a_loaded_manager() {
     let identity = Identity::parse(Some("ci")).unwrap();
 
     assert!(
-        ConfigManager::load(&identity, built_ins, &rules(), &NoMount).is_err(),
+        ConfigManager::load(&identity, built_ins, &NoMount).is_err(),
         "validation must reject an unspecified TLS mode before a DSN can be built"
     );
 }

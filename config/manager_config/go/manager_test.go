@@ -50,7 +50,7 @@ func TestSourceNamesABuiltInByIdentityAndAMountByPath(t *testing.T) {
 func TestABuiltInLoadsAndExposesItsSections(t *testing.T) {
 	builtIns := manager.BuiltIns{"ci": encode(validCI())}
 
-	loaded, err := manager.Load(identity(t, "ci"), builtIns, fixtureRules(), missingMount{})
+	loaded, err := manager.Load(identity(t, "ci"), builtIns, missingMount{})
 	if err != nil {
 		t.Fatalf("the fixture instance is valid: %v", err)
 	}
@@ -72,7 +72,7 @@ func TestAnArtifactDescribingAnotherEnvironmentIsRejected(t *testing.T) {
 	kind := configpb.EnvironmentKind_ENVIRONMENT_KIND_SAAS
 	saas.Kind = &kind
 
-	_, err := manager.Load(identity(t, "demo"), nil, fixtureRules(), mounted{encode(saas)})
+	_, err := manager.Load(identity(t, "demo"), nil, mounted{encode(saas)})
 	if err == nil {
 		t.Fatal("the artifact says saas; the selector says demo")
 	}
@@ -92,7 +92,7 @@ func TestADifferentOnpremInstanceIsRejected(t *testing.T) {
 	other.Kind = &kind
 	other.Instance = &name
 
-	_, err := manager.Load(identity(t, "onprem:untd"), nil, fixtureRules(), mounted{encode(other)})
+	_, err := manager.Load(identity(t, "onprem:untd"), nil, mounted{encode(other)})
 	if err == nil {
 		t.Fatal("expected a mismatch")
 	}
@@ -110,8 +110,7 @@ func TestAnInvalidInstanceIsRejectedAtLoadAndYieldsNothing(t *testing.T) {
 	disable := configpb.TlsMode_TLS_MODE_DISABLE
 	cfg.Database.TlsMode = &disable
 
-	loaded, err := manager.Load(identity(t, "ci"), manager.BuiltIns{"ci": encode(cfg)},
-		fixtureRules(), missingMount{})
+	loaded, err := manager.Load(identity(t, "ci"), manager.BuiltIns{"ci": encode(cfg)}, missingMount{})
 	if err == nil {
 		t.Fatal("plaintext TLS outside localhost must not load")
 	}
@@ -124,8 +123,7 @@ func TestAnInvalidInstanceIsRejectedAtLoadAndYieldsNothing(t *testing.T) {
 }
 
 func TestAnUnknownBuiltInListsWhatTheReleaseCarries(t *testing.T) {
-	_, err := manager.Load(identity(t, "localhost"), manager.BuiltIns{"ci": encode(validCI())},
-		fixtureRules(), missingMount{})
+	_, err := manager.Load(identity(t, "localhost"), manager.BuiltIns{"ci": encode(validCI())}, missingMount{})
 	if err == nil {
 		t.Fatal("expected an error")
 	}
@@ -139,7 +137,7 @@ func TestAnUnknownBuiltInListsWhatTheReleaseCarries(t *testing.T) {
 // A missing mount is fatal. There is no cached fallback to fall back TO, by construction:
 // nothing retains bytes across a call.
 func TestAMissingMountIsFatalAndNamesTheSource(t *testing.T) {
-	_, err := manager.Load(identity(t, "saas"), nil, fixtureRules(), missingMount{})
+	_, err := manager.Load(identity(t, "saas"), nil, missingMount{})
 	if err == nil {
 		t.Fatal("expected an error")
 	}
@@ -151,7 +149,7 @@ func TestAMissingMountIsFatalAndNamesTheSource(t *testing.T) {
 // A well-formed message of the WRONG type, because a wrong-but-valid artifact is the realistic
 // mistake rather than random bytes.
 func TestAWellFormedMessageOfAnotherTypeIsRejected(t *testing.T) {
-	_, err := manager.Load(identity(t, "saas"), nil, fixtureRules(), mounted{encode(fixtureRules())})
+	_, err := manager.Load(identity(t, "saas"), nil, mounted{encode(manager.EmbeddedRules())})
 	if err == nil {
 		t.Fatal("a RuleSet is not an EnvironmentConfig")
 	}
