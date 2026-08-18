@@ -5,6 +5,7 @@
 # Write build outputs in a platform-specific directory;
 # avoid outputs being wiped and rewritten when switching between platforms.
 common --experimental_platform_in_output_dir
+common --noenable_platform_specific_config
 common --noannounce_rc
 common --experimental_convenience_symlinks=clean
 common --color=yes
@@ -174,39 +175,15 @@ build:remote_base --action_env=NEXT_SKIP_TURBO=1
 
 # CI profile on top of the remote config
 build:ci --config=remote_base
-build:ci --keep_going
-build:ci --noenable_platform_specific_config
 build:ci --build_metadata=ROLE=CI
+build:ci --build_metadata=VISIBILITY=PUBLIC
+build:ci --build_metadata=USER=gh
 # THE COMPILATION MODE IS PART OF THE CACHE KEY
 build:ci --compilation_mode=opt
 build:ci --remote_timeout=15m
 test:ci --test_output=errors
 
 # `--config=remote` is an ALIAS for `--config=ci`. It is not a second remote profile.
-#
-# It WAS a separate profile until 6b0b969991 ("removed now redundant remote profile in
-# .bazelrc") deleted `build:remote --config=remote_base` and its two companions. The profile
-# was redundant; the NAME was not, and nothing has defined it since. Every image build and
-# push says `--config=remote` -- Makefile:153/165/177/208/530, scripts/push_all_images.sh
-# (BAZEL_CONFIG defaults to `remote`), scripts/push_all_wasm_plugins.sh, the demo-staging
-# scripts and the release playbook in AGENTS.md -- so the whole publish path broke at once.
-#
-# Bazel resolves `--config=X` only against the command's own inheritance chain, which is why
-# the `test:remote` block left behind did not stand in for it: invisible to `build` and `run`,
-# both of which failed outright with
-#
-#   Config value 'remote' is not defined in any .rc file
-#
-# while `bazel test --config=remote` did something worse -- it resolved, never pulled in
-# remote_base, and ran fully local with no executor, no cache and no BES while looking remote.
-# 9d213f8116 has since deleted that block as well, so today every command fails loudly rather
-# than one of them lying. Restoring the name is what actually repairs the publish path.
-#
-# Keep this an alias, never a copy. Two profiles that merely resemble each other drift, and a
-# drifted remote profile does not fail: the build runs, just not where you think it did.
-# Note the alias inherits build:ci's `--compilation_mode=opt`, which is deliberate -- the
-# compilation mode is part of the cache key, so a `--config=remote` image build now shares
-# cache with CI instead of quietly building a second, fastbuild generation of everything.
 build:remote --config=ci
 
 build --build_metadata=REPO_URL=git@github.com:carverauto/serviceradar.git
