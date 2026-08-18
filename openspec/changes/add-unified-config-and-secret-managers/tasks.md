@@ -35,16 +35,28 @@ ambient environment, a test asserting on `.bazelrc`, and a value read under a di
 - [x] Use explicit presence (`optional`) on every field
 - [x] Reserve `0` as `*_UNSPECIFIED` in every enum
 - [x] Model TLS mode as an enum; model connecting role and owning role as separate fields
+- [x] Add `DgraphConfig` (host, port, tls_mode) for `rust/dgraph-client`, with a SEPARATE
+      `DgraphTlsMode` enum. Not a reuse of `TlsMode`: the Dgraph client has no verify-full, so
+      a shared enum would let an instance state `TLS_MODE_VERIFY_FULL` for Dgraph — a setting
+      that reads as the strongest option and that no client can honour. One host rather than a
+      repeated endpoint list, because in Kubernetes the alpha Service already load-balances;
+      ACL username/password/api key/bearer token/namespace are omitted (the last four are
+      SecretManager's, and the schema does not carry fields no instance sets)
 - [x] Wire Go codegen (`//config/proto:configpb`) — builds on RBE
 - [x] Wire Rust codegen (prost) — `//config/rust:config_schema`, crate
       `serviceradar-config-schema`. Registered in the workspace `members` and `Cargo.lock`.
       Three tests pass on RBE, including `unset_fields_are_absent_not_defaulted`, which proves
       explicit presence survives prost codegen (`Option`, not a zero value)
-- [x] Wire Elixir codegen — `make generate-proto-elixir-config` (+ `verify-proto-elixir-config`
-      drift guard, mirroring the existing proto targets). Generates
-      `config/elixir/lib/serviceradar_config/proto/{config,rules}.pb.ex` as
-      `Serviceradar.Config.V1.*`; **26 fields carry `proto3_optional: true`**, so presence
-      survives on the Elixir side too. Drift guard verified in sync
+- [x] Wire Elixir codegen — Bazel `elixir_proto_library` (`//config/proto:config_ex`), with
+      `binding_drift_{config,rules}_test` as the drift guard against the checked-in
+      `config/proto_bindings/elixir/**/{config,rules}.pb.ex` (`Serviceradar.Config.V1.*`).
+      Every optional field carries `proto3_optional: true`, so presence survives on the Elixir
+      side too
+- [x] Wire the Go drift guard — `//config/proto:config_go` regenerates the checked-in
+      `config/proto_bindings/go/{config,rules}.pb.go`, and
+      `binding_drift_go_{config,rules}_test` compares them. The Go BUILD file claimed a
+      `make verify-proto-go-config` guard that **was never written**, so the checked-in Go
+      bindings had no drift check at all while the Elixir ones did
 - [x] Decide where per-target values live that are NOT per-environment
       (`SERVICERADAR_TEST_DB_SHARDS` is correctly a target `env` attribute today; `SRQL_FIXTURE_ROOT`
       is still unplaced)
@@ -90,17 +102,39 @@ ambient environment, a test asserting on `.bazelrc`, and a value read under a di
 
 - [x] Add `config/environments/ci.textproto` (first consumer: the fixture lifecycle)
 - [x] Add `config/environments/{localhost,saas}.textproto`
+- [x] Add `config/environments/demo.textproto` and `ENVIRONMENT_KIND_DEMO`. A kind rather than
+      a saas instance: its own topology, its own admission policy, and every rule scoped
+      `except_kinds: LOCALHOST` must reach it
 - [ ] Add `config/environments/onprem/<id>.textproto` per deployment, in this repository
 - [ ] Expose each as a Bazel target at the granularity components consume (database, NATS, TLS)
 - [x] Add the build-time validator as a Bazel test over file-phase rules, iterating **every**
       instance including each on-prem one
-- [ ] Add the credential-shape check that rejects secrets in configuration files
+- [x] Add the credential-shape check that rejects secrets in configuration files —
+      `//config/validator:credential_shape_test`. Four shapes (URL userinfo, `password=`-style
+      connection parameters, PEM material, whole-value base64 runs) plus credential-denoting
+      field names. **Verified end to end on RBE:** a DSN with an embedded password planted in
+      `demo.textproto` fails the test naming `demo: database.host`.
+      Two choices are load-bearing. It scans the CANONICAL TEXT OF THE COMPILED BINARY, not the
+      source: that covers every field that is present, including ones no checker knows by name,
+      and it does not flag the word "password" in the comment warning against them. And it
+      matches on SHAPE, not on a list of bad field names, which would only catch what someone
+      already thought of. A false-positive control asserts the values the schema really holds
+      (SPIFFE IDs, DSN-less URLs, `platform, ag_catalog`) survive it — a shape check that
+      blocks legitimate values gets disabled by whoever it blocks
 - [x] Add the Bazel rule compiling each committed `.textproto` to binary via `protoc --encode`
       (`//config:defs.bzl` `environment_config`), one target per instance.
       **Verified on RBE:** `ci.textproto` -> 314-byte binary, and three negative controls each
       fail the build: unknown field (names `not_a_real_field`), wrong type for `port`, and an
       invalid enum value (names `TLS_MODE_BOGUS`)
-- [ ] Add the round-trip test asserting each generated binary matches its committed `.textproto`
+- [x] Add the round-trip test asserting each generated binary matches its committed `.textproto`
+      — `//config/validator:round_trip_test`. Both sides are flattened to `path=value` pairs and
+      compared structurally, because the committed file carries comments and blank lines no
+      encoder emits, and neither prost nor Elixir's `:protobuf` can parse text format.
+      Its weight comes from the two sides being READ FROM DIFFERENT PLACES — source tree vs.
+      decoded artifact — so it becomes load-bearing when the binary is copied into a release
+      artifact's `priv/` rather than read out of bazel-bin. Within one build the two cannot
+      diverge, so the in-test negative control (corrupt one side, confirm the comparison
+      notices) is what proves the comparison works
 - [ ] Ship the compiled binary inside release artifacts — for Elixir, into an app's `priv/`, read at
       boot with `Application.app_dir/2`; never `__DIR__` (see Decision 9)
 

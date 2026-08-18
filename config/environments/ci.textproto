@@ -44,3 +44,10 @@ core {
   security_mode: SECURITY_MODE_MTLS
   server_name: "serviceradar-core"
 }
+
+dgraph {
+  # Deployed environments share one Dgraph cluster address for now; only localhost differs.
+  host: "dgraph.serviceradar.svc.cluster.local"
+  port: 9080
+  tls_mode: DGRAPH_TLS_MODE_VERIFY_CA
+}

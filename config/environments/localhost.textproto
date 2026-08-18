@@ -50,3 +50,11 @@ core {
   # running `mix phx.server` directly has none.
   security_mode: SECURITY_MODE_NONE
 }
+
+dgraph {
+  host: "localhost"
+  port: 9080
+
+  # The only environment permitted to run Dgraph in plaintext: a dev machine.
+  tls_mode: DGRAPH_TLS_MODE_DISABLE
+}

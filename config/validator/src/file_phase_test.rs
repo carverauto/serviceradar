@@ -1,6 +1,6 @@
 //! Every committed environment instance satisfies every file-phase rule.
 //!
-//! This is the gate that makes the rule set real. Without it the 37 rules in
+//! This is the gate that makes the rule set real. Without it the rules in
 //! //config/rules:ruleset.textproto are a document, and an instance that violates one is
 //! discovered by a service failing to start.
 //!
@@ -49,7 +49,7 @@ fn load_instance(name: &str) -> EnvironmentConfig {
 
 /// Named explicitly rather than globbed: a new instance must be added here deliberately, so
 /// it cannot be added to the tree and silently go unvalidated.
-const INSTANCES: &[&str] = &["ci", "localhost", "saas"];
+const INSTANCES: &[&str] = &["ci", "demo", "localhost", "saas"];
 
 #[test]
 fn every_committed_instance_satisfies_the_file_phase_rules() {

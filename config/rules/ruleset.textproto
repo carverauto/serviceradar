@@ -310,3 +310,65 @@ rules {
     other_enum_value: "SECURITY_MODE_SPIFFE"
   }
 }
+
+# ---------------------------------------------------------------------------
+# Dgraph
+#
+# Mirrors the database section's TLS posture rather than inventing a second one: required,
+# never the UNSPECIFIED sentinel, and verified everywhere but localhost. DGRAPH_TLS_MODE has
+# no verify-full, so the outside-localhost rule admits VERIFY_CA alone -- which is also why
+# it is a separate enum. See //config/proto/config.proto.
+# ---------------------------------------------------------------------------
+
+rules {
+  field_path: "dgraph.host"
+  code: "DGRAPH_HOST_REQUIRED"
+  phase: PHASE_CONFIG
+  required {}
+}
+
+rules {
+  field_path: "dgraph.host"
+  code: "DGRAPH_HOST_NON_EMPTY"
+  phase: PHASE_CONFIG
+  non_empty {}
+}
+
+rules {
+  field_path: "dgraph.port"
+  code: "DGRAPH_PORT_REQUIRED"
+  phase: PHASE_CONFIG
+  required {}
+}
+
+rules {
+  field_path: "dgraph.port"
+  code: "DGRAPH_PORT_RANGE"
+  phase: PHASE_CONFIG
+  description: "A TCP port. Zero is not a port; the alpha gRPC default is 9080."
+  int_range { min: 1 max: 65535 }
+}
+
+rules {
+  field_path: "dgraph.tls_mode"
+  code: "DGRAPH_TLS_MODE_REQUIRED"
+  phase: PHASE_CONFIG
+  required {}
+}
+
+rules {
+  field_path: "dgraph.tls_mode"
+  code: "DGRAPH_TLS_MODE_NOT_UNSPECIFIED"
+  phase: PHASE_CONFIG
+  description: "An unset TLS mode must be an error, never the first defined value."
+  forbidden_value { enum_value: "DGRAPH_TLS_MODE_UNSPECIFIED" }
+}
+
+rules {
+  field_path: "dgraph.tls_mode"
+  code: "DGRAPH_TLS_MODE_VERIFIED_OUTSIDE_LOCALHOST"
+  phase: PHASE_CONFIG
+  scope { except_kinds: ENVIRONMENT_KIND_LOCALHOST }
+  description: "REQUIRE_NO_VERIFY encrypts without authenticating the server, so it is not a deployment posture."
+  one_of { enum_values: "DGRAPH_TLS_MODE_VERIFY_CA" }
+}

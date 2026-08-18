@@ -9,5 +9,10 @@ path = "src/lib.rs"
 
 [dependencies]
 prost = { workspace = true }
-regex-automata = { workspace = true }
+# `meta` for the Regex engine, `syntax` to compile a pattern string, `unicode-case` for the
+# (?i) shape patterns. Named here rather than assumed: the workspace declaration is
+# default-features = false, and a Bazel build unifies features across every crate, so without
+# these `cargo check -p serviceradar-config-validator` fails on a crate the Bazel build
+# compiles fine.
+regex-automata = { workspace = true, features = ["meta", "syntax", "unicode-case"] }
 serviceradar-config-schema = { path = "../proto_bindings/rust" }

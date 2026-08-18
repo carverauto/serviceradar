@@ -20,7 +20,11 @@ filegroup(
 # types so a schema change and an engine change cannot arrive in one indistinguishable diff.
 rust_library(
     name = "validator",
-    srcs = ["src/lib.rs"],
+    srcs = [
+        "src/credentials.rs",
+        "src/lib.rs",
+        "src/text.rs",
+    ],
     crate_name = "serviceradar_config_validator",
     crate_root = "src/lib.rs",
     visibility = ["//visibility:public"],
@@ -38,6 +42,7 @@ rust_test(
     crate_root = "src/file_phase_test.rs",
     data = [
         "//config/environments:ci_binpb",
+        "//config/environments:demo_binpb",
         "//config/environments:localhost_binpb",
         "//config/environments:saas_binpb",
         "//config/rules:ruleset_binpb",
@@ -49,4 +54,48 @@ rust_test(
         ":validator",
         "//config/proto_bindings/rust:config_schema",
     ],
+)
+
+# The committed source and the canonical text of the binary built from it. Both are declared
+# inputs; the point of the test is that they are read from different places.
+rust_test(
+    name = "round_trip_test",
+    srcs = [
+        "src/round_trip_test.rs",
+        "src/utils_tests.rs",
+    ],
+    crate_root = "src/round_trip_test.rs",
+    data = [
+        "//config/environments:ci.textproto",
+        "//config/environments:ci_canonical",
+        "//config/environments:demo.textproto",
+        "//config/environments:demo_canonical",
+        "//config/environments:localhost.textproto",
+        "//config/environments:localhost_canonical",
+        "//config/environments:saas.textproto",
+        "//config/environments:saas_canonical",
+    ],
+    deps = all_crate_deps(
+        cargo_only = True,
+        normal = True,
+    ) + [":validator"],
+)
+
+rust_test(
+    name = "credential_shape_test",
+    srcs = [
+        "src/credential_shape_test.rs",
+        "src/utils_tests.rs",
+    ],
+    crate_root = "src/credential_shape_test.rs",
+    data = [
+        "//config/environments:ci_canonical",
+        "//config/environments:demo_canonical",
+        "//config/environments:localhost_canonical",
+        "//config/environments:saas_canonical",
+    ],
+    deps = all_crate_deps(
+        cargo_only = True,
+        normal = True,
+    ) + [":validator"],
 )

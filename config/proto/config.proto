@@ -29,12 +29,18 @@ option go_package = "github.com/carverauto/serviceradar/config/proto;configpb";
 // On-prem is multi-instance: each customer deployment is a separate single-tenant
 // installation selecting one instance at boot. `instance` is required when the kind is
 // ONPREM and must be absent otherwise.
+//
+// DEMO is a kind rather than a SaaS instance because it is a distinct deployment with its
+// own topology and its own admission policy, and every rule scoped `except_kinds:
+// LOCALHOST` must apply to it. Folding it into SAAS would make one committed file describe
+// two clusters, which is the ambiguity this schema exists to remove.
 enum EnvironmentKind {
   ENVIRONMENT_KIND_UNSPECIFIED = 0;
   ENVIRONMENT_KIND_LOCALHOST = 1;
   ENVIRONMENT_KIND_CI = 2;
   ENVIRONMENT_KIND_SAAS = 3;
   ENVIRONMENT_KIND_ONPREM = 4;
+  ENVIRONMENT_KIND_DEMO = 5;
 }
 
 // PostgreSQL TLS posture.
@@ -48,6 +54,21 @@ enum TlsMode {
   TLS_MODE_REQUIRE = 2;
   TLS_MODE_VERIFY_CA = 3;
   TLS_MODE_VERIFY_FULL = 4;
+}
+
+// Dgraph transport security.
+//
+// A SEPARATE enum from TlsMode, not a reuse of it. Dgraph's client has three modes and no
+// equivalent of verify-full: rust/dgraph-client's TlsMode is Disable | RequireNoVerify |
+// VerifyCa. Sharing TlsMode would let an instance state VERIFY_FULL for Dgraph, which no
+// client can honour -- a setting that reads as the strongest option and silently is not.
+enum DgraphTlsMode {
+  DGRAPH_TLS_MODE_UNSPECIFIED = 0;
+  DGRAPH_TLS_MODE_DISABLE = 1;
+  // Encrypted, server NOT authenticated (wire value `require`). Offers no protection
+  // against an active attacker; the client warns when it is selected.
+  DGRAPH_TLS_MODE_REQUIRE_NO_VERIFY = 2;
+  DGRAPH_TLS_MODE_VERIFY_CA = 3;
 }
 
 // Transport security for service-to-service calls (replaces CORE_SEC_MODE).
@@ -100,6 +121,21 @@ message NatsConfig {
   optional string server_name = 2;
 }
 
+// Dgraph cluster coordinates, consumed by rust/dgraph-client.
+//
+// One host rather than a repeated endpoint list: in Kubernetes the alpha Service already
+// load-balances across alphas, so the round-robin the client supports is the Service's job.
+// A list here would be a second, hand-maintained copy of the membership the cluster owns.
+//
+// ACL username, password, API key, bearer token and namespace are absent. The last four are
+// credentials that SecretManager resolves; username and namespace are omitted until Dgraph is
+// actually wired in, so the schema does not carry fields no instance sets.
+message DgraphConfig {
+  optional string host = 1;
+  optional uint32 port = 2;
+  optional DgraphTlsMode tls_mode = 3;
+}
+
 // Core service endpoint and transport security (replaces the CORE_* family).
 //
 // CORE_CERT_FILE, CORE_KEY_FILE, CORE_CA_FILE and CORE_CERT_DIR are deliberately absent:
@@ -117,11 +153,10 @@ message CoreConfig {
 // One environment. Exactly one committed instance per environment identity.
 message EnvironmentConfig {
   optional EnvironmentKind kind = 1;
-
   // Required if and only if `kind` is ENVIRONMENT_KIND_ONPREM.
   optional string instance = 2;
-
   optional DatabaseConfig database = 3;
   optional NatsConfig nats = 4;
   optional CoreConfig core = 5;
+  optional DgraphConfig dgraph = 6;
 }

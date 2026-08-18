@@ -111,3 +111,42 @@ elixir_library(
         "rules",
     ]
 ]
+
+# Go bindings, generated. The outs are the paths protoc-gen-go writes under `go_out` with
+# paths=source_relative: rules.proto imports "config/proto/config.proto", so -I must be the
+# execroot, and the generator mirrors that path. Declaring those exact paths means the action
+# copies nothing and leaves nothing undeclared behind.
+genrule(
+    name = "config_go",
+    srcs = [
+        "config.proto",
+        "rules.proto",
+    ],
+    outs = [
+        "config/proto/config.pb.go",
+        "config/proto/rules.pb.go",
+    ],
+    cmd = ("$(execpath @bazel_tools//tools/proto:protoc) -I. " +
+           "--plugin=protoc-gen-go=$(execpath @org_golang_google_protobuf//cmd/protoc-gen-go) " +
+           "--go_out=$(RULEDIR) --go_opt=paths=source_relative " +
+           "$(execpath config.proto) $(execpath rules.proto)"),
+    tools = [
+        "@bazel_tools//tools/proto:protoc",
+        "@org_golang_google_protobuf//cmd/protoc-gen-go",
+    ],
+)
+
+# The guard //config/proto_bindings/go/BUILD.bazel says exists. It did not: it named a
+# `make verify-proto-go-config` target that was never written, so the checked-in Go bindings
+# had no drift check at all while the Elixir ones did.
+[
+    diff_test(
+        name = "binding_drift_go_" + f + "_test",
+        file1 = "config/proto/" + f + ".pb.go",
+        file2 = "//config/proto_bindings/go:" + f + ".pb.go",
+    )
+    for f in [
+        "config",
+        "rules",
+    ]
+]

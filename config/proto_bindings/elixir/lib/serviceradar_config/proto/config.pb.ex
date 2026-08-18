@@ -12,6 +12,7 @@ defmodule Serviceradar.Config.V1.EnvironmentKind do
   field :ENVIRONMENT_KIND_CI, 2
   field :ENVIRONMENT_KIND_SAAS, 3
   field :ENVIRONMENT_KIND_ONPREM, 4
+  field :ENVIRONMENT_KIND_DEMO, 5
 end
 
 defmodule Serviceradar.Config.V1.TlsMode do
@@ -28,6 +29,21 @@ defmodule Serviceradar.Config.V1.TlsMode do
   field :TLS_MODE_REQUIRE, 2
   field :TLS_MODE_VERIFY_CA, 3
   field :TLS_MODE_VERIFY_FULL, 4
+end
+
+defmodule Serviceradar.Config.V1.DgraphTlsMode do
+  @moduledoc false
+
+  use Protobuf,
+    enum: true,
+    full_name: "serviceradar.config.v1.DgraphTlsMode",
+    protoc_gen_elixir_version: "0.16.1",
+    syntax: :proto3
+
+  field :DGRAPH_TLS_MODE_UNSPECIFIED, 0
+  field :DGRAPH_TLS_MODE_DISABLE, 1
+  field :DGRAPH_TLS_MODE_REQUIRE_NO_VERIFY, 2
+  field :DGRAPH_TLS_MODE_VERIFY_CA, 3
 end
 
 defmodule Serviceradar.Config.V1.SecurityMode do
@@ -89,6 +105,24 @@ defmodule Serviceradar.Config.V1.NatsConfig do
   field :server_name, 2, proto3_optional: true, type: :string, json_name: "serverName"
 end
 
+defmodule Serviceradar.Config.V1.DgraphConfig do
+  @moduledoc false
+
+  use Protobuf,
+    full_name: "serviceradar.config.v1.DgraphConfig",
+    protoc_gen_elixir_version: "0.16.1",
+    syntax: :proto3
+
+  field :host, 1, proto3_optional: true, type: :string
+  field :port, 2, proto3_optional: true, type: :uint32
+
+  field :tls_mode, 3,
+    proto3_optional: true,
+    type: Serviceradar.Config.V1.DgraphTlsMode,
+    json_name: "tlsMode",
+    enum: true
+end
+
 defmodule Serviceradar.Config.V1.CoreConfig do
   @moduledoc false
 
@@ -125,4 +159,5 @@ defmodule Serviceradar.Config.V1.EnvironmentConfig do
   field :database, 3, proto3_optional: true, type: Serviceradar.Config.V1.DatabaseConfig
   field :nats, 4, proto3_optional: true, type: Serviceradar.Config.V1.NatsConfig
   field :core, 5, proto3_optional: true, type: Serviceradar.Config.V1.CoreConfig
+  field :dgraph, 6, proto3_optional: true, type: Serviceradar.Config.V1.DgraphConfig
 end

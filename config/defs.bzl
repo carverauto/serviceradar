@@ -36,6 +36,23 @@ def environment_config(name, src, visibility = None):
         visibility = visibility,
     )
 
+    # The binary decoded back to text. Two checks read it and neither can be done against the
+    # committed source: the round-trip test compares what the artifact actually contains against
+    # what was authored, and the credential-shape check needs every field that is PRESENT, with
+    # no comments -- scanning the source would let a credential hide in a field the scanner did
+    # not know to look at, and would flag the word "password" in a comment warning against them.
+    native.genrule(
+        name = name + "_canonical",
+        srcs = [name + ".binpb", "//config/proto:config_proto_src"],
+        outs = [name + ".canonical.textproto"],
+        cmd = ("$(execpath @bazel_tools//tools/proto:protoc) -I. " +
+               "--decode=" + _MESSAGE + " " +
+               "$(execpath //config/proto:config_proto_src) " +
+               "< $(execpath " + name + ".binpb) > $@"),
+        tools = ["@bazel_tools//tools/proto:protoc"],
+        visibility = visibility,
+    )
+
 _RULESET_MESSAGE = "serviceradar.config.v1.RuleSet"
 
 def rule_set(name, src, visibility = None):

@@ -16,10 +16,13 @@
 
 #![forbid(unsafe_code)]
 
+pub mod credentials;
+pub mod text;
+
 use regex_automata::meta::Regex;
 use serviceradar_config_schema::{
-    rule::Predicate, EnvironmentConfig, EnvironmentKind, Phase, Rule, RuleSet, Scope, SecurityMode,
-    TlsMode,
+    rule::Predicate, DgraphTlsMode, EnvironmentConfig, EnvironmentKind, Phase, Rule, RuleSet, Scope,
+    SecurityMode, TlsMode,
 };
 
 /// One rule's verdict. `NotApplicable` is a first-class outcome, not an error: a predicate
@@ -76,6 +79,11 @@ impl EnumName for SecurityMode {
         self.as_str_name()
     }
 }
+impl EnumName for DgraphTlsMode {
+    fn name(&self) -> &'static str {
+        self.as_str_name()
+    }
+}
 impl EnumName for EnvironmentKind {
     fn name(&self) -> &'static str {
         self.as_str_name()
@@ -94,6 +102,7 @@ fn field<'a>(cfg: &'a EnvironmentConfig, path: &str) -> Result<Value<'a>, Unknow
     let db = cfg.database.as_ref();
     let nats = cfg.nats.as_ref();
     let core = cfg.core.as_ref();
+    let dgraph = cfg.dgraph.as_ref();
 
     let v = match path {
         "kind" => enum_name(cfg.kind, |i| EnvironmentKind::try_from(i).ok()),
@@ -128,6 +137,12 @@ fn field<'a>(cfg: &'a EnvironmentConfig, path: &str) -> Result<Value<'a>, Unknow
         "core.trust_domain" => core.map_or(Value::Absent, |c| opt_str(&c.trust_domain)),
         "core.server_spiffe_id" => core.map_or(Value::Absent, |c| opt_str(&c.server_spiffe_id)),
         "core.workload_socket" => core.map_or(Value::Absent, |c| opt_str(&c.workload_socket)),
+
+        "dgraph.host" => dgraph.map_or(Value::Absent, |d| opt_str(&d.host)),
+        "dgraph.port" => dgraph.map_or(Value::Absent, |d| opt_u32(d.port)),
+        "dgraph.tls_mode" => dgraph.map_or(Value::Absent, |d| {
+            enum_name(d.tls_mode, |i| DgraphTlsMode::try_from(i).ok())
+        }),
 
         other => return Err(UnknownField(other.to_string())),
     };

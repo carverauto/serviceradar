@@ -30,3 +30,9 @@ environment_config(
     src = "saas.textproto",
     visibility = ["//visibility:public"],
 )
+
+environment_config(
+    name = "demo",
+    src = "demo.textproto",
+    visibility = ["//visibility:public"],
+)
