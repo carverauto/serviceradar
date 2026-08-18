@@ -35,7 +35,9 @@ pub fn read(relative: &str) -> String {
 /// The instances every instance-wide check iterates. Named explicitly rather than globbed: a
 /// new instance must be added here deliberately, so it cannot land in the tree and silently go
 /// unchecked.
-pub const INSTANCES: &[&str] = &["ci", "demo", "localhost", "saas"];
+/// Stems relative to `config/environments/`, so an on-prem instance in its own package is
+/// named the same way it is stored.
+pub const INSTANCES: &[&str] = &["ci", "demo", "localhost", "onprem/untd", "saas"];
 
 /// A runfile path, or None if it was not declared. Unlike [`data_path`] this does NOT fall back
 /// to the source tree: the point of the caller is to distinguish declared from undeclared, and a

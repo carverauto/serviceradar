@@ -9,9 +9,9 @@ load("//config:defs.bzl", "environment_config")
 # environment. That is what makes a test action's configuration a declared input -- and
 # what replaces forwarding 45 environment variable names to every database test action.
 
-# allow_empty on the onprem glob: on-prem instances are added per customer deployment, and
-# the set is legitimately empty until the first one lands.
-exports_files(glob(["*.textproto"]) + glob(["onprem/*.textproto"], allow_empty = True))
+# On-prem instances are a separate package (//config/environments/onprem), so they are not
+# in this glob -- a glob cannot cross a package boundary.
+exports_files(glob(["*.textproto"]))
 
 environment_config(
     name = "ci",

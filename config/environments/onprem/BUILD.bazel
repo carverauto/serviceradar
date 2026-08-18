@@ -1,0 +1,19 @@
+# gazelle:ignore
+
+load("//config:defs.bzl", "environment_config")
+
+# On-prem customer instances. Its own package rather than a subdirectory of
+# //config/environments so each deployment's targets mirror its file path, and so the
+# instance set grows without touching a shared BUILD file.
+#
+# These live in THIS repository on purpose (Decision 10): a customer instance is validated by
+# the same build-time tests as ci and saas, so a file that omits a required field or weakens a
+# cross-environment invariant fails here rather than in a pipeline this repo does not control.
+
+exports_files(glob(["*.textproto"]))
+
+environment_config(
+    name = "untd",
+    src = "untd.textproto",
+    visibility = ["//visibility:public"],
+)

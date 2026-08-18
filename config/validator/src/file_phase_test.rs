@@ -7,33 +7,13 @@
 //! Inputs are the COMPILED binaries, not the .textproto sources: that is what the runtime
 //! loads, so validating anything else would be checking a different artifact.
 
+mod utils_tests;
+
 use serviceradar_config_schema::{EnvironmentConfig, RuleSet};
 use serviceradar_config_validator::validate;
-use std::path::{Path, PathBuf};
+use utils_tests::{data_path, INSTANCES};
 
 use prost::Message;
-
-/// `cargo test` runs with the crate root as the working directory; Bazel runs the test binary
-/// out of the runfiles tree, where a bare relative path resolves to nothing. Same idiom as
-/// flowgger's fixture_path and netprobe's corpus lookup.
-fn data_path(relative: &str) -> PathBuf {
-    if let Ok(dir) = std::env::var("CARGO_MANIFEST_DIR") {
-        let candidate = Path::new(&dir).join("../..").join(relative);
-        if candidate.exists() {
-            return candidate;
-        }
-    }
-    if let Ok(srcdir) = std::env::var("TEST_SRCDIR") {
-        let root = PathBuf::from(srcdir);
-        for workspace in ["_main", "serviceradar"] {
-            let candidate = root.join(workspace).join(relative);
-            if candidate.exists() {
-                return candidate;
-            }
-        }
-    }
-    PathBuf::from(relative)
-}
 
 fn load_rules() -> RuleSet {
     let path = data_path("config/rules/ruleset.binpb");
@@ -46,10 +26,6 @@ fn load_instance(name: &str) -> EnvironmentConfig {
     let bytes = std::fs::read(&path).unwrap_or_else(|e| panic!("read {path:?}: {e}"));
     EnvironmentConfig::decode(&*bytes).unwrap_or_else(|e| panic!("decode {path:?}: {e}"))
 }
-
-/// Named explicitly rather than globbed: a new instance must be added here deliberately, so
-/// it cannot be added to the tree and silently go unvalidated.
-const INSTANCES: &[&str] = &["ci", "demo", "localhost", "saas"];
 
 #[test]
 fn every_committed_instance_satisfies_the_file_phase_rules() {

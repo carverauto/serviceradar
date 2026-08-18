@@ -38,13 +38,17 @@ rust_library(
 # the .textproto sources would be checking a different artifact.
 rust_test(
     name = "file_phase_test",
-    srcs = ["src/file_phase_test.rs"],
+    srcs = [
+        "src/file_phase_test.rs",
+        "src/utils_tests.rs",
+    ],
     crate_root = "src/file_phase_test.rs",
     data = [
         "//config/environments:ci_binpb",
         "//config/environments:demo_binpb",
         "//config/environments:localhost_binpb",
         "//config/environments:saas_binpb",
+        "//config/environments/onprem:untd_binpb",
         "//config/rules:ruleset_binpb",
     ],
     deps = all_crate_deps(
@@ -74,6 +78,8 @@ rust_test(
         "//config/environments:localhost_canonical",
         "//config/environments:saas.textproto",
         "//config/environments:saas_canonical",
+        "//config/environments/onprem:untd.textproto",
+        "//config/environments/onprem:untd_canonical",
     ],
     deps = all_crate_deps(
         cargo_only = True,
@@ -93,6 +99,7 @@ rust_test(
         "//config/environments:demo_canonical",
         "//config/environments:localhost_canonical",
         "//config/environments:saas_canonical",
+        "//config/environments/onprem:untd_canonical",
     ],
     deps = all_crate_deps(
         cargo_only = True,

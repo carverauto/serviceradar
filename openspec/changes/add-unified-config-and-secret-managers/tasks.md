@@ -105,7 +105,19 @@ ambient environment, a test asserting on `.bazelrc`, and a value read under a di
 - [x] Add `config/environments/demo.textproto` and `ENVIRONMENT_KIND_DEMO`. A kind rather than
       a saas instance: its own topology, its own admission policy, and every rule scoped
       `except_kinds: LOCALHOST` must reach it
-- [ ] Add `config/environments/onprem/<id>.textproto` per deployment, in this repository
+- [x] Add `config/environments/onprem/<id>.textproto` per deployment, in this repository —
+      first instance `onprem/untd.textproto`, `instance: "untd"`. Its own Bazel package so each
+      deployment's targets mirror its file path and the set grows without touching a shared
+      BUILD file. Coordinates are the chart DEFAULTS, since an on-prem install runs the same
+      chart; anything a deployment overrides in its values file must be overridden here too.
+      **Negative control verified on RBE:** weakening its `database.tls_mode` to `DISABLE` fails
+      `file_phase_test` with `onprem/untd.textproto has 1 violation(s):
+      database.tls_mode DATABASE_TLS_MODE_VERIFIED_OUTSIDE_LOCALHOST` — a customer instance is
+      held to the same cross-environment invariants as ci and saas, which is the whole point of
+      Decision 10.
+      `INSTANCES` now lives once in `src/utils_tests.rs` and is shared by all three
+      instance-wide checks; it was duplicated in `file_phase_test.rs`, which is how an instance
+      gets added to one check and not the others
 - [x] Expose each as a Bazel target at the granularity components consume — four sections
       (`database`, `nats`, `core`, `dgraph`) per instance, e.g. `//config/environments:ci_database`,
       cut by `//config/tools:extract_section`. This is Decision 6 (least privilege), not caching:
