@@ -488,7 +488,11 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
 
     refresh? = Map.get(socket.assigns, :device_load_mode, :full) == :refresh
 
-    supplemental_assigns = preserve_virtualization_guests(socket, supplemental_assigns, refresh?)
+    supplemental_assigns =
+      socket
+      |> preserve_virtualization_guests(supplemental_assigns, refresh?)
+      |> then(&preserve_loaded_interfaces(socket, &1, refresh?))
+      |> then(&preserve_loaded_flows(socket, &1, refresh?))
 
     socket =
       socket
@@ -532,6 +536,53 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
   end
 
   defp preserve_virtualization_guests(_socket, supplemental_assigns, false = _refresh?) do
+    supplemental_assigns
+  end
+
+  # Same-device refresh can time out the interface/flow tasks in the 15s
+  # supplemental batch. An empty incoming list would wipe the already-rendered
+  # table and (via resolve_active_tab) bounce the user back to Details.
+  defp preserve_loaded_interfaces(socket, supplemental_assigns, true = _refresh?) do
+    incoming = Map.get(supplemental_assigns, :network_interfaces, [])
+    current = Map.get(socket.assigns, :network_interfaces, [])
+
+    if current != [] and incoming == [] do
+      supplemental_assigns
+      |> Map.put(:network_interfaces, current)
+      |> Map.put(:has_ifaces, true)
+      |> Map.put(:interface_availability, Map.get(socket.assigns, :interface_availability, :available))
+      |> Map.put(:interfaces_error, Map.get(socket.assigns, :interfaces_error))
+      |> Map.put(:favorited_interfaces, Map.get(socket.assigns, :favorited_interfaces, MapSet.new()))
+      |> Map.put(
+        :metrics_enabled_interfaces,
+        Map.get(socket.assigns, :metrics_enabled_interfaces, MapSet.new())
+      )
+    else
+      supplemental_assigns
+    end
+  end
+
+  defp preserve_loaded_interfaces(_socket, supplemental_assigns, false = _refresh?) do
+    supplemental_assigns
+  end
+
+  defp preserve_loaded_flows(socket, supplemental_assigns, true = _refresh?) do
+    incoming = Map.get(supplemental_assigns, :device_flows, [])
+    current = Map.get(socket.assigns, :device_flows, [])
+
+    if current != [] and incoming == [] do
+      supplemental_assigns
+      |> Map.put(:device_flows, current)
+      |> Map.put(:has_flows, true)
+      |> Map.put(:flow_availability, Map.get(socket.assigns, :flow_availability, :available))
+      |> Map.put(:flows_error, Map.get(socket.assigns, :flows_error))
+      |> Map.put(:flows_pagination, Map.get(socket.assigns, :flows_pagination, %{}))
+    else
+      supplemental_assigns
+    end
+  end
+
+  defp preserve_loaded_flows(_socket, supplemental_assigns, false = _refresh?) do
     supplemental_assigns
   end
 
