@@ -1,4 +1,4 @@
-# ServiceRadar v1.4.33
+# ServiceRadar v1.4.34
 
 Device risk scoring from NVD + KEV + CWE, Findings UI with KEV floor, and
 an EventWriter pull-inflight fix so traces and OTLP metrics stop going
@@ -9,7 +9,10 @@ Forgejo.
 
 ## Whats New
 
-**1.4.33**
+**1.4.34**
+- Recut of the unpublished 1.4.33 contents. GitHub immutable releases
+  permanently consume a tag name when the release is deleted, so `v1.4.33`
+  and `v1.4.33-1` cannot be recreated.
 - Inventory risk: compose NVD and CISA/VulnCheck KEV into one CVE finding
   with CWE context, a KEV floor of 90 on the Findings overlay, and a
   periodic DeviceRiskAssessmentWorker that writes `ocsf_devices.risk_score`
