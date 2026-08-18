@@ -96,6 +96,17 @@ impl ConfigManager {
     /// a DSN built by string concatenation is how `sslmode` went missing and tokio-postgres fell
     /// back to Prefer, permitting a plaintext connection while every test still passed.
     pub fn database_url(&self, password: &str) -> Option<Dsn> {
+        let database = self.config.database.as_ref()?.database.as_deref()?;
+        self.database_url_named(database, password)
+    }
+
+    /// The same DSN, pointed at a different database on the same server.
+    ///
+    /// The integration fixture derives a per-run database name, which varies by RUN rather than
+    /// by environment and so is not a schema field. Building the DSN from typed fields with the
+    /// name substituted is what removes the need to parse a base URL and rewrite its path --
+    /// a rewrite that had to preserve the query string by hand to avoid dropping `sslmode`.
+    pub fn database_url_named(&self, database: &str, password: &str) -> Option<Dsn> {
         let db = self.config.database.as_ref()?;
         let sslmode = match TlsMode::try_from(db.tls_mode?).ok()? {
             TlsMode::Unspecified => return None,
@@ -105,20 +116,23 @@ impl ConfigManager {
             TlsMode::VerifyFull => "verify-full",
         };
 
-        let mut url = format!(
+        let url = format!(
             "postgres://{}:{}@{}:{}/{}?sslmode={sslmode}",
             encode_userinfo(db.connecting_role.as_deref()?),
             encode_userinfo(password),
             db.host.as_deref()?,
             db.port?,
-            db.database.as_deref()?,
+            database,
         );
-        // Required under verify-full because the certificate may carry DNS SANs and no IP SANs,
-        // so an address-based caller must state the name verification is performed against.
-        if let Some(name) = db.tls_server_name.as_deref() {
-            url.push_str("&sslsni=1&host=");
-            url.push_str(name);
-        }
+
+        // `tls_server_name` is deliberately NOT in the DSN. It is a typed field the caller hands
+        // to its TLS connector, which is the only component that can act on it.
+        //
+        // This previously appended `&sslsni=1&host=<name>`, which is libpq syntax, and broke two
+        // ways at once under tokio-postgres: `sslsni` has no arm in `Config::param`, so the whole
+        // connection string is rejected with `unknown option`; and a query-string `host` is read
+        // as an ADDITIONAL host to dial, so the SNI name would have become a silent fallback
+        // endpoint rather than a verification name.
         Some(Dsn::new(url))
     }
 

@@ -5,6 +5,21 @@ load("@rules_rs//rs:rust_test.bzl", "rust_test")
 load("//build:integration_shards.bzl", "integration_shard_names")
 load("//build:integration_tests.bzl", "requires_shared_fixture")
 
+# Declared inputs every target that opens a connection needs.
+#
+# Loading validates (Decision 12), so the rule set and the committed instances are inputs of
+# ANY target that connects, not only the ones that read migrations. The run id names the
+# database the step is allowed to touch; see //build/run_id.bzl.
+#
+# Hoisted because it was previously repeated per target and had already drifted: provision_db
+# carried the rule set without the instances, and the per-shard variants carried neither.
+FIXTURE_DATA = [
+    "//build:run_id_file",
+    "//config/environments:ci_binpb",
+    "//config/environments:localhost_binpb",
+    "//config/rules:ruleset_binpb",
+]
+
 package(default_visibility = ["//visibility:public"])
 
 filegroup(
@@ -27,12 +42,16 @@ rust_library(
         cargo_only = True,
         normal = True,
     ) + [
+        "//config/manager_config/rust:manager",
+        "//config/manager_secret/rust:secret_manager",
+        "//config/proto_bindings/rust:config_schema",
         "//rust/srql:srql_lib",
     ],
 )
 
-# Pure logic: quoting, the disposable-name guard, URL repointing. No database, so this one
-# is a normal cached test and runs in any wildcard.
+# Pure logic: quoting and the disposable-name guard. No database, so this one is a normal
+# cached test and runs in any wildcard. URL repointing is gone -- the DSN is assembled from
+# typed fields rather than parsed and rewritten.
 rust_test(
     name = "serviceradar_integration_db_test",
     crate = ":serviceradar_integration_db",
@@ -41,6 +60,9 @@ rust_test(
         normal = True,
         normal_dev = True,
     ) + [
+        "//config/manager_config/rust:manager",
+        "//config/manager_secret/rust:secret_manager",
+        "//config/proto_bindings/rust:config_schema",
         "//rust/srql:srql_lib",
     ],
 )
@@ -78,8 +100,9 @@ rust_test(
 # It survived on CI only because remote CACHING still applied and the compile was always a hit --
 # which stopped being true the moment the cc toolchain changed and re-keyed every action.
 #
-# These read the SRQL_TEST_* variables through the `test --test_env=` list in //.bazelrc:
-# //:buildbuddy_setup_fixture_env puts them in the environment on CI and on a workstation.
+# These read SERVICERADAR_ENV and nothing else: host, port, roles and TLS posture come from the
+# instance ConfigManager loads for that identity, and the password from the provider the same
+# identity selects.
 #
 # Sequencing lives in the workflow, because Bazel deliberately does not order tests:
 #   sweep_stale_dbs -> prepare_template -> (elixir) migrate_template -> provision_db
@@ -91,6 +114,9 @@ rust_test(
         size = "medium",
         srcs = ["tests/{}_test.rs".format(target)],
         crate_root = "tests/{}_test.rs".format(target),
+        # Loading validates (Decision 12), so the committed rule set is a declared input of
+        # anything that opens a connection -- not only of the targets that read migrations.
+        data = FIXTURE_DATA,
         tags = [
             "external",
             "manual",
@@ -119,7 +145,7 @@ rust_test(
     size = "medium",
     srcs = ["tests/provision_db_test.rs"],
     crate_root = "tests/provision_db_test.rs",
-    data = ["//elixir/serviceradar_core:migrations"],
+    data = FIXTURE_DATA + ["//elixir/serviceradar_core:migrations"],
     # One database per integration shard, from the same .bzl that generates the Elixir shard
     # targets, so the two name sets cannot drift.
     #
@@ -150,7 +176,7 @@ rust_test(
         size = "medium",
         srcs = ["tests/provision_db_test.rs"],
         crate_root = "tests/provision_db_test.rs",
-        data = ["//elixir/serviceradar_core:migrations"],
+        data = FIXTURE_DATA + ["//elixir/serviceradar_core:migrations"],
         env = {"SERVICERADAR_TEST_DB_SHARDS": shard},
         tags = [
             "external",
@@ -177,7 +203,7 @@ rust_test(
 rust_binary(
     name = "prepare_template",
     srcs = ["src/bin/prepare_template.rs"],
-    data = ["//elixir/serviceradar_core:migrations"],
+    data = FIXTURE_DATA + ["//elixir/serviceradar_core:migrations"],
     tags = ["manual"],
     target_compatible_with = requires_shared_fixture(),
     deps = all_crate_deps(

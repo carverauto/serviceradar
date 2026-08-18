@@ -396,12 +396,21 @@ ex_unit_test(
             # a declared input too. The ex_unit_tests macro adds this automatically; a
             # hand-written ex_unit_test does not.
             "//build:elixir_test_config_loader.exs",
+            # The per-run database name, as a declared build input. test/db/integration_env.exs
+            # reads it out of runfiles at build/run_id_file.txt -- the same file and the same
+            # relative path //rust/integration-db reads -- so provision, this suite and teardown
+            # cannot disagree about which database they own.
+            #
+            # migrate_template deliberately does NOT take it: template_env.exs targets the fixed
+            # sr_core_template name and has no run identity.
+            "//build:run_id_file",
         ],
         elixir_opts = [
             # BEFORE the config loader: config/test.exs reads SERVICERADAR_TEST_DATABASE_URL
-            # while building the Repo settings, so deriving it afterwards has no effect. Derives
-            # it from GITHUB_RUN_ID/ATTEMPT the same way //rust/integration-db does, so the suite
-            # hits the database provision_db cloned.
+            # while building the Repo settings, so deriving it afterwards has no effect. Reads
+            # the base name from //build:run_id_file (declared in data above), the same file
+            # //rust/integration-db reads, so the suite hits the database provision_db cloned --
+            # one producer of the format, not two implementations kept in step by hand.
             "-r",
             "test/db/integration_env.exs",
             "-r",

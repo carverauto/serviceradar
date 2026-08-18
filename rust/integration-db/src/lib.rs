@@ -22,16 +22,23 @@
 //!
 //! # Database naming
 //!
-//! The name is derived, never passed between steps. Provision, teardown and the suite each
-//! recompute it from `GITHUB_RUN_ID` and `GITHUB_RUN_ATTEMPT`, which are constant for the
-//! run, so there is no `GITHUB_ENV` handoff and no ordering assumption about who wrote it
-//! first. The old shell embedded `date +%s`, which is exactly the kind of value that cannot
-//! be recomputed by a later step.
+//! The name is read, never passed between steps. Provision, teardown and the suite each read
+//! the same declared build input -- the file `//build:run_id_file` writes from
+//! `--//build:run_id` -- so there is no handoff through a temp file or `GITHUB_ENV`, and no
+//! ordering assumption about who wrote it first. The old shell embedded `date +%s`, which is
+//! exactly the kind of value a later step cannot recompute.
+//!
+//! The id is a build flag rather than an environment variable so that no step reads ambient
+//! process state to learn which database it owns, and so the value cannot differ between two
+//! invocations of one run. Only actions that consume the file are invalidated when it changes;
+//! `//build/run_id.bzl` explains why that does not reach any compile.
 
 use std::borrow::Cow;
-use std::env;
+use std::fs;
 use std::io::{BufReader, Cursor};
 use std::sync::Once;
+
+pub mod config;
 
 use anyhow::{anyhow, bail, Context, Result};
 use rustls::{ClientConfig, RootCertStore};
@@ -52,6 +59,37 @@ pub const DISPOSABLE_PREFIX: &str = "sr_core_test_";
 /// PostgreSQL's identifier limit. A name over this is silently truncated by the server,
 /// which would make two runs collide on one database.
 const MAX_IDENTIFIER_BYTES: usize = 63;
+
+/// Where //build:run_id_file lands in runfiles. A declared input of every lifecycle target.
+const RUN_ID_RUNFILE: &str = "build/run_id_file.txt";
+
+/// Collisions only matter between runs that are live at the same time, and the sweep drops
+/// the rest, so eight hex characters over a handful of concurrent runs is ample. A full
+/// dash-stripped UUID still fits: 13-byte prefix + 32 + a shard suffix stays under 63.
+const MIN_RUN_ID_BYTES: usize = 8;
+const MAX_RUN_ID_BYTES: usize = 32;
+
+/// What a step says when the run id was never passed.
+///
+/// It names the flag, says why there is no default, and gives the whole sequence, because the
+/// failure surfaces in ONE of six invocations and the fix belongs to all of them.
+const MISSING_RUN_ID: &str = "\
+--//build:run_id is not set, so there is no database name to operate on.
+
+Every step of the integration lifecycle derives its disposable database from this one value.
+It has no default ON PURPOSE: a constant fallback name lets two runs against the same fixture
+share a database, and each teardown then drops the other's data.
+
+Mint one id and pass it to EVERY invocation of the sequence:
+
+    RUN_ID=$(uuidgen | tr -d - | tr 'A-Z' 'a-z' | cut -c1-8)
+
+    bazel ... --//build:run_id=$RUN_ID //rust/integration-db:sweep_stale_dbs
+    bazel ... --//build:run_id=$RUN_ID //rust/integration-db:prepare_template
+    bazel ... --//build:run_id=$RUN_ID //elixir/serviceradar_core:migrate
+    bazel ... --//build:run_id=$RUN_ID //rust/integration-db:provision_db
+    bazel ... --//build:run_id=$RUN_ID //elixir/serviceradar_core:integration_tests
+    bazel ... --//build:run_id=$RUN_ID //rust/integration-db:teardown_db";
 
 /// Extensions the schema depends on. Order matters only in that `age` must be present
 /// before any graph is created.
@@ -93,34 +131,61 @@ fn ensure_crypto_provider() {
     });
 }
 
-/// The per-run database name, derived rather than passed.
+/// The per-run database name, read from a declared build input.
 ///
-/// `GITHUB_RUN_ID` and `GITHUB_RUN_ATTEMPT` are fixed for a run, so every step computes the
-/// same name independently. Outside CI both are absent and the name falls back to a local
-/// one, which keeps the crate usable against a developer fixture.
+/// The lifecycle is six separate Bazel invocations that share no process, so each must arrive
+/// at the SAME name independently while two overlapping runs must not. That is a run
+/// correlation id, and it can only come from outside the build: the caller mints one and
+/// repeats `--//build:run_id=<id>` on every invocation. It reaches this crate as a file in
+/// runfiles rather than as ambient environment, so the name a step operates on is something
+/// the build graph declared.
+///
+/// There is deliberately no fallback. The previous code derived the name from `GITHUB_RUN_ID`
+/// and fell back to one CONSTANT when it was absent, so two concurrent runs against a shared
+/// fixture silently used the same database and each teardown dropped the other's data.
 pub fn database_name() -> Result<String> {
-    let name = match (env::var("GITHUB_RUN_ID"), env::var("GITHUB_RUN_ATTEMPT")) {
-        (Ok(run_id), Ok(attempt)) => {
-            for (label, value) in [("GITHUB_RUN_ID", &run_id), ("GITHUB_RUN_ATTEMPT", &attempt)] {
-                if value.is_empty() || !value.bytes().all(|b| b.is_ascii_digit()) {
-                    bail!("{label} must be numeric, got {value:?}");
-                }
-            }
-            format!("{DISPOSABLE_PREFIX}{run_id}_{attempt}")
-        }
-        _ => format!("{DISPOSABLE_PREFIX}local"),
+    let path = config::runfile(RUN_ID_RUNFILE)?;
+    let staged = fs::read_to_string(&path)
+        .with_context(|| format!("reading the run id staged at {}", path.display()))?;
+
+    validated_run_database_name(staged.trim())
+}
+
+/// The pure half of [`database_name`]: everything that can be wrong about a staged name.
+///
+/// Split from the runfiles read so these guards are unit-testable. They are the whole distance
+/// between a malformed flag and a `DROP DATABASE` outside the disposable namespace, which is
+/// not a thing to leave exercised only by a live run against a shared fixture.
+fn validated_run_database_name(staged: &str) -> Result<String> {
+    if staged.is_empty() {
+        bail!("{}", MISSING_RUN_ID);
+    }
+
+    // //build/run_id.bzl writes the prefix; this checks it independently. The two can drift,
+    // and this guard makes that fail loudly rather than pointing the run -- and every
+    // `DROP DATABASE` in this crate -- at a name outside the disposable namespace.
+    let Some(id) = staged.strip_prefix(DISPOSABLE_PREFIX) else {
+        bail!("run id file holds {staged:?}, which does not start with {DISPOSABLE_PREFIX:?}");
     };
 
-    if name.len() > MAX_IDENTIFIER_BYTES {
+    if !(MIN_RUN_ID_BYTES..=MAX_RUN_ID_BYTES).contains(&id.len())
+        || !id.bytes().all(|b| b.is_ascii_lowercase() || b.is_ascii_digit())
+    {
         bail!(
-            "derived database name is {} bytes, over PostgreSQL's {MAX_IDENTIFIER_BYTES}-byte \
-             limit: {name}",
-            name.len()
+            "--//build:run_id must be {MIN_RUN_ID_BYTES}..={MAX_RUN_ID_BYTES} characters of \
+             [a-z0-9], got {id:?} -- mint one with \
+             `uuidgen | tr -d - | tr 'A-Z' 'a-z' | cut -c1-{MIN_RUN_ID_BYTES}`"
         );
     }
 
-    Ok(name)
+    Ok(staged.to_string())
 }
+
+// The identifier bound is structural rather than checked at runtime: the prefix plus the
+// longest accepted id must leave room for a shard suffix inside PostgreSQL's limit. Moving
+// either constant fails the BUILD instead of silently truncating a database name -- and a
+// truncated name is two runs colliding on one database.
+const _: () = assert!(DISPOSABLE_PREFIX.len() + MAX_RUN_ID_BYTES + 8 <= MAX_IDENTIFIER_BYTES);
 
 /// The per-shard database name: [`database_name`] with a shard suffix.
 ///
@@ -154,49 +219,11 @@ pub fn shard_database_name(shard: &str) -> Result<String> {
 ///
 /// Everything except the path is preserved, so query parameters such as `sslmode` survive.
 pub fn database_url() -> Result<String> {
-    let base = env::var("SRQL_TEST_DATABASE_URL")
-        .context("SRQL_TEST_DATABASE_URL is required to derive the per-run database URL")?;
-    require_verified_tls(&base, "SRQL_TEST_DATABASE_URL")?;
+    let fixture = config::Fixture::from_env()?;
     let name = database_name()?;
-    repoint_database(&base, &name)
+    Ok(fixture.database_url(&name)?.expose().to_string())
 }
 
-/// Refuse a fixture DSN that does not demand verified TLS.
-///
-/// This used to be a property of the CREDENTIAL PIPELINE rather than of the code:
-/// `buildbuddy_setup_fixture_env.sh` rewrote `sslmode=verify-full` into whatever DSN it was
-/// handed, so the guarantee held only for callers that went through the script. A DSN that
-/// arrives straight from a secret store -- which is the whole point of storing it there --
-/// bypassed it.
-///
-/// A missing `sslmode` is not a loud failure, which is what makes it worth a hard error:
-/// tokio-postgres then defaults to `Prefer`, which PERMITS A PLAINTEXT FALLBACK, and Postgrex
-/// historically used `verify_none` even with a CA present. The fixture password crosses the
-/// network in the clear and every test still passes. Fail to connect instead.
-fn require_verified_tls(url: &str, variable: &str) -> Result<()> {
-    let sslmode = url
-        .split_once('?')
-        .map(|(_, query)| query)
-        .unwrap_or_default()
-        .split('&')
-        .find_map(|parameter| {
-            let (key, value) = parameter.split_once('=')?;
-            key.eq_ignore_ascii_case("sslmode").then_some(value)
-        });
-
-    match sslmode {
-        Some(value) if value.eq_ignore_ascii_case("verify-full") => Ok(()),
-        Some(value) => bail!(
-            "{variable} sets sslmode={value}, but the srql fixture requires sslmode=verify-full. \
-             Fix the stored secret rather than weakening this check."
-        ),
-        None => bail!(
-            "{variable} carries no sslmode, but the srql fixture requires sslmode=verify-full. \
-             Without it tokio-postgres defaults to Prefer and may fall back to plaintext. \
-             Append ?sslmode=verify-full to the stored secret."
-        ),
-    }
-}
 
 /// Remove every credential-bearing URL component before writing a database endpoint to logs.
 ///
@@ -215,24 +242,6 @@ pub fn redacted_database_url(url: &str) -> String {
     }
 }
 
-fn repoint_database(url: &str, database: &str) -> Result<String> {
-    let (scheme, rest) = url
-        .split_once("://")
-        .ok_or_else(|| anyhow!("not a URL: {url}"))?;
-
-    if !matches!(scheme, "postgres" | "postgresql" | "ecto") {
-        bail!("unexpected scheme {scheme:?}; expected postgres, postgresql or ecto");
-    }
-
-    // Split authority from path, keeping any ?query intact.
-    let (authority, tail) = match rest.find('/') {
-        Some(idx) => (&rest[..idx], &rest[idx + 1..]),
-        None => (rest, ""),
-    };
-    let query = tail.find('?').map(|idx| &tail[idx..]).unwrap_or("");
-
-    Ok(format!("{scheme}://{authority}/{database}{query}"))
-}
 
 /// Refuse to touch anything that is not a per-run database.
 pub fn assert_disposable(database: &str) -> Result<()> {
@@ -261,35 +270,14 @@ pub fn assert_disposable(database: &str) -> Result<()> {
 /// `SERVICERADAR_TEST_DATABASE_OWNER` still overrides, for a fixture that deliberately
 /// separates the owning role from the connecting one.
 pub fn database_owner() -> Result<String> {
-    match env::var("SERVICERADAR_TEST_DATABASE_OWNER") {
-        Ok(owner) if !owner.is_empty() => return Ok(owner),
-        _ => {}
-    }
-
-    let url = env::var("SRQL_TEST_DATABASE_URL")
-        .context("SRQL_TEST_DATABASE_URL is required to derive the test database owner")?;
-
-    owner_from_url(&url)
-}
-
-fn owner_from_url(url: &str) -> Result<String> {
-    let config = parse_pg_config(url, "SRQL_TEST_DATABASE_URL")?;
-
-    config.get_user().map(str::to_string).context(
-        "SRQL_TEST_DATABASE_URL must include a user: it names the role that owns the \
-         per-run test databases. Set SERVICERADAR_TEST_DATABASE_OWNER to choose a \
-         different owner explicitly.",
-    )
+    Ok(config::Fixture::from_env()?.owning_role()?.to_string())
 }
 
 /// The admin URL, which must have rights to CREATE/DROP DATABASE and install extensions.
 pub fn admin_url() -> Result<String> {
-    let url = env::var("SRQL_TEST_ADMIN_URL")
-        .or_else(|_| env::var("SERVICERADAR_TEST_ADMIN_URL"))
-        .context("SRQL_TEST_ADMIN_URL (or SERVICERADAR_TEST_ADMIN_URL) is required")?;
-    require_verified_tls(&url, "SRQL_TEST_ADMIN_URL")?;
-
-    Ok(url)
+    let fixture = config::Fixture::from_env()?;
+    let database = fixture.admin_database()?.to_string();
+    Ok(fixture.database_url(&database)?.expose().to_string())
 }
 
 /// Connect with the admin credentials, optionally overriding the database.
@@ -316,54 +304,48 @@ pub async fn connect_admin(database: Option<&str>) -> Result<(Client, JoinHandle
 /// libpq modes to `require` for this parser only. [`tls_connector_from_env`] still supplies the
 /// fixture CA, and `PGSSLSERVERNAME` preserves hostname verification for NodePort addresses.
 fn parse_pg_config(url: &str, variable: &str) -> Result<PgConfig> {
-    normalize_sslmode_for_tokio_postgres(url)
+    // No sslmode rewriting. The DSN this crate builds carries `sslmode=verify-full`, which
+    // tokio-postgres does not parse -- it understands disable/prefer/require only. Rather than
+    // translate the string down to `require` and re-establish verification elsewhere, the mode is
+    // read from the typed field and configures the connector directly; see tls_connector_for.
+    let without_sslmode = strip_sslmode(url);
+    without_sslmode
         .parse()
         .with_context(|| format!("{variable} is not a valid PostgreSQL connection string"))
 }
 
-fn normalize_sslmode_for_tokio_postgres(url: &str) -> Cow<'_, str> {
+/// Removes `sslmode` from a DSN's query string.
+///
+/// The parameter is meaningful to libpq and to this crate's own assembly, but tokio-postgres
+/// rejects the verifying values outright, and leaving it in would make the parse fail on a DSN
+/// that is otherwise correct.
+fn strip_sslmode(url: &str) -> Cow<'_, str> {
     let Some((base, query)) = url.split_once('?') else {
         return Cow::Borrowed(url);
     };
 
-    let must_normalize = query.split('&').any(|parameter| {
-        let Some((key, value)) = parameter.split_once('=') else {
-            return false;
-        };
+    let kept: Vec<&str> = query
+        .split('&')
+        .filter(|parameter| {
+            !parameter
+                .split_once('=')
+                .is_some_and(|(key, _)| key.eq_ignore_ascii_case("sslmode"))
+        })
+        .collect();
 
-        key.eq_ignore_ascii_case("sslmode")
-            && (value.eq_ignore_ascii_case("verify-ca")
-                || value.eq_ignore_ascii_case("verify-full"))
-    });
-
-    if !must_normalize {
+    if kept.len() == query.split('&').count() {
         return Cow::Borrowed(url);
     }
-
-    let normalized = query
-        .split('&')
-        .map(|parameter| {
-            let Some((key, value)) = parameter.split_once('=') else {
-                return Cow::Borrowed(parameter);
-            };
-
-            if key.eq_ignore_ascii_case("sslmode")
-                && (value.eq_ignore_ascii_case("verify-ca")
-                    || value.eq_ignore_ascii_case("verify-full"))
-            {
-                Cow::Owned(format!("{key}=require"))
-            } else {
-                Cow::Borrowed(parameter)
-            }
-        })
-        .collect::<Vec<_>>()
-        .join("&");
-
-    Cow::Owned(format!("{base}?{normalized}"))
+    if kept.is_empty() {
+        return Cow::Owned(base.to_string());
+    }
+    Cow::Owned(format!("{base}?{}", kept.join("&")))
 }
 
+
 async fn connect(config: PgConfig) -> Result<(Client, JoinHandle<()>)> {
-    match tls_connector_from_env()? {
+    let fixture = config::Fixture::from_env()?;
+    match tls_connector_for(&fixture)? {
         Some(connector) => {
             let (client, connection) = config.connect(connector).await?;
             Ok((client, spawn_connection(connection)))
@@ -402,25 +384,19 @@ where
 /// available without coupling the action to a workstation or workflow-runner path.
 ///
 /// The path form is kept as a fallback for a developer pointing at a local fixture by file.
-fn ca_pem_from_env() -> Result<Option<Vec<u8>>> {
-    if let Ok(pem) = env::var("SRQL_TEST_DATABASE_CA_CERT") {
-        if !pem.trim().is_empty() {
-            return Ok(Some(pem.into_bytes()));
-        }
+fn tls_connector_for(fixture: &config::Fixture) -> Result<Option<PgRustlsConnect>> {
+    // The typed mode decides, not a substring of a query string. `require_verified_tls` used to
+    // assert that by scanning the DSN, which held only for callers whose DSN came through the
+    // credential pipeline that rewrote it; a DSN from a secret store bypassed the check entirely.
+    let verifies = matches!(
+        fixture.tls_mode()?,
+        serviceradar_config_schema::TlsMode::VerifyCa | serviceradar_config_schema::TlsMode::VerifyFull
+    );
+    if !verifies {
+        return Ok(None);
     }
 
-    match env::var("PGSSLROOTCERT") {
-        Ok(path) if !path.is_empty() => {
-            Ok(Some(std::fs::read(&path).with_context(|| {
-                format!("failed to open PGSSLROOTCERT {path:?}")
-            })?))
-        }
-        _ => Ok(None),
-    }
-}
-
-fn tls_connector_from_env() -> Result<Option<PgRustlsConnect>> {
-    let Some(pem) = ca_pem_from_env()? else {
+    let Some(pem) = fixture.ca_pem()? else {
         return Ok(None);
     };
 
@@ -439,9 +415,12 @@ fn tls_connector_from_env() -> Result<Option<PgRustlsConnect>> {
         .with_root_certificates(root_store)
         .with_no_client_auth();
 
+    // The name verification is performed against, from the schema field that exists for it.
+    // Required under verify-full because the fixture certificate carries DNS SANs and no IP
+    // SANs, so an address-based caller must state the certificate's name.
     Ok(Some(PgRustlsConnect::new(
         config,
-        env::var("PGSSLSERVERNAME").ok(),
+        fixture.tls_server_name().map(str::to_string),
     )))
 }
 
@@ -818,22 +797,7 @@ mod tests {
         assert!(assert_disposable("postgres").is_err());
     }
 
-    #[test]
-    fn repoint_database_preserves_authority_and_query() {
-        assert_eq!(
-            repoint_database("postgres://u:p@host:5432/old?sslmode=require", "new").unwrap(),
-            "postgres://u:p@host:5432/new?sslmode=require"
-        );
-        assert_eq!(
-            repoint_database("postgresql://host/old", "new").unwrap(),
-            "postgresql://host/new"
-        );
-    }
 
-    #[test]
-    fn repoint_database_rejects_a_foreign_scheme() {
-        assert!(repoint_database("mysql://host/old", "new").is_err());
-    }
 
     #[test]
     fn redacted_database_url_hides_userinfo_and_query_credentials() {
@@ -847,21 +811,6 @@ mod tests {
         assert_eq!(
             redacted_database_url("postgres://fixture.example/db?password=query-secret"),
             "postgres://fixture.example/db"
-        );
-    }
-
-    #[test]
-    fn owner_comes_from_the_dsn_user_not_a_hardcoded_name() {
-        // The regression this guards: a fixture whose application role is not called
-        // "serviceradar" got `CREATE DATABASE ... OWNER serviceradar` and failed with
-        // `role "serviceradar" does not exist`.
-        assert_eq!(
-            owner_from_url("postgres://srql_test:pw@host:5432/db?sslmode=require").unwrap(),
-            "srql_test"
-        );
-        assert_eq!(
-            owner_from_url("postgres://serviceradar@127.0.0.1:55433/postgres").unwrap(),
-            "serviceradar"
         );
     }
 
@@ -883,51 +832,111 @@ mod tests {
         }
     }
 
+    /// The DSN shape ConfigManager emits has to survive tokio-postgres, which is exactly where
+    /// the previous one died -- before the TLS connector was ever reached.
+    ///
+    /// `tls_server_name` used to be appended as libpq's `&sslsni=1&host=<name>`. tokio-postgres
+    /// has no `sslsni` arm, so it rejected the whole connection string; and it reads a
+    /// query-string `host` as an ADDITIONAL host to dial, so even without the `sslsni` half the
+    /// verification name would have become a silent second endpoint.
     #[test]
-    fn sslmode_normalization_leaves_other_modes_and_parameters_unchanged() {
-        let require = "postgres://u:p@host/db?sslmode=require&application_name=fixture";
-        let disable = "postgres://u:p@host/db?sslmode=disable";
+    fn the_config_manager_dsn_parses_where_the_libpq_shape_did_not() {
+        const BASE: &str =
+            "postgres://srql_test:p%40ss@192.0.2.10:30818/srql_fixture?sslmode=verify-full";
 
-        assert!(matches!(
-            normalize_sslmode_for_tokio_postgres(require),
-            Cow::Borrowed(value) if value == require
-        ));
-        assert!(matches!(
-            normalize_sslmode_for_tokio_postgres(disable),
-            Cow::Borrowed(value) if value == disable
-        ));
+        let parsed = parse_pg_config(BASE, "SRQL_TEST_ADMIN_URL").expect("current shape parses");
+        assert_eq!(parsed.get_dbname(), Some("srql_fixture"));
+
+        let libpq = format!("{BASE}&sslsni=1&host=srql-fixture-local");
+        let error = parse_pg_config(&libpq, "SRQL_TEST_ADMIN_URL")
+            .expect_err("the libpq shape must not silently work");
+        let chain = format!("{error:#}");
+        assert!(chain.contains("sslsni"), "must name the rejected option: {chain}");
     }
 
+    /// A well-formed staged name survives unchanged.
     #[test]
-    fn owner_from_url_requires_a_user() {
-        // Silently defaulting is what produced a role name nothing had configured.
-        assert!(owner_from_url("postgres://host:5432/db").is_err());
-        assert!(owner_from_url("not a url").is_err());
+    fn validated_run_database_name_accepts_a_well_formed_name() {
+        let name = validated_run_database_name("sr_core_test_a1b2c3d4").unwrap();
+        assert_eq!(name, "sr_core_test_a1b2c3d4");
     }
 
+    /// The unset flag writes an EMPTY file rather than failing at analysis, so this is the
+    /// message a developer actually sees. It has to name the flag and say there is no default,
+    /// because the old code silently substituted one constant name for every run.
     #[test]
-    fn verified_tls_accepts_only_verify_full() {
-        for url in [
-            "postgres://u:p@host:5432/db?sslmode=verify-full",
-            "postgres://u:p@host:5432/db?application_name=x&sslmode=VERIFY-FULL",
+    fn validated_run_database_name_rejects_an_unset_flag_with_actionable_guidance() {
+        let error = validated_run_database_name("").unwrap_err().to_string();
+
+        assert!(error.contains("--//build:run_id"), "must name the flag: {error}");
+        assert!(error.contains("no default"), "must say there is no default: {error}");
+        assert!(error.contains("uuidgen"), "must show how to mint one: {error}");
+        // The failure surfaces in one of six invocations but the fix belongs to all of them.
+        for target in [
+            "sweep_stale_dbs",
+            "prepare_template",
+            "migrate",
+            "provision_db",
+            "integration_tests",
+            "teardown_db",
         ] {
-            assert!(require_verified_tls(url, "SRQL_TEST_DATABASE_URL").is_ok(), "{url}");
+            assert!(error.contains(target), "must list {target}: {error}");
         }
     }
 
+    /// The drift guard. //build/run_id.bzl writes the prefix and this checks it independently,
+    /// so a mismatch must fail rather than aim teardown outside the disposable namespace.
     #[test]
-    fn verified_tls_rejects_a_dsn_that_permits_plaintext() {
-        // No sslmode at all is the dangerous case: tokio-postgres defaults to Prefer, so the
-        // connection succeeds in cleartext and nothing in the suite notices.
-        for url in [
-            "postgres://u:p@host:5432/db",
-            "postgres://u:p@host:5432/db?application_name=x",
-            "postgres://u:p@host:5432/db?sslmode=prefer",
-            "postgres://u:p@host:5432/db?sslmode=require",
-            "postgres://u:p@host:5432/db?sslmode=verify-ca",
-            "postgres://u:p@host:5432/db?sslmode=disable",
-        ] {
-            assert!(require_verified_tls(url, "SRQL_TEST_DATABASE_URL").is_err(), "{url}");
+    fn validated_run_database_name_rejects_a_name_outside_the_disposable_prefix() {
+        assert!(validated_run_database_name("serviceradar").is_err());
+        assert!(validated_run_database_name("sr_core_prod_a1b2c3d4").is_err());
+        // The shared fixture itself is the name this must never let through.
+        assert!(validated_run_database_name("postgres").is_err());
+    }
+
+    /// Both bounds are inclusive, checked at the boundary rather than near it.
+    #[test]
+    fn validated_run_database_name_accepts_the_exact_length_bounds() {
+        let shortest = format!("{DISPOSABLE_PREFIX}{}", "a".repeat(MIN_RUN_ID_BYTES));
+        let longest = format!("{DISPOSABLE_PREFIX}{}", "a".repeat(MAX_RUN_ID_BYTES));
+
+        assert!(validated_run_database_name(&shortest).is_ok(), "{shortest}");
+        assert!(validated_run_database_name(&longest).is_ok(), "{longest}");
+    }
+
+    #[test]
+    fn validated_run_database_name_rejects_lengths_just_outside_the_bounds() {
+        let too_short = format!("{DISPOSABLE_PREFIX}{}", "a".repeat(MIN_RUN_ID_BYTES - 1));
+        let too_long = format!("{DISPOSABLE_PREFIX}{}", "a".repeat(MAX_RUN_ID_BYTES + 1));
+
+        assert!(validated_run_database_name(&too_short).is_err(), "{too_short}");
+        assert!(validated_run_database_name(&too_long).is_err(), "{too_long}");
+    }
+
+    /// `uuidgen` output is rejected until it has been stripped and lowercased, which is why the
+    /// error carries the exact pipeline rather than just naming the character class. An
+    /// unquoted dash or uppercase letter in an identifier is a different database, or a syntax
+    /// error, depending on where it lands.
+    #[test]
+    fn validated_run_database_name_rejects_raw_uuidgen_output() {
+        let raw = format!("{DISPOSABLE_PREFIX}A1B2C3D4-E5F6");
+        let dashed = format!("{DISPOSABLE_PREFIX}a1b2-c3d4");
+        let upper = format!("{DISPOSABLE_PREFIX}A1B2C3D4");
+
+        for candidate in [&raw, &dashed, &upper] {
+            assert!(
+                validated_run_database_name(candidate).is_err(),
+                "should reject {candidate}"
+            );
         }
+    }
+
+    /// The whole point of the change: no name is derivable without the flag, so there is no
+    /// constant two concurrent runs could both land on.
+    #[test]
+    fn no_run_database_name_exists_without_an_explicit_run_id() {
+        assert!(validated_run_database_name("").is_err());
+        assert!(validated_run_database_name(DISPOSABLE_PREFIX).is_err());
+        assert!(validated_run_database_name("sr_core_test_local").is_err());
     }
 }

@@ -6258,8 +6258,12 @@ name = "serviceradar-integration-db"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "prost",
  "rustls",
  "rustls-pemfile",
+ "serviceradar-config-manager",
+ "serviceradar-config-schema",
+ "serviceradar-secret-manager",
  "srql",
  "tokio",
  "tokio-postgres",

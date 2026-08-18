@@ -86,10 +86,22 @@ fn a_password_with_delimiters_is_encoded_not_truncated() {
     assert!(text.contains("@db:5432/"), "the host must still parse: {text}");
 }
 
-/// Required under verify-full because the certificate may carry DNS SANs and no IP SANs, so an
-/// address-based caller must state the name verification is performed against.
+/// The TLS server name must NOT reach the DSN, even under verify-full.
+///
+/// It used to, as libpq's `&sslsni=1&host=<name>`, and that broke two ways at once under
+/// tokio-postgres: `sslsni` is not in its accepted key set, so the entire connection string is
+/// rejected with `unknown option`; and a query-string `host` is parsed as an ADDITIONAL host to
+/// dial, so the name intended for certificate verification would have become a silent fallback
+/// endpoint. The name is a typed field, delivered to the TLS connector that can actually act on
+/// it -- see `tls_connector_for` in //rust/integration-db.
 #[test]
-fn the_tls_server_name_reaches_the_dsn() {
+fn the_dsn_carries_no_tls_server_name_parameters() {
     let dsn = manager_with(TlsMode::VerifyFull).database_url(PASSWORD).unwrap();
-    assert!(dsn.expose().contains("host=db"), "{}", dsn.expose());
+    let text = dsn.expose();
+
+    assert!(!text.contains("sslsni"), "sslsni is not a tokio-postgres option: {text}");
+    // The fixture sets host and tls_server_name to the same value, so `host=` can only ever
+    // match the query string -- the authority is `@db:5432`, which has no `host=`.
+    assert!(!text.contains("host="), "a query-string host is a second endpoint: {text}");
+    assert!(text.contains("sslmode=verify-full"), "the mode itself must survive: {text}");
 }

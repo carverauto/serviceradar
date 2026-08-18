@@ -74,8 +74,8 @@ database {
 
   # Verified TLS, even though this is the one kind permitted to skip it.
   #
-  # The exemption exists so a first run cannot fail on a missing CA, not because a developer
-  # SHOULD run in plaintext. The fixture above generates its own CA in one command, so the
+  # The exemption exists so a first run cannot fail on a missing CA.
+  # The fixture above generates its own CA in one command, so the
   # weaker posture buys nothing here -- and a local run that exercises a different TLS path
   # from every other environment is exactly the divergence this schema exists to remove.
   tls_mode: TLS_MODE_VERIFY_FULL

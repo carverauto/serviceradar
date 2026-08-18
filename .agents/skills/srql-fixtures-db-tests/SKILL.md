@@ -86,11 +86,11 @@ export SRQL_FIXTURE_SSLMODE=verify-full
 export PGSSLSERVERNAME=srql-fixture-rw.srql-fixtures.svc.cluster.local
 export SRQL_TEST_DATABASE_SERVER_NAME="$PGSSLSERVERNAME"
 
-run_entropy="${HOSTNAME:-workstation}-$(date +%s)-$$-${RANDOM:-0}"
-run_checksum="$(printf '%s' "$run_entropy" | cksum | awk '{print $1}')"
-export GITHUB_RUN_ID="$(date +%s)${run_checksum}"
-export GITHUB_RUN_ATTEMPT=1
-COMMON=(-c opt --//build:enable_integration_tests)
+# The run correlation id: minted ONCE and passed to every invocation below, because they are
+# separate bazel commands that share no process and must agree on one disposable database name
+# while not colliding with anyone else's run. It has no default -- see //build/run_id.bzl.
+RUN_ID="$(uuidgen | tr -d - | tr 'A-Z' 'a-z' | cut -c1-8)"
+COMMON=(-c opt --//build:enable_integration_tests "--//build:run_id=$RUN_ID")
 if [ -f .bazelrc.remote ]; then
   COMMON+=(--config=cache_only)
 fi

@@ -127,13 +127,19 @@ actions:
           export GITHUB_OUTPUT="$(mktemp "${TMPDIR:-/tmp}/sr-core-template-output.XXXXXX")"
           export SERVICERADAR_FIXTURE_ENV_FILE="$(mktemp "${TMPDIR:-/tmp}/serviceradar-fixture-env.XXXXXX")"
 
-          # BuildBuddy does not guarantee GitHub Actions run variables. Derive one numeric,
-          # per-step identity from host/process/time entropy so concurrent runners never fall
-          # back to the shared sr_core_test_local database names.
-          run_entropy="${BUILDBUDDY_INVOCATION_ID:-${HOSTNAME:-runner}}-$(date +%s)-$$-${RANDOM:-0}"
-          run_checksum="$(printf '%s' "$run_entropy" | cksum | awk '{print $1}')"
-          export GITHUB_RUN_ID="$(date +%s)${run_checksum}"
-          export GITHUB_RUN_ATTEMPT=1
+          # The run correlation id. Six separate bazel invocations below must agree on ONE
+          # disposable database name and must not collide with a concurrent runner, and they
+          # share no process -- so it is minted once here and passed to every one of them as
+          # --//build:run_id, reaching each step as a declared input rather than as ambient
+          # environment. See //build/run_id.bzl.
+          #
+          # This replaced GITHUB_RUN_ID/GITHUB_RUN_ATTEMPT, which BuildBuddy does not set: the
+          # value was already synthesised from host/process/time entropy and then laundered
+          # through `cksum` into a fake NUMERIC id, purely to satisfy a digits-only validator on
+          # a variable named after a CI vendor that was never the source. Eight hex characters
+          # are ample -- collisions only matter between runs that are live at once.
+          export RUN_ID="$(uuidgen | tr -d - | tr 'A-Z' 'a-z' | cut -c1-8)"
+          echo "run id: $RUN_ID"
           provision_attempted=0
 
           # Drop a partially or fully provisioned run even when a later command is red. Install
@@ -147,7 +153,7 @@ actions:
             credential_cleanup_status=0
             if [ "$provision_attempted" -eq 1 ]; then
               bazel test -c opt --config=ci --config=database_env --strategy=TestRunner=local \
-                --//build:enable_integration_tests --test_tag_filters= --test_output=errors \
+                --//build:enable_integration_tests --//build:run_id=$RUN_ID --test_tag_filters= --test_output=errors \
                 --nocache_test_results --remote_upload_local_results=false --flaky_test_attempts=1 \
                 //rust/integration-db:teardown_db
               teardown_status=$?
@@ -184,9 +190,6 @@ actions:
           # `set -a` around the source is required: `.` defines the variables but only exports
           # them with allexport on, and --test_env reads the ENVIRONMENT, not the shell.
           #
-          # It must be in THIS step. BuildBuddy steps do not share an environment, so a
-          # separate setup step would leave every command below reading an unset DSN.
-          #
           # The CA is always live: kubectl reads cert-manager secret srql-fixture-server-ca
           # when the runner has RBAC, otherwise GET SRQL_FIXTURE_CA_URL (this workflow
           # sets the in-cluster HTTP bundle). A stored SRQL_TEST_DATABASE_CA_CERT is
@@ -203,13 +206,13 @@ actions:
 
           # Collect databases leaked by cancelled runs, before this one adds to the fixture.
           bazel test -c opt --config=ci --config=database_env --strategy=TestRunner=local \
-            --//build:enable_integration_tests --test_tag_filters= --test_output=errors \
+            --//build:enable_integration_tests --//build:run_id=$RUN_ID --test_tag_filters= --test_output=errors \
             --nocache_test_results --remote_upload_local_results=false --flaky_test_attempts=1 \
             //rust/integration-db:sweep_stale_dbs
 
           # Creates sr_core_template if absent -- with extensions, AGE graphs and grants -- and
           # reports whether it is behind the migrations on disk.
-          bazel run -c opt --config=ci --//build:enable_integration_tests --build_tag_filters= \
+          bazel run -c opt --config=ci --//build:enable_integration_tests --//build:run_id=$RUN_ID --build_tag_filters= \
             //rust/integration-db:prepare_template
 
           # The one step that needs the BEAM, and the reason the previous one exists: on a
@@ -218,7 +221,7 @@ actions:
           # correctness requirement.
           if grep -q '^needs_migration=true$' "$GITHUB_OUTPUT"; then
             bazel test -c opt --config=ci --config=database_env --strategy=TestRunner=local \
-              --//build:enable_integration_tests --test_tag_filters= --test_output=errors \
+              --//build:enable_integration_tests --//build:run_id=$RUN_ID --test_tag_filters= --test_output=errors \
               --nocache_test_results --remote_upload_local_results=false --flaky_test_attempts=1 \
               //elixir/serviceradar_core:migrate_template
           fi
@@ -226,7 +229,7 @@ actions:
           # Clones a per-run database from the template.
           provision_attempted=1
           bazel test -c opt --config=ci --config=database_env --strategy=TestRunner=local \
-            --//build:enable_integration_tests --test_tag_filters= --test_output=errors \
+            --//build:enable_integration_tests --//build:run_id=$RUN_ID --test_tag_filters= --test_output=errors \
             --nocache_test_results --remote_upload_local_results=false --flaky_test_attempts=1 \
             //rust/integration-db:provision_db
 
@@ -237,7 +240,7 @@ actions:
           # line exits 0 having run zero integration shards and the step reads green. The named
           # calls at least fail loudly.
           bazel test -c opt --config=ci --config=database_env --strategy=TestRunner=local \
-            --//build:enable_integration_tests \
+            --//build:enable_integration_tests --//build:run_id=$RUN_ID \
             --test_tag_filters=integration_test,-acceptance_test --test_output=errors \
             --nocache_test_results --remote_upload_local_results=false --flaky_test_attempts=1 //...
 

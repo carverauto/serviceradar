@@ -320,12 +320,17 @@ retrieval calls reappears for a schema-covered variable.
 
 ### 7a. Rust — fixture lifecycle first (smallest blast radius)
 
-- [ ] `rust/integration-db/src/lib.rs` — 9 reads: `SRQL_TEST_DATABASE_URL`, `SRQL_TEST_ADMIN_URL`,
+- [x] `rust/integration-db/src/lib.rs` — 9 reads: `SRQL_TEST_DATABASE_URL`, `SRQL_TEST_ADMIN_URL`,
       `SERVICERADAR_TEST_ADMIN_URL`, `SERVICERADAR_TEST_DATABASE_OWNER`,
       `SRQL_TEST_DATABASE_CA_CERT`, `PGSSLROOTCERT`, `PGSSLSERVERNAME`, `GITHUB_RUN_ID`,
       `GITHUB_RUN_ATTEMPT`
-- [ ] Delete `owner_from_url`, `repoint_database`, `normalize_sslmode_for_tokio_postgres`
-- [ ] Delete `require_verified_tls` once TLS mode is typed end to end
+- [x] Delete `owner_from_url`, `repoint_database`, `normalize_sslmode_for_tokio_postgres`
+- [x] Delete `require_verified_tls` once TLS mode is typed end to end
+  - `GITHUB_RUN_ID` / `GITHUB_RUN_ATTEMPT` did NOT move to `ConfigManager`. They are a run
+    correlation id, which varies per RUN, not per environment, so a committed instance cannot
+    hold one. They became the Bazel flag `--//build:run_id`, materialised by `//build:run_id_file`
+    and read from runfiles by both Rust and Elixir -- one producer of the format instead of two
+    hand-synced implementations, and no constant fallback for two runs to collide on.
 - [ ] `rust/integration-db/tests/provision_db_test.rs` — `SERVICERADAR_TEST_DB_SHARDS`
 - [ ] `rust/integration-db/src/bin/prepare_template.rs` — resolves through `db::` accessors; confirm
       no ambient reads remain (note: `bazel run`, so it inherits the client environment)
@@ -343,6 +348,14 @@ retrieval calls reappears for a schema-covered variable.
 - [ ] `elixir/serviceradar_core/test/db/template_env.exs`
 - [ ] `elixir/serviceradar_core/test/serviceradar/cluster/database_bootstrap_integration_test.exs`
       — ~32 reads, the largest single call site
+- [ ] `elixir/serviceradar_core/test/test_helper.exs` and
+      `elixir/serviceradar_agent_gateway/test/test_helper.exs` — MISSING from
+      `env-var-inventory.md` §6, found by grepping the readers directly. Different shape from the
+      rest of 7b: they use `SRQL_TEST_DATABASE_URL` / `_FILE` only as a PRESENCE PROBE ("is a
+      database configured?") to decide whether to run DB tests, never to extract coordinates.
+      Post-migration the question is structural -- `SERVICERADAR_ENV` names an environment whose
+      instance either has a `database` section or does not -- so this is a small change, but it
+      must not be forgotten: the exit criterion greps for `System.get_env` on schema-covered names
 - [ ] `build/elixir_tests.bzl` — pins `SRQL_TEST_DATABASE_URL` / `SERVICERADAR_TEST_DATABASE_URL`
       and their `_FILE` variants to `""`; remove once nothing reads them
 

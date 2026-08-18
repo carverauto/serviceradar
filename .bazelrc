@@ -116,8 +116,11 @@ test:database_env --test_env=TEST_CNPG_PORT
 test:database_env --test_env=TEST_CNPG_DATABASE
 test:database_env --test_env=TEST_CNPG_USERNAME
 test:database_env --test_env=TEST_CNPG_PASSWORD
-test:database_env --test_env=GITHUB_RUN_ID
-test:database_env --test_env=GITHUB_RUN_ATTEMPT
+# The per-run database name is NOT here. It arrives as --//build:run_id and reaches every step
+# as a declared input (//build:run_id_file) rather than as ambient environment, so the six
+# invocations of one lifecycle cannot disagree about which database they own. Passing it as
+# --test_env would also have missed prepare_template, which is `bazel run` and inherited the
+# old variables from the client environment instead -- one value, two delivery mechanisms.
 # NATS URLs and key material are likewise opt-in. Database integration inherits this profile
 # because a subset of the core shards exercises the event pipeline; other NATS-facing callers
 # must select it explicitly rather than leaking credentials into the generic remote sweep.

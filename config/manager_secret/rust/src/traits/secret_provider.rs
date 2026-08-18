@@ -24,6 +24,13 @@ pub trait SecretProvider {
 /// serves every environment.
 pub const MOUNTED_SECRETS_DIR: &str = "/etc/serviceradar/secrets";
 
+/// Where a developer machine keeps its fixture credentials, relative to the home directory.
+///
+/// Home-relative rather than repository-relative because a sandboxed test action has neither the
+/// repository nor its working directory: a relative path resolves against whatever the runner
+/// chose, which is the ambient-input class this system removes. Never a deployed path.
+pub const LOCAL_SECRETS_SUBDIR: &str = ".serviceradar/secrets";
+
 /// One file per logical name, which is how Kubernetes and Docker present secrets.
 #[derive(Debug, Clone)]
 pub struct FileProvider {
@@ -38,6 +45,31 @@ impl FileProvider {
 
     pub fn mounted() -> Self {
         Self::new(MOUNTED_SECRETS_DIR, format!("file({MOUNTED_SECRETS_DIR})"))
+    }
+
+    /// The provider the environment selects.
+    ///
+    /// A component never names a provider: the same `SERVICERADAR_ENV` that chooses the
+    /// configuration chooses where credentials come from. `localhost` reads a repository-local
+    /// directory because a developer machine has no platform mounting anything into /etc, and
+    /// requiring one would make the first run fail on a path rather than on anything they did.
+    pub fn for_kind(kind: &str) -> Self {
+        match kind {
+            "localhost" => {
+                // HOME is provided by the platform, not by ServiceRadar configuration, so
+                // reading it is not the ambient dependency this system exists to remove -- it is
+                // the same class as TEST_SRCDIR. An absent HOME falls back to the deployed mount,
+                // which then fails loudly naming a path rather than silently reading nothing.
+                match std::env::var("HOME") {
+                    Ok(home) if !home.is_empty() => {
+                        let dir = format!("{home}/{LOCAL_SECRETS_SUBDIR}");
+                        Self::new(dir.clone(), format!("file({dir})"))
+                    }
+                    _ => Self::mounted(),
+                }
+            }
+            _ => Self::mounted(),
+        }
     }
 }
 

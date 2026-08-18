@@ -11,8 +11,10 @@
 //! this target at all, which is why the workflow keeps a cleanup step and
 //! `sweep_stale_dbs_test` exists.
 //!
-//! The database name is recomputed from `GITHUB_RUN_ID`/`GITHUB_RUN_ATTEMPT` rather than
-//! handed over from the provisioning step, so there is no state to lose between targets.
+//! The database name is re-read from `//build:run_id_file` rather than handed over from the
+//! provisioning step, so there is no state to lose between targets. Teardown drops databases,
+//! so it is the step that most needs that name to be a declared input rather than whatever the
+//! environment happened to hold.
 
 use serviceradar_integration_db as db;
 use tokio::runtime::Runtime;

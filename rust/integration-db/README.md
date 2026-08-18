@@ -105,7 +105,12 @@ the four failures below.
 
 This crate (`src/lib.rs`): `SRQL_TEST_DATABASE_URL`, `SRQL_TEST_ADMIN_URL`,
 `SERVICERADAR_TEST_ADMIN_URL`, `SRQL_TEST_DATABASE_CA_CERT`, `SERVICERADAR_TEST_DATABASE_OWNER`,
-`PGSSLROOTCERT`, `PGSSLSERVERNAME`, `GITHUB_RUN_ID`, `GITHUB_RUN_ATTEMPT`.
+`PGSSLROOTCERT`, `PGSSLSERVERNAME`.
+
+The per-run database name is NOT an environment variable. It is read from the declared input
+`//build:run_id_file` (staged at `build/run_id_file.txt` in runfiles), written from
+`--//build:run_id`. //elixir/serviceradar_core reads the same file, so there is one producer of
+the format rather than two implementations kept in step by hand.
 
 `elixir/serviceradar_core/config/test.exs` resolves the Repo. Order that matters:
 
