@@ -206,6 +206,23 @@ put_manifest_tag() {
     "https://${REGISTRY_HOST}/v2/${repo_path}/manifests/${tag}" >/dev/null
 }
 
+legacy_signature_tag_exists() {
+  local repo_path="$1"
+  local tag="$2"
+  local token status
+  token="$(fetch_registry_token "${repo_path}" "pull")"
+  [[ -n "${token}" && "${token}" != "null" ]] || return 1
+  status="$(
+    curl -sS -o /dev/null \
+      -H "Authorization: Bearer ${token}" \
+      -H 'Accept: application/vnd.oci.image.manifest.v1+json' \
+      -H 'Accept: application/vnd.docker.distribution.manifest.v2+json' \
+      -I "https://${REGISTRY_HOST}/v2/${repo_path}/manifests/${tag}" \
+      -w '%{http_code}' || true
+  )"
+  [[ "${status}" == "200" ]]
+}
+
 extract_detached_signature() {
   local signature_file="$1"
   local stdout_file="$2"
@@ -249,6 +266,13 @@ attach_legacy_signature() {
 
   signature_ref="$(cosign triangulate "${ref}")"
   signature_tag="${signature_ref##*:}"
+
+  # Classic cosign tags are content-addressed by digest. Harbor immutability
+  # rejects overwriting them on a release retry.
+  if legacy_signature_tag_exists "${repo_path}" "${signature_tag}"; then
+    echo "legacy cosign signature tag ${repo}:${signature_tag} already present; skipping re-push"
+    return 0
+  fi
 
   payload_file="$(mktemp)"
   signature_file="$(mktemp)"

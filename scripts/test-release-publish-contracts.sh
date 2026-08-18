@@ -379,11 +379,15 @@ for fragment in (
         raise SystemExit(f"Helm publication is missing protected contract: {fragment}")
 if "\n          OCI_USERNAME:" in chart_step or "\n          OCI_TOKEN:" in chart_step:
     raise SystemExit("Helm publication still consumes general image-publisher credentials")
+if "run-helm.sh" not in chart_step:
+    raise SystemExit("Helm publication does not use run-helm.sh")
+if 'helm_runner}" package' not in chart_step or 'helm_runner}" push' not in chart_step:
+    raise SystemExit("Helm publication must invoke the daemonless helm runner for package and push")
 if not (
     chart_step.index("validate-release-metadata.sh")
     < chart_step.index("check-oci-chart-version-available.sh")
-    < chart_step.index("run-helm.sh package")
-    < chart_step.index("run-helm.sh push")
+    < chart_step.index('helm_runner}" package')
+    < chart_step.index('helm_runner}" push')
 ):
     raise SystemExit("Helm publication guards must run immediately before package and push")
 
@@ -398,6 +402,8 @@ checkout_step = workflow[
 for fragment in (
     'cp scripts/sign-oci-publish.sh "${RUNNER_TEMP}/sign-oci-publish.sh"',
     'chmod +x "${RUNNER_TEMP}/sign-oci-publish.sh"',
+    'cp scripts/install-download-integrity.sh "${RUNNER_TEMP}/install-download-integrity.sh"',
+    'cp scripts/run-helm.sh "${RUNNER_TEMP}/run-helm.sh"',
 ):
     if fragment not in checkout_step:
         raise SystemExit(f"release retry does not preserve the protected signer: {fragment}")
@@ -606,6 +612,55 @@ if 'releases?per_page=100' not in upload_release_asset:
     raise SystemExit("release asset upload helper cannot resolve draft releases")
 if '/releases/${1}' not in upload_release_asset:
     raise SystemExit("release asset upload helper does not fetch the full release before replacement")
+
+repo_root = Path(sys.argv[1]).resolve().parents[2]
+for worker_name, script_path in (
+    ("native add-on", repo_root / "build/native_addons/publish_addon.sh"),
+    ("Wasm plugin", repo_root / "build/wasm_plugins/publish_plugin.sh"),
+):
+    script = script_path.read_text()
+    for fragment in (
+        'if [[ -n "${extra_tag}" && "${tag}" == "${extra_tag}" ]]',
+        "grep -Eiq 'immutable|already exists|precondition'",
+        "already immutable; leaving the existing artifact.",
+    ):
+        if fragment not in script:
+            raise SystemExit(
+                f"{worker_name} publisher cannot recover an immutable Harbor extra tag: {fragment}"
+            )
+for worker_name, script_path in (
+    ("native add-on", repo_root / "scripts/sign-native-addon-publish.sh"),
+    ("Wasm plugin", repo_root / "scripts/sign-wasm-plugin-publish.sh"),
+    ("OCI image", repo_root / "scripts/sign-oci-publish.sh"),
+):
+    script = script_path.read_text()
+    if "legacy_signature_tag_exists" not in script:
+        raise SystemExit(
+            f"{worker_name} signer cannot skip an existing immutable cosign signature tag"
+        )
+
+install_skopeo = (repo_root / "scripts/install-skopeo.sh").read_text()
+if "docker create" in install_skopeo or "docker cp" in install_skopeo:
+    raise SystemExit("install-skopeo still requires a docker daemon")
+if "export --platform" not in install_skopeo or "install_crane" not in install_skopeo:
+    raise SystemExit("install-skopeo does not extract skopeo via crane")
+
+run_helm = (repo_root / "scripts/run-helm.sh").read_text()
+if "docker is required" in run_helm or "docker run" in run_helm:
+    raise SystemExit("run-helm.sh still requires a docker daemon")
+if "get.helm.sh" not in run_helm:
+    raise SystemExit("run-helm.sh does not install a native helm binary")
+
+for workflow_name, workflow_text in (
+    ("release", workflow),
+    ("native add-on", native_addons_workflow),
+    ("Wasm plugin", wasm_plugins_workflow),
+    ("image security", image_security_workflow),
+):
+    if "docker login" in workflow_text or "docker manifest inspect" in workflow_text:
+        raise SystemExit(
+            f"{workflow_name} publisher still talks to dockerd on ARC"
+        )
 
 ancestry_lines = [line for line in cut_release.splitlines() if "git merge-base --is-ancestor" in line]
 if len(ancestry_lines) != 1:

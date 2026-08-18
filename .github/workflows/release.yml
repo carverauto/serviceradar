@@ -260,6 +260,18 @@ jobs:
             chmod +x "${RUNNER_TEMP}/sign-oci-publish.sh"
           fi
 
+          if [[ -x scripts/install-skopeo.sh ]]; then
+            cp scripts/install-skopeo.sh "${RUNNER_TEMP}/install-skopeo.sh"
+            chmod +x "${RUNNER_TEMP}/install-skopeo.sh"
+          fi
+          if [[ -f scripts/install-download-integrity.sh ]]; then
+            cp scripts/install-download-integrity.sh "${RUNNER_TEMP}/install-download-integrity.sh"
+          fi
+          if [[ -x scripts/run-helm.sh ]]; then
+            cp scripts/run-helm.sh "${RUNNER_TEMP}/run-helm.sh"
+            chmod +x "${RUNNER_TEMP}/run-helm.sh"
+          fi
+
           git checkout --detach "${RELEASE_COMMIT}"
           echo "Checked out release commit ${RELEASE_COMMIT}"
 
@@ -315,7 +327,8 @@ jobs:
             if [[ -z "${user}" || -z "${token}" ]]; then
               return 1
             fi
-            echo "${token}" | docker login "${OCI_REGISTRY}" -u "${user}" --password-stdin
+            # oras writes the docker config without talking to dockerd.
+            echo "${token}" | oras login "${OCI_REGISTRY}" -u "${user}" --password-stdin
           }
 
           if [[ -z "${OCI_USERNAME:-}" || -z "${OCI_TOKEN:-}" ]]; then
@@ -378,7 +391,11 @@ jobs:
           fi
 
           if ! command -v skopeo >/dev/null 2>&1; then
-            ./scripts/install-skopeo.sh
+            skopeo_installer="./scripts/install-skopeo.sh"
+            if [[ -x "${RUNNER_TEMP}/install-skopeo.sh" ]]; then
+              skopeo_installer="${RUNNER_TEMP}/install-skopeo.sh"
+            fi
+            "${skopeo_installer}"
             export PATH="${RUNNER_TEMP:-${HOME}/.local}/bin:${PATH}"
           fi
 
@@ -459,13 +476,18 @@ jobs:
           mkdir -p "${HELM_STATE_DIR}"
           trap 'rm -rf "${HELM_STATE_DIR}"' EXIT
 
+          helm_runner="./scripts/run-helm.sh"
+          if [[ -x "${RUNNER_TEMP}/run-helm.sh" ]]; then
+            helm_runner="${RUNNER_TEMP}/run-helm.sh"
+          fi
+
           login_registry() {
             local user="${1:-}"
             local token="${2:-}"
             if [[ -z "${user}" || -z "${token}" ]]; then
               return 1
             fi
-            echo "${token}" | ./scripts/run-helm.sh registry login "${OCI_REGISTRY}" -u "${user}" --password-stdin
+            echo "${token}" | "${helm_runner}" registry login "${OCI_REGISTRY}" -u "${user}" --password-stdin
           }
 
           if [[ -z "${CHART_OCI_USERNAME:-}" || -z "${CHART_OCI_TOKEN:-}" ]]; then
@@ -476,11 +498,12 @@ jobs:
           login_registry "${CHART_OCI_USERNAME}" "${CHART_OCI_TOKEN}"
 
           ./scripts/validate-release-metadata.sh "${RELEASE_TAG}" "${RELEASE_COMMIT}" >/dev/null
-          ./scripts/check-oci-chart-version-available.sh "${VERSION}"
+          SERVICERADAR_HELM_RUNNER="${helm_runner}" \
+            ./scripts/check-oci-chart-version-available.sh "${VERSION}"
 
           # Package and push chart
-          ./scripts/run-helm.sh package helm/serviceradar
-          ./scripts/run-helm.sh push "serviceradar-${VERSION}.tgz" "oci://${OCI_REGISTRY}/${OCI_CHART_REPOSITORY}"
+          "${helm_runner}" package helm/serviceradar
+          "${helm_runner}" push "serviceradar-${VERSION}.tgz" "oci://${OCI_REGISTRY}/${OCI_CHART_REPOSITORY}"
 
           # Cleanup
           rm -f "serviceradar-${VERSION}.tgz"

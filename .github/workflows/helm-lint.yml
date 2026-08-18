@@ -53,9 +53,7 @@ jobs:
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
 
-      # ARC runners have no docker.sock. run-helm.sh is the Forgejo wrapper
-      # that execs alpine/helm via --volumes-from $HOSTNAME. Install the
-      # binary here instead.
+      # ARC runners have no docker.sock. Install a native helm binary.
       - name: Install Helm
         run: |
           set -euo pipefail
