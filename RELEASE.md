@@ -1,14 +1,14 @@
 # Publishing ServiceRadar Releases with Bazel
 
-This guide explains how to publish a ServiceRadar release from Bazel, including pushing container images and Helm charts to Harbor and uploading Debian/RPM packages to the Forgejo release for the tagged version. The workflow is fully hermetic: Bazel builds every artifact and the publish steps reuse the generated outputs directly from the runfiles tree.
+This guide explains how to publish a ServiceRadar release from Bazel, including pushing container images and Helm charts to Harbor and uploading Debian/RPM packages to the GitHub release for the tagged version. The workflow is fully hermetic: Bazel builds every artifact and the publish steps reuse the generated outputs directly from the runfiles tree.
 
-## Forgejo Actions workflow
+## GitHub Actions workflow
 
-Tags that follow the `v*` convention automatically trigger `.forgejo/workflows/release.yml`. The job:
+Tags that follow the `v*` convention automatically trigger `.github/workflows/release.yml`. The job:
 
 - Ensures the tag matches the `VERSION` file and extracts the matching entry from `CHANGELOG` via `scripts/extract-changelog.py` (falling back to a default note when absent).
-- Runs `bazel run -c opt --config=ci --stamp //build/release:publish_packages` so that Bazel builds and uploads every Debian/RPM asset to the Forgejo release.
-- Verifies the resulting release with the Forgejo API and fails if no `.deb` or `.rpm` assets are present.
+- Runs `bazel run -c opt --config=ci --stamp //build/release:publish_packages` so that Bazel builds and uploads every Debian/RPM asset to the GitHub release.
+- Verifies the resulting release with the GitHub API and fails if no `.deb` or `.rpm` assets are present.
 - Normalises the uploaded asset names to include the release version (for example `serviceradar-core_1.0.53-pre14_amd64.deb`).
 
 Use `workflow_dispatch` to re-run or dry-run the pipeline with alternative options (draft releases, appending notes, skipping asset overwrites, etc.).
@@ -26,7 +26,7 @@ The script validates that `CHANGELOG` already contains a section for the version
 ## Prerequisites
 
 - `bazel`/Bazelisk configured for this repository.
-- A Forgejo personal access token with release write scope. Export it as `FORGEJO_TOKEN` (or `GITEA_TOKEN`) in the environment that will run the publish step.
+- A GitHub token with release write scope. Export it as `GITHUB_TOKEN` (or `GH_TOKEN`) in the environment that will run the publish step.
 - Harbor robot credentials (see `docs/GHCR_PUBLISHING.md`) when pushing containers.
 
 > **Tip:** Use `--stamp` on publish commands so Bazel injects the `STABLE_COMMIT_SHA` from `scripts/workspace_status.sh`.
@@ -149,8 +149,10 @@ environment before invoking the manual target:
   `buildbuddy_setup_docker_auth.sh`)
 - `FORGEJO_TOKEN`
 - `BUILDBUDDY_API_KEY` (or `BUILDBUDDY_ORG_API_KEY`) – required so Bazel's `--config=ci` can authenticate to BuildBuddy inside the workflow.
-- `PLUGIN_UPLOAD_SIGNING_PRIVATE_KEY` and `PLUGIN_UPLOAD_SIGNING_KEY_ID` – required for a live
-  Wasm plugin publish; they are not required when `PUSH_DRY_RUN=1`.
+- `PLUGIN_UPLOAD_SIGNING_KEY_ID` plus either an OpenBao Transit session
+  (`VAULT_ADDR`/`VAULT_TOKEN` and `PLUGIN_UPLOAD_SIGNING_TRANSIT_KEY=plugin-upload-signing`)
+  or the legacy `PLUGIN_UPLOAD_SIGNING_PRIVATE_KEY` – required for a live Wasm
+  plugin publish; they are not required when `PUSH_DRY_RUN=1`. Prefer Transit.
 
 With those variables present, the command authenticates to Harbor, pushes the images, and
 publishes the Debian/RPM assets to the matching release target.

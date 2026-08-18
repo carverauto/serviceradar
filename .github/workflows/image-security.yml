@@ -20,14 +20,13 @@ permissions:
 
 jobs:
   image-security:
-    runs-on: ubuntu24
+    runs-on: arc-runner-set
     env:
       OCI_REGISTRY: registry.carverauto.dev
       OCI_USERNAME: ${{ secrets.HARBOR_ROBOT_USERNAME }}
       OCI_TOKEN: ${{ secrets.HARBOR_ROBOT_SECRET }}
-      FORGEJO_URL: http://forgejo-http.forgejo.svc.cluster.local:3000
-      FORGEJO_REPOSITORY: carverauto/serviceradar
-      FORGEJO_TOKEN: ${{ secrets.FORGEJO_TOKEN }}
+      GH_TOKEN: ${{ github.token }}
+      GITHUB_TOKEN: ${{ github.token }}
     steps:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
@@ -127,18 +126,18 @@ jobs:
           RELEASE_TAG: ${{ steps.release.outputs.tag }}
         run: |
           set -euo pipefail
-          api_url="${FORGEJO_URL}/api/v1/repos/${FORGEJO_REPOSITORY}/releases/tags/${RELEASE_TAG}"
-          releases_url="${FORGEJO_URL}/api/v1/repos/${FORGEJO_REPOSITORY}/releases?draft=true&limit=100"
+          api_url="https://api.github.com/repos/${GITHUB_REPOSITORY}/releases/tags/${RELEASE_TAG}"
+          releases_url="https://api.github.com/repos/${GITHUB_REPOSITORY}/releases?per_page=100"
           release_exists() {
             if curl -fsS --connect-timeout 5 --max-time 10 \
-              -H "Accept: application/json" \
-              -H "Authorization: token ${FORGEJO_TOKEN}" \
+              -H "Accept: application/vnd.github+json" \
+              -H "Authorization: Bearer ${GITHUB_TOKEN}" \
               "${api_url}" >/dev/null 2>&1; then
               return 0
             fi
             curl -fsS --connect-timeout 5 --max-time 10 \
-              -H "Accept: application/json" \
-              -H "Authorization: token ${FORGEJO_TOKEN}" \
+              -H "Accept: application/vnd.github+json" \
+              -H "Authorization: Bearer ${GITHUB_TOKEN}" \
               "${releases_url}" 2>/dev/null \
               | jq -e --arg tag "${RELEASE_TAG}" 'any(.[]; .tag_name == $tag)' >/dev/null
           }

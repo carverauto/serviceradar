@@ -7,7 +7,7 @@ else
   repo_root="$(git rev-parse --show-toplevel)"
 fi
 
-workflow="${repo_root}/.forgejo/workflows/external-wasm-plugin.yml"
+workflow="${repo_root}/.github/workflows/external-wasm-plugin.yml"
 
 if ! command -v jq >/dev/null 2>&1 && [[ -n "${TEST_SRCDIR:-}" ]]; then
   case "$(uname -m)" in
@@ -40,7 +40,6 @@ required = [
     "git -C \"${plugin_root}\" merge-base --is-ancestor",
     "runs-on: serviceradar-signing",
     "environment: release",
-    "enable-openid-connect: true",
     "OPENBAO_SIGNING_ALLOWED_REFS_REGEX: '^refs/heads/(staging|main)$'",
     "PLUGIN_UPLOAD_SIGNING_PRIVATE_KEY: ${{ secrets.PLUGIN_UPLOAD_SIGNING_PRIVATE_KEY }}",
     "--commit-sha \"${SOURCE_COMMIT}\"",
@@ -50,8 +49,8 @@ required = [
     "generate-wasm-plugin-import-index.sh",
     "publish-external-wasm-plugin-release.sh",
     "for resource_dir in docs display schemas",
-    "token: ${{ secrets.EXTERNAL_PLUGIN_FORGEJO_READ_TOKEN }}",
-    "EXTERNAL_PLUGIN_FORGEJO_PUBLISH_TOKEN: ${{ secrets.EXTERNAL_PLUGIN_FORGEJO_PUBLISH_TOKEN }}",
+    "token: ${{ secrets.EXTERNAL_PLUGIN_GITHUB_READ_TOKEN || github.token }}",
+    "EXTERNAL_PLUGIN_GITHUB_PUBLISH_TOKEN: ${{ secrets.EXTERNAL_PLUGIN_GITHUB_PUBLISH_TOKEN }}",
 ]
 for fragment in required:
     if fragment not in workflow:
@@ -62,10 +61,10 @@ publish_job = workflow[workflow.index("  publish:"):]
 if (
     "PLUGIN_UPLOAD_SIGNING_PRIVATE_KEY" in build_job
     or "COSIGN_KEY_REF" in build_job
-    or "EXTERNAL_PLUGIN_FORGEJO_PUBLISH_TOKEN" in build_job
+    or "EXTERNAL_PLUGIN_GITHUB_PUBLISH_TOKEN" in build_job
 ):
     raise SystemExit("unprivileged external build job receives signing material")
-if "EXTERNAL_PLUGIN_FORGEJO_READ_TOKEN" in publish_job:
+if "EXTERNAL_PLUGIN_GITHUB_READ_TOKEN" in publish_job:
     raise SystemExit("protected publisher receives the checkout-only token")
 if "go test" in build_job or "make " in build_job or "/external-plugin/scripts/" in build_job:
     raise SystemExit("trusted build job executes code or scripts from the external repository")

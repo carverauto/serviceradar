@@ -20,19 +20,15 @@ concurrency:
   cancel-in-progress: false
 
 permissions:
-  contents: read
+  contents: write
   id-token: write
 
 jobs:
   publish:
     runs-on: serviceradar-signing
-    container:
-      image: registry.carverauto.dev/serviceradar/forgejo-ci@sha256:4da98b050cbbbc66e6c823977a80a7b67db51a610e48c28fc2e066c1bb164a79
-      options: --user 1000:1000 --group-add 2375 --volume /var/run/secrets/kubernetes.io/serviceaccount/token:/var/run/secrets/kubernetes.io/serviceaccount/token:ro
-    enable-openid-connect: true
     environment: release
     env:
-      BUILDBUDDY_ORG_API_KEY: ${{ secrets.BUILDBUDDY_ORG_API_KEY }}
+      BUILDBUDDY_ORG_API_KEY: ${{ secrets.BUILDBUDDY_ORG_API_KEY || secrets.BUILDBUDDY_API_KEY }}
       OCI_REGISTRY: registry.carverauto.dev
       OCI_PROJECT: serviceradar
       OCI_USERNAME: ${{ secrets.HARBOR_ROBOT_USERNAME }}
@@ -178,7 +174,7 @@ jobs:
         env:
           EXTRA_TAG: ${{ steps.release.outputs.tag }}
           OPENBAO_ADDR: https://openbao-active.openbao-system.svc.cluster.local:8200
-          OPENBAO_K8S_ROLE: forgejo-signing-runner
+          OPENBAO_K8S_ROLE: github-signing-runner
           OPENBAO_SIGNING_ALLOWED_REFS_REGEX: '^refs/heads/staging$'
           COSIGN_KEY_REF: hashivault://cosign-release
         run: |
