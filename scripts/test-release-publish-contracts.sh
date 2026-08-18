@@ -440,6 +440,13 @@ for fragment in (
 ):
     if fragment not in publish_images_step:
         raise SystemExit(f"release retry is missing registry-digest signing contract: {fragment}")
+packages_step = workflow[
+    workflow.index("- name: Publish release packages and agent manifest assets"):
+    workflow.index("- name: Verify uploaded release assets via GitHub API")
+]
+if 'git checkout --detach "${workflow_commit}"' not in packages_step:
+    raise SystemExit("package publish must rebuild publish_packages from the workflow ref")
+
 if publish_images_step.count('SERVICERADAR_REPO_ROOT="${PWD}"') < 2:
     raise SystemExit("release retry must pass SERVICERADAR_REPO_ROOT to both sign and verify")
 # Config-agnostic on purpose. This used to name `--config=remote_push`, a config that has

@@ -565,6 +565,14 @@ jobs:
             exit 1
           fi
 
+          # Detach earlier selected the immutable tag tree for image/package
+          # bits. publish_packages.go must come from the workflow ref so a
+          # retry-safety fix can land without moving v1.4.35 (and forcing a
+          # second //:push). ^{commit} peels annotated tag objects.
+          workflow_commit="$(git rev-parse --verify "${GITHUB_SHA}^{commit}")"
+          git checkout --detach "${workflow_commit}"
+          echo "Checked out workflow commit ${workflow_commit} for publish_packages"
+
           declare -a args
           args+=("--tag" "$RELEASE_TAG")
           args+=("--commit" "${{ steps.release.outputs.commit }}")

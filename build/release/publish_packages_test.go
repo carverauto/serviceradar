@@ -212,3 +212,71 @@ func TestUploadAssetUsesForgejoMultipartAttachment(t *testing.T) {
 		t.Fatalf("uploadAsset() error = %v", err)
 	}
 }
+
+func TestEnsureReleaseDoesNotPatchTargetCommitish(t *testing.T) {
+	var patchBody []byte
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodGet && strings.Contains(r.URL.Path, "/releases/tags/"):
+			w.WriteHeader(http.StatusNotFound)
+			_, _ = w.Write([]byte(`{"message":"Not Found"}`))
+		case r.Method == http.MethodGet && strings.HasSuffix(r.URL.Path, "/releases"):
+			_ = json.NewEncoder(w).Encode([]release{{
+				ID:              42,
+				TagName:         "v1.4.35",
+				Name:            "ServiceRadar v1.4.35",
+				Draft:           true,
+				Prerelease:      true,
+				TargetCommitish: "staging",
+				UploadURL:       "https://example.test/assets",
+			}})
+		case r.Method == http.MethodPatch:
+			body, err := io.ReadAll(r.Body)
+			if err != nil {
+				t.Errorf("ReadAll(patch) error = %v", err)
+			}
+			patchBody = body
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write(body)
+		default:
+			t.Errorf("unexpected %s %s", r.Method, r.URL.Path)
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	t.Cleanup(server.Close)
+
+	client := &githubClient{
+		token:   "test-token",
+		http:    server.Client(),
+		baseURL: "https://api.github.com",
+		repo:    "carverauto/serviceradar",
+	}
+	client.baseURL = server.URL
+
+	rel, created, err := ensureRelease(client, ensureReleaseArgs{
+		tag:        "v1.4.35",
+		name:       "ServiceRadar v1.4.35",
+		commit:     "29c9c2b25813b042b074f54f4951d33801317869",
+		notes:      "updated notes",
+		draft:      true,
+		prerelease: false,
+	})
+	if err != nil {
+		t.Fatalf("ensureRelease() error = %v", err)
+	}
+	if created {
+		t.Fatal("ensureRelease() created a release, want update of existing draft")
+	}
+	if rel == nil || rel.ID != 42 && rel.TagName != "v1.4.35" {
+		// updateRelease decodes the patch body, which has no id; tag is enough.
+		if rel == nil || rel.TagName != "v1.4.35" {
+			t.Fatalf("ensureRelease() release = %+v", rel)
+		}
+	}
+	if len(patchBody) == 0 {
+		t.Fatal("expected a PATCH body")
+	}
+	if strings.Contains(string(patchBody), "target_commitish") {
+		t.Fatalf("PATCH must omit target_commitish when the git tag exists; body=%s", patchBody)
+	}
+}

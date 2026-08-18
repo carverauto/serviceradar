@@ -659,20 +659,22 @@ func ensureRelease(client *githubClient, args ensureReleaseArgs) (*release, bool
 		}
 	}
 
+	// Do not PATCH target_commitish. GitHub integration tokens 403 when the
+	// git tag already exists and the payload tries to retarget it (the
+	// annotated-tag SHA / branch-name mismatch is enough). Unused by GitHub
+	// anyway once the tag is present. Finalize owns draft/prerelease flips.
 	needUpdate := (args.name != "" && args.name != existing.Name) ||
-		(args.commit != "" && !strings.EqualFold(args.commit, existing.TargetCommitish)) ||
 		(args.notes != "" && desiredBody != existing.Body) ||
 		existing.Draft != args.draft ||
 		existing.Prerelease != args.prerelease
 
 	if needUpdate {
 		updated, err := client.updateRelease(existing.ID, releaseRequest{
-			TagName:         args.tag,
-			TargetCommitish: args.commit,
-			Name:            args.name,
-			Body:            desiredBody,
-			Draft:           boolPtr(args.draft),
-			Prerelease:      boolPtr(args.prerelease),
+			TagName:    args.tag,
+			Name:       args.name,
+			Body:       desiredBody,
+			Draft:      boolPtr(args.draft),
+			Prerelease: boolPtr(args.prerelease),
 		})
 		if err != nil {
 			return nil, false, err
