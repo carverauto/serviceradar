@@ -318,6 +318,17 @@ file's own language. The list is the complete set of readers measured in
 **Exit criterion for the whole phase:** an automated check fails the build if any of these
 retrieval calls reappears for a schema-covered variable.
 
+**Measured scope, Elixir (`elixir-inventory.md`).** That exit criterion covers 58 of the 676
+distinct environment names Elixir reads, across 127 of 1173 read sites. The remaining 545 names
+have no schema field yet, 91 read sites compute the variable name at runtime and are invisible to
+any grep-based gate, and 301 names are supplied by Helm -- so 7b/7c as written
+below are a real but partial step, and "zero environment reads" needs the plan in
+`elixir-inventory.md` section 7 on top of them. Read that document before starting 7b: it also
+lists 63 usage-proven alias pairs to collapse first (which is a pure Elixir edit), and the
+partitioning the config managers need so one config change does not invalidate every target.
+Section 3.1 is the argument for the whole change: 350 names are set by nothing in this
+repository, and when absent, six raise while 340 silently change behaviour.
+
 ### 7a. Rust — fixture lifecycle first (smallest blast radius)
 
 - [x] `rust/integration-db/src/lib.rs` — 9 reads: `SRQL_TEST_DATABASE_URL`, `SRQL_TEST_ADMIN_URL`,
@@ -385,6 +396,23 @@ retrieval calls reappears for a schema-covered variable.
 - [ ] `elixir/serviceradar_agent_gateway/config/runtime.exs` — `NATS_URL`
 
 ### 7d. Go
+
+**Measured scope (`go-inventory.md`).** 246 read sites, 173 distinct names -- about a quarter
+of the Elixir surface. 77 of those names are read only by `build/`, `tools/` and `_test.go`
+files and must NOT acquire schema fields, leaving 91 names in shipped services, 11 of them
+credentials. Three findings change this list:
+
+- [ ] **Delete `EnvConfigLoader`** (`go/pkg/config/env_loader.go` plus the `configSourceEnv`
+      branch in `go/pkg/config/config.go`). It derives env names from JSON struct tags by
+      reflection and accepts a whole config document through `SERVICERADAR_CONFIG_JSON`, so
+      no scan can enumerate it. Every chart already sets `CONFIG_SOURCE=file`; it is dead in
+      deployment and live in code.
+- [ ] **Rename `NATS_CREDSFILE` to `NATS_CREDS_FILE`** in `go/pkg/k8sinventory/config.go:81`
+      and `go/pkg/trivysidecar/config.go:63`. Nothing sets the no-underscore spelling; Helm
+      and Elixir both use `NATS_CREDS_FILE`. Not an outage today (both workloads use mTLS and
+      set no creds file at all), but the value cannot be supplied from the chart as written.
+- [ ] **Require `os.LookupEnv` in the gate.** Zero of the 169 literal-name reads use it, so no
+      Go code can currently distinguish an unset variable from an empty one.
 
 - [ ] `go/pkg/k8sinventory/config.go:82-85` — `NATS_CACERTFILE`, `NATS_CERTFILE`, `NATS_KEYFILE`,
       `NATS_SERVER_NAME`
