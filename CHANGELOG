@@ -30,11 +30,14 @@ Forgejo.
   hermetically in Bazel. The native add-on version gate no longer
   requires a MODULE.bazel.lock hash that rules_rs cannot satisfy. (PR
   #5002)
-- CI: lint and check workflows run on GitHub ARC. SRQL fixture TLS is
-  issued with cert-manager and a live CA. Bootstrap scratch DROP
-  cancellation no longer fails core s7. The cache-proxy config test now
-  ships the GitHub integration workflow in its runfiles. (PRs #5010,
-  #3768, #5005)
+- CI: lint and check workflows run on GitHub ARC. Publish/sign workflows
+  (release, Wasm, native add-ons, OCI, security bundles) now run on
+  GitHub ARC `serviceradar-signing` and publish catalogs to GitHub
+  Releases. SRQL fixture TLS is issued with cert-manager and a live CA.
+  Bootstrap scratch DROP cancellation no longer fails core s7. The
+  cache-proxy config test now ships the GitHub integration workflow in
+  its runfiles and matches BuildBuddy's `//...` SRQL selection.
+  (PRs #5010, #3768, #5005, #3772)
 - Plugins: Settings first-party Wasm plugin and native add-on import
   now reads GitHub Releases (`github.com/carverauto/serviceradar`) plus
   Harbor OCI, not Forgejo. `ForgejoOciClient` is gone; the shared

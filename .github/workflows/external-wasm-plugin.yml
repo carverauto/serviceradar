@@ -18,11 +18,11 @@ concurrency:
   cancel-in-progress: false
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   build:
-    runs-on: ubuntu24
+    runs-on: arc-runner-set
     timeout-minutes: 30
     outputs:
       source_commit: ${{ steps.source.outputs.commit }}
@@ -62,7 +62,7 @@ jobs:
           path: external-plugin
           fetch-depth: 0
           persist-credentials: false
-          token: ${{ secrets.EXTERNAL_PLUGIN_FORGEJO_READ_TOKEN }}
+          token: ${{ secrets.EXTERNAL_PLUGIN_GITHUB_READ_TOKEN || github.token }}
 
       - name: Verify external source provenance
         id: source
@@ -212,12 +212,8 @@ jobs:
     runs-on: serviceradar-signing
     timeout-minutes: 45
     permissions:
-      contents: read
+      contents: write
       id-token: write
-    container:
-      image: registry.carverauto.dev/serviceradar/forgejo-ci@sha256:4da98b050cbbbc66e6c823977a80a7b67db51a610e48c28fc2e066c1bb164a79
-      options: --user 1000:1000 --group-add 2375 --volume /var/run/secrets/kubernetes.io/serviceaccount/token:/var/run/secrets/kubernetes.io/serviceaccount/token:ro
-    enable-openid-connect: true
     environment: release
     env:
       OCI_REGISTRY: registry.carverauto.dev
@@ -319,7 +315,7 @@ jobs:
           SOURCE_COMMITTED_AT: ${{ needs.build.outputs.source_committed_at }}
           UPLOAD_SIGNATURE_TOOL: ${{ steps.signature_tool.outputs.path }}
           OPENBAO_ADDR: https://openbao-active.openbao-system.svc.cluster.local:8200
-          OPENBAO_K8S_ROLE: forgejo-signing-runner
+          OPENBAO_K8S_ROLE: github-signing-runner
           OPENBAO_SIGNING_ALLOWED_REFS_REGEX: '^refs/heads/(staging|main)$'
           COSIGN_KEY_REF: hashivault://cosign-release
         run: |
@@ -347,13 +343,13 @@ jobs:
             ./scripts/generate-wasm-plugin-import-index.sh "${PLUGIN_TAG}"
           unset VAULT_TOKEN VAULT_ADDR COSIGN_KEY_REF
 
-      - name: Publish verified index to external Forgejo release
+      - name: Publish verified index to external GitHub release
         env:
           PLUGIN_REPOSITORY: ${{ github.event.inputs.plugin_repository }}
           PLUGIN_TAG: ${{ github.event.inputs.plugin_tag }}
-          EXTERNAL_PLUGIN_FORGEJO_PUBLISH_TOKEN: ${{ secrets.EXTERNAL_PLUGIN_FORGEJO_PUBLISH_TOKEN }}
+          EXTERNAL_PLUGIN_GITHUB_PUBLISH_TOKEN: ${{ secrets.EXTERNAL_PLUGIN_GITHUB_PUBLISH_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.EXTERNAL_PLUGIN_GITHUB_PUBLISH_TOKEN || github.token }}
           EXTERNAL_PLUGIN_TARGET_COMMITISH: ${{ needs.build.outputs.source_commit }}
-          FORGEJO_URL: http://forgejo-http.forgejo.svc.cluster.local:3000
         run: |
           ./scripts/publish-external-wasm-plugin-release.sh \
             "${PLUGIN_REPOSITORY}" \

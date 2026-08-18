@@ -3,12 +3,10 @@ name: Publish Wasm Plugins
 on:
   # Republish Wasm plugins on every release tag so the published artifacts (and the
   # versions surfaced in the Plugins Manager) track the code, instead of only on manual
-  # dispatch. Mirrors native-addons.yml, which republishes add-ons on the same `v*` tags —
-  # previously plugin fixes (e.g. the proxmox tinygo parser) silently required a manual
-  # dispatch that nothing documented.
+  # dispatch. Mirrors native-addons.yml, which republishes add-ons on the same `v*` tags.
   push:
     tags:
-      - 'v*'
+      - "v*"
   workflow_dispatch:
     inputs:
       tag:
@@ -21,50 +19,21 @@ concurrency:
   cancel-in-progress: true
 
 permissions:
-  contents: read
+  contents: write
   id-token: write
 
 jobs:
   publish:
     runs-on: serviceradar-signing
-    container:
-      # Pin digest: floating :latest is not published for forgejo-ci and fails job
-      # startup in ~0-4s (same pin as release.yml / native-addons.yml).
-      image: registry.carverauto.dev/serviceradar/forgejo-ci@sha256:4da98b050cbbbc66e6c823977a80a7b67db51a610e48c28fc2e066c1bb164a79
-      options: --user 1000:1000 --group-add 2375 --volume /var/run/secrets/kubernetes.io/serviceaccount/token:/var/run/secrets/kubernetes.io/serviceaccount/token:ro
-    enable-openid-connect: true
     environment: release
     env:
-      BUILDBUDDY_ORG_API_KEY: ${{ secrets.BUILDBUDDY_ORG_API_KEY }}
+      BUILDBUDDY_ORG_API_KEY: ${{ secrets.BUILDBUDDY_ORG_API_KEY || secrets.BUILDBUDDY_API_KEY }}
       OCI_REGISTRY: registry.carverauto.dev
       OCI_PROJECT: serviceradar
       OCI_USERNAME: ${{ secrets.HARBOR_ROBOT_USERNAME }}
       OCI_TOKEN: ${{ secrets.HARBOR_ROBOT_SECRET }}
-      COSIGN_KEYLESS: ${{ secrets.COSIGN_KEYLESS }}
-      SIGSTORE_FULCIO_URL: ${{ secrets.SIGSTORE_FULCIO_URL }}
-      SIGSTORE_REKOR_URL: ${{ secrets.SIGSTORE_REKOR_URL }}
-      SIGSTORE_OIDC_ISSUER: ${{ secrets.SIGSTORE_OIDC_ISSUER }}
-      SIGSTORE_OIDC_CLIENT_ID: ${{ secrets.SIGSTORE_OIDC_CLIENT_ID }}
-      SIGSTORE_OIDC_AUDIENCE: ${{ secrets.SIGSTORE_OIDC_AUDIENCE }}
-      SIGSTORE_TRUSTED_ROOT: ${{ secrets.SIGSTORE_TRUSTED_ROOT }}
-      SIGSTORE_TRUSTED_ROOT_FILE: ${{ secrets.SIGSTORE_TRUSTED_ROOT_FILE }}
-      SIGSTORE_ROOT_PEM: ${{ secrets.SIGSTORE_ROOT_PEM }}
-      SIGSTORE_ROOT_FILE: ${{ secrets.SIGSTORE_ROOT_FILE }}
-      SIGSTORE_CT_LOG_PUBLIC_KEY: ${{ secrets.SIGSTORE_CT_LOG_PUBLIC_KEY }}
-      SIGSTORE_CT_LOG_PUBLIC_KEY_FILE: ${{ secrets.SIGSTORE_CT_LOG_PUBLIC_KEY_FILE }}
-      SIGSTORE_REKOR_PUBLIC_KEY_PEM: ${{ secrets.SIGSTORE_REKOR_PUBLIC_KEY_PEM }}
-      SIGSTORE_REKOR_PUBLIC_KEY_FILE: ${{ secrets.SIGSTORE_REKOR_PUBLIC_KEY_FILE }}
-      COSIGN_CERTIFICATE_IDENTITY: ${{ secrets.COSIGN_CERTIFICATE_IDENTITY }}
-      COSIGN_CERTIFICATE_IDENTITY_REGEXP: ${{ secrets.COSIGN_CERTIFICATE_IDENTITY_REGEXP }}
-      COSIGN_CERTIFICATE_OIDC_ISSUER: ${{ secrets.COSIGN_CERTIFICATE_OIDC_ISSUER }}
-      COSIGN_CERTIFICATE_OIDC_ISSUER_REGEXP: ${{ secrets.COSIGN_CERTIFICATE_OIDC_ISSUER_REGEXP }}
-      PLUGIN_UPLOAD_SIGNING_PRIVATE_KEY: ${{ secrets.PLUGIN_UPLOAD_SIGNING_PRIVATE_KEY }}
-      PLUGIN_UPLOAD_SIGNING_KEY_ID: ${{ secrets.PLUGIN_UPLOAD_SIGNING_KEY_ID }}
-      PLUGIN_UPLOAD_SIGNING_SIGNER: ${{ secrets.PLUGIN_UPLOAD_SIGNING_SIGNER }}
-      FORGEJO_TOKEN: ${{ secrets.FORGEJO_TOKEN }}
-      FORGEJO_URL: http://forgejo-http.forgejo.svc.cluster.local:3000
-      FORGEJO_REPOSITORY: carverauto/serviceradar
       BAZELISK_HOME: ${{ github.workspace }}/.cache/bazelisk
+      GH_TOKEN: ${{ github.token }}
 
     steps:
       - name: Checkout
@@ -156,13 +125,17 @@ jobs:
           printf 'common --remote_header=x-buildbuddy-api-key=%s\n' "${BUILDBUDDY_ORG_API_KEY}" >> .bazelrc.remote
 
       - name: Install Bazelisk
-        run: ./scripts/install-bazelisk.sh
+        run: |
+          ./scripts/install-bazelisk.sh
+          echo "${RUNNER_TEMP:-${HOME}/.local}/bin" >> "${GITHUB_PATH}"
 
       - name: Install Cosign
         run: ./scripts/install-cosign.sh
 
       - name: Install ORAS
-        run: ./scripts/install-oras.sh
+        run: |
+          ./scripts/install-oras.sh
+          echo "${HOME}/.local/bin" >> "${GITHUB_PATH}"
 
       - name: Verify Bazel version
         run: |
@@ -181,20 +154,28 @@ jobs:
             exit 1
           fi
 
-          echo "${OCI_TOKEN}" | docker login "${OCI_REGISTRY}" -u "${OCI_USERNAME}" --password-stdin
           echo "${OCI_TOKEN}" | oras login "${OCI_REGISTRY}" -u "${OCI_USERNAME}" --password-stdin
+          if command -v docker >/dev/null 2>&1; then
+            echo "${OCI_TOKEN}" | docker login "${OCI_REGISTRY}" -u "${OCI_USERNAME}" --password-stdin
+          fi
 
       - name: Publish Wasm plugin OCI artifacts
         env:
           EXTRA_TAG: ${{ github.event.inputs.tag || (github.ref_type == 'tag' && github.ref_name) || '' }}
           OPENBAO_ADDR: https://openbao-active.openbao-system.svc.cluster.local:8200
-          OPENBAO_K8S_ROLE: forgejo-signing-runner
+          OPENBAO_K8S_ROLE: github-signing-runner
           OPENBAO_SIGNING_ALLOWED_REFS_REGEX: '^refs/(tags/v.*|heads/(staging|main|master))$'
           COSIGN_KEY_REF: hashivault://cosign-release
+          COSIGN_YES: "true"
+          COSIGN_DOCKER_MEDIA_TYPES: "1"
         run: |
           set -euo pipefail
-          if [[ -z "${PLUGIN_UPLOAD_SIGNING_PRIVATE_KEY:-}" ]]; then
-            echo "Missing Wasm upload signing key. Set PLUGIN_UPLOAD_SIGNING_PRIVATE_KEY." >&2
+          # Exchange the signing-runner SA for a short-lived OpenBao token
+          # before Wasm publish so the upload signature is minted by Transit
+          # instead of a long-lived private key in CI secrets.
+          source ./scripts/ci/prepare-openbao-cosign-env.sh
+          if [[ -z "${PLUGIN_UPLOAD_SIGNING_TRANSIT_KEY:-}" && -z "${PLUGIN_UPLOAD_SIGNING_PRIVATE_KEY:-}" ]]; then
+            echo "Missing Wasm upload signing: set PLUGIN_UPLOAD_SIGNING_TRANSIT_KEY or PLUGIN_UPLOAD_SIGNING_PRIVATE_KEY." >&2
             exit 1
           fi
           if [[ -z "${PLUGIN_UPLOAD_SIGNING_KEY_ID:-}" ]]; then
@@ -210,10 +191,9 @@ jobs:
           fi
 
           ./scripts/push_all_wasm_plugins.sh "${push_args[@]}"
-          source ./scripts/ci/prepare-openbao-cosign-env.sh
           ./scripts/sign-wasm-plugin-publish.sh "${verify_tags[@]}"
           ./scripts/verify-wasm-plugin-publish.sh "${verify_tags[@]}"
-          unset VAULT_TOKEN VAULT_ADDR COSIGN_KEY_REF
+          unset VAULT_TOKEN VAULT_ADDR COSIGN_KEY_REF PLUGIN_UPLOAD_SIGNING_TRANSIT_KEY
 
       - name: Generate import index
         env:
@@ -230,8 +210,8 @@ jobs:
           EXTRA_TAG: ${{ github.event.inputs.tag || (github.ref_type == 'tag' && github.ref_name) || '' }}
         run: |
           set -euo pipefail
-          if [[ -z "${FORGEJO_TOKEN:-}" ]]; then
-            echo "Missing Forgejo token. Set FORGEJO_TOKEN." >&2
+          if [[ -z "${GITHUB_TOKEN:-}" ]]; then
+            echo "Missing GITHUB_TOKEN." >&2
             exit 1
           fi
 
@@ -247,12 +227,16 @@ jobs:
             exit 1
           fi
 
-          api_base="${FORGEJO_URL}/api/v1/repos/${FORGEJO_REPOSITORY}"
+          api_base="https://api.github.com/repos/${GITHUB_REPOSITORY}"
+          gh_headers=(
+            -H "Accept: application/vnd.github+json"
+            -H "Authorization: Bearer ${GITHUB_TOKEN}"
+            -H "X-GitHub-Api-Version: 2022-11-28"
+          )
+
           fetch_release() {
             local release_json release_id releases_json
-            release_json="$(curl -sS \
-              -H "Accept: application/json" \
-              -H "Authorization: token ${FORGEJO_TOKEN}" \
+            release_json="$(curl -sS "${gh_headers[@]}" \
               "${api_base}/releases/tags/${release_tag}" || true)"
             release_id="$(echo "${release_json}" | jq -r 'select(type == "object") | .id // empty')"
             if [[ -n "${release_id}" ]]; then
@@ -260,10 +244,9 @@ jobs:
               return 0
             fi
 
-            releases_json="$(curl -sS \
-              -H "Accept: application/json" \
-              -H "Authorization: token ${FORGEJO_TOKEN}" \
-              "${api_base}/releases?draft=true&limit=100" || true)"
+            # GitHub hides drafts from /releases/tags/{tag}. List includes drafts.
+            releases_json="$(curl -sS "${gh_headers[@]}" \
+              "${api_base}/releases?per_page=100" || true)"
             jq -c --arg tag "${release_tag}" \
               'first(.[] | select(.tag_name == $tag)) // empty' \
               <<<"${releases_json}" 2>/dev/null || true
@@ -273,15 +256,8 @@ jobs:
           release_id="$(echo "${release_json}" | jq -r 'select(type == "object") | .id // empty')"
 
           if [[ -z "${release_id}" ]]; then
-            # Create the release as a DRAFT. On a `v*` tag this workflow runs concurrently
-            # with release.yml (and native-addons.yml) and often reaches this step before
-            # release.yml has created the release. When immutable releases are enforced,
-            # assets can only be attached to a draft — a published release rejects the
-            # index upload with HTTP 403. So we own the draft here; release.yml's
-            # publish_packages then updates this same release in place (it only overwrites
-            # same-named assets, so our index survives) and its finalizer job publishes it.
-            # Tolerate a concurrent creator (another workflow racing on the same tag) by
-            # re-fetching instead of hard-failing on a duplicate-tag POST.
+            # Create a DRAFT so the index can be attached before the release is
+            # immutable. A published GitHub immutable release rejects later assets.
             create_json="$(
               jq -n \
                 --arg tag_name "${release_tag}" \
@@ -297,9 +273,8 @@ jobs:
                   prerelease: true
                 }' |
                 curl -sS -X POST \
-                  -H "Accept: application/json" \
+                  "${gh_headers[@]}" \
                   -H "Content-Type: application/json" \
-                  -H "Authorization: token ${FORGEJO_TOKEN}" \
                   -d @- \
                   "${api_base}/releases" || true
             )"
@@ -307,7 +282,6 @@ jobs:
             if [[ -n "${release_id}" ]]; then
               release_json="${create_json}"
             else
-              # A concurrent workflow won the create race (or a transient error): re-resolve.
               release_json="$(fetch_release)"
               release_id="$(echo "${release_json}" | jq -r 'select(type == "object") | .id // empty')"
             fi
@@ -318,33 +292,40 @@ jobs:
             exit 1
           fi
 
-          release_json="$(curl -sSf \
-            -H "Accept: application/json" \
-            -H "Authorization: token ${FORGEJO_TOKEN}" \
+          release_json="$(curl -sSf "${gh_headers[@]}" \
             "${api_base}/releases/${release_id}")"
           resolved_release_id="$(echo "${release_json}" | jq -r '.id // empty')"
           if [[ "${resolved_release_id}" != "${release_id}" ]]; then
-            echo "Forgejo returned an unexpected release while resolving ${release_tag}" >&2
+            echo "GitHub returned an unexpected release while resolving ${release_tag}" >&2
             exit 1
           fi
 
+          is_draft="$(echo "${release_json}" | jq -r '.draft // false')"
           existing_asset_id="$(echo "${release_json}" | jq -r '.assets[]? | select(.name == "serviceradar-wasm-plugin-index.json") | .id' | head -n1)"
           if [[ -n "${existing_asset_id}" ]]; then
-            curl -sSf -X DELETE \
-              -H "Accept: application/json" \
-              -H "Authorization: token ${FORGEJO_TOKEN}" \
-              "${api_base}/releases/${release_id}/assets/${existing_asset_id}" >/dev/null
+            if [[ "${is_draft}" != "true" ]]; then
+              echo "Release ${release_tag} is published and immutable; cannot replace serviceradar-wasm-plugin-index.json (asset ${existing_asset_id})." >&2
+              exit 1
+            fi
+            curl -sSf -X DELETE "${gh_headers[@]}" \
+              "${api_base}/releases/assets/${existing_asset_id}" >/dev/null
           fi
 
-          curl -sSf -X POST \
-            -H "Accept: application/json" \
-            -H "Authorization: token ${FORGEJO_TOKEN}" \
-            -F "attachment=@${index_path}" \
-            "${api_base}/releases/${release_id}/assets?name=serviceradar-wasm-plugin-index.json" >/dev/null
+          upload_url="https://uploads.github.com/repos/${GITHUB_REPOSITORY}/releases/${release_id}/assets?name=serviceradar-wasm-plugin-index.json"
+          upload_status="$(curl -sS -o /tmp/wasm-index-upload.json -w '%{http_code}' -X POST \
+            -H "Accept: application/vnd.github+json" \
+            -H "Authorization: Bearer ${GITHUB_TOKEN}" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            -H "Content-Type: application/octet-stream" \
+            --data-binary "@${index_path}" \
+            "${upload_url}")"
+          if [[ "${upload_status}" != "201" ]]; then
+            echo "Wasm plugin import index upload failed with HTTP ${upload_status}" >&2
+            jq -c . /tmp/wasm-index-upload.json 2>/dev/null || true
+            exit 1
+          fi
 
-          # Verify the asset is actually present after upload (relocated from release.yml,
-          # which can no longer assert this because the index now uploads out-of-band).
-          refreshed_release_json="$(curl -sSf -H "Accept: application/json" -H "Authorization: token ${FORGEJO_TOKEN}" \
+          refreshed_release_json="$(curl -sSf "${gh_headers[@]}" \
             "${api_base}/releases/${release_id}")"
           uploaded_asset_id="$(echo "${refreshed_release_json}" | jq -r '.assets[]? | select(.name == "serviceradar-wasm-plugin-index.json") | .id' | head -n1)"
           if [[ -z "${uploaded_asset_id}" ]]; then
@@ -352,4 +333,14 @@ jobs:
             exit 1
           fi
 
-          echo "Uploaded serviceradar-wasm-plugin-index.json to ${release_tag}"
+          # Forgejo is gone: this job is the catalog publisher. Publish v* drafts
+          # so Settings import can see /releases/tags/{tag}. Leave sha-* catalogs draft.
+          if [[ "${release_tag}" == v* && "${is_draft}" == "true" ]]; then
+            curl -sSf -X PATCH "${gh_headers[@]}" \
+              -H "Content-Type: application/json" \
+              -d '{"draft":false,"prerelease":false}' \
+              "${api_base}/releases/${release_id}" >/dev/null
+            echo "Published GitHub Release ${release_tag} with serviceradar-wasm-plugin-index.json"
+          else
+            echo "Uploaded serviceradar-wasm-plugin-index.json to ${release_tag}"
+          fi

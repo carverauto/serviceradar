@@ -16,7 +16,7 @@
 # form `palisade-vX.Y.Z` is pushed. Palisade is Apache-2.0 OSS;
 # hex.pm is the canonical Elixir package registry.
 #
-# Setup once on the runner / Forgejo Actions environment:
+# Setup once on the runner / GitHub Actions environment:
 #   1. Create an API key on hex.pm with publish scope (`mix hex.user key`).
 #   2. Set repository secret `HEX_API_KEY` = the key value.
 #
@@ -32,7 +32,7 @@
 name: Publish Palisade
 
 permissions:
-  contents: read
+  contents: write
 
 on:
   push:
@@ -49,7 +49,7 @@ env:
 jobs:
   publish:
     name: Publish palisade to hex.pm
-    runs-on: ubuntu24
+    runs-on: arc-runner-set
     defaults:
       run:
         working-directory: elixir/palisade
@@ -84,7 +84,7 @@ jobs:
       - name: Verify version tag matches mix.exs version
         run: |
           set -euo pipefail
-          tag="${GITHUB_REF_NAME:-${FORGEJO_REF_NAME:-}}"
+          tag="${GITHUB_REF_NAME:-}"
           if [ -z "$tag" ]; then
             echo "Could not determine tag name from env" >&2
             exit 1
@@ -115,6 +115,6 @@ jobs:
         env:
           # API key with publish scope on hex.pm. Generate via
           # `mix hex.user key generate --permission api:write`
-          # (or hex.pm dashboard) and set as a Forgejo secret.
+          # (or hex.pm dashboard) and set as a GitHub Actions secret.
           HEX_API_KEY: ${{ secrets.HEX_API_KEY }}
         run: MIX_ENV=prod mix hex.publish package --yes

@@ -1,29 +1,32 @@
-# Publishing ServiceRadar Releases with Forgejo and Bazel
+# Publishing ServiceRadar Releases with GitHub Actions and Bazel
 
-ServiceRadar releases are published by Forgejo Actions to the CarverAuto
-Harbor registry and the matching Forgejo release. The supported workflow is
-tag gated: a `v*` tag starts the image/package release together with the native
-add-on, Wasm plugin, source-security, and image-security workflows.
+ServiceRadar releases are published to the CarverAuto Harbor registry and
+GitHub Releases. Tag-gated package, image, native add-on, Wasm plugin, and
+security workflows live under `.github/workflows/` and run on in-cluster ARC
+runners (`serviceradar-signing` for publish/sign, `arc-runner-set` for lint
+and checks). The supported workflow is tag gated: a `v*` tag starts the
+image/package release together with the native add-on, Wasm plugin,
+source-security, and image-security workflows.
 
-The primary workflow is `.forgejo/workflows/release.yml`. It:
+The primary workflow is `.github/workflows/release.yml`. It:
 
 1. Validates the tag, `VERSION`, and staging ancestry. Changelog validation is
    performed by `scripts/cut-release.sh` before the tag is published.
 2. Builds or verifies all release images and their immutable digests.
 3. Signs and verifies the image set, then packages and publishes the Helm chart.
-4. Creates or updates a draft Forgejo release and uploads packages, the managed
+4. Creates or updates a draft GitHub release and uploads packages, the managed
    agent archive, and its signed manifest.
 5. Waits for the native add-on and Wasm plugin catalog indexes plus the source
    and image security bundles from the parallel tag workflows.
-6. Publishes the Forgejo release only after every required asset exists.
+6. Publishes the GitHub release only after every required asset exists.
 7. Advances `demo/prod-release` after publication so the reviewed manual Argo
    rollout can use the verified semver tag.
 
-`.forgejo/workflows/native-addons.yml`, `.forgejo/workflows/wasm-plugins.yml`,
-`.forgejo/workflows/source-security.yml`, and
-`.forgejo/workflows/image-security.yml` run for the same tag. A release must
+`.github/workflows/native-addons.yml`, `.github/workflows/wasm-plugins.yml`,
+`.github/workflows/source-security.yml`, and
+`.github/workflows/image-security.yml` run for the same tag. A release must
 stay draft until both catalogs and both security bundles have arrived. This
-ordering matters when Forgejo immutable releases are enabled because a late
+ordering matters when GitHub immutable releases are enabled because a late
 asset upload to an already-published release is rejected.
 
 ## Prepare Release Metadata
@@ -53,11 +56,11 @@ scripts/cut-release.sh --version 1.4.10 --push
 leaves the annotated tag local because the release workflow rejects tags whose
 commit is not yet reachable from `origin/staging`.
 
-Open the branch with `fj`, let CI pass, and merge it with an ancestry-preserving
+Open the branch with `gh`, let CI pass, and merge it with an ancestry-preserving
 merge commit:
 
 ```bash
-fj pr merge <PR> -M merge
+gh pr merge <PR> --merge
 ```
 
 Do not squash or rebase the release PR because that changes or discards the
@@ -146,14 +149,16 @@ key workloads on `v<version>`.
 
 ## CI Prerequisites
 
-The Forgejo `release` environment must provide:
+The GitHub `release` environment (Wasm) and remaining Forgejo `release`
+environment must provide:
 
-- `FORGEJO_TOKEN`
-- Harbor robot credentials
+- Harbor robot credentials (`HARBOR_ROBOT_USERNAME` / `HARBOR_ROBOT_SECRET`)
 - BuildBuddy credentials used by remote Bazel builds
-- the release signing identity and Sigstore/OpenBao settings
+- the release signing identity and OpenBao Transit access (in-cluster
+  `github-signing-runner` Kubernetes auth)
 - the managed-agent Ed25519 release key
-- the Wasm plugin upload-signing key
+- Wasm upload signatures come from OpenBao Transit (`plugin-upload-signing`),
+  not a long-lived private key in Actions secrets
 
 Do not print these values or URLs containing embedded credentials. The
 `serviceradar-signing` runner label is reserved for signing/publishing work;
@@ -162,11 +167,11 @@ workflows.
 
 ## Recovery
 
-Forgejo Actions is the supported publisher and recovery path. Rerun the failed
-workflow at the release tag through `fj actions dispatch` or the Forgejo UI.
-`make push_all_release` covers container images and Wasm plugins only; it does
-not publish the Helm chart, packages, managed-agent manifest, or native add-on
-catalog, so it must not be treated as a complete formal release.
+Wasm plugin recovery is GitHub Actions: rerun **Publish Wasm Plugins** at the
+release tag (`runs-on: serviceradar-signing`). `make push_all_release` covers
+container images and Wasm plugins only; it does not publish the Helm chart,
+packages, managed-agent manifest, or native add-on catalog, so it must not be
+treated as a complete formal release.
 
 Keep the Forgejo release draft until all package, image, native add-on, Wasm,
 and security verification succeeds. Never work around a failed parallel asset

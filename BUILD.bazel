@@ -52,12 +52,12 @@ gazelle(
 # exports_files
 ###############################################################################
 exports_files([
-    ".forgejo/workflows/external-wasm-plugin.yml",
-    ".forgejo/workflows/image-security.yml",
-    ".forgejo/workflows/native-addons.yml",
-    ".forgejo/workflows/release.yml",
-    ".forgejo/workflows/source-security.yml",
-    ".forgejo/workflows/wasm-plugins.yml",
+    ".github/workflows/external-wasm-plugin.yml",
+    ".github/workflows/image-security.yml",
+    ".github/workflows/native-addons.yml",
+    ".github/workflows/release.yml",
+    ".github/workflows/source-security.yml",
+    ".github/workflows/wasm-plugins.yml",
     "VERSION",
     "Cargo.toml",
     "Cargo.lock",

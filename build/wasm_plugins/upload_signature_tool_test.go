@@ -5,8 +5,12 @@ import (
 	"crypto/ed25519"
 	"crypto/rand"
 	"encoding/base64"
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -68,6 +72,85 @@ func TestRunSignUsesBundleArchive(t *testing.T) {
 	if err := run([]string{"sign", "--bundle", bundlePath, "--out", signaturePath}); err != nil {
 		t.Fatalf("run(sign) error = %v", err)
 	}
+	if err := run([]string{"verify", "--bundle", bundlePath, "--signature", signaturePath}); err != nil {
+		t.Fatalf("run(verify) error = %v", err)
+	}
+}
+
+func TestBuildAndVerifyUploadSignatureViaTransit(t *testing.T) {
+	publicKey, privateKey, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatalf("GenerateKey() error = %v", err)
+	}
+
+	server := httptest.NewTLSServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		switch {
+		case request.Method == http.MethodPost && strings.HasSuffix(request.URL.Path, "/v1/transit/sign/plugin-upload-signing"):
+			var body struct {
+				Input string `json:"input"`
+			}
+			if err := json.NewDecoder(request.Body).Decode(&body); err != nil {
+				http.Error(writer, err.Error(), http.StatusBadRequest)
+				return
+			}
+			payload, err := base64.StdEncoding.DecodeString(body.Input)
+			if err != nil {
+				http.Error(writer, err.Error(), http.StatusBadRequest)
+				return
+			}
+			signature := ed25519.Sign(privateKey, payload)
+			_ = json.NewEncoder(writer).Encode(map[string]any{
+				"data": map[string]string{
+					"signature": "vault:v1:" + base64.StdEncoding.EncodeToString(signature),
+				},
+			})
+		case request.Method == http.MethodGet && strings.HasSuffix(request.URL.Path, "/v1/transit/keys/plugin-upload-signing"):
+			_ = json.NewEncoder(writer).Encode(map[string]any{
+				"data": map[string]any{
+					"latest_version": 1,
+					"keys": map[string]any{
+						"1": map[string]any{
+							"public_key": base64.StdEncoding.EncodeToString(publicKey),
+						},
+					},
+				},
+			})
+		default:
+			http.NotFound(writer, request)
+		}
+	}))
+	t.Cleanup(server.Close)
+
+	t.Setenv(uploadSigningTransitKeyEnv, "plugin-upload-signing")
+	t.Setenv("VAULT_ADDR", server.URL)
+	t.Setenv("VAULT_TOKEN", "test-token")
+	t.Setenv("VAULT_SKIP_VERIFY", "true")
+	t.Setenv(uploadSigningPrivateKeyEnv, "")
+	t.Setenv(uploadSigningKeyIDEnv, "serviceradar-first-party-v2")
+	t.Setenv(uploadSigningSignerEnv, "serviceradar-release")
+	t.Setenv(uploadSigningPublicKeyEnv, "")
+
+	manifest := []byte("id: demo-plugin\nname: Demo Plugin\nversion: 1.0.0\nentrypoint: run_check\nruntime: wasi-preview1\noutputs: serviceradar.plugin_result.v1\ncapabilities:\n  - log\nresources:\n  requested_memory_mb: 16\n  requested_cpu_ms: 250\n  max_open_connections: 0\n")
+	wasm := []byte("\x00asm\x01\x00\x00\x00")
+
+	signatureDoc, err := buildUploadSignature(manifest, wasm)
+	if err != nil {
+		t.Fatalf("buildUploadSignature() error = %v", err)
+	}
+	if signatureDoc.KeyID != "serviceradar-first-party-v2" {
+		t.Fatalf("key id = %q", signatureDoc.KeyID)
+	}
+
+	tmpDir := t.TempDir()
+	bundlePath := filepath.Join(tmpDir, "bundle.zip")
+	signaturePath := filepath.Join(tmpDir, "upload-signature.json")
+	if err := writeBundleForTest(bundlePath, manifest, wasm); err != nil {
+		t.Fatalf("writeBundleForTest() error = %v", err)
+	}
+	if err := os.WriteFile(signaturePath, mustMarshalSignatureForTest(signatureDoc), 0o644); err != nil {
+		t.Fatalf("WriteFile(signature) error = %v", err)
+	}
+
 	if err := run([]string{"verify", "--bundle", bundlePath, "--signature", signaturePath}); err != nil {
 		t.Fatalf("run(verify) error = %v", err)
 	}
