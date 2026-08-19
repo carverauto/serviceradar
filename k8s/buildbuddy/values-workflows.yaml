@@ -251,6 +251,31 @@ config:
       estimated_milli_cpu: 2000
       estimated_memory_bytes: 2147483648 # 2 GiB
 
+    # RUNNER RECYCLING. Nothing here turns it on -- BuildBuddy's workflow service already stamps
+    # `recycle-runner: true` and `preserve-workspace: true` onto every workflow action. What
+    # stops it is the pool's own admission check, whose defaults are sized for short RBE actions
+    # and are an order of magnitude below what a monorepo Bazel client uses. A rejected runner is
+    # SILENT: the next run simply prints `git init` instead of `Syncing existing repo...` and
+    # starts a cold Bazel server, which is what a cold run looks like from the log either way.
+    #
+    # Worth the tuning because a recycled runner keeps the Bazel SERVER, not just the disk: the
+    # ci_runner writes `startup --max_idle_secs=0` specifically so the server survives between
+    # runs, which is what carries the analysis cache and the ~4,900 extracted external repos in
+    # the output base.
+    runner_pool:
+      # Default 2 GB against a runner whose measured peak is ~35 GB (see `resources` above).
+      # -1 is not unbounded: the pool clamps it to this pod's allocatable RAM, so it tracks
+      # `resources` instead of needing an edit whenever those move.
+      max_runner_memory_usage_bytes: -1
+      # Default 16 GB, measured over the repo checkout AND the sibling Bazel output base, so a
+      # single real build clears it. Capped rather than -1 because this lands on the node's
+      # /mnt/buildbuddy volume, and DiskPressure there already cost this fleet a node
+      # (see `affinity` above).
+      max_runner_disk_size_bytes: 100000000000 # 100 GB
+      # One pod, one workflow at a time, and a paused runner keeps its memory resident. Exceeding
+      # this evicts the oldest rather than rejecting the new one, so it is a ceiling, not a gate.
+      max_runner_count: 1
+
     image_pull_timeout: 15m
     startup_warmup_max_wait_secs: 300
     warmup_timeout_secs: 300
