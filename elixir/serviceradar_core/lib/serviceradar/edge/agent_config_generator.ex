@@ -3395,6 +3395,8 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
     }
   end
 
+  defp build_snmp_oid_config(_), do: %Monitoring.SNMPOIDConfig{}
+
   defp oid_mode(oid) do
     case Map.get(oid, "mode") || Map.get(oid, :mode) do
       mode when mode in [:walk, "walk"] -> "walk"
@@ -3419,8 +3421,6 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
   rescue
     ArgumentError -> 0
   end
-
-  defp build_snmp_oid_config(_), do: %Monitoring.SNMPOIDConfig{}
 
   defp disabled_visibility_config do
     %{
