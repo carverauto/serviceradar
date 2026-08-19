@@ -4,6 +4,11 @@ actions:
       OCI_REGISTRY: "registry.carverauto.dev"
       OCI_AUTH_REQUIRED: "1"
 
+      # Makes ~ in //.bazelrc land on the node volume //k8s/buildbuddy mounts at /root.
+      # Unset, the CI runner points HOME at {workdir}/.home (ci_runner.go ensureHomeDir), which
+      # dies with the runner -- so every cache was rebuilt each run. It keeps a HOME already set.
+      HOME: "/root"
+
       # Cert server. in cluster.
       SRQL_FIXTURE_CA_URL: "http://srql-fixture-ca-incluster.srql-fixtures.svc.cluster.local/ca.crt"
 
