@@ -96,10 +96,11 @@ defmodule ServiceRadar.Edge.SemanticEnvelopeCorpusTest do
   # THE FULL CROSS PRODUCT OF THE DECLARED STRUCTURAL AXES, enumerated mechanically.
   #
   # A hand-picked matrix did not converge: five rounds each found a reordering conditioned on some
-  # state no fixture held, and each round added the missing case. That regress has no end while
-  # the grammar may branch on anything. Go's static guard bounds it -- framing order may depend
-  # ONLY on carrier presence and oneof discriminants -- and with that established the axes are
-  # finite and their cross product is COMPLETE:
+  # state no fixture held, and each round added the missing case. So the matrix is ENUMERATED from
+  # the declared axes rather than chosen, and it is exhaustive OVER THOSE AXES -- not over every
+  # program either runtime can express. The static guards in both runtimes are defense-in-depth
+  # regression checks on the shape this enumeration assumes, with known limits recorded alongside
+  # them:
   #
   #   output_contract presence   2
   #   producer_context presence  2, and its optional authority_epoch when present -> 3

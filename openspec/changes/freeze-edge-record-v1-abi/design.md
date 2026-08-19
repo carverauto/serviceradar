@@ -570,6 +570,23 @@ record-level `MaxPrincipalBytes` check attaches to that same boundary.
 | **1.7-f** acknowledgement bounds | the ACK path is not the lane-open handshake; folding `MaxRejectionCodeLen` and the finite-receiver-limit requirement into 1.7-e would have put two legs under one subtask |
 | **1.5-n** the Elixir structural record boundary | Go compares declared cost to the capability maxima in `ValidateRecord`; this runtime only DIGESTS the three fields. The deliverable is a COMPLETE boundary, not a comparator: `SemanticValidate.validate_record/1` applies no production record rule beyond enum and shape checks, so a cost comparison bolted onto it would sit next to none of the rules it must run with. Its lack of a live caller is NOT the objection -- no validator on either side of this ABI has one. It also carries the record-level `MaxPrincipalBytes` check. Filed under 1.5, NOT 1.6: parent 1.6 is the version-corpus parity task, and a non-inventory member there would make its 15/19 figure mean two things at once |
 
+### An unowned follow-up, deliberately without a task identifier
+
+NOT A SUBTASK, and the count above does not include it: nothing in this change is blocked on it
+and no one owns it yet. Recorded so it is not rediscovered from scratch.
+
+**A descriptor-validated declarative grammar that GENERATES both framers.** 1.5-i freezes the
+transcript behaviorally and adds two static guards over framing order, but those guards reason
+from the OUTSIDE: Go matches proto and oneof accessors by NAME, and Elixir reads function bodies
+without resolving heads, guards, macro expansions or remote calls. Replacing them with a typed
+analyzer per language buys machinery rather than closure -- neither frontend could be a proof
+against Elixir macros or dynamic dispatch, so both would keep chasing host-language semantics
+from outside. Generating both framers from one descriptor-validated declaration removes the
+arbitrary host program instead of analysing it, which is the only version of this that ends.
+
+Whoever picks it up should read the two guards first: they are the specification of what the
+generated framers may do.
+
 WHY THE OPEN COUNT WENT UP. This audit was expected to reduce work by finding that most bounds
 were already proven elsewhere. It did the opposite: three subtasks opened; three count ceilings
 found unproven in BOTH runtimes, with the stage defect at HALF their sites -- Go's raw
@@ -728,8 +745,10 @@ THREE PROPERTIES NEEDED EVIDENCE NOTHING ELSE COULD GIVE:
   A="a", a middle M="b" and B="aba" those differ while the full arrangements are both "ababa".
   The single
   base shape's vectors -- `root.shape.base.v0..v2` -- NAME the witness. They are not the only
-  KEYS that move: `root.shape.base.v0` shares its value with the four `state.<slot>.present`
-  rows, which are the same whole-envelope measurement under other names. What is unique is the
+  KEYS that move: `root.shape.base.v0` shares its value with FIVE `state.*.present` rows --
+  `producer_context`, `capability`, `capability@source_auth`, `source_authorization` and
+  `output_contract@root` -- which are the same whole-envelope measurement under other names, so
+  SIX keys move together. What is unique is the
   evidence CLASS: no child vector and no edge row changes at all. It rests on a fixture where every write is distinct
   within its FRAMER TRANSCRIPT, inlined children included, so no two are exchangeable without
   moving a byte.
@@ -780,16 +799,33 @@ held -- a claims variant, a carrier, a PAIR of carriers, then a pair the fixture
 guard compared globally -- and each round added the missing case. The space of predicates a
 framer COULD branch on is unbounded, so no finite fixture set is complete against it.
 
-SO THE GRAMMAR IS BOUNDED STATICALLY AND THE FIXTURES COVER WHAT REMAINS.
-`TestSemanticFramingBranchesOnlyOnDeclaredAxes` parses the framer sources and fails if any
-control flow branches on anything but CARRIER PRESENCE and ONEOF DISCRIMINANTS -- no payload
-value, no value switch, no loop, and it covers the ROOT function too, not just the
-`*digestWriter` methods (scoped to methods, a payload branch in the root passed it). With that
-established the axes are finite and their FULL CROSS PRODUCT is complete coverage: output_contract
-presence (2), producer_context presence and its optional authority_epoch (3), the production
-capability (10 states), and source_authorization (11: absent, or present with its capability in
-10 states) -- 660 shapes plus the base, at three variants, 1983 whole-record vectors of 2029 in
-all, every one consumed by both runtimes.
+SO THE MATRIX IS ENUMERATED FROM THE DECLARED AXES rather than chosen, and it is exhaustive OVER
+THOSE AXES: output_contract presence (2), producer_context presence and its optional
+authority_epoch (3), the production capability (10 states), and source_authorization (11: absent,
+or present with its capability in 10 states) -- 660 shapes plus the base, at three variants, 1983
+whole-record vectors of 2029 in all, every one consumed by both runtimes.
+
+`TestSemanticFramingBranchesOnlyOnDeclaredAxes` checks that the framer sources keep the shape
+that enumeration assumes: it fails on recognized forms of off-axis control flow, on branchless
+selection, and it covers the ROOT function too, not just the `*digestWriter` methods (scoped to
+methods, a payload branch in the root passed it).
+
+IT ACCEPTS ANY NIL COMPARISON, WHICH IS ITSELF AN UNDECLARED AXIS. The check asks whether one
+side of `==`/`!=` is `nil`; it does not ask WHAT is being compared, so `r.PayloadSha256 != nil`
+passes as readily as `c != nil`. Presence of a `bytes` field is not one of the enumerated axes,
+so a framer could branch on it and neither the guard nor the matrix would see it. It is a
+REGRESSION CHECK, not the thing that makes the matrix complete -- see the limits below.
+
+EXHAUSTIVE OVER THE DECLARED AXES, NOT OVER EVERY PROGRAM THE HOST LANGUAGES CAN EXPRESS. The
+cross product covers every combination of carrier presence and oneof discriminant the grammar
+declares. It does NOT cover a framer that branches on something else -- and the static guards
+that CHECK FOR RECOGNIZED FORMS of that are DEFENSE-IN-DEPTH REGRESSION CHECKS, not a proof. Their known limits, stated
+so no reader infers more: the Go guard identifies proto and oneof accessors BY NAME, so a method
+spelled `GetClaims` on an unrelated type is accepted; the Elixir guard reads function BODIES and
+does not resolve function heads, guards, macro expansions or remote calls, so a two-clause helper
+matching `%{projected_row_count: 42}` is invisible to it. Closing that needs a descriptor-validated
+declarative grammar that GENERATES both framers, recorded above as an UNOWNED follow-up -- not a second pair
+of analyzers chasing two host languages from the outside.
 
 SEPARATION IS ASKED PER SHAPE. A mutation executes inside ONE shape, so a pair must be separated
 by a variant OF THAT shape; asked across the whole fixture set, `compression` and a claims
@@ -847,10 +883,12 @@ The frame FIELDS are not 1.5-j's; 1.5-j owns broker PUBLICATION IDENTITY, a diff
 
 ### Mutation record (1.5-i)
 
-EXACT, NOT AGGREGATED. An earlier draft reported "41 retained" by adding the first audit's 19 to
-every survivor round, which DOUBLE-COUNTED: the 19 already contained the first two rounds. Every
-row below was re-run against the landed tree in one pass; the counts are the number of test
-functions that failed, measured, not remembered. Overlap is expected and recorded -- one deleted
+EXACT, NOT AGGREGATED, AND NOT ONE MEASUREMENT. An earlier draft reported "41 retained" by adding
+the first audit's 19 to every survivor round, which DOUBLE-COUNTED: the 19 already contained the
+first two rounds. The counts below are the number of test functions that failed, measured, not
+remembered -- but they were taken at different times, and the paragraph after the table says
+which were re-measured after the staging merge and which carry pre-merge counts. Do not read the
+table as a single pass. Overlap is expected and recorded -- one deleted
 call can fail rows in several sets.
 
 | mutation | Go rows | Elixir rows |
@@ -866,6 +904,8 @@ call can fail rows in several sets.
 | move `producer_context` after `route_profile` | 15 | - |
 | `producer_context.origin_kind` -> `run_shard` | 18 | - |
 | swap `capability` / `source_auth` blocks | 15 | 7 |
+| NESTED CARRIER frames renewal timestamps swapped | 3 | - |
+| NESTED CARRIER frames assignment identity ids swapped | 3 | - |
 | drop `producer_context` from the chunk decomposition | 2 | - |
 | `outputContract(c, c != nil)` -> `(c, true)` | 2 | 3 |
 | nested `sourceAuth` capability presence -> `true` | 4 | - |
@@ -894,15 +934,25 @@ call can fail rows in several sets.
 | Elixir: swap rollover `recovery_id` / `prior_spool_id` | - | 2 |
 | vectors: append a duplicate key | - | 14 |
 
-THIRTY-EIGHT ROWS HERE. The first audit's nineteen are recorded separately above and are NOT
-re-added; the survivor rounds are represented by the rows that now kill them rather than by a
-count. The counts are the number of test functions that failed -- measured, not remembered.
+FORTY ROWS HERE, PLUS SEVEN LATER PROBES BELOW -- 47 in all. The two NESTED-CARRIER rows were
+dropped from the table while the paragraph below went on citing them among the re-measured
+thirteen; they are restored with their post-merge counts rather than the citation being removed,
+because they are the rows that closed the second capability carrier. The first audit's nineteen
+are NOT re-added and are NOT reproduced anywhere in this document: they were reported in the
+review round that ran them and are not recoverable from this table. Saying they are "recorded
+separately above" was wrong. The survivor rounds are represented by the rows that now kill them
+rather than by a count. The counts are the number of test functions that failed -- measured, not
+remembered.
 
 WHAT WAS RE-MEASURED WHEN, STATED PLAINLY -- THIS TABLE IS NOT ONE PASS. It was measured in one
-pass before staging was merged. After the merge, THIRTEEN rows were re-run: every survivor any
-review round reported, the static-guard rows, and three long-standing ones as controls. All
-thirteen still kill and the counts above are the post-merge figures for those; the remainder
-carry their pre-merge counts. The merge touched staging's code, not this grammar or its suite,
+pass before staging was merged. After the merge, THIRTEEN rows were re-run: the seven survivors
+review rounds reported (the shape-local `compression`/discriminant swap, the paired
+`route_profile`/`traffic_class` reversal, both nested-carrier swaps, the `outputContract` presence
+literal, and the two claims/signature reorderings), the three static-guard rows, and three
+controls named here rather than left as a category -- `move producer_context after route_profile`,
+`swap capability / source_auth blocks`, and `mirror omits the capability signature write`. All
+thirteen still kill and the counts above are the post-merge figures for those; the remainder carry
+their pre-merge counts. The merge touched staging's code, not this grammar or its suite,
 but that is a reason to expect the rest to hold, not evidence that they do.
 
 THE ROWS ADDED SINCE, all measured: the presence-argument bypass
@@ -921,11 +971,9 @@ over-long line silently truncated the scan and every remaining key counted as re
 
 THE CONSUMPTION GUARD ALSO FIRES ALONGSIDE A GENUINE FAILURE, because a failing test aborts
 before reading the rest. The test-failure count is the primary signal and the guard is recorded
-next to it rather than smoothed away. ONE ROW MEASURES ZERO IN ELIXIR BY DESIGN: Go owns the
-125-key `op` closure, and restating those leaf paths in the peer would be duplication, not
-independent evidence. ONE ROW MEASURES ZERO IN ELIXIR BY DESIGN and the table says which runtime kills
-it: Go owns the 125-key `op` closure, and restating those leaf paths in the peer would be
-duplication, not independent evidence.
+next to it rather than smoothed away. ONE ROW MEASURES ZERO IN ELIXIR BY DESIGN, and the table
+says which runtime kills it: Go owns the 125-key `op` closure, and restating those leaf paths in
+the peer would be duplication, not independent evidence.
 
 
 

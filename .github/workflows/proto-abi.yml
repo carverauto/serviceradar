@@ -289,7 +289,8 @@ jobs:
       - name: Edge semantic-envelope transcript (Elixir)
         working-directory: elixir/serviceradar_core
         run: mix test --no-start test/serviceradar/edge/semantic_envelope_corpus_test.exs
-      # THE STATIC GUARD IS WHAT MAKES THE COMMITTED CROSS PRODUCT COMPLETE, so it has to run
+      # THE STATIC GUARD IS A DEFENSE-IN-DEPTH REGRESSION CHECK on the shape the committed cross
+      # product assumes -- not a proof, and not a completeness argument -- so it has to run
       # HERE and not only under Bazel: this workflow explicitly does NOT migrate the Bazel graph,
       # so a step that exists only there is a step this host never runs. Without it a framer could
       # branch on a payload value, the vectors would still match, and the gate would be green.

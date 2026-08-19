@@ -118,11 +118,32 @@ Keep this managed block so 'openspec update' can refresh the instructions.
   and a worktree that pushes to Forgejo means the MAIN clone is stale. Second: **verify
   the destination host in the push output**, not just the branch name — `-> <name>` is
   necessary but not sufficient when two remotes carry the same refs.
-- **CI now lives in `.github/workflows/`, not `.forgejo/workflows/`.** Only
-  `proto-abi.yml` has been migrated so far; the rest of the Forgejo suite (`main.yml`
-  and the Bazel/Go/Elixir graph it drives) has NOT been ported, so those gates are not
-  running on pull requests yet. Do not cite a `.forgejo` workflow as evidence that
-  something is gated.
+- **CI now lives in `.github/workflows/`, not `.forgejo/workflows/`.** Most of the suite
+  is ported -- 20 workflows including `golangci-lint`, `rust-checks`, `elixir-quality`,
+  `native-addons` and `proto-abi`. **`main.yml` is the exception and has NO GitHub
+  equivalent**, so the single aggregate build it ran is not reproduced; the Bazel work is
+  spread across `rust-checks`, `native-addons`, `publish-oci`, `wasm-plugins`,
+  `external-wasm-plugin` and `release` instead. `.forgejo/workflows/` still holds 19 files
+  and does not run -- do not cite one as evidence that something is gated.
+- **After `git worktree add` (or any extra checkout), symlink the gitignored
+  Bazel rc files before any `bazel` command.** `.bazelrc` try-imports
+  `%workspace%/.bazelrc.remote` and `.bazelrc.local`. Both are gitignored:
+  they hold the BuildBuddy API key and the remote cache/executor overrides.
+  `git worktree add` only checks out tracked files, so a new worktree has
+  neither. Without them `--config=remote` / `--config=ci` cannot authenticate:
+  Bazel prints `PERMISSION_DENIED: Missing API key` and never reaches RBE
+  (local crawl or abort). `bb view` still works from the primary clone — that
+  is not proof the worktree is wired for remote execution. From the checkout
+  that already has the files:
+
+  ```
+  ln -sfn "$PRIMARY/.bazelrc.remote" "$WT/.bazelrc.remote"
+  test -e "$PRIMARY/.bazelrc.local" && ln -sfn "$PRIMARY/.bazelrc.local" "$WT/.bazelrc.local"
+  test -f "$WT/.bazelrc.remote"
+  ```
+
+  Same rule for `/tmp/...` trees, `jj workspace add`, and extra clones. Never
+  commit those files.
 - **Cut releases with `scripts/cut-release.sh`.** Update `CHANGELOG` and `VERSION`
   first (the script validates a CHANGELOG entry for the version, and updates
   `VERSION`, `helm/serviceradar/Chart.yaml`, and the demo ArgoCD source). The

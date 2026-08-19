@@ -3446,9 +3446,12 @@ var semCarrierStates = []string{
 // added the missing case. That regress has no end while the grammar may branch on anything: the
 // space of predicates is unbounded, so no finite fixture set is complete against it.
 //
-// TestSemanticFramingBranchesOnlyOnDeclaredAxes bounds it. With framing order provably dependent
-// ONLY on carrier presence and oneof discriminants, the axes are finite and enumerable, and the
-// cross product of their states is COMPLETE rather than another guess:
+// SO THE MATRIX IS ENUMERATED FROM THE DECLARED AXES rather than chosen, and it is exhaustive
+// OVER THOSE AXES -- not over every program the host languages can express. The static guards
+// that keep framing order on those axes are DEFENSE-IN-DEPTH REGRESSION CHECKS with known limits:
+// Go's accessor identity is name-based, and Elixir's does not resolve function heads, guards,
+// macros or remote calls. This matrix is exhaustive against the DECLARED grammar, not against an
+// arbitrary rewrite of it:
 //
 //	output_contract presence            2
 //	producer_context presence           2, and its optional authority_epoch when present -> 3
@@ -3456,8 +3459,9 @@ var semCarrierStates = []string{
 //	source_authorization               11: absent, or present with its capability in 10 states
 //
 // 2 x 3 x 10 x 11 = 660, plus the base record whose claims come from the generator rather than a
-// spliced baseline. The two halves are worth little apart: this says every combination of what the
-// grammar CAN branch on is committed; the static guard says it can branch on nothing else.
+// spliced baseline. This says every combination of what the grammar DECLARES it branches on is
+// committed. The static guard is a separate, weaker thing -- it checks that the framers keep that
+// shape, and does NOT establish that nothing else can branch; its holes are named on it.
 var semShapes = semBuildShapes()
 
 func semBuildShapes() []string {
