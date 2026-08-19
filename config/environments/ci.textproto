@@ -9,34 +9,22 @@
 kind: ENVIRONMENT_KIND_CI
 
 database {
-  # The fixture's PUBLISHED address, not its in-cluster one.
+  # The in-cluster fixture service. No traffic on this path leaves the cluster.
   #
-  # This name has to resolve in the network namespace of the BUILD ACTION, and that namespace
-  # does not serve cluster.local. Measured, in the run that failed: connecting to
-  # srql-fixture-rw.srql-fixtures.svc.cluster.local returned EAI_NONAME ("Name or service not
-  # known") while the same step fetched https://srql-fixture-ca.serviceradar.cloud over public
-  # DNS. Its resolver answers for the internet and not for the cluster.
+  # This name resolves and routes from a BuildBuddy action only because both executor fleets
+  # set `task_allowed_private_ips` and point `oci.dns` at CoreDNS -- see
+  # //k8s/buildbuddy/values.yaml. Without those two keys BuildBuddy REJECTs every RFC1918
+  # destination from an action's network namespace and hands it a resolv.conf of
+  # `nameserver 8.8.8.8`, so this name is NXDOMAIN and 10.43.106.83 is `Connection refused`.
+  # That is SSRF protection, not a broken cluster, and it is why an earlier revision of this
+  # file used the public MetalLB address instead: 23.138.124.18 is not RFC1918, so it was the
+  # only endpoint that had ever worked from CI.
   #
-  # Removing Firecracker did not change that and was never going to: `dockerNetwork: bridge`
-  # gives the action its own namespace under OCI isolation too. The microVM was one reason the
-  # namespace was isolated, not the reason it exists.
+  # It is a SAN on srql-fixture-server-tls, so verify-full holds with no server-name override.
   #
-  # srql-fixture-rw-ext (//k8s/srql-fixtures/services.yaml) is a MetalLB LoadBalancer on
-  # 23.138.124.18:5432, published as this name by ExternalDNS. It is a SAN on
-  # srql-fixture-server-tls, so verify-full holds against it with no server-name override.
-  #
-  # What this buys, exactly: the NAME resolves from anywhere, because it is in public DNS.
-  # The ADDRESS is a MetalLB IP announced on the cluster's L2 -- reachable from the cluster and
-  # the LAN, not from the open internet (//k8s/srql-fixtures/ca-bundle.yaml records the same
-  # about :443 on this IP, which is why the CA bundle is published through the shared Envoy
-  # gateway instead). The runner is inside the cluster, so a route was never what it lacked.
-  # A workstation still needs SRQL_FIXTURE_HOST pointed at the LAN NodePort.
-  #
-  # THE RULE, which this file broke and //k8s/buildbuddy/values-workflows.yaml already states
-  # for the cache endpoint: a CI path names an endpoint that does not depend on the runner's
-  # network topology. It has now broken twice on that -- SRQL_FIXTURE_CA_URL named
-  # srql-fixture-ca-incluster.srql-fixtures.svc.cluster.local, and this host.
-  host: "srql-fixture.serviceradar.cloud"
+  # A WORKSTATION CANNOT REACH THIS, and does not need to: `ci` describes the CI environment.
+  # A developer uses `localhost`, or overrides SRQL_FIXTURE_HOST with the LAN NodePort.
+  host: "srql-fixture-rw.srql-fixtures.svc.cluster.local"
   port: 5432
   database: "srql_fixture"
 
@@ -63,12 +51,12 @@ database {
   # against a name even when the connection is made by address. Equal to `host` here, and
   # deliberately still stated: a caller that reaches the fixture by NodePort or by the
   # in-cluster service overrides `host` and keeps a name the certificate actually carries.
-  tls_server_name: "srql-fixture.serviceradar.cloud"
+  tls_server_name: "srql-fixture-rw.srql-fixtures.svc.cluster.local"
 
   # The cert-manager issuer behind the fixture, published by //k8s/srql-fixtures/ca-bundle.yaml.
   # Named rather than copied because the issuer rotates: a stored PEM is correct until it is
   # not, which is what a BuildBuddy SRQL_TEST_DATABASE_CA_CERT secret did.
-  ca_bundle_url: "http://10.43.52.69/ca.crt"
+  ca_bundle_url: "http://srql-fixture-ca-incluster.srql-fixtures.svc.cluster.local/ca.crt"
 
   search_path: "platform, ag_catalog"
   pool_size: 10

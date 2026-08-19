@@ -121,6 +121,30 @@ config:
     # service.externalGRPCSPort is set, and it is not. Cluster-internal only.
     cache_target: grpc://bb-cache-proxy-buildbuddy-enterprise-cache-proxy.buildbuddy.svc.cluster.local:1985
 
+    # IN-CLUSTER ACCESS FROM ACTIONS. Without this an action reaches the public internet and
+    # NOTHING on the cluster network.
+    #
+    # BuildBuddy REJECTs every RFC1918 destination from an action's network namespace by
+    # default -- server/util/networking/networking.go builds, per container network:
+    #
+    #   for allow in task_allowed_private_ips: -I FORWARD/INPUT -d <allow> -j ACCEPT
+    #   for r in {10/8, 172.16/12, 192.168/16, 169.254/16}: -I FORWARD/INPUT -d <r> -j REJECT
+    #
+    # inserted so the allowlist sits above the rejects. That is SSRF protection, not a routing
+    # accident, and REJECT (not DROP) is why the symptom is an instant "Connection refused"
+    # rather than a timeout -- so it reads like a dead service instead of a firewall.
+    #
+    # BOTH CIDRs are required, and the pod one is the non-obvious half: kube-proxy DNATs a
+    # ClusterIP to a pod IP in nat PREROUTING, which runs BEFORE the filter FORWARD chain, so
+    # by the time these rules match, the destination is already 10.42.x.x. Allowing only the
+    # service CIDR leaves every ClusterIP connection rejected at its rewritten address.
+    #
+    # Deliberately NOT 10.0.0.0/8, which would also expose the node subnet (10.0.2.0/24) and
+    # everything else on it. 169.254/16 stays blocked -- that is cloud metadata.
+    task_allowed_private_ips:
+      - 10.42.0.0/16 # pod CIDR: what a ClusterIP is rewritten to
+      - 10.43.0.0/16 # service CIDR: ClusterIPs, including CoreDNS
+
     enable_oci: true
     default_isolation_type: oci
     # NO enable_firecracker ON EITHER FLEET.
@@ -156,11 +180,21 @@ config:
     warmup_additional_images:
       - registry.carverauto.dev/serviceradar/rbe-executor:v1.0.24.3
     oci:
-      # DO NOT SET `dns: ""` HERE. See the measurement in ./values-workflows.yaml: the action
-      # network namespace has no route to the service CIDR, so pointing the resolver at CoreDNS
-      # replaces one failing lookup (cluster.local, NXDOMAIN) with every lookup failing, public
-      # names included. Both fleets share the runtime and the "8.8.8.8" default, so the trap is
-      # identical on each.
+      # CoreDNS, by its ClusterIP -- reachable only because of task_allowed_private_ips above.
+      #
+      # `executor.oci.dns` defaults to "8.8.8.8", and the runtime writes a resolv.conf holding
+      # that single nameserver into every action container, then bind-mounts it over
+      # /etc/resolv.conf (ociruntime.go:642 and :1340). That is why *.svc.cluster.local came
+      # back NXDOMAIN from a resolver that answered perfectly well.
+      #
+      # ONE nameserver serves both worlds: the Corefile ends in `forward . /etc/resolv.conf`,
+      # so CoreDNS answers cluster.local authoritatively and forwards everything else upstream.
+      #
+      # Named explicitly rather than "" (which bind-mounts the pod's own resolv.conf): that
+      # file is a moving target and also lists an IPv6 upstream this namespace cannot reach.
+      # Setting "" while RFC1918 was still blocked took out DNS entirely, public names
+      # included -- measured 2026-08-19, reverted within minutes.
+      dns: "10.43.0.10"
       mounts:
         - source: /cache
           destination: /cache

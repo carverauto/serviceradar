@@ -1,7 +1,7 @@
-ª
-srql-fixture.serviceradar.cloud¸*srql_fixture"srql*srql0:srql-fixture.serviceradar.cloudBplatform, ag_catalogH
+ø
+/srql-fixture-rw.srql-fixtures.svc.cluster.local¸*srql_fixture"srql*srql0:/srql-fixture-rw.srql-fixtures.svc.cluster.localBplatform, ag_catalogH
 PôXè`àÔj
-srql_hydrarhttp://10.43.52.69/ca.crt"7
+srql_hydrarGhttp://srql-fixture-ca-incluster.srql-fixtures.svc.cluster.local/ca.crt"7
 /nats://nats.serviceradar.svc.cluster.local:4222nats*M
 serviceradar-core:50052http://serviceradar-core:8090"serviceradar-core2,
 %dgraph.serviceradar.svc.cluster.localøF

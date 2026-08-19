@@ -48,42 +48,38 @@ env_file="${SERVICERADAR_FIXTURE_ENV_FILE}"
 namespace="${SRQL_FIXTURE_NAMESPACE:-srql-fixtures}"
 # Non-secret, so they are defaults here rather than secrets.
 #
-# The PUBLISHED endpoint, not the in-cluster service. This default used to be
-# srql-fixture-rw.srql-fixtures.svc.cluster.local on the claim that the in-cluster runner was
-# the one caller that could reach it. It is the one caller that cannot: a BuildBuddy action
-# namespace does not serve cluster.local -- measured, EAI_NONAME on that name in the same step
-# that fetched the CA over public DNS. srql-fixture-rw-ext is in public DNS, so the name
-# resolves for every caller; its MetalLB address is reachable from the cluster and the LAN but
-# not the open internet, so a remote workstation still overrides SRQL_FIXTURE_HOST.
-host="${SRQL_FIXTURE_HOST:-srql-fixture.serviceradar.cloud}"
+# The in-cluster service, matching //config/environments/ci.textproto `database.host`. Nothing
+# on this path leaves the cluster.
+#
+# It is reachable from a BuildBuddy action only because both executor fleets set
+# `task_allowed_private_ips` and point `oci.dns` at CoreDNS -- see //k8s/buildbuddy/values.yaml.
+# BuildBuddy REJECTs every RFC1918 destination from an action namespace by default, which is why
+# an earlier revision of this default was the public MetalLB name: 23.138.124.18 is not RFC1918,
+# so it was the only endpoint that had ever worked from CI.
+host="${SRQL_FIXTURE_HOST:-srql-fixture-rw.srql-fixtures.svc.cluster.local}"
 port="${SRQL_FIXTURE_PORT:-5432}"
 database="${SRQL_FIXTURE_DATABASE:-srql_fixture}"
 # verify-full is safe against this hostname: the cert-manager server cert
 # (secret srql-fixture-server-tls) carries DNS SANs for srql-fixture-{r,ro,rw} at every
-# suffix plus srql-fixture.serviceradar.cloud, which is the default above. It has no IP SANs,
-# so only a caller that OVERRIDES the host with an address -- a NodePort -- must also set
-# PGSSLSERVERNAME and SRQL_TEST_DATABASE_SERVER_NAME to one of those DNS names.
+# suffix, including the default above. It has no IP SANs, so only a caller that OVERRIDES the
+# host with an address -- a workstation on a LAN NodePort -- must also set PGSSLSERVERNAME and
+# SRQL_TEST_DATABASE_SERVER_NAME to one of those DNS names.
 ca_secret="${SRQL_FIXTURE_CA_SECRET:-srql-fixture-server-ca}"
 
-# CA endpoints, in preference order rather than one endpoint with an override.
+# The in-cluster CA bundle Service, for the same reason as `host` above.
 #
-# The two callers genuinely differ. An in-cluster consumer -- ARC, anything with CoreDNS --
-# should read the ClusterIP Service instead of hairpinning out to the public edge and back. A
-# caller whose network namespace does not resolve cluster.local has to use the published HTTPS
-# name; a BuildBuddy workflow action measured EAI_NONAME on a .svc.cluster.local name on
-# 2026-08-19, in the same step that fetched the public URL.
-#
-# An override used to REPLACE the endpoint, so naming the in-cluster URL removed the only one
-# that worked and the step failed with no CA at all. Ordered attempts serve both callers from
-# one configuration, and resolve_live_ca reports which source won and why each other failed --
-# so the next run answers whether the runner resolves cluster.local, instead of assuming it.
-ca_url_published="https://srql-fixture-ca.serviceradar.cloud/ca.crt"
+# There is deliberately no public fallback any more. The published
+# https://srql-fixture-ca.serviceradar.cloud/ca.crt endpoint has been switched off and now
+# answers 404, so listing it would only add a misleading failure line to the diagnostics below.
+# The remaining sources are this URL and the cert-manager Secret via kubectl, and resolve_live_ca
+# reports which one answered and why any other did not.
+ca_url_default="http://srql-fixture-ca-incluster.srql-fixtures.svc.cluster.local/ca.crt"
 ca_urls=()
 if [[ -n "${SRQL_FIXTURE_CA_URL:-}" ]]; then
   ca_urls+=("${SRQL_FIXTURE_CA_URL}")
 fi
-if [[ "${SRQL_FIXTURE_CA_URL:-}" != "${ca_url_published}" ]]; then
-  ca_urls+=("${ca_url_published}")
+if [[ "${SRQL_FIXTURE_CA_URL:-}" != "${ca_url_default}" ]]; then
+  ca_urls+=("${ca_url_default}")
 fi
 sslmode="${SRQL_FIXTURE_SSLMODE:-verify-full}"
 if [[ "${sslmode}" != "verify-full" ]]; then
@@ -329,10 +325,9 @@ Provide ONE of:
 The CA is obtained separately from the live cert-manager Secret or SRQL_FIXTURE_CA_URL.
 
 Overrides: SRQL_FIXTURE_{NAMESPACE,HOST,PORT,DATABASE,SSLMODE,CA_SECRET,CA_URL}.
-The default host is the published srql-fixture.serviceradar.cloud, which resolves everywhere.
-Override SRQL_FIXTURE_HOST with an ADDRESS (a LAN NodePort) only when that name is blocked,
-and then also set PGSSLSERVERNAME and SRQL_TEST_DATABASE_SERVER_NAME to a certificate DNS
-name -- the server cert has no IP SANs.
+The default host is the in-cluster Service, which a workstation cannot reach. Override
+SRQL_FIXTURE_HOST with the LAN NodePort there, and then also set PGSSLSERVERNAME and
+SRQL_TEST_DATABASE_SERVER_NAME to a certificate DNS name -- the server cert has no IP SANs.
 EOF_ERR
   exit 1
 fi

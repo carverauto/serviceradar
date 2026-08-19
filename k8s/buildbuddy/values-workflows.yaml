@@ -184,6 +184,18 @@ config:
     # cluster DNS name, which is why the two failures looked unrelated.)
     cache_target: grpc://bb-cache-proxy-buildbuddy-enterprise-cache-proxy.buildbuddy.svc.cluster.local:1985
 
+    # IN-CLUSTER ACCESS FROM ACTIONS. Same key and values as ./values.yaml -- see the long note
+    # there for the mechanism. Short version: BuildBuddy REJECTs every RFC1918 destination from
+    # an action's network namespace unless it is listed here, so without this a workflow step
+    # can reach the public internet and nothing on the cluster network.
+    #
+    # This fleet is the one that needs it most: the database lifecycle runs its TestRunner
+    # actions here (`--strategy=TestRunner=local` in //buildbuddy.yaml), so the fixture, the CA
+    # bundle and anything else in-cluster is reached from inside one of these namespaces.
+    task_allowed_private_ips:
+      - 10.42.0.0/16 # pod CIDR: what a ClusterIP is rewritten to by kube-proxy DNAT
+      - 10.43.0.0/16 # service CIDR: ClusterIPs, including CoreDNS
+
     enable_oci: true
     default_isolation_type: oci
     # Floor only. The runner's real size comes from resource_requests in //buildbuddy.yaml,
@@ -224,7 +236,11 @@ config:
       - registry.carverauto.dev/serviceradar/buildbuddy-workflow-runner:v1.0.24.3
 
     oci:
-      # DO NOT SET `dns: ""` HERE. MEASURED, 2026-08-19, and reverted within minutes.
+      # CoreDNS, by its ClusterIP -- reachable only because of task_allowed_private_ips above.
+      # See ./values.yaml for why this is an explicit address rather than "".
+      dns: "10.43.0.10"
+
+      # WHY NOT `dns: ""`. MEASURED, 2026-08-19, and reverted within minutes.
       #
       # `executor.oci.dns` defaults to "8.8.8.8" and the runtime writes a resolv.conf holding
       # that single nameserver into every action container, then bind-mounts it over

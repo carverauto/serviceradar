@@ -20,7 +20,9 @@ actions:
     platform_properties:
       OSFamily: "linux"
       Arch: "amd64"
-      dockerNetwork: "bridge" # The OCI runtime accepts exactly "", "bridge" and "off"
+      # Under `oci` isolation this is a BOOLEAN in disguise. ociruntime.go reduces the property
+      # to `networkEnabled: networkMode != "off"`
+      dockerNetwork: "bridge"
 
     triggers:
       pr:
