@@ -31,6 +31,17 @@ defmodule ServiceRadar.Plugins.ProducerSchedule do
     :metadata
   ]
 
+  # Attributes that decide *when* a schedule fires. Changing any of them
+  # invalidates a pending next_due_at, so it has to be recomputed instead of
+  # letting the schedule run once more on its previous cadence first.
+  @schedule_shape_fields [
+    :enabled,
+    :schedule_type,
+    :cadence_seconds,
+    :cron_expression,
+    :timezone
+  ]
+
   postgres do
     table "producer_schedules"
     repo ServiceRadar.Repo
@@ -101,7 +112,7 @@ defmodule ServiceRadar.Plugins.ProducerSchedule do
       ]
 
       validate &validate_schedule/2
-      change &set_initial_due/2
+      change &set_next_due/2
     end
 
     update :update do
@@ -117,7 +128,7 @@ defmodule ServiceRadar.Plugins.ProducerSchedule do
                ]
 
       validate &validate_schedule/2
-      change &set_initial_due/2
+      change &set_next_due/2
     end
 
     update :dispatch_due do
@@ -361,15 +372,38 @@ defmodule ServiceRadar.Plugins.ProducerSchedule do
     end
   end
 
-  defp set_initial_due(changeset, _context) do
+  defp set_next_due(changeset, _context) do
     enabled = Ash.Changeset.get_attribute(changeset, :enabled)
     next_due_at = Ash.Changeset.get_attribute(changeset, :next_due_at)
 
-    if enabled == true and is_nil(next_due_at) do
-      Ash.Changeset.change_attribute(changeset, :next_due_at, compute_next_due(changeset))
-    else
-      changeset
+    cond do
+      # Disabled schedules are never dispatched (`:due_for_dispatch` filters on
+      # enabled), so leave their next_due_at as-is; re-enabling recomputes it.
+      enabled != true ->
+        changeset
+
+      is_nil(next_due_at) ->
+        Ash.Changeset.change_attribute(changeset, :next_due_at, compute_next_due(changeset))
+
+      # An explicit next_due_at in this same changeset is the caller's own
+      # decision (operator-picked run time, dispatch bookkeeping) — honour it
+      # rather than overwriting it with a recomputed value.
+      Ash.Changeset.changing_attribute?(changeset, :next_due_at) ->
+        changeset
+
+      # A cadence / cron / re-enable change has to take effect now. Without
+      # this the schedule keeps its previously computed next_due_at and goes on
+      # firing at the old cadence until that stale timestamp happens to elapse.
+      schedule_shape_changing?(changeset) ->
+        Ash.Changeset.change_attribute(changeset, :next_due_at, compute_next_due(changeset))
+
+      true ->
+        changeset
     end
+  end
+
+  defp schedule_shape_changing?(changeset) do
+    Enum.any?(@schedule_shape_fields, &Ash.Changeset.changing_attribute?(changeset, &1))
   end
 
   defp dispatch_and_record(changeset, _context) do
@@ -395,7 +429,17 @@ defmodule ServiceRadar.Plugins.ProducerSchedule do
     end
   end
 
+  # Interval schedules are re-anchored on the last real run rather than on
+  # `now`: an operator who lowers the cadence of a schedule that just ran gets
+  # `last_run_at + new cadence`, which is still in the future, so the edit can
+  # never trigger an immediate duplicate fire. A schedule that is genuinely
+  # overdue under the new cadence becomes due right away instead of waiting one
+  # more full cadence, and the floor at `now` keeps the recomputed value out of
+  # the past. Cron schedules ignore last_run_at entirely — cron is wall-clock
+  # anchored, so the next occurrence is always computed from `now`.
   defp compute_next_due(changeset) do
+    now = DateTime.utc_now()
+
     schedule = %{
       schedule_type: Ash.Changeset.get_attribute(changeset, :schedule_type),
       cadence_seconds: Ash.Changeset.get_attribute(changeset, :cadence_seconds),
@@ -403,7 +447,21 @@ defmodule ServiceRadar.Plugins.ProducerSchedule do
       timezone: Ash.Changeset.get_attribute(changeset, :timezone)
     }
 
-    next_due(schedule, DateTime.utc_now())
+    case schedule.schedule_type do
+      :interval ->
+        schedule
+        |> next_due(Ash.Changeset.get_data(changeset, :last_run_at) || now)
+        |> not_before(now)
+
+      _other ->
+        next_due(schedule, now)
+    end
+  end
+
+  defp not_before(nil, _now), do: nil
+
+  defp not_before(%DateTime{} = due_at, now) do
+    if DateTime.before?(due_at, now), do: now, else: due_at
   end
 
   defp next_due(%{schedule_type: :manual}, _now), do: nil
