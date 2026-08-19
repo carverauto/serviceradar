@@ -36,6 +36,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.ShowTemplate do
   alias ServiceRadarWebNG.RBAC
   alias ServiceRadarWebNGWeb.Dashboard.Plugins.Table, as: TablePlugin
   alias ServiceRadarWebNGWeb.DeviceLive.DeviceStateData
+  alias ServiceRadarWebNGWeb.DeviceLive.DeviceTabRuntime
   alias ServiceRadarWebNGWeb.DeviceLive.MetadataData
   alias ServiceRadarWebNGWeb.DeviceLive.QueryData
   alias ServiceRadarWebNGWeb.DeviceLive.RemoteAccessData
@@ -340,6 +341,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.ShowTemplate do
               vulnerability_matches={@endpoint_inventory_vulnerability_matches}
               cpe_catalog_current={@endpoint_inventory_cpe_catalog_current}
               error={@endpoint_inventory_error}
+              loading={@endpoint_inventory_loading}
               has_inventory={@has_software_inventory}
               show_controls={device_has_agent?(@device_row)}
               device_row={@device_row}
@@ -368,7 +370,13 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.ShowTemplate do
               favorited_interfaces={@favorited_interfaces}
               device_uid={@device_uid}
               interface_metrics={@interface_metrics}
-              loading={@interfaces_loading or @details_loading}
+              loading={
+                DeviceTabRuntime.tab_content_loading?(
+                  @interfaces_loading,
+                  @details_loading,
+                  @network_interfaces
+                )
+              }
               metrics_loading={@interface_metrics_loading}
               discovery_job={@discovery_job}
               northbound_actions={@northbound_interface_actions}
@@ -390,7 +398,13 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.ShowTemplate do
               query={QueryData.default_flows_query(@device_uid)}
               limit={@flows_limit}
               flow_stats={@flow_stats}
-              loading={@flows_loading or @details_loading}
+              loading={
+                DeviceTabRuntime.tab_content_loading?(
+                  @flows_loading,
+                  @details_loading,
+                  @device_flows
+                )
+              }
               flow_stats_loading={@flow_stats_loading}
               sparkline_json={@flow_sparkline_json}
               proto_json={@flow_proto_json}

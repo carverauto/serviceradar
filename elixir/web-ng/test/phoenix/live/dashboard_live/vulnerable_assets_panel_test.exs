@@ -16,7 +16,7 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.VulnerableAssetsPanelTest do
     assert asset.type == "Network Device"
     assert asset.risk_score == 92
     assert asset.risk_level == "Critical"
-    assert asset.href == "/devices/sr:udm"
+    assert asset.href == "/devices/sr:udm?tab=software"
   end
 
   test "lists scored assets with inventory links" do
@@ -31,7 +31,7 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.VulnerableAssetsPanelTest do
               risk_score: 92,
               risk_level: "Critical",
               available?: true,
-              href: "/devices/sr:udm"
+              href: "/devices/sr:udm?tab=software"
             },
             %{
               uid: "alma-test01",
@@ -40,7 +40,7 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.VulnerableAssetsPanelTest do
               risk_score: 71,
               risk_level: "High",
               available?: true,
-              href: "/devices/alma-test01"
+              href: "/devices/alma-test01?tab=software"
             }
           ]
         }
@@ -50,9 +50,11 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.VulnerableAssetsPanelTest do
     assert html =~ "edge-gw-01"
     assert html =~ "92"
     assert html =~ "Critical"
-    assert html =~ ~s(href="/devices/sr:udm")
+    assert html =~ ~s(href="/devices/sr:udm?tab=software")
     assert html =~ ~s(href="/devices")
     assert html =~ "View All Assets"
+    assert html =~ "sr-ui-table"
+    refute html =~ ~s(class="table )
     refute html =~ "No scored assets yet"
   end
 

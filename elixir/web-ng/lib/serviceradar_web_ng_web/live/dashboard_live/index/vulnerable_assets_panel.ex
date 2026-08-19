@@ -32,41 +32,51 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Index.VulnerableAssetsPanel do
         </span>
       </div>
 
-      <div :if={@vulnerable_assets != []} class="overflow-x-auto" data-testid="vulnerable-assets">
-        <table class="table table-xs">
+      <div :if={@vulnerable_assets != []} class="sr-ops-vuln-assets" data-testid="vulnerable-assets">
+        <table class={ui_table_class(size: "xs", fixed: true, class: "w-full")}>
+          <colgroup>
+            <col class="sr-ops-vuln-col-asset" />
+            <col class="sr-ops-vuln-col-type" />
+            <col class="sr-ops-vuln-col-score" />
+            <col class="sr-ops-vuln-col-status" />
+          </colgroup>
           <thead>
             <tr>
               <th>Asset</th>
               <th>Type</th>
-              <th>Risk Score</th>
+              <th>Risk</th>
               <th>Status</th>
             </tr>
           </thead>
           <tbody>
             <tr :for={asset <- @vulnerable_assets}>
-              <td class="max-w-36">
+              <td>
                 <.link
                   href={asset.href}
-                  class="link link-hover font-medium truncate block"
-                  aria-label={"Open #{asset.name}"}
+                  class="sr-ops-vuln-asset-link"
+                  title={asset.name}
+                  aria-label={"Open software inventory for #{asset.name}"}
                 >
                   {asset.name}
                 </.link>
               </td>
-              <td class="text-base-content/70">{asset.type}</td>
-              <td class="font-mono tabular-nums">{asset.risk_score}</td>
-              <td class="min-w-28">
-                <div class="flex items-center gap-2">
-                  <progress
-                    class={["progress w-16", progress_class(asset.risk_level)]}
-                    value={asset.risk_score}
-                    max="100"
-                    aria-label={"#{asset.risk_level} risk"}
-                  ></progress>
-                  <span class={["badge badge-sm badge-soft", badge_class(asset.risk_level)]}>
-                    {asset.risk_level}
+              <td class="sr-ops-vuln-type">{asset.type}</td>
+              <td>
+                <div class="sr-ops-vuln-score">
+                  <span class="sr-ops-vuln-score-value">{asset.risk_score}</span>
+                  <span
+                    class={["sr-ops-vuln-bar", tone_class(asset.risk_level)]}
+                    style={"--sr-ops-vuln: #{asset.risk_score}%"}
+                    aria-hidden="true"
+                  >
+                    <i></i>
                   </span>
                 </div>
+              </td>
+              <td>
+                <.ui_badge variant={badge_variant_for(asset.risk_level)} size="xs">
+                  {asset.risk_level}
+                </.ui_badge>
               </td>
             </tr>
           </tbody>
@@ -76,16 +86,13 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Index.VulnerableAssetsPanel do
     """
   end
 
-  defp progress_class(level), do: tone_class(level, "progress")
-  defp badge_class(level), do: tone_class(level, "badge")
-
-  defp tone_class(level, prefix) do
+  defp tone_class(level) do
     case level |> to_string() |> String.downcase() do
-      "critical" -> "#{prefix}-error"
-      "high" -> "#{prefix}-warning"
-      "medium" -> "#{prefix}-info"
-      "low" -> "#{prefix}-success"
-      _ -> "#{prefix}-neutral"
+      "critical" -> "is-critical"
+      "high" -> "is-high"
+      "medium" -> "is-medium"
+      "low" -> "is-low"
+      _ -> "is-neutral"
     end
   end
 end

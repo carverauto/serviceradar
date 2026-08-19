@@ -3,6 +3,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.InterfaceData do
 
   alias ServiceRadar.Inventory.InterfaceMetrics
   alias ServiceRadar.Inventory.InterfaceSettings
+  alias ServiceRadar.Repo
   alias ServiceRadarWebNGWeb.InterfaceLive.MetricsPanels
   alias ServiceRadarWebNGWeb.InterfaceLive.MetricsQuery
 
@@ -30,9 +31,23 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.InterfaceData do
   # Inventory list advertises SNMP metrics independently of interface snapshots.
   # A UniFi AP can keep writing ifInOctets while `in:interfaces` has nothing in
   # the last 3 days — still treat that as "this device has interfaces."
+  #
+  # Presence must not go through `latest:true` / `stats:count()` SRQL. Those
+  # compile to DISTINCT ON plus error-metric laterals and, on a busy Repo
+  # pool, routinely take the full 15s device-details timeout. EXISTS on the
+  # hypertables is milliseconds; SRQL is only a fallback when Repo is down.
   def has_interfaces?(srql_module, device_uid, scope) do
-    inventory_present?(srql_module, device_uid, scope) or
-      snmp_metrics_present?(srql_module, device_uid, scope)
+    case cheap_inventory_present?(device_uid) do
+      {:ok, true} ->
+        true
+
+      {:ok, false} ->
+        cheap_or_srql_snmp_present?(srql_module, device_uid, scope)
+
+      :error ->
+        srql_inventory_present?(srql_module, device_uid, scope) or
+          snmp_metrics_present?(srql_module, device_uid, scope)
+    end
   end
 
   def filter_interfaces_for_display(interfaces, device_row) when is_list(interfaces) and is_map(device_row) do
@@ -648,28 +663,61 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.InterfaceData do
       "sort:if_name:asc limit:#{@interfaces_limit}"
   end
 
-  defp inventory_present?(srql_module, device_uid, scope) do
-    query =
-      "in:interfaces device_id:\"#{escape_value(device_uid)}\" latest:true time:last_3d " <>
-        "stats:count() as interface_count"
+  defp cheap_inventory_present?(device_uid) when is_binary(device_uid) and device_uid != "" do
+    interpret_exists(fn ->
+      Repo.query(
+        """
+        SELECT 1
+        FROM platform.discovered_interfaces
+        WHERE device_id = $1
+        LIMIT 1
+        """,
+        [device_uid]
+      )
+    end)
+  end
 
-    case srql_module.query(query, %{scope: scope}) do
-      {:ok, %{"results" => results}} when is_list(results) ->
-        count =
-          results
-          |> List.first(%{})
-          |> Map.get("interface_count", 0)
+  defp cheap_inventory_present?(_device_uid), do: {:ok, false}
 
-        to_safe_number(count) > 0 or inventory_row_present?(srql_module, device_uid, scope)
-
-      _ ->
-        inventory_row_present?(srql_module, device_uid, scope)
+  defp cheap_or_srql_snmp_present?(srql_module, device_uid, scope) do
+    case cheap_snmp_present?(device_uid) do
+      {:ok, present} -> present
+      :error -> snmp_metrics_present?(srql_module, device_uid, scope)
     end
   end
 
-  defp inventory_row_present?(srql_module, device_uid, scope) do
-    query =
-      "in:interfaces device_id:\"#{escape_value(device_uid)}\" latest:true time:last_3d limit:1"
+  defp cheap_snmp_present?(device_uid) when is_binary(device_uid) and device_uid != "" do
+    interpret_exists(fn ->
+      Repo.query(
+        """
+        SELECT 1
+        FROM platform.timeseries_metrics
+        WHERE device_id = $1
+          AND metric_type = 'snmp'
+          AND timestamp > now() - interval '24 hours'
+        LIMIT 1
+        """,
+        [device_uid]
+      )
+    end)
+  end
+
+  defp cheap_snmp_present?(_device_uid), do: {:ok, false}
+
+  defp interpret_exists(fun) when is_function(fun, 0) do
+    case fun.() do
+      {:ok, %{num_rows: n}} -> {:ok, n > 0}
+      {:error, _reason} -> :error
+    end
+  rescue
+    _ -> :error
+  end
+
+  # No `latest:true` and no `stats:count()` — those force DISTINCT ON over the
+  # 3-day window plus ifIn/ifOut error laterals. A plain limit:1 is enough to
+  # decide whether the Interfaces tab should exist.
+  defp srql_inventory_present?(srql_module, device_uid, scope) do
+    query = "in:interfaces device_id:\"#{escape_value(device_uid)}\" time:last_3d limit:1"
 
     case srql_module.query(query, %{scope: scope}) do
       {:ok, %{"results" => [_ | _]}} -> true
@@ -752,18 +800,6 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.InterfaceData do
       "inferred_from_metrics" => true
     }
   end
-
-  defp to_safe_number(n) when is_number(n), do: n
-  defp to_safe_number(nil), do: 0
-
-  defp to_safe_number(s) when is_binary(s) do
-    case Float.parse(s) do
-      {f, _} -> f
-      :error -> 0
-    end
-  end
-
-  defp to_safe_number(_), do: 0
 
   defp escape_value(value) when is_binary(value) do
     value

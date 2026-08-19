@@ -7,13 +7,19 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Index.ThreatPanel do
   alias ServiceRadarWebNGWeb.DashboardLive.Index.Common
   alias ServiceRadarWebNGWeb.Observability.ThreatIntelLinks
 
+  @visible_match_limit 3
+
   attr(:dashboard, :map, required: true)
 
   def render(%{dashboard: dashboard} = assigns) do
+    summary = dashboard[:threat_intel_summary] || dashboard["threat_intel_summary"]
+    {visible_matches, hidden_match_count} = visible_matches(summary)
+
     assigns =
       assigns
       |> Map.merge(dashboard)
-      |> Map.put(:recent_matches, recent_matches(dashboard[:threat_intel_summary] || dashboard["threat_intel_summary"]))
+      |> Map.put(:recent_matches, visible_matches)
+      |> Map.put(:hidden_match_count, hidden_match_count)
 
     ~H"""
     <Common.panel title="Threat Intel" class="sr-ops-span-full lg:col-span-12">
@@ -23,42 +29,48 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Index.ThreatPanel do
         </.link>
       </:actions>
       <div class="sr-ops-threat-intel" data-testid="threat-intel-summary">
-        <.link
-          href={ThreatIntelLinks.settings_path()}
-          class="sr-ops-threat-sync sr-ops-threat-sync-link"
-          aria-label="Open Threat Intel feed settings"
-        >
-          <span class={[
-            "sr-ops-threat-status",
-            threat_status_class(@threat_intel_summary.latest_status)
-          ]}>
-            {threat_status_label(@threat_intel_summary.latest_status)}
-          </span>
-          <div>
-            <strong>{threat_source_label(@threat_intel_summary)}</strong>
-            <small title={sync_timestamp_title(@threat_intel_summary)}>
-              {threat_sync_label(@threat_intel_summary)}
-            </small>
-          </div>
-        </.link>
+        <div class="sr-ops-threat-toolbar">
+          <.link
+            href={ThreatIntelLinks.settings_path()}
+            class="sr-ops-threat-sync sr-ops-threat-sync-link"
+            aria-label="Open Threat Intel feed settings"
+          >
+            <span class={[
+              "sr-ops-threat-status",
+              threat_status_class(@threat_intel_summary.latest_status)
+            ]}>
+              {threat_status_label(@threat_intel_summary.latest_status)}
+            </span>
+            <div class="sr-ops-threat-sync-copy">
+              <strong>{threat_source_label(@threat_intel_summary)}</strong>
+              <small title={sync_timestamp_title(@threat_intel_summary)}>
+                {threat_sync_label(@threat_intel_summary)}
+              </small>
+            </div>
+          </.link>
 
-        <div class="sr-ops-threat-stat-grid">
-          <Common.small_stat
-            label="IOCs"
-            value={format_compact_count(@threat_intel_summary.imported_indicators)}
-          />
-          <Common.small_stat
-            label="Objects"
-            value={format_compact_count(@threat_intel_summary.source_objects)}
-          />
-          <Common.small_stat
-            label="Matched IPs"
-            value={format_compact_count(@threat_intel_summary.matched_ips)}
-          />
-          <Common.small_stat
-            label="IOC Hits"
-            value={format_compact_count(@threat_intel_summary.indicator_matches)}
-          />
+          <div class="sr-ops-threat-stat-grid">
+            <Common.small_stat
+              label="IOCs"
+              value={format_compact_count(@threat_intel_summary.imported_indicators)}
+            />
+            <Common.small_stat
+              label="Objects"
+              value={format_compact_count(@threat_intel_summary.source_objects)}
+            />
+            <Common.small_stat
+              label="Matched IPs"
+              value={format_compact_count(@threat_intel_summary.matched_ips)}
+            />
+            <Common.small_stat
+              label="IOC Hits"
+              value={format_compact_count(@threat_intel_summary.indicator_matches)}
+            />
+            <Common.small_stat
+              label="Max sev"
+              value={format_compact_count(@threat_intel_summary.max_severity)}
+            />
+          </div>
         </div>
 
         <div
@@ -67,15 +79,14 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Index.ThreatPanel do
           data-testid="threat-intel-matches"
         >
           <div :if={@recent_matches == []} class="sr-ops-threat-matches-empty">
-            No current NetFlow IOC matches.
+            <span>No current NetFlow IOC matches.</span>
+            <span class="sr-ops-threat-message">{threat_message(@threat_intel_summary)}</span>
           </div>
           <div :for={match <- @recent_matches} class="sr-ops-threat-match">
-            <div class="min-w-0">
-              <span class="sr-ops-threat-match-ip">{match.ip}</span>
-              <span class="sr-ops-threat-match-meta">
-                {match_meta_label(match)}
-              </span>
-            </div>
+            <span class="sr-ops-threat-match-ip">{match.ip}</span>
+            <span class="sr-ops-threat-match-meta">
+              {match_meta_label(match)}
+            </span>
             <div class="sr-ops-threat-match-links">
               <.link
                 href={ThreatIntelLinks.device_path(match.ip, match.device_uid)}
@@ -93,14 +104,9 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Index.ThreatPanel do
               </.link>
             </div>
           </div>
-        </div>
-
-        <div class="sr-ops-threat-detail">
-          <span>Max severity</span>
-          <strong>{@threat_intel_summary.max_severity}</strong>
-        </div>
-        <div class="sr-ops-threat-message">
-          {threat_message(@threat_intel_summary)}
+          <div :if={@hidden_match_count > 0} class="sr-ops-threat-matches-more">
+            +{@hidden_match_count} more matched IPs
+          </div>
         </div>
       </div>
     </Common.panel>
@@ -147,6 +153,11 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Index.ThreatPanel do
 
   defp present_text?(value) when is_binary(value), do: String.trim(value) != ""
   defp present_text?(_), do: false
+
+  defp visible_matches(summary) do
+    matches = recent_matches(summary)
+    {Enum.take(matches, @visible_match_limit), max(length(matches) - @visible_match_limit, 0)}
+  end
 
   defp recent_matches(%{recent_matches: matches}) when is_list(matches), do: matches
   defp recent_matches(_summary), do: []

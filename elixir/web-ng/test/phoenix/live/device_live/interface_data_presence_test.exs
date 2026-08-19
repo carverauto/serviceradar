@@ -64,6 +64,20 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.InterfaceDataPresenceTest do
     def query_request(_payload), do: {:ok, %{"results" => []}}
   end
 
+  defmodule RecordingSRQL do
+    @moduledoc false
+    @behaviour ServiceRadarWebNG.SRQLBehaviour
+
+    @impl true
+    def query(query, _opts) do
+      send(Process.get(:iface_presence_test_pid), {:iface_query, query})
+      {:ok, %{"results" => []}}
+    end
+
+    @impl true
+    def query_request(%{"query" => query}), do: query(query, %{})
+  end
+
   test "inventory snapshots still count as interface presence" do
     assert InterfaceData.has_interfaces?(InventorySRQL, "sr:u6-mesh", %{})
   end
@@ -71,6 +85,27 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.InterfaceDataPresenceTest do
   test "SNMP metrics keep the Interfaces tab available without inventory" do
     assert InterfaceData.has_interfaces?(SnmpOnlySRQL, "sr:u6-mesh", %{})
     refute InterfaceData.has_interfaces?(EmptySRQL, "sr:u6-mesh", %{})
+  end
+
+  test "SRQL presence fallback skips latest:true and stats:count" do
+    Process.put(:iface_presence_test_pid, self())
+
+    refute InterfaceData.has_interfaces?(RecordingSRQL, "sr:u6-mesh", %{})
+
+    queries =
+      fn ->
+        receive do
+          {:iface_query, query} -> query
+        after
+          0 -> :done
+        end
+      end
+      |> Stream.repeatedly()
+      |> Enum.take_while(&(&1 != :done))
+
+    assert Enum.any?(queries, &String.starts_with?(&1, "in:interfaces"))
+    refute Enum.any?(queries, &String.contains?(&1, "stats:count()"))
+    refute Enum.any?(queries, &String.contains?(&1, "latest:true"))
   end
 
   test "empty inventory falls back to SNMP ifIndex rows" do

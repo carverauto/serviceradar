@@ -8,6 +8,8 @@
 //
 // Keep the options here in sync with the `build:js:minify` script in package.json, which
 // is what a developer runs outside Bazel.
+import fs from "node:fs";
+import path from "node:path";
 import * as esbuild from "esbuild";
 
 const outdir = process.argv[2];
@@ -46,3 +48,11 @@ await esbuild.build({
   },
   minify: true,
 });
+
+// IIFE bundles cannot resolve `import.meta.url`, so God View fetches this
+// stable path instead of an esbuild file-loader rewrite. Keep the filename
+// in sync with WasmAssetController and god_view_exec_runtime.js.
+fs.copyFileSync(
+  path.join("js", "wasm", "god_view_exec.wasm"),
+  path.join(outdir, "god_view_exec.wasm"),
+);

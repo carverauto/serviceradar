@@ -65,6 +65,22 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.DeviceTabRuntime do
 
   def authorize_active_tab(tab, _row, _scope), do: tab
 
+  # A same-device details refresh sets details_loading while the supplemental
+  # batch is in flight. Tabs that already have rows must stay rendered —
+  # treating details_loading as a full-tab spinner replaces the table with
+  # "Loading network interfaces" on every SNMP last_seen broadcast.
+  def tab_content_loading?(tab_loading?, details_loading?, rows) when is_list(rows) do
+    tab_loading? or (details_loading? and rows == [])
+  end
+
+  def tab_content_loading?(tab_loading?, details_loading?, _rows) do
+    tab_loading? or details_loading?
+  end
+
+  def reload_interfaces?(assigns) do
+    not assigns.interfaces_loading and assigns.network_interfaces == []
+  end
+
   def handle_same_device_params(socket, uid, limit, requested_tab, cursor, srql_module, opts) do
     active_tab = resolve_active_tab(socket, requested_tab)
     srql = QueryData.srql_for_tab_if_needed(active_tab, uid, limit, socket.assigns.srql)
@@ -162,8 +178,13 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.DeviceTabRuntime do
     interfaces = socket.assigns.network_interfaces
 
     if connected?(socket) do
+      # Keep already-rendered favorited metrics on screen. A same-device
+      # refresh used to flip this true and replace the table header with
+      # "Loading favorited interface metrics" every 30s.
+      metrics_loading? = is_nil(socket.assigns.interface_metrics)
+
       socket
-      |> assign(:interface_metrics_loading, true)
+      |> assign(:interface_metrics_loading, metrics_loading?)
       |> assign(:interface_metrics_request_ref, request_ref)
       |> start_async({:interface_metrics, uid, request_ref}, fn ->
         InterfaceData.load_interface_metrics(
@@ -181,10 +202,10 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.DeviceTabRuntime do
   end
 
   defp maybe_reload_interfaces_for_active_tab(socket, "interfaces", uid, srql_module) do
-    if socket.assigns.interfaces_loading do
-      socket
-    else
+    if reload_interfaces?(socket.assigns) do
       begin_interfaces_load(socket, uid, srql_module)
+    else
+      socket
     end
   end
 
