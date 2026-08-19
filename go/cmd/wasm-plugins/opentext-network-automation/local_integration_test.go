@@ -11,7 +11,7 @@ import (
 	"sync"
 	"testing"
 
-	"code.carverauto.dev/carverauto/serviceradar-sdk-go/sdk"
+	"github.com/carverauto/serviceradar-sdk-go/sdk"
 )
 
 func TestLocalHostRunsCollectorWithActionInputAndBrokeredCredentials(t *testing.T) {

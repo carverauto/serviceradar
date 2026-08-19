@@ -43,21 +43,15 @@ published SDK. The root module does not require that SDK at all, so merging them
 and each plugin's own dependencies into the root `go.sum` for code that only ever compiles to
 `wasip1`.
 
-All nine now require the SDK under one path,
-`code.carverauto.dev/carverauto/serviceradar-sdk-go`. They did not always: `dusk-checker` sat
-on the pre-rename `github.com/carverauto/serviceradar-sdk-go` at `v0.2.0`, a version that does
-not exist under the new path, so any tool resolving the nine together died on the mismatch.
-Keep them on one path.
+All nine require `github.com/carverauto/serviceradar-sdk-go v0.3.0`. That tag
+restores the GitHub module path after the Forgejo vanity detour; `v0.2.0` is the
+last pre-move GitHub release and does not include later SDK contracts. Keep the
+plugins on one path and one version.
 
-They still sit on five different pseudo-versions, and unifying those is blocked on the SDK. 
-`go_deps.from_file` accepts a `go_work` label, so a `go.work` listing
-all eleven modules would give one MVS resolution and let Gazelle generate `go_library` and
-`go_test` targets for the plugins. MVS picks the newest SDK, and the newest SDK dropped
-`AuthMode`, `TimestampHeader`, `SignatureHeader` and `SignatureAlgorithm` from
-`sdk.ActionCallback` with no replacement anywhere in the package. `sample-northbound` reads all
-four to report HMAC webhook-callback signing metadata, so unification currently means deleting
-request-signing plumbing. That is a decision for whoever owns the SDK contract, not a version
-bump.
+`go_deps.from_file` accepts a `go_work` label, so a `go.work` listing all eleven
+modules would give one MVS resolution and let Gazelle generate `go_library` and
+`go_test` targets for the plugins. `sample-northbound` no longer reads the
+callback signing fields that were dropped from `sdk.ActionCallback`.
 
  A `go.work` unifies version resolution, not package patterns. `./...` still returns only the root module's
 packages, so a workspace alone does not put the plugin tests in reach of `go test ./...`.

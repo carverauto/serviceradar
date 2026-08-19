@@ -7,7 +7,7 @@ import (
 	"net/http"
 	"strings"
 
-	"code.carverauto.dev/carverauto/serviceradar-sdk-go/sdk"
+	"github.com/carverauto/serviceradar-sdk-go/sdk"
 )
 
 func getJSON[T any](cfg Config, target Target, token, path string, out *T) error {
