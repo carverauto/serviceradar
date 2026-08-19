@@ -664,15 +664,17 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.InterfaceData do
   end
 
   defp cheap_inventory_present?(device_uid) when is_binary(device_uid) and device_uid != "" do
-    exists_one?(
-      """
-      SELECT 1
-      FROM platform.discovered_interfaces
-      WHERE device_id = $1
-      LIMIT 1
-      """,
-      [device_uid]
-    )
+    interpret_exists(fn ->
+      Repo.query(
+        """
+        SELECT 1
+        FROM platform.discovered_interfaces
+        WHERE device_id = $1
+        LIMIT 1
+        """,
+        [device_uid]
+      )
+    end)
   end
 
   defp cheap_inventory_present?(_device_uid), do: {:ok, false}
@@ -685,23 +687,25 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.InterfaceData do
   end
 
   defp cheap_snmp_present?(device_uid) when is_binary(device_uid) and device_uid != "" do
-    exists_one?(
-      """
-      SELECT 1
-      FROM platform.timeseries_metrics
-      WHERE device_id = $1
-        AND metric_type = 'snmp'
-        AND timestamp > now() - interval '24 hours'
-      LIMIT 1
-      """,
-      [device_uid]
-    )
+    interpret_exists(fn ->
+      Repo.query(
+        """
+        SELECT 1
+        FROM platform.timeseries_metrics
+        WHERE device_id = $1
+          AND metric_type = 'snmp'
+          AND timestamp > now() - interval '24 hours'
+        LIMIT 1
+        """,
+        [device_uid]
+      )
+    end)
   end
 
   defp cheap_snmp_present?(_device_uid), do: {:ok, false}
 
-  defp exists_one?(sql, params) do
-    case Repo.query(sql, params) do
+  defp interpret_exists(fun) when is_function(fun, 0) do
+    case fun.() do
       {:ok, %{num_rows: n}} -> {:ok, n > 0}
       {:error, _reason} -> :error
     end

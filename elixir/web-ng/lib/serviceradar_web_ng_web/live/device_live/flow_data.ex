@@ -488,41 +488,47 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.FlowData do
 
   defp flow_seen_for_ip?(ip) do
     with {:ok, false} <-
-           exists_one?(
-             """
-             SELECT 1
-             FROM platform.ocsf_network_activity
-             WHERE time > now() - interval '24 hours' AND src_endpoint_ip = $1
-             LIMIT 1
-             """,
-             [ip]
-           ) do
-      exists_one?(
-        """
-        SELECT 1
-        FROM platform.ocsf_network_activity
-        WHERE time > now() - interval '24 hours' AND dst_endpoint_ip = $1
-        LIMIT 1
-        """,
-        [ip]
-      )
+           interpret_exists(fn ->
+             Repo.query(
+               """
+               SELECT 1
+               FROM platform.ocsf_network_activity
+               WHERE time > now() - interval '24 hours' AND src_endpoint_ip = $1
+               LIMIT 1
+               """,
+               [ip]
+             )
+           end) do
+      interpret_exists(fn ->
+        Repo.query(
+          """
+          SELECT 1
+          FROM platform.ocsf_network_activity
+          WHERE time > now() - interval '24 hours' AND dst_endpoint_ip = $1
+          LIMIT 1
+          """,
+          [ip]
+        )
+      end)
     end
   end
 
   defp flow_seen_for_sampler?(sampler) do
-    exists_one?(
-      """
-      SELECT 1
-      FROM platform.ocsf_network_activity
-      WHERE time > now() - interval '24 hours' AND sampler_address = $1
-      LIMIT 1
-      """,
-      [sampler]
-    )
+    interpret_exists(fn ->
+      Repo.query(
+        """
+        SELECT 1
+        FROM platform.ocsf_network_activity
+        WHERE time > now() - interval '24 hours' AND sampler_address = $1
+        LIMIT 1
+        """,
+        [sampler]
+      )
+    end)
   end
 
-  defp exists_one?(sql, params) do
-    case Repo.query(sql, params) do
+  defp interpret_exists(fun) when is_function(fun, 0) do
+    case fun.() do
       {:ok, %{num_rows: n}} -> {:ok, n > 0}
       {:error, _reason} -> :error
     end
