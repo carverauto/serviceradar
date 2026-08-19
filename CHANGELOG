@@ -1,3 +1,23 @@
+# ServiceRadar v1.4.38
+
+Lands the leftover dashboard and device-details UI that missed 1.4.37,
+and stops Interfaces from appearing on devices that have none.
+
+## Whats New
+
+**1.4.38**
+- Web UI: Software-tab vulnerability matches load on their own
+  `start_async` instead of waiting on the 15s `has_ifaces` /
+  `has_flows` batch. (PR #3801)
+- Web UI: Interfaces and Flows tabs only show when presence is
+  confirmed. Probes use `EXISTS` on inventory/SNMP/flow indexes
+  instead of `latest:true stats:count()` SRQL. (PR #3801)
+- Dashboard: Threat Intel is a one-line stat strip; Vulnerable
+  assets uses the brand table and opens the Software tab. (PR #3801)
+- Topology: God View wasm loads from `/assets/js/god_view_exec.wasm`
+  so the IIFE bundle no longer dies on empty `import.meta.url`.
+  (PR #3801)
+
 # ServiceRadar v1.4.37
 
 Keeps nist-nvd2 from filling the node, stops Falco Critical from
