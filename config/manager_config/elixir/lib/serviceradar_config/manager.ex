@@ -8,6 +8,7 @@ defmodule ServiceradarConfig.Manager do
   """
 
   alias Serviceradar.Config.V1.EnvironmentConfig
+  alias ServiceradarConfig.Dsn
   alias ServiceradarConfig.Manager.{Identity, Source}
   alias ServiceradarConfig.Validator
 
@@ -54,6 +55,91 @@ defmodule ServiceradarConfig.Manager do
   def nats(%__MODULE__{config: config}), do: config.nats
   def core(%__MODULE__{config: config}), do: config.core
   def dgraph(%__MODULE__{config: config}), do: config.dgraph
+
+  @doc "The role that may CREATE and DROP databases, when the environment names one."
+  @spec admin_role(t()) :: String.t() | nil
+  def admin_role(%__MODULE__{config: config}), do: config.database && config.database.admin_role
+
+  @doc """
+  Where the CA bundle the database certificate chains to is published, when one is named.
+
+  A URL rather than the PEM, and configuration rather than a secret: a CA bundle is what a client
+  needs BEFORE it can authenticate anything, and a cert-manager issuer rotates, so any stored copy
+  is correct until it silently is not.
+  """
+  @spec ca_bundle_url(t()) :: String.t() | nil
+  def ca_bundle_url(%__MODULE__{config: config}),
+    do: config.database && config.database.ca_bundle_url
+
+  @doc "The DSN for the connecting role against the environment's own database."
+  @spec database_url(t(), String.t()) :: {:ok, Dsn.t()} | :error
+  def database_url(%__MODULE__{} = manager, password) do
+    with %{database: database} when is_binary(database) <- database(manager) do
+      database_url_named(manager, database, password)
+    else
+      _ -> :error
+    end
+  end
+
+  @doc "The DSN for the connecting role against a named database on the same server."
+  @spec database_url_named(t(), String.t(), String.t()) :: {:ok, Dsn.t()} | :error
+  def database_url_named(%__MODULE__{} = manager, database, password) do
+    with %{connecting_role: role} when is_binary(role) <- database(manager) do
+      database_url_as(manager, role, database, password)
+    else
+      _ -> :error
+    end
+  end
+
+  @doc """
+  The DSN for a specific role and database.
+
+  Assembled from typed fields rather than carried as one opaque string, which is what removes the
+  parsing that used to recover the role, the database name and the TLS posture back out of it.
+
+  `tls_server_name` is deliberately NOT in the DSN. It is a typed field the caller hands to its
+  TLS connector, which is the only component that can act on it. Appending it as libpq's
+  `&sslsni=1&host=<name>` broke two ways at once under tokio-postgres -- `sslsni` is not an
+  accepted key, and a query-string `host` is read as an ADDITIONAL endpoint to dial.
+
+  Mirrors `database_url_as` in //config/manager_config/rust; the two must agree, because the same
+  fixture is reached by both.
+  """
+  @spec database_url_as(t(), String.t(), String.t(), String.t()) :: {:ok, Dsn.t()} | :error
+  def database_url_as(%__MODULE__{} = manager, role, database, password) do
+    with %{host: host, port: port, tls_mode: tls_mode} when is_binary(host) and is_integer(port) <-
+           database(manager),
+         {:ok, sslmode} <- sslmode(tls_mode) do
+      {:ok,
+       Dsn.new(
+         "postgres://#{encode_userinfo(role)}:#{encode_userinfo(password)}@#{host}:#{port}/#{database}?sslmode=#{sslmode}"
+       )}
+    else
+      _ -> :error
+    end
+  end
+
+  defp sslmode(:TLS_MODE_DISABLE), do: {:ok, "disable"}
+  defp sslmode(:TLS_MODE_REQUIRE), do: {:ok, "require"}
+  defp sslmode(:TLS_MODE_VERIFY_CA), do: {:ok, "verify-ca"}
+  defp sslmode(:TLS_MODE_VERIFY_FULL), do: {:ok, "verify-full"}
+
+  # An unspecified mode never survives loading -- the committed rules reject it -- so this is
+  # defence in depth behind validation, not the guard that makes a plaintext fallback impossible.
+  defp sslmode(_), do: :error
+
+  # Percent-encodes the characters that would otherwise terminate a DSN's userinfo field. CNPG
+  # generates passwords that can contain them, and an unencoded `@` does not fail: it truncates
+  # the userinfo and the DSN parses into something else entirely.
+  defp encode_userinfo(raw) do
+    raw
+    |> String.replace("%", "%25")
+    |> String.replace(":", "%3A")
+    |> String.replace("@", "%40")
+    |> String.replace("/", "%2F")
+    |> String.replace("?", "%3F")
+    |> String.replace("#", "%23")
+  end
 
   defp read(%Source{kind: :built_in, name: name} = source, built_ins, _read) do
     case Map.fetch(built_ins, name) do

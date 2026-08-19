@@ -4,6 +4,9 @@ actions:
       OCI_REGISTRY: "registry.carverauto.dev"
       OCI_AUTH_REQUIRED: "1"
 
+      # Cert server. in cluster.
+      SRQL_FIXTURE_CA_URL: "http://srql-fixture-ca-incluster.srql-fixtures.svc.cluster.local/ca.crt"
+
     # Redirects work to pods in the self hosted cluster.
     self_hosted: true
 
@@ -60,8 +63,12 @@ actions:
       # target_compatible_with = requires_shared_fixture(), and the guard stays explicit because
       # they run DDL against a fixture concurrent branches share.
       #
-      # `--strategy=TestRunner=local` moves ONLY the test action to the runner, which is the
-      # only host with a route to the fixture database.
+      # `--strategy=TestRunner=local` moves ONLY the test action to the runner. NOT for
+      # routing -- a cluster executor reaches the fixture too, which is what makes the
+      # throwaway-password probe in .agents/skills/srql-fixtures-db-tests possible. It is for
+      # the CREDENTIAL: a remote action ships its environment to the executor and BuildBuddy
+      # records action metadata, so the two SERVICERADAR_SECRET_* values below stay on this
+      # runner and out of the remote action.
       #
       # $SERVICERADAR_TEST_ENV_FLAGS is a BRIDGE from //:buildbuddy_setup_fixture_env 
       - run: |

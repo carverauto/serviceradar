@@ -46,20 +46,45 @@ set -o pipefail
 env_file="${SERVICERADAR_FIXTURE_ENV_FILE}"
 
 namespace="${SRQL_FIXTURE_NAMESPACE:-srql-fixtures}"
-# Non-secret, so they are defaults here rather than secrets. The in-cluster service name is
-# the one endpoint the in-cluster workflow runner can reach. A workstation is the odd one out:
-# it reaches the LAN NodePort but not this, which is why a developer needs
-# SRQL_TEST_DATABASE_URL set by hand. See openspec/notes/bazel-bb-ci.md.
-host="${SRQL_FIXTURE_HOST:-srql-fixture-rw.srql-fixtures.svc.cluster.local}"
+# Non-secret, so they are defaults here rather than secrets.
+#
+# The PUBLISHED endpoint, not the in-cluster service. This default used to be
+# srql-fixture-rw.srql-fixtures.svc.cluster.local on the claim that the in-cluster runner was
+# the one caller that could reach it. It is the one caller that cannot: a BuildBuddy action
+# namespace does not serve cluster.local -- measured, EAI_NONAME on that name in the same step
+# that fetched the CA over public DNS. srql-fixture-rw-ext is in public DNS, so the name
+# resolves for every caller; its MetalLB address is reachable from the cluster and the LAN but
+# not the open internet, so a remote workstation still overrides SRQL_FIXTURE_HOST.
+host="${SRQL_FIXTURE_HOST:-srql-fixture.serviceradar.cloud}"
 port="${SRQL_FIXTURE_PORT:-5432}"
 database="${SRQL_FIXTURE_DATABASE:-srql_fixture}"
 # verify-full is safe against this hostname: the cert-manager server cert
 # (secret srql-fixture-server-tls) carries DNS SANs for srql-fixture-{r,ro,rw} at every
-# suffix plus srql-fixture.serviceradar.cloud. It has no IP SANs, so a NodePort caller
-# must also set PGSSLSERVERNAME and SRQL_TEST_DATABASE_SERVER_NAME to the certificate's
-# DNS name.
+# suffix plus srql-fixture.serviceradar.cloud, which is the default above. It has no IP SANs,
+# so only a caller that OVERRIDES the host with an address -- a NodePort -- must also set
+# PGSSLSERVERNAME and SRQL_TEST_DATABASE_SERVER_NAME to one of those DNS names.
 ca_secret="${SRQL_FIXTURE_CA_SECRET:-srql-fixture-server-ca}"
-ca_url="${SRQL_FIXTURE_CA_URL:-https://srql-fixture-ca.serviceradar.cloud/ca.crt}"
+
+# CA endpoints, in preference order rather than one endpoint with an override.
+#
+# The two callers genuinely differ. An in-cluster consumer -- ARC, anything with CoreDNS --
+# should read the ClusterIP Service instead of hairpinning out to the public edge and back. A
+# caller whose network namespace does not resolve cluster.local has to use the published HTTPS
+# name; a BuildBuddy workflow action measured EAI_NONAME on a .svc.cluster.local name on
+# 2026-08-19, in the same step that fetched the public URL.
+#
+# An override used to REPLACE the endpoint, so naming the in-cluster URL removed the only one
+# that worked and the step failed with no CA at all. Ordered attempts serve both callers from
+# one configuration, and resolve_live_ca reports which source won and why each other failed --
+# so the next run answers whether the runner resolves cluster.local, instead of assuming it.
+ca_url_published="https://srql-fixture-ca.serviceradar.cloud/ca.crt"
+ca_urls=()
+if [[ -n "${SRQL_FIXTURE_CA_URL:-}" ]]; then
+  ca_urls+=("${SRQL_FIXTURE_CA_URL}")
+fi
+if [[ "${SRQL_FIXTURE_CA_URL:-}" != "${ca_url_published}" ]]; then
+  ca_urls+=("${ca_url_published}")
+fi
 sslmode="${SRQL_FIXTURE_SSLMODE:-verify-full}"
 if [[ "${sslmode}" != "verify-full" ]]; then
   echo "SRQL_FIXTURE_SSLMODE must be verify-full; refusing to weaken fixture TLS verification" >&2
@@ -131,11 +156,16 @@ fetch_ca_url() {
 # a certificate at all is a DIFFERENT failure from one that never arrived, and the two have
 # different fixes -- renew the issuer versus repair the route.
 resolve_live_ca() {
-  local pem=""
+  local pem="" auth=""
   if ! command -v kubectl >/dev/null 2>&1; then
     ca_failure+="kubectl: not on PATH"$'\n'
-  elif ! kubectl auth can-i get secrets -n "${namespace}" >/dev/null 2>&1; then
-    ca_failure+="kubectl: no 'get secrets' in ${namespace}"$'\n'
+  # Record WHAT kubectl said, because "no" and "cannot reach the API server" are different
+  # problems with different fixes -- a RoleBinding versus a route -- and the previous
+  # `>/dev/null 2>&1` collapsed them into one indistinguishable line. This matters more now
+  # that the published CA endpoint is being switched off: whether granting this runner RBAC is
+  # even an option depends on which of the two it is.
+  elif ! auth="$(kubectl auth can-i get secrets -n "${namespace}" 2>&1)"; then
+    ca_failure+="kubectl: cannot 'get secrets' in ${namespace}: $(printf '%s' "${auth}" | tr '\n' ' ')"$'\n'
   else
     pem="$(secret_value "${ca_secret}" 'ca\.crt')"
     if ! pem_looks_like_cert "${pem}"; then
@@ -149,23 +179,26 @@ resolve_live_ca() {
     fi
   fi
 
-  pem=""
-  local err_file
-  err_file="$(mktemp "${TMPDIR:-/tmp}/srql-ca-err.XXXXXX")"
-  if pem="$(fetch_ca_url "${ca_url}" 2>"${err_file}")"; then
-    if ! pem_looks_like_cert "${pem}"; then
-      ca_failure+="url: ${ca_url} returned ${#pem} bytes that are not a certificate"$'\n'
-    elif ! ca_is_current "${pem}"; then
-      ca_failure+="url: ${ca_url} returned an EXPIRED certificate"$'\n'
+  local url err_file
+  for url in "${ca_urls[@]}"; do
+    pem=""
+    err_file="$(mktemp "${TMPDIR:-/tmp}/srql-ca-err.XXXXXX")"
+    if pem="$(fetch_ca_url "${url}" 2>"${err_file}")"; then
+      if ! pem_looks_like_cert "${pem}"; then
+        ca_failure+="url: ${url} returned ${#pem} bytes that are not a certificate"$'\n'
+      elif ! ca_is_current "${pem}"; then
+        ca_failure+="url: ${url} returned an EXPIRED certificate"$'\n'
+      else
+        SRQL_TEST_DATABASE_CA_CERT="${pem}"
+        ca_source="url (${url})"
+        rm -f "${err_file}"
+        return 0
+      fi
     else
-      SRQL_TEST_DATABASE_CA_CERT="${pem}"
-      ca_source="url (${ca_url})"
-      return 0
+      ca_failure+="url: $(cat "${err_file}")"$'\n'
     fi
-  else
-    ca_failure+="url: $(cat "${err_file}")"$'\n'
-  fi
-  rm -f "${err_file}"
+    rm -f "${err_file}"
+  done
 
   return 1
 }
@@ -245,9 +278,9 @@ stored CI secret. Provide ONE of:
   * Cluster access -- kubectl on PATH with \`get secrets\` in ${namespace}.
     Reads ${ca_secret} key ca.crt.
 
-  * ${ca_url} reachable (override with SRQL_FIXTURE_CA_URL).
-    In-cluster runners use the ClusterIP HTTP bundle; workstations can
-    use kubectl or the public HTTPS URL.
+  * One of these reachable, tried in this order (prepend one with SRQL_FIXTURE_CA_URL):
+
+$(printf '      %s\n' "${ca_urls[@]}")
 
 A pre-set SRQL_TEST_DATABASE_CA_CERT is ignored on purpose.
 
@@ -296,9 +329,10 @@ Provide ONE of:
 The CA is obtained separately from the live cert-manager Secret or SRQL_FIXTURE_CA_URL.
 
 Overrides: SRQL_FIXTURE_{NAMESPACE,HOST,PORT,DATABASE,SSLMODE,CA_SECRET,CA_URL}.
-On a workstation the in-cluster hostname is unreachable; use the LAN NodePort with
-SRQL_FIXTURE_SSLMODE=verify-full plus PGSSLSERVERNAME and SRQL_TEST_DATABASE_SERVER_NAME set
-to srql-fixture-rw.srql-fixtures.svc.cluster.local (the server cert has no IP SANs).
+The default host is the published srql-fixture.serviceradar.cloud, which resolves everywhere.
+Override SRQL_FIXTURE_HOST with an ADDRESS (a LAN NodePort) only when that name is blocked,
+and then also set PGSSLSERVERNAME and SRQL_TEST_DATABASE_SERVER_NAME to a certificate DNS
+name -- the server cert has no IP SANs.
 EOF_ERR
   exit 1
 fi

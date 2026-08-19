@@ -86,6 +86,17 @@ fn a_password_with_delimiters_is_encoded_not_truncated() {
     assert!(text.contains("@db:5432/"), "the host must still parse: {text}");
 }
 
+/// A literal `%` needs no delimiter to do damage: left alone it turns the next two characters
+/// into an escape sequence, and the parser hands the server a DIFFERENT password rather than
+/// failing. //config/manager_config/elixir encodes the same set.
+#[test]
+fn a_password_containing_a_percent_is_encoded() {
+    let dsn = manager_with(TlsMode::VerifyFull).database_url("100%25sure").unwrap();
+    let text = dsn.expose();
+
+    assert!(text.contains("100%2525sure"), "{text}");
+}
+
 /// The TLS server name must NOT reach the DSN, even under verify-full.
 ///
 /// It used to, as libpq's `&sslsni=1&host=<name>`, and that broke two ways at once under

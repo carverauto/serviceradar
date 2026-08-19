@@ -184,6 +184,14 @@ impl Fixture {
         TlsMode::try_from(raw).map_err(|_| anyhow::anyhow!("database.tls_mode is out of range"))
     }
 
+    /// The published CA bundle the fixture certificate chains to, when one is configured.
+    ///
+    /// Exposed for diagnostics as well as for [`Self::ca_pem`]: a connection failure has to be
+    /// able to say whether trust came from a URL, and which one.
+    pub fn ca_bundle_url(&self) -> Option<&str> {
+        self.manager.ca_bundle_url()
+    }
+
     /// The name TLS verification is performed against, when the mode demands one.
     pub fn tls_server_name(&self) -> Option<&str> {
         self.manager.database().and_then(|d| d.tls_server_name.as_deref())

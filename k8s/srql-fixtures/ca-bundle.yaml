@@ -5,7 +5,11 @@
 # Public HTTPS is the shared Envoy gateway (23.138.124.5, wildcard
 # *.serviceradar.cloud). A dedicated MetalLB Service on 23.138.124.18:443 is
 # not reachable from workstations, so it cannot be the publish path.
-# In-cluster ARC and the BuildBuddy workflow pool use the ClusterIP HTTP Service.
+# In-cluster ARC uses the ClusterIP HTTP Service, and //buildbuddy.yaml prefers it too. The
+# BuildBuddy workflow pool may not be able to: its action namespace measured EAI_NONAME on a
+# .svc.cluster.local name on 2026-08-19. That is why SRQL_FIXTURE_CA_URL is a PREFERENCE there
+# rather than a replacement -- buildbuddy_setup_fixture_env.sh falls back to the public HTTPS
+# URL and reports which one answered. Pointing it here as the only source failed every run.
 #
 # Gateway TLS is the shared wildcard, not the fixture CA — otherwise fetching
 # the CA would require the CA. The fixture CA private key is not in any volume

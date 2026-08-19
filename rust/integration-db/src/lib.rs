@@ -332,16 +332,63 @@ pub fn strip_sslmode(url: &str) -> Cow<'_, str> {
 
 async fn connect(config: PgConfig) -> Result<(Client, JoinHandle<()>)> {
     let fixture = config::Fixture::from_env()?;
+    // Built BEFORE the attempt, because the failure has to name what was attempted.
+    // tokio-postgres reports "error connecting to server" and nothing else -- not the host, not
+    // the role, not whether TLS was even involved -- so a DNS failure, a firewall, a wrong role
+    // and an unreachable port all read identically. That cost a CI cycle: `Name or service not
+    // known` was the whole diagnostic, and which name went unsaid.
+    let target = endpoint(&config, &fixture);
+
     match tls_connector_for(&fixture)? {
         Some(connector) => {
-            let (client, connection) = config.connect(connector).await?;
+            let (client, connection) = config
+                .connect(connector)
+                .await
+                .with_context(|| format!("connect to {target}"))?;
             Ok((client, spawn_connection(connection)))
         }
         None => {
-            let (client, connection) = config.connect(NoTls).await?;
+            let (client, connection) = config
+                .connect(NoTls)
+                .await
+                .with_context(|| format!("connect to {target}"))?;
             Ok((client, spawn_connection(connection)))
         }
     }
+}
+
+/// What a connection was aimed at, for an error message.
+///
+/// Assembled field by field on purpose. `PgConfig`'s own `Debug` renders the password, so
+/// formatting the config -- the obvious shortcut -- would put a live credential in a build log
+/// the moment a connection failed.
+fn endpoint(config: &PgConfig, fixture: &config::Fixture) -> String {
+    let port = config.get_ports().first().copied().unwrap_or(5432);
+    let hosts = config
+        .get_hosts()
+        .iter()
+        .map(|host| match host {
+            tokio_postgres::config::Host::Tcp(name) => format!("{name}:{port}"),
+            other => format!("{other:?}"),
+        })
+        .collect::<Vec<_>>()
+        .join(", ");
+
+    let role = config.get_user().unwrap_or("<no role>");
+    let database = config.get_dbname().unwrap_or("<no database>");
+
+    // The TLS posture is what separates "the server refused us" from "we refused the server",
+    // and the CA is fetched over the network too -- so name the bundle when one is configured.
+    let tls = match fixture.tls_mode() {
+        Ok(mode) => {
+            let name = fixture.tls_server_name().unwrap_or("<host>");
+            format!("{} verifying {name}", mode.as_str_name())
+        }
+        Err(e) => format!("<unreadable tls_mode: {e}>"),
+    };
+    let ca = fixture.ca_bundle_url().unwrap_or("<none>");
+
+    format!("{hosts} as {role}, database {database}, tls {tls}, ca bundle {ca}")
 }
 
 fn spawn_connection<S, T>(connection: tokio_postgres::Connection<S, T>) -> JoinHandle<()>

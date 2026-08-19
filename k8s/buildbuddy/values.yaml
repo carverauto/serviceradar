@@ -156,6 +156,12 @@ config:
     warmup_additional_images:
       - registry.carverauto.dev/serviceradar/rbe-executor:v1.0.24.3
     oci:
+      # CLUSTER DNS INSIDE THE ACTION CONTAINER.
+      # The empty string is a documented sentinel, NOT "unset": it makes the runtime bind-mount
+      # the HOST's /etc/resolv.conf instead of writing one holding that single public nameserver,
+      # which on this pod is ClusterFirst -- CoreDNS plus the cluster search domains. Public
+      # names keep working, because CoreDNS forwards them.
+      dns: ""
       mounts:
         - source: /cache
           destination: /cache
@@ -168,20 +174,18 @@ config:
     # becomes a re-fetch across the WAN, so this wants to be as large as the node disk
     # tolerates rather than as small as it can get away with.
     #
-    # Raised 50 -> 150 GB: at 50 GB two of the three executors sat pinned exactly at the cap
-    # (48 GB and 53 GB measured) while their disks had 275-340 GB free -- the fleet was
-    # paying for GCP round trips it had the local capacity to avoid.
+    # 50 -> 100 GB. At 50 GB two of the three executors sat pinned exactly at the cap
+    # (48 GB and 53 GB measured) while their disks had 275-340 GB free -- the fleet was paying
+    # for WAN round trips it had the local capacity to avoid. 150 GB removed that; 100 GB keeps
+    # the headroom that mattered while giving the node disk back.
+    # A node also running the workflow fleet's 50 GB (see ./values-workflows.yaml) sits at ~380 GB, leaving ~209 GB.
     #
-    # Sizing, per node: 589 GB total, of which ~170-230 GB is non-cache baseline (containerd
-    # images, kubelet, other pods). 150 GB of filecache puts the worst node at ~345 GB used,
-    # leaving ~240 GB -- well clear of the kubelet DiskPressure eviction threshold (10% free,
-    # i.e. ~530 GB used). There is room to go to 200 GB later; raise it only while watching
-    # `kubectl get nodes` for DiskPressure, because `root_directory` below shares this
-    # filesystem and is NOT counted against this budget -- concurrent action working dirs
-    # spike outside it.
+    # Change it only while watching `kubectl get nodes` for DiskPressure, because
+    # `root_directory` below shares this filesystem and is NOT counted against this budget --
+    # concurrent action working dirs spike outside it.
     #
-    # Plain int64 byte count, not a k8s quantity: "150Gi" does not parse here. It also does
+    # Plain int64 byte count, not a k8s quantity: "100Gi" does not parse here. It also does
     # NOT draw against the ephemeral-storage limit above, because /cache is a hostPath.
-    local_cache_size_bytes: 150000000000
+    local_cache_size_bytes: 100000000000
     root_directory: /cache/remotebuilds/
     api_key: ""

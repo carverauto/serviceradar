@@ -195,6 +195,11 @@ fn kind_name(kind: Option<i32>) -> String {
 fn encode_userinfo(raw: &str) -> String {
     raw.chars()
         .map(|c| match c {
+            // `%` first in intent, though the per-character map makes order irrelevant: without
+            // it a password containing a literal `%` becomes an escape sequence the DSN parser
+            // then decodes into something else -- silently, since `%` needs no delimiter to do
+            // damage. //config/manager_config/elixir encodes the same six.
+            '%' => "%25".to_string(),
             ':' => "%3A".to_string(),
             '@' => "%40".to_string(),
             '/' => "%2F".to_string(),

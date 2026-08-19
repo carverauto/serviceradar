@@ -217,6 +217,45 @@ cd elixir/serviceradar_core
 MIX_ENV=test mix compile --warnings-as-errors
 ```
 
+## Probe The Endpoint Without A CI Run
+
+A CI cycle is an expensive way to learn that a hostname does not resolve. Any lifecycle target
+run with a DELIBERATELY WRONG password answers reachability in about 30 seconds, because the
+error tells you exactly how far the connection got:
+
+```bash
+SERVICERADAR_ENV=ci \
+SERVICERADAR_SECRET_DATABASE_PASSWORD=wrong-on-purpose \
+SERVICERADAR_SECRET_DATABASE_ADMIN_PASSWORD=wrong-on-purpose \
+bazel test --config=remote \
+  --//build:enable_integration_tests --//build:run_id=diag0001 \
+  --test_env=SERVICERADAR_ENV \
+  --test_env=SERVICERADAR_SECRET_DATABASE_PASSWORD \
+  --test_env=SERVICERADAR_SECRET_DATABASE_ADMIN_PASSWORD \
+  --test_output=all --nocache_test_results \
+  //rust/integration-db:sweep_stale_dbs
+```
+
+`--config=remote` is what makes this a probe rather than a local run: the test action executes
+in an OCI container on a cluster executor, which is the same kind of network namespace the
+BuildBuddy workflow runner gives a local test action. A workstation is NOT a substitute -- the
+fixture LoadBalancer is announced on the cluster's L2 and is unreachable from outside it.
+
+Read the outcome from the failure, all of which now name the endpoint, role, database, TLS mode
+and CA bundle:
+
+| Error | Meaning |
+| --- | --- |
+| `password authentication failed for user "..."` | Everything works: DNS, route, CA fetch, TLS verification, and the role exists. Only the password was wrong. |
+| `failed to lookup address information` | The name does not resolve in that namespace. A `.svc.cluster.local` host will always fail here. |
+| `Network is unreachable` / `connection refused` | The name resolves; the address does not route from this caller. |
+| `role "..." does not exist` | `database.connecting_role` / `admin_role` names a role the fixture does not have. |
+| `fetch CA bundle <url>` | The CA endpoint, not the database. |
+
+USE A THROWAWAY PASSWORD, never the real one. A remote action ships its environment to the
+executor and BuildBuddy records action metadata; the fixture password stays out of that. This is
+also why the CI lifecycle keeps `--strategy=TestRunner=local` for the runs that must succeed.
+
 ## Common Failures
 
 - `pg_hba.conf rejects ... no encryption`: require TLS and provide the fixture CA.

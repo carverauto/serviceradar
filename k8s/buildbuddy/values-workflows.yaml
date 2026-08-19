@@ -152,9 +152,7 @@ extraVolumeMounts:
 
 config:
   executor:
-    # Firecracker snapshot sharing. Inert on this fleet now that enable_firecracker is gone
-    # (see below) -- kept rather than deleted because it costs nothing while off and is the
-    # setting to restore first if this pool ever needs microVM isolation again.
+    # Inert on this fleet, and kept only because it costs nothing while off.
     enable_local_snapshot_sharing: true
 
     # Must match ./values.yaml and //.bazelrc `build:remote_base`. This is the control AND
@@ -177,35 +175,17 @@ config:
     # opt-in. The two paths are independent and either works without the other, which is why
     # they may name different addresses for one proxy.
     #
-    # The client used the public edge because it HAD to: with enable_firecracker the runner
-    # was a microVM whose network namespace had no route to the service CIDR and no CoreDNS.
-    # That is gone (see enable_firecracker below), so the client could now use an in-cluster
-    # address too. Leave it on the public edge anyway: it is the one address that works from
-    # a microVM, a pod and a workstation alike, and a CI path that depends on the runner's
-    # network topology is a CI path that breaks the next time the topology changes. It broke
-    # exactly that way once -- //buildbuddy.yaml pointed SRQL_FIXTURE_CA_URL at a ClusterIP.
+    # Leave the client on the public edge: it is the one address that works from this pod and
+    # from a workstation alike, and a CI path that depends on the runner's network topology is a
+    # CI path that breaks the next time the topology changes. It broke exactly that way once --
+    # //buildbuddy.yaml pointed SRQL_FIXTURE_CA_URL at
+    # srql-fixture-ca-incluster.srql-fixtures.svc.cluster.local, which the action namespace could
+    # not resolve until `oci.dns` below. (An earlier note here called that a ClusterIP; it was a
+    # cluster DNS name, which is why the two failures looked unrelated.)
     cache_target: grpc://bb-cache-proxy-buildbuddy-enterprise-cache-proxy.buildbuddy.svc.cluster.local:1985
 
     enable_oci: true
     default_isolation_type: oci
-    # NO enable_firecracker HERE, AND THAT IS THE POINT OF THIS FLEET.
-    #
-    # A microVM gets its own network namespace with no route to the service CIDR and no
-    # CoreDNS, so a workflow step could reach neither the in-cluster CA bundle nor the
-    # fixture database by cluster DNS. Under OCI isolation the step runs in a container on
-    # this pod, which has ClusterFirst DNS.
-    #
-    # ./values.yaml still sets it, and must: //rust/dgraph-client/tests requests
-    # `test.workload-isolation-type: firecracker` and dispatches to the default pool. Nothing
-    # in the workflows pool requests it. Turning it back on here would silently restore the
-    # network isolation this fleet exists to avoid.
-    #
-    # This trades VM isolation for container isolation on the fleet that runs PR code. The
-    # `pr` trigger in //buildbuddy.yaml is limited to `staging`, so that is repository
-    # collaborators rather than arbitrary forks -- but a workflow step now shares this pod's
-    # network, and a compromised step can reach anything the pod can. Weigh that before
-    # widening the trigger.
-
     # Floor only. The runner's real size comes from resource_requests in //buildbuddy.yaml,
     # which is far above this; without a floor a predicted size is used verbatim and can
     # under-reserve a task.
@@ -244,6 +224,12 @@ config:
       - registry.carverauto.dev/serviceradar/buildbuddy-workflow-runner:v1.0.24.3
 
     oci:
+      # CLUSTER DNS INSIDE THE ACTION CONTAINER.
+      # The empty string is a documented sentinel, NOT "unset": it makes the runtime bind-mount
+      # the HOST's /etc/resolv.conf instead, which on this pod is
+      # ClusterFirst -- CoreDNS plus the cluster search domains. Public names keep working,
+      # because CoreDNS forwards them.
+      dns: ""
       mounts:
         - source: /cache
           destination: /cache
@@ -253,12 +239,12 @@ config:
             - rw
     local_cache_directory: /cache
 
-    # 50 GB, a third of the build fleet's 150 GB, because this pod is one runner rather than a
+    # 50 GB, half the build fleet's 100 GB, because this pod is one runner rather than a
     # fan-out fleet and its working set is one repo's inputs.
     #
     # Node disk is the constraint, and this may share a node with a build executor: 589 GB
-    # total, ~170-230 GB non-cache baseline, 150 GB for that executor's filecache. Adding
-    # 50 GB puts the worst case near 430 GB, leaving ~159 GB -- clear of the kubelet
+    # total, ~170-230 GB non-cache baseline, 100 GB for that executor's filecache. Adding
+    # 50 GB puts the worst case near 380 GB, leaving ~209 GB -- clear of the kubelet
     # DiskPressure threshold (10% free, i.e. ~530 GB used). `root_directory` below shares this
     # filesystem and is NOT counted against this budget, so leave the margin.
     #
