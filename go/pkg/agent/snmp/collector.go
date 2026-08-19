@@ -20,6 +20,7 @@ package snmp
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sync"
 	"time"
@@ -31,9 +32,17 @@ const (
 	defaultByteBuffer               = 1024
 	defaultErrorChan                = 10
 	defaultDataChanBufferMultiplier = 2
-	counterKindSum                  = "sum"
-	counterTemporalityCumulative    = "cumulative"
-	maxCounter32                    = uint64(1<<32 - 1)
+	// defaultWalkChanBufferRows is the results-channel budget for a walked OID.
+	// A GET contributes one value per poll, a walk one per discovered row.
+	defaultWalkChanBufferRows    = 64
+	counterKindSum               = "sum"
+	counterTemporalityCumulative = "cumulative"
+	maxCounter32                 = uint64(1<<32 - 1)
+	// walkIndexSeparator suffixes a walked row's OID index onto the configured
+	// OID name. It reuses the existing "name::label" series-identity convention
+	// (see ifHCInOctets::ifindex:7), so every row of a table gets its own series
+	// and the index survives into the metric envelope as a tag.
+	walkIndexSeparator = "::index:"
 )
 
 // NewCollector creates a new SNMP collector for a target.
@@ -50,7 +59,7 @@ func NewCollector(target *Target, log logger.Logger) (Collector, error) {
 	collector := &SNMPCollector{
 		target:    target,
 		client:    client,
-		dataChan:  make(chan DataPoint, len(target.OIDs)*defaultDataChanBufferMultiplier),
+		dataChan:  make(chan DataPoint, dataChanBuffer(target)),
 		errorChan: make(chan error, defaultErrorChan),
 		done:      make(chan struct{}),
 		status: TargetStatus{
@@ -65,6 +74,26 @@ func NewCollector(target *Target, log logger.Logger) (Collector, error) {
 	}
 
 	return collector, nil
+}
+
+// dataChanBuffer sizes the results channel for a target. A GET-mode OID yields a
+// single value per poll, while a walked OID yields one per discovered row, so a
+// walk is budgeted a larger share to keep the poll loop from stalling on a full
+// channel between drains. Get-only targets keep their previous buffer size.
+func dataChanBuffer(target *Target) int {
+	buffer := 0
+
+	for i := range target.OIDs {
+		if target.OIDs[i].IsWalk() {
+			buffer += defaultWalkChanBufferRows
+
+			continue
+		}
+
+		buffer += defaultDataChanBufferMultiplier
+	}
+
+	return buffer
 }
 
 // Start implements the Collector interface.
@@ -129,21 +158,72 @@ func (c *SNMPCollector) collect(ctx context.Context) {
 
 // pollTarget performs a single poll of all OIDs for the target.
 func (c *SNMPCollector) pollTarget(ctx context.Context) error {
+	getOIDs, walkOIDs := c.partitionOIDs()
+
 	c.logger.Debug().
 		Str("target_name", c.target.Name).
 		Str("target_host", c.target.Host).
 		Int("oid_count", len(c.target.OIDs)).
+		Int("walk_oid_count", len(walkOIDs)).
 		Msg("Polling target")
 
-	oids := make([]string, len(c.target.OIDs))
-	for i, oid := range c.target.OIDs {
-		oids[i] = oid.OID
+	var errs []error
+
+	if len(getOIDs) > 0 {
+		if err := c.pollGetOIDs(ctx, getOIDs); err != nil {
+			errs = append(errs, err)
+		}
+	}
+
+	for _, oidConfig := range walkOIDs {
+		if err := c.pollWalkOID(ctx, oidConfig); err != nil {
+			errs = append(errs, err)
+		}
+	}
+
+	if len(errs) > 0 {
+		err := errors.Join(errs...)
+		c.updateStatus(false, err.Error())
+
+		return err
+	}
+
+	c.updateStatus(true, "")
+
+	return nil
+}
+
+// partitionOIDs splits the target's OIDs into the ones fetched in a single GET
+// batch and the ones walked individually.
+func (c *SNMPCollector) partitionOIDs() (getOIDs, walkOIDs []*OIDConfig) {
+	getOIDs = make([]*OIDConfig, 0, len(c.target.OIDs))
+	walkOIDs = make([]*OIDConfig, 0, len(c.target.OIDs))
+
+	for i := range c.target.OIDs {
+		oidConfig := &c.target.OIDs[i]
+
+		if oidConfig.IsWalk() {
+			walkOIDs = append(walkOIDs, oidConfig)
+
+			continue
+		}
+
+		getOIDs = append(getOIDs, oidConfig)
+	}
+
+	return getOIDs, walkOIDs
+}
+
+// pollGetOIDs retrieves every GET-mode OID for the target.
+func (c *SNMPCollector) pollGetOIDs(ctx context.Context, oidConfigs []*OIDConfig) error {
+	oids := make([]string, len(oidConfigs))
+	for i, oidConfig := range oidConfigs {
+		oids[i] = oidConfig.OID
 	}
 
 	// Get SNMP data
 	results, err := c.client.Get(oids)
 	if err != nil {
-		c.updateStatus(false, err.Error())
 		return fmt.Errorf("%w - %w", ErrSNMPGet, err)
 	}
 
@@ -151,7 +231,6 @@ func (c *SNMPCollector) pollTarget(ctx context.Context) error {
 		Str("target_name", c.target.Name).
 		Int("result_count", len(results)).
 		Msg("Successfully polled target, processing results")
-	c.updateStatus(true, "")
 
 	// Process each result
 	for oid, value := range results {
@@ -166,6 +245,43 @@ func (c *SNMPCollector) pollTarget(ctx context.Context) error {
 	return nil
 }
 
+// pollWalkOID walks one OID subtree and emits a data point per discovered row.
+func (c *SNMPCollector) pollWalkOID(ctx context.Context, oidConfig *OIDConfig) error {
+	rows, err := c.client.Walk(oidConfig.OID, oidConfig.walkRowLimit(), oidConfig.walkTimeout())
+	if err != nil {
+		if !isWalkBoundError(err) {
+			return fmt.Errorf("%w - %w", ErrSNMPWalk, err)
+		}
+
+		// The walk stopped at one of its bounds; the rows it did collect are
+		// still valid, so report the truncation and keep them.
+		c.logger.Warn().
+			Err(err).
+			Str("target_name", c.target.Name).
+			Str("oid", oidConfig.OID).
+			Int("row_count", len(rows)).
+			Msg("SNMP walk stopped at a configured bound, using partial results")
+	}
+
+	c.logger.Debug().
+		Str("target_name", c.target.Name).
+		Str("oid", oidConfig.OID).
+		Int("row_count", len(rows)).
+		Msg("Successfully walked target OID, processing rows")
+
+	// Process each row
+	for i := range rows {
+		if err := c.processWalkResult(ctx, oidConfig, &rows[i]); err != nil {
+			c.logger.Error().
+				Err(err).
+				Str("oid", rows[i].OID).
+				Msg("Error processing result for OID")
+		}
+	}
+
+	return nil
+}
+
 // processResult handles a single OID result.
 func (c *SNMPCollector) processResult(ctx context.Context, oid string, value interface{}) error {
 	oidConfig := c.findOIDConfig(oid)
@@ -173,6 +289,32 @@ func (c *SNMPCollector) processResult(ctx context.Context, oid string, value int
 		return fmt.Errorf("%w %s", ErrNoOIDConfig, oid)
 	}
 
+	return c.processValue(ctx, oidConfig, oidConfig.Name, "", value)
+}
+
+// processWalkResult handles a single row discovered by a walk. Each row becomes
+// its own series - the shared OID config only supplies the conversion rules, so
+// the row's index has to be part of the name to keep rows from colliding in the
+// aggregator and in the OID status map.
+func (c *SNMPCollector) processWalkResult(ctx context.Context, oidConfig *OIDConfig, row *WalkResult) error {
+	return c.processValue(ctx, oidConfig, walkPointName(oidConfig.Name, row.Index), row.Index, row.Value)
+}
+
+// walkPointName names a walked row's series after the configured OID name plus
+// its row index.
+func walkPointName(name, index string) string {
+	if index == "" {
+		return name
+	}
+
+	return name + walkIndexSeparator + index
+}
+
+// processValue converts one collected value and emits it as a data point. name
+// is the series name to publish under: the OID name for a GET, or the OID name
+// plus the row index for a walked row.
+func (c *SNMPCollector) processValue(
+	ctx context.Context, oidConfig *OIDConfig, name, index string, value interface{}) error {
 	converted, err := c.convertValue(value, oidConfig)
 	if err != nil {
 		return fmt.Errorf("%w - %w", ErrSNMPConvert, err)
@@ -212,7 +354,7 @@ func (c *SNMPCollector) processResult(ctx context.Context, oid string, value int
 		isDelta = false
 	} else if oidConfig.Delta {
 		c.mu.RLock()
-		prevStatus, exists := c.status.OIDStatus[oidConfig.Name]
+		prevStatus, exists := c.status.OIDStatus[name]
 		c.mu.RUnlock()
 
 		if exists && prevStatus.LastValue != nil && !prevStatus.LastUpdate.IsZero() {
@@ -220,7 +362,7 @@ func (c *SNMPCollector) processResult(ctx context.Context, oid string, value int
 			if elapsed > 0 {
 				delta, ok := calculateDelta(prevStatus.LastValue, converted, counterWidth)
 				if !ok {
-					c.updateOIDStatus(oidConfig.Name, &DataPoint{
+					c.updateOIDStatus(name, &DataPoint{
 						Value:     converted,
 						Timestamp: now,
 					})
@@ -236,7 +378,7 @@ func (c *SNMPCollector) processResult(ctx context.Context, oid string, value int
 			}
 		} else {
 			// First sample, just store it and wait for next poll to calculate rate
-			c.updateOIDStatus(oidConfig.Name, &DataPoint{
+			c.updateOIDStatus(name, &DataPoint{
 				Value:     converted,
 				Timestamp: now,
 			})
@@ -258,7 +400,8 @@ func (c *SNMPCollector) processResult(ctx context.Context, oid string, value int
 	}
 
 	point := DataPoint{
-		OIDName:      oidConfig.Name,
+		OIDName:      name,
+		OIDIndex:     index,
 		Value:        finalValue,
 		RawValue:     rawValue,
 		Timestamp:    now,
@@ -272,7 +415,7 @@ func (c *SNMPCollector) processResult(ctx context.Context, oid string, value int
 	}
 
 	// Update OID status
-	c.updateOIDStatus(oidConfig.Name, &point)
+	c.updateOIDStatus(name, &point)
 
 	select {
 	case c.dataChan <- point:

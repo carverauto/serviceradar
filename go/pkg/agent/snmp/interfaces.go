@@ -89,6 +89,9 @@ type SNMPClient interface {
 	Connect() error
 	// Get retrieves SNMP values for given OIDs
 	Get(oids []string) (map[string]interface{}, error)
+	// Walk retrieves every row in the subtree rooted at oid, bounded by maxRows
+	// and timeout so a runaway table cannot stall the collector
+	Walk(oid string, maxRows int, timeout time.Duration) ([]WalkResult, error)
 	// Close closes the SNMP connection
 	Close() error
 }
