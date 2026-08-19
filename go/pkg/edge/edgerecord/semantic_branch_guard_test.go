@@ -35,14 +35,21 @@ import (
 // globally. Extending the matrix each time does not converge, because the space of predicates a
 // framer COULD branch on is unbounded.
 //
-// SO BOUND IT. This test reads the framer sources and asserts that their control flow branches
-// ONLY on the declared structural axes -- carrier presence, and oneof discriminants. Nothing may
-// branch on a payload VALUE. With that established, the axes are finite and enumerable, and the
-// cross product of their states is COMPLETE coverage rather than another hand-picked matrix.
+// SO THE MATRIX IS ENUMERATED FROM THE DECLARED AXES rather than chosen, and this test checks
+// that the framers keep the shape that enumeration assumes: control flow may branch ONLY on
+// carrier presence and oneof discriminants, nothing may branch on a payload VALUE, and the write
+// sequence may not be SELECTED from data.
 //
-// The two halves are load-bearing together and worth little apart: this guard says "the code
-// cannot branch on anything else", and the shape enumeration says "every combination of what it
-// CAN branch on is committed".
+// IT IS DEFENSE IN DEPTH, NOT WHAT MAKES THE MATRIX COMPLETE, and the difference matters because
+// it has known holes. It identifies proto and oneof accessors BY NAME, so a method spelled
+// `GetClaims` on an unrelated type is accepted; it reasons about SYNTAX rather than types. The
+// committed cross product is therefore exhaustive over the DECLARED axes -- not over every Go
+// program -- and this test narrows what can drift there without proving nothing can.
+//
+// Closing it properly needs a descriptor-validated declarative grammar that GENERATES the
+// framers, which removes the arbitrary host program instead of analysing it. Recorded as an
+// unowned follow-up in design.md -- no identifier, no owner, nothing blocked on it -- and
+// deliberately not attempted here.
 func TestSemanticFramingBranchesOnlyOnDeclaredAxes(t *testing.T) {
 	fset := token.NewFileSet()
 
@@ -330,10 +337,15 @@ func semViolation(fset *token.FileSet, fn *ast.FuncDecl, n ast.Node, why string)
 // admitted 42-row record frame its non-nil contract exactly like an absent one. A framer's
 // presence argument must therefore satisfy the SAME predicate its own `if` would have to.
 //
-// AND THE CALLEE SURFACE IS CLOSED, because `d.outputContract(c, somePredicate(r))` moves the
-// branch into a function this test never reads. Only digestWriter methods, proto getters, the
-// digest constructor, and value conversions may be called from a framer -- anything else is a
-// place for order to depend on a payload value out of sight.
+// AND THE CALLEE SURFACE IS NARROWED, because `d.outputContract(c, somePredicate(r))` moves the
+// branch into a function this test never reads. A framer may call digestWriter methods, the
+// digest constructor, value conversions, and accessors -- anything else is a place for order to
+// depend on a payload value out of sight.
+//
+// NARROWED, NOT CLOSED. "Accessor" here means ANY selector whose name begins with `Get`, matched
+// by SPELLING: a method called `GetAnything` on an unrelated type is accepted, and so is a
+// hand-written one. Closing that needs type identity, which this syntax-level check does not
+// have -- see the limits on the test above.
 func semCallViolations(fset *token.FileSet, fn *ast.FuncDecl, call *ast.CallExpr,
 	flags map[string]bool, boolParams map[string][]int, recvName string,
 ) []string {
@@ -341,8 +353,8 @@ func semCallViolations(fset *token.FileSet, fn *ast.FuncDecl, call *ast.CallExpr
 
 	if !semAllowedCallee(call.Fun, recvName) {
 		return append(out, semViolation(fset, fn, call,
-			"calls something other than a digestWriter method, a proto getter or a conversion: "+
-				"framing order must not depend on a function this guard cannot read"))
+			"calls something other than a digestWriter method, a `Get*`-spelled selector or a "+
+				"conversion: framing order must not depend on a function this guard cannot read"))
 	}
 
 	sel, ok := call.Fun.(*ast.SelectorExpr)
@@ -369,7 +381,9 @@ func semCallViolations(fset *token.FileSet, fn *ast.FuncDecl, call *ast.CallExpr
 	return out
 }
 
-// semAllowedCallee closes the call surface a framer may reach.
+// semAllowedCallee NARROWS the call surface a framer may reach. It does not close it: the
+// accessor arm matches any selector SPELLED `Get*`, on any receiver, so a hand-written method of
+// that name passes. Identity would need types, which this syntax-level check does not have.
 func semAllowedCallee(fun ast.Expr, recvName string) bool {
 	switch f := fun.(type) {
 	case *ast.Ident:

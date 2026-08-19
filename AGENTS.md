@@ -39,11 +39,13 @@ Keep this managed block so 'openspec update' can refresh the instructions.
   and a worktree that pushes to Forgejo means the MAIN clone is stale. Second: **verify
   the destination host in the push output**, not just the branch name — `-> <name>` is
   necessary but not sufficient when two remotes carry the same refs.
-- **CI now lives in `.github/workflows/`, not `.forgejo/workflows/`.** Only
-  `proto-abi.yml` has been migrated so far; the rest of the Forgejo suite (`main.yml`
-  and the Bazel/Go/Elixir graph it drives) has NOT been ported, so those gates are not
-  running on pull requests yet. Do not cite a `.forgejo` workflow as evidence that
-  something is gated.
+- **CI now lives in `.github/workflows/`, not `.forgejo/workflows/`.** Most of the suite
+  is ported -- 20 workflows including `golangci-lint`, `rust-checks`, `elixir-quality`,
+  `native-addons` and `proto-abi`. **`main.yml` is the exception and has NO GitHub
+  equivalent**, so the single aggregate build it ran is not reproduced; the Bazel work is
+  spread across `rust-checks`, `native-addons`, `publish-oci`, `wasm-plugins`,
+  `external-wasm-plugin` and `release` instead. `.forgejo/workflows/` still holds 19 files
+  and does not run -- do not cite one as evidence that something is gated.
 - **After `git worktree add` (or any extra checkout), symlink the gitignored
   Bazel rc files before any `bazel` command.** `.bazelrc` try-imports
   `%workspace%/.bazelrc.remote` and `.bazelrc.local`. Both are gitignored:

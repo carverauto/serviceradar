@@ -1428,30 +1428,43 @@ here.
         baseline cannot see CONDITIONAL OMISSION of zero-valued fields. Committed populated AND
         default vectors cover both; the mutation audit confirms reordering is caught only by
         them.
-        MUTATION AUDIT: THIRTY-EIGHT ROWS, EXACT AND INDIVIDUALLY LISTED in design.md's 1.5-i
-        mutation record. THIRTEEN were re-run after the staging merge -- every survivor any review
-        round reported, the static-guard rows, and three long-standing controls -- and the rest
-        carry their pre-merge counts; design.md says which and why, and this ledger does not
-        claim one pass. An earlier draft
+        MUTATION AUDIT: A FORTY-ROW TABLE PLUS SEVEN LATER PROBES -- forty-seven in all,
+        and they are NOT one measurement. The table is in design.md's 1.5-i mutation record;
+        THIRTEEN of its rows were re-run after the staging merge (every survivor any review round
+        reported, the static-guard rows, and three long-standing controls) and the rest carry
+        their pre-merge counts. The seven PROBES came later and are listed under the table, each
+        measured when it was run: the presence-argument bypass and two helper variants, branchless
+        `map[bool]` selection, and three Elixir predicates. This ledger does not claim one pass.
+        An earlier draft
         reported "41 retained" by adding the first audit's nineteen to every survivor round,
-        which DOUBLE-COUNTED -- the nineteen already contained the first two rounds. The
-        nineteen are recorded separately and are NOT re-added.
-        TWO ROWS MEASURE ZERO IN ONE RUNTIME AND ARE KILLED IN THE OTHER, which the table records
+        which DOUBLE-COUNTED -- the nineteen already contained the first two rounds. They are NOT
+        re-added, and they are NOT reproduced in design.md either: they were reported in the round
+        that ran them and are not recoverable from the table.
+        ONE ROW MEASURES ZERO IN ONE RUNTIME AND IS KILLED IN THE OTHER, which the table records
         rather than hiding: renaming an `op` key fails in GO, not Elixir, because GO OWNS THAT
-        CLOSURE; splitting the wire classes fails the CLASSIFIER test, not a fixture row, because
-        the merged guard rejects the fixture that would expose it.
+        CLOSURE. Splitting the wire classes is a different thing and not a second such row -- it
+        fails Go's CLASSIFIER test rather than a fixture row, because the merged guard rejects the
+        fixture that would expose it, and it makes no claim about the peer at all.
         THE CARRIER'S OWN DECISIONS GOT THEIR OWN ROWS. Seam vectors freeze what a framer does
         when TOLD a carrier is absent, so the root's `c != nil` inference was unproven until a
         whole-record ABSENT witness existed for all four carriers; and the composed capability
         transcript was unproven for every claims shape the record does not carry, so reordering
         the claims against the signature for one variant was invisible.
+        EXHAUSTIVE OVER THE DECLARED AXES, NOT OVER EVERY PROGRAM THE HOST LANGUAGES CAN EXPRESS.
+        The 661-shape matrix covers every combination of carrier presence and oneof discriminant
+        the grammar declares. The static guards that keep framing order on those axes are
+        DEFENSE-IN-DEPTH REGRESSION CHECKS, not a proof, and their limits are recorded: Go
+        identifies proto and oneof accessors BY NAME, and Elixir reads function bodies without
+        resolving heads, guards, macros or remote calls. The normative requirement here is
+        BEHAVIORAL -- frozen transcript bytes, ordering, framing, exclusions and cross-runtime
+        parity -- and no B1-B4 defect is demonstrated in either runtime; the stopping rule makes
+        mutation-score completion non-blocking, so 1.5-i closes on that basis rather than on a
+        completeness claim it cannot make.
         AND NO HAND-PICKED MATRIX EVER CONVERGES: five rounds each found a reordering conditioned
         on some state no fixture held, and the space of predicates a framer COULD branch on is
-        unbounded. A STATIC GUARD now bounds it -- the framer sources may branch ONLY on carrier
-        presence and oneof discriminants, never a payload value -- and the axes are then finite,
-        so their FULL CROSS PRODUCT is complete: 661 shapes at three variants, 1983 whole-record
-        vectors of 2029, consumed by BOTH runtimes. Separation is asked PER SHAPE, since a
-        mutation executes inside one.
+        unbounded, which is why the matrix is enumerated from the DECLARED axes instead of chosen:
+        661 shapes at three variants, 1983 whole-record vectors of 2029, consumed by BOTH
+        runtimes. Separation is asked PER SHAPE, since a mutation executes inside one.
         OVERLAPPING FAILURE SETS ARE RECORDED rather than engineered away: deleting a presence
         marker or a discriminant is caught ONLY by the state vectors, because absent and present
         already differ for unrelated reasons and inequality alone survives the deletion.

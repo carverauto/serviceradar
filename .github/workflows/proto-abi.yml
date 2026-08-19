@@ -1,10 +1,12 @@
 # MIGRATED FROM .forgejo/workflows/proto-abi.yml after the move back to GitHub. The Forgejo host
 # is READ-ONLY now, so the copy there no longer runs; this is the live gate.
 #
-# ONE CLAIM BELOW DOES NOT HOLD YET ON THIS HOST. The note about `main.yml` already running the
-# full Go/Elixir/Bazel graph on every pull request describes the FORGEJO suite, which has not been
-# migrated -- only this workflow was. Until that graph is ported, the edge Bazel build is NOT
-# gated here, and this file is a proto/ABI drift guard only. Do not read it as full coverage.
+# ONE CLAIM BELOW DOES NOT HOLD ON THIS HOST. The note about `main.yml` running the full
+# Go/Elixir/Bazel graph on every pull request describes the FORGEJO suite. Most of that suite IS
+# now on GitHub -- rust-checks, native-addons, golangci-lint, elixir-quality and others -- but
+# `main.yml` itself has NO GitHub equivalent, so its single aggregate build is not reproduced and
+# no one workflow covers the whole graph. Treat this file as a proto/ABI drift guard, and check
+# what actually runs before calling anything gated.
 #
 # THIS WORKFLOW HAS NEVER RUN. It was migrated ahead of any pull request, and GitHub has no
 # required status checks configured, so nothing here is demonstrated -- only ported. Treat the
@@ -305,7 +307,8 @@ jobs:
       - name: Edge semantic-envelope transcript (Elixir)
         working-directory: elixir/serviceradar_core
         run: mix test --no-start test/serviceradar/edge/semantic_envelope_corpus_test.exs
-      # THE STATIC GUARD IS WHAT MAKES THE COMMITTED CROSS PRODUCT COMPLETE, so it has to run
+      # THE STATIC GUARD IS A DEFENSE-IN-DEPTH REGRESSION CHECK on the shape the committed cross
+      # product assumes -- not a proof, and not a completeness argument -- so it has to run
       # HERE and not only under Bazel: this workflow explicitly does NOT migrate the Bazel graph,
       # so a step that exists only there is a step this host never runs. Without it a framer could
       # branch on a payload value, the vectors would still match, and the gate would be green.

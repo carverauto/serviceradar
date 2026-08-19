@@ -4,19 +4,34 @@ defmodule ServiceRadar.Edge.SemanticBranchGuardTest do
 
   Everything else in the semantic-envelope suite is FINITE EVIDENCE, and finite evidence over a
   grammar that may branch on arbitrary payload values can always be evaded by one more unmodeled
-  predicate. The committed cross product is complete ONLY IF the framers cannot branch on anything
-  but the declared structural axes -- carrier presence and oneof discriminants.
+  predicate. The committed cross product is exhaustive over the DECLARED structural axes -- carrier
+  presence and oneof discriminants -- and this check is defense in depth on the shape that
+  enumeration assumes, not the thing that makes it complete.
 
-  GO HAD THIS GUARD AND THIS RUNTIME DID NOT, so the bound held on one side of a cross-runtime
-  contract and not the other. Measured: omitting `output_contract` only when
+  GO HAD SUCH A CHECK AND THIS RUNTIME HAD NONE, so one side of a cross-runtime contract had a
+  regression check on its framing shape and the other had nothing at all. Measured: omitting `output_contract` only when
   `projected_row_count == 42` passed every corpus test here and collapsed the present and absent
   digests together.
+
+  DEFENSE IN DEPTH, NOT A PROOF, AND THESE ARE ITS LIMITS: it reads function BODIES. It does not
+  resolve FUNCTION HEADS or GUARDS, so a two-clause helper matching `%{projected_row_count: 42}`
+  is invisible to it; it does not expand MACROS; and it cannot resolve REMOTE CALLS it has not
+  been told about. The committed cross product is exhaustive over the DECLARED carrier and oneof
+  axes, not over every Elixir program. Closing that needs a descriptor-validated declarative
+  grammar that GENERATES both framers, recorded in design.md as an UNOWNED follow-up.
 
   THE RULE IS STRICTER HERE THAN IN GO, because this runtime needs no in-body branching at all:
   both framer modules today express every alternative through FUNCTION HEADS -- a `nil` clause and
   a populated clause, a clause per oneof tag. So `if`, `case`, `cond`, `unless`, `with` and
-  comprehensions are simply forbidden in them, and the only operators allowed are a `||` nil-default
-  with a literal right-hand side and a comparison against `nil`.
+  comprehensions are simply forbidden in them. The COMPARISON rules are narrow: a `||` nil-default
+  must have a LITERAL right-hand side, and `==`/`!=` may only compare against `nil`. The
+  structural allowlist is wider than that sentence alone suggests -- it also admits `and`, `or`
+  and `not` alongside binding and bitstring syntax. `and` and `or` SHORT-CIRCUIT, so they can gate
+  whether their right operand is evaluated at all; admitting them is a known hole, not a proof
+  that they are harmless. Their actual uses today are NUMERIC RANGE GUARDS on the primitives --
+  `when is_integer(v) and v >= 0 and v <= @u64_max` -- which is a width check on one value, not a
+  choice between two write orders. This check does not verify that, and does not read guards at
+  all.
   """
   use ExUnit.Case, async: true
 
@@ -54,9 +69,12 @@ defmodule ServiceRadar.Edge.SemanticBranchGuardTest do
     :not
   ]
 
-  # The ONLY calls a framer may make: its own primitives and framers, the generated enum
-  # accessors, and the guards used in function heads. Widening this is a deliberate act -- a call
-  # to anything else is a place for framing order to depend on a payload value out of sight.
+  # The calls a framer may make BY BARE NAME: its own primitives and framers, the generated enum
+  # accessors, and the guards used in function heads. Widening this is a deliberate act -- an
+  # unlisted bare-name call is a place for framing order to depend on a payload value out of
+  # sight. It is NOT the only call surface: a REMOTE call (`Mod.fun(...)`) never reaches this
+  # list, because it parses with a `.` tuple where an atom name would be. Measured:
+  # `Map.get(r, :output_contract)` passes.
   @allowed_calls ~w(
     u64 i64 bytes present opt_u64 enum
     output_contract claims_framed collection_claims production_claims source_claims
@@ -82,9 +100,15 @@ defmodule ServiceRadar.Edge.SemanticBranchGuardTest do
       |> File.read!()
       |> Code.string_to_quoted!(columns: true)
 
-    # A CALL TO A FUNCTION DEFINED IN THIS MODULE IS FINE, because this walk policies that
-    # function too -- a helper cannot hide a branch from a guard that reads it. A call to anything
-    # ELSE is rejected: that is where `output_contract(c, some_predicate(r))` would put one.
+    # A CALL TO A FUNCTION DEFINED IN THIS MODULE IS FINE, because this walk reads that function's
+    # BODY too. That is narrower than it sounds: a local helper can still branch through its
+    # FUNCTION HEADS or GUARDS, which this walk does not read -- a two-clause helper matching
+    # `%{projected_row_count: 42}` is invisible to it. A call to anything else is rejected unless
+    # it is on the primitive allowlist -- which is where `output_contract(c, some_predicate(r))`
+    # would put a branch. A REMOTE call is not matched at all: `Mod.fun(args)` parses with a `.`
+    # tuple where an atom name would be, so it misses the name check entirely and only its
+    # ARGUMENTS are walked -- measured, `Map.get(r, :output_contract)` passes. This narrows where
+    # a branch can hide; it does not establish that none can.
     local = defined_names(ast)
 
     ast
