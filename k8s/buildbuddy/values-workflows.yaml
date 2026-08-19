@@ -136,13 +136,10 @@ extraVolumes:
       # Dedicated BB disk on each worker (xfs /mnt/buildbuddy). Do not use /var/lib (root).
       path: /mnt/buildbuddy/cache-workflows
       type: DirectoryOrCreate
-  # The Bazel client's own caches (disk, repository, repo contents), kept OUT of cache-volume:
-  # BuildBuddy's filecache assumes it owns local_cache_directory and evicts against its own
-  # accounting, so another writer under it would be evicted or miscounted.
+  # Bazel client caches (disk, repository, repo contents). Its own volume so a fresh runner
+  # starts warm, and so the 100 GB of small files are not walked by the filecache startup scan.
   - name: bazel-cache-volume
     hostPath:
-      # Distinct from ./values.yaml for the same reason as cache-volume above: the repo contents
-      # cache takes a lock, so two fleets on one node must not share it.
       path: /mnt/buildbuddy/bazel-caches-workflows
       type: DirectoryOrCreate
   - name: dockerhub-auth
@@ -245,11 +242,9 @@ config:
           options:
             - rbind
             - rw
-        # HOME for an action container, so everything Bazel keeps under ~ persists across pod
-        # replacement: the caches //.bazelrc names AND the output base, which is where the
-        # external repos are actually extracted.
+        # A dedicated path, NOT /root: mounting over the runner's home broke `git init`.
         - source: /bazel-caches
-          destination: /root
+          destination: /bazel-cache
           type: bind
           options:
             - rbind
