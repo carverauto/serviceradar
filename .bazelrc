@@ -20,6 +20,9 @@ common --downloader_config=tools/bazel/downloader.cfg
 common --noslim_profile
 # common --experimental_profile_include_target_label
 # common --experimental_profile_include_primary_output
+# Do NOT put repository_cache / disk_cache / distdir under the source tree.
+# Use Bazel defaults (~/.cache/bazel) or machine-local .bazelrc.local instead.
+
 # This is a deliberate exception to the "no distdir under the source tree" rule above. These are immutable vendored source crates.
 common --distdir=%workspace%/third_party/crate_mirror
 
@@ -80,6 +83,11 @@ build:remote_base --config=cache_only
 # Number of parallel jobs on remote executors
 build:remote_base --jobs=100
 build:remote_base --remote_download_minimal
+
+# Client-side cache, so a locally executed action that already ran is not re-run. Machine-local
+# (`~` expands here) and capped, so it cannot grow the way the old in-tree one did.
+build:remote_base --disk_cache=~/.cache/serviceradar-bazel-disk
+build:remote_base --experimental_disk_cache_gc_max_size=50G
 build:remote_base --remote_executor=grpcs://carverauto.buildbuddy.io
 # Remote platforms
 build:remote_base --host_platform=//build/rbe:rbe_platform
@@ -102,6 +110,12 @@ build:remote_base --noenable_platform_specific_config
 
 # CI profile on top of the remote config
 build:ci --config=remote_base
+
+# Empty disables the remote_base disk cache: on CI the client runs inside the runner container,
+# so it would duplicate the executor's filecache on the same node disk. Must stay below
+# --config=remote_base, which is where the value arrives.
+build:ci --disk_cache=
+
 build:ci --keep_going
 build:ci --build_metadata=REPO_URL=https://github.com/carverauto/serviceradar.git
 build:ci --build_metadata=ROLE=CI
