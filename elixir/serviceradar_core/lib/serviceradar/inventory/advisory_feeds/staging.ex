@@ -229,7 +229,9 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.Staging do
       {:ok, %File.Stat{type: :directory}} ->
         case File.ls(path) do
           {:ok, names} ->
-            Enum.reduce(names, 0, fn name, acc -> acc + usage_bytes_path(Path.join(path, name)) end)
+            Enum.reduce(names, 0, fn name, acc ->
+              acc + usage_bytes_path(Path.join(path, name))
+            end)
 
           _ ->
             0

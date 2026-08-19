@@ -104,11 +104,14 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.Loader do
 
     Repo.transaction(fn ->
       {:ok, _} =
-        Repo.query("SELECT set_config('statement_timeout', $1, true)", [Integer.to_string(timeout_ms)])
+        Repo.query("SELECT set_config('statement_timeout', $1, true)", [
+          Integer.to_string(timeout_ms)
+        ])
 
       Repo.update_all(
         from(a in "vulnerability_advisories",
-          where: a.provider == ^provider and a.feed_key == ^feed_key and a.generation == ^generation
+          where:
+            a.provider == ^provider and a.feed_key == ^feed_key and a.generation == ^generation
         ),
         [set: [current: true]],
         prefix: @schema
@@ -116,7 +119,8 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.Loader do
 
       Repo.update_all(
         from(a in "vulnerability_advisories",
-          where: a.provider == ^provider and a.feed_key == ^feed_key and a.generation != ^generation
+          where:
+            a.provider == ^provider and a.feed_key == ^feed_key and a.generation != ^generation
         ),
         [set: [current: false]],
         prefix: @schema

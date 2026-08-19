@@ -321,26 +321,24 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.FeedWorker do
     # another zip+extract until the node filled.
     _ = Staging.prune_feed("nist-nvd2", keep: 0)
 
-    cond do
-      not Staging.volume_available?() ->
-        Logger.warning(
-          "advisory_feeds: staging volume unavailable, skipping nist-nvd2 (fail closed)"
-        )
+    if Staging.volume_available?() do
+      case Staging.ensure_budget() do
+        :ok ->
+          with {:ok, token} <- Config.vulncheck_token(),
+               {:ok, acquired} <- Acquisition.acquire_vulncheck("nist-nvd2", token, run_id()) do
+            with_run_cleanup(acquired, fn -> parse_and_load_nvd(acquired) end)
+          end
 
-        {:error, :staging_volume_unavailable}
+        {:error, reason} = error ->
+          Logger.warning("advisory_feeds: nist-nvd2 staging budget: #{inspect(reason)}")
+          error
+      end
+    else
+      Logger.warning(
+        "advisory_feeds: staging volume unavailable, skipping nist-nvd2 (fail closed)"
+      )
 
-      true ->
-        case Staging.ensure_budget() do
-          :ok ->
-            with {:ok, token} <- Config.vulncheck_token(),
-                 {:ok, acquired} <- Acquisition.acquire_vulncheck("nist-nvd2", token, run_id()) do
-              with_run_cleanup(acquired, fn -> parse_and_load_nvd(acquired) end)
-            end
-
-          {:error, reason} = error ->
-            Logger.warning("advisory_feeds: nist-nvd2 staging budget: #{inspect(reason)}")
-            error
-        end
+      {:error, :staging_volume_unavailable}
     end
   end
 

@@ -78,6 +78,10 @@ config :serviceradar_core, Oban,
   ],
   peer: Oban.Peers.Database
 
+# Advisory-feed staging reaper. Oban :kill skips FeedWorker after-cleanup.
+config :serviceradar_core, ServiceRadar.Inventory.AdvisoryFeeds.StagingCleanupWorker,
+  reschedule_seconds: 60
+
 # Agent-to-device link repair (periodic; see AgentLinkRepairWorker)
 config :serviceradar_core, ServiceRadar.Inventory.AgentLinkRepairWorker,
   enabled: true,
@@ -90,10 +94,6 @@ config :serviceradar_core, ServiceRadar.Inventory.BumblebeeCatalogRefreshWorker,
   reschedule_seconds: 86_400,
   failure_reschedule_seconds: 3_600,
   max_entries: 250_000
-
-# Advisory-feed staging reaper. Oban :kill skips FeedWorker after-cleanup.
-config :serviceradar_core, ServiceRadar.Inventory.AdvisoryFeeds.StagingCleanupWorker,
-  reschedule_seconds: 60
 
 # Unseen-identifier TTL garbage collection (daily; see DeviceIdentifierGcWorker)
 config :serviceradar_core, ServiceRadar.Inventory.DeviceIdentifierGcWorker,
