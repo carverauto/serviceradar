@@ -332,20 +332,55 @@ defmodule ServiceRadar.CompositeChecks.Validation.Orchestrator do
           _ -> []
         end
 
-      available_ips =
-        results
-        |> Enum.filter(& &1.available)
-        |> MapSet.new(&to_string(&1.target_ip))
-
+      available_by_ip = availability_by_ip(scan, results)
       targets = MapSet.new(List.wrap(scan.targets), &to_string/1)
 
       Enum.each(run.devices, fn device ->
-        if MapSet.member?(targets, to_string(device.ip)) do
-          available? = MapSet.member?(available_ips, to_string(device.ip))
-          upsert_availability(device.device_uid, scan.agent_id, available?, now, actor)
+        ip = to_string(device.ip)
+
+        if MapSet.member?(targets, ip) do
+          case Map.fetch(available_by_ip, ip) do
+            {:ok, available?} ->
+              upsert_availability(device.device_uid, scan.agent_id, available?, now, actor)
+
+            :error ->
+              :ok
+          end
         end
       end)
     end)
+  end
+
+  # Per-target JetStream rows are authoritative. When they have not landed yet
+  # (farm01's event-writer often lags the ScanRun completion payload), use
+  # hosts_up: 0 => every target blocked, hosts_up == target count => every
+  # target up. A partial hosts_up on a multi-target scan cannot be mapped.
+  defp availability_by_ip(scan, results) when is_list(results) and results != [] do
+    results
+    |> Enum.group_by(&to_string(&1.target_ip))
+    |> Map.new(fn {ip, rows} -> {ip, Enum.any?(rows, & &1.available)} end)
+  end
+
+  defp availability_by_ip(scan, _empty) do
+    targets = Enum.map(List.wrap(scan.targets), &to_string/1)
+    hosts_up = scan.hosts_up || 0
+
+    cond do
+      targets == [] ->
+        %{}
+
+      hosts_up <= 0 ->
+        Map.new(targets, &{&1, false})
+
+      hosts_up >= length(targets) ->
+        Map.new(targets, &{&1, true})
+
+      length(targets) == 1 ->
+        %{hd(targets) => true}
+
+      true ->
+        %{}
+    end
   end
 
   defp upsert_availability(device_uid, agent_id, available?, checked_at, actor) do

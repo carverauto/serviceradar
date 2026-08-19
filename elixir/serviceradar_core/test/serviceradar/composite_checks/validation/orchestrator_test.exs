@@ -476,6 +476,58 @@ defmodule ServiceRadar.CompositeChecks.Validation.OrchestratorTest do
     assert result.verdict == "isolated_verified"
   end
 
+  test "completed scans without result rows fall back to hosts_up" do
+    ip = unique_ip()
+    device = create_device!(ip)
+    agent_a = "agent-alma-#{System.unique_integer([:positive])}"
+    agent_b = "k8s-#{System.unique_integer([:positive])}"
+    covering_groups!(agent_a, agent_b)
+    check = enabled_check!(agent_a, agent_b)
+
+    {:ok, run} =
+      Orchestrator.start(%{"check" => check.slug, "ip" => ip},
+        actor: actor(),
+        enqueue?: false
+      )
+
+    dispatcher = fn agent_id, targets, opts ->
+      {:ok, scan} =
+        ScanRun.create(
+          %{
+            agent_id: agent_id,
+            modes: opts[:modes],
+            ports: opts[:ports] || [],
+            targets: targets,
+            target_count: length(targets)
+          },
+          actor: actor()
+        )
+
+      hosts_up = if agent_id == agent_a, do: 1, else: 0
+
+      {:ok, _} =
+        ScanRun.update_status(
+          scan,
+          %{status: :completed, finished_at: DateTime.utc_now(), hosts_up: hosts_up},
+          actor: actor()
+        )
+
+      {:ok, scan.id}
+    end
+
+    assert {:ok, :continue} = Orchestrator.advance(run.id, actor: actor(), dispatcher: dispatcher)
+    assert {:ok, :completed} = Orchestrator.advance(run.id, actor: actor())
+
+    {:ok, alma} =
+      DeviceAgentAvailability.get_by_device_agent(device.uid, agent_a, actor: actor())
+
+    {:ok, k8s} =
+      DeviceAgentAvailability.get_by_device_agent(device.uid, agent_b, actor: actor())
+
+    assert alma.is_available
+    refute k8s.is_available
+  end
+
   test "a fact written after start is visible at evaluate" do
     ip = unique_ip()
     device = create_device!(ip)
