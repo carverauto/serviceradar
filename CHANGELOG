@@ -1,3 +1,28 @@
+# ServiceRadar v1.4.37
+
+Keeps nist-nvd2 from filling the node, stops Falco Critical from
+filling the Fatal card, and force-refills the 24-hour log-severity
+rollup.
+
+## Whats New
+
+**1.4.37**
+- Advisory feeds: leftover nist-nvd2 extracts are pruned every
+  scheduler tick, a dedicated cleanup worker reaps orphans after
+  Oban `:kill`, downloads refuse to start when staging is over
+  budget, and finalize no longer statement-timeouts the generation
+  swap. Demo and farm01 can keep the CPE catalog enabled. (PR #3795)
+- Software tab: vuln matches for a device use a partial
+  `(device_uid, kev, exploit, cvss, last_seen)` index instead of
+  scanning the global priority index. (PR #3795)
+- Observability: `severity_text` `critical` (Falco/Trivy priority)
+  counts as Error, not Fatal. The 24-hour log-severity CAGG
+  force-refreshes when coverage lags. (PR #3797)
+- Hex: waive unpatched cowlib EEF-CVE-2026-43971 until a Hex
+  release exists. (PR #3797)
+- CI: the SRQL fixture CA is no longer published on the shared
+  gateway. (PR #3799)
+
 # ServiceRadar v1.4.36
 
 Dashboard layout fix on top of the published 1.4.35 artifacts.
