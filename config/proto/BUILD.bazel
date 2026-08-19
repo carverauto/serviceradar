@@ -31,6 +31,20 @@ proto_library(
     deps = [":config_proto"],
 )
 
+# The schema as data. The meta-rule -- every field carries at least one rule -- has to
+# enumerate the fields, and the only enumeration that cannot fall behind the schema is the
+# schema's own descriptor. A hand-kept list of field paths would be one more thing to forget
+# to update, which is the failure the meta-rule exists to catch.
+genrule(
+    name = "config_descriptor_set",
+    srcs = ["config.proto"],
+    outs = ["config.descriptor_set"],
+    cmd = ("$(execpath @bazel_tools//tools/proto:protoc) -I. " +
+           "--descriptor_set_out=$@ $(execpath config.proto)"),
+    tools = ["@bazel_tools//tools/proto:protoc"],
+    visibility = ["//visibility:public"],
+)
+
 # The raw sources, for the protoc actions that compile committed .textproto instances and
 # the rule set to binary, and for non-Bazel tooling.
 filegroup(
@@ -105,6 +119,45 @@ elixir_library(
         name = "binding_drift_" + f + "_test",
         file1 = ":" + f + ".generated.ex",
         file2 = "//config/proto_bindings/elixir/lib/serviceradar_config/proto:" + f + ".pb.ex",
+    )
+    for f in [
+        "config",
+        "rules",
+    ]
+]
+
+# Go bindings, generated. The outs are the paths protoc-gen-go writes under `go_out` with
+# paths=source_relative: rules.proto imports "config/proto/config.proto", so -I must be the
+# execroot, and the generator mirrors that path. Declaring those exact paths means the action
+# copies nothing and leaves nothing undeclared behind.
+genrule(
+    name = "config_go",
+    srcs = [
+        "config.proto",
+        "rules.proto",
+    ],
+    outs = [
+        "config/proto/config.pb.go",
+        "config/proto/rules.pb.go",
+    ],
+    cmd = ("$(execpath @bazel_tools//tools/proto:protoc) -I. " +
+           "--plugin=protoc-gen-go=$(execpath @org_golang_google_protobuf//cmd/protoc-gen-go) " +
+           "--go_out=$(RULEDIR) --go_opt=paths=source_relative " +
+           "$(execpath config.proto) $(execpath rules.proto)"),
+    tools = [
+        "@bazel_tools//tools/proto:protoc",
+        "@org_golang_google_protobuf//cmd/protoc-gen-go",
+    ],
+)
+
+# The guard //config/proto_bindings/go/BUILD.bazel says exists. It did not: it named a
+# `make verify-proto-go-config` target that was never written, so the checked-in Go bindings
+# had no drift check at all while the Elixir ones did.
+[
+    diff_test(
+        name = "binding_drift_go_" + f + "_test",
+        file1 = "config/proto/" + f + ".pb.go",
+        file2 = "//config/proto_bindings/go:" + f + ".pb.go",
     )
     for f in [
         "config",

@@ -13,6 +13,7 @@ pub mod server;
 pub mod state;
 pub mod telemetry;
 pub mod time;
+pub mod tls;
 
 use crate::{config::AppConfig, server::Server};
 

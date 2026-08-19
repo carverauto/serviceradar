@@ -78,7 +78,7 @@ func (e *EnvConfigLoader) Load(_ context.Context, _ string, dst interface{}) err
 
 	// Otherwise, load from individual environment variables
 	v := reflect.ValueOf(dst)
-	if v.Kind() != reflect.Ptr || v.IsNil() {
+	if v.Kind() != reflect.Pointer || v.IsNil() {
 		return ErrDstMustBeNonNilPointer
 	}
 
@@ -185,11 +185,11 @@ func (e *EnvConfigLoader) setFieldValue(field reflect.Value, fieldType *reflect.
 
 // handleNestedStruct handles nested struct and pointer to struct types.
 func (e *EnvConfigLoader) handleNestedStruct(field reflect.Value, envName string) error {
-	if field.Kind() == reflect.Struct || (field.Kind() == reflect.Ptr && field.Type().Elem().Kind() == reflect.Struct) {
+	if field.Kind() == reflect.Struct || (field.Kind() == reflect.Pointer && field.Type().Elem().Kind() == reflect.Struct) {
 		prefix := envName + "_"
 
 		// Initialize pointer if needed
-		if field.Kind() == reflect.Ptr {
+		if field.Kind() == reflect.Pointer {
 			if field.IsNil() {
 				field.Set(reflect.New(field.Type().Elem()))
 			}
@@ -227,7 +227,7 @@ func (e *EnvConfigLoader) setFieldByKind(field reflect.Value, fieldType *reflect
 	case reflect.Map:
 		return e.setMapField(field, envName, envValue)
 
-	case reflect.Ptr:
+	case reflect.Pointer:
 		return e.setPtrField(field, fieldType, envName)
 
 	case reflect.Invalid, reflect.Uintptr, reflect.Complex64, reflect.Complex128,

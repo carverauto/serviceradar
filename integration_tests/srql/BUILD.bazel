@@ -46,12 +46,37 @@ load("//build:integration_tests.bzl", "requires_shared_fixture")
 # //integration_tests/srql/Cargo.toml. `cargo_only` keeps the result to third-party crates:
 # rules_rs also reports first-party workspace members, and //rust/srql is already named above.
 
+# The .sql fixtures the harness applies, plus what //rust/integration-db needs to resolve the
+# fixture at all: the run id it derives this target's disposable database from, and the compiled
+# instance ConfigManager loads. Without the latter two `Fixture::from_env()` failed and the
+# harness took its "no fixture, skip" path -- three targets green while asserting nothing.
 SRQL_IT_DATA = [
     "tests/fixtures/schema.sql",
     "tests/fixtures/seed.sql",
+    "//build:run_id_file",
+    "//config/environments:ci_binpb",
+    "//config/environments:localhost_binpb",
 ]
 
-SRQL_IT_DEPS = ["//rust/srql:srql_lib"] + all_crate_deps(
+# tests/support/harness.rs resolves the fixture through //rust/integration-db -- `config::Fixture`
+# for the coordinates and `parse_pg_config` for the DSN -- rather than parsing SRQL_TEST_* itself.
+#
+# The dep has to be NAMED here. `all_crate_deps(cargo_only = True)` reports only third-party
+# crates, deliberately (see the note above), so a first-party edge it does not list is a compile
+# error rather than something Bazel infers. Missing it produced
+#
+#   error[E0432]: unresolved import `serviceradar_integration_db`
+#                 no external crate `serviceradar_integration_db`
+#
+# which reads like a missing Cargo dependency and is really a missing BUILD dep -- and it
+# appeared ONLY in the database sweep, twenty minutes into CI, because these targets are
+# `integration_test`-tagged plus requires_shared_fixture(): the earlier `bazel build //...`
+# runs without --//build:enable_integration_tests, so they are incompatible and get skipped
+# rather than compiled.
+SRQL_IT_DEPS = [
+    "//rust/integration-db:serviceradar_integration_db",
+    "//rust/srql:srql_lib",
+] + all_crate_deps(
     cargo_only = True,
     normal = True,
     normal_dev = True,
@@ -59,6 +84,14 @@ SRQL_IT_DEPS = ["//rust/srql:srql_lib"] + all_crate_deps(
 
 rust_test(
     name = "srql_api_test",
+    # This target's own disposable database, so three concurrent targets cannot reset
+    # each other's. env, not a config field: it varies by BUILD target, not by environment.
+    # RUST_TEST_THREADS=1: every test in the binary resets this one database, and libtest
+    # runs tests on parallel threads by default -- so they would wipe each other mid-run.
+    env = {
+        "SRQL_TEST_DB_SUFFIX": "srqlapi",
+        "RUST_TEST_THREADS": "1",
+    },
     srcs = [
         "tests/api.rs",
         "tests/support/harness.rs",
@@ -67,7 +100,6 @@ rust_test(
     crate_name = "srql_api_tests",
     crate_root = "tests/api.rs",
     data = SRQL_IT_DATA,
-    edition = "2021",
     # integration_test, NOT manual. `manual` removed these from //... expansion BEFORE tag
     # filters were considered, so no wildcard could ever reach them and every caller had to
     # name them explicitly -- which is how srql_device_grouped_stats_test ended up running in
@@ -82,6 +114,14 @@ rust_test(
 
 rust_test(
     name = "srql_comprehensive_test",
+    # This target's own disposable database, so three concurrent targets cannot reset
+    # each other's. env, not a config field: it varies by BUILD target, not by environment.
+    # RUST_TEST_THREADS=1: every test in the binary resets this one database, and libtest
+    # runs tests on parallel threads by default -- so they would wipe each other mid-run.
+    env = {
+        "SRQL_TEST_DB_SUFFIX": "srqlcomp",
+        "RUST_TEST_THREADS": "1",
+    },
     srcs = [
         "tests/comprehensive_queries.rs",
         "tests/support/harness.rs",
@@ -90,7 +130,6 @@ rust_test(
     crate_name = "srql_comprehensive_tests",
     crate_root = "tests/comprehensive_queries.rs",
     data = SRQL_IT_DATA,
-    edition = "2021",
     # integration_test, NOT manual. `manual` removed these from //... expansion BEFORE tag
     # filters were considered, so no wildcard could ever reach them and every caller had to
     # name them explicitly -- which is how srql_device_grouped_stats_test ended up running in
@@ -108,6 +147,14 @@ rust_test(
 # which never hand the SQL to a server.
 rust_test(
     name = "srql_device_grouped_stats_test",
+    # This target's own disposable database, so three concurrent targets cannot reset
+    # each other's. env, not a config field: it varies by BUILD target, not by environment.
+    # RUST_TEST_THREADS=1: every test in the binary resets this one database, and libtest
+    # runs tests on parallel threads by default -- so they would wipe each other mid-run.
+    env = {
+        "SRQL_TEST_DB_SUFFIX": "srqlstats",
+        "RUST_TEST_THREADS": "1",
+    },
     srcs = [
         "tests/device_grouped_stats.rs",
         "tests/support/harness.rs",
@@ -116,7 +163,6 @@ rust_test(
     crate_name = "srql_device_grouped_stats_tests",
     crate_root = "tests/device_grouped_stats.rs",
     data = SRQL_IT_DATA,
-    edition = "2021",
     # integration_test, NOT manual. `manual` removed these from //... expansion BEFORE tag
     # filters were considered, so no wildcard could ever reach them and every caller had to
     # name them explicitly -- which is how srql_device_grouped_stats_test ended up running in

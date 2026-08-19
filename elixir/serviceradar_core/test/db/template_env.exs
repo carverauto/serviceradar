@@ -2,7 +2,7 @@
 #
 # Must be loaded BEFORE //build:elixir_test_config_loader.exs -- config/test.exs reads
 # SERVICERADAR_TEST_DATABASE_URL while assembling the Repo settings, so setting it afterwards
-# would have no effect.
+# would have no effect. test/db/fixture_config.exs is loaded before this one for the same reason.
 #
 # The counterpart of test/db/integration_env.exs, which points the SUITE at the per-run
 # database. This one points the MIGRATOR at the template that per-run database is cloned
@@ -12,29 +12,37 @@
 # two must agree exactly or the migrator advances a database nothing clones.
 template_database = "sr_core_template"
 
-base = System.get_env("SRQL_TEST_DATABASE_URL")
+# WHAT THIS REPLACED, and why it is not simply a smaller edit.
+#
+# It read SRQL_TEST_DATABASE_URL -- a whole DSN carrying host, port, database, user, password and
+# sslmode -- and rewrote the path to point at the template. That made a CI secret the source of
+# an ENDPOINT: the fixture's address lived in BuildBuddy rather than in this repository, so it
+# could not be reviewed, could not differ per environment without a second secret, and had to be
+# parsed back apart to change one component of it.
+#
+# Now `SERVICERADAR_ENV` names an environment, //config/environments/<kind>.textproto declares
+# its coordinates as typed fields, and SecretManager resolves the one thing that is actually
+# secret. The database name is SUBSTITUTED into an assembled DSN rather than rewritten into a
+# parsed one.
+fixture = ServiceRadar.DB.FixtureConfig.resolve!(template_database)
 
-if is_binary(base) and base != "" do
-  uri = URI.parse(base)
+# System.put_env, still, and deliberately: this is a handoff INSIDE one OS process to
+# config/test.exs, which is a Config script evaluated before any of our code can pass it a value
+# by any other means. What changed is where the values come from -- configuration and
+# SecretManager, rather than variables a CI system injected.
+#
+# Unconditional, because this target has exactly one legitimate destination. Honouring a pre-set
+# SERVICERADAR_TEST_DATABASE_URL here would silently migrate a per-run database instead, leaving
+# the template behind and every later run cloning a stale schema.
+System.put_env("SERVICERADAR_TEST_DATABASE_URL", fixture.url)
 
-  if uri.scheme not in ["postgres", "postgresql", "ecto"] do
-    raise "SRQL_TEST_DATABASE_URL has unexpected scheme #{inspect(uri.scheme)}"
-  end
+# Both are read by config/test.exs. The CA is PEM CONTENT rather than a path, so it does not
+# depend on a filesystem layout the action does not control; the server name is what verify-full
+# checks the certificate against, which matters whenever the connection is made by address.
+if fixture.ca_pem do
+  System.put_env("SERVICERADAR_TEST_DATABASE_CA_CERT", fixture.ca_pem)
+end
 
-  # Replace only the path; the authority and any query (sslmode=...) survive untouched.
-  derived = URI.to_string(%{uri | path: "/" <> template_database})
-
-  # Unconditional, unlike integration_env.exs: this target has exactly one legitimate
-  # destination. Honouring a pre-set SERVICERADAR_TEST_DATABASE_URL here would silently
-  # migrate a per-run database instead, leaving the template behind and every later run
-  # cloning a stale schema.
-  System.put_env("SERVICERADAR_TEST_DATABASE_URL", derived)
-else
-  raise """
-  SRQL_TEST_DATABASE_URL is required to derive the template database URL.
-
-  Without it config/test.exs would fall back to a local development database and the
-  migrations would be applied there, leaving the template untouched and the failure
-  invisible until the suite ran against a stale clone.
-  """
+if fixture.tls_server_name do
+  System.put_env("SERVICERADAR_TEST_DATABASE_SERVER_NAME", fixture.tls_server_name)
 end

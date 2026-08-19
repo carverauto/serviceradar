@@ -18,8 +18,6 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.Acquisition do
 
   alias ServiceRadar.Inventory.AdvisoryFeeds.Staging
 
-  require Logger
-
   @vulncheck_base "https://api.vulncheck.com/v3/backup"
   @default_timeout_ms 120_000
   @user_agent "ServiceRadar advisory-feed-fetcher"

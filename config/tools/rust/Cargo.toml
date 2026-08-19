@@ -1,0 +1,12 @@
+[package]
+name = "serviceradar-config-tools"
+version = "0.1.0"
+edition = "2024"
+
+[[bin]]
+name = "extract_section"
+path = "src/main.rs"
+
+[dependencies]
+prost = { workspace = true }
+serviceradar-config-schema = { path = "../../proto_bindings/rust" }

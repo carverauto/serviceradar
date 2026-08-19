@@ -2,6 +2,10 @@
 resolver = "2"
 members = [
     "config/proto_bindings/rust",
+    "config/manager_config/rust",
+    "config/manager_secret/rust",
+    "config/tools/rust",
+    "config/manager_validator/rust",
     "rust/integration-db",
     "elixir/serviceradar_core/native/anomaly_disposition_nif",
     "elixir/serviceradar_core/native/zen_nif",
@@ -145,6 +149,7 @@ phf_codegen = "0.11"
 # is written against, and a patch that no longer applies fails the fetch.
 pq-sys = "=0.7.5"
 pretty_assertions = "1"
+proptest = "1"
 # default = ["protobuf"]: without it prometheus swaps in its own
 # proto types and netprobe's get_counter().value() stops compiling.
 prometheus = { version = "0.14", features = ["protobuf"]}
@@ -169,6 +174,7 @@ rcgen = "0.12"
 redis = { version = "1.4", default-features = false }
 regex-automata = { version = "0.4", default-features = false, features = ["std"] }
 roaring = "0.11"
+runfiles = "0.3"
 rustler = { version = "0.38", default-features = false }
 rustls = { version = "0.23", default-features = false, features = ["ring", "tls12"]}
 rustls-pemfile = "2"

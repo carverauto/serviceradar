@@ -1,5 +1,6 @@
 # Package placeholder for repository alias helper.
-load("@bazel_skylib//rules:common_settings.bzl", "bool_flag")
+load("@bazel_skylib//rules:common_settings.bzl", "bool_flag", "string_flag")
+load(":run_id.bzl", "run_id_file")
 
 package(default_visibility = ["//visibility:public"])
 
@@ -31,6 +32,27 @@ bool_flag(
 config_setting(
     name = "integration_tests_enabled",
     flag_values = {":enable_integration_tests": "True"},
+)
+
+# The run correlation id for one integration lifecycle.
+#
+# Six separate Bazel invocations (sweep, prepare template, migrate, provision, test, teardown)
+# must agree on one disposable database name and must not collide with a concurrent run. They
+# share no process, so the id comes from the caller and is repeated on every invocation:
+#
+#     bazel test ... --//build:run_id=$(uuidgen | tr -d - | tr 'A-Z' 'a-z')
+#
+# There is deliberately NO default. A constant fallback name is what allowed two runs against
+# one fixture to share a database and drop each other's data. See //build:run_id.bzl.
+string_flag(
+    name = "run_id",
+    build_setting_default = "",
+)
+
+# The base database name as a file, so no step reads it from ambient environment.
+run_id_file(
+    name = "run_id_file",
+    run_id = ":run_id",
 )
 
 load("@rules_elixir//:mix_payloads.bzl", "mix_payloads")

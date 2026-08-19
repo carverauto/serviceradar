@@ -140,8 +140,6 @@ defmodule ServiceRadarAgentGateway.MetricsPublisher do
       defp normalize_string(value) when is_atom(value), do: Atom.to_string(value)
       defp normalize_string(_value), do: nil
 
-      defp safe_subject_token(nil), do: nil
-
       defp safe_subject_token(value) do
         value
         |> String.downcase()

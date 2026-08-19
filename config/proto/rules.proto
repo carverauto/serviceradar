@@ -105,6 +105,22 @@ message ForbiddenValue {
   optional string string_value = 2;
 }
 
+// A field must be ABSENT when another field holds one of the given values.
+//
+// The trigger is a SET, unlike RequiredIf's single value. The forbidding side almost always
+// enumerates the COMPLEMENT of one permitted value, and writing one rule per excluded value
+// is precisely how a newly added enum value silently becomes permitted. The meta-rule checks
+// that a RequiredIf/ForbiddenIf pair keyed on the same enum covers every value of it.
+//
+// The motivating case: `instance` names an on-prem deployment, so it is required when the
+// kind is ONPREM and must be absent otherwise -- the half that previously had no predicate,
+// leaving the proto's "must be absent otherwise" unenforceable.
+message ForbiddenIf {
+  optional string other_field_path = 1;
+  repeated string other_enum_values = 2;
+  repeated string other_string_values = 3;
+}
+
 // The field must hold the same value in every environment within scope.
 //
 // Evaluated across instances rather than within one, so it runs only in the build-time
@@ -140,6 +156,7 @@ message Rule {
     RequiredIf required_if = 15;
     ForbiddenValue forbidden_value = 16;
     EqualAcrossEnvs equal_across_envs = 17;
+    ForbiddenIf forbidden_if = 18;
   }
 }
 

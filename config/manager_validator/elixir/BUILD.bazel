@@ -1,0 +1,43 @@
+# gazelle:ignore
+
+load("@rules_elixir//:elixir_library.bzl", "elixir_library")
+load("@rules_elixir//:elixir_tests.bzl", "ex_unit_tests")
+
+# The Elixir implementation of //config/SEMANTICS.md, and the third consumer of the shared
+# conformance vectors. Decision 9 requires it to be callable from config/runtime.exs, before the
+# application tree starts, so it depends on nothing but the generated schema modules.
+elixir_library(
+    name = "validator",
+    app_name = "serviceradar_config_validator",
+    srcs = glob(["lib/**/*.ex"]),
+    visibility = ["//visibility:public"],
+    deps = [
+        "//config/proto:config_schema",
+        "@hexpm//:protobuf",
+        "@rules_elixir//elixir",
+    ],
+)
+
+# The .binpb inputs are GENERATED, which ex_unit_tests could not stage until rules_elixir
+# staged inputs by short_path: a generated File.path is `bazel-out/<cfg>/bin/...` and resolves
+# to nothing from the test's working directory.
+ex_unit_tests(
+    name = "unit_tests",
+    srcs = glob(["test/**/*_test.exs"]),
+    config_loader = "//build:elixir_test_config_loader.exs",
+    data = [
+        "test/support_paths.exs",
+        "//config/environments:ci_binpb",
+        "//config/environments:demo_binpb",
+        "//config/environments:localhost_binpb",
+        "//config/environments:saas_binpb",
+        "//config/environments/onprem:untd_binpb",
+        "//config/rules:ruleset_binpb",
+        "//config/rules/fixtures:fixtures_binpb",
+    ],
+    test_helper = "test/test_helper.exs",
+    deps = [
+        ":validator",
+        "@hexpm//:stream_data",
+    ],
+)

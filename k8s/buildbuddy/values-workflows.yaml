@@ -136,6 +136,12 @@ extraVolumes:
       # Dedicated BB disk on each worker (xfs /mnt/buildbuddy). Do not use /var/lib (root).
       path: /mnt/buildbuddy/cache-workflows
       type: DirectoryOrCreate
+  # Bazel client caches (disk, repository, repo contents). Its own volume so a fresh runner
+  # starts warm, and so the 100 GB of small files are not walked by the filecache startup scan.
+  - name: bazel-cache-volume
+    hostPath:
+      path: /mnt/buildbuddy/bazel-caches-workflows
+      type: DirectoryOrCreate
   - name: dockerhub-auth
     secret:
       secretName: dockerhub-auth
@@ -146,12 +152,51 @@ extraVolumes:
 extraVolumeMounts:
   - name: cache-volume
     mountPath: /cache
+  - name: bazel-cache-volume
+    mountPath: /bazel-caches
   - name: dockerhub-auth
     mountPath: /root/.docker
     readOnly: true
 
+# THE BIND MOUNT BELOW IS ROOT-OWNED AND THE RUNNER IS NOT ROOT.
+#
+# kubelet creates a `DirectoryOrCreate` hostPath as root:root 0755, and BuildBuddy runs the
+# workflow runner as the `buildbuddy` user -- uid 1001, from //docker/images/Dockerfile.workflow-runner
+# -- so the Bazel client cannot create its own cache directories inside the mount:
+#
+#   ERROR: [unix_jni.cc:471] /bazel-cache/disk (Permission denied)
+#   ERROR: could not acquire lock on repo contents cache
+#
+# This is also what broke `git init` when the same volume was mounted at /root. The destination
+# path was never the problem; the ownership was, and moving the mount only moved the symptom.
+#
+# Non-recursive on purpose: everything under these three directories is written by uid 1001
+# already, so a `chown -R` would walk a 100 GB cache on every pod start for nothing.
+extraInitContainers:
+  - name: bazel-cache-perms
+    # The executor's own image: already on the node under imagePullPolicy IfNotPresent, so this
+    # costs no pull. Keep the tag in step with `image` above.
+    image: gcr.io/flame-public/buildbuddy-executor-enterprise:enterprise-v2.290.0
+    securityContext:
+      # The image sets no USER so this is already true; explicit so a future base image that
+      # adds one cannot silently turn the chown into a no-op failure.
+      runAsUser: 0
+    command:
+      - /bin/sh
+      - -c
+      - |
+        set -eu
+        mkdir -p /bazel-caches/disk /bazel-caches/repo /bazel-caches/repo-contents
+        chown 1001:1001 /bazel-caches /bazel-caches/disk /bazel-caches/repo /bazel-caches/repo-contents
+    # The three names are //.bazelrc `build:ci --{disk,repository,repo_contents}_cache`. Nothing
+    # checks the pairing: a rename there just makes Bazel create an unowned directory and fail.
+    volumeMounts:
+      - name: bazel-cache-volume
+        mountPath: /bazel-caches
+
 config:
   executor:
+    # Inert on this fleet, and kept only because it costs nothing while off.
     enable_local_snapshot_sharing: true
 
     # Must match ./values.yaml and //.bazelrc `build:remote_base`. This is the control AND
@@ -169,47 +214,73 @@ config:
     # everything around it goes through the proxy.
     #
     # Note this is the EXECUTOR's cache target, which is a different hop from the Bazel
-    # CLIENT running inside the runner VM. That client reaches the same proxy through the
-    # public TLS edge instead, because its network namespace has no route to the service CIDR
-    # -- it inherits `build:cache_only --remote_cache` through remote_base with no opt-in. The two
-    # paths are independent and either works without the other, which is why they may name
-    # different addresses for one proxy.
+    # CLIENT running inside the runner. That client reaches the same proxy through the public
+    # TLS edge -- it inherits `build:cache_only --remote_cache` through remote_base with no
+    # opt-in. The two paths are independent and either works without the other, which is why
+    # they may name different addresses for one proxy.
+    #
+    # Leave the client on the public edge: it is the one address that works from this pod and
+    # from a workstation alike, and a CI path that depends on the runner's network topology is a
+    # CI path that breaks the next time the topology changes. It broke exactly that way once --
+    # //buildbuddy.yaml pointed SRQL_FIXTURE_CA_URL at
+    # srql-fixture-ca-incluster.srql-fixtures.svc.cluster.local, which the action namespace could
+    # not resolve until `oci.dns` below. (An earlier note here called that a ClusterIP; it was a
+    # cluster DNS name, which is why the two failures looked unrelated.)
     cache_target: grpc://bb-cache-proxy-buildbuddy-enterprise-cache-proxy.buildbuddy.svc.cluster.local:1985
+
+    # IN-CLUSTER ACCESS FROM ACTIONS. Same key and values as ./values.yaml -- see the long note
+    # there for the mechanism. Short version: BuildBuddy REJECTs every RFC1918 destination from
+    # an action's network namespace unless it is listed here, so without this a workflow step
+    # can reach the public internet and nothing on the cluster network.
+    #
+    # This fleet is the one that needs it most: the database lifecycle runs its TestRunner
+    # actions here (`--strategy=TestRunner=local` in //buildbuddy.yaml), so the fixture, the CA
+    # bundle and anything else in-cluster is reached from inside one of these namespaces.
+    task_allowed_private_ips:
+      - 10.42.0.0/16 # pod CIDR: what a ClusterIP is rewritten to by kube-proxy DNAT
+      - 10.43.0.0/16 # service CIDR: ClusterIPs, including CoreDNS
 
     enable_oci: true
     default_isolation_type: oci
-    # The runner executes in a microVM -- BuildBuddy's own low-memory notice reads "The VM
-    # that executed this invocation", which is what makes the sizing above the VM's sizing.
-    enable_firecracker: true
-    firecracker_debug_stream_vm_logs: true
-
-    # Floor only, same rationale as ./values.yaml: without it a predicted size can leave a
-    # microVM too small to unpack its own initrd. The runner's real size comes from
-    # resource_requests in //buildbuddy.yaml, which is far above this.
+    # Floor only. The runner's real size comes from resource_requests in //buildbuddy.yaml,
+    # which is far above this; without a floor a predicted size is used verbatim and can
+    # under-reserve a task.
     #
     # int64 byte count, not a k8s quantity: "2Gi" does not parse here.
     default_task_size:
       estimated_milli_cpu: 2000
       estimated_memory_bytes: 2147483648 # 2 GiB
 
+    # RUNNER RECYCLING. Nothing here turns it on -- BuildBuddy's workflow service already stamps
+    # `recycle-runner: true` and `preserve-workspace: true` onto every workflow action. What
+    # stops it is the pool's own admission check, whose defaults are sized for short RBE actions
+    # and are an order of magnitude below what a monorepo Bazel client uses. A rejected runner is
+    # SILENT: the next run simply prints `git init` instead of `Syncing existing repo...` and
+    # starts a cold Bazel server, which is what a cold run looks like from the log either way.
+    #
+    # Worth the tuning because a recycled runner keeps the Bazel SERVER, not just the disk: the
+    # ci_runner writes `startup --max_idle_secs=0` specifically so the server survives between
+    # runs, which is what carries the analysis cache and the ~4,900 extracted external repos in
+    # the output base.
+    runner_pool:
+      # Default 2 GB against a runner whose measured peak is ~35 GB (see `resources` above).
+      # -1 is not unbounded: the pool clamps it to this pod's allocatable RAM, so it tracks
+      # `resources` instead of needing an edit whenever those move.
+      max_runner_memory_usage_bytes: -1
+      # Default 16 GB, measured over the repo checkout AND the sibling Bazel output base, so a
+      # single real build clears it. Capped rather than -1 because this lands on the node's
+      # /mnt/buildbuddy volume, and DiskPressure there already cost this fleet a node
+      # (see `affinity` above).
+      max_runner_disk_size_bytes: 100000000000 # 100 GB
+      # One pod, one workflow at a time, and a paused runner keeps its memory resident. Exceeding
+      # this evicts the oldest rather than rejecting the new one, so it is a ceiling, not a gate.
+      max_runner_count: 1
+
     image_pull_timeout: 15m
     startup_warmup_max_wait_secs: 300
     warmup_timeout_secs: 300
 
     # Warms the WORKFLOW RUNNER image, and only that one.
-    #
-    # This used to warm nothing, correctly: the pool ran BuildBuddy's own runner image
-    # (gcr.io/flame-public/rbe-ubuntu24-04, what `container_image: ubuntu-24.04` resolves to),
-    # and rbe-executor -- which ./values.yaml warms -- is never pulled here, because the bazel
-    # calls inside the runner dispatch their ACTIONS to the default pool.
-    # //build/rbe:rbe_platform sets no `Pool` property.
-    #
-    # //buildbuddy.yaml now pins the runner to an image this org owns, so it can be warmed.
-    # That is the point: the pull was the startup cost. Two changes compound here --
-    #
-    #   gcr.io/flame-public/rbe-ubuntu24-04   1.1 GB unpacked, cross-internet, on demand
-    #   this image                            216 MB unpacked, in-cluster, pre-pulled
-    #
     # KEEP THIS IN STEP WITH //buildbuddy.yaml. Warming a tag the workflow no longer names
     # is not an error, it is just a slower first run and a pointless pull -- so the two move
     # together or the warm silently stops helping. These two files are the whole blast radius of
@@ -221,25 +292,23 @@ config:
       - registry.carverauto.dev/serviceradar/buildbuddy-workflow-runner:v1.0.24.3
 
     oci:
+      # CoreDNS, by its ClusterIP -- reachable only because of task_allowed_private_ips above.
+      # See ./values.yaml for why this is an explicit address rather than "".
+      dns: "10.43.0.10"
+
+      # On Disk cache
       mounts:
-        - source: /cache
-          destination: /cache
+        # A dedicated path, NOT /root: mounting over the runner's home broke `git init`.
+        - source: /bazel-caches
+          destination: /bazel-cache
           type: bind
           options:
             - rbind
             - rw
     local_cache_directory: /cache
 
-    # 50 GB, a third of the build fleet's 150 GB, because this pod is one runner rather than a
-    # fan-out fleet and its working set is one repo's inputs.
-    #
-    # Node disk is the constraint, and this may share a node with a build executor: 589 GB
-    # total, ~170-230 GB non-cache baseline, 150 GB for that executor's filecache. Adding
-    # 50 GB puts the worst case near 430 GB, leaving ~159 GB -- clear of the kubelet
-    # DiskPressure threshold (10% free, i.e. ~530 GB used). `root_directory` below shares this
-    # filesystem and is NOT counted against this budget, so leave the margin.
-    #
-    # Plain int64 byte count: "50Gi" does not parse.
-    local_cache_size_bytes: 50000000000
+    # Read-through cache OF the remote CAS
+    # Plain int64 byte count: "100Gi" does not parse.
+    local_cache_size_bytes: 100000000000
     root_directory: /cache/remotebuilds/
     api_key: ""

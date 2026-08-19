@@ -142,7 +142,9 @@ This file applies repo-wide, but subdirectories may include their own `AGENTS.md
 ## Build & Test Commands
 
 - **Every unit test, the way CI runs them: `make test`** — an alias for
-  `bazel test -c opt --config=ci //... --test_tag_filters=-integration_test,-acceptance_test`.
+  `bazel test -c opt --config=remote //... --test_tag_filters=-integration_test,-acceptance_test`.
+  `--config=remote`, not `--config=ci`: the CI profile points its caches at `/bazel-cache`, the
+  node volume only the BuildBuddy executors mount, so it cannot run on a workstation.
   **Run this before opening a PR and before cutting any release.** It is the only command
   that covers the whole repo, because the Elixir unit shards exist ONLY as bazel targets
   (`//elixir/serviceradar_core:unit_tests_*`, `//elixir/web-ng:unit_tests_*`) and are
@@ -856,8 +858,10 @@ the eight-shard suite. Every test/lifecycle invocation needs
 database tests, and always invoke `teardown_db` after a red shard. Bazel has no cross-invocation
 finalizer; the stale sweep is the backstop for a killed host.
 
-Keep fixture base URLs in `SRQL_TEST_DATABASE_URL` and `SRQL_TEST_ADMIN_URL`, set one unique
-numeric `GITHUB_RUN_ID`/`GITHUB_RUN_ATTEMPT` pair for the whole sequence, and leave
+Keep fixture base URLs in `SRQL_TEST_DATABASE_URL` and `SRQL_TEST_ADMIN_URL`, mint ONE run id
+for the whole sequence and pass it to every invocation as `--//build:run_id=<id>` (8-32 chars of
+`[a-z0-9]`; it has no default, because a constant fallback let two runs share one database), and
+leave
 `SERVICERADAR_TEST_DATABASE_URL` unset so each shard derives its disposable database. When using
 a NodePort, export both `PGSSLSERVERNAME` and `SRQL_TEST_DATABASE_SERVER_NAME` with the CNPG
 certificate's DNS name so the Rust and Elixir clients verify the same certificate.

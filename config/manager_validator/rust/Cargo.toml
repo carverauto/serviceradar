@@ -1,0 +1,37 @@
+[package]
+name = "serviceradar-config-validator"
+version = "0.1.0"
+edition = "2024"
+autotests = false
+
+[lib]
+name = "serviceradar_config_validator"
+path = "src/lib.rs"
+
+[dependencies]
+# The Bazel ecosystem's reference runfiles lookup (published from rules_rust). In
+# [dependencies] rather than [dev-dependencies] because utils_tests is a `pub mod` in src/ --
+# Bazel cannot reach helpers under tests/.
+runfiles = { workspace = true }
+prost = { workspace = true }
+prost-types = { workspace = true }
+# `meta` for the Regex engine, `syntax` to compile a pattern string, `unicode-case` for the
+# (?i) shape patterns. Named here rather than assumed: the workspace declaration is
+# default-features = false, and a Bazel build unifies features across every crate, so without
+# these `cargo check -p serviceradar-config-validator` fails on a crate the Bazel build
+# compiles fine.
+regex-automata = { workspace = true, features = ["meta", "syntax", "unicode-case"] }
+serviceradar-config-schema = { path = "../../proto_bindings/rust" }
+
+[dev-dependencies]
+proptest = { workspace = true }
+
+[[test]]
+name = "lib_tests"
+path = "tests/lib_tests.rs"
+
+# Its own target for the same reason it is its own Bazel target: it proves that declaring one
+# section does not grant the others, which only holds if its inputs are declared alone.
+[[test]]
+name = "section_privilege_tests"
+path = "tests/section_privilege_tests.rs"

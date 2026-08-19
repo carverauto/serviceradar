@@ -103,7 +103,10 @@ defmodule ServiceRadar.Cluster.DatabaseBootstrapIntegrationTest do
     # Integration shards and retries use independent BEAM VMs against the same CNPG fixture,
     # so System.unique_integer/1 alone cannot make the database name globally unique.
     suffix = Base.encode16(:crypto.strong_rand_bytes(8), case: :lower)
-    scratch_db = "serviceradar_bootstrap_test_#{suffix}"
+    # The `sr_core_test_` prefix is what makes the on_exit backstop below real: sweep_stale_dbs
+    # collects that prefix and nothing else, so a `serviceradar_bootstrap_test_*` leak was
+    # permanent despite the comment promising otherwise.
+    scratch_db = "sr_core_test_bootstrap_#{suffix}"
 
     create_database!(admin_opts, scratch_db)
 

@@ -1,0 +1,21 @@
+load("@crates//:defs.bzl", "all_crate_deps")
+load("@rules_rs//rs:rust_test.bzl", "rust_test")
+
+# The whole test surface in one target, entered through the same lib_tests.rs that `cargo test`
+# uses, so the two builds cannot drift into different suites.
+#
+# `package_name` is required on every all_crate_deps(cargo_only = True) call here: it otherwise
+# resolves against the package it is called from, and there is no Cargo.toml at
+# config/manager_secret/rust/tests.
+rust_test(
+    name = "secret_manager_integration_test",
+    srcs = glob(["**/*.rs"]),
+    crate_root = "lib_tests.rs",
+    edition = "2024",
+    deps = all_crate_deps(
+        package_name = "config/manager_secret/rust",
+        cargo_only = True,
+        normal = True,
+        normal_dev = True,
+    ) + ["//config/manager_secret/rust:secret_manager"],
+)

@@ -12,6 +12,19 @@ See openspec/changes/add-unified-config-and-secret-managers/design.md, Decision 
 
 _MESSAGE = "serviceradar.config.v1.EnvironmentConfig"
 
+# The sections a component can declare on its own. Decision 6: a target that declares
+# `//config/environments:ci_database` PHYSICALLY CANNOT SEE the NATS configuration, because it
+# is not in that target's runfiles. Least privilege enforced by the sandbox rather than by
+# discipline, and readable at the target definition instead of inferred from a global union.
+_SECTIONS = [
+    "database",
+    "nats",
+    "core",
+    "dgraph",
+]
+
+_EXTRACT_SECTION = Label("//config/tools/rust:extract_section")
+
 def environment_config(name, src, visibility = None):
     """Compiles a committed .textproto environment instance to a binary message.
 
@@ -32,6 +45,34 @@ def environment_config(name, src, visibility = None):
                "--encode=" + _MESSAGE + " " +
                "$(execpath //config/proto:config_proto_src) " +
                "< $(execpath " + src + ") > $@"),
+        tools = ["@bazel_tools//tools/proto:protoc"],
+        visibility = visibility,
+    )
+
+    # The binary decoded back to text. Two checks read it and neither can be done against the
+    # committed source: the round-trip test compares what the artifact actually contains against
+    # what was authored, and the credential-shape check needs every field that is PRESENT, with
+    # no comments -- scanning the source would let a credential hide in a field the scanner did
+    # not know to look at, and would flag the word "password" in a comment warning against them.
+    for section in _SECTIONS:
+        native.genrule(
+            name = name + "_" + section,
+            srcs = [name + ".binpb"],
+            outs = [name + "." + section + ".binpb"],
+            cmd = ("$(execpath " + str(_EXTRACT_SECTION) + ") " + section +
+                   " $(execpath " + name + ".binpb) $@"),
+            tools = [_EXTRACT_SECTION],
+            visibility = visibility,
+        )
+
+    native.genrule(
+        name = name + "_canonical",
+        srcs = [name + ".binpb", "//config/proto:config_proto_src"],
+        outs = [name + ".canonical.textproto"],
+        cmd = ("$(execpath @bazel_tools//tools/proto:protoc) -I. " +
+               "--decode=" + _MESSAGE + " " +
+               "$(execpath //config/proto:config_proto_src) " +
+               "< $(execpath " + name + ".binpb) > $@"),
         tools = ["@bazel_tools//tools/proto:protoc"],
         visibility = visibility,
     )

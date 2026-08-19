@@ -175,6 +175,25 @@ rules {
   non_empty {}
 }
 
+# admin_role is optional -- a service never creates databases, so requiring it would put a
+# privileged identity in every instance file. Present-but-blank is still an error: it would
+# build an admin DSN with no user and fail at the server with an unrelated message.
+rules {
+  field_path: "database.admin_role"
+  code: "DATABASE_ADMIN_ROLE_NON_EMPTY"
+  phase: PHASE_CONFIG
+  non_empty {}
+}
+
+# Likewise optional: absent means the CA comes from SecretManager instead. Blank would send
+# the client to fetch "" and report a URL parse error rather than a missing setting.
+rules {
+  field_path: "database.ca_bundle_url"
+  code: "DATABASE_CA_BUNDLE_URL_NON_EMPTY"
+  phase: PHASE_CONFIG
+  non_empty {}
+}
+
 rules {
   field_path: "database.pool_size"
   code: "DATABASE_POOL_SIZE_RANGE"
@@ -308,5 +327,87 @@ rules {
   required_if {
     other_field_path: "core.security_mode"
     other_enum_value: "SECURITY_MODE_SPIFFE"
+  }
+}
+
+# ---------------------------------------------------------------------------
+# Dgraph
+#
+# Mirrors the database section's TLS posture rather than inventing a second one: required,
+# never the UNSPECIFIED sentinel, and verified everywhere but localhost. DGRAPH_TLS_MODE has
+# no verify-full, so the outside-localhost rule admits VERIFY_CA alone -- which is also why
+# it is a separate enum. See //config/proto/config.proto.
+# ---------------------------------------------------------------------------
+
+rules {
+  field_path: "dgraph.host"
+  code: "DGRAPH_HOST_REQUIRED"
+  phase: PHASE_CONFIG
+  required {}
+}
+
+rules {
+  field_path: "dgraph.host"
+  code: "DGRAPH_HOST_NON_EMPTY"
+  phase: PHASE_CONFIG
+  non_empty {}
+}
+
+rules {
+  field_path: "dgraph.port"
+  code: "DGRAPH_PORT_REQUIRED"
+  phase: PHASE_CONFIG
+  required {}
+}
+
+rules {
+  field_path: "dgraph.port"
+  code: "DGRAPH_PORT_RANGE"
+  phase: PHASE_CONFIG
+  description: "A TCP port. Zero is not a port; the alpha gRPC default is 9080."
+  int_range { min: 1 max: 65535 }
+}
+
+rules {
+  field_path: "dgraph.tls_mode"
+  code: "DGRAPH_TLS_MODE_REQUIRED"
+  phase: PHASE_CONFIG
+  required {}
+}
+
+rules {
+  field_path: "dgraph.tls_mode"
+  code: "DGRAPH_TLS_MODE_NOT_UNSPECIFIED"
+  phase: PHASE_CONFIG
+  description: "An unset TLS mode must be an error, never the first defined value."
+  forbidden_value { enum_value: "DGRAPH_TLS_MODE_UNSPECIFIED" }
+}
+
+rules {
+  field_path: "dgraph.tls_mode"
+  code: "DGRAPH_TLS_MODE_VERIFIED_OUTSIDE_LOCALHOST"
+  phase: PHASE_CONFIG
+  scope { except_kinds: ENVIRONMENT_KIND_LOCALHOST }
+  description: "REQUIRE_NO_VERIFY encrypts without authenticating the server, so it is not a deployment posture."
+  one_of { enum_values: "DGRAPH_TLS_MODE_VERIFY_CA" }
+}
+
+# The other half of INSTANCE_REQUIRED_FOR_ONPREM. Without it the schema comment "required if
+# and only if the kind is ONPREM" was half-enforced: nothing stopped ci.textproto naming an
+# instance, and a file that names one describes something it is not.
+#
+# The trigger enumerates every kind that is NOT onprem. The meta-rule checks that enumeration
+# stays exhaustive, so adding a sixth kind cannot silently re-permit an instance identifier.
+rules {
+  field_path: "instance"
+  code: "INSTANCE_FORBIDDEN_OUTSIDE_ONPREM"
+  phase: PHASE_CONFIG
+  description: "Only on-prem is multi-instance."
+  forbidden_if {
+    other_field_path: "kind"
+    other_enum_values: "ENVIRONMENT_KIND_LOCALHOST"
+    other_enum_values: "ENVIRONMENT_KIND_CI"
+    other_enum_values: "ENVIRONMENT_KIND_SAAS"
+    other_enum_values: "ENVIRONMENT_KIND_DEMO"
   }
 }

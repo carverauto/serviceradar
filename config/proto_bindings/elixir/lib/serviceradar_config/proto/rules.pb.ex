@@ -112,6 +112,19 @@ defmodule Serviceradar.Config.V1.ForbiddenValue do
   field :string_value, 2, proto3_optional: true, type: :string, json_name: "stringValue"
 end
 
+defmodule Serviceradar.Config.V1.ForbiddenIf do
+  @moduledoc false
+
+  use Protobuf,
+    full_name: "serviceradar.config.v1.ForbiddenIf",
+    protoc_gen_elixir_version: "0.16.1",
+    syntax: :proto3
+
+  field :other_field_path, 1, proto3_optional: true, type: :string, json_name: "otherFieldPath"
+  field :other_enum_values, 2, repeated: true, type: :string, json_name: "otherEnumValues"
+  field :other_string_values, 3, repeated: true, type: :string, json_name: "otherStringValues"
+end
+
 defmodule Serviceradar.Config.V1.EqualAcrossEnvs do
   @moduledoc false
 
@@ -155,6 +168,11 @@ defmodule Serviceradar.Config.V1.Rule do
   field :equal_across_envs, 17,
     type: Serviceradar.Config.V1.EqualAcrossEnvs,
     json_name: "equalAcrossEnvs",
+    oneof: 0
+
+  field :forbidden_if, 18,
+    type: Serviceradar.Config.V1.ForbiddenIf,
+    json_name: "forbiddenIf",
     oneof: 0
 end
 

@@ -24,13 +24,62 @@ oci_registry="${OCI_REGISTRY:-ghcr.io}"
 ghcr_registry="${GHCR_REGISTRY:-ghcr.io}"
 dockerhub_registry="https://index.docker.io/v1/"
 
-if [[ -f "${config_path}" && -z "${DOCKER_AUTH_CONFIG_JSON:-}" && -z "${OCI_DOCKER_AUTH:-}" && -z "${OCI_USERNAME:-}" && -z "${OCI_TOKEN:-}" && -z "${GHCR_DOCKER_AUTH:-}" && -z "${GHCR_USERNAME:-}" && -z "${GHCR_TOKEN:-}" ]]; then
+# NAME BRIDGE, for the primary registry only.
+#
+# The two secret stores name one credential differently: BuildBuddy's holds HARBOR_USERNAME /
+# HARBOR_TOKEN, Forgejo's holds HARBOR_ROBOT_USERNAME / HARBOR_ROBOT_SECRET and its workflows
+# map those to OCI_* in the job `env:` block. Forgejo can do that mapping declaratively;
+# BuildBuddy has no job-level env mapping, so its bridge had to be a shell prologue in
+# //buildbuddy.yaml -- and a prologue is a place for the checks below to be reimplemented,
+# which is exactly what happened. Accepting both names here is what lets that step be one line.
+#
+# OCI_* WINS. A caller that mapped the names explicitly is stating an intent this fallback must
+# not override; it only fills in when neither half of the pair is set.
+if [[ -z "${OCI_USERNAME:-}" && -z "${OCI_TOKEN:-}" ]]; then
+  OCI_USERNAME="${HARBOR_USERNAME:-}"
+  OCI_TOKEN="${HARBOR_TOKEN:-}"
+fi
+
+# OCI_AUTH_REQUIRED -- opt-in, and it MUST stay opt-in.
+#
+# Set it when the caller cannot proceed unauthenticated to the primary registry: it turns two
+# silent successes into an immediate, named failure. Without it this script is best-effort by
+# design, and two callers depend on that: //.forgejo/workflows/main.yml runs on pull requests
+# with no access to secrets, where Docker Hub credentials alone are the correct outcome, and
+# //build/buildbuddy/release_pipeline.sh invokes the script only `if [[ -x ]]`.
+#
+# Do NOT infer this from OCI_REGISTRY being set -- main.yml sets it unconditionally at job
+# level and still has to survive a credential-less fork PR.
+require_oci_auth="${OCI_AUTH_REQUIRED:-}"
+
+# ...and if it is set, OCI_REGISTRY must be too. `oci_registry` otherwise defaults to ghcr.io,
+# which is a REAL registry name, so every check below would be satisfied by credentials written
+# under a key the caller never meant -- the exact silent misplacement the flag exists to catch.
+# The check this replaced could not see it: it grepped the finished file for ${OCI_REGISTRY},
+# so an unset value made it grep for the empty string and match anything.
+if [[ -n "${require_oci_auth}" && -z "${OCI_REGISTRY:-}" ]]; then
+  echo "OCI_AUTH_REQUIRED is set but OCI_REGISTRY is not." >&2
+  echo "Every credential would be written under the ${oci_registry} default instead." >&2
+  exit 1
+fi
+
+# The early exit below is the first of the two silent successes. On a runner whose image or
+# harness already dropped a config.json in place, absent credentials meant "nothing to do" and
+# exit 0 -- and the run then died three minutes later in the LOADING phase of the next Bazel
+# call, as a 401 on a target that has nothing to do with containers.
+if [[ -z "${require_oci_auth}" && -f "${config_path}" && -z "${DOCKER_AUTH_CONFIG_JSON:-}" && -z "${OCI_DOCKER_AUTH:-}" && -z "${OCI_USERNAME:-}" && -z "${OCI_TOKEN:-}" && -z "${GHCR_DOCKER_AUTH:-}" && -z "${GHCR_USERNAME:-}" && -z "${GHCR_TOKEN:-}" ]]; then
   echo "Docker config already present at ${config_path}; nothing to do." >&2
   exit 0
 fi
 
 if [[ -n "${DOCKER_AUTH_CONFIG_JSON:-}" ]]; then
   printf '%s\n' "${DOCKER_AUTH_CONFIG_JSON}" > "${config_path}"
+  # Opaque blob: this is the one path where the registry keys are not built here, so it is also
+  # the one place the check has to be a grep of the result rather than a lookup in `auths`.
+  if [[ -n "${require_oci_auth}" ]] && ! grep -q "${oci_registry}" "${config_path}"; then
+    echo "DOCKER_AUTH_CONFIG_JSON has no ${oci_registry} entry, and OCI_AUTH_REQUIRED is set." >&2
+    exit 1
+  fi
   exit 0
 fi
 
@@ -65,11 +114,27 @@ Provide one of the following before running this script:
   * DOCKER_AUTH_CONFIG_JSON: Full docker config JSON.
   * OCI_DOCKER_AUTH: Base64-encoded "username:token" string for ${oci_registry}.
   * OCI_USERNAME and OCI_TOKEN environment variables.
+  * HARBOR_USERNAME and HARBOR_TOKEN -- accepted as OCI_USERNAME/OCI_TOKEN when neither is set.
   * GHCR_DOCKER_AUTH: Base64-encoded "username:token" string for ${ghcr_registry}.
   * GHCR_USERNAME and GHCR_TOKEN environment variables.
 Optional (each avoids that registry's anonymous rate limit):
   * GHCR_USERNAME and GHCR_TOKEN -- ghcr.io, source of the CNPG test image.
   * DOCKERHUB_USERNAME and DOCKERHUB_TOKEN environment variables.
+EOF_ERR
+  exit 1
+fi
+
+# The second silent success. Credentials for SOME registry were found, so the block above is
+# satisfied and this script used to exit 0 -- even when the one registry the caller actually
+# pushes to got no entry, which is the shape the ghcr.io gap had. This is a lookup in `auths`
+# rather than a grep of the finished file: the key is the same string the writer below uses, so
+# it cannot agree with a substring that came from somewhere else.
+if [[ -n "${require_oci_auth}" && -z "${auths["${oci_registry}"]+x}" ]]; then
+  cat >&2 <<EOF_ERR
+No credentials for ${oci_registry}, and OCI_AUTH_REQUIRED is set.
+Set OCI_USERNAME/OCI_TOKEN, HARBOR_USERNAME/HARBOR_TOKEN, or OCI_DOCKER_AUTH.
+If credentials ARE set, check OCI_REGISTRY: it defaults to ghcr.io, and everything
+would have been written under that key instead.
 EOF_ERR
   exit 1
 fi

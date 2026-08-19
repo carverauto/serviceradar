@@ -1,32 +1,60 @@
 use crate::config::AppConfig;
 use anyhow::{Context, Result};
+use std::borrow::Cow;
 use async_trait::async_trait;
 use bb8::{ManageConnection, Pool};
 use diesel_async::{AsyncPgConnection, SimpleAsyncConnection};
-use rustls::pki_types::{CertificateDer, PrivateKeyDer};
-use rustls::{ClientConfig, RootCertStore};
-use rustls_pemfile::certs;
-use std::fs::File;
-use std::io::BufReader;
 use std::time::Duration;
-use tokio::io::{AsyncRead, AsyncWrite};
-use tokio_postgres::{Config as PgConfig, NoTls, tls::MakeTlsConnect};
-use tokio_postgres_rustls::MakeRustlsConnect;
+use tokio_postgres::{Config as PgConfig, NoTls};
 use tracing::{error, info};
+
+pub use crate::tls::PgRustlsConnect;
 
 pub type PgPool = Pool<PgConnectionManager>;
 
-fn ensure_rustls_crypto_provider() {
-    let _ = rustls::crypto::ring::default_provider().install_default();
+/// Parses a PostgreSQL DSN for tokio-postgres, dropping `sslmode`.
+///
+/// The mode is not lost: TLS is configured from the typed posture and the connector is built
+/// separately, so the string only has to describe the endpoint. tokio-postgres rejects the
+/// verifying values outright, which is why this cannot be a bare `parse()`.
+pub fn parse_pg_config(url: &str) -> Result<PgConfig> {
+    strip_sslmode(url)
+        .parse()
+        .context("not a valid PostgreSQL connection string")
 }
+
+/// Removes any `sslmode` query parameter, preserving the rest of the DSN verbatim.
+pub fn strip_sslmode(url: &str) -> Cow<'_, str> {
+    let Some((base, query)) = url.split_once('?') else {
+        return Cow::Borrowed(url);
+    };
+
+    let kept: Vec<&str> = query
+        .split('&')
+        .filter(|parameter| {
+            !parameter
+                .split_once('=')
+                .is_some_and(|(key, _)| key.eq_ignore_ascii_case("sslmode"))
+        })
+        .collect();
+
+    if kept.len() == query.split('&').count() {
+        return Cow::Borrowed(url);
+    }
+    if kept.is_empty() {
+        return Cow::Owned(base.to_string());
+    }
+    Cow::Owned(format!("{base}?{}", kept.join("&")))
+}
+
 
 pub async fn connect_pool(config: &AppConfig) -> Result<PgPool> {
     let manager = PgConnectionManager::new(
         &config.database_url,
-        config.pg_ssl_root_cert.as_deref(),
-        config.pg_ssl_cert.as_deref(),
-        config.pg_ssl_key.as_deref(),
-        config.pg_ssl_server_name.as_deref(),
+        config.database_ca_pem.as_deref(),
+        config.database_client_cert_pem.as_deref(),
+        config.database_client_key_pem.as_deref(),
+        config.database_tls_server_name.as_deref(),
         config.db_statement_timeout,
     )?;
     let pool = Pool::builder()
@@ -57,56 +85,29 @@ enum PgTls {
     Rustls(PgRustlsConnect),
 }
 
-#[derive(Clone)]
-pub struct PgRustlsConnect {
-    inner: MakeRustlsConnect,
-    server_name: Option<String>,
-}
-
-impl PgRustlsConnect {
-    pub fn new(config: ClientConfig, server_name: Option<String>) -> Self {
-        Self {
-            inner: MakeRustlsConnect::new(config),
-            server_name,
-        }
-    }
-}
-
-impl<S> MakeTlsConnect<S> for PgRustlsConnect
-where
-    S: AsyncRead + AsyncWrite + Unpin + Send + 'static,
-{
-    type Stream = <MakeRustlsConnect as MakeTlsConnect<S>>::Stream;
-    type TlsConnect = <MakeRustlsConnect as MakeTlsConnect<S>>::TlsConnect;
-    type Error = <MakeRustlsConnect as MakeTlsConnect<S>>::Error;
-
-    fn make_tls_connect(&mut self, hostname: &str) -> Result<Self::TlsConnect, Self::Error> {
-        let hostname = self.server_name.as_deref().unwrap_or(hostname);
-        <MakeRustlsConnect as MakeTlsConnect<S>>::make_tls_connect(&mut self.inner, hostname)
-    }
-}
-
 impl PgConnectionManager {
     fn new(
         database_url: &str,
-        root_cert: Option<&str>,
-        client_cert: Option<&str>,
-        client_key: Option<&str>,
+        ca_pem: Option<&[u8]>,
+        client_cert_pem: Option<&[u8]>,
+        client_key_pem: Option<&[u8]>,
         server_name: Option<&str>,
         statement_timeout: Duration,
     ) -> Result<Self> {
-        let config = database_url
-            .parse::<PgConfig>()
-            .context("invalid DATABASE_URL")?;
-        let tls = if let Some(path) = root_cert {
-            PgTls::Rustls(build_tls_connector(
-                path,
-                client_cert,
-                client_key,
+        // parse_pg_config, NOT a bare parse. config.rs builds this DSN with
+        // `?sslmode=verify-full`, and tokio-postgres understands disable/prefer/require only --
+        // so srql could not parse its own connection string in any verifying environment.
+        let config = parse_pg_config(database_url).context("invalid DATABASE_URL")?;
+        // Content all the way down. config.rs resolves the PEMs through SecretManager, so there
+        // is no path to read and nothing that only exists on one host.
+        let tls = match ca_pem {
+            Some(ca) => PgTls::Rustls(crate::tls::postgres_connector(
+                ca,
+                client_cert_pem,
+                client_key_pem,
                 server_name,
-            )?)
-        } else {
-            PgTls::None
+            )?),
+            None => PgTls::None,
         };
         Ok(Self {
             config,
@@ -160,74 +161,26 @@ async fn apply_statement_timeout(conn: &mut AsyncPgConnection, timeout: Duration
     Ok(())
 }
 
-fn build_tls_connector(
-    root_cert: &str,
-    client_cert: Option<&str>,
-    client_key: Option<&str>,
-    server_name: Option<&str>,
-) -> Result<PgRustlsConnect> {
-    let mut reader = BufReader::new(File::open(root_cert).context("failed to open PGSSLROOTCERT")?);
-    let mut root_store = RootCertStore::empty();
-    for cert in certs(&mut reader) {
-        let cert = cert.context("failed to parse PGSSLROOTCERT")?;
-        root_store
-            .add(cert)
-            .map_err(|_| anyhow::anyhow!("invalid certificate in PGSSLROOTCERT"))?;
+#[cfg(test)]
+mod parse_pg_config_tests {
+    use super::*;
+
+    /// config.rs assembles exactly this shape for a VERIFY_FULL environment. A bare
+    /// `parse::<PgConfig>()` rejects it, which meant srql could not open its own pool.
+    #[test]
+    fn verifying_sslmode_is_accepted() {
+        let config = parse_pg_config("postgres://srql:pw@db.example:5432/serviceradar?sslmode=verify-full")
+            .expect("srql must parse the DSN it builds");
+        assert_eq!(config.get_dbname(), Some("serviceradar"));
+        assert_eq!(config.get_user(), Some("srql"));
     }
 
-    Ok(PgRustlsConnect::new(
-        build_client_config(root_store, root_cert, client_cert, client_key)?,
-        server_name.map(str::to_string),
-    ))
-}
-
-fn build_client_config(
-    root_store: RootCertStore,
-    root_cert: &str,
-    client_cert: Option<&str>,
-    client_key: Option<&str>,
-) -> Result<ClientConfig> {
-    ensure_rustls_crypto_provider();
-    let builder = ClientConfig::builder().with_root_certificates(root_store);
-
-    match (client_cert, client_key) {
-        (None, None) => Ok(builder.with_no_client_auth()),
-        (Some(cert), Some(key)) => {
-            let certs = load_client_certs(cert)?;
-            let key = load_client_key(key)?;
-            builder
-                .with_client_auth_cert(certs, key)
-                .with_context(|| format!("failed to build client TLS config for {root_cert}"))
-        }
-        _ => anyhow::bail!("PGSSLCERT and PGSSLKEY must both be set (or neither)"),
+    #[test]
+    fn other_parameters_survive_and_plain_dsns_are_untouched() {
+        assert_eq!(
+            strip_sslmode("postgres://h/db?sslmode=require&application_name=srql"),
+            "postgres://h/db?application_name=srql"
+        );
+        assert_eq!(strip_sslmode("postgres://h/db"), "postgres://h/db");
     }
-}
-
-fn load_client_certs(path: &str) -> Result<Vec<CertificateDer<'static>>> {
-    let mut reader = BufReader::new(
-        File::open(path).with_context(|| format!("failed to open PGSSLCERT file '{path}'"))?,
-    );
-
-    let mut chain = Vec::new();
-    for cert in certs(&mut reader) {
-        chain.push(cert.context("failed to parse PGSSLCERT")?);
-    }
-
-    if chain.is_empty() {
-        anyhow::bail!("PGSSLCERT contained no certificates");
-    }
-
-    Ok(chain)
-}
-
-fn load_client_key(path: &str) -> Result<PrivateKeyDer<'static>> {
-    let mut reader = BufReader::new(
-        File::open(path).with_context(|| format!("failed to open PGSSLKEY file '{path}'"))?,
-    );
-
-    let key = rustls_pemfile::private_key(&mut reader)
-        .context("failed to parse PGSSLKEY")?
-        .context("PGSSLKEY contained no private keys")?;
-
-    Ok(key)
 }

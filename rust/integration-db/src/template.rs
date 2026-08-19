@@ -392,11 +392,11 @@ pub fn migrations_dir() -> PathBuf {
         return bazel.to_path_buf();
     }
 
-    if let Ok(srcdir) = std::env::var("TEST_SRCDIR") {
-        let runfiles = Path::new(&srcdir).join("_main").join(REL);
-        if runfiles.is_dir() {
-            return runfiles;
-        }
+    // The Bazel ecosystem's reference lookup. Replaces a hand-rolled `TEST_SRCDIR` + "_main"
+    // join, which hardcoded the canonical repository name, could not find the tree under
+    // `bazel run`, and could not work in manifest mode. Shared with `config::runfile`.
+    if let Some(dir) = crate::config::runfile(REL).ok().filter(|p| p.is_dir()) {
+        return dir;
     }
 
     // cargo test: climb out of rust/integration-db to the workspace root.

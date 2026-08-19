@@ -68,7 +68,7 @@ func filterRecursively(input interface{}) interface{} {
 	rt := reflect.TypeOf(input)
 
 	// Dereference pointers
-	if rv.Kind() == reflect.Ptr {
+	if rv.Kind() == reflect.Pointer {
 		if rv.IsNil() {
 			return nil
 		}

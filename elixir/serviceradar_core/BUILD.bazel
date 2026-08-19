@@ -396,12 +396,21 @@ ex_unit_test(
             # a declared input too. The ex_unit_tests macro adds this automatically; a
             # hand-written ex_unit_test does not.
             "//build:elixir_test_config_loader.exs",
+            # The per-run database name, as a declared build input. test/db/integration_env.exs
+            # reads it out of runfiles at build/run_id_file.txt -- the same file and the same
+            # relative path //rust/integration-db reads -- so provision, this suite and teardown
+            # cannot disagree about which database they own.
+            #
+            # migrate_template deliberately does NOT take it: template_env.exs targets the fixed
+            # sr_core_template name and has no run identity.
+            "//build:run_id_file",
         ],
         elixir_opts = [
             # BEFORE the config loader: config/test.exs reads SERVICERADAR_TEST_DATABASE_URL
-            # while building the Repo settings, so deriving it afterwards has no effect. Derives
-            # it from GITHUB_RUN_ID/ATTEMPT the same way //rust/integration-db does, so the suite
-            # hits the database provision_db cloned.
+            # while building the Repo settings, so deriving it afterwards has no effect. Reads
+            # the base name from //build:run_id_file (declared in data above), the same file
+            # //rust/integration-db reads, so the suite hits the database provision_db cloned --
+            # one producer of the format, not two implementations kept in step by hand.
             "-r",
             "test/db/integration_env.exs",
             "-r",
@@ -464,10 +473,6 @@ test_suite(
 # `--strategy=TestRunner=local`; a target tag would also drag this expensive BEAM compilation
 # onto the runner instead of leaving eligible actions on RBE/cache.
 #
-# Credentials come through the explicit `test:database_env --test_env=` list in //.bazelrc,
-# read from the Bazel client's environment. Generic remote unit tests do not select that profile.
-# In CI scripts/ci/configure-srql-fixture.sh puts them there;
-# //:buildbuddy_setup_fixture_env does it on a workstation or BuildBuddy runner.
 #
 # Do not reintroduce the old backend-specific `test.env-secrets` exec property. Fixture values
 # are supplied by the Bazel client and the database-facing TestRunner stays local.
@@ -487,11 +492,21 @@ ex_unit_test(
         # hand-written ex_unit_test does not.
         "//build:elixir_test_config_loader.exs",
         "test/db/db_task_helper.exs",
+        "test/db/fixture_config.exs",
         "test/db/template_env.exs",
+        # The compiled instance for every kind this target can run as. DECLARED, so the
+        # configuration under test is the artifact the build just produced and validated, and
+        # Bazel reruns this when it changes -- the same contract //rust/integration-db has.
+        # `ci` is what //buildbuddy.yaml selects; `localhost` is what a developer selects.
+        "//config/environments:ci_binpb",
+        "//config/environments:localhost_binpb",
     ],
     elixir_opts = [
         # BEFORE the config loader: config/test.exs reads SERVICERADAR_TEST_DATABASE_URL
         # while building the Repo settings, so deriving it afterwards has no effect.
+        # fixture_config.exs defines the module template_env.exs calls, so it comes first.
+        "-r",
+        "test/db/fixture_config.exs",
         "-r",
         "test/db/template_env.exs",
         "-r",
@@ -508,5 +523,11 @@ ex_unit_test(
         "manual",
     ],
     target_compatible_with = requires_shared_fixture(),
-    deps = [":erlang_app"],
+    deps = [
+        ":erlang_app",
+        # test/db/fixture_config.exs resolves the fixture from SERVICERADAR_ENV through these
+        # two, which is what replaced parsing an SRQL_TEST_DATABASE_URL secret apart.
+        "//config/manager_config/elixir:manager",
+        "//config/manager_secret/elixir:secret",
+    ],
 )
