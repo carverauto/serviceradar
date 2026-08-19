@@ -17,7 +17,7 @@ actions:
     platform_properties:
       OSFamily: "linux"
       Arch: "amd64"
-      dockerNetwork: "bridge" # The OCI runtime accepts exactly "", "bridge" and "off"
+      dockerNetwork: "host" # The OCI runtime accepts exactly "", "bridge" and "off"
 
     triggers:
       pr:
