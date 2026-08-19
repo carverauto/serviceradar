@@ -39,7 +39,7 @@ actions:
       # Put Harbor credentials into ~/.docker/config.json, for rules_oci's registry fetches.
       # See buildbuddy_setup_docker_auth.sh for details
       - run: >-
-          bazel run -c opt --config=ci //:buildbuddy_setup_docker_auth --verbose_failures
+          bazel run -c opt --config=ci --//build:enable_integration_tests //:buildbuddy_setup_docker_auth --verbose_failures
 
       # Build the entire repo, INCLUDING the integration targets.
       #
@@ -54,20 +54,15 @@ actions:
           bazel build -c opt --config=ci --//build:enable_integration_tests //...
 
       # Runs all unit tests; exclude intgration and acceptance tests.
+      #
+      # `--//build:enable_integration_tests` is here for CONFIGURATION and CACHE CONTINUITY
       - run: >-
-          bazel test -c opt --config=ci  //... --test_tag_filters=-integration_test,-acceptance_test
+          bazel test -c opt --config=ci --//build:enable_integration_tests
+          //... --test_tag_filters=-integration_test,-acceptance_test
 
-      # Run all go race conditions tests (race on, pure off); --flaky_test_attempts=1 overrides the repo default of 2;
+      # Largely a cache hit from the //... build above; same configuration for the same reason.
       - run: >-
-          bazel test -c opt --config=ci  //go/...
-          --@io_bazel_rules_go//go/config:pure=false
-          --@io_bazel_rules_go//go/config:race
-          --test_tag_filters=-integration_test,-acceptance_test
-          --test_timeout=600
-          --flaky_test_attempts=1
-          --test_arg=-test.count=5
-          --test_arg=-test.short
-          --test_arg=-test.shuffle=on
+          bazel build -c opt --config=ci --//build:enable_integration_tests //:images
 
       # The database lifecycle. ONE step: the invocations share a shell, and BuildBuddy has no
       # `if: always()`, so a trap is the only way to guarantee teardown after a red suite.
@@ -97,12 +92,13 @@ actions:
           SERVICERADAR_FIXTURE_ENV_FILE="$(mktemp "${TMPDIR:-/tmp}/serviceradar-fixture-env.XXXXXX")"
           export SERVICERADAR_FIXTURE_ENV_FILE
 
-          bazel run -c opt --config=ci //:buildbuddy_setup_fixture_env
+          # Same two build settings as $FLAGS below for cache continuity. 
+          bazel run -c opt --config=ci --//build:enable_integration_tests --//build:run_id=$RUN_ID //:buildbuddy_setup_fixture_env
           set -a; . "$SERVICERADAR_FIXTURE_ENV_FILE"; set +a
             
           # The two secrets are forwarded BY NAME: BuildBuddy injects them into this shell, and
-          # --test_env=NAME passes the value through.
-          FLAGS="--config=ci --strategy=TestRunner=local --//build:enable_integration_tests
+          # --test_env=NAME passes the value through. Same flags and settings for cache continuity. 
+          FLAGS="-c opt --config=ci --strategy=TestRunner=local --//build:enable_integration_tests
              --//build:run_id=$RUN_ID --test_env=SERVICERADAR_ENV=ci --flaky_test_attempts=1
              --test_output=errors
              --test_env=SERVICERADAR_SECRET_DATABASE_PASSWORD
@@ -121,6 +117,25 @@ actions:
           bazel test $FLAGS //rust/integration-db:provision_db
           bazel test $FLAGS //... --test_tag_filters=integration_test,-acceptance_test
 
-      # Largely a cache hit from the //... build above;
+      # Run all go race conditions tests (race on, pure off); --flaky_test_attempts=1 overrides the repo default of 2;
+      #
+      # LAST ON PURPOSE. `--@io_bazel_rules_go//go/config:{pure,race}` are configuration-affecting
+      # and cannot be shared with the steps above -- the point of this step is to build Go
+      # differently. Every configuration switch discards the analysis cache for the whole server,
+      # so this belongs at one end of the run rather than in the middle, where it used to sit
+      # between the unit sweep and the database lifecycle and cost TWO discards instead of one.
+      #
+      # If this ever needs to stop costing even that, give it its own `--output_base`: a second
+      # server analyses //go/... in isolation and the main server's analysis of //... survives
+      # untouched. That trades disk and a first-run fetch for the discard, so measure before
+      # adopting it.
       - run: >-
-          bazel build -c opt --config=ci //:images
+          bazel test -c opt --config=ci //go/...
+          --@io_bazel_rules_go//go/config:pure=false
+          --@io_bazel_rules_go//go/config:race
+          --test_tag_filters=-integration_test,-acceptance_test
+          --test_timeout=600
+          --flaky_test_attempts=1
+          --test_arg=-test.count=5
+          --test_arg=-test.short
+          --test_arg=-test.shuffle=on
