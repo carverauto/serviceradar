@@ -1,16 +1,11 @@
-# Publishes only the fixture CA certificate (ca.crt) at
-# https://srql-fixture-ca.serviceradar.cloud/ca.crt so runners without
-# kubeconfig can fetch the current CA. Do not store that PEM in a CI secret.
+# Publishes only the fixture CA certificate (ca.crt) on the in-cluster
+# ClusterIP Service. Do not store that PEM in a CI secret. Do not attach
+# this namespace to the shared public gateway.
 #
-# Public HTTPS is the shared Envoy gateway (23.138.124.5, wildcard
-# *.serviceradar.cloud). A dedicated MetalLB Service on 23.138.124.18:443 is
-# not reachable from workstations, so it cannot be the publish path.
-# In-cluster ARC and the BuildBuddy workflow pool use the ClusterIP HTTP Service.
+#   http://srql-fixture-ca-incluster.srql-fixtures.svc.cluster.local/ca.crt
 #
-# Gateway TLS is the shared wildcard, not the fixture CA — otherwise fetching
-# the CA would require the CA. The fixture CA private key is not in any volume
-# here. The publisher is HTTP-only; Envoy terminates TLS. Do not put nginx
-# back on this path.
+# The fixture CA private key is not in any volume here. The publisher is
+# HTTP-only. Do not put nginx back on this path.
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -153,42 +148,8 @@ spec:
         - name: tmp
           emptyDir: {}
 ---
-# Public path for runners without kubeconfig or cluster DNS.
-apiVersion: gateway.networking.k8s.io/v1
-kind: HTTPRoute
-metadata:
-  name: srql-fixture-ca-bundle
-  namespace: srql-fixtures
-  labels:
-    app: srql-fixture
-    app.kubernetes.io/component: fixture-ca-bundle
-  annotations:
-    external-dns.alpha.kubernetes.io/hostname: srql-fixture-ca.serviceradar.cloud
-spec:
-  hostnames:
-    - srql-fixture-ca.serviceradar.cloud
-  parentRefs:
-    - group: gateway.networking.k8s.io
-      kind: Gateway
-      name: serviceradar-shared-gateway
-      namespace: serviceradar-system
-      sectionName: https-web
-    - group: gateway.networking.k8s.io
-      kind: Gateway
-      name: serviceradar-shared-gateway
-      namespace: serviceradar-system
-      sectionName: http-web
-  rules:
-    - matches:
-        - path:
-            type: Exact
-            value: /ca.crt
-      backendRefs:
-        - name: srql-fixture-ca-incluster
-          port: 80
----
-# In-cluster only. GitHub ARC runners in the carverauto cluster fetch the public
-# CA here so they do not need kubectl or a path to the public VIP.
+# In-cluster only. GitHub ARC and the BuildBuddy workflow pool fetch the CA
+# here so they do not need kubectl or a public VIP.
 apiVersion: v1
 kind: Service
 metadata:

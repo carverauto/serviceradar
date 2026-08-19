@@ -59,7 +59,7 @@ database="${SRQL_FIXTURE_DATABASE:-srql_fixture}"
 # must also set PGSSLSERVERNAME and SRQL_TEST_DATABASE_SERVER_NAME to the certificate's
 # DNS name.
 ca_secret="${SRQL_FIXTURE_CA_SECRET:-srql-fixture-server-ca}"
-ca_url="${SRQL_FIXTURE_CA_URL:-https://srql-fixture-ca.serviceradar.cloud/ca.crt}"
+ca_url="${SRQL_FIXTURE_CA_URL:-http://srql-fixture-ca-incluster.srql-fixtures.svc.cluster.local/ca.crt}"
 sslmode="${SRQL_FIXTURE_SSLMODE:-verify-full}"
 if [[ "${sslmode}" != "verify-full" ]]; then
   echo "SRQL_FIXTURE_SSLMODE must be verify-full; refusing to weaken fixture TLS verification" >&2
@@ -207,8 +207,8 @@ stored CI secret. Provide ONE of:
     Reads ${ca_secret} key ca.crt.
 
   * ${ca_url} reachable (override with SRQL_FIXTURE_CA_URL).
-    In-cluster runners use the ClusterIP HTTP bundle; workstations can
-    use kubectl or the public HTTPS URL.
+    In-cluster runners use the ClusterIP HTTP bundle. Workstations
+    should use kubectl; there is no public CA URL.
 
 A pre-set SRQL_TEST_DATABASE_CA_CERT is ignored on purpose.
 EOF_ERR

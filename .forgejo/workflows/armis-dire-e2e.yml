@@ -14,7 +14,7 @@ jobs:
       ImageOS: ubuntu24
       SRQL_TEST_DATABASE_URL: ${{ secrets.SRQL_TEST_DATABASE_URL }}
       SRQL_TEST_ADMIN_URL: ${{ secrets.SRQL_TEST_ADMIN_URL }}
-      SRQL_FIXTURE_CA_URL: https://srql-fixture-ca.serviceradar.cloud/ca.crt
+      SRQL_FIXTURE_CA_URL: http://srql-fixture-ca-incluster.srql-fixtures.svc.cluster.local/ca.crt
       SRQL_TEST_DATABASE_CERT: ${{ secrets.SRQL_TEST_DATABASE_CERT }}
       SRQL_TEST_DATABASE_KEY: ${{ secrets.SRQL_TEST_DATABASE_KEY }}
 
