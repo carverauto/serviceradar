@@ -84,7 +84,10 @@ ambient environment, a test asserting on `.bazelrc`, and a value read under a di
 - [x] Specify engine semantics — `config/SEMANTICS.md` sections 4-6: cascading (an absent
       required field yields exactly one violation), exhaustive evaluation, total ordering by
       `(field_path, code)`, and phase/scope gating that skips rather than returns NotApplicable
-- [ ] Model the engine (TLA+/Alloy) against those semantics
+- [~] Model the engine (TLA+/Alloy) against those semantics — DESCOPED to
+      `complete-config-manager-adoption`. `config/SEMANTICS.md` specifies the engine and the three
+      implementations are pinned to it by shared vectors and property tests; a machine-checked
+      model is additive assurance, not a blocker for the capability.
 - [x] Define the rule-set file format — `config/proto/rules.proto`; the predicate is a `oneof`
       so a predicate and its parameters cannot disagree
 - [x] Extend the vocabulary with `ForbiddenIf` — a field must be ABSENT when another holds one
@@ -183,8 +186,12 @@ ambient environment, a test asserting on `.bazelrc`, and a value read under a di
       artifact's `priv/` rather than read out of bazel-bin. Within one build the two cannot
       diverge, so the in-test negative control (corrupt one side, confirm the comparison
       notices) is what proves the comparison works
-- [ ] Ship the compiled binary inside release artifacts — for Elixir, into an app's `priv/`, read at
-      boot with `Application.app_dir/2`; never `__DIR__` (see Decision 9)
+- [~] Ship the compiled binary inside release artifacts — for Elixir, into an app's `priv/`, read at
+      boot with `Application.app_dir/2`; never `__DIR__` (see Decision 9) — DESCOPED to
+      `complete-config-manager-adoption`. Test actions take the instance as a declared Bazel input
+      (`//config/environments:<kind>_binpb` in `data`), which is what the migrated call sites use;
+      packaging it into a release matters only once a deployed service loads through the manager,
+      which is that change's phase.
 
 ## 5. Conformance vectors and property tests
 
@@ -376,99 +383,53 @@ credentials through `valueFrom.secretKeyRef`, and NOTHING anywhere mounts
 deployment that exists. Go and Elixir still have only `FileProvider`, so before either can
 resolve a secret in CI or in the cluster:
 
-- [ ] Port `EnvProvider` + `EnvironmentProvider` to `config/manager_secret/{go,elixir}`, with the
-      same name transform and the same "empty variable is absent, not an empty credential" rule.
-- [ ] Cover it with the same tests the Rust side has (`tests/traits/`), including the mapping
+- [x] Port `EnvProvider` + `EnvironmentProvider` to `config/manager_secret/elixir`, with the same
+      name transform and the same "empty variable is absent, not an empty credential" rule.
+      `FileProvider.for_kind/1` came with it, so `localhost` selects the file store in Elixir the
+      way it does in Rust. `ServiceradarSecret.Names` mirrors Rust's `secrets.rs`, because the
+      logical name is what the variable is computed from.
+- [x] Cover it with the same tests the Rust side has (`tests/traits/`), including the mapping
       case -- the transform is the contract every `--test_env` list is derived from.
+      `unit_tests_env_provider_test` and `unit_tests_environment_provider_test` mirror
+      `env_provider_tests.rs` and `environment_provider_tests.rs` case for case.
+- [~] The same port for `config/manager_secret/go` — DESCOPED to
+      `complete-config-manager-adoption`. Go still ships `FileProvider` only, so no Go service can
+      resolve a secret from the environment yet; nothing in 7d ships without it.
 
 Two schema fields were added at the same time and are inert outside Rust: `database.admin_role`
 (the role that may CREATE/DROP, because `connecting_role` deliberately lacks CREATEDB) and
 `database.ca_bundle_url` (the CA is fetched from the published bundle, so no PEM is stored or
 forwarded anywhere). Both carry validator entries and rules in all three languages already.
 
-- [ ] `elixir/serviceradar_core/config/test.exs` — ~35 reads; collapse the **fourteen alias pairs**
-      (`SERVICERADAR_TEST_DATABASE_X || SRQL_TEST_DATABASE_X` on adjacent lines 57-180)
-- [ ] `elixir/serviceradar_core/test/db/integration_env.exs` — incl. `URI.parse` of the DSN to
-      derive the per-shard database name; replace with a computed field
-- [ ] `elixir/serviceradar_core/test/db/template_env.exs`
-- [ ] `elixir/serviceradar_core/test/serviceradar/cluster/database_bootstrap_integration_test.exs`
-      — ~32 reads, the largest single call site
-- [ ] `elixir/serviceradar_core/test/test_helper.exs` and
-      `elixir/serviceradar_agent_gateway/test/test_helper.exs` — MISSING from
-      `env-var-inventory.md` §6, found by grepping the readers directly. Different shape from the
-      rest of 7b: they use `SRQL_TEST_DATABASE_URL` / `_FILE` only as a PRESENCE PROBE ("is a
-      database configured?") to decide whether to run DB tests, never to extract coordinates.
-      Post-migration the question is structural -- `SERVICERADAR_ENV` names an environment whose
-      instance either has a `database` section or does not -- so this is a small change, but it
-      must not be forgotten: the exit criterion greps for `System.get_env` on schema-covered names
-- [ ] `build/elixir_tests.bzl` — pins `SRQL_TEST_DATABASE_URL` / `SERVICERADAR_TEST_DATABASE_URL`
-      and their `_FILE` variants to `""`; remove once nothing reads them
+- [x] `elixir/serviceradar_core/test/db/template_env.exs` — resolves through
+      `ServiceradarConfig.Manager` + `ServiceradarSecret`, so `//elixir/serviceradar_core:migrate_template`
+      needs `SERVICERADAR_ENV` and one secret instead of a `SRQL_TEST_DATABASE_URL` whose host
+      lived in a CI secret. The resolution moved into `test/db/fixture_config.exs` rather than the
+      env script, because `test/db/integration_env.exs` needs the same thing and a second copy of
+      "how to reach the fixture" is how the two drift. The compiled instance is a declared input
+      (`//config/environments:{ci,localhost}_binpb` in `data`). Verified against the live fixture
+      with a deliberately wrong password: everything up to authentication succeeded.
 
-### 7c. Elixir — application configuration
+## Descoped to `complete-config-manager-adoption`
 
-- [ ] `elixir/serviceradar_core/config/{dev,runtime}.exs`
-- [ ] `elixir/serviceradar_core/lib/serviceradar/cluster/startup_migrations.ex` — `CNPG_*` incl.
-      `CNPG_ADMIN_USERNAME` / `CNPG_ADMIN_PASSWORD` (sole readers) and `CNPG_APP_USER` /
-      `CNPG_APP_PASSWORD`
-- [ ] `elixir/serviceradar_core_elx/config/runtime.exs`
-- [ ] `elixir/web-ng/config/{dev,runtime,test}.exs` — incl. the five `TEST_CNPG_*` (sole readers)
-- [ ] `elixir/serviceradar_agent_gateway/config/runtime.exs` — `NATS_URL`
+The capability is delivered and verified; what remains is ADOPTION -- migrating the rest of the
+call sites, rebuilding the bootstrap layers, retiring the old machinery, and the deployment work.
+That is a different kind of change with a different blast radius, and it was split out
+deliberately rather than left as a long tail on this one.
 
-### 7d. Go
+Moved verbatim into that change:
 
-**Measured scope (`go-inventory.md`).** 246 read sites, 173 distinct names -- about a quarter
-of the Elixir surface. 77 of those names are read only by `build/`, `tools/` and `_test.go`
-files and must NOT acquire schema fields, leaving 91 names in shipped services, 11 of them
-credentials. Three findings change this list:
+- 7b (remainder) -- `config/test.exs`, `integration_env.exs`,
+  `database_bootstrap_integration_test.exs`, the two `test_helper.exs`, `build/elixir_tests.bzl`
+- 7c -- Elixir application configuration
+- 7d -- Go, including the `EnvProvider` port it depends on, deleting `EnvConfigLoader`, and the
+  `NATS_CREDSFILE` rename
+- 7e -- the bootstrap layers
+- 7f -- build-graph declarations and the end-to-end BuildBuddy verification
+- 8 -- retiring `buildbuddy_setup_fixture_env.sh`, `scripts/ci/configure-srql-fixture.sh` and the
+  `.bazelrc` profiles
+- 9 -- `SERVICERADAR_ENV` in Compose/Helm/Kubernetes, CODEOWNERS, demo boot, developer docs
 
-- [ ] **Delete `EnvConfigLoader`** (`go/pkg/config/env_loader.go` plus the `configSourceEnv`
-      branch in `go/pkg/config/config.go`). It derives env names from JSON struct tags by
-      reflection and accepts a whole config document through `SERVICERADAR_CONFIG_JSON`, so
-      no scan can enumerate it. Every chart already sets `CONFIG_SOURCE=file`; it is dead in
-      deployment and live in code.
-- [ ] **Rename `NATS_CREDSFILE` to `NATS_CREDS_FILE`** in `go/pkg/k8sinventory/config.go:81`
-      and `go/pkg/trivysidecar/config.go:63`. Nothing sets the no-underscore spelling; Helm
-      and Elixir both use `NATS_CREDS_FILE`. Not an outage today (both workloads use mTLS and
-      set no creds file at all), but the value cannot be supplied from the chart as written.
-- [ ] **Require `os.LookupEnv` in the gate.** Zero of the 169 literal-name reads use it, so no
-      Go code can currently distinguish an unset variable from an empty one.
-
-- [ ] `go/pkg/k8sinventory/config.go:82-85` — `NATS_CACERTFILE`, `NATS_CERTFILE`, `NATS_KEYFILE`,
-      `NATS_SERVER_NAME`
-- [ ] `go/pkg/trivysidecar/config.go:64-67` — same four
-- [ ] Reconcile the naming drift: `.bazelrc` forwards `NATS_CA_FILE`; Go reads `NATS_CACERTFILE`
-- [ ] Reconcile the `NATS_TEST_*` family used by
-      `test/serviceradar/scans/adhoc_scan_nats_e2e_test.exs`
-
-### 7e. Rebuild the bootstrap layers on the managers
-
-- [ ] Survey the `CORE_*` family into the schema — `CORE_SEC_MODE`, `CORE_CERT_FILE`,
-      `CORE_KEY_FILE`, `CORE_CA_FILE` (`go/pkg/config/bootstrap/core_client.go`), plus any other
-      environment reads in `go/pkg/config/{config,env_loader,file_loader}.go`
-- [ ] Re-found `rust/config-bootstrap` on `ConfigManager` / `SecretManager`; remove its own
-      environment reads
-- [ ] Re-found `go/pkg/config/bootstrap` likewise
-- [ ] Add `elixir/config/bootstrap` so all three trees have the same two-layer shape
-- [ ] Confirm existing consumers are unaffected at their call sites: `rust/log-collector`,
-      `rust/flow-collector`, `rust/rperf-client`, `go/cmd/data-services`, `go/cmd/faker`
-- [ ] Delete the hand-maintained Rust/Go parity in favour of the shared vectors
-
-### 7f. Build graph
-
-- [ ] Declare configuration targets as `data` on every affected test target
-- [ ] Add per-component declared secret manifests
-- [ ] Verify the database step end to end on BuildBuddy
-
-## 8. Retire the old machinery
-
-- [ ] Delete `buildbuddy_setup_fixture_env.sh` and its `buildbuddy.yaml` step
-- [ ] Delete `scripts/ci/configure-srql-fixture.sh` with the Forgejo tier
-- [ ] Reduce `.bazelrc` `database_env` to secrets only; delete `nats_env` if it empties
-- [ ] Update `AGENTS.md` and the `srql-fixtures-db-tests` skill
-
-## 9. Deployment
-
-- [ ] Set `SERVICERADAR_ENV` in Docker Compose, Helm, and Kubernetes manifests
-- [ ] Add CODEOWNERS on the rule set and the schema
-- [ ] Confirm the demo namespace boots on the new path
-- [ ] Document the `localhost` developer workflow in `docs/docs/`
+Two items from earlier phases moved with them and are marked `[~]` where they stand: the
+machine-checked model of the engine (section 3) and shipping the compiled instance inside release
+artifacts (section 4).
