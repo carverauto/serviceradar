@@ -385,8 +385,10 @@ defmodule ServiceRadar.Inventory.SyncIngestorIpConflictTest do
     uid
   end
 
+  # Monotonic, not a random draw: the hash-of-a-UUID version could repeat, and a repeated
+  # address is indistinguishable from the conflict this file exists to test.
   defp unique_test_ip do
-    <<third, fourth, _rest::binary>> = :crypto.hash(:sha256, Ash.UUID.generate())
-    "100.124.#{1 + rem(third, 250)}.#{1 + rem(fourth, 250)}"
+    n = System.unique_integer([:positive, :monotonic])
+    "100.124.#{rem(div(n, 254), 254) + 1}.#{rem(n, 254) + 1}"
   end
 end
