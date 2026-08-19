@@ -5,11 +5,15 @@ defmodule ServiceRadarWebNGWeb.DashboardPackageLive.Show do
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Dashboards.DashboardInstance
   alias ServiceRadar.Dashboards.DashboardPackage
+  alias ServiceRadar.Dashboards.DashboardUserPreference
   alias ServiceRadar.Integrations.MapboxSettings
   alias ServiceRadarWebNG.Dashboards
   alias ServiceRadarWebNGWeb.DashboardFrameChannel
+  alias ServiceRadarWebNGWeb.DashboardPackageLive.Preferences
   alias ServiceRadarWebNGWeb.SRQL.Builder, as: SRQLBuilder
   alias ServiceRadarWebNGWeb.SRQL.Page, as: SRQLPage
+
+  require Logger
 
   @mapbox_public_token_regex ~r/^pk\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/
   @dashboard_search_query "in:dashboards limit:100"
@@ -85,8 +89,11 @@ defmodule ServiceRadarWebNGWeb.DashboardPackageLive.Show do
     {:noreply, push_dashboard_queries(socket, query, frame_queries)}
   end
 
-  def handle_event("dashboard_preference_update", _params, socket) do
-    {:noreply, socket}
+  def handle_event("dashboard_preference_update", params, socket) do
+    key = params |> Map.get("key", "") |> to_string() |> String.trim()
+    value = Map.get(params, "value")
+
+    {:noreply, put_dashboard_preference(socket, key, value)}
   end
 
   def handle_event("dashboard_detail_request", _params, socket) do
@@ -149,7 +156,17 @@ defmodule ServiceRadarWebNGWeb.DashboardPackageLive.Show do
       |> assign_dashboard_search_srql(dashboard_reference_query(instance.route_slug))
       |> assign(
         :host_payload_json,
-        Jason.encode!(host_payload(instance, package, data_frames, frames, mapbox, socket.assigns.frame_query_overrides))
+        Jason.encode!(
+          host_payload(
+            instance,
+            package,
+            data_frames,
+            frames,
+            mapbox,
+            socket.assigns.frame_query_overrides,
+            stored_preferences(socket, instance.route_slug)
+          )
+        )
       )
 
     {:noreply, socket}
@@ -377,13 +394,86 @@ defmodule ServiceRadarWebNGWeb.DashboardPackageLive.Show do
     push_patch(socket, to: to)
   end
 
+  # Renderer preferences are per user and per dashboard route, and live in the
+  # `metadata` map of that user's DashboardUserPreference row for this package —
+  # the same row that already records whether the dashboard is a favorite — so
+  # this needs no new table.
+  defp put_dashboard_preference(socket, "", _value), do: socket
+
+  defp put_dashboard_preference(socket, key, value) do
+    user = current_user(socket)
+    route_slug = socket.assigns[:route_slug]
+
+    if is_nil(user) or not is_binary(route_slug) do
+      socket
+    else
+      existing = fetch_dashboard_preference(user, route_slug)
+
+      attrs = %{
+        user_id: user.id,
+        target_type: :package,
+        target_id: route_slug,
+        metadata: Preferences.put(preference_metadata(existing), key, value),
+        # `upsert_fields` includes :favorite and :is_default, so omitting them
+        # here would silently reset the row's dashboard-level favorite to the
+        # create action's default on every preference write.
+        favorite: preference_flag(existing, :favorite),
+        is_default: preference_flag(existing, :is_default)
+      }
+
+      case DashboardUserPreference.upsert_preference(attrs, actor: user) do
+        {:ok, _preference} ->
+          socket
+
+        {:error, reason} ->
+          Logger.warning("dashboard preference write failed: #{inspect(reason)}")
+          socket
+      end
+    end
+  end
+
+  defp fetch_dashboard_preference(user, route_slug) do
+    case DashboardUserPreference.for_user(user.id, actor: user) do
+      {:ok, preferences} ->
+        Enum.find(preferences, fn preference ->
+          preference.target_type == :package and preference.target_id == route_slug
+        end)
+
+      {:error, _reason} ->
+        nil
+    end
+  end
+
+  defp preference_metadata(%DashboardUserPreference{metadata: metadata}) when is_map(metadata), do: metadata
+
+  defp preference_metadata(_), do: %{}
+
+  defp preference_flag(%DashboardUserPreference{} = preference, field), do: Map.get(preference, field) || false
+
+  defp preference_flag(_preference, _field), do: false
+
+  defp stored_preferences(socket, route_slug) do
+    case current_user(socket) do
+      nil -> %{}
+      user -> user |> fetch_dashboard_preference(route_slug) |> preference_metadata()
+    end
+  end
+
+  defp current_user(socket) do
+    case socket.assigns[:current_scope] do
+      %{user: %{id: _id} = user} -> user
+      _ -> nil
+    end
+  end
+
   defp host_payload(
          %DashboardInstance{} = instance,
          %DashboardPackage{} = package,
          data_frames,
          frames,
          mapbox,
-         overrides
+         overrides,
+         preferences
        ) do
     %{
       "host" => %{
@@ -413,7 +503,10 @@ defmodule ServiceRadarWebNGWeb.DashboardPackageLive.Show do
         "name" => instance.name,
         "route_slug" => instance.route_slug,
         "placement" => Atom.to_string(instance.placement),
-        "settings" => instance.settings || %{}
+        # The instance's own settings are the seed; the signed-in user's stored
+        # preferences win over them. The renderer reads both through
+        # `settings.preferences`.
+        "settings" => Preferences.merge(instance.settings || %{}, preferences)
       },
       "package" => %{
         "id" => package.id,
