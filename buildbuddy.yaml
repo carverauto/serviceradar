@@ -120,15 +120,7 @@ actions:
       # Run all go race conditions tests (race on, pure off); --flaky_test_attempts=1 overrides the repo default of 2;
       #
       # LAST ON PURPOSE. `--@io_bazel_rules_go//go/config:{pure,race}` are configuration-affecting
-      # and cannot be shared with the steps above -- the point of this step is to build Go
-      # differently. Every configuration switch discards the analysis cache for the whole server,
-      # so this belongs at one end of the run rather than in the middle, where it used to sit
-      # between the unit sweep and the database lifecycle and cost TWO discards instead of one.
-      #
-      # If this ever needs to stop costing even that, give it its own `--output_base`: a second
-      # server analyses //go/... in isolation and the main server's analysis of //... survives
-      # untouched. That trades disk and a first-run fetch for the discard, so measure before
-      # adopting it.
+      # and cannot be shared with the steps above.
       - run: >-
           bazel test -c opt --config=ci //go/...
           --@io_bazel_rules_go//go/config:pure=false
