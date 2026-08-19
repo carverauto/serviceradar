@@ -917,9 +917,9 @@ hex_ext.from_github_release(
 )
 use_repo(hex_ext, "hex")
 
-tinygo_host_repository = use_repo_rule(
+tinygo_platform_repository = use_repo_rule(
     "//build/wasm_plugins:tinygo_repo.bzl",
-    "tinygo_host_repository",
+    "tinygo_platform_repository",
 )
 
 http_file(
@@ -1009,10 +1009,22 @@ filegroup(
     ],
 )
 
-tinygo_host_repository(
-    name = "tinygo_host",
-    version = "0.40.1",
-)
+# One repo per platform so bzlmod fetches only the one //build/wasm_plugins selects for the
+# exec platform. The previous single repo unpacked all four TinyGo toolchains and Go SDKs on
+# every fetch -- 5 GB, half the entire external tree, of which one platform was ever used.
+[
+    tinygo_platform_repository(
+        name = "tinygo_" + tinygo_platform,
+        platform = tinygo_platform,
+        version = "0.40.1",
+    )
+    for tinygo_platform in [
+        "darwin_amd64",
+        "darwin_arm64",
+        "linux_amd64",
+        "linux_arm64",
+    ]
+]
 
 http_file(
     name = "postgresql_server_dev_18_deb",

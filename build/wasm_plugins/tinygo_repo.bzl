@@ -47,65 +47,54 @@ _GO_SHA256 = {
 }
 
 
-def _normalize_os(os_name):
-    os_name = os_name.lower()
-    if "linux" in os_name:
-        return "linux"
-    if "darwin" in os_name or "mac" in os_name:
-        return "darwin"
-    fail("unsupported TinyGo host OS: {}".format(os_name))
+def _tinygo_platform_repository_impl(ctx):
+    """Fetches ONE platform's TinyGo + Go SDK (+ binaryen on darwin).
 
+    One repo per platform, not one repo with every platform in it. Under bzlmod a repo is
+    fetched only when a label inside it is demanded, and //build/wasm_plugins selects the
+    matching one in the EXEC configuration -- so a build downloads a quarter of what the
+    combined repo did. The combined repo unpacked 4 TinyGo toolchains and 4 Go SDKs on every
+    fetch and used one; it was also ineligible for Bazel's repo contents cache, so all 5 GB
+    was re-extracted on every cold output base.
 
-def _normalize_arch(arch):
-    arch = arch.lower()
-    if arch in ["amd64", "x86_64"]:
-        return "amd64"
-    if arch in ["aarch64", "arm64"]:
-        return "arm64"
-    fail("unsupported TinyGo host architecture: {}".format(arch))
-
-
-def _tinygo_host_repository_impl(ctx):
-    os_name = _normalize_os(ctx.os.name)
-    arch = _normalize_arch(ctx.os.arch)
-    host_platform = "{}_{}".format(os_name, arch)
+    The intra-repo layout is deliberately unchanged (`<platform>/tinygo/bin/tinygo`,
+    `go_<platform>/go/bin/go`) so build_wasm_binary.sh's own path handling still applies.
+    """
+    platform = ctx.attr.platform
+    platform_os, platform_arch = platform.split("_")
     version = ctx.attr.version
 
-    for platform, sha256 in _TINYGO_SHA256.items():
-        platform_os, platform_arch = platform.split("_")
-        filename = "tinygo{}.{}-{}.tar.gz".format(version, platform_os, platform_arch)
-        ctx.download_and_extract(
-            output = platform,
-            url = "https://github.com/tinygo-org/tinygo/releases/download/v{}/{}".format(version, filename),
-            sha256 = sha256,
-        )
+    ctx.download_and_extract(
+        output = platform,
+        url = "https://github.com/tinygo-org/tinygo/releases/download/v{}/tinygo{}.{}-{}.tar.gz".format(
+            version,
+            version,
+            platform_os,
+            platform_arch,
+        ),
+        sha256 = _TINYGO_SHA256[platform],
+    )
 
-    # Must run after the TinyGo loop above: this extracts into an existing darwin_*/tinygo
-    # tree, merging bin/wasm-opt and lib/libbinaryen.dylib alongside TinyGo's own files.
-    for platform, sha256 in _BINARYEN_SHA256.items():
-        asset = _BINARYEN_ASSET[platform]
-        filename = "binaryen-version_{}-{}.tar.gz".format(_BINARYEN_VERSION, asset)
+    # Must run after the TinyGo extraction above: it merges into that tree. See the note on
+    # _BINARYEN_VERSION for why only darwin needs it.
+    if platform in _BINARYEN_ASSET:
         ctx.download_and_extract(
             output = "{}/tinygo".format(platform),
-            url = "https://github.com/WebAssembly/binaryen/releases/download/version_{}/{}".format(
+            url = "https://github.com/WebAssembly/binaryen/releases/download/version_{}/binaryen-version_{}-{}.tar.gz".format(
                 _BINARYEN_VERSION,
-                filename,
+                _BINARYEN_VERSION,
+                _BINARYEN_ASSET[platform],
             ),
-            sha256 = sha256,
+            sha256 = _BINARYEN_SHA256[platform],
             stripPrefix = "binaryen-version_{}".format(_BINARYEN_VERSION),
         )
 
-    for platform, sha256 in _GO_SHA256.items():
-        platform_os, platform_arch = platform.split("_")
-        filename = "go{}.{}-{}.tar.gz".format(_GO_VERSION, platform_os, platform_arch)
-        ctx.download_and_extract(
-            output = "go_{}".format(platform),
-            url = "https://dl.google.com/go/{}".format(filename),
-            sha256 = sha256,
-        )
+    ctx.download_and_extract(
+        output = "go_{}".format(platform),
+        url = "https://dl.google.com/go/go{}.{}-{}.tar.gz".format(_GO_VERSION, platform_os, platform_arch),
+        sha256 = _GO_SHA256[platform],
+    )
 
-    host_tinygo_path = "{}/tinygo/bin/tinygo".format(host_platform)
-    host_go_path = "go_{}/go/bin/go".format(host_platform)
     ctx.file(
         "BUILD.bazel",
         """
@@ -113,65 +102,26 @@ package(default_visibility = ["//visibility:public"])
 
 filegroup(
     name = "tinygo_bin",
-    srcs = ["{host_tinygo_path}"],
+    srcs = ["{platform}/tinygo/bin/tinygo"],
 )
 
 filegroup(
     name = "go_bin",
-    srcs = ["{host_go_path}"],
-)
-
-filegroup(
-    name = "tinygo_darwin_amd64_bin",
-    srcs = ["darwin_amd64/tinygo/bin/tinygo"],
-)
-
-filegroup(
-    name = "tinygo_darwin_arm64_bin",
-    srcs = ["darwin_arm64/tinygo/bin/tinygo"],
-)
-
-filegroup(
-    name = "tinygo_linux_amd64_bin",
-    srcs = ["linux_amd64/tinygo/bin/tinygo"],
-)
-
-filegroup(
-    name = "tinygo_linux_arm64_bin",
-    srcs = ["linux_arm64/tinygo/bin/tinygo"],
-)
-
-filegroup(
-    name = "go_darwin_amd64_bin",
-    srcs = ["go_darwin_amd64/go/bin/go"],
-)
-
-filegroup(
-    name = "go_darwin_arm64_bin",
-    srcs = ["go_darwin_arm64/go/bin/go"],
-)
-
-filegroup(
-    name = "go_linux_amd64_bin",
-    srcs = ["go_linux_amd64/go/bin/go"],
-)
-
-filegroup(
-    name = "go_linux_arm64_bin",
-    srcs = ["go_linux_arm64/go/bin/go"],
+    srcs = ["go_{platform}/go/bin/go"],
 )
 
 filegroup(
     name = "files",
     srcs = glob(["**"]),
 )
-""".format(host_go_path = host_go_path, host_tinygo_path = host_tinygo_path),
+""".format(platform = platform),
     )
 
 
-tinygo_host_repository = repository_rule(
-    implementation = _tinygo_host_repository_impl,
+tinygo_platform_repository = repository_rule(
+    implementation = _tinygo_platform_repository_impl,
     attrs = {
+        "platform": attr.string(mandatory = True, values = sorted(_TINYGO_SHA256)),
         "version": attr.string(default = "0.40.1"),
     },
 )

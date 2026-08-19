@@ -15,22 +15,14 @@ def declare_wasm_targets(build_targets, plugin_bundles):
         wasm_out = "{}.wasm".format(build["name"])
         cmd_parts = [
             "$(location :build_wasm_binary.sh)",
-            "--go-darwin-arm64",
-            "$(location @tinygo_host//:go_darwin_arm64_bin)",
-            "--go-darwin-amd64",
-            "$(location @tinygo_host//:go_darwin_amd64_bin)",
-            "--go-linux-arm64",
-            "$(location @tinygo_host//:go_linux_arm64_bin)",
-            "--go-linux-amd64",
-            "$(location @tinygo_host//:go_linux_amd64_bin)",
-            "--tinygo-darwin-arm64",
-            "$(location @tinygo_host//:tinygo_darwin_arm64_bin)",
-            "--tinygo-darwin-amd64",
-            "$(location @tinygo_host//:tinygo_darwin_amd64_bin)",
-            "--tinygo-linux-arm64",
-            "$(location @tinygo_host//:tinygo_linux_arm64_bin)",
-            "--tinygo-linux-amd64",
-            "$(location @tinygo_host//:tinygo_linux_amd64_bin)",
+            # One toolchain, already selected for the exec platform by the aliases in this
+            # package. build_wasm_binary.sh prefers an explicit --tinygo/--go-bin over its own
+            # uname dispatch, so passing these two retires the eight per-platform flags without
+            # touching the script.
+            "--tinygo",
+            "$(location //build/wasm_plugins:selected_tinygo)",
+            "--go-bin",
+            "$(location //build/wasm_plugins:selected_go)",
             "--main-go",
             "$(location {})".format(build["main_go"]),
             "--out",
@@ -48,15 +40,9 @@ def declare_wasm_targets(build_targets, plugin_bundles):
             cmd = " ".join(cmd_parts),
             tools = [
                 ":build_wasm_binary.sh",
-                "@tinygo_host//:go_darwin_amd64_bin",
-                "@tinygo_host//:go_darwin_arm64_bin",
-                "@tinygo_host//:go_linux_amd64_bin",
-                "@tinygo_host//:go_linux_arm64_bin",
-                "@tinygo_host//:tinygo_darwin_amd64_bin",
-                "@tinygo_host//:tinygo_darwin_arm64_bin",
-                "@tinygo_host//:tinygo_linux_amd64_bin",
-                "@tinygo_host//:tinygo_linux_arm64_bin",
-                "@tinygo_host//:files",
+                "//build/wasm_plugins:selected_tinygo",
+                "//build/wasm_plugins:selected_go",
+                "//build/wasm_plugins:selected_tinygo_tree",
             ],
             visibility = ["//visibility:public"],
         )
