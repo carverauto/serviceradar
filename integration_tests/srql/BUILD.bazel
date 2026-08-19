@@ -51,7 +51,25 @@ SRQL_IT_DATA = [
     "tests/fixtures/seed.sql",
 ]
 
-SRQL_IT_DEPS = ["//rust/srql:srql_lib"] + all_crate_deps(
+# tests/support/harness.rs resolves the fixture through //rust/integration-db -- `config::Fixture`
+# for the coordinates and `parse_pg_config` for the DSN -- rather than parsing SRQL_TEST_* itself.
+#
+# The dep has to be NAMED here. `all_crate_deps(cargo_only = True)` reports only third-party
+# crates, deliberately (see the note above), so a first-party edge it does not list is a compile
+# error rather than something Bazel infers. Missing it produced
+#
+#   error[E0432]: unresolved import `serviceradar_integration_db`
+#                 no external crate `serviceradar_integration_db`
+#
+# which reads like a missing Cargo dependency and is really a missing BUILD dep -- and it
+# appeared ONLY in the database sweep, twenty minutes into CI, because these targets are
+# `integration_test`-tagged plus requires_shared_fixture(): the earlier `bazel build //...`
+# runs without --//build:enable_integration_tests, so they are incompatible and get skipped
+# rather than compiled.
+SRQL_IT_DEPS = [
+    "//rust/integration-db:serviceradar_integration_db",
+    "//rust/srql:srql_lib",
+] + all_crate_deps(
     cargo_only = True,
     normal = True,
     normal_dev = True,
@@ -67,7 +85,6 @@ rust_test(
     crate_name = "srql_api_tests",
     crate_root = "tests/api.rs",
     data = SRQL_IT_DATA,
-    edition = "2021",
     # integration_test, NOT manual. `manual` removed these from //... expansion BEFORE tag
     # filters were considered, so no wildcard could ever reach them and every caller had to
     # name them explicitly -- which is how srql_device_grouped_stats_test ended up running in
@@ -90,7 +107,6 @@ rust_test(
     crate_name = "srql_comprehensive_tests",
     crate_root = "tests/comprehensive_queries.rs",
     data = SRQL_IT_DATA,
-    edition = "2021",
     # integration_test, NOT manual. `manual` removed these from //... expansion BEFORE tag
     # filters were considered, so no wildcard could ever reach them and every caller had to
     # name them explicitly -- which is how srql_device_grouped_stats_test ended up running in
@@ -116,7 +132,6 @@ rust_test(
     crate_name = "srql_device_grouped_stats_tests",
     crate_root = "tests/device_grouped_stats.rs",
     data = SRQL_IT_DATA,
-    edition = "2021",
     # integration_test, NOT manual. `manual` removed these from //... expansion BEFORE tag
     # filters were considered, so no wildcard could ever reach them and every caller had to
     # name them explicitly -- which is how srql_device_grouped_stats_test ended up running in

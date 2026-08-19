@@ -37,7 +37,6 @@ rust_library(
     name = "serviceradar_integration_db",
     srcs = glob(["src/**/*.rs"]),
     crate_name = "serviceradar_integration_db",
-    edition = "2021",
     deps = all_crate_deps(
         cargo_only = True,
         normal = True,
