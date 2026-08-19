@@ -225,13 +225,9 @@ config:
       # ONE nameserver serves both worlds: the Corefile ends in `forward . /etc/resolv.conf`,
       # so CoreDNS answers cluster.local authoritatively and forwards everything else upstream.
       dns: "10.43.0.10"
+
+      # On Disk cache
       mounts:
-        - source: /cache
-          destination: /cache
-          type: bind
-          options:
-            - rbind
-            - rw
         # A dedicated path, NOT /root: mounting over the runner's home broke `git init`.
         - source: /bazel-caches
           destination: /bazel-cache

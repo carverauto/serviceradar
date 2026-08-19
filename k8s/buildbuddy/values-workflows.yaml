@@ -296,13 +296,8 @@ config:
       # See ./values.yaml for why this is an explicit address rather than "".
       dns: "10.43.0.10"
 
+      # On Disk cache
       mounts:
-        - source: /cache
-          destination: /cache
-          type: bind
-          options:
-            - rbind
-            - rw
         # A dedicated path, NOT /root: mounting over the runner's home broke `git init`.
         - source: /bazel-caches
           destination: /bazel-cache
