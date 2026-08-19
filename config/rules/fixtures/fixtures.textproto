@@ -1659,3 +1659,83 @@ fixtures {
   }
   expected_violations { code: "DGRAPH_TLS_MODE_VERIFIED_OUTSIDE_LOCALHOST" field_path: "dgraph.tls_mode" }
 }
+
+fixtures {
+  name: "database_admin_role_blank"
+  description: "Absent is legal -- a service never creates databases -- but present-and-blank would build an admin DSN with no user and fail at the server."
+  phase: PHASE_CONFIG
+  instance {
+    kind: ENVIRONMENT_KIND_CI
+    database {
+      host: "db"
+      port: 5432
+      database: "srql_fixture"
+      connecting_role: "srql_test"
+      owning_role: "srql_test"
+      admin_role: ""
+      tls_mode: TLS_MODE_VERIFY_FULL
+      tls_server_name: "db"
+      search_path: "platform, ag_catalog"
+      pool_size: 10
+      queue_target_ms: 500
+      queue_interval_ms: 1000
+      ownership_timeout_ms: 60000
+    }
+    nats {
+      url: "nats://nats:4222"
+      server_name: "nats"
+    }
+    core {
+      address: "core:50052"
+      api_url: "http://core:8090"
+      security_mode: SECURITY_MODE_MTLS
+      server_name: "core"
+    }
+    dgraph {
+      host: "dgraph"
+      port: 9080
+      tls_mode: DGRAPH_TLS_MODE_VERIFY_CA
+    }
+  }
+  expected_violations { code: "DATABASE_ADMIN_ROLE_NON_EMPTY" field_path: "database.admin_role" }
+}
+
+fixtures {
+  name: "database_ca_bundle_url_blank"
+  description: "Absent means the CA comes from SecretManager. Blank would send the client to fetch an empty URL and report a parse error instead of a missing setting."
+  phase: PHASE_CONFIG
+  instance {
+    kind: ENVIRONMENT_KIND_CI
+    database {
+      host: "db"
+      port: 5432
+      database: "srql_fixture"
+      connecting_role: "srql_test"
+      owning_role: "srql_test"
+      ca_bundle_url: ""
+      tls_mode: TLS_MODE_VERIFY_FULL
+      tls_server_name: "db"
+      search_path: "platform, ag_catalog"
+      pool_size: 10
+      queue_target_ms: 500
+      queue_interval_ms: 1000
+      ownership_timeout_ms: 60000
+    }
+    nats {
+      url: "nats://nats:4222"
+      server_name: "nats"
+    }
+    core {
+      address: "core:50052"
+      api_url: "http://core:8090"
+      security_mode: SECURITY_MODE_MTLS
+      server_name: "core"
+    }
+    dgraph {
+      host: "dgraph"
+      port: 9080
+      tls_mode: DGRAPH_TLS_MODE_VERIFY_CA
+    }
+  }
+  expected_violations { code: "DATABASE_CA_BUNDLE_URL_NON_EMPTY" field_path: "database.ca_bundle_url" }
+}

@@ -110,6 +110,18 @@ impl ConfigManager {
     /// a rewrite that had to preserve the query string by hand to avoid dropping `sslmode`.
     pub fn database_url_named(&self, database: &str, password: &str) -> Option<Dsn> {
         let db = self.config.database.as_ref()?;
+        let role = db.connecting_role.as_deref()?;
+        self.database_url_as(role, database, password)
+    }
+
+    /// The same DSN for an explicitly named role.
+    ///
+    /// Provisioning connects as `admin_role`, which is a different identity from the one the
+    /// suite runs as -- see the field comment in config.proto. Deriving it from
+    /// `connecting_role` produced an admin DSN naming a role with no CREATEDB right, which
+    /// PostgreSQL reports as a permission error and therefore reads like a missing GRANT.
+    pub fn database_url_as(&self, role: &str, database: &str, password: &str) -> Option<Dsn> {
+        let db = self.config.database.as_ref()?;
         let sslmode = match TlsMode::try_from(db.tls_mode?).ok()? {
             TlsMode::Unspecified => return None,
             TlsMode::Disable => "disable",
@@ -120,7 +132,7 @@ impl ConfigManager {
 
         let url = format!(
             "postgres://{}:{}@{}:{}/{}?sslmode={sslmode}",
-            encode_userinfo(db.connecting_role.as_deref()?),
+            encode_userinfo(role),
             encode_userinfo(password),
             db.host.as_deref()?,
             db.port?,
@@ -136,6 +148,16 @@ impl ConfigManager {
         // as an ADDITIONAL host to dial, so the SNI name would have become a silent fallback
         // endpoint rather than a verification name.
         Some(Dsn::new(url))
+    }
+
+    /// The role that may CREATE and DROP databases, when the environment declares one.
+    pub fn admin_role(&self) -> Option<&str> {
+        self.config.database.as_ref()?.admin_role.as_deref()
+    }
+
+    /// Where the CA this server's certificate chains to is published, when named.
+    pub fn ca_bundle_url(&self) -> Option<&str> {
+        self.config.database.as_ref()?.ca_bundle_url.as_deref()
     }
 
     pub fn database(&self) -> Option<&DatabaseConfig> {

@@ -310,8 +310,36 @@ type DatabaseConfig struct {
 	QueueTargetMs      *uint32 `protobuf:"varint,10,opt,name=queue_target_ms,json=queueTargetMs,proto3,oneof" json:"queue_target_ms,omitempty"`
 	QueueIntervalMs    *uint32 `protobuf:"varint,11,opt,name=queue_interval_ms,json=queueIntervalMs,proto3,oneof" json:"queue_interval_ms,omitempty"`
 	OwnershipTimeoutMs *uint32 `protobuf:"varint,12,opt,name=ownership_timeout_ms,json=ownershipTimeoutMs,proto3,oneof" json:"ownership_timeout_ms,omitempty"`
-	unknownFields      protoimpl.UnknownFields
-	sizeCache          protoimpl.SizeCache
+	// The role that may CREATE and DROP databases, for a fixture that provisions one per run.
+	//
+	// A THIRD identity, because `connecting_role` cannot serve: the suite connects as the
+	// application role, and that role deliberately lacks CREATEDB. Deriving the admin identity
+	// from `connecting_role` is what made the lifecycle build an admin DSN naming a role with no
+	// rights -- reported by PostgreSQL as a permission error, which reads like a missing GRANT
+	// rather than the wrong user.
+	//
+	// Absent for every deployment: a service never creates databases, and requiring this would
+	// put a privileged identity in instance files that have no use for one. Its password is
+	// `database.admin_password`, resolved by SecretManager.
+	AdminRole *string `protobuf:"bytes,13,opt,name=admin_role,json=adminRole,proto3,oneof" json:"admin_role,omitempty"`
+	// Where the CA this server's certificate chains to is published.
+	//
+	// Configuration, not a secret: a CA bundle is public by construction -- it is what a client
+	// needs BEFORE it can authenticate anything, so it cannot itself be authenticated material.
+	// It sits here beside `tls_server_name` for the same reason that field does: both describe
+	// the SHAPE of trust, while the private key material SecretManager holds does not appear.
+	//
+	// A URL rather than the PEM, because a cert-manager issuer rotates. A copy pasted into a CI
+	// secret store or an instance file is correct until the next rotation and then silently is
+	// not -- which is what a stored SRQL_TEST_DATABASE_CA_CERT did, expiring on a date nobody
+	// was watching. Naming the endpoint means every client reads the CURRENT bundle and no
+	// human rotates anything.
+	//
+	// Absent means the CA comes from SecretManager (`database.ca_cert`) instead, for a
+	// deployment that mounts one.
+	CaBundleUrl   *string `protobuf:"bytes,14,opt,name=ca_bundle_url,json=caBundleUrl,proto3,oneof" json:"ca_bundle_url,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *DatabaseConfig) Reset() {
@@ -426,6 +454,20 @@ func (x *DatabaseConfig) GetOwnershipTimeoutMs() uint32 {
 		return *x.OwnershipTimeoutMs
 	}
 	return 0
+}
+
+func (x *DatabaseConfig) GetAdminRole() string {
+	if x != nil && x.AdminRole != nil {
+		return *x.AdminRole
+	}
+	return ""
+}
+
+func (x *DatabaseConfig) GetCaBundleUrl() string {
+	if x != nil && x.CaBundleUrl != nil {
+		return *x.CaBundleUrl
+	}
+	return ""
 }
 
 // NATS coordinates. Credential material is resolved by SecretManager.
@@ -739,7 +781,7 @@ var File_config_proto_config_proto protoreflect.FileDescriptor
 
 const file_config_proto_config_proto_rawDesc = "" +
 	"\n" +
-	"\x19config/proto/config.proto\x12\x16serviceradar.config.v1\"\xc7\x05\n" +
+	"\x19config/proto/config.proto\x12\x16serviceradar.config.v1\"\xb5\x06\n" +
 	"\x0eDatabaseConfig\x12\x17\n" +
 	"\x04host\x18\x01 \x01(\tH\x00R\x04host\x88\x01\x01\x12\x17\n" +
 	"\x04port\x18\x02 \x01(\rH\x01R\x04port\x88\x01\x01\x12\x1f\n" +
@@ -756,7 +798,10 @@ const file_config_proto_config_proto_rawDesc = "" +
 	" \x01(\rH\tR\rqueueTargetMs\x88\x01\x01\x12/\n" +
 	"\x11queue_interval_ms\x18\v \x01(\rH\n" +
 	"R\x0fqueueIntervalMs\x88\x01\x01\x125\n" +
-	"\x14ownership_timeout_ms\x18\f \x01(\rH\vR\x12ownershipTimeoutMs\x88\x01\x01B\a\n" +
+	"\x14ownership_timeout_ms\x18\f \x01(\rH\vR\x12ownershipTimeoutMs\x88\x01\x01\x12\"\n" +
+	"\n" +
+	"admin_role\x18\r \x01(\tH\fR\tadminRole\x88\x01\x01\x12'\n" +
+	"\rca_bundle_url\x18\x0e \x01(\tH\rR\vcaBundleUrl\x88\x01\x01B\a\n" +
 	"\x05_hostB\a\n" +
 	"\x05_portB\v\n" +
 	"\t_databaseB\x12\n" +
@@ -769,7 +814,9 @@ const file_config_proto_config_proto_rawDesc = "" +
 	"_pool_sizeB\x12\n" +
 	"\x10_queue_target_msB\x14\n" +
 	"\x12_queue_interval_msB\x17\n" +
-	"\x15_ownership_timeout_ms\"a\n" +
+	"\x15_ownership_timeout_msB\r\n" +
+	"\v_admin_roleB\x10\n" +
+	"\x0e_ca_bundle_url\"a\n" +
 	"\n" +
 	"NatsConfig\x12\x15\n" +
 	"\x03url\x18\x01 \x01(\tH\x00R\x03url\x88\x01\x01\x12$\n" +

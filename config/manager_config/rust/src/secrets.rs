@@ -12,6 +12,14 @@
 /// The password for `DatabaseConfig.connecting_role`.
 pub const DATABASE_PASSWORD: &str = "database.password";
 
+/// The password for `DatabaseConfig.admin_role`.
+///
+/// Separate from [`DATABASE_PASSWORD`] because the roles are separate: the suite connects as
+/// the application role, which deliberately lacks CREATEDB, while creating and dropping the
+/// per-run database needs one that does not. One password for both would either give the
+/// application role rights it must not have, or leave the lifecycle unable to provision.
+pub const DATABASE_ADMIN_PASSWORD: &str = "database.admin_password";
+
 /// PEM for the CA the server certificate chains to. Content, never a path: a path is only
 /// meaningful on the host that resolves it, which is the assumption that stops a test action
 /// from running anywhere but one machine.

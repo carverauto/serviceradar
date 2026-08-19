@@ -175,6 +175,25 @@ rules {
   non_empty {}
 }
 
+# admin_role is optional -- a service never creates databases, so requiring it would put a
+# privileged identity in every instance file. Present-but-blank is still an error: it would
+# build an admin DSN with no user and fail at the server with an unrelated message.
+rules {
+  field_path: "database.admin_role"
+  code: "DATABASE_ADMIN_ROLE_NON_EMPTY"
+  phase: PHASE_CONFIG
+  non_empty {}
+}
+
+# Likewise optional: absent means the CA comes from SecretManager instead. Blank would send
+# the client to fetch "" and report a URL parse error rather than a missing setting.
+rules {
+  field_path: "database.ca_bundle_url"
+  code: "DATABASE_CA_BUNDLE_URL_NON_EMPTY"
+  phase: PHASE_CONFIG
+  non_empty {}
+}
+
 rules {
   field_path: "database.pool_size"
   code: "DATABASE_POOL_SIZE_RANGE"

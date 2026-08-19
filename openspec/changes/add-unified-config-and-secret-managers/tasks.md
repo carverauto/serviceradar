@@ -367,6 +367,25 @@ repository, and when absent, six raise while 340 silently change behaviour.
 
 ### 7b. Elixir — test configuration
 
+**Prerequisite added by the CI fix: `EnvProvider` exists only in Rust.**
+`config/manager_secret/rust` now has `EnvProvider` (logical name -> `SERVICERADAR_SECRET_*`) and
+`EnvironmentProvider::for_kind`, which selects env for every kind except `localhost`. That
+selection is what the platform actually does -- `//helm/serviceradar` supplies all 38 of its
+credentials through `valueFrom.secretKeyRef`, and NOTHING anywhere mounts
+`/etc/serviceradar/secrets`, so the `FileProvider` all three languages shipped with matches no
+deployment that exists. Go and Elixir still have only `FileProvider`, so before either can
+resolve a secret in CI or in the cluster:
+
+- [ ] Port `EnvProvider` + `EnvironmentProvider` to `config/manager_secret/{go,elixir}`, with the
+      same name transform and the same "empty variable is absent, not an empty credential" rule.
+- [ ] Cover it with the same tests the Rust side has (`tests/traits/`), including the mapping
+      case -- the transform is the contract every `--test_env` list is derived from.
+
+Two schema fields were added at the same time and are inert outside Rust: `database.admin_role`
+(the role that may CREATE/DROP, because `connecting_role` deliberately lacks CREATEDB) and
+`database.ca_bundle_url` (the CA is fetched from the published bundle, so no PEM is stored or
+forwarded anywhere). Both carry validator entries and rules in all three languages already.
+
 - [ ] `elixir/serviceradar_core/config/test.exs` — ~35 reads; collapse the **fourteen alias pairs**
       (`SERVICERADAR_TEST_DATABASE_X || SRQL_TEST_DATABASE_X` on adjacent lines 57-180)
 - [ ] `elixir/serviceradar_core/test/db/integration_env.exs` — incl. `URI.parse` of the DSN to

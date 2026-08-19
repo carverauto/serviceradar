@@ -19,13 +19,14 @@
 //! is substituted rather than rewritten, and the TLS posture is an enum that configures the
 //! connector directly instead of a string that has to survive a round trip.
 
-use anyhow::{Context, Result};
+use anyhow::{bail, Context, Result};
 use runfiles::Runfiles;
 use serviceradar_config_manager::{
-    ConfigManager, Dsn, Filesystem, Identity, DATABASE_CA_CERT, DATABASE_PASSWORD,
+    ConfigManager, Dsn, Filesystem, Identity, DATABASE_ADMIN_PASSWORD, DATABASE_CA_CERT,
+    DATABASE_PASSWORD,
 };
 use serviceradar_config_schema::TlsMode;
-use serviceradar_secret_manager::{FileProvider, Manifest, SecretManager};
+use serviceradar_secret_manager::{EnvironmentProvider, Manifest, SecretManager};
 
 /// This module's own repository, as MODULE.bazel declares it.
 ///
@@ -78,6 +79,7 @@ pub(crate) fn runfile(relative: &str) -> Result<std::path::PathBuf> {
 pub struct Fixture {
     manager: ConfigManager,
     password: String,
+    admin_password: String,
 }
 
 
@@ -102,21 +104,44 @@ impl Fixture {
         let manager = ConfigManager::load(&identity, built_ins, &Filesystem)
             .map_err(|e| anyhow::anyhow!("{e}"))?;
 
+        // Both roles, resolved together: a lifecycle that discovers the admin credential only
+        // when it first provisions fails halfway through a run rather than at its start.
         let secrets = SecretManager::new(
-            FileProvider::for_kind(identity.kind()),
-            Manifest::new([DATABASE_PASSWORD]),
+            EnvironmentProvider::for_kind(identity.kind()),
+            Manifest::new([DATABASE_PASSWORD, DATABASE_ADMIN_PASSWORD]),
         );
         let password = secrets
             .resolve(DATABASE_PASSWORD)
             .map_err(|e| anyhow::anyhow!("{e}"))?;
+        let admin_password = secrets
+            .resolve(DATABASE_ADMIN_PASSWORD)
+            .map_err(|e| anyhow::anyhow!("{e}"))?;
 
-        Ok(Self { manager, password: password.expose().to_string() })
+        Ok(Self {
+            manager,
+            password: password.expose().to_string(),
+            admin_password: admin_password.expose().to_string(),
+        })
     }
 
     /// The DSN for a specific database on the fixture server.
     pub fn database_url(&self, database: &str) -> Result<Dsn> {
         self.manager
             .database_url_named(database, &self.password)
+            .context("the loaded configuration has no usable database section")
+    }
+
+    /// The DSN for the role that may CREATE and DROP databases.
+    ///
+    /// A separate identity AND a separate password from [`Self::database_url`]: the suite
+    /// connects as the application role, which deliberately lacks CREATEDB.
+    pub fn admin_url_for(&self, database: &str) -> Result<Dsn> {
+        let role = self
+            .manager
+            .admin_role()
+            .context("database.admin_role is not set, so no role may create the run database")?;
+        self.manager
+            .database_url_as(role, database, &self.admin_password)
             .context("the loaded configuration has no usable database section")
     }
 
@@ -177,9 +202,19 @@ impl Fixture {
     ///
     /// Absent is legal: it is only required when the mode verifies.
     pub fn ca_pem(&self) -> Result<Option<Vec<u8>>> {
+        // A named bundle wins, and nothing carries the PEM. A cert-manager issuer rotates, so
+        // any copy -- a CI secret, an instance file, a mounted blob -- is correct until it is
+        // not, and the failure lands on whoever runs the suite that day rather than on whoever
+        // stored it. Reading the published bundle each run makes a stale CA impossible rather
+        // than merely unlikely.
+        if let Some(url) = self.manager.ca_bundle_url() {
+            let pem = fetch_ca_bundle(url)?;
+            return Ok(Some(pem));
+        }
+
         let identity = self.manager.identity();
         let secrets = SecretManager::new(
-            FileProvider::for_kind(identity.kind()),
+            EnvironmentProvider::for_kind(identity.kind()),
             Manifest::new([DATABASE_CA_CERT]),
         );
 
@@ -193,4 +228,25 @@ impl Fixture {
             },
         }
     }
+}
+
+/// Reads a published CA bundle.
+///
+/// Not a secret and not authenticated by us: a CA bundle is what a client needs BEFORE it can
+/// authenticate anything, so it is published unauthenticated and its integrity comes from the
+/// public PKI protecting the endpoint -- the same bootstrap shape as fetching a JWKS.
+fn fetch_ca_bundle(url: &str) -> Result<Vec<u8>> {
+    let body = ureq::get(url)
+        .call()
+        .with_context(|| format!("fetch CA bundle {url}"))?
+        .body_mut()
+        .read_to_string()
+        .with_context(|| format!("read CA bundle {url}"))?;
+
+    // A bundle that is not a certificate is a misrouted request -- a proxy error page, a login
+    // redirect -- and handing it to rustls produces "invalid certificate" far from the cause.
+    if !body.contains("BEGIN CERTIFICATE") {
+        bail!("{url} returned {} bytes that are not PEM", body.len());
+    }
+    Ok(body.into_bytes())
 }

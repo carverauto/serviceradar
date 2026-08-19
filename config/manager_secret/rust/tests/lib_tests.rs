@@ -6,4 +6,6 @@
 #[cfg(test)]
 mod errors;
 #[cfg(test)]
+mod traits;
+#[cfg(test)]
 mod types;

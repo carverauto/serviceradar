@@ -110,6 +110,36 @@ message DatabaseConfig {
   optional uint32 queue_target_ms = 10;
   optional uint32 queue_interval_ms = 11;
   optional uint32 ownership_timeout_ms = 12;
+
+  // The role that may CREATE and DROP databases, for a fixture that provisions one per run.
+  //
+  // A THIRD identity, because `connecting_role` cannot serve: the suite connects as the
+  // application role, and that role deliberately lacks CREATEDB. Deriving the admin identity
+  // from `connecting_role` is what made the lifecycle build an admin DSN naming a role with no
+  // rights -- reported by PostgreSQL as a permission error, which reads like a missing GRANT
+  // rather than the wrong user.
+  //
+  // Absent for every deployment: a service never creates databases, and requiring this would
+  // put a privileged identity in instance files that have no use for one. Its password is
+  // `database.admin_password`, resolved by SecretManager.
+  optional string admin_role = 13;
+
+  // Where the CA this server's certificate chains to is published.
+  //
+  // Configuration, not a secret: a CA bundle is public by construction -- it is what a client
+  // needs BEFORE it can authenticate anything, so it cannot itself be authenticated material.
+  // It sits here beside `tls_server_name` for the same reason that field does: both describe
+  // the SHAPE of trust, while the private key material SecretManager holds does not appear.
+  //
+  // A URL rather than the PEM, because a cert-manager issuer rotates. A copy pasted into a CI
+  // secret store or an instance file is correct until the next rotation and then silently is
+  // not -- which is what a stored SRQL_TEST_DATABASE_CA_CERT did, expiring on a date nobody
+  // was watching. Naming the endpoint means every client reads the CURRENT bundle and no
+  // human rotates anything.
+  //
+  // Absent means the CA comes from SecretManager (`database.ca_cert`) instead, for a
+  // deployment that mounts one.
+  optional string ca_bundle_url = 14;
 }
 
 // NATS coordinates. Credential material is resolved by SecretManager.

@@ -264,7 +264,7 @@ pub fn database_owner() -> Result<String> {
 pub fn admin_url() -> Result<String> {
     let fixture = config::Fixture::from_env()?;
     let database = fixture.admin_database()?.to_string();
-    Ok(fixture.database_url(&database)?.expose().to_string())
+    Ok(fixture.admin_url_for(&database)?.expose().to_string())
 }
 
 /// Connect with the admin credentials, optionally overriding the database.

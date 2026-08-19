@@ -118,6 +118,16 @@ func field(cfg *configpb.EnvironmentConfig, path string) (value, error) {
 			return absentValue, nil
 		}
 		return strValue(db.TlsServerName), nil
+	case "database.admin_role":
+		if db == nil {
+			return absentValue, nil
+		}
+		return strValue(db.AdminRole), nil
+	case "database.ca_bundle_url":
+		if db == nil {
+			return absentValue, nil
+		}
+		return strValue(db.CaBundleUrl), nil
 	case "database.search_path":
 		if db == nil {
 			return absentValue, nil

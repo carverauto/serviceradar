@@ -264,7 +264,7 @@ impl DatabaseTls {
             DATABASE_CLIENT_CERT, DATABASE_CLIENT_KEY,
         };
         use serviceradar_config_schema::TlsMode;
-        use serviceradar_secret_manager::{FileProvider, Manifest, SecretManager};
+        use serviceradar_secret_manager::{EnvironmentProvider, Manifest, SecretManager};
 
         let identity = Identity::from_env().map_err(|e| anyhow::anyhow!("{e}"))?;
         let manager = ConfigManager::load(&identity, built_ins(), &Filesystem)
@@ -291,7 +291,7 @@ impl DatabaseTls {
         }
 
         let secrets = SecretManager::new(
-            FileProvider::for_kind(identity.kind()),
+            EnvironmentProvider::for_kind(identity.kind()),
             Manifest::new([DATABASE_CA_CERT, DATABASE_CLIENT_CERT, DATABASE_CLIENT_KEY]),
         );
 

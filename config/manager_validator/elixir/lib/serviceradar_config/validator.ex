@@ -220,6 +220,8 @@ defmodule ServiceradarConfig.Validator do
   defp database_field(d, "owning_role"), do: str_value(Map.get(d, :owning_role))
   defp database_field(d, "tls_mode"), do: enum_value(Map.get(d, :tls_mode))
   defp database_field(d, "tls_server_name"), do: str_value(Map.get(d, :tls_server_name))
+  defp database_field(d, "admin_role"), do: str_value(Map.get(d, :admin_role))
+  defp database_field(d, "ca_bundle_url"), do: str_value(Map.get(d, :ca_bundle_url))
   defp database_field(d, "search_path"), do: str_value(Map.get(d, :search_path))
   defp database_field(d, "pool_size"), do: num_value(Map.get(d, :pool_size))
   defp database_field(d, "queue_target_ms"), do: num_value(Map.get(d, :queue_target_ms))

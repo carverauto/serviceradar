@@ -119,6 +119,8 @@ fn field<'a>(cfg: &'a EnvironmentConfig, path: &str) -> Result<Value<'a>, Unknow
             enum_name(d.tls_mode, |i| TlsMode::try_from(i).ok())
         }),
         "database.tls_server_name" => db.map_or(Value::Absent, |d| opt_str(&d.tls_server_name)),
+        "database.admin_role" => db.map_or(Value::Absent, |d| opt_str(&d.admin_role)),
+        "database.ca_bundle_url" => db.map_or(Value::Absent, |d| opt_str(&d.ca_bundle_url)),
         "database.search_path" => db.map_or(Value::Absent, |d| opt_str(&d.search_path)),
         "database.pool_size" => db.map_or(Value::Absent, |d| opt_u32(d.pool_size)),
         "database.queue_target_ms" => db.map_or(Value::Absent, |d| opt_u32(d.queue_target_ms)),

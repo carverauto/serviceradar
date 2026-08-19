@@ -59,6 +59,8 @@ impl Explanation {
             push("database.owning_role", db.owning_role.clone());
             push("database.tls_mode", enum_name(db.tls_mode, TlsMode::try_from));
             push("database.tls_server_name", db.tls_server_name.clone());
+            push("database.admin_role", db.admin_role.clone());
+            push("database.ca_bundle_url", db.ca_bundle_url.clone());
             push("database.search_path", db.search_path.clone());
             push("database.pool_size", db.pool_size.map(|v| v.to_string()));
         }

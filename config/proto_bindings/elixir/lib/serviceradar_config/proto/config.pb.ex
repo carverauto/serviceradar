@@ -91,6 +91,9 @@ defmodule Serviceradar.Config.V1.DatabaseConfig do
     proto3_optional: true,
     type: :uint32,
     json_name: "ownershipTimeoutMs"
+
+  field :admin_role, 13, proto3_optional: true, type: :string, json_name: "adminRole"
+  field :ca_bundle_url, 14, proto3_optional: true, type: :string, json_name: "caBundleUrl"
 end
 
 defmodule Serviceradar.Config.V1.NatsConfig do

@@ -58,7 +58,7 @@ fn an_unspecified_tls_mode_never_reaches_a_loaded_manager() {
 fn the_dsn_carries_the_typed_coordinates() {
     let dsn = manager_with(TlsMode::VerifyFull).database_url(PASSWORD).unwrap();
     let text = dsn.expose();
-    assert!(text.starts_with("postgres://srql_test:"), "{text}");
+    assert!(text.starts_with("postgres://srql:"), "{text}");
     assert!(text.contains("@db:5432/srql_fixture"), "{text}");
 }
 

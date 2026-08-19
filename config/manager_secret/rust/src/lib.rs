@@ -16,5 +16,8 @@ pub mod types;
 pub mod utils_tests;
 
 pub use errors::SecretError;
-pub use traits::{FileProvider, SecretProvider, LOCAL_SECRETS_SUBDIR, MOUNTED_SECRETS_DIR};
+pub use traits::{
+    EnvProvider, EnvironmentProvider, FileProvider, SecretProvider, LOCAL_SECRETS_SUBDIR,
+    MOUNTED_SECRETS_DIR, SECRET_ENV_PREFIX,
+};
 pub use types::{Manifest, Secret, SecretManager, REDACTED};

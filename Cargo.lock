@@ -6275,6 +6275,7 @@ dependencies = [
  "srql",
  "tokio",
  "tokio-postgres",
+ "ureq",
 ]
 
 [[package]]
