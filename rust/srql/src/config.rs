@@ -290,6 +290,19 @@ impl DatabaseTls {
             });
         }
 
+        // A named bundle wins over a stored copy, the same order //rust/integration-db uses. A
+        // cert-manager issuer rotates, so any copy is correct until it is not. Not consulting it
+        // here is what failed the srql integration tests against the CI fixture while the fixture
+        // lifecycle targets, which do consult it, connected fine.
+        if let Some(url) = manager.ca_bundle_url() {
+            return Ok(Self {
+                ca_pem: Some(fetch_ca_bundle(url)?),
+                client_cert_pem: None,
+                client_key_pem: None,
+                server_name: database.tls_server_name.clone(),
+            });
+        }
+
         let secrets = SecretManager::new(
             EnvironmentProvider::for_kind(identity.kind()),
             Manifest::new([DATABASE_CA_CERT, DATABASE_CLIENT_CERT, DATABASE_CLIENT_KEY]),
@@ -312,4 +325,25 @@ impl DatabaseTls {
             server_name: database.tls_server_name.clone(),
         })
     }
+}
+
+/// Reads the published CA bundle named by `database.ca_bundle_url`.
+///
+/// Not a secret and not authenticated by us: a CA bundle is what a client needs BEFORE it can
+/// authenticate anything, so it is published unauthenticated and its integrity comes from
+/// whatever protects the endpoint -- the same bootstrap shape as fetching a JWKS.
+pub fn fetch_ca_bundle(url: &str) -> Result<Vec<u8>> {
+    let body = ureq::get(url)
+        .call()
+        .with_context(|| format!("fetch CA bundle {url}"))?
+        .body_mut()
+        .read_to_string()
+        .with_context(|| format!("read CA bundle {url}"))?;
+
+    // A bundle that is not a certificate is a misrouted request -- a proxy error page, a login
+    // redirect -- and handing it to rustls produces "invalid certificate" far from the cause.
+    if !body.contains("BEGIN CERTIFICATE") {
+        anyhow::bail!("{url} returned {} bytes that are not PEM", body.len());
+    }
+    Ok(body.into_bytes())
 }

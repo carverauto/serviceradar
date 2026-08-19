@@ -19,7 +19,7 @@
 //! is substituted rather than rewritten, and the TLS posture is an enum that configures the
 //! connector directly instead of a string that has to survive a round trip.
 
-use anyhow::{bail, Context, Result};
+use anyhow::{Context, Result};
 use runfiles::Runfiles;
 use serviceradar_config_manager::{
     ConfigManager, Dsn, Filesystem, Identity, DATABASE_ADMIN_PASSWORD, DATABASE_CA_CERT,
@@ -216,7 +216,7 @@ impl Fixture {
         // stored it. Reading the published bundle each run makes a stale CA impossible rather
         // than merely unlikely.
         if let Some(url) = self.manager.ca_bundle_url() {
-            let pem = fetch_ca_bundle(url)?;
+            let pem = srql::config::fetch_ca_bundle(url)?;
             return Ok(Some(pem));
         }
 
@@ -236,25 +236,4 @@ impl Fixture {
             },
         }
     }
-}
-
-/// Reads a published CA bundle.
-///
-/// Not a secret and not authenticated by us: a CA bundle is what a client needs BEFORE it can
-/// authenticate anything, so it is published unauthenticated and its integrity comes from the
-/// public PKI protecting the endpoint -- the same bootstrap shape as fetching a JWKS.
-fn fetch_ca_bundle(url: &str) -> Result<Vec<u8>> {
-    let body = ureq::get(url)
-        .call()
-        .with_context(|| format!("fetch CA bundle {url}"))?
-        .body_mut()
-        .read_to_string()
-        .with_context(|| format!("read CA bundle {url}"))?;
-
-    // A bundle that is not a certificate is a misrouted request -- a proxy error page, a login
-    // redirect -- and handing it to rustls produces "invalid certificate" far from the cause.
-    if !body.contains("BEGIN CERTIFICATE") {
-        bail!("{url} returned {} bytes that are not PEM", body.len());
-    }
-    Ok(body.into_bytes())
 }

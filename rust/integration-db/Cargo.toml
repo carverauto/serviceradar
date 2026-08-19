@@ -23,7 +23,3 @@ srql = { path = "../srql" }
 # accident rather than a dependency -- the retry breaks the day that changes.
 tokio = { workspace = true, features = ["macros", "rt-multi-thread", "time"] }
 tokio-postgres = { workspace = true }
-# Reads the published CA bundle named by database.ca_bundle_url. Defaults kept deliberately:
-# ureq's TLS transport IS a default feature, and disabling defaults removes it in a way the
-# compiler cannot catch -- it builds and then cannot speak https at runtime.
-ureq = { workspace = true }

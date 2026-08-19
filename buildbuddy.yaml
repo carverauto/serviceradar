@@ -79,6 +79,52 @@ actions:
           set -euo pipefail
           umask 077
 
+          # PATH GATE. This step is the long pole of the workflow and most of the repo cannot
+          # reach it -- elixir/web-ng contributes zero files to it, for instance. The set of
+          # inputs comes from the BUILD GRAPH, not a hand-kept path list, so a new dependency is
+          # honoured without editing anything here.
+          #
+          # EVERY UNCERTAIN PATH RUNS: a wrong skip is a broken integration test reaching
+          # staging, a wrong run costs minutes. So a failed fetch, an empty diff, an empty query
+          # and an unreadable base all fall through to running.
+          base_ref="staging" # what triggers.pr.branches names
+          gate_decision="run"
+          gate_changed=""
+          if git fetch --quiet --depth=1 --filter=blob:none origin "$base_ref" 2>/dev/null; then
+            # Two-dot against the base TIP, not a merge base: --depth=1 leaves no common
+            # ancestor to compute one from. It over-reports files that moved on staging, which
+            # is the safe direction. --no-renames keeps a blobless clone from faulting blobs in.
+            gate_changed="$(git diff --name-only --no-renames FETCH_HEAD HEAD 2>/dev/null || true)"
+          fi
+          if [ -n "$gate_changed" ]; then
+            case "$gate_changed" in
+              # Nothing declares these as an input, and each one changes how everything builds.
+              *.bazelrc*|*MODULE.bazel*|*buildbuddy.yaml*|*Cargo.lock*|*tools/bazel/*) ;;
+              *)
+                gate_dir="$(mktemp -d "${TMPDIR:-/tmp}/serviceradar-gate.XXXXXX")"
+                printf '%s\n' "$gate_changed" | sort -u >"$gate_dir/changed"
+                # Loading-phase only, and step 2 already loaded every package, so this is cheap.
+                bazel query --noshow_progress "kind('source file', deps(
+                    attr('tags', 'integration_test', //...)
+                    + //rust/integration-db:sweep_stale_dbs
+                    + //rust/integration-db:prepare_template
+                    + //rust/integration-db:provision_db
+                    + //rust/integration-db:teardown_db
+                    + //elixir/serviceradar_core:migrate_template))" 2>/dev/null \
+                  | grep '^//' | sed -e 's|^//||' -e 's|:|/|' -e 's|^/||' | sort -u >"$gate_dir/inputs" || true
+                if [ -s "$gate_dir/inputs" ] && ! grep -qxF -f "$gate_dir/changed" "$gate_dir/inputs"; then
+                  gate_decision="skip"
+                fi
+                rm -rf "$gate_dir"
+                ;;
+            esac
+          fi
+          if [ "$gate_decision" = "skip" ]; then
+            echo "PATH GATE: none of these is a declared input of an integration target, skipping the database lifecycle:"
+            printf '%s\n' "$gate_changed" | sed 's/^/  /'
+            exit 0
+          fi
+
           export SERVICERADAR_ENV=ci
 
           # Generate a stable id for the entire run.
