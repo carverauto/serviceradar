@@ -203,8 +203,10 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.DeviceSupplementalData do
       northbound_device_history_error: northbound_device_history_error,
       interface_availability: interface_availability,
       flow_availability: flow_availability,
-      has_ifaces: interface_availability != :unavailable,
-      has_flows: flow_availability != :unavailable,
+      # :unknown (probe timeout) used to count as "has interfaces/flows" so the
+      # tab appeared on devices with none; clicking then loaded empty and hid it.
+      has_ifaces: interface_availability == :available,
+      has_flows: flow_availability == :available,
       has_logs: has_logs,
       has_mtr: has_mtr,
       snmp_polling_source: Map.get(parallel_results, :snmp_polling, SNMPPollingSource.empty())
@@ -362,7 +364,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.DeviceSupplementalData do
     tasks ++
       [
         DeviceTaskData.timed(slow_device_task_ms, :has_flows, fn ->
-          detect_has_flows(srql_module, uid, scope)
+          FlowData.has_flows?(srql_module, uid, scope)
         end)
       ]
   end
@@ -466,13 +468,4 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.DeviceSupplementalData do
   end
 
   defp determine_has_logs(false, _logs_error, _device_logs, _probe), do: true
-
-  defp detect_has_flows(srql_module, device_uid, scope) do
-    query = QueryData.default_flows_query(device_uid) <> " limit:1"
-
-    case srql_module.query(query, %{scope: scope}) do
-      {:ok, %{"results" => [_ | _]}} -> true
-      _ -> false
-    end
-  end
 end
