@@ -859,13 +859,13 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
 
   defp resolve_component_type!(identity, component_id) do
     case Map.get(identity, :component_type) do
-      component_type when is_atom(component_type) ->
-        {identity, component_type}
-
       nil ->
         Logger.warning("Component type missing from client certificate: component_id=#{component_id}")
 
         raise GRPC.RPCError, status: :permission_denied, message: "component_type missing"
+
+      component_type when is_atom(component_type) ->
+        {identity, component_type}
 
       _ ->
         Logger.warning("Invalid component type in client certificate: component_id=#{component_id}")

@@ -34,7 +34,6 @@ use tower::ServiceExt;
 const API_KEY: &str = "test-api-key";
 const DB_CONNECT_RETRIES: usize = 240;
 const DB_CONNECT_DELAY_MS: u64 = 250;
-const DB_SEED_RETRIES: usize = 3;
 const REMOTE_FIXTURE_LOCK_ID: i64 = 4_216_042;
 
 static TRACING_INIT: Once = Once::new();
@@ -50,17 +49,10 @@ where
         let _ = tracing_subscriber::fmt::try_init();
     });
 
-    let remote_config = match RemoteFixtureConfig::from_env()
-        .expect("failed to read remote fixture config")
-    {
-        Some(config) => config,
-        None => {
-            eprintln!(
-                "[srql-test] skipping SRQL harness: SRQL_TEST_DATABASE_URL and SRQL_TEST_ADMIN_URL are not set"
-            );
-            return;
-        }
-    };
+    // No skip arm. This returned early when the fixture was unresolvable, which is how three
+    // targets stayed green while asserting nothing.
+    let remote_config =
+        RemoteFixtureConfig::from_env().expect("failed to resolve the fixture for this target");
 
     run_with_remote_fixture(remote_config, test).await;
 }
@@ -88,9 +80,12 @@ where
         .expect("failed to seed fixture database");
 
     let app_config = test_config(config.database_url.clone(), &tls_config);
+    // Not unwrap_or(false): seeding already ran `CREATE EXTENSION IF NOT EXISTS age` and fails
+    // if it cannot, so an Err here means the check itself broke. Defaulting it to false quietly
+    // downgraded every AGE-gated assertion instead.
     let age_available = check_age_available(&config.database_url, &tls_config)
         .await
-        .unwrap_or(false);
+        .expect("failed to check whether AGE is available");
     let server = Server::new(app_config)
         .await
         .expect("failed to boot SRQL server for remote harness");
@@ -131,26 +126,17 @@ fn test_config(database_url: String, tls_config: &FixtureTlsConfig) -> AppConfig
     }
 }
 
+/// Seeds once, and a failure is the answer.
+///
+/// This retried three times, which only ever helped when another target was resetting the same
+/// database underneath it -- so it converted an isolation bug into an intermittent one. Each
+/// target now owns its database, leaving nothing for a retry to win: a failure here means the
+/// schema or seed is wrong.
 async fn seed_fixture_database(
     database_url: &str,
     tls_config: &FixtureTlsConfig,
 ) -> anyhow::Result<()> {
-    let mut attempts = 0usize;
-    loop {
-        match seed_fixture_database_once(database_url, tls_config).await {
-            Ok(()) => return Ok(()),
-            Err(err) => {
-                attempts += 1;
-                if attempts >= DB_SEED_RETRIES {
-                    return Err(err);
-                }
-                eprintln!(
-                    "[srql-test] seeding attempt {attempts} failed: {err}; retrying fixture setup"
-                );
-                sleep(TokioDuration::from_millis(DB_CONNECT_DELAY_MS)).await;
-            }
-        }
-    }
+    seed_fixture_database_once(database_url, tls_config).await
 }
 
 async fn seed_fixture_database_once(
@@ -295,23 +281,37 @@ impl RemoteFixtureConfig {
     /// also retires `parse_fixture_pg_config` and its sslmode rewriting -- the verifying modes
     /// tokio-postgres rejects never reach a parser, because the posture is a typed enum that
     /// configures the connector.
-    fn from_env() -> anyhow::Result<Option<Self>> {
-        let fixture = match db::config::Fixture::from_env() {
-            Ok(fixture) => fixture,
-            // Absent fixture coordinates is "skip", exactly as two unset variables used to be.
-            Err(_) => return Ok(None),
-        };
+    fn from_env() -> anyhow::Result<Self> {
+        // FAILS rather than skips. Reaching this code already means the caller passed
+        // --//build:enable_integration_tests, because requires_shared_fixture() makes the target
+        // incompatible otherwise -- so an unreachable fixture here is a broken run, not an
+        // absent opt-in. Returning Ok(None) turned that into a green target asserting nothing.
+        let fixture = db::config::Fixture::from_env().context(
+            "the fixture did not resolve; this target opted in with \
+             --//build:enable_integration_tests, so this is a failure and not a skip",
+        )?;
 
-        let database_name = fixture.database_name()?.to_string();
+        // This target's OWN database, not the shared fixture. Three targets that all reset
+        // `database.database` delete each other's schema mid-run; //build/integration_shards.bzl
+        // records the same lesson for the Elixir shards, measured as 40P01 deadlock_detected.
+        // teardown_db drops everything matching this run id, so nothing new cleans up.
+        let suffix = std::env::var("SRQL_TEST_DB_SUFFIX").context(
+            "SRQL_TEST_DB_SUFFIX is set by this target's `env` in BUILD.bazel and names its \
+             disposable database",
+        )?;
+        let database_name = db::shard_database_name(&suffix)?;
         let database_owner = fixture.owning_role()?.to_string();
         let admin_database = fixture.admin_database()?.to_string();
 
-        Ok(Some(Self {
+        Ok(Self {
             database_url: fixture.database_url(&database_name)?.expose().to_string(),
-            admin_url: fixture.database_url(&admin_database)?.expose().to_string(),
+            // admin_url_for, not database_url: the latter resolves connecting_role (`srql`),
+            // which ci.textproto deliberately denies CREATEDB, so every CREATE/DROP DATABASE
+            // below would be refused.
+            admin_url: fixture.admin_url_for(&admin_database)?.expose().to_string(),
             database_name,
             database_owner,
-        }))
+        })
     }
 }
 
@@ -341,6 +341,11 @@ impl RemoteFixtureGuard {
         config: &RemoteFixtureConfig,
         tls_config: &FixtureTlsConfig,
     ) -> anyhow::Result<()> {
+        // The guard //rust/integration-db already owns: refuse anything outside the disposable
+        // prefix. Without it this terminates backends on, and drops, whatever name it was handed
+        // -- which was `database.database`, the fixture concurrent branches share.
+        db::assert_disposable(&config.database_name)?;
+
         let terminate_sql = format!(
             "SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = {} AND pid <> pg_backend_pid();",
             quote_literal(&config.database_name)
@@ -368,10 +373,10 @@ impl RemoteFixtureGuard {
         config: &RemoteFixtureConfig,
         tls_config: &FixtureTlsConfig,
     ) -> anyhow::Result<()> {
-        let mut extension_config: PgConfig = config
-            .admin_url
-            .parse()
-            .map_err(|err| anyhow::anyhow!("SRQL_TEST_ADMIN_URL is invalid: {err}"))?;
+        // db::parse_pg_config, not a bare parse: the assembled DSN carries sslmode=verify-full,
+        // which tokio-postgres rejects outright. The shared parser strips it and the connector
+        // re-establishes verification.
+        let mut extension_config = db::parse_pg_config(&config.admin_url, "database.admin_url")?;
         extension_config.dbname(&config.database_name);
         let (client, task) =
             connect_with_tls(extension_config, "remote extension", tls_config).await?;

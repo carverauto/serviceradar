@@ -831,8 +831,6 @@ defmodule ServiceRadarAgentGateway.ControlStreamSession do
     end
   end
 
-  defp forward_config_push(state, _config), do: state
-
   # A full config without an authoritative version cannot be represented in
   # live pending evidence or correlated with a later ACK. Never put such a
   # transition on the authenticated stream; otherwise a console open could be
@@ -887,8 +885,6 @@ defmodule ServiceRadarAgentGateway.ControlStreamSession do
         }
     end
   end
-
-  defp mark_config_push_pending(state, _config), do: state
 
   defp acknowledge_pending_config(state, version) do
     version = normalize_config_version(version)

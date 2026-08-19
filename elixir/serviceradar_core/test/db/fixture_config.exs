@@ -90,13 +90,15 @@ defmodule ServiceRadar.DB.FixtureConfig do
     relative = Path.join("config/environments", "#{kind}.binpb")
 
     candidates =
-      [
-        Path.join("../..", relative),
-        relative,
-        runfiles_candidate("TEST_SRCDIR", relative),
-        runfiles_candidate("RUNFILES_DIR", relative)
-      ]
-      |> Enum.reject(&is_nil/1)
+      Enum.reject(
+        [
+          Path.join("../..", relative),
+          relative,
+          runfiles_candidate("TEST_SRCDIR", relative),
+          runfiles_candidate("RUNFILES_DIR", relative)
+        ],
+        &is_nil/1
+      )
 
     Enum.find(candidates, &File.exists?/1) ||
       raise """
@@ -168,9 +170,14 @@ defmodule ServiceRadar.DB.FixtureConfig do
     secrets = EnvironmentProvider.manager(identity.kind, Manifest.new([name]))
 
     case {ServiceradarSecret.resolve(secrets, name), verifying?(manager)} do
-      {{:ok, secret}, _} -> Secret.expose(secret)
-      {{:error, _}, false} -> nil
-      {{:error, reason}, true} -> raise "tls_mode verifies the server, so #{name} is required: #{inspect(reason)}"
+      {{:ok, secret}, _} ->
+        Secret.expose(secret)
+
+      {{:error, _}, false} ->
+        nil
+
+      {{:error, reason}, true} ->
+        raise "tls_mode verifies the server, so #{name} is required: #{inspect(reason)}"
     end
   end
 
@@ -188,7 +195,9 @@ defmodule ServiceRadar.DB.FixtureConfig do
     {:ok, _} = Application.ensure_all_started(:inets)
     {:ok, _} = Application.ensure_all_started(:ssl)
 
-    case :httpc.request(:get, {String.to_charlist(url), []}, http_options(url), body_format: :binary) do
+    case :httpc.request(:get, {String.to_charlist(url), []}, http_options(url),
+           body_format: :binary
+         ) do
       {:ok, {{_version, 200, _reason}, _headers, body}} ->
         # A bundle that is not a certificate is a misrouted request -- a proxy error page, a
         # login redirect -- and handing it to :ssl produces "invalid certificate" far from the

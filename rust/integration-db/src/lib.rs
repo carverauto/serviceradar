@@ -816,6 +816,10 @@ mod tests {
         assert!(assert_disposable("sr_core_test_123_1").is_ok());
         assert!(assert_disposable("serviceradar_web_ng_test").is_err());
         assert!(assert_disposable("postgres").is_err());
+
+        // The srql harness reset `database.database` -- the fixture concurrent branches share --
+        // without consulting this guard. It now calls it, so this name must stay rejected.
+        assert!(assert_disposable("srql_fixture").is_err());
     }
 
 

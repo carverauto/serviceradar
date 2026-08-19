@@ -32,8 +32,6 @@ defmodule ServiceRadar.Integrations.IntegrationSource do
   alias ServiceRadar.Infrastructure.Agent
   alias ServiceRadar.Integrations.Changes.PublishSyncLog
 
-  require Logger
-
   @source_fields [
     :name,
     :endpoint,

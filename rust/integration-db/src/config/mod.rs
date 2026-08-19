@@ -163,11 +163,11 @@ impl Fixture {
     }
 
     /// The database the admin connection targets when none is named.
+    /// The maintenance database an admin connection opens, so CREATE/DROP DATABASE never runs
+    /// from inside the database being created or dropped -- and is not killed when something
+    /// terminates the fixture's backends.
     pub fn admin_database(&self) -> Result<&str> {
-        self.manager
-            .database()
-            .and_then(|d| d.database.as_deref())
-            .context("database.database is not set")
+        Ok("postgres")
     }
 
     /// The TLS posture, typed.

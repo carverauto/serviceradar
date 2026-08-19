@@ -273,9 +273,22 @@ defmodule ServiceRadar.Cluster.StartupMigrations do
           "ALTER ROLE #{quote_ident(app_user)} WITH PASSWORD #{quote_literal(app_password)}"
         )
       else
-        ServiceRadar.Repo.query!(
-          "CREATE ROLE #{quote_ident(app_user)} LOGIN PASSWORD #{quote_literal(app_password)}"
-        )
+        # A role is CLUSTER-WIDE, so the check above is not atomic with this create: a concurrent
+        # bootstrap can take the gap and this raises 42710. Converge on ALTER rather than fail.
+        try do
+          ServiceRadar.Repo.query!(
+            "CREATE ROLE #{quote_ident(app_user)} LOGIN PASSWORD #{quote_literal(app_password)}"
+          )
+        rescue
+          error in Postgrex.Error ->
+            if duplicate_ddl_error?(error) do
+              ServiceRadar.Repo.query!(
+                "ALTER ROLE #{quote_ident(app_user)} WITH PASSWORD #{quote_literal(app_password)}"
+              )
+            else
+              reraise error, __STACKTRACE__
+            end
+        end
       end
 
       ServiceRadar.Repo.query!(

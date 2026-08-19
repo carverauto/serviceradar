@@ -26,8 +26,6 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.Loader do
 
   alias ServiceRadar.Repo
 
-  require Logger
-
   @default_chunk_size 2_000
   # Each coordinate row is ~16 bind params. Postgrex caps a statement at 65_535
   # params; 2_000 rows stays well under that when a single NVD advisory expands
