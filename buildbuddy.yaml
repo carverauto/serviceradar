@@ -60,10 +60,6 @@ actions:
           bazel test -c opt --config=ci --//build:enable_integration_tests
           //... --test_tag_filters=-integration_test,-acceptance_test
 
-      # Largely a cache hit from the //... build above; same configuration for the same reason.
-      - run: >-
-          bazel build -c opt --config=ci --//build:enable_integration_tests //:images
-
       # The database lifecycle. ONE step: the invocations share a shell, and BuildBuddy has no
       # `if: always()`, so a trap is the only way to guarantee teardown after a red suite.
       #

@@ -115,10 +115,8 @@ build:remote_base --noenable_platform_specific_config
 
 # CI profile on top of the remote config
 build:ci --config=remote_base
-
 # Only the cap differs from remote_base: the node volume can hold more than a laptop.
 build:ci --experimental_disk_cache_gc_max_size=100G
-
 build:ci --keep_going
 build:ci --build_metadata=REPO_URL=https://github.com/carverauto/serviceradar.git
 build:ci --build_metadata=ROLE=CI
