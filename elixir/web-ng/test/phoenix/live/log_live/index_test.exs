@@ -99,7 +99,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.IndexTest do
 
   test "stale deferred log loads do not overwrite the current card query", %{conn: conn} do
     current_query =
-      "in:logs severity_text:(fatal,critical,emergency,alert) time:last_24h sort:timestamp:desc"
+      "in:logs severity_text:(fatal,emergency,alert) time:last_24h sort:timestamp:desc"
 
     {:ok, lv, _html} =
       live(conn, ~p"/observability?#{%{tab: "logs", q: current_query, limit: 20}}")

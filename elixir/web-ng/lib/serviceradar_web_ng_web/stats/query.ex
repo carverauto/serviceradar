@@ -8,8 +8,8 @@ defmodule ServiceRadarWebNGWeb.Stats.Query do
 
   @default_time_window "last_24h"
   @log_severity_values %{
-    fatal: ~w(fatal critical emergency alert),
-    error: ~w(error err),
+    fatal: ~w(fatal emergency alert),
+    error: ~w(error err critical),
     warning: ~w(warning warn),
     info: ~w(info information informational notice),
     debug: ~w(debug trace)
