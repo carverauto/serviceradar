@@ -355,7 +355,7 @@ defmodule ServiceRadar.CompositeChecks.Validation.Orchestrator do
   # (farm01's event-writer often lags the ScanRun completion payload), use
   # hosts_up: 0 => every target blocked, hosts_up == target count => every
   # target up. A partial hosts_up on a multi-target scan cannot be mapped.
-  defp availability_by_ip(scan, results) when is_list(results) and results != [] do
+  defp availability_by_ip(_scan, results) when is_list(results) and results != [] do
     results
     |> Enum.group_by(&to_string(&1.target_ip))
     |> Map.new(fn {ip, rows} -> {ip, Enum.any?(rows, & &1.available)} end)
