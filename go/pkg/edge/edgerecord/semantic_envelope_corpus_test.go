@@ -2559,7 +2559,7 @@ func TestSemanticFixturesHaveNoValueCollisions(t *testing.T) {
 	// two capability `claims` discriminants are both 8 in the shape where both capabilities carry
 	// `source` claims, and no fixture could ever make them differ THERE -- but they are 7 and 8
 	// in the base shape, so swapping the two writes does move bytes, and the pair is separated.
-	// INDEXED BY FIXTURE, not a flat occurrence list. The cross product is 315 fixtures, and
+	// INDEXED BY FIXTURE, not a flat occurrence list. The cross product is 1983 fixtures, and
 	// comparing every pair of labels by scanning both occurrence lists is quadratic in fixtures
 	// on top of quadratic in labels -- hundreds of millions of comparisons. Keyed lookup makes it
 	// linear in the fixtures one label appears in.

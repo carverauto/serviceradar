@@ -28,10 +28,11 @@ name: Proto ABI
 # there is no second generator to drift against and no Bazel-vs-Make parity gate.
 # `make verify-proto-go` / `make verify-proto-elixir` (regenerate into a clean temp
 # tree, then compare the file manifest AND bytes vs committed) are the sole drift
-# guards. This job needs no Bazel toolchain because `main.yml` already runs the full
-# Go/Elixir/Bazel graph on every pull request -- its `pull_request:` trigger is
-# unrestricted, so stacked PRs get the edge Bazel build there too. That full-CI/Bazel
-# check must remain a required status.
+# guards. This job needs no Bazel toolchain because `main.yml` ran the full
+# Go/Elixir/Bazel graph on every pull request -- ON FORGEJO. THAT WORKFLOW IS NOT MIGRATED,
+# so on THIS host nothing else runs the edge Bazel build and the sentence below about a
+# required full-CI status describes the old host, not this one. It is kept because it
+# states the intended end state; it is not a description of current coverage.
 #
 # The pull_request and push path lists MUST stay identical (Forgejo's parser does
 # not support YAML anchors, so they are duplicated verbatim).

@@ -20,6 +20,8 @@ import (
 	"go/ast"
 	"go/parser"
 	"go/token"
+	"os"
+	"path/filepath"
 	"sort"
 	"strings"
 	"testing"
@@ -46,12 +48,50 @@ func TestSemanticFramingBranchesOnlyOnDeclaredAxes(t *testing.T) {
 
 	var violations []string
 
+	files := map[string]*ast.File{}
+
 	for _, file := range []string{"semantic.go", "claims_framing.go"} {
-		f, err := parser.ParseFile(fset, file, nil, 0)
+		f, err := parser.ParseFile(fset, semFramerSourcePath(t, file), nil, 0)
 		if err != nil {
 			t.Fatalf("parse %s: %v", file, err)
 		}
 
+		files[file] = f
+	}
+
+	// PASS ONE: which parameter of each framer is its PRESENCE FLAG. Collected from the sources
+	// rather than listed, so a framer that gains one is covered without editing this test.
+	boolParams := map[string][]int{}
+
+	for _, f := range files {
+		for _, decl := range f.Decls {
+			fn, ok := decl.(*ast.FuncDecl)
+			if !ok || !semIsFramerFunc(fn) {
+				continue
+			}
+
+			idx := 0
+
+			for _, field := range fn.Type.Params.List {
+				id, isIdent := field.Type.(*ast.Ident)
+				n := len(field.Names)
+
+				if n == 0 {
+					n = 1
+				}
+
+				for range n {
+					if isIdent && id.Name == "bool" {
+						boolParams[fn.Name.Name] = append(boolParams[fn.Name.Name], idx)
+					}
+
+					idx++
+				}
+			}
+		}
+	}
+
+	for _, f := range files {
 		for _, decl := range f.Decls {
 			fn, ok := decl.(*ast.FuncDecl)
 			if !ok || !semIsFramerFunc(fn) {
@@ -78,6 +118,8 @@ func TestSemanticFramingBranchesOnlyOnDeclaredAxes(t *testing.T) {
 				case *ast.ForStmt, *ast.RangeStmt:
 					violations = append(violations, semViolation(fset, fn, stmt,
 						"loop: the write sequence must be straight-line"))
+				case *ast.CallExpr:
+					violations = append(violations, semCallViolations(fset, fn, stmt, flags, boolParams)...)
 				}
 
 				return true
@@ -242,4 +284,134 @@ func semViolation(fset *token.FileSet, fn *ast.FuncDecl, n ast.Node, why string)
 	pos := fset.Position(n.Pos())
 
 	return fn.Name.Name + " at " + pos.String() + ": " + why
+}
+
+// semCallViolations is the ARGUMENT-PROVENANCE half of the guard.
+//
+// CONTROL-FLOW SYNTAX ALONE IS FAIL-OPEN, and this is the hole it left: a presence flag is
+// COMPUTED AT THE CALL SITE and passed in, so
+//
+//	d.outputContract(c, c != nil && r.GetProjectedRowCount() != 42)
+//
+// contains no `if` at all. It passed the syntax check and the entire suite while making an
+// admitted 42-row record frame its non-nil contract exactly like an absent one. A framer's
+// presence argument must therefore satisfy the SAME predicate its own `if` would have to.
+//
+// AND THE CALLEE SURFACE IS CLOSED, because `d.outputContract(c, somePredicate(r))` moves the
+// branch into a function this test never reads. Only digestWriter methods, proto getters, the
+// digest constructor, and value conversions may be called from a framer -- anything else is a
+// place for order to depend on a payload value out of sight.
+func semCallViolations(fset *token.FileSet, fn *ast.FuncDecl, call *ast.CallExpr,
+	flags map[string]bool, boolParams map[string][]int,
+) []string {
+	var out []string
+
+	if !semAllowedCallee(call.Fun) {
+		return append(out, semViolation(fset, fn, call,
+			"calls something other than a digestWriter method, a proto getter or a conversion: "+
+				"framing order must not depend on a function this guard cannot read"))
+	}
+
+	sel, ok := call.Fun.(*ast.SelectorExpr)
+	if !ok {
+		return out
+	}
+
+	recv, ok := sel.X.(*ast.Ident)
+	if !ok || recv.Name != "d" {
+		return out
+	}
+
+	for _, i := range boolParams[sel.Sel.Name] {
+		if i >= len(call.Args) {
+			continue
+		}
+
+		if !semAllowedPresenceCond(call.Args[i], flags) {
+			out = append(out, semViolation(fset, fn, call.Args[i],
+				"presence argument to "+sel.Sel.Name+" is not a presence expression"))
+		}
+	}
+
+	return out
+}
+
+// semAllowedCallee closes the call surface a framer may reach.
+func semAllowedCallee(fun ast.Expr) bool {
+	switch f := fun.(type) {
+	case *ast.Ident:
+		return semAllowedPlainCalls[f.Name]
+	case *ast.ArrayType, *ast.InterfaceType:
+		// a conversion such as []byte(s)
+		return true
+	case *ast.SelectorExpr:
+		if id, ok := f.X.(*ast.Ident); ok && id.Name == "d" {
+			return true
+		}
+
+		if strings.HasPrefix(f.Sel.Name, "Get") {
+			return true
+		}
+
+		return semAllowedQualifiedCalls[semExprString(f)]
+	case *ast.ParenExpr:
+		return semAllowedCallee(f.X)
+	}
+
+	return false
+}
+
+// semAllowedPlainCalls and semAllowedQualifiedCalls are the ONLY non-framer, non-getter calls a
+// framer may make. Widening either is a deliberate act.
+var semAllowedPlainCalls = map[string]bool{
+	"uint64": true, "int64": true, "uint32": true, "int32": true, "byte": true, "string": true,
+	"len": true, "append": true, "newDigest": true,
+	"semanticEnvelopeDigestWithVersion": true,
+}
+
+var semAllowedQualifiedCalls = map[string]bool{
+	"sha256.Sum256":              true,
+	"binary.BigEndian.PutUint64": true,
+}
+
+func semExprString(e ast.Expr) string {
+	switch x := e.(type) {
+	case *ast.Ident:
+		return x.Name
+	case *ast.SelectorExpr:
+		return semExprString(x.X) + "." + x.Sel.Name
+	}
+
+	return ""
+}
+
+// semFramerSourcePath finds a framer source under `go test` AND under Bazel.
+//
+// A GUARD THAT CANNOT OPEN ITS SUBJECT MUST FAIL, NOT SKIP. Under Bazel the working directory is
+// the runfiles tree, not the package directory, so a bare relative path resolves to nothing --
+// and a test that quietly found no files would report no violations, which is the same green as
+// a clean tree. The candidates are tried in order and the last resort is a hard failure.
+func semFramerSourcePath(t *testing.T, name string) string {
+	t.Helper()
+
+	candidates := []string{name}
+
+	if dir := os.Getenv("TEST_SRCDIR"); dir != "" {
+		wsp := os.Getenv("TEST_WORKSPACE")
+		candidates = append(candidates,
+			filepath.Join(dir, wsp, "go", "pkg", "edge", "edgerecord", name),
+			filepath.Join(dir, "go", "pkg", "edge", "edgerecord", name),
+		)
+	}
+
+	for _, c := range candidates {
+		if _, err := os.Stat(c); err == nil {
+			return c
+		}
+	}
+
+	t.Fatalf("cannot locate framer source %s (tried %v); a guard that cannot read its subject "+
+		"reports no violations, which is indistinguishable from a clean tree", name, candidates)
+
+	return ""
 }
