@@ -36,6 +36,7 @@ go_test(
         "collector_test.go",
         "service_deadlock_test.go",
         "service_test.go",
+        "walk_test.go",
     ],
     embed = [":snmp"],
     embedsrcs = ["service.go"],

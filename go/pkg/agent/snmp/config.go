@@ -51,6 +51,13 @@ const (
 	defaultMaxPoints    = 1000
 	maxOIDNameLength    = 64
 	maxTargetNameLength = 128
+
+	// Walk bounds. A walked OID returns as many rows as the device wants to
+	// report, so both a row cap and a wall-clock cap are always in effect - an
+	// unbounded walk of a large or looping table would stall the poll loop.
+	defaultWalkMaxRows        = 5000
+	defaultWalkTimeout        = 30 * time.Second
+	defaultWalkResultCapacity = 64
 )
 
 // Validate implements config.Validator interface.
@@ -211,7 +218,49 @@ func validateOIDConfig(oid *OIDConfig, oidNames map[string]bool) error {
 		oid.Scale = 1.0 // Set default scale
 	}
 
+	// Validate retrieval mode and walk bounds
+	return validateOIDMode(oid)
+}
+
+// validateOIDMode validates the retrieval mode and its walk bounds. An empty mode
+// is left empty rather than normalized, so a config written before walk support
+// existed serializes and hashes exactly as it did before.
+func validateOIDMode(oid *OIDConfig) error {
+	switch oid.Mode {
+	case "", ModeGet, ModeWalk:
+	default:
+		return fmt.Errorf("%w %s", errInvalidOIDMode, oid.Mode)
+	}
+
+	if oid.MaxRows < 0 {
+		return errInvalidWalkMaxRows
+	}
+
+	if time.Duration(oid.WalkTimeout) < 0 {
+		return errInvalidWalkTimeout
+	}
+
 	return nil
+}
+
+// walkRowLimit returns the row cap for a walk of this OID, falling back to the
+// default when the config leaves it unset.
+func (o *OIDConfig) walkRowLimit() int {
+	if o.MaxRows <= 0 {
+		return defaultWalkMaxRows
+	}
+
+	return o.MaxRows
+}
+
+// walkTimeout returns the wall-clock bound for a walk of this OID, falling back
+// to the default when the config leaves it unset.
+func (o *OIDConfig) walkTimeout() time.Duration {
+	if time.Duration(o.WalkTimeout) <= 0 {
+		return defaultWalkTimeout
+	}
+
+	return time.Duration(o.WalkTimeout)
 }
 
 func isValidNameChar(r rune) bool {

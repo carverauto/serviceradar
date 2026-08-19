@@ -109,6 +109,7 @@ func (d *Duration) UnmarshalJSON(b []byte) error {
 // DataPoint represents a single collected data point.
 type DataPoint struct {
 	OIDName      string      `json:"oid_name"`
+	OIDIndex     string      `json:"oid_index,omitempty"`
 	Value        interface{} `json:"value"`
 	RawValue     interface{} `json:"raw_value,omitempty"`
 	Timestamp    time.Time   `json:"timestamp"`
@@ -196,13 +197,44 @@ type Target struct {
 	MaxPoints int         `json:"max_points"`
 }
 
+// OIDMode represents how an OID is retrieved from a target.
+type OIDMode string
+
+const (
+	// ModeGet retrieves a single scalar instance with an SNMP GET. This is the
+	// default, so an OID config that omits the mode keeps its previous behavior.
+	ModeGet OIDMode = "get"
+	// ModeWalk walks the subtree rooted at the OID and emits one data point per
+	// discovered row - required for tables, whose row indices are not known
+	// ahead of time and shift between polls.
+	ModeWalk OIDMode = "walk"
+)
+
 // OIDConfig represents an OID to monitor.
 type OIDConfig struct {
-	OID      string   `json:"oid"`
-	Name     string   `json:"name"`
-	DataType DataType `json:"type"`
-	Scale    float64  `json:"scale,omitempty"` // For scaling values (e.g., bytes to megabytes)
-	Delta    bool     `json:"delta,omitempty"` // Calculate change between samples
+	OID         string   `json:"oid"`
+	Name        string   `json:"name"`
+	DataType    DataType `json:"type"`
+	Scale       float64  `json:"scale,omitempty"`        // For scaling values (e.g., bytes to megabytes)
+	Delta       bool     `json:"delta,omitempty"`        // Calculate change between samples
+	Mode        OIDMode  `json:"mode,omitempty"`         // Empty or "get" (default) polls a scalar; "walk" walks the subtree
+	MaxRows     int      `json:"max_rows,omitempty"`     // Walk only: row cap, defaults to defaultWalkMaxRows
+	WalkTimeout Duration `json:"walk_timeout,omitempty"` // Walk only: wall-clock bound, defaults to defaultWalkTimeout
+}
+
+// IsWalk reports whether the OID is collected by walking its subtree.
+func (o *OIDConfig) IsWalk() bool {
+	return o.Mode == ModeWalk
+}
+
+// WalkResult is a single row discovered while walking an OID subtree.
+// Index is the OID suffix below the walked root, which identifies the table row
+// a value belongs to - rows sharing an index across parallel column subtrees are
+// the same logical row.
+type WalkResult struct {
+	OID   string      `json:"oid"`
+	Index string      `json:"index"`
+	Value interface{} `json:"value"`
 }
 
 // SNMPService implements both the Service interface and proto.AgentServiceServer.

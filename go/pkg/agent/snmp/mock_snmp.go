@@ -295,18 +295,18 @@ func (m *MockCollectorFactory) EXPECT() *MockCollectorFactoryMockRecorder {
 }
 
 // CreateCollector mocks base method.
-func (m *MockCollectorFactory) CreateCollector(target *Target, logger logger.Logger) (Collector, error) {
+func (m *MockCollectorFactory) CreateCollector(target *Target, arg1 logger.Logger) (Collector, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "CreateCollector", target, logger)
+	ret := m.ctrl.Call(m, "CreateCollector", target, arg1)
 	ret0, _ := ret[0].(Collector)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
 
 // CreateCollector indicates an expected call of CreateCollector.
-func (mr *MockCollectorFactoryMockRecorder) CreateCollector(target, logger any) *gomock.Call {
+func (mr *MockCollectorFactoryMockRecorder) CreateCollector(target, arg1 any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CreateCollector", reflect.TypeOf((*MockCollectorFactory)(nil).CreateCollector), target, logger)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CreateCollector", reflect.TypeOf((*MockCollectorFactory)(nil).CreateCollector), target, arg1)
 }
 
 // MockAggregatorFactory is a mock of AggregatorFactory interface.
@@ -413,4 +413,19 @@ func (m *MockSNMPClient) Get(oids []string) (map[string]any, error) {
 func (mr *MockSNMPClientMockRecorder) Get(oids any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Get", reflect.TypeOf((*MockSNMPClient)(nil).Get), oids)
+}
+
+// Walk mocks base method.
+func (m *MockSNMPClient) Walk(oid string, maxRows int, timeout time.Duration) ([]WalkResult, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "Walk", oid, maxRows, timeout)
+	ret0, _ := ret[0].([]WalkResult)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// Walk indicates an expected call of Walk.
+func (mr *MockSNMPClientMockRecorder) Walk(oid, maxRows, timeout any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Walk", reflect.TypeOf((*MockSNMPClient)(nil).Walk), oid, maxRows, timeout)
 }

@@ -40,10 +40,13 @@ var (
 	errInvalidDataType     = fmt.Errorf("invalid data type")
 	errInvalidScale        = fmt.Errorf("scale factor must be greater than 0")
 	errEmptyOIDName        = fmt.Errorf("OID name cannot be empty")
+	errInvalidOIDMode      = fmt.Errorf("invalid OID mode")
+	errInvalidWalkMaxRows  = fmt.Errorf("max_rows must not be negative")
+	errInvalidWalkTimeout  = fmt.Errorf("walk_timeout must not be negative")
 
 	// Service error types.
 
-	ErrServiceNotStarted       = errors.New("service not started")
+	ErrServiceNotStarted        = errors.New("service not started")
 	ErrStoppingCollectors       = errors.New("errors stopping collectors")
 	ErrTargetExists             = errors.New("target already exists")
 	ErrTargetNotFound           = errors.New("target not found")
@@ -64,6 +67,9 @@ var (
 	ErrUnsupportedSNMPVersion = errors.New("unsupported SNMP version")
 	ErrSNMPConnect            = errors.New("SNMP connect failed")
 	ErrSNMPGet                = errors.New("SNMP get failed")
+	ErrSNMPWalk               = errors.New("SNMP walk failed")
+	ErrSNMPWalkRowLimit       = errors.New("SNMP walk stopped at row limit")
+	ErrSNMPWalkTimeout        = errors.New("SNMP walk stopped at timeout")
 	ErrSNMPConvert            = errors.New("SNMP convert failed")
 	ErrSNMPNoSuchObject       = errors.New("SNMP NoSuchObject")
 	ErrSNMPNoSuchInstance     = errors.New("SNMP NoSuchInstance")
