@@ -39,6 +39,9 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.Events.CustomTemp
               "data_type" => Map.get(oid, "data_type", "gauge"),
               "scale" => to_string(Map.get(oid, "scale", 1.0)),
               "delta" => Map.get(oid, "delta", false),
+              "mode" => Map.get(oid, "mode", "get"),
+              "max_rows" => Map.get(oid, "max_rows"),
+              "walk_timeout_seconds" => Map.get(oid, "walk_timeout_seconds"),
               "temp_id" => System.unique_integer([:positive])
             }
           end)
@@ -88,7 +91,10 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.Events.CustomTemp
           "name" => Map.get(oid, "name", ""),
           "data_type" => Map.get(oid, "data_type", "gauge"),
           "scale" => Templates.parse_float(Map.get(oid, "scale", "1.0")),
-          "delta" => Map.get(oid, "delta", false)
+          "delta" => Map.get(oid, "delta", false),
+          "mode" => Map.get(oid, "mode", "get"),
+          "max_rows" => Map.get(oid, "max_rows"),
+          "walk_timeout_seconds" => Map.get(oid, "walk_timeout_seconds")
         }
       end)
       |> Enum.reject(fn oid -> oid["oid"] == "" end)
@@ -152,6 +158,7 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.Events.CustomTemp
       "data_type" => "gauge",
       "scale" => "1.0",
       "delta" => false,
+      "mode" => "get",
       "temp_id" => System.unique_integer([:positive])
     }
 

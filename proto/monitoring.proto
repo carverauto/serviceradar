@@ -1030,6 +1030,16 @@ message SNMPOIDConfig {
   SNMPDataType data_type = 3;       // Expected data type
   double scale = 4;                 // Scale factor (default 1.0)
   bool delta = 5;                   // Calculate rate of change
+  // Retrieval mode. Empty or "get" issues a single SNMP GET of one scalar
+  // instance. "walk" walks the subtree rooted at oid (GETBULK on v2c/v3,
+  // GETNEXT on v1) and emits one data point per discovered row. Tables whose
+  // row indexes are not known ahead of time need walk; a GET of the column
+  // OID itself is not a table read.
+  string mode = 6;
+  // Walk only: cap on discovered rows. Zero means the agent default.
+  int32 max_rows = 7;
+  // Walk only: wall-clock bound in seconds. Zero means the agent default.
+  uint32 walk_timeout_seconds = 8;
 }
 
 // SNMPDataType represents the type of data for an OID.

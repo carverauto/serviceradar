@@ -92,7 +92,9 @@ polls - so an entry can instead walk the subtree rooted at its OID:
 ```
 
 - **mode**: `get` (default, also used when omitted) or `walk`. Omitting the field
-  keeps the exact behavior an existing config already has.
+  keeps the exact behavior an existing config already has. Control-plane
+  profiles send this as proto `SNMPOIDConfig.mode`; a walk configured only in
+  the UI/DB does nothing until that field is compiled onto the agent.
 - **max_rows**: caps the rows a single walk collects. Defaults to 5000.
 - **walk_timeout**: wall-clock bound for a single walk. Defaults to 30s.
 

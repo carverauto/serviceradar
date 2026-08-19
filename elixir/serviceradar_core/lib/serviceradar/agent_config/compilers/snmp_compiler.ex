@@ -571,17 +571,63 @@ defmodule ServiceRadar.AgentConfig.Compilers.SNMPCompiler do
   # Compile OIDs to the expected format
   defp compile_oids(oids) do
     oids
-    |> Enum.map(fn oid ->
-      %{
-        "oid" => Map.get(oid, "oid"),
-        "name" => Map.get(oid, "name"),
-        "data_type" => to_string(Map.get(oid, "data_type", "gauge")),
-        "scale" => Map.get(oid, "scale", 1.0),
-        "delta" => Map.get(oid, "delta", false)
-      }
-    end)
+    |> Enum.map(&compile_oid/1)
+    |> Enum.reject(&is_nil/1)
     |> sort_oids()
   end
+
+  defp compile_oid(oid) when is_map(oid) do
+    compiled = %{
+      "oid" => oid_field(oid, "oid"),
+      "name" => oid_field(oid, "name"),
+      "data_type" => to_string(oid_field(oid, "data_type", "gauge")),
+      "scale" => oid_field(oid, "scale", 1.0),
+      "delta" => oid_field(oid, "delta", false)
+    }
+
+    case normalize_oid_mode(oid_field(oid, "mode")) do
+      "walk" ->
+        compiled
+        |> Map.put("mode", "walk")
+        |> maybe_put_positive_int("max_rows", oid_field(oid, "max_rows"))
+        |> maybe_put_positive_int("walk_timeout_seconds", oid_walk_timeout_seconds(oid))
+
+      _ ->
+        compiled
+    end
+  end
+
+  defp compile_oid(_), do: nil
+
+  defp oid_field(oid, key, default \\ nil) do
+    Map.get(oid, key, Map.get(oid, String.to_existing_atom(key), default))
+  rescue
+    ArgumentError -> Map.get(oid, key, default)
+  end
+
+  defp normalize_oid_mode(mode) when mode in [:walk, "walk"], do: "walk"
+  defp normalize_oid_mode(_), do: "get"
+
+  defp oid_walk_timeout_seconds(oid) do
+    case oid_field(oid, "walk_timeout_seconds") || oid_field(oid, "walk_timeout") do
+      seconds when is_integer(seconds) and seconds > 0 -> seconds
+      seconds when is_float(seconds) and seconds > 0 -> trunc(seconds)
+      binary when is_binary(binary) -> parse_timeout_seconds(binary)
+      _ -> nil
+    end
+  end
+
+  defp parse_timeout_seconds(binary) when is_binary(binary) do
+    trimmed = binary |> String.trim() |> String.trim_trailing("s")
+
+    case Integer.parse(trimmed) do
+      {seconds, ""} when seconds > 0 -> seconds
+      _ -> nil
+    end
+  end
+
+  defp maybe_put_positive_int(map, _key, value) when not is_integer(value) or value <= 0, do: map
+  defp maybe_put_positive_int(map, key, value), do: Map.put(map, key, value)
 
   defp load_profile_targets(profile, actor) do
     query =
@@ -668,7 +714,10 @@ defmodule ServiceRadar.AgentConfig.Compilers.SNMPCompiler do
       "name" => oid.name,
       "data_type" => to_string(oid.data_type),
       "scale" => oid.scale || 1.0,
-      "delta" => oid.delta || false
+      "delta" => oid.delta || false,
+      "mode" => oid.mode,
+      "max_rows" => oid.max_rows,
+      "walk_timeout_seconds" => oid.walk_timeout_seconds
     }
   end
 

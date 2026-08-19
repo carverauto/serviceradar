@@ -453,6 +453,83 @@ defmodule ServiceRadar.Edge.SNMPConfigDistributionIntegrationTest do
       assert snmp_config.enabled == true
       assert is_list(snmp_config.targets)
       refute Enum.empty?(snmp_config.targets)
+
+      [proto_target] = snmp_config.targets
+      [proto_oid] = proto_target.oids
+      assert proto_oid.mode in [nil, ""]
+    end
+
+    @tag :integration
+    test "encodes walk mode onto the proto SNMP OID", %{
+      actor: actor,
+      agent_id: agent_id
+    } do
+      unique_id = System.unique_integer([:positive])
+
+      {:ok, profile} =
+        SNMPProfile
+        |> Ash.Changeset.for_create(
+          :create,
+          %{
+            name: "Walk Proto Profile #{unique_id}",
+            is_default: false,
+            enabled: true,
+            poll_interval: 60,
+            timeout: 5,
+            retries: 2
+          },
+          actor: actor
+        )
+        |> Ash.create()
+
+      {:ok, _profile} =
+        profile
+        |> Ash.Changeset.for_update(:set_as_default, %{}, actor: actor)
+        |> Ash.update(actor: actor)
+
+      {:ok, target} =
+        SNMPTarget
+        |> Ash.Changeset.for_create(
+          :create,
+          %{
+            name: "Walk Proto Target",
+            host: "10.10.#{rem(unique_id, 200) + 20}.#{rem(div(unique_id, 200), 200) + 20}",
+            port: 161,
+            version: :v2c,
+            community: "test",
+            snmp_profile_id: profile.id
+          },
+          actor: actor
+        )
+        |> Ash.create()
+
+      {:ok, _oid} =
+        SNMPOIDConfig
+        |> Ash.Changeset.for_create(
+          :create,
+          %{
+            oid: ".1.3.6.1.2.1.31.1.1.1.6",
+            name: "ifHCInOctets",
+            data_type: :counter,
+            delta: true,
+            mode: :walk,
+            max_rows: 80,
+            walk_timeout_seconds: 20,
+            snmp_target_id: target.id
+          },
+          actor: actor
+        )
+        |> Ash.create()
+
+      {:ok, agent_config} = AgentConfigGenerator.generate_config(agent_id, "default")
+      [proto_target] = agent_config.snmp_config.targets
+
+      proto_oid =
+        Enum.find(proto_target.oids, fn oid -> oid.name == "ifHCInOctets" end)
+
+      assert proto_oid.mode == "walk"
+      assert proto_oid.max_rows == 80
+      assert proto_oid.walk_timeout_seconds == 20
     end
 
     @tag :integration

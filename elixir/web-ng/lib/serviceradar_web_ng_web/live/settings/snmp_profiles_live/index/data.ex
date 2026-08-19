@@ -104,7 +104,10 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.Data do
             "name" => oid.name,
             "data_type" => to_string(oid.data_type),
             "scale" => to_string(oid.scale),
-            "delta" => oid.delta
+            "delta" => oid.delta,
+            "mode" => to_string(oid.mode || :get),
+            "max_rows" => oid.max_rows,
+            "walk_timeout_seconds" => oid.walk_timeout_seconds
           }
         end)
 

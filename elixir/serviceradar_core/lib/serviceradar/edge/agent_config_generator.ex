@@ -3388,8 +3388,36 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
       name: Map.get(oid, "name", "") || "",
       data_type: SNMPProtoMapper.data_type(Map.get(oid, "data_type")),
       scale: Map.get(oid, "scale", 1.0) || 1.0,
-      delta: Map.get(oid, "delta", false) || false
+      delta: Map.get(oid, "delta", false) || false,
+      mode: oid_mode(oid),
+      max_rows: oid_positive_int(oid, "max_rows"),
+      walk_timeout_seconds: oid_positive_int(oid, "walk_timeout_seconds")
     }
+  end
+
+  defp oid_mode(oid) do
+    case Map.get(oid, "mode") || Map.get(oid, :mode) do
+      mode when mode in [:walk, "walk"] -> "walk"
+      _ -> ""
+    end
+  end
+
+  defp oid_positive_int(oid, key) do
+    case Map.get(oid, key) || Map.get(oid, String.to_existing_atom(key)) do
+      value when is_integer(value) and value > 0 ->
+        value
+
+      value when is_binary(value) ->
+        case Integer.parse(value) do
+          {parsed, ""} when parsed > 0 -> parsed
+          _ -> 0
+        end
+
+      _ ->
+        0
+    end
+  rescue
+    ArgumentError -> 0
   end
 
   defp build_snmp_oid_config(_), do: %Monitoring.SNMPOIDConfig{}
