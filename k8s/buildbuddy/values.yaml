@@ -56,6 +56,14 @@ extraVolumes:
       # Dedicated BB disk on each worker (xfs /mnt/buildbuddy). Do not use /var/lib (root).
       path: /mnt/buildbuddy/cache
       type: DirectoryOrCreate
+  # The Bazel client's own caches (disk, repository, repo contents), kept OUT of cache-volume:
+  # BuildBuddy's filecache assumes it owns local_cache_directory and evicts against its own
+  # accounting, so another writer under it would be evicted or miscounted. Distinct hostPath
+  # from ./values-workflows.yaml -- the repo contents cache takes a lock.
+  - name: bazel-cache-volume
+    hostPath:
+      path: /mnt/buildbuddy/bazel-caches
+      type: DirectoryOrCreate
   # Mount a Docker config with auth (secret must be created separately, e.g.
   # kubectl -n buildbuddy create secret docker-registry dockerhub-auth ...).
   - name: dockerhub-auth
@@ -68,6 +76,8 @@ extraVolumes:
 extraVolumeMounts:
   - name: cache-volume
     mountPath: /cache
+  - name: bazel-cache-volume
+    mountPath: /bazel-caches
   - name: dockerhub-auth
     mountPath: /root/.docker
     readOnly: true
@@ -189,15 +199,18 @@ config:
       #
       # ONE nameserver serves both worlds: the Corefile ends in `forward . /etc/resolv.conf`,
       # so CoreDNS answers cluster.local authoritatively and forwards everything else upstream.
-      #
-      # Named explicitly rather than "" (which bind-mounts the pod's own resolv.conf): that
-      # file is a moving target and also lists an IPv6 upstream this namespace cannot reach.
-      # Setting "" while RFC1918 was still blocked took out DNS entirely, public names
-      # included -- measured 2026-08-19, reverted within minutes.
       dns: "10.43.0.10"
       mounts:
         - source: /cache
           destination: /cache
+          type: bind
+          options:
+            - rbind
+            - rw
+        # HOME for an action container. Kept in step with ./values-workflows.yaml so a
+        # mis-targeted `-f` cannot silently drop it.
+        - source: /bazel-caches
+          destination: /root
           type: bind
           options:
             - rbind
