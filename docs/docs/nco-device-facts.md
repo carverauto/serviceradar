@@ -12,7 +12,9 @@ only to report the result back to ServiceRadar.
 
 Composite service checks consume these facts as `device_metadata` inputs, so a
 fact written here can take part in a verdict such as "isolation is observed AND
-the access-control configuration that enforces it is applied".
+the access-control configuration that enforces it is applied". After writing
+facts, kick a targeted re-probe and read that verdict through
+[Composite Check Validation Runs](./nco-validation-runs.md).
 
 ## Endpoint
 

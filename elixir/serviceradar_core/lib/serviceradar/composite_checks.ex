@@ -17,5 +17,7 @@ defmodule ServiceRadar.CompositeChecks do
     resource ServiceRadar.CompositeChecks.CompositeCheckInput
     resource ServiceRadar.CompositeChecks.CompositeCheckRule
     resource ServiceRadar.CompositeChecks.DeviceCompositeCheckResult
+    resource ServiceRadar.CompositeChecks.ValidationRun
+    resource ServiceRadar.CompositeChecks.ValidationRunDevice
   end
 end

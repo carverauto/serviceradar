@@ -129,6 +129,20 @@ defmodule ServiceRadar.Identity.RBAC.CatalogTest do
     end
   end
 
+  test "validation run permissions default to operator execute and viewer read" do
+    keys = Catalog.permission_keys()
+    admin = Catalog.permissions_for_role(:admin)
+    operator = Catalog.permissions_for_role(:operator)
+    viewer = Catalog.permissions_for_role(:viewer)
+
+    assert "validation_runs.execute" in keys
+    assert "validation_runs.read" in keys
+    assert MapSet.member?(admin, "validation_runs.execute")
+    assert MapSet.member?(operator, "validation_runs.execute")
+    refute MapSet.member?(viewer, "validation_runs.execute")
+    assert MapSet.member?(viewer, "validation_runs.read")
+  end
+
   test "prefix tag manage permission is an operator+ catalog key" do
     keys = Catalog.permission_keys()
     admin_permissions = Catalog.permissions_for_role(:admin)
