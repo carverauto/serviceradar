@@ -598,6 +598,10 @@ defmodule ServiceRadarWebNGWeb.Router do
     post("/scans", ScanController, :create)
     get("/scans/:id", ScanController, :show)
     get("/scans/:id/results", ScanController, :results)
+
+    post("/validation-runs", ValidationRunController, :create)
+    get("/validation-runs/:id", ValidationRunController, :show)
+    get("/validation-runs/:id/results", ValidationRunController, :results)
   end
 
   # Edge onboarding admin API (API key or bearer token auth)

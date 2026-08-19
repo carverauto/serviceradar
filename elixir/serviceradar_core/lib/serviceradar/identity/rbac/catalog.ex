@@ -306,6 +306,25 @@ defmodule ServiceRadar.Identity.RBAC.Catalog do
       ]
     },
     %{
+      section: "validation_runs",
+      label: "Validation Runs",
+      permissions: [
+        %{
+          key: "validation_runs.execute",
+          label: "Start composite-check validation runs",
+          description:
+            "Create a validation run that resolves IP+partition to a device and re-probes vantage points",
+          default_roles: @operator_roles
+        },
+        %{
+          key: "validation_runs.read",
+          label: "View validation runs",
+          description: "Read validation run status and composite-check verdicts",
+          default_roles: @all_roles
+        }
+      ]
+    },
+    %{
       section: "services",
       label: "Services",
       permissions: [
