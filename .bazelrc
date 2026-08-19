@@ -86,8 +86,9 @@ build:remote_base --remote_download_minimal
 
 # One set of paths for every caller. `~` is /root in a BuildBuddy action container and the
 # developer's home locally, so the CI profile cannot write somewhere a workstation lacks.
-# //k8s/buildbuddy/values-workflows.yaml bind-mounts the node volume here so CI's survive pod
-# replacement; the repo caches are what stop ~4,900 external repos being re-fetched every run.
+# Both //k8s/buildbuddy/values{,-workflows}.yaml bind-mount a dedicated node volume at /root, so
+# these survive pod replacement; the repo caches are what stop ~4,900 external repos being
+# re-fetched and re-extracted every run.
 build:remote_base --disk_cache=~/.cache/serviceradar-bazel/disk
 build:remote_base --repository_cache=~/.cache/serviceradar-bazel/repo
 build:remote_base --repo_contents_cache=~/.cache/serviceradar-bazel/repo-contents
