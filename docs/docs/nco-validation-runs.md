@@ -122,3 +122,56 @@ to poll (operator/admin execute; viewer+ read).
 | `device_unreachable` | degraded | Liveness witness cannot see it. |
 | `inverted_reachability` | down | Isolation probe sees it, witness does not. |
 | `inconclusive` | unknown | Missing/stale probe, uncovered vantage, or missing fact. Do not pass. |
+
+## Rolling this into production (UAL)
+
+There is **no new Helm value** for this feature. The farm01 GitOps
+`values.yaml` change used to test it was only:
+
+```yaml
+global:
+  imageTag: "sha-<commit>"
+```
+
+That is the usual immutable image pointer. Copying farm01's unpublished
+`sha-...` tag onto Example is wrong. Example should take a **published release**
+that includes this change (`serviceradar-core-elx` and
+`serviceradar-web-ng` at minimum; rolling `global.imageTag` as you already
+do is enough).
+
+Nothing else in Helm, Gateway API, or env vars is required. Core runs the
+`platform.validation_runs` / `platform.validation_run_devices` migration
+on startup. The role-profile seeder adds two catalog keys to **system**
+profiles:
+
+| Permission | Default roles | Use |
+| --- | --- | --- |
+| `validation_runs.execute` | operator, admin | POST a run |
+| `validation_runs.read` | viewer+ | GET status / results |
+
+If Example operators use a **custom** role profile (not the built-in
+`admin` / `operator` / `viewer` system profiles), add those two keys on
+the profile in Settings before NCO can call the API. Built-in system
+profiles pick the keys up on core restart.
+
+NCO also needs, in the deployment, not in values.yaml:
+
+1. Devices already in inventory (IP + partition; no minting on miss).
+2. An **enabled** composite check whose vantage-point `agent_id`s match
+   the isolation witnesses (farm used `farm01-lab-isolation`: Alma
+   expected available, k8s expected blocked, plus `acl_enforced`).
+3. Enabled sweep **groups** on those agents whose `target_query` /
+   `static_targets` already cover the host, pointing at a sweep
+   **profile** (farm: `farm-scan`, icmp+tcp, ports 22/80/443/8080).
+4. An API token (or user) with `validation_runs.execute` and
+   `devices.facts.write`.
+
+NCO sequence on Example is the same as farm:
+
+1. `POST /api/v1/validation-runs` with IP + partition (optional MAC) to
+   learn `uid` and `id`.
+2. `PATCH /api/devices/{uid}/metadata` with
+   `{"facts":{"acl_enforced":true}}` (and switch/port if you have them).
+3. Poll `GET /api/v1/validation-runs/{id}` until `completed` /
+   `failed` / `timed_out`. Pass only on `isolated_verified` with
+   `evaluated_at` after the POST.
