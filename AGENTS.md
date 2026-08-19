@@ -142,7 +142,9 @@ This file applies repo-wide, but subdirectories may include their own `AGENTS.md
 ## Build & Test Commands
 
 - **Every unit test, the way CI runs them: `make test`** — an alias for
-  `bazel test -c opt --config=ci //... --test_tag_filters=-integration_test,-acceptance_test`.
+  `bazel test -c opt --config=remote //... --test_tag_filters=-integration_test,-acceptance_test`.
+  `--config=remote`, not `--config=ci`: the CI profile points its caches at `/cache`, the
+  hostPath only the executor pods mount, so it cannot run on a workstation.
   **Run this before opening a PR and before cutting any release.** It is the only command
   that covers the whole repo, because the Elixir unit shards exist ONLY as bazel targets
   (`//elixir/serviceradar_core:unit_tests_*`, `//elixir/web-ng:unit_tests_*`) and are

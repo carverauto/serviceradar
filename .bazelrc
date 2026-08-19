@@ -84,10 +84,14 @@ build:remote_base --config=cache_only
 build:remote_base --jobs=100
 build:remote_base --remote_download_minimal
 
-# Client-side cache, so a locally executed action that already ran is not re-run. Machine-local
-# (`~` expands here) and capped, so it cannot grow the way the old in-tree one did.
-build:remote_base --disk_cache=~/.cache/serviceradar-bazel-disk
-build:remote_base --experimental_disk_cache_gc_max_size=50G
+# One set of paths for every caller. `~` is /root in a BuildBuddy action container and the
+# developer's home locally, so the CI profile cannot write somewhere a workstation lacks.
+# //k8s/buildbuddy/values-workflows.yaml bind-mounts the node volume here so CI's survive pod
+# replacement; the repo caches are what stop ~4,900 external repos being re-fetched every run.
+build:remote_base --disk_cache=~/.cache/serviceradar-bazel/disk
+build:remote_base --repository_cache=~/.cache/serviceradar-bazel/repo
+build:remote_base --repo_contents_cache=~/.cache/serviceradar-bazel/repo-contents
+
 build:remote_base --remote_executor=grpcs://carverauto.buildbuddy.io
 # Remote platforms
 build:remote_base --host_platform=//build/rbe:rbe_platform
@@ -111,10 +115,8 @@ build:remote_base --noenable_platform_specific_config
 # CI profile on top of the remote config
 build:ci --config=remote_base
 
-# Empty disables the remote_base disk cache: on CI the client runs inside the runner container,
-# so it would duplicate the executor's filecache on the same node disk. Must stay below
-# --config=remote_base, which is where the value arrives.
-build:ci --disk_cache=
+# Only the cap differs from remote_base: the node volume can hold more than a laptop.
+build:ci --experimental_disk_cache_gc_max_size=100G
 
 build:ci --keep_going
 build:ci --build_metadata=REPO_URL=https://github.com/carverauto/serviceradar.git
@@ -124,6 +126,7 @@ build:ci --build_metadata=USER=gh
 
 # `--config=remote` is an ALIAS for remote_base
 build:remote --config=remote_base
+build:remote --experimental_disk_cache_gc_max_size=50G
 
 build:darwin_pkg --platforms=//build/platforms:darwin_exec
 build:darwin_pkg --host_platform=//build/platforms:darwin_exec

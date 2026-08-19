@@ -136,6 +136,13 @@ extraVolumes:
       # Dedicated BB disk on each worker (xfs /mnt/buildbuddy). Do not use /var/lib (root).
       path: /mnt/buildbuddy/cache-workflows
       type: DirectoryOrCreate
+  # The Bazel client's own caches (disk, repository, repo contents), kept OUT of cache-volume:
+  # BuildBuddy's filecache assumes it owns local_cache_directory and evicts against its own
+  # accounting, so another writer under it would be evicted or miscounted.
+  - name: bazel-cache-volume
+    hostPath:
+      path: /mnt/buildbuddy/bazel-caches
+      type: DirectoryOrCreate
   - name: dockerhub-auth
     secret:
       secretName: dockerhub-auth
@@ -146,6 +153,8 @@ extraVolumes:
 extraVolumeMounts:
   - name: cache-volume
     mountPath: /cache
+  - name: bazel-cache-volume
+    mountPath: /bazel-caches
   - name: dockerhub-auth
     mountPath: /root/.docker
     readOnly: true
@@ -268,18 +277,19 @@ config:
           options:
             - rbind
             - rw
+        # HOME is /root in an action container, so this is where `~/.cache/serviceradar-bazel`
+        # in //.bazelrc lands. Same paths work on a workstation, so the CI profile cannot name
+        # a directory only the pods have.
+        - source: /bazel-caches
+          destination: /root/.cache/serviceradar-bazel
+          type: bind
+          options:
+            - rbind
+            - rw
     local_cache_directory: /cache
 
-    # 50 GB, half the build fleet's 100 GB, because this pod is one runner rather than a
-    # fan-out fleet and its working set is one repo's inputs.
-    #
-    # Node disk is the constraint, and this may share a node with a build executor: 589 GB
-    # total, ~170-230 GB non-cache baseline, 100 GB for that executor's filecache. Adding
-    # 50 GB puts the worst case near 380 GB, leaving ~209 GB -- clear of the kubelet
-    # DiskPressure threshold (10% free, i.e. ~530 GB used). `root_directory` below shares this
-    # filesystem and is NOT counted against this budget, so leave the margin.
-    #
-    # Plain int64 byte count: "50Gi" does not parse.
-    local_cache_size_bytes: 50000000000
+    # Read-through cache OF the remote CAS
+    # Plain int64 byte count: "100Gi" does not parse.
+    local_cache_size_bytes: 100000000000
     root_directory: /cache/remotebuilds/
     api_key: ""

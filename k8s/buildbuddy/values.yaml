@@ -206,13 +206,7 @@ config:
     # Read-through cache OF the remote CAS named by app_target above. Every eviction here
     # becomes a re-fetch across the WAN, so this wants to be as large as the node disk
     # tolerates rather than as small as it can get away with.
-    #
-    # 50 -> 100 GB. At 50 GB two of the three executors sat pinned exactly at the cap
-    # (48 GB and 53 GB measured) while their disks had 275-340 GB free -- the fleet was paying
-    # for WAN round trips it had the local capacity to avoid. 150 GB removed that; 100 GB keeps
-    # the headroom that mattered while giving the node disk back.
-    # A node also running the workflow fleet's 50 GB (see ./values-workflows.yaml) sits at ~380 GB, leaving ~209 GB.
-    #
+
     # Change it only while watching `kubectl get nodes` for DiskPressure, because
     # `root_directory` below shares this filesystem and is NOT counted against this budget --
     # concurrent action working dirs spike outside it.
