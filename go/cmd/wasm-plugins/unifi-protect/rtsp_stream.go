@@ -4,7 +4,7 @@ import (
 	"errors"
 	"time"
 
-	"code.carverauto.dev/carverauto/serviceradar-sdk-go/sdk"
+	"github.com/carverauto/serviceradar-sdk-go/sdk"
 )
 
 var errProtectRTSPStreamIdle = errors.New("rtsp stream idle")

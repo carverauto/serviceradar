@@ -1,7 +1,7 @@
 // Package main implements the Proxmox inventory WASM plugin for ServiceRadar.
 package main
 
-import "code.carverauto.dev/carverauto/serviceradar-sdk-go/sdk"
+import "github.com/carverauto/serviceradar-sdk-go/sdk"
 
 //export run_check
 func run_check() {

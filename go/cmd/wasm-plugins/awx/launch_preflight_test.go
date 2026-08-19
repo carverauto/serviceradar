@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"code.carverauto.dev/carverauto/serviceradar-sdk-go/sdk"
+	"github.com/carverauto/serviceradar-sdk-go/sdk"
 )
 
 const launchPreflightTestSecret = "SR_LAUNCH_PREFLIGHT_SECRET_MUST_NOT_CROSS"

@@ -9,7 +9,7 @@ import (
 	"strings"
 	"time"
 
-	"code.carverauto.dev/carverauto/serviceradar-sdk-go/sdk"
+	"github.com/carverauto/serviceradar-sdk-go/sdk"
 
 	"github.com/carverauto/serviceradar/contrib/plugins/go/axis/internal/axisref"
 )

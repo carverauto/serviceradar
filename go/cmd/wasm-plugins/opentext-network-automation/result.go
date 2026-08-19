@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"time"
 
-	"code.carverauto.dev/carverauto/serviceradar-sdk-go/sdk"
+	"github.com/carverauto/serviceradar-sdk-go/sdk"
 )
 
 func buildPluginResult(snapshot Snapshot, maxResultBytes int) (*sdk.Result, error) {

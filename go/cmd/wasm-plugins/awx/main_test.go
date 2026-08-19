@@ -10,7 +10,7 @@ import (
 	"strings"
 	"testing"
 
-	"code.carverauto.dev/carverauto/serviceradar-sdk-go/sdk"
+	"github.com/carverauto/serviceradar-sdk-go/sdk"
 )
 
 // fakeHTTPClient captures the requests issued by the plugin and returns

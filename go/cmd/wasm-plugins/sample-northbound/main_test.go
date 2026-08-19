@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"testing"
 
-	"code.carverauto.dev/carverauto/serviceradar-sdk-go/sdk"
+	"github.com/carverauto/serviceradar-sdk-go/sdk"
 )
 
 func TestDeviceLookupAction(t *testing.T) {
