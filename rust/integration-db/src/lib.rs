@@ -33,7 +33,6 @@
 //! invocations of one run. Only actions that consume the file are invalidated when it changes;
 //! `//build/run_id.bzl` explains why that does not reach any compile.
 
-use std::borrow::Cow;
 use std::fs;
 
 pub mod config;
@@ -295,9 +294,7 @@ pub fn parse_pg_config(url: &str, variable: &str) -> Result<PgConfig> {
     // tokio-postgres does not parse -- it understands disable/prefer/require only. Rather than
     // translate the string down to `require` and re-establish verification elsewhere, the mode is
     // read from the typed field and configures the connector directly; see tls_connector_for.
-    let without_sslmode = strip_sslmode(url);
-    without_sslmode
-        .parse()
+    srql::db::parse_pg_config(url)
         .with_context(|| format!("{variable} is not a valid PostgreSQL connection string"))
 }
 
@@ -306,28 +303,7 @@ pub fn parse_pg_config(url: &str, variable: &str) -> Result<PgConfig> {
 /// The parameter is meaningful to libpq and to this crate's own assembly, but tokio-postgres
 /// rejects the verifying values outright, and leaving it in would make the parse fail on a DSN
 /// that is otherwise correct.
-pub fn strip_sslmode(url: &str) -> Cow<'_, str> {
-    let Some((base, query)) = url.split_once('?') else {
-        return Cow::Borrowed(url);
-    };
-
-    let kept: Vec<&str> = query
-        .split('&')
-        .filter(|parameter| {
-            !parameter
-                .split_once('=')
-                .is_some_and(|(key, _)| key.eq_ignore_ascii_case("sslmode"))
-        })
-        .collect();
-
-    if kept.len() == query.split('&').count() {
-        return Cow::Borrowed(url);
-    }
-    if kept.is_empty() {
-        return Cow::Owned(base.to_string());
-    }
-    Cow::Owned(format!("{base}?{}", kept.join("&")))
-}
+pub use srql::db::strip_sslmode;
 
 
 async fn connect(config: PgConfig) -> Result<(Client, JoinHandle<()>)> {

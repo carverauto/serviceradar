@@ -419,7 +419,7 @@ fn quote_literal(value: &str) -> String {
 }
 
 fn log_connection_details(name: &str, url: &str) {
-    match url.parse::<PgConfig>() {
+    match db::parse_pg_config(url, name) {
         Ok(cfg) => {
             let hosts: Vec<String> = cfg
                 .get_hosts()
