@@ -1,5 +1,10 @@
 # BuildBuddy: a missing `docker` binary reports as a kernel panic
 
+> Dormant as of 2026-08-19: no executor fleet sets `enable_firecracker`, so nothing
+> here can be hit today. Kept because it is the record of why the image is pinned to
+> `enterprise-v2.290.0`, which still applies, and it is what to read first if
+> firecracker is ever restored (see the note in `values.yaml`).
+
 Verified against `buildbuddy-io/buildbuddy` at `57ab95e5` (2026-07-28) and against the tag
 we deployed when this was diagnosed, `enterprise-v2.206.0` (= `fc4d95d19`, 2025-10-01) -
 since replaced, see "Action for this repository". Every file:line below

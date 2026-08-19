@@ -70,8 +70,12 @@ actions:
           umask 077
 
           export SERVICERADAR_ENV=ci
-          export RUN_ID="$(uuidgen | tr -d - | tr 'A-Z' 'a-z' | cut -c1-8)"
-          export SERVICERADAR_FIXTURE_ENV_FILE="$(mktemp "${TMPDIR:-/tmp}/serviceradar-fixture-env.XXXXXX")"
+
+          # Generate a stable id for the entire run.
+          RUN_ID="$(od -An -tx1 -N4 /dev/urandom | tr -d ' \n')"
+          export RUN_ID
+          SERVICERADAR_FIXTURE_ENV_FILE="$(mktemp "${TMPDIR:-/tmp}/serviceradar-fixture-env.XXXXXX")"
+          export SERVICERADAR_FIXTURE_ENV_FILE
 
           bazel run -c opt --config=ci //:buildbuddy_setup_fixture_env
           set -a; . "$SERVICERADAR_FIXTURE_ENV_FILE"; set +a

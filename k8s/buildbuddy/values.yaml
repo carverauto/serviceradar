@@ -74,11 +74,13 @@ extraVolumeMounts:
 
 config:
   executor:
-    # Makes goinit pass -enable_rootfs, so the guest mounts a single ext4 root
-    # instead of overlayfs-over-ext4. Required for Docker-in-Firecracker: on an
-    # overlayfs root, docker's overlay2 driver is nested and cannot set
-    # trusted.overlay.opaque, so any image with an opaque dir fails to extract
-    # ("failed to convert whiteout file ... operation not supported").
+    # Firecracker guest rootfs / snapshot sharing: it made goinit pass -enable_rootfs so the
+    # guest mounted a single ext4 root instead of overlayfs-over-ext4, which Docker-in-VM
+    # needed (on an overlayfs root docker's overlay2 driver is nested and cannot set
+    # trusted.overlay.opaque, so any image with an opaque dir fails to extract).
+    #
+    # Inert now that no fleet sets enable_firecracker. Kept because it costs nothing while
+    # off and is the setting to restore alongside it.
     enable_local_snapshot_sharing: true
     # The org's own BuildBuddy instance, not BuildBuddy cloud.
     #
@@ -121,21 +123,26 @@ config:
 
     enable_oci: true
     default_isolation_type: oci
-    # KEPT ON THIS FLEET, AND ONLY THIS FLEET. Exactly one target asks for it:
-    # //rust/dgraph-client/tests sets `test.workload-isolation-type: firecracker` and
-    # `test.init-dockerd: true` (BUILD.bazel:94-96). It carries `integration_test`, which
-    # //buildbuddy.yaml's last step runs as
-    # `bazel test ... --test_tag_filters=integration_test`, and it names no pool, so it
-    # dispatches here. Remove this and that task finds no executor able to accept its
-    # isolation type -- a scheduling failure, not a test failure, reported as though the
-    # pool were empty. ./values-workflows.yaml deliberately does NOT set it: nothing in the
-    # workflows pool requests firecracker, and running the CI runner in a microVM cost that
-    # pool its route to the cluster (see the note at cache_target there).
-    enable_firecracker: true
-    firecracker_debug_stream_vm_logs: true
-    # Floor for VM sizing; without it predicted sizes are used verbatim and a
-    # Firecracker VM can end up too small to unpack its own 49 MB initrd
-    # ("Initramfs unpacking failed" -> "No working init found" panic).
+    # NO enable_firecracker ON EITHER FLEET.
+    #
+    # Exactly one target ever asked for it -- //rust/dgraph-client/tests:acceptance_tests,
+    # via `test.workload-isolation-type: firecracker` and `test.init-dockerd: true` -- and
+    # that target is tagged `manual` ("Disabled for the time being until a proper DGraph
+    # instance is in the CI cluster"), so no wildcard pattern selects it and neither CI step
+    # dispatches a firecracker task. Verify before assuming otherwise:
+    #
+    #   bazel query 'attr("tags", "manual", tests(//rust/dgraph-client/...))'
+    #   grep -rn workload-isolation-type --include=*.bazel .
+    #
+    # Re-enabling that suite means restoring `enable_firecracker: true` and
+    # `firecracker_debug_stream_vm_logs: true` HERE, on the default pool, because the target
+    # names no pool. Do not restore it in ./values-workflows.yaml: a microVM has no route to
+    # the service CIDR and no CoreDNS, which is what cost that pool its access to the
+    # in-cluster CA bundle and the fixture database.
+    # Floor for task sizing; without it a predicted size is used verbatim and can
+    # under-reserve. Under Firecracker this also kept a VM from being too small to unpack
+    # its own 49 MB initrd ("Initramfs unpacking failed" -> "No working init found" panic);
+    # that failure mode is gone with the microVM, the floor is still wanted.
     #
     # estimated_memory_bytes is an int64 COUNT OF BYTES (scheduler.proto TaskSize),
     # not a k8s quantity. "2Gi" here does not parse. That syntax belongs to the
