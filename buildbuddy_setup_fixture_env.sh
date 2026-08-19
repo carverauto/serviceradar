@@ -68,9 +68,12 @@ ca_secret="${SRQL_FIXTURE_CA_SECRET:-srql-fixture-server-ca}"
 
 # The in-cluster CA bundle Service, for the same reason as `host` above.
 #
-# There is deliberately no public fallback any more. The published
-# https://srql-fixture-ca.serviceradar.cloud/ca.crt endpoint has been switched off and now
-# answers 404, so listing it would only add a misleading failure line to the diagnostics below.
+# There is deliberately no public fallback any more, and this is now structural rather than a
+# preference: //k8s/srql-fixtures/ca-bundle.yaml no longer publishes the CA at all. Its
+# Let's Encrypt Certificate and gateway route were deleted, leaving the ClusterIP publisher as
+# the only HTTP source, so https://srql-fixture-ca.serviceradar.cloud/ca.crt answers 404 and
+# listing it would add a misleading failure line to the diagnostics below.
+#
 # The remaining sources are this URL and the cert-manager Secret via kubectl, and resolve_live_ca
 # reports which one answered and why any other did not.
 ca_url_default="http://srql-fixture-ca-incluster.srql-fixtures.svc.cluster.local/ca.crt"
@@ -277,6 +280,9 @@ stored CI secret. Provide ONE of:
   * One of these reachable, tried in this order (prepend one with SRQL_FIXTURE_CA_URL):
 
 $(printf '      %s\n' "${ca_urls[@]}")
+
+    In-cluster runners use the ClusterIP HTTP bundle. Workstations
+    should use kubectl; there is no public CA URL.
 
 A pre-set SRQL_TEST_DATABASE_CA_CERT is ignored on purpose.
 

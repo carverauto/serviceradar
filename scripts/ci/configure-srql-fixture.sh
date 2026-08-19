@@ -38,7 +38,7 @@ fi
 
 namespace="${SRQL_FIXTURE_NAMESPACE:-srql-fixtures}"
 ca_secret="${SRQL_FIXTURE_CA_SECRET:-srql-fixture-server-ca}"
-ca_url="${SRQL_FIXTURE_CA_URL:-https://srql-fixture-ca.serviceradar.cloud/ca.crt}"
+ca_url="${SRQL_FIXTURE_CA_URL:-http://srql-fixture-ca-incluster.srql-fixtures.svc.cluster.local/ca.crt}"
 
 pem_looks_like_cert() {
   [[ "$1" == *"BEGIN CERTIFICATE"* && "$1" == *"END CERTIFICATE"* ]]

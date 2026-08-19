@@ -29,8 +29,8 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.StagingTest do
   end
 
   test "reap_orphans removes only dirs older than the window", %{root: root} do
-    {:ok, old} = Staging.prepare_run("nist-nvd2", "old-run", root)
-    {:ok, fresh} = Staging.prepare_run("nist-nvd2", "fresh-run", root)
+    {:ok, old} = Staging.prepare_run("cisa-kev", "old-run", root)
+    {:ok, fresh} = Staging.prepare_run("cisa-kev", "fresh-run", root)
 
     now = System.system_time(:second)
     # Backdate the "old" run two days.
@@ -43,5 +43,45 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.StagingTest do
     assert reaped >= 1
     refute File.exists?(old.run_dir)
     assert File.exists?(fresh.run_dir)
+  end
+
+  test "prune_feed keeps only the newest nist-nvd2 run", %{root: root} do
+    {:ok, older} = Staging.prepare_run("nist-nvd2", "older", root)
+    {:ok, newer} = Staging.prepare_run("nist-nvd2", "newer", root)
+    File.touch!(older.run_dir, System.system_time(:second) - 60)
+
+    assert {:ok, 1} = Staging.prune_feed("nist-nvd2", root: root, keep: 1)
+    refute File.exists?(older.run_dir)
+    assert File.exists?(newer.run_dir)
+  end
+
+  test "prune_feed keep 0 removes every nist-nvd2 run", %{root: root} do
+    {:ok, one} = Staging.prepare_run("nist-nvd2", "one", root)
+    {:ok, two} = Staging.prepare_run("nist-nvd2", "two", root)
+
+    assert {:ok, 2} = Staging.prune_feed("nist-nvd2", root: root, keep: 0)
+    refute File.exists?(one.run_dir)
+    refute File.exists?(two.run_dir)
+  end
+
+  test "ensure_budget fails when the staging tree is over the cap", %{root: root} do
+    {:ok, paths} = Staging.prepare_run("nist-nvd2", "fat", root)
+    File.write!(Path.join(paths.extracted_dir, "blob"), :binary.copy(<<0>>, 4096))
+
+    assert {:error, {:staging_over_budget, used}} =
+             Staging.ensure_budget(root: root, max_bytes: 1024, min_free_bytes: 0)
+
+    assert used > 1024
+  end
+
+  test "reap_orphans prunes extra nist-nvd2 dirs even when they are fresh", %{root: root} do
+    {:ok, older} = Staging.prepare_run("nist-nvd2", "older", root)
+    {:ok, newer} = Staging.prepare_run("nist-nvd2", "newer", root)
+    File.touch!(older.run_dir, System.system_time(:second) - 10)
+
+    assert {:ok, reaped} = Staging.reap_orphans(root: root, nist_keep: 1, max_age_seconds: 86_400)
+    assert reaped >= 1
+    refute File.exists?(older.run_dir)
+    assert File.exists?(newer.run_dir)
   end
 end

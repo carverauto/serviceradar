@@ -7,7 +7,7 @@ each of the three environments the suite runs in**.
 
 This document exists because the CA is delivered as PEM *content* in an environment variable
 after being fetched from a live source (the cert-manager Secret or
-`https://srql-fixture-ca.serviceradar.cloud/ca.crt`). Anything that swaps the delivery
+`http://srql-fixture-ca-incluster.srql-fixtures.svc.cluster.local/ca.crt`). Anything that swaps the delivery
 mechanism has to satisfy every row of the tables below, or it will break one environment
 while leaving the other two green — which is exactly how earlier failures reached `staging`.
 
@@ -45,7 +45,8 @@ on their fixture-reachable runners while eligible compilation remains remote and
   `sslmode` with the same configured value.
 - **CA** — never a stored secret. kubectl reads `srql-fixture-server-ca` when RBAC exists,
   otherwise GET `SRQL_FIXTURE_CA_URL` (default
-  `https://srql-fixture-ca.serviceradar.cloud/ca.crt`).
+  `http://srql-fixture-ca-incluster.srql-fixtures.svc.cluster.local/ca.crt`).
+  There is no public CA URL.
 
 The run log says which credential source was used without printing userinfo:
 `Fixture credentials from <source>`.

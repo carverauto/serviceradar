@@ -23,8 +23,23 @@ if [[ $# -eq 0 ]]; then
   exit 2
 fi
 
-if ! command -v skopeo >/dev/null 2>&1; then
-  echo "skopeo is required" >&2
+oci_helper=""
+for candidate in \
+  "${script_dir}/oci_registry.sh" \
+  "${GITHUB_WORKSPACE:-}/scripts/oci_registry.sh"; do
+  if [[ -f "${candidate}" ]]; then
+    oci_helper="${candidate}"
+    break
+  fi
+done
+if [[ -z "${oci_helper}" ]]; then
+  echo "oci_registry.sh not found" >&2
+  exit 2
+fi
+# shellcheck source=scripts/oci_registry.sh
+source "${oci_helper}"
+if ! command -v oras >/dev/null 2>&1; then
+  echo "oras is required" >&2
   exit 2
 fi
 
@@ -51,21 +66,18 @@ shift
 
 needs_publish=0
 for repository in "${repositories[@]}"; do
-  canonical_ref="docker://${repository}:${canonical_tag}"
-  if ! canonical_output="$(skopeo inspect --format '{{.Digest}}' "${canonical_ref}" 2>&1)"; then
-    if grep -Eqi 'manifest unknown|name unknown|not found' <<<"${canonical_output}"; then
+  if ! canonical_digest="$(oci_registry_digest "${repository}:${canonical_tag}" 2>/tmp/oci-inspect.err)"; then
+    if grep -Eiq 'manifest unknown|name unknown|not found|not exist' /tmp/oci-inspect.err; then
       echo "missing ${repository}:${canonical_tag}" >&2
       needs_publish=1
       continue
     fi
 
-    echo "failed to inspect ${repository}:${canonical_tag}: ${canonical_output}" >&2
+    echo "failed to inspect ${repository}:${canonical_tag}: $(cat /tmp/oci-inspect.err)" >&2
     exit 2
   fi
-
-  canonical_digest="$(tail -n1 <<<"${canonical_output}")"
   if [[ ! "${canonical_digest}" =~ ^sha256:[[:xdigit:]]{64}$ ]]; then
-    echo "invalid digest returned for ${repository}:${canonical_tag}: ${canonical_output}" >&2
+    echo "invalid digest returned for ${repository}:${canonical_tag}: ${canonical_digest}" >&2
     exit 2
   fi
   echo "found ${repository}:${canonical_tag} at ${canonical_digest}"
@@ -73,21 +85,18 @@ for repository in "${repositories[@]}"; do
   for tag in "$@"; do
     [[ -n "${tag}" ]] || continue
 
-    ref="docker://${repository}:${tag}"
-    if ! output="$(skopeo inspect --format '{{.Digest}}' "${ref}" 2>&1)"; then
-      if grep -Eqi 'manifest unknown|name unknown|not found' <<<"${output}"; then
+    if ! digest="$(oci_registry_digest "${repository}:${tag}" 2>/tmp/oci-inspect.err)"; then
+      if grep -Eiq 'manifest unknown|name unknown|not found|not exist' /tmp/oci-inspect.err; then
         echo "missing ${repository}:${tag}" >&2
         needs_publish=1
         continue
       fi
 
-      echo "failed to inspect ${repository}:${tag}: ${output}" >&2
+      echo "failed to inspect ${repository}:${tag}: $(cat /tmp/oci-inspect.err)" >&2
       exit 2
     fi
-
-    digest="$(tail -n1 <<<"${output}")"
     if [[ ! "${digest}" =~ ^sha256:[[:xdigit:]]{64}$ ]]; then
-      echo "invalid digest returned for ${repository}:${tag}: ${output}" >&2
+      echo "invalid digest returned for ${repository}:${tag}: ${digest}" >&2
       exit 2
     fi
     if [[ "${digest}" != "${canonical_digest}" ]]; then

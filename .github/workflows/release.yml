@@ -251,6 +251,16 @@ jobs:
             cp scripts/check-oci-image-tags-exist.sh "${RUNNER_TEMP}/check-oci-image-tags-exist.sh"
             chmod +x "${RUNNER_TEMP}/check-oci-image-tags-exist.sh"
           fi
+          if [[ -f scripts/oci_registry.sh ]]; then
+            cp scripts/oci_registry.sh "${RUNNER_TEMP}/oci_registry.sh"
+          fi
+          if [[ -x scripts/verify-oci-publish.sh ]]; then
+            cp scripts/verify-oci-publish.sh "${RUNNER_TEMP}/verify-oci-publish.sh"
+            chmod +x "${RUNNER_TEMP}/verify-oci-publish.sh"
+          fi
+          if [[ -f scripts/cosign_common.sh ]]; then
+            cp scripts/cosign_common.sh "${RUNNER_TEMP}/cosign_common.sh"
+          fi
 
           # Manual retries intentionally execute the current protected workflow
           # while publishing an older immutable tag. Preserve the current signer
@@ -374,6 +384,27 @@ jobs:
 
           ./scripts/verify-agent-release-key-stamp.sh ${BAZEL_BUILD_FLAGS}
 
+      # Alpine replaces package revisions in-place on a stable branch. A yanked
+      # http_file pin 404s only after Bazel has already spent the analyze pass
+      # on //:push. Fail here so a missing APK is a 30-second log line.
+      - name: Verify Alpine APK pins
+        run: |
+          set -euo pipefail
+          failed=0
+          while IFS= read -r url; do
+            [[ -z "${url}" ]] && continue
+            code="$(curl -sS -o /dev/null -w '%{http_code}' --max-time 30 -I "${url}" || true)"
+            echo "${code} ${url}"
+            if [[ "${code}" != "200" ]]; then
+              echo "Alpine pin is not fetchable (${code}): ${url}" >&2
+              failed=1
+            fi
+          done < <(grep -oE 'https://dl-cdn\.alpinelinux\.org/[^"]+' MODULE.bazel | sort -u)
+          if [[ "${failed}" -ne 0 ]]; then
+            echo "Update the yanked http_file pins in MODULE.bazel before retrying publish." >&2
+            exit 1
+          fi
+
       - name: Publish container images
         env:
           RELEASE_TAG: ${{ steps.release.outputs.tag }}
@@ -390,13 +421,9 @@ jobs:
             extra_args+=(-- --tag "${RELEASE_TAG}")
           fi
 
-          if ! command -v skopeo >/dev/null 2>&1; then
-            skopeo_installer="./scripts/install-skopeo.sh"
-            if [[ -x "${RUNNER_TEMP}/install-skopeo.sh" ]]; then
-              skopeo_installer="${RUNNER_TEMP}/install-skopeo.sh"
-            fi
-            "${skopeo_installer}"
-            export PATH="${RUNNER_TEMP:-${HOME}/.local}/bin:${PATH}"
+          if ! command -v oras >/dev/null 2>&1; then
+            echo "oras is required to inspect published image tags" >&2
+            exit 1
           fi
 
           tag_check_script="./scripts/check-oci-image-tags-exist.sh"
@@ -459,7 +486,13 @@ jobs:
             SERVICERADAR_REPO_ROOT="${PWD}" \
             SERVICERADAR_SIGN_REGISTRY_TAG="${release_sha_tag}" \
             "${sign_script}"
-          ./scripts/verify-oci-publish.sh "${verify_tags[@]}"
+          verify_script="./scripts/verify-oci-publish.sh"
+          if [[ -x "${RUNNER_TEMP}/verify-oci-publish.sh" ]]; then
+            verify_script="${RUNNER_TEMP}/verify-oci-publish.sh"
+          fi
+          SERVICERADAR_COSIGN_COMMON="${PWD}/scripts/cosign_common.sh" \
+            SERVICERADAR_REPO_ROOT="${PWD}" \
+            "${verify_script}" "${verify_tags[@]}"
           unset VAULT_TOKEN VAULT_ADDR COSIGN_KEY_REF
 
       - name: Publish Helm chart to OCI registry
@@ -498,17 +531,23 @@ jobs:
           login_registry "${CHART_OCI_USERNAME}" "${CHART_OCI_TOKEN}"
 
           ./scripts/validate-release-metadata.sh "${RELEASE_TAG}" "${RELEASE_COMMIT}" >/dev/null
+          set +e
           SERVICERADAR_HELM_RUNNER="${helm_runner}" \
             ./scripts/check-oci-chart-version-available.sh "${VERSION}"
-
-          # Package and push chart
-          "${helm_runner}" package helm/serviceradar
-          "${helm_runner}" push "serviceradar-${VERSION}.tgz" "oci://${OCI_REGISTRY}/${OCI_CHART_REPOSITORY}"
-
-          # Cleanup
-          rm -f "serviceradar-${VERSION}.tgz"
-
-          echo "Published Helm chart: oci://${OCI_REGISTRY}/${OCI_CHART_REPOSITORY}/serviceradar:${VERSION}"
+          chart_status=$?
+          set -e
+          # 0 = version is free (push). 1 = already published (retry skip).
+          # 2 = occupancy probe failed (refuse).
+          if [[ "${chart_status}" -eq 1 ]]; then
+            echo "Helm chart ${VERSION} already published; skipping OCI push"
+          elif [[ "${chart_status}" -ne 0 ]]; then
+            exit "${chart_status}"
+          else
+            "${helm_runner}" package helm/serviceradar
+            "${helm_runner}" push "serviceradar-${VERSION}.tgz" "oci://${OCI_REGISTRY}/${OCI_CHART_REPOSITORY}"
+            rm -f "serviceradar-${VERSION}.tgz"
+            echo "Published Helm chart: oci://${OCI_REGISTRY}/${OCI_CHART_REPOSITORY}/serviceradar:${VERSION}"
+          fi
 
       # Wasm plugins are published, signed, indexed, and attached to the release by
       # wasm-plugins.yml, which runs in parallel on the same `v*` tag (mirroring
@@ -531,6 +570,14 @@ jobs:
             echo "Release tag is empty" >&2
             exit 1
           fi
+
+          # Detach earlier selected the immutable tag tree for image/package
+          # bits. publish_packages.go must come from the workflow ref so a
+          # retry-safety fix can land without moving v1.4.35 (and forcing a
+          # second //:push). ^{commit} peels annotated tag objects.
+          workflow_commit="$(git rev-parse --verify "${GITHUB_SHA}^{commit}")"
+          git checkout --detach "${workflow_commit}"
+          echo "Checked out workflow commit ${workflow_commit} for publish_packages"
 
           declare -a args
           args+=("--tag" "$RELEASE_TAG")

@@ -16,7 +16,7 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Index.ThreatPanel do
       |> Map.put(:recent_matches, recent_matches(dashboard[:threat_intel_summary] || dashboard["threat_intel_summary"]))
 
     ~H"""
-    <Common.panel title="Threat Intel" class="lg:col-span-4">
+    <Common.panel title="Threat Intel" class="sr-ops-span-full lg:col-span-12">
       <:actions>
         <.link href={ThreatIntelLinks.settings_path()} class="sr-ops-button">
           Manage

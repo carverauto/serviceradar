@@ -98,25 +98,38 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.Loader do
   """
   @spec finalize(String.t(), String.t(), integer(), keyword()) :: :ok
   def finalize(provider, feed_key, generation, opts \\ []) do
-    Repo.update_all(
-      from(a in "vulnerability_advisories",
-        where: a.provider == ^provider and a.feed_key == ^feed_key and a.generation == ^generation
-      ),
-      [set: [current: true]],
-      prefix: @schema
-    )
+    # nist-nvd2 flips ~360k rows. Demo CNPG's default statement_timeout
+    # cancelled this UPDATE and Oban retried the whole download.
+    timeout_ms = Keyword.get(opts, :timeout_ms, 600_000)
 
-    Repo.update_all(
-      from(a in "vulnerability_advisories",
-        where: a.provider == ^provider and a.feed_key == ^feed_key and a.generation != ^generation
-      ),
-      [set: [current: false]],
-      prefix: @schema
-    )
+    Repo.transaction(fn ->
+      {:ok, _} =
+        Repo.query("SELECT set_config('statement_timeout', $1, true)", [
+          Integer.to_string(timeout_ms)
+        ])
 
-    if Keyword.get(opts, :reap, true) do
-      reap_old_generations(provider, feed_key, generation)
-    end
+      Repo.update_all(
+        from(a in "vulnerability_advisories",
+          where:
+            a.provider == ^provider and a.feed_key == ^feed_key and a.generation == ^generation
+        ),
+        [set: [current: true]],
+        prefix: @schema
+      )
+
+      Repo.update_all(
+        from(a in "vulnerability_advisories",
+          where:
+            a.provider == ^provider and a.feed_key == ^feed_key and a.generation != ^generation
+        ),
+        [set: [current: false]],
+        prefix: @schema
+      )
+
+      if Keyword.get(opts, :reap, true) do
+        reap_old_generations(provider, feed_key, generation)
+      end
+    end)
 
     :ok
   end
