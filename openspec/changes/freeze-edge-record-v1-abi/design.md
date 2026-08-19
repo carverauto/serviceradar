@@ -765,11 +765,10 @@ enum writes -- SEVEN with a range of 0..2 -- plus constants at 3, 7 and 8. Seven
 take seven distinct values from three. So a position's identity is its SIGNATURE, the tuple of
 values it takes ACROSS the committed fixtures, and THREE record variants are needed: the record
 must avoid the all-equal tuples, which are reserved for the claim baselines (populated once, so
-their signatures are constant), leaving only six varying tuples per range-3 enum over two
-variants against seven positions. Two positions collide only if they agree IN EVERY FIXTURE WHERE
-BOTH OCCUR -- asking per shape is stronger and wrong, since the two `claims` discriminants are
-necessarily equal in the shape where both capabilities carry `source`, and are 7 and 8 in the
-base shape.
+their signatures vary per variant), leaving only six varying tuples per range-3 enum over two
+variants against seven positions. TWO POSITIONS COLLIDE ONLY IF THEY AGREE IN EVERY VARIANT OF
+THE SHAPE THEY BOTH OCCUR IN -- see the per-shape rule below; an earlier draft asked the question
+across the whole fixture set and that was too weak, since a mutation executes inside ONE shape.
 
 EVERY WHOLE-RECORD SHAPE IS A FIXTURE, NOT JUST A RECONSTRUCTION. Byte-for-byte reconstruction
 shows the mirror agrees with production for a shape; it says nothing about whether two writes

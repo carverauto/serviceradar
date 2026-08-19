@@ -1429,7 +1429,10 @@ here.
         default vectors cover both; the mutation audit confirms reordering is caught only by
         them.
         MUTATION AUDIT: THIRTY-EIGHT ROWS, EXACT AND INDIVIDUALLY LISTED in design.md's 1.5-i
-        mutation record, all re-run against the landed tree in one pass. An earlier draft
+        mutation record. THIRTEEN were re-run after the staging merge -- every survivor any review
+        round reported, the static-guard rows, and three long-standing controls -- and the rest
+        carry their pre-merge counts; design.md says which and why, and this ledger does not
+        claim one pass. An earlier draft
         reported "41 retained" by adding the first audit's nineteen to every survivor round,
         which DOUBLE-COUNTED -- the nineteen already contained the first two rounds. The
         nineteen are recorded separately and are NOT re-added.
@@ -2316,5 +2319,3 @@ here.
         that they satisfy 1.15's parity obligation for the sweep correlation surface. It is
         NOT a second pass over the fixtures: this subtask closes by CITING 1.3-f's vectors,
         and mutates nothing.
-
-
