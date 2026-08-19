@@ -84,15 +84,6 @@ build:remote_base --config=cache_only
 build:remote_base --jobs=100
 build:remote_base --remote_download_minimal
 
-# One set of paths for every caller. `~` is /root in a BuildBuddy action container and the
-# developer's home locally, so the CI profile cannot write somewhere a workstation lacks.
-# Both //k8s/buildbuddy/values{,-workflows}.yaml bind-mount a dedicated node volume at /root, so
-# these survive pod replacement; the repo caches are what stop ~4,900 external repos being
-# re-fetched and re-extracted every run.
-build:remote_base --disk_cache=~/.cache/serviceradar-bazel/disk
-build:remote_base --repository_cache=~/.cache/serviceradar-bazel/repo
-build:remote_base --repo_contents_cache=~/.cache/serviceradar-bazel/repo-contents
-
 build:remote_base --remote_executor=grpcs://carverauto.buildbuddy.io
 # Remote platforms
 build:remote_base --host_platform=//build/rbe:rbe_platform
@@ -113,22 +104,31 @@ build:remote_base --remote_timeout=15m
 build:remote_base --test_output=errors
 build:remote_base --noenable_platform_specific_config
 
-# CI profile on top of the remote config
+# CI profile on top of the remote config. Client cache paths are set per profile below and
+# never in remote_base -- setting them in both made Bazel warn that --disk_cache was
+# expanded twice from --config=ci.
 build:ci --config=remote_base
-# Absolute, on the node volume //k8s/buildbuddy mounts at /bazel-cache, so a fresh runner does
-# not re-download and re-extract every external repo. CI-only: this path exists on executors.
+# The Bazel CLIENT's caches, on the node volume //k8s/buildbuddy bind-mounts into the workflow
+# runner at /bazel-cache, so a fresh runner does not re-download and re-extract every external
+# repo. The repo caches are the ones that keep toolchains off the network; the disk cache is
+# action outputs. CI-only -- this path exists on the executors and nowhere else, and the init
+# container in //k8s/buildbuddy/values-workflows.yaml is what makes it writable by the runner.
 build:ci --disk_cache=/bazel-cache/disk
-build:ci --experimental_disk_cache_gc_max_size=100G
 build:ci --repository_cache=/bazel-cache/repo
 build:ci --repo_contents_cache=/bazel-cache/repo-contents
+build:ci --experimental_disk_cache_gc_max_size=100G
 build:ci --keep_going
 build:ci --build_metadata=REPO_URL=https://github.com/carverauto/serviceradar.git
 build:ci --build_metadata=ROLE=CI
 build:ci --build_metadata=VISIBILITY=PUBLIC
 build:ci --build_metadata=USER=gh
 
-# `--config=remote` is an ALIAS for remote_base
+# `--config=remote` is remote_base plus workstation-local cache paths. `make test` uses this
+# profile, so the paths must exist on a developer machine -- /bazel-cache does not.
 build:remote --config=remote_base
+build:remote --disk_cache=~/.cache/serviceradar-bazel/disk
+build:remote --repository_cache=~/.cache/serviceradar-bazel/repo
+build:remote --repo_contents_cache=~/.cache/serviceradar-bazel/repo-contents
 build:remote --experimental_disk_cache_gc_max_size=50G
 
 build:darwin_pkg --platforms=//build/platforms:darwin_exec

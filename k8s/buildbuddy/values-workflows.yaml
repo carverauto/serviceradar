@@ -158,6 +158,42 @@ extraVolumeMounts:
     mountPath: /root/.docker
     readOnly: true
 
+# THE BIND MOUNT BELOW IS ROOT-OWNED AND THE RUNNER IS NOT ROOT.
+#
+# kubelet creates a `DirectoryOrCreate` hostPath as root:root 0755, and BuildBuddy runs the
+# workflow runner as the `buildbuddy` user -- uid 1001, from //docker/images/Dockerfile.workflow-runner
+# -- so the Bazel client cannot create its own cache directories inside the mount:
+#
+#   ERROR: [unix_jni.cc:471] /bazel-cache/disk (Permission denied)
+#   ERROR: could not acquire lock on repo contents cache
+#
+# This is also what broke `git init` when the same volume was mounted at /root. The destination
+# path was never the problem; the ownership was, and moving the mount only moved the symptom.
+#
+# Non-recursive on purpose: everything under these three directories is written by uid 1001
+# already, so a `chown -R` would walk a 100 GB cache on every pod start for nothing.
+extraInitContainers:
+  - name: bazel-cache-perms
+    # The executor's own image: already on the node under imagePullPolicy IfNotPresent, so this
+    # costs no pull. Keep the tag in step with `image` above.
+    image: gcr.io/flame-public/buildbuddy-executor-enterprise:enterprise-v2.290.0
+    securityContext:
+      # The image sets no USER so this is already true; explicit so a future base image that
+      # adds one cannot silently turn the chown into a no-op failure.
+      runAsUser: 0
+    command:
+      - /bin/sh
+      - -c
+      - |
+        set -eu
+        mkdir -p /bazel-caches/disk /bazel-caches/repo /bazel-caches/repo-contents
+        chown 1001:1001 /bazel-caches /bazel-caches/disk /bazel-caches/repo /bazel-caches/repo-contents
+    # The three names are //.bazelrc `build:ci --{disk,repository,repo_contents}_cache`. Nothing
+    # checks the pairing: a rename there just makes Bazel create an unowned directory and fail.
+    volumeMounts:
+      - name: bazel-cache-volume
+        mountPath: /bazel-caches
+
 config:
   executor:
     # Inert on this fleet, and kept only because it costs nothing while off.
