@@ -898,12 +898,18 @@ THIRTY-EIGHT ROWS HERE. The first audit's nineteen are recorded separately above
 re-added; the survivor rounds are represented by the rows that now kill them rather than by a
 count. The counts are the number of test functions that failed -- measured, not remembered.
 
-WHAT WAS RE-MEASURED WHEN, STATED PLAINLY. The table was measured in one pass before staging was
-merged. After the merge, THIRTEEN rows were re-run: every survivor any review round reported, the
-three static-guard rows, and three long-standing ones as controls. All thirteen still kill and the
-counts above are the post-merge figures for those; the remainder carry their pre-merge counts.
-The merge touched staging's code, not this grammar or its suite, but that is a reason to expect
-the rest to hold, not evidence that they do.
+WHAT WAS RE-MEASURED WHEN, STATED PLAINLY -- THIS TABLE IS NOT ONE PASS. It was measured in one
+pass before staging was merged. After the merge, THIRTEEN rows were re-run: every survivor any
+review round reported, the static-guard rows, and three long-standing ones as controls. All
+thirteen still kill and the counts above are the post-merge figures for those; the remainder
+carry their pre-merge counts. The merge touched staging's code, not this grammar or its suite,
+but that is a reason to expect the rest to hold, not evidence that they do.
+
+THE ROWS ADDED SINCE, all measured: the presence-argument bypass
+(`d.outputContract(c, c != nil && r.GetProjectedRowCount() != 42)`, 1 row), a helper computing
+that flag (2), a helper hiding a branch behind a returned value (1), BRANCHLESS SELECTION via
+`map[bool][2]uint64{...}[x == 42]` (4), and on the Elixir side the same predicate as an `if` (2),
+as a local two-clause helper (2), and behind a remote call (1).
 
 THREE ROWS FAIL THROUGH A GUARD RATHER THAN A TEST FUNCTION, and the table says which. Restricting
 the shape vectors to fewer variants leaves every assertion green and is caught by the

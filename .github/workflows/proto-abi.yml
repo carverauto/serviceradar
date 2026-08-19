@@ -305,6 +305,13 @@ jobs:
       - name: Edge semantic-envelope transcript (Elixir)
         working-directory: elixir/serviceradar_core
         run: mix test --no-start test/serviceradar/edge/semantic_envelope_corpus_test.exs
+      # THE STATIC GUARD IS WHAT MAKES THE COMMITTED CROSS PRODUCT COMPLETE, so it has to run
+      # HERE and not only under Bazel: this workflow explicitly does NOT migrate the Bazel graph,
+      # so a step that exists only there is a step this host never runs. Without it a framer could
+      # branch on a payload value, the vectors would still match, and the gate would be green.
+      - name: Edge framing branches only on declared axes (Elixir)
+        working-directory: elixir/serviceradar_core
+        run: mix test --no-start test/serviceradar/edge/semantic_branch_guard_test.exs
       # THE PROJECTED-COST RELATION: this runtime does not COMPARE these fields -- it digests
       # them -- so the vectors are Go's and this gate asserts the SHAPE OF THE GAP instead:
       # every conjunct Go-only, every one owned by 1.5-n, and the inclusivity half of each

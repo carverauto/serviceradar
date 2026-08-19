@@ -119,7 +119,22 @@ func TestSemanticFramingBranchesOnlyOnDeclaredAxes(t *testing.T) {
 					violations = append(violations, semViolation(fset, fn, stmt,
 						"loop: the write sequence must be straight-line"))
 				case *ast.CallExpr:
-					violations = append(violations, semCallViolations(fset, fn, stmt, flags, boolParams)...)
+					violations = append(violations,
+						semCallViolations(fset, fn, stmt, flags, boolParams, semWriterName(fn))...)
+				case *ast.IndexExpr:
+					// BRANCHLESS SELECTION IS STILL SELECTION. `map[bool][2]uint64{...}[x == 42]`
+					// reorders two writes with no `if` anywhere, and a control-flow blacklist
+					// cannot see it -- measured, it passed the whole package.
+					violations = append(violations, semViolation(fset, fn, stmt,
+						"index/map lookup: the write sequence may not be SELECTED from data"))
+				case *ast.FuncLit:
+					violations = append(violations, semViolation(fset, fn, stmt,
+						"function literal: framing order must not route through a closure"))
+				case *ast.CompositeLit:
+					if _, isMap := stmt.Type.(*ast.MapType); isMap {
+						violations = append(violations, semViolation(fset, fn, stmt,
+							"map literal: the write sequence may not be selected from data"))
+					}
 				}
 
 				return true
@@ -136,49 +151,67 @@ func TestSemanticFramingBranchesOnlyOnDeclaredAxes(t *testing.T) {
 	}
 }
 
-// semIsFramerFunc covers EVERY function in these two files that emits transcript, not just the
-// `*digestWriter` methods.
+// semIsFramerFunc covers EVERY function declared in the two grammar files.
 //
-// SCOPING IT TO METHODS MISSED THE ROOT. `semanticEnvelopeDigestWithVersion` is a plain function
-// and it is the primary framer -- the one that writes the version prefix, every direct slot and
-// every carrier's presence decision. Measured: with the guard scoped to methods, adding
-// `if r.GetEncodedSize() > 1000` to the ROOT passed it.
+// SPELLING-BASED DISCOVERY WAS A BYPASS. Scoping to `*digestWriter` methods missed the root,
+// which is a plain function; scoping to "calls something spelled `d`" missed a framer whose
+// receiver is renamed, and missed the exported wrapper entirely. These two files ARE the grammar,
+// so every function in them is in scope and nothing is admitted by how it happens to be written.
 func semIsFramerFunc(fn *ast.FuncDecl) bool {
-	if fn.Body == nil {
-		return false
+	return fn.Body != nil
+}
+
+// semReceiverName is the framer's own receiver variable, whatever it is called. Matching the
+// literal `d` meant renaming the receiver silently left the call checks unenforced.
+func semReceiverName(fn *ast.FuncDecl) string {
+	if fn.Recv == nil || len(fn.Recv.List) != 1 || len(fn.Recv.List[0].Names) != 1 {
+		return ""
 	}
 
-	if fn.Recv != nil {
-		if len(fn.Recv.List) != 1 {
-			return false
-		}
-
-		star, ok := fn.Recv.List[0].Type.(*ast.StarExpr)
-		if !ok {
-			return false
-		}
-
-		id, ok := star.X.(*ast.Ident)
-
-		return ok && id.Name == "digestWriter"
+	star, ok := fn.Recv.List[0].Type.(*ast.StarExpr)
+	if !ok {
+		return ""
 	}
 
-	// A package-level function counts when it drives a digestWriter.
-	found := false
+	id, ok := star.X.(*ast.Ident)
+	if !ok || id.Name != "digestWriter" {
+		return ""
+	}
+
+	return fn.Recv.List[0].Names[0].Name
+}
+
+// semWriterName is the digestWriter a function drives: its receiver if it is a method, otherwise
+// the local it constructs with `newDigest()`. The root framer is a plain function, so without
+// this its calls read as reaching outside the closed surface.
+func semWriterName(fn *ast.FuncDecl) string {
+	if n := semReceiverName(fn); n != "" {
+		return n
+	}
+
+	name := ""
 
 	ast.Inspect(fn.Body, func(n ast.Node) bool {
-		if call, ok := n.(*ast.CallExpr); ok {
-			if sel, ok := call.Fun.(*ast.SelectorExpr); ok {
-				if id, ok := sel.X.(*ast.Ident); ok && id.Name == "d" {
-					found = true
-				}
+		as, ok := n.(*ast.AssignStmt)
+		if !ok || len(as.Lhs) != 1 || len(as.Rhs) != 1 {
+			return true
+		}
+
+		call, ok := as.Rhs[0].(*ast.CallExpr)
+		if !ok {
+			return true
+		}
+
+		if id, ok := call.Fun.(*ast.Ident); ok && id.Name == "newDigest" {
+			if lhs, ok := as.Lhs[0].(*ast.Ident); ok {
+				name = lhs.Name
 			}
 		}
 
 		return true
 	})
 
-	return found
+	return name
 }
 
 // semBoolParams collects a framer's own bool parameters. Those ARE the presence axis: the caller
@@ -302,11 +335,11 @@ func semViolation(fset *token.FileSet, fn *ast.FuncDecl, n ast.Node, why string)
 // digest constructor, and value conversions may be called from a framer -- anything else is a
 // place for order to depend on a payload value out of sight.
 func semCallViolations(fset *token.FileSet, fn *ast.FuncDecl, call *ast.CallExpr,
-	flags map[string]bool, boolParams map[string][]int,
+	flags map[string]bool, boolParams map[string][]int, recvName string,
 ) []string {
 	var out []string
 
-	if !semAllowedCallee(call.Fun) {
+	if !semAllowedCallee(call.Fun, recvName) {
 		return append(out, semViolation(fset, fn, call,
 			"calls something other than a digestWriter method, a proto getter or a conversion: "+
 				"framing order must not depend on a function this guard cannot read"))
@@ -318,7 +351,7 @@ func semCallViolations(fset *token.FileSet, fn *ast.FuncDecl, call *ast.CallExpr
 	}
 
 	recv, ok := sel.X.(*ast.Ident)
-	if !ok || recv.Name != "d" {
+	if !ok || recv.Name == "" || recv.Name != recvName {
 		return out
 	}
 
@@ -337,7 +370,7 @@ func semCallViolations(fset *token.FileSet, fn *ast.FuncDecl, call *ast.CallExpr
 }
 
 // semAllowedCallee closes the call surface a framer may reach.
-func semAllowedCallee(fun ast.Expr) bool {
+func semAllowedCallee(fun ast.Expr, recvName string) bool {
 	switch f := fun.(type) {
 	case *ast.Ident:
 		return semAllowedPlainCalls[f.Name]
@@ -345,7 +378,7 @@ func semAllowedCallee(fun ast.Expr) bool {
 		// a conversion such as []byte(s)
 		return true
 	case *ast.SelectorExpr:
-		if id, ok := f.X.(*ast.Ident); ok && id.Name == "d" {
+		if id, ok := f.X.(*ast.Ident); ok && recvName != "" && id.Name == recvName {
 			return true
 		}
 
@@ -355,7 +388,7 @@ func semAllowedCallee(fun ast.Expr) bool {
 
 		return semAllowedQualifiedCalls[semExprString(f)]
 	case *ast.ParenExpr:
-		return semAllowedCallee(f.X)
+		return semAllowedCallee(f.X, recvName)
 	}
 
 	return false
