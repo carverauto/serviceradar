@@ -24,7 +24,13 @@ regexes = [
 # What it flags in there is upstream crate content, not ours: .cargo-checksum.json
 # SHA digests that pattern-match generic-api-key, and elliptic-curve's own PKCS8
 # test vector, all published on crates.io.
+#
+# SCOPED TO THE TWO FILE KINDS THAT ACTUALLY TRIP IT, not the whole directory. A blanket
+# directory exemption would also cover any first-party file that ever landed there by mistake;
+# these two patterns cover exactly the eight historical findings -- upstream crates' own test
+# keys under `tests/examples/`, and the checksum manifests -- and nothing else.
 paths = [
   '''^third_party/crate_mirror/''',
-  '''^third_party/crates/''',
+  '''^third_party/crates/[^/]+/tests/examples/.*\.pem$''',
+  '''^third_party/crates/[^/]+/\.cargo-checksum\.json$''',
 ]

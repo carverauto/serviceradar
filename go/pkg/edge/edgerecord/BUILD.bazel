@@ -36,6 +36,7 @@ go_test(
         "assignment_test.go",
         "bounds_precedence_test.go",
         "count_corpus_test.go",
+        "semantic_branch_guard_test.go",
         "semantic_envelope_corpus_test.go",
         "proof_group_inventory_test.go",
         "projected_cost_corpus_test.go",
@@ -62,7 +63,15 @@ go_test(
         "sweep_matrix_test.go",
         "validate_test.go",
     ],
-    data = ["//proto/edge/v1:edge_testdata"],
+    data = [
+        "//proto/edge/v1:edge_testdata",
+        # THE STATIC GUARD READS THE FRAMER SOURCES AT RUN TIME. They are compile inputs of the
+        # library, which is NOT the same as being present in the test's runfiles: without them
+        # here the guard cannot open what it is meant to police, and a prohibited branch that
+        # fails `go test` would leave the Bazel target green.
+        "claims_framing.go",
+        "semantic.go",
+    ],
     embed = [":edgerecord"],
     deps = [
         "//go/pkg/edge/projection",
