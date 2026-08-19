@@ -10,17 +10,24 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.Staging do
         extracted/              # unzip output (json, or *.json.gz shards)
 
   The staging volume MUST be a real mounted volume; when it is absent the large
-  nist-nvd2 feed fails closed (never an in-memory fallback). Per-run dirs are
-  removed on success; orphans older than the retention window are reaped on
-  startup.
+  nist-nvd2 feed fails closed (never an in-memory fallback).
+
+  Oban timeouts kill the worker with `:kill`, so `after` cleanup does not run.
+  Combined with a new run id per attempt and local-path ignoring PVC size,
+  leftover nist-nvd2 extracts filled a demo node (~255 GiB). Always keep at
+  most one nist-nvd2 run dir, reap the rest on every scheduler tick, and refuse
+  to download when the staging tree is over budget.
   """
 
   require Logger
 
   @default_root "/var/lib/serviceradar/advisory-feeds"
-  # nist-nvd2 may run for an hour; two hours still catches a dead worker
-  # before the next retry fills the volume (local-path has no quota).
+  # Age-based backstop for tiny KEV dirs. nist-nvd2 is pruned by count, not age.
   @orphan_max_age_seconds 2 * 60 * 60
+  # Zip + extracted shards must fit with headroom. local-path has no quota, so
+  # this is the real disk cap.
+  @max_staging_bytes 6 * 1024 * 1024 * 1024
+  @min_free_bytes 4 * 1024 * 1024 * 1024
 
   @doc "Staging root directory (env-overridable)."
   @spec root() :: Path.t()
@@ -73,7 +80,77 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.Staging do
   end
 
   @doc """
+  Keep at most `keep` newest run dirs for `feed_key`; delete the rest now.
+
+  This is the disk-safety valve for nist-nvd2. Timeout-killed jobs cannot run
+  `after` cleanup, so the scheduler must drop extras every tick.
+  """
+  @spec prune_feed(String.t(), keyword()) :: {:ok, non_neg_integer()}
+  def prune_feed(feed_key, opts \\ []) when is_binary(feed_key) do
+    dir = Keyword.get(opts, :root, root())
+    keep = Keyword.get(opts, :keep, 1)
+    feed_dir = Path.join(dir, feed_key)
+
+    run_dirs =
+      case File.ls(feed_dir) do
+        {:ok, run_ids} ->
+          run_ids
+          |> Enum.map(&Path.join(feed_dir, &1))
+          |> Enum.filter(&File.dir?/1)
+          |> Enum.sort_by(&mtime/1, :desc)
+
+        _ ->
+          []
+      end
+
+    extras = Enum.drop(run_dirs, max(keep, 0))
+
+    Enum.each(extras, fn run_dir ->
+      File.rm_rf(run_dir)
+    end)
+
+    {:ok, length(extras)}
+  rescue
+    error ->
+      Logger.warning("advisory_feeds: prune #{feed_key} failed: #{inspect(error)}")
+      {:ok, 0}
+  end
+
+  @doc "Bytes used under the staging root (best-effort)."
+  @spec usage_bytes(Path.t()) :: non_neg_integer()
+  def usage_bytes(dir \\ root()) do
+    dir
+    |> Path.expand()
+    |> usage_bytes_path()
+  end
+
+  @doc """
+  Refuse a new nist-nvd2 download when staging is already over budget or the
+  filesystem has too little free space. Call after pruning.
+  """
+  @spec ensure_budget(keyword()) :: :ok | {:error, term()}
+  def ensure_budget(opts \\ []) do
+    dir = Keyword.get(opts, :root, root())
+    max_bytes = Keyword.get(opts, :max_bytes, @max_staging_bytes)
+    min_free = Keyword.get(opts, :min_free_bytes, @min_free_bytes)
+    used = usage_bytes(dir)
+
+    cond do
+      used > max_bytes ->
+        {:error, {:staging_over_budget, used}}
+
+      match?({:ok, free} when free < min_free, free_bytes(dir)) ->
+        {:ok, free} = free_bytes(dir)
+        {:error, {:staging_low_free, free}}
+
+      true ->
+        :ok
+    end
+  end
+
+  @doc """
   Reap orphaned per-run directories older than `max_age_seconds` across all feeds.
+  Always prunes nist-nvd2 down to `nist_keep` newest dirs first.
   Safe to call on startup; never raises.
   """
   @spec reap_orphans(keyword()) :: {:ok, non_neg_integer()}
@@ -81,6 +158,9 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.Staging do
     dir = Keyword.get(opts, :root, root())
     max_age = Keyword.get(opts, :max_age_seconds, @orphan_max_age_seconds)
     now = Keyword.get(opts, :now, System.system_time(:second))
+    nist_keep = Keyword.get(opts, :nist_keep, 1)
+
+    {:ok, pruned} = prune_feed("nist-nvd2", root: dir, keep: nist_keep)
 
     reaped =
       dir
@@ -96,7 +176,7 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.Staging do
         end
       end)
 
-    {:ok, reaped}
+    {:ok, pruned + reaped}
   rescue
     error ->
       Logger.warning("advisory_feeds: orphan reap failed: #{inspect(error)}")
@@ -133,4 +213,58 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.Staging do
       {:error, reason} -> {:error, reason}
     end
   end
+
+  defp mtime(path) do
+    case File.stat(path, time: :posix) do
+      {:ok, %File.Stat{mtime: mtime}} -> mtime
+      _ -> 0
+    end
+  end
+
+  defp usage_bytes_path(path) do
+    case File.lstat(path) do
+      {:ok, %File.Stat{type: :regular, size: size}} ->
+        size
+
+      {:ok, %File.Stat{type: :directory}} ->
+        case File.ls(path) do
+          {:ok, names} ->
+            Enum.reduce(names, 0, fn name, acc ->
+              acc + usage_bytes_path(Path.join(path, name))
+            end)
+
+          _ ->
+            0
+        end
+
+      _ ->
+        0
+    end
+  end
+
+  defp free_bytes(path) do
+    case System.cmd("df", ["-Pk", path], stderr_to_stdout: true) do
+      {out, 0} ->
+        out
+        |> String.split("\n", trim: true)
+        |> List.last()
+        |> String.split()
+        |> Enum.at(3)
+        |> parse_df_kib()
+
+      _ ->
+        :unknown
+    end
+  rescue
+    _ -> :unknown
+  end
+
+  defp parse_df_kib(value) when is_binary(value) do
+    case Integer.parse(value) do
+      {kib, _} -> {:ok, kib * 1024}
+      :error -> :unknown
+    end
+  end
+
+  defp parse_df_kib(_), do: :unknown
 end

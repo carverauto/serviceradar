@@ -26,6 +26,7 @@ defmodule ServiceRadar.Jobs.ReapStalePeriodicJobsWorker do
     "ServiceRadar.Credentials.PluginIntegrationReconcileWorker",
     "ServiceRadar.Edge.AgentCommandCleanupWorker",
     "ServiceRadar.Identity.CliAuthCleanupWorker",
+    "ServiceRadar.Inventory.AdvisoryFeeds.StagingCleanupWorker",
     "ServiceRadar.Inventory.DeviceCleanupWorker",
     "ServiceRadar.Inventory.DeviceRiskAssessmentWorker",
     "ServiceRadar.Inventory.EndpointVulnerabilityMatchWorker",

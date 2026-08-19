@@ -68,7 +68,6 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.FeedWorker do
   @spec ensure_scheduled() :: {:ok, :scheduled} | {:error, term()}
   def ensure_scheduled do
     if ObanSupport.available?() do
-      _ = Staging.reap_orphans()
       reconcile_stale_runs()
 
       if Config.enabled?() do
@@ -80,6 +79,20 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.FeedWorker do
       {:error, :oban_unavailable}
     end
   end
+
+  @doc """
+  True when an incomplete Oban job exists for `feed`.
+
+  Pass `states:` to narrow (e.g. `["executing"]` for the staging reaper).
+  """
+  @spec in_flight?(String.t(), keyword()) :: boolean()
+  def in_flight?(feed, opts \\ [])
+
+  def in_flight?(feed, opts) when feed in @feeds do
+    already_scheduled?(feed, Keyword.get(opts, :states))
+  end
+
+  def in_flight?(_feed, _opts), do: false
 
   @doc "Enqueue a single feed now (operator \"Run now\")."
   @spec enqueue(String.t()) :: {:ok, Oban.Job.t()} | {:error, term()}
@@ -134,13 +147,15 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.FeedWorker do
     _ -> {0, nil}
   end
 
-  defp already_scheduled?(feed) do
+  defp already_scheduled?(feed, states \\ nil) do
     import Ecto.Query
+
+    states = states || ["available", "scheduled", "executing", "retryable"]
 
     query =
       from(j in Oban.Job,
         where: j.worker == ^@worker_name,
-        where: j.state in ["available", "scheduled", "executing", "retryable"],
+        where: j.state in ^states,
         where: fragment("?->>'feed' = ?", j.args, ^feed),
         limit: 1
       )
@@ -301,10 +316,22 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.FeedWorker do
   end
 
   defp do_run("nist-nvd2") do
+    # Drop leftover extracts *before* a new download. Timeout uses :kill, so
+    # with_run_cleanup/2 does not run; without this prune each retry added
+    # another zip+extract until the node filled.
+    _ = Staging.prune_feed("nist-nvd2", keep: 0)
+
     if Staging.volume_available?() do
-      with {:ok, token} <- Config.vulncheck_token(),
-           {:ok, acquired} <- Acquisition.acquire_vulncheck("nist-nvd2", token, run_id()) do
-        with_run_cleanup(acquired, fn -> parse_and_load_nvd(acquired) end)
+      case Staging.ensure_budget() do
+        :ok ->
+          with {:ok, token} <- Config.vulncheck_token(),
+               {:ok, acquired} <- Acquisition.acquire_vulncheck("nist-nvd2", token, run_id()) do
+            with_run_cleanup(acquired, fn -> parse_and_load_nvd(acquired) end)
+          end
+
+        {:error, reason} = error ->
+          Logger.warning("advisory_feeds: nist-nvd2 staging budget: #{inspect(reason)}")
+          error
       end
     else
       Logger.warning(
