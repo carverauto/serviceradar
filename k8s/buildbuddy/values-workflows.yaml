@@ -224,12 +224,27 @@ config:
       - registry.carverauto.dev/serviceradar/buildbuddy-workflow-runner:v1.0.24.3
 
     oci:
-      # CLUSTER DNS INSIDE THE ACTION CONTAINER.
-      # The empty string is a documented sentinel, NOT "unset": it makes the runtime bind-mount
-      # the HOST's /etc/resolv.conf instead, which on this pod is
-      # ClusterFirst -- CoreDNS plus the cluster search domains. Public names keep working,
-      # because CoreDNS forwards them.
-      dns: ""
+      # DO NOT SET `dns: ""` HERE. MEASURED, 2026-08-19, and reverted within minutes.
+      #
+      # `executor.oci.dns` defaults to "8.8.8.8" and the runtime writes a resolv.conf holding
+      # that single nameserver into every action container, then bind-mounts it over
+      # /etc/resolv.conf (ociruntime.go:642 and :1340). The empty string instead bind-mounts the
+      # HOST's /etc/resolv.conf, which on this pod is ClusterFirst -- so it looks like the way to
+      # give an action cluster DNS.
+      #
+      # It is not, because DNS was never the whole problem. The action network namespace has no
+      # route to the service CIDR, so pointing it at CoreDNS's ClusterIP gives it a resolver it
+      # cannot reach. The failure moves rather than clearing, and gets worse: the symptom changed
+      # from "Name or service not known" (NXDOMAIN from 8.8.8.8, so cluster.local failed and
+      # everything public still worked) to "Temporary failure in name resolution" for EVERY name,
+      # public ones included. One fleet-wide outage of all name resolution inside actions, traded
+      # for a cluster.local lookup that still fails.
+      #
+      # An in-cluster endpoint therefore cannot be reached from an action container by name today,
+      # whatever this key says. Making that possible is a NETWORKING change -- a route from the
+      # action namespace to the service CIDR -- not a resolver setting. Until then, anything a
+      # workflow step must reach has to be resolvable and routable from outside the cluster
+      # network; see //config/environments/ci.textproto `database.host`.
       mounts:
         - source: /cache
           destination: /cache

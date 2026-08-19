@@ -68,7 +68,7 @@ database {
   # The cert-manager issuer behind the fixture, published by //k8s/srql-fixtures/ca-bundle.yaml.
   # Named rather than copied because the issuer rotates: a stored PEM is correct until it is
   # not, which is what a BuildBuddy SRQL_TEST_DATABASE_CA_CERT secret did.
-  ca_bundle_url: "http://srql-fixture-ca-incluster.srql-fixtures.svc.cluster.local/ca.crt"
+  ca_bundle_url: "http://10.43.52.69/ca.crt"
 
   search_path: "platform, ag_catalog"
   pool_size: 10

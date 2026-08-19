@@ -156,12 +156,11 @@ config:
     warmup_additional_images:
       - registry.carverauto.dev/serviceradar/rbe-executor:v1.0.24.3
     oci:
-      # CLUSTER DNS INSIDE THE ACTION CONTAINER.
-      # The empty string is a documented sentinel, NOT "unset": it makes the runtime bind-mount
-      # the HOST's /etc/resolv.conf instead of writing one holding that single public nameserver,
-      # which on this pod is ClusterFirst -- CoreDNS plus the cluster search domains. Public
-      # names keep working, because CoreDNS forwards them.
-      dns: ""
+      # DO NOT SET `dns: ""` HERE. See the measurement in ./values-workflows.yaml: the action
+      # network namespace has no route to the service CIDR, so pointing the resolver at CoreDNS
+      # replaces one failing lookup (cluster.local, NXDOMAIN) with every lookup failing, public
+      # names included. Both fleets share the runtime and the "8.8.8.8" default, so the trap is
+      # identical on each.
       mounts:
         - source: /cache
           destination: /cache

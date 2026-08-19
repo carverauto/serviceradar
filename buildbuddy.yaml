@@ -20,7 +20,7 @@ actions:
     platform_properties:
       OSFamily: "linux"
       Arch: "amd64"
-      dockerNetwork: "host" # The OCI runtime accepts exactly "", "bridge" and "off"
+      dockerNetwork: "bridge" # The OCI runtime accepts exactly "", "bridge" and "off"
 
     triggers:
       pr:
@@ -36,13 +36,16 @@ actions:
     steps:
       # Put Harbor credentials into ~/.docker/config.json, for rules_oci's registry fetches.
       # See buildbuddy_setup_docker_auth.sh for details
-      - run: "bazel run -c opt --config=ci //:buildbuddy_setup_docker_auth --verbose_failures"
+      - run: >-
+          bazel run -c opt --config=ci //:buildbuddy_setup_docker_auth --verbose_failures
 
       # Build the entire repo.
-      - run: "bazel build -c opt --config=ci //..."
+      - run: >-
+          bazel build -c opt --config=ci //...
 
       # Runs all unit tests; exclude intgration and acceptance tests.
-      - run: "bazel test -c opt --config=ci  //... --test_tag_filters=-integration_test,-acceptance_test"
+      - run: >-
+          bazel test -c opt --config=ci  //... --test_tag_filters=-integration_test,-acceptance_test
 
       # Run all go race conditions tests (race on, pure off); --flaky_test_attempts=1 overrides the repo default of 2;
       - run: >-
@@ -109,4 +112,5 @@ actions:
           bazel test $FLAGS //... --test_tag_filters=integration_test,-acceptance_test
 
       # Largely a cache hit from the //... build above;
-      - run: "bazel build -c opt --config=ci //:images"
+      - run: >-
+          bazel build -c opt --config=ci //:images
