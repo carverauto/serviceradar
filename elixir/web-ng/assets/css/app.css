@@ -2630,6 +2630,17 @@ table:has(.sr-ui-dropdown) td:has(.sr-ui-dropdown) {
   min-height: 0;
 }
 
+/* Map canvas takes leftover height. The five stats under it stay compact
+   instead of stretching into an empty second row. */
+.sr-ops-grid-primary > .sr-ops-map-panel > .sr-ops-map-shell {
+  flex: 1 1 auto;
+  min-height: 26rem;
+}
+
+.sr-ops-grid-primary > .sr-ops-map-panel > .sr-ops-map-stats {
+  flex: 0 0 auto;
+}
+
 .sr-ops-grid-secondary .sr-ops-field-survey-card-map {
   flex: 1 1 auto;
   height: auto;
@@ -3256,7 +3267,7 @@ table:has(.sr-ui-dropdown) td:has(.sr-ui-dropdown) {
 }
 
 .sr-ops-grid-primary .sr-ops-map-shell {
-  flex: 1;
+  flex: 1 1 auto;
   min-height: 26rem;
 }
 

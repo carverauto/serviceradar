@@ -103,10 +103,12 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.DashboardLayoutTest do
   test "map sits beside events and stretches with the events card" do
     css = File.read!(css_path())
 
-    assert css =~ ".sr-ops-grid-primary .sr-ops-map-shell"
+    assert css =~ ".sr-ops-grid-primary > .sr-ops-map-panel > .sr-ops-map-shell"
     assert css =~ "min-height: 26rem"
     refute css =~ "min-height: 11rem"
     refute css =~ "min-height: 22rem"
+    assert css =~ ".sr-ops-grid-primary > .sr-ops-map-panel > .sr-ops-map-stats"
+    assert css =~ "flex: 0 0 auto"
     assert css =~ ".sr-ops-observability-split .sr-ops-metric-sparkline-wrap"
     assert css =~ "height: 2.4rem"
     assert css =~ ".sr-ops-observability-split .sr-ops-metric-grid"
