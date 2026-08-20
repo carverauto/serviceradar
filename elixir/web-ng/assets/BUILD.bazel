@@ -24,7 +24,10 @@ load("//build:phoenix_digest.bzl", "phoenix_digest")
 
 package(default_visibility = ["//visibility:public"])
 
-exports_files(["package-lock.json"])
+exports_files([
+    "package-lock.json",
+    "css/app.css",
+])
 
 # Materializes node_modules from the checked-in pnpm-lock.yaml as a Bazel-managed tree.
 # This is what replaces `bun install`, and with it the node_modules symlink into the
