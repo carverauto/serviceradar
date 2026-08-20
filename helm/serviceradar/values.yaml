@@ -602,6 +602,16 @@ core:
     imagePullPolicy: ""
     podAnnotations: {}
     markerPath: /var/lib/serviceradar/migrations/complete
+    # Newest migration timestamp this chart revision ships, used by the
+    # `wait-migrations` init container to prove the schema is CURRENT rather
+    # than merely present. Kept in sync with
+    # elixir/serviceradar_core/priv/repo/migrations by
+    # //helm/serviceradar:migrations_expected_version_test -- do not hand-edit;
+    # the gate will tell you the value to use.
+    #
+    # Set to "" to fall back to the old existence-only check (for operators
+    # running the chart against a deliberately pinned schema).
+    expectedVersion: "20260819190000"
   # Stale device reaper settings - controls cleanup of IP-only "ghost" devices
   reaper:
     # How often to run the reaper job
