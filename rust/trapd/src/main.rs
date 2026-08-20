@@ -64,8 +64,10 @@ struct Varbind {
 #[derive(Serialize)]
 struct TrapMessage {
     source: String,
+    source_ip: String,
     version: String,
     community: String,
+    body: String,
     varbinds: Vec<Varbind>,
 }
 
@@ -279,6 +281,9 @@ async fn ensure_stream(js: &async_nats::jetstream::Context, cfg: &Config) -> Res
     Ok(())
 }
 
+const SYS_UP_TIME_OID: &str = "1.3.6.1.2.1.1.3.0";
+const SNMP_TRAP_OID: &str = "1.3.6.1.6.3.1.1.4.1.0";
+
 fn build_message(pdu: &snmp2::Pdu<'_>, addr: SocketAddr) -> TrapMessage {
     let version = match pdu.version() {
         Ok(v) => format!("{v:?}"),
@@ -292,11 +297,71 @@ fn build_message(pdu: &snmp2::Pdu<'_>, addr: SocketAddr) -> TrapMessage {
             value: format!("{value:?}"),
         });
     }
+    let source = addr.to_string();
+    let source_ip = addr.ip().to_string();
+    let body = format_trap_body(&source_ip, &varbinds);
     TrapMessage {
-        source: addr.to_string(),
+        source,
+        source_ip,
         version,
         community,
+        body,
         varbinds,
+    }
+}
+
+fn format_trap_body(source_ip: &str, varbinds: &[Varbind]) -> String {
+    let trap_oid = varbinds.iter().find_map(|varbind| {
+        oid_matches(&varbind.oid, SNMP_TRAP_OID).then(|| strip_snmp_type_prefix(&varbind.value))
+    });
+    let detail = varbinds.iter().find_map(human_varbind_text);
+
+    match (trap_oid, detail) {
+        (Some(oid), Some(text)) if !oid.is_empty() && !text.is_empty() => {
+            format!("SNMP trap {oid} from {source_ip}: {text}")
+        }
+        (Some(oid), _) if !oid.is_empty() => format!("SNMP trap {oid} from {source_ip}"),
+        (_, Some(text)) if !text.is_empty() => format!("SNMP trap from {source_ip}: {text}"),
+        _ => format!("SNMP trap from {source_ip}"),
+    }
+}
+
+fn human_varbind_text(varbind: &Varbind) -> Option<String> {
+    if oid_matches(&varbind.oid, SYS_UP_TIME_OID) || oid_matches(&varbind.oid, SNMP_TRAP_OID) {
+        return None;
+    }
+    let value = varbind.value.trim();
+    if value.is_empty() || unhelpful_snmp_value(value) {
+        return None;
+    }
+    let stripped = strip_snmp_type_prefix(value);
+    if stripped.is_empty() || unhelpful_snmp_value(&stripped) {
+        None
+    } else {
+        Some(stripped)
+    }
+}
+
+fn oid_matches(oid: &str, expected: &str) -> bool {
+    oid.trim_start_matches('.') == expected
+}
+
+fn unhelpful_snmp_value(value: &str) -> bool {
+    let trimmed = value.trim();
+    trimmed.chars().all(|ch| ch.is_ascii_digit())
+        || trimmed.to_ascii_uppercase().starts_with("TIMETICKS")
+        || trimmed.to_ascii_uppercase().starts_with("COUNTER32")
+        || trimmed.to_ascii_uppercase().starts_with("COUNTER64")
+        || trimmed.to_ascii_uppercase().starts_with("INTEGER")
+        || trimmed.to_ascii_uppercase().starts_with("UNSIGNED32")
+        || trimmed.to_ascii_uppercase().starts_with("BOOLEAN")
+        || trimmed.eq_ignore_ascii_case("NULL")
+}
+
+fn strip_snmp_type_prefix(value: &str) -> String {
+    match value.split_once(": ") {
+        Some((_, rest)) => rest.trim().to_string(),
+        None => value.trim().to_string(),
     }
 }
 
@@ -619,6 +684,47 @@ mod tests {
                 key_path: Path::new("/etc/serviceradar/certs/trapd-key.pem").to_path_buf(),
                 ca_path: Path::new("/etc/serviceradar/certs/client-root.pem").to_path_buf(),
             }
+        );
+    }
+}
+
+#[cfg(test)]
+mod trap_body_tests {
+    use super::{Varbind, format_trap_body};
+
+    #[test]
+    fn prefers_trap_oid_and_octet_string_over_sys_uptime() {
+        let varbinds = vec![
+            Varbind {
+                oid: "1.3.6.1.2.1.1.3.0".into(),
+                value: "TIMETICKS: 38611538".into(),
+            },
+            Varbind {
+                oid: "1.3.6.1.6.3.1.1.4.1.0".into(),
+                value: "OBJECT IDENTIFIER: 1.3.6.1.6.3.1.1.5.3".into(),
+            },
+            Varbind {
+                oid: "1.3.6.1.2.1.2.2.1.2.1".into(),
+                value: "OCTET STRING: GigabitEthernet0/1".into(),
+            },
+        ];
+
+        assert_eq!(
+            format_trap_body("192.168.1.10", &varbinds),
+            "SNMP trap 1.3.6.1.6.3.1.1.5.3 from 192.168.1.10: GigabitEthernet0/1"
+        );
+    }
+
+    #[test]
+    fn falls_back_to_source_when_only_timeticks_are_present() {
+        let varbinds = vec![Varbind {
+            oid: "1.3.6.1.2.1.1.3.0".into(),
+            value: "TIMETICKS: 38611538".into(),
+        }];
+
+        assert_eq!(
+            format_trap_body("10.0.0.8", &varbinds),
+            "SNMP trap from 10.0.0.8"
         );
     }
 }
