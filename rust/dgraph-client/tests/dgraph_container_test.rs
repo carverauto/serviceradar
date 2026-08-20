@@ -64,7 +64,7 @@ fn dgraph_client_acceptance() {
     let runtime = Runtime::new().expect("failed to build a tokio runtime");
     let outcome = runtime.block_on(async {
         let session = open(&dgraph).await?;
-        let result = run_scenarios(&session.client).await;
+        let result = run_scenarios(&session).await;
         // Teardown runs on both paths: a failing scenario must not also leak a namespace.
         session.teardown().await;
         result
@@ -78,9 +78,16 @@ fn dgraph_client_acceptance() {
 ///
 /// All of them run everywhere. On CI they run inside a namespace this run created and will
 /// drop, so the destructive ones are as safe there as against a local container.
-async fn run_scenarios(client: &DgraphClient) -> Result<(), String> {
+async fn run_scenarios(session: &Session) -> Result<(), String> {
+    let client = &session.client;
+
     scenario("connects_and_probes", || connects_and_probes(client))?;
-    scenario_async("allocates_uid_ranges", allocates_uid_ranges(client)).await?;
+    // Cluster-level, so it runs as the superadmin rather than inside the namespace.
+    scenario_async(
+        "allocates_uid_ranges",
+        allocates_uid_ranges(session.superadmin()),
+    )
+    .await?;
     scenario_async(
         "run_dql_without_a_transaction",
         run_dql_without_a_transaction(client),
@@ -123,6 +130,23 @@ struct Session {
 }
 
 impl Session {
+    /// The client for cluster-level operations.
+    ///
+    /// A namespace's `groot` is a guardian OF THAT NAMESPACE, not a Guardian of the Galaxy, and
+    /// some operations are reserved for the latter -- AllocateIDs answers
+    /// "v25.AllocateIDs can only be called by the superadmin group". Those are cluster-level by
+    /// nature: a uid lease is not something a namespace can own.
+    ///
+    /// So they run as the admin. Safe on a shared fixture because the only such call here is a
+    /// monotonic lease bump, which is exactly what concurrent callers are meant to do to it.
+    /// With no namespace in play the scoped client already IS the superadmin.
+    fn superadmin(&self) -> &DgraphClient {
+        match &self.owned {
+            Some((admin, _)) => admin,
+            None => &self.client,
+        }
+    }
+
     /// Drop the run's namespace, and with it every predicate and node inside.
     ///
     /// The whole reason the scenarios can be destructive again: `drop_all` inside a namespace
@@ -261,16 +285,24 @@ async fn scenario_async(
     body.await.map_err(|err| format!("{name}: {err}"))
 }
 
-/// Wipe and re-declare the schema.
+/// Clear this namespace's data and re-declare the schema.
 ///
-/// `drop_all` is safe again, which it was not a few revisions ago: `open` guarantees the client
-/// is scoped to something this run owns -- a namespace it created on CI, or a container it
-/// started locally -- so this reaches nothing anyone else can see.
+/// `drop_data`, NOT `drop_all`. Two independent reasons, either one sufficient:
+///
+/// Permission -- a namespace guardian may "drop data within the namespace"; `drop all` is
+/// reserved for Guardians of the Galaxy, so inside a namespace it answers PermissionDenied.
+///
+/// Scope -- Dgraph documents `drop all` as deleting "data and schema ACROSS ALL NAMESPACES".
+/// It is not the namespaced form of `drop_data`; it is a cluster-wide wipe that happens to be
+/// reachable from a namespaced connection. Being refused is the only reason the earlier
+/// revision was not a way to destroy every other run's data at once.
+///
+/// Retaining the schema costs nothing here, because `set_schema` is additive and idempotent.
 async fn reset(client: &DgraphClient) -> Result<(), String> {
     client
-        .drop_all()
+        .drop_data()
         .await
-        .map_err(|err| format!("drop_all failed: {err}"))?;
+        .map_err(|err| format!("drop_data failed: {err}"))?;
     client
         .set_schema(TEST_SCHEMA)
         .await
@@ -414,9 +446,9 @@ async fn best_effort_read_only_transaction_queries(
 
 async fn upsert_applies_query_and_mutation_together(client: &DgraphClient) -> Result<(), String> {
     client
-        .drop_all()
+        .drop_data()
         .await
-        .map_err(|err| format!("drop_all failed: {err}"))?;
+        .map_err(|err| format!("drop_data failed: {err}"))?;
     client
         .set_schema("email: string @index(exact) .\nname: string .")
         .await
