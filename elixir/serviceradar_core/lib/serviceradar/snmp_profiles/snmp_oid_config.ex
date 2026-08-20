@@ -12,6 +12,9 @@ defmodule ServiceRadar.SNMPProfiles.SNMPOIDConfig do
   - `data_type`: Expected data type (counter, gauge, boolean, bytes, string, float, timeticks)
   - `scale`: Scale factor to apply to the value (default 1.0)
   - `delta`: Whether to calculate rate of change between samples
+  - `mode`: `:get` (default, one scalar) or `:walk` (subtree, one point per row)
+  - `max_rows`: Walk only; row cap. Nil uses the agent default.
+  - `walk_timeout_seconds`: Walk only; wall-clock bound. Nil uses the agent default.
 
   ## Data Types
 
@@ -48,7 +51,7 @@ defmodule ServiceRadar.SNMPProfiles.SNMPOIDConfig do
     notifiers: [ServiceRadar.AgentConfig.DependencyNotifier],
     authorizers: [Ash.Policy.Authorizer]
 
-  @oid_fields [:oid, :name, :data_type, :scale, :delta]
+  @oid_fields [:oid, :name, :data_type, :scale, :delta, :mode, :max_rows, :walk_timeout_seconds]
 
   postgres do
     table "snmp_oid_configs"
@@ -127,6 +130,28 @@ defmodule ServiceRadar.SNMPProfiles.SNMPOIDConfig do
       default false
       public? true
       description "Whether to calculate rate of change between samples"
+    end
+
+    attribute :mode, :atom do
+      allow_nil? false
+      default :get
+      public? true
+      constraints one_of: [:get, :walk]
+      description "Retrieval mode: get a scalar instance, or walk the OID subtree"
+    end
+
+    attribute :max_rows, :integer do
+      allow_nil? true
+      public? true
+      constraints min: 1
+      description "Walk only: maximum rows to collect from the subtree"
+    end
+
+    attribute :walk_timeout_seconds, :integer do
+      allow_nil? true
+      public? true
+      constraints min: 1
+      description "Walk only: wall-clock bound in seconds"
     end
 
     timestamps()

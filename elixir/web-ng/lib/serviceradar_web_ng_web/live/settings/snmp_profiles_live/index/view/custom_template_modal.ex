@@ -167,6 +167,22 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.View.CustomTempla
                     </select>
                   </div>
 
+                  <div>
+                    <label class="flex items-center justify-between gap-2 py-0">
+                      <span class="text-xs font-medium text-sr-ink">Mode</span>
+                    </label>
+                    <select
+                      class={ui_field_class(size: "sm", class: "w-full text-xs")}
+                      phx-change="update_template_oid"
+                      phx-value-index={idx}
+                      phx-value-field="mode"
+                      name="mode"
+                    >
+                      <option value="get" selected={oid["mode"] in [nil, "get", ""]}>GET</option>
+                      <option value="walk" selected={oid["mode"] == "walk"}>Walk</option>
+                    </select>
+                  </div>
+
                   <!-- Scale -->
                   <div>
                     <label class="flex items-center justify-between gap-2 py-0">
