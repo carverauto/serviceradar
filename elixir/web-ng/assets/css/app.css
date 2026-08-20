@@ -2614,6 +2614,30 @@ table:has(.sr-ui-dropdown) td:has(.sr-ui-dropdown) {
   min-height: 0;
 }
 
+/* No cameras: stack sits side-by-side and takes two shares so the row is
+   still three equal cards. Cameras on: stack becomes a column and cameras
+   take the third share. */
+.sr-ops-grid-trio > .sr-ops-grid-trio-stack {
+  flex-direction: row;
+  flex: 2 1 0%;
+  min-width: min(100%, 32rem);
+  gap: 0.38rem;
+}
+
+.sr-ops-grid-trio-stack > .sr-ops-panel {
+  flex: 1 1 0%;
+  min-width: min(100%, 16rem);
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.sr-ops-grid-trio:has(.sr-ops-camera-panel) > .sr-ops-grid-trio-stack {
+  flex-direction: column;
+  flex: 1 1 0%;
+  min-width: min(100%, 16rem);
+}
+
 .sr-ops-grid-alerts > * {
   flex: 1 1 100%;
   min-width: 100%;
@@ -2625,6 +2649,7 @@ table:has(.sr-ui-dropdown) td:has(.sr-ui-dropdown) {
 .sr-ops-grid-primary > .sr-ops-panel > :not(.sr-ops-panel-header),
 .sr-ops-grid-secondary > .sr-ops-panel > :not(.sr-ops-panel-header),
 .sr-ops-grid-trio > .sr-ops-panel > :not(.sr-ops-panel-header),
+.sr-ops-grid-trio-stack > .sr-ops-panel > :not(.sr-ops-panel-header),
 .sr-ops-grid-alerts > .sr-ops-panel > :not(.sr-ops-panel-header) {
   flex: 1 1 auto;
   min-height: 0;
@@ -2647,14 +2672,23 @@ table:has(.sr-ui-dropdown) td:has(.sr-ui-dropdown) {
   max-height: none;
 }
 
-.sr-ops-grid-secondary .sr-ops-camera-wall {
+.sr-ops-grid-secondary .sr-ops-camera-wall,
+.sr-ops-grid-trio .sr-ops-camera-wall {
   grid-template-rows: repeat(2, minmax(4.35rem, 1fr));
   align-content: stretch;
   height: 100%;
 }
 
-.sr-ops-grid-secondary .sr-ops-camera-tile {
+.sr-ops-grid-secondary .sr-ops-camera-tile,
+.sr-ops-grid-trio .sr-ops-camera-tile {
   height: 100%;
+}
+
+.sr-ops-grid-trio .sr-ops-camera-operations {
+  flex: 1 1 auto;
+  min-height: 0;
+  height: 100%;
+  align-items: stretch;
 }
 
 .sr-ops-observability-split {
@@ -7133,6 +7167,18 @@ table:has(.sr-ui-dropdown) td:has(.sr-ui-dropdown) {
   .sr-ops-kpi-grid > *,
   .sr-ops-grid-secondary > *,
   .sr-ops-grid-trio > * {
+    flex-basis: 100%;
+    min-width: 100%;
+  }
+
+  .sr-ops-grid-trio > .sr-ops-grid-trio-stack,
+  .sr-ops-grid-trio:has(.sr-ops-camera-panel) > .sr-ops-grid-trio-stack {
+    flex-direction: column;
+    flex-basis: 100%;
+    min-width: 100%;
+  }
+
+  .sr-ops-grid-trio-stack > .sr-ops-panel {
     flex-basis: 100%;
     min-width: 100%;
   }

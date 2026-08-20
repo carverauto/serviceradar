@@ -123,12 +123,30 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.DashboardLayoutTest do
     obs_at = :binary.match(src, "ObservabilityPanel.render")
     secondary_at = :binary.match(src, "sr-ops-grid-secondary")
     trio_at = :binary.match(src, "sr-ops-grid-trio")
+    stack_at = :binary.match(src, "sr-ops-grid-trio-stack")
+    camera_at = :binary.match(src, "CameraPanel.render")
+    virt_at = :binary.match(src, "VirtualizationPanel.render")
 
     assert map_at < obs_at
     assert obs_at < secondary_at
     assert secondary_at < trio_at
+    assert trio_at < stack_at
+    assert stack_at < virt_at
+    assert virt_at < camera_at
+    assert camera_at > trio_at
     refute css =~ ".sr-ops-grid-primary > .sr-ops-grid-trio"
     refute css =~ "grid-row: 1 / span 2"
+  end
+
+  test "stacks vuln and threat when cameras join the trio row" do
+    css = File.read!(css_path())
+    camera_src = File.read!(index_path("camera_panel.ex"))
+
+    assert camera_src =~ "sr-ops-camera-panel"
+    assert css =~ ".sr-ops-grid-trio > .sr-ops-grid-trio-stack"
+    assert css =~ "flex: 2 1 0%"
+    assert css =~ ".sr-ops-grid-trio:has(.sr-ops-camera-panel) > .sr-ops-grid-trio-stack"
+    assert css =~ "flex-direction: column"
   end
 
   test "dashboard index markup never pins a column span" do
