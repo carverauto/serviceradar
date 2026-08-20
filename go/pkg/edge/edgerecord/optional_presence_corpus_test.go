@@ -214,6 +214,7 @@ func TestOptionalInventoryMatchesDescriptor(t *testing.T) {
 func zeroOf(t *testing.T, fd protoreflect.FieldDescriptor) protoreflect.Value {
 	t.Helper()
 
+	//nolint:exhaustive // fail-closed: the default arm rejects any unlisted kind
 	switch fd.Kind() {
 	case protoreflect.Uint64Kind:
 		return protoreflect.ValueOfUint64(0)
@@ -395,8 +396,9 @@ func presenceCarriers() []presenceCarrier {
 	return []presenceCarrier{
 		{
 			name: "EdgeProducerContext", peer: "observation",
-			base: func(t *testing.T) proto.Message { return validRecordFixed(t) },
+			base: func(t *testing.T) proto.Message { t.Helper(); return validRecordFixed(t) },
 			reseal: func(t *testing.T, msg proto.Message) {
+				t.Helper()
 				r, _ := msg.(*edgev1.EdgeRecordV1)
 				// The grant is bound to the producer context, and the envelope commits both.
 				r.ProductionCapability = productionCap(t, r)
@@ -413,12 +415,13 @@ func presenceCarriers() []presenceCarrier {
 				return ValidateRecord(r)
 			},
 			decode: func(t *testing.T, raw []byte) proto.Message {
+				t.Helper()
 				return decodeAs(t, raw, &edgev1.EdgeRecordV1{})
 			},
 		},
 		{
 			name: "MtrTraceHopV1", peer: "observation",
-			base:   func(t *testing.T) proto.Message { return presenceMtrBatch(t) },
+			base:   func(t *testing.T) proto.Message { t.Helper(); return presenceMtrBatch(t) },
 			reseal: func(_ *testing.T, _ proto.Message) {},
 			verify: func(_ *testing.T, msg proto.Message) error {
 				b, _ := msg.(*edgev1.MtrTraceBatchV1)
@@ -426,40 +429,41 @@ func presenceCarriers() []presenceCarrier {
 				return ValidateMtrTraceBatch(b)
 			},
 			decode: func(t *testing.T, raw []byte) proto.Message {
+				t.Helper()
 				return decodeAs(t, raw, &edgev1.MtrTraceBatchV1{})
 			},
 		},
 		{
 			name: "SweepHostObservationV1", peer: "validator",
-			base:   func(t *testing.T) proto.Message { return presenceSweepBatch(t) },
+			base:   func(t *testing.T) proto.Message { t.Helper(); return presenceSweepBatch(t) },
 			reseal: func(_ *testing.T, _ proto.Message) {},
 			verify: presenceSweepVerify,
 			decode: presenceSweepDecode,
 		},
 		{
 			name: "SweepIcmpSummaryV1", peer: "validator",
-			base:   func(t *testing.T) proto.Message { return presenceSweepBatch(t) },
+			base:   func(t *testing.T) proto.Message { t.Helper(); return presenceSweepBatch(t) },
 			reseal: func(_ *testing.T, _ proto.Message) {},
 			verify: presenceSweepVerify,
 			decode: presenceSweepDecode,
 		},
 		{
 			name: "SweepMtrSummaryV1", peer: "validator",
-			base:   func(t *testing.T) proto.Message { return presenceSweepBatch(t) },
+			base:   func(t *testing.T) proto.Message { t.Helper(); return presenceSweepBatch(t) },
 			reseal: func(_ *testing.T, _ proto.Message) {},
 			verify: presenceSweepVerify,
 			decode: presenceSweepDecode,
 		},
 		{
 			name: "SweepOpenPortV1", peer: "validator",
-			base:   func(t *testing.T) proto.Message { return presenceSweepBatch(t) },
+			base:   func(t *testing.T) proto.Message { t.Helper(); return presenceSweepBatch(t) },
 			reseal: func(_ *testing.T, _ proto.Message) {},
 			verify: presenceSweepVerify,
 			decode: presenceSweepDecode,
 		},
 		{
 			name: "SweepMtrExpectationV1", peer: "validator",
-			base:   func(t *testing.T) proto.Message { return presenceAssignment(t) },
+			base:   func(t *testing.T) proto.Message { t.Helper(); return presenceAssignment(t) },
 			reseal: func(_ *testing.T, _ proto.Message) {},
 			verify: func(_ *testing.T, msg proto.Message) error {
 				a, _ := msg.(*edgev1.SweepAssignmentRecordV1)
@@ -467,13 +471,15 @@ func presenceCarriers() []presenceCarrier {
 				return ValidateSweepAssignmentRecord(a)
 			},
 			decode: func(t *testing.T, raw []byte) proto.Message {
+				t.Helper()
 				return decodeAs(t, raw, &edgev1.SweepAssignmentRecordV1{})
 			},
 		},
 		{
 			name: "TargetRangeV1", peer: "validator",
-			base: func(t *testing.T) proto.Message { return presencePlanPage(t) },
+			base: func(t *testing.T) proto.Message { t.Helper(); return presencePlanPage(t) },
 			reseal: func(t *testing.T, msg proto.Message) {
+				t.Helper()
 				p, _ := msg.(*edgev1.ScheduledPlanPageV1)
 				// The range digest covers the optional field, and the page digest covers the
 				// ranges. Without both, a variant is refused for a stale hash rather than for
@@ -493,6 +499,7 @@ func presenceCarriers() []presenceCarrier {
 				}
 			},
 			verify: func(t *testing.T, msg proto.Message) error {
+				t.Helper()
 				p, _ := msg.(*edgev1.ScheduledPlanPageV1)
 				pages := []*edgev1.ScheduledPlanPageV1{p}
 
@@ -504,6 +511,7 @@ func presenceCarriers() []presenceCarrier {
 				return ValidatePlanPages(presencePlanHeader(t, pages), pages)
 			},
 			decode: func(t *testing.T, raw []byte) proto.Message {
+				t.Helper()
 				return decodeAs(t, raw, &edgev1.ScheduledPlanPageV1{})
 			},
 		},
@@ -517,6 +525,7 @@ func presenceSweepVerify(_ *testing.T, msg proto.Message) error {
 }
 
 func presenceSweepDecode(t *testing.T, raw []byte) proto.Message {
+	t.Helper()
 	return decodeAs(t, raw, &edgev1.SweepObservationBatchV1{})
 }
 

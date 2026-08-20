@@ -116,34 +116,37 @@ func compressionVectors() []compressionVector {
 	bodyBig := bytes.Repeat([]byte("B"), 131_073)
 
 	return []compressionVector{
-		{"zstd_valid_small.bin", 5, "accept",
-			func(t *testing.T) []byte { return zframe(t, small) }},
-		{"zstd_valid_5k.bin", 5000, "accept",
-			func(t *testing.T) []byte { return zframe(t, body5k) }},
+		{"zstd_valid_small.bin", 5, verdictAccept,
+			func(t *testing.T) []byte { t.Helper(); return zframe(t, small) }},
+		{"zstd_valid_5k.bin", 5000, verdictAccept,
+			func(t *testing.T) []byte { t.Helper(); return zframe(t, body5k) }},
 		// THE BUFFER-BOUNDARY VECTOR. A runtime whose streaming loop ignores the
 		// unconsumed-input remainder either crashes or reports a short output here, and
 		// every smaller vector passes for it.
-		{"zstd_valid_above_output_buffer.bin", 131_073, "accept",
-			func(t *testing.T) []byte { return zframe(t, bodyBig) }},
+		{"zstd_valid_above_output_buffer.bin", 131_073, verdictAccept,
+			func(t *testing.T) []byte { t.Helper(); return zframe(t, bodyBig) }},
 		// INCOMPRESSIBLE: the frame is LARGER than the body, so the remainder path is
 		// driven by expansion rather than by a high compression ratio.
-		{"zstd_valid_incompressible.bin", 200_000, "accept", func(t *testing.T) []byte {
+		{"zstd_valid_incompressible.bin", 200_000, verdictAccept, func(t *testing.T) []byte {
+			t.Helper()
 			return zframe(t, deterministicNoise(200_000))
 		}},
 
 		{"zstd_declared_low.bin", 4999, "output_size",
-			func(t *testing.T) []byte { return zframe(t, body5k) }},
+			func(t *testing.T) []byte { t.Helper(); return zframe(t, body5k) }},
 		{"zstd_declared_high.bin", 5001, "output_size",
-			func(t *testing.T) []byte { return zframe(t, body5k) }},
+			func(t *testing.T) []byte { t.Helper(); return zframe(t, body5k) }},
 		{"zstd_declared_zero.bin", 0, "output_size",
-			func(t *testing.T) []byte { return zframe(t, body5k) }},
+			func(t *testing.T) []byte { t.Helper(); return zframe(t, body5k) }},
 		{"zstd_declared_above_ceiling.bin", MaxUncompressedBytes + 1, "output_size",
-			func(t *testing.T) []byte { return zframe(t, body5k) }},
+			func(t *testing.T) []byte { t.Helper(); return zframe(t, body5k) }},
 
 		{"zstd_trailing_byte.bin", 5, "trailing", func(t *testing.T) []byte {
+			t.Helper()
 			return append(zframe(t, small), 0x00)
 		}},
 		{"zstd_two_frames.bin", 5, "trailing", func(t *testing.T) []byte {
+			t.Helper()
 			f := zframe(t, small)
 
 			return append(append([]byte{}, f...), f...)
@@ -151,10 +154,12 @@ func compressionVectors() []compressionVector {
 		// An EMPTY concatenated frame produces no output, so a decode-side size check sees
 		// exactly the declared byte count and admits it. Only a frame-extent check refuses.
 		{"zstd_empty_second_frame.bin", 5, "trailing", func(t *testing.T) []byte {
+			t.Helper()
 			return append(zframe(t, small), zframe(t, nil)...)
 		}},
 		// A SKIPPABLE frame is likewise consumed silently by a conforming decoder.
 		{"zstd_skippable_appended.bin", 5, "trailing", func(t *testing.T) []byte {
+			t.Helper()
 			sk := binary.LittleEndian.AppendUint32(nil, 0x184D2A50)
 			sk = binary.LittleEndian.AppendUint32(sk, 4)
 			sk = append(sk, 0xDE, 0xAD, 0xBE, 0xEF)
@@ -163,6 +168,7 @@ func compressionVectors() []compressionVector {
 		}},
 
 		{"zstd_truncated.bin", 5000, "invalid", func(t *testing.T) []byte {
+			t.Helper()
 			f := zframe(t, body5k)
 
 			return f[:len(f)-1]
@@ -187,7 +193,7 @@ func compressionVectors() []compressionVector {
 		// THE WINDOW PAIR, adjacent by construction and isolated: five bytes of output out
 		// of a twelve-byte frame, so neither the output ceiling nor the 100:1 ratio is
 		// anywhere near its limit and only the window can be what decides.
-		{"zstd_window_at_ceiling.bin", 5, "accept",
+		{"zstd_window_at_ceiling.bin", 5, verdictAccept,
 			func(_ *testing.T) []byte { return windowed(120, []byte("hello")) }},
 		{"zstd_window_above_ceiling.bin", 5, "invalid",
 			func(_ *testing.T) []byte { return windowed(121, []byte("hello")) }},
@@ -198,7 +204,7 @@ func compressionVectors() []compressionVector {
 			func(_ *testing.T) []byte { return handFrame(0x21, []byte{0x07, 0x05}, []byte("hello")) }},
 		// The control for it: the same shape with NO dictionary id is admitted, so the id is
 		// what refused the vector above rather than the hand-built framing.
-		{"zstd_no_dictionary_control.bin", 5, "accept",
+		{"zstd_no_dictionary_control.bin", 5, verdictAccept,
 			func(_ *testing.T) []byte { return handFrame(0x20, []byte{0x05}, []byte("hello")) }},
 	}
 }
@@ -223,7 +229,7 @@ func deterministicNoise(n int) []byte {
 func goVerdict(err error) string {
 	switch {
 	case err == nil:
-		return "accept"
+		return verdictAccept
 	case errors.Is(err, ErrZstdTrailing):
 		return "trailing"
 	case errors.Is(err, ErrZstdOutputSize):

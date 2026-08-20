@@ -55,6 +55,11 @@ const (
 	filePerm = 0o600
 )
 
+// A precomputed CRC table. crc32.MakeTable returns an immutable value derived
+// only from the polynomial, and the record format names Castagnoli, so there is
+// exactly one correct table for the life of the process.
+//
+//nolint:gochecknoglobals // immutable, derived from a format constant
 var crcTable = crc32.MakeTable(crc32.Castagnoli)
 
 // ErrCorruptHeader is returned when a record header is present but its checksum
@@ -67,6 +72,11 @@ var ErrCorruptHeader = errors.New("spool: corrupt record header")
 // ACK that did this would permanently hide never-appended frames, so it is
 // rejected rather than persisted.
 var ErrResolveBeyondHighWater = errors.New("spool: resolve beyond durable high-water")
+
+// ErrEventIDLength is returned when Append is given an event id that is not the
+// fixed 16 bytes the record header reserves for it. The header is fixed-width,
+// so a short or long id would silently shift every field after it.
+var ErrEventIDLength = errors.New("spool: event id must be 16 bytes")
 
 // CorruptBodyError reports a record whose header is valid and whose body and
 // CRC were fully present but did not match: genuine committed-record corruption,
@@ -143,7 +153,7 @@ func Open(dir string) (*Spool, error) {
 // sequence space starts at 1 and is never reused. eventID must be 16 bytes.
 func (s *Spool) Append(eventID, body []byte) (uint64, error) {
 	if len(eventID) != 16 {
-		return 0, fmt.Errorf("spool: event id must be 16 bytes, got %d", len(eventID))
+		return 0, fmt.Errorf("%w: got %d", ErrEventIDLength, len(eventID))
 	}
 
 	s.mu.Lock()

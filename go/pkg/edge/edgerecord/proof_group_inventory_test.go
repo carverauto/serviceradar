@@ -9,6 +9,23 @@ import (
 	"testing"
 )
 
+// The proof-group ids the corpora are keyed by. Each appears in several corpus tables AND in the
+// inventory that cross-checks them, and they must agree, so the id is named once instead of
+// repeated as a literal in every file that asserts on it.
+const (
+	proofGroup15N = "1.5-n"
+	proofGroup16D = "1.6-d"
+)
+
+// The verdict vocabulary the corpus manifests use. Six files write these columns and several
+// more assert on them, so they are named once: a typo in a literal would read as a different
+// verdict rather than as a compile error.
+const (
+	verdictAccept = "accept"
+	verdictRefuse = "refuse"
+	verdictNA     = "n/a"
+)
+
 // Task 1.5-h: THE EXACT PROOF-GROUP INVENTORY.
 //
 // SIX GROUPS, and the number is only meaningful if it is DERIVED rather than asserted. Every
@@ -61,7 +78,7 @@ func scanDelegations(t *testing.T, name string, siteCol, exCol, ownerCol, wantFi
 			t.Fatalf("%s row %q has %d fields, want %d", name, line, len(fields), wantFields)
 		}
 
-		if fields[exCol] != "n/a" {
+		if fields[exCol] != verdictNA {
 			continue
 		}
 
@@ -82,6 +99,8 @@ func scanDelegations(t *testing.T, name string, siteCol, exCol, ownerCol, wantFi
 func TestProofGroupInventoryIsExact(t *testing.T) {
 	// Column positions per manifest. A shape change breaks the field-count assertion above
 	// rather than silently reading the wrong column.
+	//
+	//nolint:prealloc // length is the sum of the per-corpus scans below, unknown here
 	var got []delegatedRow
 
 	got = append(got, scanDelegations(t, "count_corpus.txt", 0, 6, 7, 8)...)
@@ -92,11 +111,11 @@ func TestProofGroupInventoryIsExact(t *testing.T) {
 	// same gap is bounded from both ends -- the single-page span site is delegated for its
 	// ceiling AND its minimum -- so the inventory is keyed by (site, owner) and counted once.
 	want := map[string]string{
-		"recovery_spans_single":      "1.6-d", // MaxSpansPerPage on the signed single-page path
-		"tombstone_reason_signed":    "1.6-d", // MaxReasonBytes on the signed body path
-		"tombstone_declared_count":   "1.6-d", // the signed declared page count
-		"principal_producer_context": "1.5-n", // record-level MaxPrincipalBytes
-		"abort_reason":               "1.6-c", // the kind-conditional lifecycle bound
+		"recovery_spans_single":      proofGroup16D, // MaxSpansPerPage on the signed single-page path
+		"tombstone_reason_signed":    proofGroup16D, // MaxReasonBytes on the signed body path
+		"tombstone_declared_count":   proofGroup16D, // the signed declared page count
+		"principal_producer_context": proofGroup15N, // record-level MaxPrincipalBytes
+		"abort_reason":               "1.6-c",       // the kind-conditional lifecycle bound
 	}
 
 	seen := map[string]string{}
@@ -110,7 +129,7 @@ func TestProofGroupInventoryIsExact(t *testing.T) {
 	}
 
 	if len(seen) != len(want) {
-		var sites []string
+		sites := make([]string, 0, len(seen))
 		for s := range seen {
 			sites = append(sites, s)
 		}
@@ -139,7 +158,7 @@ func TestProofGroupInventoryIsExact(t *testing.T) {
 	}
 
 	for _, r := range cost {
-		if r.exVerdict != "n/a" || r.owner != "1.5-n" {
+		if r.exVerdict != verdictNA || r.owner != proofGroup15N {
 			t.Fatalf("projected cost %s: the relational group is Go-only and 1.5-n's; got %s/%s",
 				r.conjunct, r.exVerdict, r.owner)
 		}

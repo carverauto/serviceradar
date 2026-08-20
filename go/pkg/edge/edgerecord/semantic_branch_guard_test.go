@@ -253,11 +253,16 @@ func semAllowedPresenceCond(e ast.Expr, flags map[string]bool) bool {
 	case *ast.Ident:
 		return flags[x.Name]
 	case *ast.BinaryExpr:
+		//nolint:exhaustive // fail-closed: the default arm rejects any unlisted kind
 		switch x.Op {
 		case token.LAND, token.LOR:
 			return semAllowedPresenceCond(x.X, flags) && semAllowedPresenceCond(x.Y, flags)
 		case token.EQL, token.NEQ:
 			return semIsNilLit(x.Y) || semIsNilLit(x.X)
+		default:
+			// Fail closed: every other operator (<, >, arithmetic comparison) can select on a
+			// VALUE, which is exactly what this guard exists to reject.
+			return false
 		}
 	}
 
@@ -315,6 +320,8 @@ func semIsOneofAccessor(e ast.Expr) bool {
 
 // semOneofAccessors NAMES the oneof axes. Adding one here is a deliberate act: it widens what the
 // grammar may branch on, and the shape enumeration must gain the corresponding axis.
+//
+//nolint:gochecknoglobals // immutable accessor allowlist
 var semOneofAccessors = map[string]bool{
 	"GetClaims":     true,
 	"GetTransition": true,
@@ -410,12 +417,15 @@ func semAllowedCallee(fun ast.Expr, recvName string) bool {
 
 // semAllowedPlainCalls and semAllowedQualifiedCalls are the ONLY non-framer, non-getter calls a
 // framer may make. Widening either is a deliberate act.
+//
+//nolint:gochecknoglobals // immutable call allowlist
 var semAllowedPlainCalls = map[string]bool{
 	"uint64": true, "int64": true, "uint32": true, "int32": true, "byte": true, "string": true,
 	"len": true, "append": true, "newDigest": true,
 	"semanticEnvelopeDigestWithVersion": true,
 }
 
+//nolint:gochecknoglobals // immutable call allowlist
 var semAllowedQualifiedCalls = map[string]bool{
 	"sha256.Sum256":              true,
 	"binary.BigEndian.PutUint64": true,

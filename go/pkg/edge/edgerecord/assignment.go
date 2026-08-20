@@ -41,6 +41,8 @@ var (
 // zero32 is the empty-set additive multiset hash: the commitment a set with no
 // members folds to. It is a VALUE, not an absence, which is the whole reason the
 // commitment fields are fixed-width.
+//
+//nolint:gochecknoglobals // immutable identity value for the empty set
 var zero32 = make([]byte, sha256Len)
 
 func knownAssignmentState(s edgev1.SweepAssignmentState) bool {
@@ -99,6 +101,12 @@ func ValidateMtrExpectation(e *edgev1.SweepMtrExpectationV1) error {
 // validated on its own terms: nothing here is corroborated against a producer's
 // lifecycle event, because the whole point of the record is to be the authority the
 // event is not.
+//
+// It is a flat fail-closed rejection list: each branch is one field's rule, and splitting it
+// into helpers scatters the very property the function exists to make auditable -- that every
+// field is checked.
+//
+//nolint:gocyclo // flat rejection list; see above
 func ValidateSweepAssignmentRecord(r *edgev1.SweepAssignmentRecordV1) error {
 	if r == nil {
 		return ErrNilRecord

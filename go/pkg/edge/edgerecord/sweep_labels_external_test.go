@@ -60,6 +60,7 @@ import (
 // unexported type or helper that this package cannot construct.
 func TestLabelsAreOnlyObservableThroughTheAccessor(t *testing.T) {
 	// An unrelated error carries no label, and asking does not panic.
+	//nolint:err113 // a test INPUT, not an error this code returns
 	if l, ok := edgerecord.SweepLabelOf(errors.New("unrelated")); ok {
 		t.Fatalf("an unrelated error reported label %q", l)
 	}

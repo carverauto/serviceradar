@@ -862,6 +862,11 @@ func verifyExecutionGrantSignature(
 // validateExecutionGrantClaims interprets EVERY member of the grant's claim. A member that is
 // read but not compared, or not read at all, would be a fact the signature covers and
 // nothing enforces.
+//
+// One branch per claim member: the completeness this asserts is only auditable while the
+// members stay in a single list.
+//
+//nolint:gocyclo // one branch per claim member; see above
 func validateExecutionGrantClaims(
 	r *edgev1.SweepAssignmentRecordV1,
 	c *edgev1.CompiledSweepAssignmentV1,
