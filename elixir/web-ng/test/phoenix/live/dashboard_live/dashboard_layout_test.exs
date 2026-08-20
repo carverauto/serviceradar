@@ -104,13 +104,14 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.DashboardLayoutTest do
     css = File.read!(css_path())
 
     assert css =~ ".sr-ops-grid-primary > .sr-ops-map-panel > .sr-ops-map-shell"
-    assert css =~ "min-height: 26rem"
+    assert css =~ "min-height: 14rem"
+    refute css =~ "min-height: 26rem"
     refute css =~ "min-height: 11rem"
     refute css =~ "min-height: 22rem"
     assert css =~ ".sr-ops-grid-primary > .sr-ops-map-panel > .sr-ops-map-stats"
     assert css =~ "flex: 0 0 auto"
     assert css =~ ".sr-ops-observability-split .sr-ops-metric-sparkline-wrap"
-    assert css =~ "height: 2.4rem"
+    assert css =~ "height: 5.4rem"
     assert css =~ ".sr-ops-observability-split .sr-ops-metric-grid"
     assert css =~ "grid-template-columns: repeat(4, minmax(0, 1fr))"
   end
