@@ -2689,7 +2689,7 @@ table:has(.sr-ui-dropdown) td:has(.sr-ui-dropdown) {
 }
 
 .sr-ops-observability-split .sr-ops-metric-grid {
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   min-height: 0;
 }
 
@@ -3257,7 +3257,7 @@ table:has(.sr-ui-dropdown) td:has(.sr-ui-dropdown) {
 
 .sr-ops-grid-primary .sr-ops-map-shell {
   flex: 1;
-  min-height: 22rem;
+  min-height: 26rem;
 }
 
 .sr-ops-traffic-canvas {
@@ -6997,6 +6997,10 @@ table:has(.sr-ui-dropdown) td:has(.sr-ui-dropdown) {
   .sr-ops-metric-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
+
+  .sr-ops-observability-split .sr-ops-metric-grid {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
 }
 
 @media (max-width: 860px) {
@@ -7135,6 +7139,10 @@ table:has(.sr-ui-dropdown) td:has(.sr-ui-dropdown) {
   .sr-ops-observability-split .sr-ops-empty-chart,
   .sr-ops-observability-split .sr-ops-events-area-chart {
     min-height: 12rem;
+  }
+
+  .sr-ops-observability-split .sr-ops-metric-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
   .sr-netflow-map-topbar {
