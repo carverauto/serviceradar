@@ -6,8 +6,15 @@
 //!
 //! Starts a `dgraph/standalone` container with `docker_utils` and tests the client.
 //!
+//! The endpoint is not hardcoded: it is resolved through the auto-config system from the
+//! environment `SERVICERADAR_ENV` names, so this suite exercises the same resolution path a
+//! production binary takes. The Bazel target pins that variable; a cargo run has to pass it.
+//!
 //! ```bash
-//! cargo test -p dgraph-client -- --ignored
+//! bazel test --test_env=SERVICERADAR_ENV=localhost --test_tag_filters=integration_test \
+//!   //rust/dgraph-client/tests:dgraph_integration_test
+//!
+//! SERVICERADAR_ENV=localhost cargo test -p dgraph-client --test dgraph_container_test -- --ignored
 //! ```
 //!
 //! # How this test function
@@ -36,25 +43,22 @@ use docker_utils::{ContainerConfig, DockerUtil, Probe, ProbeContext, WaitStrateg
 
 use dgraph_client::{DgraphClient, DgraphError, Mutation};
 
+use serviceradar_config_manager::{built_ins, ConfigManager, Filesystem, Identity, ENV_VAR};
+use serviceradar_config_schema::DgraphTlsMode;
+
 /// Container name. `docker_utils` appends the connection port, so the running container is
 /// `dgraph-standalone-9080`.
 const CONTAINER_NAME: &str = "dgraph-standalone";
 const IMAGE: &str = "dgraph/standalone";
-const TAG: &str = "v25.3.8";
+/// Pinned rather than `latest`, and pinned to the same version `//k8s/dgraph` deploys, so
+/// what this suite certifies is what the cluster runs.
+const TAG: &str = "v25.4.0";
 
-/// Address the test connects to, and the address `docker_utils` hands the readiness probe as
-/// [`ProbeContext::host`].
-///
-/// This is a connection target, not a bind address. `ContainerConfig::url` never reaches
-/// `docker run` -- it is forwarded to the probe and nowhere else -- so a wildcard `0.0.0.0`
-/// here would only produce a probe that cannot connect. Under host networking Dgraph binds
-/// directly in this network namespace, so loopback reaches it without any published port.
-const CONNECT_HOST: &str = "127.0.0.1";
-
-/// gRPC port. This is the one the client talks to.
-const GRPC_PORT: u16 = 9080;
 /// HTTP admin port. Declared so the container exposes the same surface it would in
 /// production; readiness is decided over gRPC, not here.
+///
+/// The one endpoint value still stated here: the auto-config system describes the gRPC
+/// endpoint a client connects to, and has no field for an admin port nothing connects to.
 const HTTP_PORT: u16 = 8080;
 
 /// How long the cluster gets to become able to serve the suite's first operation.
@@ -113,7 +117,15 @@ fn dgraph_ready(ctx: &ProbeContext) -> Probe<(), String> {
         Err(err) => return Probe::Fatal(format!("could not build a probe runtime: {err}")),
     };
 
-    let connection_string = connection_string(ctx.host(), ctx.port());
+    // A `ProbeFn` is a plain fn pointer by contract, so it cannot capture the endpoint the
+    // caller already resolved and resolves it again. Cheap: the instance is a byte slice
+    // compiled into the binary, not a file read.
+    let endpoint = match Endpoint::resolve() {
+        Ok(endpoint) => endpoint,
+        Err(err) => return Probe::Fatal(err),
+    };
+
+    let connection_string = connection_string(ctx.host(), ctx.port(), endpoint.tls_mode);
 
     runtime.block_on(async {
         let client = match DgraphClient::connect(&connection_string).await {
@@ -148,23 +160,90 @@ fn classify(probe: &str, err: &DgraphError) -> Probe<(), String> {
     }
 }
 
-/// Plaintext: the standalone image serves gRPC without TLS.
-fn connection_string(host: &str, port: u16) -> String {
-    format!("dgraph://{host}:{port}")
+/// The Dgraph endpoint, resolved through the auto-config system rather than restated here.
+///
+/// `SERVICERADAR_ENV` selects the environment exactly as it does for a production binary, and
+/// the Bazel target pins it to `localhost`, whose committed instance declares
+/// `dgraph { host: "localhost", port: 9080, tls_mode: DISABLE }` -- which is what a
+/// `dgraph/standalone` container serves. Reading it instead of hardcoding it is what makes
+/// this suite fail when the committed instance and the container disagree, rather than pass
+/// against a copy of the truth that has since drifted.
+///
+/// `host` is a connection target, not a bind address: `ContainerConfig::url` never reaches
+/// `docker run`, it is forwarded to the readiness probe and nowhere else. Under host
+/// networking Dgraph binds directly in this network namespace, so the configured loopback
+/// name reaches it with no published port.
+struct Endpoint {
+    host: String,
+    port: u16,
+    tls_mode: DgraphTlsMode,
+}
+
+impl Endpoint {
+    /// The production resolution path: identity from the environment, instance from
+    /// `ConfigManager`. No test-only constructor, so a change that breaks real callers breaks
+    /// this too.
+    fn resolve() -> Result<Self, String> {
+        let identity = Identity::from_env()
+            .map_err(|err| format!("{ENV_VAR} does not name a usable environment: {err}"))?;
+        let manager = ConfigManager::load(&identity, built_ins(), &Filesystem)
+            .map_err(|err| format!("loading the '{}' instance failed: {err}", identity.kind()))?;
+        let dgraph = manager.dgraph().ok_or_else(|| {
+            format!(
+                "the '{}' instance declares no dgraph section",
+                identity.kind()
+            )
+        })?;
+
+        let host = dgraph
+            .host
+            .clone()
+            .ok_or_else(|| "dgraph.host is unset".to_string())?;
+        let port = dgraph
+            .port
+            .ok_or_else(|| "dgraph.port is unset".to_string())?;
+        let port =
+            u16::try_from(port).map_err(|_| format!("dgraph.port {port} is not a port number"))?;
+        // The typed posture, not a string: an unknown discriminant is a hard error here rather
+        // than a silent fall back to plaintext.
+        let tls_mode = DgraphTlsMode::try_from(dgraph.tls_mode.unwrap_or_default())
+            .map_err(|err| format!("dgraph.tls_mode is not a known mode: {err}"))?;
+
+        Ok(Self {
+            host,
+            port,
+            tls_mode,
+        })
+    }
+}
+
+/// Build the connection string the client parses, carrying the configured TLS posture.
+///
+/// The port is a parameter rather than read from the [`Endpoint`] because `docker_utils` is
+/// authoritative about which port the container ended up on, and hands it back from
+/// `setup_container` and to the probe as [`ProbeContext::port`].
+fn connection_string(host: &str, port: u16, tls_mode: DgraphTlsMode) -> String {
+    match tls_mode {
+        // Omitted rather than spelled `sslmode=disable`: plaintext is the client's default, so
+        // this is the string a caller would actually write.
+        DgraphTlsMode::Unspecified | DgraphTlsMode::Disable => format!("dgraph://{host}:{port}"),
+        DgraphTlsMode::RequireNoVerify => format!("dgraph://{host}:{port}?sslmode=require"),
+        DgraphTlsMode::VerifyCa => format!("dgraph://{host}:{port}?sslmode=verify-ca"),
+    }
 }
 
 /// Run on the host network instead of publishing ports.
 ///
 /// Host networking removes NAT from the picture: Dgraph binds 9080/8080 directly in the
 /// VM's network namespace, so no iptables rule has to exist for the test to reach it.
-fn dgraph_container_config() -> ContainerConfig<'static> {
+fn dgraph_container_config(endpoint: &Endpoint) -> ContainerConfig<'_> {
     ContainerConfig::builder()
         .name(CONTAINER_NAME)
         .image(IMAGE)
         .tag(TAG)
-        .url(CONNECT_HOST)
+        .url(&endpoint.host)
         // The gRPC port is the primary connection; HTTP is exposed but not gated on.
-        .connection_port(GRPC_PORT)
+        .connection_port(endpoint.port)
         .additional_ports(&[HTTP_PORT])
         .additional_env_vars(&[ALPHA_CACHE_ENV])
         .reuse_container(true)
@@ -189,20 +268,31 @@ fn dgraph_container_config() -> ContainerConfig<'static> {
 #[test]
 #[ignore = "requires Docker"]
 fn dgraph_client_acceptance() {
+    // Resolved before anything is started: a misconfigured environment should fail here, in
+    // one line, rather than after a container pull and a two-minute readiness budget.
+    let endpoint = Endpoint::resolve().expect("could not resolve the dgraph endpoint");
+    println!(
+        "resolved endpoint from {ENV_VAR}: {}:{} ({:?})",
+        endpoint.host, endpoint.port, endpoint.tls_mode
+    );
+
     let docker = DockerUtil::with_debug().expect("failed to construct DockerUtil");
 
     // Blocks until the alpha accepts an `Alter`. If it never does, the error already carries
     // the container's exit state and log tail, including an OOM kill -- which is otherwise
     // indistinguishable from a network fault, because the server never got to explain itself.
-    let started = docker.setup_container(&dgraph_container_config());
+    let started = docker.setup_container(&dgraph_container_config(&endpoint));
     assert!(started.is_ok(), "{started:?}");
     let (container_id, port) = started.unwrap();
-    println!("✅ container '{container_id}' ready on {CONNECT_HOST}:{port}");
+    println!(
+        "✅ container '{container_id}' ready on {}:{port}",
+        endpoint.host
+    );
 
     // One runtime for the whole run. The client is async because tonic is; docker_utils is
     // not, so nothing outside these scenarios needs a runtime.
     let runtime = Runtime::new().expect("failed to build a tokio runtime");
-    let outcome = runtime.block_on(run_scenarios(port));
+    let outcome = runtime.block_on(run_scenarios(&endpoint, port));
 
     // A container that dies *mid-run* is the one failure `docker_utils` cannot explain for
     // us, because nothing calls into it while the scenarios run. `--rm` reaps the container
@@ -227,13 +317,13 @@ fn dgraph_client_acceptance() {
     let stopped = docker.stop_container(&container_id, false);
     stopped.expect("failed to stop dgraph container");
     println!("✅ all scenarios passed; container '{container_id}' stopped");
-
 }
 
 /// Every scenario, in order. Ordering matters: several call `drop_all`.
-async fn run_scenarios(port: u16) -> Result<(), String> {
+async fn run_scenarios(endpoint: &Endpoint, port: u16) -> Result<(), String> {
     // No retry loop: `setup_container` returned, so the cluster has already served an `Alter`.
-    let client = DgraphClient::connect(&connection_string(CONNECT_HOST, port))
+    let connection_string = connection_string(&endpoint.host, port, endpoint.tls_mode);
+    let client = DgraphClient::connect(&connection_string)
         .await
         .map_err(|err| format!("connect failed: {err}"))?;
 

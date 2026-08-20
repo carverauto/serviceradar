@@ -23,3 +23,8 @@ urlencoding = { workspace = true }
 [dev-dependencies]
 docker_utils = { workspace = true }
 tokio = { workspace = true, features = ["rt-multi-thread", "sync", "time"] }
+# The acceptance test resolves its endpoint through the auto-config system instead of
+# restating it. A dev-dependency on purpose: the library stays a generic Dgraph client that
+# any consumer can point anywhere, and only the test is coupled to this deployment's config.
+serviceradar-config-manager = { path = "../../config/manager_config/rust" }
+serviceradar-config-schema = { path = "../../config/proto_bindings/rust" }

@@ -1838,6 +1838,8 @@ dependencies = [
  "prost",
  "proto_dgraph",
  "rustls",
+ "serviceradar-config-manager",
+ "serviceradar-config-schema",
  "tokio",
  "tonic",
  "tracing",
