@@ -442,7 +442,7 @@ func sendFileTransferError(
 	status remoteaccess.FileTransferStatus,
 	err error,
 ) {
-	code := "failed"
+	code := string(remoteaccess.FileTransferStatusFailed)
 	if status != "" {
 		code = strings.ReplaceAll(string(status), " ", "_")
 	}

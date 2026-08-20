@@ -764,6 +764,20 @@ func (p *PushLoop) systemdAddonRuntimeReady(ctx context.Context, a *proto.AddonA
 	}
 
 	active := p.systemdAddonUnitReady(ctx, enable)
+	if active && supervision == addonSupervisionSystemdTimer {
+		// A waiting timer can look healthy while the last oneshot exec failed
+		// (SELinux 203/EXEC). Treat that as not-ready so reconcile reinstalls
+		// and relabels instead of skipping an unchanged package forever.
+		for _, unit := range units {
+			if !strings.HasSuffix(strings.TrimSpace(unit), ".service") {
+				continue
+			}
+			if p.readSystemdAddonUnitStatus(unit).state == agentaddon.StateUnhealthy {
+				active = false
+				break
+			}
+		}
+	}
 	socketPath := ""
 	if a.GetAddonId() == agentnetprobe.DefaultSidecarName && supervision == addonSupervisionSystemdService {
 		socketPath = p.netprobeIPCSocketPath()

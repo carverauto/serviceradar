@@ -14,6 +14,9 @@ Slice=serviceradar.slice
 WorkingDirectory=/var/lib/serviceradar/bumblebee
 Environment="HOME=/var/lib/serviceradar/bumblebee"
 Environment="XDG_CACHE_HOME=/var/lib/serviceradar/bumblebee/cache"
+# Staged binaries inherit SELinux var_lib_t. systemd (init_t) cannot exec that
+# label (status=203/EXEC). Relabel immediately before start.
+ExecStartPre=+/bin/sh -c '/usr/bin/chcon -t bin_t /var/lib/serviceradar/agent/addons/bumblebee/current/serviceradar-bumblebee-scan >/dev/null 2>&1 || true'
 ExecStart=/var/lib/serviceradar/agent/addons/bumblebee/current/serviceradar-bumblebee-scan -config /var/lib/serviceradar/agent/addons/bumblebee/current/bumblebee-scan.json
 Nice=10
 IOSchedulingClass=best-effort
