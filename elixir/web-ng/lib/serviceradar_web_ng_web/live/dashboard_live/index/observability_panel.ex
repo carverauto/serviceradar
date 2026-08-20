@@ -9,15 +9,27 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Index.ObservabilityPanel do
   attr(:dashboard, :map, required: true)
 
   def render(assigns) do
+    dashboard = assigns.dashboard
+
+    assigns =
+      assign(
+        assigns,
+        :time_window_label,
+        dashboard[:time_window_label] || dashboard["time_window_label"] || ""
+      )
+
     ~H"""
-    <Common.panel title="Observability" class="sr-ops-span-full lg:col-span-12">
+    <Common.panel title="Events Over Time" class="sr-ops-observability-panel">
+      <:actions>
+        <span :if={@time_window_label != ""} class="sr-ops-select">{@time_window_label}</span>
+      </:actions>
       <div class="sr-ops-observability-split" data-testid="observability-split">
+        <section class="sr-ops-observability-pane" aria-label="Events over time">
+          <EventsPanel.render dashboard={@dashboard} embedded />
+        </section>
         <section class="sr-ops-observability-pane" aria-label="Observability metrics">
           <h3>Metrics</h3>
           <MetricsPanel.render dashboard={@dashboard} embedded />
-        </section>
-        <section class="sr-ops-observability-pane" aria-label="Events over time">
-          <EventsPanel.render dashboard={@dashboard} embedded />
         </section>
       </div>
     </Common.panel>

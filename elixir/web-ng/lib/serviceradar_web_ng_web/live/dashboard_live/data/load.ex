@@ -7,61 +7,149 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Data.Load do
       @spec empty(keyword()) :: map()
       def empty(opts \\ []) do
         time_window = Keyword.get(opts, :time_window, "last_24h")
+        sources = empty_sources(time_window)
 
+        sources
+        |> Map.merge(%{
+          map_view: "netflow",
+          topology_links_json: "[]",
+          traffic_links_json: "[]",
+          mtr_overlays_json: "[]"
+        })
+        |> Map.merge(derive(sources))
+      end
+
+      defp empty_sources(time_window) do
         %{
           time_window: time_window,
           time_window_label: time_window_label(time_window),
-          dashboard_modules: [:inventory, :health],
-          module_states: %{
-            inventory: :loading,
-            health: :loading,
-            netflow: :loading,
-            mtr: :loading,
-            camera: :loading,
-            fieldsurvey: :loading,
-            security_events: :loading,
-            vulnerable_assets: :loading,
-            siem: :unconnected
-          },
-          kpi_cards:
-            kpi_cards(
-              empty_device_summary(),
-              empty_services_summary(),
-              empty_flow_summary(),
-              empty_camera_summary(),
-              empty_survey_summary(),
-              empty_alert_summary(),
-              empty_event_summary(),
-              empty_sparklines()
-            ),
-          map_stats: map_stats(empty_flow_summary(), empty_mtr_summary(), []),
-          map_view: "netflow",
-          traffic_links_window_label: netflow_map_window_label(),
-          topology_links: [],
-          topology_links_json: "[]",
-          traffic_links: [],
-          traffic_links_json: "[]",
+          device_summary: empty_device_summary(),
+          services_summary: empty_services_summary(),
+          flow_summary: empty_flow_summary(),
+          mtr_timeseries: empty_mtr_summary(),
           mtr_overlays: [],
-          mtr_overlays_json: "[]",
-          map_empty_title: "Checking traffic sources",
-          map_empty_detail: "Dashboard data will load after the LiveView connects.",
-          observability_metrics:
-            observability_metrics(
-              empty_flow_summary(),
-              empty_mtr_summary(),
-              empty_trace_summary(),
-              empty_services_summary(),
-              empty_sparklines()
-            ),
+          traffic_links: [],
+          topology_links: [],
+          collector_counts: %{},
+          camera_summary: empty_camera_summary(),
+          survey_summary: empty_survey_summary(),
+          alert_summary: empty_alert_summary(),
+          event_summary: empty_event_summary(),
+          trace_summary: empty_trace_summary(),
+          sparklines: empty_sparklines(),
           security_trend: [],
-          security_trend_max: 0,
-          security_summary: empty_event_summary(),
           threat_intel_summary: empty_threat_intel_summary(),
           alert_feed: [],
           vulnerable_assets: [],
-          camera_summary: empty_camera_summary(),
-          survey_summary: empty_survey_summary(),
-          virtualization_summary: empty_virtualization_summary()
+          virtualization_summary: empty_virtualization_summary(),
+          kpi_loading: default_kpi_loading(),
+          loaded: %{}
+        }
+      end
+
+      @spec derive(map()) :: map()
+      def derive(sources) when is_map(sources) do
+        device_summary = Map.get(sources, :device_summary, empty_device_summary())
+        services_summary = Map.get(sources, :services_summary, empty_services_summary())
+        flow_summary_raw = Map.get(sources, :flow_summary, empty_flow_summary())
+        traffic_links = Map.get(sources, :traffic_links, [])
+        topology_links = Map.get(sources, :topology_links, [])
+        mtr_overlays = Map.get(sources, :mtr_overlays, [])
+        mtr_timeseries = Map.get(sources, :mtr_timeseries, empty_mtr_summary())
+        camera_summary = Map.get(sources, :camera_summary, empty_camera_summary())
+        survey_summary = Map.get(sources, :survey_summary, empty_survey_summary())
+        alert_summary = Map.get(sources, :alert_summary, empty_alert_summary())
+        event_summary = Map.get(sources, :event_summary, empty_event_summary())
+        trace_summary = Map.get(sources, :trace_summary, empty_trace_summary())
+        sparklines = Map.get(sources, :sparklines, empty_sparklines())
+        security_trend = Map.get(sources, :security_trend, [])
+        collector_counts = Map.get(sources, :collector_counts, %{})
+        loaded = Map.get(sources, :loaded, %{})
+        kpi_loading = Map.get(sources, :kpi_loading, %{})
+
+        flow_summary =
+          Map.put(
+            flow_summary_raw,
+            :link_count,
+            max(length(List.wrap(traffic_links)), length(List.wrap(topology_links)))
+          )
+
+        mtr_summary = merge_mtr_summaries(mtr_timeseries, summarize_mtr_overlays(mtr_overlays))
+
+        module_states =
+          collector_counts
+          |> module_states(
+            flow_summary,
+            traffic_links,
+            mtr_summary,
+            camera_summary,
+            survey_summary,
+            event_summary,
+            alert_summary
+          )
+          |> Map.put(
+            :vulnerable_assets,
+            if(Map.get(sources, :vulnerable_assets, []) == [], do: :configured_empty, else: :active)
+          )
+          |> overlay_loading_states(loaded)
+
+        %{
+          dashboard_modules: enabled_modules(module_states),
+          module_states: module_states,
+          kpi_cards:
+            apply_kpi_loading(
+              kpi_cards(
+                device_summary,
+                services_summary,
+                flow_summary,
+                camera_summary,
+                survey_summary,
+                alert_summary,
+                event_summary,
+                sparklines
+              ),
+              kpi_loading
+            ),
+          map_stats: map_stats(flow_summary, mtr_summary, traffic_links),
+          traffic_links_window_label: netflow_map_window_label(),
+          map_empty_title: map_empty_title(Map.get(module_states, :netflow)),
+          map_empty_detail: map_empty_detail(Map.get(module_states, :netflow)),
+          observability_metrics:
+            observability_metrics(flow_summary, mtr_summary, trace_summary, services_summary, sparklines),
+          security_trend_max: max_trend_total(security_trend),
+          security_summary: event_summary,
+          mtr_summary: mtr_summary,
+          flow_summary: flow_summary
+        }
+      end
+
+      defp overlay_loading_states(states, loaded) when is_map(states) and is_map(loaded) do
+        Enum.reduce(
+          [:inventory, :health, :netflow, :mtr, :camera, :fieldsurvey, :security_events, :vulnerable_assets, :siem],
+          states,
+          fn key, acc ->
+            if Map.get(loaded, key, false) do
+              acc
+            else
+              Map.put(acc, key, :loading)
+            end
+          end
+        )
+      end
+
+      defp overlay_loading_states(states, _loaded), do: states
+
+      defp all_loaded do
+        %{
+          inventory: true,
+          health: true,
+          netflow: true,
+          mtr: true,
+          camera: true,
+          fieldsurvey: true,
+          security_events: true,
+          vulnerable_assets: true,
+          siem: true
         }
       end
 
@@ -128,65 +216,44 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Data.Load do
             max(length(traffic_links), length(topology_links))
           )
 
-        mtr_summary = merge_mtr_summaries(mtr_timeseries, summarize_mtr_overlays(mtr_overlays))
         survey_summary = empty_survey_summary()
         sparklines = dashboard_sparklines(time_window, security_trend)
 
-        module_states =
-          collector_counts
-          |> module_states(
-            flow_summary,
-            traffic_links,
-            mtr_summary,
-            camera_summary,
-            survey_summary,
-            event_summary,
-            alert_summary
-          )
-          |> Map.put(
-            :vulnerable_assets,
-            if(vulnerable_assets == [], do: :configured_empty, else: :active)
-          )
+        sources =
+          time_window
+          |> empty_sources()
+          |> Map.merge(%{
+            device_summary: device_summary,
+            services_summary: services_summary,
+            flow_summary: flow_summary,
+            mtr_timeseries: mtr_timeseries,
+            mtr_overlays: mtr_overlays,
+            traffic_links: traffic_links,
+            topology_links: topology_links,
+            collector_counts: collector_counts,
+            camera_summary: camera_summary,
+            survey_summary: survey_summary,
+            alert_summary: alert_summary,
+            event_summary: event_summary,
+            trace_summary: trace_summary,
+            sparklines: sparklines,
+            security_trend: security_trend,
+            threat_intel_summary: threat_intel_summary,
+            alert_feed: alert_feed,
+            vulnerable_assets: vulnerable_assets,
+            virtualization_summary: virtualization_summary,
+            kpi_loading: loaded_kpi_loading(),
+            loaded: all_loaded()
+          })
 
-        %{
-          time_window: time_window,
-          time_window_label: time_window_label(time_window),
-          dashboard_modules: enabled_modules(module_states),
-          module_states: module_states,
-          kpi_cards:
-            kpi_cards(
-              device_summary,
-              services_summary,
-              flow_summary,
-              camera_summary,
-              survey_summary,
-              alert_summary,
-              event_summary,
-              sparklines
-            ),
-          map_stats: map_stats(flow_summary, mtr_summary, traffic_links),
+        sources
+        |> Map.merge(derive(sources))
+        |> Map.merge(%{
           map_view: "netflow",
-          traffic_links_window_label: netflow_map_window_label(),
-          topology_links: topology_links,
           topology_links_json: Jason.encode!(topology_links),
-          traffic_links: traffic_links,
           traffic_links_json: Jason.encode!(traffic_links),
-          mtr_overlays: mtr_overlays,
-          mtr_overlays_json: Jason.encode!(mtr_overlays),
-          map_empty_title: map_empty_title(module_states.netflow),
-          map_empty_detail: map_empty_detail(module_states.netflow),
-          observability_metrics:
-            observability_metrics(flow_summary, mtr_summary, trace_summary, services_summary, sparklines),
-          security_trend: security_trend,
-          security_trend_max: max_trend_total(security_trend),
-          security_summary: event_summary,
-          threat_intel_summary: threat_intel_summary,
-          alert_feed: alert_feed,
-          vulnerable_assets: vulnerable_assets,
-          camera_summary: camera_summary,
-          survey_summary: survey_summary,
-          virtualization_summary: virtualization_summary
-        }
+          mtr_overlays_json: Jason.encode!(mtr_overlays)
+        })
       end
 
       # Runs a keyword list of {name, {fun, default}} pairs concurrently via
@@ -224,6 +291,98 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Data.Load do
         end)
       end
 
+      @spec load_inventory(term()) :: map()
+      def load_inventory(scope) do
+        %{device_summary: device_summary(scope)}
+      rescue
+        _ -> %{device_summary: empty_device_summary()}
+      end
+
+      @spec load_health(term(), String.t()) :: map()
+      def load_health(scope, time_window) do
+        %{services_summary: services_summary(scope, time_window)}
+      rescue
+        _ -> %{services_summary: empty_services_summary()}
+      end
+
+      @spec load_camera_summary(term()) :: map()
+      def load_camera_summary(scope) do
+        %{camera_summary: camera_summary(scope)}
+      rescue
+        _ -> %{camera_summary: empty_camera_summary()}
+      end
+
+      @spec load_alerts_summary(term()) :: map()
+      def load_alerts_summary(scope) do
+        %{alert_summary: ServiceRadarWebNGWeb.Stats.alerts_summary(scope: scope)}
+      rescue
+        _ -> %{alert_summary: empty_alert_summary()}
+      end
+
+      @spec load_events_summary(String.t()) :: map()
+      def load_events_summary(time_window) do
+        %{event_summary: ServiceRadarWebNGWeb.Stats.events_summary(time: time_window)}
+      rescue
+        _ -> %{event_summary: empty_event_summary()}
+      end
+
+      @spec load_mtr(String.t()) :: map()
+      def load_mtr(time_window) do
+        %{mtr_timeseries: mtr_timeseries_summary(time_window)}
+      rescue
+        _ -> %{mtr_timeseries: empty_mtr_summary()}
+      end
+
+      @spec load_traces(term(), String.t()) :: map()
+      def load_traces(scope, time_window) do
+        srql_module = default_srql_module()
+        %{trace_summary: trace_summary(srql_module, scope, time_window)}
+      rescue
+        _ -> %{trace_summary: empty_trace_summary()}
+      end
+
+      @spec load_security_trend(String.t()) :: map()
+      def load_security_trend(time_window) do
+        %{security_trend: security_trend(time_window)}
+      rescue
+        _ -> %{security_trend: []}
+      end
+
+      @spec load_sparklines(String.t()) :: map()
+      def load_sparklines(time_window) do
+        %{sparklines: dashboard_sparklines(time_window, [])}
+      rescue
+        _ -> %{sparklines: empty_sparklines()}
+      end
+
+      @spec load_alert_feed(String.t()) :: map()
+      def load_alert_feed(time_window) do
+        %{alert_feed: alert_feed(time_window)}
+      rescue
+        _ -> %{alert_feed: []}
+      end
+
+      @spec load_threat_intel() :: map()
+      def load_threat_intel do
+        %{threat_intel_summary: threat_intel_summary()}
+      rescue
+        _ -> %{threat_intel_summary: empty_threat_intel_summary()}
+      end
+
+      @spec load_vulnerable_assets() :: map()
+      def load_vulnerable_assets do
+        %{vulnerable_assets: ServiceRadarWebNGWeb.DashboardLive.Data.VulnerableAssets.load()}
+      rescue
+        _ -> %{vulnerable_assets: []}
+      end
+
+      @spec load_virtualization(term()) :: map()
+      def load_virtualization(scope) do
+        %{virtualization_summary: virtualization_summary(default_srql_module(), scope)}
+      rescue
+        _ -> %{virtualization_summary: empty_virtualization_summary()}
+      end
+
       @spec load_netflow_map(term(), keyword()) :: map()
       def load_netflow_map(_scope, opts \\ []) do
         time_window = Keyword.get(opts, :time_window, "last_24h")
@@ -259,6 +418,8 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Data.Load do
           time_window: time_window,
           time_window_label: time_window_label(time_window),
           netflow_state: netflow_state,
+          collector_counts: collector_counts,
+          flow_summary: flow_summary,
           map_stats: map_stats(flow_summary, mtr_summary, traffic_links),
           traffic_links_window_label: netflow_map_window_label(),
           topology_links: topology_links,

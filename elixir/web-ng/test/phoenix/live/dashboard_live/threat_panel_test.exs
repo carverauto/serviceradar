@@ -14,7 +14,7 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.ThreatPanelTest do
         dashboard: %{threat_intel_summary: summary(%{})}
       )
 
-    assert html =~ "lg:col-span-4"
+    refute html =~ "lg:col-span-4"
     refute html =~ "sr-ops-span-full"
     refute html =~ "lg:col-span-12"
   end

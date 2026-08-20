@@ -323,3 +323,21 @@ func TestEnsureReleaseDoesNotPatchTargetCommitish(t *testing.T) {
 		t.Fatalf("PATCH must omit target_commitish when the git tag exists; body=%s", patchBody)
 	}
 }
+
+func TestGetReleaseAssetDownloadURLUsesPublishedGitHubTagPath(t *testing.T) {
+	client := &githubClient{
+		baseURL: "https://api.github.com",
+		repo:    "carverauto/serviceradar",
+		dryRun:  true,
+	}
+
+	got, err := client.getReleaseAssetDownloadURL("v1.4.39", "serviceradar-agent_1.4.39_linux_amd64.tar.gz")
+	if err != nil {
+		t.Fatalf("getReleaseAssetDownloadURL() error = %v", err)
+	}
+
+	want := "https://github.com/carverauto/serviceradar/releases/download/v1.4.39/serviceradar-agent_1.4.39_linux_amd64.tar.gz"
+	if got != want {
+		t.Fatalf("getReleaseAssetDownloadURL() = %q, want %q", got, want)
+	}
+}

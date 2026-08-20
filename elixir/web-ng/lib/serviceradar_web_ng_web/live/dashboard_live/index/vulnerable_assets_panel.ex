@@ -13,7 +13,7 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Index.VulnerableAssetsPanel do
       |> Map.put(:vulnerable_assets, dashboard[:vulnerable_assets] || [])
 
     ~H"""
-    <Common.panel title="Top Vulnerable Assets" class="lg:col-span-4">
+    <Common.panel title="Top Vulnerable Assets">
       <:actions>
         <.link href="/devices" class="sr-ops-button">
           View All Assets

@@ -210,6 +210,8 @@ spec:
         {{- include "serviceradar.containerSecurityContext" . | nindent 8 }}
         command: ["/bin/sh", "-c"]
         env:
+        - name: MIGRATIONS_EXPECTED_VERSION
+          value: {{ default "" $migrationVals.expectedVersion | quote }}
         - name: CNPG_HOST
           value: {{ include "serviceradar.cnpgDirectHost" . | quote }}
         - name: CNPG_PORT
@@ -248,16 +250,51 @@ spec:
             export PGSSLCERT="${CNPG_CERT_FILE}"
             export PGSSLKEY="${CNPG_KEY_FILE}"
           fi
-          echo "Waiting for platform schema migrations..."
+          # An existence check on platform.schema_migrations only proves the
+          # table is there, not that it is CURRENT -- a schema left behind by a
+          # skipped migration hook (helm upgrade --no-hooks) passes it happily
+          # and web-ng then boots against tables its release expects but the
+          # database does not have. Compare the applied high-water mark against
+          # the newest migration this chart revision ships instead.
+          EXPECTED="${MIGRATIONS_EXPECTED_VERSION:-}"
+          if [ -n "${EXPECTED}" ]; then
+            echo "Waiting for platform schema migrations (expecting >= ${EXPECTED})..."
+            # Postgres does the comparison: version is a bigint and these are
+            # 14-digit timestamps, which is not something to hand to `test -ge`
+            # in whatever /bin/sh the tools image ships.
+            PROBE="SELECT COALESCE(MAX(version), 0), (COALESCE(MAX(version), 0) >= ${EXPECTED}) FROM platform.schema_migrations"
+          else
+            echo "Waiting for platform schema migrations (version check disabled)..."
+            PROBE="SELECT COALESCE(MAX(version), 0), TRUE FROM platform.schema_migrations"
+          fi
+          APPLIED=""
           for i in $(seq 1 120); do
-            if psql -h "${CNPG_HOST}" -U "${CNPG_USERNAME}" -d "${CNPG_DATABASE}" -c "SELECT 1 FROM platform.schema_migrations LIMIT 1" >/dev/null 2>&1; then
-              echo "Migrations detected."
-              exit 0
-            fi
-            echo "Waiting for migrations... ($i/120)"
+            # Unset on a failed probe so a mid-loop outage cannot leave a stale
+            # value in the timeout message below.
+            RESULT=""
+            RESULT=$(psql -h "${CNPG_HOST}" -U "${CNPG_USERNAME}" -d "${CNPG_DATABASE}" -tAc "${PROBE}" 2>/dev/null) || true
+            case "${RESULT}" in
+              *"|t")
+                echo "Migrations current (applied=${RESULT%%|*}, expected=${EXPECTED:-any})."
+                exit 0
+                ;;
+              *"|f")
+                APPLIED="${RESULT%%|*}"
+                echo "Schema is behind: applied=${APPLIED}, expected=${EXPECTED} ($i/120)"
+                ;;
+              *)
+                echo "Waiting for migrations... ($i/120)"
+                ;;
+            esac
             sleep 2
           done
-          echo "Timed out waiting for migrations." >&2
+          if [ -n "${APPLIED}" ]; then
+            echo "Timed out: schema is stale (applied=${APPLIED}, expected=${EXPECTED}). The" >&2
+            echo "serviceradar-core-migrations Job did not run or did not finish -- a" >&2
+            echo "'helm upgrade --no-hooks' skips it, since it is a pre-upgrade hook." >&2
+          else
+            echo "Timed out waiting for migrations: platform.schema_migrations unreadable." >&2
+          fi
           exit 1
         volumeMounts:
         - name: cert-data

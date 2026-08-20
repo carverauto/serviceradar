@@ -10,7 +10,7 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Index.MapPanel do
     assigns = Map.merge(assigns, dashboard)
 
     ~H"""
-    <Common.panel title={map_panel_title(@map_view)} class="sr-ops-span-full lg:col-span-12">
+    <Common.panel title={map_panel_title(@map_view)} class="sr-ops-map-panel">
       <:actions>
         <select
           id="traffic-map-view-select"

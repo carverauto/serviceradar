@@ -295,4 +295,50 @@ defmodule ServiceRadar.Edge.ReleaseArtifactMirrorTest do
     assert reason =~ "datasvc object upload stream closed before the artifact stream completed"
     refute reason =~ "%GRPC.RPCError"
   end
+
+  test "prepare_publish_attrs retries GitHub draft untagged URLs at the published tag" do
+    untagged =
+      "https://github.com/carverauto/serviceradar/releases/download/untagged-7e9f9868e26dfde3d2eb/serviceradar-agent_1.4.39_linux_amd64.tar.gz"
+
+    published =
+      "https://github.com/carverauto/serviceradar/releases/download/v1.4.39/serviceradar-agent_1.4.39_linux_amd64.tar.gz"
+
+    attrs = %{
+      version: "1.4.39",
+      manifest: %{
+        "version" => "1.4.39",
+        "artifacts" => [
+          %{
+            "url" => untagged,
+            "sha256" => @artifact_sha256,
+            "os" => "linux",
+            "arch" => "amd64"
+          }
+        ]
+      }
+    }
+
+    http_get = fn
+      ^untagged, _opts ->
+        {:ok, %Req.Response{status: 404, body: "Not Found"}}
+
+      ^published, _opts ->
+        {:ok, %Req.Response{status: 200, body: @artifact_body}}
+    end
+
+    upload_object = fn _metadata, data, _opts ->
+      assert data == @artifact_body
+      {:ok, %Proto.UploadObjectResponse{}}
+    end
+
+    assert {:ok, mirrored_attrs} =
+             ReleaseArtifactMirror.prepare_publish_attrs(
+               attrs,
+               validate_url: fn _url -> :ok end,
+               http_get: http_get,
+               upload_object: upload_object
+             )
+
+    assert get_in(mirrored_attrs, [:metadata, "storage", "status"]) == "mirrored"
+  end
 end

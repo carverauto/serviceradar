@@ -169,7 +169,7 @@ func (p *PushLoop) buildSNMPDrainedResults(
 			}
 		}
 
-		oidConfig, ok := oidConfigs[oidName]
+		oidConfig, ok := lookupOIDConfig(oidConfigs, oidName)
 		oidValue := ""
 		dataType := ""
 		scale := 1.0
@@ -181,8 +181,7 @@ func (p *PushLoop) buildSNMPDrainedResults(
 			delta = oidConfig.Delta
 		}
 
-		metricName, interfaceUID := parseSNMPMetricName(oidName)
-		ifIndex := parseIfIndexFromOID(oidValue)
+		metricName, parsedUID := parseSNMPMetricName(oidName)
 
 		for _, point := range points {
 			pointDataType := dataType
@@ -200,11 +199,14 @@ func (p *PushLoop) buildSNMPDrainedResults(
 				pointDelta = false
 			}
 
+			pointOID := instanceOID(oidValue, point.OIDIndex)
+			ifIndex := ifIndexForSNMPPoint(pointOID, oidValue, point)
+
 			result := snmpMetricResult{
 				Target:       targetName,
 				Host:         status.HostIP,
 				Metric:       metricName,
-				OID:          oidValue,
+				OID:          pointOID,
 				Value:        point.Value,
 				RawValue:     point.RawValue,
 				Timestamp:    point.Timestamp,
@@ -215,7 +217,7 @@ func (p *PushLoop) buildSNMPDrainedResults(
 				Temporality:  point.Temporality,
 				IsMonotonic:  point.IsMonotonic,
 				CounterWidth: point.CounterWidth,
-				InterfaceUID: interfaceUID,
+				InterfaceUID: interfaceUIDForSNMPPoint(parsedUID, ifIndex, point.OIDIndex),
 			}
 
 			if ifIndex != nil {
@@ -227,6 +229,89 @@ func (p *PushLoop) buildSNMPDrainedResults(
 	}
 
 	return results
+}
+
+func lookupOIDConfig(oidConfigs map[string]snmpchecker.OIDConfig, oidName string) (snmpchecker.OIDConfig, bool) {
+	if cfg, ok := oidConfigs[oidName]; ok {
+		return cfg, true
+	}
+
+	base, _ := parseSNMPMetricName(oidName)
+	if base != "" && base != oidName {
+		if cfg, ok := oidConfigs[base]; ok {
+			return cfg, true
+		}
+	}
+
+	return snmpchecker.OIDConfig{}, false
+}
+
+func instanceOID(configOID, index string) string {
+	configOID = strings.TrimSpace(configOID)
+	index = strings.TrimSpace(index)
+
+	if configOID == "" {
+		return ""
+	}
+
+	if index == "" {
+		return configOID
+	}
+
+	return strings.TrimSuffix(configOID, ".") + "." + strings.TrimPrefix(index, ".")
+}
+
+func ifIndexForSNMPPoint(instance, configOID string, point snmpchecker.DataPoint) *int {
+	if isInterfaceTableOID(configOID) || isInterfaceTableOID(instance) {
+		if idx := parseIfIndexToken(point.OIDIndex); idx != nil {
+			return idx
+		}
+
+		return parseIfIndexFromOID(instance)
+	}
+
+	if point.OIDIndex == "" {
+		return parseIfIndexFromOID(configOID)
+	}
+
+	return nil
+}
+
+func interfaceUIDForSNMPPoint(parsedUID string, ifIndex *int, oidIndex string) string {
+	if ifIndex != nil {
+		return "ifindex:" + strconv.Itoa(*ifIndex)
+	}
+
+	if parsedUID != "" {
+		return parsedUID
+	}
+
+	if oidIndex != "" {
+		return "index:" + oidIndex
+	}
+
+	return ""
+}
+
+func isInterfaceTableOID(oid string) bool {
+	oid = strings.TrimPrefix(strings.TrimSpace(oid), ".")
+
+	return strings.HasPrefix(oid, "1.3.6.1.2.1.2.2.1.") ||
+		strings.HasPrefix(oid, "1.3.6.1.2.1.31.1.1.1.")
+}
+
+func parseIfIndexToken(token string) *int {
+	token = strings.TrimSpace(token)
+	if token == "" || strings.Contains(token, ".") {
+		return nil
+	}
+
+	value, err := strconv.Atoi(token)
+	if err != nil || value <= 0 {
+		return nil
+	}
+
+	return &value
 }
 
 func parseSNMPMetricName(raw string) (string, string) {

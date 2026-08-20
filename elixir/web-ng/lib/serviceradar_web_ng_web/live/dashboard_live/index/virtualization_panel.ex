@@ -12,7 +12,7 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Index.VirtualizationPanel do
     assigns = Map.merge(assigns, dashboard)
 
     ~H"""
-    <Common.panel title="Virtualization Efficiency" class="lg:col-span-4">
+    <Common.panel title="Virtualization Efficiency">
       <:actions>
         <span class={[
           "sr-ops-virt-status",

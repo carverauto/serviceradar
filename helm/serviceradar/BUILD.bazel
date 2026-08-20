@@ -44,6 +44,20 @@ py_test(
     ],
 )
 
+# Keeps core.migrations.expectedVersion in step with the migrations the repo
+# actually ships. The value is what the `wait-migrations` init container compares
+# the database's high-water mark against, so a stale value silently restores the
+# existence-only behaviour it replaced.
+py_test(
+    name = "migrations_expected_version_test",
+    srcs = ["migrations_expected_version_test.py"],
+    data = [
+        "templates/web.yaml",
+        "values.yaml",
+        "//elixir/serviceradar_core:migrations",
+    ],
+)
+
 py_test(
     name = "web_ng_public_url_test",
     srcs = ["web_ng_public_url_test.py"],

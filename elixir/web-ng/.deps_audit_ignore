@@ -10,6 +10,20 @@
 # package or the dependency is replaced.
 GHSA-4g2h-vm7x-747c
 
+# EEF-CVE-2026-53424 (CRITICAL) / EEF-CVE-2026-53425 (HIGH) / samly 1.4.0
+#
+# 53424 is Samly.Helper.decode_idp_auth_resp/3 never supplying esaml's
+# DuplicateFun, so bearer assertions can be replayed. 53425 is
+# Samly.SPHandler.validate_authresp/3 never checking InResponseTo against a
+# persisted AuthnRequest ID. web-ng's ACS is
+# ServiceRadarWebNGWeb.SAMLController, which does not call those functions.
+#
+# Hex has no release newer than 1.4.0; the advisories list every 0.3.0+ as
+# affected. Keep this waiver until upstream publishes a patched package or
+# samly is removed from this Mix project.
+EEF-CVE-2026-53424
+EEF-CVE-2026-53425
+
 # GHSA-rhv4-8758-jx7v / Decimal unbounded exponent DoS
 #
 # web-ng currently receives Decimal through shared Ash, Ecto, Postgrex, ADBC,
