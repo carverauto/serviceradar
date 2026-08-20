@@ -81,9 +81,9 @@ func projectedCostCorpus(t *testing.T) []costRow {
 // TestProjectedCostInventory pins the full row, both directions.
 func TestProjectedCostInventory(t *testing.T) {
 	want := map[string]costRow{
-		"cost_model_version":    {relation: "equal", accepted: "equal_to_claim", refused: "differs_from_claim", goVerdict: "refuse", exVerdict: "n/a", owner: "1.5-n"},
-		"projected_row_count":   {relation: "at_most", accepted: "equal_to_maximum", refused: "one_over_maximum", goVerdict: "refuse", exVerdict: "n/a", owner: "1.5-n"},
-		"projected_write_bytes": {relation: "at_most", accepted: "equal_to_maximum", refused: "one_over_maximum", goVerdict: "refuse", exVerdict: "n/a", owner: "1.5-n"},
+		"cost_model_version":    {relation: "equal", accepted: "equal_to_claim", refused: "differs_from_claim", goVerdict: verdictRefuse, exVerdict: verdictNA, owner: proofGroup15N},
+		"projected_row_count":   {relation: "at_most", accepted: "equal_to_maximum", refused: "one_over_maximum", goVerdict: verdictRefuse, exVerdict: verdictNA, owner: proofGroup15N},
+		"projected_write_bytes": {relation: "at_most", accepted: "equal_to_maximum", refused: "one_over_maximum", goVerdict: verdictRefuse, exVerdict: verdictNA, owner: proofGroup15N},
 	}
 
 	rows := projectedCostCorpus(t)
@@ -126,7 +126,7 @@ func TestProjectedCostInventory(t *testing.T) {
 		}
 
 		// GO-ONLY, and the gap must NAME AN OWNER rather than sit unexplained.
-		if r.exVerdict != "n/a" || r.owner != "1.5-n" {
+		if r.exVerdict != verdictNA || r.owner != proofGroup15N {
 			t.Fatalf("%s: this runtime is the only one that COMPARES these fields; the peer is "+
 				"1.5-n's, manifest says %s/%s", r.conjunct, r.exVerdict, r.owner)
 		}

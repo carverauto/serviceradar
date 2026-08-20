@@ -37,6 +37,16 @@ import (
 // already produced a terminal (COMPLETED/ABORTED) event.
 var ErrTerminal = errors.New("execstate: attempt already terminal")
 
+// ErrBatchSequenceGap is returned when a batch is recorded out of order. The
+// interval is one contiguous sequence space, so a terminal [1,N] claim is only
+// sound if every slot in between was recorded.
+var ErrBatchSequenceGap = errors.New("execstate: batch_sequence must be contiguous")
+
+// ErrDurableBeyondObserved is returned when the durable-prefix watermark is
+// advanced past the highest observed batch sequence -- a claim that data was
+// durable before it was ever produced.
+var ErrDurableBeyondObserved = errors.New("execstate: durable watermark cannot exceed observed batch sequence")
+
 // Identity is the immutable identity of one execution attempt.
 type Identity struct {
 	ExecutionID         []byte
@@ -86,8 +96,7 @@ func (t *Tracker) RecordBatch(batchSeq, hosts, available, emittedMTR uint64) err
 		return ErrTerminal
 	}
 	if batchSeq != t.lastBatchSeq+1 {
-		return fmt.Errorf("execstate: batch_sequence must be contiguous: got %d, want %d",
-			batchSeq, t.lastBatchSeq+1)
+		return fmt.Errorf("%w: got %d, want %d", ErrBatchSequenceGap, batchSeq, t.lastBatchSeq+1)
 	}
 	t.lastBatchSeq = batchSeq
 	t.hostsObserved += hosts
@@ -100,7 +109,7 @@ func (t *Tracker) RecordBatch(batchSeq, hosts, available, emittedMTR uint64) err
 // the highest observed batch sequence and only advances.
 func (t *Tracker) SetDurableThrough(seq uint64) error {
 	if seq > t.lastBatchSeq {
-		return errors.New("execstate: durable watermark cannot exceed observed batch sequence")
+		return ErrDurableBeyondObserved
 	}
 	if seq > t.durableThrough {
 		t.durableThrough = seq

@@ -101,7 +101,7 @@ func scalarCorpus(t *testing.T) []scalarRow {
 			goVerdict: fields[6], exVerdict: fields[7], owner: fields[8],
 		}
 
-		if fields[3] != "n/a" {
+		if fields[3] != verdictNA {
 			row.min, err = strconv.Atoi(fields[3])
 			if err != nil {
 				t.Fatalf("row %q: min: %v", line, err)
@@ -140,17 +140,17 @@ func scalarRowFor(t *testing.T, site string) scalarRow {
 // about which ceiling each site enforces.
 func TestScalarCorpusInventory(t *testing.T) {
 	want := map[string]scalarRow{
-		"policy_plan_header":         {bound: "MaxPolicyIDBytes", zero: "refuse", min: 1, hasMin: true, goVerdict: "refuse", exVerdict: "refuse", owner: "-"},
-		"policy_assignment_record":   {bound: "MaxPolicyIDBytes", zero: "refuse", min: 1, hasMin: true, goVerdict: "refuse", exVerdict: "refuse", owner: "-"},
-		"principal_producer_context": {bound: "MaxPrincipalBytes", zero: "refuse", min: 1, hasMin: true, goVerdict: "refuse", exVerdict: "n/a", owner: "1.5-n"},
-		"principal_edge_slot":        {bound: "MaxPrincipalBytes", zero: "refuse", min: 1, hasMin: true, goVerdict: "refuse", exVerdict: "refuse", owner: "-"},
-		"principal_service_slot":     {bound: "MaxPrincipalBytes", zero: "refuse", min: 1, hasMin: true, goVerdict: "refuse", exVerdict: "refuse", owner: "-"},
-		"plan_header_raw":            {bound: "MaxPlanHeaderBytes", zero: "n/a", goVerdict: "refuse", exVerdict: "refuse", owner: "-"},
-		"abort_reason":               {bound: "MaxTraceStrBytes", zero: "refuse", min: 1, hasMin: true, goVerdict: "refuse", exVerdict: "n/a", owner: "1.6-c"},
-		"tombstone_reason_signed":    {bound: "MaxReasonBytes", zero: "refuse", min: 1, hasMin: true, goVerdict: "refuse", exVerdict: "n/a", owner: "1.6-d"},
+		"policy_plan_header":         {bound: "MaxPolicyIDBytes", zero: verdictRefuse, min: 1, hasMin: true, goVerdict: verdictRefuse, exVerdict: verdictRefuse, owner: "-"},
+		"policy_assignment_record":   {bound: "MaxPolicyIDBytes", zero: verdictRefuse, min: 1, hasMin: true, goVerdict: verdictRefuse, exVerdict: verdictRefuse, owner: "-"},
+		"principal_producer_context": {bound: "MaxPrincipalBytes", zero: verdictRefuse, min: 1, hasMin: true, goVerdict: verdictRefuse, exVerdict: verdictNA, owner: proofGroup15N},
+		"principal_edge_slot":        {bound: "MaxPrincipalBytes", zero: verdictRefuse, min: 1, hasMin: true, goVerdict: verdictRefuse, exVerdict: verdictRefuse, owner: "-"},
+		"principal_service_slot":     {bound: "MaxPrincipalBytes", zero: verdictRefuse, min: 1, hasMin: true, goVerdict: verdictRefuse, exVerdict: verdictRefuse, owner: "-"},
+		"plan_header_raw":            {bound: "MaxPlanHeaderBytes", zero: verdictNA, goVerdict: verdictRefuse, exVerdict: verdictRefuse, owner: "-"},
+		"abort_reason":               {bound: "MaxTraceStrBytes", zero: verdictRefuse, min: 1, hasMin: true, goVerdict: verdictRefuse, exVerdict: verdictNA, owner: "1.6-c"},
+		"tombstone_reason_signed":    {bound: "MaxReasonBytes", zero: verdictRefuse, min: 1, hasMin: true, goVerdict: verdictRefuse, exVerdict: verdictNA, owner: proofGroup16D},
 	}
 
-	known := map[string]bool{"refuse": true, "accept": true, "n/a": true}
+	known := map[string]bool{verdictRefuse: true, verdictAccept: true, verdictNA: true}
 
 	rows := scalarCorpus(t)
 
@@ -184,7 +184,7 @@ func TestScalarCorpusInventory(t *testing.T) {
 		// A TWO-SIDED SITE MUST NAME ITS MINIMUM, and a one-sided one must not. Without the
 		// pairing, a `zero: refuse` row with no `min` would look complete while leaving the
 		// frozen minimum free to move up.
-		if r.hasMin != (r.zero != "n/a") {
+		if r.hasMin != (r.zero != verdictNA) {
 			t.Fatalf("%s: zero=%s but hasMin=%t -- a refused zero freezes a minimum, and a "+
 				"one-sided bound has neither", r.site, r.zero, r.hasMin)
 		}
@@ -198,7 +198,7 @@ func TestScalarCorpusInventory(t *testing.T) {
 		}
 
 		// An absent peer must NAME AN OWNER, so a gap cannot become a silent exemption.
-		if (r.exVerdict == "n/a") != (r.owner != "-") {
+		if (r.exVerdict == verdictNA) != (r.owner != "-") {
 			t.Fatalf("%s: elixir=%s owner=%s -- an absent peer must name an owner and a present one must not",
 				r.site, r.exVerdict, r.owner)
 		}
@@ -270,6 +270,10 @@ func asciiOf(n int) []byte { return bytes.Repeat([]byte("x"), n) }
 // MaxPrincipalBytes -- three sites, four controls each
 // ---------------------------------------------------------------------------
 
+// Parallel to its sibling by design: the same bound proven at a DIFFERENT site, over a
+// different slot type. Merging them hides which site each row belongs to.
+//
+//nolint:dupl // parallel by design; see above
 func TestScalarSitePrincipalEdgeSlot(t *testing.T) {
 	r := scalarRowFor(t, "principal_edge_slot")
 
@@ -303,6 +307,10 @@ func TestScalarSitePrincipalEdgeSlot(t *testing.T) {
 	}
 }
 
+// Parallel to its sibling by design: the same bound proven at a DIFFERENT site, over a
+// different slot type. Merging them hides which site each row belongs to.
+//
+//nolint:dupl // parallel by design; see above
 func TestScalarSitePrincipalServiceSlot(t *testing.T) {
 	r := scalarRowFor(t, "principal_service_slot")
 
@@ -339,7 +347,7 @@ func TestScalarSitePrincipalServiceSlot(t *testing.T) {
 func TestScalarSiteAbortReason(t *testing.T) {
 	r := scalarRowFor(t, "abort_reason")
 
-	if r.exVerdict != "n/a" || r.owner != "1.6-c" {
+	if r.exVerdict != verdictNA || r.owner != "1.6-c" {
 		t.Fatalf("abort_reason must stay Go-only with owner 1.6-c, manifest says %s/%s", r.exVerdict, r.owner)
 	}
 
@@ -506,7 +514,7 @@ func TestScalarSitePolicyAssignmentRecord(t *testing.T) {
 func TestScalarSitePrincipalProducerContext(t *testing.T) {
 	r := scalarRowFor(t, "principal_producer_context")
 
-	if r.exVerdict != "n/a" || r.owner != "1.5-n" {
+	if r.exVerdict != verdictNA || r.owner != proofGroup15N {
 		t.Fatalf("the producer-context principal has no peer here; manifest says %s/%s", r.exVerdict, r.owner)
 	}
 
@@ -551,7 +559,7 @@ func TestScalarSitePlanHeaderRaw(t *testing.T) {
 
 	// ONE-SIDED, and the manifest says so. An empty header is refused, but for being an
 	// unparseable/incomplete header -- not by this ceiling, which only bounds from above.
-	if r.zero != "n/a" || r.hasMin {
+	if r.zero != verdictNA || r.hasMin {
 		t.Fatalf("plan_header_raw is a one-sided bound; manifest says zero=%s hasMin=%t", r.zero, r.hasMin)
 	}
 
@@ -627,7 +635,7 @@ func TestScalarStageWitnessPlanHeaderRaw(t *testing.T) {
 func TestScalarSiteTombstoneReasonSigned(t *testing.T) {
 	r := scalarRowFor(t, "tombstone_reason_signed")
 
-	if r.exVerdict != "n/a" || r.owner != "1.6-d" {
+	if r.exVerdict != verdictNA || r.owner != proofGroup16D {
 		t.Fatalf("the signed tombstone reason has no peer here; manifest says %s/%s", r.exVerdict, r.owner)
 	}
 

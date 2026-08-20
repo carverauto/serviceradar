@@ -50,14 +50,14 @@ func chainBytes(n int) []byte {
 	return out[:n]
 }
 
-func zstdOf(t testing.TB, b []byte) []byte {
-	t.Helper()
+func zstdOf(tb testing.TB, b []byte) []byte {
+	tb.Helper()
 
 	enc, err := zstd.NewWriter(nil)
 	if err != nil {
-		t.Fatalf("zstd writer: %v", err)
+		tb.Fatalf("zstd writer: %v", err)
 	}
-	defer enc.Close()
+	defer func() { _ = enc.Close() }()
 
 	return enc.EncodeAll(b, nil)
 }
@@ -74,10 +74,10 @@ func tunedBody(total, incompressible int) []byte {
 
 // zstdRecord builds a record whose payload-binding fields are internally consistent. Callers
 // then break exactly ONE of them, so each vector's rejection has a single cause.
-func zstdRecord(t testing.TB, body []byte) *edgev1.EdgeRecordV1 {
-	t.Helper()
+func zstdRecord(tb testing.TB, body []byte) *edgev1.EdgeRecordV1 {
+	tb.Helper()
 
-	payload := zstdOf(t, body)
+	payload := zstdOf(tb, body)
 	sum := sha256.Sum256(payload)
 
 	return &edgev1.EdgeRecordV1{
@@ -285,8 +285,9 @@ func recordAdmitVectors() []recordVector {
 			// body. Everything downstream of admission is exercised by
 			// TestComposedRecordExtractionAndBodyValidation against these same bytes.
 			file:    "record_admit_composed_sweep.bin",
-			outcome: "accept",
+			outcome: verdictAccept,
 			build: func(t *testing.T) *edgev1.EdgeRecordV1 {
+				t.Helper()
 				return composedSweepRecord(t, sweepBody(t, MaxSweepHostsPerBatch, true))
 			},
 		},
@@ -297,8 +298,9 @@ func recordAdmitVectors() []recordVector {
 			// padding rides in a duplicate of a singular field and last-one-wins yields the
 			// ordinary bounded batch.
 			file:    "record_admit_oversize_body.bin",
-			outcome: "accept",
+			outcome: verdictAccept,
 			build: func(t *testing.T) *edgev1.EdgeRecordV1 {
+				t.Helper()
 				return composedSweepRecord(t, noncanonicalBodyOfSize(t, 700*1024, 10_000))
 			},
 		},
@@ -308,6 +310,7 @@ func recordAdmitVectors() []recordVector {
 			file:    "record_admit_encoded_size_unbound.bin",
 			outcome: "encoded_size",
 			build: func(t *testing.T) *edgev1.EdgeRecordV1 {
+				t.Helper()
 				r := composedSweepRecord(t, sweepBody(t, 20, false))
 				r.EncodedSize = uint32(len(r.GetPayload()) + 1)
 
@@ -318,6 +321,7 @@ func recordAdmitVectors() []recordVector {
 			file:    "record_admit_digest_mismatch.bin",
 			outcome: "payload_digest",
 			build: func(t *testing.T) *edgev1.EdgeRecordV1 {
+				t.Helper()
 				r := composedSweepRecord(t, sweepBody(t, 20, false))
 				r.PayloadSha256 = make([]byte, sha256Len)
 
@@ -331,8 +335,9 @@ func recordAdmitVectors() []recordVector {
 			// requires tuning the body's compressibility byte by byte, which no real
 			// message affords. The stage under test does not decode the payload.
 			file:    "record_admit_ratio_at_ceiling.bin",
-			outcome: "accept",
+			outcome: verdictAccept,
 			build: func(t *testing.T) *edgev1.EdgeRecordV1 {
+				t.Helper()
 				return zstdRecord(t, exactRatioBody(t, MaxCompressionRatio))
 			},
 		},
@@ -345,6 +350,7 @@ func recordAdmitVectors() []recordVector {
 			file:    "record_admit_ratio_over_ceiling.bin",
 			outcome: "uncompressed_size",
 			build: func(t *testing.T) *edgev1.EdgeRecordV1 {
+				t.Helper()
 				r := zstdRecord(t, exactRatioBody(t, MaxCompressionRatio))
 				r.UncompressedSize++
 
@@ -356,6 +362,7 @@ func recordAdmitVectors() []recordVector {
 			file:    "record_admit_none_size_mismatch.bin",
 			outcome: "uncompressed_size",
 			build: func(t *testing.T) *edgev1.EdgeRecordV1 {
+				t.Helper()
 				r := validRecordFixed(t)
 				r.UncompressedSize = r.GetEncodedSize() + 1
 
@@ -377,6 +384,7 @@ func recordAdmitVectors() []recordVector {
 			file:    "record_admit_codec_unspecified.bin",
 			outcome: "compression",
 			build: func(t *testing.T) *edgev1.EdgeRecordV1 {
+				t.Helper()
 				r := composedSweepRecord(t, sweepBody(t, 20, false))
 				r.Compression = edgev1.EdgeRecordCompression_EDGE_RECORD_COMPRESSION_UNSPECIFIED
 
@@ -390,8 +398,9 @@ func recordAdmitVectors() []recordVector {
 			// TestRecursiveCompressionIsRefusedAsAContractPayload is where that is proven,
 			// on a COMPLETE record so the refusal is reached the way a real one would be.
 			file:    "record_admit_recursive_outer.bin",
-			outcome: "accept",
+			outcome: verdictAccept,
 			build: func(t *testing.T) *edgev1.EdgeRecordV1 {
+				t.Helper()
 				return composedSweepRecord(t, recursiveInnerFrame(t))
 			},
 		},
@@ -408,8 +417,9 @@ func recordAdmitVectors() []recordVector {
 			// The over-ceiling half is derived from these same bytes in both runtimes
 			// rather than committed twice.
 			file:    "record_admit_output_ceiling.bin",
-			outcome: "accept",
+			outcome: verdictAccept,
 			build: func(t *testing.T) *edgev1.EdgeRecordV1 {
+				t.Helper()
 				return composedSweepRecord(t,
 					noncanonicalBodyOfSize(t, MaxUncompressedBytes, 400_000))
 			},
@@ -428,7 +438,7 @@ func recursiveInnerFrame(t *testing.T) []byte {
 func recordVerdict(err error) string {
 	switch {
 	case err == nil:
-		return "accept"
+		return verdictAccept
 	case errors.Is(err, ErrPayloadTooLarge):
 		return "payload_too_large"
 	case errors.Is(err, ErrEncodedSize):

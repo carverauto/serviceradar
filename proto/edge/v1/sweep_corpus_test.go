@@ -153,14 +153,12 @@ func sweepCorpusVectors() []corpusVector {
 	out := make([]corpusVector, 0, 48)
 
 	for _, row := range rows {
-		row := row
-
 		// PER SOURCE -- the POSITIVE control. Every negative for this row differs from it
 		// in exactly one comparison, which is only meaningful if the control is committed.
 		out = append(out, corpusVector{
 			file:  "sweep_join_positive_" + row.name + ".bin",
 			gate:  "accept",
-			build: func(t *testing.T) *edgev1.EdgeRecordV1 { return recordForRow(t, row) },
+			build: func(t *testing.T) *edgev1.EdgeRecordV1 { t.Helper(); return recordForRow(t, row) },
 		})
 
 		// PER SOURCE -- the SELECTED-CONTEXT mismatch. Constructed so it does NOT also
@@ -172,6 +170,7 @@ func sweepCorpusVectors() []corpusVector {
 			label: string(edgerecord.SweepLabelContextID),
 			gate:  "correlation",
 			build: mutate(row, func(t *testing.T, r *edgev1.EdgeRecordV1) {
+				t.Helper()
 				if row.runIDReq {
 					var b edgev1.SweepObservationBatchV1
 					if err := proto.Unmarshal(r.GetPayload(), &b); err != nil {
@@ -317,6 +316,7 @@ func assertCorpusGate(t *testing.T, v corpusVector, err error) {
 	}
 
 	switch v.gate {
+	//nolint:goconst // a corpus manifest token; the table is read against the committed file
 	case "accept":
 		if err != nil {
 			t.Fatalf("%s: must be ACCEPTED: %v", v.file, err)
@@ -472,13 +472,13 @@ func sweepCorpusRelationVectors() []corpusVector {
 		{"sweep_join_trace_time_before.bin", string(edgerecord.SweepLabelTraceTimeWindow), "correlation",
 			mutate(row, func(_ *testing.T, r *edgev1.EdgeRecordV1) {
 				mutateSweepBody(r, func(b *edgev1.SweepObservationBatchV1) {
-					b.GetHosts()[0].GetMtr().TraceId = uuidv7At(fixedMillis-7_200_000, 0x30)
+					b.GetHosts()[0].GetMtr().TraceId = uuidv7At(fixedMillis - 7_200_000)
 				})
 			})},
 		{"sweep_join_trace_time_after.bin", string(edgerecord.SweepLabelTraceTimeWindow), "correlation",
 			mutate(row, func(_ *testing.T, r *edgev1.EdgeRecordV1) {
 				mutateSweepBody(r, func(b *edgev1.SweepObservationBatchV1) {
-					b.GetHosts()[0].GetMtr().TraceId = uuidv7At(fixedMillis+7_200_000, 0x30)
+					b.GetHosts()[0].GetMtr().TraceId = uuidv7At(fixedMillis + 7_200_000)
 				})
 			})},
 		// OVERFLOW that wraps INSIDE the CANONICAL window: 20_230_744_073_710 ms times 1e6
@@ -488,7 +488,7 @@ func sweepCorpusRelationVectors() []corpusVector {
 		{"sweep_join_trace_time_overflow.bin", string(edgerecord.SweepLabelTraceTimeOverflow), "correlation",
 			mutate(row, func(_ *testing.T, r *edgev1.EdgeRecordV1) {
 				mutateSweepBody(r, func(b *edgev1.SweepObservationBatchV1) {
-					b.GetHosts()[0].GetMtr().TraceId = uuidv7At(20_230_744_073_710, 0x30)
+					b.GetHosts()[0].GetMtr().TraceId = uuidv7At(20_230_744_073_710)
 				})
 			})},
 
@@ -532,14 +532,14 @@ func sweepCorpusRelationVectors() []corpusVector {
 			mutate(row, func(_ *testing.T, r *edgev1.EdgeRecordV1) {
 				widenEnvelope(r)
 				mutateSweepBody(r, func(b *edgev1.SweepObservationBatchV1) {
-					b.GetHosts()[0].GetMtr().TraceId = uuidv7At(winNotBefore/1_000_000, 0x30)
+					b.GetHosts()[0].GetMtr().TraceId = uuidv7At(winNotBefore / 1_000_000)
 				})
 			})},
 		{"sweep_join_positive_trace_at_expires.bin", "", "accept",
 			mutate(row, func(_ *testing.T, r *edgev1.EdgeRecordV1) {
 				widenEnvelope(r)
 				mutateSweepBody(r, func(b *edgev1.SweepObservationBatchV1) {
-					b.GetHosts()[0].GetMtr().TraceId = uuidv7At(winExpires/1_000_000, 0x30)
+					b.GetHosts()[0].GetMtr().TraceId = uuidv7At(winExpires / 1_000_000)
 				})
 			})},
 

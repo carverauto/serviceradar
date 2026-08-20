@@ -36,14 +36,12 @@ func taintDeep(m proto.Message) {
 	))
 }
 
-func taintLastRange(p *edgev1.ScheduledPlanPageV1) *edgev1.ScheduledPlanPageV1 {
+func taintLastRange(p *edgev1.ScheduledPlanPageV1) {
 	taintDeep(p.GetRanges()[len(p.GetRanges())-1])
-	return p
 }
 
-func taintLastSpan(p *edgev1.EdgeLossManifestPageV1) *edgev1.EdgeLossManifestPageV1 {
+func taintLastSpan(p *edgev1.EdgeLossManifestPageV1) {
 	taintDeep(p.GetClassificationSpans()[len(p.GetClassificationSpans())-1])
-	return p
 }
 
 func TestPlanPageListCeilingPrecedesUnknownFieldWalk(t *testing.T) {

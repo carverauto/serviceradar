@@ -1172,6 +1172,8 @@ func assignmentKeyForTest(r *edgev1.SweepAssignmentRecordV1) AssignmentKey {
 // TestAuthorizeCollectionNow pins the CURRENT-AUTHORITY boundary. Each case below was
 // ADMITTED by the earlier window-only check, which is why the boundary is now a single
 // composed function rather than a structural check a caller could mistake for one.
+//
+//nolint:gocyclo // one branch per authorization rule; the cases are the specification
 func TestAuthorizeCollectionNow(t *testing.T) {
 	r, h, pages := planBoundAssignment(t)
 	c := validCompiledAssignment(t, r)
@@ -1883,13 +1885,15 @@ func padCompiledAssignment(t *testing.T, c *edgev1.CompiledSweepAssignmentV1, ta
 // checkSetSha256Field is CompiledSweepAssignmentV1.check_set_sha256's field number, read
 // from the descriptor rather than hardcoded so a renumbering cannot silently make the
 // padding target a different field.
+//
+//nolint:gochecknoglobals // immutable descriptor lookup
 var checkSetSha256Field = func() protowire.Number {
 	fd := (&edgev1.CompiledSweepAssignmentV1{}).ProtoReflect().Descriptor().
 		Fields().ByName("check_set_sha256")
 	if fd == nil {
 		panic("CompiledSweepAssignmentV1.check_set_sha256 missing")
 	}
-	return protowire.Number(fd.Number())
+	return fd.Number()
 }()
 
 // TestCompiledAssignmentWireNumbersFrozen pins the exact numbers the ABI freezes. A
@@ -2095,8 +2099,8 @@ func TestAuthorizeCollectionNowBoundsRawPlanPages(t *testing.T) {
 	const now = 150
 
 	raw := rawPages(t, pages)
-	num := protowire.Number((&edgev1.ScheduledPlanPageV1{}).ProtoReflect().
-		Descriptor().Fields().ByName("check_set_sha256").Number())
+	num := (&edgev1.ScheduledPlanPageV1{}).ProtoReflect().
+		Descriptor().Fields().ByName("check_set_sha256").Number()
 	trueField := protowire.AppendBytes(
 		protowire.AppendTag(nil, num, protowire.BytesType), pages[0].GetCheckSetSha256())
 	target := MaxPlanPageBytes + 1
@@ -2416,8 +2420,8 @@ func TestExecutionGrantByteCeiling(t *testing.T) {
 	}
 	// Duplicate a known field until the ENCODING exceeds the bound. The decoded struct is
 	// unchanged, which is why the bound must be measured on received bytes.
-	num := protowire.Number((&edgev1.EdgeSignedCapabilityV1{}).ProtoReflect().
-		Descriptor().Fields().ByName("issuer_id").Number())
+	num := (&edgev1.EdgeSignedCapabilityV1{}).ProtoReflect().
+		Descriptor().Fields().ByName("issuer_id").Number()
 	bloated := append([]byte(nil), raw...)
 	for len(bloated) <= MaxExecutionGrantBytes {
 		bloated = append(bloated, protowire.AppendBytes(
@@ -2438,8 +2442,8 @@ func TestAuthorizeCollectionNowBoundsRawPlanHeader(t *testing.T) {
 	const now = 150
 
 	raw := headerBytes(t, h)
-	num := protowire.Number((&edgev1.ScheduledPlanHeaderV1{}).ProtoReflect().
-		Descriptor().Fields().ByName("check_set_sha256").Number())
+	num := (&edgev1.ScheduledPlanHeaderV1{}).ProtoReflect().
+		Descriptor().Fields().ByName("check_set_sha256").Number()
 	bloated := append([]byte(nil), raw...)
 	for len(bloated) <= MaxPlanHeaderBytes {
 		bloated = append(bloated, protowire.AppendBytes(
@@ -2750,7 +2754,7 @@ func fieldNumber(t *testing.T, m proto.Message, name string) protowire.Number {
 	if fd == nil {
 		t.Fatalf("field %q missing", name)
 	}
-	return protowire.Number(fd.Number())
+	return fd.Number()
 }
 
 // TestExecutionGrantExactByteCeiling pins MaxExecutionGrantBytes at the BOUNDARY: 16 384

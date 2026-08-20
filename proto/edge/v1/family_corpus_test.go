@@ -91,7 +91,7 @@ func familyVectors() []familyVector {
 		edgev1.EdgeRecordPayloadFamily_EDGE_RECORD_PAYLOAD_FAMILY_SNAPSHOT_TERMINAL_V1,
 	}
 
-	var out []familyVector
+	out := make([]familyVector, 0, len(families))
 
 	for _, f := range families {
 		out = append(out, familyVector{
@@ -99,6 +99,7 @@ func familyVectors() []familyVector {
 			file:  "family_sweep_" + familyShortName(f) + ".bin",
 			build: sweepRecordWithFamily,
 			verify: func(t *testing.T, r *edgev1.EdgeRecordV1) error {
+				t.Helper()
 				return edgerecord.ValidateSweepRecord(r, r.GetOutputContract(), goldenPolicy())
 			},
 		})
@@ -112,9 +113,10 @@ func familyVectors() []familyVector {
 //
 // Regenerate with EDGE_GOLDEN_UPDATE=1.
 func TestFamilySharedCorpus(t *testing.T) {
-	var lines []string
+	vectors := familyVectors()
+	lines := make([]string, 0, len(vectors))
 
-	for _, v := range familyVectors() {
+	for _, v := range vectors {
 		r := v.build(t, v.family)
 		raw := goldenBytes(t, v.file, mustMarshal(r))
 
@@ -124,6 +126,7 @@ func TestFamilySharedCorpus(t *testing.T) {
 		}
 
 		typedErr := v.verify(t, &decoded)
+		//nolint:goconst // a corpus manifest token; the table is read against the committed file
 		typed := "refuse"
 
 		if typedErr == nil {

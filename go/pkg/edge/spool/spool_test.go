@@ -46,7 +46,7 @@ func TestAppendAssignsContiguousSequencesFromOne(t *testing.T) {
 	if err != nil {
 		t.Fatalf("open: %v", err)
 	}
-	defer s.Close()
+	defer func() { _ = s.Close() }()
 
 	if got := mustAppend(t, s, 1, "a"); got != 1 {
 		t.Fatalf("first seq = %d, want 1", got)
@@ -67,7 +67,7 @@ func TestAppendAssignsContiguousSequencesFromOne(t *testing.T) {
 func TestResolveExcludesAckedRecords(t *testing.T) {
 	dir := t.TempDir()
 	s, _ := Open(dir)
-	defer s.Close()
+	defer func() { _ = s.Close() }()
 
 	mustAppend(t, s, 1, "a")
 	mustAppend(t, s, 2, "b")
@@ -106,7 +106,7 @@ func TestRecoveryPreservesSequenceAndData(t *testing.T) {
 	if err != nil {
 		t.Fatalf("reopen: %v", err)
 	}
-	defer s2.Close()
+	defer func() { _ = s2.Close() }()
 
 	if s2.NextSequence() != 3 {
 		t.Fatalf("next seq after reopen = %d, want 3 (never reused)", s2.NextSequence())
@@ -147,7 +147,7 @@ func TestTornTailIsTruncatedOnRecovery(t *testing.T) {
 	if err != nil {
 		t.Fatalf("reopen after torn write: %v", err)
 	}
-	defer s2.Close()
+	defer func() { _ = s2.Close() }()
 
 	recs, _ := s2.Unresolved()
 	if len(recs) != 2 {
@@ -169,7 +169,7 @@ func TestTornTailIsTruncatedOnRecovery(t *testing.T) {
 
 func TestAppendRejectsBadEventID(t *testing.T) {
 	s, _ := Open(t.TempDir())
-	defer s.Close()
+	defer func() { _ = s.Close() }()
 	if _, err := s.Append([]byte{1, 2, 3}, []byte("x")); err == nil {
 		t.Fatal("expected error for non-16-byte event id")
 	}
@@ -181,7 +181,7 @@ func TestSpoolDirIsPrivate(t *testing.T) {
 	if err != nil {
 		t.Fatalf("open: %v", err)
 	}
-	defer s.Close()
+	defer func() { _ = s.Close() }()
 
 	info, err := os.Stat(dir)
 	if err != nil {
@@ -197,7 +197,7 @@ func TestSpoolDirIsPrivate(t *testing.T) {
 func TestResolveRejectsBeyondHighWater(t *testing.T) {
 	dir := t.TempDir()
 	s, _ := Open(dir)
-	defer s.Close()
+	defer func() { _ = s.Close() }()
 	mustAppend(t, s, 1, "a") // seq 1 is the high-water
 
 	if err := s.Resolve(100); !errors.Is(err, ErrResolveBeyondHighWater) {
@@ -256,7 +256,7 @@ func TestCorruptCommittedBodyIsDetected(t *testing.T) {
 func TestScanFromBoundedAndCursor(t *testing.T) {
 	dir := t.TempDir()
 	s, _ := Open(dir)
-	defer s.Close()
+	defer func() { _ = s.Close() }()
 	for i := byte(1); i <= 10; i++ {
 		mustAppend(t, s, i, "payload")
 	}

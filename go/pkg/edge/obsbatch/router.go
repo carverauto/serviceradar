@@ -63,7 +63,7 @@ func (r *Router) Add(testedChecks []*edgev1.SweepTestV1, host *edgev1.SweepHostO
 	var flushed []*edgev1.SweepObservationBatchV1
 	b := r.builders[key]
 	if b == nil {
-		flushed = append(flushed, r.evictToFit(key)...)
+		flushed = append(flushed, r.evictToFit()...)
 		ctx := r.base
 		ctx.TestedChecks = testedChecks
 		b = newBuilder(ctx, r.limits, r.seq)
@@ -80,7 +80,7 @@ func (r *Router) Add(testedChecks []*edgev1.SweepTestV1, host *edgev1.SweepHostO
 
 // evictToFit flushes and removes least-recently-used builders until adding one
 // more dictionary stays within MaxActiveDicts.
-func (r *Router) evictToFit(incoming string) []*edgev1.SweepObservationBatchV1 {
+func (r *Router) evictToFit() []*edgev1.SweepObservationBatchV1 {
 	var out []*edgev1.SweepObservationBatchV1
 	for len(r.builders) >= r.limits.MaxActiveDicts && len(r.order) > 0 {
 		victim := r.order[0]

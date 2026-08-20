@@ -834,7 +834,6 @@ func validateCompletionLeaf(l MtrCompletionLeaf, expected uint64) error {
 	if len(l.RangeSha256) != sha256Len {
 		return fmt.Errorf("%w: range digest", ErrMtrCompletion)
 	}
-	//nolint:exhaustive // fail-closed: the default arm rejects any unlisted/unsupported value
 	switch l.Disposition {
 	case MtrDispositionTraceAllocated:
 		if validateUUIDv7Field(l.TraceID) != nil {
@@ -1046,6 +1045,8 @@ type sweepSourceRule struct {
 // The kind ordinals deliberately do NOT line up with the source ordinals -- only
 // SCHEDULED_SWEEP and SWEEP_PROFILE coincide. Correlating by NUMBER instead of by
 // this table accepts an ad-hoc body under scheduled-check authority.
+//
+//nolint:gochecknoglobals // immutable authority table; see the note above
 var sweepSourceMatrix = map[edgev1.SweepExecutionSource]sweepSourceRule{
 	edgev1.SweepExecutionSource_SWEEP_EXECUTION_SOURCE_SCHEDULED_SWEEP: {
 		kind:        edgev1.EdgeSourceAuthorizationKind_EDGE_SOURCE_AUTHORIZATION_KIND_SCHEDULED_SWEEP,

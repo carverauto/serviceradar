@@ -6,6 +6,7 @@ import (
 	"crypto/ed25519"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -383,6 +384,7 @@ func semPerturb(m proto.Message, name string) bool {
 		return false
 	}
 
+	//nolint:exhaustive // fail-closed: the default arm rejects any unlisted kind
 	switch fd.Kind() {
 	case protoreflect.BytesKind:
 		cur := md.Get(fd).Bytes()
@@ -643,6 +645,7 @@ func semPopulateTracked(m proto.Message, seed *uint16, used map[uint64]bool, all
 			continue
 		}
 
+		//nolint:exhaustive // fail-closed: the default arm rejects any unlisted kind
 		switch fd.Kind() {
 		case protoreflect.BytesKind:
 			*seed++
@@ -664,6 +667,10 @@ func semPopulateTracked(m proto.Message, seed *uint16, used map[uint64]bool, all
 			// already assigned above, most-constrained-first
 		case protoreflect.MessageKind:
 			semPopulateTracked(md.Mutable(fd).Message().Interface(), seed, used, alloc)
+		default:
+			// Fail closed. A kind with no case here leaves the field at its zero value, and a
+			// fixture whose field was never populated proves nothing about that field.
+			panic(fmt.Sprintf("semPopulateTracked: no case for kind %v at %s", fd.Kind(), fd.FullName()))
 		}
 	}
 }
@@ -812,6 +819,8 @@ type semRoute struct{ detail, probe string }
 
 // semStateKeys pins the EXACT tuple, not just the key. Accepting either `preimage` or `committed` would let capability.presence be relabelled to
 // the weaker probe and still pass, which is precisely the marker whose inequality is vacuous.
+//
+//nolint:gochecknoglobals // immutable declared axis
 var semStateKeys = map[string]semRoute{
 	"output_contract.presence":                         {detail: "present", probe: "preimage"},
 	"claims_framed.discriminant_7":                     {detail: "u64", probe: "preimage"},
@@ -831,6 +840,8 @@ var semStateKeys = map[string]semRoute{
 
 // semDigestKeys pins the EXACT tuple, not just the key. These rows bypassed the descriptor kind check entirely, so capability.algorithm could be
 // relabelled str -> bytes and survive; the tuple and the schema are both checked now.
+//
+//nolint:gochecknoglobals // immutable declared axis
 var semDigestKeys = map[string]semRoute{
 	"capability.capability_version":           {detail: "u64", probe: "digest"},
 	"capability.issuer_id":                    {detail: "bytes", probe: "digest"},
@@ -873,6 +884,7 @@ func semKindForField(t *testing.T, fd protoreflect.FieldDescriptor) string {
 		return "optU64"
 	}
 
+	//nolint:exhaustive // fail-closed: the default arm rejects any unlisted kind
 	switch fd.Kind() {
 	case protoreflect.BytesKind:
 		return "bytes"
@@ -939,6 +951,8 @@ func semAssertDigestRowKind(t *testing.T, r semRow) {
 // below discovers their scalar leaves from the DESCRIPTOR; the manifest then has to classify
 // what was discovered. Deriving the expected paths from the manifest instead would make the
 // closure agree with itself: a nested field added with no row would be absent from both sides.
+//
+//nolint:gochecknoglobals // immutable declared axis
 var semGrammarRoots = map[string]func() proto.Message{
 	"output_contract":        func() proto.Message { return &edgev1.EdgeOutputContractRef{} },
 	"collection_claims":      func() proto.Message { return &edgev1.EdgeCollectionClaimsV1{} },
@@ -973,6 +987,7 @@ func semWalkLeaves(t *testing.T, root string, md protoreflect.MessageDescriptor,
 		// proto3-`optional` field -- whose synthetic oneof would have matched too -- would have
 		// vanished into this existing edge without ever acquiring an operation row, classified
 		// by nothing and framed by no one.
+		//nolint:goconst // a corpus manifest token; the table is read against the committed file
 		if root == "capability" && semIsClaimsOneofField(fd) {
 			edges[root+"->claims_framed"] = true
 
@@ -1199,6 +1214,8 @@ func TestSemanticNestedClosure(t *testing.T) {
 // any test reads them. Measured: restricting the root witness to variant 0 changed nothing,
 // because the list still named every variant. Reads are now recorded at the accessor and checked
 // after the whole package has run, so a vector nothing asserts fails.
+//
+//nolint:gochecknoglobals // suite-scoped read ledger; the after-suite guard reads it once
 var semVectorReads = map[string]bool{}
 
 // semVectorFor reads one committed vector and records the read.
@@ -1295,6 +1312,7 @@ func semBaselineFrom(t *testing.T, root, carrier string, variant int) proto.Mess
 
 func semBaselineArtifact(root, carrier string, variant int) string {
 	name := "sem_" + root + "_populated"
+	//nolint:goconst // a corpus manifest token; the table is read against the committed file
 	if carrier != "production" {
 		name += "_nested"
 	}
@@ -1314,7 +1332,6 @@ func semBaselineArtifact(root, carrier string, variant int) string {
 // populated case identically and only diverge on defaults, which is exactly where a
 // cross-runtime disagreement would hide.
 func TestSemanticCommittedVectors(t *testing.T) {
-
 	for _, root := range []string{"output_contract", "collection_claims", "production_claims",
 		"source_claims", "delivery_claims", "execution_grant_claims"} {
 		for _, state := range []string{"populated", "default"} {
@@ -1348,7 +1365,6 @@ func TestSemanticCommittedVectors(t *testing.T) {
 // default -- measured: omitting an empty capability field passed every other row in this file.
 // These vectors are the present-but-default evidence that closes it.
 func TestSemanticRootDefaultVectors(t *testing.T) {
-
 	for _, c := range []struct {
 		key   string
 		build func(*edgev1.EdgeRecordV1)
@@ -1779,16 +1795,21 @@ func semClaimsFramed(t *testing.T, variant string) []byte {
 	switch variant {
 	case "production":
 		c.Claims = &edgev1.EdgeSignedCapabilityV1_Production{Production: &edgev1.EdgeProductionClaimsV1{}}
+	//nolint:goconst // a corpus manifest token; the table is read against the committed file
 	case "source":
 		c.Claims = &edgev1.EdgeSignedCapabilityV1_Source{Source: &edgev1.EdgeSourceClaimsV1{}}
+	//nolint:goconst // a corpus manifest token; the table is read against the committed file
 	case "delivery":
 		c.Claims = &edgev1.EdgeSignedCapabilityV1_Delivery{Delivery: &edgev1.EdgeDeliveryClaimsV1{}}
+	//nolint:goconst // a corpus manifest token; the table is read against the committed file
 	case "collection":
 		c.Claims = &edgev1.EdgeSignedCapabilityV1_Collection{Collection: &edgev1.EdgeCollectionClaimsV1{}}
+	//nolint:goconst // a corpus manifest token; the table is read against the committed file
 	case "assignment_execution":
 		c.Claims = &edgev1.EdgeSignedCapabilityV1_AssignmentExecution{
 			AssignmentExecution: &edgev1.EdgeAssignmentExecutionClaimsV1{},
 		}
+	//nolint:goconst // a corpus manifest token; the table is read against the committed file
 	case "unset":
 	default:
 		t.Fatalf("unknown claims variant %q", variant)
@@ -1938,6 +1959,8 @@ const semSeedStart = 7
 
 // semBaselineRoots is the generation ORDER of the claim baselines -- fixed, because the shared
 // allocator numbers positions by walk order.
+//
+//nolint:gochecknoglobals // immutable baseline root list
 var semBaselineRoots = []string{"output_contract", "collection_claims", "production_claims",
 	"source_claims", "delivery_claims", "execution_grant_claims"}
 
@@ -1962,32 +1985,6 @@ func semRecordDigestWith(t *testing.T, slot string, present bool) []byte {
 	}
 
 	return SemanticEnvelopeDigest(r)
-}
-
-// semRecordWithClaims frames the WHOLE RECORD with the production capability carrying one claims
-// variant.
-//
-// THE COMPOSED CAPABILITY IS WHAT NEEDED EVIDENCE. `state.claims_discriminant.*` freezes
-// claimsFramed's OWN output and the seam vectors freeze each claim body, but neither ever sees
-// the capability transcript AROUND them -- so reordering `claimsFramed` against `signature` only
-// for a variant the record never carries left the whole package green. Measured for `collection`
-// and for the unset case; the record fixture carries `production` in one capability and `source`
-// in the other, so the remaining four shapes were framed at the root by nothing.
-func semRecordWithClaims(t *testing.T, variant string) []byte {
-	t.Helper()
-
-	r := semDeterministicRecord(t)
-	semSetClaims(t, r.GetProductionCapability(), variant)
-
-	return SemanticEnvelopeDigest(r)
-}
-
-// semSetClaims sets one claims variant on a capability, POPULATED from the committed baseline so
-// the body is not all zeros.
-func semSetClaims(t *testing.T, c *edgev1.EdgeSignedCapabilityV1, variant string) {
-	t.Helper()
-
-	semSetClaimsFrom(t, c, variant, "production", 0)
 }
 
 func semSetClaimsFrom(t *testing.T, c *edgev1.EdgeSignedCapabilityV1, kind, carrier string, variant int) {
@@ -2497,10 +2494,6 @@ type semWrite struct {
 	konst bool
 }
 
-// semClaimsVariants are the claims shapes a capability can carry, INCLUDING unset.
-var semClaimsVariants = []string{"production", "source", "delivery", "collection",
-	"assignment_execution", "unset"}
-
 // semFlatWrites collects a fixture's field writes in ONE FLAT SCOPE.
 //
 // There is no smaller scope to use: the preimage is an untagged concatenation, so every write
@@ -2519,6 +2512,7 @@ func semFlatWrites(t *testing.T, m protoreflect.Message, prefix string, out *[]s
 		label := prefix + string(fd.Name())
 		v := m.Get(fd)
 
+		//nolint:exhaustive // fail-closed: the default arm rejects any unlisted kind
 		switch fd.Kind() {
 		case protoreflect.MessageKind:
 			if m.Has(fd) {
@@ -2536,6 +2530,11 @@ func semFlatWrites(t *testing.T, m protoreflect.Message, prefix string, out *[]s
 			*out = append(*out, semWrite{class: "u64", value: strconv.FormatUint(v.Uint(), 10), label: label, width: 8})
 		case protoreflect.Int64Kind, protoreflect.Int32Kind:
 			*out = append(*out, semWrite{class: "u64", value: strconv.FormatUint(uint64(v.Int()), 10), label: label, width: 8})
+		default:
+			// Fail closed. A kind this does not know is a write MISSING from the flat
+			// transcript, and the collision proof reads that transcript as complete -- so a
+			// silent skip would weaken the evidence without failing anything.
+			t.Fatalf("semFlatWrites: no case for kind %v at %s", fd.Kind(), label)
 		}
 	}
 }
@@ -3433,6 +3432,8 @@ func TestSemanticOrderedMirrorReproducesThePreimage(t *testing.T) {
 // semCarrierStates are the states ONE capability carrier can be in: absent, or present carrying
 // one claims discriminant -- refined by the delivery transition oneof and the execution grant's
 // source-identity presence, which are themselves declared axes.
+//
+//nolint:gochecknoglobals // immutable declared axis
 var semCarrierStates = []string{
 	"absent", "production", "source", "collection", "unset",
 	"delivery", "delivery.renewal", "delivery.rollover",
@@ -3462,8 +3463,20 @@ var semCarrierStates = []string{
 // spliced baseline. This says every combination of what the grammar DECLARES it branches on is
 // committed. The static guard is a separate, weaker thing -- it checks that the framers keep that
 // shape, and does NOT establish that nothing else can branch; its holes are named on it.
+//
+//nolint:gochecknoglobals // immutable enumerated axis product
 var semShapes = semBuildShapes()
 
+// errUnreadCommittedVectors reports vectors present in the committed manifest that no test in
+// this runtime asserted. They are frozen values that cannot fail and so cannot catch a
+// divergence -- evidence that looks committed and proves nothing.
+var errUnreadCommittedVectors = errors.New("committed vectors are asserted by NO test in this runtime")
+
+// The capacity is deliberately not preallocated: the epoch axis is one element or two
+// depending on the production-capability bit, so a single capacity expression would be a second,
+// wrong statement of the product.
+//
+//nolint:prealloc // state-dependent axis length; see above
 func semBuildShapes() []string {
 	out := []string{"base"}
 
@@ -3549,7 +3562,6 @@ func semRollover(carrier string) *edgev1.EdgeDeliveryRolloverV1 {
 
 // TestSemanticShapeVectors freezes every shape at every variant.
 func TestSemanticShapeVectors(t *testing.T) {
-
 	for _, shape := range semShapes {
 		for v := range semRecordVariants {
 			key := fmt.Sprintf("root.shape.%s.v%d", shape, v)
@@ -3640,9 +3652,7 @@ func semVerifyEveryVectorWasRead() error {
 	if len(unread) > 0 {
 		sort.Strings(unread)
 
-		return fmt.Errorf("%d committed vectors are asserted by NO test in this runtime, so they "+
-			"are frozen values that cannot fail and cannot catch a divergence: %v",
-			len(unread), unread)
+		return fmt.Errorf("%w: %d of them: %v", errUnreadCommittedVectors, len(unread), unread)
 	}
 
 	return nil

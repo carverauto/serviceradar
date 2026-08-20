@@ -121,6 +121,7 @@ func semanticEnvelopeVector() versionVector {
 		ok:  "version_semantic_envelope_ok.bin",
 		alt: "version_semantic_envelope_alt.bin",
 		build: func(t *testing.T) ([]byte, []byte, []byte) {
+			t.Helper()
 			ok := validRecordFixed(t)
 
 			alt, _ := proto.Clone(ok).(*edgev1.EdgeRecordV1)
@@ -131,6 +132,7 @@ func semanticEnvelopeVector() versionVector {
 			return mustMarshalMsg(t, ok), mustMarshalMsg(t, alt), nil
 		},
 		verify: func(t *testing.T, artifact, _ []byte) error {
+			t.Helper()
 			return ValidateRecord(unmarshalRecord(t, artifact))
 		},
 	}
@@ -144,6 +146,7 @@ func capabilityVersionVector() versionVector {
 		ok:  "version_capability_ok.bin",
 		alt: "version_capability_alt.bin",
 		build: func(t *testing.T) ([]byte, []byte, []byte) {
+			t.Helper()
 			ok := validRecordFixed(t)
 
 			alt, _ := proto.Clone(ok).(*edgev1.EdgeRecordV1)
@@ -157,6 +160,7 @@ func capabilityVersionVector() versionVector {
 			return mustMarshalMsg(t, ok), mustMarshalMsg(t, alt), nil
 		},
 		verify: func(t *testing.T, artifact, _ []byte) error {
+			t.Helper()
 			return ValidateRecord(unmarshalRecord(t, artifact))
 		},
 	}
@@ -229,6 +233,7 @@ func manifestPageVersionVector() versionVector {
 		ok:  "version_manifest_page_ok.bin",
 		alt: "version_manifest_page_alt.bin",
 		build: func(t *testing.T) ([]byte, []byte, []byte) {
+			t.Helper()
 			ok := stabilizeSpanIdentities(t, []*edgev1.EdgeLossManifestPageV1{onePage(t)})[0]
 
 			alt, _ := proto.Clone(ok).(*edgev1.EdgeLossManifestPageV1)
@@ -240,6 +245,7 @@ func manifestPageVersionVector() versionVector {
 			return mustMarshalMsg(t, ok), mustMarshalMsg(t, alt), nil
 		},
 		verify: func(t *testing.T, artifact, _ []byte) error {
+			t.Helper()
 			var p edgev1.EdgeLossManifestPageV1
 			if err := proto.Unmarshal(artifact, &p); err != nil {
 				t.Fatalf("unmarshal page: %v", err)
@@ -257,6 +263,7 @@ func tombstoneVersionVector() versionVector {
 		alt:  "version_tombstone_alt.bin",
 		peer: "version_tombstone_pages.bin",
 		build: func(t *testing.T) ([]byte, []byte, []byte) {
+			t.Helper()
 			pages := recoveryPages(t)
 			ok := tombstoneFor(pages)
 
@@ -266,6 +273,7 @@ func tombstoneVersionVector() versionVector {
 			return mustMarshalMsg(t, ok), mustMarshalMsg(t, alt), marshalPages(t, pages)
 		},
 		verify: func(t *testing.T, artifact, peer []byte) error {
+			t.Helper()
 			var tomb edgev1.SpoolLossTombstoneV1
 			if err := proto.Unmarshal(artifact, &tomb); err != nil {
 				t.Fatalf("unmarshal tombstone: %v", err)
@@ -285,6 +293,7 @@ func manifestRootVector() versionVector {
 		alt:  "version_manifest_root_alt.bin",
 		peer: "version_manifest_root_pages.bin",
 		build: func(t *testing.T) ([]byte, []byte, []byte) {
+			t.Helper()
 			pages := recoveryPages(t)
 			ok := tombstoneFor(pages)
 
@@ -295,6 +304,7 @@ func manifestRootVector() versionVector {
 			return mustMarshalMsg(t, ok), mustMarshalMsg(t, alt), marshalPages(t, pages)
 		},
 		verify: func(t *testing.T, artifact, peer []byte) error {
+			t.Helper()
 			var tomb edgev1.SpoolLossTombstoneV1
 			if err := proto.Unmarshal(artifact, &tomb); err != nil {
 				t.Fatalf("unmarshal tombstone: %v", err)
@@ -443,6 +453,7 @@ func planHeaderVersionVector() versionVector {
 		// point, and a row the other runtime cannot execute is not a shared vector.
 		peer: "version_plan_header_pages.bin",
 		build: func(t *testing.T) ([]byte, []byte, []byte) {
+			t.Helper()
 			ok, pages := stablePlan(t)
 
 			alt, _ := proto.Clone(ok).(*edgev1.ScheduledPlanHeaderV1)
@@ -454,6 +465,7 @@ func planHeaderVersionVector() versionVector {
 			return mustMarshalMsg(t, ok), mustMarshalMsg(t, alt), marshalPlanPages(t, pages)
 		},
 		verify: func(t *testing.T, artifact, _ []byte) error {
+			t.Helper()
 			return ValidatePlanHeader(unmarshalPlanHeader(t, artifact))
 		},
 	}
@@ -466,6 +478,7 @@ func planPageVersionVector() versionVector {
 		alt:  "version_plan_page_alt.bin",
 		peer: "version_plan_page_header.bin",
 		build: func(t *testing.T) ([]byte, []byte, []byte) {
+			t.Helper()
 			h, pages := stablePlan(t)
 
 			alt := make([]*edgev1.ScheduledPlanPageV1, len(pages))
@@ -488,6 +501,7 @@ func planPageVersionVector() versionVector {
 			return marshalPlanPages(t, pages), marshalPlanPages(t, alt), mustMarshalMsg(t, h)
 		},
 		verify: func(t *testing.T, artifact, peer []byte) error {
+			t.Helper()
 			pages := unmarshalPlanPages(t, artifact)
 			h := unmarshalPlanHeader(t, peer)
 			// The committed header roots the CONTROL pages. Re-root a copy over whatever pages
@@ -510,6 +524,7 @@ func planRootVector() versionVector {
 		alt:  "version_plan_root_alt.bin",
 		peer: "version_plan_root_pages.bin",
 		build: func(t *testing.T) ([]byte, []byte, []byte) {
+			t.Helper()
 			h, pages := stablePlan(t)
 
 			alt, _ := proto.Clone(h).(*edgev1.ScheduledPlanHeaderV1)
@@ -519,6 +534,7 @@ func planRootVector() versionVector {
 			return mustMarshalMsg(t, h), mustMarshalMsg(t, alt), marshalPlanPages(t, pages)
 		},
 		verify: func(t *testing.T, artifact, peer []byte) error {
+			t.Helper()
 			return ValidatePlanPages(unmarshalPlanHeader(t, artifact), unmarshalPlanPages(t, peer))
 		},
 	}
@@ -531,6 +547,7 @@ func rangeDigestVector() versionVector {
 		alt:  "version_range_digest_alt.bin",
 		peer: "version_range_digest_header.bin",
 		build: func(t *testing.T) ([]byte, []byte, []byte) {
+			t.Helper()
 			h, pages := stablePlan(t)
 
 			alt := make([]*edgev1.ScheduledPlanPageV1, len(pages))
@@ -550,6 +567,7 @@ func rangeDigestVector() versionVector {
 			return marshalPlanPages(t, pages), marshalPlanPages(t, alt), mustMarshalMsg(t, h)
 		},
 		verify: func(t *testing.T, artifact, peer []byte) error {
+			t.Helper()
 			pages := unmarshalPlanPages(t, artifact)
 			hc, _ := proto.Clone(unmarshalPlanHeader(t, peer)).(*edgev1.ScheduledPlanHeaderV1)
 			hc.PlanRootSha256 = PlanRoot(pages)
@@ -674,6 +692,7 @@ func scopeVector(
 		// instead of trusting a key only the generator holds.
 		peer: recoveryScopeIssuerPub,
 		build: func(t *testing.T) ([]byte, []byte, []byte) {
+			t.Helper()
 			body, rid, trueScope, altScope := build(t)
 
 			ok, _ := scopeControlRecord(t, body, rid, trueScope)
@@ -684,6 +703,7 @@ func scopeVector(
 			return mustMarshalMsg(t, ok), mustMarshalMsg(t, alt), pub
 		},
 		verify: func(t *testing.T, artifact, peer []byte) error {
+			t.Helper()
 			r := unmarshalRecord(t, artifact)
 			policy := scopePolicyFor(t, r, peer)
 
@@ -728,6 +748,7 @@ func shortName(b []byte) string { return fmt.Sprintf("record(%d bytes)", len(b))
 func tombstoneScopeVector() versionVector {
 	return scopeVector("tombstone_scope", "version_tombstone_scope_ok.bin", "version_tombstone_scope_alt.bin",
 		func(t *testing.T) (*edgev1.EdgeRecoveryControlPayloadV1, []byte, []byte, []byte) {
+			t.Helper()
 			pages := recoveryPages(t)
 			tomb := tombstoneFor(pages)
 
@@ -743,6 +764,7 @@ func tombstoneScopeVector() versionVector {
 func manifestPageScopeVector() versionVector {
 	return scopeVector("manifest_page_scope", "version_manifest_page_scope_ok.bin", "version_manifest_page_scope_alt.bin",
 		func(t *testing.T) (*edgev1.EdgeRecoveryControlPayloadV1, []byte, []byte, []byte) {
+			t.Helper()
 			page := recoveryPages(t)[0]
 			// A single-page manifest, so validateSingleManifestPage accepts it on its own.
 			page.PageIndex, page.PageCount, page.Terminal, page.PrevPageSha256 = 0, 1, true, nil
@@ -760,6 +782,7 @@ func manifestPageScopeVector() versionVector {
 func resolvedScopeVector() versionVector {
 	return scopeVector("resolved_scope", "version_resolved_scope_ok.bin", "version_resolved_scope_alt.bin",
 		func(t *testing.T) (*edgev1.EdgeRecoveryControlPayloadV1, []byte, []byte, []byte) {
+			t.Helper()
 			pages := recoveryPages(t)
 			rv := &edgev1.RecoveryResolvedV1{
 				RecoveryId: pages[0].GetRecoveryId(), ManifestRootSha256: ManifestRoot(pages),
@@ -783,6 +806,7 @@ func compiledAssignmentVersionVector() versionVector {
 		ok:  "version_compiled_assignment_ok.bin",
 		alt: "version_compiled_assignment_alt.bin",
 		build: func(t *testing.T) ([]byte, []byte, []byte) {
+			t.Helper()
 			_, priv := compiledTestKey(t)
 
 			r := validAssignment(t)
@@ -810,6 +834,7 @@ func compiledAssignmentVersionVector() versionVector {
 			return mustMarshalMsg(t, ok), mustMarshalMsg(t, alt), nil
 		},
 		verify: func(t *testing.T, artifact, _ []byte) error {
+			t.Helper()
 			var c edgev1.CompiledSweepAssignmentV1
 			if err := proto.Unmarshal(artifact, &c); err != nil {
 				t.Fatalf("unmarshal compiled assignment: %v", err)
@@ -832,6 +857,7 @@ func mtrCompletionVersionVector() versionVector {
 		ok:     "version_mtr_completion_ok.bin",
 		alt:    "version_mtr_completion_alt.bin",
 		build: func(t *testing.T) ([]byte, []byte, []byte) {
+			t.Helper()
 			planRoot := d32domain(0x90)
 			zero32 := make([]byte, sha256.Size)
 
@@ -857,6 +883,7 @@ func mtrCompletionVersionVector() versionVector {
 			return mustMarshalMsg(t, ok), mustMarshalMsg(t, alt), nil
 		},
 		verify: func(t *testing.T, artifact, _ []byte) error {
+			t.Helper()
 			var ev edgev1.SweepExecutionEventV1
 			if err := proto.Unmarshal(artifact, &ev); err != nil {
 				t.Fatalf("unmarshal execution event: %v", err)
@@ -925,11 +952,13 @@ func pubIDVector(object, okFile, altFile string,
 		object: object, class: "B",
 		ok: okFile, alt: altFile,
 		build: func(t *testing.T) ([]byte, []byte, []byte) {
+			t.Helper()
 			id, pre, domain, frozen := compute(t)
 
 			return []byte(id), []byte(patchedIdentity(t, pre, domain, frozen+1)), nil
 		},
 		verify: func(t *testing.T, artifact, _ []byte) error {
+			t.Helper()
 			id, _, _, _ := compute(t)
 			if string(artifact) == id {
 				return nil
@@ -943,6 +972,7 @@ func pubIDVector(object, okFile, altFile string,
 func natsMsgIDEdgeVector() versionVector {
 	return pubIDVector("nats_msgid_edge", "version_nats_msgid_edge_ok.txt", "version_nats_msgid_edge_alt.txt",
 		func(t *testing.T) (string, []byte, string, uint64) {
+			t.Helper()
 			slot, sed, rsha := corpusEdgeSlot(), d32(0xD4), d32(0xD5)
 
 			id, err := NatsMsgID(slot, sed, rsha)
@@ -962,6 +992,7 @@ func natsMsgIDEdgeVector() versionVector {
 func natsMsgIDServiceVector() versionVector {
 	return pubIDVector("nats_msgid_service", "version_nats_msgid_service_ok.txt", "version_nats_msgid_service_alt.txt",
 		func(t *testing.T) (string, []byte, string, uint64) {
+			t.Helper()
 			slot, sed, rsha := corpusServiceSlot(), d32(0xD6), d32(0xD7)
 
 			id, err := ServiceNatsMsgID(slot, sed, rsha)
@@ -981,6 +1012,7 @@ func natsMsgIDServiceVector() versionVector {
 func deliveryIDEdgeVector() versionVector {
 	return pubIDVector("delivery_id_edge", "version_delivery_id_edge_ok.txt", "version_delivery_id_edge_alt.txt",
 		func(t *testing.T) (string, []byte, string, uint64) {
+			t.Helper()
 			slot := corpusEdgeSlot()
 
 			id, err := DeliveryID(slot)
@@ -1000,6 +1032,7 @@ func deliveryIDEdgeVector() versionVector {
 func deliveryIDServiceVector() versionVector {
 	return pubIDVector("delivery_id_service", "version_delivery_id_service_ok.txt", "version_delivery_id_service_alt.txt",
 		func(t *testing.T) (string, []byte, string, uint64) {
+			t.Helper()
 			slot := corpusServiceSlot()
 
 			id, err := ServiceDeliveryID(slot)
@@ -1059,11 +1092,13 @@ func transportProvenanceVector() versionVector {
 		ok:  "transport_provenance.txt",
 		alt: "pubid_reject_vectors.txt#unknown-version",
 		build: func(t *testing.T) ([]byte, []byte, []byte) {
+			t.Helper()
 			return artifactRef(t, "transport_provenance.txt"),
 				artifactRef(t, "pubid_reject_vectors.txt#unknown-version"),
 				nil
 		},
 		verify: func(t *testing.T, artifact, _ []byte) error {
+			t.Helper()
 			_, err := DecodeTransportProvenance(string(artifact))
 
 			return err

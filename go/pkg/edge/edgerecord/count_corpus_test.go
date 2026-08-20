@@ -130,19 +130,19 @@ func TestCountCorpusCoversEverySite(t *testing.T) {
 	type spec struct{ carrier, bound, goV, exV, owner string }
 
 	inventory := map[string]spec{
-		"plan_raw":              {"plan_pages", "MaxManifestPages", "refuse", "refuse", "-"},
-		"plan_decoded":          {"plan_pages", "MaxManifestPages", "refuse", "refuse", "-"},
-		"recovery_raw":          {"recovery_pages", "MaxManifestPages", "refuse", "refuse", "-"},
-		"recovery_decoded":      {"recovery_pages", "MaxManifestPages", "refuse", "refuse", "-"},
-		"tombstone":             {"recovery_pages", "MaxManifestPages", "refuse", "refuse", "-"},
-		"plan_ranges":           {"plan_ranges", "MaxRangesPerPage", "refuse", "refuse", "-"},
-		"recovery_spans_chain":  {"recovery_spans", "MaxSpansPerPage", "refuse", "refuse", "-"},
-		"recovery_spans_single": {"recovery_spans", "MaxSpansPerPage", "refuse", "n/a", "1.6-d"},
+		"plan_raw":              {"plan_pages", "MaxManifestPages", verdictRefuse, verdictRefuse, "-"},
+		"plan_decoded":          {"plan_pages", "MaxManifestPages", verdictRefuse, verdictRefuse, "-"},
+		"recovery_raw":          {"recovery_pages", "MaxManifestPages", verdictRefuse, verdictRefuse, "-"},
+		"recovery_decoded":      {"recovery_pages", "MaxManifestPages", verdictRefuse, verdictRefuse, "-"},
+		"tombstone":             {"recovery_pages", "MaxManifestPages", verdictRefuse, verdictRefuse, "-"},
+		"plan_ranges":           {"plan_ranges", "MaxRangesPerPage", verdictRefuse, verdictRefuse, "-"},
+		"recovery_spans_chain":  {"recovery_spans", "MaxSpansPerPage", verdictRefuse, verdictRefuse, "-"},
+		"recovery_spans_single": {"recovery_spans", "MaxSpansPerPage", verdictRefuse, verdictNA, proofGroup16D},
 	}
 
 	// A verdict column may only hold a token this corpus understands. An unrecognised one
 	// would otherwise read as "not refuse" and quietly relax a row.
-	known := map[string]bool{"refuse": true, "accept": true, "n/a": true}
+	known := map[string]bool{verdictRefuse: true, verdictAccept: true, verdictNA: true}
 
 	rows := countCorpus(t)
 	if len(rows) != len(inventory) {
@@ -178,9 +178,9 @@ func TestCountCorpusCoversEverySite(t *testing.T) {
 func TestCountCorpusRecordsTheAbsentPeer(t *testing.T) {
 	for _, r := range countCorpus(t) {
 		switch {
-		case r.exVerdict == "n/a" && r.owner == "-":
+		case r.exVerdict == verdictNA && r.owner == "-":
 			t.Fatalf("%s: the Elixir peer is absent and no owner is named", r.site)
-		case r.exVerdict != "n/a" && r.owner != "-":
+		case r.exVerdict != verdictNA && r.owner != "-":
 			t.Fatalf("%s: an owner is named for a site that has a peer", r.site)
 		}
 	}
