@@ -1,3 +1,32 @@
+# ServiceRadar v1.4.40
+
+Compacts the operations dashboard so more of it fits without scrolling,
+tags SNMP walk rows with ifIndex, and makes wait-migrations prove the
+schema is current.
+
+## Whats New
+
+**1.4.40**
+- Dashboard: KPI, map, and events load independently so the map no
+  longer blocks Total Assets. NetFlow map sits beside Events Over
+  Time, with observability metrics under that chart. (PR #3819)
+- Dashboard: shrink the map and events cards so the trio row and
+  Alerts Feed fit on a typical desktop viewport. Grow the metrics
+  sparklines under Events, and stop Threat Intel headers from wrapping
+  into each other. (PR #3821)
+- SNMP: walk rows on IF-MIB carry `if_index` / `ifindex:N` instead of
+  a null index, so walked interface metrics show on the device
+  Interfaces tab. (PR #3819)
+- Helm: `wait-migrations` checks that the latest migration is applied,
+  not merely that `schema_migrations` exists. A skipped hook can no
+  longer start web-ng against a months-behind schema. (PR #3820)
+- CI: native add-on version-bump gate runs on pull requests. The
+  signing runner uses `--config=remote` so release publish can
+  authenticate. (PRs #3818, #3816)
+- Tests: Dgraph cluster setup for integration tests. (PR #3817)
+- Tests: dashboard layout CSS is staged for Bazel so phoenix_live
+  unit tests find `app.css` on RBE.
+
 # ServiceRadar v1.4.39
 
 Turns on SNMP table walks from the control plane, adds the NCO

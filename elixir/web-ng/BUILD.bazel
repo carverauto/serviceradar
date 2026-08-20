@@ -322,7 +322,11 @@ ex_unit_tests(
         ],
         allow_empty = True,
         exclude = ["test/**/*_test.exs"],
-    ),
+    ) + [
+        # assets/ is its own package; glob() here cannot see css/app.css.
+        # DashboardLayoutTest reads it at runtime.
+        "//elixir/web-ng/assets:css/app.css",
+    ],
     # web-ng already defines a database-free tier: with ALLOW_DB_FREE_TESTS set and neither
     # CI nor REQUIRE_DB_TESTS, test_helper.exs skips Application.ensure_all_started and runs
     # only `:db_free`-tagged tests (87 of 316 files). That is the project's own notion of
