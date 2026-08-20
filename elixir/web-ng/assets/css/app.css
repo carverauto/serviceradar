@@ -5658,7 +5658,7 @@ table:has(.sr-ui-dropdown) td:has(.sr-ui-dropdown) {
 .sr-ops-threat-toolbar {
   min-width: 0;
   display: grid;
-  grid-template-columns: minmax(13rem, 0.9fr) minmax(0, 1.7fr);
+  grid-template-columns: minmax(0, 9.5rem) minmax(0, 1fr);
   align-items: stretch;
   gap: 0.4rem;
 }
@@ -5748,11 +5748,14 @@ table:has(.sr-ui-dropdown) td:has(.sr-ui-dropdown) {
 
 .sr-ops-threat-stat-grid .sr-ops-small-stat {
   min-height: 0;
-  padding: 0.18rem 0.42rem;
+  padding: 0.18rem 0.28rem;
   border-radius: 0;
 }
 
 .sr-ops-threat-stat-grid .sr-ops-small-stat span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   font-size: 0.62rem;
   line-height: 1.2;
 }
