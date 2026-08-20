@@ -2,7 +2,6 @@ load("@crates//:defs.bzl", "all_crate_deps")
 load("@rules_rs//rs:rust_binary.bzl", "rust_binary")
 load("@rules_rs//rs:rust_library.bzl", "rust_library")
 load("@rules_rs//rs:rust_test.bzl", "rust_test")
-load("//build/rbe:exec_properties.bzl", "NATIVE_ADDON_EXEC_PROPERTIES")
 
 package(default_visibility = ["//visibility:public"])
 
@@ -30,8 +29,6 @@ rust_binary(
     name = "serviceradar-anomaly-addon",
     srcs = ["src/main.rs"],
     crate_root = "src/main.rs",
-    # Firecracker RBE: rustc final link (aws-lc, ring, zstd) OOMs ~2.5–4Gi VMs.
-    exec_properties = NATIVE_ADDON_EXEC_PROPERTIES,
     deps = [":serviceradar_anomaly_addon"] + all_crate_deps(
         cargo_only = True,
         normal = True,
