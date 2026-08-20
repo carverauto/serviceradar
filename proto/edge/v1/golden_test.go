@@ -92,7 +92,11 @@ func goldenPolicy() edgerecord.AuthorizationPolicy {
 // uuidv7At builds a canonical UUIDv7 carrying an EXPLICIT millisecond timestamp, so a
 // vector can place a trace time outside the signed window or above the ns-conversion
 // ceiling. `uuidv7` always carries `fixedMillis` and cannot express either case.
-func uuidv7At(millis int64, seed byte) []byte {
+func uuidv7At(millis int64) []byte {
+	// The tail seed is fixed: these vectors vary the TIMESTAMP, and a second varying input
+	// would make a failure ambiguous about which one moved.
+	const seed = 0x30
+
 	out := make([]byte, 16)
 	var tsb [8]byte
 	binary.BigEndian.PutUint64(tsb[:], uint64(millis)<<16)
@@ -1136,6 +1140,7 @@ func TestGoldenSessionAck(t *testing.T) {
 	}
 }
 
+//nolint:gocyclo // one golden vector per branch; splitting it splits the lifecycle it asserts end to end
 func TestGoldenLifecycleAndRecovery(t *testing.T) {
 	// Completed terminal with a COMPUTED O(N) MTR completion root over the full
 	// ordinal set {1,2} bound to the plan root.
@@ -1923,6 +1928,8 @@ func TestPresenceZeroVersusAbsent(t *testing.T) {
 // so Elixir implements against committed vectors rather than a second reading of the
 // prose. It emits the carrier, both digests, the capability signing preimage, the issuer
 // public key, and reject vectors whose EXACT reason is pinned for both runtimes.
+//
+//nolint:gocyclo // one golden vector per branch
 func TestGoldenCompiledAssignment(t *testing.T) {
 	seed := make([]byte, ed25519.SeedSize)
 	for i := range seed {
@@ -2313,8 +2320,8 @@ func (g goldenRevokedTrust) ResolveKey(_, _ []byte, ev edgerecord.KeyEvidence) e
 // and the padded bytes decode identically to the original.
 func padToExact(t *testing.T, raw, checkSet []byte, target int) []byte {
 	t.Helper()
-	num := protowire.Number((&edgev1.CompiledSweepAssignmentV1{}).ProtoReflect().
-		Descriptor().Fields().ByName("check_set_sha256").Number())
+	num := (&edgev1.CompiledSweepAssignmentV1{}).ProtoReflect().
+		Descriptor().Fields().ByName("check_set_sha256").Number()
 	trueField := protowire.AppendBytes(protowire.AppendTag(nil, num, protowire.BytesType), checkSet)
 	fillerTotal := target - len(raw) - len(trueField)
 	payloadLen := fillerTotal - 1 - protowire.SizeVarint(uint64(fillerTotal))
@@ -2461,7 +2468,6 @@ func TestGoldenCompiledAssignmentSourceAbsent(t *testing.T) {
 	if _, err := edgerecord.ValidateCompiledSweepAssignmentBytes(carrierWithGroup); !errors.Is(err, edgerecord.ErrUnknownFields) {
 		t.Fatalf("carrier with a retained unknown group = %v, want ErrUnknownFields", err)
 	}
-
 }
 
 // goldenAssignmentAuthority answers ONLY for the key it expects. It does not echo an
@@ -2659,7 +2665,7 @@ func TestSweepJoinLabelsAreDistinctPerPredicate(t *testing.T) {
 			// And NOT from the other gate -- otherwise a single error wrapping both
 			// sentinels would satisfy the check above.
 			other := edgerecord.ErrSweepSourceRunID
-			if tc.gate == edgerecord.ErrSweepSourceRunID {
+			if errors.Is(tc.gate, edgerecord.ErrSweepSourceRunID) {
 				other = edgerecord.ErrSweepJoin
 			}
 			if errors.Is(err, other) {

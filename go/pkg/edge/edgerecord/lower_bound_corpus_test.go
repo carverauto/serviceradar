@@ -71,11 +71,11 @@ func lowerCorpus(t *testing.T) []lowerRow {
 			goRemoval: fields[6], exRemoval: fields[7], owner: fields[8],
 		}
 
-		if fields[4] == "n/a" && fields[5] != "n/a" {
+		if fields[4] == verdictNA && fields[5] != verdictNA {
 			t.Fatalf("row %q: at is n/a but over is %q -- one would be ignored", line, fields[5])
 		}
 
-		if fields[4] != "n/a" {
+		if fields[4] != verdictNA {
 			at, err := strconv.Atoi(fields[4])
 			if err != nil {
 				t.Fatalf("row %q: at: %v", line, err)
@@ -124,13 +124,13 @@ func TestLowerCorpusInventory(t *testing.T) {
 		"recovery_pages_decoded":   {kind: "collection", goRemoval: "crashes", exRemoval: "crashes", owner: "-"},
 		"recovery_pages_raw":       {kind: "collection", goRemoval: "silent", exRemoval: "silent", owner: "-"},
 		"recovery_spans_chain":     {kind: "collection", goRemoval: "retags", exRemoval: "retags", owner: "-"},
-		"recovery_spans_single":    {kind: "collection", goRemoval: "retags", exRemoval: "n/a", owner: "1.6-d"},
-		"tombstone_declared_count": {kind: "scalar", goRemoval: "admits", exRemoval: "n/a", owner: "1.6-d", at: 1024, over: 1025, hasBounds: true},
+		"recovery_spans_single":    {kind: "collection", goRemoval: "retags", exRemoval: verdictNA, owner: proofGroup16D},
+		"tombstone_declared_count": {kind: "scalar", goRemoval: "admits", exRemoval: verdictNA, owner: proofGroup16D, at: 1024, over: 1025, hasBounds: true},
 	}
 
 	removals := map[string]bool{
 		"admits": true, "crashes": true, "retags": true,
-		"silent": true, "combined": true, "n/a": true,
+		"silent": true, "combined": true, verdictNA: true,
 	}
 
 	rows := lowerCorpus(t)
@@ -161,7 +161,7 @@ func TestLowerCorpusInventory(t *testing.T) {
 			t.Fatalf("%s: manifest and inventory disagree", r.site)
 		}
 
-		if r.zero != "refuse" || r.one != "accept" {
+		if r.zero != verdictRefuse || r.one != verdictAccept {
 			t.Fatalf("%s: a lower bound of 1 is zero=refuse/one=accept, got %s/%s", r.site, r.zero, r.one)
 		}
 
@@ -170,7 +170,7 @@ func TestLowerCorpusInventory(t *testing.T) {
 		}
 
 		// An absent peer must NAME AN OWNER. `n/a` is the only token that may.
-		if (r.exRemoval == "n/a") != (r.owner != "-") {
+		if (r.exRemoval == verdictNA) != (r.owner != "-") {
 			t.Fatalf("%s: ex_removal=%s owner=%s -- an absent peer must name an owner and a present one must not",
 				r.site, r.exRemoval, r.owner)
 		}
@@ -302,7 +302,7 @@ func TestLowerSiteRecoverySpans(t *testing.T) {
 	chain := lowerRowFor(t, "recovery_spans_chain")
 	single := lowerRowFor(t, "recovery_spans_single")
 
-	if single.exRemoval != "n/a" || single.owner != "1.6-d" {
+	if single.exRemoval != verdictNA || single.owner != proofGroup16D {
 		t.Fatalf("the single-page span site is Go-only; manifest says %s/%s", single.exRemoval, single.owner)
 	}
 
@@ -403,7 +403,7 @@ func TestLowerSiteRecoverySpans(t *testing.T) {
 func TestLowerSiteTombstoneDeclaredCount(t *testing.T) {
 	r := lowerRowFor(t, "tombstone_declared_count")
 
-	if r.kind != "scalar" || r.owner != "1.6-d" {
+	if r.kind != "scalar" || r.owner != proofGroup16D {
 		t.Fatalf("the declared count is a Go-only scalar rule owned by 1.6-d; manifest says %s/%s", r.kind, r.owner)
 	}
 

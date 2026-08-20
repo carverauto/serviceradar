@@ -164,14 +164,14 @@ func mustMarshalRecord(t *testing.T, r *edgev1.EdgeRecordV1) []byte {
 }
 
 func wireCompatVectors() []wireCompatVector {
-	control := func(t *testing.T) []byte { return mustMarshalRecord(t, validRecordFixed(t)) }
+	control := func(t *testing.T) []byte { t.Helper(); return mustMarshalRecord(t, validRecordFixed(t)) }
 
 	return []wireCompatVector{
 		{
 			// The base every other vector is spliced from. Committed so "exactly one
 			// difference" is checkable against bytes rather than asserted in a comment.
 			file: "wire_compat_clean.bin", desc: "control: no defect",
-			goWant: "accept", exWant: "accept", retain: "1", form: "atom",
+			goWant: verdictAccept, exWant: verdictAccept, retain: "1", form: "atom",
 			build: control,
 		},
 		{
@@ -182,6 +182,7 @@ func wireCompatVectors() []wireCompatVector {
 			file: "wire_compat_unknown_field_top.bin", desc: "ordinary unknown field, record top level",
 			goWant: "unknown_fields", exWant: "poison", retain: "-", form: "-",
 			build: func(t *testing.T) []byte {
+				t.Helper()
 				return append(control(t), unknownVarintField(unknownFieldNumber)...)
 			},
 		},
@@ -192,6 +193,7 @@ func wireCompatVectors() []wireCompatVector {
 			file: "wire_compat_unknown_field_nested.bin", desc: "ordinary unknown field, inside production_capability",
 			goWant: "unknown_fields", exWant: "poison", retain: "-", form: "-",
 			build: func(t *testing.T) []byte {
+				t.Helper()
 				return spliceIntoPath(t, control(t), capabilityPath,
 					unknownVarintField(unknownFieldNumber))
 			},
@@ -203,6 +205,7 @@ func wireCompatVectors() []wireCompatVector {
 			file: "wire_compat_unknown_field_depth2.bin", desc: "ordinary unknown field, inside production claims",
 			goWant: "unknown_fields", exWant: "poison", retain: "-", form: "-",
 			build: func(t *testing.T) []byte {
+				t.Helper()
 				return spliceIntoPath(t, control(t), claimsPath, unknownVarintField(unknownFieldNumber))
 			},
 		},
@@ -214,6 +217,7 @@ func wireCompatVectors() []wireCompatVector {
 			file: "wire_compat_unknown_group_nested.bin", desc: "group (wire 3/4) inside production_capability",
 			goWant: "unknown_fields", exWant: "poison", retain: "-", form: "-",
 			build: func(t *testing.T) []byte {
+				t.Helper()
 				group := protowire.AppendTag(nil, unknownFieldNumber, protowire.StartGroupType)
 				group = protowire.AppendTag(group, unknownFieldNumber, protowire.EndGroupType)
 
@@ -227,6 +231,7 @@ func wireCompatVectors() []wireCompatVector {
 			file: "wire_compat_field_number_max.bin", desc: "field number 2^29-1 (in range, undeclared)",
 			goWant: "unknown_fields", exWant: "poison", retain: "-", form: "-",
 			build: func(t *testing.T) []byte {
+				t.Helper()
 				return spliceIntoPath(t, control(t), capabilityPath,
 					unknownVarintField(maxValidFieldNumber))
 			},
@@ -238,6 +243,7 @@ func wireCompatVectors() []wireCompatVector {
 			file: "wire_compat_field_number_over.bin", desc: "field number 2^29 (out of range)",
 			goWant: "decode", exWant: "poison", retain: "-", form: "-",
 			build: func(t *testing.T) []byte {
+				t.Helper()
 				over := protowire.AppendTag(nil, maxValidFieldNumber+1, protowire.VarintType)
 				over = protowire.AppendVarint(over, 1)
 
@@ -253,6 +259,7 @@ func wireCompatVectors() []wireCompatVector {
 			file: "wire_compat_varint_overflow.bin", desc: "10-byte uint64-overflow varint, nested",
 			goWant: "decode", exWant: "poison", retain: "-", form: "-",
 			build: func(t *testing.T) []byte {
+				t.Helper()
 				// Field 5 of EdgeSignedCapabilityV1 (not_before_unix_nano), wire type 0.
 				ovf := []byte{0x28, 0x81, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x02}
 
@@ -271,6 +278,7 @@ func wireCompatVectors() []wireCompatVector {
 			file: "wire_compat_wire_type_mismatch.bin", desc: "singular scalar sent length-delimited",
 			goWant: "unknown_fields", exWant: "poison", retain: "-", form: "-",
 			build: func(t *testing.T) []byte {
+				t.Helper()
 				mism := protowire.AppendTag(nil, fieldEncodedSize, protowire.BytesType)
 				mism = protowire.AppendBytes(mism, []byte{0x00})
 
@@ -285,7 +293,7 @@ func wireCompatVectors() []wireCompatVector {
 			// build does not know is not admitted merely because it decodes.
 			file: "wire_compat_enum_positive.bin", desc: "traffic_class = 99 (undeclared, positive)",
 			goWant: "enum", exWant: "unsupported_enum", retain: "99", form: "integer",
-			build: func(t *testing.T) []byte { return enumRecord(t, 99) },
+			build: func(t *testing.T) []byte { t.Helper(); return enumRecord(t, 99) },
 		},
 		{
 			// The NEGATIVE case, which is the one protobuf-elixir could not represent before
@@ -294,7 +302,7 @@ func wireCompatVectors() []wireCompatVector {
 			// Elixir classified as poison what Go accepted-then-semantically-rejected.
 			file: "wire_compat_enum_negative.bin", desc: "traffic_class = -1 (undeclared, negative)",
 			goWant: "enum", exWant: "unsupported_enum", retain: "-1", form: "integer",
-			build: func(t *testing.T) []byte { return enumRecord(t, -1) },
+			build: func(t *testing.T) []byte { t.Helper(); return enumRecord(t, -1) },
 		},
 		{
 			// A DECLARED member that the closed sets still exclude. It separates "not a member
@@ -303,7 +311,7 @@ func wireCompatVectors() []wireCompatVector {
 			// the field-specific policy must be.
 			file: "wire_compat_enum_unspecified.bin", desc: "traffic_class = 0 (declared UNSPECIFIED)",
 			goWant: "enum", exWant: "unsupported_enum", retain: "0", form: "atom",
-			build: func(t *testing.T) []byte { return enumRecord(t, 0) },
+			build: func(t *testing.T) []byte { t.Helper(); return enumRecord(t, 0) },
 		},
 	}
 }
@@ -317,11 +325,11 @@ func wireCompatVectors() []wireCompatVector {
 // `systemic` and `not_ready` are deliberately ABSENT. Neither is a refusal -- one pauses and
 // one leaves the delivery unresolved -- so a vector that started resolving to either is not a
 // changed reason, it is a changed CONTRACT, and `wireCompatClass` fails rather than quietly
-// normalising it to "refuse".
+// normalising it to verdictRefuse.
 //
 //nolint:gochecknoglobals // frozen vocabulary, not state
 var (
-	acceptVerdicts = map[string]bool{"accept": true}
+	acceptVerdicts = map[string]bool{verdictAccept: true}
 	refuseVerdicts = map[string]bool{
 		"unknown_fields":   true, // Go: retained unknown field (any depth)
 		"decode":           true, // Go: the wire parser refused the bytes
@@ -335,9 +343,9 @@ var (
 func wireCompatClass(verdict string) (string, error) {
 	switch {
 	case acceptVerdicts[verdict]:
-		return "accept", nil
+		return verdictAccept, nil
 	case refuseVerdicts[verdict]:
-		return "refuse", nil
+		return verdictRefuse, nil
 	default:
 		return "", fmt.Errorf("%w: %q is outside the frozen verdict vocabulary", errWireCompatVerdict, verdict)
 	}
@@ -367,7 +375,7 @@ func goWireCompatVerdict(raw []byte) string {
 
 	switch {
 	case err == nil:
-		return "accept"
+		return verdictAccept
 	case errors.Is(err, ErrTrafficClass):
 		return "enum"
 	default:
@@ -397,7 +405,7 @@ func TestWireCompatSharedCorpus(t *testing.T) {
 		got := goWireCompatVerdict(raw)
 
 		// NORMATIVE: the accept/refuse class, and it must be the class BOTH columns carry.
-		// Asserting the Go column alone would let someone move Elixir to "accept", update only
+		// Asserting the Go column alone would let someone move Elixir to verdictAccept, update only
 		// the Elixir column, and leave both suites green while Go still refuses -- the two
 		// halves each grading their own homework.
 		gotClass, err := wireCompatClass(got)

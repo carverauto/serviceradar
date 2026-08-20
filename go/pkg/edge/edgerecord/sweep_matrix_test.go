@@ -30,10 +30,12 @@ import (
 // REQUIRED. Kept as literals rather than derived from sweepSourceMatrix: a test
 // that reads the table it is checking would pass for any table.
 var (
+	//nolint:gochecknoglobals // immutable frozen inventory
 	forbiddenRows = []edgev1.SweepExecutionSource{
 		edgev1.SweepExecutionSource_SWEEP_EXECUTION_SOURCE_SCHEDULED_SWEEP,
 		edgev1.SweepExecutionSource_SWEEP_EXECUTION_SOURCE_SWEEP_PROFILE,
 	}
+	//nolint:gochecknoglobals // immutable frozen inventory
 	requiredRows = []edgev1.SweepExecutionSource{
 		edgev1.SweepExecutionSource_SWEEP_EXECUTION_SOURCE_AD_HOC,
 		edgev1.SweepExecutionSource_SWEEP_EXECUTION_SOURCE_ON_DEMAND,
@@ -107,11 +109,13 @@ func TestSweepSourceRunIDMalformedPerRequiredRow(t *testing.T) {
 	}{
 		{"wrong-length", func(*testing.T) []byte { return []byte{0x01, 0x02, 0x03} }},
 		{"bad-version", func(t *testing.T) []byte {
+			t.Helper()
 			id := mustUUID(t)
 			id[6] &= 0x0F // version nibble 0: outside the defined 1-8
 			return id
 		}},
 		{"bad-variant", func(t *testing.T) []byte {
+			t.Helper()
 			id := mustUUID(t)
 			id[8] = (id[8] & 0x3F) | 0xC0 // variant 110, not the RFC 10
 			return id

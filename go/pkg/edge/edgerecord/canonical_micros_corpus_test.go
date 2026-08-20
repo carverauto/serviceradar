@@ -40,7 +40,7 @@ func readMicrosVectors(t *testing.T) []microsVector {
 	if err != nil {
 		t.Fatalf("open manifest: %v", err)
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 
 	var out []microsVector
 
@@ -169,6 +169,8 @@ func TestCanonicalMicrosFormsNoUnrepresentableMagnitude(t *testing.T) {
 }
 
 // The four committed records the hash controls use. Both runtimes read these same bytes.
+//
+//nolint:gochecknoglobals // immutable committed corpus
 var canonicalHashVectors = []string{
 	"canonical_hash_observed_128.bin",
 	"canonical_hash_observed_999.bin",

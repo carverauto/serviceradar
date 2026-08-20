@@ -43,6 +43,8 @@ import (
 //
 // These literals are deliberately NOT derived from sweepSourceMatrix: a test that
 // reads the table it is checking passes for any table.
+//
+//nolint:gochecknoglobals // immutable frozen inventory
 var frozenSweepMatrix = []struct {
 	source      string
 	sourceNum   int32
@@ -59,6 +61,8 @@ var frozenSweepMatrix = []struct {
 }
 
 // The two kinds that exist on the wire but are OUTSIDE this mapping's range.
+//
+//nolint:gochecknoglobals // immutable frozen inventory
 var unreachableKinds = []string{
 	"EDGE_SOURCE_AUTHORIZATION_KIND_INTEGRATION_RUN",
 	"EDGE_SOURCE_AUTHORIZATION_KIND_RECOVERY_CONTROL",

@@ -150,6 +150,8 @@ func (e *sweepJoinError) Unwrap() error { return e.gate }
 // inventory green. Emission is validated against THIS map, so a label that is not
 // registered cannot reach the wire at all -- a stray constant is inert rather than
 // silently live.
+//
+//nolint:gochecknoglobals // immutable registry; it is the emission gate, see above
 var sweepLabelRegistry = map[SweepJoinLabel]struct{}{
 	SweepLabelSourceAuthorityAbsent:  {},
 	SweepLabelSourceKind:             {},

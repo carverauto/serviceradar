@@ -226,6 +226,8 @@ type benchFixture struct {
 // The bounded matrix. 32 MiB and 32 MiB + 1 are deliberately absent: they exercise the
 // DECODER CEILING only, which the correctness suites already pin exactly, and generating
 // 64 MiB per run buys nothing here.
+//
+//nolint:gochecknoglobals // immutable benchmark fixture table
 var benchFixtures = []benchFixture{
 	{name: "hosts_1", hosts: 1},
 	{name: "hosts_100", hosts: 100},
