@@ -99,6 +99,16 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.DashboardLayoutTest do
     refute css =~ "lg:col-span-6"
   end
 
+  test "dashboard map stays compact and does not grow with observability metrics" do
+    css = File.read!(css_path())
+
+    assert css =~ ".sr-ops-grid-primary .sr-ops-map-shell"
+    assert css =~ "min-height: 11rem"
+    refute css =~ ~r/\.sr-ops-grid-primary \.sr-ops-map-shell[^{]*\{[^}]*min-height:\s*22rem/
+    assert css =~ ".sr-ops-observability-split .sr-ops-metric-sparkline-wrap"
+    assert css =~ "height: 2.4rem"
+  end
+
   test "dashboard index markup never pins a column span" do
     for path <- Path.wildcard(Path.join(index_dir(), "*.ex")) do
       refute File.read!(path) =~ "col-span",

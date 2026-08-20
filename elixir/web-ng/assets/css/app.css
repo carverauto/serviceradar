@@ -2651,8 +2651,8 @@ table:has(.sr-ui-dropdown) td:has(.sr-ui-dropdown) {
 .sr-ops-observability-split {
   display: grid;
   grid-template-columns: minmax(0, 1fr);
-  grid-template-rows: minmax(12rem, 1fr) auto;
-  gap: 0.75rem;
+  grid-template-rows: minmax(7.5rem, auto) auto;
+  gap: 0.5rem;
   min-width: 0;
   flex: 1;
 }
@@ -2663,7 +2663,7 @@ table:has(.sr-ui-dropdown) td:has(.sr-ui-dropdown) {
 
 .sr-ops-observability-pane + .sr-ops-observability-pane {
   border-top: 1px solid var(--sr-color-line);
-  padding-top: 0.75rem;
+  padding-top: 0.5rem;
 }
 
 .sr-ops-observability-pane > h3,
@@ -2689,6 +2689,32 @@ table:has(.sr-ui-dropdown) td:has(.sr-ui-dropdown) {
 
 .sr-ops-observability-split .sr-ops-metric-grid {
   grid-template-columns: repeat(2, minmax(0, 1fr));
+  min-height: 0;
+}
+
+.sr-ops-observability-split .sr-ops-metric-card {
+  min-height: 0;
+  padding: 0.28rem 0.42rem 0.32rem;
+}
+
+.sr-ops-observability-split .sr-ops-metric-value-row strong {
+  font-size: 1rem;
+}
+
+.sr-ops-observability-split .sr-ops-metric-sparkline-wrap {
+  height: 2.4rem;
+  margin-top: 0.14rem;
+}
+
+.sr-ops-observability-split .sr-ops-security-chart,
+.sr-ops-observability-split .sr-ops-empty-chart,
+.sr-ops-observability-split .sr-ops-events-area-chart {
+  min-height: 7.5rem;
+}
+
+.sr-ops-observability-split .sr-ops-security-chart {
+  gap: 0.28rem;
+  padding: 0.4rem 0.5rem 0.32rem;
 }
 
 .sr-ops-panel,
@@ -3227,9 +3253,15 @@ table:has(.sr-ui-dropdown) td:has(.sr-ui-dropdown) {
     linear-gradient(180deg, rgba(10, 17, 20, 0.12), rgba(10, 17, 20, 0.32));
 }
 
+.sr-ops-grid-primary {
+  align-items: flex-start;
+}
+
 .sr-ops-grid-primary .sr-ops-map-shell {
-  flex: 1;
-  min-height: 22rem;
+  flex: 0 0 11rem;
+  height: 11rem;
+  min-height: 11rem;
+  max-height: 11rem;
 }
 
 .sr-ops-traffic-canvas {
@@ -7098,6 +7130,19 @@ table:has(.sr-ui-dropdown) td:has(.sr-ui-dropdown) {
   .sr-ops-map-shell,
   .sr-ops-empty-chart {
     min-height: 18rem;
+  }
+
+  .sr-ops-grid-primary .sr-ops-map-shell {
+    flex-basis: 11rem;
+    height: 11rem;
+    min-height: 11rem;
+    max-height: 11rem;
+  }
+
+  .sr-ops-observability-split .sr-ops-security-chart,
+  .sr-ops-observability-split .sr-ops-empty-chart,
+  .sr-ops-observability-split .sr-ops-events-area-chart {
+    min-height: 7.5rem;
   }
 
   .sr-netflow-map-topbar {
