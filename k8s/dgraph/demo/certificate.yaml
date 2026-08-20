@@ -1,0 +1,38 @@
+# Server certificate for the demo Alpha listener.
+#
+# Issued by `carverauto-issuer`, the cluster's ACME/Let's Encrypt ClusterIssuer with a
+# Cloudflare DNS-01 solver -- DNS-01 so the name never has to be reachable on :80 to validate.
+#
+# WHY A PUBLIC ISSUER FOR AN INTERNAL DATABASE: rust/dgraph-client verifies with
+# `ClientTlsConfig::new().with_native_roots()` and exposes no way to pin a private CA. A
+# Let's Encrypt chain is already in the client's trust store, so `sslmode=verify-ca` just
+# works. A self-signed issuer here silently downgrades every caller to `sslmode=require`.
+#
+# secretName IS the name the chart's StatefulSet mounts. The chart only templates that secret
+# itself when `alpha.tls.files` is non-empty (templates/alpha/secret-tls.yaml); values.yaml
+# leaves it `{}`, so cert-manager owns it and renewal lands in the mount with no copy step.
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: dgraph-alpha-tls
+  namespace: dgraph
+spec:
+  secretName: dgraph-dgraph-alpha-tls-secret
+  # The name clients dial, and the name verification is performed against. Keep in step with
+  # `alpha.ingress_grpc` in ./values.yaml -- a mismatch fails the handshake, not the routing.
+  commonName: dgraph.serviceradar.cloud
+  dnsNames:
+    - dgraph.serviceradar.cloud
+  issuerRef:
+    name: carverauto-issuer
+    kind: ClusterIssuer
+    group: cert-manager.io
+  privateKey:
+    algorithm: ECDSA
+    size: 256
+    # Dgraph cannot read a password-protected key; cert-manager does not write one. Stated
+    # here because this is where the constraint would be violated.
+    encoding: PKCS8
+  # Let's Encrypt issues for 90 days; renew with a month to spare.
+  duration: 2160h
+  renewBefore: 720h

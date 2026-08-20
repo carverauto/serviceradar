@@ -1,0 +1,96 @@
+# Dgraph for CI and integration testing -- the "Basic Cluster" pattern from
+# https://docs.dgraph.io/installation/deployment-patterns : 1 Zero, 1 Alpha, no HA, no sharding.
+#
+# A CI fixture is disposable and reached only from inside the cluster, so replication buys
+# nothing here: it would triple the Raft round trips per mutation (see README, "Scaling") to
+# protect data that is dropped at the end of the run.
+#
+# Deploy: ./deploy-dgraph.sh ci
+
+image:
+  # Harbor mirror, not Docker Hub: the cluster pulls locally, which removes the Hub rate limit
+  # from the critical path and keeps image pulls working when egress does not.
+  # Re-mirror with ./deploy-dgraph.sh mirror after bumping the tag.
+  registry: registry.carverauto.dev
+  repository: mirror/dgraph/dgraph
+  # Pinned, not `latest`. v25.4.0 is the newest release; the tag is immutable so a rerun of an
+  # old commit gets the binary it was tested against.
+  tag: v25.4.0
+  pullPolicy: IfNotPresent
+
+serviceAccount:
+  create: true
+  name: dgraph
+
+zero:
+  replicaCount: 1
+  # THE REPLICATION FACTOR, and the chart's most misread key: it is Zero's `--replicas`, which
+  # sets how many Alphas serve each group -- not how many Zeros run. The chart defaults to 5,
+  # which would leave a single-Alpha cluster permanently short of quorum and unable to serve.
+  shardReplicaCount: 1
+
+  persistence:
+    enabled: true
+    # The fixture is truncated and reseeded per run; it never accumulates.
+    size: 8Gi
+
+  resources:
+    requests:
+      cpu: 250m
+      memory: 512Mi
+    limits:
+      cpu: "2"
+      memory: 2Gi
+
+alpha:
+  replicaCount: 1
+
+  persistence:
+    enabled: true
+    size: 16Gi
+
+  # Writes are CPU-bound before they are node-bound (README, "Scaling"), so give the single
+  # Alpha real cores rather than adding a second one.
+  resources:
+    requests:
+      cpu: "1"
+      memory: 2Gi
+    limits:
+      cpu: "4"
+      memory: 8Gi
+
+  # TLS ON, verification OFF at the client.
+  #
+  # The listener is encrypted, but rust/dgraph-client verifies only against the SYSTEM trust
+  # store (`ClientTlsConfig::new().with_native_roots()`) and has no option to pin a private CA.
+  # A cluster-internal name cannot hold a publicly-trusted certificate, so CI callers use
+  # `sslmode=require`: encrypted, unauthenticated, which is what a private namespace already is.
+  # To get real verification here instead, see README, "Trusting the CI CA".
+  tls:
+    enabled: true
+    # Empty on purpose: the chart only templates the secret when this is non-empty, while the
+    # StatefulSet mounts it regardless. cert-manager owns it (./certificate.yaml).
+    files: {}
+
+  # client-auth-type stays at the chart default (VERIFYIFGIVEN) on the external port.
+  # REQUIREANDVERIFY would lock the client out entirely: it cannot present a client
+  # certificate. Internal ports negotiate mTLS between Zero and Alpha regardless.
+  configFile:
+    config.yaml:
+      security:
+        whitelist: 0.0.0.0/0
+
+  # cert-manager's key names, which are not configurable; pointing Dgraph at the paths it
+  # actually has avoids a rename job that would need to re-run on every renewal.
+  extraFlags: >-
+    --tls "ca-cert=/dgraph/tls/ca.crt; server-cert=/dgraph/tls/tls.crt;
+    server-key=/dgraph/tls/tls.key; internal-port=true"
+
+ratel:
+  enabled: false
+
+backups:
+  full:
+    enabled: false
+  incremental:
+    enabled: false
