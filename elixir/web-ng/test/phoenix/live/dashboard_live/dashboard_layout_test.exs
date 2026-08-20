@@ -160,16 +160,18 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.DashboardLayoutTest do
   defp css_path do
     # mix test compiles in-tree, so __DIR__ reaches assets/. Bazel copies this
     # file under _tmp/.../test/... and stages css/app.css in runfiles instead.
-    [
-      Path.expand("../../../../assets/css/app.css", __DIR__),
-      Path.join(File.cwd!(), "assets/css/app.css"),
-      Path.join([
-        System.get_env("TEST_SRCDIR") || "",
-        System.get_env("TEST_WORKSPACE") || "_main",
-        "elixir/web-ng/assets/css/app.css"
-      ])
-    ]
-    |> Enum.find(&File.exists?/1) ||
+    Enum.find(
+      [
+        Path.expand("../../../../assets/css/app.css", __DIR__),
+        Path.join(File.cwd!(), "assets/css/app.css"),
+        Path.join([
+          System.get_env("TEST_SRCDIR") || "",
+          System.get_env("TEST_WORKSPACE") || "_main",
+          "elixir/web-ng/assets/css/app.css"
+        ])
+      ],
+      &File.exists?/1
+    ) ||
       raise "dashboard CSS not staged; declare //elixir/web-ng/assets:css/app.css as test data"
   end
 
