@@ -25,6 +25,23 @@ pub const DATABASE_ADMIN_PASSWORD: &str = "database.admin_password";
 /// from running anywhere but one machine.
 pub const DATABASE_CA_CERT: &str = "database.ca_cert";
 
+/// PEM for the CA the Dgraph Alpha certificate chains to.
+///
+/// Separate from [`DATABASE_CA_CERT`] because they are separate trust decisions: Dgraph is
+/// issued by an in-cluster CA for a `*.svc.cluster.local` name no public authority will sign,
+/// and dgraph-client verifies against this CA INSTEAD OF the system roots. Sharing one
+/// constant would silently widen whichever of the two has the weaker issuer.
+pub const DGRAPH_CA_CERT: &str = "dgraph.ca_cert";
+
+/// The ACL credential for Dgraph.
+///
+/// One name rather than an admin/user pair, unlike the database's. A namespace's `groot` is a
+/// distinct identity from namespace 0's, but its password cannot be chosen -- CreateNamespace
+/// carries no password field and there is no user-management RPC -- so a second name would have
+/// held a value Dgraph dictates rather than one anybody picked. It returns as a pair when
+/// resetPassword on the /admin endpoint is wired in.
+pub const DGRAPH_ADMIN_PASSWORD: &str = "dgraph.admin_password";
+
 /// PEM client certificate, for a server that requires mutual TLS.
 pub const DATABASE_CLIENT_CERT: &str = "database.client_cert";
 

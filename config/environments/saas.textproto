@@ -49,8 +49,12 @@ core {
 }
 
 dgraph {
-  # Deployed environments share one Dgraph cluster address for now; only localhost differs.
-  host: "dgraph.serviceradar.svc.cluster.local"
+  # The alpha Service the chart renders, not a guess: release `dgraph` yields
+  # <release>-dgraph-alpha. Deployed by //k8s/dgraph/demo.
+  host: "dgraph-dgraph-alpha.dgraph.svc.cluster.local"
   port: 9080
+
+  # Verified against an in-cluster CA supplied as `dgraph.ca_cert`, not the system
+  # roots: no public authority signs a *.svc.cluster.local name.
   tls_mode: DGRAPH_TLS_MODE_VERIFY_CA
 }

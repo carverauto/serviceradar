@@ -3,5 +3,5 @@
 PôXè`àÔj
 srql_hydrarGhttp://srql-fixture-ca-incluster.srql-fixtures.svc.cluster.local/ca.crt"7
 /nats://nats.serviceradar.svc.cluster.local:4222nats*M
-serviceradar-core:50052http://serviceradar-core:8090"serviceradar-core2,
-%dgraph.serviceradar.svc.cluster.localøF
+serviceradar-core:50052http://serviceradar-core:8090"serviceradar-core2u
+/dgraph-dgraph-alpha.dgraph-ci.svc.cluster.localøF"=http://dgraph-ca-incluster.dgraph-ci.svc.cluster.local/ca.crt

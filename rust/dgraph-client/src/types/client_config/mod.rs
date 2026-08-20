@@ -6,6 +6,7 @@ mod client_config_debug;
 
 use crate::errors::connect_error::ConnectError;
 use crate::errors::connection_string_error::ConnectionStringError;
+use crate::types::ca_certificate::CaCertificate;
 use crate::types::connection_string::ConnectionString;
 use crate::types::secret::Secret;
 use crate::types::tls_mode::TlsMode;
@@ -25,6 +26,7 @@ pub struct ClientConfig {
     api_key: Option<Secret>,
     bearer_token: Option<Secret>,
     namespace: Option<u64>,
+    ca_certificate: Option<CaCertificate>,
 }
 
 impl ClientConfig {
@@ -49,6 +51,9 @@ impl ClientConfig {
             api_key: parsed.api_key().cloned(),
             bearer_token: parsed.bearer_token().cloned(),
             namespace: parsed.namespace(),
+            ca_certificate: parsed
+                .ca_cert_path()
+                .map(|path| CaCertificate::File(path.to_path_buf())),
         }
     }
 
@@ -81,6 +86,11 @@ impl ClientConfig {
         self.namespace
     }
 
+    /// Certificate authority to verify the server against, replacing the system trust store.
+    pub fn ca_certificate(&self) -> Option<&CaCertificate> {
+        self.ca_certificate.as_ref()
+    }
+
     /// Whether ACL credentials were supplied, meaning the client should log in on connect.
     pub fn has_acl_credentials(&self) -> bool {
         self.username.is_some() && self.password.is_some()
@@ -97,6 +107,7 @@ pub struct ClientConfigBuilder {
     api_key: Option<Secret>,
     bearer_token: Option<Secret>,
     namespace: Option<u64>,
+    ca_certificate: Option<CaCertificate>,
 }
 
 impl ClientConfigBuilder {
@@ -143,6 +154,14 @@ impl ClientConfigBuilder {
         self
     }
 
+    /// Verify the server against this certificate authority rather than the system trust
+    /// store. Takes the PEM directly, for callers that already hold it -- a CA resolved
+    /// through SecretManager arrives as content, never as a path.
+    pub fn ca_certificate(mut self, ca: CaCertificate) -> Self {
+        self.ca_certificate = Some(ca);
+        self
+    }
+
     /// Finish the configuration.
     ///
     /// Rejects an empty endpoint list. The Go client accepts one and then panics later in
@@ -161,6 +180,7 @@ impl ClientConfigBuilder {
             api_key: self.api_key,
             bearer_token: self.bearer_token,
             namespace: self.namespace,
+            ca_certificate: self.ca_certificate,
         })
     }
 }

@@ -13,7 +13,8 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 
 use proto_dgraph::api;
 use proto_dgraph::api::dgraph_client::DgraphClient as DgraphStub;
-use tonic::transport::{Channel, ClientTlsConfig, Endpoint};
+use crate::types::ca_certificate::CaCertificate;
+use tonic::transport::{Certificate, Channel, ClientTlsConfig, Endpoint};
 use tonic::{Code, Request};
 
 use crate::errors::connect_error::ConnectError;
@@ -72,7 +73,7 @@ impl DgraphClient {
         let channels = config
             .endpoints()
             .iter()
-            .map(|endpoint| Self::build_channel(endpoint, config.tls_mode()))
+            .map(|endpoint| Self::build_channel(endpoint, config.tls_mode(), config.ca_certificate()))
             .collect::<Result<Vec<_>, ConnectError>>()?;
 
         let client = Self {
@@ -93,7 +94,11 @@ impl DgraphClient {
         Ok(client)
     }
 
-    fn build_channel(endpoint: &str, tls: TlsMode) -> Result<Channel, ConnectError> {
+    fn build_channel(
+        endpoint: &str,
+        tls: TlsMode,
+        ca: Option<&CaCertificate>,
+    ) -> Result<Channel, ConnectError> {
         let scheme = if tls.is_tls() { "https" } else { "http" };
         let uri = format!("{scheme}://{endpoint}");
 
@@ -102,9 +107,24 @@ impl DgraphClient {
 
         let builder = match tls {
             TlsMode::Disable => builder,
-            TlsMode::VerifyCa => builder
-                .tls_config(ClientTlsConfig::new().with_native_roots())
-                .map_err(|err| ConnectError::Tls(err.to_string()))?,
+            TlsMode::VerifyCa => {
+                // A supplied CA REPLACES the system roots rather than joining them, which is
+                // what `sslrootcert` means everywhere else and the only reading that lets a
+                // private CA be a security boundary: adding to the public roots would leave
+                // any public CA able to impersonate the cluster.
+                let tls_config = match ca {
+                    Some(ca) => {
+                        let pem = ca.pem().map_err(|err| {
+                            ConnectError::Tls(format!("reading CA certificate: {err}"))
+                        })?;
+                        ClientTlsConfig::new().ca_certificate(Certificate::from_pem(pem))
+                    }
+                    None => ClientTlsConfig::new().with_native_roots(),
+                };
+                builder
+                    .tls_config(tls_config)
+                    .map_err(|err| ConnectError::Tls(err.to_string()))?
+            }
             TlsMode::RequireNoVerify => {
                 // tonic's API takes `Arc<dyn ServerCertVerifier>`, so this is the one
                 // place the crate uses a trait object. It is confined to this call and

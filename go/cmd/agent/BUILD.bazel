@@ -1,6 +1,5 @@
 load("@io_bazel_rules_go//go:def.bzl", "go_binary", "go_library", "go_test")
 load("@serviceradar_version//:defs.bzl", "FULL_VERSION")
-load("//build/rbe:exec_properties.bzl", "NATIVE_ADDON_EXEC_PROPERTIES")
 
 go_library(
     name = "agent_lib",
@@ -19,10 +18,6 @@ go_library(
 go_binary(
     name = "agent",
     embed = [":agent_lib"],
-    # GoLink of the agent is large under pure-Go linking. After #4752 switched
-    # BuildBuddy executors to Firecracker isolation, default microVM memory
-    # (~2.5Gi) OOMs the linker (signal: killed). Ask for a larger task size.
-    exec_properties = NATIVE_ADDON_EXEC_PROPERTIES,
     visibility = ["//visibility:public"],
     # FULL_VERSION below is NOT a stamp key. It is a Starlark constant from @serviceradar_version,
     # a repository rule that reads the //VERSION source file.

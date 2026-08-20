@@ -124,6 +124,8 @@ defmodule Serviceradar.Config.V1.DgraphConfig do
     type: Serviceradar.Config.V1.DgraphTlsMode,
     json_name: "tlsMode",
     enum: true
+
+  field :ca_bundle_url, 4, proto3_optional: true, type: :string, json_name: "caBundleUrl"
 end
 
 defmodule Serviceradar.Config.V1.CoreConfig do

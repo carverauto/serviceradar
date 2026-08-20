@@ -194,6 +194,16 @@ rules {
   non_empty {}
 }
 
+# Same shape as the database's, and optional for the same reason: absent means the CA comes
+# from SecretManager. Blank would send the client to fetch "" and report a URL parse error
+# rather than a missing setting.
+rules {
+  field_path: "dgraph.ca_bundle_url"
+  code: "DGRAPH_CA_BUNDLE_URL_NON_EMPTY"
+  phase: PHASE_CONFIG
+  non_empty {}
+}
+
 rules {
   field_path: "database.pool_size"
   code: "DATABASE_POOL_SIZE_RANGE"

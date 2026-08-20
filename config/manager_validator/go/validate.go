@@ -216,6 +216,11 @@ func field(cfg *configpb.EnvironmentConfig, path string) (value, error) {
 			return absentValue, nil
 		}
 		return enumValue(dgraph.GetTlsMode().String(), dgraph.TlsMode != nil), nil
+	case "dgraph.ca_bundle_url":
+		if dgraph == nil {
+			return absentValue, nil
+		}
+		return strValue(dgraph.CaBundleUrl), nil
 	}
 	return absentValue, UnknownField{Path: path}
 }

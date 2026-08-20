@@ -90,6 +90,26 @@ Keep this managed block so 'openspec update' can refresh the instructions.
 
   Historical note: PR #4677 chased Dialyzer counts with apply/opaque barriers and
   MapSet churn; it was fully reverted in #4679. Do not reintroduce that style.
+- **Never read generated Bazel output.** No `cp` out of `bazel-out`, no `bazel info
+  bazel-bin` plus a path, no `bazel cquery --output=files` followed by reading the file. The
+  output tree is a cache, not an interface: it can be wiped at any time, and its path encodes
+  the configuration that produced it, so an artifact found under `bazel-out/rbe_platform-opt/`
+  is whatever happened to be built with that platform and compilation mode — the same command
+  with a different `-c` or `--config` silently reads something else, or nothing.
+
+  This tree hides the path deliberately: `//.bazelrc` sets
+  `--experimental_convenience_symlinks=clean`, so there is no `bazel-out` symlink at the
+  workspace root. A copy that appears to do nothing there is that guard working. Do not route
+  around it by resolving an absolute path by hand.
+
+  Express the need as a target instead: a `filegroup` consumed as a declared input, or
+  `write_source_files` from `aspect_bazel_lib` to copy an artifact back into the tree. When a
+  generated file must be committed — protoc output embedded with `include_bytes!` so `cargo`
+  works without Bazel, generated bindings — the pattern is a committed copy, a `diff_test`
+  that says when it is stale, and a write-back target that makes it current. See
+  `//config/manager_config/rust:update_embedded_instances`, which copies from runfiles. If a
+  write-back target is missing, add one rather than doing the copy by hand.
+
 - **No shell scripts. Everything is a Bazel target.** Do not add a script under
   `scripts/`, and do not extend an existing one. Build, test, provisioning, teardown,
   packaging and publishing are Bazel targets invoked with `bazel build` / `bazel test` /
@@ -171,7 +191,7 @@ A first-party native add-on (`addons/<name>/addon.yaml` + a Go/Rust binary) must
 1. **Bundle inventory** — add an entry to `build/native_addons/addon_inventory.bzl` (binary target, `manifest_entries`, `platforms`).
 2. **Bazel build graph** — the binary's `BUILD.bazel` must declare every dep/src. Rust: use `all_crate_deps(...)` if it has crate-universe deps (a missing `deps` shows up as `unresolved import` only under Bazel). Go: list new `srcs` (incl. `*_linux.go`/`*_other.go` build-tag files) + `deps`. A green `go test ./...` / `cargo test` does NOT prove the Bazel build — run `bazel build //build/native_addons:<name>_bundle`.
 3. **Version-bump gate** — register `<name>` in `scripts/check-native-addon-version-bumps.sh` (`addon_ids`, `manifest_path`, `path_belongs_to_addon`). Any change to the add-on's source/config/unit/bundle inventory requires bumping `addons/<name>/addon.yaml` `version`.
-   - **The gate decides "changed" by matching changed PATHS**, and the add-on's `BUILD.bazel` is one of them — so a build-only edit that cannot alter the binary still demands a bump. Do not put anything tunable in an add-on's `BUILD.bazel`: RBE task-size hints live in `//build/rbe:exec_properties.bzl` (`NATIVE_ADDON_EXEC_PROPERTIES`) precisely so tuning them does not force version bumps on add-ons whose artifacts are byte-identical. Do not "fix" a false positive by teaching the gate to skip `BUILD.bazel` — that trades it for a false negative, a changed artifact shipping under an unchanged version, which is the whole point of the gate.
+   - **The gate decides "changed" by matching changed PATHS**, and the add-on's `BUILD.bazel` is one of them — so a build-only edit that cannot alter the binary still demands a bump. Keep tunables out of an add-on's `BUILD.bazel` for that reason. There are no RBE task-size hints on any add-on today: `NATIVE_ADDON_EXEC_PROPERTIES` and `//build/rbe:exec_properties.bzl` existed to survive Firecracker's ~2.5Gi default microVM, and were removed with it — `//build/rbe:BUILD` explains why a platform-wide default is worse than BuildBuddy's own per-action measurement. If a link step ever OOMs again, size that one target and keep the value outside the add-on's `BUILD.bazel`. Do not "fix" a false positive by teaching the gate to skip `BUILD.bazel` — that trades it for a false negative, a changed artifact shipping under an unchanged version, which is the whole point of the gate.
    - A few add-ons cross-check a version constant in Bazel (currently only `NETPROBE_VERSION` in `rust/netprobe/BUILD.bazel`, via `bazel_version_constant`); bump those in the same commit.
    - An add-on that consumes a separate crate-universe extension (currently the RDP connector) additionally requires `MODULE.bazel.lock` to record that extension's `Cargo.lock` and `Cargo.toml` hashes — run `bazel --batch mod deps --lockfile_mode=update` twice if the first pass rewrites the lockfile.
    - **A Rust add-on's `Cargo.toml` `[package] version` does NOT have to match, and no vendor snapshot needs refreshing for a bump.** That coupling was deliberately removed; see the note at `check-native-addon-version-bumps.sh:117-131`. It was decoration — these crates are binaries nothing depends on as a library — but mirroring the version edited a manifest, which changed `Cargo.lock`, which invalidated the vendored tree's input index, whose documented fix rewrote 625 crate directories and discarded the Bazel cache for every Rust target, all to restate a version that changed no third-party crate.

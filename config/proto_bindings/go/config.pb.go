@@ -536,10 +536,22 @@ func (x *NatsConfig) GetServerName() string {
 // credentials that SecretManager resolves; username and namespace are omitted until Dgraph is
 // actually wired in, so the schema does not carry fields no instance sets.
 type DgraphConfig struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Host          *string                `protobuf:"bytes,1,opt,name=host,proto3,oneof" json:"host,omitempty"`
-	Port          *uint32                `protobuf:"varint,2,opt,name=port,proto3,oneof" json:"port,omitempty"`
-	TlsMode       *DgraphTlsMode         `protobuf:"varint,3,opt,name=tls_mode,json=tlsMode,proto3,enum=serviceradar.config.v1.DgraphTlsMode,oneof" json:"tls_mode,omitempty"`
+	state   protoimpl.MessageState `protogen:"open.v1"`
+	Host    *string                `protobuf:"bytes,1,opt,name=host,proto3,oneof" json:"host,omitempty"`
+	Port    *uint32                `protobuf:"varint,2,opt,name=port,proto3,oneof" json:"port,omitempty"`
+	TlsMode *DgraphTlsMode         `protobuf:"varint,3,opt,name=tls_mode,json=tlsMode,proto3,enum=serviceradar.config.v1.DgraphTlsMode,oneof" json:"tls_mode,omitempty"`
+	// Where to fetch the CA bundle that verifies this cluster, for the same reason
+	// `database.ca_bundle_url` exists: the certificate is issued by an in-cluster CA that
+	// rotates, so a copy pinned in a secret store is correct until the next rotation and then
+	// silently is not. Naming the endpoint means every client reads the CURRENT bundle.
+	//
+	// Published unauthenticated over plain HTTP, necessarily: a CA bundle is what a client needs
+	// BEFORE it can authenticate anything, so serving it over TLS would require the very bundle
+	// being fetched. Its integrity comes from the endpoint being in-cluster.
+	//
+	// Absent means the CA comes from SecretManager (`dgraph.ca_cert`) instead, for a deployment
+	// that mounts one.
+	CaBundleUrl   *string `protobuf:"bytes,4,opt,name=ca_bundle_url,json=caBundleUrl,proto3,oneof" json:"ca_bundle_url,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -593,6 +605,13 @@ func (x *DgraphConfig) GetTlsMode() DgraphTlsMode {
 		return *x.TlsMode
 	}
 	return DgraphTlsMode_DGRAPH_TLS_MODE_UNSPECIFIED
+}
+
+func (x *DgraphConfig) GetCaBundleUrl() string {
+	if x != nil && x.CaBundleUrl != nil {
+		return *x.CaBundleUrl
+	}
+	return ""
 }
 
 // Core service endpoint and transport security (replaces the CORE_* family).
@@ -823,14 +842,16 @@ const file_config_proto_config_proto_rawDesc = "" +
 	"\vserver_name\x18\x02 \x01(\tH\x01R\n" +
 	"serverName\x88\x01\x01B\x06\n" +
 	"\x04_urlB\x0e\n" +
-	"\f_server_name\"\xa6\x01\n" +
+	"\f_server_name\"\xe1\x01\n" +
 	"\fDgraphConfig\x12\x17\n" +
 	"\x04host\x18\x01 \x01(\tH\x00R\x04host\x88\x01\x01\x12\x17\n" +
 	"\x04port\x18\x02 \x01(\rH\x01R\x04port\x88\x01\x01\x12E\n" +
-	"\btls_mode\x18\x03 \x01(\x0e2%.serviceradar.config.v1.DgraphTlsModeH\x02R\atlsMode\x88\x01\x01B\a\n" +
+	"\btls_mode\x18\x03 \x01(\x0e2%.serviceradar.config.v1.DgraphTlsModeH\x02R\atlsMode\x88\x01\x01\x12'\n" +
+	"\rca_bundle_url\x18\x04 \x01(\tH\x03R\vcaBundleUrl\x88\x01\x01B\a\n" +
 	"\x05_hostB\a\n" +
 	"\x05_portB\v\n" +
-	"\t_tls_mode\"\xb8\x03\n" +
+	"\t_tls_modeB\x10\n" +
+	"\x0e_ca_bundle_url\"\xb8\x03\n" +
 	"\n" +
 	"CoreConfig\x12\x1d\n" +
 	"\aaddress\x18\x01 \x01(\tH\x00R\aaddress\x88\x01\x01\x12\x1c\n" +

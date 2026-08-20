@@ -260,7 +260,7 @@ pub struct DatabaseTls {
 impl DatabaseTls {
     pub fn resolve() -> Result<Self> {
         use serviceradar_config_manager::{
-            built_ins, ConfigManager, Filesystem, Identity, DATABASE_CA_CERT,
+            built_ins, fetch_ca_bundle, ConfigManager, Filesystem, Identity, DATABASE_CA_CERT,
             DATABASE_CLIENT_CERT, DATABASE_CLIENT_KEY,
         };
         use serviceradar_config_schema::TlsMode;
@@ -296,7 +296,7 @@ impl DatabaseTls {
         // lifecycle targets, which do consult it, connected fine.
         if let Some(url) = manager.ca_bundle_url() {
             return Ok(Self {
-                ca_pem: Some(fetch_ca_bundle(url)?),
+                ca_pem: Some(fetch_ca_bundle(url).map_err(|e| anyhow::anyhow!("{e}"))?),
                 client_cert_pem: None,
                 client_key_pem: None,
                 server_name: database.tls_server_name.clone(),
@@ -327,23 +327,3 @@ impl DatabaseTls {
     }
 }
 
-/// Reads the published CA bundle named by `database.ca_bundle_url`.
-///
-/// Not a secret and not authenticated by us: a CA bundle is what a client needs BEFORE it can
-/// authenticate anything, so it is published unauthenticated and its integrity comes from
-/// whatever protects the endpoint -- the same bootstrap shape as fetching a JWKS.
-pub fn fetch_ca_bundle(url: &str) -> Result<Vec<u8>> {
-    let body = ureq::get(url)
-        .call()
-        .with_context(|| format!("fetch CA bundle {url}"))?
-        .body_mut()
-        .read_to_string()
-        .with_context(|| format!("read CA bundle {url}"))?;
-
-    // A bundle that is not a certificate is a misrouted request -- a proxy error page, a login
-    // redirect -- and handing it to rustls produces "invalid certificate" far from the cause.
-    if !body.contains("BEGIN CERTIFICATE") {
-        anyhow::bail!("{url} returned {} bytes that are not PEM", body.len());
-    }
-    Ok(body.into_bytes())
-}

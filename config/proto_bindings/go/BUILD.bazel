@@ -1,6 +1,7 @@
 # gazelle:ignore
 
 load("@io_bazel_rules_go//go:def.bzl", "go_library")
+load("@aspect_bazel_lib//lib:write_source_files.bzl", "write_source_files")
 
 # Checked-in Go bindings, retained for non-Bazel tooling (go test, gopls, IDEs), matching the
 # convention in //proto.
@@ -28,3 +29,20 @@ exports_files([
     "config.pb.go",
     "rules.pb.go",
 ])
+
+# Write-back for the committed copies of generated artifacts.
+#
+# The copies exist so `go build` / `mix` reach them without Bazel, and the diff test beside them
+# makes the two impossible to disagree. Refreshing them is THIS target's job: nobody reaches into
+# bazel-out, which is a per-configuration path the tree deliberately hides (//.bazelrc sets
+# --experimental_convenience_symlinks=clean), so any absolute path found by hand encodes the
+# platform and compilation mode it happened to be built with.
+#
+#     bazel run //config/proto_bindings/go:update_bindings
+write_source_files(
+    name = "update_bindings",
+    files = {
+        "config.pb.go": "//config/proto:config/proto/config.pb.go",
+        "rules.pb.go": "//config/proto:config/proto/rules.pb.go",
+    },
+)

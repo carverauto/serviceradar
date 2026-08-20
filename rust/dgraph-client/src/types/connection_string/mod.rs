@@ -7,6 +7,7 @@ mod connection_string_from_str;
 
 use crate::errors::connection_string_error::ConnectionStringError;
 use crate::types::secret::Secret;
+use std::path::{Path, PathBuf};
 use crate::types::tls_mode::TlsMode;
 
 const SCHEME: &str = "dgraph";
@@ -31,6 +32,7 @@ pub struct ConnectionString {
     api_key: Option<Secret>,
     bearer_token: Option<Secret>,
     namespace: Option<u64>,
+    ca_cert_path: Option<PathBuf>,
 }
 
 impl ConnectionString {
@@ -73,6 +75,7 @@ impl ConnectionString {
             api_key,
             bearer_token,
             namespace: params.namespace,
+            ca_cert_path: params.ca_cert_path,
         })
     }
 
@@ -201,6 +204,10 @@ impl ConnectionString {
                     })?;
                     params.namespace = Some(parsed);
                 }
+                "sslrootcert" => {
+                    let raw = Self::percent_decode(value, "sslrootcert")?;
+                    params.ca_cert_path = Some(PathBuf::from(raw));
+                }
                 // Unknown parameters are ignored, matching the Go client, which reads only
                 // the four it knows about.
                 _ => {}
@@ -255,6 +262,12 @@ impl ConnectionString {
         self.namespace
     }
 
+    /// Path to a CA certificate from `sslrootcert`, if supplied. Read when the channel is
+    /// built, so a missing file surfaces at connect rather than at parse.
+    pub fn ca_cert_path(&self) -> Option<&Path> {
+        self.ca_cert_path.as_deref()
+    }
+
     /// The `host:port` authority, re-bracketing an IPv6 literal.
     pub fn authority(&self) -> String {
         if self.host.contains(':') {
@@ -271,4 +284,5 @@ struct QueryParams {
     api_key: Option<String>,
     bearer_token: Option<String>,
     namespace: Option<u64>,
+    ca_cert_path: Option<PathBuf>,
 }

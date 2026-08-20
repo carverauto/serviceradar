@@ -2,6 +2,7 @@
  * Copyright (c) "2026" . Marvin Hansen All Rights Reserved.
  */
 
+pub mod ca_certificate;
 pub mod client_config;
 pub mod connection_string;
 pub mod dgraph_client;

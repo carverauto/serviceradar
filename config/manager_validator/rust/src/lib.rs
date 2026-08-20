@@ -147,6 +147,7 @@ fn field<'a>(cfg: &'a EnvironmentConfig, path: &str) -> Result<Value<'a>, Unknow
         "dgraph.tls_mode" => dgraph.map_or(Value::Absent, |d| {
             enum_name(d.tls_mode, |i| DgraphTlsMode::try_from(i).ok())
         }),
+        "dgraph.ca_bundle_url" => dgraph.map_or(Value::Absent, |d| opt_str(&d.ca_bundle_url)),
 
         other => return Err(UnknownField(other.to_string())),
     };
