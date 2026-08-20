@@ -36,6 +36,31 @@ mirror_images() {
   done
 }
 
+# The HMAC secret Dgraph signs ACL tokens with.
+#
+# GENERATED HERE RATHER THAN COMMITTED, and this is the credential-handling exception this
+# script exists under: an HMAC key in values.yaml is a key in the repository, and a Bazel action
+# that mints one would make the secret a build input. The chart mounts
+# <release>-dgraph-alpha-acl-secret whenever alpha.acl.enabled is true, while templating it only
+# when alpha.acl.file is non-empty -- so leaving that empty hands ownership here, exactly as
+# alpha.tls.files hands the TLS secret to cert-manager.
+#
+# Created once and then left alone: rotating it invalidates every issued token, so a blind
+# recreate on every deploy would log every client out mid-run.
+ensure_acl_secret() {
+  local namespace="$1" name="dgraph-dgraph-alpha-acl-secret"
+
+  if kubectl get secret "$name" -n "$namespace" >/dev/null 2>&1; then
+    echo "acl secret ${name} already exists; leaving it alone"
+    return 0
+  fi
+
+  # Dgraph wants at least 256 bits; 48 alphanumerics is comfortably past that.
+  echo "creating acl secret ${name}"
+  kubectl create secret generic "$name" -n "$namespace" \
+    --from-literal=hmac_secret_file="$(LC_ALL=C tr -dc 'A-Za-z0-9' </dev/urandom | head -c 48)"
+}
+
 deploy() {
   local env="$1" namespace="$2"
   local values="${here}/${env}/values.yaml"
@@ -62,6 +87,8 @@ deploy() {
   # Both environments terminate TLS with a cert-manager certificate, and the chart mounts that
   # secret unconditionally -- so it has to exist before Alpha starts, or the pod sits in
   # ContainerCreating on a missing secret.
+  ensure_acl_secret "$namespace"
+
   kubectl apply -n "$namespace" -f "${here}/${env}/certificate.yaml"
   echo "waiting for certificate dgraph-alpha-tls to be issued..."
   kubectl wait --for=condition=Ready --timeout=300s \
@@ -74,7 +101,8 @@ deploy() {
     --wait --timeout 15m
 
   echo
-  echo "deployed. check with:"
+  echo "deployed. ACL IS ENABLED: clients authenticate as groot, whose initial password is"
+  echo "Dgraph's default until it is changed. check with:"
   echo "  kubectl get pods -n ${namespace} -l app.kubernetes.io/name=dgraph"
   echo "  kubectl exec -n ${namespace} ${RELEASE_NAME}-dgraph-alpha-0 -- dgraph version"
 }

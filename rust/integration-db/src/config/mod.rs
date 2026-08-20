@@ -216,7 +216,7 @@ impl Fixture {
         // stored it. Reading the published bundle each run makes a stale CA impossible rather
         // than merely unlikely.
         if let Some(url) = self.manager.ca_bundle_url() {
-            let pem = srql::config::fetch_ca_bundle(url)?;
+            let pem = serviceradar_config_manager::fetch_ca_bundle(url)?;
             return Ok(Some(pem));
         }
 

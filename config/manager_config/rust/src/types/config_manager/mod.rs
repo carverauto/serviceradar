@@ -175,6 +175,14 @@ impl ConfigManager {
     pub fn dgraph(&self) -> Option<&DgraphConfig> {
         self.config.dgraph.as_ref()
     }
+
+    /// Where to fetch the CA that verifies Dgraph, when the deployment publishes one.
+    ///
+    /// Separate from [`Self::ca_bundle_url`], which is the database's: two clusters, two CAs,
+    /// two rotation schedules. Reading one for the other would verify against the wrong root.
+    pub fn dgraph_ca_bundle_url(&self) -> Option<&str> {
+        self.config.dgraph.as_ref()?.ca_bundle_url.as_deref()
+    }
 }
 
 fn kind_name(kind: Option<i32>) -> String {

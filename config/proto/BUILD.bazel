@@ -148,6 +148,10 @@ genrule(
         "@bazel_tools//tools/proto:protoc",
         "@org_golang_google_protobuf//cmd/protoc-gen-go",
     ],
+    # Visible to //config/proto_bindings/go so its write-back target can refresh the
+    # committed copies. Without this the only way to update them is a hand copy out of
+    # bazel-out, which is exactly what the write-back exists to prevent.
+    visibility = ["//config/proto_bindings/go:__pkg__"],
 )
 
 # The guard //config/proto_bindings/go/BUILD.bazel says exists. It did not: it named a

@@ -12,6 +12,9 @@ path = "src/lib.rs"
 prost = { workspace = true }
 serviceradar-config-schema = { path = "../../proto_bindings/rust" }
 serviceradar-config-validator = { path = "../../manager_validator/rust" }
+# For fetch_ca_bundle. Defaults kept deliberately: ureq's TLS transport IS a default feature,
+# and disabling defaults removes it in a way that compiles clean and fails at runtime.
+ureq = { workspace = true }
 
 [[test]]
 name = "lib_tests"

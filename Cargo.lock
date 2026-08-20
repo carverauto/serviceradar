@@ -1834,16 +1834,29 @@ dependencies = [
 name = "dgraph-client"
 version = "0.1.0"
 dependencies = [
+ "dgraph-test",
  "docker_utils",
  "prost",
  "proto_dgraph",
  "rustls",
  "serviceradar-config-manager",
- "serviceradar-config-schema",
+ "serviceradar-secret-manager",
  "tokio",
  "tonic",
  "tracing",
  "urlencoding",
+]
+
+[[package]]
+name = "dgraph-test"
+version = "0.1.0"
+dependencies = [
+ "docker_utils",
+ "runfiles",
+ "serde_json",
+ "serviceradar-config-manager",
+ "serviceradar-config-schema",
+ "ureq",
 ]
 
 [[package]]
@@ -6158,6 +6171,7 @@ dependencies = [
  "prost",
  "serviceradar-config-schema",
  "serviceradar-config-validator",
+ "ureq",
 ]
 
 [[package]]
@@ -6723,7 +6737,6 @@ dependencies = [
  "tower-http 0.7.0",
  "tracing",
  "tracing-subscriber",
- "ureq",
  "uuid 1.24.0",
 ]
 

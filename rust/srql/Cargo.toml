@@ -38,10 +38,6 @@ thiserror = { workspace = true }
 tokio = { workspace = true}
 tokio-postgres = { workspace = true }
 tokio-postgres-rustls = { workspace = true }
-# Reads the published CA bundle named by database.ca_bundle_url. Defaults kept deliberately:
-# ureq's TLS transport IS a default feature, and disabling defaults removes it in a way the
-# compiler cannot catch -- it builds and then cannot speak https at runtime.
-ureq = { workspace = true }
 tower = { workspace = true }
 tower-http = { workspace = true, features = ["trace"] }
 tracing = { workspace = true }

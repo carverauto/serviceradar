@@ -151,11 +151,19 @@ alpha:
   # Dgraph looks for ca.crt/node.crt/node.key; cert-manager writes ca.crt/tls.crt/tls.key and
   # its key names are not configurable. Pointing Dgraph at the paths it actually has is what
   # removes the rename -- and with it a copy job that would have to re-run on every renewal.
+  # ACL ON, matching ci. It is what makes namespaces isolate -- without it Dgraph accepts a
+  # namespace parameter and silently ignores it. Verified on dgraph-ci in both directions.
+  # The HMAC secret is created by deploy-dgraph.sh, never written into this file.
+  acl:
+    enabled: true
+    file: {}
+
   # client-cert/client-key accompany internal-port=true; see the note on zero.extraFlags.
   extraFlags: >-
     --tls "ca-cert=/dgraph/tls/ca.crt; server-cert=/dgraph/tls/tls.crt;
     server-key=/dgraph/tls/tls.key; client-cert=/dgraph/tls/tls.crt;
     client-key=/dgraph/tls/tls.key; internal-port=true"
+    --acl "secret-file=/dgraph/acl/hmac_secret_file"
 
   # HTTPS probes, for the same reason as Zero: TLS moves all of port 8080 to HTTPS.
   # /health?live=1 answers as soon as the process is alive; plain /health only once the Alpha

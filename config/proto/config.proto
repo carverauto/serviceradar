@@ -164,6 +164,19 @@ message DgraphConfig {
   optional string host = 1;
   optional uint32 port = 2;
   optional DgraphTlsMode tls_mode = 3;
+
+  // Where to fetch the CA bundle that verifies this cluster, for the same reason
+  // `database.ca_bundle_url` exists: the certificate is issued by an in-cluster CA that
+  // rotates, so a copy pinned in a secret store is correct until the next rotation and then
+  // silently is not. Naming the endpoint means every client reads the CURRENT bundle.
+  //
+  // Published unauthenticated over plain HTTP, necessarily: a CA bundle is what a client needs
+  // BEFORE it can authenticate anything, so serving it over TLS would require the very bundle
+  // being fetched. Its integrity comes from the endpoint being in-cluster.
+  //
+  // Absent means the CA comes from SecretManager (`dgraph.ca_cert`) instead, for a deployment
+  // that mounts one.
+  optional string ca_bundle_url = 4;
 }
 
 // Core service endpoint and transport security (replaces the CORE_* family).

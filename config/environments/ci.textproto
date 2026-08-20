@@ -83,7 +83,13 @@ dgraph {
   host: "dgraph-dgraph-alpha.dgraph-ci.svc.cluster.local"
   port: 9080
 
-  # Verified against an in-cluster CA supplied as `dgraph.ca_cert`, not the system
-  # roots: no public authority signs a *.svc.cluster.local name.
+  # Verified against an in-cluster CA, not the system roots: no public authority signs a
+  # *.svc.cluster.local name.
   tls_mode: DGRAPH_TLS_MODE_VERIFY_CA
+
+  # Fetched live rather than copied into a CI secret, the same arrangement the database
+  # fixture uses. cert-manager rotates `dgraph-ci-ca`, and a copy is correct until it is not.
+  # Published by //k8s/dgraph/ci/ca-bundle.yaml; HTTP-only necessarily, since this is what a
+  # client needs before it can verify anything.
+  ca_bundle_url: "http://dgraph-ca-incluster.dgraph-ci.svc.cluster.local/ca.crt"
 }

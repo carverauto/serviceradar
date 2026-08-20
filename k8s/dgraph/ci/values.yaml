@@ -145,9 +145,20 @@ alpha:
   # three Alphas gossip across nodes. Here it is one Zero and one Alpha in one namespace, and
   # the external ports still terminate TLS, which is what rust/dgraph-client's VERIFY_CA path
   # actually exercises. Inter-node plaintext inside a disposable fixture buys nothing.
+  # ACL ON, which is what makes namespaces actually isolate. Without it Dgraph ACCEPTS a
+  # namespace parameter and then ignores it -- verified against this cluster before ACL was
+  # enabled: a write inside namespace N was visible from namespace 0. Silent, not an error.
+  acl:
+    enabled: true
+    # Empty on purpose, exactly as alpha.tls.files is: the chart templates the secret only when
+    # this is non-empty, while the StatefulSet mounts it regardless. An HMAC secret written into
+    # a values file is a secret committed to the repository, so it is created out of band.
+    file: {}
+
   extraFlags: >-
     --tls "ca-cert=/dgraph/tls/ca.crt; server-cert=/dgraph/tls/tls.crt;
     server-key=/dgraph/tls/tls.key"
+    --acl "secret-file=/dgraph/acl/hmac_secret_file"
 
 ratel:
   enabled: false

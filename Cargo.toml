@@ -13,6 +13,7 @@ members = [
     "elixir/web-ng/native/god_view_nif",
     "proto/dgraph",
     "rust/dgraph-client",
+    "rust/dgraph-test",
     "rust/kvutil",
     "rust/config-bootstrap",
     "rust/edge-onboarding",

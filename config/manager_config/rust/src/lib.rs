@@ -11,6 +11,7 @@
 
 #![forbid(unsafe_code)]
 
+mod ca_bundle;
 pub mod errors;
 pub mod rules;
 pub mod secrets;
@@ -18,12 +19,12 @@ pub mod traits;
 pub mod types;
 pub mod utils_tests;
 
-pub use errors::{LoadError, SelectorError};
+pub use ca_bundle::fetch_ca_bundle;
+pub use errors::{CaBundleError, LoadError, SelectorError};
 pub use rules::built_ins;
 pub use secrets::{
     DATABASE_ADMIN_PASSWORD, DATABASE_CA_CERT, DATABASE_CLIENT_CERT, DATABASE_CLIENT_KEY,
-    DGRAPH_CA_CERT,
-    DATABASE_PASSWORD,
+    DATABASE_PASSWORD, DGRAPH_ADMIN_PASSWORD, DGRAPH_CA_CERT, DGRAPH_PASSWORD,
 };
 pub use traits::{Filesystem, ReadSource};
 pub use types::config_manager::BuiltIns;

@@ -1,0 +1,30 @@
+[package]
+name = "dgraph-test"
+version = "0.1.0"
+description = "Obtain a running Dgraph for tests, wherever the test happens to run"
+edition = "2024"
+license = "Apache-2.0"
+autotests = false
+
+[lib]
+name = "dgraph_test"
+path = "src/lib.rs"
+
+[dependencies]
+# The environment is the whole input: one identity decides both the endpoint and how it is
+# obtained, so the two cannot disagree.
+serviceradar-config-manager = { path = "../../config/manager_config/rust" }
+serviceradar-config-schema = { path = "../../config/proto_bindings/rust" }
+# Local provisioning only. Never reached on the cluster path.
+docker_utils = { workspace = true }
+# The health check. Deliberately NOT dgraph-client: this crate answers "is something serving
+# there", which is HTTP, and connecting is the client's job. That also keeps the dependency
+# arrow pointing one way, so dgraph-client's own tests can use this crate.
+ureq = { workspace = true }
+serde_json = { workspace = true }
+# To read //build:run_id_file, which Bazel stages as a declared input.
+runfiles = { workspace = true }
+
+[[test]]
+name = "lib_tests"
+path = "tests/lib_tests.rs"

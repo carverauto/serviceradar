@@ -135,6 +135,52 @@ kubectl get secret dgraph-ci-ca -n dgraph-ci -o jsonpath='{.data.ca\.crt}' | bas
 Then `sslmode=verify-ca` works against the private CA. Teaching the client to accept a CA path
 would be the alternative, and a larger change to `rust/dgraph-client`.
 
+## ACL and namespaces
+
+ACL is ENABLED on both environments, and the reason is isolation rather than authentication.
+
+Dgraph namespaces are how concurrent test runs stay out of each other's way, and **without ACL
+they do not isolate anything**. Verified against `dgraph-ci` before ACL was turned on:
+`create_namespace` returned a fresh id, a connection carrying `?namespace=<id>` was accepted,
+a write inside it succeeded -- and the same value was then readable from namespace 0. The
+parameter is accepted and ignored. Nothing errors, so a suite relying on it for isolation would
+have been silently sharing one graph.
+
+`--acl "secret-file=..."` is what turns that on. `docs.dgraph.io` still states that ACL
+"requires a Dgraph Enterprise license"; that text predates the Hypermode acquisition and is
+wrong for v25. The alpha says so itself at startup:
+
+```
+ACL secret key loaded successfully.
+Licensed under the Apache Public License 2.0.
+... AclEnabled:true AclJwtAlg:HS256 ...
+```
+
+### The HMAC secret
+
+Dgraph signs ACL tokens with an HMAC key read from a file, and the chart mounts
+`<release>-dgraph-alpha-acl-secret` at `/dgraph/acl` whenever `alpha.acl.enabled` is true.
+
+`deploy-dgraph.sh` creates that secret if it is missing and otherwise leaves it alone, because
+rotating it invalidates every issued token and would log every client out mid-run. To create it
+by hand:
+
+```bash
+kubectl create secret generic dgraph-dgraph-alpha-acl-secret -n dgraph-ci \
+  --from-literal=hmac_secret_file="$(LC_ALL=C tr -dc 'A-Za-z0-9' </dev/urandom | head -c 48)"
+```
+
+`alpha.acl.file` stays `{}` in both values files for the same reason `alpha.tls.files` does:
+the chart templates the secret only when that field is non-empty while mounting it either way,
+so leaving it empty keeps the key out of the repository. **Do not paste an HMAC key into a
+values file.** At least 256 bits; 48 alphanumerics is comfortably past that.
+
+### Consequence for clients
+
+ACL means clients authenticate. A newly created namespace gets its own `groot` user, and access
+is scoped to the namespace that user belongs to. Credentials resolve through SecretManager like
+every other credential here -- they are not in these manifests.
+
 ## Chart 24.1.4, image v25.4.0
 
 The newest **stable** chart is 24.1.4; the only v25 chart is `25.0.0-preview6`, a preview whose

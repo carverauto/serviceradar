@@ -79,6 +79,7 @@ impl Explanation {
         if let Some(dgraph) = manager.dgraph() {
             push("dgraph.host", dgraph.host.clone());
             push("dgraph.port", dgraph.port.map(|v| v.to_string()));
+            push("dgraph.ca_bundle_url", dgraph.ca_bundle_url.clone());
         }
 
         Self {

@@ -55,6 +55,7 @@ pub fn valid_ci() -> EnvironmentConfig {
             host: Some("dgraph".into()),
             port: Some(9080),
             tls_mode: Some(DgraphTlsMode::VerifyCa as i32),
+            ca_bundle_url: None,
         }),
     }
 }

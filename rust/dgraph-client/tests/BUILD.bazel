@@ -1,25 +1,8 @@
 load("@crates//:defs.bzl", "all_crate_deps")
 load("@rules_rs//rs:rust_test.bzl", "rust_test")
 
-# Two targets, split on one axis: whether the test needs a running Dgraph.
-#
-# Both sets live under tests/ because this crate keeps all its tests there -- tests/ mirrors
-# src/, and there is no #[cfg(test)] code in src/ at all, which is why no rust_test(crate =
-# ...) target exists here. Add one if that ever changes, or those tests will not run.
-#
-# That layout is also what makes "integration test" ambiguous: Cargo calls everything under
-# tests/ an integration test, meaning only "compiled as a separate crate", while CI means
-# "needs infrastructure". The names below use the CI meaning, because that is the one that
-# decides whether a target can run.
-#
-# `rust_test`, not `rust_test_suite`, for both: the suite macro generates one test per source
-# file and sets `crate_root` itself, so passing `crate_root` fails the whole package with
-# "multiple values for parameter 'crate_root'". It also mangles the label, turning a
-# single-source target into <name>_<file>_test.
-
-# Pure types, parsing and error mapping. No Dgraph, no Docker, no network, no environment.
-# Untagged, so `make test` runs it everywhere. lib_tests.rs registers every module in the
-# tree, so one binary covers all of it.
+# Unit tests for types, parsing and error mapping.
+# Untagged, so `make test` runs it everywhere.
 rust_test(
     name = "dgraph_client_unit_test",
     srcs = glob(
@@ -67,8 +50,9 @@ rust_test(
     ) + [
         "//proto/dgraph:proto_dgraph_bindings",
         "//rust/dgraph-client:dgraph_client",
-        # The suite resolves its endpoint through the auto-config system.
+        # Obtaining a Dgraph -- container on localhost, cluster on ci -- lives here.
+        "//rust/dgraph-test:dgraph_test",
         "//config/manager_config/rust:manager",
-        "//config/proto_bindings/rust:config_schema",
+        "//config/manager_secret/rust:secret_manager",
     ],
 )

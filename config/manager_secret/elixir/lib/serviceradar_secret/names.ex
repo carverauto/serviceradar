@@ -46,6 +46,12 @@ defmodule ServiceradarSecret.Names do
   """
   def dgraph_ca_cert, do: "dgraph.ca_cert"
 
+
+  def dgraph_password, do: "dgraph.password"
+
+
+  def dgraph_admin_password, do: "dgraph.admin_password"
+
   @doc "PEM client certificate, for a server that requires mutual TLS."
   def database_client_cert, do: "database.client_cert"
 

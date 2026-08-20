@@ -3,6 +3,7 @@
 load("@bazel_skylib//rules:diff_test.bzl", "diff_test")
 load("@rules_elixir//:elixir_library.bzl", "elixir_library")
 load("@rules_elixir//:elixir_tests.bzl", "ex_unit_tests")
+load("@aspect_bazel_lib//lib:write_source_files.bzl", "write_source_files")
 
 # ConfigManager, Elixir. Mirrors //config/manager_config/{rust,go}: the same one variable, the
 # same source-from-kind mapping, the same identity check, and loading that validates.
@@ -44,4 +45,18 @@ diff_test(
     name = "ruleset_drift_test",
     file1 = "//config/rules:ruleset_binpb",
     file2 = "priv/ruleset.binpb",
+)
+
+# Write-back for the committed copies of generated artifacts.
+#
+# The copies exist so `go build` / `mix` reach them without Bazel, and the diff test beside them
+# makes the two impossible to disagree. Refreshing them is THIS target's job: nobody reaches into
+# bazel-out, which is a per-configuration path the tree deliberately hides (//.bazelrc sets
+# --experimental_convenience_symlinks=clean), so any absolute path found by hand encodes the
+# platform and compilation mode it happened to be built with.
+#
+#     bazel run //config/manager_config/elixir:update_ruleset
+write_source_files(
+    name = "update_ruleset",
+    files = {"priv/ruleset.binpb": "//config/rules:ruleset_binpb"},
 )
