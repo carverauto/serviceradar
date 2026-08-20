@@ -24,7 +24,7 @@ pub use errors::{CaBundleError, LoadError, SelectorError};
 pub use rules::built_ins;
 pub use secrets::{
     DATABASE_ADMIN_PASSWORD, DATABASE_CA_CERT, DATABASE_CLIENT_CERT, DATABASE_CLIENT_KEY,
-    DATABASE_PASSWORD, DGRAPH_ADMIN_PASSWORD, DGRAPH_CA_CERT, DGRAPH_PASSWORD,
+    DATABASE_PASSWORD, DGRAPH_ADMIN_PASSWORD, DGRAPH_CA_CERT,
 };
 pub use traits::{Filesystem, ReadSource};
 pub use types::config_manager::BuiltIns;

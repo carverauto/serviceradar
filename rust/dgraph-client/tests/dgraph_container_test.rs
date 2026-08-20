@@ -48,7 +48,7 @@ use tokio::runtime::Runtime;
 
 use dgraph_client::{DgraphClient, Mutation};
 use dgraph_test::DgraphInstance;
-use serviceradar_config_manager::{DGRAPH_ADMIN_PASSWORD, DGRAPH_PASSWORD, Identity};
+use serviceradar_config_manager::{DGRAPH_ADMIN_PASSWORD, Identity};
 use serviceradar_secret_manager::{EnvironmentProvider, Manifest, SecretManager};
 
 const TEST_SCHEMA: &str = "name: string @index(exact) .";
@@ -166,8 +166,18 @@ async fn open(dgraph: &DgraphInstance) -> Result<Session, String> {
         });
     }
 
+    // ONE CREDENTIAL FOR BOTH LOGINS, because a namespace's groot is a distinct identity from
+    // namespace 0's and we cannot choose its password: CreateNamespaceRequest carries no
+    // password field and the gRPC API has no user-management RPC, so a fresh namespace starts
+    // at Dgraph's default. Giving that its own secret meant storing a value Dgraph dictates
+    // rather than one anybody picked. So `dgraph.admin_password` holds the default, and both
+    // logins use it -- one variable, and no secret whose correct value is published in the docs.
+    //
+    // The consequence to know before rotating: setting namespace 0's groot to a real password
+    // breaks the namespace login, because the namespace's groot is still on the default. The
+    // fix at that point is resetPassword(input: {userId, password, namespace}) on the /admin
+    // endpoint, right after create_namespace, which lets the credential be chosen for real.
     let admin_password = secret(DGRAPH_ADMIN_PASSWORD)?;
-    let password = secret(DGRAPH_PASSWORD)?;
 
     let admin_cs = dgraph.connection_string_as(GROOT, &admin_password, &ca_params);
     let admin = DgraphClient::connect(&admin_cs)
@@ -183,13 +193,10 @@ async fn open(dgraph: &DgraphInstance) -> Result<Session, String> {
         dgraph.run_id().as_str()
     );
 
-    // A fresh namespace's groot is a different identity from namespace 0's, and the RPC has no
-    // field to choose its password, so it starts at Dgraph's default. `dgraph.password` is what
-    // that value is configured to be.
     let ns = namespace.to_string();
     let mut params = ca_params.clone();
     params.push(("namespace", ns.as_str()));
-    let cs = dgraph.connection_string_as(GROOT, &password, &params);
+    let cs = dgraph.connection_string_as(GROOT, &admin_password, &params);
 
     match DgraphClient::connect(&cs).await {
         Ok(client) => Ok(Session {
@@ -199,7 +206,17 @@ async fn open(dgraph: &DgraphInstance) -> Result<Session, String> {
         Err(err) => {
             // Do not leak the namespace just because logging into it failed.
             let _ = admin.drop_namespace(namespace).await;
-            Err(format!("login to namespace {namespace} failed: {err}"))
+            // Name the cause, because "invalid username or password" is true and useless here:
+            // the credential is almost certainly fine and simply cannot be chosen yet.
+            Err(format!(
+                "login to namespace {namespace} as {GROOT} failed: {err}\n\n\
+                 A NEWLY CREATED NAMESPACE'S {GROOT} STARTS AT DGRAPH'S DEFAULT PASSWORD and \
+                 nothing here can change it, so {DGRAPH_ADMIN_PASSWORD} must hold that default. \
+                 If it was rotated to a chosen value, namespace 0 accepts it and a new namespace \
+                 does not -- which is exactly this failure, since namespace {namespace} exists.\n\n\
+                 To make it a chosen credential, call resetPassword(input: {{userId, password, \
+                 namespace}}) on the /admin endpoint after create_namespace."
+            ))
         }
     }
 }

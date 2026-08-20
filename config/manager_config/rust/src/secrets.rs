@@ -33,14 +33,13 @@ pub const DATABASE_CA_CERT: &str = "database.ca_cert";
 /// constant would silently widen whichever of the two has the weaker issuer.
 pub const DGRAPH_CA_CERT: &str = "dgraph.ca_cert";
 
-/// The ACL credential a test uses inside its own namespace.
+/// The ACL credential for Dgraph.
 ///
-/// Split from the admin credential for the same reason the database's is: creating and dropping
-/// a namespace is a different privilege from reading and writing inside one, and a scenario bug
-/// holding only this one cannot destroy another run's namespace.
-pub const DGRAPH_PASSWORD: &str = "dgraph.password";
-
-/// The ACL credential for namespace 0, the only identity that may create or drop a namespace.
+/// One name rather than an admin/user pair, unlike the database's. A namespace's `groot` is a
+/// distinct identity from namespace 0's, but its password cannot be chosen -- CreateNamespace
+/// carries no password field and there is no user-management RPC -- so a second name would have
+/// held a value Dgraph dictates rather than one anybody picked. It returns as a pair when
+/// resetPassword on the /admin endpoint is wired in.
 pub const DGRAPH_ADMIN_PASSWORD: &str = "dgraph.admin_password";
 
 /// PEM client certificate, for a server that requires mutual TLS.
