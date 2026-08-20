@@ -306,10 +306,10 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.InterfaceData do
     favorited_interfaces =
       interfaces
       |> Enum.filter(fn iface ->
-        uid = Map.get(iface, "interface_uid")
+        if_index = Map.get(iface, "if_index")
 
-        is_binary(uid) and MapSet.member?(favorited_uids, uid) and
-          is_integer(Map.get(iface, "if_index"))
+        is_integer(if_index) and
+          favorited_interface?(favorited_uids, Map.get(iface, "interface_uid"), if_index)
       end)
       |> Enum.map(fn iface ->
         if_speed_bps = Map.get(iface, "speed_bps") || Map.get(iface, "if_speed")
@@ -793,13 +793,22 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.InterfaceData do
   defp snmp_derived_interface(device_uid, if_index) do
     %{
       "device_id" => device_uid,
-      "interface_uid" => "#{device_uid}-if#{if_index}",
+      "interface_uid" => "ifindex:#{if_index}",
       "if_index" => if_index,
       "if_name" => "if#{if_index}",
       "if_descr" => "SNMP ifIndex #{if_index}",
       "inferred_from_metrics" => true
     }
   end
+
+  defp favorited_interface?(favorited_uids, uid, if_index) when is_integer(if_index) do
+    canonical = "ifindex:#{if_index}"
+
+    (is_binary(uid) and MapSet.member?(favorited_uids, uid)) or
+      MapSet.member?(favorited_uids, canonical)
+  end
+
+  defp favorited_interface?(_favorited_uids, _uid, _if_index), do: false
 
   defp escape_value(value) when is_binary(value) do
     value

@@ -114,7 +114,33 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.InterfaceDataPresenceTest do
     assert is_nil(error)
     assert Enum.map(interfaces, & &1["if_index"]) == [2, 10]
     assert Enum.all?(interfaces, &(&1["inferred_from_metrics"] == true))
-    assert hd(interfaces)["interface_uid"] == "sr:u6-mesh-if2"
+    assert hd(interfaces)["interface_uid"] == "ifindex:2"
+  end
+
+  test "favorited inferred interfaces match inventory ifindex UIDs" do
+    interfaces = [
+      %{
+        "device_id" => "sr:u6-mesh",
+        "interface_uid" => "ifindex:3",
+        "if_index" => 3,
+        "if_name" => "eth9",
+        "inferred_from_metrics" => true,
+        "metrics_selected" => ["ifInOctets"]
+      }
+    ]
+
+    result =
+      InterfaceData.load_interface_metrics(
+        EmptySRQL,
+        "sr:u6-mesh",
+        MapSet.new(["ifindex:3"]),
+        MapSet.new(["ifindex:3"]),
+        interfaces,
+        %{}
+      )
+
+    refute result[:message] ==
+             "No interface metrics available. Favorited interfaces may not have SNMP indices."
   end
 
   test "inventory rows win over SNMP inference" do
