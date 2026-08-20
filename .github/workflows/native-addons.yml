@@ -145,23 +145,17 @@ jobs:
       - name: Install Bazelisk
         run: ./scripts/install-bazelisk.sh
 
-      # MUST run before the first bazel invocation below. `--config=ci` points the executor,
-      # cache and BES at carverauto.buildbuddy.io, and the API key reaches Bazel ONLY through
-      # .bazelrc.remote -- which is gitignored, so it does not exist in a fresh checkout.
-      # Without it every remote call dies with `PERMISSION_DENIED: Anonymous access disabled`,
-      # a failure that reads nothing like the missing credential it actually is: the BES upload
-      # error is the only explicit symptom, while the build itself just reports targets that
-      # "FAILED TO BUILD" with no remote actions ever executed ("N processes: N internal").
-      #
-      # This step was missing here while every other --config=ci workflow had it
-      # (golang-tests, rust-musl, elixir-integration-sr-core, main, publish-oci). If you add a
-      # bazel step to a workflow, copy this one with it.
+      # MUST run before the first bazel invocation below. `--config=remote` points the
+      # executor, cache and BES at carverauto.buildbuddy.io, and the API key reaches Bazel
+      # ONLY through .bazelrc.remote -- which is gitignored, so it does not exist in a
+      # fresh checkout. Without it every remote call dies with `PERMISSION_DENIED: Anonymous
+      # access disabled`.
       - name: Configure remote cache
         run: |
           set -euo pipefail
 
           if [ -z "${BUILDBUDDY_ORG_API_KEY:-}" ]; then
-            echo "BUILDBUDDY_ORG_API_KEY is unavailable; --config=ci cannot authenticate." >&2
+            echo "BUILDBUDDY_ORG_API_KEY is unavailable; --config=remote cannot authenticate." >&2
             exit 1
           fi
 
@@ -180,7 +174,7 @@ jobs:
           go-version-file: go.mod
 
       - name: Run hermetic native add-on gate fixtures
-        run: bazel test -c opt --config=ci //build/native_addons:build_gates_test
+        run: bazel test -c opt --config=remote //build/native_addons:build_gates_test
 
       # Only check_addon_no_stdlib_plugin and check_addon_deadcode_elimination remain here;
       # both shell out to `go list -deps` / `go build -ldflags=-dumpdep`, which is why the
@@ -207,19 +201,17 @@ jobs:
       - name: Publish native add-on OCI artifacts
         env:
           SIGN_BRANCH_CATALOG: ${{ github.event.inputs.sign_branch_catalog || 'false' }}
-          # KEEP THESE FLAGS IDENTICAL TO THE `bazel test` STEP ABOVE (-c opt --config=ci).
+          # KEEP THESE FLAGS IDENTICAL TO THE `bazel test` STEP ABOVE (-c opt --config=remote).
           # Every flag that differs forks the configuration, and a forked configuration
           # shares no remote cache entries with the one CI just warmed -- it rebuilds the
-          # world. That is what the log means by
-          #   "Build options --compilation_mode and --stamp have changed, discarding
-          #    analysis cache"
+          # world.
           #
-          # --config=ci is REQUIRED, not tidiness. With NO config these targets build
-          # locally on the ARC runner, which has no linker, so the first Rust tool
+          # --config=remote is REQUIRED, not tidiness. With NO config these targets build
+          # locally on the signing runner, which has no linker, so the first Rust tool
           # bazel needs (rules_rust's process_wrapper) dies with
           #   collect2: fatal error: cannot find 'ld'
-          # This step once carried a config that has since been deleted; removing it left the
-          # publish path on no profile at all rather than on the ci profile.
+          # --config=ci cannot be used here: that profile pins /bazel-cache, which exists
+          # only on ARC workflow runners. serviceradar-signing gets Permission denied.
           #
           # NO --stamp. Nothing in the add-on graph consumes stamp data: the bundles are a
           # native.genrule plus an sh_binary, neither of which stamps, and no add-on binary
@@ -231,7 +223,7 @@ jobs:
           # from build:remote_base) because these are `bazel run` targets: the sh_binary and
           # its runfiles -- bundle zip, metadata.json, tarballs, signature tool -- must be on
           # local disk for oras to upload them.
-          BAZEL_BUILD_FLAGS: -c opt --config=ci --remote_download_outputs=all
+          BAZEL_BUILD_FLAGS: -c opt --config=remote --remote_download_outputs=all
           OPENBAO_ADDR: https://openbao-active.openbao-system.svc.cluster.local:8200
           OPENBAO_K8S_ROLE: github-signing-runner
           COSIGN_KEY_REF: hashivault://cosign-release
@@ -284,7 +276,7 @@ jobs:
           # runs `bazel build //build/native_addons:all_metadata` inside
           # generate-native-addon-import-index.sh and then READS the metadata.json files out
           # of bazel-bin, so --remote_download_outputs=all is what puts them on local disk.
-          BAZEL_BUILD_FLAGS: -c opt --config=ci --remote_download_outputs=all
+          BAZEL_BUILD_FLAGS: -c opt --config=remote --remote_download_outputs=all
         run: |
           set -euo pipefail
           tag="${EXTRA_TAG:-sha-${GITHUB_SHA}}"
