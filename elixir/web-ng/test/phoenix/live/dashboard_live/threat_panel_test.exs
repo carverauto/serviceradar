@@ -8,15 +8,15 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.ThreatPanelTest do
 
   @moduletag :db_free
 
-  test "spans the full dashboard row instead of a leftover third-width column" do
+  test "sits on the three-card row instead of a leftover full-width strip" do
     html =
       render_component(&ThreatPanel.render/1,
         dashboard: %{threat_intel_summary: summary(%{})}
       )
 
-    assert html =~ "sr-ops-span-full"
-    assert html =~ "lg:col-span-12"
-    refute html =~ "lg:col-span-4"
+    assert html =~ "lg:col-span-4"
+    refute html =~ "sr-ops-span-full"
+    refute html =~ "lg:col-span-12"
   end
 
   test "keeps feed status, one-line stats, and matches in a compact strip" do
