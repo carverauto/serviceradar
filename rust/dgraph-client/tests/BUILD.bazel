@@ -35,6 +35,11 @@ rust_test(
     # test is #[ignore] so `cargo test` stays hermetic. Bazel runs the same binary and would
     # honour that too, reporting green having run nothing.
     args = ["--include-ignored"],
+    # The run correlation id, as a DECLARED INPUT rather than ambient state -- the same way
+    # //rust/integration-db takes it. Without this the file is simply absent from runfiles and
+    # RunId falls back to a synthesised local id, silently, even on CI: the first run reported
+    # "run=local-17569 (local)" while CI had generated a perfectly good id.
+    data = ["//build:run_id_file"],
     crate_root = "dgraph_container_test.rs",
     tags = [
         # Excluded by `make test` (Makefile: --test_tag_filters=-integration_test,...), and
