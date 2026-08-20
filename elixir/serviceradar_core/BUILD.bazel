@@ -252,69 +252,99 @@ mix_app(
     deps = CORE_DEPS,
 )
 
+# Files the tests open at runtime. ex_unit_test stages only srcs and data, so anything read
+# from disk has to be declared: several tests load a specific migration out of
+# priv/repo/migrations to assert on it, and test/support carries fixtures.
+#
+# ONE list, shared by the per-file unit targets and the integration shards, because the two
+# cover the SAME files -- INTEGRATION_SHARD_SRCS is partition_by_shard(ALL_TEST_SRCS), and a
+# shard loads every file in its partition with `-r` before running anything. A file one tier
+# has to stage, the other does too.
+#
+# It was two hand-written lists, and they drifted in BOTH directions: the shards were missing
+# bench/sweep_ingress_fixtures.exs, //proto/edge/v1:edge_testdata, the three display contracts,
+# //go/pkg/agent:notification_contract_srcs and //helm/serviceradar:values, while the unit tier
+# was missing six add-on manifests and //go/pkg/agent:addonconfig_contract_fixtures. The first
+# of those is not a missing-file warning -- sweep_bench_fixture_test.exs calls
+# Code.require_file OUTSIDE any test, so :enoent aborted the whole shard at load time, before a
+# single one of its ~90 files ran. Only the integration tier is affected because only it groups
+# files into shared VMs.
+_TEST_RUNTIME_DATA = glob(
+    [
+        "config/**",
+        "lib/**",
+        "priv/**",
+        "test/**",
+    ],
+    allow_empty = True,
+    exclude = ["test/**/*_test.exs"],
+) + [
+    # Read at MODULE level (compile time) by
+    # test/serviceradar/plugins/anomaly_addon_profile_seeder_test.exs, via
+    # Path.expand("../../../../../addons/...", __DIR__) -- so no tag can skip it and it
+    # has to be a declared input. ex_unit_test mirrors the workspace layout, which is
+    # what puts it where that relative path resolves.
+    "//addons/anomaly-addon:anomaly_manifest",
+    # Module level in test/serviceradar/edge/sweep_bench_fixture_test.exs, which calls
+    # Code.require_file on it OUTSIDE any test -- so an unstaged generator aborts the
+    # whole shard with :enoent before a single test in it runs, not just its own. It
+    # lives under bench/, which the glob above does not cover.
+    "bench/sweep_ingress_fixtures.exs",
+    # Module level in test/serviceradar/proto/edge_v1_golden_test.exs, which loads the
+    # SHARED cross-language fixtures -- the sweep-join corpus among them -- through
+    # Path.expand("../../../../../proto/edge/v1/testdata", __DIR__). Without this the
+    # required Bazel shard runs a test whose fixtures are not staged, so the shared
+    # corpus would be proven only under `mix test`.
+    "//proto/edge/v1:edge_testdata",
+    # Likewise module level: test/serviceradar/plugins/manifest_test.exs globs
+    # go/cmd/wasm-plugins/**/{config*.schema.json,plugin*.yaml} and raises if the glob
+    # comes back empty, so every first-party Wasm plugin package has to be an input.
+    "//go/cmd/wasm-plugins/alienvault-otx:srcs",
+    "//go/cmd/wasm-plugins/awx:srcs",
+    "//go/cmd/wasm-plugins/axis:srcs",
+    "//go/cmd/wasm-plugins/dusk-checker:srcs",
+    "//go/cmd/wasm-plugins/netbox:srcs",
+    "//go/cmd/wasm-plugins/opentext-network-automation:srcs",
+    "//go/cmd/wasm-plugins/proxmox:srcs",
+    "//go/cmd/wasm-plugins/sample-northbound:srcs",
+    "//go/cmd/wasm-plugins/unifi-protect:srcs",
+    # Read at RUNTIME by ServiceRadar.Edge.AddonConfigContractFixturesTest through
+    # ServiceRadar.Plugins.AddonConfigContractFixtures.{fixture_dir,schema}/1, which
+    # resolve the repo root from the working directory when the compile-time one is not
+    # present. That makes these runfiles, not compile inputs: the test executes in a
+    # sandbox, so a file staged only into the mix_app build tree is not there at all.
+    # (anomaly-addon's manifest is already listed above.)
+    "//addons/bumblebee-scan:bumblebee_scan_manifest",
+    "//addons/netprobe:netprobe_manifest",
+    "//addons/otel-collector:otel_collector_manifest",
+    "//addons/rdp-adapter:rdp_adapter_manifest",
+    "//addons/scalibr-endpoint-inventory:scalibr_endpoint_inventory_manifest",
+    "//addons/workload-identity:workload_identity_manifest",
+    "//go/pkg/agent:addonconfig_contract_fixtures",
+    # Read at runtime by test/serviceradar/plugins/display_contract_test.exs.
+    # The three Wasm-plugin display contracts above arrive through their
+    # package srcs; these non-Wasm contracts need their own runfile inputs.
+    "//addons/powerdns:display/dns_activity.display.json",
+    "//go/pkg/trivysidecar:display_contracts",
+    "//integrations/falco:display_contracts",
+    # Read at runtime by test/serviceradar/notifications/edge_command_contract_test.exs,
+    # which asserts the agent's notify capability gate, envelope schema, and credential
+    # injection modes still match what the Elixir manifest validator allows. A contract
+    # test between two languages has to read the other language's source.
+    "//go/pkg/agent:notification_contract_srcs",
+    # Module level in test/serviceradar/observability/helm_config_contract_test.exs,
+    # which guards that the chart still exposes the env vars AnomalyConfigSeeder reads.
+    # It belongs in this tier, not the database-backed one: it reads two files and
+    # asserts on their text.
+    "//helm/serviceradar:values",
+]
+
 # One Bazel test target per ExUnit file. See //build:elixir_tests.bzl for why per-file.
 ex_unit_tests(
     config_loader = "//build:elixir_test_config_loader.exs",
     name = "unit_tests",
     srcs = ALL_TEST_SRCS,
-    # Files the tests open at runtime. ex_unit_test stages only srcs and data, so anything
-    # read from disk has to be declared: several tests load a specific migration out of
-    # priv/repo/migrations to assert on it, and test/support carries fixtures.
-    data = glob(
-        [
-            "lib/**",
-            "priv/**",
-            "test/**",
-        ],
-        allow_empty = True,
-        exclude = ["test/**/*_test.exs"],
-    ) + [
-        # Read at MODULE level (compile time) by
-        # test/serviceradar/plugins/anomaly_addon_profile_seeder_test.exs, via
-        # Path.expand("../../../../../addons/...", __DIR__) -- so no tag can skip it and it
-        # has to be a declared input. ex_unit_test mirrors the workspace layout, which is
-        # what puts it where that relative path resolves.
-        "//addons/anomaly-addon:anomaly_manifest",
-        # Module level in test/serviceradar/edge/sweep_bench_fixture_test.exs, which calls
-        # Code.require_file on it OUTSIDE any test -- so an unstaged generator aborts the
-        # whole shard with :enoent before a single test in it runs, not just its own. It
-        # lives under bench/, which the glob above does not cover.
-        "bench/sweep_ingress_fixtures.exs",
-        # Module level in test/serviceradar/proto/edge_v1_golden_test.exs, which loads the
-        # SHARED cross-language fixtures -- the sweep-join corpus among them -- through
-        # Path.expand("../../../../../proto/edge/v1/testdata", __DIR__). Without this the
-        # required Bazel shard runs a test whose fixtures are not staged, so the shared
-        # corpus would be proven only under `mix test`.
-        "//proto/edge/v1:edge_testdata",
-        # Likewise module level: test/serviceradar/plugins/manifest_test.exs globs
-        # go/cmd/wasm-plugins/**/{config*.schema.json,plugin*.yaml} and raises if the glob
-        # comes back empty, so every first-party Wasm plugin package has to be an input.
-        "//go/cmd/wasm-plugins/alienvault-otx:srcs",
-        "//go/cmd/wasm-plugins/awx:srcs",
-        "//go/cmd/wasm-plugins/axis:srcs",
-        "//go/cmd/wasm-plugins/dusk-checker:srcs",
-        "//go/cmd/wasm-plugins/netbox:srcs",
-        "//go/cmd/wasm-plugins/opentext-network-automation:srcs",
-        "//go/cmd/wasm-plugins/proxmox:srcs",
-        "//go/cmd/wasm-plugins/sample-northbound:srcs",
-        "//go/cmd/wasm-plugins/unifi-protect:srcs",
-        # Read at runtime by test/serviceradar/plugins/display_contract_test.exs.
-        # The three Wasm-plugin display contracts above arrive through their
-        # package srcs; these non-Wasm contracts need their own runfile inputs.
-        "//addons/powerdns:display/dns_activity.display.json",
-        "//go/pkg/trivysidecar:display_contracts",
-        "//integrations/falco:display_contracts",
-        # Read at runtime by test/serviceradar/notifications/edge_command_contract_test.exs,
-        # which asserts the agent's notify capability gate, envelope schema, and credential
-        # injection modes still match what the Elixir manifest validator allows. A contract
-        # test between two languages has to read the other language's source.
-        "//go/pkg/agent:notification_contract_srcs",
-        # Module level in test/serviceradar/observability/helm_config_contract_test.exs,
-        # which guards that the chart still exposes the env vars AnomalyConfigSeeder reads.
-        # It belongs in this tier, not the database-backed one: it reads two files and
-        # asserts on their text.
-        "//helm/serviceradar:values",
-    ],
+    data = _TEST_RUNTIME_DATA,
     test_helper = "test/test_helper.exs",
     deps = [":erlang_app"],
 )
@@ -355,54 +385,7 @@ ex_unit_test(
         name = "integration_tests_{}".format(shard),
         size = "enormous",
         srcs = INTEGRATION_SHARD_SRCS[shard],
-        # Files the tests open at runtime. ex_unit_test stages only srcs and data, so anything
-        # read from disk has to be declared: several tests load a specific migration out of
-        # priv/repo/migrations to assert on it, and test/support carries fixtures.
-        #
-        # Every shard gets the full data set: which shard holds which test file is an
-        # implementation detail of the partition, so narrowing this per shard would break the
-        # moment a file moved between them.
-        data = glob(
-            [
-                "config/**",
-                "lib/**",
-                "priv/**",
-                "test/**",
-            ],
-            allow_empty = True,
-            exclude = ["test/**/*_test.exs"],
-        ) + [
-            # Read at MODULE level (compile time) by
-            # test/serviceradar/plugins/anomaly_addon_profile_seeder_test.exs, via
-            # Path.expand("../../../../../addons/...", __DIR__) -- so no tag can skip it and it
-            # has to be a declared input. ex_unit_test mirrors the workspace layout, which is
-            # what puts it where that relative path resolves.
-            "//addons/anomaly-addon:anomaly_manifest",
-            # Likewise module level: test/serviceradar/plugins/manifest_test.exs globs
-            # go/cmd/wasm-plugins/**/{config*.schema.json,plugin*.yaml} and raises if the glob
-            # comes back empty, so every first-party Wasm plugin package has to be an input.
-            "//go/cmd/wasm-plugins/alienvault-otx:srcs",
-            "//go/cmd/wasm-plugins/awx:srcs",
-            "//go/cmd/wasm-plugins/axis:srcs",
-            "//go/cmd/wasm-plugins/dusk-checker:srcs",
-            "//go/cmd/wasm-plugins/netbox:srcs",
-            "//go/cmd/wasm-plugins/opentext-network-automation:srcs",
-            "//go/cmd/wasm-plugins/proxmox:srcs",
-            "//go/cmd/wasm-plugins/sample-northbound:srcs",
-            "//go/cmd/wasm-plugins/unifi-protect:srcs",
-            # Read at RUNTIME by ServiceRadar.Edge.AddonConfigContractFixturesTest through
-            # ServiceRadar.Plugins.AddonConfigContractFixtures.{fixture_dir,schema}/1, which
-            # resolve the repo root from the working directory when the compile-time one is not
-            # present. That makes these runfiles, not compile inputs: the test executes in a
-            # sandbox, so a file staged only into the mix_app build tree is not there at all.
-            # (anomaly-addon's manifest is already listed above.)
-            "//addons/bumblebee-scan:bumblebee_scan_manifest",
-            "//addons/netprobe:netprobe_manifest",
-            "//addons/otel-collector:otel_collector_manifest",
-            "//addons/rdp-adapter:rdp_adapter_manifest",
-            "//addons/scalibr-endpoint-inventory:scalibr_endpoint_inventory_manifest",
-            "//addons/workload-identity:workload_identity_manifest",
-            "//go/pkg/agent:addonconfig_contract_fixtures",
+        data = _TEST_RUNTIME_DATA + [
             # The config loader, referenced from elixir_opts by a relative path, so it has to be
             # a declared input too. The ex_unit_tests macro adds this automatically; a
             # hand-written ex_unit_test does not.
