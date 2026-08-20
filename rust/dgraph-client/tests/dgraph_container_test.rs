@@ -47,7 +47,7 @@
 use tokio::runtime::Runtime;
 
 use dgraph_client::{DgraphClient, Mutation};
-use dgraph_test::DgraphInstance;
+use dgraph_test::{DEFAULT_GROOT_PASSWORD, DgraphInstance, Strategy};
 use serviceradar_config_manager::{DGRAPH_ADMIN_PASSWORD, Identity};
 use serviceradar_secret_manager::{EnvironmentProvider, Manifest, SecretManager};
 
@@ -143,6 +143,9 @@ impl Session {
     fn superadmin(&self) -> &DgraphClient {
         match &self.owned {
             Some((admin, _)) => admin,
+            // Unreachable while every environment enables ACL, and kept rather than unwrapped
+            // so that turning ACL off somewhere degrades to the old behaviour instead of
+            // panicking.
             None => &self.client,
         }
     }
@@ -179,29 +182,13 @@ async fn open(dgraph: &DgraphInstance) -> Result<Session, String> {
         None => vec![],
     };
 
-    if dgraph.exclusivity().may_destroy() {
-        let cs = dgraph.connection_string_with(&ca_params);
-        let client = DgraphClient::connect(&cs)
-            .await
-            .map_err(|err| format!("connect to {cs} failed: {err}"))?;
-        return Ok(Session {
-            client,
-            owned: None,
-        });
-    }
-
-    // ONE CREDENTIAL FOR BOTH LOGINS, because a namespace's groot is a distinct identity from
-    // namespace 0's and we cannot choose its password: CreateNamespaceRequest carries no
-    // password field and the gRPC API has no user-management RPC, so a fresh namespace starts
-    // at Dgraph's default. Giving that its own secret meant storing a value Dgraph dictates
-    // rather than one anybody picked. So `dgraph.admin_password` holds the default, and both
-    // logins use it -- one variable, and no secret whose correct value is published in the docs.
-    //
-    // The consequence to know before rotating: setting namespace 0's groot to a real password
-    // breaks the namespace login, because the namespace's groot is still on the default. The
-    // fix at that point is resetPassword(input: {userId, password, namespace}) on the /admin
-    // endpoint, right after create_namespace, which lets the credential be chosen for real.
-    let admin_password = secret(DGRAPH_ADMIN_PASSWORD)?;
+    // The credential differs by strategy; nothing else does. A container this run started has
+    // a groot on Dgraph's default, which was never anybody's to choose and is not a secret. A
+    // deployed cluster's is chosen by an operator, so it comes from SecretManager.
+    let admin_password = match dgraph.strategy() {
+        Strategy::Container => DEFAULT_GROOT_PASSWORD.to_string(),
+        Strategy::Existing => secret(DGRAPH_ADMIN_PASSWORD)?,
+    };
 
     let admin_cs = dgraph.connection_string_as(GROOT, &admin_password, &ca_params);
     let admin = DgraphClient::connect(&admin_cs)
@@ -230,14 +217,13 @@ async fn open(dgraph: &DgraphInstance) -> Result<Session, String> {
         Err(err) => {
             // Do not leak the namespace just because logging into it failed.
             let _ = admin.drop_namespace(namespace).await;
-            // Name the cause, because "invalid username or password" is true and useless here:
-            // the credential is almost certainly fine and simply cannot be chosen yet.
             Err(format!(
                 "login to namespace {namespace} as {GROOT} failed: {err}\n\n\
                  A NEWLY CREATED NAMESPACE'S {GROOT} STARTS AT DGRAPH'S DEFAULT PASSWORD and \
-                 nothing here can change it, so {DGRAPH_ADMIN_PASSWORD} must hold that default. \
-                 If it was rotated to a chosen value, namespace 0 accepts it and a new namespace \
-                 does not -- which is exactly this failure, since namespace {namespace} exists.\n\n\
+                 nothing here can change it, so the credential in use must be that default. \
+                 If namespace 0's groot was rotated to a chosen value, namespace 0 accepts it \
+                 and a new namespace does not -- which is exactly this failure, since \
+                 namespace {namespace} exists.\n\n\
                  To make it a chosen credential, call resetPassword(input: {{userId, password, \
                  namespace}}) on the /admin endpoint after create_namespace."
             ))

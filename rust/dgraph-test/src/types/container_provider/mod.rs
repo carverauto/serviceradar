@@ -28,12 +28,71 @@ const RETRY_DELAY_MS: u64 = 500;
 /// rejected value would not pass unnoticed.
 const ALPHA_CACHE_ENV: &str = "DGRAPH_ALPHA_CACHE=size-mb=128";
 
+/// Where the ACL HMAC secret is written on the host and mounted in the container.
+///
+/// A STABLE path, not a per-run temp file, because the container is reused: a reused alpha
+/// still holds the key it read at startup, and handing it a different file would only make the
+/// two disagree. Nothing here reads the key back -- a client authenticates with a password and
+/// receives a JWT the alpha signed -- so its only requirement is that it exists and does not
+/// change under a running alpha.
+const ACL_DIR_NAME: &str = "dgraph-test-acl";
+const ACL_FILE_NAME: &str = "hmac_secret_file";
+const ACL_MOUNT_DIR: &str = "/dgraph-test-acl";
+
+/// Dgraph signs ACL tokens with an HMAC read from a FILE. `--acl` has no inline form -- only
+/// `secret-file=<path>` -- which is the whole reason `docker_utils` needed volume support.
+fn acl_secret_path() -> Result<std::path::PathBuf, FixtureError> {
+    let dir = std::env::temp_dir().join(ACL_DIR_NAME);
+    std::fs::create_dir_all(&dir)
+        .map_err(|err| FixtureError::docker(format!("creating {}: {err}", dir.display())))?;
+
+    let path = dir.join(ACL_FILE_NAME);
+    if !path.exists() {
+        // Dgraph wants at least 256 bits. Generated rather than committed, and generated once
+        // rather than per run, so a reused container keeps the key it started with.
+        //
+        // RandomState is seeded by the OS, which is randomness this crate can reach without a
+        // dependency. Good enough precisely because nothing authenticates with this value: it
+        // signs tokens inside a disposable local container and is never read back here.
+        use std::hash::{BuildHasher, Hasher};
+        const ALPHABET: &[u8] = b"abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
+        let state = std::collections::hash_map::RandomState::new();
+        let secret: String = (0..48_u64)
+            .map(|i| {
+                let mut hasher = state.build_hasher();
+                hasher.write_u64(i);
+                let index = usize::try_from(hasher.finish()).unwrap_or(0) % ALPHABET.len();
+                char::from(ALPHABET[index])
+            })
+            .collect();
+        std::fs::write(&path, secret)
+            .map_err(|err| FixtureError::docker(format!("writing {}: {err}", path.display())))?;
+    }
+    Ok(path)
+}
+
 /// Zero-sized. Starts or reuses a container and waits for it to serve.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
 pub struct ContainerProvider;
 
 impl InstanceProvider for ContainerProvider {
     fn acquire(&self, endpoint: &Endpoint) -> Result<(u16, Option<String>), FixtureError> {
+        // ACL ON LOCALLY TOO, which is what makes this a rehearsal rather than a weaker
+        // environment. Without it the client is superadmin in namespace 0 and every operation
+        // is permitted, so the permission model is simply absent -- which is how both
+        // `AllocateIDs is superadmin only` and `drop all` reached CI unnoticed after passing
+        // here. With it, a local run is refused exactly what the cluster refuses.
+        let secret = acl_secret_path()?;
+        let mount = format!(
+            "{}:{ACL_MOUNT_DIR}:ro",
+            secret.parent().unwrap_or(&secret).display()
+        );
+        let acl_env = format!("DGRAPH_ALPHA_ACL=secret-file={ACL_MOUNT_DIR}/{ACL_FILE_NAME}");
+        // ContainerConfig borrows its slices, so they are owned here rather than inside the
+        // function that builds it.
+        let env_vars = [ALPHA_CACHE_ENV, acl_env.as_str()];
+        let volumes = [mount.as_str()];
+
         let docker = DockerUtil::with_debug().map_err(|err| {
             FixtureError::docker(format!(
                 "{err}. A local Dgraph needs a Docker daemon; \
@@ -42,7 +101,7 @@ impl InstanceProvider for ContainerProvider {
         })?;
 
         let (container_id, port) = docker
-            .setup_container(&container_config(endpoint))
+            .setup_container(&container_config(endpoint, &env_vars, &volumes))
             .map_err(|err| FixtureError::docker(format!("{err:?}")))?;
 
         Ok((port, Some(container_id)))
@@ -61,12 +120,25 @@ impl InstanceProvider for ContainerProvider {
 /// from what `docker_utils` hands it. Cheap: no I/O, and TLS is off on the standalone image.
 fn container_ready(ctx: &ProbeContext) -> Probe<(), String> {
     let endpoint = Endpoint::new(ctx.host(), ctx.port(), plaintext());
+
     match existing_provider::check_once(&endpoint) {
-        Ok(report) if report.all_healthy() => Probe::Ready(()),
-        Ok(report) => Probe::Retry(format!("not all healthy:\n{}", report.describe())),
+        Ok(report) if report.all_healthy() => {}
+        Ok(report) => return Probe::Retry(format!("not all healthy:\n{}", report.describe())),
+        Err(err) => return Probe::Retry(err.to_string()),
+    }
+
+    // HEALTH IS NOT ENOUGH ONCE ACL IS ON. The alpha reports healthy while ACL is still
+    // initialising -- measured at six seconds on this image -- and `groot` does not exist
+    // until it finishes. Returning ready in that window hands back an instance whose first
+    // login fails with "invalid username or password" from a cluster that is working fine.
+    match existing_provider::check_acl_login(&endpoint, GROOT, crate::DEFAULT_GROOT_PASSWORD) {
+        Ok(()) => Probe::Ready(()),
         Err(err) => Probe::Retry(err.to_string()),
     }
 }
+
+/// The user the fixture authenticates as. A container it started has no other.
+const GROOT: &str = "groot";
 
 /// The standalone image serves plaintext; nothing configures TLS on it.
 fn plaintext() -> serviceradar_config_schema::DgraphTlsMode {
@@ -76,7 +148,11 @@ fn plaintext() -> serviceradar_config_schema::DgraphTlsMode {
 /// Host networking rather than published ports: it removes NAT from the picture, so Dgraph binds
 /// 9080/8080 directly in this network namespace and no iptables rule has to exist for the test to
 /// reach it.
-fn container_config(endpoint: &Endpoint) -> ContainerConfig<'_> {
+fn container_config<'l>(
+    endpoint: &'l Endpoint,
+    env_vars: &'l [&'l str],
+    volumes: &'l [&'l str],
+) -> ContainerConfig<'l> {
     ContainerConfig::builder()
         .name(CONTAINER_NAME)
         .image(IMAGE)
@@ -86,7 +162,10 @@ fn container_config(endpoint: &Endpoint) -> ContainerConfig<'_> {
         .url(endpoint.host())
         .connection_port(endpoint.port())
         .additional_ports(&[HTTP_PORT])
-        .additional_env_vars(&[ALPHA_CACHE_ENV])
+        .additional_env_vars(env_vars)
+        // Needs docker_utils >= 0.3.4. `--acl` takes only `secret-file=<path>`, so the key can
+        // reach the container as a file or not at all.
+        .volumes(volumes)
         .reuse_container(true)
         .keep_configuration(true)
         .host_network(true)

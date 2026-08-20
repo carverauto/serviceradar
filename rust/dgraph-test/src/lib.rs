@@ -55,3 +55,16 @@ pub use crate::types::existing_provider::ExistingProvider;
 pub use crate::types::health_report::{HealthReport, ServerHealth};
 pub use crate::types::run_id::RunId;
 pub use crate::types::strategy::Strategy;
+
+/// Dgraph's initial password for `groot`, in namespace 0 and in every namespace created
+/// afterwards.
+///
+/// A PROPERTY OF DGRAPH, not a secret. `CreateNamespaceRequest` carries no password field and
+/// the gRPC API has no user-management RPC, so a new namespace's guardian starts here and
+/// nothing can choose otherwise. Published in Dgraph's own documentation, which is what makes
+/// storing it in a secret store misleading rather than careful.
+///
+/// A container this crate started uses it directly: the container is disposable, local, and
+/// its credential was never anybody's to choose. A deployed cluster's namespace-0 password IS
+/// chosen, and is resolved through SecretManager instead.
+pub const DEFAULT_GROOT_PASSWORD: &str = "password";

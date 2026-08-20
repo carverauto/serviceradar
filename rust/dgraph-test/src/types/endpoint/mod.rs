@@ -133,6 +133,11 @@ impl Endpoint {
         format!("{}://{}:{HTTP_PORT}/health?all", self.scheme(), self.host)
     }
 
+    /// Dgraph's admin GraphQL endpoint.
+    pub fn admin_url(&self) -> String {
+        format!("{}://{}:{HTTP_PORT}/admin", self.scheme(), self.host)
+    }
+
     /// The connection string a client parses, carrying the configured posture.
     ///
     /// The port is a parameter because `docker_utils` is authoritative about where a container

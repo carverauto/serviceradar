@@ -92,3 +92,56 @@ fn fetch(_endpoint: &Endpoint, url: &str) -> Result<HealthReport, FixtureError> 
 
     HealthReport::parse(url, &body)
 }
+
+/// Whether ACL has finished initialising, asked over the admin endpoint.
+///
+/// SEPARATE FROM HEALTH, because `/health` answers green while ACL is still coming up:
+/// observed on a standalone container as `ACL secret key loaded successfully` at t+0.0s and
+/// `InitializeAcl closed` at t+6.2s. In that window the alpha serves queries and `groot` does
+/// not yet exist, so a caller that trusted health alone got
+/// "Login Failed: invalid username or password" from a cluster that was working correctly.
+///
+/// HTTP, like the health check, so this crate still links no gRPC client.
+pub fn check_acl_login(endpoint: &Endpoint, user: &str, password: &str) -> Result<(), FixtureError> {
+    let url = endpoint.admin_url();
+    let query = format!(
+        r#"{{"query":"mutation {{ login(userId: \"{user}\", password: \"{password}\") {{ response {{ accessJWT }} }} }}"}}"#
+    );
+
+    let tls = ureq::tls::TlsConfig::builder()
+        .disable_verification(true)
+        .build();
+    let agent: ureq::Agent = ureq::Agent::config_builder()
+        .tls_config(tls)
+        .timeout_global(Some(Duration::from_secs(REQUEST_TIMEOUT_SECS)))
+        .build()
+        .into();
+
+    let body = agent
+        .post(&url)
+        .header("Content-Type", "application/json")
+        .send(&query)
+        .map_err(|err| FixtureError::health(&url, err.to_string()))?
+        .body_mut()
+        .read_to_string()
+        .map_err(|err| FixtureError::health(&url, format!("reading the response: {err}")))?;
+
+    // A token, not merely a 200: the admin endpoint answers 200 with an `errors` array while
+    // ACL is still initialising, so the status says nothing about whether login worked.
+    let value: serde_json::Value = serde_json::from_str(&body)
+        .map_err(|err| FixtureError::health(&url, format!("not JSON: {err}")))?;
+
+    let token = value
+        .pointer("/data/login/response/accessJWT")
+        .and_then(serde_json::Value::as_str)
+        .unwrap_or_default();
+
+    if token.is_empty() {
+        return Err(FixtureError::health(
+            &url,
+            "ACL is enabled but login returned no accessJWT yet".to_string(),
+        ));
+    }
+
+    Ok(())
+}
