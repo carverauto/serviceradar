@@ -3,12 +3,13 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.DashboardLayoutTest do
 
   import Phoenix.LiveViewTest
 
+  alias ServiceRadarWebNGWeb.DashboardLive.Data
   alias ServiceRadarWebNGWeb.DashboardLive.Index.ObservabilityPanel
   alias ServiceRadarWebNGWeb.DashboardLive.Index.VirtualizationPanel
 
   @moduletag :db_free
 
-  test "combines metrics and events in one full-width observability card" do
+  test "combines events over time above observability metrics in one side card" do
     html =
       render_component(&ObservabilityPanel.render/1,
         dashboard: %{
@@ -19,15 +20,41 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.DashboardLayoutTest do
         }
       )
 
+    events_at = :binary.match(html, "Events Over Time")
+    metrics_at = :binary.match(html, "Metrics")
+
     assert html =~ "Observability"
-    assert html =~ "Metrics"
-    assert html =~ "Events Over Time"
     assert html =~ "24h"
     assert html =~ "sr-ops-observability-split"
-    assert html =~ "sr-ops-span-full"
-    assert html =~ "lg:col-span-12"
+    assert html =~ "sr-ops-observability-panel"
+    refute html =~ "sr-ops-span-full"
+    refute html =~ "lg:col-span-12"
     assert html =~ "No event trend data"
     refute html =~ "Observability Metrics"
+    assert events_at < metrics_at
+  end
+
+  test "empty KPI cards start loading independently of NetFlow" do
+    empty = Data.empty()
+    assets = Enum.find(empty.kpi_cards, &(&1.title == "Total Assets"))
+
+    derived =
+      Data.derive(
+        Map.merge(empty, %{
+          device_summary: %{total: 42, available: 40, unavailable: 2},
+          kpi_loading: %{assets: false},
+          loaded: %{inventory: true}
+        })
+      )
+
+    ready = Enum.find(derived.kpi_cards, &(&1.title == "Total Assets"))
+
+    assert assets.loading
+    assert empty.module_states.netflow == :loading
+    refute ready.loading
+    assert ready.value == "42"
+    assert derived.module_states.inventory == :active
+    assert derived.module_states.netflow == :loading
   end
 
   test "keeps virtualization on the three-card row when inventory is empty" do

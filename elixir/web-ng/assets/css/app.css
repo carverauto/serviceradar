@@ -2584,11 +2584,27 @@ table:has(.sr-ui-dropdown) td:has(.sr-ui-dropdown) {
   grid-column: 1 / -1;
 }
 
+.sr-ops-grid-primary > .sr-ops-map-panel {
+  grid-column: 1 / span 7;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.sr-ops-grid-primary > .sr-ops-observability-panel {
+  grid-column: 8 / span 5;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
 .sr-ops-observability-split {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-rows: minmax(12rem, 1fr) auto;
   gap: 0.75rem;
   min-width: 0;
+  flex: 1;
 }
 
 .sr-ops-observability-pane {
@@ -2596,8 +2612,8 @@ table:has(.sr-ui-dropdown) td:has(.sr-ui-dropdown) {
 }
 
 .sr-ops-observability-pane + .sr-ops-observability-pane {
-  border-left: 1px solid var(--sr-color-line);
-  padding-left: 0.75rem;
+  border-top: 1px solid var(--sr-color-line);
+  padding-top: 0.75rem;
 }
 
 .sr-ops-observability-pane > h3,
@@ -3162,7 +3178,8 @@ table:has(.sr-ui-dropdown) td:has(.sr-ui-dropdown) {
 }
 
 .sr-ops-grid-primary .sr-ops-map-shell {
-  min-height: 14.45rem;
+  flex: 1;
+  min-height: 22rem;
 }
 
 .sr-ops-traffic-canvas {
@@ -6924,6 +6941,15 @@ table:has(.sr-ui-dropdown) td:has(.sr-ui-dropdown) {
 }
 
 @media (max-width: 860px) {
+  .sr-ops-grid-primary {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .sr-ops-grid-primary > .sr-ops-map-panel,
+  .sr-ops-grid-primary > .sr-ops-observability-panel {
+    grid-column: 1 / -1;
+  }
+
   .sr-fieldsurvey-review-map-details {
     grid-template-columns: 1fr;
   }

@@ -35,6 +35,7 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Index.Page do
 
         <section class="sr-ops-grid-primary">
           <MapPanel.render dashboard={assigns} />
+          <ObservabilityPanel.render dashboard={assigns} />
         </section>
 
         <section class="sr-ops-grid-secondary">
@@ -43,7 +44,6 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Index.Page do
         </section>
 
         <section class="sr-ops-grid-bottom">
-          <ObservabilityPanel.render dashboard={assigns} />
           <VulnerableAssetsPanel.render dashboard={assigns} />
           <ThreatPanel.render dashboard={assigns} />
           <VirtualizationPanel.render dashboard={assigns} />

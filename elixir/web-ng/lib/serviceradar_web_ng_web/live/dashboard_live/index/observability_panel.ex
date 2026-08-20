@@ -10,14 +10,14 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Index.ObservabilityPanel do
 
   def render(assigns) do
     ~H"""
-    <Common.panel title="Observability" class="sr-ops-span-full lg:col-span-12">
+    <Common.panel title="Observability" class="sr-ops-observability-panel">
       <div class="sr-ops-observability-split" data-testid="observability-split">
+        <section class="sr-ops-observability-pane" aria-label="Events over time">
+          <EventsPanel.render dashboard={@dashboard} embedded />
+        </section>
         <section class="sr-ops-observability-pane" aria-label="Observability metrics">
           <h3>Metrics</h3>
           <MetricsPanel.render dashboard={@dashboard} embedded />
-        </section>
-        <section class="sr-ops-observability-pane" aria-label="Events over time">
-          <EventsPanel.render dashboard={@dashboard} embedded />
         </section>
       </div>
     </Common.panel>

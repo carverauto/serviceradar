@@ -6,7 +6,6 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Index do
   alias ServiceRadarWebNG.RBAC
   alias ServiceRadarWebNGWeb.CameraMultiview
   alias ServiceRadarWebNGWeb.DashboardLive.Data
-  alias ServiceRadarWebNGWeb.DashboardLive.Index.Common
   alias ServiceRadarWebNGWeb.DashboardLive.Index.Page
 
   require Logger
@@ -26,12 +25,7 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Index do
 
     socket =
       if connected?(socket) do
-        scope = socket.assigns.current_scope
-
-        socket
-        |> start_async(:dashboard_load, fn -> Data.load(scope) end)
-        |> start_async(:fieldsurvey_summary_load, fn -> Data.load_survey_summary(scope) end)
-        |> start_async(:dashboard_packages_load, fn -> dashboard_package_instances(scope) end)
+        start_dashboard_slices(socket)
       else
         socket
       end
@@ -40,15 +34,60 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Index do
   end
 
   @impl true
-  def handle_async(:dashboard_load, {:ok, dashboard_assigns}, socket) do
-    dashboard_assigns = preserve_loaded_survey_summary(socket, dashboard_assigns)
+  def handle_async(:inventory_load, {:ok, slice}, socket) do
+    {:noreply, put_sources(socket, slice, loaded: [inventory: true], kpi_loading: [assets: false])}
+  end
 
-    socket =
-      socket
-      |> assign_dashboard(dashboard_assigns)
-      |> maybe_start_camera_previews_async()
+  def handle_async(:health_load, {:ok, slice}, socket) do
+    {:noreply, put_sources(socket, slice, loaded: [health: true], kpi_loading: [network_health: false])}
+  end
 
-    {:noreply, socket}
+  def handle_async(:camera_summary_load, {:ok, slice}, socket) do
+    {:noreply, put_sources(socket, slice, loaded: [camera: true], kpi_loading: [camera: false])}
+  end
+
+  def handle_async(:alerts_summary_load, {:ok, slice}, socket) do
+    {:noreply, put_sources(socket, slice, loaded: [siem: true], kpi_loading: [alerts: false, threat: false])}
+  end
+
+  def handle_async(:events_summary_load, {:ok, slice}, socket) do
+    {:noreply, put_sources(socket, slice, loaded: [security_events: true], kpi_loading: [events: false, threat: false])}
+  end
+
+  def handle_async(:netflow_load, {:ok, slice}, socket) do
+    {:noreply, put_sources(socket, slice, loaded: [netflow: true])}
+  end
+
+  def handle_async(:mtr_load, {:ok, slice}, socket) do
+    {:noreply, put_sources(socket, slice, loaded: [mtr: true])}
+  end
+
+  def handle_async(:traces_load, {:ok, slice}, socket) do
+    {:noreply, put_sources(socket, slice)}
+  end
+
+  def handle_async(:security_trend_load, {:ok, slice}, socket) do
+    {:noreply, put_sources(socket, slice)}
+  end
+
+  def handle_async(:sparklines_load, {:ok, slice}, socket) do
+    {:noreply, put_sources(socket, slice)}
+  end
+
+  def handle_async(:alert_feed_load, {:ok, slice}, socket) do
+    {:noreply, put_sources(socket, slice)}
+  end
+
+  def handle_async(:threat_intel_load, {:ok, slice}, socket) do
+    {:noreply, put_sources(socket, slice)}
+  end
+
+  def handle_async(:vulnerable_assets_load, {:ok, slice}, socket) do
+    {:noreply, put_sources(socket, slice, loaded: [vulnerable_assets: true])}
+  end
+
+  def handle_async(:virtualization_load, {:ok, slice}, socket) do
+    {:noreply, put_sources(socket, slice)}
   end
 
   def handle_async(:camera_previews_open, {:ok, tiles}, socket) when is_list(tiles) do
@@ -68,14 +107,21 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Index do
   end
 
   def handle_async(:fieldsurvey_summary_load, {:ok, survey_summary}, socket) do
-    {:noreply, assign_survey_summary(socket, survey_summary)}
+    {:noreply,
+     put_sources(socket, %{survey_summary: survey_summary},
+       loaded: [fieldsurvey: true],
+       kpi_loading: [survey: false]
+     )}
   end
 
   def handle_async(:dashboard_packages_load, {:ok, instances}, socket) do
     {:noreply, assign_dashboard_package_instances(socket, instances)}
   end
 
-  def handle_async(_name, {:exit, _reason}, socket), do: {:noreply, socket}
+  def handle_async(name, {:exit, reason}, socket) do
+    Logger.warning("Dashboard slice #{inspect(name)} failed: #{inspect(reason)}")
+    {:noreply, fail_dashboard_slice(socket, name)}
+  end
 
   @impl true
   def render(assigns), do: Page.render(assigns)
@@ -176,59 +222,59 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Index do
     Map.put(assigns, :map_view, valid_view)
   end
 
-  defp assign_survey_summary(socket, survey_summary) do
-    survey_sparkline =
-      socket.assigns.kpi_cards
-      |> Enum.find(%{}, &(&1.title == "Wi-Fi Coverage"))
-      |> Map.get(:sparkline, [])
-
-    survey_card = Data.survey_kpi_card(survey_summary, survey_sparkline)
-
-    kpi_cards =
-      Enum.map(socket.assigns.kpi_cards, fn
-        %{title: "Wi-Fi Coverage"} -> survey_card
-        card -> card
-      end)
+  defp start_dashboard_slices(socket) do
+    scope = socket.assigns.current_scope
+    time_window = socket.assigns.time_window
 
     socket
-    |> assign(:survey_summary, survey_summary)
-    |> assign(:kpi_cards, kpi_cards)
+    |> start_async(:inventory_load, fn -> Data.load_inventory(scope) end)
+    |> start_async(:health_load, fn -> Data.load_health(scope, time_window) end)
+    |> start_async(:camera_summary_load, fn -> Data.load_camera_summary(scope) end)
+    |> start_async(:alerts_summary_load, fn -> Data.load_alerts_summary(scope) end)
+    |> start_async(:events_summary_load, fn -> Data.load_events_summary(time_window) end)
+    |> start_async(:netflow_load, fn -> Data.load_netflow_map(scope, time_window: time_window) end)
+    |> start_async(:mtr_load, fn -> Data.load_mtr(time_window) end)
+    |> start_async(:traces_load, fn -> Data.load_traces(scope, time_window) end)
+    |> start_async(:security_trend_load, fn -> Data.load_security_trend(time_window) end)
+    |> start_async(:sparklines_load, fn -> Data.load_sparklines(time_window) end)
+    |> start_async(:alert_feed_load, fn -> Data.load_alert_feed(time_window) end)
+    |> start_async(:threat_intel_load, fn -> Data.load_threat_intel() end)
+    |> start_async(:vulnerable_assets_load, fn -> Data.load_vulnerable_assets() end)
+    |> start_async(:virtualization_load, fn -> Data.load_virtualization(scope) end)
+    |> start_async(:fieldsurvey_summary_load, fn -> Data.load_survey_summary(scope) end)
+    |> start_async(:dashboard_packages_load, fn -> dashboard_package_instances(scope) end)
+    |> maybe_start_camera_previews_async()
   end
 
-  defp preserve_loaded_survey_summary(socket, dashboard_assigns) do
-    current = socket.assigns.survey_summary
-    incoming = Map.get(dashboard_assigns, :survey_summary)
+  defp put_sources(socket, updates, opts \\ []) when is_map(updates) do
+    loaded = Map.merge(socket.assigns.loaded, Map.new(Keyword.get(opts, :loaded, [])))
+    kpi_loading = Map.merge(socket.assigns.kpi_loading, Map.new(Keyword.get(opts, :kpi_loading, [])))
 
-    if Common.survey_raster_cell_count(current) > Common.survey_raster_cell_count(incoming) do
-      survey_card = Data.survey_kpi_card(current, survey_sparkline_from(dashboard_assigns))
+    socket =
+      updates
+      |> Enum.reduce(socket, fn {key, value}, acc -> assign(acc, key, value) end)
+      |> assign(:loaded, loaded)
+      |> assign(:kpi_loading, kpi_loading)
 
-      dashboard_assigns
-      |> Map.put(:survey_summary, current)
-      |> Map.put(
-        :kpi_cards,
-        replace_survey_kpi_card(Map.get(dashboard_assigns, :kpi_cards, []), survey_card)
-      )
-    else
-      dashboard_assigns
-    end
+    assign_dashboard(socket, Data.derive(socket.assigns))
   end
 
-  defp survey_sparkline_from(%{kpi_cards: kpi_cards}) when is_list(kpi_cards) do
-    kpi_cards
-    |> Enum.find(%{}, &(&1.title == "Wi-Fi Coverage"))
-    |> Map.get(:sparkline, [])
+  defp fail_dashboard_slice(socket, name) do
+    {loaded, kpi_loading} = slice_failure_flags(name)
+
+    put_sources(socket, %{}, loaded: loaded, kpi_loading: kpi_loading)
   end
 
-  defp survey_sparkline_from(_assigns), do: []
-
-  defp replace_survey_kpi_card(kpi_cards, survey_card) when is_list(kpi_cards) do
-    Enum.map(kpi_cards, fn
-      %{title: "Wi-Fi Coverage"} -> survey_card
-      card -> card
-    end)
-  end
-
-  defp replace_survey_kpi_card(_kpi_cards, _survey_card), do: []
+  defp slice_failure_flags(:inventory_load), do: {[inventory: true], [assets: false]}
+  defp slice_failure_flags(:health_load), do: {[health: true], [network_health: false]}
+  defp slice_failure_flags(:camera_summary_load), do: {[camera: true], [camera: false]}
+  defp slice_failure_flags(:alerts_summary_load), do: {[siem: true], [alerts: false, threat: false]}
+  defp slice_failure_flags(:events_summary_load), do: {[security_events: true], [events: false, threat: false]}
+  defp slice_failure_flags(:netflow_load), do: {[netflow: true], []}
+  defp slice_failure_flags(:mtr_load), do: {[mtr: true], []}
+  defp slice_failure_flags(:vulnerable_assets_load), do: {[vulnerable_assets: true], []}
+  defp slice_failure_flags(:fieldsurvey_summary_load), do: {[fieldsurvey: true], [survey: false]}
+  defp slice_failure_flags(_name), do: {[], []}
 
   defp maybe_start_camera_previews_async(socket) do
     if RBAC.can?(socket.assigns.current_scope, "devices.view") do
