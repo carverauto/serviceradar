@@ -2564,38 +2564,88 @@ table:has(.sr-ui-dropdown) td:has(.sr-ui-dropdown) {
 .sr-ops-kpi-grid,
 .sr-ops-grid-primary,
 .sr-ops-grid-secondary,
-.sr-ops-grid-bottom {
-  display: grid;
+.sr-ops-grid-trio,
+.sr-ops-grid-alerts {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: stretch;
   gap: 0.38rem;
 }
 
-.sr-ops-kpi-grid {
-  grid-template-columns: repeat(5, minmax(0, 1fr));
-}
-
-.sr-ops-grid-primary,
-.sr-ops-grid-secondary,
-.sr-ops-grid-bottom {
-  grid-template-columns: repeat(12, minmax(0, 1fr));
-}
-
-.sr-ops-grid-primary > .sr-ops-span-full,
-.sr-ops-grid-bottom > .sr-ops-span-full {
-  grid-column: 1 / -1;
+/* Basis 0% + grow fills the row for any child count. min-width is the only
+   wrap trigger, so a lone Camera/FieldSurvey/KPI cannot leave an empty track.
+   auto-fit 12-col grids cannot do that on a wrapping last row. */
+.sr-ops-kpi-grid > * {
+  flex: 1 1 0%;
+  min-width: min(100%, 10.5rem);
 }
 
 .sr-ops-grid-primary > .sr-ops-map-panel {
-  grid-column: 1 / span 7;
+  flex: 1.4 1 0%;
+  min-width: min(100%, 28rem);
   display: flex;
   flex-direction: column;
   min-height: 0;
 }
 
 .sr-ops-grid-primary > .sr-ops-observability-panel {
-  grid-column: 8 / span 5;
+  flex: 1 1 0%;
+  min-width: min(100%, 22rem);
   display: flex;
   flex-direction: column;
   min-height: 0;
+}
+
+.sr-ops-grid-secondary:not(:has(> .sr-ops-panel)) {
+  display: none;
+}
+
+.sr-ops-grid-secondary > * {
+  flex: 1 1 0%;
+  min-width: min(100%, 22rem);
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.sr-ops-grid-trio > * {
+  flex: 1 1 0%;
+  min-width: min(100%, 16rem);
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.sr-ops-grid-alerts > * {
+  flex: 1 1 100%;
+  min-width: 100%;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.sr-ops-grid-primary > .sr-ops-panel > :not(.sr-ops-panel-header),
+.sr-ops-grid-secondary > .sr-ops-panel > :not(.sr-ops-panel-header),
+.sr-ops-grid-trio > .sr-ops-panel > :not(.sr-ops-panel-header),
+.sr-ops-grid-alerts > .sr-ops-panel > :not(.sr-ops-panel-header) {
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+.sr-ops-grid-secondary .sr-ops-field-survey-card-map {
+  flex: 1 1 auto;
+  height: auto;
+  max-height: none;
+}
+
+.sr-ops-grid-secondary .sr-ops-camera-wall {
+  grid-template-rows: repeat(2, minmax(4.35rem, 1fr));
+  align-content: stretch;
+  height: 100%;
+}
+
+.sr-ops-grid-secondary .sr-ops-camera-tile {
+  height: 100%;
 }
 
 .sr-ops-observability-split {
@@ -6905,25 +6955,6 @@ table:has(.sr-ui-dropdown) td:has(.sr-ui-dropdown) {
     grid-template-columns: minmax(0, 1fr);
   }
 
-  .sr-ops-kpi-grid,
-  .sr-ops-grid-primary,
-  .sr-ops-grid-secondary,
-  .sr-ops-grid-bottom {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-
-  .sr-ops-kpi-grid > *,
-  .sr-ops-grid-primary > *,
-  .sr-ops-grid-secondary > *,
-  .sr-ops-grid-bottom > * {
-    grid-column: auto / span 1;
-  }
-
-  .sr-ops-grid-primary > .sr-ops-span-full,
-  .sr-ops-grid-bottom > .sr-ops-span-full {
-    grid-column: 1 / -1;
-  }
-
   .sr-ops-observability-split {
     grid-template-columns: minmax(0, 1fr);
   }
@@ -6941,15 +6972,6 @@ table:has(.sr-ui-dropdown) td:has(.sr-ui-dropdown) {
 }
 
 @media (max-width: 860px) {
-  .sr-ops-grid-primary {
-    grid-template-columns: minmax(0, 1fr);
-  }
-
-  .sr-ops-grid-primary > .sr-ops-map-panel,
-  .sr-ops-grid-primary > .sr-ops-observability-panel {
-    grid-column: 1 / -1;
-  }
-
   .sr-fieldsurvey-review-map-details {
     grid-template-columns: 1fr;
   }
@@ -7051,7 +7073,8 @@ table:has(.sr-ui-dropdown) td:has(.sr-ui-dropdown) {
   .sr-ops-kpi-grid,
   .sr-ops-grid-primary,
   .sr-ops-grid-secondary,
-  .sr-ops-grid-bottom,
+  .sr-ops-grid-trio,
+  .sr-ops-grid-alerts,
   .sr-ops-camera-operations,
   .sr-ops-camera-wall,
   .sr-ops-map-stats,
@@ -7062,6 +7085,14 @@ table:has(.sr-ui-dropdown) td:has(.sr-ui-dropdown) {
   .sr-camera-multiview-16,
   .sr-camera-multiview-32 {
     grid-template-columns: 1fr;
+  }
+
+  .sr-ops-kpi-grid > *,
+  .sr-ops-grid-primary > *,
+  .sr-ops-grid-secondary > *,
+  .sr-ops-grid-trio > * {
+    flex-basis: 100%;
+    min-width: 100%;
   }
 
   .sr-ops-map-shell,

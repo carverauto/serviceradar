@@ -43,10 +43,13 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Index.Page do
           <CameraPanel.render dashboard={assigns} />
         </section>
 
-        <section class="sr-ops-grid-bottom">
+        <section class="sr-ops-grid-trio">
           <VulnerableAssetsPanel.render dashboard={assigns} />
           <ThreatPanel.render dashboard={assigns} />
           <VirtualizationPanel.render dashboard={assigns} />
+        </section>
+
+        <section class="sr-ops-grid-alerts">
           <AlertsPanel.render dashboard={assigns} />
         </section>
       </div>

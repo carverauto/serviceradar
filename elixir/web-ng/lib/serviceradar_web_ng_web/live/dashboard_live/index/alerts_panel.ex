@@ -10,7 +10,7 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Index.AlertsPanel do
     assigns = Map.merge(assigns, dashboard)
 
     ~H"""
-    <Common.panel title="Alerts Feed" class="sr-ops-span-full lg:col-span-12">
+    <Common.panel title="Alerts Feed">
       <:actions>
         <.link href={~p"/observability/alerts"} class="sr-ops-button">
           View All Alerts

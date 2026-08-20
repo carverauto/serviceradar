@@ -23,11 +23,7 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Index.CameraPanel do
       )
 
     ~H"""
-    <Common.panel
-      :if={camera_panel_visible?(@camera_summary)}
-      title="Camera Operations"
-      class="lg:col-span-6"
-    >
+    <Common.panel :if={camera_panel_visible?(@camera_summary)} title="Camera Operations">
       <:actions>
         <.link href={~p"/cameras"} class="sr-ops-button">
           View All Cameras

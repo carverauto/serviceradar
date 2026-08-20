@@ -18,7 +18,7 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Index.EventsPanel do
       |> Map.put_new(:time_window_label, "")
 
     ~H"""
-    <Common.panel :if={!@embedded} title="Events Over Time" class="lg:col-span-5">
+    <Common.panel :if={!@embedded} title="Events Over Time">
       <:actions>
         <span class="sr-ops-select">{@time_window_label}</span>
       </:actions>

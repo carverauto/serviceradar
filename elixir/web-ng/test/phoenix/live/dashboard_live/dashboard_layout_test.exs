@@ -71,8 +71,48 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.DashboardLayoutTest do
 
     assert html =~ "Virtualization Efficiency"
     assert html =~ "No hypervisor inventory"
-    assert html =~ "lg:col-span-4"
+    refute html =~ "lg:col-span-4"
     refute html =~ "sr-ops-span-full"
     refute html =~ "lg:col-span-12"
   end
+
+  test "optional camera and fieldsurvey cards do not pin a half-row span" do
+    camera_src = File.read!(index_path("camera_panel.ex"))
+    survey_src = File.read!(index_path("fieldsurvey_panel.ex"))
+
+    refute camera_src =~ "col-span"
+    refute survey_src =~ "col-span"
+    assert camera_src =~ "Camera Operations"
+    assert survey_src =~ "FieldSurvey Heatmap"
+  end
+
+  test "dashboard CSS grows leftover flex tracks instead of leaving empty columns" do
+    css = File.read!(css_path())
+
+    assert css =~ ".sr-ops-grid-secondary > *"
+    assert css =~ "flex: 1 1 0%"
+    assert css =~ ".sr-ops-grid-secondary:not(:has(> .sr-ops-panel))"
+    assert css =~ ".sr-ops-kpi-grid > *"
+    assert css =~ ".sr-ops-grid-trio > *"
+    assert css =~ "align-items: stretch"
+    refute css =~ ~r/\.sr-ops-grid-secondary[^{]*\{[^}]*grid-template-columns:\s*repeat\(12/
+    refute css =~ "lg:col-span-6"
+  end
+
+  test "dashboard index markup never pins a column span" do
+    for path <- Path.wildcard(Path.join(index_dir(), "*.ex")) do
+      refute File.read!(path) =~ "col-span",
+             "#{Path.basename(path)} pins a column span that leaves empty tracks"
+    end
+  end
+
+  defp css_path do
+    Path.expand("../../../../assets/css/app.css", __DIR__)
+  end
+
+  defp index_dir do
+    Path.expand("../../../../lib/serviceradar_web_ng_web/live/dashboard_live/index", __DIR__)
+  end
+
+  defp index_path(name), do: Path.join(index_dir(), name)
 end

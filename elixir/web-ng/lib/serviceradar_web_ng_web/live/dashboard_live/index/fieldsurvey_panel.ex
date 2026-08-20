@@ -12,11 +12,7 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Index.FieldSurveyPanel do
     assigns = Map.merge(assigns, dashboard)
 
     ~H"""
-    <Common.panel
-      :if={survey_panel_visible?(@survey_summary)}
-      title="FieldSurvey Heatmap"
-      class="lg:col-span-6"
-    >
+    <Common.panel :if={survey_panel_visible?(@survey_summary)} title="FieldSurvey Heatmap">
       <:actions>
         <.link href={~p"/spatial/field-surveys"} class="sr-ops-button">Open FieldSurvey</.link>
       </:actions>
