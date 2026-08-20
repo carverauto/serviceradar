@@ -18,20 +18,18 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Index.EventsPanel do
       |> Map.put_new(:time_window_label, "")
 
     ~H"""
-    <Common.panel :if={!@embedded} title="Events Over Time" class="lg:col-span-5">
+    <Common.panel :if={!@embedded} title="Events Over Time">
       <:actions>
         <span class="sr-ops-select">{@time_window_label}</span>
       </:actions>
       <.events_body security_trend={@security_trend} security_trend_max={@security_trend_max} />
     </Common.panel>
 
-    <div :if={@embedded}>
-      <div class="sr-ops-observability-pane-header">
-        <h3>Events Over Time</h3>
-        <span class="sr-ops-select">{@time_window_label}</span>
-      </div>
-      <.events_body security_trend={@security_trend} security_trend_max={@security_trend_max} />
-    </div>
+    <.events_body
+      :if={@embedded}
+      security_trend={@security_trend}
+      security_trend_max={@security_trend_max}
+    />
     """
   end
 

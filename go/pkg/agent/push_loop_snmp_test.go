@@ -83,3 +83,118 @@ func TestBuildSNMPDrainedResultsPreservesCounterSemantics(t *testing.T) {
 	require.Equal(t, 7, *result.IfIndex)
 	require.Equal(t, observedAt, result.Timestamp)
 }
+
+func TestBuildSNMPDrainedResultsTagsWalkedIfTableRows(t *testing.T) {
+	statuses := map[string]snmpchecker.TargetStatus{
+		"udm": {
+			HostIP: "192.168.2.254",
+			Target: &snmpchecker.Target{
+				OIDs: []snmpchecker.OIDConfig{
+					{
+						OID:      ".1.3.6.1.2.1.31.1.1.1.6",
+						Name:     "ifInOctets",
+						DataType: snmpchecker.TypeCounter,
+						Scale:    1,
+						Delta:    true,
+						Mode:     snmpchecker.ModeWalk,
+					},
+					{
+						OID:      ".1.3.6.1.2.1.31.1.1.1.6.13",
+						Name:     "ifInOctets::ifindex:13",
+						DataType: snmpchecker.TypeCounter,
+						Scale:    1,
+						Delta:    true,
+					},
+				},
+			},
+		},
+	}
+
+	observedAt := time.Date(2026, 8, 20, 6, 57, 0, 0, time.UTC)
+	metrics := map[string][]snmpchecker.DataPoint{
+		"udm|ifInOctets::index:13": {
+			{
+				OIDName:      "ifInOctets::index:13",
+				OIDIndex:     "13",
+				Value:        uint64(100),
+				RawValue:     uint64(100),
+				Timestamp:    observedAt,
+				DataType:     snmpchecker.TypeCounter,
+				Kind:         "sum",
+				Temporality:  "cumulative",
+				IsMonotonic:  true,
+				CounterWidth: 64,
+			},
+		},
+		"udm|ifInOctets::index:520": {
+			{
+				OIDName:      "ifInOctets::index:520",
+				OIDIndex:     "520",
+				Value:        uint64(200),
+				RawValue:     uint64(200),
+				Timestamp:    observedAt,
+				DataType:     snmpchecker.TypeCounter,
+				Kind:         "sum",
+				Temporality:  "cumulative",
+				IsMonotonic:  true,
+				CounterWidth: 64,
+			},
+		},
+	}
+
+	results := (&PushLoop{}).buildSNMPDrainedResults(statuses, metrics)
+	require.Len(t, results, 2)
+
+	byIndex := map[int]snmpMetricResult{}
+	for _, result := range results {
+		require.NotNil(t, result.IfIndex, "walked IF-MIB rows must carry ifIndex, got %+v", result)
+		byIndex[*result.IfIndex] = result
+	}
+
+	row13 := byIndex[13]
+	require.Equal(t, "ifInOctets", row13.Metric)
+	require.Equal(t, "ifindex:13", row13.InterfaceUID)
+	require.Equal(t, ".1.3.6.1.2.1.31.1.1.1.6.13", row13.OID)
+
+	row520 := byIndex[520]
+	require.Equal(t, "ifInOctets", row520.Metric)
+	require.Equal(t, "ifindex:520", row520.InterfaceUID)
+	require.Equal(t, ".1.3.6.1.2.1.31.1.1.1.6.520", row520.OID)
+}
+
+func TestBuildSNMPDrainedResultsDoesNotTreatNonIfTableWalkIndexAsIfIndex(t *testing.T) {
+	statuses := map[string]snmpchecker.TargetStatus{
+		"clearpass": {
+			HostIP: "10.0.0.8",
+			Target: &snmpchecker.Target{
+				OIDs: []snmpchecker.OIDConfig{
+					{
+						OID:      ".1.3.6.1.4.1.14823.1.6.1.1.3.1.1.4",
+						Name:     "cppmServiceCount",
+						DataType: snmpchecker.TypeGauge,
+						Scale:    1,
+						Mode:     snmpchecker.ModeWalk,
+					},
+				},
+			},
+		},
+	}
+
+	metrics := map[string][]snmpchecker.DataPoint{
+		"clearpass|cppmServiceCount::index:3": {
+			{
+				OIDName:   "cppmServiceCount::index:3",
+				OIDIndex:  "3",
+				Value:     uint64(12),
+				Timestamp: time.Date(2026, 8, 20, 6, 57, 0, 0, time.UTC),
+				DataType:  snmpchecker.TypeGauge,
+			},
+		},
+	}
+
+	results := (&PushLoop{}).buildSNMPDrainedResults(statuses, metrics)
+	require.Len(t, results, 1)
+	require.Equal(t, "cppmServiceCount", results[0].Metric)
+	require.Equal(t, "index:3", results[0].InterfaceUID)
+	require.Nil(t, results[0].IfIndex)
+}

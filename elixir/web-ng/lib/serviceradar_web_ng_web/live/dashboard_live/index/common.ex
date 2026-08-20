@@ -5,19 +5,32 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Index.Common do
   attr(:card, :map, required: true)
 
   def kpi_card(assigns) do
+    loading? = Map.get(assigns.card, :loading, false)
+
+    assigns = assign(assigns, :loading?, loading?)
+
     ~H"""
     <.link
       href={@card.href}
-      class={["sr-ops-kpi-card", "sr-ops-kpi-card-link", "tone-#{@card.tone}"]}
+      class={[
+        "sr-ops-kpi-card",
+        "sr-ops-kpi-card-link",
+        "tone-#{@card.tone}",
+        @loading? && "is-loading"
+      ]}
       aria-label={@card.aria_label}
+      aria-busy={@loading?}
+      data-loading={to_string(@loading?)}
     >
       <div class="sr-ops-kpi-icon">
         <.icon name={@card.icon} class="size-9" />
       </div>
       <div class="min-w-0">
         <p>{@card.title}</p>
-        <strong>{@card.value}</strong>
-        <span>{@card.detail}</span>
+        <span :if={@loading?} class="skeleton mt-1 h-7 w-16 rounded-sm"></span>
+        <strong :if={!@loading?}>{@card.value}</strong>
+        <span :if={@loading?} class="skeleton mt-1 h-3 w-24 rounded-sm"></span>
+        <span :if={!@loading?}>{@card.detail}</span>
       </div>
       <.sparkline values={@card.sparkline} tone={@card.tone} class="sr-ops-kpi-sparkline" />
     </.link>

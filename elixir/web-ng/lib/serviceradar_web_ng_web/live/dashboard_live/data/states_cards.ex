@@ -46,6 +46,39 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Data.StatesCards do
         |> Enum.map(&elem(&1, 0))
       end
 
+      defp apply_kpi_loading(cards, loading) when is_map(loading) do
+        Enum.map(cards, fn card ->
+          Map.put(card, :loading, kpi_title_loading?(card.title, loading))
+        end)
+      end
+
+      defp apply_kpi_loading(cards, _loading), do: Enum.map(List.wrap(cards), &Map.put(&1, :loading, false))
+
+      defp kpi_title_loading?("Total Assets", loading), do: Map.get(loading, :assets, false)
+      defp kpi_title_loading?("Threat Level", loading), do: Map.get(loading, :threat, false)
+      defp kpi_title_loading?("Network Health", loading), do: Map.get(loading, :network_health, false)
+      defp kpi_title_loading?("Camera Fleet", loading), do: Map.get(loading, :camera, false)
+      defp kpi_title_loading?("Wi-Fi Coverage", loading), do: Map.get(loading, :survey, false)
+      defp kpi_title_loading?("Active Alerts", loading), do: Map.get(loading, :alerts, false)
+      defp kpi_title_loading?("Recent Events", loading), do: Map.get(loading, :events, false)
+      defp kpi_title_loading?(_title, _loading), do: false
+
+      defp default_kpi_loading do
+        %{
+          assets: true,
+          threat: true,
+          network_health: true,
+          camera: true,
+          survey: true,
+          alerts: true,
+          events: true
+        }
+      end
+
+      defp loaded_kpi_loading do
+        Map.new(default_kpi_loading(), fn {key, _value} -> {key, false} end)
+      end
+
       defp kpi_cards(device, services, flows, camera, survey, alerts, events, sparklines) do
         [
           %{

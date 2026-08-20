@@ -702,6 +702,13 @@ func (c *githubClient) isGitHub() bool {
 	return strings.Contains(host, "api.github.com") || strings.Contains(host, "github.com")
 }
 
+func (c *githubClient) publicDownloadBase() string {
+	if c.isGitHub() {
+		return "https://github.com"
+	}
+	return c.baseURL
+}
+
 func (c *githubClient) apiPrefix() string {
 	if c.isGitHub() {
 		return c.baseURL
@@ -1002,8 +1009,15 @@ func multipartFileBody(file *os.File, fieldName, uploadName string) (*io.PipeRea
 }
 
 func (c *githubClient) getReleaseAssetDownloadURL(tag, assetName string) (string, error) {
+	downloadURL := fmt.Sprintf(
+		"%s/%s/releases/download/%s/%s",
+		c.publicDownloadBase(),
+		c.repo,
+		url.PathEscape(tag),
+		url.PathEscape(assetName),
+	)
 	if c.dryRun {
-		return fmt.Sprintf("%s/%s/releases/download/%s/%s", c.baseURL, c.repo, url.PathEscape(tag), url.PathEscape(assetName)), nil
+		return downloadURL, nil
 	}
 
 	rel, err := c.getReleaseByTag(tag)
@@ -1014,7 +1028,15 @@ func (c *githubClient) getReleaseAssetDownloadURL(tag, assetName string) (string
 		return "", fmt.Errorf("%w: release %q not found", errAssetDownloadURL, tag)
 	}
 	for _, asset := range rel.Assets {
-		if asset.Name == assetName && strings.TrimSpace(asset.BrowserDownloadURL) != "" {
+		if asset.Name != assetName {
+			continue
+		}
+		if c.isGitHub() {
+			// Draft GitHub assets advertise /releases/download/untagged-<id>/...
+			// That path 404s after the release is published. The tag path is stable.
+			return downloadURL, nil
+		}
+		if strings.TrimSpace(asset.BrowserDownloadURL) != "" {
 			return asset.BrowserDownloadURL, nil
 		}
 	}

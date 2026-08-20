@@ -14,7 +14,7 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Index.MetricsPanel do
       |> Map.put_new(:observability_metrics, [])
 
     ~H"""
-    <Common.panel :if={!@embedded} title="Observability Metrics" class="lg:col-span-4">
+    <Common.panel :if={!@embedded} title="Observability Metrics">
       <.metrics_grid observability_metrics={@observability_metrics} />
     </Common.panel>
 

@@ -113,7 +113,8 @@ defmodule ServiceRadar.Edge.ReleaseArtifactMirror do
          {:ok, sha256} <-
            require_present(sha256, "release artifact #{index + 1} is missing sha256"),
          :ok <- validate_url.(source_url),
-         {:ok, data} <- download_source_artifact(source_url, timeout, validate_url, http_get),
+         {:ok, data} <-
+           download_source_artifact(version, source_url, timeout, validate_url, http_get),
          :ok <- verify_sha256(data, sha256),
          {:ok, object_key, file_name} <- object_key(version, artifact),
          metadata =
@@ -155,10 +156,66 @@ defmodule ServiceRadar.Edge.ReleaseArtifactMirror do
     end
   end
 
-  defp download_source_artifact(source_url, timeout, validate_url, http_get) do
-    with_temp_file("release-artifact-mirror", fn tmp_path ->
-      stream_download(source_url, timeout, validate_url, http_get, tmp_path, 0)
+  defp download_source_artifact(version, source_url, timeout, validate_url, http_get) do
+    version
+    |> download_url_candidates(source_url)
+    |> Enum.reduce_while({:error, "artifact download failed with HTTP 404"}, fn url, acc ->
+      case validate_url.(url) do
+        :ok ->
+          case with_temp_file("release-artifact-mirror", fn tmp_path ->
+                 stream_download(url, timeout, validate_url, http_get, tmp_path, 0)
+               end) do
+            {:ok, data} ->
+              {:halt, {:ok, data}}
+
+            {:error, "artifact download failed with HTTP 404"} ->
+              {:cont, acc}
+
+            {:error, reason} ->
+              {:halt, {:error, reason}}
+          end
+
+        {:error, reason} ->
+          {:halt, {:error, reason}}
+      end
     end)
+  end
+
+  # GitHub draft uploads advertise /releases/download/untagged-<id>/... That
+  # path 404s once the release is published under the version tag. Keep the
+  # signed manifest URL, but retry the stable tag path when mirroring.
+  defp download_url_candidates(version, source_url) do
+    [source_url | github_published_tag_urls(version, source_url)]
+    |> Enum.reject(&is_nil/1)
+    |> Enum.uniq()
+  end
+
+  defp github_published_tag_urls(version, source_url) do
+    uri = URI.parse(to_string(source_url))
+
+    with "github.com" <- uri.host,
+         path when is_binary(path) <- uri.path,
+         [_, repo] <- Regex.run(~r"^/([^/]+/[^/]+)/releases/download/untagged-[^/]+/", path) do
+      basename = Path.basename(path)
+
+      version
+      |> github_tag_candidates()
+      |> Enum.map(fn tag ->
+        "https://github.com/#{repo}/releases/download/#{URI.encode(tag)}/#{basename}"
+      end)
+    else
+      _ -> []
+    end
+  end
+
+  defp github_tag_candidates(version) do
+    version = version |> to_string() |> String.trim()
+
+    cond do
+      version == "" -> []
+      String.starts_with?(version, "v") -> [version]
+      true -> ["v" <> version, version]
+    end
   end
 
   defp stream_download(url, timeout, validate_url, http_get, tmp_path, redirect_count) do
