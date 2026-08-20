@@ -116,6 +116,58 @@ func TestResolveStagedAddonUnitEscapeGuard(t *testing.T) {
 	}
 }
 
+func TestScalibrSystemdUnitRelabelsStagedBinary(t *testing.T) {
+	assertSystemdUnitRelabelsStagedBinary(t,
+		filepath.Join("..", "..", "..", "addons", "scalibr-endpoint-inventory",
+			"serviceradar-scalibr-endpoint-inventory.service"),
+		"/var/lib/serviceradar/agent/addons/scalibr-endpoint-inventory/current/serviceradar-scalibr-endpoint-inventory",
+	)
+}
+
+func TestBumblebeeSystemdUnitRelabelsStagedBinary(t *testing.T) {
+	assertSystemdUnitRelabelsStagedBinary(t,
+		filepath.Join("..", "..", "..", "addons", "bumblebee-scan",
+			"serviceradar-bumblebee-scan.service"),
+		"/var/lib/serviceradar/agent/addons/bumblebee/current/serviceradar-bumblebee-scan",
+	)
+}
+
+func assertSystemdUnitRelabelsStagedBinary(t *testing.T, unitPath, stagedBinary string) {
+	t.Helper()
+	unitBytes, err := os.ReadFile(unitPath)
+	if err != nil {
+		t.Fatalf("read unit %s: %v", unitPath, err)
+	}
+	unit := string(unitBytes)
+	if !strings.Contains(unit, "ExecStartPre=+/bin/sh -c '/usr/bin/chcon -t bin_t ") {
+		t.Fatal("unit must relabel the staged binary before exec (SELinux var_lib_t -> 203/EXEC)")
+	}
+	if !strings.Contains(unit, stagedBinary) {
+		t.Fatalf("unit ExecStartPre must target the staged current/ binary %s", stagedBinary)
+	}
+}
+
+func TestStagedAddonExecutablesSelectsBinariesOnly(t *testing.T) {
+	tmp := t.TempDir()
+	addonsRoot := filepath.Join(tmp, addonsDirName)
+	stageTestAddonUnit(t, addonsRoot, "serviceradar-np.service", "[Service]\nExecStart=/bin/true\n")
+	versionDir := filepath.Join(addonsRoot, "np", addonVersionsDir, "1.0.0")
+	if err := os.WriteFile(filepath.Join(versionDir, "serviceradar-np"), []byte("bin"), 0o755); err != nil {
+		t.Fatalf("write binary: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(versionDir, "config.json"), []byte(`{}`), 0o644); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(versionDir, "probe.o"), []byte("obj"), 0o755); err != nil {
+		t.Fatalf("write object: %v", err)
+	}
+
+	got := stagedAddonExecutables(tmp, "np")
+	if len(got) != 1 || filepath.Base(got[0]) != "serviceradar-np" {
+		t.Fatalf("stagedAddonExecutables = %v, want [serviceradar-np]", got)
+	}
+}
+
 func TestInstallAddonSystemdUnitsValidation(t *testing.T) {
 	// No units -> ErrAddonSystemdNoUnits (before any systemctl/exec).
 	if err := InstallAddonSystemdUnits(context.Background(), AddonSystemdInstallRequest{AddonID: "np"}); !errors.Is(err, ErrAddonSystemdNoUnits) {
