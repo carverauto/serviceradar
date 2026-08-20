@@ -245,6 +245,7 @@ defmodule ServiceradarConfig.Validator do
   defp dgraph_field(d, "host"), do: str_value(Map.get(d, :host))
   defp dgraph_field(d, "port"), do: num_value(Map.get(d, :port))
   defp dgraph_field(d, "tls_mode"), do: enum_value(Map.get(d, :tls_mode))
+  defp dgraph_field(d, "ca_bundle_url"), do: str_value(Map.get(d, :ca_bundle_url))
   defp dgraph_field(_d, _), do: :unknown
 
   defp str_value(nil), do: :absent

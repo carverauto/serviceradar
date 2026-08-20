@@ -107,6 +107,9 @@ elixir_library(
         srcs = [":config_ex"],
         outs = [f + ".generated.ex"],
         cmd = "cp $(location :config_ex)/config/proto/" + f + ".pb.ex $@",
+        # Visible to the bindings package so its write-back target can refresh the committed
+        # copies without anyone reaching into bazel-out.
+        visibility = ["//config/proto_bindings/elixir/lib/serviceradar_config/proto:__pkg__"],
     )
     for f in [
         "config",
