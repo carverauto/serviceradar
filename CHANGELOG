@@ -1,3 +1,32 @@
+# ServiceRadar v1.4.39
+
+Turns on SNMP table walks from the control plane, adds the NCO
+validation-run API, and lands the farm01-tested dashboard, trap, and
+addon-exec fixes.
+
+## Whats New
+
+**1.4.39**
+- SNMP: opt-in walk mode on the agent collector (GETBULK/GETNEXT,
+  row and time bounds). Empty proto mode stays GET. (PR #3803)
+- SNMP: profiles can set OID `mode`, `max_rows`, and
+  `walk_timeout_seconds` through the control plane. (PR #3809)
+- NCO: `POST/GET /api/v1/validation-runs` re-probes hosts from a
+  composite check's vantage agents. (PR #3807)
+- Dashboard: renderer preferences persist on reload. (PR #3805)
+- Dashboard: operations layout fills the leftover hole between the
+  map and the side panels. (PR #3812)
+- Plugins: changing a producer schedule's cadence, cron, or timezone
+  recomputes `next_due_at`. (PR #3804)
+- Agent: ScaLibr and Bumblebee exec unsticks on SELinux Enforcing.
+  (PR #3811)
+- Traps: trapd publishes `source_ip` and a human-readable body.
+  (PR #3813)
+- Config: unified configuration schema, rule set, and managers.
+  (PR #3789)
+- Wasm plugins consume `github.com/carverauto/serviceradar-sdk-go`
+  v0.3.0. (PR #3808)
+
 # ServiceRadar v1.4.38
 
 Lands the leftover dashboard and device-details UI that missed 1.4.37,
