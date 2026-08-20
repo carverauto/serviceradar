@@ -90,6 +90,26 @@ Keep this managed block so 'openspec update' can refresh the instructions.
 
   Historical note: PR #4677 chased Dialyzer counts with apply/opaque barriers and
   MapSet churn; it was fully reverted in #4679. Do not reintroduce that style.
+- **Never read generated Bazel output.** No `cp` out of `bazel-out`, no `bazel info
+  bazel-bin` plus a path, no `bazel cquery --output=files` followed by reading the file. The
+  output tree is a cache, not an interface: it can be wiped at any time, and its path encodes
+  the configuration that produced it, so an artifact found under `bazel-out/rbe_platform-opt/`
+  is whatever happened to be built with that platform and compilation mode — the same command
+  with a different `-c` or `--config` silently reads something else, or nothing.
+
+  This tree hides the path deliberately: `//.bazelrc` sets
+  `--experimental_convenience_symlinks=clean`, so there is no `bazel-out` symlink at the
+  workspace root. A copy that appears to do nothing there is that guard working. Do not route
+  around it by resolving an absolute path by hand.
+
+  Express the need as a target instead: a `filegroup` consumed as a declared input, or
+  `write_source_files` from `aspect_bazel_lib` to copy an artifact back into the tree. When a
+  generated file must be committed — protoc output embedded with `include_bytes!` so `cargo`
+  works without Bazel, generated bindings — the pattern is a committed copy, a `diff_test`
+  that says when it is stale, and a write-back target that makes it current. See
+  `//config/manager_config/rust:update_embedded_instances`, which copies from runfiles. If a
+  write-back target is missing, add one rather than doing the copy by hand.
+
 - **No shell scripts. Everything is a Bazel target.** Do not add a script under
   `scripts/`, and do not extend an existing one. Build, test, provisioning, teardown,
   packaging and publishing are Bazel targets invoked with `bazel build` / `bazel test` /

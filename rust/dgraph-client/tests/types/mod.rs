@@ -3,6 +3,8 @@
  */
 
 #[cfg(test)]
+mod ca_certificate_tests;
+
 mod client_config_tests;
 #[cfg(test)]
 mod connection_string_tests;

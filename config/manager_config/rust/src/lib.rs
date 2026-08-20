@@ -22,6 +22,7 @@ pub use errors::{LoadError, SelectorError};
 pub use rules::built_ins;
 pub use secrets::{
     DATABASE_ADMIN_PASSWORD, DATABASE_CA_CERT, DATABASE_CLIENT_CERT, DATABASE_CLIENT_KEY,
+    DGRAPH_CA_CERT,
     DATABASE_PASSWORD,
 };
 pub use traits::{Filesystem, ReadSource};

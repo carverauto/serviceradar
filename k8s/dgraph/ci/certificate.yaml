@@ -2,9 +2,9 @@
 #
 # Self-signed rather than ACME because the fixture is reached at
 # `*.dgraph-ci.svc.cluster.local`, and no public CA will issue for a name it cannot resolve.
-# The consequence is stated in ../README.md: rust/dgraph-client verifies against system roots
-# only, so CI callers use `sslmode=require` -- encrypted, unauthenticated -- unless the CA
-# below is installed into the caller's trust store.
+# That is no longer a downgrade: rust/dgraph-client verifies against a supplied CA instead of
+# the system roots, so CI callers get real authentication with `sslmode=verify-ca` plus the CA
+# from `dgraph.ca_cert` (or `sslrootcert=` pointing at a mount of it).
 apiVersion: cert-manager.io/v1
 kind: Issuer
 metadata:
@@ -50,10 +50,12 @@ metadata:
   namespace: dgraph-ci
 spec:
   secretName: dgraph-dgraph-alpha-tls-secret
+  # Equals `dgraph.host` in config/environments/ci.textproto: verification is against the name
+  # dialed, so the certificate and the config move together.
   commonName: dgraph-dgraph-alpha.dgraph-ci.svc.cluster.local
   dnsNames:
-    # Every name a caller might dial. Verification is against the name dialed, so the headless
-    # per-pod name matters as much as the service name.
+    # Every name a caller might dial. The headless per-pod name matters as much as the service
+    # name, because a client that reaches a pod directly verifies against that name.
     - dgraph-dgraph-alpha.dgraph-ci.svc.cluster.local
     - dgraph-dgraph-alpha-headless.dgraph-ci.svc.cluster.local
     - "*.dgraph-dgraph-alpha-headless.dgraph-ci.svc.cluster.local"

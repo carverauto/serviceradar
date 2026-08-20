@@ -1,6 +1,7 @@
 # gazelle:ignore
 
 load("@crates//:defs.bzl", "all_crate_deps")
+load("@aspect_bazel_lib//lib:write_source_files.bzl", "write_source_files")
 load("@bazel_skylib//rules:diff_test.bzl", "diff_test")
 load("@rules_rs//rs:rust_library.bzl", "rust_library")
 
@@ -39,6 +40,24 @@ rust_library(
         "//config/proto_bindings/rust:config_schema",
         "//config/manager_validator/rust:validator",
     ],
+)
+
+# Refresh the committed copies after editing a textproto:
+#
+#   bazel run //config/manager_config/rust:update_embedded_instances
+#
+# The drift tests below say WHEN these are stale; this is what makes them current. It exists so
+# nobody has to reach into bazel-out, which is a per-configuration path that the tree
+# deliberately hides -- //.bazelrc sets --experimental_convenience_symlinks=clean, so there is
+# no bazel-out symlink to copy from and any absolute path found by hand encodes the platform
+# and compilation mode it happened to be built with.
+write_source_files(
+    name = "update_embedded_instances",
+    files = {
+        "src/ruleset.binpb": "//config/rules:ruleset_binpb",
+        "src/ci.binpb": "//config/environments:ci_binpb",
+        "src/localhost.binpb": "//config/environments:localhost_binpb",
+    },
 )
 
 # The embedded copy must equal protoc's output for the committed textproto.

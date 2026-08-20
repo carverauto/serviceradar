@@ -62,13 +62,11 @@ alpha:
       cpu: "8"
       memory: 16Gi
 
-  # SERVER TLS WITH REAL VERIFICATION.
+  # SERVER TLS WITH REAL VERIFICATION, against an in-cluster CA.
   #
-  # The certificate comes from cert-manager (./certificate.yaml) via `carverauto-issuer`, an
-  # ACME/Let's Encrypt issuer. That matters for the client, not for Dgraph: the chain ends at a
-  # public root that is ALREADY in every container's trust store, so rust/dgraph-client's
-  # `sslmode=verify-ca` -- which can only use system roots -- authenticates the server with no
-  # CA plumbing at all. A privately-issued certificate would not, however correct it is.
+  # rust/dgraph-client verifies a supplied CA instead of the system roots, so the certificate
+  # can be privately issued for the `*.svc.cluster.local` name the config contract names. The
+  # CA reaches callers as the `dgraph.ca_cert` secret.
   tls:
     enabled: true
     # EMPTY ON PURPOSE. templates/alpha/secret-tls.yaml only creates the secret when this is
@@ -90,24 +88,6 @@ alpha:
     --tls "ca-cert=/dgraph/tls/ca.crt; server-cert=/dgraph/tls/tls.crt;
     server-key=/dgraph/tls/tls.key; internal-port=true"
 
-  # gRPC ingress for external clients. The host must match the certificate SAN in
-  # ./certificate.yaml, and rust/dgraph-client must dial that same name -- verification is
-  # against the name it dialed, not the address it reached.
-  ingress_grpc:
-    enabled: true
-    className: nginx
-    annotations:
-      nginx.ingress.kubernetes.io/backend-protocol: GRPCS
-      external-dns.alpha.kubernetes.io/hostname: dgraph.serviceradar.cloud
-    hosts:
-      - host: dgraph.serviceradar.cloud
-        paths:
-          - path: /
-            pathType: Prefix
-    tls:
-      - secretName: dgraph-alpha-tls
-        hosts:
-          - dgraph.serviceradar.cloud
 
 ratel:
   enabled: false

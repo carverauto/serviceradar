@@ -1,16 +1,50 @@
-# Server certificate for the demo Alpha listener.
+# In-cluster CA and Alpha certificate for demo.
 #
-# Issued by `carverauto-issuer`, the cluster's ACME/Let's Encrypt ClusterIssuer with a
-# Cloudflare DNS-01 solver -- DNS-01 so the name never has to be reachable on :80 to validate.
-#
-# WHY A PUBLIC ISSUER FOR AN INTERNAL DATABASE: rust/dgraph-client verifies with
-# `ClientTlsConfig::new().with_native_roots()` and exposes no way to pin a private CA. A
-# Let's Encrypt chain is already in the client's trust store, so `sslmode=verify-ca` just
-# works. A self-signed issuer here silently downgrades every caller to `sslmode=require`.
-#
-# secretName IS the name the chart's StatefulSet mounts. The chart only templates that secret
-# itself when `alpha.tls.files` is non-empty (templates/alpha/secret-tls.yaml); values.yaml
-# leaves it `{}`, so cert-manager owns it and renewal lands in the mount with no copy step.
+# Private, not ACME. The config contract puts Dgraph at
+# `dgraph-dgraph-alpha.dgraph.svc.cluster.local:9080` -- a name no public authority will sign
+# -- and rust/dgraph-client now verifies against a supplied CA instead of the system roots
+# (`sslrootcert`, or ClientConfigBuilder::ca_certificate). So the trust anchor is ours, the
+# endpoint stays inside the cluster, and there is no ingress or public DNS to maintain.
+apiVersion: cert-manager.io/v1
+kind: Issuer
+metadata:
+  name: dgraph-selfsigned
+  namespace: dgraph
+spec:
+  selfSigned: {}
+---
+# A CA rather than a self-signed leaf, so clients have a root to trust. A bare leaf could only
+# be pinned, and pinning breaks on every renewal.
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: dgraph-ca
+  namespace: dgraph
+spec:
+  isCA: true
+  commonName: dgraph-ca
+  secretName: dgraph-ca
+  duration: 87600h
+  renewBefore: 720h
+  privateKey:
+    algorithm: ECDSA
+    size: 256
+  issuerRef:
+    name: dgraph-selfsigned
+    kind: Issuer
+    group: cert-manager.io
+---
+apiVersion: cert-manager.io/v1
+kind: Issuer
+metadata:
+  name: dgraph-ca-issuer
+  namespace: dgraph
+spec:
+  ca:
+    secretName: dgraph-ca
+---
+# secretName IS what the chart's StatefulSet mounts. `alpha.tls.files` stays `{}` in
+# values.yaml so cert-manager owns this secret and renewal reaches the pod with no copy step.
 apiVersion: cert-manager.io/v1
 kind: Certificate
 metadata:
@@ -18,21 +52,18 @@ metadata:
   namespace: dgraph
 spec:
   secretName: dgraph-dgraph-alpha-tls-secret
-  # The name clients dial, and the name verification is performed against. Keep in step with
-  # `alpha.ingress_grpc` in ./values.yaml -- a mismatch fails the handshake, not the routing.
-  commonName: dgraph.serviceradar.cloud
+  # Must equal the `dgraph.host` in config/environments/{demo,saas}.textproto: verification is
+  # against the name dialed. These two move together or the handshake fails.
+  commonName: dgraph-dgraph-alpha.dgraph.svc.cluster.local
   dnsNames:
-    - dgraph.serviceradar.cloud
-  issuerRef:
-    name: carverauto-issuer
-    kind: ClusterIssuer
-    group: cert-manager.io
+    - dgraph-dgraph-alpha.dgraph.svc.cluster.local
+    - dgraph-dgraph-alpha-headless.dgraph.svc.cluster.local
+    - "*.dgraph-dgraph-alpha-headless.dgraph.svc.cluster.local"
   privateKey:
     algorithm: ECDSA
     size: 256
-    # Dgraph cannot read a password-protected key; cert-manager does not write one. Stated
-    # here because this is where the constraint would be violated.
     encoding: PKCS8
-  # Let's Encrypt issues for 90 days; renew with a month to spare.
-  duration: 2160h
-  renewBefore: 720h
+  issuerRef:
+    name: dgraph-ca-issuer
+    kind: Issuer
+    group: cert-manager.io

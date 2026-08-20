@@ -37,6 +37,15 @@ defmodule ServiceradarSecret.Names do
   """
   def database_ca_cert, do: "database.ca_cert"
 
+  @doc """
+  PEM for the CA the Dgraph Alpha certificate chains to.
+
+  Separate from `database_ca_cert/0` because they are separate trust decisions: Dgraph is
+  issued by an in-cluster CA for a name no public authority will sign, and the client verifies
+  against this CA instead of the system roots.
+  """
+  def dgraph_ca_cert, do: "dgraph.ca_cert"
+
   @doc "PEM client certificate, for a server that requires mutual TLS."
   def database_client_cert, do: "database.client_cert"
 

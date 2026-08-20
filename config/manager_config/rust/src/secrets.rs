@@ -25,6 +25,14 @@ pub const DATABASE_ADMIN_PASSWORD: &str = "database.admin_password";
 /// from running anywhere but one machine.
 pub const DATABASE_CA_CERT: &str = "database.ca_cert";
 
+/// PEM for the CA the Dgraph Alpha certificate chains to.
+///
+/// Separate from [`DATABASE_CA_CERT`] because they are separate trust decisions: Dgraph is
+/// issued by an in-cluster CA for a `*.svc.cluster.local` name no public authority will sign,
+/// and dgraph-client verifies against this CA INSTEAD OF the system roots. Sharing one
+/// constant would silently widen whichever of the two has the weaker issuer.
+pub const DGRAPH_CA_CERT: &str = "dgraph.ca_cert";
+
 /// PEM client certificate, for a server that requires mutual TLS.
 pub const DATABASE_CLIENT_CERT: &str = "database.client_cert";
 

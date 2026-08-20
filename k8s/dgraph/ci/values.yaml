@@ -59,13 +59,9 @@ alpha:
       cpu: "4"
       memory: 8Gi
 
-  # TLS ON, verification OFF at the client.
-  #
-  # The listener is encrypted, but rust/dgraph-client verifies only against the SYSTEM trust
-  # store (`ClientTlsConfig::new().with_native_roots()`) and has no option to pin a private CA.
-  # A cluster-internal name cannot hold a publicly-trusted certificate, so CI callers use
-  # `sslmode=require`: encrypted, unauthenticated, which is what a private namespace already is.
-  # To get real verification here instead, see README, "Trusting the CI CA".
+  # TLS ON, and verified: rust/dgraph-client takes a CA to verify against instead of the
+  # system roots, so a privately-issued certificate for the in-cluster name is authenticated
+  # rather than merely encrypted. The CA reaches callers as the `dgraph.ca_cert` secret.
   tls:
     enabled: true
     # Empty on purpose: the chart only templates the secret when this is non-empty, while the
