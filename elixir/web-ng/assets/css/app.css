@@ -2659,7 +2659,7 @@ table:has(.sr-ui-dropdown) td:has(.sr-ui-dropdown) {
    instead of stretching into an empty second row. */
 .sr-ops-grid-primary > .sr-ops-map-panel > .sr-ops-map-shell {
   flex: 1 1 auto;
-  min-height: 26rem;
+  min-height: 14rem;
 }
 
 .sr-ops-grid-primary > .sr-ops-map-panel > .sr-ops-map-stats {
@@ -2694,7 +2694,7 @@ table:has(.sr-ui-dropdown) td:has(.sr-ui-dropdown) {
 .sr-ops-observability-split {
   display: grid;
   grid-template-columns: minmax(0, 1fr);
-  grid-template-rows: minmax(12.8rem, 1fr) auto;
+  grid-template-rows: minmax(6.8rem, 1fr) auto;
   gap: 0.5rem;
   min-width: 0;
   flex: 1;
@@ -2748,7 +2748,7 @@ table:has(.sr-ui-dropdown) td:has(.sr-ui-dropdown) {
 }
 
 .sr-ops-observability-split .sr-ops-metric-sparkline-wrap {
-  height: 2.4rem;
+  height: 5.4rem;
   margin-top: 0.14rem;
 }
 
@@ -2756,7 +2756,7 @@ table:has(.sr-ui-dropdown) td:has(.sr-ui-dropdown) {
 .sr-ops-observability-split .sr-ops-empty-chart,
 .sr-ops-observability-split .sr-ops-events-area-chart {
   flex: 1 1 auto;
-  min-height: 12.8rem;
+  min-height: 6.8rem;
 }
 
 .sr-ops-observability-split .sr-ops-security-chart {
@@ -3302,7 +3302,7 @@ table:has(.sr-ui-dropdown) td:has(.sr-ui-dropdown) {
 
 .sr-ops-grid-primary .sr-ops-map-shell {
   flex: 1 1 auto;
-  min-height: 26rem;
+  min-height: 14rem;
 }
 
 .sr-ops-traffic-canvas {
@@ -5658,7 +5658,7 @@ table:has(.sr-ui-dropdown) td:has(.sr-ui-dropdown) {
 .sr-ops-threat-toolbar {
   min-width: 0;
   display: grid;
-  grid-template-columns: minmax(13rem, 0.9fr) minmax(0, 1.7fr);
+  grid-template-columns: minmax(0, 9.5rem) minmax(0, 1fr);
   align-items: stretch;
   gap: 0.4rem;
 }
@@ -5748,11 +5748,14 @@ table:has(.sr-ui-dropdown) td:has(.sr-ui-dropdown) {
 
 .sr-ops-threat-stat-grid .sr-ops-small-stat {
   min-height: 0;
-  padding: 0.18rem 0.42rem;
+  padding: 0.18rem 0.28rem;
   border-radius: 0;
 }
 
 .sr-ops-threat-stat-grid .sr-ops-small-stat span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   font-size: 0.62rem;
   line-height: 1.2;
 }
@@ -7189,13 +7192,13 @@ table:has(.sr-ui-dropdown) td:has(.sr-ui-dropdown) {
 
   .sr-ops-map-shell,
   .sr-ops-empty-chart {
-    min-height: 18rem;
+    min-height: 14rem;
   }
 
   .sr-ops-observability-split .sr-ops-security-chart,
   .sr-ops-observability-split .sr-ops-empty-chart,
   .sr-ops-observability-split .sr-ops-events-area-chart {
-    min-height: 12rem;
+    min-height: 6.8rem;
   }
 
   .sr-ops-observability-split .sr-ops-metric-grid {
