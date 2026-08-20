@@ -8,6 +8,7 @@ module(
 bazel_dep(name = "rules_go", version = "0.62.0", repo_name = "io_bazel_rules_go")
 bazel_dep(name = "gazelle", version = "0.51.3", repo_name = "bazel_gazelle")
 bazel_dep(name = "rules_rs", version = "0.0.99")
+
 # Fork carrying the vendoring work
 git_override(
     module_name = "rules_rs",
@@ -51,12 +52,11 @@ bazel_dep(name = "rules_foreign_cc", version = "0.15.1")
 bazel_dep(name = "aspect_rules_js", version = "2.6.0")
 bazel_dep(name = "aspect_rules_ts", version = "3.7.0")
 bazel_dep(name = "rules_cc", version = "0.2.22")
-
 # OpenSSL as cc_library; The one consumer is openssl-sys (annotation below), which in turn feeds pq-src.
 bazel_dep(name = "openssl", version = "3.5.5.bcr.4")
 bazel_dep(name = "buildifier_prebuilt", version = "8.5.1.3")
 bazel_dep(name = "aspect_bazel_lib", version = "2.22.5")
-bazel_dep(name = "llvm", version = "0.8.17")
+bazel_dep(name = "llvm", version = "0.8.18")
 bazel_dep(name = "toolchains_buildbuddy", version = "0.0.4", repo_name = "io_buildbuddy_buildbuddy_toolchain")
 
 # rules_go/gazelle pull package_metadata transitively. Prefer the Bazel mirror
@@ -114,7 +114,7 @@ git_override(
 # Registry -- drop this override once it is published and the bazel_dep above resolves on its own.
 git_override(
     module_name = "rules_elixir",
-    commit = "832a95b44eb2e4bc60f133d3bb1101b6458bfb95",
+    commit = "31e99980a43598211d2a6c5fbb893a21a9c0644b",
     remote = "https://github.com/bazelverse/rules_elixir.git",
 )
 
@@ -317,16 +317,38 @@ llvm = use_extension("@llvm//extensions:llvm.bzl", "llvm")
 llvm.version(llvm_version = "22.1.6")
 use_repo(llvm, "llvm-project")
 
-# The macOS sysroot, overriding the one @llvm pins for faster download.
+# The macOS sysroot.
+# This pin is the one hermetic-llvm itself consumes (their MODULE.bazel at v0.8.18), so the
+# archive and the include list are known to agree. The Wayback entry is their fallback: the
+# preceding SDK's Apple URL started returning 503, which is what motivated the switch.
 osx = use_extension("@llvm//extensions:osx.bzl", "osx")
 osx.from_archive(
-    sha256 = "beee7212d265a6d2867d0236cc069314b38d5fb3486a6515734e76fa210c784c",
-    strip_prefix = "MacOSX26.1.sdk",
-    type = "tar.xz",
+    sha256 = "5f044578cd78a3a9b9c965a42d56bad609ee5d252e1d4e6aa7c42fc3f35fee7b",
+    strip_prefix = "Payload/Library/Developer/CommandLineTools/SDKs/MacOSX26.5.sdk",
+    type = "pkg",
     urls = [
-        "https://github.com/joseluisq/macosx-sdks/releases/download/26.1/MacOSX26.1.sdk.tar.xz",
+        "https://swcdn.apple.com/content/downloads/09/08/047-91568-A_Y1CFZWQCD4/4xekpyz43i26dbp4enxfro8eb1q7wiujh5/CLTools_macOSNMOS_SDK.pkg",
+        "https://web.archive.org/web/20260512015547id_/https://swcdn.apple.com/content/downloads/09/08/047-91568-A_Y1CFZWQCD4/4xekpyz43i26dbp4enxfro8eb1q7wiujh5/CLTools_macOSNMOS_SDK.pkg",
     ],
 )
+
+# `System` is not in the extension's default framework set, and every macOS EXECUTABLE needs it:
+# the driver emits `-framework System`, so libraries compile and binaries fail to link with
+# `ld: framework 'System' not found`. Libraries were fine, which is why this surfaces only when
+# something actually links.
+#
+# The six after it are the extension's own defaults, repeated because this tag REPLACES that
+# list rather than extending it (`if not frameworks: frameworks = _DEFAULT_FRAMEWORKS`).
+# Naming only `System` drops the rest and the link fails on `Foundation` instead.
+osx.frameworks(names = [
+    "System",
+    "CoreFoundation",
+    "Foundation",
+    "Kernel",
+    "OSLog",
+    "Security",
+    "SystemConfiguration",
+])
 
 register_toolchains("@llvm//toolchain:all")
 
@@ -396,7 +418,6 @@ crate.repo_alias(
     name = "openssl_gen_dir",
     repo = "@openssl//:gen_dir",
 )
-
 crate.from_cargo(
     name = "crates",
     cargo_lock = "//:Cargo.lock",
@@ -750,6 +771,7 @@ use_repo(
     "io_opentelemetry_go_otel_sdk_log",
     "io_opentelemetry_go_otel_sdk_metric",
     "io_opentelemetry_go_otel_trace",
+    "net_pgregory_rapid",
     "org_golang_google_grpc",
     "org_golang_google_protobuf",
     "org_golang_x_crypto",
@@ -896,9 +918,9 @@ hex_ext.from_github_release(
 )
 use_repo(hex_ext, "hex")
 
-tinygo_host_repository = use_repo_rule(
+tinygo_platform_repository = use_repo_rule(
     "//build/wasm_plugins:tinygo_repo.bzl",
-    "tinygo_host_repository",
+    "tinygo_platform_repository",
 )
 
 http_file(
@@ -988,10 +1010,22 @@ filegroup(
     ],
 )
 
-tinygo_host_repository(
-    name = "tinygo_host",
-    version = "0.40.1",
-)
+# One repo per platform so bzlmod fetches only the one //build/wasm_plugins selects for the
+# exec platform. The previous single repo unpacked all four TinyGo toolchains and Go SDKs on
+# every fetch -- 5 GB, half the entire external tree, of which one platform was ever used.
+[
+    tinygo_platform_repository(
+        name = "tinygo_" + tinygo_platform,
+        platform = tinygo_platform,
+        version = "0.40.1",
+    )
+    for tinygo_platform in [
+        "darwin_amd64",
+        "darwin_arm64",
+        "linux_amd64",
+        "linux_arm64",
+    ]
+]
 
 http_file(
     name = "postgresql_server_dev_18_deb",
@@ -1005,7 +1039,7 @@ http_file(
     name = "debian_bison_amd64_deb",
     sha256 = "a414afd7519c53bfa33415ba5b951bc8b4906877004c49723ffda50a6033c3e8",
     urls = [
-        "https://deb.debian.org/debian/pool/main/b/bison/bison_3.8.2+dfsg-1+b1_amd64.deb",
+        "https://snapshot.debian.org/archive/debian/20220919T181143Z/pool/main/b/bison/bison_3.8.2+dfsg-1+b1_amd64.deb",
     ],
 )
 
@@ -1013,7 +1047,7 @@ http_file(
     name = "debian_flex_amd64_deb",
     sha256 = "75f963765232c356d0a2fb70e780dfa9de2425aca036ec60eefb7fc98a2c905b",
     urls = [
-        "https://deb.debian.org/debian/pool/main/f/flex/flex_2.6.4-8.2+b4_amd64.deb",
+        "https://snapshot.debian.org/archive/debian/20250105T040337Z/pool/main/f/flex/flex_2.6.4-8.2+b4_amd64.deb",
     ],
 )
 
@@ -1021,7 +1055,7 @@ http_file(
     name = "debian_libpq_dev_amd64_deb",
     sha256 = "59d348c5a42d2ea3aa62ef4fbbea9bda8f643ac28a752ce1917606643761d38a",
     urls = [
-        "https://deb.debian.org/debian/pool/main/p/postgresql-15/libpq-dev_15.18-0+deb12u1_amd64.deb",
+        "https://snapshot.debian.org/archive/debian/20260517T024156Z/pool/main/p/postgresql-15/libpq-dev_15.18-0+deb12u1_amd64.deb",
     ],
 )
 
@@ -1030,7 +1064,7 @@ http_file(
     # Keep the injected runtime libs aligned with Debian 12 / bookworm.
     sha256 = "1896a2aacf4ad681ff5eacc24a5b0ca4d5d9c9b9c9e4b6de5197bc1e116ea619",
     urls = [
-        "https://deb.debian.org/debian/pool/main/g/gcc-12/gcc-12-base_12.2.0-14+deb12u1_amd64.deb",
+        "https://snapshot.debian.org/archive/debian/20250415T084322Z/pool/main/g/gcc-12/gcc-12-base_12.2.0-14+deb12u1_amd64.deb",
     ],
 )
 
@@ -1038,7 +1072,7 @@ http_file(
     name = "debian_libgcc_s1_amd64_deb",
     sha256 = "3016e62cb4b7cd8038822870601f5ed131befe942774d0f745622cc77d8a88f7",
     urls = [
-        "https://deb.debian.org/debian/pool/main/g/gcc-12/libgcc-s1_12.2.0-14+deb12u1_amd64.deb",
+        "https://snapshot.debian.org/archive/debian/20250415T084322Z/pool/main/g/gcc-12/libgcc-s1_12.2.0-14+deb12u1_amd64.deb",
     ],
 )
 
@@ -1141,7 +1175,7 @@ http_file(
     name = "debian_libc6_amd64_deb",
     sha256 = "ba4f88f73dbc3ae9055f3c20f4523bfdbaf1ad13ff95e258924f77d20b4fbedf",
     urls = [
-        "https://deb.debian.org/debian/pool/main/g/glibc/libc6_2.36-9+deb12u14_amd64.deb",
+        "https://snapshot.debian.org/archive/debian/20260504T025922Z/pool/main/g/glibc/libc6_2.36-9+deb12u14_amd64.deb",
     ],
 )
 
@@ -1154,7 +1188,7 @@ http_file(
     name = "debian_libc6_dev_amd64_deb",
     sha256 = "0218fc2befcd784c1b0c6292c0a137ce89fad054efaa579ad083bee0f2c01aae",
     urls = [
-        "https://deb.debian.org/debian/pool/main/g/glibc/libc6-dev_2.36-9+deb12u14_amd64.deb",
+        "https://snapshot.debian.org/archive/debian/20260504T025922Z/pool/main/g/glibc/libc6-dev_2.36-9+deb12u14_amd64.deb",
     ],
 )
 
@@ -1164,7 +1198,7 @@ http_file(
     name = "debian_linux_libc_dev_amd64_deb",
     sha256 = "8bb258735b9dffbb111da778ebdd024750878e435ffd9dfcadcb6762ede6b4cf",
     urls = [
-        "https://deb.debian.org/debian/pool/main/l/linux/linux-libc-dev_6.1.176-1_amd64.deb",
+        "https://snapshot.debian.org/archive/debian/20260704T211317Z/pool/main/l/linux/linux-libc-dev_6.1.176-1_amd64.deb",
     ],
 )
 
@@ -1175,7 +1209,7 @@ http_file(
     name = "debian_libssl_dev_amd64_deb",
     sha256 = "43ef5c109056b1507a0972631ee8292e727029aeda1516b4672cb041730ae3af",
     urls = [
-        "https://deb.debian.org/debian/pool/main/o/openssl/libssl-dev_3.0.20-1~deb12u2_amd64.deb",
+        "https://snapshot.debian.org/archive/debian/20260612T023739Z/pool/main/o/openssl/libssl-dev_3.0.20-1~deb12u2_amd64.deb",
     ],
 )
 
@@ -1187,7 +1221,7 @@ http_file(
     name = "debian_libssl_dev_arm64_deb",
     sha256 = "c6941a83bebd83d2a1cd2db56418062d8f48b3200786aacafa194b75a93a3702",
     urls = [
-        "https://deb.debian.org/debian/pool/main/o/openssl/libssl-dev_3.0.20-1~deb12u2_arm64.deb",
+        "https://snapshot.debian.org/archive/debian/20260612T023739Z/pool/main/o/openssl/libssl-dev_3.0.20-1~deb12u2_arm64.deb",
     ],
 )
 
@@ -1219,7 +1253,7 @@ http_file(
     name = "debian_libgeos_c1v5_amd64_deb",
     sha256 = "93651aef73ee0f154213010e48fad6a6fc5c3b4e1f916b748aa7ac0dd59b64ff",
     urls = [
-        "https://deb.debian.org/debian/pool/main/g/geos/libgeos-c1v5_3.11.1-1_amd64.deb",
+        "https://snapshot.debian.org/archive/debian/20221116T215112Z/pool/main/g/geos/libgeos-c1v5_3.11.1-1_amd64.deb",
     ],
 )
 
@@ -1227,7 +1261,7 @@ http_file(
     name = "debian_libgeos3_11_1_amd64_deb",
     sha256 = "c7d9b3ec22fe9a5d6f8fa3572bfbe504224c8b2a8a0fc3ebb000581114c47660",
     urls = [
-        "https://deb.debian.org/debian/pool/main/g/geos/libgeos3.11.1_3.11.1-1_amd64.deb",
+        "https://snapshot.debian.org/archive/debian/20221116T215112Z/pool/main/g/geos/libgeos3.11.1_3.11.1-1_amd64.deb",
     ],
 )
 
@@ -1235,7 +1269,7 @@ http_file(
     name = "debian_libproj25_amd64_deb",
     sha256 = "94ebf20612db95dd5994d83f15ced2469dd8ce4c7f54dba598248caf685fdc9c",
     urls = [
-        "https://deb.debian.org/debian/pool/main/p/proj/libproj25_9.1.1-1+b1_amd64.deb",
+        "https://snapshot.debian.org/archive/debian/20230112T090754Z/pool/main/p/proj/libproj25_9.1.1-1+b1_amd64.deb",
     ],
 )
 
@@ -1243,7 +1277,7 @@ http_file(
     name = "debian_proj_data_all_deb",
     sha256 = "efa6a74fba305e664ba27b81c2a5708aa59554ba41659af0e8c325e477f3d955",
     urls = [
-        "https://deb.debian.org/debian/pool/main/p/proj/proj-data_9.1.1-1_all.deb",
+        "https://snapshot.debian.org/archive/debian/20221201T154914Z/pool/main/p/proj/proj-data_9.1.1-1_all.deb",
     ],
 )
 
@@ -1251,7 +1285,7 @@ http_file(
     name = "debian_libjson_c5_amd64_deb",
     sha256 = "d0e1ed8637d1c26b9720f6057d6355f18378bba5cc2553e459d1632783c00d70",
     urls = [
-        "https://deb.debian.org/debian/pool/main/j/json-c/libjson-c5_0.16-2_amd64.deb",
+        "https://snapshot.debian.org/archive/debian/20221003T031714Z/pool/main/j/json-c/libjson-c5_0.16-2_amd64.deb",
     ],
 )
 
@@ -1259,7 +1293,7 @@ http_file(
     name = "debian_libprotobuf_c1_amd64_deb",
     sha256 = "e99b3091938bfbd55b24e95587b868ba735e38e4adbcb9942c6993f2de3ba1bf",
     urls = [
-        "https://deb.debian.org/debian/pool/main/p/protobuf-c/libprotobuf-c1_1.4.1-1+b1_amd64.deb",
+        "https://snapshot.debian.org/archive/debian/20221123T031441Z/pool/main/p/protobuf-c/libprotobuf-c1_1.4.1-1+b1_amd64.deb",
     ],
 )
 
@@ -1267,7 +1301,7 @@ http_file(
     name = "debian_libtiff6_amd64_deb",
     sha256 = "255cd1d9f204355c366638ee21756234a8d43c03a3de18a5af6cdd94765b5053",
     urls = [
-        "https://deb.debian.org/debian/pool/main/t/tiff/libtiff6_4.5.0-6+deb12u4_amd64.deb",
+        "https://snapshot.debian.org/archive/debian/20260418T203406Z/pool/main/t/tiff/libtiff6_4.5.0-6+deb12u4_amd64.deb",
     ],
 )
 
@@ -1275,7 +1309,7 @@ http_file(
     name = "debian_libcurl3_gnutls_amd64_deb",
     sha256 = "bf430ecf80f7808704e0187cddc582fd57fc98789ea356d4797651edad387ef3",
     urls = [
-        "https://deb.debian.org/debian/pool/main/c/curl/libcurl3-gnutls_7.88.1-10+deb12u15_amd64.deb",
+        "https://snapshot.debian.org/archive/debian/20260630T210956Z/pool/main/c/curl/libcurl3-gnutls_7.88.1-10+deb12u15_amd64.deb",
     ],
 )
 
@@ -1283,7 +1317,7 @@ http_file(
     name = "debian_libwebp7_amd64_deb",
     sha256 = "7259b7ce46444694ce536360ad53acb68eb3b47a7ff81d7b1b8a3939b2ac9918",
     urls = [
-        "https://deb.debian.org/debian/pool/main/libw/libwebp/libwebp7_1.2.4-0.2+deb12u1_amd64.deb",
+        "https://snapshot.debian.org/archive/debian/20230916T210334Z/pool/main/libw/libwebp/libwebp7_1.2.4-0.2+deb12u1_amd64.deb",
     ],
 )
 
@@ -1291,7 +1325,7 @@ http_file(
     name = "debian_liblerc4_amd64_deb",
     sha256 = "771f5c47ca69f24ca61e4be0c98c5912b182ce442f921697d17a472f3ded5c9c",
     urls = [
-        "https://deb.debian.org/debian/pool/main/l/lerc/liblerc4_4.0.0+ds-2_amd64.deb",
+        "https://snapshot.debian.org/archive/debian/20221015T150249Z/pool/main/l/lerc/liblerc4_4.0.0+ds-2_amd64.deb",
     ],
 )
 
@@ -1299,7 +1333,7 @@ http_file(
     name = "debian_libjbig0_amd64_deb",
     sha256 = "6b07c77b700a615642888a82ba92a7e7c429d04b9c8669c62b2263f15c4c4059",
     urls = [
-        "https://deb.debian.org/debian/pool/main/j/jbigkit/libjbig0_2.1-6.1_amd64.deb",
+        "https://snapshot.debian.org/archive/debian/20221210T034654Z/pool/main/j/jbigkit/libjbig0_2.1-6.1_amd64.deb",
     ],
 )
 
@@ -1307,7 +1341,7 @@ http_file(
     name = "debian_libjpeg62_turbo_amd64_deb",
     sha256 = "95ec30140789a342add8f8371ed018924de51b539056522b66f207b25cba9cad",
     urls = [
-        "https://deb.debian.org/debian/pool/main/libj/libjpeg-turbo/libjpeg62-turbo_2.1.5-2_amd64.deb",
+        "https://snapshot.debian.org/archive/debian/20230204T031401Z/pool/main/libj/libjpeg-turbo/libjpeg62-turbo_2.1.5-2_amd64.deb",
     ],
 )
 
@@ -1315,7 +1349,7 @@ http_file(
     name = "debian_libdeflate0_amd64_deb",
     sha256 = "3d4b39f94317b64a860db8a7a8b581b555124cd461fe07ec0d347edbdb9f6683",
     urls = [
-        "https://deb.debian.org/debian/pool/main/libd/libdeflate/libdeflate0_1.14-1_amd64.deb",
+        "https://snapshot.debian.org/archive/debian/20221003T212100Z/pool/main/libd/libdeflate/libdeflate0_1.14-1_amd64.deb",
     ],
 )
 
@@ -1323,7 +1357,7 @@ http_file(
     name = "debian_libnghttp2_14_amd64_deb",
     sha256 = "5a5736cee57e51c1baed869979e6ecdbc6495e939e33203d6cfe3b6e5a149e3f",
     urls = [
-        "https://deb.debian.org/debian/pool/main/n/nghttp2/libnghttp2-14_1.52.0-1+deb12u3_amd64.deb",
+        "https://snapshot.debian.org/archive/debian/20260517T024156Z/pool/main/n/nghttp2/libnghttp2-14_1.52.0-1+deb12u3_amd64.deb",
     ],
 )
 
@@ -1331,7 +1365,7 @@ http_file(
     name = "debian_librtmp1_amd64_deb",
     sha256 = "e1f69020dc2c466e421ec6a58406b643be8b5c382abf0f8989011c1d3df91c87",
     urls = [
-        "https://deb.debian.org/debian/pool/main/r/rtmpdump/librtmp1_2.4+20151223.gitfa8646d.1-2+b2_amd64.deb",
+        "https://snapshot.debian.org/archive/debian/20200716T025032Z/pool/main/r/rtmpdump/librtmp1_2.4+20151223.gitfa8646d.1-2+b2_amd64.deb",
     ],
 )
 
@@ -1339,7 +1373,7 @@ http_file(
     name = "debian_libssh2_1_amd64_deb",
     sha256 = "d20a3ee34fa84ad8bd381e8be6e9c2c2ea32347cff5e1169c10e978d43f54f24",
     urls = [
-        "https://deb.debian.org/debian/pool/main/libs/libssh2/libssh2-1_1.10.0-3+b1_amd64.deb",
+        "https://snapshot.debian.org/archive/debian/20220515T152741Z/pool/main/libs/libssh2/libssh2-1_1.10.0-3+b1_amd64.deb",
     ],
 )
 
@@ -1347,7 +1381,7 @@ http_file(
     name = "debian_libpsl5_amd64_deb",
     sha256 = "4f0d35610204e4e754b057748719744114621f2f6f4202d846c314860a981afb",
     urls = [
-        "https://deb.debian.org/debian/pool/main/libp/libpsl/libpsl5_0.21.2-1_amd64.deb",
+        "https://snapshot.debian.org/archive/debian/20230214T212225Z/pool/main/libp/libpsl/libpsl5_0.21.2-1_amd64.deb",
     ],
 )
 
@@ -1355,7 +1389,7 @@ http_file(
     name = "debian_libbrotli1_amd64_deb",
     sha256 = "563b4caec1aa5e876bd3355b36e7a38e1484baf5a293b48d1e8bd22db786e4d7",
     urls = [
-        "https://deb.debian.org/debian/pool/main/b/brotli/libbrotli1_1.0.9-2+b6_amd64.deb",
+        "https://snapshot.debian.org/archive/debian/20230201T153118Z/pool/main/b/brotli/libbrotli1_1.0.9-2+b6_amd64.deb",
     ],
 )
 
@@ -1864,33 +1898,33 @@ http_file(
 
 http_file(
     name = "alpine_3_24_postgresql18_client_apk",
-    sha256 = "d7edf2ff2d70dcb63a88d7b95b08134c4de644a4f5467807bed2ba70327f6011",
+    sha256 = "7c1926e910c680312135e0ffe37f624ae9f00ba95c1c1a34bfadce0d9bea3e2d",
     urls = [
-        "https://dl-cdn.alpinelinux.org/alpine/v3.24/main/x86_64/postgresql18-client-18.4-r0.apk",
+        "https://dl-cdn.alpinelinux.org/alpine/v3.24/main/x86_64/postgresql18-client-18.6-r0.apk",
     ],
 )
 
 http_file(
     name = "alpine_3_24_postgresql18_client_apk_arm64",
-    sha256 = "a92cb2f06b43d262521b84f85f529f774d75362cceae9d3e8aaeb45406befa8b",
+    sha256 = "8a2b694ac3615150725c98adffa3b539641eda33a11cefd015cb595dfa7481aa",
     urls = [
-        "https://dl-cdn.alpinelinux.org/alpine/v3.24/main/aarch64/postgresql18-client-18.4-r0.apk",
+        "https://dl-cdn.alpinelinux.org/alpine/v3.24/main/aarch64/postgresql18-client-18.6-r0.apk",
     ],
 )
 
 http_file(
     name = "alpine_3_24_libpq_apk",
-    sha256 = "145d0d57ce40baaf2d7191e66dc18b8872822642939a0264fd4fc1c73d6599f1",
+    sha256 = "a48a15bc7f09bb7a6eeea86f326eec007ea02e626fefdd098034096b6e70489b",
     urls = [
-        "https://dl-cdn.alpinelinux.org/alpine/v3.24/main/x86_64/libpq-18.4-r0.apk",
+        "https://dl-cdn.alpinelinux.org/alpine/v3.24/main/x86_64/libpq-18.6-r0.apk",
     ],
 )
 
 http_file(
     name = "alpine_3_24_libpq_apk_arm64",
-    sha256 = "d6e4808216810535808523980a78608569be2318cf05e6034ffb03f519e91a56",
+    sha256 = "b70f46c6095d498ad4b1eb8dc7c439a287f6e9bc2954ac1d925acc11bb34a13f",
     urls = [
-        "https://dl-cdn.alpinelinux.org/alpine/v3.24/main/aarch64/libpq-18.4-r0.apk",
+        "https://dl-cdn.alpinelinux.org/alpine/v3.24/main/aarch64/libpq-18.6-r0.apk",
     ],
 )
 
@@ -2079,7 +2113,6 @@ filegroup(
         ("aarch64", "4a842f2427e8fffa19d781d6083ebbfba53ce4b822064276779d4c05d85fbd11"),
     ]
 ]
-
 
 # The arm64 half of the Membrane precompiled set above.
 #

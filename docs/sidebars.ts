@@ -118,6 +118,8 @@ const sidebars: SidebarsConfig = {
         {type: 'doc', id: 'srql-cookbook', label: 'SRQL Cookbook'},
         {type: 'doc', id: 'self-authored-dashboards', label: 'Self-Authored Dashboards'},
         {type: 'doc', id: 'api-reference', label: 'API Reference'},
+        {type: 'doc', id: 'nco-device-facts', label: 'Device Facts API'},
+        {type: 'doc', id: 'nco-validation-runs', label: 'Validation Runs'},
         {type: 'doc', id: 'rule-builder', label: 'Rule Builder'},
         {type: 'doc', id: 'network-topology', label: 'Network Topology'},
       ],

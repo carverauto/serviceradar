@@ -121,6 +121,31 @@ defmodule ServiceRadar.AgentConfig.Compilers.SweepCompiler do
     compute_config_hash(compiled_groups)
   end
 
+  @doc """
+  Compiled probe settings a sweep group would send to an agent.
+
+  Matches `compile_group/3`: profile as base, group overrides on top,
+  TCP-without-ports dropped, modes the Go sweeper does not implement dropped.
+  Used by NCO validation runs so they replay scheduled scan settings instead
+  of inventing ICMP.
+  """
+  @spec compiled_scan_settings(SweepGroup.t(), SweepProfile.t() | nil) :: map()
+  def compiled_scan_settings(%SweepGroup{} = group, profile) do
+    ports = merge_ports(profile, group)
+    modes = merge_modes(profile, group)
+    {ports, modes} = enforce_tcp_ports(ports, modes, group)
+    modes = drop_unsupported_modes(modes, group)
+    settings = compile_settings(profile, group)
+
+    %{
+      sweep_group_id: group.id,
+      profile_id: group.profile_id,
+      modes: modes,
+      ports: ports,
+      settings: settings
+    }
+  end
+
   # Private helpers
 
   defp compute_config_hash(compiled_groups) do

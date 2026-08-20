@@ -18,8 +18,6 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.Acquisition do
 
   alias ServiceRadar.Inventory.AdvisoryFeeds.Staging
 
-  require Logger
-
   @vulncheck_base "https://api.vulncheck.com/v3/backup"
   @default_timeout_ms 120_000
   @user_agent "ServiceRadar advisory-feed-fetcher"
@@ -41,43 +39,63 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.Acquisition do
   @spec acquire_vulncheck(String.t(), String.t(), String.t(), keyword()) ::
           {:ok, acquired()} | {:error, term()}
   def acquire_vulncheck(index, token, run_id, opts \\ []) do
-    with {:ok, paths} <- Staging.prepare_run(index, run_id),
-         {:ok, entry} <- resolve_backup_index(index, token, opts),
-         url when is_binary(url) <- entry["url"] || {:error, :no_presigned_url},
-         :ok <- stream_to_disk(url, paths.download_path, opts),
-         :ok <- maybe_verify_sha256(paths.download_path, entry["sha256"], opts),
-         {:ok, format} <- extract(paths.download_path, paths.extracted_dir) do
-      {:ok,
-       %{
-         extracted_dir: paths.extracted_dir,
-         run_dir: paths.run_dir,
-         download_path: paths.download_path,
-         format: format,
-         source_url: url,
-         sha256: entry["sha256"]
-       }}
-    else
-      {:error, _} = error -> error
-      other -> {:error, {:acquire_failed, other}}
+    with {:ok, paths} <- Staging.prepare_run(index, run_id) do
+      result =
+        with {:ok, entry} <- resolve_backup_index(index, token, opts),
+             url when is_binary(url) <- entry["url"] || {:error, :no_presigned_url},
+             :ok <- stream_to_disk(url, paths.download_path, opts),
+             :ok <- maybe_verify_sha256(paths.download_path, entry["sha256"], opts),
+             {:ok, format} <- extract(paths.download_path, paths.extracted_dir) do
+          {:ok,
+           %{
+             extracted_dir: paths.extracted_dir,
+             run_dir: paths.run_dir,
+             download_path: paths.download_path,
+             format: format,
+             source_url: url,
+             sha256: entry["sha256"]
+           }}
+        else
+          {:error, _} = error -> error
+          other -> {:error, {:acquire_failed, other}}
+        end
+
+      cleanup_failed_run(paths.run_dir, result)
     end
   end
 
   @doc "Download CISA KEV JSON to disk (no archive)."
   @spec acquire_cisa(String.t(), String.t(), keyword()) :: {:ok, acquired()} | {:error, term()}
   def acquire_cisa(url, run_id, opts \\ []) do
-    with {:ok, paths} <- Staging.prepare_run("cisa-kev", run_id),
-         json_path = Path.join(paths.extracted_dir, "cisa-kev.json"),
-         :ok <- stream_to_disk(url, json_path, opts) do
-      {:ok,
-       %{
-         extracted_dir: paths.extracted_dir,
-         run_dir: paths.run_dir,
-         download_path: nil,
-         format: :json,
-         source_url: url,
-         sha256: nil
-       }}
+    with {:ok, paths} <- Staging.prepare_run("cisa-kev", run_id) do
+      json_path = Path.join(paths.extracted_dir, "cisa-kev.json")
+
+      result =
+        case stream_to_disk(url, json_path, opts) do
+          :ok ->
+            {:ok,
+             %{
+               extracted_dir: paths.extracted_dir,
+               run_dir: paths.run_dir,
+               download_path: nil,
+               format: :json,
+               source_url: url,
+               sha256: nil
+             }}
+
+          {:error, _} = error ->
+            error
+        end
+
+      cleanup_failed_run(paths.run_dir, result)
     end
+  end
+
+  defp cleanup_failed_run(_run_dir, {:ok, _} = ok), do: ok
+
+  defp cleanup_failed_run(run_dir, {:error, _} = error) do
+    Staging.cleanup_run(run_dir)
+    error
   end
 
   @doc """

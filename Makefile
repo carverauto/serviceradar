@@ -21,8 +21,13 @@ export GOMODCACHE
 GOBIN ?= $$($(GO) env GOPATH)/bin
 BUF_VERSION ?= v1.70.0
 BUF ?= go run github.com/bufbuild/buf/cmd/buf@$(BUF_VERSION)
-GOLANGCI_LINT ?= golangci-lint
+# Must match the pin in .github/workflows/golangci-lint.yml -- that workflow is the gate a PR
+# has to satisfy, and the two golangci-lint releases do not agree on what is a finding. v2.11.4
+# bundles goconst v1.8.2, v2.12.2 bundles v1.10.0, and the newer one reports ~1700 findings in
+# this tree that the pinned one reports zero of.
 GOLANGCI_LINT_VERSION ?= v2.11.4
+GOLANGCI_LINT_DIR ?= $(shell $(GO) env GOPATH)/bin/golangci-lint-$(GOLANGCI_LINT_VERSION)
+GOLANGCI_LINT ?= $(GOLANGCI_LINT_DIR)/golangci-lint
 GOLANGCI_LINT_TIMEOUT ?= 30m
 GO_LINT_PACKAGES ?= ./go/... ./proto/...
 SWIFTLINT ?= swiftlint
@@ -31,7 +36,7 @@ SWIFTLINT ?= swiftlint
 # build/test recipes with target-specific flag overrides so they cannot drift from the
 # commands developers and CI already run.
 BAZEL ?= bazel
-BAZEL_CI_FLAGS ?= -c opt --config=ci
+BAZEL_CI_FLAGS ?= -c opt --config=remote
 # EMPTY ON PURPOSE, AND IT MUST NOT NAME A PROFILE THAT NO LONGER EXISTS.
 #
 # The cache proxy used to be opt-in via `--config=cache_proxy`. It is now the default for
@@ -42,8 +47,10 @@ BAZEL_CI_FLAGS ?= -c opt --config=ci
 # Left as a variable rather than deleted so those target names keep working. Do NOT put a
 # `--config=` value here speculatively: Bazel treats an undefined config as a hard error
 # ("Config value 'cache_proxy' is not defined in any .rc file", exit 2), so a stale name takes
-# the whole target out rather than degrading it. //buildbuddy_cache_proxy_config_test.py
-# asserts that every --config this file names is defined in //.bazelrc.
+# the whole target out rather than degrading it. This used to be enforced by
+# //buildbuddy_cache_proxy_config_test.py, which asserted that every --config named here is
+# defined in //.bazelrc; that test has been deleted and NOTHING enforces it now, so a stale
+# --config value here fails at invocation rather than at test time.
 BAZEL_CACHE_PROXY_CONFIG ?=
 BAZEL_WORKSPACE_BUILD_FLAGS ?= $(BAZEL_CI_FLAGS)
 BAZEL_WORKSPACE_TARGETS ?= //...
@@ -396,16 +403,16 @@ lint-p0f-additions: ## Validate ServiceRadar p0f additions corpus grammar
 lint-recog-additions: ## Validate ServiceRadar Recog additions XML and license header
 	@./scripts/lint-recog-additions.sh
 
+# Installs the pinned version into its own version-scoped directory rather than asserting that
+# whatever is on PATH happens to match. An earlier revision only asserted, which blocked
+# `make lint` on any machine whose golangci-lint had drifted (a Homebrew upgrade was enough)
+# and offered no way to fix it. Version-scoped so it never clobbers a golangci-lint the
+# developer installed for other work; set GOLANGCI_LINT to override.
 .PHONY: get-golangcilint
-get-golangcilint: ## Install golangci-lint
+get-golangcilint: ## Install the pinned golangci-lint
 	@echo "$(COLOR_BOLD)Checking golangci-lint $(GOLANGCI_LINT_VERSION)$(COLOR_RESET)"
-	@which $(GOLANGCI_LINT) > /dev/null || (echo "golangci-lint not found, please install it" && exit 1)
-	@expected_version="$(patsubst v%,%,$(GOLANGCI_LINT_VERSION))"; \
-	if ! $(GOLANGCI_LINT) version | grep -F "version $${expected_version}" > /dev/null; then \
-		found_version="$$( $(GOLANGCI_LINT) version | sed -n 's/.*version \([0-9][^ ]*\).*/v\1/p' | head -n1 )"; \
-		echo "golangci-lint $${found_version:-unknown} found, expected $(GOLANGCI_LINT_VERSION)"; \
-		exit 1; \
-	fi
+	@test -x "$(GOLANGCI_LINT)" || \
+		GOBIN="$(GOLANGCI_LINT_DIR)" $(GO) install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@$(GOLANGCI_LINT_VERSION)
 
 .PHONY: get-swiftlint
 get-swiftlint: ## Check SwiftLint is installed

@@ -779,13 +779,15 @@ action:
 export SRQL_TEST_DATABASE_URL="postgres://serviceradar@127.0.0.1:55433/serviceradar_test?sslmode=disable"
 export SRQL_TEST_ADMIN_URL="postgres://postgres:postgres@127.0.0.1:55433/postgres?sslmode=disable"
 unset SERVICERADAR_TEST_DATABASE_URL SERVICERADAR_TEST_ADMIN_URL
-export GITHUB_RUN_ID="$(date +%s)${RANDOM:-0}$$"
-export GITHUB_RUN_ATTEMPT=1
+
+# The run correlation id. Passed to EVERY bazel invocation in the sequence as
+# --//build:run_id=$RUN_ID; it reaches each step as a declared input, not as environment.
+RUN_ID="$(uuidgen | tr -d - | tr 'A-Z' 'a-z' | cut -c1-8)"
 ```
 
 Invoke the Bazel targets with the caller-owned cleanup trap in
 `.agents/skills/srql-fixtures-db-tests/SKILL.md`. For this Docker fixture, reuse the recipe from
-`run_entropy` onward with the two URLs and run identity above; omit its Kubernetes host/TLS
+`RUN_ID` onward with the two URLs and run id above; omit its Kubernetes host/TLS
 exports plus `buildbuddy_setup_fixture_env`/source lines, and use matching `provision_db_sN` and
 `integration_tests_sN` labels. The canonical cleanup preserves a red shard status and also fails
 an otherwise-green run when teardown fails.

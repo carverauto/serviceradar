@@ -102,6 +102,17 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.AcquisitionTest do
   end
 
   describe "download failures" do
+    test "a failed VulnCheck index fetch removes the prepared run dir", %{root: root} do
+      http_get_json = fn _url, _headers -> {:error, :timeout} end
+
+      assert {:error, {:backup_index_failed, :timeout}} =
+               Acquisition.acquire_vulncheck("nist-nvd2", "tok", "index-timeout",
+                 http_get_json: http_get_json
+               )
+
+      refute File.exists?(Path.join([root, "nist-nvd2", "index-timeout"]))
+    end
+
     test "rejects an HTTP error and removes the partial CISA file", %{root: root} do
       http_get = fn _url, opts ->
         File.write!(opts[:into].path, "gateway error")

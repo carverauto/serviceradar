@@ -26,15 +26,30 @@ Alternatively, you can store an entire Docker auth configuration JSON in a singl
 
 The repository includes `buildbuddy_setup_docker_auth.sh`. The script materialises `~/.docker/config.json` before any build steps run, so rule-based tooling such as `rules_oci` can reuse the credentials transparently.
 
-The bootstrap script itself supports three input modes:
+The bootstrap script itself supports four input modes for the primary registry:
 
-1. `DOCKER_AUTH_CONFIG_JSON` – a raw docker config snippet.
-2. `OCI_DOCKER_AUTH` – a base64 encoded `username:token` pair for the registry.
-3. `OCI_USERNAME` and `OCI_TOKEN` – the script performs the base64 encoding for you. Optional `OCI_REGISTRY` overrides `registry.carverauto.dev`.
+1. `DOCKER_AUTH_CONFIG_JSON` - a raw docker config snippet, written verbatim.
+2. `OCI_DOCKER_AUTH` - a base64 encoded `username:token` pair for the registry.
+3. `OCI_USERNAME` and `OCI_TOKEN` - the script performs the base64 encoding for you. Optional `OCI_REGISTRY` overrides `registry.carverauto.dev`.
+4. `HARBOR_USERNAME` and `HARBOR_TOKEN` - the BuildBuddy secret-store names, accepted as mode 3
+   when neither `OCI_USERNAME` nor `OCI_TOKEN` is set. The Forgejo workflows do the same mapping
+   declaratively in their job-level `env:` block, from `HARBOR_ROBOT_USERNAME` /
+   `HARBOR_ROBOT_SECRET`; BuildBuddy has no equivalent, which is why the script accepts both.
 
-The checked-in `buildbuddy.yaml` uses the third mode: it reads the exact secret-store names
-`HARBOR_USERNAME` and `HARBOR_TOKEN`, then explicitly exports them as `OCI_USERNAME` and
-`OCI_TOKEN` immediately before invoking the bootstrap target.
+Modes 3 and 4 write only the primary registry. `GHCR_*` and `DOCKERHUB_*` are handled separately
+and get their own entries, so one run can authenticate several registries at once.
+
+`OCI_AUTH_REQUIRED` turns the script strict. By default it is best-effort: if a `config.json`
+already exists and no credentials are in the environment it reports "nothing to do" and exits 0,
+and credentials for *any* registry count as success. Both are silent failures for a caller that
+must reach one specific registry -- the symptom is a 401 minutes later, during a Bazel loading
+phase, on a target that has nothing to do with containers. With `OCI_AUTH_REQUIRED` set the
+script instead requires `OCI_REGISTRY` to be set and an entry for it to have been written, and
+exits 1 naming what is missing.
+
+Leave it unset for the Forgejo pull-request workflow, which legitimately runs with Docker Hub
+credentials alone on fork PRs, and for `build/buildbuddy/release_pipeline.sh`, which calls the
+script best-effort.
 
 Example BuildBuddy workflow fragment using the current action-level `env` and `steps` schema:
 
@@ -43,21 +58,23 @@ actions:
   - name: "Build, test and publish containers"
     env:
       OCI_REGISTRY: "registry.carverauto.dev"
+      OCI_AUTH_REQUIRED: "1"
     steps:
-      - run: |
-          set -euo pipefail
-          export OCI_USERNAME="${HARBOR_USERNAME}"
-          export OCI_TOKEN="${HARBOR_TOKEN}"
-          export OCI_DOCKER_AUTH=""
-          bazel run -c opt --config=ci //:buildbuddy_setup_docker_auth
-          bazel build -c opt --config=ci //...
-          bazel test -c opt --config=ci //... --test_tag_filters=-integration_test,-acceptance_test
-          bazel run -c opt --config=ci --stamp //:push
+      - run: "bazel run -c opt --config=ci //:buildbuddy_setup_docker_auth"
+      - run: "bazel build -c opt --config=ci //..."
+      - run: "bazel test -c opt --config=ci //... --test_tag_filters=-integration_test,-acceptance_test"
+      - run: "bazel run -c opt --config=ci --stamp //:push"
 ```
 
 `HARBOR_USERNAME` and `HARBOR_TOKEN` are configured in the BuildBuddy secret store and are
 exposed to the workflow environment automatically; do not put their values in the checked-in
 workflow.
+
+The auth step needs no shell prologue. It used to carry one -- the `HARBOR_*` rename, an assertion
+that the secrets existed, and a grep proving the entry landed under `OCI_REGISTRY` -- and all of
+it now lives in the script, where every caller gets it. The prologue also exported
+`OCI_DOCKER_AUTH=""` on the stated grounds that the script prefers it over `OCI_USERNAME` /
+`OCI_TOKEN`; it does not, that branch is the `elif`, and the export did nothing.
 
 Running the auth bootstrap ensures that `rules_oci` can reuse the same credentials whether the later Bazel steps run locally or on BuildBuddy RBE.
 
@@ -86,13 +103,13 @@ make push_all PUSH_TAG="v$(git describe --tags --always)"
 
 ## Command usage
 
-- `make push_all` – pushes all container images with the default `latest` and `sha-<commit>` tags. Set `LOCAL_COSIGN_SIGN=1` to also sign the OCI images and run `make verify_publish`.
-- `make push_all PUSH_TAG=v1.2.3` – pushes all container images with an extra tag. Set `LOCAL_COSIGN_SIGN=1` to also sign the OCI images and verify `latest`, `sha-<commit>`, and `v1.2.3`.
-- `make push_all_release` – runs `make push_all LOCAL_COSIGN_SIGN=1`, then `make push_wasm_plugins LOCAL_COSIGN_SIGN=1`, so OCI images and first-party Wasm plugin OCI artifacts are both published, signed, and verified for the same tag.
-- `bazel build -c opt --config=ci //:images` – builds the canonical publishable image set, including current multi-arch image indexes.
-- `bazel run --stamp //:push` – pushes all images with the default `latest` and `sha-<commit>` tags.
-- `bazel run --stamp //docker/images:core_elx_image_amd64_push -- --tag 1.2.3` – pushes only the core-elx image and adds an extra `1.2.3` tag.
-- `bazel run -c opt --config=ci --stamp //:push -- --tag $GIT_COMMIT` – builds using BuildBuddy remote execution, downloads the OCI artifacts locally, then pushes from the workflow runner.
+- `make push_all` - pushes all container images with the default `latest` and `sha-<commit>` tags. Set `LOCAL_COSIGN_SIGN=1` to also sign the OCI images and run `make verify_publish`.
+- `make push_all PUSH_TAG=v1.2.3` - pushes all container images with an extra tag. Set `LOCAL_COSIGN_SIGN=1` to also sign the OCI images and verify `latest`, `sha-<commit>`, and `v1.2.3`.
+- `make push_all_release` - runs `make push_all LOCAL_COSIGN_SIGN=1`, then `make push_wasm_plugins LOCAL_COSIGN_SIGN=1`, so OCI images and first-party Wasm plugin OCI artifacts are both published, signed, and verified for the same tag.
+- `bazel build -c opt --config=ci //:images` - builds the canonical publishable image set, including current multi-arch image indexes.
+- `bazel run --stamp //:push` - pushes all images with the default `latest` and `sha-<commit>` tags.
+- `bazel run --stamp //docker/images:core_elx_image_amd64_push -- --tag 1.2.3` - pushes only the core-elx image and adds an extra `1.2.3` tag.
+- `bazel run -c opt --config=ci --stamp //:push -- --tag $GIT_COMMIT` - builds using BuildBuddy remote execution, downloads the OCI artifacts locally, then pushes from the workflow runner.
 
 On macOS, `make push_all` uses [scripts/push_all_images.sh](/Users/mfreeman/src/serviceradar/scripts/push_all_images.sh) instead of `//:push` because the aggregate `rules_multirun` launcher can try to execute a Linux Python runtime on the host. The helper runs the same Bazel `*_push` targets sequentially and rewrites each generated launcher to use the Bazel-fetched Darwin `crane` and `jq` binaries rather than the Linux toolchain runfiles.
 

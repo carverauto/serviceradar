@@ -20,6 +20,7 @@ package snmp
 import (
 	"errors"
 	"fmt"
+	"strings"
 	"sync"
 	"time"
 
@@ -118,25 +119,33 @@ func (s *SNMPClientImpl) Connect() error {
 	return nil
 }
 
-// Get implements SNMPClient interface.
-func (s *SNMPClientImpl) Get(oids []string) (map[string]interface{}, error) {
+// ensureConnected lazily establishes the SNMP connection before a request.
+func (s *SNMPClientImpl) ensureConnected() error {
 	s.mu.Lock()
+	defer s.mu.Unlock()
 
-	if !s.connected {
-		if err := s.client.Connect(); err != nil {
-			s.mu.Unlock()
-
-			return nil, &SNMPError{
-				Op:      "connect",
-				Target:  s.target.Host,
-				Wrapped: err,
-			}
-		}
-
-		s.connected = true
+	if s.connected {
+		return nil
 	}
 
-	s.mu.Unlock()
+	if err := s.client.Connect(); err != nil {
+		return &SNMPError{
+			Op:      "connect",
+			Target:  s.target.Host,
+			Wrapped: err,
+		}
+	}
+
+	s.connected = true
+
+	return nil
+}
+
+// Get implements SNMPClient interface.
+func (s *SNMPClientImpl) Get(oids []string) (map[string]interface{}, error) {
+	if err := s.ensureConnected(); err != nil {
+		return nil, err
+	}
 
 	// Split OIDs into chunks of MaxOids size
 	var allResults = make(map[string]interface{})
@@ -200,6 +209,136 @@ func isSkippableValueError(err error) bool {
 	return errors.Is(err, ErrSNMPNoSuchObject) ||
 		errors.Is(err, ErrSNMPNoSuchInstance) ||
 		errors.Is(err, ErrSNMPEndOfMibView)
+}
+
+// Walk implements SNMPClient interface.
+//
+// The subtree rooted at oid is retrieved with GETBULK on v2c/v3 and with GETNEXT
+// on v1, which has no GETBULK PDU. The walk is bounded by maxRows and timeout: a
+// table that keeps producing rows (or a device that answers slowly) stops at the
+// bound instead of stalling the collector, and the rows gathered before the bound
+// are returned alongside ErrSNMPWalkRowLimit / ErrSNMPWalkTimeout so a partial
+// table is still usable.
+func (s *SNMPClientImpl) Walk(oid string, maxRows int, timeout time.Duration) ([]WalkResult, error) {
+	if err := s.ensureConnected(); err != nil {
+		return nil, err
+	}
+
+	collector := newWalkCollector(s, oid, maxRows, timeout)
+
+	var err error
+
+	if usesBulkWalk(s.client.Version) {
+		err = s.client.BulkWalk(oid, collector.visit)
+	} else {
+		err = s.client.Walk(oid, collector.visit)
+	}
+
+	if err != nil {
+		// A bound is not a transport failure - the connection is still usable and
+		// the rows collected so far are real, so hand them back with the reason.
+		if isWalkBoundError(err) {
+			return collector.results, err
+		}
+
+		s.handleError(err)
+
+		return nil, &SNMPError{
+			Op:      "walk",
+			Target:  s.target.Host,
+			Wrapped: err,
+		}
+	}
+
+	return collector.results, nil
+}
+
+// walkCollector accumulates the rows a walk visits. It converts each PDU with the
+// same rules as a GET response and enforces the walk's row and time bounds.
+type walkCollector struct {
+	client   *SNMPClientImpl
+	rootOID  string
+	maxRows  int
+	deadline time.Time
+	results  []WalkResult
+}
+
+// newWalkCollector creates a collector bounded by maxRows and timeout, falling
+// back to the package defaults when either is unset.
+func newWalkCollector(client *SNMPClientImpl, rootOID string, maxRows int, timeout time.Duration) *walkCollector {
+	if maxRows <= 0 {
+		maxRows = defaultWalkMaxRows
+	}
+
+	if timeout <= 0 {
+		timeout = defaultWalkTimeout
+	}
+
+	return &walkCollector{
+		client:   client,
+		rootOID:  rootOID,
+		maxRows:  maxRows,
+		deadline: time.Now().Add(timeout),
+		results:  make([]WalkResult, 0, defaultWalkResultCapacity),
+	}
+}
+
+// visit implements gosnmp.WalkFunc; returning an error stops the walk.
+func (w *walkCollector) visit(variable gosnmp.SnmpPDU) error {
+	if len(w.results) >= w.maxRows {
+		return fmt.Errorf("%w: %s after %d rows", ErrSNMPWalkRowLimit, w.rootOID, w.maxRows)
+	}
+
+	if time.Now().After(w.deadline) {
+		return fmt.Errorf("%w: %s after %d rows", ErrSNMPWalkTimeout, w.rootOID, len(w.results))
+	}
+
+	value, err := w.client.convertVariable(variable)
+	if err != nil {
+		if isSkippableValueError(err) {
+			return nil
+		}
+
+		return err
+	}
+
+	w.results = append(w.results, WalkResult{
+		OID:   variable.Name,
+		Index: walkIndex(w.rootOID, variable.Name),
+		Value: value,
+	})
+
+	return nil
+}
+
+// isWalkBoundError reports whether a walk stopped because it hit one of its
+// configured bounds rather than because the device or transport failed.
+func isWalkBoundError(err error) bool {
+	return errors.Is(err, ErrSNMPWalkRowLimit) || errors.Is(err, ErrSNMPWalkTimeout)
+}
+
+// usesBulkWalk reports whether a walk should use GETBULK. SNMPv1 has no GETBULK
+// PDU, so it walks with GETNEXT instead.
+func usesBulkWalk(version gosnmp.SnmpVersion) bool {
+	return version != gosnmp.Version1
+}
+
+// walkIndex returns the OID suffix identifying a walked row - the part of oid
+// below rootOID. Values from parallel column subtrees that share an index belong
+// to the same table row, which is what makes the columns joinable.
+func walkIndex(rootOID, oid string) string {
+	root := strings.TrimPrefix(rootOID, ".")
+	trimmed := strings.TrimPrefix(oid, ".")
+
+	switch {
+	case trimmed == root:
+		// The walked root is itself a leaf instance, so there is no row index.
+		return ""
+	case strings.HasPrefix(trimmed, root+"."):
+		return strings.TrimPrefix(trimmed, root+".")
+	default:
+		return ""
+	}
 }
 
 // Close implements SNMPClient interface.

@@ -54,9 +54,9 @@ ServiceRadar replaces traditional "script-and-shell" plugins with a [modern WebA
 
 ### Plug-in SDK
 
-**Go**: https://code.carverauto.dev/carverauto/serviceradar-sdk-go
+**Go**: https://github.com/carverauto/serviceradar-sdk-go
 
-**Rust**: https://code.carverauto.dev/carverauto/serviceradar-sdk-rust
+**Rust**: https://github.com/carverauto/serviceradar-sdk-rust
 
 ## Dashboard SDK
 

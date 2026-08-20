@@ -6,7 +6,7 @@
 # spawns it on demand for each RDP desktop session.
 id: rdp
 name: RDP Adapter
-version: 0.1.5
+version: 0.1.6
 description: >-
   Per-session RDP desktop helper used by the compiled-in remote-access feature.
   Staged as a signed pushed-artifact add-on and invoked on demand; the agent does

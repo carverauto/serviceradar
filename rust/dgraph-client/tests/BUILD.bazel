@@ -1,43 +1,15 @@
 load("@crates//:defs.bzl", "all_crate_deps")
 load("@rules_rs//rs:rust_test.bzl", "rust_test")
-load("@rules_rust//rust:defs.bzl", "rust_test_suite")
 
-# All test targets live here so the whole test surface is declared in one place.
-#
-# `package_name` is required on every all_crate_deps(cargo_only = True) call in this file: it otherwise
-# resolves against the package it is called from, and there is no Cargo.toml at
-# rust/dgraph-client/tests. Without it the load fails with
-# "that package had no Cargo.toml file".
-
-# Unit tests living in src/ behind #[cfg(test)]. `crate` must be the full label: a
-# relative ":dgraph_client" would resolve inside this tests package, where no such target
-# exists. Note rust_test(crate = ...) does NOT inherit crate_features; if the library ever
-# gains features, repeat them here.
+# Unit tests for types, parsing and error mapping.
+# Untagged, so `make test` runs it everywhere.
 rust_test(
-    name = "dgraph_client_test",
-    crate = "//rust/dgraph-client:dgraph_client",
-    edition = "2024",
-    deps = all_crate_deps(
-        package_name = "rust/dgraph-client",
-        cargo_only = True,
-        normal = True,
-        normal_dev = True,
-    ) + ["//proto/dgraph:proto_dgraph_bindings"],
-)
-
-# Hermetic integration tests. The tests/ tree mirrors src/ and every module is registered
-# from lib_tests.rs, so one target covers the whole tree.
-#
-# dgraph_container_test.rs is excluded: it needs a Docker daemon and is built by the
-# acceptance suite below instead.
-rust_test(
-    name = "dgraph_client_integration_test",
+    name = "dgraph_client_unit_test",
     srcs = glob(
         ["**/*.rs"],
         exclude = ["dgraph_container_test.rs"],
     ),
     crate_root = "lib_tests.rs",
-    edition = "2024",
     deps = all_crate_deps(
         package_name = "rust/dgraph-client",
         cargo_only = True,
@@ -49,70 +21,30 @@ rust_test(
     ],
 )
 
-# Acceptance tests against a real dgraph/standalone container.
+# Needs a running Dgraph: starts a dgraph/standalone container and drives the real client
+# against it. Every scenario shares that one container and several call drop_all, so they are
+# sequenced inside a single test function -- Bazel runs test functions concurrently and does
+# not honour --test-threads=1. See the module docs in dgraph_container_test.rs.
 #
-# These need a Docker daemon. The exec_properties below are what let BuildBuddy provide
-# one; a workstation without Docker running will fail this target.
-#
-# Everything lives in a single test function because Bazel runs test functions
-# concurrently and does not honour --test-threads=1, so parallel scenarios would race over
-# the one shared container. See the module docs in dgraph_container_test.rs.
-#
-# The exec_properties are: a Firecracker microVM with a
-# Docker daemon inside, and a recycled runner keyed so the whole suite lands on the same VM
-# and reuses the already-pulled dgraph image rather than pulling it per test.
-rust_test_suite(
-    name = "acceptance_tests",
-    # Without this the target inherits Bazel's default "moderate" (300s), which has to
-    # cover microVM boot, a cold `docker pull` of dgraph/standalone, and the suite's own
-    # 120s readiness budget. That leaves under three minutes for the pull, which is not a
-    # safe margin on a contended executor. This is only a backstop: the test bounds itself
-    # with READY_TIMEOUT, so a genuine hang still fails in about two minutes, not fifteen.
-    timeout = "long",
+#   bazel test --test_env=SERVICERADAR_ENV=localhost --test_tag_filters=integration_test \
+#     //rust/dgraph-client/tests:dgraph_client_integration_test
+rust_test(
+    name = "dgraph_client_integration_test",
     srcs = ["dgraph_container_test.rs"],
-    # The test is #[ignore] so `cargo test` stays hermetic. Without this flag Bazel would
-    # honour that attribute too and the target would report success having run nothing.
+    # The Cargo-side half of the same "needs infrastructure" fact the tag states to Bazel: the
+    # test is #[ignore] so `cargo test` stays hermetic. Bazel runs the same binary and would
+    # honour that too, reporting green having run nothing.
     args = ["--include-ignored"],
-    edition = "2024",
-    exec_properties = {
-        # Size the microVM for what actually runs inside it. The executor's
-        # default_task_size is 2 GiB, and that one budget has to cover the guest kernel,
-        # dockerd, containerd, the test binary AND dgraph.
-        #
-        # Raising this is the SECOND lever, not the first. An uncapped alpha grows into
-        # whatever memory it can see -- it defaults to a 1 GiB cache and peaked at ~895 MiB
-        # here -- so sizing the VM to absorb it is a race the VM cannot win: 4 GiB was
-        # already not enough on a contended executor (`oom=true exit=137`, reaching the
-        # client as `drop_all failed: RPC Error: Unknown: transport error`). The suite now
-        # caps the cache instead (ALPHA_CACHE_ENV in dgraph_container_test.rs), which puts
-        # the measured peak at ~277 MiB and makes it a property of the configuration rather
-        # than of the runner.
-        #
-        # 4 GiB is therefore margin for everything else in the VM, not headroom for dgraph.
-        "test.EstimatedMemory": "4Gi",
-        # Run this test inside a Firecracker microVM.
-        "test.workload-isolation-type": "firecracker",
-        # Ensure the Docker daemon is started inside that microVM.
-        "test.init-dockerd": "true",
-        # Preserve microVM state across runs. The suite leaves its container running, so a
-        # recycled runner reuses the container itself, not merely the cached image: the
-        # readiness probe is `drop_all`, which resets a reused cluster before the first
-        # scenario, so a warm run starts from the same state as a cold one.
-        "test.recycle-runner": "true",
-        # Send every test in this suite to the same recycled runner.
-        "test.runner-recycling-key": "dgraph_rust_client_integration_test",
-    },
+    # The run correlation id, as a DECLARED INPUT rather than ambient state -- the same way
+    # //rust/integration-db takes it. Without this the file is simply absent from runfiles and
+    # RunId falls back to a synthesised local id, silently, even on CI: the first run reported
+    # "run=local-17569 (local)" while CI had generated a perfectly good id.
+    data = ["//build:run_id_file"],
+    crate_root = "dgraph_container_test.rs",
     tags = [
-        # Selector for the integration stage. Run these on their own, after the hermetic
-        # suites are green, with:
-        #
-        #   bazel test --config=ci $(bazel query 'attr("tags", "integration_test", tests(//...))')
+        # Excluded by `make test` (Makefile: --test_tag_filters=-integration_test,...), and
+        # selected on its own with --test_tag_filters=integration_test.
         "integration_test",
-        #
-        # Local selector for running just this suite.
-        "dgraph_acceptance_test",
-        # CI selector for the acceptance job.
-        "acceptance_test",
     ],
     visibility = ["//visibility:public"],
     deps = all_crate_deps(
@@ -123,5 +55,9 @@ rust_test_suite(
     ) + [
         "//proto/dgraph:proto_dgraph_bindings",
         "//rust/dgraph-client:dgraph_client",
+        # Obtaining a Dgraph -- container on localhost, cluster on ci -- lives here.
+        "//rust/dgraph-test:dgraph_test",
+        "//config/manager_config/rust:manager",
+        "//config/manager_secret/rust:secret_manager",
     ],
 )

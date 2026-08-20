@@ -29,12 +29,18 @@ option go_package = "github.com/carverauto/serviceradar/config/proto;configpb";
 // On-prem is multi-instance: each customer deployment is a separate single-tenant
 // installation selecting one instance at boot. `instance` is required when the kind is
 // ONPREM and must be absent otherwise.
+//
+// DEMO is a kind rather than a SaaS instance because it is a distinct deployment with its
+// own topology and its own admission policy, and every rule scoped `except_kinds:
+// LOCALHOST` must apply to it. Folding it into SAAS would make one committed file describe
+// two clusters, which is the ambiguity this schema exists to remove.
 enum EnvironmentKind {
   ENVIRONMENT_KIND_UNSPECIFIED = 0;
   ENVIRONMENT_KIND_LOCALHOST = 1;
   ENVIRONMENT_KIND_CI = 2;
   ENVIRONMENT_KIND_SAAS = 3;
   ENVIRONMENT_KIND_ONPREM = 4;
+  ENVIRONMENT_KIND_DEMO = 5;
 }
 
 // PostgreSQL TLS posture.
@@ -48,6 +54,21 @@ enum TlsMode {
   TLS_MODE_REQUIRE = 2;
   TLS_MODE_VERIFY_CA = 3;
   TLS_MODE_VERIFY_FULL = 4;
+}
+
+// Dgraph transport security.
+//
+// A SEPARATE enum from TlsMode, not a reuse of it. Dgraph's client has three modes and no
+// equivalent of verify-full: rust/dgraph-client's TlsMode is Disable | RequireNoVerify |
+// VerifyCa. Sharing TlsMode would let an instance state VERIFY_FULL for Dgraph, which no
+// client can honour -- a setting that reads as the strongest option and silently is not.
+enum DgraphTlsMode {
+  DGRAPH_TLS_MODE_UNSPECIFIED = 0;
+  DGRAPH_TLS_MODE_DISABLE = 1;
+  // Encrypted, server NOT authenticated (wire value `require`). Offers no protection
+  // against an active attacker; the client warns when it is selected.
+  DGRAPH_TLS_MODE_REQUIRE_NO_VERIFY = 2;
+  DGRAPH_TLS_MODE_VERIFY_CA = 3;
 }
 
 // Transport security for service-to-service calls (replaces CORE_SEC_MODE).
@@ -89,6 +110,36 @@ message DatabaseConfig {
   optional uint32 queue_target_ms = 10;
   optional uint32 queue_interval_ms = 11;
   optional uint32 ownership_timeout_ms = 12;
+
+  // The role that may CREATE and DROP databases, for a fixture that provisions one per run.
+  //
+  // A THIRD identity, because `connecting_role` cannot serve: the suite connects as the
+  // application role, and that role deliberately lacks CREATEDB. Deriving the admin identity
+  // from `connecting_role` is what made the lifecycle build an admin DSN naming a role with no
+  // rights -- reported by PostgreSQL as a permission error, which reads like a missing GRANT
+  // rather than the wrong user.
+  //
+  // Absent for every deployment: a service never creates databases, and requiring this would
+  // put a privileged identity in instance files that have no use for one. Its password is
+  // `database.admin_password`, resolved by SecretManager.
+  optional string admin_role = 13;
+
+  // Where the CA this server's certificate chains to is published.
+  //
+  // Configuration, not a secret: a CA bundle is public by construction -- it is what a client
+  // needs BEFORE it can authenticate anything, so it cannot itself be authenticated material.
+  // It sits here beside `tls_server_name` for the same reason that field does: both describe
+  // the SHAPE of trust, while the private key material SecretManager holds does not appear.
+  //
+  // A URL rather than the PEM, because a cert-manager issuer rotates. A copy pasted into a CI
+  // secret store or an instance file is correct until the next rotation and then silently is
+  // not -- which is what a stored SRQL_TEST_DATABASE_CA_CERT did, expiring on a date nobody
+  // was watching. Naming the endpoint means every client reads the CURRENT bundle and no
+  // human rotates anything.
+  //
+  // Absent means the CA comes from SecretManager (`database.ca_cert`) instead, for a
+  // deployment that mounts one.
+  optional string ca_bundle_url = 14;
 }
 
 // NATS coordinates. Credential material is resolved by SecretManager.
@@ -98,6 +149,34 @@ message DatabaseConfig {
 message NatsConfig {
   optional string url = 1;
   optional string server_name = 2;
+}
+
+// Dgraph cluster coordinates, consumed by rust/dgraph-client.
+//
+// One host rather than a repeated endpoint list: in Kubernetes the alpha Service already
+// load-balances across alphas, so the round-robin the client supports is the Service's job.
+// A list here would be a second, hand-maintained copy of the membership the cluster owns.
+//
+// ACL username, password, API key, bearer token and namespace are absent. The last four are
+// credentials that SecretManager resolves; username and namespace are omitted until Dgraph is
+// actually wired in, so the schema does not carry fields no instance sets.
+message DgraphConfig {
+  optional string host = 1;
+  optional uint32 port = 2;
+  optional DgraphTlsMode tls_mode = 3;
+
+  // Where to fetch the CA bundle that verifies this cluster, for the same reason
+  // `database.ca_bundle_url` exists: the certificate is issued by an in-cluster CA that
+  // rotates, so a copy pinned in a secret store is correct until the next rotation and then
+  // silently is not. Naming the endpoint means every client reads the CURRENT bundle.
+  //
+  // Published unauthenticated over plain HTTP, necessarily: a CA bundle is what a client needs
+  // BEFORE it can authenticate anything, so serving it over TLS would require the very bundle
+  // being fetched. Its integrity comes from the endpoint being in-cluster.
+  //
+  // Absent means the CA comes from SecretManager (`dgraph.ca_cert`) instead, for a deployment
+  // that mounts one.
+  optional string ca_bundle_url = 4;
 }
 
 // Core service endpoint and transport security (replaces the CORE_* family).
@@ -117,11 +196,10 @@ message CoreConfig {
 // One environment. Exactly one committed instance per environment identity.
 message EnvironmentConfig {
   optional EnvironmentKind kind = 1;
-
   // Required if and only if `kind` is ENVIRONMENT_KIND_ONPREM.
   optional string instance = 2;
-
   optional DatabaseConfig database = 3;
   optional NatsConfig nats = 4;
   optional CoreConfig core = 5;
+  optional DgraphConfig dgraph = 6;
 }

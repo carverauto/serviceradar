@@ -47,7 +47,7 @@ import (
 
 const (
 	ProducerID            = "serviceradar.scalibr.endpoint_inventory"
-	ProducerVersion       = "0.1.4"
+	ProducerVersion       = "0.1.5"
 	DefaultScannerID      = "osv-scalibr"
 	DefaultScannerVersion = "v0.5.2"
 	defaultCadence        = "24h"

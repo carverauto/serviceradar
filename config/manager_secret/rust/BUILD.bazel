@@ -1,0 +1,32 @@
+# gazelle:ignore
+
+load("@crates//:defs.bzl", "all_crate_deps")
+load("@rules_rs//rs:rust_library.bzl", "rust_library")
+
+filegroup(
+    name = "srcs",
+    srcs = glob(
+        ["**"],
+        exclude = [
+            "target/**",
+            "bazel-*",
+        ],
+    ),
+    visibility = ["//visibility:public"],
+)
+
+# SecretManager. Two properties are enforced by types rather than by discipline: a Secret cannot
+# be printed, and a name a component did not declare is refused before the provider is consulted.
+rust_library(
+    name = "secret_manager",
+    srcs = glob(["src/**/*.rs"]),
+    crate_name = "serviceradar_secret_manager",
+    crate_root = "src/lib.rs",
+    visibility = ["//visibility:public"],
+    deps = all_crate_deps(
+        cargo_only = True,
+        normal = True,
+    ),
+)
+
+# The test surface lives in //config/manager_secret/rust/tests.

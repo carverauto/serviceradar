@@ -18,15 +18,14 @@
 //!
 //! # Why a binary and not a test
 //!
-//! It has to write to `$GITHUB_OUTPUT` on the runner. `bazel run` builds eligible actions
-//! remotely and launches the binary on the caller, where that output file exists, without
-//! depending on a TestRunner placement strategy. That is exactly the split this needs.
+//! It reports its result on stdout for the caller to branch on, and `bazel run` builds
+//! eligible actions remotely while launching the binary on the caller, without depending on a
+//! TestRunner placement strategy. That is exactly the split this needs.
 //!
-//! Outside CI `GITHUB_OUTPUT` is unset and the result is only printed, which keeps the
-//! binary usable by hand against a developer fixture.
-
-use std::fs::OpenOptions;
-use std::io::Write;
+//! It used to append `needs_migration=<bool>` to `$GITHUB_OUTPUT` -- a GitHub Actions concept
+//! BuildBuddy does not set, which the workflow faked with a temp file it then grepped. The
+//! caller now branches on the line printed below, which is the same information without a
+//! second channel or a CI vendor's name in this crate.
 
 use anyhow::{Context, Result};
 use serviceradar_integration_db as db;
@@ -58,27 +57,6 @@ async fn run() -> Result<()> {
             pending[pending.len() - 1]
         );
     }
-
-    emit(!pending.is_empty())
-}
-
-/// Append `needs_migration=<bool>` to `$GITHUB_OUTPUT`, when running under CI.
-fn emit(needs_migration: bool) -> Result<()> {
-    let Ok(path) = std::env::var("GITHUB_OUTPUT") else {
-        return Ok(());
-    };
-    if path.is_empty() {
-        return Ok(());
-    }
-
-    let mut file = OpenOptions::new()
-        .append(true)
-        .create(true)
-        .open(&path)
-        .with_context(|| format!("failed to open GITHUB_OUTPUT at {path}"))?;
-
-    writeln!(file, "needs_migration={needs_migration}")
-        .with_context(|| format!("failed to write to GITHUB_OUTPUT at {path}"))?;
 
     Ok(())
 }

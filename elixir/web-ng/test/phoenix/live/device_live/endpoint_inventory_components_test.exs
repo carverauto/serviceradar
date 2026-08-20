@@ -1,6 +1,7 @@
 defmodule ServiceRadarWebNGWeb.DeviceLive.EndpointInventoryComponentsTest do
   use ExUnit.Case, async: true
 
+  import Phoenix.Component, only: [to_form: 2]
   import Phoenix.LiveViewTest
 
   alias ServiceRadarWebNGWeb.DeviceLive.EndpointInventoryComponents
@@ -68,6 +69,21 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.EndpointInventoryComponentsTest do
     assert html =~ "CWE-829"
     assert html =~ "2025-07-01"
     assert html =~ "endpoint_inventory_close_match"
+  end
+
+  test "vulnerability matches show a loading row instead of the empty copy" do
+    html =
+      render_component(&EndpointInventoryComponents.endpoint_inventory_section/1,
+        query_form: to_form(%{}, as: :endpoint_inventory_query),
+        cohort_form: to_form(%{}, as: :endpoint_inventory_cohort_query),
+        package_filter_form: to_form(%{}, as: :endpoint_inventory_filter),
+        vulnerability_matches: [],
+        loading: true,
+        show_controls: false
+      )
+
+    assert html =~ "Loading vulnerability matches"
+    refute html =~ "No active vulnerability matches have been produced"
   end
 
   test "hides the match modal when it is not shown" do

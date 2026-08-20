@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"strings"
 
-	"code.carverauto.dev/carverauto/serviceradar-sdk-go/sdk"
+	"github.com/carverauto/serviceradar-sdk-go/sdk"
 )
 
 const (
@@ -186,12 +186,8 @@ func deferAction(invocation sdk.ActionInvocation, suffix string) *sdk.ActionResu
 				"message":                      "queued in sample external API",
 				"external_task_id":             taskID,
 				"northbound_job_id":            target.NorthboundJobID,
-				"callback_url":                 target.Callback.URL,
-				"callback_auth_mode":           target.Callback.AuthMode,
-				"callback_token_header":        target.Callback.TokenHeader,
-				"callback_timestamp_header":    target.Callback.TimestampHeader,
-				"callback_signature_header":    target.Callback.SignatureHeader,
-				"callback_signature_algorithm": target.Callback.SignatureAlgorithm,
+				"callback_url":          target.Callback.URL,
+				"callback_token_header": target.Callback.TokenHeader,
 			},
 		}
 

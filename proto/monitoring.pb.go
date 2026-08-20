@@ -7183,14 +7183,24 @@ func (x *SNMPv3Auth) GetPrivPassword() string {
 
 // SNMPOIDConfig defines an OID to poll from an SNMP target.
 type SNMPOIDConfig struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Oid           string                 `protobuf:"bytes,1,opt,name=oid,proto3" json:"oid,omitempty"`                                                         // OID string (e.g., ".1.3.6.1.2.1.1.1.0")
-	Name          string                 `protobuf:"bytes,2,opt,name=name,proto3" json:"name,omitempty"`                                                       // Human-readable name (e.g., "sysDescr")
-	DataType      SNMPDataType           `protobuf:"varint,3,opt,name=data_type,json=dataType,proto3,enum=monitoring.SNMPDataType" json:"data_type,omitempty"` // Expected data type
-	Scale         float64                `protobuf:"fixed64,4,opt,name=scale,proto3" json:"scale,omitempty"`                                                   // Scale factor (default 1.0)
-	Delta         bool                   `protobuf:"varint,5,opt,name=delta,proto3" json:"delta,omitempty"`                                                    // Calculate rate of change
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	state    protoimpl.MessageState `protogen:"open.v1"`
+	Oid      string                 `protobuf:"bytes,1,opt,name=oid,proto3" json:"oid,omitempty"`                                                         // OID string (e.g., ".1.3.6.1.2.1.1.1.0")
+	Name     string                 `protobuf:"bytes,2,opt,name=name,proto3" json:"name,omitempty"`                                                       // Human-readable name (e.g., "sysDescr")
+	DataType SNMPDataType           `protobuf:"varint,3,opt,name=data_type,json=dataType,proto3,enum=monitoring.SNMPDataType" json:"data_type,omitempty"` // Expected data type
+	Scale    float64                `protobuf:"fixed64,4,opt,name=scale,proto3" json:"scale,omitempty"`                                                   // Scale factor (default 1.0)
+	Delta    bool                   `protobuf:"varint,5,opt,name=delta,proto3" json:"delta,omitempty"`                                                    // Calculate rate of change
+	// Retrieval mode. Empty or "get" issues a single SNMP GET of one scalar
+	// instance. "walk" walks the subtree rooted at oid (GETBULK on v2c/v3,
+	// GETNEXT on v1) and emits one data point per discovered row. Tables whose
+	// row indexes are not known ahead of time need walk; a GET of the column
+	// OID itself is not a table read.
+	Mode string `protobuf:"bytes,6,opt,name=mode,proto3" json:"mode,omitempty"`
+	// Walk only: cap on discovered rows. Zero means the agent default.
+	MaxRows int32 `protobuf:"varint,7,opt,name=max_rows,json=maxRows,proto3" json:"max_rows,omitempty"`
+	// Walk only: wall-clock bound in seconds. Zero means the agent default.
+	WalkTimeoutSeconds uint32 `protobuf:"varint,8,opt,name=walk_timeout_seconds,json=walkTimeoutSeconds,proto3" json:"walk_timeout_seconds,omitempty"`
+	unknownFields      protoimpl.UnknownFields
+	sizeCache          protoimpl.SizeCache
 }
 
 func (x *SNMPOIDConfig) Reset() {
@@ -7256,6 +7266,27 @@ func (x *SNMPOIDConfig) GetDelta() bool {
 		return x.Delta
 	}
 	return false
+}
+
+func (x *SNMPOIDConfig) GetMode() string {
+	if x != nil {
+		return x.Mode
+	}
+	return ""
+}
+
+func (x *SNMPOIDConfig) GetMaxRows() int32 {
+	if x != nil {
+		return x.MaxRows
+	}
+	return 0
+}
+
+func (x *SNMPOIDConfig) GetWalkTimeoutSeconds() uint32 {
+	if x != nil {
+		return x.WalkTimeoutSeconds
+	}
+	return 0
 }
 
 // MtrMplsLabel represents a single MPLS label stack entry extracted from
@@ -8521,13 +8552,16 @@ const file_monitoring_proto_rawDesc = "" +
 	"\rauth_protocol\x18\x03 \x01(\x0e2\x1c.monitoring.SNMPAuthProtocolR\fauthProtocol\x12#\n" +
 	"\rauth_password\x18\x04 \x01(\tR\fauthPassword\x12A\n" +
 	"\rpriv_protocol\x18\x05 \x01(\x0e2\x1c.monitoring.SNMPPrivProtocolR\fprivProtocol\x12#\n" +
-	"\rpriv_password\x18\x06 \x01(\tR\fprivPassword\"\x98\x01\n" +
+	"\rpriv_password\x18\x06 \x01(\tR\fprivPassword\"\xf9\x01\n" +
 	"\rSNMPOIDConfig\x12\x10\n" +
 	"\x03oid\x18\x01 \x01(\tR\x03oid\x12\x12\n" +
 	"\x04name\x18\x02 \x01(\tR\x04name\x125\n" +
 	"\tdata_type\x18\x03 \x01(\x0e2\x18.monitoring.SNMPDataTypeR\bdataType\x12\x14\n" +
 	"\x05scale\x18\x04 \x01(\x01R\x05scale\x12\x14\n" +
-	"\x05delta\x18\x05 \x01(\bR\x05delta\"V\n" +
+	"\x05delta\x18\x05 \x01(\bR\x05delta\x12\x12\n" +
+	"\x04mode\x18\x06 \x01(\tR\x04mode\x12\x19\n" +
+	"\bmax_rows\x18\a \x01(\x05R\amaxRows\x120\n" +
+	"\x14walk_timeout_seconds\x18\b \x01(\rR\x12walkTimeoutSeconds\"V\n" +
 	"\fMtrMplsLabel\x12\x14\n" +
 	"\x05label\x18\x01 \x01(\x05R\x05label\x12\x10\n" +
 	"\x03exp\x18\x02 \x01(\x05R\x03exp\x12\f\n" +

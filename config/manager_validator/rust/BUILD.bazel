@@ -1,0 +1,33 @@
+# gazelle:ignore
+
+load("@crates//:defs.bzl", "all_crate_deps")
+load("@rules_rs//rs:rust_library.bzl", "rust_library")
+
+filegroup(
+    name = "srcs",
+    srcs = glob(
+        ["**"],
+        exclude = [
+            "target/**",
+            "bazel-*",
+        ],
+    ),
+    visibility = ["//visibility:public"],
+)
+
+# The reference implementation of //config/SEMANTICS.md. Kept separate from the generated
+# types so a schema change and an engine change cannot arrive in one indistinguishable diff.
+rust_library(
+    name = "validator",
+    srcs = glob(["src/**/*.rs"]),
+    crate_name = "serviceradar_config_validator",
+    crate_root = "src/lib.rs",
+    visibility = ["//visibility:public"],
+    deps = all_crate_deps(
+        cargo_only = True,
+        normal = True,
+    ) + ["//config/proto_bindings/rust:config_schema"],
+)
+
+# The test surface lives in //config/manager_validator/rust/tests, entered through the same
+# lib_tests.rs that `cargo test` uses.

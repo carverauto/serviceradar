@@ -7,7 +7,7 @@ each of the three environments the suite runs in**.
 
 This document exists because the CA is delivered as PEM *content* in an environment variable
 after being fetched from a live source (the cert-manager Secret or
-`https://srql-fixture-ca.serviceradar.cloud/ca.crt`). Anything that swaps the delivery
+`http://srql-fixture-ca-incluster.srql-fixtures.svc.cluster.local/ca.crt`). Anything that swaps the delivery
 mechanism has to satisfy every row of the tables below, or it will break one environment
 while leaving the other two green — which is exactly how earlier failures reached `staging`.
 
@@ -45,7 +45,8 @@ on their fixture-reachable runners while eligible compilation remains remote and
   `sslmode` with the same configured value.
 - **CA** — never a stored secret. kubectl reads `srql-fixture-server-ca` when RBAC exists,
   otherwise GET `SRQL_FIXTURE_CA_URL` (default
-  `https://srql-fixture-ca.serviceradar.cloud/ca.crt`).
+  `http://srql-fixture-ca-incluster.srql-fixtures.svc.cluster.local/ca.crt`).
+  There is no public CA URL.
 
 The run log says which credential source was used without printing userinfo:
 `Fixture credentials from <source>`.
@@ -105,7 +106,12 @@ the four failures below.
 
 This crate (`src/lib.rs`): `SRQL_TEST_DATABASE_URL`, `SRQL_TEST_ADMIN_URL`,
 `SERVICERADAR_TEST_ADMIN_URL`, `SRQL_TEST_DATABASE_CA_CERT`, `SERVICERADAR_TEST_DATABASE_OWNER`,
-`PGSSLROOTCERT`, `PGSSLSERVERNAME`, `GITHUB_RUN_ID`, `GITHUB_RUN_ATTEMPT`.
+`PGSSLROOTCERT`, `PGSSLSERVERNAME`.
+
+The per-run database name is NOT an environment variable. It is read from the declared input
+`//build:run_id_file` (staged at `build/run_id_file.txt` in runfiles), written from
+`--//build:run_id`. //elixir/serviceradar_core reads the same file, so there is one producer of
+the format rather than two implementations kept in step by hand.
 
 `elixir/serviceradar_core/config/test.exs` resolves the Repo. Order that matters:
 

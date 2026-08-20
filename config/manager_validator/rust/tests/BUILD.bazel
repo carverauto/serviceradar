@@ -1,0 +1,76 @@
+load("@crates//:defs.bzl", "all_crate_deps")
+load("@rules_rs//rs:rust_test.bzl", "rust_test")
+
+# The whole test surface in one target, entered through the same lib_tests.rs that
+# `cargo test` uses, so the two builds cannot drift into different suites.
+#
+# `package_name` is required on every all_crate_deps(cargo_only = True) call here: it otherwise
+# resolves against the package it is called from, and there is no Cargo.toml at
+# config/manager_validator/rust/tests.
+#
+# --include-ignored is what makes Bazel the authoritative build. Most of these tests read
+# artifacts protoc compiles during the build -- the rule set, the fixtures, each committed
+# instance, the schema descriptor -- and this repository removes Bazel's convenience symlinks, so
+# cargo has no path to them. They carry #[ignore] with that reason, which means cargo LISTS them
+# as skipped rather than quietly covering less; here they run.
+rust_test(
+    name = "validator_integration_test",
+    srcs = glob(
+        ["**/*.rs"],
+        exclude = ["section_privilege_tests.rs"],
+    ),
+    args = ["--include-ignored"],
+    crate_root = "lib_tests.rs",
+    data = [
+        "//config/environments:ci.textproto",
+        "//config/environments:ci_binpb",
+        "//config/environments:ci_canonical",
+        "//config/environments:ci_database",
+        "//config/environments:demo.textproto",
+        "//config/environments:demo_binpb",
+        "//config/environments:demo_canonical",
+        "//config/environments:localhost.textproto",
+        "//config/environments:localhost_binpb",
+        "//config/environments:localhost_canonical",
+        "//config/environments:saas.textproto",
+        "//config/environments:saas_binpb",
+        "//config/environments:saas_canonical",
+        "//config/environments/onprem:untd.textproto",
+        "//config/environments/onprem:untd_binpb",
+        "//config/environments/onprem:untd_canonical",
+        "//config/proto:config_descriptor_set",
+        "//config/rules:ruleset_binpb",
+        "//config/rules/fixtures:fixtures_binpb",
+    ],
+    edition = "2024",
+    deps = all_crate_deps(
+        package_name = "config/manager_validator/rust",
+        cargo_only = True,
+        normal = True,
+        normal_dev = True,
+    ) + [
+        "//config/proto_bindings/rust:config_schema",
+        "//config/manager_validator/rust:validator",
+    ],
+)
+
+# Declares ONE section, deliberately. It asserts both halves of Decision 6: the declared section
+# is there, and the others are not. Adding data here weakens what it proves, which is why it is
+# not part of the target above.
+rust_test(
+    name = "section_privilege_test",
+    srcs = ["section_privilege_tests.rs"],
+    args = ["--include-ignored"],
+    crate_root = "section_privilege_tests.rs",
+    data = ["//config/environments:ci_database"],
+    edition = "2024",
+    deps = all_crate_deps(
+        package_name = "config/manager_validator/rust",
+        cargo_only = True,
+        normal = True,
+        normal_dev = True,
+    ) + [
+        "//config/proto_bindings/rust:config_schema",
+        "//config/manager_validator/rust:validator",
+    ],
+)

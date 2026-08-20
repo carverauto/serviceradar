@@ -1,7 +1,10 @@
 // Vite/Vitest reject `import x from "./file.wasm"` (ESM Wasm proposal).
-// `new URL(..., import.meta.url)` is a file URL in tests and an emitted
-// asset URL under esbuild `--loader:.wasm=file`.
-const wasmUrl = new URL("./god_view_exec.wasm", import.meta.url).href
+// Do not use `new URL("./god_view_exec.wasm", import.meta.url)` either:
+// the production bundle is an IIFE (`<script type="text/javascript">`), so
+// `import.meta.url` is empty and URL construction throws. That abort used
+// to leave /topology stuck on "loading topology surface...".
+// esbuild.config.mjs copies the blob next to app.js; Phoenix serves it here.
+const WASM_ASSET_URL = "/assets/js/god_view_exec.wasm"
 
 export class GodViewWasmEngine {
   constructor(instance) {
@@ -110,7 +113,7 @@ export class GodViewWasmEngine {
   }
 }
 
-function wasmCandidates() {
+export function wasmCandidates(wasmUrl = WASM_ASSET_URL) {
   const raw = String(wasmUrl || "").trim()
   const clean = raw.startsWith("http://") || raw.startsWith("https://") ? raw : raw
   const withoutQuery = clean.split("?")[0]

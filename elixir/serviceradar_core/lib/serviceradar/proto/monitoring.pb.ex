@@ -1555,6 +1555,9 @@ defmodule Monitoring.SNMPOIDConfig do
   field :data_type, 3, type: Monitoring.SNMPDataType, json_name: "dataType", enum: true
   field :scale, 4, type: :double
   field :delta, 5, type: :bool
+  field :mode, 6, type: :string
+  field :max_rows, 7, type: :int32, json_name: "maxRows"
+  field :walk_timeout_seconds, 8, type: :uint32, json_name: "walkTimeoutSeconds"
 end
 
 defmodule Monitoring.MtrMplsLabel do

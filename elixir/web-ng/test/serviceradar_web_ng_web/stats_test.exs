@@ -8,7 +8,10 @@ defmodule ServiceRadarWebNGWeb.StatsTest do
   describe "log severity query helpers" do
     test "use canonical aliases plus every OTel enum variant" do
       assert Query.log_severity_values(:error) ==
-               ~w(error err severity_number_error severity_number_error2 severity_number_error3 severity_number_error4)
+               ~w(error err critical severity_number_error severity_number_error2 severity_number_error3 severity_number_error4)
+
+      assert Query.log_severity_values(:fatal) ==
+               ~w(fatal emergency alert severity_number_fatal severity_number_fatal2 severity_number_fatal3 severity_number_fatal4)
 
       assert Query.log_severity_values(:warning) ==
                ~w(warning warn severity_number_warn severity_number_warn2 severity_number_warn3 severity_number_warn4)
@@ -36,9 +39,13 @@ defmodule ServiceRadarWebNGWeb.StatsTest do
 
     test "builds fallback count queries from the same severity groups" do
       query = Query.logs_severity_count_query(:fatal)
-      assert query =~ "severity:(fatal,critical,emergency,alert,"
+      assert query =~ "severity:(fatal,emergency,alert,"
+      refute query =~ "severity:(fatal,critical,"
       assert query =~ "severity_number_fatal4"
       assert query =~ "severity_number:(21,22,23,24) severity_match:any"
+
+      error_count = Query.logs_severity_count_query(:error)
+      assert error_count =~ "severity:(error,err,critical,"
       assert String.ends_with?(query, ~s|time:last_24h stats:"count() as total"|)
     end
   end

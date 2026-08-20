@@ -56,8 +56,12 @@ extraVolumes:
       # Dedicated BB disk on each worker (xfs /mnt/buildbuddy). Do not use /var/lib (root).
       path: /mnt/buildbuddy/cache
       type: DirectoryOrCreate
-  # Mount a Docker config with auth (secret must be created separately, e.g.
-  # kubectl -n buildbuddy create secret docker-registry dockerhub-auth ...).
+  # Bazel client caches (disk, repository, repo contents). Its own volume so a fresh runner
+  # starts warm, and so the 100 GB of small files are not walked by the filecache startup scan.
+  - name: bazel-cache-volume
+    hostPath:
+      path: /mnt/buildbuddy/bazel-caches
+      type: DirectoryOrCreate
   - name: dockerhub-auth
     secret:
       secretName: dockerhub-auth
@@ -68,17 +72,50 @@ extraVolumes:
 extraVolumeMounts:
   - name: cache-volume
     mountPath: /cache
+  - name: bazel-cache-volume
+    mountPath: /bazel-caches
   - name: dockerhub-auth
     mountPath: /root/.docker
     readOnly: true
 
+# Kept in step with ./values-workflows.yaml, which is the fleet that needs it: kubelet creates a
+# `DirectoryOrCreate` hostPath as root:root 0755, and a non-root action container cannot write
+# into the bind mount below. Action containers here run as root (//docker/Dockerfile.rbe sets no
+# USER), so this fleet does not hit it today -- but the two files move together, and an image
+# that ever gains a USER would fail exactly as the workflow runner did.
+#
+# Non-recursive on purpose: a `chown -R` would walk a 100 GB cache on every pod start.
+extraInitContainers:
+  - name: bazel-cache-perms
+    # The executor's own image: already on the node under imagePullPolicy IfNotPresent, so this
+    # costs no pull. Keep the tag in step with `image` above.
+    image: gcr.io/flame-public/buildbuddy-executor-enterprise:enterprise-v2.290.0
+    securityContext:
+      # The image sets no USER so this is already true; explicit so a future base image that
+      # adds one cannot silently turn the chown into a no-op failure.
+      runAsUser: 0
+    command:
+      - /bin/sh
+      - -c
+      - |
+        set -eu
+        mkdir -p /bazel-caches/disk /bazel-caches/repo /bazel-caches/repo-contents
+        chown 1001:1001 /bazel-caches /bazel-caches/disk /bazel-caches/repo /bazel-caches/repo-contents
+    # The three names are //.bazelrc `build:ci --{disk,repository,repo_contents}_cache`. Nothing
+    # checks the pairing: a rename there just makes Bazel create an unowned directory and fail.
+    volumeMounts:
+      - name: bazel-cache-volume
+        mountPath: /bazel-caches
+
 config:
   executor:
-    # Makes goinit pass -enable_rootfs, so the guest mounts a single ext4 root
-    # instead of overlayfs-over-ext4. Required for Docker-in-Firecracker: on an
-    # overlayfs root, docker's overlay2 driver is nested and cannot set
-    # trusted.overlay.opaque, so any image with an opaque dir fails to extract
-    # ("failed to convert whiteout file ... operation not supported").
+    # Firecracker guest rootfs / snapshot sharing: it made goinit pass -enable_rootfs so the
+    # guest mounted a single ext4 root instead of overlayfs-over-ext4, which Docker-in-VM
+    # needed (on an overlayfs root docker's overlay2 driver is nested and cannot set
+    # trusted.overlay.opaque, so any image with an opaque dir fails to extract).
+    #
+    # Inert now that no fleet sets enable_firecracker. Kept because it costs nothing while
+    # off and is the setting to restore alongside it.
     enable_local_snapshot_sharing: true
     # The org's own BuildBuddy instance, not BuildBuddy cloud.
     #
@@ -119,13 +156,52 @@ config:
     # service.externalGRPCSPort is set, and it is not. Cluster-internal only.
     cache_target: grpc://bb-cache-proxy-buildbuddy-enterprise-cache-proxy.buildbuddy.svc.cluster.local:1985
 
+    # IN-CLUSTER ACCESS FROM ACTIONS. Without this an action reaches the public internet and
+    # NOTHING on the cluster network.
+    #
+    # BuildBuddy REJECTs every RFC1918 destination from an action's network namespace by
+    # default -- server/util/networking/networking.go builds, per container network:
+    #
+    #   for allow in task_allowed_private_ips: -I FORWARD/INPUT -d <allow> -j ACCEPT
+    #   for r in {10/8, 172.16/12, 192.168/16, 169.254/16}: -I FORWARD/INPUT -d <r> -j REJECT
+    #
+    # inserted so the allowlist sits above the rejects. That is SSRF protection, not a routing
+    # accident, and REJECT (not DROP) is why the symptom is an instant "Connection refused"
+    # rather than a timeout -- so it reads like a dead service instead of a firewall.
+    #
+    # BOTH CIDRs are required, and the pod one is the non-obvious half: kube-proxy DNATs a
+    # ClusterIP to a pod IP in nat PREROUTING, which runs BEFORE the filter FORWARD chain, so
+    # by the time these rules match, the destination is already 10.42.x.x. Allowing only the
+    # service CIDR leaves every ClusterIP connection rejected at its rewritten address.
+    #
+    # Deliberately NOT 10.0.0.0/8, which would also expose the node subnet (10.0.2.0/24) and
+    # everything else on it. 169.254/16 stays blocked -- that is cloud metadata.
+    task_allowed_private_ips:
+      - 10.42.0.0/16 # pod CIDR: what a ClusterIP is rewritten to
+      - 10.43.0.0/16 # service CIDR: ClusterIPs, including CoreDNS
+
     enable_oci: true
     default_isolation_type: oci
-    enable_firecracker: true
-    firecracker_debug_stream_vm_logs: true
-    # Floor for VM sizing; without it predicted sizes are used verbatim and a
-    # Firecracker VM can end up too small to unpack its own 49 MB initrd
-    # ("Initramfs unpacking failed" -> "No working init found" panic).
+    # NO enable_firecracker ON EITHER FLEET.
+    #
+    # Exactly one target ever asked for it -- //rust/dgraph-client/tests:acceptance_tests,
+    # via `test.workload-isolation-type: firecracker` and `test.init-dockerd: true` -- and
+    # that target is tagged `manual` ("Disabled for the time being until a proper DGraph
+    # instance is in the CI cluster"), so no wildcard pattern selects it and neither CI step
+    # dispatches a firecracker task. Verify before assuming otherwise:
+    #
+    #   bazel query 'attr("tags", "manual", tests(//rust/dgraph-client/...))'
+    #   grep -rn workload-isolation-type --include=*.bazel .
+    #
+    # Re-enabling that suite means restoring `enable_firecracker: true` and
+    # `firecracker_debug_stream_vm_logs: true` HERE, on the default pool, because the target
+    # names no pool. Do not restore it in ./values-workflows.yaml: a microVM has no route to
+    # the service CIDR and no CoreDNS, which is what cost that pool its access to the
+    # in-cluster CA bundle and the fixture database.
+    # Floor for task sizing; without it a predicted size is used verbatim and can
+    # under-reserve. Under Firecracker this also kept a VM from being too small to unpack
+    # its own 49 MB initrd ("Initramfs unpacking failed" -> "No working init found" panic);
+    # that failure mode is gone with the microVM, the floor is still wanted.
     #
     # estimated_memory_bytes is an int64 COUNT OF BYTES (scheduler.proto TaskSize),
     # not a k8s quantity. "2Gi" here does not parse. That syntax belongs to the
@@ -139,9 +215,22 @@ config:
     warmup_additional_images:
       - registry.carverauto.dev/serviceradar/rbe-executor:v1.0.24.3
     oci:
+      # CoreDNS, by its ClusterIP -- reachable only because of task_allowed_private_ips above.
+      #
+      # `executor.oci.dns` defaults to "8.8.8.8", and the runtime writes a resolv.conf holding
+      # that single nameserver into every action container, then bind-mounts it over
+      # /etc/resolv.conf (ociruntime.go:642 and :1340). That is why *.svc.cluster.local came
+      # back NXDOMAIN from a resolver that answered perfectly well.
+      #
+      # ONE nameserver serves both worlds: the Corefile ends in `forward . /etc/resolv.conf`,
+      # so CoreDNS answers cluster.local authoritatively and forwards everything else upstream.
+      dns: "10.43.0.10"
+
+      # On Disk cache
       mounts:
-        - source: /cache
-          destination: /cache
+        # A dedicated path, NOT /root: mounting over the runner's home broke `git init`.
+        - source: /bazel-caches
+          destination: /bazel-cache
           type: bind
           options:
             - rbind
@@ -150,21 +239,13 @@ config:
     # Read-through cache OF the remote CAS named by app_target above. Every eviction here
     # becomes a re-fetch across the WAN, so this wants to be as large as the node disk
     # tolerates rather than as small as it can get away with.
+
+    # Change it only while watching `kubectl get nodes` for DiskPressure, because
+    # `root_directory` below shares this filesystem and is NOT counted against this budget --
+    # concurrent action working dirs spike outside it.
     #
-    # Raised 50 -> 150 GB: at 50 GB two of the three executors sat pinned exactly at the cap
-    # (48 GB and 53 GB measured) while their disks had 275-340 GB free -- the fleet was
-    # paying for GCP round trips it had the local capacity to avoid.
-    #
-    # Sizing, per node: 589 GB total, of which ~170-230 GB is non-cache baseline (containerd
-    # images, kubelet, other pods). 150 GB of filecache puts the worst node at ~345 GB used,
-    # leaving ~240 GB -- well clear of the kubelet DiskPressure eviction threshold (10% free,
-    # i.e. ~530 GB used). There is room to go to 200 GB later; raise it only while watching
-    # `kubectl get nodes` for DiskPressure, because `root_directory` below shares this
-    # filesystem and is NOT counted against this budget -- concurrent action working dirs
-    # spike outside it.
-    #
-    # Plain int64 byte count, not a k8s quantity: "150Gi" does not parse here. It also does
+    # Plain int64 byte count, not a k8s quantity: "100Gi" does not parse here. It also does
     # NOT draw against the ephemeral-storage limit above, because /cache is a hostPath.
-    local_cache_size_bytes: 150000000000
+    local_cache_size_bytes: 100000000000
     root_directory: /cache/remotebuilds/
     api_key: ""

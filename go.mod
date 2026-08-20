@@ -47,6 +47,7 @@ require (
 	k8s.io/api v0.36.3
 	k8s.io/apimachinery v0.36.3
 	k8s.io/client-go v0.36.3
+	pgregory.net/rapid v1.3.0
 )
 
 require (

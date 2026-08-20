@@ -13,6 +13,10 @@ User=root
 Group=serviceradar
 WorkingDirectory=/var/lib/serviceradar/endpoint-inventory
 Environment="HOME=/var/lib/serviceradar/endpoint-inventory"
+# Staged binaries inherit SELinux var_lib_t. systemd (init_t) cannot exec that
+# label (status=203/EXEC). Relabel immediately before start. The + prefix keeps
+# this root-owned if User= ever changes. Missing chcon (non-SELinux) is ignored.
+ExecStartPre=+/bin/sh -c '/usr/bin/chcon -t bin_t /var/lib/serviceradar/agent/addons/scalibr-endpoint-inventory/current/serviceradar-scalibr-endpoint-inventory >/dev/null 2>&1 || true'
 ExecStart=/var/lib/serviceradar/agent/addons/scalibr-endpoint-inventory/current/serviceradar-scalibr-endpoint-inventory -config /var/lib/serviceradar/agent/addons/scalibr-endpoint-inventory/current/scalibr-endpoint-inventory.json
 # Group-writable umask so the non-root agent can write into the shared dirs.
 UMask=0007

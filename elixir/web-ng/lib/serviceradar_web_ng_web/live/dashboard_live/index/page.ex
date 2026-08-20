@@ -5,10 +5,9 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Index.Page do
   alias ServiceRadarWebNGWeb.DashboardLive.Index.AlertsPanel
   alias ServiceRadarWebNGWeb.DashboardLive.Index.CameraPanel
   alias ServiceRadarWebNGWeb.DashboardLive.Index.Common
-  alias ServiceRadarWebNGWeb.DashboardLive.Index.EventsPanel
   alias ServiceRadarWebNGWeb.DashboardLive.Index.FieldSurveyPanel
   alias ServiceRadarWebNGWeb.DashboardLive.Index.MapPanel
-  alias ServiceRadarWebNGWeb.DashboardLive.Index.MetricsPanel
+  alias ServiceRadarWebNGWeb.DashboardLive.Index.ObservabilityPanel
   alias ServiceRadarWebNGWeb.DashboardLive.Index.ThreatPanel
   alias ServiceRadarWebNGWeb.DashboardLive.Index.VirtualizationPanel
   alias ServiceRadarWebNGWeb.DashboardLive.Index.VulnerableAssetsPanel
@@ -36,7 +35,6 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Index.Page do
 
         <section class="sr-ops-grid-primary">
           <MapPanel.render dashboard={assigns} />
-          <EventsPanel.render dashboard={assigns} />
         </section>
 
         <section class="sr-ops-grid-secondary">
@@ -45,10 +43,10 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Index.Page do
         </section>
 
         <section class="sr-ops-grid-bottom">
-          <MetricsPanel.render dashboard={assigns} />
+          <ObservabilityPanel.render dashboard={assigns} />
           <VulnerableAssetsPanel.render dashboard={assigns} />
-          <VirtualizationPanel.render dashboard={assigns} />
           <ThreatPanel.render dashboard={assigns} />
+          <VirtualizationPanel.render dashboard={assigns} />
           <AlertsPanel.render dashboard={assigns} />
         </section>
       </div>

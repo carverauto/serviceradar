@@ -5,7 +5,7 @@ package main
 import (
 	"encoding/json"
 
-	"code.carverauto.dev/carverauto/serviceradar-sdk-go/sdk"
+	"github.com/carverauto/serviceradar-sdk-go/sdk"
 )
 
 //export run_check

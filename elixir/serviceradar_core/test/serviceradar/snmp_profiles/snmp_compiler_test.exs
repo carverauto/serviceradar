@@ -244,6 +244,79 @@ defmodule ServiceRadar.AgentConfig.Compilers.SNMPCompilerTest do
       assert compiled_oid["name"] == "ifInOctets"
       assert compiled_oid["data_type"] == "counter"
       assert compiled_oid["delta"] == true
+      refute Map.has_key?(compiled_oid, "mode")
+    end
+
+    @tag :integration
+    test "compiles a walked OID with row and timeout bounds" do
+      actor = SystemActor.system(:test)
+
+      {:ok, profile} =
+        SNMPProfile
+        |> Ash.Changeset.for_create(
+          :create,
+          %{
+            name: "Walk Profile #{System.unique_integer([:positive])}",
+            poll_interval: 30,
+            timeout: 10,
+            retries: 2,
+            is_default: false,
+            enabled: true
+          },
+          actor: actor
+        )
+        |> Ash.create(actor: actor)
+
+      {:ok, profile} =
+        profile
+        |> Ash.Changeset.for_update(:set_as_default, %{}, actor: actor)
+        |> Ash.update(actor: actor)
+
+      {:ok, target} =
+        SNMPTarget
+        |> Ash.Changeset.for_create(
+          :create,
+          %{
+            snmp_profile_id: profile.id,
+            name: "Walk Router #{System.unique_integer([:positive])}",
+            host: "192.168.2.254",
+            port: 161,
+            version: :v2c,
+            community: "public"
+          },
+          actor: actor
+        )
+        |> Ash.create(actor: actor)
+
+      {:ok, _oid} =
+        SNMPOIDConfig
+        |> Ash.Changeset.for_create(
+          :create,
+          %{
+            snmp_target_id: target.id,
+            oid: ".1.3.6.1.2.1.31.1.1.1.6",
+            name: "ifHCInOctets",
+            data_type: :counter,
+            scale: 1.0,
+            delta: true,
+            mode: :walk,
+            max_rows: 200,
+            walk_timeout_seconds: 15
+          },
+          actor: actor
+        )
+        |> Ash.create(actor: actor)
+
+      {:ok, config} = SNMPCompiler.compile("default", nil, [])
+      [compiled_target] = config["targets"]
+
+      walk_oid =
+        Enum.find(compiled_target["oids"], fn oid -> oid["name"] == "ifHCInOctets" end)
+
+      assert walk_oid["mode"] == "walk"
+      assert walk_oid["max_rows"] == 200
+      assert walk_oid["walk_timeout_seconds"] == 15
+      assert walk_oid["oid"] == ".1.3.6.1.2.1.31.1.1.1.6"
     end
 
     @tag :integration

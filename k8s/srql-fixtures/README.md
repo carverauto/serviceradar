@@ -13,7 +13,7 @@ fixture-reachable runners.
 - `cnpg-test-admin-credentials.yaml` – placeholder secret for the superuser that can drop/re-create the fixture database (replace before applying).
 - `cnpg-cluster.yaml` – CNPG `Cluster` spec that enables TimescaleDB + AGE using the digest-pinned `registry.carverauto.dev/serviceradar/serviceradar-cnpg:18.4.0-sr4@sha256:e54ee02582dbb2584388c03837911c1b1cb185cea92d60d2be7a08102b5a7910` fixture image (`imagePullPolicy: IfNotPresent`, because Harbor has GC'd that digest before). Server TLS is user-provided from cert-manager (`srql-fixture-server-ca` / `srql-fixture-server-tls`). Pods are kept off `k8s-cp3-worker3`.
 - `cert-manager.yaml` – namespace-local self-signed Issuer, 10-year CA Certificate, CA Issuer, and 90-day server Certificate.
-- `ca-bundle.yaml` – publishes only `ca.crt` at `https://srql-fixture-ca.serviceradar.cloud/ca.crt` via the shared Envoy gateway, plus an in-cluster ClusterIP HTTP Service for ARC.
+- `ca-bundle.yaml` – Caddy static publisher for only `ca.crt` on the in-cluster ClusterIP `srql-fixture-ca-incluster` (ARC / BuildBuddy). Not on the shared public gateway. Do not put nginx on this path.
 - `services.yaml` – exposes a `LoadBalancer` targeting the CNPG primary. It’s annotated with `metallb.universe.tf/address-pool: k3s-pool` and `metallb.universe.tf/allow-shared-ip: serviceradar-public`, so MetalLB assigns one of the public addresses already used by the demo stack (currently `23.138.124.18`). ExternalDNS also sees the `external-dns.alpha.kubernetes.io/hostname: srql-fixture.serviceradar.cloud.` annotation and creates a matching A/AAAA record. In-cluster workloads should continue using the default `srql-fixture-rw` service the operator provisions automatically.
 - No network policy is applied; the LoadBalancer is publicly reachable once MetalLB advertises it. Use the shared secret/DSN guarding to control access.
 
@@ -63,8 +63,8 @@ kubectl -n srql-fixtures create secret generic srql-test-admin-credentials \
 ```bash
 kubectl -n srql-fixtures get secret srql-fixture-server-ca \
   -o jsonpath='{.data.ca\.crt}' | base64 -d > /tmp/srql-fixture-ca.crt
-# Or, with no kubeconfig:
-# curl -fsS https://srql-fixture-ca.serviceradar.cloud/ca.crt > /tmp/srql-fixture-ca.crt
+# In-cluster only (no public URL):
+# curl -fsS http://srql-fixture-ca-incluster.srql-fixtures.svc.cluster.local/ca.crt > /tmp/srql-fixture-ca.crt
 export PGSSLROOTCERT=/tmp/srql-fixture-ca.crt
 export SRQL_TEST_DATABASE_CA_CERT="$(cat /tmp/srql-fixture-ca.crt)"
 export SRQL_TEST_DATABASE_CA_CERT_FILE=/tmp/srql-fixture-ca.crt

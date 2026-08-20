@@ -3546,10 +3546,13 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
 
       # Mid-refresh render: before the fix, reset_supplemental_defaults nilled
       # has_ifaces here and the whole interfaces tab unmounted until the async
-      # batch completed ("the page keeps reloading").
+      # batch completed ("the page keeps reloading"). details_loading is also
+      # true during this window; the table must stay up instead of swapping
+      # to the first-load spinner.
       html = render(view)
       assert html =~ "eth0"
       assert html =~ "Primary Ethernet"
+      refute html =~ "Loading network interfaces"
 
       # After the async batch lands the tab is still populated (fresh data).
       html = render_async(view, 15_000)

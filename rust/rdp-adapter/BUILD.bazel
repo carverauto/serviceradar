@@ -1,7 +1,6 @@
 load("@rules_rs//rs:rust_binary.bzl", "rust_binary")
 load("@rules_rs//rs:rust_library.bzl", "rust_library")
 load("@rules_rs//rs:rust_test.bzl", "rust_test")
-load("//build/rbe:exec_properties.bzl", "NATIVE_ADDON_EXEC_PROPERTIES")
 
 package(default_visibility = ["//visibility:public"])
 
@@ -82,7 +81,6 @@ rust_binary(
     name = "rdp_adapter",
     srcs = ["src/main.rs"],
     crate_root = "src/main.rs",
-    exec_properties = NATIVE_ADDON_EXEC_PROPERTIES,
     deps = [":rdp_adapter_lib"],
 )
 
@@ -90,7 +88,6 @@ rust_binary(
     name = "rdp_adapter_ironrdp",
     srcs = ["src/main.rs"],
     crate_root = "src/main.rs",
-    exec_properties = NATIVE_ADDON_EXEC_PROPERTIES,
     deps = [":rdp_adapter_ironrdp_lib"],
 )
 
@@ -98,7 +95,6 @@ rust_binary(
     name = "rdp_adapter_ironrdp_connector_experimental",
     srcs = ["src/main.rs"],
     crate_root = "src/main.rs",
-    exec_properties = NATIVE_ADDON_EXEC_PROPERTIES,
     deps = [":rdp_adapter_ironrdp_connector_experimental_lib"],
 )
 

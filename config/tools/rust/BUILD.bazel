@@ -1,0 +1,29 @@
+# gazelle:ignore
+
+load("@crates//:defs.bzl", "all_crate_deps")
+load("@rules_rs//rs:rust_binary.bzl", "rust_binary")
+
+filegroup(
+    name = "srcs",
+    srcs = glob(
+        ["**"],
+        exclude = [
+            "target/**",
+            "bazel-*",
+        ],
+    ),
+    visibility = ["//visibility:public"],
+)
+
+# Build tooling for the configuration system. Runs in the exec configuration as a genrule
+# tool, so it must not be confused with anything a service links.
+rust_binary(
+    name = "extract_section",
+    srcs = ["src/main.rs"],
+    crate_root = "src/main.rs",
+    visibility = ["//visibility:public"],
+    deps = all_crate_deps(
+        cargo_only = True,
+        normal = True,
+    ) + ["//config/proto_bindings/rust:config_schema"],
+)

@@ -61,6 +61,9 @@ const (
 	capabilityReasonNoEnabledSweepProfile  = "no_enabled_sweep_profile"
 	capabilityReasonNetprobeUnavailable    = "netprobe_unavailable"
 	capabilityReasonRecogCorpusUnavailable = "recog_corpus_unavailable"
+
+	// systemdUnitFailed is systemd's ActiveState=failed and Result=failed value.
+	systemdUnitFailed = "failed"
 )
 
 type capabilityStatusPayload struct {
@@ -650,6 +653,8 @@ func readSystemdUnitStatusDefault(unit string) systemdUnitStatus {
 		"--property=ActiveState",
 		"--property=SubState",
 		"--property=MainPID",
+		"--property=Result",
+		"--property=ExecMainStatus",
 		"--property=NextElapseUSecRealtime",
 		"--property=NextElapseUSecMonotonic",
 		unit,
@@ -674,6 +679,8 @@ func parseSystemdUnitStatusOutputForUnit(unit string, out string) systemdUnitSta
 	subState := ""
 	nextRealtime := ""
 	nextMonotonic := ""
+	result := ""
+	execMainStatus := ""
 	pid := 0
 
 	for _, line := range strings.Split(strings.TrimSpace(out), "\n") {
@@ -687,6 +694,10 @@ func parseSystemdUnitStatusOutputForUnit(unit string, out string) systemdUnitSta
 			activeState = strings.TrimSpace(value)
 		case "SubState":
 			subState = strings.TrimSpace(value)
+		case "Result":
+			result = strings.TrimSpace(value)
+		case "ExecMainStatus":
+			execMainStatus = strings.TrimSpace(value)
 		case "MainPID":
 			if parsed, parseErr := strconv.Atoi(strings.TrimSpace(value)); parseErr == nil && parsed > 0 {
 				pid = parsed
@@ -725,11 +736,31 @@ func parseSystemdUnitStatusOutputForUnit(unit string, out string) systemdUnitSta
 		return systemdUnitStatus{state: agentaddon.StateStarting, pid: pid}
 	case "deactivating", "reloading":
 		return systemdUnitStatus{state: agentaddon.StateRestarting, pid: pid}
-	case "failed":
-		return systemdUnitStatus{state: agentaddon.StateUnhealthy, pid: pid, lastError: "systemd unit failed"}
+	case systemdUnitFailed:
+		return systemdUnitStatus{
+			state:     agentaddon.StateUnhealthy,
+			pid:       pid,
+			lastError: systemdFailedUnitError(result, execMainStatus),
+		}
 	default:
 		return systemdUnitStatus{state: agentaddon.StateStopped, pid: pid}
 	}
+}
+
+func systemdFailedUnitError(result, execMainStatus string) string {
+	detail := "systemd unit failed"
+	if result != "" && result != systemdUnitFailed {
+		detail += ": result=" + result
+	}
+	if execMainStatus != "" && execMainStatus != "0" {
+		if strings.Contains(detail, "result=") {
+			detail += " status=" + execMainStatus
+		} else {
+			detail += ": status=" + execMainStatus
+		}
+	}
+
+	return detail
 }
 
 func finiteSystemdTimerNext(value string) bool {

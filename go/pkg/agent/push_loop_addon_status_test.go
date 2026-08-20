@@ -291,6 +291,18 @@ func TestParseSystemdUnitStatusOutputIgnoresPropertyOrder(t *testing.T) {
 	}
 }
 
+func TestParseSystemdUnitStatusOutputIncludesExecFailure(t *testing.T) {
+	got := parseSystemdUnitStatusOutput(
+		"ActiveState=failed\nResult=exit-code\nExecMainStatus=203\n",
+	)
+	if got.state != agentaddon.StateUnhealthy {
+		t.Fatalf("state = %q, want %q", got.state, agentaddon.StateUnhealthy)
+	}
+	if !strings.Contains(got.lastError, "result=exit-code") || !strings.Contains(got.lastError, "status=203") {
+		t.Fatalf("lastError = %q, want result and status", got.lastError)
+	}
+}
+
 func TestParseSystemdTimerStatusRequiresFiniteNextTrigger(t *testing.T) {
 	running := parseSystemdUnitStatusOutputForUnit(
 		"serviceradar-scalibr-endpoint-inventory.timer",
@@ -391,6 +403,42 @@ func TestSystemdAddonRuntimeReadyRequiresScheduledTimer(t *testing.T) {
 				t.Fatalf("systemdAddonRuntimeReady() = %v, want %v", got, tt.want)
 			}
 		})
+	}
+}
+
+func TestSystemdAddonRuntimeReadyRejectsFailedOneshot(t *testing.T) {
+	const (
+		addonID = "scalibr-endpoint-inventory"
+		timer   = "serviceradar-scalibr-endpoint-inventory.timer"
+		service = "serviceradar-scalibr-endpoint-inventory.service"
+	)
+
+	pl := NewPushLoop(
+		&Server{config: &ServerConfig{AgentID: "agent-timer-readiness"}},
+		nil,
+		30*time.Second,
+		logger.NewTestLogger(),
+	)
+	pl.installedSystemdAddons = map[string][]string{
+		addonID: {service, timer},
+	}
+	assignment := &proto.AddonAssignmentConfig{AddonId: addonID}
+
+	stubSystemdUnitStatus(t, pl, func(unit string) systemdUnitStatus {
+		if strings.HasSuffix(unit, ".timer") {
+			return parseSystemdUnitStatusOutputForUnit(
+				unit,
+				"ActiveState=active\nSubState=waiting\nNextElapseUSecRealtime=Sun 2026-08-16 04:09:27 CDT\n",
+			)
+		}
+
+		return parseSystemdUnitStatusOutput(
+			"ActiveState=failed\nResult=exit-code\nExecMainStatus=203\n",
+		)
+	})
+
+	if pl.systemdAddonRuntimeReady(context.Background(), assignment, addonSupervisionSystemdTimer) {
+		t.Fatal("failed oneshot must make a waiting timer not-ready so reconcile relabels")
 	}
 }
 

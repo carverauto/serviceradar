@@ -1,2 +1,2 @@
-code.carverauto.dev/carverauto/serviceradar-sdk-go v0.2.1-0.20260501203535-0b5ff3654e17 h1:eeyj9tP9QtugtC0F6RKnLO+5ITrM/7KLXxtLEeytjA4=
-code.carverauto.dev/carverauto/serviceradar-sdk-go v0.2.1-0.20260501203535-0b5ff3654e17/go.mod h1:ViDN9B+R5Qper/dwv6x4p2PCL2TdEzJ+f3LcafcSmaY=
+github.com/carverauto/serviceradar-sdk-go v0.3.0 h1:UeP8LpF+Y4gsl1N5BychCcQPF4zBRMAr1d9ynrvZsRs=
+github.com/carverauto/serviceradar-sdk-go v0.3.0/go.mod h1:tMMF+WXki1H+nh+soQlNcgb2yZmiUSeZuTmuj/wwdq0=

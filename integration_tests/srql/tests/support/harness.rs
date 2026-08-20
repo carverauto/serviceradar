@@ -1,21 +1,19 @@
+use serviceradar_integration_db as db;
+use runfiles::Runfiles;
 use anyhow::Context;
 use axum::{
     body::{self, Body},
     http::{self, Request, StatusCode},
     Router,
 };
-use rustls::pki_types::{CertificateDer, PrivateKeyDer};
-use rustls::{ClientConfig, RootCertStore};
-use rustls_pemfile::certs;
 use serde::Serialize;
 use serde_json::Value;
 use srql::{config::AppConfig, db::PgRustlsConnect, query::QueryRequest, server::Server};
 use std::{
-    borrow::Cow,
     env,
     fs::{self, File, OpenOptions},
     future::Future,
-    io::{BufReader, Write},
+    io::Write,
     net::SocketAddr,
     path::{Path, PathBuf},
     process,
@@ -36,15 +34,10 @@ use tower::ServiceExt;
 const API_KEY: &str = "test-api-key";
 const DB_CONNECT_RETRIES: usize = 240;
 const DB_CONNECT_DELAY_MS: u64 = 250;
-const DB_SEED_RETRIES: usize = 3;
 const REMOTE_FIXTURE_LOCK_ID: i64 = 4_216_042;
 
 static TRACING_INIT: Once = Once::new();
 static TEMP_CA_SEQUENCE: AtomicU64 = AtomicU64::new(0);
-
-fn ensure_rustls_crypto_provider() {
-    let _ = rustls::crypto::ring::default_provider().install_default();
-}
 
 /// Runs a test closure against a fully bootstrapped SRQL instance backed by the seeded Postgres fixture.
 pub async fn with_srql_harness<F, Fut>(test: F)
@@ -56,17 +49,10 @@ where
         let _ = tracing_subscriber::fmt::try_init();
     });
 
-    let remote_config = match RemoteFixtureConfig::from_env()
-        .expect("failed to read remote fixture config")
-    {
-        Some(config) => config,
-        None => {
-            eprintln!(
-                "[srql-test] skipping SRQL harness: SRQL_TEST_DATABASE_URL and SRQL_TEST_ADMIN_URL are not set"
-            );
-            return;
-        }
-    };
+    // No skip arm. This returned early when the fixture was unresolvable, which is how three
+    // targets stayed green while asserting nothing.
+    let remote_config =
+        RemoteFixtureConfig::from_env().expect("failed to resolve the fixture for this target");
 
     run_with_remote_fixture(remote_config, test).await;
 }
@@ -94,9 +80,12 @@ where
         .expect("failed to seed fixture database");
 
     let app_config = test_config(config.database_url.clone(), &tls_config);
+    // Not unwrap_or(false): seeding already ran `CREATE EXTENSION IF NOT EXISTS age` and fails
+    // if it cannot, so an Err here means the check itself broke. Defaulting it to false quietly
+    // downgraded every AGE-gated assertion instead.
     let age_available = check_age_available(&config.database_url, &tls_config)
         .await
-        .unwrap_or(false);
+        .expect("failed to check whether AGE is available");
     let server = Server::new(app_config)
         .await
         .expect("failed to boot SRQL server for remote harness");
@@ -119,10 +108,10 @@ fn test_config(database_url: String, tls_config: &FixtureTlsConfig) -> AppConfig
         database_url,
         age_graph_name: "platform_graph".to_string(),
         max_pool_size: 5,
-        pg_ssl_root_cert: tls_config.root_cert_path_string(),
-        pg_ssl_cert: tls_config.client_cert.clone(),
-        pg_ssl_key: tls_config.client_key.clone(),
-        pg_ssl_server_name: tls_config.server_name.clone(),
+        database_ca_pem: tls_config.ca_pem.clone(),
+        database_client_cert_pem: tls_config.client_cert_pem.clone(),
+        database_client_key_pem: tls_config.client_key_pem.clone(),
+        database_tls_server_name: tls_config.server_name.clone(),
         api_key: Some(API_KEY.to_string()),
         api_key_kv_key: None,
         allowed_origins: None,
@@ -137,26 +126,17 @@ fn test_config(database_url: String, tls_config: &FixtureTlsConfig) -> AppConfig
     }
 }
 
+/// Seeds once, and a failure is the answer.
+///
+/// This retried three times, which only ever helped when another target was resetting the same
+/// database underneath it -- so it converted an isolation bug into an intermittent one. Each
+/// target now owns its database, leaving nothing for a retry to win: a failure here means the
+/// schema or seed is wrong.
 async fn seed_fixture_database(
     database_url: &str,
     tls_config: &FixtureTlsConfig,
 ) -> anyhow::Result<()> {
-    let mut attempts = 0usize;
-    loop {
-        match seed_fixture_database_once(database_url, tls_config).await {
-            Ok(()) => return Ok(()),
-            Err(err) => {
-                attempts += 1;
-                if attempts >= DB_SEED_RETRIES {
-                    return Err(err);
-                }
-                eprintln!(
-                    "[srql-test] seeding attempt {attempts} failed: {err}; retrying fixture setup"
-                );
-                sleep(TokioDuration::from_millis(DB_CONNECT_DELAY_MS)).await;
-            }
-        }
-    }
+    seed_fixture_database_once(database_url, tls_config).await
 }
 
 async fn seed_fixture_database_once(
@@ -165,7 +145,11 @@ async fn seed_fixture_database_once(
 ) -> anyhow::Result<()> {
     let mut attempts = 0usize;
     let client = loop {
-        let config: PgConfig = database_url.parse()?;
+        // Through the shared parser: the assembled DSN carries `sslmode=verify-full`, which
+    // tokio-postgres rejects outright -- it accepts only disable/prefer/require. The verifying
+    // posture is a typed field that configures the connector, so the mode is stripped rather
+    // than rewritten, and one implementation does it for both this harness and the lifecycle.
+    let config = db::parse_pg_config(database_url, "database.url")?;
         match connect_with_tls(config, "fixture", tls_config).await {
             Ok((client, _task)) => break client,
             Err(err) => {
@@ -288,255 +272,46 @@ struct RemoteFixtureConfig {
 }
 
 impl RemoteFixtureConfig {
-    fn from_env() -> anyhow::Result<Option<Self>> {
-        let db_env = read_env_value("SRQL_TEST_DATABASE_URL")?;
-        let admin_env = read_env_value("SRQL_TEST_ADMIN_URL")?;
+    /// The fixture's coordinates, typed.
+    ///
+    /// This replaced parsing two DSNs back apart to recover the owner and the database name --
+    /// `get_user()` and `get_dbname()` on a re-parsed connection string. Those are schema
+    /// fields, so there is nothing to recover: `database.owning_role` and `database.database`
+    /// say what they are. The DSN is now assembled FROM them rather than mined for them, which
+    /// also retires `parse_fixture_pg_config` and its sslmode rewriting -- the verifying modes
+    /// tokio-postgres rejects never reach a parser, because the posture is a typed enum that
+    /// configures the connector.
+    fn from_env() -> anyhow::Result<Self> {
+        // FAILS rather than skips. Reaching this code already means the caller passed
+        // --//build:enable_integration_tests, because requires_shared_fixture() makes the target
+        // incompatible otherwise -- so an unreachable fixture here is a broken run, not an
+        // absent opt-in. Returning Ok(None) turned that into a green target asserting nothing.
+        let fixture = db::config::Fixture::from_env().context(
+            "the fixture did not resolve; this target opted in with \
+             --//build:enable_integration_tests, so this is a failure and not a skip",
+        )?;
 
-        let (database_url, admin_url) = match (db_env, admin_env) {
-            (Some(db), Some(admin)) => (db, admin),
-            (Some(_), None) => {
-                anyhow::bail!(
-                    "SRQL_TEST_ADMIN_URL must be set when SRQL_TEST_DATABASE_URL is provided"
-                )
-            }
-            (None, Some(_)) => {
-                anyhow::bail!(
-                    "SRQL_TEST_DATABASE_URL must be set when SRQL_TEST_ADMIN_URL is provided"
-                )
-            }
-            (None, None) => return Ok(None),
-        };
+        // This target's OWN database, not the shared fixture. Three targets that all reset
+        // `database.database` delete each other's schema mid-run; //build/integration_shards.bzl
+        // records the same lesson for the Elixir shards, measured as 40P01 deadlock_detected.
+        // teardown_db drops everything matching this run id, so nothing new cleans up.
+        let suffix = std::env::var("SRQL_TEST_DB_SUFFIX").context(
+            "SRQL_TEST_DB_SUFFIX is set by this target's `env` in BUILD.bazel and names its \
+             disposable database",
+        )?;
+        let database_name = db::shard_database_name(&suffix)?;
+        let database_owner = fixture.owning_role()?.to_string();
+        let admin_database = fixture.admin_database()?.to_string();
 
-        let (database_url, parsed) =
-            parse_fixture_pg_config("SRQL_TEST_DATABASE_URL", &database_url)?;
-        let (admin_url, _) = parse_fixture_pg_config("SRQL_TEST_ADMIN_URL", &admin_url)?;
-        let database_owner = parsed
-            .get_user()
-            .map(|value| value.to_string())
-            .ok_or_else(|| {
-                anyhow::anyhow!("SRQL_TEST_DATABASE_URL must include a username/owner")
-            })?;
-        let database_name = parsed
-            .get_dbname()
-            .map(|value| value.to_string())
-            .ok_or_else(|| {
-                anyhow::anyhow!("SRQL_TEST_DATABASE_URL must include a database name")
-            })?;
-
-        Ok(Some(Self {
-            database_url,
-            admin_url,
+        Ok(Self {
+            database_url: fixture.database_url(&database_name)?.expose().to_string(),
+            // admin_url_for, not database_url: the latter resolves connecting_role (`srql`),
+            // which ci.textproto deliberately denies CREATEDB, so every CREATE/DROP DATABASE
+            // below would be refused.
+            admin_url: fixture.admin_url_for(&admin_database)?.expose().to_string(),
             database_name,
             database_owner,
-        }))
-    }
-}
-
-fn parse_fixture_pg_config(
-    env_name: &str,
-    raw: &str,
-) -> anyhow::Result<(String, tokio_postgres::Config)> {
-    // Ecto/libpq use verify-ca/verify-full to turn peer/hostname verification on, but
-    // tokio-postgres only parses disable/prefer/require. Keep the shared DSN verified for
-    // every other client and map the mode to require only at this parser boundary; the
-    // harness's rustls connector still verifies the CA and PGSSLSERVERNAME.
-    let parser_input = normalize_sslmode_for_tokio_postgres(raw);
-    let normalized = normalize_fixture_pg_connection_string(&parser_input)
-        .map_err(|err| anyhow::anyhow!("{env_name} is invalid: {err}"))?;
-    let parsed = normalized
-        .parse()
-        .map_err(|err| anyhow::anyhow!("{env_name} is invalid: {err}"))?;
-    Ok((normalized, parsed))
-}
-
-fn normalize_sslmode_for_tokio_postgres(url: &str) -> Cow<'_, str> {
-    let Some((base, query)) = url.split_once('?') else {
-        return Cow::Borrowed(url);
-    };
-
-    let must_normalize = query.split('&').any(|parameter| {
-        let Some((key, value)) = parameter.split_once('=') else {
-            return false;
-        };
-
-        key.eq_ignore_ascii_case("sslmode")
-            && (value.eq_ignore_ascii_case("verify-ca")
-                || value.eq_ignore_ascii_case("verify-full"))
-    });
-
-    if !must_normalize {
-        return Cow::Borrowed(url);
-    }
-
-    let normalized = query
-        .split('&')
-        .map(|parameter| {
-            let Some((key, value)) = parameter.split_once('=') else {
-                return Cow::Borrowed(parameter);
-            };
-
-            if key.eq_ignore_ascii_case("sslmode")
-                && (value.eq_ignore_ascii_case("verify-ca")
-                    || value.eq_ignore_ascii_case("verify-full"))
-            {
-                Cow::Owned(format!("{key}=require"))
-            } else {
-                Cow::Borrowed(parameter)
-            }
         })
-        .collect::<Vec<_>>()
-        .join("&");
-
-    Cow::Owned(format!("{base}?{normalized}"))
-}
-
-fn normalize_fixture_pg_connection_string(raw: &str) -> anyhow::Result<String> {
-    if raw.parse::<PgConfig>().is_ok() {
-        return Ok(raw.to_string());
-    }
-
-    normalize_postgres_url(raw)
-}
-
-fn normalize_postgres_url(raw: &str) -> anyhow::Result<String> {
-    let (scheme, remainder) = raw
-        .split_once("://")
-        .ok_or_else(|| anyhow::anyhow!("invalid connection string"))?;
-    if scheme != "postgres" && scheme != "postgresql" {
-        anyhow::bail!("unsupported connection string scheme {scheme}");
-    }
-
-    let (authority, path_and_query) = remainder
-        .split_once('/')
-        .ok_or_else(|| anyhow::anyhow!("database URL must include a database name"))?;
-    if authority.is_empty() {
-        anyhow::bail!("database URL must include a host");
-    }
-
-    let (userinfo, host_port) = match authority.rsplit_once('@') {
-        Some((userinfo, host_port)) => (Some(userinfo), host_port),
-        None => (None, authority),
-    };
-
-    let (host, port) = parse_host_port(host_port)?;
-    let (database_name, query) = match path_and_query.split_once('?') {
-        Some((path, query)) => (path, Some(query)),
-        None => (path_and_query, None),
-    };
-    let database_name = percent_decode(database_name.trim_start_matches('/'))?;
-    if database_name.is_empty() {
-        anyhow::bail!("database URL must include a database name");
-    }
-
-    let mut parts = vec![
-        format!("host={}", quote_pg_keyword_value(&host)),
-        format!("dbname={}", quote_pg_keyword_value(&database_name)),
-    ];
-
-    if let Some(port) = port {
-        parts.push(format!("port={}", quote_pg_keyword_value(&port)));
-    }
-
-    if let Some(userinfo) = userinfo {
-        let (user, password) = match userinfo.split_once(':') {
-            Some((user, password)) => (user, Some(password)),
-            None => (userinfo, None),
-        };
-        let user = percent_decode(user)?;
-        if !user.is_empty() {
-            parts.push(format!("user={}", quote_pg_keyword_value(&user)));
-        }
-        if let Some(password) = password {
-            let password = percent_decode(password)?;
-            parts.push(format!("password={}", quote_pg_keyword_value(&password)));
-        }
-    }
-
-    if let Some(query) = query {
-        for segment in query.split('&') {
-            if segment.is_empty() {
-                continue;
-            }
-
-            let (key, value) = match segment.split_once('=') {
-                Some((key, value)) => (key, value),
-                None => (segment, ""),
-            };
-            let key = percent_decode(key)?;
-            if key.is_empty() {
-                continue;
-            }
-            let value = percent_decode(value)?;
-            parts.push(format!("{key}={}", quote_pg_keyword_value(&value)));
-        }
-    }
-
-    Ok(parts.join(" "))
-}
-
-fn parse_host_port(value: &str) -> anyhow::Result<(String, Option<String>)> {
-    if value.is_empty() {
-        anyhow::bail!("database URL must include a host");
-    }
-
-    if let Some(rest) = value.strip_prefix('[') {
-        let (host, remainder) = rest
-            .split_once(']')
-            .ok_or_else(|| anyhow::anyhow!("invalid IPv6 host"))?;
-        let port = remainder
-            .strip_prefix(':')
-            .filter(|port| !port.is_empty())
-            .map(str::to_string);
-        return Ok((host.to_string(), port));
-    }
-
-    match value.rsplit_once(':') {
-        Some((host, port))
-            if !host.is_empty()
-                && !port.is_empty()
-                && port.bytes().all(|byte| byte.is_ascii_digit()) =>
-        {
-            Ok((host.to_string(), Some(port.to_string())))
-        }
-        _ => Ok((value.to_string(), None)),
-    }
-}
-
-fn quote_pg_keyword_value(value: &str) -> String {
-    let escaped = value.replace('\\', "\\\\").replace('\'', "\\'");
-    format!("'{escaped}'")
-}
-
-fn percent_decode(value: &str) -> anyhow::Result<String> {
-    let bytes = value.as_bytes();
-    let mut decoded = Vec::with_capacity(bytes.len());
-    let mut index = 0usize;
-
-    while index < bytes.len() {
-        if bytes[index] == b'%' {
-            if index + 2 >= bytes.len() {
-                anyhow::bail!("invalid percent-encoding");
-            }
-            let hi = decode_hex_digit(bytes[index + 1])?;
-            let lo = decode_hex_digit(bytes[index + 2])?;
-            decoded.push((hi << 4) | lo);
-            index += 3;
-            continue;
-        }
-
-        decoded.push(bytes[index]);
-        index += 1;
-    }
-
-    String::from_utf8(decoded).map_err(|_| anyhow::anyhow!("invalid UTF-8 in connection string"))
-}
-
-fn decode_hex_digit(byte: u8) -> anyhow::Result<u8> {
-    match byte {
-        b'0'..=b'9' => Ok(byte - b'0'),
-        b'a'..=b'f' => Ok(byte - b'a' + 10),
-        b'A'..=b'F' => Ok(byte - b'A' + 10),
-        _ => anyhow::bail!("invalid percent-encoding"),
     }
 }
 
@@ -550,7 +325,7 @@ impl RemoteFixtureGuard {
         config: &RemoteFixtureConfig,
         tls_config: &FixtureTlsConfig,
     ) -> anyhow::Result<Self> {
-        let admin_config: PgConfig = config.admin_url.parse()?;
+        let admin_config = db::parse_pg_config(&config.admin_url, "database.admin_url")?;
         let (client, task) = connect_with_tls(admin_config, "remote admin", tls_config).await?;
         client
             .execute("SELECT pg_advisory_lock($1)", &[&REMOTE_FIXTURE_LOCK_ID])
@@ -566,6 +341,11 @@ impl RemoteFixtureGuard {
         config: &RemoteFixtureConfig,
         tls_config: &FixtureTlsConfig,
     ) -> anyhow::Result<()> {
+        // The guard //rust/integration-db already owns: refuse anything outside the disposable
+        // prefix. Without it this terminates backends on, and drops, whatever name it was handed
+        // -- which was `database.database`, the fixture concurrent branches share.
+        db::assert_disposable(&config.database_name)?;
+
         let terminate_sql = format!(
             "SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = {} AND pid <> pg_backend_pid();",
             quote_literal(&config.database_name)
@@ -593,10 +373,10 @@ impl RemoteFixtureGuard {
         config: &RemoteFixtureConfig,
         tls_config: &FixtureTlsConfig,
     ) -> anyhow::Result<()> {
-        let mut extension_config: PgConfig = config
-            .admin_url
-            .parse()
-            .map_err(|err| anyhow::anyhow!("SRQL_TEST_ADMIN_URL is invalid: {err}"))?;
+        // db::parse_pg_config, not a bare parse: the assembled DSN carries sslmode=verify-full,
+        // which tokio-postgres rejects outright. The shared parser strips it and the connector
+        // re-establishes verification.
+        let mut extension_config = db::parse_pg_config(&config.admin_url, "database.admin_url")?;
         extension_config.dbname(&config.database_name);
         let (client, task) =
             connect_with_tls(extension_config, "remote extension", tls_config).await?;
@@ -630,30 +410,6 @@ impl RemoteFixtureGuard {
     }
 }
 
-fn read_env_value(key: &str) -> anyhow::Result<Option<String>> {
-    if let Ok(value) = std::env::var(key) {
-        if value.trim().is_empty() {
-            return Ok(None);
-        }
-        return Ok(Some(value));
-    }
-    let file_key = format!("{key}_FILE");
-    if let Ok(path) = std::env::var(&file_key) {
-        if path.trim().is_empty() {
-            return Ok(None);
-        }
-        let value = fs::read_to_string(&path)
-            .map_err(|err| anyhow::anyhow!("failed to read {file_key} ({path}): {err}"))?
-            .trim()
-            .to_string();
-        if value.is_empty() {
-            anyhow::bail!("{file_key} pointed at an empty file");
-        }
-        return Ok(Some(value));
-    }
-    Ok(None)
-}
-
 fn quote_ident(value: &str) -> String {
     format!("\"{}\"", value.replace('"', "\"\""))
 }
@@ -663,7 +419,7 @@ fn quote_literal(value: &str) -> String {
 }
 
 fn log_connection_details(name: &str, url: &str) {
-    match url.parse::<PgConfig>() {
+    match db::parse_pg_config(url, name) {
         Ok(cfg) => {
             let hosts: Vec<String> = cfg
                 .get_hosts()
@@ -688,34 +444,18 @@ fn log_connection_details(name: &str, url: &str) {
     }
 }
 
+/// Locates a declared build input through the Bazel ecosystem's reference lookup
+/// (`@rules_rust//rust/runfiles`, published as the `runfiles` crate).
+///
+/// This replaced a hand-rolled search that tried, in order, the runfiles root itself,
+/// `$TEST_WORKSPACE`, `__main` and `__main__`. None of those is `_main`, which is the canonical
+/// name Bzlmod actually uses, so three of the four candidates could never match and the fourth
+/// depended on a variable Bazel sets only for tests. The library consults the repo mapping the
+/// build emitted, and finds the tree under `bazel run` and in manifest mode as well.
 fn find_runfile(path: &str) -> Option<PathBuf> {
-    let runfile_rel = Path::new(path);
-
-    let find_in_base = |base: &Path| -> Option<PathBuf> {
-        let mut candidates = vec![base.join(runfile_rel)];
-
-        if let Ok(workspace) = std::env::var("TEST_WORKSPACE") {
-            candidates.push(base.join(&workspace).join(runfile_rel));
-        }
-
-        candidates.push(base.join("__main").join(runfile_rel));
-        candidates.push(base.join("__main__").join(runfile_rel));
-        candidates.into_iter().find(|candidate| candidate.exists())
-    };
-
-    if let Ok(runfiles) = std::env::var("RUNFILES_DIR") {
-        if let Some(path) = find_in_base(Path::new(&runfiles)) {
-            return Some(path);
-        }
-    }
-
-    if let Ok(test_srcdir) = std::env::var("TEST_SRCDIR") {
-        if let Some(path) = find_in_base(Path::new(&test_srcdir)) {
-            return Some(path);
-        }
-    }
-
-    None
+    let runfiles = Runfiles::create().ok()?;
+    let resolved = runfiles.rlocation_from(format!("serviceradar/{path}"), "")?;
+    resolved.exists().then_some(resolved)
 }
 
 fn load_fixture(name: &str) -> anyhow::Result<String> {
@@ -726,13 +466,9 @@ fn load_fixture(name: &str) -> anyhow::Result<String> {
 }
 
 fn fixture_root() -> PathBuf {
-    if let Ok(root) = std::env::var("SRQL_FIXTURE_ROOT") {
-        let candidate = PathBuf::from(root);
-        if candidate.exists() {
-            return candidate;
-        }
-    }
-
+    // No environment override. Fixture data is a declared input, and a variable that can
+    // repoint it lets a run read files nothing in the build graph knows about -- which is
+    // the class of ambient override the configuration system exists to remove.
     const RELATIVE: &str = "integration_tests/srql/tests/fixtures";
     if let Some(path) = find_runfile(RELATIVE) {
         return path;
@@ -754,7 +490,11 @@ async fn check_age_available(
     database_url: &str,
     tls_config: &FixtureTlsConfig,
 ) -> anyhow::Result<bool> {
-    let config: PgConfig = database_url.parse()?;
+    // Through the shared parser: the assembled DSN carries `sslmode=verify-full`, which
+    // tokio-postgres rejects outright -- it accepts only disable/prefer/require. The verifying
+    // posture is a typed field that configures the connector, so the mode is stripped rather
+    // than rewritten, and one implementation does it for both this harness and the lifecycle.
+    let config = db::parse_pg_config(database_url, "database.url")?;
     let (client, _task) = connect_with_tls(config, "age-check", tls_config).await?;
     let result = client
         .query(
@@ -790,70 +530,45 @@ async fn connect_with_tls(
     }
 }
 
+/// The fixture's TLS material, as PEM CONTENT.
+///
+/// It used to be paths, which is why this file carried machinery to turn a PEM into a temporary
+/// file: `PGSSLROOTCERT` was a path, `SRQL_TEST_DATABASE_CA_CERT` was either a path or PEM, and
+/// the consumer only accepted a path. srql now takes content, so all of that is gone -- along
+/// with the four variables, which could each disagree about which server was being verified.
 struct FixtureTlsConfig {
-    root_cert: Option<FixtureRootCert>,
-    client_cert: Option<String>,
-    client_key: Option<String>,
+    ca_pem: Option<Vec<u8>>,
+    client_cert_pem: Option<Vec<u8>>,
+    client_key_pem: Option<Vec<u8>>,
     server_name: Option<String>,
 }
 
 impl FixtureTlsConfig {
+    /// Resolved by srql's own code, not a second implementation. The harness must verify the
+    /// fixture exactly as the service does, or it proves the wrong thing.
     fn from_env() -> anyhow::Result<Self> {
+        let tls = srql::config::DatabaseTls::resolve()?;
         Ok(Self {
-            root_cert: resolve_pg_ssl_root_cert()?,
-            client_cert: env::var("PGSSLCERT").ok(),
-            client_key: env::var("PGSSLKEY").ok(),
-            server_name: resolved_pg_ssl_server_name(),
+            ca_pem: tls.ca_pem,
+            client_cert_pem: tls.client_cert_pem,
+            client_key_pem: tls.client_key_pem,
+            server_name: tls.server_name,
         })
     }
 
-    fn root_cert_path(&self) -> Option<&Path> {
-        self.root_cert.as_ref().map(FixtureRootCert::path)
-    }
-
-    fn root_cert_path_string(&self) -> Option<String> {
-        self.root_cert_path()
-            .map(|path| path.to_string_lossy().into_owned())
-    }
-
+    /// Built by srql's shared builder, so the harness's connection verifies the fixture by
+    /// exactly the code path the service uses.
     fn connector(&self) -> anyhow::Result<Option<PgRustlsConnect>> {
-        let Some(root_cert) = self.root_cert_path() else {
+        let Some(ca) = self.ca_pem.as_deref() else {
             return Ok(None);
         };
 
-        Ok(Some(build_tls_connector(
-            root_cert,
-            self.client_cert.as_deref(),
-            self.client_key.as_deref(),
+        Ok(Some(srql::tls::postgres_connector(
+            ca,
+            self.client_cert_pem.as_deref(),
+            self.client_key_pem.as_deref(),
             self.server_name.as_deref(),
         )?))
-    }
-}
-
-fn resolved_pg_ssl_server_name() -> Option<String> {
-    [
-        "SRQL_TEST_DATABASE_SERVER_NAME",
-        "SRQL_TEST_DATABASE_TLS_SERVER_NAME",
-        "PGSSLSERVERNAME",
-        "PGSSLTARGETNAME",
-    ]
-    .into_iter()
-    .filter_map(|key| env::var(key).ok())
-    .map(|value| value.trim().to_string())
-    .find(|value| !value.is_empty())
-}
-
-enum FixtureRootCert {
-    External(PathBuf),
-    Temporary(TemporaryCaCert),
-}
-
-impl FixtureRootCert {
-    fn path(&self) -> &Path {
-        match self {
-            Self::External(path) => path,
-            Self::Temporary(cert) => cert.path(),
-        }
     }
 }
 
@@ -934,150 +649,9 @@ impl Drop for TemporaryCaCert {
     }
 }
 
-fn resolve_pg_ssl_root_cert() -> anyhow::Result<Option<FixtureRootCert>> {
-    if let Ok(path) = env::var("PGSSLROOTCERT") {
-        let trimmed = path.trim();
-        if !trimmed.is_empty() {
-            let candidate = Path::new(trimmed);
-            if candidate.is_file() {
-                return Ok(Some(FixtureRootCert::External(candidate.to_path_buf())));
-            }
-        }
-    }
-
-    let raw_or_path = match env::var("SRQL_TEST_DATABASE_CA_CERT") {
-        Ok(value) if !value.trim().is_empty() => value,
-        _ => return Ok(None),
-    };
-
-    let trimmed = raw_or_path.trim();
-    let candidate = Path::new(trimmed);
-    if candidate.is_file() {
-        return Ok(Some(FixtureRootCert::External(candidate.to_path_buf())));
-    }
-
-    if !trimmed.contains("BEGIN CERTIFICATE") {
-        anyhow::bail!(
-            "PGSSLROOTCERT was not readable and SRQL_TEST_DATABASE_CA_CERT did not contain a PEM certificate or a valid file path"
-        );
-    }
-
-    Ok(Some(FixtureRootCert::Temporary(
-        TemporaryCaCert::materialize(trimmed)?,
-    )))
-}
-
-fn build_tls_connector(
-    root_cert: &Path,
-    client_cert: Option<&str>,
-    client_key: Option<&str>,
-    server_name: Option<&str>,
-) -> anyhow::Result<PgRustlsConnect> {
-    let mut reader = BufReader::new(File::open(root_cert).context("failed to open PGSSLROOTCERT")?);
-    let mut root_store = RootCertStore::empty();
-    for cert in certs(&mut reader) {
-        let cert = cert.context("failed to parse PGSSLROOTCERT")?;
-        root_store
-            .add(cert)
-            .map_err(|_| anyhow::anyhow!("invalid certificate in PGSSLROOTCERT"))?;
-    }
-
-    Ok(PgRustlsConnect::new(
-        build_client_config(root_store, root_cert, client_cert, client_key)?,
-        server_name.map(str::to_string),
-    ))
-}
-
-fn build_client_config(
-    root_store: RootCertStore,
-    root_cert: &Path,
-    client_cert: Option<&str>,
-    client_key: Option<&str>,
-) -> anyhow::Result<ClientConfig> {
-    ensure_rustls_crypto_provider();
-    let builder = ClientConfig::builder().with_root_certificates(root_store);
-
-    match (client_cert, client_key) {
-        (None, None) => Ok(builder.with_no_client_auth()),
-        (Some(cert), Some(key)) => {
-            let certs = load_client_certs(cert)?;
-            let key = load_client_key(key)?;
-            builder.with_client_auth_cert(certs, key).with_context(|| {
-                format!(
-                    "failed to build client TLS config for {}",
-                    root_cert.display()
-                )
-            })
-        }
-        _ => anyhow::bail!("PGSSLCERT and PGSSLKEY must both be set (or neither)"),
-    }
-}
-
-fn load_client_certs(path: &str) -> anyhow::Result<Vec<CertificateDer<'static>>> {
-    let mut reader = BufReader::new(
-        File::open(path).with_context(|| format!("failed to open PGSSLCERT file '{path}'"))?,
-    );
-
-    let mut chain = Vec::new();
-    for cert in certs(&mut reader) {
-        chain.push(cert.context("failed to parse PGSSLCERT")?);
-    }
-
-    if chain.is_empty() {
-        anyhow::bail!("PGSSLCERT contained no certificates");
-    }
-
-    Ok(chain)
-}
-
-fn load_client_key(path: &str) -> anyhow::Result<PrivateKeyDer<'static>> {
-    let mut reader = BufReader::new(
-        File::open(path).with_context(|| format!("failed to open PGSSLKEY file '{path}'"))?,
-    );
-
-    let key = rustls_pemfile::private_key(&mut reader)
-        .context("failed to parse PGSSLKEY")?
-        .context("PGSSLKEY contained no private keys")?;
-
-    Ok(key)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn verified_fixture_ssl_modes_parse_at_the_tokio_boundary() {
-        for mode in ["verify-ca", "verify-full", "VERIFY-FULL"] {
-            let raw = format!(
-                "postgres://fixture:p%40ss@192.0.2.10:30818/srql_fixture?\
-                 application_name=srql-integration&sslmode={mode}"
-            );
-            let (normalized, config) =
-                parse_fixture_pg_config("SRQL_TEST_DATABASE_URL", &raw).unwrap();
-
-            assert!(normalized.contains("sslmode=require"));
-            assert_eq!(config.get_user(), Some("fixture"));
-            assert_eq!(config.get_dbname(), Some("srql_fixture"));
-            assert_eq!(config.get_application_name(), Some("srql-integration"));
-        }
-    }
-
-    #[test]
-    fn non_verified_fixture_ssl_modes_are_unchanged() {
-        let require = "postgres://u:p@host/db?sslmode=require&application_name=fixture";
-        let disable = "postgres://u:p@host/db?sslmode=disable";
-
-        assert!(matches!(
-            normalize_sslmode_for_tokio_postgres(require),
-            Cow::Borrowed(value) if value == require
-        ));
-        assert!(matches!(
-            normalize_sslmode_for_tokio_postgres(disable),
-            Cow::Borrowed(value) if value == disable
-        ));
-    }
-
     #[test]
     fn materialized_ca_is_private_and_removed_on_drop() {
         let cert = TemporaryCaCert::materialize(

@@ -51,6 +51,42 @@ natsCreds:
   autoGenerate: true
 
 cnpg:
+  # THE CLUSTER-INTERNAL DIRECT ENDPOINT. NOT the one most demo workloads use -- see
+  # `pooler.host` below, and read both before changing either.
+  #
+  # There are TWO internal endpoints, and `serviceradar.cnpgWorkloadHost` picks between them per
+  # workload: the pooler when `pooler.enabled` and `pooler.route.<workload>` are set, this one
+  # otherwise. Verified live, and it is the pooler that answers for the services:
+  #
+  #   kubectl get deploy serviceradar-core -n demo \
+  #     -o jsonpath='{.spec.template.spec.containers[0].env[?(@.name=="CNPG_HOST")].value}'
+  #   -> cnpg-pooler-rw.demo.svc.cluster.local
+  #
+  # This direct host is what migrations, bootstrap, DDL and any client that is not
+  # transaction-pooler safe connect to.
+  #
+  # Equal to what the chart already derives -- `serviceradar.cnpgDirectHost` falls back to
+  # `<clusterName>-rw.<namespace>.svc.cluster.local` when `host` is empty -- so this changes no
+  # behaviour. It is stated because an endpoint that exists only as an empty string plus a
+  # template is not reviewable: you cannot grep the overlay to learn where demo's database
+  # traffic goes, and "" reads as "unset" rather than "derived".
+  #
+  # The namespace is a literal, which is safe here and only here: the Argo CD Application
+  # serviceradar-demo-prod pins values-demo.yaml to `demo`
+  # (`.spec.destination.namespace=demo`, `valueFiles=["values-demo.yaml"]`). Do not copy this
+  # line into values.yaml, where the namespace is not known and the derivation is correct.
+  #
+  # NOT the 192.168.6.82 `cnpg-rw-internal-lb` VIP. That LoadBalancer exists for workstation
+  # access (gitops/k8s/demo-cnpg-internal-access, used by the demo-cnpg-local-web-ng skill);
+  # routing in-cluster workloads through it would send pod-to-pod traffic out to an L2 VIP and
+  # back for no reason, and couple every workload to MetalLB.
+  #
+  # The rest of the DSN is unchanged from the chart defaults and deliberately not duplicated
+  # here: database `serviceradar`, username `serviceradar`, schema `platform`. The password is
+  # never in values -- it is projected from a Secret via valueFrom.secretKeyRef.
+  host: "cnpg-rw.demo.svc.cluster.local"
+  port: 5432
+
   # Temporary while only two dedicated CNPG workers exist. Argo CD currently
   # ignores live changes to /spec/instances for this Cluster, so changing this
   # value documents the desired demo shape but does not downscale the live
@@ -97,6 +133,15 @@ cnpg:
     work_mem: "16MB"
   pooler:
     enabled: true
+    # THE CLUSTER-INTERNAL ENDPOINT THE SERVICES ACTUALLY USE, for every workload routed to the
+    # pooler -- which today is what `kubectl get deploy serviceradar-core -n demo` reports as
+    # CNPG_HOST. Stated here for the same reason as `cnpg.host` above: it is otherwise only
+    # `serviceradar.cnpgPoolerHost` deriving `<poolerName>.<namespace>.svc.cluster.local` from an
+    # empty default, and the endpoint carrying most of demo's database traffic should be legible
+    # in the overlay rather than reconstructed from two template helpers.
+    #
+    # Namespace literal, safe for the same reason: Argo CD pins this file to `demo`.
+    host: "cnpg-pooler-rw.demo.svc.cluster.local"
     instances: 3
     monitoring:
       podMonitor:
@@ -529,13 +574,11 @@ core:
       memory: "16Gi"
   clusterWebDnsQuery: "serviceradar-web-ng-headless.demo.svc.cluster.local"
   clusterGatewayDnsQuery: "serviceradar-agent-gateway-headless.demo.svc.cluster.local"
-  # Core advisory feed ingestion (refactor-advisory-feeds-into-core). Enabled in
-  # demo so CISA KEV + VulnCheck KEV enrichment runs in core on a PVC. nist-nvd2
-  # (full NVD CPE load) stays sub-gated off until the PVC + stable gateway are
-  # validated under load.
+  # Core advisory feed ingestion. nist-nvd2 is the CPE catalog; core prunes
+  # leftover extracts every scheduler tick so a killed load cannot refill the node.
   advisoryFeeds:
     enabled: true
-    nistNvd2Enabled: false
+    nistNvd2Enabled: true
     size: "5Gi"
   database:
     poolSize: 10

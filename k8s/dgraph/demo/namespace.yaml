@@ -1,0 +1,27 @@
+# The demo namespace, declared rather than created imperatively so the Pod Security level
+# travels with it.
+#
+# WHY `baseline` AND NOT THE CLUSTER DEFAULT `restricted`:
+# the Dgraph chart's securityContext block emits only `fsGroup` and `runAsUser`
+# (templates/{alpha,zero}/statefulset.yaml). `restricted` additionally requires
+# `allowPrivilegeEscalation: false`, `capabilities.drop: ["ALL"]`, `runAsNonRoot: true` and
+# `seccompProfile.type: RuntimeDefault`, and the chart has no values for any of them, so no
+# values file can satisfy it -- the install fails at pod creation with FailedCreate, after the
+# StatefulSets are already up, which reads as a Dgraph fault rather than an admission one.
+#
+# `baseline` still forbids what matters here: privileged containers, host namespaces, hostPath
+# volumes and added capabilities. Dgraph needs none of them, and values.yaml pins both Zero and
+# Alpha to UID 1001, so the pods are non-root despite `baseline` not demanding it.
+#
+# Revisit when the chart gains a full securityContext, or when this moves to a chart we own:
+# this should go back to `restricted`, which is the cluster default for a reason.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: dgraph
+  labels:
+    kubernetes.io/metadata.name: dgraph
+    pod-security.kubernetes.io/enforce: baseline
+    pod-security.kubernetes.io/enforce-version: latest
+    pod-security.kubernetes.io/audit: restricted
+    pod-security.kubernetes.io/warn: restricted

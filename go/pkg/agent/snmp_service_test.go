@@ -21,6 +21,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/carverauto/serviceradar/go/pkg/agent/snmp"
 	"github.com/carverauto/serviceradar/go/pkg/logger"
@@ -651,4 +652,40 @@ func TestSNMPRefreshSkipsCacheWhileRemoteActive(t *testing.T) {
 
 	assert.Equal(t, snmpConfigSourceRemote, svc.GetConfigSource())
 	assert.Equal(t, remoteHash, svc.GetConfigHash())
+}
+
+func TestProtoToSNMPOIDConfig_WalkFields(t *testing.T) {
+	t.Parallel()
+
+	got := protoToSNMPOIDConfig(&proto.SNMPOIDConfig{
+		Oid:                ".1.3.6.1.2.1.31.1.1.1.6",
+		Name:               "ifHCInOctets",
+		DataType:           proto.SNMPDataType_SNMP_DATA_TYPE_COUNTER,
+		Delta:              true,
+		Mode:               "walk",
+		MaxRows:            250,
+		WalkTimeoutSeconds: 12,
+	})
+
+	require.Equal(t, snmp.ModeWalk, got.Mode)
+	require.Equal(t, 250, got.MaxRows)
+	require.Equal(t, snmp.Duration(12*time.Second), got.WalkTimeout)
+	require.Equal(t, ".1.3.6.1.2.1.31.1.1.1.6", got.OID)
+	require.Equal(t, "ifHCInOctets", got.Name)
+	require.Equal(t, snmp.TypeCounter, got.DataType)
+	require.True(t, got.Delta)
+}
+
+func TestProtoToSNMPOIDConfig_GetIsDefault(t *testing.T) {
+	t.Parallel()
+
+	got := protoToSNMPOIDConfig(&proto.SNMPOIDConfig{
+		Oid:      ".1.3.6.1.2.1.1.5.0",
+		Name:     "sysName",
+		DataType: proto.SNMPDataType_SNMP_DATA_TYPE_STRING,
+	})
+
+	require.Empty(t, got.Mode)
+	require.Zero(t, got.MaxRows)
+	require.Zero(t, got.WalkTimeout)
 }

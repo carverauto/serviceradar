@@ -44,8 +44,6 @@ defmodule Datasvc do
     top_level?: true,
     exports: :all
 
-  require Logger
-
   @default_timeout 5_000
   @default_connect_timeout 5_000
   @resolver_schemes ~w(dns ipv4 ipv6 unix unix-abstract vsock xds)

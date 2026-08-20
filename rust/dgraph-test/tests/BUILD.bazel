@@ -1,0 +1,24 @@
+load("@crates//:defs.bzl", "all_crate_deps")
+load("@rules_rs//rs:rust_test.bzl", "rust_test")
+
+# The crate's own tests: pure logic over the strategy branch, the endpoint contract, the health
+# report parser and the error surface. No Docker, no cluster, no environment -- so this is
+# untagged and `make test` runs it everywhere.
+#
+# `rust_test`, not `rust_test_suite`: the suite macro generates one test per source file and sets
+# `crate_root` itself, so passing `crate_root` fails the whole package.
+rust_test(
+    name = "dgraph_test_unit_test",
+    srcs = glob(["**/*.rs"]),
+    crate_root = "lib_tests.rs",
+    deps = all_crate_deps(
+        package_name = "rust/dgraph-test",
+        cargo_only = True,
+        normal = True,
+        normal_dev = True,
+    ) + [
+        "//rust/dgraph-test:dgraph_test",
+        "//config/manager_config/rust:manager",
+        "//config/proto_bindings/rust:config_schema",
+    ],
+)

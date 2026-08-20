@@ -115,15 +115,24 @@ in the build graph rather than an ambient forward.
 | Variable | Status |
 |---|---|
 | `NATS_CA_FILE`, `NATS_CERT_FILE`, `NATS_KEY_FILE` | No reader under these names. But they are a **live documented interface** — `k8s/sr-testing/export-nats-env.sh:27-29` emits exactly these names and `k8s/sr-testing/README.md:62-64` prescribes forwarding them to `bazel test`. See §4.2 for the naming drift. |
-| `NATS_CA_B64`, `NATS_CERT_B64`, `NATS_KEY_B64` | No reader — but `NATS_KEY_B64` is **pinned by a committed test**, see §4.1. |
+| `NATS_CA_B64`, `NATS_CERT_B64`, `NATS_KEY_B64` | No reader. `NATS_KEY_B64` **was** pinned by a committed test; that test is deleted, so the pin is gone — see §4.1. |
 | `NATS_URL`, `NATS_SERVER_NAME` | Read by `config/runtime.exs` (evaluated under `mix test`) and by Go production code. Not dead. |
-| `TEST_CNPG_HOST/PORT/DATABASE/USERNAME/PASSWORD` | Read by `elixir/web-ng/config/test.exs`; web-ng is genuinely not selected by the database step — but `TEST_CNPG_PASSWORD` is also **pinned by the same committed test**. |
+| `TEST_CNPG_HOST/PORT/DATABASE/USERNAME/PASSWORD` | Read by `elixir/web-ng/config/test.exs`; web-ng is genuinely not selected by the database step — `TEST_CNPG_PASSWORD` **was** pinned by the same now-deleted test. |
 
-### 4.1 A drift guard already exists — and it guards the wrong direction
+### 4.1 The drift guard that existed has been DELETED
 
-`//:buildbuddy_cache_proxy_config_test` (`BUILD.bazel:76-94`) is an untagged `py_test` that takes
-**`.bazelrc` as a data dependency** (`BUILD.bazel:83`) and asserts its contents. It therefore runs
-in `make test`, and it encodes the forwarding list as an invariant:
+> **Superseded.** `buildbuddy_cache_proxy_config_test.py` was removed from the repository. Read
+> the rest of this section as history: it records what the guard asserted, which is what a
+> replacement has to cover. Nothing enforces any of it today.
+>
+> Two things had already broken it before the deletion, and both are worth carrying forward as
+> warnings. It had **no `py_test` target**, so `make test` never ran it despite this section
+> claiming it did; and its `setUp` read `.github/workflows/elixir-integration-sr-core.yml`, a
+> path deleted in 8ce61b5a0d, so every test in it errored rather than asserted. A guard that is
+> not a build target is not a guard.
+
+It was an untagged `py_test` that took **`.bazelrc` as a data dependency** and asserted its
+contents, encoding the forwarding list as an invariant:
 
 ```
 buildbuddy_cache_proxy_config_test.py:216   assert "--test_env=NATS_KEY_B64" in test:nats_env
@@ -132,7 +141,7 @@ buildbuddy_cache_proxy_config_test.py:202   assert NATS_KEY_B64 NOT in the globa
                                             (same shape for TEST_CNPG_PASSWORD)
 ```
 
-Deleting any of those `.bazelrc` lines turns this test red. So the repo *does* already have a
+Deleting any of those `.bazelrc` lines *would have* turned this test red. So the repo no longer has a
 drift guard — but it checks the forwarding list **against itself** (opt-in placement: present in
 `database_env`/`nats_env`, absent from the global `test` profile). Nothing checks the forwarding
 list against **the set of names the code actually reads**. That is the missing half, and it is
@@ -283,12 +292,13 @@ directories, search paths — none is secret, so all of it belongs in the build 
 
 ## 8. Recommendations
 
-1. **Extend the existing drift guard.** `//:buildbuddy_cache_proxy_config_test` already parses
-   `.bazelrc` and asserts opt-in placement (§4.1). Add the missing direction to that same test:
-   every name in `database_env`/`nats_env` must be read somewhere, and every name the
-   integration suites read must be forwarded or declared in a target `env`. It changes no
-   behaviour and makes every future divergence loud. Without it, any cleanup below rots the same
-   way this list did.
+1. **Build a drift guard — there is no longer one to extend.** `buildbuddy_cache_proxy_config_test.py`
+   is deleted (§4.1), and before that it was an orphan with no Bazel target whose every test
+   errored in `setUp`. Its replacement must be a real Bazel test target, per the repository's
+   rule that everything is a target, and must assert BOTH directions: every name in
+   `database_env`/`nats_env` is read somewhere, and every name the integration suites read is
+   forwarded or declared in a target `env`. Without it, any cleanup below rots exactly the way
+   this list did — and the way the guard itself did.
 2. **Reconcile the NATS names before touching them.** Do not delete the six — one is pinned by
    the test above and the `*_FILE` trio is a live `k8s/sr-testing` interface (§4.1, §4.2). The
    real defect is three spellings of one concept (`NATS_CA_FILE` forwarded, `NATS_CACERTFILE`
@@ -321,9 +331,9 @@ adversarial review, and **two of the three original claims were wrong**:
 
 | Original claim | Verdict | Correction |
 |---|---|---|
-| Six NATS vars are dead and deletable | **refuted** | `NATS_KEY_B64` is pinned by `//:buildbuddy_cache_proxy_config_test`; the `*_FILE` trio is a live `k8s/sr-testing` interface (§4.1-4.2) |
+| Six NATS vars are dead and deletable | **partly restored** | The `*_FILE` trio remains a live `k8s/sr-testing` interface (§4.2), so the claim is still wrong for those. But `NATS_KEY_B64`'s only pin was `buildbuddy_cache_proxy_config_test.py`, now deleted — it has no reader and no pin, so it IS deletable. |
 | `SERVICERADAR_TEST_ADMIN_URL` can never fire under Bazel | **refuted** | True for `bazel test` actions only; live under `bazel run prepare_template`, which CI actively `unset`s (§4.3) |
-| `TEST_CNPG_*` are unused noise in the DB step | **refuted** | The tag-filter observation holds, but `TEST_CNPG_PASSWORD` is pinned by the same committed test |
+| `TEST_CNPG_*` are unused noise in the DB step | **partly restored** | The tag-filter observation holds. `TEST_CNPG_PASSWORD`'s only pin was the same deleted test, so it is no longer pinned; `elixir/web-ng/config/test.exs` remains the live reader of the family. |
 
 Every correction was confirmed against the source before being written here. The pattern in all
 three: a static read-scan does not see values consumed by `bazel run` targets, by tests that

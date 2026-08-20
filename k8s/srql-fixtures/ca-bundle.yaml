@@ -1,77 +1,42 @@
-# Publishes only the fixture CA certificate (ca.crt) at
-# https://srql-fixture-ca.serviceradar.cloud/ca.crt so runners without
-# kubeconfig can fetch the current CA. Do not store that PEM in a CI secret.
+# Publishes only the fixture CA certificate (ca.crt) on the in-cluster
+# ClusterIP Service. Do not store that PEM in a CI secret. Do not attach
+# this namespace to the shared public gateway.
 #
-# Public HTTPS is the shared Envoy gateway (23.138.124.5, wildcard
-# *.serviceradar.cloud). A dedicated MetalLB Service on 23.138.124.18:443 is
-# not reachable from workstations, so it cannot be the publish path.
-# In-cluster ARC and the BuildBuddy workflow pool use the ClusterIP HTTP Service.
+#   http://srql-fixture-ca-incluster.srql-fixtures.svc.cluster.local/ca.crt
 #
-# Gateway TLS is the shared wildcard, not the fixture CA — otherwise fetching
-# the CA would require the CA. The fixture CA private key is not in any volume
-# here. The leftover Let's Encrypt Certificate is unused by the route and can
-# be removed later.
-apiVersion: cert-manager.io/v1
-kind: Certificate
-metadata:
-  name: srql-fixture-ca-bundle-tls
-  namespace: srql-fixtures
-  labels:
-    app: srql-fixture
-    app.kubernetes.io/component: fixture-ca-bundle
-spec:
-  secretName: srql-fixture-ca-bundle-tls
-  duration: 2160h
-  renewBefore: 360h
-  commonName: srql-fixture-ca.serviceradar.cloud
-  dnsNames:
-    - srql-fixture-ca.serviceradar.cloud
-  issuerRef:
-    name: letsencrypt-dns
-    kind: ClusterIssuer
-    group: cert-manager.io
----
+# The fixture CA private key is not in any volume here. The publisher is
+# HTTP-only. Do not put nginx back on this path.
 apiVersion: v1
 kind: ConfigMap
 metadata:
-  name: srql-fixture-ca-bundle-nginx
+  name: srql-fixture-ca-bundle-caddy
   namespace: srql-fixtures
   labels:
     app: srql-fixture
     app.kubernetes.io/component: fixture-ca-bundle
 data:
-  nginx.conf: |
-    worker_processes 1;
-    error_log /dev/stderr warn;
-    pid /tmp/nginx.pid;
-    events {
-      worker_connections 32;
+  Caddyfile: |
+    {
+      admin off
+      auto_https off
+      persist_config off
     }
-    http {
-      access_log off;
-      server_tokens off;
-      client_body_temp_path /tmp/client_temp;
-      proxy_temp_path /tmp/proxy_temp;
-      fastcgi_temp_path /tmp/fastcgi_temp;
-      uwsgi_temp_path /tmp/uwsgi_temp;
-      scgi_temp_path /tmp/scgi_temp;
-      server {
-        listen 8080;
-        listen 8443 ssl;
-        server_name srql-fixture-ca.serviceradar.cloud
-                    srql-fixture-ca-bundle.srql-fixtures.svc.cluster.local;
-        ssl_certificate /etc/nginx/tls/tls.crt;
-        ssl_certificate_key /etc/nginx/tls/tls.key;
-        ssl_protocols TLSv1.2 TLSv1.3;
-        location = /ca.crt {
-          alias /var/lib/srql-fixture-ca/ca.crt;
-          default_type application/x-pem-file;
-          add_header X-Content-Type-Options nosniff always;
-          add_header Cache-Control "public, max-age=300" always;
-        }
-        location / {
-          return 404;
-        }
+
+    :8080 {
+      header {
+        -Server
+        X-Content-Type-Options nosniff
+      }
+
+      handle /ca.crt {
+        root * /var/lib/srql-fixture-ca
+        file_server
+        header Content-Type application/x-pem-file
+        header Cache-Control "public, max-age=300"
+      }
+
+      handle {
+        respond 404
       }
     }
 ---
@@ -105,25 +70,23 @@ spec:
                       - k8s-cp3-worker3
       securityContext:
         runAsNonRoot: true
-        runAsUser: 101
-        runAsGroup: 101
-        fsGroup: 101
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
         seccompProfile:
           type: RuntimeDefault
       containers:
-        - name: nginx
-          image: nginxinc/nginx-unprivileged:1.27-alpine
+        - name: caddy
+          image: docker.io/library/caddy:2.11.4-alpine@sha256:5f5c8640aae01df9654968d946d8f1a56c497f1dd5c5cda4cf95ab7c14d58648
           imagePullPolicy: IfNotPresent
-          command:
-            - nginx
           args:
-            - -c
-            - /etc/nginx/nginx.conf
-            - -g
-            - daemon off;
+            - caddy
+            - run
+            - --config
+            - /etc/caddy/Caddyfile
+            - --adapter
+            - caddyfile
           ports:
-            - name: https
-              containerPort: 8443
             - name: http
               containerPort: 8080
           readinessProbe:
@@ -134,8 +97,7 @@ spec:
           livenessProbe:
             httpGet:
               path: /ca.crt
-              port: https
-              scheme: HTTPS
+              port: http
             periodSeconds: 20
           resources:
             requests:
@@ -150,71 +112,44 @@ spec:
             capabilities:
               drop:
                 - ALL
+              # Binary is file-capped with cap_net_bind_service. Drop-only
+              # makes `exec /usr/bin/caddy` fail with EPERM (same as
+              # forgejo / powerdns-admin / plausible).
+              add:
+                - NET_BIND_SERVICE
           volumeMounts:
-            - name: nginx-conf
-              mountPath: /etc/nginx/nginx.conf
-              subPath: nginx.conf
-              readOnly: true
-            - name: bundle-tls
-              mountPath: /etc/nginx/tls
+            - name: caddy-config
+              mountPath: /etc/caddy/Caddyfile
+              subPath: Caddyfile
               readOnly: true
             - name: fixture-ca
               mountPath: /var/lib/srql-fixture-ca
               readOnly: true
+            - name: caddy-data
+              mountPath: /data
+            - name: caddy-config-dir
+              mountPath: /config
             - name: tmp
               mountPath: /tmp
       volumes:
-        - name: nginx-conf
+        - name: caddy-config
           configMap:
-            name: srql-fixture-ca-bundle-nginx
-        - name: bundle-tls
-          secret:
-            secretName: srql-fixture-ca-bundle-tls
+            name: srql-fixture-ca-bundle-caddy
         - name: fixture-ca
           secret:
             secretName: srql-fixture-server-ca
             items:
               - key: ca.crt
                 path: ca.crt
+        - name: caddy-data
+          emptyDir: {}
+        - name: caddy-config-dir
+          emptyDir: {}
         - name: tmp
           emptyDir: {}
 ---
-# Public path for runners without kubeconfig or cluster DNS.
-apiVersion: gateway.networking.k8s.io/v1
-kind: HTTPRoute
-metadata:
-  name: srql-fixture-ca-bundle
-  namespace: srql-fixtures
-  labels:
-    app: srql-fixture
-    app.kubernetes.io/component: fixture-ca-bundle
-  annotations:
-    external-dns.alpha.kubernetes.io/hostname: srql-fixture-ca.serviceradar.cloud
-spec:
-  hostnames:
-    - srql-fixture-ca.serviceradar.cloud
-  parentRefs:
-    - group: gateway.networking.k8s.io
-      kind: Gateway
-      name: serviceradar-shared-gateway
-      namespace: serviceradar-system
-      sectionName: https-web
-    - group: gateway.networking.k8s.io
-      kind: Gateway
-      name: serviceradar-shared-gateway
-      namespace: serviceradar-system
-      sectionName: http-web
-  rules:
-    - matches:
-        - path:
-            type: Exact
-            value: /ca.crt
-      backendRefs:
-        - name: srql-fixture-ca-incluster
-          port: 80
----
-# In-cluster only. GitHub ARC runners in the carverauto cluster fetch the public
-# CA here so they do not need kubectl or a path to the public VIP.
+# In-cluster only. GitHub ARC and the BuildBuddy workflow pool fetch the CA
+# here so they do not need kubectl or a public VIP.
 apiVersion: v1
 kind: Service
 metadata:

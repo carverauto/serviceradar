@@ -162,8 +162,16 @@ defmodule ServiceRadar.Inventory.SyncIngestorActiveIpCrossHandoffTest do
     end)
   end
 
+  # Actually unique, which the hash-of-a-UUID version only claimed to be: it was a random
+  # draw from 250x250 addresses, and this test takes 96 of them. That is a ~7% birthday
+  # collision per run, and a collision is indistinguishable from the bug under test --
+  # device_writes drops a contested IP from BOTH claimants by design, so the swap this
+  # asserts never completes and `b.ip` comes back nil.
+  #
+  # A monotonic counter cannot repeat within the VM, and 254x254 is far more than any shard
+  # allocates.
   defp unique_test_ip do
-    <<third, fourth, _rest::binary>> = :crypto.hash(:sha256, Ash.UUID.generate())
-    "100.125.#{1 + rem(third, 250)}.#{1 + rem(fourth, 250)}"
+    n = System.unique_integer([:positive, :monotonic])
+    "100.125.#{rem(div(n, 254), 254) + 1}.#{rem(n, 254) + 1}"
   end
 end

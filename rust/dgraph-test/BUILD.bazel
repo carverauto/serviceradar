@@ -1,0 +1,21 @@
+load("@crates//:defs.bzl", "all_crate_deps")
+load("@rules_rs//rs:rust_library.bzl", "rust_library")
+
+# Hyphenated to match the directory basename, which is what the @crates hub alias resolves on.
+# Renaming this to dgraph_test would dangle that alias.
+rust_library(
+    name = "dgraph_test",
+    srcs = glob(["src/**/*.rs"]),
+    crate_name = "dgraph_test",
+    crate_root = "src/lib.rs",
+    visibility = ["//visibility:public"],
+    deps = all_crate_deps(
+        package_name = "rust/dgraph-test",
+        cargo_only = True,
+        normal = True,
+    ) + [
+        # First-party, so all_crate_deps(cargo_only = True) does not return these.
+        "//config/manager_config/rust:manager",
+        "//config/proto_bindings/rust:config_schema",
+    ],
+)

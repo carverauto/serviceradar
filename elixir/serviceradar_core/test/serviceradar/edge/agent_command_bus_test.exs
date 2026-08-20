@@ -465,10 +465,24 @@ defmodule ServiceRadar.Edge.AgentCommandBusTest do
                  %{predicate: %{name: "nginx"}},
                  agent_ids: [agent_id, second_agent_id, offline_agent_id],
                  query_id: query_id,
-                 # Results now fan out only after exact provenance validation
-                 # and durable persistence. Leave enough room for that round
-                 # trip when this integration test runs against remote CNPG.
-                 timeout_ms: 5_000,
+                 # A CEILING, NOT A LATENCY ASSERTION, and deliberately far above what the
+                 # round trip needs. What this test checks is coverage aggregation --
+                 # answered vs offline vs expired -- and a result that arrives one
+                 # millisecond late does not aggregate differently, it is counted as
+                 # `expired` and the assertion reports a coverage bug that is not there.
+                 #
+                 # This is the second time the value has been raised. 5_000 was already a
+                 # bump for "the round trip against remote CNPG", and it still failed with
+                 # answered: 0, expired: 2 on a shard that had just ingested 50k devices
+                 # into the same CNPG server: results fan out only after provenance
+                 # validation AND durable persistence, so the deadline is really a bound on
+                 # someone else's write throughput.
+                 #
+                 # Generous costs nothing. collect_endpoint_inventory_cohort_results/2
+                 # returns the moment every expected command_id has answered
+                 # (agent_command_bus.ex:1221), so a fast run never waits for this number.
+                 # Only a loaded one does, which is exactly when it should.
+                 timeout_ms: 60_000,
                  cohort_concurrency: 2
                )
 

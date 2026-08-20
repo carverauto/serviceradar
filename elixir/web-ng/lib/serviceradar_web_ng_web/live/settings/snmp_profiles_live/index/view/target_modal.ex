@@ -334,6 +334,19 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.View.TargetModal 
                     </select>
                     <span class="text-[10px] text-sr-muted">Type</span>
                   </div>
+                  <div>
+                    <select
+                      class={ui_field_class(size: "sm", class: "w-full text-xs")}
+                      phx-change="update_oid"
+                      phx-value-index={idx}
+                      phx-value-field="mode"
+                      name={"oid_#{idx}_mode"}
+                    >
+                      <option value="get" selected={oid["mode"] in [nil, "get", ""]}>GET</option>
+                      <option value="walk" selected={oid["mode"] == "walk"}>Walk</option>
+                    </select>
+                    <span class="text-[10px] text-sr-muted">Mode</span>
+                  </div>
                   <div class="flex items-center gap-2">
                     <label class="flex items-center gap-1 cursor-pointer">
                       <input

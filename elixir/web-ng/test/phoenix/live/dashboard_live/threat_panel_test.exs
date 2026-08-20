@@ -8,6 +8,70 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.ThreatPanelTest do
 
   @moduletag :db_free
 
+  test "sits on the three-card row instead of a leftover full-width strip" do
+    html =
+      render_component(&ThreatPanel.render/1,
+        dashboard: %{threat_intel_summary: summary(%{})}
+      )
+
+    assert html =~ "lg:col-span-4"
+    refute html =~ "sr-ops-span-full"
+    refute html =~ "lg:col-span-12"
+  end
+
+  test "keeps feed status, one-line stats, and matches in a compact strip" do
+    html =
+      render_component(&ThreatPanel.render/1,
+        dashboard: %{
+          threat_intel_summary:
+            summary(%{
+              imported_indicators: 0,
+              latest_provider: nil,
+              latest_source: nil,
+              latest_status: "idle",
+              latest_message: "",
+              latest_success_label: "",
+              latest_success_at: nil
+            })
+        }
+      )
+
+    assert html =~ "sr-ops-threat-toolbar"
+    assert html =~ "sr-ops-threat-stat-grid"
+    assert html =~ "Max sev"
+    assert html =~ "No current NetFlow IOC matches."
+    assert html =~ "Assign the OTX plugin and sync to populate threat context."
+    refute html =~ "sr-ops-threat-detail"
+    refute html =~ "Max severity"
+  end
+
+  test "lists at most three recent matches and reports the overflow" do
+    html =
+      render_component(&ThreatPanel.render/1,
+        dashboard: %{
+          threat_intel_summary:
+            summary(%{
+              matched_ips: 4,
+              recent_matches:
+                Enum.map(1..4, fn n ->
+                  %{
+                    ip: "198.51.100.#{n}",
+                    match_count: n,
+                    looked_up_label: "16 Aug 2026 07:5#{n}",
+                    device_uid: nil,
+                    hostname: nil
+                  }
+                end)
+            })
+        }
+      )
+
+    assert html =~ "198.51.100.1"
+    assert html =~ "198.51.100.3"
+    refute html =~ "198.51.100.4"
+    assert html =~ "+1 more matched IPs"
+  end
+
   test "lists matched IPs with inventory and NetFlow links" do
     html =
       render_component(&ThreatPanel.render/1,

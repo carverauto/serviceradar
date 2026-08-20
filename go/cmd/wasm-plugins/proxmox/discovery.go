@@ -4,7 +4,7 @@ import (
 	"net/url"
 	"strings"
 
-	"code.carverauto.dev/carverauto/serviceradar-sdk-go/sdk"
+	"github.com/carverauto/serviceradar-sdk-go/sdk"
 )
 
 func addNodeDiscoveries(discovery *sdk.DeviceDiscovery, target Target, nodes []proxmoxNode, cluster []proxmoxClusterNode, warnings map[string]string) {

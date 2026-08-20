@@ -24,8 +24,13 @@
 //!
 //! Connection strings take the form
 //! `dgraph://[username:password@]host:port[?params]`, where `params` may set `sslmode`
-//! (`disable`, `require`, `verify-ca`), `apikey`, `bearertoken`, and `namespace`. IPv6
-//! literals are supported: `dgraph://[::1]:9080`.
+//! (`disable`, `require`, `verify-ca`), `sslrootcert`, `apikey`, `bearertoken`, and
+//! `namespace`. IPv6 literals are supported: `dgraph://[::1]:9080`.
+//!
+//! `sslrootcert` names a CA certificate file to verify the server against **instead of** the
+//! system trust store, which is what makes `verify-ca` usable against a privately-issued
+//! certificate -- a cluster-internal name no public CA will sign. Callers holding the PEM
+//! already, rather than a path, pass it to [`ClientConfigBuilder::ca_certificate`].
 //!
 //! Connecting logs in when credentials are present, then probes the cluster, so a
 //! misconfigured endpoint fails at construction rather than at some arbitrary later call.
@@ -141,6 +146,7 @@ pub use crate::errors::connection_string_error::{
 };
 pub use crate::errors::dgraph_error::{DgraphError, DgraphErrorEnum};
 pub use crate::errors::transaction_error::{TransactionError, TransactionErrorEnum};
+pub use crate::types::ca_certificate::CaCertificate;
 pub use crate::types::client_config::{ClientConfig, ClientConfigBuilder};
 pub use crate::types::connection_string::ConnectionString;
 pub use crate::types::dgraph_client::DgraphClient;

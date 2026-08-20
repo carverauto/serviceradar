@@ -46,20 +46,44 @@ set -o pipefail
 env_file="${SERVICERADAR_FIXTURE_ENV_FILE}"
 
 namespace="${SRQL_FIXTURE_NAMESPACE:-srql-fixtures}"
-# Non-secret, so they are defaults here rather than secrets. The in-cluster service name is
-# the one endpoint the in-cluster workflow runner can reach. A workstation is the odd one out:
-# it reaches the LAN NodePort but not this, which is why a developer needs
-# SRQL_TEST_DATABASE_URL set by hand. See openspec/notes/bazel-bb-ci.md.
+# Non-secret, so they are defaults here rather than secrets.
+#
+# The in-cluster service, matching //config/environments/ci.textproto `database.host`. Nothing
+# on this path leaves the cluster.
+#
+# It is reachable from a BuildBuddy action only because both executor fleets set
+# `task_allowed_private_ips` and point `oci.dns` at CoreDNS -- see //k8s/buildbuddy/values.yaml.
+# BuildBuddy REJECTs every RFC1918 destination from an action namespace by default, which is why
+# an earlier revision of this default was the public MetalLB name: 23.138.124.18 is not RFC1918,
+# so it was the only endpoint that had ever worked from CI.
 host="${SRQL_FIXTURE_HOST:-srql-fixture-rw.srql-fixtures.svc.cluster.local}"
 port="${SRQL_FIXTURE_PORT:-5432}"
 database="${SRQL_FIXTURE_DATABASE:-srql_fixture}"
 # verify-full is safe against this hostname: the cert-manager server cert
 # (secret srql-fixture-server-tls) carries DNS SANs for srql-fixture-{r,ro,rw} at every
-# suffix plus srql-fixture.serviceradar.cloud. It has no IP SANs, so a NodePort caller
-# must also set PGSSLSERVERNAME and SRQL_TEST_DATABASE_SERVER_NAME to the certificate's
-# DNS name.
+# suffix, including the default above. It has no IP SANs, so only a caller that OVERRIDES the
+# host with an address -- a workstation on a LAN NodePort -- must also set PGSSLSERVERNAME and
+# SRQL_TEST_DATABASE_SERVER_NAME to one of those DNS names.
 ca_secret="${SRQL_FIXTURE_CA_SECRET:-srql-fixture-server-ca}"
-ca_url="${SRQL_FIXTURE_CA_URL:-https://srql-fixture-ca.serviceradar.cloud/ca.crt}"
+
+# The in-cluster CA bundle Service, for the same reason as `host` above.
+#
+# There is deliberately no public fallback any more, and this is now structural rather than a
+# preference: //k8s/srql-fixtures/ca-bundle.yaml no longer publishes the CA at all. Its
+# Let's Encrypt Certificate and gateway route were deleted, leaving the ClusterIP publisher as
+# the only HTTP source, so https://srql-fixture-ca.serviceradar.cloud/ca.crt answers 404 and
+# listing it would add a misleading failure line to the diagnostics below.
+#
+# The remaining sources are this URL and the cert-manager Secret via kubectl, and resolve_live_ca
+# reports which one answered and why any other did not.
+ca_url_default="http://srql-fixture-ca-incluster.srql-fixtures.svc.cluster.local/ca.crt"
+ca_urls=()
+if [[ -n "${SRQL_FIXTURE_CA_URL:-}" ]]; then
+  ca_urls+=("${SRQL_FIXTURE_CA_URL}")
+fi
+if [[ "${SRQL_FIXTURE_CA_URL:-}" != "${ca_url_default}" ]]; then
+  ca_urls+=("${ca_url_default}")
+fi
 sslmode="${SRQL_FIXTURE_SSLMODE:-verify-full}"
 if [[ "${sslmode}" != "verify-full" ]]; then
   echo "SRQL_FIXTURE_SSLMODE must be verify-full; refusing to weaken fixture TLS verification" >&2
@@ -99,37 +123,81 @@ ca_is_current() {
   printf '%s' "${pem}" | openssl x509 -noout -checkend 0 >/dev/null 2>&1
 }
 
+# Why: the reason a fetch failed is the whole diagnostic value of this step. The caller
+# used to discard it (`2>/dev/null`), so a CI failure said "no live CA" and nothing about
+# whether that was DNS, a missing endpoint, an HTTP error or a truncated body. Record the
+# reason on stderr, which the caller captures -- an assignment cannot be used here because
+# `pem="$(fetch_ca_url ...)"` runs this in a subshell and any variable it sets is discarded.
 fetch_ca_url() {
-  local url="$1"
+  local url="$1" body="" rc=0
   if [[ "${url}" == file://* ]]; then
-    cat "${url#file://}"
-    return
+    if ! body="$(cat "${url#file://}" 2>&1)"; then
+      printf 'cannot read %s: %s' "${url}" "${body}" >&2
+      return 1
+    fi
+    printf '%s' "${body}"
+    return 0
   fi
   if ! command -v curl >/dev/null 2>&1; then
-    echo "curl is required to fetch SRQL_FIXTURE_CA_URL=${url}" >&2
+    printf 'curl is not on PATH, so %s cannot be fetched' "${url}" >&2
     return 1
   fi
-  curl -fsS --max-time 20 "${url}"
+  # curl's own message goes into the reason; --max-time bounds a black-holed route.
+  body="$(curl -fsS --max-time 20 "${url}" 2>&1)" || rc=$?
+  if ((rc != 0)); then
+    printf 'curl exit %s for %s: %s' "${rc}" "${url}" "${body}" >&2
+    return 1
+  fi
+  printf '%s' "${body}"
 }
 
+# Each attempt appends one line to ca_failure. A PEM that arrives but is expired or is not
+# a certificate at all is a DIFFERENT failure from one that never arrived, and the two have
+# different fixes -- renew the issuer versus repair the route.
 resolve_live_ca() {
-  local pem=""
-  if command -v kubectl >/dev/null 2>&1 &&
-    kubectl auth can-i get secrets -n "${namespace}" >/dev/null 2>&1; then
+  local pem="" auth=""
+  if ! command -v kubectl >/dev/null 2>&1; then
+    ca_failure+="kubectl: not on PATH"$'\n'
+  # Record WHAT kubectl said, because "no" and "cannot reach the API server" are different
+  # problems with different fixes -- a RoleBinding versus a route -- and the previous
+  # `>/dev/null 2>&1` collapsed them into one indistinguishable line. This matters more now
+  # that the published CA endpoint is being switched off: whether granting this runner RBAC is
+  # even an option depends on which of the two it is.
+  elif ! auth="$(kubectl auth can-i get secrets -n "${namespace}" 2>&1)"; then
+    ca_failure+="kubectl: cannot 'get secrets' in ${namespace}: $(printf '%s' "${auth}" | tr '\n' ' ')"$'\n'
+  else
     pem="$(secret_value "${ca_secret}" 'ca\.crt')"
-    if pem_looks_like_cert "${pem}" && ca_is_current "${pem}"; then
+    if ! pem_looks_like_cert "${pem}"; then
+      ca_failure+="kubectl: ${namespace}/${ca_secret} key ca.crt is not a certificate (${#pem} bytes)"$'\n'
+    elif ! ca_is_current "${pem}"; then
+      ca_failure+="kubectl: ${namespace}/${ca_secret} certificate has expired"$'\n'
+    else
       SRQL_TEST_DATABASE_CA_CERT="${pem}"
       ca_source="kubernetes (${namespace}/${ca_secret})"
       return 0
     fi
   fi
 
-  pem="$(fetch_ca_url "${ca_url}" 2>/dev/null || true)"
-  if pem_looks_like_cert "${pem}" && ca_is_current "${pem}"; then
-    SRQL_TEST_DATABASE_CA_CERT="${pem}"
-    ca_source="https (${ca_url})"
-    return 0
-  fi
+  local url err_file
+  for url in "${ca_urls[@]}"; do
+    pem=""
+    err_file="$(mktemp "${TMPDIR:-/tmp}/srql-ca-err.XXXXXX")"
+    if pem="$(fetch_ca_url "${url}" 2>"${err_file}")"; then
+      if ! pem_looks_like_cert "${pem}"; then
+        ca_failure+="url: ${url} returned ${#pem} bytes that are not a certificate"$'\n'
+      elif ! ca_is_current "${pem}"; then
+        ca_failure+="url: ${url} returned an EXPIRED certificate"$'\n'
+      else
+        SRQL_TEST_DATABASE_CA_CERT="${pem}"
+        ca_source="url (${url})"
+        rm -f "${err_file}"
+        return 0
+      fi
+    else
+      ca_failure+="url: $(cat "${err_file}")"$'\n'
+    fi
+    rm -f "${err_file}"
+  done
 
   return 1
 }
@@ -193,6 +261,9 @@ database_host() {
 
 source_used=""
 ca_source=""
+# Accumulated reasons each CA source failed. Declared here because `set -u` is in force and
+# resolve_live_ca appends to it.
+ca_failure=""
 
 # CA first, from a live source only. A pre-set SRQL_TEST_DATABASE_CA_CERT is the snapshot
 # this helper exists to retire; it is never a source.
@@ -206,11 +277,18 @@ stored CI secret. Provide ONE of:
   * Cluster access -- kubectl on PATH with \`get secrets\` in ${namespace}.
     Reads ${ca_secret} key ca.crt.
 
-  * ${ca_url} reachable (override with SRQL_FIXTURE_CA_URL).
-    In-cluster runners use the ClusterIP HTTP bundle; workstations can
-    use kubectl or the public HTTPS URL.
+  * One of these reachable, tried in this order (prepend one with SRQL_FIXTURE_CA_URL):
+
+$(printf '      %s\n' "${ca_urls[@]}")
+
+    In-cluster runners use the ClusterIP HTTP bundle. Workstations
+    should use kubectl; there is no public CA URL.
 
 A pre-set SRQL_TEST_DATABASE_CA_CERT is ignored on purpose.
+
+What was tried, and how each attempt failed:
+
+${ca_failure}
 EOF_ERR
   exit 1
 fi
@@ -253,9 +331,9 @@ Provide ONE of:
 The CA is obtained separately from the live cert-manager Secret or SRQL_FIXTURE_CA_URL.
 
 Overrides: SRQL_FIXTURE_{NAMESPACE,HOST,PORT,DATABASE,SSLMODE,CA_SECRET,CA_URL}.
-On a workstation the in-cluster hostname is unreachable; use the LAN NodePort with
-SRQL_FIXTURE_SSLMODE=verify-full plus PGSSLSERVERNAME and SRQL_TEST_DATABASE_SERVER_NAME set
-to srql-fixture-rw.srql-fixtures.svc.cluster.local (the server cert has no IP SANs).
+The default host is the in-cluster Service, which a workstation cannot reach. Override
+SRQL_FIXTURE_HOST with the LAN NodePort there, and then also set PGSSLSERVERNAME and
+SRQL_TEST_DATABASE_SERVER_NAME to a certificate DNS name -- the server cert has no IP SANs.
 EOF_ERR
   exit 1
 fi
@@ -293,6 +371,25 @@ umask 077
   emit SRQL_TEST_DATABASE_CA_CERT "${SRQL_TEST_DATABASE_CA_CERT}"
   emit SRQL_TEST_DATABASE_SERVER_NAME "${tls_server_name}"
   emit PGSSLSERVERNAME "${tls_server_name}"
+
+  # BRIDGE -- DELETE WITH THE LAST UNCONVERTED READER.
+  #
+  # `--test_env=NAME` only FORWARDS a variable from the caller's environment; nothing sets one.
+  # These five are the only names this script sets, so they are the only ones worth forwarding,
+  # and they live here rather than in //.bazelrc because that is where the values come from:
+  # a forwarding list kept somewhere else drifts from the thing that produces it. The profile
+  # this replaced forwarded 43 names, 38 of which nothing ever set.
+  #
+  # Every remaining reader is listed in openspec/changes/add-unified-config-and-secret-managers
+  # phase 7. When the Elixir test config and integration_tests/srql/tests/support/harness.rs
+  # resolve through ConfigManager/SecretManager, delete this block: SERVICERADAR_ENV is then the
+  # only variable a component needs, and it is stated at the invocation.
+  emit SERVICERADAR_TEST_ENV_FLAGS "$(printf -- '--test_env=%s ' \
+    SRQL_TEST_DATABASE_URL \
+    SRQL_TEST_ADMIN_URL \
+    SRQL_TEST_DATABASE_CA_CERT \
+    SRQL_TEST_DATABASE_SERVER_NAME \
+    PGSSLSERVERNAME)"
 } >"${env_file}"
 chmod 600 "${env_file}"
 

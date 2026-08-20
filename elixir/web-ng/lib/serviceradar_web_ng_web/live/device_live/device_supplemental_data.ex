@@ -9,7 +9,6 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.DeviceSupplementalData do
   alias ServiceRadarWebNGWeb.DeviceLive.CompositeVerdictData
   alias ServiceRadarWebNGWeb.DeviceLive.DeviceTaskData
   alias ServiceRadarWebNGWeb.DeviceLive.DiscoveryData
-  alias ServiceRadarWebNGWeb.DeviceLive.EndpointInventoryData
   alias ServiceRadarWebNGWeb.DeviceLive.FlowData
   alias ServiceRadarWebNGWeb.DeviceLive.InterfaceData
   alias ServiceRadarWebNGWeb.DeviceLive.IpAliasData
@@ -168,7 +167,6 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.DeviceSupplementalData do
     {northbound_device_history, northbound_device_history_error} =
       Map.get(parallel_results, :northbound_history, {[], nil})
 
-    endpoint_inventory = Map.get(parallel_results, :endpoint_inventory, %{})
     bumblebee = Map.get(parallel_results, :bumblebee, %{})
 
     base_assigns = %{
@@ -176,19 +174,6 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.DeviceSupplementalData do
       agent_availability: Map.get(parallel_results, :agent_availability, []),
       composite_verdicts: Map.get(parallel_results, :composite_verdicts, []),
       healthcheck_summary: Map.get(parallel_results, :healthcheck, %{}),
-      endpoint_inventory_scan: Map.get(endpoint_inventory, :scan),
-      endpoint_inventory_scans: Map.get(endpoint_inventory, :scans, []),
-      endpoint_inventory_packages: Map.get(endpoint_inventory, :packages, []),
-      endpoint_inventory_package_total: Map.get(endpoint_inventory, :package_total, 0),
-      endpoint_inventory_package_page: Map.get(endpoint_inventory, :package_page, 1),
-      endpoint_inventory_package_page_size:
-        Map.get(endpoint_inventory, :package_page_size, EndpointInventoryData.default_page_size()),
-      endpoint_inventory_stored_package_count: Map.get(endpoint_inventory, :stored_package_count, 0),
-      endpoint_inventory_artifacts: Map.get(endpoint_inventory, :artifacts, []),
-      endpoint_inventory_vulnerability_matches: Map.get(endpoint_inventory, :vulnerability_matches, []),
-      endpoint_inventory_cpe_catalog_current: Map.get(endpoint_inventory, :cpe_catalog_current, true),
-      endpoint_inventory_error: Map.get(endpoint_inventory, :error),
-      has_software_inventory: Map.get(endpoint_inventory, :has_inventory, false),
       bumblebee_postures: Map.get(bumblebee, :postures, []),
       bumblebee_findings: Map.get(bumblebee, :findings, []),
       bumblebee_error: Map.get(bumblebee, :error),
@@ -212,15 +197,16 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.DeviceSupplementalData do
       camera_inventory_error: camera_inventory_error,
       favorited_interfaces: favorited_interfaces,
       metrics_enabled_interfaces: metrics_enabled_interfaces,
-      interface_metrics: nil,
       ip_aliases: ip_aliases,
       ip_alias_error: ip_alias_error,
       northbound_device_history: northbound_device_history,
       northbound_device_history_error: northbound_device_history_error,
       interface_availability: interface_availability,
       flow_availability: flow_availability,
-      has_ifaces: interface_availability != :unavailable,
-      has_flows: flow_availability != :unavailable,
+      # :unknown (probe timeout) used to count as "has interfaces/flows" so the
+      # tab appeared on devices with none; clicking then loaded empty and hid it.
+      has_ifaces: interface_availability == :available,
+      has_flows: flow_availability == :available,
       has_logs: has_logs,
       has_mtr: has_mtr,
       snmp_polling_source: Map.get(parallel_results, :snmp_polling, SNMPPollingSource.empty())
@@ -282,9 +268,9 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.DeviceSupplementalData do
       DeviceTaskData.timed(slow_device_task_ms, :northbound_history, fn ->
         NorthboundHistoryData.load(scope, uid)
       end),
-      DeviceTaskData.timed(slow_device_task_ms, :endpoint_inventory, fn ->
-        EndpointInventoryData.load(scope, uid)
-      end),
+      # Endpoint inventory (packages + vulnerability matches) is started from
+      # DeviceLive.Show as its own start_async. Folding it into this yield_many
+      # made Software wait on has_ifaces/has_flows SRQL probes.
       DeviceTaskData.timed(slow_device_task_ms, :bumblebee, fn ->
         BumblebeeData.load(scope, uid)
       end),
@@ -378,7 +364,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.DeviceSupplementalData do
     tasks ++
       [
         DeviceTaskData.timed(slow_device_task_ms, :has_flows, fn ->
-          detect_has_flows(srql_module, uid, scope)
+          FlowData.has_flows?(srql_module, uid, scope)
         end)
       ]
   end
@@ -482,13 +468,4 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.DeviceSupplementalData do
   end
 
   defp determine_has_logs(false, _logs_error, _device_logs, _probe), do: true
-
-  defp detect_has_flows(srql_module, device_uid, scope) do
-    query = QueryData.default_flows_query(device_uid) <> " limit:1"
-
-    case srql_module.query(query, %{scope: scope}) do
-      {:ok, %{"results" => [_ | _]}} -> true
-      _ -> false
-    end
-  end
 end

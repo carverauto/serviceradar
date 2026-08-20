@@ -9,6 +9,7 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.Events.TargetOids
       "data_type" => "gauge",
       "scale" => "1.0",
       "delta" => false,
+      "mode" => "get",
       "temp_id" => System.unique_integer([:positive])
     }
 

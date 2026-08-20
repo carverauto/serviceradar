@@ -111,7 +111,6 @@ defmodule ServiceRadar.Notifications.ProviderSeeder do
   alias ServiceRadar.Notifications.Transports.Slack
   alias ServiceRadar.Notifications.Transports.Stream
 
-  require Ash.Query
   require Logger
 
   # The seeder-owned fields: reconciled on a template version bump and covered by

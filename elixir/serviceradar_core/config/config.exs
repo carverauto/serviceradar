@@ -78,6 +78,10 @@ config :serviceradar_core, Oban,
   ],
   peer: Oban.Peers.Database
 
+# Advisory-feed staging reaper. Oban :kill skips FeedWorker after-cleanup.
+config :serviceradar_core, ServiceRadar.Inventory.AdvisoryFeeds.StagingCleanupWorker,
+  reschedule_seconds: 60
+
 # Agent-to-device link repair (periodic; see AgentLinkRepairWorker)
 config :serviceradar_core, ServiceRadar.Inventory.AgentLinkRepairWorker,
   enabled: true,

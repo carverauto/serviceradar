@@ -2,7 +2,6 @@ load("@rules_rs//rs:cargo_build_script.bzl", "cargo_build_script")
 load("@rules_rs//rs:rust_binary.bzl", "rust_binary")
 load("@rules_rs//rs:rust_library.bzl", "rust_library")
 load("@rules_rs//rs:rust_test.bzl", "rust_test")
-load("//build/rbe:exec_properties.bzl", "NATIVE_ADDON_EXEC_PROPERTIES")
 
 package(default_visibility = ["//visibility:public"])
 
@@ -51,7 +50,6 @@ rust_binary(
     name = "serviceradar-powerdns-addon",
     srcs = ["src/bin/serviceradar-powerdns-addon.rs"],
     crate_root = "src/bin/serviceradar-powerdns-addon.rs",
-    exec_properties = NATIVE_ADDON_EXEC_PROPERTIES,
     proc_macro_deps = POWERDNS_PROC_MACROS,
     deps = POWERDNS_DEPS + [":powerdns_addon"],
 )

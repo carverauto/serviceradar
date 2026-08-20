@@ -27,6 +27,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"sync"
 	"time"
 
@@ -776,19 +777,41 @@ func protoToSNMPConfig(p *proto.SNMPConfig) *snmp.SNMPConfig {
 		}
 
 		for _, oid := range t.Oids {
-			target.OIDs = append(target.OIDs, snmp.OIDConfig{
-				OID:      oid.Oid,
-				Name:     oid.Name,
-				DataType: protoToSNMPDataType(oid.DataType),
-				Scale:    float64(oid.Scale),
-				Delta:    oid.Delta,
-			})
+			target.OIDs = append(target.OIDs, protoToSNMPOIDConfig(oid))
 		}
 
 		config.Targets = append(config.Targets, target)
 	}
 
 	return config
+}
+
+func protoToSNMPOIDConfig(oid *proto.SNMPOIDConfig) snmp.OIDConfig {
+	if oid == nil {
+		return snmp.OIDConfig{}
+	}
+
+	cfg := snmp.OIDConfig{
+		OID:      oid.Oid,
+		Name:     oid.Name,
+		DataType: protoToSNMPDataType(oid.DataType),
+		Scale:    oid.Scale,
+		Delta:    oid.Delta,
+	}
+
+	if strings.EqualFold(strings.TrimSpace(oid.Mode), string(snmp.ModeWalk)) {
+		cfg.Mode = snmp.ModeWalk
+	}
+
+	if oid.MaxRows > 0 {
+		cfg.MaxRows = int(oid.MaxRows)
+	}
+
+	if oid.WalkTimeoutSeconds > 0 {
+		cfg.WalkTimeout = snmp.Duration(time.Duration(oid.WalkTimeoutSeconds) * time.Second)
+	}
+
+	return cfg
 }
 
 // protoToSNMPVersion converts proto SNMPVersion to snmp.SNMPVersion.

@@ -1,6 +1,8 @@
 defmodule ServiceRadarWebNGWeb.DeviceLive.FlowData do
   @moduledoc false
 
+  alias ServiceRadar.Repo
+
   require Logger
 
   def load_flows(srql_module, device_uid, scope, cursor, limit) do
@@ -37,6 +39,17 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.FlowData do
 
       _ ->
         {[], %{}, "Failed to load flows for selected range"}
+    end
+  end
+
+  # Presence must not use `sort:time:desc`. That plus the device_id OR-of-IPs
+  # predicate walks the 24h time index and is what made has_flows time out
+  # (then show a phantom Flows tab). Prefer per-IP EXISTS on the src/dst
+  # indexes; fall back to unsorted SRQL limit:1 when Repo is unavailable.
+  def has_flows?(srql_module, device_uid, scope) do
+    case cheap_flow_presence(device_uid) do
+      {:ok, present} -> present
+      :error -> srql_flow_presence(srql_module, device_uid, scope)
     end
   end
 
@@ -408,5 +421,127 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.FlowData do
 
   defp default_flows_query(device_uid) do
     ~s|in:flows device_id:"#{escape_value(device_uid)}" time:last_24h sort:time:desc|
+  end
+
+  defp cheap_flow_presence(device_uid) when is_binary(device_uid) and device_uid != "" do
+    with {:ok, ips} <- device_flow_ips(device_uid),
+         {:ok, samplers} <- device_flow_samplers(device_uid),
+         {:ok, ip_hit} <- any_present?(ips, &flow_seen_for_ip?/1),
+         {:ok, sampler_hit} <- any_present?(samplers, &flow_seen_for_sampler?/1) do
+      {:ok, ip_hit or sampler_hit}
+    end
+  rescue
+    _ -> :error
+  end
+
+  defp cheap_flow_presence(_device_uid), do: {:ok, false}
+
+  defp any_present?([], _fun), do: {:ok, false}
+
+  defp any_present?([value | rest], fun) do
+    case fun.(value) do
+      {:ok, true} -> {:ok, true}
+      {:ok, false} -> any_present?(rest, fun)
+      :error -> :error
+    end
+  end
+
+  defp device_flow_ips(device_uid) do
+    case Repo.query(
+           """
+           SELECT d.ip
+           FROM platform.ocsf_devices d
+           WHERE d.uid = $1 AND d.ip IS NOT NULL AND d.ip <> ''
+           UNION
+           SELECT das.alias_value
+           FROM platform.device_alias_states das
+           WHERE das.device_id = $1
+             AND das.alias_type = 'ip'
+             AND das.state IN ('detected', 'confirmed', 'updated')
+           """,
+           [device_uid]
+         ) do
+      {:ok, %{rows: rows}} ->
+        {:ok, rows |> Enum.map(&List.first/1) |> Enum.filter(&is_binary/1)}
+
+      {:error, _reason} ->
+        :error
+    end
+  end
+
+  defp device_flow_samplers(device_uid) do
+    case Repo.query(
+           """
+           SELECT sampler_address
+           FROM platform.netflow_exporter_cache
+           WHERE device_uid = $1
+           """,
+           [device_uid]
+         ) do
+      {:ok, %{rows: rows}} ->
+        {:ok, rows |> Enum.map(&List.first/1) |> Enum.filter(&is_binary/1)}
+
+      {:error, _reason} ->
+        :error
+    end
+  end
+
+  defp flow_seen_for_ip?(ip) do
+    with {:ok, false} <-
+           interpret_exists(fn ->
+             Repo.query(
+               """
+               SELECT 1
+               FROM platform.ocsf_network_activity
+               WHERE time > now() - interval '24 hours' AND src_endpoint_ip = $1
+               LIMIT 1
+               """,
+               [ip]
+             )
+           end) do
+      interpret_exists(fn ->
+        Repo.query(
+          """
+          SELECT 1
+          FROM platform.ocsf_network_activity
+          WHERE time > now() - interval '24 hours' AND dst_endpoint_ip = $1
+          LIMIT 1
+          """,
+          [ip]
+        )
+      end)
+    end
+  end
+
+  defp flow_seen_for_sampler?(sampler) do
+    interpret_exists(fn ->
+      Repo.query(
+        """
+        SELECT 1
+        FROM platform.ocsf_network_activity
+        WHERE time > now() - interval '24 hours' AND sampler_address = $1
+        LIMIT 1
+        """,
+        [sampler]
+      )
+    end)
+  end
+
+  defp interpret_exists(fun) when is_function(fun, 0) do
+    case fun.() do
+      {:ok, %{num_rows: n}} -> {:ok, n > 0}
+      {:error, _reason} -> :error
+    end
+  rescue
+    _ -> :error
+  end
+
+  defp srql_flow_presence(srql_module, device_uid, scope) do
+    query = ~s|in:flows device_id:"#{escape_value(device_uid)}" time:last_24h limit:1|
+
+    case srql_module.query(query, %{scope: scope}) do
+      {:ok, %{"results" => [_ | _]}} -> true
+      _ -> false
+    end
   end
 end

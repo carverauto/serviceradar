@@ -17,6 +17,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
   alias ServiceRadarWebNGWeb.DeviceLive.DeviceStateData
   alias ServiceRadarWebNGWeb.DeviceLive.DeviceSupplementalData
   alias ServiceRadarWebNGWeb.DeviceLive.DeviceTabRuntime
+  alias ServiceRadarWebNGWeb.DeviceLive.EndpointInventoryData
   alias ServiceRadarWebNGWeb.DeviceLive.EndpointInventoryRuntime
   alias ServiceRadarWebNGWeb.DeviceLive.FlowRuntime
   alias ServiceRadarWebNGWeb.DeviceLive.IndexPath
@@ -235,6 +236,31 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
     if device_uid == socket.assigns.device_uid and
          request_ref == socket.assigns.device_details_request_ref do
       {:noreply, socket |> assign(:details_loading, false) |> assign(:device_details_request_ref, nil)}
+    else
+      {:noreply, socket}
+    end
+  end
+
+  def handle_async({:device_endpoint_inventory, device_uid, request_ref}, {:ok, inventory}, socket) do
+    current_ref = Map.get(socket.assigns, :endpoint_inventory_request_ref)
+
+    if device_uid == socket.assigns.device_uid and request_ref == current_ref do
+      {:noreply, apply_endpoint_inventory_assigns(socket, inventory)}
+    else
+      {:noreply, socket}
+    end
+  end
+
+  def handle_async({:device_endpoint_inventory, device_uid, request_ref}, {:exit, reason}, socket) do
+    Logger.warning("Endpoint inventory task failed for #{device_uid}: #{inspect(reason)}")
+
+    if device_uid == socket.assigns.device_uid and
+         request_ref == socket.assigns.endpoint_inventory_request_ref do
+      {:noreply,
+       socket
+       |> assign(:endpoint_inventory_loading, false)
+       |> assign(:endpoint_inventory_request_ref, nil)
+       |> assign(:endpoint_inventory_error, "Failed to load endpoint software inventory.")}
     else
       {:noreply, socket}
     end
@@ -488,7 +514,11 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
 
     refresh? = Map.get(socket.assigns, :device_load_mode, :full) == :refresh
 
-    supplemental_assigns = preserve_virtualization_guests(socket, supplemental_assigns, refresh?)
+    supplemental_assigns =
+      socket
+      |> preserve_virtualization_guests(supplemental_assigns, refresh?)
+      |> then(&preserve_loaded_interfaces(socket, &1, refresh?))
+      |> then(&preserve_loaded_flows(socket, &1, refresh?))
 
     socket =
       socket
@@ -532,6 +562,53 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
   end
 
   defp preserve_virtualization_guests(_socket, supplemental_assigns, false = _refresh?) do
+    supplemental_assigns
+  end
+
+  # Same-device refresh can time out the interface/flow tasks in the 15s
+  # supplemental batch. An empty incoming list would wipe the already-rendered
+  # table and (via resolve_active_tab) bounce the user back to Details.
+  defp preserve_loaded_interfaces(socket, supplemental_assigns, true = _refresh?) do
+    incoming = Map.get(supplemental_assigns, :network_interfaces, [])
+    current = Map.get(socket.assigns, :network_interfaces, [])
+
+    if current != [] and incoming == [] do
+      supplemental_assigns
+      |> Map.put(:network_interfaces, current)
+      |> Map.put(:has_ifaces, true)
+      |> Map.put(:interface_availability, Map.get(socket.assigns, :interface_availability, :available))
+      |> Map.put(:interfaces_error, Map.get(socket.assigns, :interfaces_error))
+      |> Map.put(:favorited_interfaces, Map.get(socket.assigns, :favorited_interfaces, MapSet.new()))
+      |> Map.put(
+        :metrics_enabled_interfaces,
+        Map.get(socket.assigns, :metrics_enabled_interfaces, MapSet.new())
+      )
+    else
+      supplemental_assigns
+    end
+  end
+
+  defp preserve_loaded_interfaces(_socket, supplemental_assigns, false = _refresh?) do
+    supplemental_assigns
+  end
+
+  defp preserve_loaded_flows(socket, supplemental_assigns, true = _refresh?) do
+    incoming = Map.get(supplemental_assigns, :device_flows, [])
+    current = Map.get(socket.assigns, :device_flows, [])
+
+    if current != [] and incoming == [] do
+      supplemental_assigns
+      |> Map.put(:device_flows, current)
+      |> Map.put(:has_flows, true)
+      |> Map.put(:flow_availability, Map.get(socket.assigns, :flow_availability, :available))
+      |> Map.put(:flows_error, Map.get(socket.assigns, :flows_error))
+      |> Map.put(:flows_pagination, Map.get(socket.assigns, :flows_pagination, %{}))
+    else
+      supplemental_assigns
+    end
+  end
+
+  defp preserve_loaded_flows(_socket, supplemental_assigns, false = _refresh?) do
     supplemental_assigns
   end
 
@@ -981,6 +1058,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
       scope
     )
     |> begin_device_details_refresh(uid, request_ref, supplemental_context)
+    |> begin_endpoint_inventory_refresh(uid, scope)
     |> then(&{:noreply, &1})
   end
 
@@ -1060,6 +1138,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
     |> assign(:endpoint_inventory_cpe_catalog_current, true)
     |> assign(:endpoint_inventory_error, nil)
     |> assign(:has_software_inventory, false)
+    |> assign(:endpoint_inventory_loading, true)
+    |> assign(:endpoint_inventory_request_ref, nil)
     |> assign(:bumblebee_postures, [])
     |> assign(:bumblebee_findings, [])
     |> assign(:bumblebee_error, nil)
@@ -1080,6 +1160,55 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
         load_device_details_assigns(context)
       end)
     end
+  end
+
+  # Software packages + vulnerability matches must not wait on the details
+  # batch. That batch's yield_many also runs has_ifaces/has_flows SRQL probes,
+  # which can take the full 15s tab timeout and kept Software empty until they
+  # finished.
+  defp begin_endpoint_inventory_refresh(socket, uid, scope) do
+    request_ref = make_ref()
+    keep_existing? = software_inventory_present?(socket.assigns)
+
+    if Application.get_env(:serviceradar_web_ng, :env) == :test do
+      apply_endpoint_inventory_assigns(socket, EndpointInventoryData.load(scope, uid))
+    else
+      socket
+      |> assign(:endpoint_inventory_request_ref, request_ref)
+      |> assign(:endpoint_inventory_loading, not keep_existing?)
+      |> start_async({:device_endpoint_inventory, uid, request_ref}, fn ->
+        EndpointInventoryData.load(scope, uid)
+      end)
+    end
+  end
+
+  defp apply_endpoint_inventory_assigns(socket, inventory) when is_map(inventory) do
+    socket
+    |> assign(:endpoint_inventory_scan, Map.get(inventory, :scan))
+    |> assign(:endpoint_inventory_scans, Map.get(inventory, :scans, []))
+    |> assign(:endpoint_inventory_packages, Map.get(inventory, :packages, []))
+    |> assign(:endpoint_inventory_package_total, Map.get(inventory, :package_total, 0))
+    |> assign(:endpoint_inventory_package_page, Map.get(inventory, :package_page, 1))
+    |> assign(
+      :endpoint_inventory_package_page_size,
+      Map.get(inventory, :package_page_size, EndpointInventoryData.default_page_size())
+    )
+    |> assign(
+      :endpoint_inventory_stored_package_count,
+      Map.get(inventory, :stored_package_count, 0)
+    )
+    |> assign(:endpoint_inventory_artifacts, Map.get(inventory, :artifacts, []))
+    |> assign(:endpoint_inventory_vulnerability_matches, Map.get(inventory, :vulnerability_matches, []))
+    |> assign(:endpoint_inventory_cpe_catalog_current, Map.get(inventory, :cpe_catalog_current, true))
+    |> assign(:endpoint_inventory_error, Map.get(inventory, :error))
+    |> assign(:has_software_inventory, Map.get(inventory, :has_inventory, false))
+    |> assign(:endpoint_inventory_loading, false)
+    |> assign(:endpoint_inventory_request_ref, nil)
+  end
+
+  defp software_inventory_present?(assigns) do
+    assigns.endpoint_inventory_packages != [] or
+      assigns.endpoint_inventory_vulnerability_matches != []
   end
 
   # Runs inside the async task (or synchronously in tests). Returns a plain map

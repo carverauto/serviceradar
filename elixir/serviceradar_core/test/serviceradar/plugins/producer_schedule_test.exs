@@ -370,6 +370,112 @@ defmodule ServiceRadar.Plugins.ProducerScheduleTest do
     assert DateTime.diff(dispatched.next_due_at, DateTime.utc_now(), :second) <= 90
   end
 
+  test "raising the cadence reschedules the pending due from the last run", %{
+    actor: actor,
+    uid: uid
+  } do
+    assert {:ok, schedule} = create_enabled_schedule(actor, uid)
+
+    # run_now stamps last_run_at, which is what a cadence edit re-anchors on.
+    assert {:ok, ran} =
+             schedule
+             |> Ash.Changeset.for_update(:run_now, %{}, actor: actor)
+             |> Ash.update()
+
+    assert {:ok, updated} =
+             ran
+             |> Ash.Changeset.for_update(:update, %{cadence_seconds: 86_400}, actor: actor)
+             |> Ash.update()
+
+    assert DateTime.diff(updated.next_due_at, ran.last_run_at, :second) == 86_400
+    assert DateTime.after?(updated.next_due_at, ran.next_due_at)
+  end
+
+  test "lowering the cadence pulls the pending due in without firing immediately", %{
+    actor: actor,
+    uid: uid
+  } do
+    assert {:ok, schedule} = create_enabled_schedule(actor, uid)
+
+    assert {:ok, ran} =
+             schedule
+             |> Ash.Changeset.for_update(:run_now, %{}, actor: actor)
+             |> Ash.update()
+
+    assert {:ok, updated} =
+             ran
+             |> Ash.Changeset.for_update(:update, %{cadence_seconds: 3_600}, actor: actor)
+             |> Ash.update()
+
+    assert DateTime.diff(updated.next_due_at, ran.last_run_at, :second) == 3_600
+    assert DateTime.before?(updated.next_due_at, ran.next_due_at)
+    # It ran seconds ago, so the shorter cadence must not make it due right now.
+    assert DateTime.after?(updated.next_due_at, DateTime.utc_now())
+  end
+
+  test "disabling keeps the pending due and re-enabling recomputes it", %{actor: actor, uid: uid} do
+    assert {:ok, schedule} = create_enabled_schedule(actor, uid)
+    assert schedule.cadence_seconds == 21_600
+
+    assert {:ok, disabled} =
+             schedule
+             |> Ash.Changeset.for_update(
+               :update,
+               %{enabled: false, cadence_seconds: 3_600},
+               actor: actor
+             )
+             |> Ash.update()
+
+    # A disabled schedule is never dispatched, so its pending due is left alone.
+    assert DateTime.compare(disabled.next_due_at, schedule.next_due_at) == :eq
+
+    assert {:ok, reenabled} =
+             disabled
+             |> Ash.Changeset.for_update(:update, %{enabled: true}, actor: actor)
+             |> Ash.update()
+
+    # Re-enabling restarts the cycle on the cadence saved while it was off.
+    assert DateTime.after?(reenabled.next_due_at, DateTime.utc_now())
+    assert DateTime.diff(reenabled.next_due_at, DateTime.utc_now(), :second) <= 3_600
+    assert DateTime.diff(reenabled.next_due_at, DateTime.utc_now(), :second) > 3_500
+  end
+
+  test "unrelated attribute updates leave the pending due untouched", %{actor: actor, uid: uid} do
+    assert {:ok, schedule} = create_enabled_schedule(actor, uid)
+
+    assert {:ok, updated} =
+             schedule
+             |> Ash.Changeset.for_update(
+               :update,
+               %{
+                 display_name: "Renamed advisory refresh",
+                 params: %{"feed_key" => "nvd"},
+                 metadata: %{"owner" => "netops"}
+               },
+               actor: actor
+             )
+             |> Ash.update()
+
+    assert updated.params == %{"feed_key" => "nvd"}
+    assert DateTime.compare(updated.next_due_at, schedule.next_due_at) == :eq
+  end
+
+  test "an explicit next due wins over a cadence change", %{actor: actor, uid: uid} do
+    assert {:ok, schedule} = create_enabled_schedule(actor, uid)
+    pinned_due_at = DateTime.add(DateTime.utc_now(), 90, :second)
+
+    assert {:ok, updated} =
+             schedule
+             |> Ash.Changeset.for_update(
+               :update,
+               %{cadence_seconds: 86_400, next_due_at: pinned_due_at},
+               actor: actor
+             )
+             |> Ash.update()
+
+    assert DateTime.compare(updated.next_due_at, pinned_due_at) == :eq
+  end
+
   test "target query schedules dispatch to matching enabled plugin assignments", %{
     actor: actor,
     uid: uid

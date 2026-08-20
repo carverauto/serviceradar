@@ -2579,6 +2579,52 @@ table:has(.sr-ui-dropdown) td:has(.sr-ui-dropdown) {
   grid-template-columns: repeat(12, minmax(0, 1fr));
 }
 
+.sr-ops-grid-primary > .sr-ops-span-full,
+.sr-ops-grid-bottom > .sr-ops-span-full {
+  grid-column: 1 / -1;
+}
+
+.sr-ops-observability-split {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 0.75rem;
+  min-width: 0;
+}
+
+.sr-ops-observability-pane {
+  min-width: 0;
+}
+
+.sr-ops-observability-pane + .sr-ops-observability-pane {
+  border-left: 1px solid var(--sr-color-line);
+  padding-left: 0.75rem;
+}
+
+.sr-ops-observability-pane > h3,
+.sr-ops-observability-pane-header h3 {
+  margin: 0 0 0.4rem;
+  color: var(--sr-color-ink);
+  font-size: 0.78rem;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+}
+
+.sr-ops-observability-pane-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  margin-bottom: 0.35rem;
+}
+
+.sr-ops-observability-pane-header h3 {
+  margin-bottom: 0;
+}
+
+.sr-ops-observability-split .sr-ops-metric-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
 .sr-ops-panel,
 .sr-ops-kpi-card {
   border: 1px solid var(--sr-color-line);
@@ -5212,10 +5258,10 @@ table:has(.sr-ui-dropdown) td:has(.sr-ui-dropdown) {
 }
 
 .sr-ops-threat-intel {
-  min-height: 9.35rem;
+  min-height: 0;
   display: grid;
-  gap: 0.65rem;
-  padding: 0.72rem;
+  gap: 0.32rem;
+  padding: 0.38rem 0.46rem;
   border: 1px solid var(--sr-color-line);
   border-radius: 0.5rem;
   background: var(--sr-color-subtle);
@@ -5469,12 +5515,24 @@ table:has(.sr-ui-dropdown) td:has(.sr-ui-dropdown) {
   background: color-mix(in srgb, var(--sr-color-subtle) 55%, transparent);
 }
 
+.sr-ops-threat-toolbar {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: minmax(13rem, 0.9fr) minmax(0, 1.7fr);
+  align-items: stretch;
+  gap: 0.4rem;
+}
+
 .sr-ops-threat-sync {
   min-width: 0;
   display: grid;
   grid-template-columns: auto minmax(0, 1fr);
   align-items: center;
-  gap: 0.58rem;
+  gap: 0.42rem;
+}
+
+.sr-ops-threat-sync-copy {
+  min-width: 0;
 }
 
 .sr-ops-threat-sync-link {
@@ -5502,11 +5560,11 @@ table:has(.sr-ui-dropdown) td:has(.sr-ui-dropdown) {
 
 .sr-ops-threat-sync small {
   display: block;
-  margin-top: 0.12rem;
+  margin-top: 0.02rem;
   color: #8fa39a;
-  font-size: 0.68rem;
-  line-height: 1.35;
-  white-space: normal;
+  font-size: 0.64rem;
+  line-height: 1.25;
+  white-space: nowrap;
 }
 
 .sr-ops-threat-status {
@@ -5541,36 +5599,61 @@ table:has(.sr-ui-dropdown) td:has(.sr-ui-dropdown) {
 
 .sr-ops-threat-stat-grid {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 0.45rem;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  min-width: 0;
+  overflow: hidden;
+  border: 1px solid var(--sr-color-line);
+  border-radius: 0.4rem;
 }
 
 .sr-ops-threat-stat-grid .sr-ops-small-stat {
-  min-height: 3.1rem;
-  border-radius: 0.45rem;
+  min-height: 0;
+  padding: 0.18rem 0.42rem;
+  border-radius: 0;
+}
+
+.sr-ops-threat-stat-grid .sr-ops-small-stat span {
+  font-size: 0.62rem;
+  line-height: 1.2;
+}
+
+.sr-ops-threat-stat-grid .sr-ops-small-stat strong {
+  margin-top: 0.02rem;
+  font-size: 0.82rem;
+  line-height: 1.2;
 }
 
 .sr-ops-threat-matches {
   display: grid;
-  gap: 0.32rem;
+  gap: 0.18rem;
 }
 
 .sr-ops-threat-matches-empty {
-  padding: 0.4rem 0.12rem;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.35rem 0.7rem;
+  padding: 0.12rem 0.08rem;
   color: #8fa39a;
-  font-size: 0.7rem;
-  line-height: 1.35;
+  font-size: 0.68rem;
+  line-height: 1.3;
+}
+
+.sr-ops-threat-matches-more {
+  color: #8fa39a;
+  font-size: 0.64rem;
+  line-height: 1.3;
 }
 
 .sr-ops-threat-match {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-columns: minmax(7.2rem, max-content) minmax(0, 1fr) auto;
   align-items: center;
-  gap: 0.5rem;
+  gap: 0.45rem 0.7rem;
   min-width: 0;
-  padding: 0.4rem 0.48rem;
+  padding: 0.18rem 0.4rem;
   border: 1px solid rgba(38, 54, 58, 0.62);
-  border-radius: 0.45rem;
+  border-radius: 0.4rem;
   background: color-mix(in srgb, var(--sr-color-subtle) 55%, transparent);
 }
 
@@ -5579,9 +5662,9 @@ table:has(.sr-ui-dropdown) td:has(.sr-ui-dropdown) {
   overflow: hidden;
   color: #f8fafc;
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-  font-size: 0.74rem;
+  font-size: 0.72rem;
   font-weight: 700;
-  line-height: 1.25;
+  line-height: 1.2;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -5589,10 +5672,10 @@ table:has(.sr-ui-dropdown) td:has(.sr-ui-dropdown) {
 .sr-ops-threat-match-meta {
   display: block;
   overflow: hidden;
-  margin-top: 0.08rem;
+  margin-top: 0;
   color: #8fa39a;
   font-size: 0.64rem;
-  line-height: 1.3;
+  line-height: 1.2;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -5616,6 +5699,102 @@ table:has(.sr-ui-dropdown) td:has(.sr-ui-dropdown) {
 .sr-ops-threat-match-links a:focus-visible {
   text-decoration: underline;
   outline: none;
+}
+
+.sr-ops-vuln-assets {
+  width: 100%;
+  min-width: 0;
+}
+
+.sr-ops-vuln-col-asset {
+  width: 42%;
+}
+
+.sr-ops-vuln-col-type {
+  width: 18%;
+}
+
+.sr-ops-vuln-col-score {
+  width: 22%;
+}
+
+.sr-ops-vuln-col-status {
+  width: 18%;
+}
+
+.sr-ops-vuln-asset-link {
+  display: block;
+  overflow: hidden;
+  color: inherit;
+  font-family: inherit;
+  font-size: inherit;
+  font-weight: 600;
+  line-height: 1.3;
+  text-decoration: none;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sr-ops-vuln-asset-link:hover,
+.sr-ops-vuln-asset-link:focus-visible {
+  color: var(--sr-color-brand, #86efac);
+  text-decoration: underline;
+  outline: none;
+}
+
+.sr-ops-vuln-type {
+  overflow: hidden;
+  color: var(--sr-color-muted, #8fa39a);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sr-ops-vuln-score {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  min-width: 0;
+}
+
+.sr-ops-vuln-score-value {
+  flex: 0 0 1.6rem;
+  color: inherit;
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+}
+
+.sr-ops-vuln-bar {
+  display: block;
+  flex: 1 1 auto;
+  min-width: 2.5rem;
+  height: 0.42rem;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--sr-color-subtle) 94%, transparent);
+  overflow: hidden;
+}
+
+.sr-ops-vuln-bar i {
+  display: block;
+  width: var(--sr-ops-vuln, 0%);
+  height: 100%;
+  border-radius: inherit;
+  background: #64748b;
+}
+
+.sr-ops-vuln-bar.is-critical i {
+  background: #f43f5e;
+}
+
+.sr-ops-vuln-bar.is-high i {
+  background: #f59e0b;
+}
+
+.sr-ops-vuln-bar.is-medium i {
+  background: #38bdf8;
+}
+
+.sr-ops-vuln-bar.is-low i {
+  background: #22c55e;
 }
 
 .sr-ops-threat-detail {
@@ -5642,13 +5821,13 @@ table:has(.sr-ui-dropdown) td:has(.sr-ui-dropdown) {
 }
 
 .sr-ops-threat-message {
-  align-self: end;
+  min-width: 0;
   color: #8fa39a;
-  font-size: 0.7rem;
-  line-height: 1.35;
-  display: -webkit-box;
-  -webkit-line-clamp: 2;
-  -webkit-box-orient: vertical;
+  font-size: 0.68rem;
+  line-height: 1.3;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .sr-ops-alert-row {
@@ -6705,6 +6884,10 @@ table:has(.sr-ui-dropdown) td:has(.sr-ui-dropdown) {
 }
 
 @media (max-width: 1180px) {
+  .sr-ops-threat-toolbar {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
   .sr-ops-kpi-grid,
   .sr-ops-grid-primary,
   .sr-ops-grid-secondary,
@@ -6719,6 +6902,22 @@ table:has(.sr-ui-dropdown) td:has(.sr-ui-dropdown) {
     grid-column: auto / span 1;
   }
 
+  .sr-ops-grid-primary > .sr-ops-span-full,
+  .sr-ops-grid-bottom > .sr-ops-span-full {
+    grid-column: 1 / -1;
+  }
+
+  .sr-ops-observability-split {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .sr-ops-observability-pane + .sr-ops-observability-pane {
+    border-left: 0;
+    border-top: 1px solid var(--sr-color-line);
+    padding-left: 0;
+    padding-top: 0.75rem;
+  }
+
   .sr-ops-metric-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
@@ -6727,6 +6926,14 @@ table:has(.sr-ui-dropdown) td:has(.sr-ui-dropdown) {
 @media (max-width: 860px) {
   .sr-fieldsurvey-review-map-details {
     grid-template-columns: 1fr;
+  }
+
+  .sr-ops-threat-match {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+
+  .sr-ops-threat-match-meta {
+    grid-column: 1 / -1;
   }
 }
 

@@ -23,3 +23,14 @@ urlencoding = { workspace = true }
 [dev-dependencies]
 docker_utils = { workspace = true }
 tokio = { workspace = true, features = ["rt-multi-thread", "sync", "time"] }
+# The acceptance test resolves its endpoint through the auto-config system instead of
+# restating it. A dev-dependency on purpose: the library stays a generic Dgraph client that
+# any consumer can point anywhere, and only the test is coupled to this deployment's config.
+# Obtaining a Dgraph -- container locally, cluster on CI -- is dgraph-test's job. A
+# dev-dependency, so the library stays a generic client and only the test knows this deployment.
+dgraph-test = { path = "../dgraph-test" }
+# For fetch_ca_bundle: the CI instance publishes its CA rather than storing a copy, and the
+# client is what has to verify against it.
+serviceradar-config-manager = { path = "../../config/manager_config/rust" }
+# ACL credentials, like every other credential in this repository.
+serviceradar-secret-manager = { path = "../../config/manager_secret/rust" }
