@@ -1,9 +1,8 @@
 defmodule ServiceRadar.Automation.Ansible.PlaybookLaunchableReadTest do
   @moduledoc """
   DB-backed regression coverage for `Playbook.list_launchable/2` — the single
-  source of truth the device-details Ansible panel, the ad-hoc `/ansible/launch`
-  page, and the northbound action sync all use to enumerate launchable
-  playbooks.
+  source of truth the device-details Ansible panel and `/ansible/launch` page
+  use to enumerate parse-valid AWX launch candidates.
 
   Before the fix, every launch surface piped the bare `Playbook` module into
   `Ash.Query.filter/2 |> Ash.read/2` **without naming a read action**. Because
@@ -16,9 +15,9 @@ defmodule ServiceRadar.Automation.Ansible.PlaybookLaunchableReadTest do
   This test drives the real read path against seeded controllers + playbooks and
   asserts:
 
-    * a controller with bound job-templates yields exactly its launchable
-      playbooks (sorted, scoped, excluding unbound and other-controller rows);
-    * omitting the controller scope lists launchable playbooks across all
+    * a controller with parse-valid AWX job-template rows yields exactly its
+      candidates (sorted, scoped, excluding unbound and other-controller rows);
+    * omitting the controller scope lists candidates across all
       controllers;
     * a controller with no bound job-templates yields `[]` (the empty state only
       appears when the controller truly has none).
@@ -54,6 +53,15 @@ defmodule ServiceRadar.Automation.Ansible.PlaybookLaunchableReadTest do
     p1a = seed_playbook(c1.id, "#{tag}-c1-aaa", 100)
     p1b = seed_playbook(c1.id, "#{tag}-c1-bbb", 101)
     _unbound = seed_playbook(c1.id, "#{tag}-c1-unbound", nil)
+
+    _parse_error =
+      Seed.seed!(Playbook, %{
+        source_type: :awx,
+        name: "#{tag}-c1-parse-error",
+        controller_id: c1.id,
+        awx_job_template_id: 102,
+        parse_status: :error
+      })
 
     # c2: one launchable, to prove controller scoping.
     p2a = seed_playbook(c2.id, "#{tag}-c2-zzz", 200)
@@ -92,7 +100,7 @@ defmodule ServiceRadar.Automation.Ansible.PlaybookLaunchableReadTest do
     assert MapSet.member?(ids, ctx.p1b.id)
     assert MapSet.member?(ids, ctx.p2a.id)
 
-    # Every returned row is genuinely launchable.
+    # Every returned row is eligible for secure binding/membership resolution.
     assert Enum.all?(rows, &(not is_nil(&1.awx_job_template_id)))
   end
 
@@ -117,7 +125,8 @@ defmodule ServiceRadar.Automation.Ansible.PlaybookLaunchableReadTest do
       source_type: :awx,
       name: name,
       controller_id: controller_id,
-      awx_job_template_id: job_template_id
+      awx_job_template_id: job_template_id,
+      parse_status: :ok
     })
   end
 end

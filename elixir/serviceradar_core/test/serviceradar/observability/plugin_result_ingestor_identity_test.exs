@@ -1,6 +1,11 @@
 defmodule ServiceRadar.Observability.PluginResultIngestorIdentityTest do
   use ServiceRadar.Observability.PluginResultIngestorTestSupport
 
+  # These tests hold a real advisory lock in one transaction while other
+  # processes ingest. Shared sandbox is one connection, so the waiters
+  # time out in the checkout queue instead of blocking on the lock.
+  @moduletag sandbox: :unboxed
+
   test "concurrent identities retain distinct reported history rows" do
     Application.put_env(:serviceradar_core, :plugin_result_handlers, [])
     {payload, first_status, observed_at} = plugin_result_fixture()
@@ -11,6 +16,8 @@ defmodule ServiceRadar.Observability.PluginResultIngestorIdentityTest do
         partition: "concurrent-partition",
         service_type: "plugin-concurrent"
     }
+
+    on_exit(fn -> cleanup_identity_rows([first_status, second_status]) end)
 
     tasks =
       for status <- [first_status, second_status] do
@@ -52,6 +59,7 @@ defmodule ServiceRadar.Observability.PluginResultIngestorIdentityTest do
     Application.put_env(:serviceradar_core, :plugin_result_handlers, [])
     {payload, first_status, observed_at} = plugin_result_fixture()
     second_status = %{first_status | gateway_id: "#{first_status.gateway_id}-alternate"}
+    on_exit(fn -> cleanup_identity_rows([first_status, second_status]) end)
 
     observation_lock_identity =
       Jason.encode!([
@@ -114,5 +122,21 @@ defmodule ServiceRadar.Observability.PluginResultIngestorIdentityTest do
 
     assert MapSet.new(logical_states, fn [gateway_id, _state] -> gateway_id end) ==
              MapSet.new([first_status.gateway_id, second_status.gateway_id])
+  end
+
+  defp cleanup_identity_rows(statuses) do
+    agent_ids = statuses |> Enum.map(& &1.agent_id) |> Enum.uniq()
+    gateway_ids = statuses |> Enum.map(& &1.gateway_id) |> Enum.uniq()
+
+    Enum.each(agent_ids, fn agent_id ->
+      Repo.query!("DELETE FROM platform.service_state WHERE agent_id = $1", [agent_id])
+      Repo.query!("DELETE FROM platform.service_status WHERE agent_id = $1", [agent_id])
+      Repo.query!("DELETE FROM platform.plugin_assignments WHERE agent_uid = $1", [agent_id])
+      Repo.query!("DELETE FROM platform.ocsf_agents WHERE uid = $1", [agent_id])
+    end)
+
+    Enum.each(gateway_ids, fn gateway_id ->
+      Repo.query!("DELETE FROM platform.gateways WHERE gateway_id = $1", [gateway_id])
+    end)
   end
 end

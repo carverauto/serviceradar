@@ -1,13 +1,13 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-version="${SFW_VERSION:-v1.10.0}"
+version="${SFW_VERSION:-v1.15.0}"
 install_dir="${RUNNER_TEMP:-/tmp}/socket-firewall"
 
 case "$(uname -s)-$(uname -m)" in
   Linux-x86_64|Linux-amd64)
     asset="sfw-free-linux-x86_64"
-    sha256="1ea16f15f1217bde66ac9c7d0262c7126b7bb1b2d60e14e8fa0982456139ae6e"
+    sha256="c80371910a808ea5c68916c48e5451716a91ca411cf5e422fdbd8119729b742c"
     ;;
   *)
     echo "unsupported Socket Firewall runner platform: $(uname -s)-$(uname -m)" >&2

@@ -44,6 +44,7 @@ defmodule ServiceRadar.Inventory.Device do
   @devices_update_check {ActorHasPermission, permission: "devices.update"}
   @devices_delete_check {ActorHasPermission, permission: "devices.delete"}
   @devices_bulk_delete_check {ActorHasPermission, permission: "devices.bulk_delete"}
+  @devices_facts_write_check {ActorHasPermission, permission: "devices.facts.write"}
   @device_create_fields [
     :uid,
     :type_id,
@@ -296,6 +297,21 @@ defmodule ServiceRadar.Inventory.Device do
       change set_attribute(:modified_time, &DateTime.utc_now/0)
     end
 
+    update :write_facts do
+      description """
+      Merge externally supplied scalar facts into metadata with server-stamped
+      provenance. Phase-1 ingress for external validation tools such as
+      OpenText Network Automation.
+      """
+
+      accept []
+
+      argument :facts, :map, allow_nil?: false
+
+      change ServiceRadar.Inventory.Changes.MergeDeviceFacts
+      change set_attribute(:modified_time, &DateTime.utc_now/0)
+    end
+
     update :soft_delete do
       accept @soft_delete_fields
 
@@ -418,6 +434,11 @@ defmodule ServiceRadar.Inventory.Device do
     action_type_with_permission(:destroy, @devices_delete_check)
 
     action_with_permission(:bulk_soft_delete, @devices_bulk_delete_check)
+
+    # Fact writes get their own permission rather than riding on devices.update:
+    # an external validation tool should be able to set a boolean without also
+    # being able to rename, retag, or reassign the device.
+    action_with_permission(:write_facts, @devices_facts_write_check)
   end
 
   attributes do

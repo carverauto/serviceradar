@@ -129,28 +129,16 @@ trait CheckRaw {
         src: &str,
         mut callback: impl FnMut(Range<usize>, Result<Self::RawUnit, EscapeError>),
     ) {
-        let mut chars = src.chars();
-        while let Some(c) = chars.next() {
-            let start = src.len() - chars.as_str().len() - c.len_utf8();
-            let res = match c {
-                '\r' => Err(EscapeError::BareCarriageReturnInRawString),
-                _ => Self::char2raw_unit(c),
-            };
-            let end = src.len() - chars.as_str().len();
-            callback(start..end, res);
-        }
-
-        // Unfortunately, it is a bit unclear whether the following equivalent code is slower or faster: bug 141855
-        // src.char_indices().for_each(|(pos, c)| {
-        //     callback(
-        //         pos..pos + c.len_utf8(),
-        //         if c == '\r' {
-        //             Err(EscapeError::BareCarriageReturnInRawString)
-        //         } else {
-        //             Self::char2raw_unit(c)
-        //         },
-        //     );
-        // });
+        src.char_indices().for_each(|(pos, c)| {
+            callback(
+                pos..pos + c.len_utf8(),
+                if c == '\r' {
+                    Err(EscapeError::BareCarriageReturnInRawString)
+                } else {
+                    Self::char2raw_unit(c)
+                },
+            );
+        });
     }
 }
 

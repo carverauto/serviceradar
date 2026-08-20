@@ -5,7 +5,8 @@ rather than fetched. Each is a Mix path dependency *and* a Bazel `mix_app`, and
 both build systems read this one tree.
 
 Not to be confused with `//third_party/hex`, which holds generated `*.BUILD`
-files for packages that *are* fetched, as `@hex_<name>` external repos.
+files for packages that *are* fetched. Those become `@hex_<name>` external
+repos, reached through the `@hexpm//:<name>` hub.
 
 | Package | Why it is vendored |
 | --- | --- |
@@ -23,10 +24,11 @@ rather than a missing dependency:
    (`elixir/<app>/` → `../../third_party/hex_vendored/<pkg>`).
 2. The Bazel labels in each consuming `BUILD.bazel` — both `:erlang_app` and the
    `:mix.exs` entry that `elixir_release` needs to read the app name and version.
-3. `scripts/gen_hex_bazel.exs`'s `@path_deps` map, which rewrites the dependency
-   edge inside generated `//third_party/hex/*.BUILD` files. **Those generated
-   files have the label baked in** — regenerate them, or edit in place. Missing
-   this leaves a stale label that only fails at build time, in an external repo.
+3. `third_party/hex/gen_hex_bazel.exs`'s `@path_deps` map, which rewrites the
+   dependency edge inside generated `//third_party/hex/*.BUILD` files. **Those
+   generated files have the label baked in** — regenerate with
+   `bazel run //third_party/hex:gen`. Missing this leaves a stale label that
+   only fails at build time, in an external repo.
 
 Labels there must be `@serviceradar//`-qualified: the generated BUILD files are
 evaluated inside the `@hex_<pkg>` repositories, where a bare `//third_party/...`

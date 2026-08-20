@@ -4,6 +4,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexView.Filters do
 
   import ServiceRadarWebNGWeb.DeviceLive.IndexView.Rows, only: [has_any_filter?: 1, has_filter?: 3]
 
+  alias ServiceRadarWebNGWeb.CompositeChecks.Catalog, as: CompositeCatalog
+
   def render(assigns) do
     ~H"""
     <!-- Quick Filters -->
@@ -60,6 +62,38 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexView.Filters do
       >
         <.icon name="hero-x-mark" class="size-3" /> Clear
       </.ui_button>
+    </div>
+
+    <.composite_filters checks={@composite_checks} srql={@srql} />
+    """
+  end
+
+  attr(:checks, :list, default: [])
+  attr(:srql, :map, default: %{})
+
+  # One chip per (check, verdict) rather than a select: every other quick filter
+  # here is a `navigate` link, and a select would need an event handler to do
+  # the same job. A check with no rules yet contributes nothing, which is
+  # correct — it can produce no verdict to filter for.
+  defp composite_filters(assigns) do
+    ~H"""
+    <div :if={@checks != []} class="mb-4 flex flex-wrap items-center gap-2">
+      <span class="mr-1 text-xs font-medium text-sr-muted">Composite verdict:</span>
+
+      <div :for={check <- @checks} class="flex flex-wrap items-center gap-2">
+        <span :if={check.verdicts != []} class="text-xs text-sr-muted">{check.name}</span>
+
+        <.ui_button
+          :for={verdict <- check.verdicts}
+          navigate={~p"/devices?q=#{CompositeCatalog.filter_query(check.slug, verdict)}"}
+          size="xs"
+          variant={
+            if has_filter?(@srql, "composite.#{check.slug}", verdict), do: "primary", else: "ghost"
+          }
+        >
+          {verdict}
+        </.ui_button>
+      </div>
     </div>
     """
   end

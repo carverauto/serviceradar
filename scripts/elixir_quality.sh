@@ -72,6 +72,11 @@ run() {
   "$@"
 }
 
+# Resolved before the pushd below, because everything after it runs with the
+# project directory as $PWD.
+script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+repo_root="$(cd "${script_dir}/.." && pwd)"
+
 pushd "${project}" >/dev/null
 
 run mix deps.get
@@ -138,80 +143,21 @@ run_hex_audit() {
     return "${status}"
   fi
 
-  printf '%s\n' "${output}" | awk -v ignore_file=".deps_audit_ignore" '
-    BEGIN {
-      while ((getline line < ignore_file) > 0) {
-        sub(/#.*/, "", line)
-        gsub(/^[[:space:]]+|[[:space:]]+$/, "", line)
-
-        if (line != "") {
-          ignored[line] = 1
-        }
-      }
-    }
-
-    /^Retired:/ {
-      flush_advisory()
-      section = "retired"
-      next
-    }
-
-    /^Advisories:/ {
-      flush_advisory()
-      section = "advisory"
-      next
-    }
-
-    section == "retired" && /^  [^[:space:]]+ [^[:space:]]+ - / {
-      package = $1
-
-      if (!((package in ignored) || (("package:" package) in ignored) || (("retired:" package) in ignored))) {
-        print "::error::unignored hex retired package: " package > "/dev/stderr"
-        failed = 1
-      }
-
-      next
-    }
-
-    section == "advisory" && /^  [^[:space:]]+ [^[:space:]]+ - / {
-      flush_advisory()
-      advisory = $0
-      next
-    }
-
-    section == "advisory" && advisory != "" {
-      advisory = advisory "\n" $0
-      next
-    }
-
-    END {
-      flush_advisory()
-      exit failed
-    }
-
-    function flush_advisory(  token, lines) {
-      if (advisory == "") {
-        return
-      }
-
-      for (token in ignored) {
-        if (index(advisory, token) > 0) {
-          advisory = ""
-          return
-        }
-      }
-
-      split(advisory, lines, "\n")
-      print "::error::unignored hex advisory: " lines[1] > "/dev/stderr"
-      failed = 1
-      advisory = ""
-    }
-  '
+  printf '%s\n' "${output}" | awk -v ignore_file=".deps_audit_ignore" \
+    -f "${repo_root}/scripts/lib/hex-audit-filter.awk"
 }
 
 run_hex_audit
 
 if mix help deps.audit >/dev/null 2>&1; then
+  # mix deps.audit FAILS OPEN. MixAudit.Repo clones/pulls the advisory database
+  # at runtime and discards git's exit status; if the fetch fails and nothing is
+  # cached, Path.wildcard returns [] and the audit reports "No vulnerabilities
+  # found." with exit 0. On a fresh CI runner that turns one network blip into a
+  # silently green security gate. Fetch it ourselves with a checked status, and
+  # prove it actually matches, before believing a clean result.
+  run "${repo_root}/scripts/elixir_dep_audit.sh" --ensure-advisory-db
+
   # ${deps_audit_args[@]+...} keeps `set -u` happy when the project has no
   # .deps_audit_ignore and the array is empty. Bash 4.4+ allows the bare
   # expansion, but macOS ships bash 3.2, where it aborts with "unbound

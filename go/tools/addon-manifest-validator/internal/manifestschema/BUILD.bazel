@@ -12,9 +12,13 @@ go_library(
 go_test(
     name = "manifestschema_test",
     srcs = ["validator_test.go"],
-    # testdata fixtures travel with the package. The two tests that read the
-    # repo-relative canonical schema / sample manifest t.Skipf when those files are
-    # not present (e.g. under the Bazel test sandbox), so they are not data deps.
-    data = glob(["testdata/**"]),
+    # testdata fixtures travel with the package. The canonical schema and the shipped
+    # sample manifest do NOT -- they live under //addons -- so they are declared here.
+    # These are plain file reads, so this stays a unit test: no tag, no fixture, selected
+    # by the normal -integration_test,-acceptance_test sweep.
+    data = glob(["testdata/**"]) + [
+        "//addons:native-addon-manifest.schema.json",
+        "//addons/sample-addon:addon.yaml",
+    ],
     deps = [":manifestschema"],
 )

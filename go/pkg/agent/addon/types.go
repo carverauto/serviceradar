@@ -61,9 +61,16 @@ var (
 type State string
 
 const (
-	StateStopped     State = "stopped"
-	StateStarting    State = "starting"
-	StateRunning     State = "running"
+	StateStopped  State = "stopped"
+	StateStarting State = "starting"
+	StateRunning  State = "running"
+	// StateDegraded is running, but the add-on reported something worth an
+	// operator's attention -- most often an unsatisfied external dependency or a
+	// host policy it cannot enforce. It is deliberately distinct from
+	// StateUnhealthy: the add-on process is up and doing its job, so a rollout
+	// must not treat it as a failed candidate. The reason is still reported and
+	// still surfaces on the fleet row.
+	StateDegraded    State = "degraded"
 	StateUnhealthy   State = "unhealthy"
 	StateRestarting  State = "restarting"
 	StateCircuitOpen State = "circuit_open"

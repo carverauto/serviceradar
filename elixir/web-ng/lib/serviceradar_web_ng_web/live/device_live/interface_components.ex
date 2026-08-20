@@ -21,27 +21,28 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.InterfaceComponents do
   attr(:northbound_actions, :list, default: [])
   attr(:northbound_actions_loading, :boolean, default: false)
   attr(:can_launch_northbound, :boolean, default: false)
+  attr(:snmp_polling_source, :map, default: nil)
 
   def interfaces_tab_content(assigns) do
     selected_count = MapSet.size(assigns.selected_interfaces)
 
-    run_task_disabled? =
+    run_action_disabled? =
       assigns.northbound_actions_loading or assigns.northbound_actions == [] or
         selected_count == 0
 
-    run_task_title =
+    run_action_title =
       cond do
         assigns.northbound_actions_loading ->
-          "Checking configured task integrations"
+          "Checking configured action integrations"
 
         assigns.northbound_actions == [] ->
-          "No launchable interface task integrations are configured"
+          "No launchable interface action integrations are configured"
 
         selected_count == 0 ->
           "Select at least one interface"
 
         true ->
-          "Run task for selected interfaces"
+          "Run action for selected interfaces"
       end
 
     all_uids =
@@ -57,8 +58,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.InterfaceComponents do
       assigns
       |> assign(:selected_count, selected_count)
       |> assign(:all_selected, all_selected)
-      |> assign(:run_task_disabled?, run_task_disabled?)
-      |> assign(:run_task_title, run_task_title)
+      |> assign(:run_action_disabled?, run_action_disabled?)
+      |> assign(:run_action_title, run_action_title)
 
     ~H"""
     <div :if={@loading} class="rounded-xl border border-sr-line bg-sr-surface p-8 text-center">
@@ -83,7 +84,15 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.InterfaceComponents do
       :if={!@loading && @interface_metrics}
       metrics={@interface_metrics}
       device_uid={@device_uid}
+      snmp_polling_source={@snmp_polling_source}
     />
+
+    <div
+      :if={!@loading && inferred_metrics_interfaces?(@interfaces)}
+      class="mb-4 rounded-xl border border-sr-line bg-sr-surface px-4 py-3 text-xs text-sr-muted"
+    >
+      Interfaces listed from SNMP metrics in the last 24 hours. No recent inventory snapshot was found.
+    </div>
 
     <%= if !@loading && @interfaces == [] and is_nil(@error) do %>
       <div class="rounded-xl border border-sr-line bg-sr-surface p-6 text-center">
@@ -92,7 +101,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.InterfaceComponents do
           No interface data yet.
         </p>
         <p class="text-xs text-sr-muted mt-1">
-          Discovery is configured for this device, but no interface observations were returned.
+          {empty_interfaces_detail(@discovery_job)}
         </p>
         <div :if={@discovery_job} class="mt-4 inline-flex flex-col gap-2 text-xs">
           <div class="flex flex-wrap items-center justify-center gap-2">
@@ -147,14 +156,14 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.InterfaceComponents do
               <.ui_button
                 :if={@can_launch_northbound}
                 type="button"
-                phx-click="run_task_for_interface_selection"
-                disabled={@run_task_disabled?}
-                title={@run_task_title}
+                phx-click="run_action_for_interface_selection"
+                disabled={@run_action_disabled?}
+                title={@run_action_title}
                 size="xs"
                 variant="primary"
               >
                 <.icon name="hero-play" class="size-3" />
-                {if @northbound_actions_loading, do: "Checking jobs...", else: "Run Task"}
+                {if @northbound_actions_loading, do: "Checking actions...", else: "Run Action"}
               </.ui_button>
               <.ui_button
                 type="button"
@@ -250,27 +259,38 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.InterfaceComponents do
                     </td>
                     <td class="w-8 text-center">
                       <% metrics_enabled = Map.get(iface, "metrics_enabled", false) %>
-                      <.link
-                        :if={metrics_enabled && iface_uid}
-                        navigate={~p"/devices/#{@device_uid}/interfaces/#{iface_uid}"}
-                        title="Metrics collection enabled - Click to view details"
+                      <.ui_button
+                        :if={iface_uid}
+                        type="button"
+                        phx-click="toggle_interface_metrics"
+                        phx-value-uid={iface_uid}
+                        title={
+                          if metrics_enabled,
+                            do: "Disable SNMP collection for this interface",
+                            else: "Enable SNMP collection for this interface"
+                        }
+                        size="xs"
+                        variant="ghost"
+                        class="p-0"
                       >
                         <.icon
-                          name="hero-chart-bar-solid"
-                          class="size-4 text-success cursor-pointer hover:text-success/80"
+                          name={
+                            if metrics_enabled, do: "hero-chart-bar-solid", else: "hero-chart-bar"
+                          }
+                          class={[
+                            "size-4",
+                            if(metrics_enabled,
+                              do: "text-success hover:text-success/80",
+                              else: "text-sr-ink/20 hover:text-success/70"
+                            )
+                          ]}
                         />
-                      </.link>
+                      </.ui_button>
                       <.icon
-                        :if={metrics_enabled && !iface_uid}
+                        :if={!iface_uid and metrics_enabled}
                         name="hero-chart-bar-solid"
                         class="size-4 text-success"
                         title="Metrics collection enabled"
-                      />
-                      <.icon
-                        :if={!metrics_enabled}
-                        name="hero-chart-bar"
-                        class="size-4 text-sr-ink/20"
-                        title="Metrics collection disabled"
                       />
                     </td>
                     <td class="text-xs">
@@ -316,6 +336,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.InterfaceComponents do
 
   attr(:metrics, :map, required: true)
   attr(:device_uid, :string, required: true)
+  attr(:snmp_polling_source, :map, default: nil)
 
   defp interface_metrics_section(assigns) do
     ~H"""
@@ -358,9 +379,38 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.InterfaceComponents do
         <p class="text-sm text-sr-muted mt-2">
           {Map.get(@metrics, :message, "No metrics data available for favorited interfaces.")}
         </p>
-        <p class="text-xs text-sr-muted mt-1">
-          Metrics will appear once SNMP polling collects data for these interfaces.
+        <p
+          :if={Map.get(@metrics, :action) == :enable_favorited_metrics}
+          class="text-xs text-sr-muted mt-1"
+        >
+          Starring an interface does not start SNMP polling. Enable collection to write
+          ifInOctets/ifOutOctets for these interfaces.
         </p>
+        <p
+          :if={Map.get(@metrics, :action) != :enable_favorited_metrics}
+          class="text-xs text-sr-muted mt-1"
+        >
+          Samples appear after the assigned SNMP agent polls this device.
+        </p>
+        <p
+          :if={is_map(@snmp_polling_source) and @snmp_polling_source.source != :none}
+          class="text-xs text-sr-muted mt-1"
+        >
+          Polling source: {@snmp_polling_source.source_label}
+          <span :if={@snmp_polling_source.profile_name}>
+            · {@snmp_polling_source.profile_name}
+          </span>
+        </p>
+        <.ui_button
+          :if={Map.get(@metrics, :action) == :enable_favorited_metrics}
+          type="button"
+          size="sm"
+          variant="primary"
+          class="mt-3"
+          phx-click="enable_favorited_interface_metrics"
+        >
+          Enable collection
+        </.ui_button>
       </div>
 
       <%!-- Metrics panels: viewport-filling responsive grid (auto-fit) --%>
@@ -533,6 +583,22 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.InterfaceComponents do
       </.form>
     </.ui_modal>
     """
+  end
+
+  defp inferred_metrics_interfaces?(interfaces) when is_list(interfaces) do
+    Enum.any?(interfaces, fn iface ->
+      is_map(iface) and Map.get(iface, "inferred_from_metrics") == true
+    end)
+  end
+
+  defp inferred_metrics_interfaces?(_interfaces), do: false
+
+  defp empty_interfaces_detail(nil) do
+    "No interface inventory snapshot was found. If SNMP is polling this device, metrics may still appear once interface indexes are reported."
+  end
+
+  defp empty_interfaces_detail(_discovery_job) do
+    "Discovery is configured for this device, but no interface observations were returned."
   end
 
   defp interface_label(iface) do

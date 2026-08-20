@@ -10,8 +10,17 @@ defmodule ServiceRadarWebNG.Edge.ReleaseSourceImporter do
   @default_recent_release_limit 5
   @max_recent_release_scan_limit 50
   @max_asset_redirects 5
-  @default_provider "forgejo"
-  @forgejo_host "code.carverauto.dev"
+  @default_provider "github"
+  @github_host "github.com"
+  @github_api_host "api.github.com"
+  @default_repo_url "https://github.com/carverauto/serviceradar"
+  @github_asset_hosts [
+    @github_host,
+    @github_api_host,
+    "objects.githubusercontent.com",
+    "release-assets.githubusercontent.com",
+    "github-releases.githubusercontent.com"
+  ]
   @type import_attrs :: %{optional(:provider) => String.t(), optional(String.t()) => String.t()}
 
   @spec default_manifest_asset_name() :: String.t()
@@ -19,6 +28,9 @@ defmodule ServiceRadarWebNG.Edge.ReleaseSourceImporter do
 
   @spec default_signature_asset_name() :: String.t()
   def default_signature_asset_name, do: @default_signature_asset_name
+
+  @spec default_repo_url() :: String.t()
+  def default_repo_url, do: @default_repo_url
 
   @spec list_recent_releases(import_attrs(), pos_integer()) ::
           {:ok, [map()]} | {:error, String.t()}
@@ -94,14 +106,12 @@ defmodule ServiceRadarWebNG.Edge.ReleaseSourceImporter do
   def import(_attrs), do: {:error, "Release import settings are invalid"}
 
   defp selected_provider(attrs) when is_map(attrs) do
-    attrs
-    |> Map.get("provider", Map.get(attrs, :provider))
-    |> normalize_provider()
-    |> case do
-      nil -> @default_provider
-      provider -> provider
+    raw = Map.get(attrs, "provider") || Map.get(attrs, :provider) || @default_provider
+
+    case normalize_provider(raw) do
+      "github" -> {:ok, "github"}
+      _other -> {:error, "GitHub is the only supported release provider"}
     end
-    |> validate_provider()
   end
 
   defp import_repo(attrs) when is_map(attrs) do
@@ -112,24 +122,20 @@ defmodule ServiceRadarWebNG.Edge.ReleaseSourceImporter do
     end
   end
 
-  defp validate_provider("forgejo"), do: {:ok, "forgejo"}
-
-  defp validate_provider(_provider), do: {:error, "Forgejo is the only supported release provider"}
-
-  defp parse_repo_url("forgejo", url) do
-    with {:ok, %URI{scheme: "https", host: @forgejo_host} = uri} <- parse_uri(url),
+  defp parse_repo_url("github", url) do
+    with {:ok, %URI{scheme: "https", host: @github_host} = uri} <- parse_uri(url),
          {:ok, owner, repo} <- repo_owner_and_name(uri.path) do
       {:ok,
        %{
-         provider: "forgejo",
+         provider: "github",
          repo_url: "https://#{host_port(uri)}/#{owner}/#{repo}",
-         api_base_url: "https://#{host_port(uri)}/api/v1",
+         api_base_url: "https://#{@github_api_host}",
          owner: owner,
          repo: repo
        }}
     else
       _ ->
-        {:error, "Forgejo repository URL must look like https://code.carverauto.dev/<owner>/<repo>"}
+        {:error, "GitHub repository URL must look like https://github.com/<owner>/<repo>"}
     end
   end
 
@@ -343,9 +349,16 @@ defmodule ServiceRadarWebNG.Edge.ReleaseSourceImporter do
     end
   end
 
-  defp normalize_provider(value) when is_binary(value), do: value |> String.trim() |> String.downcase()
+  defp normalize_provider(value) when is_binary(value) do
+    case value |> String.trim() |> String.downcase() do
+      "" -> nil
+      normalized -> normalized
+    end
+  end
 
-  defp normalize_provider(value) when is_atom(value), do: value |> Atom.to_string() |> normalize_provider()
+  defp normalize_provider(value) when is_atom(value) and value not in [nil, false, true] do
+    value |> Atom.to_string() |> normalize_provider()
+  end
 
   defp normalize_provider(_value), do: nil
 
@@ -358,8 +371,8 @@ defmodule ServiceRadarWebNG.Edge.ReleaseSourceImporter do
 
   defp normalize_string(value), do: value |> to_string() |> normalize_string()
 
-  defp api_headers("forgejo") do
-    [{"user-agent", "serviceradar"}, {"accept", "application/json"} | auth_headers("forgejo")]
+  defp api_headers("github") do
+    [{"user-agent", "serviceradar"}, {"accept", "application/vnd.github+json"} | auth_headers("github")]
   end
 
   defp asset_headers(provider, url) do
@@ -372,11 +385,12 @@ defmodule ServiceRadarWebNG.Edge.ReleaseSourceImporter do
     end
   end
 
-  defp auth_headers("forgejo") do
-    case Application.get_env(:serviceradar_web_ng, :agent_release_import_forgejo_token) ||
-           System.get_env("FORGEJO_TOKEN") do
+  defp auth_headers("github") do
+    case Application.get_env(:serviceradar_web_ng, :agent_release_import_github_token) ||
+           System.get_env("GITHUB_TOKEN") ||
+           System.get_env("GH_TOKEN") do
       nil -> []
-      token -> [{"authorization", "token #{token}"}]
+      token -> [{"authorization", "Bearer #{token}"}]
     end
   end
 
@@ -414,24 +428,30 @@ defmodule ServiceRadarWebNG.Edge.ReleaseSourceImporter do
   end
 
   defp validate_url(url) do
-    case ReleaseFetchPolicy.validate(url) do
-      {:ok, %URI{scheme: "https"} = uri} -> {:ok, uri}
-      {:error, _reason} = error -> error
-      _ -> {:error, :disallowed_url}
+    case URI.parse(String.trim(to_string(url))) do
+      %URI{scheme: "https", host: host} = uri when host in @github_asset_hosts ->
+        {:ok, uri}
+
+      _ ->
+        case ReleaseFetchPolicy.validate(url) do
+          {:ok, %URI{scheme: "https"} = uri} -> {:ok, uri}
+          {:error, _reason} = error -> error
+          _ -> {:error, :disallowed_url}
+        end
     end
   end
 
-  defp trusted_api_host?("forgejo", host), do: host == @forgejo_host
+  defp trusted_api_host?("github", host), do: host == @github_api_host
   defp trusted_api_host?(_, _host), do: false
 
-  defp trusted_asset_host?("forgejo", host), do: host == @forgejo_host
+  defp trusted_asset_host?("github", host), do: host in @github_asset_hosts
   defp trusted_asset_host?(_, _host), do: false
 
   defp auth_host?(provider, url) do
     case URI.parse(url) do
       %URI{host: host} when is_binary(host) ->
         case provider do
-          "forgejo" -> host == @forgejo_host
+          "github" -> host in [@github_host, @github_api_host]
           _ -> false
         end
 

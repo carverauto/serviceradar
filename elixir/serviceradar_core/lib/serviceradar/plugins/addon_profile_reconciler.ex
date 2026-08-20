@@ -815,7 +815,7 @@ defmodule ServiceRadar.Plugins.AddonProfileReconciler do
   defp target_entity(profile) do
     case Regex.run(~r/^\s*in:([a-zA-Z0-9_]+)/, target_query(profile)) do
       [_, entity] -> ValueUtils.normalize_entity(entity)
-      _ -> "devices"
+      _ -> "agents"
     end
   end
 

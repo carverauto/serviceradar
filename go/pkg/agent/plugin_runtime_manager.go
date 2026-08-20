@@ -1226,6 +1226,15 @@ func (m *PluginManager) RunAction(ctx context.Context, assignmentID string, invo
 		return nil, fmt.Errorf("%w %q", errPluginAssignmentNotFound, strings.TrimSpace(assignmentID))
 	}
 
+	// The notify:v1 gate runs before admission, before the module is loaded, and
+	// before any part of the delivery request reaches guest memory. Denial here
+	// is the only thing that makes notify:v1 a real permission rather than a
+	// declaration in a manifest allowlist.
+	if err := m.authorizeNotificationDelivery(assignment, invocationPayload); err != nil {
+		m.recordExecution(false)
+		return nil, err
+	}
+
 	if timeout <= 0 {
 		timeout = assignment.Timeout
 	}
@@ -1266,7 +1275,8 @@ func (m *PluginManager) RunAction(ctx context.Context, assignmentID string, invo
 		return nil, err
 	}
 
-	result, err := m.executeActionWithWasm(runCtx, assignment, wasm, configJSON, credentialGrants, nil, nil)
+	entrypoint := notificationActionEntrypoint(assignment, invocationPayload)
+	result, err := m.executeActionWithWasm(runCtx, assignment, entrypoint, wasm, configJSON, credentialGrants, nil, nil)
 	if err == nil && assignment.ingestsActionResults() {
 		result, err = m.enqueueActionResult(runCtx, assignment, result)
 	}
@@ -1351,6 +1361,15 @@ func (m *PluginManager) runPluginVerb(
 		return nil, fmt.Errorf("%w for plugin %q", errPluginAssignmentNotFound, strings.TrimSpace(pluginID))
 	}
 
+	// Gated here as well as in RunAction. Notification dispatch is specified to
+	// ride plugin.run_action, so this path should never carry a delivery
+	// envelope - but "should never" is not a permission check, and a capability
+	// with one guarded entrance and one unguarded entrance is not enforced.
+	if err := m.authorizeNotificationDelivery(assignment, configJSON); err != nil {
+		m.recordExecution(false)
+		return nil, err
+	}
+
 	if timeout <= 0 {
 		timeout = assignment.Timeout
 	}
@@ -1376,6 +1395,7 @@ func (m *PluginManager) runPluginVerb(
 	result, err := m.executeActionWithWasm(
 		runCtx,
 		assignment,
+		assignment.Entrypoint,
 		wasm,
 		configJSON,
 		credentialGrants,

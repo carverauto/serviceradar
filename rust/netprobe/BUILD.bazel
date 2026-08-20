@@ -1,8 +1,8 @@
 load("@aspect_bazel_lib//lib:transitions.bzl", "platform_transition_filegroup")
 load("@io_bazel_rules_go//go:def.bzl", "go_test")
-load("@rules_rust//cargo:defs.bzl", "cargo_build_script")
-load("@rules_rust//rust:defs.bzl", "rust_binary", "rust_test")
-load("//third_party/crates:defs.bzl", "crate_deps")
+load("@rules_rs//rs:cargo_build_script.bzl", "cargo_build_script")
+load("@rules_rs//rs:rust_binary.bzl", "rust_binary")
+load("@rules_rs//rs:rust_test.bzl", "rust_test")
 load("//build/rbe:exec_properties.bzl", "NATIVE_ADDON_EXEC_PROPERTIES")
 
 package(default_visibility = ["//visibility:public"])
@@ -13,46 +13,46 @@ NETPROBE_FEATURES = select({
     "//conditions:default": [],
 })
 
-NETPROBE_DEPS = crate_deps([
-    "anyhow",
-    "clap",
-    "crossbeam-channel",
-    "env_logger",
-    "etherparse",
-    "libc",
-    "log",
-    "nix",
-    "phf",
-    "prometheus",
-    "prost",
-    "quick-xml",
-    "regex-automata",
-    "serde",
-    "serde_json",
-    "sha2",
-    "thiserror",
-    "tokio",
-]) + select({
-    "//build/platforms:target_linux_aarch64_musl": crate_deps([
-        "aya",
-        "aya-log",
-        "procfs",
-    ]),
-    "//build/platforms:target_linux_x86_64_musl": crate_deps([
-        "aya",
-        "aya-log",
-        "procfs",
-    ]),
-    "//build/platforms:target_linux_arm64": crate_deps([
-        "aya",
-        "aya-log",
-        "procfs",
-    ]),
-    "//build/platforms:target_linux_x86_64": crate_deps([
-        "aya",
-        "aya-log",
-        "procfs",
-    ]),
+NETPROBE_DEPS = [
+    "@crates//:anyhow",
+    "@crates//:clap",
+    "@crates//:crossbeam-channel",
+    "@crates//:env_logger",
+    "@crates//:etherparse",
+    "@crates//:libc",
+    "@crates//:log",
+    "@crates//:nix",
+    "@crates//:phf",
+    "@crates//:prometheus",
+    "@crates//:prost",
+    "@crates//:quick-xml",
+    "@crates//:regex-automata",
+    "@crates//:serde",
+    "@crates//:serde_json",
+    "@crates//:sha2",
+    "@crates//:thiserror",
+    "@crates//:tokio",
+] + select({
+    "//build/platforms:target_linux_aarch64_musl": [
+        "@crates//:aya",
+        "@crates//:aya-log",
+        "@crates//:procfs",
+    ],
+    "//build/platforms:target_linux_x86_64_musl": [
+        "@crates//:aya",
+        "@crates//:aya-log",
+        "@crates//:procfs",
+    ],
+    "//build/platforms:target_linux_arm64": [
+        "@crates//:aya",
+        "@crates//:aya-log",
+        "@crates//:procfs",
+    ],
+    "//build/platforms:target_linux_x86_64": [
+        "@crates//:aya",
+        "@crates//:aya-log",
+        "@crates//:procfs",
+    ],
     "//conditions:default": [],
 }) + [":build_script"]
 
@@ -70,7 +70,7 @@ NETPROBE_RUSTC_FLAGS = select({
     "//conditions:default": [],
 })
 
-NETPROBE_VERSION = "0.2.27"
+NETPROBE_VERSION = "0.2.28"
 
 cargo_build_script(
     name = "build_script",
@@ -89,18 +89,30 @@ cargo_build_script(
         "//third_party/netprobe_corpora:recog/serviceradar-recog-additions.xml",
         "//third_party/netprobe_corpora:recog_xml",
     ],
+    # Restores the execroot as this script's working directory.
+    #
+    # rules_rs's rules_rust synthesizes CARGO_MANIFEST_DIR as a runfiles directory holding
+    # only files from THIS package, and runs the script there. Every proto consumed here
+    # comes from another package, so it lands outside that directory and build.rs's
+    # execroot-relative path resolves to nothing -- protoc reports "Could not make proto path
+    # relative: ... No such file or directory". The feature symlinks the execroot into the
+    # manifest dir, which is what build.rs's Bazel branch was written against.
+    #
+    # Still hermetic: the sandbox holds only declared inputs, so this changes which paths
+    # resolve, not which files exist. A build script whose data lives in its own package
+    # (//rust/addon-sdk, //rust/powerdns) does not need it.
+    features = ["symlink-exec-root"],
     tools = ["@bazel_tools//tools/proto:protoc"],
-    deps = crate_deps([
-        "aya-build",
-        "phf_codegen",
-        "prost-build",
-        "quick-xml",
-    ]),
+    deps = [
+        "@crates//:aya-build",
+        "@crates//:phf_codegen",
+        "@crates//:prost-build",
+        "@crates//:quick-xml",
+    ],
 )
 
 rust_binary(
     name = "netprobe",
-    exec_properties = NATIVE_ADDON_EXEC_PROPERTIES,
     srcs = glob(["src/**/*.rs"]),
     compile_data = [
         "//third_party/netprobe_corpora:p0f/p0f.fp",
@@ -110,6 +122,7 @@ rust_binary(
     ],
     crate_features = NETPROBE_FEATURES,
     crate_root = "src/main.rs",
+    exec_properties = NATIVE_ADDON_EXEC_PROPERTIES,
     rustc_flags = NETPROBE_RUSTC_FLAGS,
     version = NETPROBE_VERSION,
     deps = NETPROBE_DEPS,
@@ -121,7 +134,7 @@ rust_test(
     name = "netprobe_test",
     crate = ":netprobe",
     data = ["//third_party/netprobe_corpora:satori_xml"],
-    deps = crate_deps(["tempfile"]),
+    deps = ["@crates//:tempfile"],
 )
 
 ###############################################################################

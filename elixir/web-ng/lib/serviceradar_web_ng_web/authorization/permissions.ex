@@ -43,7 +43,9 @@ defmodule ServiceRadarWebNGWeb.Authorization.Permissions do
         all(permissions, AnsibleController)
 
       "ansible.repositories.manage" ->
-        all(permissions, AnsibleRepository)
+        permissions
+        |> all(AnsibleRepository)
+        |> read(AnsibleController)
 
       "ansible.catalog.view" ->
         permissions
@@ -59,7 +61,9 @@ defmodule ServiceRadarWebNGWeb.Authorization.Permissions do
         |> read(AnsibleController)
 
       "ansible.runs.launch" ->
-        create(permissions, AnsibleRun)
+        permissions
+        |> create(AnsibleAutomationOperation)
+        |> create(AnsibleRun)
 
       "ansible.runs.cancel" ->
         update(permissions, AnsibleRun)

@@ -132,6 +132,14 @@ defmodule ServiceRadar.Identity.RBAC.Catalog do
           default_roles: @operator_roles
         },
         %{
+          key: "devices.facts.write",
+          label: "Write device facts",
+          description:
+            "Set bounded scalar facts on device metadata via the API, used by external " <>
+              "validation tools. Does not grant any other device edit.",
+          default_roles: @operator_roles
+        },
+        %{
           key: "devices.import",
           label: "Import devices",
           description: "Import devices via CSV",
@@ -269,6 +277,31 @@ defmodule ServiceRadar.Identity.RBAC.Catalog do
           description:
             "Trigger device-scoped fresh endpoint software inventory scans through the agent command bus",
           default_roles: @admin_roles
+        }
+      ]
+    },
+    %{
+      section: "composite_checks",
+      label: "Composite Checks",
+      permissions: [
+        %{
+          key: "composite_checks.view",
+          label: "View composite checks",
+          description: "View composite check definitions and per-device verdicts",
+          default_roles: @all_roles
+        },
+        %{
+          key: "composite_checks.manage",
+          label: "Manage composite checks",
+          description: "Create, edit, enable, and delete composite checks",
+          default_roles: @operator_roles
+        },
+        %{
+          key: "composite_checks.evaluate",
+          label: "Run composite check previews",
+          description:
+            "Run an on-demand composite check evaluation without persisting results or events",
+          default_roles: @operator_roles
         }
       ]
     },
@@ -583,33 +616,36 @@ defmodule ServiceRadar.Identity.RBAC.Catalog do
         },
         %{
           key: "ansible.runs.view",
-          label: "View Ansible runs",
-          description: "View Ansible playbook runs, per-target results, and run history.",
+          label: "View Ansible operations",
+          description:
+            "View canonical Ansible operation history, per-target evidence, and dispatch outcomes.",
           default_roles: @all_roles
         },
         %{
           key: "ansible.runs.launch",
-          label: "Launch Ansible runs",
-          description: "Launch Ansible playbooks against one or more Ansible-managed devices.",
+          label: "Launch Ansible playbooks",
+          description:
+            "Launch a reviewed Ansible playbook as a canonical operation against one or more Ansible-managed devices.",
           default_roles: @operator_roles
         },
         %{
           key: "ansible.runs.cancel",
-          label: "Cancel Ansible runs",
-          description: "Cancel an in-progress Ansible playbook run.",
+          label: "Cancel Ansible operations",
+          description: "Authorize cancellation of an in-progress Ansible operation.",
           default_roles: @operator_roles
         },
         %{
           key: "ansible.schedules.view",
-          label: "View Ansible schedules",
-          description: "View scheduled / recurring Ansible playbook runs.",
+          label: "Reserved Ansible schedule access",
+          description:
+            "Reserved permission key for stored schedule records; no schedule UI or execution authority is exposed.",
           default_roles: @all_roles
         },
         %{
           key: "ansible.schedules.manage",
-          label: "Manage Ansible schedules",
+          label: "Reserved Ansible schedule management",
           description:
-            "Create, edit, enable, disable, and delete scheduled / recurring Ansible playbook runs.",
+            "Reserved permission key for stored schedule records; it does not enable or authorize scheduled execution.",
           default_roles: @operator_roles
         },
         %{
@@ -799,6 +835,80 @@ defmodule ServiceRadar.Identity.RBAC.Catalog do
             "Take a dashboard package out of service via " <>
               "/api/v1/dashboard-packages/:id/disable without deleting it.",
           default_roles: @admin_roles
+        }
+      ]
+    },
+    %{
+      section: "notifications",
+      label: "Notifications",
+      permissions: [
+        %{
+          key: "notifications.channels.view",
+          label: "View notification channels",
+          description: "View configured notification channels and their health.",
+          default_roles: @operator_roles
+        },
+        %{
+          key: "notifications.channels.manage",
+          label: "Manage notification channels",
+          description:
+            "Create, edit, disable, and delete notification channels, " <>
+              "including their provider configuration and secret references.",
+          default_roles: @admin_roles
+        },
+        %{
+          key: "notifications.routes.view",
+          label: "View notification routes",
+          description: "View notification routing rules and escalation policies.",
+          default_roles: @operator_roles
+        },
+        %{
+          key: "notifications.routes.manage",
+          label: "Manage notification routes",
+          description:
+            "Create and edit notification routing rules, escalation policies, " <>
+              "escalation steps, and schedules.",
+          default_roles: @admin_roles
+        },
+        %{
+          key: "notifications.providers.manage",
+          label: "Manage notification providers",
+          description:
+            "Upload, version, enable, and disable notification provider " <>
+              "definitions, including declarative channel definitions.",
+          default_roles: @admin_roles
+        },
+        %{
+          key: "notifications.deliveries.view",
+          label: "View notification delivery log",
+          description:
+            "View notification delivery attempts, including suppressed " <>
+              "deliveries and their suppression reason.",
+          default_roles: @helpdesk_roles
+        },
+        %{
+          key: "notifications.test.send",
+          label: "Send test notifications",
+          description:
+            "Send a test notification through a channel using its real " <>
+              "configuration and secrets.",
+          default_roles: @admin_roles
+        },
+        %{
+          key: "notifications.silences.manage",
+          label: "Manage notification silences",
+          description:
+            "Create, edit, and cancel notification silences and maintenance " <>
+              "windows.",
+          default_roles: @operator_roles
+        },
+        %{
+          key: "notifications.stream.subscribe",
+          label: "Subscribe to the notification stream",
+          description:
+            "Subscribe to the authenticated notification firehose over the " <>
+              "stream provider topic.",
+          default_roles: @operator_roles
         }
       ]
     }

@@ -28,7 +28,15 @@ defmodule ServiceRadar.Cluster.DatabaseBootstrapIntegrationTest do
 
   @moduletag :integration
   @moduletag :requires_app
-  @moduletag timeout: 180_000
+  # 180s was enough for two bootstrap runs on a quiet fixture and left
+  # almost nothing for on_exit DROP. Under eight shards that leftover
+  # budget was the 57014 cancel. Give cleanup a real window.
+  @moduletag timeout: 300_000
+
+  # Admin DDL (CREATE/DROP DATABASE) runs on its own Postgrex connection, where
+  # DBConnection's default :timeout is 15s. That default is sized for queries,
+  # not for dropping a database on a shared fixture under eight parallel shards.
+  @admin_query_timeout 120_000
 
   @result_prefix "BOOTSTRAP_RESULT:"
   @admin_url System.get_env("SERVICERADAR_TEST_ADMIN_URL") ||
@@ -39,9 +47,25 @@ defmodule ServiceRadar.Cluster.DatabaseBootstrapIntegrationTest do
   end
 
   setup_all do
+    {:ok, _} = Application.ensure_all_started(:postgrex)
+    {:ok, _} = Application.ensure_all_started(:ecto_sql)
     assert_usable_admin_password!(@admin_url)
 
-    {:ok, admin_url: @admin_url, admin_opts: postgres_opts(@admin_url)}
+    {subprocess_ca_file, remove_subprocess_ca_file?} = subprocess_ca_file()
+
+    if remove_subprocess_ca_file? do
+      on_exit(fn ->
+        case File.rm(subprocess_ca_file) do
+          :ok -> :ok
+          {:error, reason} -> raise "failed to remove bootstrap CA file: #{inspect(reason)}"
+        end
+      end)
+    end
+
+    {:ok,
+     admin_url: @admin_url,
+     admin_opts: postgres_opts(@admin_url),
+     subprocess_ca_file: subprocess_ca_file}
   end
 
   # No admin DSN at all is "unconfigured" and skips above. A DSN without a password is
@@ -76,12 +100,27 @@ defmodule ServiceRadar.Cluster.DatabaseBootstrapIntegrationTest do
   end
 
   setup %{admin_opts: admin_opts} do
-    scratch_db = "serviceradar_bootstrap_test_#{System.unique_integer([:positive])}"
+    # Integration shards and retries use independent BEAM VMs against the same CNPG fixture,
+    # so System.unique_integer/1 alone cannot make the database name globally unique.
+    suffix = Base.encode16(:crypto.strong_rand_bytes(8), case: :lower)
+    scratch_db = "serviceradar_bootstrap_test_#{suffix}"
 
     create_database!(admin_opts, scratch_db)
 
     on_exit(fn ->
-      drop_database!(admin_opts, scratch_db)
+      # The bootstrap assertions already ran. A slow DROP on a loaded
+      # eight-shard fixture must not flip a green test red: sweep_stale_dbs
+      # is the backstop for a leftover scratch database.
+      case drop_database(admin_opts, scratch_db) do
+        :ok ->
+          :ok
+
+        {:error, reason} ->
+          IO.warn(
+            "bootstrap scratch #{scratch_db} drop failed (#{inspect(reason)}); " <>
+              "sweep_stale_dbs will collect it"
+          )
+      end
     end)
 
     {:ok, scratch_db: scratch_db}
@@ -89,23 +128,49 @@ defmodule ServiceRadar.Cluster.DatabaseBootstrapIntegrationTest do
 
   test "startup applies baseline once and reruns through migration history", %{
     admin_url: admin_url,
-    scratch_db: scratch_db
+    scratch_db: scratch_db,
+    subprocess_ca_file: subprocess_ca_file
   } do
-    first = run_startup_migrations!(admin_url, scratch_db)
+    first = run_startup_migrations!(admin_url, scratch_db, subprocess_ca_file)
 
     assert first["baseline_count"] == 1
     assert first["migration_count"] > 0
     assert first["platform_object_count"] > 0
+    assert first["logs_hypertable_present"] == true
+    assert first["logs_severity_rollup_present"] == true
 
-    second = run_startup_migrations!(admin_url, scratch_db)
+    assert first["logs_severity_rollup_columns"] == [
+             "bucket",
+             "service_name",
+             "total_count",
+             "fatal_count",
+             "error_count",
+             "warning_count",
+             "info_count",
+             "debug_count"
+           ]
+
+    assert first["auth_settings"] == %{
+             "count" => 1,
+             "mode" => "password_only",
+             "is_enabled" => false,
+             "allow_password_fallback" => true,
+             "sso_auto_provision" => false
+           }
+
+    second = run_startup_migrations!(admin_url, scratch_db, subprocess_ca_file)
 
     assert second["baseline_count"] == 1
     assert second["migration_count"] == first["migration_count"]
     assert second["platform_object_count"] == first["platform_object_count"]
+    assert second["logs_hypertable_present"] == true
+    assert second["logs_severity_rollup_present"] == true
+    assert second["logs_severity_rollup_columns"] == first["logs_severity_rollup_columns"]
+    assert second["auth_settings"] == first["auth_settings"]
   end
 
-  defp run_startup_migrations!(admin_url, database) do
-    env = subprocess_env(admin_url, database)
+  defp run_startup_migrations!(admin_url, database, subprocess_ca_file) do
+    env = subprocess_env(admin_url, database, subprocess_ca_file)
     code = startup_code()
 
     # `elixir -e`, not `mix run -e`.
@@ -171,6 +236,20 @@ defmodule ServiceRadar.Cluster.DatabaseBootstrapIntegrationTest do
 
     Application.put_env(:serviceradar_core, :run_startup_migrations, true)
     Application.put_env(:serviceradar_core, :repo_enabled, true)
+
+    # config/test.exs gives the Repo an SQL Sandbox pool. That is right for ordinary tests and
+    # wrong for this production-startup subprocess: a long migration holds the sandbox-owned
+    # connection until its 120-second ownership timeout kills the child midway through the
+    # baseline. The subprocess owns a unique scratch database, so use the normal pool exactly
+    # as the standalone migration lifecycle target does.
+    repo_opts =
+      :serviceradar_core
+      |> Application.get_env(ServiceRadar.Repo, [])
+      |> Keyword.drop([:pool, :ownership_timeout, :pool_size])
+      |> Keyword.put(:timeout, :infinity)
+      |> Keyword.put(:pool_size, 2)
+
+    Application.put_env(:serviceradar_core, ServiceRadar.Repo, repo_opts)
     {:ok, _pid} = ServiceRadar.Repo.start_link()
     :ok = ServiceRadar.Cluster.StartupMigrations.run!()
 
@@ -189,20 +268,75 @@ defmodule ServiceRadar.Cluster.DatabaseBootstrapIntegrationTest do
       AND c.relkind IN ('r', 'p', 'S', 'v', 'm', 'f')
       """)
 
+    %{rows: [[logs_hypertable_present]]} =
+      ServiceRadar.Repo.query!("""
+      SELECT EXISTS (
+        SELECT 1
+        FROM timescaledb_information.hypertables
+        WHERE hypertable_schema = 'platform'
+          AND hypertable_name = 'logs'
+      )
+      """)
+
+    %{rows: [[logs_severity_rollup_present]]} =
+      ServiceRadar.Repo.query!("""
+      SELECT EXISTS (
+        SELECT 1
+        FROM timescaledb_information.continuous_aggregates
+        WHERE view_schema = 'platform'
+          AND view_name = 'logs_severity_stats_5m'
+      )
+      """)
+
+    %{rows: [[logs_severity_rollup_columns]]} =
+      ServiceRadar.Repo.query!("""
+      SELECT array_agg(column_name::text ORDER BY ordinal_position)
+      FROM information_schema.columns
+      WHERE table_schema = 'platform'
+        AND table_name = 'logs_severity_stats_5m'
+      """)
+
+    %{rows: auth_rows} =
+      ServiceRadar.Repo.query!("""
+      SELECT mode, is_enabled, allow_password_fallback, sso_auto_provision
+      FROM platform.auth_settings
+      ORDER BY inserted_at
+      """)
+
+    auth_settings =
+      case auth_rows do
+        [[mode, is_enabled, allow_password_fallback, sso_auto_provision]] ->
+          %{
+            count: 1,
+            mode: mode,
+            is_enabled: is_enabled,
+            allow_password_fallback: allow_password_fallback,
+            sso_auto_provision: sso_auto_provision
+          }
+
+        rows ->
+          %{count: length(rows)}
+      end
+
     IO.puts("BOOTSTRAP_RESULT:" <> Jason.encode!(%{
       migration_count: migration_count,
       baseline_count: baseline_count,
-      platform_object_count: platform_object_count
+      platform_object_count: platform_object_count,
+      logs_hypertable_present: logs_hypertable_present,
+      logs_severity_rollup_present: logs_severity_rollup_present,
+      logs_severity_rollup_columns: logs_severity_rollup_columns,
+      auth_settings: auth_settings
     }))
     '''
   end
 
-  defp subprocess_env(admin_url, database) do
+  defp subprocess_env(admin_url, database, subprocess_ca_file) do
     uri = URI.parse(admin_url)
     # Same resolution as the parent's connection, and as ServiceRadar.Repo's. The subprocess
     # boots the real Repo, so handing it a mode the parent did not use would have it fail the
     # handshake against a fixture the parent just connected to.
     sslmode = sslmode(uri)
+    tls_server_name = tls_server_name(uri)
     app_user = "serviceradar_bootstrap_test"
     app_password = "serviceradar_bootstrap_test"
 
@@ -221,28 +355,69 @@ defmodule ServiceRadar.Cluster.DatabaseBootstrapIntegrationTest do
         {"CNPG_APP_USER", app_user},
         {"CNPG_APP_PASSWORD", app_password},
         {"CNPG_SSL_MODE", sslmode},
-        {"CNPG_TLS_SERVER_NAME",
-         System.get_env("CNPG_TLS_SERVER_NAME") || uri.host || "localhost"},
+        {"SERVICERADAR_TEST_DATABASE_SERVER_NAME", tls_server_name},
+        {"SRQL_TEST_DATABASE_SERVER_NAME", tls_server_name},
+        {"CNPG_TLS_SERVER_NAME", tls_server_name},
         # The CONTENT form, alongside the paths below. System.cmd merges `env:` with the
         # parent environment so this would be inherited anyway, but every other credential
-        # here is passed explicitly and this one is load-bearing on a remote executor, where
-        # ca_file/0 is nil and the paths below are all dropped by the reject/2. Leaving the
-        # child's only CA to inheritance is how it ends up with CNPG_SSL_MODE=verify-full and
-        # nothing to verify against.
+        # here is passed explicitly and the child must not depend on implicit inheritance or
+        # on a caller-owned path. Leaving the child's only CA implicit is how it can end up
+        # with CNPG_SSL_MODE=verify-full and nothing to verify against.
         {"SERVICERADAR_TEST_DATABASE_CA_CERT", ca_pem()},
-        {"SERVICERADAR_TEST_DATABASE_CA_CERT_FILE", ca_file()},
+        {"SERVICERADAR_TEST_DATABASE_CA_CERT_FILE", subprocess_ca_file},
         {"SERVICERADAR_TEST_DATABASE_CERT", cert_file()},
         {"SERVICERADAR_TEST_DATABASE_KEY", key_file()},
         {"SRQL_TEST_DATABASE_CA_CERT", ca_pem()},
-        {"SRQL_TEST_DATABASE_CA_CERT_FILE", ca_file()},
+        {"SRQL_TEST_DATABASE_CA_CERT_FILE", subprocess_ca_file},
         {"SRQL_TEST_DATABASE_CERT", cert_file()},
         {"SRQL_TEST_DATABASE_KEY", key_file()},
         {"CNPG_CERT_FILE", cert_file()},
         {"CNPG_KEY_FILE", key_file()},
-        {"PGSSLROOTCERT", ca_file()}
+        {"CNPG_CA_FILE", subprocess_ca_file},
+        {"PGSSLROOTCERT", subprocess_ca_file}
       ],
       fn {_key, value} -> value in [nil, ""] end
     )
+  end
+
+  # The guarded Bazel lifecycle transports the fixture CA as PEM content because paths on the
+  # workflow runner are not portable action inputs. The bootstrap child is intentionally a
+  # plain `elixir` process, however, and production StartupMigrations accepts its admin CA via
+  # CNPG_CA_FILE. Materialize the public CA once inside this test's private process sandbox so
+  # both contracts remain honest; setup_all removes the file even when the assertion fails.
+  defp subprocess_ca_file do
+    case ca_file() do
+      path when is_binary(path) and path != "" ->
+        {path, false}
+
+      _ ->
+        case ca_pem() do
+          pem when is_binary(pem) and pem != "" ->
+            path =
+              Path.join(
+                System.tmp_dir!(),
+                "serviceradar-bootstrap-ca-#{System.pid()}-#{System.unique_integer([:positive, :monotonic])}.pem"
+              )
+
+            try do
+              File.open!(path, [:write, :exclusive, :binary], fn file ->
+                # Create an empty file first and restrict it before any certificate bytes are
+                # written. If chmod or writing fails, the rescue below removes any residue.
+                File.chmod!(path, 0o600)
+                :ok = IO.binwrite(file, pem)
+              end)
+            rescue
+              error ->
+                _ = File.rm(path)
+                reraise error, __STACKTRACE__
+            end
+
+            {path, true}
+
+          _ ->
+            {nil, false}
+        end
+    end
   end
 
   defp ca_file do
@@ -289,8 +464,16 @@ defmodule ServiceRadar.Cluster.DatabaseBootstrapIntegrationTest do
       username: username(uri),
       password: password(uri),
       database: database_name(uri),
-      ssl: ssl_opts(sslmode(uri), uri.host)
+      ssl: ssl_opts(sslmode(uri), tls_server_name(uri))
     ]
+  end
+
+  defp tls_server_name(uri) do
+    System.get_env("SERVICERADAR_TEST_DATABASE_SERVER_NAME") ||
+      System.get_env("SRQL_TEST_DATABASE_SERVER_NAME") ||
+      System.get_env("CNPG_TLS_SERVER_NAME") ||
+      uri.host ||
+      "localhost"
   end
 
   # Resolved exactly the way config/test.exs resolves it for ServiceRadar.Repo, which is what
@@ -307,9 +490,9 @@ defmodule ServiceRadar.Cluster.DatabaseBootstrapIntegrationTest do
   #
   # which reads like pool exhaustion rather than a handshake that never completes.
   #
-  # CI is unaffected either way -- scripts/ci/configure-srql-fixture.sh exports CNPG_SSL_MODE
-  # (defaulting to "require") along with PGSSLROOTCERT and the CA/cert/key files, so both
-  # resolutions already agreed there. The divergence only bit a fixture that sets none of them.
+  # Checked-in Forgejo and BuildBuddy setup is unaffected: it normalizes both fixture DSNs and
+  # CNPG_SSL_MODE to "verify-full" and supplies the certificate server name. This compatibility
+  # fallback is only reached by an unnormalized local caller that sets no explicit mode.
   defp sslmode(%URI{} = uri) do
     from_url =
       uri.query
@@ -341,9 +524,9 @@ defmodule ServiceRadar.Cluster.DatabaseBootstrapIntegrationTest do
   # This mirrors config/test.exs, where the presence of a CA enables `:ssl` on its own. An
   # explicit sslmode still wins: the case above only reaches here when nothing set one.
   #
-  # "require" rather than "verify-ca", also matching the Repo -- with no mode named, it turns
-  # TLS on without demanding verification. The CI fixture certificate carries no IP SANs, so a
-  # verifying default would fail whenever the executor addresses CNPG by address.
+  # "require" rather than an inferred verifying mode also matches the Repo: with no mode named,
+  # it turns TLS on without inventing a hostname contract. Canonical fixture callers explicitly
+  # use verify-full and pass the service DNS name separately, including for NodePort addresses.
   defp default_sslmode do
     if present?(ca_pem()) or present?(ca_file()), do: "require", else: "disable"
   end
@@ -390,10 +573,10 @@ defmodule ServiceRadar.Cluster.DatabaseBootstrapIntegrationTest do
   # `:cacerts` (the decoded certificate) wins over `:cacertfile` (a path), mirroring
   # config/test.exs. Never both -- :ssl rejects the combination.
   #
-  # Only the content form survives on a remote executor. //:buildbuddy_setup_fixture_env
-  # exports the fixture CA as PEM CONTENT in SRQL_TEST_DATABASE_CA_CERT and sets none of the
-  # *_CA_CERT_FILE / CNPG_CA_FILE / PGSSLROOTCERT paths that ca_file/0 looks for, because a
-  # path names a file on the machine that launched the build and an executor has no such file.
+  # The content form survives process and Bazel sandbox boundaries without depending on a
+  # caller-owned path. //:buildbuddy_setup_fixture_env exports the fixture CA as PEM CONTENT
+  # in SRQL_TEST_DATABASE_CA_CERT; the child also receives a private materialized file for
+  # consumers that require a path.
   #
   # Without this, a DSN carrying sslmode=verify-full produced `verify: :verify_peer` with NO
   # certificate to verify against. The handshake then never completes, Postgrex keeps retrying
@@ -434,29 +617,76 @@ defmodule ServiceRadar.Cluster.DatabaseBootstrapIntegrationTest do
 
   defp create_database!(admin_opts, database) do
     with_admin_connection!(admin_opts, fn conn ->
-      Postgrex.query!(conn, "CREATE DATABASE #{quote_ident(database)}", [])
+      Postgrex.query!(conn, "CREATE DATABASE #{quote_ident(database)}", [],
+        timeout: @admin_query_timeout
+      )
     end)
   end
 
-  defp drop_database!(admin_opts, database) do
+  defp drop_database(admin_opts, database) do
+    Enum.reduce_while(1..5, {:error, :not_attempted}, fn attempt, _acc ->
+      case drop_database_once(admin_opts, database) do
+        :ok ->
+          {:halt, :ok}
+
+        {:error, reason} ->
+          if attempt == 5 do
+            {:halt, {:error, reason}}
+          else
+            Process.sleep(1_000 * attempt)
+            {:cont, {:error, reason}}
+          end
+      end
+    end)
+  end
+
+  defp drop_database_once(admin_opts, database) do
     with_admin_connection!(admin_opts, fn conn ->
+      # Runs from on_exit. A loaded eight-shard fixture used to take the
+      # whole shard down with `57014 query_canceled`.
+      #
+      # pg_terminate_backend/1 only REQUESTS termination. DROP DATABASE then
+      # waits for remaining sessions, so a backend still dying -- or one that
+      # reconnected in the gap -- blocked until the client cancelled.
+      #
+      # WITH (FORCE) folds terminate into the drop (PG13+; the fixture is
+      # PG18). There are TWO timeouts: server statement_timeout and the
+      # Postgrex/DBConnection client timeout (default 15s). The 15s client
+      # cancel is what produced 57014 on ExUnit.OnExitHandler. Pass the
+      # admin timeout on the connection AND each query.
+      Postgrex.query!(conn, "SET statement_timeout = 0", [], timeout: @admin_query_timeout)
+
       Postgrex.query!(
         conn,
-        "SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = $1",
-        [database]
+        "SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = $1 AND pid <> pg_backend_pid()",
+        [database],
+        timeout: @admin_query_timeout
       )
 
-      Postgrex.query!(conn, "DROP DATABASE IF EXISTS #{quote_ident(database)}", [])
+      Postgrex.query!(
+        conn,
+        "DROP DATABASE IF EXISTS #{quote_ident(database)} WITH (FORCE)",
+        [],
+        timeout: @admin_query_timeout
+      )
+
+      :ok
     end)
+  rescue
+    e ->
+      {:error, e}
   end
 
   defp with_admin_connection!(opts, fun) do
-    {:ok, conn} = Postgrex.start_link(opts)
+    {:ok, conn} =
+      opts
+      |> Keyword.put(:timeout, @admin_query_timeout)
+      |> Postgrex.start_link()
 
     try do
       fun.(conn)
     after
-      GenServer.stop(conn)
+      GenServer.stop(conn, :normal, @admin_query_timeout)
     end
   end
 

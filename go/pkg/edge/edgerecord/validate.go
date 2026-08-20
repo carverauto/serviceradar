@@ -81,8 +81,14 @@ const (
 )
 
 var (
-	ErrNilRecord             = errors.New("edgerecord: nil record")
-	ErrPayloadFamily         = errors.New("edgerecord: payload family unspecified/unknown")
+	ErrNilRecord     = errors.New("edgerecord: nil record")
+	ErrPayloadFamily = errors.New("edgerecord: payload family unspecified/unknown")
+	// ErrPayloadFraming is the FAMILY <-> TYPED ENTRY POINT invariant, distinct from
+	// ErrPayloadFamily: the value is a declared member, but it is not the framing family this
+	// ingress accepts. Separate sentinels because "not a family" and "not THIS family" are
+	// different faults, and a caller that merged them could not tell a malformed record from a
+	// misrouted one.
+	ErrPayloadFraming        = errors.New("edgerecord: payload family may not enter this ingress")
 	ErrRouteProfile          = errors.New("edgerecord: route profile unspecified/unknown")
 	ErrTrafficClass          = errors.New("edgerecord: traffic class unspecified/unknown")
 	ErrCompression           = errors.New("edgerecord: compression unspecified/unknown")

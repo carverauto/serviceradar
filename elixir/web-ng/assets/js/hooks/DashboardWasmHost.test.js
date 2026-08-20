@@ -404,8 +404,7 @@ describe("DashboardWasmHost browser-module boot validation", () => {
 
   test("mounts trusted browser modules with the bounded host API", async () => {
     const hook = hookContext()
-    const rendererUrl =
-      "data:text/javascript,export function mountDashboard(el, host, api) { el.dataset.mounted = api.version; return { destroy() { el.dataset.destroyed = 'true' } } }"
+    const rendererUrl = new URL("./__fixtures__/trusted_dashboard_module.js", import.meta.url).href
 
     await hook.bootBrowserModule(
       baseHost({

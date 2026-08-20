@@ -1,66 +1,36 @@
+load("@rules_aya_ebpf//:ebpf_object.bzl", "ebpf_object")
+
 package(default_visibility = ["//visibility:public"])
 
-# Crate sources + the committed vendored dependency tree (app deps + the std
-# `-Z build-std` deps) consumed by the hermetic eBPF object build.
-#
-# The vendor tree lives in //third_party/netprobe_ebpf_vendor, with every other
-# committed third-party source tree, so it must be a dep rather than a glob --
-# a glob never crosses a package boundary.
+# Crate sources. The vendored dependency tree lives in
+# //third_party/netprobe_ebpf_vendor, with every other committed third-party
+# source tree, so it is a separate dep rather than a glob -- a glob never
+# crosses a package boundary.
 filegroup(
     name = "netprobe_ebpf_srcs",
     srcs = [
         "Cargo.lock",
-        "Cargo.toml",
         "include/vmlinux.h",
-        "//third_party/netprobe_ebpf_vendor:vendor_srcs",
     ] + glob(["src/**/*.rs"]),
 )
 
-# Hermetic netprobe eBPF object.
+# The netprobe eBPF object, loaded at runtime by the aya userspace loader
+# (--ebpf-object / SERVICERADAR_NETPROBE_EBPF_OBJECT) and shipped as a data
+# entry in the netprobe add-on bundle.
 #
-# A pinned nightly Rust toolchain (rustc/cargo/rust-std/rust-src component
-# archives) and a pinned static `bpf-linker` come from MODULE.bazel
-# (@netprobe_ebpf_*). build-ebpf-object.sh assembles them into a scratch sysroot
-# and builds the crate offline against the committed `vendor/` tree with
-# `-Z build-std=core --target bpfel-unknown-none`. No host toolchain and no
-# network are used, so this builds identically locally, in CI, and on remote
-# execution (RBE) — which the previous host-`cargo` genrule could not.
-# Pins/rationale: openspec/changes/add-hermetic-netprobe-ebpf-build/.
-genrule(
+# rules_aya_ebpf supplies the pinned nightly toolchain and bpf-linker through
+# toolchain resolution; the crates come from the committed vendor tree. No host
+# toolchain and no network, which is what lets this build on remote execution.
+ebpf_object(
     name = "netprobe_ebpf_object",
-    srcs = [
-        "Cargo.toml",
-        ":netprobe_ebpf_srcs",
-        "@netprobe_ebpf_rustc//:all",
-        "@netprobe_ebpf_rustc//:install.sh",
-        "@netprobe_ebpf_cargo//:all",
-        "@netprobe_ebpf_cargo//:install.sh",
-        "@netprobe_ebpf_rust_std//:all",
-        "@netprobe_ebpf_rust_std//:install.sh",
-        "@netprobe_ebpf_rust_src//:all",
-        "@netprobe_ebpf_rust_src//:install.sh",
-        "//third_party/netprobe_ebpf_vendor:README.md",
-    ],
-    outs = ["netprobe_ebpf.o"],
-    cmd = " ".join([
-        "bash $(location build-ebpf-object.sh)",
-        "--output $@",
-        "--bpf-linker $(location @netprobe_ebpf_bpf_linker//:bpf-linker)",
-        "--crate \"$$(dirname $(location Cargo.toml))\"",
-        # The vendor tree has no single location to point at, so derive the
-        # directory from a file that package owns. See its BUILD.bazel.
-        "--vendor \"$$(dirname $(location //third_party/netprobe_ebpf_vendor:README.md))\"",
-        "--install $(location @netprobe_ebpf_rustc//:install.sh)",
-        "--install $(location @netprobe_ebpf_cargo//:install.sh)",
-        "--install $(location @netprobe_ebpf_rust_std//:install.sh)",
-        "--install $(location @netprobe_ebpf_rust_src//:install.sh)",
-    ]),
-    # The toolchain + linker inputs are linux-x86_64; the eBPF object is a linux
-    # artifact. Constrain to linux so a darwin-target build skips it rather than
-    # trying to run the linux toolchain (the publish/RBE build targets linux).
+    srcs = [":netprobe_ebpf_srcs"],
+    out = "netprobe_ebpf.o",
+    bin_name = "netprobe-ebpf",
+    manifest = "Cargo.toml",
+    # The object is a Linux kernel artifact, so it is skipped when targeting
+    # anything else. This says nothing about where it is *built*: that is the
+    # toolchain's execution-platform constraint, and compiling for bpfel is
+    # cross-compilation.
     target_compatible_with = ["@platforms//os:linux"],
-    tools = [
-        "build-ebpf-object.sh",
-        "@netprobe_ebpf_bpf_linker//:bpf-linker",
-    ],
+    vendor = "//third_party/netprobe_ebpf_vendor:vendor_srcs",
 )

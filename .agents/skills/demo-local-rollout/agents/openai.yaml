@@ -1,4 +1,4 @@
 interface:
-  display_name: "Demo Local Rollout"
-  short_description: "Build, sign, and roll demo locally"
-  default_prompt: "Use $demo-local-rollout to build changed images locally, sign them, and roll the demo namespace to a test tag."
+  display_name: "Local Image Rollout"
+  short_description: "Build sha tags; roll farm01 or demo"
+  default_prompt: "Use $demo-local-rollout. Pick farm01 vs carverauto demo first. farm01 is helm --reuse-values with no OpenBao. demo is OpenBao-sign then Argo."

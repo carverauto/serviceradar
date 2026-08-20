@@ -15,6 +15,7 @@ defmodule ServiceRadar.Edge.PlanValidate do
   `AssignmentValidate.validate_against_plan/3` now does.
   """
 
+  alias ServiceRadar.Edge.BoundedList
   alias ServiceRadar.Edge.HashGrammar
 
   @sha256_len 32
@@ -48,11 +49,23 @@ defmodule ServiceRadar.Edge.PlanValidate do
   @spec validate(term(), term()) ::
           {:ok, %{binary() => non_neg_integer()}} | {:error, reason()}
   def validate(header, pages) when is_map(header) and is_list(pages) do
+    # STRUCTURAL COUNTS BEFORE THE RECURSIVE WALK. `no_unknown/1` descends into every range of
+    # every page, so bounding the page list and each page's range count afterwards did the work
+    # these ceilings exist to prevent. Both are BOUNDED counts, not `length/1`.
+    #
+    # PRECEDENCE, frozen and matching Go and the recovery peer: an oversize page list whose
+    # pages ALSO carry unknown fields is a :page_bounds refusal.
     with :ok <- no_unknown(header),
-         :ok <- Enum.reduce_while(pages, :ok, &halt_on_error(no_unknown(&1), &2)),
          :ok <- header_identity(header),
          :ok <- header_digest(header),
-         :ok <- page_bounds(header, pages),
+         # PURE CEILING PREFLIGHT, after the header is trusted and before any page is
+         # descended into. Only the ceilings move here: the page_count EQUALITY is a header
+         # RELATION and stays below, so a stale header digest is still reported as a digest
+         # fault rather than masked by a count mismatch. Go validates its header first for
+         # the same reason.
+         :ok <- count_ceilings(pages),
+         :ok <- Enum.reduce_while(pages, :ok, &halt_on_error(no_unknown(&1), &2)),
+         :ok <- page_count_matches(header, pages),
          :ok <- pages_and_ranges(header, pages),
          :ok <- plan_root(header, pages),
          {:ok, windows, _total} <- compute_windows(pages),
@@ -122,16 +135,89 @@ defmodule ServiceRadar.Edge.PlanValidate do
        else: {:error, :header_digest}
   end
 
-  defp page_bounds(h, pages) do
-    cond do
+  # PURE: the page-list and per-page range ceilings, and nothing that reads the header.
+  defp count_ceilings(pages) do
+    # BOUNDED COUNT, walked at most @max_manifest_pages + 1 cells. `length/1` measured the whole
+    # attacker-supplied list to decide it was too long -- the traversal the ceiling forbids.
+    case BoundedList.count_at_most(pages, @max_manifest_pages) do
       # A header declaring pages while supplying none is the case that made every
       # downstream check vacuous: with no pages, nothing is walked and nothing fails.
-      pages == [] -> {:error, :page_bounds}
-      length(pages) > @max_manifest_pages -> {:error, :page_bounds}
-      Map.get(h, :page_count) != length(pages) -> {:error, :page_chain}
-      true -> :ok
+      {:ok, 0} -> {:error, :page_bounds}
+      :over -> {:error, :page_bounds}
+      :improper -> {:error, :page_bounds}
+      {:ok, _} -> range_counts(pages)
     end
   end
+
+  # A HEADER RELATION, not a ceiling: it stays after header validation and after the walk,
+  # exactly where it was before the ceilings moved.
+  defp page_count_matches(h, pages) do
+    if Map.get(h, :page_count) == length(pages), do: :ok, else: {:error, :page_chain}
+  end
+
+  # Per-page range count, bounded, BEFORE any page's ranges are descended into.
+  #
+  # TOTAL over the supplied term. Running ahead of the structural walk means this now sees
+  # page shapes nothing has validated -- `[:bad]` reached `Map.get(:bad, :ranges)` and raised
+  # BadMapError, in a function whose contract is `{:error, reason}`. A page that is not a map
+  # has no range list to count, which is a :page_bounds refusal and not a crash.
+  defp range_counts(pages) do
+    Enum.reduce_while(pages, :ok, fn p, :ok ->
+      if BoundedList.nonempty_within?(ranges_of(p), @max_ranges_per_page),
+        do: {:cont, :ok},
+        else: {:halt, {:error, :page_bounds}}
+    end)
+  end
+
+  @doc false
+  # THE field preflight for a range's address strings: length bounds, then the IPv6-zone
+  # prohibition. It PARSES NOTHING.
+  #
+  # IT RETURNS THE EXISTING `:plan_range` AND NOTHING NEW. `@doc false` and a `__` name do not
+  # make a function private -- a test can call it, and any tag it returns is observable, so
+  # a distinct tag per fault would BE a refusal class however it was labelled. That is task
+  # 1.5-l's to mint, not this subtask's. Separate INPUTS prove the two predicates
+  # independently, which is what the corpus needs; a distinct tag adds nothing it could not
+  # already show.
+  #
+  # It is reachable from the corpus because that is the ONLY way to pin the frozen ceiling in
+  # this runtime: no canonical address reaches it, and a one-over refusal driven through
+  # `validate/2` survives the bound drifting anywhere between the longest valid address and the
+  # ceiling, because the address parser refuses those lengths regardless.
+  #
+  # LENGTH FIRST, so an over-length value is not scanned at all. Then the ZONE: a zone names an
+  # interface on the machine that WROTE the string and has no meaning at the receiver.
+  #
+  # THE ZONE IS REFUSED, NEVER STRIPPED. These strings feed the range, page, plan-root, header
+  # and assignment digest chain, so repairing one forks a plan's identity from the bytes its
+  # author signed.
+  #
+  # THE CHECK IS EXPLICIT rather than a consequence of parsing.
+  # `:inet.parse_strict_address/1` ACCEPTS a zoned address and silently DISCARDS the zone, so
+  # without this rule the value is refused downstream as a non-canonical SPELLING -- a
+  # different stage, and a reason that names neither the zone nor the peer's cause.
+  @spec __check_range_strings__(term(), term(), term()) ::
+          {:ok, {:checked, binary(), binary(), binary()}} | {:error, :plan_range}
+  def __check_range_strings__(cidr, first, last) do
+    vals = [cidr, first, last]
+
+    cond do
+      not Enum.all?(vals, &is_binary/1) -> {:error, :plan_range}
+      Enum.any?(vals, &(byte_size(&1) > @max_range_str_bytes)) -> {:error, :plan_range}
+      Enum.any?(vals, &zoned?/1) -> {:error, :plan_range}
+      # A CHECKED VALUE, not the bare strings: `span_size/1` takes only this shape, so reaching
+      # the parser means having gone through here. It is NOT opaque -- a tagged tuple anything
+      # in this module can build -- so what catches a bypass is the traced stage test, not the
+      # shape.
+      true -> {:ok, {:checked, cidr, first, last}}
+    end
+  end
+
+  defp zoned?(s) when is_binary(s), do: :binary.match(s, "%") != :nomatch
+  defp zoned?(_), do: false
+
+  defp ranges_of(%{ranges: ranges}), do: ranges
+  defp ranges_of(_), do: :absent
 
   defp pages_and_ranges(h, pages) do
     plan_id = Map.get(h, :execution_plan_id)
@@ -177,8 +263,8 @@ defmodule ServiceRadar.Edge.PlanValidate do
         (Map.get(p, :prev_page_sha256) || <<>>) != prev ->
           {:halt, {:error, :page_chain}}
 
-        ranges == [] or length(ranges) > @max_ranges_per_page ->
-          {:halt, {:error, :page_bounds}}
+        # The range count is bounded ABOVE, before the recursive walk. Re-checking it here
+        # would be dead code that reads like the enforcement point.
 
         Map.get(p, :check_set_sha256) != header_check_set ->
           {:halt, {:error, :check_set}}
@@ -244,6 +330,22 @@ defmodule ServiceRadar.Edge.PlanValidate do
     cidr = Map.get(r, :cidr) || ""
     first = Map.get(r, :first_address) || ""
     last = Map.get(r, :last_address) || ""
+
+    # THE ADDRESS-STRING PREFLIGHT RUNS ONCE, HERE, and its result is the ONLY route to the
+    # parser below. It reports the existing `:plan_range` for every fault -- naming a zone
+    # fault distinctly is refusal taxonomy, which task 1.5-l owns.
+    case __check_range_strings__(cidr, first, last) do
+      {:error, _} -> {:error, :plan_range}
+      {:ok, checked} -> validate_checked_range(r, checked, page_check_set, header_policy)
+    end
+  end
+
+  defp validate_checked_range(
+         r,
+         {:checked, cidr, first, last} = checked,
+         page_check_set,
+         header_policy
+       ) do
     has_cidr = cidr != ""
     has_span = first != "" or last != ""
 
@@ -257,15 +359,6 @@ defmodule ServiceRadar.Edge.PlanValidate do
         {:error, :plan_range}
 
       HashGrammar.range_digest(r) != Map.get(r, :range_sha256) ->
-        {:error, :plan_range}
-
-      byte_size(cidr) > @max_range_str_bytes ->
-        {:error, :plan_range}
-
-      byte_size(first) > @max_range_str_bytes ->
-        {:error, :plan_range}
-
-      byte_size(last) > @max_range_str_bytes ->
         {:error, :plan_range}
 
       has_cidr == has_span ->
@@ -286,22 +379,22 @@ defmodule ServiceRadar.Edge.PlanValidate do
       Map.get(r, :check_set_sha256) != page_check_set ->
         {:error, :check_set}
 
-      not bounded_bytes?(Map.get(r, :availability_policy_id), 0, @max_policy_id_bytes) ->
-        {:error, :plan_range}
-
+      # EQUALITY ONLY -- the length bound is CENTRALIZED at the header, which `validate/2`
+      # reaches before any range. A second length arm here would be unreachable on its own AND
+      # would mask a missing header bound, so the rule lives in exactly one place.
       Map.get(r, :availability_policy_id) != header_policy ->
         {:error, :plan_range}
 
       true ->
-        span_matches(r, cidr, first, last)
+        span_matches(r, checked)
     end
   end
 
   # The range expands to EXACTLY its address span, so the covered work set is
   # deterministic. Mirrors Go's rangeSpanSize, including the CANONICAL-SPELLING rule:
   # one network must not have two content digests.
-  defp span_matches(r, cidr, first, last) do
-    case span_size(cidr, first, last) do
+  defp span_matches(r, {:checked, _, _, _} = checked) do
+    case span_size(checked) do
       {:ok, size} ->
         if Map.get(r, :target_count) == size, do: :ok, else: {:error, :plan_range}
 
@@ -310,7 +403,7 @@ defmodule ServiceRadar.Edge.PlanValidate do
     end
   end
 
-  defp span_size("", first, last) do
+  defp span_size({:checked, "", first, last}) do
     with {:ok, f} <- parse_addr(first),
          {:ok, l} <- parse_addr(last),
          # Family mismatch is not a span.
@@ -331,7 +424,7 @@ defmodule ServiceRadar.Edge.PlanValidate do
     end
   end
 
-  defp span_size(cidr, _first, _last) do
+  defp span_size({:checked, cidr, _first, _last}) do
     with [addr, bits] <- String.split(cidr, "/", parts: 2),
          {bits_int, ""} <- Integer.parse(bits),
          {:ok, a} <- parse_addr(addr),

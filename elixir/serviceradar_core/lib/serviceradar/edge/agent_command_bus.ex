@@ -46,6 +46,8 @@ defmodule ServiceRadar.Edge.AgentCommandBus do
     "awx.cancel_job",
     "awx.delete_callback_credential"
   ]
+  @notification_command_type "plugin.run_action"
+  @notification_envelope_schema "serviceradar.notification_delivery.v1"
   @callback_command_context_schema "serviceradar.automation_callback_command/v1"
   @secure_execution_command_context_schema "serviceradar.automation_execution_command/v1"
   @secure_execution_command_types [
@@ -168,6 +170,14 @@ defmodule ServiceRadar.Edge.AgentCommandBus do
 
   defp normalize_preallocated_command_id(command_type, command_id)
        when command_type in @preallocated_callback_command_types and is_binary(command_id) do
+    case Ecto.UUID.cast(command_id) do
+      {:ok, normalized} -> {:ok, normalized}
+      :error -> {:error, :invalid_preallocated_command_id}
+    end
+  end
+
+  defp normalize_preallocated_command_id(@notification_command_type, command_id)
+       when is_binary(command_id) do
     case Ecto.UUID.cast(command_id) do
       {:ok, normalized} -> {:ok, normalized}
       :error -> {:error, :invalid_preallocated_command_id}
@@ -1591,16 +1601,46 @@ defmodule ServiceRadar.Edge.AgentCommandBus do
 
   defp valid_control_session_entry?(_entry, _partition_id, _agent_id), do: false
 
-  defp list_online_sessions do
-    if ProcessRegistry.registry_present?() do
-      :agent_control
-      |> ProcessRegistry.select_by_type()
-      |> Enum.map(&build_online_session/1)
-      |> Enum.filter(&valid_online_session?/1)
-    else
-      []
-    end
+  defp list_online_sessions, do: list_online_sessions([])
+
+  defp list_online_sessions(opts) do
+    :agent_control
+    |> control_session_registry_entries(opts)
+    |> Enum.uniq_by(&control_session_registry_entry_identity/1)
+    |> Enum.map(&build_online_session/1)
+    |> Enum.filter(&valid_online_session?/1)
   end
+
+  # web-ng deliberately does not join the Horde registry. Keep unassigned
+  # command selection on the same remote-read path as exact, assigned-agent
+  # lookup so a live mapper session on a gateway remains discoverable there.
+  defp control_session_registry_entries(type, opts) do
+    registry_present? =
+      Keyword.get_lazy(opts, :registry_present?, &ProcessRegistry.registry_present?/0)
+
+    if registry_present? do
+      local_reader =
+        Keyword.get(opts, :local_registry_reader, &ProcessRegistry.select_by_type/1)
+
+      local_reader.(type)
+    else
+      remote_reader = Keyword.get(opts, :registry_rpc, &registry_rpc/2)
+      remote_reader.(:select_by_type, [type])
+    end
+  rescue
+    error ->
+      Logger.warning(
+        "[AgentCommandBus] control-session registry enumeration failed: #{inspect(error)}"
+      )
+
+      []
+  end
+
+  # Every registry host may return the same CRDT entry over RPC. Preserve
+  # distinct replacement pids for a key, but collapse repeated snapshots of
+  # the same session even when metadata convergence is briefly out of sync.
+  defp control_session_registry_entry_identity({key, pid, _metadata}), do: {key, pid}
+  defp control_session_registry_entry_identity(entry), do: entry
 
   defp build_online_session(
          {{:agent_control, partition_id, agent_id, _gateway_node} = key, pid, metadata}
@@ -1660,8 +1700,12 @@ defmodule ServiceRadar.Edge.AgentCommandBus do
 
   defp valid_online_session?(_session), do: false
 
-  defp pick_online_agent(partition, capability) do
-    list_online_sessions()
+  defp pick_online_agent(partition, capability), do: pick_online_agent(partition, capability, [])
+
+  @doc false
+  def pick_online_agent(partition, capability, opts) when is_list(opts) do
+    opts
+    |> list_online_sessions()
     |> Enum.filter(fn session ->
       session.canonical_principal? and session.partition_id == partition and
         (capability == nil or capability in session.capabilities)
@@ -2157,6 +2201,10 @@ defmodule ServiceRadar.Edge.AgentCommandBus do
        when command_type in @preallocated_callback_command_types and is_binary(value),
        do: canonical_command_id(value)
 
+  defp canonical_optional_command_id(@notification_command_type, value, _payload)
+       when is_binary(value),
+       do: canonical_command_id(value)
+
   defp canonical_optional_command_id(_command_type, _value, _payload),
     do: {:error, :preallocated_command_id_not_allowed}
 
@@ -2203,6 +2251,31 @@ defmodule ServiceRadar.Edge.AgentCommandBus do
 
       command_type == "awx.create_callback_credential" ->
         {:error, :preallocated_callback_attempt_context_required}
+
+      true ->
+        :ok
+    end
+  end
+
+  defp validate_preallocated_transmit_payload(@notification_command_type, payload, opts) do
+    context = opts |> Keyword.get(:context, %{}) |> normalize_context()
+    command_id = Keyword.get(opts, :command_id)
+
+    cond do
+      Keyword.get(opts, :notification_delivery_attempt) == true ->
+        with true <- is_binary(command_id),
+             true <- normalize_source(Keyword.get(opts, :source, :on_demand)) == :automation,
+             true <- payload["schema"] == @notification_envelope_schema,
+             delivery_id when is_binary(delivery_id) and delivery_id != "" <-
+               payload["delivery_id"],
+             true <- context["notification_delivery_id"] == delivery_id do
+          :ok
+        else
+          _ -> {:error, :preallocated_notification_attempt_context_required}
+        end
+
+      not is_nil(command_id) ->
+        {:error, :preallocated_notification_attempt_context_required}
 
       true ->
         :ok

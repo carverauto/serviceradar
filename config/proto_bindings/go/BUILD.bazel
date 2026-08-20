@@ -1,0 +1,24 @@
+# gazelle:ignore
+
+load("@io_bazel_rules_go//go:def.bzl", "go_library")
+
+# Checked-in Go bindings, retained for non-Bazel tooling (go test, gopls, IDEs), matching the
+# convention in //proto.
+#
+# The Bazel build does NOT consume these: it generates from //config/proto via
+# go_proto_library, so a Bazel build cannot silently use a stale checked-in copy.
+# `make verify-proto-go-config` is the drift guard for the checked-in files.
+
+go_library(
+    name = "configpb",
+    srcs = [
+        "config.pb.go",
+        "rules.pb.go",
+    ],
+    importpath = "github.com/carverauto/serviceradar/config/proto_bindings/go",
+    visibility = ["//visibility:public"],
+    deps = [
+        "@org_golang_google_protobuf//reflect/protoreflect",
+        "@org_golang_google_protobuf//runtime/protoimpl",
+    ],
+)

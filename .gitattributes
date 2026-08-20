@@ -1,7 +1,6 @@
-# Vendored Cargo archives are checksum-verified byte-for-byte. Preserve their
-# upstream line endings instead of allowing Git text normalization to rewrite
-# them on checkout or commit.
-third_party/crates/** -text
+# Vendored Cargo archives are checksum-verified byte-for-byte. They are gzip, so
+# any text normalization would corrupt them outright.
+third_party/crate_mirror/** -text
 third_party/netprobe_ebpf_vendor/** -text
 
 # Cross-language ABI fixtures are EXACT BYTES: every digest, signature and identifier in the
@@ -14,3 +13,4 @@ third_party/netprobe_ebpf_vendor/** -text
 # splice two versions of a digest-bearing artifact line by line.
 proto/edge/v1/testdata/*.bin binary
 proto/edge/v1/testdata/*.pub binary
+third_party/netprobe_corpora/** -text

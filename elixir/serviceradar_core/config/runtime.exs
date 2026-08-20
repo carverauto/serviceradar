@@ -9,11 +9,18 @@ alias Geolix.Adapter.MMDB2
 alias ServiceRadar.Automation.Ansible.FileCallbackResponsePolicyProvider
 alias ServiceRadar.Automation.CallbackGrants.RuntimeConfig
 alias ServiceRadar.Edge.RemoteAccessSSHCACommandSigner
+alias ServiceRadar.EventWriter.Config
 alias ServiceRadar.EventWriter.Processors.AnalyticsSignals
 alias ServiceRadar.EventWriter.Processors.Flows
 alias ServiceRadar.EventWriter.Processors.PowerDNS
 alias ServiceRadar.Jobs.RefreshTraceSummariesWorker
 alias ServiceRadar.Jobs.RootSpanRatioWorker
+alias ServiceRadar.Notifications.ContinuationWorker, as: NotificationContinuationWorker
+alias ServiceRadar.Notifications.DeliveryRetentionWorker, as: NotificationRetentionWorker
+alias ServiceRadar.Notifications.DispatchSchedule
+alias ServiceRadar.Notifications.PluginTarget, as: NotificationPluginTarget
+alias ServiceRadar.Notifications.ReceiptWorker, as: NotificationReceiptWorker
+alias ServiceRadar.Notifications.SilenceExpiryWorker, as: NotificationSilenceExpiryWorker
 alias ServiceRadar.Observability.CapacityForecasting.Worker, as: CapacityForecastingWorker
 alias ServiceRadar.Observability.DataRetentionWorker
 alias ServiceRadar.Observability.ProductionSchedule
@@ -312,12 +319,15 @@ endpoint_inventory_addon_config =
       endpoint_inventory_addon_config
   end
 
-config :geolix, databases: base_geolite_dbs ++ city_geolite_dbs ++ ipinfo_dbs
+geolite_dbs = base_geolite_dbs ++ city_geolite_dbs ++ ipinfo_dbs
+
+config :geolix, databases: ServiceRadar.Observability.GeoIP.present_databases(geolite_dbs)
 
 config :serviceradar_core,
        :endpoint_inventory_native_addon_package,
        endpoint_inventory_addon_config
 
+config :serviceradar_core, :geolite_databases, geolite_dbs
 config :serviceradar_core, :netprobe_native_addon_package, netprobe_addon_config
 config :serviceradar_core, :otel_collector_native_addon_package, otel_collector_addon_config
 
@@ -327,7 +337,8 @@ config :serviceradar_core,
 
 config :serviceradar_core,
   # AshCloak encryption key (required for PII encryption)
-  geolite_mmdb_dir: geolite_dir
+  geolite_mmdb_dir: geolite_dir,
+  egress_proxy: ServiceRadar.HTTP.EgressProxy.from_env()
 
 if is_map(remote_access_ssh_certificate_policy) and
      map_size(remote_access_ssh_certificate_policy) > 0 do
@@ -355,6 +366,92 @@ if remote_access_ssh_ca_signer_enabled do
   config :serviceradar_core, ServiceRadar.Edge.RemoteAccessSSHCertificates,
     signer: RemoteAccessSSHCACommandSigner
 end
+
+# Tiered telemetry cold storage (OpenSpec add-tiered-telemetry-offload).
+# Deployment-supplied configuration; absent => every cold-tier surface is
+# inert and behavior is identical to a build without the capability.
+# Deliberately OUTSIDE the prod-only block: dev/test (compose profile,
+# integration suite) honor the same envs.
+cold_parse_int = fn name, default ->
+  case System.get_env(name) do
+    nil ->
+      default
+
+    "" ->
+      default
+
+    value ->
+      case Integer.parse(value) do
+        {int, ""} -> int
+        _ -> default
+      end
+  end
+end
+
+cold_secret_env = fn name ->
+  case System.get_env(name <> "_FILE") do
+    nil -> System.get_env(name)
+    path -> path |> File.read!() |> String.trim()
+  end
+end
+
+# nil when unset: a cold window must be an explicit deployment decision (D9).
+cold_window = fn name ->
+  case System.get_env(name) do
+    nil ->
+      nil
+
+    "" ->
+      nil
+
+    value ->
+      case Integer.parse(value) do
+        {days, _} -> max(days, 1)
+        :error -> nil
+      end
+  end
+end
+
+config :serviceradar_core, ServiceRadar.ColdTier,
+  enabled: System.get_env("SERVICERADAR_COLD_TIER_ENABLED") in ["true", "1"],
+  bucket_url: System.get_env("SERVICERADAR_COLD_TIER_BUCKET_URL"),
+  s3_endpoint: System.get_env("SERVICERADAR_COLD_TIER_S3_ENDPOINT"),
+  s3_endpoint_runtime: System.get_env("SERVICERADAR_COLD_TIER_S3_ENDPOINT_RUNTIME"),
+  s3_region: System.get_env("SERVICERADAR_COLD_TIER_S3_REGION"),
+  s3_url_style: System.get_env("SERVICERADAR_COLD_TIER_S3_URL_STYLE"),
+  s3_use_ssl: System.get_env("SERVICERADAR_COLD_TIER_S3_USE_SSL", "true") in ["true", "1"],
+  s3_access_key_id: cold_secret_env.("SERVICERADAR_COLD_TIER_S3_ACCESS_KEY_ID"),
+  s3_secret_access_key: cold_secret_env.("SERVICERADAR_COLD_TIER_S3_SECRET_ACCESS_KEY"),
+  head_host: System.get_env("SERVICERADAR_COLD_TIER_HEAD_HOST"),
+  head_port: cold_parse_int.("SERVICERADAR_COLD_TIER_HEAD_PORT", 5432),
+  head_database: System.get_env("SERVICERADAR_COLD_TIER_HEAD_DATABASE"),
+  head_username: System.get_env("SERVICERADAR_COLD_TIER_HEAD_USERNAME"),
+  head_password: cold_secret_env.("SERVICERADAR_COLD_TIER_HEAD_PASSWORD"),
+  primary_host: System.get_env("SERVICERADAR_COLD_TIER_PRIMARY_HOST"),
+  primary_port: cold_parse_int.("SERVICERADAR_COLD_TIER_PRIMARY_PORT", 5432),
+  primary_database: System.get_env("SERVICERADAR_COLD_TIER_PRIMARY_DATABASE"),
+  primary_fdw_username: System.get_env("SERVICERADAR_COLD_TIER_PRIMARY_FDW_USERNAME"),
+  primary_fdw_password: cold_secret_env.("SERVICERADAR_COLD_TIER_PRIMARY_FDW_PASSWORD"),
+  export_lag_hours: max(cold_parse_int.("SERVICERADAR_COLD_EXPORT_LAG_HOURS", 48), 1),
+  quarantine_attempts: max(cold_parse_int.("SERVICERADAR_COLD_QUARANTINE_ATTEMPTS", 5), 1),
+  run_chunk_budget: max(cold_parse_int.("SERVICERADAR_COLD_RUN_CHUNK_BUDGET", 24), 1),
+  # Cold windows are what the pruner DELETES archived data by, so an absent
+  # value must never materialize a default: design D9 says absent means no
+  # expiry pruning at all (manifest hygiene only). nil = keep forever until a
+  # deployment states a window explicitly.
+  cold_windows:
+    Enum.reject(
+      [
+        logs: cold_window.("SERVICERADAR_COLD_WINDOW_LOGS_DAYS"),
+        traces: cold_window.("SERVICERADAR_COLD_WINDOW_TRACES_DAYS"),
+        otel_metrics: cold_window.("SERVICERADAR_COLD_WINDOW_OTEL_METRICS_DAYS"),
+        otel_metric_points: cold_window.("SERVICERADAR_COLD_WINDOW_OTEL_METRIC_POINTS_DAYS"),
+        timeseries: cold_window.("SERVICERADAR_COLD_WINDOW_TIMESERIES_DAYS"),
+        events: cold_window.("SERVICERADAR_COLD_WINDOW_EVENTS_DAYS"),
+        flows: cold_window.("SERVICERADAR_COLD_WINDOW_FLOWS_DAYS")
+      ],
+      fn {_class, days} -> is_nil(days) end
+    )
 
 if config_env() == :prod do
   read_secret_env = fn env_name, file_env_name ->
@@ -493,6 +590,9 @@ if config_env() == :prod do
 
   ocsf_network_activity_retention_days =
     "SERVICERADAR_OCSF_NETWORK_ACTIVITY_RETENTION_DAYS" |> parse_int_env.(90) |> max(1)
+
+  timeseries_metrics_retention_days =
+    "SERVICERADAR_TIMESERIES_METRICS_RETENTION_DAYS" |> parse_int_env.(7) |> max(1)
 
   flow_attribution_retention_minutes =
     "SERVICERADAR_FLOW_ATTRIBUTION_RETENTION_MINUTES" |> parse_int_env.(60) |> max(15)
@@ -1098,6 +1198,7 @@ if config_env() == :prod do
     otel_metric_points_retention_days: otel_metric_points_retention_days,
     ocsf_events_retention_days: ocsf_events_retention_days,
     ocsf_network_activity_retention_days: ocsf_network_activity_retention_days,
+    timeseries_metrics_retention_days: timeseries_metrics_retention_days,
     otel_traces_chunk_interval_hours: otel_traces_chunk_interval_hours,
     logs_chunk_interval_hours: logs_chunk_interval_hours,
     otel_metrics_chunk_interval_hours: otel_metrics_chunk_interval_hours,
@@ -1112,7 +1213,9 @@ if config_env() == :prod do
     endpoint_inventory_retention_days:
       "SERVICERADAR_ENDPOINT_INVENTORY_RETENTION_DAYS" |> parse_int_env.(30) |> max(1),
     dataset_snapshot_retention_days:
-      "SERVICERADAR_DATASET_SNAPSHOT_RETENTION_DAYS" |> parse_int_env.(4) |> max(1),
+      "SERVICERADAR_DATASET_SNAPSHOT_RETENTION_DAYS" |> parse_int_env.(2) |> max(1),
+    dataset_snapshot_keep_last:
+      "SERVICERADAR_DATASET_SNAPSHOT_KEEP_LAST" |> parse_int_env.(1) |> max(0),
     topology_link_retention_days:
       "SERVICERADAR_TOPOLOGY_LINK_RETENTION_DAYS" |> parse_int_env.(30) |> max(1)
 
@@ -1379,6 +1482,37 @@ if config_env() == :prod do
     # source list at run time. A non-empty Settings value overrides this.
     default_source_opt_ins: ProductionSchedule.capacity_source_opt_ins()
 
+  # Notification continuation, silence expiry, and delivery retention. Built by
+  # ServiceRadar.Notifications.DispatchSchedule so this tree and
+  # serviceradar_core_elx's runtime.exs cannot drift; unset env leaves each
+  # worker's own defaults authoritative.
+  config :serviceradar_core,
+         NotificationContinuationWorker,
+         DispatchSchedule.continuation_worker_config()
+
+  # The platform-resident serviceradar-agent that runs :control_plane wasm
+  # notification plugins (design D3, tasks 3.3.1). There is deliberately no
+  # default: guessing an agent id would dispatch notifications to whichever
+  # agent happened to match, so an unset value fails the delivery with
+  # `platform_agent_unconfigured` instead.
+  config :serviceradar_core,
+         NotificationPluginTarget,
+         platform_agent_uid: System.get_env("SERVICERADAR_NOTIFICATION_PLATFORM_AGENT_ID"),
+         platform_agent_partition_id:
+           System.get_env("SERVICERADAR_NOTIFICATION_PLATFORM_AGENT_PARTITION")
+
+  config :serviceradar_core,
+         NotificationReceiptWorker,
+         DispatchSchedule.receipt_worker_config()
+
+  config :serviceradar_core,
+         NotificationRetentionWorker,
+         DispatchSchedule.delivery_retention_worker_config()
+
+  config :serviceradar_core,
+         NotificationSilenceExpiryWorker,
+         DispatchSchedule.silence_expiry_worker_config()
+
   config :serviceradar_core, Oban,
     engine: Oban.Engines.Basic,
     repo: ServiceRadar.Repo,
@@ -1418,6 +1552,14 @@ if config_env() == :prod do
            {"*/15 * * * *", ServiceRadar.Jobs.ReapStalePeriodicJobsWorker, queue: :maintenance},
            {"17 * * * *", ServiceRadar.Jobs.PruneStaleAgentsWorker, queue: :maintenance},
            {"17 3 * * *", DataRetentionWorker, queue: :maintenance},
+           # Cold-tier chunk exporter: hourly so the frontier stays ~export_lag
+           # behind now; self-guards on cold-tier config (no-op when absent).
+           # Correctness does NOT depend on running before DataRetentionWorker —
+           # the fence's drop gate alone enforces export-before-drop.
+           {"47 * * * *", ServiceRadar.ColdTier.Exporter, queue: :maintenance},
+           # Cold-window pruning + manifest/bucket reconciliation (no-op when
+           # cold-tier config is absent).
+           {"23 4 * * *", ServiceRadar.ColdTier.Pruner, queue: :maintenance},
            {"*/10 * * * *", ServiceRadar.Edge.RemoteAccessRecordingReaperWorker,
             queue: :maintenance},
            {"31 3 * * *", ServiceRadar.Edge.RemoteAccessVersionRetentionWorker,
@@ -1429,7 +1571,8 @@ if config_env() == :prod do
          ] ++
            object_store_retention_crontab ++
            capacity_forecasting_crontab ++
-           ProductionSchedule.cron_entries()}
+           ProductionSchedule.cron_entries() ++
+           DispatchSchedule.cron_entries()}
     ],
     peer: Oban.Peers.Database
 
@@ -1681,23 +1824,53 @@ if config_env() == :prod do
         # Dedicated anomaly/capacity verdict stream (restore-anomaly-alerting
         # design D9); definition shared with Config.default_streams/0 so the
         # retention stanza cannot drift.
-        ServiceRadar.EventWriter.Config.analytics_predictions_stream(),
-        %{
-          name: "SFLOW_RAW",
-          subject: "flows.raw.sflow",
-          processor: Flows,
-          batch_size: 50,
-          batch_timeout: 500
-        },
-        %{
-          name: "NETFLOW_RAW",
-          subject: "flows.raw.netflow",
-          processor: Flows,
-          batch_size: 50,
-          batch_timeout: 500
-        }
-      ]
+        Config.analytics_predictions_stream()
+      ],
+      # Dedicated demand domain for raw flows on JetStream stream `flows`.
+      # Optional EVENT_WRITER_FLOW_* tuning is applied below only when set so
+      # per-stream custom values are not clobbered by release defaults.
+      flow_streams: Config.default_flow_streams()
+
+    # Optional flow pipeline overrides (env only — never inject hard-coded defaults).
+    if v = System.get_env("EVENT_WRITER_FLOW_CONSUMER_PULL_BATCH_SIZE") do
+      config :serviceradar_core, ServiceRadar.EventWriter,
+        flow_consumer_pull_batch_size: String.to_integer(v)
+    end
+
+    if v = System.get_env("EVENT_WRITER_FLOW_MAX_ACK_PENDING") do
+      config :serviceradar_core, ServiceRadar.EventWriter,
+        flow_max_ack_pending: String.to_integer(v)
+    end
+
+    if v = System.get_env("EVENT_WRITER_FLOW_PULL_EXPIRES_NS") do
+      config :serviceradar_core, ServiceRadar.EventWriter,
+        flow_pull_expires_ns: String.to_integer(v)
+    end
 
     config :serviceradar_core, :event_writer_enabled, true
   end
+end
+
+# Outbound mail.
+#
+# The adapter is derived from the environment in exactly one place -
+# `ServiceRadar.OutboundMail.RuntimeConfig` - so this release and
+# `serviceradar_core_elx` cannot resolve different mailers from the same
+# variables. With nothing set it still resolves to `Swoosh.Adapters.Test`,
+# which is what it did before; the difference is that
+# `ServiceRadar.OutboundMail.diagnose/0` now names that state instead of
+# letting every send report success.
+if config_env() == :prod do
+  mailer_env = System.get_env()
+
+  config :serviceradar_core,
+         ServiceRadar.Mailer,
+         ServiceRadar.OutboundMail.RuntimeConfig.mailer_config(mailer_env)
+
+  # Overrides the compile-time `false` in config.exs: an API adapter with no
+  # HTTP client raises on every send, and config.exs cannot know which adapter
+  # this deployment picked because it is chosen here. `Req` is already a
+  # dependency, so this costs nothing when the adapter needs no HTTP client.
+  config :swoosh, :api_client, Swoosh.ApiClient.Req
+  config :swoosh, local: ServiceRadar.OutboundMail.RuntimeConfig.local?(mailer_env)
 end

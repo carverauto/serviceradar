@@ -577,30 +577,54 @@ func (p *PushLoop) pushStatus(ctx context.Context) {
 }
 
 // getSourceIP attempts to determine the source IP of this agent.
+//
+// host_ip in agent.json is a bootstrap pin written at onboard time. If that
+// address is still on a local interface, keep it (multi-homed / NAT pin).
+// If the host moved and the pin is gone, ignore it and re-detect so Hello
+// can update the existing agent device instead of leaving a stale IP.
 func (p *PushLoop) getSourceIP() string {
-	// First check if HostIP is configured
 	p.server.mu.RLock()
-	hostIP := p.server.config.HostIP
-	p.server.mu.RUnlock()
-	if hostIP != "" {
-		return hostIP
+	configured := ""
+	if p.server.config != nil {
+		configured = p.server.config.HostIP
 	}
+	p.server.mu.RUnlock()
 
-	// Enumerate local interfaces to find a non-loopback IP
-	// This avoids unexpected external network egress
-	ifaces, err := net.Interfaces()
+	localIPs, err := localSourceIPs()
 	if err != nil {
 		p.logger.Debug().Err(err).Msg("Failed to enumerate network interfaces")
-		return ""
+		return strings.TrimSpace(configured)
 	}
 
-	var (
-		publicIPv4 string
-		ipv6       string
-	)
+	selected := selectSourceIP(configured, localIPs)
+	if configured = strings.TrimSpace(configured); configured != "" && selected != "" && selected != configured {
+		p.logger.Info().
+			Str("configured_host_ip", configured).
+			Str("detected_host_ip", selected).
+			Msg("Ignoring stale host_ip; using live interface address")
+	}
+	return selected
+}
 
+func selectSourceIP(configured string, localIPs []net.IP) string {
+	configured = strings.TrimSpace(configured)
+	if configured != "" && localIPsContain(localIPs, configured) {
+		return configured
+	}
+	if detected := preferLocalSourceIP(localIPs); detected != "" {
+		return detected
+	}
+	return configured
+}
+
+func localSourceIPs() ([]net.IP, error) {
+	ifaces, err := net.Interfaces()
+	if err != nil {
+		return nil, err
+	}
+
+	var ips []net.IP
 	for _, iface := range ifaces {
-		// Skip down interfaces and loopback
 		if iface.Flags&net.FlagUp == 0 || iface.Flags&net.FlagLoopback != 0 {
 			continue
 		}
@@ -618,37 +642,49 @@ func (p *PushLoop) getSourceIP() string {
 			case *net.IPAddr:
 				ip = v.IP
 			}
-
-			// Skip loopback and link-local addresses, prefer IPv4
 			if ip == nil || ip.IsLoopback() || ip.IsLinkLocalUnicast() {
 				continue
 			}
+			ips = append(ips, ip)
+		}
+	}
 
-			// Prefer RFC1918 IPv4 addresses; fall back to any global unicast.
-			if ip4 := ip.To4(); ip4 != nil {
-				if ip4.IsPrivate() {
-					return ip4.String()
-				}
-				if publicIPv4 == "" && ip4.IsGlobalUnicast() {
-					publicIPv4 = ip4.String()
-				}
-				continue
-			}
+	return ips, nil
+}
 
-			// Fallback to IPv6 if no IPv4 is present (avoid empty source_ip on IPv6-only hosts)
-			if ipv6 == "" && ip.IsGlobalUnicast() {
-				ipv6 = ip.String()
+func preferLocalSourceIP(localIPs []net.IP) string {
+	var publicIPv4, ipv6 string
+
+	for _, ip := range localIPs {
+		if ip4 := ip.To4(); ip4 != nil {
+			if ip4.IsPrivate() {
+				return ip4.String()
 			}
+			if publicIPv4 == "" && ip4.IsGlobalUnicast() {
+				publicIPv4 = ip4.String()
+			}
+			continue
+		}
+		if ipv6 == "" && ip.IsGlobalUnicast() {
+			ipv6 = ip.String()
 		}
 	}
 
 	if publicIPv4 != "" {
 		return publicIPv4
 	}
-	if ipv6 != "" {
-		return ipv6
-	}
+	return ipv6
+}
 
-	p.logger.Debug().Msg("No suitable source IP found")
-	return ""
+func localIPsContain(localIPs []net.IP, candidate string) bool {
+	parsed := net.ParseIP(candidate)
+	if parsed == nil {
+		return false
+	}
+	for _, ip := range localIPs {
+		if ip.Equal(parsed) {
+			return true
+		}
+	}
+	return false
 }

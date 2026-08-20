@@ -828,6 +828,110 @@ defmodule ServiceRadar.Inventory.SyncBatchResolutionTest do
            "a direct current-primary MAC match must not be vetoed"
   end
 
+  test "mapper SNMP LAN MAC attaches to the existing UniFi WAN sibling", %{actor: actor} do
+    {:ok, unifi} =
+      Device
+      |> Ash.Changeset.for_create(:create, %{
+        uid: "sr:" <> Ecto.UUID.generate(),
+        hostname: "farm01",
+        ip: "152.117.116.178",
+        mac: "f4:92:bf:75:c7:21"
+      })
+      |> Ash.create(actor: actor)
+
+    assert {:ok, _} =
+             DeviceIdentifier
+             |> Ash.Changeset.for_create(:register, %{
+               device_id: unifi.uid,
+               identifier_type: :mac,
+               identifier_value: "F492BF75C721",
+               partition: "default",
+               confidence: :strong,
+               source: "test"
+             })
+             |> Ash.create(actor: actor)
+
+    update = %{
+      "hostname" => "farm01",
+      "ip" => "192.168.1.1",
+      "mac" => "f6:92:bf:75:c7:21",
+      "source" => "mapper",
+      "metadata" => %{
+        "identity_mac_kind" => "primary",
+        "source" => "snmp"
+      }
+    }
+
+    assert :ok = SyncIngestor.ingest_updates([update], actor: actor)
+    assert device_for_mac("F492BF75C721", actor) == unifi.uid
+    assert device_for_mac("F692BF75C721", actor) == unifi.uid
+
+    assert :ok = SyncIngestor.ingest_updates([update], actor: actor)
+    assert device_for_mac("F692BF75C721", actor) == unifi.uid
+  end
+
+  test "mapper SNMP LAN ingest heals an existing UniFi/SNMP sibling split", %{actor: actor} do
+    {:ok, unifi} =
+      Device
+      |> Ash.Changeset.for_create(:create, %{
+        uid: "sr:" <> Ecto.UUID.generate(),
+        hostname: "farm01",
+        ip: "152.117.116.178",
+        mac: "f4:92:bf:75:c7:21"
+      })
+      |> Ash.create(actor: actor)
+
+    {:ok, snmp} =
+      Device
+      |> Ash.Changeset.for_create(:create, %{
+        uid: "sr:" <> Ecto.UUID.generate(),
+        hostname: "farm01",
+        ip: "192.168.1.1",
+        mac: "f6:92:bf:75:c7:21"
+      })
+      |> Ash.create(actor: actor)
+
+    assert {:ok, _} =
+             DeviceIdentifier
+             |> Ash.Changeset.for_create(:register, %{
+               device_id: unifi.uid,
+               identifier_type: :mac,
+               identifier_value: "F492BF75C721",
+               partition: "default",
+               confidence: :strong,
+               source: "test"
+             })
+             |> Ash.create(actor: actor)
+
+    assert {:ok, _} =
+             DeviceIdentifier
+             |> Ash.Changeset.for_create(:register, %{
+               device_id: snmp.uid,
+               identifier_type: :mac,
+               identifier_value: "F692BF75C721",
+               partition: "default",
+               confidence: :medium,
+               source: "test"
+             })
+             |> Ash.create(actor: actor)
+
+    update = %{
+      "hostname" => "farm01",
+      "ip" => "192.168.1.1",
+      "mac" => "f6:92:bf:75:c7:21",
+      "source" => "mapper",
+      "metadata" => %{"identity_mac_kind" => "primary", "source" => "snmp"}
+    }
+
+    assert :ok = SyncIngestor.ingest_updates([update], actor: actor)
+    assert device_for_mac("F692BF75C721", actor) == unifi.uid
+
+    assert {:ok, %Device{deleted_at: deleted_at}} =
+             Device.get_by_uid(snmp.uid, true, actor: actor)
+
+    assert deleted_at
+  end
+
   defp device_for_mac(mac, actor) do
     query =
       Ash.Query.for_read(DeviceIdentifier, :lookup, %{

@@ -194,17 +194,22 @@ jobs:
           # that cluster, loads the committed baseline into one and replays the
           # migrations into the other, then diffs them.
           BASELINE_ADMIN_URL: ${{ secrets.SRQL_TEST_ADMIN_URL }}
-          SRQL_TEST_DATABASE_CA_CERT: ${{ secrets.SRQL_TEST_DATABASE_CA_CERT }}
+          SRQL_FIXTURE_CA_URL: https://srql-fixture-ca.serviceradar.cloud/ca.crt
         run: |
           set -euo pipefail
-          # Fail closed: never silently skip. A missing secret is a
-          # misconfiguration, not a reason to let baseline drift through.
-          if [ -z "${BASELINE_ADMIN_URL:-}" ] || [ -z "${SRQL_TEST_DATABASE_CA_CERT:-}" ]; then
-            echo "::error::Baseline gate cannot run: repository secrets SRQL_TEST_ADMIN_URL and SRQL_TEST_DATABASE_CA_CERT are required. They already back the srql-fixtures integration DB (a Timescale+AGE CNPG cluster). Configure them in Forgejo repo settings." >&2
+          # Fail closed: never silently skip. The admin DSN stays a repository
+          # secret; the CA is fetched live so a 90-day snapshot cannot stall this
+          # gate.
+          if [ -z "${BASELINE_ADMIN_URL:-}" ]; then
+            echo "::error::Baseline gate cannot run: repository secret SRQL_TEST_ADMIN_URL is required. It already backs the srql-fixtures integration DB (a Timescale+AGE CNPG cluster). Configure it in Forgejo repo settings." >&2
             exit 1
           fi
           ca_file="${RUNNER_TEMP:-/tmp}/baseline-ca.crt"
-          printf '%s' "${SRQL_TEST_DATABASE_CA_CERT}" > "${ca_file}"
+          curl -fsS --max-time 20 "${SRQL_FIXTURE_CA_URL}" > "${ca_file}"
+          if ! grep -q "BEGIN CERTIFICATE" "${ca_file}"; then
+            echo "::error::Live fixture CA at ${SRQL_FIXTURE_CA_URL} was not a PEM certificate." >&2
+            exit 1
+          fi
           export PGSSLROOTCERT="${ca_file}"
           export CNPG_CA_FILE="${ca_file}"
           export SERVICERADAR_TEST_DATABASE_CA_CERT_FILE="${ca_file}"

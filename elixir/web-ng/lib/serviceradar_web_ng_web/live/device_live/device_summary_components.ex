@@ -8,6 +8,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.DeviceSummaryComponents do
   attr(:device_row, :map, default: nil)
   attr(:device_deleted, :boolean, default: false)
   attr(:editing, :boolean, default: false)
+  attr(:snmp_polling_source, :map, default: nil)
 
   def device_summary_section(assigns) do
     ~H"""
@@ -48,9 +49,18 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.DeviceSummaryComponents do
 
         <div class="sr-ui-card bg-sr-surface border border-sr-line">
           <div class="sr-ui-card-body p-4 gap-2">
-            <div class="flex items-center gap-2">
-              <.icon name="hero-signal" class="size-4 text-info" />
-              <h3 class="text-sm font-semibold">SNMP</h3>
+            <div class="flex items-center justify-between gap-2">
+              <div class="flex items-center gap-2">
+                <.icon name="hero-signal" class="size-4 text-info" />
+                <h3 class="text-sm font-semibold">SNMP</h3>
+              </div>
+              <.ui_badge
+                :if={is_map(@snmp_polling_source)}
+                size="xs"
+                variant={polling_source_variant(@snmp_polling_source.source)}
+              >
+                {@snmp_polling_source.source_label}
+              </.ui_badge>
             </div>
             <div class="space-y-1 text-sm">
               <.kv_inline
@@ -70,6 +80,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.DeviceSummaryComponents do
                 value={snmp_metadata_value(@device_row, "snmp_description", "sys_descr")}
               />
             </div>
+            <.snmp_polling_source_block source={@snmp_polling_source} />
           </div>
         </div>
 
@@ -84,6 +95,11 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.DeviceSummaryComponents do
                 :if={present?(Map.get(@device_row, "gateway_id"))}
                 label="Gateway"
                 value={Map.get(@device_row, "gateway_id")}
+                mono
+              />
+              <.kv_inline
+                label="Added"
+                value={format_timestamp(device_added_at(@device_row))}
                 mono
               />
               <.kv_inline
@@ -119,6 +135,61 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.DeviceSummaryComponents do
     """
   end
 
+  attr(:source, :map, default: nil)
+
+  defp snmp_polling_source_block(assigns) do
+    ~H"""
+    <div
+      :if={is_map(@source)}
+      class="mt-3 space-y-1 border-t border-sr-line pt-3 text-sm"
+      data-testid="snmp-polling-source"
+    >
+      <div class="text-xs font-semibold uppercase tracking-wide text-sr-muted">Polling</div>
+      <div class="flex items-start gap-2">
+        <span class="shrink-0 text-sr-muted">Profile:</span>
+        <.link
+          :if={is_binary(@source.profile_href) and present?(@source.profile_name)}
+          href={@source.profile_href}
+          class="link link-hover min-w-0 flex-1 break-words"
+        >
+          {@source.profile_name}
+        </.link>
+        <span
+          :if={is_nil(@source.profile_href) or not present?(@source.profile_name)}
+          class="text-sr-ink"
+        >
+          {format_value(@source.profile_name)}
+        </span>
+      </div>
+      <.kv_inline
+        :if={present?(@source.target_query)}
+        label="Matched by"
+        value={@source.target_query}
+        mono
+      />
+      <.kv_inline label="Credential" value={@source.credential_label} />
+      <.kv_inline :if={present?(@source.version)} label="Version" value={@source.version} />
+      <.kv_inline
+        :if={is_integer(@source.poll_interval)}
+        label="Interval"
+        value={"#{@source.poll_interval}s"}
+      />
+      <p
+        :if={@source.source != :none and not @source.credential_configured?}
+        class="text-xs text-warning"
+      >
+        No community or secret is attached, so this device will not be polled.
+      </p>
+      <p :if={@source.profile_enabled == false} class="text-xs text-warning">
+        This profile is disabled.
+      </p>
+      <.link href={@source.settings_href} class="link link-hover text-xs">
+        Manage SNMP profiles
+      </.link>
+    </div>
+    """
+  end
+
   attr(:label, :string, required: true)
   attr(:value, :any, default: nil)
   attr(:mono, :boolean, default: false)
@@ -144,6 +215,11 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.DeviceSummaryComponents do
 
   defp present?(value) when is_binary(value), do: String.trim(value) != ""
   defp present?(value), do: not is_nil(value)
+
+  defp polling_source_variant(:device_override), do: "warning"
+  defp polling_source_variant(:profile), do: "primary"
+  defp polling_source_variant(:default_profile), do: "info"
+  defp polling_source_variant(_), do: "ghost"
 
   defp row_metadata(row) when is_map(row) do
     case Map.get(row, "metadata") || Map.get(row, :metadata) do
@@ -299,6 +375,17 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.DeviceSummaryComponents do
       _ -> "—"
     end
   end
+
+  defp device_added_at(row) when is_map(row) do
+    first_present([
+      Map.get(row, "first_seen"),
+      Map.get(row, "first_seen_time"),
+      Map.get(row, :first_seen),
+      Map.get(row, :first_seen_time)
+    ])
+  end
+
+  defp device_added_at(_row), do: nil
 
   # Agent status comes from the ocsf_agents linkage resolved at load time
   # (DeviceStateData.tag_agent_device/2); the OCSF agent_list column is dead.

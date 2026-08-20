@@ -201,10 +201,14 @@ api_keys =
   System.get_env("SERVICERADAR_API_KEYS") ||
     System.get_env("SERVICERADAR_API_KEY")
 
-config :geolix, databases: base_geolite_dbs ++ city_geolite_dbs ++ ipinfo_dbs
+geolite_dbs = base_geolite_dbs ++ city_geolite_dbs ++ ipinfo_dbs
+
+config :geolix, databases: ServiceRadar.Observability.GeoIP.present_databases(geolite_dbs)
 
 config :serviceradar_core,
-  geolite_mmdb_dir: geolite_dir
+  geolite_mmdb_dir: geolite_dir,
+  geolite_databases: geolite_dbs,
+  egress_proxy: ServiceRadar.HTTP.EgressProxy.from_env()
 
 if api_keys do
   keys =
@@ -743,6 +747,10 @@ config :serviceradar_core, ServiceRadar.NATS.Connection,
   password: {:system, "NATS_PASSWORD"},
   creds_file: nats_creds_file,
   tls: nats_tls_config
+
+config :serviceradar_core,
+       :internal_log_live_nats,
+       to_bool.(System.get_env("SERVICERADAR_INTERNAL_LOG_LIVE_NATS", "false")) == true
 
 config :serviceradar_core,
   device_enrichment_rules_dir:
@@ -1443,67 +1451,6 @@ if config_env() == :prod do
         """
     end
 
-  adbc_uri =
-    case System.get_env("FIELDSURVEY_ADBC_URI") do
-      value when is_binary(value) and value != "" ->
-        value
-
-      _ ->
-        adbc_ssl_mode =
-          case System.get_env("FIELDSURVEY_ADBC_SSL_MODE") do
-            value when is_binary(value) and value != "" ->
-              value
-
-            _ ->
-              if cnpg_ssl_mode == "verify-full" and cnpg_tls_server_name not in [nil, ""] and
-                   cnpg_host not in [nil, ""] and cnpg_tls_server_name != cnpg_host do
-                "verify-ca"
-              else
-                cnpg_ssl_mode
-              end
-          end
-
-        adbc_base_uri =
-          cond do
-            String.starts_with?(repo_url, "ecto://") ->
-              "postgresql://" <> String.replace_prefix(repo_url, "ecto://", "")
-
-            String.starts_with?(repo_url, "postgres://") ->
-              "postgresql://" <> String.replace_prefix(repo_url, "postgres://", "")
-
-            true ->
-              repo_url
-          end
-
-        adbc_params =
-          %{
-            "sslmode" => adbc_ssl_mode,
-            "options" => "-csearch_path=#{System.get_env("CNPG_SEARCH_PATH", "platform, public, ag_catalog")}"
-          }
-          |> then(fn params ->
-            if cnpg_ca_file == "", do: params, else: Map.put(params, "sslrootcert", cnpg_ca_file)
-          end)
-          |> then(fn params ->
-            if cnpg_cert_file == "", do: params, else: Map.put(params, "sslcert", cnpg_cert_file)
-          end)
-          |> then(fn params ->
-            if cnpg_key_file == "", do: params, else: Map.put(params, "sslkey", cnpg_key_file)
-          end)
-
-        parsed_adbc_uri = URI.parse(adbc_base_uri)
-
-        merged_query =
-          parsed_adbc_uri.query
-          |> then(fn
-            nil -> %{}
-            query -> URI.decode_query(query)
-          end)
-          |> Map.merge(adbc_params)
-          |> URI.encode_query()
-
-        URI.to_string(%{parsed_adbc_uri | query: merged_query})
-    end
-
   # The secret key base is used to sign/encrypt cookies and other secrets.
   # A default value is used in config/dev.exs and config/test.exs but you
   # want to use a different value for prod and you most likely don't want
@@ -1675,7 +1622,6 @@ if config_env() == :prod do
   config :serviceradar_web_ng, ServiceRadarWebNG.Auth.Guardian, secret_key: token_signing_secret
   config :serviceradar_web_ng, :base_url, "https://#{host}"
   config :serviceradar_web_ng, :dns_cluster_query, System.get_env("DNS_CLUSTER_QUERY")
-  config :serviceradar_web_ng, :field_survey_adbc_uri, adbc_uri
   config :serviceradar_web_ng, :session, session_config
   config :serviceradar_web_ng, :token_signing_secret, token_signing_secret
   config :serviceradar_web_ng, dev_routes: dev_routes

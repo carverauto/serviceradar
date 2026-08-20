@@ -90,7 +90,7 @@ spec:
       {{- include "serviceradar.podSecurityContext" . | nindent 6 }}
       containers:
         - name: trivy-sidecar
-          image: {{ include "serviceradar.imageRef" (dict "Values" .Values "name" "serviceradar-trivy-sidecar" "service" "trivySidecar") }}
+          image: {{ include "serviceradar.imageRef" (dict "Values" .Values "Chart" .Chart "name" "serviceradar-trivy-sidecar" "service" "trivySidecar") }}
           imagePullPolicy: {{ include "serviceradar.imagePullPolicy" . }}
           {{- include "serviceradar.containerSecurityContext" . | nindent 10 }}
           env:

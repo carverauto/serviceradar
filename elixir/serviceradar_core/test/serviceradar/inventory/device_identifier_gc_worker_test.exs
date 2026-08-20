@@ -21,6 +21,11 @@ defmodule ServiceRadar.Inventory.DeviceIdentifierGcWorkerTest do
 
   @prefix "platform"
 
+  @doc false
+  def forward_gc_run(_event, measurements, metadata, parent) do
+    send(parent, {:gc_run, measurements, metadata})
+  end
+
   setup_all do
     TestSupport.start_core!()
     :ok
@@ -94,10 +99,8 @@ defmodule ServiceRadar.Inventory.DeviceIdentifierGcWorkerTest do
       :telemetry.attach(
         handler_id,
         [:serviceradar, :device_identifier_gc, :run],
-        fn _event, measurements, metadata, _config ->
-          send(parent, {:gc_run, measurements, metadata})
-        end,
-        nil
+        &__MODULE__.forward_gc_run/4,
+        parent
       )
 
     on_exit(fn -> :telemetry.detach(handler_id) end)

@@ -1,0 +1,113 @@
+# gazelle:ignore
+
+load("@io_bazel_rules_go//go:def.bzl", "go_library")
+load("@io_bazel_rules_go//proto:def.bzl", "go_proto_library")
+load("@bazel_skylib//rules:diff_test.bzl", "diff_test")
+load("@rules_elixir//:elixir_library.bzl", "elixir_library")
+load("@rules_elixir//:elixir_proto_library.bzl", "elixir_proto_library")
+load("@rules_proto//proto:defs.bzl", "proto_library")
+
+# The environment configuration schema. See config.proto for the two rules that govern
+# every field (explicit presence, *_UNSPECIFIED enum zero) and why.
+#
+# This package lives under //config rather than //proto deliberately: the schema, the
+# committed instances, the rule set, the fixtures, the vectors and all three
+# implementations change together, and splitting them across trees is what produced the
+# drift this replaces. See design.md Decision 10 before relocating it.
+
+proto_library(
+    name = "config_proto",
+    srcs = ["config.proto"],
+    visibility = ["//visibility:public"],
+)
+
+# The rule set schema. Rules are data, so they get a schema too -- and the predicate is a
+# oneof rather than an enum plus a separate params message, so a predicate and its
+# parameters cannot disagree. Semantics are normative in //config/SEMANTICS.md.
+proto_library(
+    name = "rules_proto",
+    srcs = ["rules.proto"],
+    visibility = ["//visibility:public"],
+    deps = [":config_proto"],
+)
+
+# The raw sources, for the protoc actions that compile committed .textproto instances and
+# the rule set to binary, and for non-Bazel tooling.
+filegroup(
+    name = "config_proto_src",
+    srcs = ["config.proto"],
+    visibility = ["//visibility:public"],
+)
+
+filegroup(
+    name = "rules_proto_src",
+    srcs = ["rules.proto"],
+    visibility = ["//visibility:public"],
+)
+
+go_proto_library(
+    name = "configpb_go_proto",
+    importpath = "github.com/carverauto/serviceradar/config/proto",
+    protos = [
+        ":config_proto",
+        ":rules_proto",
+    ],
+    visibility = ["//visibility:public"],
+)
+
+go_library(
+    name = "configpb",
+    embed = [":configpb_go_proto"],
+    importpath = "github.com/carverauto/serviceradar/config/proto",
+    visibility = ["//visibility:public"],
+)
+
+# Elixir bindings, generated.
+elixir_proto_library(
+    name = "config_ex",
+    deps = [
+        ":config_proto",
+        ":rules_proto",
+    ],
+)
+
+# The generated modules, compiled. srcs is the generator's output directory: its contents are
+# decided by protoc from the proto package names, so they are not knowable at analysis time.
+elixir_library(
+    name = "config_schema",
+    app_name = "serviceradar_config_schema",
+    srcs = [":config_ex"],
+    visibility = ["//visibility:public"],
+    deps = [
+        "@hexpm//:protobuf",
+        "@rules_elixir//elixir",
+    ],
+)
+
+# The checked-in bindings are kept for non-Bazel tooling (mix, IDEs), matching the convention
+# in //config/proto_bindings/go. The Bazel build never reads them -- it compiles :config_ex --
+# so these tests are what stops the two from diverging.
+[
+    genrule(
+        name = "extract_" + f,
+        srcs = [":config_ex"],
+        outs = [f + ".generated.ex"],
+        cmd = "cp $(location :config_ex)/config/proto/" + f + ".pb.ex $@",
+    )
+    for f in [
+        "config",
+        "rules",
+    ]
+]
+
+[
+    diff_test(
+        name = "binding_drift_" + f + "_test",
+        file1 = ":" + f + ".generated.ex",
+        file2 = "//config/proto_bindings/elixir/lib/serviceradar_config/proto:" + f + ".pb.ex",
+    )
+    for f in [
+        "config",
+        "rules",
+    ]
+]

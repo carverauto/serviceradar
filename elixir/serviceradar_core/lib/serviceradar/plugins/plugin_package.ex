@@ -9,12 +9,20 @@ defmodule ServiceRadar.Plugins.PluginPackage do
   use Ash.Resource,
     domain: ServiceRadar.Plugins,
     data_layer: AshPostgres.DataLayer,
-    notifiers: [ServiceRadar.AgentConfig.DependencyNotifier],
+    notifiers: [
+      ServiceRadar.AgentConfig.DependencyNotifier,
+      # Revoking a package must not leave a notification provider bound to it
+      # still active (tasks 3.3.2). The watcher explains why it is a notifier
+      # rather than a change on `:revoke`, and why the enforcing check still
+      # lives at dispatch.
+      ServiceRadar.Notifications.PackageApprovalWatcher
+    ],
     authorizers: [Ash.Policy.Authorizer],
     extensions: [AshStateMachine]
 
   alias ServiceRadar.Changes.AfterAction
   alias ServiceRadar.Plugins.ProducerScheduleCatalog
+  alias ServiceRadar.Plugins.Validations.DisplayContracts
   alias ServiceRadar.Plugins.Validations.Manifest
 
   @package_fields [
@@ -26,6 +34,7 @@ defmodule ServiceRadar.Plugins.PluginPackage do
     :manifest,
     :config_schema,
     :display_contract,
+    :display_contracts,
     :signal_schemas,
     :producer_schedules,
     :wasm_object_key,
@@ -95,6 +104,7 @@ defmodule ServiceRadar.Plugins.PluginPackage do
       accept @package_create_fields
 
       validate Manifest
+      validate DisplayContracts
       change &sync_producer_schedule_contracts/2
     end
 
@@ -103,6 +113,7 @@ defmodule ServiceRadar.Plugins.PluginPackage do
       accept @package_fields
 
       validate Manifest
+      validate DisplayContracts
       change &sync_producer_schedule_contracts/2
     end
 
@@ -202,6 +213,19 @@ defmodule ServiceRadar.Plugins.PluginPackage do
       allow_nil? false
       public? true
       default %{}
+    end
+
+    attribute :display_contracts, :map do
+      allow_nil? false
+      public? true
+      default %{}
+
+      description """
+      Package-shipped display contract documents, keyed by "<contract_id>@<contract_version>". \
+      Read at RUNTIME by the UI, which is what lets a third-party package ship a renderable \
+      contract without a web-ng recompile. Validated by ServiceRadar.Plugins.DisplayContract \
+      on the way in, never trusted on the way out.\
+      """
     end
 
     attribute :signal_schemas, {:array, :map} do

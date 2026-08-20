@@ -110,22 +110,6 @@ defmodule ServiceRadar.Repo.Migrations.BackfillCanonicalOtelIds do
     run_batches(sql)
   end
 
-  defp batched_traces_parent_update(expression, condition) do
-    sql = """
-    UPDATE #{schema()}.otel_traces
-    SET parent_span_id = #{expression}
-    WHERE (timestamp, trace_id, span_id) IN (
-      SELECT timestamp, trace_id, span_id
-      FROM #{schema()}.otel_traces
-      WHERE #{condition}
-      LIMIT #{@batch_size}
-    )
-    AND (#{condition})
-    """
-
-    run_batches(sql)
-  end
-
   defp run_batches(sql) do
     case query_num_rows(sql) do
       {:ok, num_rows} when num_rows >= @batch_size -> run_batches(sql)

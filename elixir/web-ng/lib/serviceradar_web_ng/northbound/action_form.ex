@@ -156,26 +156,18 @@ defmodule ServiceRadarWebNG.Northbound.ActionForm do
     "#{humanize(field)} must be valid JSON."
   end
 
-  def format_launch_error(:action_not_found, _target_label), do: "Select a launchable task."
+  def format_launch_error(:action_not_found, _target_label), do: "Select a launchable action."
   def format_launch_error(:targets_required, target_label), do: "Select at least one #{target_label}."
 
-  def format_launch_error(:no_applicable_devices, _target_label) do
-    "None of the selected devices are in an AWX inventory, so there is nothing to run this task against."
-  end
-
-  def format_launch_error({:invalid_extra_vars_json, message}, _target_label) do
-    "Advanced extra_vars must be a valid JSON object: #{message}"
-  end
-
-  def format_launch_error(:descriptor_not_found, _target_label), do: "The selected task no longer exists."
-  def format_launch_error(:descriptor_disabled, _target_label), do: "The selected task is disabled."
+  def format_launch_error(:descriptor_not_found, _target_label), do: "The selected action no longer exists."
+  def format_launch_error(:descriptor_disabled, _target_label), do: "The selected action is disabled."
 
   def format_launch_error({:provider_not_active, _status}, _target_label) do
-    "The selected task integration is not active."
+    "The selected action integration is not active."
   end
 
-  def format_launch_error(%Forbidden{}, _target_label), do: "You are not authorized to launch tasks."
-  def format_launch_error(_reason, _target_label), do: "Failed to create task invocation."
+  def format_launch_error(%Forbidden{}, _target_label), do: "You are not authorized to launch actions."
+  def format_launch_error(_reason, _target_label), do: "Failed to create action invocation."
 
   defp validate_required(required, input) do
     missing =

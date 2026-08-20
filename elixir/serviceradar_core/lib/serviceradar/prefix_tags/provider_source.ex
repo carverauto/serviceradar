@@ -20,6 +20,17 @@ defmodule ServiceRadar.PrefixTags.ProviderSource do
 
   @source "provider"
 
+  @active_meta_sql """
+  SELECT
+    s.id,
+    s.source_sha256,
+    s.record_count,
+    COALESCE(s.promoted_at, s.fetched_at, s.inserted_at)
+  FROM platform.netflow_provider_dataset_snapshots s
+  WHERE s.is_active = TRUE
+  LIMIT 1
+  """
+
   @load_active_sql """
   SELECT
     s.id AS snapshot_id,
@@ -50,6 +61,61 @@ defmodule ServiceRadar.PrefixTags.ProviderSource do
   def reload(opts \\ []) do
     broadcast? = Keyword.get(opts, :broadcast?, true)
 
+    case fetch_active_snapshot_meta() do
+      {:ok, nil} ->
+        Store.clear(@source)
+        maybe_broadcast(broadcast?)
+        {:ok, ExternalSources.reload_result(0, nil)}
+
+      {:ok, meta} ->
+        if skip_rebuild?(meta) do
+          Logger.info("PrefixTags.ProviderSource trie already current",
+            rows: meta.record_count,
+            snapshot_id: meta.id
+          )
+
+          {:ok, ExternalSources.reload_result(meta.record_count, meta.snapshot_at)}
+        else
+          load_and_install(meta, broadcast?)
+        end
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  rescue
+    e -> {:error, e}
+  end
+
+  @doc false
+  @spec snapshot_token(map()) :: String.t()
+  def snapshot_token(%{id: id, source_sha256: sha, record_count: count}) do
+    "#{id}:#{sha || ""}:#{count}"
+  end
+
+  defp skip_rebuild?(meta) do
+    Store.loaded?(@source) and Store.snapshot_token(@source) == snapshot_token(meta)
+  end
+
+  defp fetch_active_snapshot_meta do
+    case SQL.query(Repo, @active_meta_sql, []) do
+      {:ok, %{rows: []}} ->
+        {:ok, nil}
+
+      {:ok, %{rows: [[id, sha, count, snapshot_at]]}} ->
+        {:ok,
+         %{
+           id: id,
+           source_sha256: sha,
+           record_count: count || 0,
+           snapshot_at: ExternalSources.normalize_datetime(snapshot_at)
+         }}
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
+  defp load_and_install(meta, broadcast?) do
     case SQL.query(Repo, @load_active_sql, []) do
       {:ok, result} ->
         %{active_snapshot?: active_snapshot?, rows: rows, snapshot_at: snapshot_at} =
@@ -59,6 +125,7 @@ defmodule ServiceRadar.PrefixTags.ProviderSource do
           # An active, authoritative zero-row snapshot must remain registered
           # as loaded so callers do not fall back to an older SQL cache.
           _ = Store.put_rows(@source, rows)
+          _ = Store.put_snapshot_token(@source, snapshot_token(meta))
         else
           Store.clear(@source)
         end
@@ -70,8 +137,6 @@ defmodule ServiceRadar.PrefixTags.ProviderSource do
       {:error, reason} ->
         {:error, reason}
     end
-  rescue
-    e -> {:error, e}
   end
 
   defp maybe_broadcast(true), do: Loader.broadcast_invalidation(%{source: @source})

@@ -14,6 +14,7 @@ defmodule ServiceRadarWebNG.Plugins.NativeAddonSync do
   alias ServiceRadarWebNG.Plugins.NativeAddonImporter
 
   require Ash.Query
+  require Logger
 
   @type sync_result ::
           {:imported, AddonPackage.t()}
@@ -48,13 +49,16 @@ defmodule ServiceRadarWebNG.Plugins.NativeAddonSync do
               {:skipped, package}
             end
 
+          Keyword.get(opts, :replace, false) == true ->
+            sync_import(
+              addon,
+              opts
+              |> Keyword.put(:existing_review_status, package.status)
+              |> Keyword.put(:replace_existing, true)
+            )
+
           true ->
-            # A release can re-wrap an unchanged, signed bundle in a new OCI
-            # manifest. The exact-source fast path above avoids fetching in the
-            # usual case; source drift reaches the verified core reconciler,
-            # which only reuses byte-equivalent package content and otherwise
-            # retains the existing immutable package.
-            sync_import(addon, Keyword.put(opts, :existing_review_status, package.status))
+            {:error, source_conflict(package, addon)}
         end
 
       {:error, _reason} = error ->
@@ -107,7 +111,14 @@ defmodule ServiceRadarWebNG.Plugins.NativeAddonSync do
   end
 
   defp sync_import(addon, opts) do
-    case NativeAddonImporter.import_with_disposition(import_attrs(addon)) do
+    attrs =
+      if Keyword.get(opts, :replace_existing, false) do
+        Map.put(import_attrs(addon), :replace_existing, true)
+      else
+        import_attrs(addon)
+      end
+
+    case NativeAddonImporter.import_with_disposition(attrs) do
       {:ok, package, :created} ->
         with {:ok, package} <- maybe_approve(package, opts) do
           {:imported, package}
@@ -121,7 +132,14 @@ defmodule ServiceRadarWebNG.Plugins.NativeAddonSync do
       {:ok, package, :reused} ->
         {:skipped, package}
 
-      {:error, _reason} = error ->
+      {:error, reason} = error ->
+        Logger.warning("Native add-on import failed",
+          addon_id: addon.addon_id,
+          version: addon.version,
+          release_tag: addon.release_tag,
+          reason: inspect(reason, limit: 16)
+        )
+
         error
     end
   end
@@ -233,9 +251,17 @@ defmodule ServiceRadarWebNG.Plugins.NativeAddonSync do
        existing_oci_ref: package.source_oci_ref,
        existing_oci_digest: package.source_oci_digest,
        discovered_oci_ref: addon.oci_ref,
-       discovered_oci_digest: addon.oci_digest
+       discovered_oci_digest: addon.oci_digest,
+       existing_bundle_digest: package_bundle_digest(package),
+       discovered_bundle_digest: normalize_digest(addon.bundle_digest)
      }}
   end
+
+  defp package_bundle_digest(%AddonPackage{source_metadata: metadata}) when is_map(metadata) do
+    normalize_digest(Map.get(metadata, "bundle_digest") || Map.get(metadata, :bundle_digest))
+  end
+
+  defp package_bundle_digest(_package), do: nil
 
   defp source_matches?(%AddonPackage{} = package, addon) do
     existing_ref = normalize_source_ref(package.source_oci_ref)

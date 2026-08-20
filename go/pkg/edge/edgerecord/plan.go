@@ -23,6 +23,7 @@ import (
 	"math"
 	"math/bits"
 	"net/netip"
+	"strings"
 
 	"google.golang.org/protobuf/proto"
 
@@ -249,6 +250,23 @@ func ValidatePlanPages(h *edgev1.ScheduledPlanHeaderV1, pages []*edgev1.Schedule
 		return err
 	}
 
+	// STRUCTURAL COUNTS BEFORE ANY RECURSIVE WALK. Both checks below are O(1) per page on an
+	// already-decoded slice, and both bound the traversal that follows: hasUnknownFields
+	// RECURSES into every range of every page, so counting afterwards did the work the ceiling
+	// exists to prevent. Every count precedes every walk, rather than interleaving per page, so
+	// the rule is statable in one sentence instead of depending on iteration order.
+	//
+	// PRECEDENCE, frozen: an oversize page list whose pages ALSO carry unknown fields is a
+	// BOUNDS refusal. Both are refusals, so only a precedence assertion can hold this.
+	if len(pages) == 0 || len(pages) > MaxManifestPages {
+		return ErrPlanBounds
+	}
+	for _, p := range pages {
+		if len(p.GetRanges()) == 0 || len(p.GetRanges()) > MaxRangesPerPage {
+			return ErrPlanBounds
+		}
+	}
+
 	for _, p := range pages {
 		if hasUnknownFields(p) {
 			return ErrUnknownFields
@@ -257,9 +275,6 @@ func ValidatePlanPages(h *edgev1.ScheduledPlanHeaderV1, pages []*edgev1.Schedule
 
 	if int(h.GetPageCount()) != len(pages) {
 		return ErrPlanChain
-	}
-	if len(pages) == 0 || len(pages) > MaxManifestPages {
-		return ErrPlanBounds
 	}
 	var total uint64
 	rangeIDs := map[string]bool{}
@@ -273,9 +288,8 @@ func ValidatePlanPages(h *edgev1.ScheduledPlanHeaderV1, pages []*edgev1.Schedule
 		if int(p.GetPageIndex()) != i || int(p.GetPageCount()) != len(pages) {
 			return ErrPlanChain
 		}
-		if len(p.GetRanges()) == 0 || len(p.GetRanges()) > MaxRangesPerPage {
-			return ErrPlanBounds
-		}
+		// The range count is bounded ABOVE, before the recursive walk. Re-checking it here
+		// would be dead code that reads like the enforcement point.
 		if !bytes.Equal(p.GetCheckSetSha256(), h.GetCheckSetSha256()) {
 			return ErrPlanCheckSet
 		}
@@ -348,8 +362,9 @@ func validateTargetRange(r *edgev1.TargetRangeV1, pageCheckSet, headerPolicy []b
 	if len(r.GetRangeSha256()) != sha256Len || !bytes.Equal(RangeDigest(r), r.GetRangeSha256()) {
 		return fmt.Errorf("%w: range digest", ErrPlanRange)
 	}
-	if len(r.GetCidr()) > MaxRangeStrBytes || len(r.GetFirstAddress()) > MaxRangeStrBytes || len(r.GetLastAddress()) > MaxRangeStrBytes {
-		return fmt.Errorf("%w: address string too long", ErrPlanRange)
+	checked, err := checkRangeStrings(r)
+	if err != nil {
+		return err
 	}
 	hasCidr := r.GetCidr() != ""
 	hasSpan := r.GetFirstAddress() != "" || r.GetLastAddress() != ""
@@ -359,7 +374,7 @@ func validateTargetRange(r *edgev1.TargetRangeV1, pageCheckSet, headerPolicy []b
 	if r.GetTargetCount() == 0 {
 		return fmt.Errorf("%w: zero target count", ErrPlanRange)
 	}
-	spanSize, err := rangeSpanSize(r)
+	spanSize, err := rangeSpanSize(checked)
 	if err != nil {
 		return err
 	}
@@ -377,8 +392,11 @@ func validateTargetRange(r *edgev1.TargetRangeV1, pageCheckSet, headerPolicy []b
 	if len(pageCheckSet) != 0 && !bytes.Equal(r.GetCheckSetSha256(), pageCheckSet) {
 		return ErrPlanCheckSet
 	}
-	// Reconcile the range availability policy with the header's, and bound it.
-	if len(r.GetAvailabilityPolicyId()) > MaxPolicyIDBytes || !bytes.Equal(r.GetAvailabilityPolicyId(), headerPolicy) {
+	// EQUALITY ONLY -- the length bound is CENTRALIZED at the header. `ValidatePlanHeader` bounds
+	// the policy before any range is reached, and a range must equal that already-bounded value.
+	// A second length arm here would be unreachable on its own AND would mask a missing header
+	// bound, so the rule lives in exactly one place.
+	if !bytes.Equal(r.GetAvailabilityPolicyId(), headerPolicy) {
 		return fmt.Errorf("%w: range availability policy", ErrPlanRange)
 	}
 	return nil
@@ -388,9 +406,51 @@ func validateTargetRange(r *edgev1.TargetRangeV1, pageCheckSet, headerPolicy []b
 // the number of addresses it spans (saturating to MaxUint64 for spans wider than
 // 64 bits). It rejects a non-canonical CIDR (host bits set), an unparseable
 // address, a family mismatch, or first > last.
-func rangeSpanSize(r *edgev1.TargetRangeV1) (uint64, error) {
-	if r.GetCidr() != "" {
-		p, err := netip.ParsePrefix(r.GetCidr())
+// checkedRangeStrings holds a range's address strings AFTER the field preflight. It exists so
+// the ORDER is hard to get wrong rather than remembered: rangeSpanSize takes this type and not
+// a TargetRangeV1, so reaching a parser means having gone through the preflight -- the same
+// reasoning that made the plan page-only path unexported.
+//
+// IT IS NOT UNFORGEABLE. This is an ordinary same-package struct, so anything in this package
+// can construct one and bypass the preflight entirely. What catches that is the whole-validator
+// zoned row in the corpus, not the type.
+type checkedRangeStrings struct{ cidr, first, last string }
+
+// checkRangeStrings is THE field preflight for a range's address strings: length bounds, then
+// the IPv6-zone prohibition. It parses nothing.
+//
+// LENGTH FIRST, because an over-length value should not be scanned at all. Then the ZONE. A
+// zone names an interface on the machine that WROTE the string; it has no meaning at the
+// receiver, which cannot resolve it to the same thing the author meant, if at all.
+//
+// THE ZONE IS REFUSED, NEVER STRIPPED. These strings feed the range, page, plan-root, header
+// and assignment digest chain, so rewriting one changes every digest above it and forks a
+// plan's identity from the bytes its author signed. A plan carrying zoned addresses is
+// regenerated by its author, not repaired by a consumer.
+//
+// WITHOUT THE ZONE RULE THE RUNTIMES DISAGREE, and neither reports a zone problem: netip
+// accepts a scoped address and round-trips it canonically, so THIS runtime admits it -- at the
+// ceiling, since a zone is arbitrary-length text. The Elixir parser accepts the text, DISCARDS
+// the zone, and refuses the re-encoded form as a non-canonical SPELLING.
+func checkRangeStrings(r *edgev1.TargetRangeV1) (checkedRangeStrings, error) {
+	c := checkedRangeStrings{cidr: r.GetCidr(), first: r.GetFirstAddress(), last: r.GetLastAddress()}
+
+	for _, v := range []string{c.cidr, c.first, c.last} {
+		if len(v) > MaxRangeStrBytes {
+			return checkedRangeStrings{}, fmt.Errorf("%w: address string too long", ErrPlanRange)
+		}
+	}
+	for _, v := range []string{c.cidr, c.first, c.last} {
+		if strings.ContainsRune(v, '%') {
+			return checkedRangeStrings{}, fmt.Errorf("%w: address carries an IPv6 zone", ErrPlanRange)
+		}
+	}
+	return c, nil
+}
+
+func rangeSpanSize(s checkedRangeStrings) (uint64, error) {
+	if s.cidr != "" {
+		p, err := netip.ParsePrefix(s.cidr)
 		if err != nil {
 			return 0, fmt.Errorf("%w: unparseable cidr", ErrPlanRange)
 		}
@@ -399,7 +459,7 @@ func rangeSpanSize(r *edgev1.TargetRangeV1) (uint64, error) {
 		}
 		// Reject non-canonical textual spellings (e.g. 2001:0DB8::/32) so one
 		// network cannot have multiple content digests.
-		if p.String() != r.GetCidr() {
+		if p.String() != s.cidr {
 			return 0, fmt.Errorf("%w: non-canonical cidr spelling", ErrPlanRange)
 		}
 		hostBits := p.Addr().BitLen() - p.Bits()
@@ -411,15 +471,15 @@ func rangeSpanSize(r *edgev1.TargetRangeV1) (uint64, error) {
 		}
 		return uint64(1) << uint(hostBits), nil
 	}
-	first, err := netip.ParseAddr(r.GetFirstAddress())
+	first, err := netip.ParseAddr(s.first)
 	if err != nil {
 		return 0, fmt.Errorf("%w: unparseable first address", ErrPlanRange)
 	}
-	last, err := netip.ParseAddr(r.GetLastAddress())
+	last, err := netip.ParseAddr(s.last)
 	if err != nil {
 		return 0, fmt.Errorf("%w: unparseable last address", ErrPlanRange)
 	}
-	if first.String() != r.GetFirstAddress() || last.String() != r.GetLastAddress() {
+	if first.String() != s.first || last.String() != s.last {
 		return 0, fmt.Errorf("%w: non-canonical address spelling", ErrPlanRange)
 	}
 	if first.BitLen() != last.BitLen() || first.Is4() != last.Is4() {

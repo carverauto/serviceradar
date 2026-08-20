@@ -1,13 +1,206 @@
+# ServiceRadar v1.4.35
+
+Recut of the unpublished 1.4.34 contents, plus the rules_elixir / rules_erlang
+unification that landed after the `v1.4.34` tag. Harbor already made the
+`v1.4.34` native add-on tags immutable, and those artifacts were signed with
+the wrong agent-release key, so a formal catalog cannot be published under
+that version.
+
+## Whats New
+
+**1.4.35**
+- Recut of unpublished 1.4.34. Harbor `serviceradar-addon-*:v1.4.34` tags
+  are immutable and were signed with a GitHub secret that did not match
+  the committed agent public key (`ZY2//…`). Agents would reject those
+  packages. GitHub tag `v1.4.34` exists, but the draft never received
+  packages or import catalogs.
+- Build: remaining first-party Mix/OTP rules move onto `rules_elixir` /
+  `rules_erlang` (proto + Mix payload toolchains, restored macOS
+  targets, hermetic OTP contract). (PR #3771)
+- CI: GitHub catalog upload finds draft releases via the list API,
+  skips already-immutable Harbor extra tags and classic Cosign
+  signature tags on retry, and uses `GH_TOKEN` on ARC signing runners.
+  (PRs #3776, #3777, #3778, #3779, #3780)
+
+# ServiceRadar v1.4.34
+
+Device risk scoring from NVD + KEV + CWE, Findings UI with KEV floor, and
+an EventWriter pull-inflight fix so traces and OTLP metrics stop going
+silent after a long-lived core. Also ships multi-arch web-ng/core-elx,
+moves lint/check CI onto GitHub ARC, and points Settings first-party
+plugin/add-on and agent-release import at GitHub Releases instead of
+Forgejo.
+
+## Whats New
+
+**1.4.34**
+- Recut of the unpublished 1.4.33 contents. GitHub immutable releases
+  permanently consume a tag name when the release is deleted, so `v1.4.33`
+  and `v1.4.33-1` cannot be recreated.
+- Inventory risk: compose NVD and CISA/VulnCheck KEV into one CVE finding
+  with CWE context, a KEV floor of 90 on the Findings overlay, and a
+  periodic DeviceRiskAssessmentWorker that writes `ocsf_devices.risk_score`
+  through DeviceRiskReducer only. Endpoint inventory scores KEV at 90 per
+  payload; device-level Score.compute floors KEV at 70 and folds CWE.
+  IOC exposure is listed on the device. (PRs #5008, #3591)
+- EventWriter: expire stale JetStream pull inflight so a hung fetch no
+  longer parks the otel-traces / otel-metrics / logs durables (last
+  delivery ages out, unprocessed piles up, Observability goes empty while
+  the log-collector is still receiving OTLP). (PR #3764)
+- Egress: Finch HTTP (Bumblebee, advisory feeds, and other Req clients)
+  goes through SERVICERADAR_EGRESS_PROXY. The default Finch connect
+  options no longer crash the Bumblebee s7 integration shard. (PRs
+  #5003, #5007)
+- Images: web-ng and core-elx now publish multi-arch OCI indexes. (PR
+  #5001)
+- Build: Rust crates vendor as .crate archives; OpenSSL is built
+  hermetically in Bazel. The native add-on version gate no longer
+  requires a MODULE.bazel.lock hash that rules_rs cannot satisfy. (PR
+  #5002)
+- CI: lint and check workflows run on GitHub ARC. Publish/sign workflows
+  (release, Wasm, native add-ons, OCI, security bundles) now run on
+  GitHub ARC `serviceradar-signing` and publish catalogs to GitHub
+  Releases. SRQL fixture TLS is issued with cert-manager and a live CA.
+  Bootstrap scratch DROP cancellation no longer fails core s7. The
+  cache-proxy config test now ships the GitHub integration workflow in
+  its runfiles and matches BuildBuddy's `//...` SRQL selection.
+  (PRs #5010, #3768, #5005, #3772)
+- Plugins: Settings first-party Wasm plugin and native add-on import
+  now reads GitHub Releases (`github.com/carverauto/serviceradar`) plus
+  Harbor OCI, not Forgejo. `ForgejoOciClient` is gone; the shared
+  transport is `FirstPartyReleaseClient`. `GitHubImporter` is unchanged
+  and still fetches source-tree `plugin.yaml`/`plugin.wasm`. Agent
+  release import (`ReleaseSourceImporter` and Settings → Agents) now
+  uses the same GitHub Releases API; Forgejo URLs are rejected.
+- Web UI: boolean device-fact keys in composite checks are a combobox,
+  not free text. (PR #4997)
+
+# ServiceRadar v1.4.32
+
+Stops core from OOM-reloading leftover provider CIDR snapshots (the demo
+netflow outage), ships composite service checks, and republishes images
+after Harbor dropped the v1.4.31 tags.
+
+## Whats New
+
+**1.4.32**
+- Provider CIDR snapshots: hourly AshOban prune keeps the active snapshot
+  plus one inactive rollback (2-day floor) and batch-deletes child CIDR
+  rows. `PrefixTags.ProviderSource` skips a trie rebuild when the durable
+  snapshot token already matches the in-memory handle, and no longer parks
+  a previous 410k-prefix persistent_term trie. This is the path that OOM'd
+  core-elx and took netflow down on demo. (PR #4994)
+- Composite service checks: an operator-authored decision table over
+  multi-vantage reachability plus device facts, with SRQL
+  (`composite.<slug>:<verdict>`, `in:composite_results`), a builder at
+  `/settings/networks/composite-checks`, device-list/detail surfacing, and
+  optional Armis northbound export of the verdict. Checks derive, they do
+  not probe. (PRs #4962, #4982, #4993)
+- Images: 14 of 16 in-scope OCI images now publish a multi-arch index.
+  `cnpg` / `cnpg_analytics` stay amd64 by design; `web_ng` and `core_elx`
+  remain amd64 (adbc CMake triple, Membrane `*_linux_x86` archives). Also
+  restores `--config=remote` as an alias of `--config=ci`. (PR #4988)
+- Plugins: first-party Wasm trust anchors (cosign public key and upload
+  signers) ship in chart defaults, so a stock `helm install` can import
+  first-party packages. Policy-envelope `params` are no longer validated
+  against the operator `config_schema` (that made Proxmox inventory
+  unconfigurable since package 0.1.5). Inventory assignments accept the
+  policy id the materializer actually emits. (PRs #4981, #4985, #4990)
+- Web UI: LiveView client is vendored at 1.2.9 to match Hex (flow detail
+  no longer fails with an asset version mismatch). Topology cluster clicks
+  expand, empty-canvas clicks no longer blank the graph, and device ID/IP
+  in the details card are real links. Settings metrics render as a card
+  grid. Pasted AWX controller tokens survive LiveView validate. (PRs
+  #4967, #4968, #4973, #4992)
+- Notifications and mail: Discord test-send is allowed out of demo
+  NetworkPolicy and embeds an Open-in-ServiceRadar link. Email channel
+  Cc/Bcc are optional; the "no relay" warning points at Settings > Mail.
+  (PRs #4969, #4972)
+- Farm/ops follow-ups: `RecordEventWorker` unwraps nested Oban args so
+  edge onboarding events land. SRQL catalog accepts `device_id` on flows
+  and `interface_uid` on interfaces. SNMP reuse, banner-grab protocol
+  toggles, prefix-tag site/role-only save, map-click CIDR lat/long, and
+  agent-package latest-approved add-on versions. Capacity forecasting and
+  Seasonal disposition cron rows now have names in `/admin/jobs`. (PRs
+  #4966, #4977, #4974)
+- Build: hermetic LLVM + rules_rs, faster Erlang/Elixir rules, and
+  host-native Bazel database-integration lifecycle (`cache_only` + local
+  TestRunner). (PRs #4980, #4986, #4921)
+
+# ServiceRadar v1.4.31
+
+Emergency Ash 3.31.3 upgrade for CVE-2026-67579 (keyset pagination cursor
+injection), plus farm-tested identity and sweep/notification fixes.
+
+## Whats New
+
+**1.4.31**
+- Security: upgrade Ash from 3.31.2 to 3.31.3 to close CVE-2026-67579. A
+  forged keyset `page[:after]` / `page[:before]` cursor could inject an
+  `Ash.Query.Call` filter, which AshPostgres inlined as SQL and ETS/Simple
+  evaluated in-process. The floor is now `~> 3.31.3` in `serviceradar_core`.
+- Hex lock updates that came with the Ash bump: reactor 1.0.6, splode 0.3.2,
+  and stream_data 1.4.0 across the Elixir apps; web-ng also takes Req 0.7.2,
+  igniter 0.8.3, and related compiler-tool patches; core-elx takes Phoenix
+  1.8.11 and ex_sdp 1.2.0.
+- UniFi/SNMP identity: stamp the UniFi controller host as an alternate IP on
+  the named gateway, and treat IEEE UAA/LAA NIC siblings as one DIRE device
+  so WAN UniFi and LAN SNMP identities converge. Recursive SNMP now includes
+  UniFi wired clients that already have a management IPv4.
+- Mapper SNMP skip and failure logs now name the target IP and any known
+  hostname so a timeout is not an anonymous "Failed to query system info".
+- Sweep Groups stamp `last_run_at` when results land and show the latest
+  execution time/status. Scanner profiles no longer compile TCP without
+  ports, drop unsupported ARP before it reaches the agent, and strip LiveView
+  `_unused_*` keys so Discord notification-channel save is not rejected by
+  `additionalProperties: false`.
+- Discord Send test no longer treats a typed webhook URL as a missing
+  credential reference. The persist contract still requires a stored
+  reference; the test path accepts the just-typed secret (or the saved
+  reference if the password box is left blank) and does not run the
+  outbound URL policy against a `secretref:` handle.
+- MTR History Retention now converts `mtr_traces`/`mtr_hops` to hypertables
+  and attaches Timescale policies, so Save no longer reports "policy missing"
+  after a successful write (fj#4955). Dashboard Latency/Packet Loss read
+  those tables instead of OTEL `traces_stats_5m`. Events Over Time falls
+  back to raw `ocsf_events` when the hourly rollup is an empty leftover
+  view, and a repair migration replaces that view with a real CAGG.
+
 # ServiceRadar v1.4.30
 
 Rebuilt the CNPG database image so its compiled extensions actually load, and
 made a `helm upgrade` across a database image bump need no manual steps. Adds
-reusable credentials for SNMP, plugins and integrations, Kubernetes public
-endpoint inventory, and a Teleport-style SSO certificate SSH console.
+opt-in cold-storage tiering, reusable credentials for SNMP, plugins and
+integrations, Kubernetes public endpoint inventory, and a Teleport-style SSO
+certificate SSH console. Fixes a live data-loss defect in which continuous
+aggregates progressively deleted their own materialized history, and clears
+eight dependency advisories.
 
 ## Whats New
 
 **1.4.30**
+- Continuous aggregates no longer delete their own history. `drop_chunks`
+  records an invalidation covering every dropped chunk, and any refresh whose
+  window reaches into that region recomputes those buckets from now-empty raw
+  -- so a policy refreshing 32 days back over 7-day-retained raw silently wiped
+  every pre-retention bucket, verified on TimescaleDB 2.24.0. Nine aggregates
+  were refreshing further back than their source retains; their windows are now
+  clamped, and the retention worker alerts on any deployment that drifts back
+  into the hazard. Already-lost buckets are not resurrected -- the raw data is
+  gone. (PR #4874)
+- Cold-storage tiering, entirely opt-in. Raw telemetry past the hot window can
+  be exported to Parquet in object storage and queried through a dedicated
+  pg_duckdb analytics head, with retention gated on verified export so nothing
+  is dropped before it is archived. A deployment that does not enable it runs
+  no additional processes or jobs, gains two empty tables and a `NOLOGIN` role,
+  and sees no change to retention or query behaviour. (PR #4881)
+- Security: eight dependency advisories cleared, including two HIGH and a
+  Postgrex SQL-injection issue reachable through the `:comment` option of
+  `Postgrex.stream/4`. (PRs #4867, #4879)
+- Agents no longer require NATS credentials to be provisioned for OTEL
+  forwarding; the collector relays through the supervising agent over the acked
+  `otlp-relay:v1` stream, and sites with a local NATS leaf opt in explicitly.
+  (PR #4705)
 - Database image: TimescaleDB and Apache AGE are now compiled *and* linked
   against the runtime's glibc rather than the build executor's, so the shipped
   `.so` files load instead of stopping PostgreSQL at startup. Both are in
@@ -33,11 +226,18 @@ endpoint inventory, and a Teleport-style SSO certificate SSH console.
   what is assignable, and only producer-schedule profiles are reconciled.
   Credential broker grants and resolution audits are now retained rather than
   growing unbounded. (PRs #4813, #4816, #4818, #4834, #4839, #4841, #4847)
-- SRQL and query UX: bidirectional `ip:`/`cidr:` flow filters, `%` wildcards
-  honoured on flow IP filters, `sort:` respected when truncating downsample
-  buckets, downsample and stats tokens no longer flagged as unknown, and address
-  filters default to equals instead of contains. (PRs #4827, #4830, #4832,
-  #4836, #4838)
+- SRQL and query UX: bidirectional `ip:`/`cidr:` flow filters, `cidr:` now
+  supported on downsampled flows, `%` wildcards honoured on flow IP filters,
+  `sort:` respected when truncating downsample buckets, downsample and stats
+  tokens no longer flagged as unknown, address filters default to equals instead
+  of contains, and the query bar keeps recent query history. (PRs #4827, #4830,
+  #4832, #4836, #4838, #4856, #4859)
+- Web UI: ops navbars are pinned and the device breakdown focus bug is fixed.
+  (PR #4858)
+- Authentication: a closed pooled connection during the OIDC token exchange is
+  retried once instead of surfacing as a login failure. (PR #4797)
+- Credentials: the agent credential reconciler no longer halts its outer reduce
+  early, so every matching rule is processed. (PR #4794)
 - Kubernetes inventory: public endpoints are collected through the agent, with
   VIP flow joins and attribution fixes so traffic resolves to the right service.
   (PR #4854)
@@ -52,6 +252,13 @@ endpoint inventory, and a Teleport-style SSO certificate SSH console.
   to 19.2.8 with dual installs eliminated, and the BuildBuddy workflow and
   Elixir integration tests were reworked. (PRs #4774, #4790, #4792, #4801,
   #4810, #4814, #4815, #4824, #4825, #4826, #4843, #4844, #4846)
+- Gates that were passing without checking anything: the add-on version gate
+  matched vacuously on every push to staging, `make lint-elixir` was inert,
+  migration compilation was never exercised by any test tier (a migration that
+  does not compile blocks the entire migration run, not just itself), and the
+  integration suite could not reach its database fixture from a remote executor
+  at all. Each is now enforced, and `make test` runs the unit suite the way CI
+  does. (PRs #4860, #4864, #4866, #4872, #4888)
 - Fixes: scan and CLI tests establish closed ports and bound NSS shell-outs;
   a stray kubeconfig committed as a file named `~` was removed. (PRs #4793,
   #4812)

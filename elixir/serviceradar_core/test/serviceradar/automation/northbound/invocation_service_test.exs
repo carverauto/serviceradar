@@ -63,7 +63,7 @@ defmodule ServiceRadar.Automation.Northbound.InvocationServiceTest do
       id: Ash.UUID.generate(),
       email: "northbound-launcher@serviceradar.local",
       role: :viewer,
-      permissions: MapSet.new(["northbound.actions.view", "northbound.actions.launch"])
+      permissions: MapSet.new(["northbound.actions.launch"])
     }
 
     assert {:ok, invocation} =

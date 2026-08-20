@@ -8,8 +8,10 @@ Application.ensure_all_started(:telemetry)
 # not runtime -- Bazel cannot know how long a test takes. Measured spread across 8 shards was
 # 17.9s to 103.7s of ExUnit time, so the slowest shard sets the wall clock and the rest idle.
 #
-#   bazel test //elixir/serviceradar_core:integration_tests_s6 \
-#     --test_env=SERVICERADAR_TEST_SLOWEST=15 --test_output=all
+# After the canonical fixture lifecycle provisions s6:
+#
+#   bazel test "${TEST_FLAGS[@]}" --test_env=SERVICERADAR_TEST_SLOWEST=15 \
+#     --test_output=all //elixir/serviceradar_core:integration_tests_s6
 #
 # Off unless the variable is set: the report costs nothing to collect but adds noise to every
 # normal run.
@@ -29,10 +31,10 @@ slowest =
 # Bazel has no way to unset a variable for an action, only to set one, so "" has to be the
 # lever.
 #
-# The failure it prevents: `--test_env=SERVICERADAR_TEST_DATABASE_URL` in //.bazelrc is
-# valueless, so it copies whatever the developer's shell holds. Anyone following the SRQL
-# fixture playbook in AGENTS.md has it exported, which sent the unit sweep down this branch,
-# started the application, and killed 13 targets on
+# The failure it prevents: a valueless `--test_env=SERVICERADAR_TEST_DATABASE_URL` used to be
+# global, so it copied whatever the developer's shell held. Anyone following the SRQL fixture
+# playbook had it exported, which sent the unit sweep down this branch, started the application,
+# and killed 13 targets on
 # "Oban migrations have not been run. The oban_jobs table does not exist."
 database_available? =
   Enum.any?(
@@ -77,8 +79,8 @@ else
     raise """
     SERVICERADAR_ONLY_INTEGRATION is set but no test database URL is present.
 
-    Set SRQL_TEST_DATABASE_URL or SERVICERADAR_TEST_DATABASE_URL. Under Bazel these reach
-    the test through the --test_env list in .bazelrc.
+    Set SRQL_TEST_DATABASE_URL or SERVICERADAR_TEST_DATABASE_URL. Guarded Bazel integration
+    invocations forward the base URL through --config=database_env.
     """
   end
 

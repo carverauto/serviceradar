@@ -70,11 +70,30 @@ mod aarch64 {
 #[cfg(target_arch = "aarch64")]
 pub use aarch64::*;
 
+#[cfg(target_arch = "loongarch64")]
+mod loongarch64 {
+    use gimli::{LoongArch, Register};
+
+    pub struct Arch;
+
+    #[allow(unused)]
+    impl Arch {
+        pub const SP: Register = LoongArch::SP;
+        pub const RA: Register = LoongArch::RA;
+
+        pub const UNWIND_DATA_REG: (Register, Register) = (LoongArch::A0, LoongArch::A1);
+        pub const UNWIND_PRIVATE_DATA_SIZE: usize = 2;
+    }
+}
+#[cfg(target_arch = "loongarch64")]
+pub use loongarch64::*;
+
 #[cfg(not(any(
     target_arch = "x86_64",
     target_arch = "x86",
     target_arch = "riscv64",
     target_arch = "riscv32",
-    target_arch = "aarch64"
+    target_arch = "aarch64",
+    target_arch = "loongarch64"
 )))]
 compile_error!("Current architecture is not supported");

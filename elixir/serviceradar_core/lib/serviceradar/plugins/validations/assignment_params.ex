@@ -26,10 +26,11 @@ defmodule ServiceRadar.Plugins.Validations.AssignmentParams do
         Map.get(changeset.data, :params) || %{}
 
     schema_from_context = Map.get(changeset.context, :config_schema)
+    policy_envelope? = policy_envelope?(changeset, params)
 
     with {:ok, schema} <- resolve_schema(schema_from_context, package_id),
          :ok <- validate_batch_params(params),
-         :ok <- validate_params(schema, params),
+         :ok <- validate_params(schema, params, policy_envelope?),
          :ok <- validate_secret_linkage(schema, params),
          :ok <- validate_auth_linkage(params) do
       :ok
@@ -76,14 +77,57 @@ defmodule ServiceRadar.Plugins.Validations.AssignmentParams do
     end
   end
 
-  defp validate_params(schema, params) when is_map(schema) and map_size(schema) > 0 do
-    case ConfigSchema.validate_params(schema, params) do
+  defp validate_params(schema, params, policy_envelope?)
+       when is_map(schema) and map_size(schema) > 0 do
+    case ConfigSchema.validate_params(schema, operator_params(params, policy_envelope?)) do
       :ok -> :ok
       {:error, errors} -> {:error, {:invalid_params, errors}}
     end
   end
 
-  defp validate_params(_schema, _params), do: :ok
+  defp validate_params(_schema, _params, _policy_envelope?), do: :ok
+
+  # A package `config_schema` is the operator-facing contract. A policy-owned
+  # assignment carries no operator keys at the top level -- they live under
+  # "template", inside the platform-owned `serviceradar.plugin_inputs.v1`
+  # envelope. Those envelope keys were already validated by
+  # `validate_batch_params/1` against `PluginInputs`' own closed schema earlier
+  # in the same `with`; running them through `config_schema` as well makes every
+  # package that sets `additionalProperties: false` reject its own materialized
+  # assignment. That is how proxmox-inventory became unmaterializable
+  # (go/cmd/wasm-plugins/proxmox/config.schema.json).
+  #
+  # This is a subset restriction, not a skip. `PluginInputs` closes its own
+  # schema, so anything left after dropping the envelope keys is still handed to
+  # `config_schema` and still validated strictly.
+  defp operator_params(params, true) when is_map(params),
+    do: Map.drop(params, PluginInputs.envelope_keys())
+
+  defp operator_params(params, _policy_envelope?), do: params
+
+  # Both halves are required.
+  #
+  # `source == :policy` because config_schema's `additionalProperties: false` is
+  # today the only thing stopping a hand-written assignment from carrying a
+  # forged `credential_broker`: ProxmoxHostAuthority accepts a grant from either
+  # params["credential_broker"] or params["template"]["credential_broker"], and
+  # `PluginInputs` types "template" as a free-form object, constraining nothing
+  # inside it. An unconditional carve-out would widen that trust boundary for no
+  # benefit -- no lib/ path ever gives a manual assignment envelope-shaped params.
+  #
+  # The schema id because it proves the strict envelope validation above actually
+  # ran. This is deliberately narrower than `PluginInputs.plugin_inputs_payload?/1`,
+  # which also matches a bare "inputs" key: a partial or forged envelope must not
+  # buy an exemption.
+  defp policy_envelope?(changeset, params) when is_map(params) do
+    source =
+      Ash.Changeset.get_attribute(changeset, :source) ||
+        Map.get(changeset.data, :source) || :manual
+
+    source == :policy and Map.get(params, "schema") == PluginInputs.schema_id()
+  end
+
+  defp policy_envelope?(_changeset, _params), do: false
 
   defp validate_secret_linkage(schema, params) when is_map(params) do
     case SecretRefs.validate_secret_linkage(schema, params) do

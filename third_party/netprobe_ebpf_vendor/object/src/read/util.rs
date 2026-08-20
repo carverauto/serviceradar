@@ -5,6 +5,7 @@ use core::marker::PhantomData;
 
 use crate::pod::{from_bytes, slice_from_bytes, Pod};
 use crate::read::ReadRef;
+use crate::SkipDebugList;
 
 /// A newtype for byte slices.
 ///
@@ -275,7 +276,7 @@ pub struct StringTable<'data, R = &'data [u8]>
 where
     R: ReadRef<'data>,
 {
-    data: Option<R>,
+    data: Option<SkipDebugList<R>>,
     start: u64,
     end: u64,
     marker: PhantomData<&'data ()>,
@@ -285,7 +286,7 @@ impl<'data, R: ReadRef<'data>> StringTable<'data, R> {
     /// Interpret the given data as a string table.
     pub fn new(data: R, start: u64, end: u64) -> Self {
         StringTable {
-            data: Some(data),
+            data: Some(SkipDebugList(data)),
             start,
             end,
             marker: PhantomData,

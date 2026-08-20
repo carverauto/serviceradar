@@ -41,6 +41,8 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.View do
               available_templates={@available_templates}
               agents={@agents}
               snmp_credentials={@snmp_credentials}
+              save_credential_as_reusable={@save_credential_as_reusable}
+              credential_name={@credential_name}
             />
           <% else %>
             <.profiles_panel

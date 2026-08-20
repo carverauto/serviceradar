@@ -5214,7 +5214,6 @@ table:has(.sr-ui-dropdown) td:has(.sr-ui-dropdown) {
 .sr-ops-threat-intel {
   min-height: 9.35rem;
   display: grid;
-  grid-template-rows: auto auto auto 1fr;
   gap: 0.65rem;
   padding: 0.72rem;
   border: 1px solid var(--sr-color-line);
@@ -5223,7 +5222,9 @@ table:has(.sr-ui-dropdown) td:has(.sr-ui-dropdown) {
 }
 
 .sr-ops-threat-intel-link:hover,
-.sr-ops-threat-intel-link:focus-visible {
+.sr-ops-threat-intel-link:focus-visible,
+.sr-ops-threat-sync-link:hover,
+.sr-ops-threat-sync-link:focus-visible {
   border-color: rgba(62, 207, 135, 0.58);
   background: color-mix(in srgb, var(--sr-color-subtle) 88%, transparent);
 }
@@ -5476,6 +5477,13 @@ table:has(.sr-ui-dropdown) td:has(.sr-ui-dropdown) {
   gap: 0.58rem;
 }
 
+.sr-ops-threat-sync-link {
+  color: inherit;
+  text-decoration: none;
+  border-radius: 0.45rem;
+  padding: 0.08rem 0.08rem 0.08rem 0;
+}
+
 .sr-ops-threat-sync strong,
 .sr-ops-threat-sync small,
 .sr-ops-threat-message {
@@ -5497,8 +5505,8 @@ table:has(.sr-ui-dropdown) td:has(.sr-ui-dropdown) {
   margin-top: 0.12rem;
   color: #8fa39a;
   font-size: 0.68rem;
-  line-height: 1.25;
-  white-space: nowrap;
+  line-height: 1.35;
+  white-space: normal;
 }
 
 .sr-ops-threat-status {
@@ -5540,6 +5548,74 @@ table:has(.sr-ui-dropdown) td:has(.sr-ui-dropdown) {
 .sr-ops-threat-stat-grid .sr-ops-small-stat {
   min-height: 3.1rem;
   border-radius: 0.45rem;
+}
+
+.sr-ops-threat-matches {
+  display: grid;
+  gap: 0.32rem;
+}
+
+.sr-ops-threat-matches-empty {
+  padding: 0.4rem 0.12rem;
+  color: #8fa39a;
+  font-size: 0.7rem;
+  line-height: 1.35;
+}
+
+.sr-ops-threat-match {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 0.5rem;
+  min-width: 0;
+  padding: 0.4rem 0.48rem;
+  border: 1px solid rgba(38, 54, 58, 0.62);
+  border-radius: 0.45rem;
+  background: color-mix(in srgb, var(--sr-color-subtle) 55%, transparent);
+}
+
+.sr-ops-threat-match-ip {
+  display: block;
+  overflow: hidden;
+  color: #f8fafc;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 0.74rem;
+  font-weight: 700;
+  line-height: 1.25;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sr-ops-threat-match-meta {
+  display: block;
+  overflow: hidden;
+  margin-top: 0.08rem;
+  color: #8fa39a;
+  font-size: 0.64rem;
+  line-height: 1.3;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sr-ops-threat-match-links {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 0.55rem;
+}
+
+.sr-ops-threat-match-links a {
+  color: #86efac;
+  font-size: 0.66rem;
+  font-weight: 700;
+  line-height: 1.2;
+  text-decoration: none;
+}
+
+.sr-ops-threat-match-links a:hover,
+.sr-ops-threat-match-links a:focus-visible {
+  text-decoration: underline;
+  outline: none;
 }
 
 .sr-ops-threat-detail {
@@ -5683,6 +5759,7 @@ table:has(.sr-ui-dropdown) td:has(.sr-ui-dropdown) {
 [data-theme="light"] .sr-ops-kpi-card strong,
 [data-theme="light"] .sr-ops-small-stat strong,
 [data-theme="light"] .sr-ops-threat-sync strong,
+[data-theme="light"] .sr-ops-threat-match-ip,
 [data-theme="light"] .sr-ops-threat-detail strong,
 [data-theme="light"] .sr-ops-virt-summary strong,
 [data-theme="light"] .sr-ops-virt-pressure-row strong,
@@ -5701,6 +5778,8 @@ table:has(.sr-ui-dropdown) td:has(.sr-ui-dropdown) {
 [data-theme="light"] .sr-ops-metric-card span,
 [data-theme="light"] .sr-ops-metric-card small,
 [data-theme="light"] .sr-ops-threat-sync small,
+[data-theme="light"] .sr-ops-threat-matches-empty,
+[data-theme="light"] .sr-ops-threat-match-meta,
 [data-theme="light"] .sr-ops-threat-detail span,
 [data-theme="light"] .sr-ops-threat-message,
 [data-theme="light"] .sr-ops-virt-summary span,
@@ -6206,7 +6285,9 @@ table:has(.sr-ui-dropdown) td:has(.sr-ui-dropdown) {
 }
 
 [data-theme="light"] .sr-ops-threat-intel-link:hover,
-[data-theme="light"] .sr-ops-threat-intel-link:focus-visible {
+[data-theme="light"] .sr-ops-threat-intel-link:focus-visible,
+[data-theme="light"] .sr-ops-threat-sync-link:hover,
+[data-theme="light"] .sr-ops-threat-sync-link:focus-visible {
   border-color: rgba(11, 130, 77, 0.42);
   background: rgba(240, 253, 244, 0.72);
 }
@@ -6312,9 +6393,14 @@ table:has(.sr-ui-dropdown) td:has(.sr-ui-dropdown) {
   background: #f8fafc;
 }
 
-[data-theme="light"] .sr-ops-threat-detail {
+[data-theme="light"] .sr-ops-threat-detail,
+[data-theme="light"] .sr-ops-threat-match {
   border-color: rgba(148, 163, 184, 0.42);
   background: rgba(248, 250, 252, 0.72);
+}
+
+[data-theme="light"] .sr-ops-threat-match-links a {
+  color: #047857;
 }
 
 [data-theme="light"] .sr-ops-alert-row {

@@ -9,7 +9,7 @@ This library serves two purposes:
 1. Provide a pure Rust alternative to libgcc_eh or libunwind.
 2. Provide easier unwinding support for `#![no_std]` targets.
 
-Currently supports x86_64, x86, RV64, RV32 and AArch64.
+Currently supports x86_64, x86, RV64, RV32, AArch64, and LoongArch64.
 
 ## Unwinder
 

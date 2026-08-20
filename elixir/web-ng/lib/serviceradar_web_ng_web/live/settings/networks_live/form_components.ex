@@ -3,7 +3,8 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.FormComponents do
 
   use ServiceRadarWebNGWeb, :html
 
-  import ServiceRadarWebNGWeb.Settings.NetworksLive.ActiveScansComponents, only: [format_last_run: 1]
+  import ServiceRadarWebNGWeb.Settings.NetworksLive.ActiveScansComponents,
+    only: [format_last_run: 1, group_last_run_at: 1]
 
   alias ServiceRadar.SweepJobs.SweepProfile.BannerGrab
   alias ServiceRadarWebNGWeb.SRQL.Catalog
@@ -325,6 +326,25 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.FormComponents do
           <label class="text-sm font-medium text-sr-ink">Enable this sweep group</label>
         </div>
 
+        <div class="space-y-1">
+          <div class="flex items-center gap-2">
+            <.input
+              type="checkbox"
+              field={@form[:emit_availability_events]}
+              class={ui_checkbox_class()}
+            />
+            <label class="text-sm font-medium text-sr-ink">
+              Emit availability events
+            </label>
+          </div>
+          <p class="text-xs text-sr-muted pl-7">
+            When a sweep flips a device to unreachable, write a
+            <code class="bg-sr-subtle px-1 rounded">device.unavailable</code>
+            event. Recovery writes <code class="bg-sr-subtle px-1 rounded">device.available</code>
+            and clears the matching alert.
+          </p>
+        </div>
+
         <!-- Actions -->
         <div class="flex justify-end gap-2 pt-4 border-t border-sr-line">
           <.link navigate={~p"/settings/networks"}>
@@ -342,6 +362,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.FormComponents do
   attr :show_form, :atom, required: true
   attr :can_enable_banner_grab, :boolean, default: false
   attr :banner_preview_device_count, :any, default: nil
+  attr :banner_grab_draft, :any, default: nil
 
   def profile_form(assigns) do
     ~H"""
@@ -455,16 +476,6 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.FormComponents do
               />
               <span>TCP</span>
             </label>
-            <label class="flex items-center gap-2 cursor-pointer">
-              <input
-                type="checkbox"
-                name="form[sweep_modes][]"
-                value="arp"
-                class={ui_checkbox_class()}
-                checked={Enum.member?(selected_modes, "arp")}
-              />
-              <span>ARP</span>
-            </label>
           </div>
         </div>
 
@@ -473,7 +484,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.FormComponents do
           <label class="text-sm font-medium text-sr-ink">Enabled</label>
         </div>
 
-        <% banner_grab = banner_grab_form_value(@form) %>
+        <% banner_grab = @banner_grab_draft || banner_grab_form_value(@form) %>
         <% banner_preview = banner_grab_preview(banner_grab, @banner_preview_device_count) %>
         <div class="rounded-lg border border-sr-line p-4 space-y-4">
           <div class="flex flex-wrap items-start justify-between gap-3">
@@ -724,7 +735,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.FormComponents do
           </div>
           <div>
             <div class="text-xs text-sr-muted uppercase">Last Run</div>
-            <div class="mt-1">{format_last_run(@group.last_run_at)}</div>
+            <div class="mt-1">{format_last_run(group_last_run_at(@group))}</div>
           </div>
         </div>
       </.ui_panel>
@@ -751,6 +762,12 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.FormComponents do
           </div>
           <div :if={@group.static_targets == [] and @group.target_query in [nil, ""]}>
             <p class="text-sr-muted">No targets configured.</p>
+          </div>
+          <div class="pt-2 text-xs text-sr-muted">
+            Availability events:
+            <span class="text-sr-ink">
+              {if(@group.emit_availability_events, do: "on", else: "off")}
+            </span>
           </div>
         </div>
       </.ui_panel>

@@ -87,6 +87,7 @@ fn recog_service(protocol: &str) -> Option<RecogService> {
         "sip" => Some(RecogService::SipBanner),
         "rdp" => Some(RecogService::RdpBanner),
         "dns" => Some(RecogService::DnsVersion),
+        "ntp" => Some(RecogService::NtpReadvar),
         _ => None,
     }
 }

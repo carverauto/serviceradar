@@ -41,6 +41,28 @@ defmodule ServiceRadar.PrefixTags.ProviderSourceTest do
     assert Enum.map(parsed.rows, & &1.tags) == [["provider:aws"], ["provider:gcp"]]
   end
 
+  test "snapshot_token is stable for the same durable snapshot" do
+    meta = %{
+      id: "45cb4ae7-d020-4708-a59c-ed5d387990a4",
+      source_sha256: "abc",
+      record_count: 410_063
+    }
+
+    assert ProviderSource.snapshot_token(meta) ==
+             "45cb4ae7-d020-4708-a59c-ed5d387990a4:abc:410063"
+
+    Store.put_rows("provider", [
+      %{prefix: "10.0.0.0/8", tags: ["provider:aws"], source: "provider"}
+    ])
+
+    Store.put_snapshot_token("provider", ProviderSource.snapshot_token(meta))
+    assert Store.loaded?("provider")
+    assert Store.snapshot_token("provider") == ProviderSource.snapshot_token(meta)
+
+    Store.clear("provider")
+    assert Store.snapshot_token("provider") == nil
+  end
+
   test "query parser distinguishes an active empty snapshot from no active snapshot" do
     snapshot_at = ~U[2026-07-18 10:30:00Z]
 

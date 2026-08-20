@@ -14,11 +14,15 @@
     },
     "username": {
       "type": "string",
-      "description": "Camera API username"
+      "x-serviceradar-ui-hidden": true,
+      "x-serviceradar-credential-materialized": true,
+      "description": "Camera API username. Stored on a username/password credential secret, not on this assignment."
     },
     "password": {
       "type": "string",
-      "description": "Camera API password"
+      "x-serviceradar-ui-hidden": true,
+      "x-serviceradar-credential-materialized": true,
+      "description": "Camera API password. Stored on a credential secret, not on this assignment."
     },
     "timeout_ms": {
       "type": "integer",

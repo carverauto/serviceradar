@@ -53,5 +53,7 @@
   "bucket": "serviceradar-datasvc",
   "bucket_history": 1,
   "bucket_ttl": "24h",
-  "bucket_max_bytes": 5368709120
+  "bucket_max_bytes": 2147483648,
+  "object_max_bytes": 536870912,
+  "object_store_bytes": 2147483648
 }

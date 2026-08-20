@@ -479,6 +479,8 @@ defmodule ServiceRadar.Cluster.StartupMigrations do
     end)
 
     # Skip sequences owned by tables; PostgreSQL forbids changing their owner directly.
+    # Both dependency kinds, for the reason spelled out on admin_sequence_owned_by_table?/2:
+    # serial gives deptype 'a', an identity column gives 'i', and only the pair is complete.
     %{rows: seq_rows} =
       Postgrex.query!(
         conn,
@@ -490,7 +492,7 @@ defmodule ServiceRadar.Cluster.StartupMigrations do
           "AND NOT EXISTS (\n" <>
           "  SELECT 1 FROM pg_depend d\n" <>
           "  WHERE d.objid = c.oid\n" <>
-          "  AND d.deptype = 'a'\n" <>
+          "  AND d.deptype IN ('a', 'i')\n" <>
           ")",
         [graph_name]
       )
@@ -955,6 +957,18 @@ defmodule ServiceRadar.Cluster.StartupMigrations do
 
   defp relation_ownership_statement(_conn, _oid, _schema, _name, _kind, _app_user), do: nil
 
+  # PostgreSQL refuses `ALTER SEQUENCE ... OWNER TO` on a sequence that belongs to a table
+  # ("cannot change owner of sequence X / Sequence X is linked to table Y"), so the ownership
+  # sweep has to recognise and skip them.
+  #
+  # Both dependency kinds count. `serial`/`bigserial` produce deptype 'a' (auto), but a
+  # `GENERATED ... AS IDENTITY` column produces deptype 'i' (internal) -- checking only 'a'
+  # left identity sequences looking free-standing, and the sweep then issued an ALTER the
+  # server rejects. That aborted DatabaseBootstrap the first time any platform table used an
+  # identity column (cold_chunk_exports), which is how it was found; it was latent in every
+  # release before that only because none did.
+  #
+  # 'p' alongside 'r' so a partitioned table's identity sequence is caught too.
   defp admin_sequence_owned_by_table?(conn, sequence_oid) do
     case Postgrex.query!(
            conn,
@@ -962,8 +976,8 @@ defmodule ServiceRadar.Cluster.StartupMigrations do
              "FROM pg_depend d\n" <>
              "JOIN pg_class c ON c.oid = d.refobjid\n" <>
              "WHERE d.objid = $1\n" <>
-             "AND d.deptype = 'a'\n" <>
-             "AND c.relkind = 'r'\n" <>
+             "AND d.deptype IN ('a', 'i')\n" <>
+             "AND c.relkind IN ('r', 'p')\n" <>
              "LIMIT 1",
            [sequence_oid]
          ) do
@@ -1242,9 +1256,28 @@ defmodule ServiceRadar.Cluster.StartupMigrations do
         Enum.each(statements, fn statement ->
           ServiceRadar.Repo.query!(statement, [], timeout: :infinity)
         end)
+
+        seed_required_baseline_data!()
       end,
       timeout: :infinity
     )
+  end
+
+  # The supported baseline generator deliberately uses pg_dump --schema-only.
+  # Keep required singleton data in the application-owned bootstrap transaction
+  # so regenerating the baseline cannot silently discard it.
+  defp seed_required_baseline_data! do
+    ServiceRadar.Repo.query!("""
+    INSERT INTO platform.auth_settings (
+      id,
+      mode,
+      is_enabled,
+      allow_password_fallback,
+      sso_auto_provision
+    )
+    VALUES (gen_random_uuid(), 'password_only', false, true, false)
+    ON CONFLICT DO NOTHING
+    """)
   end
 
   defp mark_baseline_migrations_applied!(migrations_path, %{

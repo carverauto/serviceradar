@@ -1,6 +1,5 @@
 //! This module provides a [`Builder`] for reading, modifying, and then writing ELF files.
 use alloc::vec::Vec;
-use core::convert::TryInto;
 use core::fmt;
 use core::marker::PhantomData;
 #[cfg(not(feature = "std"))]
@@ -10,7 +9,7 @@ use std::collections::HashMap;
 
 use crate::build::{ByteString, Bytes, Error, Id, IdPrivate, Item, Result, Table};
 use crate::elf;
-use crate::read::elf::{Dyn, FileHeader, ProgramHeader, Rela, SectionHeader, Sym};
+use crate::read::elf::{FileHeader, ProgramHeader, Rela, SectionHeader, Sym};
 use crate::read::{self, FileKind, ReadRef};
 use crate::write;
 use crate::Endianness;
@@ -282,9 +281,8 @@ impl<'data> Builder<'data> {
                 }
                 elf::SHT_NOTE => SectionData::Note(section.data(endian, data)?.into()),
                 elf::SHT_DYNAMIC => {
-                    let (dyns, link) = section.dynamic(endian, data)?.unwrap();
-                    let dynamic_strings = sections.strings(endian, data, link)?;
-                    Self::read_dynamics::<Elf, _>(endian, dyns, dynamic_strings)?
+                    let dynamic_table = section.dynamic_table(endian, data, &sections)?.unwrap();
+                    Self::read_dynamics::<Elf, _>(&dynamic_table)?
                 }
                 elf::SHT_GNU_ATTRIBUTES => {
                     let attributes = section.attributes(endian, data)?;
@@ -434,10 +432,10 @@ impl<'data> Builder<'data> {
             )
             .map(SectionData::Relocation)
         } else {
-            return Err(Error(format!(
+            Err(Error(format!(
                 "Invalid sh_link {} in relocation section at index {}",
                 link.0, index,
-            )));
+            )))
         }
     }
 
@@ -477,33 +475,20 @@ impl<'data> Builder<'data> {
     }
 
     fn read_dynamics<Elf, R>(
-        endian: Elf::Endian,
-        dyns: &'data [Elf::Dyn],
-        strings: read::StringTable<'data, R>,
+        dynamic_table: &read::elf::DynamicTable<'data, Elf, R>,
     ) -> Result<SectionData<'data>>
     where
         Elf: FileHeader<Endian = Endianness>,
         R: ReadRef<'data>,
     {
-        let mut dynamics = Vec::with_capacity(dyns.len());
-        for d in dyns {
-            let tag = d.d_tag(endian).into().try_into().map_err(|_| {
-                Error(format!(
-                    "Unsupported dynamic tag 0x{:x}",
-                    d.d_tag(endian).into()
-                ))
-            })?;
-            if tag == elf::DT_NULL {
-                break;
-            }
-            let val = d.d_val(endian).into();
-            dynamics.push(if d.is_string(endian) {
-                let val =
-                    strings
-                        .get(val.try_into().map_err(|_| {
-                            Error(format!("Unsupported dynamic string 0x{:x}", val))
-                        })?)
-                        .map_err(|_| Error(format!("Invalid dynamic string 0x{:x}", val)))?;
+        let mut dynamics = Vec::with_capacity(dynamic_table.len());
+        for d in dynamic_table {
+            let tag = d.tag;
+            let val = d.val;
+            dynamics.push(if d.is_string() {
+                let val = d
+                    .string(dynamic_table.strings())
+                    .map_err(|_| Error(format!("Invalid dynamic string 0x{:x}", val)))?;
                 Dynamic::String {
                     tag,
                     val: val.into(),
@@ -1401,18 +1386,18 @@ impl<'data> Builder<'data> {
                                             )))
                                         }
                                     };
-                                    writer.write_dynamic(tag, val);
+                                    writer.write_dynamic(tag, val)?;
                                 }
                                 Dynamic::Integer { tag, val } => {
-                                    writer.write_dynamic(tag, val);
+                                    writer.write_dynamic(tag, val)?;
                                 }
                                 Dynamic::String { tag, ref val } => {
                                     let val = writer.get_dynamic_string(val);
-                                    writer.write_dynamic_string(tag, val);
+                                    writer.write_dynamic_string(tag, val)?;
                                 }
                             }
                         }
-                        writer.write_dynamic(elf::DT_NULL, 0);
+                        writer.write_dynamic(elf::DT_NULL, 0)?;
                     }
                     SectionData::DynamicSymbol => {
                         writer.write_null_dynamic_symbol();
@@ -2832,14 +2817,14 @@ pub enum Dynamic<'data> {
         /// The `d_tag` field in the dynamic entry.
         ///
         /// One of the `DT_*` values.
-        tag: u32,
+        tag: i64,
     },
     /// The value is an integer.
     Integer {
         /// The `d_tag` field in the dynamic entry.
         ///
         /// One of the `DT_*` values.
-        tag: u32,
+        tag: i64,
         /// The `d_val` field in the dynamic entry.
         val: u64,
     },
@@ -2848,7 +2833,7 @@ pub enum Dynamic<'data> {
         /// The `d_tag` field in the dynamic entry.
         ///
         /// One of the `DT_*` values.
-        tag: u32,
+        tag: i64,
         /// The string value.
         ///
         /// This will be stored in the dynamic string section.
@@ -2860,7 +2845,7 @@ impl<'data> Dynamic<'data> {
     /// The `d_tag` field in the dynamic entry.
     ///
     /// One of the `DT_*` values.
-    pub fn tag(&self) -> u32 {
+    pub fn tag(&self) -> i64 {
         match self {
             Dynamic::Auto { tag } => *tag,
             Dynamic::Integer { tag, .. } => *tag,

@@ -7,6 +7,7 @@ defmodule ServiceRadar.Monitoring.Alert do
   - `pending` -> `escalated` (via timeout)
   - `acknowledged` -> `resolved`
   - `acknowledged` -> `escalated`
+  - `escalated` -> `acknowledged`
 
   ## Alert Severities
 
@@ -35,7 +36,10 @@ defmodule ServiceRadar.Monitoring.Alert do
   alias ServiceRadar.Monitoring.Alert.AutoEscalateWorker
   alias ServiceRadar.Monitoring.Alert.SendNotificationsScheduler
   alias ServiceRadar.Monitoring.Alert.SendNotificationsWorker
+  alias ServiceRadar.Monitoring.Changes.EnqueueRoutingRequest
+  alias ServiceRadar.Monitoring.Changes.RecordNotificationSent
   alias ServiceRadar.Oban.AshObanQueueResolver
+  alias ServiceRadar.Policies.Checks.ActorHasPermission
 
   @alert_trigger_fields [
     :title,
@@ -58,11 +62,22 @@ defmodule ServiceRadar.Monitoring.Alert do
   @alert_metadata_fields [:metadata, :tags]
   @alert_operator_actions [
     :trigger,
-    :acknowledge,
-    :resolve,
     :record_notification,
     :update_metadata
   ]
+
+  # The operator-facing lifecycle actions, gated below on the role OR on the
+  # existing RBAC key `observability.alerts.manage`, catalogued verbatim as
+  # "Acknowledge and resolve alerts".
+  #
+  # Two reasons this is its own list. `:snooze` and `:unsnooze` previously
+  # appeared in NO policy at all, and Ash forbids a request that no policy
+  # applies to, so snooze was reachable only by a system actor - the emailed
+  # action-link path - and no operator interface could ever have used it.
+  # `:helpdesk` holds `observability.alerts.manage` by default but is not
+  # `is_operator()`, so acknowledgement authority granted in the RBAC catalog
+  # has to be honoured here or the catalog entry is a lie.
+  @alert_acknowledgement_actions [:acknowledge, :snooze, :unsnooze, :resolve]
   @alert_admin_actions [:escalate, :suppress, :reopen]
 
   postgres do
@@ -95,7 +110,16 @@ defmodule ServiceRadar.Monitoring.Alert do
 
     transitions do
       # Normal lifecycle
-      transition :acknowledge, from: :pending, to: :acknowledged
+      #
+      # `:escalated` is an acknowledgeable source state, and it is the important
+      # one. `auto_escalate` moves a critical alert out of `:pending` after 30
+      # minutes, and `Notifications.Suppression.acknowledged?/1` keys strictly on
+      # `status == :acknowledged` (`notifications/suppression.ex:306`). With
+      # `from: :pending` alone, the alerts that escalated - exactly the ones a
+      # human most needs to take ownership of - were the ones no acknowledgement
+      # could reach, so an `:if_unacknowledged` ladder could never be halted by
+      # answering it. `resolve` and `suppress` already accept `:escalated`.
+      transition :acknowledge, from: [:pending, :escalated], to: :acknowledged
       transition :resolve, from: [:pending, :acknowledged, :escalated], to: :resolved
       transition :escalate, from: [:pending, :acknowledged], to: :escalated
       transition :suppress, from: [:pending, :acknowledged, :escalated], to: :suppressed
@@ -124,7 +148,16 @@ defmodule ServiceRadar.Monitoring.Alert do
               )
       end
 
-      # Scheduled trigger for sending notifications on new/escalated alerts
+      # First-notification safety net for new/escalated alerts.
+      #
+      # `read :needs_notification` is `notification_count == 0` and skips a
+      # suppressed or snoozed alert, so this scan can only ever originate a
+      # FIRST notification - never a renotify, an escalation rung, or a retry.
+      # Those are keyed on NotificationDelivery rows rather than on alerts and
+      # are driven by the delivery-keyed workers that now share this queue
+      # (`:notifications`, concurrency 5, `config.exs:36`, which also carries
+      # the routing, dispatch, continuation, silence-expiry, and
+      # delivery-retention workers under `ServiceRadar.Notifications`).
       trigger :send_notifications do
         queue :notifications
         extra_args &AshObanQueueResolver.job_meta/1
@@ -186,14 +219,36 @@ defmodule ServiceRadar.Monitoring.Alert do
     end
 
     read :needs_notification do
-      description "Alerts that need notification"
-      # Find alerts that are active and either:
-      # - Never notified (notification_count == 0)
-      # - Not suppressed (suppressed_until is nil or in the past)
+      description "Alerts awaiting their FIRST notification"
+
+      # Deliberately first-notify only (`notification_count == 0`).
+      #
+      # Continuation work - retry-due, escalation-step-due, and renotify - is
+      # keyed on NotificationDelivery rows, not on alerts, so it cannot be
+      # driven from an alert-keyed scan. A separate delivery-keyed scheduler on
+      # the same `:notifications` queue owns that; the two are not redundant
+      # because they select over different tables.
+      #
+      # An alert is skipped here while suppressed or snoozed. Both are
+      # timestamp comparisons, so an expiring snooze becomes eligible again on
+      # the next scheduler tick with no state transition required.
       filter expr(
                status in [:pending, :escalated] and
                  notification_count == 0 and
-                 (is_nil(suppressed_until) or suppressed_until < now())
+                 (is_nil(suppressed_until) or suppressed_until < now()) and
+                 (is_nil(snooze_until) or snooze_until < now())
+             )
+
+      pagination keyset?: true, default_limit: 100
+    end
+
+    read :snooze_expired do
+      description "Alerts whose snooze has lapsed and that are still actionable"
+
+      filter expr(
+               status in [:pending, :escalated] and
+                 not is_nil(snooze_until) and
+                 snooze_until < now()
              )
 
       pagination keyset?: true, default_limit: 100
@@ -235,9 +290,40 @@ defmodule ServiceRadar.Monitoring.Alert do
       argument :acknowledged_by, :string, allow_nil?: false
       argument :note, :string
 
+      # Set when the acknowledging principal maps to a platform user. Left nil
+      # for an external principal (a chat or paging identity), which is why the
+      # free-text `acknowledged_by` is retained alongside it.
+      accept [:acknowledged_by_user_id]
+
       change transition_state(:acknowledged)
       change set_attribute(:acknowledged_at, &DateTime.utc_now/0)
       change set_attribute(:acknowledged_by, arg(:acknowledged_by))
+
+      # Acknowledging ends any active snooze: a human has taken ownership, so
+      # the deferral no longer applies.
+      change set_attribute(:snooze_until, nil)
+    end
+
+    update :snooze do
+      description "Defer notification dispatch for this alert until a future time"
+
+      argument :snooze_until, :utc_datetime_usec, allow_nil?: false
+      argument :note, :string
+
+      # Snooze is NOT a state-machine transition. It leaves `status` untouched
+      # and records a timestamp; "snoozed" is derived as
+      # `status in [:pending, :escalated] and snooze_until > now()`.
+      validate compare(:snooze_until, greater_than: &DateTime.utc_now/0) do
+        message "must be in the future"
+      end
+
+      change set_attribute(:snooze_until, arg(:snooze_until))
+    end
+
+    update :unsnooze do
+      description "Clear an active snooze so dispatch resumes immediately"
+
+      change set_attribute(:snooze_until, nil)
     end
 
     update :resolve do
@@ -287,35 +373,31 @@ defmodule ServiceRadar.Monitoring.Alert do
 
     update :record_notification do
       description "Record that a notification was sent"
-      # Non-atomic: increments notification_count based on current value
-      require_atomic? false
 
-      change fn changeset, _context ->
-        increment_notification_tracking(changeset)
-      end
+      # Bookkeeping only. The caller already emitted its own routing request -
+      # `AlertLifecycle.send_renotify/4` is the one in tree - so enqueueing a
+      # second one here would page twice for one decision.
+      change RecordNotificationSent
     end
 
     update :send_notification do
-      description "Send notification for an alert (called by AshOban scheduler)"
-      # Non-atomic: increments notification_count and logs
-      require_atomic? false
+      description "Route notifications for an alert (called by AshOban scheduler)"
 
-      change fn changeset, _context ->
-        require Logger
-
-        alert = changeset.data
-        current_count = alert.notification_count || 0
-
-        # Log the notification being sent
-        Logger.info(
-          "Sending notification for alert: #{alert.title} (#{alert.id}) - severity: #{alert.severity}"
-        )
-
-        # TODO: Implement actual notification dispatch (email, webhook, PubSub, etc.)
-        # For now, just record that a notification was sent
-
-        increment_notification_tracking(changeset, current_count)
-      end
+      # Enqueue, never deliver. This action runs on the `:notifications` queue
+      # from the `:send_notifications` trigger above, and the work it starts -
+      # matching, dedup, escalation, suppression, rendering, the transport call,
+      # and the retry rule - belongs to the notification platform. Sending from
+      # here would put a network call inside the alert's transaction.
+      #
+      # `:fire` is the lifecycle reason for a first notification, and this action
+      # is reachable only through `read :needs_notification`, which is
+      # `notification_count == 0`. `AlertLifecycle` emits the same `:fire`
+      # request when the incident is created; the two converge on one
+      # `Dedupe.routing_request_key/1` and `Dispatcher.route/3` resolves the
+      # second to the work the first created rather than a second page. Using a
+      # different reason in either place is what would break that.
+      change RecordNotificationSent
+      change {EnqueueRoutingRequest, lifecycle_reason: :fire}
     end
 
     update :update_metadata do
@@ -340,14 +422,6 @@ defmodule ServiceRadar.Monitoring.Alert do
     end
   end
 
-  defp increment_notification_tracking(changeset, current_count \\ nil) do
-    current_count = current_count || changeset.data.notification_count || 0
-
-    changeset
-    |> Ash.Changeset.change_attribute(:notification_count, current_count + 1)
-    |> Ash.Changeset.change_attribute(:last_notification_at, DateTime.utc_now())
-  end
-
   defp changeset_input(changeset, field) do
     Ash.Changeset.get_argument_or_attribute(changeset, field) ||
       Map.get(changeset.params || %{}, field) ||
@@ -361,6 +435,11 @@ defmodule ServiceRadar.Monitoring.Alert do
     read_viewer_plus()
     operator_action(@alert_operator_actions)
     admin_action(@alert_admin_actions)
+
+    policy action(@alert_acknowledgement_actions) do
+      authorize_if is_operator()
+      authorize_if {ActorHasPermission, permission: "observability.alerts.manage"}
+    end
 
     # Send notification: Operators/admins, or AshOban (no actor)
     policy action(:send_notification) do
@@ -527,6 +606,31 @@ defmodule ServiceRadar.Monitoring.Alert do
       description "Suppress notifications until this time"
     end
 
+    attribute :snooze_until, :utc_datetime_usec do
+      public? true
+
+      description """
+      Suppress notification dispatch for this alert until this time.
+
+      Deliberately NOT a state-machine state: `state_attribute` is `:status`
+      and no declared state could be a `:snooze` target. "Snoozed" is a derived
+      condition - `status in [:pending, :escalated] and snooze_until > now()` -
+      which keeps snooze-expiry resumption a pure timestamp comparison and
+      avoids auditing every existing `status` filter for a new value.
+      """
+    end
+
+    attribute :acknowledged_by_user_id, :uuid do
+      public? true
+
+      description """
+      Platform user who acknowledged, when one can be identified.
+
+      The free-text `acknowledged_by` is retained alongside this for external
+      principals (a chat or paging identity with no platform user).
+      """
+    end
+
     attribute :metadata, :map do
       default %{}
       public? true
@@ -544,6 +648,20 @@ defmodule ServiceRadar.Monitoring.Alert do
   end
 
   relationships do
+    has_many :notification_deliveries,
+             ServiceRadar.Notifications.NotificationDelivery do
+      destination_attribute :alert_id
+    end
+
+    belongs_to :acknowledged_by_user, ServiceRadar.Identity.User do
+      source_attribute :acknowledged_by_user_id
+      destination_attribute :id
+      define_attribute? false
+      attribute_writable? true
+      allow_nil? true
+      public? true
+    end
+
     belongs_to :service_check, ServiceRadar.Monitoring.ServiceCheck do
       source_attribute :service_check_id
       destination_attribute :id

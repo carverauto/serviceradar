@@ -63,6 +63,7 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Data.AlertsThreats do
         empty_threat_intel_summary()
         |> Map.merge(threat_intel_indicator_counts())
         |> Map.merge(threat_intel_match_counts())
+        |> Map.merge(threat_intel_recent_matches())
         |> Map.merge(threat_intel_latest_status())
       rescue
         _ -> empty_threat_intel_summary()
@@ -132,6 +133,97 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Data.AlertsThreats do
       end
 
       @sobelow_skip ["SQL.Query"]
+      defp threat_intel_recent_matches do
+        if relation_exists?("platform.ip_threat_intel_cache") do
+          sql = threat_intel_recent_matches_sql()
+
+          case ServiceRadarWebNG.Repo.query(sql, []) do
+            {:ok, %{rows: rows}} ->
+              %{recent_matches: Enum.map(rows, &decode_threat_intel_match/1)}
+
+            _ ->
+              %{recent_matches: []}
+          end
+        else
+          %{recent_matches: []}
+        end
+      end
+
+      defp threat_intel_recent_matches_sql do
+        if relation_exists?("platform.ocsf_devices") do
+          """
+          SELECT
+            c.ip,
+            c.match_count,
+            COALESCE(c.max_severity, 0)::integer,
+            COALESCE(c.sources, '{}'::text[]),
+            c.looked_up_at,
+            d.uid,
+            d.hostname
+          FROM platform.ip_threat_intel_cache c
+          LEFT JOIN LATERAL (
+            SELECT uid, hostname
+            FROM platform.ocsf_devices
+            WHERE ip = c.ip
+              AND deleted_at IS NULL
+            ORDER BY last_seen_time DESC NULLS LAST
+            LIMIT 1
+          ) d ON true
+          WHERE c.matched = true AND c.expires_at > now()
+          ORDER BY c.looked_up_at DESC
+          LIMIT 8
+          """
+        else
+          """
+          SELECT
+            ip,
+            match_count,
+            COALESCE(max_severity, 0)::integer,
+            COALESCE(sources, '{}'::text[]),
+            looked_up_at,
+            NULL,
+            NULL
+          FROM platform.ip_threat_intel_cache
+          WHERE matched = true AND expires_at > now()
+          ORDER BY looked_up_at DESC
+          LIMIT 8
+          """
+        end
+      end
+
+      defp decode_threat_intel_match([ip, match_count, max_severity, sources, looked_up_at, device_uid, hostname]) do
+        %{
+          ip: to_string(ip || ""),
+          match_count: to_int(match_count),
+          max_severity: to_int(max_severity),
+          sources: decode_threat_intel_sources(sources),
+          looked_up_at: looked_up_at,
+          looked_up_label: format_sync_time(looked_up_at),
+          device_uid: blank_to_nil(device_uid),
+          hostname: blank_to_nil(hostname)
+        }
+      end
+
+      defp decode_threat_intel_sources(sources) when is_list(sources) do
+        sources
+        |> Enum.map(&to_string/1)
+        |> Enum.reject(&(&1 == ""))
+      end
+
+      defp decode_threat_intel_sources(_sources), do: []
+
+      defp blank_to_nil(nil), do: nil
+
+      defp blank_to_nil(value) when is_binary(value) do
+        case String.trim(value) do
+          "" -> nil
+          trimmed -> trimmed
+        end
+      end
+
+      defp blank_to_nil(value), do: blank_to_nil(to_string(value))
+
+      @sobelow_skip ["SQL.Query"]
       defp threat_intel_latest_status do
         if relation_exists?("platform.threat_intel_sync_statuses") do
           sql = """
@@ -165,8 +257,8 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Data.AlertsThreats do
                 latest_sync_indicators: to_int(indicators),
                 latest_sync_skipped: to_int(skipped),
                 latest_sync_total: to_int(total),
-                latest_attempt_label: format_alert_time(attempted_at),
-                latest_success_label: format_alert_time(success_at)
+                latest_attempt_label: format_sync_time(attempted_at),
+                latest_success_label: format_sync_time(success_at)
               }
 
             _ ->

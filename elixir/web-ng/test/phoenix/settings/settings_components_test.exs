@@ -25,6 +25,13 @@ defmodule ServiceRadarWebNGWeb.SettingsComponentsTest do
     }
   end
 
+  defp scope_with_permissions(permissions) do
+    %Scope{
+      user: %{id: "test-user"},
+      permissions: MapSet.new(permissions)
+    }
+  end
+
   defp tab_route(tabs, label) do
     case Enum.find(tabs, &(&1.label == label)) do
       nil -> nil
@@ -54,6 +61,30 @@ defmodule ServiceRadarWebNGWeb.SettingsComponentsTest do
 
     test "an empty scope shows no tabs (legacy visibility preserved)" do
       assert SettingsComponents.settings_tabs("/settings/cluster", nil) == []
+    end
+
+    test "Ansible tab requires access to a retained settings workflow" do
+      controller_tabs =
+        SettingsComponents.settings_tabs(
+          "/settings/cluster",
+          scope_with_permissions(["ansible.controllers.manage"])
+        )
+
+      repository_tabs =
+        SettingsComponents.settings_tabs(
+          "/settings/cluster",
+          scope_with_permissions(["ansible.repositories.manage"])
+        )
+
+      schedule_only_tabs =
+        SettingsComponents.settings_tabs(
+          "/settings/cluster",
+          scope_with_permissions(["ansible.schedules.manage"])
+        )
+
+      assert tab_route(controller_tabs, "Ansible") == "/settings/ansible"
+      assert tab_route(repository_tabs, "Ansible") == "/settings/ansible"
+      assert is_nil(tab_route(schedule_only_tabs, "Ansible"))
     end
   end
 end

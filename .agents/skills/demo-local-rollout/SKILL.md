@@ -1,109 +1,199 @@
 ---
 name: demo-local-rollout
-description: Build, sign, and roll ServiceRadar changes into the Kubernetes `demo` namespace using locally built images and immutable `sha-...` tags. Use when the user asks to deploy, refresh, roll, patch, or test code in `demo` before a release. Covers changed-image detection, copying unchanged images forward, OpenBao cosign signing, Argo patching, and rollout verification. Do not use for release cuts, Docker Compose refreshes, or non-demo namespaces unless the user explicitly redirects you.
+description: Build unpublished sha-... images and roll them to farm01 or the carverauto demo cluster. Use when the user asks to deploy, refresh, roll, patch, or test code in demo, farm01, or "the farm cluster" before a release. Pick the cluster first. Carverauto/demo requires OpenBao cosign and Argo. farm01 is a helm --reuse-values roll with no signing. Do not use for release cuts or Docker Compose.
 ---
 
-# Demo Local Rollout
+# Local Image Rollout
 
-## Overview
+Use this skill for unpublished `sha-<git-sha>` test tags. Formal releases use semver and `$release-cut-and-demo-roll`.
 
-Use this skill to refresh the `demo` namespace with a locally built test tag before any formal release. Prefer the smallest safe rollout: rebuild only the images affected by the current diff, copy unchanged images forward to the new `sha-<git-sha>` tag, sign the changed digests with the OpenBao release signer, patch the Argo app, and verify that `demo` reaches `Synced|Healthy|Succeeded`.
+## Choose the cluster first
 
-Formal releases use semver tags, such as `v1.2.41`, and ArgoCD Image Updater. This skill is only for temporary unpublished `sha-...` demo testing.
+Do this before Harbor auth, Bazel, signing, or any cluster write.
 
-## Workflow
+| | **carverauto `demo`** | **farm01** |
+|---|---|---|
+| When | User says demo, carverauto, or does not name a cluster | User says farm01, farm cluster, or is already on the farm01 kubeconfig |
+| Kubeconfig | default / carverauto control plane | `export KUBECONFIG="$HOME/.kube/farm01.yaml"` |
+| Namespace | `demo` | `serviceradar` |
+| How it rolls | Argo app `serviceradar-demo-prod` | `helm upgrade --reuse-values` |
+| Admission | Kyverno: images **must** be signed with OpenBao `cosign-release` | **No Kyverno.** Do **not** OpenBao-sign or port-forward the signer |
+| Registry | Harbor `registry.carverauto.dev/serviceradar` | Same Harbor project (public; no pull secret) |
+| Live tag source | Deployments in `demo`, plus git override on `demo/prod-release` | `helm get values serviceradar -n serviceradar` (`global.imageTag`) |
 
-1. Work from the repo root.
-2. Determine the target tag with `git rev-parse HEAD` and format it as `sha-<commit>`.
-3. Identify the currently deployed `demo` tag from the running deployments before changing anything.
-4. Compare the current deployed commit against `HEAD` and decide which images actually changed.
-5. Build and push only the changed images.
-6. Copy all unchanged images from the current `demo` tag to the new tag.
-7. Sign the changed digests with the OpenBao-backed `cosign-release` key.
-8. Patch `serviceradar-demo-prod` to the new tag.
-9. Watch Argo and the key `demo` workloads until rollout is complete.
-10. Report the new tag, changed image digests, and final Argo status.
+Never apply the OpenBao / Kyverno / Argo path to farm01. Never helm-upgrade farm01 thinking it is demo.
 
-## Guardrails
+If only `elixir/web-ng/**` changed **and** the target is `demo`, prefer `$demo-web-ng-fastpath`. That fast path is demo-only.
 
-- Use this skill for `demo` only. Do not roll `demo-staging`, production, or Docker Compose stacks unless the user explicitly changes scope.
-- Do not cut a release, update `VERSION`, or create tags here. This path is for local test rollout only.
-- Do not leave a formal release rollout on a `sha-...` tag. After testing is complete, use `$release-cut-and-demo-roll` to return `demo` to the published semver/Image Updater path.
-- Prefer the smallest rebuild set that is actually safe.
-- If only `elixir/web-ng/**` changed, prefer the repo's documented `web-ng` fast path in [AGENTS.md](/home/mfreeman/src/serviceradar/AGENTS.md:70) instead of rebuilding everything.
-- If shared files changed, widen the rebuild set conservatively. Examples: `proto/**` changes can affect multiple consumers; Go agent/MTR changes affect `serviceradar-agent` and often `serviceradar-agent-gateway`; Elixir core changes affect `serviceradar-core-elx`; `elixir/web-ng/**` affects `serviceradar-web-ng`.
-- Do not assume the target tag already exists in the registry. Check or just build it.
-- Sign by digest, not by tag, whenever possible.
+## Shared workflow
 
-## Changed Image Selection
+1. Work from the checkout that has the commits under test (often a git worktree).
+2. Symlink gitignored Bazel rc files if this is not the primary clone (see below).
+3. Tag: `sha-$(git rev-parse HEAD)` (full 40-char SHA; that is what `--stamp` emits).
+4. Read the **currently deployed** tag on the chosen cluster before changing anything.
+5. Map `git diff --name-only <deployed>..HEAD` to images. Rebuild only what changed.
+6. Harbor auth: `./buildbuddy_setup_docker_auth.sh`
+7. Build and push changed images. Copy unchanged images from the live tag to the new tag.
+8. **Then** follow the cluster-specific roll section. Stop after that section; do not run the other cluster's roll.
 
-Use `git diff --name-only <currently-deployed-sha>..HEAD` and map the diff to images.
+Do not cut a release, edit `VERSION`, or create git tags. Do not roll `demo-staging`, production, or Docker Compose unless the user changes scope. Never push to `staging`.
 
-Common mappings in this repo:
+## Worktree Bazel remotes
 
-- `go/cmd/agent/**`, `go/pkg/agent/**`, `go/pkg/mtr/**` -> `serviceradar-agent`
-- `go/cmd/agent-gateway/**`, shared agent control/proto wiring -> `serviceradar-agent-gateway`
-- `elixir/serviceradar_core/**` -> `serviceradar-core-elx`
-- `elixir/web-ng/**` -> `serviceradar-web-ng`
-- `proto/**` -> rebuild every image that consumes the changed generated code
+`.bazelrc` try-imports `%workspace%/.bazelrc.remote` and `.bazelrc.local`. Both are gitignored (BuildBuddy API key). `git worktree add` does not copy them. Without them, `--config=remote_base` / `--config=ci` fails with `PERMISSION_DENIED: Missing API key`.
 
-When in doubt, rebuild slightly too much rather than slightly too little.
-
-## Standard Demo Images
-
-These are the usual images carried on the immutable `demo` tag:
-
-- `arancini`
-- `serviceradar-agent`
-- `serviceradar-agent-gateway`
-- `serviceradar-core-elx`
-- `serviceradar-datasvc`
-- `serviceradar-db-event-writer`
-- `serviceradar-faker`
-- `serviceradar-flow-collector`
-- `serviceradar-log-collector`
-- `serviceradar-rperf-client`
-- `serviceradar-tools`
-- `serviceradar-trapd`
-- `serviceradar-trivy-sidecar`
-- `serviceradar-web-ng`
-- `serviceradar-zen`
-
-`serviceradar-log-collector-tcp` may be pinned independently; do not blindly rewrite it unless the user actually changed it.
-
-## Registry And Signing Setup
-
-Prepare Harbor auth first:
+From the primary clone that already has the files:
 
 ```bash
-./buildbuddy_setup_docker_auth.sh
+PRIMARY=/Users/mfreeman/src/serviceradar
+WT="$(pwd)"
+ln -sfn "$PRIMARY/.bazelrc.remote" "$WT/.bazelrc.remote"
+test -e "$PRIMARY/.bazelrc.local" && ln -sfn "$PRIMARY/.bazelrc.local" "$WT/.bazelrc.local"
+test -f "$WT/.bazelrc.remote"
 ```
 
-Prepare OpenBao signing env using the same flow as Forgejo jobs. This assumes the in-cluster signer is available through a port-forward:
+## Changed image selection
+
+```bash
+git diff --name-only <currently-deployed-sha-or-tag>..HEAD
+```
+
+- `go/cmd/agent/**`, `go/pkg/agent/**`, `go/pkg/mtr/**` -> `serviceradar-agent`
+- `elixir/serviceradar_agent_gateway/**`, shared agent control/proto -> `serviceradar-agent-gateway`
+- `elixir/serviceradar_core/**`, `rust/srql/**` (NIF) -> `serviceradar-core-elx` (and usually `serviceradar-web-ng`)
+- `elixir/web-ng/**` -> `serviceradar-web-ng`
+- `proto/**` -> every image that consumes the changed generated code
+
+When in doubt, rebuild slightly too much. Phoenix / mix.lock / `MODULE.bazel` / `rules_elixir` changes mean rebuild every Elixir image you will roll.
+
+## Images that use `global.imageTag`
+
+Copy or rebuild every first-party image the target cluster will pull at the new tag. Inspect live deployments; do not copy demo-only images onto farm01.
+
+Typical **demo** set: `arancini`, `serviceradar-agent`, `serviceradar-agent-gateway`, `serviceradar-core-elx`, `serviceradar-datasvc`, `serviceradar-db-event-writer`, `serviceradar-faker`, `serviceradar-flow-collector`, `serviceradar-log-collector`, `serviceradar-rperf-client`, `serviceradar-tools`, `serviceradar-trapd`, `serviceradar-trivy-sidecar`, `serviceradar-web-ng`, `serviceradar-zen`.
+
+Typical **farm01** set: `serviceradar-agent`, `serviceradar-agent-gateway`, `serviceradar-core-elx`, `serviceradar-datasvc`, `serviceradar-flow-collector`, `serviceradar-log-collector`, `serviceradar-rperf-client`, `serviceradar-tools`, `serviceradar-trapd`, `serviceradar-trivy-sidecar`, `serviceradar-web-ng`. farm01 usually has no faker, zen, bmp/`arancini`, or k8s-inventory.
+
+`serviceradar-log-collector-tcp` shares the log-collector image. Do not invent a separate tag for it.
+
+## Build and push changed images
+
+`crane` is on `PATH` (Homebrew). Do not assume `/tmp/gobin/crane`.
+
+Staging no longer defines the legacy `remote` / `remote_push` profiles; the
+surviving ones are `remote_base`, `cache_only`, and `ci`.
+
+On a Darwin workstation, running an `oci_push` target through Bazel builds
+linux/amd64 on RBE and then tries to execute **linux** `jq`/`crane` from
+runfiles (`Exec format error`). On macOS use `make push_all`, which routes
+through `scripts/push_all_images.sh` and pushes with host `crane`.
+
+Build the OCI layouts remotely, then push with host `crane`:
+
+```bash
+bazel build \
+  --config=remote_base \
+  --noenable_platform_specific_config \
+  --remote_download_outputs=all \
+  --compilation_mode=opt \
+  --stamp \
+  //docker/images:agent_image_amd64 \
+  //docker/images:agent_gateway_image_amd64 \
+  //docker/images:core_elx_image_amd64 \
+  //docker/images:web_ng_image_amd64
+```
+
+Layouts land under `bazel-out/rbe_platform-opt/bin/docker/images/<name>_image_amd64`. Bazel blob files are often **symlinks** and **mode 0444**; `crane push` of the layout fails with `layout blob ... is a symlink`. Materialize, push by digest, tag **only** `sha-<commit>` (do not retag `latest`):
+
+```bash
+BIN="$(bazel info output_path)/rbe_platform-opt/bin/docker/images"
+# or the execroot path printed by the build
+SRC="$BIN/agent_image_amd64"
+DEST=/tmp/sr-oci-agent
+rm -rf "$DEST"
+mkdir -p "$DEST"
+rsync -aL "$SRC/" "$DEST/"
+chmod -R u+w "$DEST"
+DIGEST=$(jq -r '.manifests[0].digest' "$DEST/index.json")
+REPO=registry.carverauto.dev/serviceradar/serviceradar-agent
+crane push "$DEST" "$REPO@$DIGEST"
+crane tag "$REPO@$DIGEST" "sha-<commit>"
+rm -rf "$DEST"
+```
+
+Repeat for each rebuilt image. Capture every digest.
+
+On a Linux host the push targets can be run directly, since the runfiles
+`jq`/`crane` are the right architecture there. Use `remote_base` for the build;
+the `remote_push` profile referenced by older runbooks no longer exists.
+
+## Copy unchanged images forward
+
+```bash
+crane copy \
+  registry.carverauto.dev/serviceradar/<image>:<old-tag> \
+  registry.carverauto.dev/serviceradar/<image>:sha-<new>
+```
+
+`<old-tag>` is whatever the cluster is running (`v1.4.31`, `sha-<old>`, etc.). If `crane digest` of old and new match, the copy is a retag and existing signatures (if any) still apply.
+
+---
+
+## farm01 roll (no signing)
+
+```bash
+export KUBECONFIG="$HOME/.kube/farm01.yaml"
+helm get values serviceradar -n serviceradar
+helm upgrade serviceradar "$CHECKOUT/helm/serviceradar" \
+  -n serviceradar \
+  --reuse-values \
+  --set global.imageTag=sha-<new> \
+  --rollback-on-failure \
+  --timeout 15m
+```
+
+`--reuse-values` keeps farm01-only settings (MetalLB VIPs, Gateway API attach, Trivy sidecar, empty `registryPullSecret`, `local-path` storage). Do not replace the live values file unless the user wants those template/value changes applied.
+
+Use the local chart when `helm/` matches the live chart version (`helm get metadata serviceradar -n serviceradar`). If `helm/` diverged and the user only asked for new images, keep the live chart and only change `global.imageTag` (OCI `oci://registry.carverauto.dev/serviceradar/charts/serviceradar --version <live>` plus `--reuse-values --set global.imageTag=...`).
+
+Update `~/src/gitops/clusters/farm01/serviceradar/values.yaml` `global.imageTag` so GitOps matches live. Do **not** commit or push the gitops repo unless the user asks.
+
+Verify:
+
+```bash
+for d in serviceradar-web-ng serviceradar-core serviceradar-agent serviceradar-agent-gateway; do
+  kubectl rollout status deploy/"$d" -n serviceradar --timeout=180s
+done
+kubectl get deploy -n serviceradar \
+  -o jsonpath='{range .items[*]}{.metadata.name}{"\t"}{range .spec.template.spec.containers[*]}{.image}{" "}{end}{"\n"}{end}'
+kubectl get pods -n serviceradar
+```
+
+Done when key deployments show `sha-<new>` and pods are Ready. Report the tag, rebuilt vs copied images, digests, helm revision, and any non-Ready pods. Do not mention signing.
+
+---
+
+## carverauto `demo` roll (sign, then Argo)
+
+`demo` admission is Kyverno-enforced. Sign every **rebuilt** digest with OpenBao `cosign-release` **before** changing the Argo app. Copied-forward images whose digest is unchanged keep their existing signatures.
+
+OpenBao on the control plane is **HTTPS**. A plaintext `http://127.0.0.1:18200` health check returns `Client sent an HTTP request to an HTTPS server`.
 
 ```bash
 kubectl port-forward -n openbao-system svc/openbao-active 18200:8200
 ```
 
-Then mint a service account token and exchange it for a Vault token:
-
 ```bash
-OPENBAO_ADDR=http://127.0.0.1:18200
+OPENBAO_ADDR=https://127.0.0.1:18200
 OPENBAO_K8S_ROLE=forgejo-signing-runner
 sa_jwt="$(kubectl create token -n forgejo-actions forgejo-signing-runner)"
-vault_token="$({
-  curl -fsSL \
-    -H 'Content-Type: application/json' \
-    -d "{\"role\":\"${OPENBAO_K8S_ROLE}\",\"jwt\":\"${sa_jwt}\"}" \
-    "${OPENBAO_ADDR}/v1/auth/kubernetes/login"
-} | jq -er '.auth.client_token')"
-```
-
-Export the signing environment:
-
-```bash
+vault_token="$(curl -skS \
+  -H 'Content-Type: application/json' \
+  -d "{\"role\":\"${OPENBAO_K8S_ROLE}\",\"jwt\":\"${sa_jwt}\"}" \
+  "${OPENBAO_ADDR}/v1/auth/kubernetes/login" | jq -er '.auth.client_token')"
 export VAULT_ADDR="$OPENBAO_ADDR"
 export VAULT_TOKEN="$vault_token"
+export VAULT_SKIP_VERIFY=true
 export COSIGN_KEY_REF=hashivault://cosign-release
 export COSIGN_YES=true
 export COSIGN_DOCKER_MEDIA_TYPES=1
@@ -111,47 +201,25 @@ export COSIGN_REFERRERS_MODE=legacy
 export COSIGN_TLOG_UPLOAD=true
 ```
 
-Re-mint the Vault token if signing starts returning `403 permission denied`.
-
-## Build And Push Changed Images
-
-Use Bazel remote push targets for the changed images only. Typical examples:
-
-```bash
-bazel run --config=remote --stamp //docker/images:agent_image_amd64_push
-bazel run --config=remote --stamp //docker/images:agent_gateway_image_amd64_push
-bazel run --config=remote --stamp //docker/images:core_elx_image_amd64_push
-bazel run --config=remote --stamp //docker/images:web_ng_image_amd64_push
-```
-
-These commands print the pushed digest. Capture it for signing and for the final report.
-
-## Copy Unchanged Images Forward
-
-For every standard demo image that did not change, copy it from the currently deployed tag to the new tag with `crane`:
-
-```bash
-/tmp/gobin/crane copy \
-  registry.carverauto.dev/serviceradar/<image>:sha-<old> \
-  registry.carverauto.dev/serviceradar/<image>:sha-<new>
-```
-
-This keeps the new immutable tag complete without rebuilding unchanged services.
-
-## Sign Changed Digests
-
-After push, sign each changed image by digest:
-
 ```bash
 cosign sign --key "$COSIGN_KEY_REF" \
   registry.carverauto.dev/serviceradar/<image>@sha256:<digest>
 ```
 
-Sign every changed digest before patching Argo so Kyverno admission will accept the rollout.
+Re-mint the Vault token on `403 permission denied`. Tear down the port-forward when signing is done.
 
-## Patch Demo Argo App
+### Argo / Image Updater
 
-Patch the Argo application instead of editing chart values for a one-off test rollout:
+`serviceradar-demo-prod` uses argocd-image-updater with `write-back-method: git` to `demo/prod-release`. A live `kubectl patch` of helm parameters can be overwritten by `helm/serviceradar/.argocd-source-serviceradar-demo-prod.yaml`.
+
+Contention-free `sha-...` flow:
+
+1. Advance `demo/prod-release` so chart content matches the images, and in the same commit set `global.imageTag: sha-<commit>` in `.argocd-source-serviceradar-demo-prod.yaml`.
+2. Patch `spec.source.targetRevision` to that commit (and align the live `global.imageTag` parameter).
+3. Do not push a `v*` release tag during the test window (`allow-tags` is `^v[0-9]+\.[0-9]+\.[0-9]+$`).
+4. After testing, `$release-cut-and-demo-roll` returns demo to the semver / Image Updater path.
+
+One-off parameter patch (can lose a race with git write-back):
 
 ```bash
 kubectl patch application -n argocd serviceradar-demo-prod \
@@ -159,70 +227,14 @@ kubectl patch application -n argocd serviceradar-demo-prod \
   -p '{"spec":{"source":{"helm":{"parameters":[{"name":"global.imageTag","value":"sha-<new>"}]}}}}'
 ```
 
-## Verify Rollout
-
-Watch Argo until it reaches:
-
-```text
-Synced|Healthy|Succeeded
-```
-
-Use:
+Wait for `Synced|Healthy|Succeeded`:
 
 ```bash
 kubectl get application -n argocd serviceradar-demo-prod \
   -o jsonpath='{.status.sync.status}{"|"}{.status.health.status}{"|"}{.status.operationState.phase}{"\n"}'
-```
-
-Check the key deployments are on the new tag:
-
-```bash
 kubectl get deploy -n demo \
   serviceradar-web-ng serviceradar-core serviceradar-agent serviceradar-agent-gateway \
   -o jsonpath='{range .items[*]}{.metadata.name}{"\t"}{range .spec.template.spec.containers[*]}{.image}{" "}{end}{"\n"}{end}'
 ```
 
-If Argo is still `Progressing`, inspect pods and hook jobs:
-
-```bash
-kubectl get pods -n demo -o wide
-kubectl get jobs -n demo
-```
-
-Do not call the rollout finished until the new pods are running and Argo reports `Succeeded`.
-
-## Report Back
-
-Close with:
-
-- target immutable tag
-- which images were rebuilt vs copied forward
-- changed image digests that were signed
-- final Argo status
-- any pods still terminating or any residual risk
-
-## ArgoCD Image Updater Contention
-
-`serviceradar-demo-prod` uses argocd-image-updater with
-`write-back-method: git` to the `demo/prod-release` branch: the updater
-persists `helm/serviceradar/.argocd-source-serviceradar-demo-prod.yaml`
-(including `global.imageTag`) in git, and the Application's
-`spec.source.targetRevision` is pinned to a commit on that branch. A live
-`kubectl patch` of the Application's helm parameters can therefore be
-out-competed by the git-side override, and a freshly published semver tag
-makes the updater write a new override mid-test.
-
-Contention-free `sha-...` rollout flow:
-
-1. Advance `demo/prod-release` to the commit under test (merge/fast-forward
-   from staging) so the chart content matches the images, and in the SAME
-   commit set `global.imageTag: sha-<commit>` in
-   `.argocd-source-serviceradar-demo-prod.yaml`.
-2. Patch the Application's `spec.source.targetRevision` to that new commit
-   (and keep/align the live `global.imageTag` helm parameter).
-3. The updater stays idle during the test window because `allow-tags` only
-   matches `^v[0-9]+\.[0-9]+\.[0-9]+$` — do not push a release tag while
-   testing a sha rollout.
-4. The release cut returns demo to the semver/Image Updater path (the
-   updater writes the new v-tag override and the release process advances
-   the branch), per `$release-cut-and-demo-roll`.
+Do not call demo finished until new pods are Running and Argo reports `Succeeded`. Report the tag, rebuilt vs copied, signed digests, and Argo status.

@@ -65,6 +65,9 @@ func applyDefaults(cfg *Config) {
 	if cfg.ScannerID == "" {
 		cfg.ScannerID = DefaultScannerID
 	}
+	if cfg.ScannerVersion == "" {
+		cfg.ScannerVersion = DefaultScannerVersion
+	}
 	if len(cfg.ScaLibrPlugins) == 0 {
 		cfg.ScaLibrPlugins = []string{"os/dpkg", "os/rpm", "os/apk"}
 	}

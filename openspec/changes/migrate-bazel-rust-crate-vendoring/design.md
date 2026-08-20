@@ -126,7 +126,8 @@ vendored path). Resolution:
   config to **`build:linux`** (auto-applied on Linux hosts via
   `--enable_platform_specific_config`): local Linux builds get system OpenSSL for BOTH
   Erlang/Elixir and Rust; macOS builds (vars absent) use the vendored Rust OpenSSL. CI/RBE
-  disables platform-specific config (`build:ci`/`build:remote --noenable_platform_specific_config`)
+  disables platform-specific config (`build:ci --noenable_platform_specific_config`, while
+  inheriting `build:remote_base`)
   and is covered by `build:remote_base`'s own OpenSSL vars, so CI keeps system OpenSSL on
   the Linux executor. (An Elixir Bazel build on a macOS host would need a `build:macos`
   OpenSSL path — e.g. Homebrew — separately.)

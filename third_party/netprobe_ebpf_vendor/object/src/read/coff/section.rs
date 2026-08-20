@@ -5,8 +5,9 @@ use crate::endian::LittleEndian as LE;
 use crate::pe;
 use crate::read::util::StringTable;
 use crate::read::{
-    self, CompressedData, CompressedFileRange, Error, ObjectSection, ObjectSegment, ReadError,
-    ReadRef, RelocationMap, Result, SectionFlags, SectionIndex, SectionKind, SegmentFlags,
+    self, CompressedData, CompressedFileRange, Error, ObjectSection, ObjectSegment, Permissions,
+    ReadError, ReadRef, RelocationMap, Result, SectionFlags, SectionIndex, SectionKind,
+    SegmentFlags,
 };
 
 use super::{CoffFile, CoffHeader, CoffRelocationIterator};
@@ -174,7 +175,7 @@ impl<'data, 'file, R: ReadRef<'data>, Coff: CoffHeader> CoffSegment<'data, 'file
 
     fn bytes(&self) -> Result<&'data [u8]> {
         self.section
-            .coff_data(self.file.data)
+            .coff_data(self.file.data.0)
             .read_error("Invalid COFF section offset or size")
     }
 }
@@ -242,6 +243,16 @@ impl<'data, 'file, R: ReadRef<'data>, Coff: CoffHeader> ObjectSegment<'data>
         let characteristics = self.section.characteristics.get(LE);
         SegmentFlags::Coff { characteristics }
     }
+
+    #[inline]
+    fn permissions(&self) -> Permissions {
+        let characteristics = self.section.characteristics.get(LE);
+        Permissions::new(
+            characteristics & pe::IMAGE_SCN_MEM_READ != 0,
+            characteristics & pe::IMAGE_SCN_MEM_WRITE != 0,
+            characteristics & pe::IMAGE_SCN_MEM_EXECUTE != 0,
+        )
+    }
 }
 
 /// An iterator for the sections in a [`CoffBigFile`](super::CoffBigFile).
@@ -308,12 +319,12 @@ impl<'data, 'file, R: ReadRef<'data>, Coff: CoffHeader> CoffSection<'data, 'file
 
     /// Get the raw COFF relocations for this section.
     pub fn coff_relocations(&self) -> Result<&'data [pe::ImageRelocation]> {
-        self.section.coff_relocations(self.file.data)
+        self.section.coff_relocations(self.file.data.0)
     }
 
     fn bytes(&self) -> Result<&'data [u8]> {
         self.section
-            .coff_data(self.file.data)
+            .coff_data(self.file.data.0)
             .read_error("Invalid COFF section offset or size")
     }
 }

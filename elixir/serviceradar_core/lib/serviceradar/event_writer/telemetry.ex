@@ -6,6 +6,11 @@ defmodule ServiceRadar.EventWriter.Telemetry do
   not create one series per device, partition, or metric name.
   """
 
+  @retention_warning_byte_ratio 0.75
+  @retention_critical_byte_ratio 0.90
+  @retention_warning_age_ratio 0.25
+  @retention_critical_age_ratio 0.75
+
   @doc """
   Emits producer queue/in-flight state.
   """
@@ -20,6 +25,28 @@ defmodule ServiceRadar.EventWriter.Telemetry do
         max_buffered: non_negative(Map.get(state, :max_buffered, 0))
       },
       %{operation: operation, subject_class: subject_class(subject)}
+    )
+
+    :ok
+  end
+
+  @doc """
+  Emits a stale pull-inflight expiry. Lost JetStream replies (consumer leader
+  change, dropped empty-status) leave `pull_inflight_by_subject` pinned; the
+  producer clears those slots after `stale_pull_timeout_ms/1`.
+  """
+  @spec emit_stale_pull(non_neg_integer(), non_neg_integer(), String.t() | nil) :: :ok
+  def emit_stale_pull(expired_inflight, age_ms, subject)
+      when is_integer(expired_inflight) and expired_inflight >= 0 and is_integer(age_ms) and
+             age_ms >= 0 do
+    :telemetry.execute(
+      [:serviceradar, :event_writer, :producer, :stale_pull],
+      %{
+        count: 1,
+        expired_inflight: non_negative(expired_inflight),
+        age_ms: non_negative(age_ms)
+      },
+      %{subject_class: subject_class(subject)}
     )
 
     :ok
@@ -114,9 +141,22 @@ defmodule ServiceRadar.EventWriter.Telemetry do
   """
   @spec emit_consumer_state(map(), map()) :: :ok
   def emit_consumer_state(info, metadata) when is_map(info) and is_map(metadata) do
+    emit_consumer_state(info, nil, metadata)
+  end
+
+  @doc """
+  Emits consumer state together with authoritative JetStream stream retention state.
+
+  `stream_info` is the response from `Gnat.Jetstream.API.Stream.info/2`. It is
+  optional so non-flow consumers and temporary stream-info failures keep emitting
+  the existing consumer backlog gauges.
+  """
+  @spec emit_consumer_state(map(), map() | nil, map()) :: :ok
+  def emit_consumer_state(info, stream_info, metadata)
+      when is_map(info) and (is_map(stream_info) or is_nil(stream_info)) and is_map(metadata) do
     :telemetry.execute(
       [:serviceradar, :event_writer, :consumer, :state],
-      consumer_state_measurements(info),
+      consumer_state_measurements(info, stream_info),
       %{
         stream: metadata[:stream] || "unknown",
         durable: metadata[:durable] || "unknown",
@@ -175,23 +215,79 @@ defmodule ServiceRadar.EventWriter.Telemetry do
   @doc false
   @spec consumer_state_measurements(map()) :: map()
   def consumer_state_measurements(info) when is_map(info) do
+    consumer_state_measurements(info, nil)
+  end
+
+  @doc false
+  @spec consumer_state_measurements(map(), map() | nil) :: map()
+  def consumer_state_measurements(info, stream_info)
+      when is_map(info) and (is_map(stream_info) or is_nil(stream_info)) do
+    consumer_state_measurements(info, stream_info, DateTime.utc_now())
+  end
+
+  @doc false
+  @spec consumer_state_measurements(map(), map() | nil, DateTime.t()) :: map()
+  def consumer_state_measurements(info, stream_info, %DateTime{} = now)
+      when is_map(info) and (is_map(stream_info) or is_nil(stream_info)) do
     pending = non_negative(get_value(info, :num_pending))
     ack_pending = non_negative(get_value(info, :num_ack_pending))
     redelivered = non_negative(get_value(info, :num_redelivered))
     waiting = non_negative(get_value(info, :num_waiting))
     backlog = pending + ack_pending
 
+    retention = stream_retention_measurements(stream_info, now)
+
+    Map.merge(
+      %{
+        pending_messages: pending,
+        ack_pending_messages: ack_pending,
+        redelivered_messages: redelivered,
+        waiting_pulls: waiting,
+        lag_messages: backlog,
+        delivered_consumer_sequence: nested_non_negative(info, :delivered, :consumer_seq),
+        ack_floor_consumer_sequence: nested_non_negative(info, :ack_floor, :consumer_seq),
+        delivered_stream_sequence: nested_non_negative(info, :delivered, :stream_seq),
+        ack_floor_stream_sequence: nested_non_negative(info, :ack_floor, :stream_seq),
+        retention_risk_level: retention_risk_level(backlog, retention)
+      },
+      retention
+    )
+  end
+
+  defp stream_retention_measurements(nil, _now) do
     %{
-      pending_messages: pending,
-      ack_pending_messages: ack_pending,
-      redelivered_messages: redelivered,
-      waiting_pulls: waiting,
-      lag_messages: backlog,
-      delivered_consumer_sequence: nested_non_negative(info, :delivered, :consumer_seq),
-      ack_floor_consumer_sequence: nested_non_negative(info, :ack_floor, :consumer_seq),
-      delivered_stream_sequence: nested_non_negative(info, :delivered, :stream_seq),
-      ack_floor_stream_sequence: nested_non_negative(info, :ack_floor, :stream_seq),
-      retention_risk_level: retention_risk_level(backlog, redelivered)
+      stream_info_available: 0,
+      stream_bytes: 0,
+      stream_max_bytes: 0,
+      stream_byte_utilization_ratio: 0.0,
+      stream_first_message_age_seconds: 0.0,
+      stream_max_age_seconds: 0.0,
+      stream_age_utilization_ratio: 0.0
+    }
+  end
+
+  defp stream_retention_measurements(stream_info, now) when is_map(stream_info) do
+    config = get_value(stream_info, :config)
+    state = get_value(stream_info, :state)
+    bytes = non_negative(get_value(state, :bytes))
+    max_bytes = positive_limit(get_value(config, :max_bytes))
+    max_age_seconds = nanoseconds_to_seconds(positive_limit(get_value(config, :max_age)))
+
+    first_message_age_seconds =
+      first_message_age_seconds(
+        get_value(state, :first_ts),
+        non_negative(get_value(state, :messages)),
+        now
+      )
+
+    %{
+      stream_info_available: 1,
+      stream_bytes: bytes,
+      stream_max_bytes: max_bytes,
+      stream_byte_utilization_ratio: utilization_ratio(bytes, max_bytes),
+      stream_first_message_age_seconds: first_message_age_seconds,
+      stream_max_age_seconds: max_age_seconds,
+      stream_age_utilization_ratio: utilization_ratio(first_message_age_seconds, max_age_seconds)
     }
   end
 
@@ -224,9 +320,53 @@ defmodule ServiceRadar.EventWriter.Telemetry do
 
   defp get_value(_value, _key), do: nil
 
-  defp retention_risk_level(backlog, redelivered) when backlog > 0 and redelivered > 0, do: 2
-  defp retention_risk_level(backlog, _redelivered) when backlog > 0, do: 1
-  defp retention_risk_level(_backlog, _redelivered), do: 0
+  defp positive_limit(value) when is_integer(value) and value > 0, do: value
+  defp positive_limit(value) when is_float(value) and value > 0, do: value
+  defp positive_limit(_value), do: 0
+
+  defp nanoseconds_to_seconds(nanoseconds) when nanoseconds > 0, do: nanoseconds / 1_000_000_000
+
+  defp nanoseconds_to_seconds(_nanoseconds), do: 0.0
+
+  defp first_message_age_seconds(_first_ts, messages, _now) when messages <= 0, do: 0.0
+
+  defp first_message_age_seconds(%DateTime{} = first_ts, _messages, now) do
+    max(DateTime.diff(now, first_ts, :millisecond) / 1_000, 0.0)
+  end
+
+  defp first_message_age_seconds(first_ts, messages, now) when is_binary(first_ts) do
+    case DateTime.from_iso8601(first_ts) do
+      {:ok, parsed, _offset} -> first_message_age_seconds(parsed, messages, now)
+      _ -> 0.0
+    end
+  end
+
+  defp first_message_age_seconds(_first_ts, _messages, _now), do: 0.0
+
+  defp utilization_ratio(value, limit) when is_number(value) and is_number(limit) and limit > 0,
+    do: value / limit
+
+  defp utilization_ratio(_value, _limit), do: 0.0
+
+  defp retention_risk_level(backlog, _retention) when backlog <= 0, do: 0
+
+  defp retention_risk_level(backlog, retention) when backlog > 0 do
+    byte_ratio = retention.stream_byte_utilization_ratio
+    age_ratio = retention.stream_age_utilization_ratio
+
+    cond do
+      byte_ratio >= @retention_critical_byte_ratio or
+          age_ratio >= @retention_critical_age_ratio ->
+        2
+
+      byte_ratio >= @retention_warning_byte_ratio or
+          age_ratio >= @retention_warning_age_ratio ->
+        1
+
+      true ->
+        0
+    end
+  end
 
   defp reason_class(:not_connected), do: "not_connected"
   defp reason_class(:connection_dead), do: "connection_dead"

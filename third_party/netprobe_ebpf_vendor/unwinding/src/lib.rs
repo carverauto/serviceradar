@@ -15,7 +15,13 @@
     feature(lang_items)
 )]
 #![cfg_attr(
-    any(feature = "panicking", feature = "panic-handler-dummy"),
+    any(
+        feature = "panicking",
+        all(
+            any(feature = "panic", feature = "panic-handler-dummy"),
+            not(feature = "libc")
+        )
+    ),
     feature(core_intrinsics)
 )]
 #![cfg_attr(feature = "panic-handler", feature(thread_local))]

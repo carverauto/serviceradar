@@ -59,6 +59,7 @@ defmodule ServiceRadar.Edge.SweepBodyValidate do
 
   import Bitwise
 
+  alias ServiceRadar.Edge.BoundedList
   alias ServiceRadar.Edge.PlanValidate
   alias ServiceRadar.Edge.SemanticValidate
   alias ServiceRadar.Edge.SweepMatrix
@@ -489,18 +490,14 @@ defmodule ServiceRadar.Edge.SweepBodyValidate do
   # `is_list([1 | :tail])` is TRUE, and `Enum.reduce_while/3` then raises on the tail. A
   # function promising `{:error, reason}` must not raise on a shape it did not anticipate,
   # so the list is walked to its tail before any element work.
-  defp proper_length(l), do: walk(l, :infinity, 0)
-
-  # Stops after `cap + 1` elements: a bound whose enforcement requires walking the whole
-  # list is not a bound.
-  defp capped_length(l, cap), do: walk(l, cap, 0)
-
-  # The over-cap guard comes FIRST. Behind the empty-list clause it never fires for a list
-  # of exactly cap+1: the walk consumes the last element, sees `[]`, and reports {:ok, 2001}.
-  defp walk(_l, cap, n) when is_integer(cap) and n > cap, do: :over
-  defp walk([], _cap, n), do: {:ok, n}
-  defp walk([_ | t], cap, n), do: walk(t, cap, n + 1)
-  defp walk(_improper_tail, _cap, _n), do: :improper
+  #
+  # UNBOUNDED, AND THAT IS A KNOWN LIMIT RATHER THAN A JUSTIFIED ONE. `repeated_elements/3`
+  # runs for several list fields and only the host list sits behind a count ceiling. The
+  # others are bounded on the WIRE by the decoder's byte limits -- which says nothing about a
+  # hand-built struct, the shape this pass exists to reject. The properness walk is therefore
+  # unbounded for those fields; per-field count ceilings are what would fix it, and none are
+  # frozen today.
+  defp proper_length(l), do: BoundedList.count_all(l)
 
   defp each(items, fun) do
     Enum.reduce_while(items, :ok, fn item, :ok ->
@@ -558,7 +555,7 @@ defmodule ServiceRadar.Edge.SweepBodyValidate do
 
   # Go's position for the bound, and the last point before anything walks the hosts.
   defp host_ceiling(b) do
-    case capped_length(b.hosts, @max_hosts_per_batch) do
+    case BoundedList.count_at_most(b.hosts, @max_hosts_per_batch) do
       {:ok, _n} -> :ok
       :over -> {:error, {:bounds, :hosts}}
       :improper -> {:error, {:shape, :improper_list}}

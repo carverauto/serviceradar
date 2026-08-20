@@ -9,11 +9,11 @@ defmodule ServiceRadarWebNGWeb.InterfaceLive.Show do
   alias ServiceRadar.Automation.Northbound.History, as: NorthboundHistory
   alias ServiceRadar.Inventory.InterfaceSettings
   alias ServiceRadarWebNG.RBAC
-  alias ServiceRadarWebNGWeb.Dashboard.Engine
-  alias ServiceRadarWebNGWeb.Dashboard.Plugins.Table, as: TablePlugin
   alias ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries
   alias ServiceRadarWebNGWeb.Helpers.InterfaceTypes
+  alias ServiceRadarWebNGWeb.InterfaceLive.MetricsPanels
   alias ServiceRadarWebNGWeb.InterfaceLive.MetricsQuery
+  alias ServiceRadarWebNGWeb.InterfaceLive.SnmpMetricNames
 
   require Logger
 
@@ -461,13 +461,17 @@ defmodule ServiceRadarWebNGWeb.InterfaceLive.Show do
   defp load_northbound_interface_history(_scope, _device_uid, nil, true), do: {[], nil}
 
   defp load_northbound_interface_history(scope, device_uid, interface_uid, true) do
-    case NorthboundHistory.list_for_interface(device_uid, interface_uid, scope: scope, limit: 10) do
+    case NorthboundHistory.list_for_interface(device_uid, interface_uid,
+           scope: scope,
+           limit: 10,
+           exclude_provider_types: [:ansible]
+         ) do
       {:ok, entries} ->
         {entries, nil}
 
       {:error, reason} ->
         Logger.warning("Failed to load northbound interface action history: #{inspect(reason)}")
-        {[], "Failed to load task history."}
+        {[], "Failed to load action history."}
     end
   end
 
@@ -584,11 +588,11 @@ defmodule ServiceRadarWebNGWeb.InterfaceLive.Show do
 
           <.northbound_action_history
             :if={@can_view_northbound_history}
-            title="Task History"
+            title="Action History"
             subtitle="Recent actions for this interface"
             entries={@northbound_history}
             error={@northbound_history_error}
-            empty_message="No task invocations have been recorded for this interface yet."
+            empty_message="No action invocations have been recorded for this interface yet."
           />
 
           <%!-- Properties Grid --%>
@@ -1618,16 +1622,10 @@ defmodule ServiceRadarWebNGWeb.InterfaceLive.Show do
   defp build_metrics_panels(srql_response, max_speed_bytes_per_sec, metric_groups, reference_lines_by_metric)
 
   defp build_metrics_panels(srql_response, max_speed_bytes_per_sec, [], reference_lines_by_metric) do
-    # No user-defined groups - build individual panels for each metric
-    srql_response
-    |> Engine.build_panels()
-    |> Enum.reject(&(&1.plugin == TablePlugin))
-    |> Enum.map(fn panel ->
-      assigns =
-        panel.assigns
-        |> Map.put(:max_speed_bytes_per_sec, max_speed_bytes_per_sec)
-        |> Map.put(:rate_mode, :rate)
-        |> maybe_put_reference_lines(reference_lines_for_panel(panel, reference_lines_by_metric))
+    panels = MetricsPanels.from_srql(srql_response, max_speed_bytes_per_sec: max_speed_bytes_per_sec)
+
+    Enum.map(panels, fn panel ->
+      assigns = maybe_put_reference_lines(panel.assigns, reference_lines_for_panel(panel, reference_lines_by_metric))
 
       %{panel | assigns: assigns}
     end)
@@ -1660,8 +1658,7 @@ defmodule ServiceRadarWebNGWeb.InterfaceLive.Show do
       # Build panels for ungrouped metrics
       ungrouped_results =
         Enum.filter(results, fn result ->
-          metric_name = metric_result_name(result)
-          metric_name not in grouped_metric_names
+          not SnmpMetricNames.selected?(metric_result_name(result), MapSet.to_list(grouped_metric_names))
         end)
 
       ungrouped_panels =
@@ -1677,8 +1674,7 @@ defmodule ServiceRadarWebNGWeb.InterfaceLive.Show do
     ungrouped_response = Map.put(srql_response, "results", ungrouped_results)
 
     ungrouped_response
-    |> Engine.build_panels()
-    |> Enum.reject(&(&1.plugin == TablePlugin))
+    |> MetricsPanels.from_srql(max_speed_bytes_per_sec: max_speed_bytes_per_sec)
     |> Enum.map(&add_panel_assigns(&1, max_speed_bytes_per_sec, reference_lines_by_metric))
   end
 
@@ -1800,7 +1796,11 @@ defmodule ServiceRadarWebNGWeb.InterfaceLive.Show do
   defp reference_lines_for_panel(panel, reference_lines_by_metric) when is_map(reference_lines_by_metric) do
     panel
     |> panel_series_names()
-    |> Enum.flat_map(&Map.get(reference_lines_by_metric, &1, []))
+    |> Enum.flat_map(fn series_name ->
+      [series_name]
+      |> SnmpMetricNames.expand()
+      |> Enum.flat_map(&Map.get(reference_lines_by_metric, &1, []))
+    end)
     |> Enum.uniq_by(&{&1.value, &1.label, &1.severity, &1.series})
   end
 
@@ -1845,8 +1845,7 @@ defmodule ServiceRadarWebNGWeb.InterfaceLive.Show do
 
   defp filter_results_by_metrics(results, group_metrics) do
     Enum.filter(results, fn result ->
-      metric_name = metric_result_name(result)
-      metric_name in group_metrics
+      SnmpMetricNames.selected?(metric_result_name(result), group_metrics)
     end)
   end
 
@@ -1905,18 +1904,20 @@ defmodule ServiceRadarWebNGWeb.InterfaceLive.Show do
 
   # Format metric name for display in chart legend
   defp format_metric_series_name(name) when is_binary(name) do
-    case name do
+    case SnmpMetricNames.base_name(name) do
       "ifInOctets" -> "Inbound"
       "ifOutOctets" -> "Outbound"
-      "ifHCInOctets" -> "Inbound (64-bit)"
-      "ifHCOutOctets" -> "Outbound (64-bit)"
+      "ifHCInOctets" -> "Inbound"
+      "ifHCOutOctets" -> "Outbound"
       "ifInErrors" -> "In Errors"
       "ifOutErrors" -> "Out Errors"
       "ifInDiscards" -> "In Discards"
       "ifOutDiscards" -> "Out Discards"
       "ifInUcastPkts" -> "In Packets"
       "ifOutUcastPkts" -> "Out Packets"
-      _ -> name
+      "ifHCInUcastPkts" -> "In Packets"
+      "ifHCOutUcastPkts" -> "Out Packets"
+      other -> other
     end
   end
 
@@ -2133,7 +2134,7 @@ defmodule ServiceRadarWebNGWeb.InterfaceLive.Show do
 
   # Check if metric is a traffic/bytes metric that makes sense for percentage thresholds
   defp traffic_metric?(name) when is_binary(name) do
-    name in ["ifInOctets", "ifOutOctets", "ifHCInOctets", "ifHCOutOctets"]
+    SnmpMetricNames.base_name(name) in ["ifInOctets", "ifOutOctets", "ifHCInOctets", "ifHCOutOctets"]
   end
 
   defp traffic_metric?(_), do: false
@@ -2279,16 +2280,20 @@ defmodule ServiceRadarWebNGWeb.InterfaceLive.Show do
   defp metric_display_name(metric) when is_map(metric) do
     name = Map.get(metric, "name") || Map.get(metric, :name) || "Unknown"
     # Convert OID names to human-readable format
-    case name do
+    case SnmpMetricNames.base_name(name) do
       "ifInOctets" -> "Inbound Traffic"
       "ifOutOctets" -> "Outbound Traffic"
+      "ifHCInOctets" -> "Inbound Traffic"
+      "ifHCOutOctets" -> "Outbound Traffic"
       "ifInErrors" -> "Inbound Errors"
       "ifOutErrors" -> "Outbound Errors"
       "ifInDiscards" -> "Inbound Discards"
       "ifOutDiscards" -> "Outbound Discards"
       "ifInUcastPkts" -> "Inbound Packets"
       "ifOutUcastPkts" -> "Outbound Packets"
-      _ -> name
+      "ifHCInUcastPkts" -> "Inbound Packets"
+      "ifHCOutUcastPkts" -> "Outbound Packets"
+      other -> other
     end
   end
 

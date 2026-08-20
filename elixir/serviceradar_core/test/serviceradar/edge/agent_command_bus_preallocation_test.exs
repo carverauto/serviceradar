@@ -136,6 +136,37 @@ defmodule ServiceRadar.Edge.AgentCommandBusPreallocationTest do
              )
   end
 
+  test "plugin action IDs are preallocatable only for a typed notification attempt" do
+    payload = %{
+      "schema" => "serviceradar.notification_delivery.v1",
+      "delivery_id" => @command_id
+    }
+
+    assert {:error, :preallocated_notification_attempt_context_required} =
+             AgentCommandBus.dispatch("agent-farm01", "plugin.run_action", payload,
+               command_id: @command_id
+             )
+
+    assert {:error, :sensitive_transmit_payload_denied} =
+             AgentCommandBus.dispatch(
+               "agent-farm01",
+               "plugin.run_action",
+               Map.put(payload, "api_token", "not-stored"),
+               command_id: @command_id,
+               notification_delivery_attempt: true,
+               source: :automation,
+               context: %{"notification_delivery_id" => @command_id}
+             )
+
+    assert {:error, :preallocated_notification_attempt_context_required} =
+             AgentCommandBus.dispatch("agent-farm01", "plugin.run_action", payload,
+               command_id: @command_id,
+               notification_delivery_attempt: true,
+               source: :automation,
+               context: %{"notification_delivery_id" => Ash.UUID.generate()}
+             )
+  end
+
   defp callback_context(verb) do
     %{
       "schema" => "serviceradar.automation_callback_command/v1",

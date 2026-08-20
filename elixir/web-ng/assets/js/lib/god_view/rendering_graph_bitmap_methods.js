@@ -75,6 +75,7 @@ export const godViewRenderingGraphBitmapMethods = {
   },
   computeTraversalMask(graph) {
     if (!graph || this.state.selectedNodeIndex === null) return null
+    if (!Number.isInteger(this.state.selectedNodeIndex) || this.state.selectedNodeIndex < 0) return null
     if (this.state.selectedNodeIndex >= graph.nodes.length) return null
 
     if (this.state.wasmReady && this.state.wasmEngine) {

@@ -4,7 +4,7 @@ load("@rules_rust_prost//:defs.bzl", "rust_prost_toolchain")
 rust_library_group(
     name = "prost_runtime",
     deps = [
-        "//third_party/crates:prost",
+        "@crates//:prost",
     ],
 )
 
@@ -16,18 +16,22 @@ rust_library_group(
     name = "tonic_runtime",
     deps = [
         ":prost_runtime",
-        "//third_party/crates:tonic",
-        "//third_party/crates:tonic-prost",
+        "@crates//:tonic",
+        "@crates//:tonic-prost",
     ],
 )
 
 # https://github.com/bazelbuild/rules_rust/blob/main/examples/bzlmod/proto_with_toolchain/build/prost_toolchain/BUILD.bazel
+#
+# The two plugin labels come from the `gen_binaries` annotations on protoc-gen-prost and
+# protoc-gen-tonic in //MODULE.bazel; the crates themselves are pinned by
+# //rust/protoc-plugins, which exists for exactly that reason.
 rust_prost_toolchain(
     name = "prost_toolchain_impl",
-    prost_plugin = "//third_party/crates:protoc-gen-prost__protoc-gen-prost",
+    prost_plugin = "@crates//:protoc-gen-prost__protoc-gen-prost",
     prost_runtime = ":prost_runtime",
-    prost_types = "//third_party/crates:prost-types",
-    tonic_plugin = "//third_party/crates:protoc-gen-tonic__protoc-gen-tonic",
+    prost_types = "@crates//:prost-types",
+    tonic_plugin = "@crates//:protoc-gen-tonic__protoc-gen-tonic",
     tonic_runtime = ":tonic_runtime",
     visibility = ["//visibility:public"],
 )

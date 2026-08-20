@@ -22,7 +22,7 @@ spec:
       serviceAccountName: {{ .Values.spire.coreServiceAccount | default "serviceradar-core" }}
       containers:
         - name: kv-bootstrap
-          image: {{ include "serviceradar.imageRef" (dict "Values" .Values "name" "serviceradar-tools" "service" "tools") }}
+          image: {{ include "serviceradar.imageRef" (dict "Values" .Values "Chart" .Chart "name" "serviceradar-tools" "service" "tools") }}
           imagePullPolicy: {{ include "serviceradar.imagePullPolicy" . }}
           {{- include "serviceradar.containerSecurityContext" . | nindent 10 }}
           env:

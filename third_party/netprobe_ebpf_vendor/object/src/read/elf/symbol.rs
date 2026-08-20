@@ -206,7 +206,7 @@ impl<'data, Elf: FileHeader, R: ReadRef<'data>> SymbolTable<'data, Elf, R> {
     ) -> SymbolMap<Entry> {
         let mut symbols = Vec::with_capacity(self.symbols.len());
         for symbol in self.symbols {
-            if !symbol.is_definition(endian) {
+            if !symbol.is_definition(endian, self.strings) {
                 continue;
             }
             if let Some(entry) = f(symbol) {
@@ -436,7 +436,8 @@ impl<'data, 'file, Elf: FileHeader, R: ReadRef<'data>> ObjectSymbol<'data>
 
     #[inline]
     fn is_definition(&self) -> bool {
-        self.symbol.is_definition(self.endian)
+        self.symbol
+            .is_definition(self.endian, self.symbols.strings())
     }
 
     #[inline]
@@ -520,14 +521,26 @@ pub trait Sym: Debug + Pod {
     }
 
     /// Return true if the symbol is a definition of a function or data object.
-    fn is_definition(&self, endian: Self::Endian) -> bool {
+    fn is_definition<'data, R: ReadRef<'data>>(
+        &self,
+        endian: Self::Endian,
+        strings: StringTable<'data, R>,
+    ) -> bool {
         let shndx = self.st_shndx(endian);
         if shndx == elf::SHN_UNDEF || (shndx >= elf::SHN_LORESERVE && shndx != elf::SHN_XINDEX) {
             return false;
         }
         match self.st_type() {
-            elf::STT_NOTYPE => self.st_size(endian).into() != 0,
-            elf::STT_FUNC | elf::STT_OBJECT => true,
+            elf::STT_NOTYPE if self.st_bind() == elf::STB_LOCAL => {
+                // Exclude mapping symbols.
+                let Ok(name) = self.name(endian, strings) else {
+                    // Not worth changing API to return an error for this case.
+                    // Caller is likely to call name() themselves.
+                    return true;
+                };
+                !name.starts_with(b"$")
+            }
+            elf::STT_FUNC | elf::STT_OBJECT | elf::STT_NOTYPE => true,
             _ => false,
         }
     }

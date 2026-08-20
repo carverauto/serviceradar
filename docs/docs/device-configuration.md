@@ -19,7 +19,7 @@ Redundant alias summaries and opaque "additional metadata keys" counts are inten
 
 The Logs tab runs a bounded `in:logs device_id:"..." time:last_24h` SRQL query and shows a zero-row state immediately while the query completes. Use the "Open full logs view" link when operators need broader log filtering.
 
-Northbound task results are shown in the device Task History section. Launch feedback should tell operators to watch Task History, and target summaries should omit nil or unavailable fields.
+Provider-neutral northbound action results are shown in the device Action History section for users with `northbound.actions.view`. Retained Ansible-provider invocations are excluded; canonical Ansible evidence appears only in the Ansible Operations history under `ansible.runs.view`. Launch feedback should direct operators to Action History, and target summaries should omit nil or unavailable fields.
 
 ## SNMP Configuration
 

@@ -15,19 +15,21 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexRefresh do
 
   def refresh_devices(socket, opts \\ []) do
     params =
-      socket.assigns
-      |> Map.get(:last_params, %{})
+      opts
+      |> Keyword.get(:list_params, Map.get(socket.assigns, :last_params, %{}))
       |> IndexData.include_inactive_inventory_params()
 
     uri = Map.get(socket.assigns, :last_uri, "/devices")
     preserve_async_data? = Keyword.get(opts, :preserve_async_data?, false)
     stats_loaded? = Map.get(socket.assigns, :device_stats_loaded, false)
 
+    {default_limit, max_limit} = list_limits(socket)
+
     socket =
       socket
       |> SRQLPage.load_list(params, uri, :devices,
-        default_limit: @default_limit,
-        max_limit: @max_limit
+        default_limit: default_limit,
+        max_limit: max_limit
       )
       |> assign_managed_device_limit_advisory()
 
@@ -168,6 +170,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexRefresh do
          sysmon_presence: enrichments.sysmon_presence,
          sysmon_profiles_by_device: enrichments.sysmon_profiles_by_device,
          agent_device_uids: enrichments.agent_device_uids,
+         composite_verdicts_by_device: enrichments.composite_verdicts_by_device,
          total_device_count: enrichments.total_device_count
        )}
     else
@@ -187,4 +190,10 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexRefresh do
       {:noreply, socket}
     end
   end
+
+  defp list_limits(%{assigns: %{live_action: :new_devices}}) do
+    {200, 200}
+  end
+
+  defp list_limits(_socket), do: {@default_limit, @max_limit}
 end

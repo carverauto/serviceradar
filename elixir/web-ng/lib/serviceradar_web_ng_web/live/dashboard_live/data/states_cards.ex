@@ -25,7 +25,6 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Data.StatesCards do
           camera: source_state(false, camera_summary.total > 0),
           fieldsurvey: source_state(false, survey_available?(survey_summary)),
           security_events: source_state(false, event_summary.total > 0),
-          vulnerable_assets: :unconnected,
           siem: source_state(false, alert_summary.total > 0)
         }
       end

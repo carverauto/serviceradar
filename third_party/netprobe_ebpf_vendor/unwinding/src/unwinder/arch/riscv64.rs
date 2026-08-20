@@ -8,7 +8,10 @@ use super::maybe_cfi;
 pub const MAX_REG_RULES: usize = 65;
 
 #[cfg(all(target_feature = "f", not(target_feature = "d")))]
-compile_error!("RISC-V with only F extension is not supported");
+compile_error!("RISC-V RV64 with only F extension is not supported");
+
+#[cfg(target_feature = "e")]
+compile_error!("RISC-V RV64E is not supported");
 
 #[repr(C)]
 #[derive(Clone, Default)]

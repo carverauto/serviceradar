@@ -9,8 +9,12 @@ Options:
   --version <version>   Release version to publish (required).
                         Use X.Y.Z for releases, X.Y.Z-preN for pre-releases.
   --tag-prefix <prefix> Prefix to prepend to the Git tag (must be v).
-  --push                Push the current release branch to origin when finished.
-                        The tag remains local until the branch is merged to staging.
+  --remote <name>       Git remote for tag occupancy checks and --push
+                        (default: origin). Use github when cutting against
+                        GitHub instead of Forgejo.
+  --push                Push the current release branch to the chosen remote
+                        when finished. The tag remains local until the branch
+                        is merged to staging.
   --no-push             Do not push any refs (default).
   --dry-run             Print the actions without modifying the repository.
   --prerelease          Mark as pre-release (auto-detected if version contains
@@ -44,6 +48,7 @@ USAGE
 
 version=""
 tag_prefix="v"
+remote="origin"
 push=false
 dry_run=false
 skip_changelog_check=false
@@ -68,6 +73,15 @@ while [[ $# -gt 0 ]]; do
             ;;
         --tag-prefix=*)
             tag_prefix="${1#*=}"
+            shift
+            ;;
+        --remote)
+            [[ $# -ge 2 ]] || { echo "--remote requires a value" >&2; exit 1; }
+            remote="$2"
+            shift 2
+            ;;
+        --remote=*)
+            remote="${1#*=}"
             shift
             ;;
         --push)
@@ -152,20 +166,25 @@ if git show-ref --verify --quiet "refs/tags/$tag"; then
     exit 1
 fi
 
+if ! git remote get-url "$remote" >/dev/null 2>&1; then
+    echo "Unknown git remote: $remote" >&2
+    exit 1
+fi
+
 set +e
-remote_tag_output=$(git ls-remote --exit-code --tags origin "refs/tags/$tag" 2>&1)
+remote_tag_output=$(git ls-remote --exit-code --tags "$remote" "refs/tags/$tag" 2>&1)
 remote_tag_status=$?
 set -e
 
 case "$remote_tag_status" in
     0)
-        echo "Refusing to cut release: origin already contains tag $tag." >&2
+        echo "Refusing to cut release: $remote already contains tag $tag." >&2
         exit 1
         ;;
     2)
         ;;
     *)
-        echo "Unable to verify whether origin contains tag $tag:" >&2
+        echo "Unable to verify whether $remote contains tag $tag:" >&2
         echo "$remote_tag_output" >&2
         exit "$remote_tag_status"
         ;;
@@ -187,8 +206,8 @@ fi
 print_post_merge_tag_instructions() {
     echo ""
     echo "After the release branch is merged into staging, publish the tag with:"
-    echo "  git fetch origin refs/heads/staging:refs/remotes/origin/staging"
-    echo "  git merge-base --is-ancestor '${tag}^{commit}' refs/remotes/origin/staging && git push origin refs/tags/$tag:refs/tags/$tag"
+    echo "  git fetch $remote refs/heads/staging:refs/remotes/$remote/staging"
+    echo "  git merge-base --is-ancestor '${tag}^{commit}' refs/remotes/$remote/staging && git push $remote refs/tags/$tag:refs/tags/$tag"
     echo "The tag push is chained to the ancestry check and will not run if it fails."
 }
 
@@ -300,20 +319,20 @@ fi
 if [[ "$push" == "true" ]]; then
     if [[ "$dry_run" == "true" ]]; then
         echo "[dry-run] Would push the release branch only with:"
-        echo "[dry-run]   git push origin $current_branch:refs/heads/$current_branch"
+        echo "[dry-run]   git push $remote $current_branch:refs/heads/$current_branch"
         echo "[dry-run] The tag would remain local until the release branch is merged to staging."
     else
-        git push origin "$current_branch:refs/heads/$current_branch"
+        git push "$remote" "$current_branch:refs/heads/$current_branch"
         echo "Release branch pushed. Open and merge its pull request before publishing the tag."
     fi
 else
     echo "Branch and tag are ready locally. Push the release branch with:"
     if [[ -n "$current_branch" && "$current_branch" != "staging" ]]; then
-        echo "  git push origin $current_branch:refs/heads/$current_branch"
+        echo "  git push $remote $current_branch:refs/heads/$current_branch"
     else
         release_branch="release/$tag"
         echo "  git switch -c $release_branch"
-        echo "  git push origin $release_branch:refs/heads/$release_branch"
+        echo "  git push $remote $release_branch:refs/heads/$release_branch"
     fi
 fi
 

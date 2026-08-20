@@ -12,7 +12,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexView do
   import ServiceRadarWebNGWeb.DeviceLive.IndexView.Stats, only: [device_stats_cards: 1]
   import ServiceRadarWebNGWeb.NorthboundActionComponents, only: [northbound_action_modal: 1]
 
-  alias ServiceRadarWebNGWeb.DeviceLive.AwxApplicability
+  alias ServiceRadarWebNGWeb.DeviceLive.IndexPath
   alias ServiceRadarWebNGWeb.DeviceLive.IndexView.BulkActions
   alias ServiceRadarWebNGWeb.DeviceLive.IndexView.Filters
   alias ServiceRadarWebNGWeb.DeviceLive.IndexView.Header
@@ -41,47 +41,51 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexView do
         selected_count
       end
 
-    run_task_disabled? =
+    run_action_disabled? =
       assigns.northbound_device_actions_loading or assigns.northbound_device_actions == [] or
         effective_count == 0
 
-    run_task_title =
+    run_action_title =
       cond do
         assigns.northbound_device_actions_loading ->
-          "Checking configured task integrations"
+          "Checking configured action integrations"
 
         assigns.northbound_device_actions == [] ->
-          "No launchable task integrations are configured"
+          "No launchable action integrations are configured"
 
         selected_count == 0 ->
           "Select at least one device"
 
         true ->
-          "Run task for selected devices"
+          "Run action for selected devices"
       end
 
     assigns =
       assigns
       |> assign(:pagination, pagination)
+      |> assign(:devices_return_path, IndexPath.list_path_from_assigns(assigns))
       |> assign(:selected_count, selected_count)
       |> assign(:effective_count, effective_count)
       |> assign(:all_selected, all_selected)
-      |> assign(:run_task_disabled?, run_task_disabled?)
-      |> assign(:run_task_title, run_task_title)
+      |> assign(:run_action_disabled?, run_action_disabled?)
+      |> assign(:run_action_title, run_action_title)
 
     ~H"""
     <Layouts.app flash={@flash} current_scope={@current_scope} srql={@srql}>
-      <div class="mx-auto max-w-7xl p-6">
+      <div class="mx-auto flex min-h-[calc(100vh-8rem)] max-w-7xl flex-col p-6">
         <Header.render {assigns} />
 
         <.device_stats_cards
+          :if={@live_action != :new_devices}
           stats={@device_stats}
           loading={@device_stats_loading}
         />
 
         <Filters.render {assigns} />
         <BulkActions.render {assigns} />
-        <Table.render {assigns} />
+        <div class="mt-4 flex min-h-0 flex-1 flex-col">
+          <Table.render {assigns} />
+        </div>
       </div>
 
       <!-- Add Device Modal -->
@@ -93,6 +97,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexView do
         uploads={@uploads}
         csv_preview={@csv_preview}
         csv_errors={@csv_errors}
+        csv_warnings={@csv_warnings}
+        import_status={@import_status}
       />
 
       <!-- Bulk Edit Modal -->
@@ -118,18 +124,12 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexView do
       <.northbound_action_modal
         :if={@show_northbound_action_modal}
         id="northbound_action_modal"
-        title="Run Task"
+        title="Run Action"
         subtitle={"#{@effective_count} selected device(s)"}
         form={@northbound_action_form}
         actions={launchable_northbound_actions(@northbound_device_actions)}
         action={@northbound_launch_action}
         error={@northbound_action_error}
-        applicability={northbound_applicability_summary(@northbound_awx_applicability)}
-        ansible_vars={@northbound_ansible_vars}
-        ansible_var_values={@northbound_ansible_var_values}
-        raw_extra_vars_open={@northbound_raw_extra_vars_open}
-        raw_extra_vars={@northbound_raw_extra_vars}
-        toggle_raw_event="toggle_northbound_raw_extra_vars"
         close_event="close_northbound_action_modal"
         change_event="northbound_action_change"
         submit_event="launch_northbound_action"
@@ -146,14 +146,4 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexView do
 
   defp launchable_northbound_actions(actions) when is_list(actions), do: actions
   defp launchable_northbound_actions(_actions), do: []
-
-  defp northbound_applicability_summary(%AwxApplicability{} = applicability) do
-    %{
-      applicable_count: AwxApplicability.applicable_count(applicability),
-      total_count: applicability.total,
-      non_applicable: applicability.non_applicable
-    }
-  end
-
-  defp northbound_applicability_summary(_), do: nil
 end

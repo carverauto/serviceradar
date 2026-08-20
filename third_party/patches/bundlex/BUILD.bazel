@@ -1,3 +1,7 @@
 package(default_visibility = ["//visibility:public"])
 
-exports_files(["local_precompiled.patch"])
+exports_files([
+    "hermetic_cc.patch",
+    "local_precompiled.patch",
+    "target_triple.patch",
+])

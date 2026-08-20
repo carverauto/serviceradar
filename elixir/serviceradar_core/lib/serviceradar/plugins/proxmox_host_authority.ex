@@ -8,6 +8,8 @@ defmodule ServiceRadar.Plugins.ProxmoxHostAuthority do
   finite set of target identity fields.
   """
 
+  require Logger
+
   @schema "serviceradar.plugin_host_authority.v1"
   @provider "proxmox"
   @inventory_plugin_id "proxmox-inventory"
@@ -86,12 +88,28 @@ defmodule ServiceRadar.Plugins.ProxmoxHostAuthority do
             )
 
           if bindings == [] do
+            Logger.warning(
+              "Proxmox host authority: no bindings built for assignment " <>
+                "#{inspect(assignment_id)} (plugin=#{plugin_id}); the assignment will be " <>
+                "skipped as :proxmox_host_authority_unavailable"
+            )
+
             nil
           else
             %{"schema" => @schema, "bindings" => bindings}
           end
         else
-          _ -> nil
+          # Returning a bare nil is what makes :proxmox_host_authority_unavailable
+          # uninformative upstream: it can mean no broker grant, a policy-binding
+          # failure, or an SSH host-key-policy failure. Same control flow as the
+          # `_ -> nil` this replaces; the value is now named and logged.
+          other ->
+            Logger.warning(
+              "Proxmox host authority: host binding unavailable for assignment " <>
+                "#{inspect(assignment_id)} (plugin=#{plugin_id}): #{inspect(other)}"
+            )
+
+            nil
         end
 
       {public_params, host_params}
@@ -182,20 +200,30 @@ defmodule ServiceRadar.Plugins.ProxmoxHostAuthority do
     policy_id = value(params, "policy_id")
     policy_version = value(params, "policy_version")
 
-    expected_policy_id =
+    expected_policy_ids =
       case {plugin_id, entrypoint, credential_rule_id} do
         {@inventory_plugin_id, @inventory_entrypoint, rule_id} when is_binary(rule_id) ->
-          "network-credential-rule:#{rule_id}:inventory_enrichment"
+          # BOTH forms, because the writer emits the unsuffixed one.
+          # PluginAssignmentMaterializer.policy_id_for_rule/2 special-cases
+          # inventory_enrichment to "network-credential-rule:<rule>" to preserve
+          # the original inventory policy id for upgrade compatibility. Accepting
+          # only the suffixed form meant every materialized inventory assignment
+          # failed this binding and was skipped at config generation -- the plugin
+          # was never delivered, and the only symptom was a warning.
+          [
+            "network-credential-rule:#{rule_id}",
+            "network-credential-rule:#{rule_id}:inventory_enrichment"
+          ]
 
         {@console_plugin_id, @console_entrypoint, rule_id} when is_binary(rule_id) ->
-          "network-credential-rule:#{rule_id}:console_access"
+          ["network-credential-rule:#{rule_id}:console_access"]
 
         _other ->
-          nil
+          []
       end
 
     if present?(assignment_id) and present?(credential_rule_id) and
-         policy_id == expected_policy_id and is_integer(policy_version) and policy_version > 0 do
+         policy_id in expected_policy_ids and is_integer(policy_version) and policy_version > 0 do
       canonical =
         Enum.join(
           [

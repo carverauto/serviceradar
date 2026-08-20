@@ -765,6 +765,11 @@ services:
       - ./logs:/var/log/serviceradar
     environment:
       - LOG_LEVEL=${LOG_LEVEL:-info}
+      # Share shutdown budget with the publisher drain path (see main.rs).
+      - TERMINATION_GRACE_PERIOD_SECONDS=45
+      - FLOW_COLLECTOR_READY_PATH=/var/lib/serviceradar/flow-collector.ready
+    # Must cover publisher concurrent-ACK drain (default process budget ~43s).
+    stop_grace_period: 45s
     cap_add:
       - NET_BIND_SERVICE
     depends_on:
@@ -796,6 +801,140 @@ services:
     depends_on:
       nats:
         condition: service_started
+    networks:
+      - serviceradar-net
+    restart: unless-stopped
+
+  # ---------------------------------------------------------------------------
+  # Cold-tier DEV TOOLING (profile: coldtier) — OpenSpec add-tiered-telemetry-offload.
+  #
+  # Opt-in ONLY: `docker compose --profile coldtier up -d`. The default stack
+  # never starts these services, and core-elx never sees cold-tier config
+  # unless you wire it in yourself (design D11 — zero behavior change when the
+  # cold-tier configuration is absent). This is not an OSS enablement path.
+  #
+  # Services: MinIO (S3-compatible object store), a one-shot bucket bootstrap,
+  # and `cold-head` — a local analytics query head (PostgreSQL 18 + pg_duckdb,
+  # no TimescaleDB) mirroring the Helm cold-analytics-head.yaml component.
+  # Together with the default compose CNPG this exercises the full
+  # export→verify→drop→query-back loop without cloud object storage.
+  #
+  # To point core-elx at this tier, set the cold-tier environment consumed by
+  # elixir/serviceradar_core/config/runtime.exs (ServiceRadar.ColdTier block):
+  #   SERVICERADAR_COLD_TIER_ENABLED=true
+  #   SERVICERADAR_COLD_TIER_BUCKET_URL=s3://serviceradar-cold
+  #   SERVICERADAR_COLD_TIER_S3_ENDPOINT=minio:9000   # in-network endpoint
+  #   SERVICERADAR_COLD_TIER_S3_URL_STYLE=path
+  #   SERVICERADAR_COLD_TIER_S3_USE_SSL=false
+  #   SERVICERADAR_COLD_TIER_S3_ACCESS_KEY_ID / _SECRET_ACCESS_KEY
+  #   SERVICERADAR_COLD_TIER_HEAD_HOST=cold-head (+ _PORT/_DATABASE/_USERNAME/_PASSWORD)
+  #   SERVICERADAR_COLD_TIER_PRIMARY_HOST=cnpg   # the primary as seen FROM the head
+  #   SERVICERADAR_COLD_TIER_PRIMARY_FDW_USERNAME / _PASSWORD (+ _PORT/_DATABASE)
+  # Full annotated list: docker/compose/coldtier.env.example. Recommended
+  # wiring is a docker-compose.override.yml that adds
+  #   services: { core-elx: { env_file: [./docker/compose/coldtier.env] } }
+  # so the main file stays cold-tier-free by default.
+  minio:
+    image: minio/minio:latest
+    container_name: serviceradar-coldtier-minio
+    profiles:
+      - coldtier
+    environment:
+      - MINIO_ROOT_USER=${SR_COLDTIER_MINIO_USER:-serviceradar}
+      - MINIO_ROOT_PASSWORD=${SR_COLDTIER_MINIO_PASSWORD:-serviceradarcold}
+    command: ["server", "/data", "--console-address", ":9001"]
+    ports:
+      - "127.0.0.1:${SR_COLDTIER_MINIO_PORT:-59000}:9000"
+      - "127.0.0.1:${SR_COLDTIER_MINIO_CONSOLE_PORT:-59001}:9001"
+    volumes:
+      - coldtier-minio-data:/data
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 5s
+    networks:
+      - serviceradar-net
+    restart: unless-stopped
+
+  # One-shot bucket bootstrap (idempotent). Bucket versioning stays OFF (the
+  # MinIO default): idempotent re-export overwrites objects in place, and a
+  # versioned bucket would silently accumulate full noncurrent copies
+  # (design D9 / spike 0.4).
+  minio-init:
+    image: minio/mc:latest
+    container_name: serviceradar-coldtier-minio-init
+    profiles:
+      - coldtier
+    environment:
+      - SR_COLDTIER_MINIO_USER=${SR_COLDTIER_MINIO_USER:-serviceradar}
+      - SR_COLDTIER_MINIO_PASSWORD=${SR_COLDTIER_MINIO_PASSWORD:-serviceradarcold}
+    entrypoint:
+      - /bin/sh
+      - -c
+      - |
+        set -e
+        mc alias set coldtier http://minio:9000 "$${SR_COLDTIER_MINIO_USER}" "$${SR_COLDTIER_MINIO_PASSWORD}"
+        mc mb -p coldtier/serviceradar-cold
+        mc ls coldtier
+    depends_on:
+      minio:
+        condition: service_healthy
+    restart: "no"
+    networks:
+      - serviceradar-net
+
+  # Local analytics query head: PostgreSQL 18 + pg_duckdb (no TimescaleDB),
+  # the compose analogue of helm/serviceradar/templates/cold-analytics-head.yaml.
+  # C collation is REQUIRED (design D7 / spike 0.6): the CNPG primary is
+  # C-collated and DuckDB always sorts binary/codepoint — the stock pgduckdb
+  # image defaults to en_US.utf8, so initdb args must never be dropped.
+  cold-head:
+    image: pgduckdb/pgduckdb:18-v1.1.1
+    container_name: serviceradar-coldtier-head
+    profiles:
+      - coldtier
+    command:
+      - "postgres"
+      - "-c"
+      - "shared_preload_libraries=pg_duckdb"
+      - "-c"
+      - "duckdb.max_memory=1536MB"
+      - "-c"
+      - "duckdb.threads=2"
+      - "-c"
+      - "duckdb.max_temp_directory_size=10GB"
+      - "-c"
+      - "duckdb.autoinstall_known_extensions=false"
+      - "-c"
+      - "duckdb.autoload_known_extensions=true"
+      - "-c"
+      - "duckdb.allow_community_extensions=false"
+    environment:
+      - POSTGRES_USER=${SR_COLDTIER_HEAD_USER:-serviceradar}
+      - POSTGRES_PASSWORD=${SR_COLDTIER_HEAD_PASSWORD:-serviceradarcoldhead}
+      - POSTGRES_DB=${SR_COLDTIER_HEAD_DATABASE:-serviceradar}
+      - POSTGRES_INITDB_ARGS=--locale=C --encoding=UTF8
+    ports:
+      - "127.0.0.1:${SR_COLDTIER_HEAD_PORT:-55433}:5432"
+    volumes:
+      # PG18 official-image layout: PGDATA is /var/lib/postgresql/<major>/docker
+      # and the image VOLUME moved to the parent — mount /var/lib/postgresql,
+      # NOT the legacy /var/lib/postgresql/data.
+      - coldtier-head-data:/var/lib/postgresql
+      - ./docker/compose/coldtier-head-init.sh:/docker-entrypoint-initdb.d/coldtier-head-init.sh:ro
+      # The compose primary's pg_hba enforces hostssl + clientcert=verify-full,
+      # so the head's postgres_fdw SERVER options need sslrootcert/sslcert/
+      # sslkey under this mount to reach cnpg. Read-only; empty when the head
+      # is started standalone (harmless).
+      - cert-data:/etc/serviceradar/certs:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 10s
     networks:
       - serviceradar-net
     restart: unless-stopped
@@ -982,6 +1121,10 @@ volumes:
   trapd-data:
   flow-data:
   bmp-data:
+  coldtier-minio-data:
+    name: "${SERVICERADAR_VOLUME_PREFIX:-serviceradar}_coldtier-minio-data"
+  coldtier-head-data:
+    name: "${SERVICERADAR_VOLUME_PREFIX:-serviceradar}_coldtier-head-data"
 
 networks:
   serviceradar-net:

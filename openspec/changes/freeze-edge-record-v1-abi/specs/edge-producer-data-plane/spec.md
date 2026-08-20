@@ -2195,28 +2195,36 @@ them, are:
 1. WHOLE-RECORD VALIDATION, including signature verification;
 2. CONTRACT DISPATCH -- the record's `EdgeOutputContractRef` must equal the expected one in
    all four members: contract id, contract version, bundle digest, registry epoch;
-3. BOUNDED PAYLOAD EXTRACTION -- the inner payload is unwrapped and decompressed under its
+3. FRAMING FAMILY -- the record's `payload_family` must be the one family this typed ingress
+   frames. It runs BEFORE extraction and decode, so a wrongly framed record is never read as a
+   contract message;
+4. BOUNDED PAYLOAD EXTRACTION -- the inner payload is unwrapped and decompressed under its
    size bounds;
-4. BOUNDED DECODE of the extracted bytes into the batch message;
-5. BODY VALIDATION, which is where the sweep `source` enum is admitted;
-6. correlation.
+5. BOUNDED DECODE of the extracted bytes into the batch message;
+6. BODY VALIDATION, which is where the sweep `source` enum is admitted;
+7. correlation.
 
 RAW WIRE HYGIENE IS NOT IN THIS LIST because it is EXTERNAL to the composed validator -- it
 runs on received bytes before this entry point, and a vector reaches step 1 having already
 passed it. ENUM ADMISSION IS NOT A SEPARATE LEADING STEP either: for the sweep `source` it is
-part of step 5 in Go, while Elixir admits it before interpreting the body. The gate table above
+part of step 6 in Go, while Elixir admits it before interpreting the body. The gate table above
 records enum admission as UNSPECIFIED's semantic owner precisely because the two runtimes place
 it differently; this list is about ORDER within the Go composed path, and asserting a global
 enum-first order would contradict it.
 
-CONTRACT DISPATCH DOES NOT CHECK PAYLOAD FAMILY. An earlier revision of this list said it
-checked "payload family and output-contract reference"; it checks only the contract reference.
-Binding the payload family to the contract is a REAL GAP and it is NOT task 1.3's; this
-requirement SHALL NOT be read as having frozen it. It is OWNED BY TASK 1.5, which SHALL either
-freeze the relation with vectors in both runtimes or record an explicit decision that v1
-requires none.
+CONTRACT DISPATCH DOES NOT CHECK PAYLOAD FAMILY, and deliberately does not. An earlier
+revision of this list said it checked "payload family and output-contract reference"; it checks
+only the contract reference. THE TWO ANSWER DIFFERENT QUESTIONS: the contract selects the
+semantic validator and the projector, while the family selects which typed ingress a record may
+enter. That is why the family is step 3 above rather than part of step 2, and why no
+registry-wide contract-to-family table exists.
 
-STEPS 2, 3 AND 4 ARE EASY TO OMIT AND WERE OMITTED by an earlier revision, which jumped from
+An earlier revision of this paragraph called the binding a REAL GAP and offered task 1.5 two
+outcomes -- freeze a contract relation, or record that v1 needs none. BOTH ARE WITHDRAWN: the
+resolution is neither. See "The payload family is a framing discriminator bound to the typed
+entry point".
+
+STEPS 2, 4 AND 5 ARE EASY TO OMIT AND WERE OMITTED by an earlier revision, which jumped from
 record validation to body validation. They are not bookkeeping: a vector that mutates a sweep
 body changes its length and its digest, so a nominally correct correlation vector can die at
 contract dispatch, at a payload bound, or in the decoder while passing every control the list
@@ -2712,8 +2720,10 @@ MESSAGE FIELDS -- at any depth, and including oneof members, repeated messages, 
 message-valued map entries. Three exclusions make that a boundary rather than a slogan:
 
 - A `bytes` FIELD IS OPAQUE, even when its content is itself protobuf. The record's `payload`
-  carries a CONTRACT message admitted by its own payload-family rules; walking it here would
-  apply the record's field inventory to a different schema and refuse valid contract bytes.
+  carries a CONTRACT message, admitted by the rules of the contract that selects its validator --
+  NOT by the payload family, which decides only which typed ingress the record may enter.
+  Walking it here would apply the record's field inventory to a different schema and refuse
+  valid contract bytes.
 - EACH RECEIVED CARRIER IS ITS OWN GRAPH. The client message, the delivery frame, the record,
   the plan page and the compiled assignment are validated when each is received, on its own
   schema. This requirement does not merge them into a single walk, and satisfying it for one
@@ -2900,3 +2910,321 @@ zero -- and SHALL NOT introduce a check written for the test suite in order to a
 - **WHEN** one optional field of a carrier is omitted while its siblings remain present-zero
 - **THEN** the verdict reflects that field's own policy
 - **AND** the artifacts differ in that field's presence and in nothing else
+
+### Requirement: The payload family is a framing discriminator bound to the typed entry point
+`payload_family` SHALL be an IMMUTABLE FRAMING AND LIFECYCLE DISCRIMINATOR. Each TYPED ingress
+SHALL admit exactly one family and SHALL refuse every other declared family:
+
+| typed ingress | admitted family |
+|---|---|
+| sweep, MTR | `EDGE_RECORD_PAYLOAD_FAMILY_RECORD_BATCH_V1` |
+| lifecycle | `EDGE_RECORD_PAYLOAD_FAMILY_RUN_EVENT_V1` |
+| recovery | `EDGE_RECORD_PAYLOAD_FAMILY_RECOVERY_CONTROL_V1` |
+| a future snapshot ingress | its named snapshot family |
+
+THERE IS NO CONTRACT-SPECIFIC MAPPING, and no registry-wide contract-to-family table SHALL be
+introduced. The EXACT OUTPUT CONTRACT selects the semantic validator and the projector; contract
+dispatch compares the contract reference and nothing else. The family answers a different
+question -- which typed ingress this record may enter -- and the two SHALL NOT be conflated.
+
+THE FAMILY IS NOT AUTHORIZATION and NOT AN INFRASTRUCTURE ROUTING KEY. It does not widen or
+narrow what a capability permits, and a component that routes on it without validating it is
+trusting a value no boundary checked.
+
+THE CHECK SHALL LIVE AT EACH TYPED BOUNDARY, before the TYPED CONTRACT BODY is decoded or
+materialised. It is deliberately NOT stated as "before any extraction": whole-record validation
+may already have streamed a bounded decompression to enforce physical ceilings, and that is a
+size-bounded operation over opaque bytes, not an interpretation of them under a schema. What the
+framing check precedes is the moment the payload is read AS a contract message.
+
+Protobuf bytes are not intrinsically type-tagged: a body decodes under an unintended schema
+without complaint, so a record declaring one family while entering another ingress would be
+ADMITTED AND AUTHENTICATED carrying contradictory metadata, and every later reader that selected
+a decoder from the family would be choosing from a value nothing validated. A record whose
+family is wrong AND whose payload is malformed SHALL be refused at the framing boundary, which is
+what demonstrates the typed decode was not entered.
+
+THE GENERIC RECORD VALIDATOR SHALL REMAIN PERMISSIVE across the known non-recovery families. It
+has no entry-point context and cannot choose among them; requiring it to would either freeze one
+family for every record or force it to guess. Its permissiveness is part of this contract, not an
+omission in it.
+
+RECOVERY IS ALREADY CONSTRAINED ELSEWHERE, by the biconditional between the recovery family and
+the recovery route profile, which preempts generic admission. That rule is not restated here, and
+evidence for this requirement SHALL exclude the recovery family so a refusal produced by the lane
+rule is never read as evidence for this one.
+
+#### Scenario: A typed ingress refuses a declared family it does not frame
+- **WHEN** a record carrying a valid body for a NON-RECOVERY typed ingress declares any other
+  declared non-recovery family
+- **THEN** the typed ingress refuses it
+- **AND** the generic record validator still admits the same bytes
+- **AND** this scenario is stated for non-recovery ingresses only: a recovery family on an
+  ordinary route is refused by the LANE biconditional, so the generic validator does not admit
+  it and the second clause above would be false
+
+#### Scenario: The framing check precedes decoding
+- **WHEN** a record declares a family the ingress does not frame AND carries a payload that
+  cannot decode
+- **THEN** the refusal is the framing decision, not the decode failure
+
+#### Scenario: Each typed ingress enforces the invariant at its own call site
+- **WHEN** the check is removed from one typed ingress whose family is not otherwise constrained
+- **THEN** that ingress admits a wrongly framed record
+- **AND** the other typed ingresses continue to refuse one
+- **AND** the recovery ingress is EXEMPT from this scenario: the recovery family is already
+  constrained by the lane biconditional before its typed check is reached, so removing that
+  check alone changes no verdict and the scenario cannot be satisfied for it
+
+### Requirement: Residual domain-semantic bounds are frozen by value, each as an attainable maximum or a pre-parse guard
+Each bound below SHALL hold the stated value in every implementation.
+
+FOR AN ATTAINABLE MAXIMUM the bound SHALL be INCLUSIVE: a value AT the bound SHALL be accepted
+and a value ONE OVER SHALL be refused. The inclusivity half is normative on its own. A boundary
+asserted only as "too big is refused" permits an implementation to tighten `>` into `>=` and
+silently refuse conforming producers at the exact ceiling, which is a compatibility break no
+refusal-only evidence can detect.
+
+FOR A GUARD-CLASS BOUND the obligation is DIFFERENT, because no valid value reaches the
+ceiling: the LARGEST VALID input SHALL be accepted, and an over-limit input SHALL be refused
+BEFORE the parser the guard protects is entered. "Accepted at the ceiling" is not required of
+these and SHALL NOT be demanded as evidence -- there is no such input to construct. The table
+names which bounds are which.
+
+| bound | value | applies to | lower bound | class |
+| --- | --- | --- | --- | --- |
+| `MaxPolicyIDBytes` | 128 | `availability_policy_id` on a plan HEADER and on a `SweepAssignmentRecordV1` | 1 (empty is refused) | attainable |
+| `MaxRangeStrBytes` | 64 | `cidr`, `first_address`, `last_address` on a `TargetRangeV1` | none | **GUARD** |
+| `MaxTransportProvenanceHeaderBytes` | 512 | one encoded `Sr-Edge-Transport-Provenance` header, on RECEIVED bytes before decode | none | **GUARD** |
+| `MaxPrincipalBytes` | 128 | an authenticated component-id principal, at every site that carries one | 1 (empty is refused) | attainable |
+| `MaxManifestPages` | 1024 | the supplied page LIST of a PLAN, matching the value already frozen for a recovery manifest | 1 (an empty list is refused) | attainable |
+| `MaxRangesPerPage` | 256 | `TargetRangeV1` entries in one plan page | 1 (an empty page is refused) | attainable |
+| `MaxSweepHostsPerBatch` | 2000 | host entries in one `SweepObservationBatchV1` | none | attainable |
+| `MaxTraceStrBytes` | 256 | `abort_reason` on a `SweepExecutionEventV1`, **only when its kind is ABORTED** | 1 when ABORTED; **exactly 0 for every other kind** | attainable |
+
+A RANGE's `availability_policy_id` is NOT an independent bound. It SHALL equal the plan header's,
+and the header's is already bounded, so the range's length is DERIVED. An implementation MAY
+check it defensively but SHALL NOT treat that check as the enforcement point, and no evidence
+SHALL claim the range site as an independently provable one: no input can reach the length
+comparison without failing the equality first.
+
+TWO OF THESE ARE DEFENSIVE PRE-PARSE GUARDS rather than attainable maxima, and this requirement
+does not pretend otherwise. No valid transport-provenance header approaches 512 bytes, and once
+zones are forbidden no canonical range string approaches 64. Their obligation is that oversize
+input is refused BEFORE the parser they protect is entered; the inclusivity rule above binds them
+only in the sense that a conforming value SHALL NOT be refused for length.
+
+#### Scenario: An ATTAINABLE maximum admits a value at the ceiling
+- **WHEN** a field bounded by an attainable maximum carries exactly that value and is
+  otherwise valid
+- **THEN** the boundary accepts it
+
+#### Scenario: An ATTAINABLE maximum refuses one over
+- **WHEN** a field bounded by an attainable maximum carries exactly one more than it
+- **THEN** the boundary refuses it
+
+#### Scenario: A GUARD-class bound admits the largest valid input
+- **WHEN** an input bounded by a pre-parse guard carries the largest value its own grammar
+  permits
+- **THEN** the boundary accepts it, and no at-ceiling input is required to exist
+
+#### Scenario: A GUARD-class bound refuses before parsing
+- **WHEN** an input exceeds a pre-parse guard
+- **THEN** it is refused before the parser that guard protects is entered
+
+#### Scenario: A derived length check cannot be reached on its own
+- **WHEN** a plan range's `availability_policy_id` is longer than the frozen maximum
+- **THEN** the refusal is the header-equality rule, because a header holding that value was
+  already refused
+
+### Requirement: A plan range address string SHALL NOT carry an IPv6 zone
+A `cidr`, `first_address` or `last_address` containing `%` SHALL be REFUSED, and the check SHALL
+run BEFORE the address parser is entered in every implementation.
+
+A zone identifies an interface on the machine that WROTE the string. It has no meaning at any
+other node, so a scheduler plan naming a scoped address describes a target the receiving agent
+cannot resolve to the same thing the author meant -- if it can resolve it at all.
+
+THE RUNTIMES DISAGREE WITHOUT THIS RULE, in a way neither reports as a zone problem. A permissive
+address parser may accept a scoped address and round-trip it canonically, admitting it; a parser
+that accepts the text but DISCARDS the zone will then refuse the same input as a non-canonical
+SPELLING, because the re-encoded form no longer matches what arrived. One accepts, one refuses,
+and neither says "zone".
+
+THE ZONE SHALL NOT BE STRIPPED, NORMALISED, OR OTHERWISE REPAIRED. These strings are inputs to
+the range, page, PLAN-ROOT, header and assignment digest chain, so rewriting one changes every
+digest above it and silently forks a plan's identity from the bytes its author signed. The
+only conforming handling is refusal. A plan carrying zoned addresses SHALL be REGENERATED by its
+author, not rewritten by a consumer.
+
+#### Scenario: A scoped address is refused before parsing
+- **WHEN** any plan range address string contains `%`
+- **THEN** it is refused, and the address parser is not entered
+
+
+### Requirement: A spool-loss tombstone reason is bounded on BOTH sides
+A tombstone's `reason` SHALL be at least 1 and at most `MaxReasonBytes` bytes. An EMPTY reason
+SHALL be REFUSED.
+
+The maximum was already frozen; the LOWER bound was not, and leaving it open let one runtime
+refuse an empty reason permanently while another admitted it. A tombstone records that spooled
+records were lost, and it is read by an operator reconstructing what happened. An empty reason
+is a tombstone that says data was lost and declines to say why, which is the one thing this
+message exists to carry.
+
+THE BOUND LIVES ON THE SIGNED RECOVERY-CONTROL BODY PATH, not on a bare tombstone validator. A
+peer that recomputes a tombstone digest without verifying the signature first is a DIFFERENT
+boundary, and satisfying this requirement there would not satisfy it here.
+
+#### Scenario: An empty reason is refused
+- **WHEN** a tombstone carries a zero-length `reason`
+- **THEN** the signed recovery-control boundary refuses it
+
+### Requirement: A count ceiling SHALL be enforced before the traversal it bounds, and SHALL NOT require that traversal to enforce
+A count ceiling on a collection THIS CHANGE OWNS SHALL be applied BEFORE any recursive walk
+over that collection, and SHALL be obtained without traversing more than `ceiling + 1` elements.
+The owned collections are a plan's page list and each page's range list, a recovery manifest's
+page list and each page's classification-span list, and a sweep batch's host list.
+
+SCOPED DELIBERATELY. Stating it of "every structural count ceiling" would reallocate bounds
+other tasks own, and this requirement is not a licence to restructure them.
+
+These are two rules because they fail independently, and both were violated while every
+implementation returned the correct verdict.
+
+ORDER. A ceiling checked after a recursive walk has already permitted the work it exists to
+forbid. Rejecting unknown fields before hashing is a real obligation and is NOT weakened here:
+what changes is that a COUNT -- available without interpreting anything -- SHALL precede the
+walk. Where a per-element count bounds a nested collection, it SHALL precede descent into that
+element's children.
+
+WHAT THE COUNT DOES NOT OVERTAKE: rules that validate the CONTAINER the collection arrived
+with. A plan header, or a tombstone's own identity and digest version, is validated before
+that container's collection is counted, so a stale header digest is reported as a digest fault
+rather than masked by a count mismatch. The ceilings move ahead of the WALK, not ahead of
+everything.
+
+WHAT THE COUNT DOES OVERTAKE: any RELATION over that collection's SIZE, including a count the
+container declares for it. An over-ceiling collection is a BOUNDS fault whatever the container
+declares, and reporting it as a mismatch describes the wrong problem -- the collection is not
+merely the wrong size, it is a size no conforming producer may send. This is also the only
+order every implementation can hold: obtaining a declared-count comparison first requires
+knowing the actual count, and an implementation whose count is not O(1) cannot learn it
+without the traversal the ceiling forbids. A declared count is therefore compared ONLY once
+the collection is known to be within its ceiling.
+
+#### Scenario: A ceiling outranks a declared count
+- **WHEN** a collection exceeds its ceiling AND its container declares a different size
+- **THEN** the refusal is the ceiling's, not the mismatch
+
+COST. `length/1`-style measurement of an attacker-supplied list performs exactly the traversal
+the ceiling forbids: the list is walked in full to discover it is too long. A conforming
+implementation stops at `ceiling + 1` elements, which is the smallest walk that can distinguish
+"at the ceiling" from "over" it. An implementation whose language makes the count O(1) satisfies
+this trivially and SHALL NOT restructure to imitate the bounded walk.
+
+NEITHER RULE IS OBSERVABLE FROM A VERDICT, which is why this requirement exists at all. A
+correct implementation and a violating one refuse the same inputs and admit the same inputs;
+they differ only in WHICH refusal arrives when two rules are violated at once, and in how much
+work precedes it. Evidence SHALL therefore assert PRECEDENCE -- an input violating both a count
+ceiling and the walk's rule, refused by the ceiling -- and SHALL assert bounded traversal by a
+means that fails deterministically, not by timing.
+
+A COUNT RUNNING AHEAD OF A STRUCTURAL WALK SEES UNVALIDATED SHAPES, and SHALL remain TOTAL over
+them: a collection element that is not the expected shape has no count to take, which is a
+refusal and never a crash.
+
+#### Scenario: The ceiling wins when both rules are violated
+- **WHEN** a supplied collection is over its count ceiling AND its elements would also fail the
+  recursive walk
+- **THEN** the refusal is the count ceiling's
+
+#### Scenario: The walk still precedes semantics
+- **WHEN** a collection is within every count ceiling and an element fails both the recursive
+  walk and a semantic rule
+- **THEN** the refusal is the walk's
+
+#### Scenario: Counting does not walk the whole collection
+- **WHEN** a supplied collection exceeds its ceiling
+- **THEN** the refusal is produced without examining elements beyond `ceiling + 1`
+
+### Requirement: A recovery manifest's page list SHALL be bounded BELOW as well as above
+A recovery manifest's supplied page list SHALL admit exactly `1..MaxManifestPages` pages: an
+EMPTY list SHALL be refused, and a list of exactly ONE page SHALL be admitted. This holds at the
+RAW and at the DECODED representation alike, because each is an independently reachable
+boundary.
+
+NARROWLY SCOPED, AND THE OTHER MINIMA ARE NOT RESTATED. A plan's page list and each page's
+range list already carry a minimum of 1 in the residual-bounds table, and every manifest page
+already SHALL carry at least one span. `MaxSweepHostsPerBatch` deliberately carries NO minimum
+and is untouched here. What was missing is only this one: the shared `MaxManifestPages` ceiling
+is stated for a recovery manifest, but its minimum column speaks for the PLAN page list alone,
+so an empty recovery manifest was refused by both implementations without any requirement
+saying it must be.
+
+BOTH CONTROLS ARE REQUIRED, and the second is not redundant. A refusal of the empty case alone
+does not pin the minimum: an implementation tightened to demand two pages refuses the empty case
+exactly as before, so a conforming and a non-conforming implementation are indistinguishable
+without the ONE-page acceptance.
+
+WHAT THIS DOES NOT CLAIM. Refusing an empty list is a property of the BOUNDARY, not evidence
+that an implementation's local emptiness predicate is independently removable. At the raw
+boundary in particular the check may be shadowed by the decoded one, which refuses the same
+input for the same reason. Conformance is judged at the boundary.
+
+#### Scenario: An empty recovery manifest page list is refused
+- **WHEN** a supplied recovery manifest page list is empty, in either its raw or its decoded representation
+- **THEN** the boundary refuses it
+
+#### Scenario: A single-page recovery manifest is admitted
+- **WHEN** a recovery manifest carries exactly one page and is otherwise conforming
+- **THEN** the boundary admits it
+
+### Requirement: A signed tombstone's declared manifest page count SHALL be bounded 1..MaxManifestPages
+A `SpoolLossTombstoneV1` reaching the SIGNED recovery-control boundary SHALL declare a
+`manifest_page_count` of `1..MaxManifestPages`: 0 SHALL be refused, 1 SHALL be admitted,
+`MaxManifestPages` SHALL be admitted and one over SHALL be refused.
+
+A DISTINCT RULE FROM THE PAGE-LIST BOUND, because it bounds a DECLARED SCALAR rather than a
+supplied list. Where a tombstone is validated ALONGSIDE its pages, the declaration is reconciled
+against the pages actually present and the list's own bound governs. On the signed path NO PAGE
+LIST ACCOMPANIES IT: nothing reconciles the declaration, and the scope digest commits it exactly
+as signed. A count bounded only from below therefore travels signed and unbounded, to be
+questioned -- if ever -- only at assembly.
+
+#### Scenario: A signed tombstone declaring zero pages is refused
+- **WHEN** a signed recovery-control tombstone declares `manifest_page_count` of 0
+- **THEN** the signed boundary refuses it
+
+#### Scenario: A signed tombstone declaring more pages than the ceiling is refused
+- **WHEN** a signed recovery-control tombstone declares a `manifest_page_count` above `MaxManifestPages`
+- **THEN** the signed boundary refuses it
+
+### Requirement: A record's declared projected cost SHALL NOT exceed the maxima its production capability carries
+A record's `cost_model_version` SHALL equal the one in its production capability, and its
+`projected_row_count` and `projected_write_bytes` SHALL each be less than or equal to the
+corresponding maximum that capability declares. A record failing any of the three SHALL be
+refused.
+
+THIS IS A STRUCTURAL RULE, NOT AN AUTHORIZATION ONE, and the distinction is normative. The
+comparison runs during whole-record validation, which performs NO cryptographic verification, so
+the maxima being compared against are UNVERIFIED at that moment. It bounds a record's declared
+self-description against the grant it claims to fit; it does not establish that the grant is
+genuine. An implementation SHALL NOT present this check as evidence that a capability was
+honoured.
+
+THE RELATION IS INCLUSIVE on both quantities: a record declaring EXACTLY its maximum SHALL be
+accepted. Each of the three conditions SHALL be independently refusable -- evidence moving two
+at once cannot show which one a validator read.
+
+WHETHER A DECLARED COST COVERS THE WORK A RECORD ACTUALLY CAUSES is a different question and is
+NOT frozen here.
+
+#### Scenario: A declared cost at the maximum is admitted
+- **WHEN** a record declares exactly the row count and write bytes its capability permits
+- **THEN** it is admitted
+
+#### Scenario: Each operand refuses on its own
+- **WHEN** a record exceeds exactly one of row count or write bytes, or disagrees on
+  `cost_model_version`, with the others valid
+- **THEN** it is refused

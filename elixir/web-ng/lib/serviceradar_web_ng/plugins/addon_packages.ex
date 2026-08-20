@@ -9,6 +9,7 @@ defmodule ServiceRadarWebNG.Plugins.AddonPackages do
   """
 
   alias ServiceRadar.Plugins.AddonPackage
+  alias ServiceRadarWebNG.Observability.ContractRegistry
   alias ServiceRadarWebNG.Plugins.NativeAddonImporter
   alias ServiceRadarWebNG.Plugins.NativeAddonSync
 
@@ -32,6 +33,9 @@ defmodule ServiceRadarWebNG.Plugins.AddonPackages do
 
   @spec list_approved(keyword()) :: [AddonPackage.t()]
   def list_approved(opts \\ []), do: list(%{status: :approved}, opts)
+
+  @spec list_approved_latest(keyword()) :: [AddonPackage.t()]
+  def list_approved_latest(opts \\ []), do: list_latest_versions(%{status: :approved}, opts)
 
   @spec list_latest_versions(map(), keyword()) :: [AddonPackage.t()]
   def list_latest_versions(filters \\ %{}, opts \\ []) do
@@ -74,7 +78,7 @@ defmodule ServiceRadarWebNG.Plugins.AddonPackages do
       [candidate] ->
         case NativeAddonSync.import_or_reuse(
                candidate,
-               Keyword.take(opts, [:scope, :actor, :auto_approve_addon_ids])
+               Keyword.take(opts, [:scope, :actor, :auto_approve_addon_ids, :replace])
              ) do
           {:imported, package} -> {:ok, package, :imported}
           {:skipped, package} -> {:ok, package, :skipped}
@@ -104,10 +108,20 @@ defmodule ServiceRadarWebNG.Plugins.AddonPackages do
       package
       |> Ash.Changeset.for_update(:approve, attrs)
       |> Ash.update(ash_opts(scope, actor))
+      |> refresh_contract_index()
     end
   end
 
   def approve(_id, _attrs, _opts), do: {:error, :invalid_attributes}
+
+  # See `ServiceRadarWebNG.Plugins.Packages.refresh_contract_index/1`: approval
+  # is what makes an add-on's display contracts visible to the runtime index.
+  defp refresh_contract_index({:ok, _package} = result) do
+    ContractRegistry.refresh_async()
+    result
+  end
+
+  defp refresh_contract_index(result), do: result
 
   @spec deny(String.t(), map(), keyword()) :: {:ok, AddonPackage.t()} | {:error, term()}
   def deny(id, attrs, opts \\ [])

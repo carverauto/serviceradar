@@ -246,6 +246,83 @@ jobs:
       - name: Edge optional-presence corpus (Elixir)
         working-directory: elixir/serviceradar_core
         run: mix test --no-start test/serviceradar/edge/presence_corpus_test.exs
+      # The FRAMING-FAMILY corpus (task 1.5-g). Gated because protobuf bytes are not
+      # intrinsically type-tagged: the typed sweep and MTR ingresses decode the payload as a
+      # contract message, so a record declaring SNAPSHOT_PAGE_V1 while carrying a sweep body
+      # would be admitted and AUTHENTICATED with contradictory metadata. The corpus also records
+      # the GENERIC validator's deliberate permissiveness, so making it strict cannot pass as a
+      # fix.
+      - name: Edge framing-family corpus (Elixir)
+        working-directory: elixir/serviceradar_core
+        run: mix test --no-start test/serviceradar/edge/family_corpus_test.exs
+      # PRECEDENCE and TRAVERSAL COST, not verdicts. Both runtimes returned the right answer
+      # before the count ceilings moved ahead of the recursive walk, so an N/N+1 pair passes
+      # either way; only these assertions fail when the ordering is reverted or when the
+      # bounded count regresses to `length/1`. Gated separately because a suite that proves
+      # WHEN a rule runs is worthless if nothing runs it.
+      - name: Edge bounds precedence, bounded traversal and wire shape (Elixir)
+        working-directory: elixir/serviceradar_core
+        run: mix test --no-start test/serviceradar/edge/bounds_precedence_test.exs
+      # The IPv6-ZONE prohibition and the guard bound it puts out of reach. Gated because the
+      # rule is normative, and because the split matters: this runtime's VALIDATOR-level zone
+      # row is a regression pin (its spelling check already refuses a zoned address), while the
+      # SEAM rows pin the frozen ceiling, which no whole-validator row can reach.
+      - name: Edge plan range-string corpus (Elixir)
+        working-directory: elixir/serviceradar_core
+        run: mix test --no-start test/serviceradar/edge/range_string_corpus_test.exs
+      # THE SHARED STRUCTURAL-COUNT CORPUS: three bound-vector pairs across four typed
+      # carriers and eight sites. Gated because a plain N+1 verdict does not prove the RAW
+      # sites -- remove a raw count gate and the decoded gate behind it returns the same
+      # bounds error. In THIS runtime both raw sites are separated by CALL TRACING, so the
+      # module runs async: false; trace patterns are node-global.
+      - name: Edge structural-count corpus (Elixir)
+        working-directory: elixir/serviceradar_core
+        run: mix test --no-start test/serviceradar/edge/count_corpus_test.exs
+      # THE SEMANTIC-ENVELOPE TRANSCRIPT: seven keyed sets over the grammar that every record
+      # digest is computed from. Gated because this is the ONLY place the two implementations
+      # must produce IDENTICAL BYTES for the same committed input WITHIN THIS GRAMMAR -- elsewhere
+      # they are merely internally consistent, which is how a grammar drifts apart runtime by
+      # runtime while every suite stays green.
+      - name: Edge semantic-envelope transcript (Elixir)
+        working-directory: elixir/serviceradar_core
+        run: mix test --no-start test/serviceradar/edge/semantic_envelope_corpus_test.exs
+      # THE PROJECTED-COST RELATION: this runtime does not COMPARE these fields -- it digests
+      # them -- so the vectors are Go's and this gate asserts the SHAPE OF THE GAP instead:
+      # every conjunct Go-only, every one owned by 1.5-n, and the inclusivity half of each
+      # at_most relation preserved so a peer built later cannot inherit `>=`.
+      - name: Edge projected-cost relation (Elixir)
+        working-directory: elixir/serviceradar_core
+        run: mix test --no-start test/serviceradar/edge/projected_cost_corpus_test.exs
+      # THE TRANSPORT-PROVENANCE GUARD: one bound, one testable site, and the obligation is the
+      # STAGE rather than the refusal -- an oversize header and a malformed one are both
+      # refused, so only a witness pair malformed IDENTICALLY and differing in length shows
+      # which check ran first. Gated because a reordering that parses before bounding returns
+      # the same verdict.
+      - name: Edge transport-provenance guard (Elixir)
+        working-directory: elixir/serviceradar_core
+        run: mix test --no-start test/serviceradar/edge/provenance_corpus_test.exs
+      # THE SHARED LOWER-BOUND CORPUS: eight sites, zero refused AND one accepted at each,
+      # because a zero refusal alone does not pin a minimum of 1. Gated because its
+      # `*_removal` columns are MEASURED claims about what each local arm is worth -- an arm
+      # that becomes shadowed still passes every verdict row, so only the inventory notices.
+      - name: Edge lower-bound corpus (Elixir)
+        working-directory: elixir/serviceradar_core
+        run: mix test --no-start test/serviceradar/edge/lower_bound_corpus_test.exs
+      # THE SHARED SCALAR / CARRIER CORPUS: FIVE bounds, eight sites. Control count is per site
+      # -- FOUR for a two-sided gate (a frozen minimum of 1 needs BOTH a zero refusal and a
+      # length-1 acceptance, or the minimum is free to move up), at/over plus a stage witness
+      # for the one-sided raw header, six for the kind-conditional abort reason. Gated because
+      # the principal sites share one helper: removing a single carrier's CALL to it is
+      # invisible to a helper-level row and fails exactly one row here.
+      - name: Edge scalar corpus (Elixir)
+        working-directory: elixir/serviceradar_core
+        run: mix test --no-start test/serviceradar/edge/scalar_corpus_test.exs
+      # The STAGE, observed by call tracing rather than by verdict: everything the preflight
+      # refuses is also refused downstream here, so only a trace can show the parser was not
+      # entered. Runs async: false -- trace patterns are node-global.
+      - name: Edge plan range-string stage (Elixir)
+        working-directory: elixir/serviceradar_core
+        run: mix test --no-start test/serviceradar/edge/range_string_stage_test.exs
       # The ELIXIR-SIDE drift gate for the claims oneof, pinned against GENERATED metadata.
       # Go pins the same oneof exactly (TestFrozenSchemaInventories, assignment_test.go),
       # so a proto-side variant addition already fails there; this is the peer that keeps

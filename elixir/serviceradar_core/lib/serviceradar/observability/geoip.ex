@@ -72,10 +72,30 @@ defmodule ServiceRadar.Observability.GeoIP do
 
   def lookup(_), do: {:error, :invalid_ip}
 
+  @doc """
+  Returns only the Geolix database specs whose source files exist on disk.
+  """
+  @spec present_databases([map()]) :: [map()]
+  def present_databases(databases) when is_list(databases) do
+    Enum.filter(databases, fn
+      %{source: source} when is_binary(source) -> File.regular?(source)
+      _ -> false
+    end)
+  end
+
+  defp candidate_databases do
+    Application.get_env(
+      :serviceradar_core,
+      :geolite_databases,
+      Application.get_env(:geolix, :databases, [])
+    )
+  end
+
   defp load_all_databases do
     with {:ok, _} <- ensure_started(:geolix),
          {:ok, _} <- ensure_started(:mmdb2_decoder) do
-      databases = Application.get_env(:geolix, :databases, [])
+      databases = present_databases(candidate_databases())
+      Application.put_env(:geolix, :databases, databases)
 
       # `Geolix.reload_databases/0` only reloads already-loaded DBs; ensure each configured
       # DB is loaded at least once for this node.
@@ -83,13 +103,25 @@ defmodule ServiceRadar.Observability.GeoIP do
       |> Enum.filter(&is_map/1)
       |> Enum.each(fn db ->
         try do
-          :ok = Geolix.load_database(db)
+          case Geolix.load_database(db) do
+            :ok ->
+              :ok
+
+            {:error, :enoent} ->
+              Logger.debug("GeoIP: configured database is unavailable",
+                id: Map.get(db, :id),
+                source: Map.get(db, :source)
+              )
+
+            {:error, reason} ->
+              log_database_failure(db, reason)
+
+            unexpected ->
+              log_database_failure(db, {:unexpected_result, unexpected})
+          end
         rescue
           e ->
-            Logger.warning("GeoIP: failed to load GeoLite database",
-              id: Map.get(db, :id),
-              error: Exception.message(e)
-            )
+            log_database_failure(db, Exception.message(e))
         end
       end)
 
@@ -98,6 +130,14 @@ defmodule ServiceRadar.Observability.GeoIP do
       {:error, _} = err ->
         err
     end
+  end
+
+  defp log_database_failure(db, reason) do
+    Logger.warning("GeoIP: failed to load configured database",
+      id: Map.get(db, :id),
+      source: Map.get(db, :source),
+      error: inspect(reason)
+    )
   end
 
   defp ensure_started(app) when is_atom(app) do

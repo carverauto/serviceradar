@@ -18,6 +18,9 @@ defmodule ServiceRadarWebNGWeb.Api.SrqlCatalogControllerTest do
       assert is_map(response["entities"])
       assert is_map(response["entities"]["devices"])
       assert "hostname" in response["entities"]["devices"]["fields"]["filter"]
+      device_stats_fields = response["entities"]["devices"]["fields"]["stats"]
+      assert "tags.<key>" in device_stats_fields
+      assert "metadata.<key>" in device_stats_fields
       addon_fleet_fields = response["entities"]["addon_fleet"]["fields"]
       assert "category" in addon_fleet_fields["filter"]
       assert "reason_code" in addon_fleet_fields["filter"]
@@ -105,6 +108,76 @@ defmodule ServiceRadarWebNGWeb.Api.SrqlCatalogControllerTest do
 
       assert Catalog.etag(changed) != Catalog.etag(base)
     end
+
+    test "registers the composite_results entity", %{conn: conn} do
+      response =
+        conn
+        |> get(~p"/api/srql/catalog")
+        |> json_response(200)
+
+      fields = response["entities"]["composite_results"]["fields"]
+
+      assert "check" in fields["filter"]
+      assert "verdict" in fields["filter"]
+      assert "status" in fields["filter"]
+    end
+
+    test "offers an enabled check as a device field with its verdicts", %{conn: conn} do
+      check = enabled_composite_check()
+
+      response =
+        conn
+        |> get(~p"/api/srql/catalog")
+        |> json_response(200)
+
+      device_fields = response["entities"]["devices"]["fields"]["filter"]
+
+      assert "composite.#{check.slug}" in device_fields
+      assert "composite.#{check.slug}.status" in device_fields
+    end
+  end
+
+  defp enabled_composite_check do
+    alias ServiceRadar.Actors.SystemActor
+    alias ServiceRadar.CompositeChecks.CompositeCheck
+    alias ServiceRadar.CompositeChecks.CompositeCheckRule
+
+    actor = SystemActor.system(:srql_catalog_test)
+
+    {:ok, check} =
+      CompositeCheck
+      |> Ash.Changeset.for_create(
+        :create,
+        %{
+          name: "Catalog Check #{System.unique_integer([:positive])}",
+          scope_query: "in:devices"
+        },
+        actor: actor
+      )
+      |> Ash.create()
+
+    {:ok, _rule} =
+      CompositeCheckRule
+      |> Ash.Changeset.for_create(
+        :create,
+        %{
+          check_id: check.id,
+          position: 0,
+          match: %{"a" => "available"},
+          verdict: "isolated_verified",
+          verdict_label: "Isolated verified",
+          status: :healthy
+        },
+        actor: actor
+      )
+      |> Ash.create()
+
+    {:ok, enabled} =
+      check
+      |> Ash.Changeset.for_update(:enable, %{acknowledge_coverage_gap: true}, actor: actor)
+      |> Ash.update()
+
+    enabled
   end
 
   defp changed_entity do

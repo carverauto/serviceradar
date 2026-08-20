@@ -1,1 +1,0 @@
-:: core :: compile_error ! { "unexpected end of input, expected curly braces" } impl Sut { fn sut () { if 1 } }

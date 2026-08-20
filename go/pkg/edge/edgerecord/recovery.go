@@ -241,13 +241,26 @@ func ValidateManifestChain(pages []*edgev1.EdgeLossManifestPageV1, expectedRoot 
 	// hashing: the field-framed digests walk declared fields only, so retained unknown bytes would be
 	// invisible to the digest while still riding along on the wire. That is load-bearing for
 	// immutable plan/recovery CONTENT ADDRESSING.
+	// STRUCTURAL COUNTS BEFORE ANY RECURSIVE WALK -- see ValidatePlanPages for the full
+	// reasoning. hasUnknownFields RECURSES into every classification span of every page, so
+	// bounding the page list and each page's span count afterwards did the work the ceilings
+	// exist to prevent. Both checks are O(1) per page on a decoded slice.
+	//
+	// PRECEDENCE, frozen: an oversize page list whose pages ALSO carry unknown fields is a
+	// BOUNDS refusal. Both are refusals, so only a precedence assertion can hold this.
+	if len(pages) > MaxManifestPages {
+		return ErrManifestBounds
+	}
+	for _, p := range pages {
+		if l := len(p.GetClassificationSpans()); l == 0 || l > MaxSpansPerPage {
+			return ErrManifestBounds
+		}
+	}
+
 	for _, p := range pages {
 		if hasUnknownFields(p) {
 			return ErrUnknownFields
 		}
-	}
-	if len(pages) > MaxManifestPages {
-		return ErrManifestBounds
 	}
 	if err := validateUUIDv7Field(pages[0].GetRecoveryId()); err != nil {
 		return ErrManifestRecoveryID
@@ -268,12 +281,11 @@ func ValidateManifestChain(pages []*edgev1.EdgeLossManifestPageV1, expectedRoot 
 		if int(p.GetPageCount()) != count || int(p.GetPageIndex()) != i {
 			return ErrManifestChain
 		}
+		// At least one span per page (an empty page has no derivable extent, so it can be
+		// neither validated nor chained) and at most MaxSpansPerPage -- both bounded ABOVE,
+		// before the recursive walk. Re-checking here would be dead code that reads like the
+		// enforcement point.
 		spans := p.GetClassificationSpans()
-		// At least one span per page: an empty page has no derivable extent, so it
-		// can be neither validated nor chained.
-		if len(spans) == 0 || len(spans) > MaxSpansPerPage {
-			return ErrManifestBounds
-		}
 		// REJECT BEFORE HASHING. Every span body is structurally validated -- including
 		// the CLOSED enum sets -- before this page is hashed. Hashing first would make
 		// the verdict for an invalid enum depend on the supplied page digest: with a
@@ -455,6 +467,15 @@ func ValidateTombstone(t *edgev1.SpoolLossTombstoneV1, pages []*edgev1.EdgeLossM
 	if t.GetDigestVersion() != RecoveryDigestVersion {
 		return ErrManifestDigestVersion
 	}
+	// BOUNDS BEFORE THE RELATION. The declared count is compared only once the supplied list
+	// is known to be within the ceiling: an over-ceiling manifest is a BOUNDS fault whatever
+	// the tombstone declares, and reporting it as a chain mismatch describes the wrong
+	// problem. It also matters for parity -- a peer whose count is not O(1) cannot compare a
+	// declared count first without walking past the ceiling to do it, so relation-first is
+	// not a shape both runtimes can implement.
+	if len(pages) > MaxManifestPages {
+		return ErrManifestBounds
+	}
 	if int(t.GetManifestPageCount()) != len(pages) {
 		return ErrManifestChain
 	}
@@ -621,8 +642,16 @@ func recoveryControlBody(pl *edgev1.EdgeRecoveryControlPayloadV1) (rid, scope []
 		if t.GetDigestVersion() != RecoveryDigestVersion || len(t.GetManifestRootSha256()) != sha256Len {
 			return nil, nil, fmt.Errorf("%w: tombstone digest", ErrTombstoneMismatch)
 		}
-		if t.GetManifestPageCount() == 0 || t.GetDetectedAtUnixNano() <= 0 {
-			return nil, nil, fmt.Errorf("%w: tombstone page-count/time", ErrTombstoneMismatch)
+		// BOUNDED 1..MaxManifestPages, not merely non-zero. This path receives NO page list --
+		// `ValidateTombstone` is what reconciles a declaration against supplied pages -- so the
+		// declaration is committed by the scope digest exactly as signed. An unbounded count
+		// therefore travels signed and is only questioned, if ever, at assembly.
+		if c := t.GetManifestPageCount(); c == 0 || c > MaxManifestPages {
+			return nil, nil, fmt.Errorf("%w: tombstone page count", ErrTombstoneMismatch)
+		}
+
+		if t.GetDetectedAtUnixNano() <= 0 {
+			return nil, nil, fmt.Errorf("%w: tombstone detected-at", ErrTombstoneMismatch)
 		}
 		if l := len(t.GetReason()); l == 0 || l > MaxReasonBytes {
 			return nil, nil, fmt.Errorf("%w: tombstone reason", ErrTombstoneMismatch)

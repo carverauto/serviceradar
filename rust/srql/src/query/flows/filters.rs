@@ -439,19 +439,19 @@ fn apply_bidirectional_port_filter<'a>(
 ) -> Result<FlowsQuery<'a>> {
     match filter.op {
         FilterOp::Eq => {
-            let value = filter.value.as_scalar()?.parse::<i32>().map_err(|_| {
-                ServiceError::InvalidRequest("port must be an integer".into())
-            })?;
-            query = query.filter(
-                src_endpoint_port
-                    .eq(value)
-                    .or(dst_endpoint_port.eq(value)),
-            );
+            let value = filter
+                .value
+                .as_scalar()?
+                .parse::<i32>()
+                .map_err(|_| ServiceError::InvalidRequest("port must be an integer".into()))?;
+            query = query.filter(src_endpoint_port.eq(value).or(dst_endpoint_port.eq(value)));
         }
         FilterOp::NotEq => {
-            let value = filter.value.as_scalar()?.parse::<i32>().map_err(|_| {
-                ServiceError::InvalidRequest("port must be an integer".into())
-            })?;
+            let value = filter
+                .value
+                .as_scalar()?
+                .parse::<i32>()
+                .map_err(|_| ServiceError::InvalidRequest("port must be an integer".into()))?;
             query = query.filter(
                 src_endpoint_port
                     .is_null()

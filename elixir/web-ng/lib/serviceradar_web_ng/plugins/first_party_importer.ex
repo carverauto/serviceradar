@@ -1,17 +1,18 @@
 defmodule ServiceRadarWebNG.Plugins.FirstPartyImporter do
   @moduledoc """
-  Discovers and imports first-party Wasm plugin bundles from Forgejo releases.
+  Discovers and imports first-party Wasm plugin bundles from GitHub Releases.
 
-  HTTP/OCI/Cosign/URL transport is the shared `ForgejoOciClient` (imported below);
-  this module keeps only the Wasm-bundle-specific discovery, verification, and
-  result-shaping logic. The `default_repo_url/0` import is excepted so this module
-  can re-export it as its own public accessor.
+  HTTP/OCI/Cosign/URL transport is the shared `FirstPartyReleaseClient`
+  (imported below); this module keeps only the Wasm-bundle-specific discovery,
+  verification, and result-shaping logic. The `default_repo_url/0` import is
+  excepted so this module can re-export it as its own public accessor.
   """
 
-  import ServiceRadarWebNG.Plugins.ForgejoOciClient, except: [default_repo_url: 0]
+  import ServiceRadarWebNG.Plugins.FirstPartyReleaseClient, except: [default_repo_url: 0]
 
+  alias ServiceRadar.Plugins.DisplayContract
   alias ServiceRadar.Plugins.Manifest
-  alias ServiceRadarWebNG.Plugins.ForgejoOciClient
+  alias ServiceRadarWebNG.Plugins.FirstPartyReleaseClient
   alias ServiceRadarWebNG.Plugins.Storage
   alias ServiceRadarWebNG.Plugins.UploadSignature
 
@@ -31,7 +32,7 @@ defmodule ServiceRadarWebNG.Plugins.FirstPartyImporter do
   def default_index_asset_name, do: @default_index_asset_name
 
   @spec default_repo_url() :: String.t()
-  def default_repo_url, do: ForgejoOciClient.default_repo_url()
+  def default_repo_url, do: FirstPartyReleaseClient.default_repo_url()
 
   @spec list_recent_plugins(map(), pos_integer()) :: {:ok, [map()]} | {:error, String.t()}
   def list_recent_plugins(attrs \\ %{}, limit \\ @default_recent_release_limit)
@@ -84,11 +85,11 @@ defmodule ServiceRadarWebNG.Plugins.FirstPartyImporter do
   def list_recent_plugins_with_summary(_attrs, _limit), do: {:error, "Plugin import settings are invalid"}
 
   @doc """
-  Lists Wasm plugins from one exact Forgejo release.
+  Lists Wasm plugins from one exact GitHub release.
 
   Automatic synchronization uses this path so the catalog is anchored to the
   immutable ServiceRadar release currently running, rather than depending on the
-  ordering or completeness of Forgejo's recent-release feed.
+  ordering or completeness of GitHub's recent-release feed.
   """
   @spec list_release_plugins(map(), String.t()) :: {:ok, [map()]} | {:error, term()}
   def list_release_plugins(attrs, release_tag) when is_map(attrs) do
@@ -126,6 +127,7 @@ defmodule ServiceRadarWebNG.Plugins.FirstPartyImporter do
          {:ok, wasm} <- fetch_bundle_wasm(bundle),
          content_hash = Storage.sha256(wasm),
          :ok <- verify_upload_signature(signature, manifest_map, content_hash),
+         {:ok, display_contracts} <- bundle_display_contracts(bundle),
          :ok <- verify_entry_identity(entry, manifest_struct) do
       now = DateTime.truncate(DateTime.utc_now(), :second)
 
@@ -138,6 +140,7 @@ defmodule ServiceRadarWebNG.Plugins.FirstPartyImporter do
            optional_bundle_json(bundle, "display_contract.json") ||
              Map.get(manifest_map, "display_contract") ||
              %{},
+         display_contracts: display_contracts,
          wasm: wasm,
          content_hash: content_hash,
          signature: signature,
@@ -461,6 +464,29 @@ defmodule ServiceRadarWebNG.Plugins.FirstPartyImporter do
     end
   end
 
+  # Display contracts ship as `display/*.json` bundle entries. They are validated
+  # HERE, at import, rather than at render time: a contract that reaches the
+  # packages table has already been proven to be data, so the renderer never has
+  # to decide whether to trust a stored document.
+  #
+  # Any malformed contract rejects the package/version. Import success is the
+  # trust boundary the renderer relies on: silently dropping one would make the
+  # signed artifact installed in storage differ from the contract operators and
+  # reviewers inspected in the bundle.
+  defp bundle_display_contracts(bundle) do
+    contracts =
+      bundle
+      |> Enum.filter(fn {name, payload} ->
+        is_binary(payload) and String.starts_with?(name, "display/") and Path.extname(name) == ".json"
+      end)
+      |> Map.new()
+
+    case DisplayContract.validate_all(contracts) do
+      {:ok, validated} -> {:ok, validated}
+      {:error, errors} -> {:error, {:invalid_display_contracts, errors}}
+    end
+  end
+
   defp optional_bundle_json(bundle, name) do
     case Map.get(bundle, name) do
       payload when is_binary(payload) ->
@@ -509,7 +535,7 @@ defmodule ServiceRadarWebNG.Plugins.FirstPartyImporter do
 
   defp source_metadata(repo, release, entry, fetched, now) do
     %{
-      "source" => "first_party_forgejo_release",
+      "source" => "first_party_github_release",
       "repo_url" => repo.repo_url,
       "release_tag" => normalize_string(Map.get(release, "tag_name")),
       "release_name" => normalize_string(Map.get(release, "name")),
@@ -535,7 +561,7 @@ defmodule ServiceRadarWebNG.Plugins.FirstPartyImporter do
 
   defp configured_repo_url do
     config = Application.get_env(:serviceradar_web_ng, :first_party_plugin_import, [])
-    Keyword.get(config, :repo_url, ForgejoOciClient.default_repo_url())
+    Keyword.get(config, :repo_url, FirstPartyReleaseClient.default_repo_url())
   end
 
   defp index_asset_name(attrs) do

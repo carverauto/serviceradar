@@ -110,10 +110,10 @@ cnpg:
 
 logCollector:
   replicaCount: 3
-  # Keep the shared events stream at 3 replicas in demo, but with a smaller
-  # reservation so JetStream placement fits within the account budget.
+  # Shared events stream (logs/OTEL/falco) — not used for raw NetFlow.
+  # Sized independently of the dedicated flows stream.
   streamReplicas: 3
-  streamMaxBytes: 1073741824
+  streamMaxBytes: 2147483648
   # Use the dedicated UDP Service when the collector must record the actual
   # device address. The shared Envoy UDPRoute remains enabled below for
   # compatibility, but Envoy Gateway's UDP forwarding path rewrites the
@@ -293,6 +293,9 @@ networkPolicy:
     allowSameNamespace: true
     allowedNamespaces:
       - openbao-system
+      # Smokescreen CONNECT proxy. HTTP(S) fetches should go through
+      # SERVICERADAR_EGRESS_PROXY rather than the public CIDRs below.
+      - egress
     allowedCIDRs:
       - "10.0.0.0/8"
       - "192.168.0.0/16"
@@ -345,6 +348,18 @@ networkPolicy:
       - "99.84.203.0/24"
       # Observed on 2026-07-10.
       - "3.170.185.0/24"
+      # Discord incoming webhooks (discord.com / discordapp.com). Served by
+      # Cloudflare; Kubernetes NetworkPolicy cannot match FQDNs. Resolved
+      # 2026-08-13 to 162.159.128.233-138.232. Re-resolve if test-sends start
+      # timing out again.
+      - "162.159.128.0/18"
+      # VulnCheck backup index currently lands on CloudFront 99.84.203.0/24
+      # (already listed above). The presigned archive is S3 Global MRAP
+      # (*.mrap.accesspoint.s3-global.amazonaws.com). Resolved 2026-08-15 to
+      # 13.248.232.82 and 76.223.103.50. Re-resolve if VulnCheck downloads
+      # start timing out again.
+      - "13.248.232.0/24"
+      - "76.223.103.0/24"
   calicoLogDenied:
     enabled: true
     selector: "all()"
@@ -418,8 +433,10 @@ webNg:
   extraEnv:
     # City MMDB is large; we only enable it in demo where we can allocate more memory.
     GEOLITE_CITY_ENABLED: "true"
+    # FQDN allowlist; pair with networkPolicy.egress.allowedNamespaces egress.
+    SERVICERADAR_EGRESS_PROXY: "http://smokescreen.egress.svc.cluster.local:4750"
     # Trust first-party Wasm upload signatures published by the release pipeline.
-    PLUGIN_TRUSTED_UPLOAD_SIGNING_KEYS: "serviceradar-first-party-v1=L+H5fG0eEraBsWAd2aKMzK7I+AMhbnSxlOKny5/+dLo="
+    PLUGIN_TRUSTED_UPLOAD_SIGNING_KEYS: "serviceradar-first-party-v1=L+H5fG0eEraBsWAd2aKMzK7I+AMhbnSxlOKny5/+dLo=,serviceradar-first-party-v2=2KMsaqvof357MV3RQl4/0DNXfF6+eIMQ+qjDJfL/N8I="
   resources:
     limits:
       cpu: "2"
@@ -584,6 +601,8 @@ core:
     flowAttributionMinutes: 20
     otelTracesChunkIntervalHours: 6
     logsChunkIntervalHours: 6
+    datasetSnapshotDays: 2
+    datasetSnapshotKeepLast: 1
   deviceEnrichment:
     rulesDir: "/var/lib/serviceradar/rules/device-enrichment"
     filesystemOverrides:
@@ -591,6 +610,7 @@ core:
       # Provide existingConfigMap/existingSecret/existingClaim when you want custom rules.
       enabled: true
   extraEnv:
+    SERVICERADAR_EGRESS_PROXY: "http://smokescreen.egress.svc.cluster.local:4750"
     EVENT_WRITER_NATS_CREDS_FILE: "/etc/serviceradar/creds/platform.creds"
     EVENT_WRITER_NATS_URL: "tls://serviceradar-nats:4222"
     EVENT_WRITER_NATS_TLS: "true"
@@ -771,14 +791,23 @@ flowCollector:
   # external UDP ingress single-replica until collector-side exporter sharding
   # or shared template state is implemented.
   replicaCount: 1
-  # flow-collector also reconciles the shared events stream.
-  streamReplicas: 3
+  # Dedicated flows stream at R=3 (same HA topology as production). Size is
+  # smaller than prod 10 GiB default but isolated from logs/OTEL on the events
+  # stream. HA is only config.stream_replicas (serialized into the ConfigMap).
   config:
-    stream_max_bytes: 1073741824
+    stream_name: "flows"
+    rehome_state_path: "/var/lib/serviceradar/flow-collector-rehome.json"
+    # 8 GiB / 2h / R=3 — dedicated flows budget (design). Demo reduces
+    # datasvc object/KV reservations so this fits 30Gi PVC + maxFileStore.
+    # No volumeClaimTemplate mutation.
+    stream_max_bytes: 8589934592
+    stream_max_age_secs: 7200
     stream_replicas: 3
+  # Persist rehome marker + ready file across Recreate / pod replacement.
+  # JetStream holds flow durability; this PVC is only for local cutover state.
   data:
-    # flow collector is stateless in demo; raw flow durability is in JetStream.
-    enabled: false
+    enabled: true
+    size: 1Gi
   service:
     type: LoadBalancer
     annotations:
@@ -852,6 +881,7 @@ bmpCollector:
     natsTlsClientCertPath: "/etc/serviceradar/certs/bmp-collector.pem"
     natsTlsClientKeyPath: "/etc/serviceradar/certs/bmp-collector-key.pem"
   data:
+    # Keep false: three HA replicas cannot safely share one RWO PVC.
     enabled: false
   service:
     type: LoadBalancer
@@ -861,3 +891,8 @@ bmpCollector:
     externalTrafficPolicy: Local
 nats:
   replicas: 3
+  jetstream:
+    maxMemoryStore: 1G
+    # Within existing 30Gi PVC. Do not change persistence.size here — STS
+    # volumeClaimTemplates are immutable and block Helm upgrades.
+    maxFileStore: 30G

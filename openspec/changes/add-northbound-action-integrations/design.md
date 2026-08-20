@@ -1,6 +1,6 @@
 ## Context
 
-The current Ansible work introduced useful concepts: cataloged actions, selected inventory targets, and external execution with observable results. Those concepts should not remain Ansible-shaped. ServiceRadar also needs to call external NMS/NCM systems, ticketing systems, CMDBs, and remediation APIs from device, interface, and event context.
+The current Ansible work demonstrated useful concepts: cataloged actions, selected inventory targets, and external execution with observable results. Hardened Ansible launch now also requires reviewed immutable bindings, exact AWX memberships, live preflight, and canonical `AutomationOperation` evidence, so it must remain separate from a generic action adapter. ServiceRadar still needs a provider-neutral way to call external NMS/NCM systems, ticketing systems, CMDBs, and remediation APIs from device, interface, and event context.
 
 The clean model is an action layer above integrations:
 
@@ -13,7 +13,7 @@ The clean model is an action layer above integrations:
 
 ## Goals
 
-- Make "Run Task" provider-neutral and safe when no provider is configured.
+- Make **Run Action** provider-neutral and safe when no provider is configured, separate from canonical Ansible **Launch Playbook**.
 - Support device-scoped and interface-scoped actions.
 - Let approved Wasm plugins expose action descriptors without giving plugins arbitrary UI control.
 - Persist action execution history with target snapshots and submitted inputs.
@@ -23,7 +23,8 @@ The clean model is an action layer above integrations:
 ## Non-Goals
 
 - Do not implement the HP Network Automation plugin in this change.
-- Do not replace Ansible/AWX execution internals beyond adapting them to the shared action model.
+- Do not adapt, replace, or dispatch Ansible/AWX execution through the shared action model.
+- Do not delete retained Ansible northbound provider, descriptor, invocation, or target evidence in this change.
 - Do not let plugins render arbitrary HTML, LiveView, JavaScript, or React components.
 - Do not build a general-purpose workflow/SOAR engine in the first implementation.
 - Do not bypass existing credential broker, RBAC, package approval, or network allowlist controls.
@@ -40,7 +41,7 @@ The clean model is an action layer above integrations:
 
 The exact Ash resources can change during implementation, but the model should separate provider configuration from execution history.
 
-- `ActionProvider`: source type (`ansible`, `wasm_plugin`, future `native`), enabled flag, package/config reference, health, and approved capabilities.
+- `ActionProvider`: source type (`wasm_plugin`, future `native`), enabled flag, package/config reference, health, and approved capabilities. Historical `ansible` rows may remain stored but are not operator-eligible providers.
 - `ActionDescriptor`: provider ID, stable action ID, version, label, scopes, required context, input schema, safety metadata, and descriptor hash.
 - `ActionInvocation`: provider/action references, descriptor hash, source (`user`, `schedule`, `event_handler`), actor or service principal, status, target snapshots, submitted inputs, result summary, external correlation ID, started/completed timestamps, and error classification.
 - `ActionInvocationTarget`: one row per device/interface target with per-target status and provider result.
@@ -53,7 +54,7 @@ The exact Ash resources can change during implementation, but the model should s
 3. Web-ng renders the ServiceRadar-owned launch modal from the descriptor's schema subset.
 4. Core validates inputs and target snapshots again before persisting an invocation.
 5. Core dispatches the action to the provider.
-6. The provider runs through the existing safe execution path, such as an agent-routed Wasm command or an Ansible/AWX client.
+6. The provider runs through its approved execution path, such as an agent-routed Wasm command. Canonical Ansible/AWX launch does not enter this path.
 7. Core stores the result, emits audit records, and publishes normalized observability events.
 
 ## Event Handler Path
@@ -69,15 +70,17 @@ Event handlers reuse the same invocation path but add guardrails:
 
 ## UI Rules
 
-- The inventory "Run Task" button is disabled when no eligible actions exist for the selection.
-- The button text can remain operator-friendly, but the modal must show provider-neutral language such as "Run Action" or "Run Task" and list configured actions.
+- The inventory **Run Action** button is visible only with `northbound.actions.launch` and is disabled when no eligible non-Ansible actions exist for the selection.
+- The separate inventory **Launch Playbook** button is visible only with `ansible.runs.launch` and navigates explicit selected device UIDs to `/ansible/launch`; neither permission grants the other action.
+- The provider-neutral modal uses **Run Action** language and lists only configured, eligible non-Ansible actions.
 - Provider names may appear as metadata where useful, but the normal device/interface details pages must not become integration-branded panels.
 - Action forms must use ServiceRadar components generated from a constrained schema subset: text, number, boolean, enum, multi-select, secret reference, object groups, and read-only context preview.
 - Plugins provide descriptors and schemas, not UI code.
+- The generic Action History requires `northbound.actions.view` and excludes retained Ansible-provider invocations. Canonical Ansible operation history requires `ansible.runs.view` and remains the sole operator-facing Ansible history.
 
 ## Security
 
-- Action launch requires RBAC per action scope.
+- Action launch requires `northbound.actions.launch` plus provider/action eligibility. `ansible.runs.launch` is not substitute northbound authority.
 - Destructive actions require explicit descriptor metadata and stronger confirmation policy.
 - Credentials are referenced through the credential broker and are never returned to the browser.
 - Wasm providers still run under package approval, signature verification, resource limits, host-function allowlists, and agent sandboxing.
@@ -87,6 +90,7 @@ Event handlers reuse the same invocation path but add guardrails:
 
 ## Compatibility
 
-- Existing Ansible launch resources can be adapted as the first provider.
+- Existing Ansible northbound provider, descriptor, invocation, and target rows may remain stored for internal evidence and migration, but operator catalog reads do not synchronize or return Ansible descriptors and operator Action History filters Ansible invocations.
+- Canonical Ansible launch and history remain under `ansible.runs.launch` and `ansible.runs.view`; provider-neutral launch and history remain under `northbound.actions.launch` and `northbound.actions.view`.
 - Existing plugin packages without action descriptors continue to behave as check/discovery plugins.
 - Descriptor schema versions allow SDK and runtime evolution without breaking older plugins.

@@ -158,6 +158,9 @@ defmodule ServiceRadar.Application do
         # Service heartbeat (self-reporting for Elixir services)
         service_heartbeat_child(),
 
+        # Per-pod MMDB fetch for emptyDir volumes (Oban only runs on one replica)
+        geoip_bootstrap_child(),
+
         # SPIFFE certificate expiry monitoring
         cert_monitor_child(),
 
@@ -216,24 +219,20 @@ defmodule ServiceRadar.Application do
 
   defp finch_child do
     if Application.get_env(:serviceradar_core, :http_client_enabled, true) do
-      base = [name: ServiceRadar.Finch]
+      # CAStore + optional SERVICERADAR_EGRESS_PROXY CONNECT hop. Release
+      # images are intentionally minimal and may not include OS CA bundles.
+      #
+      # Call sites opt in with `finch: ServiceRadar.Finch` (see
+      # ServiceRadar.HTTP.EgressProxy.req_opts/1). Do not set
+      # Req.default_options(finch: ...): Req 0.7 raises if a request also
+      # passes :connect_options, and several clients do that on purpose
+      # (SNI-to-IP, verify_none, connect timeouts).
+      opts = [name: ServiceRadar.Finch]
 
-      # Our release images are intentionally minimal and may not include OS CA bundles.
-      # Configure Finch with CAStore so background HTTPS fetches (GeoLite, threat intel, ipinfo)
-      # work reliably in Kubernetes.
       opts =
-        if Code.ensure_loaded?(CAStore) and function_exported?(CAStore, :file_path, 0) do
-          Keyword.put(base, :pools, %{
-            default: [
-              conn_opts: [
-                transport_opts: [
-                  cacertfile: CAStore.file_path()
-                ]
-              ]
-            ]
-          })
-        else
-          base
+        case ServiceRadar.HTTP.EgressProxy.finch_pools() do
+          nil -> opts
+          pools -> Keyword.put(opts, :pools, pools)
         end
 
       {Finch, opts}
@@ -458,6 +457,36 @@ defmodule ServiceRadar.Application do
       value when value in ["true", "1", "yes"] -> true
       _ -> false
     end
+  end
+
+  defp geoip_bootstrap_child do
+    geolite? = env_flag_enabled?("GEOLITE_MMDB_DOWNLOAD_ENABLED")
+    ipinfo? = env_flag_enabled?("IPINFO_MMDB_DOWNLOAD_ENABLED")
+
+    if geolite? or ipinfo? do
+      {Task,
+       fn ->
+         try do
+           if geolite? do
+             _ = ServiceRadar.Observability.GeoLiteMmdbDownloadWorker.sync_missing_files()
+           end
+
+           if ipinfo? do
+             _ = ServiceRadar.Observability.IpinfoMmdbDownloadWorker.sync_missing_files()
+           end
+         rescue
+           error ->
+             Logger.warning("GeoIP MMDB bootstrap failed: #{Exception.message(error)}")
+         end
+       end}
+    end
+  end
+
+  defp env_flag_enabled?(name) do
+    name
+    |> System.get_env("false")
+    |> String.downcase()
+    |> Kernel.in(["1", "true", "yes", "on"])
   end
 
   defp service_heartbeat_child do

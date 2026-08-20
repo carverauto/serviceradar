@@ -5,7 +5,7 @@ use core::fmt::Debug;
 use core::str;
 
 use super::{CoffCommon, CoffHeader, SectionTable};
-use crate::endian::{LittleEndian as LE, U32Bytes};
+use crate::endian::{LittleEndian as LE, U32};
 use crate::pe;
 use crate::pod::{bytes_of, bytes_of_slice, Pod};
 use crate::read::util::StringTable;
@@ -51,7 +51,7 @@ impl<'data, R: ReadRef<'data>, Coff: CoffHeader> SymbolTable<'data, R, Coff> {
 
             // Note: don't update data when reading length; the length includes itself.
             let length = data
-                .read_at::<U32Bytes<_>>(offset)
+                .read_at::<U32<_>>(offset)
                 .read_error("Missing COFF string table")?
                 .get(LE);
             let str_end = offset

@@ -18,7 +18,19 @@ defmodule ServiceRadar.Automation.Ansible.AwxHostMembership do
   alias ServiceRadar.Policies.Checks.ActorHasPermission
 
   @view_check {ActorHasPermission, permission: "ansible.runs.view"}
+  @launch_check {ActorHasPermission, permission: "ansible.runs.launch"}
   @manage_check {ActorHasPermission, permission: "ansible.controllers.manage"}
+  @launch_read_fields [
+    :id,
+    :controller_id,
+    :inventory_id,
+    :awx_host_id,
+    :canonical_device_uid,
+    :source_generation,
+    :enabled,
+    :current,
+    :link_disposition
+  ]
 
   postgres do
     table "ansible_awx_host_memberships"
@@ -76,7 +88,11 @@ defmodule ServiceRadar.Automation.Ansible.AwxHostMembership do
     read :current_for_device do
       argument :canonical_device_uid, :string, allow_nil?: false
       filter expr(canonical_device_uid == ^arg(:canonical_device_uid) and current == true)
-      prepare build(sort: [controller_id: :asc, inventory_id: :asc, awx_host_id: :asc])
+
+      prepare build(
+                select: @launch_read_fields,
+                sort: [controller_id: :asc, inventory_id: :asc, awx_host_id: :asc]
+              )
     end
 
     read :current_for_inventory do
@@ -191,9 +207,14 @@ defmodule ServiceRadar.Automation.Ansible.AwxHostMembership do
     system_bypass()
 
     action_with_permission(
-      [:read, :by_id, :by_source_identity, :current_for_device, :current_for_inventory],
+      [:read, :by_id, :by_source_identity, :current_for_inventory],
       @view_check
     )
+
+    policy action(:current_for_device) do
+      authorize_if @view_check
+      authorize_if @launch_check
+    end
 
     action_with_permission([:approve_link], @manage_check)
   end

@@ -1,4 +1,4 @@
-load("@serviceradar//build:mix_app.bzl", "mix_app")
+load("@rules_elixir//:mix_app.bzl", "mix_app")
 
 package(default_visibility = ["//visibility:public"])
 
@@ -37,7 +37,7 @@ mix_app(
     srcs = [":srcs"],
     app_name = "elixir_uuid",
     deps = [
-        "@hex_boundary//:erlang_app",
+        "@hexpm//:boundary",
         "@rules_elixir//elixir",
     ],
 )

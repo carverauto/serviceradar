@@ -4,7 +4,7 @@ use core::{slice, str};
 use crate::elf;
 use crate::endian::{self, Endianness};
 use crate::pod::{self, Pod};
-use crate::read::{self, ObjectSegment, ReadError, ReadRef, SegmentFlags};
+use crate::read::{self, ObjectSegment, Permissions, ReadError, ReadRef, SegmentFlags};
 
 use super::{ElfFile, FileHeader, NoteIterator};
 
@@ -79,7 +79,7 @@ impl<'data, 'file, Elf: FileHeader, R: ReadRef<'data>> ElfSegment<'data, 'file, 
 
     fn bytes(&self) -> read::Result<&'data [u8]> {
         self.segment
-            .data(self.file.endian, self.file.data)
+            .data(self.file.endian, self.file.data.0)
             .read_error("Invalid ELF segment size or offset")
     }
 }
@@ -144,6 +144,16 @@ where
     fn flags(&self) -> SegmentFlags {
         let p_flags = self.segment.p_flags(self.file.endian);
         SegmentFlags::Elf { p_flags }
+    }
+
+    #[inline]
+    fn permissions(&self) -> Permissions {
+        let p_flags = self.segment.p_flags(self.file.endian);
+        Permissions::new(
+            p_flags & elf::PF_R != 0,
+            p_flags & elf::PF_W != 0,
+            p_flags & elf::PF_X != 0,
+        )
     }
 }
 

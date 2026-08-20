@@ -1,5 +1,6 @@
 load("@bazel_gazelle//:def.bzl", "gazelle")
 load("@platforms//host:extension.bzl", "host_platform")
+load("@rules_python//python:py_test.bzl", "py_test")
 load("@rules_shell//shell:sh_binary.bzl", "sh_binary")
 
 ###############################################################################
@@ -20,19 +21,10 @@ load("@rules_shell//shell:sh_binary.bzl", "sh_binary")
 # gazelle:exclude go/pkg/agent/testdata
 #
 # third_party is generated and vendored, never hand-authored, so Gazelle has no business
-# rewriting it. Without this exclusion Gazelle walked into //third_party/crates -- the
-# crates_vendor output -- and tried to generate proto_library rules for .proto files that
-# ship inside vendored crates (prost-build fixtures, tonic-health, spiffe, prometheus).
-# Two of those directories hold more than one proto package, which Gazelle cannot express,
-# so it errored:
-#
-#   third_party/crates/prost-build-0.14.4/src/fixtures/alphabet: directory contains
-#   multiple proto packages. Gazelle can only generate a proto_library for one package.
-#
-# That made a repo-wide `-mode=diff` non-zero for reasons no first-party change can fix,
-# which is why the drift check used to be scoped to changed Go directories instead. It also
-# put 13 vendored BUILD files in the diff. scripts/vendor.sh owns that tree; regenerate it
-# there, do not let Gazelle edit it.
+# rewriting it. It historically walked into the vendored crate tree and tried to generate
+# proto_library rules for .proto files shipped inside crates, some of which hold more than
+# one proto package -- which Gazelle cannot express, making a repo-wide `-mode=diff`
+# non-zero for reasons no first-party change could fix.
 # gazelle:exclude third_party
 #
 # Three proto directories that hold UPSTREAM schemas, not Go packages of ours. Gazelle's
@@ -60,12 +52,12 @@ gazelle(
 # exports_files
 ###############################################################################
 exports_files([
-    ".forgejo/workflows/external-wasm-plugin.yml",
-    ".forgejo/workflows/image-security.yml",
-    ".forgejo/workflows/native-addons.yml",
-    ".forgejo/workflows/release.yml",
-    ".forgejo/workflows/source-security.yml",
-    ".forgejo/workflows/wasm-plugins.yml",
+    ".github/workflows/external-wasm-plugin.yml",
+    ".github/workflows/image-security.yml",
+    ".github/workflows/native-addons.yml",
+    ".github/workflows/release.yml",
+    ".github/workflows/source-security.yml",
+    ".github/workflows/wasm-plugins.yml",
     "VERSION",
     "Cargo.toml",
     "Cargo.lock",
@@ -77,6 +69,47 @@ exports_files([
     "elixir/.credo.ex_slop.exs",
     "k8s/argocd/applications/demo-prod.yaml",
 ])
+
+###############################################################################
+# Agent release trust anchor consistency test
+###############################################################################
+# The release-signing PUBLIC key is committed in three places -- the file embedded in the agent
+# binary and the two chart values the control plane reads. Nothing else compares them:
+# scripts/verify-agent-release-key-stamp.sh checks the agent's copy against the signing SECRET,
+# which says nothing about the charts. A drift there publishes releases that agents refuse to
+# install while every gate stays green.
+#
+# `data` must list every file the test reads; a missing entry fails under the sandbox only, which
+# is exactly the environment CI uses.
+# Same class of bug as the agent release key below, caught the hard way: the Cosign public key
+# that verifies first-party Wasm plugins was set only in the demo overlay, so every other Helm
+# install rendered no key env var and could not import a single plugin. This asserts the key is
+# present -- not merely consistent -- everywhere it is embedded.
+py_test(
+    name = "first_party_plugin_cosign_key_consistency_test",
+    size = "small",
+    srcs = ["first_party_plugin_cosign_key_consistency_test.py"],
+    data = [
+        "//docs:cosign.pub",
+        "//elixir/web-ng:config/config.exs",
+        "//helm/serviceradar:values-demo.yaml",
+        "//helm/serviceradar:values.yaml",
+    ],
+)
+
+py_test(
+    name = "agent_release_key_consistency_test",
+    size = "small",
+    srcs = ["agent_release_key_consistency_test.py"],
+    # Proper labels, not paths: both directories are their own packages, so
+    # "go/pkg/agent/release_signing_key.txt" is rejected as a label in THIS package. The
+    # cache-proxy test above can use bare paths only because k8s/buildbuddy has no BUILD file.
+    data = [
+        "//go/pkg/agent:release_signing_key.txt",
+        "//helm/serviceradar:values.yaml",
+        "//helm/serviceradar:values-demo.yaml",
+    ],
+)
 
 ###############################################################################
 # RUST RELEASE MODE OPTIMIZATION
@@ -99,10 +132,11 @@ sh_binary(
 ###############################################################################
 # CI INTEGRATION-FIXTURE CREDENTIALS
 #
-# Same credential carve-out as the docker auth target above: a test action cannot fetch
-# these itself (remote executor, no kubeconfig, sandboxed), so they must reach the bazel
-# CLIENT's environment before `bazel test` runs. Reads the srql-fixtures K8s secrets when
-# the caller has cluster access, otherwise trusts pre-set BuildBuddy workflow secrets.
+# Same credential carve-out as the docker auth target above: a sandboxed test action must not
+# fetch cluster secrets itself, so they reach the Bazel CLIENT's environment before `bazel test`
+# starts. Reads DSNs from the srql-fixtures K8s secrets when the caller has cluster access,
+# otherwise from pre-set workflow DSN secrets. The CA is always fetched live (cert-manager
+# Secret or SRQL_FIXTURE_CA_URL), never from a stored PEM.
 ###############################################################################
 sh_binary(
     name = "buildbuddy_setup_fixture_env",

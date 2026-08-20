@@ -44,7 +44,7 @@ spec:
       {{- include "serviceradar.elixirReleasePodSecurityContext" . | nindent 6 }}
       containers:
       - name: datasvc
-        image: {{ include "serviceradar.imageRef" (dict "Values" .Values "name" "serviceradar-datasvc" "service" "datasvc") }}
+        image: {{ include "serviceradar.imageRef" (dict "Values" .Values "Chart" .Chart "name" "serviceradar-datasvc" "service" "datasvc") }}
         imagePullPolicy: {{ include "serviceradar.imagePullPolicy" . }}
         {{- include "serviceradar.containerSecurityContext" . | nindent 8 }}
         ports:

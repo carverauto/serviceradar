@@ -4,3 +4,4 @@ metadata:
   name: srql-fixtures
   labels:
     name: srql-fixtures
+    serviceradar.com/gateway-access: "true"

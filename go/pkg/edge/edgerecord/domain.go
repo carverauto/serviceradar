@@ -1117,6 +1117,32 @@ func sweepContextOperandValue(rule sweepSourceRule, b *edgev1.SweepObservationBa
 	return b.GetExecutionId()
 }
 
+// requireFramingFamily enforces the FAMILY <-> TYPED ENTRY POINT invariant.
+//
+// `payload_family` is an immutable FRAMING and LIFECYCLE discriminator. It is not a
+// contract-selection key -- the exact output contract selects the semantic validator and the
+// projector, and there is deliberately NO registry-wide contract-to-family table -- and it is
+// not authorization. What it fixes is which typed ingress a record may enter.
+//
+// The check has to exist HERE, at each typed boundary, because protobuf bytes are not
+// intrinsically type-tagged: a sweep body decodes under an unintended schema without complaint,
+// so a record declaring SNAPSHOT_PAGE_V1 while entering sweep admission would be AUTHENTICATED
+// carrying contradictory metadata. Every later reader that selects a decoder from the family
+// would then be choosing from a value nothing validated.
+//
+// The GENERIC validator stays permissive across the known non-recovery families on purpose: it
+// has no entry-point context and cannot choose one of them.
+func requireFramingFamily(
+	r *edgev1.EdgeRecordV1, want edgev1.EdgeRecordPayloadFamily, sentinel error,
+) error {
+	if r.GetPayloadFamily() != want {
+		return fmt.Errorf("%w: payload family %v may not enter this ingress, want %v",
+			sentinel, r.GetPayloadFamily(), want)
+	}
+
+	return nil
+}
+
 // ValidateSweepRecord is the composed sweep validator the trusted sink/EventWriter
 // use: it validates the whole EdgeRecordV1, decodes and deep-validates the sweep
 // body, then JOINS body to signed authority -- the body's source MUST map to the
@@ -1128,6 +1154,11 @@ func ValidateSweepRecord(r *edgev1.EdgeRecordV1, expected *edgev1.EdgeOutputCont
 		return err
 	}
 	if err := dispatchContract(r, expected); err != nil {
+		return err
+	}
+	if err := requireFramingFamily(r,
+		edgev1.EdgeRecordPayloadFamily_EDGE_RECORD_PAYLOAD_FAMILY_RECORD_BATCH_V1,
+		ErrPayloadFraming); err != nil {
 		return err
 	}
 	inner, err := innerPayload(r)
@@ -1152,6 +1183,11 @@ func ValidateMtrRecord(r *edgev1.EdgeRecordV1, expected *edgev1.EdgeOutputContra
 		return err
 	}
 	if err := dispatchContract(r, expected); err != nil {
+		return err
+	}
+	if err := requireFramingFamily(r,
+		edgev1.EdgeRecordPayloadFamily_EDGE_RECORD_PAYLOAD_FAMILY_RECORD_BATCH_V1,
+		ErrPayloadFraming); err != nil {
 		return err
 	}
 	inner, err := innerPayload(r)

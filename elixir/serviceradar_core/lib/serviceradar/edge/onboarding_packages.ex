@@ -218,6 +218,7 @@ defmodule ServiceRadar.Edge.OnboardingPackages do
              actor: actor,
              authorize?: authorize?
            )
+           |> Ash.Changeset.filter(expr(status == :issued and is_nil(download_token_consumed_at)))
            |> Ash.update() do
         {:ok, updated_package} ->
           # Decrypt package secrets only after the single-use consume transition succeeds.

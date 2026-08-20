@@ -32,6 +32,7 @@ import (
 	agentnetprobe "github.com/carverauto/serviceradar/go/pkg/agent/netprobe"
 	"github.com/carverauto/serviceradar/go/pkg/agent/remoteaccess"
 	"github.com/carverauto/serviceradar/go/pkg/agent/sidecar"
+	"github.com/carverauto/serviceradar/go/pkg/mtr"
 	"github.com/carverauto/serviceradar/proto"
 )
 
@@ -194,6 +195,8 @@ type agentCapabilityOptions struct {
 	sweepBannerGrabAvailable                bool
 	bumblebee                               bool
 	endpointInventory                       bool
+	icmpAvailable                           bool
+	mtrAvailable                            bool
 }
 
 func getAgentCapabilities(cfg *ServerConfig) []string {
@@ -287,6 +290,7 @@ func getAgentCapabilitiesForSidecarsWithRDPPath(
 	sweepBannerGrabAvailable bool,
 	rdpAdapterPath string,
 ) []string {
+	icmpAvailable, mtrAvailable := probeICMPAndMTRSockets()
 	return agentCapabilities(agentCapabilityOptions{
 		enhancedBPF:                             remoteaccess.PlatformEnhancedRecordingAvailable(),
 		desktopRDP:                              remoteAccessRDPCapabilityEnabledAtPath(cfg, rdpAdapterPath),
@@ -295,13 +299,20 @@ func getAgentCapabilitiesForSidecarsWithRDPPath(
 		sweepBannerGrabAvailable:                sweepBannerGrabAvailable,
 		bumblebee:                               cfg != nil && cfg.Bumblebee != nil && cfg.Bumblebee.Enabled,
 		endpointInventory:                       cfg != nil && cfg.EndpointInventory != nil && cfg.EndpointInventory.Enabled,
+		icmpAvailable:                           icmpAvailable,
+		mtrAvailable:                            mtrAvailable,
 	})
 }
 
 func agentCapabilities(options agentCapabilityOptions) []string {
-	capabilities := []string{
-		"icmp",
-		"mtr",
+	capabilities := make([]string, 0, 24)
+	if options.icmpAvailable {
+		capabilities = append(capabilities, "icmp")
+	}
+	if options.mtrAvailable {
+		capabilities = append(capabilities, "mtr")
+	}
+	capabilities = append(capabilities,
 		sweepType,
 		commandTypeAdhocScan,
 		"snmp",
@@ -319,7 +330,7 @@ func agentCapabilities(options agentCapabilityOptions) []string {
 		proxmoxSemanticConnectorCapabilityV1,
 		proxmoxConsolePolicyBindingCapabilityV1,
 		proxmoxIdentityCapabilityV3,
-	}
+	)
 	if options.hostNetworkVisibilitySupported {
 		capabilities = append(capabilities, capabilityHostNetworkVisibility)
 	}
@@ -360,6 +371,18 @@ func agentCapabilities(options agentCapabilityOptions) []string {
 	}
 
 	return capabilities
+}
+
+func probeICMPAndMTRSockets() (icmpOK bool, mtrOK bool) {
+	sock, err := mtr.NewRawSocket(false)
+	if err != nil {
+		return false, false
+	}
+	if closeErr := sock.Close(); closeErr != nil {
+		return false, false
+	}
+
+	return true, true
 }
 
 func hostNetworkVisibilityFingerprintStatus(capabilities []string) string {
@@ -560,6 +583,15 @@ func systemdAddonUnitStatusWithReader(
 			return status
 		case agentaddon.StateStarting, agentaddon.StateRestarting:
 			best = status
+		case agentaddon.StateDegraded:
+			// Not produced here: these states come from parsing `systemctl show`,
+			// and degraded is an add-on HEALTH concept the unit view never sees.
+			// Handled explicitly anyway, because a degraded add-on is running --
+			// so if it ever does reach this path it must outrank every
+			// not-running state rather than falling through as unknown.
+			if best.state != agentaddon.StateRunning {
+				best = status
+			}
 		case agentaddon.StateUnhealthy:
 			if best.state == agentaddon.StateStopped {
 				best = status
@@ -586,6 +618,13 @@ func systemdTimerUnitStatusWithReader(
 			return status
 		case agentaddon.StateRunning:
 			best = status
+		case agentaddon.StateDegraded:
+			// See the note in the service variant: unreachable from systemd
+			// parsing, but degraded means running, so it outranks anything that
+			// is not running.
+			if best.state != agentaddon.StateRunning {
+				best = status
+			}
 		case agentaddon.StateStarting, agentaddon.StateRestarting:
 			if best.state != agentaddon.StateRunning {
 				best = status

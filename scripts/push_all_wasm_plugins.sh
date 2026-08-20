@@ -30,7 +30,7 @@ Usage: ./scripts/push_all_wasm_plugins.sh [--tag <tag>] [--dry-run]
 Environment:
   BAZEL_BIN          Bazel executable to use (default: bazel)
   BAZEL_BUILD_FLAGS  Optional flags for remote bundle builds, for example:
-                     BAZEL_BUILD_FLAGS='--config=remote --stamp'
+                     BAZEL_BUILD_FLAGS='-c opt --config=ci --stamp'
 EOF
 }
 

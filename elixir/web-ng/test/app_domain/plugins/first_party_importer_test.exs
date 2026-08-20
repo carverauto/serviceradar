@@ -8,7 +8,7 @@ defmodule ServiceRadarWebNG.Plugins.FirstPartyImporterTest do
   @moduletag :unit
   @moduletag :db_free
 
-  @repo_url "https://code.carverauto.dev/carverauto/serviceradar"
+  @repo_url "https://github.com/carverauto/serviceradar"
   @manifest_yaml """
   id: hello-wasm
   name: Hello Wasm
@@ -37,15 +37,24 @@ defmodule ServiceRadarWebNG.Plugins.FirstPartyImporterTest do
     }
   }
   @wasm "hello wasm payload"
+  @display_contract %{
+    "id" => "com.example.activity.display",
+    "version" => "1.0.0",
+    "schema_id" => "com.example.activity",
+    "schema_version" => "1.0.0",
+    "widgets" => [
+      %{"type" => "summary", "title" => "title", "message" => "message"}
+    ]
+  }
 
-  defmodule ForgejoClient do
+  defmodule GitHubReleaseClient do
     @moduledoc false
 
     alias ServiceRadarWebNG.Plugins.FirstPartyImporterTest
 
     def get(url, _opts) do
       cond do
-        String.contains?(url, "/api/v1/repos/carverauto/serviceradar/releases?per_page=") ->
+        String.contains?(url, "api.github.com/repos/carverauto/serviceradar/releases?per_page=") ->
           releases =
             if Process.get(:first_party_releases_without_index) do
               [%{"tag_name" => "v1.2.3", "assets" => []}]
@@ -55,7 +64,7 @@ defmodule ServiceRadarWebNG.Plugins.FirstPartyImporterTest do
 
           {:ok, %Req.Response{status: 200, body: releases}}
 
-        String.contains?(url, "/api/v1/repos/carverauto/serviceradar/releases/tags/v1.2.3") ->
+        String.contains?(url, "api.github.com/repos/carverauto/serviceradar/releases/tags/v1.2.3") ->
           {:ok, %Req.Response{status: 200, body: FirstPartyImporterTest.release()}}
 
         String.ends_with?(url, "/serviceradar-wasm-plugin-index.json") ->
@@ -92,11 +101,11 @@ defmodule ServiceRadarWebNG.Plugins.FirstPartyImporterTest do
 
     def get(url, opts) do
       cond do
-        String.contains?(url, "/api/v1/repos/carverauto/serviceradar/releases?per_page=") ->
-          ForgejoClient.get(url, [])
+        String.contains?(url, "api.github.com/repos/carverauto/serviceradar/releases?per_page=") ->
+          GitHubReleaseClient.get(url, [])
 
-        String.contains?(url, "/api/v1/repos/carverauto/serviceradar/releases/tags/v1.2.3") ->
-          ForgejoClient.get(url, [])
+        String.contains?(url, "api.github.com/repos/carverauto/serviceradar/releases/tags/v1.2.3") ->
+          GitHubReleaseClient.get(url, [])
 
         String.ends_with?(url, "/serviceradar-wasm-plugin-index.json") ->
           {:ok, %Req.Response{status: 200, body: Jason.encode!(FirstPartyImporterTest.oci_index())}}
@@ -170,7 +179,7 @@ defmodule ServiceRadarWebNG.Plugins.FirstPartyImporterTest do
       trusted_upload_signing_keys: %{"test-signer" => Base.encode64(public_key)}
     )
 
-    Application.put_env(:serviceradar_web_ng, :first_party_plugin_import_http_client, ForgejoClient)
+    Application.put_env(:serviceradar_web_ng, :first_party_plugin_import_http_client, GitHubReleaseClient)
 
     Application.put_env(:serviceradar_web_ng, :plugin_storage,
       backend: :filesystem,
@@ -201,7 +210,7 @@ defmodule ServiceRadarWebNG.Plugins.FirstPartyImporterTest do
     :ok
   end
 
-  test "lists import-ready plugins from the Forgejo release index" do
+  test "lists import-ready plugins from the GitHub release index" do
     assert {:ok, [plugin]} = FirstPartyImporter.list_recent_plugins(%{"repo_url" => @repo_url}, 10)
     assert plugin.plugin_id == "hello-wasm"
     assert plugin.version == "1.2.3"
@@ -279,6 +288,25 @@ defmodule ServiceRadarWebNG.Plugins.FirstPartyImporterTest do
              })
   end
 
+  test "rejects the package when a display contract is invalid" do
+    Process.put(
+      :first_party_bundle,
+      bundle_with_entries([
+        {~c"display/event_log_activity.display.json", Jason.encode!(%{"widgets" => []})}
+      ])
+    )
+
+    assert {:error, {:invalid_display_contracts, errors}} =
+             FirstPartyImporter.import(%{
+               "repo_url" => @repo_url,
+               "release_tag" => "v1.2.3",
+               "plugin_id" => "hello-wasm",
+               "version" => "1.2.3"
+             })
+
+    assert Enum.any?(errors, &String.contains?(&1, "display/event_log_activity.display.json"))
+  end
+
   test "rejects malformed first-party import index assets" do
     Process.put(:first_party_index_body, "[not-an-object]")
 
@@ -299,7 +327,7 @@ defmodule ServiceRadarWebNG.Plugins.FirstPartyImporterTest do
   end
 
   test "rejects untrusted repository URLs" do
-    assert {:error, "Forgejo repository URL must look like https://code.carverauto.dev/<owner>/<repo>"} =
+    assert {:error, "GitHub repository URL must look like https://github.com/<owner>/<repo>"} =
              FirstPartyImporter.list_recent_plugins(%{"repo_url" => "https://example.com/repo"}, 10)
   end
 
@@ -370,12 +398,12 @@ defmodule ServiceRadarWebNG.Plugins.FirstPartyImporterTest do
     %{
       "tag_name" => "v1.2.3",
       "name" => "ServiceRadar v1.2.3",
-      "html_url" => "https://code.carverauto.dev/carverauto/serviceradar/releases/tag/v1.2.3",
+      "html_url" => "https://github.com/carverauto/serviceradar/releases/tag/v1.2.3",
       "assets" => [
         %{
           "name" => "serviceradar-wasm-plugin-index.json",
           "browser_download_url" =>
-            "https://code.carverauto.dev/carverauto/serviceradar/releases/download/v1.2.3/serviceradar-wasm-plugin-index.json"
+            "https://github.com/carverauto/serviceradar/releases/download/v1.2.3/serviceradar-wasm-plugin-index.json"
         }
       ]
     }
@@ -389,9 +417,9 @@ defmodule ServiceRadarWebNG.Plugins.FirstPartyImporterTest do
           "plugin_id" => "hello-wasm",
           "name" => "Hello Wasm",
           "version" => "1.2.3",
-          "bundle_url" => "https://code.carverauto.dev/carverauto/serviceradar/releases/download/v1.2.3/hello-wasm.zip",
+          "bundle_url" => "https://github.com/carverauto/serviceradar/releases/download/v1.2.3/hello-wasm.zip",
           "upload_signature_url" =>
-            "https://code.carverauto.dev/carverauto/serviceradar/releases/download/v1.2.3/hello-wasm.upload-signature.json",
+            "https://github.com/carverauto/serviceradar/releases/download/v1.2.3/hello-wasm.upload-signature.json",
           "bundle_digest" => Process.get(:first_party_bundle_digest_override) || Storage.sha256(bundle()),
           "oci_ref" => "registry.carverauto.dev/serviceradar/wasm-plugin-hello-wasm:v1.2.3"
         }
@@ -453,17 +481,23 @@ defmodule ServiceRadarWebNG.Plugins.FirstPartyImporterTest do
     path = Path.join(System.tmp_dir!(), "hello-wasm-#{System.unique_integer([:positive])}.zip")
 
     try do
+      base_entries =
+        [
+          {~c"plugin.yaml", @manifest_yaml},
+          {~c"plugin.wasm", @wasm},
+          {~c"config.schema.json", Jason.encode!(%{"type" => "object"})},
+          {~c"display_contract.json", Jason.encode!(%{"schema_version" => 1})},
+          {~c"display/event_log_activity.display.json", Jason.encode!(@display_contract)},
+          {~c"schemas/ocsf_event_log_activity.schema.json", Jason.encode!(%{"type" => "object"})}
+        ]
+
+      replacement_names = MapSet.new(extra_entries, fn {name, _payload} -> to_string(name) end)
+      base_entries = Enum.reject(base_entries, fn {name, _payload} -> to_string(name) in replacement_names end)
+
       {:ok, _zip} =
         :zip.create(
           String.to_charlist(path),
-          [
-            {~c"plugin.yaml", @manifest_yaml},
-            {~c"plugin.wasm", @wasm},
-            {~c"config.schema.json", Jason.encode!(%{"type" => "object"})},
-            {~c"display_contract.json", Jason.encode!(%{"schema_version" => 1})},
-            {~c"display/event_log_activity.display.json", Jason.encode!(%{"widgets" => []})},
-            {~c"schemas/ocsf_event_log_activity.schema.json", Jason.encode!(%{"type" => "object"})}
-          ] ++ extra_entries
+          base_entries ++ extra_entries
         )
 
       File.read!(path)

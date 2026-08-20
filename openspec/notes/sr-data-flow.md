@@ -39,7 +39,8 @@ direct-to-DB metric writes.
                                                         │            ▲ ERTS RPC/PubSub │               │
 ┌──────────────────────────────────────┐               │            │                 │               │
 │ Rust collectors (publish direct)     │               │  ┌─────────┴──────────┐      │ metrics.*     │
-│  flow-collector → flows.raw.netflow  │───────────────────│ core (Elixir)      │     │ logs.*        │
+│  flow-collector → flows stream       │───────────────────│ core (Elixir)      │     │ logs.*        │
+│    subjects flows.raw.{netflow,sflow}│                   │  EventWriter       │     │               │
 │  trapd          → logs.snmp          │   NATS         │  │  event_writer      │◀────┤ events.*      │
 │  otel           → otel.traces/metrics│   JetStream    │  │  (Broadway pull    │     │ otel.*        │
 │  log-collector/flowgger → logs.*     │──────┐         │  │   consumers)       │     │ flows.raw.*   │

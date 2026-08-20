@@ -24,6 +24,7 @@ import (
 	"crypto/ed25519"
 	"crypto/tls"
 	"crypto/x509"
+	_ "embed"
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
@@ -110,10 +111,55 @@ var (
 	errReleaseHelperConnectorNotReady = errors.New("release helper install requires connector-ready artifact")
 )
 
-// ReleaseSigningPublicKey is set at build time for managed release verification.
+// releaseSigningPublicKeyPEM is the trusted Ed25519 release-signing PUBLIC key, embedded from a
+// committed source file rather than injected by the linker.
 //
-//nolint:gochecknoglobals // Required for build-time ldflags injection
-var ReleaseSigningPublicKey = ""
+// WHY A SOURCE FILE AND NOT --stamp. This used to arrive through
+//
+//	x_defs = {"...agent.ReleaseSigningPublicKey": "{STABLE_AGENT_RELEASE_PUBLIC_KEY}"}
+//
+// which requires the GLOBAL --stamp flag: rules_go exposes no per-target stamp attribute, so
+// there is no way to ask for it on this binary alone. Two consequences followed, both measured:
+//
+//   - Every build without --stamp shipped an agent whose key was the empty string, silently.
+//     That is every developer build and every CI build; only the release job passed the flag.
+//   - The release job therefore built in a configuration no other job shared.
+//
+// There is no secret here to protect: this is the PUBLIC half. Committing it makes the value
+// reviewable in git, makes the build hermetic, and makes a dev build behave like a release
+// build. Rotation costs a commit -- but rotation already required rebuilding and re-releasing
+// every agent, because the key is embedded either way.
+//
+// The release workflow no longer injects this; it ASSERTS that the key derived from the signing
+// secret equals this file, which is a stronger check than the injection it replaces.
+//
+//go:embed release_signing_key.txt
+var releaseSigningPublicKeyPEM string
+
+// ReleaseSigningPublicKey is the trusted key used for managed release verification.
+//
+// Still a package-level var rather than a const: the tests reassign it to exercise the unset and
+// wrong-key paths.
+//
+//nolint:gochecknoglobals // Reassigned by tests; embedded default above.
+var ReleaseSigningPublicKey = parseEmbeddedSigningKey(releaseSigningPublicKeyPEM)
+
+// parseEmbeddedSigningKey returns the first meaningful line of the embedded key file.
+//
+// The file is allowed to carry `#` comments so that a security-relevant constant can explain
+// what it is and how to regenerate it, rather than sitting in the tree as an unexplained blob.
+func parseEmbeddedSigningKey(contents string) string {
+	for _, line := range strings.Split(contents, "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+
+		return line
+	}
+
+	return ""
+}
 
 type releaseUpdatePayload struct {
 	ReleaseID         string                   `json:"release_id,omitempty"`

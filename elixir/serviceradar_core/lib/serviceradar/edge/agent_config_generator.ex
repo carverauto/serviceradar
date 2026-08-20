@@ -1221,9 +1221,21 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
         download_token: download_request && download_request.token
       }
     else
-      {:error, _reason} ->
+      # The reason belongs in the MESSAGE, not in Logger keyword metadata: the
+      # console metadata allowlist is [:request_id, :node], so a reason: keyword
+      # is silently dropped from the deployed release's logs -- which is how this
+      # skip stayed opaque while a whole integration sat dead.
+      #
+      # inspect/1 rather than bare interpolation: two reachable reasons are
+      # tuples wrapping arbitrary Ash terms, and a Protocol.UndefinedError raised
+      # HERE would unwind into the rescue around the caller and drop every plugin
+      # assignment for the agent, not just this one.
+      {:error, reason} ->
         Logger.warning(
-          "Skipping Proxmox plugin assignment #{assignment.id}: authoritative source and host binding validation failed"
+          "Skipping plugin assignment #{assignment.id}: authoritative source and host " <>
+            "binding validation failed: plugin=#{package.plugin_id} " <>
+            "entrypoint=#{package.entrypoint} agent=#{assignment.agent_uid} " <>
+            "reason=#{inspect(reason)}"
         )
 
         nil
@@ -1855,16 +1867,25 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
     end
   end
 
-  defp effective_permissions(
-         %PluginAssignment{} = assignment,
-         %PluginPackage{} = package,
-         manifest
-       ) do
+  @doc """
+  Computes the permission scope that is actually delivered to an agent.
+
+  Security-sensitive callers that mint a second, narrower authority (for
+  example a notification credential grant) must use this function rather than
+  reimplementing the package/assignment narrowing rules.
+  """
+  @spec effective_permissions(map(), map(), map()) :: %{
+          allowed_domains: [String.t()],
+          allowed_networks: [String.t()],
+          allowed_ports: [integer()]
+        }
+  def effective_permissions(assignment, package, manifest)
+      when is_map(assignment) and is_map(package) and is_map(manifest) do
     manifest
     |> fetch_map_value(:permissions, %{})
     |> normalize_permissions()
-    |> narrow_permissions(package.approved_permissions)
-    |> narrow_permissions(assignment.permissions_override)
+    |> narrow_permissions(Map.get(package, :approved_permissions, %{}))
+    |> narrow_permissions(Map.get(assignment, :permissions_override, %{}))
   end
 
   defp effective_resources(%PluginAssignment{} = assignment, %PluginPackage{} = package, manifest) do
@@ -1970,7 +1991,7 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
 
     cond do
       base == [] ->
-        override
+        []
 
       override == [] ->
         base

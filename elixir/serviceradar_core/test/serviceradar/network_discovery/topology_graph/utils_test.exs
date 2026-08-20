@@ -39,4 +39,12 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph.UtilsTest do
       assert Utils.interface_id(nil, "x", 1) == nil
     end
   end
+
+  describe "base_metric_name/1" do
+    test "strips collector interface suffixes" do
+      assert Utils.base_metric_name("ifHCInOctets::ifindex:21") == "ifHCInOctets"
+      assert Utils.base_metric_name("ifInUcastPkts") == "ifInUcastPkts"
+      assert Utils.base_metric_name(nil) == nil
+    end
+  end
 end

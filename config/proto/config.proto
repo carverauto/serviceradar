@@ -1,0 +1,127 @@
+// ServiceRadar environment configuration schema.
+//
+// This file is the sole definition of which environment settings exist. The committed
+// instances under //config/environments are the sole source of their values, and a build
+// action compiles each to a binary message that every language loads. See
+// openspec/changes/add-unified-config-and-secret-managers/design.md.
+//
+// TWO RULES GOVERN EVERY FIELD HERE, AND BOTH EXIST TO PREVENT SILENT DEFAULTING:
+//
+// 1. Every field uses `optional` (proto3 explicit presence). Without it a missing port
+//    decodes to 0, a missing string to "", and a missing enum to whatever is = 0 --
+//    which is the same silent-default disease this schema replaces, relocated into the
+//    decoder. Validation asserts PRESENCE, never merely that decoding succeeded.
+// 2. Every enum reserves 0 as *_UNSPECIFIED, which validation rejects. An unset TLS mode
+//    must be an error, never accidentally the first real value.
+//
+// NO SECRETS. Passwords, private keys and certificate material are resolved by
+// SecretManager, never stored here. A build-time check rejects credential-shaped values.
+// Note the consequence for TLS: the MODE and the SERVER NAME are configuration, but the
+// CA / client certificate / client key are not, so no *_cert_file field appears below.
+syntax = "proto3";
+
+package serviceradar.config.v1;
+
+option go_package = "github.com/carverauto/serviceradar/config/proto;configpb";
+
+// Which deployment this configuration describes.
+//
+// On-prem is multi-instance: each customer deployment is a separate single-tenant
+// installation selecting one instance at boot. `instance` is required when the kind is
+// ONPREM and must be absent otherwise.
+enum EnvironmentKind {
+  ENVIRONMENT_KIND_UNSPECIFIED = 0;
+  ENVIRONMENT_KIND_LOCALHOST = 1;
+  ENVIRONMENT_KIND_CI = 2;
+  ENVIRONMENT_KIND_SAAS = 3;
+  ENVIRONMENT_KIND_ONPREM = 4;
+}
+
+// PostgreSQL TLS posture.
+//
+// A typed field rather than a string appended to a DSN. The string form is what allowed
+// `sslmode` to go missing and tokio-postgres to fall back to Prefer -- permitting a
+// plaintext connection while every test still passed.
+enum TlsMode {
+  TLS_MODE_UNSPECIFIED = 0;
+  TLS_MODE_DISABLE = 1;
+  TLS_MODE_REQUIRE = 2;
+  TLS_MODE_VERIFY_CA = 3;
+  TLS_MODE_VERIFY_FULL = 4;
+}
+
+// Transport security for service-to-service calls (replaces CORE_SEC_MODE).
+enum SecurityMode {
+  SECURITY_MODE_UNSPECIFIED = 0;
+  SECURITY_MODE_NONE = 1;
+  SECURITY_MODE_MTLS = 2;
+  SECURITY_MODE_SPIFFE = 3;
+}
+
+// PostgreSQL / CNPG coordinates.
+//
+// The DSN is NOT a field. It embeds a password, so it is assembled at runtime from these
+// fields plus the resolved secret. Replaces SRQL_TEST_DATABASE_URL, its thirteen
+// SERVICERADAR_TEST_DATABASE_* aliases, and the CNPG_* family.
+message DatabaseConfig {
+  optional string host = 1;
+  optional uint32 port = 2;
+  optional string database = 3;
+
+  // The role used to connect. An IDENTITY, not a credential -- only the password is
+  // secret. Replaces recovering the user by parsing a credential-bearing DSN.
+  optional string connecting_role = 4;
+
+  // The role that owns per-run databases. Separate from `connecting_role` because a
+  // fixture may deliberately distinguish them; that was the entire purpose of
+  // SERVICERADAR_TEST_DATABASE_OWNER, which this field retires.
+  optional string owning_role = 5;
+
+  optional TlsMode tls_mode = 6;
+
+  // The name TLS verification is performed against. Required under VERIFY_FULL because
+  // the fixture certificate carries DNS SANs and no IP SANs, so an address-based caller
+  // must state the certificate's DNS name explicitly.
+  optional string tls_server_name = 7;
+
+  optional string search_path = 8;
+  optional uint32 pool_size = 9;
+  optional uint32 queue_target_ms = 10;
+  optional uint32 queue_interval_ms = 11;
+  optional uint32 ownership_timeout_ms = 12;
+}
+
+// NATS coordinates. Credential material is resolved by SecretManager.
+//
+// Reconciles three spellings of the same concept that could never meet: .bazelrc forwarded
+// NATS_CA_FILE, Go read NATS_CACERTFILE, and the Elixir e2e test used NATS_TEST_CERT_DIR.
+message NatsConfig {
+  optional string url = 1;
+  optional string server_name = 2;
+}
+
+// Core service endpoint and transport security (replaces the CORE_* family).
+//
+// CORE_CERT_FILE, CORE_KEY_FILE, CORE_CA_FILE and CORE_CERT_DIR are deliberately absent:
+// they locate certificate material, which SecretManager resolves.
+message CoreConfig {
+  optional string address = 1;
+  optional string api_url = 2;
+  optional SecurityMode security_mode = 3;
+  optional string server_name = 4;
+  optional string trust_domain = 5;
+  optional string server_spiffe_id = 6;
+  optional string workload_socket = 7;
+}
+
+// One environment. Exactly one committed instance per environment identity.
+message EnvironmentConfig {
+  optional EnvironmentKind kind = 1;
+
+  // Required if and only if `kind` is ENVIRONMENT_KIND_ONPREM.
+  optional string instance = 2;
+
+  optional DatabaseConfig database = 3;
+  optional NatsConfig nats = 4;
+  optional CoreConfig core = 5;
+}

@@ -52,7 +52,7 @@ defmodule ServiceRadar.DB.MigrateTest do
         migrations failed: #{inspect(reason)}
 
         Repo config in effect:
-        #{:serviceradar_core |> Application.get_env(Repo) |> Keyword.delete(:password) |> inspect()}
+        #{:serviceradar_core |> Application.get_env(Repo) |> Keyword.drop([:password, :url]) |> inspect()}
         """)
     end
   end

@@ -2,6 +2,7 @@
 mod filters_common;
 
 mod cagg;
+mod cold;
 mod engine;
 mod plan;
 mod sql;
@@ -14,6 +15,7 @@ mod agents;
 mod alerts;
 mod bmp_events;
 mod capacity_forecasts;
+mod composite_results;
 mod cpu_metrics;
 mod dashboard_service_views;
 mod dashboards;

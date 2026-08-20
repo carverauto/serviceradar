@@ -27,6 +27,10 @@ defmodule ServiceRadarWebNG.Devices.ManualDeviceCreator do
     end
   end
 
+  @doc false
+  @spec resolve_hostname(String.t()) :: {:ok, String.t()} | {:error, term()}
+  def resolve_hostname(hostname), do: hostname_resolver().resolve(hostname)
+
   defp prepare_device_data(device_data) do
     device_data =
       device_data
@@ -53,7 +57,7 @@ defmodule ServiceRadarWebNG.Devices.ManualDeviceCreator do
   defp resolve_hostname_ip(%{hostname: nil}), do: {:error, :missing_device_address}
 
   defp resolve_hostname_ip(%{hostname: hostname} = device_data) when is_binary(hostname) do
-    case hostname_resolver().resolve(hostname) do
+    case resolve_hostname(hostname) do
       {:ok, ip} -> %{device_data | ip: ip}
       {:error, reason} -> {:error, {:hostname_resolution_failed, hostname, reason}}
     end

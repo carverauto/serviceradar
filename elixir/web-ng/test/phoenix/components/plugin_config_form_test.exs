@@ -37,9 +37,9 @@ defmodule ServiceRadarWebNGWeb.Components.PluginConfigFormTest do
     schema = %{
       "type" => "object",
       "properties" => %{
-        "password_secret_ref" => %{
+        "webhook_url" => %{
           "type" => "string",
-          "title" => "Password Secret",
+          "title" => "Webhook URL",
           "secretRef" => true
         }
       }
@@ -48,14 +48,49 @@ defmodule ServiceRadarWebNGWeb.Components.PluginConfigFormTest do
     html =
       render_component(&PluginConfigForm.plugin_config_fields/1, %{
         schema: schema,
-        params: %{"password_secret_ref" => "secretref:password_secret_ref:abc123"},
+        params: %{"webhook_url" => "secretref:webhook_url:abc123"},
         base_name: "assignment[params]"
       })
 
-    assert html =~ "Password Secret"
+    assert html =~ "Webhook URL"
     assert html =~ ~s(type="password")
-    assert html =~ "Stored secret ref: secretref:password_secret_ref:abc123"
-    refute html =~ ~s(value="secretref:password_secret_ref:abc123")
+    assert html =~ "Stored secret ref: secretref:webhook_url:abc123"
+    refute html =~ ~s(value="secretref:webhook_url:abc123")
+  end
+
+  test "does not render assignment-owned password or API-key secret refs" do
+    schema = %{
+      "type" => "object",
+      "properties" => %{
+        "password_secret_ref" => %{
+          "type" => "string",
+          "title" => "Password Secret",
+          "secretRef" => true
+        },
+        "api_key_secret_ref" => %{
+          "type" => "string",
+          "title" => "API Key Secret",
+          "secretRef" => true
+        },
+        "timeout_ms" => %{"type" => "integer", "title" => "Timeout"}
+      }
+    }
+
+    html =
+      render_component(&PluginConfigForm.plugin_config_fields/1, %{
+        schema: schema,
+        params: %{
+          "password_secret_ref" => "secretref:password_secret_ref:abc123",
+          "api_key_secret_ref" => "secretref:api_key_secret_ref:def456"
+        },
+        base_name: "assignment[params]"
+      })
+
+    assert html =~ "Timeout"
+    refute html =~ "Password Secret"
+    refute html =~ "API Key Secret"
+    refute html =~ ~s(assignment[params][password_secret_ref])
+    refute html =~ ~s(assignment[params][api_key_secret_ref])
   end
 
   test "does not render internal broker fields" do

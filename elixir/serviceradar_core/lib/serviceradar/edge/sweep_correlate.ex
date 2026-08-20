@@ -74,7 +74,15 @@ defmodule ServiceRadar.Edge.SweepCorrelate do
   @typedoc "Rejections raised before correlation is reached."
   @type payload_failure ::
           {:payload,
-           :missing | :digest_missing | :digest_mismatch | :decode | :not_a_record | :compressed}
+           :missing
+           | :digest_missing
+           | :digest_mismatch
+           | :decode
+           | :not_a_record
+           | :compressed
+           # The FRAMING FAMILY the record declared, when it is not the one this typed ingress
+           # frames. It carries the offending value so a reject audit can name it.
+           | {:framing_family, atom() | integer()}}
 
   @typedoc """
   A shape this relation cannot read. It is a PRECONDITION failure, not a correlation
@@ -215,7 +223,8 @@ defmodule ServiceRadar.Edge.SweepCorrelate do
   """
   @spec correlate_own_payload(term()) :: result()
   def correlate_own_payload(%EdgeRecordV1{} = record) do
-    with :ok <- uncompressed(record),
+    with :ok <- framing_family(record),
+         :ok <- uncompressed(record),
          {:ok, payload} <- payload_bytes(record),
          :ok <- payload_digest(record, payload),
          {:ok, batch} <- decode_batch(payload) do
@@ -253,7 +262,8 @@ defmodule ServiceRadar.Edge.SweepCorrelate do
   """
   @spec ingest_own_payload(term()) :: combined_result() | {:error, {:wire, WireDecode.reason()}}
   def ingest_own_payload(%EdgeRecordV1{} = record) do
-    with :ok <- uncompressed(record),
+    with :ok <- framing_family(record),
+         :ok <- uncompressed(record),
          {:ok, payload} <- payload_bytes(record),
          :ok <- payload_digest(record, payload),
          {:ok, batch} <- validated_body(payload) do
@@ -301,6 +311,41 @@ defmodule ServiceRadar.Edge.SweepCorrelate do
   end
 
   def validate(_record, _batch), do: {:error, {:payload, :not_a_record}}
+
+  # THE FAMILY <-> TYPED ENTRY POINT INVARIANT. `payload_family` is an immutable FRAMING and
+  # LIFECYCLE discriminator: it does not select a contract -- the exact output contract selects
+  # the semantic validator and projector, and there is deliberately no registry-wide
+  # contract-to-family table -- and it is not authorization.
+  #
+  # It is checked HERE, at the typed boundary, because protobuf bytes are not intrinsically
+  # type-tagged: this function decodes the payload as a SweepObservationBatchV1 regardless of
+  # what the record claims, so a record declaring SNAPSHOT_PAGE_V1 would otherwise be ingested
+  # carrying contradictory metadata, and every later reader that picks a decoder from the family
+  # would be choosing from a value nothing validated.
+  #
+  # FIRST in the `with`, before decompression and digest: the record is misrouted whatever its
+  # bytes turn out to be, and checking cheap framing before expensive decoding is also the order
+  # Go uses.
+  defp framing_family(record) do
+    case Map.get(record, :payload_family) do
+      :EDGE_RECORD_PAYLOAD_FAMILY_RECORD_BATCH_V1 ->
+        :ok
+
+      other when is_atom(other) or is_integer(other) ->
+        {:error, {:payload, {:framing_family, other}}}
+
+      # A generated struct is a MAP, so a hand-built one can hold ANY term here -- these
+      # functions accept `term()` and must stay total. That is a shape this relation cannot
+      # read, which is the existing `:malformed_record` PRECONDITION, not a framing verdict.
+      #
+      # Classifying it beats widening the framing tuple to `term()`: the tuple would then
+      # promise less about what it carries, and a caller could no longer rely on it naming an
+      # enum value. A retained unknown enum is an integer and a declared one is an atom, so
+      # those two cases are exactly the reachable ones from real bytes.
+      _ ->
+        {:error, {:precondition, :malformed_record}}
+    end
+  end
 
   # UNCOMPRESSED ONLY, and refused rather than mis-decoded otherwise.
   #

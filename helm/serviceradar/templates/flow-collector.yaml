@@ -10,7 +10,12 @@ metadata:
   name: serviceradar-flow-collector-config
 data:
   flow-collector.json: |
-    {{- toJson .Values.flowCollector.config | nindent 4 }}
+    {{- $readyPath := .Values.flowCollector.readyPath | default "/var/lib/serviceradar/flow-collector.ready" -}}
+    {{- $cfg := deepCopy (default (dict) .Values.flowCollector.config) -}}
+    {{- $rehomePath := index $cfg "rehome_state_path" | default "/var/lib/serviceradar/flow-collector-rehome.json" -}}
+    {{- $_ := set $cfg "ready_state_path" $readyPath -}}
+    {{- $_ := set $cfg "rehome_state_path" $rehomePath -}}
+    {{- toJson $cfg | nindent 4 }}
 ---
 {{- if and $dataEnabled (not $data.existingClaim) }}
 apiVersion: v1
@@ -40,6 +45,10 @@ metadata:
     app.kubernetes.io/component: flow-collector
 spec:
   replicas: {{ .Values.flowCollector.replicaCount | default 1 }}
+  # Recreate: avoid dual-publisher cutover window (legacy + new both live while
+  # subjects rehome events → flows). RollingUpdate is unsafe for subject moves.
+  strategy:
+    type: Recreate
   selector:
     matchLabels:
       app: serviceradar-flow-collector
@@ -57,10 +66,12 @@ spec:
       {{- include "serviceradar.topologySpread" (dict "root" . "app" "serviceradar-flow-collector") | nindent 6 }}
       {{- include "serviceradar.podSecurityContext" . | nindent 6 }}
       serviceAccountName: {{ .Values.spire.flowCollectorServiceAccount | default "serviceradar-flow-collector" }}
+      # Allow publisher retry-queue drain on SIGTERM (see main.rs shutdown_signal).
+      terminationGracePeriodSeconds: {{ .Values.flowCollector.terminationGracePeriodSeconds | default 45 }}
       {{- include "serviceradar.imagePullSecrets" . | nindent 6 }}
       containers:
       - name: flow-collector
-        image: {{ include "serviceradar.imageRef" (dict "Values" .Values "name" "serviceradar-flow-collector" "service" "flowCollector") }}
+        image: {{ include "serviceradar.imageRef" (dict "Values" .Values "Chart" .Chart "name" "serviceradar-flow-collector" "service" "flowCollector") }}
         imagePullPolicy: {{ include "serviceradar.imagePullPolicy" . }}
         {{- include "serviceradar.bindServiceContainerSecurityContext" . | nindent 8 }}
         ports:
@@ -90,6 +101,12 @@ spec:
         env:
         - name: RUST_LOG
           value: "info"
+        - name: FLOW_COLLECTOR_READY_PATH
+          value: {{ .Values.flowCollector.readyPath | default "/var/lib/serviceradar/flow-collector.ready" | quote }}
+        - name: FLOW_COLLECTOR_REHOME_STATE_PATH
+          value: {{ (.Values.flowCollector.config).rehome_state_path | default "/var/lib/serviceradar/flow-collector-rehome.json" | quote }}
+        - name: TERMINATION_GRACE_PERIOD_SECONDS
+          value: {{ .Values.flowCollector.terminationGracePeriodSeconds | default 45 | quote }}
         livenessProbe:
           exec:
             command:
@@ -105,11 +122,11 @@ spec:
             command:
             - /bin/sh
             - -c
-            - "pgrep -f flow-collector > /dev/null"
-          initialDelaySeconds: 10
-          periodSeconds: 10
-          timeoutSeconds: 5
-          failureThreshold: 3
+            - "test -f {{ .Values.flowCollector.readyPath | default "/var/lib/serviceradar/flow-collector.ready" }}"
+          initialDelaySeconds: 5
+          periodSeconds: 5
+          timeoutSeconds: 3
+          failureThreshold: 12
         resources:
           {{- toYaml .Values.flowCollector.resources | nindent 10 }}
         volumeMounts:

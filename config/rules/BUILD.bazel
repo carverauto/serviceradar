@@ -1,0 +1,14 @@
+# gazelle:ignore
+
+load("//config:defs.bzl", "rule_set")
+
+# The committed rule set: validation as data, read by all three implementations.
+# Semantics are normative in //config/SEMANTICS.md.
+
+exports_files(["ruleset.textproto"])
+
+rule_set(
+    name = "ruleset",
+    src = "ruleset.textproto",
+    visibility = ["//visibility:public"],
+)

@@ -28,6 +28,7 @@ defmodule ServiceRadarWebNG.Plugins.AddonFleet do
   alias ServiceRadar.Plugins.AddonRolloutTarget
   alias ServiceRadar.Plugins.AddonStatus
   alias ServiceRadar.Plugins.RetiredNativeAddons
+  alias ServiceRadarWebNG.Plugins.AddonRolloutView
   alias ServiceRadarWebNG.Plugins.AddonRuntimePolicy
 
   require Ash.Query
@@ -93,7 +94,11 @@ defmodule ServiceRadarWebNG.Plugins.AddonFleet do
           category: atom(),
           reason_code: String.t(),
           evidence_age_seconds: non_neg_integer() | nil,
+          rollout_id: String.t() | nil,
           rollout_state: atom() | nil,
+          rollout_candidate_version: String.t() | nil,
+          rollout_previous_version: String.t() | nil,
+          health: map(),
           attention: [atom()],
           attention?: boolean()
         }
@@ -406,15 +411,21 @@ defmodule ServiceRadarWebNG.Plugins.AddonFleet do
 
     attention = if category == :action_required, do: [reason_code], else: []
 
-    base
-    |> Map.put(:version_status, version_status)
-    |> Map.put(:category, category)
-    |> Map.put(:reason_code, reason_code)
-    |> Map.put(:evidence_age_seconds, evidence_age(status, row_context.now))
-    |> Map.put(:rollout_state, rollout && rollout.state)
-    |> Map.put(:update_policy, assignment && assignment.update_policy)
-    |> Map.put(:attention, attention)
-    |> Map.put(:attention?, category == :action_required)
+    row =
+      base
+      |> Map.put(:version_status, version_status)
+      |> Map.put(:category, category)
+      |> Map.put(:reason_code, reason_code)
+      |> Map.put(:evidence_age_seconds, evidence_age(status, row_context.now))
+      |> Map.put(:rollout_id, rollout && rollout.id)
+      |> Map.put(:rollout_state, rollout && rollout.rollout_state)
+      |> Map.put(:rollout_candidate_version, rollout && rollout.candidate_version)
+      |> Map.put(:rollout_previous_version, rollout && rollout.previous_version)
+      |> Map.put(:update_policy, assignment && assignment.update_policy)
+      |> Map.put(:attention, attention)
+      |> Map.put(:attention?, category == :action_required)
+
+    Map.put(row, :health, AddonRolloutView.fleet_health(row))
   end
 
   # The effective assignment for an (agent, add-on) pair. Callers pass enabled
@@ -666,6 +677,7 @@ defmodule ServiceRadarWebNG.Plugins.AddonFleet do
       |> Ash.Query.for_read(:read)
       |> Ash.Query.sort(updated_at: :desc)
       |> Ash.Query.limit(@max_rows)
+      |> Ash.Query.load([:previous_package, :candidate_package])
       |> read(scope)
       |> Map.new(&{&1.id, &1})
 
@@ -687,6 +699,8 @@ defmodule ServiceRadarWebNG.Plugins.AddonFleet do
         classification: target.classification,
         reason_code: (rollout && rollout.blocked_reason) || target.reason_code,
         rollout_state: rollout && rollout.state,
+        candidate_version: rollout && rollout.candidate_package && rollout.candidate_package.version,
+        previous_version: rollout && rollout.previous_package && rollout.previous_package.version,
         updated_at: target.updated_at
       }
 

@@ -25,6 +25,24 @@ defmodule ServiceRadar.Automation.Ansible.AwxTemplateBinding do
   alias ServiceRadar.Policies.Checks.ActorHasPermission
 
   @view_check {ActorHasPermission, permission: "ansible.catalog.view"}
+  @launch_check {ActorHasPermission, permission: "ansible.runs.launch"}
+  @launch_read_fields [
+    :id,
+    :controller_id,
+    :job_template_id,
+    :binding_version,
+    :current,
+    :approval_state,
+    :approval_id,
+    :approval_expires_at,
+    :allowed_inventory_ids,
+    :run_mode_supported,
+    :check_mode_supported,
+    :ask_credential_on_launch,
+    :input_schema,
+    :input_classifications,
+    :callback_actions
+  ]
   @scm_revision ~r/\A(?:[0-9a-f]{40}|[0-9a-f]{64})\z/
   @sha256_hex ~r/\A[0-9a-f]{64}\z/
   @credential_kind ~r/\A[a-z][a-z0-9_.-]{0,63}\z/
@@ -118,6 +136,8 @@ defmodule ServiceRadar.Automation.Ansible.AwxTemplateBinding do
                  job_template_id == ^arg(:job_template_id) and current == true and
                  approval_state == :approved and approval_expires_at > now()
              )
+
+      prepare build(select: @launch_read_fields)
     end
 
     read :versions_for_template do
@@ -209,15 +229,14 @@ defmodule ServiceRadar.Automation.Ansible.AwxTemplateBinding do
     system_bypass()
 
     action_with_permission(
-      [
-        :read,
-        :by_id,
-        :current_for_template,
-        :current_approved_for_template,
-        :versions_for_template
-      ],
+      [:read, :by_id, :current_for_template, :versions_for_template],
       @view_check
     )
+
+    policy action(:current_approved_for_template) do
+      authorize_if @view_check
+      authorize_if @launch_check
+    end
   end
 
   validations do

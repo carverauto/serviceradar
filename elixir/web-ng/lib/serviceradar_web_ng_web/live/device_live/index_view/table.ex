@@ -9,9 +9,14 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexView.Table do
   import ServiceRadarWebNGWeb.DeviceLive.IndexView.Stats, only: [format_stat_number: 1]
   import ServiceRadarWebNGWeb.UIComponents
 
+  alias ServiceRadarWebNGWeb.DeviceLive.IndexPath
+
   def render(assigns) do
     ~H"""
-    <.ui_panel>
+    <.ui_panel
+      class="flex h-full min-h-[28rem] flex-col"
+      body_class="flex min-h-0 flex-1 flex-col"
+    >
       <:header>
         <div class="flex w-full flex-wrap items-center justify-between gap-3">
           <div class="min-w-0">
@@ -32,7 +37,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexView.Table do
         </div>
       </:header>
 
-      <div class="sr-ui-table-shell">
+      <div class="sr-ui-table-shell min-h-0 flex-1 overflow-auto">
         <table class={ui_table_class(size: "sm", zebra: true, class: "w-full")}>
           <thead>
             <tr>
@@ -52,13 +57,16 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexView.Table do
               <th title="ICMP Network Tests">Network</th>
               <th title="Telemetry availability for this device">Metrics</th>
               <th>Risk</th>
+              <th :if={@composite_verdicts_by_device != %{}} title="Composite check verdict">
+                Verdict
+              </th>
               <th>Last Seen</th>
             </tr>
           </thead>
           <tbody>
             <tr :if={@devices == []}>
               <td
-                colspan={10}
+                colspan={if @composite_verdicts_by_device == %{}, do: 10, else: 11}
                 class="py-8 text-center text-sm text-sr-muted"
               >
                 No devices found.
@@ -93,7 +101,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexView.Table do
                     <div class="flex items-center gap-2 min-w-0">
                       <.link
                         :if={is_binary(device_uid)}
-                        navigate={~p"/devices/#{device_uid}"}
+                        navigate={IndexPath.show_path(device_uid, return_to: @devices_return_path)}
                         class="text-sr-brand hover:underline truncate text-sm"
                         title={"UID: #{device_uid}"}
                       >
@@ -155,6 +163,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexView.Table do
                       device_uid={device_uid}
                       has_snmp={has_snmp}
                       has_sysmon={has_sysmon}
+                      return_to={@devices_return_path}
                     />
                     <.sysmon_profile_badge
                       :if={has_sysmon and is_map(Map.get(@sysmon_profiles_by_device, device_uid))}
@@ -164,6 +173,11 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexView.Table do
                 </td>
                 <td class="text-xs">
                   <.risk_level_badge risk_level={Map.get(row, "risk_level")} />
+                </td>
+                <td :if={@composite_verdicts_by_device != %{}} class="text-xs">
+                  <.composite_verdict_cell verdict={
+                    Map.get(@composite_verdicts_by_device, device_uid)
+                  } />
                 </td>
                 <td class="font-mono text-xs">
                   <.srql_cell col="last_seen" value={Map.get(row, "last_seen")} />
@@ -189,4 +203,30 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexView.Table do
     </.ui_panel>
     """
   end
+
+  attr(:verdict, :map, default: nil)
+
+  # A device in the filtered scope with no recorded verdict has not been
+  # evaluated yet. An empty cell would read as "no verdict", which is a
+  # different and wrong claim.
+  defp composite_verdict_cell(assigns) do
+    ~H"""
+    <span :if={is_nil(@verdict)} class="text-sr-muted">not yet evaluated</span>
+
+    <span
+      :if={@verdict}
+      class="inline-flex items-center gap-1.5"
+      data-list-verdict={@verdict.verdict}
+      data-list-status={@verdict.status}
+    >
+      <span class={["size-1.5 rounded-full", verdict_dot_class(@verdict.status)]} />
+      <span class="font-mono">{@verdict.verdict}</span>
+    </span>
+    """
+  end
+
+  defp verdict_dot_class(:healthy), do: "bg-emerald-500"
+  defp verdict_dot_class(:degraded), do: "bg-amber-500"
+  defp verdict_dot_class(:down), do: "bg-rose-500"
+  defp verdict_dot_class(_status), do: "bg-sr-muted"
 end

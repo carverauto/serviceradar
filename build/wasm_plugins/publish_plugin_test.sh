@@ -62,6 +62,69 @@ chmod +x "${tmp_dir}/oras"
 grep -F "registry.test/project/wasm-plugin-test:sha-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" "${oras_log}" >/dev/null
 grep -F "registry.test/project/wasm-plugin-test:v0.1.0" "${oras_log}" >/dev/null
 
+cat >"${tmp_dir}/oras" <<'SH'
+#!/usr/bin/env bash
+printf '%s\n' "$*" >>"${ORAS_LOG}"
+if [[ " $* " == *" registry.test/project/wasm-plugin-test:v0.1.0 "* ]]; then
+  echo "Error response from registry: precondition: configured as immutable." >&2
+  exit 1
+fi
+SH
+chmod +x "${tmp_dir}/oras"
+: >"${oras_log}"
+
+if ! (
+  cd "${tmp_dir}"
+  PATH="${tmp_dir}:${PATH}" \
+    ORAS_LOG="${oras_log}" \
+    OCI_REGISTRY=registry.test \
+    OCI_PROJECT=project \
+    "${script}" \
+      --bundle "${bundle}" \
+      --metadata "${metadata}" \
+      --oras "${tmp_dir}/oras" \
+      --upload-signature-tool "${tmp_dir}/upload_signature_tool" \
+      --commit-sha aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa \
+      --tag v0.1.0
+) >"${tmp_dir}/immutable.out" 2>&1; then
+  echo "publisher failed when the extra Harbor tag was already immutable" >&2
+  cat "${tmp_dir}/immutable.out" >&2
+  exit 1
+fi
+if ! grep -q "already immutable" "${tmp_dir}/immutable.out"; then
+  echo "publisher did not explain an immutable extra Harbor tag" >&2
+  cat "${tmp_dir}/immutable.out" >&2
+  exit 1
+fi
+
+cat >"${tmp_dir}/oras" <<'SH'
+#!/usr/bin/env bash
+printf '%s\n' "$*" >>"${ORAS_LOG}"
+if [[ " $* " == *" registry.test/project/wasm-plugin-test:sha-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa "* ]]; then
+  echo "Error response from registry: precondition: configured as immutable." >&2
+  exit 1
+fi
+SH
+chmod +x "${tmp_dir}/oras"
+
+if (
+  cd "${tmp_dir}"
+  PATH="${tmp_dir}:${PATH}" \
+    ORAS_LOG="${oras_log}" \
+    OCI_REGISTRY=registry.test \
+    OCI_PROJECT=project \
+    "${script}" \
+      --bundle "${bundle}" \
+      --metadata "${metadata}" \
+      --oras "${tmp_dir}/oras" \
+      --upload-signature-tool "${tmp_dir}/upload_signature_tool" \
+      --commit-sha aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa \
+      --tag v0.1.0
+) >/dev/null 2>&1; then
+  echo "publisher treated an immutable commit tag as a recoverable extra tag" >&2
+  exit 1
+fi
+
 if (
   cd "${tmp_dir}"
   PATH="${tmp_dir}:${PATH}" \

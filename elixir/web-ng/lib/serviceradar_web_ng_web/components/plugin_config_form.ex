@@ -28,9 +28,14 @@ defmodule ServiceRadarWebNGWeb.PluginConfigForm do
     {materialized_properties, properties} =
       schema
       |> Map.get("properties", %{})
-      |> Enum.split_with(fn {_name, prop} -> credential_materialized?(prop) end)
+      |> Enum.split_with(fn {name, prop} ->
+        credential_materialized?(prop) and not assignment_secret_property?(name)
+      end)
 
-    properties = Enum.reject(properties, fn {name, prop} -> internal_property?(name, prop) end)
+    properties =
+      Enum.reject(properties, fn {name, prop} ->
+        internal_property?(name, prop) or assignment_secret_property?(name)
+      end)
 
     # Split into the primary fields (shown inline) and advanced fields (collapsed by
     # default). Advanced fields are opt-in extras; a schema with no advanced hints renders
@@ -315,6 +320,20 @@ defmodule ServiceRadarWebNGWeb.PluginConfigForm do
 
   defp internal_property?(_name, _), do: false
 
+  defp assignment_secret_property?(name) when is_binary(name) do
+    name in [
+      "password",
+      "api_key",
+      "cookie",
+      "username",
+      "password_secret_ref",
+      "api_key_secret_ref",
+      "token_secret"
+    ]
+  end
+
+  defp assignment_secret_property?(_name), do: false
+
   defp advanced?(%{} = prop), do: Map.get(prop, "x-serviceradar-ui-advanced") == true
   defp advanced?(_), do: false
 
@@ -416,7 +435,7 @@ defmodule ServiceRadarWebNGWeb.PluginConfigForm do
   defp current_secret_ref(params, name) do
     case Map.get(params, name) do
       value when is_binary(value) ->
-        if String.starts_with?(value, "secretref:"), do: value
+        if SecretRefs.secret_ref?(value), do: value
 
       _ ->
         nil

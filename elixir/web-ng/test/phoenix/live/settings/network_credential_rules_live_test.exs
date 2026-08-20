@@ -49,6 +49,8 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLiveTest do
     assert html =~ "Example Cameras"
     assert html =~ "New Credential"
     assert html =~ "No credential rules found"
+    assert html =~ "VulnCheck"
+    assert html =~ "VulnCheck · API token"
     refute html =~ "Read the Proxmox setup guide"
     refute html =~ "Axis (VAPIX)"
   end
@@ -269,6 +271,46 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLiveTest do
     assert secret.metadata["auth_method"] == "api_token"
     assert secret.metadata["credential_descriptor"] == "package_manifest.v1"
     assert %Ash.NotLoaded{} = secret.secret_payload
+  end
+
+  test "creates a native VulnCheck API token from New Credential", %{conn: conn, scope: scope} do
+    {:ok, lv, html} = live(conn, ~p"/settings/networks/credentials")
+
+    assert html =~
+             ~s(phx-click="new_descriptor_secret")
+
+    assert html =~ ~s(phx-value-provider="vulncheck")
+    assert html =~ ~s(phx-value-method="api_token")
+
+    assert lv
+           |> element(
+             "button[phx-click='new_descriptor_secret'][phx-value-provider='vulncheck'][phx-value-method='api_token']"
+           )
+           |> render_click() =~ "New VulnCheck credential"
+
+    html =
+      lv
+      |> form("form[phx-submit='save_secret']",
+        credential_secret: %{
+          "kind" => "descriptor",
+          "provider" => "vulncheck",
+          "auth_method" => "api_token",
+          "name" => "VulnCheck community",
+          "description" => "",
+          "fields" => %{"api_token" => "vc-sensitive-token"}
+        }
+      )
+      |> render_submit()
+
+    assert html =~ "Credential secret saved"
+    refute html =~ "vc-sensitive-token"
+
+    secret = get_secret_by_name!(scope, "VulnCheck community")
+    assert secret.provider == "vulncheck"
+    assert secret.credential_kind == :api_token
+    assert secret.metadata["auth_method"] == "api_token"
+    assert secret.metadata["plugin_id"] == "vulncheck"
+    assert secret.metadata["plugin_version"] == "native"
   end
 
   test "creates a username/password credential without exposing the password", %{

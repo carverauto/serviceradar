@@ -47,6 +47,84 @@ defmodule ServiceRadar.Integrations.ArmisNorthboundRunnerTest do
              })
   end
 
+  describe "composite_export/1" do
+    defp composite_settings(overrides) do
+      %{
+        settings: %{
+          "composite" =>
+            Map.merge(
+              %{
+                "check_slug" => "pci-isolation",
+                "value_form" => "verdict",
+                "custom_field" => "sr_pci_isolation"
+              },
+              overrides
+            )
+        }
+      }
+    end
+
+    test "is nil when nothing is configured" do
+      assert ArmisNorthboundRunner.composite_export(%{settings: %{}}) == nil
+      assert ArmisNorthboundRunner.composite_export(%{}) == nil
+      assert ArmisNorthboundRunner.composite_export(%{settings: nil}) == nil
+    end
+
+    test "reads the selection from settings" do
+      assert %{
+               check_slug: "pci-isolation",
+               value_form: :verdict,
+               custom_field: "sr_pci_isolation"
+             } = ArmisNorthboundRunner.composite_export(composite_settings(%{}))
+    end
+
+    test "reads the status value form" do
+      assert %{value_form: :status} =
+               ArmisNorthboundRunner.composite_export(
+                 composite_settings(%{"value_form" => "status"})
+               )
+    end
+
+    test "is nil when any of the three values is missing or blank" do
+      # All three are needed to send anything at all, so a half-configured
+      # export must read as "not configured" rather than partially applying.
+      for blank <- ["", "   "] do
+        for key <- ["check_slug", "value_form", "custom_field"] do
+          source = composite_settings(%{key => blank})
+
+          assert ArmisNorthboundRunner.composite_export(source) == nil,
+                 "expected nil when #{key} is #{inspect(blank)}"
+        end
+      end
+
+      assert ArmisNorthboundRunner.composite_export(%{
+               settings: %{"composite" => %{"check_slug" => "pci-isolation"}}
+             }) == nil
+    end
+
+    test "is nil for an unknown value form rather than guessing" do
+      assert ArmisNorthboundRunner.composite_export(
+               composite_settings(%{"value_form" => "whatever"})
+             ) == nil
+    end
+
+    test "trims surrounding whitespace" do
+      assert %{check_slug: "pci-isolation", custom_field: "sr_pci_isolation"} =
+               ArmisNorthboundRunner.composite_export(
+                 composite_settings(%{
+                   "check_slug" => "  pci-isolation  ",
+                   "custom_field" => " sr_pci_isolation ",
+                   "value_form" => " verdict "
+                 })
+               )
+    end
+
+    test "is nil when the composite setting is not a map" do
+      assert ArmisNorthboundRunner.composite_export(%{settings: %{"composite" => "verdict"}}) ==
+               nil
+    end
+  end
+
   test "northbound_ready? allows manual runs even when recurring northbound is disabled" do
     source = %{
       northbound_enabled: false,
@@ -1511,5 +1589,262 @@ defmodule ServiceRadar.Integrations.ArmisNorthboundRunnerTest do
     ]
 
     :gen_tcp.send(socket, response)
+  end
+
+  describe "build_bulk_payload/3 with a composite export" do
+    defp candidate(armis_device_id, device_ids, is_available \\ true) do
+      %{
+        armis_device_id: armis_device_id,
+        is_available: is_available,
+        device_ids: device_ids,
+        sync_service_ids: ["source-1"],
+        metadata: %{}
+      }
+    end
+
+    test "appends a composite entry for a device that has a value" do
+      payload =
+        ArmisNorthboundRunner.build_bulk_payload(
+          "availability",
+          [candidate("1", ["dev-a"])],
+          composite: %{custom_field: "sr_isolation", values: %{"dev-a" => "isolated_verified"}}
+        )
+
+      # One key per entry in the upsert shape, so a second field is a second
+      # entry rather than a second key on the same one.
+      assert payload == [
+               %{"upsert" => %{"deviceId" => 1, "key" => "availability", "value" => "false"}},
+               %{
+                 "upsert" => %{
+                   "deviceId" => 1,
+                   "key" => "sr_isolation",
+                   "value" => "isolated_verified"
+                 }
+               }
+             ]
+    end
+
+    test "a device with no composite value gets no composite entry" do
+      payload =
+        ArmisNorthboundRunner.build_bulk_payload(
+          "availability",
+          [candidate("1", ["dev-a"])],
+          composite: %{custom_field: "sr_isolation", values: %{}}
+        )
+
+      # Not a placeholder, not an empty string — nothing at all.
+      assert payload == [
+               %{"upsert" => %{"deviceId" => 1, "key" => "availability", "value" => "false"}}
+             ]
+    end
+
+    test "only the devices that have values gain an entry" do
+      payload =
+        ArmisNorthboundRunner.build_bulk_payload(
+          "availability",
+          [candidate("1", ["dev-a"]), candidate("2", ["dev-b"])],
+          composite: %{custom_field: "sr_isolation", values: %{"dev-b" => "not_isolated"}}
+        )
+
+      assert [
+               %{"upsert" => %{"deviceId" => 1, "key" => "availability"}},
+               %{"upsert" => %{"deviceId" => 2, "key" => "availability"}},
+               %{
+                 "upsert" => %{
+                   "deviceId" => 2,
+                   "key" => "sr_isolation",
+                   "value" => "not_isolated"
+                 }
+               }
+             ] = payload
+    end
+
+    test "a candidate collapsed from several device ids picks the first uid with a value" do
+      # `collapse_candidates/1` merges rows by armis_device_id, so one Armis
+      # device can carry several ServiceRadar uids. Two entries for one Armis
+      # device would be a last-writer-wins race inside a single batch, so the
+      # choice is made here and pinned rather than left to iteration order.
+      payload =
+        ArmisNorthboundRunner.build_bulk_payload(
+          "availability",
+          [candidate("1", ["dev-a", "dev-b"])],
+          composite: %{
+            custom_field: "sr_isolation",
+            values: %{"dev-a" => "isolated_verified", "dev-b" => "not_isolated"}
+          }
+        )
+
+      assert [
+               _availability,
+               %{"upsert" => %{"key" => "sr_isolation", "value" => "isolated_verified"}}
+             ] = payload
+    end
+
+    test "a collapsed candidate falls through to a later uid when the first has no value" do
+      payload =
+        ArmisNorthboundRunner.build_bulk_payload(
+          "availability",
+          [candidate("1", ["dev-a", "dev-b"])],
+          composite: %{custom_field: "sr_isolation", values: %{"dev-b" => "not_isolated"}}
+        )
+
+      assert [_availability, %{"upsert" => %{"value" => "not_isolated"}}] = payload
+    end
+
+    test "the customProperties fallback carries both keys on one entry" do
+      payload =
+        ArmisNorthboundRunner.build_bulk_payload(
+          "availability",
+          [candidate("armis-1", ["dev-a"], false)],
+          composite: %{custom_field: "sr_isolation", values: %{"dev-a" => "healthy"}}
+        )
+
+      # That shape can hold several keys, so it stays one entry per device.
+      assert payload == [
+               %{
+                 "id" => "armis-1",
+                 "customProperties" => %{"availability" => "true", "sr_isolation" => "healthy"}
+               }
+             ]
+    end
+
+    test "the customProperties fallback omits the key entirely when there is no value" do
+      payload =
+        ArmisNorthboundRunner.build_bulk_payload(
+          "availability",
+          [candidate("armis-1", ["dev-a"], false)],
+          composite: %{custom_field: "sr_isolation", values: %{}}
+        )
+
+      assert payload == [%{"id" => "armis-1", "customProperties" => %{"availability" => "true"}}]
+    end
+
+    test "no composite option leaves the payload exactly as before" do
+      # The existing export must be untouched when nothing is configured.
+      without =
+        ArmisNorthboundRunner.build_bulk_payload("availability", [candidate("1", ["dev-a"])])
+
+      with_empty =
+        ArmisNorthboundRunner.build_bulk_payload("availability", [candidate("1", ["dev-a"])],
+          composite: nil
+        )
+
+      assert without == with_empty
+
+      assert without == [
+               %{"upsert" => %{"deviceId" => 1, "key" => "availability", "value" => "false"}}
+             ]
+    end
+
+    test "a candidate with no device ids gets no composite entry" do
+      payload =
+        ArmisNorthboundRunner.build_bulk_payload(
+          "availability",
+          [candidate("1", [])],
+          composite: %{custom_field: "sr_isolation", values: %{"dev-a" => "isolated_verified"}}
+        )
+
+      assert length(payload) == 1
+    end
+  end
+
+  test "run_for_source records the composite selection in run metadata" do
+    source = %{
+      id: "source-1",
+      northbound_enabled: true,
+      endpoint: "https://armis.example",
+      custom_fields: ["availability"],
+      credentials: %{api_key: "key", api_secret: "secret"},
+      settings: %{
+        "composite" => %{
+          "check_slug" => "pci-isolation",
+          "value_form" => "status",
+          "custom_field" => "sr_isolation"
+        }
+      }
+    }
+
+    parent = self()
+
+    stubs = [
+      actor: %{role: :system},
+      start_run: fn _src, _actor, _opts -> {:ok, %{id: "run-1"}} end,
+      update_source: fn _src, action, attrs, _actor -> {:ok, %{action: action, attrs: attrs}} end,
+      finish_run: fn _run, action, attrs, _actor, _opts ->
+        send(parent, {:finish_run, action, attrs})
+        {:ok, %{action: action, attrs: attrs}}
+      end,
+      record_event: fn attrs, _actor -> {:ok, %{id: "event-1", attrs: attrs}} end,
+      load_candidates: fn _src, _opts -> {:ok, []} end,
+      execute_batches: fn _src, _collapsed, _opts ->
+        {:ok,
+         %{
+           device_count: 0,
+           updated_count: 0,
+           skipped_count: 0,
+           error_count: 0,
+           batch_count: 0,
+           errors: []
+         }}
+      end
+    ]
+
+    assert {:ok, _} = ArmisNorthboundRunner.run_for_source(source, stubs)
+
+    # Recorded on the run rather than read back from the source at display
+    # time: run status has to describe *that* run, and the selection can change
+    # afterwards.
+    assert_received {:finish_run, :finish_success,
+                     %{
+                       metadata: %{
+                         composite_check_slug: "pci-isolation",
+                         composite_value_form: "status",
+                         composite_custom_field: "sr_isolation"
+                       }
+                     }}
+  end
+
+  test "run_for_source records no composite keys when nothing is configured" do
+    source = %{
+      id: "source-1",
+      northbound_enabled: true,
+      endpoint: "https://armis.example",
+      custom_fields: ["availability"],
+      credentials: %{api_key: "key", api_secret: "secret"}
+    }
+
+    parent = self()
+
+    stubs = [
+      actor: %{role: :system},
+      start_run: fn _src, _actor, _opts -> {:ok, %{id: "run-1"}} end,
+      update_source: fn _src, action, attrs, _actor -> {:ok, %{action: action, attrs: attrs}} end,
+      finish_run: fn _run, action, attrs, _actor, _opts ->
+        send(parent, {:finish_run, action, attrs})
+        {:ok, %{action: action, attrs: attrs}}
+      end,
+      record_event: fn attrs, _actor -> {:ok, %{id: "event-1", attrs: attrs}} end,
+      load_candidates: fn _src, _opts -> {:ok, []} end,
+      execute_batches: fn _src, _collapsed, _opts ->
+        {:ok,
+         %{
+           device_count: 0,
+           updated_count: 0,
+           skipped_count: 0,
+           error_count: 0,
+           batch_count: 0,
+           errors: []
+         }}
+      end
+    ]
+
+    assert {:ok, _} = ArmisNorthboundRunner.run_for_source(source, stubs)
+
+    assert_received {:finish_run, :finish_success, %{metadata: metadata}}
+
+    # Omitted entirely rather than stored as nils, which would read like a
+    # lookup that failed.
+    refute Map.has_key?(metadata, :composite_check_slug)
+    refute Map.has_key?(metadata, :composite_value_form)
   end
 end

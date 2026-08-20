@@ -1,4 +1,4 @@
-load("@serviceradar//build:mix_app.bzl", "mix_app")
+load("@rules_elixir//:mix_app.bzl", "mix_app")
 
 package(default_visibility = ["//visibility:public"])
 
@@ -46,9 +46,9 @@ mix_app(
         "//elixir/serviceradar_srql/native/srql_nif:srql_nif": "srql_nif",
     },
     deps = [
-        "@hex_boundary//:erlang_app",
-        "@hex_jason//:erlang_app",
-        "@hex_rustler//:erlang_app",
+        "@hexpm//:boundary",
+        "@hexpm//:jason",
+        "@hexpm//:rustler",
         "@rules_elixir//elixir",
     ],
 )
