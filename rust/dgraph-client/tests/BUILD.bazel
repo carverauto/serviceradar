@@ -1,48 +1,62 @@
 load("@crates//:defs.bzl", "all_crate_deps")
 load("@rules_rs//rs:rust_test.bzl", "rust_test")
-load("@rules_rust//rust:defs.bzl", "rust_test_suite")
 
-# Unit tests living in src/ behind #[cfg(test)]. `crate` must be the full label: a
-# relative ":dgraph_client" would resolve inside this tests package, where no such target
-# exists. Note rust_test(crate = ...) does NOT inherit crate_features; if the library ever
-# gains features, repeat them here.
+# Two targets, split on one axis: whether the test needs a running Dgraph.
+#
+# Both sets live under tests/ because this crate keeps all its tests there -- tests/ mirrors
+# src/, and there is no #[cfg(test)] code in src/ at all, which is why no rust_test(crate =
+# ...) target exists here. Add one if that ever changes, or those tests will not run.
+#
+# That layout is also what makes "integration test" ambiguous: Cargo calls everything under
+# tests/ an integration test, meaning only "compiled as a separate crate", while CI means
+# "needs infrastructure". The names below use the CI meaning, because that is the one that
+# decides whether a target can run.
+#
+# `rust_test`, not `rust_test_suite`, for both: the suite macro generates one test per source
+# file and sets `crate_root` itself, so passing `crate_root` fails the whole package with
+# "multiple values for parameter 'crate_root'". It also mangles the label, turning a
+# single-source target into <name>_<file>_test.
+
+# Pure types, parsing and error mapping. No Dgraph, no Docker, no network, no environment.
+# Untagged, so `make test` runs it everywhere. lib_tests.rs registers every module in the
+# tree, so one binary covers all of it.
 rust_test(
-    name = "dgraph_client_test",
-    crate = "//rust/dgraph-client:dgraph_client",
+    name = "dgraph_client_unit_test",
+    srcs = glob(
+        ["**/*.rs"],
+        exclude = ["dgraph_container_test.rs"],
+    ),
+    crate_root = "lib_tests.rs",
     deps = all_crate_deps(
         package_name = "rust/dgraph-client",
         cargo_only = True,
         normal = True,
         normal_dev = True,
-    ) + ["//proto/dgraph:proto_dgraph_bindings"],
+    ) + [
+        "//proto/dgraph:proto_dgraph_bindings",
+        "//rust/dgraph-client:dgraph_client",
+    ],
 )
 
-# unit tests
-rust_test_suite(
+# Needs a running Dgraph: starts a dgraph/standalone container and drives the real client
+# against it. Every scenario shares that one container and several call drop_all, so they are
+# sequenced inside a single test function -- Bazel runs test functions concurrently and does
+# not honour --test-threads=1. See the module docs in dgraph_container_test.rs.
+#
+#   bazel test --test_env=SERVICERADAR_ENV=localhost --test_tag_filters=integration_test \
+#     //rust/dgraph-client/tests:dgraph_client_integration_test
+rust_test(
     name = "dgraph_client_integration_test",
-    srcs = glob(["**/*.rs"], exclude = ["dgraph_container_test.rs"]),
-    crate_root = "lib_tests.rs",
-    deps = all_crate_deps(
-        package_name = "rust/dgraph-client",
-        cargo_only = True, normal = True, normal_dev = True,
-    ) + ["//proto/dgraph:proto_dgraph_bindings", "//rust/dgraph-client:dgraph_client"],
-)
-
-# These need a running Docker daemon.
-# Everything lives in a single test function because Bazel runs test functions
-# concurrently and does not honour --test-threads=1, so parallel scenarios would race over
-# the one shared container. See the module docs in dgraph_container_test.rs.
-rust_test_suite(
-    name = "dgraph_integration_test",
     srcs = ["dgraph_container_test.rs"],
-    # The test is #[ignore] so `cargo test` stays hermetic. Without this flag Bazel would
-    # honour that attribute too and the target would report success having run nothing.
+    # The Cargo-side half of the same "needs infrastructure" fact the tag states to Bazel: the
+    # test is #[ignore] so `cargo test` stays hermetic. Bazel runs the same binary and would
+    # honour that too, reporting green having run nothing.
     args = ["--include-ignored"],
+    crate_root = "dgraph_container_test.rs",
     tags = [
-        # Selector for the integration stage.
-        # Bazel would select this and all other integation tests via
-        # bazel test --test_env=SERVICERADAR_ENV=localhost --test_tag_filters=integration_test
-       "integration_test",
+        # Excluded by `make test` (Makefile: --test_tag_filters=-integration_test,...), and
+        # selected on its own with --test_tag_filters=integration_test.
+        "integration_test",
     ],
     visibility = ["//visibility:public"],
     deps = all_crate_deps(
@@ -53,7 +67,7 @@ rust_test_suite(
     ) + [
         "//proto/dgraph:proto_dgraph_bindings",
         "//rust/dgraph-client:dgraph_client",
-        # The test suite resolves its endpoint through the auto-config system.
+        # The suite resolves its endpoint through the auto-config system.
         "//config/manager_config/rust:manager",
         "//config/proto_bindings/rust:config_schema",
     ],

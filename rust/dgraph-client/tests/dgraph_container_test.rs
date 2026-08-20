@@ -12,7 +12,7 @@
 //!
 //! ```bash
 //! bazel test --test_env=SERVICERADAR_ENV=localhost --test_tag_filters=integration_test \
-//!   //rust/dgraph-client/tests:dgraph_integration_test
+//!   //rust/dgraph-client/tests:dgraph_client_integration_test
 //!
 //! SERVICERADAR_ENV=localhost cargo test -p dgraph-client --test dgraph_container_test -- --ignored
 //! ```
