@@ -61,6 +61,9 @@ const (
 	capabilityReasonNoEnabledSweepProfile  = "no_enabled_sweep_profile"
 	capabilityReasonNetprobeUnavailable    = "netprobe_unavailable"
 	capabilityReasonRecogCorpusUnavailable = "recog_corpus_unavailable"
+
+	// systemdUnitFailed is systemd's ActiveState=failed and Result=failed value.
+	systemdUnitFailed = "failed"
 )
 
 type capabilityStatusPayload struct {
@@ -733,7 +736,7 @@ func parseSystemdUnitStatusOutputForUnit(unit string, out string) systemdUnitSta
 		return systemdUnitStatus{state: agentaddon.StateStarting, pid: pid}
 	case "deactivating", "reloading":
 		return systemdUnitStatus{state: agentaddon.StateRestarting, pid: pid}
-	case "failed":
+	case systemdUnitFailed:
 		return systemdUnitStatus{
 			state:     agentaddon.StateUnhealthy,
 			pid:       pid,
@@ -746,7 +749,7 @@ func parseSystemdUnitStatusOutputForUnit(unit string, out string) systemdUnitSta
 
 func systemdFailedUnitError(result, execMainStatus string) string {
 	detail := "systemd unit failed"
-	if result != "" && result != "failed" {
+	if result != "" && result != systemdUnitFailed {
 		detail += ": result=" + result
 	}
 	if execMainStatus != "" && execMainStatus != "0" {
