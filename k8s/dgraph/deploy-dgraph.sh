@@ -48,7 +48,13 @@ deploy() {
   fi
   helm repo update "$CHART_REPO_NAME" >/dev/null
 
-  kubectl get namespace "$namespace" >/dev/null 2>&1 || kubectl create namespace "$namespace"
+  # Declared, not created imperatively, where a manifest exists: the namespace carries a Pod
+  # Security level, and `kubectl create namespace` would silently give it the cluster default.
+  if [[ -f "${here}/${env}/namespace.yaml" ]]; then
+    kubectl apply -f "${here}/${env}/namespace.yaml"
+  else
+    kubectl get namespace "$namespace" >/dev/null 2>&1 || kubectl create namespace "$namespace"
+  fi
 
   # demo terminates TLS with a real certificate, so the Certificate has to exist before Alpha
   # starts. Applied first and waited on: an Alpha that starts without node.crt does not fail,

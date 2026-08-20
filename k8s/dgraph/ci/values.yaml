@@ -31,12 +31,20 @@ zero:
 
   persistence:
     enabled: true
-    # The fixture is truncated and reseeded per run; it never accumulates.
     size: 8Gi
+
+  # The chart emits only fsGroup and runAsUser, at pod level (alpha/statefulset.yaml:119-123).
+  # Enough to keep Dgraph off root and let it own its PVC, but it cannot express
+  # allowPrivilegeEscalation, capabilities.drop or seccompProfile -- which is why namespace.yaml
+  # pins this namespace to `baseline` rather than the cluster-default `restricted`.
+  securityContext:
+    enabled: true
+    fsGroup: 1001
+    runAsUser: 1001
 
   resources:
     requests:
-      cpu: 250m
+      cpu: 500m
       memory: 512Mi
     limits:
       cpu: "2"
@@ -48,6 +56,15 @@ alpha:
   persistence:
     enabled: true
     size: 16Gi
+
+  # The chart emits only fsGroup and runAsUser, at pod level (alpha/statefulset.yaml:119-123).
+  # Enough to keep Dgraph off root and let it own its PVC, but it cannot express
+  # allowPrivilegeEscalation, capabilities.drop or seccompProfile -- which is why namespace.yaml
+  # pins this namespace to `baseline` rather than the cluster-default `restricted`.
+  securityContext:
+    enabled: true
+    fsGroup: 1001
+    runAsUser: 1001
 
   # Writes are CPU-bound before they are node-bound (README, "Scaling"), so give the single
   # Alpha real cores rather than adding a second one.
@@ -71,16 +88,66 @@ alpha:
   # client-auth-type stays at the chart default (VERIFYIFGIVEN) on the external port.
   # REQUIREANDVERIFY would lock the client out entirely: it cannot present a client
   # certificate. Internal ports negotiate mTLS between Zero and Alpha regardless.
+  # A BLOCK STRING, not a nested map. The chart renders `toYaml .Values.alpha.configFile`
+  # directly under a ConfigMap's `data:`, where every value must be a string; a map here
+  # fails the install with ".data.config.yaml: expected string, got map".
   configFile:
-    config.yaml:
+    config.yaml: |
       security:
         whitelist: 0.0.0.0/0
 
+  # HTTPS PROBES, because TLS moves the whole of port 8080 to HTTPS: Dgraph logs
+  # "client sent an HTTP request to an HTTPS server" and the pod never goes Ready. The chart's
+  # own probe blocks cannot express `scheme`, so they are switched off and the custom* escape
+  # hatches (rendered verbatim by toYaml) are used instead. Timings are the chart's defaults.
+  #
+  # The kubelet does not verify a probe's certificate, so a privately-issued cert needs no CA
+  # here -- the probe asks whether Dgraph answers, not who it is.
+  #
+  # /health?live=1 answers as soon as the process is alive; plain /health only once the Alpha
+  # can serve. That is the liveness/readiness split, so it is deliberately not the same path.
+  # Readiness also moves off the chart's /probe/graphql: this chart targets v24 and we run
+  # v25.4.0, and /health is the endpoint the v25 docs actually document.
+  livenessProbe:
+    enabled: false
+  readinessProbe:
+    enabled: false
+
+  customLivenessProbe:
+    httpGet:
+      path: /health?live=1
+      port: 8080
+      scheme: HTTPS
+    initialDelaySeconds: 15
+    periodSeconds: 10
+    timeoutSeconds: 5
+    failureThreshold: 6
+    successThreshold: 1
+
+  customReadinessProbe:
+    httpGet:
+      path: /health
+      port: 8080
+      scheme: HTTPS
+    initialDelaySeconds: 15
+    periodSeconds: 10
+    timeoutSeconds: 5
+    failureThreshold: 6
+    successThreshold: 1
+
   # cert-manager's key names, which are not configurable; pointing Dgraph at the paths it
   # actually has avoids a rename job that would need to re-run on every renewal.
+  # NO `internal-port=true` HERE, deliberately. Dgraph refuses to start with it unless
+  # client-cert/client-key are also given -- "Inter-node TLS is always client authenticated"
+  # (x.LoadClientTLSConfigForInternalPort) -- and inter-node TLS would additionally require
+  # Zero to terminate TLS too (the chart supports zero.tls, mounting its own
+  # dgraph-dgraph-zero-tls-secret). That is the right shape for demo, where three Zeros and
+  # three Alphas gossip across nodes. Here it is one Zero and one Alpha in one namespace, and
+  # the external ports still terminate TLS, which is what rust/dgraph-client's VERIFY_CA path
+  # actually exercises. Inter-node plaintext inside a disposable fixture buys nothing.
   extraFlags: >-
     --tls "ca-cert=/dgraph/tls/ca.crt; server-cert=/dgraph/tls/tls.crt;
-    server-key=/dgraph/tls/tls.key; internal-port=true"
+    server-key=/dgraph/tls/tls.key"
 
 ratel:
   enabled: false

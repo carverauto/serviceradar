@@ -31,6 +31,65 @@ zero:
     enabled: true
     size: 32Gi
 
+  # The chart emits only fsGroup and runAsUser, at pod level. Enough to keep Dgraph off root
+  # and let it own its PVC, but it cannot express allowPrivilegeEscalation, capabilities.drop
+  # or seccompProfile -- which is why namespace.yaml pins this namespace to `baseline` rather
+  # than the cluster-default `restricted`.
+  securityContext:
+    enabled: true
+    fsGroup: 1001
+    runAsUser: 1001
+
+  # ZERO TERMINATES TLS TOO, because Alpha runs with internal-port=true and therefore dials
+  # Zero over TLS. A Zero left plaintext turns every Alpha->Zero connection into a handshake
+  # failure, which surfaces as an Alpha that starts and then cannot join its group.
+  tls:
+    enabled: true
+    # Empty for the same reason as Alpha: the chart only templates the secret when this is
+    # non-empty while the StatefulSet mounts it regardless, so cert-manager owns it.
+    files: {}
+
+  # client-cert/client-key are NOT optional alongside internal-port=true: Dgraph refuses to
+  # start without them -- "Inter-node TLS is always client authenticated"
+  # (x.LoadClientTLSConfigForInternalPort). The same certificate serves both roles because
+  # ./certificate.yaml requests `client auth` as well as `server auth`.
+  extraFlags: >-
+    --tls "ca-cert=/dgraph/tls/ca.crt; server-cert=/dgraph/tls/tls.crt;
+    server-key=/dgraph/tls/tls.key; client-cert=/dgraph/tls/tls.crt;
+    client-key=/dgraph/tls/tls.key; internal-port=true"
+
+  # HTTPS PROBES: TLS moves the whole of port 6080 to HTTPS, and Dgraph then answers a plain
+  # HTTP probe with "client sent an HTTP request to an HTTPS server" -- the pod runs but never
+  # goes Ready. The chart's own probe blocks cannot express `scheme`, so they are switched off
+  # and the custom* escape hatches (rendered verbatim by toYaml) carry the same timings.
+  # The kubelet does not verify a probe's certificate, so no CA is needed here.
+  livenessProbe:
+    enabled: false
+  readinessProbe:
+    enabled: false
+
+  customLivenessProbe:
+    httpGet:
+      path: /health
+      port: 6080
+      scheme: HTTPS
+    initialDelaySeconds: 15
+    periodSeconds: 10
+    timeoutSeconds: 5
+    failureThreshold: 6
+    successThreshold: 1
+
+  customReadinessProbe:
+    httpGet:
+      path: /state
+      port: 6080
+      scheme: HTTPS
+    initialDelaySeconds: 15
+    periodSeconds: 10
+    timeoutSeconds: 5
+    failureThreshold: 6
+    successThreshold: 1
+
   # Zero holds membership and tablet metadata, not graph data, so it stays small.
   resources:
     requests:
@@ -50,6 +109,11 @@ alpha:
   persistence:
     enabled: true
     size: 250Gi
+
+  securityContext:
+    enabled: true
+    fsGroup: 1001
+    runAsUser: 1001
 
   # Sized against "Small Production" in the deployment-patterns guide (8 cores / 16GB / 250GB
   # SSD), and biased toward cores on purpose: write throughput scales with cores per node and
@@ -75,8 +139,11 @@ alpha:
     # step and no operator. Filling it in would put the private key in this file and freeze it.
     files: {}
 
+  # A BLOCK STRING, not a nested map. The chart renders `toYaml .Values.alpha.configFile`
+  # directly under a ConfigMap's `data:`, where every value must be a string; a map here fails
+  # the install with ".data.config.yaml: expected string, got map".
   configFile:
-    config.yaml:
+    config.yaml: |
       security:
         # The demo namespace is the trust boundary; the gRPC endpoint is what is exposed.
         whitelist: 10.42.0.0/16,10.43.0.0/16
@@ -84,9 +151,43 @@ alpha:
   # Dgraph looks for ca.crt/node.crt/node.key; cert-manager writes ca.crt/tls.crt/tls.key and
   # its key names are not configurable. Pointing Dgraph at the paths it actually has is what
   # removes the rename -- and with it a copy job that would have to re-run on every renewal.
+  # client-cert/client-key accompany internal-port=true; see the note on zero.extraFlags.
   extraFlags: >-
     --tls "ca-cert=/dgraph/tls/ca.crt; server-cert=/dgraph/tls/tls.crt;
-    server-key=/dgraph/tls/tls.key; internal-port=true"
+    server-key=/dgraph/tls/tls.key; client-cert=/dgraph/tls/tls.crt;
+    client-key=/dgraph/tls/tls.key; internal-port=true"
+
+  # HTTPS probes, for the same reason as Zero: TLS moves all of port 8080 to HTTPS.
+  # /health?live=1 answers as soon as the process is alive; plain /health only once the Alpha
+  # can serve -- that split is the point, so the two paths differ. Readiness also moves off the
+  # chart's /probe/graphql: this chart targets v24 and we run v25.4.0, and /health is what the
+  # v25 docs document.
+  livenessProbe:
+    enabled: false
+  readinessProbe:
+    enabled: false
+
+  customLivenessProbe:
+    httpGet:
+      path: /health?live=1
+      port: 8080
+      scheme: HTTPS
+    initialDelaySeconds: 15
+    periodSeconds: 10
+    timeoutSeconds: 5
+    failureThreshold: 6
+    successThreshold: 1
+
+  customReadinessProbe:
+    httpGet:
+      path: /health
+      port: 8080
+      scheme: HTTPS
+    initialDelaySeconds: 15
+    periodSeconds: 10
+    timeoutSeconds: 5
+    failureThreshold: 6
+    successThreshold: 1
 
 
 ratel:
