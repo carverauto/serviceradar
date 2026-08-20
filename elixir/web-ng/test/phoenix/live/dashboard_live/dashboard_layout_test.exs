@@ -102,11 +102,28 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.DashboardLayoutTest do
   test "dashboard map stays compact and does not grow with observability metrics" do
     css = File.read!(css_path())
 
-    assert css =~ ".sr-ops-grid-primary .sr-ops-map-shell"
+    assert css =~ ".sr-ops-grid-primary > .sr-ops-map-panel > .sr-ops-map-shell"
     assert css =~ "min-height: 11rem"
-    refute css =~ ~r/\.sr-ops-grid-primary \.sr-ops-map-shell[^{]*\{[^}]*min-height:\s*22rem/
+    refute css =~ ~r/\.sr-ops-map-shell[^{]*\{[^}]*min-height:\s*22rem/
     assert css =~ ".sr-ops-observability-split .sr-ops-metric-sparkline-wrap"
     assert css =~ "height: 2.4rem"
+  end
+
+  test "fills the column under the map with the three-card row beside observability" do
+    src = File.read!(index_path("page.ex"))
+    css = File.read!(css_path())
+
+    map_at = :binary.match(src, "MapPanel.render")
+    obs_at = :binary.match(src, "ObservabilityPanel.render")
+    trio_at = :binary.match(src, "sr-ops-grid-trio")
+    secondary_at = :binary.match(src, "sr-ops-grid-secondary")
+
+    assert map_at < obs_at
+    assert obs_at < trio_at
+    assert trio_at < secondary_at
+    assert css =~ "grid-row: 1 / span 2"
+    assert css =~ ".sr-ops-grid-primary > .sr-ops-grid-trio"
+    refute css =~ ~r/\.sr-ops-grid-primary[^{]*\{[^}]*align-items:\s*flex-start/
   end
 
   test "dashboard index markup never pins a column span" do

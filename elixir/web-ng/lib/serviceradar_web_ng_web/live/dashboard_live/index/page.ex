@@ -36,17 +36,16 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Index.Page do
         <section class="sr-ops-grid-primary">
           <MapPanel.render dashboard={assigns} />
           <ObservabilityPanel.render dashboard={assigns} />
+          <section class="sr-ops-grid-trio" aria-label="Asset and threat summary">
+            <VulnerableAssetsPanel.render dashboard={assigns} />
+            <ThreatPanel.render dashboard={assigns} />
+            <VirtualizationPanel.render dashboard={assigns} />
+          </section>
         </section>
 
         <section class="sr-ops-grid-secondary">
           <FieldSurveyPanel.render dashboard={assigns} />
           <CameraPanel.render dashboard={assigns} />
-        </section>
-
-        <section class="sr-ops-grid-trio">
-          <VulnerableAssetsPanel.render dashboard={assigns} />
-          <ThreatPanel.render dashboard={assigns} />
-          <VirtualizationPanel.render dashboard={assigns} />
         </section>
 
         <section class="sr-ops-grid-alerts">
