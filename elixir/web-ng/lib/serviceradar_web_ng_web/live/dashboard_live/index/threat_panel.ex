@@ -22,7 +22,7 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Index.ThreatPanel do
       |> Map.put(:hidden_match_count, hidden_match_count)
 
     ~H"""
-    <Common.panel title="Threat Intel" class="sr-ops-span-full lg:col-span-12">
+    <Common.panel title="Threat Intel" class="lg:col-span-4">
       <:actions>
         <.link href={ThreatIntelLinks.settings_path()} class="sr-ops-button">
           Manage
