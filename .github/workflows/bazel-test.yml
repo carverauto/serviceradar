@@ -53,8 +53,8 @@ jobs:
       - name: Install Bazelisk
         run: ./scripts/install-bazelisk.sh
 
-      # MUST run before the first bazel invocation. `--config=ci` points the executor, cache and
-      # BES at carverauto.buildbuddy.io, and the API key reaches Bazel ONLY through
+      # MUST run before the first bazel invocation. The remote profiles point the executor,
+      # cache and BES at carverauto.buildbuddy.io, and the API key reaches Bazel ONLY through
       # .bazelrc.remote -- which is gitignored, so a fresh checkout does not have it. Without it
       # every remote call dies with `PERMISSION_DENIED: Anonymous access disabled`, and the
       # symptom reads nothing like a missing credential: the build reports targets that "FAILED
@@ -93,9 +93,15 @@ jobs:
 
           mapfile -t bazel_targets <<<"${target_list}"
 
+          # --config=remote, NOT --config=ci. Both drive the same remote_base RBE graph; they
+          # differ only in the CLIENT cache paths. `ci` pins /bazel-cache, which is the volume
+          # //k8s/buildbuddy bind-mounts into BUILDBUDDY's workflow runners -- it is not mounted
+          # on arc-runner-set, so it dies with `Permission denied` / `could not acquire lock on
+          # repo contents cache` after loading the whole graph. release.yml hit the same wall on
+          # serviceradar-signing and resolved it the same way. `remote` uses $HOME cache paths.
           bazel test \
             -c opt \
-            --config=ci \
+            --config=remote \
             --test_tag_filters=-manual \
             "${bazel_targets[@]}"
 
