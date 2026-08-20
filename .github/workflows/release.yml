@@ -112,8 +112,11 @@ jobs:
       # (Wasm plugin upload-signing secrets moved to wasm-plugins.yml, which now owns
       # publishing the plugins on `v*` tags.)
       BAZELISK_HOME: ${{ github.workspace }}/.cache/bazelisk
-      # This job now shares its configuration with every CI build, so it reuses that cache.
-      BAZEL_BUILD_FLAGS: -c opt --config=ci --remote_download_outputs=all
+      # serviceradar-signing does not mount /bazel-cache (that path is the ARC
+      # workflow-runner volume). --config=ci therefore dies with Permission
+      # denied on the repo-contents cache. --config=remote is the same
+      # remote_base RBE graph with $HOME caches.
+      BAZEL_BUILD_FLAGS: -c opt --config=remote --remote_download_outputs=all
     steps:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # actions/checkout@v6.0.2
@@ -177,7 +180,7 @@ jobs:
           set -euo pipefail
 
           if [ -z "${BUILDBUDDY_ORG_API_KEY:-}" ]; then
-            echo "BUILDBUDDY_ORG_API_KEY is unavailable; --config=ci cannot authenticate." >&2
+            echo "BUILDBUDDY_ORG_API_KEY is unavailable; --config=remote cannot authenticate." >&2
             exit 1
           fi
 
@@ -359,11 +362,9 @@ jobs:
           chmod +x ./buildbuddy_setup_docker_auth.sh
           ./buildbuddy_setup_docker_auth.sh
 
-      # Was `--config=remote -c opt`. That is a different profile from the --config=ci used by
-      # every other bazel call here, so this step analyzed and built the agent in its own
-      # configuration and shared nothing with the push graph that rebuilds the same binary
-      # moments later. The script appends --stamp and --remote_download_outputs=all itself; the
-      # duplicates are harmless (same values) and keeping one flag source is worth more.
+      # Flags come from BAZEL_BUILD_FLAGS so this stamp check and //:push share one
+      # configuration. The script appends --stamp and --remote_download_outputs=all itself;
+      # the duplicates are harmless (same values).
       - name: Verify managed agent release key stamp
         run: |
           set -euo pipefail
