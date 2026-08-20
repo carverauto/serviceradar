@@ -27,21 +27,18 @@ The `site_code` filter is gone. The operator asked for one site and got a
 fleet-wide average, with nothing anywhere indicating the difference. A silent
 wrong number is worse than an error, because it is plausible and gets acted on.
 
-**This is not limited to unsupported fields.** In CAGG mode the same function
-keeps only `device_id`, `metric_type`, and `metric_name`, so a perfectly valid,
-whitelisted `gateway_id` filter is discarded too:
+**This is not limited to tag keys.** The catch-all swallows any unrecognised
+field, so a plain typo silently widens the query:
 
 ```
-in:timeseries_metrics gateway_id:g1 stats:avg(value) as v by device_id
-
-  time:last_1h   -> raw path,  gateway_id applied     -> that gateway
-  time:last_24h  -> CAGG path, gateway_id DISCARDED   -> the whole fleet
+in:timeseries_metrics nonsense_field:x stats:avg(value) as v by device_id
+  -> succeeds, aggregating every metric in the window
 ```
 
-CAGG routing is automatic at `CAGG_ROUTING_THRESHOLD_HOURS = 6`, so the only
-thing the operator changed was the time range on a dashboard panel. The same
-query means two different things either side of a six-hour boundary, and the
-wider window is the one that silently lies.
+Both were confirmed end-to-end through `translate_request`, not by reading the
+match arm. The same filter **without** `stats:` correctly errors with
+`unsupported filter field for timeseries_metrics`, so the two paths disagree on
+identical input — which is what makes this easy to hit and hard to notice.
 
 ### 2. `timeseries_metrics` has no tag dimensions (the feature gap)
 
@@ -64,10 +61,14 @@ The `devices` entity **already solves exactly this** — it supports both
 1. **Unrecognised filter fields in the stats path become an error**, matching
    the non-stats path. This is a behaviour change for any caller currently
    relying on a filter being ignored — see the migration note below.
-2. **A filter that cannot be expressed against the hourly CAGG disqualifies
-   CAGG routing** rather than being dropped. The query falls back to the raw
-   table and stays correct; it does not silently change meaning with the time
-   range.
+2. **The CAGG branch of the same function errors instead of dropping.** Note
+   this one is defence in depth, not a live bug: `should_route_stats_to_cagg`
+   already refuses to route a query whose filters the aggregate cannot express,
+   so the drop is unreachable through the normal path today. An earlier draft
+   of this proposal claimed it was reachable; that was wrong — the probe behind
+   the claim called `build_cagg_stats_query` directly and bypassed the routing
+   guard. The change is still worth making so the invariant fails loudly if
+   routing and filtering ever drift apart, but it fixes no user-visible bug.
 3. **`tags.<key>` filtering on `timeseries_metrics`**, in both the raw and
    stats paths, with the same operators the `devices` entity supports.
 4. **`tags.<key>` grouping** in `stats:... by tags.<key>`.

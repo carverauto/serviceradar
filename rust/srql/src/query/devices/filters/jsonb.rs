@@ -19,15 +19,9 @@ pub(in crate::query::devices) fn parse_bool(raw: &str) -> Result<bool> {
     }
 }
 
-/// Validates that a JSONB key is safe to use in a query.
-/// Only allows alphanumeric characters, underscores, and hyphens.
-pub(in crate::query::devices) fn is_valid_jsonb_key(key: &str) -> bool {
-    !key.is_empty()
-        && key.len() <= 64
-        && key
-            .chars()
-            .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-')
-}
+/// Re-exported from the shared filter helpers so `devices` and
+/// `timeseries_metrics` validate JSONB keys identically.
+pub(in crate::query::devices) use crate::query::filters_common::is_valid_jsonb_key;
 
 /// Applies a text filter to a JSONB field path using the ->> operator.
 /// Supports equality, inequality, LIKE, and list membership.

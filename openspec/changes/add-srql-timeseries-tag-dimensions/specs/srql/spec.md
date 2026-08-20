@@ -96,25 +96,24 @@ A `timeseries_metrics` stats query SHALL NOT be routed to the hourly continuous
 aggregate when any of its filters cannot be expressed against that aggregate.
 Such a query SHALL fall back to the raw hypertable and apply every filter.
 
-Hourly CAGG routing is automatic once the time range reaches
-`CAGG_ROUTING_THRESHOLD_HOURS`, and the CAGG filter builder previously kept only
-`device_id`, `metric_type`, and `metric_name`. A valid `gateway_id` filter was
-therefore applied at `time:last_1h` and discarded at `time:last_24h` — the same
-query silently meaning two different things either side of a six-hour boundary,
-with the wider window returning fleet-wide numbers.
+This invariant is already upheld by the routing check. What changes is that the
+CAGG filter builder SHALL now return an error for a field it cannot apply,
+instead of silently omitting the predicate, so that the invariant fails loudly
+rather than silently widening a result if routing and filtering ever drift out
+of agreement.
 
 #### Scenario: A filter the CAGG cannot express disables CAGG routing
-- **GIVEN** a query whose time range would otherwise route to the hourly CAGG
-- **WHEN** it filters on `gateway_id`, which the CAGG projection does not carry
+- **GIVEN** a stats query whose time range would otherwise route to the hourly CAGG
+- **WHEN** it filters on `gateway_id`, which the aggregate does not carry
 - **THEN** SRQL queries the raw hypertable instead
 - **AND** the generated SQL contains the `gateway_id` predicate
-
-#### Scenario: Results do not change meaning across the routing threshold
-- **GIVEN** the same filtered stats query is run at `time:last_1h` and `time:last_24h`
-- **THEN** both apply the identical set of filters
-- **AND** neither silently aggregates over rows the filter excludes
 
 #### Scenario: CAGG routing still applies when every filter is expressible
 - **GIVEN** a stats query filtering only on `device_id` and `metric_name`
 - **WHEN** its time range reaches the routing threshold
 - **THEN** SRQL still routes to the hourly CAGG
+
+#### Scenario: The CAGG filter builder refuses a field it cannot apply
+- **GIVEN** the CAGG stats builder is reached with a filter outside its projection
+- **THEN** it SHALL return an error naming the field
+- **AND** it SHALL NOT emit SQL that omits the predicate
