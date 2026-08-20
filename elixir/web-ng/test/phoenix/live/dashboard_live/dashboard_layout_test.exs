@@ -23,10 +23,11 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.DashboardLayoutTest do
     events_at = :binary.match(html, "Events Over Time")
     metrics_at = :binary.match(html, "Metrics")
 
-    assert html =~ "Observability"
+    assert html =~ "Events Over Time"
     assert html =~ "24h"
     assert html =~ "sr-ops-observability-split"
     assert html =~ "sr-ops-observability-panel"
+    refute html =~ ">Observability</h2>"
     refute html =~ "sr-ops-span-full"
     refute html =~ "lg:col-span-12"
     assert html =~ "No event trend data"
@@ -99,31 +100,30 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.DashboardLayoutTest do
     refute css =~ "lg:col-span-6"
   end
 
-  test "dashboard map stays compact and does not grow with observability metrics" do
+  test "map sits beside events and stretches with the events card" do
     css = File.read!(css_path())
 
-    assert css =~ ".sr-ops-grid-primary > .sr-ops-map-panel > .sr-ops-map-shell"
-    assert css =~ "min-height: 11rem"
-    refute css =~ ~r/\.sr-ops-map-shell[^{]*\{[^}]*min-height:\s*22rem/
+    assert css =~ ".sr-ops-grid-primary .sr-ops-map-shell"
+    assert css =~ "min-height: 22rem"
+    refute css =~ "min-height: 11rem"
     assert css =~ ".sr-ops-observability-split .sr-ops-metric-sparkline-wrap"
     assert css =~ "height: 2.4rem"
   end
 
-  test "fills the column under the map with the three-card row beside observability" do
+  test "keeps fieldsurvey, camera, and the three-card row out from under the map" do
     src = File.read!(index_path("page.ex"))
     css = File.read!(css_path())
 
     map_at = :binary.match(src, "MapPanel.render")
     obs_at = :binary.match(src, "ObservabilityPanel.render")
-    trio_at = :binary.match(src, "sr-ops-grid-trio")
     secondary_at = :binary.match(src, "sr-ops-grid-secondary")
+    trio_at = :binary.match(src, "sr-ops-grid-trio")
 
     assert map_at < obs_at
-    assert obs_at < trio_at
-    assert trio_at < secondary_at
-    assert css =~ "grid-row: 1 / span 2"
-    assert css =~ ".sr-ops-grid-primary > .sr-ops-grid-trio"
-    refute css =~ ~r/\.sr-ops-grid-primary[^{]*\{[^}]*align-items:\s*flex-start/
+    assert obs_at < secondary_at
+    assert secondary_at < trio_at
+    refute css =~ ".sr-ops-grid-primary > .sr-ops-grid-trio"
+    refute css =~ "grid-row: 1 / span 2"
   end
 
   test "dashboard index markup never pins a column span" do

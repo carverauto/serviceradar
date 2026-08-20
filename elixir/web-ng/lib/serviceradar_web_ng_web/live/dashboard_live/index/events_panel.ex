@@ -25,13 +25,11 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Index.EventsPanel do
       <.events_body security_trend={@security_trend} security_trend_max={@security_trend_max} />
     </Common.panel>
 
-    <div :if={@embedded}>
-      <div class="sr-ops-observability-pane-header">
-        <h3>Events Over Time</h3>
-        <span class="sr-ops-select">{@time_window_label}</span>
-      </div>
-      <.events_body security_trend={@security_trend} security_trend_max={@security_trend_max} />
-    </div>
+    <.events_body
+      :if={@embedded}
+      security_trend={@security_trend}
+      security_trend_max={@security_trend_max}
+    />
     """
   end
 
