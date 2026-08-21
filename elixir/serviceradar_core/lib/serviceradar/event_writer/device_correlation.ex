@@ -15,6 +15,7 @@ defmodule ServiceRadar.EventWriter.DeviceCorrelation do
   alias ServiceRadar.Identity.DeviceLookup
   alias ServiceRadar.Infrastructure.Agent
   alias ServiceRadar.Inventory.Device
+  alias ServiceRadar.Inventory.Identity.Resolver
   alias ServiceRadar.Repo
 
   require Ash.Query
@@ -221,8 +222,22 @@ defmodule ServiceRadar.EventWriter.DeviceCorrelation do
       nil ->
         nil
 
+      # A ServiceRadar uid used to be returned verbatim here, with no lookup at
+      # all. Since every canonical uid is `sr:<uuid>`, that made this -- the one
+      # place whose job is re-resolving identity before a write -- a no-op in
+      # production: a producer holding a pre-merge uid wrote against the dead
+      # identity and nothing noticed.
+      #
+      # follow_canonical_device_id/2 rather than an existence check. An existence
+      # check answers nil for a tombstoned device, and the correlation chain below
+      # can only rescue candidates that also carry an agent id or an IP -- one
+      # anchored solely on the uid would resolve to nothing. Following the merge
+      # chain returns the survivor instead, which is the answer the caller wanted.
+      #
+      # Cheap on the common path: the follow returns its input unchanged unless
+      # the row is actually tombstoned, and DeviceCorrelationCache fronts this.
       "sr:" <> _ = uid ->
-        uid
+        bounded_lookup(fn -> Resolver.follow_canonical_device_id(uid, actor) end) || uid
 
       uid ->
         case bounded_lookup(fn -> Device.get_by_uid(uid, false, actor: actor) end) do
