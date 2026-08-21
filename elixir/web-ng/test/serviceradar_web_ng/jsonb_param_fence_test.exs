@@ -159,8 +159,7 @@ defmodule ServiceRadarWebNG.JsonbParamFenceTest do
 
   defp resolve_sql(sql, _attrs) when is_binary(sql), do: sql
 
-  defp resolve_sql({:@, _, [{name, _, ctx}]}, attrs) when is_atom(name) and is_atom(ctx),
-    do: Map.get(attrs, name)
+  defp resolve_sql({:@, _, [{name, _, ctx}]}, attrs) when is_atom(name) and is_atom(ctx), do: Map.get(attrs, name)
 
   defp resolve_sql(_, _), do: nil
 
