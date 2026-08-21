@@ -68,7 +68,11 @@ defmodule ServiceRadarWebNG.FieldSurveySessionMetadata do
   def for_sessions(_scope, _session_ids), do: {:ok, %{}}
 
   defp do_upsert(session_id, user_id, attrs) do
-    metadata_json = Jason.encode!(Map.get(attrs, :metadata, %{}))
+    # Kept as a map on purpose. `$11::jsonb` makes Postgres type the parameter
+    # as jsonb, so Postgrex encodes it; pre-encoding here would store a jsonb
+    # string scalar, and the `metadata || EXCLUDED.metadata` merge below would
+    # then turn the column into an ARRAY instead of merging objects.
+    metadata = Map.get(attrs, :metadata, %{})
 
     """
     INSERT INTO platform.survey_session_metadata (
@@ -113,7 +117,7 @@ defmodule ServiceRadarWebNG.FieldSurveySessionMetadata do
       Map.get(attrs, :floor_name),
       Map.get(attrs, :floor_index),
       Map.get(attrs, :tags, []),
-      metadata_json
+      metadata
     ])
     |> case do
       {:ok, %{rows: [row | _]}} -> {:ok, elem(row_to_metadata(row), 1)}

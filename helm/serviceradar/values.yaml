@@ -611,7 +611,7 @@ core:
     #
     # Set to "" to fall back to the old existence-only check (for operators
     # running the chart against a deliberately pinned schema).
-    expectedVersion: "20260821120000"
+    expectedVersion: "20260821180000"
   # Stale device reaper settings - controls cleanup of IP-only "ghost" devices
   reaper:
     # How often to run the reaper job
@@ -858,6 +858,22 @@ cnpg:
   # using PostgreSQL units (e.g. "250GB"), not Kubernetes resource units. Use
   # an explicit size when the real volume is larger than the declared storageSize.
   maxSlotWalKeepSize: ""
+  # WAL sizing. pg_wal shares the data PVC (this chart declares no CNPG walStorage),
+  # so both auto-derive from storageSize and are bounded relative to the volume:
+  #   max_wal_size = 7% of storageSize, clamped to [1GB, 8GB]
+  #   min_wal_size = max_wal_size / 8, clamped to [256MB, 1024MB]
+  # PostgreSQL forces a checkpoint every max_wal_size/(2 + checkpoint_completion_target),
+  # so the 1GB default fires one every 353MB -- roughly every 14 seconds at this
+  # product's baseline ingest, and every 10 seconds under heavy write load, which parks
+  # every backend on LWLock:WALWrite. The 1GB floor is deliberate: an install of ~28Gi
+  # or less keeps PostgreSQL's own default and spends no additional WAL disk.
+  #
+  # Raising max_wal_size costs roughly 2x that value in worst-case volume use, on top of
+  # maxSlotWalKeepSize. Set these with PostgreSQL units (e.g. "8GB", "1024MB"), not
+  # Kubernetes resource units. Because these derive from storageSize, storageSize MUST
+  # track the real provisioned volume.
+  maxWalSize: ""
+  minWalSize: ""
   # Optional full CNPG image reference. When blank, image.registry is used with
   # the default ServiceRadar CNPG tag.
   imageName: ""
@@ -883,8 +899,29 @@ cnpg:
     shared_buffers: "1GB"
     work_mem: "16MB"
     log_min_duration_statement: "500ms"
+    # Bind parameters are NOT logged with the slow statement above. Postgres truncates
+    # this PER PARAMETER with no per-statement cap, so a positive value does not bound
+    # the log: a 1000-row x 10-column bulk insert at 1kB each still emits ~10MB for one
+    # statement. A 2000-row insert on this product logged ~742KB of parameters per
+    # statement. The normalised query text and timings come from pg_stat_statements,
+    # which is enabled below.
+    log_parameter_max_length: "0"
     log_lock_waits: "on"
     deadlock_timeout: "1s"
+    # Checkpoint pacing. max_wal_size / min_wal_size are NOT set here -- they derive from
+    # storageSize (see cnpg.maxWalSize above). Setting either key here overrides the
+    # derivation for every install size, so prefer cnpg.maxWalSize.
+    checkpoint_timeout: "15min"
+    # Already the PostgreSQL 14+ default; pinned so a future upstream change cannot move
+    # it, and to match the compose stack. Note it sits in the DENOMINATOR of the
+    # checkpoint trigger, so raising it fires checkpoints sooner by volume, not later.
+    checkpoint_completion_target: "0.9"
+    # Compresses full-page images, which dominate WAL right after each checkpoint.
+    # Deliberately "on" (pglz) rather than lz4/zstd: those enum values exist only under a
+    # compile-time flag, and an unsupported value is merely logged on reload but is FATAL
+    # at postmaster start -- it would leave clusters running after upgrade and unable to
+    # restart. This is the first thing to turn off if a deployment regresses on CPU.
+    wal_compression: "on"
     pg_stat_statements.max: "10000"
     pg_stat_statements.track: "all"
     pg_stat_statements.track_planning: "on"
@@ -1806,6 +1843,10 @@ spire:
     instances: 3
     storageClass: local-path
     storageSize: 100Gi
+    # Same WAL budget as cnpg.* above; all three derive from storageSize when blank.
+    maxSlotWalKeepSize: ""
+    maxWalSize: ""
+    minWalSize: ""
     secretName: spire-db-credentials
     username: spire
     password: ""
@@ -1821,8 +1862,15 @@ spire:
       - pg_stat_statements
     postgresqlParameters:
       log_min_duration_statement: "500ms"
+      # See cnpg.postgresqlParameters.log_parameter_max_length -- must be 0, since the
+      # truncation is per parameter and does not bound a bulk insert.
+      log_parameter_max_length: "0"
       log_lock_waits: "on"
       deadlock_timeout: "1s"
+      # max_wal_size / min_wal_size derive from storageSize; see spire.postgres.maxWalSize.
+      checkpoint_timeout: "15min"
+      checkpoint_completion_target: "0.9"
+      wal_compression: "on"
       pg_stat_statements.max: "10000"
       pg_stat_statements.track: "all"
       pg_stat_statements.track_planning: "on"

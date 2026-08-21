@@ -354,6 +354,76 @@ networkPolicy:
     order: 1000
 ```
 
+## CNPG WAL and Checkpoint Tuning
+
+PostgreSQL forces a checkpoint every `max_wal_size / (2 + checkpoint_completion_target)`.
+At PostgreSQL's stock `max_wal_size=1GB` that is 353 MB of WAL, which on a busy
+ServiceRadar deployment meant a checkpoint roughly every 14 seconds -- and under heavy
+ingest every 10 seconds, with every database backend blocked on `LWLock:WALWrite`. The
+chart therefore sizes the WAL budget instead of inheriting the defaults.
+
+`pg_wal` shares the CNPG data volume (the chart declares no separate `walStorage`), so
+three parameters derive from `cnpg.storageSize` and are bounded relative to it:
+
+| `cnpg.storageSize` | `max_wal_size` | `min_wal_size` | `max_slot_wal_keep_size` |
+|---|---|---|---|
+| 10Gi | 1GB | 256MB | 5GB |
+| 20Gi | 1GB | 256MB | 10GB |
+| 30Gi | 2GB | 256MB | 10GB |
+| 50Gi | 3GB | 384MB | 15GB |
+| 100Gi (default) | 7GB | 896MB | 30GB |
+| 200Gi | 8GB | 1024MB | 60GB |
+| 1Ti | 8GB | 1024MB | 307GB |
+
+`max_wal_size` is 7% of the volume clamped to `[1GB, 8GB]`; `min_wal_size` is an eighth
+of that clamped to `[256MB, 1024MB]`; `max_slot_wal_keep_size` stays at its established
+~30% policy, floored at 10GB but never more than half the volume.
+
+The 1GB floor on `max_wal_size` is deliberate: an install of roughly 28Gi or less keeps
+PostgreSQL's own default and spends no extra WAL disk. Such deployments get no checkpoint
+relief -- you cannot spend disk you do not have -- and should raise `cnpg.maxWalSize`
+explicitly if their volume can afford it.
+
+Because these derive from `cnpg.storageSize`, **that value must track the real
+provisioned volume.** A `storageSize` that has drifted below the actual disk under-sizes
+three parameters rather than one.
+
+### Overrides
+
+Each has an escape hatch, and setting the PostgreSQL parameter directly always wins:
+
+```yaml
+cnpg:
+  maxWalSize: ""            # e.g. "16GB"
+  minWalSize: ""            # e.g. "2048MB"
+  maxSlotWalKeepSize: ""    # e.g. "250GB"
+  postgresqlParameters:
+    max_wal_size: "16GB"    # takes precedence over cnpg.maxWalSize
+```
+
+Use PostgreSQL units (`GB`, `MB`), not Kubernetes resource units (`Gi`, `Mi`).
+
+The same keys exist under `spire.postgres.*`, which hosts the application database when
+`spire.postgres.enabled` is true.
+
+### Cost and rollout
+
+Worst-case `pg_wal` use is roughly `2 x max_wal_size` plus the slot cap. On the 100Gi
+default that moves from about 32GB to about 44GB of the volume, so check free space on
+the data volume before upgrading an install already near its high-water mark.
+
+All of these parameters, plus `checkpoint_timeout`, `checkpoint_completion_target`,
+`wal_compression` and `log_parameter_max_length`, apply by SIGHUP reload. Changing them
+does **not** restart any CNPG pod and does not trigger a switchover.
+
+Note that this budget does not bound WAL end-to-end: when `cnpg.backup.enabled` is true,
+WAL awaiting archival is held by neither `max_wal_size` nor `max_slot_wal_keep_size`, so
+a failing object-store archive can still fill the volume.
+
+After a rollout, confirm convergence with `pg_stat_checkpointer`: `num_timed` should rise
+and `num_requested` should fall toward zero. `num_requested` dominating means checkpoints
+are still being forced by WAL volume rather than by the timer.
+
 ## CNPG PgBouncer Pooler
 
 Kubernetes installs can enable a CNPG-managed PgBouncer pooler through the Helm
