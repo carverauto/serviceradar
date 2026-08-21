@@ -237,7 +237,7 @@ defmodule ServiceRadar.Inventory.Identity.MergeEngine do
     |> Ash.transact(fn ->
       with {:ok, %Device{} = from_device} <-
              Device.get_by_uid(from_device_id, false, actor: actor),
-           {:ok, %Device{}} <- Device.get_by_uid(to_device_id, false, actor: actor),
+           {:ok, %Device{} = to_device} <- Device.get_by_uid(to_device_id, false, actor: actor),
            :ok <- Reassignments.reassign_device_identifiers(from_device_id, to_device_id, actor),
            :ok <-
              Reassignments.reassign_source_observations(from_device_id, to_device_id, actor),
@@ -265,7 +265,20 @@ defmodule ServiceRadar.Inventory.Identity.MergeEngine do
                },
                actor: actor
              ),
-           {:ok, _} <- tombstone_merged_device(from_device, actor) do
+           {:ok, _} <- tombstone_merged_device(from_device, actor),
+           # The survivor's identity composition changed: it now owns the
+           # merged-away device's identifiers. Once here, not per reassigned
+           # record -- the reassignments above are bulk updates, and a
+           # per-identifier bump would be N writes describing one transition.
+           #
+           # Last in the chain so the exclusive lock on a live, hot device row is
+           # held for as little of the merge as possible. Ordering is otherwise
+           # immaterial: this is all one Ash.transact, so no reader outside the
+           # transaction can observe an intermediate state.
+           #
+           # The source needs no bump here -- tombstone_merged_device/2 goes
+           # through :soft_delete, which carries one.
+           {:ok, _} <- Device.bump_identity_revision(to_device, actor: actor) do
         :ok
       end
     end)
@@ -377,7 +390,17 @@ defmodule ServiceRadar.Inventory.Identity.MergeEngine do
                  }
                },
                actor: actor
-             ) do
+             ),
+           # The to-device just gave identifiers back, so its identity
+           # composition changed too. The from-device needs no bump here:
+           # recreate_device/3 restores it through :restore, which carries one.
+           #
+           # Read inside the transaction rather than reusing an earlier struct --
+           # reassign_original_identifiers/4 has already run, and the increment is
+           # a database expression, so a stale struct would still be correct but a
+           # missing row must fail the unmerge rather than silently skip a bump.
+           {:ok, %Device{} = to_device} <- Device.get_by_uid(to_device_id, false, actor: actor),
+           {:ok, _} <- Device.bump_identity_revision(to_device, actor: actor) do
         Logger.info(
           "Unmerged device #{from_device_id} from #{to_device_id} " <>
             "(original merge: #{audit.event_id})"

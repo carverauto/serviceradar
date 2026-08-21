@@ -34,6 +34,7 @@ defmodule ServiceRadar.Inventory.Device do
     extensions: [AshJsonApi.Resource],
     primary_read_warning?: false
 
+  alias ServiceRadar.Inventory.Changes.BumpIdentityRevision
   alias ServiceRadar.Inventory.IdentityReconciler
   alias ServiceRadar.Policies.Checks.ActorHasPermission
 
@@ -298,7 +299,7 @@ defmodule ServiceRadar.Inventory.Device do
       accept []
       require_atomic? true
 
-      change ServiceRadar.Inventory.Changes.BumpIdentityRevision
+      change BumpIdentityRevision
     end
 
     update :set_availability do
@@ -331,6 +332,11 @@ defmodule ServiceRadar.Inventory.Device do
 
       change set_attribute(:deleted_at, &DateTime.utc_now/0)
       change set_attribute(:modified_time, &DateTime.utc_now/0)
+
+      # A soft delete is an identity transition: the uid stops naming a live
+      # thing. This is also what covers the merge source, since
+      # MergeEngine.tombstone_merged_device/2 tombstones through this action.
+      change BumpIdentityRevision
     end
 
     update :restore do
@@ -338,6 +344,11 @@ defmodule ServiceRadar.Inventory.Device do
       change set_attribute(:deleted_by, nil)
       change set_attribute(:deleted_reason, nil)
       change set_attribute(:modified_time, &DateTime.utc_now/0)
+
+      # The mirror of :soft_delete -- the uid names a live thing again. Covers the
+      # unmerge from-device, which MergeEngine.recreate_device/3 restores through
+      # this action.
+      change BumpIdentityRevision
     end
 
     update :mark_active do
