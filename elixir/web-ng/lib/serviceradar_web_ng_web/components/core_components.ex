@@ -52,15 +52,20 @@ defmodule ServiceRadarWebNGWeb.CoreComponents do
     assigns =
       assigns
       |> assign_new(:id, fn -> "flash-#{assigns.kind}" end)
-      |> assign(:flash_msg, Phoenix.Flash.get(assigns.flash, assigns.kind))
+      |> then(fn assigns ->
+        assigns
+        |> assign(:flash_msg, Phoenix.Flash.get(assigns.flash, assigns.kind))
+        # Reconnect flashes use phx-connected JS, not the top-layer popover.
+        |> assign(:top_layer?, assigns.id not in ["client-error", "server-error"])
+      end)
 
     ~H"""
     <div
       id={@id}
-      phx-hook="ToastTopLayer"
-      popover="manual"
+      phx-hook={if @top_layer?, do: "ToastTopLayer"}
+      popover={if @top_layer?, do: "manual"}
       data-toast-kind={@kind}
-      data-toast-message={render_slot(@inner_block) || @flash_msg}
+      data-toast-message={@flash_msg}
       phx-click={JS.push("lv:clear-flash", value: %{key: @kind})}
       role="alert"
       class="sr-toast"

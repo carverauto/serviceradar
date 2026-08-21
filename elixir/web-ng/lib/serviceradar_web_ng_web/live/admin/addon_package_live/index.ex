@@ -1197,7 +1197,11 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonPackageLive.Index do
                     base_name="profile[params]"
                   />
                 </div>
-                <details class="rounded border border-sr-line bg-sr-subtle/30">
+                <details
+                  id="addon-advanced-profile-options"
+                  phx-hook="DetailsState"
+                  class="rounded border border-sr-line bg-sr-subtle/30"
+                >
                   <summary class="cursor-pointer px-3 py-2 text-xs font-semibold uppercase text-sr-muted">
                     Advanced Profile Options
                   </summary>
@@ -1451,7 +1455,11 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonPackageLive.Index do
                     />
                   </div>
 
-                  <details class="rounded-lg border border-sr-line/70 bg-sr-surface/60 p-3">
+                  <details
+                    id="addon-assignment-raw-params"
+                    phx-hook="DetailsState"
+                    class="rounded-lg border border-sr-line/70 bg-sr-surface/60 p-3"
+                  >
                     <summary class="cursor-pointer text-xs font-semibold text-sr-muted">
                       Raw Params (JSON)
                     </summary>

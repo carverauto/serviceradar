@@ -966,7 +966,7 @@ samp,
   z-index: var(--sr-z-toast, 300);
 }
 
-.sr-toast:not(:popover-open):not([open]) {
+.sr-toast[popover]:not(:popover-open):not([open]) {
   display: none;
 }
 
