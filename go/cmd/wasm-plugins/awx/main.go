@@ -3679,6 +3679,8 @@ func buildDiscoveredHost(cfg InventorySyncControllerConfig, inv awxInventoryRow,
 		}
 	}
 
+	integrationID := awxIntegrationID(cfg.ControllerID, host.ID)
+
 	return sdk.DiscoveredDevice{
 		DeviceID:    fmt.Sprintf("awx:%s:host:%d", cfg.ControllerID, host.ID),
 		Hostname:    hostname,
@@ -3692,20 +3694,52 @@ func buildDiscoveredHost(cfg InventorySyncControllerConfig, inv awxInventoryRow,
 			"provider":      "awx",
 			"controller_id": cfg.ControllerID,
 		},
-		Metadata: map[string]any{
-			"awx": map[string]any{
-				"controller_id":   cfg.ControllerID,
-				"controller_name": cfg.ControllerName,
-				"inventory_id":    inv.ID,
-				"inventory_name":  inv.Name,
-				"host_id":         host.ID,
-				"host_name":       host.Name,
-				"description":     host.Description,
-				"instance_id":     host.InstanceID,
-				"ansible_host":    ansibleHost,
-			},
+		Metadata: awxHostMetadata(cfg, inv, host, integrationID, hostname, ansibleHost),
+	}
+}
+
+// awxHostMetadata carries the AWX join keys plus the identity channels the
+// inventory ingestor reads: `integration_id` overrides the hostname-derived key
+// it would otherwise mint, `legacy_integration_ids` bridges rows already
+// registered under that old key, and `mac_addresses` is the only hardware
+// evidence AWX can supply. All three are looked up under `metadata`, not at the
+// top level -- Sync.Normalize rebuilds a fixed-key map and a top-level
+// `mac_addresses` would be dropped.
+func awxHostMetadata(
+	cfg InventorySyncControllerConfig,
+	inv awxInventoryRow,
+	host awxHostRow,
+	integrationID string,
+	hostname string,
+	ansibleHost string,
+) map[string]any {
+	metadata := map[string]any{
+		"awx": map[string]any{
+			"controller_id":   cfg.ControllerID,
+			"controller_name": cfg.ControllerName,
+			"inventory_id":    inv.ID,
+			"inventory_name":  inv.Name,
+			"host_id":         host.ID,
+			"host_name":       host.Name,
+			"description":     host.Description,
+			"instance_id":     host.InstanceID,
+			"ansible_host":    ansibleHost,
 		},
 	}
+
+	if integrationID != "" {
+		metadata["integration_id"] = integrationID
+
+		if legacy := awxLegacyIDs(hostname, host.Name, integrationID); len(legacy) > 0 {
+			metadata["legacy_integration_ids"] = legacy
+		}
+	}
+
+	if macs := awxHostMACs(host.Variables); len(macs) > 0 {
+		metadata["mac_addresses"] = macs
+	}
+
+	return metadata
 }
 
 func hostStatusString(enabled bool) string {
