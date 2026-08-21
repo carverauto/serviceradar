@@ -12,7 +12,6 @@ defmodule ServiceRadar.Observability.ZenRuleSeederTest do
   @moduletag :integration
 
   @legacy_snmp_body_expression "(body == 'logs.snmp.processed' or body == '') ? (len(varbinds ?? []) > 0 ? (extract(varbinds[0].value ?? '', '^[^:]+: (.*)$')[1] ?? varbinds[0].value ?? body) : body) : body"
-  @current_snmp_body_expression "(((body ?? '') == '') or body == 'logs.snmp.processed') ? (len(varbinds ?? []) > 0 ? (extract(varbinds[0].value ?? '', '^[^:]+: (.*)$')[1] ?? varbinds[0].value ?? body ?? '') : (body ?? '')) : body"
 
   setup_all do
     TestSupport.start_core!()
@@ -46,7 +45,7 @@ defmodule ServiceRadar.Observability.ZenRuleSeederTest do
 
     refreshed = fetch_snmp_rule!(actor)
     assert is_nil(refreshed.jdm_definition)
-    assert body_expression(refreshed.compiled_jdm) == @current_snmp_body_expression
+    assert body_expression(refreshed.compiled_jdm) == bundled_snmp_body_expression()
   end
 
   test "seed_all preserves user-authored snmp rule overrides", %{actor: actor} do
@@ -79,6 +78,11 @@ defmodule ServiceRadar.Observability.ZenRuleSeederTest do
 
     assert {:ok, [rule]} = Ash.read(query, actor: actor)
     rule
+  end
+
+  defp bundled_snmp_body_expression do
+    {:ok, compiled} = ServiceRadar.Observability.ZenRuleTemplates.compile(:snmp_severity, %{})
+    body_expression(compiled)
   end
 
   defp body_expression(compiled_jdm) do

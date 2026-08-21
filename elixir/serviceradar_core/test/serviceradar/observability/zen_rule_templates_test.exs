@@ -3,8 +3,6 @@ defmodule ServiceRadar.Observability.ZenRuleTemplatesTest do
 
   alias ServiceRadar.Observability.ZenRuleTemplates
 
-  @snmp_body_expression "(((body ?? '') == '') or body == 'logs.snmp.processed') ? (len(varbinds ?? []) > 0 ? (extract(varbinds[0].value ?? '', '^[^:]+: (.*)$')[1] ?? varbinds[0].value ?? body ?? '') : (body ?? '')) : body"
-
   test "snmp severity template uses supported fallback expression syntax" do
     assert {:ok, compiled} = ZenRuleTemplates.compile(:snmp_severity, %{})
 
@@ -15,35 +13,23 @@ defmodule ServiceRadar.Observability.ZenRuleTemplatesTest do
       |> Map.fetch!("content")
       |> Map.fetch!("expressions")
 
-    severity_expression =
+    expression = fn key ->
       expressions
-      |> Enum.find(&(&1["key"] == "severity"))
+      |> Enum.find(&(&1["key"] == key))
       |> Map.fetch!("value")
-
-    source_expression =
-      expressions
-      |> Enum.find(&(&1["key"] == "source"))
-      |> Map.fetch!("value")
-
-    service_name_expression =
-      expressions
-      |> Enum.find(&(&1["key"] == "service_name"))
-      |> Map.fetch!("value")
-
-    body_expression =
-      expressions
-      |> Enum.find(&(&1["key"] == "body"))
-      |> Map.fetch!("value")
+    end
 
     # De-clobbered: leave severity untouched when no SNMP severity is present so
     # downstream PRI/level mapping is not overwritten with 'Unknown'.
-    assert severity_expression == "severity"
-    assert source_expression == "'snmp'"
-    assert service_name_expression == "'snmp'"
+    assert expression.("severity") == "severity"
+    assert expression.("source") == "'snmp'"
+    assert expression.("service_name") == "'snmp'"
+    assert expression.("source_ip") =~ "extract(source"
+    assert expression.("attributes.snmp.trap_oid") =~ "1.3.6.1.6.3.1.1.4.1.0"
+    assert expression.("body") =~ "SNMP trap "
+    refute expression.("body") == "body"
 
-    assert body_expression == @snmp_body_expression
-
-    refute String.contains?(severity_expression, "coalesce(")
+    refute String.contains?(expression.("severity"), "coalesce(")
   end
 
   test "coraza WAF template writes the generic security signal shape" do

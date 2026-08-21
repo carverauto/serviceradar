@@ -381,7 +381,7 @@ defmodule ServiceRadar.Observability.ZenRuleSeeder do
       },
       %{
         name: "snmp_severity",
-        description: "Normalize SNMP trap severity fields.",
+        description: "Normalize SNMP trap body, sender IP, and severity fields.",
         subject: "logs.snmp",
         template: "snmp_severity",
         builder_config: %{},
