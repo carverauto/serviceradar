@@ -56,10 +56,19 @@ already pinned.
   into B".
 - **MODIFY** merge to bump the survivor as well as the source, so the fence has something to
   observe on B.
-- **ADD** episode lineage, so a merge does not silently split one logical anomaly into two
-  episodes and report the first as resolved. A revision alone cannot fix this: episode
-  identity is hashed (`episode_uid = sha256(finding_uid + start)`, `verdict.rs:593-597`) and
-  a hash cannot be reassigned.
+- **FIX** the episode duplicate-and-false-resolve bug, which is real but is **not** caused by
+  what was originally assumed. Tracing the question closed: the edge never re-identifies after
+  a merge — `MetricResource.device_id` has zero production writers, so the agent always
+  identifies from a local hostname, a polled target IP, or its agent id. `episode_uid` is
+  therefore merge-stable and continuation already works. The actual defect is that core
+  recomputes `finding_uid` from the canonical device but the upsert never writes it back
+  (`anomaly_episode_registry.ex:175-193`, `anomaly_episode.ex:39`), leaving a row whose
+  `device_uid` and `series_key` are post-merge and whose `finding_uid` is pre-merge. That
+  disables both fold arms of the matching CTE, so the next edge-side episode restart inserts a
+  duplicate and the original is closed as "resolved". One field in the conflict branch.
+- **ADD** finding lineage recorded **by ingest when a re-key is observed** — not by the merge
+  on a prediction — so findings written under the previous hash stay joinable after the
+  correction.
 - **ADD** a repair path for rows already stranded by past merges. A fence prevents new stale
   writes and repairs nothing; roughly 43 of 53 device-keyed tables are stranded by design
   today.

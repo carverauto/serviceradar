@@ -98,43 +98,85 @@ A fence nobody checks is worse than no fence, because it reads as a guarantee. T
 call sites prove the mechanism; roughly ten are needed before it stops being decoration.
 That budget is part of this proposal, not a follow-up.
 
-### D7: Episode lineage — because a hash cannot be reassigned
+### D7: Episodes — the edge never flips, and the real defect is a missing upsert field
 
-This is the hole a revision alone does not close, called out explicitly rather than left as
-a caveat.
+The proposal originally assumed a merge causes the edge to start emitting under the
+survivor's uid, splitting one logical anomaly into two episodes. **That was traced and is
+false**, and the correction inverts the design.
 
-Episode identity is content-addressed on the device:
-`finding_uid = anomaly:finding:2004:anomaly_detection:{device_uid}:{series_key}:{metric_class}`
-and `episode_uid = sha256(finding_uid + episode_start)` (`verdict.rs:119-123`, `:593-597`).
-A merge cannot rewrite either. Today `anomaly_episodes` is in neither the merge resource
-list nor `reassignments.ex`, and `AnomalyEpisodeStaleCloseWorker` closes purely on
-`last_seen_at` with no device awareness. So an open episode on A is orphaned; when the edge's
-`resource.device_id` flips to B a **new** episode opens with a fresh baseline, and A's is
-eventually marked `stale_closed` with `clear_reason: "stale"` — the operator is shown
-"resolved" for a condition that never resolved.
+`MetricResource.device_id` (proto field 9) has **zero production writers** anywhere in the
+repo. None of the five envelope constructions in `go/pkg/agent/metric_envelope.go` sets it,
+no Rust producer sets it, and the gateway's attestation rewrites five other fields and leaves
+it alone. Core's own decoder says so in a comment: *"device_id is NULL for sysmon/SNMP/ICMP
+because no producer/gateway/core sets resource.device_id"*
+(`observability/metric_envelope.ex:58-62`). The only assignments are three test fixtures.
 
-That directly violates the existing requirement *One logical anomaly is one bounded episode
-end-to-end*.
+So `anomaly_device_uid` (`identity.rs:216-232`) always falls through to a locally-derived
+value: the agent's `os.Hostname()` for sysmon, the polled target IP for SNMP, the agent id
+for ICMP. **A merge changes none of them, and no config delivery can**, because none is
+core-owned. Nothing — restart, config poll, re-registration, upgrade — makes the edge emit
+under the survivor.
 
-The design has two parts:
+That is the world the original design feared most, and it is the world in which continuation
+is **free**. Because the edge identity is merge-invariant, `episode_uid` is stable across a
+merge, so the existing upsert already matches the open episode by `episode_uid` and
+re-attributes it in place — same row, same `opened_at`, occurrence history intact, edge
+detector state undisturbed. **Continuation needs no new mechanism.**
 
-1. **Reassign the mutable column.** `anomaly_episodes.device_uid` is a plain `text` column
-   distinct from the hashed `episode_uid`. Repointing it A -> B is safe and makes every
-   device-scoped read follow the merge. The hash remains an opaque surrogate key; nothing
-   requires it to be re-derivable.
-2. **Record lineage so continuation is possible.** Core can reconstruct a `finding_uid` — the
-   template is known and the only variable is the device uid. On merge, for each open episode
-   on A, write `(old_finding_uid, new_finding_uid, episode_uid)` into
-   `platform.anomaly_finding_lineage`. When a report arrives under `new_finding_uid` and an
-   open lineage entry exists, ingest **continues that episode** rather than opening a new one.
+#### The actual defect
 
-If no report arrives under the successor within the staleness window, the episode is closed
-with `clear_reason: "identity_merged"` — explicitly not `"stale"`, so the operator is never
-told a condition resolved when what actually happened is that its device was merged away.
+Core does *not* trust the edge's attribution: it re-resolves to the canonical device and
+**recomputes** `finding_uid` from it. So a merge does change `finding_uid` — core-side.
 
-**Deliberately not doing:** changing the uid scheme to a merge-stable device lineage id. That
-is the "correct" fix and it is a breaking change to an edge-computed identity with an
-agent-side rollout, for a problem the lineage table solves at core with no ABI change.
+But `finding_uid` is absent from the upsert's conflict branch
+(`anomaly_episode_registry.ex:175-193` sets `device_uid` and `series_key` from `EXCLUDED` but
+never `finding_uid`), and it is explicitly subtracted at `anomaly_episode.ex:39`
+(`@episode_upsert_fields @episode_fields -- [:episode_uid, :finding_uid, :opened_at]`).
+
+After a merge the surviving row therefore holds the **survivor's** `device_uid` and
+`series_key` but the **pre-merge** `finding_uid`. That row is internally inconsistent, and
+decisively: the `existing` CTE's two fold arms both match on `finding_uid = $2`
+(`anomaly_episode_registry.ex:44-49`), so neither can ever match that row again. Only the
+`episode_uid` arm still works.
+
+That holds until the edge starts a **new** episode on the same series — checkpoint expiry
+(~6h) or an agent restart. Then no arm matches, a **duplicate** episode is inserted, and the
+original is eventually closed `stale_closed` / `clear_reason: "stale"`.
+
+Which is precisely the symptom the original design described — an operator shown "resolved"
+for a condition that never resolved — reached through a door it never looked at. The fix is
+one field in the conflict branch, unconditionally: `EXCLUDED.finding_uid` is either identical
+(a normal fold) or the newly canonical value (a merge), never a regression.
+
+#### What lineage is actually for
+
+The lineage table survives with a different writer and a different purpose. Rewriting
+`finding_uid` in place orphans findings already written under the old hash — the mirror of
+today's bug. So lineage is written **by ingest, on observation**, at the moment the upsert
+sees an incoming `finding_uid` differing from the stored one, recording the previous and new
+identities so historical rows stay joinable.
+
+Lineage keyed on an *observation* is sound. Lineage keyed on a *prediction* about edge
+behaviour — the original design — describes an event that never occurs, and a record that
+looks like a guarantee but can never fire is worse than none.
+
+#### A dependency this design now rests on
+
+Core's resolution follows merges only **incidentally**: `DeviceCorrelation` never calls
+`follow_canonical_device_id/2` and never reads `MergeAudit`. It lands on the survivor only
+because the source device is tombstoned *and* its anchors were reassigned. Neither is
+asserted as an invariant of the anomaly path and nothing tests it, so a future merge variant
+that stops tombstoning would silently break continuation. This must be either hardened onto
+the merge-aware resolver or written down and tested.
+
+**Deliberately not doing:** projecting `Agent.device_uid` onto `MetricResource.device_id` to
+reach a world where the edge does flip. It is independently motivated — the same gap already
+breaks seasonal-baseline delivery for sysmon, since core keys baselines by canonical device
+id while the edge derives `<hostname>|<metric>` — but done now it would be strictly worse.
+The edge would emit `sr:` uids, which `DeviceCorrelation.explicit_device_uid` short-circuits
+with no lookup, switching **off** the incidental merge-following that makes continuation work
+today; and `episode_uid` would become merge-unstable, creating the very need for successor
+lineage that this correction removes. It is deferred with its prerequisite attached (D10).
 
 ### D8: Repair for already-stranded rows
 
@@ -169,6 +211,18 @@ cooldown probe, and every chain walk added by D8 sequentially scan it. Not scope
 D7 and D8 both walk this table, and shipping them onto an unindexed table is how a repair job
 becomes an outage.
 
+### D10: The `sr:` short-circuit is a blocking prerequisite, not a cleanup
+
+`DeviceCorrelation.explicit_device_uid` returns any `"sr:" <> _` uid verbatim with no lookup
+(`device_correlation.ex:219-233`). It is latent today only because nothing on the edge emits
+an `sr:` uid. Any future work that delivers a canonical uid to the edge makes it live and
+harmful in the same change.
+
+Its fix must route through `Resolver.follow_canonical_device_id/2`, not merely add an
+existence check: an existence check returns nil for a tombstoned device, and the anomaly path
+then falls back through the correlation chain, which rescues candidates carrying an agent id
+or IP but not ones anchored only on the uid.
+
 ## Risks / Trade-offs
 
 - **The fence is detection, not mutual exclusion, for child-table writers**, until the merge
@@ -195,12 +249,26 @@ becomes an outage.
 
 Each step is independently revertible; nothing before step 4 changes behaviour.
 
+## Resolved Questions
+
+**Does the agent-side `resource.device_id` flip to the survivor after a merge?** No, and it
+cannot. Traced end to end and independently confirmed: `MetricResource.device_id` has zero
+production writers, so the edge always identifies from a locally-derived value that no merge
+and no config delivery can change. There is no trigger and therefore no lineage TTL. See D7 —
+this inverted the episode design rather than parameterising it, and it means continuation is
+automatic rather than rare.
+
 ## Open Questions
 
-- Does the agent-side `resource.device_id` actually flip to the survivor after a merge, and
-  how quickly? This was **inferred, not proven** during investigation — agent-side resource
-  population was not traced. It determines whether D7's continuation path is the common case
-  or the rare one. Resolve before implementing D7.
+- Can a merge transiently push an SNMP series onto the `{:withhold, ...}` drop path in
+  `resolve_snmp_anomaly_device_uid`, where rows are discarded entirely? That is the one
+  plausible way a merge could genuinely silence a producer and orphan an open episode. It is
+  a test to run, not a conclusion — and it is what decides whether a distinct
+  `identity_merged` clear reason is worth building at all.
+- Is episode scope per series, or per series per detector? Core collapses the edge's
+  detector-specific finding identities into one recomputed hash, so a drift episode can fold
+  onto a spike episode's open row. This is independent of merges and needs an explicit
+  position either way.
 - Should `identity_revision` survive an unmerge, or reset? Proposal: survive and keep
   incrementing. An unmerge is another transition, and a monotonic value that can go backwards
   is not a fence.
