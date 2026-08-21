@@ -5,6 +5,7 @@ defmodule ServiceRadar.Inventory.Identity.Registrar do
   resolution, and provisional-identity promotion.
   """
 
+  alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Inventory.Device
   alias ServiceRadar.Inventory.DeviceIdentifier
   alias ServiceRadar.Inventory.Identity.CardinalityCaps
@@ -107,43 +108,55 @@ defmodule ServiceRadar.Inventory.Identity.Registrar do
     |> Ash.read(query_opts)
     |> case do
       {:ok, identifiers} ->
-        identifiers
-        |> Enum.reject(&(&1.device_id == device_id))
-        |> Enum.each(fn identifier ->
-          # Only repair rows whose current owner is not genuinely bound to
-          # this agent (a live device whose agent_id attribute matches keeps
-          # its identifier; resolution-time trust handles that case).
-          owner_bound? =
-            case Device.get_by_uid(identifier.device_id, false, actor: actor) do
-              {:ok, %Device{agent_id: owner_agent}} ->
-                owner_agent |> to_string() |> String.trim() == agent_id
+        losing_device_ids =
+          identifiers
+          |> Enum.reject(&(&1.device_id == device_id))
+          |> Enum.reduce([], fn identifier, repaired ->
+            # Only repair rows whose current owner is not genuinely bound to
+            # this agent (a live device whose agent_id attribute matches keeps
+            # its identifier; resolution-time trust handles that case).
+            owner_bound? =
+              case Device.get_by_uid(identifier.device_id, false, actor: actor) do
+                {:ok, %Device{agent_id: owner_agent}} ->
+                  owner_agent |> to_string() |> String.trim() == agent_id
 
-              _ ->
-                false
+                _ ->
+                  false
+              end
+
+            if owner_bound? do
+              repaired
+            else
+              identifier
+              |> Ash.Changeset.for_update(:reassign_device, %{device_id: device_id})
+              |> Ash.update(query_opts)
+              |> case do
+                {:ok, _} ->
+                  Logger.info(
+                    "Repaired stale agent identifier #{agent_id}: " <>
+                      "#{identifier.device_id} -> #{device_id}"
+                  )
+
+                  :telemetry.execute(
+                    [:serviceradar, :identity_reconciler, :agent_identifier, :repaired],
+                    %{count: 1},
+                    %{agent_id: agent_id, from: identifier.device_id, to: device_id}
+                  )
+
+                  [identifier.device_id | repaired]
+
+                {:error, error} ->
+                  Logger.warning("Agent identifier repair failed: #{inspect(error)}")
+                  repaired
+              end
             end
+          end)
 
-          if not owner_bound? do
-            identifier
-            |> Ash.Changeset.for_update(:reassign_device, %{device_id: device_id})
-            |> Ash.update(query_opts)
-            |> case do
-              {:ok, _} ->
-                Logger.info(
-                  "Repaired stale agent identifier #{agent_id}: " <>
-                    "#{identifier.device_id} -> #{device_id}"
-                )
-
-                :telemetry.execute(
-                  [:serviceradar, :identity_reconciler, :agent_identifier, :repaired],
-                  %{count: 1},
-                  %{agent_id: agent_id, from: identifier.device_id, to: device_id}
-                )
-
-              {:error, error} ->
-                Logger.warning("Agent identifier repair failed: #{inspect(error)}")
-            end
-          end
-        end)
+        # Identifier ownership moved, so both sides changed composition: each
+        # stale owner lost the agent identity and this device gained it. Hoisted
+        # out of the loop -- N identifiers stripped from one device is one
+        # transition, not N -- and only for repairs that actually landed.
+        bump_repaired_devices(losing_device_ids, device_id, actor)
 
         :ok
 
@@ -157,6 +170,41 @@ defmodule ServiceRadar.Inventory.Identity.Registrar do
   end
 
   def repair_agent_identifier(_agent_id, _device_id, _actor), do: :ok
+
+  defp bump_repaired_devices([], _target_device_id, _actor), do: :ok
+
+  defp bump_repaired_devices(losing_device_ids, target_device_id, actor) do
+    losing_device_ids
+    |> Enum.uniq()
+    |> Enum.each(&bump_device_identity_revision(&1, actor))
+
+    bump_device_identity_revision(target_device_id, actor)
+  end
+
+  # Best-effort, matching this function's rescue-and-continue posture: a failed
+  # bump must not undo a repair that already landed. A uid that no longer resolves
+  # to a live device is skipped -- :soft_delete already carried its bump.
+  defp bump_device_identity_revision(device_uid, actor) do
+    actor = actor || SystemActor.system(:identity_registrar)
+
+    case Device.get_by_uid(device_uid, false, actor: actor) do
+      {:ok, %Device{} = device} ->
+        case Device.bump_identity_revision(device, actor: actor) do
+          {:ok, _} ->
+            :ok
+
+          {:error, error} ->
+            Logger.warning(
+              "Failed to bump identity revision for #{device_uid}: #{inspect(error)}"
+            )
+
+            :ok
+        end
+
+      _ ->
+        :ok
+    end
+  end
 
   # A device carries at most one connected agent's identity. If the resolved
   # device already holds a DIFFERENT agent's agent_id identifier, refuse to
