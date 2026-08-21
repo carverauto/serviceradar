@@ -7,6 +7,7 @@ defmodule ServiceRadar.Inventory.Identity.AliasGuard do
   evidence, and the conflicting alias is invalidated (marked stale).
   """
 
+  alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Identity.DeviceAliasState
   alias ServiceRadar.Inventory.Device
   alias ServiceRadar.Inventory.DeviceIdentifier
@@ -173,6 +174,16 @@ defmodule ServiceRadar.Inventory.Identity.AliasGuard do
           end
         end)
 
+        # The alias owner just lost an identity value, so its composition changed
+        # and the fence has to move. Once here rather than inside the Enum.each
+        # above: several alias rows for one IP are one transition, not N.
+        #
+        # alias_device_id, not device_id -- the read filters
+        # `device_id == ^alias_device_id`, so the rows staled above all belong to
+        # the alias owner. device_id is only the conflicting party, named in the
+        # log line and otherwise untouched.
+        bump_alias_owner_revision(alias_device_id, query_opts)
+
         Logger.warning(
           "Invalidated IP alias #{ip} on #{alias_device_id}: conflicts with agent identity " <>
             "of #{device_id}"
@@ -193,5 +204,35 @@ defmodule ServiceRadar.Inventory.Identity.AliasGuard do
     e ->
       Logger.warning("Failed to invalidate conflicting alias #{ip}: #{inspect(e)}")
       :ok
+  end
+
+  # Best-effort, matching the rest of this function: a failed bump must not stop
+  # an alias from being invalidated, since leaving a conflicting alias in
+  # resolution is the worse outcome.
+  #
+  # A tombstoned alias owner is skipped deliberately rather than chased through
+  # an include_deleted read: :soft_delete already carries a bump, so its fence has
+  # moved and there is nothing here to correct.
+  defp bump_alias_owner_revision(alias_device_id, query_opts) do
+    actor = Keyword.get(query_opts, :actor) || SystemActor.system(:alias_guard)
+
+    case Device.get_by_uid(alias_device_id, false, actor: actor) do
+      {:ok, %Device{} = device} ->
+        case Device.bump_identity_revision(device, actor: actor) do
+          {:ok, _} ->
+            :ok
+
+          {:error, error} ->
+            Logger.warning(
+              "Failed to bump identity revision for alias owner #{alias_device_id}: " <>
+                inspect(error)
+            )
+
+            :ok
+        end
+
+      _ ->
+        :ok
+    end
   end
 end

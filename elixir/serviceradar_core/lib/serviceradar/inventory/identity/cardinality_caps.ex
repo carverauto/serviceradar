@@ -87,16 +87,27 @@ defmodule ServiceRadar.Inventory.Identity.CardinalityCaps do
         )
       )
 
-    {retired_count, retired} =
-      Repo.delete_all(
-        from(di in DeviceIdentifier,
-          where:
-            di.device_id == ^device_id and di.identifier_type == ^type_string and
-              di.verified == false and
-              di.id not in ^keep_ids,
-          select: di.identifier_value
-        )
-      )
+    # The delete and the fence bump go in one transaction. Retiring identifiers
+    # changes which identifiers a device owns, and a crash between the two
+    # statements would leave the device's composition changed with its revision
+    # unmoved -- a fence that failed open, which is the one direction that matters.
+    {:ok, {retired_count, retired}} =
+      Repo.transaction(fn ->
+        {count, values} =
+          Repo.delete_all(
+            from(di in DeviceIdentifier,
+              where:
+                di.device_id == ^device_id and di.identifier_type == ^type_string and
+                  di.verified == false and
+                  di.id not in ^keep_ids,
+              select: di.identifier_value
+            )
+          )
+
+        if count > 0, do: bump_identity_revision(device_id)
+
+        {count, values}
+      end)
 
     if retired_count > 0 do
       Logger.info(
@@ -110,5 +121,19 @@ defmodule ServiceRadar.Inventory.Identity.CardinalityCaps do
         %{identifier_type: type_string, device_id: device_id, cap: cap}
       )
     end
+  end
+
+  # Raw SQL rather than the Ash action because enforce/1 takes no actor and this
+  # module already works at the Repo level. The expression form also cannot lose a
+  # concurrent increment, and it is one statement inside the caller's transaction.
+  #
+  # Guarded by the caller on retired_count > 0, so a device that is merely at its
+  # cap -- the overwhelmingly common case, since enforce/1 runs after every
+  # identifier write -- never moves its revision.
+  defp bump_identity_revision(device_id) do
+    Repo.query!(
+      "UPDATE platform.ocsf_devices SET identity_revision = identity_revision + 1 WHERE uid = $1",
+      [device_id]
+    )
   end
 end

@@ -1121,8 +1121,21 @@ defmodule ServiceRadar.Inventory.Remediation.ArmisUnmerge do
     end)
   end
 
+  # An adopt survivor stays live but loses every split class's identifier rows in
+  # apply_all_splits/3, so which identifiers it owns changes and the fence has to
+  # move. Nothing else here carries that: set_device_mac/4 returns {:ok, []}
+  # without touching ocsf_devices at all when the display MAC already equals the
+  # survivor MAC -- the common case -- and its :update action does not bump when
+  # it does write. The :restore clause below needs no equivalent, because it goes
+  # through Device's :restore action, which does.
+  #
+  # Once per candidate, not once per reassigned row: a 40-MAC candidate would
+  # otherwise fire 40 updates on one device row inside one transaction.
   defp ensure_survivor(%{survivor: %{action: :adopt, uid: uid, mac: mac}}, actor) do
-    set_device_mac(uid, mac, actor, "survivor")
+    with {:ok, mac_entries} <- set_device_mac(uid, mac, actor, "survivor"),
+         {:ok, bump_entries} <- bump_survivor_revision(uid, actor, "survivor") do
+      {:ok, mac_entries ++ bump_entries}
+    end
   end
 
   defp ensure_survivor(%{survivor: %{action: :restore, uid: uid, mac: mac}}, actor) do
@@ -1217,6 +1230,32 @@ defmodule ServiceRadar.Inventory.Remediation.ArmisUnmerge do
 
       {:error, _} = err ->
         err
+    end
+  end
+
+  # Runs inside the candidate transaction (Device is already in
+  # @transaction_resources), so the bump and the reassignments commit or roll back
+  # together. A bump that outlived Ash.DataLayer.rollback/2 would claim a
+  # transition that never happened.
+  #
+  # The single-record interface is safe here specifically because :adopt implies
+  # the device is live -- a tombstoned candidate takes the :restore path -- and
+  # validate_source_state/3 has already revalidated that under FOR UPDATE. It
+  # targets a row this transaction already holds, so it introduces no new lock.
+  defp bump_survivor_revision(uid, actor, role) do
+    with {:ok, %Device{} = device} <- Device.get_by_uid(uid, false, actor: actor),
+         {:ok, _bumped} <- Device.bump_identity_revision(device, actor: actor) do
+      {:ok,
+       manifest_entry(:bump_device_identity_revision, "platform.ocsf_devices", [uid], %{
+         role: role
+       })}
+    else
+      # get_by_uid answers {:ok, nil} for a missing or tombstoned row, which would
+      # otherwise fall out of the `with` as {:ok, nil} and blow up on `++`. An
+      # :adopt survivor that is not live violates an invariant this transaction
+      # already checked, so fail the candidate rather than continue.
+      {:error, _} = error -> error
+      other -> {:error, {:identity_revision_bump_failed, uid, other}}
     end
   end
 
