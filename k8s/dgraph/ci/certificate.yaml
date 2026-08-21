@@ -2,7 +2,8 @@
 #
 # Self-signed rather than ACME because the fixture is reached at
 # `*.dgraph-ci.svc.cluster.local`, and no public CA will issue for a name it cannot resolve.
-# That is no longer a downgrade: rust/dgraph-client verifies against a supplied CA instead of
+# That is no longer a downgrade: the Dgraph client (github.com/marvin-hansen/dgraph-rs)
+# verifies against a supplied CA instead of
 # the system roots, so CI callers get real authentication with `sslmode=verify-ca` plus the CA
 # from `dgraph.ca_cert` (or `sslrootcert=` pointing at a mount of it).
 apiVersion: cert-manager.io/v1

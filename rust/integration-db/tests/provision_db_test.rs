@@ -15,7 +15,8 @@
 //! # How this test functions
 //!
 //! One `#[test]` driving ordered steps, for the same reason
-//! `rust/dgraph-client/tests/dgraph_container_test.rs` does: both cargo and Bazel run test
+//! the Dgraph client's acceptance test does (github.com/marvin-hansen/dgraph-rs): both
+//! cargo and Bazel run test
 //! *functions* concurrently and neither honours `--test-threads=1` in CI regardless of
 //! tagging. Separate `#[test]`s would race, and these steps are DDL against one database.
 //!

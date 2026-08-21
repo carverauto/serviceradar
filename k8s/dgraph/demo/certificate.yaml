@@ -2,7 +2,8 @@
 #
 # Private, not ACME. The config contract puts Dgraph at
 # `dgraph-dgraph-alpha.dgraph.svc.cluster.local:9080` -- a name no public authority will sign
-# -- and rust/dgraph-client now verifies against a supplied CA instead of the system roots
+# -- and the Dgraph client (github.com/marvin-hansen/dgraph-rs) now verifies against a supplied CA
+# instead of the system roots
 # (`sslrootcert`, or ClientConfigBuilder::ca_certificate). So the trust anchor is ours, the
 # endpoint stays inside the cluster, and there is no ingress or public DNS to maintain.
 apiVersion: cert-manager.io/v1

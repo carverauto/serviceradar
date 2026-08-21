@@ -27,21 +27,13 @@ load("@rules_shell//shell:sh_binary.bzl", "sh_binary")
 # non-zero for reasons no first-party change could fix.
 # gazelle:exclude third_party
 #
-# Three proto directories that hold UPSTREAM schemas, not Go packages of ours. Gazelle's
-# proto language wants to own them and gets all three wrong:
+# Two proto directories that hold UPSTREAM schemas, not Go packages of ours. Gazelle's
+# proto language wants to own them and gets both wrong:
 #
 #   proto/cri          generates rules with importpath k8s.io/cri-api/pkg/apis/runtime/v1
 #   google/protobuf    generates a second google.golang.org/protobuf/.../wrapperspb, which
 #                      collides with the real well-known type
-#   proto/dgraph       hand-written. //proto/dgraph:proto_dgraph is named to match the
-#                      Cargo crate and carries strip_import_prefix = "proto" so Bazel and
-#                      Cargo agree on prost import paths. Excluding only the nested
-#                      proto/dgraph/proto directory is NOT enough: that orphans the parent
-#                      rule in Gazelle's view and it DELETES the proto_library outright,
-#                      leaving rust_prost_library(proto = ":proto_dgraph") dangling and the
-#                      build broken. Exclude the whole directory.
 # gazelle:exclude proto/cri
-# gazelle:exclude proto/dgraph
 # gazelle:exclude google/protobuf
 
 gazelle(
