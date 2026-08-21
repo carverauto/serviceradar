@@ -111,6 +111,44 @@ defmodule ServiceRadar.Inventory.Identity.IdentityRevisionTest do
              "got #{reloaded.identity_revision - before} - an increment was lost"
   end
 
+  # These two actions ARE identity transitions, and they are what transitively
+  # covers the merge source (tombstoned through :soft_delete) and the unmerge
+  # from-device (restored through :restore).
+  test "a soft delete bumps the revision", %{actor: actor} do
+    {:ok, device} = create_device(actor)
+    before = device.identity_revision
+
+    {:ok, deleted} = Device.soft_delete(device, "merged", "identity_reconciler", actor: actor)
+
+    assert deleted.identity_revision > before,
+           "a tombstone means the uid stops naming a live thing - that is a transition"
+  end
+
+  # MergeEngine.recreate_device/3 restores through Ash.bulk_update/3 rather than
+  # the code interface, because an atomic update built from the primary read
+  # cannot see a tombstoned row. Assert the change runs under that path too.
+  test "a bulk restore bumps the revision", %{actor: actor} do
+    {:ok, device} = create_device(actor)
+    {:ok, deleted} = Device.soft_delete(device, "merged", "identity_reconciler", actor: actor)
+    before = deleted.identity_revision
+
+    result =
+      Device
+      |> Ash.Query.for_read(:read, %{include_deleted: true})
+      |> Ash.Query.filter(uid == ^device.uid)
+      |> Ash.bulk_update(:restore, %{},
+        actor: actor,
+        return_records?: true,
+        return_errors?: true,
+        strategy: [:atomic, :stream]
+      )
+
+    assert %Ash.BulkResult{status: :success, records: [restored | _]} = result
+
+    assert restored.identity_revision > before,
+           "restore must bump under bulk_update, which is how unmerge recreates the device"
+  end
+
   defp create_device(actor) do
     Device
     |> Ash.Changeset.for_create(:create, %{
