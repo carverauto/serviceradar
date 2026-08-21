@@ -222,8 +222,19 @@ defmodule ServiceRadar.Inventory.Identity.MergeEngine do
       DeviceAliasState
     ]
 
+    # Ash.transact/3, NOT the deprecated Ash.transaction/3. The two differ in
+    # exactly one respect: transact passes rollback_on_error?: true, which is
+    # what makes a `with` that RETURNS {:error, _} roll back rather than commit
+    # (ash/lib/ash.ex:4243-4257 vs :4140-4153; the flag defaults to false at
+    # ash/lib/ash/data_layer/data_layer.ex:585 and this app sets no override).
+    #
+    # Without it a merge that failed partway COMMITTED: identifiers already
+    # reassigned to the survivor, the source device still live and untombstoned,
+    # and no merge_audit row. Resolver.follow_canonical_device_id/2 cannot detect
+    # that state because it keys on deleted_at, so nothing downstream could ever
+    # tell that the identity decision had gone stale.
     resources
-    |> Ash.transaction(fn ->
+    |> Ash.transact(fn ->
       with {:ok, %Device{} = from_device} <-
              Device.get_by_uid(from_device_id, false, actor: actor),
            {:ok, %Device{}} <- Device.get_by_uid(to_device_id, false, actor: actor),
@@ -263,6 +274,9 @@ defmodule ServiceRadar.Inventory.Identity.MergeEngine do
         emit_merge_executed_telemetry(reason, from_device_id, to_device_id)
         :ok
 
+      # With transact a returned {:error, _} arrives here as {:error, _}, having
+      # rolled back. {:ok, other} is retained for a `with` clause that fails with
+      # some other shape, which does NOT trigger a rollback.
       {:ok, other} ->
         emit_merge_failed_telemetry(reason, from_device_id, to_device_id, other)
         other
@@ -342,8 +356,10 @@ defmodule ServiceRadar.Inventory.Identity.MergeEngine do
   defp do_unmerge(from_device_id, to_device_id, audit, actor) do
     resources = [Device, DeviceIdentifier, MergeAudit]
 
+    # See do_merge_devices/5: must be transact, not transaction, or an unmerge
+    # that fails partway commits a half-reversed merge.
     resources
-    |> Ash.transaction(fn ->
+    |> Ash.transact(fn ->
       # Recreate the from-device
       with {:ok, _device} <- recreate_device(from_device_id, audit, actor),
            :ok <- reassign_original_identifiers(from_device_id, to_device_id, audit, actor),
