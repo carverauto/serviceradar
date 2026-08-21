@@ -150,6 +150,24 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.DashboardLayoutTest do
     assert css =~ "flex-direction: column"
   end
 
+  test "toast stacking token sits above modal stacking token" do
+    css = File.read!(css_path())
+
+    assert css =~ "--sr-z-modal: 200;"
+    assert css =~ "--sr-z-toast: 300;"
+    assert css =~ ".sr-toast"
+  end
+
+  test "vulnerable assets table scrolls inside the stacked trio card" do
+    css = File.read!(css_path())
+    panel = File.read!(index_path("vulnerable_assets_panel.ex"))
+
+    assert panel =~ "sr-ops-vuln-assets"
+    assert css =~ ~r/\.sr-ops-vuln-assets\s*\{[^}]*overflow:\s*auto/s
+    assert css =~ ~r/\.sr-ops-vuln-assets\s*\{[^}]*overscroll-behavior:\s*contain/s
+    assert css =~ ~r/\.sr-ops-vuln-assets thead th\s*\{[^}]*position:\s*sticky/s
+  end
+
   test "dashboard index markup never pins a column span" do
     for path <- Path.wildcard(Path.join(index_dir(), "*.ex")) do
       refute File.read!(path) =~ "col-span",

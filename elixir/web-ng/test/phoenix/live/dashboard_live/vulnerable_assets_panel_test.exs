@@ -54,6 +54,7 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.VulnerableAssetsPanelTest do
     assert html =~ ~s(href="/devices")
     assert html =~ "View All Assets"
     assert html =~ "sr-ui-table"
+    assert html =~ "sr-ops-vuln-assets"
     refute html =~ ~s(class="table )
     refute html =~ "No scored assets yet"
   end

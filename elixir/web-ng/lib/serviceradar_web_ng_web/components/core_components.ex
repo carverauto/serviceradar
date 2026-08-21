@@ -49,22 +49,31 @@ defmodule ServiceRadarWebNGWeb.CoreComponents do
   slot :inner_block, doc: "the optional inner block that renders the flash message"
 
   def flash(assigns) do
-    assigns = assign_new(assigns, :id, fn -> "flash-#{assigns.kind}" end)
+    assigns =
+      assigns
+      |> assign_new(:id, fn -> "flash-#{assigns.kind}" end)
+      |> assign(:flash_msg, Phoenix.Flash.get(assigns.flash, assigns.kind))
 
     ~H"""
     <div
-      :if={msg = render_slot(@inner_block) || Phoenix.Flash.get(@flash, @kind)}
       id={@id}
-      phx-click={JS.push("lv:clear-flash", value: %{key: @kind}) |> hide("##{@id}")}
+      phx-hook="ToastTopLayer"
+      popover="manual"
+      data-toast-kind={@kind}
+      data-toast-message={render_slot(@inner_block) || @flash_msg}
+      phx-click={JS.push("lv:clear-flash", value: %{key: @kind})}
       role="alert"
-      class="fixed right-4 top-4 z-[var(--sr-z-toast,50)]"
+      class="sr-toast"
       {@rest}
     >
-      <div class={[
-        "flex w-80 max-w-[calc(100vw-2rem)] items-start gap-3 rounded-sr-surface border p-3.5 text-sm text-wrap shadow-sr-raised sm:w-96",
-        @kind == :info && "border-sky-500/30 bg-sr-raised text-sr-ink",
-        @kind == :error && "border-rose-500/35 bg-sr-raised text-sr-ink"
-      ]}>
+      <div
+        :if={render_slot(@inner_block) || @flash_msg}
+        class={[
+          "flex w-80 max-w-[calc(100vw-2rem)] items-start gap-3 rounded-sr-surface border p-3.5 text-sm text-wrap shadow-sr-raised sm:w-96",
+          @kind == :info && "border-sky-500/30 bg-sr-raised text-sr-ink",
+          @kind == :error && "border-rose-500/35 bg-sr-raised text-sr-ink"
+        ]}
+      >
         <.icon
           :if={@kind == :info}
           name="hero-information-circle"
@@ -77,7 +86,7 @@ defmodule ServiceRadarWebNGWeb.CoreComponents do
         />
         <div class="min-w-0 flex-1">
           <p :if={@title} class="font-semibold text-sr-ink">{@title}</p>
-          <p class="text-sr-muted">{msg}</p>
+          <p class="text-sr-muted">{render_slot(@inner_block) || @flash_msg}</p>
         </div>
         <button
           type="button"
