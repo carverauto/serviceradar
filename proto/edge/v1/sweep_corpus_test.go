@@ -157,7 +157,7 @@ func sweepCorpusVectors() []corpusVector {
 		// in exactly one comparison, which is only meaningful if the control is committed.
 		out = append(out, corpusVector{
 			file:  "sweep_join_positive_" + row.name + ".bin",
-			gate:  "accept",
+			gate:  verdictAccept,
 			build: func(t *testing.T) *edgev1.EdgeRecordV1 { t.Helper(); return recordForRow(t, row) },
 		})
 
@@ -316,8 +316,7 @@ func assertCorpusGate(t *testing.T, v corpusVector, err error) {
 	}
 
 	switch v.gate {
-	//nolint:goconst // a corpus manifest token; the table is read against the committed file
-	case "accept":
+	case verdictAccept:
 		if err != nil {
 			t.Fatalf("%s: must be ACCEPTED: %v", v.file, err)
 		}
@@ -456,7 +455,7 @@ func sweepCorpusRelationVectors() []corpusVector {
 			})},
 		// The WIDE-WINDOW control for the host overflow vector below, committed so the
 		// overflow vector differs from a real positive in exactly one comparison.
-		{"sweep_join_positive_wide_window.bin", "", "accept",
+		{"sweep_join_positive_wide_window.bin", "", verdictAccept,
 			mutate(row, func(_ *testing.T, r *edgev1.EdgeRecordV1) { widenWindow(r) })},
 		// OVERFLOW that wraps INSIDE the wide window: 1.784e18 + MaxInt64 wraps to about
 		// -7.44e18, which that window contains. An UNCHECKED implementation therefore
@@ -498,7 +497,7 @@ func sweepCorpusRelationVectors() []corpusVector {
 		// the two equal, an observation exactly on a collection endpoint also sits exactly
 		// on an envelope endpoint, so the control cannot show which window admitted it --
 		// and a half-open envelope would refuse the expiry case for the wrong reason.
-		{"sweep_join_positive_batch_at_not_before.bin", "", "accept",
+		{"sweep_join_positive_batch_at_not_before.bin", "", verdictAccept,
 			mutate(row, func(_ *testing.T, r *edgev1.EdgeRecordV1) {
 				widenEnvelope(r)
 				mutateSweepBody(r, func(b *edgev1.SweepObservationBatchV1) {
@@ -506,7 +505,7 @@ func sweepCorpusRelationVectors() []corpusVector {
 					b.GetHosts()[0].ObservedAtDeltaNano = fixedNanos - b.GetObservedAtUnixNano()
 				})
 			})},
-		{"sweep_join_positive_batch_at_expires.bin", "", "accept",
+		{"sweep_join_positive_batch_at_expires.bin", "", verdictAccept,
 			mutate(row, func(_ *testing.T, r *edgev1.EdgeRecordV1) {
 				widenEnvelope(r)
 				mutateSweepBody(r, func(b *edgev1.SweepObservationBatchV1) {
@@ -514,28 +513,28 @@ func sweepCorpusRelationVectors() []corpusVector {
 					b.GetHosts()[0].ObservedAtDeltaNano = fixedNanos - b.GetObservedAtUnixNano()
 				})
 			})},
-		{"sweep_join_positive_host_at_not_before.bin", "", "accept",
+		{"sweep_join_positive_host_at_not_before.bin", "", verdictAccept,
 			mutate(row, func(_ *testing.T, r *edgev1.EdgeRecordV1) {
 				widenEnvelope(r)
 				mutateSweepBody(r, func(b *edgev1.SweepObservationBatchV1) {
 					b.GetHosts()[0].ObservedAtDeltaNano = winNotBefore - fixedNanos
 				})
 			})},
-		{"sweep_join_positive_host_at_expires.bin", "", "accept",
+		{"sweep_join_positive_host_at_expires.bin", "", verdictAccept,
 			mutate(row, func(_ *testing.T, r *edgev1.EdgeRecordV1) {
 				widenEnvelope(r)
 				mutateSweepBody(r, func(b *edgev1.SweepObservationBatchV1) {
 					b.GetHosts()[0].ObservedAtDeltaNano = winExpires - fixedNanos
 				})
 			})},
-		{"sweep_join_positive_trace_at_not_before.bin", "", "accept",
+		{"sweep_join_positive_trace_at_not_before.bin", "", verdictAccept,
 			mutate(row, func(_ *testing.T, r *edgev1.EdgeRecordV1) {
 				widenEnvelope(r)
 				mutateSweepBody(r, func(b *edgev1.SweepObservationBatchV1) {
 					b.GetHosts()[0].GetMtr().TraceId = uuidv7At(winNotBefore / 1_000_000)
 				})
 			})},
-		{"sweep_join_positive_trace_at_expires.bin", "", "accept",
+		{"sweep_join_positive_trace_at_expires.bin", "", verdictAccept,
 			mutate(row, func(_ *testing.T, r *edgev1.EdgeRecordV1) {
 				widenEnvelope(r)
 				mutateSweepBody(r, func(b *edgev1.SweepObservationBatchV1) {
@@ -544,7 +543,7 @@ func sweepCorpusRelationVectors() []corpusVector {
 			})},
 
 		// --- NONCANONICAL payload: protobuf-equivalent, different BYTES ---
-		{"sweep_join_noncanonical_payload.bin", "", "accept",
+		{"sweep_join_noncanonical_payload.bin", "", verdictAccept,
 			func(t *testing.T) *edgev1.EdgeRecordV1 {
 				t.Helper()
 				r := recordForRow(t, row)

@@ -15,6 +15,14 @@ import (
 	edgev1 "github.com/carverauto/serviceradar/proto/edge/v1"
 )
 
+// The verdict vocabulary the shared corpus manifests use. Two files write these columns and
+// assert on them, so they are named once: a typo in a literal would read as a different verdict
+// rather than as a compile error.
+const (
+	verdictAccept = "accept"
+	verdictRefuse = "refuse"
+)
+
 // The FRAMING-FAMILY corpus (task 1.5-g): which payload family may enter which TYPED ingress.
 //
 // ## The decision this freezes
@@ -126,24 +134,23 @@ func TestFamilySharedCorpus(t *testing.T) {
 		}
 
 		typedErr := v.verify(t, &decoded)
-		//nolint:goconst // a corpus manifest token; the table is read against the committed file
-		typed := "refuse"
+		typed := verdictRefuse
 
 		if typedErr == nil {
-			typed = "accept"
+			typed = verdictAccept
 		}
 
 		// THE GENERIC VALIDATOR IS A ROW, not a footnote: its permissiveness is deliberate, and
 		// recording it is what stops a future change from quietly making it strict and calling
 		// that a fix.
-		generic := "refuse"
+		generic := verdictRefuse
 		if edgerecord.ValidateRecord(&decoded) == nil {
-			generic = "accept"
+			generic = verdictAccept
 		}
 
-		want := "refuse"
+		want := verdictRefuse
 		if v.family == edgev1.EdgeRecordPayloadFamily_EDGE_RECORD_PAYLOAD_FAMILY_RECORD_BATCH_V1 {
-			want = "accept"
+			want = verdictAccept
 		}
 
 		if typed != want {
@@ -153,11 +160,11 @@ func TestFamilySharedCorpus(t *testing.T) {
 		// THE EXACT SENTINEL on a refusal, not merely "some error". A stale signature, a body
 		// defect or a failed authority join would otherwise masquerade as family evidence -- and
 		// each of those is reachable from these fixtures, since every row reseals a real record.
-		if want == "refuse" && !errors.Is(typedErr, edgerecord.ErrPayloadFraming) {
+		if want == verdictRefuse && !errors.Is(typedErr, edgerecord.ErrPayloadFraming) {
 			t.Fatalf("%s: refused with %v, want ErrPayloadFraming", v.file, typedErr)
 		}
 
-		if generic != "accept" {
+		if generic != verdictAccept {
 			t.Fatalf("%s: the generic validator must stay permissive, got %v",
 				v.file, edgerecord.ValidateRecord(&decoded))
 		}
