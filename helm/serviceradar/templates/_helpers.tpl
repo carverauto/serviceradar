@@ -666,3 +666,70 @@ port are rejected so PHX_HOST and Endpoint.url cannot disagree.
   {{- end -}}
 {{- end -}}
 {{- end -}}
+
+{{/*
+Convert a Kubernetes storage quantity to whole GiB.
+
+Three CNPG WAL parameters derive from cnpg.storageSize, and pg_wal shares the data
+PVC, so a mis-parsed size is a disk-exhaustion bug rather than a cosmetic one. The
+pattern this replaces stripped the unit instead of converting it, which rendered a
+1Ti volume as "1" and collapsed its WAL cap to the 10GB floor.
+
+A bare number is BYTES in Kubernetes, not GiB -- mapping it to GiB turns
+storageSize: 107374182400 into 4294967296 GiB and an effectively unbounded cap,
+which is the exact condition the WAL cap guard exists to prevent.
+
+Fails loudly on anything it cannot compute rather than guessing.
+*/}}
+{{- define "serviceradar.storageGiB" -}}
+{{- $raw := trim (toString (default "100Gi" .)) -}}
+{{- if contains "." $raw -}}
+{{- fail (printf "storage size %q must be a whole number; use e.g. 1536Gi instead of 1.5Ti" $raw) -}}
+{{- end -}}
+{{- $num := regexReplaceAll "[^0-9]" $raw "" -}}
+{{- if eq $num "" -}}
+{{- fail (printf "storage size %q has no numeric component" $raw) -}}
+{{- end -}}
+{{- $n := int64 $num -}}
+{{- $unit := regexReplaceAll "[0-9]" $raw "" -}}
+{{- $bytes := int64 0 -}}
+{{- if eq $unit "Ki" -}}{{- $bytes = mul $n 1024 -}}
+{{- else if eq $unit "Mi" -}}{{- $bytes = mul $n 1048576 -}}
+{{- else if eq $unit "Gi" -}}{{- $bytes = mul $n 1073741824 -}}
+{{- else if eq $unit "Ti" -}}{{- $bytes = mul $n 1099511627776 -}}
+{{- else if eq $unit "Pi" -}}{{- $bytes = mul $n 1125899906842624 -}}
+{{- else if eq $unit "k" -}}{{- $bytes = mul $n 1000 -}}
+{{- else if eq $unit "M" -}}{{- $bytes = mul $n 1000000 -}}
+{{- else if eq $unit "G" -}}{{- $bytes = mul $n 1000000000 -}}
+{{- else if eq $unit "T" -}}{{- $bytes = mul $n 1000000000000 -}}
+{{- else if eq $unit "P" -}}{{- $bytes = mul $n 1000000000000000 -}}
+{{- else if eq $unit "" -}}{{- $bytes = $n -}}
+{{- else -}}
+{{- fail (printf "storage size %q uses unsupported unit %q; use Ki/Mi/Gi/Ti/Pi or k/M/G/T/P" $raw $unit) -}}
+{{- end -}}
+{{- div $bytes 1073741824 -}}
+{{- end -}}
+
+{{/*
+WAL sizing budget derived from a storage quantity, emitted as a dict:
+  maxSlotWalKeepSize, maxWalSize, minWalSize (PostgreSQL units), maxWalGiB.
+
+pg_wal shares the data PVC, so every value here is bounded relative to the volume.
+The 1GB max_wal_size floor is deliberate: it guarantees an install of ~28Gi or less
+spends no extra WAL disk at all, keeping PostgreSQL's own default.
+*/}}
+{{- define "serviceradar.walBudget" -}}
+{{- $storeGiB := int64 (include "serviceradar.storageGiB" .) -}}
+{{- $cap := div (mul $storeGiB 30) 100 -}}
+{{- if lt $cap 10 -}}{{- $cap = int64 10 -}}{{- end -}}
+{{- $half := div $storeGiB 2 -}}
+{{- if gt $cap $half -}}{{- $cap = $half -}}{{- end -}}
+{{- if lt $cap 1 -}}{{- $cap = int64 1 -}}{{- end -}}
+{{- $maxWalGiB := div (mul $storeGiB 7) 100 -}}
+{{- if lt $maxWalGiB 1 -}}{{- $maxWalGiB = int64 1 -}}{{- end -}}
+{{- if gt $maxWalGiB 8 -}}{{- $maxWalGiB = int64 8 -}}{{- end -}}
+{{- $minWalMB := div (mul $maxWalGiB 1024) 8 -}}
+{{- if lt $minWalMB 256 -}}{{- $minWalMB = int64 256 -}}{{- end -}}
+{{- if gt $minWalMB 1024 -}}{{- $minWalMB = int64 1024 -}}{{- end -}}
+{{- dict "maxSlotWalKeepSize" (printf "%dGB" $cap) "maxWalSize" (printf "%dGB" $maxWalGiB) "minWalSize" (printf "%dMB" $minWalMB) "maxWalGiB" $maxWalGiB | toJson -}}
+{{- end -}}

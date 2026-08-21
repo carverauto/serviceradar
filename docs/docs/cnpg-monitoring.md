@@ -234,12 +234,33 @@ ORDER BY total_exec_time DESC
 LIMIT 20;
 ```
 
-The slow-query log threshold is set with
-`spire.postgres.postgresqlParameters.log_min_duration_statement` in
-`helm/serviceradar/values.yaml`. A reasonable starting value is `500ms`; raise it
-to reduce log noise or lower it for short deep-analysis windows. After enabling
-slow-query logging on a healthy system, capture a baseline (most statements
-should land in `lt_100`) and use it to tune alert thresholds.
+The slow-query log threshold is set in `helm/serviceradar/values.yaml`. Which key
+applies depends on which CNPG cluster the install runs:
+
+- `cnpg.postgresqlParameters.log_min_duration_statement` for a normal install.
+- `spire.postgres.postgresqlParameters.log_min_duration_statement` when
+  `spire.postgres.enabled` is true, because that template replaces the main CNPG
+  cluster entirely.
+
+A reasonable starting value is `500ms`; raise it to reduce log noise or lower it
+for short deep-analysis windows. After enabling slow-query logging on a healthy
+system, capture a baseline (most statements should land in `lt_100`) and use it
+to tune alert thresholds.
+
+### Bind parameters are deliberately not logged
+
+Both blocks also pin `log_parameter_max_length: "0"`, which keeps bind parameters
+out of the slow-query log. PostgreSQL defaults this to `-1` (unlimited), and on a
+bulk-loading workload that is a real amplifier: a 2000-row insert logged roughly
+742 KB of parameters for a single statement.
+
+Do not "fix" this by setting a small positive value. The limit truncates **per
+parameter** and there is no per-statement cap, so a 1000-row by 10-column insert
+at 1 kB each still emits about 10 MB for one statement. Only `0` bounds it.
+
+Little diagnostic value is lost: the parameterised statement text and its
+duration are still logged, and normalised query text with timings comes from
+`pg_stat_statements`, which this chart enables with `track=all`.
 
 ## Alert Ideas
 
