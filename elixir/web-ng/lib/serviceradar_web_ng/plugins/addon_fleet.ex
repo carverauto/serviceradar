@@ -507,9 +507,6 @@ defmodule ServiceRadarWebNG.Plugins.AddonFleet do
       incompatible_rollout_target?(rollout) ->
         {:action_required, rollout.reason_code || "rollout_target_incompatible"}
 
-      failed_rollout?(rollout) ->
-        {:action_required, rollout.reason_code || "rollout_failed"}
-
       active_rollout?(rollout) ->
         {:updating, rollout.reason_code || "rollout_in_progress"}
 
@@ -534,8 +531,14 @@ defmodule ServiceRadarWebNG.Plugins.AddonFleet do
       expected_inactive?(package, status) ->
         {:expected_inactive, "ephemeral_helper_ready"}
 
+      # Live desired-vs-running wins over a finished canary. A Failed/Paused
+      # rollout is history on the fleet list; it must not paint a healthy,
+      # up-to-date agent as "Update blocked".
       converged?(base, package, status) ->
         {:healthy, "desired_runtime_healthy"}
+
+      paused_rollout?(rollout) ->
+        {:action_required, rollout.reason_code || "rollout_failed"}
 
       convergence_grace?(assignment, now) ->
         {:updating, "desired_state_converging"}
@@ -587,11 +590,8 @@ defmodule ServiceRadarWebNG.Plugins.AddonFleet do
 
   defp active_rollout?(_), do: false
 
-  defp failed_rollout?(%{rollout_state: state}) when state in [:paused, :failed, :rolled_back], do: true
-
-  defp failed_rollout?(%{state: state}) when state in [:failed, :rolled_back], do: true
-
-  defp failed_rollout?(_), do: false
+  defp paused_rollout?(%{rollout_state: state}) when state in [:paused], do: true
+  defp paused_rollout?(_), do: false
 
   defp agent_unavailable?(nil, _now), do: true
 

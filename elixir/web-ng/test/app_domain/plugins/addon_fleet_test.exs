@@ -342,9 +342,10 @@ defmodule ServiceRadarWebNG.Plugins.AddonFleetTest do
       failed_rollout = %{
         rollout_state: :failed,
         state: :failed,
-        reason_code: "unsupported_platform"
+        reason_code: "candidate_health_timeout"
       }
 
+      # Finished canary records must not override a live, desired version.
       assert AddonFleet.classify(
                context.base,
                context.package,
@@ -353,7 +354,39 @@ defmodule ServiceRadarWebNG.Plugins.AddonFleetTest do
                context.agent,
                failed_rollout,
                context.now
-             ) == {:action_required, "unsupported_platform"}
+             ) == {:healthy, "desired_runtime_healthy"}
+
+      paused_and_converged = %{
+        rollout_state: :paused,
+        state: :rolled_back,
+        reason_code: "candidate_health_timeout"
+      }
+
+      assert AddonFleet.classify(
+               context.base,
+               context.package,
+               context.assignment,
+               context.status,
+               context.agent,
+               paused_and_converged,
+               context.now
+             ) == {:healthy, "desired_runtime_healthy"}
+
+      paused_and_behind = %{
+        rollout_state: :paused,
+        state: :rolled_back,
+        reason_code: "candidate_health_timeout"
+      }
+
+      assert AddonFleet.classify(
+               %{assigned_version: "1.1.0"},
+               context.package,
+               context.assignment,
+               context.status,
+               context.agent,
+               paused_and_behind,
+               context.now
+             ) == {:action_required, "candidate_health_timeout"}
 
       active_rollout = %{
         rollout_state: :running,

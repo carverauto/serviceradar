@@ -7,8 +7,10 @@ defmodule ServiceRadarWebNG.Plugins.AddonRolloutView do
   turns the Ash records into names, progress, and a "what happened" sentence.
   """
 
-  @attention_states [:paused, :rolling_back, :failed, :rolled_back]
-  @active_states [:pending, :running, :paused, :rolling_back, :failed, :rolled_back]
+  # Operator still has a decision (Resume / Cancel). Terminal Failed/Rolled back
+  # attempts belong under "Show finished", not the open-jobs list.
+  @attention_states [:paused, :rolling_back]
+  @active_states [:pending, :running, :paused, :rolling_back]
 
   @state_labels %{
     pending: "Waiting to start",
@@ -175,14 +177,14 @@ defmodule ServiceRadarWebNG.Plugins.AddonRolloutView do
       {:action_required, "candidate_health_timeout"} ->
         action(
           "Update blocked",
-          "#{attempted} never reported healthy. This agent stayed on #{current}. Review the rollout to retry or keep #{current}.",
+          "A canary for #{attempted} did not pass health in time. This agent is running #{current}. Cancel or resume the paused rollout.",
           :review_rollout
         )
 
       {:action_required, "candidate_reported_unhealthy"} ->
         action(
           "Update blocked",
-          "#{attempted} reported unhealthy. This agent is on #{current}. Review the rollout to retry or keep #{current}.",
+          "A canary for #{attempted} reported unhealthy. This agent is running #{current}. Cancel or resume the paused rollout.",
           :review_rollout
         )
 
@@ -363,8 +365,14 @@ defmodule ServiceRadarWebNG.Plugins.AddonRolloutView do
     fleet? = ctx.scope_kind == :profile
 
     cond do
+      ctx.blocked_reason == "candidate_health_timeout" and ctx.state in [:failed, :rolled_back] ->
+        "#{agent} never reported healthy on #{candidate} in time. That attempt stopped; agents on this rollout were left on #{previous}."
+
       ctx.blocked_reason == "candidate_health_timeout" ->
         "#{agent} never reported healthy on #{candidate} before the health check timed out. We rolled that agent back to #{previous} and paused so #{rest_of_fleet(fleet?)}."
+
+      ctx.blocked_reason == "candidate_reported_unhealthy" and ctx.state in [:failed, :rolled_back] ->
+        "#{agent} reported #{candidate} as unhealthy. That attempt stopped; agents on this rollout were left on #{previous}."
 
       ctx.blocked_reason == "candidate_reported_unhealthy" ->
         "#{agent} reported #{candidate} as unhealthy. We rolled that agent back to #{previous} and paused so #{rest_of_fleet(fleet?)}."

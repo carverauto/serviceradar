@@ -237,6 +237,8 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonFleetLiveTest do
       )
       |> Ash.update!()
 
+    report_status!(agent.uid, addon_id, state: "running", active: true, version: "1.0.0")
+
     {:ok, lv, html} = live(conn, ~p"/settings/agents/addons/fleet")
     row_html = rollout_table_html(html)
 
@@ -244,17 +246,17 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonFleetLiveTest do
     assert html =~ "Retry"
     assert row_html =~ "Rollout Evidence Agent"
     assert row_html =~ "Direct assignment"
-    assert row_html =~ "Paused"
+    assert row_html =~ "Failed"
     assert row_html =~ "never reported healthy on 1.1.0"
-    assert row_html =~ "rolled that agent back to 1.0.0"
+    assert row_html =~ "left on 1.0.0"
     refute row_html =~ to_string(assignment.id)
     refute row_html =~ "assignment ·"
 
-    # The agent inventory row must say what to do, not a bare "action required".
-    assert html =~ "Update blocked"
-    assert html =~ "Review rollout"
-    assert html =~ ~s(data-role="fleet-health-detail")
-    refute fleet_table_html(html) =~ "action required"
+    # Desired 1.0.0 is running. A finished canary must not paint the agent as blocked.
+    fleet_html = fleet_table_html(html)
+    assert fleet_html =~ "Healthy"
+    refute fleet_html =~ "Update blocked"
+    refute fleet_html =~ "action required"
 
     html = render_click(lv, "toggle_rollout_details", %{"id" => rollout.id})
     assert html =~ ~s(data-role="addon-rollout-detail")
