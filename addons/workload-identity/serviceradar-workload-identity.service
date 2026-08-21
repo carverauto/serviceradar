@@ -52,7 +52,10 @@ StateDirectory=serviceradar/workload-identity serviceradar/workload-identity/spo
 # its primary group needs write access instead of relying on UID 0 bypasses.
 # setgid preserves the serviceradar group for files created below the state dir.
 StateDirectoryMode=2770
-ReadWritePaths=/var/lib/serviceradar/workload-identity
+# The staged binary path must be writable so ExecStartPre=+ chcon can set
+# bin_t under ProtectSystem=strict. Without it, chcon fails silently (|| true)
+# and systemd still hits 203/EXEC on Enforcing hosts.
+ReadWritePaths=/var/lib/serviceradar/workload-identity /var/lib/serviceradar/agent/addons/workload-identity
 
 [Install]
 WantedBy=multi-user.target

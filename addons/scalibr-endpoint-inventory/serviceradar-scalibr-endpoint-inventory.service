@@ -28,7 +28,10 @@ PrivateTmp=true
 ProtectSystem=strict
 ProtectHome=read-only
 ReadOnlyPaths=/
-ReadWritePaths=/var/lib/serviceradar/endpoint-inventory
+# The staged binary path must be writable so ExecStartPre=+ chcon can set
+# bin_t under ProtectSystem=strict (and ReadOnlyPaths=/). Without it, chcon
+# fails silently (|| true) and systemd still hits 203/EXEC on Enforcing hosts.
+ReadWritePaths=/var/lib/serviceradar/endpoint-inventory /var/lib/serviceradar/agent/addons/scalibr-endpoint-inventory
 StateDirectory=serviceradar/endpoint-inventory serviceradar/endpoint-inventory/profile serviceradar/endpoint-inventory/cache serviceradar/endpoint-inventory/spool serviceradar/endpoint-inventory/spool/runs serviceradar/endpoint-inventory/tmp
 # setgid (2) + group-write so dirs stay group-owned and group-writable across
 # every run; systemd re-asserts this on each start.
