@@ -35,7 +35,6 @@ defmodule ServiceRadar.EventWriter.Processors.Logs do
 
   require Logger
 
-  @snmp_varbind_prefix ~r/^[^:]+:\s*(.*)$/
   @redacted "[REDACTED]"
   @sensitive_log_keys ~w(
     authorization api_key apikey bearer cookie credential credentials jwt password
@@ -253,7 +252,14 @@ defmodule ServiceRadar.EventWriter.Processors.Logs do
 
   defp source_ip_values(json) do
     Enum.reject(
-      [FieldParser.get_field(json, "source_ip", "sourceIp"), json["_remote_addr"]],
+      [
+        FieldParser.get_field(json, "source_ip", "sourceIp"),
+        json["_remote_addr"],
+        # trapd publishes the sender as `source` ("ip:port"); the Zen rule
+        # overwrites `source` with 'snmp', so this only fires for traps that
+        # never went through logs.snmp normalization.
+        json["source"]
+      ],
       &is_nil/1
     )
   end
@@ -536,37 +542,16 @@ defmodule ServiceRadar.EventWriter.Processors.Logs do
     cond do
       is_binary(json["body"]) -> json["body"]
       is_map(json["body"]) or is_list(json["body"]) -> FieldParser.encode_json(json["body"])
-      json["message"] -> json["message"]
-      json["msg"] -> json["msg"]
-      json["short_message"] -> json["short_message"]
-      true -> snmp_body_from_varbinds(json)
+      is_binary(json["message"]) -> json["message"]
+      is_binary(json["msg"]) -> json["msg"]
+      is_binary(json["short_message"]) -> json["short_message"]
+      # SNMP trap text is assembled by the snmp_severity Zen rule, which knows
+      # which varbind carries the message. The old fallback here took
+      # varbinds[0], which on a well-formed trap is sysUpTime -- a bare
+      # TimeTicks count presented to operators as the log body.
+      true -> nil
     end
   end
-
-  defp snmp_body_from_varbinds(%{"varbinds" => varbinds}) when is_list(varbinds) do
-    Enum.find_value(varbinds, &snmp_varbind_text/1)
-  end
-
-  defp snmp_body_from_varbinds(_), do: nil
-
-  defp snmp_varbind_text(%{"value" => value}) when is_binary(value) do
-    value = String.trim(value)
-
-    if value == "" do
-      nil
-    else
-      case Regex.run(@snmp_varbind_prefix, value, capture: :all_but_first) do
-        [message] ->
-          message = String.trim(message)
-          if message == "", do: value, else: message
-
-        _ ->
-          value
-      end
-    end
-  end
-
-  defp snmp_varbind_text(_), do: nil
 
   defp attach_ingest_metadata(attributes, metadata) when is_map(attributes) do
     ingest = build_ingest_metadata(metadata)
