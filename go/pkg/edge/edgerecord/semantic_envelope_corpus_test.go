@@ -2890,6 +2890,50 @@ func TestSemanticRootOrderWitness(t *testing.T) {
 	}
 }
 
+// TestSemanticBaseShapeAliasSetIsExact rebuilds the set of committed keys that share the
+// base-shape digest, instead of stating its size in prose.
+//
+// Those keys are the SAME whole-envelope measurement under other names: a `state.<slot>.present`
+// row for a slot whose present value IS the fully populated record. That is why the base shape
+// can be described as "naming" what the per-slot rows measure -- and why the set has to be
+// pinned. A row entering or leaving it changes what the witness is evidence FOR.
+//
+// IT IS DERIVED BECAUSE THE HAND COUNT WENT STALE. The size was written out in three places;
+// when the fifth row appeared, one of them still read "four" and stayed wrong through a review
+// round, because nothing executed it. This fails instead, and names the drift.
+func TestSemanticBaseShapeAliasSetIsExact(t *testing.T) {
+	base, ok := semVectorFor(t, "root.shape.base.v0")
+	if !ok {
+		t.Fatal("no committed vector for root.shape.base.v0")
+	}
+
+	// semVectors, NOT semVectorFor: this walks every committed key, and recording a read for
+	// each would mark the whole corpus observed and make the after-suite unread-vector guard
+	// vacuous. The members are asserted by their own tests, which is what records them.
+	var got []string
+
+	for k, v := range semVectors(t) {
+		if v == base {
+			got = append(got, k)
+		}
+	}
+
+	sort.Strings(got)
+
+	want := []string{
+		"root.shape.base.v0",
+		"state.capability.present",
+		"state.capability@source_auth.present",
+		"state.output_contract@root.present",
+		"state.producer_context.present",
+		"state.source_authorization.present",
+	}
+
+	if !slices.Equal(got, want) {
+		t.Fatalf("the base-shape alias set moved.\n  committed %v\n  expected  %v", got, want)
+	}
+}
+
 // semTransitionPopulated frames a delivery transition branch with a POPULATED body, so the
 // members WITHIN that branch carry distinct values and their order is observable.
 // semTransitionMessage builds a delivery-claims message with one transition branch POPULATED.
