@@ -356,6 +356,64 @@ it.
   combinations its own records may use without making any of them unrepresentable
 
 
+### Requirement: Broker publication identity is separate from the semantic envelope
+Broker publication identity SHALL be a SEPARATE identity from the record identities
+above. It is carried in TRANSPORT HEADERS, never as a field of `EdgeRecordV1`, and it
+SHALL NOT be derived from, equal to, or substitutable for `semantic_envelope_sha256`.
+
+Three transcripts are frozen for the agent `edge_slot` path. Each SHALL begin with its
+OWN string domain tag followed by its OWN `u64` version constant, and SHALL frame every
+field by the same primitives the semantic-envelope transcript uses: unsigned integers
+as 8-byte big-endian, and every bytes or string field length-prefixed by an 8-byte
+big-endian length. Each header value SHALL be the base64url (NO padding) encoding of
+the SHA-256 of its transcript.
+
+- `Nats-Msg-Id` SHALL frame, under domain `serviceradar.edge.msgid` with
+  `msgid_version = 1`: the attested `authenticated_agent_id`, `network_scope_id`,
+  `spool_id`, `sequence`, `semantic_envelope_sha256`, then `record_sha256`. It COMMITS
+  the semantic-envelope digest as an INPUT. Committing a value does not make the two
+  the same object, and no component SHALL accept one where the other is required.
+- `Sr-Edge-Delivery-Id` SHALL frame, under domain `serviceradar.edge.delivery-id` with
+  `delivery_id_version = 1`, ONLY the `edge_slot` tuple: `network_scope_id`,
+  `authenticated_agent_id`, `spool_id`, `sequence`. It SHALL NOT commit a semantic,
+  payload, or record digest. It names the SLOT, which is what makes it stable across a
+  re-encode that changes `record_sha256`.
+- `Sr-Edge-Transport-Provenance` SHALL frame, under domain
+  `serviceradar.edge.transport-provenance` with `provenance_version = 1`: a slot-kind
+  discriminant, the slot tuple, `record_sha256`, the delivery mode, a 1-byte presence
+  marker for `delivery_proof_digest` with the digest when present, and the route-map
+  version.
+
+The service variants of all three are defined by the requirement below and SHALL carry
+DISTINCT domain tags, so an edge value and a service value cannot collide even when
+every remaining framed field agrees.
+
+The semantic envelope carries NO string domain tag and its own version constant is
+`semantic_digest_version = 3`, so no publication transcript shares its preimage shape.
+A publication identity SHALL NOT appear in the semantic-envelope preimage at any
+nesting depth.
+
+#### Scenario: A re-encoded record changes its message id but not its delivery id
+- **WHEN** a record occupying one `edge_slot` is re-encoded so that `record_sha256`
+  changes
+- **THEN** its `Nats-Msg-Id` SHALL change, so a broker cannot dedupe the two encodings
+  as one message
+- **AND** its `Sr-Edge-Delivery-Id` SHALL NOT change, because the delivery id names the
+  slot and not the bytes
+
+#### Scenario: The message id commits the semantic envelope without becoming it
+- **WHEN** two records in the same `edge_slot` differ only in
+  `semantic_envelope_sha256`
+- **THEN** their `Nats-Msg-Id` values SHALL differ
+- **AND** neither `Nats-Msg-Id` SHALL equal the record's `semantic_envelope_sha256`
+  under any encoding of it
+
+#### Scenario: Edge and service publication values cannot collide
+- **WHEN** an `edge_slot` and a `service_slot` agree on every field their transcripts
+  frame in common
+- **THEN** their `Nats-Msg-Id` values SHALL differ, and their `Sr-Edge-Delivery-Id`
+  values SHALL differ, because each variant carries its own domain tag
+
 ### Requirement: The service-ingress publication slot is a frozen wire identity
 A service-originated record SHALL bind to the frozen `service_slot` tuple, which SHALL play the same wire role for service records that `edge_slot` plays for agent records.
 
