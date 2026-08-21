@@ -105,7 +105,7 @@ defmodule ServiceRadar.Observability.ThreatIntel.Providers.AlienVaultOTX do
     opts = [
       receive_timeout: cfg.timeout_ms,
       retry: false,
-      finch: ServiceRadar.Finch,
+      finch: [name: ServiceRadar.Finch],
       headers: [
         {"accept", "application/json"},
         {"x-otx-api-key", cfg.api_key}

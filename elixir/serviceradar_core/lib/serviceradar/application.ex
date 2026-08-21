@@ -222,7 +222,7 @@ defmodule ServiceRadar.Application do
       # CAStore + optional SERVICERADAR_EGRESS_PROXY CONNECT hop. Release
       # images are intentionally minimal and may not include OS CA bundles.
       #
-      # Call sites opt in with `finch: ServiceRadar.Finch` (see
+      # Call sites opt in with `finch: [name: ServiceRadar.Finch]` (see
       # ServiceRadar.HTTP.EgressProxy.req_opts/1). Do not set
       # Req.default_options(finch: ...): Req 0.7 raises if a request also
       # passes :connect_options, and several clients do that on purpose

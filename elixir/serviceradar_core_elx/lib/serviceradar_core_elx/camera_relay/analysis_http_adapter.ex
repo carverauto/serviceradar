@@ -17,7 +17,7 @@ defmodule ServiceRadarCoreElx.CameraRelay.AnalysisHTTPAdapter do
     req_opts = [
       json: AnalysisContract.encode_transport_input(input),
       headers: normalize_headers(value(worker, :headers, %{})),
-      finch: finch,
+      finch: [name: finch],
       retry: false,
       receive_timeout: timeout_ms
     ]
@@ -47,7 +47,7 @@ defmodule ServiceRadarCoreElx.CameraRelay.AnalysisHTTPAdapter do
 
     req_opts = [
       headers: normalize_headers(value(worker, :headers, %{})),
-      finch: finch,
+      finch: [name: finch],
       retry: false,
       receive_timeout: timeout_ms
     ]

@@ -87,13 +87,13 @@ defmodule ServiceRadar.HTTP.EgressProxyTest do
     test "uses the named Finch pool without connect_options" do
       opts = EgressProxy.req_opts(15_000)
 
-      assert Keyword.get(opts, :finch) == ServiceRadar.Finch
+      assert Keyword.get(opts, :finch) == [name: ServiceRadar.Finch]
       assert Keyword.get(opts, :receive_timeout) == 15_000
       assert Keyword.get(opts, :retry) == false
       refute Keyword.has_key?(opts, :connect_options)
 
       request = Req.new(opts ++ [url: "https://example.invalid/"])
-      assert Request.get_option(request, :finch) == ServiceRadar.Finch
+      assert Request.get_option(request, :finch) == [name: ServiceRadar.Finch]
       refute Request.get_option(request, :connect_options)
     end
 
@@ -101,7 +101,7 @@ defmodule ServiceRadar.HTTP.EgressProxyTest do
       request =
         Req.new(
           url: "https://example.invalid/",
-          finch: ServiceRadar.Finch,
+          finch: [name: ServiceRadar.Finch],
           connect_options: [timeout: 1_000]
         )
 

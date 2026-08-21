@@ -55,7 +55,12 @@ defmodule ServiceRadarCoreElx.MixProject do
       {:numbers, "~> 5.2.5", override: true},
       # ex_hls through 0.2.5 advertises Req 0.5.x but only calls the compatible
       # Req.get!/1 API. Force the release containing the decompression limits.
-      {:req, "~> 0.6.1", override: true},
+      #
+      # Held at the same version as web-ng: serviceradar_core is a path dep of
+      # both, so a split here means core's code runs against a Req it was never
+      # compiled or tested against, and `finch: [name: ...]` (0.7+) silently
+      # becomes an invalid pool name under 0.6.
+      {:req, "~> 0.7", override: true},
 
       # Distributed cluster
       {:libcluster, "~> 3.4"},
