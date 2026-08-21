@@ -57,6 +57,7 @@ func TestNetprobeSystemdUnitPrivilegedStartupContract(t *testing.T) {
 	mustContain := []string{
 		"Group=serviceradar",
 		"--drop-user serviceradar",
+		"ExecStartPre=+/bin/sh -c '/usr/bin/chcon -t bin_t /var/lib/serviceradar/agent/addons/netprobe/current/serviceradar-netprobe >/dev/null 2>&1 || true'",
 		"ExecStartPre=+/usr/bin/install -d -o serviceradar -g serviceradar -m 0750 /run/serviceradar /run/serviceradar/netprobe /var/lib/serviceradar/netprobe",
 		"ExecStartPre=+/usr/bin/install -d -o root -g root -m 0700 /sys/fs/bpf/serviceradar /sys/fs/bpf/serviceradar/netprobe",
 		"/sys/fs/bpf/flow_events",
@@ -109,6 +110,11 @@ func TestAgentSystemdUnitDoesNotOwnSharedRuntimeDirectory(t *testing.T) {
 	}
 	if strings.Contains(unit, "\nDelegateSubgroup=") {
 		t.Fatal("agent unit must remain compatible with enterprise systemd releases before DelegateSubgroup")
+	}
+
+	wantCaps := "CapabilityBoundingSet=CAP_NET_RAW CAP_SETFCAP CAP_DAC_OVERRIDE CAP_FOWNER CAP_CHOWN CAP_MAC_ADMIN"
+	if !strings.Contains(unit, wantCaps) {
+		t.Fatalf("agent unit missing updater SELinux relabel capability %q", wantCaps)
 	}
 }
 

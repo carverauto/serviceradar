@@ -16,6 +16,10 @@ UMask=0027
 Slice=serviceradar.slice
 WorkingDirectory=/var/lib/serviceradar/workload-identity
 Environment="HOME=/var/lib/serviceradar/workload-identity"
+# Staged binaries inherit SELinux var_lib_t. systemd (init_t) cannot exec that
+# label (status=203/EXEC). Relabel immediately before start. The + prefix keeps
+# this root-owned even with NoNewPrivileges=true. Missing chcon is ignored.
+ExecStartPre=+/bin/sh -c '/usr/bin/chcon -t bin_t /var/lib/serviceradar/agent/addons/workload-identity/current/serviceradar-workload-identity >/dev/null 2>&1 || true'
 ExecStart=/var/lib/serviceradar/agent/addons/workload-identity/current/serviceradar-workload-identity \
     --config /var/lib/serviceradar/agent/addons/workload-identity/current/workload-identity.json
 

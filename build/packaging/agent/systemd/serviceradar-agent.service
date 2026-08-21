@@ -31,8 +31,11 @@ EnvironmentFile=-/etc/serviceradar/kv-overrides.env
 AmbientCapabilities=CAP_NET_RAW
 # The agent process only receives CAP_NET_RAW above. The broader bounding set is
 # for the constrained setuid-root agent-updater child process, which applies
-# add-on file capabilities and installs systemd units for pushed native add-ons.
-CapabilityBoundingSet=CAP_NET_RAW CAP_SETFCAP CAP_DAC_OVERRIDE CAP_FOWNER CAP_CHOWN
+# add-on file capabilities, installs systemd units, and relabels staged add-on
+# binaries. CAP_MAC_ADMIN is required for chcon (var_lib_t -> bin_t); without
+# it systemd exec of those binaries fails with status=203/EXEC on Enforcing
+# hosts. systemd inherits this bounding set to the updater child.
+CapabilityBoundingSet=CAP_NET_RAW CAP_SETFCAP CAP_DAC_OVERRIDE CAP_FOWNER CAP_CHOWN CAP_MAC_ADMIN
 Restart=always
 RestartSec=10
 LimitNPROC=512

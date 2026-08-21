@@ -132,6 +132,22 @@ func TestBumblebeeSystemdUnitRelabelsStagedBinary(t *testing.T) {
 	)
 }
 
+func TestNetprobeSystemdUnitRelabelsStagedBinary(t *testing.T) {
+	assertSystemdUnitRelabelsStagedBinary(t,
+		filepath.Join("..", "..", "..", "addons", "netprobe",
+			"serviceradar-netprobe.service"),
+		"/var/lib/serviceradar/agent/addons/netprobe/current/serviceradar-netprobe",
+	)
+}
+
+func TestWorkloadIdentitySystemdUnitRelabelsStagedBinary(t *testing.T) {
+	assertSystemdUnitRelabelsStagedBinary(t,
+		filepath.Join("..", "..", "..", "addons", "workload-identity",
+			"serviceradar-workload-identity.service"),
+		"/var/lib/serviceradar/agent/addons/workload-identity/current/serviceradar-workload-identity",
+	)
+}
+
 func assertSystemdUnitRelabelsStagedBinary(t *testing.T, unitPath, stagedBinary string) {
 	t.Helper()
 	unitBytes, err := os.ReadFile(unitPath)
