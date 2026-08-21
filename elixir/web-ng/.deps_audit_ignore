@@ -1,3 +1,23 @@
+# EEF-CVE-2026-53425 / Missing InResponseTo validation in Samly
+# EEF-CVE-2026-53424 / Missing one-time-use enforcement / SAML replay
+#
+# samly 1.4.0 is still the latest Hex release, and both advisories list
+# every release from 0.3.0 as affected, so there is no patched package
+# to upgrade to. hex.audit reports these as EEF-CVE ids (aka CVE-2026-53425
+# / CVE-2026-53424); no GHSA aliases are published.
+#
+# web-ng's live SAML ACS path is the custom controller/strategy, not
+# Samly.SPHandler:
+# - lib/serviceradar_web_ng_web/controllers/saml_controller.ex
+# - lib/serviceradar_web_ng_web/auth/saml_strategy.ex
+# That path validates signature, audience, recipient, issuer, and
+# assertion time window, plus a RelayState CSRF token. It does not
+# persist AuthnRequest IDs or compare InResponseTo, and it does not
+# record assertion IDs to reject replays. Keep this waiver until
+# upstream publishes a patched samly or those checks are added here.
+EEF-CVE-2026-53425
+EEF-CVE-2026-53424
+
 # GHSA-4g2h-vm7x-747c / esaml XXE
 #
 # web-ng does not rely on default external-entity expansion in the SAML flow.

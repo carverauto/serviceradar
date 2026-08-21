@@ -19,7 +19,7 @@ HEX_PACKAGES = [
     ("ash_postgres", "ash_postgres", "2.10.0", "e73298910d29b8051b30af390094165848b588288204ab12990f365c9fc653cc"),
     ("ash_sql", "ash_sql", "0.6.5", "e054670f5cf59e5dd2b13695c5de02ade592dc2f012ece10adb98a87e94cca8b"),
     ("ash_state_machine", "ash_state_machine", "0.2.13", "aa21c92a8950850df69b5205bf41efc1e502f5ab839425ba08561f0421c9f226"),
-    ("bandit", "bandit", "1.12.4", "84513318c5752a2a8017664450f889b47fae5d53d64698ddf1e4fb09a7449e8d"),
+    ("bandit", "bandit", "1.12.5", "c5684ca062fa407cac115aec3256383f3e2ec9fdced7904d59cf5a7bb7ed6181"),
     ("bcrypt_elixir", "bcrypt_elixir", "3.3.2", "471be5151874ae7931911057d1467d908955f93554f7a6cd1b7d804cac8cef53"),
     ("bimap", "bimap", "1.3.0", "bf5a2b078528465aa705f405a5c638becd63e41d280ada41e0f77e6d255a10b4"),
     ("boombox", "boombox", "0.2.10", "53aa18c2548fd29c00aca89f88a48e22502350c6cccdc92c3a7b84a9d3d4388b"),
