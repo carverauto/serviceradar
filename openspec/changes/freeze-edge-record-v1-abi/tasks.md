@@ -723,7 +723,7 @@ here.
   STATUS
   - LANDED: the enum-compatibility parity analysis and the Elixir `SemanticValidate` /
     `WireDecode` / `WireValidate` gates.
-  - REMAINING: 1.5-j..1.5-n. 1.5-a..1.5-i are CLOSED. The subtask list is
+  - REMAINING: 1.5-k..1.5-n. 1.5-a..1.5-j are CLOSED. The subtask list is
     exhaustive against this task's body -- see the EXHAUSTIVENESS note under the subtasks.
   - DEPENDS ON: 1.6-d, and ONLY for 1.5-m. That subtask adds the framing rule to Elixir's
     signed recovery-control path, and 1.6-d is what creates the path. Every other 1.5 subtask
@@ -1483,7 +1483,41 @@ here.
         claims-discriminant derivations FROM ITS OWN DESCRIPTORS, the exact {key, detail, probe}
         tuples of every other set, and frozen-vector parity over all 2029 vectors -- proved by an
         OBSERVED-READ guard in BOTH runtimes, not a named list.
-  - [ ] 1.5-j BROKER PUBLICATION IDENTITY defined separately from the semantic envelope
+  - [x] 1.5-j BROKER PUBLICATION IDENTITY defined separately from the semantic envelope.
+        THE DEFECT WAS NORMATIVE OWNERSHIP, NOT BEHAVIOUR. Both runtimes already implemented all
+        five transcripts and were held to the SAME committed preimage `.bin` and header `.txt`
+        fixtures, so the grammars were never in doubt. What did not exist was a requirement
+        DEFINING them: the service-ingress requirement specifies the service variants "in place of
+        agent spool coordinates", and the agent variants it refers to were specified nowhere. At
+        archive this ledger is deleted, and the only definition of the edge grammars would have
+        been the code that implements them.
+        ADDED: "Broker publication identity is separate from the semantic envelope" in
+        `specs/edge-producer-data-plane/spec.md`, freezing all three edge transcripts -- domain
+        tag, version constant, field order, framing primitives -- and stating that publication
+        identity COMMITS `semantic_envelope_sha256` without being it, that `Sr-Edge-Delivery-Id`
+        commits no digest at all, and that the edge and service variants cannot collide.
+        EVIDENCE, MEASURED. A mutation battery over the Go grammars -- dropped semantic digest
+        (edge and service), swapped semantic/record order, edge transcript adopting the SERVICE
+        domain tag, dropped version constant, delivery-id commiting a digest, reordered slot
+        fields, delivery-id adopting the service domain tag -- is 8 of 8 KILLED, 0 survivors, by
+        `TestGoldenPublicationIdentity`, `TestVersionSharedCorpus` and
+        `TestVersionInventoryIsExhaustive`. The Elixir grammar was mutated independently and is
+        killed too, so both runtimes are pinned rather than merely present.
+        THE THREE SCENARIOS ARE EXECUTED, NOT ASSERTED IN PROSE:
+        `TestPublicationIdentityIsSeparateFromTheSemanticEnvelope` (Go) and
+        `ServiceRadar.Edge.PublicationIdentityTest` (Elixir, three tests). They read NO committed
+        value -- every input is built in the test and every assertion is between two computed
+        results.
+        THAT INDEPENDENCE IS THE POINT, AND IT WAS MEASURED. A fixture pins a grammar only until
+        someone regenerates it. Dropping the semantic-envelope commitment from the edge msg-id in
+        BOTH runtimes and regenerating the fixtures against the change turns every golden
+        assertion green again -- `//proto/edge/v1` reported ok, and
+        `unit_tests_serviceradar_other`, which holds the Elixir golden test, PASSED. The relation
+        tests do not: Go failed, and the Elixir shard reported "687 tests, 1 failure", that one
+        being `the message id commits the semantic envelope without becoming it`. A regenerated
+        fixture can no longer silently redefine this contract.
+        NOT IN SCOPE: no corpus or generator work. The transcripts were already covered by the
+        shared fixtures and by `pubid_reject_vectors.txt`.
   - [ ] 1.5-k PROJECTED ROW COST covering every synchronous ledger / domain / outbox / work
         / current-state mutation
   - [ ] 1.5-l REFUSAL CLASSIFICATION -- `:poison` vs `:systemic` vs `:not_ready`. This task's

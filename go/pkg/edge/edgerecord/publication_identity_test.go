@@ -134,6 +134,89 @@ func TestPublicationIdentityGrammars(t *testing.T) {
 	reject("non-v7 spool", TransportProvenanceInput{Edge: &badSpool, RecordSha256: rsha, DeliveryMode: DeliveryModeFresh, RouteMapVersion: 1})
 }
 
+// TestPublicationIdentityIsSeparateFromTheSemanticEnvelope executes the three scenarios stated
+// by the "Broker publication identity is separate from the semantic envelope" requirement.
+//
+// THE COMMITTED FIXTURES PIN THE GRAMMAR; THEY DO NOT PIN WHAT IT IS FOR. A mutation battery over
+// these transcripts kills every reordering, dropped field and swapped domain tag, because the
+// preimage bytes are committed. None of that says these are SEPARATE identities -- from the
+// semantic envelope, and from each other. That is a claim about how the values relate as inputs
+// change, so it needs inputs that change, which a frozen fixture by construction does not have.
+func TestPublicationIdentityIsSeparateFromTheSemanticEnvelope(t *testing.T) {
+	slot, _, sed, rsha := pubIDFixture()
+
+	msgID, err := NatsMsgID(slot, sed, rsha)
+	if err != nil {
+		t.Fatalf("NatsMsgID: %v", err)
+	}
+
+	delID, err := DeliveryID(slot)
+	if err != nil {
+		t.Fatalf("DeliveryID: %v", err)
+	}
+
+	// SCENARIO: a re-encoded record changes its message id but not its delivery id.
+	reEncoded := bytes.Repeat([]byte{0xCC}, 32)
+	if same, _ := NatsMsgID(slot, sed, reEncoded); same == msgID {
+		t.Fatal("msg-id must depend on record_sha256, or a broker dedupes two encodings as one")
+	}
+
+	// DeliveryID takes the slot ALONE -- there is no record digest to hand it -- so its stability
+	// across a re-encode is structural rather than measured. Asserting it anyway pins the
+	// SIGNATURE: giving the delivery id a digest input would have to change this call site.
+	if again, _ := DeliveryID(slot); again != delID {
+		t.Fatal("delivery-id must name the slot, not the bytes")
+	}
+
+	// SCENARIO: the message id commits the semantic envelope without becoming it.
+	otherSED := bytes.Repeat([]byte{0xDD}, 32)
+	if same, _ := NatsMsgID(slot, otherSED, rsha); same == msgID {
+		t.Fatal("msg-id must depend on semantic_envelope_sha256")
+	}
+
+	if msgID == base64.RawURLEncoding.EncodeToString(sed) {
+		t.Fatal("msg-id is the semantic envelope digest re-encoded, not a separate identity")
+	}
+
+	raw, err := base64.RawURLEncoding.DecodeString(msgID)
+	if err != nil {
+		t.Fatalf("msg-id does not decode: %v", err)
+	}
+
+	if bytes.Equal(raw, sed) {
+		t.Fatal("msg-id decodes to the semantic envelope digest")
+	}
+
+	// SCENARIO: edge and service publication values cannot collide. The service transcripts mirror
+	// the edge FIELD ORDER exactly, so a service slot carrying the same values leaves the domain
+	// tag as the only difference between the two preimages -- which is the whole claim. A fixture
+	// whose lane id and spool id merely happened to differ would prove separation by accident.
+	twin := ServiceSlot{
+		NetworkScopeID:         slot.NetworkScopeID,
+		AuthenticatedServiceID: slot.AuthenticatedAgentID,
+		PublicationLaneID:      slot.SpoolID,
+		PublicationSequence:    slot.Sequence,
+	}
+
+	svcMsg, err := ServiceNatsMsgID(twin, sed, rsha)
+	if err != nil {
+		t.Fatalf("ServiceNatsMsgID: %v", err)
+	}
+
+	if svcMsg == msgID {
+		t.Fatal("edge and service msg-id must differ on the domain tag alone")
+	}
+
+	svcDel, err := ServiceDeliveryID(twin)
+	if err != nil {
+		t.Fatalf("ServiceDeliveryID: %v", err)
+	}
+
+	if svcDel == delID {
+		t.Fatal("edge and service delivery-id must differ on the domain tag alone")
+	}
+}
+
 func TestDecodeTransportProvenanceRoundTrip(t *testing.T) {
 	slot, _, _, rsha := pubIDFixture()
 	proof := bytes.Repeat([]byte{0x07}, 32)
