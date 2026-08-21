@@ -46,19 +46,30 @@
   {{- fail "cnpg.storageClass or global.storage.encryptedStorageClassName is required unless global.storage.allowInsecureStorage=true" -}}
 {{- end -}}
 {{- $clusterName := include "serviceradar.cnpgClusterName" . -}}
-{{- /* WAL safety cap: never leave max_slot_wal_keep_size unbounded (-1) — a stuck or
-       lagging replication slot would otherwise retain WAL until the data volume fills
-       and the primary crashes (the 2026-06-17 demo CNPG outage). Default to ~30% of the
-       declared storage (min 10GB); override with cnpg.maxSlotWalKeepSize, or set it
-       directly in cnpg.postgresqlParameters. PostgreSQL accepts GB/TB units here, not
-       Kubernetes-style Gi/Ti resource units. */ -}}
-{{- $walCap := default "" $cnpg.maxSlotWalKeepSize -}}
-{{- if eq $walCap "" -}}
-  {{- $storeNum := int (regexReplaceAll "[^0-9]" (default "100Gi" $cnpg.storageSize) "") -}}
-  {{- $derived := div (mul $storeNum 30) 100 -}}
-  {{- if lt $derived 10 -}}{{- $derived = 10 -}}{{- end -}}
-  {{- $walCap = printf "%dGB" $derived -}}
-{{- end -}}
+{{- /* WAL budget. pg_wal shares the data PVC (this chart declares no CNPG walStorage),
+       so all three of these are sized relative to the declared volume:
+
+       max_slot_wal_keep_size — never leave it unbounded (-1): a stuck or lagging
+         replication slot would retain WAL until the data volume fills and the primary
+         crashes (the 2026-06-17 demo CNPG outage). ~30% of storage, floored at 10GB but
+         never more than half the volume.
+       max_wal_size — PostgreSQL forces a checkpoint every
+         max_wal_size/(2 + checkpoint_completion_target). At the 1GB default that is
+         353MB, which on this product's ingest meant a checkpoint every ~14s and, under
+         load, every 10s with every backend parked on LWLock:WALWrite. 7% of storage,
+         clamped to [1GB, 8GB]; the 1GB floor keeps installs of ~28Gi or less on
+         PostgreSQL's own default so they spend no extra disk.
+       min_wal_size — recycle floor so returning bursty ingest reuses segments instead of
+         creating and fsyncing new ones. Permanently-resident disk, hence the 1GB ceiling.
+
+       Override any of them with cnpg.maxSlotWalKeepSize / cnpg.maxWalSize /
+       cnpg.minWalSize, or set the parameter directly in cnpg.postgresqlParameters.
+       PostgreSQL accepts GB/MB units here, not Kubernetes-style Gi/Mi resource units. */ -}}
+{{- $cnpgStorageSize := default "100Gi" $cnpg.storageSize -}}
+{{- $walBudget := fromJson (include "serviceradar.walBudget" $cnpgStorageSize) -}}
+{{- $walCap := default $walBudget.maxSlotWalKeepSize $cnpg.maxSlotWalKeepSize -}}
+{{- $maxWal := default $walBudget.maxWalSize $cnpg.maxWalSize -}}
+{{- $minWal := default $walBudget.minWalSize $cnpg.minWalSize -}}
 {{- $appSecretName := default "serviceradar-db-credentials" $cnpg.credentialsSecret -}}
 {{- $superSecretName := default "cnpg-superuser" $cnpg.superuserSecret -}}
 {{- $existingAppCreds := (lookup "v1" "Secret" $ns $appSecretName) -}}
@@ -167,7 +178,7 @@ spec:
     {{- end }}
   {{- end }}
   storage:
-    size: {{ default "100Gi" $cnpg.storageSize }}
+    size: {{ $cnpgStorageSize }}
     {{- if $cnpgStorageClass }}
     storageClass: {{ $cnpgStorageClass | quote }}
     {{- end }}
@@ -196,6 +207,12 @@ spec:
       {{- end }}
       {{- if not (hasKey (default dict $cnpg.postgresqlParameters) "max_slot_wal_keep_size") }}
       "max_slot_wal_keep_size": {{ $walCap | quote }}
+      {{- end }}
+      {{- if not (hasKey (default dict $cnpg.postgresqlParameters) "max_wal_size") }}
+      "max_wal_size": {{ $maxWal | quote }}
+      {{- end }}
+      {{- if not (hasKey (default dict $cnpg.postgresqlParameters) "min_wal_size") }}
+      "min_wal_size": {{ $minWal | quote }}
       {{- end }}
     {{- with $cnpg.sharedPreloadLibraries }}
     shared_preload_libraries:

@@ -110,6 +110,10 @@ services:
       - "min_wal_size=1GB"
       - "-c"
       - "max_wal_size=4GB"
+      - "-c"
+      - "wal_compression=on"
+      - "-c"
+      - "log_parameter_max_length=0"
     environment:
       - CNPG_DATA_DIR=/var/lib/postgresql/18/docker
       - CNPG_EXPECTED_PG_MAJOR=18
