@@ -669,7 +669,15 @@ defmodule ServiceRadar.Inventory.SourceIdentityDrift do
              WHERE uid = $1
                AND deleted_at IS NULL
              """,
-             [repair.device_uid, Jason.encode!(patch)]
+             # Pass the map itself. The `$2::jsonb` placeholder makes Postgres
+             # type the parameter as jsonb, so Postgrex runs it through its own
+             # JSON encoder -- a pre-encoded binary here gets encoded AGAIN and
+             # lands as a jsonb *string scalar*. `object || string` is not a
+             # merge in Postgres, it builds an ARRAY, and every later sync then
+             # appends to that array. The device's `metadata` stops being an
+             # object and Ash can no longer load it as :map, which takes the
+             # whole Armis discovery sync down.
+             [repair.device_uid, patch]
            ) do
         {:ok, %{num_rows: 1}} ->
           audit = Map.fetch!(patch, "source_identity_repair")
@@ -705,7 +713,10 @@ defmodule ServiceRadar.Inventory.SourceIdentityDrift do
         AND COALESCE(source_identifier_value, '') = $2
         AND COALESCE(source_id, '') = COALESCE($3, '')
       """,
-      [repair.device_uid, repair.typed_armis_id, repair.source_id, Jason.encode!(audit)]
+      # `audit` goes in as a map for the same reason as the metadata patch
+      # above: `$4::jsonb` means Postgrex encodes it, so pre-encoding here
+      # would store a jsonb string scalar instead of an object.
+      [repair.device_uid, repair.typed_armis_id, repair.source_id, audit]
     )
   rescue
     e ->
