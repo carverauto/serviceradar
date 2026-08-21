@@ -403,9 +403,10 @@ defmodule ServiceRadar.Edge.SemanticEnvelopeCorpusTest do
     test "the fully populated whole-envelope digest is the ROOT-ORDER witness" do
       # Per-slot inequality cannot see order: swapping two composite blocks leaves every slot row
       # green in both runtimes. The base shape NAMES that measurement -- it shares its value with
-      # the four state.<slot>.present rows, which measure the same thing -- and it moves HERE,
-      # at every committed variant, so a reordering that reached one runtime and not the other
-      # cannot hide.
+      # the state.<slot>.present rows, which are the same whole-envelope measurement under other
+      # names -- and it moves HERE, at every committed variant, so a reordering that reached one
+      # runtime and not the other cannot hide. WHICH rows those are is not restated here; the
+      # test below derives the set from the committed vectors.
       vectors = vectors()
 
       digests =
@@ -417,6 +418,35 @@ defmodule ServiceRadar.Edge.SemanticEnvelopeCorpusTest do
 
       assert length(Enum.uniq(digests)) == length(digests),
              "the record variants frame identically, so the extra fixtures add no signature"
+    end
+
+    test "the base-shape alias set is EXACT" do
+      # DERIVED, NOT COUNTED IN PROSE. The keys sharing the base-shape digest are the same
+      # whole-envelope measurement under other names, and which rows they are decides what the
+      # witness above is evidence FOR. The size was written out in three places; when the fifth
+      # row appeared one of them still read "four" and survived a review round, because nothing
+      # executed it. This fails instead, and names the drift.
+      vectors = vectors()
+      base = vector!(vectors, "root.shape.base.v0")
+
+      # vectors/0 directly, NOT vector!/2: recording a read for every key would mark the whole
+      # corpus observed and make the after_suite unread-vector guard vacuous. The members are
+      # asserted by their own tests, which is what records them.
+      got =
+        vectors
+        |> Enum.filter(fn {_k, v} -> v == base end)
+        |> Enum.map(&elem(&1, 0))
+        |> Enum.sort()
+
+      assert got == [
+               "root.shape.base.v0",
+               "state.capability.present",
+               "state.capability@source_auth.present",
+               "state.output_contract@root.present",
+               "state.producer_context.present",
+               "state.source_authorization.present"
+             ],
+             "the base-shape alias set moved"
     end
 
     test "the capability framer's SECOND carrier, both states" do

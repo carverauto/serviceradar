@@ -748,7 +748,10 @@ THREE PROPERTIES NEEDED EVIDENCE NOTHING ELSE COULD GIVE:
   KEYS that move: `root.shape.base.v0` shares its value with FIVE `state.*.present` rows --
   `producer_context`, `capability`, `capability@source_auth`, `source_authorization` and
   `output_contract@root` -- which are the same whole-envelope measurement under other names, so
-  SIX keys move together. What is unique is the
+  SIX keys move together. THAT SET IS NOW DERIVED FROM THE COMMITTED VECTORS, not counted here:
+  `TestSemanticBaseShapeAliasSetIsExact` and its Elixir peer rebuild it and fail on drift. The
+  count had been written out in three places and one still read "four" a review round after the
+  fifth row appeared, because no test executed it. What is unique is the
   evidence CLASS: no child vector and no edge row changes at all. It rests on a fixture where every write is distinct
   within its FRAMER TRANSCRIPT, inlined children included, so no two are exchangeable without
   moving a byte.
