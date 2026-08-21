@@ -89,8 +89,10 @@ pub fn parse_tls_client_hello(payload: &[u8]) -> Option<Ja4ClientHello> {
         return None;
     }
     let cipher_suites = payload[offset..offset + cipher_len]
-        .chunks_exact(2)
-        .map(|chunk| u16::from_be_bytes([chunk[0], chunk[1]]))
+        .as_chunks::<2>()
+        .0
+        .iter()
+        .map(|chunk| u16::from_be_bytes(*chunk))
         .collect::<Vec<_>>();
     offset += cipher_len;
 
@@ -302,8 +304,10 @@ fn parse_u16_list(data: &[u8], length_prefix_bytes: usize) -> Vec<u16> {
     let Some(list) = strip_length_prefix(data, length_prefix_bytes) else {
         return Vec::new();
     };
-    list.chunks_exact(2)
-        .map(|chunk| u16::from_be_bytes([chunk[0], chunk[1]]))
+    list.as_chunks::<2>()
+        .0
+        .iter()
+        .map(|chunk| u16::from_be_bytes(*chunk))
         .collect()
 }
 
@@ -311,8 +315,10 @@ fn parse_supported_versions(data: &[u8]) -> Vec<u16> {
     let Some(list) = strip_length_prefix(data, 1) else {
         return Vec::new();
     };
-    list.chunks_exact(2)
-        .map(|chunk| u16::from_be_bytes([chunk[0], chunk[1]]))
+    list.as_chunks::<2>()
+        .0
+        .iter()
+        .map(|chunk| u16::from_be_bytes(*chunk))
         .collect()
 }
 
@@ -335,7 +341,7 @@ fn strip_length_prefix(data: &[u8], length_prefix_bytes: usize) -> Option<&[u8]>
 
 #[cfg(test)]
 mod tests {
-    use super::{Ja4ClientHello, Ja4Transport, fingerprint, fingerprint_tls_client_hello};
+    use super::{fingerprint, fingerprint_tls_client_hello, Ja4ClientHello, Ja4Transport};
 
     #[test]
     fn matches_foxio_reference_vector() {

@@ -147,10 +147,10 @@ pub fn parse_dhcpv6(payload: &[u8]) -> Option<DhcpObservation> {
 
         match code {
             DHCPV6_OPTION_ORO => {
-                for chunk in value.chunks_exact(2) {
+                for chunk in value.as_chunks::<2>().0 {
                     observation
                         .parameter_request_list
-                        .push(u16::from_be_bytes([chunk[0], chunk[1]]));
+                        .push(u16::from_be_bytes(*chunk));
                 }
             }
             DHCPV6_OPTION_VENDOR_CLASS => observation.vendor_class_present = true,
@@ -186,7 +186,7 @@ fn csv_u16(values: &[u16]) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{DhcpMessageType, parse_dhcpv4, parse_dhcpv6};
+    use super::{parse_dhcpv4, parse_dhcpv6, DhcpMessageType};
 
     #[test]
     fn parses_dhcpv4_option_presence_without_option_values() {

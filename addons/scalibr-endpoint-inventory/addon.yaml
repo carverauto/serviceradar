@@ -5,7 +5,7 @@
 # endpoint inventory spool payload from /var/lib/serviceradar/endpoint-inventory.
 id: scalibr-endpoint-inventory
 name: ScaLibr Endpoint Software Inventory
-version: 0.1.5
+version: 0.1.6
 description: >-
   OSV ScaLibr-backed endpoint software inventory scanner that emits ServiceRadar
   endpoint inventory SBOM and generic scanner contract metadata.

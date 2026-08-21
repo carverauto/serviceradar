@@ -29,6 +29,11 @@ Slice=serviceradar.slice
 #   --ebpf-object   the compiled BPF object shipped flat in the bundle (data_entries). Required:
 #                   continuous capture refuses to start without it after the Phase 3 eBPF
 #                   cutover (rust/netprobe/src/main.rs); IPC config cannot enable capture later.
+# Staged binaries inherit SELinux var_lib_t. systemd (init_t) cannot exec that
+# label (status=203/EXEC). Relabel immediately before start. The + prefix runs
+# as PID 1 (full caps), not as a child of serviceradar-agent. Missing chcon
+# (non-SELinux) is ignored.
+ExecStartPre=+/bin/sh -c '/usr/bin/chcon -t bin_t /var/lib/serviceradar/agent/addons/netprobe/current/serviceradar-netprobe >/dev/null 2>&1 || true'
 ExecStart=/var/lib/serviceradar/agent/addons/netprobe/current/serviceradar-netprobe \
     --socket /run/serviceradar/netprobe/ipc.sock \
     --config /etc/serviceradar/sidecars/netprobe.json \

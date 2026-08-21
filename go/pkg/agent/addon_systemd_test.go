@@ -132,6 +132,22 @@ func TestBumblebeeSystemdUnitRelabelsStagedBinary(t *testing.T) {
 	)
 }
 
+func TestNetprobeSystemdUnitRelabelsStagedBinary(t *testing.T) {
+	assertSystemdUnitRelabelsStagedBinary(t,
+		filepath.Join("..", "..", "..", "addons", "netprobe",
+			"serviceradar-netprobe.service"),
+		"/var/lib/serviceradar/agent/addons/netprobe/current/serviceradar-netprobe",
+	)
+}
+
+func TestWorkloadIdentitySystemdUnitRelabelsStagedBinary(t *testing.T) {
+	assertSystemdUnitRelabelsStagedBinary(t,
+		filepath.Join("..", "..", "..", "addons", "workload-identity",
+			"serviceradar-workload-identity.service"),
+		"/var/lib/serviceradar/agent/addons/workload-identity/current/serviceradar-workload-identity",
+	)
+}
+
 func assertSystemdUnitRelabelsStagedBinary(t *testing.T, unitPath, stagedBinary string) {
 	t.Helper()
 	unitBytes, err := os.ReadFile(unitPath)
@@ -145,6 +161,24 @@ func assertSystemdUnitRelabelsStagedBinary(t *testing.T, unitPath, stagedBinary 
 	if !strings.Contains(unit, stagedBinary) {
 		t.Fatalf("unit ExecStartPre must target the staged current/ binary %s", stagedBinary)
 	}
+	if !unitAllowsChconOnStagedBinary(unit, stagedBinary) {
+		t.Fatalf("ProtectSystem=strict units must ReadWritePaths a prefix of %s so chcon can set bin_t", stagedBinary)
+	}
+}
+
+func unitAllowsChconOnStagedBinary(unit, stagedBinary string) bool {
+	for _, line := range strings.Split(unit, "\n") {
+		line = strings.TrimSpace(line)
+		if !strings.HasPrefix(line, "ReadWritePaths=") {
+			continue
+		}
+		for _, path := range strings.Fields(strings.TrimPrefix(line, "ReadWritePaths=")) {
+			if path == stagedBinary || strings.HasPrefix(stagedBinary, strings.TrimRight(path, "/")+"/") {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func TestStagedAddonExecutablesSelectsBinariesOnly(t *testing.T) {

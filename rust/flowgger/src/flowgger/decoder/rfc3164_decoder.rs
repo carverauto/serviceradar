@@ -273,25 +273,24 @@ fn parse_date<'a>(
     has_year: bool,
     default_timezone: Option<&str>,
 ) -> Result<(f64, Vec<&'a str>), &'static str> {
-    // Decode the date/time from the given tokens with optional year specified
-    let ts_str;
-    let mut idx;
-
-    // If no year in the string, parse manually add the current year
-    if has_year {
-        idx = 4;
-        ts_str = match ts_tokens.get(0..idx) {
-            Some(str) => str.join(" "),
+    // Decode the date/time from the given tokens with optional year specified.
+    // If no year in the string, parse and manually add the current year.
+    let (mut idx, ts_str) = if has_year {
+        let idx = 4;
+        let ts_str = match ts_tokens.get(0..idx) {
+            Some(s) => s.join(" "),
             None => return Err("Unable to parse RFC3164 date with year"),
         };
+        (idx, ts_str)
     } else {
-        idx = 3;
+        let idx = 3;
         let current_year = OffsetDateTime::now_utc().year();
-        ts_str = match ts_tokens.get(0..idx) {
-            Some(str) => format!("{} {}", current_year, str.join(" ")),
+        let ts_str = match ts_tokens.get(0..idx) {
+            Some(s) => format!("{} {}", current_year, s.join(" ")),
             None => return Err("Unable to parse RFC3164 date without year"),
         };
-    }
+        (idx, ts_str)
+    };
 
     let format_item = format_description::parse(
         "[year] [month repr:short] [day padding:none] [hour]:[minute]:[second]",
