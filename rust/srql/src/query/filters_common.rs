@@ -145,3 +145,59 @@ pub(crate) fn build_other_rollup_sql(
         other_json_args = other_json_parts.join(", "),
     )
 }
+
+/// Validates that a JSONB key is safe to interpolate into a query expression.
+///
+/// Only ASCII alphanumerics, underscore, and hyphen are allowed, capped at 64
+/// characters. This is load-bearing rather than cosmetic: JSONB key extraction
+/// is built by string formatting (`tags->>'key'`, and for grouping the whole
+/// expression is interpolated into the SELECT/GROUP BY), so a key containing a
+/// quote would break out of the literal. Rejecting dots and whitespace also
+/// keeps keys single-level, matching what the extraction operator does.
+///
+/// Shared between the `devices` and `timeseries_metrics` entities so the two
+/// cannot drift on what counts as a safe key.
+pub(crate) fn is_valid_jsonb_key(key: &str) -> bool {
+    !key.is_empty()
+        && key.len() <= 64
+        && key
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-')
+}
+
+#[cfg(test)]
+mod jsonb_key_tests {
+    use super::is_valid_jsonb_key;
+
+    #[test]
+    fn accepts_ordinary_keys() {
+        for key in ["site_code", "ap-name", "band", "a", "A1_b-2"] {
+            assert!(is_valid_jsonb_key(key), "{key} should be accepted");
+        }
+    }
+
+    // A quote would terminate the string literal in `tags->>'key'`; a dot would
+    // imply a nested path the single-level extraction operator does not do.
+    #[test]
+    fn rejects_keys_that_could_escape_or_mislead() {
+        for key in [
+            "",
+            "a'b",
+            "a\"b",
+            "a.b",
+            "a b",
+            "a;b",
+            "a)b",
+            "tags->>'x",
+            "a\nb",
+        ] {
+            assert!(!is_valid_jsonb_key(key), "{key:?} should be rejected");
+        }
+    }
+
+    #[test]
+    fn rejects_overlong_keys() {
+        assert!(is_valid_jsonb_key(&"a".repeat(64)));
+        assert!(!is_valid_jsonb_key(&"a".repeat(65)));
+    }
+}

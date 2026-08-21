@@ -1377,3 +1377,63 @@ fn translate_flows_cidr_works_on_stats_and_downsample_paths() {
         );
     }
 }
+
+/// Helper: translate a query string end-to-end, as a client would.
+fn translate_query(query: &str) -> std::result::Result<String, crate::error::ServiceError> {
+    let config = test_config();
+    let request = QueryRequest {
+        query: query.to_string(),
+        limit: None,
+        cursor: None,
+        direction: QueryDirection::Next,
+        mode: None,
+    };
+
+    crate::query::translate::translate_request(&config, request).map(|response| response.sql)
+}
+
+/// Before this was fixed, this exact query succeeded and returned a fleet-wide
+/// average: the stats path discarded the tag predicate and emitted SQL carrying
+/// only the two time-bound binds. Nothing surfaced the difference, so the number
+/// looked plausible and scoped when it was neither.
+#[test]
+fn translate_timeseries_tag_filter_reaches_the_sql() {
+    let sql = translate_query(
+        "in:timeseries_metrics tags.site_code:ORD stats:avg(value) as v by device_id time:last_1h",
+    )
+    .expect("tag filter should translate");
+
+    assert!(
+        sql.contains("tags->>'site_code'"),
+        "the site predicate must reach the SQL: {sql}"
+    );
+}
+
+#[test]
+fn translate_timeseries_tag_grouping_reaches_the_sql() {
+    let sql = translate_query(
+        "in:timeseries_metrics stats:sum(value) as clients by tags.site_code time:last_1h",
+    )
+    .expect("tag grouping should translate");
+
+    assert!(
+        sql.contains("tags->>'site_code' AS group_value_0"),
+        "the tag group expression must reach the SQL: {sql}"
+    );
+}
+
+/// The stats and non-stats paths must agree. Adding `stats:` used to turn a
+/// hard error into a silently unfiltered result.
+#[test]
+fn translate_timeseries_unknown_filter_errors_with_and_without_stats() {
+    let with_stats = translate_query(
+        "in:timeseries_metrics nonsense_field:x stats:avg(value) as v by device_id time:last_1h",
+    );
+    let without_stats = translate_query("in:timeseries_metrics nonsense_field:x time:last_1h");
+
+    assert!(
+        with_stats.is_err(),
+        "adding stats: must not turn an error into a silently unfiltered result"
+    );
+    assert!(without_stats.is_err());
+}

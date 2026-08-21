@@ -1,6 +1,6 @@
 //! SRQL support for timeseries-backed metrics (generic, SNMP, and rperf).
 
-use super::{BindParam, QueryPlan, build_other_rollup_sql};
+use super::{BindParam, QueryPlan, build_other_rollup_sql, filters_common::is_valid_jsonb_key};
 use crate::{
     error::{Result, ServiceError},
     jsonb::DbJson,
@@ -617,6 +617,9 @@ fn apply_filter<'a>(
         "value" => {
             query = apply_value_filter(query, filter)?;
         }
+        field if field.starts_with("tags.") => {
+            query = apply_tag_filter(query, filter)?;
+        }
         other => {
             return Err(ServiceError::InvalidRequest(format!(
                 "unsupported filter field for timeseries_metrics: '{other}'"
@@ -625,6 +628,83 @@ fn apply_filter<'a>(
     }
 
     Ok(query)
+}
+
+/// Filter on a single-level JSONB tag, e.g. `tags.site_code:ORD`.
+///
+/// Values are bound, never interpolated; only the validated key becomes part of
+/// the expression text. `NotEq`/`NotLike` deliberately also match rows where the
+/// tag is absent, matching the devices entity and the plain-column macro — a row
+/// with no `site_code` genuinely is "not ORD", and excluding it would quietly
+/// shrink the result.
+fn apply_tag_filter<'a>(
+    query: TimeseriesQuery<'a>,
+    filter: &Filter,
+) -> Result<TimeseriesQuery<'a>> {
+    use diesel::dsl::sql;
+    use diesel::sql_types::Bool;
+
+    let key = tag_key(&filter.field)?;
+    let expr = tag_expr(&key);
+
+    let next = match filter.op {
+        FilterOp::Eq => {
+            let value = filter.value.as_scalar()?.to_string();
+            query.filter(sql::<Bool>(&format!("{expr} = ")).bind::<Text, _>(value))
+        }
+        FilterOp::NotEq => {
+            let value = filter.value.as_scalar()?.to_string();
+            query.filter(
+                sql::<Bool>(&format!("({expr} IS NULL OR {expr} <> "))
+                    .bind::<Text, _>(value)
+                    .sql(")"),
+            )
+        }
+        FilterOp::Like => {
+            let value = filter.value.as_scalar()?.to_string();
+            query.filter(sql::<Bool>(&format!("{expr} ILIKE ")).bind::<Text, _>(value))
+        }
+        FilterOp::NotLike => {
+            let value = filter.value.as_scalar()?.to_string();
+            query.filter(
+                sql::<Bool>(&format!("({expr} IS NULL OR {expr} NOT ILIKE "))
+                    .bind::<Text, _>(value)
+                    .sql(")"),
+            )
+        }
+        FilterOp::In => {
+            let values = filter.value.as_list()?.to_vec();
+            if values.is_empty() {
+                // An empty IN list matches nothing. Returning the query
+                // unchanged would silently match everything instead.
+                return Ok(query.filter(sql::<Bool>("1=0")));
+            }
+            query.filter(
+                sql::<Bool>(&format!("{expr} = ANY("))
+                    .bind::<Array<Text>, _>(values)
+                    .sql(")"),
+            )
+        }
+        FilterOp::NotIn => {
+            let values = filter.value.as_list()?.to_vec();
+            if values.is_empty() {
+                return Ok(query);
+            }
+            query.filter(
+                sql::<Bool>(&format!("({expr} IS NULL OR {expr} <> ALL("))
+                    .bind::<Array<Text>, _>(values)
+                    .sql("))"),
+            )
+        }
+        _ => {
+            return Err(ServiceError::InvalidRequest(format!(
+                "unsupported operator for tag filter '{}'",
+                filter.field
+            )));
+        }
+    };
+
+    Ok(next)
 }
 
 fn collect_text_params(params: &mut Vec<BindParam>, filter: &Filter) -> Result<()> {
@@ -676,6 +756,12 @@ fn collect_filter_params(params: &mut Vec<BindParam>, filter: &Filter) -> Result
             let value = parse_f64(filter.value.as_scalar()?)?;
             params.push(BindParam::Float(value));
             Ok(())
+        }
+        field if field.starts_with("tags.") => {
+            // Validate here too: this runs on the SQL-string path, where the key
+            // reaches the query text.
+            tag_key(field)?;
+            collect_text_params(params, filter)
         }
         other => Err(ServiceError::InvalidRequest(format!(
             "unsupported filter field for timeseries_metrics: '{other}'"
@@ -1266,9 +1352,23 @@ fn build_stats_query_with_source(
     }
 
     for filter in &plan.filters {
-        if let Some((clause, mut values)) = build_stats_filter_clause(filter, cagg_mode)? {
-            clauses.push(clause);
-            binds.append(&mut values);
+        match build_stats_filter_clause(filter, cagg_mode)? {
+            Some((clause, mut values)) => {
+                clauses.push(clause);
+                binds.append(&mut values);
+            }
+            // Never skip a filter we could not apply. Dropping it here returned
+            // a fleet-wide aggregate for a query that asked for one slice of the
+            // fleet, with nothing to indicate the difference. In CAGG mode this
+            // is unreachable — `should_route_stats_to_cagg` only routes queries
+            // whose filters the aggregate can express — so an error there means
+            // routing and filtering have drifted apart, which should be loud.
+            None => {
+                return Err(ServiceError::InvalidRequest(format!(
+                    "unsupported filter field for timeseries_metrics: '{}'",
+                    filter.field
+                )));
+            }
         }
     }
 
@@ -1280,8 +1380,8 @@ fn build_stats_query_with_source(
     let group_exprs: Vec<String> = spec
         .group_by
         .iter()
-        .map(|group| group.field.clone())
-        .collect();
+        .map(|group| group_sql_expr(&group.field))
+        .collect::<Result<Vec<_>>>()?;
     let agg_sqls: Vec<String> = spec
         .aggregations
         .iter()
@@ -1920,15 +2020,42 @@ fn zoneinfo_timezone(timezone: &str) -> bool {
         .any(|dir| Path::new(dir).join(timezone).is_file())
 }
 
+/// Columns the hourly CAGG projection actually carries.
+///
+/// A filter on anything else cannot be evaluated against the aggregate, which
+/// is why `filters_are_cagg_expressible` refuses to route such a query there
+/// rather than dropping the predicate.
+const CAGG_FILTERABLE_FIELDS: [&str; 3] = ["device_id", "metric_type", "metric_name"];
+
+/// Whether every filter in the plan can be expressed against the hourly CAGG.
+///
+/// Routing is decided by time range alone, so without this check the same query
+/// meant two different things either side of the six-hour threshold: at
+/// `time:last_1h` a `gateway_id` filter was applied, and at `time:last_24h` it
+/// was silently discarded and the answer widened to the whole fleet.
+fn filters_are_cagg_expressible(plan: &QueryPlan) -> bool {
+    plan.filters
+        .iter()
+        .all(|filter| CAGG_FILTERABLE_FIELDS.contains(&filter.field.as_str()))
+}
+
+/// Build the WHERE clause for one filter on the stats path.
+///
+/// `Ok(None)` means "this field cannot be applied here" and is a signal to the
+/// caller, not permission to ignore the filter — the profile routes turn it
+/// into their own error, and `build_stats_query_with_source` now does the same.
+/// It used to be silently discarded there, so an unrecognised field (a tag key,
+/// or simply a typo) dropped out of the query and the aggregate ran unfiltered,
+/// reporting a fleet-wide number as though it were scoped.
 fn build_stats_filter_clause(
     filter: &Filter,
     cagg_mode: bool,
 ) -> Result<Option<(String, Vec<SqlBindValue>)>> {
     if cagg_mode {
         return match filter.field.as_str() {
-            "device_id" => Ok(Some(build_text_clause("device_id", filter)?)),
-            "metric_type" => Ok(Some(build_text_clause("metric_type", filter)?)),
-            "metric_name" => Ok(Some(build_text_clause("metric_name", filter)?)),
+            field if CAGG_FILTERABLE_FIELDS.contains(&field) => {
+                Ok(Some(build_text_clause(field, filter)?))
+            }
             _ => Ok(None),
         };
     }
@@ -1941,8 +2068,48 @@ fn build_stats_filter_clause(
         "device_id" => Ok(Some(build_text_clause("device_id", filter)?)),
         "target_device_ip" => Ok(Some(build_text_clause("target_device_ip", filter)?)),
         "partition" => Ok(Some(build_text_clause("partition", filter)?)),
+        field if field.starts_with("tags.") => {
+            let key = tag_key(field)?;
+            Ok(Some(build_text_clause(&tag_expr(&key), filter)?))
+        }
         _ => Ok(None),
     }
+}
+
+/// Extract and validate the key from a `tags.<key>` field reference.
+///
+/// Validation is not cosmetic here: the returned expression is interpolated
+/// into SQL by `format!`, both as a WHERE predicate and — for grouping — into
+/// the SELECT and GROUP BY lists. `is_valid_jsonb_key` excludes quotes, so the
+/// key cannot escape the string literal.
+fn tag_key(field: &str) -> Result<String> {
+    let key = field.strip_prefix("tags.").unwrap_or_default();
+    if !is_valid_jsonb_key(key) {
+        return Err(ServiceError::InvalidRequest(format!(
+            "invalid tag key '{key}'"
+        )));
+    }
+
+    Ok(key.to_string())
+}
+
+/// Single-level JSONB text extraction, matching what the devices entity emits.
+fn tag_expr(key: &str) -> String {
+    format!("tags->>'{key}'")
+}
+
+/// SQL expression for a stats group field.
+///
+/// Plain columns pass through; `tags.<key>` becomes a JSONB extraction. The
+/// result is interpolated straight into the SELECT and GROUP BY lists, so the
+/// tag branch revalidates the key here rather than trusting that parsing
+/// already did.
+fn group_sql_expr(field: &str) -> Result<String> {
+    if field.starts_with("tags.") {
+        return Ok(tag_expr(&tag_key(field)?));
+    }
+
+    Ok(field.to_string())
 }
 
 fn build_text_clause(column: &str, filter: &Filter) -> Result<(String, Vec<SqlBindValue>)> {
@@ -2229,6 +2396,12 @@ fn parse_timeseries_group(raw: &str) -> Result<TimeseriesGroupSpec> {
         | "unit" | "partition" | "target_device_ip" | "if_index" => {
             Ok(TimeseriesGroupSpec { field })
         }
+        // `tags.<key>` groups on a single-level JSONB extraction. tag_key
+        // validates before the key can reach the interpolated group expression.
+        candidate if candidate.starts_with("tags.") => {
+            tag_key(candidate)?;
+            Ok(TimeseriesGroupSpec { field })
+        }
         _ => Err(ServiceError::InvalidRequest(format!(
             "unsupported timeseries stats group field '{field}'"
         ))),
@@ -2257,12 +2430,7 @@ fn should_route_stats_to_cagg(plan: &QueryPlan, spec: &TimeseriesStatsSpec) -> b
         return false;
     }
 
-    plan.filters.iter().all(|filter| {
-        matches!(
-            filter.field.as_str(),
-            "device_id" | "metric_type" | "metric_name"
-        )
-    })
+    filters_are_cagg_expressible(plan)
 }
 
 impl TimeseriesStatsSpec {
@@ -2318,6 +2486,200 @@ mod tests {
     use super::*;
     use crate::parser::{Entity, Filter, FilterOp, FilterValue, OrderClause, OrderDirection};
     use chrono::{Duration as ChronoDuration, TimeZone, Utc};
+
+
+    /// Build a plan for the stats path with the supplied filters.
+    fn stats_plan(filters: Vec<Filter>, group: &str) -> (QueryPlan, TimeseriesStatsSpec) {
+        let start = Utc.with_ymd_and_hms(2025, 1, 1, 0, 0, 0).unwrap();
+        let end = start + ChronoDuration::hours(1);
+        let spec = TimeseriesStatsSpec {
+            aggregations: vec![TimeseriesAggregationSpec {
+                func: TimeseriesAggFunc::Avg,
+                field: Some("value".to_string()),
+                alias: "v".to_string(),
+            }],
+            group_by: vec![parse_timeseries_group(group).expect("group should parse")],
+            profile_hour_of_week: None,
+            profile_hour_of_week_full: None,
+            profile_hour_of_week_peak: None,
+        };
+        let plan = QueryPlan {
+            entity: Entity::TimeseriesMetrics,
+            filters,
+            order: Vec::new(),
+            limit: 100,
+            offset: 0,
+            time_range: Some(TimeRange { start, end }),
+            stats: None,
+            downsample: None,
+            rollup_stats: None,
+            other: false,
+            include_deleted: false,
+        };
+        (plan, spec)
+    }
+
+    fn eq_filter(field: &str, value: &str) -> Filter {
+        Filter {
+            field: field.into(),
+            op: FilterOp::Eq,
+            value: FilterValue::Scalar(value.to_string()),
+        }
+    }
+
+    // The bug this change exists to fix: the stats path used to return
+    // Ok(None) for any field it did not recognise, drop the predicate, and
+    // report a fleet-wide aggregate as though it were scoped. Verified
+    // end-to-end before the fix: the SQL carried no site predicate and only the
+    // two time-bound binds.
+    #[test]
+    fn stats_path_errors_instead_of_dropping_an_unknown_filter() {
+        let (plan, spec) = stats_plan(vec![eq_filter("nonsense_field", "x")], "device_id");
+        let err = build_stats_query(&plan, MetricScope::Any, &spec)
+            .expect_err("an inapplicable filter must not be silently dropped");
+
+        assert!(
+            err.to_string().contains("unsupported filter field"),
+            "unexpected error: {err}"
+        );
+    }
+
+    // A typo is the common way to hit this, and silently widening the query is
+    // the worst possible response to one.
+    #[test]
+    fn stats_path_errors_on_a_misspelled_field() {
+        let (plan, spec) = stats_plan(vec![eq_filter("metric_nmae", "cpu")], "device_id");
+        assert!(build_stats_query(&plan, MetricScope::Any, &spec).is_err());
+    }
+
+    #[test]
+    fn stats_path_matches_the_non_stats_path_on_unknown_fields() {
+        let (plan, spec) = stats_plan(vec![eq_filter("nonsense_field", "x")], "device_id");
+        let stats_err = build_stats_query(&plan, MetricScope::Any, &spec).unwrap_err();
+        let raw_err = match build_query(&plan, MetricScope::Any) {
+            Err(err) => err,
+            // The boxed select statement is not Debug, so this cannot use
+            // unwrap_err().
+            Ok(_) => panic!("the raw path should also reject an unknown field"),
+        };
+
+        assert_eq!(
+            stats_err.to_string(),
+            raw_err.to_string(),
+            "the two paths should reject identical input identically"
+        );
+    }
+
+    #[test]
+    fn stats_path_applies_a_tag_filter() {
+        let (plan, spec) = stats_plan(vec![eq_filter("tags.site_code", "ORD")], "device_id");
+        let sql = build_stats_query(&plan, MetricScope::Any, &spec).expect("tag filter applies");
+
+        assert!(
+            sql.sql.contains("tags->>'site_code'"),
+            "expected a tag predicate: {}",
+            sql.sql
+        );
+        // Two time bounds plus the site value.
+        assert_eq!(sql.binds.len(), 3, "site value should be bound: {}", sql.sql);
+    }
+
+    #[test]
+    fn stats_groups_by_a_tag() {
+        let (plan, spec) = stats_plan(Vec::new(), "tags.site_code");
+        let sql = build_stats_query(&plan, MetricScope::Any, &spec).expect("tag group builds");
+
+        assert!(
+            sql.sql.contains("tags->>'site_code' AS group_value_0"),
+            "expected a tag group expression: {}",
+            sql.sql
+        );
+        // The projected key keeps the caller's spelling so it is distinguishable
+        // from a real column of the same name.
+        assert!(
+            sql.sql.contains("'tags.site_code'"),
+            "expected the tag projected under its own key: {}",
+            sql.sql
+        );
+    }
+
+    // Group expressions are interpolated into the SELECT and GROUP BY lists, so
+    // an unvalidated key would be a straightforward injection.
+    #[test]
+    fn tag_group_rejects_keys_that_could_escape_the_literal() {
+        for bad in [
+            "tags.a'b",
+            "tags.a\"b",
+            "tags.a b",
+            "tags.",
+            "tags.a;DROP TABLE x--",
+        ] {
+            assert!(
+                parse_timeseries_group(bad).is_err(),
+                "{bad} should be rejected as a group field"
+            );
+        }
+    }
+
+    #[test]
+    fn tag_filter_rejects_an_unsafe_key() {
+        let (plan, spec) = stats_plan(vec![eq_filter("tags.a'b", "x")], "device_id");
+        let err = build_stats_query(&plan, MetricScope::Any, &spec)
+            .expect_err("an unsafe tag key must be rejected");
+
+        assert!(
+            err.to_string().contains("invalid tag key"),
+            "unexpected error: {err}"
+        );
+    }
+
+    // CAGG routing already refuses queries whose filters the aggregate cannot
+    // express, so this guards the invariant rather than a reachable bug.
+    #[test]
+    fn cagg_routing_is_refused_when_a_filter_is_not_expressible() {
+        let now = Utc::now();
+        let plan = QueryPlan {
+            entity: Entity::TimeseriesMetrics,
+            filters: vec![eq_filter("gateway_id", "g1")],
+            order: Vec::new(),
+            limit: 100,
+            offset: 0,
+            time_range: Some(TimeRange {
+                start: now - ChronoDuration::hours(24),
+                end: now,
+            }),
+            stats: None,
+            downsample: None,
+            rollup_stats: None,
+            other: false,
+            include_deleted: false,
+        };
+        let spec = TimeseriesStatsSpec {
+            aggregations: vec![TimeseriesAggregationSpec {
+                func: TimeseriesAggFunc::Avg,
+                field: Some("value".to_string()),
+                alias: "v".to_string(),
+            }],
+            group_by: vec![TimeseriesGroupSpec {
+                field: "device_id".into(),
+            }],
+            profile_hour_of_week: None,
+            profile_hour_of_week_full: None,
+            profile_hour_of_week_peak: None,
+        };
+
+        assert!(
+            !should_route_stats_to_cagg(&plan, &spec),
+            "a gateway_id filter must keep the query on the raw table"
+        );
+
+        let sql = build_stats_query(&plan, MetricScope::Any, &spec).expect("raw path builds");
+        assert!(
+            sql.sql.contains("gateway_id"),
+            "the predicate must survive: {}",
+            sql.sql
+        );
+    }
 
     #[test]
     fn unknown_filter_field_returns_error() {
