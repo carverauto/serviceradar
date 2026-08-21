@@ -3,6 +3,55 @@ defmodule ServiceRadar.Plugins.ConfigSchemaTest do
 
   alias ServiceRadar.Plugins.ConfigSchema
 
+  test "a credential-materialized secretRef is not required on the assignment form" do
+    # The AlienVault OTX shape. The API key is materialized from a credential
+    # rule, so the assignment form never collects it -- but the plugin schema
+    # still lists it in `required`, which is what made OTX unassignable.
+    #
+    # Note this turns on the markers, NOT on `secretRef` alone: notification
+    # providers legitimately require a secretRef field, because they validate
+    # config merged with the public part of secret_refs and the reference
+    # string is what satisfies it (see ProviderSeederTest).
+    schema = %{
+      "type" => "object",
+      "required" => ["api_key_secret_ref", "base_url"],
+      "properties" => %{
+        "api_key_secret_ref" => %{
+          "type" => "string",
+          "secretRef" => true,
+          "credentialKind" => "api_token",
+          "x-serviceradar-ui-hidden" => true,
+          "x-serviceradar-credential-materialized" => true,
+          "description" => "AlienVault OTX API key"
+        },
+        "base_url" => %{"type" => "string"}
+      }
+    }
+
+    assert :ok =
+             ConfigSchema.validate_params(schema, %{
+               "base_url" => "https://otx.alienvault.com"
+             })
+
+    assert {:error, errors} = ConfigSchema.validate_params(schema, %{})
+    assert Enum.any?(errors, &String.contains?(&1, "base_url"))
+    refute Enum.any?(errors, &String.contains?(&1, "api_key_secret_ref"))
+  end
+
+  test "a bare secretRef stays required" do
+    # Guards the regression that a broader "any secretRef is runtime-injected"
+    # rule would introduce: it would admit a Discord channel with no webhook URL.
+    schema = %{
+      "type" => "object",
+      "required" => ["webhook_url"],
+      "properties" => %{
+        "webhook_url" => %{"type" => "string", "secretRef" => true}
+      }
+    }
+
+    assert {:error, _errors} = ConfigSchema.validate_params(schema, %{})
+  end
+
   test "assignment validation ignores runtime-injected hidden required fields" do
     schema = %{
       "type" => "object",

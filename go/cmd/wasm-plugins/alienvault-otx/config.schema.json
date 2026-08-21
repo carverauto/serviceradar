@@ -8,8 +8,11 @@
     },
     "api_key_secret_ref": {
       "type": "string",
-      "description": "AlienVault OTX API key",
-      "secretRef": true
+      "description": "AlienVault OTX API key. Stored as a credential rule, not on the assignment form.",
+      "secretRef": true,
+      "credentialKind": "api_token",
+      "x-serviceradar-ui-hidden": true,
+      "x-serviceradar-credential-materialized": true
     },
     "modified_since": {
       "type": "string",
