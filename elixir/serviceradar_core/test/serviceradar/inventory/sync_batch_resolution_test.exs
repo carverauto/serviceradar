@@ -197,6 +197,111 @@ defmodule ServiceRadar.Inventory.SyncBatchResolutionTest do
     assert [%SourceIdentityConflict{} | _] = conflicts
   end
 
+  # The holder here is what the manual and sweep creation paths actually produce:
+  # an IP and nothing else -- no anchor, and no `identity_state` stamp, because
+  # only the registrar path writes one. It used to be treated as an established
+  # identity, so the incoming device lost its IP and re-collided every sync
+  # forever. It must be adopted instead: the seed keeps its uid and gains the
+  # discovered identity.
+  test "anchorless holder with no identity_state is adopted, not deadlocked", %{actor: actor} do
+    ip = unique_ip()
+    integration_id = "adopt-seed-#{System.unique_integer([:positive])}"
+
+    seed_uid = "sr:" <> Ecto.UUID.generate()
+
+    {:ok, _seed} =
+      Device
+      |> Ash.Changeset.for_create(
+        :create,
+        %{uid: seed_uid, ip: ip, metadata: %{"source" => "manual"}},
+        actor: actor
+      )
+      |> Ash.create(actor: actor)
+
+    assert :ok =
+             SyncIngestor.ingest_updates([integration_update(integration_id, ip, "claimer")],
+               actor: actor
+             )
+
+    # Adopted: the incoming strong identity resolves onto the seed's uid.
+    assert device_for_integration_id(integration_id, actor) == seed_uid
+
+    # The seed keeps the IP rather than both rows losing it.
+    {:ok, seed_row} = Device.get_by_uid(seed_uid, false, actor: actor)
+    assert seed_row.ip == ip
+
+    # Nothing to escalate, so no conflict is recorded.
+    assert {:ok, []} =
+             SourceIdentityConflict
+             |> Ash.Query.filter(conflict_category == "active_ip_conflict" and current_ip == ^ip)
+             |> Ash.read(actor: actor)
+  end
+
+  # The boundary the narrowing protects: an anchorless holder that carries a MAC
+  # is NOT an IP-only seed, so it keeps its IP and the collision is escalated.
+  # (The hostname half of this boundary is covered by "strong-identified update
+  # does not adopt an existing device by IP" above.)
+  test "anchorless holder with a MAC is not an IP-only seed", %{actor: actor} do
+    ip = unique_ip()
+    integration_id = "mac-holder-#{System.unique_integer([:positive])}"
+    holder_uid = "sr:" <> Ecto.UUID.generate()
+
+    {:ok, _holder} =
+      Device
+      |> Ash.Changeset.for_create(
+        :create,
+        %{uid: holder_uid, ip: ip, mac: "02:00:00:00:00:01"},
+        actor: actor
+      )
+      |> Ash.create(actor: actor)
+
+    assert :ok =
+             SyncIngestor.ingest_updates([integration_update(integration_id, ip, "claimer")],
+               actor: actor
+             )
+
+    claimer_uid = device_for_integration_id(integration_id, actor)
+    assert is_binary(claimer_uid)
+    assert claimer_uid != holder_uid
+
+    {:ok, holder_row} = Device.get_by_uid(holder_uid, false, actor: actor)
+    assert holder_row.ip == ip
+  end
+
+  # The escape hatch: a row that explicitly claims `identity_state: "canonical"`
+  # is an assertion of identity even with no anchor registered yet, so it is NOT
+  # adoptable and the collision is escalated as before.
+  test "explicitly canonical anchorless holder is not adopted", %{actor: actor} do
+    ip = unique_ip()
+    integration_id = "canonical-holder-#{System.unique_integer([:positive])}"
+
+    holder_uid = "sr:" <> Ecto.UUID.generate()
+
+    {:ok, _holder} =
+      Device
+      |> Ash.Changeset.for_create(
+        :create,
+        %{uid: holder_uid, ip: ip, metadata: %{"identity_state" => "canonical"}},
+        actor: actor
+      )
+      |> Ash.create(actor: actor)
+
+    assert :ok =
+             SyncIngestor.ingest_updates([integration_update(integration_id, ip, "claimer")],
+               actor: actor
+             )
+
+    claimer_uid = device_for_integration_id(integration_id, actor)
+    assert is_binary(claimer_uid)
+    assert claimer_uid != holder_uid
+
+    {:ok, holder_row} = Device.get_by_uid(holder_uid, false, actor: actor)
+    assert holder_row.ip == ip
+
+    {:ok, claimer_row} = Device.get_by_uid(claimer_uid, false, actor: actor)
+    refute claimer_row.ip == ip
+  end
+
   test "same Armis source ID can move IP without changing canonical device", %{actor: actor} do
     armis_id = "armis-dhcp-#{System.unique_integer([:positive])}"
     source_id = "armis-source-#{System.unique_integer([:positive])}"
