@@ -37,6 +37,39 @@ defmodule ServiceRadar.Inventory.Identity.Resolver do
     end
   end
 
+  @doc """
+  Resolve a device update to a canonical device ID **and** the identity revision
+  observed at resolution time.
+
+  This is the read half of the identity fence. A consumer that resolves once and
+  writes later pins the revision returned here and re-checks it at write time; if
+  a merge, unmerge, split, alias invalidation or identifier reassignment happened
+  in between, the revision has moved and the write is refused.
+
+  Deliberately a separate function rather than a wider return type on
+  `resolve_device_id/2`: that one has callers across ingest, sweep and the Ash
+  action layer, and none of them wants a tuple.
+
+  Returns `{:error, :identity_unresolved}` when the resolved id does not name a
+  live device -- a service-component id, or a row tombstoned between the
+  resolution and this read. A caller that cannot pin cannot fence, and should
+  treat that as "re-resolve", never as "proceed unfenced".
+  """
+  @spec resolve_device_identity(Ids.device_update(), keyword()) ::
+          {:ok, {String.t(), integer()}} | {:error, term()}
+  def resolve_device_identity(update, opts \\ []) do
+    actor = Keyword.get(opts, :actor)
+
+    with {:ok, device_id} <- resolve_device_id(update, opts),
+         {:ok, %Device{identity_revision: revision}} when is_integer(revision) <-
+           Device.get_by_uid(device_id, false, actor: actor) do
+      {:ok, {device_id, revision}}
+    else
+      {:error, _} = error -> error
+      _ -> {:error, :identity_unresolved}
+    end
+  end
+
   defp do_resolve_device_id(update, actor) do
     ids = Ids.extract_strong_identifiers(update)
 

@@ -2,56 +2,56 @@
 
 ## 0. Prerequisite
 
-- [ ] 0.1 Land #3831 — `MergeEngine` must use `Ash.transact/3` so a failed merge rolls back.
+- [x] 0.1 Land #3831 — `MergeEngine` must use `Ash.transact/3` so a failed merge rolls back.
       A state-derived fence is unsound while a half-merged device can exist.
 
 ## 1. Schema
 
-- [ ] 1.1 Migration: `ALTER TABLE platform.ocsf_devices ADD COLUMN identity_revision bigint
+- [x] 1.1 Migration: `ALTER TABLE platform.ocsf_devices ADD COLUMN identity_revision bigint
       NOT NULL DEFAULT 1`. Catalog-only on modern PostgreSQL; no backfill. Do **not** name it
       `identity_version` — that is the virtualization-v3 identity schema version.
-- [ ] 1.2 Same migration: `merge_audit` indexes `(from_device_id, created_at)` and
+- [x] 1.2 Same migration: `merge_audit` indexes `(from_device_id, created_at)` and
       `(to_device_id)`, `concurrently: true` with `@disable_ddl_transaction true` and
       `@disable_migration_lock true`. The table has had only its primary key since creation.
-- [ ] 1.3 Migration: `platform.anomaly_finding_lineage` — previous finding uid, new finding
+- [x] 1.3 Migration: `platform.anomaly_finding_lineage` — previous finding uid, new finding
       uid, episode uid, previous/new device uid, observed_at. Unique on
       `(previous_finding_uid, new_finding_uid)`, plus an index on `episode_uid`. **Not** unique
       on the previous finding uid alone: a device merged twice produces two hops and that
       constraint would reject the second. Rows are written by ingest when a re-key is
       observed, never by the merge on prediction (see design D7).
-- [ ] 1.4 Expose `identity_revision` on the `Device` Ash resource as a read-only attribute.
+- [x] 1.4 Expose `identity_revision` on the `Device` Ash resource as a read-only attribute.
 
 ## 2. The bump
 
-- [ ] 2.1 `Device :bump_identity_revision` with an `atomic/3` callback returning
+- [x] 2.1 `Device :bump_identity_revision` with an `atomic/3` callback returning
       `{:atomic, %{identity_revision: expr(^atomic_ref(:identity_revision) + 1)}}`.
       Never `require_atomic? false`.
-- [ ] 2.2 Unit tests: monotonic, atomic under concurrency, not bumped by `:touch`,
+- [x] 2.2 Unit tests: monotonic, atomic under concurrency, not bumped by `:touch`,
       `:gateway_sync` or `:set_availability`.
-- [ ] 2.3 Call it from every identity transition. All eight, not just the merge:
-  - [ ] 2.3.1 `merge_engine.ex` `do_merge_devices` — source **and** survivor. The survivor
+- [x] 2.3 Call it from every identity transition. All eight, not just the merge:
+  - [x] 2.3.1 `merge_engine.ex` `do_merge_devices` — source **and** survivor. The survivor
         bump is a new write; `:229` only reads B today.
-  - [ ] 2.3.2 `merge_engine.ex` `do_unmerge` — both devices.
-  - [ ] 2.3.3 `alias_guard.ex` `invalidate_ip_alias`
-  - [ ] 2.3.4 `remediation/agent_links.ex`
-  - [ ] 2.3.5 `remediation/armis_unmerge.ex` (the split path)
-  - [ ] 2.3.6 `identity/registrar.ex` (both transition points)
-  - [ ] 2.3.7 `identity/reassignments.ex` — `DeviceIdentifier :reassign_device`
-  - [ ] 2.3.8 `device.ex` `:soft_delete` and `:restore`
-- [ ] 2.4 Integration test per transition type asserting the bump, including that an unmerge
+  - [x] 2.3.2 `merge_engine.ex` `do_unmerge` — both devices.
+  - [x] 2.3.3 `alias_guard.ex` `invalidate_ip_alias`
+  - [x] 2.3.4 `remediation/agent_links.ex`
+  - [x] 2.3.5 `remediation/armis_unmerge.ex` (the split path)
+  - [x] 2.3.6 `identity/registrar.ex` (both transition points)
+  - [x] 2.3.7 `identity/reassignments.ex` — `DeviceIdentifier :reassign_device`
+  - [x] 2.3.8 `device.ex` `:soft_delete` and `:restore`
+- [x] 2.4 Integration test per transition type asserting the bump, including that an unmerge
       increments rather than restoring the previous value.
 
 ## 3. Pin and check
 
-- [ ] 3.1 Add `resolve_device_identity/2` returning `{uid, identity_revision}`. Do **not**
+- [x] 3.1 Add `resolve_device_identity/2` returning `{uid, identity_revision}`. Do **not**
       change `resolve_device_id/2`'s return type — roughly ten callers plus an Ash action.
-- [ ] 3.2 Compare-and-set helper using `Ash.Changeset.filter(expr(identity_revision == ^pinned))`
+- [x] 3.2 Compare-and-set helper using `Ash.Changeset.filter(expr(identity_revision == ^pinned))`
       on the pending caller changeset, handling `Ash.Error.Changes.StaleRecord` as a value.
-- [ ] 3.3 Staleness policy helper: re-resolve once, retry once, then abandon and emit
+- [x] 3.3 Staleness policy helper: re-resolve once, retry once, then abandon and emit
       telemetry. Never raise; never drop silently. Abandon after two observed transitions.
-- [ ] 3.4 Telemetry events under `[:serviceradar, :identity_fence, ...]` carrying pipeline,
+- [x] 3.4 Telemetry events under `[:serviceradar, :identity_fence, ...]` carrying pipeline,
       device id, pinned revision and observed revision.
-- [ ] 3.5 **Fix the re-resolution no-op — BLOCKING PREREQUISITE for any edge-projection
+- [x] 3.5 **Fix the re-resolution no-op — BLOCKING PREREQUISITE for any edge-projection
       work** (see design D10). `DeviceCorrelation.explicit_device_uid`
       (`device_correlation.ex:219-233`) short-circuits on `"sr:" <> _` and returns the uid with
       no lookup, so it re-resolves nothing in production. Route it through
