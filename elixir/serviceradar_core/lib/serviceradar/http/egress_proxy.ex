@@ -79,7 +79,7 @@ defmodule ServiceRadar.HTTP.EgressProxy do
   """
   @spec req_opts(pos_integer()) :: keyword()
   def req_opts(timeout_ms) when is_integer(timeout_ms) and timeout_ms > 0 do
-    [receive_timeout: timeout_ms, retry: false, finch: ServiceRadar.Finch]
+    [receive_timeout: timeout_ms, retry: false, finch: [name: ServiceRadar.Finch]]
   end
 
   defp maybe_put_cacert(conn_opts) do

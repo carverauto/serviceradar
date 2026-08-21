@@ -158,7 +158,7 @@ defmodule ServiceRadar.PrefixTags.NetboxImportWorkerTest do
   describe "request_opts/2" do
     test "verify_ssl true keeps the named Finch pool" do
       opts = NetboxImportWorker.request_opts(5_000, true)
-      assert Keyword.get(opts, :finch) == ServiceRadar.Finch
+      assert Keyword.get(opts, :finch) == [name: ServiceRadar.Finch]
       refute Keyword.has_key?(opts, :connect_options)
     end
 

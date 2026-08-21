@@ -196,7 +196,7 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.Acquisition do
     [
       receive_timeout: timeout_ms,
       retry: :transient,
-      finch: ServiceRadar.Finch
+      finch: [name: ServiceRadar.Finch]
     ]
   end
 

@@ -144,7 +144,7 @@ defmodule ServiceRadarWebNG.MixProject do
       {:sobelow, "~> 0.14", only: [:dev, :test], runtime: false},
       {:swoosh, "~> 1.16"},
       {:gen_smtp, "~> 1.2"},
-      {:req, "~> 0.5"},
+      {:req, "~> 0.7"},
       {:castore, "~> 1.0"},
       {:telemetry_metrics, "~> 1.0"},
       {:telemetry_metrics_prometheus_core, "~> 1.2"},

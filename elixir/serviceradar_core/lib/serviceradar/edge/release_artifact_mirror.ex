@@ -356,7 +356,7 @@ defmodule ServiceRadar.Edge.ReleaseArtifactMirror do
         [
           url: url,
           headers: [{"user-agent", "serviceradar"}],
-          finch: ServiceRadar.Finch,
+          finch: [name: ServiceRadar.Finch],
           redirect: false,
           max_redirects: 0,
           receive_timeout: @default_timeout
