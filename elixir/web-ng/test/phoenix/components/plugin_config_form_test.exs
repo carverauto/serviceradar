@@ -182,4 +182,32 @@ defmodule ServiceRadarWebNGWeb.Components.PluginConfigFormTest do
     assert html =~ "https://plugins.example.test/example-inventory/v1.0.0/configuration"
     refute html =~ "javascript:alert(1)"
   end
+
+  test "advanced fields stay in a DetailsState disclosure so typing does not collapse it" do
+    schema = %{
+      "type" => "object",
+      "properties" => %{
+        "enabled" => %{"type" => "boolean", "title" => "Enabled"},
+        "capture_interfaces" => %{
+          "type" => "array",
+          "title" => "Capture interfaces",
+          "items" => %{"type" => "string"},
+          "x-serviceradar-ui-advanced" => true
+        }
+      }
+    }
+
+    html =
+      render_component(&PluginConfigForm.plugin_config_fields/1, %{
+        schema: schema,
+        params: %{"enabled" => true},
+        base_name: "profile[params]"
+      })
+
+    assert html =~ ~s(id="profile-params-advanced-settings")
+    assert html =~ ~s(phx-hook="DetailsState")
+    assert html =~ "Advanced settings (optional)"
+    assert html =~ "Capture interfaces"
+    assert html =~ ~s(name="profile[params][capture_interfaces]")
+  end
 end
