@@ -22,6 +22,8 @@ defmodule ServiceRadar.Edge.RecoveryValidate do
   import Bitwise, only: []
 
   alias ServiceRadar.Edge.BoundedList
+  alias ServiceRadar.Edge.CapabilitySigning
+  alias ServiceRadar.Edge.Compression
   alias ServiceRadar.Edge.HashGrammar
   alias ServiceRadar.Edge.SemanticValidate
   alias Serviceradar.Edge.V1.EdgeAttributedActiveV1
@@ -29,6 +31,7 @@ defmodule ServiceRadar.Edge.RecoveryValidate do
   alias Serviceradar.Edge.V1.EdgeAttributedSpanIdentityV1
   alias Serviceradar.Edge.V1.EdgeClassificationSpanV1
   alias Serviceradar.Edge.V1.EdgeLossManifestPageV1
+  alias Serviceradar.Edge.V1.EdgeRecoveryControlPayloadV1
   alias Serviceradar.Edge.V1.EdgeSourceSpanIdentityV1
   alias Serviceradar.Edge.V1.EdgeUnattributableV1
   alias ServiceRadar.Edge.WireDecode
@@ -39,6 +42,16 @@ defmodule ServiceRadar.Edge.RecoveryValidate do
   @recovery_digest_version 1
   @max_manifest_pages 1024
   @max_spans_per_page 256
+
+  # The tombstone reason bound, 1..@max_reason_bytes. Go applies it in `recoveryControlBody` on
+  # the SIGNED path, which is the only place it is reachable, so it arrives with `control_body/1`
+  # rather than with the assembly validators above.
+  @max_reason_bytes 256
+
+  # The clock-tolerance cap, matching Go's MaxClockToleranceNano. A supplied tolerance outside
+  # [0, cap] is a REFUSAL rather than a clamp: a caller asking for an eight-hour window has a
+  # different idea of the boundary than this one does, and silently narrowing it hides that.
+  @max_clock_tolerance_nano 5 * 60 * 1_000_000_000
   @max_manifest_bytes 256 * 1024
   @sha256_len 32
   @uuid_len 16
@@ -400,6 +413,374 @@ defmodule ServiceRadar.Edge.RecoveryValidate do
       check(t.recovery_id == hd(pages).recovery_id, :tombstone_mismatch)
     end
   end
+
+  @typedoc """
+  The SUPPLIED authorization policy, mirroring Go's `AuthorizationPolicy`.
+
+  TRUST IS AN INPUT, NOT SOMETHING THIS MODULE OWNS. Go's boundary takes a `CapabilityTrust`
+  INTERFACE and implements no key store either -- only the resolver knows which roles a key may
+  issue, and which keys were revoked for COMPROMISE as opposed to rotated normally. So this peer
+  is a faithful mirror of Go's shape rather than a reduced one: `:trust` is a function the caller
+  supplies, and every key in one decision resolves at the single pinned `:trust_policy_epoch`, so
+  a mid-decision revocation cannot mix snapshots.
+  """
+  @type key_status :: :valid | :historically_revoked | :invalid | :unavailable
+
+  @type policy :: %{
+          required(:trust) => (binary(), binary(), atom() ->
+                                 {:ok, binary(), key_status()} | :error),
+          required(:now_unix_nano) => integer(),
+          required(:trust_policy_epoch) => non_neg_integer(),
+          optional(:clock_tolerance_nano) => integer(),
+          optional(:active_fence) => {:resolved, non_neg_integer()} | :unresolved
+        }
+
+  @doc """
+  The SIGNED recovery-control boundary. Go's peer is `ValidateRecoveryControl`.
+
+  ## Why the order is the contract
+
+  The scope comparison is reachable ONLY after the signature verifies, and that ordering is half
+  of what these rows freeze. A bare digest recomputation would be a different boundary wearing
+  the same name: it would prove the transcript and prove nothing about who authorized the
+  recovery operation, so a stale signature could masquerade as ceiling evidence.
+
+  So this composes, in Go's order: signature and trust under the supplied policy, then contract
+  dispatch, then the recovery lane and source kind, then the body, and only then the comparison
+  of the recomputed scope digest against the SIGNED claim. The signed source scope must fix the
+  exact recovery operation -- its `scope_id` is the recovery id and its `scope_sha256` is the
+  canonical digest over the body -- so reusing a signature for a different spool pair or manifest
+  root fails here rather than at assembly.
+  """
+  @spec recovery_control(term(), term(), policy()) :: :ok | {:error, atom()}
+  def recovery_control(record, expected_contract, policy) do
+    with :ok <- record_signed(record, policy),
+         :ok <- contract_dispatch(record, expected_contract),
+         :ok <-
+           check(
+             record.payload_family == :EDGE_RECORD_PAYLOAD_FAMILY_RECOVERY_CONTROL_V1,
+             :recovery_lane
+           ),
+         :ok <- recovery_source_kind(record),
+         {:ok, payload} <- inner_control_payload(record),
+         {:ok, {rid, scope}} <- control_body(payload) do
+      signed_scope_fixes_operation(record, rid, scope)
+    end
+  end
+
+  @doc """
+  The AUTHORIZATION half on its own: Go's `ValidateRecordSigned`.
+
+  Structural validation first, then cryptographic verification of every present capability
+  against the key the policy resolves, then the current-authority decision. A COMPROMISE-revoked
+  key -- production OR source -- can never authorize here: the WORST status across both
+  dominates, so a compromised source key downgrades the whole record even when production
+  verifies.
+  """
+  @spec record_signed(term(), policy()) :: :ok | {:error, atom()}
+  def record_signed(record, policy) do
+    tolerance = Map.get(policy, :clock_tolerance_nano, 0)
+
+    with :ok <- check(is_function(Map.get(policy, :trust), 3), :trust_missing),
+         :ok <- check(Map.get(policy, :trust_policy_epoch, 0) != 0, :trust_epoch_unset),
+         :ok <-
+           check(
+             is_integer(tolerance) and tolerance >= 0 and tolerance <= @max_clock_tolerance_nano,
+             :clock_tolerance
+           ),
+         :ok <- SemanticValidate.validate_record(record),
+         {:ok, production_status} <-
+           verify_capability(record.production_capability, :production, policy),
+         {:ok, worst} <- verify_source_authority(record, policy, production_status),
+         :ok <- check(worst != :historically_revoked, :key_historically_revoked),
+         :ok <- production_current(record.production_capability, policy, tolerance) do
+      fence_relation(record, policy)
+    end
+  end
+
+  @doc """
+  Every invariant knowable from ONE recovery-control body before durable admission, returning
+  the body's recovery id and its canonical recovery-operation SCOPE digest.
+
+  Go's peer is `recoveryControlBody`. It is a DIFFERENT SITE from `tombstone/2` and
+  `manifest_chain/2` above, and not a narrower version of them: those reconcile a declaration
+  against SUPPLIED pages, while this one receives no page list at all. The tombstone's
+  `manifest_page_count` here is therefore a DECLARED SCALAR committed by the scope digest exactly
+  as signed -- an unbounded count would travel signed and be questioned, if ever, only at
+  assembly. That is why the bound is `1..@max_manifest_pages` rather than merely non-zero.
+
+  It returns the scope digest rather than comparing it, because the value it must equal lives in
+  the signed source claims and only the composed boundary holds both.
+  """
+  @spec control_body(term()) :: {:ok, {binary(), binary()}} | {:error, error()}
+  def control_body(payload)
+
+  def control_body(%EdgeRecoveryControlPayloadV1{body: {:tombstone, t}}) do
+    with :ok <- check(no_unknown_fields?(t), :unknown_fields),
+         :ok <- check(uuidv7?(t.recovery_id), :tombstone_mismatch),
+         :ok <-
+           check(
+             uuidv7?(t.prior_spool_id) and uuidv7?(t.new_spool_id) and
+               t.prior_spool_id != t.new_spool_id,
+             :tombstone_mismatch
+           ),
+         :ok <-
+           check(
+             t.digest_version == @recovery_digest_version and sha256?(t.manifest_root_sha256),
+             :tombstone_mismatch
+           ),
+         :ok <-
+           check(
+             is_integer(t.manifest_page_count) and t.manifest_page_count >= 1 and
+               t.manifest_page_count <= @max_manifest_pages,
+             :tombstone_mismatch
+           ),
+         :ok <-
+           check(
+             is_integer(t.detected_at_unix_nano) and t.detected_at_unix_nano > 0,
+             :tombstone_mismatch
+           ),
+         :ok <-
+           check(
+             is_binary(t.reason) and byte_size(t.reason) >= 1 and
+               byte_size(t.reason) <= @max_reason_bytes,
+             :tombstone_mismatch
+           ) do
+      {:ok, {t.recovery_id, HashGrammar.tombstone_scope_digest(t)}}
+    end
+  end
+
+  def control_body(%EdgeRecoveryControlPayloadV1{body: {:manifest_page, p}}) do
+    with :ok <- single_page(p) do
+      {:ok, {p.recovery_id, HashGrammar.manifest_page_scope_digest(p)}}
+    end
+  end
+
+  def control_body(%EdgeRecoveryControlPayloadV1{body: {:resolved, r}}) do
+    with :ok <- check(no_unknown_fields?(r), :unknown_fields),
+         :ok <-
+           check(
+             uuidv7?(r.recovery_id) and sha256?(r.manifest_root_sha256) and
+               is_integer(r.applied_through_sequence) and r.applied_through_sequence > 0,
+             :tombstone_mismatch
+           ) do
+      {:ok, {r.recovery_id, HashGrammar.resolved_scope_digest(r)}}
+    end
+  end
+
+  # An absent body is a refusal, not an empty success: the oneof is the whole message.
+  def control_body(_), do: {:error, :tombstone_mismatch}
+
+  @doc """
+  Every invariant knowable from ONE manifest page IN ISOLATION.
+
+  Go's peer is `validateSingleManifestPage`. This is a DIFFERENT SITE from `page_ok/6`, which
+  the chain walk uses: that one is handed its position by the walk and checks the page AGAINST
+  the chain, while this one has only the page and reads `page_index` / `page_count` off the page
+  itself. The span bound in particular is reachable here on the signed control path, where no
+  chain exists yet.
+  """
+  @spec single_page(term()) :: :ok | {:error, error()}
+  def single_page(%EdgeLossManifestPageV1{} = p) do
+    spans = p.classification_spans
+
+    with :ok <- check(no_unknown_fields?(p), :unknown_fields),
+         :ok <- check(uuidv7?(p.recovery_id), :manifest_recovery_id),
+         :ok <- check(p.digest_version == @recovery_digest_version, :manifest_digest_version),
+         :ok <-
+           check(
+             p.page_count != 0 and p.page_index < p.page_count,
+             :manifest_chain
+           ),
+         :ok <- check(p.terminal == (p.page_index == p.page_count - 1), :manifest_terminal),
+         :ok <-
+           check(
+             byte_size(p.prev_page_sha256) == if(p.page_index == 0, do: 0, else: 32),
+             :manifest_chain
+           ),
+         # BOTH ARMS. An empty page has no derivable extent, and the ceiling is the frozen
+         # @max_spans_per_page -- Go's gate is one condition covering both, so a peer that
+         # enforced only the ceiling would satisfy the over-bound row and pass the empty one.
+         :ok <-
+           check(length(spans) >= 1 and length(spans) <= @max_spans_per_page, :manifest_bounds),
+         :ok <- ordered_spans(spans),
+         # REJECT BEFORE HASHING, the same order page_ok/6 uses: every span body is checked
+         # before the page is hashed, so the verdict for an unaccepted value cannot depend on
+         # the supplied digest.
+         :ok <- Enum.reduce_while(spans, :ok, &body_reducer/2) do
+      check(HashGrammar.manifest_page_digest(p) == p.page_sha256, :manifest_page_digest)
+    end
+  end
+
+  def single_page(_), do: {:error, :manifest_bounds}
+
+  # from >= 1, through >= from, and strictly increasing with no overlap. ADJACENCY is permitted:
+  # gaps are legal, and two adjacent spans may legitimately differ in classification body.
+  defp ordered_spans(spans) do
+    spans
+    |> Enum.reduce_while({:ok, 0}, fn sp, {:ok, prev_through} ->
+      cond do
+        sp.from_sequence == 0 or sp.through_sequence < sp.from_sequence ->
+          {:halt, {:error, :manifest_span}}
+
+        prev_through != 0 and sp.from_sequence <= prev_through ->
+          {:halt, {:error, :manifest_span}}
+
+        true ->
+          {:cont, {:ok, sp.through_sequence}}
+      end
+    end)
+    |> case do
+      {:ok, _} -> :ok
+      {:error, err} -> {:error, err}
+    end
+  end
+
+  defp sha256?(b), do: is_binary(b) and byte_size(b) == 32
+
+  # --- the signed boundary's parts ---------------------------------------------------------
+
+  # Resolve the issuer key at the PINNED epoch, then verify. A resolver that cannot answer is
+  # :key_unavailable, not a pass: an unresolvable lookup fails closed exactly as a bad signature
+  # does.
+  defp verify_capability(nil, _purpose, _policy), do: {:error, :capability_missing}
+
+  defp verify_capability(cap, purpose, policy) do
+    case policy.trust.(cap.issuer_id, cap.issuer_key_id, purpose) do
+      {:ok, public_key, status} ->
+        cond do
+          status == :invalid ->
+            {:error, :key_invalid}
+
+          status == :unavailable ->
+            {:error, :key_unavailable}
+
+          not CapabilitySigning.verify(cap, expected_purpose(purpose), public_key) ->
+            {:error, :signature}
+
+          true ->
+            {:ok, status}
+        end
+
+      _ ->
+        {:error, :key_unavailable}
+    end
+  end
+
+  defp expected_purpose(:production), do: :EDGE_CAPABILITY_PURPOSE_PRODUCTION
+  defp expected_purpose(:source), do: :EDGE_CAPABILITY_PURPOSE_SOURCE
+
+  # The source status is NOT discarded when it verifies: the WORST outcome across production and
+  # source is what the decision uses, so a compromised source key cannot slip through behind a
+  # production capability that happens to be clean.
+  defp verify_source_authority(record, policy, production_status) do
+    case record.source_authorization do
+      nil ->
+        {:ok, production_status}
+
+      sa ->
+        case verify_capability(sa.capability, :source, policy) do
+          {:ok, source_status} -> {:ok, worst_status(production_status, source_status)}
+          {:error, err} -> {:error, err}
+        end
+    end
+  end
+
+  defp worst_status(:historically_revoked, _), do: :historically_revoked
+  defp worst_status(_, :historically_revoked), do: :historically_revoked
+  defp worst_status(a, _), do: a
+
+  # A FRESH apply requires production authority CURRENT at the trusted now, inclusive at both
+  # ends, widened by the tolerance with saturating endpoints.
+  defp production_current(cap, policy, tolerance) do
+    now = policy.now_unix_nano
+
+    check(
+      now >= cap.not_before_unix_nano - tolerance and now <= cap.expires_at_unix_nano + tolerance,
+      :authority_expired
+    )
+  end
+
+  # Fence classification is EXPLICIT and the three outcomes are different faults. An unresolved
+  # fence or a FUTURE epoch is retryable and never authorizes; a STALE epoch is fenced out.
+  defp fence_relation(record, policy) do
+    epoch = record.producer_context && record.producer_context.authority_epoch
+
+    case Map.get(policy, :active_fence, :unresolved) do
+      {:resolved, active} when is_integer(epoch) ->
+        cond do
+          epoch > active -> {:error, :fence_not_ready}
+          epoch < active -> {:error, :fence_stale}
+          true -> :ok
+        end
+
+      _ ->
+        {:error, :fence_not_ready}
+    end
+  end
+
+  defp contract_dispatch(_record, nil), do: {:error, :contract_dispatch}
+
+  defp contract_dispatch(record, expected) do
+    c = record.output_contract
+
+    check(
+      c != nil and c.contract_id == expected.contract_id and
+        c.contract_version == expected.contract_version and
+        c.contract_bundle_sha256 == expected.contract_bundle_sha256 and
+        c.registry_epoch == expected.registry_epoch,
+      :contract_dispatch
+    )
+  end
+
+  defp recovery_source_kind(record) do
+    sa = record.source_authorization
+
+    check(
+      sa != nil and sa.kind == :EDGE_SOURCE_AUTHORIZATION_KIND_RECOVERY_CONTROL,
+      :recovery_lane
+    )
+  end
+
+  defp inner_control_payload(record) do
+    with {:ok, bytes} <- inner_bytes(record) do
+      try do
+        {:ok, EdgeRecoveryControlPayloadV1.decode(bytes)}
+      rescue
+        _ -> {:error, :payload_decode}
+      end
+    end
+  end
+
+  # Go's `innerPayload`: the carried bytes for an uncompressed record, the validated
+  # decompression for a zstd one, and a REFUSAL for anything else. An unlisted compression value
+  # is not "assume none".
+  defp inner_bytes(%{compression: :EDGE_RECORD_COMPRESSION_NONE} = r), do: {:ok, r.payload}
+
+  defp inner_bytes(%{compression: :EDGE_RECORD_COMPRESSION_ZSTD} = r) do
+    case Compression.decompress(r.payload, r.uncompressed_size) do
+      {:ok, bytes} -> {:ok, bytes}
+      _ -> {:error, :compression}
+    end
+  end
+
+  defp inner_bytes(_), do: {:error, :compression}
+
+  # The record's signed recovery context and the body's recovery id must be the SAME operation,
+  # and the signed scope must fix it: a record authorized for context A cannot ship a body for
+  # context B, and the body cannot be an unrelated object left beside a stale payload.
+  defp signed_scope_fixes_operation(record, rid, scope) do
+    sa = record.source_authorization
+    claims = sa.capability && source_claims(sa.capability)
+
+    with :ok <- check(sa.context_id == rid, :tombstone_mismatch),
+         :ok <- check(claims != nil and claims.scope_id == rid, :tombstone_mismatch) do
+      check(claims.scope_sha256 == scope, :tombstone_mismatch)
+    end
+  end
+
+  defp source_claims(%{claims: {:source, claims}}), do: claims
+  defp source_claims(_), do: nil
 
   @doc """
   The frozen meaning of `RecoveryResolvedV1.applied_through_sequence`: the consumer's
