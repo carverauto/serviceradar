@@ -813,8 +813,10 @@ fn parse_bgp_communities(value: &FieldValue) -> Vec<u32> {
         FieldValue::Vec(bytes) => {
             // Each community is 4 bytes (32-bit value)
             bytes
-                .chunks_exact(4)
-                .map(|chunk| u32::from_be_bytes([chunk[0], chunk[1], chunk[2], chunk[3]]))
+                .as_chunks::<4>()
+                .0
+                .iter()
+                .map(|chunk| u32::from_be_bytes(*chunk))
                 .collect()
         }
         _ => vec![],
