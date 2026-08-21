@@ -27,7 +27,8 @@
 # base shape's vectors `root.shape.base.v0..v2` NAME that measurement; `v0` shares its value with
 # FIVE `state.*.present` rows -- producer_context, capability, capability@source_auth,
 # source_authorization and output_contract@root -- which measure the same thing, so SIX keys move
-# together. The `version` slot is REUSED
+# together. That set is ASSERTED, not just written here: `TestSemanticBaseShapeAliasSetIsExact`
+# and its Elixir peer rebuild it from these vectors and fail on drift. The `version` slot is REUSED
 # EVIDENCE from `version_corpus.txt`: only Go can parameterise the grammar version, and this
 # runtime's `SemanticDigest.compute/1` takes no version argument, so no row here re-proves it.
 #
