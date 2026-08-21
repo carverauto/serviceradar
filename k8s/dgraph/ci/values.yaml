@@ -76,7 +76,8 @@ alpha:
       cpu: "4"
       memory: 8Gi
 
-  # TLS ON, and verified: rust/dgraph-client takes a CA to verify against instead of the
+  # TLS ON, and verified: the Dgraph client (github.com/marvin-hansen/dgraph-rs) takes a CA to
+  # verify against instead of the
   # system roots, so a privately-issued certificate for the in-cluster name is authenticated
   # rather than merely encrypted. The CA reaches callers as the `dgraph.ca_cert` secret.
   tls:
@@ -143,7 +144,7 @@ alpha:
   # Zero to terminate TLS too (the chart supports zero.tls, mounting its own
   # dgraph-dgraph-zero-tls-secret). That is the right shape for demo, where three Zeros and
   # three Alphas gossip across nodes. Here it is one Zero and one Alpha in one namespace, and
-  # the external ports still terminate TLS, which is what rust/dgraph-client's VERIFY_CA path
+  # the external ports still terminate TLS, which is what the Dgraph client's VERIFY_CA path
   # actually exercises. Inter-node plaintext inside a disposable fixture buys nothing.
   # ACL ON, which is what makes namespaces actually isolate. Without it Dgraph ACCEPTS a
   # namespace parameter and then ignores it -- verified against this cluster before ACL was
