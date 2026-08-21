@@ -1468,12 +1468,16 @@ here.
         OVERLAPPING FAILURE SETS ARE RECORDED rather than engineered away: deleting a presence
         marker or a discriminant is caught ONLY by the state vectors, because absent and present
         already differ for unrelated reasons and inequality alone survives the deletion.
-        VECTOR ALIASING IS RECORDED: 2029 committed keys carry fewer distinct values.
-        `state.<slot>.present` IS the whole-envelope digest, so `root.shape.base.v0` shares its
-        value with four of them. Those are the SAME MEASUREMENT under different names, so a root
-        reordering fails five keys rather than one; `root.shape.base.v*` NAMES that measurement
-        as the order witness. What is unique to it as a CLASS is that no child vector and no edge
-        row moves at all.
+        VECTOR ALIASING IS RECORDED, AND THE ALIAS SET IS DERIVED RATHER THAN COUNTED HERE: 2029
+        committed keys carry fewer distinct values, because `state.<slot>.present` IS the
+        whole-envelope digest for the slots whose present value is the fully populated record, so
+        `root.shape.base.v0` shares its value with those rows. They are the SAME MEASUREMENT under
+        different names, which is why `root.shape.base.v*` NAMES that measurement as the order
+        witness; what is unique to it as a CLASS is that no child vector and no edge row moves at
+        all. HOW MANY rows they are is NOT restated in this ledger: the size was written out in
+        four places and one still read "four" a review round after the fifth row appeared, because
+        no test executed it. `TestSemanticBaseShapeAliasSetIsExact` and its Elixir peer now rebuild
+        the set from the committed vectors and fail on drift, naming it.
         THE MANIFEST CLOSURE IS SPLIT AND THE SPLIT IS ASSERTED: Go owns the 125-key `op` set and
         the nested-leaf closure over all nine grammar roots; this runtime owns the slot and
         claims-discriminant derivations FROM ITS OWN DESCRIPTORS, the exact {key, detail, probe}
