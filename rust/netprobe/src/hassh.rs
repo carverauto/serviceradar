@@ -121,10 +121,10 @@ fn md5_digest(input: &[u8]) -> [u8; 16] {
     let mut c0 = 0x98badcfeu32;
     let mut d0 = 0x10325476u32;
 
-    for chunk in message.chunks_exact(64) {
+    for chunk in message.as_chunks::<64>().0 {
         let mut words = [0u32; 16];
-        for (word, bytes) in words.iter_mut().zip(chunk.chunks_exact(4)) {
-            *word = u32::from_le_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]);
+        for (word, bytes) in words.iter_mut().zip(chunk.as_chunks::<4>().0) {
+            *word = u32::from_le_bytes(*bytes);
         }
 
         let mut a = a0;
@@ -252,8 +252,8 @@ fn read_name_list(payload: &[u8], cursor: &mut usize) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::{
-        SshKexInit, canonical_client_string, canonical_server_string, fingerprint_client,
-        fingerprint_server, fingerprint_ssh_kexinit, parse_ssh_kexinit,
+        canonical_client_string, canonical_server_string, fingerprint_client, fingerprint_server,
+        fingerprint_ssh_kexinit, parse_ssh_kexinit, SshKexInit,
     };
 
     const CYBERDUCK_KEX: &str = "curve25519-sha256@libssh.org,diffie-hellman-group-exchange-sha256,ecdh-sha2-nistp521,ecdh-sha2-nistp384,ecdh-sha2-nistp256,diffie-hellman-group-exchange-sha1,diffie-hellman-group1-sha1,diffie-hellman-group14-sha1,diffie-hellman-group14-sha256,diffie-hellman-group15-sha512,diffie-hellman-group16-sha512,diffie-hellman-group17-sha512,diffie-hellman-group18-sha512,diffie-hellman-group14-sha256@ssh.com,diffie-hellman-group15-sha256,diffie-hellman-group15-sha256@ssh.com,diffie-hellman-group15-sha384@ssh.com,diffie-hellman-group16-sha256,diffie-hellman-group16-sha384@ssh.com,diffie-hellman-group16-sha512@ssh.com,diffie-hellman-group18-sha512@ssh.com";

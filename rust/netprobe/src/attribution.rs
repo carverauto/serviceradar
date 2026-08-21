@@ -153,11 +153,11 @@ impl Hasher for FastHasher {
 
     #[inline]
     fn write(&mut self, bytes: &[u8]) {
-        let mut chunks = bytes.chunks_exact(8);
-        for chunk in &mut chunks {
-            self.mix(u64::from_le_bytes(chunk.try_into().expect("chunk size")));
+        let (chunks, remainder) = bytes.as_chunks::<8>();
+        for chunk in chunks {
+            self.mix(u64::from_le_bytes(*chunk));
         }
-        for byte in chunks.remainder() {
+        for byte in remainder {
             self.mix(u64::from(*byte));
         }
     }
@@ -2666,7 +2666,7 @@ fn parse_proc_net_ipv6(value: &str) -> Option<Ipv6Addr> {
     for index in 0..16 {
         bytes[index] = u8::from_str_radix(&value[index * 2..index * 2 + 2], 16).ok()?;
     }
-    for chunk in bytes.chunks_exact_mut(4) {
+    for chunk in bytes.as_chunks_mut::<4>().0 {
         chunk.reverse();
     }
     Some(Ipv6Addr::from(bytes))
