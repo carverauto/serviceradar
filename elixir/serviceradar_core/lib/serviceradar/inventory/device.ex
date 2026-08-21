@@ -600,7 +600,13 @@ defmodule ServiceRadar.Inventory.Device do
     attribute :identity_revision, :integer do
       allow_nil? false
       default 1
-      public? true
+
+      # Deliberately NOT public. Every consumer of the fence is internal -- ingest
+      # pipelines, Oban jobs, gateway sync -- and no external API client pins a
+      # revision. Publishing it would put an internal concurrency mechanism into
+      # the REST contract, which should be a deliberate decision rather than a
+      # side effect of adding the column.
+      public? false
 
       description """
       Monotonic counter bumped on every identity transition, so in-flight work can
