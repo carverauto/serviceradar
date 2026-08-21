@@ -212,11 +212,14 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.FeedWorker do
             %{
               last_status: "success",
               last_success_at: DateTime.utc_now(),
-              last_message: "loaded #{result.advisories_upserted} advisories",
+              last_message:
+                "loaded #{result.advisories_upserted} advisories " <>
+                  "(#{result.advisories_skipped} unchanged)",
               last_error: nil,
               metadata: %{
                 "advisories" => result.advisories_upserted,
                 "coordinates" => result.coordinates_upserted,
+                "advisories_skipped" => result.advisories_skipped,
                 "generation" => result.generation
               }
             },
@@ -356,6 +359,40 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.FeedWorker do
     Staging.cleanup_run(acquired.run_dir)
   end
 
+  # The skip guard has failed silently before: a NaiveDateTime/DateTime mismatch
+  # made it return false for every record, so the whole corpus was rewritten
+  # every run (~5.9 TB of WAL) while every log line still read "success". Zero
+  # skips against a non-empty stored corpus is that signature.
+  defp warn_if_guard_inert(feed_key, existing_count, result) do
+    if existing_count > 0 and result.advisories_upserted > 0 and result.advisories_skipped == 0 do
+      Logger.error(
+        "advisory_feeds: #{feed_key} skip guard appears inert — #{existing_count} stored " <>
+          "advisories, 0 skipped, #{result.advisories_upserted} rewritten"
+      )
+    end
+
+    result
+  end
+
+  defp load_and_finalize(records, provider, feed_key) do
+    generation = Loader.next_generation(provider, feed_key)
+    existing_modified = Loader.existing_modified_at(provider, feed_key)
+    existing_count = map_size(existing_modified)
+
+    result =
+      records
+      |> Loader.load_stream(
+        provider: provider,
+        feed_key: feed_key,
+        generation: generation,
+        existing_modified: existing_modified
+      )
+      |> then(&warn_if_guard_inert(feed_key, existing_count, &1))
+
+    Loader.finalize(provider, feed_key, generation, demote_missing: Loader.full_sweep?(result))
+    {:ok, result}
+  end
+
   defp parse_and_load(acquired, provider, feed_key, parse_fun) do
     json_path = single_json(acquired.extracted_dir)
 
@@ -364,13 +401,7 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.FeedWorker do
       |> StreamReader.stream_json_file(records_key: records_key(feed_key))
       |> Stream.flat_map(fn {:ok, record} -> parse_fun.({record, provider, feed_key}) end)
 
-    generation = Loader.next_generation(provider, feed_key)
-
-    result =
-      Loader.load_stream(records, provider: provider, feed_key: feed_key, generation: generation)
-
-    Loader.finalize(provider, feed_key, generation)
-    {:ok, result}
+    load_and_finalize(records, provider, feed_key)
   end
 
   defp parse_and_load_nvd(acquired) do
@@ -387,13 +418,7 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.FeedWorker do
         end
       end)
 
-    generation = Loader.next_generation(provider, feed_key)
-
-    result =
-      Loader.load_stream(records, provider: provider, feed_key: feed_key, generation: generation)
-
-    Loader.finalize(provider, feed_key, generation)
-    {:ok, result}
+    load_and_finalize(records, provider, feed_key)
   end
 
   defp parse_kev({record, provider, feed_key}) do
