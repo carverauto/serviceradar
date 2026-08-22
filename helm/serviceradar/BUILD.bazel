@@ -76,6 +76,16 @@ py_test(
 )
 
 py_test(
+    name = "component_gates_test",
+    srcs = ["component_gates_test.py"],
+    # EVERY template, not a named subset. The test DERIVES which components render a workload,
+    # so a new ungated component must fail it -- and it cannot see a template it was not given.
+    data = glob([
+        "templates/*.yaml",
+    ]) + ["values.yaml"],
+)
+
+py_test(
     name = "web_ng_public_url_test",
     srcs = ["web_ng_public_url_test.py"],
     data = [

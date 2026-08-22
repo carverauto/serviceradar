@@ -1,3 +1,10 @@
+{{- /* Component gate (issue #3859). ABSENT MEANS ENABLED: hasKey is used rather than a
+     truthiness test so that a chart or values file which never mentions `enabled`
+     renders exactly as before, and only an explicit `trivySidecar.enabled: false` removes
+     this component. `default true` cannot be used here -- Helm treats false as empty,
+     so it would resurrect anything explicitly disabled. */ -}}
+{{- $gate11 := default (dict) .Values.trivySidecar -}}
+{{- if or (not (hasKey $gate11 "enabled")) $gate11.enabled }}
 {{- $trivy := default (dict) .Values.trivySidecar -}}
 {{- if $trivy.enabled }}
 {{- $metrics := default (dict) $trivy.metrics -}}
@@ -172,4 +179,5 @@ spec:
       port: {{ default 9108 $metrics.port }}
       targetPort: metrics
       protocol: TCP
+{{- end }}
 {{- end }}

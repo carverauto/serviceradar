@@ -1,3 +1,10 @@
+{{- /* Component gate (issue #3859). ABSENT MEANS ENABLED: hasKey is used rather than a
+     truthiness test so that a chart or values file which never mentions `enabled`
+     renders exactly as before, and only an explicit `logCollector.enabled: false` removes
+     this component. `default true` cannot be used here -- Helm treats false as empty,
+     so it would resurrect anything explicitly disabled. */ -}}
+{{- $gate13 := default (dict) .Values.logCollector -}}
+{{- if or (not (hasKey $gate13 "enabled")) $gate13.enabled }}
 {{- $logCollectorProbes := .Values.logCollector.probes | default dict -}}
 {{- $logCollectorLiveness := $logCollectorProbes.liveness | default dict -}}
 {{- $logCollectorReadiness := $logCollectorProbes.readiness | default dict -}}
@@ -368,5 +375,6 @@ spec:
     protocol: {{ .Values.logCollector.externalService.ports.syslog.protocol | default "UDP" }}
   {{- end }}
   {{- end }}
+{{- end }}
 {{- end }}
 {{- end }}
