@@ -23,7 +23,7 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.FeedWorker do
 
   use Oban.Worker,
     queue: :integrations,
-    max_attempts: 3,
+    max_attempts: 4,
     unique: [
       period: :infinity,
       keys: [:feed],
@@ -42,6 +42,29 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.FeedWorker do
 
   require Ash.Query
   require Logger
+
+  # Retry spacing, in seconds, for attempts 2..4.
+  #
+  # Oban's default backoff put all three attempts of a nist-nvd2 run inside 65
+  # seconds (2026-08-22: 03:08:28, 03:09:12, 03:09:33). Every one of them sampled
+  # the same one-minute window of upstream health, so a brief VulnCheck timeout
+  # discarded the job and the feed then sat idle until the next 6-hour tick.
+  #
+  # These feeds refresh every 6 hours. Retrying three times inside a minute buys
+  # nothing; spreading the same three retries across ~42 minutes rides out a
+  # transient upstream problem and still finishes well inside one cycle, even if
+  # every attempt burns the full 60-minute nist-nvd2 timeout first.
+  @backoff_seconds [120, 600, 1800]
+
+  @impl true
+  def backoff(%Oban.Job{attempt: attempt}) do
+    base = Enum.at(@backoff_seconds, attempt - 1, List.last(@backoff_seconds))
+
+    # +/-10% jitter: three feeds share one upstream, and a shared outage would
+    # otherwise have them all retry in lockstep.
+    spread = max(div(base, 10), 1)
+    base - spread + :rand.uniform(2 * spread)
+  end
 
   @impl true
   # farm01 nist-nvd2 inserted ~360k advisories / 2.5M coordinates in 30 minutes
