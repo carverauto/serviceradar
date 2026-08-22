@@ -648,8 +648,10 @@ here.
   (task 1.16). ALSO introduce a project-owned
   typed MALFORMED-WIRE preflight/decoder before live integration (P1): a deterministic
   malformed `MatchError` currently maps to `:systemic`, so at a KNOWN delivery slot it
-  would stay retryable forever and pin the cumulative-prefix watermark (fuzz: ~3-4% of
-  malformed inputs). The preflight SHALL recognize genuine malformed SHORT-READ/overrun
+  would stay retryable forever and pin the cumulative-prefix watermark. MEASURED by 1.5-l: 33 of
+  20,000 malformed inputs reach that path with the preflight bypassed, ~0.165%, and 0 reach it
+  with the preflight in place. An earlier estimate of 3-4% appeared here and no measurement
+  reproduces it; the measured figure replaces it. The preflight SHALL recognize genuine malformed SHORT-READ/overrun
   cases as `:poison` (bad bytes -- a poison CLASSIFICATION whose disposition is resolved
   per the stage/slot, never prejudged as quarantine here) while leaving genuine codegen/metadata
   failures `:systemic`, so no decodable slot is retryable forever; it too is a PREREQUISITE
@@ -1590,7 +1592,7 @@ here.
         lifecycle ingress did: any component that declares a projected cost, or performs a
         synchronous mutation for an admitted record, SHALL account for it by this rule -- stated
         in the SPEC, which outlives this ledger, and not only here.
-  - [ ] 1.5-l REFUSAL CLASSIFICATION -- `:poison` vs `:systemic` vs `:not_ready`. This task's
+  - [x] 1.5-l REFUSAL CLASSIFICATION -- `:poison` vs `:systemic` vs `:not_ready`. This task's
         body requires it and no other subtask carries it.
         DISTINCT FROM 1.5-a, which freezes WHETHER bytes are refused and explicitly leaves the
         classification unfrozen. This one owns WHAT A REFUSAL IS CALLED, which decides
@@ -1605,10 +1607,31 @@ here.
         BEFORE the generated decoder runs; `classify/1` maps `Protobuf.DecodeError` to `:poison`
         and the ambiguous `MatchError` to `:systemic` deliberately; metadata and codegen failures
         are `:systemic`/`:not_ready` and never `:poison`.
-        REMAINING: (1) a NORMATIVE requirement -- the rule lives only in module documentation and
-        this ledger today, and a ledger is deleted at archive; (2) the body's own quantified claim,
-        that roughly 3-4% of malformed inputs reached an ambiguous `MatchError`, needs FUZZ
-        EVIDENCE that the preflight now catches those first rather than an argument that it should.
+        CLOSED. (1) The rule is now NORMATIVE: "A refusal's classification decides retryability
+        and is frozen" in `specs/ingestion-routing/spec.md` states the three classes and their
+        dispositions, requires malformed bytes to be `poison`, requires a structural preflight
+        ahead of a lenient decoder, and requires an AMBIGUOUS failure to be `systemic` -- failing
+        closed toward RETRY rather than toward destruction, because a deployment defect must not
+        permanently destroy valid data. It also requires the ambiguous path to be MEASURED empty
+        rather than argued, which is what (2) supplies.
+        (2) FUZZ EVIDENCE, WITH A POSITIVE CONTROL: `ServiceRadar.Edge.RefusalClassificationTest`.
+        10,000 deterministic mutants of a committed record -- bit flips, truncations, byte
+        replacements and insertions -- through the preflight and the decoder. ZERO reach
+        `MatchError`. The SAME mutants driven PAST the preflight do reach it, and that pairing is
+        the point: without the control, a change that made the path unreachable for some
+        unrelated reason would leave the file green while proving nothing. Non-vacuity is asserted
+        on both sides -- the preflight must refuse some and admit some, or the count means
+        nothing.
+        THE MEASUREMENT, REPRODUCIBLE. Generator: `record.bin`, the committed valid record,
+        mutated by four strategies in equal proportion -- single-bit flip, truncation at a random
+        offset, single-byte replacement, single-byte insertion -- drawn from `:rand` seeded
+        `:exsss` with `{1, 5, 11}`. A fuzz result that cannot be replayed is an anecdote, so the
+        seed is fixed and a failure names a specific mutant.
+        AT 20,000 MUTANTS: with the preflight bypassed, 33 reach `MatchError` (~0.165%); with the
+        preflight in place, 0. Everything that survives the preflight and still fails to decode
+        raises `Protobuf.DecodeError`, classified `poison` -- the same permanent refusal Go gives
+        those bytes. This measurement REPLACES the earlier 3-4% estimate that this task carried;
+        nothing here reproduces that figure.
   - [ ] 1.5-n ELIXIR STRUCTURAL RECORD BOUNDARY, carrying the projected-cost comparison
         against the production capability's DECLARED maxima.
         Go compares a record's declared cost against the maxima carried in its production
