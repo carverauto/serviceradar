@@ -286,76 +286,65 @@ pub fn parse_l2_ring_record(bytes: &[u8]) -> Option<DeviceObservation> {
     })
 }
 
-/// Rate limits repeat sightings of the same `(interface, MAC, IP)` binding.
+/// Detects that in-kernel suppression has stopped working, so the census can
+/// shut itself down instead of degrading into a resource hog.
 ///
-/// A first sighting is ALWAYS admitted -- that is what makes a device present
-/// for seconds visible at all. Only refreshes of an already-known binding are
-/// limited.
+/// Suppression lives in the eBPF program on purpose: it keeps discarded frames
+/// off the ring entirely, which is the whole point of netprobe's zero-copy
+/// design. There is deliberately no userspace suppressor to fall back on -- a
+/// fallback would mask exactly the failure we need to be loud about.
 ///
-/// This is a BACKSTOP, not the primary mechanism. Suppression happens in the
-/// eBPF program, which keeps the cost off the ring entirely -- measured at
-/// 0.043% CPU and 0.37 observations/sec on a live segment.
+/// This exists because the in-kernel path once failed SILENTLY. The map held
+/// well-formed entries with correct timestamps while every single frame was
+/// still emitted; the only outward symptom was journald quietly discarding
+/// ~1.15 million messages per 30 s, and the process burning ~40% of a core.
 ///
-/// It exists because the in-kernel path once failed *silently*: the map held
-/// well-formed entries with correct timestamps while every frame was still
-/// emitted, and the only visible symptom was journald discarding 1.15M
-/// messages per 30s. A second, deterministic bound turns that failure mode
-/// from a resource incident into a counter.
+/// With suppression working, the rate is bounded by
+/// `bindings / refresh_window`. Exceeding the ceiling below would require tens
+/// of thousands of distinct bindings on one segment, so it does not happen on a
+/// healthy system -- it means suppression is not suppressing.
 #[derive(Debug)]
-pub struct CensusSuppressor {
-    window: Duration,
-    seen: HashMap<(u32, [u8; 6], [u8; 16]), Instant>,
-    capacity: usize,
+pub struct CensusWatchdog {
+    ceiling_per_sec: u64,
+    interval: Duration,
+    window_started: Instant,
+    observations: u64,
 }
 
-impl CensusSuppressor {
-    pub fn new(window: Duration, capacity: usize) -> Self {
+/// Sustained rate above which in-kernel suppression is considered broken.
+///
+/// A healthy segment measured 0.37 observations/sec. Reaching 200/sec with
+/// working suppression would need ~12,000 distinct bindings on one broadcast
+/// domain. The broken path produced ~38,000/sec.
+pub const CENSUS_RATE_CEILING_PER_SEC: u64 = 200;
+
+/// How long a breach must be sustained before shutting down, so a burst from a
+/// legitimately busy moment does not trip it.
+pub const CENSUS_WATCHDOG_INTERVAL: Duration = Duration::from_secs(10);
+
+impl CensusWatchdog {
+    pub fn new(ceiling_per_sec: u64, interval: Duration, now: Instant) -> Self {
         Self {
-            window,
-            seen: HashMap::new(),
-            capacity,
+            ceiling_per_sec,
+            interval,
+            window_started: now,
+            observations: 0,
         }
     }
 
-    fn key(observation: &DeviceObservation) -> (u32, [u8; 6], [u8; 16]) {
-        let ip = match observation.ip {
-            Some(IpAddr::V4(v4)) => {
-                let mut octets = [0u8; 16];
-                octets[..4].copy_from_slice(&v4.octets());
-                octets
-            }
-            Some(IpAddr::V6(v6)) => v6.octets(),
-            None => [0u8; 16],
-        };
-        (observation.interface_index, observation.mac.octets(), ip)
-    }
-
-    /// Whether this observation should be reported now.
-    pub fn admit(&mut self, observation: &DeviceObservation, now: Instant) -> bool {
-        let key = Self::key(observation);
-        if let Some(last) = self.seen.get(&key) {
-            if now.duration_since(*last) < self.window {
-                return false;
-            }
+    /// Record one observation. Returns false when the census must stop.
+    #[must_use]
+    pub fn record(&mut self, now: Instant) -> bool {
+        self.observations = self.observations.saturating_add(1);
+        let elapsed = now.duration_since(self.window_started);
+        if elapsed < self.interval {
+            return true;
         }
-        if self.seen.len() >= self.capacity && !self.seen.contains_key(&key) {
-            // Bounded: drop the coldest entry rather than grow without limit on
-            // a segment with more bindings than we budgeted for.
-            if let Some(oldest) = self
-                .seen
-                .iter()
-                .min_by_key(|(_, seen_at)| **seen_at)
-                .map(|(k, _)| *k)
-            {
-                self.seen.remove(&oldest);
-            }
-        }
-        self.seen.insert(key, now);
-        true
-    }
-
-    pub fn tracked(&self) -> usize {
-        self.seen.len()
+        let seconds = elapsed.as_secs().max(1);
+        let rate = self.observations / seconds;
+        self.window_started = now;
+        self.observations = 0;
+        rate <= self.ceiling_per_sec
     }
 }
 
@@ -597,99 +586,75 @@ mod tests {
         assert!(!scope.contains("10.10.16.1".parse().unwrap()));
     }
 
-    fn obs(mac: [u8; 6], ip: &str) -> DeviceObservation {
-        let bytes = record(
-            L2_KIND_ARP_REPLY,
-            4,
-            0,
-            mac,
-            {
-                let v: std::net::Ipv4Addr = ip.parse().unwrap();
-                let mut x = [0u8; 16];
-                x[..4].copy_from_slice(&v.octets());
-                x
-            },
-        );
-        parse_l2_ring_record(&bytes).expect("record should decode")
-    }
-
     #[test]
-    fn a_first_sighting_is_always_admitted() {
-        let mut s = CensusSuppressor::new(Duration::from_secs(60), 1024);
-        let now = Instant::now();
-        assert!(
-            s.admit(&obs([0xbc, 0, 0, 0, 0, 1], "192.168.1.10"), now),
-            "a device seen for the first time must be reported immediately"
-        );
-    }
-
-    #[test]
-    fn a_repeat_inside_the_window_is_suppressed() {
-        let mut s = CensusSuppressor::new(Duration::from_secs(60), 1024);
-        let now = Instant::now();
-        let o = obs([0xbc, 0, 0, 0, 0, 1], "192.168.1.10");
-        assert!(s.admit(&o, now));
-        assert!(!s.admit(&o, now + Duration::from_secs(1)));
-        assert!(!s.admit(&o, now + Duration::from_secs(59)));
-    }
-
-    #[test]
-    fn a_repeat_after_the_window_refreshes() {
-        let mut s = CensusSuppressor::new(Duration::from_secs(60), 1024);
-        let now = Instant::now();
-        let o = obs([0xbc, 0, 0, 0, 0, 1], "192.168.1.10");
-        assert!(s.admit(&o, now));
-        assert!(s.admit(&o, now + Duration::from_secs(60)));
-    }
-
-    #[test]
-    fn distinct_bindings_do_not_suppress_each_other() {
-        let mut s = CensusSuppressor::new(Duration::from_secs(60), 1024);
-        let now = Instant::now();
-        assert!(s.admit(&obs([0xbc, 0, 0, 0, 0, 1], "192.168.1.10"), now));
-        // same MAC, different IP
-        assert!(s.admit(&obs([0xbc, 0, 0, 0, 0, 1], "192.168.1.11"), now));
-        // different MAC, same IP
-        assert!(s.admit(&obs([0xbc, 0, 0, 0, 0, 2], "192.168.1.10"), now));
-        assert_eq!(s.tracked(), 3);
-    }
-
-    #[test]
-    fn tracking_is_bounded() {
-        let mut s = CensusSuppressor::new(Duration::from_secs(60), 4);
-        let now = Instant::now();
-        for i in 0..50u8 {
-            s.admit(&obs([0xbc, 0, 0, 0, 0, i], "192.168.1.10"), now);
-        }
-        assert!(
-            s.tracked() <= 4,
-            "a segment with more bindings than budgeted must not grow the map without limit"
-        );
-    }
-
-    #[test]
-    fn suppression_holds_under_a_flood_of_one_binding() {
-        // The failure this guards: 38,000 emissions/sec of the same handful of
-        // bindings, which is what an ineffective suppressor produced on a live
-        // segment before this moved to userspace.
-        let mut s = CensusSuppressor::new(Duration::from_secs(60), 1024);
+    fn the_watchdog_tolerates_a_healthy_rate() {
+        // Measured healthy rate on a live segment was 0.37 observations/sec.
         let start = Instant::now();
-        let o = obs([0xbc, 0, 0, 0, 0, 1], "192.168.1.10");
-        let mut admitted = 0;
-        for i in 0..100_000u64 {
-            if s.admit(&o, start + Duration::from_millis(i)) {
-                admitted += 1;
+        let mut w = CensusWatchdog::new(CENSUS_RATE_CEILING_PER_SEC, Duration::from_secs(10), start);
+        for i in 0..60u64 {
+            assert!(
+                w.record(start + Duration::from_secs(i)),
+                "a healthy rate must not trip the watchdog"
+            );
+        }
+    }
+
+    #[test]
+    fn the_watchdog_trips_when_suppression_stops_suppressing() {
+        // The real failure: ~38,000 observations/sec because every frame was
+        // emitted. The census must shut down rather than degrade.
+        let start = Instant::now();
+        let mut w = CensusWatchdog::new(CENSUS_RATE_CEILING_PER_SEC, Duration::from_secs(10), start);
+        let mut tripped = false;
+        // 40,000/sec for slightly over the 10s interval, so the boundary where
+        // the watchdog evaluates is actually crossed.
+        for i in 0..440_000u64 {
+            let now = start + Duration::from_micros(i * 25);
+            if !w.record(now) {
+                tripped = true;
+                break;
             }
         }
-        // 100s of traffic at a 60s window: the first sighting plus one refresh.
-        assert_eq!(admitted, 2, "expected first sighting + one refresh, got {admitted}");
+        assert!(tripped, "a flood must trip the watchdog");
     }
 
+    #[test]
+    fn the_watchdog_does_not_trip_on_a_short_burst() {
+        // A busy moment inside one interval must not kill the census; the
+        // breach has to be sustained across the whole interval.
+        let start = Instant::now();
+        let mut w = CensusWatchdog::new(CENSUS_RATE_CEILING_PER_SEC, Duration::from_secs(10), start);
+        for i in 0..500u64 {
+            assert!(w.record(start + Duration::from_millis(i)));
+        }
+        // Then go quiet for the rest of the interval: 500 observations over
+        // 10s is 50/sec, under the ceiling.
+        assert!(w.record(start + Duration::from_secs(10)));
+    }
+
+    #[test]
+    fn the_watchdog_evaluates_each_interval_independently() {
+        let start = Instant::now();
+        let mut w = CensusWatchdog::new(10, Duration::from_secs(10), start);
+        // First interval healthy.
+        assert!(w.record(start + Duration::from_secs(10)));
+        // Second interval floods, running past the next boundary.
+        let mut tripped = false;
+        let base = start + Duration::from_secs(10);
+        for i in 0..6_000u64 {
+            if !w.record(base + Duration::from_millis(i * 2)) {
+                tripped = true;
+                break;
+            }
+        }
+        assert!(tripped, "a later interval must still be able to trip it");
+    }
 }
 
 #[cfg(target_os = "linux")]
 mod runtime {
-    use super::{parse_l2_ring_record, CensusSuppressor, DeviceObservation, SegmentScope};
+    use super::{parse_l2_ring_record, CensusWatchdog, DeviceObservation, SegmentScope,
+        CENSUS_RATE_CEILING_PER_SEC, CENSUS_WATCHDOG_INTERVAL};
     use std::net::IpAddr;
     use std::time::Instant;
     use anyhow::Result;
@@ -708,7 +673,8 @@ mod runtime {
         pub observed: AtomicU64,
         pub randomized: AtomicU64,
         pub off_segment: AtomicU64,
-        pub suppressed: AtomicU64,
+        /// Set when the census shut itself down because suppression failed.
+        pub shutdown: std::sync::atomic::AtomicBool,
         pub undecodable: AtomicU64,
     }
 
@@ -775,18 +741,13 @@ mod runtime {
         SegmentScope::new(prefixes)
     }
 
-    /// Refresh interval for an already-known binding. A first sighting is never
-    /// gated by this.
-    const CENSUS_REFRESH_WINDOW: Duration = Duration::from_secs(60);
-    /// Bindings tracked before the coldest is evicted.
-    const CENSUS_TRACKED_BINDINGS: usize = 65_536;
-
     struct CensusConsumer {
         interface_name: String,
         scope: SegmentScope,
         ring: aya::maps::RingBuf<aya::maps::MapData>,
         counters: Arc<CensusCounters>,
-        suppressor: CensusSuppressor,
+        watchdog: CensusWatchdog,
+        stop: Arc<AtomicBool>,
     }
 
     // Maximum records drained per poll before returning to the loop that checks
@@ -810,15 +771,22 @@ mod runtime {
                 match parse_l2_ring_record(item.as_ref()) {
                     Some(observation) => {
                         seen += 1;
-                        // Backstop only. In-kernel suppression is the primary
-                        // mechanism and measured at 0.043% CPU; this sees ~0.4
-                        // records/sec and costs nothing. It exists because the
-                        // in-kernel path once failed SILENTLY -- emitting every
-                        // frame while looking healthy -- and a second bound
-                        // turns that from an outage into a counter.
-                        if !self.suppressor.admit(&observation, Instant::now()) {
-                            self.counters.suppressed.fetch_add(1, Ordering::Relaxed);
-                            continue;
+                        // There is no userspace suppression fallback by design.
+                        // If the eBPF path stops suppressing, the census must
+                        // stop -- degrading into a resource hog would cost more
+                        // trust than the feature is worth.
+                        if !self.watchdog.record(Instant::now()) {
+                            log::error!(
+                                "netprobe passive device census SHUTTING DOWN on {}: sustained \
+                                 above {} observations/sec, which means in-kernel suppression is \
+                                 not suppressing. The census is stopping rather than continuing \
+                                 to consume resources; flow attribution is unaffected.",
+                                self.interface_name,
+                                CENSUS_RATE_CEILING_PER_SEC,
+                            );
+                            self.counters.shutdown.store(true, Ordering::SeqCst);
+                            self.stop.store(true, Ordering::SeqCst);
+                            return seen;
                         }
                         self.counters.observed.fetch_add(1, Ordering::Relaxed);
                         if observation.randomized_mac {
@@ -884,17 +852,19 @@ mod runtime {
                     "netprobe census could not determine the segment for {interface_name}: observations will record presence but anchor no identity"
                 );
             }
+            let stop = Arc::new(AtomicBool::new(false));
             let mut consumer = CensusConsumer {
                 interface_name,
                 scope,
                 ring: aya::maps::RingBuf::try_from(map)?,
                 counters: Arc::clone(&counters),
-                suppressor: CensusSuppressor::new(
-                    CENSUS_REFRESH_WINDOW,
-                    CENSUS_TRACKED_BINDINGS,
+                watchdog: CensusWatchdog::new(
+                    CENSUS_RATE_CEILING_PER_SEC,
+                    CENSUS_WATCHDOG_INTERVAL,
+                    Instant::now(),
                 ),
+                stop: Arc::clone(&stop),
             };
-            let stop = Arc::new(AtomicBool::new(false));
             let stop_worker = Arc::clone(&stop);
             let thread = thread::Builder::new()
                 .name("netprobe-device-census".to_owned())
