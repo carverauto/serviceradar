@@ -725,9 +725,10 @@ here.
     `WireDecode` / `WireValidate` gates.
   - REMAINING: 1.5-k..1.5-n. 1.5-a..1.5-j are CLOSED. The subtask list is
     exhaustive against this task's body -- see the EXHAUSTIVENESS note under the subtasks.
-  - DEPENDS ON: 1.6-d, and ONLY for 1.5-m. That subtask adds the framing rule to Elixir's
-    signed recovery-control path, and 1.6-d is what creates the path. Every other 1.5 subtask
-    depends on nothing open.
+  - DEPENDS ON: NOTHING OPEN. This read "1.6-d, and ONLY for 1.5-m" while that subtask was the
+    one creating Elixir's signed recovery-control path for 1.5-m's framing rule to attach to.
+    1.6-d has landed, so 1.5-m is unblocked and every remaining 1.5 subtask depends on nothing
+    open.
     1.5-h DEPENDS ON NOTHING. Its single closure policy is that a single-runtime row closes
     once its owner is NAMED, so the `MaxReasonBytes`, single-page `MaxSpansPerPage` and
     record-level `MaxPrincipalBytes` rows are DELEGATED, NOT AWAITED, and SHALL NOT be listed
@@ -1746,7 +1747,50 @@ here.
         NO NEW VECTORS FOR THE VERSION ROW: when it lands, `mtr_completion` flips from `go_only` to `both`
         and REUSES the committed control and alternate artifacts. Parent 1.6 then needs 1.6-d as
         well -- three of the four go_only members are its, not this subtask's.
-  - [ ] 1.6-d ELIXIR SIGNED RECOVERY-CONTROL BOUNDARY, for the three scope transcripts.
+  - [x] 1.6-d ELIXIR SIGNED RECOVERY-CONTROL BOUNDARY, for the three scope transcripts.
+        LANDED. `RecoveryValidate.recovery_control/3` composes, in Go's order: signature and
+        trust under a SUPPLIED policy, contract dispatch, the recovery lane and source kind, the
+        body, and only then the comparison of the recomputed scope digest against the SIGNED
+        claim. `record_signed/2` is the authorization half on its own, `control_body/1` is Go's
+        `recoveryControlBody`, and `single_page/1` is `validateSingleManifestPage` -- the
+        ISOLATION site, distinct from the chain walk's `page_ok/6`.
+        TRUST IS SUPPLIED, WHICH MIRRORS GO RATHER THAN REDUCING IT. Go's `AuthorizationPolicy`
+        takes a `CapabilityTrust` INTERFACE and implements no key store either. No trust
+        architecture was added here.
+        THE THREE ROWS ARE FLIPPED: `tombstone_scope`, `manifest_page_scope` and
+        `resolved_scope` read `both` in the manifest, and the CLOSED exemption set in BOTH
+        runtimes -- Go's `expectedGoOnlyObjects` and Elixir's `@expected_go_only` -- now holds
+        only `mtr_completion` (task 1.6-c). The Elixir suite enforces 18 rows, not 15. They reuse
+        the committed records and the committed issuer key; the generator keeps the private half.
+        BOTH RECORDS CLEAR SIGNATURE AND TRUST FIRST. The control and the altered artifact differ
+        only in the claimed scope, so the peer asserts `record_signed/2` on BOTH before running
+        the boundary: a refusal from the signed path would mean the row proves something other
+        than the scope comparison, and it fails distinctly rather than counting as the row's
+        expected refusal. That gate caught a real defect on its first run -- this runtime names
+        capability purposes `:production`, not the generated enum atom.
+        THE TWELVE DELEGATED CONTROLS RUN: `ServiceRadar.Edge.RecoveryControlBoundsTest`, four
+        each for the tombstone `reason` (1..256), the DECLARED `manifest_page_count`
+        (1..`MaxManifestPages`), and a single page's `classification_spans`
+        (1..`MaxSpansPerPage`). The span rows assert the EXACT refusal reason, `:manifest_bounds`,
+        because that arm is classed `retags`: with the bound removed the boundary still refuses
+        under the span-body reason, so a refusal-only assertion would pass with it deleted.
+        MEASURED BY MUTATION, AND THE FIRST PASS FOUND A HOLE. Ten mutations over the boundary:
+        each bound removed, and each ARM of each bound separately -- which is what four controls
+        rather than two exist to pin. Nine were killed. The tenth, `recovery_control/3` no longer
+        verifying the signature at all, SURVIVED: every test called `record_signed/2` itself
+        first, so a boundary that quietly stopped verifying satisfied all 18 rows and all 12
+        controls. Closed by driving `recovery_control/3` ALONE against a record carrying BOTH a
+        stale signature and a wrong scope -- if the scope were compared first the refusal would be
+        `:tombstone_mismatch`, and it reports the signature fault, which is what pins the ORDER
+        rather than the presence of both stages. Re-run after: killed. 10 of 10.
+        ALSO PINNED: the comparison reads the SIGNED claim, not the unsigned outer echo beside
+        it. Go reads the outer `context_id` but the signed `scope_id` and `scope_sha256`, and a
+        boundary that read the outer value would let anyone who can rewrite an envelope field
+        satisfy it.
+        The span ceiling uses `BoundedList.within?/2`, not `length/1`: a count ceiling exists to
+        stop unbounded work, and `length(spans) <= cap` performs exactly the traversal it
+        forbids. The two return the same verdict and differ only in cost, so no verdict vector
+        detects the difference -- credo did.
         WHY IT EXISTS: `tombstone_scope`, `manifest_page_scope` and `resolved_scope` have
         committed alternate-version artifacts that GO refuses through `ValidateRecoveryControl`,
         but Elixir has no signed recovery-control path to run them against. The scope comparison

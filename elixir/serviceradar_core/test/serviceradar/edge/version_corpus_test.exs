@@ -22,12 +22,6 @@ defmodule ServiceRadar.Edge.VersionCorpusTest do
 
     * `mtr_completion` -- `mtr_completion_digest_version` appears in this tree only in the
       generated struct and in golden assertions that read it. Task 1.6-c.
-    * the three recovery SCOPE transcripts -- Elixir has no signed recovery-control path.
-      Recomputing the scope digest here and comparing it would be a check written FOR THE
-      CORPUS: Go reaches that comparison only through `ValidateRecordSigned`, and that ordering
-      is half of what the rows freeze. An unsigned recomputation is a different boundary, so
-      this suite runs NOTHING for them rather than something that resembles a verifier. Task
-      1.6-d.
 
   When each lands, its row flips to `both` and reuses these same committed artifacts.
   """
@@ -82,15 +76,7 @@ defmodule ServiceRadar.Edge.VersionCorpusTest do
   # direction without a test failing.
   @expected_go_only MapSet.new([
                       # task 1.6-c -- no lifecycle validator here
-                      "mtr_completion",
-                      # task 1.6-d -- no SIGNED recovery-control path here. Recomputing the scope
-                      # digest and comparing it would be a check written for the corpus: Go
-                      # reaches that comparison only through ValidateRecordSigned, and the
-                      # ordering is half the rule, so an unsigned recomputation is not the same
-                      # boundary.
-                      "tombstone_scope",
-                      "manifest_page_scope",
-                      "resolved_scope"
+                      "mtr_completion"
                     ])
 
   defp testdata_dir do
@@ -170,6 +156,35 @@ defmodule ServiceRadar.Edge.VersionCorpusTest do
   defp take_varint(<<0::1, chunk::7, rest::binary>>, shift, acc),
     do: {Bitwise.bor(acc, Bitwise.bsl(chunk, shift)), rest}
 
+  # Rebuilt from the COMMITTED public key, so the peer file authorises the record rather than a
+  # key the generator happens to still hold. One key serves both capabilities; they carry
+  # different issuer ids, which is what makes the two lookups distinct.
+  defp scope_policy_for(record, pub) do
+    assert byte_size(pub) == 32, "committed issuer key is #{byte_size(pub)} bytes, want 32"
+
+    pc = record.production_capability
+    src = record.source_authorization.capability
+
+    keys = %{
+      {pc.issuer_id, pc.issuer_key_id} => pub,
+      {src.issuer_id, src.issuer_key_id} => pub
+    }
+
+    %{
+      trust: fn issuer_id, key_id, _purpose ->
+        case Map.fetch(keys, {issuer_id, key_id}) do
+          {:ok, key} -> {:ok, key, :valid}
+          :error -> :error
+        end
+      end,
+      now_unix_nano: uuidv7_millis(record.event_id) * 1_000_000,
+      active_fence: {:resolved, record.producer_context.authority_epoch},
+      trust_policy_epoch: 1
+    }
+  end
+
+  defp uuidv7_millis(<<millis::big-48, _rest::binary-size(10)>>), do: millis
+
   # ---- the per-object verifiers, each this runtime's PRODUCTION boundary -------------------
 
   defp verify("capability", artifact, _peer) do
@@ -205,6 +220,33 @@ defmodule ServiceRadar.Edge.VersionCorpusTest do
     rerooted = %{rerooted | execution_plan_sha256: HashGrammar.plan_header_digest(rerooted)}
 
     PlanValidate.validate(rerooted, pages)
+  end
+
+  # The three recovery SCOPE transcripts, through the SIGNED boundary rather than a digest
+  # recomputation. Task 1.6-d. The committed public key is what authorises the record here: the
+  # generator keeps the private half, so this runtime verifies exactly what a consumer would.
+  defp verify(object, artifact, peer)
+       when object in ["tombstone_scope", "manifest_page_scope", "resolved_scope"] do
+    record = EdgeRecordV1.decode(artifact)
+    policy = scope_policy_for(record, peer)
+
+    # THE ORDERING GATE. Both records -- control AND altered -- must clear signature and trust.
+    # The altered one differs ONLY in the claimed scope digest, so if the signed path refused it
+    # this row would be reporting something other than the scope comparison, and the refusal
+    # below would be evidence for the wrong rule. That is a hard failure, not the row's expected
+    # refusal.
+    case RecoveryValidate.record_signed(record, policy) do
+      :ok ->
+        :ok
+
+      {:error, reason} ->
+        flunk(
+          "#{object}: the signed path must accept BOTH the control and the altered record; " <>
+            "this one failed with #{inspect(reason)}, so the row would prove the wrong rule"
+        )
+    end
+
+    RecoveryValidate.recovery_control(record, record.output_contract, policy)
   end
 
   defp verify("compiled_assignment", artifact, _peer) do
@@ -305,7 +347,7 @@ defmodule ServiceRadar.Edge.VersionCorpusTest do
       end
     end
 
-    test "the go_only set is exactly the four members with no Elixir boundary" do
+    test "the go_only set is exactly the one member with no Elixir boundary" do
       go_only =
         rows()
         |> Enum.filter(fn {_object, row} -> row.runtimes == "go_only" end)
@@ -330,10 +372,10 @@ defmodule ServiceRadar.Edge.VersionCorpusTest do
   end
 
   describe "every shared row: the control is accepted and the altered artifact refused" do
-    test "all 15 rows this runtime enforces" do
+    test "all 18 rows this runtime enforces" do
       enforced = Enum.reject(rows(), fn {_o, row} -> row.runtimes == "go_only" end)
 
-      assert length(enforced) == 15
+      assert length(enforced) == 18
 
       for {object, row} <- enforced do
         peer = if row.peer == "-", do: nil, else: artifact(row.peer)
