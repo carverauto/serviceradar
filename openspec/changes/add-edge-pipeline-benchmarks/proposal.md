@@ -43,18 +43,28 @@ baseline to notice a regression against.
 - Publish each run's numbers as a build artifact so a baseline and its variance can be
   established from real data before anyone proposes gating on it.
 
-**Part 2 — measure throughput on the composed path. BLOCKED, deliberately.**
+**Part 2 — NOT IN THIS CHANGE. It belongs to the vertical slice.**
 
-Throughput of the ingest pipeline can only be measured once the pipeline runs end to end:
-`record -> agent spool -> mTLS gRPC -> gateway -> JetStream PubAck -> EventWriter -> idempotent
-CNPG transaction -> query`. That is precisely the FIRST GREEN VERTICAL SLICE milestone in
-`unify-sweep-results-proto`, which states that the composed runtime result must not be displaced
-by further horizontal proof surfaces.
+A throughput benchmark must exercise the SAME production entrypoint the vertical slice uses. If
+it is built here it will grow benchmark-only glue — a private approximation of ingress — and the
+project then has two models of the same path, one of which nothing in production calls. That is
+the failure this change exists to complain about, reproduced one layer up.
 
-A pipeline throughput benchmark built before that slice exists would have to stub most of the
-path, and would therefore measure a fiction — the same defect the existing edge benchmark
-already documents about itself. **So Part 2 does not start until the vertical slice is green,**
-and this proposal records that dependency rather than competing with it.
+So the throughput work moves INTO `unify-sweep-results-proto`'s vertical-slice implementation
+rather than preceding it as a detour. Two of its stages are also still being defined:
+`freeze-edge-record-v1-abi` 1.5-k owns projected-cost ENUMERATION and 1.5-n owns the Elixir
+structural record boundary, and a benchmark that measured those before they are settled would
+pin a shape that is still moving.
+
+NAMING IS PART OF THE BOUNDARY. Until gRPC, JetStream, EventWriter and CNPG are in the
+measurement it is a **composed ingress CPU benchmark** — not end-to-end, and not deployment
+throughput. It may report records/sec, hosts/sec, bytes/sec and allocations over: raw extraction
+and size bounds, frame/record decode and validation, real signature verification against a warm
+in-memory trust resolver, decompression, body validation, correlation, and projected-cost
+enumeration. A number covering that much is genuinely useful and still is not capacity.
+
+The real pipeline benchmark comes immediately after the slice is green, and only then may the
+words end-to-end or throughput attach to it.
 
 ## Impact
 
@@ -66,13 +76,17 @@ and this proposal records that dependency rather than competing with it.
   - `//buildbuddy.yaml` — one added step
 - **Not in scope:** any performance THRESHOLD, any optimisation work, and any change to what the
   benchmarks measure. Part 1 changes only whether they run.
-- **Explicitly deferred:** Part 2 until the `unify-sweep-results-proto` vertical slice is green.
+- **Moved, not deferred:** the throughput benchmark belongs to `unify-sweep-results-proto`'s
+  vertical-slice implementation, so it exercises production composition rather than becoming a
+  second independently proven model of ingress. It additionally depends on
+  `freeze-edge-record-v1-abi` 1.5-k and 1.5-n, which define two of the stages it would measure.
 - **Available dependency:** a real NATS JetStream instance exists in `sr-testing`, so neither the
   vertical slice nor the throughput benchmark needs to mock the PubAck hop. A measurement taken
   against a real broker describes the system; one taken against a mock describes the harness.
 
 ## Risk
 
-The honest risk is that this change is itself a horizontal proof surface. Part 1 is small and
-prevents rot in work already paid for; Part 2 is the part with real cost, and it is gated behind
-the composed result rather than allowed to precede it.
+The honest risk is that this change is itself a horizontal proof surface. What remains here is
+small: it makes existing benchmarks run and keeps their "not production ingress" disclaimers
+intact. The expensive half is not deferred but REASSIGNED, to the slice that will own the
+production entrypoint it must measure.

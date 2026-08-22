@@ -43,15 +43,14 @@
 - [ ] 5.3 Collect enough runs to state each benchmark's observed variance, so a later proposal to
       gate can be argued from data rather than from a round number.
 
-## 6. Pipeline throughput -- BLOCKED on the vertical slice
+## 6. Pipeline throughput -- MOVED to the vertical slice, not tracked here
 
-- [ ] 6.1 DO NOT START until `unify-sweep-results-proto`'s first green vertical slice is green:
-      `record -> agent spool -> mTLS gRPC -> gateway -> JetStream PubAck -> EventWriter ->
-      idempotent CNPG transaction -> query`. A throughput benchmark built before that path exists
-      would stub most of it and measure a fiction -- the exact defect the current edge benchmark
-      documents about itself.
-- [ ] 6.2 Measure records/sec and hosts/sec through the COMPOSED path, with extraction,
-      decompression, signature verification and trust resolution included, and state which
-      hardware and which fixture produced the number.
-- [ ] 6.3 State what it does not measure, in the benchmark's own header, the way the existing edge
-      benchmark does. A capacity figure without its conditions is a number people quote.
+- [x] 6.1 Record that the throughput benchmark is NOT part of this change. It must exercise the
+      same production entrypoint the vertical slice uses; built here it would grow
+      benchmark-only glue and become a second model of ingress that nothing in production calls.
+- [x] 6.2 Record its two additional dependencies: `freeze-edge-record-v1-abi` 1.5-k
+      (projected-cost enumeration) and 1.5-n (the Elixir structural record boundary) define
+      stages it would measure, and both are still open.
+- [x] 6.3 Record the naming boundary: until gRPC, JetStream, EventWriter and CNPG are in the
+      measurement it is a COMPOSED INGRESS CPU BENCHMARK -- never "end-to-end", never
+      "deployment throughput".

@@ -49,6 +49,31 @@ number people quote.
 - **THEN** its header SHALL name those omissions
 - **AND** its result SHALL NOT be published as a records-per-second capacity figure
 
+### Requirement: A benchmark measures the production entrypoint, not a private approximation
+A benchmark of an ingest path SHALL drive the SAME entrypoint production drives. It SHALL NOT
+introduce benchmark-only glue that reassembles the path out of internal parts.
+
+A benchmark that assembles its own version of ingress creates a second model of the system, and
+the second model is the one nothing in production calls. It will drift, and its numbers will
+describe the drift rather than the system. This is the same defect as a benchmark nobody runs,
+one layer up: it looks like measurement and measures something else.
+
+A benchmark that covers only part of the path SHALL be NAMED for what it covers. A measurement
+spanning extraction, decode, validation, signature verification, decompression, body validation,
+correlation and cost enumeration -- but not the network, broker, consumer or database -- is a
+COMPOSED INGRESS CPU benchmark. It SHALL NOT be called end-to-end, and its result SHALL NOT be
+called deployment throughput.
+
+#### Scenario: A benchmark needs a path that is not exposed
+- **WHEN** measuring would require reaching past the production entrypoint into internal parts
+- **THEN** the benchmark SHALL NOT be written against those parts
+- **AND** the missing entrypoint SHALL be treated as the work to do first
+
+#### Scenario: A partial measurement is named
+- **WHEN** a benchmark omits the network, broker, consumer or database hops
+- **THEN** it SHALL be called a composed ingress CPU benchmark
+- **AND** its numbers SHALL NOT be presented as deployment throughput
+
 ### Requirement: Pipeline throughput is measured on the composed path
 A pipeline throughput benchmark SHALL drive a record through the REAL path -- agent spool, mTLS
 gRPC, gateway, JetStream publish acknowledgement, EventWriter, the idempotent database
