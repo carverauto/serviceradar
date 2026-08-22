@@ -91,7 +91,7 @@ Get ServiceRadar running in under 5 minutes:
 export SERVICERADAR_HOST=<my-vm-ip>
 export GATEWAY_PUBLIC_BIND=0.0.0.0
 
-git clone https://code.carverauto.dev/carverauto/serviceradar.git
+git clone https://github.com/carverauto/serviceradar.git
 cd serviceradar
 
 docker compose pull

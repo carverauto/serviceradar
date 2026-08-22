@@ -44,8 +44,8 @@ ServiceRadar already stores and analyzes NetFlow telemetry and runs sandboxed Wa
 - STIX 2.1 OASIS Standard: https://docs.oasis-open.org/cti/stix/v2.1/os/stix-v2.1-os.html
 - AlienVault OTX API docs: https://otx.alienvault.com/api
 - AlienVault OTX Python SDK: https://github.com/AlienVault-OTX/OTX-Python-SDK
-- ServiceRadar Go SDK: https://code.carverauto.dev/carverauto/serviceradar-sdk-go
-- ServiceRadar Rust SDK: https://code.carverauto.dev/carverauto/serviceradar-sdk-rust
+- ServiceRadar Go SDK: https://github.com/carverauto/serviceradar-sdk-go
+- ServiceRadar Rust SDK: https://github.com/carverauto/serviceradar-sdk-rust
 
 ## Notes
 - The OTX API key must be treated as a secret. It should be entered through encrypted settings or injected from deployment secrets, never committed to the repo.

@@ -6,7 +6,7 @@
   "license": "UNLICENSED",
   "repository": {
     "type": "git",
-    "url": "git+ssh://git@code.carverauto.dev/carverauto/serviceradar.git",
+    "url": "git+ssh://git@github.com/carverauto/serviceradar.git",
     "directory": "js/create-dashboard"
   },
   "publishConfig": {

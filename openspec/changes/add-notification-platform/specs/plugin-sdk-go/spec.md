@@ -2,7 +2,7 @@
 
 ### Requirement: Notifier plugin kind
 
-The Go SDK (`code.carverauto.dev/carverauto/serviceradar-sdk-go`) SHALL support a
+The Go SDK (`github.com/carverauto/serviceradar-sdk-go`) SHALL support a
 **notifier** plugin kind that a `NotificationProvider` with `provider_type:
 :wasm_plugin` dispatches into, using the same authoring shape as every other
 plugin kind in this SDK: a `package main` with `func main() {}` plus one or more
@@ -661,7 +661,7 @@ understood payload.
 Every notifier-bearing plugin module SHALL pin an SDK version that supports the
 notifier contract version its manifest targets. Each module under
 `go/cmd/wasm-plugins/` carries its own `go.mod`
-pinning `code.carverauto.dev/carverauto/serviceradar-sdk-go` independently -- the
+pinning `github.com/carverauto/serviceradar-sdk-go` independently -- the
 nine modules present today pin four different pseudo-versions -- so a notifier
 contract that lands in the SDK is not automatically present in any plugin.
 
