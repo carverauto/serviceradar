@@ -69,7 +69,7 @@ NETPROBE_RUSTC_FLAGS = select({
     "//conditions:default": [],
 })
 
-NETPROBE_VERSION = "0.2.34"
+NETPROBE_VERSION = "0.2.35"
 
 cargo_build_script(
     name = "build_script",
