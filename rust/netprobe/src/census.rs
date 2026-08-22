@@ -10,8 +10,10 @@
 //! what makes a device present for seconds visible at all -- no scan schedule
 //! can catch a host that joins and leaves between sweeps.
 
+use std::collections::HashMap;
 use std::fmt;
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
+use std::time::{Duration, Instant};
 
 /// Wire size of the eBPF `L2ObservationRecord` (`#[repr(C)]`).
 pub const L2_OBSERVATION_RECORD_LEN: usize = 48;
@@ -284,6 +286,75 @@ pub fn parse_l2_ring_record(bytes: &[u8]) -> Option<DeviceObservation> {
     })
 }
 
+/// Rate limits repeat sightings of the same `(interface, MAC, IP)` binding.
+///
+/// A first sighting is ALWAYS admitted -- that is what makes a device present
+/// for seconds visible at all. Only refreshes of an already-known binding are
+/// limited.
+///
+/// This lives in userspace deliberately. An equivalent in-kernel LRU map was
+/// tried first and did not suppress: entries were written with correct
+/// timestamps but lookups behaved as misses, so every frame was emitted. That
+/// is worth revisiting to cut ring traffic, but suppression correctness must
+/// not depend on it -- here it is deterministic and directly testable.
+#[derive(Debug)]
+pub struct CensusSuppressor {
+    window: Duration,
+    seen: HashMap<(u32, [u8; 6], [u8; 16]), Instant>,
+    capacity: usize,
+}
+
+impl CensusSuppressor {
+    pub fn new(window: Duration, capacity: usize) -> Self {
+        Self {
+            window,
+            seen: HashMap::new(),
+            capacity,
+        }
+    }
+
+    fn key(observation: &DeviceObservation) -> (u32, [u8; 6], [u8; 16]) {
+        let ip = match observation.ip {
+            Some(IpAddr::V4(v4)) => {
+                let mut octets = [0u8; 16];
+                octets[..4].copy_from_slice(&v4.octets());
+                octets
+            }
+            Some(IpAddr::V6(v6)) => v6.octets(),
+            None => [0u8; 16],
+        };
+        (observation.interface_index, observation.mac.octets(), ip)
+    }
+
+    /// Whether this observation should be reported now.
+    pub fn admit(&mut self, observation: &DeviceObservation, now: Instant) -> bool {
+        let key = Self::key(observation);
+        if let Some(last) = self.seen.get(&key) {
+            if now.duration_since(*last) < self.window {
+                return false;
+            }
+        }
+        if self.seen.len() >= self.capacity && !self.seen.contains_key(&key) {
+            // Bounded: drop the coldest entry rather than grow without limit on
+            // a segment with more bindings than we budgeted for.
+            if let Some(oldest) = self
+                .seen
+                .iter()
+                .min_by_key(|(_, seen_at)| **seen_at)
+                .map(|(k, _)| *k)
+            {
+                self.seen.remove(&oldest);
+            }
+        }
+        self.seen.insert(key, now);
+        true
+    }
+
+    pub fn tracked(&self) -> usize {
+        self.seen.len()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -521,12 +592,102 @@ mod tests {
         assert!(scope.contains("10.10.15.254".parse().unwrap()));
         assert!(!scope.contains("10.10.16.1".parse().unwrap()));
     }
+
+    fn obs(mac: [u8; 6], ip: &str) -> DeviceObservation {
+        let bytes = record(
+            L2_KIND_ARP_REPLY,
+            4,
+            0,
+            mac,
+            {
+                let v: std::net::Ipv4Addr = ip.parse().unwrap();
+                let mut x = [0u8; 16];
+                x[..4].copy_from_slice(&v.octets());
+                x
+            },
+        );
+        parse_l2_ring_record(&bytes).expect("record should decode")
+    }
+
+    #[test]
+    fn a_first_sighting_is_always_admitted() {
+        let mut s = CensusSuppressor::new(Duration::from_secs(60), 1024);
+        let now = Instant::now();
+        assert!(
+            s.admit(&obs([0xbc, 0, 0, 0, 0, 1], "192.168.1.10"), now),
+            "a device seen for the first time must be reported immediately"
+        );
+    }
+
+    #[test]
+    fn a_repeat_inside_the_window_is_suppressed() {
+        let mut s = CensusSuppressor::new(Duration::from_secs(60), 1024);
+        let now = Instant::now();
+        let o = obs([0xbc, 0, 0, 0, 0, 1], "192.168.1.10");
+        assert!(s.admit(&o, now));
+        assert!(!s.admit(&o, now + Duration::from_secs(1)));
+        assert!(!s.admit(&o, now + Duration::from_secs(59)));
+    }
+
+    #[test]
+    fn a_repeat_after_the_window_refreshes() {
+        let mut s = CensusSuppressor::new(Duration::from_secs(60), 1024);
+        let now = Instant::now();
+        let o = obs([0xbc, 0, 0, 0, 0, 1], "192.168.1.10");
+        assert!(s.admit(&o, now));
+        assert!(s.admit(&o, now + Duration::from_secs(60)));
+    }
+
+    #[test]
+    fn distinct_bindings_do_not_suppress_each_other() {
+        let mut s = CensusSuppressor::new(Duration::from_secs(60), 1024);
+        let now = Instant::now();
+        assert!(s.admit(&obs([0xbc, 0, 0, 0, 0, 1], "192.168.1.10"), now));
+        // same MAC, different IP
+        assert!(s.admit(&obs([0xbc, 0, 0, 0, 0, 1], "192.168.1.11"), now));
+        // different MAC, same IP
+        assert!(s.admit(&obs([0xbc, 0, 0, 0, 0, 2], "192.168.1.10"), now));
+        assert_eq!(s.tracked(), 3);
+    }
+
+    #[test]
+    fn tracking_is_bounded() {
+        let mut s = CensusSuppressor::new(Duration::from_secs(60), 4);
+        let now = Instant::now();
+        for i in 0..50u8 {
+            s.admit(&obs([0xbc, 0, 0, 0, 0, i], "192.168.1.10"), now);
+        }
+        assert!(
+            s.tracked() <= 4,
+            "a segment with more bindings than budgeted must not grow the map without limit"
+        );
+    }
+
+    #[test]
+    fn suppression_holds_under_a_flood_of_one_binding() {
+        // The failure this guards: 38,000 emissions/sec of the same handful of
+        // bindings, which is what an ineffective suppressor produced on a live
+        // segment before this moved to userspace.
+        let mut s = CensusSuppressor::new(Duration::from_secs(60), 1024);
+        let start = Instant::now();
+        let o = obs([0xbc, 0, 0, 0, 0, 1], "192.168.1.10");
+        let mut admitted = 0;
+        for i in 0..100_000u64 {
+            if s.admit(&o, start + Duration::from_millis(i)) {
+                admitted += 1;
+            }
+        }
+        // 100s of traffic at a 60s window: the first sighting plus one refresh.
+        assert_eq!(admitted, 2, "expected first sighting + one refresh, got {admitted}");
+    }
+
 }
 
 #[cfg(target_os = "linux")]
 mod runtime {
-    use super::{parse_l2_ring_record, DeviceObservation, SegmentScope};
+    use super::{parse_l2_ring_record, CensusSuppressor, DeviceObservation, SegmentScope};
     use std::net::IpAddr;
+    use std::time::Instant;
     use anyhow::Result;
     use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
     use std::sync::Arc;
@@ -543,6 +704,7 @@ mod runtime {
         pub observed: AtomicU64,
         pub randomized: AtomicU64,
         pub off_segment: AtomicU64,
+        pub suppressed: AtomicU64,
         pub undecodable: AtomicU64,
     }
 
@@ -609,11 +771,18 @@ mod runtime {
         SegmentScope::new(prefixes)
     }
 
+    /// Refresh interval for an already-known binding. A first sighting is never
+    /// gated by this.
+    const CENSUS_REFRESH_WINDOW: Duration = Duration::from_secs(60);
+    /// Bindings tracked before the coldest is evicted.
+    const CENSUS_TRACKED_BINDINGS: usize = 65_536;
+
     struct CensusConsumer {
         interface_name: String,
         scope: SegmentScope,
         ring: aya::maps::RingBuf<aya::maps::MapData>,
         counters: Arc<CensusCounters>,
+        suppressor: CensusSuppressor,
     }
 
     // Maximum records drained per poll before returning to the loop that checks
@@ -636,6 +805,11 @@ mod runtime {
                 };
                 match parse_l2_ring_record(item.as_ref()) {
                     Some(observation) => {
+                        seen += 1;
+                        if !self.suppressor.admit(&observation, Instant::now()) {
+                            self.counters.suppressed.fetch_add(1, Ordering::Relaxed);
+                            continue;
+                        }
                         self.counters.observed.fetch_add(1, Ordering::Relaxed);
                         if observation.randomized_mac {
                             self.counters.randomized.fetch_add(1, Ordering::Relaxed);
@@ -644,7 +818,6 @@ mod runtime {
                             self.counters.off_segment.fetch_add(1, Ordering::Relaxed);
                         }
                         log_observation(&self.interface_name, &self.scope, &observation);
-                        seen += 1;
                     }
                     None => {
                         self.counters.undecodable.fetch_add(1, Ordering::Relaxed);
@@ -706,6 +879,10 @@ mod runtime {
                 scope,
                 ring: aya::maps::RingBuf::try_from(map)?,
                 counters: Arc::clone(&counters),
+                suppressor: CensusSuppressor::new(
+                    CENSUS_REFRESH_WINDOW,
+                    CENSUS_TRACKED_BINDINGS,
+                ),
             };
             let stop = Arc::new(AtomicBool::new(false));
             let stop_worker = Arc::clone(&stop);
