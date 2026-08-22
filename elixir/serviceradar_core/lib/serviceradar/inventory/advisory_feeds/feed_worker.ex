@@ -80,6 +80,7 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.FeedWorker do
   # Grace before a node-less job is considered orphaned. Short, because node
   # liveness is already the decisive signal; this only covers a brief netsplit.
   @orphan_grace_seconds 5 * 60
+  @rpc_timeout_ms 5_000
   @worker_name inspect(__MODULE__)
 
   # NOTE: "nvd-api" is intentionally excluded — `do_run("nvd-api")` is an
@@ -296,22 +297,37 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.FeedWorker do
   in-flight. The row itself waits for `Oban.Plugins.Lifeline`, configured at 240
   minutes -- so one deploy roll could cost a 6-hourly feed most of a cycle.
 
-  The test here is node liveness, not age. Oban records the node that took the
-  attempt in `attempted_by[0]` (Oban 2.23 writes `[node, uuid]`; older versions
-  wrote `[node, queue, uuid]`, so match the head, not the arity), and this
-  deployment names nodes after the pod IP
-  (`serviceradar_core@10.42.x.y`), so a replaced pod never reuses a node name. A
-  job whose node is gone is definitively dead, however recently it started --
-  which is what lets this run without the age threshold that
-  `@stale_running_seconds` needs, and without weakening a global Lifeline setting
-  that every other worker shares.
+  The test here is node identity and node age, not job age. Oban records the node
+  that took the attempt in `attempted_by[0]` (Oban 2.23 writes `[node, uuid]`;
+  older versions wrote `[node, queue, uuid]`, so match the head, not the arity).
+
+  There are two ways the owner can die, and only one of them changes the node
+  name:
+
+    * **The pod is replaced.** Nodes here are named after the pod IP
+      (`serviceradar_core@10.42.x.y`), so the new pod gets a new name and the old
+      name simply disappears from the cluster.
+
+    * **The container restarts inside the same pod.** An OOMKill does this: the
+      pod keeps its IP, so the BEAM comes back under the *identical* node name.
+      Liveness alone cannot see this, and an earlier version of this function
+      missed it -- observed on farm01, where a nist-nvd2 run was OOMKilled four
+      minutes in (exit 137) and its row then sat `executing` for well over an
+      hour under a node name that looked perfectly healthy.
+
+  So a node being present is not enough; it has to be the *same instance*. A node
+  whose VM started after the job's `attempted_at` cannot be running that job, no
+  matter what it is called. That still needs no threshold on job age, and still
+  leaves the global Lifeline setting every other worker shares alone.
 
   Two guards keep it conservative:
 
     * it does nothing on an un-clustered node, where `Node.list/0` is empty and
       every job would look orphaned; and
     * it still requires a short grace period, so a brief netsplit does not reclaim
-      a job that is genuinely running on the other side of it.
+      a job that is genuinely running on the other side of it; and
+    * a node whose start time cannot be read is treated as healthy, so an RPC
+      timeout cannot cancel a live run.
 
   Dead attempts are cancelled rather than retried. A half-finished run has already
   written a staging directory and possibly part of a generation; a fresh acquire
@@ -336,7 +352,7 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.FeedWorker do
   defp do_reclaim_orphaned_jobs do
     import Ecto.Query
 
-    live = MapSet.new([Node.self() | Node.list()], &Atom.to_string/1)
+    live = live_node_start_times()
     cutoff = DateTime.add(DateTime.utc_now(), -@orphan_grace_seconds, :second)
 
     query =
@@ -355,19 +371,81 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.FeedWorker do
   end
 
   @doc false
-  # No attempted_by means unknown provenance -- leave those to Lifeline rather
-  # than guess.
+  # `live` maps a live node name to the DateTime its VM started, or to nil when
+  # that could not be read. No attempted_by means unknown provenance -- leave
+  # those to Lifeline rather than guess.
   def orphaned?(job, live)
 
-  def orphaned?(%Oban.Job{attempted_by: [node | _]}, live) when is_binary(node),
-    do: not MapSet.member?(live, node)
+  def orphaned?(%Oban.Job{attempted_by: [node | _], attempted_at: attempted_at}, live)
+      when is_binary(node) do
+    case Map.fetch(live, node) do
+      # The node is gone from the cluster: the pod was replaced.
+      :error ->
+        true
+
+      # Present, but we could not read its start time. Assume it is healthy --
+      # cancelling a live 60-minute feed run costs more than waiting for Lifeline.
+      {:ok, nil} ->
+        false
+
+      # Present under the same name, but this VM booted after the job began, so
+      # it is not the instance that took the attempt. Container restart in place.
+      {:ok, started_at} ->
+        restarted_since?(attempted_at, started_at)
+    end
+  end
 
   def orphaned?(_job, _live), do: false
+
+  @doc false
+  # Public so :rpc can call it on a peer. Derived from the monotonic clock rather
+  # than :erlang.statistics(:wall_clock), which resets a global counter as a side
+  # effect of being read.
+  @spec vm_started_at() :: DateTime.t()
+  def vm_started_at do
+    uptime_ms =
+      :erlang.convert_time_unit(
+        :erlang.monotonic_time() - :erlang.system_info(:start_time),
+        :native,
+        :millisecond
+      )
+
+    DateTime.add(DateTime.utc_now(), -uptime_ms, :millisecond)
+  end
+
+  defp live_node_start_times do
+    self_node = Node.self()
+
+    Map.new([self_node | Node.list()], fn node ->
+      {Atom.to_string(node), node_started_at(node, self_node)}
+    end)
+  end
+
+  defp node_started_at(node, node), do: vm_started_at()
+
+  defp node_started_at(node, _self_node) do
+    case :rpc.call(node, __MODULE__, :vm_started_at, [], @rpc_timeout_ms) do
+      %DateTime{} = started_at -> started_at
+      _other -> nil
+    end
+  end
+
+  defp restarted_since?(nil, _started_at), do: false
+
+  defp restarted_since?(attempted_at, started_at) do
+    DateTime.before?(to_utc(attempted_at), started_at)
+  end
+
+  # Oban types attempted_at as :utc_datetime_usec, but normalise anyway: a
+  # NaiveDateTime compared against a DateTime raises, and this runs on a path
+  # whose whole job is to not disturb anything.
+  defp to_utc(%DateTime{} = at), do: at
+  defp to_utc(%NaiveDateTime{} = at), do: DateTime.from_naive!(at, "Etc/UTC")
 
   defp cancel_orphan(%Oban.Job{id: id, args: args, attempted_by: [node | _]}) do
     Logger.warning(
       "advisory_feeds: cancelling orphaned job #{id} for #{inspect(args["feed"])}; " <>
-        "node #{node} is no longer in the cluster"
+        "node #{node} is gone or restarted since the attempt began"
     )
 
     Oban.cancel_job(id)
