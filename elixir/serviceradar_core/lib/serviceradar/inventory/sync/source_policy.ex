@@ -4,9 +4,8 @@ defmodule ServiceRadar.Inventory.Sync.SourcePolicy do
   agent_id must not become a device identifier), when MACs are eligible,
   and the effective identifier set for an update.
   """
-  alias ServiceRadar.Inventory.Identity.Mac
-
   alias ServiceRadar.Inventory.Identity.Ids
+  alias ServiceRadar.Inventory.Identity.Mac
   alias ServiceRadar.Inventory.IdentityReconciler
 
   def valid_ip?(value) when is_binary(value), do: String.trim(value) != ""

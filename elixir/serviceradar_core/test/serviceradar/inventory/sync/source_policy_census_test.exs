@@ -17,7 +17,11 @@ defmodule ServiceRadar.Inventory.Sync.SourcePolicyCensusTest do
     test "recognises the census by source name or identity_source" do
       assert SourcePolicy.passive_census_source?(update("passive-census", %{}))
       assert SourcePolicy.passive_census_source?(update("netprobe-census", %{}))
-      assert SourcePolicy.passive_census_source?(update("agent", %{"identity_source" => "passive_census"}))
+
+      assert SourcePolicy.passive_census_source?(
+               update("agent", %{"identity_source" => "passive_census"})
+             )
+
       assert SourcePolicy.passive_census_source?(update("Passive-Census", %{}))
     end
 
@@ -33,18 +37,14 @@ defmodule ServiceRadar.Inventory.Sync.SourcePolicyCensusTest do
     test "a locally administered MAC is not registered as an identity anchor" do
       # Bit 1 of the first octet set: 0x1A, 0x02, 0x06, 0x0A, 0x0E ...
       for mac <- ["1A:2B:3C:4D:5E:6F", "02:00:00:00:00:01", "DA:AA:BB:CC:DD:EE"] do
-        refute SourcePolicy.include_mac_identifier?(
-                 update("passive-census", %{"mac" => mac})
-               ),
+        refute SourcePolicy.include_mac_identifier?(update("passive-census", %{"mac" => mac})),
                "#{mac} is locally administered and must not anchor a device"
       end
     end
 
     test "a burned-in vendor MAC from the census still anchors" do
       for mac <- ["BC:24:11:F5:1C:82", "F4:92:BF:75:C7:2B", "D0:21:F9:DC:2E:8C"] do
-        assert SourcePolicy.include_mac_identifier?(
-                 update("passive-census", %{"mac" => mac})
-               ),
+        assert SourcePolicy.include_mac_identifier?(update("passive-census", %{"mac" => mac})),
                "#{mac} is universally administered and keeps its identity weight"
       end
     end
@@ -76,9 +76,7 @@ defmodule ServiceRadar.Inventory.Sync.SourcePolicyCensusTest do
              ),
              "a Docker-style MAC from a non-census source must keep its current meaning"
 
-      assert SourcePolicy.include_mac_identifier?(
-               update("sync", %{"mac" => "1A:2B:3C:4D:5E:6F"})
-             )
+      assert SourcePolicy.include_mac_identifier?(update("sync", %{"mac" => "1A:2B:3C:4D:5E:6F"}))
     end
 
     test "mapper-like sources keep their own unchanged rule" do
