@@ -731,7 +731,7 @@ defmodule ServiceRadar.Inventory.Sync.DeviceWrites do
           owner: fragment("COALESCE(EXCLUDED.owner, ?)", d.owner),
           metadata:
             fragment(
-              "(COALESCE(?, '{}'::jsonb) - 'classification_source' - 'classification_rule_id' - 'classification_confidence' - 'classification_reason') || COALESCE(EXCLUDED.metadata, '{}'::jsonb)",
+              "(COALESCE(?, '{}'::jsonb) - 'classification_source' - 'classification_rule_id' - 'classification_confidence' - 'classification_reason' - 'mac_vendor' - 'mac_vendor_source' - 'mac_vendor_oui_prefix' - 'mac_vendor_oui_snapshot_id') || COALESCE(EXCLUDED.metadata, '{}'::jsonb)",
               d.metadata
             ),
           deleted_at: nil,
