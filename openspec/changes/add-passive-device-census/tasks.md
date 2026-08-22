@@ -77,11 +77,23 @@
       **An earlier reading of 117/300s was invalid**: it measured journald's rate limiter
       (~1.15M messages discarded per 30s), not the census. Any journal-derived measurement
       must check for `Suppressed N messages` first.
-- [x] 5.6 **Move suppression to userspace.** The in-kernel LRU map inserted correct timestamps
-      but its lookups behaved as misses, so nothing was suppressed. `CensusSuppressor` is
-      deterministic and unit-tested, including a flood test where 100,000 repeats of one
-      binding collapse to exactly 2 emissions. The in-kernel map is left in place but is no
-      longer load-bearing; making it work would cut ring traffic and is worth revisiting.
+- [x] 5.6 **Suppression is in-kernel, with NO userspace fallback.** The first attempt used
+      `get()` with flags `0` and suppressed nothing; `update_flow_table` in the same program
+      uses `get_ptr_mut()` + update-in-place + `insert(..., BPF_ANY)`, and matching that proven
+      pattern fixed it: ~38,000/sec and ~40% of a core became **0.36/sec and 0.0416% CPU**.
+      A userspace fallback was written, measured, and then deliberately **removed** -- it would
+      have kept the feature looking healthy while every frame crossed the ring, masking exactly
+      the failure that must be loud.
+- [x] 5.7 **Census shuts itself down if suppression stops working.** The failure was silent:
+      well-formed map entries with correct timestamps while every frame was emitted, the only
+      symptom being journald discarding ~1.15M messages/30s. `CensusWatchdog` trips above a
+      sustained 200 observations/sec -- unreachable on a healthy segment, which would need
+      ~12,000 distinct bindings -- logs the cause, and stops the census. Flow attribution is
+      unaffected. Four tests, including a 40,000/sec flood.
+- [x] 5.8 **Hot path costs one 2-byte load for a discarded frame.** Ethertype is read first;
+      the MAC read, the `interface_allowlist` hash lookup and the `bpf_ktime_get_ns` helper
+      call are all deferred until the frame is known to be ARP or NDP. Previously all four
+      happened on every frame.
 - [x] 5.5 Verify shutdown no longer hangs: `systemctl stop` now completes in **0.68s** (it
       previously ran to systemd's kill timeout), and exactly one TC filter is attached after
       restart rather than one more per restart.
