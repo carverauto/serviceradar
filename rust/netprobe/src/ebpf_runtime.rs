@@ -31,7 +31,9 @@ use crate::{
     fingerprint::{FingerprintAccumulator, P0fSignatureRuntime},
     kernel::ensure_supported_kernel,
     metrics::Metrics,
-    proto::netprobe::{DpiEvent, FingerprintEvent, FlowAttributionEvent, ProcessSnapshot},
+    proto::netprobe::{
+        DeviceCensusSnapshot, DpiEvent, FingerprintEvent, FlowAttributionEvent, ProcessSnapshot,
+    },
     runtime_config::{DpiEventGate, FingerprintEventGate},
 };
 
@@ -81,6 +83,7 @@ impl NetprobeEbpfRuntime {
         dpi_events: EventSender<DpiEvent>,
         flow_attribution_events: Option<EventSender<Arc<FlowAttributionEvent>>>,
         process_snapshots: broadcast::Sender<ProcessSnapshot>,
+        census_snapshots: broadcast::Sender<DeviceCensusSnapshot>,
         external_flow_matcher: SharedExternalFlowMatcher,
         fingerprint_gate: Arc<std::sync::Mutex<FingerprintEventGate>>,
         dpi_gate: Arc<DpiEventGate>,
@@ -142,15 +145,18 @@ impl NetprobeEbpfRuntime {
             // black-hole traffic -- netprobe_tc_ingress observes and returns
             // TC_ACT_OK, diverting nothing. So attach the ingress classifier
             // (and nothing else) and let the census run.
-            let census_runtime =
-                match Self::start_census_only(&mut ebpf, &config.capture_interfaces) {
-                    Ok(runtime) => Some(runtime),
-                    Err(err) => {
-                        // A census failure must never take down flow attribution.
-                        log::warn!("netprobe passive device census disabled: {err:#}");
-                        None
-                    }
-                };
+            let census_runtime = match Self::start_census_only(
+                &mut ebpf,
+                &config.capture_interfaces,
+                census_snapshots,
+            ) {
+                Ok(runtime) => Some(runtime),
+                Err(err) => {
+                    // A census failure must never take down flow attribution.
+                    log::warn!("netprobe passive device census disabled: {err:#}");
+                    None
+                }
+            };
             return Ok(Self::attribution_only_with_census(
                 ebpf,
                 attribution_runtime,
@@ -177,9 +183,12 @@ impl NetprobeEbpfRuntime {
         // Passive device census: consumes the l2_observations ring the TC
         // ingress classifier feeds. Started before the allowlist is populated
         // so no observation is produced before there is a reader.
-        let census_runtime =
-            DeviceCensusRuntime::start_from_ebpf(fingerprint_interface_name(config), &mut ebpf)
-                .context("failed to start passive device census runtime")?;
+        let census_runtime = DeviceCensusRuntime::start_from_ebpf(
+            fingerprint_interface_name(config),
+            &mut ebpf,
+            census_snapshots,
+        )
+        .context("failed to start passive device census runtime")?;
         let interface_allowlist = populate_interface_allowlist(&mut ebpf, &interfaces)?;
         let sampling_runtime = AdaptiveSamplingRuntime::start(
             interface_allowlist,
@@ -222,6 +231,7 @@ impl NetprobeEbpfRuntime {
     fn start_census_only(
         ebpf: &mut Ebpf,
         capture_interfaces: &[String],
+        census_snapshots: broadcast::Sender<DeviceCensusSnapshot>,
     ) -> Result<DeviceCensusRuntime> {
         let interfaces = af_xdp::resolve_interfaces(capture_interfaces)
             .context("failed to resolve census interfaces")?;
@@ -257,6 +267,7 @@ impl NetprobeEbpfRuntime {
         let runtime = DeviceCensusRuntime::start_from_ebpf(
             capture_interfaces.first().cloned().unwrap_or_default(),
             ebpf,
+            census_snapshots,
         )?;
         log::info!(
             "netprobe passive device census active on {}: TC ingress only, no redirect",

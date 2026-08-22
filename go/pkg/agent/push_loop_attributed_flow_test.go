@@ -21,25 +21,25 @@
 // covers the buildFlowAttributionGatewayStatus helper in isolation.
 // Here we exercise the full drain-to-payload trip:
 //
-//   1. Construct a real *agentnetprobe.Sidecar via the public NewSidecar
-//      constructor (no UDS — DrainFlowAttributionEvents is a pure channel
-//      read that returns nil/empty when no events are queued).
-//   2. Assert the public drain contract: a Sidecar with no attached
-//      netprobe client yields an empty drain slice, and the production
-//      pushFlowAttribution short-circuit (`len(events) == 0 -> return false`)
-//      is the only sound behaviour.
-//   3. With a synthetic drained slice (the same shape DrainFlowAttributionEvents
-//      would return after the forwardEvents goroutine fans in client events),
-//      drive buildFlowAttributionGatewayStatus end-to-end and assert the
-//      published GatewayServiceStatus envelope carries:
-//        - Source == FlowAttributionSource (the StatusHandler discriminator)
-//        - Marshalled FlowAttributionEventBatch in Message
-//        - All 19 FlowAttributionEvent fields intact post round-trip
-//        - dropped_since_last batch header from the sidecar IPC counter
-//   4. B-4 spoof defeater: assert that an agent-supplied Partition value is
-//      passed through unchanged on the envelope — confirming the agent has
-//      no mechanism to influence the *core's* partition_id resolution
-//      (which is cert-derived at the gateway, design doc §6).
+//  1. Construct a real *agentnetprobe.Sidecar via the public NewSidecar
+//     constructor (no UDS — DrainFlowAttributionEvents is a pure channel
+//     read that returns nil/empty when no events are queued).
+//  2. Assert the public drain contract: a Sidecar with no attached
+//     netprobe client yields an empty drain slice, and the production
+//     pushFlowAttribution short-circuit (`len(events) == 0 -> return false`)
+//     is the only sound behaviour.
+//  3. With a synthetic drained slice (the same shape DrainFlowAttributionEvents
+//     would return after the forwardEvents goroutine fans in client events),
+//     drive buildFlowAttributionGatewayStatus end-to-end and assert the
+//     published GatewayServiceStatus envelope carries:
+//     - Source == FlowAttributionSource (the StatusHandler discriminator)
+//     - Marshalled FlowAttributionEventBatch in Message
+//     - All 19 FlowAttributionEvent fields intact post round-trip
+//     - dropped_since_last batch header from the sidecar IPC counter
+//  4. B-4 spoof defeater: assert that an agent-supplied Partition value is
+//     passed through unchanged on the envelope — confirming the agent has
+//     no mechanism to influence the *core's* partition_id resolution
+//     (which is cert-derived at the gateway, design doc §6).
 package agent
 
 import (

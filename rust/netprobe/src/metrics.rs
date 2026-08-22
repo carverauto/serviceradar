@@ -197,6 +197,18 @@ impl Metrics {
             .inc_by(count);
     }
 
+    pub fn inc_device_census_snapshot_events(&self) {
+        self.events_emitted_total
+            .with_label_values(&["device_census_snapshot"])
+            .inc();
+    }
+
+    pub fn inc_device_census_snapshot_events_dropped(&self, reason: &str, count: u64) {
+        self.events_dropped_total
+            .with_label_values(&["device_census_snapshot", reason])
+            .inc_by(count);
+    }
+
     #[allow(dead_code)]
     pub fn inc_process_snapshot_events_dropped(&self, reason: &str, count: u64) {
         self.events_dropped_total
