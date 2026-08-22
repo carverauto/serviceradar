@@ -2985,6 +2985,12 @@ introduced. The EXACT OUTPUT CONTRACT selects the semantic validator and the pro
 dispatch compares the contract reference and nothing else. The family answers a different
 question -- which typed ingress this record may enter -- and the two SHALL NOT be conflated.
 
+THE OBLIGATION IS CONDITIONAL ON THE INGRESS, AND IT IS NOT WAIVABLE. A runtime that has no
+typed ingress for a family has nothing to bind and owes no check for it; the moment it
+introduces one, that ingress SHALL admit exactly one family under this requirement, as its first
+act on the record. This is stated so that "runtime X does not implement this ingress" can never
+be read as an exemption for an ingress that later exists.
+
 THE FAMILY IS NOT AUTHORIZATION and NOT AN INFRASTRUCTURE ROUTING KEY. It does not widen or
 narrow what a capability permits, and a component that routes on it without validating it is
 trusting a value no boundary checked.
