@@ -360,7 +360,7 @@ defmodule ServiceRadar.Inventory.Sync.DeviceWrites do
   defp load_active_ip_owners(ips) do
     from(d in Device,
       where: d.ip in ^ips and is_nil(d.deleted_at) and not is_nil(d.ip) and d.ip != "",
-      select: {d.ip, %{uid: d.uid, metadata: d.metadata}}
+      select: {d.ip, %{uid: d.uid, metadata: d.metadata, hostname: d.hostname, mac: d.mac}}
     )
     |> Repo.all()
     |> Map.new()
@@ -503,10 +503,55 @@ defmodule ServiceRadar.Inventory.Sync.DeviceWrites do
     end
   end
 
-  defp provisional_ip_seed?(%{uid: uid, metadata: metadata}, anchored_uids) do
-    is_map(metadata) and metadata["identity_state"] == "provisional" and
-      not MapSet.member?(anchored_uids, uid)
+  # An unanchored holder is a provisional IP seed in two cases:
+  #
+  #   1. it DECLARES itself provisional (`identity_state`), which the registrar
+  #      and the mapper IP-seed path both stamp. This is the original rule and
+  #      is kept verbatim -- a declared seed is adoptable even when it carries a
+  #      placeholder hostname, which is exactly what lets a mapper seed be
+  #      enriched by the SNMP sweep that identifies it.
+  #
+  #   2. the IP is the ONLY thing known about it -- no hostname, no MAC -- and
+  #      it does not claim to be canonical. This is the case that was missing:
+  #      the manual and sweep creation paths never stamp `identity_state`, so
+  #      such a row was treated as an established identity and won the
+  #      unique-active-IP slot against a genuinely identified device. The loser
+  #      was left with `ip: nil`, re-collided on the next sync, and the conflict
+  #      was re-detected forever instead of converging.
+  #
+  # Case 2 is deliberately narrow. Treating every unanchored holder as a seed
+  # covers 6,906 rows on the deployment surveyed, of which 6,749 carry a
+  # hostname or MAC and are precisely what "a strong identity never adopts an IP
+  # owner" exists to protect; only 157 are true IP-only seeds. A hostname is
+  # evidence; an IP by itself is not, because IPs move.
+  #
+  # Adoption does not discard the seed. The incoming record takes the *existing*
+  # uid, so an operator-added "something is at this IP" row survives and gains
+  # the discovered identity, which is what lets importing and manual entry
+  # coexist.
+  defp provisional_ip_seed?(%{uid: uid} = holder, anchored_uids) do
+    not MapSet.member?(anchored_uids, uid) and
+      (declared_provisional?(holder) or
+         (not canonical_identity?(holder) and ip_only_holder?(holder)))
   end
+
+  defp declared_provisional?(%{metadata: metadata}) when is_map(metadata),
+    do: metadata["identity_state"] == "provisional"
+
+  defp declared_provisional?(_holder), do: false
+
+  defp canonical_identity?(%{metadata: metadata}) when is_map(metadata),
+    do: metadata["identity_state"] == "canonical"
+
+  defp canonical_identity?(_holder), do: false
+
+  defp ip_only_holder?(holder) do
+    blank_attribute?(Map.get(holder, :hostname)) and blank_attribute?(Map.get(holder, :mac))
+  end
+
+  defp blank_attribute?(nil), do: true
+  defp blank_attribute?(value) when is_binary(value), do: String.trim(value) == ""
+  defp blank_attribute?(_value), do: false
 
   # A failed INSERT can be caused by two previously-unseen records in the same
   # bulk statement sharing an IP. There is no database owner to find in that
