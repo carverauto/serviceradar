@@ -695,16 +695,6 @@ mod runtime {
         pub undecodable: AtomicU64,
     }
 
-    impl CensusCounters {
-        pub fn snapshot(&self) -> (u64, u64, u64) {
-            (
-                self.observed.load(Ordering::Relaxed),
-                self.randomized.load(Ordering::Relaxed),
-                self.undecodable.load(Ordering::Relaxed),
-            )
-        }
-    }
-
     /// Build the observing interface's address scope from the kernel routing
     /// tables. On-link routes give the IPv4 prefixes directly; /proc/net/if_inet6
     /// gives the IPv6 ones.
@@ -850,7 +840,6 @@ mod runtime {
     pub struct DeviceCensusRuntime {
         stop: Arc<AtomicBool>,
         thread: Option<thread::JoinHandle<()>>,
-        counters: Arc<CensusCounters>,
     }
 
     impl DeviceCensusRuntime {
@@ -896,12 +885,7 @@ mod runtime {
             Ok(Self {
                 stop,
                 thread: Some(thread),
-                counters,
             })
-        }
-
-        pub fn counters(&self) -> Arc<CensusCounters> {
-            Arc::clone(&self.counters)
         }
     }
 
@@ -916,4 +900,4 @@ mod runtime {
 }
 
 #[cfg(target_os = "linux")]
-pub use runtime::{CensusCounters, DeviceCensusRuntime, L2_OBSERVATIONS_MAP};
+pub use runtime::DeviceCensusRuntime;
