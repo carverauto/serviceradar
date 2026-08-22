@@ -14,6 +14,8 @@ mod capture;
 // `capture` above carries this.
 #[allow(dead_code)]
 mod census;
+#[allow(dead_code)]
+mod mdns;
 mod config;
 mod dpi;
 #[cfg(target_os = "linux")]
