@@ -58,7 +58,7 @@ actions:
       # `--//build:enable_integration_tests` is here for CONFIGURATION and CACHE CONTINUITY
       - run: >-
           bazel test -c opt --config=ci --//build:enable_integration_tests
-          //... --test_tag_filters=-integration_test,-acceptance_test
+          //... --test_tag_filters=-integration_test,-acceptance_test,-benchmark
 
       # The database lifecycle. ONE step: the invocations share a shell, and BuildBuddy has no
       # `if: always()`, so a trap is the only way to guarantee teardown after a red suite.
@@ -122,9 +122,36 @@ actions:
           bazel test -c opt --config=ci //go/...
           --@io_bazel_rules_go//go/config:pure=false
           --@io_bazel_rules_go//go/config:race
-          --test_tag_filters=-integration_test,-acceptance_test
+          --test_tag_filters=-integration_test,-acceptance_test,-benchmark
           --test_timeout=600
           --flaky_test_attempts=1
           --test_arg=-test.count=5
           --test_arg=-test.short
           --test_arg=-test.shuffle=on
+
+      # BENCHMARKS. Run so they cannot rot; NOT gated on a threshold.
+      #
+      # These exist because `bazel test` compiles a Go Benchmark* function and then skips it --
+      # benchmarks need -test.bench, and nothing passed it. The first run of these targets found
+      # BenchmarkNetworkSweeper_OptimizedTCPScan already broken on two gomock expectations that
+      # runSweep gained after it was written, and fastsum's benchmarks sitting in no target at
+      # all. A benchmark nobody runs still passes review and still looks like coverage.
+      #
+      # NO THRESHOLD, deliberately. A benchmark on a shared runner is noisy, and a threshold set
+      # before that variance is measured produces failures that are not regressions -- the
+      # predictable response is to mute the check, and a muted gate still looks like protection.
+      # Gating is a later decision, argued from the numbers these runs collect.
+      #
+      # LAST, and cheap: the runner defaults to -test.benchtime=1x, so this proves the
+      # benchmarks still execute rather than producing numbers stable enough to compare.
+      # `--//build:enable_integration_tests` is here for the same reason the unit sweep carries
+      # it: CONFIGURATION and CACHE CONTINUITY. It is not that this step runs integration tests
+      # -- the tag filter selects `benchmark` alone. It is that a build setting is part of the
+      # configuration key, so omitting it makes `//...` a SECOND configuration and rebuilds the
+      # repo from scratch rather than reusing what the earlier steps just built. This step
+      # therefore matches the unit sweep's flags exactly.
+      - run: >-
+          bazel test -c opt --config=ci --//build:enable_integration_tests
+          --test_tag_filters=benchmark
+          --test_output=all
+          //...

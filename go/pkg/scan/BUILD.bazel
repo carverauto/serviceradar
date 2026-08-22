@@ -1,4 +1,5 @@
 load("@io_bazel_rules_go//go:def.bzl", "go_library", "go_test")
+load("//build:benchmarks.bzl", "go_benchmark")
 
 go_library(
     name = "scan",
@@ -206,4 +207,9 @@ go_test(
         "@org_golang_x_net//ipv6",
         "@org_uber_go_mock//gomock",
     ],
+)
+
+go_benchmark(
+    name = "scan_bench",
+    binary = ":scan_test",
 )
