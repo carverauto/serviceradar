@@ -220,16 +220,6 @@ defmodule ServiceRadar.ResultsRouter do
 
   defp plugin_result_status?(_status), do: false
 
-  defp process(%{source: source, service_type: "sync"} = status, _opts)
-       when source in ["results", :results] do
-    handle_sync_results(status)
-  end
-
-  defp process(%{source: source, service_type: "sweep"} = status, _opts)
-       when source in ["results", :results] do
-    handle_sweep_results(status)
-  end
-
   # Service types carried by the netprobe passive device census stream.
   #
   # Exposed via census_service_types/0 so the unit tier can assert that every
@@ -247,6 +237,16 @@ defmodule ServiceRadar.ResultsRouter do
 
   @doc false
   def census_service_types, do: @census_service_types
+
+  defp process(%{source: source, service_type: "sync"} = status, _opts)
+       when source in ["results", :results] do
+    handle_sync_results(status)
+  end
+
+  defp process(%{source: source, service_type: "sweep"} = status, _opts)
+       when source in ["results", :results] do
+    handle_sweep_results(status)
+  end
 
   defp process(%{source: source, service_type: service_type} = status, _opts)
        when source in ["results", :results] and service_type in ["mapper", "mapper_discovery"] do
