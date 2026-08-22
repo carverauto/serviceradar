@@ -680,13 +680,13 @@ func scopeVector(
 	return versionVector{
 		object: object, class: "B",
 		ok: okFile, alt: altFile,
-		// NO ELIXIR CONSUMER. Elixir has no signed recovery-control path at all, so the peer
-		// could only recompute the scope digest and compare it -- a check written for the
-		// corpus, not the boundary production trusts. Recomputation equality is the allowed
-		// fallback only where that equality IS the boundary, and here it is not: Go reaches the
-		// comparison exclusively through ValidateRecordSigned, and that ordering is half the
-		// rule. Recorded as go_only until task 1.6-d supplies the real boundary.
-		goOnly: true,
+		// BOTH RUNTIMES, since task 1.6-d. This was go_only while Elixir had no signed
+		// recovery-control path: the peer could only have recomputed the scope digest and
+		// compared it, which is a check written for the corpus rather than the boundary
+		// production trusts. Recomputation equality is the allowed fallback only where that
+		// equality IS the boundary, and here it is not -- the comparison is reachable only
+		// through the signed path, and that ordering is half the rule. Elixir now runs these
+		// through `RecoveryValidate.recovery_control/3`, which composes them in the same order.
 		// ONE committed public key serves all three rows. It is the peer input every scope row
 		// needs, and committing it is what lets the Elixir consumer verify the same records
 		// instead of trusting a key only the generator holds.
@@ -1219,8 +1219,9 @@ var expectedVersionInventory = map[string]string{
 }
 
 // expectedGoOnlyObjects is the CLOSED set of inventory members no Elixir consumer enforces.
-// FOUR of nineteen today, which is why parent task 1.6 stays open: its rule is that BOTH
-// runtimes prove every member, and fifteen do.
+// ONE of nineteen today, which is why parent task 1.6 stays open: its rule is that BOTH
+// runtimes prove every member, and eighteen do. The three recovery scope transcripts left this
+// set when 1.6-d gave this peer a signed recovery-control boundary to run them through.
 //
 // Membership here is a CONTRACT statement, not bookkeeping. An object may only appear if the
 // peer runtime has no production verifier that trusts the value -- never because writing one
@@ -1228,10 +1229,7 @@ var expectedVersionInventory = map[string]string{
 //
 //nolint:gochecknoglobals // frozen inventory, not state
 var expectedGoOnlyObjects = map[string]bool{
-	"mtr_completion":      true, // task 1.6-c
-	"tombstone_scope":     true, // task 1.6-d
-	"manifest_page_scope": true, // task 1.6-d
-	"resolved_scope":      true, // task 1.6-d
+	"mtr_completion": true, // task 1.6-c
 }
 
 type manifestRow struct {
