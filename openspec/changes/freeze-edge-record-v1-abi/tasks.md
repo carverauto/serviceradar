@@ -1120,7 +1120,40 @@ here.
         RECOVERY IS EXEMPT from the independent-removability scenario: the lane biconditional
         constrains the recovery family BEFORE its typed check is reached, so removing that check
         alone changes no verdict.
-  - [ ] 1.5-m ELIXIR FRAMING PARITY for the lifecycle and recovery ingresses.
+  - [x] 1.5-m ELIXIR FRAMING PARITY for the lifecycle and recovery ingresses.
+        RECOVERY -- ATTACHED. `RecoveryValidate.recovery_lane/1` runs inside
+        `recovery_control/3`, after contract dispatch and BEFORE the payload is read as a
+        contract message, and enforces all three coordinates of the reserved lane: the family
+        this ingress admits, the route it must travel, and recovery authority. Go states the same
+        rule in two places -- `validateRecoveryLane` inside the structural validator that runs
+        for every record, and the family check inside `ValidateRecoveryControl`. This runtime
+        cannot follow that split: its generic validator is deliberately permissive and that
+        permissiveness is a recorded manifest column, so the rule lives at the typed boundary the
+        requirement binds it to.
+        EVIDENCE, AND NO NEW ARTIFACT SET. The negatives are CONSTRUCTED from the committed
+        recovery record the corpus rows already use -- every other declared family DERIVED FROM
+        THE GENERATED ENUM, the recovery family on an ordinary route, recovery framing without
+        recovery authority, and the PRECEDENCE control: a wrong family with a malformed payload
+        stops at the framing gate, while the SAME malformed bytes under the correct family reach
+        the decoder and fail there. The pair is what shows the typed decode was not entered;
+        either alone shows only that something refused.
+        MUTATION FOUND AN UNPINNED ARM. Each of the three coordinates removed independently: the
+        family and route arms were killed, the SOURCE-AUTHORITY arm SURVIVED -- nothing varied
+        the source kind, so the lane could stop requiring recovery authority and every test
+        stayed green. Covered, re-run, killed. 3 of 3.
+        LIFECYCLE -- NARROWED, AND THIS IS THE RECORD OF WHICH. No Elixir lifecycle ingress
+        exists, and none is created here. The only Elixir code that touches a lifecycle record is
+        the GENERIC validator, which is permissive by design; there is no typed entry point, so
+        there is nothing for the family to be bound to. Creating one would mean inventing a
+        consumer this deployment does not have, and it would encroach on 1.6-c, which owns
+        `ValidateSweepExecutionEvent`'s structural boundary.
+        THE OBLIGATION IS NOT LEFT UNOWNED, WHICH IS THE FAILURE MODE THIS TASK NAMES. It is made
+        CONDITIONAL AND NORMATIVE instead: the requirement now states that a runtime with no
+        typed ingress for a family owes no check for it, and that the moment it introduces one
+        that ingress SHALL admit exactly one family as its first act -- so "runtime X does not
+        implement this ingress" can never be read as an exemption for an ingress that later
+        exists. That lives in the SPEC, not in this ledger, because the ledger is deleted at
+        archive and the obligation must outlive it.
         WHY IT EXISTS: 1.5-g froze the family-to-typed-entrypoint invariant and enforced it at
         every Go typed ingress and at BOTH Elixir sweep ingresses. Elixir's other two typed
         paths are not covered, for two different reasons.
