@@ -46,6 +46,7 @@ message NetprobeFrame {
     BannerMatchBatch banner_match_batch = 27;
     ExternalFlowAck external_flow_ack = 28;
     FlowAttributionEventBatch flow_attribution_batch = 29;
+    DeviceCensusSnapshot device_census_snapshot = 30;
   }
 }
 
@@ -411,4 +412,52 @@ message BannerMatch {
 
 message BannerMatchBatch {
   repeated BannerMatch matches = 1;
+}
+
+// How a census binding was observed. Kept distinct from the transport because
+// the evidence quality differs: an ARP reply names its own address, while an
+// arbitrary frame merely carries a source address.
+enum DeviceCensusKind {
+  DEVICE_CENSUS_KIND_UNSPECIFIED = 0;
+  DEVICE_CENSUS_KIND_ARP_REQUEST = 1;
+  DEVICE_CENSUS_KIND_ARP_REPLY = 2;
+  DEVICE_CENSUS_KIND_IPV6_NDP = 3;
+}
+
+// One device the passive census currently believes is present on a segment.
+message DeviceCensusObservation {
+  string mac = 1;
+  // Empty for an RFC 5227 ARP probe: the device announced itself before it
+  // owned an address, so there is a MAC to record but no binding yet.
+  string ip = 2;
+  uint32 interface_index = 3;
+  DeviceCensusKind kind = 4;
+  int64 first_seen_unix_nano = 5;
+  int64 last_seen_unix_nano = 6;
+  // The MAC is locally administered, i.e. very likely randomized. It must never
+  // anchor a canonical device; SourcePolicy enforces that on the core side.
+  bool randomized_mac = 7;
+  // The address is not on the observer's segment, so this MAC belongs to a
+  // forwarding router rather than to the address owner.
+  bool off_segment = 8;
+}
+
+// A COMPLETE current-state view of one interface's segment.
+//
+// Complete, not incremental, on purpose: the core ingestor writes nothing
+// unless a payload declares itself a full snapshot, and completeness is what
+// lets absence mean "this binding aged out" rather than "it was quiet during
+// one tick".
+message DeviceCensusSnapshot {
+  repeated DeviceCensusObservation observations = 1;
+  string snapshot_id = 2;
+  string interface_name = 3;
+  int64 generated_at_unix_nano = 4;
+  // False when the snapshot had to be split across frames; only the frame that
+  // sets this completes the set.
+  bool complete = 5;
+  uint32 chunk_index = 6;
+  uint32 chunk_count = 7;
+  // Bindings the kernel ring dropped since the previous snapshot.
+  uint32 dropped_since_last = 8;
 }
