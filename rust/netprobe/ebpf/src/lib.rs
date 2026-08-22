@@ -405,9 +405,11 @@ pub fn netprobe_tc_ingress(ctx: TcContext) -> i32 {
     // Passive device census runs on ingress only: an egress frame's source MAC
     // is this host's own, which tells us nothing about the segment. Gated on
     // the same interface allowlist as flow accounting.
-    if interface_config(skb_interface_index(&ctx)).is_some() {
-        observe_l2_device(&ctx, now_ns());
-    }
+    // The interface allowlist lookup is NOT done here. It is a hash map lookup,
+    // and doing it per frame to serve the ~1% that are ARP/NDP is waste;
+    // observe_l2_device checks it only after the cheap ethertype filter passes.
+    // now_ns() is likewise deferred: bpf_ktime_get_ns is a helper call.
+    observe_l2_device(&ctx);
     if account_flow(&ctx) {
         // The tail call MUST live in the entry program: the BPF verifier rejects
         // bpf_tail_call inside bpf-to-bpf subprograms. Falls through to TC_ACT_OK
@@ -2092,15 +2094,25 @@ fn mac_is_locally_administered(mac: &[u8; 6]) -> bool {
 
 // True when this (interface, MAC, IP) binding should be emitted: either it has
 // never been seen, or its refresh interval has elapsed.
-#[inline(always)]
+//
+// Uses get_ptr_mut + update-in-place, mirroring update_flow_table above. An
+// earlier version used `get()` with an `insert()` on every emit and suppressed
+// nothing on a live host: entries carried correct bpf_ktime_get_ns timestamps,
+// yet lookups behaved as misses and every frame was emitted. The flow table is
+// the pattern that demonstrably works in this same program, so match it.
+#[inline(never)]
 fn l2_should_emit(key: &L2SeenKey, observed_ns: u64) -> bool {
-    if let Some(last) = unsafe { L2_SEEN.get(key) } {
+    if let Some(last_ptr) = L2_SEEN.get_ptr_mut(key) {
+        // SAFETY: kernel-returned map pointer, valid for this invocation.
+        let last = unsafe { &mut *last_ptr };
         // saturating_sub so a non-monotonic clock cannot make this emit forever.
         if observed_ns.saturating_sub(*last) < L2_REFRESH_INTERVAL_NS {
             return false;
         }
+        *last = observed_ns;
+        return true;
     }
-    let _ = L2_SEEN.insert(key, &observed_ns, 0);
+    let _ = L2_SEEN.insert(key, &observed_ns, BPF_ANY as u64);
     true
 }
 
@@ -2112,15 +2124,12 @@ fn l2_should_emit(key: &L2SeenKey, observed_ns: u64) -> bool {
 // Not inlined: keeps this parse out of the flow-accounting classifier's stack
 // frame, which the SYN-signature path already pushes near the BPF limit.
 #[inline(never)]
-fn observe_l2_device(ctx: &TcContext, observed_ns: u64) {
-    let Some(mac) = load_bytes::<6>(ctx, 6) else {
-        return;
-    };
-    // A broadcast/multicast source is never a device's own hardware address.
-    if mac[0] & 0x01 != 0 {
-        return;
-    }
-
+fn observe_l2_device(ctx: &TcContext) {
+    // HOT PATH FIRST. This runs on every ingress frame, and the overwhelming
+    // majority are ordinary TCP/UDP that the census discards. Read the 2-byte
+    // ethertype before anything else and leave immediately when it is not a
+    // census signal, so a discarded frame costs one small load and a compare --
+    // not a MAC read it will never use.
     let mut offset = ETH_HEADER_LEN;
     let Some(mut ethertype) = load_be_u16(ctx, 12) else {
         return;
@@ -2132,13 +2141,49 @@ fn observe_l2_device(ctx: &TcContext, observed_ns: u64) {
         ethertype = inner;
         offset = offset.saturating_add(VLAN_HEADER_LEN);
     }
+    if ethertype != ETH_P_ARP && ethertype != ETH_P_IPV6 {
+        return;
+    }
+    // IPv6 is mostly ordinary traffic too, so reject non-NDP before the MAC
+    // read as well: two 1-byte loads instead of a 6-byte one plus a lookup.
+    if ethertype == ETH_P_IPV6 {
+        let Some(next_header) = load_u8(ctx, offset + 6) else {
+            return;
+        };
+        if u16::from(next_header) != IPPROTO_ICMPV6 {
+            return;
+        }
+        let Some(icmp_type) = load_u8(ctx, offset + IPV6_HEADER_LEN) else {
+            return;
+        };
+        if !(ICMPV6_ROUTER_SOLICITATION..=ICMPV6_NEIGHBOR_ADVERTISEMENT).contains(&icmp_type) {
+            return;
+        }
+    }
+
+    // Frame is a census signal. Only now is the allowlist lookup worth paying
+    // for, and only now the clock read.
+    let interface_index = skb_interface_index(ctx);
+    if interface_config(interface_index).is_none() {
+        return;
+    }
+
+    let Some(mac) = load_bytes::<6>(ctx, 6) else {
+        return;
+    };
+    // A broadcast/multicast source is never a device's own hardware address.
+    if mac[0] & 0x01 != 0 {
+        return;
+    }
+
+    let observed_ns = now_ns();
 
     let mut record = L2ObservationRecord {
         version: L2_OBSERVATION_VERSION,
         observation_kind: 0,
         ip_version: 0,
         flags: 0,
-        interface_index: skb_interface_index(ctx),
+        interface_index,
         observed_ns,
         mac,
         reserved0: [0; 2],
@@ -2192,30 +2237,14 @@ fn observe_l2_device(ctx: &TcContext, observed_ns: u64) {
             }
         }
         ETH_P_IPV6 => {
-            // ONLY NDP, never ordinary IPv6 traffic.
+            // NDP only -- already validated above, before the MAC read.
             //
-            // Measured on a live segment: observing every frame produced 400
-            // observations/sec from 41 MACs, because routed traffic pairs the
-            // gateway's MAC with an unbounded set of remote addresses. Each new
-            // remote IP is a new suppression key, so the cache never suppresses
-            // anything. NDP has no such problem: it is link-local, so both the
-            // MAC and the address belong to a device on this segment.
-            let Some(next_header) = load_u8(ctx, offset + 6) else {
-                return;
-            };
-            if u16::from(next_header) != IPPROTO_ICMPV6 {
-                return;
-            }
-            let Some(icmp_type) = load_u8(ctx, offset + IPV6_HEADER_LEN) else {
-                return;
-            };
-            // 133 Router Solicitation, 134 Router Advertisement,
-            // 135 Neighbor Solicitation, 136 Neighbor Advertisement.
-            // RS in particular is emitted by a host as it joins the link, which
-            // is the v6 counterpart to the gratuitous ARP we rely on for v4.
-            if !(ICMPV6_ROUTER_SOLICITATION..=ICMPV6_NEIGHBOR_ADVERTISEMENT).contains(&icmp_type) {
-                return;
-            }
+            // Never ordinary IPv6 traffic: measured on a live segment, observing
+            // every frame produced ~400 observations/sec from 41 MACs, because
+            // routed traffic pairs the gateway's MAC with an unbounded set of
+            // remote addresses, so every new remote IP became a new suppression
+            // key and nothing was ever suppressed. NDP is link-local, so both
+            // the MAC and the address belong to a device on this segment.
             let Some(src) = load_bytes::<16>(ctx, offset + 8) else {
                 return;
             };
