@@ -308,6 +308,33 @@ ex_unit_tests(
     deps = [":erlang_app"],
 )
 
+# Runs the Elixir benches so they cannot rot -- the same defect //build:benchmarks.bzl fixes for
+# Go, arriving here by a different route. These benches are plain scripts that self-execute on
+# load, so nothing ever ran them: ALL_TEST_SRCS globs only `test/**/*_test.exs` and no glob in
+# this file mentions `bench/`, which left the whole directory outside every target.
+#
+# The driver lives in bench/ rather than test/ ON PURPOSE, and that is why this target is
+# explicit: a file in test/ would be swept into the unit sweep, where a benchmark's runtime is a
+# tax on every build. Being outside ALL_TEST_SRCS is also what keeps it from running twice.
+#
+# `benchmark` is what the CI benchmark step selects and what the unit and race sweeps exclude.
+ex_unit_test(
+    name = "bench_driver_test",
+    size = "medium",
+    srcs = ["bench/bench_driver_test.exs"],
+    # The benches are read off disk and required at runtime, so they are inputs, not deps.
+    data = glob(["bench/**"], allow_empty = False),
+    # bench/bench_test_helper.exs, NOT test/test_helper.exs -- that one excludes `:benchmark` in
+    # every branch, which would skip these and report the target green having run nothing. The
+    # helper file carries the full reasoning.
+    elixir_opts = [
+        "-r",
+        "bench/bench_test_helper.exs",
+    ],
+    tags = ["benchmark"],
+    deps = [":erlang_app"],
+)
+
 # A real web-node -> registry-node RPC regression. The general test helper
 # deliberately excludes :cluster, so this target owns the explicit opt-in and
 # keeps the test visible to tests(//...).

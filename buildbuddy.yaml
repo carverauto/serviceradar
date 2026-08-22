@@ -144,8 +144,14 @@ actions:
       #
       # LAST, and cheap: the runner defaults to -test.benchtime=1x, so this proves the
       # benchmarks still execute rather than producing numbers stable enough to compare.
+      # `--//build:enable_integration_tests` is here for the same reason the unit sweep carries
+      # it: CONFIGURATION and CACHE CONTINUITY. It is not that this step runs integration tests
+      # -- the tag filter selects `benchmark` alone. It is that a build setting is part of the
+      # configuration key, so omitting it makes `//...` a SECOND configuration and rebuilds the
+      # repo from scratch rather than reusing what the earlier steps just built. This step
+      # therefore matches the unit sweep's flags exactly.
       - run: >-
-          bazel test -c opt --config=ci
+          bazel test -c opt --config=ci --//build:enable_integration_tests
           --test_tag_filters=benchmark
           --test_output=all
           //...
