@@ -30,14 +30,18 @@ import (
 )
 
 const (
-	DefaultSidecarName                  = "netprobe"
-	DefaultBinaryPath                   = "/usr/local/lib/serviceradar/bin/serviceradar-netprobe"
-	DefaultLogFormat                    = "json"
-	defaultHealthPort            uint16 = 0
-	defaultSidecarEventBuffer           = 1024
-	defaultFlowAttributionBuffer        = 65_536
-	defaultApplyWaitInterval            = 100 * time.Millisecond
-	defaultDesiredApplyTimeout          = 30 * time.Second
+	DefaultSidecarName               = "netprobe"
+	DefaultBinaryPath                = "/usr/local/lib/serviceradar/bin/serviceradar-netprobe"
+	DefaultLogFormat                 = "json"
+	defaultHealthPort         uint16 = 0
+	defaultSidecarEventBuffer        = 1024
+	// One complete snapshot per interface every couple of minutes, and each one
+	// supersedes the last entirely. A deep buffer would only preserve stale
+	// segment views for a consumer to process in order and then discard.
+	defaultCensusSnapshotBuffer  = 4
+	defaultFlowAttributionBuffer = 65_536
+	defaultApplyWaitInterval     = 100 * time.Millisecond
+	defaultDesiredApplyTimeout   = 30 * time.Second
 )
 
 var ErrSidecarUnavailable = errors.New("netprobe sidecar is unavailable")
@@ -64,6 +68,7 @@ type Sidecar struct {
 	dpiEvents                    chan *netprobepb.DpiEvent
 	flowEvents                   chan *netprobepb.FlowAttributionEvent
 	processSnaps                 chan *netprobepb.ProcessSnapshot
+	censusSnaps                  chan *netprobepb.DeviceCensusSnapshot
 	droppedFlowAttributionEvents atomic.Uint64
 	healthy                      atomic.Bool
 	unhealthy                    atomic.Bool
@@ -119,6 +124,7 @@ func NewSidecar(cfg SidecarConfig) *Sidecar {
 		dpiEvents:    make(chan *netprobepb.DpiEvent, defaultSidecarEventBuffer),
 		flowEvents:   make(chan *netprobepb.FlowAttributionEvent, defaultFlowAttributionBuffer),
 		processSnaps: make(chan *netprobepb.ProcessSnapshot, defaultSidecarEventBuffer),
+		censusSnaps:  make(chan *netprobepb.DeviceCensusSnapshot, defaultCensusSnapshotBuffer),
 		baseCtx:      context.Background(),
 	}
 	// Default push primitive reuses ApplyConfig (poll-for-client + Client.ApplyConfig).
@@ -403,6 +409,57 @@ func (s *Sidecar) DrainProcessSnapshots(max int) []*netprobepb.ProcessSnapshot {
 	return snapshots
 }
 
+// DrainCensusSnapshots removes up to max complete census snapshots.
+//
+// Only the NEWEST snapshot per interface is returned. Each one is a complete
+// replacement for the last, so pushing an older view after a newer one would
+// resurrect devices that have since aged out -- the buffer can hold several if
+// a push tick was missed, and applying them in order would end on the right
+// answer only by luck of ordering downstream.
+func (s *Sidecar) DrainCensusSnapshots(max int) []*netprobepb.DeviceCensusSnapshot {
+	if max <= 0 {
+		max = defaultCensusSnapshotBuffer
+	}
+
+	newest := make(map[string]*netprobepb.DeviceCensusSnapshot, max)
+	order := make([]string, 0, max)
+
+	for range max {
+		select {
+		case snapshot := <-s.censusSnaps:
+			if snapshot == nil {
+				continue
+			}
+			iface := snapshot.GetInterfaceName()
+			if _, seen := newest[iface]; !seen {
+				order = append(order, iface)
+			}
+			if existing, seen := newest[iface]; !seen ||
+				snapshot.GetGeneratedAtUnixNano() >= existing.GetGeneratedAtUnixNano() {
+				newest[iface] = snapshot
+			}
+		default:
+			return collectNewest(newest, order)
+		}
+	}
+
+	return collectNewest(newest, order)
+}
+
+func collectNewest(
+	newest map[string]*netprobepb.DeviceCensusSnapshot,
+	order []string,
+) []*netprobepb.DeviceCensusSnapshot {
+	out := make([]*netprobepb.DeviceCensusSnapshot, 0, len(order))
+	for _, iface := range order {
+		if snapshot := newest[iface]; snapshot != nil {
+			out = append(out, snapshot)
+		}
+	}
+
+	return out
+}
+
 // DroppedFlowAttributionEvents returns the cumulative number of
 // FlowAttributionEvents dropped due to backpressure in either the IPC
 // client buffer or the sidecar fan-in buffer.
@@ -449,7 +506,7 @@ func (s *Sidecar) setClient(client *Client) {
 
 func (s *Sidecar) forwardEvents(client *Client) {
 	var wg sync.WaitGroup
-	wg.Add(4)
+	wg.Add(5)
 	go func() {
 		defer wg.Done()
 		for event := range client.Events() {
@@ -486,6 +543,18 @@ func (s *Sidecar) forwardEvents(client *Client) {
 			select {
 			case s.processSnaps <- snapshot:
 			default:
+			}
+		}
+	}()
+	go func() {
+		defer wg.Done()
+		for snapshot := range client.CensusSnapshots() {
+			select {
+			case s.censusSnaps <- snapshot:
+			default:
+				// Dropping the OLDEST view is what the buffer depth already
+				// encodes: the newest snapshot is complete, so a dropped one
+				// costs nothing a later push does not restate.
 			}
 		}
 	}()

@@ -184,10 +184,10 @@ type ServerConfig struct {
 	StatusHeartbeatInterval  Duration `json:"status_heartbeat_interval,omitempty"` // Maximum interval between status pushes (heartbeat)
 
 	// Embedded sync runtime
-	SyncRuntimeEnabled *bool                          `json:"sync_runtime_enabled,omitempty"` // Enable embedded integration sync runtime
-	Bumblebee             *BumblebeeStatusConfig             `json:"bumblebee,omitempty"`               // Root scanner spool status integration
-	EndpointInventory     *EndpointInventoryStatusConfig     `json:"endpoint_inventory,omitempty"`      // Endpoint software inventory spool status
-	K8sPublicEndpoints    *K8sPublicEndpointsStatusConfig    `json:"k8s_public_endpoints,omitempty"`    // Cluster public VIP inventory spool
+	SyncRuntimeEnabled *bool                           `json:"sync_runtime_enabled,omitempty"` // Enable embedded integration sync runtime
+	Bumblebee          *BumblebeeStatusConfig          `json:"bumblebee,omitempty"`            // Root scanner spool status integration
+	EndpointInventory  *EndpointInventoryStatusConfig  `json:"endpoint_inventory,omitempty"`   // Endpoint software inventory spool status
+	K8sPublicEndpoints *K8sPublicEndpointsStatusConfig `json:"k8s_public_endpoints,omitempty"` // Cluster public VIP inventory spool
 
 	// Deprecated: accepted for compatibility with older rendered ConfigMaps.
 	RemoteAccessKnownHostsFile string `json:"remote_access_known_hosts_file,omitempty"`
