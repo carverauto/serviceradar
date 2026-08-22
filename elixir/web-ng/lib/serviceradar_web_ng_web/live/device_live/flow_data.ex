@@ -9,15 +9,35 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.FlowData do
   @flow_stats_timeout_ms 10_000
   @slow_flow_task_ms 1_500
 
-  # One query, four aggregates. This was four separate SRQL queries issued from
-  # four Task.async processes nested inside the stats fan-out: four extra pooled
-  # connections for numbers one scan already produces, and a nested fan-out
-  # whose crash could not be contained by the caller (it arrived as a linked
-  # exit signal). See DeviceTaskData for why that killed the LiveView.
-  @summary_aggregates [
+  # Two queries, not four and deliberately not one.
+  #
+  # Four was the original: four separate SRQL queries from four Task.async
+  # processes nested inside the stats fan-out -- four extra pooled connections
+  # for numbers one scan produces, and a nested fan-out whose crash could not be
+  # contained by the caller. See DeviceTaskData for why that killed the LiveView.
+  #
+  # One was worse. `COUNT(DISTINCT ...)` has no partial-aggregate form, so
+  # folding it in with the SUMs costs the WHOLE statement its parallel plan.
+  # Measured on demo against this exact predicate:
+  #
+  #   sum + sum + count            -> Finalize Aggregate (parallel)  cost  89_314
+  #   count_distinct alone         -> Aggregate                      cost     718
+  #   all four in one statement    -> Aggregate (single-threaded)    cost 153_077
+  #
+  # The combined form never once finished inside the batch budget
+  # (pg_stat_statements: calls=0), so the :summary key was always dropped and
+  # every stat card rendered 0. Split, the SUM/COUNT group keeps its parallel
+  # plan and the DISTINCT is trivial on its own.
+  #
+  # They are also queried separately so the groups fail independently: losing
+  # the distinct must not blank Total Bandwidth, Total Packets and Active Flows.
+  @summary_parallel_aggregates [
     {:total_bytes, "sum(bytes_total) as total_bytes"},
     {:total_packets, "sum(packets_total) as total_packets"},
-    {:flow_count, "count(*) as flow_count"},
+    {:flow_count, "count(*) as flow_count"}
+  ]
+
+  @summary_distinct_aggregates [
     {:unique_talkers, "count_distinct(src_endpoint_ip) as unique_talkers"}
   ]
 
@@ -179,20 +199,28 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.FlowData do
   end
 
   defp load_device_flow_summary(srql_mod, scope, base) do
-    aggregates = Enum.map_join(@summary_aggregates, ", ", fn {_key, expr} -> expr end)
-    query = ~s|#{base} stats:"#{aggregates}"|
+    Map.merge(
+      summary_group(srql_mod, scope, base, @summary_parallel_aggregates),
+      summary_group(srql_mod, scope, base, @summary_distinct_aggregates)
+    )
+  end
+
+  defp summary_group(srql_mod, scope, base, aggregates) do
+    expressions = Enum.map_join(aggregates, ", ", fn {_key, expr} -> expr end)
+    query = ~s|#{base} stats:"#{expressions}"|
 
     case srql_mod |> srql_results(query, scope) |> List.first() do
       nil ->
         # A non-grouped aggregate always yields one row even over zero flows, so
-        # no row means the query itself failed. Keep the "unknown" shape rather
-        # than rendering fabricated zeroes.
+        # no row means the query itself failed or timed out. Keep the "unknown"
+        # shape rather than rendering fabricated zeroes -- and keep it scoped to
+        # this group, so the other group still renders.
         %{}
 
       row ->
         payload = row_payload(row)
 
-        Map.new(@summary_aggregates, fn {key, _expr} ->
+        Map.new(aggregates, fn {key, _expr} ->
           {key, flow_stat_number(payload, Atom.to_string(key))}
         end)
     end
