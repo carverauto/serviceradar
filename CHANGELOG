@@ -1,3 +1,42 @@
+# ServiceRadar v1.4.41
+
+Pins device identity at write time, unsticks IP-only inventory
+seeds, and keeps a failed flow drain from taking down ingest.
+
+## Whats New
+
+**1.4.41**
+- Identity: devices carry an identity revision that bumps on merge,
+  unmerge, delete, restore, and the remaining transitions. Writes
+  pin and check that revision so a concurrent merge cannot clobber
+  an in-flight update. (PRs #3834, #3836, #3845, #3846)
+- Identity: a merge that fails partway rolls back instead of
+  committing a half-merged device. (PR #3831)
+- Inventory: an IP-only seed can be adopted instead of deadlocking
+  behind a later Armis or NetBox record. (PR #3840)
+- Inventory: jsonb metadata params are no longer double-encoded,
+  which was corrupting device metadata. (PR #3835)
+- AWX: inventory emits a controller-scoped source key and the MAC
+  AWX already knows. (PR #3844)
+- SRQL: timeseries_metrics keep tag dimensions; stats filters are
+  no longer dropped silently. (PR #3823)
+- Event writer: a failed flow backlog drain no longer kills the
+  live pipeline. (PR #3838)
+- Flow collector: one stray datagram no longer pins parse_errors
+  forever. (PR #3839)
+- SNMP: trap bodies are assembled in the Zen rule, not from
+  varbinds[0]. (PR #3842)
+- Plugins: AlienVault OTX is assignable again. (PR #3841)
+- Feeds: advisory feeds no longer rewrite the whole corpus every
+  run. (PR #3829)
+- Helm: CNPG WAL budget is sized instead of inheriting PostgreSQL
+  defaults. (PR #3830)
+- Agent: updater chcon works on SELinux Enforcing hosts. (PR #3824)
+- Web UI: toasts stay above native dialogs. Fleet rows show live
+  add-on health, not leftover canary failures. (PRs #3825, #3826)
+- Deps: req is aligned on 0.7.3 in every project that embeds core.
+  (PR #3837)
+
 # ServiceRadar v1.4.40
 
 Compacts the operations dashboard so more of it fits without scrolling,
