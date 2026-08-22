@@ -1,4 +1,5 @@
 load("@io_bazel_rules_go//go:def.bzl", "go_library", "go_test")
+load("//build:benchmarks.bzl", "go_benchmark")
 
 go_library(
     name = "remoteaccess",
@@ -104,4 +105,9 @@ go_test(
         ],
         "//conditions:default": [],
     }),
+)
+
+go_benchmark(
+    name = "remoteaccess_bench",
+    binary = ":remoteaccess_test",
 )

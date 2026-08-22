@@ -1,4 +1,5 @@
 load("@io_bazel_rules_go//go:def.bzl", "go_library", "go_test")
+load("//build:benchmarks.bzl", "go_benchmark")
 
 # Read by //:agent_release_key_consistency_test, which asserts this key matches the
 # agentReleasePublicKey the control plane gets from the helm charts. This package sets no
@@ -362,4 +363,9 @@ filegroup(
         "plugin_runtime_notify.go",
     ],
     visibility = ["//visibility:public"],
+)
+
+go_benchmark(
+    name = "agent_bench",
+    binary = ":agent_test",
 )

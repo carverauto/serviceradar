@@ -2,6 +2,8 @@ load("@aspect_bazel_lib//lib:transitions.bzl", "platform_transition_filegroup")
 load("@io_bazel_rules_go//go:def.bzl", "go_test")
 load("@rules_rs//rs:cargo_build_script.bzl", "cargo_build_script")
 load("@rules_rs//rs:rust_binary.bzl", "rust_binary")
+load("@rules_rs//rs:rust_library.bzl", "rust_library")
+load("//build:benchmarks.bzl", "rust_benchmark")
 load("@rules_rs//rs:rust_test.bzl", "rust_test")
 
 package(default_visibility = ["//visibility:public"])
@@ -69,7 +71,7 @@ NETPROBE_RUSTC_FLAGS = select({
     "//conditions:default": [],
 })
 
-NETPROBE_VERSION = "0.2.33"
+NETPROBE_VERSION = "0.2.34"
 
 cargo_build_script(
     name = "build_script",
@@ -192,4 +194,59 @@ go_test(
         "NETPROBE_X86_64_MUSL": "$(rootpath :netprobe_linux_x86_64_musl)",
     },
     target_compatible_with = ["@platforms//os:linux"],
+)
+
+# The crate as a LIBRARY, for the benches under benches/ to link against. `Cargo.toml` declares
+# both a lib and a bin; the Bazel build only ever needed the bin, so nothing built src/lib.rs and
+# `[[bench]]` targets that `use serviceradar_netprobe::...` had nothing to depend on.
+#
+# SEPARATE FROM :netprobe RATHER THAN UNDERNEATH IT. Restructuring the binary to depend on this
+# would change how a SHIPPED add-on artifact is built, and the whole point of the version gate is
+# that those bytes are accounted for. This adds a target and leaves the binary's build untouched;
+# the cost is compiling the sources twice.
+rust_library(
+    name = "netprobe_lib",
+    srcs = glob(["src/**/*.rs"]),
+    compile_data = [
+        "//third_party/netprobe_corpora:p0f/p0f.fp",
+        "//third_party/netprobe_corpora:p0f/serviceradar-additions.fp",
+        "//third_party/netprobe_corpora:recog/serviceradar-recog-additions.xml",
+        "//third_party/netprobe_corpora:recog_xml",
+    ],
+    crate_features = NETPROBE_FEATURES,
+    crate_name = "serviceradar_netprobe",
+    crate_root = "src/lib.rs",
+    rustc_flags = NETPROBE_RUSTC_FLAGS,
+    version = NETPROBE_VERSION,
+    deps = NETPROBE_DEPS,
+)
+
+# `harness = false` in Cargo.toml: each bench is a standalone program with its own main, not a
+# criterion harness, so it is a rust_binary here and the runner just executes it.
+rust_binary(
+    name = "af_xdp_cpu_bench_bin",
+    srcs = ["benches/af_xdp_cpu.rs"],
+    crate_features = NETPROBE_FEATURES,
+    crate_root = "benches/af_xdp_cpu.rs",
+    rustc_flags = NETPROBE_RUSTC_FLAGS,
+    deps = NETPROBE_DEPS + [":netprobe_lib"],
+)
+
+rust_binary(
+    name = "census_decode_cpu_bench_bin",
+    srcs = ["benches/census_decode_cpu.rs"],
+    crate_features = NETPROBE_FEATURES,
+    crate_root = "benches/census_decode_cpu.rs",
+    rustc_flags = NETPROBE_RUSTC_FLAGS,
+    deps = NETPROBE_DEPS + [":netprobe_lib"],
+)
+
+rust_benchmark(
+    name = "af_xdp_cpu_bench",
+    binary = ":af_xdp_cpu_bench_bin",
+)
+
+rust_benchmark(
+    name = "census_decode_cpu_bench",
+    binary = ":census_decode_cpu_bench_bin",
 )

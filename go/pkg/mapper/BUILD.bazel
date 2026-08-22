@@ -1,4 +1,5 @@
 load("@io_bazel_rules_go//go:def.bzl", "go_library", "go_test")
+load("//build:benchmarks.bzl", "go_benchmark")
 
 go_library(
     name = "mapper",
@@ -113,4 +114,9 @@ go_test(
         "@org_golang_google_grpc//status",
         "@org_uber_go_mock//gomock",
     ],
+)
+
+go_benchmark(
+    name = "mapper_bench",
+    binary = ":mapper_test",
 )
