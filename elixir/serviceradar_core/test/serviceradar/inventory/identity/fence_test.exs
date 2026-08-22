@@ -103,6 +103,126 @@ defmodule ServiceRadar.Inventory.Identity.FenceTest do
     refute Fence.stale?(%{errors: []})
   end
 
+  describe "observe-only" do
+    # The whole point of the observe-only stage is that it measures without
+    # changing behaviour. If it ever refused a write, the rollout would be
+    # enforcing before anyone had read the telemetry -- so this is the test that
+    # matters most here.
+    test "reports drift but still lets the write land", %{actor: actor} do
+      {:ok, device} = create_device(actor)
+      pinned = {device.uid, device.identity_revision}
+
+      {:ok, _} = Device.bump_identity_revision(device, actor: actor)
+
+      events = capture_fence_events(fn -> assert Fence.observe(pinned, :pilot) == :ok end)
+
+      assert [{[:serviceradar, :identity_fence, :observed_drift], meta}] = events
+      assert meta.pinned_revision == device.identity_revision
+      assert meta.current_revision == device.identity_revision + 1
+
+      # ...and the write is NOT refused, unlike pin/2.
+      {:ok, reloaded} = Device.get_by_uid(device.uid, true, actor: actor)
+      assert {:ok, _} = Ash.update(Ash.Changeset.for_update(reloaded, :touch, %{}, actor: actor))
+    end
+
+    test "reports fresh when the revision has not moved", %{actor: actor} do
+      {:ok, device} = create_device(actor)
+
+      events =
+        capture_fence_events(fn ->
+          assert Fence.observe({device.uid, device.identity_revision}, :pilot) == :ok
+        end)
+
+      assert [{[:serviceradar, :identity_fence, :observed_fresh], meta}] = events
+      assert meta.current_revision == device.identity_revision
+      assert meta.pipeline == :pilot
+    end
+
+    # A merge soft-deletes the source, so a pin held against it reads as gone
+    # rather than as a moved revision. Distinguishing the two matters: drift means
+    # re-resolve, missing means the pinned device is no longer there at all.
+    test "reports missing when the pinned device was merged away", %{actor: actor} do
+      {:ok, device} = create_device(actor)
+      pinned = {device.uid, device.identity_revision}
+
+      {:ok, _} =
+        device
+        |> Ash.Changeset.for_update(:soft_delete, %{}, actor: actor)
+        |> Ash.update(actor: actor)
+
+      events = capture_fence_events(fn -> assert Fence.observe(pinned, :pilot) == :ok end)
+
+      assert [{[:serviceradar, :identity_fence, :observed_missing], meta}] = events
+      assert meta.current_revision == nil
+    end
+
+    test "an unreadable pin is a no-op rather than an error" do
+      assert Fence.observe_pin("sr:" <> Ecto.UUID.generate()) == :error
+      assert Fence.observe(:error, :pilot) == :ok
+      assert capture_fence_events(fn -> Fence.observe(:error, :pilot) end) == []
+    end
+
+    # enqueue_many/1 runs inside sweep ingestion and can carry thousands of uids,
+    # so the batched read is what keeps this from adding a query per device.
+    #
+    # This does guard the read-shape trap: drop the `for_read/3` that supplies
+    # `include_deleted` and the action's `is_nil(deleted_at) or ^arg(...)` filter
+    # goes NULL, the query matches nothing, and these assertions go nil.
+    #
+    # It does NOT guard the batch cap. Device's read declares
+    # `default_limit: 5000` and rejects `page: false`, so the limit has to be
+    # sized to the batch; with two devices here, a regression to the default
+    # would still pass. Verifying that needs 5000+ rows, which is not worth a
+    # fixture -- the constraint is recorded at the call site instead.
+    test "observe_pins/1 reads a batch and skips what it cannot see", %{actor: actor} do
+      {:ok, a} = create_device(actor)
+      {:ok, b} = create_device(actor)
+      absent = "sr:" <> Ecto.UUID.generate()
+
+      pins = Fence.observe_pins([a.uid, b.uid, absent])
+
+      assert pins[a.uid] == a.identity_revision
+      assert pins[b.uid] == b.identity_revision
+      refute Map.has_key?(pins, absent)
+      assert Fence.observe_pins([]) == %{}
+    end
+  end
+
+  defp capture_fence_events(fun) do
+    ref = make_ref()
+    test_pid = self()
+
+    events = [
+      [:serviceradar, :identity_fence, :observed_fresh],
+      [:serviceradar, :identity_fence, :observed_drift],
+      [:serviceradar, :identity_fence, :observed_missing]
+    ]
+
+    handler_id = {__MODULE__, ref}
+
+    :telemetry.attach_many(
+      handler_id,
+      events,
+      fn event, _measurements, meta, _config -> send(test_pid, {ref, event, meta}) end,
+      nil
+    )
+
+    try do
+      fun.()
+      collect_fence_events(ref, [])
+    after
+      :telemetry.detach(handler_id)
+    end
+  end
+
+  defp collect_fence_events(ref, acc) do
+    receive do
+      {^ref, event, meta} -> collect_fence_events(ref, [{event, meta} | acc])
+    after
+      0 -> Enum.reverse(acc)
+    end
+  end
+
   # Applies the pin the way a real consumer would: on the pending changeset, not
   # in an action-level filter, because Ash rebuilds atomic updates from a second
   # changeset and an action-level filter does not survive to constrain it.

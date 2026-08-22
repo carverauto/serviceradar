@@ -20,6 +20,7 @@ defmodule ServiceRadar.CompositeChecks.Refresh do
   """
 
   alias ServiceRadar.CompositeChecks.RefreshWorker
+  alias ServiceRadar.Inventory.Identity.Fence
   alias ServiceRadar.SweepJobs.ObanSupport
 
   require Logger
@@ -34,10 +35,16 @@ defmodule ServiceRadar.CompositeChecks.Refresh do
   @spec enqueue_many([String.t()]) :: :ok
   def enqueue_many(device_uids) when is_list(device_uids) do
     if ObanSupport.available?() do
-      device_uids
-      |> Enum.filter(&(is_binary(&1) and &1 != ""))
-      |> Enum.uniq()
-      |> Enum.each(&insert/1)
+      uids =
+        device_uids
+        |> Enum.filter(&(is_binary(&1) and &1 != ""))
+        |> Enum.uniq()
+
+      # One read for the whole batch. This runs inside sweep result ingestion and
+      # can carry thousands of uids, so a per-device pin would add a query each.
+      revisions = Fence.observe_pins(uids)
+
+      Enum.each(uids, &insert(&1, revisions))
     end
 
     :ok
@@ -52,9 +59,18 @@ defmodule ServiceRadar.CompositeChecks.Refresh do
 
   def enqueue_many(_device_uids), do: :ok
 
-  defp insert(device_uid) do
+  # The pinned revision rides along in the job args so the worker can tell whether
+  # identity moved during the debounce window. Observe-only: a uid whose revision
+  # could not be read is enqueued exactly as before, without the key.
+  defp insert(device_uid, revisions) do
     %{device_uid: device_uid}
+    |> put_pin(Map.get(revisions, device_uid))
     |> RefreshWorker.new()
     |> ObanSupport.safe_insert()
   end
+
+  defp put_pin(args, revision) when is_integer(revision),
+    do: Map.put(args, :identity_revision, revision)
+
+  defp put_pin(args, _revision), do: args
 end
