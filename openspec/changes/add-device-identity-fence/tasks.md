@@ -63,12 +63,12 @@
 
 ## 4. Observe-only rollout
 
-- [ ] 4.1 Pin `edge/agent_gateway_sync.ex:285-320` — resolves identity once, then six
+- [x] 4.1 Pin `edge/agent_gateway_sync.ex:285-320` — resolves identity once, then six
       independent writes. The clearest case.
-- [ ] 4.2 Pin `composite_checks/refresh_worker.ex` — an Oban job whose only argument is a
+- [x] 4.2 Pin `composite_checks/refresh_worker.ex` — an Oban job whose only argument is a
       device uid. The pinned revision goes in job args under a string key (Oban args are
       string-keyed).
-- [ ] 4.3 Ship both comparing and reporting only. Enforce nothing.
+- [x] 4.3 Ship both comparing and reporting only. Enforce nothing.
 - [ ] 4.4 Run for a measured period and read the telemetry. Treat demo identity signals with
       care — `armis_unmerge.ex:42-49` records that faker data makes some unreliable.
 - [ ] 4.5 Decide enforcement per pipeline from what the telemetry actually shows.
@@ -77,16 +77,31 @@
 
 Target roughly ten pinned paths total; below that the fence is decoration.
 
-- [ ] 5.1 `sweep_jobs/sweep_results_ingestor.ex`
-- [ ] 5.2 `event_writer/processors/sweep.ex`
-- [ ] 5.3 `event_writer/processors/metrics.ex`
-- [ ] 5.4 `core/result_processor.ex`
+- [ ] 5.1 `sweep_jobs/sweep_results_ingestor.ex` -- **hazard found**: the bracket calls
+      `restore_deleted_devices/2`, and `update :restore` carries `change BumpIdentityRevision`
+      (device.ex:352), so the pipeline bumps revisions inside its own bracket. Pinning through
+      the default read (`include_deleted: false`) excludes those devices automatically, the way
+      `processors/sweep.ex` does; do NOT pin with `include_deleted: true`.
+- [x] 5.2 `event_writer/processors/sweep.ex`
+- [ ] 5.3 `event_writer/processors/metrics.ex` -- highest write volume of the set;
+      `observe_many/2` emits one telemetry event per pinned device, so measure the emit cost
+      before enabling here.
+- [ ] ~~5.4 `core/result_processor.ex`~~ **drop this site.** The module performs ZERO writes
+      (no Ash create/update/destroy/bulk, no Repo write) and has ZERO production callers --
+      only `test/serviceradar/core/result_processor_test.exs` references it. A pin here would
+      bracket nothing and report a constant zero, which is worse than no measurement because it
+      reads as evidence of safety. Removing it means the target of ~10 pinned paths is met by
+      the other sites plus the two pilots.
 - [ ] 5.5 `inventory/endpoint_inventory_ingestor.ex` — also fix `build_context/5`, which
       prefers the agent's cached uid over the freshly repointed value and so reverses the
       merge's own `EndpointInventoryMoves` work on the next scan.
-- [ ] 5.6 `inventory/sync_ingestor.ex`
+- [x] 5.6 `inventory/sync_ingestor.ex`
 - [ ] 5.7 `network_discovery/mapper_results_ingestor.ex`
-- [ ] 5.8 `inventory/device_source_observation_ingestor.ex`
+- [ ] 5.8 `inventory/device_source_observation_ingestor.ex` -- **blocked as written**: its test
+      is `use ExUnit.Case, async: true` with no `DataCase`
+      (`device_source_observation_ingestor_test.exs:2`), so adding a database read to the ingest
+      path breaks the database-free unit tier. Either move the pin outside the unit-tested
+      function or reclassify the test.
 
 ## 6. Reassign what the merge currently misses
 

@@ -128,6 +128,8 @@ defmodule ServiceRadar.Inventory.Identity.Fence do
       {:ok, revision} -> {:ok, {device_id, revision}}
       :missing -> :error
     end
+  rescue
+    exception -> inert(exception, :error)
   end
 
   def observe_pin(_device_id), do: :error
@@ -176,6 +178,8 @@ defmodule ServiceRadar.Inventory.Identity.Fence do
         Logger.warning("identity fence: batch pin read failed: #{inspect(reason)}")
         %{}
     end
+  rescue
+    exception -> inert(exception, %{})
   end
 
   @doc """
@@ -215,6 +219,8 @@ defmodule ServiceRadar.Inventory.Identity.Fence do
     end
 
     :ok
+  rescue
+    exception -> inert(exception, :ok)
   end
 
   def observe(_pinned, _pipeline), do: :ok
@@ -253,6 +259,20 @@ defmodule ServiceRadar.Inventory.Identity.Fence do
     end
 
     :ok
+  rescue
+    exception -> inert(exception, :ok)
+  end
+
+  # The observe-only contract is "never blocks and never fails", and that has to
+  # hold against a raise, not just an {:error, _}. It is not defensive padding:
+  # several call sites sit inside a function-level `rescue` that logs and moves on
+  # -- ProcessorSweep.update_device_availability_only/1 and Refresh.enqueue_many/1
+  # both do. A pin that raised there would be swallowed by the caller's own rescue
+  # and take the real work with it: the three availability writes, or every
+  # composite-check enqueue in the batch. Measurement must not be able to do that.
+  defp inert(exception, fallback) do
+    Logger.warning("identity fence: observation failed: #{Exception.message(exception)}")
+    fallback
   end
 
   defp report(pipeline, device_id, pinned_revision, {:ok, pinned_revision}) do
