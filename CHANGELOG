@@ -1,3 +1,131 @@
+# ServiceRadar v1.4.42
+
+Lands passive L2 device discovery in netprobe end to end, unblocks
+add-on auto-update across a mixed fleet, and makes a Helm component's
+`enabled: false` actually disable it.
+
+## Whats New
+
+**1.4.42**
+- Netprobe: passive device census. The TC ingress classifier reads
+  sender MACs and parses ARP and IPv6 NDP, so a device present for
+  seconds is seen with no probe traffic at all. Bindings ship as
+  whole-segment snapshots (15m TTL, 4096 per interface, every 120s),
+  reassembled by the agent, streamed to the gateway, and routed into
+  core's inventory sync. (PRs #3854, #3858, #3865, #3866, #3868,
+  #3869, #3870, #3871)
+- Netprobe: in-kernel suppression never recorded a seen device, so
+  every frame re-emitted and the watchdog shut the census down ten
+  seconds after each start. A 55-device segment now runs steadily at
+  about 0.05% CPU. (PR #3876)
+- Netprobe: census drops are counted rather than lost silently, and
+  an observation is logged only when the binding is new. The former
+  per-observation line flooded journald on a busy segment.
+  (PRs #3868, #3876)
+- Netprobe: stopping no longer runs to systemd's kill timeout, and a
+  restart detaches the previous TC classifier instead of stacking
+  copies from older builds. (PR #3858)
+- Identity: a census sighting cannot collapse devices onto the agent
+  that overheard them. Off-segment (router-MAC) sightings are
+  dropped, a randomized MAC is flagged rather than allowed to anchor
+  a device, and the collector's agent_id is no longer attached to
+  every device it observes. (PRs #3863, #3869, #3871)
+- Add-ons: a containerized agent is no longer a rollout target for
+  host-installed add-ons. An in-cluster agent can never report
+  add-on health, so it aged out at the candidate health timeout and
+  failed the rollout for every bare-metal host with it, which is
+  what stalled auto-update fleet-wide. (PR #3875)
+- Add-ons: rollout health uses the version actually delivered and
+  signature-verified at staging, not the add-on's compiled-in
+  self-report. A self-report left stale had been silently blocking
+  that add-on's own upgrades. (PR #3875)
+- Add-ons: disabling or deleting a profile now retires its
+  assignments, instead of leaving them enabled and still being
+  delivered with no profile left to turn them off. (PR #3875)
+- Agent: agents report `addon.native.host` /
+  `addon.native.host.unavailable`, so the control plane is told
+  outright whether a host installs native add-ons rather than
+  inferring it. (PR #3875)
+- Agent: the SELinux relabel of staged add-on binaries also runs
+  from the agent. A host on a pre-1.4.39 setuid updater, which a
+  release activation never replaces, left staged binaries var_lib_t
+  and every add-on start failed 203/EXEC. (PR #3875)
+- Identity: the duplicate-device sweep groups on the agent_id device
+  column as well as identifier rows, so a host whose IP changed is
+  no longer left as two permanent device records. (PR #3875)
+- Identity: fence pins are observed across agent-gateway sync,
+  composite-check refresh, sweep event-writer and sync ingest, with
+  fresh/drift/missing telemetry. Observe-only: no write is blocked.
+  (PR #3862)
+- Web UI: a device's Flows tab no longer crashes its own LiveView
+  into a six-second reload loop. Query fan-out is bounded and pool
+  exhaustion now degrades one widget rather than the page. The flow
+  stat cards were reworked in the same range to be index-driven, so
+  they use the src/dst indexes instead of scanning. (PRs #3872,
+  #3878)
+- Feeds: a brief upstream timeout no longer discards an advisory
+  feed run for a whole six-hour cycle. Retries are spaced about 2,
+  10 and 30 minutes apart with jitter. (PR #3853)
+- Feeds: a job stuck `executing` because its node vanished (pod
+  replaced, or OOMKilled and restarted under the same pod IP) is
+  cancelled and re-enqueued at once, rather than waiting up to 240
+  minutes for Oban's Lifeline. (PR #3861)
+- Helm: `<component>.enabled: false` now actually removes the
+  workload. Eighteen templates deployed regardless, so a values file
+  read as disabled while the pod ran. Omitting the key still means
+  enabled. (PR #3860)
+- Build: `make push_all` on macOS defaults to `--config=remote`.
+  `--config=ci` points at a cache path that exists only on
+  BuildBuddy executors, so the push aborted before it started.
+  (PR #3857)
+- Build: Go, Rust and Elixir benchmarks run in CI instead of only
+  being compiled, and the metric fixture profile no longer depends on
+  an uncommitted local corpus. (PRs #3855, #3867)
+- Docs: clone commands in README, INSTALL and README-Docker point at
+  GitHub instead of the retired Forgejo host, so the first documented
+  step works. The OpenText plugin's in-product documentation link --
+  which an operator clicks from the integration config UI -- pointed
+  at that dead host too, as did the SRQL cookbook and language
+  reference. (PR #3852)
+
+## Upgrade Notes
+
+- Helm: `<component>.enabled: false` is now HONORED where it was a
+  silent no-op, for core, nats, datasvc, trapd, logCollector, webNg
+  and agent. Grep any bespoke values file for those keys before
+  upgrading: a flag that was aspirational at v1.4.41 will now delete
+  that workload. Stock `values.yaml` and `values-demo.yaml` render
+  byte-identically and are unaffected. (PR #3860)
+- Netprobe: the passive device census is ON by default and has no
+  toggle. It creates inventory devices from what it overhears on the
+  segment. It needs no migration -- observations route through the
+  existing sync-ingest path. Publish the netprobe add-on at 0.2.37;
+  the census does not exist on the fleet until that bundle rolls out.
+- Netprobe: watch `events_emitted_total{event="device_census_snapshot"}`
+  and `events_dropped_total{...}` after the rollout. If in-kernel
+  suppression breaks, the watchdog stops the census and it stays
+  stopped until netprobe restarts.
+- Add-ons: expect one-time movement on the first reconcile. Rollouts
+  that had been ageing out at the health timeout all unblock at once;
+  assignments whose profile was disabled or deleted are retired off
+  their hosts; and containerized agents lose native add-on
+  assignments for every supervision model. Upgrade core and agents
+  together -- an agent older than 1.4.42 reports neither host
+  capability, so core stays permissive for it by design.
+- Identity: the first sweep after upgrade merges devices that share an
+  `agent_id` column value, which had been invisible to it. Throttle
+  with `config :serviceradar, ServiceRadar.Inventory.Identity.DuplicateSweep,
+  max_merges_per_run: N` (default 200) to make that convergence
+  slower and easier to watch.
+- Feeds: a failing advisory feed now spreads its retries over about
+  42 minutes instead of 65 seconds. Intended -- all three old attempts
+  landed inside the same upstream blip. (PR #3853)
+- Known, not fixed: about thirty Helm sub-feature flags remain inert,
+  including `cnpg.enabled=false` and `core.migrations.enabled=false`,
+  which still render their resources (issue #3859). On the device
+  flows tab the Services facet stays empty and the traffic chart
+  renders no data.
+
 # ServiceRadar v1.4.41
 
 Pins device identity at write time, unsticks IP-only inventory
