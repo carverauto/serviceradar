@@ -86,41 +86,48 @@ in place.
 ## The ARP/NDP suppression window: 60 seconds, measured
 
 Set empirically on alma-test01 (AlmaLinux 9.8, kernel 5.14, SELinux Enforcing, `ens18` on a
-live /24), not chosen from theory.
+live /24).
 
-**The window works exactly as specified.** Over a 300 s clean run, the busiest
-`(MAC, IP)` pairs emitted **exactly 5 times each** -- the arithmetic maximum for a 60 s
-refresh across 300 s. Suppression is neither leaking nor over-suppressing.
+**A first measurement attempt was invalid and is recorded here so nobody repeats it.** Reading
+observation counts out of the journal reported 117 in 300 s, which looked like a clean 0.39/s.
+It was journald's rate limiter: `RateLimitBurst=10000` per 30 s was discarding **~1.15 million
+messages per 30 s**, so the true rate was roughly **38,000/s**. Any measurement taken through
+the journal must check for `Suppressed N messages` lines before it can be believed.
 
-**Measured volume, 300 s:**
+**The real cause was that in-kernel suppression never suppressed.** The `l2_seen` LRU map held
+88 well-formed 28-byte keys whose stored values matched `bpf_ktime_get_ns`
+(`0x24783122F5DF7` against `/proc/uptime` 641,761,420,000,000), so inserts were landing with
+correct timestamps — yet every frame was still emitted, i.e. lookups behaved as misses. The key
+struct has no padding and the aya `LruHashMap` API is used as documented, so the cause is not
+obvious. Suppression moved to userspace, where it is deterministic and unit-testable.
+
+**Validated measurement, 300 s clean run, zero journald suppression in steady state:**
 
 | Metric | Value |
 | --- | --- |
-| Observations | 117 (**0.39/sec**) |
-| Unique MACs | 29 |
-| Unique (MAC, IP) pairs | 44 |
-| Kinds | 66 NDP, 49 ARP request, 2 ARP reply |
-| Randomized MACs | 12 (10%) |
-| Off-segment (router-forwarded, refused for anchoring) | 13 (11%) |
+| Observations | 230 (**0.77/sec**) |
+| Unique MACs / (MAC, IP) pairs | 29 / 46 |
+| **Max emissions for any one pair** | **5** |
+| Kinds | 140 NDP, 85 ARP request, 5 ARP reply |
+| Randomized MACs | 30 (13%) |
+| Off-segment, refused for anchoring | 35 (15%) |
 
-**Why 60 s is the right value, and the headroom:**
+**Why this validates 60 s.** Across 300 s a 60 s refresh permits at most 5 emissions per
+binding. The busiest pair emitted exactly 5, and the total is 46 × 5 = 230 — every binding
+emitting exactly at the window cadence, neither leaking nor over-suppressing. Independently
+confirmed against the last 120 s of steady state: 92 observations, again 0.77/s.
 
-- Per-device cost is **0.0134 observations/sec**. Extrapolating: 1,000 devices is ~13/sec and
-  10,000 devices ~134/sec. The 1 MiB ring holds ~21,800 of these 48-byte records, so even the
-  10k case has orders of magnitude of headroom.
-- It is not what makes transient devices visible. A first sighting is **always** emitted; the
-  window only rate limits refreshes. A device present for 90 s still appears immediately, and
-  produces about two observations, which also evidences how long it stayed.
-- It matches the kernel's own neighbour `gc_stale_time` default, so the census emits roughly
-  once per natural ARP re-query cycle instead of discarding most of them.
-- Shortening it buys `last_seen` precision that inventory does not use; lengthening it makes
-  `last_seen` stale enough to misreport a present device as gone.
+**Headroom.** 0.0266 observations/sec per device, so ~27/sec at 1,000 devices and ~266/sec at
+10,000, against a ring holding ~21,800 of these 48-byte records.
 
-**What the number would have been without the ARP/NDP restriction:** ~400 observations/sec
-from only 41 MACs, because routed traffic pairs the gateway's MAC with an unbounded set of
-remote addresses, so every new remote IP minted a fresh suppression key and the cache never
-suppressed anything. The three-orders-of-magnitude difference is the restriction, not the
-window -- no window value would have fixed it.
+**The window is not what makes transient devices visible.** A first sighting is always
+admitted; the window only rate limits refreshes. A device present for 90 s is recorded on
+arrival regardless.
+
+**What the window could not have fixed.** Before restricting the census to ARP and NDP, routed
+traffic paired the gateway's MAC with an unbounded set of remote addresses, so every new remote
+IP minted a fresh key and no window value would have helped. That was a design error, not a
+tuning problem.
 
 ## Open Questions
 

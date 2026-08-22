@@ -68,11 +68,20 @@
       devices were observed in a 300s window without any sweep running.
 - [x] 5.3 Confirm no traffic is emitted during discovery -- the census only reads frames the
       host already receives; there is no transmit path in the code at all.
-- [x] 5.4 **Suppression window decided from measurement: 60 seconds.** Over 300s the busiest
-      (MAC, IP) pairs emitted exactly 5 times -- the arithmetic maximum for a 60s refresh --
-      so suppression is neither leaking nor over-suppressing. Volume was 117 observations
-      (0.39/sec) across 29 devices, i.e. 0.0134/sec per device, which extrapolates to ~13/sec
-      at 1,000 devices against a ring that holds ~21,800 records. See design.md.
+- [x] 5.4 **Suppression window decided from measurement: 60 seconds.** Validated run: 230
+      observations over 300s (**0.77/sec**) across 29 MACs and 46 (MAC, IP) pairs, with the
+      busiest pair emitting exactly 5 times -- the arithmetic maximum for a 60s refresh --
+      and 46 x 5 = 230, i.e. every binding emitting exactly at the window cadence. Confirmed
+      against the last 120s of steady state (92 observations, again 0.77/sec) with zero
+      journald suppression.
+      **An earlier reading of 117/300s was invalid**: it measured journald's rate limiter
+      (~1.15M messages discarded per 30s), not the census. Any journal-derived measurement
+      must check for `Suppressed N messages` first.
+- [x] 5.6 **Move suppression to userspace.** The in-kernel LRU map inserted correct timestamps
+      but its lookups behaved as misses, so nothing was suppressed. `CensusSuppressor` is
+      deterministic and unit-tested, including a flood test where 100,000 repeats of one
+      binding collapse to exactly 2 emissions. The in-kernel map is left in place but is no
+      longer load-bearing; making it work would cut ring traffic and is worth revisiting.
 - [x] 5.5 Verify shutdown no longer hangs: `systemctl stop` now completes in **0.68s** (it
       previously ran to systemd's kill timeout), and exactly one TC filter is attached after
       restart rather than one more per restart.
