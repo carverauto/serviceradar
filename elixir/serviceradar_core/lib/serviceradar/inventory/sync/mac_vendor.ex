@@ -132,7 +132,11 @@ defmodule ServiceRadar.Inventory.Sync.MacVendor do
     |> strip_provenance()
     |> Map.put(@source_key, @source)
     |> Map.put(@prefix_key, prefix_hex)
-    |> maybe_put(@snapshot_key, snapshot_id)
+    # Normalised HERE, not only where the value came from. This function is
+    # what writes to a jsonb column, so it owns the guarantee that what it
+    # writes can be encoded -- a caller holding a raw Postgrex uuid should not
+    # be able to poison a batch through it.
+    |> maybe_put(@snapshot_key, normalize_snapshot(snapshot_id))
     |> Map.put("mac_vendor", org)
   end
 
@@ -188,12 +192,25 @@ defmodule ServiceRadar.Inventory.Sync.MacVendor do
 
   defp normalize_snapshot(nil), do: nil
 
-  defp normalize_snapshot(value) when is_binary(value), do: value
+  # Postgrex hands back a `uuid` column as a RAW 16-byte binary, not a string.
+  # `is_binary/1` is true for it, so a naive binary clause passes those bytes
+  # straight into metadata, and the jsonb encode then fails with
+  # `Jason.EncodeError: invalid byte 0xFF` -- which aborts the whole ingest
+  # batch, not just the enrichment. That took device writes down for EVERY
+  # source on a live cluster until it was rolled back. Decode by width first.
+  defp normalize_snapshot(value) when is_binary(value) and byte_size(value) == 16 do
+    case Ecto.UUID.load(value) do
+      {:ok, uuid} -> uuid
+      :error -> nil
+    end
+  end
 
-  defp normalize_snapshot(value) do
+  defp normalize_snapshot(value) when is_binary(value) do
     case Ecto.UUID.cast(value) do
       {:ok, uuid} -> uuid
       :error -> nil
     end
   end
+
+  defp normalize_snapshot(_value), do: nil
 end

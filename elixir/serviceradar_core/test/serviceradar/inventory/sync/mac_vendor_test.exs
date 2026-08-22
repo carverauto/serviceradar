@@ -75,14 +75,18 @@ defmodule ServiceRadar.Inventory.Sync.MacVendorTest do
   describe "provenance" do
     test "records the source, prefix and dataset snapshot" do
       metadata =
-        MacVendor.put_provenance(%{"existing" => "kept"}, {"Apple, Inc.", "1CB3C9"}, "snap-1")
+        MacVendor.put_provenance(
+          %{"existing" => "kept"},
+          {"Apple, Inc.", "1CB3C9"},
+          "ff82a43f-6e90-47c8-a126-0a75a1d234d9"
+        )
 
       assert metadata["mac_vendor"] == "Apple, Inc."
       # Same string FlowEnrichment writes for flows, so one value means one
       # thing across the system.
       assert metadata["mac_vendor_source"] == "ieee_oui"
       assert metadata["mac_vendor_oui_prefix"] == "1CB3C9"
-      assert metadata["mac_vendor_oui_snapshot_id"] == "snap-1"
+      assert metadata["mac_vendor_oui_snapshot_id"] == "ff82a43f-6e90-47c8-a126-0a75a1d234d9"
       assert metadata["existing"] == "kept", "unrelated metadata must survive"
     end
 
@@ -98,7 +102,7 @@ defmodule ServiceRadar.Inventory.Sync.MacVendorTest do
         "keep" => "me"
       }
 
-      metadata = MacVendor.put_provenance(stale, nil, "snap-2")
+      metadata = MacVendor.put_provenance(stale, nil, "ff82a43f-6e90-47c8-a126-0a75a1d234d9")
 
       refute Map.has_key?(metadata, "mac_vendor")
       refute Map.has_key?(metadata, "mac_vendor_source")
@@ -117,7 +121,7 @@ defmodule ServiceRadar.Inventory.Sync.MacVendorTest do
       # attribution becomes permanent. Pin them together.
       written =
         %{}
-        |> MacVendor.put_provenance({"Apple, Inc.", "1CB3C9"}, "snap-1")
+        |> MacVendor.put_provenance({"Apple, Inc.", "1CB3C9"}, "ff82a43f-6e90-47c8-a126-0a75a1d234d9")
         |> Map.keys()
 
       owned = MacVendor.metadata_keys() ++ ["mac_vendor"]
@@ -125,6 +129,50 @@ defmodule ServiceRadar.Inventory.Sync.MacVendorTest do
       for key <- written do
         assert key in owned, "#{key} is written but not owned/stripped by MacVendor"
       end
+    end
+  end
+
+  describe "everything written must survive JSON encoding" do
+    test "the produced metadata is Jason-encodable" do
+      # THE guard for this module. Device metadata is a jsonb column, so a
+      # single non-encodable value does not merely skip enrichment -- it raises
+      # inside the batch write and takes down the whole ingest, for every
+      # source, not just the one that supplied the bad value.
+      #
+      # That happened: Postgrex returns a `uuid` column as a RAW 16-byte
+      # binary, `is_binary/1` is true for it, and it flowed into metadata and
+      # aborted every sync batch on a live cluster with
+      # `Jason.EncodeError: invalid byte 0xFF`.
+      raw_uuid = <<255, 130, 164, 63, 110, 144, 71, 200, 161, 38, 10, 117, 161, 210, 52, 217>>
+
+      metadata =
+        MacVendor.put_provenance(%{"existing" => "kept"}, {"Apple, Inc.", "1CB3C9"}, raw_uuid)
+
+      assert {:ok, _json} = Jason.encode(metadata)
+    end
+
+    test "a raw 16-byte uuid is decoded to its string form, not passed through" do
+      raw_uuid = <<255, 130, 164, 63, 110, 144, 71, 200, 161, 38, 10, 117, 161, 210, 52, 217>>
+      {:ok, expected} = Ecto.UUID.load(raw_uuid)
+
+      metadata = MacVendor.put_provenance(%{}, {"Apple, Inc.", "1CB3C9"}, raw_uuid)
+
+      assert metadata["mac_vendor_oui_snapshot_id"] == expected
+      assert String.length(expected) == 36, "should be the canonical hyphenated form"
+    end
+
+    test "an already-stringified uuid is preserved" do
+      uuid = "ff82a43f-6e90-47c8-a126-0a75a1d234d9"
+      metadata = MacVendor.put_provenance(%{}, {"Apple, Inc.", "1CB3C9"}, uuid)
+      assert metadata["mac_vendor_oui_snapshot_id"] == uuid
+    end
+
+    test "an unusable snapshot value is dropped rather than written" do
+      # Better to lose the audit pointer than to poison the batch.
+      metadata = MacVendor.put_provenance(%{}, {"Apple, Inc.", "1CB3C9"}, <<1, 2, 3>>)
+      refute Map.has_key?(metadata, "mac_vendor_oui_snapshot_id")
+      assert metadata["mac_vendor"] == "Apple, Inc."
+      assert {:ok, _} = Jason.encode(metadata)
     end
   end
 
