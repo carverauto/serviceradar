@@ -11,6 +11,30 @@
 > JetStream, projectors, migration, and rollout over a frozen contract. It MUST
 > NOT re-freeze anything the ABI change owns.
 
+## Immediate implementation milestone
+
+After `freeze-edge-record-v1-abi` task 1.5-l is saved and the active integration
+branch is reconciled with `staging`, the next milestone is the FIRST GREEN
+VERTICAL SLICE, not another expansion of independently proven pieces. Drive one
+committed `SweepObservationBatchV1` fixture through the real path:
+
+```text
+record -> agent spool -> mTLS gRPC -> gateway -> JetStream PubAck
+       -> EventWriter -> idempotent CNPG transaction -> query
+```
+
+The slice MUST prove that the JetStream body is exactly the record bytes stored
+in the spool, replaying the same delivery creates no duplicate domain rows, and
+JetStream unavailability leaves the spool entry unresolved. A synthetic fixture
+is sufficient for this first milestone; connecting a real scanner is the next
+increment after the path itself is green.
+
+This milestone does not waive the remaining ABI freeze, recovery, security,
+capacity, migration, or soak requirements. It prevents those horizontal proof
+surfaces from indefinitely displacing the first composed runtime result: a real
+record must travel through the new pipeline and land in the database before the
+proof surface broadens again, unless a demonstrated defect blocks that path.
+
 ## Why
 
 ServiceRadar must ingest durable output from built-in collectors, scanners,
