@@ -616,10 +616,24 @@ mod runtime {
         counters: Arc<CensusCounters>,
     }
 
+    // Maximum records drained per poll before returning to the loop that checks
+    // the stop flag.
+    //
+    // Without a bound, a busy ring starves the shutdown check entirely: the
+    // inner drain loop keeps finding records and never returns, so
+    // Drop::join() blocks forever and systemd kills the unit on timeout. That
+    // is exactly what happened on a live host before the ARP/NDP restriction
+    // reduced the volume -- and the bound is still needed, because the fix for
+    // a shutdown hang must not depend on the ring being quiet.
+    const CENSUS_POLL_BUDGET: usize = 1024;
+
     impl CensusConsumer {
-        fn poll_once(&mut self) -> usize {
+        fn poll_once(&mut self, stop: &AtomicBool) -> usize {
             let mut seen = 0usize;
-            while let Some(item) = self.ring.next() {
+            while seen < CENSUS_POLL_BUDGET && !stop.load(Ordering::Relaxed) {
+                let Some(item) = self.ring.next() else {
+                    break;
+                };
                 match parse_l2_ring_record(item.as_ref()) {
                     Some(observation) => {
                         self.counters.observed.fetch_add(1, Ordering::Relaxed);
@@ -634,6 +648,10 @@ mod runtime {
                     }
                     None => {
                         self.counters.undecodable.fetch_add(1, Ordering::Relaxed);
+                        // A record we cannot decode still consumed ring space;
+                        // count it against the budget so a stream of malformed
+                        // records cannot starve the stop check either.
+                        seen += 1;
                     }
                 }
             }
@@ -695,7 +713,7 @@ mod runtime {
                 .name("netprobe-device-census".to_owned())
                 .spawn(move || {
                     while !stop_worker.load(Ordering::Relaxed) {
-                        if consumer.poll_once() == 0 {
+                        if consumer.poll_once(&stop_worker) == 0 {
                             thread::sleep(CENSUS_RING_IDLE_SLEEP);
                         }
                     }
