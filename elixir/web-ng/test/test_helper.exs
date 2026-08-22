@@ -18,6 +18,16 @@ end
 
 if db_required? do
   {:ok, _} = Application.ensure_all_started(:serviceradar_web_ng)
+else
+  # db_free tests deliberately do not start the application, but the
+  # device-detail loaders run their fan-outs under this shared, named
+  # Task.Supervisor (see DeviceLive.DeviceTaskData), so it has to exist.
+  #
+  # Unlinked on purpose: `mix test` keeps the process that runs this file alive
+  # for the whole run, but the Bazel ex_unit runner does not, and a linked
+  # supervisor died with it -- every fan-out then failed with "no process".
+  {:ok, task_supervisor} = Task.Supervisor.start_link(name: ServiceRadarWebNG.TaskSupervisor)
+  Process.unlink(task_supervisor)
 end
 
 # Use ServiceRadar.Repo from serviceradar_core directly for SQL adapter operations
