@@ -25,10 +25,38 @@ const IPPROTO_UDP: u16 = 17;
 const IPPROTO_ICMPV6: u16 = 58;
 const ETH_P_IP: u16 = 0x0800;
 const ETH_P_IPV6: u16 = 0x86dd;
+const ETH_P_ARP: u16 = 0x0806;
 const ETH_P_8021Q: u16 = 0x8100;
 const ETH_P_8021AD: u16 = 0x88a8;
 const ETH_HEADER_LEN: usize = 14;
 const VLAN_HEADER_LEN: usize = 4;
+// ARP payload layout (RFC 826), offsets relative to the end of the Ethernet
+// header: htype(2) ptype(2) hlen(1) plen(1) oper(2) sha(6) spa(4) tha(6) tpa(4).
+const ARP_OPER_OFFSET: usize = 6;
+const ARP_SENDER_HA_OFFSET: usize = 8;
+const ARP_SENDER_PA_OFFSET: usize = 14;
+const ICMPV6_ROUTER_SOLICITATION: u8 = 133;
+const ICMPV6_NEIGHBOR_ADVERTISEMENT: u8 = 136;
+const ARP_OPER_REQUEST: u16 = 1;
+const ARP_OPER_REPLY: u16 = 2;
+
+// L2 observation kinds reported to userspace.
+pub const L2_KIND_ARP_REQUEST: u16 = 1;
+pub const L2_KIND_ARP_REPLY: u16 = 2;
+pub const L2_KIND_IPV6_NDP: u16 = 4;
+
+// L2 observation flags.
+// A locally administered MAC (bit 1 of the first octet) is what every MAC
+// randomization implementation sets. Classified here so userspace never has to
+// re-derive it, and so identity can refuse to anchor on a rotating address.
+pub const L2_FLAG_LOCALLY_ADMINISTERED: u16 = 1 << 0;
+// Sender protocol address was all-zero: an RFC 5227 ARP probe. The device is
+// announcing itself before it owns the address, which is the earliest possible
+// sighting of a joining device.
+pub const L2_FLAG_ARP_PROBE: u16 = 1 << 1;
+// Sender and target protocol addresses matched: a gratuitous ARP announcement.
+pub const L2_FLAG_ARP_GRATUITOUS: u16 = 1 << 2;
+
 const IPV4_MIN_HEADER_LEN: usize = 20;
 const IPV6_HEADER_LEN: usize = 40;
 const TCP_MIN_HEADER_LEN: usize = 20;
@@ -294,11 +322,50 @@ pub struct TcpSynSignatureRecord {
     pub options_layout: [u8; TCP_MAX_OPTIONS_LAYOUT], // @72..104
 }
 
+// Passive L2 device observation: the (MAC, IP) binding seen on the wire, plus
+// enough context for userspace to decide how much to trust it. 48 bytes,
+// explicit offsets because userspace decodes this from raw ring bytes.
+#[repr(C)]
+#[derive(Copy, Clone)]
+pub struct L2ObservationRecord {
+    pub version: u16,           // @0
+    pub observation_kind: u16,  // @2  L2_KIND_*
+    pub ip_version: u16,        // @4  4, 6, or 0 when unknown
+    pub flags: u16,             // @6  L2_FLAG_*
+    pub interface_index: u32,   // @8
+    pub observed_ns: u64,       // @16
+    pub mac: [u8; 6],           // @24
+    pub reserved0: [u8; 2],     // @30
+    pub ip: [u8; 16],           // @32..48
+}
+
+pub const L2_OBSERVATION_VERSION: u16 = 1;
+
 #[map(name = "flow_events")]
 static FLOW_EVENTS: RingBuf = RingBuf::pinned(1 << 20, 0);
 
 #[map(name = "tcp_syn_signatures")]
 static TCP_SYN_SIGNATURES: RingBuf = RingBuf::pinned(1 << 20, 0);
+
+#[map(name = "l2_observations")]
+static L2_OBSERVATIONS: RingBuf = RingBuf::pinned(1 << 20, 0);
+
+// Suppression cache for the passive census. ARP is chatty and every frame
+// carries a MAC, so emitting per packet would flood the ring and the ingestion
+// path behind it. Keyed by (interface, MAC, IP) -> last emitted timestamp, so a
+// device's FIRST sighting is always emitted and refreshes are rate limited.
+// LRU so a busy segment evicts cold entries instead of failing to insert.
+#[map(name = "l2_seen")]
+static L2_SEEN: LruHashMap<L2SeenKey, u64> = LruHashMap::pinned(65536, 0);
+
+#[repr(C)]
+#[derive(Copy, Clone, Eq, PartialEq)]
+pub struct L2SeenKey {
+    pub interface_index: u32,
+    pub reserved: u16,
+    pub mac: [u8; 6],
+    pub ip: [u8; 16],
+}
 
 #[map(name = "flow_table")]
 static FLOW_TABLE: LruHashMap<FlowTableKey, FlowTableEntry> =
@@ -335,6 +402,12 @@ static TC_TAIL_CALLS: ProgramArray = ProgramArray::pinned(4, 0);
 
 #[classifier]
 pub fn netprobe_tc_ingress(ctx: TcContext) -> i32 {
+    // Passive device census runs on ingress only: an egress frame's source MAC
+    // is this host's own, which tells us nothing about the segment. Gated on
+    // the same interface allowlist as flow accounting.
+    if interface_config(skb_interface_index(&ctx)).is_some() {
+        observe_l2_device(&ctx, now_ns());
+    }
     if account_flow(&ctx) {
         // The tail call MUST live in the entry program: the BPF verifier rejects
         // bpf_tail_call inside bpf-to-bpf subprograms. Falls through to TC_ACT_OK
@@ -1994,6 +2067,183 @@ fn endpoint_less_or_equal(
     }
 
     left_port <= right_port
+}
+
+// Emission refresh interval for the passive census, per (interface, MAC, IP).
+//
+// This does NOT gate a device's first sighting -- an unseen binding is always
+// emitted immediately, which is what makes a device present for seconds
+// visible at all. It only rate limits refreshes of an already-known binding.
+//
+// 60s matches the kernel's own neighbour `gc_stale_time` default, so we emit
+// roughly once per natural ARP re-query cycle rather than suppressing most of
+// them. Volume stays trivial: a fully populated /24 refreshing every 60s is ~4
+// observations/sec, and 1000 devices ~17/sec, both far below what the 1 MiB
+// ring absorbs. Shorter buys last-seen precision inventory does not need; much
+// longer makes last_seen stale enough to misreport a device as gone.
+const L2_REFRESH_INTERVAL_NS: u64 = 60 * 1_000_000_000;
+
+// A locally administered MAC sets bit 1 of the first octet, so the first octet
+// ends in 2, 6, A or E. Every MAC randomization implementation sets it.
+#[inline(always)]
+fn mac_is_locally_administered(mac: &[u8; 6]) -> bool {
+    mac[0] & 0x02 != 0
+}
+
+// True when this (interface, MAC, IP) binding should be emitted: either it has
+// never been seen, or its refresh interval has elapsed.
+#[inline(always)]
+fn l2_should_emit(key: &L2SeenKey, observed_ns: u64) -> bool {
+    if let Some(last) = unsafe { L2_SEEN.get(key) } {
+        // saturating_sub so a non-monotonic clock cannot make this emit forever.
+        if observed_ns.saturating_sub(*last) < L2_REFRESH_INTERVAL_NS {
+            return false;
+        }
+    }
+    let _ = L2_SEEN.insert(key, &observed_ns, 0);
+    true
+}
+
+// Passive device census. Extracts the sender MAC from the Ethernet header --
+// present on every frame, costing no extra traffic -- and pairs it with the
+// sender IP. ARP is handled separately because it carries no IP header, and it
+// is the one signal every IPv4 device emits on joining a segment.
+//
+// Not inlined: keeps this parse out of the flow-accounting classifier's stack
+// frame, which the SYN-signature path already pushes near the BPF limit.
+#[inline(never)]
+fn observe_l2_device(ctx: &TcContext, observed_ns: u64) {
+    let Some(mac) = load_bytes::<6>(ctx, 6) else {
+        return;
+    };
+    // A broadcast/multicast source is never a device's own hardware address.
+    if mac[0] & 0x01 != 0 {
+        return;
+    }
+
+    let mut offset = ETH_HEADER_LEN;
+    let Some(mut ethertype) = load_be_u16(ctx, 12) else {
+        return;
+    };
+    if ethertype == ETH_P_8021Q || ethertype == ETH_P_8021AD {
+        let Some(inner) = load_be_u16(ctx, 16) else {
+            return;
+        };
+        ethertype = inner;
+        offset = offset.saturating_add(VLAN_HEADER_LEN);
+    }
+
+    let mut record = L2ObservationRecord {
+        version: L2_OBSERVATION_VERSION,
+        observation_kind: 0,
+        ip_version: 0,
+        flags: 0,
+        interface_index: skb_interface_index(ctx),
+        observed_ns,
+        mac,
+        reserved0: [0; 2],
+        ip: [0; 16],
+    };
+
+    match ethertype {
+        ETH_P_ARP => {
+            let Some(oper) = load_be_u16(ctx, offset + ARP_OPER_OFFSET) else {
+                return;
+            };
+            record.observation_kind = if oper == ARP_OPER_REPLY {
+                L2_KIND_ARP_REPLY
+            } else if oper == ARP_OPER_REQUEST {
+                L2_KIND_ARP_REQUEST
+            } else {
+                return;
+            };
+            // The ARP sender hardware address is the semantic binding: it can
+            // differ from the frame source for a proxy-ARP responder, and the
+            // sender field is the one that names the address owner.
+            let Some(sender_ha) = load_bytes::<6>(ctx, offset + ARP_SENDER_HA_OFFSET) else {
+                return;
+            };
+            let Some(sender_pa) = load_bytes::<4>(ctx, offset + ARP_SENDER_PA_OFFSET) else {
+                return;
+            };
+            record.mac = sender_ha;
+            if mac_is_locally_administered(&sender_ha) {
+                record.flags |= L2_FLAG_LOCALLY_ADMINISTERED;
+            }
+            if sender_pa[0] == 0 && sender_pa[1] == 0 && sender_pa[2] == 0 && sender_pa[3] == 0 {
+                // RFC 5227 probe: the device is claiming an address it does not
+                // own yet. Earliest possible sighting, but it binds no IP.
+                record.flags |= L2_FLAG_ARP_PROBE;
+            } else {
+                record.ip_version = 4;
+                record.ip[0] = sender_pa[0];
+                record.ip[1] = sender_pa[1];
+                record.ip[2] = sender_pa[2];
+                record.ip[3] = sender_pa[3];
+                if let Some(target_pa) = load_bytes::<4>(ctx, offset + ARP_SENDER_PA_OFFSET + 10) {
+                    if target_pa[0] == sender_pa[0]
+                        && target_pa[1] == sender_pa[1]
+                        && target_pa[2] == sender_pa[2]
+                        && target_pa[3] == sender_pa[3]
+                    {
+                        record.flags |= L2_FLAG_ARP_GRATUITOUS;
+                    }
+                }
+            }
+        }
+        ETH_P_IPV6 => {
+            // ONLY NDP, never ordinary IPv6 traffic.
+            //
+            // Measured on a live segment: observing every frame produced 400
+            // observations/sec from 41 MACs, because routed traffic pairs the
+            // gateway's MAC with an unbounded set of remote addresses. Each new
+            // remote IP is a new suppression key, so the cache never suppresses
+            // anything. NDP has no such problem: it is link-local, so both the
+            // MAC and the address belong to a device on this segment.
+            let Some(next_header) = load_u8(ctx, offset + 6) else {
+                return;
+            };
+            if u16::from(next_header) != IPPROTO_ICMPV6 {
+                return;
+            }
+            let Some(icmp_type) = load_u8(ctx, offset + IPV6_HEADER_LEN) else {
+                return;
+            };
+            // 133 Router Solicitation, 134 Router Advertisement,
+            // 135 Neighbor Solicitation, 136 Neighbor Advertisement.
+            // RS in particular is emitted by a host as it joins the link, which
+            // is the v6 counterpart to the gratuitous ARP we rely on for v4.
+            if !(ICMPV6_ROUTER_SOLICITATION..=ICMPV6_NEIGHBOR_ADVERTISEMENT).contains(&icmp_type) {
+                return;
+            }
+            let Some(src) = load_bytes::<16>(ctx, offset + 8) else {
+                return;
+            };
+            record.observation_kind = L2_KIND_IPV6_NDP;
+            record.ip_version = 6;
+            record.ip = src;
+            if mac_is_locally_administered(&mac) {
+                record.flags |= L2_FLAG_LOCALLY_ADMINISTERED;
+            }
+        }
+        _ => return,
+    }
+
+    let key = L2SeenKey {
+        interface_index: record.interface_index,
+        reserved: 0,
+        mac: record.mac,
+        ip: record.ip,
+    };
+    if !l2_should_emit(&key, observed_ns) {
+        return;
+    }
+
+    let Some(mut entry) = L2_OBSERVATIONS.reserve::<L2ObservationRecord>(0) else {
+        return;
+    };
+    entry.write(record);
+    entry.submit(0);
 }
 
 fn load_u8(ctx: &TcContext, offset: usize) -> Option<u8> {

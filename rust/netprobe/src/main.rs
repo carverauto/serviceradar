@@ -8,6 +8,7 @@ mod attribution;
 mod capabilities;
 #[allow(dead_code)]
 mod capture;
+mod census;
 mod config;
 mod dpi;
 #[cfg(target_os = "linux")]
