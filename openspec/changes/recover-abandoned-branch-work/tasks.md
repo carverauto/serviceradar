@@ -109,13 +109,13 @@ Awaiting owner decision on which become GitHub issues.
 
 | Branch | Tip | What it is | Verdict | GH issue |
 | --- | --- | --- | --- | --- |
-| `feature/mdns-collector` | `33c3f362` | Complete mDNS discovery collector: `pkg/agent/mdns/*` + tests, `proto/mdns/mdns.proto`, Elixir processor, CNPG migration, full OpenSpec change. 3320 insertions. On **0 of 930** remote tips. PR #2714 closed with no explanation after "need to go over the openspec proposal w/ you tomorrow". | KEEP | **#3848** |
+| `feature/mdns-collector` | `33c3f362` | Complete mDNS discovery collector: `pkg/agent/mdns/*` + tests, `proto/mdns/mdns.proto`, Elixir processor, CNPG migration, full OpenSpec change. 3320 insertions. On **0 of 930** remote tips. PR #2714 closed with no explanation. **Owner direction: must ship as a native add-on attached to an agent (`addons/mdns-discovery`, `supervision: agent-sidecar`), NOT the branch's in-agent `pkg/agent/mdns/*`. This is a redesign, not a port.** | KEEP | **#3848** |
 | `docs/github-collaboration-host` | — | Now **more correct than staging**: `README.md:94`, `INSTALL.md:10`, `README-Docker.md:50,291,292` still point users at the retired `code.carverauto.dev`. PR #3763 closed, no successor. Independently confirmed **37 files** on staging still carry the retired host. | KEEP | **#3849** |
 | `web/elixir_phoenix_poc` | `0de0e6b9` | ~1000 LOC never landed: `rust/srql/src/query/{logs_hourly_stats,otel_metrics_hourly_stats,viz}.rs` + 2 migrations. Caveat: its `rust/srql/migrations/` approach now violates the Elixir-migrations-only rule. | KEEP (port) | **#3850** |
 | `updates/observability_srql_fixes` | `d041ca73` | Rebased duplicate of the same rollup work under a better name. Keep this **or** the row above, not both. | KEEP (pick one) | **#3850** |
 | `update/gleam_poller_poc` | — | 11 commits / 7402 insertions Gleam BEAM-migration PoC + PRD. `gleam/` never existed on staging. Rejected by direction (Elixir won) — design artifact only. | KEEP as reference | _pending_ |
 | `feat/device-detail-ansible-runs` | `22aa337d` | 3 OpenSpec files, 68 insertions (`add-device-detail-ansible-panel`). Likely obsolete — the Ansible LiveViews shipped. | LOW value | _pending_ |
-| `bug/sweep_results_missing_armis` | `bd6bc1dd` | Orphan `pkg/{core/services.go,poller/results_poller.go,sync/service.go}`, plus ~350 MB of committed Mach-O binaries and 61 `tls/demo-staging/` files including cert bundle tarballs. **Deliberately NOT filed as a public issue — see §3.5.** | DO NOT PUSH | n/a (private) |
+| `bug/sweep_results_missing_armis` | `bd6bc1dd` | Orphan `pkg/{core/services.go,poller/results_poller.go,sync/service.go}`, plus ~350 MB of committed Mach-O binaries and 61 `tls/demo-staging/` files including cert bundle tarballs. **Deliberately NOT filed as a public issue — see §3.5.** | **CLOSED — deleted 2026-08-21** (owner: stale). Archive ref, manifest and delta bundle all still hold `bd6bc1dd`. | n/a (private) |
 
 **Hold, do not delete (usp lane — owned by another agent):**
 
