@@ -171,6 +171,57 @@ defmodule ServiceRadar.Edge.RecoveryControlBoundsTest do
     end
   end
 
+  # Varies the FRAMING coordinates and the raw payload, reusing the same signing machinery as
+  # signed_record/3. Nothing new is committed: the shape comes from the same recovery record the
+  # corpus rows use, and only the fields under test differ.
+  defp framed(opts) do
+    {pub, priv} = :crypto.generate_key(:eddsa, :ed25519)
+
+    base = base_record("version_tombstone_scope_ok.bin")
+    payload = Keyword.get(opts, :payload, base.payload)
+
+    record = %{
+      base
+      | payload_family: Keyword.get(opts, :family, base.payload_family),
+        route_profile: Keyword.get(opts, :route, base.route_profile),
+        payload: payload,
+        encoded_size: byte_size(payload),
+        uncompressed_size: byte_size(payload),
+        payload_sha256: :crypto.hash(:sha256, payload),
+        production_capability: sign(base.production_capability, priv)
+    }
+
+    sa = record.source_authorization
+
+    record = %{
+      record
+      | source_authorization: %{
+          sa
+          | capability: sign(sa.capability, priv),
+            kind: Keyword.get(opts, :source_kind, sa.kind)
+        }
+    }
+
+    record = %{record | semantic_envelope_sha256: SemanticDigest.compute(record)}
+
+    {record, policy_for(record, pub)}
+  end
+
+  defp admit_framed(opts) do
+    {record, policy} = framed(opts)
+
+    case RecoveryValidate.record_signed(record, policy) do
+      :ok ->
+        RecoveryValidate.recovery_control(record, record.output_contract, policy)
+
+      {:error, reason} ->
+        flunk(
+          "the constructed record failed the SIGNED path with #{inspect(reason)}, so this " <>
+            "control would measure signing rather than the framing rule"
+        )
+    end
+  end
+
   defp tombstone_with(fields) do
     {:tombstone, t} = body_of("version_tombstone_scope_ok.bin")
     {:tombstone, struct!(t, fields)}
@@ -345,6 +396,63 @@ defmodule ServiceRadar.Edge.RecoveryControlBoundsTest do
                  echo_only,
                  echo_only.output_contract,
                  policy
+               )
+    end
+  end
+
+  describe "the framing family is bound to THIS typed ingress (task 1.5-m)" do
+    # The requirement binds each typed ingress to exactly one family, so every OTHER declared
+    # family must be refused here. Driven from the generated enum rather than a hand-written
+    # list: a family added to the schema is then refused by construction, not by remembering.
+    # Derived from the GENERATED enum rather than restated, the same way the family corpus does
+    # it: a family added to the schema is then refused here by construction, not by remembering.
+    @other_families Serviceradar.Edge.V1.EdgeRecordPayloadFamily.mapping()
+                    |> Map.keys()
+                    |> Enum.reject(
+                      &(&1 in [
+                          :EDGE_RECORD_PAYLOAD_FAMILY_UNSPECIFIED,
+                          :EDGE_RECORD_PAYLOAD_FAMILY_RECOVERY_CONTROL_V1
+                        ])
+                    )
+
+    test "every other declared family is refused" do
+      assert @other_families != [], "the enum yielded no other families to refuse"
+
+      for family <- @other_families do
+        assert {:error, :recovery_lane} = admit_framed(family: family),
+               "family #{family} entered the recovery ingress"
+      end
+    end
+
+    test "the recovery family on an ordinary route is refused" do
+      assert {:error, :recovery_lane} =
+               admit_framed(route: :EDGE_RECORD_ROUTE_PROFILE_DURABLE_RECORDS_V1)
+    end
+
+    # The third arm of the reserved lane: a recovery payload on the recovery route, carrying
+    # authority that is not recovery authority. The mutation battery found this arm UNPINNED --
+    # removing it left every other test green, because nothing here varied the source kind.
+    test "the recovery lane without recovery authority is refused" do
+      assert {:error, :recovery_lane} =
+               admit_framed(source_kind: :EDGE_SOURCE_AUTHORIZATION_KIND_SCHEDULED_SWEEP)
+    end
+
+    # THE PRECEDENCE CONTROL. A record whose family is wrong AND whose payload is malformed must
+    # be refused at the FRAMING boundary -- which is what demonstrates the typed decode was never
+    # entered. The pair is the proof: the same malformed bytes under the CORRECT family reach the
+    # decoder and fail there, so the two refusals distinguish which gate stopped the record.
+    test "a wrong family with a malformed payload stops at the framing gate" do
+      malformed = <<0xFF, 0xFF, 0xFF, 0xFF>>
+
+      assert {:error, :payload_decode} =
+               admit_framed(payload: malformed),
+             "the malformed payload must reach the decoder when the family is correct, or the " <>
+               "precedence control proves nothing"
+
+      assert {:error, :recovery_lane} =
+               admit_framed(
+                 family: :EDGE_RECORD_PAYLOAD_FAMILY_RECORD_BATCH_V1,
+                 payload: malformed
                )
     end
   end

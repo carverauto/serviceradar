@@ -48,6 +48,11 @@ defmodule ServiceRadar.Edge.RecoveryValidate do
   # rather than with the assembly validators above.
   @max_reason_bytes 256
 
+  # The reserved recovery lane's three coordinates. Named once so the rule reads as one fact.
+  @recovery_family :EDGE_RECORD_PAYLOAD_FAMILY_RECOVERY_CONTROL_V1
+  @recovery_route :EDGE_RECORD_ROUTE_PROFILE_RECOVERY_CONTROL_V1
+  @recovery_source_kind :EDGE_SOURCE_AUTHORIZATION_KIND_RECOVERY_CONTROL
+
   # The clock-tolerance cap, matching Go's MaxClockToleranceNano. A supplied tolerance outside
   # [0, cap] is a REFUSAL rather than a clamp: a caller asking for an eight-hour window has a
   # different idea of the boundary than this one does, and silently narrowing it hides that.
@@ -456,12 +461,7 @@ defmodule ServiceRadar.Edge.RecoveryValidate do
   def recovery_control(record, expected_contract, policy) do
     with :ok <- record_signed(record, policy),
          :ok <- contract_dispatch(record, expected_contract),
-         :ok <-
-           check(
-             record.payload_family == :EDGE_RECORD_PAYLOAD_FAMILY_RECOVERY_CONTROL_V1,
-             :recovery_lane
-           ),
-         :ok <- recovery_source_kind(record),
+         :ok <- recovery_lane(record),
          {:ok, payload} <- inner_control_payload(record),
          {:ok, {rid, scope}} <- control_body(payload) do
       signed_scope_fixes_operation(record, rid, scope)
@@ -737,13 +737,24 @@ defmodule ServiceRadar.Edge.RecoveryValidate do
     )
   end
 
-  defp recovery_source_kind(record) do
-    sa = record.source_authorization
-
-    check(
-      sa != nil and sa.kind == :EDGE_SOURCE_AUTHORIZATION_KIND_RECOVERY_CONTROL,
-      :recovery_lane
-    )
+  # THE RESERVED RECOVERY LANE, and the framing family bound to this typed ingress (task 1.5-m).
+  #
+  # Go states this in two places: `validateRecoveryLane` inside the STRUCTURAL validator that
+  # runs for every record, and the family check inside `ValidateRecoveryControl`. This runtime
+  # cannot follow that split -- its generic validator is deliberately permissive, and that
+  # permissiveness is a recorded manifest column, so making it strict would be a different
+  # change wearing this one's name. The rule therefore lives HERE, at the typed boundary the
+  # requirement binds it to, and BEFORE the payload is read as a contract message.
+  #
+  # All three arms carry ONE fault. They are not independent facts: a recovery payload on an
+  # ordinary route, an ordinary payload on the recovery route, and a recovery payload without
+  # recovery authority are the same violation of the reserved lane seen from three sides.
+  defp recovery_lane(record) do
+    with :ok <- check(record.payload_family == @recovery_family, :recovery_lane),
+         :ok <- check(record.route_profile == @recovery_route, :recovery_lane) do
+      sa = record.source_authorization
+      check(sa != nil and sa.kind == @recovery_source_kind, :recovery_lane)
+    end
   end
 
   defp inner_control_payload(record) do
