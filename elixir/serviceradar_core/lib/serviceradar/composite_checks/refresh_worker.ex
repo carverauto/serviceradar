@@ -20,11 +20,18 @@ defmodule ServiceRadar.CompositeChecks.RefreshWorker do
   alias ServiceRadar.CompositeChecks.DeviceCompositeCheckResult
   alias ServiceRadar.CompositeChecks.Evaluation
   alias ServiceRadar.CompositeChecks.VerdictEventWriter
+  alias ServiceRadar.Inventory.Identity.Fence
 
   require Logger
 
   @impl Oban.Worker
-  def perform(%Oban.Job{args: %{"device_uid" => device_uid}}) do
+  def perform(%Oban.Job{args: %{"device_uid" => device_uid} = args}) do
+    # Observe-only identity fence. The unique window debounces by design, so there
+    # is a real gap between the trigger that enqueued this and the evaluation
+    # below; a merge inside that gap writes a verdict for a device that no longer
+    # owns the inputs. This reports the gap without acting on it.
+    observe_identity(device_uid, args)
+
     actor = SystemActor.system(:composite_check_refresh)
     now = DateTime.utc_now()
 
@@ -42,6 +49,15 @@ defmodule ServiceRadar.CompositeChecks.RefreshWorker do
         {:error, reason}
     end
   end
+
+  # Oban args are string-keyed. Jobs enqueued before this shipped carry no pin,
+  # and are left alone rather than reported as missing.
+  defp observe_identity(device_uid, %{"identity_revision" => revision})
+       when is_integer(revision) do
+    Fence.observe({device_uid, revision}, :composite_check_refresh)
+  end
+
+  defp observe_identity(_device_uid, _args), do: :ok
 
   defp refresh_check(check_id, device_uid, now, actor) do
     with {:ok, %{state: :enabled} = check} <- CompositeCheck.get_by_id(check_id, actor: actor),
