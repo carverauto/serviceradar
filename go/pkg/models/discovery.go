@@ -38,7 +38,12 @@ const (
 	DiscoverySourceNetbox          DiscoverySource = "netbox"
 	DiscoverySourceSysmon          DiscoverySource = "sysmon"
 	DiscoverySourcePassiveNetprobe DiscoverySource = "passive-netprobe"
-	DiscoverySourceServiceRadar    DiscoverySource = "serviceradar" // ServiceRadar infrastructure components
+	// DiscoverySourceNetprobeCensus is the netprobe passive L2 device census
+	// (ARP/NDP sightings). Core's SourcePolicy matches this exact string to
+	// decide whether a MAC may anchor a canonical device, so it must stay in
+	// sync with passive_census_source?/1 in source_policy.ex.
+	DiscoverySourceNetprobeCensus DiscoverySource = "netprobe-census"
+	DiscoverySourceServiceRadar   DiscoverySource = "serviceradar" // ServiceRadar infrastructure components
 
 	// Confidence levels for discovery sources (1-10 scale)
 	ConfidenceLowUnknown         = 1  // Low confidence - unknown source
@@ -109,6 +114,14 @@ func GetSourceConfidence(source DiscoverySource) int {
 		return ConfidenceMediumMonitoring // Medium confidence - system monitoring
 	case DiscoverySourcePassiveNetprobe:
 		return ConfidenceMediumTraffic // Medium confidence - passive host traffic analysis
+	case DiscoverySourceNetprobeCensus:
+		// Same level as passive-netprobe: it is the same passive observation,
+		// one layer down. An ARP/NDP sighting is strong evidence that something
+		// is PRESENT on the broadcast domain and weak evidence of what it
+		// durably is -- MAC randomization means the address may not survive the
+		// next SSID association. Anchoring is decided separately by core's
+		// SourcePolicy; this is only how much the sighting itself is trusted.
+		return ConfidenceMediumTraffic
 	case DiscoverySourceServiceRadar:
 		return ConfidenceHighSelfReported // High confidence - ServiceRadar infrastructure component
 	default:
