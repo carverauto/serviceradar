@@ -261,7 +261,7 @@ List form works with `port:` as well (either side is 22 **or** 2222).
 > keyword; that parenthesized form tokenizes incorrectly and yields empty or
 > invalid queries. Prefer `port:22` (or two separate queries). Full boolean
 > groups are tracked in
-> [issue #4851](https://code.carverauto.dev/carverauto/serviceradar/issues/4851).
+> [issue #3557](https://github.com/carverauto/serviceradar/issues/3557).
 
 ### Traffic from a subnet
 

@@ -99,7 +99,7 @@ integrations:
   documentation:
     title: OpenText Network Automation inventory configuration
     path: docs/configuration.md
-    url: https://code.carverauto.dev/carverauto/serviceradar/src/branch/staging/go/cmd/wasm-plugins/opentext-network-automation/docs/configuration.md
+    url: https://github.com/carverauto/serviceradar/blob/staging/go/cmd/wasm-plugins/opentext-network-automation/docs/configuration.md
   credential_profiles:
     - provider: opentext-network-automation
       label: OpenText Network Automation
