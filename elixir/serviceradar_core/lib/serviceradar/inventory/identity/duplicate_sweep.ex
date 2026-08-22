@@ -40,7 +40,8 @@ defmodule ServiceRadar.Inventory.Identity.DuplicateSweep do
     identifier_duplicates =
       duplicate_identifier_groups() ++
         hardware_mac_sibling_groups() ++
-        agent_anchor_sibling_groups()
+        agent_anchor_sibling_groups() ++
+        column_mac_groups()
 
     components =
       identifier_duplicates
@@ -193,6 +194,65 @@ defmodule ServiceRadar.Inventory.Identity.DuplicateSweep do
       end
     end)
     |> elem(0)
+  end
+
+  # A MAC that lives on `ocsf_devices.mac` but is registered to a DIFFERENT
+  # device. None of the groupings above can see this pair:
+  #
+  #   * `duplicate_identifier_groups/0` looks for one identifier value owned by
+  #     more than one device, which `device_identifiers_unique_identifier_index`
+  #     (UNIQUE on identifier_type, identifier_value, partition) makes
+  #     impossible -- a second device can never register the same MAC.
+  #   * `hardware_mac_sibling_groups/0` pairs two *registered* MACs differing in
+  #     the IEEE local bit; here only one side is registered at all.
+  #
+  # So a device carrying a MAC it never registered stays split from the device
+  # that did register it, indefinitely. Measured on one deployment: 10 mergeable
+  # pairs, each a record split from its twin because only one side registered.
+  #
+  # Same evidence bar as the rest of this module: globally-unique MACs only. A
+  # multi-MAC column fails the 12-hex regex and is skipped rather than guessed
+  # at, and the merge still goes through the policy-gated MergeEngine.
+  defp column_mac_groups do
+    import Ecto.Query
+
+    rows =
+      ServiceRadar.Repo.all(
+        from(d in Device,
+          join: di in DeviceIdentifier,
+          on:
+            di.identifier_type == :mac and
+              fragment("? = upper(translate(?, ':-.', ''))", di.identifier_value, d.mac),
+          where: is_nil(d.deleted_at),
+          where: not is_nil(d.mac) and d.mac != "",
+          where: not like(d.uid, "serviceradar:%"),
+          where: not like(di.device_id, "serviceradar:%"),
+          where: di.device_id != d.uid,
+          where: fragment("upper(translate(?, ':-.', '')) ~ '^[0-9A-F]{12}$'", d.mac),
+          select:
+            {fragment("upper(translate(?, ':-.', ''))", d.mac), d.uid, di.device_id, di.partition}
+        )
+      )
+
+    column_mac_groups_from_rows(rows)
+  end
+
+  @doc false
+  # Pure half of column_mac_groups/0, split out so the evidence bar is testable
+  # without a database. Locally-administered MACs are rejected here as well as
+  # being unreachable through the join today -- a randomized phone MAC must
+  # never merge two devices, and that guarantee should not depend on which rows
+  # the query happens to return.
+  @spec column_mac_groups_from_rows([{String.t(), String.t(), String.t(), String.t()}]) :: [
+          {{String.t(), atom(), String.t()}, MapSet.t()}
+        ]
+  def column_mac_groups_from_rows(rows) when is_list(rows) do
+    rows
+    |> Enum.reject(fn {mac, _uid, _owner, _partition} -> Mac.locally_administered_mac?(mac) end)
+    |> Enum.map(fn {mac, uid, owner, partition} ->
+      {{partition, :mac_column, mac}, MapSet.new([uid, owner])}
+    end)
+    |> Enum.uniq()
   end
 
   @doc false
