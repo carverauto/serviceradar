@@ -210,7 +210,16 @@ Re-mint the Vault token on `403 permission denied`. Tear down the port-forward w
 
 ### Argo / Image Updater
 
-`serviceradar-demo-prod` uses argocd-image-updater with `write-back-method: git` to `demo/prod-release`. A live `kubectl patch` of helm parameters can be overwritten by `helm/serviceradar/.argocd-source-serviceradar-demo-prod.yaml`.
+`serviceradar-demo-prod` uses argocd-image-updater with `write-back-method: git` to `demo/prod-release`.
+
+**A live `kubectl patch` of `spec.source.helm.parameters` is INERT, not merely racy.** Verified
+2026-08-22: `helm/serviceradar/.argocd-source-serviceradar-demo-prod.yaml` on `demo/prod-release`
+REPLACES the parameter list at render time. A patched parameter persists in the Application spec
+and the app reports `Synced|Healthy|Succeeded`, while the workload keeps the old image, because
+only the parameters in that file reach Helm. Every parameter you need — `global.imageTag`, and
+`image.digests.<service>` if you are moving a single service — must be committed to that file on
+`demo/prod-release`. Do not diagnose this as a slow rollout; check the rendered image, not the
+sync status.
 
 Contention-free `sha-...` flow:
 
