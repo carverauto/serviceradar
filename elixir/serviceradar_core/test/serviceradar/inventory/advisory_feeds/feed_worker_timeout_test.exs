@@ -63,26 +63,86 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.FeedWorkerTimeoutTest do
   describe "orphan reclaim" do
     # A pod replaced mid-run leaves its Oban row in `executing` forever, and the
     # worker's unique constraint covers every incomplete state, so nothing new can
-    # be enqueued behind it. Node names here are serviceradar_core@<pod-ip>, so a
-    # replaced pod never reuses one -- which makes node liveness a decisive test
-    # that needs no age threshold.
+    # be enqueued behind it. `live` maps a live node name to the DateTime its VM
+    # started, or nil when that could not be read.
+    @job_at ~U[2026-08-22 06:04:00Z]
+
     test "a job whose node left the cluster is orphaned" do
-      live = MapSet.new(["serviceradar_core@10.42.0.1", "serviceradar_core@10.42.0.2"])
+      live = %{"serviceradar_core@10.42.0.1" => booted_before()}
 
       assert FeedWorker.orphaned?(executing_on("serviceradar_core@10.42.9.9"), live)
     end
 
-    test "a job on a live node is never orphaned" do
-      live = MapSet.new(["serviceradar_core@10.42.0.1"])
+    test "a job on a live node that has not restarted is not orphaned" do
+      live = %{"serviceradar_core@10.42.0.1" => booted_before()}
 
       refute FeedWorker.orphaned?(executing_on("serviceradar_core@10.42.0.1"), live),
              "reclaiming a job that is still running would double-run the feed"
     end
 
+    # The case the first version of this missed. An OOMKill restarts the container
+    # inside the same pod, so the pod keeps its IP and the BEAM returns under the
+    # identical node name -- liveness alone cannot tell it apart from a healthy
+    # node. Observed on farm01: a nist-nvd2 run OOMKilled four minutes in, then sat
+    # `executing` for over an hour behind a node name that looked fine.
+    test "a job is orphaned when its node restarted after the attempt began" do
+      live = %{"serviceradar_core@10.42.0.1" => DateTime.add(@job_at, 260, :second)}
+
+      assert FeedWorker.orphaned?(executing_on("serviceradar_core@10.42.0.1"), live),
+             "a VM that booted after the attempt cannot be the one running it"
+    end
+
+    # An RPC timeout must not be able to cancel a live 60-minute feed run.
+    test "a node whose start time could not be read is treated as healthy" do
+      live = %{"serviceradar_core@10.42.0.1" => nil}
+
+      refute FeedWorker.orphaned?(executing_on("serviceradar_core@10.42.0.1"), live)
+    end
+
     # Unknown provenance is left to Oban.Plugins.Lifeline rather than guessed at.
     test "a job with no attempted_by is left alone" do
-      refute FeedWorker.orphaned?(%Oban.Job{attempted_by: nil}, MapSet.new(["a@b"]))
-      refute FeedWorker.orphaned?(%Oban.Job{attempted_by: []}, MapSet.new(["a@b"]))
+      live = %{"serviceradar_core@10.42.0.1" => booted_before()}
+
+      refute FeedWorker.orphaned?(%Oban.Job{attempted_by: nil, attempted_at: @job_at}, live)
+      refute FeedWorker.orphaned?(%Oban.Job{attempted_by: [], attempted_at: @job_at}, live)
+    end
+
+    # Nor is a row with no attempted_at, which cannot be compared against a boot.
+    test "a job with no attempted_at is left alone" do
+      live = %{"serviceradar_core@10.42.0.1" => DateTime.utc_now()}
+
+      refute FeedWorker.orphaned?(
+               %Oban.Job{
+                 attempted_by: ["serviceradar_core@10.42.0.1", "uuid"],
+                 attempted_at: nil
+               },
+               live
+             )
+    end
+
+    # The real shape, verified against the live cluster: Oban 2.23 writes
+    # attempted_by as [node, uuid] -- two elements, not the [node, queue, uuid]
+    # of older versions. orphaned?/2 matches the head so both work.
+    test "reads the node from either attempted_by shape" do
+      live = %{"serviceradar_core@10.42.0.1" => booted_before()}
+      gone = "serviceradar_core@10.42.9.9"
+
+      assert FeedWorker.orphaned?(
+               %Oban.Job{attempted_by: [gone, "uuid"], attempted_at: @job_at},
+               live
+             )
+
+      assert FeedWorker.orphaned?(
+               %Oban.Job{attempted_by: [gone, "integrations", "uuid"], attempted_at: @job_at},
+               live
+             )
+    end
+
+    test "vm_started_at/0 reports a time in the past" do
+      started_at = FeedWorker.vm_started_at()
+
+      assert DateTime.before?(started_at, DateTime.utc_now())
+      assert DateTime.diff(DateTime.utc_now(), started_at) >= 0
     end
 
     # The safety property. Un-clustered, Node.list/0 is empty and every job would
@@ -93,20 +153,10 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.FeedWorkerTimeoutTest do
       assert FeedWorker.reclaim_orphaned_jobs() == :ok
     end
 
-    # The real shape, verified against the live cluster: Oban 2.23 writes
-    # attempted_by as [node, uuid] -- two elements, not the [node, queue, uuid]
-    # of older versions. orphaned?/2 matches the head so both work, and this
-    # asserts that rather than leaving it to a comment.
-    test "reads the node from either attempted_by shape" do
-      live = MapSet.new(["serviceradar_core@10.42.0.1"])
-      gone = "serviceradar_core@10.42.9.9"
-
-      assert FeedWorker.orphaned?(%Oban.Job{attempted_by: [gone, "uuid"]}, live)
-      assert FeedWorker.orphaned?(%Oban.Job{attempted_by: [gone, "integrations", "uuid"]}, live)
-    end
+    defp booted_before, do: DateTime.add(@job_at, -600, :second)
 
     defp executing_on(node) do
-      %Oban.Job{state: "executing", attempted_by: [node, "uuid"]}
+      %Oban.Job{state: "executing", attempted_by: [node, "uuid"], attempted_at: @job_at}
     end
   end
 end
