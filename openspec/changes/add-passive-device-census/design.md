@@ -83,10 +83,85 @@ observation volume and the randomized-MAC ratio on a real segment, then enable e
 existing devices. Identity behaviour changes only after the randomized-MAC classification is
 in place.
 
+## Suppression is in-kernel, and the census dies if it stops working
+
+Suppression lives in the eBPF program and there is deliberately **no userspace
+fallback**. A fallback would keep the feature looking healthy while every frame crossed the
+ring, which is precisely the cost netprobe's zero-copy design exists to avoid. An add-on that
+quietly burns resources costs more trust than the feature is worth.
+
+**It failed once by deviating from the pattern this repo already had.** `l2_should_emit` used
+`get()` with flags `0`; `update_flow_table`, in the same program, uses `get_ptr_mut()` +
+update-in-place + `insert(..., BPF_ANY)`. Matching the proven pattern fixed it outright:
+
+| | broken (`get()`) | fixed (`get_ptr_mut`) |
+| --- | --- | --- |
+| Rate | ~38,000/sec | **0.36/sec** |
+| CPU | ~40% of a core | **0.0416%** |
+| RSS | 335 MB peak | **11.7 MB** |
+| journald | 1.15M dropped / 30 s | **0** |
+
+**The failure was silent**, which is why a watchdog exists rather than a fallback. The map held
+well-formed entries with correct `bpf_ktime_get_ns` timestamps while every frame was still
+emitted; the only outward symptom was journald discarding messages. `CensusWatchdog` shuts the
+census down when the sustained rate exceeds 200/sec — a threshold that would require ~12,000
+distinct bindings on one broadcast domain, so it cannot be reached by a healthy segment. Flow
+attribution is unaffected.
+
+### The hot path
+
+`observe_l2_device` runs on every ingress frame while ~99% are discarded, so the ordering is
+deliberate. A discarded frame costs **one 2-byte load and two compares**:
+
+1. read the 2-byte ethertype and return unless ARP or IPv6
+2. for IPv6, reject non-NDP on one or two further byte loads
+3. only then the `interface_allowlist` lookup (a hash lookup), the 6-byte MAC read, and
+   `now_ns()` (a helper call)
+
+Previously all four happened before the frame was known to be interesting.
+
+## The ARP/NDP suppression window: 60 seconds, measured
+
+Set empirically on alma-test01 (AlmaLinux 9.8, kernel 5.14, SELinux Enforcing, `ens18` on a
+live /24).
+
+**A first measurement attempt was invalid and is recorded so nobody repeats it.** Counting
+observations out of the journal reported 117 in 300 s, an apparently clean 0.39/sec. That was
+journald's rate limiter: `RateLimitBurst=10000` per 30 s was discarding ~1.15 million messages
+per 30 s, so the true rate was ~38,000/sec. **Any journal-derived measurement here must check
+for `Suppressed N messages` before it can be believed.**
+
+**Validated, 600 s, zero journald suppression:**
+
+| Metric | Value |
+| --- | --- |
+| CPU | **0.0416%** (0.250 CPU-seconds) |
+| RSS | 11.7 MB |
+| Observations | 217 (**0.36/sec**) |
+| Unique MACs / (MAC, IP) pairs | 31 / 48 |
+| **Max emissions for any one binding** | **10** |
+| Kinds | 124 NDP, 85 ARP request, 8 ARP reply |
+
+**Why this validates 60 s, arithmetically.** Across 600 s a 60 s refresh permits at most
+600/60 = 10 emissions per binding. The busiest binding emitted exactly 10. Independently
+reproduced over 300 s, where the maximum was exactly 5.
+
+**Headroom.** ~0.0116 observations/sec per device, so ~12/sec at 1,000 devices and ~116/sec at
+10,000 — still under the watchdog ceiling, against a ring holding ~21,800 of these 48-byte
+records.
+
+**The window does not gate transient visibility.** A first sighting is always emitted; the
+window only rate limits refreshes. A device present for 90 s is recorded on arrival.
+
+**What no window value could have fixed.** Before the census was restricted to ARP and NDP,
+routed traffic paired the gateway's MAC with an unbounded set of remote addresses, so every new
+remote IP minted a fresh key and nothing was ever suppressed. That was a design error, not a
+tuning problem.
+
 ## Open Questions
 
 - Should `otel_log`/OCSF event emission accompany the inventory path, or is
   `DeviceSourceObservation` alone sufficient for the first cut?
-- What is the right suppression window for ARP-derived observations on a busy segment?
-- Should IPv6 NDP (Neighbor Solicitation/Advertisement) be included now as the v6 counterpart
-  to ARP, or deferred until the v4 path is proven?
+- ~~Should IPv6 NDP be included now?~~ **Resolved: yes, implemented.** ICMPv6 types 133-136,
+  including Router Solicitation, which a host emits as it joins the link -- the v6 counterpart
+  to gratuitous ARP. NDP was 66 of 117 observations in the live run, i.e. the majority.

@@ -18,6 +18,10 @@ path = "src/main.rs"
 name = "af_xdp_cpu"
 harness = false
 
+[[bench]]
+name = "census_decode_cpu"
+harness = false
+
 [dependencies]
 anyhow = { workspace = true }
 clap = { workspace = true, features = ["derive", "env"] }

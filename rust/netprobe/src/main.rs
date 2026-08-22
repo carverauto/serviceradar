@@ -8,6 +8,12 @@ mod attribution;
 mod capabilities;
 #[allow(dead_code)]
 mod capture;
+// The census module is shared with the library crate, which uses the whole of
+// it. The binary drives only the runtime, so the record constants and the
+// classification helpers its tests exercise look dead here. Same reason
+// `capture` above carries this.
+#[allow(dead_code)]
+mod census;
 mod config;
 mod dpi;
 #[cfg(target_os = "linux")]

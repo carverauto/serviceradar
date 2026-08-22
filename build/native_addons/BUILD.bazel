@@ -1,5 +1,6 @@
 load("@io_bazel_rules_go//go:def.bzl", "go_binary", "go_test")
 load("@rules_python//python:py_test.bzl", "py_test")
+load("@rules_shell//shell:sh_binary.bzl", "sh_binary")
 load("@rules_shell//shell:sh_test.bzl", "sh_test")
 load(":addon_inventory.bzl", "ADDON_BUNDLES")
 load(":defs.bzl", "declare_native_addon_targets")
@@ -185,4 +186,16 @@ test_suite(
         "//scripts:native_addon_version_bumps_test",
         "//scripts:verify_native_addon_publish_negative_test",
     ],
+)
+
+# Stage a built add-on bundle to a path outside the output tree, for manual
+# delivery to a lab host. The bundle is a declared input consumed through
+# runfiles, so this never hand-resolves a bazel-out path.
+sh_binary(
+    name = "stage_netprobe_addon",
+    srcs = ["stage_addon_bundle.sh"],
+    data = [":netprobe_addon_bundle.linux.amd64.tar.gz"],
+    env = {
+        "BUNDLE_RUNFILE": "$(rootpath :netprobe_addon_bundle.linux.amd64.tar.gz)",
+    },
 )
