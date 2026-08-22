@@ -98,9 +98,52 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.FlowData do
       srql_mod,
       device_uid,
       scope,
-      "in:flows device_id:\"#{escape_value(device_uid)}\" time:last_24h"
+      "in:flows #{device_scope_token(device_uid)} time:last_24h"
     )
   end
+
+  # `device_id:` compiles to
+  #   src = ANY(ARRAY(SELECT ...)) OR dst = ANY(ARRAY(...)) OR sampler = ANY(ARRAY(...))
+  # and PostgreSQL cannot estimate selectivity through those InitPlans, so it
+  # abandons the endpoint indexes and applies the whole thing as a Filter over
+  # the entire time window. Measured on demo, one device, 24h:
+  #
+  #   device_id:                     Filter over the window          cost 89_347
+  #   1 unknown array, no OR         Index Only Scan                 cost  9_931
+  #   2 ORed unknown arrays          partial BitmapOr                cost 72_506
+  #   3 ORed unknown arrays          no BitmapOr at all              cost 84_887
+  #   ip:[<resolved>]                BitmapOr on src/dst indexes     cost 19_546
+  #
+  # The (src_endpoint_ip, time) and (dst_endpoint_ip, time) indexes already
+  # existed; they were unusable only because the values were hidden behind
+  # InitPlans. Resolving the endpoints first costs two indexed lookups (~17) and
+  # hands SRQL a value list, which it binds as a real parameter array -- and
+  # SRQL already forces custom plans, so the planner sees the actual values.
+  #
+  # Falls back to `device_id:` in the two cases where the rewrite would be wrong:
+  #
+  #   * the device owns sampler addresses -- `device_id:` also matches
+  #     exporter-owned flows by sampler_address, and SRQL has no boolean OR
+  #     across fields to express (ip OR sampler).
+  #   * the device resolves to no IPs -- SRQL drops an empty `in` list filter
+  #     entirely, which would silently widen this to every flow in the window.
+  def device_scope_token(device_uid) when is_binary(device_uid) and device_uid != "" do
+    with {:ok, samplers} <- device_flow_samplers(device_uid),
+         [] <- samplers,
+         {:ok, ips} <- device_flow_ips(device_uid),
+         [_ | _] <- ips do
+      values = Enum.map_join(ips, ",", fn ip -> ~s|"#{escape_value(ip)}"| end)
+      "ip:[#{values}]"
+    else
+      _ -> device_id_token(device_uid)
+    end
+  rescue
+    _ -> device_id_token(device_uid)
+  end
+
+  def device_scope_token(device_uid), do: device_id_token(device_uid)
+
+  defp device_id_token(device_uid), do: ~s|device_id:"#{escape_value(device_uid)}"|
 
   def load_device_flow_stats(srql_mod, _device_uid, scope, base) do
     specs = [

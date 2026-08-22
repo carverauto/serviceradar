@@ -64,6 +64,24 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.FlowDataTest do
     end
   end
 
+  describe "device_scope_token/1" do
+    test "falls back to device_id: when the endpoints cannot be resolved" do
+      # No Repo in db_free tests, which is the same shape as a pool failure.
+      # The fallback matters: an unresolvable device must still produce a
+      # correctly-scoped query, never an empty `ip:[]` that SRQL would drop
+      # (widening the query to every flow in the window).
+      token = FlowData.device_scope_token("sr:router-1")
+
+      assert token == ~s|device_id:"sr:router-1"|
+      refute token =~ "ip:[]"
+    end
+
+    test "never emits an empty list filter for a blank device uid" do
+      assert FlowData.device_scope_token("") =~ "device_id:"
+      refute FlowData.device_scope_token("") =~ "ip:["
+    end
+  end
+
   describe "load_device_flow_stats/3 fan-out" do
     test "count_distinct is kept out of the SUM/COUNT summary query" do
       # Not a style preference. COUNT(DISTINCT ...) has no partial-aggregate
