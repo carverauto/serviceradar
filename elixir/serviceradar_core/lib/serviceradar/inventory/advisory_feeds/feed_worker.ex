@@ -76,6 +76,10 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.FeedWorker do
   # nist-nvd2 run stale because already_scheduled?/1 could not see the job
   # (it queried "Elixir.ServiceRadar..." while Oban stores the bare module).
   @stale_running_seconds 75 * 60
+
+  # Grace before a node-less job is considered orphaned. Short, because node
+  # liveness is already the decisive signal; this only covers a brief netsplit.
+  @orphan_grace_seconds 5 * 60
   @worker_name inspect(__MODULE__)
 
   # NOTE: "nvd-api" is intentionally excluded — `do_run("nvd-api")` is an
@@ -91,6 +95,7 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.FeedWorker do
   @spec ensure_scheduled() :: {:ok, :scheduled} | {:error, term()}
   def ensure_scheduled do
     if ObanSupport.available?() do
+      reclaim_orphaned_jobs()
       reconcile_stale_runs()
 
       if Config.enabled?() do
@@ -279,6 +284,93 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.FeedWorker do
 
     schedule_next(feed)
     {:error, reason}
+  end
+
+  @doc """
+  Release feed jobs left `executing` by a node that no longer exists.
+
+  A pod replaced mid-run leaves its Oban row in `executing` forever, and because
+  this worker's `unique` constraint covers every incomplete state, nothing new can
+  be enqueued behind it. `reconcile_stale_runs/1` does not help: it only corrects
+  the feed definition's status, and it skips entirely while a job is still
+  in-flight. The row itself waits for `Oban.Plugins.Lifeline`, configured at 240
+  minutes -- so one deploy roll could cost a 6-hourly feed most of a cycle.
+
+  The test here is node liveness, not age. Oban records the node that took the
+  attempt in `attempted_by[0]` (Oban 2.23 writes `[node, uuid]`; older versions
+  wrote `[node, queue, uuid]`, so match the head, not the arity), and this
+  deployment names nodes after the pod IP
+  (`serviceradar_core@10.42.x.y`), so a replaced pod never reuses a node name. A
+  job whose node is gone is definitively dead, however recently it started --
+  which is what lets this run without the age threshold that
+  `@stale_running_seconds` needs, and without weakening a global Lifeline setting
+  that every other worker shares.
+
+  Two guards keep it conservative:
+
+    * it does nothing on an un-clustered node, where `Node.list/0` is empty and
+      every job would look orphaned; and
+    * it still requires a short grace period, so a brief netsplit does not reclaim
+      a job that is genuinely running on the other side of it.
+
+  Dead attempts are cancelled rather than retried. A half-finished run has already
+  written a staging directory and possibly part of a generation; a fresh acquire
+  is cheaper to reason about than resuming a corpse, and `ensure_scheduled/0`
+  enqueues one immediately afterwards.
+  """
+  @spec reclaim_orphaned_jobs() :: :ok
+  def reclaim_orphaned_jobs do
+    if clustered?() do
+      do_reclaim_orphaned_jobs()
+    else
+      :ok
+    end
+  rescue
+    exception ->
+      Logger.warning("advisory_feeds: orphan reclaim failed: #{inspect(exception)}")
+      :ok
+  end
+
+  defp clustered?, do: Node.self() != :nonode@nohost
+
+  defp do_reclaim_orphaned_jobs do
+    import Ecto.Query
+
+    live = MapSet.new([Node.self() | Node.list()], &Atom.to_string/1)
+    cutoff = DateTime.add(DateTime.utc_now(), -@orphan_grace_seconds, :second)
+
+    query =
+      from(j in Oban.Job,
+        where: j.worker == ^@worker_name,
+        where: j.state == "executing",
+        where: j.attempted_at < ^cutoff
+      )
+
+    query
+    |> ServiceRadar.Repo.all(prefix: ObanSupport.prefix())
+    |> Enum.filter(&orphaned?(&1, live))
+    |> Enum.each(&cancel_orphan/1)
+
+    :ok
+  end
+
+  @doc false
+  # No attempted_by means unknown provenance -- leave those to Lifeline rather
+  # than guess.
+  def orphaned?(job, live)
+
+  def orphaned?(%Oban.Job{attempted_by: [node | _]}, live) when is_binary(node),
+    do: not MapSet.member?(live, node)
+
+  def orphaned?(_job, _live), do: false
+
+  defp cancel_orphan(%Oban.Job{id: id, args: args, attempted_by: [node | _]}) do
+    Logger.warning(
+      "advisory_feeds: cancelling orphaned job #{id} for #{inspect(args["feed"])}; " <>
+        "node #{node} is no longer in the cluster"
+    )
+
+    Oban.cancel_job(id)
   end
 
   @doc false

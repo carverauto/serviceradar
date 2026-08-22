@@ -59,4 +59,54 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.FeedWorkerTimeoutTest do
 
     defp job(attempt), do: %Oban.Job{attempt: attempt, args: %{"feed" => "nist-nvd2"}}
   end
+
+  describe "orphan reclaim" do
+    # A pod replaced mid-run leaves its Oban row in `executing` forever, and the
+    # worker's unique constraint covers every incomplete state, so nothing new can
+    # be enqueued behind it. Node names here are serviceradar_core@<pod-ip>, so a
+    # replaced pod never reuses one -- which makes node liveness a decisive test
+    # that needs no age threshold.
+    test "a job whose node left the cluster is orphaned" do
+      live = MapSet.new(["serviceradar_core@10.42.0.1", "serviceradar_core@10.42.0.2"])
+
+      assert FeedWorker.orphaned?(executing_on("serviceradar_core@10.42.9.9"), live)
+    end
+
+    test "a job on a live node is never orphaned" do
+      live = MapSet.new(["serviceradar_core@10.42.0.1"])
+
+      refute FeedWorker.orphaned?(executing_on("serviceradar_core@10.42.0.1"), live),
+             "reclaiming a job that is still running would double-run the feed"
+    end
+
+    # Unknown provenance is left to Oban.Plugins.Lifeline rather than guessed at.
+    test "a job with no attempted_by is left alone" do
+      refute FeedWorker.orphaned?(%Oban.Job{attempted_by: nil}, MapSet.new(["a@b"]))
+      refute FeedWorker.orphaned?(%Oban.Job{attempted_by: []}, MapSet.new(["a@b"]))
+    end
+
+    # The safety property. Un-clustered, Node.list/0 is empty and every job would
+    # look orphaned, so the fast path must not run at all. ExUnit runs without a
+    # node name, which is exactly that case.
+    test "does nothing on an un-clustered node" do
+      assert Node.self() == :nonode@nohost, "precondition: this test must run un-clustered"
+      assert FeedWorker.reclaim_orphaned_jobs() == :ok
+    end
+
+    # The real shape, verified against the live cluster: Oban 2.23 writes
+    # attempted_by as [node, uuid] -- two elements, not the [node, queue, uuid]
+    # of older versions. orphaned?/2 matches the head so both work, and this
+    # asserts that rather than leaving it to a comment.
+    test "reads the node from either attempted_by shape" do
+      live = MapSet.new(["serviceradar_core@10.42.0.1"])
+      gone = "serviceradar_core@10.42.9.9"
+
+      assert FeedWorker.orphaned?(%Oban.Job{attempted_by: [gone, "uuid"]}, live)
+      assert FeedWorker.orphaned?(%Oban.Job{attempted_by: [gone, "integrations", "uuid"]}, live)
+    end
+
+    defp executing_on(node) do
+      %Oban.Job{state: "executing", attempted_by: [node, "uuid"]}
+    end
+  end
 end
