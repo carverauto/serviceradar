@@ -601,8 +601,15 @@ defmodule ServiceRadar.Edge.RecoveryValidate do
          # BOTH ARMS. An empty page has no derivable extent, and the ceiling is the frozen
          # @max_spans_per_page -- Go's gate is one condition covering both, so a peer that
          # enforced only the ceiling would satisfy the over-bound row and pass the empty one.
+         #
+         # BoundedList, not length/1: a count ceiling exists to stop unbounded work, and
+         # `length(spans) <= cap` performs exactly the traversal the ceiling forbids. The two
+         # return the same verdict and differ only in cost, so no verdict vector detects it.
          :ok <-
-           check(length(spans) >= 1 and length(spans) <= @max_spans_per_page, :manifest_bounds),
+           check(
+             spans != [] and BoundedList.within?(spans, @max_spans_per_page),
+             :manifest_bounds
+           ),
          :ok <- ordered_spans(spans),
          # REJECT BEFORE HASHING, the same order page_ok/6 uses: every span body is checked
          # before the page is hashed, so the verdict for an unaccepted value cannot depend on
@@ -655,7 +662,7 @@ defmodule ServiceRadar.Edge.RecoveryValidate do
           status == :unavailable ->
             {:error, :key_unavailable}
 
-          not CapabilitySigning.verify(cap, expected_purpose(purpose), public_key) ->
+          not CapabilitySigning.verify(cap, purpose, public_key) ->
             {:error, :signature}
 
           true ->
@@ -666,9 +673,6 @@ defmodule ServiceRadar.Edge.RecoveryValidate do
         {:error, :key_unavailable}
     end
   end
-
-  defp expected_purpose(:production), do: :EDGE_CAPABILITY_PURPOSE_PRODUCTION
-  defp expected_purpose(:source), do: :EDGE_CAPABILITY_PURPOSE_SOURCE
 
   # The source status is NOT discarded when it verifies: the WORST outcome across production and
   # source is what the decision uses, so a compromised source key cannot slip through behind a
