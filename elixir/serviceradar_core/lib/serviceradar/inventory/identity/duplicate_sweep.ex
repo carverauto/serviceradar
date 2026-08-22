@@ -6,6 +6,7 @@ defmodule ServiceRadar.Inventory.Identity.DuplicateSweep do
   """
 
   alias ServiceRadar.Actors.SystemActor
+  alias ServiceRadar.Inventory.Device
   alias ServiceRadar.Inventory.DeviceIdentifier
   alias ServiceRadar.Inventory.Identity.Ids
   alias ServiceRadar.Inventory.Identity.Mac
@@ -36,7 +37,10 @@ defmodule ServiceRadar.Inventory.Identity.DuplicateSweep do
     # useful during source-aware ingestion, where conflicting universal MACs
     # can veto convergence, but ambiguous legacy serial rows must not drive an
     # unattended scheduled merge.
-    identifier_duplicates = duplicate_identifier_groups() ++ hardware_mac_sibling_groups()
+    identifier_duplicates =
+      duplicate_identifier_groups() ++
+        hardware_mac_sibling_groups() ++
+        agent_anchor_sibling_groups()
 
     components =
       identifier_duplicates
@@ -105,6 +109,37 @@ defmodule ServiceRadar.Inventory.Identity.DuplicateSweep do
     |> Enum.map(fn {type, value, partition, device_ids} ->
       {{partition, type, value}, MapSet.new(device_ids)}
     end)
+  end
+
+  # Live devices reciprocally owned by the SAME agent are the same host.
+  #
+  # `ocsf_devices.agent_id` is the reciprocal anchor `AgentAnchor` documents as
+  # authoritative: it names the agent whose host this device IS, and an agent runs on
+  # exactly one host. It is emphatically NOT "discovered by" -- a sweeping agent leaves
+  # it null on every device it merely observed.
+  #
+  # This grouping is needed because the anchor lives in two places and the identifier
+  # scan above only sees one of them. A device row can carry the `agent_id` COLUMN
+  # while having no `agent_id` identifier row (rows predating identifier registration
+  # never got backfilled). When such a host's IP changed, the resolver found no
+  # matching identifier, minted a NEW device, and anchored that one -- leaving two live
+  # devices for one machine, permanently, because they shared no identifier value for
+  # the sweep to group on.
+  defp agent_anchor_sibling_groups do
+    import Ecto.Query
+
+    from(d in Device,
+      where: not is_nil(d.agent_id),
+      where: d.agent_id != "",
+      # A tombstoned device is not an anchor.
+      where: is_nil(d.deleted_at),
+      where: not like(d.uid, "serviceradar:%"),
+      select: {d.agent_id, d.uid}
+    )
+    |> ServiceRadar.Repo.all()
+    |> Enum.group_by(fn {agent_id, _uid} -> agent_id end, fn {_agent_id, uid} -> uid end)
+    |> Enum.filter(fn {_agent_id, uids} -> uids |> Enum.uniq() |> length() > 1 end)
+    |> Enum.map(fn {agent_id, uids} -> {{:agent_id, agent_id}, MapSet.new(uids)} end)
   end
 
   # Same 48-bit station, opposite IEEE local bit (UniFi WAN F4 + SNMP LAN F6).

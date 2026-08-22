@@ -562,12 +562,25 @@ func (r *runner) runOnce(ctx context.Context) error {
 		return fmt.Errorf("configure addon %s: %w", r.id, err)
 	}
 
+	// The DELIVERED version is authoritative, never the plugin's self-report.
+	//
+	// The artifact is sha256- plus signature-verified at staging, so the bytes running
+	// here are by construction the packaged version; `info.Version` is just a string the
+	// add-on author compiled in, and it goes stale the moment they forget to bump it.
+	//
+	// Letting it win silently stalls the fleet. The rollout health gate asks
+	// `version_at_least?(observed, candidate)`, so an add-on that reports a frozen
+	// version can never satisfy a rollout to a newer one: it ages out at
+	// `candidate_health_timeout`, fails the rollout, and the source's package is never
+	// advanced -- `track_latest_approved` looks dead while the add-on is running fine.
+	// This is exactly how the anomaly add-on (shipped 0.3.4, self-reporting 0.3.0)
+	// blocked its own upgrades.
+	//
+	// Capabilities are different and still come from the running add-on: they describe
+	// what this process can actually do right now, which the manifest cannot know.
 	version := spec.Version
 	capabilities := append([]string(nil), spec.Capabilities...)
 	if info, err := ac.Info(ctx); err == nil {
-		if info.Version != "" {
-			version = info.Version
-		}
 		if len(info.Capabilities) > 0 {
 			capabilities = append([]string(nil), info.Capabilities...)
 		}
@@ -1091,9 +1104,9 @@ func (r *runner) setHealthy(pid int, h coreaddon.Health) {
 		}
 	}
 	r.status.PID = pid
-	if h.Version != "" {
-		r.status.Version = h.Version
-	}
+	// Deliberately NOT taking h.Version: the delivered version set at start is
+	// authoritative (see startOnce), and a health report must not be able to walk it
+	// back to a stale self-reported string and stall the rollout gate.
 	r.status.LastHealthAt = now
 	r.status.LastError = ""
 }
