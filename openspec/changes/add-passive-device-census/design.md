@@ -83,10 +83,49 @@ observation volume and the randomized-MAC ratio on a real segment, then enable e
 existing devices. Identity behaviour changes only after the randomized-MAC classification is
 in place.
 
+## The ARP/NDP suppression window: 60 seconds, measured
+
+Set empirically on alma-test01 (AlmaLinux 9.8, kernel 5.14, SELinux Enforcing, `ens18` on a
+live /24), not chosen from theory.
+
+**The window works exactly as specified.** Over a 300 s clean run, the busiest
+`(MAC, IP)` pairs emitted **exactly 5 times each** -- the arithmetic maximum for a 60 s
+refresh across 300 s. Suppression is neither leaking nor over-suppressing.
+
+**Measured volume, 300 s:**
+
+| Metric | Value |
+| --- | --- |
+| Observations | 117 (**0.39/sec**) |
+| Unique MACs | 29 |
+| Unique (MAC, IP) pairs | 44 |
+| Kinds | 66 NDP, 49 ARP request, 2 ARP reply |
+| Randomized MACs | 12 (10%) |
+| Off-segment (router-forwarded, refused for anchoring) | 13 (11%) |
+
+**Why 60 s is the right value, and the headroom:**
+
+- Per-device cost is **0.0134 observations/sec**. Extrapolating: 1,000 devices is ~13/sec and
+  10,000 devices ~134/sec. The 1 MiB ring holds ~21,800 of these 48-byte records, so even the
+  10k case has orders of magnitude of headroom.
+- It is not what makes transient devices visible. A first sighting is **always** emitted; the
+  window only rate limits refreshes. A device present for 90 s still appears immediately, and
+  produces about two observations, which also evidences how long it stayed.
+- It matches the kernel's own neighbour `gc_stale_time` default, so the census emits roughly
+  once per natural ARP re-query cycle instead of discarding most of them.
+- Shortening it buys `last_seen` precision that inventory does not use; lengthening it makes
+  `last_seen` stale enough to misreport a present device as gone.
+
+**What the number would have been without the ARP/NDP restriction:** ~400 observations/sec
+from only 41 MACs, because routed traffic pairs the gateway's MAC with an unbounded set of
+remote addresses, so every new remote IP minted a fresh suppression key and the cache never
+suppressed anything. The three-orders-of-magnitude difference is the restriction, not the
+window -- no window value would have fixed it.
+
 ## Open Questions
 
 - Should `otel_log`/OCSF event emission accompany the inventory path, or is
   `DeviceSourceObservation` alone sufficient for the first cut?
-- What is the right suppression window for ARP-derived observations on a busy segment?
-- Should IPv6 NDP (Neighbor Solicitation/Advertisement) be included now as the v6 counterpart
-  to ARP, or deferred until the v4 path is proven?
+- ~~Should IPv6 NDP be included now?~~ **Resolved: yes, implemented.** ICMPv6 types 133-136,
+  including Router Solicitation, which a host emits as it joins the link -- the v6 counterpart
+  to gratuitous ARP. NDP was 66 of 117 observations in the live run, i.e. the majority.

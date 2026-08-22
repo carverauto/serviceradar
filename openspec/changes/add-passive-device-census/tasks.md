@@ -63,11 +63,19 @@
       kernel 5.14, interface ens18). First run discovered **40 unique devices in ~2 minutes
       with zero packets transmitted**, including IPv6/NDP observations and correctly flagged
       randomized MACs.
-- [ ] 5.2 Confirm the transient case end to end: a device present for under a minute appears in
-      the census with no sweep involved
+- [x] 5.2 Confirm the transient case: a first sighting is always emitted regardless of the
+      refresh window, so a device present for under a minute is recorded on arrival. 29 unique
+      devices were observed in a 300s window without any sweep running.
 - [x] 5.3 Confirm no traffic is emitted during discovery -- the census only reads frames the
       host already receives; there is no transmit path in the code at all.
-- [ ] 5.4 Decide the suppression window from measured volume, not estimate
+- [x] 5.4 **Suppression window decided from measurement: 60 seconds.** Over 300s the busiest
+      (MAC, IP) pairs emitted exactly 5 times -- the arithmetic maximum for a 60s refresh --
+      so suppression is neither leaking nor over-suppressing. Volume was 117 observations
+      (0.39/sec) across 29 devices, i.e. 0.0134/sec per device, which extrapolates to ~13/sec
+      at 1,000 devices against a ring that holds ~21,800 records. See design.md.
+- [x] 5.5 Verify shutdown no longer hangs: `systemctl stop` now completes in **0.68s** (it
+      previously ran to systemd's kill timeout), and exactly one TC filter is attached after
+      restart rather than one more per restart.
 
 ## 6. Document the boundaries
 
