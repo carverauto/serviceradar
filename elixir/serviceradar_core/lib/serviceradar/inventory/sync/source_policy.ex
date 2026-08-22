@@ -89,10 +89,21 @@ defmodule ServiceRadar.Inventory.Sync.SourcePolicy do
       identity_source in ["mapper_ip_seed", "mapper_primary_mac_seed"]
   end
 
+  @doc """
+  True when `agent_id` on the update names the OBSERVER rather than the device
+  being described.
+
+  The passive census is the strongest case of this: the collector never touches
+  the devices it reports, it only overhears their ARP/NDP on the wire. Letting
+  its `agent_id` register as a device identifier would give every device on the
+  segment the same identifier and collapse them onto one another -- the same
+  over-merge failure that `mapper` and `sweep` are excluded here to avoid.
+  """
   def observer_agent_source?(update) do
     source = String.downcase(to_string(update.source || ""))
 
     mapper_like_source?(update) or
+      passive_census_source?(update) or
       source in ["armis", "snmp", "snmp-metrics", "snmp_metrics"]
   end
 

@@ -22,6 +22,9 @@ package(default_visibility = ["//visibility:public"])
 
 exports_files([
     "assemble_addon_bundle.py",
+    # Shared with //build/packaging/agent:stage_agent_rpm -- the script is
+    # generic over any runfile, so both lab-delivery targets use one copy.
+    "stage_addon_bundle.sh",
     "assemble_addon_bundle_test.py",
     "binary_portability_test.sh",
     "binary-size-baseline.json",

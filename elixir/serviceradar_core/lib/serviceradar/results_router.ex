@@ -220,6 +220,24 @@ defmodule ServiceRadar.ResultsRouter do
 
   defp plugin_result_status?(_status), do: false
 
+  # Service types carried by the netprobe passive device census stream.
+  #
+  # Exposed via census_service_types/0 so the unit tier can assert that every
+  # value here is one SourcePolicy.passive_census_source?/1 recognises. That
+  # pairing is the whole guardrail: the router decides whether the payload
+  # reaches the SyncIngestor, and the policy decides whether its MAC may anchor
+  # a device. If the two lists drift, the stream ingests with the guardrail
+  # silently inert -- no error, just randomized MACs minting devices.
+  #
+  # It cannot be checked in results_router_test.exs: that file uses
+  # ServiceRadar.DataCase, which carries @moduletag :requires_app, and the unit
+  # tier excludes :requires_app -- so those tests run only in the integration
+  # shards.
+  @census_service_types ["netprobe-census", :netprobe_census, "passive-census"]
+
+  @doc false
+  def census_service_types, do: @census_service_types
+
   defp process(%{source: source, service_type: "sync"} = status, _opts)
        when source in ["results", :results] do
     handle_sync_results(status)
@@ -238,6 +256,20 @@ defmodule ServiceRadar.ResultsRouter do
   defp process(%{source: source, service_type: service_type} = status, _opts)
        when source in ["results", :results] and
               service_type in ["passive-netprobe", :passive_netprobe] do
+    schedule_sync_ingestion(status)
+  end
+
+  # The netprobe passive L2 device census (ARP/NDP sightings).
+  #
+  # Same SyncIngestor path as passive-netprobe, deliberately: that pipeline is
+  # where SourcePolicy.include_mac_identifier?/1 is consulted, and the census
+  # MAC guardrail is inert anywhere else.
+  #
+  # Without this clause the stream falls through to the catch-all below, which
+  # returns :ok and lets publish_status_update/1 run -- so the service reports
+  # HEALTHY while its entire payload is discarded with no log line.
+  defp process(%{source: source, service_type: service_type} = status, _opts)
+       when source in ["results", :results] and service_type in @census_service_types do
     schedule_sync_ingestion(status)
   end
 
