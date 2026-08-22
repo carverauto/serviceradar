@@ -42,8 +42,7 @@ defmodule Palisade.MixProject do
       maintainers: ["CarverAutomation"],
       licenses: ["Apache-2.0"],
       links: %{
-        "Source" =>
-          "https://github.com/carverauto/serviceradar/tree/staging/elixir/palisade"
+        "Source" => "https://github.com/carverauto/serviceradar/tree/staging/elixir/palisade"
       },
       # Hex publish uploads these files (relative to the project
       # root). Excluded by default: _build, deps, .git, etc.
