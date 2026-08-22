@@ -10,7 +10,6 @@
 //! what makes a device present for seconds visible at all -- no scan schedule
 //! can catch a host that joins and leaves between sweeps.
 
-use std::collections::HashMap;
 use std::fmt;
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 use std::time::{Duration, Instant};
@@ -87,11 +86,6 @@ impl MacAddress {
     /// Group bit set: broadcast or multicast. Never a device's own address.
     pub const fn is_group(&self) -> bool {
         self.0[0] & 0x01 != 0
-    }
-
-    /// The OUI, meaningful only for a universally administered address.
-    pub const fn oui(&self) -> [u8; 3] {
-        [self.0[0], self.0[1], self.0[2]]
     }
 }
 
@@ -508,14 +502,26 @@ mod tests {
         assert!(parse_l2_ring_record(&[]).is_none());
         assert!(parse_l2_ring_record(&[0u8; 20]).is_none());
 
-        let mut bytes = record(L2_KIND_ARP_REPLY, 4, 0, [0xbc, 0, 0, 0, 0, 1], v4(1, 2, 3, 4));
+        let mut bytes = record(
+            L2_KIND_ARP_REPLY,
+            4,
+            0,
+            [0xbc, 0, 0, 0, 0, 1],
+            v4(1, 2, 3, 4),
+        );
         bytes[0..2].copy_from_slice(&99u16.to_ne_bytes());
         assert!(
             parse_l2_ring_record(&bytes).is_none(),
             "an unknown wire version must be rejected, not misparsed"
         );
 
-        let mut bytes = record(L2_KIND_ARP_REPLY, 4, 0, [0xbc, 0, 0, 0, 0, 1], v4(1, 2, 3, 4));
+        let mut bytes = record(
+            L2_KIND_ARP_REPLY,
+            4,
+            0,
+            [0xbc, 0, 0, 0, 0, 1],
+            v4(1, 2, 3, 4),
+        );
         bytes[2..4].copy_from_slice(&77u16.to_ne_bytes());
         assert!(parse_l2_ring_record(&bytes).is_none());
     }
@@ -570,7 +576,13 @@ mod tests {
 
     #[test]
     fn an_empty_scope_never_anchors() {
-        let bytes = record(L2_KIND_ARP_REPLY, 4, 0, [0xbc, 0x24, 0x11, 0, 0, 1], v4(10, 0, 0, 9));
+        let bytes = record(
+            L2_KIND_ARP_REPLY,
+            4,
+            0,
+            [0xbc, 0x24, 0x11, 0, 0, 1],
+            v4(10, 0, 0, 9),
+        );
         let obs = parse_l2_ring_record(&bytes).expect("record should decode");
         assert!(
             !obs.can_anchor_identity(&SegmentScope::default()),
@@ -590,7 +602,8 @@ mod tests {
     fn the_watchdog_tolerates_a_healthy_rate() {
         // Measured healthy rate on a live segment was 0.37 observations/sec.
         let start = Instant::now();
-        let mut w = CensusWatchdog::new(CENSUS_RATE_CEILING_PER_SEC, Duration::from_secs(10), start);
+        let mut w =
+            CensusWatchdog::new(CENSUS_RATE_CEILING_PER_SEC, Duration::from_secs(10), start);
         for i in 0..60u64 {
             assert!(
                 w.record(start + Duration::from_secs(i)),
@@ -604,7 +617,8 @@ mod tests {
         // The real failure: ~38,000 observations/sec because every frame was
         // emitted. The census must shut down rather than degrade.
         let start = Instant::now();
-        let mut w = CensusWatchdog::new(CENSUS_RATE_CEILING_PER_SEC, Duration::from_secs(10), start);
+        let mut w =
+            CensusWatchdog::new(CENSUS_RATE_CEILING_PER_SEC, Duration::from_secs(10), start);
         let mut tripped = false;
         // 40,000/sec for slightly over the 10s interval, so the boundary where
         // the watchdog evaluates is actually crossed.
@@ -623,7 +637,8 @@ mod tests {
         // A busy moment inside one interval must not kill the census; the
         // breach has to be sustained across the whole interval.
         let start = Instant::now();
-        let mut w = CensusWatchdog::new(CENSUS_RATE_CEILING_PER_SEC, Duration::from_secs(10), start);
+        let mut w =
+            CensusWatchdog::new(CENSUS_RATE_CEILING_PER_SEC, Duration::from_secs(10), start);
         for i in 0..500u64 {
             assert!(w.record(start + Duration::from_millis(i)));
         }
@@ -653,15 +668,17 @@ mod tests {
 
 #[cfg(target_os = "linux")]
 mod runtime {
-    use super::{parse_l2_ring_record, CensusWatchdog, DeviceObservation, SegmentScope,
-        CENSUS_RATE_CEILING_PER_SEC, CENSUS_WATCHDOG_INTERVAL};
-    use std::net::IpAddr;
-    use std::time::Instant;
+    use super::{
+        CENSUS_RATE_CEILING_PER_SEC, CENSUS_WATCHDOG_INTERVAL, CensusWatchdog, DeviceObservation,
+        SegmentScope, parse_l2_ring_record,
+    };
     use anyhow::Result;
-    use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+    use std::net::IpAddr;
     use std::sync::Arc;
+    use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
     use std::thread;
     use std::time::Duration;
+    use std::time::Instant;
 
     pub const L2_OBSERVATIONS_MAP: &str = "l2_observations";
     const CENSUS_RING_IDLE_SLEEP: Duration = Duration::from_millis(50);
