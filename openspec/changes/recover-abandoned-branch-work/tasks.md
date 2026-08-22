@@ -82,8 +82,8 @@
 
 Awaiting owner decision on which become GitHub issues.
 
-- [ ] 5.1 Open a GitHub issue per approved keeper
-- [ ] 5.2 Record the issue number in the register below
+- [x] 5.1 Open a GitHub issue per approved keeper — #3848 (mDNS add-on), #3849 (retired host), #3850 (SRQL rollups)
+- [x] 5.2 Record the issue number in the register below
 - [ ] 5.3 Cut a branch off current `staging` per issue and port the work forward (these are weeks
       to months behind — expect a port, not a merge)
 - [ ] 5.4 Land each through the normal PR flow
@@ -110,7 +110,7 @@ Awaiting owner decision on which become GitHub issues.
 | Branch | Tip | What it is | Verdict | GH issue |
 | --- | --- | --- | --- | --- |
 | `feature/mdns-collector` | `33c3f362` | Complete mDNS discovery collector: `pkg/agent/mdns/*` + tests, `proto/mdns/mdns.proto`, Elixir processor, CNPG migration, full OpenSpec change. 3320 insertions. On **0 of 930** remote tips. PR #2714 closed with no explanation. **Owner direction: must ship as a native add-on attached to an agent (`addons/mdns-discovery`, `supervision: agent-sidecar`), NOT the branch's in-agent `pkg/agent/mdns/*`. This is a redesign, not a port.** | KEEP | **#3848** |
-| `docs/github-collaboration-host` | — | Now **more correct than staging**: `README.md:94`, `INSTALL.md:10`, `README-Docker.md:50,291,292` still point users at the retired `code.carverauto.dev`. PR #3763 closed, no successor. Independently confirmed **37 files** on staging still carry the retired host. | KEEP | **#3849** |
+| `docs/github-collaboration-host` | — | Now **more correct than staging**: `README.md:94`, `INSTALL.md:10`, `README-Docker.md:50,291,292` still point users at the retired `code.carverauto.dev`. PR #3763 closed, no successor. Independently confirmed 37 files carried the retired host; 11 references across 12 files were actionable, the other 26 are historical records, load-bearing test fixtures, or repos that never moved. | **DONE** | **#3849** → PR #3852, merged 2026-08-22 |
 | `web/elixir_phoenix_poc` | `0de0e6b9` | ~1000 LOC never landed: `rust/srql/src/query/{logs_hourly_stats,otel_metrics_hourly_stats,viz}.rs` + 2 migrations. Caveat: its `rust/srql/migrations/` approach now violates the Elixir-migrations-only rule. | KEEP (port) | **#3850** |
 | `updates/observability_srql_fixes` | `d041ca73` | Rebased duplicate of the same rollup work under a better name. Keep this **or** the row above, not both. | KEEP (pick one) | **#3850** |
 | `update/gleam_poller_poc` | — | 11 commits / 7402 insertions Gleam BEAM-migration PoC + PRD. `gleam/` never existed on staging. Rejected by direction (Elixir won) — design artifact only. | KEEP as reference | _pending_ |
