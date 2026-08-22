@@ -180,6 +180,24 @@ func supportsHostNetworkVisibility(goos, deploymentType string) bool {
 	return goos == linuxOS && deploymentType == deploymentTypeBareMetal
 }
 
+// supportsNativeAddonHosting reports whether this agent installs native add-ons at
+// all. Installing a systemd-supervised one means writing unit files into the host's
+// system unit dir and enabling them through the root-owned agent-updater, which a
+// containerized agent does not have -- and applyAddonAssignments already refuses the
+// whole set on such a host, whatever the supervision model.
+//
+// Reported so the control plane stops treating a container as a viable target. A
+// silent target is not harmless: rollouts default to tolerated_failures: 0, so one
+// container that can never report add-on health ages out at candidate_health_timeout
+// and fails the rollout for every bare-metal host in the fleet.
+func supportsNativeAddonHosting(goos, deploymentType string) bool {
+	return goos == linuxOS && deploymentType == deploymentTypeBareMetal
+}
+
+func runtimeSupportsNativeAddonHosting() bool {
+	return supportsNativeAddonHosting(runtime.GOOS, detectDeploymentType())
+}
+
 func runtimeSupportsHostNetworkVisibility() bool {
 	return supportsHostNetworkVisibility(runtime.GOOS, detectDeploymentType())
 }

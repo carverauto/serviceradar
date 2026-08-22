@@ -399,3 +399,58 @@ func TestApplySystemdAddonReconcilesCurrentNetprobeWhenIPCSocketMissing(t *testi
 		t.Fatalf("deliveries = %d, installs = %d; missing IPC socket must reach reinstall", deliveries, installs)
 	}
 }
+
+// The SELinux relabel must run from the AGENT, before the units are installed.
+//
+// serviceradar-agent-updater is setuid-root and owned by the RPM: a release
+// activation replaces the agent but never the updater, so hosts that have
+// self-updated for months still run their original updater. When the relabel lived
+// only inside the updater, every such host left its staged add-on binaries labelled
+// var_lib_t and systemd failed each start with 203/EXEC. Relabelling here keeps the
+// fix with the component that actually updates.
+func TestReconcileStagedSystemdUnitsRelabelsBeforeInstall(t *testing.T) {
+	const id = "netprobe"
+
+	runtimeRoot := stageSystemdAddonFixture(t, map[string][]string{
+		"1.1.0": {netprobeTestUnit},
+	})
+
+	pl := newSystemdAddonPushLoop(t)
+
+	var order []string
+	var relabelledRoot, relabelledAddon string
+
+	pl.relabelStagedAddonExecutables = func(root, addonID string) {
+		order = append(order, "relabel")
+		relabelledRoot, relabelledAddon = root, addonID
+	}
+
+	install := func(_ context.Context, _ string, _ []string, _ string, _ agentaddon.Resources) error {
+		order = append(order, "install")
+		return nil
+	}
+
+	pl.reconcileStagedSystemdUnits(
+		context.Background(),
+		&proto.AddonAssignmentConfig{
+			AddonId:        id,
+			Version:        "1.1.0",
+			ArtifactSha256: sha256Hex([]byte("netprobe-1.1.0")),
+		},
+		addonSupervisionSystemdService,
+		runtimeRoot,
+		"",
+		install,
+	)
+
+	if len(order) != 2 || order[0] != "relabel" || order[1] != "install" {
+		t.Fatalf("call order = %v, want [relabel install]; a relabel after enable --now "+
+			"still leaves the first start at 203/EXEC", order)
+	}
+	if relabelledAddon != id {
+		t.Fatalf("relabelled addon = %q, want %q", relabelledAddon, id)
+	}
+	if relabelledRoot != runtimeRoot {
+		t.Fatalf("relabelled runtime root = %q, want %q", relabelledRoot, runtimeRoot)
+	}
+}
