@@ -1,3 +1,10 @@
+{{- /* Component gate (issue #3859). ABSENT MEANS ENABLED: hasKey is used rather than a
+     truthiness test so that a chart or values file which never mentions `enabled`
+     renders exactly as before, and only an explicit `nats.enabled: false` removes
+     this component. `default true` cannot be used here -- Helm treats false as empty,
+     so it would resurrect anything explicitly disabled. */ -}}
+{{- $gate9 := default (dict) .Values.nats -}}
+{{- if or (not (hasKey $gate9 "enabled")) $gate9.enabled }}
 {{- $nats := default (dict) .Values.nats -}}
 {{- $persistence := default (dict) $nats.persistence -}}
 {{- $jetstream := default (dict) $nats.jetstream -}}
@@ -529,3 +536,4 @@ spec:
       {{- if $natsStorageClass }}
       storageClassName: {{ $natsStorageClass | quote }}
       {{- end }}
+{{- end }}

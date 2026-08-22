@@ -1,3 +1,10 @@
+{{- /* Component gate (issue #3859). ABSENT MEANS ENABLED: hasKey is used rather than a
+     truthiness test so that a chart or values file which never mentions `enabled`
+     renders exactly as before, and only an explicit `datasvc.enabled: false` removes
+     this component. `default true` cannot be used here -- Helm treats false as empty,
+     so it would resurrect anything explicitly disabled. */ -}}
+{{- $gate7 := default (dict) .Values.datasvc -}}
+{{- if or (not (hasKey $gate7 "enabled")) $gate7.enabled }}
 {{- $datasvcSA := .Values.spire.datasvcServiceAccount | default "serviceradar-datasvc" -}}
 {{- $datasvc := default (dict) .Values.datasvc -}}
 {{- $datasvcData := default (dict) (get $datasvc "data") -}}
@@ -178,4 +185,5 @@ spec:
   {{- if $datasvcStorageClass }}
   storageClassName: {{ $datasvcStorageClass | quote }}
   {{- end }}
+{{- end }}
 {{- end }}

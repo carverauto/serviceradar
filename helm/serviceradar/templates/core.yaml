@@ -1,3 +1,10 @@
+{{- /* Component gate (issue #3859). ABSENT MEANS ENABLED: hasKey is used rather than a
+     truthiness test so that a chart or values file which never mentions `enabled`
+     renders exactly as before, and only an explicit `core.enabled: false` removes
+     this component. `default true` cannot be used here -- Helm treats false as empty,
+     so it would resurrect anything explicitly disabled. */ -}}
+{{- $gate4 := default (dict) .Values.core -}}
+{{- if or (not (hasKey $gate4 "enabled")) $gate4.enabled }}
 {{- $trustDomain := .Values.spire.trustDomain | default "carverauto.dev" -}}
 {{- $spireNamespace := default .Release.Namespace .Values.spire.namespace -}}
 {{- $spireBundle := default "spire-bundle" .Values.spire.bundleConfigMap -}}
@@ -1001,3 +1008,4 @@ spec:
   - name: dist
     port: 9100
     targetPort: dist
+{{- end }}

@@ -1,3 +1,10 @@
+{{- /* Component gate (issue #3859). ABSENT MEANS ENABLED: hasKey is used rather than a
+     truthiness test so that a chart or values file which never mentions `enabled`
+     renders exactly as before, and only an explicit `logCollector.enabled: false` removes
+     this component. `default true` cannot be used here -- Helm treats false as empty,
+     so it would resurrect anything explicitly disabled. */ -}}
+{{- $gate14 := default (dict) .Values.logCollector -}}
+{{- if or (not (hasKey $gate14 "enabled")) $gate14.enabled }}
 {{- $tcpCollector := default (dict) .Values.logCollector.tcpCollector }}
 {{- $tcpCollectorService := default (dict) $tcpCollector.service }}
 {{- $tcpCollectorServicePorts := default (dict) $tcpCollectorService.ports }}
@@ -265,5 +272,6 @@ spec:
     targetPort: {{ default 514 ((default (dict) $tcpCollectorExternalServicePorts.syslog).targetPort) }}
     protocol: {{ default "TCP" ((default (dict) $tcpCollectorExternalServicePorts.syslog).protocol) }}
   {{- end }}
+{{- end }}
 {{- end }}
 {{- end }}

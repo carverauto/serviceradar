@@ -1,3 +1,10 @@
+{{- /* Component gate (issue #3859). ABSENT MEANS ENABLED: hasKey is used rather than a
+     truthiness test so that a chart or values file which never mentions `enabled`
+     renders exactly as before, and only an explicit `rperfChecker.enabled: false` removes
+     this component. `default true` cannot be used here -- Helm treats false as empty,
+     so it would resurrect anything explicitly disabled. */ -}}
+{{- $gate12 := default (dict) .Values.rperfChecker -}}
+{{- if or (not (hasKey $gate12 "enabled")) $gate12.enabled }}
 {{- $rperfChecker := default (dict) .Values.rperfChecker -}}
 {{- $rperfCheckerEnabled := true -}}
 {{- if hasKey $rperfChecker "enabled" -}}
@@ -138,4 +145,5 @@ spec:
   - name: grpc
     port: 50081
     targetPort: grpc
+{{- end }}
 {{- end }}

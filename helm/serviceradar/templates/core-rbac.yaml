@@ -1,3 +1,10 @@
+{{- /* Component gate (issue #3859). ABSENT MEANS ENABLED: hasKey is used rather than a
+     truthiness test so that a chart or values file which never mentions `enabled`
+     renders exactly as before, and only an explicit `core.enabled: false` removes
+     this component. `default true` cannot be used here -- Helm treats false as empty,
+     so it would resurrect anything explicitly disabled. */ -}}
+{{- $gate5 := default (dict) .Values.core -}}
+{{- if or (not (hasKey $gate5 "enabled")) $gate5.enabled }}
 {{- $coreSA := .Values.spire.coreServiceAccount | default "serviceradar-core" -}}
 ---
 apiVersion: rbac.authorization.k8s.io/v1
@@ -25,3 +32,4 @@ subjects:
 - kind: ServiceAccount
   name: {{ $coreSA }}
   namespace: {{ .Release.Namespace }}
+{{- end }}
