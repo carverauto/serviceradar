@@ -498,19 +498,37 @@ defmodule ServiceRadar.EventWriter.Producer do
 
     results =
       Enum.map(config.streams, fn stream ->
-        setup_one_consumer(
-          conn,
-          config,
-          stream,
-          ack_wait_ns,
-          max_ack_pending,
-          max_deliver,
-          default_pull_batch_size
-        )
+        {stream,
+         setup_one_consumer(
+           conn,
+           config,
+           stream,
+           ack_wait_ns,
+           max_ack_pending,
+           max_deliver,
+           default_pull_batch_size
+         )}
       end)
 
-    consumers = results |> Enum.filter(&match?({:ok, _}, &1)) |> Enum.map(fn {:ok, c} -> c end)
-    failures = Enum.filter(results, &match?({:error, _}, &1))
+    consumers = for {_stream, {:ok, consumer}} <- results, do: consumer
+
+    # A `best_effort` stream is a backlog drain, not part of the live pipeline.
+    # Failing one must not unsubscribe the healthy consumers and re-arm the
+    # whole connection every @reconnect_delay ms: on a deployment whose `events`
+    # stream never carried a given flow subject, that turned a cosmetic mismatch
+    # into a permanent flow-ingestion outage.
+    {optional_failures, failures} =
+      results
+      |> Enum.filter(&match?({_stream, {:error, _}}, &1))
+      |> Enum.split_with(fn {stream, _} -> Map.get(stream, :best_effort, false) end)
+
+    Enum.each(optional_failures, fn {stream, {:error, reason}} ->
+      Logger.warning(
+        "EventWriter skipping best-effort drain consumer " <>
+          "#{inspect(Map.get(stream, :name))} on stream #{inspect(Map.get(stream, :stream_name))}: " <>
+          "#{inspect(reason)}"
+      )
+    end)
 
     cond do
       expected_count == 0 ->
@@ -523,7 +541,9 @@ defmodule ServiceRadar.EventWriter.Producer do
         Enum.each(consumers, fn c -> safe_unsub(conn, c.sid) end)
         safe_stop_conn(conn)
 
-        {:error, {:consumer_setup_failed, Enum.map(failures, fn {:error, reason} -> reason end)}}
+        {:error,
+         {:consumer_setup_failed,
+          Enum.map(failures, fn {_stream, {:error, reason}} -> reason end)}}
 
       true ->
         pull_subjects = MapSet.new(consumers, & &1.pull_subject)

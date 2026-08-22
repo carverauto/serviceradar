@@ -3,6 +3,7 @@ import BulkEditTagsToggle from "./BulkEditTagsToggle"
 import CameraRelayStatusStream from "./CameraRelayStatusStream"
 import CommandPalette from "./CommandPalette"
 import DialogTopLayer from "./DialogTopLayer"
+import ToastTopLayer from "./ToastTopLayer"
 import DashboardBuilderCanvas from "./DashboardBuilderCanvas"
 import DashboardPanelChart from "./DashboardPanelChart"
 import DashboardMapViewSelect from "./DashboardMapViewSelect"
@@ -49,6 +50,7 @@ export default {
   CameraRelayStatusStream,
   CommandPalette,
   DialogTopLayer,
+  ToastTopLayer,
   DashboardBuilderCanvas,
   DashboardPanelChart,
   DashboardMapViewSelect,

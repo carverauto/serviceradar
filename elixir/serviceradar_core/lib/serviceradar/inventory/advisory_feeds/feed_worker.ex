@@ -23,7 +23,7 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.FeedWorker do
 
   use Oban.Worker,
     queue: :integrations,
-    max_attempts: 3,
+    max_attempts: 4,
     unique: [
       period: :infinity,
       keys: [:feed],
@@ -43,6 +43,29 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.FeedWorker do
   require Ash.Query
   require Logger
 
+  # Retry spacing, in seconds, for attempts 2..4.
+  #
+  # Oban's default backoff put all three attempts of a nist-nvd2 run inside 65
+  # seconds (2026-08-22: 03:08:28, 03:09:12, 03:09:33). Every one of them sampled
+  # the same one-minute window of upstream health, so a brief VulnCheck timeout
+  # discarded the job and the feed then sat idle until the next 6-hour tick.
+  #
+  # These feeds refresh every 6 hours. Retrying three times inside a minute buys
+  # nothing; spreading the same three retries across ~42 minutes rides out a
+  # transient upstream problem and still finishes well inside one cycle, even if
+  # every attempt burns the full 60-minute nist-nvd2 timeout first.
+  @backoff_seconds [120, 600, 1800]
+
+  @impl true
+  def backoff(%Oban.Job{attempt: attempt}) do
+    base = Enum.at(@backoff_seconds, attempt - 1, List.last(@backoff_seconds))
+
+    # +/-10% jitter: three feeds share one upstream, and a shared outage would
+    # otherwise have them all retry in lockstep.
+    spread = max(div(base, 10), 1)
+    base - spread + :rand.uniform(2 * spread)
+  end
+
   @impl true
   # farm01 nist-nvd2 inserted ~360k advisories / 2.5M coordinates in 30 minutes
   # and still had shards left. 60 minutes leaves headroom for a cold PVC.
@@ -53,6 +76,11 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.FeedWorker do
   # nist-nvd2 run stale because already_scheduled?/1 could not see the job
   # (it queried "Elixir.ServiceRadar..." while Oban stores the bare module).
   @stale_running_seconds 75 * 60
+
+  # Grace before a node-less job is considered orphaned. Short, because node
+  # liveness is already the decisive signal; this only covers a brief netsplit.
+  @orphan_grace_seconds 5 * 60
+  @rpc_timeout_ms 5_000
   @worker_name inspect(__MODULE__)
 
   # NOTE: "nvd-api" is intentionally excluded — `do_run("nvd-api")` is an
@@ -68,6 +96,7 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.FeedWorker do
   @spec ensure_scheduled() :: {:ok, :scheduled} | {:error, term()}
   def ensure_scheduled do
     if ObanSupport.available?() do
+      reclaim_orphaned_jobs()
       reconcile_stale_runs()
 
       if Config.enabled?() do
@@ -212,11 +241,14 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.FeedWorker do
             %{
               last_status: "success",
               last_success_at: DateTime.utc_now(),
-              last_message: "loaded #{result.advisories_upserted} advisories",
+              last_message:
+                "loaded #{result.advisories_upserted} advisories " <>
+                  "(#{result.advisories_skipped} unchanged)",
               last_error: nil,
               metadata: %{
                 "advisories" => result.advisories_upserted,
                 "coordinates" => result.coordinates_upserted,
+                "advisories_skipped" => result.advisories_skipped,
                 "generation" => result.generation
               }
             },
@@ -253,6 +285,170 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.FeedWorker do
 
     schedule_next(feed)
     {:error, reason}
+  end
+
+  @doc """
+  Release feed jobs left `executing` by a node that no longer exists.
+
+  A pod replaced mid-run leaves its Oban row in `executing` forever, and because
+  this worker's `unique` constraint covers every incomplete state, nothing new can
+  be enqueued behind it. `reconcile_stale_runs/1` does not help: it only corrects
+  the feed definition's status, and it skips entirely while a job is still
+  in-flight. The row itself waits for `Oban.Plugins.Lifeline`, configured at 240
+  minutes -- so one deploy roll could cost a 6-hourly feed most of a cycle.
+
+  The test here is node identity and node age, not job age. Oban records the node
+  that took the attempt in `attempted_by[0]` (Oban 2.23 writes `[node, uuid]`;
+  older versions wrote `[node, queue, uuid]`, so match the head, not the arity).
+
+  There are two ways the owner can die, and only one of them changes the node
+  name:
+
+    * **The pod is replaced.** Nodes here are named after the pod IP
+      (`serviceradar_core@10.42.x.y`), so the new pod gets a new name and the old
+      name simply disappears from the cluster.
+
+    * **The container restarts inside the same pod.** An OOMKill does this: the
+      pod keeps its IP, so the BEAM comes back under the *identical* node name.
+      Liveness alone cannot see this, and an earlier version of this function
+      missed it -- observed on farm01, where a nist-nvd2 run was OOMKilled four
+      minutes in (exit 137) and its row then sat `executing` for well over an
+      hour under a node name that looked perfectly healthy.
+
+  So a node being present is not enough; it has to be the *same instance*. A node
+  whose VM started after the job's `attempted_at` cannot be running that job, no
+  matter what it is called. That still needs no threshold on job age, and still
+  leaves the global Lifeline setting every other worker shares alone.
+
+  Two guards keep it conservative:
+
+    * it does nothing on an un-clustered node, where `Node.list/0` is empty and
+      every job would look orphaned; and
+    * it still requires a short grace period, so a brief netsplit does not reclaim
+      a job that is genuinely running on the other side of it; and
+    * a node whose start time cannot be read is treated as healthy, so an RPC
+      timeout cannot cancel a live run.
+
+  Dead attempts are cancelled rather than retried. A half-finished run has already
+  written a staging directory and possibly part of a generation; a fresh acquire
+  is cheaper to reason about than resuming a corpse, and `ensure_scheduled/0`
+  enqueues one immediately afterwards.
+  """
+  @spec reclaim_orphaned_jobs() :: :ok
+  def reclaim_orphaned_jobs do
+    if clustered?() do
+      do_reclaim_orphaned_jobs()
+    else
+      :ok
+    end
+  rescue
+    exception ->
+      Logger.warning("advisory_feeds: orphan reclaim failed: #{inspect(exception)}")
+      :ok
+  end
+
+  defp clustered?, do: Node.self() != :nonode@nohost
+
+  defp do_reclaim_orphaned_jobs do
+    import Ecto.Query
+
+    live = live_node_start_times()
+    cutoff = DateTime.add(DateTime.utc_now(), -@orphan_grace_seconds, :second)
+
+    query =
+      from(j in Oban.Job,
+        where: j.worker == ^@worker_name,
+        where: j.state == "executing",
+        where: j.attempted_at < ^cutoff
+      )
+
+    query
+    |> ServiceRadar.Repo.all(prefix: ObanSupport.prefix())
+    |> Enum.filter(&orphaned?(&1, live))
+    |> Enum.each(&cancel_orphan/1)
+
+    :ok
+  end
+
+  @doc false
+  # `live` maps a live node name to the DateTime its VM started, or to nil when
+  # that could not be read. No attempted_by means unknown provenance -- leave
+  # those to Lifeline rather than guess.
+  def orphaned?(job, live)
+
+  def orphaned?(%Oban.Job{attempted_by: [node | _], attempted_at: attempted_at}, live)
+      when is_binary(node) do
+    case Map.fetch(live, node) do
+      # The node is gone from the cluster: the pod was replaced.
+      :error ->
+        true
+
+      # Present, but we could not read its start time. Assume it is healthy --
+      # cancelling a live 60-minute feed run costs more than waiting for Lifeline.
+      {:ok, nil} ->
+        false
+
+      # Present under the same name, but this VM booted after the job began, so
+      # it is not the instance that took the attempt. Container restart in place.
+      {:ok, started_at} ->
+        restarted_since?(attempted_at, started_at)
+    end
+  end
+
+  def orphaned?(_job, _live), do: false
+
+  @doc false
+  # Public so :rpc can call it on a peer. Derived from the monotonic clock rather
+  # than :erlang.statistics(:wall_clock), which resets a global counter as a side
+  # effect of being read.
+  @spec vm_started_at() :: DateTime.t()
+  def vm_started_at do
+    uptime_ms =
+      :erlang.convert_time_unit(
+        :erlang.monotonic_time() - :erlang.system_info(:start_time),
+        :native,
+        :millisecond
+      )
+
+    DateTime.add(DateTime.utc_now(), -uptime_ms, :millisecond)
+  end
+
+  defp live_node_start_times do
+    self_node = Node.self()
+
+    Map.new([self_node | Node.list()], fn node ->
+      {Atom.to_string(node), node_started_at(node, self_node)}
+    end)
+  end
+
+  defp node_started_at(node, node), do: vm_started_at()
+
+  defp node_started_at(node, _self_node) do
+    case :rpc.call(node, __MODULE__, :vm_started_at, [], @rpc_timeout_ms) do
+      %DateTime{} = started_at -> started_at
+      _other -> nil
+    end
+  end
+
+  defp restarted_since?(nil, _started_at), do: false
+
+  defp restarted_since?(attempted_at, started_at) do
+    DateTime.before?(to_utc(attempted_at), started_at)
+  end
+
+  # Oban types attempted_at as :utc_datetime_usec, but normalise anyway: a
+  # NaiveDateTime compared against a DateTime raises, and this runs on a path
+  # whose whole job is to not disturb anything.
+  defp to_utc(%DateTime{} = at), do: at
+  defp to_utc(%NaiveDateTime{} = at), do: DateTime.from_naive!(at, "Etc/UTC")
+
+  defp cancel_orphan(%Oban.Job{id: id, args: args, attempted_by: [node | _]}) do
+    Logger.warning(
+      "advisory_feeds: cancelling orphaned job #{id} for #{inspect(args["feed"])}; " <>
+        "node #{node} is gone or restarted since the attempt began"
+    )
+
+    Oban.cancel_job(id)
   end
 
   @doc false
@@ -356,6 +552,40 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.FeedWorker do
     Staging.cleanup_run(acquired.run_dir)
   end
 
+  # The skip guard has failed silently before: a NaiveDateTime/DateTime mismatch
+  # made it return false for every record, so the whole corpus was rewritten
+  # every run (~5.9 TB of WAL) while every log line still read "success". Zero
+  # skips against a non-empty stored corpus is that signature.
+  defp warn_if_guard_inert(feed_key, existing_count, result) do
+    if existing_count > 0 and result.advisories_upserted > 0 and result.advisories_skipped == 0 do
+      Logger.error(
+        "advisory_feeds: #{feed_key} skip guard appears inert — #{existing_count} stored " <>
+          "advisories, 0 skipped, #{result.advisories_upserted} rewritten"
+      )
+    end
+
+    result
+  end
+
+  defp load_and_finalize(records, provider, feed_key) do
+    generation = Loader.next_generation(provider, feed_key)
+    existing_modified = Loader.existing_modified_at(provider, feed_key)
+    existing_count = map_size(existing_modified)
+
+    result =
+      records
+      |> Loader.load_stream(
+        provider: provider,
+        feed_key: feed_key,
+        generation: generation,
+        existing_modified: existing_modified
+      )
+      |> then(&warn_if_guard_inert(feed_key, existing_count, &1))
+
+    Loader.finalize(provider, feed_key, generation, demote_missing: Loader.full_sweep?(result))
+    {:ok, result}
+  end
+
   defp parse_and_load(acquired, provider, feed_key, parse_fun) do
     json_path = single_json(acquired.extracted_dir)
 
@@ -364,13 +594,7 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.FeedWorker do
       |> StreamReader.stream_json_file(records_key: records_key(feed_key))
       |> Stream.flat_map(fn {:ok, record} -> parse_fun.({record, provider, feed_key}) end)
 
-    generation = Loader.next_generation(provider, feed_key)
-
-    result =
-      Loader.load_stream(records, provider: provider, feed_key: feed_key, generation: generation)
-
-    Loader.finalize(provider, feed_key, generation)
-    {:ok, result}
+    load_and_finalize(records, provider, feed_key)
   end
 
   defp parse_and_load_nvd(acquired) do
@@ -387,13 +611,7 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.FeedWorker do
         end
       end)
 
-    generation = Loader.next_generation(provider, feed_key)
-
-    result =
-      Loader.load_stream(records, provider: provider, feed_key: feed_key, generation: generation)
-
-    Loader.finalize(provider, feed_key, generation)
-    {:ok, result}
+    load_and_finalize(records, provider, feed_key)
   end
 
   defp parse_kev({record, provider, feed_key}) do

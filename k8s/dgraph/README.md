@@ -70,7 +70,7 @@ enforce `REQUIREANDVERIFY` automatically; external ports (9080, 8080, 6080) defa
 `VERIFYIFGIVEN`. Dgraph reads exactly `ca.crt`, `node.crt` and `node.key`.
 
 **The client is the constraint, and it dictates the certificate choice.**
-[`rust/dgraph-client`](../../rust/dgraph-client) supports three modes — `disable`, `require`
+[`dgraph-client`](https://github.com/marvin-hansen/dgraph-rs) supports three modes — `disable`, `require`
 (encrypted, unverified) and `verify-ca` — and `verify-ca` builds
 `ClientTlsConfig::new().with_native_roots()`. There is **no way to pin a private CA**, and **no
 client-certificate path at all**. Two consequences:
@@ -133,7 +133,7 @@ kubectl get secret dgraph-ci-ca -n dgraph-ci -o jsonpath='{.data.ca\.crt}' | bas
 ```
 
 Then `sslmode=verify-ca` works against the private CA. Teaching the client to accept a CA path
-would be the alternative, and a larger change to `rust/dgraph-client`.
+would be the alternative, and a larger change to `dgraph-client`.
 
 ## ACL and namespaces
 

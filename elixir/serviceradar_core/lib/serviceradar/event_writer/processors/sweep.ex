@@ -50,6 +50,7 @@ defmodule ServiceRadar.EventWriter.Processors.Sweep do
   alias ServiceRadar.EventWriter.FieldParser
   alias ServiceRadar.EventWriter.OCSF
   alias ServiceRadar.Inventory.Device
+  alias ServiceRadar.Inventory.Identity.Fence
   alias ServiceRadar.Repo
   alias ServiceRadar.SweepJobs.SweepResultsIngestor
 
@@ -187,9 +188,28 @@ defmodule ServiceRadar.EventWriter.Processors.Sweep do
   end
 
   defp update_availability(results, device_map, timestamp, actor) do
-    restore_deleted_devices(device_uids_from_results(results, device_map), actor)
+    device_uids = device_uids_from_results(results, device_map)
+
+    # Observe-only identity fence. This file never calls the resolver: the uids
+    # are `canonical_device_id`s read once by batch_lookup_by_ip/2 above, and
+    # three independent writes follow, so a merge landing partway through leaves
+    # some of them on a device that no longer owns the data. One extra read per
+    # batch, not per device.
+    #
+    # Soft-deleted devices are absent from the pin map by construction:
+    # observe_pins/1 reads with include_deleted: false while the lookup above
+    # passes include_deleted: true. That is what keeps the :restore below -- an
+    # action that bumps identity_revision by design (device.ex :restore) -- from
+    # reporting its own write as drift. Do not pin with include_deleted.
+    pins = Fence.observe_pins(device_uids)
+
+    restore_deleted_devices(device_uids, actor)
     update_available_devices(results, device_map, timestamp)
-    update_unavailable_devices(results, device_map, timestamp)
+    result = update_unavailable_devices(results, device_map, timestamp)
+
+    Fence.observe_many(pins, :sweep_processor)
+
+    result
   end
 
   defp device_uids_from_results(results, device_map) do

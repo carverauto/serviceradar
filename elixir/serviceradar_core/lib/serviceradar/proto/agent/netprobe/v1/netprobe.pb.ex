@@ -1,3 +1,18 @@
+defmodule Serviceradar.Agent.Netprobe.V1.DeviceCensusKind do
+  @moduledoc false
+
+  use Protobuf,
+    enum: true,
+    full_name: "serviceradar.agent.netprobe.v1.DeviceCensusKind",
+    protoc_gen_elixir_version: "0.16.0",
+    syntax: :proto3
+
+  field :DEVICE_CENSUS_KIND_UNSPECIFIED, 0
+  field :DEVICE_CENSUS_KIND_ARP_REQUEST, 1
+  field :DEVICE_CENSUS_KIND_ARP_REPLY, 2
+  field :DEVICE_CENSUS_KIND_IPV6_NDP, 3
+end
+
 defmodule Serviceradar.Agent.Netprobe.V1.NetprobeFrame do
   @moduledoc false
 
@@ -78,6 +93,11 @@ defmodule Serviceradar.Agent.Netprobe.V1.NetprobeFrame do
   field :flow_attribution_batch, 29,
     type: Serviceradar.Agent.Netprobe.V1.FlowAttributionEventBatch,
     json_name: "flowAttributionBatch",
+    oneof: 0
+
+  field :device_census_snapshot, 30,
+    type: Serviceradar.Agent.Netprobe.V1.DeviceCensusSnapshot,
+    json_name: "deviceCensusSnapshot",
     oneof: 0
 end
 
@@ -770,4 +790,43 @@ defmodule Serviceradar.Agent.Netprobe.V1.BannerMatchBatch do
     syntax: :proto3
 
   field :matches, 1, repeated: true, type: Serviceradar.Agent.Netprobe.V1.BannerMatch
+end
+
+defmodule Serviceradar.Agent.Netprobe.V1.DeviceCensusObservation do
+  @moduledoc false
+
+  use Protobuf,
+    full_name: "serviceradar.agent.netprobe.v1.DeviceCensusObservation",
+    protoc_gen_elixir_version: "0.16.0",
+    syntax: :proto3
+
+  field :mac, 1, type: :string
+  field :ip, 2, type: :string
+  field :interface_index, 3, type: :uint32, json_name: "interfaceIndex"
+  field :kind, 4, type: Serviceradar.Agent.Netprobe.V1.DeviceCensusKind, enum: true
+  field :first_seen_unix_nano, 5, type: :int64, json_name: "firstSeenUnixNano"
+  field :last_seen_unix_nano, 6, type: :int64, json_name: "lastSeenUnixNano"
+  field :randomized_mac, 7, type: :bool, json_name: "randomizedMac"
+  field :off_segment, 8, type: :bool, json_name: "offSegment"
+end
+
+defmodule Serviceradar.Agent.Netprobe.V1.DeviceCensusSnapshot do
+  @moduledoc false
+
+  use Protobuf,
+    full_name: "serviceradar.agent.netprobe.v1.DeviceCensusSnapshot",
+    protoc_gen_elixir_version: "0.16.0",
+    syntax: :proto3
+
+  field :observations, 1,
+    repeated: true,
+    type: Serviceradar.Agent.Netprobe.V1.DeviceCensusObservation
+
+  field :snapshot_id, 2, type: :string, json_name: "snapshotId"
+  field :interface_name, 3, type: :string, json_name: "interfaceName"
+  field :generated_at_unix_nano, 4, type: :int64, json_name: "generatedAtUnixNano"
+  field :complete, 5, type: :bool
+  field :chunk_index, 6, type: :uint32, json_name: "chunkIndex"
+  field :chunk_count, 7, type: :uint32, json_name: "chunkCount"
+  field :dropped_since_last, 8, type: :uint32, json_name: "droppedSinceLast"
 end

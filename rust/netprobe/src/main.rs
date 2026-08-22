@@ -8,6 +8,12 @@ mod attribution;
 mod capabilities;
 #[allow(dead_code)]
 mod capture;
+// The census module is shared with the library crate, which uses the whole of
+// it. The binary drives only the runtime, so the record constants and the
+// classification helpers its tests exercise look dead here. Same reason
+// `capture` above carries this.
+#[allow(dead_code)]
+mod census;
 mod config;
 mod dpi;
 #[cfg(target_os = "linux")]
@@ -155,6 +161,11 @@ async fn main() -> Result<()> {
     // batches them to the gateway.
     let (flow_attribution_event_tx, flow_attribution_event_rx) = event_queue::bounded(65_536);
     let (process_snapshot_tx, _) = broadcast::channel(128);
+    // Census snapshots are whole-segment refreshes published every couple of
+    // minutes, so a small buffer is plenty -- and a lagging receiver SHOULD drop
+    // the older ones rather than replay them: each snapshot supersedes the last
+    // completely, so the newest is the only one worth delivering.
+    let (census_snapshot_tx, _) = broadcast::channel(4);
     let runtime_config = RuntimeConfig::new(&config);
     let external_flow_matcher =
         SharedExternalFlowMatcher::new(runtime_config.external_flow_match_window_ms());
@@ -193,6 +204,7 @@ async fn main() -> Result<()> {
                         .emit_raw_flow_attribution_events
                         .then(|| flow_attribution_event_tx.clone()),
                     process_snapshot_tx.clone(),
+                    census_snapshot_tx.clone(),
                     external_flow_matcher.clone(),
                     Arc::clone(&_fingerprint_gate),
                     Arc::clone(&_dpi_gate),
@@ -224,6 +236,7 @@ async fn main() -> Result<()> {
             flow_attribution_event_tx,
             flow_attribution_event_rx,
             process_snapshot_tx,
+            census_snapshot_tx,
             external_flow_matcher,
             runtime_config,
             metrics,

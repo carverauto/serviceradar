@@ -1,3 +1,10 @@
+{{- /* Component gate (issue #3859). ABSENT MEANS ENABLED: hasKey is used rather than a
+     truthiness test so that a chart or values file which never mentions `enabled`
+     renders exactly as before, and only an explicit `agent.enabled: false` removes
+     this component. `default true` cannot be used here -- Helm treats false as empty,
+     so it would resurrect anything explicitly disabled. */ -}}
+{{- $gate3 := default (dict) .Values.agent -}}
+{{- if or (not (hasKey $gate3 "enabled")) $gate3.enabled }}
 {{- $agentVals := default (dict) .Values.agent -}}
 {{- $agentStorage := default (dict) (get $agentVals "checkersStorage") -}}
 {{- $agentCacheStorage := default (dict) (get $agentVals "cacheStorage") -}}
@@ -54,4 +61,5 @@ spec:
   {{- if $agentRuntimeStorage.storageClassName }}
   storageClassName: {{ $agentRuntimeStorage.storageClassName | quote }}
   {{- end }}
+{{- end }}
 {{- end }}

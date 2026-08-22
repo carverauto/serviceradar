@@ -19,6 +19,24 @@ Keep this managed block so 'openspec update' can refresh the instructions.
 
 # Hard Rules (never violate)
 
+- **GitHub is the collaboration host for this repository.** Issues, pull requests,
+  reviews and comments for `carverauto/serviceradar` go through `gh` against
+  <https://github.com/carverauto/serviceradar>. The Forgejo instance at
+  `code.carverauto.dev` is **retired for this repo** — do not link to it, clone from it,
+  or file against it. Two consequences that bite:
+  - **Forgejo issue/PR numbers do not map to GitHub numbers.** A doc citing "issue #4851"
+    from the Forgejo era does not become GitHub #4851. Find the real GitHub equivalent or
+    drop the link; never just swap the hostname.
+  - Sibling repos moved too: `serviceradar-sdk-go` and `serviceradar-sdk-rust` are on
+    GitHub (`github.com/carverauto/...`, which is what every `go.mod` already imports).
+    `serviceradar-ansible`, `crm` and `serviceradar-control` remain on Forgejo, so
+    references to those are correct as-is.
+
+  Historical records keep their original references: the `CHANGELOG`, anything under
+  `openspec/changes/archive/`, dated `docs/learnings/adlr/` entries, and test fixtures that
+  deliberately exercise the Forgejo release path all describe what was true at the time.
+  Rewriting them would falsify the record.
+
 - **Never push directly to `staging` (or any shared/protected branch).** No
   `git push origin <ref>:refs/heads/staging`, no fast-forward push, no
   exceptions — not even when asked to "get this into staging." Land changes on a

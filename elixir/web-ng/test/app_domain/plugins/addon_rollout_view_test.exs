@@ -116,8 +116,8 @@ defmodule ServiceRadarWebNG.Plugins.AddonRolloutViewTest do
     assert health.title == "Update blocked"
     assert health.action == :review_rollout
     assert health.detail =~ "0.3.1 reported unhealthy"
-    assert health.detail =~ "This agent is on 0.3.0"
-    assert health.detail =~ "retry or keep 0.3.0"
+    assert health.detail =~ "This agent is running 0.3.0"
+    assert health.detail =~ "Cancel or resume"
   end
 
   test "fleet health for a timed-out update keeps the running version in the sentence" do
@@ -132,8 +132,26 @@ defmodule ServiceRadarWebNG.Plugins.AddonRolloutViewTest do
       })
 
     assert health.title == "Update blocked"
-    assert health.detail =~ "0.1.3 never reported healthy"
-    assert health.detail =~ "stayed on 0.1.2"
+    assert health.detail =~ "0.1.3 did not pass health"
+    assert health.detail =~ "running 0.1.2"
+  end
+
+  test "a finished failed rollout is not an open job" do
+    view =
+      AddonRolloutView.present(%{
+        addon_id: "bumblebee",
+        source_type: :profile,
+        state: :failed,
+        blocked_reason: "candidate_health_timeout",
+        previous_package: %{version: "0.1.3"},
+        candidate_package: %{version: "0.1.4"},
+        targets: []
+      })
+
+    refute view.active?
+    refute view.attention?
+    assert view.summary =~ "That attempt stopped"
+    refute view.summary =~ "paused so"
   end
 
   test "operator pause without a blocked reason is explained" do

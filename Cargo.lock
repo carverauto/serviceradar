@@ -795,31 +795,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "bon"
-version = "3.9.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a602c73c7b0148ec6d12af6fd5cc7a46e2eacc8878271a999abac56eed12f561"
-dependencies = [
- "bon-macros",
- "rustversion",
-]
-
-[[package]]
-name = "bon-macros"
-version = "3.9.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6dee98b0db6a962de883bf5d20362dee4d7ca0d12fe39a7c6c73c844e1cd7c1f"
-dependencies = [
- "darling",
- "ident_case",
- "prettyplease",
- "proc-macro2",
- "quote",
- "rustversion",
- "syn 2.0.119",
-]
-
-[[package]]
 name = "borrow-or-share"
 version = "0.2.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1797,35 +1772,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "dgraph-client"
-version = "0.1.0"
-dependencies = [
- "dgraph-test",
- "docker_utils",
- "prost",
- "proto_dgraph",
- "rustls",
- "serviceradar-config-manager",
- "serviceradar-secret-manager",
- "tokio",
- "tonic",
- "tracing",
- "urlencoding",
-]
-
-[[package]]
-name = "dgraph-test"
-version = "0.1.0"
-dependencies = [
- "docker_utils",
- "runfiles",
- "serde_json",
- "serviceradar-config-manager",
- "serviceradar-config-schema",
- "ureq",
-]
-
-[[package]]
 name = "diesel"
 version = "2.3.12"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1939,17 +1885,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "442039f5147480ba31067cb00ada1adae6892028e40e45fc5de7b7df6dcc1b5f"
 dependencies = [
  "const-random",
-]
-
-[[package]]
-name = "docker_utils"
-version = "0.3.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "33df2efaf94c0be980944ca668065dfe13f2cb37a573e70876ae23dfb6a84ed6"
-dependencies = [
- "bon",
- "tokio",
- "wait_utils",
 ]
 
 [[package]]
@@ -4617,16 +4552,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "proto_dgraph"
-version = "0.0.1"
-dependencies = [
- "prost",
- "tonic",
- "tonic-prost",
- "tonic-prost-build",
-]
-
-[[package]]
 name = "protobuf"
 version = "3.7.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -7274,7 +7199,6 @@ dependencies = [
  "hyper-util",
  "percent-encoding",
  "pin-project",
- "rustls-native-certs",
  "socket2 0.6.5",
  "sync_wrapper",
  "tokio",
@@ -7703,17 +7627,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "09ac3b126d3914f9849036f826e054cbabdc8519970b8998ddaf3b5bd3c65f11"
 dependencies = [
  "libc",
-]
-
-[[package]]
-name = "wait_utils"
-version = "0.2.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "43ab2cdaf40b3a2e23e730c9944e49e95c3641b00dd7505b7be5b50d0d6a8624"
-dependencies = [
- "tokio",
- "tonic",
- "tonic-health",
 ]
 
 [[package]]

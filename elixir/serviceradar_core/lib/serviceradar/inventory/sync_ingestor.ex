@@ -13,6 +13,7 @@ defmodule ServiceRadar.Inventory.SyncIngestor do
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Inventory.DeviceRiskReducer
   alias ServiceRadar.Inventory.Identity.BatchResolver
+  alias ServiceRadar.Inventory.Identity.Fence
   alias ServiceRadar.Inventory.Sync.Aliases
   alias ServiceRadar.Inventory.Sync.DeviceRecords
   alias ServiceRadar.Inventory.Sync.DeviceWrites
@@ -103,6 +104,11 @@ defmodule ServiceRadar.Inventory.SyncIngestor do
     {resolved_updates, strong_uids, device_records, identifier_records, interface_records} =
       resolve_updates(normalized_updates, actor)
 
+    # Observe-only identity fence. Identity is resolved once above and then five
+    # bulk writes follow, so a merge landing partway through leaves some of them
+    # on the old device. One extra read per batch, not per device.
+    pins = Fence.observe_pins(Enum.map(resolved_updates, fn {_update, uid} -> uid end))
+
     previous_device_states = StateEvents.previous_device_states(device_records)
 
     case upsert_devices(device_records, strong_uids) do
@@ -131,6 +137,8 @@ defmodule ServiceRadar.Inventory.SyncIngestor do
         _ = maybe_process_alias_conflicts(:ok, resolved_updates, actor)
         alias_result = maybe_process_alias_updates(:ok, resolved_updates, actor)
 
+        pins |> drop_remapped_pins(remap) |> Fence.observe_many(:sync_ingestor)
+
         finalize_ingest_results(
           :ok,
           risk_result,
@@ -143,6 +151,14 @@ defmodule ServiceRadar.Inventory.SyncIngestor do
         finalize_ingest_results(error, :ok, :ok, :ok, :ok)
     end
   end
+
+  # An IP-conflict recovery rewrites a device uid deliberately, which is not the
+  # drift this is measuring: the pinned uid genuinely stops naming the device, so
+  # it would read as `observed_missing` and inflate the numbers the enforcement
+  # decision is made from. Drop those rather than report them.
+  defp drop_remapped_pins(pins, remap) when map_size(remap) == 0, do: pins
+
+  defp drop_remapped_pins(pins, remap), do: Map.drop(pins, Map.keys(remap))
 
   defp apply_uid_remap_to_identifier_records(records, remap) when map_size(remap) == 0,
     do: records

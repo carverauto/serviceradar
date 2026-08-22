@@ -150,5 +150,5 @@ All tables must use `prefix: "platform"` in migrations and AshPostgres resources
 - STIX 2.1 OASIS Standard: https://docs.oasis-open.org/cti/stix/v2.1/os/stix-v2.1-os.html
 - AlienVault OTX API docs: https://otx.alienvault.com/api
 - AlienVault OTX Python SDK: https://github.com/AlienVault-OTX/OTX-Python-SDK
-- ServiceRadar Go SDK: https://code.carverauto.dev/carverauto/serviceradar-sdk-go
-- ServiceRadar Rust SDK: https://code.carverauto.dev/carverauto/serviceradar-sdk-rust
+- ServiceRadar Go SDK: https://github.com/carverauto/serviceradar-sdk-go
+- ServiceRadar Rust SDK: https://github.com/carverauto/serviceradar-sdk-rust

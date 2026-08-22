@@ -19,6 +19,13 @@ pub struct ListenerMetrics {
     /// operators can tell parser-side filtering from backpressure overflow.
     pub channel_full_drops: AtomicU64,
     pub parse_errors: AtomicU64,
+    /// Datagrams that could not be recognised as this protocol at all (wrong
+    /// version, too short to scope). A UDP listener on a well-known port
+    /// receives arbitrary internet noise -- a stray DNS reply, a port scan --
+    /// so this is expected traffic, not a fault, and is counted apart from
+    /// `parse_errors` so one stray packet cannot make a healthy listener look
+    /// permanently broken.
+    pub undecodable_datagrams: AtomicU64,
 }
 
 impl ListenerMetrics {
@@ -31,6 +38,7 @@ impl ListenerMetrics {
             flows_dropped: AtomicU64::new(0),
             channel_full_drops: AtomicU64::new(0),
             parse_errors: AtomicU64::new(0),
+            undecodable_datagrams: AtomicU64::new(0),
         }
     }
 }
@@ -168,16 +176,18 @@ impl MetricsReporter {
                 let dropped = metrics.flows_dropped.load(Ordering::Relaxed);
                 let channel_full = metrics.channel_full_drops.load(Ordering::Relaxed);
                 let errors = metrics.parse_errors.load(Ordering::Relaxed);
+                let undecodable = metrics.undecodable_datagrams.load(Ordering::Relaxed);
 
                 info!(
-                    "[{}@{}] packets_received: {}, flows_converted: {}, flows_dropped: {}, channel_full_drops: {}, parse_errors: {}",
+                    "[{}@{}] packets_received: {}, flows_converted: {}, flows_dropped: {}, channel_full_drops: {}, parse_errors: {}, undecodable_datagrams: {}",
                     metrics.protocol,
                     metrics.listen_addr,
                     packets,
                     flows,
                     dropped,
                     channel_full,
-                    errors
+                    errors,
+                    undecodable
                 );
             }
 

@@ -17,9 +17,6 @@
 [![OpenSSF Best Practices](https://www.bestpractices.dev/projects/11310/badge)](https://www.bestpractices.dev/projects/11310)
 <a href="https://cla-assistant.io/carverauto/serviceradar"><img src="https://cla-assistant.io/readme/badge/carverauto/serviceradar" alt="CLA assistant" /></a>
 
->[!IMPORTANT]
->Active source development and releases now live at [code.carverauto.dev/carverauto/serviceradar](https://code.carverauto.dev/carverauto/serviceradar)
-
 ServiceRadar is a distributed network monitoring system designed for infrastructure and services in hard-to-reach places or constrained environments. It provides real-time monitoring of internal services with cloud-based alerting to ensure you stay informed even during network or power outages.
 
 Demo site available at https://demo.serviceradar.cloud login: `demo@localhost` password: `serviceradar`
@@ -94,7 +91,7 @@ Get ServiceRadar running in under 5 minutes:
 export SERVICERADAR_HOST=<my-vm-ip>
 export GATEWAY_PUBLIC_BIND=0.0.0.0
 
-git clone https://code.carverauto.dev/carverauto/serviceradar.git
+git clone https://github.com/carverauto/serviceradar.git
 cd serviceradar
 
 docker compose pull

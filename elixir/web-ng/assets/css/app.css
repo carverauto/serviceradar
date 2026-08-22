@@ -452,9 +452,10 @@
 
   --sr-z-shell: 50;
   --sr-z-menu: 60;
-  --sr-z-toast: 70;
-  /* Above shell/menu; still below native dialog top-layer when showModal is used */
   --sr-z-modal: 200;
+  /* Above .sr-ui-modal (200). Native <dialog showModal()> still uses the
+     browser top layer; ToastTopLayer promotes flashes into that layer. */
+  --sr-z-toast: 300;
 
   --sr-color-canvas: #f7f9f8;
   --sr-color-surface: #fcfdfd;
@@ -947,6 +948,28 @@ samp,
 /* Modals — brand layout (no daisy modal dependency).
    Prefer native <dialog showModal()> (DialogTopLayer hook) so overlays live in
    the browser top layer and win over .sr-ops-sidebar / isolation:isolate. */
+/* App flashes use popover=manual so ToastTopLayer can enter the browser
+   top layer above <dialog showModal()>. UA popover CSS centers the box;
+   pin it to the top-right like the old fixed toast. */
+.sr-toast {
+  box-sizing: border-box;
+  position: fixed;
+  inset: 1rem 1rem auto auto;
+  margin: 0;
+  width: max-content;
+  height: fit-content;
+  max-width: calc(100vw - 2rem);
+  border: 0;
+  padding: 0;
+  background: transparent;
+  overflow: visible;
+  z-index: var(--sr-z-toast, 300);
+}
+
+.sr-toast[popover]:not(:popover-open):not([open]) {
+  display: none;
+}
+
 .sr-ui-modal,
 .modal {
   pointer-events: none;
@@ -5847,6 +5870,27 @@ table:has(.sr-ui-dropdown) td:has(.sr-ui-dropdown) {
 .sr-ops-vuln-assets {
   width: 100%;
   min-width: 0;
+  min-height: 0;
+  overflow: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(59, 76, 80, 0.7) transparent;
+}
+
+.sr-ops-vuln-assets::-webkit-scrollbar {
+  width: 0.5rem;
+  height: 0.5rem;
+}
+
+.sr-ops-vuln-assets::-webkit-scrollbar-thumb {
+  background: rgba(59, 76, 80, 0.7);
+  border-radius: 0.5rem;
+}
+
+.sr-ops-vuln-assets thead th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
 }
 
 .sr-ops-vuln-col-asset {

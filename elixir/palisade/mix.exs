@@ -2,7 +2,7 @@ defmodule Palisade.MixProject do
   use Mix.Project
 
   @version "0.1.0"
-  @source_url "https://code.carverauto.dev/carverauto/serviceradar/src/branch/main/elixir/palisade"
+  @source_url "https://github.com/carverauto/serviceradar/tree/staging/elixir/palisade"
 
   def project do
     [
@@ -42,8 +42,7 @@ defmodule Palisade.MixProject do
       maintainers: ["CarverAutomation"],
       licenses: ["Apache-2.0"],
       links: %{
-        "Source" =>
-          "https://code.carverauto.dev/carverauto/serviceradar/src/branch/main/elixir/palisade"
+        "Source" => "https://github.com/carverauto/serviceradar/tree/staging/elixir/palisade"
       },
       # Hex publish uploads these files (relative to the project
       # root). Excluded by default: _build, deps, .git, etc.

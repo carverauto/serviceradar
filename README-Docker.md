@@ -47,7 +47,7 @@ Install [Docker Desktop](https://www.docker.com/products/docker-desktop/) and en
 
 1. **Clone and navigate**:
    ```bash
-   git clone https://code.carverauto.dev/carverauto/serviceradar.git
+   git clone https://github.com/carverauto/serviceradar.git
    cd serviceradar
    ```
 
@@ -288,5 +288,5 @@ docker compose exec web-ng cat /etc/serviceradar/admin/admin-password
 ## Support
 
 - [Complete Documentation](docs/docs/)
-- [Report Issues](https://code.carverauto.dev/carverauto/serviceradar/issues)
-- [Project Repository](https://code.carverauto.dev/carverauto/serviceradar)
+- [Report Issues](https://github.com/carverauto/serviceradar/issues)
+- [Project Repository](https://github.com/carverauto/serviceradar)

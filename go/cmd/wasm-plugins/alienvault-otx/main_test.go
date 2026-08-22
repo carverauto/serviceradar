@@ -409,6 +409,18 @@ func TestConfigSchemaDeclaresSecretRefAndBounds(t *testing.T) {
 	if !requiredField(schema, "api_key_secret_ref") {
 		t.Fatalf("api_key_secret_ref must remain required")
 	}
+	// The key is materialized from a credential rule, never typed on the
+	// assignment form. Without these markers core's ConfigSchema keeps the
+	// field in `required` and PluginAssignment.create rejects every import.
+	if apiKey["x-serviceradar-credential-materialized"] != true {
+		t.Fatalf("api_key_secret_ref must be marked credential-materialized")
+	}
+	if apiKey["x-serviceradar-ui-hidden"] != true {
+		t.Fatalf("api_key_secret_ref must be hidden on the assignment form")
+	}
+	if apiKey["credentialKind"] != "api_token" {
+		t.Fatalf("api_key_secret_ref.credentialKind = %v, want api_token", apiKey["credentialKind"])
+	}
 
 	limit := properties["limit"].(map[string]any)
 	if got := int(limit["maximum"].(float64)); got != maxLimit {

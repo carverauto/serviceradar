@@ -160,8 +160,17 @@ impl FlowHandler for NetflowHandler {
             match parser.iter_packets_from_source(peer, buf) {
                 Ok(iter) => iter.collect(),
                 Err(e) => {
-                    warn!("Failed to parse NetFlow packet from {}: {:?}", peer, e);
-                    self.metrics.parse_errors.fetch_add(1, Ordering::Relaxed);
+                    // The datagram could not be scoped as NetFlow/IPFIX at all,
+                    // so it is almost certainly not NetFlow: this port receives
+                    // whatever the network sends it. Counted apart from
+                    // parse_errors and logged at debug, because a single stray
+                    // packet used to pin parse_errors above zero for the
+                    // lifetime of the process and make a healthy listener read
+                    // as permanently failing in every metrics line.
+                    debug!("Undecodable datagram from {} on NetFlow listener: {:?}", peer, e);
+                    self.metrics
+                        .undecodable_datagrams
+                        .fetch_add(1, Ordering::Relaxed);
                     return vec![];
                 }
             }

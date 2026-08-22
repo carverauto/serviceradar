@@ -803,7 +803,15 @@ defmodule ServiceRadar.EventWriter.Config do
         batch_timeout: 500,
         allow_stream_fallback: false,
         reconcile_stream_shape: false,
-        ensure_stream: false
+        ensure_stream: false,
+        # Best effort: these read leftover flow messages out of the shared
+        # `events` stream from before flows got their own. Whether `events`
+        # still carries a given flow subject depends on how long ago that
+        # deployment cut over, and a subject it never carried makes NATS reject
+        # the consumer with 10093 ("filter subject is not a valid subset of the
+        # interest subjects"). A backlog reader must never be able to take the
+        # live pipeline down with it -- see setup_jetstream_consumers/2.
+        best_effort: true
       }
 
       # Drain every live flows.* entry (defaults + EXTRA subjects).

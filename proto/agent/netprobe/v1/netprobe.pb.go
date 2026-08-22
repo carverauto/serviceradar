@@ -36,6 +36,61 @@ const (
 	_ = protoimpl.EnforceVersion(protoimpl.MaxVersion - 20)
 )
 
+// How a census binding was observed. Kept distinct from the transport because
+// the evidence quality differs: an ARP reply names its own address, while an
+// arbitrary frame merely carries a source address.
+type DeviceCensusKind int32
+
+const (
+	DeviceCensusKind_DEVICE_CENSUS_KIND_UNSPECIFIED DeviceCensusKind = 0
+	DeviceCensusKind_DEVICE_CENSUS_KIND_ARP_REQUEST DeviceCensusKind = 1
+	DeviceCensusKind_DEVICE_CENSUS_KIND_ARP_REPLY   DeviceCensusKind = 2
+	DeviceCensusKind_DEVICE_CENSUS_KIND_IPV6_NDP    DeviceCensusKind = 3
+)
+
+// Enum value maps for DeviceCensusKind.
+var (
+	DeviceCensusKind_name = map[int32]string{
+		0: "DEVICE_CENSUS_KIND_UNSPECIFIED",
+		1: "DEVICE_CENSUS_KIND_ARP_REQUEST",
+		2: "DEVICE_CENSUS_KIND_ARP_REPLY",
+		3: "DEVICE_CENSUS_KIND_IPV6_NDP",
+	}
+	DeviceCensusKind_value = map[string]int32{
+		"DEVICE_CENSUS_KIND_UNSPECIFIED": 0,
+		"DEVICE_CENSUS_KIND_ARP_REQUEST": 1,
+		"DEVICE_CENSUS_KIND_ARP_REPLY":   2,
+		"DEVICE_CENSUS_KIND_IPV6_NDP":    3,
+	}
+)
+
+func (x DeviceCensusKind) Enum() *DeviceCensusKind {
+	p := new(DeviceCensusKind)
+	*p = x
+	return p
+}
+
+func (x DeviceCensusKind) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (DeviceCensusKind) Descriptor() protoreflect.EnumDescriptor {
+	return file_agent_netprobe_v1_netprobe_proto_enumTypes[0].Descriptor()
+}
+
+func (DeviceCensusKind) Type() protoreflect.EnumType {
+	return &file_agent_netprobe_v1_netprobe_proto_enumTypes[0]
+}
+
+func (x DeviceCensusKind) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
+// Deprecated: Use DeviceCensusKind.Descriptor instead.
+func (DeviceCensusKind) EnumDescriptor() ([]byte, []int) {
+	return file_agent_netprobe_v1_netprobe_proto_rawDescGZIP(), []int{0}
+}
+
 // NetprobeFrame is the outer envelope for the UDS IPC protocol.
 // Frames are encoded as protobuf messages with a 4-byte big-endian length
 // prefix. Implementations MUST reject frames larger than 4 MiB.
@@ -60,6 +115,7 @@ type NetprobeFrame struct {
 	//	*NetprobeFrame_BannerMatchBatch
 	//	*NetprobeFrame_ExternalFlowAck
 	//	*NetprobeFrame_FlowAttributionBatch
+	//	*NetprobeFrame_DeviceCensusSnapshot
 	Payload       isNetprobeFrame_Payload `protobuf_oneof:"payload"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -253,6 +309,15 @@ func (x *NetprobeFrame) GetFlowAttributionBatch() *FlowAttributionEventBatch {
 	return nil
 }
 
+func (x *NetprobeFrame) GetDeviceCensusSnapshot() *DeviceCensusSnapshot {
+	if x != nil {
+		if x, ok := x.Payload.(*NetprobeFrame_DeviceCensusSnapshot); ok {
+			return x.DeviceCensusSnapshot
+		}
+	}
+	return nil
+}
+
 type isNetprobeFrame_Payload interface {
 	isNetprobeFrame_Payload()
 }
@@ -323,6 +388,10 @@ type NetprobeFrame_FlowAttributionBatch struct {
 	FlowAttributionBatch *FlowAttributionEventBatch `protobuf:"bytes,29,opt,name=flow_attribution_batch,json=flowAttributionBatch,proto3,oneof"`
 }
 
+type NetprobeFrame_DeviceCensusSnapshot struct {
+	DeviceCensusSnapshot *DeviceCensusSnapshot `protobuf:"bytes,30,opt,name=device_census_snapshot,json=deviceCensusSnapshot,proto3,oneof"`
+}
+
 func (*NetprobeFrame_ApplyConfig) isNetprobeFrame_Payload() {}
 
 func (*NetprobeFrame_ConfigAck) isNetprobeFrame_Payload() {}
@@ -354,6 +423,8 @@ func (*NetprobeFrame_BannerMatchBatch) isNetprobeFrame_Payload() {}
 func (*NetprobeFrame_ExternalFlowAck) isNetprobeFrame_Payload() {}
 
 func (*NetprobeFrame_FlowAttributionBatch) isNetprobeFrame_Payload() {}
+
+func (*NetprobeFrame_DeviceCensusSnapshot) isNetprobeFrame_Payload() {}
 
 type ApplyConfig struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
@@ -3466,11 +3537,227 @@ func (x *BannerMatchBatch) GetMatches() []*BannerMatch {
 	return nil
 }
 
+// One device the passive census currently believes is present on a segment.
+type DeviceCensusObservation struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	Mac   string                 `protobuf:"bytes,1,opt,name=mac,proto3" json:"mac,omitempty"`
+	// Empty for an RFC 5227 ARP probe: the device announced itself before it
+	// owned an address, so there is a MAC to record but no binding yet.
+	Ip                string           `protobuf:"bytes,2,opt,name=ip,proto3" json:"ip,omitempty"`
+	InterfaceIndex    uint32           `protobuf:"varint,3,opt,name=interface_index,json=interfaceIndex,proto3" json:"interface_index,omitempty"`
+	Kind              DeviceCensusKind `protobuf:"varint,4,opt,name=kind,proto3,enum=serviceradar.agent.netprobe.v1.DeviceCensusKind" json:"kind,omitempty"`
+	FirstSeenUnixNano int64            `protobuf:"varint,5,opt,name=first_seen_unix_nano,json=firstSeenUnixNano,proto3" json:"first_seen_unix_nano,omitempty"`
+	LastSeenUnixNano  int64            `protobuf:"varint,6,opt,name=last_seen_unix_nano,json=lastSeenUnixNano,proto3" json:"last_seen_unix_nano,omitempty"`
+	// The MAC is locally administered, i.e. very likely randomized. It must never
+	// anchor a canonical device; SourcePolicy enforces that on the core side.
+	RandomizedMac bool `protobuf:"varint,7,opt,name=randomized_mac,json=randomizedMac,proto3" json:"randomized_mac,omitempty"`
+	// The address is not on the observer's segment, so this MAC belongs to a
+	// forwarding router rather than to the address owner.
+	OffSegment    bool `protobuf:"varint,8,opt,name=off_segment,json=offSegment,proto3" json:"off_segment,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *DeviceCensusObservation) Reset() {
+	*x = DeviceCensusObservation{}
+	mi := &file_agent_netprobe_v1_netprobe_proto_msgTypes[36]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *DeviceCensusObservation) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*DeviceCensusObservation) ProtoMessage() {}
+
+func (x *DeviceCensusObservation) ProtoReflect() protoreflect.Message {
+	mi := &file_agent_netprobe_v1_netprobe_proto_msgTypes[36]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use DeviceCensusObservation.ProtoReflect.Descriptor instead.
+func (*DeviceCensusObservation) Descriptor() ([]byte, []int) {
+	return file_agent_netprobe_v1_netprobe_proto_rawDescGZIP(), []int{36}
+}
+
+func (x *DeviceCensusObservation) GetMac() string {
+	if x != nil {
+		return x.Mac
+	}
+	return ""
+}
+
+func (x *DeviceCensusObservation) GetIp() string {
+	if x != nil {
+		return x.Ip
+	}
+	return ""
+}
+
+func (x *DeviceCensusObservation) GetInterfaceIndex() uint32 {
+	if x != nil {
+		return x.InterfaceIndex
+	}
+	return 0
+}
+
+func (x *DeviceCensusObservation) GetKind() DeviceCensusKind {
+	if x != nil {
+		return x.Kind
+	}
+	return DeviceCensusKind_DEVICE_CENSUS_KIND_UNSPECIFIED
+}
+
+func (x *DeviceCensusObservation) GetFirstSeenUnixNano() int64 {
+	if x != nil {
+		return x.FirstSeenUnixNano
+	}
+	return 0
+}
+
+func (x *DeviceCensusObservation) GetLastSeenUnixNano() int64 {
+	if x != nil {
+		return x.LastSeenUnixNano
+	}
+	return 0
+}
+
+func (x *DeviceCensusObservation) GetRandomizedMac() bool {
+	if x != nil {
+		return x.RandomizedMac
+	}
+	return false
+}
+
+func (x *DeviceCensusObservation) GetOffSegment() bool {
+	if x != nil {
+		return x.OffSegment
+	}
+	return false
+}
+
+// A COMPLETE current-state view of one interface's segment.
+//
+// Complete, not incremental, on purpose: the core ingestor writes nothing
+// unless a payload declares itself a full snapshot, and completeness is what
+// lets absence mean "this binding aged out" rather than "it was quiet during
+// one tick".
+type DeviceCensusSnapshot struct {
+	state               protoimpl.MessageState     `protogen:"open.v1"`
+	Observations        []*DeviceCensusObservation `protobuf:"bytes,1,rep,name=observations,proto3" json:"observations,omitempty"`
+	SnapshotId          string                     `protobuf:"bytes,2,opt,name=snapshot_id,json=snapshotId,proto3" json:"snapshot_id,omitempty"`
+	InterfaceName       string                     `protobuf:"bytes,3,opt,name=interface_name,json=interfaceName,proto3" json:"interface_name,omitempty"`
+	GeneratedAtUnixNano int64                      `protobuf:"varint,4,opt,name=generated_at_unix_nano,json=generatedAtUnixNano,proto3" json:"generated_at_unix_nano,omitempty"`
+	// False when the snapshot had to be split across frames; only the frame that
+	// sets this completes the set.
+	Complete   bool   `protobuf:"varint,5,opt,name=complete,proto3" json:"complete,omitempty"`
+	ChunkIndex uint32 `protobuf:"varint,6,opt,name=chunk_index,json=chunkIndex,proto3" json:"chunk_index,omitempty"`
+	ChunkCount uint32 `protobuf:"varint,7,opt,name=chunk_count,json=chunkCount,proto3" json:"chunk_count,omitempty"`
+	// Bindings the kernel ring dropped since the previous snapshot.
+	DroppedSinceLast uint32 `protobuf:"varint,8,opt,name=dropped_since_last,json=droppedSinceLast,proto3" json:"dropped_since_last,omitempty"`
+	unknownFields    protoimpl.UnknownFields
+	sizeCache        protoimpl.SizeCache
+}
+
+func (x *DeviceCensusSnapshot) Reset() {
+	*x = DeviceCensusSnapshot{}
+	mi := &file_agent_netprobe_v1_netprobe_proto_msgTypes[37]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *DeviceCensusSnapshot) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*DeviceCensusSnapshot) ProtoMessage() {}
+
+func (x *DeviceCensusSnapshot) ProtoReflect() protoreflect.Message {
+	mi := &file_agent_netprobe_v1_netprobe_proto_msgTypes[37]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use DeviceCensusSnapshot.ProtoReflect.Descriptor instead.
+func (*DeviceCensusSnapshot) Descriptor() ([]byte, []int) {
+	return file_agent_netprobe_v1_netprobe_proto_rawDescGZIP(), []int{37}
+}
+
+func (x *DeviceCensusSnapshot) GetObservations() []*DeviceCensusObservation {
+	if x != nil {
+		return x.Observations
+	}
+	return nil
+}
+
+func (x *DeviceCensusSnapshot) GetSnapshotId() string {
+	if x != nil {
+		return x.SnapshotId
+	}
+	return ""
+}
+
+func (x *DeviceCensusSnapshot) GetInterfaceName() string {
+	if x != nil {
+		return x.InterfaceName
+	}
+	return ""
+}
+
+func (x *DeviceCensusSnapshot) GetGeneratedAtUnixNano() int64 {
+	if x != nil {
+		return x.GeneratedAtUnixNano
+	}
+	return 0
+}
+
+func (x *DeviceCensusSnapshot) GetComplete() bool {
+	if x != nil {
+		return x.Complete
+	}
+	return false
+}
+
+func (x *DeviceCensusSnapshot) GetChunkIndex() uint32 {
+	if x != nil {
+		return x.ChunkIndex
+	}
+	return 0
+}
+
+func (x *DeviceCensusSnapshot) GetChunkCount() uint32 {
+	if x != nil {
+		return x.ChunkCount
+	}
+	return 0
+}
+
+func (x *DeviceCensusSnapshot) GetDroppedSinceLast() uint32 {
+	if x != nil {
+		return x.DroppedSinceLast
+	}
+	return 0
+}
+
 var File_agent_netprobe_v1_netprobe_proto protoreflect.FileDescriptor
 
 const file_agent_netprobe_v1_netprobe_proto_rawDesc = "" +
 	"\n" +
-	" agent/netprobe/v1/netprobe.proto\x12\x1eserviceradar.agent.netprobe.v1\"\xb8\v\n" +
+	" agent/netprobe/v1/netprobe.proto\x12\x1eserviceradar.agent.netprobe.v1\"\xa6\f\n" +
 	"\rNetprobeFrame\x12\x1a\n" +
 	"\bsequence\x18\x01 \x01(\x04R\bsequence\x12P\n" +
 	"\fapply_config\x18\x02 \x01(\v2+.serviceradar.agent.netprobe.v1.ApplyConfigH\x00R\vapplyConfig\x12J\n" +
@@ -3489,7 +3776,8 @@ const file_agent_netprobe_v1_netprobe_proto_rawDesc = "" +
 	"\fbanner_batch\x18\x1a \x01(\v2+.serviceradar.agent.netprobe.v1.BannerBatchH\x00R\vbannerBatch\x12`\n" +
 	"\x12banner_match_batch\x18\x1b \x01(\v20.serviceradar.agent.netprobe.v1.BannerMatchBatchH\x00R\x10bannerMatchBatch\x12]\n" +
 	"\x11external_flow_ack\x18\x1c \x01(\v2/.serviceradar.agent.netprobe.v1.ExternalFlowAckH\x00R\x0fexternalFlowAck\x12q\n" +
-	"\x16flow_attribution_batch\x18\x1d \x01(\v29.serviceradar.agent.netprobe.v1.FlowAttributionEventBatchH\x00R\x14flowAttributionBatchB\t\n" +
+	"\x16flow_attribution_batch\x18\x1d \x01(\v29.serviceradar.agent.netprobe.v1.FlowAttributionEventBatchH\x00R\x14flowAttributionBatch\x12l\n" +
+	"\x16device_census_snapshot\x18\x1e \x01(\v24.serviceradar.agent.netprobe.v1.DeviceCensusSnapshotH\x00R\x14deviceCensusSnapshotB\t\n" +
 	"\apayload\"\\\n" +
 	"\vApplyConfig\x12M\n" +
 	"\x06config\x18\x01 \x01(\v25.serviceradar.agent.netprobe.v1.VisibilityAgentConfigR\x06config\",\n" +
@@ -3795,7 +4083,34 @@ const file_agent_netprobe_v1_netprobe_proto_rawDesc = "" +
 	"confidence\x12$\n" +
 	"\x0eraw_pattern_id\x18\a \x01(\tR\frawPatternId\"Y\n" +
 	"\x10BannerMatchBatch\x12E\n" +
-	"\amatches\x18\x01 \x03(\v2+.serviceradar.agent.netprobe.v1.BannerMatchR\amatchesBGZEgithub.com/carverauto/serviceradar/proto/agent/netprobe/v1;netprobepbb\x06proto3"
+	"\amatches\x18\x01 \x03(\v2+.serviceradar.agent.netprobe.v1.BannerMatchR\amatches\"\xd2\x02\n" +
+	"\x17DeviceCensusObservation\x12\x10\n" +
+	"\x03mac\x18\x01 \x01(\tR\x03mac\x12\x0e\n" +
+	"\x02ip\x18\x02 \x01(\tR\x02ip\x12'\n" +
+	"\x0finterface_index\x18\x03 \x01(\rR\x0einterfaceIndex\x12D\n" +
+	"\x04kind\x18\x04 \x01(\x0e20.serviceradar.agent.netprobe.v1.DeviceCensusKindR\x04kind\x12/\n" +
+	"\x14first_seen_unix_nano\x18\x05 \x01(\x03R\x11firstSeenUnixNano\x12-\n" +
+	"\x13last_seen_unix_nano\x18\x06 \x01(\x03R\x10lastSeenUnixNano\x12%\n" +
+	"\x0erandomized_mac\x18\a \x01(\bR\rrandomizedMac\x12\x1f\n" +
+	"\voff_segment\x18\b \x01(\bR\n" +
+	"offSegment\"\xfc\x02\n" +
+	"\x14DeviceCensusSnapshot\x12[\n" +
+	"\fobservations\x18\x01 \x03(\v27.serviceradar.agent.netprobe.v1.DeviceCensusObservationR\fobservations\x12\x1f\n" +
+	"\vsnapshot_id\x18\x02 \x01(\tR\n" +
+	"snapshotId\x12%\n" +
+	"\x0einterface_name\x18\x03 \x01(\tR\rinterfaceName\x123\n" +
+	"\x16generated_at_unix_nano\x18\x04 \x01(\x03R\x13generatedAtUnixNano\x12\x1a\n" +
+	"\bcomplete\x18\x05 \x01(\bR\bcomplete\x12\x1f\n" +
+	"\vchunk_index\x18\x06 \x01(\rR\n" +
+	"chunkIndex\x12\x1f\n" +
+	"\vchunk_count\x18\a \x01(\rR\n" +
+	"chunkCount\x12,\n" +
+	"\x12dropped_since_last\x18\b \x01(\rR\x10droppedSinceLast*\x9d\x01\n" +
+	"\x10DeviceCensusKind\x12\"\n" +
+	"\x1eDEVICE_CENSUS_KIND_UNSPECIFIED\x10\x00\x12\"\n" +
+	"\x1eDEVICE_CENSUS_KIND_ARP_REQUEST\x10\x01\x12 \n" +
+	"\x1cDEVICE_CENSUS_KIND_ARP_REPLY\x10\x02\x12\x1f\n" +
+	"\x1bDEVICE_CENSUS_KIND_IPV6_NDP\x10\x03BGZEgithub.com/carverauto/serviceradar/proto/agent/netprobe/v1;netprobepbb\x06proto3"
 
 var (
 	file_agent_netprobe_v1_netprobe_proto_rawDescOnce sync.Once
@@ -3809,104 +4124,111 @@ func file_agent_netprobe_v1_netprobe_proto_rawDescGZIP() []byte {
 	return file_agent_netprobe_v1_netprobe_proto_rawDescData
 }
 
-var file_agent_netprobe_v1_netprobe_proto_msgTypes = make([]protoimpl.MessageInfo, 38)
+var file_agent_netprobe_v1_netprobe_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
+var file_agent_netprobe_v1_netprobe_proto_msgTypes = make([]protoimpl.MessageInfo, 40)
 var file_agent_netprobe_v1_netprobe_proto_goTypes = []any{
-	(*NetprobeFrame)(nil),             // 0: serviceradar.agent.netprobe.v1.NetprobeFrame
-	(*ApplyConfig)(nil),               // 1: serviceradar.agent.netprobe.v1.ApplyConfig
-	(*ConfigAck)(nil),                 // 2: serviceradar.agent.netprobe.v1.ConfigAck
-	(*Ping)(nil),                      // 3: serviceradar.agent.netprobe.v1.Ping
-	(*PingAck)(nil),                   // 4: serviceradar.agent.netprobe.v1.PingAck
-	(*ErrorFrame)(nil),                // 5: serviceradar.agent.netprobe.v1.ErrorFrame
-	(*VisibilityAgentConfig)(nil),     // 6: serviceradar.agent.netprobe.v1.VisibilityAgentConfig
-	(*DeviceBinding)(nil),             // 7: serviceradar.agent.netprobe.v1.DeviceBinding
-	(*FingerprintConfig)(nil),         // 8: serviceradar.agent.netprobe.v1.FingerprintConfig
-	(*DpiConfig)(nil),                 // 9: serviceradar.agent.netprobe.v1.DpiConfig
-	(*FingerprintEvent)(nil),          // 10: serviceradar.agent.netprobe.v1.FingerprintEvent
-	(*LicenseCleanFingerprint)(nil),   // 11: serviceradar.agent.netprobe.v1.LicenseCleanFingerprint
-	(*P0FFingerprintMatch)(nil),       // 12: serviceradar.agent.netprobe.v1.P0fFingerprintMatch
-	(*MuonFpFingerprintMatch)(nil),    // 13: serviceradar.agent.netprobe.v1.MuonFpFingerprintMatch
-	(*RecogFingerprintMatch)(nil),     // 14: serviceradar.agent.netprobe.v1.RecogFingerprintMatch
-	(*SatoriFingerprintMatch)(nil),    // 15: serviceradar.agent.netprobe.v1.SatoriFingerprintMatch
-	(*FingerprintMatch)(nil),          // 16: serviceradar.agent.netprobe.v1.FingerprintMatch
-	(*OsMatch)(nil),                   // 17: serviceradar.agent.netprobe.v1.OsMatch
-	(*FingerprintDisagreement)(nil),   // 18: serviceradar.agent.netprobe.v1.FingerprintDisagreement
-	(*TcpFingerprint)(nil),            // 19: serviceradar.agent.netprobe.v1.TcpFingerprint
-	(*TlsFingerprint)(nil),            // 20: serviceradar.agent.netprobe.v1.TlsFingerprint
-	(*HttpFingerprint)(nil),           // 21: serviceradar.agent.netprobe.v1.HttpFingerprint
-	(*DpiEvent)(nil),                  // 22: serviceradar.agent.netprobe.v1.DpiEvent
-	(*WorkloadIdentity)(nil),          // 23: serviceradar.agent.netprobe.v1.WorkloadIdentity
-	(*FlowAttributionEvent)(nil),      // 24: serviceradar.agent.netprobe.v1.FlowAttributionEvent
-	(*FlowAttributionEventBatch)(nil), // 25: serviceradar.agent.netprobe.v1.FlowAttributionEventBatch
-	(*ProcessSnapshot)(nil),           // 26: serviceradar.agent.netprobe.v1.ProcessSnapshot
-	(*ProcessSnapshotEntry)(nil),      // 27: serviceradar.agent.netprobe.v1.ProcessSnapshotEntry
-	(*ExternalFlowRecord)(nil),        // 28: serviceradar.agent.netprobe.v1.ExternalFlowRecord
-	(*ExternalFlowAck)(nil),           // 29: serviceradar.agent.netprobe.v1.ExternalFlowAck
-	(*StartRemoteCapture)(nil),        // 30: serviceradar.agent.netprobe.v1.StartRemoteCapture
-	(*PcapngBlock)(nil),               // 31: serviceradar.agent.netprobe.v1.PcapngBlock
-	(*BannerObservation)(nil),         // 32: serviceradar.agent.netprobe.v1.BannerObservation
-	(*BannerBatch)(nil),               // 33: serviceradar.agent.netprobe.v1.BannerBatch
-	(*BannerMatch)(nil),               // 34: serviceradar.agent.netprobe.v1.BannerMatch
-	(*BannerMatchBatch)(nil),          // 35: serviceradar.agent.netprobe.v1.BannerMatchBatch
-	nil,                               // 36: serviceradar.agent.netprobe.v1.WorkloadIdentity.LabelsEntry
-	nil,                               // 37: serviceradar.agent.netprobe.v1.WorkloadIdentity.AnnotationsEntry
+	(DeviceCensusKind)(0),             // 0: serviceradar.agent.netprobe.v1.DeviceCensusKind
+	(*NetprobeFrame)(nil),             // 1: serviceradar.agent.netprobe.v1.NetprobeFrame
+	(*ApplyConfig)(nil),               // 2: serviceradar.agent.netprobe.v1.ApplyConfig
+	(*ConfigAck)(nil),                 // 3: serviceradar.agent.netprobe.v1.ConfigAck
+	(*Ping)(nil),                      // 4: serviceradar.agent.netprobe.v1.Ping
+	(*PingAck)(nil),                   // 5: serviceradar.agent.netprobe.v1.PingAck
+	(*ErrorFrame)(nil),                // 6: serviceradar.agent.netprobe.v1.ErrorFrame
+	(*VisibilityAgentConfig)(nil),     // 7: serviceradar.agent.netprobe.v1.VisibilityAgentConfig
+	(*DeviceBinding)(nil),             // 8: serviceradar.agent.netprobe.v1.DeviceBinding
+	(*FingerprintConfig)(nil),         // 9: serviceradar.agent.netprobe.v1.FingerprintConfig
+	(*DpiConfig)(nil),                 // 10: serviceradar.agent.netprobe.v1.DpiConfig
+	(*FingerprintEvent)(nil),          // 11: serviceradar.agent.netprobe.v1.FingerprintEvent
+	(*LicenseCleanFingerprint)(nil),   // 12: serviceradar.agent.netprobe.v1.LicenseCleanFingerprint
+	(*P0FFingerprintMatch)(nil),       // 13: serviceradar.agent.netprobe.v1.P0fFingerprintMatch
+	(*MuonFpFingerprintMatch)(nil),    // 14: serviceradar.agent.netprobe.v1.MuonFpFingerprintMatch
+	(*RecogFingerprintMatch)(nil),     // 15: serviceradar.agent.netprobe.v1.RecogFingerprintMatch
+	(*SatoriFingerprintMatch)(nil),    // 16: serviceradar.agent.netprobe.v1.SatoriFingerprintMatch
+	(*FingerprintMatch)(nil),          // 17: serviceradar.agent.netprobe.v1.FingerprintMatch
+	(*OsMatch)(nil),                   // 18: serviceradar.agent.netprobe.v1.OsMatch
+	(*FingerprintDisagreement)(nil),   // 19: serviceradar.agent.netprobe.v1.FingerprintDisagreement
+	(*TcpFingerprint)(nil),            // 20: serviceradar.agent.netprobe.v1.TcpFingerprint
+	(*TlsFingerprint)(nil),            // 21: serviceradar.agent.netprobe.v1.TlsFingerprint
+	(*HttpFingerprint)(nil),           // 22: serviceradar.agent.netprobe.v1.HttpFingerprint
+	(*DpiEvent)(nil),                  // 23: serviceradar.agent.netprobe.v1.DpiEvent
+	(*WorkloadIdentity)(nil),          // 24: serviceradar.agent.netprobe.v1.WorkloadIdentity
+	(*FlowAttributionEvent)(nil),      // 25: serviceradar.agent.netprobe.v1.FlowAttributionEvent
+	(*FlowAttributionEventBatch)(nil), // 26: serviceradar.agent.netprobe.v1.FlowAttributionEventBatch
+	(*ProcessSnapshot)(nil),           // 27: serviceradar.agent.netprobe.v1.ProcessSnapshot
+	(*ProcessSnapshotEntry)(nil),      // 28: serviceradar.agent.netprobe.v1.ProcessSnapshotEntry
+	(*ExternalFlowRecord)(nil),        // 29: serviceradar.agent.netprobe.v1.ExternalFlowRecord
+	(*ExternalFlowAck)(nil),           // 30: serviceradar.agent.netprobe.v1.ExternalFlowAck
+	(*StartRemoteCapture)(nil),        // 31: serviceradar.agent.netprobe.v1.StartRemoteCapture
+	(*PcapngBlock)(nil),               // 32: serviceradar.agent.netprobe.v1.PcapngBlock
+	(*BannerObservation)(nil),         // 33: serviceradar.agent.netprobe.v1.BannerObservation
+	(*BannerBatch)(nil),               // 34: serviceradar.agent.netprobe.v1.BannerBatch
+	(*BannerMatch)(nil),               // 35: serviceradar.agent.netprobe.v1.BannerMatch
+	(*BannerMatchBatch)(nil),          // 36: serviceradar.agent.netprobe.v1.BannerMatchBatch
+	(*DeviceCensusObservation)(nil),   // 37: serviceradar.agent.netprobe.v1.DeviceCensusObservation
+	(*DeviceCensusSnapshot)(nil),      // 38: serviceradar.agent.netprobe.v1.DeviceCensusSnapshot
+	nil,                               // 39: serviceradar.agent.netprobe.v1.WorkloadIdentity.LabelsEntry
+	nil,                               // 40: serviceradar.agent.netprobe.v1.WorkloadIdentity.AnnotationsEntry
 }
 var file_agent_netprobe_v1_netprobe_proto_depIdxs = []int32{
-	1,  // 0: serviceradar.agent.netprobe.v1.NetprobeFrame.apply_config:type_name -> serviceradar.agent.netprobe.v1.ApplyConfig
-	2,  // 1: serviceradar.agent.netprobe.v1.NetprobeFrame.config_ack:type_name -> serviceradar.agent.netprobe.v1.ConfigAck
-	3,  // 2: serviceradar.agent.netprobe.v1.NetprobeFrame.ping:type_name -> serviceradar.agent.netprobe.v1.Ping
-	4,  // 3: serviceradar.agent.netprobe.v1.NetprobeFrame.ping_ack:type_name -> serviceradar.agent.netprobe.v1.PingAck
-	10, // 4: serviceradar.agent.netprobe.v1.NetprobeFrame.fingerprint_event:type_name -> serviceradar.agent.netprobe.v1.FingerprintEvent
-	5,  // 5: serviceradar.agent.netprobe.v1.NetprobeFrame.error:type_name -> serviceradar.agent.netprobe.v1.ErrorFrame
-	22, // 6: serviceradar.agent.netprobe.v1.NetprobeFrame.dpi_event:type_name -> serviceradar.agent.netprobe.v1.DpiEvent
-	24, // 7: serviceradar.agent.netprobe.v1.NetprobeFrame.flow_attribution_event:type_name -> serviceradar.agent.netprobe.v1.FlowAttributionEvent
-	26, // 8: serviceradar.agent.netprobe.v1.NetprobeFrame.process_snapshot:type_name -> serviceradar.agent.netprobe.v1.ProcessSnapshot
-	28, // 9: serviceradar.agent.netprobe.v1.NetprobeFrame.external_flow_record:type_name -> serviceradar.agent.netprobe.v1.ExternalFlowRecord
-	30, // 10: serviceradar.agent.netprobe.v1.NetprobeFrame.start_remote_capture:type_name -> serviceradar.agent.netprobe.v1.StartRemoteCapture
-	31, // 11: serviceradar.agent.netprobe.v1.NetprobeFrame.pcapng_block:type_name -> serviceradar.agent.netprobe.v1.PcapngBlock
-	33, // 12: serviceradar.agent.netprobe.v1.NetprobeFrame.banner_batch:type_name -> serviceradar.agent.netprobe.v1.BannerBatch
-	35, // 13: serviceradar.agent.netprobe.v1.NetprobeFrame.banner_match_batch:type_name -> serviceradar.agent.netprobe.v1.BannerMatchBatch
-	29, // 14: serviceradar.agent.netprobe.v1.NetprobeFrame.external_flow_ack:type_name -> serviceradar.agent.netprobe.v1.ExternalFlowAck
-	25, // 15: serviceradar.agent.netprobe.v1.NetprobeFrame.flow_attribution_batch:type_name -> serviceradar.agent.netprobe.v1.FlowAttributionEventBatch
-	6,  // 16: serviceradar.agent.netprobe.v1.ApplyConfig.config:type_name -> serviceradar.agent.netprobe.v1.VisibilityAgentConfig
-	7,  // 17: serviceradar.agent.netprobe.v1.VisibilityAgentConfig.device_bindings:type_name -> serviceradar.agent.netprobe.v1.DeviceBinding
-	9,  // 18: serviceradar.agent.netprobe.v1.VisibilityAgentConfig.dpi:type_name -> serviceradar.agent.netprobe.v1.DpiConfig
-	8,  // 19: serviceradar.agent.netprobe.v1.DeviceBinding.fingerprint:type_name -> serviceradar.agent.netprobe.v1.FingerprintConfig
-	9,  // 20: serviceradar.agent.netprobe.v1.DeviceBinding.dpi:type_name -> serviceradar.agent.netprobe.v1.DpiConfig
-	19, // 21: serviceradar.agent.netprobe.v1.FingerprintEvent.tcp:type_name -> serviceradar.agent.netprobe.v1.TcpFingerprint
-	20, // 22: serviceradar.agent.netprobe.v1.FingerprintEvent.tls:type_name -> serviceradar.agent.netprobe.v1.TlsFingerprint
-	21, // 23: serviceradar.agent.netprobe.v1.FingerprintEvent.http:type_name -> serviceradar.agent.netprobe.v1.HttpFingerprint
-	11, // 24: serviceradar.agent.netprobe.v1.FingerprintEvent.license_clean:type_name -> serviceradar.agent.netprobe.v1.LicenseCleanFingerprint
-	12, // 25: serviceradar.agent.netprobe.v1.LicenseCleanFingerprint.p0f_match:type_name -> serviceradar.agent.netprobe.v1.P0fFingerprintMatch
-	16, // 26: serviceradar.agent.netprobe.v1.LicenseCleanFingerprint.ja4_match:type_name -> serviceradar.agent.netprobe.v1.FingerprintMatch
-	16, // 27: serviceradar.agent.netprobe.v1.LicenseCleanFingerprint.hassh_match:type_name -> serviceradar.agent.netprobe.v1.FingerprintMatch
-	17, // 28: serviceradar.agent.netprobe.v1.LicenseCleanFingerprint.os_match:type_name -> serviceradar.agent.netprobe.v1.OsMatch
-	13, // 29: serviceradar.agent.netprobe.v1.LicenseCleanFingerprint.muonfp:type_name -> serviceradar.agent.netprobe.v1.MuonFpFingerprintMatch
-	14, // 30: serviceradar.agent.netprobe.v1.LicenseCleanFingerprint.recog_http:type_name -> serviceradar.agent.netprobe.v1.RecogFingerprintMatch
-	14, // 31: serviceradar.agent.netprobe.v1.LicenseCleanFingerprint.recog_ssh:type_name -> serviceradar.agent.netprobe.v1.RecogFingerprintMatch
-	14, // 32: serviceradar.agent.netprobe.v1.LicenseCleanFingerprint.recog_smb:type_name -> serviceradar.agent.netprobe.v1.RecogFingerprintMatch
-	14, // 33: serviceradar.agent.netprobe.v1.LicenseCleanFingerprint.recog_ftp:type_name -> serviceradar.agent.netprobe.v1.RecogFingerprintMatch
-	14, // 34: serviceradar.agent.netprobe.v1.LicenseCleanFingerprint.recog_telnet:type_name -> serviceradar.agent.netprobe.v1.RecogFingerprintMatch
-	14, // 35: serviceradar.agent.netprobe.v1.LicenseCleanFingerprint.recog_snmp:type_name -> serviceradar.agent.netprobe.v1.RecogFingerprintMatch
-	14, // 36: serviceradar.agent.netprobe.v1.LicenseCleanFingerprint.recog_sip:type_name -> serviceradar.agent.netprobe.v1.RecogFingerprintMatch
-	14, // 37: serviceradar.agent.netprobe.v1.LicenseCleanFingerprint.recog_rdp:type_name -> serviceradar.agent.netprobe.v1.RecogFingerprintMatch
-	14, // 38: serviceradar.agent.netprobe.v1.LicenseCleanFingerprint.recog_dns:type_name -> serviceradar.agent.netprobe.v1.RecogFingerprintMatch
-	15, // 39: serviceradar.agent.netprobe.v1.LicenseCleanFingerprint.satori_matches:type_name -> serviceradar.agent.netprobe.v1.SatoriFingerprintMatch
-	14, // 40: serviceradar.agent.netprobe.v1.LicenseCleanFingerprint.recog_smtp:type_name -> serviceradar.agent.netprobe.v1.RecogFingerprintMatch
-	14, // 41: serviceradar.agent.netprobe.v1.LicenseCleanFingerprint.recog_ntp:type_name -> serviceradar.agent.netprobe.v1.RecogFingerprintMatch
-	18, // 42: serviceradar.agent.netprobe.v1.OsMatch.disagreements:type_name -> serviceradar.agent.netprobe.v1.FingerprintDisagreement
-	36, // 43: serviceradar.agent.netprobe.v1.WorkloadIdentity.labels:type_name -> serviceradar.agent.netprobe.v1.WorkloadIdentity.LabelsEntry
-	37, // 44: serviceradar.agent.netprobe.v1.WorkloadIdentity.annotations:type_name -> serviceradar.agent.netprobe.v1.WorkloadIdentity.AnnotationsEntry
-	23, // 45: serviceradar.agent.netprobe.v1.FlowAttributionEvent.workload_identity:type_name -> serviceradar.agent.netprobe.v1.WorkloadIdentity
-	24, // 46: serviceradar.agent.netprobe.v1.FlowAttributionEventBatch.events:type_name -> serviceradar.agent.netprobe.v1.FlowAttributionEvent
-	27, // 47: serviceradar.agent.netprobe.v1.ProcessSnapshot.entries:type_name -> serviceradar.agent.netprobe.v1.ProcessSnapshotEntry
-	23, // 48: serviceradar.agent.netprobe.v1.ProcessSnapshotEntry.workload_identity:type_name -> serviceradar.agent.netprobe.v1.WorkloadIdentity
-	32, // 49: serviceradar.agent.netprobe.v1.BannerBatch.observations:type_name -> serviceradar.agent.netprobe.v1.BannerObservation
-	34, // 50: serviceradar.agent.netprobe.v1.BannerMatchBatch.matches:type_name -> serviceradar.agent.netprobe.v1.BannerMatch
-	51, // [51:51] is the sub-list for method output_type
-	51, // [51:51] is the sub-list for method input_type
-	51, // [51:51] is the sub-list for extension type_name
-	51, // [51:51] is the sub-list for extension extendee
-	0,  // [0:51] is the sub-list for field type_name
+	2,  // 0: serviceradar.agent.netprobe.v1.NetprobeFrame.apply_config:type_name -> serviceradar.agent.netprobe.v1.ApplyConfig
+	3,  // 1: serviceradar.agent.netprobe.v1.NetprobeFrame.config_ack:type_name -> serviceradar.agent.netprobe.v1.ConfigAck
+	4,  // 2: serviceradar.agent.netprobe.v1.NetprobeFrame.ping:type_name -> serviceradar.agent.netprobe.v1.Ping
+	5,  // 3: serviceradar.agent.netprobe.v1.NetprobeFrame.ping_ack:type_name -> serviceradar.agent.netprobe.v1.PingAck
+	11, // 4: serviceradar.agent.netprobe.v1.NetprobeFrame.fingerprint_event:type_name -> serviceradar.agent.netprobe.v1.FingerprintEvent
+	6,  // 5: serviceradar.agent.netprobe.v1.NetprobeFrame.error:type_name -> serviceradar.agent.netprobe.v1.ErrorFrame
+	23, // 6: serviceradar.agent.netprobe.v1.NetprobeFrame.dpi_event:type_name -> serviceradar.agent.netprobe.v1.DpiEvent
+	25, // 7: serviceradar.agent.netprobe.v1.NetprobeFrame.flow_attribution_event:type_name -> serviceradar.agent.netprobe.v1.FlowAttributionEvent
+	27, // 8: serviceradar.agent.netprobe.v1.NetprobeFrame.process_snapshot:type_name -> serviceradar.agent.netprobe.v1.ProcessSnapshot
+	29, // 9: serviceradar.agent.netprobe.v1.NetprobeFrame.external_flow_record:type_name -> serviceradar.agent.netprobe.v1.ExternalFlowRecord
+	31, // 10: serviceradar.agent.netprobe.v1.NetprobeFrame.start_remote_capture:type_name -> serviceradar.agent.netprobe.v1.StartRemoteCapture
+	32, // 11: serviceradar.agent.netprobe.v1.NetprobeFrame.pcapng_block:type_name -> serviceradar.agent.netprobe.v1.PcapngBlock
+	34, // 12: serviceradar.agent.netprobe.v1.NetprobeFrame.banner_batch:type_name -> serviceradar.agent.netprobe.v1.BannerBatch
+	36, // 13: serviceradar.agent.netprobe.v1.NetprobeFrame.banner_match_batch:type_name -> serviceradar.agent.netprobe.v1.BannerMatchBatch
+	30, // 14: serviceradar.agent.netprobe.v1.NetprobeFrame.external_flow_ack:type_name -> serviceradar.agent.netprobe.v1.ExternalFlowAck
+	26, // 15: serviceradar.agent.netprobe.v1.NetprobeFrame.flow_attribution_batch:type_name -> serviceradar.agent.netprobe.v1.FlowAttributionEventBatch
+	38, // 16: serviceradar.agent.netprobe.v1.NetprobeFrame.device_census_snapshot:type_name -> serviceradar.agent.netprobe.v1.DeviceCensusSnapshot
+	7,  // 17: serviceradar.agent.netprobe.v1.ApplyConfig.config:type_name -> serviceradar.agent.netprobe.v1.VisibilityAgentConfig
+	8,  // 18: serviceradar.agent.netprobe.v1.VisibilityAgentConfig.device_bindings:type_name -> serviceradar.agent.netprobe.v1.DeviceBinding
+	10, // 19: serviceradar.agent.netprobe.v1.VisibilityAgentConfig.dpi:type_name -> serviceradar.agent.netprobe.v1.DpiConfig
+	9,  // 20: serviceradar.agent.netprobe.v1.DeviceBinding.fingerprint:type_name -> serviceradar.agent.netprobe.v1.FingerprintConfig
+	10, // 21: serviceradar.agent.netprobe.v1.DeviceBinding.dpi:type_name -> serviceradar.agent.netprobe.v1.DpiConfig
+	20, // 22: serviceradar.agent.netprobe.v1.FingerprintEvent.tcp:type_name -> serviceradar.agent.netprobe.v1.TcpFingerprint
+	21, // 23: serviceradar.agent.netprobe.v1.FingerprintEvent.tls:type_name -> serviceradar.agent.netprobe.v1.TlsFingerprint
+	22, // 24: serviceradar.agent.netprobe.v1.FingerprintEvent.http:type_name -> serviceradar.agent.netprobe.v1.HttpFingerprint
+	12, // 25: serviceradar.agent.netprobe.v1.FingerprintEvent.license_clean:type_name -> serviceradar.agent.netprobe.v1.LicenseCleanFingerprint
+	13, // 26: serviceradar.agent.netprobe.v1.LicenseCleanFingerprint.p0f_match:type_name -> serviceradar.agent.netprobe.v1.P0fFingerprintMatch
+	17, // 27: serviceradar.agent.netprobe.v1.LicenseCleanFingerprint.ja4_match:type_name -> serviceradar.agent.netprobe.v1.FingerprintMatch
+	17, // 28: serviceradar.agent.netprobe.v1.LicenseCleanFingerprint.hassh_match:type_name -> serviceradar.agent.netprobe.v1.FingerprintMatch
+	18, // 29: serviceradar.agent.netprobe.v1.LicenseCleanFingerprint.os_match:type_name -> serviceradar.agent.netprobe.v1.OsMatch
+	14, // 30: serviceradar.agent.netprobe.v1.LicenseCleanFingerprint.muonfp:type_name -> serviceradar.agent.netprobe.v1.MuonFpFingerprintMatch
+	15, // 31: serviceradar.agent.netprobe.v1.LicenseCleanFingerprint.recog_http:type_name -> serviceradar.agent.netprobe.v1.RecogFingerprintMatch
+	15, // 32: serviceradar.agent.netprobe.v1.LicenseCleanFingerprint.recog_ssh:type_name -> serviceradar.agent.netprobe.v1.RecogFingerprintMatch
+	15, // 33: serviceradar.agent.netprobe.v1.LicenseCleanFingerprint.recog_smb:type_name -> serviceradar.agent.netprobe.v1.RecogFingerprintMatch
+	15, // 34: serviceradar.agent.netprobe.v1.LicenseCleanFingerprint.recog_ftp:type_name -> serviceradar.agent.netprobe.v1.RecogFingerprintMatch
+	15, // 35: serviceradar.agent.netprobe.v1.LicenseCleanFingerprint.recog_telnet:type_name -> serviceradar.agent.netprobe.v1.RecogFingerprintMatch
+	15, // 36: serviceradar.agent.netprobe.v1.LicenseCleanFingerprint.recog_snmp:type_name -> serviceradar.agent.netprobe.v1.RecogFingerprintMatch
+	15, // 37: serviceradar.agent.netprobe.v1.LicenseCleanFingerprint.recog_sip:type_name -> serviceradar.agent.netprobe.v1.RecogFingerprintMatch
+	15, // 38: serviceradar.agent.netprobe.v1.LicenseCleanFingerprint.recog_rdp:type_name -> serviceradar.agent.netprobe.v1.RecogFingerprintMatch
+	15, // 39: serviceradar.agent.netprobe.v1.LicenseCleanFingerprint.recog_dns:type_name -> serviceradar.agent.netprobe.v1.RecogFingerprintMatch
+	16, // 40: serviceradar.agent.netprobe.v1.LicenseCleanFingerprint.satori_matches:type_name -> serviceradar.agent.netprobe.v1.SatoriFingerprintMatch
+	15, // 41: serviceradar.agent.netprobe.v1.LicenseCleanFingerprint.recog_smtp:type_name -> serviceradar.agent.netprobe.v1.RecogFingerprintMatch
+	15, // 42: serviceradar.agent.netprobe.v1.LicenseCleanFingerprint.recog_ntp:type_name -> serviceradar.agent.netprobe.v1.RecogFingerprintMatch
+	19, // 43: serviceradar.agent.netprobe.v1.OsMatch.disagreements:type_name -> serviceradar.agent.netprobe.v1.FingerprintDisagreement
+	39, // 44: serviceradar.agent.netprobe.v1.WorkloadIdentity.labels:type_name -> serviceradar.agent.netprobe.v1.WorkloadIdentity.LabelsEntry
+	40, // 45: serviceradar.agent.netprobe.v1.WorkloadIdentity.annotations:type_name -> serviceradar.agent.netprobe.v1.WorkloadIdentity.AnnotationsEntry
+	24, // 46: serviceradar.agent.netprobe.v1.FlowAttributionEvent.workload_identity:type_name -> serviceradar.agent.netprobe.v1.WorkloadIdentity
+	25, // 47: serviceradar.agent.netprobe.v1.FlowAttributionEventBatch.events:type_name -> serviceradar.agent.netprobe.v1.FlowAttributionEvent
+	28, // 48: serviceradar.agent.netprobe.v1.ProcessSnapshot.entries:type_name -> serviceradar.agent.netprobe.v1.ProcessSnapshotEntry
+	24, // 49: serviceradar.agent.netprobe.v1.ProcessSnapshotEntry.workload_identity:type_name -> serviceradar.agent.netprobe.v1.WorkloadIdentity
+	33, // 50: serviceradar.agent.netprobe.v1.BannerBatch.observations:type_name -> serviceradar.agent.netprobe.v1.BannerObservation
+	35, // 51: serviceradar.agent.netprobe.v1.BannerMatchBatch.matches:type_name -> serviceradar.agent.netprobe.v1.BannerMatch
+	0,  // 52: serviceradar.agent.netprobe.v1.DeviceCensusObservation.kind:type_name -> serviceradar.agent.netprobe.v1.DeviceCensusKind
+	37, // 53: serviceradar.agent.netprobe.v1.DeviceCensusSnapshot.observations:type_name -> serviceradar.agent.netprobe.v1.DeviceCensusObservation
+	54, // [54:54] is the sub-list for method output_type
+	54, // [54:54] is the sub-list for method input_type
+	54, // [54:54] is the sub-list for extension type_name
+	54, // [54:54] is the sub-list for extension extendee
+	0,  // [0:54] is the sub-list for field type_name
 }
 
 func init() { file_agent_netprobe_v1_netprobe_proto_init() }
@@ -3931,6 +4253,7 @@ func file_agent_netprobe_v1_netprobe_proto_init() {
 		(*NetprobeFrame_BannerMatchBatch)(nil),
 		(*NetprobeFrame_ExternalFlowAck)(nil),
 		(*NetprobeFrame_FlowAttributionBatch)(nil),
+		(*NetprobeFrame_DeviceCensusSnapshot)(nil),
 	}
 	file_agent_netprobe_v1_netprobe_proto_msgTypes[10].OneofWrappers = []any{
 		(*FingerprintEvent_Tcp)(nil),
@@ -3943,13 +4266,14 @@ func file_agent_netprobe_v1_netprobe_proto_init() {
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_agent_netprobe_v1_netprobe_proto_rawDesc), len(file_agent_netprobe_v1_netprobe_proto_rawDesc)),
-			NumEnums:      0,
-			NumMessages:   38,
+			NumEnums:      1,
+			NumMessages:   40,
 			NumExtensions: 0,
 			NumServices:   0,
 		},
 		GoTypes:           file_agent_netprobe_v1_netprobe_proto_goTypes,
 		DependencyIndexes: file_agent_netprobe_v1_netprobe_proto_depIdxs,
+		EnumInfos:         file_agent_netprobe_v1_netprobe_proto_enumTypes,
 		MessageInfos:      file_agent_netprobe_v1_netprobe_proto_msgTypes,
 	}.Build()
 	File_agent_netprobe_v1_netprobe_proto = out.File

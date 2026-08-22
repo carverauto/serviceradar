@@ -477,6 +477,12 @@ defmodule ServiceRadar.Inventory.Remediation.AgentLinks do
          |> Ash.Changeset.for_update(:reassign_device, %{device_uid: target_uid})
          |> Ash.update(actor: actor) do
       {:ok, _} ->
+        # A repoint changes identity composition on BOTH sides: the old device
+        # stops naming the machine this agent runs on, the target starts naming
+        # it. The no-op clause above (old == target) deliberately bumps neither.
+        bump_device_revision(plan.old_device_uid, actor)
+        bump_device_revision(target_uid, actor)
+
         Manifest.record(
           manifest,
           @step,
@@ -493,6 +499,36 @@ defmodule ServiceRadar.Inventory.Remediation.AgentLinks do
     end
   end
 
+  # ocsf_devices.agent_id IS agent identity in this codebase -- AliasGuard reads it
+  # as one when deciding whether a merge is blocked by distinct agent identity -- so
+  # gaining or losing it is a transition.
+  #
+  # nil covers a never-linked agent. A uid that no longer resolves to a live device
+  # is skipped rather than chased through an include_deleted read: :soft_delete
+  # already carries a bump, so a tombstone's fence has moved and there is nothing
+  # here to correct. Best-effort, like the rest of this repair step.
+  defp bump_device_revision(nil, _actor), do: :ok
+
+  defp bump_device_revision(device_uid, actor) when is_binary(device_uid) do
+    case Device.get_by_uid(device_uid, false, actor: actor) do
+      {:ok, %Device{} = device} ->
+        case Device.bump_identity_revision(device, actor: actor) do
+          {:ok, _} ->
+            :ok
+
+          {:error, error} ->
+            Logger.warning(
+              "Failed to bump identity revision for #{device_uid}: #{inspect(error)}"
+            )
+
+            :ok
+        end
+
+      _ ->
+        :ok
+    end
+  end
+
   defp repair_device_agent_links(plan, target_uid, manifest) do
     with :ok <- clear_stale_device_agent_links(plan.agent_uid, target_uid, manifest) do
       ensure_target_device_agent_link(plan.agent_uid, target_uid, manifest)
@@ -504,7 +540,9 @@ defmodule ServiceRadar.Inventory.Remediation.AgentLinks do
       query!(
         """
         UPDATE platform.ocsf_devices
-        SET agent_id = NULL, modified_time = now()
+        SET agent_id = NULL,
+            modified_time = now(),
+            identity_revision = identity_revision + 1
         WHERE deleted_at IS NULL
           AND agent_id = $1
           AND uid <> $2
@@ -534,7 +572,9 @@ defmodule ServiceRadar.Inventory.Remediation.AgentLinks do
       query!(
         """
         UPDATE platform.ocsf_devices
-        SET agent_id = $1, modified_time = now()
+        SET agent_id = $1,
+            modified_time = now(),
+            identity_revision = identity_revision + 1
         WHERE deleted_at IS NULL
           AND uid = $2
           AND agent_id IS DISTINCT FROM $1

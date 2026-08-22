@@ -1,3 +1,10 @@
+{{- /* Component gate (issue #3859). ABSENT MEANS ENABLED: hasKey is used rather than a
+     truthiness test so that a chart or values file which never mentions `enabled`
+     renders exactly as before, and only an explicit `coldTier.enabled: false` removes
+     this component. `default true` cannot be used here -- Helm treats false as empty,
+     so it would resurrect anything explicitly disabled. */ -}}
+{{- $gate15 := default (dict) .Values.coldTier -}}
+{{- if or (not (hasKey $gate15 "enabled")) $gate15.enabled }}
 {{- /*
 Analytics query head for the tiered telemetry cold storage path
 (OpenSpec add-tiered-telemetry-offload, tasks 1.5/1.6).
@@ -127,4 +134,5 @@ spec:
     {{- end }}
   monitoring:
     enablePodMonitor: false
+{{- end }}
 {{- end }}

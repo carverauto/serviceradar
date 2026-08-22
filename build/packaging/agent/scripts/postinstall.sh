@@ -57,6 +57,19 @@ if [ -x /usr/local/bin/serviceradar-agent-updater ]; then
     chmod 4750 /usr/local/bin/serviceradar-agent-updater
 fi
 
+# Staged native add-on binaries live under /var/lib and inherit var_lib_t.
+# systemd (init_t) cannot exec that label (status=203/EXEC). Persistent file
+# context is the RPM/deb path for new hosts; add-on units also chcon on start.
+# Idempotent: skip add if the fcontext already exists.
+if command -v semanage >/dev/null 2>&1; then
+    if ! semanage fcontext -l 2>/dev/null | grep -F '/var/lib/serviceradar/agent/addons' >/dev/null 2>&1; then
+        semanage fcontext -a -t bin_t '/var/lib/serviceradar/agent/addons(/.*)?' || true
+    fi
+fi
+if command -v restorecon >/dev/null 2>&1; then
+    restorecon -Rv /var/lib/serviceradar/agent/addons >/dev/null 2>&1 || true
+fi
+
 # netprobe is no longer shipped by the base agent package: its binary and the
 # cap_net_raw,cap_bpf,cap_perfmon setcap step moved into the netprobe add-on
 # delivery path (migrate-netprobe-to-native-addon §1.4). The root-owned

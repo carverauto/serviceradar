@@ -68,6 +68,15 @@
   {{- $extensionsSQL = $defaultExtensionsSQL }}
 {{- end }}
 {{- $postgresqlParameters := $pg.postgresqlParameters }}
+{{- /* This template REPLACES cnpg-cluster.yaml when spire.postgres.enabled is true, and it
+       hosts the application database (it creates serviceradar-db-credentials and the
+       serviceradar role below). It therefore needs the same WAL budget; see the block in
+       cnpg-cluster.yaml for why each bound exists. */ -}}
+{{- $pgStorageSize := default "100Gi" $pg.storageSize }}
+{{- $walBudget := fromJson (include "serviceradar.walBudget" $pgStorageSize) }}
+{{- $walCap := default $walBudget.maxSlotWalKeepSize $pg.maxSlotWalKeepSize }}
+{{- $maxWal := default $walBudget.maxWalSize $pg.maxWalSize }}
+{{- $minWal := default $walBudget.minWalSize $pg.minWalSize }}
 ---
 apiVersion: v1
 kind: Secret
@@ -128,7 +137,7 @@ spec:
     {{- end }}
   {{- end }}
   storage:
-    size: {{ default "100Gi" $pg.storageSize }}
+    size: {{ $pgStorageSize }}
     {{- if $pg.storageClass }}
     storageClass: {{ $pg.storageClass }}
     {{- end }}
@@ -145,12 +154,19 @@ spec:
         {{- end }}
       {{- end }}
   postgresql:
-    {{- if $postgresqlParameters }}
     parameters:
-      {{- range $k, $v := $postgresqlParameters }}
+      {{- range $k, $v := (default dict $postgresqlParameters) }}
       {{ $k | quote }}: {{ $v | quote }}
       {{- end }}
-    {{- end }}
+      {{- if not (hasKey (default dict $postgresqlParameters) "max_slot_wal_keep_size") }}
+      "max_slot_wal_keep_size": {{ $walCap | quote }}
+      {{- end }}
+      {{- if not (hasKey (default dict $postgresqlParameters) "max_wal_size") }}
+      "max_wal_size": {{ $maxWal | quote }}
+      {{- end }}
+      {{- if not (hasKey (default dict $postgresqlParameters) "min_wal_size") }}
+      "min_wal_size": {{ $minWal | quote }}
+      {{- end }}
     {{- if $sharedPreload }}
     shared_preload_libraries:
       {{- range $lib := $sharedPreload }}

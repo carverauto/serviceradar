@@ -128,7 +128,8 @@ alpha:
 
   # SERVER TLS WITH REAL VERIFICATION, against an in-cluster CA.
   #
-  # rust/dgraph-client verifies a supplied CA instead of the system roots, so the certificate
+  # the Dgraph client (github.com/marvin-hansen/dgraph-rs) verifies a supplied CA instead of the
+  # system roots, so the certificate
   # can be privately issued for the `*.svc.cluster.local` name the config contract names. The
   # CA reaches callers as the `dgraph.ca_cert` secret.
   tls:

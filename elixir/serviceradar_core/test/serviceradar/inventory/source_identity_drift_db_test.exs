@@ -67,6 +67,52 @@ defmodule ServiceRadar.Inventory.SourceIdentityDriftDbTest do
     refute Enum.any?(report["examples"], &(&1["device_uid"] == device.uid))
   end
 
+  # The repair WRITE path had no coverage at all, which is how a double-encoded
+  # jsonb parameter reached production: `Jason.encode!(patch)` bound to
+  # `metadata = ... || $2::jsonb` made Postgrex encode the binary a second time,
+  # storing a jsonb string scalar. `object || string` builds an ARRAY rather
+  # than merging, so the repair silently destroyed the very metadata it was
+  # fixing and every later read raised `cannot load [...] as type :map`.
+  test "repair_armis rewrites the metadata identifier and keeps metadata a jsonb object",
+       %{actor: actor} do
+    source_id = unique("drift-src")
+    typed_id = unique("armis-typed")
+    stale_id = unique("armis-stale")
+    device = create_disagreeing_device!(actor, source_id, typed_id, stale_id)
+
+    assert %{applied_repairs: applied} =
+             SourceIdentityDrift.repair_armis(
+               apply: true,
+               source_id: source_id,
+               actor: "drift_db_test"
+             )
+
+    assert Enum.any?(applied, &(&1.device_uid == device.uid))
+
+    # The column must still be an object. Before the fix this was "array".
+    assert metadata_typeof(device.uid) == "object"
+
+    metadata = device_metadata(device.uid)
+
+    # A merge, not a replace: the repaired identifier wins and the untouched
+    # keys survive.
+    assert metadata["armis_device_id"] == typed_id
+    assert metadata["sync_service_id"] == source_id
+    assert metadata["integration_type"] == "armis"
+
+    # The audit trail is a nested object, not a re-encoded JSON string.
+    assert %{"prior" => prior, "repaired" => repaired} = metadata["source_identity_repair"]
+    assert prior["armis_device_id"] == stale_id
+    assert repaired["armis_device_id"] == typed_id
+
+    # The resolution audit written to the conflict row has the same hazard.
+    assert repair_audit_typeof(device.uid) in ["object", nil]
+
+    # Reading the device back through Ash is what actually broke in production.
+    assert %{metadata: loaded} = Ash.get!(Device, device.uid, actor: actor)
+    assert is_map(loaded)
+  end
+
   test "reconcile leaves sync-written active_ip_conflict rows open" do
     source_id = unique("drift-src")
     device_uid = "sr:" <> Ecto.UUID.generate()
@@ -270,6 +316,35 @@ defmodule ServiceRadar.Inventory.SourceIdentityDriftDbTest do
 
     case rows do
       [[status] | _] -> status
+      _ -> nil
+    end
+  end
+
+  # Asserted on directly rather than through Ash: a double-encoded jsonb
+  # parameter changes the column's JSON *type*, and loading it through Ash is
+  # exactly what raises instead of reporting the shape.
+  defp metadata_typeof(device_uid) do
+    single_value(
+      "SELECT jsonb_typeof(metadata) FROM platform.ocsf_devices WHERE uid = $1",
+      [device_uid]
+    )
+  end
+
+  defp device_metadata(device_uid) do
+    single_value("SELECT metadata FROM platform.ocsf_devices WHERE uid = $1", [device_uid])
+  end
+
+  defp repair_audit_typeof(device_uid) do
+    single_value(
+      "SELECT jsonb_typeof(repair_audit) FROM platform.source_identity_conflicts " <>
+        "WHERE device_uid = $1 AND repair_audit IS NOT NULL LIMIT 1",
+      [device_uid]
+    )
+  end
+
+  defp single_value(sql, params) do
+    case Repo.query!(sql, params) do
+      %{rows: [[value] | _]} -> value
       _ -> nil
     end
   end

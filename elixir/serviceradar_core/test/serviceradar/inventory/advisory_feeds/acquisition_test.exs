@@ -133,7 +133,7 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.AcquisitionTest do
   describe "default HTTP client" do
     test "req_opts uses the named Finch pool without connect_options" do
       opts = Acquisition.req_opts(30_000)
-      assert Keyword.get(opts, :finch) == ServiceRadar.Finch
+      assert Keyword.get(opts, :finch) == [name: ServiceRadar.Finch]
       assert Keyword.get(opts, :receive_timeout) == 30_000
       refute Keyword.has_key?(opts, :connect_options)
     end

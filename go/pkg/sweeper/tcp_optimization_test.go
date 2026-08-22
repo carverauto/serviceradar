@@ -361,6 +361,21 @@ func BenchmarkNetworkSweeper_OptimizedTCPScan(b *testing.B) {
 	mockProcessor := NewMockResultProcessor(ctrl)
 
 	mockStore.EXPECT().SaveResult(gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
+	// runSweep prunes, and this benchmark did not expect it. The two TESTS in this file
+	// (lines 124 and 193) were updated when PruneResults was added to runSweep; the benchmark
+	// beneath them was not, because nothing ran it -- `go test` and `bazel test` both skip
+	// benchmarks without -test.bench. It failed the first time a target executed it.
+	//
+	// AssignableToTypeOf, not time.Duration(0) as those tests use: the interval here is
+	// computed from the config and arrives non-zero, so a zero matcher would not match.
+	mockStore.EXPECT().
+		PruneResults(gomock.Any(), gomock.AssignableToTypeOf(time.Duration(0))).
+		Return(nil).
+		AnyTimes()
+	mockStore.EXPECT().
+		GetSweepSummary(gomock.Any()).
+		Return(&models.SweepSummary{}, nil).
+		AnyTimes()
 	mockProcessor.EXPECT().Process(gomock.Any()).Return(nil).AnyTimes()
 	mockProcessor.EXPECT().GetSummary(gomock.Any()).Return(&models.SweepSummary{}, nil).AnyTimes()
 

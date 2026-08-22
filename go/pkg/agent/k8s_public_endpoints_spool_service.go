@@ -72,11 +72,11 @@ type K8sPublicEndpointsSpoolService struct {
 	clusterID string
 	spoolPath string
 
-	mu           sync.Mutex
-	lastHash     string
-	lastPayload  []byte
-	lastModTime  int64
-	lastSize     int64
+	mu          sync.Mutex
+	lastHash    string
+	lastPayload []byte
+	lastModTime int64
+	lastSize    int64
 }
 
 // NewK8sPublicEndpointsSpoolService builds a spool reader for the cluster agent.

@@ -34,6 +34,7 @@ defmodule ServiceRadar.Inventory.Device do
     extensions: [AshJsonApi.Resource],
     primary_read_warning?: false
 
+  alias ServiceRadar.Inventory.Changes.BumpIdentityRevision
   alias ServiceRadar.Inventory.IdentityReconciler
   alias ServiceRadar.Policies.Checks.ActorHasPermission
 
@@ -168,6 +169,7 @@ defmodule ServiceRadar.Inventory.Device do
     define :get_by_mac, action: :by_mac, args: [:mac, :include_deleted]
     define :soft_delete, action: :soft_delete, args: [:deleted_reason, :deleted_by]
     define :restore, action: :restore
+    define :bump_identity_revision, action: :bump_identity_revision
     define :mark_active, action: :mark_active
     define :mark_inactive, action: :mark_inactive
     define :bulk_soft_delete, action: :bulk_soft_delete, args: [:device_uids, :deleted_reason]
@@ -287,6 +289,19 @@ defmodule ServiceRadar.Inventory.Device do
       change set_attribute(:last_seen_time, &DateTime.utc_now/0)
     end
 
+    update :bump_identity_revision do
+      description "Record that this device's identity changed (merge, unmerge, split, alias or identifier reassignment, soft delete, restore)"
+
+      # Accepts nothing on purpose. The revision is the only thing this action
+      # moves, and it moves by expression so concurrent transitions cannot lose a
+      # bump. Anything that also needs to write attributes should do that in its
+      # own action and call this one as well.
+      accept []
+      require_atomic? true
+
+      change BumpIdentityRevision
+    end
+
     update :set_availability do
       accept @availability_fields
       change set_attribute(:modified_time, &DateTime.utc_now/0)
@@ -317,6 +332,11 @@ defmodule ServiceRadar.Inventory.Device do
 
       change set_attribute(:deleted_at, &DateTime.utc_now/0)
       change set_attribute(:modified_time, &DateTime.utc_now/0)
+
+      # A soft delete is an identity transition: the uid stops naming a live
+      # thing. This is also what covers the merge source, since
+      # MergeEngine.tombstone_merged_device/2 tombstones through this action.
+      change BumpIdentityRevision
     end
 
     update :restore do
@@ -324,6 +344,11 @@ defmodule ServiceRadar.Inventory.Device do
       change set_attribute(:deleted_by, nil)
       change set_attribute(:deleted_reason, nil)
       change set_attribute(:modified_time, &DateTime.utc_now/0)
+
+      # The mirror of :soft_delete -- the uid names a live thing again. Covers the
+      # unmerge from-device, which MergeEngine.recreate_device/3 restores through
+      # this action.
+      change BumpIdentityRevision
     end
 
     update :mark_active do
@@ -581,6 +606,25 @@ defmodule ServiceRadar.Inventory.Device do
       default true
       public? true
       description "Whether device is currently in service"
+    end
+
+    attribute :identity_revision, :integer do
+      allow_nil? false
+      default 1
+
+      # Deliberately NOT public. Every consumer of the fence is internal -- ingest
+      # pipelines, Oban jobs, gateway sync -- and no external API client pins a
+      # revision. Publishing it would put an internal concurrency mechanism into
+      # the REST contract, which should be a deliberate decision rather than a
+      # side effect of adding the column.
+      public? false
+
+      description """
+      Monotonic counter bumped on every identity transition, so in-flight work can
+      pin it at resolution time and detect that its identity decision went stale.
+      Deliberately absent from every accept list: it moves only through
+      :bump_identity_revision.
+      """
     end
 
     # OCSF Nested Objects (JSONB)

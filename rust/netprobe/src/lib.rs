@@ -6,6 +6,7 @@ pub mod af_xdp_classifier;
 pub mod attribution;
 pub mod capabilities;
 pub mod capture;
+pub mod census;
 pub mod config;
 pub mod dpi;
 #[cfg(target_os = "linux")]

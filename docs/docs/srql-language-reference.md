@@ -90,7 +90,7 @@ Notes:
   `(dst_port:22 OR src_port:22)` are **not** valid SRQL (they tokenize as a
   single broken `key:value`). Cross-field “either side” cases use dedicated
   bidirectional fields instead (see below). Tracking for full boolean groups:
-  [issue #4851](https://code.carverauto.dev/carverauto/serviceradar/issues/4851).
+  [issue #3557](https://github.com/carverauto/serviceradar/issues/3557).
 - **Bidirectional flow helpers** (flows / attributed_flows):
   - `ip:` / `endpoint_ip:` — either endpoint IP
   - `port:` / `endpoint_port:` — either endpoint port

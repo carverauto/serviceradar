@@ -91,6 +91,8 @@ defmodule ServiceRadarWebNGWeb.PluginConfigForm do
 
       <details
         :if={@advanced_properties != []}
+        id={advanced_details_id(@base_name)}
+        phx-hook="DetailsState"
         class="rounded-lg border border-sr-line bg-sr-subtle/40"
       >
         <summary class="cursor-pointer select-none px-3 py-2 text-sm font-medium text-sr-ink/90">
@@ -336,6 +338,17 @@ defmodule ServiceRadarWebNGWeb.PluginConfigForm do
 
   defp advanced?(%{} = prop), do: Map.get(prop, "x-serviceradar-ui-advanced") == true
   defp advanced?(_), do: false
+
+  defp advanced_details_id(base_name) do
+    slug =
+      base_name
+      |> to_string()
+      |> String.downcase()
+      |> String.replace(~r/[^a-z0-9]+/, "-")
+      |> String.trim("-")
+
+    slug <> "-advanced-settings"
+  end
 
   defp credential_materialized?(%{} = prop) do
     Map.get(prop, "x-serviceradar-credential-materialized") == true

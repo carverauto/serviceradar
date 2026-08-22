@@ -251,7 +251,7 @@ defmodule ServiceRadar.Observability.GeoLiteMmdbDownloadWorker do
     req_opts = [
       receive_timeout: timeout_ms,
       retry: false,
-      finch: ServiceRadar.Finch
+      finch: [name: ServiceRadar.Finch]
     ]
 
     try do

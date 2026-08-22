@@ -25,6 +25,7 @@ on:
       - '.github/workflows/helm-lint.yml'
       - 'scripts/run-helm.sh'
       - 'scripts/check-core-analytics-helm-defaults.sh'
+      - 'scripts/check-cnpg-wal-cap-helm-defaults.sh'
       - 'scripts/check-tenant-chart-hook-order.sh'
       - 'scripts/check-hosted-runtime-cert-boundary.sh'
       - 'scripts/check-web-ng-extra-env-value-from.sh'
@@ -35,6 +36,7 @@ on:
       - '.github/workflows/helm-lint.yml'
       - 'scripts/run-helm.sh'
       - 'scripts/check-core-analytics-helm-defaults.sh'
+      - 'scripts/check-cnpg-wal-cap-helm-defaults.sh'
       - 'scripts/check-tenant-chart-hook-order.sh'
       - 'scripts/check-hosted-runtime-cert-boundary.sh'
       - 'scripts/check-web-ng-extra-env-value-from.sh'
@@ -89,6 +91,51 @@ jobs:
 
       - name: Verify CNPG WAL cap defaults
         run: ./scripts/check-cnpg-wal-cap-helm-defaults.sh
+
+      # The gate above pins three points; this pins the shape of the whole
+      # derivation, including the two cases that previously produced an
+      # effectively unbounded WAL cap: a Mi-denominated size and a bare-number
+      # (bytes) size. pg_wal shares the data PVC, so an over-derived value is a
+      # disk-exhaustion bug, not a tuning preference.
+      - name: Verify CNPG WAL sizing derivation
+        run: |
+          set -euo pipefail
+          check() {
+            local size="$1" want_max="$2" want_min="$3" want_cap="$4" got
+            got="$(./scripts/run-helm.sh template serviceradar helm/serviceradar \
+              --show-only templates/cnpg-cluster.yaml \
+              --set global.imageTag=v1.0.0 \
+              --set cnpg.storageSize="$size" \
+              | grep -oE '"(max_wal_size|min_wal_size|max_slot_wal_keep_size)": "[^"]+"' \
+              | sort | tr '\n' ' ')"
+            local want='"max_slot_wal_keep_size": "'"$want_cap"'" "max_wal_size": "'"$want_max"'" "min_wal_size": "'"$want_min"'" '
+            if [ "$got" != "$want" ]; then
+              echo "storageSize=$size" >&2
+              echo "  expected: $want" >&2
+              echo "  actual:   $got" >&2
+              exit 1
+            fi
+          }
+          # Small volumes keep PostgreSQL's own 1GB and spend no extra WAL disk.
+          check 10Gi          1GB 256MB 5GB
+          check 20Gi          1GB 256MB 10GB
+          check 100Gi         7GB 896MB 30GB
+          check 102400Mi      7GB 896MB 30GB
+          check 107374182400  7GB 896MB 30GB
+          check 1Ti           8GB 1024MB 307GB
+          echo "CNPG WAL sizing derivation is correct"
+
+      - name: Verify SPIRE-managed CNPG carries the same WAL budget
+        run: |
+          set -euo pipefail
+          out="$(./scripts/run-helm.sh template serviceradar helm/serviceradar \
+            --set global.imageTag=v1.0.0 \
+            -f helm/serviceradar/values-demo-staging.yaml \
+            --show-only templates/spire-postgres.yaml)"
+          for want in '"max_slot_wal_keep_size": "5GB"' '"max_wal_size": "1GB"' '"min_wal_size": "256MB"'; do
+            echo "$out" | grep -qF "$want" || { echo "missing $want in spire-postgres render" >&2; exit 1; }
+          done
+          echo "SPIRE CNPG WAL budget is present"
 
       - name: Verify tenant bootstrap hook order
         run: ./scripts/check-tenant-chart-hook-order.sh

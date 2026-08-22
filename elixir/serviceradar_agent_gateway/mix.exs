@@ -86,7 +86,9 @@ defmodule ServiceRadarAgentGateway.MixProject do
       {:telemetry_metrics_prometheus_core, "~> 1.2"},
 
       # HTTP client for health checks
-      {:req, "~> 0.5"},
+      # Held with serviceradar_core (a path dep above): a split would run core's
+      # code against a Req it was not compiled against. See serviceradar_core.
+      {:req, "~> 0.7"},
 
       # JSON encoding
       {:jason, "~> 1.4"},

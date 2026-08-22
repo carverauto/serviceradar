@@ -6,17 +6,35 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.Loader do
   parser. This module accumulates **bounded chunks** (default 2,000 advisories)
   and flushes them with `Repo.insert_all` upserts — never one Ash create per row.
 
+  ## Skipping unchanged advisories
+
+  A feed re-publishes its whole corpus every run, but only a handful of
+  advisories actually change. `unchanged_advisory?/2` compares the incoming
+  `modified_at` against what is already stored and drops the record before it
+  ever reaches an `insert_all`. This is the difference between rewriting ~360k
+  advisories / ~2.5M coordinates every 6 hours and writing almost nothing:
+  measured at ~5.9 TB of WAL per steady state before the guard worked.
+
+  The guard is load-bearing, not an optimisation. `feed_worker` logs
+  `advisories_skipped` and alarms when it is zero against a non-empty corpus,
+  because a silently-inert guard looks exactly like a healthy run.
+
   ## Generation swap
 
-  Each run gets a fresh integer `generation`. Rows are written tagged with that
-  generation and `current: false`; on success `finalize/3` flips the new
-  generation to `current: true` and the previous generations to `current: false`
-  in one statement, so the matcher always reads one consistent generation. Stale
-  generations are reaped.
+  Each run gets a fresh integer `generation`. Changed rows are written tagged
+  with that generation and `current: false`; `finalize/4` promotes them to
+  `current: true`. **Skipped rows keep their older generation and stay
+  `current: true`** — the matcher joins on `current`, never on `generation`, so a
+  stale generation on a live row is harmless.
 
-  Advisories upsert on `(provider, feed_key, source_object_id)`. Coordinates are
-  rewritten per generation (delete old generation's rows for the advisory, insert
-  the new) via upsert on the coordinate identity.
+  That makes `current` (not `generation`) the liveness bit, which is why
+  `reap_old_generations/3` deletes only rows that are already `current: false`.
+  Demoting rows the feed did not mention is therefore only safe on a **full
+  sweep** — a run that skipped nothing — and `finalize/4` requires the caller to
+  say so explicitly via `:demote_missing`.
+
+  Advisories upsert on `(provider, feed_key, source_object_id)`; coordinates on
+  the coordinate identity.
 
   Bounded memory: only one chunk of rows is resident at a time, independent of
   total feed size.
@@ -26,17 +44,22 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.Loader do
 
   alias ServiceRadar.Repo
 
+  require Logger
+
   @default_chunk_size 2_000
-  # Each coordinate row is ~16 bind params. Postgrex caps a statement at 65_535
-  # params; 2_000 rows stays well under that when a single NVD advisory expands
-  # to tens of CPE rows and the advisory-sized chunk would otherwise flush
-  # 20k+ coordinates in one insert_all.
-  @max_coordinate_insert 2_000
+  # Each coordinate row is 17 bind params. The binding limit is NOT the
+  # constraint that matters: 2_000 rows is ~34k params, which fits Postgrex's
+  # 65_535 cap fine and still produced 42 MB of WAL per statement, held row locks
+  # across an 800 ms transaction, and — because log_min_duration_statement is
+  # 500 ms — made Postgres echo ~742 KB of bind parameters into its own log for
+  # every batch. Size this against transaction cost, not the wire protocol.
+  @max_coordinate_insert 500
   @schema "platform"
 
   @type load_result :: %{
           advisories_upserted: non_neg_integer(),
           coordinates_upserted: non_neg_integer(),
+          advisories_skipped: non_neg_integer(),
           generation: integer()
         }
 
@@ -61,8 +84,11 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.Loader do
   Load a stream of parsed records for one feed run.
 
   `records` is an enumerable of `%{advisory: map, coordinates: [map]}`.
+  Records whose `modified_at` already matches the stored row are skipped
+  entirely — see the "Skipping unchanged advisories" note above.
+
   Options: `:provider`, `:feed_key` (required), `:generation`, `:chunk_size`,
-  `:now`.
+  `:now`, `:existing_modified`.
   """
   @spec load_stream(Enumerable.t(), keyword()) :: load_result()
   def load_stream(records, opts) do
@@ -75,27 +101,127 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.Loader do
     chunk_size = Keyword.get(opts, :chunk_size, @default_chunk_size)
     now = Keyword.get(opts, :now, DateTime.utc_now())
 
-    init = %{advisories_upserted: 0, coordinates_upserted: 0, generation: generation}
+    existing_modified =
+      Keyword.get_lazy(opts, :existing_modified, fn ->
+        existing_modified_at(provider, feed_key)
+      end)
+
+    init = %{
+      advisories_upserted: 0,
+      coordinates_upserted: 0,
+      advisories_skipped: 0,
+      generation: generation
+    }
 
     records
     |> Stream.chunk_every(chunk_size)
     |> Enum.reduce(init, fn chunk, acc ->
-      {adv, coord} = flush_chunk(chunk, provider, feed_key, generation, now)
+      {changed, skipped} =
+        Enum.split_with(chunk, &(not unchanged_advisory?(&1, existing_modified)))
+
+      {adv, coord} = flush_chunk(changed, provider, feed_key, generation, now)
 
       %{
         acc
         | advisories_upserted: acc.advisories_upserted + adv,
-          coordinates_upserted: acc.coordinates_upserted + coord
+          coordinates_upserted: acc.coordinates_upserted + coord,
+          advisories_skipped: acc.advisories_skipped + length(skipped)
       }
     end)
   end
 
   @doc """
-  Promote `generation` to current and demote all earlier generations.
-  Optionally reap demoted rows (default: keep one prior generation).
+  Map of `source_object_id => modified_at` for the feed's live advisories.
+
+  Scoped to `current == true` on purpose: a row that is not current is either
+  half-written by an aborted run or already demoted, and must be rewritten
+  rather than skipped.
+  """
+  @spec existing_modified_at(String.t(), String.t()) :: %{optional(String.t()) => DateTime.t()}
+  def existing_modified_at(provider, feed_key) do
+    # `modified_at` is a `timestamp without time zone` column and this is a
+    # schemaless query, so Ecto types the field as :any and hands back Postgrex's
+    # raw %NaiveDateTime{}. type/2 loads it as a UTC DateTime to match the
+    # DateTime the guard compares against. Same hazard and same fix as
+    # topology_graph/canonical_rebuild.ex:139-147. Without this cast the guard
+    # compares a NaiveDateTime to a DateTime, silently returns false for every
+    # record, and the whole corpus is rewritten every run.
+    query =
+      from(a in "vulnerability_advisories",
+        where: a.provider == ^provider and a.feed_key == ^feed_key and a.current == true,
+        select: {a.source_object_id, type(a.modified_at, :utc_datetime_usec)}
+      )
+
+    query
+    |> Repo.all(prefix: @schema)
+    |> Map.new()
+  end
+
+  @doc "True when the stored advisory already carries the incoming `modified_at`."
+  @spec unchanged_advisory?(map(), map()) :: boolean()
+  def unchanged_advisory?(%{advisory: advisory}, existing_modified) do
+    source_object_id = fetch(advisory, :source_object_id)
+    incoming = parse_datetime(fetch(advisory, :modified_at))
+
+    case Map.fetch(existing_modified, source_object_id) do
+      {:ok, existing} -> same_modified?(existing, incoming)
+      :error -> false
+    end
+  end
+
+  def unchanged_advisory?(_record, _existing_modified), do: false
+
+  # nil means "unknown", never "unchanged" — a feed that omits modified_at (KEV
+  # does) must keep writing rather than silently stop updating.
+  defp same_modified?(nil, _incoming), do: false
+  defp same_modified?(_existing, nil), do: false
+
+  defp same_modified?(existing, incoming) do
+    with %DateTime{} = left <- to_utc(existing),
+         %DateTime{} = right <- to_utc(incoming) do
+      # MUST be compare/2, never ==. Postgres round-trips the value with
+      # microsecond precision metadata ({123000, 6}) while the parsed input may
+      # carry ({123000, 3}); those are the same instant but are not ==.
+      DateTime.compare(left, right) == :eq
+    else
+      _ -> false
+    end
+  end
+
+  # Accept both shapes so the guard cannot fail open if a caller supplies a map
+  # built from a raw schemaless read.
+  defp to_utc(%DateTime{} = dt), do: dt
+  defp to_utc(%NaiveDateTime{} = naive), do: DateTime.from_naive!(naive, "Etc/UTC")
+  defp to_utc(_), do: nil
+
+  @doc """
+  True when this run rewrote the whole corpus, making it safe to demote rows the
+  feed did not mention.
+
+  A run that skipped anything did NOT see the full corpus in writable form: the
+  skipped rows are the live ones, still carrying an older generation. Demoting
+  on such a run hides them from the matcher and hands them to
+  `reap_old_generations/3`, which cascade-deletes their coordinates. This is the
+  gate for `finalize/4`'s `:demote_missing`.
+  """
+  @spec full_sweep?(load_result()) :: boolean()
+  def full_sweep?(%{advisories_upserted: upserted, advisories_skipped: skipped}),
+    do: upserted > 0 and skipped == 0
+
+  @doc """
+  Promote this run's rows to current, and optionally demote rows the feed did
+  not mention.
+
+  Required option `:demote_missing` — there is deliberately no default. When
+  advisories were skipped, the rows still carrying an older generation are the
+  *unchanged live* ones, and demoting them would hide the bulk of the corpus
+  from the matcher and then feed it to `reap_old_generations/3`. Only a caller
+  that knows it performed a full sweep may pass `true`; see
+  `FeedWorker.full_sweep?/1`.
   """
   @spec finalize(String.t(), String.t(), integer(), keyword()) :: :ok
-  def finalize(provider, feed_key, generation, opts \\ []) do
+  def finalize(provider, feed_key, generation, opts) do
+    demote_missing = Keyword.fetch!(opts, :demote_missing)
     # nist-nvd2 flips ~360k rows. Demo CNPG's default statement_timeout
     # cancelled this UPDATE and Oban retried the whole download.
     timeout_ms = Keyword.get(opts, :timeout_ms, 600_000)
@@ -106,23 +232,21 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.Loader do
           Integer.to_string(timeout_ms)
         ])
 
+      # Promote only rows this run actually wrote. Rows already current stay
+      # untouched, so a steady-state run rewrites nothing here.
       Repo.update_all(
         from(a in "vulnerability_advisories",
           where:
-            a.provider == ^provider and a.feed_key == ^feed_key and a.generation == ^generation
+            a.provider == ^provider and a.feed_key == ^feed_key and
+              a.generation == ^generation and a.current == false
         ),
         [set: [current: true]],
         prefix: @schema
       )
 
-      Repo.update_all(
-        from(a in "vulnerability_advisories",
-          where:
-            a.provider == ^provider and a.feed_key == ^feed_key and a.generation != ^generation
-        ),
-        [set: [current: false]],
-        prefix: @schema
-      )
+      if demote_missing do
+        demote_missing_rows(provider, feed_key, generation)
+      end
 
       if Keyword.get(opts, :reap, true) do
         reap_old_generations(provider, feed_key, generation)
@@ -132,22 +256,84 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.Loader do
     :ok
   end
 
+  # Demote rows the feed did not re-publish. Guarded: if this would demote an
+  # implausible share of the live corpus the run is treated as untrustworthy
+  # (truncated download, partial parse) and nothing is demoted or reaped, because
+  # a wrong demote silently hides vulnerability data from the matcher.
+  defp demote_missing_rows(provider, feed_key, generation) do
+    scope =
+      from(a in "vulnerability_advisories",
+        where: a.provider == ^provider and a.feed_key == ^feed_key
+      )
+
+    candidates =
+      Repo.aggregate(
+        from(a in scope, where: a.generation != ^generation and a.current == true),
+        :count,
+        prefix: @schema
+      )
+
+    live = Repo.aggregate(from(a in scope, where: a.current == true), :count, prefix: @schema)
+
+    if candidates > max(100, div(live, 20)) do
+      Logger.error(
+        "advisory_feeds: refusing to demote #{candidates} of #{live} live #{feed_key} " <>
+          "advisories; treating run as partial and skipping demote+reap"
+      )
+
+      :skipped
+    else
+      Repo.update_all(
+        from(a in scope, where: a.generation != ^generation and a.current == true),
+        [set: [current: false]],
+        prefix: @schema
+      )
+
+      :ok
+    end
+  end
+
   @doc "Delete advisories (cascade coordinates) older than the kept generation."
   @spec reap_old_generations(String.t(), String.t(), integer()) :: :ok
   def reap_old_generations(provider, feed_key, current_generation) do
     keep = current_generation - 1
 
-    Repo.delete_all(
+    # `and a.current == false` is load-bearing. Skipped advisories keep an older
+    # generation while remaining live, and both advisory_coordinates.advisory_ref
+    # and endpoint_vulnerability_matches reference this row ON DELETE CASCADE —
+    # so dropping this predicate deletes live advisories and their coordinates.
+    query =
       from(a in "vulnerability_advisories",
-        where: a.provider == ^provider and a.feed_key == ^feed_key and a.generation < ^keep
-      ),
-      prefix: @schema
-    )
+        where:
+          a.provider == ^provider and a.feed_key == ^feed_key and
+            a.generation < ^keep and a.current == false
+      )
+
+    count = Repo.aggregate(query, :count, prefix: @schema)
+
+    if count > 0 do
+      Logger.warning("advisory_feeds: reaping #{count} demoted #{feed_key} advisories")
+      Repo.delete_all(query, prefix: @schema)
+    end
 
     :ok
   end
 
+  # A fully-skipped chunk must not open a transaction or issue an empty
+  # insert_all.
+  defp flush_chunk([], _provider, _feed_key, _generation, _now), do: {0, 0}
+
   defp flush_chunk(chunk, provider, feed_key, generation, now) do
+    # Advisories and their coordinates land atomically: a chunk that fails
+    # halfway would otherwise leave advisories pointing at a partial coordinate
+    # set, which the matcher would read as "this CVE affects nothing".
+    {:ok, result} =
+      Repo.transaction(fn -> flush_chunk_body(chunk, provider, feed_key, generation, now) end)
+
+    result
+  end
+
+  defp flush_chunk_body(chunk, provider, feed_key, generation, now) do
     advisory_rows =
       chunk
       |> Enum.map(fn %{advisory: advisory} ->
@@ -242,6 +428,14 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.Loader do
     |> Map.values()
   end
 
+  # `:generation` is deliberately absent from the replace list below.
+  # advisory_coordinates_generation_idx indexes that column, so replacing it
+  # makes every upsert a non-HOT update that re-inserts all six indexes —
+  # including the 416 MB GIN trigram on `value`. Production measured
+  # n_tup_hot_upd = 0 against 155M n_tup_upd because of this one field. Leaving
+  # it out lets a byte-identical coordinate take the HOT path. The column keeps
+  # its insert-time value; nothing reads it as a liveness signal (see the
+  # generation-swap note in the moduledoc).
   defp insert_coordinate_batch(rows) do
     {count, _} =
       Repo.insert_all("advisory_coordinates", rows,
@@ -255,7 +449,6 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.Loader do
              :cpe_version,
              :version_start_inclusive,
              :version_end_inclusive,
-             :generation,
              :metadata,
              :updated_at
            ]},
@@ -336,6 +529,8 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.Loader do
       _ -> parse_naive(value)
     end
   end
+
+  defp parse_datetime(%NaiveDateTime{} = naive), do: DateTime.from_naive!(naive, "Etc/UTC")
 
   defp parse_datetime(_), do: nil
 

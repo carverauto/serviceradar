@@ -4,6 +4,8 @@ go_library(
     name = "netprobe",
     srcs = [
         "attach_manager.go",
+        "census_assembler.go",
+        "census_translator.go",
         "client.go",
         "config.go",
         "framing.go",
@@ -27,9 +29,12 @@ go_test(
     name = "netprobe_test",
     srcs = [
         "attach_manager_test.go",
+        "census_assembler_test.go",
+        "census_translator_test.go",
         "client_test.go",
         "config_test.go",
         "framing_test.go",
+        "sidecar_census_test.go",
         "sidecar_test.go",
         "translator_test.go",
     ],
@@ -42,5 +47,7 @@ go_test(
         "//proto/agent/netprobe/v1:netprobepb",
         "//proto/discovery",
         "@com_github_rs_zerolog//:zerolog",
+        "@com_github_stretchr_testify//assert",
+        "@com_github_stretchr_testify//require",
     ],
 )

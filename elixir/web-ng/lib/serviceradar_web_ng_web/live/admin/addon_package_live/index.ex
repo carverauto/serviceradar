@@ -13,6 +13,7 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonPackageLive.Index do
 
   import ServiceRadarWebNGWeb.PluginConfigForm
 
+  alias Ash.Error.Invalid
   alias ServiceRadar.AgentRuntimeMetadata
   alias ServiceRadar.Edge.EdgeSite
   alias ServiceRadar.Infrastructure.Agent
@@ -1196,7 +1197,11 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonPackageLive.Index do
                     base_name="profile[params]"
                   />
                 </div>
-                <details class="rounded border border-sr-line bg-sr-subtle/30">
+                <details
+                  id="addon-advanced-profile-options"
+                  phx-hook="DetailsState"
+                  class="rounded border border-sr-line bg-sr-subtle/30"
+                >
                   <summary class="cursor-pointer px-3 py-2 text-xs font-semibold uppercase text-sr-muted">
                     Advanced Profile Options
                   </summary>
@@ -1450,7 +1455,11 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonPackageLive.Index do
                     />
                   </div>
 
-                  <details class="rounded-lg border border-sr-line/70 bg-sr-surface/60 p-3">
+                  <details
+                    id="addon-assignment-raw-params"
+                    phx-hook="DetailsState"
+                    class="rounded-lg border border-sr-line/70 bg-sr-surface/60 p-3"
+                  >
                     <summary class="cursor-pointer text-xs font-semibold text-sr-muted">
                       Raw Params (JSON)
                     </summary>
@@ -2910,7 +2919,23 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonPackageLive.Index do
 
   defp format_error(error) when is_binary(error), do: truncate_error(error)
   defp format_error(error) when is_atom(error), do: error |> Atom.to_string() |> truncate_error()
-  defp format_error(%Ash.Error.Invalid{} = error), do: error |> Exception.message() |> truncate_error()
+
+  defp format_error(%Invalid{errors: errors} = error) when is_list(errors) and errors != [] do
+    messages =
+      errors
+      |> Enum.map(&ash_error_message/1)
+      |> Enum.reject(&(&1 in [nil, ""]))
+      |> Enum.uniq()
+
+    case messages do
+      [] -> error |> Exception.message() |> strip_ash_breadcrumbs() |> truncate_error()
+      _ -> messages |> Enum.join("; ") |> truncate_error()
+    end
+  end
+
+  defp format_error(%Invalid{} = error) do
+    error |> Exception.message() |> strip_ash_breadcrumbs() |> truncate_error()
+  end
 
   defp format_error({:native_addon_version_source_conflict, details}) when is_map(details) do
     addon = Map.get(details, :addon_id) || "addon"
@@ -2927,6 +2952,17 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonPackageLive.Index do
     error
     |> inspect(limit: 8, printable_limit: 400)
     |> truncate_error()
+  end
+
+  defp ash_error_message(%{message: message}) when is_binary(message), do: String.trim(message)
+  defp ash_error_message(error), do: error |> Exception.message() |> strip_ash_breadcrumbs()
+
+  defp strip_ash_breadcrumbs(message) when is_binary(message) do
+    message
+    |> String.replace(~r/Bread Crumbs:.*?(?=\n\n|\z)/s, "")
+    |> String.replace(~r/\n?Invalid value provided for \w+:\s*/i, "")
+    |> String.replace(~r/\s+/, " ")
+    |> String.trim()
   end
 
   defp truncate_error(message) when is_binary(message) do

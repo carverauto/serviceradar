@@ -72,7 +72,7 @@ func (p *ICMPChecker) Check(ctx context.Context, req *proto.StatusRequest) (isAc
 		PacketLoss:   result.PacketLoss,
 		Available:    result.Available,
 		AgentID:      req.AgentId,
-		GatewayID:     req.GatewayId,
+		GatewayID:    req.GatewayId,
 		DeviceID:     p.DeviceID,
 	}
 

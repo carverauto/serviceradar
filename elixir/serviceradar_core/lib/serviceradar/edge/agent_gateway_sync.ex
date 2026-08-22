@@ -24,6 +24,7 @@ defmodule ServiceRadar.Edge.AgentGatewaySync do
   alias ServiceRadar.Infrastructure.Agent
   alias ServiceRadar.Infrastructure.Gateway
   alias ServiceRadar.Inventory.Device
+  alias ServiceRadar.Inventory.Identity.Fence
   alias ServiceRadar.Inventory.IdentityReconciler
   alias ServiceRadar.NetworkDiscovery.MapperJob
   alias ServiceRadar.SweepJobs.SweepGroup
@@ -306,6 +307,12 @@ defmodule ServiceRadar.Edge.AgentGatewaySync do
   end
 
   defp complete_agent_device_sync(device_uid, agent_id, attrs, device_update, actor) do
+    # Observe-only identity fence. Identity was resolved once above, and the six
+    # writes below are independent, so a merge landing partway through leaves some
+    # of them on the old device. This measures how often that actually happens
+    # before anything is enforced; nothing branches on the result.
+    pinned = Fence.observe_pin(device_uid)
+
     # Register agent_id as a strong identifier so DIRE can resolve
     # subsequent enrollments (even from different IPs) to this device
     ids = IdentityReconciler.extract_strong_identifiers(device_update)
@@ -316,6 +323,8 @@ defmodule ServiceRadar.Edge.AgentGatewaySync do
     link_agent_to_device(agent_id, device_uid, actor)
     backfill_endpoint_inventory_device_uid(agent_id, device_uid)
     retire_superseded_agents(agent_id, device_uid, attrs, actor)
+
+    Fence.observe(pinned, :agent_gateway_sync)
     {:ok, device_uid}
   end
 
