@@ -1553,7 +1553,43 @@ here.
         NOT IN SCOPE: no corpus or generator work. The transcripts were already covered by the
         shared fixtures and by `pubid_reject_vectors.txt`.
   - [ ] 1.5-k PROJECTED ROW COST covering every synchronous ledger / domain / outbox / work
-        / current-state mutation
+        / current-state mutation.
+        CLOSURE CRITERION, BOUNDED BEFORE IMPLEMENTATION. "Every synchronous mutation" is
+        unbounded as written: the repository contains many write sites, and enumerating them is
+        work with no end and no verdict. The criterion below is mechanical, and it is recorded
+        BEFORE the work so the scope cannot be settled retroactively by whatever got built.
+        SCOPE -- THREE EXCLUSIONS THAT MAKE IT FINITE:
+          * ONE RECORD, ONE TRANSACTION. The cost accounts for the rows ONE admitted edge record
+            causes inside the SINGLE SYNCHRONOUS TRANSACTION that admits it. Anything
+            asynchronous is out by definition rather than by judgement -- it is not synchronous
+            with admission.
+          * THE EDGE-RECORD PATH ONLY. `event_writer`'s existing processors write rows under a
+            different contract and are NOT what `projected_row_count` describes. They SHALL NOT
+            be enumerated here; doing so is the specific expansion this criterion exists to stop.
+          * NOT THE RELATION. Whether a DECLARED cost is within the capability's declared maxima
+            is 1.5-h in Go and 1.5-n in Elixir, both closed or owned elsewhere. 1.5-k owns only
+            whether the declared NUMBER CORRESPONDS TO THE ROWS.
+        MECHANISM -- DERIVED, NOT LISTED. `projection.SweepRows` / `MtrRows` is already named the
+        single source of truth. It RETURNS A COUNT AND ENUMERATES NOTHING, which is what makes it
+        unfalsifiable today: a count with no rows beside it cannot disagree with anything. So the
+        first deliverable is that the rule ENUMERATES the rows it counts and the count becomes
+        `len(rows)` by construction, not a parallel arithmetic that can drift from it. The Elixir
+        peer then computes the same count over the same committed batch fixtures, and
+        EXHAUSTIVENESS is a static guard over the synchronous ingest path with its limits
+        documented -- never an enumeration of the repository's write sites.
+        CLOSES WHEN: for every committed batch fixture the enumerated row set's length equals the
+        declared count in BOTH runtimes, and the guard shows the synchronous edge-record ingest
+        path emits no row outside that set.
+        WHAT CANNOT CLOSE TODAY, AND IS NARROWED RATHER THAN WAIVED. Nothing in production
+        PRODUCES `projected_row_count` and nothing CONSUMES an actual row count against it: every
+        production mention is a READ -- the semantic digest at `semantic.go:190`, the maxima
+        comparison at `validate.go:789`, the claims framing, and their two Elixir peers.
+        `SweepRows` has no caller outside its own package. So "the agent's projected_row_count
+        and the consumer's actual insert count MUST use the same rule" has neither an agent nor a
+        consumer to bind yet. That half becomes CONDITIONAL AND NORMATIVE, the way 1.5-m's
+        lifecycle ingress did: any component that declares a projected cost, or performs a
+        synchronous mutation for an admitted record, SHALL account for it by this rule -- stated
+        in the SPEC, which outlives this ledger, and not only here.
   - [ ] 1.5-l REFUSAL CLASSIFICATION -- `:poison` vs `:systemic` vs `:not_ready`. This task's
         body requires it and no other subtask carries it.
         DISTINCT FROM 1.5-a, which freezes WHETHER bytes are refused and explicitly leaves the
