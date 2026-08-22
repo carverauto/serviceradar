@@ -5,7 +5,7 @@ use aya_ebpf::{
     bindings::{xdp_action, BPF_ANY, TC_ACT_OK},
     helpers::{bpf_ktime_get_ns, bpf_probe_read_kernel, bpf_probe_read_kernel_buf},
     macros::{classifier, kprobe, kretprobe, map, tracepoint, xdp},
-    maps::{HashMap as BpfHashMap, LruHashMap, ProgramArray, RingBuf, XskMap},
+    maps::{HashMap as BpfHashMap, LruHashMap, PerCpuArray, ProgramArray, RingBuf, XskMap},
     programs::{ProbeContext, RetProbeContext, TcContext, TracePointContext, XdpContext},
     EbpfContext,
 };
@@ -357,6 +357,19 @@ static L2_OBSERVATIONS: RingBuf = RingBuf::pinned(1 << 20, 0);
 // LRU so a busy segment evicts cold entries instead of failing to insert.
 #[map(name = "l2_seen")]
 static L2_SEEN: LruHashMap<L2SeenKey, u64> = LruHashMap::pinned(65536, 0);
+
+// Census observations the ring could not accept because it was full.
+//
+// Per-CPU so the increment needs no atomic and cannot contend: it is a plain
+// read-modify-write of CPU-local memory. Nothing touches this on the success
+// path -- it is only written from the branch where `reserve` already failed,
+// so a healthy census pays exactly nothing for it.
+//
+// Without this counter the snapshot's `dropped_since_last` would be
+// permanently zero, and an operator could not tell a quiet segment from one
+// that is silently losing observations.
+#[map(name = "l2_ring_drops")]
+static L2_RING_DROPS: PerCpuArray<u64> = PerCpuArray::pinned(1, 0);
 
 #[repr(C)]
 #[derive(Copy, Clone, Eq, PartialEq)]
@@ -2269,6 +2282,14 @@ fn observe_l2_device(ctx: &TcContext) {
     }
 
     let Some(mut entry) = L2_OBSERVATIONS.reserve::<L2ObservationRecord>(0) else {
+        // Ring full: userspace is not draining fast enough. Record the loss so
+        // the snapshot can report it rather than silently under-reporting the
+        // segment.
+        if let Some(drops) = L2_RING_DROPS.get_ptr_mut(0) {
+            // SAFETY: per-CPU array slot 0 exists (capacity 1) and is only
+            // accessed from this CPU for the duration of this program run.
+            unsafe { *drops = (*drops).saturating_add(1) };
+        }
         return;
     };
     entry.write(record);

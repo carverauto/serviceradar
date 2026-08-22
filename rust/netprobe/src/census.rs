@@ -29,6 +29,11 @@ pub const L2_FLAG_LOCALLY_ADMINISTERED: u16 = 1 << 0;
 pub const L2_FLAG_ARP_PROBE: u16 = 1 << 1;
 pub const L2_FLAG_ARP_GRATUITOUS: u16 = 1 << 2;
 
+use crate::proto::netprobe::{
+    DeviceCensusKind as WireKind, DeviceCensusObservation, DeviceCensusSnapshot,
+};
+use prost::Message as _;
+
 /// How the binding was observed. Kept distinct from the transport because the
 /// evidence quality differs: an ARP reply names its own address, while an
 /// arbitrary IPv4 frame merely carries a source address that could be spoofed.
@@ -486,6 +491,176 @@ impl CensusTable {
     }
 }
 
+/// Map an observation kind onto the wire enum.
+///
+/// Deliberately exhaustive rather than a numeric cast: the proto enum and the
+/// internal enum are separate contracts, and a cast would silently mistranslate
+/// if either gained a variant.
+fn wire_kind(kind: ObservationKind) -> WireKind {
+    match kind {
+        ObservationKind::ArpRequest => WireKind::ArpRequest,
+        ObservationKind::ArpReply => WireKind::ArpReply,
+        ObservationKind::Ipv6Ndp => WireKind::Ipv6Ndp,
+    }
+}
+
+/// Build the wire snapshot from the table's current view.
+///
+/// Timestamps cross a clock boundary here: the table stores CLOCK_MONOTONIC
+/// nanoseconds (what `bpf_ktime_get_ns` returns), while the wire carries wall
+/// clock. `wall_nanos_from_monotonic` does the conversion, which is why both
+/// "now" values are parameters -- one sample of each is taken for the whole
+/// snapshot so entries stay consistent with one another.
+pub fn build_snapshot(
+    entries: &[CensusEntry],
+    interface_name: &str,
+    snapshot_id: &str,
+    monotonic_now_ns: u64,
+    wall_now_ns: i64,
+    dropped_since_last: u32,
+) -> DeviceCensusSnapshot {
+    let observations = entries
+        .iter()
+        .map(|entry| DeviceCensusObservation {
+            mac: entry.mac.to_string(),
+            ip: entry.ip.map(|ip| ip.to_string()).unwrap_or_default(),
+            interface_index: entry.interface_index,
+            kind: wire_kind(entry.kind) as i32,
+            first_seen_unix_nano: wall_nanos_from_monotonic(
+                entry.first_seen_ns,
+                monotonic_now_ns,
+                wall_now_ns,
+            ),
+            last_seen_unix_nano: wall_nanos_from_monotonic(
+                entry.last_seen_ns,
+                monotonic_now_ns,
+                wall_now_ns,
+            ),
+            randomized_mac: entry.randomized_mac,
+            off_segment: entry.off_segment,
+        })
+        .collect();
+
+    DeviceCensusSnapshot {
+        observations,
+        snapshot_id: snapshot_id.to_owned(),
+        interface_name: interface_name.to_owned(),
+        generated_at_unix_nano: wall_now_ns,
+        complete: true,
+        chunk_index: 0,
+        chunk_count: 1,
+        dropped_since_last,
+    }
+}
+
+/// Split a snapshot into frames that fit `max_payload_len`.
+///
+/// The chunk set is computed UP FRONT rather than emitted as it goes, because
+/// `chunk_count` has to be correct on the first chunk -- a receiver that has to
+/// wait for `complete` to learn how many chunks it is buffering cannot size
+/// anything or detect a truncated set.
+///
+/// `complete` is set on the LAST chunk only. A receiver applies a snapshot when
+/// it has `chunk_count` chunks sharing a `snapshot_id` and has seen the
+/// complete flag; anything else is a partial set to discard. That matters
+/// because this snapshot is authoritative -- applying half of one would read as
+/// "every device in the missing chunks has left the segment".
+///
+/// An observation too large to fit alone is dropped rather than emitted in an
+/// oversized frame that the reader would reject: losing one binding beats
+/// losing the snapshot.
+///
+/// `dropped_since_last` is a property of the SNAPSHOT, so it is replicated
+/// verbatim onto every chunk rather than divided among them. A receiver takes
+/// it from any one chunk; summing across chunks would multiply it by
+/// `chunk_count`.
+pub fn chunk_snapshot(
+    snapshot: DeviceCensusSnapshot,
+    max_payload_len: usize,
+) -> (Vec<DeviceCensusSnapshot>, u32) {
+    let base_len = snapshot_base_payload_len(&snapshot);
+    let DeviceCensusSnapshot {
+        observations,
+        snapshot_id,
+        interface_name,
+        generated_at_unix_nano,
+        dropped_since_last,
+        ..
+    } = snapshot;
+
+    let mut groups: Vec<Vec<DeviceCensusObservation>> = Vec::new();
+    let mut current: Vec<DeviceCensusObservation> = Vec::new();
+    let mut current_len = base_len;
+    let mut dropped_oversized = 0u32;
+
+    for observation in observations {
+        let wire_len = observation_wire_len(&observation);
+        if base_len + wire_len > max_payload_len {
+            // Cannot fit even in a chunk of its own.
+            dropped_oversized += 1;
+            continue;
+        }
+        if current_len + wire_len > max_payload_len && !current.is_empty() {
+            groups.push(std::mem::take(&mut current));
+            current_len = base_len;
+        }
+        current_len += wire_len;
+        current.push(observation);
+    }
+    if !current.is_empty() || groups.is_empty() {
+        // An empty snapshot still ships exactly one chunk: "no devices" is a
+        // real, meaningful state for a complete snapshot, and swallowing it
+        // would leave stale bindings alive downstream forever.
+        groups.push(current);
+    }
+
+    let chunk_count = groups.len() as u32;
+    let last = chunk_count.saturating_sub(1);
+    let chunks = groups
+        .into_iter()
+        .enumerate()
+        .map(|(index, observations)| DeviceCensusSnapshot {
+            observations,
+            snapshot_id: snapshot_id.clone(),
+            interface_name: interface_name.clone(),
+            generated_at_unix_nano,
+            complete: index as u32 == last,
+            chunk_index: index as u32,
+            chunk_count,
+            dropped_since_last,
+        })
+        .collect();
+
+    (chunks, dropped_oversized)
+}
+
+/// Encoded size of everything in a chunk except the observations.
+fn snapshot_base_payload_len(snapshot: &DeviceCensusSnapshot) -> usize {
+    DeviceCensusSnapshot {
+        observations: Vec::new(),
+        snapshot_id: snapshot.snapshot_id.clone(),
+        interface_name: snapshot.interface_name.clone(),
+        generated_at_unix_nano: snapshot.generated_at_unix_nano,
+        // Budget the WIDEST encoding of every field the split rewrites, not the
+        // values this snapshot happens to hold. proto3 omits zero-valued fields
+        // and varint-encodes small ones, so measuring with the pre-split values
+        // (chunk_index 0, chunk_count 1, complete on only the last chunk) would
+        // under-budget every chunk and let it grow past the limit once the real
+        // values are written back.
+        complete: true,
+        chunk_index: u32::MAX,
+        chunk_count: u32::MAX,
+        dropped_since_last: snapshot.dropped_since_last.max(1),
+    }
+    .encoded_len()
+}
+
+fn observation_wire_len(observation: &DeviceCensusObservation) -> usize {
+    let len = observation.encoded_len();
+    // Field 1 of the snapshot, length-delimited: tag + length prefix + body.
+    1 + prost::length_delimiter_len(len) + len
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -825,6 +1000,219 @@ mod tests {
 
     const SEC: u64 = 1_000_000_000;
 
+    fn entry(mac: [u8; 6], ip: Option<&str>, kind: ObservationKind) -> CensusEntry {
+        CensusEntry {
+            mac: MacAddress::new(mac),
+            ip: ip.map(|v| v.parse().unwrap()),
+            interface_index: 2,
+            kind,
+            first_seen_ns: 10 * SEC,
+            last_seen_ns: 20 * SEC,
+            randomized_mac: false,
+            off_segment: false,
+        }
+    }
+
+    #[test]
+    fn snapshot_maps_every_kind_onto_a_distinct_wire_value() {
+        // A numeric cast between the two enums would compile and silently
+        // mistranslate the moment either side gains a variant. Pin the mapping.
+        let kinds = [
+            (ObservationKind::ArpRequest, WireKind::ArpRequest),
+            (ObservationKind::ArpReply, WireKind::ArpReply),
+            (ObservationKind::Ipv6Ndp, WireKind::Ipv6Ndp),
+        ];
+        for (internal, wire) in kinds {
+            assert_eq!(
+                wire_kind(internal),
+                wire,
+                "{internal:?} maps to the wrong wire kind"
+            );
+            assert_ne!(
+                wire as i32,
+                WireKind::Unspecified as i32,
+                "{internal:?} must never serialise as UNSPECIFIED"
+            );
+        }
+    }
+
+    #[test]
+    fn snapshot_converts_monotonic_entry_times_to_wall_clock() {
+        // The table stores CLOCK_MONOTONIC; the wire carries wall clock. Ship
+        // the raw value and every device appears to have been seen in 1970.
+        let wall_now = 1_700_000_000 * SEC as i64;
+        let snapshot = build_snapshot(
+            &[entry(
+                [2, 0, 0, 0, 0, 1],
+                Some("192.168.1.10"),
+                ObservationKind::ArpReply,
+            )],
+            "eth0",
+            "eth0-1",
+            30 * SEC,
+            wall_now,
+            0,
+        );
+        let observation = &snapshot.observations[0];
+        // first seen 20s before "now", last seen 10s before.
+        assert_eq!(observation.first_seen_unix_nano, wall_now - 20 * SEC as i64);
+        assert_eq!(observation.last_seen_unix_nano, wall_now - 10 * SEC as i64);
+        assert_eq!(snapshot.generated_at_unix_nano, wall_now);
+    }
+
+    #[test]
+    fn snapshot_leaves_ip_empty_for_a_binding_without_one() {
+        // An RFC 5227 probe has a MAC but no address yet. proto3 has no null,
+        // so "" is the absence marker -- it must not become "None" or "0.0.0.0".
+        let snapshot = build_snapshot(
+            &[entry([2, 0, 0, 0, 0, 1], None, ObservationKind::ArpRequest)],
+            "eth0",
+            "eth0-1",
+            30 * SEC,
+            1_700_000_000 * SEC as i64,
+            0,
+        );
+        assert_eq!(snapshot.observations[0].ip, "");
+    }
+
+    #[test]
+    fn a_snapshot_that_fits_is_one_complete_chunk() {
+        let snapshot = build_snapshot(
+            &[entry(
+                [2, 0, 0, 0, 0, 1],
+                Some("192.168.1.10"),
+                ObservationKind::ArpReply,
+            )],
+            "eth0",
+            "eth0-1",
+            30 * SEC,
+            1_700_000_000 * SEC as i64,
+            0,
+        );
+        let (chunks, dropped) = chunk_snapshot(snapshot, 4 * 1024 * 1024);
+        assert_eq!(dropped, 0);
+        assert_eq!(chunks.len(), 1);
+        assert!(chunks[0].complete);
+        assert_eq!(chunks[0].chunk_index, 0);
+        assert_eq!(chunks[0].chunk_count, 1);
+    }
+
+    #[test]
+    fn an_empty_snapshot_still_ships_one_complete_chunk() {
+        // "No devices" is a real state for a COMPLETE snapshot. Swallowing it
+        // would leave every previously reported binding alive downstream
+        // forever, because absence is what retires a device.
+        let snapshot = build_snapshot(
+            &[],
+            "eth0",
+            "eth0-7",
+            30 * SEC,
+            1_700_000_000 * SEC as i64,
+            0,
+        );
+        let (chunks, _) = chunk_snapshot(snapshot, 4 * 1024 * 1024);
+        assert_eq!(chunks.len(), 1);
+        assert!(chunks[0].observations.is_empty());
+        assert!(chunks[0].complete);
+        assert_eq!(chunks[0].chunk_count, 1);
+    }
+
+    fn many_entries(count: usize) -> Vec<CensusEntry> {
+        (0..count)
+            .map(|i| {
+                let mac = [2, 0, 0, (i >> 16) as u8, (i >> 8) as u8, i as u8];
+                let ip = format!("10.{}.{}.{}", (i >> 16) & 0xff, (i >> 8) & 0xff, i & 0xff);
+                entry(mac, Some(&ip), ObservationKind::ArpReply)
+            })
+            .collect()
+    }
+
+    #[test]
+    fn a_split_snapshot_keeps_every_observation_and_numbers_its_chunks() {
+        let entries = many_entries(500);
+        let snapshot = build_snapshot(
+            &entries,
+            "eth0",
+            "eth0-3",
+            30 * SEC,
+            1_700_000_000 * SEC as i64,
+            0,
+        );
+        // Small enough to force many chunks.
+        let (chunks, dropped) = chunk_snapshot(snapshot, 512);
+        assert_eq!(dropped, 0);
+        assert!(
+            chunks.len() > 1,
+            "expected a split, got {} chunk(s)",
+            chunks.len()
+        );
+
+        let total: usize = chunks.iter().map(|c| c.observations.len()).sum();
+        assert_eq!(total, entries.len(), "the split lost observations");
+
+        let count = chunks.len() as u32;
+        for (index, chunk) in chunks.iter().enumerate() {
+            // chunk_count must be right on EVERY chunk, not just the last: a
+            // receiver cannot size or validate the set otherwise.
+            assert_eq!(chunk.chunk_count, count);
+            assert_eq!(chunk.chunk_index, index as u32);
+            assert_eq!(chunk.snapshot_id, "eth0-3");
+            assert_eq!(chunk.complete, index == chunks.len() - 1);
+        }
+    }
+
+    #[test]
+    fn every_chunk_still_fits_after_its_index_is_written_back() {
+        // REGRESSION: chunk_index/chunk_count are rewritten AFTER the split, so
+        // budgeting with the pre-split values (0 and 1 -- which proto3 omits or
+        // encodes in a single byte) under-counts by several bytes per chunk and
+        // lets a chunk cross the limit once the real values land. Measure the
+        // FINAL encoded size, and force wide varints by demanding many chunks.
+        const LIMIT: usize = 256;
+        let snapshot = build_snapshot(
+            &many_entries(400),
+            "eth0",
+            "eth0-4",
+            30 * SEC,
+            1_700_000_000 * SEC as i64,
+            u32::MAX,
+        );
+        let (chunks, _) = chunk_snapshot(snapshot, LIMIT);
+        assert!(
+            chunks.len() > 128,
+            "need multi-byte chunk indices to exercise this"
+        );
+        for chunk in &chunks {
+            assert!(
+                chunk.encoded_len() <= LIMIT,
+                "chunk {} encodes to {} bytes, over the {} limit",
+                chunk.chunk_index,
+                chunk.encoded_len(),
+                LIMIT
+            );
+        }
+    }
+
+    #[test]
+    fn an_observation_too_large_for_any_chunk_is_dropped_not_emitted() {
+        // Emitting it anyway would produce a frame the reader rejects, losing
+        // the WHOLE snapshot. Losing one binding is the better failure.
+        let snapshot = build_snapshot(
+            &many_entries(3),
+            "eth0",
+            "eth0-5",
+            30 * SEC,
+            1_700_000_000 * SEC as i64,
+            0,
+        );
+        // A limit below the per-observation size but above the base.
+        let (chunks, dropped) = chunk_snapshot(snapshot, 40);
+        assert_eq!(dropped, 3);
+        assert_eq!(chunks.len(), 1);
+        assert!(chunks[0].observations.is_empty());
+        assert!(chunks[0].complete);
+    }
+
     #[test]
     fn monotonic_is_converted_to_wall_clock() {
         // bpf_ktime_get_ns is CLOCK_MONOTONIC -- an arbitrary origin, not an
@@ -971,19 +1359,47 @@ mod tests {
 #[cfg(target_os = "linux")]
 mod runtime {
     use super::{
-        CENSUS_RATE_CEILING_PER_SEC, CENSUS_WATCHDOG_INTERVAL, CensusWatchdog, DeviceObservation,
-        SegmentScope, parse_l2_ring_record,
+        CENSUS_RATE_CEILING_PER_SEC, CENSUS_WATCHDOG_INTERVAL, CensusTable, CensusWatchdog,
+        DeviceObservation, SegmentScope, build_snapshot, parse_l2_ring_record,
     };
+    use crate::proto::netprobe::DeviceCensusSnapshot;
     use anyhow::Result;
     use std::net::IpAddr;
     use std::sync::Arc;
     use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
     use std::thread;
     use std::time::Duration;
-    use std::time::Instant;
+    use std::time::{Instant, SystemTime, UNIX_EPOCH};
+    use tokio::sync::broadcast;
 
     pub const L2_OBSERVATIONS_MAP: &str = "l2_observations";
+    pub const L2_RING_DROPS_MAP: &str = "l2_ring_drops";
     const CENSUS_RING_IDLE_SLEEP: Duration = Duration::from_millis(50);
+
+    /// How often the complete segment view is published.
+    ///
+    /// This is a whole-segment refresh, not an event stream, so the interval is
+    /// the freshness bound on device presence rather than a sampling rate: a
+    /// device that joins is visible within one interval, and one that leaves
+    /// disappears within CENSUS_ENTRY_TTL. Two minutes keeps the ingest cost
+    /// proportional to segment SIZE rather than to segment CHATTER, which is
+    /// the whole point of holding state at the edge.
+    const CENSUS_SNAPSHOT_INTERVAL: Duration = Duration::from_secs(120);
+
+    /// How long a binding survives without being seen again.
+    ///
+    /// Must be comfortably longer than the snapshot interval, or a device that
+    /// is merely quiet would flap out of and back into consecutive snapshots.
+    /// The eBPF suppression window refreshes a live device every 60s, so 15
+    /// minutes tolerates roughly fourteen consecutive missed refreshes.
+    const CENSUS_ENTRY_TTL: Duration = Duration::from_secs(15 * 60);
+
+    /// Upper bound on tracked bindings per interface.
+    ///
+    /// A /16 segment is larger than this; the table evicts the coldest binding
+    /// rather than growing without bound, so the memory ceiling is fixed at
+    /// roughly 4k * ~100B regardless of what it is pointed at.
+    const CENSUS_TABLE_CAPACITY: usize = 4096;
 
     /// Running totals, exposed so the census can be observed without a
     /// downstream consumer wired up yet.
@@ -995,6 +1411,10 @@ mod runtime {
         /// Set when the census shut itself down because suppression failed.
         pub shutdown: std::sync::atomic::AtomicBool,
         pub undecodable: AtomicU64,
+        /// Bindings that were new to the table, i.e. genuinely new devices
+        /// rather than refreshes of one already known.
+        pub tracked: AtomicU64,
+        pub snapshots_published: AtomicU64,
     }
 
     /// Build the observing interface's address scope from the kernel routing
@@ -1052,11 +1472,27 @@ mod runtime {
 
     struct CensusConsumer {
         interface_name: String,
+        /// Distinguishes snapshots from THIS netprobe process.
+        ///
+        /// The agent buffers chunks keyed by snapshot_id until it has a
+        /// complete set, so a plain counter is not safe: it restarts at 0 with
+        /// the process, and a netprobe that dies mid-snapshot would leave the
+        /// agent holding chunks whose id the next process immediately reuses,
+        /// letting two different snapshots merge into one. Seeding with the
+        /// process start time makes reuse require two starts in the same
+        /// nanosecond on the same interface.
+        snapshot_id_prefix: String,
         scope: SegmentScope,
         ring: aya::maps::RingBuf<aya::maps::MapData>,
+        drops: Option<aya::maps::PerCpuArray<aya::maps::MapData, u64>>,
         counters: Arc<CensusCounters>,
         watchdog: CensusWatchdog,
         stop: Arc<AtomicBool>,
+        table: CensusTable,
+        snapshots: broadcast::Sender<DeviceCensusSnapshot>,
+        last_snapshot: Instant,
+        snapshot_seq: u64,
+        drops_at_last_snapshot: u64,
     }
 
     // Maximum records drained per poll before returning to the loop that checks
@@ -1104,7 +1540,10 @@ mod runtime {
                         if observation.is_off_segment(&self.scope) {
                             self.counters.off_segment.fetch_add(1, Ordering::Relaxed);
                         }
-                        log_observation(&self.interface_name, &self.scope, &observation);
+                        if self.table.observe(&observation, &self.scope) {
+                            self.counters.tracked.fetch_add(1, Ordering::Relaxed);
+                            log_observation(&self.interface_name, &self.scope, &observation);
+                        }
                     }
                     None => {
                         self.counters.undecodable.fetch_add(1, Ordering::Relaxed);
@@ -1117,6 +1556,100 @@ mod runtime {
             }
             seen
         }
+
+        /// Publish the complete segment view if the interval has elapsed.
+        ///
+        /// Runs on the polling thread rather than a timer task so it cannot
+        /// observe the table mid-update: the same thread owns both the drain
+        /// and the publish, which is what makes a snapshot internally
+        /// consistent without a lock.
+        fn maybe_publish(&mut self, now: Instant) {
+            if now.duration_since(self.last_snapshot) < CENSUS_SNAPSHOT_INTERVAL {
+                return;
+            }
+            self.last_snapshot = now;
+            self.publish_snapshot();
+        }
+
+        fn publish_snapshot(&mut self) {
+            let monotonic_now_ns = monotonic_now_ns();
+            let evicted = self.table.evict_expired(monotonic_now_ns);
+            let entries = self.table.snapshot();
+
+            self.snapshot_seq += 1;
+            let snapshot_id = format!("{}-{}", self.snapshot_id_prefix, self.snapshot_seq);
+            let dropped = self.dropped_since_last();
+
+            let snapshot = build_snapshot(
+                &entries,
+                &self.interface_name,
+                &snapshot_id,
+                monotonic_now_ns,
+                wall_now_ns(),
+                dropped,
+            );
+
+            log::debug!(
+                "census snapshot interface={} id={} devices={} evicted={} ring_drops={}",
+                self.interface_name,
+                snapshot_id,
+                entries.len(),
+                evicted,
+                dropped,
+            );
+
+            // A send with no subscriber is the normal state whenever no agent
+            // is connected. It is not an error and must not be logged as one:
+            // the census keeps tracking the segment either way, and the next
+            // snapshot is complete, so a reconnecting agent misses nothing.
+            if self.snapshots.send(snapshot).is_ok() {
+                self.counters
+                    .snapshots_published
+                    .fetch_add(1, Ordering::Relaxed);
+            }
+        }
+
+        /// Ring-full drops since the previous snapshot.
+        ///
+        /// The eBPF counter is per-CPU and monotonic, so the value is summed
+        /// across CPUs and differenced against the previous reading.
+        fn dropped_since_last(&mut self) -> u32 {
+            let Some(drops) = self.drops.as_ref() else {
+                return 0;
+            };
+            let Ok(values) = drops.get(&0, 0) else {
+                return 0;
+            };
+            let total: u64 = values.iter().copied().sum();
+            let delta = total.saturating_sub(self.drops_at_last_snapshot);
+            self.drops_at_last_snapshot = total;
+            u32::try_from(delta).unwrap_or(u32::MAX)
+        }
+    }
+
+    fn monotonic_now_ns() -> u64 {
+        let mut ts = libc::timespec {
+            tv_sec: 0,
+            tv_nsec: 0,
+        };
+        // SAFETY: `ts` is a valid, writable timespec and CLOCK_MONOTONIC is a
+        // valid clock id. This must match bpf_ktime_get_ns, which is also
+        // CLOCK_MONOTONIC -- using a different clock here would make every
+        // converted timestamp wrong by the boot-time offset.
+        if unsafe { libc::clock_gettime(libc::CLOCK_MONOTONIC, &mut ts) } != 0 {
+            return 0;
+        }
+        (ts.tv_sec as u64)
+            .saturating_mul(1_000_000_000)
+            .saturating_add(ts.tv_nsec as u64)
+    }
+
+    fn wall_now_ns() -> i64 {
+        SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .ok()
+            .and_then(|d| i64::try_from(d.as_nanos()).ok())
+            .unwrap_or(0)
     }
 
     fn log_observation(interface: &str, scope: &SegmentScope, observation: &DeviceObservation) {
@@ -1148,10 +1681,31 @@ mod runtime {
         pub fn start_from_ebpf(
             interface_name: impl Into<String>,
             ebpf: &mut aya::Ebpf,
+            snapshots: broadcast::Sender<DeviceCensusSnapshot>,
         ) -> Result<Self> {
             let map = ebpf
                 .take_map(L2_OBSERVATIONS_MAP)
                 .ok_or_else(|| anyhow::anyhow!("{L2_OBSERVATIONS_MAP} map is missing"))?;
+            // A missing drop counter degrades `dropped_since_last` to 0 rather
+            // than failing the census: an older pinned object without the map
+            // should still produce a usable segment view.
+            let drops = match ebpf.take_map(L2_RING_DROPS_MAP) {
+                Some(map) => match aya::maps::PerCpuArray::try_from(map) {
+                    Ok(array) => Some(array),
+                    Err(err) => {
+                        log::warn!(
+                            "netprobe census cannot read {L2_RING_DROPS_MAP} ({err}); snapshots will report 0 dropped observations"
+                        );
+                        None
+                    }
+                },
+                None => {
+                    log::warn!(
+                        "netprobe census found no {L2_RING_DROPS_MAP} map; snapshots will report 0 dropped observations"
+                    );
+                    None
+                }
+            };
             let counters = Arc::new(CensusCounters::default());
             let interface_name = interface_name.into();
             let scope = segment_scope_for(&interface_name);
@@ -1161,10 +1715,13 @@ mod runtime {
                 );
             }
             let stop = Arc::new(AtomicBool::new(false));
+            let snapshot_id_prefix = format!("{}-{}", interface_name, wall_now_ns());
             let mut consumer = CensusConsumer {
                 interface_name,
+                snapshot_id_prefix,
                 scope,
                 ring: aya::maps::RingBuf::try_from(map)?,
+                drops,
                 counters: Arc::clone(&counters),
                 watchdog: CensusWatchdog::new(
                     CENSUS_RATE_CEILING_PER_SEC,
@@ -1172,6 +1729,11 @@ mod runtime {
                     Instant::now(),
                 ),
                 stop: Arc::clone(&stop),
+                table: CensusTable::new(CENSUS_ENTRY_TTL, CENSUS_TABLE_CAPACITY),
+                snapshots,
+                last_snapshot: Instant::now(),
+                snapshot_seq: 0,
+                drops_at_last_snapshot: 0,
             };
             let stop_worker = Arc::clone(&stop);
             let thread = thread::Builder::new()
@@ -1181,6 +1743,11 @@ mod runtime {
                         if consumer.poll_once(&stop_worker) == 0 {
                             thread::sleep(CENSUS_RING_IDLE_SLEEP);
                         }
+                        // Checked on every iteration, including the idle one:
+                        // an empty segment must still publish, or a segment
+                        // that goes quiet would never report its devices
+                        // leaving.
+                        consumer.maybe_publish(Instant::now());
                     }
                 })?;
 
