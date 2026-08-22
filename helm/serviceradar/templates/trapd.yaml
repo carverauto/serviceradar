@@ -1,3 +1,10 @@
+{{- /* Component gate (issue #3859). ABSENT MEANS ENABLED: hasKey is used rather than a
+     truthiness test so that a chart or values file which never mentions `enabled`
+     renders exactly as before, and only an explicit `trapd.enabled: false` removes
+     this component. `default true` cannot be used here -- Helm treats false as empty,
+     so it would resurrect anything explicitly disabled. */ -}}
+{{- $gate8 := default (dict) .Values.trapd -}}
+{{- if or (not (hasKey $gate8 "enabled")) $gate8.enabled }}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -156,4 +163,5 @@ spec:
     targetPort: {{ .Values.trapd.externalService.ports.snmp.targetPort | default 162 }}
     protocol: {{ .Values.trapd.externalService.ports.snmp.protocol | default "UDP" }}
   {{- end }}
+{{- end }}
 {{- end }}

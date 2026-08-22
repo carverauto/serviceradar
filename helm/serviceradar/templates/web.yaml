@@ -1,3 +1,10 @@
+{{- /* Component gate (issue #3859). ABSENT MEANS ENABLED: hasKey is used rather than a
+     truthiness test so that a chart or values file which never mentions `enabled`
+     renders exactly as before, and only an explicit `webNg.enabled: false` removes
+     this component. `default true` cannot be used here -- Helm treats false as empty,
+     so it would resurrect anything explicitly disabled. */ -}}
+{{- $gate0 := default (dict) .Values.webNg -}}
+{{- if or (not (hasKey $gate0 "enabled")) $gate0.enabled }}
 {{- $cnpg := default (dict) .Values.cnpg -}}
 {{- $cnpgClusterName := include "serviceradar.cnpgClusterName" . -}}
 {{- $cnpgPooler := default (dict) $cnpg.pooler -}}
@@ -978,3 +985,4 @@ spec:
   - name: dist
     port: 9100
     targetPort: dist
+{{- end }}
