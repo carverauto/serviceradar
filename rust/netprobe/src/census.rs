@@ -10,6 +10,7 @@
 //! what makes a device present for seconds visible at all -- no scan schedule
 //! can catch a host that joins and leaves between sweeps.
 
+use std::collections::HashMap;
 use std::fmt;
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 use std::time::{Duration, Instant};
@@ -274,7 +275,13 @@ pub fn parse_l2_ring_record(bytes: &[u8]) -> Option<DeviceObservation> {
         ip,
         interface_index,
         observed_ns,
-        randomized_mac: flags & L2_FLAG_LOCALLY_ADMINISTERED != 0,
+        // Derived from the address as well as the producer's flag, deliberately.
+        // This classification decides whether the MAC may anchor a canonical
+        // device, so it must not depend on a producer remembering to set a bit:
+        // a stale or mismatched eBPF object that omits the flag would otherwise
+        // let a rotating MAC anchor identity. The two agree in practice; the OR
+        // is what makes disagreement safe rather than silent.
+        randomized_mac: flags & L2_FLAG_LOCALLY_ADMINISTERED != 0 || mac.is_locally_administered(),
         arp_probe: flags & L2_FLAG_ARP_PROBE != 0,
         gratuitous: flags & L2_FLAG_ARP_GRATUITOUS != 0,
     })
@@ -339,6 +346,143 @@ impl CensusWatchdog {
         self.window_started = now;
         self.observations = 0;
         rate <= self.ceiling_per_sec
+    }
+}
+
+/// Converts an eBPF observation timestamp to wall-clock nanoseconds.
+///
+/// `bpf_ktime_get_ns()` returns **CLOCK_MONOTONIC**, not an epoch timestamp:
+/// it counts from an arbitrary origin and pauses across suspend. Sending it to
+/// core unconverted would stamp every observation somewhere in 1970.
+///
+/// Kept as a pure function of both clock readings so it unit-tests without
+/// syscalls, and so the caller decides how often to resample. Resampling per
+/// snapshot keeps suspend drift bounded to one interval rather than
+/// accumulating for the process lifetime.
+pub fn wall_nanos_from_monotonic(observed_ns: u64, monotonic_now_ns: u64, wall_now_ns: i64) -> i64 {
+    // How long ago the observation happened, on the monotonic clock.
+    let age_ns = monotonic_now_ns.saturating_sub(observed_ns);
+    // `as i64` would WRAP here: u64::MAX as i64 is -1, which turns an absurd age
+    // into a timestamp slightly in the FUTURE. Clamp instead, so a corrupt or
+    // uninitialised reading degrades to "very old" rather than "just now".
+    let age_ns = i64::try_from(age_ns).unwrap_or(i64::MAX);
+    // saturating so a clock that jumped backwards cannot produce a negative
+    // instant; the worst case is an observation stamped "now".
+    wall_now_ns.saturating_sub(age_ns)
+}
+
+/// One device the census currently believes is present on a segment.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CensusEntry {
+    pub mac: MacAddress,
+    pub ip: Option<IpAddr>,
+    pub interface_index: u32,
+    pub kind: ObservationKind,
+    pub first_seen_ns: u64,
+    pub last_seen_ns: u64,
+    pub randomized_mac: bool,
+    pub off_segment: bool,
+}
+
+/// Current-state view of the segment, emitted as a COMPLETE snapshot.
+///
+/// This is not an optimisation. `DeviceSourceObservationIngestor` writes nothing
+/// unless the payload declares `snapshot_complete`, so a per-observation stream
+/// would land no rows at all. Holding state here also gives `present: false` a
+/// real meaning -- "this binding aged out" rather than "it happened to be quiet
+/// during one tick".
+#[derive(Debug)]
+pub struct CensusTable {
+    ttl: Duration,
+    capacity: usize,
+    entries: HashMap<(u32, [u8; 6], [u8; 16]), CensusEntry>,
+}
+
+impl CensusTable {
+    pub fn new(ttl: Duration, capacity: usize) -> Self {
+        Self {
+            ttl,
+            capacity,
+            entries: HashMap::new(),
+        }
+    }
+
+    fn key(observation: &DeviceObservation) -> (u32, [u8; 6], [u8; 16]) {
+        let ip = match observation.ip {
+            Some(IpAddr::V4(v4)) => {
+                let mut o = [0u8; 16];
+                o[..4].copy_from_slice(&v4.octets());
+                o
+            }
+            Some(IpAddr::V6(v6)) => v6.octets(),
+            None => [0u8; 16],
+        };
+        (observation.interface_index, observation.mac.octets(), ip)
+    }
+
+    /// Record a sighting. Returns true when this binding was not already known.
+    pub fn observe(&mut self, observation: &DeviceObservation, scope: &SegmentScope) -> bool {
+        let key = Self::key(observation);
+        let off_segment = observation.is_off_segment(scope);
+
+        if let Some(entry) = self.entries.get_mut(&key) {
+            entry.last_seen_ns = observation.observed_ns;
+            entry.kind = observation.kind;
+            entry.off_segment = off_segment;
+            return false;
+        }
+
+        if self.entries.len() >= self.capacity {
+            // Evict the coldest binding rather than grow without bound on a
+            // segment larger than we budgeted for.
+            if let Some(coldest) = self
+                .entries
+                .iter()
+                .min_by_key(|(_, e)| e.last_seen_ns)
+                .map(|(k, _)| *k)
+            {
+                self.entries.remove(&coldest);
+            }
+        }
+
+        self.entries.insert(
+            key,
+            CensusEntry {
+                mac: observation.mac,
+                ip: observation.ip,
+                interface_index: observation.interface_index,
+                kind: observation.kind,
+                first_seen_ns: observation.observed_ns,
+                last_seen_ns: observation.observed_ns,
+                randomized_mac: observation.randomized_mac,
+                off_segment,
+            },
+        );
+        true
+    }
+
+    /// Drop bindings not seen within the TTL. Returns how many were evicted.
+    pub fn evict_expired(&mut self, monotonic_now_ns: u64) -> usize {
+        let ttl_ns = self.ttl.as_nanos() as u64;
+        let before = self.entries.len();
+        self.entries
+            .retain(|_, e| monotonic_now_ns.saturating_sub(e.last_seen_ns) < ttl_ns);
+        before - self.entries.len()
+    }
+
+    /// The complete current view, ordered so a snapshot is deterministic.
+    pub fn snapshot(&self) -> Vec<CensusEntry> {
+        let mut out: Vec<CensusEntry> = self.entries.values().cloned().collect();
+        out.sort_by_key(|e| (e.interface_index, e.mac.octets(), e.first_seen_ns));
+        out
+    }
+
+    pub fn len(&self) -> usize {
+        self.entries.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.entries.is_empty()
     }
 }
 
@@ -663,6 +807,164 @@ mod tests {
             }
         }
         assert!(tripped, "a later interval must still be able to trip it");
+    }
+
+    fn scope24() -> SegmentScope {
+        SegmentScope::new(vec![("192.168.1.0".parse::<IpAddr>().unwrap(), 24)])
+    }
+
+    fn observation(mac: [u8; 6], ip: &str, observed_ns: u64) -> DeviceObservation {
+        let v: std::net::Ipv4Addr = ip.parse().unwrap();
+        let mut a = [0u8; 16];
+        a[..4].copy_from_slice(&v.octets());
+        let bytes = record(L2_KIND_ARP_REPLY, 4, 0, mac, a);
+        let mut o = parse_l2_ring_record(&bytes).expect("decodes");
+        o.observed_ns = observed_ns;
+        o
+    }
+
+    const SEC: u64 = 1_000_000_000;
+
+    #[test]
+    fn monotonic_is_converted_to_wall_clock() {
+        // bpf_ktime_get_ns is CLOCK_MONOTONIC -- an arbitrary origin, not an
+        // epoch. Sending it unconverted would stamp observations in 1970.
+        let wall_now = 1_800_000_000 * SEC as i64;
+        let mono_now = 4_242 * SEC;
+        // Observed 10s ago on the monotonic clock.
+        let got = wall_nanos_from_monotonic(mono_now - 10 * SEC, mono_now, wall_now);
+        assert_eq!(got, wall_now - 10 * SEC as i64);
+    }
+
+    #[test]
+    fn a_backwards_clock_stamps_the_observation_now_rather_than_in_the_future() {
+        let wall_now = 1_800_000_000 * SEC as i64;
+        // observed_ns ahead of "now" (clock jumped backwards)
+        let got = wall_nanos_from_monotonic(5_000 * SEC, 4_000 * SEC, wall_now);
+        assert_eq!(got, wall_now, "an impossible age must clamp to now");
+    }
+
+    #[test]
+    fn an_absurd_age_does_not_wrap_into_the_future() {
+        // `as i64` on a u64 age wraps: u64::MAX becomes -1, which would move the
+        // timestamp FORWARD. A corrupt reading must degrade to "very old".
+        let wall_now = 1_800_000_000 * SEC as i64;
+        let got = wall_nanos_from_monotonic(0, u64::MAX, wall_now);
+        assert!(
+            got < wall_now,
+            "an absurd age must not produce a timestamp at or after now"
+        );
+    }
+
+    #[test]
+    fn the_table_tracks_a_binding_and_refreshes_it() {
+        let mut t = CensusTable::new(Duration::from_secs(300), 1024);
+        let s = scope24();
+        let mac = [0xbc, 0x24, 0x11, 0, 0, 1];
+        assert!(
+            t.observe(&observation(mac, "192.168.1.10", SEC), &s),
+            "first sighting is new"
+        );
+        assert!(
+            !t.observe(&observation(mac, "192.168.1.10", 9 * SEC), &s),
+            "repeat is not new"
+        );
+        assert_eq!(t.len(), 1);
+        let snap = t.snapshot();
+        assert_eq!(snap[0].first_seen_ns, SEC, "first_seen must not move");
+        assert_eq!(snap[0].last_seen_ns, 9 * SEC, "last_seen must advance");
+    }
+
+    #[test]
+    fn distinct_bindings_are_distinct_entries() {
+        let mut t = CensusTable::new(Duration::from_secs(300), 1024);
+        let s = scope24();
+        t.observe(&observation([0xbc, 0, 0, 0, 0, 1], "192.168.1.10", SEC), &s);
+        t.observe(&observation([0xbc, 0, 0, 0, 0, 1], "192.168.1.11", SEC), &s);
+        t.observe(&observation([0xbc, 0, 0, 0, 0, 2], "192.168.1.10", SEC), &s);
+        assert_eq!(t.len(), 3);
+    }
+
+    #[test]
+    fn expired_bindings_are_evicted_so_absence_means_something() {
+        // present:false downstream must mean "this aged out", not "it was quiet
+        // during one tick" -- that is why the table has a TTL at all.
+        let mut t = CensusTable::new(Duration::from_secs(300), 1024);
+        let s = scope24();
+        t.observe(
+            &observation([0xbc, 0, 0, 0, 0, 1], "192.168.1.10", 10 * SEC),
+            &s,
+        );
+        t.observe(
+            &observation([0xbc, 0, 0, 0, 0, 2], "192.168.1.11", 290 * SEC),
+            &s,
+        );
+
+        assert_eq!(t.evict_expired(300 * SEC), 0, "nothing has aged out yet");
+        assert_eq!(t.len(), 2);
+
+        // 311s: the first binding is 301s old, the second is 21s old.
+        assert_eq!(t.evict_expired(311 * SEC), 1);
+        assert_eq!(t.len(), 1);
+        assert_eq!(t.snapshot()[0].mac.octets()[5], 2);
+    }
+
+    #[test]
+    fn the_table_is_bounded() {
+        let mut t = CensusTable::new(Duration::from_secs(300), 4);
+        let s = scope24();
+        for i in 0..50u8 {
+            t.observe(
+                &observation([0xbc, 0, 0, 0, 0, i], "192.168.1.10", (i as u64 + 1) * SEC),
+                &s,
+            );
+        }
+        assert!(
+            t.len() <= 4,
+            "a segment larger than budgeted must not grow the table without bound"
+        );
+    }
+
+    #[test]
+    fn a_randomized_mac_is_classified_even_when_the_producer_omits_the_flag() {
+        // Defence against a stale eBPF object: the classification gates whether
+        // a MAC may anchor a device, so it is derived from the address itself,
+        // not only from the flag the producer set.
+        let bytes = record(
+            L2_KIND_ARP_REPLY,
+            4,
+            0, // flag deliberately NOT set
+            [0x1a, 0x2b, 0x3c, 0x4d, 0x5e, 0x6f],
+            v4(192, 168, 1, 50),
+        );
+        let obs = parse_l2_ring_record(&bytes).expect("decodes");
+        assert!(
+            obs.randomized_mac,
+            "a locally administered MAC is randomized regardless of the flag"
+        );
+        assert!(!obs.can_anchor_identity(&local_scope()));
+    }
+
+    #[test]
+    fn a_snapshot_is_deterministic_and_carries_classification() {
+        let mut t = CensusTable::new(Duration::from_secs(300), 1024);
+        let s = scope24();
+        // randomized MAC, on-segment
+        t.observe(&observation([0x1a, 0, 0, 0, 0, 9], "192.168.1.50", SEC), &s);
+        // burned-in MAC, OFF-segment (router-forwarded)
+        t.observe(&observation([0xbc, 0, 0, 0, 0, 1], "192.168.2.44", SEC), &s);
+
+        let a = t.snapshot();
+        let b = t.snapshot();
+        assert_eq!(a, b, "snapshots must be deterministic");
+
+        let randomized = a.iter().find(|e| e.mac.octets()[0] == 0x1a).unwrap();
+        assert!(randomized.randomized_mac);
+        let off = a.iter().find(|e| e.mac.octets()[0] == 0xbc).unwrap();
+        assert!(
+            off.off_segment,
+            "an off-segment address must stay marked in the snapshot"
+        );
     }
 }
 
