@@ -61,6 +61,67 @@ earlier mDNS proposal ("Do not create new devices from mDNS alone") and the acti
 work, where anchorless devices claiming IPs caused sustained production problems. A census
 that mints devices from passive traffic would reproduce that at higher volume.
 
+## Decision D1: census observations reach core via ResultsRouter, not JetStream
+
+**Decided: the JetStream-first rule does not cover passive device observations.** They travel
+netprobe → agent → gateway `StreamStatus` → `ResultsRouter`, the same path every other device
+discovery source already uses.
+
+Grounds, each verified in the tree rather than assumed:
+
+- The rule's normative text is *"Metric Ingestion via JetStream"*
+  (`openspec/specs/observability-signals/spec.md:552-556`), and its stated reason is that a
+  metric landing in a hypertable is invisible to real-time consumers.
+  `platform.device_source_observations` is a **current-state relational table** with an FK to
+  `ocsf_devices.uid`, not a series.
+- **Every** device-discovery source bypasses JetStream today — sync, sweep, mapper,
+  mapper_interfaces, mapper_topology, bumblebee and endpoint_inventory all land via
+  `ResultsRouter` (`results_router.ex:223-262`). The census spec asks for exactly that parity:
+  *"queryable alongside every other discovery source"*.
+- The gateway is **deliberately not a general NATS producer**. Its publish allowlist is
+  `metrics.*` / `otel.*` / `logs.otel` / `$JS.API.>` only, above a comment saying so
+  (`helm/serviceradar/templates/nats.yaml:263-272`). The one inventory publisher that exists,
+  `inventory.k8s.public_endpoints`, is **absent from that allowlist** and absent from
+  `gateway_publisher_enabled?` — an unproven lane, not a pattern to follow.
+
+**Counter-argument considered.** `add-adhoc-network-scan` D1 deliberately extended the rule to
+non-metric scan results, republishing onto `scans.results.<scan_run_id>`. That precedent is
+real, but its payload is availability/RTT/port-state — measurements over time. A
+`(mac, ip, ifindex, seen)` sighting that mutates current-state inventory is not the same class.
+
+**Reversal seam.** If this is overruled, the delta is confined to one place: a
+`DeviceCensusPublisher` in the gateway, the matching NATS grants, and an EventWriter
+stream/processor calling the same ingestor. Nothing else in the design changes.
+
+## Decision D2: delivery is a periodic complete snapshot, not a per-observation stream
+
+`DeviceSourceObservationIngestor.ingest/4` returns `:ok` **without touching the database**
+unless `metadata.snapshot_complete == true`
+(`device_source_observation_ingestor.ex:64`, `:492-493`). A per-observation feed would write
+nothing at all.
+
+netprobe therefore keeps a userspace census table with TTL eviction and emits a *complete*
+snapshot per `(agent, interface)` on a cadence. This is not a workaround: it makes
+`present: false` / `absent_since` mean "netprobe evicted this binding", rather than "this
+binding happened to be quiet during one tick".
+
+## Decision D3: the randomized-MAC guardrail is source-scoped, NOT global
+
+The obvious implementation — teach `Ids.generate_deterministic_device_id/1` and
+`has_strong_identifier?/1` to ignore locally administered MACs — **is unsafe**, and the tree
+says why: `identity/mac.ex:69-71` documents that locally administered MACs legitimately come
+from *"virtualization, Docker, overlay networks"*. Devices minted historically on an LAA MAC
+seed would stop re-deriving their UID and fall through to a different identity. That is a
+silent migration hazard affecting VMs and containers, far outside this feature.
+
+The guardrail is therefore applied at the **source** boundary, reusing a seam that already
+exists for exactly this shape: `Sync.SourcePolicy.include_mac_identifier?/1`
+(`sync/source_policy.ex:34-38`) already restricts mapper-like sources to primary/management/
+chassis MACs, and its only consumer is `IdentifierRecords.build_identifier_records/1`, which is
+what writes `:mac` identifier rows. A randomized MAC observed passively is simply never
+registered as an identity anchor, while a randomized MAC from a virtualization source keeps its
+current meaning.
+
 ## Risks / Trade-offs
 
 - **Volume.** ARP is chatty. Observation emission needs suppression comparable to the existing

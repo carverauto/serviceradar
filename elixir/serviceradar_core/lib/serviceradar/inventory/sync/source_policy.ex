@@ -4,6 +4,7 @@ defmodule ServiceRadar.Inventory.Sync.SourcePolicy do
   agent_id must not become a device identifier), when MACs are eligible,
   and the effective identifier set for an update.
   """
+  alias ServiceRadar.Inventory.Identity.Mac
 
   alias ServiceRadar.Inventory.Identity.Ids
   alias ServiceRadar.Inventory.IdentityReconciler
@@ -34,8 +35,51 @@ defmodule ServiceRadar.Inventory.Sync.SourcePolicy do
   def include_mac_identifier?(update) do
     metadata = update.metadata || %{}
 
-    if mapper_like_source?(update), do: mapper_primary_mac?(metadata), else: true
+    cond do
+      passive_census_source?(update) -> census_anchorable_mac?(metadata)
+      mapper_like_source?(update) -> mapper_primary_mac?(metadata)
+      true -> true
+    end
   end
+
+  @doc """
+  True for the netprobe passive L2 device census (ARP/NDP sightings).
+
+  The census sees whatever is on the wire, which is excellent evidence that
+  something was present and poor evidence of what it durably is.
+  """
+  def passive_census_source?(update) when is_map(update) do
+    source = String.downcase(to_string(update.source || ""))
+    metadata = update.metadata || %{}
+    identity_source = String.downcase(to_string(metadata["identity_source"] || ""))
+
+    source in ["passive-census", "netprobe-census"] or
+      identity_source in ["passive_census", "netprobe_census"]
+  end
+
+  def passive_census_source?(_update), do: false
+
+  # A randomized MAC must never anchor a canonical device.
+  #
+  # iOS and Android rotate their MAC per SSID, so a passive census would mint a
+  # fresh device on every rotation -- the anchorless-device and IP-squatting
+  # failure mode, at far higher volume than any sweep produces.
+  #
+  # This is deliberately scoped to the census source rather than applied inside
+  # `Ids.generate_deterministic_device_id/1`. Locally administered MACs are also
+  # how virtualization, Docker and overlay networks address themselves
+  # (`Identity.Mac`), so a global rule would stop existing VM and container
+  # devices re-deriving their UID -- a silent migration hazard well outside this
+  # feature. Here the same address keeps its meaning for those sources and loses
+  # only its anchoring power when it arrives from a passive sighting.
+  defp census_anchorable_mac?(metadata) when is_map(metadata) do
+    case metadata["mac"] || metadata["identity_mac"] do
+      nil -> false
+      mac -> not Mac.locally_administered_mac?(mac)
+    end
+  end
+
+  defp census_anchorable_mac?(_metadata), do: false
 
   def mapper_like_source?(update) do
     source = String.downcase(update.source || "")
