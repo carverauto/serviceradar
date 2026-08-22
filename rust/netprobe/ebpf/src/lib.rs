@@ -369,7 +369,14 @@ static L2_SEEN: LruHashMap<L2SeenKey, u64> = LruHashMap::pinned(65536, 0);
 // permanently zero, and an operator could not tell a quiet segment from one
 // that is silently losing observations.
 #[map(name = "l2_ring_drops")]
-static L2_RING_DROPS: PerCpuArray<u64> = PerCpuArray::pinned(1, 0);
+static L2_RING_DROPS: PerCpuArray<u64> = PerCpuArray::pinned(2, 0);
+
+// Slot 0: observations the ring could not accept because it was full.
+pub const L2_STAT_RING_FULL: u32 = 0;
+// Slot 1: suppression-cache inserts that failed. Non-zero here means the
+// census is emitting every frame instead of one per refresh interval, which
+// the userspace watchdog will shut the census down for.
+pub const L2_STAT_SUPPRESS_INSERT_FAILED: u32 = 1;
 
 #[repr(C)]
 #[derive(Copy, Clone, Eq, PartialEq)]
@@ -2114,8 +2121,22 @@ fn mac_is_locally_administered(mac: &[u8; 6]) -> bool {
 // yet lookups behaved as misses and every frame was emitted. The flow table is
 // the pattern that demonstrably works in this same program, so match it.
 #[inline(never)]
-fn l2_should_emit(key: &L2SeenKey, observed_ns: u64) -> bool {
-    if let Some(last_ptr) = L2_SEEN.get_ptr_mut(key) {
+// Takes the key BY VALUE, and is deliberately NOT #[inline(never)].
+//
+// Both matter, and the second one cost a live debugging session. As a
+// non-inlined function taking `&L2SeenKey`, this received a pointer into the
+// CALLER's stack frame and handed it straight to bpf_map_update_elem across a
+// BPF-to-BPF call. The program verified and loaded, `flow_table` (an
+// LruHashMap updated the same way from the same program) filled normally, and
+// yet `l2_seen` stayed at exactly 0 entries under live traffic -- every insert
+// silently failed, nothing was ever suppressed, and the watchdog killed the
+// census 10 seconds after every start.
+//
+// update_flow_table is the working precedent and does it the other way: it
+// builds the key as a local value in its own frame and passes `&local` to the
+// helpers. Copy that shape, not just its choice of get_ptr_mut + BPF_ANY.
+fn l2_should_emit(key: L2SeenKey, observed_ns: u64) -> bool {
+    if let Some(last_ptr) = L2_SEEN.get_ptr_mut(&key) {
         // SAFETY: kernel-returned map pointer, valid for this invocation.
         let last = unsafe { &mut *last_ptr };
         // saturating_sub so a non-monotonic clock cannot make this emit forever.
@@ -2125,7 +2146,17 @@ fn l2_should_emit(key: &L2SeenKey, observed_ns: u64) -> bool {
         *last = observed_ns;
         return true;
     }
-    let _ = L2_SEEN.insert(key, &observed_ns, BPF_ANY as u64);
+    if L2_SEEN.insert(&key, &observed_ns, BPF_ANY as u64).is_err() {
+        // A failed insert means this binding is not remembered, so the next
+        // frame from it emits again. Counted rather than discarded: silently
+        // dropping this error is what turned a one-line calling-convention bug
+        // into an unsuppressed flood with no diagnosable cause.
+        if let Some(failures) = L2_RING_DROPS.get_ptr_mut(L2_STAT_SUPPRESS_INSERT_FAILED) {
+            // SAFETY: per-CPU array slot 1 exists (capacity 2) and is only
+            // accessed from this CPU for the duration of this program run.
+            unsafe { *failures = (*failures).saturating_add(1) };
+        }
+    }
     true
 }
 
@@ -2277,7 +2308,7 @@ fn observe_l2_device(ctx: &TcContext) {
         mac: record.mac,
         ip: record.ip,
     };
-    if !l2_should_emit(&key, observed_ns) {
+    if !l2_should_emit(key, observed_ns) {
         return;
     }
 
@@ -2285,7 +2316,7 @@ fn observe_l2_device(ctx: &TcContext) {
         // Ring full: userspace is not draining fast enough. Record the loss so
         // the snapshot can report it rather than silently under-reporting the
         // segment.
-        if let Some(drops) = L2_RING_DROPS.get_ptr_mut(0) {
+        if let Some(drops) = L2_RING_DROPS.get_ptr_mut(L2_STAT_RING_FULL) {
             // SAFETY: per-CPU array slot 0 exists (capacity 1) and is only
             // accessed from this CPU for the duration of this program run.
             unsafe { *drops = (*drops).saturating_add(1) };
