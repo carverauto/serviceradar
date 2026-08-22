@@ -2,8 +2,24 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.FlowData do
   @moduledoc false
 
   alias ServiceRadar.Repo
+  alias ServiceRadarWebNGWeb.DeviceLive.DeviceTaskData
 
   require Logger
+
+  @flow_stats_timeout_ms 10_000
+  @slow_flow_task_ms 1_500
+
+  # One query, four aggregates. This was four separate SRQL queries issued from
+  # four Task.async processes nested inside the stats fan-out: four extra pooled
+  # connections for numbers one scan already produces, and a nested fan-out
+  # whose crash could not be contained by the caller (it arrived as a linked
+  # exit signal). See DeviceTaskData for why that killed the LiveView.
+  @summary_aggregates [
+    {:total_bytes, "sum(bytes_total) as total_bytes"},
+    {:total_packets, "sum(packets_total) as total_packets"},
+    {:flow_count, "count(*) as flow_count"},
+    {:unique_talkers, "count_distinct(src_endpoint_ip) as unique_talkers"}
+  ]
 
   def load_flows(srql_module, device_uid, scope, cursor, limit) do
     query = default_flows_query(device_uid)
@@ -67,30 +83,34 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.FlowData do
   end
 
   def load_device_flow_stats(srql_mod, _device_uid, scope, base) do
-    tasks = [
-      Task.async(fn -> {:summary, load_device_flow_summary(srql_mod, scope, base)} end),
-      Task.async(fn ->
-        {:protocols, load_device_flow_protocols(srql_mod, scope, base)}
+    specs = [
+      DeviceTaskData.spec(@slow_flow_task_ms, :summary, fn ->
+        load_device_flow_summary(srql_mod, scope, base)
       end),
-      Task.async(fn ->
-        {:talkers, load_device_flow_top_n(srql_mod, scope, base, "src_endpoint_ip")}
+      DeviceTaskData.spec(@slow_flow_task_ms, :protocols, fn ->
+        load_device_flow_protocols(srql_mod, scope, base)
       end),
-      Task.async(fn ->
-        {:destinations, load_device_flow_top_n(srql_mod, scope, base, "dst_endpoint_ip")}
+      DeviceTaskData.spec(@slow_flow_task_ms, :talkers, fn ->
+        load_device_flow_top_n(srql_mod, scope, base, "src_endpoint_ip")
       end),
-      Task.async(fn ->
-        {:ports, load_device_flow_top_n(srql_mod, scope, base, "dst_endpoint_port")}
+      DeviceTaskData.spec(@slow_flow_task_ms, :destinations, fn ->
+        load_device_flow_top_n(srql_mod, scope, base, "dst_endpoint_ip")
       end),
-      Task.async(fn ->
-        {:directions, load_device_flow_top_n(srql_mod, scope, base, "direction")}
+      DeviceTaskData.spec(@slow_flow_task_ms, :ports, fn ->
+        load_device_flow_top_n(srql_mod, scope, base, "dst_endpoint_port")
       end),
-      Task.async(fn ->
-        {:services, load_device_flow_top_n(srql_mod, scope, base, "dst_service_label")}
+      DeviceTaskData.spec(@slow_flow_task_ms, :directions, fn ->
+        load_device_flow_top_n(srql_mod, scope, base, "direction")
       end),
-      Task.async(fn -> {:timeseries, load_device_flow_timeseries(srql_mod, scope, base)} end)
+      DeviceTaskData.spec(@slow_flow_task_ms, :services, fn ->
+        load_device_flow_top_n(srql_mod, scope, base, "dst_service_label")
+      end),
+      DeviceTaskData.spec(@slow_flow_task_ms, :timeseries, fn ->
+        load_device_flow_timeseries(srql_mod, scope, base)
+      end)
     ]
 
-    results = safe_yield_many(tasks, 10_000)
+    results = DeviceTaskData.run(specs, @flow_stats_timeout_ms)
 
     summary = Map.get(results, :summary, %{})
     protocols = Map.get(results, :protocols, [])
@@ -159,26 +179,23 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.FlowData do
   end
 
   defp load_device_flow_summary(srql_mod, scope, base) do
-    queries = [
-      {"#{base} stats:sum(bytes_total) as total_bytes", :total_bytes, "total_bytes"},
-      {"#{base} stats:sum(packets_total) as total_packets", :total_packets, "total_packets"},
-      {"#{base} stats:count(*) as flow_count", :flow_count, "flow_count"},
-      {"#{base} stats:count_distinct(src_endpoint_ip) as unique_talkers", :unique_talkers, "unique_talkers"}
-    ]
+    aggregates = Enum.map_join(@summary_aggregates, ", ", fn {_key, expr} -> expr end)
+    query = ~s|#{base} stats:"#{aggregates}"|
 
-    queries
-    |> Enum.map(fn {q, key, alias_field} ->
-      Task.async(fn -> {key, query_single_stat(srql_mod, scope, q, alias_field)} end)
-    end)
-    |> safe_yield_many(10_000)
-  end
+    case srql_mod |> srql_results(query, scope) |> List.first() do
+      nil ->
+        # A non-grouped aggregate always yields one row even over zero flows, so
+        # no row means the query itself failed. Keep the "unknown" shape rather
+        # than rendering fabricated zeroes.
+        %{}
 
-  defp query_single_stat(srql_mod, scope, query, alias_field) do
-    srql_mod
-    |> srql_results(query, scope)
-    |> List.first()
-    |> row_payload()
-    |> flow_stat_number(alias_field)
+      row ->
+        payload = row_payload(row)
+
+        Map.new(@summary_aggregates, fn {key, _expr} ->
+          {key, flow_stat_number(payload, Atom.to_string(key))}
+        end)
+    end
   end
 
   defp load_device_flow_top_n(srql_mod, scope, base, group_field) do
@@ -384,32 +401,6 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.FlowData do
   end
 
   defp to_safe_number(_), do: 0
-
-  defp safe_yield_many(tasks, timeout) do
-    tasks
-    |> Task.yield_many(timeout)
-    |> Enum.reduce(%{}, fn {task, result}, acc ->
-      key = task_key(task)
-
-      case result do
-        {:ok, {returned_key, value}} when is_atom(returned_key) ->
-          Map.put(acc, returned_key, value)
-
-        {:ok, value} when is_atom(key) ->
-          Map.put(acc, key, value)
-
-        _ ->
-          Task.shutdown(task, :brutal_kill)
-          acc
-      end
-    end)
-  end
-
-  defp task_key(%Task{ref: ref}) do
-    Process.get({:flow_data_task_key, ref})
-  end
-
-  defp task_key(_), do: nil
 
   defp escape_value(value) when is_binary(value) do
     value
