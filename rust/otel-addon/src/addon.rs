@@ -532,6 +532,7 @@ impl Addon for OtelCollectorAddon {
                 status: HealthStatus::Degraded,
                 version: ADDON_VERSION.to_string(),
                 degradation_reason: "awaiting configuration".to_string(),
+                details: Default::default(),
             });
         };
 
@@ -540,6 +541,7 @@ impl Addon for OtelCollectorAddon {
                 status: HealthStatus::Degraded,
                 version: ADDON_VERSION.to_string(),
                 degradation_reason: format!("{listener} listener is down"),
+                details: Default::default(),
             });
         }
 
@@ -558,6 +560,7 @@ impl Addon for OtelCollectorAddon {
                         max_bytes,
                         stats.evicted.total()
                     ),
+                    details: Default::default(),
                 });
             }
         }
@@ -566,6 +569,7 @@ impl Addon for OtelCollectorAddon {
             status: HealthStatus::Healthy,
             version: ADDON_VERSION.to_string(),
             degradation_reason: String::new(),
+            details: Default::default(),
         })
     }
 

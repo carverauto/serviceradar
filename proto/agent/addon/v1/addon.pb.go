@@ -428,8 +428,21 @@ type HealthResponse struct {
 	// degradation_reason is a bounded explanation when status is not HEALTHY
 	// (e.g. "CAP_BPF not granted").
 	DegradationReason string `protobuf:"bytes,3,opt,name=degradation_reason,json=degradationReason,proto3" json:"degradation_reason,omitempty"`
-	unknownFields     protoimpl.UnknownFields
-	sizeCache         protoimpl.SizeCache
+	// details carries bounded, STRUCTURED capability state the agent reads to
+	// make decisions -- distinct from degradation_reason, which is prose for a
+	// human and must not be parsed.
+	//
+	// netprobe reports `running_as_root` and its p0f/muonfp/recog/satori corpus
+	// revisions here; the agent turns those into the sweep banner-grab capability
+	// status. Without a structured carrier that state has no home once the
+	// bespoke IPC is retired, and the capability silently reports unavailable.
+	//
+	// Keys are add-on-defined and NOT trusted for identity or authorization: this
+	// is the add-on describing its own runtime, the same trust level as
+	// TelemetrySource.metadata.
+	Details       map[string]string `protobuf:"bytes,4,rep,name=details,proto3" json:"details,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *HealthResponse) Reset() {
@@ -481,6 +494,13 @@ func (x *HealthResponse) GetDegradationReason() string {
 		return x.DegradationReason
 	}
 	return ""
+}
+
+func (x *HealthResponse) GetDetails() map[string]string {
+	if x != nil {
+		return x.Details
+	}
+	return nil
 }
 
 type StreamTelemetryRequest struct {
@@ -1426,11 +1446,15 @@ const file_agent_addon_v1_addon_proto_rawDesc = "" +
 	"configHash\x12\x1a\n" +
 	"\baccepted\x18\x02 \x01(\bR\baccepted\x12\x14\n" +
 	"\x05error\x18\x03 \x01(\tR\x05error\"\x0f\n" +
-	"\rHealthRequest\"\x86\x02\n" +
+	"\rHealthRequest\"\x96\x03\n" +
 	"\x0eHealthResponse\x12J\n" +
 	"\x06status\x18\x01 \x01(\x0e22.serviceradar.agent.addon.v1.HealthResponse.StatusR\x06status\x12\x18\n" +
 	"\aversion\x18\x02 \x01(\tR\aversion\x12-\n" +
-	"\x12degradation_reason\x18\x03 \x01(\tR\x11degradationReason\"_\n" +
+	"\x12degradation_reason\x18\x03 \x01(\tR\x11degradationReason\x12R\n" +
+	"\adetails\x18\x04 \x03(\v28.serviceradar.agent.addon.v1.HealthResponse.DetailsEntryR\adetails\x1a:\n" +
+	"\fDetailsEntry\x12\x10\n" +
+	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
+	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"_\n" +
 	"\x06Status\x12\x16\n" +
 	"\x12STATUS_UNSPECIFIED\x10\x00\x12\x12\n" +
 	"\x0eSTATUS_HEALTHY\x10\x01\x12\x13\n" +
@@ -1557,7 +1581,7 @@ func file_agent_addon_v1_addon_proto_rawDescGZIP() []byte {
 }
 
 var file_agent_addon_v1_addon_proto_enumTypes = make([]protoimpl.EnumInfo, 2)
-var file_agent_addon_v1_addon_proto_msgTypes = make([]protoimpl.MessageInfo, 25)
+var file_agent_addon_v1_addon_proto_msgTypes = make([]protoimpl.MessageInfo, 26)
 var file_agent_addon_v1_addon_proto_goTypes = []any{
 	(TelemetryPayloadKind)(0),      // 0: serviceradar.agent.addon.v1.TelemetryPayloadKind
 	(HealthResponse_Status)(0),     // 1: serviceradar.agent.addon.v1.HealthResponse.Status
@@ -1581,47 +1605,49 @@ var file_agent_addon_v1_addon_proto_goTypes = []any{
 	(*OtlpRelayAck)(nil),           // 19: serviceradar.agent.addon.v1.OtlpRelayAck
 	(*MetricFeedFrame)(nil),        // 20: serviceradar.agent.addon.v1.MetricFeedFrame
 	(*MetricFeedAck)(nil),          // 21: serviceradar.agent.addon.v1.MetricFeedAck
-	nil,                            // 22: serviceradar.agent.addon.v1.RunCommandRequest.MetadataEntry
-	nil,                            // 23: serviceradar.agent.addon.v1.RunCommandResponse.MetadataEntry
-	nil,                            // 24: serviceradar.agent.addon.v1.ArtifactMetadata.AttributesEntry
-	nil,                            // 25: serviceradar.agent.addon.v1.TelemetrySource.MetadataEntry
-	nil,                            // 26: serviceradar.agent.addon.v1.TelemetryRecord.MetadataEntry
+	nil,                            // 22: serviceradar.agent.addon.v1.HealthResponse.DetailsEntry
+	nil,                            // 23: serviceradar.agent.addon.v1.RunCommandRequest.MetadataEntry
+	nil,                            // 24: serviceradar.agent.addon.v1.RunCommandResponse.MetadataEntry
+	nil,                            // 25: serviceradar.agent.addon.v1.ArtifactMetadata.AttributesEntry
+	nil,                            // 26: serviceradar.agent.addon.v1.TelemetrySource.MetadataEntry
+	nil,                            // 27: serviceradar.agent.addon.v1.TelemetryRecord.MetadataEntry
 }
 var file_agent_addon_v1_addon_proto_depIdxs = []int32{
 	1,  // 0: serviceradar.agent.addon.v1.HealthResponse.status:type_name -> serviceradar.agent.addon.v1.HealthResponse.Status
-	22, // 1: serviceradar.agent.addon.v1.RunCommandRequest.metadata:type_name -> serviceradar.agent.addon.v1.RunCommandRequest.MetadataEntry
-	23, // 2: serviceradar.agent.addon.v1.RunCommandResponse.metadata:type_name -> serviceradar.agent.addon.v1.RunCommandResponse.MetadataEntry
-	24, // 3: serviceradar.agent.addon.v1.ArtifactMetadata.attributes:type_name -> serviceradar.agent.addon.v1.ArtifactMetadata.AttributesEntry
-	12, // 4: serviceradar.agent.addon.v1.ArtifactUploadChunk.metadata:type_name -> serviceradar.agent.addon.v1.ArtifactMetadata
-	25, // 5: serviceradar.agent.addon.v1.TelemetrySource.metadata:type_name -> serviceradar.agent.addon.v1.TelemetrySource.MetadataEntry
-	0,  // 6: serviceradar.agent.addon.v1.TelemetryRecord.payload_kind:type_name -> serviceradar.agent.addon.v1.TelemetryPayloadKind
-	26, // 7: serviceradar.agent.addon.v1.TelemetryRecord.metadata:type_name -> serviceradar.agent.addon.v1.TelemetryRecord.MetadataEntry
-	14, // 8: serviceradar.agent.addon.v1.TelemetryBatch.source:type_name -> serviceradar.agent.addon.v1.TelemetrySource
-	16, // 9: serviceradar.agent.addon.v1.TelemetryBatch.records:type_name -> serviceradar.agent.addon.v1.TelemetryRecord
-	15, // 10: serviceradar.agent.addon.v1.TelemetryBatch.counters:type_name -> serviceradar.agent.addon.v1.TelemetryCounters
-	17, // 11: serviceradar.agent.addon.v1.OtlpRelayFrame.batch:type_name -> serviceradar.agent.addon.v1.TelemetryBatch
-	14, // 12: serviceradar.agent.addon.v1.MetricFeedFrame.source:type_name -> serviceradar.agent.addon.v1.TelemetrySource
-	2,  // 13: serviceradar.agent.addon.v1.AddonService.Info:input_type -> serviceradar.agent.addon.v1.InfoRequest
-	4,  // 14: serviceradar.agent.addon.v1.AddonService.Configure:input_type -> serviceradar.agent.addon.v1.ConfigureRequest
-	6,  // 15: serviceradar.agent.addon.v1.AddonService.Health:input_type -> serviceradar.agent.addon.v1.HealthRequest
-	8,  // 16: serviceradar.agent.addon.v1.AddonService.StreamTelemetry:input_type -> serviceradar.agent.addon.v1.StreamTelemetryRequest
-	9,  // 17: serviceradar.agent.addon.v1.AddonService.StreamArtifacts:input_type -> serviceradar.agent.addon.v1.StreamArtifactsRequest
-	19, // 18: serviceradar.agent.addon.v1.AddonService.RelayOtlp:input_type -> serviceradar.agent.addon.v1.OtlpRelayAck
-	20, // 19: serviceradar.agent.addon.v1.AddonService.StreamMetricFeed:input_type -> serviceradar.agent.addon.v1.MetricFeedFrame
-	10, // 20: serviceradar.agent.addon.v1.AddonService.RunCommand:input_type -> serviceradar.agent.addon.v1.RunCommandRequest
-	3,  // 21: serviceradar.agent.addon.v1.AddonService.Info:output_type -> serviceradar.agent.addon.v1.InfoResponse
-	5,  // 22: serviceradar.agent.addon.v1.AddonService.Configure:output_type -> serviceradar.agent.addon.v1.ConfigureResponse
-	7,  // 23: serviceradar.agent.addon.v1.AddonService.Health:output_type -> serviceradar.agent.addon.v1.HealthResponse
-	17, // 24: serviceradar.agent.addon.v1.AddonService.StreamTelemetry:output_type -> serviceradar.agent.addon.v1.TelemetryBatch
-	13, // 25: serviceradar.agent.addon.v1.AddonService.StreamArtifacts:output_type -> serviceradar.agent.addon.v1.ArtifactUploadChunk
-	18, // 26: serviceradar.agent.addon.v1.AddonService.RelayOtlp:output_type -> serviceradar.agent.addon.v1.OtlpRelayFrame
-	21, // 27: serviceradar.agent.addon.v1.AddonService.StreamMetricFeed:output_type -> serviceradar.agent.addon.v1.MetricFeedAck
-	11, // 28: serviceradar.agent.addon.v1.AddonService.RunCommand:output_type -> serviceradar.agent.addon.v1.RunCommandResponse
-	21, // [21:29] is the sub-list for method output_type
-	13, // [13:21] is the sub-list for method input_type
-	13, // [13:13] is the sub-list for extension type_name
-	13, // [13:13] is the sub-list for extension extendee
-	0,  // [0:13] is the sub-list for field type_name
+	22, // 1: serviceradar.agent.addon.v1.HealthResponse.details:type_name -> serviceradar.agent.addon.v1.HealthResponse.DetailsEntry
+	23, // 2: serviceradar.agent.addon.v1.RunCommandRequest.metadata:type_name -> serviceradar.agent.addon.v1.RunCommandRequest.MetadataEntry
+	24, // 3: serviceradar.agent.addon.v1.RunCommandResponse.metadata:type_name -> serviceradar.agent.addon.v1.RunCommandResponse.MetadataEntry
+	25, // 4: serviceradar.agent.addon.v1.ArtifactMetadata.attributes:type_name -> serviceradar.agent.addon.v1.ArtifactMetadata.AttributesEntry
+	12, // 5: serviceradar.agent.addon.v1.ArtifactUploadChunk.metadata:type_name -> serviceradar.agent.addon.v1.ArtifactMetadata
+	26, // 6: serviceradar.agent.addon.v1.TelemetrySource.metadata:type_name -> serviceradar.agent.addon.v1.TelemetrySource.MetadataEntry
+	0,  // 7: serviceradar.agent.addon.v1.TelemetryRecord.payload_kind:type_name -> serviceradar.agent.addon.v1.TelemetryPayloadKind
+	27, // 8: serviceradar.agent.addon.v1.TelemetryRecord.metadata:type_name -> serviceradar.agent.addon.v1.TelemetryRecord.MetadataEntry
+	14, // 9: serviceradar.agent.addon.v1.TelemetryBatch.source:type_name -> serviceradar.agent.addon.v1.TelemetrySource
+	16, // 10: serviceradar.agent.addon.v1.TelemetryBatch.records:type_name -> serviceradar.agent.addon.v1.TelemetryRecord
+	15, // 11: serviceradar.agent.addon.v1.TelemetryBatch.counters:type_name -> serviceradar.agent.addon.v1.TelemetryCounters
+	17, // 12: serviceradar.agent.addon.v1.OtlpRelayFrame.batch:type_name -> serviceradar.agent.addon.v1.TelemetryBatch
+	14, // 13: serviceradar.agent.addon.v1.MetricFeedFrame.source:type_name -> serviceradar.agent.addon.v1.TelemetrySource
+	2,  // 14: serviceradar.agent.addon.v1.AddonService.Info:input_type -> serviceradar.agent.addon.v1.InfoRequest
+	4,  // 15: serviceradar.agent.addon.v1.AddonService.Configure:input_type -> serviceradar.agent.addon.v1.ConfigureRequest
+	6,  // 16: serviceradar.agent.addon.v1.AddonService.Health:input_type -> serviceradar.agent.addon.v1.HealthRequest
+	8,  // 17: serviceradar.agent.addon.v1.AddonService.StreamTelemetry:input_type -> serviceradar.agent.addon.v1.StreamTelemetryRequest
+	9,  // 18: serviceradar.agent.addon.v1.AddonService.StreamArtifacts:input_type -> serviceradar.agent.addon.v1.StreamArtifactsRequest
+	19, // 19: serviceradar.agent.addon.v1.AddonService.RelayOtlp:input_type -> serviceradar.agent.addon.v1.OtlpRelayAck
+	20, // 20: serviceradar.agent.addon.v1.AddonService.StreamMetricFeed:input_type -> serviceradar.agent.addon.v1.MetricFeedFrame
+	10, // 21: serviceradar.agent.addon.v1.AddonService.RunCommand:input_type -> serviceradar.agent.addon.v1.RunCommandRequest
+	3,  // 22: serviceradar.agent.addon.v1.AddonService.Info:output_type -> serviceradar.agent.addon.v1.InfoResponse
+	5,  // 23: serviceradar.agent.addon.v1.AddonService.Configure:output_type -> serviceradar.agent.addon.v1.ConfigureResponse
+	7,  // 24: serviceradar.agent.addon.v1.AddonService.Health:output_type -> serviceradar.agent.addon.v1.HealthResponse
+	17, // 25: serviceradar.agent.addon.v1.AddonService.StreamTelemetry:output_type -> serviceradar.agent.addon.v1.TelemetryBatch
+	13, // 26: serviceradar.agent.addon.v1.AddonService.StreamArtifacts:output_type -> serviceradar.agent.addon.v1.ArtifactUploadChunk
+	18, // 27: serviceradar.agent.addon.v1.AddonService.RelayOtlp:output_type -> serviceradar.agent.addon.v1.OtlpRelayFrame
+	21, // 28: serviceradar.agent.addon.v1.AddonService.StreamMetricFeed:output_type -> serviceradar.agent.addon.v1.MetricFeedAck
+	11, // 29: serviceradar.agent.addon.v1.AddonService.RunCommand:output_type -> serviceradar.agent.addon.v1.RunCommandResponse
+	22, // [22:30] is the sub-list for method output_type
+	14, // [14:22] is the sub-list for method input_type
+	14, // [14:14] is the sub-list for extension type_name
+	14, // [14:14] is the sub-list for extension extendee
+	0,  // [0:14] is the sub-list for field type_name
 }
 
 func init() { file_agent_addon_v1_addon_proto_init() }
@@ -1635,7 +1661,7 @@ func file_agent_addon_v1_addon_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_agent_addon_v1_addon_proto_rawDesc), len(file_agent_addon_v1_addon_proto_rawDesc)),
 			NumEnums:      2,
-			NumMessages:   25,
+			NumMessages:   26,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

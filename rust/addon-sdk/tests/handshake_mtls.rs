@@ -78,6 +78,7 @@ impl Addon for TestAddon {
             status: HealthStatus::Healthy,
             version: "9.9.9".into(),
             degradation_reason: String::new(),
+            details: Default::default(),
         })
     }
 }

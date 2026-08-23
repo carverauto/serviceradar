@@ -88,6 +88,19 @@ defmodule Serviceradar.Agent.Addon.V1.HealthRequest do
     syntax: :proto3
 end
 
+defmodule Serviceradar.Agent.Addon.V1.HealthResponse.DetailsEntry do
+  @moduledoc false
+
+  use Protobuf,
+    full_name: "serviceradar.agent.addon.v1.HealthResponse.DetailsEntry",
+    map: true,
+    protoc_gen_elixir_version: "0.16.0",
+    syntax: :proto3
+
+  field :key, 1, type: :string
+  field :value, 2, type: :string
+end
+
 defmodule Serviceradar.Agent.Addon.V1.HealthResponse do
   @moduledoc false
 
@@ -99,6 +112,11 @@ defmodule Serviceradar.Agent.Addon.V1.HealthResponse do
   field :status, 1, type: Serviceradar.Agent.Addon.V1.HealthResponse.Status, enum: true
   field :version, 2, type: :string
   field :degradation_reason, 3, type: :string, json_name: "degradationReason"
+
+  field :details, 4,
+    repeated: true,
+    type: Serviceradar.Agent.Addon.V1.HealthResponse.DetailsEntry,
+    map: true
 end
 
 defmodule Serviceradar.Agent.Addon.V1.StreamTelemetryRequest do

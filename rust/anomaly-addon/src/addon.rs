@@ -244,6 +244,7 @@ impl Addon for AnomalyAddon {
             status: summary.status,
             version: ADDON_VERSION.to_string(),
             degradation_reason,
+            details: Default::default(),
         })
     }
 
