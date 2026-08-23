@@ -33,7 +33,8 @@ use crate::{
     mdns::runtime::MdnsRuntime,
     metrics::Metrics,
     proto::netprobe::{
-        DeviceCensusSnapshot, DpiEvent, FingerprintEvent, FlowAttributionEvent, ProcessSnapshot,
+        DeviceCensusSnapshot, DpiEvent, FingerprintEvent, FlowAttributionEvent, MdnsSnapshot,
+        ProcessSnapshot,
     },
     runtime_config::{DpiEventGate, FingerprintEventGate},
 };
@@ -86,6 +87,7 @@ impl NetprobeEbpfRuntime {
         flow_attribution_events: Option<EventSender<Arc<FlowAttributionEvent>>>,
         process_snapshots: broadcast::Sender<ProcessSnapshot>,
         census_snapshots: broadcast::Sender<DeviceCensusSnapshot>,
+        mdns_snapshots: broadcast::Sender<MdnsSnapshot>,
         external_flow_matcher: SharedExternalFlowMatcher,
         fingerprint_gate: Arc<std::sync::Mutex<FingerprintEventGate>>,
         dpi_gate: Arc<DpiEventGate>,
@@ -151,6 +153,7 @@ impl NetprobeEbpfRuntime {
                 &mut ebpf,
                 &config.capture_interfaces,
                 census_snapshots,
+                mdns_snapshots,
             ) {
                 Ok((census, mdns)) => (Some(census), mdns),
                 Err(err) => {
@@ -197,14 +200,17 @@ impl NetprobeEbpfRuntime {
         // devices the census has already found, so losing it costs device TYPE
         // and nothing else. It must never be able to take down the census that
         // supplies the MAC binding it enriches.
-        let mdns_runtime =
-            match MdnsRuntime::start_from_ebpf(fingerprint_interface_name(config), &mut ebpf) {
-                Ok(runtime) => Some(runtime),
-                Err(err) => {
-                    log::warn!("netprobe mDNS collector disabled: {err:#}");
-                    None
-                }
-            };
+        let mdns_runtime = match MdnsRuntime::start_from_ebpf(
+            fingerprint_interface_name(config),
+            &mut ebpf,
+            mdns_snapshots.clone(),
+        ) {
+            Ok(runtime) => Some(runtime),
+            Err(err) => {
+                log::warn!("netprobe mDNS collector disabled: {err:#}");
+                None
+            }
+        };
         let interface_allowlist = populate_interface_allowlist(&mut ebpf, &interfaces)?;
         let sampling_runtime = AdaptiveSamplingRuntime::start(
             interface_allowlist,
@@ -252,6 +258,7 @@ impl NetprobeEbpfRuntime {
         ebpf: &mut Ebpf,
         capture_interfaces: &[String],
         census_snapshots: broadcast::Sender<DeviceCensusSnapshot>,
+        mdns_snapshots: broadcast::Sender<MdnsSnapshot>,
     ) -> Result<(DeviceCensusRuntime, Option<MdnsRuntime>)> {
         let interfaces = af_xdp::resolve_interfaces(capture_interfaces)
             .context("failed to resolve census interfaces")?;
@@ -294,7 +301,7 @@ impl NetprobeEbpfRuntime {
 
         // Failure here costs device TYPE, not device presence. The census must
         // survive it.
-        let mdns = match MdnsRuntime::start_from_ebpf(interface, ebpf) {
+        let mdns = match MdnsRuntime::start_from_ebpf(interface, ebpf, mdns_snapshots) {
             Ok(mdns) => {
                 log::info!(
                     "netprobe mDNS collector active on {}",

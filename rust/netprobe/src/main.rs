@@ -14,8 +14,6 @@ mod capture;
 // `capture` above carries this.
 #[allow(dead_code)]
 mod census;
-#[allow(dead_code)]
-mod mdns;
 mod config;
 mod dpi;
 #[cfg(target_os = "linux")]
@@ -36,6 +34,8 @@ mod ja4;
 mod kernel;
 #[allow(dead_code)]
 mod lifecycle;
+#[allow(dead_code)]
+mod mdns;
 mod metrics;
 #[allow(dead_code)]
 mod muonfp;
@@ -168,6 +168,10 @@ async fn main() -> Result<()> {
     // the older ones rather than replay them: each snapshot supersedes the last
     // completely, so the newest is the only one worth delivering.
     let (census_snapshot_tx, _) = broadcast::channel(4);
+    // Same reasoning as the census channel: each mDNS snapshot completely
+    // replaces the last, so a lagging receiver should get the newest rather
+    // than a backlog of superseded views.
+    let (mdns_snapshot_tx, _) = broadcast::channel(4);
     let runtime_config = RuntimeConfig::new(&config);
     let external_flow_matcher =
         SharedExternalFlowMatcher::new(runtime_config.external_flow_match_window_ms());
@@ -207,6 +211,7 @@ async fn main() -> Result<()> {
                         .then(|| flow_attribution_event_tx.clone()),
                     process_snapshot_tx.clone(),
                     census_snapshot_tx.clone(),
+                    mdns_snapshot_tx.clone(),
                     external_flow_matcher.clone(),
                     Arc::clone(&_fingerprint_gate),
                     Arc::clone(&_dpi_gate),
@@ -239,6 +244,7 @@ async fn main() -> Result<()> {
             flow_attribution_event_rx,
             process_snapshot_tx,
             census_snapshot_tx,
+            mdns_snapshot_tx,
             external_flow_matcher,
             runtime_config,
             metrics,

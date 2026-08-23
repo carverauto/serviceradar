@@ -30,8 +30,8 @@ use crate::{
     metrics::Metrics,
     proto::netprobe::{
         ConfigAck, DeviceCensusSnapshot, DpiEvent, ErrorFrame, ExternalFlowAck, ExternalFlowRecord,
-        FingerprintEvent, FlowAttributionEvent, FlowAttributionEventBatch, NetprobeFrame, PingAck,
-        ProcessSnapshot, ProcessSnapshotEntry, netprobe_frame,
+        FingerprintEvent, FlowAttributionEvent, FlowAttributionEventBatch, MdnsSnapshot,
+        NetprobeFrame, PingAck, ProcessSnapshot, ProcessSnapshotEntry, netprobe_frame,
     },
     runtime_config::RuntimeConfig,
 };
@@ -51,6 +51,7 @@ pub struct IpcServer {
     flow_attribution_rx: Arc<Mutex<EventReceiver<Arc<FlowAttributionEvent>>>>,
     process_snapshots: broadcast::Sender<ProcessSnapshot>,
     census_snapshots: broadcast::Sender<DeviceCensusSnapshot>,
+    mdns_snapshots: broadcast::Sender<MdnsSnapshot>,
     external_flow_matcher: SharedExternalFlowMatcher,
     runtime_config: RuntimeConfig,
     metrics: Metrics,
@@ -66,6 +67,7 @@ impl IpcServer {
         flow_attribution_rx: EventReceiver<Arc<FlowAttributionEvent>>,
         process_snapshots: broadcast::Sender<ProcessSnapshot>,
         census_snapshots: broadcast::Sender<DeviceCensusSnapshot>,
+        mdns_snapshots: broadcast::Sender<MdnsSnapshot>,
         external_flow_matcher: SharedExternalFlowMatcher,
         runtime_config: RuntimeConfig,
         metrics: Metrics,
@@ -79,6 +81,7 @@ impl IpcServer {
             flow_attribution_rx: Arc::new(Mutex::new(flow_attribution_rx)),
             process_snapshots,
             census_snapshots,
+            mdns_snapshots,
             external_flow_matcher,
             runtime_config,
             metrics,
@@ -113,6 +116,7 @@ impl IpcServer {
                     let flow_attribution_rx = Arc::clone(&self.flow_attribution_rx);
                     let process_snapshot_rx = self.process_snapshots.subscribe();
                     let census_snapshot_rx = self.census_snapshots.subscribe();
+                    let mdns_snapshot_rx = self.mdns_snapshots.subscribe();
                     let external_flow_matcher = self.external_flow_matcher.clone();
                     let runtime_config = self.runtime_config.clone();
                     let metrics = self.metrics.clone();
@@ -126,6 +130,7 @@ impl IpcServer {
                             flow_attribution_rx,
                             process_snapshot_rx,
                             census_snapshot_rx,
+                            mdns_snapshot_rx,
                             external_flow_matcher,
                             runtime_config,
                             metrics,
@@ -184,6 +189,7 @@ async fn handle_client(
     flow_attribution_events: Arc<Mutex<EventReceiver<Arc<FlowAttributionEvent>>>>,
     mut process_snapshots: broadcast::Receiver<ProcessSnapshot>,
     mut census_snapshots: broadcast::Receiver<DeviceCensusSnapshot>,
+    mut mdns_snapshots: broadcast::Receiver<MdnsSnapshot>,
     external_flows: SharedExternalFlowMatcher,
     runtime_config: RuntimeConfig,
     metrics: Metrics,
@@ -266,6 +272,26 @@ async fn handle_client(
                     Err(broadcast::error::RecvError::Lagged(skipped)) => {
                         metrics.inc_process_snapshot_events_dropped("lagged_receiver", skipped);
                         log::warn!("netprobe IPC client lagged; skipped {skipped} process snapshot(s)");
+                    }
+                    Err(broadcast::error::RecvError::Closed) => {
+                        return Ok(());
+                    }
+                }
+            }
+            snapshot = mdns_snapshots.recv() => {
+                match snapshot {
+                    Ok(snapshot) => {
+                        write_mdns_snapshot_frames(
+                            &mut writer,
+                            snapshot,
+                            &mut encode_buffer,
+                            &metrics,
+                        ).await?;
+                    }
+                    Err(broadcast::error::RecvError::Lagged(skipped)) => {
+                        // Superseded, not lost: each snapshot completely
+                        // replaces the last.
+                        log::debug!("netprobe IPC client lagged; skipped {skipped} superseded mdns snapshot(s)");
                     }
                     Err(broadcast::error::RecvError::Closed) => {
                         return Ok(());
@@ -455,6 +481,39 @@ where
     }
 
     log::debug!("split oversized process snapshot into {chunks} IPC frame(s)");
+    Ok(())
+}
+
+/// Write one mDNS snapshot, split across frames when it does not fit.
+///
+/// Chunking lives in `mdns::chunk_mdns_snapshot` for the same reason the
+/// census's does: chunk_count rides on every chunk, so the set must be computed
+/// before the first frame goes out, and keeping it pure makes it testable
+/// without an async socket harness.
+async fn write_mdns_snapshot_frames<W>(
+    writer: &mut W,
+    snapshot: MdnsSnapshot,
+    encode_buffer: &mut Vec<u8>,
+    metrics: &Metrics,
+) -> Result<(), crate::framing::FramingError>
+where
+    W: tokio::io::AsyncWrite + Unpin,
+{
+    let (chunks, dropped) = crate::mdns::chunk_mdns_snapshot(snapshot, census_max_payload_len());
+    if dropped > 0 {
+        log::warn!("dropped {dropped} oversized mdns device(s)");
+    }
+    let chunk_count = chunks.len();
+    for chunk in chunks {
+        let frame = NetprobeFrame {
+            sequence: 0,
+            payload: Some(netprobe_frame::Payload::MdnsSnapshot(chunk)),
+        };
+        write_reused_frame(writer, &frame, encode_buffer, metrics).await?;
+    }
+    if chunk_count > 1 {
+        log::debug!("split mdns snapshot into {chunk_count} IPC frame(s)");
+    }
     Ok(())
 }
 
@@ -721,8 +780,8 @@ mod tests {
         metrics::Metrics,
         proto::netprobe::{
             ApplyConfig, DeviceCensusSnapshot, DpiEvent, ExternalFlowRecord, FingerprintEvent,
-            FlowAttributionEvent, NetprobeFrame, Ping, ProcessSnapshot, ProcessSnapshotEntry,
-            TcpFingerprint, VisibilityAgentConfig, fingerprint_event, netprobe_frame,
+            FlowAttributionEvent, MdnsSnapshot, NetprobeFrame, Ping, ProcessSnapshot,
+            ProcessSnapshotEntry, TcpFingerprint, VisibilityAgentConfig, fingerprint_event, netprobe_frame,
         },
         runtime_config::RuntimeConfig,
     };
@@ -737,6 +796,7 @@ mod tests {
         let (flow_tx, flow_rx) = crate::event_queue::bounded(16);
         let (process_tx, _) = broadcast::channel(16);
         let (census_tx, _) = broadcast::channel(16);
+        let (mdns_tx, _) = broadcast::channel(16);
         let server = IpcServer::new(
             &socket,
             event_rx,
@@ -745,6 +805,7 @@ mod tests {
             flow_rx,
             process_tx,
             census_tx,
+            mdns_tx,
             test_external_flow_matcher(),
             RuntimeConfig::new(&Config::default()),
             Metrics::new().unwrap(),
@@ -800,6 +861,7 @@ mod tests {
         let (flow_tx, flow_rx) = crate::event_queue::bounded(16);
         let (process_tx, _) = broadcast::channel(16);
         let (census_tx, _) = broadcast::channel(16);
+        let (mdns_tx, _) = broadcast::channel(16);
         let server = IpcServer::new(
             &socket,
             event_rx,
@@ -808,6 +870,7 @@ mod tests {
             flow_rx,
             process_tx,
             census_tx,
+            mdns_tx,
             test_external_flow_matcher(),
             RuntimeConfig::new(&Config::default()),
             Metrics::new().unwrap(),
@@ -838,6 +901,7 @@ mod tests {
         let (flow_tx, flow_rx) = crate::event_queue::bounded(16);
         let (process_tx, _) = broadcast::channel(16);
         let (census_tx, _) = broadcast::channel(16);
+        let (mdns_tx, _) = broadcast::channel(16);
         let server = IpcServer::new(
             &socket,
             event_rx,
@@ -846,6 +910,7 @@ mod tests {
             flow_rx,
             process_tx,
             census_tx,
+            mdns_tx,
             test_external_flow_matcher(),
             RuntimeConfig::new(&Config::default()),
             Metrics::new().unwrap(),
@@ -879,6 +944,7 @@ mod tests {
         let (flow_tx, flow_rx) = crate::event_queue::bounded(16);
         let (process_tx, _) = broadcast::channel(16);
         let (census_tx, _) = broadcast::channel(16);
+        let (mdns_tx, _) = broadcast::channel(16);
         let server = IpcServer::new(
             &socket,
             event_rx,
@@ -887,6 +953,7 @@ mod tests {
             flow_rx,
             process_tx,
             census_tx,
+            mdns_tx,
             test_external_flow_matcher(),
             RuntimeConfig::new(&Config::default()),
             Metrics::new().unwrap(),
@@ -920,6 +987,7 @@ mod tests {
         let (flow_tx, flow_rx) = crate::event_queue::bounded(16);
         let (process_tx, _) = broadcast::channel(16);
         let (census_tx, _) = broadcast::channel(16);
+        let (mdns_tx, _) = broadcast::channel(16);
         let matcher = test_external_flow_matcher();
         matcher.observe_attribution(&flow_attribution_event());
         let server = IpcServer::new(
@@ -930,6 +998,7 @@ mod tests {
             flow_rx,
             process_tx,
             census_tx,
+            mdns_tx,
             matcher,
             RuntimeConfig::new(&Config::default()),
             Metrics::new().unwrap(),
@@ -963,6 +1032,7 @@ mod tests {
         let (flow_tx, flow_rx) = crate::event_queue::bounded(16);
         let (process_tx, _) = broadcast::channel(16);
         let (census_tx, _) = broadcast::channel(16);
+        let (mdns_tx, _) = broadcast::channel(16);
         let matcher = SharedExternalFlowMatcher::new(0);
         let server = IpcServer::new(
             &socket,
@@ -972,6 +1042,7 @@ mod tests {
             flow_rx,
             process_tx,
             census_tx,
+            mdns_tx,
             matcher.clone(),
             RuntimeConfig::new(&Config::default()),
             Metrics::new().unwrap(),
@@ -1039,6 +1110,7 @@ mod tests {
         let (flow_tx, flow_rx) = crate::event_queue::bounded(16);
         let (process_tx, _) = broadcast::channel(16);
         let (census_tx, _) = broadcast::channel(16);
+        let (mdns_tx, _) = broadcast::channel(16);
         let matcher = test_external_flow_matcher();
         matcher.observe_attribution(&flow_attribution_event());
         let server = IpcServer::new(
@@ -1049,6 +1121,7 @@ mod tests {
             flow_rx,
             process_tx,
             census_tx,
+            mdns_tx,
             matcher,
             RuntimeConfig::new(&Config::default()),
             Metrics::new().unwrap(),
@@ -1101,6 +1174,7 @@ mod tests {
         let (flow_tx, flow_rx) = crate::event_queue::bounded(16);
         let (process_tx, _) = broadcast::channel(16);
         let (census_tx, _) = broadcast::channel(16);
+        let (mdns_tx, _) = broadcast::channel(16);
         let server = IpcServer::new(
             &socket,
             event_rx,
@@ -1109,6 +1183,7 @@ mod tests {
             flow_rx,
             process_tx,
             census_tx,
+            mdns_tx,
             test_external_flow_matcher(),
             RuntimeConfig::new(&Config::default()),
             Metrics::new().unwrap(),
@@ -1141,6 +1216,96 @@ mod tests {
 
         shutdown_tx.send(true).unwrap();
         task.await.unwrap().unwrap();
+    }
+
+    #[tokio::test]
+    async fn streams_mdns_snapshots_to_connected_client() {
+        // Proves the wiring: the payload encodes on the new oneof tag, survives
+        // the frame writer, and decodes on the client as the right variant. The
+        // chunking unit tests would all pass even if this were wired to the
+        // wrong tag or never dispatched.
+        let dir = TempDir::new().unwrap();
+        let socket = dir.path().join("ipc.sock");
+        let (shutdown_tx, shutdown_rx) = watch::channel(false);
+        let (_event_tx, event_rx) = crate::event_queue::bounded(16);
+        let (_dpi_tx, dpi_rx) = crate::event_queue::bounded(16);
+        let (flow_tx, flow_rx) = crate::event_queue::bounded(16);
+        let (process_tx, _) = broadcast::channel(16);
+        let (census_tx, _) = broadcast::channel(16);
+        let (mdns_tx, _) = broadcast::channel(16);
+        let server = IpcServer::new(
+            &socket,
+            event_rx,
+            dpi_rx,
+            flow_tx,
+            flow_rx,
+            process_tx,
+            census_tx,
+            mdns_tx.clone(),
+            test_external_flow_matcher(),
+            RuntimeConfig::new(&Config::default()),
+            Metrics::new().unwrap(),
+        );
+        let task = tokio::spawn(server.run(shutdown_rx));
+
+        wait_for_socket(&socket).await;
+        let mut client = UnixStream::connect(&socket).await.unwrap();
+        wait_for_event_receiver(&mdns_tx).await;
+        mdns_tx.send(mdns_snapshot()).unwrap();
+
+        // Bounded on purpose. Without a timeout, a missing dispatch arm makes
+        // this block forever instead of failing, and a hanging test in CI is
+        // worse than a failing one -- it burns a runner slot and reports
+        // nothing. Verified: deleting the mdns select arm makes this fail here
+        // rather than hang.
+        let response = tokio::time::timeout(std::time::Duration::from_secs(10), read_frame(&mut client))
+            .await
+            .expect("timed out waiting for an mdns frame; is the select arm wired?")
+            .unwrap()
+            .unwrap();
+        let Some(netprobe_frame::Payload::MdnsSnapshot(snapshot)) = response.payload else {
+            panic!("expected mdns snapshot");
+        };
+        assert_eq!(snapshot.snapshot_id, "eth0-1");
+        assert!(
+            snapshot.complete,
+            "a single-frame snapshot must declare itself complete"
+        );
+        assert_eq!(snapshot.devices.len(), 1);
+        assert_eq!(snapshot.devices[0].models, vec!["B620AP"]);
+        // The distinction the wire format exists to preserve.
+        assert!(snapshot.devices[0].txt[0].has_value);
+
+        shutdown_tx.send(true).unwrap();
+        task.await.unwrap().unwrap();
+    }
+
+    fn mdns_snapshot() -> MdnsSnapshot {
+        MdnsSnapshot {
+            devices: vec![crate::proto::netprobe::MdnsDevice {
+                mac: "48:e1:5c:a8:2b:58".to_owned(),
+                ip: String::new(),
+                interface_index: 2,
+                service_types: vec!["_airplay._tcp".to_owned()],
+                txt: vec![crate::proto::netprobe::MdnsTxtPair {
+                    key: "model".to_owned(),
+                    value: "B620AP".to_owned(),
+                    has_value: true,
+                }],
+                models: vec!["B620AP".to_owned()],
+                ambiguous_model: false,
+                first_seen_unix_nano: 1,
+                last_seen_unix_nano: 2,
+                truncated: false,
+            }],
+            snapshot_id: "eth0-1".to_owned(),
+            interface_name: "eth0".to_owned(),
+            generated_at_unix_nano: 3,
+            complete: true,
+            chunk_index: 0,
+            chunk_count: 1,
+            dropped_since_last: 0,
+        }
     }
 
     fn census_snapshot() -> DeviceCensusSnapshot {
@@ -1179,6 +1344,7 @@ mod tests {
         let (flow_tx, flow_rx) = crate::event_queue::bounded(16);
         let (process_tx, _) = broadcast::channel(16);
         let (census_tx, _) = broadcast::channel(16);
+        let (mdns_tx, _) = broadcast::channel(16);
         let server = IpcServer::new(
             &socket,
             event_rx,
@@ -1187,6 +1353,7 @@ mod tests {
             flow_rx,
             process_tx,
             census_tx.clone(),
+            mdns_tx,
             test_external_flow_matcher(),
             RuntimeConfig::new(&Config::default()),
             Metrics::new().unwrap(),
@@ -1226,6 +1393,7 @@ mod tests {
         let (flow_tx, flow_rx) = crate::event_queue::bounded(16);
         let (process_tx, _) = broadcast::channel(16);
         let (census_tx, _) = broadcast::channel(16);
+        let (mdns_tx, _) = broadcast::channel(16);
         let server = IpcServer::new(
             &socket,
             event_rx,
@@ -1234,6 +1402,7 @@ mod tests {
             flow_rx,
             process_tx.clone(),
             census_tx,
+            mdns_tx,
             test_external_flow_matcher(),
             RuntimeConfig::new(&Config::default()),
             Metrics::new().unwrap(),
@@ -1321,6 +1490,7 @@ mod tests {
         let (flow_tx, flow_rx) = crate::event_queue::bounded(16);
         let (process_tx, _) = broadcast::channel(16);
         let (census_tx, _) = broadcast::channel(16);
+        let (mdns_tx, _) = broadcast::channel(16);
         let server = IpcServer::new(
             &socket,
             event_rx,
@@ -1329,6 +1499,7 @@ mod tests {
             flow_rx,
             process_tx,
             census_tx,
+            mdns_tx,
             test_external_flow_matcher(),
             RuntimeConfig::new(&Config::default()),
             Metrics::new().unwrap(),
@@ -1364,6 +1535,7 @@ mod tests {
         let (flow_tx, flow_rx) = crate::event_queue::bounded(16);
         let (process_tx, _) = broadcast::channel(16);
         let (census_tx, _) = broadcast::channel(16);
+        let (mdns_tx, _) = broadcast::channel(16);
         let server = IpcServer::new(
             &socket,
             event_rx,
@@ -1372,6 +1544,7 @@ mod tests {
             flow_rx,
             process_tx,
             census_tx,
+            mdns_tx,
             test_external_flow_matcher(),
             RuntimeConfig::new(&Config::default()),
             Metrics::new().unwrap(),
