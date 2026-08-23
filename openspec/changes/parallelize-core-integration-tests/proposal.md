@@ -11,10 +11,11 @@ starts a rollback-only Ecto SQL Sandbox owner for each test and stops it on exit
 is to make the owner lifecycle safe for concurrent modules, explicitly allow test-owned child
 processes, and keep tests that mutate process-global or database-global state in a serial lane.
 
-One 50,000-device ingestion test also contributes about 47 seconds to every pull request even
-though it is documented as a release gate. Its module has both `:integration` and
-`:large_ingestion`; ExUnit's positive `include: [:integration, :requires_app]` selection overrides
-the `:large_ingestion` exclusion. A tag-only fix would leave that precedence trap in place.
+Two ingestion/cardinality release gates also run in every pull request. The 50,000-device router
+test alone contributes about 47 seconds. One gate has both `:integration` and `:large_ingestion`;
+the other inherits `:requires_app` from DataCase and has `:large_ingestion`. ExUnit's positive
+`include: [:integration, :requires_app]` selection overrides the `:large_ingestion` exclusion in
+both cases. A tag-only fix would leave that precedence trap in place.
 
 ## What Changes
 - Retain the existing eight database-backed Bazel shards and add bounded ExUnit concurrency inside
@@ -31,14 +32,16 @@ the `:large_ingestion` exclusion. A tag-only fix would leave that precedence tra
     names across BEAMs.
 - Fail fast when a test attempts the invalid combination of `async: true` and
   `sandbox: :unboxed`.
-- Move the 50,000-device ingestion case into a source-separated Bazel release-gate target backed
-  by its own disposable database, so ordinary pull-request integration targets cannot select it
+- Move both large-ingestion release-gate suites into a source-separated Bazel target backed by its
+  own disposable database, so ordinary pull-request integration targets cannot select either one
   through ExUnit include precedence.
 - Give the dedicated target a `large_ingestion_test` Bazel tag and explicitly exclude that tag from
   the pull-request integration wildcard, so the separate target itself is not selected by
   `--test_tag_filters=integration_test`.
 - Run the heavy target in a separate BuildBuddy action on the default branch, nightly, and for
-  release tags; require a successful result for the exact release commit before publication.
+  release tags; require a successful result for the exact release commit before publication using
+  a tested Bazel qualifier and permanent introduction marker that distinguish truly historical
+  tags from later contract deletion.
 - Re-measure and rebalance the eight file partitions after concurrency and the heavy-test
   extraction change the critical path.
 - Add hermetic configuration tests and repeated CI-equivalent stress runs that enforce the lane
@@ -51,7 +54,8 @@ the `:large_ingestion` exclusion. A tag-only fix would leave that precedence tra
 - Create a database or BEAM VM per individual test file.
 - Shorten cold full-repository compilation; this proposal targets the integration lifecycle after
   build artifacts and the database template are current.
-- Reduce the 50,000-device workload or remove it from release qualification.
+- Reduce the 50,000-device or 500-device/three-round workloads, or remove either from release
+  qualification.
 - Change fixture credential, cache routing, TLS verification, or template-migration semantics.
 
 ## Impact
@@ -65,10 +69,13 @@ the `:large_ingestion` exclusion. A tag-only fix would leave that precedence tra
   - `elixir/serviceradar_core/test/support/test_support.ex`
   - audited core integration test modules
   - `elixir/serviceradar_core/test/serviceradar/results_router_integration_test.exs`
-  - a new source-separated large-ingestion test module
+  - `elixir/serviceradar_core/test/serviceradar/inventory/identifier_cardinality_gate_test.exs`
+  - source-separated large-ingestion release-gate modules
+  - `openspec/changes/parallelize-core-integration-tests/benchmark.md`
   - `rust/integration-db/BUILD.bazel` and lifecycle tests
   - `buildbuddy.yaml`
   - `.github/workflows/release.yml`
+  - `build/ci/large_ingestion_gate_contract.v1` and the Bazel-owned release qualifier
   - Bazel configuration and source-partition tests
 - Coordination:
   - Preserve the guarded lifecycle and local, non-cached database `TestRunner` contract from

@@ -15,11 +15,12 @@
       module documentation and in the core test helper guidance.
 
 ## 2. Source-separated large-ingestion gate
-- [ ] 2.1 Move the 50,000-device ingestion case and its dedicated helpers into a release-gate test
-      source while keeping the smaller ResultsRouter integration assertions in the ordinary suite.
+- [ ] 2.1 Move the 50,000-device router case and the identifier-cardinality gate into release-gate
+      sources while keeping the smaller ResultsRouter integration assertion in the ordinary suite.
 - [ ] 2.2 Exclude the release-gate source directory from `ALL_TEST_SRCS` and add an explicit
       `large_ingestion_release_gate` Bazel target with the declared run-id file, integration
-      environment preloads, fixed 50,000-device CI value, and complete runtime data.
+      environment preloads, fixed 50,000-device and 500-device/three-round CI values, and complete
+      runtime data.
 - [ ] 2.3 Add a shared `large_ingestion` database suffix and a focused
       `//rust/integration-db:provision_db_large_ingestion` target without adding that database to
       ordinary eight-shard provisioning.
@@ -27,8 +28,8 @@
       derive the same database name, ordinary unit/integration targets exclude the heavy source,
       the pull-request integration wildcard excludes the `large_ingestion_test` Bazel tag, and
       teardown owns the dedicated suffix.
-- [ ] 2.5 Prove the release target runs the default 50,000-device workload and the ordinary PR
-      integration suite neither embeds nor selects it.
+- [ ] 2.5 Prove the release target runs both full workloads and the ordinary PR integration suite
+      neither embeds nor selects either release gate.
 
 ## 3. Bounded in-shard concurrency
 - [ ] 3.1 Define the checked-in integration `max_cases` constant as 2, pass it to all eight generated
@@ -56,28 +57,43 @@
       fixture environment bridge.
 - [ ] 4.3 Give the release workflow explicit `statuses: read` permission and poll the exact tag
       commit's classic `LargeIngestionGate` status for at most 30 minutes before publication,
-      accepting only the newest matching record when it is successful and links to the
-      `carverauto.buildbuddy.io` invocation path.
-- [ ] 4.4 Add static workflow tests covering the trigger set, focused targets, retry policy,
-      pull-request `-large_ingestion_test` filter, credential boundaries, teardown, and
-      release-status context.
-- [ ] 4.5 Keep historical tag retries compatible only when the immutable tag commit predates either
-      the `large_ingestion_release_gate` target or the `LargeIngestionGate` BuildBuddy action;
-      require a manually backfilled BuildBuddy result rather than a bypass for commits containing
-      both.
+      accepting only the newest matching record when it is successful and its parsed HTTPS URL has
+      host exactly `carverauto.buildbuddy.io` plus a nonempty invocation id.
+- [ ] 4.4 Atomically add a permanent `build/ci/large_ingestion_gate_contract.v1` introduction marker
+      with the complete Bazel-owned, unit-tested release qualifier and workflow wiring, covering
+      ancestry-based applicability, complete
+      marker-bearing trees, missing/repeated introduction evidence, divergent histories,
+      newest-status selection, BuildBuddy URL validation, pagination, and timeout/error behavior.
+- [ ] 4.5 Add static workflow tests covering the trigger set, focused targets, retry policy,
+      pull-request `-large_ingestion_test` filter, credential boundaries, teardown, qualifier
+      invocation, and release-status context.
+- [ ] 4.6 Keep historical tag retries compatible only when the immutable release commit is a strict
+      ancestor of the marker's first addition on `origin/staging` first-parent history. Fail closed
+      when the introduction is an ancestor of a markerless release, when the commits are divergent,
+      when introduction evidence cannot be established, or when a marker-bearing tree lacks the
+      target or action; require a manually backfilled BuildBuddy result rather than a bypass for
+      applicable commits.
 
 ## 5. Measurement, balancing, and acceptance
-- [ ] 5.1 Capture per-shard duration, peak fixture connections, and the ordinary lifecycle from
-      fixture configuration materialization through successful teardown, after the same
-      configuration's build artifacts and template are current.
-- [ ] 5.2 Run 20 consecutive CI-equivalent ordinary integration lifecycles and require zero sandbox
-      ownership errors, deadlocks, leaked processes, leaked databases, or retry-masked failures.
-- [ ] 5.3 Recompute the heavy-source partition hints after the large test extraction and async
+- [ ] 5.0 Lock the before/after cohort identities, clock boundaries, flags, calculations, evidence
+      schema, connection headroom, and pass/fail goals in `benchmark.md` before behavior changes.
+- [ ] 5.1 Add and test a Bazel-owned connection observer plus an instrumentation-only,
+      non-merging `IntegrationBenchmark` action; make that commit the direct parent of the first
+      behavior change and keep the harness identical at the final revision.
+- [ ] 5.2 Capture per-shard duration, maximum sampled fixture/run connections, live connection
+      capacity, observer-session exclusion, UTC sample window, pre-teardown zero samples, and the
+      ordinary lifecycle through outcome-bearing teardown with Bazel and workflow retries disabled;
+      use literal database-prefix matching rather than unescaped SQL `LIKE`, preflight migrations
+      outside the clock, and capture the end timestamp immediately when teardown returns.
+- [ ] 5.3 Run alternating exact-SHA cohorts until both revisions have 20 consecutive successful
+      lifecycles; retain all failed sequence rows and require zero ownership errors, deadlocks,
+      leaked database processes, leaked databases, or retry-masked failures.
+- [ ] 5.4 Recompute the heavy-source partition hints after the release-gate extraction and async
       promotion, then require slowest/fastest non-empty shard skew no greater than 1.5.
-- [ ] 5.4 Demonstrate nearest-rank p95 at or below 90 seconds over the 20-run ordinary wave,
+- [ ] 5.5 Demonstrate nearest-rank p95 at or below 90 seconds over the accepted 20-run after cohort,
       including the existing SRQL/other integration targets and excluding only the large-ingestion
       gate, without increasing the eight-shard count or Repo pool sizes.
-- [ ] 5.5 Run the focused large-ingestion lifecycle repeatedly, verify successful default-branch
+- [ ] 5.6 Run the focused large-ingestion lifecycle repeatedly, verify successful default-branch
       status publication, and prove teardown removes every matching database.
 
 ## 6. Repository verification

@@ -117,8 +117,10 @@ the initial rollout.
 - **AND** all database-facing test actions SHALL retain local, non-cached execution
 
 ### Requirement: Large-ingestion coverage is source-separated from pull-request tests
-The 50,000-device ingestion test SHALL live in a Bazel source set that is disjoint from ordinary
-unit and integration test source sets. It SHALL run through an explicit
+Both large-ingestion release-gate suites SHALL be source-separated from pull-request tests.
+The 50,000-device router ingestion test and the 500-device, three-round identifier-cardinality
+gate SHALL live in a Bazel source set that is disjoint from ordinary unit and integration test
+source sets. They SHALL run through an explicit
 `large_ingestion_release_gate` target against a dedicated disposable database. ExUnit tag
 include/exclude precedence MUST NOT be able to select the heavy source from an ordinary
 pull-request shard, and the pull-request integration wildcard MUST exclude the dedicated target's
@@ -128,10 +130,10 @@ pull-request shard, and the pull-request integration wildcard MUST exclude the d
 - **GIVEN** the ordinary integration runner positively includes `:integration` and
   `:requires_app`
 - **WHEN** Bazel constructs the eight shard source sets
-- **THEN** none of those source sets SHALL contain the large-ingestion release-gate file
+- **THEN** none of those source sets SHALL contain a large-ingestion release-gate file
 - **AND** the pull-request integration wildcard SHALL filter out the dedicated target with
   `-large_ingestion_test`
-- **AND** the 50,000-device test SHALL not execute in the pull-request action
+- **AND** neither release-gate suite SHALL execute in the pull-request action
 
 #### Scenario: Focused heavy target uses a dedicated database
 - **GIVEN** one guarded run id and a current template
@@ -146,8 +148,9 @@ pull-request shard, and the pull-request integration wildcard MUST exclude the d
 
 #### Scenario: CI cannot lower the release workload
 - **WHEN** the BuildBuddy heavy-gate action executes
-- **THEN** the test SHALL ingest 50,000 devices
-- **AND** a developer-only diagnostic override MUST NOT lower that CI workload
+- **THEN** the router test SHALL ingest 50,000 devices
+- **AND** the cardinality test SHALL ingest 500 devices across three rounds
+- **AND** a developer-only diagnostic override MUST NOT lower either CI workload
 
 ### Requirement: Heavy ingestion is a default-branch and release qualification gate
 BuildBuddy SHALL run the focused large-ingestion lifecycle on pushes to `staging`, on a nightly UTC
@@ -169,18 +172,45 @@ successful BuildBuddy result for the immutable tag commit.
 - **THEN** it SHALL use explicit `statuses: read` permission to query the exact commit
 - **AND** it SHALL wait for the named classic status for at most 30 minutes
 - **AND** it SHALL evaluate only the newest status record for the exact context
-- **AND** it SHALL accept only `success` with a
-  `https://carverauto.buildbuddy.io/invocation/` target URL
+- **AND** it SHALL accept only `success` whose parsed target URL uses HTTPS, host exactly
+  `carverauto.buildbuddy.io`, and a nonempty `/invocation/<id>` path
 - **AND** it SHALL stop before artifact publication if the status remains missing, pending, or
   failed
 
 #### Scenario: Historical tag predates the complete gate contract
-- **GIVEN** a manual release retry selects an immutable tag commit that does not contain both
-  `large_ingestion_release_gate` and the `LargeIngestionGate` BuildBuddy action
+- **GIVEN** a manual release retry selects an immutable tag commit that does not contain the
+  permanent `build/ci/large_ingestion_gate_contract.v1` marker
+- **AND** that release commit is a strict ancestor of the marker's first addition commit on fetched
+  `origin/staging` first-parent history
 - **WHEN** the release workflow evaluates heavy-gate applicability
 - **THEN** it SHALL report the gate as not applicable for that historical source tree
 - **AND** it SHALL preserve the existing historical recovery path
-- **AND** a commit that contains both contract halves SHALL NOT use this compatibility path
+- **AND** it SHALL NOT require a status created after that historical source tree
+
+#### Scenario: Gate contract deletion cannot become a historical bypass
+- **GIVEN** the marker's first addition commit is an ancestor of an immutable release commit
+- **WHEN** that release tree lacks the marker
+- **THEN** release qualification SHALL fail before artifact publication
+- **AND** it SHALL NOT classify the release as historical
+- **AND** git ancestry errors, a missing/malformed base marker, or missing/repeated introduction
+  evidence SHALL fail closed
+
+#### Scenario: Divergent commit cannot use historical compatibility
+- **GIVEN** an immutable release tree lacks the marker
+- **AND** neither the release commit nor the first-parent marker-introduction commit is an ancestor
+  of the other
+- **WHEN** release qualification evaluates applicability
+- **THEN** it SHALL fail closed before artifact publication
+- **AND** it SHALL NOT infer age from timestamps or the marker's absence alone
+
+#### Scenario: Marker-bearing release tree is internally complete
+- **GIVEN** an immutable release tree contains `build/ci/large_ingestion_gate_contract.v1`
+- **WHEN** release qualification evaluates that tree
+- **THEN** the tree SHALL also contain the `large_ingestion_release_gate` target and
+  `LargeIngestionGate` BuildBuddy action
+- **AND** absence of either contract half SHALL fail before status polling or publication
+- **AND** the qualifier SHALL be a tested Bazel executable invoked after Bazel setup and before
+  release tooling or artifact publication
 
 #### Scenario: Pull request does not pay the heavy-gate cost
 - **GIVEN** a normal pull request to `staging`
@@ -193,11 +223,17 @@ successful BuildBuddy result for the immutable tag commit.
 Before bounded concurrency is considered complete, the implementation SHALL pass at least 20
 consecutive CI-equivalent ordinary integration lifecycles with test retries disabled. Measurement
 SHALL start before fixture configuration materialization and end after successful teardown, with a
-current template and the exact Bazel configuration already built. It SHALL include all targets
+current template and the exact Bazel configuration already built. The end timestamp SHALL be
+captured immediately when teardown returns, before observer shutdown/wait overhead. It SHALL include all targets
 selected by the ordinary pull-request integration filter and exclude only the large-ingestion
 gate. Across that run set, nearest-rank p95 SHALL be at most 90 seconds, the slowest non-empty shard
 SHALL be no more than 1.5 times the fastest, and there SHALL be no sandbox ownership error,
 deadlock, leaked test process, leaked disposable database, or retry-masked failure.
+
+The controlled comparison SHALL use the instrumentation-only commit immediately before the first
+behavior change as `before`, the final rebalanced implementation as `after`, and one identical
+non-merging benchmark harness at both revisions. Both accepted cohorts SHALL contain 20 consecutive
+successful, retry-free lifecycle attempts and SHALL retain all failed sequence rows.
 
 #### Scenario: Acceptance run set is stable
 - **GIVEN** current build artifacts and a current database template
@@ -212,6 +248,35 @@ deadlock, leaked test process, leaked disposable database, or retry-masked failu
 - **THEN** the ordered 19th value of 20 lifecycle durations SHALL be at most 90 seconds
 - **AND** slowest/fastest non-empty shard skew SHALL be at most 1.5
 - **AND** the result SHALL be achieved with eight shards and unchanged Repo pool sizes
+
+#### Scenario: Before and after cohorts are comparable
+- **GIVEN** the instrumentation-only before commit is the direct parent of the first behavior change
+- **WHEN** BuildBuddy executes alternating before/after attempts
+- **THEN** each request SHALL name and verify the exact source SHA without a synthetic merge
+- **AND** the normalized benchmark action, observer sources, observer Bazel rule, runner image,
+  pool, flags, and target selection SHALL be identical
+- **AND** each accepted cohort SHALL contain 20 consecutive successful attempts with Bazel and
+  workflow retries disabled
+- **AND** every started failed or censored attempt SHALL remain in the evidence record
+
+#### Scenario: Database headroom and quiescence are measured
+- **GIVEN** a benchmark lifecycle has materialized fixture configuration
+- **WHEN** the Bazel-owned observer becomes ready before provisioning
+- **THEN** it SHALL sample every 500 milliseconds through teardown
+- **AND** it SHALL use literal database-prefix comparison, exclude and report its own administrator
+  session, and record the UTC sample window plus live capacity settings
+- **AND** it SHALL observe two consecutive zero run-scoped samples after suite completion and before
+  teardown
+- **AND** every accepted after attempt SHALL have run-scoped peak at most 144
+- **AND** fixture-wide peak SHALL be at most `floor(usable client slots * 0.90)`
+
+#### Scenario: Template migration is outside accepted measurements
+- **GIVEN** template preflight detects pending migrations
+- **WHEN** the benchmark prepares an attempt
+- **THEN** it SHALL migrate and recheck the template before the lifecycle clock starts
+- **AND** the measured current-template check SHALL NOT run migration
+- **AND** an in-clock pending result SHALL be retained as a non-cohort row, cleaned up, and SHALL
+  NOT enter latency statistics
 
 ### Requirement: Scheduling changes preserve the guarded fixture contract
 Both ordinary and heavy integration actions SHALL preserve the existing guarded lifecycle,

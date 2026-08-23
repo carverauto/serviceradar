@@ -18,7 +18,8 @@ The sampled critical path shows why the next optimization belongs inside the exi
 | Stable slowest shard | 107-113s |
 | Stable fastest shard | 53-56s |
 | Current slowest/fastest skew | about 2.0 |
-| 50,000-device ingestion test | about 47.2s |
+| 50,000-device router ingestion test | about 47.2s |
+| Identifier-cardinality release gate | 500 devices across three ingest rounds |
 | Template clone per database | about 0.7s |
 | Fixed BEAM cost per additional shard | about 36s |
 
@@ -211,11 +212,12 @@ A runtime guard covers the most dangerous invalid combination (`async: true` plu
 Code review and checked-in partition tests cover the broader semantic classification, including the
 single-shard external-resource source list; a grep heuristic is not treated as proof of safety.
 
-### Decision: Source-separate the large-ingestion gate
-The 50,000-device test moves out of the ordinary `ALL_TEST_SRCS` glob into a dedicated test file and
-an explicit `large_ingestion_release_gate` Bazel target. The target has:
+### Decision: Source-separate the large-ingestion gates
+The 50,000-device router test and the 500-device, three-round identifier-cardinality gate move out
+of the ordinary `ALL_TEST_SRCS` glob into dedicated release-gate sources and an explicit
+`large_ingestion_release_gate` Bazel target. The target has:
 
-- only the large-ingestion source plus declared runtime data;
+- only the large-ingestion release-gate sources plus declared runtime data;
 - the same compiled application dependency as the core integration shards;
 - `//build:run_id_file` as declared data, `SERVICERADAR_ONLY_INTEGRATION=1`, and
   `SERVICERADAR_TEST_DB_SHARD=large_ingestion`;
@@ -244,8 +246,9 @@ core migration filegroup as the ordinary provision targets, and supplies only th
 through `SERVICERADAR_TEST_DB_SHARDS`. It clones only the heavy-gate database. Teardown already owns
 the entire run prefix and removes either shape.
 
-The production workload remains 50,000 devices by default. A lower local override may remain
-available for developer diagnosis, but CI release qualification cannot lower it.
+The production router workload remains 50,000 devices by default and the cardinality workload
+remains 500 devices across three rounds. A lower local router override may remain available for
+developer diagnosis, but CI release qualification cannot lower either workload.
 
 ### Decision: Give the heavy test an independent BuildBuddy action
 `buildbuddy.yaml` gains a separate action that uses the same runner pool, fixture setup, template
@@ -261,36 +264,61 @@ shards. The action name and classic GitHub commit-status context are
 `LargeIngestionGate`. BuildBuddy's linked GitHub App, not a credential passed into the Bazel action,
 posts that status for the exact workflow commit with a BuildBuddy target URL.
 
-The release workflow already resolves the immutable tag commit. Immediately after that resolution
-and before publication, it receives explicit `statuses: read` permission and polls GitHub's commit
-status API for context `LargeIngestionGate` on that exact SHA. It accepts only `success` with a
-`https://carverauto.buildbuddy.io/invocation/` target URL. Classic statuses are append-only, so each
-poll filters the exact context, orders matching records by creation time and status id, and
+The release workflow already resolves the immutable tag commit. After Bazelisk and the authenticated
+remote configuration are available, but before Cosign, ORAS, artifact builds, or publication, it
+runs a Bazel-owned Python qualifier. The executable receives the exact release SHA, repository,
+fetched `origin/staging` ref, and GitHub token environment-variable name. It invokes `gh api`
+without a shell, polls GitHub's commit status API for context `LargeIngestionGate` on that exact
+SHA, and accepts only `success` whose parsed URL has HTTPS scheme, host exactly
+`carverauto.buildbuddy.io`, and a nonempty `/invocation/<id>` path. Classic statuses are append-only,
+so each poll filters the exact context, orders matching records by creation time and status id, and
 evaluates only the newest record. An older success cannot mask a newer pending, error, or failure.
 The workflow waits at most 30 minutes for a tag-triggered action that is still pending or not yet
-visible, and fails closed on timeout, error, or failure.
+visible, and fails closed on timeout, API error, malformed data, error, or failure.
 
 One current successful status for the exact SHA is sufficient whether produced by the `staging` push,
 nightly schedule, or tag trigger; the policy proves the tested source revision, not which event
-started the run. For retrying historical tags, enforcement applies only when the immutable tag
-commit contains both the `large_ingestion_release_gate` target and the `LargeIngestionGate`
-BuildBuddy action. Tags predating either half of that gate contract retain the existing recovery
-behavior, while a fully implemented tag can be backfilled by manually executing the same BuildBuddy
-action for that revision and cannot bypass the test.
+started the run. The implementation commit adds a permanent
+`build/ci/large_ingestion_gate_contract.v1` marker in the same tree as the target, action, and
+qualifier. The qualifier requires the release commit to be an ancestor of the fetched base, the
+base tree to contain the exact v1 marker, and exactly one marker-addition commit on
+`origin/staging`'s first-parent history. Missing, repeated, shallow, or malformed introduction
+evidence fails closed. It then classifies an immutable release tree as follows:
+
+- marker present: the target and action MUST also be present, and status enforcement applies;
+- marker absent and the release commit is a strict ancestor of the introduction commit: the tag is
+  historical and retains the existing recovery behavior;
+- marker absent when the introduction commit is an ancestor of the release commit: fail as
+  contract deletion or corruption (equality is included and therefore cannot bypass);
+- marker absent when neither commit is an ancestor of the other: fail closed rather than treating
+  a divergent side-branch commit as historical;
+- missing introduction evidence, git errors, or a marker without both contract halves: fail closed.
+
+This ancestry boundary prevents deleting any contract file from turning a future tag into an
+apparently historical one. A qualifying commit can be backfilled by manually executing the same
+BuildBuddy action for that revision, but it cannot bypass the test. Pure unit tests cover the
+applicability state machine, newest-status selection, target-URL validation, and deadline behavior;
+the workflow contract test proves the release job invokes the Bazel target at the required point.
 
 This keeps the expensive coverage frequent and release-blocking without charging every developer
 change. It also keeps tests on BuildBuddy, while GitHub remains the collaboration and release host.
 
 ### Decision: Rebalance after changing the workload
 The current partition gives heavy files priority because file-count round robin did not balance
-runtime. Once the 47-second test is extracted and some modules overlap, those weights are stale.
+runtime. Once both release gates are extracted and some modules overlap, those weights are stale.
 
 After the async set is stable, each shard is run with `SERVICERADAR_TEST_SLOWEST` reporting enabled.
-The checked-in heavy-source ordering is updated from those measurements.
+That output is intentionally truncated, so it supplies ranked slow-case hints rather than a complete
+per-file timing census. The checked-in heavy-source ordering is updated from repeated slow-case
+appearances together with complete per-shard action durations; the evidence does not invent timing
+values for files that were not emitted.
 
-The end-to-end measurement starts immediately before fixture configuration is materialized and
-ends only after teardown succeeds. The template must already report current, and the preceding
-full-build step must have warmed the exact Bazel configuration. The measured ordinary wave includes
+Template preparation and any migration run in a separate preflight before measurement. The
+end-to-end measurement starts immediately before fixture configuration is materialized and its end
+timestamp is captured immediately when teardown returns, before observer shutdown/wait overhead.
+The in-clock template check is current-only; a newly pending result is retained as non-cohort and
+cannot migrate inside the timing window. The preceding full-build step must have warmed the exact
+Bazel configuration. The measured ordinary wave includes
 every target selected by the pull-request integration filter (the eight core shards, the
 designated shared-resource lane within them, SRQL fixture targets, and other existing integration
 targets) and excludes only the source-separated large-ingestion gate. Over 20 consecutive runs,
@@ -299,10 +327,18 @@ p95 is the nearest-rank 19th ordered value.
 Acceptance requires:
 
 - warm integration lifecycle p95 at or below 90 seconds;
-- no shard more than 1.5 times the runtime of the fastest non-empty shard, measured across the
-  acceptance run set;
+- 20 consecutive retry-free before attempts and 20 consecutive retry-free after attempts under an
+  identical exact-SHA harness;
+- no shard more than 1.5 times the runtime of the fastest non-empty shard in any accepted after run;
+- sampled run-scoped connections at most 144 and fixture-wide connections at most
+  `floor(live usable client slots * 0.90)` in every accepted after run;
+- two consecutive zero run-scoped samples before teardown and no database under the run prefix
+  after teardown; and
 - no sandbox ownership error, deadlock, leaked task, leaked database, or retry-masked failure in
-  20 consecutive CI-equivalent runs.
+  either accepted cohort.
+
+The full measurement protocol, controlled before/after cohort identity, connection headroom, raw
+evidence schema, and calculation rules are normative for this change and live in `benchmark.md`.
 
 The acceptance runs use `--flaky_test_attempts=1`. Retries would hide the instability this change is
 intended to detect.
@@ -331,8 +367,9 @@ how secrets are materialized.
 - A failure in either ordinary or heavy integration tests still runs teardown for the same run id.
 - A teardown failure fails an otherwise green action.
 - A missing or failed heavy-gate commit status blocks release publication.
-- A historical release tag whose commit predates either the heavy target or its BuildBuddy action
-  reports the gate as not applicable; a tag containing both cannot use that compatibility path.
+- A historical release tag whose commit predates the permanent gate-contract marker reports the
+  gate as not applicable. Marker removal at or after the introduction commit, or a marker-bearing
+  tree missing the heavy target or BuildBuddy action, fails closed.
 - Scheduled heavy-gate failure does not retroactively fail a merged PR, but it creates a visible
   failing status on the default-branch commit and prevents that commit from qualifying for release.
 
@@ -347,8 +384,9 @@ how secrets are materialized.
 5. Run 20 consecutive CI-equivalent lifecycles with retries disabled, record per-shard timings and
    peak database connections, and repair any classification errors.
 6. Rebalance the shard heavy-source hints and verify the performance and skew thresholds.
-7. Enable release-status enforcement after the heavy action has produced successful statuses on
-   `staging`.
+7. Land the marker, complete qualifier, and workflow wiring atomically. After merge, verify the
+   `staging` push status before tagging when practical; otherwise the tag-triggered action must
+   satisfy the same exact-SHA poll within its 30-minute deadline.
 
 Rollback sets the cap back to one and changes the newly async modules back to `async: false`.
 The heavy test remains source-separated and continues running in its dedicated gate; rollback does
@@ -371,7 +409,8 @@ not reintroduce it into every pull request.
   runs only one BEAM/database, so total developer latency falls while coverage remains frequent.
 - Release status enforcement introduces a dependency on the BuildBuddy action completing. The
   release workflow must report the pending/failed context clearly and time out rather than publish
-  without evidence.
+  without evidence. The permanent introduction marker is part of the compatibility contract and
+  must never be removed; checked-in behavior and workflow tests make deletion fail closed.
 
 ## Alternatives Considered
 
