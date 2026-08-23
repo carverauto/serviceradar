@@ -15,6 +15,16 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexPathTest do
     assert path =~ "cursor=abc"
   end
 
+  test "list_path drops leftover cursor when returning to page 1" do
+    path = IndexPath.list_path(query: "in:devices", page: 1, cursor: "cursor-page-1")
+    assert path == "/devices?q=in%3Adevices"
+    refute path =~ "cursor="
+    refute path =~ "page="
+
+    path = IndexPath.list_path(query: "in:devices", page: "1", cursor: "cursor-page-1")
+    assert path == "/devices?q=in%3Adevices"
+  end
+
   test "show_path carries a sanitized return_to" do
     path =
       IndexPath.show_path("alma-test01",
