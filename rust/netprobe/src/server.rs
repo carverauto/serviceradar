@@ -781,7 +781,8 @@ mod tests {
         proto::netprobe::{
             ApplyConfig, DeviceCensusSnapshot, DpiEvent, ExternalFlowRecord, FingerprintEvent,
             FlowAttributionEvent, MdnsSnapshot, NetprobeFrame, Ping, ProcessSnapshot,
-            ProcessSnapshotEntry, TcpFingerprint, VisibilityAgentConfig, fingerprint_event, netprobe_frame,
+            ProcessSnapshotEntry, TcpFingerprint, VisibilityAgentConfig, fingerprint_event,
+            netprobe_frame,
         },
         runtime_config::RuntimeConfig,
     };
@@ -1258,11 +1259,12 @@ mod tests {
         // worse than a failing one -- it burns a runner slot and reports
         // nothing. Verified: deleting the mdns select arm makes this fail here
         // rather than hang.
-        let response = tokio::time::timeout(std::time::Duration::from_secs(10), read_frame(&mut client))
-            .await
-            .expect("timed out waiting for an mdns frame; is the select arm wired?")
-            .unwrap()
-            .unwrap();
+        let response =
+            tokio::time::timeout(std::time::Duration::from_secs(10), read_frame(&mut client))
+                .await
+                .expect("timed out waiting for an mdns frame; is the select arm wired?")
+                .unwrap()
+                .unwrap();
         let Some(netprobe_frame::Payload::MdnsSnapshot(snapshot)) = response.payload else {
             panic!("expected mdns snapshot");
         };
