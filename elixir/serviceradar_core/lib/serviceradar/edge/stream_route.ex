@@ -1,181 +1,217 @@
 defmodule ServiceRadar.Edge.StreamRoute do
   @moduledoc """
-  The installation-local JetStream routing map shared by the gateway publisher and the
+  The installation-local JetStream route map shared by the gateway publisher and the
   EventWriter/Broadway consumers (unify-sweep-results-proto task 4.1).
 
-  It defines the fixed, versioned subject space over 64 stable logical partitions, a
-  class-preserving DLQ subject per lane, and a complete, non-overlapping
-  `(traffic_class, route_profile, pNN) -> physical stream` map. Bulk and interactive resolve to
-  disjoint physical streams so they never share capacity. Routing is deterministic and derivable
-  from trusted identity alone -- no broker-account prefix, no cross-account mirror -- so a
-  publisher and a consumer independently compute the same subject for the same frame. This
-  module holds no NATS I/O.
+  Routing is deterministic and derivable from the verified contract alone -- no broker-account
+  prefix, no cross-account mirror -- so a publisher and a consumer independently compute the same
+  subject for the same record. This module holds no NATS I/O.
 
-  ## Elixir, not Go
+  ## The normative subject topology
 
-  A Go `streamroute` package exists on the abandoned `usp-2x` branches. It is NOT the source of
-  truth and must not be revived: the agent-gateway has been Elixir for over a year, and the
-  consumers are Elixir (EventWriter / core-elx / Broadway). The only remaining Go component on
-  this path is `serviceradar-agent`, which sends frames over gRPC and never computes a subject.
-  With no second implementation there is nothing to drift from, which is why this map needs no
-  cross-language vector file -- unlike the publication-identity grammar, which has one because
-  Go and Elixir both compute it.
+  These five families are the whole space, fixed by the `nats-tenant-isolation` spec:
 
-  ## This is a RE-KEY, not a port
+      telemetry.edge-record.v1.bulk.pNN
+      telemetry.edge-record.v1.interactive.pNN
+      telemetry.edge-record-recovery.v1
+      telemetry.edge-record-dlq.v1.bulk.pNN
+      telemetry.edge-record-dlq.v1.interactive.pNN
 
-  The Go version keyed on `EdgeResultLaneKind`, a dead enum whose five members conflated the
-  payload family (sweep vs MTR) with the traffic class (bulk vs interactive):
+  Three consequences that are easy to get wrong, and were:
 
-      sweep.bulk  sweep.interactive  mtr.bulk  mtr.interactive  recovery
+    * **The data subject keys on TRAFFIC CLASS, not route profile.** The route profile selects
+      which FAMILY applies (durable-record vs recovery); it never appears as a subject token.
+    * **Recovery is one singular reserved lane.** No class token, no partition token, and its own
+      unborrowable storage/PubAck/consumer capacity.
+    * **There is no recovery DLQ family.** A recovery failure preserves its ORIGINAL traffic
+      class and enters the ordinary class-separated DLQ. That is why `resolve_dlq/2` takes a
+      traffic class and NOT a route profile -- collapsing recovery's DLQ the way its data lane
+      collapses would merge bulk and interactive poison into one queue, and the spec requires the
+      DLQ to preserve class precisely so a bulk poison cohort cannot queue ahead of the
+      interactive reserve.
 
-  The frozen ABI separates those concerns, and task 4.1 keys the map on
-  `(traffic_class, route_profile, pNN)`. Payload family is therefore NOT a routing dimension any
-  more: a sweep record and an MTR record with the same route profile and traffic class share a
-  physical stream, where previously they could not. That is a deliberate consequence of the new
-  contract, not an oversight -- `EdgeRecordRouteProfile` is "a finite platform deployment value,
-  never a package-defined semantic type", so routing follows the deployment's durability profile
-  rather than what the payload happens to contain.
+  ## Partition-to-stream placement is currently uniform, and the spec allows more
 
-  The lane count is unchanged at five, so the stream budget is the same shape as before.
+  The normative map assigns every `(route profile, traffic class, logical partition)` to exactly
+  one authoritative physical stream, and it explicitly MAY place disjoint partitions on
+  additional stream/RAFT groups when benchmarked write, storage, or recovery limits require it.
 
-  ## The one judgment call: recovery ignores traffic class
+  This installation maps ALL partitions of a class to one stream, which is a valid instance of
+  that map but not the general case. `ResolvedRoute` carries the partition and the expected stream
+  together precisely so the general case is a change here rather than at every call site: nothing
+  downstream infers the stream from the class. Splitting a partition range onto its own stream is
+  a placement change and therefore a `map_version/0` bump, with the sealing/revocation dance the
+  spec requires.
 
-  `RECOVERY_CONTROL_V1` collapses to a single `recovery` lane for both traffic classes. Two
-  things point that way and neither is conclusive on its own, so it is flagged here rather than
-  buried: the recovery lane validator (`ServiceRadar.Edge.RecoveryValidate`) pins payload family,
-  route profile, and source-authorization kind but says NOTHING about traffic class; and task 4.1
-  lists "bulk/interactive, result-recovery, and class-preserving result-DLQ subjects" -- naming
-  recovery as its own category ALONGSIDE bulk/interactive rather than crossed with them. Splitting
-  recovery by class later is a subject-space change and therefore a `@subject_version` bump.
+  ## The active route map is NOT the enum
+
+  `EdgeRecordRouteProfile` declares `CONTINUOUS_V1`, but declaring a member in the frozen ABI
+  does not deploy it: the proto says another profile "requires an explicit benchmarked platform
+  change", and no such change has happened. So `CONTINUOUS_V1` is UNROUTABLE here, and enum
+  membership must never be the thing that decides. Deriving the active map from the enum would
+  activate a route the platform has not provisioned the moment someone adds a member -- publishes
+  would resolve to a stream that does not exist.
+
+  Activating it later means adding its subject family to the spec, provisioning the streams, and
+  bumping `map_version/0`.
+
+  ## Elixir only
+
+  A Go `streamroute` exists on the abandoned `usp-2x` branches. It is not the source of truth and
+  must not be revived: the agent-gateway has been Elixir for over a year and the consumers are
+  Elixir (EventWriter / core-elx / Broadway). The only Go left on this path is
+  `serviceradar-agent`, which sends frames over gRPC and never computes a subject. With no second
+  implementation there is nothing to drift from, which is why this map needs no cross-language
+  vector file -- unlike the publication-identity grammar, which has one because both languages
+  compute it.
   """
+
+  alias ServiceRadar.Edge.ResolvedRoute
 
   @num_partitions 64
 
-  # Baked into every subject so a scheme change is an explicit, coordinated bump rather than a
-  # silent re-placement of live data.
-  @subject_version 1
+  # The ACTIVE route-map generation. It versions the subject topology AND the physical-stream
+  # mapping together, and it is what the transport provenance records. It is not caller-supplied:
+  # a record stamped with a generation other than the one that produced its subject describes a
+  # placement that never happened.
+  @map_version 1
 
-  # Installation-local root. No customer/account prefix -- ServiceRadar is single-deployment.
-  @subject_root "sr.edge.v1"
+  @durable_records :EDGE_RECORD_ROUTE_PROFILE_DURABLE_RECORDS_V1
+  @recovery_control :EDGE_RECORD_ROUTE_PROFILE_RECOVERY_CONTROL_V1
 
-  @recovery_profile :EDGE_RECORD_ROUTE_PROFILE_RECOVERY_CONTROL_V1
+  @bulk :EDGE_RECORD_TRAFFIC_CLASS_BULK
+  @interactive :EDGE_RECORD_TRAFFIC_CLASS_INTERACTIVE
 
-  # (route_profile, traffic_class) -> stable subject token. The token distinguishes both
-  # dimensions, so the physical-stream token mirrors it and the five lanes stay disjoint.
-  @tokens %{
-    {:EDGE_RECORD_ROUTE_PROFILE_DURABLE_RECORDS_V1, :EDGE_RECORD_TRAFFIC_CLASS_BULK} =>
-      "records.bulk",
-    {:EDGE_RECORD_ROUTE_PROFILE_DURABLE_RECORDS_V1, :EDGE_RECORD_TRAFFIC_CLASS_INTERACTIVE} =>
-      "records.interactive",
-    {:EDGE_RECORD_ROUTE_PROFILE_CONTINUOUS_V1, :EDGE_RECORD_TRAFFIC_CLASS_BULK} =>
-      "continuous.bulk",
-    {:EDGE_RECORD_ROUTE_PROFILE_CONTINUOUS_V1, :EDGE_RECORD_TRAFFIC_CLASS_INTERACTIVE} =>
-      "continuous.interactive"
-  }
+  @class_tokens %{@bulk => "bulk", @interactive => "interactive"}
 
-  # Stable order. Used by provisioning and by tests that assert the map is total and
-  # non-overlapping; do not sort this at the call site.
-  @routable [
-    {:EDGE_RECORD_ROUTE_PROFILE_DURABLE_RECORDS_V1, :EDGE_RECORD_TRAFFIC_CLASS_BULK},
-    {:EDGE_RECORD_ROUTE_PROFILE_DURABLE_RECORDS_V1, :EDGE_RECORD_TRAFFIC_CLASS_INTERACTIVE},
-    {:EDGE_RECORD_ROUTE_PROFILE_CONTINUOUS_V1, :EDGE_RECORD_TRAFFIC_CLASS_BULK},
-    {:EDGE_RECORD_ROUTE_PROFILE_CONTINUOUS_V1, :EDGE_RECORD_TRAFFIC_CLASS_INTERACTIVE},
-    {@recovery_profile, :EDGE_RECORD_TRAFFIC_CLASS_BULK},
-    {@recovery_profile, :EDGE_RECORD_TRAFFIC_CLASS_INTERACTIVE}
-  ]
+  @recovery_subject "telemetry.edge-record-recovery.v1"
+
+  # Physical stream names are NOT specified normatively -- the spec fixes the subject families and
+  # requires the streams behind them to be disjoint, leaving the names to the installation. They
+  # are derived mechanically from the subject family so the correspondence stays obvious, and the
+  # five are disjoint as required, with recovery holding its own.
+  @recovery_stream "TELEMETRY_EDGE_RECORD_RECOVERY_V1"
 
   @doc "The fixed count of stable logical data/DLQ partitions."
   def num_partitions, do: @num_partitions
 
-  @doc "The versioned subject-scheme revision baked into every subject and stream name."
-  def subject_version, do: @subject_version
+  @doc "The active route-map generation, versioning subjects and physical streams together."
+  def map_version, do: @map_version
 
   @doc """
-  Every routable `{route_profile, traffic_class}` pair, in a stable order.
+  Every DEPLOYMENT-ACTIVE `{route_profile, traffic_class}` pair, in a stable order.
 
-  Both recovery pairs appear even though they resolve to one lane, because the caller's input is
-  a pair and a total map must answer for every pair it accepts.
+  Derived from the active map rather than from the enum; see the moduledoc on `CONTINUOUS_V1`.
   """
-  def routable_lanes, do: @routable
+  def active_lanes do
+    [
+      {@durable_records, @bulk},
+      {@durable_records, @interactive},
+      {@recovery_control, @bulk},
+      {@recovery_control, @interactive}
+    ]
+  end
+
+  @doc """
+  Resolves the data route for a verified contract.
+
+  `contract` is the GATEWAY-VERIFIED description of the record, never anything read out of the
+  frame:
+
+    * `:route_profile`, `:traffic_class` — from the effective control-plane grant.
+    * `:network_scope_id` — the signed scope, used as the partition key for partitioned families.
+
+  There is no caller-supplied partition key and no caller-supplied map version. Partition rules
+  are CONTRACT-SPECIFIC -- the recovery family is unpartitioned entirely -- so letting a caller
+  choose the key meant a caller could partition a record by something the contract does not
+  partition by, and letting it default universally to network scope silently gave the recovery
+  lane a partition it does not have.
+  """
+  @spec resolve(map()) :: {:ok, ResolvedRoute.t()} | {:error, atom()}
+  def resolve(contract) when is_map(contract) do
+    profile = Map.get(contract, :route_profile)
+    class = Map.get(contract, :traffic_class)
+
+    case {profile, valid_class(class)} do
+      {@recovery_control, {:ok, _token}} ->
+        # Singular and unpartitioned by contract: no class token, no pNN.
+        {:ok, route(@recovery_subject, nil, @recovery_stream)}
+
+      {@durable_records, {:ok, token}} ->
+        with {:ok, partition} <- partition_for_scope(contract) do
+          {:ok,
+           route(
+             "telemetry.edge-record.v1.#{token}.#{pad(partition)}",
+             partition,
+             "TELEMETRY_EDGE_RECORD_V1_#{String.upcase(token)}"
+           )}
+        end
+
+      {_, {:error, reason}} ->
+        {:error, reason}
+
+      _ ->
+        # Includes CONTINUOUS_V1: declared in the ABI, not deployment-active.
+        {:error, :unroutable_lane}
+    end
+  end
+
+  def resolve(_), do: {:error, :contract}
+
+  @doc """
+  Resolves the class-preserving DLQ route.
+
+  Takes a TRAFFIC CLASS and not a route profile, deliberately. Every failure -- including a
+  recovery-lane failure -- enters the DLQ for its original class, so there is no route profile to
+  supply and no way to express a collapsed recovery DLQ.
+
+  The partition is passed rather than re-derived so a failure lands on the DLQ partition matching
+  the data partition it came from. A recovery record has no data partition; give it the partition
+  its scope would have used, which `partition/1` computes.
+  """
+  @spec resolve_dlq(atom(), non_neg_integer()) :: {:ok, ResolvedRoute.t()} | {:error, atom()}
+  def resolve_dlq(traffic_class, partition) do
+    with {:ok, token} <- valid_class(traffic_class),
+         :ok <- check_partition(partition) do
+      {:ok,
+       route(
+         "telemetry.edge-record-dlq.v1.#{token}.#{pad(partition)}",
+         partition,
+         "TELEMETRY_EDGE_RECORD_DLQ_V1_#{String.upcase(token)}"
+       )}
+    end
+  end
 
   @doc """
   Maps a routing key to a stable partition in `[0, num_partitions)`.
 
-  The key is the signed `network_scope_id`, or the execution id when scope is absent. FNV-1a is
-  kept from the reviewed Go design rather than swapped for `:erlang.phash2/2`: the partition is a
-  DATA-PLACEMENT decision, so changing the hash silently re-places every future record relative to
-  the existing streams. An empty key maps to partition 0 rather than erroring, so a frame is
-  always routable.
+  FNV-1a is kept from the reviewed design rather than swapped for `:erlang.phash2/2`: the
+  partition is a DATA-PLACEMENT decision, so changing the hash silently re-places every future
+  record relative to the streams already holding data.
   """
-  def partition(key) when is_binary(key) do
-    if key == "" do
-      0
-    else
-      rem(fnv1a_32(key), @num_partitions)
+  def partition(key) when is_binary(key) and key != "", do: rem(fnv1a_32(key), @num_partitions)
+  def partition(_), do: {:error, :partition_key}
+
+  defp partition_for_scope(contract) do
+    case Map.get(contract, :network_scope_id) do
+      scope when is_binary(scope) and scope != "" -> {:ok, partition(scope)}
+      # A missing scope is refused rather than routed to partition 0. Zero is a real partition,
+      # so defaulting to it would pile every unpopulated contract onto one shard.
+      _ -> {:error, :partition_key}
     end
   end
 
-  @doc """
-  The primary data subject, e.g. `"sr.edge.v1.records.bulk.p07.v1"`.
-
-  Returns `{:error, :unroutable_lane}` for an unspecified/unknown pair and
-  `{:error, :partition_out_of_range}` for a partition outside the fixed space -- never a subject
-  built from a value it could not place.
-  """
-  def data_subject(route_profile, traffic_class, partition) do
-    with {:ok, token} <- token(route_profile, traffic_class),
-         :ok <- check_partition(partition) do
-      {:ok, "#{@subject_root}.#{token}.#{pad(partition)}.v#{@subject_version}"}
-    end
+  defp route(subject, partition, stream) do
+    %ResolvedRoute{
+      subject: subject,
+      partition: partition,
+      expected_stream: stream,
+      map_version: @map_version
+    }
   end
 
-  @doc """
-  The class-preserving dead-letter subject. A distinct namespace from the data subject, so poison
-  never lands on the live data stream.
-  """
-  def dlq_subject(route_profile, traffic_class, partition) do
-    with {:ok, token} <- token(route_profile, traffic_class),
-         :ok <- check_partition(partition) do
-      {:ok, "#{@subject_root}.dlq.#{token}.#{pad(partition)}.v#{@subject_version}"}
-    end
-  end
-
-  @doc """
-  The physical data-stream name, e.g. `"EDGE_RECORDS_BULK_V1"`. This is the value for
-  `Nats-Expected-Stream`, which fences a publish against landing on the wrong stream.
-  """
-  def physical_stream(route_profile, traffic_class) do
-    with {:ok, token} <- token(route_profile, traffic_class) do
-      {:ok, "EDGE_#{stream_name(token)}_V#{@subject_version}"}
-    end
-  end
-
-  @doc "The physical DLQ-stream name, distinct from the data stream."
-  def physical_dlq_stream(route_profile, traffic_class) do
-    with {:ok, token} <- token(route_profile, traffic_class) do
-      {:ok, "EDGE_DLQ_#{stream_name(token)}_V#{@subject_version}"}
-    end
-  end
-
-  @doc """
-  The stable subject token for a lane, or `{:error, :unroutable_lane}`.
-
-  Recovery is matched BEFORE the table so it collapses both traffic classes to one lane; see the
-  moduledoc for why that is a judgment call rather than a derivation.
-  """
-  def token(@recovery_profile, traffic_class) do
-    if traffic_class in [
-         :EDGE_RECORD_TRAFFIC_CLASS_BULK,
-         :EDGE_RECORD_TRAFFIC_CLASS_INTERACTIVE
-       ] do
-      {:ok, "recovery"}
-    else
-      {:error, :unroutable_lane}
-    end
-  end
-
-  def token(route_profile, traffic_class) do
-    case Map.fetch(@tokens, {route_profile, traffic_class}) do
+  defp valid_class(class) do
+    case Map.fetch(@class_tokens, class) do
       {:ok, token} -> {:ok, token}
       :error -> {:error, :unroutable_lane}
     end
@@ -184,14 +220,9 @@ defmodule ServiceRadar.Edge.StreamRoute do
   defp check_partition(p) when is_integer(p) and p >= 0 and p < @num_partitions, do: :ok
   defp check_partition(_), do: {:error, :partition_out_of_range}
 
-  # Two digits is exact for 64 partitions; widening the space is a @subject_version bump, which
-  # is what keeps this from silently truncating.
+  # Two digits is exact for 64 partitions; widening the space is a map_version bump, which is what
+  # keeps this from silently truncating.
   defp pad(p), do: "p" <> String.pad_leading(Integer.to_string(p), 2, "0")
-
-  # "records.bulk" -> "RECORDS_BULK"
-  defp stream_name(token) do
-    token |> String.upcase() |> String.replace(".", "_")
-  end
 
   @fnv_offset_basis 2_166_136_261
   @fnv_prime 16_777_619
