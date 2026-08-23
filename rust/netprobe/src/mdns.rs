@@ -712,6 +712,246 @@ mod tests {
         );
     }
 
+    // ---- snapshot + chunking ----------------------------------------------
+
+    fn entry_with(mac: [u8; 6], services: &[&str], models: &[&str]) -> MdnsEntry {
+        MdnsEntry {
+            interface_index: 2,
+            mac,
+            service_types: services.iter().map(|s| (*s).to_owned()).collect(),
+            txt: [("model".to_owned(), Some("B620AP".to_owned()))]
+                .into_iter()
+                .collect(),
+            models: models.iter().map(|s| (*s).to_owned()).collect(),
+            first_seen_ns: 10 * 1_000_000_000,
+            last_seen_ns: 20 * 1_000_000_000,
+        }
+    }
+
+    #[test]
+    fn a_snapshot_carries_the_evidence_core_needs() {
+        let wall = 1_700_000_000i64 * 1_000_000_000;
+        let snapshot = build_mdns_snapshot(
+            &[entry_with(
+                [0x48, 0xE1, 0x5C, 0xA8, 0x2B, 0x58],
+                &["_airplay._tcp"],
+                &["B620AP"],
+            )],
+            "eth0",
+            "eth0-1",
+            30 * 1_000_000_000,
+            wall,
+            0,
+        );
+
+        let device = &snapshot.devices[0];
+        assert_eq!(device.mac, "48:e1:5c:a8:2b:58");
+        assert_eq!(device.service_types, vec!["_airplay._tcp"]);
+        assert_eq!(device.models, vec!["B620AP"]);
+        assert!(!device.ambiguous_model);
+        // monotonic -> wall: first seen 20s before "now", last 10s before.
+        assert_eq!(device.first_seen_unix_nano, wall - 20 * 1_000_000_000);
+        assert_eq!(device.last_seen_unix_nano, wall - 10 * 1_000_000_000);
+    }
+
+    #[test]
+    fn ambiguity_reaches_the_wire() {
+        // If this does not survive serialisation, core cannot tell a device
+        // that named one product from a MAC speaking for two, and will type it
+        // from whichever model happens to sort first.
+        let snapshot = build_mdns_snapshot(
+            &[entry_with([1, 2, 3, 4, 5, 6], &[], &["B620AP", "J255AP"])],
+            "eth0",
+            "eth0-1",
+            30 * 1_000_000_000,
+            1_700_000_000i64 * 1_000_000_000,
+            0,
+        );
+        assert!(snapshot.devices[0].ambiguous_model);
+        assert_eq!(snapshot.devices[0].models.len(), 2);
+    }
+
+    #[test]
+    fn the_txt_tristate_survives_serialisation() {
+        let mut entry = entry_with([1, 2, 3, 4, 5, 6], &[], &[]);
+        entry.txt = [
+            ("model".to_owned(), Some("B620AP".to_owned())),
+            ("ty".to_owned(), None),
+            ("md".to_owned(), Some(String::new())),
+        ]
+        .into_iter()
+        .collect();
+
+        let snapshot = build_mdns_snapshot(
+            &[entry],
+            "eth0",
+            "eth0-1",
+            30 * 1_000_000_000,
+            1_700_000_000i64 * 1_000_000_000,
+            0,
+        );
+
+        let pairs = &snapshot.devices[0].txt;
+        let find = |k: &str| pairs.iter().find(|p| p.key == k).expect("key present");
+        assert!(find("model").has_value && find("model").value == "B620AP");
+        // present with NO value -- distinct from an empty value
+        assert!(!find("ty").has_value);
+        assert!(find("md").has_value && find("md").value.is_empty());
+    }
+
+    #[test]
+    fn a_snapshot_that_fits_is_one_complete_chunk() {
+        let snapshot = build_mdns_snapshot(
+            &[entry_with(
+                [1, 2, 3, 4, 5, 6],
+                &["_airplay._tcp"],
+                &["B620AP"],
+            )],
+            "eth0",
+            "eth0-1",
+            30 * 1_000_000_000,
+            1_700_000_000i64 * 1_000_000_000,
+            0,
+        );
+        let (chunks, dropped) = chunk_mdns_snapshot(snapshot, 4 * 1024 * 1024);
+        assert_eq!(dropped, 0);
+        assert_eq!(chunks.len(), 1);
+        assert!(chunks[0].complete);
+        assert_eq!(chunks[0].chunk_count, 1);
+    }
+
+    #[test]
+    fn an_empty_snapshot_still_ships_one_complete_chunk() {
+        let snapshot = build_mdns_snapshot(
+            &[],
+            "eth0",
+            "eth0-9",
+            30 * 1_000_000_000,
+            1_700_000_000i64 * 1_000_000_000,
+            0,
+        );
+        let (chunks, _) = chunk_mdns_snapshot(snapshot, 4 * 1024 * 1024);
+        assert_eq!(chunks.len(), 1);
+        assert!(chunks[0].devices.is_empty());
+        assert!(chunks[0].complete);
+    }
+
+    fn many_entries(count: usize) -> Vec<MdnsEntry> {
+        (0..count)
+            .map(|i| {
+                entry_with(
+                    [2, 0, 0, (i >> 16) as u8, (i >> 8) as u8, i as u8],
+                    &["_airplay._tcp", "_companion-link._tcp"],
+                    &["B620AP"],
+                )
+            })
+            .collect()
+    }
+
+    #[test]
+    fn a_split_snapshot_keeps_every_device_and_numbers_its_chunks() {
+        let entries = many_entries(200);
+        let snapshot = build_mdns_snapshot(
+            &entries,
+            "eth0",
+            "eth0-3",
+            30 * 1_000_000_000,
+            1_700_000_000i64 * 1_000_000_000,
+            0,
+        );
+        let (chunks, dropped) = chunk_mdns_snapshot(snapshot, 512);
+        assert_eq!(dropped, 0);
+        assert!(chunks.len() > 1);
+
+        let total: usize = chunks.iter().map(|c| c.devices.len()).sum();
+        assert_eq!(total, entries.len(), "the split lost devices");
+
+        let count = chunks.len() as u32;
+        for (index, chunk) in chunks.iter().enumerate() {
+            assert_eq!(
+                chunk.chunk_count, count,
+                "count must be right on EVERY chunk"
+            );
+            assert_eq!(chunk.chunk_index, index as u32);
+            assert_eq!(chunk.complete, index == chunks.len() - 1);
+        }
+    }
+
+    #[test]
+    fn the_chunk_budget_covers_the_widest_rewritten_fields() {
+        // chunk_index, chunk_count and complete are rewritten AFTER the split.
+        // proto3 omits zero-valued fields and varint-encodes small ones, so a
+        // budget computed from the pre-split values (index 0, count 1)
+        // under-counts by roughly ten bytes and lets a chunk cross the limit
+        // once the real values land.
+        //
+        // Asserted DIRECTLY rather than through a packing that happens to
+        // expose it. The census version of this test caught the bug only
+        // because its chunks packed with a few bytes of slack; the equivalent
+        // mDNS packing leaves ~40 bytes spare, so the same test passed with the
+        // budgeting deliberately broken -- it was vacuous. This one cannot be.
+        let snapshot = build_mdns_snapshot(&[], "eth0", "eth0-1", 0, 0, 0);
+        let budget = mdns_base_payload_len(&snapshot);
+
+        let widest = MdnsSnapshot {
+            devices: Vec::new(),
+            snapshot_id: snapshot.snapshot_id.clone(),
+            interface_name: snapshot.interface_name.clone(),
+            generated_at_unix_nano: snapshot.generated_at_unix_nano,
+            complete: true,
+            chunk_index: u32::MAX,
+            chunk_count: u32::MAX,
+            dropped_since_last: snapshot.dropped_since_last,
+        };
+
+        assert!(
+            widest.encoded_len() <= budget,
+            "budget {} does not cover the widest post-split encoding {}",
+            budget,
+            widest.encoded_len()
+        );
+    }
+
+    #[test]
+    fn every_chunk_still_fits_after_its_index_is_written_back() {
+        // REGRESSION, the same one the census hit: chunk_index/chunk_count are
+        // written AFTER the split, and proto3 omits zero-valued fields, so
+        // budgeting with the pre-split values under-counts by several bytes per
+        // chunk and lets one cross the limit once the real values land.
+        // Sized so the split genuinely produces >128 chunks, which is what
+        // forces chunk_index past one varint byte. An mDNS device is larger on
+        // the wire than a census observation -- service types, txt pairs and
+        // models -- so the census's numbers do not carry over.
+        const LIMIT: usize = 1000;
+        let snapshot = build_mdns_snapshot(
+            &many_entries(1400),
+            "eth0",
+            "eth0-4",
+            30 * 1_000_000_000,
+            1_700_000_000i64 * 1_000_000_000,
+            u32::MAX,
+        );
+        let (chunks, dropped) = chunk_mdns_snapshot(snapshot, LIMIT);
+        // Assert this FIRST: if devices are being dropped as oversized, the
+        // chunk-count assertion below would fail for an unrelated reason and
+        // send the next reader hunting the wrong bug.
+        assert_eq!(dropped, 0, "no device should be too large for a chunk here");
+        assert!(
+            chunks.len() > 128,
+            "need multi-byte chunk indices to exercise this; got {}",
+            chunks.len()
+        );
+        for chunk in &chunks {
+            assert!(
+                chunk.encoded_len() <= LIMIT,
+                "chunk {} encodes to {} bytes, over the {} limit",
+                chunk.chunk_index,
+                chunk.encoded_len(),
+                LIMIT
+            );
+        }
+    }
+
     // ---- ring record decoding ---------------------------------------------
 
     fn ring_record(payload: &[u8], flags: u16, ipv4: [u8; 4]) -> Vec<u8> {
@@ -1237,6 +1477,7 @@ pub mod runtime {
     use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
     use std::thread;
     use std::time::{Duration, Instant};
+    use tokio::sync::broadcast;
 
     pub const MDNS_OBSERVATIONS_MAP: &str = "mdns_observations";
 
@@ -1406,6 +1647,14 @@ pub mod runtime {
     const RATE_CEILING_PER_SEC: u64 = 50;
     const WATCHDOG_INTERVAL: Duration = Duration::from_secs(10);
 
+    /// How often the complete view of what the segment advertises is published.
+    ///
+    /// Slower than the census's 120s because mDNS changes far less: a device's
+    /// model does not change, and a newly announcing device is still picked up
+    /// within one interval. The cost is proportional to how many devices
+    /// advertise, not to how often they announce.
+    const SNAPSHOT_INTERVAL: Duration = Duration::from_secs(300);
+
     const ENTRY_TTL: Duration = Duration::from_secs(30 * 60);
     const TABLE_CAPACITY: usize = 4096;
 
@@ -1421,6 +1670,10 @@ pub mod runtime {
 
     struct MdnsConsumer {
         interface_name: String,
+        snapshot_id_prefix: String,
+        snapshots: broadcast::Sender<crate::proto::netprobe::MdnsSnapshot>,
+        last_snapshot: Instant,
+        snapshot_seq: u64,
         ring: aya::maps::RingBuf<aya::maps::MapData>,
         table: MdnsTable,
         counters: Arc<MdnsCounters>,
@@ -1490,6 +1743,47 @@ pub mod runtime {
             }
             seen
         }
+
+        /// Publish the complete view if the interval has elapsed.
+        ///
+        /// Runs on the polling thread so it cannot observe the table
+        /// mid-update: the same thread owns both the drain and the publish,
+        /// which is what makes a snapshot internally consistent without a lock.
+        fn maybe_publish(&mut self, now: Instant) {
+            if now.duration_since(self.last_snapshot) < SNAPSHOT_INTERVAL {
+                return;
+            }
+            self.last_snapshot = now;
+
+            let monotonic_now_ns = crate::census::runtime::monotonic_now_ns();
+            let evicted = self.table.evict_expired(monotonic_now_ns);
+            let entries = self.table.snapshot();
+
+            self.snapshot_seq += 1;
+            let snapshot_id = format!("{}-{}", self.snapshot_id_prefix, self.snapshot_seq);
+
+            let snapshot = super::build_mdns_snapshot(
+                &entries,
+                &self.interface_name,
+                &snapshot_id,
+                monotonic_now_ns,
+                crate::census::runtime::wall_now_ns(),
+                0,
+            );
+
+            log::debug!(
+                "mdns snapshot interface={} id={} devices={} evicted={}",
+                self.interface_name,
+                snapshot_id,
+                entries.len(),
+                evicted,
+            );
+
+            // No subscriber is the normal state when no agent is connected, and
+            // is not an error: the next snapshot is complete, so a reconnecting
+            // agent misses nothing.
+            let _ = self.snapshots.send(snapshot);
+        }
     }
 
     /// Owns the mDNS polling thread. Dropping it stops the thread.
@@ -1505,16 +1799,30 @@ pub mod runtime {
         pub fn start_from_ebpf(
             interface_name: impl Into<String>,
             ebpf: &mut aya::Ebpf,
+            snapshots: broadcast::Sender<crate::proto::netprobe::MdnsSnapshot>,
         ) -> Result<Self> {
             let map = ebpf
                 .take_map(MDNS_OBSERVATIONS_MAP)
                 .ok_or_else(|| anyhow::anyhow!("{MDNS_OBSERVATIONS_MAP} map is missing"))?;
 
             let interface_name = interface_name.into();
+            // Seeded with the process start time so a restart cannot reuse an
+            // id the agent is still buffering chunks for.
+            let snapshot_id_prefix = format!(
+                "{}-{}",
+                interface_name,
+                crate::census::runtime::wall_now_ns()
+            );
             let stop = Arc::new(AtomicBool::new(false));
             let counters = Arc::new(MdnsCounters::default());
             let mut consumer = MdnsConsumer {
+                // Cloned, not moved: the multicast join below needs the name
+                // after the consumer is built.
                 interface_name: interface_name.clone(),
+                snapshot_id_prefix,
+                snapshots,
+                last_snapshot: Instant::now(),
+                snapshot_seq: 0,
                 ring: aya::maps::RingBuf::try_from(map)?,
                 table: MdnsTable::new(ENTRY_TTL, TABLE_CAPACITY),
                 counters: Arc::clone(&counters),
@@ -1548,6 +1856,10 @@ pub mod runtime {
                         if consumer.poll_once(&stop_worker) == 0 {
                             thread::sleep(IDLE_SLEEP);
                         }
+                        // Checked every iteration including the idle one: a
+                        // segment that goes quiet must still publish, or
+                        // devices would never be seen to stop announcing.
+                        consumer.maybe_publish(Instant::now());
                     }
                 })?;
 
@@ -1567,4 +1879,169 @@ pub mod runtime {
             }
         }
     }
+}
+
+// ---- snapshot construction and chunking -----------------------------------
+
+use crate::proto::netprobe::{MdnsDevice, MdnsSnapshot, MdnsTxtPair};
+use prost::Message as _;
+
+/// Build the wire snapshot from the table's current view.
+///
+/// Timestamps cross a clock boundary exactly as the census's do: the table
+/// stores CLOCK_MONOTONIC nanoseconds (what bpf_ktime_get_ns returns) while the
+/// wire carries wall clock, so both "now" values are parameters and one sample
+/// of each is taken for the whole snapshot.
+pub fn build_mdns_snapshot(
+    entries: &[MdnsEntry],
+    interface_name: &str,
+    snapshot_id: &str,
+    monotonic_now_ns: u64,
+    wall_now_ns: i64,
+    dropped_since_last: u32,
+) -> MdnsSnapshot {
+    let devices = entries
+        .iter()
+        .map(|entry| MdnsDevice {
+            mac: format_mac(entry.mac),
+            ip: String::new(),
+            interface_index: entry.interface_index,
+            service_types: entry.service_types.clone(),
+            txt: entry
+                .txt
+                .iter()
+                .map(|(key, value)| MdnsTxtPair {
+                    key: key.clone(),
+                    value: value.clone().unwrap_or_default(),
+                    // The wire keeps present-with-no-value distinct from
+                    // present-with-empty-value; collapsing them would discard a
+                    // claim the parser deliberately preserves.
+                    has_value: value.is_some(),
+                })
+                .collect(),
+            models: entry.models.clone(),
+            ambiguous_model: entry.ambiguous_model(),
+            first_seen_unix_nano: crate::census::wall_nanos_from_monotonic(
+                entry.first_seen_ns,
+                monotonic_now_ns,
+                wall_now_ns,
+            ),
+            last_seen_unix_nano: crate::census::wall_nanos_from_monotonic(
+                entry.last_seen_ns,
+                monotonic_now_ns,
+                wall_now_ns,
+            ),
+            truncated: false,
+        })
+        .collect();
+
+    MdnsSnapshot {
+        devices,
+        snapshot_id: snapshot_id.to_owned(),
+        interface_name: interface_name.to_owned(),
+        generated_at_unix_nano: wall_now_ns,
+        complete: true,
+        chunk_index: 0,
+        chunk_count: 1,
+        dropped_since_last,
+    }
+}
+
+fn format_mac(mac: [u8; 6]) -> String {
+    format!(
+        "{:02x}:{:02x}:{:02x}:{:02x}:{:02x}:{:02x}",
+        mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]
+    )
+}
+
+/// Split a snapshot into frames that fit `max_payload_len`.
+///
+/// Identical shape to `census::chunk_snapshot`, and for the same reasons: the
+/// chunk set is computed UP FRONT because `chunk_count` must be correct on the
+/// first chunk, and `complete` is set on the last only, so a receiver can tell a
+/// finished set from a truncated one. Applying half an authoritative snapshot
+/// would read as "every device in the missing chunks stopped announcing".
+pub fn chunk_mdns_snapshot(
+    snapshot: MdnsSnapshot,
+    max_payload_len: usize,
+) -> (Vec<MdnsSnapshot>, u32) {
+    let base_len = mdns_base_payload_len(&snapshot);
+    let MdnsSnapshot {
+        devices,
+        snapshot_id,
+        interface_name,
+        generated_at_unix_nano,
+        dropped_since_last,
+        ..
+    } = snapshot;
+
+    let mut groups: Vec<Vec<MdnsDevice>> = Vec::new();
+    let mut current: Vec<MdnsDevice> = Vec::new();
+    let mut current_len = base_len;
+    let mut dropped_oversized = 0u32;
+
+    for device in devices {
+        let wire_len = mdns_device_wire_len(&device);
+        if base_len + wire_len > max_payload_len {
+            // Cannot fit even alone. Losing one device beats emitting a frame
+            // the reader rejects and losing the whole snapshot.
+            dropped_oversized += 1;
+            continue;
+        }
+        if current_len + wire_len > max_payload_len && !current.is_empty() {
+            groups.push(std::mem::take(&mut current));
+            current_len = base_len;
+        }
+        current_len += wire_len;
+        current.push(device);
+    }
+    if !current.is_empty() || groups.is_empty() {
+        // An empty snapshot still ships one chunk: "nothing is announcing" is a
+        // real state, and swallowing it would leave stale evidence alive
+        // downstream forever.
+        groups.push(current);
+    }
+
+    let chunk_count = groups.len() as u32;
+    let last = chunk_count.saturating_sub(1);
+    let chunks = groups
+        .into_iter()
+        .enumerate()
+        .map(|(index, devices)| MdnsSnapshot {
+            devices,
+            snapshot_id: snapshot_id.clone(),
+            interface_name: interface_name.clone(),
+            generated_at_unix_nano,
+            complete: index as u32 == last,
+            chunk_index: index as u32,
+            chunk_count,
+            dropped_since_last,
+        })
+        .collect();
+
+    (chunks, dropped_oversized)
+}
+
+fn mdns_base_payload_len(snapshot: &MdnsSnapshot) -> usize {
+    MdnsSnapshot {
+        devices: Vec::new(),
+        snapshot_id: snapshot.snapshot_id.clone(),
+        interface_name: snapshot.interface_name.clone(),
+        generated_at_unix_nano: snapshot.generated_at_unix_nano,
+        // Budget the WIDEST encoding of every field the split rewrites, not the
+        // values this snapshot happens to hold. proto3 omits zero-valued fields
+        // and varint-encodes small ones, so measuring with the pre-split values
+        // under-budgets every chunk and lets it cross the limit once the real
+        // chunk_index and chunk_count are written back.
+        complete: true,
+        chunk_index: u32::MAX,
+        chunk_count: u32::MAX,
+        dropped_since_last: snapshot.dropped_since_last.max(1),
+    }
+    .encoded_len()
+}
+
+fn mdns_device_wire_len(device: &MdnsDevice) -> usize {
+    let len = device.encoded_len();
+    1 + prost::length_delimiter_len(len) + len
 }
