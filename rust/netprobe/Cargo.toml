@@ -23,7 +23,9 @@ name = "census_decode_cpu"
 harness = false
 
 [dependencies]
+addon-sdk = { path = "../addon-sdk" }
 anyhow = { workspace = true }
+async-trait = { workspace = true }
 clap = { workspace = true, features = ["derive", "env"] }
 crossbeam-channel = { workspace = true }
 env_logger = { workspace = true }
@@ -40,6 +42,8 @@ serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
 sha2 = { workspace = true }
 thiserror = { workspace = true }
+tonic = { workspace = true }
+tokio-stream = { workspace = true, features = ["sync"] }
 tokio = { workspace = true, features = ["io-util", "macros", "net", "rt-multi-thread", "signal", "sync", "time"] }
 
 [dev-dependencies]
