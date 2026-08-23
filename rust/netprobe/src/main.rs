@@ -1,5 +1,5 @@
-#[allow(dead_code, unused_imports)]
 mod addon_service;
+#[allow(dead_code, unused_imports)]
 mod af_xdp;
 #[allow(dead_code)]
 mod af_xdp_classifier;
