@@ -712,6 +712,176 @@ mod tests {
         );
     }
 
+    // ---- table aggregation ------------------------------------------------
+
+    const SEC: u64 = 1_000_000_000;
+    const MAC_A: [u8; 6] = [0x48, 0xE1, 0x5C, 0xA8, 0x2B, 0x58];
+    const MAC_B: [u8; 6] = [0xAC, 0xBC, 0xB5, 0xDC, 0x45, 0xE3];
+
+    fn observation_of(services: &[&str], txt: &[(&str, &str)]) -> MdnsObservation {
+        MdnsObservation {
+            records: vec![MdnsRecord::Ptr {
+                name: "x".into(),
+                target: "y".into(),
+            }],
+            service_types: services.iter().map(|s| (*s).to_owned()).collect(),
+            txt: txt
+                .iter()
+                .map(|(k, v)| ((*k).to_owned(), Some((*v).to_owned())))
+                .collect(),
+            truncated: false,
+        }
+    }
+
+    fn table() -> MdnsTable {
+        MdnsTable::new(std::time::Duration::from_secs(900), 4096)
+    }
+
+    #[test]
+    fn a_device_is_described_across_several_packets() {
+        // The reason the table exists: a device does not describe itself in one
+        // packet. The PTR naming the service and the TXT carrying the model can
+        // be minutes apart.
+        let mut t = table();
+        assert!(t.observe(2, MAC_A, &observation_of(&["_airplay._tcp"], &[]), SEC));
+        assert!(!t.observe(
+            2,
+            MAC_A,
+            &observation_of(&["_companion-link._tcp"], &[("model", "B620AP")]),
+            2 * SEC
+        ));
+
+        let entry = &t.snapshot()[0];
+        assert_eq!(
+            entry.service_types,
+            vec!["_airplay._tcp", "_companion-link._tcp"]
+        );
+        assert_eq!(entry.models, vec!["B620AP"]);
+        assert_eq!(entry.first_seen_ns, SEC, "first sighting is preserved");
+        assert_eq!(entry.last_seen_ns, 2 * SEC);
+    }
+
+    #[test]
+    fn two_models_from_one_mac_are_kept_and_flagged_ambiguous() {
+        // OBSERVED ON A LIVE SEGMENT: one MAC advertised both B620AP (HomePod
+        // mini) and J255AP (Apple TV) because HomeKit relays announcements for
+        // paired accessories. Last-write-wins would make the type flap forever;
+        // picking the first would be arbitrary. Keep both and refuse to guess.
+        let mut t = table();
+        t.observe(2, MAC_A, &observation_of(&[], &[("model", "B620AP")]), SEC);
+        t.observe(
+            2,
+            MAC_A,
+            &observation_of(&[], &[("model", "J255AP")]),
+            2 * SEC,
+        );
+
+        let entry = &t.snapshot()[0];
+        assert_eq!(entry.models, vec!["B620AP", "J255AP"]);
+        assert!(
+            entry.ambiguous_model(),
+            "core must not assign a type from this"
+        );
+    }
+
+    #[test]
+    fn a_single_model_is_not_ambiguous_however_often_repeated() {
+        let mut t = table();
+        for i in 1..5 {
+            t.observe(
+                2,
+                MAC_A,
+                &observation_of(&[], &[("model", "B620AP")]),
+                i * SEC,
+            );
+        }
+        let entry = &t.snapshot()[0];
+        assert_eq!(entry.models, vec!["B620AP"]);
+        assert!(!entry.ambiguous_model());
+    }
+
+    #[test]
+    fn md_is_used_when_model_is_absent() {
+        // Google Cast uses `md`; Apple uses `model`. Both name the product.
+        let mut t = table();
+        t.observe(
+            2,
+            MAC_A,
+            &observation_of(&[], &[("md", "Chromecast Ultra")]),
+            SEC,
+        );
+        assert_eq!(t.snapshot()[0].models, vec!["Chromecast Ultra"]);
+    }
+
+    #[test]
+    fn distinct_macs_are_distinct_devices() {
+        let mut t = table();
+        t.observe(2, MAC_A, &observation_of(&["_airplay._tcp"], &[]), SEC);
+        t.observe(2, MAC_B, &observation_of(&["_hap._tcp"], &[]), SEC);
+        assert_eq!(t.len(), 2);
+    }
+
+    #[test]
+    fn the_same_mac_on_two_interfaces_is_two_entries() {
+        let mut t = table();
+        t.observe(2, MAC_A, &observation_of(&["_airplay._tcp"], &[]), SEC);
+        t.observe(3, MAC_A, &observation_of(&["_airplay._tcp"], &[]), SEC);
+        assert_eq!(t.len(), 2, "a segment is scoped by interface");
+    }
+
+    #[test]
+    fn expired_entries_are_evicted_so_absence_means_something() {
+        let mut t = MdnsTable::new(std::time::Duration::from_secs(10), 4096);
+        t.observe(2, MAC_A, &observation_of(&["_airplay._tcp"], &[]), SEC);
+        assert_eq!(t.evict_expired(5 * SEC), 0, "still fresh");
+        assert_eq!(t.evict_expired(20 * SEC), 1, "past the ttl");
+        assert!(t.is_empty());
+    }
+
+    #[test]
+    fn the_table_is_bounded_and_evicts_the_coldest() {
+        let mut t = MdnsTable::new(std::time::Duration::from_secs(900), 2);
+        t.observe(
+            2,
+            [0, 0, 0, 0, 0, 1],
+            &observation_of(&["_a._tcp"], &[]),
+            SEC,
+        );
+        t.observe(
+            2,
+            [0, 0, 0, 0, 0, 2],
+            &observation_of(&["_b._tcp"], &[]),
+            5 * SEC,
+        );
+        t.observe(
+            2,
+            [0, 0, 0, 0, 0, 3],
+            &observation_of(&["_c._tcp"], &[]),
+            9 * SEC,
+        );
+
+        assert_eq!(t.len(), 2);
+        let macs: Vec<[u8; 6]> = t.snapshot().iter().map(|e| e.mac).collect();
+        assert!(!macs.contains(&[0, 0, 0, 0, 0, 1]), "coldest is evicted");
+    }
+
+    #[test]
+    fn a_snapshot_is_deterministic() {
+        let mut t = table();
+        t.observe(2, MAC_B, &observation_of(&["_z._tcp", "_a._tcp"], &[]), SEC);
+        t.observe(2, MAC_A, &observation_of(&["_m._tcp"], &[]), SEC);
+
+        let first = t.snapshot();
+        let second = t.snapshot();
+        assert_eq!(first, second, "same table must snapshot identically");
+        assert!(first[0].mac < first[1].mac, "ordered by mac");
+        assert_eq!(
+            first[1].service_types,
+            vec!["_a._tcp", "_z._tcp"],
+            "service types sorted, not insertion-ordered"
+        );
+    }
+
     // ---- service type extraction -----------------------------------------
 
     #[test]
@@ -732,4 +902,155 @@ mod tests {
         assert_eq!(service_type_of("local"), None);
         assert_eq!(service_type_of(""), None);
     }
+}
+
+/// What one device on the segment has told us about itself.
+///
+/// Keyed by MAC, because that is the identity the census already bound. mDNS
+/// enriches a device that is already known; it never mints one.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MdnsEntry {
+    pub interface_index: u32,
+    pub mac: [u8; 6],
+    /// Sorted and deduplicated, so a snapshot of an unchanged device is
+    /// byte-identical between runs.
+    pub service_types: Vec<String>,
+    pub txt: BTreeMap<String, Option<String>>,
+    /// Every distinct model string seen from this MAC, sorted.
+    ///
+    /// Deliberately a set rather than last-write-wins. Observed on a live
+    /// segment: one MAC advertised BOTH `B620AP` (HomePod mini) and `J255AP`
+    /// (Apple TV) because HomeKit relays announcements for paired accessories.
+    /// Overwriting would make the device's type flap between the two forever,
+    /// and picking the first would be arbitrary.
+    pub models: Vec<String>,
+    pub first_seen_ns: u64,
+    pub last_seen_ns: u64,
+}
+
+impl MdnsEntry {
+    /// True when this MAC has claimed more than one model.
+    ///
+    /// Core must not assign a device type from an ambiguous entry: the evidence
+    /// says "this MAC speaks for two products", not "this device is one of
+    /// them". Better to leave the type unset than to pick.
+    pub fn ambiguous_model(&self) -> bool {
+        self.models.len() > 1
+    }
+}
+
+/// Accumulates mDNS evidence per device, with the same bounds as `CensusTable`.
+///
+/// A device does not describe itself in one packet: it announces different
+/// services at different times, and the TXT carrying the model may arrive
+/// minutes after the PTR naming the service. Accumulating is what turns a
+/// stream of partial announcements into a usable answer.
+#[derive(Debug)]
+pub struct MdnsTable {
+    ttl: std::time::Duration,
+    capacity: usize,
+    entries: std::collections::HashMap<(u32, [u8; 6]), MdnsEntry>,
+}
+
+impl MdnsTable {
+    pub fn new(ttl: std::time::Duration, capacity: usize) -> Self {
+        Self {
+            ttl,
+            capacity,
+            entries: std::collections::HashMap::new(),
+        }
+    }
+
+    /// Fold one packet's evidence into the table. Returns true when this MAC
+    /// was not already known.
+    pub fn observe(
+        &mut self,
+        interface_index: u32,
+        mac: [u8; 6],
+        observation: &MdnsObservation,
+        observed_ns: u64,
+    ) -> bool {
+        let key = (interface_index, mac);
+        let model = observation
+            .txt
+            .get("model")
+            .or_else(|| observation.txt.get("md"))
+            .and_then(|value| value.clone());
+
+        if let Some(entry) = self.entries.get_mut(&key) {
+            entry.last_seen_ns = observed_ns;
+            merge_sorted(&mut entry.service_types, &observation.service_types);
+            for (k, v) in &observation.txt {
+                entry.txt.insert(k.clone(), v.clone());
+            }
+            if let Some(model) = model {
+                merge_sorted(&mut entry.models, std::slice::from_ref(&model));
+            }
+            return false;
+        }
+
+        if self.entries.len() >= self.capacity {
+            // Evict the coldest rather than grow without bound. mDNS is
+            // announce-driven and a segment can be far larger than budgeted.
+            if let Some(coldest) = self
+                .entries
+                .iter()
+                .min_by_key(|(_, entry)| entry.last_seen_ns)
+                .map(|(k, _)| *k)
+            {
+                self.entries.remove(&coldest);
+            }
+        }
+
+        let mut service_types = observation.service_types.clone();
+        service_types.sort();
+        service_types.dedup();
+
+        self.entries.insert(
+            key,
+            MdnsEntry {
+                interface_index,
+                mac,
+                service_types,
+                txt: observation.txt.clone(),
+                models: model.into_iter().collect(),
+                first_seen_ns: observed_ns,
+                last_seen_ns: observed_ns,
+            },
+        );
+        true
+    }
+
+    /// Drop entries not seen within the TTL. Returns how many were evicted.
+    pub fn evict_expired(&mut self, monotonic_now_ns: u64) -> usize {
+        let ttl_ns = self.ttl.as_nanos() as u64;
+        let before = self.entries.len();
+        self.entries
+            .retain(|_, entry| monotonic_now_ns.saturating_sub(entry.last_seen_ns) < ttl_ns);
+        before - self.entries.len()
+    }
+
+    /// The complete current view, ordered so a snapshot is deterministic.
+    pub fn snapshot(&self) -> Vec<MdnsEntry> {
+        let mut out: Vec<MdnsEntry> = self.entries.values().cloned().collect();
+        out.sort_by_key(|entry| (entry.interface_index, entry.mac));
+        out
+    }
+
+    pub fn len(&self) -> usize {
+        self.entries.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.entries.is_empty()
+    }
+}
+
+fn merge_sorted(target: &mut Vec<String>, incoming: &[String]) {
+    for value in incoming {
+        if !target.contains(value) {
+            target.push(value.clone());
+        }
+    }
+    target.sort();
 }
