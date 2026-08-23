@@ -147,10 +147,16 @@ helm get values serviceradar -n serviceradar
 helm upgrade serviceradar "$CHECKOUT/helm/serviceradar" \
   -n serviceradar \
   --reuse-values \
-  --set global.imageTag=sha-<new> \
+  --set image.digests.<service>=sha256:<digest> \
   --rollback-on-failure \
   --timeout 15m
 ```
+
+Use `global.imageTag=sha-<new>` ONLY when every first-party image should move.
+For a change touching one or two services, pin those with
+`image.digests.<service>` (see "Move only the services you changed") -- farm01
+already carries digest pins for `core` and `webNg`, so you are updating an
+existing pin, not introducing a new mechanism.
 
 `--reuse-values` keeps farm01-only settings (MetalLB VIPs, Gateway API attach, Trivy sidecar, empty `registryPullSecret`, `local-path` storage). Do not replace the live values file unless the user wants those template/value changes applied.
 
@@ -207,6 +213,30 @@ cosign sign --key "$COSIGN_KEY_REF" \
 ```
 
 Re-mint the Vault token on `403 permission denied`. Tear down the port-forward when signing is done.
+
+### The Argo Application spec is NOT the lever
+
+`serviceradar-demo-prod` tracks `helm/serviceradar` on the **`demo/prod-release`
+branch of the serviceradar repo itself**, and that path contains
+`.argocd-source-serviceradar-demo-prod.yaml`, whose `helm.parameters` OVERRIDE
+the Application's own `spec.source.helm.parameters`.
+
+Verified 2026-08-23: the Application spec said
+`image.digests.webNg=sha256:457a2b5c...` while the running pod was
+`sha256:94bf165f...`, and Argo still reported `Synced`. A
+`kubectl patch application ... spec.source.helm.parameters` is reverted on the
+next sync. **Edit the file on `demo/prod-release` and push**, then sync:
+
+```bash
+git worktree add --no-track -b <tmp> /tmp/wt-demo-release github/demo/prod-release
+# edit helm/serviceradar/.argocd-source-serviceradar-demo-prod.yaml
+git push github HEAD:refs/heads/demo/prod-release
+kubectl patch application -n argocd serviceradar-demo-prod --type merge \
+  -p '{"operation":{"sync":{"revision":"demo/prod-release"}}}'
+```
+
+If the Application parameter and the running image disagree while Argo says
+`Synced`, that file is why -- do not "fix" it by patching the Application.
 
 ### Build from a fresh git worktree
 
