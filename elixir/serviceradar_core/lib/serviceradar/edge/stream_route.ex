@@ -21,9 +21,19 @@ defmodule ServiceRadar.Edge.StreamRoute do
   never appears as a token. Recovery is one singular reserved lane -- no class token, no partition
   token -- with its own unborrowable storage/PubAck/consumer capacity.
 
-  There is no recovery DLQ family. A recovery failure preserves its ORIGINAL traffic class and
-  enters the ordinary class-separated DLQ, because neither initial routing nor redrive may promote
-  or demote a record's class.
+  ## The DLQ families are normative, and NOT resolvable here yet
+
+  `telemetry.edge-record-dlq.v1.{bulk|interactive}.pNN` are part of the normative topology, and a
+  recovery failure preserves its ORIGINAL traffic class rather than getting a DLQ family of its
+  own -- neither initial routing nor redrive may promote or demote a record's class.
+
+  There is deliberately NO `resolve_dlq/2`. The version that existed took the traffic class from a
+  contract supplied alongside the source route, so a bulk failure could be resolved into the
+  interactive DLQ; a test named "cannot be reclassified" in fact demonstrated exactly that. The
+  honest fix is not a tighter signature but waiting for the failure context that a DLQ route is
+  derived FROM: the canonical bounded DLQ wrapper, the source stream/sequence, and the error
+  cohort. Until those exist there is nothing to derive a DLQ route from, so offering one would be
+  a production-looking API with no correct caller.
 
   ## Two versions, deliberately separate
 
@@ -146,9 +156,13 @@ defmodule ServiceRadar.Edge.StreamRoute do
 
     case {profile, valid_class(class)} do
       {@recovery_control, {:ok, _token}} ->
-        # Singular and unpartitioned by contract: no class token, no pNN. The partition rule is
-        # not consulted, because there is no partition to compute.
-        {:ok, route(@recovery_subject, nil, @recovery_stream)}
+        # Singular and unpartitioned: no class token, no pNN. The rule is still VALIDATED even
+        # though no partition is computed from it -- the contract bundle pins one regardless, and
+        # skipping the check here made "every unknown rule is refused" untrue for exactly the lane
+        # where nobody would look for the exception.
+        with :ok <- known_rule(contract) do
+          {:ok, route(@recovery_subject, nil, @recovery_stream)}
+        end
 
       {@durable_records, {:ok, token}} ->
         with {:ok, partition} <- partition_for(contract) do
@@ -172,50 +186,6 @@ defmodule ServiceRadar.Edge.StreamRoute do
   def resolve(_), do: {:error, :contract}
 
   @doc """
-  Resolves the class-preserving DLQ route for a record that already has a data route.
-
-  Takes the SOURCE route and the same verified contract, not an independent class and partition.
-  Accepting those separately let a caller reclassify a failed record from interactive to bulk, or
-  move it to another partition -- either of which rewrites the provenance of a failure. Both are
-  now derived from the authoritative source.
-
-  A recovery record has no source partition (`nil`), so the DLQ partition comes from the
-  authenticated agent/spool coordinates instead. That keeps a recovery failure on a stable
-  partition rather than an arbitrary one, without inventing a data partition the recovery lane
-  does not have.
-  """
-  @spec resolve_dlq(ResolvedRoute.t(), map()) :: {:ok, ResolvedRoute.t()} | {:error, atom()}
-  def resolve_dlq(%ResolvedRoute{} = source, contract) when is_map(contract) do
-    with {:ok, token} <- valid_class(Map.get(contract, :traffic_class)),
-         {:ok, partition} <- dlq_partition(source, contract) do
-      {:ok,
-       route(
-         "telemetry.edge-record-dlq.v1.#{token}.#{pad(partition)}",
-         partition,
-         "TELEMETRY_EDGE_RECORD_DLQ_V1_#{String.upcase(token)}"
-       )}
-    end
-  end
-
-  def resolve_dlq(_, _), do: {:error, :source_route}
-
-  # The source's own partition when it has one; otherwise the recovery lane's authenticated
-  # agent/spool coordinates.
-  defp dlq_partition(%ResolvedRoute{partition: p}, _contract) when is_integer(p), do: {:ok, p}
-
-  defp dlq_partition(%ResolvedRoute{partition: nil}, contract) do
-    coords = Map.get(contract, :partition_coordinates, %{})
-    agent = Map.get(coords, :authenticated_agent_id)
-    spool = Map.get(coords, :spool_id)
-
-    if is_binary(agent) and agent != "" and is_binary(spool) and spool != "" do
-      {:ok, partition(agent <> spool)}
-    else
-      {:error, :partition_key}
-    end
-  end
-
-  @doc """
   Maps a routing key to a stable partition in `[0, num_partitions)`.
 
   FNV-1a, frozen by the committed partition vectors together with `num_partitions/0`. The
@@ -225,27 +195,33 @@ defmodule ServiceRadar.Edge.StreamRoute do
   """
   def partition(key) when is_binary(key) and key != "", do: rem(fnv1a_32(key), @num_partitions)
 
+  # Validates the pinned rule without evaluating it, for families that carry no partition.
+  defp known_rule(contract) do
+    case Map.get(contract, :partition_rule) do
+      rule when rule in @partition_rules -> :ok
+      nil -> {:error, :missing_partition_rule}
+      _ -> {:error, :unknown_partition_rule}
+    end
+  end
+
   # Evaluates the contract's pinned rule. No default, and no fallback for an unknown rule.
   defp partition_for(contract) do
     coords = Map.get(contract, :partition_coordinates, %{})
 
-    case Map.get(contract, :partition_rule) do
-      :network_scope_v1 ->
-        case Map.get(coords, :network_scope_id) do
-          scope when is_binary(scope) and scope != "" ->
-            {:ok, partition(scope)}
+    with :ok <- known_rule(contract) do
+      # The frozen transcript: the raw network_scope_id bytes, unprefixed and unconcatenated.
+      # See openspec .../nats-tenant-isolation for the normative definition.
+      :network_scope_v1 = Map.get(contract, :partition_rule)
 
-          # Refused rather than routed to partition 0: zero is a real partition, so defaulting
-          # would pile every unpopulated contract onto one shard.
-          _ ->
-            {:error, :partition_key}
-        end
+      case Map.get(coords, :network_scope_id) do
+        scope when is_binary(scope) and scope != "" ->
+          {:ok, partition(scope)}
 
-      nil ->
-        {:error, :missing_partition_rule}
-
-      _ ->
-        {:error, :unknown_partition_rule}
+        # Refused rather than routed to partition 0: zero is a real partition, so defaulting
+        # would pile every unpopulated contract onto one shard.
+        _ ->
+          {:error, :partition_key}
+      end
     end
   end
 

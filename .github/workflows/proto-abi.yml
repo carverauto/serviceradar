@@ -64,6 +64,12 @@ on:
       - 'elixir/serviceradar_agent_gateway/test/serviceradar_agent_gateway/jet_stream_publisher_test.exs'
       - 'elixir/serviceradar_agent_gateway/mix.exs'
       - 'elixir/serviceradar_agent_gateway/mix.lock'
+      # Bazel registration and the test helper: a change to either can leave the shard running
+      # nothing while the Mix step below still passes.
+      - 'elixir/serviceradar_agent_gateway/BUILD.bazel'
+      - 'elixir/serviceradar_agent_gateway/test/test_helper.exs'
+      - 'elixir/serviceradar_core/BUILD.bazel'
+      - 'elixir/serviceradar_core/test/test_helper.exs'
       # The SHARED benchmark fixture generator. Without this the verifier that guards it
       # does not run on the change that breaks it -- a required test absent from the very
       # edit it exists to catch.
@@ -101,6 +107,12 @@ on:
       - 'elixir/serviceradar_agent_gateway/test/serviceradar_agent_gateway/jet_stream_publisher_test.exs'
       - 'elixir/serviceradar_agent_gateway/mix.exs'
       - 'elixir/serviceradar_agent_gateway/mix.lock'
+      # Bazel registration and the test helper: a change to either can leave the shard running
+      # nothing while the Mix step below still passes.
+      - 'elixir/serviceradar_agent_gateway/BUILD.bazel'
+      - 'elixir/serviceradar_agent_gateway/test/test_helper.exs'
+      - 'elixir/serviceradar_core/BUILD.bazel'
+      - 'elixir/serviceradar_core/test/test_helper.exs'
       # The SHARED benchmark fixture generator. Without this the verifier that guards it
       # does not run on the change that breaks it -- a required test absent from the very
       # edit it exists to catch.

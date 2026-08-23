@@ -5,23 +5,37 @@ defmodule ServiceRadarAgentGateway.JetStreamPublisher do
 
   Unlike `ServiceRadar.NATS.Connection.publish/3` (fire-and-forget `Gnat.pub`), a durable relay
   MUST observe the server's `PubAck` before it may report a frame durable. This module sends a
-  JetStream publish *request*, waits for the reply, parses the `PubAck`, and classifies any error
-  so the caller can withhold the resolved prefix (retryable) or route to the DLQ (permanent).
+  JetStream publish *request*, waits for the reply, parses the `PubAck`, and classifies any
+  refusal.
 
   Durability is the parsed `PubAck` returned here — never gRPC success, never a fire-and-forget
   publish, and never an ack from a stream other than the resolved route's.
 
   ## Nothing is taken on trust
 
-  There is no public raw-publish entry point. `publish_record/3` takes a
-  `ServiceRadar.Edge.ResolvedRoute` plus the verified slot and derives everything else: the
-  subject and expected stream come from the route, publication identity is computed from the
-  frozen grammar, and the provenance is stamped with the route's own map generation. A caller
-  cannot supply a subject, a header, or a route-map version, because each of those is a way for
-  the parts to disagree with one another while each looks individually valid.
+  There is no public raw-publish entry point and no arity that accepts a route.
+  `publish_record/2` takes ONLY the verified publication and derives everything from it: the
+  subject and expected stream come from `StreamRoute`, the partition coordinates come from the
+  authenticated slot, publication identity is computed from the frozen grammar, and the
+  provenance is stamped with the route's own placement generation. A caller cannot supply a
+  subject, a header, a partition, or a version, because each is a way for the parts to disagree
+  while every part looks individually valid.
 
-  The returned ack is fenced against the resolved route's expected stream, so an ack from
-  anywhere else is a `:protocol` error rather than a durability claim.
+  ## Refusals default to WITHHOLD
+
+  A refusal only becomes terminal (`:poison`) on proof the record can never be accepted.
+  Everything else -- an unknown broker error, an unparseable body, an expected-stream mismatch --
+  leaves the source sequence UNRESOLVED. Sending an unrecognised refusal to the DLQ would discard
+  a record that was never proven bad, and resolve a sequence that was never accepted.
+
+  ## No DLQ publication here, deliberately
+
+  A DLQ publication is not "the same bytes on another subject": it needs the canonical bounded DLQ
+  wrapper, a stable DLQ identity, the source stream/sequence, the error cohort and fingerprint,
+  and the failure metadata. None of that exists yet. An earlier revision of this module shipped a
+  `publish_dlq/2` that republished the raw record under ordinary publication identity, which
+  would have produced DLQ entries indistinguishable from a normal publish and unusable for
+  redrive. It is removed until the carrier and failure context land.
   """
 
   alias ServiceRadar.Edge.PublicationIdentity
@@ -31,7 +45,7 @@ defmodule ServiceRadarAgentGateway.JetStreamPublisher do
   require Logger
 
   @type pub_ack :: %{stream: String.t(), seq: non_neg_integer(), duplicate: boolean()}
-  @type error_class :: :capacity | :timeout | :protocol | :permanent | :misrouted
+  @type error_class :: :capacity | :timeout | :systemic | :misrouted | :poison
 
   @default_timeout 5_000
 
@@ -64,21 +78,6 @@ defmodule ServiceRadarAgentGateway.JetStreamPublisher do
   def publish_record(publication, opts \\ []) when is_map(publication) do
     with {:ok, route} <- resolve_route(publication) do
       send_to(route, publication, opts)
-    end
-  end
-
-  @doc """
-  Publishes a failed record to its class-preserving DLQ route.
-
-  The DLQ route is derived from the SOURCE route and the same publication, so a failure cannot be
-  reclassified into another traffic class or moved to another partition on its way to the queue.
-  """
-  @spec publish_dlq(map(), keyword()) ::
-          {:ok, pub_ack()} | {:error, error_class()} | {:error, {:derivation, term()}}
-  def publish_dlq(publication, opts \\ []) when is_map(publication) do
-    with {:ok, source} <- resolve_route(publication),
-         {:ok, dlq} <- wrap(StreamRoute.resolve_dlq(source, contract_of(publication))) do
-      send_to(dlq, publication, opts)
     end
   end
 
@@ -224,14 +223,29 @@ defmodule ServiceRadarAgentGateway.JetStreamPublisher do
       # sequences any stream issues -- a malformed ack would have been reported as durable.
       {:ok, %{"stream" => stream, "seq" => seq} = ack}
       when is_binary(stream) and is_integer(seq) and seq >= 1 and seq <= 0xFFFFFFFFFFFFFFFF ->
-        {:ok, %{stream: stream, seq: seq, duplicate: Map.get(ack, "duplicate", false) == true}}
+        case duplicate_flag(ack) do
+          {:ok, duplicate} -> {:ok, %{stream: stream, seq: seq, duplicate: duplicate}}
+          :error -> {:error, :systemic}
+        end
 
       _ ->
-        {:error, :protocol}
+        # A body we cannot parse is NOT proof the record is poison. It is an unresolved
+        # publication, so the source sequence stays withheld.
+        {:error, :systemic}
     end
   end
 
-  def parse_ack(_), do: {:error, :protocol}
+  def parse_ack(_), do: {:error, :systemic}
+
+  # `Map.get(ack, "duplicate", false) == true` silently read any non-boolean as false, so a
+  # broker (or a proxy) answering `"duplicate": "true"` would be recorded as a first write.
+  defp duplicate_flag(ack) do
+    case Map.fetch(ack, "duplicate") do
+      :error -> {:ok, false}
+      {:ok, v} when is_boolean(v) -> {:ok, v}
+      {:ok, _} -> :error
+    end
+  end
 
   @doc """
   Whether an error class WITHHOLDS SOURCE PROGRESS (true) or is terminal and DLQ-bound (false).
@@ -244,28 +258,47 @@ defmodule ServiceRadarAgentGateway.JetStreamPublisher do
   it clears when the route map or the broker's stream binding is repaired.
   """
   @spec retryable?(error_class()) :: boolean()
-  def retryable?(class), do: class in [:capacity, :timeout, :misrouted]
+  def retryable?(class), do: class != :poison
 
-  # Classify a JetStream ack error object
-  # (`%{"code","description","err_code"}`). Capacity/back-pressure is retryable;
-  # an expected-stream/sequence fence failure is a protocol error; anything else
-  # is a permanent rejection routed to the DLQ.
+  # Classify a JetStream ack error object (`%{"code","description","err_code"}`).
+  #
+  # THE DEFAULT IS WITHHOLD, NOT DLQ. A refusal only becomes terminal on PROOF that the record can
+  # never be accepted; anything else -- unknown code, unrecognised description, a broker we do not
+  # understand -- leaves the source sequence unresolved. The previous default was `:permanent`,
+  # which sent every unrecognised broker answer to the DLQ.
+  #
+  # `err_code` is preferred over the description because descriptions are prose and change. 10060
+  # (JSStreamNotMatchErr) is the REAL expected-stream refusal: NATS answers a mismatched
+  # `Nats-Expected-Stream` with this error, not with a successful ack naming another stream. It is
+  # a routing/readiness fault, so it withholds rather than DLQs.
   defp classify_ack_error(%{} = err) do
-    code = err["code"]
     desc = err["description"] |> to_string() |> String.downcase()
 
+    case err["err_code"] do
+      10_060 -> :misrouted
+      10_071 -> :systemic
+      10_054 -> :poison
+      _ -> classify_by_description(err["code"], desc)
+    end
+  end
+
+  defp classify_ack_error(_), do: :systemic
+
+  defp classify_by_description(code, desc) do
     cond do
       code == 503 -> :capacity
       String.contains?(desc, "no responders") -> :capacity
       String.contains?(desc, "insufficient resources") -> :capacity
-      String.contains?(desc, "maximum") and String.contains?(desc, "exceeded") -> :capacity
-      String.contains?(desc, "expected") -> :protocol
-      String.contains?(desc, "wrong last sequence") -> :protocol
-      true -> :permanent
+      # Stream/consumer limits reached: backpressure, not poison.
+      String.contains?(desc, "maximum messages") -> :capacity
+      String.contains?(desc, "maximum bytes") -> :capacity
+      # The record itself can never fit. This is the one description-derived PROOF of poison.
+      String.contains?(desc, "message size exceeds maximum") -> :poison
+      String.contains?(desc, "expected") -> :misrouted
+      String.contains?(desc, "wrong last sequence") -> :systemic
+      true -> :systemic
     end
   end
-
-  defp classify_ack_error(_), do: :permanent
 
   # An unknown transport failure is treated as a retryable timeout -- never
   # silently dropped and never treated as durable success.

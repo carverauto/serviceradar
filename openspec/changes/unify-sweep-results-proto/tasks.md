@@ -725,16 +725,17 @@
   Check what it actually delivered before starting -- duplicating it is how the
   earlier 22-PR chain accumulated, and its scope is NARROWER than this task.
   ALREADY LANDED in `ServiceRadarAgentGateway.JetStreamPublisher`: the publish
-  request, PubAck parsing, and the capacity/timeout/protocol/permanent error
-  classification.
-  STILL OPEN, and REQUIRED before this task may be checked: the publisher currently
-  ACCEPTS AND FORWARDS caller-supplied headers -- its own docstring says "`headers`
-  should already include `Nats-Msg-Id` and `Nats-Expected-Stream`" -- so it computes
-  NO publication identity at all. This task must (a) DERIVE `Nats-Msg-Id` over the
-  ABI-frozen Appendix A transcript, computing it from the frozen grammar and
-  asserting against the ABI vectors rather than from a locally retyped member list,
-  which is exactly how a member gets dropped or reordered; (b) SET and VALIDATE
-  `Nats-Expected-Stream` rather than trusting a caller; and (c) add the separate
+  request and PubAck parsing.
+  (a) and (b) ARE NOW DONE and this text is updated to match, because the previous
+  version described a publisher that no longer exists. `publish_record/2` takes ONLY
+  the verified publication and DERIVES the route, so there is no arity that accepts a
+  caller's subject, header, partition, or version; `Nats-Msg-Id` and
+  `Sr-Edge-Delivery-Id` are asserted against the shared ABI vectors BY HEADER NAME, and
+  `Nats-Expected-Stream` is set from the resolved route and re-checked against the
+  returned PubAck. Refusal disposition was also corrected: only PROVEN poison is
+  terminal, and an expected-stream refusal (`err_code` 10060) withholds source progress
+  rather than routing to the DLQ.
+  STILL OPEN, and REQUIRED before this task may be checked: (c) the separate
   pools and pipelining below. The property this task relies on is that the
   transcript commits both `record_sha256` and the semantic digest, so a slot reused
   with different bytes gets a distinct Msg-Id. Limit NATS
