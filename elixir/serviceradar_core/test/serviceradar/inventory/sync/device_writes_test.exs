@@ -187,4 +187,65 @@ defmodule ServiceRadar.Inventory.Sync.DeviceWritesTest do
   defp postgrex_error(postgres) do
     %Postgrex.Error{message: nil, postgres: postgres}
   end
+
+  describe "jsonb_safe/1" do
+    # The bytes below are the real ones that took farm01's sync ingestion down:
+    # uuid ff82a43f-6e90-47c8-a126-0a75a1d234d9 as Postgrex returns it from a
+    # `uuid` column -- a raw 16-byte binary, which satisfies is_binary/1 and so
+    # slips through code that reasonably assumes a binary is text.
+    @raw_uuid <<255, 130, 164, 63, 110, 144, 71, 200, 161, 38, 10, 117, 161, 210, 52, 217>>
+    @printable "ff82a43f-6e90-47c8-a126-0a75a1d234d9"
+
+    test "repairs a raw uuid binary into its printable form" do
+      [record] =
+        DeviceWrites.jsonb_safe([
+          %{uid: "sr:1", metadata: %{"mac_vendor_oui_snapshot_id" => @raw_uuid}}
+        ])
+
+      assert record.metadata["mac_vendor_oui_snapshot_id"] == @printable
+      assert {:ok, _} = Jason.encode(record.metadata)
+    end
+
+    test "drops an unencodable binary that is not a uuid, keeping the row" do
+      [record] =
+        DeviceWrites.jsonb_safe([
+          %{uid: "sr:1", metadata: %{"junk" => <<255, 254, 253>>, "kept" => "value"}}
+        ])
+
+      refute Map.has_key?(record.metadata, "junk")
+      assert record.metadata["kept"] == "value", "unrelated metadata must survive"
+      assert {:ok, _} = Jason.encode(record.metadata)
+    end
+
+    test "one poisoned record does not affect the others in the batch" do
+      # This is the whole point. insert_all is a single statement, so before this
+      # guard existed one bad value failed every device in the batch -- on farm01
+      # that was 87 devices at a time, for hours.
+      records = [
+        %{uid: "sr:clean-1", metadata: %{"a" => "1"}},
+        %{uid: "sr:poisoned", metadata: %{"snapshot" => @raw_uuid}},
+        %{uid: "sr:clean-2", metadata: %{"b" => "2"}}
+      ]
+
+      safe = DeviceWrites.jsonb_safe(records)
+
+      assert length(safe) == 3
+      assert Enum.all?(safe, fn r -> match?({:ok, _}, Jason.encode(r.metadata)) end)
+      assert Enum.at(safe, 0).metadata == %{"a" => "1"}
+      assert Enum.at(safe, 2).metadata == %{"b" => "2"}
+      assert Enum.at(safe, 1).metadata["snapshot"] == @printable
+    end
+
+    test "leaves clean records untouched" do
+      records = [%{uid: "sr:1", metadata: %{"vendor" => "Apple, Inc.", "n" => 3, "b" => true}}]
+
+      assert DeviceWrites.jsonb_safe(records) == records
+    end
+
+    test "tolerates records with no metadata or non-map metadata" do
+      records = [%{uid: "sr:1"}, %{uid: "sr:2", metadata: nil}]
+
+      assert DeviceWrites.jsonb_safe(records) == records
+    end
+  end
 end

@@ -36,6 +36,7 @@ go_test(
         "census_translator_test.go",
         "client_test.go",
         "config_test.go",
+        "discovery_golden_test.go",
         "framing_test.go",
         "mdns_assembler_test.go",
         "mdns_translator_test.go",
@@ -45,6 +46,7 @@ go_test(
         "sidecar_test.go",
         "translator_test.go",
     ],
+    data = glob(["testdata/discovery_golden/*.json"]),
     embed = [":netprobe"],
     deps = [
         "//go/pkg/agent/sidecar",
