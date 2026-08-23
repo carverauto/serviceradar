@@ -5,6 +5,7 @@ defmodule ServiceRadarAgentGateway.JetStreamPublisherTest do
 
   alias ServiceRadar.Edge.PublicationIdentity
   alias ServiceRadar.Edge.StreamRoute
+  alias Serviceradar.Edge.V1.EdgeDeliveryFrameV1
   alias Serviceradar.Edge.V1.EdgeRecordV1
   alias Serviceradar.Edge.V1.EdgeSignedCapabilityV1
   alias ServiceRadarAgentGateway.JetStreamPublisher
@@ -75,26 +76,61 @@ defmodule ServiceRadarAgentGateway.JetStreamPublisherTest do
                JetStreamPublisher.parse_ack(~s({"error":{"code":400,"description":"message size exceeds maximum"}}))
     end
 
-    test "NOTHING the broker says currently classifies as poison" do
-      # :poison exists and is terminal but has no producer here until the preflight lands. If a
-      # broker code ever maps to it again, this test is where that has to be argued.
-      bodies = [
-        ~s({"error":{"code":400,"err_code":10054,"description":"message size exceeds maximum"}}),
-        ~s({"error":{"code":400,"err_code":10060,"description":"expected stream does not match"}}),
-        ~s({"error":{"code":400,"err_code":10071,"description":"wrong last sequence: 5"}}),
-        ~s({"error":{"code":503,"description":"no responders"}}),
-        ~s({"error":{"code":400,"description":"something new"}}),
-        "not json"
-      ]
+    test "the WHOLE broker-code domain produces no :poison" do
+      # Swept, not enumerated. The previous version listed six bodies, which proved only that
+      # those six were safe. JetStream's API error space is 10000-10999; the sweep also covers
+      # zero, negatives, and values past the range, because a broker is free to send anything.
+      #
+      # BOUND STATED HONESTLY: this is the realistic domain plus its edges, not literally every
+      # integer. What it establishes is that no code-driven branch reaches :poison.
+      codes = Enum.concat([[0, -1, -10_060, 1, 999], 10_000..10_999, [11_000, 999_999_999]])
 
-      for body <- bodies do
+      for code <- codes do
+        body = ~s({"error":{"code":400,"err_code":#{code},"description":"x"}})
         assert {:error, class} = JetStreamPublisher.parse_ack(body)
 
-        assert JetStreamPublisher.retryable?(class),
-               "#{body} classified as #{class}, which is terminal"
-      end
+        refute class == :poison, "err_code #{code} classified as :poison"
 
+        assert JetStreamPublisher.retryable?(class),
+               "err_code #{code} classified as #{class}, which is terminal"
+      end
+    end
+
+    test "no DESCRIPTION reaches :poison either, including the size wording" do
+      # The description path is the other way a refusal could become terminal. Size wording is
+      # included deliberately: it is exactly the phrase that used to prove poison, and it must
+      # not any more, because the broker cannot distinguish its own MaxPayload from a stale
+      # stream MaxMsgSize.
+      descriptions = [
+        "message size exceeds maximum",
+        "maximum messages exceeded",
+        "maximum bytes exceeded",
+        "no responders",
+        "insufficient resources",
+        "expected stream does not match",
+        "wrong last sequence: 5",
+        "",
+        "something nobody has written yet"
+      ]
+
+      for desc <- descriptions do
+        body = ~s({"error":{"code":400,"description":"#{desc}"}})
+        assert {:error, class} = JetStreamPublisher.parse_ack(body)
+
+        refute class == :poison, "description #{inspect(desc)} classified as :poison"
+      end
+    end
+
+    test ":poison remains terminal, and its ONLY future source is local validation" do
+      # The class still exists and is still the terminal one -- what changed is that nothing the
+      # broker says produces it. Message-size validation against the frozen ABI bounds is the
+      # sole intended source, and it is LOCAL (task 3.4). If a broker code is ever mapped back
+      # to :poison, the sweep above fails and the decision has to be argued there.
       refute JetStreamPublisher.retryable?(:poison)
+
+      for withheld <- [:capacity, :timeout, :misrouted, :systemic] do
+        assert JetStreamPublisher.retryable?(withheld)
+      end
     end
 
     test "a non-string error description classifies instead of raising" do
@@ -352,19 +388,102 @@ defmodule ServiceRadarAgentGateway.JetStreamPublisherTest do
       assert header(planned.headers, "Nats-Expected-Stream") == planned.route.expected_stream
     end
 
+    # DERIVED from the module's exported mode_*/0 functions rather than a hand-written list, so a
+    # new delivery mode is covered automatically -- or fails loudly here for having no capability
+    # mapping, which is the outcome we want rather than silent non-coverage.
+    defp all_delivery_modes do
+      :functions
+      |> PublicationIdentity.__info__()
+      |> Enum.filter(fn {name, arity} ->
+        arity == 0 and String.starts_with?(Atom.to_string(name), "mode_")
+      end)
+      |> Enum.map(fn {name, _} -> {name, apply(PublicationIdentity, name, [])} end)
+      |> Enum.sort_by(&elem(&1, 1))
+    end
+
+    defp renewal_capability, do: EdgeSignedCapabilityV1.decode(load("delivery_renewal_cap.bin"))
+
+    # The rollover capability is the one embedded in the shared delivery frame.
+    defp rollover_capability do
+      EdgeDeliveryFrameV1.decode(load("delivery_frame.bin")).delivery_capability
+    end
+
+    # mode -> the capability whose transition that mode accepts. fresh takes no proof;
+    # late_fenced accepts a renewal OR a rollover grant.
+    defp capability_for(:mode_fresh), do: nil
+    defp capability_for(:mode_renewal), do: renewal_capability()
+    defp capability_for(:mode_rollover), do: rollover_capability()
+    defp capability_for(:mode_late_fenced), do: renewal_capability()
+
+    defp publication_in_mode(name, mode) do
+      case capability_for(name) do
+        nil ->
+          vector_publication()
+
+        cap ->
+          {:ok, proof} = PublicationIdentity.delivery_proof_digest(cap, mode)
+
+          vector_publication()
+          |> Map.put(:delivery_mode, mode)
+          |> Map.put(:delivery_proof, proof)
+      end
+    end
+
+    # The normative set, stated once. Compared BIDIRECTIONALLY against reflection below.
+    @normative_modes [
+      {:mode_fresh, 1},
+      {:mode_renewal, 2},
+      {:mode_rollover, 3},
+      {:mode_late_fenced, 4}
+    ]
+
+    test "every supported delivery mode is exercised, and the set is derived" do
+      modes = all_delivery_modes()
+
+      # BIDIRECTIONAL, on names AND values. Reflection alone catches an ADDITION, but a deletion
+      # or a rename would silently shrink the universe these tests iterate -- the suite would
+      # still pass while covering less. Comparing both directions makes any of the three fail.
+      assert MapSet.new(modes) == MapSet.new(@normative_modes),
+             "discovered #{inspect(Enum.sort(modes))}, normative #{inspect(@normative_modes)}"
+
+      # And the reflection is not vacuously empty.
+      assert length(modes) == 4
+
+      for {name, mode} <- modes do
+        assert {:ok, planned} = JetStreamPublisher.plan(publication_in_mode(name, mode)),
+               "#{name} did not plan"
+
+        value = header(planned.headers, "Sr-Edge-Transport-Provenance")
+
+        {:ok, decoded} = PublicationIdentity.decode_transport_provenance(value)
+
+        assert decoded.delivery_mode == mode,
+               "#{name} produced provenance for mode #{decoded.delivery_mode}"
+      end
+    end
+
+    test "each mode produces a DISTINCT provenance, so proof propagation cannot be dropped" do
+      values =
+        for {name, mode} <- all_delivery_modes() do
+          {:ok, planned} = JetStreamPublisher.plan(publication_in_mode(name, mode))
+          header(planned.headers, "Sr-Edge-Transport-Provenance")
+        end
+
+      # NOT VACUOUS: deleting proof propagation collapses the non-fresh modes onto the fresh
+      # value, which this catches without needing to know what any of them should be.
+      assert length(Enum.uniq(values)) == length(values),
+             "two delivery modes produced identical provenance"
+    end
+
     test "the header key multiset is EXACTLY four keys once each, in EVERY delivery mode" do
-      # Asserted for fresh AND renewal. Checking fresh alone let a renewal-only extra header
-      # survive the whole publisher file, because every other fixture here is fresh.
-      cap = EdgeSignedCapabilityV1.decode(load("delivery_renewal_cap.bin"))
-      renewal = PublicationIdentity.mode_renewal()
-      {:ok, proof} = PublicationIdentity.delivery_proof_digest(cap, renewal)
-
-      renewal_pub =
-        vector_publication()
-        |> Map.put(:delivery_mode, renewal)
-        |> Map.put(:delivery_proof, proof)
-
-      for {label, pub} <- [{"fresh", vector_publication()}, {"renewal", renewal_pub}] do
+      # EVERY mode, from the same derived set. Checking fresh alone let a renewal-only extra
+      # header survive the whole publisher file; checking fresh and renewal alone would still
+      # have missed a rollover- or late-fenced-only one. Distinct provenance (above) is
+      # additional evidence, NOT a substitute for asserting the exact key set here.
+      for {label, pub} <-
+            Enum.map(all_delivery_modes(), fn {name, mode} ->
+              {name, publication_in_mode(name, mode)}
+            end) do
         {:ok, planned} = JetStreamPublisher.plan(pub)
         keys = Enum.map(planned.headers, &elem(&1, 0))
 
