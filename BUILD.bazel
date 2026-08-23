@@ -146,7 +146,7 @@ py_binary(
     ],
     main = "ci_heavy_gate_contract_test.py",
     # This target shares its source with the remotely executed contract test. Disabling
-    # bytecode output keeps the no-remote execution transition from claiming the same .pyc.
+    # bytecode output keeps its no-remote execution requirement from claiming the same .pyc.
     precompile = "disabled",
     tags = ["no-remote"],
 )

@@ -201,9 +201,9 @@
 ## 6. Repository verification
 - [x] 6.1 Reconcile implementation with `complete-config-manager-adoption`,
       `route-bazel-cache-through-shared-edge`, and `add-srql-fixture-cert-manager-tls`.
-      Status: merged current `github/staging` through `ce705b844b` and re-audited all 12 core test
-      sources added since the branch point; the exhaustive disposition now has 777 source rows and
-      259 selected modules.
+      Status: merged current `github/staging` through `ff55b6726c` and re-audited all 12 core test
+      sources added through `ce705b844b`; the four later staging commits touch only netprobe, so the
+      exhaustive disposition remains 777 source rows and 259 selected modules.
 - [ ] 6.2 Run focused Elixir support tests, Rust lifecycle tests, Bazel configuration tests, the
       async target, every selected serial target, and the large-ingestion release gate.
       Status: focused/static contracts and local target-equivalent shard/heavy runs are green; the
