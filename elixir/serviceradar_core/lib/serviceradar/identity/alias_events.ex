@@ -27,6 +27,7 @@ defmodule ServiceRadar.Identity.AliasEvents do
       changed? = AliasEvents.alias_change_detected?(previous, current)
   """
 
+  alias ServiceRadar.Identity.AliasPolicy
   alias ServiceRadar.Identity.DeviceAliasState
   alias ServiceRadar.Inventory.Device
 
@@ -400,7 +401,21 @@ defmodule ServiceRadar.Identity.AliasEvents do
       |> Map.keys()
       |> Enum.map(&{:ip, &1})
 
-    Enum.uniq(base ++ ip_aliases)
+    # Every :ip alias goes through the shared policy, including current_ip and
+    # collector_ip from `base`. This path is fed by the netprobe NDP census and
+    # produces every IPv6 alias in the fleet; before this gate existed it also
+    # produced 33 fe80:: link-local aliases on farm01. Link-local is
+    # per-interface and shared by convention on some platforms, so aliasing on
+    # it invites exactly the device collapse aliases are supposed to prevent.
+    #
+    # Non-:ip alias types (service_id, mac) are unaffected -- they have their
+    # own value spaces and this predicate does not apply to them.
+    (base ++ ip_aliases)
+    |> Enum.filter(fn
+      {:ip, value} -> AliasPolicy.valid_alias_ip?(value)
+      {_type, _value} -> true
+    end)
+    |> Enum.uniq()
   end
 
   defp process_alias(update, alias_type, alias_value, actor, confirm_threshold) do

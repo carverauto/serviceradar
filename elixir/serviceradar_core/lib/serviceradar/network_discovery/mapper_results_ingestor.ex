@@ -1224,31 +1224,11 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
   @doc """
   Whether an address may be recorded as a device alias.
 
-  Public so the exclusions can be tested directly: aliases are what DIRE merges
-  devices on, so a wrong answer here is a fleet-wide identity bug rather than a
-  cosmetic one.
+  Delegates to `ServiceRadar.Identity.AliasPolicy`, which is shared with the
+  AliasEvents producer so both enforce one rule. Kept public because tests and
+  callers in this module reference it directly.
   """
-  def valid_alias_ip?(nil), do: false
-  def valid_alias_ip?(""), do: false
-  def valid_alias_ip?("0.0.0.0"), do: false
-  def valid_alias_ip?("::"), do: false
-  def valid_alias_ip?("::1"), do: false
-
-  def valid_alias_ip?(ip) when is_binary(ip) do
-    case :inet.parse_address(to_charlist(ip)) do
-      {:ok, {127, _, _, _}} -> false
-      # Link-local is an interface property, not an identity. It stays on the
-      # interface record but must never become a device alias: it is not
-      # routable, and aliases are what DIRE merges devices on. Vendors that
-      # assign a fixed fe80::1 to every router would otherwise collapse each of
-      # them into a single device. IPv4 link-local (169.254/16) is APIPA and
-      # means "this host failed DHCP", which is even less identifying.
-      {:ok, {169, 254, _, _}} -> false
-      {:ok, {a, _, _, _, _, _, _, _}} when a >= 0xFE80 and a <= 0xFEBF -> false
-      {:ok, _} -> true
-      _ -> false
-    end
-  end
+  defdelegate valid_alias_ip?(value), to: ServiceRadar.Identity.AliasPolicy
 
   # Resolve device_ids from device_ip addresses by looking up existing devices.
   # The agent sends device_id as "partition:ip" but Device.uid is "sr:<uuid>".
