@@ -163,6 +163,51 @@ defmodule ServiceRadar.Plugins.AddonRolloutEligibilityTest do
     assert Eligibility.supervision_ready?(helper, %{state: "staged", active: false})
   end
 
+  # netprobe now also serves the generic AddonService on a second socket
+  # (refactor-netprobe-onto-generic-addon-contract task 3.1). Its lifecycle state
+  # still comes from the systemd unit, unchanged -- but that chain crosses
+  # Go -> proto -> Elixir on a bare string, and `tolerated_failures: 0` means one
+  # target that cannot report add-on health fails the rollout for the ENTIRE
+  # fleet. A version bump on netprobe mints a new AddonPackage and a rollout, so
+  # this is exercised on every netprobe release.
+  describe "a systemd-supervised netprobe stays rollout-eligible" do
+    test "the exact state the agent reports for a running systemd unit is accepted" do
+      # "running" is agentaddon.StateRunning (go/pkg/agent/addon/types.go), which
+      # push_loop_capabilities reports for a netprobe unit that is up, and which
+      # addon_status_ingestor turns into active: state == "running".
+      #
+      # If either side of that renames the string, netprobe silently stops being
+      # rollout-eligible and every rollout containing it fails fleet-wide.
+      service = package(supervision: :systemd_service)
+
+      assert Eligibility.supervision_state_ready?(service, %{state: "running", active: true}),
+             "a running netprobe unit must satisfy the systemd supervision model"
+    end
+
+    test "active is derived from the state, so the two cannot disagree" do
+      # addon_status_ingestor sets active: state == "running". A status claiming
+      # to be running while inactive cannot come from that path -- and if it ever
+      # did, the gate must not accept it.
+      service = package(supervision: :systemd_service)
+
+      refute Eligibility.supervision_state_ready?(service, %{state: "running", active: false})
+      refute Eligibility.supervision_state_ready?(service, %{state: "stopped", active: true})
+    end
+
+    test "serving AddonService does not change the state netprobe reports" do
+      # The AddonService socket is additive: netprobe stays a systemd unit and
+      # its lifecycle state still comes from that unit, not from whether the new
+      # socket is being served. Pinned so a later cutover step cannot quietly
+      # start gating rollouts on the new transport.
+      service = package(supervision: :systemd_service)
+
+      for state <- ["running", "active", "healthy", "degraded"] do
+        assert Eligibility.supervision_state_ready?(service, %{state: state, active: true}),
+               "#{state} must remain acceptable for a systemd add-on"
+      end
+    end
+  end
+
   # Every reason string below is one the demo fleet actually reported on
   # 2026-08-09; see openspec/changes/fix-stuck-addon-rollouts. Rollout gating
   # asks supervision_state_ready?/2, which is about whether the add-on came up.
