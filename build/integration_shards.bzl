@@ -45,10 +45,35 @@ load(
 
 # Keep in step with nothing else -- everything derives from this.
 INTEGRATION_SHARD_COUNT = 8
+INTEGRATION_MAX_CASES = 2
+
+# This is a source-separated release-gate database suffix, not an ordinary ninth shard.
+LARGE_INGESTION_DB_SHARD = "large_ingestion"
+
+# Tests using fixture-global external resource names must execute in one existing outer shard.
+FIXED_EXTERNAL_RESOURCE_SHARD = "s7"
+
+_FIXED_EXTERNAL_RESOURCE_SRCS = [
+    "test/integration/netflow_ingestion_integration_test.exs",
+    "test/integration/proxmox_api_smoke_integration_test.exs",
+    "test/serviceradar/scans/adhoc_scan_nats_e2e_test.exs",
+]
 
 def integration_shard_names():
     """Shard suffixes, e.g. ["s0", "s1", ...]. Used in target names and database names."""
     return shard_names(INTEGRATION_SHARD_COUNT)
+
+def fixed_external_resource_sources():
+    """Sources that share a fixture-global resource and must remain in s7."""
+    return list(_FIXED_EXTERNAL_RESOURCE_SRCS)
+
+def integration_test_env(shard):
+    """The complete, identical-shape environment for one ordinary integration shard."""
+    return {
+        "SERVICERADAR_ONLY_INTEGRATION": "1",
+        "SERVICERADAR_INTEGRATION_MAX_CASES": str(INTEGRATION_MAX_CASES),
+        "SERVICERADAR_TEST_DB_SHARD": shard,
+    }
 
 # Test files whose runtime is dominated by a few very slow tests, dealt out BEFORE everything
 # else so that no two land in the same shard.
@@ -83,4 +108,18 @@ def partition_by_shard(srcs):
     directory grouping to balance anything -- one directory holds several hundred files and
     others hold two.
     """
-    return _partition_by_shard(srcs, INTEGRATION_SHARD_COUNT, heavy_srcs = _HEAVY_SRCS)
+    fixed_sources = fixed_external_resource_sources()
+    for source in fixed_sources:
+        if source not in srcs:
+            fail("fixed external resource source is absent from integration sources: {}".format(source))
+
+    remaining_sources = [source for source in srcs if source not in fixed_sources]
+    partitions = _partition_by_shard(
+        remaining_sources,
+        INTEGRATION_SHARD_COUNT,
+        heavy_srcs = _HEAVY_SRCS,
+    )
+    partitions[FIXED_EXTERNAL_RESOURCE_SHARD] = (
+        partitions[FIXED_EXTERNAL_RESOURCE_SHARD] + fixed_sources
+    )
+    return partitions

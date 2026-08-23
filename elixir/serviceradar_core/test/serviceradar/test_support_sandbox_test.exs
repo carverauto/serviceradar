@@ -53,6 +53,18 @@ defmodule ServiceRadar.TestSupportSandboxTest do
     assert_raise DBConnection.OwnershipError, fn -> Repo.query!("SELECT 1") end
   end
 
+  test "integration max cases accepts a positive integer" do
+    assert TestSupport.integration_max_cases!("2") == 2
+  end
+
+  test "integration max cases fails closed" do
+    for value <- [nil, "", "two", "0", "-1", "2x"] do
+      assert_raise ArgumentError, ~r/SERVICERADAR_INTEGRATION_MAX_CASES.*positive integer/s, fn ->
+        TestSupport.integration_max_cases!(value)
+      end
+    end
+  end
+
   test "stopping one non-shared owner leaves the other owner usable" do
     with_probe_table(fn qualified_table ->
       with_owner_runner(fn runner_a, owner_a ->

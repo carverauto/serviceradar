@@ -3,6 +3,7 @@ load("@rules_elixir//:elixir_tests.bzl", "ex_unit_tests")
 load(
     "@serviceradar//build:integration_shards.bzl",
     "integration_shard_names",
+    "integration_test_env",
     "partition_by_shard",
 )
 load("@serviceradar//build:integration_tests.bzl", "requires_shared_fixture")
@@ -448,15 +449,8 @@ ex_unit_test(
             "test/test_helper.exs",
         ],
         # Runs ONLY the complement of :unit_tests -- the tests that need a running application
-        # and a database. test_helper.exs reads this and switches to
-        # include: [:integration, :requires_app] with max_cases: 1.
-        env = {
-            "SERVICERADAR_ONLY_INTEGRATION": "1",
-            # Read by test/db/integration_env.exs, which appends it to the derived
-            # database name. //rust/integration-db:provision_db clones exactly this
-            # set of names from the same shard list.
-            "SERVICERADAR_TEST_DB_SHARD": shard,
-        },
+        # and a database. Every ordinary shard gets the same bounded ExUnit contract.
+        env = integration_test_env(shard),
         tags = ["integration_test"],
         # NO exec_properties, deliberately.
         target_compatible_with = requires_shared_fixture(),

@@ -12,6 +12,12 @@ WORKFLOW = ROOT / "buildbuddy.yaml"
 OBSERVER_SOURCE = ROOT / "rust/integration-db/src/connection_observer.rs"
 OBSERVER_BINARY = ROOT / "rust/integration-db/src/bin/observe_connections.rs"
 OBSERVER_BUILD = ROOT / "rust/integration-db/BUILD.bazel"
+CORE_BUILD = ROOT / "elixir/serviceradar_core/BUILD.bazel"
+FIXED_EXTERNAL_RESOURCE_SOURCES = (
+    ROOT / "elixir/serviceradar_core/test/integration/netflow_ingestion_integration_test.exs",
+    ROOT / "elixir/serviceradar_core/test/integration/proxmox_api_smoke_integration_test.exs",
+    ROOT / "elixir/serviceradar_core/test/serviceradar/scans/adhoc_scan_nats_e2e_test.exs",
+)
 
 
 def integration_benchmark_action() -> str:
@@ -175,6 +181,24 @@ class IntegrationBenchmarkContractTest(unittest.TestCase):
         self.assertIn('exit "$TEARDOWN_STATUS"', cleanup)
         self.assertLess(cleanup.index('exit "$SUITE_STATUS"'), cleanup.index('exit "$OBSERVER_STATUS"'))
         self.assertLess(cleanup.index('exit "$OBSERVER_STATUS"'), cleanup.index('exit "$TEARDOWN_STATUS"'))
+
+    def test_fixed_external_resource_sources_are_serial_data_cases(self):
+        for source in FIXED_EXTERNAL_RESOURCE_SOURCES:
+            self.assertEqual(
+                1,
+                source.read_text(encoding="utf-8").count(
+                    "use ServiceRadar.DataCase, async: false"
+                ),
+                source,
+            )
+
+    def test_core_integration_targets_share_the_bounded_environment(self):
+        core_build = CORE_BUILD.read_text(encoding="utf-8")
+        generated_targets = core_build[core_build.index("integration_tests_{}") :]
+        unit_tests = core_build[core_build.index('name = "unit_tests"') : core_build.index("integration_tests_{}")]
+
+        self.assertIn("env = integration_test_env(shard)", generated_targets)
+        self.assertNotIn("SERVICERADAR_INTEGRATION_MAX_CASES", unit_tests)
 
 
 if __name__ == "__main__":

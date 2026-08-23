@@ -55,14 +55,19 @@ if database_available? do
   #
   # The complement is exactly the tests that need a running application: :integration, plus
   # :requires_app for the modules that need the app but are not integration tests.
-  # max_cases: 1 preserves what `mix test --max-cases 1` gave this suite -- these tests
-  # share one database and are not safe to run concurrently.
+  # The checked-in cap bounds only async modules. Serial modules retain ExUnit's non-overlap
+  # barrier inside their shard.
   if System.get_env("SERVICERADAR_ONLY_INTEGRATION") in ["1", "true", "TRUE"] do
+    integration_max_cases =
+      ServiceRadar.TestSupport.integration_max_cases!(
+        System.get_env("SERVICERADAR_INTEGRATION_MAX_CASES")
+      )
+
     ExUnit.start(
       [
         exclude: [:test, :external, :cluster, :large_ingestion, :benchmark],
         include: [:integration, :requires_app],
-        max_cases: 1
+        max_cases: integration_max_cases
       ] ++ slowest
     )
   else

@@ -116,6 +116,14 @@ defmodule ServiceRadar.TestSupport do
           "SQL sandbox allowance failed for test-owned child #{inspect(child_pid)}: #{inspect(result)}"
   end
 
+  @doc "Parses the required bounded ExUnit concurrency value for integration shards."
+  def integration_max_cases!(value) do
+    case Integer.parse(value || "") do
+      {count, ""} when count > 0 -> count
+      _ -> raise ArgumentError, "SERVICERADAR_INTEGRATION_MAX_CASES must be a positive integer"
+    end
+  end
+
   @doc false
   def drain_dependency_dispatcher_tasks do
     supervisor = ServiceRadar.AgentConfig.DependencyDispatcher.TaskSupervisor

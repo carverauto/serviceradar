@@ -1,8 +1,18 @@
 # Package placeholder for repository alias helper.
 load("@bazel_skylib//rules:common_settings.bzl", "bool_flag", "string_flag")
+load(":integration_shards_test.bzl", "integration_shards_topology_test")
 load(":run_id.bzl", "run_id_file")
 
 package(default_visibility = ["//visibility:public"])
+
+integration_shards_topology_test(
+    name = "integration_shards_topology_test",
+)
+
+test_suite(
+    name = "integration_shards_test",
+    tests = [":integration_shards_topology_test"],
+)
 
 exports_files([
         "benchmark_runner.py",
