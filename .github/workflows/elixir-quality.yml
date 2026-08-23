@@ -14,17 +14,14 @@
 
 name: Elixir Quality
 
-# PR / staging-push gate is mix format + mix credo --strict per project.
+# PR / staging-push gate is mix format + mix credo --strict per *touched*
+# Mix project. The seven job names stay as required checks, so an untouched
+# project still reports success — it just does not mix deps.compile.
+#
 # Compile --warnings-as-errors, xref, hex/deps audits, Sobelow, Dialyzer, and
 # the committed OpenAPI dump check run daily from //buildbuddy.yaml
-# ("Elixir Quality (daily)") against staging. Those steps compile each
-# project's full Mix closure (hundreds of lock entries, overlapping across
-# apps) and were 18m+ of a required PR check for little extra signal over
-# format and Credo; BazelCI already compiles and tests the Elixir tree on
-# every PR.
-#
-# Job names stay "Elixir Quality (<project>)" so existing required checks
-# keep matching.
+# ("Elixir Quality (daily)") against staging. BazelCI already compiles and
+# tests the Elixir tree on every PR.
 permissions:
   contents: read
   pull-requests: write
@@ -84,8 +81,70 @@ jobs:
       ImageOS: ubuntu24
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          # PR checkout is a merge commit. Depth 2 is enough for HEAD^ vs HEAD
+          # so we can skip Mix for projects the PR did not touch.
+          fetch-depth: 2
+
+      - name: Decide whether this Mix project needs lint
+        id: decide
+        env:
+          PROJECT: ${{ matrix.project }}
+          NAME: ${{ matrix.name }}
+        run: |
+          set -euo pipefail
+          if ! files=$(git diff --name-only --diff-filter=ACMR HEAD^ HEAD 2>/dev/null); then
+            echo "Cannot list changed files; running Mix lint to stay fail-closed."
+            echo "lint=true" >> "$GITHUB_OUTPUT"
+            echo "proto=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          lint=false
+          proto=false
+          project="${PROJECT%/}"
+
+          while IFS= read -r f; do
+            [ -z "$f" ] && continue
+            case "$f" in
+              .github/workflows/elixir-quality.yml|\
+              scripts/elixir_quality.sh|\
+              .tool-versions|\
+              elixir/.credo.base.exs|\
+              elixir/.credo.ex_dna.exs|\
+              elixir/.credo.ex_slop.exs)
+                lint=true
+                proto=true
+                ;;
+              proto/*)
+                proto=true
+                ;;
+            esac
+            case "$f" in
+              "$project"|"$project"/*)
+                lint=true
+                ;;
+            esac
+          done <<< "$files"
+
+          if [ "$NAME" = "serviceradar_core" ] && [ "$proto" = true ]; then
+            lint=true
+          fi
+
+          echo "Changed files:"
+          printf '%s\n' "$files"
+          echo "lint=${lint} proto=${proto} project=${project}"
+          echo "lint=${lint}" >> "$GITHUB_OUTPUT"
+          echo "proto=${proto}" >> "$GITHUB_OUTPUT"
+
+      - name: Skip Mix lint for an untouched project
+        if: ${{ steps.decide.outputs.lint != 'true' }}
+        run: |
+          echo "No changes under ${{ matrix.project }} or shared analyzer inputs."
+          echo "Required check Elixir Quality (${{ matrix.name }}) reports success without mix deps.compile."
 
       - name: Setup Beam
+        if: ${{ steps.decide.outputs.lint == 'true' }}
         uses: erlef/setup-beam@fc68ffb90438ef2936bbb3251622353b3dcb2f93
         env:
           ImageOS: ubuntu24
@@ -94,6 +153,7 @@ jobs:
           elixir-version: '1.19.4'
 
       - name: Cache Elixir dependencies and build
+        if: ${{ steps.decide.outputs.lint == 'true' }}
         uses: actions/cache@668228422ae6a00e4ad889ee87cd7109ec5666a7
         with:
           path: |
@@ -107,6 +167,7 @@ jobs:
             ${{ runner.os }}-elixir-quality-${{ matrix.name }}-
 
       - name: Run Elixir format and Credo
+        if: ${{ steps.decide.outputs.lint == 'true' }}
         env:
           HEX_HTTP_CONCURRENCY: '1'
           HEX_HTTP_TIMEOUT: '120'
@@ -121,7 +182,7 @@ jobs:
       # the whole matrix because the other six legs never generate protos.
       # Version and checksum are pinned exactly as rust-checks.yml pins them.
       - name: Install protoc
-        if: ${{ matrix.name == 'serviceradar_core' }}
+        if: ${{ matrix.name == 'serviceradar_core' && (steps.decide.outputs.lint == 'true' || steps.decide.outputs.proto == 'true') }}
         env:
           PROTOC_VERSION: '35.1'
           PROTOC_SHA256: '6930ebf62bd4ea607b98fff052596c6ee564b9835b4ce172c75a3f53ae9d91b7'
@@ -154,7 +215,7 @@ jobs:
           "${install_dir}/bin/protoc" --version
 
       - name: Check committed Elixir protobuf bindings are up to date
-        if: ${{ matrix.name == 'serviceradar_core' }}
+        if: ${{ matrix.name == 'serviceradar_core' && (steps.decide.outputs.lint == 'true' || steps.decide.outputs.proto == 'true') }}
         env:
           # make generate-proto-elixir ends with `mix format`, which compiles
           # deps, and serviceradar_srql's Rustler NIF shells out to `cargo`.
@@ -174,8 +235,37 @@ jobs:
     runs-on: arc-runner-set
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          fetch-depth: 2
+
+      - name: Decide whether DB baseline scripts need to run
+        id: decide
+        run: |
+          set -euo pipefail
+          if ! files=$(git diff --name-only --diff-filter=ACMR HEAD^ HEAD 2>/dev/null); then
+            echo "run=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          run=false
+          while IFS= read -r f; do
+            [ -z "$f" ] && continue
+            case "$f" in
+              scripts/db/*|\
+              elixir/serviceradar_core/priv/repo/migrations/*|\
+              .github/workflows/elixir-quality.yml)
+                run=true
+                ;;
+            esac
+          done <<< "$files"
+          echo "run=${run}" >> "$GITHUB_OUTPUT"
+          echo "run=${run}"
+
+      - name: Skip DB baseline checks
+        if: ${{ steps.decide.outputs.run != 'true' }}
+        run: echo "No DB script or migration changes; skipping baseline checks."
 
       - name: Check baseline metadata and migration startup safety
+        if: ${{ steps.decide.outputs.run == 'true' }}
         run: |
           scripts/db/check-baseline-metadata.sh
           scripts/db/check-migration-startup-safety.sh
