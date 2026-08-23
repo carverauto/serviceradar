@@ -30,6 +30,7 @@ use crate::{
     external_flow::SharedExternalFlowMatcher,
     fingerprint::{FingerprintAccumulator, P0fSignatureRuntime},
     kernel::ensure_supported_kernel,
+    mdns::runtime::MdnsRuntime,
     metrics::Metrics,
     proto::netprobe::{
         DeviceCensusSnapshot, DpiEvent, FingerprintEvent, FlowAttributionEvent, ProcessSnapshot,
@@ -63,6 +64,7 @@ pub struct NetprobeEbpfRuntime {
     _classifier_runtime: Option<AfXdpClassifierRuntime>,
     _p0f_runtime: Option<P0fSignatureRuntime>,
     _census_runtime: Option<DeviceCensusRuntime>,
+    _mdns_runtime: Option<MdnsRuntime>,
     _attribution_runtime: FlowAttributionRuntime,
     _sampling_runtime: Option<AdaptiveSamplingRuntime>,
     // In attribution-only mode we don't run the fingerprint/DPI producers, but the
@@ -145,16 +147,16 @@ impl NetprobeEbpfRuntime {
             // black-hole traffic -- netprobe_tc_ingress observes and returns
             // TC_ACT_OK, diverting nothing. So attach the ingress classifier
             // (and nothing else) and let the census run.
-            let census_runtime = match Self::start_census_only(
+            let (census_runtime, mdns_runtime) = match Self::start_census_only(
                 &mut ebpf,
                 &config.capture_interfaces,
                 census_snapshots,
             ) {
-                Ok(runtime) => Some(runtime),
+                Ok((census, mdns)) => (Some(census), mdns),
                 Err(err) => {
                     // A census failure must never take down flow attribution.
                     log::warn!("netprobe passive device census disabled: {err:#}");
-                    None
+                    (None, None)
                 }
             };
             return Ok(Self::attribution_only_with_census(
@@ -164,6 +166,7 @@ impl NetprobeEbpfRuntime {
                 dpi_events,
                 "unsafe capture interface",
                 census_runtime,
+                mdns_runtime,
             ));
         }
 
@@ -189,6 +192,19 @@ impl NetprobeEbpfRuntime {
             census_snapshots,
         )
         .context("failed to start passive device census runtime")?;
+
+        // The mDNS collector is optional in the strong sense: it identifies
+        // devices the census has already found, so losing it costs device TYPE
+        // and nothing else. It must never be able to take down the census that
+        // supplies the MAC binding it enriches.
+        let mdns_runtime =
+            match MdnsRuntime::start_from_ebpf(fingerprint_interface_name(config), &mut ebpf) {
+                Ok(runtime) => Some(runtime),
+                Err(err) => {
+                    log::warn!("netprobe mDNS collector disabled: {err:#}");
+                    None
+                }
+            };
         let interface_allowlist = populate_interface_allowlist(&mut ebpf, &interfaces)?;
         let sampling_runtime = AdaptiveSamplingRuntime::start(
             interface_allowlist,
@@ -217,6 +233,7 @@ impl NetprobeEbpfRuntime {
             _classifier_runtime: Some(classifier_runtime),
             _p0f_runtime: Some(p0f_runtime),
             _census_runtime: Some(census_runtime),
+            _mdns_runtime: mdns_runtime,
             _attribution_runtime: attribution_runtime,
             _sampling_runtime: Some(sampling_runtime),
             _fingerprint_keepalive: None,
@@ -228,11 +245,14 @@ impl NetprobeEbpfRuntime {
     // Attach ONLY netprobe_tc_ingress and start the census. Deliberately does
     // not touch XDP, AF_XDP, or the egress classifier: egress frames carry this
     // host's own source MAC and say nothing about the segment.
+    // Returns both runtimes: this is the path the ORDINARY deployment takes -- a
+    // single NIC carrying the default route -- so the mDNS collector has to start
+    // here or it never runs anywhere that matters.
     fn start_census_only(
         ebpf: &mut Ebpf,
         capture_interfaces: &[String],
         census_snapshots: broadcast::Sender<DeviceCensusSnapshot>,
-    ) -> Result<DeviceCensusRuntime> {
+    ) -> Result<(DeviceCensusRuntime, Option<MdnsRuntime>)> {
         let interfaces = af_xdp::resolve_interfaces(capture_interfaces)
             .context("failed to resolve census interfaces")?;
         // The census gates on the same interface allowlist as flow accounting,
@@ -264,16 +284,31 @@ impl NetprobeEbpfRuntime {
             capture_interfaces,
             TcAttachType::Ingress,
         )?;
-        let runtime = DeviceCensusRuntime::start_from_ebpf(
-            capture_interfaces.first().cloned().unwrap_or_default(),
-            ebpf,
-            census_snapshots,
-        )?;
+        let interface = capture_interfaces.first().cloned().unwrap_or_default();
+        let runtime =
+            DeviceCensusRuntime::start_from_ebpf(interface.clone(), ebpf, census_snapshots)?;
         log::info!(
             "netprobe passive device census active on {}: TC ingress only, no redirect",
             capture_interfaces.join(",")
         );
-        Ok(runtime)
+
+        // Failure here costs device TYPE, not device presence. The census must
+        // survive it.
+        let mdns = match MdnsRuntime::start_from_ebpf(interface, ebpf) {
+            Ok(mdns) => {
+                log::info!(
+                    "netprobe mDNS collector active on {}",
+                    capture_interfaces.join(",")
+                );
+                Some(mdns)
+            }
+            Err(err) => {
+                log::warn!("netprobe mDNS collector disabled: {err:#}");
+                None
+            }
+        };
+
+        Ok((runtime, mdns))
     }
 
     fn attribution_only_with_census(
@@ -283,6 +318,7 @@ impl NetprobeEbpfRuntime {
         dpi_events: EventSender<DpiEvent>,
         reason: &str,
         census_runtime: Option<DeviceCensusRuntime>,
+        mdns_runtime: Option<MdnsRuntime>,
     ) -> Self {
         let mut runtime = Self::attribution_only(
             ebpf,
@@ -292,6 +328,7 @@ impl NetprobeEbpfRuntime {
             reason,
         );
         runtime._census_runtime = census_runtime;
+        runtime._mdns_runtime = mdns_runtime;
         runtime
     }
 
@@ -309,6 +346,7 @@ impl NetprobeEbpfRuntime {
             _classifier_runtime: None,
             _p0f_runtime: None,
             _census_runtime: None,
+            _mdns_runtime: None,
             _attribution_runtime: attribution_runtime,
             _sampling_runtime: None,
             _fingerprint_keepalive: Some(fingerprint_events),
