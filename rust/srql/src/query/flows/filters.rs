@@ -18,6 +18,24 @@ pub(super) fn apply_filter<'a>(
         "ip" | "endpoint_ip" => {
             query = apply_bidirectional_ip_filter(query, filter)?;
         }
+        // Every address that belongs to one device: its endpoint IPs and the
+        // sampler addresses it exports from, matched as a single list.
+        //
+        // This exists so `device_id:` scoping can be expressed with *values*.
+        // `device_id:` resolves the address set with correlated ARRAY(SELECT ...)
+        // subqueries, and PostgreSQL cannot estimate selectivity through those
+        // InitPlans -- it abandons the src/dst endpoint indexes and filters the
+        // whole time window. Measured on one device over 24h: est. cost 89_347
+        // for the InitPlan form against 19_546 once the values are present and
+        // the planner can build a BitmapOr over the existing indexes.
+        //
+        // A sampler address is one of the device's own interface addresses, so
+        // folding both into one list is the natural shape rather than a
+        // widening: a flow to or from the router's WAN address does involve the
+        // router.
+        "device_addr" | "device_address" => {
+            query = apply_device_addr_filter(query, filter)?;
+        }
         // Bidirectional port: either side of the 5-tuple (same role as `ip:`).
         // Prefer this over unsupported `(dst_port:N OR src_port:N)` boolean OR.
         "port" | "endpoint_port" => {
@@ -525,6 +543,53 @@ fn apply_bidirectional_port_filter<'a>(
 ///
 /// Every arm binds the value once per side; `collect_filter_params` pushes the
 /// matching pair so the translate path's LIMIT/OFFSET binds do not shift.
+/// Match any of a device's addresses against either endpoint or the sampler.
+///
+/// An empty list is rejected rather than dropped. The bare `ip:` list filter
+/// drops an empty list, which silently widens the query to every flow in the
+/// window -- for a device scope that would show one device another device's
+/// traffic. Diesel also emits no placeholder for an empty `eq_any`, which
+/// desyncs the bind arity this path asserts, so erroring is both the safe and
+/// the correct answer. Callers resolve the address set first and are expected
+/// not to ask for an empty scope.
+fn apply_device_addr_filter<'a>(
+    mut query: FlowsQuery<'a>,
+    filter: &Filter,
+) -> Result<FlowsQuery<'a>> {
+    match filter.op {
+        FilterOp::Eq => {
+            let value = filter.value.as_scalar()?.to_string();
+            query = query.filter(
+                src_endpoint_ip
+                    .eq(value.clone())
+                    .or(dst_endpoint_ip.eq(value.clone()))
+                    .or(sampler_address.eq(value)),
+            );
+        }
+        FilterOp::In => {
+            let values = filter.value.as_list()?.to_vec();
+            if values.is_empty() {
+                return Err(ServiceError::InvalidRequest(
+                    "device_addr filter requires at least one address".into(),
+                ));
+            }
+            query = query.filter(
+                src_endpoint_ip
+                    .eq_any(values.clone())
+                    .or(dst_endpoint_ip.eq_any(values.clone()))
+                    .or(sampler_address.eq_any(values)),
+            );
+        }
+        _ => {
+            return Err(ServiceError::InvalidRequest(
+                "device_addr filter supports equality and list matching".into(),
+            ));
+        }
+    }
+
+    Ok(query)
+}
+
 fn apply_bidirectional_ip_filter<'a>(
     mut query: FlowsQuery<'a>,
     filter: &Filter,

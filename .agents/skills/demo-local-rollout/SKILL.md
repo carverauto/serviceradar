@@ -208,6 +208,75 @@ cosign sign --key "$COSIGN_KEY_REF" \
 
 Re-mint the Vault token on `403 permission denied`. Tear down the port-forward when signing is done.
 
+### Build from a fresh git worktree
+
+Work in a worktree so concurrent agents do not share a checkout. Two things bite
+on a *fresh* one, both verified 2026-08-23:
+
+1. Symlink the gitignored Bazel rc files before any bazel command (repo Hard
+   Rules). Without them RBE fails with `PERMISSION_DENIED: Missing API key`.
+
+2. **Build once before `make push_all`.** `scripts/push_all_images.sh` resolves
+   `bazel info bazel-bin` and then checks `! -d` on the result *before* it builds
+   anything. On a fresh worktree that directory does not exist yet, so the script
+   dies with:
+
+   ```
+   error: unable to resolve bazel-bin
+   ```
+
+   which reads like a credentials or config problem and is not. `bazel info`
+   alone succeeds, which makes it more confusing. Prime the output tree first:
+
+   ```bash
+   bazel build -c opt --config=remote --remote_download_outputs=toplevel //docker/images:images
+   make push_all PUSH_TAG="sha-$(git rev-parse HEAD)"
+   ```
+
+### Move only the services you changed
+
+Use `image.digests.<service>`, not `global.imageTag`, unless every first-party
+image really should move. `global.imageTag` rolls the whole set for a
+two-service change; `image.digests.<service>` short-circuits ahead of it in
+`serviceradar.imageRefSuffix`, so everything else stays on the release tag and
+only the changed services need signing. Service keys are the `image.tags` names
+(`core`, `webNg`, `agent`, `agentGateway`, ...).
+
+### `kubectl set image` poisons later Helm upgrades
+
+A hand-run `kubectl set image` takes server-side-apply ownership of
+`.spec.template.spec.containers[].image` under the `kubectl-set` field manager,
+and every later `helm upgrade` then fails with:
+
+```
+Apply failed with 1 conflict: conflict with "kubectl-set" using apps/v1
+```
+
+Resetting `metadata.managedFields` to `[{}]` does NOT fix it on its own -- the
+fields are re-attributed to a synthetic `before-first-apply` manager and the
+conflict count goes UP. The fix is Helm 4's `--force-conflicts`, which takes
+ownership in place (unlike `--force-replace`, which recreates the resource):
+
+```bash
+helm upgrade serviceradar ./helm/serviceradar -n <ns> --reuse-values --force-conflicts \
+  --set image.digests.core=sha256:...
+```
+
+### Forcing scheduled work instead of waiting
+
+Oban-scheduled maintenance can trickle. Drive it directly over the release RPC
+rather than waiting for the next tick:
+
+```bash
+kubectl exec -n <ns> <core-pod> -- /app/bin/serviceradar_core_elx rpc \
+  'ServiceRadar.Inventory.Identity.DuplicateSweep.reconcile_duplicates() |> inspect() |> IO.puts()'
+kubectl exec -n <ns> <core-pod> -- /app/bin/serviceradar_core_elx rpc \
+  'ServiceRadar.Observability.NetflowExporterCacheRefreshWorker.perform(%Oban.Job{args: %{}}) |> inspect() |> IO.puts()'
+```
+
+Measured difference: the scheduled duplicate sweep was merging ~1 device per
+run; the direct call merged all 11 outstanding in 1.5s.
+
 ### Argo / Image Updater
 
 `serviceradar-demo-prod` uses argocd-image-updater with `write-back-method: git` to `demo/prod-release`.

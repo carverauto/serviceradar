@@ -105,35 +105,33 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.FlowData do
   # `device_id:` compiles to
   #   src = ANY(ARRAY(SELECT ...)) OR dst = ANY(ARRAY(...)) OR sampler = ANY(ARRAY(...))
   # and PostgreSQL cannot estimate selectivity through those InitPlans, so it
-  # abandons the endpoint indexes and applies the whole thing as a Filter over
-  # the entire time window. Measured on demo, one device, 24h:
+  # abandons the endpoint indexes and applies the predicate as a Filter over the
+  # entire time window. Measured on demo for one device over 24h:
   #
-  #   device_id:                     Filter over the window          cost 89_347
-  #   1 unknown array, no OR         Index Only Scan                 cost  9_931
-  #   2 ORed unknown arrays          partial BitmapOr                cost 72_506
-  #   3 ORed unknown arrays          no BitmapOr at all              cost 84_887
-  #   ip:[<resolved>]                BitmapOr on src/dst indexes     cost 19_546
+  #   device_id:                  Filter over the whole window     cost 89_347
+  #   device_addr:[<resolved>]    BitmapOr on src/dst indexes      cost 19_546
   #
-  # The (src_endpoint_ip, time) and (dst_endpoint_ip, time) indexes already
-  # existed; they were unusable only because the values were hidden behind
-  # InitPlans. Resolving the endpoints first costs two indexed lookups (~17) and
-  # hands SRQL a value list, which it binds as a real parameter array -- and
-  # SRQL already forces custom plans, so the planner sees the actual values.
+  # The indexes always existed; the values were hidden behind InitPlans.
+  # Resolving them costs two indexed lookups and hands SRQL a value list, which
+  # it binds as real parameter arrays -- and SRQL forces custom plans, so the
+  # planner sees the actual values.
   #
-  # Falls back to `device_id:` in the two cases where the rewrite would be wrong:
+  # `device_addr:` matches either endpoint OR the sampler against one list, so
+  # unlike the earlier `ip:` form this stays correct for a device that exports
+  # flows. That matters: once an exporter resolves to its device, `ip:` alone
+  # would miss the sampler-attributed flows, and falling back to `device_id:`
+  # put the slow plan back AND broke the timeseries query, which rejects
+  # `device_id:` outright -- taking the Traffic Profile chart and the sparkline
+  # with it.
   #
-  #   * the device owns sampler addresses -- `device_id:` also matches
-  #     exporter-owned flows by sampler_address, and SRQL has no boolean OR
-  #     across fields to express (ip OR sampler).
-  #   * the device resolves to no IPs -- SRQL drops an empty `in` list filter
-  #     entirely, which would silently widen this to every flow in the window.
+  # Falls back to `device_id:` only when the device resolves to no addresses at
+  # all, so an empty list can never be emitted.
   def device_scope_token(device_uid) when is_binary(device_uid) and device_uid != "" do
-    with {:ok, samplers} <- device_flow_samplers(device_uid),
-         [] <- samplers,
-         {:ok, ips} <- device_flow_ips(device_uid),
-         [_ | _] <- ips do
-      values = Enum.map_join(ips, ",", fn ip -> ~s|"#{escape_value(ip)}"| end)
-      "ip:[#{values}]"
+    with {:ok, ips} <- device_flow_ips(device_uid),
+         {:ok, samplers} <- device_flow_samplers(device_uid),
+         [_ | _] = addresses <- Enum.uniq(ips ++ samplers) do
+      values = Enum.map_join(addresses, ",", fn address -> ~s|"#{escape_value(address)}"| end)
+      "device_addr:[#{values}]"
     else
       _ -> device_id_token(device_uid)
     end
