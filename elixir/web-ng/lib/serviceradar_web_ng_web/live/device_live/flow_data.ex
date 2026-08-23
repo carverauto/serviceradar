@@ -147,8 +147,16 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.FlowData do
 
   def load_device_flow_stats(srql_mod, _device_uid, scope, base) do
     specs = [
+      # Two specs, not one call doing both queries in sequence. Sequential cost
+      # is additive (~4s + ~4s measured on demo) and under pool contention that
+      # exceeded the batch budget, so :summary was dropped and every stat card
+      # rendered 0 -- observed in production as
+      # "Device details task summary did not complete: :timeout".
       DeviceTaskData.spec(@slow_flow_task_ms, :summary, fn ->
-        load_device_flow_summary(srql_mod, scope, base)
+        summary_group(srql_mod, scope, base, @summary_parallel_aggregates)
+      end),
+      DeviceTaskData.spec(@slow_flow_task_ms, :summary_distinct, fn ->
+        summary_group(srql_mod, scope, base, @summary_distinct_aggregates)
       end),
       DeviceTaskData.spec(@slow_flow_task_ms, :protocols, fn ->
         load_device_flow_protocols(srql_mod, scope, base)
@@ -175,7 +183,11 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.FlowData do
 
     results = DeviceTaskData.run(specs, @flow_stats_timeout_ms)
 
-    summary = Map.get(results, :summary, %{})
+    # Merged here rather than in one task so the groups stay independently
+    # recoverable: losing the distinct must not blank the other three cards.
+    summary =
+      Map.merge(Map.get(results, :summary, %{}), Map.get(results, :summary_distinct, %{}))
+
     protocols = Map.get(results, :protocols, [])
     talkers = Map.get(results, :talkers, [])
     destinations = Map.get(results, :destinations, [])
@@ -239,13 +251,6 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.FlowData do
 
     {summary, sparkline_json, proto_json, chart_keys, chart_points, top_talkers_json, top_destinations_json,
      top_peers_json, top_ports_json, top_protocols_json, facets}
-  end
-
-  defp load_device_flow_summary(srql_mod, scope, base) do
-    Map.merge(
-      summary_group(srql_mod, scope, base, @summary_parallel_aggregates),
-      summary_group(srql_mod, scope, base, @summary_distinct_aggregates)
-    )
   end
 
   defp summary_group(srql_mod, scope, base, aggregates) do
