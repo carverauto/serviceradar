@@ -1203,53 +1203,84 @@ export const godViewLayoutTopologyStateMethods = {
     if (!candidateIds || candidateIds.size === 0) return placements
     if (!graph || !Array.isArray(graph.edges)) return placements
 
-    const anchorGuests = new Map()
+    const attachmentEdges = []
 
     for (const edge of graph.edges) {
       if (!this.isAttachmentTopologyEdge(edge)) continue
       const sourceId = edgeNodeId(graph, edge, "source")
       const targetId = edgeNodeId(graph, edge, "target")
       if (!sourceId || !targetId || sourceId === targetId) continue
-
-      let guestId = null
-      let anchorId = null
-
-      if (candidateIds.has(sourceId) && !candidateIds.has(targetId) && positions.has(targetId)) {
-        guestId = sourceId
-        anchorId = targetId
-      } else if (candidateIds.has(targetId) && !candidateIds.has(sourceId) && positions.has(sourceId)) {
-        guestId = targetId
-        anchorId = sourceId
-      }
-
-      if (!guestId || placements.has(guestId)) continue
-      const guests = anchorGuests.get(anchorId) || []
-      guests.push(guestId)
-      anchorGuests.set(anchorId, guests)
+      attachmentEdges.push([sourceId, targetId])
     }
 
-    for (const [anchorId, guests] of anchorGuests.entries()) {
-      const anchorPoint = positions.get(anchorId)
-      if (!anchorPoint) continue
-      const orderedGuests = guests.sort()
-      const anchorSeed = Math.abs(hashStringToSeed(anchorId)) % ATTACHMENT_SATELLITES_PER_RING
+    // Iterate to a fixpoint so chains place correctly: a residual switch that
+    // rings around a placed router becomes an anchor for its own endpoints on
+    // the next pass. Without iteration both ends of the chain fall to lanes.
+    let progress = true
+    let rounds = 0
 
-      for (let index = 0; index < orderedGuests.length; index += 1) {
-        const guestId = orderedGuests[index]
-        if (placements.has(guestId)) continue
-        const ring = Math.floor(index / ATTACHMENT_SATELLITES_PER_RING)
-        const ringStart = ring * ATTACHMENT_SATELLITES_PER_RING
-        const ringCount = Math.min(ATTACHMENT_SATELLITES_PER_RING, orderedGuests.length - ringStart)
-        const ringIndex = index - ringStart
-        const radius = ATTACHMENT_SATELLITE_RING_RADIUS + ring * ATTACHMENT_SATELLITE_RING_STEP
-        const angle =
-          -Math.PI / 2 +
-          (Math.PI * 2 * (ringIndex + anchorSeed)) / Math.max(1, ringCount)
+    while (progress && rounds < 4) {
+      progress = false
+      rounds += 1
 
-        placements.set(guestId, {
-          x: anchorPoint.x + Math.cos(angle) * radius,
-          y: anchorPoint.y + Math.sin(angle) * radius,
-        })
+      const anchorGuests = new Map()
+
+      for (const [sourceId, targetId] of attachmentEdges) {
+        let guestId = null
+        let anchorId = null
+
+        if (candidateIds.has(sourceId) && !placements.has(sourceId)) {
+          const anchorPoint = positions.get(targetId) || placements.get(targetId)
+          if (anchorPoint && !candidateIds.has(targetId)) {
+            guestId = sourceId
+            anchorId = targetId
+          } else if (anchorPoint && placements.has(targetId)) {
+            guestId = sourceId
+            anchorId = targetId
+          }
+        }
+
+        if (!guestId && candidateIds.has(targetId) && !placements.has(targetId)) {
+          const anchorPoint = positions.get(sourceId) || placements.get(sourceId)
+          if (anchorPoint && !candidateIds.has(sourceId)) {
+            guestId = targetId
+            anchorId = sourceId
+          } else if (anchorPoint && placements.has(sourceId)) {
+            guestId = targetId
+            anchorId = sourceId
+          }
+        }
+
+        if (!guestId) continue
+        const guests = anchorGuests.get(anchorId) || []
+        guests.push(guestId)
+        anchorGuests.set(anchorId, guests)
+      }
+
+      for (const [anchorId, guests] of anchorGuests.entries()) {
+        const anchorPoint = positions.get(anchorId) || placements.get(anchorId)
+        if (!anchorPoint) continue
+        const orderedGuests = guests.sort()
+        const anchorSeed = Math.abs(hashStringToSeed(anchorId)) % ATTACHMENT_SATELLITES_PER_RING
+
+        for (let index = 0; index < orderedGuests.length; index += 1) {
+          const guestId = orderedGuests[index]
+          if (placements.has(guestId)) continue
+          const ring = Math.floor(index / ATTACHMENT_SATELLITES_PER_RING)
+          const ringStart = ring * ATTACHMENT_SATELLITES_PER_RING
+          const ringCount = Math.min(ATTACHMENT_SATELLITES_PER_RING, orderedGuests.length - ringStart)
+          const ringIndex = index - ringStart
+          const radius = ATTACHMENT_SATELLITE_RING_RADIUS + ring * ATTACHMENT_SATELLITE_RING_STEP
+          const angle =
+            -Math.PI / 2 +
+            (Math.PI * 2 * (ringIndex + anchorSeed)) / Math.max(1, ringCount)
+
+          placements.set(guestId, {
+            x: anchorPoint.x + Math.cos(angle) * radius,
+            y: anchorPoint.y + Math.sin(angle) * radius,
+          })
+          progress = true
+        }
       }
     }
 

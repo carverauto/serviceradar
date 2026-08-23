@@ -141,6 +141,40 @@ describe("layout_topology_state_methods", () => {
     expect(distanceBetween).toBeGreaterThan(40)
   })
 
+  it("attachmentSatellitePlacements resolves chains through newly placed satellites", () => {
+    const context = makeContext()
+    // router is placed; uplink-switch is residual (no backbone edge) and hangs
+    // off the router; endpoint hangs off the switch. Both must place.
+    const graph = {
+      nodes: [{id: "router"}, {id: "uplink-switch"}, {id: "endpoint"}],
+      edges: [
+        {source: 0, target: 1, topologyClass: "endpoints", evidenceClass: "inferred-segment"},
+        {source: 1, target: 2, topologyClass: "endpoints", evidenceClass: "endpoint-attachment"},
+      ],
+    }
+    const positions = new Map([["router", {x: 500, y: 500}]])
+    const candidates = new Set(["uplink-switch", "endpoint"])
+
+    const placements = context.attachmentSatellitePlacements(graph, positions, candidates)
+
+    expect(placements.has("uplink-switch")).toEqual(true)
+    expect(placements.has("endpoint")).toEqual(true)
+
+    const switchDistance = Math.hypot(
+      placements.get("uplink-switch").x - 500,
+      placements.get("uplink-switch").y - 500,
+    )
+    expect(switchDistance).toBeGreaterThanOrEqual(100)
+    expect(switchDistance).toBeLessThanOrEqual(220)
+
+    const endpointDistance = Math.hypot(
+      placements.get("endpoint").x - placements.get("uplink-switch").x,
+      placements.get("endpoint").y - placements.get("uplink-switch").y,
+    )
+    expect(endpointDistance).toBeGreaterThanOrEqual(100)
+    expect(endpointDistance).toBeLessThanOrEqual(220)
+  })
+
   it("geoGridData returns no grid outside geo mode", () => {
     const context = makeContext()
 

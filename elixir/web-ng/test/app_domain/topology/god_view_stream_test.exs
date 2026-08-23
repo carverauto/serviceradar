@@ -7442,6 +7442,159 @@ defmodule ServiceRadarWebNG.Topology.GodViewStreamTest do
     assert Enum.empty?(Enum.filter(snapshot.edges, &(&1.evidence_class == "endpoint-attachment")))
   end
 
+  test "latest_snapshot/0 keeps inferred-segment edges only for otherwise-isolated devices" do
+    {:ok, graph_ref} = RuntimeGraph.get_graph_ref()
+    original_rows = Native.runtime_graph_get_links(graph_ref)
+
+    on_exit(fn ->
+      Native.runtime_graph_replace_links(graph_ref, original_rows)
+    end)
+
+    actor = SystemActor.system(:god_view_stream_test)
+    suffix = System.unique_integer([:positive])
+    switch_uid = "sr:segment-switch-#{suffix}"
+    uplink_uid = "sr:segment-uplink-#{suffix}"
+    server_uid = "sr:segment-server-#{suffix}"
+    endpoint_uid = "sr:segment-endpoint-#{suffix}"
+
+    create_topology_device(actor, switch_uid, "segment-switch-#{suffix}", %{
+      ip: "198.51.100.220",
+      type_id: 10,
+      is_available: true
+    })
+
+    create_topology_device(actor, uplink_uid, "segment-uplink-#{suffix}", %{
+      ip: "198.51.100.221",
+      type_id: 10,
+      is_available: true
+    })
+
+    create_topology_device(actor, server_uid, "segment-server-#{suffix}", %{
+      ip: "198.51.100.222",
+      type_id: 12,
+      is_available: true
+    })
+
+    create_topology_device(actor, endpoint_uid, nil, %{
+      ip: "198.51.100.223",
+      type_id: 2,
+      is_available: true
+    })
+
+    inferred_segment_row = fn local_uid, local_ip, neighbor_uid, neighbor_ip ->
+      %{
+        local_device_id: local_uid,
+        local_device_ip: local_ip,
+        local_if_name: nil,
+        local_if_index: nil,
+        neighbor_if_name: nil,
+        neighbor_if_index: nil,
+        neighbor_device_id: neighbor_uid,
+        neighbor_mgmt_addr: neighbor_ip,
+        protocol: "snmp-l2",
+        evidence_class: "inferred-segment",
+        confidence_tier: "medium",
+        confidence_reason: "arp_fdb_port_mapping",
+        flow_pps: 0,
+        flow_bps: 0,
+        capacity_bps: 0,
+        flow_pps_ab: 0,
+        flow_pps_ba: 0,
+        flow_bps_ab: 0,
+        flow_bps_ba: 0,
+        telemetry_source: "none",
+        telemetry_observed_at: "2026-03-19T17:00:00Z",
+        metadata: %{"relation_type" => "ATTACHED_TO", "evidence_class" => "inferred-segment"}
+      }
+    end
+
+    rows = [
+      %{
+        local_device_id: switch_uid,
+        local_device_ip: "198.51.100.220",
+        local_if_name: "eth1",
+        local_if_index: 1,
+        neighbor_if_name: "eth24",
+        neighbor_if_index: 24,
+        neighbor_device_id: uplink_uid,
+        neighbor_mgmt_addr: "198.51.100.221",
+        protocol: "lldp",
+        evidence_class: "direct",
+        confidence_tier: "high",
+        confidence_reason: "direct",
+        flow_pps: 10,
+        flow_bps: 1_000,
+        capacity_bps: 1_000_000_000,
+        flow_pps_ab: 5,
+        flow_pps_ba: 5,
+        flow_bps_ab: 500,
+        flow_bps_ba: 500,
+        telemetry_source: "interface",
+        telemetry_observed_at: "2026-03-19T17:00:00Z",
+        metadata: %{"relation_type" => "CONNECTS_TO", "evidence_class" => "direct"}
+      },
+      %{
+        local_device_id: server_uid,
+        local_device_ip: "198.51.100.222",
+        local_if_name: "eth0",
+        local_if_index: 0,
+        neighbor_if_name: "eth23",
+        neighbor_if_index: 23,
+        neighbor_device_id: uplink_uid,
+        neighbor_mgmt_addr: "198.51.100.221",
+        protocol: "lldp",
+        evidence_class: "direct",
+        confidence_tier: "high",
+        confidence_reason: "direct",
+        flow_pps: 10,
+        flow_bps: 1_000,
+        capacity_bps: 1_000_000_000,
+        flow_pps_ab: 5,
+        flow_pps_ba: 5,
+        flow_bps_ab: 500,
+        flow_bps_ba: 500,
+        telemetry_source: "interface",
+        telemetry_observed_at: "2026-03-19T17:00:00Z",
+        metadata: %{"relation_type" => "CONNECTS_TO", "evidence_class" => "direct"}
+      },
+      # Redundant: the server already has an LLDP edge, the switch has the uplink.
+      inferred_segment_row.(switch_uid, "198.51.100.220", server_uid, "198.51.100.222"),
+      # Load-bearing: this segment edge is the endpoint's only connection.
+      inferred_segment_row.(switch_uid, "198.51.100.220", endpoint_uid, "198.51.100.223")
+    ]
+
+    replace_runtime_graph_links!(graph_ref, rows)
+
+    assert {:ok, %{snapshot: snapshot}} = latest_snapshot_for_test()
+
+    # The redundant segment edge is gone; the server stays attached via LLDP.
+    refute find_edge(snapshot, switch_uid, server_uid)
+    assert find_edge(snapshot, server_uid, uplink_uid)
+
+    # The load-bearing segment edge survives: the endpoint is not an island.
+    endpoint_connected? =
+      find_edge(snapshot, switch_uid, endpoint_uid) != nil or
+        Enum.any?(snapshot.edges, fn edge ->
+          String.contains?(edge.source <> edge.target, endpoint_uid)
+        end) or
+        Enum.any?(snapshot.nodes, fn node ->
+          node.id == endpoint_uid or node.label == "198.51.100.223"
+        end)
+
+    assert endpoint_connected?
+
+    # No duplicate cluster edges: the switch renders at most one summary edge.
+    cluster_id = "cluster:endpoints:" <> switch_uid
+
+    cluster_edges =
+      Enum.filter(snapshot.edges, fn edge ->
+        (edge.source == switch_uid and edge.target == cluster_id) or
+          (edge.source == cluster_id and edge.target == switch_uid)
+      end)
+
+    assert length(cluster_edges) <= 1
+  end
+
   test "latest_snapshot/0 expands clustered endpoints with backend-authored membership metadata" do
     {:ok, graph_ref} = RuntimeGraph.get_graph_ref()
     original_rows = Native.runtime_graph_get_links(graph_ref)
