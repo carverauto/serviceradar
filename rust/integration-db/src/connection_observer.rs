@@ -37,6 +37,14 @@ pub struct Capacity {
     pub reserved: u64,
 }
 
+/// Fail-closed capacity values when startup cannot query the fixture. The summary retains every
+/// required field without claiming usable slots that were never observed.
+pub const UNAVAILABLE_CAPACITY: Capacity = Capacity {
+    max: 0,
+    superuser_reserved: 0,
+    reserved: 0,
+};
+
 impl Capacity {
     pub fn usable_client_slots(self) -> u64 {
         self.max
@@ -256,6 +264,36 @@ where
     status
 }
 
+pub fn terminal_summary_line(
+    peaks: Peaks,
+    run_prefix: &str,
+    window: SampleWindow,
+    capacity: Capacity,
+) -> String {
+    format!(
+        "SERVICERADAR_CONNECTION_OBSERVER {}",
+        peaks.summary_json(run_prefix, window, capacity)
+    )
+}
+
+/// Emits a contract-shaped summary when startup fails before live capacity is available.
+pub fn emit_startup_terminal_summary<F>(
+    status: Result<()>,
+    peaks: Peaks,
+    run_prefix: &str,
+    window: SampleWindow,
+    emit: F,
+) -> Result<()>
+where
+    F: FnOnce(&str),
+{
+    emit_terminal_summary(
+        status,
+        terminal_summary_line(peaks, run_prefix, window, UNAVAILABLE_CAPACITY),
+        emit,
+    )
+}
+
 pub fn epoch_millis() -> Result<u64> {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -393,5 +431,38 @@ mod tests {
         );
         assert!(result.is_err());
         assert_eq!(output, ["SERVICERADAR_CONNECTION_OBSERVER {\"samples\":1}"]);
+    }
+
+    #[test]
+    fn connection_stage_failure_emits_one_fail_closed_summary() {
+        assert_startup_failure_summary("admin connection");
+    }
+
+    #[test]
+    fn capacity_stage_failure_emits_one_fail_closed_summary() {
+        assert_startup_failure_summary("connection capacity");
+    }
+
+    fn assert_startup_failure_summary(stage: &str) {
+        let mut output = Vec::new();
+        let result = emit_startup_terminal_summary(
+            Err(anyhow!(
+                "connection observer deadline elapsed during {stage}"
+            )),
+            Peaks::default(),
+            "sr_core_test_deadbeef",
+            SampleWindow {
+                start_ms: 11,
+                end_ms: 22,
+            },
+            |line| output.push(line.to_string()),
+        );
+        assert!(result.is_err());
+        assert_eq!(
+            output,
+            [
+                r#"SERVICERADAR_CONNECTION_OBSERVER {"sample_interval_ms":500,"samples":0,"sample_window_start_ms":11,"sample_window_end_ms":22,"observer_sessions_excluded":1,"run_prefix":"sr_core_test_deadbeef","run_scoped_peak":0,"fixture_wide_peak":0,"max_connections":0,"superuser_reserved_connections":0,"reserved_connections":0,"usable_client_slots":0}"#
+            ]
+        );
     }
 }

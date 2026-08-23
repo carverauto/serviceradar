@@ -4,9 +4,9 @@ use anyhow::{Context, Result};
 use serviceradar_integration_db::{
     connect_admin,
     connection_observer::{
-        capacity, completion_status, emit_terminal_summary, epoch_millis, remaining_until, sample,
-        within_deadline, Capacity, ObserverArgs, Peaks, Quiescence, SampleWindow,
-        SAMPLE_INTERVAL_MS,
+        capacity, completion_status, emit_startup_terminal_summary, emit_terminal_summary,
+        epoch_millis, remaining_until, sample, terminal_summary_line, within_deadline, Capacity,
+        ObserverArgs, Peaks, Quiescence, SampleWindow, SAMPLE_INTERVAL_MS,
     },
     database_name,
 };
@@ -16,11 +16,17 @@ async fn main() -> Result<()> {
     let args = ObserverArgs::parse(std::env::args())?;
     let deadline = tokio::time::Instant::now() + Duration::from_secs(args.max_seconds);
     let run_prefix = database_name()?;
-    let (client, _connection) =
-        within_deadline(deadline, connect_admin(None), "admin connection").await?;
-    let capacity = within_deadline(deadline, capacity(&client), "connection capacity").await?;
     let start_ms = epoch_millis()?;
     let mut peaks = Peaks::default();
+    let (client, _connection) =
+        match within_deadline(deadline, connect_admin(None), "admin connection").await {
+            Ok(connection) => connection,
+            Err(error) => return finish_startup(Err(error), peaks, &run_prefix, start_ms),
+        };
+    let capacity = match within_deadline(deadline, capacity(&client), "connection capacity").await {
+        Ok(capacity) => capacity,
+        Err(error) => return finish_startup(Err(error), peaks, &run_prefix, start_ms),
+    };
     let mut quiescence = Quiescence::default();
     let mut quiescent = false;
 
@@ -115,10 +121,23 @@ fn finish(
     let end_ms = epoch_millis().unwrap_or(start_ms);
     emit_terminal_summary(
         status,
-        format!(
-            "SERVICERADAR_CONNECTION_OBSERVER {}",
-            peaks.summary_json(run_prefix, SampleWindow { start_ms, end_ms }, capacity)
+        terminal_summary_line(
+            peaks,
+            run_prefix,
+            SampleWindow { start_ms, end_ms },
+            capacity,
         ),
+        |line| println!("{line}"),
+    )
+}
+
+fn finish_startup(status: Result<()>, peaks: Peaks, run_prefix: &str, start_ms: u64) -> Result<()> {
+    let end_ms = epoch_millis().unwrap_or(start_ms);
+    emit_startup_terminal_summary(
+        status,
+        peaks,
+        run_prefix,
+        SampleWindow { start_ms, end_ms },
         |line| println!("{line}"),
     )
 }
