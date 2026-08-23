@@ -130,4 +130,55 @@ defmodule ServiceRadar.Observability.NetflowCacheRefreshWorkerTest do
       assert NetflowInterfaceCacheRefreshWorker.observed_interface_pairs_from_rows(rows) == []
     end
   end
+
+  describe "unambiguous_alias_owners/1 (exporter alias resolution)" do
+    alias NetflowExporterCacheRefreshWorker, as: Worker
+
+    test "resolves a sampler address held as an alias by exactly one device" do
+      # The bug this fixes: a router exports from an interface that is not its
+      # primary address, so primary-only matching leaves device_uid NULL and its
+      # own exported flows attribute to no device.
+      rows = [%{alias_value: "23.138.124.17", device_id: "sr:tonka"}]
+
+      assert Worker.unambiguous_alias_owners(rows) == %{"23.138.124.17" => "sr:tonka"}
+    end
+
+    test "fails closed when two devices claim the same address" do
+      # Never tie-break. device_uid scopes an entire device's flow view, so a
+      # wrong binding hands one device another device's whole flow corpus.
+      rows = [
+        %{alias_value: "10.0.0.9", device_id: "sr:a"},
+        %{alias_value: "10.0.0.9", device_id: "sr:b"}
+      ]
+
+      assert Worker.unambiguous_alias_owners(rows) == %{}
+    end
+
+    test "duplicate rows for the same device are not ambiguity" do
+      rows = [
+        %{alias_value: "10.0.0.9", device_id: "sr:a"},
+        %{alias_value: "10.0.0.9", device_id: "sr:a"}
+      ]
+
+      assert Worker.unambiguous_alias_owners(rows) == %{"10.0.0.9" => "sr:a"}
+    end
+
+    test "one contested address does not suppress the uncontested ones" do
+      rows = [
+        %{alias_value: "10.0.0.1", device_id: "sr:one"},
+        %{alias_value: "10.0.0.9", device_id: "sr:a"},
+        %{alias_value: "10.0.0.9", device_id: "sr:b"},
+        %{alias_value: "10.0.0.2", device_id: "sr:two"}
+      ]
+
+      assert Worker.unambiguous_alias_owners(rows) == %{
+               "10.0.0.1" => "sr:one",
+               "10.0.0.2" => "sr:two"
+             }
+    end
+
+    test "is empty for no rows" do
+      assert Worker.unambiguous_alias_owners([]) == %{}
+    end
+  end
 end
