@@ -20,20 +20,14 @@ repos:
       # and those differ per project. Running from the repo root would format with
       # the wrong config, or none.
       #
-      # A project whose deps are not fetched is skipped rather than failed. Missing
-      # deps make `mix format` error out, and -- worse -- a DIFFERENT Styler version
-      # silently reformats lines the commit never touched, which turns a one-line
-      # change into an unreviewable diff. Run `mix deps.get` in that project to turn
-      # the hook on for it.
+      # The hook FAILS if a staged file's Mix project has no deps/styler (run
+      # mix deps.get there) or if mix format / --check-formatted fails. It used
+      # to `|| true`, which is how unformatted Elixir reached CI. Sibling Mix
+      # projects with deps are also --check-formatted, matching the CI matrix.
       - id: mix-format
         name: mix format (Elixir)
         language: system
         files: '\.exs?$'
         stages:
           - pre-commit
-        entry: >-
-          bash -c 'for f in "$@"; do d=${f%/*};
-          while [ -n "$d" ] && [ "$d" != "$f" ] && [ ! -f "$d/mix.exs" ]; do
-          case "$d" in */*) d=${d%/*} ;; *) d="" ;; esac; done;
-          [ -n "$d" ] && [ -f "$d/mix.exs" ] && [ -d "$d/deps/styler" ] &&
-          (cd "$d" && mix format "${f#"$d"/}") || true; done' --
+        entry: .githooks/mix-format-elixir
