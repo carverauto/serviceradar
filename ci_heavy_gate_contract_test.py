@@ -32,6 +32,14 @@ FIXED_EXTERNAL_RESOURCE_PATHS = (
     "test/integration/proxmox_api_smoke_integration_test.exs",
     "test/serviceradar/scans/adhoc_scan_nats_e2e_test.exs",
 )
+ASYNC_SAFE_SRCS = (
+    "test/integration/advisory_feed_loader_integration_test.exs",
+    "test/integration/secret_broker_audit_integration_test.exs",
+    "test/serviceradar/composite_checks/composite_check_test.exs",
+    "test/serviceradar/composite_checks/composite_check_rule_test.exs",
+    "test/serviceradar/composite_checks/composite_check_input_test.exs",
+    "test/serviceradar/composite_checks/device_composite_check_result_test.exs",
+)
 
 
 def fixed_external_resource_sources() -> tuple[str, ...]:
@@ -254,6 +262,29 @@ class IntegrationBenchmarkContractTest(unittest.TestCase):
                 ),
                 source,
             )
+
+    def test_async_safe_sources_are_explicitly_audited_data_cases(self):
+        self.assertTrue(set(ASYNC_SAFE_SRCS).isdisjoint(FIXED_EXTERNAL_RESOURCE_PATHS))
+
+        prohibited_semantics = (
+            "sandbox: :unboxed",
+            "Application.put_env",
+            "Application.delete_env",
+            "TRUNCATE",
+            "CREATE TABLE",
+            "REFRESH MATERIALIZED",
+            "Gnat.",
+            "Nats",
+        )
+
+        for relative_path in ASYNC_SAFE_SRCS:
+            source = (ROOT / "elixir/serviceradar_core" / relative_path).read_text(
+                encoding="utf-8"
+            )
+            self.assertEqual(1, source.count("use ServiceRadar.DataCase, async: true"))
+
+            for prohibited in prohibited_semantics:
+                self.assertNotIn(prohibited, source, relative_path)
 
     def test_core_integration_targets_share_the_bounded_environment(self):
         core_build = CORE_BUILD.read_text(encoding="utf-8")

@@ -13,7 +13,7 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.LoaderIntegrationTest do
   ~5.9 TB of WAL re-upserting an unchanged corpus every 6 hours.
   """
 
-  use ServiceRadar.DataCase, async: false
+  use ServiceRadar.DataCase, async: true
 
   import Ecto.Query
 
