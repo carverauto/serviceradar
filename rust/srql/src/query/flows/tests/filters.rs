@@ -419,3 +419,80 @@ fn wildcard_port_filter_binds_text_param() {
     });
     assert!(has_wildcard, "expected wildcard port to bind text param");
 }
+
+#[test]
+fn device_addr_matches_either_endpoint_or_the_sampler() {
+    // `device_id:` resolves the same address set with correlated
+    // ARRAY(SELECT ...) subqueries, and the planner cannot estimate selectivity
+    // through those InitPlans -- it drops the endpoint indexes and filters the
+    // whole time window. Binding the resolved addresses as values instead lets
+    // it build a BitmapOr over the existing src/dst/sampler indexes.
+    let plan = QueryPlan {
+        entity: Entity::Flows,
+        filters: vec![Filter {
+            field: "device_addr".into(),
+            op: FilterOp::In,
+            value: FilterValue::List(vec![
+                "192.168.10.1".to_string(),
+                "23.138.124.17".to_string(),
+            ]),
+        }],
+        order: Vec::new(),
+        limit: 50,
+        offset: 0,
+        time_range: None,
+        stats: None,
+        downsample: None,
+        rollup_stats: None,
+        other: false,
+        include_deleted: false,
+    };
+
+    let (sql, params) = to_sql_and_params(&plan).expect("device_addr should build SQL");
+
+    assert!(sql.contains("src_endpoint_ip"), "missing src side: {sql}");
+    assert!(sql.contains("dst_endpoint_ip"), "missing dst side: {sql}");
+    assert!(
+        sql.contains("sampler_address"),
+        "sampler side is the whole point -- an exporting device's own flows are \
+         matched by sampler_address, not by endpoint: {sql}"
+    );
+
+    // Three binds, one per side. A mismatch here shifts the LIMIT/OFFSET binds.
+    let bound = params
+        .iter()
+        .filter(|param| matches!(param, BindParam::TextArray(_)))
+        .count();
+    assert_eq!(bound, 3, "expected one array bind per side, got {bound}");
+}
+
+#[test]
+fn device_addr_rejects_an_empty_address_list() {
+    // Must NOT behave like the bare `ip:` list filter, which drops an empty list
+    // and thereby widens the query to every flow in the window. For a device
+    // scope that would show one device another device's traffic, so this is
+    // rejected outright rather than silently widened.
+    let plan = QueryPlan {
+        entity: Entity::Flows,
+        filters: vec![Filter {
+            field: "device_addr".into(),
+            op: FilterOp::In,
+            value: FilterValue::List(Vec::new()),
+        }],
+        order: Vec::new(),
+        limit: 50,
+        offset: 0,
+        time_range: None,
+        stats: None,
+        downsample: None,
+        rollup_stats: None,
+        other: false,
+        include_deleted: false,
+    };
+
+    let err = to_sql_and_params(&plan).expect_err("empty device_addr must be rejected");
+    assert!(
+        err.to_string().contains("at least one address"),
+        "expected an explicit empty-scope error, got: {err}"
+    );
+}

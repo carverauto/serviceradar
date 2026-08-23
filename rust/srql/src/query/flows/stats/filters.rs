@@ -147,6 +147,37 @@ fn build_stats_bidirectional_ip_filter(
     Ok(format!("({src}{joiner}{dst})"))
 }
 
+/// Every address belonging to one device -- either endpoint, or the sampler it
+/// exports from -- as a single list (stats path). See flows/filters.rs for why
+/// this exists instead of scoping by `device_id:`.
+fn build_stats_device_addr_filter(
+    filter: &Filter,
+    binds: &mut Vec<FlowSqlBindValue>,
+) -> Result<String> {
+    if !matches!(filter.op, FilterOp::Eq | FilterOp::In) {
+        return Err(ServiceError::InvalidRequest(
+            "device_addr filter supports equality and list matching".into(),
+        ));
+    }
+
+    // Rejected, not delegated. `build_stats_text_filter` renders an empty `In`
+    // as `1=1`, so an empty address set would widen this to every flow in the
+    // window -- a device's stat cards would total the whole fleet's traffic.
+    // The row path rejects it too (for a different reason: diesel emits no
+    // placeholder, which desyncs bind arity), so all three paths agree.
+    if matches!(filter.op, FilterOp::In) && filter.value.as_list()?.is_empty() {
+        return Err(ServiceError::InvalidRequest(
+            "device_addr filter requires at least one address".into(),
+        ));
+    }
+
+    let src = build_stats_text_filter("f.src_endpoint_ip", filter, binds)?;
+    let dst = build_stats_text_filter("f.dst_endpoint_ip", filter, binds)?;
+    let sampler = build_stats_text_filter("f.sampler_address", filter, binds)?;
+
+    Ok(format!("({src} OR {dst} OR {sampler})"))
+}
+
 /// `port:` across both flow endpoint ports (stats path).
 fn build_stats_bidirectional_port_filter(
     filter: &Filter,
@@ -172,6 +203,7 @@ pub(in crate::query::flows) fn build_stats_filter_clause(
         "src_endpoint_ip" | "src_ip" => build_stats_text_filter("f.src_endpoint_ip", filter, binds),
         "dst_endpoint_ip" | "dst_ip" => build_stats_text_filter("f.dst_endpoint_ip", filter, binds),
         "ip" | "endpoint_ip" => build_stats_bidirectional_ip_filter(filter, binds),
+        "device_addr" | "device_address" => build_stats_device_addr_filter(filter, binds),
         "port" | "endpoint_port" => build_stats_bidirectional_port_filter(filter, binds),
         "protocol_name" => build_stats_text_filter("f.protocol_name", filter, binds),
         "sampler_address" => build_stats_text_filter("f.sampler_address", filter, binds),

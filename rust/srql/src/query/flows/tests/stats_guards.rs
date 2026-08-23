@@ -145,3 +145,78 @@ fn other_rollup_rejects_ungrouped_flow_stats_after_parsing() {
         "expected parsed grouped-stats error, got: {err}"
     );
 }
+
+#[test]
+fn stats_device_addr_rejects_an_empty_address_list() {
+    // Regression: `build_stats_text_filter` renders an empty `In` as `1=1`, so
+    // delegating an empty address set here produced `(1=1 OR 1=1 OR 1=1)` --
+    // every flow in the window. A device's stat cards would have totalled the
+    // whole fleet's traffic, which is worse than showing nothing because it is
+    // plausible. The row path rejects this for an unrelated reason (bind arity),
+    // so only a stats-path test covers it.
+    let start = Utc.with_ymd_and_hms(2025, 1, 1, 0, 0, 0).unwrap();
+    let end = start + ChronoDuration::hours(1);
+
+    let plan = QueryPlan {
+        entity: Entity::Flows,
+        filters: vec![Filter {
+            field: "device_addr".into(),
+            op: FilterOp::In,
+            value: FilterValue::List(Vec::new()),
+        }],
+        order: Vec::new(),
+        limit: 100,
+        offset: 0,
+        time_range: Some(TimeRange { start, end }),
+        stats: Some(crate::parser::StatsSpec::from_raw(
+            "sum(bytes_total) as total_bytes",
+        )),
+        downsample: None,
+        rollup_stats: None,
+        other: false,
+        include_deleted: false,
+    };
+
+    let err = to_sql_and_params_stats(&plan).expect_err("empty device_addr must be rejected");
+    assert!(
+        err.to_string().contains("at least one address"),
+        "expected an explicit empty-scope error, got: {err}"
+    );
+}
+
+#[test]
+fn stats_device_addr_matches_either_endpoint_or_the_sampler() {
+    let start = Utc.with_ymd_and_hms(2025, 1, 1, 0, 0, 0).unwrap();
+    let end = start + ChronoDuration::hours(1);
+
+    let plan = QueryPlan {
+        entity: Entity::Flows,
+        filters: vec![Filter {
+            field: "device_addr".into(),
+            op: FilterOp::In,
+            value: FilterValue::List(vec!["192.168.6.1".into(), "192.168.7.1".into()]),
+        }],
+        order: Vec::new(),
+        limit: 100,
+        offset: 0,
+        time_range: Some(TimeRange { start, end }),
+        stats: Some(crate::parser::StatsSpec::from_raw(
+            "sum(bytes_total) as total_bytes",
+        )),
+        downsample: None,
+        rollup_stats: None,
+        other: false,
+        include_deleted: false,
+    };
+
+    let (sql, _params) = to_sql_and_params_stats(&plan).expect("device_addr stats must translate");
+    // The sampler arm is the point: once an exporter resolves to its device,
+    // scoping on the endpoints alone drops every sampler-attributed flow, which
+    // is exactly how a router's stat cards read zero.
+    assert!(sql.contains("f.src_endpoint_ip"), "missing src arm: {sql}");
+    assert!(sql.contains("f.dst_endpoint_ip"), "missing dst arm: {sql}");
+    assert!(
+        sql.contains("f.sampler_address"),
+        "missing sampler arm: {sql}"
+    );
+}
