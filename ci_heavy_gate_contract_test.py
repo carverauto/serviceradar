@@ -88,6 +88,32 @@ class IntegrationBenchmarkContractTest(unittest.TestCase):
         ):
             self.assertIn(required, self.action)
 
+    def test_expected_sha_is_checked_before_any_build_or_registry_work(self):
+        sha_check = self.action.index("SERVICERADAR_BENCHMARK_EXPECTED_SHA")
+        docker_auth = self.action.index("//:buildbuddy_setup_docker_auth")
+        full_build = self.action.index("bazel build -c opt --config=ci")
+        self.assertLess(sha_check, docker_auth)
+        self.assertLess(sha_check, full_build)
+
+    def test_preflight_is_private_and_cannot_warm_the_measured_run(self):
+        for required in (
+            "PREFLIGHT_RUN_ID=",
+            "PREFLIGHT_ENV_FILE=",
+            "trap 'rm -f \"$PREFLIGHT_ENV_FILE\"' EXIT",
+            "--//build:run_id=$PREFLIGHT_RUN_ID",
+            "--//build:run_id=$RUN_ID",
+        ):
+            self.assertIn(required, self.action)
+
+        preflight_start = self.action.index("PREFLIGHT_RUN_ID=")
+        measured_start = self.action.index("\n          RUN_ID=", preflight_start)
+        self.assertLess(preflight_start, measured_start)
+        self.assertIn("(\n", self.action[preflight_start - 80 : preflight_start])
+        self.assertLess(
+            self.action.index("trap 'rm -f \"$PREFLIGHT_ENV_FILE\"' EXIT"),
+            measured_start,
+        )
+
     def test_clock_and_observer_markers_cannot_drift(self):
         self.assertIn("mktemp -d", self.action)
         for marker in ("READY_FILE", "SUITE_COMPLETE_FILE", "QUIESCENT_FILE", "STOP_FILE"):
@@ -106,6 +132,26 @@ class IntegrationBenchmarkContractTest(unittest.TestCase):
         self.assertLess(teardown, end)
         self.assertLess(end, stop)
         self.assertLess(stop, observer_wait)
+
+    def test_cleanup_quiesces_before_teardown_and_preserves_status_priority(self):
+        cleanup = self.action[self.action.index("cleanup() {") :]
+        suite_complete = cleanup.index("touch \"$SUITE_COMPLETE_FILE\"")
+        quiescent_wait = cleanup.index("wait_for_marker \"$QUIESCENT_FILE\" 30", suite_complete)
+        teardown = cleanup.index("//rust/integration-db:teardown_db", quiescent_wait)
+        end = cleanup.index("END_NS=", teardown)
+        stop = cleanup.index("touch \"$STOP_FILE\"", end)
+        observer_wait = cleanup.index("wait \"$OBSERVER_PID\"", stop)
+        self.assertLess(suite_complete, quiescent_wait)
+        self.assertLess(quiescent_wait, teardown)
+        self.assertLess(teardown, end)
+        self.assertLess(end, stop)
+        self.assertLess(stop, observer_wait)
+
+        self.assertIn('exit "$SUITE_STATUS"', cleanup)
+        self.assertIn('exit "$OBSERVER_STATUS"', cleanup)
+        self.assertIn('exit "$TEARDOWN_STATUS"', cleanup)
+        self.assertLess(cleanup.index('exit "$SUITE_STATUS"'), cleanup.index('exit "$OBSERVER_STATUS"'))
+        self.assertLess(cleanup.index('exit "$OBSERVER_STATUS"'), cleanup.index('exit "$TEARDOWN_STATUS"'))
 
 
 if __name__ == "__main__":

@@ -1,10 +1,12 @@
 use std::{
     fmt::Write as _,
+    future::Future,
     path::PathBuf,
-    time::{SystemTime, UNIX_EPOCH},
+    time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
 use anyhow::{anyhow, bail, Context, Result};
+use tokio::time::Instant;
 use tokio_postgres::Client;
 
 pub const SAMPLE_INTERVAL_MS: u64 = 500;
@@ -227,6 +229,24 @@ pub fn completion_status(
     Ok(())
 }
 
+/// Returns the remaining observer budget, failing closed once its process-wide deadline passes.
+pub fn remaining_until(deadline: Instant) -> Result<Duration> {
+    deadline
+        .checked_duration_since(Instant::now())
+        .ok_or_else(|| anyhow!("connection observer deadline elapsed"))
+}
+
+/// Runs one async observer operation only while its process-wide deadline still has budget.
+pub async fn within_deadline<F, T>(deadline: Instant, operation: F, description: &str) -> Result<T>
+where
+    F: Future<Output = Result<T>>,
+{
+    let remaining = remaining_until(deadline)?;
+    tokio::time::timeout(remaining, operation)
+        .await
+        .with_context(|| format!("connection observer deadline elapsed during {description}"))?
+}
+
 pub fn epoch_millis() -> Result<u64> {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -332,5 +352,23 @@ mod tests {
         assert!(completion_status(false, false, true).is_err());
         assert!(completion_status(false, true, false).is_err());
         assert_eq!(completion_status(true, true, false), Ok(()));
+    }
+
+    #[test]
+    fn expired_deadline_has_no_remaining_operation_time() {
+        let deadline = tokio::time::Instant::now() - std::time::Duration::from_millis(1);
+        assert!(remaining_until(deadline).is_err());
+    }
+
+    #[tokio::test]
+    async fn deadline_bounds_an_in_flight_operation() {
+        let deadline = tokio::time::Instant::now() + std::time::Duration::from_millis(1);
+        let result = within_deadline(
+            deadline,
+            std::future::pending::<Result<()>>(),
+            "sample pg_stat_activity",
+        )
+        .await;
+        assert!(result.is_err());
     }
 }

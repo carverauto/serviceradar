@@ -179,6 +179,16 @@ actions:
       memory: "50GB"
       disk: "40GB"
     steps:
+      # Refuse a synthetic or stale checkout before spending any registry/build capacity.
+      - run: |
+          set -euo pipefail
+          : "${SERVICERADAR_BENCHMARK_EXPECTED_SHA:?SERVICERADAR_BENCHMARK_EXPECTED_SHA is required}"
+          EFFECTIVE_HEAD="$(git rev-parse HEAD)"
+          [ "$SERVICERADAR_BENCHMARK_EXPECTED_SHA" = "$EFFECTIVE_HEAD" ] || {
+            echo "benchmark requested $SERVICERADAR_BENCHMARK_EXPECTED_SHA but checked out $EFFECTIVE_HEAD" >&2
+            exit 1
+          }
+
       - run: >-
           bazel run -c opt --config=ci --//build:enable_integration_tests //:buildbuddy_setup_docker_auth --verbose_failures
 
@@ -191,39 +201,39 @@ actions:
 
           export SERVICERADAR_ENV=ci
           export BAZEL_PROFILE=ci
-          : "${SERVICERADAR_BENCHMARK_EXPECTED_SHA:?SERVICERADAR_BENCHMARK_EXPECTED_SHA is required}"
-          EFFECTIVE_HEAD="$(git rev-parse HEAD)"
-          [ "$SERVICERADAR_BENCHMARK_EXPECTED_SHA" = "$EFFECTIVE_HEAD" ] || {
-            echo "benchmark requested $SERVICERADAR_BENCHMARK_EXPECTED_SHA but checked out $EFFECTIVE_HEAD" >&2
-            exit 1
-          }
+
+          # Preflight is intentionally outside the clock. It may migrate, then proves the
+          # template current before the measured lifecycle starts. Its credentials and run id
+          # are private to this subshell, so it cannot warm or leak measured-run configuration.
+          (
+            PREFLIGHT_RUN_ID="$(od -An -tx1 -N4 /dev/urandom | tr -d ' \n')"
+            PREFLIGHT_ENV_FILE="$(mktemp "${TMPDIR:-/tmp}/serviceradar-preflight-env.XXXXXX")"
+            trap 'rm -f "$PREFLIGHT_ENV_FILE"' EXIT
+            bazel run -c opt --config=ci --//build:enable_integration_tests --//build:run_id=$PREFLIGHT_RUN_ID //:buildbuddy_setup_fixture_env
+            set -a; . "$PREFLIGHT_ENV_FILE"; set +a
+            PREFLIGHT_FLAGS="-c opt --config=ci --strategy=TestRunner=local --//build:enable_integration_tests
+               --//build:run_id=$PREFLIGHT_RUN_ID --test_env=SERVICERADAR_ENV=ci --flaky_test_attempts=1
+               --test_output=all --test_env=SERVICERADAR_TEST_SLOWEST=15
+               --test_env=SERVICERADAR_SECRET_DATABASE_PASSWORD
+               --test_env=SERVICERADAR_SECRET_DATABASE_ADMIN_PASSWORD
+               --test_env=SERVICERADAR_SECRET_DGRAPH_ADMIN_PASSWORD
+               $SERVICERADAR_TEST_ENV_FLAGS"
+            preflight="$(bazel run -c opt --config=ci --//build:enable_integration_tests --//build:run_id=$PREFLIGHT_RUN_ID //rust/integration-db:prepare_template)"
+            echo "$preflight"
+            case "$preflight" in
+              *"migration(s) pending"*) bazel test $PREFLIGHT_FLAGS //elixir/serviceradar_core:migrate_template ;;
+            esac
+            preflight="$(bazel run -c opt --config=ci --//build:enable_integration_tests --//build:run_id=$PREFLIGHT_RUN_ID //rust/integration-db:prepare_template)"
+            echo "$preflight"
+            case "$preflight" in
+              *"migration(s) pending"*) echo "template remains pending after preflight" >&2; exit 1 ;;
+            esac
+          )
 
           RUN_ID="$(od -An -tx1 -N4 /dev/urandom | tr -d ' \n')"
           export RUN_ID
           SERVICERADAR_FIXTURE_ENV_FILE="$(mktemp "${TMPDIR:-/tmp}/serviceradar-fixture-env.XXXXXX")"
           export SERVICERADAR_FIXTURE_ENV_FILE
-
-          # Preflight is intentionally outside the clock. It may migrate, then proves the
-          # template current before the measured lifecycle starts.
-          bazel run -c opt --config=ci --//build:enable_integration_tests --//build:run_id=$RUN_ID //:buildbuddy_setup_fixture_env
-          set -a; . "$SERVICERADAR_FIXTURE_ENV_FILE"; set +a
-          FLAGS="-c opt --config=ci --strategy=TestRunner=local --//build:enable_integration_tests
-             --//build:run_id=$RUN_ID --test_env=SERVICERADAR_ENV=ci --flaky_test_attempts=1
-             --test_output=all --test_env=SERVICERADAR_TEST_SLOWEST=15
-             --test_env=SERVICERADAR_SECRET_DATABASE_PASSWORD
-             --test_env=SERVICERADAR_SECRET_DATABASE_ADMIN_PASSWORD
-             --test_env=SERVICERADAR_SECRET_DGRAPH_ADMIN_PASSWORD
-             $SERVICERADAR_TEST_ENV_FLAGS"
-          preflight="$(bazel run -c opt --config=ci --//build:enable_integration_tests --//build:run_id=$RUN_ID //rust/integration-db:prepare_template)"
-          echo "$preflight"
-          case "$preflight" in
-            *"migration(s) pending"*) bazel test $FLAGS //elixir/serviceradar_core:migrate_template ;;
-          esac
-          preflight="$(bazel run -c opt --config=ci --//build:enable_integration_tests --//build:run_id=$RUN_ID //rust/integration-db:prepare_template)"
-          echo "$preflight"
-          case "$preflight" in
-            *"migration(s) pending"*) echo "template remains pending after preflight" >&2; exit 1 ;;
-          esac
 
           OBSERVER_DIR="$(mktemp -d)"
           READY_FILE="$OBSERVER_DIR/ready"
@@ -232,7 +242,9 @@ actions:
           STOP_FILE="$OBSERVER_DIR/stop"
           [ ! -e "${READY_FILE}" ] && [ ! -e "${SUITE_COMPLETE_FILE}" ] && [ ! -e "${QUIESCENT_FILE}" ] && [ ! -e "${STOP_FILE}" ]
           OBSERVER_PID=""
-          SUITE_STATUS=1
+          SUITE_STATUS=0
+          OBSERVER_STATUS=0
+          TEARDOWN_STATUS=0
 
           wait_for_marker() {
             marker="$1"
@@ -246,25 +258,38 @@ actions:
           }
 
           cleanup() {
-            original_status=$?
+            ORIGINAL_STATUS=$?
             set +e
-            teardown_status=0
-            observer_status=0
+            if [ "$ORIGINAL_STATUS" -ne 0 ] && [ "$SUITE_STATUS" -eq 0 ]; then
+              SUITE_STATUS=$ORIGINAL_STATUS
+            fi
+            if [ -n "$OBSERVER_PID" ]; then
+              touch "$SUITE_COMPLETE_FILE"
+              wait_for_marker "$QUIESCENT_FILE" 30 || OBSERVER_STATUS=1
+            fi
             bazel test $FLAGS //rust/integration-db:teardown_db
-            teardown_status=$?
+            TEARDOWN_STATUS=$?
             END_NS="$(date +%s%N)"
             if [ -n "$OBSERVER_PID" ]; then
               touch "$STOP_FILE"
               wait "$OBSERVER_PID"
-              observer_status=$?
+              OBSERVER_PROCESS_STATUS=$?
+              if [ "$OBSERVER_PROCESS_STATUS" -ne 0 ] && [ "$OBSERVER_STATUS" -eq 0 ]; then
+                OBSERVER_STATUS=$OBSERVER_PROCESS_STATUS
+              fi
             fi
-            echo "SERVICERADAR_INTEGRATION_BENCHMARK start_ns=$START_NS end_ns=$END_NS suite_status=$SUITE_STATUS teardown_status=$teardown_status observer_status=$observer_status"
+            echo "SERVICERADAR_INTEGRATION_BENCHMARK start_ns=$START_NS end_ns=$END_NS suite_status=$SUITE_STATUS observer_status=$OBSERVER_STATUS teardown_status=$TEARDOWN_STATUS"
             rm -f "$SERVICERADAR_FIXTURE_ENV_FILE"
             rm -rf "$OBSERVER_DIR"
             trap - EXIT
-            if [ "$original_status" -ne 0 ] || [ "$SUITE_STATUS" -ne 0 ] || [ "$teardown_status" -ne 0 ] || [ "$observer_status" -ne 0 ]; then
-              exit 1
+            if [ "$SUITE_STATUS" -ne 0 ]; then
+              exit "$SUITE_STATUS"
+            elif [ "$OBSERVER_STATUS" -ne 0 ]; then
+              exit "$OBSERVER_STATUS"
+            elif [ "$TEARDOWN_STATUS" -ne 0 ]; then
+              exit "$TEARDOWN_STATUS"
             fi
+            exit "$ORIGINAL_STATUS"
           }
 
           START_NS="$(date +%s%N)"
@@ -282,10 +307,4 @@ actions:
             *"migration(s) pending"*) echo "template changed during benchmark; warm-up/non-cohort" >&2; exit 1 ;;
           esac
           bazel test $FLAGS //rust/integration-db:provision_db
-          set +e
           bazel test $FLAGS //... --test_tag_filters=integration_test,-large_ingestion_test,-acceptance_test
-          SUITE_STATUS=$?
-          set -e
-          touch "$SUITE_COMPLETE_FILE"
-          wait_for_marker "$QUIESCENT_FILE" 30 || { echo "observer did not observe quiescence" >&2; exit 1; }
-          [ "$SUITE_STATUS" -eq 0 ]

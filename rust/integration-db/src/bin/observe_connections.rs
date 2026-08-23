@@ -4,8 +4,8 @@ use anyhow::{Context, Result};
 use serviceradar_integration_db::{
     connect_admin,
     connection_observer::{
-        capacity, completion_status, epoch_millis, sample, ObserverArgs, Peaks, Quiescence,
-        SampleWindow, SAMPLE_INTERVAL_MS,
+        capacity, completion_status, epoch_millis, remaining_until, sample, within_deadline,
+        ObserverArgs, Peaks, Quiescence, SampleWindow, SAMPLE_INTERVAL_MS,
     },
     database_name,
 };
@@ -13,33 +13,47 @@ use serviceradar_integration_db::{
 #[tokio::main]
 async fn main() -> Result<()> {
     let args = ObserverArgs::parse(std::env::args())?;
-    let run_prefix = database_name()?;
-    let (client, _connection) = connect_admin(None).await?;
-    let capacity = capacity(&client).await?;
-    let start_ms = epoch_millis()?;
     let deadline = tokio::time::Instant::now() + Duration::from_secs(args.max_seconds);
+    let run_prefix = database_name()?;
+    let (client, _connection) =
+        within_deadline(deadline, connect_admin(None), "admin connection").await?;
+    let capacity = within_deadline(deadline, capacity(&client), "connection capacity").await?;
+    let start_ms = epoch_millis()?;
     let mut peaks = Peaks::default();
     let mut quiescence = Quiescence::default();
     let mut quiescent = false;
 
-    record_sample(&client, &run_prefix, &mut peaks).await?;
+    record_sample(deadline, &client, &run_prefix, &mut peaks).await?;
     write_marker(&args.ready_file)?;
 
     loop {
+        if remaining_until(deadline).is_err() {
+            let status = completion_status(quiescent, false, true);
+            print_summary(peaks, &run_prefix, start_ms, capacity)?;
+            return status.map_err(anyhow::Error::msg);
+        }
+
         if args.stop_file.exists() {
             let status = completion_status(quiescent, true, false);
             print_summary(peaks, &run_prefix, start_ms, capacity)?;
             return status.map_err(anyhow::Error::msg);
         }
 
-        if tokio::time::Instant::now() >= deadline {
-            let status = completion_status(quiescent, false, true);
-            print_summary(peaks, &run_prefix, start_ms, capacity)?;
-            return status.map_err(anyhow::Error::msg);
-        }
-
-        tokio::time::sleep(Duration::from_millis(SAMPLE_INTERVAL_MS)).await;
-        let counts = sample(&client, &run_prefix).await?;
+        within_deadline(
+            deadline,
+            async {
+                tokio::time::sleep(Duration::from_millis(SAMPLE_INTERVAL_MS)).await;
+                Ok(())
+            },
+            "sample interval",
+        )
+        .await?;
+        let counts = within_deadline(
+            deadline,
+            sample(&client, &run_prefix),
+            "sample pg_stat_activity",
+        )
+        .await?;
         peaks.record(counts.run_scoped, counts.fixture_wide);
 
         if quiescence.record(args.suite_complete_file.exists(), counts.run_scoped) && !quiescent {
@@ -50,11 +64,17 @@ async fn main() -> Result<()> {
 }
 
 async fn record_sample(
+    deadline: tokio::time::Instant,
     client: &tokio_postgres::Client,
     run_prefix: &str,
     peaks: &mut Peaks,
 ) -> Result<()> {
-    let counts = sample(client, run_prefix).await?;
+    let counts = within_deadline(
+        deadline,
+        sample(client, run_prefix),
+        "sample pg_stat_activity",
+    )
+    .await?;
     peaks.record(counts.run_scoped, counts.fixture_wide);
     Ok(())
 }
