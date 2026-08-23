@@ -181,6 +181,42 @@ assignment, run/execution, output contract, package, or logical partition.
 - **AND** neither initial routing nor redrive SHALL promote or demote its traffic
   class
 
+### Requirement: The platform partition rule `network_scope_v1` is frozen
+
+The installation SHALL evaluate exactly one platform partition rule, `network_scope_v1`, defined
+by this requirement. The output-contract bundle pins the rule; every other rule identifier SHALL
+be refused until the contract registry defines it, and a contract naming no rule SHALL be refused.
+
+`network_scope_v1` SHALL apply to the durable-record route profile. Its transcript SHALL be the
+raw `network_scope_id` bytes exactly as signed -- no domain prefix, no length framing, and no
+concatenation with any other coordinate. The partition SHALL be
+`FNV-1a/32(transcript) mod 64`, where FNV-1a/32 uses offset basis 2166136261 and prime 16777619,
+and 64 is the fixed logical partition count.
+
+An empty or absent `network_scope_id` SHALL be refused rather than mapped to partition 0, because
+zero is a real partition and a default would place every unpopulated contract on one shard.
+
+The recovery route profile carries no partition. It SHALL still name a defined rule, so that "an
+unknown rule is refused" holds for every profile rather than for every profile except the one
+nobody inspects.
+
+The transcript, the hash, and the partition count SHALL be frozen together by committed
+key-to-partition vectors and by route-level component-to-subject vectors. Changing any of the
+three re-places every future record relative to the data already stored, and SHALL bump the
+partition scheme version deliberately.
+
+#### Scenario: A contract names an undefined partition rule
+
+- **WHEN** a verified contract pins a rule this installation does not define
+- **THEN** routing SHALL refuse the record
+- **AND** SHALL NOT fall back to `network_scope_v1` or any other rule
+
+#### Scenario: A recovery record names an undefined partition rule
+
+- **GIVEN** the recovery profile computes no partition
+- **WHEN** its contract pins an undefined rule
+- **THEN** routing SHALL refuse it on the same terms as a partitioned profile
+
 ### Requirement: Logical record partitions map to explicit physical streams
 
 The 64 stable logical partitions SHALL remain routing and locality metadata, not
