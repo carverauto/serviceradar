@@ -95,6 +95,7 @@ actions:
             PREFLIGHT_FLAGS="-c opt --config=ci --strategy=TestRunner=local --//build:enable_integration_tests
                --//build:run_id=$PREFLIGHT_RUN_ID --test_env=SERVICERADAR_ENV=ci --flaky_test_attempts=1
                --test_output=all --test_env=SERVICERADAR_TEST_SLOWEST=15
+               --nocache_test_results --noremote_upload_local_results
                --test_env=SERVICERADAR_SECRET_DATABASE_PASSWORD
                --test_env=SERVICERADAR_SECRET_DATABASE_ADMIN_PASSWORD
                --test_env=SERVICERADAR_SECRET_DGRAPH_ADMIN_PASSWORD
@@ -119,6 +120,7 @@ actions:
           FLAGS="-c opt --config=ci --strategy=TestRunner=local --//build:enable_integration_tests
              --//build:run_id=$RUN_ID --test_env=SERVICERADAR_ENV=ci --flaky_test_attempts=1
              --test_output=all --test_env=SERVICERADAR_TEST_SLOWEST=15
+             --nocache_test_results --noremote_upload_local_results
              --test_env=SERVICERADAR_SECRET_DATABASE_PASSWORD
              --test_env=SERVICERADAR_SECRET_DATABASE_ADMIN_PASSWORD
              --test_env=SERVICERADAR_SECRET_DGRAPH_ADMIN_PASSWORD"
@@ -332,6 +334,7 @@ actions:
             PREFLIGHT_FLAGS="-c opt --config=ci --strategy=TestRunner=local --//build:enable_integration_tests
                --//build:run_id=$PREFLIGHT_RUN_ID --test_env=SERVICERADAR_ENV=ci --flaky_test_attempts=1
                --test_output=all --test_env=SERVICERADAR_TEST_SLOWEST=15
+               --nocache_test_results --noremote_upload_local_results
                --test_env=SERVICERADAR_SECRET_DATABASE_PASSWORD
                --test_env=SERVICERADAR_SECRET_DATABASE_ADMIN_PASSWORD
                --test_env=SERVICERADAR_SECRET_DGRAPH_ADMIN_PASSWORD
@@ -356,6 +359,7 @@ actions:
           FLAGS="-c opt --config=ci --strategy=TestRunner=local --//build:enable_integration_tests
              --//build:run_id=$RUN_ID --test_env=SERVICERADAR_ENV=ci --flaky_test_attempts=1
              --test_output=all --test_env=SERVICERADAR_TEST_SLOWEST=15
+             --nocache_test_results --noremote_upload_local_results
              --test_env=SERVICERADAR_SECRET_DATABASE_PASSWORD
              --test_env=SERVICERADAR_SECRET_DATABASE_ADMIN_PASSWORD
              --test_env=SERVICERADAR_SECRET_DGRAPH_ADMIN_PASSWORD"

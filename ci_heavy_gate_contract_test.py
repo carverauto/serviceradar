@@ -80,6 +80,63 @@ def integration_benchmark_action() -> str:
     return named_action("IntegrationBenchmark")
 
 
+def database_lifecycle_shell(action: str) -> str:
+    marker = "      - run: |\n"
+    starts = [match.end() for match in re.finditer(re.escape(marker), action)]
+    if len(starts) != 1:
+        raise AssertionError(
+            f"expected exactly one database lifecycle shell, found {len(starts)}"
+        )
+
+    body = []
+    for line in action[starts[0] :].splitlines(keepends=True):
+        if line.strip() == "":
+            body.append(line)
+        elif line.startswith("          "):
+            body.append(line[10:])
+        else:
+            break
+    return "".join(body)
+
+
+def measured_database_lifecycle_shell(action: str) -> str:
+    shell = database_lifecycle_shell(action)
+    match = re.search(r"^RUN_ID=", shell, re.MULTILINE)
+    if not match:
+        raise AssertionError("measured RUN_ID boundary is missing")
+    return shell[match.start() :]
+
+
+def normalized_shell_lines(shell: str) -> tuple[str, ...]:
+    logical_lines = []
+    pending = ""
+    for raw_line in shell.splitlines():
+        stripped = raw_line.strip()
+        if not stripped or stripped.startswith("#"):
+            continue
+        pending = f"{pending} {stripped}".strip()
+        if pending.endswith("\\"):
+            pending = pending[:-1].rstrip()
+            continue
+        logical_lines.append(" ".join(pending.split()))
+        pending = ""
+    if pending:
+        logical_lines.append(" ".join(pending.split()))
+    return tuple(logical_lines)
+
+
+def normalized_flag_test_commands(action: str) -> tuple[str, ...]:
+    commands = []
+    pattern = re.compile(
+        r"(?:command\s+)?bazel\s+test\s+\$(?:FLAGS|\{FLAGS\})(?=\s|$)"
+    )
+    for line in normalized_shell_lines(database_lifecycle_shell(action)):
+        for match in pattern.finditer(line):
+            command = pattern.sub("bazel test $FLAGS", line[match.start() :], count=1)
+            commands.append(command)
+    return tuple(commands)
+
+
 def observe_connections_rule() -> str:
     lines = OBSERVER_BUILD.read_text(encoding="utf-8").splitlines(keepends=True)
     for index, line in enumerate(lines):
@@ -270,6 +327,128 @@ class WorkflowIntegrationLifecycleContractTest(unittest.TestCase):
         "bazel test $FLAGS "
         "//elixir/serviceradar_core:large_ingestion_release_gate"
     )
+    fixture_setup = (
+        "bazel run -c opt --config=ci --//build:enable_integration_tests "
+        "--//build:run_id=$RUN_ID //:buildbuddy_setup_fixture_env"
+    )
+    observer_start = (
+        "bazel run -c opt --config=ci --//build:enable_integration_tests "
+        "--//build:run_id=$RUN_ID //rust/integration-db:observe_connections -- "
+        '--ready-file "$READY_FILE" --suite-complete-file "$SUITE_COMPLETE_FILE" '
+        '--quiescent-file "$QUIESCENT_FILE" --stop-file "$STOP_FILE" '
+        "--max-seconds 1800 &"
+    )
+    sweep = "bazel test $FLAGS //rust/integration-db:sweep_stale_dbs"
+    current_prepare = (
+        'template="$(bazel run -c opt --config=ci '
+        "--//build:enable_integration_tests --//build:run_id=$RUN_ID "
+        '//rust/integration-db:prepare_template)"'
+    )
+
+    def assert_cache_flags(self, action_name: str) -> None:
+        action = named_action(action_name)
+        shell = database_lifecycle_shell(action)
+        measured = measured_database_lifecycle_shell(action)
+        preflight_flags_start = shell.index('PREFLIGHT_FLAGS="')
+        preflight_flags_end = shell.index('preflight="$(bazel', preflight_flags_start)
+        measured_flags_start = measured.index('FLAGS="-c opt --config=ci')
+        measured_flags_end = measured.index("OBSERVER_DIR=", measured_flags_start)
+        flag_blocks = {
+            "preflight": shell[preflight_flags_start:preflight_flags_end],
+            "measured": measured[measured_flags_start:measured_flags_end],
+        }
+        unexpected_counts = {
+            phase: {
+                flag: block.count(flag)
+                for flag in (
+                    "--nocache_test_results",
+                    "--noremote_upload_local_results",
+                )
+                if block.count(flag) != 1
+            }
+            for phase, block in flag_blocks.items()
+        }
+        self.assertEqual(
+            {},
+            {
+                phase: counts
+                for phase, counts in unexpected_counts.items()
+                if counts
+            },
+        )
+
+    def assert_exact_measured_execution_order(
+        self,
+        action: str,
+        provision_command: str,
+        suite_command: str,
+    ) -> None:
+        measured = measured_database_lifecycle_shell(action)
+        lines = normalized_shell_lines(measured)
+        wait = "wait_for_observer_ready 30 || exit 1"
+        self.assertEqual(1, lines.count(wait))
+        self.assertNotIn("wait_for_observer_ready 30 || true", lines)
+        self.assertEqual(
+            1,
+            sum("//rust/integration-db:prepare_template" in line for line in lines),
+        )
+        self.assertNotIn("//elixir/serviceradar_core:migrate_template", measured)
+
+        expected = (
+            self.fixture_setup,
+            self.observer_start,
+            wait,
+            self.sweep,
+            self.current_prepare,
+            provision_command,
+            suite_command,
+        )
+        positions = []
+        for command in expected:
+            self.assertEqual(1, lines.count(command), command)
+            positions.append(lines.index(command))
+        self.assertEqual(sorted(positions), positions)
+
+    def assert_preflight_command_order(self, action: str) -> None:
+        shell = database_lifecycle_shell(action)
+        measured_start = re.search(r"^RUN_ID=", shell, re.MULTILINE)
+        self.assertIsNotNone(measured_start)
+        preflight = shell[: measured_start.start()]
+        prepare = "//rust/integration-db:prepare_template"
+        migrate = (
+            "bazel test $PREFLIGHT_FLAGS "
+            "//elixir/serviceradar_core:migrate_template"
+        )
+        final_pending = 'echo "template remains pending after preflight"'
+        self.assertEqual(2, preflight.count(prepare))
+        self.assertEqual(1, preflight.count(migrate))
+        first_prepare = preflight.index(prepare)
+        conditional_migrate = preflight.index(migrate, first_prepare)
+        second_prepare = preflight.index(prepare, first_prepare + len(prepare))
+        pending_check = preflight.index(final_pending, second_prepare)
+        self.assertLess(first_prepare, conditional_migrate)
+        self.assertLess(conditional_migrate, second_prepare)
+        self.assertLess(second_prepare, pending_check)
+
+    def test_task6_database_flags_disable_cache_and_remote_upload(self):
+        for action_name in ("BazelCI", "LargeIngestionGate"):
+            with self.subTest(action=action_name):
+                self.assert_cache_flags(action_name)
+
+    def test_flag_command_extractor_normalizes_equivalent_syntax_without_hiding_suffixes(self):
+        synthetic_action = """  - name: "Synthetic"
+    steps:
+      - run: |
+          command   bazel   test   ${FLAGS}   //example:braced
+          bazel test $FLAGS //example:masked || true
+"""
+        self.assertEqual(
+            (
+                "bazel test $FLAGS //example:braced",
+                "bazel test $FLAGS //example:masked || true",
+            ),
+            normalized_flag_test_commands(synthetic_action),
+        )
 
     def assert_common_measured_lifecycle(
         self,
@@ -452,7 +631,27 @@ class WorkflowIntegrationLifecycleContractTest(unittest.TestCase):
             action,
         )
         self.assert_preflight_and_clock_contract(action)
+        self.assert_preflight_command_order(action)
+        self.assert_exact_measured_execution_order(
+            action,
+            "bazel test $FLAGS //rust/integration-db:provision_db",
+            self.ordinary_suite,
+        )
         self.assert_observer_and_cleanup_contract(action)
+        commands = normalized_flag_test_commands(action)
+        self.assertEqual(
+            (
+                "bazel test $FLAGS //rust/integration-db:teardown_db",
+                self.sweep,
+                "bazel test $FLAGS //rust/integration-db:provision_db",
+                self.ordinary_suite,
+            ),
+            commands,
+        )
+        self.assertEqual(
+            (self.ordinary_suite,),
+            tuple(command for command in commands if "$FLAGS //..." in command),
+        )
 
     def test_large_ingestion_gate_has_exact_independent_trigger(self):
         action = named_action("LargeIngestionGate")
@@ -521,7 +720,24 @@ class WorkflowIntegrationLifecycleContractTest(unittest.TestCase):
         ):
             self.assertNotIn(lowered_workload, action)
         self.assert_preflight_and_clock_contract(action)
+        self.assert_preflight_command_order(action)
+        self.assert_exact_measured_execution_order(
+            action,
+            self.heavy_provision,
+            self.heavy_suite,
+        )
         self.assert_observer_and_cleanup_contract(action)
+        commands = normalized_flag_test_commands(action)
+        self.assertEqual(
+            (
+                "bazel test $FLAGS //rust/integration-db:teardown_db",
+                self.sweep,
+                self.heavy_provision,
+                self.heavy_suite,
+            ),
+            commands,
+        )
+        self.assertFalse(any("$FLAGS //..." in command for command in commands))
 
     def test_fixed_external_resource_sources_are_serial_data_cases(self):
         self.assertEqual(FIXED_EXTERNAL_RESOURCE_PATHS, fixed_external_resource_sources())
