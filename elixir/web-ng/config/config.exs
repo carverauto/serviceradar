@@ -407,8 +407,9 @@ config :tailwind,
 # The root project's config applies to path dependencies too, because `mix deps.compile`
 # loads it before compiling them. That is why all four modules are configured from here.
 #
-# Guarded by an env var so only the Bazel lint action is affected; every other build
-# (dev, test, prod, //elixir/web-ng:release_tar) still compiles the NIFs normally.
+# Guarded by an env var so lint-only CI and the Bazel lint action are affected;
+# every other build (dev, test, prod, //elixir/web-ng:release_tar) still
+# compiles the NIFs normally.
 if System.get_env("SERVICERADAR_SKIP_NIF_COMPILATION") == "1" do
   config :serviceradar_core, ServiceRadar.Observability.DispositionKernels, skip_compilation?: true
   config :serviceradar_core, ServiceRadar.Observability.Zen.Native, skip_compilation?: true
