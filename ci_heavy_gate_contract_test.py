@@ -14,6 +14,12 @@ OBSERVER_BINARY = ROOT / "rust/integration-db/src/bin/observe_connections.rs"
 OBSERVER_BUILD = ROOT / "rust/integration-db/BUILD.bazel"
 CORE_BUILD = ROOT / "elixir/serviceradar_core/BUILD.bazel"
 INTEGRATION_SHARDS = ROOT / "build/integration_shards.bzl"
+RELEASE_WORKFLOW = ROOT / ".github/workflows/release.yml"
+RELEASE_GATE_MARKER = ROOT / "build/ci/large_ingestion_gate_contract.v1"
+RELEASE_GATE_BUILD = ROOT / "build/ci/BUILD.bazel"
+RELEASE_GATE_LIBRARY = ROOT / "build/ci/large_ingestion_gate.py"
+RELEASE_GATE_CLI = ROOT / "build/ci/wait_for_large_ingestion_gate.py"
+RELEASE_GATE_TEST = ROOT / "build/ci/wait_for_large_ingestion_gate_test.py"
 TEST_HELPER = ROOT / "elixir/serviceradar_core/test/test_helper.exs"
 ORDINARY_RESULTS_ROUTER = (
     ROOT
@@ -233,6 +239,26 @@ def named_starlark_rule(source: str, rule_kind: str, name: str) -> str:
                 if depth == 0:
                     return "".join(rule)
     raise AssertionError(f"{rule_kind} {name} is missing")
+
+
+def named_release_step(name: str) -> str:
+    workflow = RELEASE_WORKFLOW.read_text(encoding="utf-8")
+    match = re.search(
+        rf"^      - name: {re.escape(name)}\n(?P<body>.*?)(?=^      - name:|^  [a-zA-Z_]|\Z)",
+        workflow,
+        re.MULTILINE | re.DOTALL,
+    )
+    if not match:
+        raise AssertionError(f"release step {name} is missing")
+    return match.group(0)
+
+
+def release_permissions() -> tuple[str, ...]:
+    workflow = RELEASE_WORKFLOW.read_text(encoding="utf-8")
+    match = re.search(r"^permissions:\n(?P<body>(?:  .+\n)+)", workflow, re.MULTILINE)
+    if not match:
+        raise AssertionError("release workflow permissions are missing")
+    return tuple(line.strip() for line in match.group("body").splitlines())
 
 
 def ordinary_integration_target_comprehension(core_build: str) -> str:
@@ -1065,6 +1091,141 @@ class WorkflowIntegrationLifecycleContractTest(unittest.TestCase):
             ordinary_provision,
         )
         self.assertNotIn("LARGE_INGESTION_DB_SHARD", ordinary_provision)
+
+
+class ReleaseLargeIngestionQualificationContractTest(unittest.TestCase):
+    qualifier_step = """      - name: Wait for large-ingestion gate
+        env:
+          RELEASE_COMMIT: ${{ steps.source.outputs.commit }}
+        run: |
+          set -euo pipefail
+          bazel run ${BAZEL_BUILD_FLAGS} //build/ci:wait_for_large_ingestion_gate -- \\
+            --repository "${GITHUB_REPOSITORY}" \\
+            --commit "${RELEASE_COMMIT}" \\
+            --base-ref origin/staging \\
+            --token-env GH_TOKEN \\
+            --timeout-seconds 1800 \\
+            --poll-seconds 15 \\
+            --target-url-prefix https://carverauto.buildbuddy.io/invocation/
+
+"""
+
+    def test_marker_and_bazel_contract_are_atomic_and_exact(self):
+        self.assertEqual(
+            b"large-ingestion-gate-contract-v1\n", RELEASE_GATE_MARKER.read_bytes()
+        )
+        build = RELEASE_GATE_BUILD.read_text(encoding="utf-8")
+        library = named_starlark_rule(build, "py_library", "large_ingestion_gate")
+        binary = named_starlark_rule(
+            build, "py_binary", "wait_for_large_ingestion_gate"
+        )
+        test = named_starlark_rule(
+            build, "py_test", "wait_for_large_ingestion_gate_test"
+        )
+        self.assertEqual(1, build.count('name = "large_ingestion_gate"'))
+        self.assertEqual(1, build.count('name = "wait_for_large_ingestion_gate"'))
+        self.assertEqual(1, build.count('name = "wait_for_large_ingestion_gate_test"'))
+        self.assertIn('srcs = ["large_ingestion_gate.py"]', library)
+        self.assertIn('srcs = ["wait_for_large_ingestion_gate.py"]', binary)
+        self.assertIn('srcs = ["wait_for_large_ingestion_gate_test.py"]', test)
+        exports = build[build.index("exports_files([") : build.index("])\n", build.index("exports_files(["))]
+        self.assertIn('"large_ingestion_gate_contract.v1"', exports)
+        self.assertIn('data = ["large_ingestion_gate_contract.v1"]', binary)
+        self.assertIn('data = ["large_ingestion_gate_contract.v1"]', test)
+        self.assertNotIn("no-sandbox", build)
+        self.assertNotIn("no-remote", build)
+
+    def test_python_adapters_are_argv_only_and_fail_closed(self):
+        library = RELEASE_GATE_LIBRARY.read_text(encoding="utf-8")
+        cli = RELEASE_GATE_CLI.read_text(encoding="utf-8")
+        tests = RELEASE_GATE_TEST.read_text(encoding="utf-8")
+
+        self.assertNotIn("shell=True", library + cli)
+        self.assertEqual(2, library.count("shell=False"))
+        self.assertNotIn('"gh api', library + cli)
+        self.assertIn('argv = [\n            "gh",\n            "api",', library)
+        self.assertRegex(
+            library,
+            r"self\.runner\(\n\s+argv,\n\s+capture_output=True,\n\s+check=False,\n"
+            r"\s+env=child_environment,\n\s+shell=False,",
+        )
+        self.assertIn('["git", "-C", str(self.workspace), *arguments]', library)
+        self.assertIn(
+            'f"/repos/{self.repository}/commits/{self.commit}/statuses?per_page=100"',
+            library,
+        )
+        self.assertIn('child_environment["GH_TOKEN"] = self.token', library)
+        self.assertNotIn("top-secret", library + cli)
+        for evidence in (
+            "test_introduction_equality_with_markerless_release_is_deletion",
+            "test_markerless_unrelated_release_is_divergent",
+            "test_introduction_absent_repeated_or_malformed_fails",
+            "test_marker_bearing_feature_commit_before_first_parent_merge_is_applicable",
+            "test_exact_argv_slurp_shape_token_isolation_and_shell_false",
+            "test_missing_and_pending_timeout_at_fake_1800_second_deadline",
+        ):
+            self.assertIn(evidence, tests)
+
+    def test_release_permissions_checkout_and_qualifier_are_exact(self):
+        self.assertEqual(
+            ("contents: write", "id-token: write", "statuses: read"),
+            release_permissions(),
+        )
+        checkout = named_release_step("Checkout")
+        self.assertIn("fetch-depth: 0", checkout)
+        self.assertEqual(
+            self.qualifier_step, named_release_step("Wait for large-ingestion gate")
+        )
+
+    def test_qualifier_precedes_tools_metadata_checkout_and_publication(self):
+        workflow = RELEASE_WORKFLOW.read_text(encoding="utf-8")
+        ordered_steps = (
+            "Enforce release source",
+            "Cache Bazel artifacts",
+            "Configure BuildBuddy remote cache",
+            "Install Bazelisk",
+            "Wait for large-ingestion gate",
+            "Install Cosign",
+            "Install ORAS",
+            "Resolve release metadata",
+            "Checkout release commit",
+            "Publish container images",
+        )
+        positions = [workflow.index(f"      - name: {name}\n") for name in ordered_steps]
+        self.assertEqual(sorted(positions), positions)
+
+    def test_qualifier_uses_exact_full_sha_options_without_inline_policy(self):
+        step = named_release_step("Wait for large-ingestion gate")
+        required = (
+            'RELEASE_COMMIT: ${{ steps.source.outputs.commit }}',
+            "//build/ci:wait_for_large_ingestion_gate",
+            '--repository "${GITHUB_REPOSITORY}"',
+            '--commit "${RELEASE_COMMIT}"',
+            "--base-ref origin/staging",
+            "--token-env GH_TOKEN",
+            "--timeout-seconds 1800",
+            "--poll-seconds 15",
+            "--target-url-prefix https://carverauto.buildbuddy.io/invocation/",
+        )
+        for value in required:
+            self.assertEqual(1, step.count(value), value)
+        for forbidden in (
+            "git show",
+            "git log",
+            "merge-base",
+            "grep",
+            "gh api",
+            "jq",
+            "HEAD",
+            "GITHUB_SHA",
+            "GITHUB_REF",
+            "steps.release.outputs.commit",
+            "steps.source.outputs.tag",
+            "HISTORICAL_NOT_APPLICABLE",
+            "missing introduction",
+            "missing contract",
+        ):
+            self.assertNotIn(forbidden, step)
 
 
 if __name__ == "__main__":

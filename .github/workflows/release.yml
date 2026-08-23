@@ -57,6 +57,7 @@ concurrency:
 permissions:
   contents: write
   id-token: write
+  statuses: read
 
 jobs:
   publish:
@@ -189,6 +190,20 @@ jobs:
 
       - name: Install Bazelisk
         run: ./scripts/install-bazelisk.sh
+
+      - name: Wait for large-ingestion gate
+        env:
+          RELEASE_COMMIT: ${{ steps.source.outputs.commit }}
+        run: |
+          set -euo pipefail
+          bazel run ${BAZEL_BUILD_FLAGS} //build/ci:wait_for_large_ingestion_gate -- \
+            --repository "${GITHUB_REPOSITORY}" \
+            --commit "${RELEASE_COMMIT}" \
+            --base-ref origin/staging \
+            --token-env GH_TOKEN \
+            --timeout-seconds 1800 \
+            --poll-seconds 15 \
+            --target-url-prefix https://carverauto.buildbuddy.io/invocation/
 
       - name: Install Cosign
         run: ./scripts/install-cosign.sh
