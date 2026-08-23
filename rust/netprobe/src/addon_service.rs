@@ -36,13 +36,15 @@ use tokio::sync::broadcast;
 use tokio_stream::wrappers::BroadcastStream;
 use tokio_stream::{Stream, StreamExt};
 
+use crate::addon_config_json::AddonConfigJson;
 use crate::capabilities;
 use crate::fingerprint::{
     FINGERPRINT_ENGINE_VERSION, JA4_BASE_SPEC_REVISION, MUONFP_CORPUS_REVISION,
     P0F_CORPUS_REVISION, RECOG_CORPUS_REVISION, SATORI_CORPUS_REVISION,
     SERVICERADAR_ADDITIONS_REVISION, SERVICERADAR_RECOG_ADDITIONS_REVISION,
 };
-use crate::proto::netprobe::{DeviceCensusSnapshot, MdnsSnapshot};
+use crate::proto::netprobe::{DeviceCensusSnapshot, MdnsSnapshot, VisibilityAgentConfig};
+use crate::runtime_config::RuntimeConfig;
 
 /// Schema names the control plane registers decoders and identity policy
 /// against. Changing one of these strings is a contract break, not a rename:
@@ -52,12 +54,27 @@ pub const MDNS_SCHEMA: &str = "serviceradar.netprobe.mdns.v1";
 
 const ADDON_ID: &str = "netprobe";
 
+/// The values netprobe actually booted with.
+///
+/// Needed because two fields can only take effect at startup, and the check has
+/// to compare against what this PROCESS is running -- not against the last
+/// config it was handed. `RuntimeConfig` already holds them for its own bail,
+/// but it holds them privately and only compares; classifying the change needs
+/// the values themselves so the refusal can say which field moved.
+#[derive(Clone, Debug, Default)]
+pub struct StartupSnapshot {
+    pub capture_interfaces: Vec<String>,
+    pub flow_table_max_entries: u32,
+}
+
 /// netprobe's `AddonService` implementation.
 #[derive(Clone)]
 pub struct NetprobeAddon {
     version: String,
     census: broadcast::Sender<DeviceCensusSnapshot>,
     mdns: broadcast::Sender<MdnsSnapshot>,
+    runtime_config: RuntimeConfig,
+    startup: StartupSnapshot,
 }
 
 impl NetprobeAddon {
@@ -65,11 +82,15 @@ impl NetprobeAddon {
         version: impl Into<String>,
         census: broadcast::Sender<DeviceCensusSnapshot>,
         mdns: broadcast::Sender<MdnsSnapshot>,
+        runtime_config: RuntimeConfig,
+        startup: StartupSnapshot,
     ) -> Self {
         Self {
             version: version.into(),
             census,
             mdns,
+            runtime_config,
+            startup,
         }
     }
 }
@@ -84,18 +105,37 @@ impl Addon for NetprobeAddon {
         })
     }
 
-    async fn configure(&self, _config_json: &[u8]) -> Result<ConfigureResult> {
-        // Configuration still arrives over the legacy IPC `ApplyConfig` frame.
-        // Accepting-and-ignoring here would let the control plane believe a
-        // config was applied when nothing read it, so this refuses instead --
-        // an explicit "not yet" is recoverable, a silent no-op is not.
-        Ok(ConfigureResult {
-            config_hash: String::new(),
-            accepted: false,
-            error: "netprobe configuration is delivered over its IPC socket; \
-                    AddonService.Configure is not wired yet"
-                .to_owned(),
-        })
+    async fn configure(&self, config_json: &[u8]) -> Result<ConfigureResult> {
+        // Every refusal below returns Ok with accepted:false rather than Err.
+        // An Err becomes a transport-level gRPC failure the agent retries; a
+        // rejected config is a durable answer that retrying cannot improve, and
+        // the reason has to reach the operator rather than a retry loop.
+        let parsed: AddonConfigJson = match serde_json::from_slice(config_json) {
+            Ok(parsed) => parsed,
+            Err(err) => return Ok(rejected(format!("could not parse config json: {err}"))),
+        };
+
+        let config: VisibilityAgentConfig = parsed.into();
+
+        if let Some(reason) = self.restart_required(&config) {
+            // The config is VALID; this process just cannot become it. Reported
+            // as not-accepted because nothing was applied -- claiming otherwise
+            // would tell the control plane a setting took effect when the
+            // running collector still has the old one.
+            return Ok(rejected(reason));
+        }
+
+        match self.runtime_config.apply(config) {
+            // Carry the whole error chain: RuntimeConfig::apply adds context
+            // ("invalid capture interface allowlist") over the specific cause,
+            // and only the pair identifies which field an operator got wrong.
+            Err(err) => Ok(rejected(format!("{err:#}"))),
+            Ok(config_hash) => Ok(ConfigureResult {
+                config_hash,
+                accepted: true,
+                error: String::new(),
+            }),
+        }
     }
 
     async fn health(&self) -> Result<Health> {
@@ -182,6 +222,56 @@ impl Addon for NetprobeAddon {
         );
 
         Box::pin(census.merge(mdns))
+    }
+}
+
+impl NetprobeAddon {
+    /// Which startup-only field the requested config would change, if any.
+    ///
+    /// `capture_interfaces` decides which NICs eBPF programs were attached to,
+    /// and `flow_table_max_entries` sizes an eBPF map at load time. Neither can
+    /// move in a running process, so `RuntimeConfig::apply` bails on them --
+    /// this classifies the same two first so the refusal can name the field
+    /// rather than surfacing apply's generic message.
+    fn restart_required(&self, config: &VisibilityAgentConfig) -> Option<String> {
+        let requested: Vec<&str> = config
+            .capture_interfaces
+            .iter()
+            .map(String::as_str)
+            .collect();
+        let running: Vec<&str> = self
+            .startup
+            .capture_interfaces
+            .iter()
+            .map(String::as_str)
+            .collect();
+
+        if requested != running {
+            return Some(format!(
+                "capture_interfaces requires a netprobe restart: running with [{}], requested [{}]",
+                running.join(", "),
+                requested.join(", ")
+            ));
+        }
+
+        if config.flow_table_max_entries != 0
+            && config.flow_table_max_entries != self.startup.flow_table_max_entries
+        {
+            return Some(format!(
+                "flow_table_max_entries requires a netprobe restart: running with {}, requested {}",
+                self.startup.flow_table_max_entries, config.flow_table_max_entries
+            ));
+        }
+
+        None
+    }
+}
+
+fn rejected(error: impl Into<String>) -> ConfigureResult {
+    ConfigureResult {
+        config_hash: String::new(),
+        accepted: false,
+        error: error.into(),
     }
 }
 
@@ -389,7 +479,13 @@ mod tests {
     async fn health_reports_the_capability_state_the_agent_reads() {
         let (census, _) = broadcast::channel(4);
         let (mdns, _) = broadcast::channel(4);
-        let addon = NetprobeAddon::new("0.2.44", census, mdns);
+        let addon = NetprobeAddon::new(
+            "0.2.44",
+            census,
+            mdns,
+            RuntimeConfig::new(&crate::config::Config::default()),
+            StartupSnapshot::default(),
+        );
 
         let health = addon.health().await.expect("health");
 
@@ -419,15 +515,111 @@ mod tests {
         assert!(health.degradation_reason.is_empty());
     }
 
-    #[tokio::test]
-    async fn configure_refuses_rather_than_silently_accepting() {
+    fn addon_with(startup: StartupSnapshot) -> NetprobeAddon {
         let (census, _) = broadcast::channel(4);
         let (mdns, _) = broadcast::channel(4);
-        let addon = NetprobeAddon::new("0.2.44", census, mdns);
+        let config = crate::config::Config {
+            capture_interfaces: startup.capture_interfaces.clone(),
+            flow_table_max_entries: startup.flow_table_max_entries,
+            ..Default::default()
+        };
 
-        let result = addon.configure(b"{}").await.expect("configure returns");
+        NetprobeAddon::new("0.2.44", census, mdns, RuntimeConfig::new(&config), startup)
+    }
+
+    #[tokio::test]
+    async fn configure_applies_a_live_config_and_returns_its_hash() {
+        let addon = addon_with(StartupSnapshot::default());
+
+        let result = addon
+            .configure(br#"{"enabled": true, "default_sample_interval_ms": 250}"#)
+            .await
+            .expect("configure returns");
+
+        assert!(result.accepted, "rejected: {}", result.error);
+        assert!(
+            result.config_hash.starts_with("netprobe-v1:"),
+            "hash = {}",
+            result.config_hash
+        );
+    }
+
+    #[tokio::test]
+    async fn configure_carries_dpi_and_device_bindings() {
+        // The reason Configure refused outright until now. A parser missing
+        // these would produce empty values, wipe every binding, and still
+        // report accepted -- worse than refusing.
+        let addon = addon_with(StartupSnapshot::default());
+
+        let result = addon
+            .configure(
+                br#"{
+                    "enabled": true,
+                    "dpi": {"enabled": true, "protocols": ["tls"]},
+                    "device_bindings": [{"ip": "192.168.1.10", "profile_id": "camera"}]
+                }"#,
+            )
+            .await
+            .expect("configure returns");
+
+        assert!(result.accepted, "rejected: {}", result.error);
+    }
+
+    #[tokio::test]
+    async fn configure_refuses_a_restart_only_change_and_names_the_field() {
+        // capture_interfaces decides which NICs eBPF programs were attached to,
+        // so this process cannot become the requested config. Reported as not
+        // accepted because nothing was applied -- claiming otherwise would tell
+        // the control plane a setting took effect while the running collector
+        // still has the old one.
+        let addon = addon_with(StartupSnapshot {
+            capture_interfaces: vec!["ens18".to_owned()],
+            flow_table_max_entries: 65_536,
+        });
+
+        let result = addon
+            .configure(br#"{"capture_interfaces": ["ens19"]}"#)
+            .await
+            .expect("configure returns");
 
         assert!(!result.accepted);
-        assert!(!result.error.is_empty());
+        assert!(
+            result.error.contains("capture_interfaces") && result.error.contains("restart"),
+            "error should name the field and the remedy: {}",
+            result.error
+        );
+        assert!(result.config_hash.is_empty(), "nothing was applied");
+    }
+
+    #[tokio::test]
+    async fn configure_refuses_a_flow_table_resize() {
+        let addon = addon_with(StartupSnapshot {
+            capture_interfaces: vec![],
+            flow_table_max_entries: 65_536,
+        });
+
+        let result = addon
+            .configure(br#"{"flow_table_max_entries": 131072}"#)
+            .await
+            .expect("configure returns");
+
+        assert!(!result.accepted);
+        assert!(result.error.contains("flow_table_max_entries"));
+    }
+
+    #[tokio::test]
+    async fn unparseable_json_is_a_rejection_not_a_transport_error() {
+        // Err would become a gRPC failure the agent retries. A malformed config
+        // is durable -- retrying cannot improve it, and the reason has to reach
+        // the operator rather than a retry loop.
+        let addon = addon_with(StartupSnapshot::default());
+
+        let result = addon
+            .configure(b"{not json")
+            .await
+            .expect("configure returns");
+
+        assert!(!result.accepted);
+        assert!(result.error.contains("parse"));
     }
 }
