@@ -1,0 +1,56 @@
+{
+  "devices": [
+    {
+      "ip": "fe80::aabb:ccff:fe00:0002",
+      "mac": "a8:bb:cc:00:00:02",
+      "metadata": {
+        "_alias_last_seen_at": "2023-11-14T22:14:20Z",
+        "_alias_last_seen_ip": "fe80::aabb:ccff:fe00:0002",
+        "agent_id": "agent-1",
+        "device_census.first_seen_unix_nano": "1700000000000000000",
+        "device_census.interface": "ens18",
+        "device_census.interface_index": "2",
+        "device_census.kind": "ipv6_ndp",
+        "device_census.last_seen_unix_nano": "1700000060000000000",
+        "device_census.randomized_mac": "false",
+        "device_census.snapshot_id": "ens18-1700000000-1",
+        "discovery_source": "netprobe-census",
+        "gateway_id": "gw-1",
+        "identity_source": "netprobe_census",
+        "ip_alias:fe80::aabb:ccff:fe00:0002": "2023-11-14T22:14:20Z",
+        "mac": "a8:bb:cc:00:00:02",
+        "source": "netprobe-census"
+      }
+    },
+    {
+      "ip": "2001:db8:85a3::8a2e:370:7334",
+      "mac": "a8:bb:cc:00:00:02",
+      "metadata": {
+        "_alias_last_seen_at": "2023-11-14T22:14:20Z",
+        "_alias_last_seen_ip": "2001:db8:85a3::8a2e:370:7334",
+        "agent_id": "agent-1",
+        "device_census.first_seen_unix_nano": "1700000000000000000",
+        "device_census.interface": "ens18",
+        "device_census.interface_index": "2",
+        "device_census.kind": "ipv6_ndp",
+        "device_census.last_seen_unix_nano": "1700000060000000000",
+        "device_census.randomized_mac": "false",
+        "device_census.snapshot_id": "ens18-1700000000-1",
+        "discovery_source": "netprobe-census",
+        "gateway_id": "gw-1",
+        "identity_source": "netprobe_census",
+        "ip_alias:2001:db8:85a3::8a2e:370:7334": "2023-11-14T22:14:20Z",
+        "mac": "a8:bb:cc:00:00:02",
+        "source": "netprobe-census"
+      }
+    }
+  ],
+  "stats": {
+    "addressless": 0,
+    "devices": 2,
+    "observations": 2,
+    "randomized_mac": 0,
+    "skipped_no_mac": 0,
+    "skipped_off_segment": 0
+  }
+}
