@@ -1,3 +1,4 @@
+mod addon_config_json;
 mod addon_service;
 #[allow(dead_code, unused_imports)]
 mod af_xdp;
@@ -253,6 +254,20 @@ async fn main() -> Result<()> {
             env!("CARGO_PKG_VERSION"),
             census_snapshot_tx.clone(),
             mdns_snapshot_tx.clone(),
+            // The SAME RuntimeConfig the IPC server holds, so both channels
+            // converge on one VisibilityState rather than two that can disagree
+            // about what is currently applied.
+            runtime_config.clone(),
+            // What this process actually booted with. The startup-only checks
+            // must compare against the running values, not against the last
+            // config netprobe was handed.
+            addon_service::StartupSnapshot {
+                capture_interfaces: config.capture_interfaces.clone(),
+                flow_table_max_entries: crate::config::effective_flow_table_max_entries(
+                    config.flow_table_max_entries,
+                    config.capture_interfaces.len(),
+                ),
+            },
         );
 
         // Deliberately NOT selected on below. A failure to serve the new
