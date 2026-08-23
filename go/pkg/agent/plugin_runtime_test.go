@@ -1779,3 +1779,28 @@ func TestParseWebSocketConnectPayloadInsecureTLS(t *testing.T) {
 		t.Fatalf("expected insecure TLS flag to be preserved")
 	}
 }
+
+// A wasm plugin must not be able to select the discovery payload kind.
+//
+// DISCOVERY_V1 carries device observations about OTHER hosts into the inventory
+// pipeline. Plugins already have a scoped route there (`plugin-result` into
+// DeviceDiscoveryIngestor); this one is for native add-ons and would let
+// plugin-supplied bytes mint device identity.
+func TestTelemetryPayloadKindRefusesDiscoveryFromPlugins(t *testing.T) {
+	t.Parallel()
+
+	for _, value := range []any{
+		float64(addonpb.TelemetryPayloadKind_TELEMETRY_PAYLOAD_KIND_DISCOVERY_V1),
+		"discovery_v1",
+		"telemetry_payload_kind_discovery_v1",
+	} {
+		kind, err := telemetryPayloadKind(value)
+		if err == nil {
+			t.Fatalf("telemetryPayloadKind(%v) = %v, want an error", value, kind)
+		}
+
+		if kind != addonpb.TelemetryPayloadKind_TELEMETRY_PAYLOAD_KIND_UNSPECIFIED {
+			t.Fatalf("telemetryPayloadKind(%v) = %v, want UNSPECIFIED on refusal", value, kind)
+		}
+	}
+}
