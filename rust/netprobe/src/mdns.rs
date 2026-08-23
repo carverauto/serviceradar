@@ -1240,6 +1240,157 @@ pub mod runtime {
 
     pub const MDNS_OBSERVATIONS_MAP: &str = "mdns_observations";
 
+    /// The mDNS link-local multicast groups (RFC 6762 §3).
+    const MDNS_GROUP_V4: std::net::Ipv4Addr = std::net::Ipv4Addr::new(224, 0, 0, 251);
+    const MDNS_GROUP_V6: std::net::Ipv6Addr =
+        std::net::Ipv6Addr::new(0xff02, 0, 0, 0, 0, 0, 0, 0x00fb);
+
+    /// Holds the mDNS multicast group memberships open.
+    ///
+    /// Without this netprobe sees mDNS only by accident. A NIC not in
+    /// promiscuous mode filters multicast to the groups something on the host
+    /// has joined, so on alma-test01 the frames arrived purely because avahi was
+    /// running and had joined 224.0.0.251 and ff02::fb. Verified there:
+    /// `ip maddr show dev ens18` listed both while `ip -d link` reported
+    /// `promiscuity 0 allmulti 0`. On a host with no mDNS client the collector
+    /// would see nothing and report an empty segment, which is worse than
+    /// reporting an error.
+    ///
+    /// Joining is NOT promiscuous mode. It adds one multicast address to the
+    /// interface filter, which is what a normal mDNS client does, and costs
+    /// nothing beyond the frames we already wanted.
+    ///
+    /// A membership lives exactly as long as the socket that holds it, so these
+    /// sockets are the membership: dropping this struct leaves the groups.
+    /// Deliberately NOT bound to port 5353 -- the membership is what makes the
+    /// NIC accept the frames, and binding the mDNS port would contend with
+    /// avahi for no benefit.
+    pub struct MulticastMembership {
+        _v4: Option<std::net::UdpSocket>,
+        _v6: Option<std::net::UdpSocket>,
+        interface: String,
+    }
+
+    impl MulticastMembership {
+        pub fn interface(&self) -> &str {
+            &self.interface
+        }
+
+        /// True when neither group could be joined, i.e. the collector is
+        /// relying on someone else having joined them.
+        pub fn is_empty(&self) -> bool {
+            self._v4.is_none() && self._v6.is_none()
+        }
+    }
+
+    fn interface_index(interface: &str) -> Option<u32> {
+        let name = std::ffi::CString::new(interface).ok()?;
+        // SAFETY: `name` is a valid NUL-terminated C string for this call.
+        let index = unsafe { libc::if_nametoindex(name.as_ptr()) };
+        if index == 0 { None } else { Some(index) }
+    }
+
+    fn join_v4(interface_index: u32) -> std::io::Result<std::net::UdpSocket> {
+        use std::os::fd::AsRawFd;
+
+        let socket = std::net::UdpSocket::bind("0.0.0.0:0")?;
+        let request = libc::ip_mreqn {
+            imr_multiaddr: libc::in_addr {
+                s_addr: u32::from_ne_bytes(MDNS_GROUP_V4.octets()),
+            },
+            imr_address: libc::in_addr { s_addr: 0 },
+            // Pinned to the interface rather than left to the routing table:
+            // the collector observes ONE segment and a membership on the wrong
+            // interface would be silently useless.
+            imr_ifindex: interface_index as i32,
+        };
+
+        // SAFETY: the socket outlives the call, and `request` matches the size
+        // and layout IP_ADD_MEMBERSHIP expects.
+        let result = unsafe {
+            libc::setsockopt(
+                socket.as_raw_fd(),
+                libc::IPPROTO_IP,
+                libc::IP_ADD_MEMBERSHIP,
+                std::ptr::addr_of!(request).cast(),
+                std::mem::size_of::<libc::ip_mreqn>() as libc::socklen_t,
+            )
+        };
+        if result != 0 {
+            return Err(std::io::Error::last_os_error());
+        }
+        Ok(socket)
+    }
+
+    fn join_v6(interface_index: u32) -> std::io::Result<std::net::UdpSocket> {
+        use std::os::fd::AsRawFd;
+
+        let socket = std::net::UdpSocket::bind("[::]:0")?;
+        let request = libc::ipv6_mreq {
+            ipv6mr_multiaddr: libc::in6_addr {
+                s6_addr: MDNS_GROUP_V6.octets(),
+            },
+            ipv6mr_interface: interface_index,
+        };
+
+        // SAFETY: as above; IPV6_ADD_MEMBERSHIP is the same option number as
+        // IPV6_JOIN_GROUP.
+        let result = unsafe {
+            libc::setsockopt(
+                socket.as_raw_fd(),
+                libc::IPPROTO_IPV6,
+                libc::IPV6_ADD_MEMBERSHIP,
+                std::ptr::addr_of!(request).cast(),
+                std::mem::size_of::<libc::ipv6_mreq>() as libc::socklen_t,
+            )
+        };
+        if result != 0 {
+            return Err(std::io::Error::last_os_error());
+        }
+        Ok(socket)
+    }
+
+    /// Join both mDNS groups on `interface`.
+    ///
+    /// Never fails the caller. Each family is joined independently because a
+    /// host may legitimately have one disabled, and losing IPv6 should not cost
+    /// the IPv4 announcements. If both fail the collector still runs -- it will
+    /// simply see whatever another client on the host has joined, which is the
+    /// behaviour we had before this existed.
+    pub fn join_mdns_groups(interface: &str) -> MulticastMembership {
+        let Some(index) = interface_index(interface) else {
+            log::warn!(
+                "netprobe mDNS: cannot resolve interface {interface}; not joining multicast                  groups, so announcements will only be seen if another mDNS client on this host                  has joined them"
+            );
+            return MulticastMembership {
+                _v4: None,
+                _v6: None,
+                interface: interface.to_owned(),
+            };
+        };
+
+        let v4 = match join_v4(index) {
+            Ok(socket) => Some(socket),
+            Err(err) => {
+                log::warn!("netprobe mDNS: could not join 224.0.0.251 on {interface}: {err}");
+                None
+            }
+        };
+        let v6 = match join_v6(index) {
+            Ok(socket) => Some(socket),
+            Err(err) => {
+                log::warn!("netprobe mDNS: could not join ff02::fb on {interface}: {err}");
+                None
+            }
+        };
+
+        MulticastMembership {
+            _v4: v4,
+            _v6: v6,
+            interface: interface.to_owned(),
+        }
+    }
+
     const IDLE_SLEEP: Duration = Duration::from_millis(50);
     /// Same reason as the census: without a bound, a busy ring starves the stop
     /// check entirely and Drop::join blocks until systemd times out the unit.
@@ -1345,6 +1496,9 @@ pub mod runtime {
     pub struct MdnsRuntime {
         stop: Arc<AtomicBool>,
         thread: Option<thread::JoinHandle<()>>,
+        // Dropping this leaves the multicast groups, so it must outlive the
+        // polling thread rather than being discarded after the join.
+        _membership: MulticastMembership,
     }
 
     impl MdnsRuntime {
@@ -1356,10 +1510,11 @@ pub mod runtime {
                 .take_map(MDNS_OBSERVATIONS_MAP)
                 .ok_or_else(|| anyhow::anyhow!("{MDNS_OBSERVATIONS_MAP} map is missing"))?;
 
+            let interface_name = interface_name.into();
             let stop = Arc::new(AtomicBool::new(false));
             let counters = Arc::new(MdnsCounters::default());
             let mut consumer = MdnsConsumer {
-                interface_name: interface_name.into(),
+                interface_name: interface_name.clone(),
                 ring: aya::maps::RingBuf::try_from(map)?,
                 table: MdnsTable::new(ENTRY_TTL, TABLE_CAPACITY),
                 counters: Arc::clone(&counters),
@@ -1370,6 +1525,20 @@ pub mod runtime {
                 ),
                 stop: Arc::clone(&stop),
             };
+
+            let membership = join_mdns_groups(&interface_name);
+            if membership.is_empty() {
+                log::warn!(
+                    "netprobe mDNS collector on {} joined no multicast groups; it will only see \
+                     announcements another client on this host has joined",
+                    membership.interface()
+                );
+            } else {
+                log::info!(
+                    "netprobe mDNS collector joined 224.0.0.251/ff02::fb on {}",
+                    membership.interface()
+                );
+            }
 
             let stop_worker = Arc::clone(&stop);
             let thread = thread::Builder::new()
@@ -1385,6 +1554,7 @@ pub mod runtime {
             Ok(Self {
                 stop,
                 thread: Some(thread),
+                _membership: membership,
             })
         }
     }
