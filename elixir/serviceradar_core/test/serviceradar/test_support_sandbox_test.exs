@@ -266,6 +266,7 @@ defmodule ServiceRadar.TestSupportSandboxTest do
     end
 
     TestSupport.stop_repo_owner(owner, shared: false)
+    assert_owner_stopped(owner)
   end
 
   defp assert_owner_stopped(owner) do
