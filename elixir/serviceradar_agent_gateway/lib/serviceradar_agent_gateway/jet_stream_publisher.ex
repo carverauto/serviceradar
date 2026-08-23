@@ -23,10 +23,16 @@ defmodule ServiceRadarAgentGateway.JetStreamPublisher do
 
   ## Refusals default to WITHHOLD
 
-  A refusal only becomes terminal (`:poison`) on proof the record can never be accepted.
-  Everything else -- an unknown broker error, an unparseable body, an expected-stream mismatch --
-  leaves the source sequence UNRESOLVED. Sending an unrecognised refusal to the DLQ would discard
-  a record that was never proven bad, and resolve a sequence that was never accepted.
+  A refusal only becomes terminal (`:poison`) on proof the record can never be accepted, and
+  NOTHING THE BROKER SAYS IS SUCH PROOF. A size refusal (`err_code` 10054, or the same thing by
+  description) fires when headers plus payload exceed either the server's MaxPayload or the target
+  stream's configured MaxMsgSize -- so a stale stream configuration produces it for a record that
+  is entirely valid under the frozen ABI bounds. Proof requires a LOCAL preflight against those
+  bounds, which task 3.4 supplies.
+
+  So today `:poison` has no producer here, deliberately. Every refusal leaves the source sequence
+  UNRESOLVED. Sending an unrecognised or ambiguous refusal to the DLQ would discard a record that
+  was never proven bad and resolve a sequence that was never accepted.
 
   ## No DLQ publication here, deliberately
 
@@ -269,17 +275,28 @@ defmodule ServiceRadarAgentGateway.JetStreamPublisher do
   # `Nats-Expected-Stream` with this error, not with a successful ack naming another stream. It is
   # a routing/readiness fault, so it withholds rather than DLQs.
   defp classify_ack_error(%{} = err) do
-    desc = err["description"] |> to_string() |> String.downcase()
+    # `to_string/1` raises Protocol.UndefinedError on a map or list, and the error object is
+    # whatever the broker sent. A malformed description must classify, not crash the publish.
+    desc = description_text(err["description"])
 
     case err["err_code"] do
       10_060 -> :misrouted
+      # 10054 is NOT proof of poison. NATS emits it when headers plus payload exceed EITHER the
+      # server's MaxPayload OR the target stream's configured MaxMsgSize, so a stale stream
+      # configuration terminalizes a record that is perfectly valid under the frozen ABI bounds.
+      # Only a LOCAL frozen-bound preflight can prove a record can never be accepted, and task 3.4
+      # supplies that. Until then the broker cannot tell us poison from misconfiguration.
+      10_054 -> :systemic
       10_071 -> :systemic
-      10_054 -> :poison
       _ -> classify_by_description(err["code"], desc)
     end
   end
 
   defp classify_ack_error(_), do: :systemic
+
+  defp description_text(d) when is_binary(d), do: String.downcase(d)
+  defp description_text(d) when is_atom(d) or is_number(d), do: d |> to_string() |> String.downcase()
+  defp description_text(_), do: ""
 
   defp classify_by_description(code, desc) do
     if capacity?(code, desc), do: :capacity, else: classify_refusal(desc)
@@ -295,12 +312,12 @@ defmodule ServiceRadarAgentGateway.JetStreamPublisher do
   end
 
   defp classify_refusal(desc) do
-    cond do
-      # The record itself can never fit. This is the one description-derived PROOF of poison.
-      String.contains?(desc, "message size exceeds maximum") -> :poison
-      String.contains?(desc, "expected") -> :misrouted
-      # Anything unrecognised stays unresolved rather than becoming terminal.
-      true -> :systemic
+    if String.contains?(desc, "expected") do
+      :misrouted
+    else
+      # Everything else -- including a size refusal by description, which has the same
+      # server-vs-stream ambiguity as err_code 10054 -- stays unresolved rather than terminal.
+      :systemic
     end
   end
 

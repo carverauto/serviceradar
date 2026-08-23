@@ -257,58 +257,110 @@ defmodule ServiceRadar.Edge.StreamRouteTest do
       |> String.split("\n", trim: true)
       |> Enum.reject(&String.starts_with?(&1, "#"))
       |> Enum.map(fn line ->
-        [cls, scope_hex, agent, spool_hex, subject] = String.split(line, "\t")
+        [cls, scope_hex, agent, spool_hex, subject, part, stream, pv, sv] =
+          String.split(line, "\t")
 
-        {cls, Base.decode16!(scope_hex, case: :lower), agent,
-         Base.decode16!(spool_hex, case: :lower), subject}
+        %{
+          class:
+            case cls do
+              "bulk" -> @bulk
+              "interactive" -> @interactive
+            end,
+          scope: Base.decode16!(scope_hex, case: :lower),
+          agent: agent,
+          spool: Base.decode16!(spool_hex, case: :lower),
+          subject: subject,
+          partition: String.to_integer(part),
+          expected_stream: stream,
+          placement_version: String.to_integer(pv),
+          partition_scheme_version: String.to_integer(sv)
+        }
       end)
     end
 
-    test "every component vector resolves to its committed subject through resolve/1" do
+    defp resolve_vector(v) do
+      StreamRoute.resolve(%{
+        route_profile: @durable,
+        traffic_class: v.class,
+        partition_rule: :network_scope_v1,
+        partition_coordinates: %{
+          network_scope_id: v.scope,
+          authenticated_agent_id: v.agent,
+          spool_id: v.spool
+        }
+      })
+    end
+
+    test "the corpus is exactly 16 UNIQUE rows spanning the space" do
       vectors = load_route_vectors()
+
+      # Bounds the SET, not just its size. Replacing all 16 rows with copies of the first
+      # satisfied a length check while freezing nothing.
       assert length(vectors) == 16, "expected 16 route vectors, got #{length(vectors)}"
+      assert length(Enum.uniq(vectors)) == 16, "duplicate rows in the route corpus"
 
-      for {cls, scope, agent, spool, expected} <- vectors do
-        class =
-          case cls do
-            "bulk" -> @bulk
-            "interactive" -> @interactive
-          end
+      assert length(Enum.uniq_by(vectors, & &1.partition)) > 8,
+             "the corpus barely spans the partition space, so it would not catch a shift"
 
-        {:ok, route} =
-          StreamRoute.resolve(%{
-            route_profile: @durable,
-            traffic_class: class,
-            partition_rule: :network_scope_v1,
-            partition_coordinates: %{
-              network_scope_id: scope,
-              authenticated_agent_id: agent,
-              spool_id: spool
-            }
-          })
+      assert length(Enum.uniq_by(vectors, & &1.class)) == 2, "the corpus covers only one class"
+    end
 
-        assert route.subject == expected,
-               "components resolved to #{route.subject}, not the committed #{expected}"
+    test "every vector resolves to its committed COMPLETE route, field for field" do
+      # The whole tuple. Asserting only the subject let two mutants through: shifting
+      # route.partition by one while keeping the subject suffix, and renaming both physical
+      # streams without incrementing placement_version.
+      for v <- load_route_vectors() do
+        assert {:ok, route} = resolve_vector(v)
+
+        assert route.subject == v.subject
+        assert route.partition == v.partition
+        assert route.expected_stream == v.expected_stream
+        assert route.placement_version == v.placement_version
+        assert route.partition_scheme_version == v.partition_scheme_version
       end
     end
 
-    test "the transcript is the SCOPE ALONE: agent and spool do not move the subject" do
-      # This is what the key->partition vectors could not catch. They call partition/1 with
-      # preassembled bytes, so a rule hashing `scope <> agent_id` reproduces them exactly while
-      # routing every record somewhere else. Here the components are supplied separately, so only
-      # the frozen transcript resolves to the committed subject.
-      vectors = load_route_vectors()
+    test "the resolved tuple SET is exactly the committed tuple set" do
+      resolved =
+        for v <- load_route_vectors() do
+          {:ok, r} = resolve_vector(v)
 
-      grouped = Enum.group_by(vectors, fn {cls, scope, _, _, _} -> {cls, scope} end)
+          {r.subject, r.partition, r.expected_stream, r.placement_version,
+           r.partition_scheme_version}
+        end
+
+      committed =
+        for v <- load_route_vectors() do
+          {v.subject, v.partition, v.expected_stream, v.placement_version,
+           v.partition_scheme_version}
+        end
+
+      assert Enum.sort(resolved) == Enum.sort(committed)
+
+      assert length(Enum.uniq(committed)) > 8, "the committed tuple set is nearly degenerate"
+    end
+
+    test "the transcript is the SCOPE ALONE: agent and spool do not move the route" do
+      # The key->partition vectors call partition/1 with preassembled bytes, so a rule hashing
+      # `scope <> agent_id` reproduces them exactly while routing every record elsewhere. Here
+      # the components are supplied separately.
+      vectors = load_route_vectors()
+      grouped = Enum.group_by(vectors, &{&1.class, &1.scope})
       shared = Enum.filter(grouped, fn {_k, rows} -> length(rows) > 1 end)
 
       assert shared != [], "the corpus must contain one scope under several agent/spool pairs"
 
       for {_key, rows} <- shared do
-        subjects = rows |> Enum.map(&elem(&1, 4)) |> Enum.uniq()
+        routes =
+          rows
+          |> Enum.map(fn v ->
+            {:ok, r} = resolve_vector(v)
+            {r.subject, r.partition}
+          end)
+          |> Enum.uniq()
 
-        assert length(subjects) == 1,
-               "one scope produced #{length(subjects)} subjects, so the transcript is not the scope alone"
+        assert length(routes) == 1,
+               "one scope produced #{length(routes)} routes, so the transcript is not the scope alone"
       end
     end
   end
