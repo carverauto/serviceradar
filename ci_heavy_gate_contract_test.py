@@ -13,6 +13,9 @@ WORKFLOW = ROOT / "buildbuddy.yaml"
 OBSERVER_SOURCE = ROOT / "rust/integration-db/src/connection_observer.rs"
 OBSERVER_BINARY = ROOT / "rust/integration-db/src/bin/observe_connections.rs"
 OBSERVER_BUILD = ROOT / "rust/integration-db/BUILD.bazel"
+BENCHMARK_CONTRACT = (
+    ROOT / "openspec/changes/parallelize-core-integration-tests/benchmark.md"
+)
 CORE_BUILD = ROOT / "elixir/serviceradar_core/BUILD.bazel"
 CORE_TEST_ROOT = ROOT / "elixir/serviceradar_core/test"
 INTEGRATION_DISPOSITIONS = CORE_TEST_ROOT / "INTEGRATION_SOURCE_DISPOSITIONS.tsv"
@@ -441,6 +444,24 @@ class IntegrationBenchmarkContractTest(unittest.TestCase):
         # max_cases=1 and disables test timeouts. Authoritative benchmark runs must
         # exercise the checked-in integration concurrency cap instead.
         self.assertNotIn("SERVICERADAR_TEST_SLOWEST", self.action)
+
+    def test_benchmark_uses_the_checked_in_async_cap(self):
+        shards = INTEGRATION_SHARDS.read_text(encoding="utf-8")
+        cap_match = re.search(
+            r"^INTEGRATION_ASYNC_MAX_CASES = (\d+)$", shards, re.MULTILINE
+        )
+        self.assertIsNotNone(cap_match)
+        cap = cap_match.group(1)
+
+        benchmark = BENCHMARK_CONTRACT.read_text(encoding="utf-8")
+        self.assertIn(
+            f"final broad-async implementation commit at `max_cases: {cap}`",
+            benchmark,
+        )
+        self.assertIn(
+            f"after revision must report\n`max_cases: {cap}`",
+            benchmark,
+        )
 
     def test_expected_sha_is_checked_before_any_build_or_registry_work(self):
         sha_check = self.action.index("SERVICERADAR_BENCHMARK_EXPECTED_SHA")

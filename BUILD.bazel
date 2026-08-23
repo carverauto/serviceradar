@@ -97,6 +97,7 @@ py_test(
     data = [
         ".github/workflows/release.yml",
         "buildbuddy.yaml",
+        "openspec/changes/parallelize-core-integration-tests/benchmark.md",
         "//build:integration_shards.bzl",
         "//build:integration_test_dispositions.bzl",
         "//build/ci:BUILD.bazel",

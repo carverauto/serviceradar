@@ -14,7 +14,7 @@ The comparison has two named revisions:
   and the guard that keeps built-in slow-test profiling out of concurrent runs. It is the direct
   parent of the first commit that changes sandbox behavior, source partitioning, test async flags,
   or ordinary target selection.
-- **After revision:** the final broad-async implementation commit at `max_cases: 4` after
+- **After revision:** the final broad-async implementation commit at `max_cases: 8` after
   concurrency-aware placement.
 
 Both revisions therefore contain the identical benchmark harness, flags, observer, action name,
@@ -23,7 +23,7 @@ normalized action block, observer sources, and observer Bazel rule and is emitte
 `//:integration_benchmark_harness_hash` target. The before revision changes measurement only; its
 ordinary workload still embeds both ingestion gates plus cold bootstrap and runs with
 `max_cases: 1`. The intermediate safety wave reports `max_cases: 2`; the after revision must report
-`max_cases: 4`. Neither authoritative action enables
+`max_cases: 8`. Neither authoritative action enables
 ExUnit's built-in slowest report,
 because that option silently enables trace, forces `max_cases: 1`, and changes test timeouts to
 infinity. Both preflight and measured database test flags include `--nocache_test_results` and
@@ -622,8 +622,8 @@ test-work correction, and placement.
 The subsequent semantic audit identified roughly 1,150 trace-instrumented case-seconds that may
 become async after full-module promotion, mixed-module splitting, and test-local identifier
 normalization. Those values are relative placement weights only. They MUST NOT be subtracted from
-the 1,398.6-second trace-free aggregate or converted into cap-two, cap-four, or one-BEAM wall-time
-forecasts. The CPU, topology, cap-two, cap-four, local, and exact-SHA protocols above produce the
+the 1,398.6-second trace-free aggregate or converted into cap-two, cap-eight, or one-BEAM wall-time
+forecasts. The CPU, topology, historical cap-two, frozen cap-eight, local, and exact-SHA protocols
 comparable measurements used for decisions.
 
 Authoritative evidence first records cohort metadata:
