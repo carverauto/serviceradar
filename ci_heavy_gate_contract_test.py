@@ -64,16 +64,20 @@ def integration_only_branch() -> str:
     return source[start:end]
 
 
-def integration_benchmark_action() -> str:
+def named_action(name: str) -> str:
     workflow = WORKFLOW.read_text(encoding="utf-8")
     match = re.search(
-        r'^  - name: "IntegrationBenchmark"\n(?P<block>.*?)(?=^  - name:|\Z)',
+        rf'^  - name: "{re.escape(name)}"\n(?P<block>.*?)(?=^  - name:|\Z)',
         workflow,
         re.MULTILINE | re.DOTALL,
     )
     if not match:
-        raise AssertionError("IntegrationBenchmark action is missing")
+        raise AssertionError(f"{name} action is missing")
     return match.group(0)
+
+
+def integration_benchmark_action() -> str:
+    return named_action("IntegrationBenchmark")
 
 
 def observe_connections_rule() -> str:
@@ -251,6 +255,273 @@ class IntegrationBenchmarkContractTest(unittest.TestCase):
         self.assertIn('exit "$TEARDOWN_STATUS"', cleanup)
         self.assertLess(cleanup.index('exit "$SUITE_STATUS"'), cleanup.index('exit "$OBSERVER_STATUS"'))
         self.assertLess(cleanup.index('exit "$OBSERVER_STATUS"'), cleanup.index('exit "$TEARDOWN_STATUS"'))
+
+
+class WorkflowIntegrationLifecycleContractTest(unittest.TestCase):
+    ordinary_suite = (
+        "bazel test $FLAGS //... "
+        "--test_tag_filters=integration_test,-large_ingestion_test,-acceptance_test"
+    )
+    heavy_provision = (
+        "bazel test $FLAGS "
+        "//rust/integration-db:provision_db_large_ingestion"
+    )
+    heavy_suite = (
+        "bazel test $FLAGS "
+        "//elixir/serviceradar_core:large_ingestion_release_gate"
+    )
+
+    def assert_common_measured_lifecycle(
+        self,
+        action: str,
+        provision_command: str,
+        suite_command: str,
+    ) -> None:
+        for required in (
+            "export BAZEL_PROFILE=ci",
+            "export SERVICERADAR_ENV=ci",
+            "--strategy=TestRunner=local",
+            "--//build:enable_integration_tests",
+            "--//build:run_id=$RUN_ID",
+            "--flaky_test_attempts=1",
+            "--test_output=all",
+            "--test_env=SERVICERADAR_TEST_SLOWEST=15",
+            "od -An -tx1 -N4 /dev/urandom",
+            "export RUN_ID",
+            "//:buildbuddy_setup_fixture_env",
+            "//rust/integration-db:observe_connections",
+            '--ready-file "$READY_FILE"',
+            '--suite-complete-file "$SUITE_COMPLETE_FILE"',
+            '--quiescent-file "$QUIESCENT_FILE"',
+            '--stop-file "$STOP_FILE"',
+            "--max-seconds 1800",
+            provision_command,
+            suite_command,
+        ):
+            self.assertIn(required, action)
+
+        measured_start = action.index("\n          RUN_ID=")
+        measured = action[measured_start:]
+        flags = measured.index('FLAGS="-c opt --config=ci')
+        cleanup = measured.index("cleanup() {")
+        self.assertLess(flags, cleanup)
+        for measured_flag in (
+            "--strategy=TestRunner=local",
+            "--//build:enable_integration_tests",
+            "--//build:run_id=$RUN_ID",
+            "--test_env=SERVICERADAR_ENV=ci",
+            "--flaky_test_attempts=1",
+            "--test_output=all",
+            "--test_env=SERVICERADAR_TEST_SLOWEST=15",
+        ):
+            self.assertIn(measured_flag, measured[flags:cleanup])
+        for secret in (
+            "SERVICERADAR_SECRET_DATABASE_PASSWORD",
+            "SERVICERADAR_SECRET_DATABASE_ADMIN_PASSWORD",
+            "SERVICERADAR_SECRET_DGRAPH_ADMIN_PASSWORD",
+        ):
+            self.assertIn(f"--test_env={secret}", measured[flags:cleanup])
+        self.assertIn('FLAGS="$FLAGS $SERVICERADAR_TEST_ENV_FLAGS"', measured)
+
+    def assert_preflight_and_clock_contract(self, action: str) -> None:
+        for required in (
+            "PREFLIGHT_RUN_ID=",
+            "PREFLIGHT_ENV_FILE=",
+            'chmod 600 "$PREFLIGHT_ENV_FILE"',
+            'SERVICERADAR_FIXTURE_ENV_FILE="$PREFLIGHT_ENV_FILE"',
+            'trap \'rm -f "$PREFLIGHT_ENV_FILE"\' EXIT',
+            "template remains pending after preflight",
+            "template changed during measured lifecycle",
+        ):
+            self.assertIn(required, action)
+
+        preflight_start = action.index("PREFLIGHT_RUN_ID=")
+        measured_start = action.index("\n          RUN_ID=", preflight_start)
+        start_ns = action.index("START_NS=", measured_start)
+        fixture_setup = action.index("//:buildbuddy_setup_fixture_env", start_ns)
+        self.assertLess(preflight_start, measured_start)
+        self.assertLess(measured_start, start_ns)
+        self.assertLess(start_ns, fixture_setup)
+        self.assertRegex(
+            action[start_ns:fixture_setup + len("//:buildbuddy_setup_fixture_env")],
+            r'START_NS="\$\(date \+%s%N\)"\n\s+bazel run .*//:buildbuddy_setup_fixture_env',
+        )
+
+        preflight = action[preflight_start:measured_start]
+        measured = action[start_ns:]
+        self.assertEqual(2, preflight.count("//rust/integration-db:prepare_template"))
+        self.assertEqual(1, preflight.count("//elixir/serviceradar_core:migrate_template"))
+        self.assertEqual(1, measured.count("//rust/integration-db:prepare_template"))
+        self.assertNotIn("//elixir/serviceradar_core:migrate_template", measured)
+
+    def assert_observer_and_cleanup_contract(self, action: str) -> None:
+        for marker, basename in (
+            ("READY_FILE", "ready"),
+            ("SUITE_COMPLETE_FILE", "suite-complete"),
+            ("QUIESCENT_FILE", "quiescent"),
+            ("STOP_FILE", "stop"),
+        ):
+            self.assertIn(f'{marker}="$OBSERVER_DIR/{basename}"', action)
+            self.assertIn(f'test ! -e "${marker}"', action)
+
+        for required in (
+            'OBSERVER_DIR="$(mktemp -d "${TMPDIR:-/tmp}/serviceradar-observer.XXXXXX")"',
+            'chmod 600 "$SERVICERADAR_FIXTURE_ENV_FILE"',
+            "wait_for_observer_ready 30",
+            'kill -0 "$OBSERVER_PID"',
+            'touch "$SUITE_COMPLETE_FILE"',
+            'wait_for_marker "$QUIESCENT_FILE" 30',
+            '//rust/integration-db:teardown_db',
+            'touch "$STOP_FILE"',
+            'wait "$OBSERVER_PID"',
+            'rm -f "$SERVICERADAR_FIXTURE_ENV_FILE"',
+            'rm -rf "$OBSERVER_DIR"',
+        ):
+            self.assertIn(required, action)
+
+        cleanup = action[action.index("cleanup() {") :]
+        original = cleanup.index("ORIGINAL_STATUS=$?")
+        disable_trap = cleanup.index("trap - EXIT", original)
+        nonfatal = cleanup.index("set +e", disable_trap)
+        suite_complete = cleanup.index('touch "$SUITE_COMPLETE_FILE"', nonfatal)
+        quiescent = cleanup.index(
+            'wait_for_marker "$QUIESCENT_FILE" 30', suite_complete
+        )
+        teardown = cleanup.index("//rust/integration-db:teardown_db", quiescent)
+        teardown_status = cleanup.index("TEARDOWN_STATUS=$?", teardown)
+        end_ns = cleanup.index("END_NS=", teardown_status)
+        stop = cleanup.index('touch "$STOP_FILE"', end_ns)
+        observer_wait = cleanup.index('wait "$OBSERVER_PID"', stop)
+        self.assertLess(original, disable_trap)
+        self.assertLess(disable_trap, nonfatal)
+        self.assertLess(suite_complete, quiescent)
+        self.assertLess(quiescent, teardown)
+        self.assertLess(teardown, teardown_status)
+        self.assertLess(teardown_status, end_ns)
+        self.assertLess(end_ns, stop)
+        self.assertLess(stop, observer_wait)
+        self.assertRegex(
+            cleanup[teardown:],
+            r"TEARDOWN_STATUS=\$\?\n\s+END_NS=",
+        )
+        self.assertIn("LIFECYCLE_NS=$((END_NS - START_NS))", cleanup)
+        self.assertIn("suite_status=$SUITE_STATUS", cleanup)
+        self.assertIn("observer_status=$OBSERVER_STATUS", cleanup)
+        self.assertIn("teardown_status=$TEARDOWN_STATUS", cleanup)
+        self.assertIn("SUITE_STATUS=$ORIGINAL_STATUS", cleanup)
+
+        status_init = action.index("SUITE_STATUS=0")
+        cleanup_definition = action.index("cleanup() {", status_init)
+        trap_install = action.index("trap cleanup EXIT", cleanup_definition)
+        self.assertLess(status_init, cleanup_definition)
+        self.assertLess(cleanup_definition, trap_install)
+
+        suite_exit = cleanup.index('exit "$SUITE_STATUS"')
+        observer_exit = cleanup.index('exit "$OBSERVER_STATUS"', suite_exit)
+        teardown_exit = cleanup.index('exit "$TEARDOWN_STATUS"', observer_exit)
+        self.assertLess(suite_exit, observer_exit)
+        self.assertLess(observer_exit, teardown_exit)
+
+    def test_bazel_ci_keeps_its_runner_trigger_and_measures_the_ordinary_suite(self):
+        action = named_action("BazelCI")
+        header = action[: action.index("    steps:")]
+        self.assertIn('pull_request:\n        branches:\n          - "staging"', header)
+        self.assertNotIn("push:", header)
+        self.assertNotIn("schedule:", header)
+        for required in (
+            'pool: "workflows"',
+            "container_image: \"docker://registry.carverauto.dev/serviceradar/buildbuddy-workflow-runner:v1.0.24.3\"",
+            "self_hosted: true",
+            'OSFamily: "linux"',
+            'Arch: "amd64"',
+            'dockerNetwork: "bridge"',
+            'memory: "50GB"',
+            'disk: "40GB"',
+        ):
+            self.assertIn(required, action)
+
+        self.assert_common_measured_lifecycle(
+            action,
+            "bazel test $FLAGS //rust/integration-db:provision_db",
+            self.ordinary_suite,
+        )
+        self.assertEqual(1, action.count(self.ordinary_suite))
+        self.assertNotIn(
+            "bazel test $FLAGS //... "
+            "--test_tag_filters=integration_test,-acceptance_test",
+            action,
+        )
+        self.assert_preflight_and_clock_contract(action)
+        self.assert_observer_and_cleanup_contract(action)
+
+    def test_large_ingestion_gate_has_exact_independent_trigger(self):
+        action = named_action("LargeIngestionGate")
+        header = action[: action.index("    steps:")]
+        self.assertIn(
+            '    triggers:\n'
+            '      push:\n'
+            '        branches:\n'
+            '          - "staging"\n'
+            '        tags:\n'
+            '          - "v*"\n'
+            '      schedule:\n'
+            '        crons:\n'
+            '          - "0 2 * * *"\n',
+            header,
+        )
+        self.assertNotIn("pull_request:", header)
+        branches = header[header.index("branches:") : header.index("tags:")]
+        tags = header[header.index("tags:") : header.index("schedule:")]
+        self.assertNotIn('"v*"', branches)
+        self.assertIn('"v*"', tags)
+
+    def test_large_ingestion_gate_copies_runner_fixture_and_credential_scope(self):
+        action = named_action("LargeIngestionGate")
+        for required in (
+            'OCI_REGISTRY: "registry.carverauto.dev"',
+            'OCI_AUTH_REQUIRED: "1"',
+            'SRQL_FIXTURE_CA_URL: "http://srql-fixture-ca-incluster.srql-fixtures.svc.cluster.local/ca.crt"',
+            "self_hosted: true",
+            'pool: "workflows"',
+            "container_image: \"docker://registry.carverauto.dev/serviceradar/buildbuddy-workflow-runner:v1.0.24.3\"",
+            'OSFamily: "linux"',
+            'Arch: "amd64"',
+            'dockerNetwork: "bridge"',
+            'memory: "50GB"',
+            'disk: "40GB"',
+            "//:buildbuddy_setup_docker_auth",
+        ):
+            self.assertIn(required, action)
+        self.assertNotIn("BUILDBUDDY_API_KEY", action)
+        self.assertNotIn("GITHUB_TOKEN", action)
+        self.assertNotIn("gh api", action)
+        self.assertNotIn("set -x", action)
+
+    def test_large_ingestion_gate_runs_only_the_full_strength_focused_pair(self):
+        action = named_action("LargeIngestionGate")
+        self.assert_common_measured_lifecycle(
+            action,
+            self.heavy_provision,
+            self.heavy_suite,
+        )
+        self.assertEqual(1, action.count(self.heavy_provision))
+        self.assertEqual(1, action.count(self.heavy_suite))
+        self.assertNotIn(
+            "bazel test $FLAGS //rust/integration-db:provision_db\n", action
+        )
+        self.assertNotRegex(
+            action,
+            r"bazel test \$FLAGS //\.\.\.\s+--test_tag_filters=integration_test",
+        )
+        for lowered_workload in (
+            "SERVICERADAR_LARGE_INGESTION_DEVICE_COUNT",
+            "SERVICERADAR_LARGE_INGESTION_CHUNK_SIZE",
+            "SERVICERADAR_IDENTIFIER_CARDINALITY_DEVICE_COUNT",
+            "SERVICERADAR_IDENTIFIER_CARDINALITY_ROUNDS",
+        ):
+            self.assertNotIn(lowered_workload, action)
+        self.assert_preflight_and_clock_contract(action)
+        self.assert_observer_and_cleanup_contract(action)
 
     def test_fixed_external_resource_sources_are_serial_data_cases(self):
         self.assertEqual(FIXED_EXTERNAL_RESOURCE_PATHS, fixed_external_resource_sources())
