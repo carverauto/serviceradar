@@ -1,7 +1,12 @@
 defmodule ServiceRadarAgentGateway.JetStreamPublisherTest do
   use ExUnit.Case, async: true
 
+  import Bitwise
+
   alias ServiceRadar.Edge.PublicationIdentity
+  alias ServiceRadar.Edge.StreamRoute
+  alias Serviceradar.Edge.V1.EdgeRecordV1
+  alias Serviceradar.Edge.V1.EdgeSignedCapabilityV1
   alias ServiceRadarAgentGateway.JetStreamPublisher
 
   # A fake connection module driven by the test process mailbox: it records the
@@ -115,8 +120,6 @@ defmodule ServiceRadarAgentGateway.JetStreamPublisherTest do
   end
 
   describe "publish_record/2 derives its own route" do
-    import Bitwise
-
     defp uuidv7(seed) do
       bytes = Enum.map(0..15, &rem(seed + &1, 256))
 
@@ -151,6 +154,10 @@ defmodule ServiceRadarAgentGateway.JetStreamPublisherTest do
     defp header(headers, name), do: Enum.find_value(headers, fn {k, v} -> if k == name, do: v end)
 
     test "there is NO api that accepts a route, so route and publication cannot disagree" do
+      # Exercises the real entry point as well as the shape: the structural assertions below are
+      # only meaningful if the two-arg form is the one that actually works.
+      assert {:ok, %{route: _, headers: _}} = JetStreamPublisher.plan(publication())
+
       # The previous shape took (route, publication) and a test proved the two could describe
       # different records -- a route resolved for one scope publishing a slot from another.
       # ensure_loaded! first: function_exported?/3 answers false for a module that simply has
@@ -251,8 +258,6 @@ defmodule ServiceRadarAgentGateway.JetStreamPublisherTest do
     @fixed_millis 1_784_000_000_000
 
     defp vector_uuidv7(seed) do
-      import Bitwise
-
       <<ms6::binary-6, _::binary-2>> = <<@fixed_millis <<< 16::big-64>>
       rest = for i <- 6..15, into: <<>>, do: <<seed + i::8>>
       <<b0::binary-6, b6, b7, b8, b9::binary-7>> = ms6 <> rest
@@ -261,7 +266,7 @@ defmodule ServiceRadarAgentGateway.JetStreamPublisherTest do
 
     defp vector_publication do
       record_bin = load("record.bin")
-      record = Serviceradar.Edge.V1.EdgeRecordV1.decode(record_bin)
+      record = EdgeRecordV1.decode(record_bin)
 
       %{
         # The same slot the shared golden vectors were cut against.
@@ -350,7 +355,7 @@ defmodule ServiceRadarAgentGateway.JetStreamPublisherTest do
 
     test "a NON-FRESH delivery propagates its proof into the provenance" do
       cap =
-        Serviceradar.Edge.V1.EdgeSignedCapabilityV1.decode(load("delivery_renewal_cap.bin"))
+        EdgeSignedCapabilityV1.decode(load("delivery_renewal_cap.bin"))
 
       renewal = PublicationIdentity.mode_renewal()
       {:ok, proof} = PublicationIdentity.delivery_proof_digest(cap, renewal)
@@ -499,6 +504,12 @@ defmodule ServiceRadarAgentGateway.JetStreamPublisherTest do
     end
 
     test "there is no public raw-publish bypass" do
+      {:module, _} = Code.ensure_loaded(JetStreamPublisher)
+
+      # The supported path works...
+      assert {:ok, %{headers: _}} = JetStreamPublisher.plan(base_pub())
+
+      # ...and there is no raw one beside it.
       refute function_exported?(JetStreamPublisher, :publish, 3)
       refute function_exported?(JetStreamPublisher, :publish, 4)
     end

@@ -199,10 +199,7 @@ defmodule ServiceRadarAgentGateway.JetStreamPublisher do
   defp fence(expected, {:ok, %{stream: expected} = ack}), do: {:ok, ack}
 
   defp fence(expected, {:ok, %{stream: other}}) do
-    Logger.error("jetstream ack from unexpected stream",
-      expected_stream: expected,
-      acked_stream: other
-    )
+    Logger.error("jetstream ack from unexpected stream: expected=#{expected} acked=#{other}")
 
     {:error, :misrouted}
   end
@@ -285,17 +282,24 @@ defmodule ServiceRadarAgentGateway.JetStreamPublisher do
   defp classify_ack_error(_), do: :systemic
 
   defp classify_by_description(code, desc) do
+    if capacity?(code, desc), do: :capacity, else: classify_refusal(desc)
+  end
+
+  # "The stream cannot take it right now" -- backpressure, always withheld.
+  defp capacity?(code, desc) do
+    code == 503 or
+      String.contains?(desc, "no responders") or
+      String.contains?(desc, "insufficient resources") or
+      String.contains?(desc, "maximum messages") or
+      String.contains?(desc, "maximum bytes")
+  end
+
+  defp classify_refusal(desc) do
     cond do
-      code == 503 -> :capacity
-      String.contains?(desc, "no responders") -> :capacity
-      String.contains?(desc, "insufficient resources") -> :capacity
-      # Stream/consumer limits reached: backpressure, not poison.
-      String.contains?(desc, "maximum messages") -> :capacity
-      String.contains?(desc, "maximum bytes") -> :capacity
       # The record itself can never fit. This is the one description-derived PROOF of poison.
       String.contains?(desc, "message size exceeds maximum") -> :poison
       String.contains?(desc, "expected") -> :misrouted
-      String.contains?(desc, "wrong last sequence") -> :systemic
+      # Anything unrecognised stays unresolved rather than becoming terminal.
       true -> :systemic
     end
   end
