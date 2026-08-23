@@ -1,22 +1,37 @@
 defmodule ServiceRadar.Edge.ResolvedPrefix do
   @moduledoc """
-  The gateway-side contiguous resolved-prefix tracker (unify-sweep-results-proto task 3.3(c)).
+  The GATEWAY's contiguous resolved-prefix tracker (unify-sweep-results-proto task 3.5, consumed
+  by 3.3(c)'s out-of-order PubAck accounting).
 
-  Frames publish asynchronously and may earn their durable outcome OUT OF ORDER. This advances
-  the resolved watermark across a contiguous run of RESOLVING dispositions, so the gateway can
-  report a prefix the agent may act on without claiming anything about the sequences behind a gap.
+  Frames publish asynchronously and earn their durable outcome OUT OF ORDER. This advances the
+  resolved watermark across a contiguous run of RESOLVING dispositions, so the gateway can report
+  a prefix the agent may act on without claiming anything about the sequences behind a gap.
 
-  It holds no I/O and can be rebuilt from the durable stream/DLQ. Not safe for concurrent use --
-  wrap it in the process that owns the lane.
+  Pure data and functions: no I/O, no process. Not safe for concurrent use -- the process that
+  owns the lane owns the term.
 
-  ## Elixir, because the gateway is Elixir
+  ## It holds GATEWAY state only
 
-  A Go `gwprefix` package exists in this repo with the same semantics and ZERO consumers: the
-  agent-gateway has been Elixir for over a year and the consumers are Elixir
-  (EventWriter / core-elx / Broadway), so nothing Go was ever going to call it. This is the
-  implementation the gateway can actually use. The Go one should be deleted rather than kept in
-  parallel -- two implementations of a watermark that authorizes deleting customer data is a
-  drift risk with no upside, and there are no shared vectors binding them.
+  An earlier revision also tracked an agent-local "reclaimable" watermark, advanced by a
+  `record_terminal_outcome/2` the gateway could never call. That was a design error, not a missing
+  feature: local durability is the AGENT's fact, and the gateway has no way to observe it. The
+  consequences were real -- every resolved disposition was retained forever, and the only way to
+  make the watermark move would have been to equate sending an ack with the agent having durably
+  acted on it, which is exactly the false equivalence the two-watermark split existed to prevent.
+
+  So reclaim lives with the agent (Go), and this module keeps only what the gateway can see.
+
+  ## Release is driven by what the agent REPORTS
+
+  The gateway learns the agent's local progress from `EdgeRecordLaneOpen.first_unresolved_sequence`
+  on open and resume. `release_below/2` takes that value and drops the evidence beneath it. That is
+  an observation, not an inference: the agent is telling the gateway how far it has resolved
+  locally.
+
+  Releasing also advances `base`, so a released sequence is genuinely out of range. Recording one
+  afterwards fails closed with `:below_base` rather than silently succeeding as a no-op -- a
+  released sequence has no retained disposition to contradict, so "no conflict found" would
+  otherwise read as agreement.
 
   ## Dispositions are the frozen ABI, not a local approximation
 
@@ -30,25 +45,21 @@ defmodule ServiceRadar.Edge.ResolvedPrefix do
       REJECTED_PERMANENT     (4)  reject-audit DLQ    resolves
       REJECTED_RETRYABLE     (5)  transient           NEVER resolves
 
-  Collapsing them is actively dangerous. A `REJECTED_RETRYABLE` refusal is transient, so treating
-  it as resolved would let the prefix advance past work the gateway has not accepted, and would
-  eventually authorize reclaiming customer data that was never delivered. Retryable therefore
-  CAPS the prefix, exactly like a missing outcome.
+  Task 3.5 lists the resolving PubAcks exhaustively, including the SECURITY-quarantine one, which
+  collapses onto `ACCEPTED_QUARANTINE` on the wire. Both quarantine variants therefore resolve
+  here; the security-quarantine ROUTING path is preserved elsewhere, since the wire disposition
+  alone cannot express it.
 
-  Unspecified and undeclared kinds fail closed.
+  A `REJECTED_RETRYABLE` refusal is transient, so treating it as resolved would let the prefix
+  advance past work the gateway has not accepted, and would eventually authorize reclaiming
+  customer data that was never delivered. Retryable therefore CAPS the prefix, exactly like a
+  missing outcome. Unspecified and undeclared kinds fail closed.
 
-  ## Two watermarks, deliberately separate
+  ## The Go `gwprefix` is retained deliberately
 
-  Remote resolution and local reclaim are distinct facts:
-
-    * `resolved_through/1` is what the GATEWAY durably resolved. It says nothing about local
-      spool bytes.
-    * `reclaimable_through/1` is the contiguous run for which the AGENT has durably recorded its
-      OWN terminal action. Only this authorizes releasing bytes.
-
-  A gateway PubAck does not by itself reclaim anything, and one local terminal event does not
-  vouch for an earlier sequence: each advances the local watermark only after ITS OWN action is
-  recorded.
+  It has no Go consumers -- the gateway is Elixir -- but it is kept as a COMPARISON ORACLE until
+  this port is integrated and verified. Removing it is a focused follow-up once that is done, not
+  part of introducing this.
   """
 
   alias Serviceradar.Edge.V1.EdgeRecordDispositionKind
@@ -65,68 +76,72 @@ defmodule ServiceRadar.Edge.ResolvedPrefix do
 
   @u64_max 0xFFFFFFFFFFFFFFFF
 
-  @enforce_keys [:base, :resolved, :reclaimable, :pending, :disposition, :local_terminal]
-  defstruct [:base, :resolved, :reclaimable, :pending, :disposition, :local_terminal]
+  @enforce_keys [:base, :resolved, :pending, :disposition]
+  defstruct [:base, :resolved, :pending, :disposition]
 
   @opaque t :: %__MODULE__{
             base: pos_integer(),
             resolved: non_neg_integer(),
-            reclaimable: non_neg_integer(),
-            pending: %{optional(non_neg_integer()) => atom()},
-            disposition: %{optional(non_neg_integer()) => atom()},
-            local_terminal: MapSet.t()
+            pending: %{optional(pos_integer()) => atom()},
+            disposition: %{optional(pos_integer()) => atom()}
           }
 
   @doc """
-  A tracker whose lane begins at `first_sequence` (>= 1).
+  A tracker for a lane whose first UNRESOLVED sequence is `first_unresolved_sequence`.
 
-  Both watermarks start at `first_sequence - 1`, meaning "nothing resolved yet" rather than
+  This is `EdgeRecordLaneOpen.first_unresolved_sequence`, NOT `sequence_base`. The two are
+  different facts and only coincide on a fresh lane: `sequence_base` MUST be 1 and names the
+  lane's origin, while `first_unresolved_sequence` is where the agent still needs work. Seeding a
+  resumed lane from the origin would re-open a window the agent has already closed.
+
+  `resolved` starts at `first_unresolved_sequence - 1`, meaning "nothing resolved yet" rather than
   "sequence 0 resolved" -- lanes are 1-based and sequence 0 does not exist.
   """
   @spec new(pos_integer()) :: t()
-  def new(first_sequence \\ 1) when is_integer(first_sequence) do
-    base = if first_sequence < 1, do: 1, else: first_sequence
+  def new(first_unresolved_sequence \\ 1)
 
+  def new(first_unresolved_sequence)
+      when is_integer(first_unresolved_sequence) and first_unresolved_sequence >= 1 and
+             first_unresolved_sequence <= @u64_max do
     %__MODULE__{
-      base: base,
-      resolved: base - 1,
-      reclaimable: base - 1,
+      base: first_unresolved_sequence,
+      resolved: first_unresolved_sequence - 1,
       pending: %{},
-      disposition: %{},
-      local_terminal: MapSet.new()
+      disposition: %{}
     }
   end
 
   @doc """
-  Records the gateway's disposition for one sequence and advances the REMOTE prefix across
+  Records the gateway's disposition for one sequence and advances the prefix across
   newly-contiguous resolving outcomes.
 
-  A `REJECTED_RETRYABLE` disposition is retained but never resolves, so it caps the prefix
-  exactly like a missing outcome. Recording does not advance reclamation.
+  A `REJECTED_RETRYABLE` disposition is retained but never resolves, so it caps the prefix exactly
+  like a missing outcome.
 
-  Errors: `:unknown_disposition`, `:below_base`, `:conflict`. Which one is returned when an
-  input is invalid in several ways at once is UNSPECIFIED -- callers may branch on the reason
-  but must not depend on a precedence between them.
+  Errors: `:unknown_disposition`, `:below_base`, `:above_lane_max`, `:conflict`. Which one is
+  returned when an input is invalid in several ways at once is UNSPECIFIED -- callers may branch
+  on the reason but must not depend on a precedence between them.
   """
-  @spec record(t(), non_neg_integer(), atom()) :: {:ok, t()} | {:error, atom()}
+  @spec record(t(), pos_integer(), atom()) :: {:ok, t()} | {:error, atom()}
   def record(%__MODULE__{} = t, seq, disposition) do
     cond do
       not declared?(disposition) -> {:error, :unknown_disposition}
-      not is_integer(seq) or seq < t.base -> {:error, :below_base}
+      not is_integer(seq) -> {:error, :below_base}
+      seq < t.base -> {:error, :below_base}
+      # A lane sequence is a protobuf uint64. Accepting more let the prefix advance past the
+      # representable range while nothing downstream could express it.
+      seq > @u64_max -> {:error, :above_lane_max}
       seq <= t.resolved -> record_inside_prefix(t, seq, disposition)
       true -> record_pending(t, seq, disposition)
     end
   end
 
-  # Already inside the prefix: idempotent when it matches, a conflict when it does not. The
-  # prefix advancing must not erase WHAT happened, which is why the kind is retained and
-  # comparable here at all.
+  # Inside the prefix the kind is retained, so a repeat either matches or contradicts. There is no
+  # third case: a released sequence is below base and never reaches here.
   defp record_inside_prefix(t, seq, disposition) do
     case Map.fetch(t.disposition, seq) do
       {:ok, ^disposition} -> {:ok, t}
       {:ok, _other} -> {:error, :conflict}
-      # Retained evidence already released by reclamation; nothing left to contradict.
-      :error -> {:ok, t}
     end
   end
 
@@ -158,56 +173,64 @@ defmodule ServiceRadar.Edge.ResolvedPrefix do
   end
 
   @doc """
-  Marks that the AGENT durably recorded ITS OWN terminal action for exactly this sequence, then
-  advances the local reclaim watermark across the contiguous run of such sequences.
+  Releases evidence for every sequence below `first_unresolved_sequence`, as reported by the agent
+  in a lane open or resume.
 
-  It records ONE sequence. Recording sequence 2 does not vouch for sequence 1: if sequence 1's
-  local quarantine transaction is still pending, the watermark stays below it and sequence 1's
-  evidence is retained.
+  This is the ONLY local-durability signal the gateway can observe. It never infers release from
+  having sent an ack: transmitting a disposition says nothing about the agent having durably acted
+  on it.
 
-  Errors: `:below_base`, `:not_resolved`.
+  `base` advances with it, so a released sequence is out of range and recording one afterwards
+  fails with `:below_base` instead of succeeding as a silent no-op.
+
+  Refuses a value that would move the lane BACKWARDS (`:below_base`), or one past what the gateway
+  has resolved (`:not_resolved`) -- the agent cannot have durably acted on an outcome it was never
+  told.
   """
-  @spec record_terminal_outcome(t(), non_neg_integer()) :: {:ok, t()} | {:error, atom()}
-  def record_terminal_outcome(%__MODULE__{} = t, seq) do
+  @spec release_below(t(), pos_integer()) :: {:ok, t()} | {:error, atom()}
+  def release_below(%__MODULE__{} = t, first_unresolved_sequence) do
     cond do
-      not is_integer(seq) or seq < t.base ->
+      not is_integer(first_unresolved_sequence) ->
         {:error, :below_base}
 
-      seq > t.resolved ->
-        # The gateway has not resolved it, so there is nothing for the agent to have acted on.
+      first_unresolved_sequence < t.base ->
+        {:error, :below_base}
+
+      first_unresolved_sequence > t.resolved + 1 ->
         {:error, :not_resolved}
 
-      seq <= t.reclaimable ->
-        {:ok, t}
-
       true ->
-        {:ok, advance_reclaimable(%{t | local_terminal: MapSet.put(t.local_terminal, seq)})}
+        {:ok,
+         %{
+           t
+           | base: first_unresolved_sequence,
+             disposition:
+               Map.reject(t.disposition, fn {seq, _} -> seq < first_unresolved_sequence end)
+         }}
     end
   end
 
-  @doc "The REMOTE contiguous resolved watermark. Stops at a gap OR a retryable outcome."
+  @doc "The contiguous resolved watermark. Stops at a gap OR at a retryable outcome."
   @spec resolved_through(t()) :: non_neg_integer()
   def resolved_through(%__MODULE__{resolved: r}), do: r
 
-  @doc """
-  The LOCAL watermark: how far spool bytes may be released. Never exceeds `resolved_through/1`.
-  """
-  @spec reclaimable_through(t()) :: non_neg_integer()
-  def reclaimable_through(%__MODULE__{reclaimable: r}), do: r
+  @doc "The lane's first unresolved sequence, as last reported by the agent."
+  @spec base(t()) :: pos_integer()
+  def base(%__MODULE__{base: b}), do: b
 
-  @doc "The frozen outcome kind of a resolved, not-yet-reclaimed sequence."
-  @spec disposition(t(), non_neg_integer()) :: {:ok, atom()} | :error
+  @doc "The frozen outcome kind of a resolved, not-yet-released sequence."
+  @spec disposition(t(), pos_integer()) :: {:ok, atom()} | :error
   def disposition(%__MODULE__{} = t, seq), do: Map.fetch(t.disposition, seq)
 
   @doc "The recorded outcome of a sequence still outside the prefix."
-  @spec pending_disposition(t(), non_neg_integer()) :: {:ok, atom()} | :error
+  @spec pending_disposition(t(), pos_integer()) :: {:ok, atom()} | :error
   def pending_disposition(%__MODULE__{} = t, seq), do: Map.fetch(t.pending, seq)
 
   @doc "How many outcomes are recorded but not yet inside the prefix."
   @spec pending_out_of_order(t()) :: non_neg_integer()
   def pending_out_of_order(%__MODULE__{pending: p}), do: map_size(p)
 
-  @doc "How many resolved-but-not-reclaimed dispositions are retained."
+  @doc "How many resolved-but-not-released dispositions are retained."
   @spec retained_dispositions(t()) :: non_neg_integer()
   def retained_dispositions(%__MODULE__{disposition: d}), do: map_size(d)
 
@@ -244,28 +267,6 @@ defmodule ServiceRadar.Edge.ResolvedPrefix do
 
       :error ->
         t
-    end
-  end
-
-  # Walks the contiguous run of locally-recorded terminal outcomes, releasing each sequence's
-  # retained evidence as it passes.
-  #
-  # Overflow-safe by construction: termination is decided by SET MEMBERSHIP, not by a `s <= seq`
-  # counter. u64 max is a valid final sequence (lanes never wrap), and after processing it `next`
-  # exceeds the range -- which can never be a member, because base is at least 1 and
-  # record_terminal_outcome/2 refuses anything below base.
-  defp advance_reclaimable(t) do
-    next = t.reclaimable + 1
-
-    if next <= @u64_max and MapSet.member?(t.local_terminal, next) do
-      advance_reclaimable(%{
-        t
-        | local_terminal: MapSet.delete(t.local_terminal, next),
-          disposition: Map.delete(t.disposition, next),
-          reclaimable: next
-      })
-    else
-      t
     end
   end
 end
