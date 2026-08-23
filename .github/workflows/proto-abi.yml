@@ -8,9 +8,10 @@
 # no one workflow covers the whole graph. Treat this file as a proto/ABI drift guard, and check
 # what actually runs before calling anything gated.
 #
-# THIS WORKFLOW HAS NEVER RUN. It was migrated ahead of any pull request, and GitHub has no
-# required status checks configured, so nothing here is demonstrated -- only ported. Treat the
-# first PR that touches these paths as the gate's real first execution.
+# THIS WORKFLOW NOW RUNS ROUTINELY on pull requests touching the paths below, and has caught real
+# regressions. The banner that used to sit here -- "this workflow has never run ... only ported"
+# -- was true when the file was migrated and is no longer. GitHub still has no required status
+# checks configured, so it reports rather than blocks; that part stands.
 #
 # AND IF IT IS EVER MADE A REQUIRED CHECK, THE `paths:` FILTER BELOW MUST GO FIRST. A workflow-level
 # path filter means the job never STARTS on an unrelated pull request, and a required check that
@@ -215,9 +216,9 @@ jobs:
       - name: Edge ABI golden parity (Elixir cross-language)
         working-directory: elixir/serviceradar_core
         run: mix test --no-start test/serviceradar/proto/edge_v1_golden_test.exs
-      # The stacked PRs in this series are based on each other, NOT on `staging`, so the
-      # general Elixir Quality workflow (filtered to base=staging) never runs for them.
-      # The wire-parity proof must therefore be a REQUIRED status in this stack-aware job.
+      # PRs in this series target `usp-01-proposal`, not `staging`. Elixir Quality now covers that
+      # branch too, but it runs format/credo rather than tests -- so the wire-parity proof still
+      # belongs here, in the workflow that has no base-branch filter at all.
       - name: Edge wire-hygiene parity (Elixir)
         working-directory: elixir/serviceradar_core
         run: mix test --no-start test/serviceradar/edge/wire_validate_test.exs
@@ -225,9 +226,8 @@ jobs:
         working-directory: elixir/serviceradar_core
         run: mix test --no-start test/serviceradar/edge/semantic_validate_test.exs
       # The Elixir RELATIONAL validator. Its whole purpose is Go parity, so like the
-      # wire/semantic suites above it must be a REQUIRED status here: the general Elixir
-      # Quality workflow is filtered to base=staging and never runs for this stack, and
-      # it does not run tests at all.
+      # wire/semantic suites above it belongs here: Elixir Quality covers this branch now but
+      # does not run tests at all, and this workflow has no base-branch filter.
       - name: Edge recovery relational parity (Elixir)
         working-directory: elixir/serviceradar_core
         run: mix test --no-start test/serviceradar/edge/recovery_validate_test.exs
