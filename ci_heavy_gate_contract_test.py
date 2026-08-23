@@ -114,6 +114,29 @@ class IntegrationBenchmarkContractTest(unittest.TestCase):
             measured_start,
         )
 
+    def test_preflight_maps_its_private_file_to_the_fixture_helper(self):
+        preflight_start = self.action.index("PREFLIGHT_RUN_ID=")
+        helper = self.action.index("//:buildbuddy_setup_fixture_env", preflight_start)
+        mapping = self.action.index(
+            'SERVICERADAR_FIXTURE_ENV_FILE="$PREFLIGHT_ENV_FILE"', preflight_start
+        )
+        self.assertLess(mapping, helper)
+        self.assertIn("export SERVICERADAR_FIXTURE_ENV_FILE", self.action[mapping:helper])
+
+    def test_measured_flags_are_defined_before_each_measured_lifecycle_use(self):
+        measured_start = self.action.index("\n          RUN_ID=")
+        measured = self.action[measured_start:]
+        flags = measured.index('FLAGS="-c opt --config=ci')
+        self.assertNotIn("PREFLIGHT_FLAGS", measured)
+        for use in (
+            "bazel test $FLAGS //rust/integration-db:teardown_db",
+            "bazel test $FLAGS //rust/integration-db:sweep_stale_dbs",
+            "bazel test $FLAGS //rust/integration-db:provision_db",
+            "bazel test $FLAGS //... --test_tag_filters=integration_test,-large_ingestion_test,-acceptance_test",
+        ):
+            self.assertIn(use, measured)
+            self.assertLess(flags, measured.index(use))
+
     def test_clock_and_observer_markers_cannot_drift(self):
         self.assertIn("mktemp -d", self.action)
         for marker in ("READY_FILE", "SUITE_COMPLETE_FILE", "QUIESCENT_FILE", "STOP_FILE"):

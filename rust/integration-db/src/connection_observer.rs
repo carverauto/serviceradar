@@ -247,6 +247,15 @@ where
         .with_context(|| format!("connection observer deadline elapsed during {description}"))?
 }
 
+/// Emits exactly one observer summary before returning the terminal status unchanged.
+pub fn emit_terminal_summary<F>(status: Result<()>, summary: String, emit: F) -> Result<()>
+where
+    F: FnOnce(&str),
+{
+    emit(&summary);
+    status
+}
+
 pub fn epoch_millis() -> Result<u64> {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -370,5 +379,19 @@ mod tests {
         )
         .await;
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn deadline_failure_emits_exactly_one_summary_line() {
+        let mut output = Vec::new();
+        let result = emit_terminal_summary(
+            Err(anyhow!(
+                "connection observer deadline elapsed during sample interval"
+            )),
+            "SERVICERADAR_CONNECTION_OBSERVER {\"samples\":1}".to_string(),
+            |line| output.push(line.to_string()),
+        );
+        assert!(result.is_err());
+        assert_eq!(output, ["SERVICERADAR_CONNECTION_OBSERVER {\"samples\":1}"]);
     }
 }

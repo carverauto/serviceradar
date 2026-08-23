@@ -4,8 +4,9 @@ use anyhow::{Context, Result};
 use serviceradar_integration_db::{
     connect_admin,
     connection_observer::{
-        capacity, completion_status, epoch_millis, remaining_until, sample, within_deadline,
-        ObserverArgs, Peaks, Quiescence, SampleWindow, SAMPLE_INTERVAL_MS,
+        capacity, completion_status, emit_terminal_summary, epoch_millis, remaining_until, sample,
+        within_deadline, Capacity, ObserverArgs, Peaks, Quiescence, SampleWindow,
+        SAMPLE_INTERVAL_MS,
     },
     database_name,
 };
@@ -23,23 +24,35 @@ async fn main() -> Result<()> {
     let mut quiescence = Quiescence::default();
     let mut quiescent = false;
 
-    record_sample(deadline, &client, &run_prefix, &mut peaks).await?;
-    write_marker(&args.ready_file)?;
+    if let Err(error) = record_sample(deadline, &client, &run_prefix, &mut peaks).await {
+        return finish(Err(error), peaks, &run_prefix, start_ms, capacity);
+    }
+    if let Err(error) = write_marker(&args.ready_file) {
+        return finish(Err(error), peaks, &run_prefix, start_ms, capacity);
+    }
 
     loop {
         if remaining_until(deadline).is_err() {
-            let status = completion_status(quiescent, false, true);
-            print_summary(peaks, &run_prefix, start_ms, capacity)?;
-            return status.map_err(anyhow::Error::msg);
+            return finish(
+                completion_status(quiescent, false, true).map_err(anyhow::Error::msg),
+                peaks,
+                &run_prefix,
+                start_ms,
+                capacity,
+            );
         }
 
         if args.stop_file.exists() {
-            let status = completion_status(quiescent, true, false);
-            print_summary(peaks, &run_prefix, start_ms, capacity)?;
-            return status.map_err(anyhow::Error::msg);
+            return finish(
+                completion_status(quiescent, true, false).map_err(anyhow::Error::msg),
+                peaks,
+                &run_prefix,
+                start_ms,
+                capacity,
+            );
         }
 
-        within_deadline(
+        if let Err(error) = within_deadline(
             deadline,
             async {
                 tokio::time::sleep(Duration::from_millis(SAMPLE_INTERVAL_MS)).await;
@@ -47,17 +60,26 @@ async fn main() -> Result<()> {
             },
             "sample interval",
         )
-        .await?;
-        let counts = within_deadline(
+        .await
+        {
+            return finish(Err(error), peaks, &run_prefix, start_ms, capacity);
+        }
+        let counts = match within_deadline(
             deadline,
             sample(&client, &run_prefix),
             "sample pg_stat_activity",
         )
-        .await?;
+        .await
+        {
+            Ok(counts) => counts,
+            Err(error) => return finish(Err(error), peaks, &run_prefix, start_ms, capacity),
+        };
         peaks.record(counts.run_scoped, counts.fixture_wide);
 
         if quiescence.record(args.suite_complete_file.exists(), counts.run_scoped) && !quiescent {
-            write_marker(&args.quiescent_file)?;
+            if let Err(error) = write_marker(&args.quiescent_file) {
+                return finish(Err(error), peaks, &run_prefix, start_ms, capacity);
+            }
             quiescent = true;
         }
     }
@@ -83,16 +105,20 @@ fn write_marker(path: &Path) -> Result<()> {
     std::fs::write(path, b"").with_context(|| format!("write observer marker {}", path.display()))
 }
 
-fn print_summary(
+fn finish(
+    status: Result<()>,
     peaks: Peaks,
     run_prefix: &str,
     start_ms: u64,
-    capacity: serviceradar_integration_db::connection_observer::Capacity,
+    capacity: Capacity,
 ) -> Result<()> {
-    let end_ms = epoch_millis()?;
-    println!(
-        "SERVICERADAR_CONNECTION_OBSERVER {}",
-        peaks.summary_json(run_prefix, SampleWindow { start_ms, end_ms }, capacity)
-    );
-    Ok(())
+    let end_ms = epoch_millis().unwrap_or(start_ms);
+    emit_terminal_summary(
+        status,
+        format!(
+            "SERVICERADAR_CONNECTION_OBSERVER {}",
+            peaks.summary_json(run_prefix, SampleWindow { start_ms, end_ms }, capacity)
+        ),
+        |line| println!("{line}"),
+    )
 }

@@ -208,6 +208,8 @@ actions:
           (
             PREFLIGHT_RUN_ID="$(od -An -tx1 -N4 /dev/urandom | tr -d ' \n')"
             PREFLIGHT_ENV_FILE="$(mktemp "${TMPDIR:-/tmp}/serviceradar-preflight-env.XXXXXX")"
+            SERVICERADAR_FIXTURE_ENV_FILE="$PREFLIGHT_ENV_FILE"
+            export SERVICERADAR_FIXTURE_ENV_FILE
             trap 'rm -f "$PREFLIGHT_ENV_FILE"' EXIT
             bazel run -c opt --config=ci --//build:enable_integration_tests --//build:run_id=$PREFLIGHT_RUN_ID //:buildbuddy_setup_fixture_env
             set -a; . "$PREFLIGHT_ENV_FILE"; set +a
@@ -234,6 +236,12 @@ actions:
           export RUN_ID
           SERVICERADAR_FIXTURE_ENV_FILE="$(mktemp "${TMPDIR:-/tmp}/serviceradar-fixture-env.XXXXXX")"
           export SERVICERADAR_FIXTURE_ENV_FILE
+          FLAGS="-c opt --config=ci --strategy=TestRunner=local --//build:enable_integration_tests
+             --//build:run_id=$RUN_ID --test_env=SERVICERADAR_ENV=ci --flaky_test_attempts=1
+             --test_output=all --test_env=SERVICERADAR_TEST_SLOWEST=15
+             --test_env=SERVICERADAR_SECRET_DATABASE_PASSWORD
+             --test_env=SERVICERADAR_SECRET_DATABASE_ADMIN_PASSWORD
+             --test_env=SERVICERADAR_SECRET_DGRAPH_ADMIN_PASSWORD"
 
           OBSERVER_DIR="$(mktemp -d)"
           READY_FILE="$OBSERVER_DIR/ready"
@@ -296,6 +304,7 @@ actions:
           trap cleanup EXIT
           bazel run -c opt --config=ci --//build:enable_integration_tests --//build:run_id=$RUN_ID //:buildbuddy_setup_fixture_env
           set -a; . "$SERVICERADAR_FIXTURE_ENV_FILE"; set +a
+          FLAGS="$FLAGS $SERVICERADAR_TEST_ENV_FLAGS"
           bazel run -c opt --config=ci --//build:enable_integration_tests --//build:run_id=$RUN_ID //rust/integration-db:observe_connections -- --ready-file "$READY_FILE" --suite-complete-file "$SUITE_COMPLETE_FILE" --quiescent-file "$QUIESCENT_FILE" --stop-file "$STOP_FILE" --max-seconds 1800 &
           OBSERVER_PID=$!
           wait_for_marker "$READY_FILE" 30 || { echo "observer did not become ready" >&2; exit 1; }
