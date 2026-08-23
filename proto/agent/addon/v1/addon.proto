@@ -218,6 +218,20 @@ enum TelemetryPayloadKind {
   // serviceradar.metric.v1.MetricBatch. Gateway republishes this payload
   // unchanged to metrics.* so core/event_writer owns persistence.
   TELEMETRY_PAYLOAD_KIND_SERVICERADAR_METRICS = 7;
+  // Device observations an add-on made about OTHER hosts, for the inventory
+  // pipeline rather than the observability one.
+  //
+  // TelemetryRecord.payload is exactly one encoded
+  // serviceradar.agent.discovery.v1.DiscoveryEnvelope, whose `schema` field --
+  // a STRING, not another enum value -- selects the decoder in core.
+  //
+  // This is deliberately the ONLY discovery payload kind that will ever be
+  // added. A kind per observation type would put every new payload back on the
+  // path this exists to remove: edit the proto, regenerate Go, Elixir and Rust,
+  // teach the agent and the gateway, ship an agent release. With a schema
+  // string, a new observation type is one registry entry in core and nothing
+  // else. Add a schema, never a kind.
+  TELEMETRY_PAYLOAD_KIND_DISCOVERY_V1 = 8;
 }
 
 message TelemetrySource {

@@ -59,6 +59,20 @@ const (
 	// serviceradar.metric.v1.MetricBatch. Gateway republishes this payload
 	// unchanged to metrics.* so core/event_writer owns persistence.
 	TelemetryPayloadKind_TELEMETRY_PAYLOAD_KIND_SERVICERADAR_METRICS TelemetryPayloadKind = 7
+	// Device observations an add-on made about OTHER hosts, for the inventory
+	// pipeline rather than the observability one.
+	//
+	// TelemetryRecord.payload is exactly one encoded
+	// serviceradar.agent.discovery.v1.DiscoveryEnvelope, whose `schema` field --
+	// a STRING, not another enum value -- selects the decoder in core.
+	//
+	// This is deliberately the ONLY discovery payload kind that will ever be
+	// added. A kind per observation type would put every new payload back on the
+	// path this exists to remove: edit the proto, regenerate Go, Elixir and Rust,
+	// teach the agent and the gateway, ship an agent release. With a schema
+	// string, a new observation type is one registry entry in core and nothing
+	// else. Add a schema, never a kind.
+	TelemetryPayloadKind_TELEMETRY_PAYLOAD_KIND_DISCOVERY_V1 TelemetryPayloadKind = 8
 )
 
 // Enum value maps for TelemetryPayloadKind.
@@ -72,6 +86,7 @@ var (
 		5: "TELEMETRY_PAYLOAD_KIND_OTLP_METRICS",
 		6: "TELEMETRY_PAYLOAD_KIND_OTLP_DERIVED_METRIC",
 		7: "TELEMETRY_PAYLOAD_KIND_SERVICERADAR_METRICS",
+		8: "TELEMETRY_PAYLOAD_KIND_DISCOVERY_V1",
 	}
 	TelemetryPayloadKind_value = map[string]int32{
 		"TELEMETRY_PAYLOAD_KIND_UNSPECIFIED":          0,
@@ -82,6 +97,7 @@ var (
 		"TELEMETRY_PAYLOAD_KIND_OTLP_METRICS":         5,
 		"TELEMETRY_PAYLOAD_KIND_OTLP_DERIVED_METRIC":  6,
 		"TELEMETRY_PAYLOAD_KIND_SERVICERADAR_METRICS": 7,
+		"TELEMETRY_PAYLOAD_KIND_DISCOVERY_V1":         8,
 	}
 )
 
@@ -1506,7 +1522,7 @@ const file_agent_addon_v1_addon_proto_rawDesc = "" +
 	"\x06source\x18\x02 \x01(\v2,.serviceradar.agent.addon.v1.TelemetrySourceR\x06source\x12\x18\n" +
 	"\apayload\x18\x03 \x01(\fR\apayload\"3\n" +
 	"\rMetricFeedAck\x12\"\n" +
-	"\racked_feed_id\x18\x01 \x01(\x04R\vackedFeedId*\xe2\x02\n" +
+	"\racked_feed_id\x18\x01 \x01(\x04R\vackedFeedId*\x8b\x03\n" +
 	"\x14TelemetryPayloadKind\x12&\n" +
 	"\"TELEMETRY_PAYLOAD_KIND_UNSPECIFIED\x10\x00\x12%\n" +
 	"!TELEMETRY_PAYLOAD_KIND_OCSF_EVENT\x10\x01\x12#\n" +
@@ -1515,7 +1531,8 @@ const file_agent_addon_v1_addon_proto_rawDesc = "" +
 	" TELEMETRY_PAYLOAD_KIND_OTLP_LOGS\x10\x04\x12'\n" +
 	"#TELEMETRY_PAYLOAD_KIND_OTLP_METRICS\x10\x05\x12.\n" +
 	"*TELEMETRY_PAYLOAD_KIND_OTLP_DERIVED_METRIC\x10\x06\x12/\n" +
-	"+TELEMETRY_PAYLOAD_KIND_SERVICERADAR_METRICS\x10\a2\xf7\x06\n" +
+	"+TELEMETRY_PAYLOAD_KIND_SERVICERADAR_METRICS\x10\a\x12'\n" +
+	"#TELEMETRY_PAYLOAD_KIND_DISCOVERY_V1\x10\b2\xf7\x06\n" +
 	"\fAddonService\x12[\n" +
 	"\x04Info\x12(.serviceradar.agent.addon.v1.InfoRequest\x1a).serviceradar.agent.addon.v1.InfoResponse\x12j\n" +
 	"\tConfigure\x12-.serviceradar.agent.addon.v1.ConfigureRequest\x1a..serviceradar.agent.addon.v1.ConfigureResponse\x12a\n" +
