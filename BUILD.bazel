@@ -104,12 +104,12 @@ py_test(
         "//build/ci:large_ingestion_gate_contract.v1",
         "//build/ci:wait_for_large_ingestion_gate",
         "//build/ci:wait_for_large_ingestion_gate_test",
+        "//config/environments:ci.textproto",
         "//elixir/serviceradar_core:BUILD.bazel",
         "//elixir/serviceradar_core:config/test.exs",
         "//elixir/serviceradar_core:config/test_database_guard.exs",
         "//elixir/serviceradar_core:integration_contract_test_inputs",
         "//elixir/serviceradar_core:lib/serviceradar/cluster/startup_migrations.ex",
-        "//config/environments:ci.textproto",
         "//elixir/serviceradar_core:test/db/integration_env.exs",
         "//elixir/serviceradar_core:test/db/integration_env_config.exs",
         "//elixir/serviceradar_core:test/integration/advisory_feed_loader_integration_test.exs",
@@ -145,6 +145,9 @@ py_binary(
         "//rust/integration-db:src/connection_observer.rs",
     ],
     main = "ci_heavy_gate_contract_test.py",
+    # This target shares its source with the remotely executed contract test. Disabling
+    # bytecode output keeps the no-remote execution transition from claiming the same .pyc.
+    precompile = "disabled",
     tags = ["no-remote"],
 )
 

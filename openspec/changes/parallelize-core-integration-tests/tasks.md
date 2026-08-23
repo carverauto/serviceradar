@@ -209,5 +209,7 @@
       Status: focused/static contracts and local target-equivalent shard/heavy runs are green; the
       exact guarded Bazel all-shard and heavy lifecycle sequence remains pending.
 - [ ] 6.3 Run `make lint`, `make test`, and `git diff --check`.
-      Status: `make lint` and `git diff --check` are green; `make test` remains pending.
+      Status: `make test` is green with all 199 targets passing and `git diff --check` is green.
+      `make lint` reports zero Go issues, then the locally installed SwiftLint aborts while loading
+      `sourcekitdInProc.framework`; the complete lint target remains pending in a compatible runner.
 - [x] 6.4 Run `openspec validate parallelize-core-integration-tests --strict`.
