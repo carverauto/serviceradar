@@ -15,6 +15,7 @@ defmodule ServiceRadar do
       Netprobepb,
       Serviceradar.Agent.Addon.V1,
       Serviceradar.Agent.Discovery.V1,
+      Serviceradar.Agent.Netprobe.V1,
       Serviceradar.Metric.V1,
       ServiceRadarSRQL
     ],
