@@ -136,4 +136,49 @@ defmodule ServiceRadar.Inventory.Sync.MacVendorTest do
       assert {%{}, nil} = MacVendor.bulk_lookup(["021122334455", "0A1122334455", nil])
     end
   end
+
+  describe "put_provenance/3 snapshot id normalization" do
+    # Postgrex returns a `uuid` column as a RAW 16-byte binary. It used to be
+    # passed through untouched because it satisfies is_binary/1, and the raw
+    # bytes reached device metadata -- where the next jsonb encode blew up with
+    # "invalid byte 0xFF" and took the entire bulk device upsert with it.
+    # Asserting on Jason.encode is the point: a string comparison alone would
+    # still have passed for a value that cannot be persisted.
+    @raw_uuid <<255, 130, 164, 63, 110, 144, 71, 200, 161, 38, 10, 117, 161, 210, 52, 217>>
+    @printable "ff82a43f-6e90-47c8-a126-0a75a1d234d9"
+
+    test "a raw 16-byte uuid is normalized to printable form and stays encodable" do
+      metadata = MacVendor.put_provenance(%{}, {"Example Corp", "F492BF"}, @raw_uuid)
+
+      assert metadata["mac_vendor_oui_snapshot_id"] == @printable
+      assert {:ok, _json} = Jason.encode(metadata)
+    end
+
+    test "an already-printable uuid is preserved" do
+      metadata = MacVendor.put_provenance(%{}, {"Example Corp", "F492BF"}, @printable)
+
+      assert metadata["mac_vendor_oui_snapshot_id"] == @printable
+      assert {:ok, _json} = Jason.encode(metadata)
+    end
+
+    test "a printable non-uuid id is preserved, since the hazard is unencodable bytes" do
+      metadata = MacVendor.put_provenance(%{}, {"Example Corp", "F492BF"}, "snap-1")
+
+      assert metadata["mac_vendor_oui_snapshot_id"] == "snap-1"
+      assert {:ok, _json} = Jason.encode(metadata)
+    end
+
+    test "an unencodable binary that is not a uuid is dropped rather than persisted" do
+      metadata = MacVendor.put_provenance(%{}, {"Example Corp", "F492BF"}, <<255, 254, 253>>)
+
+      refute Map.has_key?(metadata, "mac_vendor_oui_snapshot_id")
+      assert {:ok, _json} = Jason.encode(metadata)
+    end
+
+    test "nil snapshot id is omitted" do
+      metadata = MacVendor.put_provenance(%{}, {"Example Corp", "F492BF"}, nil)
+
+      refute Map.has_key?(metadata, "mac_vendor_oui_snapshot_id")
+    end
+  end
 end
