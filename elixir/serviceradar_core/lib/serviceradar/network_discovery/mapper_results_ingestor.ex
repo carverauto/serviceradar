@@ -991,15 +991,45 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
     if valid_alias_ip?(current_ip), do: [current_ip], else: []
   end
 
-  defp candidate_ips_for_role(
+  @doc """
+  Which addresses seen alongside a device should be seeded as separate devices.
+
+  Public as a testable seam: the distinction between a device's own interface
+  addresses and genuinely different neighbours is the whole correctness question
+  here, and getting it wrong mints duplicate device records.
+  """
+  def candidate_ips_for_role(role, stable_interface_ips, mismatched_device_ips, alias_ips),
+    do: do_candidate_ips_for_role(role, stable_interface_ips, mismatched_device_ips, alias_ips)
+
+  defp do_candidate_ips_for_role(
          "router",
          _stable_interface_ips,
          _mismatched_device_ips,
          _alias_ips
        ), do: []
 
-  defp candidate_ips_for_role(_role, stable_interface_ips, mismatched_device_ips, alias_ips) do
-    (stable_interface_ips ++ mismatched_device_ips)
+  # `stable_interface_ips` are addresses on THIS device's own interfaces
+  # (grouped_stable_interface_ips/2 filters to records whose device_ip is the
+  # device being processed). They are never candidates for a SEPARATE device,
+  # whatever the role: a device cannot be its own neighbour.
+  #
+  # They used to be included here, and the router clause above was the only thing
+  # preventing the consequence. For any other role the device's own addresses
+  # fell through to create_candidate_devices/4, and because non-routers receive
+  # no interface-derived aliases there was no alias to suppress them either --
+  # so ensure_candidate_device/4 found no device and no alias at that address and
+  # minted a phantom.
+  #
+  # Observed on farm01: switch `switchcff8f2` (sr:f3f0e473, 192.168.2.55) reports
+  # its out-of-band management address 192.168.1.143 on an `oob` interface, and
+  # that address became sr:eab6cd98 -- a second device record with no hostname
+  # and no MAC, tagged identity_source=mapper_client_ip_candidate_seed. One
+  # physical switch, two records.
+  #
+  # `mismatched_device_ips` stay: those are other device_ips seen in the same
+  # group, i.e. genuinely different devices, which is what this seeding is for.
+  defp do_candidate_ips_for_role(_role, _stable_interface_ips, mismatched_device_ips, alias_ips) do
+    mismatched_device_ips
     |> Enum.reject(&(&1 in alias_ips))
     |> Enum.uniq()
   end
