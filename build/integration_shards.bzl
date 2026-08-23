@@ -96,7 +96,6 @@ def integration_test_env(shard):
 # NOTE: the 47.2s test is a genuine floor. No shard count divides a single test, so the
 # slowest shard cannot go below roughly (fixed cost + 47s) until that test itself is cheaper.
 _HEAVY_SRCS = [
-    "test/serviceradar/results_router_integration_test.exs",
     "test/serviceradar/observability/plugin_result_slot_allocator_test.exs",
 ]
 

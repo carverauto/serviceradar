@@ -85,8 +85,8 @@ py_test(
     data = [
         "//docs:cosign.pub",
         "//elixir/web-ng:config/config.exs",
-        "//helm/serviceradar:values-demo.yaml",
         "//helm/serviceradar:values.yaml",
+        "//helm/serviceradar:values-demo.yaml",
     ],
 )
 
@@ -100,6 +100,9 @@ py_test(
         "//elixir/serviceradar_core:BUILD.bazel",
         "//elixir/serviceradar_core:test/integration/netflow_ingestion_integration_test.exs",
         "//elixir/serviceradar_core:test/integration/proxmox_api_smoke_integration_test.exs",
+        "//elixir/serviceradar_core:test/release_gates/large_ingestion/identifier_cardinality_release_gate_test.exs",
+        "//elixir/serviceradar_core:test/release_gates/large_ingestion/results_router_release_gate_test.exs",
+        "//elixir/serviceradar_core:test/serviceradar/results_router_integration_test.exs",
         "//elixir/serviceradar_core:test/serviceradar/scans/adhoc_scan_nats_e2e_test.exs",
         "//elixir/serviceradar_core:test/test_helper.exs",
         "//rust/integration-db:BUILD.bazel",
@@ -111,15 +114,15 @@ py_test(
 py_binary(
     name = "integration_benchmark_harness_hash",
     srcs = ["ci_heavy_gate_contract_test.py"],
-    main = "ci_heavy_gate_contract_test.py",
     args = ["--hash-integration-benchmark"],
-    tags = ["no-remote"],
     data = [
         "buildbuddy.yaml",
         "//rust/integration-db:BUILD.bazel",
         "//rust/integration-db:src/bin/observe_connections.rs",
         "//rust/integration-db:src/connection_observer.rs",
     ],
+    main = "ci_heavy_gate_contract_test.py",
+    tags = ["no-remote"],
 )
 
 py_test(

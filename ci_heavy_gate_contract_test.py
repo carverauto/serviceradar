@@ -15,6 +15,18 @@ OBSERVER_BUILD = ROOT / "rust/integration-db/BUILD.bazel"
 CORE_BUILD = ROOT / "elixir/serviceradar_core/BUILD.bazel"
 INTEGRATION_SHARDS = ROOT / "build/integration_shards.bzl"
 TEST_HELPER = ROOT / "elixir/serviceradar_core/test/test_helper.exs"
+ORDINARY_RESULTS_ROUTER = (
+    ROOT
+    / "elixir/serviceradar_core/test/serviceradar/results_router_integration_test.exs"
+)
+RELEASE_RESULTS_ROUTER = (
+    ROOT
+    / "elixir/serviceradar_core/test/release_gates/large_ingestion/results_router_release_gate_test.exs"
+)
+RELEASE_IDENTIFIER_CARDINALITY = (
+    ROOT
+    / "elixir/serviceradar_core/test/release_gates/large_ingestion/identifier_cardinality_release_gate_test.exs"
+)
 FIXED_EXTERNAL_RESOURCE_PATHS = (
     "test/integration/netflow_ingestion_integration_test.exs",
     "test/integration/proxmox_api_smoke_integration_test.exs",
@@ -66,6 +78,22 @@ def observe_connections_rule() -> str:
                 if depth == 0:
                     return "".join(rule)
     raise AssertionError("observe_connections rust_binary rule is missing")
+
+
+def named_starlark_rule(source: str, rule_kind: str, name: str) -> str:
+    lines = source.splitlines(keepends=True)
+    for index, line in enumerate(lines):
+        if line == f"{rule_kind}(\n" and f'name = "{name}"' in "".join(
+            lines[index : index + 5]
+        ):
+            depth = 0
+            rule = []
+            for candidate in lines[index:]:
+                depth += candidate.count("(") - candidate.count(")")
+                rule.append(candidate)
+                if depth == 0:
+                    return "".join(rule)
+    raise AssertionError(f"{rule_kind} {name} is missing")
 
 
 def normalized(value: str) -> bytes:
@@ -246,6 +274,132 @@ class IntegrationBenchmarkContractTest(unittest.TestCase):
         self.assertLess(ex_unit_start, max_cases_option)
         self.assertNotIn("integration_max_cases!", outside_branch)
         self.assertNotIn("max_cases: integration_max_cases", outside_branch)
+
+    def test_large_ingestion_gate_has_dedicated_sources_and_database(self):
+        core_build = CORE_BUILD.read_text(encoding="utf-8")
+        integration_db_build = OBSERVER_BUILD.read_text(encoding="utf-8")
+        shard_build = INTEGRATION_SHARDS.read_text(encoding="utf-8")
+        ordinary_router = ORDINARY_RESULTS_ROUTER.read_text(encoding="utf-8")
+        release_router = RELEASE_RESULTS_ROUTER.read_text(encoding="utf-8")
+        release_cardinality = RELEASE_IDENTIFIER_CARDINALITY.read_text(encoding="utf-8")
+        all_test_sources = core_build[
+            core_build.index("ALL_TEST_SRCS =") : core_build.index(
+                "INTEGRATION_SHARD_SRCS ="
+            )
+        ]
+        runtime_data = core_build[
+            core_build.index("INTEGRATION_RUNTIME_DATA =") : core_build.index(
+                "filegroup(\n    name = \"srcs\""
+            )
+        ]
+        generated_targets = core_build[core_build.index('name = "integration_tests_{}"') :]
+        release_target = named_starlark_rule(
+            core_build, "ex_unit_test", "large_ingestion_release_gate"
+        )
+        ordinary_provision = named_starlark_rule(
+            integration_db_build, "rust_test", "provision_db"
+        )
+        release_provision = named_starlark_rule(
+            integration_db_build, "rust_test", "provision_db_large_ingestion"
+        )
+
+        self.assertNotIn(
+            'test "large Armis sync chunks route through results router into inventory"',
+            ordinary_router,
+        )
+        self.assertIn(
+            'test "large Armis sync chunks route through results router into inventory"',
+            release_router,
+        )
+        self.assertIn("50_000", release_router)
+        self.assertIn(
+            "defmodule ServiceRadar.ResultsRouterLargeIngestionReleaseGateTest",
+            release_router,
+        )
+        self.assertIn("use ServiceRadar.DataCase, async: false", release_router)
+        self.assertIn("@moduletag :integration", release_router)
+        self.assertIn("@moduletag :large_ingestion", release_router)
+        for retained in (
+            "setup_all do",
+            "setup do",
+            "defp system_actor do",
+            "defp large_ingestion_device_count do",
+            "defp large_ingestion_chunk_size do",
+            "defp ceil_div(left, right)",
+            "defp large_ingestion_ip(device_number)",
+            "defp scalar_count!(sql, params)",
+        ):
+            self.assertIn(retained, release_router)
+        self.assertIn(
+            'test "identifier rows stay bounded across churned ingest rounds"',
+            release_cardinality,
+        )
+        self.assertIn("use ServiceRadar.DataCase, async: false", release_cardinality)
+        self.assertIn("@moduletag :integration", release_cardinality)
+        self.assertIn("@moduletag :large_ingestion", release_cardinality)
+        self.assertIn("@devices 500", release_cardinality)
+        self.assertIn("@rounds 3", release_cardinality)
+        self.assertIn(
+            "//elixir/serviceradar_core:large_ingestion_release_gate",
+            release_cardinality,
+        )
+        self.assertNotIn(
+            '"test/serviceradar/results_router_integration_test.exs"',
+            shard_build[shard_build.index("_HEAVY_SRCS =") :],
+        )
+
+        self.assertIn('"test/release_gates/**"', all_test_sources)
+        self.assertIn('"test/release_gates/**"', runtime_data)
+        self.assertIn('"test/**/*_test.exs"', runtime_data)
+        self.assertIn("INTEGRATION_RUNTIME_DATA", generated_targets)
+
+        self.assertEqual(1, core_build.count('name = "large_ingestion_release_gate"'))
+        self.assertIn('size = "enormous"', release_target)
+        self.assertIn('"test/release_gates/large_ingestion/*_test.exs"', release_target)
+        self.assertIn("allow_empty = False", release_target)
+        self.assertIn("data = INTEGRATION_RUNTIME_DATA", release_target)
+        self.assertIn('"test/test_helper.exs"', release_target)
+        self.assertLess(
+            release_target.index('"test/db/integration_env.exs"'),
+            release_target.index('"../../build/elixir_test_config_loader.exs"'),
+        )
+        self.assertIn("include: [:integration, :requires_app]", integration_only_branch())
+        self.assertIn('"SERVICERADAR_ONLY_INTEGRATION": "1"', release_target)
+        self.assertIn(
+            '"SERVICERADAR_INTEGRATION_MAX_CASES": "1"', release_target
+        )
+        self.assertIn(
+            '"SERVICERADAR_TEST_DB_SHARD": LARGE_INGESTION_DB_SHARD',
+            release_target,
+        )
+        self.assertIn(
+            '"SERVICERADAR_LARGE_INGESTION_DEVICE_COUNT": "50000"',
+            release_target,
+        )
+        self.assertIn(
+            '"SERVICERADAR_LARGE_INGESTION_CHUNK_SIZE": "1000"', release_target
+        )
+        self.assertIn('"integration_test",', release_target)
+        self.assertIn('"large_ingestion_test",', release_target)
+        self.assertIn("target_compatible_with = requires_shared_fixture()", release_target)
+
+        self.assertEqual(1, integration_db_build.count('name = "provision_db_large_ingestion"'))
+        self.assertIn('srcs = ["tests/provision_db_test.rs"]', release_provision)
+        self.assertIn('crate_root = "tests/provision_db_test.rs"', release_provision)
+        self.assertIn(
+            'data = FIXTURE_DATA + ["//elixir/serviceradar_core:migrations"]',
+            release_provision,
+        )
+        self.assertIn(
+            '"SERVICERADAR_TEST_DB_SHARDS": LARGE_INGESTION_DB_SHARD',
+            release_provision,
+        )
+        self.assertIn("target_compatible_with = requires_shared_fixture()", release_provision)
+        self.assertIn(
+            '"SERVICERADAR_TEST_DB_SHARDS": ",".join(integration_shard_names())',
+            ordinary_provision,
+        )
+        self.assertNotIn("LARGE_INGESTION_DB_SHARD", ordinary_provision)
 
 
 if __name__ == "__main__":

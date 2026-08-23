@@ -1,13 +1,14 @@
-load("@rules_elixir//:ex_unit_test.bzl", "ex_unit_test")
 load("@rules_elixir//:elixir_tests.bzl", "ex_unit_tests")
+load("@rules_elixir//:ex_unit_test.bzl", "ex_unit_test")
+load("@rules_elixir//:mix_app.bzl", "mix_app")
 load(
     "@serviceradar//build:integration_shards.bzl",
+    "LARGE_INGESTION_DB_SHARD",
     "integration_shard_names",
     "integration_test_env",
     "partition_by_shard",
 )
 load("@serviceradar//build:integration_tests.bzl", "requires_shared_fixture")
-load("@rules_elixir//:mix_app.bzl", "mix_app")
 
 package(default_visibility = ["//visibility:public"])
 
@@ -17,6 +18,7 @@ ALL_TEST_SRCS = glob(
     ["test/**/*_test.exs"],
     exclude = [
         "test/db/**",
+        "test/release_gates/**",
         # This brings up real peer nodes and has its own discoverable target
         # below so the normal helper's :cluster exclusion cannot skip it.
         "test/serviceradar/edge/agent_command_bus_rpc_registry_test.exs",
@@ -25,6 +27,64 @@ ALL_TEST_SRCS = glob(
 
 # Disjoint partition of ALL_TEST_SRCS, one bucket per integration shard.
 INTEGRATION_SHARD_SRCS = partition_by_shard(ALL_TEST_SRCS)
+
+# Files integration tests open at runtime. Both the eight ordinary shards and the focused
+# large-ingestion gate use the same application/configuration fixtures, but release-gate test
+# sources remain source-separated and arrive only through the dedicated target's srcs.
+INTEGRATION_RUNTIME_DATA = glob(
+    [
+        "config/**",
+        "lib/**",
+        "priv/**",
+        "test/**",
+    ],
+    allow_empty = True,
+    exclude = [
+        "test/**/*_test.exs",
+        "test/release_gates/**",
+    ],
+) + [
+    # Read at MODULE level (compile time) by
+    # test/serviceradar/plugins/anomaly_addon_profile_seeder_test.exs, via
+    # Path.expand("../../../../../addons/...", __DIR__) -- so no tag can skip it and it
+    # has to be a declared input. ex_unit_test mirrors the workspace layout, which is
+    # what puts it where that relative path resolves.
+    "//addons/anomaly-addon:anomaly_manifest",
+    # Likewise module level: test/serviceradar/plugins/manifest_test.exs globs
+    # go/cmd/wasm-plugins/**/{config*.schema.json,plugin*.yaml} and raises if the glob
+    # comes back empty, so every first-party Wasm plugin package has to be an input.
+    "//go/cmd/wasm-plugins/alienvault-otx:srcs",
+    "//go/cmd/wasm-plugins/awx:srcs",
+    "//go/cmd/wasm-plugins/axis:srcs",
+    "//go/cmd/wasm-plugins/dusk-checker:srcs",
+    "//go/cmd/wasm-plugins/netbox:srcs",
+    "//go/cmd/wasm-plugins/opentext-network-automation:srcs",
+    "//go/cmd/wasm-plugins/proxmox:srcs",
+    "//go/cmd/wasm-plugins/sample-northbound:srcs",
+    "//go/cmd/wasm-plugins/unifi-protect:srcs",
+    # Read at RUNTIME by ServiceRadar.Edge.AddonConfigContractFixturesTest through
+    # ServiceRadar.Plugins.AddonConfigContractFixtures.{fixture_dir,schema}/1, which
+    # resolve the repo root from the working directory when the compile-time one is not
+    # present. That makes these runfiles, not compile inputs: the test executes in a
+    # sandbox, so a file staged only into the mix_app build tree is not there at all.
+    # (anomaly-addon's manifest is already listed above.)
+    "//addons/bumblebee-scan:bumblebee_scan_manifest",
+    "//addons/netprobe:netprobe_manifest",
+    "//addons/otel-collector:otel_collector_manifest",
+    "//addons/rdp-adapter:rdp_adapter_manifest",
+    "//addons/scalibr-endpoint-inventory:scalibr_endpoint_inventory_manifest",
+    "//addons/workload-identity:workload_identity_manifest",
+    "//go/pkg/agent:addonconfig_contract_fixtures",
+    # The config loader, referenced from elixir_opts by a relative path, so it has to be
+    # a declared input too. The ex_unit_tests macro adds this automatically; a
+    # hand-written ex_unit_test does not.
+    "//build:elixir_test_config_loader.exs",
+    # The per-run database name, as a declared build input. test/db/integration_env.exs
+    # reads it out of runfiles at build/run_id_file.txt -- the same file and the same
+    # relative path //rust/integration-db reads -- so provision, the suite and teardown
+    # cannot disagree about which database they own.
+    "//build:run_id_file",
+]
 
 filegroup(
     name = "srcs",
@@ -255,9 +315,9 @@ mix_app(
 
 # One Bazel test target per ExUnit file. See //build:elixir_tests.bzl for why per-file.
 ex_unit_tests(
-    config_loader = "//build:elixir_test_config_loader.exs",
     name = "unit_tests",
     srcs = ALL_TEST_SRCS,
+    config_loader = "//build:elixir_test_config_loader.exs",
     # Files the tests open at runtime. ex_unit_test stages only srcs and data, so anything
     # read from disk has to be declared: several tests load a specific migration out of
     # priv/repo/migrations to assert on it, and test/support carries fixtures.
@@ -324,7 +384,10 @@ ex_unit_test(
     size = "medium",
     srcs = ["bench/bench_driver_test.exs"],
     # The benches are read off disk and required at runtime, so they are inputs, not deps.
-    data = glob(["bench/**"], allow_empty = False),
+    data = glob(
+        ["bench/**"],
+        allow_empty = False,
+    ),
     # bench/bench_test_helper.exs, NOT test/test_helper.exs -- that one excludes `:benchmark` in
     # every branch, which would skip these and report the target green having run nothing. The
     # helper file carries the full reasoning.
@@ -379,60 +442,7 @@ ex_unit_test(
         # Every shard gets the full data set: which shard holds which test file is an
         # implementation detail of the partition, so narrowing this per shard would break the
         # moment a file moved between them.
-        data = glob(
-            [
-                "config/**",
-                "lib/**",
-                "priv/**",
-                "test/**",
-            ],
-            allow_empty = True,
-            exclude = ["test/**/*_test.exs"],
-        ) + [
-            # Read at MODULE level (compile time) by
-            # test/serviceradar/plugins/anomaly_addon_profile_seeder_test.exs, via
-            # Path.expand("../../../../../addons/...", __DIR__) -- so no tag can skip it and it
-            # has to be a declared input. ex_unit_test mirrors the workspace layout, which is
-            # what puts it where that relative path resolves.
-            "//addons/anomaly-addon:anomaly_manifest",
-            # Likewise module level: test/serviceradar/plugins/manifest_test.exs globs
-            # go/cmd/wasm-plugins/**/{config*.schema.json,plugin*.yaml} and raises if the glob
-            # comes back empty, so every first-party Wasm plugin package has to be an input.
-            "//go/cmd/wasm-plugins/alienvault-otx:srcs",
-            "//go/cmd/wasm-plugins/awx:srcs",
-            "//go/cmd/wasm-plugins/axis:srcs",
-            "//go/cmd/wasm-plugins/dusk-checker:srcs",
-            "//go/cmd/wasm-plugins/netbox:srcs",
-            "//go/cmd/wasm-plugins/opentext-network-automation:srcs",
-            "//go/cmd/wasm-plugins/proxmox:srcs",
-            "//go/cmd/wasm-plugins/sample-northbound:srcs",
-            "//go/cmd/wasm-plugins/unifi-protect:srcs",
-            # Read at RUNTIME by ServiceRadar.Edge.AddonConfigContractFixturesTest through
-            # ServiceRadar.Plugins.AddonConfigContractFixtures.{fixture_dir,schema}/1, which
-            # resolve the repo root from the working directory when the compile-time one is not
-            # present. That makes these runfiles, not compile inputs: the test executes in a
-            # sandbox, so a file staged only into the mix_app build tree is not there at all.
-            # (anomaly-addon's manifest is already listed above.)
-            "//addons/bumblebee-scan:bumblebee_scan_manifest",
-            "//addons/netprobe:netprobe_manifest",
-            "//addons/otel-collector:otel_collector_manifest",
-            "//addons/rdp-adapter:rdp_adapter_manifest",
-            "//addons/scalibr-endpoint-inventory:scalibr_endpoint_inventory_manifest",
-            "//addons/workload-identity:workload_identity_manifest",
-            "//go/pkg/agent:addonconfig_contract_fixtures",
-            # The config loader, referenced from elixir_opts by a relative path, so it has to be
-            # a declared input too. The ex_unit_tests macro adds this automatically; a
-            # hand-written ex_unit_test does not.
-            "//build:elixir_test_config_loader.exs",
-            # The per-run database name, as a declared build input. test/db/integration_env.exs
-            # reads it out of runfiles at build/run_id_file.txt -- the same file and the same
-            # relative path //rust/integration-db reads -- so provision, this suite and teardown
-            # cannot disagree about which database they own.
-            #
-            # migrate_template deliberately does NOT take it: template_env.exs targets the fixed
-            # sr_core_template name and has no run identity.
-            "//build:run_id_file",
-        ],
+        data = INTEGRATION_RUNTIME_DATA,
         elixir_opts = [
             # BEFORE the config loader: config/test.exs reads SERVICERADAR_TEST_DATABASE_URL
             # while building the Repo settings, so deriving it afterwards has no effect. Reads
@@ -458,6 +468,40 @@ ex_unit_test(
     )
     for shard in integration_shard_names()
 ]
+
+# The two full-strength release suites are physically absent from ALL_TEST_SRCS and share one
+# focused disposable database. Keep this target singular: ExUnit schedules at most one case in
+# its BEAM so the two application-global ingestion setups cannot overlap.
+ex_unit_test(
+    name = "large_ingestion_release_gate",
+    size = "enormous",
+    srcs = glob(
+        ["test/release_gates/large_ingestion/*_test.exs"],
+        allow_empty = False,
+    ),
+    data = INTEGRATION_RUNTIME_DATA,
+    elixir_opts = [
+        "-r",
+        "test/db/integration_env.exs",
+        "-r",
+        "../../build/elixir_test_config_loader.exs",
+        "-r",
+        "test/test_helper.exs",
+    ],
+    env = {
+        "SERVICERADAR_ONLY_INTEGRATION": "1",
+        "SERVICERADAR_INTEGRATION_MAX_CASES": "1",
+        "SERVICERADAR_TEST_DB_SHARD": LARGE_INGESTION_DB_SHARD,
+        "SERVICERADAR_LARGE_INGESTION_DEVICE_COUNT": "50000",
+        "SERVICERADAR_LARGE_INGESTION_CHUNK_SIZE": "1000",
+    },
+    tags = [
+        "integration_test",
+        "large_ingestion_test",
+    ],
+    target_compatible_with = requires_shared_fixture(),
+    deps = [":erlang_app"],
+)
 
 # Kept so the workflow, and anyone with the old target in muscle memory, can still say
 # //elixir/serviceradar_core:integration_tests and get every shard.

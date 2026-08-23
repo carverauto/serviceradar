@@ -2,7 +2,11 @@ load("@crates//:defs.bzl", "all_crate_deps")
 load("@rules_rs//rs:rust_binary.bzl", "rust_binary")
 load("@rules_rs//rs:rust_library.bzl", "rust_library")
 load("@rules_rs//rs:rust_test.bzl", "rust_test")
-load("//build:integration_shards.bzl", "integration_shard_names")
+load(
+    "//build:integration_shards.bzl",
+    "LARGE_INGESTION_DB_SHARD",
+    "integration_shard_names",
+)
 load("//build:integration_tests.bzl", "requires_shared_fixture")
 
 # Declared inputs every target that opens a connection needs.
@@ -152,6 +156,30 @@ rust_test(
     # names as args matched no test, ran nothing and exited 0 -- green having provisioned
     # nothing at all.
     env = {"SERVICERADAR_TEST_DB_SHARDS": ",".join(integration_shard_names())},
+    tags = [
+        "external",
+        "manual",
+    ],
+    target_compatible_with = requires_shared_fixture(),
+    deps = all_crate_deps(
+        cargo_only = True,
+        normal = True,
+        normal_dev = True,
+    ) + [
+        ":serviceradar_integration_db",
+        "//rust/srql:srql_lib",
+    ],
+)
+
+# The source-separated release gate needs only its dedicated database. It deliberately does not
+# participate in integration_shard_names(), so ordinary provisioning remains exactly s0..s7.
+rust_test(
+    name = "provision_db_large_ingestion",
+    size = "medium",
+    srcs = ["tests/provision_db_test.rs"],
+    crate_root = "tests/provision_db_test.rs",
+    data = FIXTURE_DATA + ["//elixir/serviceradar_core:migrations"],
+    env = {"SERVICERADAR_TEST_DB_SHARDS": LARGE_INGESTION_DB_SHARD},
     tags = [
         "external",
         "manual",

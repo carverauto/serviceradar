@@ -9,7 +9,6 @@ defmodule ServiceRadar.ResultsRouterIntegrationTest do
   alias ServiceRadar.Inventory.Device
   alias ServiceRadar.Inventory.DeviceIdentifier
   alias ServiceRadar.Inventory.IdentityReconciler
-  alias ServiceRadar.Repo
   alias ServiceRadar.ResultsRouter
   alias ServiceRadar.TestSupport
 
@@ -116,131 +115,8 @@ defmodule ServiceRadar.ResultsRouterIntegrationTest do
     assert identifier.device_id == expected_id
   end
 
-  @tag :large_ingestion
-  @tag timeout: 1_800_000
-  test "large Armis sync chunks route through results router into inventory" do
-    count = large_ingestion_device_count()
-    chunk_size = large_ingestion_chunk_size()
-    run_id = Ash.UUID.generate()
-    sync_service_id = "large-ingestion-#{System.unique_integer([:positive])}"
-    total_chunks = ceil_div(count, chunk_size)
-
-    for chunk_index <- 0..(total_chunks - 1) do
-      start_index = chunk_index * chunk_size + 1
-      end_index = min(start_index + chunk_size - 1, count)
-      is_final = chunk_index == total_chunks - 1
-
-      updates =
-        Enum.map(start_index..end_index, fn device_number ->
-          ip = large_ingestion_ip(device_number)
-          label = if device_number <= div(count, 2), do: "release-gate-a", else: "release-gate-b"
-
-          %{
-            "device_id" => "default:#{ip}",
-            "ip" => ip,
-            "hostname" => "armis-release-gate-#{device_number}",
-            "source" => "armis",
-            "timestamp" => DateTime.to_iso8601(DateTime.utc_now()),
-            "metadata" => %{
-              "armis_device_id" => Integer.to_string(device_number),
-              "integration_type" => "armis",
-              "query_label" => label
-            },
-            "sync_meta" => %{
-              "sync_service_id" => sync_service_id,
-              "sync_run_id" => run_id,
-              "chunk_index" => chunk_index,
-              "total_chunks" => total_chunks,
-              "total_devices" => count,
-              "is_final" => is_final
-            }
-          }
-        end)
-
-      status = %{
-        source: "results",
-        service_type: "sync",
-        service_name: "sync",
-        agent_id: "agent-large-ingestion",
-        gateway_id: "gateway-large-ingestion",
-        partition: "default",
-        chunk_index: chunk_index,
-        total_chunks: total_chunks,
-        is_final: is_final,
-        message: Jason.encode!(updates)
-      }
-
-      assert {:noreply, %{}} = ResultsRouter.handle_cast({:results_update, status}, %{})
-    end
-
-    assert count ==
-             scalar_count!(
-               """
-               SELECT COUNT(*)::bigint
-               FROM platform.ocsf_devices
-               WHERE metadata->>'sync_service_id' = $1
-                 AND metadata->>'sync_run_id' = $2
-               """,
-               [sync_service_id, run_id]
-             )
-
-    assert count ==
-             scalar_count!(
-               """
-               SELECT COUNT(*)::bigint
-               FROM platform.device_identifiers
-               WHERE identifier_type = 'armis_device_id'
-                 AND metadata->>'sync_service_id' = $1
-               """,
-               [sync_service_id]
-             )
-
-    assert div(count, 2) ==
-             scalar_count!(
-               """
-               SELECT COUNT(*)::bigint
-               FROM platform.ocsf_devices
-               WHERE metadata->>'sync_service_id' = $1
-                 AND metadata->>'query_label' = 'release-gate-a'
-               """,
-               [sync_service_id]
-             )
-  end
-
   defp system_actor do
     SystemActor.system(:test)
-  end
-
-  defp large_ingestion_device_count do
-    env_integer("SERVICERADAR_LARGE_INGESTION_DEVICE_COUNT", 50_000)
-  end
-
-  defp large_ingestion_chunk_size do
-    env_integer("SERVICERADAR_LARGE_INGESTION_CHUNK_SIZE", 1_000)
-  end
-
-  defp env_integer(name, fallback) do
-    case System.get_env(name) do
-      nil ->
-        fallback
-
-      value ->
-        case Integer.parse(value) do
-          {parsed, ""} when parsed > 0 -> parsed
-          _ -> fallback
-        end
-    end
-  end
-
-  defp ceil_div(left, right), do: div(left + right - 1, right)
-
-  defp large_ingestion_ip(device_number) do
-    "10.#{1 + rem(div(device_number, 65_536), 200)}.#{rem(div(device_number, 256), 256)}.#{rem(device_number, 256)}"
-  end
-
-  defp scalar_count!(sql, params) do
-    %{rows: [[count]]} = Repo.query!(sql, params)
-    count
   end
 
   defp mac_suffix do
