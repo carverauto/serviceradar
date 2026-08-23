@@ -197,9 +197,9 @@ jobs:
       - name: Edge ABI golden parity (Elixir cross-language)
         working-directory: elixir/serviceradar_core
         run: mix test --no-start test/serviceradar/proto/edge_v1_golden_test.exs
-      # The stacked PRs in this series are based on each other, NOT on `staging`, so the
-      # general Elixir Quality workflow (filtered to base=staging) never runs for them.
-      # The wire-parity proof must therefore be a REQUIRED status in this stack-aware job.
+      # PRs in this series target `usp-01-proposal`, not `staging`. Elixir Quality now covers that
+      # branch too, but it runs format/credo rather than tests -- so the wire-parity proof still
+      # belongs here, in the workflow that has no base-branch filter at all.
       - name: Edge wire-hygiene parity (Elixir)
         working-directory: elixir/serviceradar_core
         run: mix test --no-start test/serviceradar/edge/wire_validate_test.exs
@@ -207,9 +207,8 @@ jobs:
         working-directory: elixir/serviceradar_core
         run: mix test --no-start test/serviceradar/edge/semantic_validate_test.exs
       # The Elixir RELATIONAL validator. Its whole purpose is Go parity, so like the
-      # wire/semantic suites above it must be a REQUIRED status here: the general Elixir
-      # Quality workflow is filtered to base=staging and never runs for this stack, and
-      # it does not run tests at all.
+      # wire/semantic suites above it belongs here: Elixir Quality covers this branch now but
+      # does not run tests at all, and this workflow has no base-branch filter.
       - name: Edge recovery relational parity (Elixir)
         working-directory: elixir/serviceradar_core
         run: mix test --no-start test/serviceradar/edge/recovery_validate_test.exs
