@@ -3,22 +3,29 @@ defmodule ServiceRadarAgentGateway.JetStreamPublisher do
   Project-owned JetStream publish-with-PubAck for the durable edge result relay
   (unify-sweep-results-proto task 3.3).
 
-  Unlike `ServiceRadar.NATS.Connection.publish/3` (fire-and-forget `Gnat.pub`),
-  a durable relay MUST observe the server's `PubAck` before it may report a
-  frame durable. This module sends a JetStream publish *request* (subject +
-  `Nats-Msg-Id` for de-duplication + `Nats-Expected-Stream` to fence the target
-  stream), waits for the reply, parses the `PubAck`, and classifies any error so
-  the caller can withhold the resolved prefix (retryable) or route to the DLQ
-  (permanent).
+  Unlike `ServiceRadar.NATS.Connection.publish/3` (fire-and-forget `Gnat.pub`), a durable relay
+  MUST observe the server's `PubAck` before it may report a frame durable. This module sends a
+  JetStream publish *request*, waits for the reply, parses the `PubAck`, and classifies any error
+  so the caller can withhold the resolved prefix (retryable) or route to the DLQ (permanent).
 
-  Durability is the parsed `PubAck` returned here — never gRPC success, never a
-  fire-and-forget publish. The classification mirrors the Go reference core
-  `go/pkg/edge/gwpublish` (`:capacity`/`:timeout` retryable; `:protocol`/
-  `:permanent` not).
+  Durability is the parsed `PubAck` returned here — never gRPC success, never a fire-and-forget
+  publish, and never an ack from a stream other than the resolved route's.
+
+  ## Nothing is taken on trust
+
+  There is no public raw-publish entry point. `publish_record/3` takes a
+  `ServiceRadar.Edge.ResolvedRoute` plus the verified slot and derives everything else: the
+  subject and expected stream come from the route, publication identity is computed from the
+  frozen grammar, and the provenance is stamped with the route's own map generation. A caller
+  cannot supply a subject, a header, or a route-map version, because each of those is a way for
+  the parts to disagree with one another while each looks individually valid.
+
+  The returned ack is fenced against the resolved route's expected stream, so an ack from
+  anywhere else is a `:protocol` error rather than a durability claim.
   """
 
   alias ServiceRadar.Edge.PublicationIdentity
-  alias ServiceRadar.Edge.StreamRoute
+  alias ServiceRadar.Edge.ResolvedRoute
   alias ServiceRadar.NATS.Connection
 
   require Logger
@@ -29,72 +36,62 @@ defmodule ServiceRadarAgentGateway.JetStreamPublisher do
   @default_timeout 5_000
 
   @doc """
-  Publishes one delivery frame, DERIVING its subject, expected stream, and every header.
+  Publishes one record to a RESOLVED route, deriving publication identity and fencing the ack.
 
-  This is the entry point the relay should use. `publish/4` below takes a caller's subject and
-  headers, which cannot be the durable path: publication identity is what makes a replay
-  idempotent, so a caller that computes its own `Nats-Msg-Id` can silently give two different
-  slots the same de-dup key, or the same slot two different ones. Nothing here is taken on
-  trust (task 3.3).
+  This is the only way to publish. There is no variant taking a caller's subject or headers:
+  publication identity is what makes a replay idempotent, so a caller computing its own
+  `Nats-Msg-Id` can silently give two different slots the same de-dup key, or one slot two
+  different ones. Equally, a caller-supplied subject and expected-stream can disagree with each
+  other. Taking one `ResolvedRoute` removes both possibilities -- subject, partition, expected
+  stream, and map version are computed together by `StreamRoute` or not at all (task 3.3).
 
-  `publication` is a map:
+  Arguments:
 
-    * `:slot` — `%{authenticated_agent_id, network_scope_id, spool_id, sequence}`, all
-      GATEWAY-VERIFIED from the mTLS session, never read out of the frame.
-    * `:record_bytes` — the exact `EdgeDeliveryFrameV1.record_bytes`. Published UNCHANGED; the
-      delivery wrapper is never the body (task 3.4).
-    * `:record_sha256`, `:semantic_envelope_sha256` — 32-byte digests.
-    * `:route_profile`, `:traffic_class` — from the effective control-plane grant.
-    * `:delivery_mode` — defaults to fresh; a non-fresh mode requires `:delivery_proof`.
-    * `:partition_key` — defaults to the slot's `network_scope_id`.
-    * `:route_map_version` — defaults to `StreamRoute.subject_version/0`.
+    * `route` — a `ServiceRadar.Edge.ResolvedRoute` from `StreamRoute.resolve/1` (or
+      `resolve_dlq/2` for the DLQ path).
+    * `publication` — a map:
+      * `:slot` — `%{authenticated_agent_id, network_scope_id, spool_id, sequence}`, all
+        GATEWAY-VERIFIED from the mTLS session, never read out of the frame.
+      * `:record_bytes` — the exact `EdgeDeliveryFrameV1.record_bytes`. Published UNCHANGED; the
+        delivery wrapper is never the body (task 3.4).
+      * `:record_sha256`, `:semantic_envelope_sha256` — 32-byte digests.
+      * `:delivery_mode` — defaults to fresh; a non-fresh mode requires `:delivery_proof`.
 
-  The four headers are the canonical transport set (`nats-msg-id`, `sr-edge-delivery-id`,
-  `sr-edge-transport-provenance`) plus the `Nats-Expected-Stream` publish fence. The semantic
-  envelope is NOT re-exported as headers; it is committed inside the msg id.
+  The route's `map_version` is what stamps the provenance, so the generation recorded is always
+  the one that produced the subject.
 
-  Returns `{:ok, pub_ack}`, `{:error, error_class}` from the publish itself, or
-  `{:error, {:derivation, reason}}` when identity or routing could not be derived — which is
-  distinct on purpose, because a derivation failure is a bug or a bad grant, not something to
-  retry against the broker.
+  Returns `{:ok, pub_ack}`; `{:error, error_class}` from the publish; or
+  `{:error, {:derivation, reason}}` when identity could not be derived -- distinct on purpose,
+  because that is a bug or a bad grant rather than something to retry against the broker.
   """
-  @spec publish_record(map(), keyword()) ::
+  @spec publish_record(ResolvedRoute.t(), map(), keyword()) ::
           {:ok, pub_ack()} | {:error, error_class()} | {:error, {:derivation, term()}}
-  def publish_record(publication, opts \\ []) when is_map(publication) do
-    with {:ok, derived} <- derive(publication) do
-      publish(derived.subject, publication.record_bytes, derived.headers, opts)
+  def publish_record(route, publication, opts \\ [])
+
+  def publish_record(%ResolvedRoute{} = route, publication, opts) when is_map(publication) do
+    with {:ok, bytes} <- record_bytes(publication),
+         {:ok, headers} <- headers_for(route, publication) do
+      request(route, bytes, headers, opts)
     end
   end
 
-  @doc """
-  Derives the subject and headers for a publication without performing any I/O.
+  def publish_record(_, _, _), do: {:error, {:derivation, :route}}
 
-  Separate from `publish_record/2` so the derivation is testable on its own, and so a caller that
-  needs the subject (audit, DLQ routing) does not have to publish to learn it.
+  @doc """
+  Builds the header set for a resolved route without performing any I/O.
+
+  Separate from `publish_record/3` so the derivation is testable on its own, and so an audit
+  caller can see exactly what would be sent.
   """
-  @spec derive(map()) :: {:ok, map()} | {:error, {:derivation, term()}}
-  def derive(publication) when is_map(publication) do
+  @spec headers_for(ResolvedRoute.t(), map()) :: {:ok, list()} | {:error, {:derivation, term()}}
+  def headers_for(%ResolvedRoute{} = route, publication) when is_map(publication) do
     slot = Map.get(publication, :slot)
-    profile = Map.get(publication, :route_profile)
-    class = Map.get(publication, :traffic_class)
     record_sha = Map.get(publication, :record_sha256)
     semantic_sha = Map.get(publication, :semantic_envelope_sha256)
     mode = Map.get(publication, :delivery_mode, PublicationIdentity.mode_fresh())
     proof = Map.get(publication, :delivery_proof)
 
-    # The routing key defaults to the signed network scope, matching the partition contract.
-    partition_key = Map.get(publication, :partition_key) || slot_scope(slot)
-
-    # route_map_version has no frozen constant of its own; it must simply be nonzero. Defaulting
-    # it to the subject scheme's version keeps the two in lockstep, so a subject-space bump is
-    # recorded in the provenance of every record published under the new scheme. Override it if
-    # the deployment ever versions its route map independently of the subject scheme.
-    rmv = Map.get(publication, :route_map_version, StreamRoute.subject_version())
-
-    with {:ok, partition} <- partition_of(partition_key),
-         {:ok, subject} <- StreamRoute.data_subject(profile, class, partition),
-         {:ok, stream} <- StreamRoute.physical_stream(profile, class),
-         {:ok, msg_id} <- PublicationIdentity.nats_msg_id(slot, semantic_sha, record_sha),
+    with {:ok, msg_id} <- PublicationIdentity.nats_msg_id(slot, semantic_sha, record_sha),
          {:ok, delivery_id} <- PublicationIdentity.delivery_id(slot),
          {:ok, provenance} <-
            PublicationIdentity.transport_provenance(%{
@@ -102,57 +99,43 @@ defmodule ServiceRadarAgentGateway.JetStreamPublisher do
              delivery_mode: mode,
              delivery_proof: proof,
              record_sha256: record_sha,
-             route_map_version: rmv
+             # The route's own generation, never a separately-supplied one.
+             route_map_version: route.map_version
            }) do
       {:ok,
-       %{
-         subject: subject,
-         partition: partition,
-         expected_stream: stream,
-         headers: [
-           {"Nats-Msg-Id", msg_id},
-           {"Nats-Expected-Stream", stream},
-           {"Sr-Edge-Delivery-Id", delivery_id},
-           {"Sr-Edge-Transport-Provenance", provenance}
-         ]
-       }}
+       [
+         {"Nats-Msg-Id", msg_id},
+         {"Nats-Expected-Stream", route.expected_stream},
+         {"Sr-Edge-Delivery-Id", delivery_id},
+         {"Sr-Edge-Transport-Provenance", provenance}
+       ]}
     else
       {:error, reason} -> {:error, {:derivation, reason}}
     end
   end
 
-  defp slot_scope(slot) when is_map(slot), do: Map.get(slot, :network_scope_id)
-  defp slot_scope(_), do: nil
+  def headers_for(_, _), do: {:error, {:derivation, :route}}
 
-  # A missing routing key is a derivation failure rather than partition 0. StreamRoute treats an
-  # EMPTY key as partition 0 so a frame is always routable, but a key that is absent entirely
-  # means the slot was never populated, and silently publishing that to partition 0 would pile
-  # unrelated scopes onto one partition.
-  defp partition_of(key) when is_binary(key), do: {:ok, StreamRoute.partition(key)}
-  defp partition_of(_), do: {:error, :partition_key}
+  # `:record_bytes` is REQUIRED. Returning the documented error tuple rather than letting the map
+  # access raise: a caller that omits it gets the same shape as every other refusal, instead of a
+  # KeyError escaping a function whose contract says it returns {:error, _}.
+  defp record_bytes(publication) do
+    case Map.get(publication, :record_bytes) do
+      bytes when is_binary(bytes) -> {:ok, bytes}
+      _ -> {:error, {:derivation, :record_bytes}}
+    end
+  end
 
-  @doc """
-  Publishes `payload` to `subject` with `headers` and returns the parsed PubAck.
-
-  LOW-LEVEL. Prefer `publish_record/2`, which derives the subject and headers; this one trusts
-  both. It remains public because the DLQ path publishes an already-derived subject, and because
-  the ack parsing and classification below are worth exercising directly.
-
-  Options:
-
-    * `:connection` — the connection module (default `ServiceRadar.NATS.Connection`);
-      injectable for tests.
-    * `:receive_timeout` — PubAck wait in ms (default #{@default_timeout}).
-  """
-  @spec publish(String.t(), binary(), list(), keyword()) ::
-          {:ok, pub_ack()} | {:error, error_class()}
-  def publish(subject, payload, headers, opts \\ []) do
+  # The raw request. PRIVATE: a public raw publish is a bypass around every guarantee above, and
+  # it existed only because the DLQ path needed a subject -- which `StreamRoute.resolve_dlq/2` now
+  # supplies as a ResolvedRoute, so the bypass has no remaining caller.
+  defp request(%ResolvedRoute{} = route, payload, headers, opts) do
     conn = Keyword.get(opts, :connection, Connection)
     timeout = Keyword.get(opts, :receive_timeout, @default_timeout)
 
-    case conn.request(subject, payload, headers: headers, receive_timeout: timeout) do
+    case conn.request(route.subject, payload, headers: headers, receive_timeout: timeout) do
       {:ok, %{body: body}} ->
-        parse_ack(body)
+        fence(route.expected_stream, parse_ack(body))
 
       {:error, :timeout} ->
         {:error, :timeout}
@@ -161,6 +144,24 @@ defmodule ServiceRadarAgentGateway.JetStreamPublisher do
         {:error, classify_transport(reason)}
     end
   end
+
+  # `Nats-Expected-Stream` asks the SERVER to fence the publish, but a PubAck naming a different
+  # stream must still be refused here rather than reported durable. Trusting the header alone
+  # assumes every broker on the path honours it; an ack from another stream means the record is
+  # durable somewhere the resolved route did not choose, which is indistinguishable from
+  # misrouting. `:protocol` is the right class -- not retryable, because retrying reproduces it.
+  defp fence(expected, {:ok, %{stream: expected} = ack}), do: {:ok, ack}
+
+  defp fence(expected, {:ok, %{stream: other}}) do
+    Logger.error("jetstream ack from unexpected stream",
+      expected_stream: expected,
+      acked_stream: other
+    )
+
+    {:error, :protocol}
+  end
+
+  defp fence(_expected, other), do: other
 
   @doc """
   Parses a JetStream PubAck reply body. A success body is
