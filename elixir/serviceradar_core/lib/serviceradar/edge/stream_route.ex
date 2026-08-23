@@ -17,64 +17,86 @@ defmodule ServiceRadar.Edge.StreamRoute do
       telemetry.edge-record-dlq.v1.bulk.pNN
       telemetry.edge-record-dlq.v1.interactive.pNN
 
-  Three consequences that are easy to get wrong, and were:
+  The data subject keys on TRAFFIC CLASS; the route profile selects which FAMILY applies and
+  never appears as a token. Recovery is one singular reserved lane -- no class token, no partition
+  token -- with its own unborrowable storage/PubAck/consumer capacity.
 
-    * **The data subject keys on TRAFFIC CLASS, not route profile.** The route profile selects
-      which FAMILY applies (durable-record vs recovery); it never appears as a subject token.
-    * **Recovery is one singular reserved lane.** No class token, no partition token, and its own
-      unborrowable storage/PubAck/consumer capacity.
-    * **There is no recovery DLQ family.** A recovery failure preserves its ORIGINAL traffic
-      class and enters the ordinary class-separated DLQ. That is why `resolve_dlq/2` takes a
-      traffic class and NOT a route profile -- collapsing recovery's DLQ the way its data lane
-      collapses would merge bulk and interactive poison into one queue, and the spec requires the
-      DLQ to preserve class precisely so a bulk poison cohort cannot queue ahead of the
-      interactive reserve.
+  ## The DLQ families are normative, and NOT resolvable here yet
+
+  `telemetry.edge-record-dlq.v1.{bulk|interactive}.pNN` are part of the normative topology, and a
+  recovery failure preserves its ORIGINAL traffic class rather than getting a DLQ family of its
+  own -- neither initial routing nor redrive may promote or demote a record's class.
+
+  There is deliberately NO `resolve_dlq/2`. The version that existed took the traffic class from a
+  contract supplied alongside the source route, so a bulk failure could be resolved into the
+  interactive DLQ; a test named "cannot be reclassified" in fact demonstrated exactly that. The
+  honest fix is not a tighter signature but waiting for the failure context that a DLQ route is
+  derived FROM: the canonical bounded DLQ wrapper, the source stream/sequence, and the error
+  cohort. Until those exist there is nothing to derive a DLQ route from, so offering one would be
+  a production-looking API with no correct caller.
+
+  ## Two versions, deliberately separate
+
+    * `partition_scheme_version/0` versions WHICH SUBJECT a key maps to: the subject families, the
+      partition function, and the partition count. Changing any of them re-places future records
+      relative to the data already stored.
+    * `placement_version/0` versions the `(profile, class, partition) -> physical stream`
+      assignment. This is what the transport provenance records, and what gateway and consumer
+      readiness compare.
+
+  They were one value, which was wrong: moving a partition range onto a new physical stream is an
+  operational change with a sealing/revocation dance, while changing the hash re-partitions the
+  whole key space. Conflating them means one cannot be done without falsely claiming the other.
+
+  ## Partitioning follows the CONTRACT's pinned rule
+
+  The partition rule is bound into the immutable output-contract bundle, alongside contract
+  ID/version, canonicalization, cost model, and projector configuration. It is therefore NOT a
+  property of this module to choose: different contracts may partition by execution, agent/event,
+  or assignment/run coordinates rather than by network scope.
+
+  `resolve/1` requires the contract to name its rule and REFUSES an unknown one. Exactly one rule
+  is frozen today (`:network_scope_v1`); the rest arrive with the contract registry that owns
+  them. Refusing is deliberate: inventing a key composition here would freeze a byte layout the
+  registry has not specified, and a wrong frozen layout is far more expensive to undo than a
+  refusal. There is NO default -- defaulting to network scope is what silently gave every
+  contract one rule.
 
   ## Partition-to-stream placement is currently uniform, and the spec allows more
 
   The normative map assigns every `(route profile, traffic class, logical partition)` to exactly
-  one authoritative physical stream, and it explicitly MAY place disjoint partitions on
-  additional stream/RAFT groups when benchmarked write, storage, or recovery limits require it.
-
-  This installation maps ALL partitions of a class to one stream, which is a valid instance of
-  that map but not the general case. `ResolvedRoute` carries the partition and the expected stream
-  together precisely so the general case is a change here rather than at every call site: nothing
-  downstream infers the stream from the class. Splitting a partition range onto its own stream is
-  a placement change and therefore a `map_version/0` bump, with the sealing/revocation dance the
-  spec requires.
+  one authoritative physical stream, and it explicitly MAY place disjoint partitions on additional
+  stream/RAFT groups when benchmarked limits require it. This installation maps ALL partitions of
+  a class to one stream -- a valid instance, not the general case. `ResolvedRoute` carries the
+  partition and the stream together so the general case is a change here rather than at every call
+  site.
 
   ## The active route map is NOT the enum
 
-  `EdgeRecordRouteProfile` declares `CONTINUOUS_V1`, but declaring a member in the frozen ABI
-  does not deploy it: the proto says another profile "requires an explicit benchmarked platform
-  change", and no such change has happened. So `CONTINUOUS_V1` is UNROUTABLE here, and enum
-  membership must never be the thing that decides. Deriving the active map from the enum would
-  activate a route the platform has not provisioned the moment someone adds a member -- publishes
-  would resolve to a stream that does not exist.
-
-  Activating it later means adding its subject family to the spec, provisioning the streams, and
-  bumping `map_version/0`.
+  `EdgeRecordRouteProfile` declares `CONTINUOUS_V1`, but declaring a member in the frozen ABI does
+  not deploy it: another profile "requires an explicit benchmarked platform change". Deriving the
+  active map from the enum would activate a route the platform has not provisioned the moment
+  someone adds a member.
 
   ## Elixir only
 
   A Go `streamroute` exists on the abandoned `usp-2x` branches. It is not the source of truth and
   must not be revived: the agent-gateway has been Elixir for over a year and the consumers are
   Elixir (EventWriter / core-elx / Broadway). The only Go left on this path is
-  `serviceradar-agent`, which sends frames over gRPC and never computes a subject. With no second
-  implementation there is nothing to drift from, which is why this map needs no cross-language
-  vector file -- unlike the publication-identity grammar, which has one because both languages
-  compute it.
+  `serviceradar-agent`, which sends frames over gRPC and never computes a subject.
   """
 
   alias ServiceRadar.Edge.ResolvedRoute
 
   @num_partitions 64
 
-  # The ACTIVE route-map generation. It versions the subject topology AND the physical-stream
-  # mapping together, and it is what the transport provenance records. It is not caller-supplied:
-  # a record stamped with a generation other than the one that produced its subject describes a
-  # placement that never happened.
-  @map_version 1
+  # Versions WHICH SUBJECT a key maps to: subject families + partition function + partition count.
+  # Frozen by testdata/partition vectors; changing any of the three must bump this.
+  @partition_scheme_version 1
+
+  # Versions the (profile, class, partition) -> physical stream assignment. Recorded in transport
+  # provenance and compared by gateway/consumer readiness.
+  @placement_version 1
 
   @durable_records :EDGE_RECORD_ROUTE_PROFILE_DURABLE_RECORDS_V1
   @recovery_control :EDGE_RECORD_ROUTE_PROFILE_RECOVERY_CONTROL_V1
@@ -85,24 +107,24 @@ defmodule ServiceRadar.Edge.StreamRoute do
   @class_tokens %{@bulk => "bulk", @interactive => "interactive"}
 
   @recovery_subject "telemetry.edge-record-recovery.v1"
-
-  # Physical stream names are NOT specified normatively -- the spec fixes the subject families and
-  # requires the streams behind them to be disjoint, leaving the names to the installation. They
-  # are derived mechanically from the subject family so the correspondence stays obvious, and the
-  # five are disjoint as required, with recovery holding its own.
   @recovery_stream "TELEMETRY_EDGE_RECORD_RECOVERY_V1"
+
+  # The frozen partition rules. One today; the rest arrive with the contract registry.
+  @partition_rules [:network_scope_v1]
 
   @doc "The fixed count of stable logical data/DLQ partitions."
   def num_partitions, do: @num_partitions
 
-  @doc "The active route-map generation, versioning subjects and physical streams together."
-  def map_version, do: @map_version
+  @doc "Versions the subject families, the partition function, and the partition count."
+  def partition_scheme_version, do: @partition_scheme_version
 
-  @doc """
-  Every DEPLOYMENT-ACTIVE `{route_profile, traffic_class}` pair, in a stable order.
+  @doc "Versions the physical-stream assignment; recorded in transport provenance."
+  def placement_version, do: @placement_version
 
-  Derived from the active map rather than from the enum; see the moduledoc on `CONTINUOUS_V1`.
-  """
+  @doc "The partition rules this installation can evaluate."
+  def partition_rules, do: @partition_rules
+
+  @doc "Every DEPLOYMENT-ACTIVE `{route_profile, traffic_class}` pair, in a stable order."
   def active_lanes do
     [
       {@durable_records, @bulk},
@@ -119,13 +141,13 @@ defmodule ServiceRadar.Edge.StreamRoute do
   frame:
 
     * `:route_profile`, `:traffic_class` — from the effective control-plane grant.
-    * `:network_scope_id` — the signed scope, used as the partition key for partitioned families.
+    * `:partition_rule` — the rule the output-contract bundle pins. REQUIRED; no default.
+    * `:partition_coordinates` — the authenticated coordinates the rule reads, e.g.
+      `%{network_scope_id: <<...>>}` for `:network_scope_v1`.
 
-  There is no caller-supplied partition key and no caller-supplied map version. Partition rules
-  are CONTRACT-SPECIFIC -- the recovery family is unpartitioned entirely -- so letting a caller
-  choose the key meant a caller could partition a record by something the contract does not
-  partition by, and letting it default universally to network scope silently gave the recovery
-  lane a partition it does not have.
+  Returns `{:error, :unknown_partition_rule}` for a rule this installation cannot evaluate, which
+  is a refusal rather than a fallback: a record routed by the wrong rule lands on a partition its
+  consumers do not read.
   """
   @spec resolve(map()) :: {:ok, ResolvedRoute.t()} | {:error, atom()}
   def resolve(contract) when is_map(contract) do
@@ -134,11 +156,16 @@ defmodule ServiceRadar.Edge.StreamRoute do
 
     case {profile, valid_class(class)} do
       {@recovery_control, {:ok, _token}} ->
-        # Singular and unpartitioned by contract: no class token, no pNN.
-        {:ok, route(@recovery_subject, nil, @recovery_stream)}
+        # Singular and unpartitioned: no class token, no pNN. The rule is still VALIDATED even
+        # though no partition is computed from it -- the contract bundle pins one regardless, and
+        # skipping the check here made "every unknown rule is refused" untrue for exactly the lane
+        # where nobody would look for the exception.
+        with :ok <- known_rule(contract) do
+          {:ok, route(@recovery_subject, nil, @recovery_stream)}
+        end
 
       {@durable_records, {:ok, token}} ->
-        with {:ok, partition} <- partition_for_scope(contract) do
+        with {:ok, partition} <- partition_for(contract) do
           {:ok,
            route(
              "telemetry.edge-record.v1.#{token}.#{pad(partition)}",
@@ -159,45 +186,42 @@ defmodule ServiceRadar.Edge.StreamRoute do
   def resolve(_), do: {:error, :contract}
 
   @doc """
-  Resolves the class-preserving DLQ route.
+  Maps a routing key to a stable partition in `[0, num_partitions)`.
 
-  Takes a TRAFFIC CLASS and not a route profile, deliberately. Every failure -- including a
-  recovery-lane failure -- enters the DLQ for its original class, so there is no route profile to
-  supply and no way to express a collapsed recovery DLQ.
-
-  The partition is passed rather than re-derived so a failure lands on the DLQ partition matching
-  the data partition it came from. A recovery record has no data partition; give it the partition
-  its scope would have used, which `partition/1` computes.
+  FNV-1a, frozen by the committed partition vectors together with `num_partitions/0`. The
+  partition is a DATA-PLACEMENT decision, so changing the hash silently re-places every future
+  record relative to the streams already holding data; the vectors are what make that change
+  loud.
   """
-  @spec resolve_dlq(atom(), non_neg_integer()) :: {:ok, ResolvedRoute.t()} | {:error, atom()}
-  def resolve_dlq(traffic_class, partition) do
-    with {:ok, token} <- valid_class(traffic_class),
-         :ok <- check_partition(partition) do
-      {:ok,
-       route(
-         "telemetry.edge-record-dlq.v1.#{token}.#{pad(partition)}",
-         partition,
-         "TELEMETRY_EDGE_RECORD_DLQ_V1_#{String.upcase(token)}"
-       )}
+  def partition(key) when is_binary(key) and key != "", do: rem(fnv1a_32(key), @num_partitions)
+
+  # Validates the pinned rule without evaluating it, for families that carry no partition.
+  defp known_rule(contract) do
+    case Map.get(contract, :partition_rule) do
+      rule when rule in @partition_rules -> :ok
+      nil -> {:error, :missing_partition_rule}
+      _ -> {:error, :unknown_partition_rule}
     end
   end
 
-  @doc """
-  Maps a routing key to a stable partition in `[0, num_partitions)`.
+  # Evaluates the contract's pinned rule. No default, and no fallback for an unknown rule.
+  defp partition_for(contract) do
+    coords = Map.get(contract, :partition_coordinates, %{})
 
-  FNV-1a is kept from the reviewed design rather than swapped for `:erlang.phash2/2`: the
-  partition is a DATA-PLACEMENT decision, so changing the hash silently re-places every future
-  record relative to the streams already holding data.
-  """
-  def partition(key) when is_binary(key) and key != "", do: rem(fnv1a_32(key), @num_partitions)
-  def partition(_), do: {:error, :partition_key}
+    with :ok <- known_rule(contract) do
+      # The frozen transcript: the raw network_scope_id bytes, unprefixed and unconcatenated.
+      # See openspec .../nats-tenant-isolation for the normative definition.
+      :network_scope_v1 = Map.get(contract, :partition_rule)
 
-  defp partition_for_scope(contract) do
-    case Map.get(contract, :network_scope_id) do
-      scope when is_binary(scope) and scope != "" -> {:ok, partition(scope)}
-      # A missing scope is refused rather than routed to partition 0. Zero is a real partition,
-      # so defaulting to it would pile every unpopulated contract onto one shard.
-      _ -> {:error, :partition_key}
+      case Map.get(coords, :network_scope_id) do
+        scope when is_binary(scope) and scope != "" ->
+          {:ok, partition(scope)}
+
+        # Refused rather than routed to partition 0: zero is a real partition, so defaulting
+        # would pile every unpopulated contract onto one shard.
+        _ ->
+          {:error, :partition_key}
+      end
     end
   end
 
@@ -206,7 +230,8 @@ defmodule ServiceRadar.Edge.StreamRoute do
       subject: subject,
       partition: partition,
       expected_stream: stream,
-      map_version: @map_version
+      placement_version: @placement_version,
+      partition_scheme_version: @partition_scheme_version
     }
   end
 
@@ -217,11 +242,7 @@ defmodule ServiceRadar.Edge.StreamRoute do
     end
   end
 
-  defp check_partition(p) when is_integer(p) and p >= 0 and p < @num_partitions, do: :ok
-  defp check_partition(_), do: {:error, :partition_out_of_range}
-
-  # Two digits is exact for 64 partitions; widening the space is a map_version bump, which is what
-  # keeps this from silently truncating.
+  # Two digits is exact for 64 partitions; widening the space bumps the partition scheme version.
   defp pad(p), do: "p" <> String.pad_leading(Integer.to_string(p), 2, "0")
 
   @fnv_offset_basis 2_166_136_261

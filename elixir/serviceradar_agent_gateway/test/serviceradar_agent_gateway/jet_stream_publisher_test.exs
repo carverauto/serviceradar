@@ -1,6 +1,12 @@
 defmodule ServiceRadarAgentGateway.JetStreamPublisherTest do
   use ExUnit.Case, async: true
 
+  import Bitwise
+
+  alias ServiceRadar.Edge.PublicationIdentity
+  alias ServiceRadar.Edge.StreamRoute
+  alias Serviceradar.Edge.V1.EdgeRecordV1
+  alias Serviceradar.Edge.V1.EdgeSignedCapabilityV1
   alias ServiceRadarAgentGateway.JetStreamPublisher
 
   # A fake connection module driven by the test process mailbox: it records the
@@ -39,35 +45,81 @@ defmodule ServiceRadarAgentGateway.JetStreamPublisherTest do
       assert {:error, :capacity} = JetStreamPublisher.parse_ack(body)
     end
 
-    test "classifies an expected-stream mismatch as a protocol error" do
-      body = ~s({"error":{"code":400,"description":"expected stream does not match"}})
-      assert {:error, :protocol} = JetStreamPublisher.parse_ack(body)
+    test "the REAL expected-stream refusal (err_code 10060) withholds, never DLQs" do
+      # NATS answers a mismatched Nats-Expected-Stream with error 10060 (JSStreamNotMatchErr),
+      # NOT with a successful ack naming another stream. This is the path that actually fires,
+      # and it was terminal.
+      body = ~s({"error":{"code":400,"err_code":10060,"description":"expected stream does not match"}})
+      assert {:error, :misrouted} = JetStreamPublisher.parse_ack(body)
+      assert JetStreamPublisher.retryable?(:misrouted)
     end
 
-    test "classifies an unknown error as permanent" do
+    test "a wrong-last-sequence fence is unresolved, not poison" do
+      body = ~s({"error":{"code":400,"err_code":10071,"description":"wrong last sequence: 5"}})
+      assert {:error, :systemic} = JetStreamPublisher.parse_ack(body)
+      assert JetStreamPublisher.retryable?(:systemic)
+    end
+
+    test "a record that can never fit is the one proven poison" do
       body = ~s({"error":{"code":400,"description":"message size exceeds maximum"}})
-      assert {:error, :permanent} = JetStreamPublisher.parse_ack(body)
+      assert {:error, :poison} = JetStreamPublisher.parse_ack(body)
+      refute JetStreamPublisher.retryable?(:poison)
     end
 
-    test "a non-ack body is a protocol error" do
-      assert {:error, :protocol} = JetStreamPublisher.parse_ack("not json")
-      assert {:error, :protocol} = JetStreamPublisher.parse_ack(~s({"unexpected":true}))
+    test "an UNKNOWN broker refusal withholds rather than DLQ-ing" do
+      # The old default was :permanent, so any refusal this module did not recognise sent the
+      # record to the DLQ without proof it was bad.
+      for body <- [
+            ~s({"error":{"code":400,"description":"some future error nobody has seen"}}),
+            ~s({"error":{"code":499,"err_code":19999,"description":""}}),
+            ~s({"error":{}})
+          ] do
+        assert {:error, :systemic} = JetStreamPublisher.parse_ack(body), "#{body} was terminal"
+      end
+    end
+
+    test "an unparseable body is unresolved, not terminal" do
+      assert {:error, :systemic} = JetStreamPublisher.parse_ack("not json")
+      assert {:error, :systemic} = JetStreamPublisher.parse_ack(~s({"unexpected":true}))
+      assert {:error, :systemic} = JetStreamPublisher.parse_ack(nil)
+    end
+
+    test "a non-boolean duplicate flag is refused, not silently read as false" do
+      # `Map.get(ack, "duplicate", false) == true` read "true" (a string) as false, recording a
+      # duplicate as a first write.
+      for dup <- [~s("true"), "1", "null"] do
+        assert {:error, :systemic} =
+                 JetStreamPublisher.parse_ack(~s({"stream":"S","seq":1,"duplicate":#{dup}})),
+               "duplicate=#{dup} was accepted"
+      end
+
+      assert {:ok, %{duplicate: true}} =
+               JetStreamPublisher.parse_ack(~s({"stream":"S","seq":1,"duplicate":true}))
+
+      assert {:ok, %{duplicate: false}} = JetStreamPublisher.parse_ack(~s({"stream":"S","seq":1}))
     end
   end
 
-  test "retryable? classification" do
-    assert JetStreamPublisher.retryable?(:capacity)
-    assert JetStreamPublisher.retryable?(:timeout)
-    refute JetStreamPublisher.retryable?(:protocol)
-    refute JetStreamPublisher.retryable?(:permanent)
+  describe "PubAck sequence bounds" do
+    test "a non-positive or out-of-range sequence is a protocol error, never durable" do
+      # `is_integer/1` alone accepted these. A malformed ack reported as durable resolves a
+      # source sequence that was never accepted.
+      for bad <- [-1, 0, -9_999, 0x1_0000_0000_0000_0000] do
+        assert {:error, :systemic} =
+                 JetStreamPublisher.parse_ack(~s({"stream":"S","seq":#{bad}})),
+               "seq #{bad} was accepted"
+      end
+    end
+
+    test "the boundaries themselves: 1 and u64 max are valid" do
+      assert {:ok, %{seq: 1}} = JetStreamPublisher.parse_ack(~s({"stream":"S","seq":1}))
+
+      assert {:ok, %{seq: 18_446_744_073_709_551_615}} =
+               JetStreamPublisher.parse_ack(~s({"stream":"S","seq":18446744073709551615}))
+    end
   end
 
-  describe "publish_record/3" do
-    import Bitwise
-
-    alias ServiceRadar.Edge.ResolvedRoute
-    alias ServiceRadar.Edge.StreamRoute
-
+  describe "publish_record/2 derives its own route" do
     defp uuidv7(seed) do
       bytes = Enum.map(0..15, &rem(seed + &1, 256))
 
@@ -77,175 +129,322 @@ defmodule ServiceRadarAgentGateway.JetStreamPublisherTest do
       |> :erlang.list_to_binary()
     end
 
-    defp slot,
-      do: %{network_scope_id: uuidv7(0x40), authenticated_agent_id: "agent-0", spool_id: uuidv7(0x01), sequence: 7}
+    defp publication(overrides \\ %{}) do
+      bytes = Map.get(overrides, :record_bytes, "the-canonical-record-bytes")
 
-    # The digest is COMPUTED from the bytes rather than supplied alongside them. The previous
-    # version of this test passed a different `record_sha256` while leaving `record_bytes`
-    # untouched, so it proved only that the function hashes its argument -- it never exercised
-    # the relationship it claimed to, that different record bytes produce a different msg id.
-    defp publication(record_bytes \\ "the-canonical-record-bytes", overrides \\ %{}) do
       Map.merge(
         %{
-          slot: slot(),
-          record_bytes: record_bytes,
-          record_sha256: :crypto.hash(:sha256, record_bytes),
+          slot: %{
+            network_scope_id: uuidv7(0x40),
+            authenticated_agent_id: "agent-0",
+            spool_id: uuidv7(0x01),
+            sequence: 7
+          },
+          route_profile: :EDGE_RECORD_ROUTE_PROFILE_DURABLE_RECORDS_V1,
+          traffic_class: :EDGE_RECORD_TRAFFIC_CLASS_BULK,
+          partition_rule: :network_scope_v1,
+          record_bytes: bytes,
+          record_sha256: :crypto.hash(:sha256, bytes),
           semantic_envelope_sha256: :binary.copy(<<0xAA>>, 32)
         },
         overrides
       )
     end
 
-    defp durable_route do
-      {:ok, route} =
-        StreamRoute.resolve(%{
-          route_profile: :EDGE_RECORD_ROUTE_PROFILE_DURABLE_RECORDS_V1,
-          traffic_class: :EDGE_RECORD_TRAFFIC_CLASS_BULK,
-          network_scope_id: uuidv7(0x40)
-        })
-
-      route
-    end
-
-    defp ack_body(route, seq \\ 1), do: ~s({"stream":"#{route.expected_stream}","seq":#{seq}})
-
     defp header(headers, name), do: Enum.find_value(headers, fn {k, v} -> if k == name, do: v end)
 
-    test "derives the canonical transport header set from the route" do
-      route = durable_route()
-      assert {:ok, headers} = JetStreamPublisher.headers_for(route, publication())
+    test "there is NO api that accepts a route, so route and publication cannot disagree" do
+      # Exercises the real entry point as well as the shape: the structural assertions below are
+      # only meaningful if the two-arg form is the one that actually works.
+      assert {:ok, %{route: _, headers: _}} = JetStreamPublisher.plan(publication())
 
-      assert headers |> Enum.map(&elem(&1, 0)) |> Enum.sort() ==
-               [
-                 "Nats-Expected-Stream",
-                 "Nats-Msg-Id",
-                 "Sr-Edge-Delivery-Id",
-                 "Sr-Edge-Transport-Provenance"
-               ]
+      # The previous shape took (route, publication) and a test proved the two could describe
+      # different records -- a route resolved for one scope publishing a slot from another.
+      # ensure_loaded! first: function_exported?/3 answers false for a module that simply has
+      # not been loaded, which would make every assertion here pass for the wrong reason.
+      {:module, _} = Code.ensure_loaded(JetStreamPublisher)
 
-      assert header(headers, "Nats-Expected-Stream") == route.expected_stream
-      for {_k, v} <- headers, do: assert(is_binary(v) and v != "")
+      refute function_exported?(JetStreamPublisher, :publish_record, 3)
+      refute function_exported?(JetStreamPublisher, :headers_for, 2)
+      assert function_exported?(JetStreamPublisher, :publish_record, 2)
     end
 
-    test "publishes the record bytes UNCHANGED to the resolved subject" do
-      route = durable_route()
-      pub = publication()
-      with_reply({:ok, %{body: ack_body(route, 3)}})
+    test "the subject follows the slot's scope: changing the scope moves the record" do
+      {:ok, a} = JetStreamPublisher.plan(publication())
 
-      assert {:ok, %{seq: 3}} = JetStreamPublisher.publish_record(route, pub, connection: FakeConn)
+      other_slot = %{publication().slot | network_scope_id: uuidv7(0x70)}
+      {:ok, b} = JetStreamPublisher.plan(publication(%{slot: other_slot}))
+
+      refute a.route.subject == b.route.subject,
+             "the route ignored the authenticated scope, so it is not bound to the publication"
+    end
+
+    test "publishes the record bytes UNCHANGED to the derived subject" do
+      {:ok, planned} = JetStreamPublisher.plan(publication())
+      with_reply({:ok, %{body: ~s({"stream":"#{planned.route.expected_stream}","seq":3})}})
+
+      assert {:ok, %{seq: 3}} =
+               JetStreamPublisher.publish_record(publication(), connection: FakeConn)
 
       assert_received {:requested, subject, payload, _opts}
-      assert payload == pub.record_bytes
-      assert subject == route.subject
+      assert payload == publication().record_bytes
+      assert subject == planned.route.subject
+      assert subject =~ ~r"^telemetry\.edge-record\.v1\.bulk\.p\d{2}$"
     end
 
-    test "DIFFERENT RECORD BYTES produce a different msg id, so a reused slot cannot collide" do
-      route = durable_route()
+    test "an unknown partition rule refuses before any publish" do
+      with_reply({:ok, %{body: ~s({"stream":"S","seq":1})}})
 
-      {:ok, a} = JetStreamPublisher.headers_for(route, publication("record-one"))
-      {:ok, b} = JetStreamPublisher.headers_for(route, publication("record-two"))
+      assert {:error, {:derivation, :unknown_partition_rule}} =
+               JetStreamPublisher.publish_record(
+                 publication(%{partition_rule: :execution_v1}),
+                 connection: FakeConn
+               )
 
-      refute header(a, "Nats-Msg-Id") == header(b, "Nats-Msg-Id")
-
-      # The delivery id addresses the SLOT, so the payload does not move it. If it did, a retry
-      # of the same slot would look like a new delivery.
-      assert header(a, "Sr-Edge-Delivery-Id") == header(b, "Sr-Edge-Delivery-Id")
+      refute_received {:requested, _, _, _}
     end
 
-    test "the same publication derives identically, which makes a replay a duplicate" do
-      route = durable_route()
+    # NAMED for what it actually varies. `publication/1` derives record_sha256 from the bytes, but
+    # the publisher consumes only the DIGEST -- nothing yet binds the bytes to the hash, so this
+    # proves the digest moves the msg id, not the bytes. Task 3.4 adds that binding; rename this
+    # back when it does.
+    test "a different record digest produces a different msg id" do
+      {:ok, a} = JetStreamPublisher.plan(publication(%{record_bytes: "record-one"}))
+      {:ok, b} = JetStreamPublisher.plan(publication(%{record_bytes: "record-two"}))
 
-      assert JetStreamPublisher.headers_for(route, publication()) ==
-               JetStreamPublisher.headers_for(route, publication())
-    end
-
-    test "provenance is stamped with the ROUTE's generation, not a caller's" do
-      route = durable_route()
-      {:ok, honest} = JetStreamPublisher.headers_for(route, publication())
-
-      {:ok, spoofed} =
-        JetStreamPublisher.headers_for(
-          route,
-          publication("the-canonical-record-bytes", %{route_map_version: 99})
-        )
-
-      assert header(honest, "Sr-Edge-Transport-Provenance") ==
-               header(spoofed, "Sr-Edge-Transport-Provenance")
+      refute header(a.headers, "Nats-Msg-Id") == header(b.headers, "Nats-Msg-Id")
+      assert header(a.headers, "Sr-Edge-Delivery-Id") == header(b.headers, "Sr-Edge-Delivery-Id")
     end
   end
 
-  describe "the ack is fenced against the resolved stream" do
-    alias ServiceRadar.Edge.StreamRoute
+  describe "the header wiring is bound to the ABI vectors" do
+    # Task 3.3 requires the exact vector assertion to cover the PUBLISHER's header wiring, not
+    # merely the identity functions underneath. Asserting only that headers are non-empty and
+    # change relationally leaves `Nats-Msg-Id` and the provenance swappable while staying green.
+    @testdata Path.expand("../../../../proto/edge/v1/testdata", __DIR__)
 
-    defp route_and_pub do
-      {:ok, route} =
-        StreamRoute.resolve(%{
-          route_profile: :EDGE_RECORD_ROUTE_PROFILE_DURABLE_RECORDS_V1,
-          traffic_class: :EDGE_RECORD_TRAFFIC_CLASS_BULK,
-          network_scope_id: :binary.copy(<<0x11>>, 16)
+    defp fixture_path(name) do
+      direct = Path.join(@testdata, name)
+
+      cond do
+        File.exists?(direct) ->
+          {:ok, direct}
+
+        dir = System.get_env("TEST_SRCDIR") ->
+          [System.get_env("TEST_WORKSPACE"), "_main"]
+          |> Enum.reject(&is_nil/1)
+          |> Enum.map(&Path.join([dir, &1, "proto/edge/v1/testdata", name]))
+          |> Enum.find(&File.exists?/1)
+          |> case do
+            nil -> :error
+            p -> {:ok, p}
+          end
+
+        true ->
+          :error
+      end
+    end
+
+    defp load(name) do
+      case fixture_path(name) do
+        {:ok, path} -> File.read!(path)
+        :error -> raise "shared fixture #{name} not found under #{@testdata} or TEST_SRCDIR"
+      end
+    end
+
+    # The EXACT construction the shared vectors were cut with -- it embeds a fixed millisecond
+    # prefix rather than sequential bytes. Reproducing it is the whole point: a nearby-but-
+    # different spool id yields a different msg id, which is how this test first failed.
+    @fixed_millis 1_784_000_000_000
+
+    defp vector_uuidv7(seed) do
+      <<ms6::binary-6, _::binary-2>> = <<@fixed_millis <<< 16::big-64>>
+      rest = for i <- 6..15, into: <<>>, do: <<seed + i::8>>
+      <<b0::binary-6, b6, b7, b8, b9::binary-7>> = ms6 <> rest
+      b0 <> <<(b6 &&& 0x0F) ||| 0x70, b7, (b8 &&& 0x3F) ||| 0x80>> <> b9
+    end
+
+    defp vector_publication do
+      record_bin = load("record.bin")
+      record = EdgeRecordV1.decode(record_bin)
+
+      %{
+        # The same slot the shared golden vectors were cut against.
+        slot: %{
+          network_scope_id: record.network_scope_id,
+          authenticated_agent_id: record.producer_context.origin_principal_id,
+          spool_id: vector_uuidv7(0x01),
+          sequence: 1
+        },
+        route_profile: :EDGE_RECORD_ROUTE_PROFILE_DURABLE_RECORDS_V1,
+        traffic_class: :EDGE_RECORD_TRAFFIC_CLASS_BULK,
+        partition_rule: :network_scope_v1,
+        record_bytes: record_bin,
+        record_sha256: :crypto.hash(:sha256, record_bin),
+        semantic_envelope_sha256: record.semantic_envelope_sha256
+      }
+    end
+
+    test "each header carries the exact ABI vector value for its own name" do
+      publication = vector_publication()
+
+      assert {:ok, planned} = JetStreamPublisher.plan(publication)
+
+      expected_msg_id = load("nats_msg_id.txt")
+      expected_delivery_id = load("delivery_id.txt")
+
+      # NOT VACUOUS, and this is the point: the value is pinned to the header NAME. Swapping
+      # Nats-Msg-Id with the provenance, or with the delivery id, fails here.
+      assert header(planned.headers, "Nats-Msg-Id") == expected_msg_id
+      assert header(planned.headers, "Sr-Edge-Delivery-Id") == expected_delivery_id
+
+      # The two are distinct values, so the assertions above cannot both pass by coincidence.
+      refute expected_msg_id == expected_delivery_id
+
+      # Provenance is a real, distinct value on its own header.
+      provenance = header(planned.headers, "Sr-Edge-Transport-Provenance")
+      assert is_binary(provenance) and provenance != ""
+      refute provenance in [expected_msg_id, expected_delivery_id]
+
+      assert header(planned.headers, "Nats-Expected-Stream") == planned.route.expected_stream
+    end
+
+    test "the header key multiset is EXACTLY the four permitted keys, once each" do
+      # Previously only the presence of each key was checked, so an extra semantic header or a
+      # duplicate key could ride along unnoticed.
+      {:ok, planned} = JetStreamPublisher.plan(vector_publication())
+      keys = Enum.map(planned.headers, &elem(&1, 0))
+
+      assert Enum.sort(keys) == [
+               "Nats-Expected-Stream",
+               "Nats-Msg-Id",
+               "Sr-Edge-Delivery-Id",
+               "Sr-Edge-Transport-Provenance"
+             ]
+
+      assert length(keys) == length(Enum.uniq(keys)), "a header key appears more than once"
+    end
+
+    test "the provenance value is EXACT for a fresh delivery, not merely nonempty" do
+      pub = vector_publication()
+      {:ok, planned} = JetStreamPublisher.plan(pub)
+
+      # Bound to the inputs the publisher must supply, spelled out here. The grammar itself is
+      # bound to the shared vectors by the core golden test; this layer proves the WIRING --
+      # mode, proof, digest, slot and the route's own placement generation. `transport_provenance`
+      # vectors were cut at route_map_version 7, which no route carries, so the value cannot be
+      # asserted against the file directly.
+      {:ok, expected} =
+        PublicationIdentity.transport_provenance(%{
+          edge: pub.slot,
+          delivery_mode: PublicationIdentity.mode_fresh(),
+          delivery_proof: nil,
+          record_sha256: pub.record_sha256,
+          route_map_version: planned.route.placement_version
         })
 
-      bytes = "rec"
+      assert header(planned.headers, "Sr-Edge-Transport-Provenance") == expected
 
-      {route,
-       %{
-         slot: %{
-           network_scope_id: uuidv7(0x40),
-           authenticated_agent_id: "agent-0",
-           spool_id: uuidv7(0x01),
-           sequence: 7
-         },
-         record_bytes: bytes,
-         record_sha256: :crypto.hash(:sha256, bytes),
-         semantic_envelope_sha256: :binary.copy(<<0xAA>>, 32)
-       }}
+      # And it DECODES to the fields the publisher claimed, via the independent decoder.
+      {:ok, decoded} =
+        PublicationIdentity.decode_transport_provenance(expected)
+
+      assert decoded.delivery_mode == PublicationIdentity.mode_fresh()
+      assert decoded.route_map_version == planned.route.placement_version
+    end
+
+    test "a NON-FRESH delivery propagates its proof into the provenance" do
+      cap =
+        EdgeSignedCapabilityV1.decode(load("delivery_renewal_cap.bin"))
+
+      renewal = PublicationIdentity.mode_renewal()
+      {:ok, proof} = PublicationIdentity.delivery_proof_digest(cap, renewal)
+
+      pub =
+        vector_publication()
+        |> Map.put(:delivery_mode, renewal)
+        |> Map.put(:delivery_proof, proof)
+
+      {:ok, planned} = JetStreamPublisher.plan(pub)
+      value = header(planned.headers, "Sr-Edge-Transport-Provenance")
+
+      {:ok, expected} =
+        PublicationIdentity.transport_provenance(%{
+          edge: pub.slot,
+          delivery_mode: renewal,
+          delivery_proof: proof,
+          record_sha256: pub.record_sha256,
+          route_map_version: planned.route.placement_version
+        })
+
+      assert value == expected
+
+      # NOT VACUOUS: deleting the proof propagation would produce the FRESH value, and every
+      # fixture in this file was fresh before, so nothing would have noticed.
+      {:ok, fresh_planned} = JetStreamPublisher.plan(vector_publication())
+      refute value == header(fresh_planned.headers, "Sr-Edge-Transport-Provenance")
+
+      {:ok, decoded} = PublicationIdentity.decode_transport_provenance(value)
+      assert decoded.delivery_mode == renewal
+    end
+
+    test "a non-fresh mode WITHOUT its proof is refused" do
+      pub = Map.put(vector_publication(), :delivery_mode, PublicationIdentity.mode_renewal())
+      assert {:error, {:derivation, _}} = JetStreamPublisher.plan(pub)
+    end
+  end
+
+  describe "a wrong-stream ack withholds progress rather than DLQ-ing" do
+    defp planned_pub do
+      pub = %{
+        slot: %{
+          network_scope_id: uuidv7(0x40),
+          authenticated_agent_id: "agent-0",
+          spool_id: uuidv7(0x01),
+          sequence: 7
+        },
+        route_profile: :EDGE_RECORD_ROUTE_PROFILE_DURABLE_RECORDS_V1,
+        traffic_class: :EDGE_RECORD_TRAFFIC_CLASS_BULK,
+        partition_rule: :network_scope_v1,
+        record_bytes: "rec",
+        record_sha256: :crypto.hash(:sha256, "rec"),
+        semantic_envelope_sha256: :binary.copy(<<0xAA>>, 32)
+      }
+
+      {:ok, planned} = JetStreamPublisher.plan(pub)
+      {pub, planned}
     end
 
     test "an ack naming the expected stream is durable" do
-      {route, pub} = route_and_pub()
-      with_reply({:ok, %{body: ~s({"stream":"#{route.expected_stream}","seq":5})}})
+      {pub, planned} = planned_pub()
+      with_reply({:ok, %{body: ~s({"stream":"#{planned.route.expected_stream}","seq":5})}})
 
-      assert {:ok, %{seq: 5}} = JetStreamPublisher.publish_record(route, pub, connection: FakeConn)
+      assert {:ok, %{seq: 5}} = JetStreamPublisher.publish_record(pub, connection: FakeConn)
     end
 
-    test "an ack from ANOTHER stream is a protocol error, never durable success" do
-      {route, pub} = route_and_pub()
-      # A well-formed PubAck -- just from the wrong stream. Nats-Expected-Stream asks the SERVER
-      # to fence this; trusting that alone assumes every broker on the path honours it.
+    test "an ack from ANOTHER stream is :misrouted, and :misrouted WITHHOLDS progress" do
+      {pub, _planned} = planned_pub()
       with_reply({:ok, %{body: ~s({"stream":"TELEMETRY_EDGE_RECORD_V1_INTERACTIVE","seq":5})}})
 
-      assert {:error, :protocol} =
-               JetStreamPublisher.publish_record(route, pub, connection: FakeConn)
+      assert {:error, :misrouted} = JetStreamPublisher.publish_record(pub, connection: FakeConn)
 
-      refute JetStreamPublisher.retryable?(:protocol),
-             "retrying reproduces a misroute; it must not be retryable"
+      # THE POINT: a wrong-stream ack is not authoritative acceptance. Classifying it terminal
+      # would DLQ a record that may already be durable elsewhere and resolve a sequence that was
+      # never accepted. Progress must stay unresolved instead.
+      assert JetStreamPublisher.retryable?(:misrouted),
+             "a misrouted ack must withhold source progress, not send the record to the DLQ"
     end
 
-    test "a DLQ route only accepts its own stream's ack" do
-      {_route, pub} = route_and_pub()
-      {:ok, dlq} = StreamRoute.resolve_dlq(:EDGE_RECORD_TRAFFIC_CLASS_BULK, 4)
+    test "ONLY proven poison is terminal; everything else withholds" do
+      refute JetStreamPublisher.retryable?(:poison)
 
-      with_reply({:ok, %{body: ~s({"stream":"TELEMETRY_EDGE_RECORD_V1_BULK","seq":1})}})
-
-      assert {:error, :protocol} =
-               JetStreamPublisher.publish_record(dlq, pub, connection: FakeConn)
+      for withheld <- [:capacity, :timeout, :misrouted, :systemic] do
+        assert JetStreamPublisher.retryable?(withheld), "#{withheld} must withhold progress"
+      end
     end
   end
 
   describe "refusals never reach the broker" do
-    alias ServiceRadar.Edge.StreamRoute
-
-    defp a_route do
-      {:ok, r} =
-        StreamRoute.resolve(%{
-          route_profile: :EDGE_RECORD_ROUTE_PROFILE_DURABLE_RECORDS_V1,
-          traffic_class: :EDGE_RECORD_TRAFFIC_CLASS_BULK,
-          network_scope_id: :binary.copy(<<0x22>>, 16)
-        })
-
-      r
-    end
-
     defp base_pub do
       %{
         slot: %{
@@ -254,6 +453,9 @@ defmodule ServiceRadarAgentGateway.JetStreamPublisherTest do
           spool_id: uuidv7(0x01),
           sequence: 7
         },
+        route_profile: :EDGE_RECORD_ROUTE_PROFILE_DURABLE_RECORDS_V1,
+        traffic_class: :EDGE_RECORD_TRAFFIC_CLASS_BULK,
+        partition_rule: :network_scope_v1,
         record_bytes: "rec",
         record_sha256: :crypto.hash(:sha256, "rec"),
         semantic_envelope_sha256: :binary.copy(<<0xAA>>, 32)
@@ -262,12 +464,12 @@ defmodule ServiceRadarAgentGateway.JetStreamPublisherTest do
 
     test "MISSING record_bytes returns the documented error tuple rather than raising" do
       with_reply({:ok, %{body: ~s({"stream":"S","seq":1})}})
-      pub = Map.delete(base_pub(), :record_bytes)
 
-      # Previously this raised a KeyError out of a function whose contract says it returns
-      # {:error, _}, so a caller's `case` would never see it.
       assert {:error, {:derivation, :record_bytes}} =
-               JetStreamPublisher.publish_record(a_route(), pub, connection: FakeConn)
+               JetStreamPublisher.publish_record(
+                 Map.delete(base_pub(), :record_bytes),
+                 connection: FakeConn
+               )
 
       refute_received {:requested, _, _, _}
     end
@@ -275,7 +477,6 @@ defmodule ServiceRadarAgentGateway.JetStreamPublisherTest do
     test "non-binary record_bytes is refused the same way" do
       assert {:error, {:derivation, :record_bytes}} =
                JetStreamPublisher.publish_record(
-                 a_route(),
                  Map.put(base_pub(), :record_bytes, :not_binary),
                  connection: FakeConn
                )
@@ -291,26 +492,24 @@ defmodule ServiceRadarAgentGateway.JetStreamPublisherTest do
             %{record_sha256: <<1, 2, 3>>},
             %{semantic_envelope_sha256: <<>>}
           ] do
-        pub = Map.merge(base_pub(), bad)
-
         assert {:error, {:derivation, _}} =
-                 JetStreamPublisher.publish_record(a_route(), pub, connection: FakeConn),
+                 JetStreamPublisher.publish_record(
+                   Map.merge(base_pub(), bad),
+                   connection: FakeConn
+                 ),
                "expected #{inspect(Map.keys(bad))} to fail derivation"
       end
 
       refute_received {:requested, _, _, _}
     end
 
-    test "something that is not a ResolvedRoute is refused" do
-      assert {:error, {:derivation, :route}} =
-               JetStreamPublisher.publish_record(
-                 %{subject: "telemetry.edge-record.v1.bulk.p00"},
-                 base_pub(),
-                 connection: FakeConn
-               )
-    end
-
     test "there is no public raw-publish bypass" do
+      {:module, _} = Code.ensure_loaded(JetStreamPublisher)
+
+      # The supported path works...
+      assert {:ok, %{headers: _}} = JetStreamPublisher.plan(base_pub())
+
+      # ...and there is no raw one beside it.
       refute function_exported?(JetStreamPublisher, :publish, 3)
       refute function_exported?(JetStreamPublisher, :publish, 4)
     end
@@ -319,12 +518,12 @@ defmodule ServiceRadarAgentGateway.JetStreamPublisherTest do
       with_reply({:error, :timeout})
 
       assert {:error, :timeout} =
-               JetStreamPublisher.publish_record(a_route(), base_pub(), connection: FakeConn)
+               JetStreamPublisher.publish_record(base_pub(), connection: FakeConn)
 
       with_reply({:error, {:nats_not_connected, :down}})
 
       assert {:error, :capacity} =
-               JetStreamPublisher.publish_record(a_route(), base_pub(), connection: FakeConn)
+               JetStreamPublisher.publish_record(base_pub(), connection: FakeConn)
     end
   end
 end

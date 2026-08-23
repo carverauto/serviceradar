@@ -161,7 +161,12 @@ ex_unit_tests(
         ],
         allow_empty = True,
         exclude = ["test/**/*_test.exs"],
-    ),
+    ) + [
+        # The shared edge ABI vectors. The publisher's header wiring is asserted against the
+        # exact Go-generated values, so the corpus has to be a declared input -- a bare relative
+        # path is the failure mode where the shard silently reads nothing and passes.
+        "//proto/edge/v1:edge_testdata",
+    ],
     test_helper = "test/test_helper.exs",
     deps = [":erlang_app"],
 )

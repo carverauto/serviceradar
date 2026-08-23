@@ -57,6 +57,19 @@ on:
       - 'elixir/serviceradar_core/lib/serviceradar/edge/**'
       - 'elixir/serviceradar_core/test/serviceradar/proto/**'
       - 'elixir/serviceradar_core/test/serviceradar/edge/**'
+      - 'elixir/serviceradar_core/test/fixtures/edge/**'
+      # The gateway publisher wires the frozen identity grammar onto NATS headers. A change here
+      # can break the ABI binding without touching serviceradar_core.
+      - 'elixir/serviceradar_agent_gateway/lib/serviceradar_agent_gateway/jet_stream_publisher.ex'
+      - 'elixir/serviceradar_agent_gateway/test/serviceradar_agent_gateway/jet_stream_publisher_test.exs'
+      - 'elixir/serviceradar_agent_gateway/mix.exs'
+      - 'elixir/serviceradar_agent_gateway/mix.lock'
+      # Bazel registration and the test helper: a change to either can leave the shard running
+      # nothing while the Mix step below still passes.
+      - 'elixir/serviceradar_agent_gateway/BUILD.bazel'
+      - 'elixir/serviceradar_agent_gateway/test/test_helper.exs'
+      - 'elixir/serviceradar_core/BUILD.bazel'
+      - 'elixir/serviceradar_core/test/test_helper.exs'
       # The SHARED benchmark fixture generator. Without this the verifier that guards it
       # does not run on the change that breaks it -- a required test absent from the very
       # edit it exists to catch.
@@ -87,6 +100,19 @@ on:
       - 'elixir/serviceradar_core/lib/serviceradar/edge/**'
       - 'elixir/serviceradar_core/test/serviceradar/proto/**'
       - 'elixir/serviceradar_core/test/serviceradar/edge/**'
+      - 'elixir/serviceradar_core/test/fixtures/edge/**'
+      # The gateway publisher wires the frozen identity grammar onto NATS headers. A change here
+      # can break the ABI binding without touching serviceradar_core.
+      - 'elixir/serviceradar_agent_gateway/lib/serviceradar_agent_gateway/jet_stream_publisher.ex'
+      - 'elixir/serviceradar_agent_gateway/test/serviceradar_agent_gateway/jet_stream_publisher_test.exs'
+      - 'elixir/serviceradar_agent_gateway/mix.exs'
+      - 'elixir/serviceradar_agent_gateway/mix.lock'
+      # Bazel registration and the test helper: a change to either can leave the shard running
+      # nothing while the Mix step below still passes.
+      - 'elixir/serviceradar_agent_gateway/BUILD.bazel'
+      - 'elixir/serviceradar_agent_gateway/test/test_helper.exs'
+      - 'elixir/serviceradar_core/BUILD.bazel'
+      - 'elixir/serviceradar_core/test/test_helper.exs'
       # The SHARED benchmark fixture generator. Without this the verifier that guards it
       # does not run on the change that breaks it -- a required test absent from the very
       # edit it exists to catch.
@@ -177,6 +203,15 @@ jobs:
         run: make verify-proto-elixir
       - name: Edge ABI golden parity (Go)
         run: go test ./proto/edge/v1/... ./go/pkg/edge/edgerecord/... ./go/pkg/edge/execstate/... ./go/pkg/edge/projection/...
+      - name: Edge route map (Elixir)
+        working-directory: elixir/serviceradar_core
+        run: mix test --no-start test/serviceradar/edge/stream_route_test.exs
+      - name: Fetch agent-gateway Elixir deps
+        working-directory: elixir/serviceradar_agent_gateway
+        run: mix deps.get
+      - name: Edge publisher header wiring bound to the ABI vectors (Elixir)
+        working-directory: elixir/serviceradar_agent_gateway
+        run: mix test --no-start test/serviceradar_agent_gateway/jet_stream_publisher_test.exs
       - name: Edge ABI golden parity (Elixir cross-language)
         working-directory: elixir/serviceradar_core
         run: mix test --no-start test/serviceradar/proto/edge_v1_golden_test.exs
