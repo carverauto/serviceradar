@@ -108,8 +108,8 @@ defmodule ServiceRadar.TestSupport do
   end
 
   @doc false
-  def validate_sandbox_allowance!(result, _child_pid)
-      when result in [:ok, {:already, :allowed}], do: :ok
+  def validate_sandbox_allowance!(result, _child_pid) when result in [:ok, {:already, :allowed}],
+    do: :ok
 
   def validate_sandbox_allowance!(result, child_pid) do
     raise ArgumentError,
