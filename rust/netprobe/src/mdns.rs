@@ -712,6 +712,92 @@ mod tests {
         );
     }
 
+    // ---- ring record decoding ---------------------------------------------
+
+    fn ring_record(payload: &[u8], flags: u16, ipv4: [u8; 4]) -> Vec<u8> {
+        let mut out = vec![0u8; MDNS_RECORD_LEN];
+        out[0..2].copy_from_slice(&MDNS_RECORD_VERSION.to_ne_bytes());
+        out[2..4].copy_from_slice(&flags.to_ne_bytes());
+        out[4..6].copy_from_slice(&(payload.len() as u16).to_ne_bytes());
+        out[8..12].copy_from_slice(&7u32.to_ne_bytes());
+        out[16..24].copy_from_slice(&123u64.to_ne_bytes());
+        out[24..30].copy_from_slice(&[0x48, 0xE1, 0x5C, 0xA8, 0x2B, 0x58]);
+        out[32..36].copy_from_slice(&ipv4);
+        out[48..48 + payload.len()].copy_from_slice(payload);
+        out
+    }
+
+    #[test]
+    fn decodes_a_ring_record() {
+        let record =
+            parse_mdns_ring_record(&ring_record(b"hello", 0, [192, 168, 1, 181])).expect("decodes");
+        assert_eq!(record.interface_index, 7);
+        assert_eq!(record.mac, [0x48, 0xE1, 0x5C, 0xA8, 0x2B, 0x58]);
+        assert_eq!(record.payload, b"hello");
+        assert_eq!(
+            record.ip.map(|ip| ip.to_string()),
+            Some("192.168.1.181".into())
+        );
+        assert!(!record.truncated);
+    }
+
+    #[test]
+    fn only_the_copied_bytes_are_returned() {
+        // The kernel record is a fixed 560 bytes with a zeroed tail. Returning
+        // the whole array would hand the DNS parser hundreds of zero bytes and
+        // invite it to read structure that is not there.
+        let record = parse_mdns_ring_record(&ring_record(b"abc", 0, [10, 0, 0, 1])).unwrap();
+        assert_eq!(record.payload.len(), 3);
+    }
+
+    #[test]
+    fn a_version_mismatch_is_refused_not_reinterpreted() {
+        // The eBPF and userspace definitions live in different crates compiled
+        // for different targets. A layout drift must fail loudly rather than
+        // decode garbage.
+        let mut bytes = ring_record(b"hello", 0, [10, 0, 0, 1]);
+        bytes[0..2].copy_from_slice(&99u16.to_ne_bytes());
+        assert_eq!(parse_mdns_ring_record(&bytes), None);
+    }
+
+    #[test]
+    fn a_payload_length_past_the_cap_is_refused() {
+        // Clamping would read whatever followed this record in the ring.
+        let mut bytes = ring_record(b"hello", 0, [10, 0, 0, 1]);
+        bytes[4..6].copy_from_slice(&((MDNS_PAYLOAD_CAP + 1) as u16).to_ne_bytes());
+        assert_eq!(parse_mdns_ring_record(&bytes), None);
+    }
+
+    #[test]
+    fn a_short_record_is_refused() {
+        let bytes = ring_record(b"hello", 0, [10, 0, 0, 1]);
+        for n in 0..MDNS_RECORD_LEN {
+            assert_eq!(parse_mdns_ring_record(&bytes[..n]), None, "len {n}");
+        }
+    }
+
+    #[test]
+    fn an_unrecorded_address_is_none_not_zero() {
+        let record = parse_mdns_ring_record(&ring_record(b"x", 0, [0, 0, 0, 0])).unwrap();
+        assert_eq!(record.ip, None, "0.0.0.0 means not recorded");
+    }
+
+    #[test]
+    fn the_truncated_flag_survives() {
+        let record =
+            parse_mdns_ring_record(&ring_record(b"x", MDNS_FLAG_TRUNCATED, [10, 0, 0, 1])).unwrap();
+        assert!(record.truncated);
+    }
+
+    #[test]
+    fn an_ipv6_record_decodes_its_address() {
+        let mut bytes = ring_record(b"x", MDNS_FLAG_IPV6, [0, 0, 0, 0]);
+        let v6 = std::net::Ipv6Addr::new(0xfe80, 0, 0, 0, 0, 0, 0, 1);
+        bytes[32..48].copy_from_slice(&v6.octets());
+        let record = parse_mdns_ring_record(&bytes).unwrap();
+        assert_eq!(record.ip, Some(std::net::IpAddr::V6(v6)));
+    }
+
     // ---- table aggregation ------------------------------------------------
 
     const SEC: u64 = 1_000_000_000;
@@ -1053,4 +1139,262 @@ fn merge_sorted(target: &mut Vec<String>, incoming: &[String]) {
         }
     }
     target.sort();
+}
+
+// ---- ring record decoding -------------------------------------------------
+
+/// Wire layout of `MdnsObservationRecord` in the eBPF ring.
+///
+/// Kept as explicit offsets rather than a `repr(C)` mirror struct: the two
+/// definitions live in different crates compiled for different targets, and a
+/// silent layout drift between them would decode garbage rather than fail. The
+/// version field is the guard that turns such a drift into a rejection.
+pub const MDNS_RECORD_VERSION: u16 = 1;
+pub const MDNS_PAYLOAD_CAP: usize = 512;
+pub const MDNS_RECORD_LEN: usize = 48 + MDNS_PAYLOAD_CAP;
+
+pub const MDNS_FLAG_TRUNCATED: u16 = 1 << 0;
+pub const MDNS_FLAG_IPV6: u16 = 1 << 1;
+
+/// One announcement as it came out of the kernel.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MdnsRingRecord {
+    pub interface_index: u32,
+    pub mac: [u8; 6],
+    pub ip: Option<std::net::IpAddr>,
+    pub observed_ns: u64,
+    /// Only the bytes the kernel actually copied.
+    pub payload: Vec<u8>,
+    /// The packet was longer than the copy cap, so the model may be in the part
+    /// that was cut. A caller can wait for a shorter announcement rather than
+    /// concluding the device did not send one.
+    pub truncated: bool,
+}
+
+pub fn parse_mdns_ring_record(bytes: &[u8]) -> Option<MdnsRingRecord> {
+    if bytes.len() < MDNS_RECORD_LEN {
+        return None;
+    }
+
+    let version = u16::from_ne_bytes(bytes.get(0..2)?.try_into().ok()?);
+    if version != MDNS_RECORD_VERSION {
+        return None;
+    }
+
+    let flags = u16::from_ne_bytes(bytes.get(2..4)?.try_into().ok()?);
+    let payload_len = usize::from(u16::from_ne_bytes(bytes.get(4..6)?.try_into().ok()?));
+    // A length past the cap means the record is not what this version expects.
+    // Clamping instead would read whatever followed in the ring.
+    if payload_len > MDNS_PAYLOAD_CAP {
+        return None;
+    }
+
+    let interface_index = u32::from_ne_bytes(bytes.get(8..12)?.try_into().ok()?);
+    let observed_ns = u64::from_ne_bytes(bytes.get(16..24)?.try_into().ok()?);
+
+    let mut mac = [0u8; 6];
+    mac.copy_from_slice(bytes.get(24..30)?);
+
+    let ip = if flags & MDNS_FLAG_IPV6 != 0 {
+        let mut octets = [0u8; 16];
+        octets.copy_from_slice(bytes.get(32..48)?);
+        Some(std::net::IpAddr::V6(std::net::Ipv6Addr::from(octets)))
+    } else {
+        let mut octets = [0u8; 4];
+        octets.copy_from_slice(bytes.get(32..36)?);
+        let v4 = std::net::Ipv4Addr::from(octets);
+        // The kernel zeroes the address field, so all-zero means "not recorded"
+        // rather than a device claiming 0.0.0.0.
+        if v4.is_unspecified() {
+            None
+        } else {
+            Some(std::net::IpAddr::V4(v4))
+        }
+    };
+
+    Some(MdnsRingRecord {
+        interface_index,
+        mac,
+        ip,
+        observed_ns,
+        payload: bytes.get(48..48 + payload_len)?.to_vec(),
+        truncated: flags & MDNS_FLAG_TRUNCATED != 0,
+    })
+}
+
+/// Drains the mDNS ring on Linux and folds it into an `MdnsTable`.
+///
+/// Deliberately mirrors `census::runtime` rather than inventing a second
+/// pattern: same bounded poll, same watchdog, same "shut down rather than
+/// degrade" posture. mDNS is announce-driven and bursty, which is exactly the
+/// failure mode the census already hit.
+#[cfg(target_os = "linux")]
+pub mod runtime {
+    use super::{MdnsTable, parse_mdns_payload, parse_mdns_ring_record};
+    use crate::census::CensusWatchdog;
+    use anyhow::Result;
+    use std::sync::Arc;
+    use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+    use std::thread;
+    use std::time::{Duration, Instant};
+
+    pub const MDNS_OBSERVATIONS_MAP: &str = "mdns_observations";
+
+    const IDLE_SLEEP: Duration = Duration::from_millis(50);
+    /// Same reason as the census: without a bound, a busy ring starves the stop
+    /// check entirely and Drop::join blocks until systemd times out the unit.
+    const POLL_BUDGET: usize = 512;
+
+    /// Announcements per second above which the collector stops.
+    ///
+    /// Lower than the census ceiling because mDNS should be far quieter: a
+    /// segment produced roughly 1.3 announcements/sec before suppression. Well
+    /// above that means the content hash is not suppressing, and a collector
+    /// that keeps parsing DNS at that rate costs more trust than the feature is
+    /// worth.
+    const RATE_CEILING_PER_SEC: u64 = 50;
+    const WATCHDOG_INTERVAL: Duration = Duration::from_secs(10);
+
+    const ENTRY_TTL: Duration = Duration::from_secs(30 * 60);
+    const TABLE_CAPACITY: usize = 4096;
+
+    #[derive(Debug, Default)]
+    pub struct MdnsCounters {
+        pub observed: AtomicU64,
+        pub decoded: AtomicU64,
+        pub undecodable: AtomicU64,
+        pub tracked: AtomicU64,
+        pub truncated: AtomicU64,
+        pub shutdown: AtomicBool,
+    }
+
+    struct MdnsConsumer {
+        interface_name: String,
+        ring: aya::maps::RingBuf<aya::maps::MapData>,
+        table: MdnsTable,
+        counters: Arc<MdnsCounters>,
+        watchdog: CensusWatchdog,
+        stop: Arc<AtomicBool>,
+    }
+
+    impl MdnsConsumer {
+        fn poll_once(&mut self, stop: &AtomicBool) -> usize {
+            let mut seen = 0usize;
+            while seen < POLL_BUDGET && !stop.load(Ordering::Relaxed) {
+                let Some(item) = self.ring.next() else {
+                    break;
+                };
+                seen += 1;
+
+                let Some(record) = parse_mdns_ring_record(item.as_ref()) else {
+                    self.counters.undecodable.fetch_add(1, Ordering::Relaxed);
+                    continue;
+                };
+                self.counters.observed.fetch_add(1, Ordering::Relaxed);
+                if record.truncated {
+                    self.counters.truncated.fetch_add(1, Ordering::Relaxed);
+                }
+
+                // There is no userspace suppression fallback, by the same
+                // reasoning as the census: if the in-kernel content hash stops
+                // suppressing, the collector stops rather than degrading into a
+                // resource hog.
+                if !self.watchdog.record(Instant::now()) {
+                    log::error!(
+                        "netprobe mDNS collector SHUTTING DOWN on {}: sustained above {} \
+                         announcements/sec, which means in-kernel suppression is not \
+                         suppressing. The collector is stopping rather than continuing to \
+                         parse DNS at that rate; the device census is unaffected.",
+                        self.interface_name,
+                        RATE_CEILING_PER_SEC,
+                    );
+                    self.counters.shutdown.store(true, Ordering::SeqCst);
+                    self.stop.store(true, Ordering::SeqCst);
+                    return seen;
+                }
+
+                let Some(observation) = parse_mdns_payload(&record.payload) else {
+                    // Not every announcement carries evidence -- a query, or a
+                    // response whose TXT keys are all outside the allowlist.
+                    continue;
+                };
+                self.counters.decoded.fetch_add(1, Ordering::Relaxed);
+
+                if self.table.observe(
+                    record.interface_index,
+                    record.mac,
+                    &observation,
+                    record.observed_ns,
+                ) {
+                    self.counters.tracked.fetch_add(1, Ordering::Relaxed);
+                    log::info!(
+                        "mdns device interface={} mac={:02x?} services={:?} txt={:?} truncated={}",
+                        self.interface_name,
+                        record.mac,
+                        observation.service_types,
+                        observation.txt.keys().collect::<Vec<_>>(),
+                        record.truncated,
+                    );
+                }
+            }
+            seen
+        }
+    }
+
+    /// Owns the mDNS polling thread. Dropping it stops the thread.
+    pub struct MdnsRuntime {
+        stop: Arc<AtomicBool>,
+        thread: Option<thread::JoinHandle<()>>,
+    }
+
+    impl MdnsRuntime {
+        pub fn start_from_ebpf(
+            interface_name: impl Into<String>,
+            ebpf: &mut aya::Ebpf,
+        ) -> Result<Self> {
+            let map = ebpf
+                .take_map(MDNS_OBSERVATIONS_MAP)
+                .ok_or_else(|| anyhow::anyhow!("{MDNS_OBSERVATIONS_MAP} map is missing"))?;
+
+            let stop = Arc::new(AtomicBool::new(false));
+            let counters = Arc::new(MdnsCounters::default());
+            let mut consumer = MdnsConsumer {
+                interface_name: interface_name.into(),
+                ring: aya::maps::RingBuf::try_from(map)?,
+                table: MdnsTable::new(ENTRY_TTL, TABLE_CAPACITY),
+                counters: Arc::clone(&counters),
+                watchdog: CensusWatchdog::new(
+                    RATE_CEILING_PER_SEC,
+                    WATCHDOG_INTERVAL,
+                    Instant::now(),
+                ),
+                stop: Arc::clone(&stop),
+            };
+
+            let stop_worker = Arc::clone(&stop);
+            let thread = thread::Builder::new()
+                .name("netprobe-mdns".to_owned())
+                .spawn(move || {
+                    while !stop_worker.load(Ordering::Relaxed) {
+                        if consumer.poll_once(&stop_worker) == 0 {
+                            thread::sleep(IDLE_SLEEP);
+                        }
+                    }
+                })?;
+
+            Ok(Self {
+                stop,
+                thread: Some(thread),
+            })
+        }
+    }
+
+    impl Drop for MdnsRuntime {
+        fn drop(&mut self) {
+            self.stop.store(true, Ordering::SeqCst);
+            if let Some(thread) = self.thread.take() {
+                let _ = thread.join();
+            }
+        }
+    }
 }
