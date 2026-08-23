@@ -2133,6 +2133,7 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
   defp edge_topology_class(edge) do
     case evidence_class(edge) do
       "endpoint-attachment" -> "endpoints"
+      "inferred-segment" -> "endpoints"
       "inferred" -> "inferred"
       "logical" -> "logical"
       "hosted" -> "hosted"

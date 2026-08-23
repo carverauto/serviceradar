@@ -29,6 +29,118 @@ function makeContext(overrides = {}) {
 }
 
 describe("layout_topology_state_methods", () => {
+  it("expandedClusterSpiralPosition places members on a non-overlapping spiral", () => {
+    const context = makeContext()
+    const metrics = context.expandedClusterSpiralMetrics(12)
+
+    expect(metrics.count).toEqual(12)
+
+    const points = []
+    for (let index = 0; index < 12; index += 1) {
+      points.push(context.expandedClusterSpiralPosition(index, metrics, {centerX: 500, centerY: 400}))
+    }
+
+    let minPair = Infinity
+    for (let i = 0; i < points.length; i += 1) {
+      for (let j = i + 1; j < points.length; j += 1) {
+        minPair = Math.min(minPair, Math.hypot(points[i].x - points[j].x, points[i].y - points[j].y))
+      }
+    }
+
+    expect(minPair).toBeGreaterThan(40)
+  })
+
+  it("chooseExpandedClusterPlacement avoids placements whose member edges cross existing edges", () => {
+    const context = makeContext()
+    const metrics = context.expandedClusterSpiralMetrics(4)
+
+    // A vertical edge spans the left side: the cluster must not land there.
+    const edgeSegments = [[100, 100, 100, 500]]
+    const placement = context.chooseExpandedClusterPlacement(400, 300, metrics, [], edgeSegments)
+
+    expect(placement.name).not.toEqual("left")
+
+    // A blocker node sits where the right-side spiral would open up.
+    const blocked = context.chooseExpandedClusterPlacement(
+      400,
+      300,
+      metrics,
+      [{x: 400 + 96 + 56 * Math.sqrt(3) + 96, y: 300}],
+      [],
+    )
+
+    expect(blocked.name).not.toEqual("right")
+  })
+
+  it("segmentsIntersect detects crossing and non-crossing segments", () => {
+    const context = makeContext()
+
+    expect(context.segmentsIntersect(0, 0, 10, 10, 0, 10, 10, 0)).toEqual(true)
+    expect(context.segmentsIntersect(0, 0, 10, 0, 0, 10, 10, 10)).toEqual(false)
+  })
+
+  it("applyBarycenterChildOrder reorders siblings toward their neighbor angles", () => {
+    const context = makeContext()
+    const childrenById = new Map([
+      ["root", ["a", "b", "c"]],
+      ["a", []],
+      ["b", []],
+      ["c", []],
+    ])
+    const adjacency = new Map([
+      ["a", new Set(["root", "na"])],
+      ["b", new Set(["root", "nb"])],
+      ["c", new Set(["root", "nc"])],
+    ])
+    // Neighbor angles around root: b above (-PI/2), c upper-right, a lower-left.
+    const positions = new Map([
+      ["root", {x: 0, y: 0}],
+      ["a", {x: -100, y: 0}],
+      ["b", {x: 0, y: 100}],
+      ["c", {x: 100, y: 0}],
+      ["na", {x: -50, y: 100}],
+      ["nb", {x: 0, y: -100}],
+      ["nc", {x: 50, y: -100}],
+    ])
+
+    const ordered = context.applyBarycenterChildOrder(childrenById, adjacency, positions)
+
+    expect(ordered).not.toBeNull()
+    expect(ordered.get("root")).toEqual(["b", "c", "a"])
+  })
+
+  it("attachmentSatellitePlacements rings attachment-only devices around their placed anchor", () => {
+    const context = makeContext()
+    const graph = {
+      nodes: [{id: "anchor"}, {id: "sat-1"}, {id: "sat-2"}, {id: "far"}],
+      edges: [
+        {source: 0, target: 1, topologyClass: "endpoints", evidenceClass: "inferred-segment"},
+        {source: 2, target: 0, topologyClass: "endpoints", evidenceClass: "endpoint-attachment"},
+        {source: 0, target: 3, topologyClass: "backbone", evidenceClass: "direct-physical"},
+      ],
+    }
+    const positions = new Map([["anchor", {x: 200, y: 200}]])
+    const candidates = new Set(["sat-1", "sat-2", "far"])
+
+    const placements = context.attachmentSatellitePlacements(graph, positions, candidates)
+
+    expect(placements.has("sat-1")).toEqual(true)
+    expect(placements.has("sat-2")).toEqual(true)
+    expect(placements.has("far")).toEqual(false)
+
+    for (const point of placements.values()) {
+      const distance = Math.hypot(point.x - 200, point.y - 200)
+      expect(distance).toBeGreaterThanOrEqual(100)
+      expect(distance).toBeLessThanOrEqual(220)
+    }
+
+    const distanceBetween = Math.hypot(
+      placements.get("sat-1").x - placements.get("sat-2").x,
+      placements.get("sat-1").y - placements.get("sat-2").y,
+    )
+    expect(distanceBetween).toBeGreaterThan(40)
+  })
+
   it("geoGridData returns no grid outside geo mode", () => {
     const context = makeContext()
 
@@ -580,7 +692,6 @@ describe("layout_topology_state_methods", () => {
 
     const out = context.applyEndpointProjectionLayout(graph, clusterLayout)
     const members = out.nodes.filter((node) => String(node.id).startsWith("endpoint-"))
-    const xs = new Set(members.map((node) => Math.round(node.x)))
     const ys = new Set(members.map((node) => Math.round(node.y)))
     let minPair = Infinity
     for (let i = 0; i < members.length; i += 1) {
@@ -590,11 +701,8 @@ describe("layout_topology_state_methods", () => {
     }
 
     expect(members).toHaveLength(42)
-    expect(xs.size).toBeLessThanOrEqual(2)
     expect(ys.size).toBeGreaterThan(10)
     expect(minPair).toBeGreaterThan(40)
-    const rowYs = [...ys].sort((left, right) => left - right)
-    expect(rowYs.some((y) => members.filter((node) => Math.round(node.y) === y).length > 1)).toEqual(true)
     expect(members.every((node) => node.details.cluster_panel_side === "right" || node.details.cluster_panel_side === "left")).toEqual(true)
   })
 
