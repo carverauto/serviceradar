@@ -31,7 +31,41 @@ defmodule ServiceRadarWebNGWeb.Components.DeviceFlowComponentsTest do
     assert html =~ "Protocol"
   end
 
-  defp assigns do
+  test "protocol breakdown fills the fourth slot of the top-n grid" do
+    html =
+      render_component(
+        &FlowComponents.flows_tab_content/1,
+        assigns(
+          proto_json:
+            Jason.encode!([
+              %{"label" => "TCP", "value" => 50},
+              %{"label" => "UDP", "value" => 20}
+            ]),
+          top_ports_json: Jason.encode!([%{"label" => "443", "value" => 32_768}]),
+          top_protocols_json: Jason.encode!([%{"label" => "TCP", "value" => 50_000}])
+        )
+      )
+
+    grid_html =
+      html
+      |> LazyHTML.from_fragment()
+      |> LazyHTML.query("[class*='md:grid-cols-2 lg:grid-cols-4']")
+      |> LazyHTML.to_html()
+
+    assert grid_html =~ "Top Peers"
+    assert grid_html =~ "Top Ports"
+    assert grid_html =~ "Top Protocols"
+    assert grid_html =~ "Protocol Breakdown"
+    assert grid_html =~ "device-proto-donut"
+  end
+
+  defp assigns(overrides \\ []) do
+    overrides = Map.new(overrides)
+
+    Map.merge(base_assigns(), overrides)
+  end
+
+  defp base_assigns do
     %{
       flows: [
         %{

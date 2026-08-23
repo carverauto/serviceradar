@@ -244,6 +244,7 @@ defmodule ServiceRadarWebNGWeb.FlowStatComponents do
 
   attr :height, :integer, default: 200
   attr :class, :any, default: nil
+  attr :chrome, :boolean, default: true
 
   def protocol_breakdown(assigns) do
     ~H"""
@@ -251,7 +252,10 @@ defmodule ServiceRadarWebNGWeb.FlowStatComponents do
       id={@id}
       phx-hook="FlowDonut"
       data-slices={@data_json}
-      class={["rounded-xl border border-sr-line bg-sr-surface p-4", @class]}
+      class={[
+        @chrome && "rounded-xl border border-sr-line bg-sr-surface p-4",
+        @class
+      ]}
     >
       <div class="flex items-center justify-center" style={"height: #{@height}px"}>
         <canvas class="max-w-full max-h-full"></canvas>
