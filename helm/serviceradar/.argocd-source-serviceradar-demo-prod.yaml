@@ -1,8 +1,17 @@
 helm:
   parameters:
   - name: global.imageTag
-    value: sha-ad5d4f7e51f985fefe8037c8a896cc2cc41468a0
+    value: v1.4.42
     forcestring: true
   - name: image.name
     value: registry.carverauto.dev/serviceradar/serviceradar-web-ng
+    forcestring: true
+  # Only the two services carrying fixes that missed the v1.4.42 cut move.
+  # image.digests.<service> short-circuits ahead of global.imageTag, so every
+  # other image -- CNPG included -- stays exactly where it is.
+  - name: image.digests.core
+    value: sha256:cf6d696bdc32ca12b78115c7e781416f5796b2373bf432d530c86739285e4561
+    forcestring: true
+  - name: image.digests.webNg
+    value: sha256:36454e1f4e6a39127ddee02fd934f1e071447f4b3689f1e52b5f188de662078a
     forcestring: true
