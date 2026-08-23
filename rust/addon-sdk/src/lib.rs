@@ -53,6 +53,16 @@ pub mod pb {
     tonic::include_proto!("serviceradar.agent.addon.v1");
 }
 
+/// Generated prost stubs for the discovery envelope an add-on wraps device
+/// observations in.
+///
+/// The envelope's `schema` field is a STRING on purpose: adding an observation
+/// type is one registry entry in the control plane, with no proto edit, no
+/// regeneration, and no agent change. Add a schema, never a payload kind.
+pub mod discovery_pb {
+    tonic::include_proto!("serviceradar.agent.discovery.v1");
+}
+
 /// Generated prost stubs for the canonical ServiceRadar metric envelope.
 pub mod metric_pb {
     pub use serviceradar_metric_proto::pb::*;
@@ -292,6 +302,39 @@ pub fn serviceradar_metric_record(
         event_time_unix_nano,
         payload_kind: pb::TelemetryPayloadKind::ServiceradarMetrics as i32,
         payload: batch.encode_to_vec(),
+        metadata: Default::default(),
+    }
+}
+
+/// Builds one discovery telemetry record: device observations an add-on made
+/// about OTHER hosts, bound for the inventory pipeline.
+///
+/// `schema` selects the decoder and, with it, the identity policy the
+/// observations are ingested under. It must be a schema the control plane has
+/// registered; an unregistered one is dropped loudly rather than guessed at.
+///
+/// Nothing in the envelope is trusted for identity. `agent_id`, `gateway_id`
+/// and `partition` are stamped by the control plane from gateway-attested
+/// metadata, and the source string comes from the registry -- so a `producer_id`
+/// here is for display and telemetry only, never an identity claim.
+///
+/// For a SNAPSHOT (a complete replacement of `observation_scope`), set
+/// `snapshot_id` to something that cannot repeat across a producer restart --
+/// a process start time works -- so a reassembler can never merge parts of two
+/// different snapshots. Leave it empty for an independent event.
+#[allow(clippy::too_many_arguments)]
+pub fn discovery_record(
+    event_id: impl Into<String>,
+    event_time_unix_nano: i64,
+    observed_time_unix_nano: i64,
+    envelope: discovery_pb::DiscoveryEnvelope,
+) -> pb::TelemetryRecord {
+    pb::TelemetryRecord {
+        event_id: event_id.into(),
+        observed_time_unix_nano,
+        event_time_unix_nano,
+        payload_kind: pb::TelemetryPayloadKind::DiscoveryV1 as i32,
+        payload: envelope.encode_to_vec(),
         metadata: Default::default(),
     }
 }
@@ -550,6 +593,41 @@ mod tests {
         };
         let ack = pb::OtlpRelayAck { acked_relay_id: 42 };
         assert_eq!(ack.acked_relay_id, frame.relay_id);
+    }
+
+    #[test]
+    fn discovery_record_wraps_an_envelope_under_the_discovery_kind() {
+        let envelope = discovery_pb::DiscoveryEnvelope {
+            schema: "serviceradar.netprobe.census.v1".to_owned(),
+            producer_id: "netprobe".to_owned(),
+            observation_scope: "ens18".to_owned(),
+            snapshot_id: "ens18-1700000000-1".to_owned(),
+            part_index: 0,
+            part_count: 1,
+            complete: true,
+            generated_at_unix_nano: 1_700_000_060_000_000_000,
+            dropped_since_last: 0,
+            payload: vec![1, 2, 3],
+        };
+
+        let record = discovery_record("evt-1", 123, 456, envelope.clone());
+
+        assert_eq!(
+            record.payload_kind,
+            pb::TelemetryPayloadKind::DiscoveryV1 as i32
+        );
+        assert_eq!(record.event_time_unix_nano, 123);
+        assert_eq!(record.observed_time_unix_nano, 456);
+
+        // The payload is the encoded envelope and nothing else: everything
+        // between the add-on and the control plane treats it as opaque bytes.
+        let decoded = discovery_pb::DiscoveryEnvelope::decode(record.payload.as_slice())
+            .expect("payload is an encoded DiscoveryEnvelope");
+        assert_eq!(decoded, envelope);
+
+        // No identity is carried on the record itself. agent_id, gateway_id and
+        // partition are stamped by the control plane from attested metadata.
+        assert!(record.metadata.is_empty());
     }
 
     #[test]
