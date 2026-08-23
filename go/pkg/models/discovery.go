@@ -43,7 +43,14 @@ const (
 	// decide whether a MAC may anchor a canonical device, so it must stay in
 	// sync with passive_census_source?/1 in source_policy.ex.
 	DiscoverySourceNetprobeCensus DiscoverySource = "netprobe-census"
-	DiscoverySourceServiceRadar   DiscoverySource = "serviceradar" // ServiceRadar infrastructure components
+	// DiscoverySourceNetprobeMdns is passive mDNS/DNS-SD device identification.
+	//
+	// ENRICHMENT ONLY. mDNS instance names are user-settable and services are
+	// shared between products, so it may contribute type and model to a device
+	// the census already bound to a MAC, and must never create or merge one.
+	// Core routes on this exact string to enforce that.
+	DiscoverySourceNetprobeMdns DiscoverySource = "netprobe-mdns"
+	DiscoverySourceServiceRadar DiscoverySource = "serviceradar" // ServiceRadar infrastructure components
 
 	// Confidence levels for discovery sources (1-10 scale)
 	ConfidenceLowUnknown         = 1  // Low confidence - unknown source
@@ -114,6 +121,12 @@ func GetSourceConfidence(source DiscoverySource) int {
 		return ConfidenceMediumMonitoring // Medium confidence - system monitoring
 	case DiscoverySourcePassiveNetprobe:
 		return ConfidenceMediumTraffic // Medium confidence - passive host traffic analysis
+	case DiscoverySourceNetprobeMdns:
+		// Weakest of the passive sources. A service type says what a device
+		// SPEAKS, not what it is, and an instance name is whatever its owner
+		// typed. It is good evidence of product model and poor evidence of
+		// anything else.
+		return ConfidenceMediumTraffic
 	case DiscoverySourceNetprobeCensus:
 		// Same level as passive-netprobe: it is the same passive observation,
 		// one layer down. An ARP/NDP sighting is strong evidence that something

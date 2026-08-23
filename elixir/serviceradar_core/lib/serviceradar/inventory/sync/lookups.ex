@@ -22,33 +22,55 @@ defmodule ServiceRadar.Inventory.Sync.Lookups do
   # Extract all identifiers from all updates for bulk lookup
   def extract_all_identifiers(updates) do
     updates
-    |> Enum.flat_map(fn update ->
-      ids = SourcePolicy.effective_identifiers(update)
-      partition = ids.partition
-      include_mac? = SourcePolicy.include_mac_identifier?(update)
-
-      mac_values =
-        if include_mac? do
-          ids
-          |> IdentityReconciler.mac_lookup_values()
-          |> Mac.lookup_macs_with_siblings()
-        else
-          []
-        end
-
-      id_types = SourcePolicy.identifier_types(update, ids)
-
-      id_types
-      |> Enum.reduce([], fn id_type, acc ->
-        id_type
-        |> Ids.get_identifier_values(ids)
-        |> Enum.reduce(acc, &maybe_add_id(&2, id_type, &1, partition))
-      end)
-      |> then(fn acc ->
-        Enum.reduce(mac_values, acc, &maybe_add_id(&2, :mac, &1, partition))
-      end)
-    end)
+    |> Enum.flat_map(&update_identifiers/1)
     |> Enum.uniq()
+  end
+
+  @doc """
+  The `{type, value, partition}` keys one update may be looked up by.
+
+  Shared with `matches_existing_device?/2` on purpose. A gate that decided
+  "this update matched nothing" from a different identifier set than the one
+  the lookup actually queried would reject updates whose identifier was never
+  searched for -- and would do it silently, since a miss and a never-queried
+  identifier look identical in the result map.
+  """
+  def update_identifiers(update) do
+    ids = SourcePolicy.effective_identifiers(update)
+    partition = ids.partition
+
+    mac_values =
+      if SourcePolicy.include_mac_identifier?(update) do
+        ids
+        |> IdentityReconciler.mac_lookup_values()
+        |> Mac.lookup_macs_with_siblings()
+      else
+        []
+      end
+
+    update
+    |> SourcePolicy.identifier_types(ids)
+    |> Enum.reduce([], fn id_type, acc ->
+      id_type
+      |> Ids.get_identifier_values(ids)
+      |> Enum.reduce(acc, &maybe_add_id(&2, id_type, &1, partition))
+    end)
+    |> then(fn acc ->
+      Enum.reduce(mac_values, acc, &maybe_add_id(&2, :mac, &1, partition))
+    end)
+  end
+
+  @doc """
+  True when at least one of this update's identifiers already names a device in
+  `existing_mappings` (the map returned by `bulk_lookup_identifiers/1`).
+
+  Used by the enrichment-only gate, which must distinguish "this update
+  describes a device we know" from "this update would create one".
+  """
+  def matches_existing_device?(update, existing_mappings) when is_map(existing_mappings) do
+    update
+    |> update_identifiers()
+    |> Enum.any?(&Map.has_key?(existing_mappings, &1))
   end
 
   defp maybe_add_id(acc, _type, nil, _partition), do: acc

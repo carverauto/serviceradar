@@ -238,6 +238,18 @@ defmodule ServiceRadar.ResultsRouter do
   @doc false
   def census_service_types, do: @census_service_types
 
+  # Service types carried by the netprobe mDNS identification stream.
+  #
+  # Paired with SourcePolicy.enrichment_only_source?/1 exactly as the census
+  # list is paired with passive_census_source?/1, and asserted in the unit tier
+  # for the same reason: if the two drift, mDNS ingests as an ordinary source
+  # and starts MINTING devices from announcements instead of only describing
+  # ones the census already found.
+  @mdns_service_types ["netprobe-mdns", :netprobe_mdns, "passive-mdns"]
+
+  @doc false
+  def mdns_service_types, do: @mdns_service_types
+
   defp process(%{source: source, service_type: "sync"} = status, _opts)
        when source in ["results", :results] do
     handle_sync_results(status)
@@ -270,6 +282,22 @@ defmodule ServiceRadar.ResultsRouter do
   # HEALTHY while its entire payload is discarded with no log line.
   defp process(%{source: source, service_type: service_type} = status, _opts)
        when source in ["results", :results] and service_type in @census_service_types do
+    schedule_sync_ingestion(status)
+  end
+
+  # The netprobe mDNS identification stream.
+  #
+  # Same SyncIngestor path again, and the same reason it cannot be left to the
+  # catch-all: that clause returns :ok and publishes a HEALTHY status while
+  # discarding the entire payload without a log line.
+  #
+  # What makes this stream different is what happens once it arrives. Its
+  # updates carry no IP and are not allowed to create a device -- see
+  # SourcePolicy.enrichment_only_source?/1 and the gate in SyncIngestor. An
+  # mDNS announcement describes a host; only the census establishes that the
+  # host is there.
+  defp process(%{source: source, service_type: service_type} = status, _opts)
+       when source in ["results", :results] and service_type in @mdns_service_types do
     schedule_sync_ingestion(status)
   end
 
