@@ -10,7 +10,7 @@ helm:
   # image.digests.<service> short-circuits ahead of global.imageTag, so every
   # other image -- CNPG included -- stays exactly where it is.
   - name: image.digests.core
-    value: sha256:437de4a6db4ae607c8176755e69e80097cc01ea370c032b7b3a86305330c903a
+    value: sha256:ce0f2ef0a61ca352a4ce5028ae010430d01aecceec3e8353390ab08c142eb79a
     forcestring: true
   - name: image.digests.webNg
     value: sha256:0835b14528e6c84dc69a214751e6f4682945184dd1cd3b99c37e7197d0e1f9d4
