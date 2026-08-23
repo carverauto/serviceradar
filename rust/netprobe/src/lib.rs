@@ -1,3 +1,4 @@
+pub mod addon_service;
 #[allow(dead_code, unused_imports)]
 pub mod af_xdp;
 #[allow(dead_code)]
