@@ -203,6 +203,7 @@ defmodule ServiceRadar.Inventory.SyncIngestor do
   defp resolve_updates(normalized_updates, actor) do
     all_identifiers = Lookups.extract_all_identifiers(normalized_updates)
     existing_mappings = Lookups.bulk_lookup_identifiers(all_identifiers)
+    normalized_updates = drop_unmatched_enrichment_updates(normalized_updates, existing_mappings)
     existing_ip_to_device = Lookups.bulk_lookup_by_ip(normalized_updates)
 
     updates_with_ids =
@@ -223,6 +224,36 @@ defmodule ServiceRadar.Inventory.SyncIngestor do
     interface_records = Interfaces.build_interface_upsert_records(resolved_updates, timestamp)
 
     {resolved_updates, strong_uids, device_records, identifier_records, interface_records}
+  end
+
+  # Enrichment-only sources may describe a device but never create one.
+  #
+  # This runs AFTER the bulk identifier lookup and BEFORE anything that writes,
+  # which is the only window where "does this device already exist" is both
+  # answered and still actionable. Downstream, BatchResolver mints a uid for any
+  # update that resolved to nothing -- that is its job for every other source,
+  # and there is no flag on the resolved tuple that would let a later step tell
+  # a minted device from a found one.
+  #
+  # See SourcePolicy.enrichment_only_source?/1 for why mDNS is not allowed to
+  # bring a device into existence.
+  defp drop_unmatched_enrichment_updates(updates, existing_mappings) do
+    {kept, dropped} =
+      Enum.split_with(updates, fn update ->
+        not SourcePolicy.enrichment_only_source?(update) or
+          Lookups.matches_existing_device?(update, existing_mappings)
+      end)
+
+    if dropped != [] do
+      # Said out loud rather than dropped quietly: a segment whose devices are
+      # all unknown to inventory and a collector whose MACs never match look
+      # identical from outside, and only one of them is working as intended.
+      Logger.debug(
+        "SyncIngestor: dropped #{length(dropped)} enrichment-only update(s) matching no existing device"
+      )
+    end
+
+    kept
   end
 
   defp upsert_devices([], _strong_uids), do: {:ok, %{}}

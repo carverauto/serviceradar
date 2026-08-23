@@ -89,6 +89,7 @@ go_library(
         "push_loop_icmp_results.go",
         "push_loop_mapper_netprobe.go",
         "push_loop_netprobe_census.go",
+        "push_loop_netprobe_mdns.go",
         "push_loop_metric_feed.go",
         "push_loop_plugin_config.go",
         "push_loop_plugin_signals.go",
