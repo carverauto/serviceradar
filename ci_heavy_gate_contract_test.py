@@ -652,6 +652,20 @@ class WorkflowIntegrationLifecycleContractTest(unittest.TestCase):
             self.assertIn(required, action)
 
         cleanup = action[action.index("cleanup() {") :]
+        cleanup_lines = normalized_shell_lines(cleanup)
+        teardown_window = (
+            "bazel test $FLAGS //rust/integration-db:teardown_db",
+            "TEARDOWN_STATUS=$?",
+            'END_NS="$(date +%s%N)"',
+        )
+        self.assertEqual(
+            1,
+            sum(
+                cleanup_lines[index : index + len(teardown_window)]
+                == teardown_window
+                for index in range(len(cleanup_lines) - len(teardown_window) + 1)
+            ),
+        )
         original = cleanup.index("ORIGINAL_STATUS=$?")
         disable_trap = cleanup.index("trap - EXIT", original)
         nonfatal = cleanup.index("set +e", disable_trap)
@@ -694,6 +708,15 @@ class WorkflowIntegrationLifecycleContractTest(unittest.TestCase):
         self.assertLess(suite_exit, observer_exit)
         self.assertLess(observer_exit, teardown_exit)
 
+    def assert_teardown_suffix_mutations_are_rejected(self, action: str) -> None:
+        teardown = "bazel test $FLAGS //rust/integration-db:teardown_db"
+        self.assertEqual(1, action.count(teardown))
+        for suffix in (" || true", "; true"):
+            with self.subTest(teardown_suffix=suffix):
+                mutated = action.replace(teardown, f"{teardown}{suffix}", 1)
+                with self.assertRaises(AssertionError):
+                    self.assert_observer_and_cleanup_contract(mutated)
+
     def test_bazel_ci_keeps_its_runner_trigger_and_measures_the_ordinary_suite(self):
         action = named_action("BazelCI")
         header = action[: action.index("    steps:")]
@@ -731,6 +754,7 @@ class WorkflowIntegrationLifecycleContractTest(unittest.TestCase):
             self.ordinary_suite,
         )
         self.assert_observer_and_cleanup_contract(action)
+        self.assert_teardown_suffix_mutations_are_rejected(action)
         commands = normalized_bazel_test_commands(action)
         self.assertEqual(
             (
@@ -821,6 +845,7 @@ class WorkflowIntegrationLifecycleContractTest(unittest.TestCase):
             self.heavy_suite,
         )
         self.assert_observer_and_cleanup_contract(action)
+        self.assert_teardown_suffix_mutations_are_rejected(action)
         commands = normalized_bazel_test_commands(action)
         self.assertEqual(
             (
