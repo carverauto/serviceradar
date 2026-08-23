@@ -41,8 +41,9 @@ image:
   tag: enterprise-v2.290.0
   imagePullPolicy: IfNotPresent
 
-# One runner at a time. The action in //buildbuddy.yaml has no `allow_concurrent_runs`, so a
-# second staging push queues rather than needing a second pod.
+# One runner at a time. Neither action in //buildbuddy.yaml sets `allow_concurrent_runs`, so a
+# second run (another PR's BazelCI, or the daily Elixir quality cron) queues rather than
+# needing a second pod.
 replicas: 1
 
 # Both scalers off, deliberately and for different reasons.
