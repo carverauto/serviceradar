@@ -120,6 +120,11 @@ defmodule ServiceRadar.Application do
         # Sync ingestion queue/coalescer
         sync_ingestor_queue_child(),
 
+        # Holds partial discovery snapshots and the per-scope supersession
+        # watermarks. Bounded three ways (TTL, set count, part count); a
+        # producer cannot grow it.
+        ServiceRadar.Inventory.Discovery.Buffer,
+
         # Bounded endpoint inventory ingestion admission queue
         endpoint_inventory_ingestor_task_supervisor_child(),
         endpoint_inventory_ingestor_queue_child(),

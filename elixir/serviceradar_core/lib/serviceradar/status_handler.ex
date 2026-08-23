@@ -17,6 +17,7 @@ defmodule ServiceRadar.StatusHandler do
   alias Netprobepb.FlowAttributionEventBatch
   alias Serviceradar.Agent.Addon.V1.TelemetryBatch
   alias Serviceradar.Agent.Addon.V1.TelemetryRecord
+  alias ServiceRadar.Inventory.DiscoveryIngestor
   alias ServiceRadar.Inventory.SyncIngestorQueue
   alias ServiceRadar.NATS.Connection
   alias ServiceRadar.Observability.AnomalyDetection.SeriesKey
@@ -333,6 +334,9 @@ defmodule ServiceRadar.StatusHandler do
       otel_log_record?(record) ->
         publish_otel_log_telemetry_record(record, batch, metadata)
 
+      discovery_record?(record) ->
+        DiscoveryIngestor.ingest(record.payload, metadata)
+
       handled_off_this_path?(record) ->
         count_unpublished_payload_kind(record, metadata, :handled_elsewhere)
 
@@ -354,6 +358,15 @@ defmodule ServiceRadar.StatusHandler do
   # they should not appear in a batch at all -- but they are a known kind that
   # belongs elsewhere, not an unrecognized one, and the distinction is worth
   # keeping in the telemetry.
+  # Device observations an add-on made about OTHER hosts. Unlike every other kind
+  # on this path they are INVENTORY, not observability, so they leave here for
+  # DiscoveryIngestor rather than a JetStream subject.
+  defp discovery_record?(%TelemetryRecord{payload_kind: :TELEMETRY_PAYLOAD_KIND_DISCOVERY_V1}),
+    do: true
+
+  defp discovery_record?(%TelemetryRecord{payload_kind: 8}), do: true
+  defp discovery_record?(_record), do: false
+
   defp handled_off_this_path?(%TelemetryRecord{payload_kind: kind}) do
     kind in [
       :TELEMETRY_PAYLOAD_KIND_SERVICERADAR_METRICS,
