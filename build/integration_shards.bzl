@@ -75,26 +75,14 @@ def integration_test_env(shard):
         "SERVICERADAR_TEST_DB_SHARD": shard,
     }
 
-# Test files whose runtime is dominated by a few very slow tests, dealt out BEFORE everything
-# else so that no two land in the same shard.
+# Ordinary test files with known comparatively slow serial work are dealt out BEFORE everything
+# else so future additions cannot accidentally pile multiple heavy files into one shard.
 #
-# Balancing by file count assumes files cost roughly the same. Measured, they do not: in shard
-# s6, two files accounted for 58.5s of its 66.9s, and every other test in it finished in under
-# 334ms. Both had landed in the same bucket, making that shard nearly twice the next slowest.
-#
-# Times are from `SERVICERADAR_TEST_SLOWEST` (see elixir/serviceradar_core/test/test_helper.exs):
-#
-#   47.2s  results_router_integration_test.exs:121
-#            "large Armis sync chunks route through results router into inventory"
-#   11.3s  plugin_result_slot_allocator_test.exs:55
-#            "more than 257 synchronized identities retain distinct event blocks"
-#
-# This list is a hint, not a contract: a stale entry costs nothing but a slightly worse
-# balance, and a missing one shows up as a single slow shard. Re-measure with
-# `--test_env=SERVICERADAR_TEST_SLOWEST=12` when the wall clock drifts.
-#
-# NOTE: the 47.2s test is a genuine floor. No shard count divides a single test, so the
-# slowest shard cannot go below roughly (fixed cost + 47s) until that test itself is cheaper.
+# The 50,000-device ResultsRouter case now lives only in the source-separated release gate, so it
+# is no longer an ordinary shard-balancing input. The plugin result slot allocator is the sole
+# remaining hint. This list is an optimization, not a source-membership contract: a stale entry
+# costs only balance, while a missing one shows up as a slow shard. Re-measure with
+# `--test_env=SERVICERADAR_TEST_SLOWEST=12` when ordinary shard wall-clock distribution drifts.
 _HEAVY_SRCS = [
     "test/serviceradar/observability/plugin_result_slot_allocator_test.exs",
 ]

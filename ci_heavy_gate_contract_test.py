@@ -96,6 +96,16 @@ def named_starlark_rule(source: str, rule_kind: str, name: str) -> str:
     raise AssertionError(f"{rule_kind} {name} is missing")
 
 
+def ordinary_integration_target_comprehension(core_build: str) -> str:
+    start = core_build.index(
+        '[\n    ex_unit_test(\n        name = "integration_tests_{}"'
+    )
+    end = core_build.index(
+        'ex_unit_test(\n    name = "large_ingestion_release_gate"', start
+    )
+    return core_build[start:end]
+
+
 def normalized(value: str) -> bytes:
     return ("\n".join(line.rstrip() for line in value.splitlines()) + "\n").encode()
 
@@ -247,7 +257,7 @@ class IntegrationBenchmarkContractTest(unittest.TestCase):
 
     def test_core_integration_targets_share_the_bounded_environment(self):
         core_build = CORE_BUILD.read_text(encoding="utf-8")
-        generated_targets = core_build[core_build.index("integration_tests_{}") :]
+        generated_targets = ordinary_integration_target_comprehension(core_build)
         unit_tests = core_build[core_build.index('name = "unit_tests"') : core_build.index("integration_tests_{}")]
 
         self.assertIn("env = integration_test_env(shard)", generated_targets)
@@ -292,7 +302,7 @@ class IntegrationBenchmarkContractTest(unittest.TestCase):
                 "filegroup(\n    name = \"srcs\""
             )
         ]
-        generated_targets = core_build[core_build.index('name = "integration_tests_{}"') :]
+        generated_targets = ordinary_integration_target_comprehension(core_build)
         release_target = named_starlark_rule(
             core_build, "ex_unit_test", "large_ingestion_release_gate"
         )
@@ -351,7 +361,9 @@ class IntegrationBenchmarkContractTest(unittest.TestCase):
         self.assertIn('"test/release_gates/**"', all_test_sources)
         self.assertIn('"test/release_gates/**"', runtime_data)
         self.assertIn('"test/**/*_test.exs"', runtime_data)
-        self.assertIn("INTEGRATION_RUNTIME_DATA", generated_targets)
+        self.assertEqual(
+            1, generated_targets.count("data = INTEGRATION_RUNTIME_DATA")
+        )
 
         self.assertEqual(1, core_build.count('name = "large_ingestion_release_gate"'))
         self.assertIn('size = "enormous"', release_target)
