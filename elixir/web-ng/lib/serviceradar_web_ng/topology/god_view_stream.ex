@@ -598,6 +598,8 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
   end
 
   defp build_nodes_and_edges(actor, raw_links) do
+    raw_links = drop_redundant_inferred_segment_links(raw_links)
+
     raw_edges =
       raw_links
       |> Enum.map(&runtime_link_to_edge/1)
@@ -675,6 +677,52 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
   end
 
   defp pipeline_stats(_raw_links, _pair_links, _final_edges, _final_nodes, _unresolved_endpoints), do: %{}
+
+  # Device-to-Device inferred-segment edges exist so a device whose only
+  # connectivity is an inferred L2 segment stays attached to the graph instead
+  # of rendering as an island. The read model projects them with
+  # relation_type ATTACHED_TO, so without this filter they masquerade as
+  # endpoint-attachment edges, inflate endpoint-cluster membership, and
+  # duplicate paths the graph already renders. Runs on raw links BEFORE edge
+  # construction: a link is dropped when BOTH endpoints already appear in
+  # another link; it survives only when it is keeping at least one endpoint
+  # connected, and such survivors then flow through the normal attachment
+  # pipeline (clustering under their anchor).
+  defp drop_redundant_inferred_segment_links(links) when is_list(links) do
+    {inferred_segment_links, other_links} =
+      Enum.split_with(links, &inferred_segment_link?/1)
+
+    case inferred_segment_links do
+      [] ->
+        links
+
+      inferred_segment_links ->
+        otherwise_connected_ids =
+          other_links
+          |> Enum.flat_map(&[Map.get(&1, :local_device_id), Map.get(&1, :neighbor_device_id)])
+          |> MapSet.new()
+
+        keep =
+          Enum.filter(inferred_segment_links, fn link ->
+            not MapSet.member?(otherwise_connected_ids, Map.get(link, :local_device_id)) or
+              not MapSet.member?(otherwise_connected_ids, Map.get(link, :neighbor_device_id))
+          end)
+
+        other_links ++ keep
+    end
+  end
+
+  defp drop_redundant_inferred_segment_links(_links), do: []
+
+  defp inferred_segment_link?(link) when is_map(link) do
+    raw_evidence = Map.get(link, :evidence_class)
+    metadata = Map.get(link, :metadata) || %{}
+
+    raw_evidence == "inferred-segment" or
+      (metadata["evidence_class"] || metadata[:evidence_class]) == "inferred-segment"
+  end
+
+  defp inferred_segment_link?(_link), do: false
 
   defp collapse_endpoint_attachments(edges, device_by_id) when is_list(edges) and is_map(device_by_id) do
     {attachment_edges, other_edges} =
@@ -2133,7 +2181,6 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
   defp edge_topology_class(edge) do
     case evidence_class(edge) do
       "endpoint-attachment" -> "endpoints"
-      "inferred-segment" -> "endpoints"
       "inferred" -> "inferred"
       "logical" -> "logical"
       "hosted" -> "hosted"
