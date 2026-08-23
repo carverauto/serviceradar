@@ -132,7 +132,12 @@ defmodule ServiceRadar.Inventory.Sync.MacVendor do
     |> strip_provenance()
     |> Map.put(@source_key, @source)
     |> Map.put(@prefix_key, prefix_hex)
-    |> maybe_put(@snapshot_key, snapshot_id)
+    # Normalized HERE, not just at the query, because this is the point where a
+    # value enters device metadata and therefore jsonb. bulk_lookup/1 already
+    # normalizes what it reads, but that only protects its own path; a raw
+    # 16-byte uuid arriving from any other caller would still poison the batch
+    # writer. The invariant belongs where the write happens.
+    |> maybe_put(@snapshot_key, normalize_snapshot(snapshot_id))
     |> Map.put("mac_vendor", org)
   end
 
@@ -188,7 +193,30 @@ defmodule ServiceRadar.Inventory.Sync.MacVendor do
 
   defp normalize_snapshot(nil), do: nil
 
-  defp normalize_snapshot(value) when is_binary(value), do: value
+  # The failure mode is a binary that cannot be represented in JSON, not "a
+  # value that is not a UUID" -- so String.valid?/1 is the test, and any
+  # printable id a caller chooses keeps working.
+  #
+  # Postgrex returns a `uuid` column as a RAW 16-byte binary. That satisfies
+  # is_binary/1, so an earlier `when is_binary(value)` clause returned it
+  # untouched and the raw bytes reached device metadata. The next jsonb encode
+  # of that metadata then died with
+  #
+  #   Jason.EncodeError: invalid byte 0xFF in <<255, 130, 164, ...>>
+  #
+  # which failed the WHOLE bulk device upsert -- on farm01, every sync batch,
+  # with 59 devices carrying the raw value. The error surfaces in a writer that
+  # never saw this module, which is what made it expensive to trace back here.
+  defp normalize_snapshot(value) when is_binary(value) do
+    if String.valid?(value) do
+      value
+    else
+      case Ecto.UUID.cast(value) do
+        {:ok, uuid} -> uuid
+        :error -> nil
+      end
+    end
+  end
 
   defp normalize_snapshot(value) do
     case Ecto.UUID.cast(value) do

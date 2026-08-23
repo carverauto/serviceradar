@@ -79,6 +79,7 @@ ASYNC_INTEGRATION_SRCS = [
     "test/serviceradar/inventory/sync_ingestor_agent_id_test.exs",
     "test/serviceradar/inventory/sync_ingestor_alias_merge_test.exs",
     "test/serviceradar/inventory/sync_ingestor_discovery_sources_test.exs",
+    "test/serviceradar/inventory/sync_ingestor_mdns_enrichment_test.exs",
     "test/serviceradar/inventory/sync_ingestor_source_linkage_test.exs",
     "test/serviceradar/inventory/visibility_profile_audit_test.exs",
     "test/serviceradar/inventory/vulnerability_advisory_ingestor_test.exs",

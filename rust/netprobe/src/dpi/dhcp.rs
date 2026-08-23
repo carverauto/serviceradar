@@ -186,7 +186,7 @@ fn csv_u16(values: &[u16]) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{parse_dhcpv4, parse_dhcpv6, DhcpMessageType};
+    use super::{DhcpMessageType, parse_dhcpv4, parse_dhcpv6};
 
     #[test]
     fn parses_dhcpv4_option_presence_without_option_values() {

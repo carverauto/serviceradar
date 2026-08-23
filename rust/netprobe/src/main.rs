@@ -1,3 +1,4 @@
+mod addon_service;
 #[allow(dead_code, unused_imports)]
 mod af_xdp;
 #[allow(dead_code)]
@@ -14,8 +15,6 @@ mod capture;
 // `capture` above carries this.
 #[allow(dead_code)]
 mod census;
-#[allow(dead_code)]
-mod mdns;
 mod config;
 mod dpi;
 #[cfg(target_os = "linux")]
@@ -36,6 +35,8 @@ mod ja4;
 mod kernel;
 #[allow(dead_code)]
 mod lifecycle;
+#[allow(dead_code)]
+mod mdns;
 mod metrics;
 #[allow(dead_code)]
 mod muonfp;
@@ -85,6 +86,15 @@ use crate::lifecycle::{drop_runtime_privileges, prepare_ebpf_privileged_resource
 struct Args {
     #[arg(long, env = "SERVICERADAR_NETPROBE_SOCKET")]
     socket: PathBuf,
+
+    /// Socket for the generic AddonService contract, served alongside the
+    /// legacy IPC socket above.
+    ///
+    /// Optional on purpose: an agent that does not yet consume this path must
+    /// still be able to run netprobe, and netprobe must not fail to start
+    /// because a new socket could not be bound.
+    #[arg(long, env = "SERVICERADAR_NETPROBE_ADDON_SOCKET")]
+    addon_socket: Option<PathBuf>,
 
     #[arg(long, env = "SERVICERADAR_NETPROBE_CONFIG")]
     config: Option<PathBuf>,
@@ -168,6 +178,10 @@ async fn main() -> Result<()> {
     // the older ones rather than replay them: each snapshot supersedes the last
     // completely, so the newest is the only one worth delivering.
     let (census_snapshot_tx, _) = broadcast::channel(4);
+    // Same reasoning as the census channel: each mDNS snapshot completely
+    // replaces the last, so a lagging receiver should get the newest rather
+    // than a backlog of superseded views.
+    let (mdns_snapshot_tx, _) = broadcast::channel(4);
     let runtime_config = RuntimeConfig::new(&config);
     let external_flow_matcher =
         SharedExternalFlowMatcher::new(runtime_config.external_flow_match_window_ms());
@@ -207,6 +221,7 @@ async fn main() -> Result<()> {
                         .then(|| flow_attribution_event_tx.clone()),
                     process_snapshot_tx.clone(),
                     census_snapshot_tx.clone(),
+                    mdns_snapshot_tx.clone(),
                     external_flow_matcher.clone(),
                     Arc::clone(&_fingerprint_gate),
                     Arc::clone(&_dpi_gate),
@@ -230,6 +245,27 @@ async fn main() -> Result<()> {
         metrics.clone(),
         shutdown_rx.clone(),
     ));
+    // Served on its own socket, bound after privileges are dropped so it is
+    // owned by the unprivileged runtime user. The legacy IPC socket below is
+    // untouched: both run until the agent is confirmed to consume this one.
+    if let Some(addon_socket) = args.addon_socket.clone() {
+        let addon = addon_service::NetprobeAddon::new(
+            env!("CARGO_PKG_VERSION"),
+            census_snapshot_tx.clone(),
+            mdns_snapshot_tx.clone(),
+        );
+
+        // Deliberately NOT selected on below. A failure to serve the new
+        // contract must not stop netprobe serving the legacy IPC the agent
+        // still depends on, so this is logged rather than fatal. The agent
+        // notices a dead socket by failing to connect.
+        tokio::spawn(async move {
+            if let Err(err) = addon_service::serve(addon, addon_socket).await {
+                log::error!("AddonService terminated: {err:#}");
+            }
+        });
+    }
+
     let mut ipc_task = tokio::spawn(
         IpcServer::new(
             args.socket,
@@ -239,6 +275,7 @@ async fn main() -> Result<()> {
             flow_attribution_event_rx,
             process_snapshot_tx,
             census_snapshot_tx,
+            mdns_snapshot_tx,
             external_flow_matcher,
             runtime_config,
             metrics,

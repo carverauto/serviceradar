@@ -273,12 +273,9 @@ mod tests {
 
     #[test]
     fn matches_satori_ssh_banner_candidate() {
-        let corpus =
-            SatoriCorpus::load_from_dir("../../third_party/netprobe_corpora/satori/xml")
-                .or_else(|_| {
-                    SatoriCorpus::load_from_dir("third_party/netprobe_corpora/satori/xml")
-                })
-                .expect("Satori corpus loads");
+        let corpus = SatoriCorpus::load_from_dir("../../third_party/netprobe_corpora/satori/xml")
+            .or_else(|_| SatoriCorpus::load_from_dir("third_party/netprobe_corpora/satori/xml"))
+            .expect("Satori corpus loads");
         let matched = satori_match("ssh", "SSH-2.0-Cisco-1.25", &corpus)
             .expect("Cisco SSH Satori banner matches");
 

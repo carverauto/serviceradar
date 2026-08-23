@@ -120,14 +120,33 @@ defmodule ServiceRadarWebNGWeb.TopologyChannelTest do
     refute_push "snapshot_error", _payload, 500
   end
 
-  test "next_expanded_clusters keeps expansion exclusive" do
-    assert TopologyChannel.next_expanded_clusters(MapSet.new(), "cluster:a", true) ==
-             MapSet.new(["cluster:a"])
+  test "next_expanded_clusters allows concurrent expansions without clearing existing ones" do
+    assert TopologyChannel.next_expanded_clusters([], "cluster:a", true) == ["cluster:a"]
 
-    assert TopologyChannel.next_expanded_clusters(MapSet.new(["cluster:a"]), "cluster:b", true) ==
-             MapSet.new(["cluster:b"])
+    assert TopologyChannel.next_expanded_clusters(["cluster:a"], "cluster:b", true) ==
+             ["cluster:a", "cluster:b"]
 
-    assert TopologyChannel.next_expanded_clusters(MapSet.new(["cluster:b"]), "cluster:b", false) ==
-             MapSet.new()
+    # re-expanding an already expanded cluster keeps the set stable
+    assert TopologyChannel.next_expanded_clusters(["cluster:a", "cluster:b"], "cluster:b", true) ==
+             ["cluster:a", "cluster:b"]
+  end
+
+  test "next_expanded_clusters collapses the oldest expansion past the configured limit" do
+    original_limit = Application.get_env(:serviceradar_web_ng, :god_view_expanded_cluster_limit)
+    Application.put_env(:serviceradar_web_ng, :god_view_expanded_cluster_limit, 2)
+
+    on_exit(fn ->
+      if is_nil(original_limit) do
+        Application.delete_env(:serviceradar_web_ng, :god_view_expanded_cluster_limit)
+      else
+        Application.put_env(:serviceradar_web_ng, :god_view_expanded_cluster_limit, original_limit)
+      end
+    end)
+
+    assert TopologyChannel.next_expanded_clusters(["cluster:a", "cluster:b"], "cluster:c", true) ==
+             ["cluster:b", "cluster:c"]
+
+    assert TopologyChannel.next_expanded_clusters(["cluster:b", "cluster:c"], "cluster:b", false) ==
+             ["cluster:c"]
   end
 end

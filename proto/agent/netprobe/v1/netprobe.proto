@@ -47,6 +47,7 @@ message NetprobeFrame {
     ExternalFlowAck external_flow_ack = 28;
     FlowAttributionEventBatch flow_attribution_batch = 29;
     DeviceCensusSnapshot device_census_snapshot = 30;
+    MdnsSnapshot mdns_snapshot = 31;
   }
 }
 
@@ -422,6 +423,69 @@ enum DeviceCensusKind {
   DEVICE_CENSUS_KIND_ARP_REQUEST = 1;
   DEVICE_CENSUS_KIND_ARP_REPLY = 2;
   DEVICE_CENSUS_KIND_IPV6_NDP = 3;
+}
+
+// One TXT attribute from an mDNS announcement.
+//
+// A pair rather than a map entry because RFC 6763 6.4 gives three distinct
+// meanings that a map<string,string> collapses into two: `key` means the
+// attribute is present with no value (boolean true), `key=` means present with
+// an empty value, and those are different claims about the device. `has_value`
+// preserves that.
+message MdnsTxtPair {
+  string key = 1;
+  string value = 2;
+  bool has_value = 3;
+}
+
+// What one device has advertised about itself over mDNS.
+//
+// This is EVIDENCE, not identity. Instance names are user-settable and services
+// are shared between products, so nothing here may create or merge a device --
+// it enriches one the passive census already bound to a MAC.
+message MdnsDevice {
+  string mac = 1;
+  string ip = 2;
+  uint32 interface_index = 3;
+  // Sorted and deduplicated, e.g. "_airplay._tcp", "_googlecast._tcp".
+  repeated string service_types = 4;
+  // Allowlisted keys only. Devices put serial numbers and auth tokens in TXT,
+  // so netprobe collects a closed set that names a product and nothing else.
+  repeated MdnsTxtPair txt = 5;
+  // Every distinct model string seen from this MAC, sorted.
+  //
+  // A set rather than one value because HomeKit relays announcements for paired
+  // accessories: one MAC on a live segment advertised both B620AP (HomePod
+  // mini) and J255AP (Apple TV).
+  repeated string models = 6;
+  // True when models holds more than one entry. Core must not assign a device
+  // type from an ambiguous device: the evidence says this MAC speaks for two
+  // products, not that the device is one of them.
+  bool ambiguous_model = 7;
+  int64 first_seen_unix_nano = 8;
+  int64 last_seen_unix_nano = 9;
+  // At least one announcement from this device exceeded netprobe's copy cap, so
+  // a model may exist in bytes that were never read. A receiver should wait for
+  // another announcement rather than concluding the device sent none.
+  bool truncated = 10;
+}
+
+// A COMPLETE current-state view of what one interface's segment has advertised.
+//
+// Complete for the same reason the census is: absence has to mean "this device
+// stopped announcing" rather than "it was quiet during one tick".
+message MdnsSnapshot {
+  repeated MdnsDevice devices = 1;
+  string snapshot_id = 2;
+  string interface_name = 3;
+  int64 generated_at_unix_nano = 4;
+  // False when the snapshot had to be split across frames; only the frame that
+  // sets this completes the set.
+  bool complete = 5;
+  uint32 chunk_index = 6;
+  uint32 chunk_count = 7;
+  // Announcements the kernel ring dropped since the previous snapshot.
+  uint32 dropped_since_last = 8;
 }
 
 // One device the passive census currently believes is present on a segment.

@@ -17,6 +17,7 @@ defmodule ServiceRadar.StatusHandler do
   alias Netprobepb.FlowAttributionEventBatch
   alias Serviceradar.Agent.Addon.V1.TelemetryBatch
   alias Serviceradar.Agent.Addon.V1.TelemetryRecord
+  alias ServiceRadar.Inventory.DiscoveryIngestor
   alias ServiceRadar.Inventory.SyncIngestorQueue
   alias ServiceRadar.NATS.Connection
   alias ServiceRadar.Observability.AnomalyDetection.SeriesKey
@@ -333,9 +334,93 @@ defmodule ServiceRadar.StatusHandler do
       otel_log_record?(record) ->
         publish_otel_log_telemetry_record(record, batch, metadata)
 
+      discovery_record?(record) ->
+        DiscoveryIngestor.ingest(record.payload, metadata)
+
+      handled_off_this_path?(record) ->
+        count_unpublished_payload_kind(record, metadata, :handled_elsewhere)
+
       true ->
-        :ok
+        drop_unknown_payload_kind(record, metadata)
     end
+  end
+
+  # Payload kinds that legitimately reach this function and are consumed
+  # somewhere else, so arriving here is not a fault.
+  #
+  # SERVICERADAR_METRICS is the volume case: the Rust add-on SDK sends metrics
+  # through StreamTelemetry, the gateway's PluginMetricsPublisher publishes them
+  # to JetStream, and the status is still forwarded here with those records
+  # intact. Treating them as unknown would log a warning per metric record from
+  # every Rust add-on in the fleet.
+  #
+  # The OTLP kinds ride AddonService.RelayOtlp rather than StreamTelemetry, so
+  # they should not appear in a batch at all -- but they are a known kind that
+  # belongs elsewhere, not an unrecognized one, and the distinction is worth
+  # keeping in the telemetry.
+  # Device observations an add-on made about OTHER hosts. Unlike every other kind
+  # on this path they are INVENTORY, not observability, so they leave here for
+  # DiscoveryIngestor rather than a JetStream subject.
+  defp discovery_record?(%TelemetryRecord{payload_kind: :TELEMETRY_PAYLOAD_KIND_DISCOVERY_V1}),
+    do: true
+
+  defp discovery_record?(%TelemetryRecord{payload_kind: 8}), do: true
+  defp discovery_record?(_record), do: false
+
+  defp handled_off_this_path?(%TelemetryRecord{payload_kind: kind}) do
+    kind in [
+      :TELEMETRY_PAYLOAD_KIND_SERVICERADAR_METRICS,
+      7,
+      :TELEMETRY_PAYLOAD_KIND_OTLP_TRACES,
+      3,
+      :TELEMETRY_PAYLOAD_KIND_OTLP_LOGS,
+      4,
+      :TELEMETRY_PAYLOAD_KIND_OTLP_METRICS,
+      5,
+      :TELEMETRY_PAYLOAD_KIND_OTLP_DERIVED_METRIC,
+      6
+    ]
+  end
+
+  # A payload kind nothing on this path recognizes.
+  #
+  # This used to be a bare `true -> :ok`, which meant an add-on could ship a new
+  # payload kind, have every record discarded, and see the service report
+  # HEALTHY -- the failure is indistinguishable from an add-on that produced
+  # nothing. Say it out loud instead.
+  #
+  # Unthrottled, matching drop_misbucketed_metric/2 directly above. After the
+  # handled_off_this_path?/1 enumeration the remaining case is a genuinely
+  # unrecognized kind, which means a version skew between an add-on and core --
+  # rare, and worth one line per occurrence while it lasts.
+  defp drop_unknown_payload_kind(%TelemetryRecord{} = record, metadata) do
+    count_unpublished_payload_kind(record, metadata, :unknown_payload_kind)
+
+    Logger.warning(
+      "StatusHandler: dropped an add-on telemetry record with an unrecognized payload kind",
+      payload_kind: inspect(record.payload_kind),
+      producer_type: metadata.producer_type,
+      producer_id: metadata.producer_id,
+      partition_id: metadata.partition_id,
+      agent_id: metadata.agent_id
+    )
+
+    :ok
+  end
+
+  defp count_unpublished_payload_kind(%TelemetryRecord{} = record, metadata, reason) do
+    :telemetry.execute(
+      [:serviceradar, :status_handler, :addon_telemetry, :unpublished],
+      %{count: 1},
+      %{
+        reason: reason,
+        payload_kind: record.payload_kind,
+        producer_id: metadata.producer_id,
+        partition_id: metadata.partition_id
+      }
+    )
+
+    :ok
   end
 
   defp publish_ocsf_telemetry_record(%TelemetryRecord{payload: payload} = record, batch, metadata) do

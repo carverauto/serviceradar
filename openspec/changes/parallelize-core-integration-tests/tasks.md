@@ -103,7 +103,7 @@
       with zero selected modules. Prove all-source and pruned-source selected test identities are
       equal before excluding unit-only files from integration shards; reject missing, duplicate,
       fixed-resource-async, mixed-selected-mode, and module-local global configuration cases.
-      Status: the 765-source / 258-selected-module disposition and exact Starlark projection are
+      Status: the 777-source / 259-selected-module disposition and exact Starlark projection are
       checked in and statically enforced; the real all-source/pruned-source ExUnit identity
       equivalence run remains pending.
 - [x] 3.17 Complete the exhaustive audit, split every mixed selected-mode source, and freeze one

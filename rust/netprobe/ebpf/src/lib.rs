@@ -356,7 +356,23 @@ static L2_OBSERVATIONS: RingBuf = RingBuf::pinned(1 << 20, 0);
 // device's FIRST sighting is always emitted and refreshes are rate limited.
 // LRU so a busy segment evicts cold entries instead of failing to insert.
 #[map(name = "l2_seen")]
-static L2_SEEN: LruHashMap<L2SeenKey, u64> = LruHashMap::pinned(65536, 0);
+static L2_SEEN: LruHashMap<L2SeenKey, u64> = LruHashMap::pinned(L2_SEEN_MAX_ENTRIES, 0);
+
+// Sized for the segment, not for a round number.
+//
+// An LRU hash PREALLOCATES: BPF_F_NO_PREALLOC is not supported for
+// BPF_MAP_TYPE_LRU_HASH, so every entry is committed at load time whether or
+// not it is ever used. At 65536 this map reserved 6.5 MB to hold 14 live
+// entries on a real segment -- memory an edge device does not have to spare.
+//
+// The key is (interface, MAC, IP), so the worst realistic case is a full /24
+// where every host has several IPv6 addresses as well: 254 * ~10 = ~2500.
+// 8192 keeps roughly 3x headroom over that and costs ~0.85 MB.
+//
+// Undersizing has a real cost, which is why the headroom is deliberate: the
+// LRU evicts under pressure, an evicted binding is re-emitted, and sustained
+// re-emission is exactly what the watchdog shuts the census down for.
+const L2_SEEN_MAX_ENTRIES: u32 = 8192;
 
 // Census observations the ring could not accept because it was full.
 //
@@ -388,7 +404,14 @@ static MDNS_OBSERVATIONS: RingBuf = RingBuf::pinned(1 << 20, 0);
 // records through. A sender that varies its payload defeats this, which is what
 // the userspace watchdog is for.
 #[map(name = "mdns_seen")]
-static MDNS_SEEN: LruHashMap<MdnsSeenKey, u64> = LruHashMap::pinned(16384, 0);
+static MDNS_SEEN: LruHashMap<MdnsSeenKey, u64> = LruHashMap::pinned(MDNS_SEEN_MAX_ENTRIES, 0);
+
+// Same reasoning as L2_SEEN. Keyed by (interface, MAC, content hash), so a
+// device contributes one entry per distinct announcement it makes within the
+// refresh window rather than one entry total. 8192 covers a full /24 at ~30
+// distinct announcements each and costs ~0.75 MB; the map held 39 entries on a
+// live segment.
+const MDNS_SEEN_MAX_ENTRIES: u32 = 8192;
 
 #[repr(C)]
 #[derive(Copy, Clone, Eq, PartialEq)]

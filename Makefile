@@ -58,7 +58,9 @@ BAZEL_UNIT_TEST_FLAGS ?= $(BAZEL_CI_FLAGS)
 BAZEL_UNIT_TEST_FILTERS ?= --test_tag_filters=-integration_test,-acceptance_test
 
 # Every Mix project under elixir/, in the order CI walks them. Keep this in step with
-# run_quality in .forgejo/workflows/elixir-quality.yml -- that workflow is what gates a PR.
+# scripts/elixir_quality.sh workspace_projects and .github/workflows/elixir-quality.yml.
+# PRs gate format + Credo (--lint-only); the rest of the Mix contract runs daily from
+# //buildbuddy.yaml.
 #
 # This list used to be copied into lint-elixir, lint-elixir-dialyzer and format-elixir
 # separately, and all three drifted: they still named `connection` and `elixir_uuid`, deleted
@@ -626,6 +628,9 @@ generate-proto: ## Generate Go and Rust code from protobuf definitions
 		proto/agent/addon/v1/addon.proto
 	@protoc -I=proto -I=. \
 		--go_out=proto --go_opt=paths=source_relative \
+		proto/agent/discovery/v1/discovery.proto
+	@protoc -I=proto -I=. \
+		--go_out=proto --go_opt=paths=source_relative \
 		proto/metric/v1/metric.proto
 	@echo "$(COLOR_BOLD)Generated Go protobuf code$(COLOR_RESET)"
 
@@ -670,6 +675,8 @@ generate-proto-elixir: install-protoc-gen-elixir ## Generate Elixir code from pr
 		proto/desktop_media.proto \
 		proto/identitymap/v1/identity_map.proto \
 		proto/agent/netprobe/v1/netprobe.proto \
+		proto/agent/addon/v1/addon.proto \
+		proto/agent/discovery/v1/discovery.proto \
 		proto/metric/v1/metric.proto
 	@cd elixir/serviceradar_core && \
 		mix format --force "$(abspath $(ELIXIR_PROTO_OUT))/**/*.pb.ex"

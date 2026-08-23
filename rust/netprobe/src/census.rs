@@ -1357,7 +1357,7 @@ mod tests {
 }
 
 #[cfg(target_os = "linux")]
-mod runtime {
+pub mod runtime {
     use super::{
         CENSUS_RATE_CEILING_PER_SEC, CENSUS_WATCHDOG_INTERVAL, CensusTable, CensusWatchdog,
         DeviceObservation, SegmentScope, build_snapshot, parse_l2_ring_record,
@@ -1627,7 +1627,12 @@ mod runtime {
         }
     }
 
-    fn monotonic_now_ns() -> u64 {
+    /// Shared with the mDNS collector rather than duplicated.
+    ///
+    /// Both must read the SAME clock as bpf_ktime_get_ns (CLOCK_MONOTONIC); a
+    /// second copy that drifted to CLOCK_BOOTTIME would put every converted
+    /// timestamp out by the suspend offset, and only on machines that suspend.
+    pub fn monotonic_now_ns() -> u64 {
         let mut ts = libc::timespec {
             tv_sec: 0,
             tv_nsec: 0,
@@ -1644,7 +1649,8 @@ mod runtime {
             .saturating_add(ts.tv_nsec as u64)
     }
 
-    fn wall_now_ns() -> i64 {
+    /// Shared with the mDNS collector; see `monotonic_now_ns`.
+    pub fn wall_now_ns() -> i64 {
         SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .ok()

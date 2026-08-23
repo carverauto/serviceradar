@@ -77,8 +77,10 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.FlowDataTest do
     end
 
     test "never emits an empty list filter for a blank device uid" do
+      # An empty list would be worse than the slow query: device_addr:[] matches
+      # nothing, and dropping the scope entirely would widen to every flow.
       assert FlowData.device_scope_token("") =~ "device_id:"
-      refute FlowData.device_scope_token("") =~ "ip:["
+      refute FlowData.device_scope_token("") =~ "device_addr:["
     end
   end
 

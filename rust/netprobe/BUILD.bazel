@@ -14,7 +14,15 @@ NETPROBE_FEATURES = select({
     "//conditions:default": [],
 })
 
+NETPROBE_PROC_MACROS = [
+    # async-trait expands the Addon trait impl in src/addon_service.rs. It is a
+    # PROC MACRO, so it belongs here rather than in NETPROBE_DEPS -- rules_rs
+    # will not expand it from `deps`.
+    "@crates//:async-trait",
+]
+
 NETPROBE_DEPS = [
+    "//rust/addon-sdk:addon_sdk",
     "@crates//:anyhow",
     "@crates//:clap",
     "@crates//:crossbeam-channel",
@@ -33,6 +41,8 @@ NETPROBE_DEPS = [
     "@crates//:sha2",
     "@crates//:thiserror",
     "@crates//:tokio",
+    "@crates//:tokio-stream",
+    "@crates//:tonic",
 ] + select({
     "//build/platforms:target_linux_aarch64_musl": [
         "@crates//:aya",
@@ -71,7 +81,7 @@ NETPROBE_RUSTC_FLAGS = select({
     "//conditions:default": [],
 })
 
-NETPROBE_VERSION = "0.2.40"
+NETPROBE_VERSION = "0.2.44"
 
 cargo_build_script(
     name = "build_script",
@@ -114,6 +124,7 @@ cargo_build_script(
 
 rust_binary(
     name = "netprobe",
+    proc_macro_deps = NETPROBE_PROC_MACROS,
     srcs = glob(["src/**/*.rs"]),
     compile_data = [
         "//third_party/netprobe_corpora:p0f/p0f.fp",
@@ -132,6 +143,7 @@ rust_binary(
 # so they cannot drift from //rust/netprobe:netprobe. Only test-only extras are here.
 rust_test(
     name = "netprobe_test",
+    proc_macro_deps = NETPROBE_PROC_MACROS,
     crate = ":netprobe",
     data = ["//third_party/netprobe_corpora:satori_xml"],
     deps = ["@crates//:tempfile"],
@@ -206,6 +218,7 @@ go_test(
 # the cost is compiling the sources twice.
 rust_library(
     name = "netprobe_lib",
+    proc_macro_deps = NETPROBE_PROC_MACROS,
     srcs = glob(["src/**/*.rs"]),
     compile_data = [
         "//third_party/netprobe_corpora:p0f/p0f.fp",
@@ -225,6 +238,7 @@ rust_library(
 # criterion harness, so it is a rust_binary here and the runner just executes it.
 rust_binary(
     name = "af_xdp_cpu_bench_bin",
+    proc_macro_deps = NETPROBE_PROC_MACROS,
     srcs = ["benches/af_xdp_cpu.rs"],
     crate_features = NETPROBE_FEATURES,
     crate_root = "benches/af_xdp_cpu.rs",
@@ -234,6 +248,7 @@ rust_binary(
 
 rust_binary(
     name = "census_decode_cpu_bench_bin",
+    proc_macro_deps = NETPROBE_PROC_MACROS,
     srcs = ["benches/census_decode_cpu.rs"],
     crate_features = NETPROBE_FEATURES,
     crate_root = "benches/census_decode_cpu.rs",

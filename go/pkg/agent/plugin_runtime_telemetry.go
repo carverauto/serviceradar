@@ -275,6 +275,20 @@ func telemetryPayloadKindFromInt(value int64) (addonpb.TelemetryPayloadKind, err
 		return addonpb.TelemetryPayloadKind_TELEMETRY_PAYLOAD_KIND_OTLP_DERIVED_METRIC, nil
 	case addonpb.TelemetryPayloadKind_TELEMETRY_PAYLOAD_KIND_SERVICERADAR_METRICS:
 		return addonpb.TelemetryPayloadKind_TELEMETRY_PAYLOAD_KIND_SERVICERADAR_METRICS, nil
+	case addonpb.TelemetryPayloadKind_TELEMETRY_PAYLOAD_KIND_DISCOVERY_V1:
+		// Refused deliberately, and named rather than left to the default so the
+		// refusal is a decision rather than an oversight.
+		//
+		// DISCOVERY_V1 carries device observations about OTHER hosts into the
+		// inventory pipeline. This function maps a payload kind a WASM PLUGIN
+		// asked for; letting a plugin select it would let plugin-supplied bytes
+		// mint device identity on the native add-on path. Wasm plugins already
+		// have a route to inventory -- `plugin-result` into
+		// DeviceDiscoveryIngestor -- which is scoped and authenticated for that
+		// purpose. This is not.
+		return addonpb.TelemetryPayloadKind_TELEMETRY_PAYLOAD_KIND_UNSPECIFIED,
+			fmt.Errorf("%w: payload_kind discovery_v1 is not available to plugins",
+				errPluginTelemetryInvalidPayload)
 	case addonpb.TelemetryPayloadKind_TELEMETRY_PAYLOAD_KIND_UNSPECIFIED:
 		return addonpb.TelemetryPayloadKind_TELEMETRY_PAYLOAD_KIND_UNSPECIFIED,
 			fmt.Errorf("%w: unsupported payload_kind", errPluginTelemetryInvalidPayload)

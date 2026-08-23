@@ -33,7 +33,8 @@ use crate::{
     mdns::runtime::MdnsRuntime,
     metrics::Metrics,
     proto::netprobe::{
-        DeviceCensusSnapshot, DpiEvent, FingerprintEvent, FlowAttributionEvent, ProcessSnapshot,
+        DeviceCensusSnapshot, DpiEvent, FingerprintEvent, FlowAttributionEvent, MdnsSnapshot,
+        ProcessSnapshot,
     },
     runtime_config::{DpiEventGate, FingerprintEventGate},
 };
@@ -86,6 +87,7 @@ impl NetprobeEbpfRuntime {
         flow_attribution_events: Option<EventSender<Arc<FlowAttributionEvent>>>,
         process_snapshots: broadcast::Sender<ProcessSnapshot>,
         census_snapshots: broadcast::Sender<DeviceCensusSnapshot>,
+        mdns_snapshots: broadcast::Sender<MdnsSnapshot>,
         external_flow_matcher: SharedExternalFlowMatcher,
         fingerprint_gate: Arc<std::sync::Mutex<FingerprintEventGate>>,
         dpi_gate: Arc<DpiEventGate>,
@@ -151,6 +153,7 @@ impl NetprobeEbpfRuntime {
                 &mut ebpf,
                 &config.capture_interfaces,
                 census_snapshots,
+                mdns_snapshots,
             ) {
                 Ok((census, mdns)) => (Some(census), mdns),
                 Err(err) => {
@@ -197,14 +200,17 @@ impl NetprobeEbpfRuntime {
         // devices the census has already found, so losing it costs device TYPE
         // and nothing else. It must never be able to take down the census that
         // supplies the MAC binding it enriches.
-        let mdns_runtime =
-            match MdnsRuntime::start_from_ebpf(fingerprint_interface_name(config), &mut ebpf) {
-                Ok(runtime) => Some(runtime),
-                Err(err) => {
-                    log::warn!("netprobe mDNS collector disabled: {err:#}");
-                    None
-                }
-            };
+        let mdns_runtime = match MdnsRuntime::start_from_ebpf(
+            fingerprint_interface_name(config),
+            &mut ebpf,
+            mdns_snapshots.clone(),
+        ) {
+            Ok(runtime) => Some(runtime),
+            Err(err) => {
+                log::warn!("netprobe mDNS collector disabled: {err:#}");
+                None
+            }
+        };
         let interface_allowlist = populate_interface_allowlist(&mut ebpf, &interfaces)?;
         let sampling_runtime = AdaptiveSamplingRuntime::start(
             interface_allowlist,
@@ -252,6 +258,7 @@ impl NetprobeEbpfRuntime {
         ebpf: &mut Ebpf,
         capture_interfaces: &[String],
         census_snapshots: broadcast::Sender<DeviceCensusSnapshot>,
+        mdns_snapshots: broadcast::Sender<MdnsSnapshot>,
     ) -> Result<(DeviceCensusRuntime, Option<MdnsRuntime>)> {
         let interfaces = af_xdp::resolve_interfaces(capture_interfaces)
             .context("failed to resolve census interfaces")?;
@@ -260,23 +267,11 @@ impl NetprobeEbpfRuntime {
         let _allowlist = populate_interface_allowlist(ebpf, &interfaces)?;
         for interface in capture_interfaces {
             ensure_clsact(interface)?;
-            // Detach any netprobe_tc_ingress left behind by a previous run.
-            //
-            // Observed on a live host: three copies of this classifier were
-            // attached at once after three restarts, two of them from an older
-            // build, so every frame was processed by stale programs and the
-            // measured observation rate was meaningless. systemd restarts do
-            // not reliably drop the link, so re-attaching without detaching
-            // leaks a filter per restart.
-            match tc::qdisc_detach_program(interface, TcAttachType::Ingress, "netprobe_tc_ingress")
-            {
-                Ok(()) => log::info!("detached a stale netprobe_tc_ingress from {interface}"),
-                // NotFound simply means there was nothing stale to clean up.
-                Err(err) if err.kind() == io::ErrorKind::NotFound => {}
-                Err(err) => log::warn!(
-                    "could not detach a stale netprobe_tc_ingress from {interface}: {err}"
-                ),
-            }
+            // Census-only mode attaches ingress, but a PREVIOUS run may have
+            // been in full-capture mode and left an egress classifier behind.
+            // Clean both, or switching modes leaks the one this mode does not
+            // re-attach and therefore never replaces.
+            detach_stale_tc_programs(interface);
         }
         attach_tc_program(
             ebpf,
@@ -294,7 +289,7 @@ impl NetprobeEbpfRuntime {
 
         // Failure here costs device TYPE, not device presence. The census must
         // survive it.
-        let mdns = match MdnsRuntime::start_from_ebpf(interface, ebpf) {
+        let mdns = match MdnsRuntime::start_from_ebpf(interface, ebpf, mdns_snapshots) {
             Ok(mdns) => {
                 log::info!(
                     "netprobe mDNS collector active on {}",
@@ -613,18 +608,63 @@ fn setup_tc_tail_calls(ebpf: &mut Ebpf) -> Result<()> {
     Ok(())
 }
 
+// Every netprobe TC classifier, with the attach point it belongs to.
+//
+// Kept as one list so a detach sweep cannot fall behind the attach path: adding
+// a classifier here is what makes the stale-cleanup cover it.
+const NETPROBE_TC_PROGRAMS: [(&str, TcAttachType); 2] = [
+    ("netprobe_tc_ingress", TcAttachType::Ingress),
+    ("netprobe_tc_egress", TcAttachType::Egress),
+];
+
+/// Detach netprobe TC classifiers left behind by a previous run.
+///
+/// Re-attaching without this LEAKS A FILTER PER RESTART. TC permits several
+/// filters at the same priority, so a second attach stacks rather than
+/// replacing, and the kernel then runs every copy on every frame.
+///
+/// Observed on a live host: three copies of `netprobe_tc_ingress` attached at
+/// once after three restarts, two of them from an older build. Every frame was
+/// processed by stale programs and the measured observation rate was
+/// meaningless -- the leak corrupts measurements long before it exhausts
+/// anything.
+///
+/// systemd restarts do not reliably drop the link, and the unit is
+/// `Restart=always`, so this runs before every attach rather than only on a
+/// clean start.
+///
+/// Best-effort by design: a failure to clean up must not stop netprobe from
+/// starting, because a host with a stale filter and no running collector is
+/// strictly worse than one with a duplicate.
+fn detach_stale_tc_programs(interface: &str) {
+    for (name, attach_type) in NETPROBE_TC_PROGRAMS {
+        match tc::qdisc_detach_program(interface, attach_type, name) {
+            Ok(()) => log::info!("detached a stale {name} from {interface}"),
+            // NotFound simply means there was nothing stale to clean up.
+            Err(err) if err.kind() == io::ErrorKind::NotFound => {}
+            Err(err) => log::warn!("could not detach a stale {name} from {interface}: {err}"),
+        }
+    }
+}
+
 fn attach_tc_programs(ebpf: &mut Ebpf, interfaces: &[String]) -> Result<()> {
     for interface in interfaces {
         ensure_clsact(interface)?;
+        // Full-capture mode attaches TWO classifiers, and neither replaces a
+        // previous copy of itself. Without this the leak is two filters per
+        // restart rather than one.
+        detach_stale_tc_programs(interface);
     }
 
-    attach_tc_program(
-        ebpf,
-        "netprobe_tc_ingress",
-        interfaces,
-        TcAttachType::Ingress,
-    )?;
-    attach_tc_program(ebpf, "netprobe_tc_egress", interfaces, TcAttachType::Egress)
+    // Iterating the same list the detach sweep uses, rather than naming the two
+    // classifiers again here. Naming them twice is how the sweep fell behind in
+    // the first place: egress was added to the attach path and not to the
+    // cleanup, so it leaked on every restart while ingress did not.
+    for (name, attach_type) in NETPROBE_TC_PROGRAMS {
+        attach_tc_program(ebpf, name, interfaces, attach_type)?;
+    }
+
+    Ok(())
 }
 
 // Returns true if `interface` carries the host's IPv4 or IPv6 default route.

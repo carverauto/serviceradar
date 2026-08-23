@@ -25,6 +25,14 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
   require Ash.Query
   require Logger
 
+  # Minimum score for a role to be asserted at all; below this the device is
+  # "unknown". Deliberately a compile-time constant rather than config: this is a
+  # heuristic with fleet-wide reach, and a value that can be turned during an
+  # incident would reclassify every device with no review. Note `host` cannot
+  # reach it (its terms total 45) -- see the issue on the role heuristic; that is
+  # currently harmless because no branch distinguishes "host" from "unknown".
+  @role_score_threshold 50
+
   @unifi_interface_metadata_keys ~w(
     unifi_api_urls
     unifi_api_names
@@ -983,15 +991,45 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
     if valid_alias_ip?(current_ip), do: [current_ip], else: []
   end
 
-  defp candidate_ips_for_role(
+  @doc """
+  Which addresses seen alongside a device should be seeded as separate devices.
+
+  Public as a testable seam: the distinction between a device's own interface
+  addresses and genuinely different neighbours is the whole correctness question
+  here, and getting it wrong mints duplicate device records.
+  """
+  def candidate_ips_for_role(role, stable_interface_ips, mismatched_device_ips, alias_ips),
+    do: do_candidate_ips_for_role(role, stable_interface_ips, mismatched_device_ips, alias_ips)
+
+  defp do_candidate_ips_for_role(
          "router",
          _stable_interface_ips,
          _mismatched_device_ips,
          _alias_ips
        ), do: []
 
-  defp candidate_ips_for_role(_role, stable_interface_ips, mismatched_device_ips, alias_ips) do
-    (stable_interface_ips ++ mismatched_device_ips)
+  # `stable_interface_ips` are addresses on THIS device's own interfaces
+  # (grouped_stable_interface_ips/2 filters to records whose device_ip is the
+  # device being processed). They are never candidates for a SEPARATE device,
+  # whatever the role: a device cannot be its own neighbour.
+  #
+  # They used to be included here, and the router clause above was the only thing
+  # preventing the consequence. For any other role the device's own addresses
+  # fell through to create_candidate_devices/4, and because non-routers receive
+  # no interface-derived aliases there was no alias to suppress them either --
+  # so ensure_candidate_device/4 found no device and no alias at that address and
+  # minted a phantom.
+  #
+  # Observed on farm01: switch `switchcff8f2` (sr:f3f0e473, 192.168.2.55) reports
+  # its out-of-band management address 192.168.1.143 on an `oob` interface, and
+  # that address became sr:eab6cd98 -- a second device record with no hostname
+  # and no MAC, tagged identity_source=mapper_client_ip_candidate_seed. One
+  # physical switch, two records.
+  #
+  # `mismatched_device_ips` stay: those are other device_ips seen in the same
+  # group, i.e. genuinely different devices, which is what this seeding is for.
+  defp do_candidate_ips_for_role(_role, _stable_interface_ips, mismatched_device_ips, alias_ips) do
+    mismatched_device_ips
     |> Enum.reject(&(&1 in alias_ips))
     |> Enum.uniq()
   end
@@ -1029,12 +1067,25 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
   end
 
   defp infer_device_role(grouped, current_ip) do
-    metrics = device_role_metrics(grouped, current_ip)
+    grouped
+    |> device_role_metrics(current_ip)
+    |> role_for_metrics()
+  end
 
+  @doc """
+  Scores the role candidates for an already-computed metrics map.
+
+  Public as a testable seam: `infer_device_role/2` needs a set of interface
+  records to derive metrics from, which makes the scoring rules themselves
+  awkward to pin down. The rules are a cliff-edged heuristic where the
+  interesting behaviour lives at exact boundaries, so they are worth asserting
+  directly rather than through fixtures.
+  """
+  def role_for_metrics(metrics) do
     {best_role, best_score} =
       Enum.max_by(role_candidates(metrics), fn {_role, score} -> score end)
 
-    if best_score < 50 do
+    if best_score < @role_score_threshold do
       %{role: "unknown", confidence: best_score, source: "mapper_role_heuristic_v1"}
     else
       %{role: best_role, confidence: best_score, source: "mapper_role_heuristic_v1"}
@@ -1112,6 +1163,28 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
   defp switch_l2_role_score(metrics) do
     0
     |> add_score(metrics.stable_l3_alias_count == 0, 35)
+    # A switch with strong L2 evidence keeps its role when it picks up one or
+    # two L3 aliases -- an out-of-band management address, or a global IPv6 now
+    # that ipAddressTable is walked. Without this the 35 above is all-or-nothing:
+    # a single alias dropped a switch from 75 to 40, below the threshold, and the
+    # best alternative (host, 45) is also below it, so the device landed on
+    # "unknown" until the count reached 3 and router took over. The dead zone was
+    # two counts wide.
+    #
+    # Deliberately +25, not +35: at +35 the term clears the threshold without
+    # `device_ip_count == 1`, which would also promote devices seen under several
+    # device_ips -- exactly the split-record shape, where the right fix is
+    # identity merging rather than a role that hides it. 65 also reads honestly
+    # as less confident than the 75 a zero-alias switch earns.
+    #
+    # The two alias terms are disjoint only by their literal bounds (== 0 versus
+    # 1..2). Widening either without narrowing the other makes both fire and
+    # scores a zero-alias switch BELOW today's 75. Keep them disjoint.
+    |> add_score(
+      metrics.stable_l3_alias_count in 1..2 and metrics.physical_like_count >= 8 and
+        metrics.wireless_like_count == 0,
+      25
+    )
     |> add_score(metrics.device_ip_count == 1, 20)
     |> add_score(metrics.physical_like_count >= 8, 20)
   end
@@ -1221,19 +1294,14 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
     end
   end
 
-  defp valid_alias_ip?(nil), do: false
-  defp valid_alias_ip?(""), do: false
-  defp valid_alias_ip?("0.0.0.0"), do: false
-  defp valid_alias_ip?("::"), do: false
-  defp valid_alias_ip?("::1"), do: false
+  @doc """
+  Whether an address may be recorded as a device alias.
 
-  defp valid_alias_ip?(ip) when is_binary(ip) do
-    case :inet.parse_address(to_charlist(ip)) do
-      {:ok, {127, _, _, _}} -> false
-      {:ok, _} -> true
-      _ -> false
-    end
-  end
+  Delegates to `ServiceRadar.Identity.AliasPolicy`, which is shared with the
+  AliasEvents producer so both enforce one rule. Kept public because tests and
+  callers in this module reference it directly.
+  """
+  defdelegate valid_alias_ip?(value), to: ServiceRadar.Identity.AliasPolicy
 
   # Resolve device_ids from device_ip addresses by looking up existing devices.
   # The agent sends device_id as "partition:ip" but Device.uid is "sr:<uuid>".

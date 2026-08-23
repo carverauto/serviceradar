@@ -650,12 +650,35 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
   # Durable ingestion is stamped from the gateway-authenticated view, so the
   # partition must come from mTLS-derived metadata, never from the payload.
   defp status_partition(service, metadata, source) do
-    if strict_delivery_source?(source, metadata) do
+    if mtls_partition_source?(source, metadata) do
       normalize_partition(metadata.partition)
     else
       normalize_partition(service.partition || metadata.partition)
     end
   end
+
+  # Which sources have their partition forced from the certificate.
+  #
+  # Deliberately a SUPERSET of strict_delivery_source?/2 rather than an addition
+  # to @strict_delivery_sources, because that list does a second, unrelated
+  # thing: a strict-delivery status bypasses the lenient rescue, so any
+  # exception raised while handling it aborts the whole chunk instead of being
+  # swallowed. Adding "addon:" there would change failure semantics for
+  # otel-collector, powerdns, anomaly-addon and bumblebee at the same time --
+  # which is a fleet-wide blast radius for what is meant to be a stamping fix.
+  #
+  # Native add-on telemetry becomes durable inventory and OCSF events, so the
+  # partition it lands under must be the authenticated one and not a value the
+  # add-on supplied. `plugin:` (the wasm package-telemetry prefix) is left alone
+  # here on purpose: wasm inventory writes arrive as the separate
+  # `plugin-result` source, which already has its own conditional strict
+  # handling.
+  defp mtls_partition_source?(source, metadata) do
+    strict_delivery_source?(source, metadata) or addon_telemetry_source?(source)
+  end
+
+  defp addon_telemetry_source?("addon:" <> _addon_id), do: true
+  defp addon_telemetry_source?(_source), do: false
 
   defp normalize_service_message(nil, source), do: normalize_message("", source)
 
