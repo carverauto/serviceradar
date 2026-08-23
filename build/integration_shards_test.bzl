@@ -1,6 +1,6 @@
 """Contract tests for the ordinary core integration shard topology."""
 
-load("@bazel_skylib//lib:unittest.bzl", "asserts", "unittest")
+load("@bazel_skylib//lib:unittest.bzl", "analysistest", "asserts", "unittest")
 load(
     ":integration_shards.bzl",
     "FIXED_EXTERNAL_RESOURCE_SHARD",
@@ -10,6 +10,38 @@ load(
     "integration_shard_names",
     "integration_test_env",
     "partition_by_shard",
+)
+
+_FIXED_EXTERNAL_RESOURCE_SRCS = [
+    "test/integration/netflow_ingestion_integration_test.exs",
+    "test/integration/proxmox_api_smoke_integration_test.exs",
+    "test/serviceradar/scans/adhoc_scan_nats_e2e_test.exs",
+]
+
+_ORDINARY_SRCS = ["test/ordinary_{}.exs".format(index) for index in range(8)]
+
+def _missing_fixed_source_impl(_ctx):
+    partition_by_shard(
+        [
+            _FIXED_EXTERNAL_RESOURCE_SRCS[0],
+            _FIXED_EXTERNAL_RESOURCE_SRCS[2],
+        ] + _ORDINARY_SRCS,
+    )
+    return []
+
+missing_fixed_source = rule(implementation = _missing_fixed_source_impl)
+
+def _missing_fixed_source_failure_test_impl(ctx):
+    env = analysistest.begin(ctx)
+    asserts.expect_failure(
+        env,
+        "fixed external resource source is absent from integration sources: test/integration/proxmox_api_smoke_integration_test.exs",
+    )
+    return analysistest.end(env)
+
+missing_fixed_source_failure_test = analysistest.make(
+    _missing_fixed_source_failure_test_impl,
+    expect_failure = True,
 )
 
 def _integration_shards_topology_test_impl(ctx):
@@ -26,12 +58,12 @@ def _integration_shards_topology_test_impl(ctx):
     asserts.equals(env, "large_ingestion", LARGE_INGESTION_DB_SHARD)
     asserts.equals(env, "s7", FIXED_EXTERNAL_RESOURCE_SHARD)
 
-    fixed_sources = fixed_external_resource_sources()
-    ordinary_sources = ["test/ordinary_{}.exs".format(index) for index in range(8)]
-    sources = fixed_sources + ordinary_sources
+    asserts.equals(env, _FIXED_EXTERNAL_RESOURCE_SRCS, fixed_external_resource_sources())
+
+    sources = _FIXED_EXTERNAL_RESOURCE_SRCS + _ORDINARY_SRCS
     partitions = partition_by_shard(sources)
 
-    for source in fixed_sources:
+    for source in _FIXED_EXTERNAL_RESOURCE_SRCS:
         asserts.equals(
             env,
             1,

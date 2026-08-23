@@ -1,6 +1,11 @@
 # Package placeholder for repository alias helper.
 load("@bazel_skylib//rules:common_settings.bzl", "bool_flag", "string_flag")
-load(":integration_shards_test.bzl", "integration_shards_topology_test")
+load(
+    ":integration_shards_test.bzl",
+    "integration_shards_topology_test",
+    "missing_fixed_source",
+    "missing_fixed_source_failure_test",
+)
 load(":run_id.bzl", "run_id_file")
 
 package(default_visibility = ["//visibility:public"])
@@ -9,14 +14,27 @@ integration_shards_topology_test(
     name = "integration_shards_topology_test",
 )
 
+missing_fixed_source(
+    name = "missing_fixed_source",
+)
+
+missing_fixed_source_failure_test(
+    name = "missing_fixed_source_failure_test",
+    target_under_test = ":missing_fixed_source",
+)
+
 test_suite(
     name = "integration_shards_test",
-    tests = [":integration_shards_topology_test"],
+    tests = [
+        ":integration_shards_topology_test",
+        ":missing_fixed_source_failure_test",
+    ],
 )
 
 exports_files([
         "benchmark_runner.py",
     "elixir_test_config_loader.exs",
+    "integration_shards.bzl",
     "repo_alias.bzl",
 ])
 

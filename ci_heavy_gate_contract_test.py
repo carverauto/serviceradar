@@ -13,11 +13,33 @@ OBSERVER_SOURCE = ROOT / "rust/integration-db/src/connection_observer.rs"
 OBSERVER_BINARY = ROOT / "rust/integration-db/src/bin/observe_connections.rs"
 OBSERVER_BUILD = ROOT / "rust/integration-db/BUILD.bazel"
 CORE_BUILD = ROOT / "elixir/serviceradar_core/BUILD.bazel"
-FIXED_EXTERNAL_RESOURCE_SOURCES = (
-    ROOT / "elixir/serviceradar_core/test/integration/netflow_ingestion_integration_test.exs",
-    ROOT / "elixir/serviceradar_core/test/integration/proxmox_api_smoke_integration_test.exs",
-    ROOT / "elixir/serviceradar_core/test/serviceradar/scans/adhoc_scan_nats_e2e_test.exs",
+INTEGRATION_SHARDS = ROOT / "build/integration_shards.bzl"
+TEST_HELPER = ROOT / "elixir/serviceradar_core/test/test_helper.exs"
+FIXED_EXTERNAL_RESOURCE_PATHS = (
+    "test/integration/netflow_ingestion_integration_test.exs",
+    "test/integration/proxmox_api_smoke_integration_test.exs",
+    "test/serviceradar/scans/adhoc_scan_nats_e2e_test.exs",
 )
+
+
+def fixed_external_resource_sources() -> tuple[str, ...]:
+    source = INTEGRATION_SHARDS.read_text(encoding="utf-8")
+    match = re.search(
+        r"_FIXED_EXTERNAL_RESOURCE_SRCS = \[\n(?P<sources>.*?)\n\]",
+        source,
+        re.DOTALL,
+    )
+    if not match:
+        raise AssertionError("_FIXED_EXTERNAL_RESOURCE_SRCS is missing")
+    return tuple(re.findall(r'^    "([^"]+)",$', match.group("sources"), re.MULTILINE))
+
+
+def integration_only_branch() -> str:
+    source = TEST_HELPER.read_text(encoding="utf-8")
+    selection = 'if System.get_env("SERVICERADAR_ONLY_INTEGRATION") in ["1", "true", "TRUE"] do'
+    start = source.index(selection)
+    end = source.index("  else\n    ExUnit.start(", start)
+    return source[start:end]
 
 
 def integration_benchmark_action() -> str:
@@ -183,7 +205,10 @@ class IntegrationBenchmarkContractTest(unittest.TestCase):
         self.assertLess(cleanup.index('exit "$OBSERVER_STATUS"'), cleanup.index('exit "$TEARDOWN_STATUS"'))
 
     def test_fixed_external_resource_sources_are_serial_data_cases(self):
-        for source in FIXED_EXTERNAL_RESOURCE_SOURCES:
+        self.assertEqual(FIXED_EXTERNAL_RESOURCE_PATHS, fixed_external_resource_sources())
+
+        for relative_path in FIXED_EXTERNAL_RESOURCE_PATHS:
+            source = ROOT / "elixir/serviceradar_core" / relative_path
             self.assertEqual(
                 1,
                 source.read_text(encoding="utf-8").count(
@@ -199,6 +224,28 @@ class IntegrationBenchmarkContractTest(unittest.TestCase):
 
         self.assertIn("env = integration_test_env(shard)", generated_targets)
         self.assertNotIn("SERVICERADAR_INTEGRATION_MAX_CASES", unit_tests)
+
+    def test_integration_cap_is_parsed_before_starting_ex_unit(self):
+        source = TEST_HELPER.read_text(encoding="utf-8")
+        selection = 'if System.get_env("SERVICERADAR_ONLY_INTEGRATION") in ["1", "true", "TRUE"] do'
+        branch = integration_only_branch()
+        outside_branch = source[: source.index(selection)] + source[source.index(branch) + len(branch) :]
+
+        parser_assignment = branch.index("integration_max_cases =")
+        parser_call = branch.index("ServiceRadar.TestSupport.integration_max_cases!", parser_assignment)
+        environment_read = branch.index(
+            'System.get_env("SERVICERADAR_INTEGRATION_MAX_CASES")', parser_call
+        )
+        ex_unit_start = branch.index("ExUnit.start(", environment_read)
+        max_cases_option = branch.index("max_cases: integration_max_cases", ex_unit_start)
+
+        self.assertLess(branch.index(selection), parser_assignment)
+        self.assertLess(parser_assignment, parser_call)
+        self.assertLess(parser_call, environment_read)
+        self.assertLess(environment_read, ex_unit_start)
+        self.assertLess(ex_unit_start, max_cases_option)
+        self.assertNotIn("integration_max_cases!", outside_branch)
+        self.assertNotIn("max_cases: integration_max_cases", outside_branch)
 
 
 if __name__ == "__main__":
