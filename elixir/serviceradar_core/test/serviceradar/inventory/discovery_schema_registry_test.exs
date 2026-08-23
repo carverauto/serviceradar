@@ -97,6 +97,15 @@ defmodule ServiceRadar.Inventory.DiscoverySchemaRegistryTest do
         assert is_nil(entry.identity_source) or
                  (is_binary(entry.identity_source) and entry.identity_source != ""),
                "#{schema}: identity_source must be a non-empty string or nil"
+
+        # A registered schema with no working decoder is a schema whose payloads
+        # are accepted and then dropped -- exactly the silent-discard shape the
+        # loud-drop rule exists to prevent, moved one level up.
+        assert Code.ensure_loaded?(entry.decoder),
+               "#{schema}: decoder #{inspect(entry.decoder)} does not exist"
+
+        assert function_exported?(entry.decoder, :decode, 1),
+               "#{schema}: decoder #{inspect(entry.decoder)} does not export decode/1"
       end
     end
 
