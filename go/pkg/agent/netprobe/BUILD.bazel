@@ -61,3 +61,12 @@ go_test(
         "@org_golang_google_protobuf//proto",
     ],
 )
+
+# The golden fixtures are consumed by the Elixir parity test as well as by the Go
+# test that produces them, so they are a declared, visible input rather than a
+# path someone reaches for. ex_unit_test stages only srcs and data.
+filegroup(
+    name = "discovery_golden_fixtures",
+    srcs = glob(["testdata/discovery_golden/*.json"]),
+    visibility = ["//visibility:public"],
+)

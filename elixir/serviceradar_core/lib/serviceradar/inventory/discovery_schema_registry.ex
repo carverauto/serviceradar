@@ -32,12 +32,15 @@ defmodule ServiceRadar.Inventory.DiscoverySchemaRegistry do
   disarmed, which is worse than being obviously broken.
   """
 
+  alias ServiceRadar.Inventory.Discovery.Decoders
+
   @type policy_class :: :passive_census | :enrichment_only | :standard
 
   @type entry :: %{
           source: String.t(),
           identity_source: String.t() | nil,
-          policy_class: policy_class()
+          policy_class: policy_class(),
+          decoder: module()
         }
 
   # Only schemas whose source string and identity_source are already decided by
@@ -51,12 +54,14 @@ defmodule ServiceRadar.Inventory.DiscoverySchemaRegistry do
     "serviceradar.netprobe.census.v1" => %{
       source: "netprobe-census",
       identity_source: "netprobe_census",
-      policy_class: :passive_census
+      policy_class: :passive_census,
+      decoder: Decoders.Census
     },
     "serviceradar.netprobe.mdns.v1" => %{
       source: "netprobe-mdns",
       identity_source: "netprobe_mdns",
-      policy_class: :enrichment_only
+      policy_class: :enrichment_only,
+      decoder: Decoders.Mdns
     }
   }
 
