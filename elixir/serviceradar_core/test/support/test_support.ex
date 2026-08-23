@@ -113,7 +113,7 @@ defmodule ServiceRadar.TestSupport do
 
   def validate_sandbox_allowance!(result, child_pid) do
     raise ArgumentError,
-          "could not allow test-owned child #{inspect(child_pid)} in the SQL sandbox: #{inspect(result)}"
+          "SQL sandbox allowance failed for test-owned child #{inspect(child_pid)}: #{inspect(result)}"
   end
 
   @doc false
