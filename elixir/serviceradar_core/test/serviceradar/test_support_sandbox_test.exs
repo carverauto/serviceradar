@@ -55,15 +55,16 @@ defmodule ServiceRadar.TestSupportSandboxTest do
 
   test "stopping one non-shared owner leaves the other owner usable" do
     with_probe_table(fn qualified_table ->
-      with_owner_runner(fn runner_a ->
-        with_owner_runner(fn runner_b ->
+      with_owner_runner(fn runner_a, owner_a ->
+        with_owner_runner(fn runner_b, _owner_b ->
           assert %{num_rows: 1} =
                    owner_runner_query(runner_a, "INSERT INTO #{qualified_table} (id) VALUES (1)")
 
           assert %{rows: [[0]]} =
                    owner_runner_query(runner_b, "SELECT count(*) FROM #{qualified_table}")
 
-          stop_test_process(runner_a)
+          stop_owner_runner(runner_a, owner_a)
+          assert_owner_stopped(owner_a)
 
           assert %{num_rows: 1} =
                    owner_runner_query(runner_b, "INSERT INTO #{qualified_table} (id) VALUES (2)")
@@ -108,7 +109,7 @@ defmodule ServiceRadar.TestSupportSandboxTest do
           assert_receive {:child_rows, ^child, %{rows: [[1]]}}, 1_000
           assert_receive {:DOWN, ^child_ref, :process, ^child, :normal}, 1_000
 
-          with_owner_runner(fn other_runner ->
+          with_owner_runner(fn other_runner, _other_owner ->
             assert %{rows: [[0]]} =
                      owner_runner_query(other_runner, "SELECT count(*) FROM #{qualified_table}")
           end)
@@ -206,7 +207,7 @@ defmodule ServiceRadar.TestSupportSandboxTest do
         owner = Sandbox.start_owner!(Repo, shared: false)
 
         try do
-          send(parent, {:owner_runner_started, self()})
+          send(parent, {:owner_runner_started, self(), owner})
           owner_runner_loop(owner)
         after
           TestSupport.stop_repo_owner(owner, shared: false)
@@ -214,11 +215,11 @@ defmodule ServiceRadar.TestSupportSandboxTest do
       end)
 
     receive do
-      {:owner_runner_started, ^runner} ->
+      {:owner_runner_started, ^runner, owner} ->
         try do
-          fun.(runner)
+          fun.(runner, owner)
         after
-          stop_test_process(runner)
+          stop_owner_runner(runner, owner)
         end
 
       {:DOWN, ^ref, :process, ^runner, reason} ->
@@ -236,7 +237,8 @@ defmodule ServiceRadar.TestSupportSandboxTest do
         send(parent, {:owner_runner_query_result, self(), Repo.query!(query)})
         owner_runner_loop(owner)
 
-      {:stop, _parent} ->
+      {:stop, parent} ->
+        send(parent, {:owner_runner_stopping, self(), owner})
         :ok
     end
   end
@@ -245,6 +247,30 @@ defmodule ServiceRadar.TestSupportSandboxTest do
     send(runner, {:query, self(), query})
     assert_receive {:owner_runner_query_result, ^runner, result}, 1_000
     result
+  end
+
+  defp stop_owner_runner(runner, owner) do
+    ref = Process.monitor(runner)
+    send(runner, {:stop, self()})
+
+    receive do
+      {:owner_runner_stopping, ^runner, ^owner} ->
+        assert_receive {:DOWN, ^ref, :process, ^runner, :normal}, 1_000
+
+      {:DOWN, ^ref, :process, ^runner, _reason} ->
+        :ok
+    after
+      1_000 ->
+        TestSupport.stop_repo_owner(owner, shared: false)
+        stop_test_process(runner)
+    end
+
+    TestSupport.stop_repo_owner(owner, shared: false)
+  end
+
+  defp assert_owner_stopped(owner) do
+    ref = Process.monitor(owner)
+    assert_receive {:DOWN, ^ref, :process, ^owner, _reason}, 1_000
   end
 
   defp stop_test_process(pid) do
