@@ -11,8 +11,8 @@ classes:
 
 Every lane receives a distinct disposable database cloned on ``srql-fixtures``. A 12-connection
 Repo pool gives an eight-case async BEAM four checkout slots of headroom for test-supervised child
-processes. Those slots are not reserved for deployed applications: no application, demo, or
-production workload participates in this test topology.
+processes. Those slots are not reserved for deployed applications: no deployed ServiceRadar
+application, demo, or production workload participates in this test topology.
 
 The fixture currently reports 197 usable client slots (200 max minus three superuser-reserved).
 The checked-in core topology consumes at most 96 configured pool slots. The ordinary wildcard also
