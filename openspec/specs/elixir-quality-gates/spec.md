@@ -49,6 +49,12 @@ Compile-time warning checks, xref, dependency auditing, Dialyzer, Sobelow, and t
 - **THEN** GitHub Actions runs `mix format --check-formatted` and `mix credo --strict` for `elixir/web-ng`
 - **AND** the pull request fails if formatting or Credo fails
 - **AND** the pull request does not wait on compile-time warning checks, xref, dependency auditing, Dialyzer, or Sobelow
+- **AND** other Mix-project quality jobs still report the required check name but do not run `mix deps.compile`
+
+#### Scenario: Untouched Mix projects do not Mix-compile on a pull request
+
+- **WHEN** a pull request changes files under `elixir/web-ng/` and does not change another Mix project or shared analyzer inputs
+- **THEN** GitHub Actions does not run `mix deps.get` or `mix deps.compile` for `elixir/datasvc`, `elixir/palisade`, `elixir/serviceradar_agent_gateway`, `elixir/serviceradar_core`, `elixir/serviceradar_core_elx`, or `elixir/serviceradar_srql`
 
 #### Scenario: Pull request changes core Elixir code
 
