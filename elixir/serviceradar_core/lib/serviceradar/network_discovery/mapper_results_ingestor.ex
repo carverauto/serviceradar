@@ -936,7 +936,14 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
     candidate_ips =
       candidate_ips_for_role(role.role, stable_interface_ips, mismatched_device_ips, alias_ips)
 
-    metadata = build_alias_metadata(alias_ips, latest_ts, role, candidate_ips)
+    # Addresses on this device's own interfaces that did NOT become identity
+    # aliases. For a router alias_ips already covers them, so this is empty;
+    # for every other role it is the set that used to be silently dropped (and
+    # before that, minted as phantom devices -- see candidate_ips_for_role/4).
+    interface_ips = Enum.reject(stable_interface_ips, &(&1 in alias_ips))
+
+    metadata =
+      build_alias_metadata(alias_ips, latest_ts, role, candidate_ips, interface_ips)
 
     %{
       device_id: device_id,
@@ -1034,9 +1041,9 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
     |> Enum.uniq()
   end
 
-  defp build_alias_metadata([], _timestamp, _role, _candidate_ips), do: %{}
+  defp build_alias_metadata([], _timestamp, _role, _candidate_ips, _interface_ips), do: %{}
 
-  defp build_alias_metadata(alias_ips, timestamp, role, candidate_ips) do
+  defp build_alias_metadata(alias_ips, timestamp, role, candidate_ips, interface_ips) do
     ts_string =
       timestamp
       |> DateTime.truncate(:second)
@@ -1045,6 +1052,19 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
     alias_ips
     |> Enum.reduce(%{}, fn ip, acc ->
       Map.put(acc, "ip_alias:#{ip}", ts_string)
+    end)
+    # A DIFFERENT key prefix, producing a DIFFERENT alias_type. These addresses
+    # are recorded so they are attributable to the device rather than orphaned,
+    # but `:interface_ip` is not consulted by any identity reader, so they cannot
+    # merge devices. Interface tables carry addresses that several devices
+    # legitimately share -- VRRP/HSRP virtual IPs, EVPN anycast gateways, cluster
+    # VIPs, Junos internals like 10.0.0.4 -- and merge_audit already holds 212
+    # alias-driven merges, so routing these to `ip_alias:` would be feeding a
+    # mechanism with a demonstrated failure mode.
+    |> then(fn acc ->
+      Enum.reduce(interface_ips, acc, fn ip, inner ->
+        Map.put(inner, "interface_ip_alias:#{ip}", ts_string)
+      end)
     end)
     |> Map.put("_alias_last_seen_at", ts_string)
     |> Map.put("_alias_last_seen_ip", List.first(alias_ips))
