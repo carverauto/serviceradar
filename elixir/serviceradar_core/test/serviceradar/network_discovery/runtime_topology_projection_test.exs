@@ -20,6 +20,45 @@ defmodule ServiceRadar.NetworkDiscovery.RuntimeTopologyProjectionTest do
     assert query =~ "type(r) IN ['ATTACHED_TO', 'OBSERVED_TO']"
   end
 
+  test "graph_projection_query/0 projects inferred-segment device attachments as attachment rows" do
+    query = RuntimeTopologyProjection.graph_projection_query()
+
+    assert query =~ "toUpper(coalesce(r.relation_type, '')) = 'ATTACHED_TO'"
+    assert query =~ "toLower(coalesce(r.evidence_class, '')) = 'inferred-segment'"
+    assert query =~ "evidence_class: coalesce(r.evidence_class, 'inferred-segment')"
+
+    assert query =~ "topology_plane: 'attachment'"
+
+    # the inferred-segment branch must be its own UNION part with the same row shape
+    assert query =~ "UNION ALL\nMATCH (a:Device)-[r:CANONICAL_TOPOLOGY]->(b:Device)"
+  end
+
+  test "projection_attrs_from_graph_rows/1 maps inferred-segment device rows to the attachment plane" do
+    rows = [
+      %{
+        "row" => %{
+          "local_device_id" => "sr:endpoint",
+          "neighbor_device_id" => "sr:switch",
+          "observed_at" => "",
+          "evidence_class" => "inferred-segment",
+          "metadata" => %{
+            "relation_type" => "ATTACHED_TO",
+            "topology_plane" => "attachment",
+            "evidence_class" => "inferred-segment"
+          }
+        }
+      }
+    ]
+
+    [attrs] = RuntimeTopologyProjection.projection_attrs_from_graph_rows(rows)
+
+    assert attrs.topology_plane == "attachment"
+    assert attrs.relation_type == "ATTACHED_TO"
+    assert attrs.evidence_class == "inferred-segment"
+    assert attrs.local_device_id == "sr:endpoint"
+    assert attrs.neighbor_device_id == "sr:switch"
+  end
+
   test "projection_attrs_from_graph_rows/1 unwraps AGE row payloads into SQL projection attrs" do
     rows = [
       %{

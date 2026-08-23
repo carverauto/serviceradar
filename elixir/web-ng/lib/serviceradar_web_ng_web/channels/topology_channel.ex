@@ -9,7 +9,7 @@ defmodule ServiceRadarWebNGWeb.TopologyChannel do
 
   @tick_ms 5_000
   @binary_magic "GVB1"
-  @expanded_cluster_limit 1
+  @default_expanded_cluster_limit 4
 
   @impl true
   def join("topology:god_view", _payload, socket) do
@@ -22,7 +22,7 @@ defmodule ServiceRadarWebNGWeb.TopologyChannel do
 
       true ->
         send(self(), :tick)
-        {:ok, socket |> assign(:last_snapshot_revision, nil) |> assign(:expanded_clusters, MapSet.new())}
+        {:ok, socket |> assign(:last_snapshot_revision, nil) |> assign(:expanded_clusters, [])}
     end
   end
 
@@ -37,7 +37,7 @@ defmodule ServiceRadarWebNGWeb.TopologyChannel do
   @impl true
   def handle_in("cluster:set_expanded", %{"cluster_id" => cluster_id, "expanded" => expanded}, socket)
       when is_binary(cluster_id) do
-    expanded_clusters = socket.assigns[:expanded_clusters] || MapSet.new()
+    expanded_clusters = socket.assigns[:expanded_clusters] || []
     expanded_clusters = next_expanded_clusters(expanded_clusters, cluster_id, expanded)
 
     socket =
@@ -55,7 +55,7 @@ defmodule ServiceRadarWebNGWeb.TopologyChannel do
   def handle_in("cluster:collapse_all", _payload, socket) do
     socket =
       socket
-      |> assign(:expanded_clusters, MapSet.new())
+      |> assign(:expanded_clusters, [])
       |> assign(:last_snapshot_revision, nil)
       |> push_latest_snapshot()
 
@@ -63,7 +63,7 @@ defmodule ServiceRadarWebNGWeb.TopologyChannel do
   end
 
   defp push_latest_snapshot(socket) do
-    snapshot_opts = %{expanded_clusters: MapSet.to_list(socket.assigns[:expanded_clusters] || MapSet.new())}
+    snapshot_opts = %{expanded_clusters: MapSet.new(socket.assigns[:expanded_clusters] || [])}
 
     case GodViewStream.latest_snapshot(snapshot_opts) do
       {:ok, %{snapshot: snapshot, payload: payload}} ->
@@ -143,15 +143,28 @@ defmodule ServiceRadarWebNGWeb.TopologyChannel do
   end
 
   @doc false
+  def expanded_cluster_limit do
+    Application.get_env(
+      :serviceradar_web_ng,
+      :god_view_expanded_cluster_limit,
+      @default_expanded_cluster_limit
+    )
+  end
+
+  @doc false
   def next_expanded_clusters(expanded_clusters, cluster_id, expanded)
-      when is_struct(expanded_clusters, MapSet) and is_binary(cluster_id) do
-    if expanded == true do
-      cluster_id
-      |> List.wrap()
-      |> Enum.take(@expanded_cluster_limit)
-      |> MapSet.new()
-    else
-      MapSet.delete(expanded_clusters, cluster_id)
+      when is_list(expanded_clusters) and is_binary(cluster_id) do
+    cond do
+      expanded == true and not Enum.member?(expanded_clusters, cluster_id) ->
+        expanded_clusters
+        |> Enum.concat([cluster_id])
+        |> Enum.take(-expanded_cluster_limit())
+
+      expanded == true ->
+        expanded_clusters
+
+      true ->
+        List.delete(expanded_clusters, cluster_id)
     end
   end
 end

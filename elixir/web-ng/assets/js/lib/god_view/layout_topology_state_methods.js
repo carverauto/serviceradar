@@ -22,6 +22,13 @@ const HOSTED_ISLAND_GAP_Y = 220
 const HOSTED_ISLAND_GUEST_RING_RADIUS = 118
 const HOSTED_ISLAND_GUEST_RING_STEP = 78
 const HOSTED_ISLAND_GUESTS_PER_RING = 12
+const ATTACHMENT_SATELLITE_RING_RADIUS = 118
+const ATTACHMENT_SATELLITE_RING_STEP = 78
+const ATTACHMENT_SATELLITES_PER_RING = 12
+const EXPANDED_CLUSTER_SPIRAL_SPACING = 56
+const EXPANDED_CLUSTER_SPIRAL_MIN_RADIUS = 96
+const EXPANDED_CLUSTER_GOLDEN_ANGLE = 2.399963229728653
+const EXPANDED_CLUSTER_NODE_CLEARANCE = 120
 
 const ELK_ROOT_OPTIONS = {
   "elk.algorithm": "layered",
@@ -57,6 +64,15 @@ function projectMercator(lat, lon) {
 function graphNodeId(node, fallbackIndex) {
   const id = typeof node?.id === "string" && node.id.trim() !== "" ? node.id.trim() : `node-${fallbackIndex + 1}`
   return id
+}
+
+function hashStringToSeed(value) {
+  const text = String(value || "")
+  let hash = 0
+  for (let index = 0; index < text.length; index += 1) {
+    hash = ((hash << 5) - hash + text.charCodeAt(index)) | 0
+  }
+  return hash
 }
 
 function graphNodeDetails(node) {
@@ -576,7 +592,15 @@ export const godViewLayoutTopologyStateMethods = {
       const subtreeWeights = this.backboneSubtreeWeights(rootId, tree.childrenById)
       const depthById = this.backboneDepthsFromRoot(rootId, tree.childrenById)
       const radiiByDepth = this.backboneRadiiByDepth(depthById)
-      const componentPositions = new Map()
+      let componentPositions = new Map()
+
+      const assignFrame = {
+        x: ORGANIC_ROOT_X,
+        y: ORGANIC_ROOT_Y + componentOffsetY,
+        startAngle: -(ORGANIC_FULL_SPAN / 2),
+        endAngle: ORGANIC_FULL_SPAN / 2,
+        depth: 0,
+      }
 
       this.assignOrganicBackbonePositions(
         rootId,
@@ -585,14 +609,27 @@ export const godViewLayoutTopologyStateMethods = {
         depthById,
         radiiByDepth,
         componentPositions,
-        {
-          x: ORGANIC_ROOT_X,
-          y: ORGANIC_ROOT_Y + componentOffsetY,
-          startAngle: -(ORGANIC_FULL_SPAN / 2),
-          endAngle: ORGANIC_FULL_SPAN / 2,
-          depth: 0,
-        },
+        assignFrame,
       )
+
+      const orderedChildrenById = this.applyBarycenterChildOrder(
+        tree.childrenById,
+        backbone.adjacency,
+        componentPositions,
+      )
+
+      if (orderedChildrenById) {
+        componentPositions = new Map()
+        this.assignOrganicBackbonePositions(
+          rootId,
+          orderedChildrenById,
+          subtreeWeights,
+          depthById,
+          radiiByDepth,
+          componentPositions,
+          assignFrame,
+        )
+      }
 
       for (const [nodeId, point] of componentPositions.entries()) positions.set(nodeId, point)
 
@@ -668,7 +705,22 @@ export const godViewLayoutTopologyStateMethods = {
     }
 
     if (residualNodes.length > 0) {
-      const orderedResidual = [...residualNodes].sort((left, right) => {
+      const residualIds = new Set(residualNodes.map(({id}) => id))
+      const satellitePlacements = this.attachmentSatellitePlacements(graph, positions, residualIds)
+
+      const leftoverResidual = []
+
+      for (const residual of residualNodes) {
+        const satellitePoint = satellitePlacements.get(residual.id)
+
+        if (satellitePoint) {
+          positions.set(residual.id, satellitePoint)
+        } else {
+          leftoverResidual.push(residual)
+        }
+      }
+
+      const orderedResidual = [...leftoverResidual].sort((left, right) => {
         const leftLabel = String(left.node?.label || left.id || "")
         const rightLabel = String(right.node?.label || right.id || "")
         const leftPps = Number(left.node?.pps || 0)
@@ -957,6 +1009,70 @@ export const godViewLayoutTopologyStateMethods = {
     visit(rootId)
     return weights
   },
+  applyBarycenterChildOrder(childrenById, adjacency, positions) {
+    if (!(childrenById instanceof Map) || !(positions instanceof Map)) return null
+    if (!(adjacency instanceof Map) || adjacency.size === 0) return null
+
+    const ordered = new Map()
+    let changed = false
+
+    for (const [parentId, children] of childrenById.entries()) {
+      if (!Array.isArray(children) || children.length < 2) {
+        ordered.set(parentId, children)
+        continue
+      }
+
+      const parentPoint = positions.get(parentId)
+      if (!parentPoint) {
+        ordered.set(parentId, children)
+        continue
+      }
+
+      const scored = children.map((childId, index) => {
+        let angleSum = 0
+        let angleCount = 0
+
+        for (const neighborId of adjacency.get(childId) || []) {
+          if (neighborId === childId || neighborId === parentId) continue
+          const neighborPoint = positions.get(neighborId)
+          if (!neighborPoint) continue
+          angleSum += Math.atan2(neighborPoint.y - parentPoint.y, neighborPoint.x - parentPoint.x)
+          angleCount += 1
+        }
+
+        return {
+          childId,
+          index,
+          meanAngle: angleCount > 0 ? angleSum / angleCount : null,
+        }
+      })
+
+      let hasAngles = false
+      for (const entry of scored) {
+        if (entry.meanAngle !== null) {
+          hasAngles = true
+          break
+        }
+      }
+
+      if (!hasAngles) {
+        ordered.set(parentId, children)
+        continue
+      }
+
+      const sorted = [...scored].sort((left, right) => {
+        const leftAngle = left.meanAngle === null ? Math.PI * 4 + left.index * 1e-6 : left.meanAngle
+        const rightAngle = right.meanAngle === null ? Math.PI * 4 + right.index * 1e-6 : right.meanAngle
+        return leftAngle - rightAngle || left.index - right.index
+      })
+
+      const orderedChildren = sorted.map((entry) => entry.childId)
+      if (orderedChildren.some((childId, index) => childId !== children[index])) changed = true
+      ordered.set(parentId, orderedChildren)
+    }
+
+    return changed ? ordered : null
+  },
   assignOrganicBackbonePositions(nodeId, childrenById, subtreeWeights, depthById, radiiByDepth, positions, frame) {
     positions.set(nodeId, {x: frame.x, y: frame.y})
 
@@ -1071,6 +1187,73 @@ export const godViewLayoutTopologyStateMethods = {
       topologyClass === "" ||
       topologyClass === "unknown"
     )
+  },
+  isAttachmentTopologyEdge(edge) {
+    const topologyClass = String(edge?.topologyClass || "").trim().toLowerCase()
+    const evidenceClass = String(edge?.evidenceClass || "").trim().toLowerCase()
+
+    if (topologyClass === "endpoints" || topologyClass === "endpoint" || topologyClass === "attachment") {
+      return true
+    }
+
+    return evidenceClass === "endpoint-attachment" || evidenceClass === "inferred-segment"
+  },
+  attachmentSatellitePlacements(graph, positions, candidateIds) {
+    const placements = new Map()
+    if (!candidateIds || candidateIds.size === 0) return placements
+    if (!graph || !Array.isArray(graph.edges)) return placements
+
+    const anchorGuests = new Map()
+
+    for (const edge of graph.edges) {
+      if (!this.isAttachmentTopologyEdge(edge)) continue
+      const sourceId = edgeNodeId(graph, edge, "source")
+      const targetId = edgeNodeId(graph, edge, "target")
+      if (!sourceId || !targetId || sourceId === targetId) continue
+
+      let guestId = null
+      let anchorId = null
+
+      if (candidateIds.has(sourceId) && !candidateIds.has(targetId) && positions.has(targetId)) {
+        guestId = sourceId
+        anchorId = targetId
+      } else if (candidateIds.has(targetId) && !candidateIds.has(sourceId) && positions.has(sourceId)) {
+        guestId = targetId
+        anchorId = sourceId
+      }
+
+      if (!guestId || placements.has(guestId)) continue
+      const guests = anchorGuests.get(anchorId) || []
+      guests.push(guestId)
+      anchorGuests.set(anchorId, guests)
+    }
+
+    for (const [anchorId, guests] of anchorGuests.entries()) {
+      const anchorPoint = positions.get(anchorId)
+      if (!anchorPoint) continue
+      const orderedGuests = guests.sort()
+      const anchorSeed = Math.abs(hashStringToSeed(anchorId)) % ATTACHMENT_SATELLITES_PER_RING
+
+      for (let index = 0; index < orderedGuests.length; index += 1) {
+        const guestId = orderedGuests[index]
+        if (placements.has(guestId)) continue
+        const ring = Math.floor(index / ATTACHMENT_SATELLITES_PER_RING)
+        const ringStart = ring * ATTACHMENT_SATELLITES_PER_RING
+        const ringCount = Math.min(ATTACHMENT_SATELLITES_PER_RING, orderedGuests.length - ringStart)
+        const ringIndex = index - ringStart
+        const radius = ATTACHMENT_SATELLITE_RING_RADIUS + ring * ATTACHMENT_SATELLITE_RING_STEP
+        const angle =
+          -Math.PI / 2 +
+          (Math.PI * 2 * (ringIndex + anchorSeed)) / Math.max(1, ringCount)
+
+        placements.set(guestId, {
+          x: anchorPoint.x + Math.cos(angle) * radius,
+          y: anchorPoint.y + Math.sin(angle) * radius,
+        })
+      }
+    }
+
+    return placements
   },
   connectedBackboneComponents(nodeIds, adjacency) {
     const visited = new Set()
@@ -1230,16 +1413,23 @@ export const godViewLayoutTopologyStateMethods = {
       const summaryIndex = nodeIndexById.get(cluster.summaryNodeId)
 
       if (cluster.expanded && cluster.memberNodeIds.length > 0) {
-        const metrics = this.expandedClusterGridMetrics(cluster.memberNodeIds.length)
-        const placement = this.chooseExpandedClusterPlacement(anchorX, anchorY, metrics, occupiedNodes)
+        const metrics = this.expandedClusterSpiralMetrics(cluster.memberNodeIds.length)
+        const edgeSegments = this.clusterLayoutEdgeSegments(graph, clusterLayout)
+        const placement = this.chooseExpandedClusterPlacement(
+          anchorX,
+          anchorY,
+          metrics,
+          occupiedNodes,
+          edgeSegments,
+        )
         const orderedMemberIds = this.orderExpandedClusterMembers(nodes, nodeIndexById, cluster.memberNodeIds)
 
         if (Number.isInteger(summaryIndex)) {
           const summary = nodes[summaryIndex]
           nodes[summaryIndex] = {
             ...summary,
-            x: placement.originX + ((metrics.columns - 1) * metrics.colGap) / 2,
-            y: placement.originY + ((metrics.rows - 1) * metrics.rowGap) / 2,
+            x: placement.centerX,
+            y: placement.centerY,
             details: {
               ...(summary?.details && typeof summary.details === "object" ? summary.details : {}),
               cluster_expanded: true,
@@ -1254,7 +1444,7 @@ export const godViewLayoutTopologyStateMethods = {
           const graphIndex = nodeIndexById.get(memberId)
           if (!Number.isInteger(graphIndex)) continue
 
-          const point = this.expandedClusterGridPosition(memberIndex, metrics, placement)
+          const point = this.expandedClusterSpiralPosition(memberIndex, metrics, placement)
           const member = nodes[graphIndex]
           nodes[graphIndex] = {
             ...member,
@@ -1423,16 +1613,23 @@ export const godViewLayoutTopologyStateMethods = {
     const intrinsic = base + Math.min(96, Math.sqrt(count) * (expanded ? 16 : 9))
     return Math.max(intrinsic, Number(clearanceDistance || 0))
   },
-  expandedClusterGridMetrics(memberCount) {
+  expandedClusterSpiralMetrics(memberCount) {
     const count = Math.max(1, Number(memberCount || 1))
-    const columns = count <= 10 ? 1 : 2
-    const rows = Math.max(1, Math.ceil(count / columns))
     return {
-      columns,
-      rows,
-      colGap: 240,
-      rowGap: 46,
-      pad: 188,
+      count,
+      spacing: EXPANDED_CLUSTER_SPIRAL_SPACING,
+      minRadius: count <= 2 ? 0 : EXPANDED_CLUSTER_SPIRAL_MIN_RADIUS,
+    }
+  },
+  expandedClusterSpiralPosition(memberIndex, metrics, placement) {
+    const idx = Math.max(0, Number(memberIndex || 0))
+    const spacing = Number(metrics?.spacing || EXPANDED_CLUSTER_SPIRAL_SPACING)
+    const minRadius = Number(metrics?.minRadius || 0)
+    const radius = minRadius + spacing * Math.sqrt(idx)
+    const angle = -Math.PI / 2 + idx * EXPANDED_CLUSTER_GOLDEN_ANGLE
+    return {
+      x: Number(placement?.centerX || 0) + Math.cos(angle) * radius,
+      y: Number(placement?.centerY || 0) + Math.sin(angle) * radius,
     }
   },
   orderExpandedClusterMembers(nodes, nodeIndexById, memberNodeIds) {
@@ -1445,53 +1642,126 @@ export const godViewLayoutTopologyStateMethods = {
         String(leftId).localeCompare(String(rightId))
     })
   },
-  chooseExpandedClusterPlacement(anchorX, anchorY, metrics, occupiedNodes) {
-    const columns = Math.max(1, Number(metrics?.columns || 1))
-    const rows = Math.max(1, Number(metrics?.rows || 1))
-    const colGap = Number(metrics?.colGap || 240)
-    const rowGap = Number(metrics?.rowGap || 46)
-    const pad = Number(metrics?.pad || 188)
-    const width = Math.max(0, (columns - 1) * colGap)
-    const height = Math.max(0, (rows - 1) * rowGap)
-    const labelPad = 92
+  clusterLayoutEdgeSegments(graph, clusterLayout) {
+    const segments = []
+    if (!graph || !Array.isArray(graph.edges)) return segments
+
+    const clusterNodeIds = new Set()
+    for (const cluster of clusterLayout?.groups || []) {
+      if (cluster.anchorNodeId) clusterNodeIds.add(cluster.anchorNodeId)
+      if (cluster.summaryNodeId) clusterNodeIds.add(cluster.summaryNodeId)
+      for (const memberId of cluster.memberNodeIds || []) clusterNodeIds.add(memberId)
+    }
+
+    const positionById = new Map()
+    for (let index = 0; index < graph.nodes.length; index += 1) {
+      const node = graph.nodes[index]
+      const x = Number(node?.x)
+      const y = Number(node?.y)
+      if (Number.isFinite(x) && Number.isFinite(y)) positionById.set(graphNodeId(node, index), {x, y})
+    }
+
+    for (const edge of graph.edges) {
+      const sourceId = edgeNodeId(graph, edge, "source")
+      const targetId = edgeNodeId(graph, edge, "target")
+      if (!sourceId || !targetId || sourceId === targetId) continue
+      if (clusterNodeIds.has(sourceId) || clusterNodeIds.has(targetId)) continue
+
+      const sourcePoint = positionById.get(sourceId)
+      const targetPoint = positionById.get(targetId)
+      if (!sourcePoint || !targetPoint) continue
+
+      segments.push([sourcePoint.x, sourcePoint.y, targetPoint.x, targetPoint.y])
+    }
+
+    return segments
+  },
+  segmentsIntersect(ax, ay, bx, by, cx, cy, dx, dy) {
+    const orientation = (px, py, qx, qy, rx, ry) => {
+      const value = (qx - px) * (ry - py) - (qy - py) * (rx - px)
+      if (Math.abs(value) < 1e-9) return 0
+      return value > 0 ? 1 : 2
+    }
+    const onSegment = (px, py, qx, qy, rx, ry) =>
+      Math.min(px, rx) <= qx && qx <= Math.max(px, rx) &&
+      Math.min(py, ry) <= qy && qy <= Math.max(py, ry)
+
+    const o1 = orientation(ax, ay, bx, by, cx, cy)
+    const o2 = orientation(ax, ay, bx, by, dx, dy)
+    const o3 = orientation(cx, cy, dx, dy, ax, ay)
+    const o4 = orientation(cx, cy, dx, dy, bx, by)
+
+    if (o1 !== o2 && o3 !== o4) return true
+    if (o1 === 0 && onSegment(ax, ay, cx, cy, bx, by)) return true
+    if (o2 === 0 && onSegment(ax, ay, dx, dy, bx, by)) return true
+    if (o3 === 0 && onSegment(cx, cy, ax, ay, dx, dy)) return true
+    if (o4 === 0 && onSegment(cx, cy, bx, by, dx, dy)) return true
+    return false
+  },
+  chooseExpandedClusterPlacement(anchorX, anchorY, metrics, occupiedNodes, edgeSegments = []) {
+    const spacing = Number(metrics?.spacing || EXPANDED_CLUSTER_SPIRAL_SPACING)
+    const count = Math.max(1, Number(metrics?.count || 1))
+    const spiralRadius =
+      Number(metrics?.minRadius || 0) + spacing * Math.sqrt(Math.max(0, count - 1)) + spacing
+    const pad = spiralRadius + 96
     const candidates = [
-      {name: "right", originX: anchorX + pad, originY: anchorY - height / 2},
-      {name: "left", originX: anchorX - pad - width, originY: anchorY - height / 2},
-      {name: "down", originX: anchorX - width / 2, originY: anchorY + pad},
-      {name: "up", originX: anchorX - width / 2, originY: anchorY - pad - height},
+      {name: "right", centerX: anchorX + pad, centerY: anchorY},
+      {name: "left", centerX: anchorX - pad, centerY: anchorY},
+      {name: "down", centerX: anchorX, centerY: anchorY + pad},
+      {name: "up", centerX: anchorX, centerY: anchorY - pad},
     ]
 
     let best = candidates[0]
     let bestScore = -Infinity
 
     for (const candidate of candidates) {
-      let minX = candidate.originX - 28
-      let maxX = candidate.originX + width + 28
-      let minY = candidate.originY - 28
-      let maxY = candidate.originY + height + 28
+      let overlapHits = 0
+      let crossings = 0
+      const memberPoints = []
 
-      if (candidate.name === "right") {
-        minX = anchorX + 24
-        maxX += labelPad
-      } else if (candidate.name === "left") {
-        maxX = anchorX - 24
-        minX -= labelPad
-      } else if (candidate.name === "down") {
-        minY = anchorY + 24
-      } else if (candidate.name === "up") {
-        maxY = anchorY - 24
+      for (let memberIndex = 0; memberIndex < count; memberIndex += 1) {
+        const point = this.expandedClusterSpiralPosition(memberIndex, metrics, candidate)
+        memberPoints.push(point)
+
+        for (const node of occupiedNodes || []) {
+          const x = Number(node?.x)
+          const y = Number(node?.y)
+          if (!Number.isFinite(x) || !Number.isFinite(y)) continue
+          if (Math.hypot(point.x - x, point.y - y) < EXPANDED_CLUSTER_NODE_CLEARANCE) {
+            overlapHits += 1
+          }
+        }
       }
 
-      let hits = 0
-      for (const node of occupiedNodes || []) {
-        const x = Number(node?.x)
-        const y = Number(node?.y)
-        if (!Number.isFinite(x) || !Number.isFinite(y)) continue
-        if (x >= minX && x <= maxX && y >= minY && y <= maxY) hits += 1
+      if (edgeSegments.length > 0) {
+        const clusterSegments = [
+          [anchorX, anchorY, candidate.centerX, candidate.centerY],
+          ...memberPoints.map((point) => [candidate.centerX, candidate.centerY, point.x, point.y]),
+        ]
+
+        for (const clusterSegment of clusterSegments) {
+          for (const segment of edgeSegments) {
+            if (
+              this.segmentsIntersect(
+                clusterSegment[0],
+                clusterSegment[1],
+                clusterSegment[2],
+                clusterSegment[3],
+                segment[0],
+                segment[1],
+                segment[2],
+                segment[3],
+              )
+            ) {
+              crossings += 1
+            }
+          }
+        }
       }
 
       const sideBonus = candidate.name === "right" || candidate.name === "left" ? 80 : 0
-      const score = -hits * 1000 + sideBonus - Math.hypot(candidate.originX - anchorX, candidate.originY - anchorY) * 0.01
+      const score =
+        -overlapHits * 1000 - crossings * 120 + sideBonus - Math.hypot(candidate.centerX - anchorX, candidate.centerY - anchorY) * 0.01
       if (score > bestScore) {
         bestScore = score
         best = candidate
@@ -1499,18 +1769,6 @@ export const godViewLayoutTopologyStateMethods = {
     }
 
     return best
-  },
-  expandedClusterGridPosition(memberIndex, metrics, placement) {
-    const idx = Math.max(0, Number(memberIndex || 0))
-    const columns = Math.max(1, Number(metrics?.columns || 1))
-    const colGap = Number(metrics?.colGap || 240)
-    const rowGap = Number(metrics?.rowGap || 46)
-    const col = idx % columns
-    const row = Math.floor(idx / columns)
-    return {
-      x: Number(placement?.originX || 0) + col * colGap,
-      y: Number(placement?.originY || 0) + row * rowGap,
-    }
   },
   graphTopologyStamp(graph) {
     if (!graph || !Array.isArray(graph.nodes) || !Array.isArray(graph.edges)) return "0:0"

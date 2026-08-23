@@ -140,6 +140,57 @@ defmodule ServiceRadar.NetworkDiscovery.RuntimeTopologyProjection do
         confidence_score: coalesce(r.confidence_score, 0)
       }
     } AS row
+    UNION ALL
+    MATCH (a:Device)-[r:CANONICAL_TOPOLOGY]->(b:Device)
+    WHERE a.id IS NOT NULL
+      AND b.id IS NOT NULL
+      AND a.id STARTS WITH 'sr:'
+      AND b.id STARTS WITH 'sr:'
+      AND a.id <> b.id
+      AND toUpper(coalesce(r.relation_type, '')) = 'ATTACHED_TO'
+      AND toLower(coalesce(r.evidence_class, '')) = 'inferred-segment'
+    WITH a, b, r
+    ORDER BY coalesce(r.last_observed_at, r.observed_at) DESC
+    LIMIT #{@max_attachment_link_rows}
+    RETURN {
+      local_device_id: a.id,
+      local_device_ip: a.ip,
+      local_if_name: coalesce(r.local_if_name, ''),
+      local_if_index: r.local_if_index,
+      local_if_name_ab: coalesce(r.local_if_name_ab, r.local_if_name, ''),
+      local_if_index_ab: r.local_if_index_ab,
+      local_if_name_ba: coalesce(r.local_if_name_ba, r.neighbor_if_name, ''),
+      local_if_index_ba: r.local_if_index_ba,
+      neighbor_if_name: coalesce(r.neighbor_if_name, ''),
+      neighbor_if_index: r.neighbor_if_index,
+      neighbor_device_id: b.id,
+      neighbor_mgmt_addr: b.ip,
+      neighbor_system_name: b.name,
+      observed_at: coalesce(r.last_observed_at, r.observed_at, ''),
+      flow_pps: 0,
+      flow_bps: 0,
+      capacity_bps: 0,
+      flow_pps_ab: 0,
+      flow_pps_ba: 0,
+      flow_bps_ab: 0,
+      flow_bps_ba: 0,
+      telemetry_eligible: false,
+      telemetry_source: 'none',
+      telemetry_observed_at: coalesce(r.last_observed_at, r.observed_at, ''),
+      protocol: coalesce(r.protocol, r.source, 'unknown'),
+      confidence_tier: coalesce(r.confidence_tier, 'unknown'),
+      confidence_reason: coalesce(r.confidence_reason, ''),
+      evidence_class: coalesce(r.evidence_class, 'inferred-segment'),
+      metadata: {
+        relation_type: coalesce(r.relation_type, type(r)),
+        source: coalesce(r.source, 'inferred-segment'),
+        inference: coalesce(r.confidence_reason, ''),
+        evidence_class: coalesce(r.evidence_class, 'inferred-segment'),
+        topology_plane: 'attachment',
+        confidence_tier: coalesce(r.confidence_tier, 'unknown'),
+        confidence_score: coalesce(r.confidence_score, 0)
+      }
+    } AS row
     """
   end
 
