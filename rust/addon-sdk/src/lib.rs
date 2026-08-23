@@ -178,8 +178,16 @@ pub struct ConfigureResult {
 pub struct Health {
     pub status: HealthStatus,
     pub version: String,
-    /// A bounded explanation when `status` is not `Healthy`.
+    /// A bounded explanation when `status` is not `Healthy`. Prose for a human;
+    /// the agent must not parse it.
     pub degradation_reason: String,
+    /// Bounded, STRUCTURED capability state the agent reads to make decisions --
+    /// e.g. netprobe's privilege level and fingerprint corpus revisions, which
+    /// become the sweep banner-grab capability status.
+    ///
+    /// Not trusted for identity or authorization: this is the add-on describing
+    /// its own runtime.
+    pub details: std::collections::BTreeMap<String, String>,
 }
 
 /// Generic command invocation delivered by the agent to a native add-on.
@@ -422,6 +430,7 @@ impl Default for Health {
             status: HealthStatus::Healthy,
             version: String::new(),
             degradation_reason: String::new(),
+            details: Default::default(),
         }
     }
 }
