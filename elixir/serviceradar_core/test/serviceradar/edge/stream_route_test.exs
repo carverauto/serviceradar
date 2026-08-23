@@ -257,10 +257,15 @@ defmodule ServiceRadar.Edge.StreamRouteTest do
       |> String.split("\n", trim: true)
       |> Enum.reject(&String.starts_with?(&1, "#"))
       |> Enum.map(fn line ->
-        [cls, scope_hex, agent, spool_hex, subject, part, stream, pv, sv] =
+        [profile, cls, scope_hex, agent, spool_hex, subject, part, stream, pv, sv] =
           String.split(line, "\t")
 
         %{
+          profile:
+            case profile do
+              "durable" -> @durable
+              "recovery" -> @recovery
+            end,
           class:
             case cls do
               "bulk" -> @bulk
@@ -270,7 +275,8 @@ defmodule ServiceRadar.Edge.StreamRouteTest do
           agent: agent,
           spool: Base.decode16!(spool_hex, case: :lower),
           subject: subject,
-          partition: String.to_integer(part),
+          # The literal `nil`, never 0 -- recovery is unpartitioned and zero is a real partition.
+          partition: if(part == "nil", do: nil, else: String.to_integer(part)),
           expected_stream: stream,
           placement_version: String.to_integer(pv),
           partition_scheme_version: String.to_integer(sv)
@@ -280,7 +286,7 @@ defmodule ServiceRadar.Edge.StreamRouteTest do
 
     defp resolve_vector(v) do
       StreamRoute.resolve(%{
-        route_profile: @durable,
+        route_profile: v.profile,
         traffic_class: v.class,
         partition_rule: :network_scope_v1,
         partition_coordinates: %{
@@ -296,13 +302,27 @@ defmodule ServiceRadar.Edge.StreamRouteTest do
 
       # Bounds the SET, not just its size. Replacing all 16 rows with copies of the first
       # satisfied a length check while freezing nothing.
-      assert length(vectors) == 16, "expected 16 route vectors, got #{length(vectors)}"
-      assert length(Enum.uniq(vectors)) == 16, "duplicate rows in the route corpus"
+      assert length(vectors) == 20, "expected 20 route vectors, got #{length(vectors)}"
+      assert length(Enum.uniq(vectors)) == 20, "duplicate rows in the route corpus"
 
-      assert length(Enum.uniq_by(vectors, & &1.partition)) > 8,
-             "the corpus barely spans the partition space, so it would not catch a shift"
+      durable = Enum.filter(vectors, &(&1.profile == @durable))
+      recovery = Enum.filter(vectors, &(&1.profile == @recovery))
+
+      # BOTH profiles are bound. Recovery's versioned tuple was previously unbound, so a
+      # placement or version change on that lane would not have been caught here.
+      assert length(durable) == 16, "durable rows: #{length(durable)}"
+      assert length(recovery) == 4, "recovery rows: #{length(recovery)}"
+
+      assert length(Enum.uniq_by(durable, & &1.partition)) > 8,
+             "the durable corpus barely spans the partition space, so it would not catch a shift"
 
       assert length(Enum.uniq_by(vectors, & &1.class)) == 2, "the corpus covers only one class"
+
+      # Recovery collapses to ONE subject across both classes and every scope, and its partition
+      # is nil in every row.
+      assert length(Enum.uniq_by(recovery, & &1.subject)) == 1
+      assert Enum.all?(recovery, &(&1.partition == nil))
+      assert length(Enum.uniq_by(recovery, & &1.class)) == 2
     end
 
     test "every vector resolves to its committed COMPLETE route, field for field" do
@@ -344,7 +364,7 @@ defmodule ServiceRadar.Edge.StreamRouteTest do
       # The key->partition vectors call partition/1 with preassembled bytes, so a rule hashing
       # `scope <> agent_id` reproduces them exactly while routing every record elsewhere. Here
       # the components are supplied separately.
-      vectors = load_route_vectors()
+      vectors = Enum.filter(load_route_vectors(), &(&1.profile == @durable))
       grouped = Enum.group_by(vectors, &{&1.class, &1.scope})
       shared = Enum.filter(grouped, fn {_k, rows} -> length(rows) > 1 end)
 
