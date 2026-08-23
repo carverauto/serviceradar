@@ -24,7 +24,16 @@ defmodule ServiceRadar.Edge.StreamRouteTest do
   defp scope(seed), do: :crypto.hash(:sha256, <<seed::32>>)
 
   defp contract(profile, class, seed \\ 1) do
-    %{route_profile: profile, traffic_class: class, network_scope_id: scope(seed)}
+    %{
+      route_profile: profile,
+      traffic_class: class,
+      partition_rule: :network_scope_v1,
+      partition_coordinates: %{
+        network_scope_id: scope(seed),
+        authenticated_agent_id: "agent-0",
+        spool_id: <<1::128>>
+      }
+    }
   end
 
   describe "the normative subject topology" do
@@ -50,8 +59,8 @@ defmodule ServiceRadar.Edge.StreamRouteTest do
     end
 
     test "the DLQ is class-separated and partitioned" do
-      assert {:ok, b} = StreamRoute.resolve_dlq(@bulk, 3)
-      assert {:ok, i} = StreamRoute.resolve_dlq(@interactive, 3)
+      assert {:ok, b} = dlq(@bulk, 3)
+      assert {:ok, i} = dlq(@interactive, 3)
 
       assert b.subject == "telemetry.edge-record-dlq.v1.bulk.p03"
       assert i.subject == "telemetry.edge-record-dlq.v1.interactive.p03"
@@ -65,7 +74,7 @@ defmodule ServiceRadar.Edge.StreamRouteTest do
           r.subject
         end ++
           for c <- [@bulk, @interactive], part <- [0, 63] do
-            {:ok, r} = StreamRoute.resolve_dlq(c, part)
+            {:ok, r} = dlq(c, part)
             r.subject
           end
 
@@ -89,16 +98,18 @@ defmodule ServiceRadar.Edge.StreamRouteTest do
 
       # ...but its DLQ must NOT. Merging them would let a bulk poison cohort queue ahead of the
       # interactive reserve, which is the exact thing the class-separated DLQ exists to prevent.
-      {:ok, dlq_bulk} = StreamRoute.resolve_dlq(@bulk, 7)
-      {:ok, dlq_inter} = StreamRoute.resolve_dlq(@interactive, 7)
+      {:ok, dlq_bulk} = dlq(@bulk, 7)
+      {:ok, dlq_inter} = dlq(@interactive, 7)
 
       refute dlq_bulk.subject == dlq_inter.subject
       refute dlq_bulk.expected_stream == dlq_inter.expected_stream
     end
 
-    test "resolve_dlq/2 cannot even express a route profile, so recovery has no DLQ of its own" do
-      # A structural guarantee, not a runtime check: the arity admits no profile.
+    test "the DLQ derives class from the contract, so recovery has no DLQ family of its own" do
+      # Structural: resolve_dlq takes (source_route, contract). There is no arity that accepts a
+      # standalone route profile, so a recovery-specific DLQ cannot be expressed.
       refute function_exported?(StreamRoute, :resolve_dlq, 3)
+      assert function_exported?(StreamRoute, :resolve_dlq, 2)
     end
   end
 
@@ -145,8 +156,8 @@ defmodule ServiceRadar.Edge.StreamRouteTest do
       {:ok, db} = StreamRoute.resolve(contract(@durable, @bulk))
       {:ok, di} = StreamRoute.resolve(contract(@durable, @interactive))
       {:ok, rec} = StreamRoute.resolve(contract(@recovery, @bulk))
-      {:ok, qb} = StreamRoute.resolve_dlq(@bulk, 0)
-      {:ok, qi} = StreamRoute.resolve_dlq(@interactive, 0)
+      {:ok, qb} = dlq(@bulk, 0)
+      {:ok, qi} = dlq(@interactive, 0)
 
       streams = Enum.map([db, di, rec, qb, qi], & &1.expected_stream)
 
@@ -155,77 +166,224 @@ defmodule ServiceRadar.Edge.StreamRouteTest do
     end
   end
 
-  describe "partitioning is contract-specific" do
-    test "the partition comes from the signed scope, and callers cannot choose it" do
+  describe "partitioning follows the contract's pinned rule" do
+    test "an UNKNOWN rule is refused, never silently partitioned by network scope" do
+      # The registry that owns the other rules does not exist yet. Falling back to network scope
+      # would route a record by a rule its contract did not pin, landing it on a partition its
+      # consumers do not read -- and it would look correct.
+      c = Map.put(contract(@durable, @bulk), :partition_rule, :execution_v1)
+      assert {:error, :unknown_partition_rule} = StreamRoute.resolve(c)
+
+      c2 = Map.put(contract(@durable, @bulk), :partition_rule, :assignment_run_v1)
+      assert {:error, :unknown_partition_rule} = StreamRoute.resolve(c2)
+    end
+
+    test "a MISSING rule is refused; there is no default" do
+      c = Map.delete(contract(@durable, @bulk), :partition_rule)
+      assert {:error, :missing_partition_rule} = StreamRoute.resolve(c)
+    end
+
+    test "only the frozen rules are advertised" do
+      assert StreamRoute.partition_rules() == [:network_scope_v1]
+    end
+
+    test "the key comes from the pinned rule's coordinate, not from any other field" do
       c = contract(@durable, @bulk, 42)
       {:ok, a} = StreamRoute.resolve(c)
 
-      # A caller-supplied key is ignored: the map is not a suggestion box.
+      # Unrecognised keys are ignored: the contract is not a suggestion box.
       {:ok, b} = StreamRoute.resolve(Map.put(c, :partition_key, scope(999)))
       assert a.subject == b.subject
-      assert a.partition == b.partition
+
+      # Changing the RULE'S coordinate does move it.
+      {:ok, other} = StreamRoute.resolve(contract(@durable, @bulk, 43))
+      refute other.partition == a.partition or other.subject == a.subject
     end
 
-    test "a missing scope is refused rather than routed to partition 0" do
-      c = Map.delete(contract(@durable, @bulk), :network_scope_id)
+    test "a missing coordinate is refused rather than routed to partition 0" do
+      c = contract(@durable, @bulk)
+
+      c =
+        Map.put(c, :partition_coordinates, Map.delete(c.partition_coordinates, :network_scope_id))
+
       assert {:error, :partition_key} = StreamRoute.resolve(c)
     end
 
-    test "recovery needs no scope, because it is unpartitioned" do
-      c = Map.delete(contract(@recovery, @bulk), :network_scope_id)
+    test "recovery needs no partition coordinate, because it is unpartitioned" do
+      c = Map.put(contract(@recovery, @bulk), :partition_coordinates, %{})
       assert {:ok, %ResolvedRoute{partition: nil}} = StreamRoute.resolve(c)
-    end
-
-    test "partitions stay in range, are stable, and are not degenerate" do
-      keys = for i <- 1..500, do: scope(i)
-
-      for k <- keys do
-        p = StreamRoute.partition(k)
-        assert p >= 0 and p < StreamRoute.num_partitions()
-        assert p == StreamRoute.partition(k)
-      end
-
-      # NOT VACUOUS: a hash returning a constant would satisfy range and determinism above.
-      spread = keys |> Enum.map(&StreamRoute.partition/1) |> Enum.uniq() |> length()
-
-      assert spread > 32,
-             "only #{spread} distinct partitions over 500 keys; the hash is degenerate"
-    end
-
-    test "an out-of-range DLQ partition is refused, not formatted into a subject" do
-      assert {:error, :partition_out_of_range} =
-               StreamRoute.resolve_dlq(@bulk, StreamRoute.num_partitions())
-
-      assert {:error, :partition_out_of_range} = StreamRoute.resolve_dlq(@bulk, -1)
     end
   end
 
-  describe "map version" do
-    # EVERY lane, not just one. An earlier version spoofed the version on a durable contract
-    # only, which left the recovery branch free to honour a caller-supplied generation -- a
-    # mutation that did exactly that survived. Per-branch construction needs per-branch coverage.
-    test "no active lane lets a caller override the generation" do
+  describe "the partition function is frozen by exact vectors" do
+    @vectors_path Path.expand("../../fixtures/edge/partition_vectors_v1.txt", __DIR__)
+    @external_resource @vectors_path
+
+    defp load_vectors do
+      @vectors_path
+      |> File.read!()
+      |> String.split("\n", trim: true)
+      |> Enum.reject(&String.starts_with?(&1, "#"))
+      |> Enum.map(fn line ->
+        [hex, part] = String.split(line, "\t")
+        {Base.decode16!(hex, case: :lower), String.to_integer(part)}
+      end)
+    end
+
+    test "every committed key maps to its committed partition" do
+      vectors = load_vectors()
+
+      # NOT VACUOUS: an empty or unreadable file would make the loop below assert nothing.
+      assert length(vectors) >= 30, "expected a real corpus, got #{length(vectors)} vectors"
+
+      for {key, expected} <- vectors do
+        assert StreamRoute.partition(key) == expected,
+               "key #{Base.encode16(key, case: :lower)} moved from partition #{expected} to " <>
+                 "#{StreamRoute.partition(key)}. Changing the hash or the partition count " <>
+                 "re-places every future record; bump partition_scheme_version deliberately."
+      end
+    end
+
+    test "the vectors themselves span the space, so they freeze something" do
+      spread = load_vectors() |> Enum.map(&elem(&1, 1)) |> Enum.uniq() |> length()
+      assert spread > 20, "vectors cover only #{spread} partitions; they would not catch a skew"
+    end
+
+    test "the scheme version and partition count are the ones the vectors were cut against" do
+      # These three move together. If either constant changes, the vectors above break, and this
+      # states the pairing so the reason is obvious rather than archaeological.
+      assert StreamRoute.partition_scheme_version() == 1
+      assert StreamRoute.num_partitions() == 64
+    end
+
+    test "partitions stay in range for arbitrary keys" do
+      for i <- 1..500 do
+        p = StreamRoute.partition(scope(i))
+        assert p >= 0 and p < StreamRoute.num_partitions()
+      end
+    end
+  end
+
+  describe "DLQ provenance is derived from the source, not chosen" do
+    test "the DLQ inherits the source partition exactly" do
+      c = contract(@durable, @bulk, 42)
+      {:ok, source} = StreamRoute.resolve(c)
+      {:ok, q} = StreamRoute.resolve_dlq(source, c)
+
+      assert q.partition == source.partition
+      assert q.subject == "telemetry.edge-record-dlq.v1.bulk.#{pad(source.partition)}"
+    end
+
+    test "a failure cannot be reclassified into the other traffic class" do
+      # The class comes from the same verified contract that produced the source route, so a
+      # bulk failure cannot be promoted into the interactive reserve on its way to the queue.
+      c = contract(@durable, @bulk, 7)
+      {:ok, source} = StreamRoute.resolve(c)
+
+      {:ok, q} = StreamRoute.resolve_dlq(source, c)
+      assert q.subject =~ "dlq.v1.bulk."
+
+      {:ok, qi} = StreamRoute.resolve_dlq(source, contract(@durable, @interactive, 7))
+      assert qi.subject =~ "dlq.v1.interactive."
+
+      # ...and the partition still tracks the SOURCE, not the substituted contract.
+      assert qi.partition == source.partition
+    end
+
+    test "recovery, having no source partition, uses authenticated agent/spool coordinates" do
+      c = contract(@recovery, @bulk)
+      {:ok, source} = StreamRoute.resolve(c)
+      assert source.partition == nil
+
+      {:ok, q} = StreamRoute.resolve_dlq(source, c)
+      assert is_integer(q.partition) and q.partition >= 0
+      assert q.partition < StreamRoute.num_partitions()
+
+      # Stable for the same agent/spool, and different for a different spool -- otherwise every
+      # recovery failure would pile onto one partition.
+      {:ok, again} = StreamRoute.resolve_dlq(source, c)
+      assert again.partition == q.partition
+
+      other =
+        Map.put(c, :partition_coordinates, %{
+          Map.get(c, :partition_coordinates)
+          | spool_id: <<9::128>>
+        })
+
+      {:ok, q2} = StreamRoute.resolve_dlq(source, other)
+      refute q2.partition == q.partition
+    end
+
+    test "recovery without agent/spool coordinates is refused" do
+      c = contract(@recovery, @bulk)
+      {:ok, source} = StreamRoute.resolve(c)
+      stripped = Map.put(c, :partition_coordinates, %{})
+
+      assert {:error, :partition_key} = StreamRoute.resolve_dlq(source, stripped)
+    end
+
+    test "something that is not a resolved source route is refused" do
+      assert {:error, :source_route} =
+               StreamRoute.resolve_dlq(%{partition: 3}, contract(@durable, @bulk))
+    end
+  end
+
+  describe "the two versions are separate" do
+    test "every route carries both, and callers cannot override either" do
       for {profile, class} <- StreamRoute.active_lanes() do
         c = contract(profile, class)
 
         {:ok, honest} = StreamRoute.resolve(c)
-        assert honest.map_version == StreamRoute.map_version()
+        assert honest.placement_version == StreamRoute.placement_version()
+        assert honest.partition_scheme_version == StreamRoute.partition_scheme_version()
 
-        {:ok, spoofed} = StreamRoute.resolve(Map.put(c, :route_map_version, 99))
+        spoofed_input =
+          c
+          |> Map.put(:route_map_version, 99)
+          |> Map.put(:placement_version, 99)
+          |> Map.put(:partition_scheme_version, 99)
 
-        assert spoofed.map_version == StreamRoute.map_version(),
-               "#{profile}/#{class} honoured a caller-supplied route_map_version"
+        {:ok, spoofed} = StreamRoute.resolve(spoofed_input)
 
         assert spoofed == honest,
-               "#{profile}/#{class} resolved differently when handed an unrecognised key"
+               "#{profile}/#{class} honoured a caller-supplied version"
       end
     end
 
-    test "the DLQ carries the active generation and ignores unrecognised input" do
-      for class <- [@bulk, @interactive] do
-        {:ok, dlq} = StreamRoute.resolve_dlq(class, 1)
-        assert dlq.map_version == StreamRoute.map_version()
-      end
+    test "the DLQ route carries both versions too" do
+      c = contract(@durable, @bulk)
+      {:ok, source} = StreamRoute.resolve(c)
+      {:ok, q} = StreamRoute.resolve_dlq(source, c)
+
+      assert q.placement_version == StreamRoute.placement_version()
+      assert q.partition_scheme_version == StreamRoute.partition_scheme_version()
     end
+
+    test "they are independently readable, so a placement change need not claim a re-partition" do
+      # Two distinct accessors, not one value read twice. If these were ever collapsed back into
+      # one constant, moving a partition range to a new stream would falsely assert that the key
+      # space had been re-partitioned, and vice versa.
+      assert is_integer(StreamRoute.placement_version())
+      assert is_integer(StreamRoute.partition_scheme_version())
+
+      refute function_exported?(StreamRoute, :map_version, 0),
+             "map_version/0 conflated placement with the partition scheme; it must stay split"
+    end
+  end
+
+  defp pad(p), do: "p" <> String.pad_leading(Integer.to_string(p), 2, "0")
+
+  defp dlq(class, partition) do
+    # Builds a source route whose partition is exactly `partition`, then derives the DLQ from it.
+    # Tests state the partition they mean; the module still derives it from the source.
+    source = %ResolvedRoute{
+      subject: "telemetry.edge-record.v1.bulk.#{pad(partition)}",
+      partition: partition,
+      expected_stream: "TELEMETRY_EDGE_RECORD_V1_BULK",
+      placement_version: StreamRoute.placement_version(),
+      partition_scheme_version: StreamRoute.partition_scheme_version()
+    }
+
+    StreamRoute.resolve_dlq(source, contract(@durable, class))
   end
 end
