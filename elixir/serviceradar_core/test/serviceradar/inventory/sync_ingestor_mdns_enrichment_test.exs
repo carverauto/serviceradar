@@ -30,12 +30,16 @@ defmodule ServiceRadar.Inventory.SyncIngestorMdnsEnrichmentTest do
   end
 
   defp unique_mac do
-    # Universally administered (bit 1 of the first octet clear) so nothing here
-    # is rejected as a randomized MAC for an unrelated reason.
+    # 0xA8, not 0xAA. Bit 1 of the first octet must be CLEAR: a locally
+    # administered MAC is refused as an anchor by
+    # SourcePolicy.census_anchorable_mac?/1, so the census seed would register
+    # no identifier at all and every assertion below would pass against an
+    # empty result -- the file green while proving nothing. It failed exactly
+    # that way first.
     suffix = [:positive] |> System.unique_integer() |> rem(0xFFFFFF)
     rest = suffix |> Integer.to_string(16) |> String.pad_leading(6, "0")
 
-    "AA:BB:CC:" <> String.replace(rest, ~r/(..)(..)(..)/, "\\1:\\2:\\3")
+    "A8:BB:CC:" <> String.replace(rest, ~r/(..)(..)(..)/, "\\1:\\2:\\3")
   end
 
   defp normalized(mac), do: mac |> String.replace(":", "") |> String.upcase()
