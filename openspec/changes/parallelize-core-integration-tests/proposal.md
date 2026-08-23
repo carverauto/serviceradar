@@ -11,51 +11,108 @@ starts a rollback-only Ecto SQL Sandbox owner for each test and stops it on exit
 is to make the owner lifecycle safe for concurrent modules, explicitly allow test-owned child
 processes, and keep tests that mutate process-global or database-global state in a serial lane.
 
+The first implementation pass proved the owner lifecycle but did not yet exploit it broadly. Of
+the 222 ordinary selected DataCase modules, 220 remain `async: false`; the two promoted database
+modules are assigned to different shards and therefore never overlap each other. The latest green local wave
+completed in 203.02 seconds versus the first complete green treatment's 259.00 seconds, a 21.6%
+improvement driven primarily by heavy-source extraction, work reduction, and sum-weighted shard
+balancing. ExUnit concurrency is module-level, so reaching the approved 50% minimum requires broad
+module promotion, splitting mixed safe/unsafe modules, and placement that models serial work and
+async makespan separately.
+
 Two ingestion/cardinality release gates also run in every pull request. The 50,000-device router
 test alone contributes about 47 seconds. One gate has both `:integration` and `:large_ingestion`;
 the other inherits `:requires_app` from DataCase and has `:large_ingestion`. ExUnit's positive
 `include: [:integration, :requires_app]` selection overrides the `:large_ingestion` exclusion in
 both cases. A tag-only fix would leave that precedence trap in place.
 
+The cold database-bootstrap integration test is a different kind of heavy work with the same PR
+latency consequence. It deliberately starts the production migration path twice against a fresh
+database: the first pass applies the baseline plus all migrations, and the second proves normal
+restart idempotence. A quiet serial profile was already about 115 seconds, above the complete
+90-second PR lifecycle goal, and its first pass exceeded 300 seconds while contending with the
+eight-shard treatment. Parallelizing shard databases cannot divide that sequential DDL workload.
+
 ## What Changes
-- Retain the existing eight database-backed Bazel shards and add bounded ExUnit concurrency inside
-  each shard, starting at two concurrently scheduled async modules per BEAM.
+- Retain the existing eight database-backed Bazel shards and stage bounded ExUnit concurrency
+  inside each shard from two to four concurrently scheduled async modules per BEAM, without
+  increasing Repo pool sizes.
+- Configure suite-global test state once in `test_helper.exs`; make ordinary no-option
+  `start_core!` calls idempotent and free of Application-environment mutation before async modules
+  are scheduled.
 - Refine the Ecto SQL Sandbox lifecycle so concurrent tests keep independent rollback-only owners
   and one owner cannot reset or check in another owner's connection.
 - Add a project-owned helper for explicitly granting a test-owned child process access to the
   calling test's sandbox transaction.
-- Classify integration modules into:
+- Account for every ordinary source and classify every selected ExUnit module, including direct
+  DataCase and non-DataCase modules, into:
   - a transaction-isolated lane that may opt in with `async: true`;
   - a shard-serial lane for unboxed transactions, DDL, `TRUNCATE`, materialized-view refreshes,
     application-environment mutation, and shared application processes; and
   - a designated outer-shard lane for tests that share fixed NATS or other fixture-global resource
     names across BEAMs.
+- Promote every transaction-isolated module found by that audit, record a concrete checked-in
+  blocker for every quarantined serial module, and split mixed modules so their transaction-only
+  cases can run async while unsafe cases retain the narrow serial scope they require.
+- Classify files with no `:integration` or `:requires_app` cases as load-only, prove an all-source
+  control and the pruned source union enumerate the same selected test identities, and stop loading
+  those unit-only files into database-backed shards. Unit targets retain their complete source set.
+- Normalize fixed registry keys, PubSub topics, telemetry filters, cache keys, and other identifiers
+  only when they can become unique per test with exact scoped cleanup.
+- Benchmark the BuildBuddy workflow at explicit 2-CPU and 12-CPU allocations as an independent
+  factor, pin the integration Repo pool to 12 during that comparison, and print scheduler/pool
+  values so CPU sizing cannot silently masquerade as a database-capacity increase. Apply the
+  winning explicit request to production `BazelCI` and both authoritative benchmark revisions so
+  accepted latency represents pull-request capacity.
 - Fail fast when a test attempts the invalid combination of `async: true` and
   `sandbox: :unboxed`.
-- Move both large-ingestion release-gate suites into a source-separated Bazel target backed by its
-  own disposable database, so ordinary pull-request integration targets cannot select either one
-  through ExUnit include precedence.
+- Move both large-ingestion suites and the intact two-pass cold database-bootstrap test into one
+  source-separated heavy release-qualification target backed by its own disposable database, so
+  ordinary pull-request integration targets cannot select any of them through ExUnit include
+  precedence. Introduce the target/status identifiers as permanent stable contracts and use marker
+  ancestry to preserve genuinely historical release behavior.
 - Give the dedicated target a `large_ingestion_test` Bazel tag and explicitly exclude that tag from
   the pull-request integration wildcard, so the separate target itself is not selected by
   `--test_tag_filters=integration_test`.
 - Run the heavy target in a separate BuildBuddy action on the default branch, nightly, and for
-  release tags; require a successful result for the exact release commit before publication using
+  release tags; keep the full bootstrap and ingestion assertions unchanged; require a successful
+  result for the exact release commit before publication using
   a tested Bazel qualifier and permanent introduction marker that distinguish truly historical
   tags from later contract deletion.
-- Re-measure and rebalance the eight file partitions after concurrency and the heavy-test
-  extraction change the critical path.
+- Re-measure and rebalance the eight file partitions with a concurrency-aware model that adds
+  common retained-source load and serial-module weight to the list-scheduled async-module makespan
+  at the configured cap, rather than balancing only total source weight.
+- Make one BEAM the primary topology challenger and run controlled one-, four-, and eight-BEAM
+  runner-layout diagnostics at frozen caps eight, seven,
+  and four plus a five-BEAM hybrid with two async lanes at cap seven and three serial lanes at cap
+  one on the same source revision. Swap only core topology labels, retain an exhaustive SRQL/other
+  non-core target list equal to the production ordinary wildcard remainder, explicitly prebuild
+  manual labels outside the clock, and co-locate every fixed-external source in one designated lane
+  for each multi-BEAM arm. The final ordinary topology remains eight shards unless an alternative
+  clears the five-run screen by at least 10%, passes its isolation/connection gates, receives an
+  explicit proposal amendment, and then passes the amended 20-run retry-free acceptance contract.
+- Treat those arms as pre-registered deployable bundles, not an isolated BEAM-count experiment,
+  because BEAM count, inner cap, and aggregate Repo-pool capacity vary together.
+- Require the authoritative exact-SHA BuildBuddy after cohort to improve nearest-rank p95 by at
+  least 50% versus the controlled before cohort and to remain at or below 90 seconds. Report 60%
+  as the stretch result. Retain the 259.00-second host-local run as historical diagnostic evidence,
+  not as an acceptance baseline for a fixture lifecycle the current workstation cannot reproduce.
 - Add hermetic configuration tests and repeated CI-equivalent stress runs that enforce the lane
   boundaries, source separation, database naming, and stability contract.
 
 ## Non-Goals
 - Replace Ecto SQL Sandbox with a custom transaction implementation.
 - Run DDL, unboxed, NATS, or process-global tests concurrently.
-- Increase the eight-shard count or the existing Repo pool sizes in the initial rollout.
+- Increase the eight-shard count or the existing Repo pool sizes during the staged rollout.
+- Adopt the one-BEAM challenger without the exact-workload safety and latency comparison; startup
+  savings alone do not prove the accumulated serial tail is faster.
 - Create a database or BEAM VM per individual test file.
 - Shorten cold full-repository compilation; this proposal targets the integration lifecycle after
   build artifacts and the database template are current.
 - Reduce the 50,000-device or 500-device/three-round workloads, or remove either from release
   qualification.
+- Reduce the cold bootstrap test to one startup pass, skip the baseline path, or weaken its
+  idempotence assertions.
 - Change fixture credential, cache routing, TLS verification, or template-migration semantics.
 
 ## Impact
@@ -67,16 +124,19 @@ both cases. A tag-only fix would leave that precedence trap in place.
   - `elixir/serviceradar_core/test/test_helper.exs`
   - `elixir/serviceradar_core/test/support/data_case.ex`
   - `elixir/serviceradar_core/test/support/test_support.ex`
+  - exhaustive async/serial DataCase disposition inventory and audited module splits
   - audited core integration test modules
   - `elixir/serviceradar_core/test/serviceradar/results_router_integration_test.exs`
   - `elixir/serviceradar_core/test/serviceradar/inventory/identifier_cardinality_gate_test.exs`
   - source-separated large-ingestion release-gate modules
+  - `elixir/serviceradar_core/test/serviceradar/cluster/database_bootstrap_integration_test.exs`
   - `openspec/changes/parallelize-core-integration-tests/benchmark.md`
   - `rust/integration-db/BUILD.bazel` and lifecycle tests
   - `buildbuddy.yaml`
   - `.github/workflows/release.yml`
   - `build/ci/large_ingestion_gate_contract.v1` and the Bazel-owned release qualifier
   - Bazel configuration and source-partition tests
+  - non-gating CPU/topology diagnostic targets and runner markers
 - Coordination:
   - Preserve the guarded lifecycle and local, non-cached database `TestRunner` contract from
     `route-bazel-cache-through-shared-edge`.

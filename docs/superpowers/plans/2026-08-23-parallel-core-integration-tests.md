@@ -4,11 +4,20 @@
 
 **Goal:** Cut the warm ordinary pull-request integration lifecycle to a retry-free p95 of 90 seconds or less while preserving database, process, external-resource, and release-gate isolation.
 
-**Architecture:** Keep the existing eight template-cloned PostgreSQL databases and eight Bazel shard targets, then allow at most two explicitly audited transaction-only ExUnit modules to overlap inside each BEAM. Split shared versus non-shared Ecto Sandbox teardown, pin fixed external-resource sources to `s7`, and move both ingestion/cardinality release suites into one separately provisioned BuildBuddy gate. Use one instrumentation-only baseline commit and the same non-merging benchmark action for controlled 20-run before/after cohorts.
+**Architecture:** Keep the existing eight template-cloned PostgreSQL databases and eight Bazel shard targets, stage audited transaction-only ExUnit modules from cap two to cap four inside each BEAM, and place sources using serial weight plus async makespan. Split shared versus non-shared Ecto Sandbox teardown, pin fixed external-resource sources to `s7`, and move heavy qualification into one separately provisioned BuildBuddy gate. Use one instrumentation-only baseline commit and the same non-merging benchmark action for controlled 20-run before/after cohorts.
 
 **Tech Stack:** Elixir 1.19, ExUnit, Ecto SQL Sandbox, Bazel/Starlark, Rust/tokio-postgres, BuildBuddy Workflows, GitHub Actions, Python `unittest` static contract tests.
 
 **Spec:** `openspec/changes/parallelize-core-integration-tests/` (especially `design.md`, `benchmark.md`, and `specs/integration-test-execution/spec.md`)
+
+> **Intermediate audit state (2026-08-23):** The initial candidate list below contained six async
+> promotions. Runtime-path review proved that the four composite-check modules can reach the global
+> `Oban.cancel_all_jobs/1` path, so they remain `async: false`. Only advisory feed loader and secret
+> broker audit were promoted in the narrow pass. That state is not the final design: the approved
+> broad-async continuation, staged cap four, CPU/topology diagnostics, and concurrency-aware
+> placement are implemented by
+> `docs/superpowers/plans/2026-08-23-parallel-core-integration-tests-broad-async.md`, which
+> supersedes Task 8's narrow-pass acceptance sequence.
 
 ## Global Constraints
 
@@ -37,7 +46,8 @@
 - `elixir/serviceradar_core/test/test_helper.exs`: fail-closed integration concurrency configuration.
 - `elixir/serviceradar_core/BUILD.bazel`: ordinary source exclusion, shared runtime data, cap env, and dedicated release target.
 - `elixir/serviceradar_core/test/release_gates/large_ingestion/*.exs`: the two physically separated release suites.
-- Six audited DataCase files and `test/ASYNC_INTEGRATION_AUDIT.md`: the first conservative async wave and evidence.
+- Two promoted DataCase files, four explicitly serial composite-check files, and
+  `test/ASYNC_INTEGRATION_AUDIT.md`: the first conservative async wave and evidence.
 - `buildbuddy.yaml`: unchanged benchmark action across revisions, ordinary filter/measurement, and `LargeIngestionGate`.
 - `build/ci/large_ingestion_gate_contract.v1`: permanent introduction boundary for historical
   release compatibility.
@@ -92,6 +102,7 @@ out-of-clock preflight.
   PREFLIGHT_FLAGS="-c opt --config=$BAZEL_PROFILE --strategy=TestRunner=local
     --//build:enable_integration_tests --//build:run_id=$RUN_ID
     --test_env=SERVICERADAR_ENV=ci --flaky_test_attempts=1
+    --nocache_test_results --noremote_upload_local_results
     --test_env=SERVICERADAR_SECRET_DATABASE_PASSWORD
     --test_env=SERVICERADAR_SECRET_DATABASE_ADMIN_PASSWORD
     --test_env=SERVICERADAR_SECRET_DGRAPH_ADMIN_PASSWORD
@@ -145,7 +156,8 @@ set -a
 set +a
 FLAGS="-c opt --config=$BAZEL_PROFILE --strategy=TestRunner=local --//build:enable_integration_tests
   --//build:run_id=$RUN_ID --test_env=SERVICERADAR_ENV=ci --flaky_test_attempts=1
-  --test_output=all --test_env=SERVICERADAR_TEST_SLOWEST=15
+  --test_output=all
+  --nocache_test_results --noremote_upload_local_results
   --test_env=SERVICERADAR_SECRET_DATABASE_PASSWORD
   --test_env=SERVICERADAR_SECRET_DATABASE_ADMIN_PASSWORD
   --test_env=SERVICERADAR_SECRET_DGRAPH_ADMIN_PASSWORD
@@ -330,10 +342,15 @@ Create a root Python `unittest`, registered as `//:ci_heavy_gate_contract_test`,
 currently inspects in `data`; later tasks extend `data` when their new sources exist. Extract action
 blocks by exact `- name:` boundaries. Assert
 `IntegrationBenchmark` uses the existing runner image/pool, asserts requested SHA equals `HEAD`, sets
-`--flaky_test_attempts=1`, `--test_output=all`, `SERVICERADAR_TEST_SLOWEST=15`, local TestRunner, the
+`--flaky_test_attempts=1`, `--test_output=all`, local TestRunner, the
 candidate-compatible filter `integration_test,-large_ingestion_test,-acceptance_test`, observer,
 `--max-seconds 1800`, fresh run id, fixture setup, and outcome-bearing teardown. Run it and observe
 failure because the action is absent.
+
+Assert `SERVICERADAR_TEST_SLOWEST` is absent. ExUnit's built-in report enables trace, forces
+`max_cases: 1`, and disables timeouts, so it is allowed only in a separately labeled serial
+non-cohort profiling run. Require the integration runner marker that reports max cases, trace, and
+timeout mode.
 
 Assert `BAZEL_PROFILE=ci`; template preflight and any `migrate_template` occur before `START_NS`;
 the measured template check occurs after `START_NS` and cannot migrate; all four observer marker
@@ -701,7 +718,9 @@ added.
 Lift the existing integration shard `data` expression into `INTEGRATION_RUNTIME_DATA`. It retains
 the current `config/**`, `lib/**`, `priv/**`, non-test `test/**`, manifests, Wasm source groups,
 config loader, and `//build:run_id_file`. Both ordinary targets and the dedicated gate consume it.
-Exclude `test/release_gates/**` from `ALL_TEST_SRCS` and exclude release test files from runtime data.
+Exclude `test/release_gates/**` and the cold database-bootstrap integration source from
+`ALL_TEST_SRCS`; exclude release test files from runtime data. The bootstrap source is moved intact
+because its two serial startup passes already exceed the complete PR latency budget.
 
 - [ ] **Step 4: Add the dedicated Elixir target**
 
@@ -709,7 +728,9 @@ Exclude `test/release_gates/**` from `ALL_TEST_SRCS` and exclude release test fi
 ex_unit_test(
     name = "large_ingestion_release_gate",
     size = "enormous",
-    srcs = glob(["test/release_gates/large_ingestion/*_test.exs"], allow_empty = False),
+    srcs = glob(["test/release_gates/large_ingestion/*_test.exs"], allow_empty = False) + [
+        "test/serviceradar/cluster/database_bootstrap_integration_test.exs",
+    ],
     data = INTEGRATION_RUNTIME_DATA,
     elixir_opts = [
         "-r", "test/db/integration_env.exs",
@@ -749,8 +770,10 @@ test ! -e elixir/serviceradar_core/test/serviceradar/inventory/identifier_cardin
 ```
 
 Then run the guarded focused prepare/provision/test/teardown lifecycle with local TestRunner and
-retries one. Expected: one tagged target, both full workloads pass, and teardown removes
-`<run>_large_ingestion`.
+retries one. Expected: one tagged target, both full ingestion workloads plus the intact two-pass
+cold bootstrap pass serially, teardown removes `<run>_large_ingestion`, and bootstrap leaves no
+separately named scratch database. The newly introduced target/action/status names remain
+permanent and stable.
 
 - [ ] **Step 7: Commit**
 
@@ -776,15 +799,18 @@ git commit -m "test(ci): separate large ingestion release gates"
 
 **Interfaces:**
 - Consumes: non-shared owner teardown and cap `2` from Tasks 2-3.
-- Produces: six explicit `use ServiceRadar.DataCase, async: true` modules and semantic audit evidence.
+- Produces: two explicit `use ServiceRadar.DataCase, async: true` modules, a four-file serial
+  composite-check contract, and semantic audit evidence.
 
 - [ ] **Step 1: Extend the contract test before module edits**
 
-Add the six exact paths to `ASYNC_SAFE_SRCS`. For each source assert one
+Add the advisory-feed-loader and secret-broker-audit paths to `ASYNC_SAFE_SRCS`. For each source
+assert one
 `use ServiceRadar.DataCase, async: true`; reject `sandbox: :unboxed`, `Application.put_env`,
 `Application.delete_env`, `TRUNCATE`, `CREATE TABLE`, `REFRESH MATERIALIZED`, `Gnat.`, and `Nats`.
-Assert the set is disjoint from fixed-resource sources. Run the test and observe red because the
-modules are serial.
+Add the four composite-check paths to an independent required-serial set and assert they remain
+`async: false`. Assert both sets are disjoint from fixed-resource sources. Run the test and observe
+red because the two eligible modules are serial.
 
 - [ ] **Step 2: Write the semantic audit record**
 
@@ -798,20 +824,25 @@ required. Record these serial decisions:
 - first-user role: unboxed plus `TRUNCATE` plus true multiple connections;
 - onboarding package atomicity: unboxed plus global crypto config and lock visibility;
 - remote access sessions: application config, task concurrency, committed cleanup;
+- composite checks: the `CompositeCheck -> ScheduleNotifier -> EvaluationWorker.cancel ->
+  Oban.cancel_all_jobs/1` path mutates globally shared Oban state, so all four modules remain
+  serial;
 - NetFlow ingestion, ad-hoc scan NATS E2E, Proxmox smoke: fixed external `s7` lane.
 
-- [ ] **Step 3: Make the six one-line promotions**
+- [ ] **Step 3: Make the two one-line promotions**
 
-Change only `async: false` to `async: true` in the six listed modules. Do not promote Rollup or
-RemoteAccessHostKeys in this first wave, and never allow an application-supervised process into a
-test owner's transaction.
+Change only `async: false` to `async: true` in advisory feed loader and secret broker audit. Keep
+all four composite-check modules serial under the independent static contract. Do not promote
+Rollup or RemoteAccessHostKeys in this first wave, and never allow an application-supervised
+process into a test owner's transaction.
 
 - [ ] **Step 4: Run two retry-free stress waves**
 
 With one guarded `s0..s7` provision, run the ordinary wildcard twice sequentially using
-`--flaky_test_attempts=1`, `--test_output=all`, and `SERVICERADAR_TEST_SLOWEST=15`, then teardown.
-Expected: both pass with no ownership/deadlock output. Verify fixed external files are sourced only
-by `integration_tests_s7`.
+`--flaky_test_attempts=1` and `--test_output=all`, with built-in slowest reporting absent. Require
+each shard's runner marker to show `max_cases: 2`, trace off, and timeouts enabled, then teardown.
+Expected: both pass with no ownership/deadlock/checkout-drop output. Verify fixed external files
+are sourced only by `integration_tests_s7`.
 
 - [ ] **Step 5: Verify and commit**
 
@@ -843,7 +874,7 @@ git commit -m "test(elixir): enable audited integration concurrency"
 - [ ] **Step 1: Add red action assertions**
 
 Extend the Python action-block parser. BazelCI must have the negative heavy tag, retries one, local
-TestRunner, observer with `--max-seconds 1800`, slowest output, run id, fixture materialization, and
+TestRunner, observer with `--max-seconds 1800`, effective-runner output, run id, fixture materialization, and
 outcome-bearing teardown. Assert its preflight/migration is before `START_NS`, its measured phase
 does not migrate, its markers begin absent beneath a private directory, and `END_NS` is captured
 immediately after teardown and before observer shutdown.
@@ -872,7 +903,7 @@ Change only the ordinary integration wildcard to:
 --test_tag_filters=integration_test,-large_ingestion_test,-acceptance_test
 ```
 
-Use `--test_output=all` and `--test_env=SERVICERADAR_TEST_SLOWEST=15` for its suite. Record a
+Use `--test_output=all` and require `SERVICERADAR_TEST_SLOWEST` to be absent from its suite. Record a
 nanosecond start immediately before measured fixture materialization, after the separate template
 preflight has completed. Start the observer after materializing fixture config and before sweep.
 Poll its ready file for at most 30 seconds while also checking that the observer process is alive; a
@@ -1097,27 +1128,30 @@ Expected: PASS.
 - Modify: `build/integration_shards.bzl`
 - Modify: `openspec/changes/parallelize-core-integration-tests/benchmark.md`
 - Modify: `openspec/changes/parallelize-core-integration-tests/tasks.md`
-- Modify only if evidence demands reclassification: the six async candidate files.
+- Modify only if evidence demands reclassification: the two promoted files and four audited serial
+  composite-check files.
 
 **Interfaces:**
-- Consumes: BuildBuddy timings, ExUnit slowest output, observer JSON, and all implemented targets.
+- Consumes: BuildBuddy timings, separately collected serial/non-cohort ExUnit profiling output,
+  observer JSON, and all implemented targets.
 - Produces: measured heavy hints, all attempt rows, accepted 20-run before/after cohorts, final decision, and evidenced checklist.
 
-- [ ] **Step 1: Run a five-attempt diagnostic candidate wave**
+- [ ] **Step 1: Run a complete serial/non-cohort profiling wave**
 
-Warm the exact candidate configuration/template. Run five sequential ordinary lifecycles with the
-candidate filter, retries one, slowest 15, observer, and outcome-bearing teardown. Aggregate median
-per-shard durations. Treat the 15 slowest ExUnit cases reported by each shard as ranked diagnostic
-hints: aggregate only cases actually emitted and never claim timings for every file from this
-truncated list. Use repeated slow-case appearances plus per-shard critical-path duration to choose
-heavy hints. Any ownership/deadlock/cleanup failure returns the offending module to `async: false`
-before continuing.
+Warm the exact candidate configuration/template. Run all eight shards once with retries one,
+`max_cases: 1`, tracing enabled, and test timeouts disabled so every case duration is emitted. Do
+not use built-in `slowest`; collect the complete trace and label the run profiling-only, never part
+of a timed cohort. Derive source weights from all emitted cases, then run one ordinary trace-free
+`max_cases: 2` validation lifecycle with outcome-bearing teardown. Any ownership, deadlock, queue,
+or cleanup failure returns the offending module to `async: false` before continuing.
 
 - [ ] **Step 2: Rebalance from measured weights**
 
-Update `_HEAVY_SRCS` so the longest non-separated files are dealt to distinct shards before round
-robin. Fixed-resource sources remain forced to `s7`. Run `//build:integration_shards_test` and query
-all eight generated targets.
+Use only repeatedly emitted slow files to derive rounded relative scheduling weights, with one
+common default weight for every unmeasured source. Assign sources deterministically by descending
+weight to the least estimated-load shard; use source count and shard name as tie-breakers. Fixed-
+resource sources remain forced to `s7` and preseed its estimated load. Run
+`//build:integration_shards_test` and query all eight generated targets.
 
 - [ ] **Step 3: Freeze after SHA and authorize external execution**
 
