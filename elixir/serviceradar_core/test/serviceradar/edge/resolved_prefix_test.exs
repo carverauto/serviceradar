@@ -21,11 +21,6 @@ defmodule ServiceRadar.Edge.ResolvedPrefixTest do
     t
   end
 
-  defp terminal!(t, seq) do
-    {:ok, t} = ResolvedPrefix.record_terminal_outcome(t, seq)
-    t
-  end
-
   describe "the resolving set is exactly the four ABI kinds" do
     test "every resolving kind advances the prefix; retryable and unspecified do not" do
       for d <- [@authoritative, @audit, @quarantine, @permanent] do
@@ -132,6 +127,101 @@ defmodule ServiceRadar.Edge.ResolvedPrefixTest do
     end
   end
 
+  describe "lane bounds are the protobuf uint64 range" do
+    test "a sequence past uint64 max is REFUSED, not resolved" do
+      # An earlier revision accepted max + 1 and advanced the watermark to it -- a value nothing
+      # downstream can express, since the lane sequence is a protobuf uint64.
+      max = 0xFFFFFFFFFFFFFFFF
+      t = ResolvedPrefix.new(max)
+
+      assert {:error, :above_lane_max} = ResolvedPrefix.record(t, max + 1, @authoritative)
+      assert {:error, :above_lane_max} = ResolvedPrefix.record(t, max * 2, @authoritative)
+
+      assert ResolvedPrefix.resolved_through(t) === max - 1
+    end
+
+    test "uint64 max itself is a valid final sequence" do
+      max = 0xFFFFFFFFFFFFFFFF
+      t = max |> ResolvedPrefix.new() |> record!(max, @authoritative)
+
+      assert ResolvedPrefix.resolved_through(t) === max
+      assert ResolvedPrefix.disposition(t, max) === {:ok, @authoritative}
+    end
+
+    test "the constructor takes FIRST_UNRESOLVED_SEQUENCE, not the lane origin" do
+      # sequence_base MUST be 1 and names the lane's origin; first_unresolved_sequence is where
+      # the agent still needs work. Seeding a resumed lane from the origin re-opens a window the
+      # agent has already closed.
+      t = ResolvedPrefix.new(100)
+
+      assert ResolvedPrefix.base(t) === 100
+      assert ResolvedPrefix.resolved_through(t) === 99
+      assert {:error, :below_base} = ResolvedPrefix.record(t, 99, @authoritative)
+      assert {:error, :below_base} = ResolvedPrefix.record(t, 1, @authoritative)
+    end
+
+    test "sequence 0 does not exist" do
+      t = ResolvedPrefix.new(1)
+
+      assert ResolvedPrefix.resolved_through(t) === 0
+      assert {:error, :below_base} = ResolvedPrefix.record(t, 0, @authoritative)
+    end
+  end
+
+  describe "release is driven by what the agent REPORTS, and is final" do
+    test "releasing drops evidence below the reported first-unresolved sequence" do
+      t = Enum.reduce(1..5, ResolvedPrefix.new(1), &record!(&2, &1, @authoritative))
+      assert ResolvedPrefix.retained_dispositions(t) === 5
+
+      # The agent reports it has locally resolved through 3.
+      {:ok, t} = ResolvedPrefix.release_below(t, 4)
+
+      assert ResolvedPrefix.base(t) === 4
+      assert ResolvedPrefix.retained_dispositions(t) === 2
+      assert ResolvedPrefix.disposition(t, 3) === :error
+      assert ResolvedPrefix.disposition(t, 4) === {:ok, @authoritative}
+
+      # The remote watermark is untouched: release is about local durability, not resolution.
+      assert ResolvedPrefix.resolved_through(t) === 5
+    end
+
+    test "a released sequence is BELOW BASE, not a silent no-op" do
+      t = 1 |> ResolvedPrefix.new() |> record!(1, @authoritative) |> record!(2, @quarantine)
+      {:ok, t} = ResolvedPrefix.release_below(t, 3)
+
+      # THE POINT: with the evidence gone there is nothing to contradict, so a contradicting
+      # disposition would otherwise return {:ok, t} and read as agreement.
+      assert {:error, :below_base} = ResolvedPrefix.record(t, 1, @permanent)
+      assert {:error, :below_base} = ResolvedPrefix.record(t, 2, @authoritative)
+      assert {:error, :below_base} = ResolvedPrefix.record(t, 1, @authoritative)
+    end
+
+    test "release never moves the lane backwards, and never runs ahead of resolution" do
+      t = Enum.reduce(1..3, ResolvedPrefix.new(1), &record!(&2, &1, @authoritative))
+      {:ok, t} = ResolvedPrefix.release_below(t, 3)
+
+      assert {:error, :below_base} = ResolvedPrefix.release_below(t, 2)
+
+      # The agent cannot have durably acted on an outcome it was never told about.
+      assert {:error, :not_resolved} = ResolvedPrefix.release_below(t, 5)
+      assert {:error, :not_resolved} = ResolvedPrefix.release_below(t, 99)
+
+      # Exactly one past the resolved watermark is the legal maximum: everything resolved.
+      assert {:ok, done} = ResolvedPrefix.release_below(t, 4)
+      assert ResolvedPrefix.retained_dispositions(done) === 0
+    end
+
+    test "the gateway never infers release from having sent an ack" do
+      # There is no API that advances release from gateway-side activity: the only entry point
+      # takes the agent's reported sequence. This is structural, not a runtime check.
+      {:module, _} = Code.ensure_loaded(ResolvedPrefix)
+
+      refute function_exported?(ResolvedPrefix, :record_terminal_outcome, 2)
+      refute function_exported?(ResolvedPrefix, :reclaimable_through, 1)
+      assert function_exported?(ResolvedPrefix, :release_below, 2)
+    end
+  end
+
   describe "the transition table is explicit, and rejections do not mutate state" do
     # DERIVED over every declared kind x every declared kind, plus invalid inputs. A hand-written
     # list of six rows describes the policy; it does not prove the policy holds for every pair,
@@ -177,14 +267,25 @@ defmodule ServiceRadar.Edge.ResolvedPrefixTest do
           :idempotent ->
             assert {:ok, after_state} = ResolvedPrefix.record(before, 2, new)
 
-            assert after_state == before,
+            assert after_state === before,
                    "#{prior} -> #{new} should be idempotent but changed state"
+
+            assert ResolvedPrefix.resolved_through(after_state) ===
+                     ResolvedPrefix.resolved_through(before)
 
           :allowed ->
             assert {:ok, after_state} = ResolvedPrefix.record(before, 2, new)
 
-            assert ResolvedPrefix.pending_disposition(after_state, 2) == {:ok, new},
+            assert ResolvedPrefix.pending_disposition(after_state, 2) === {:ok, new},
                    "#{prior} -> #{new} should supersede"
+
+            # The COMPLETE state, including the watermark. A supersession at seq 2 with seq 1
+            # still missing must not move the prefix -- asserting only the pending entry let a
+            # mutant set the watermark while looking correct.
+            assert ResolvedPrefix.resolved_through(after_state) === 0,
+                   "#{prior} -> #{new} advanced the prefix past a missing sequence"
+
+            assert after_state === %{before | pending: %{2 => new}}
 
           :conflict ->
             # The meaningful property in an immutable language is that the call returns an
@@ -208,7 +309,9 @@ defmodule ServiceRadar.Edge.ResolvedPrefixTest do
 
         if prior == new do
           assert {:ok, after_state} = ResolvedPrefix.record(before, 1, new)
-          assert after_state == before, "#{prior} -> #{new} inside the prefix changed state"
+          assert after_state === before, "#{prior} -> #{new} inside the prefix changed state"
+
+          assert ResolvedPrefix.resolved_through(after_state) === 1
         else
           # Inside the prefix a resolving kind is terminal: it may not become a different
           # resolving kind, nor be downgraded back to retryable.
@@ -234,187 +337,6 @@ defmodule ServiceRadar.Edge.ResolvedPrefixTest do
         assert {:error, :unknown_disposition} = ResolvedPrefix.record(before, 2, bad),
                "prior #{inspect(prior)} accepted #{inspect(bad)}"
       end
-    end
-
-    test "record_terminal_outcome rejections leave state identical" do
-      # Terminal evidence arriving BEFORE its PubAck is explicitly REFUSED, not retained: the
-      # gateway has not resolved the sequence, so there is nothing for the agent to have acted on.
-      t = 10 |> ResolvedPrefix.new() |> record!(10, @authoritative)
-
-      for {seq, expected} <- [{9, :below_base}, {11, :not_resolved}, {999, :not_resolved}] do
-        assert {:error, ^expected} = ResolvedPrefix.record_terminal_outcome(t, seq)
-      end
-
-      # Whole-state: the refusals changed nothing.
-      assert ResolvedPrefix.resolved_through(t) == 10
-      assert ResolvedPrefix.reclaimable_through(t) == 9
-      assert ResolvedPrefix.retained_dispositions(t) == 1
-    end
-  end
-
-  describe "watermarks are monotonic and ordered" do
-    test "neither watermark ever moves backwards, and reclaim never passes resolution" do
-      kinds = [@authoritative, @audit, @quarantine, @permanent, @retryable]
-
-      # A deterministic interleaving of out-of-order records, supersessions and terminal events.
-      ops =
-        for seq <- [3, 1, 5, 2, 4, 6, 5, 1, 2, 3, 4], into: [] do
-          {seq, Enum.at(kinds, rem(seq * 7, 5))}
-        end
-
-      {final, _} =
-        Enum.reduce(ops, {ResolvedPrefix.new(1), {0, 0}}, fn {seq, kind}, {t, {pr, pc}} ->
-          t =
-            case ResolvedPrefix.record(t, seq, kind) do
-              {:ok, t2} -> t2
-              {:error, _} -> t
-            end
-
-          t =
-            case ResolvedPrefix.record_terminal_outcome(t, seq) do
-              {:ok, t2} -> t2
-              {:error, _} -> t
-            end
-
-          r = ResolvedPrefix.resolved_through(t)
-          c = ResolvedPrefix.reclaimable_through(t)
-
-          assert r >= pr, "resolved went backwards: #{pr} -> #{r}"
-          assert c >= pc, "reclaimable went backwards: #{pc} -> #{c}"
-          assert c <= r, "reclaim #{c} passed resolution #{r}"
-
-          {t, {r, c}}
-        end)
-
-      # NOT VACUOUS: if nothing ever advanced, the monotonicity assertions above are trivially
-      # satisfied by a tracker that does nothing.
-      assert ResolvedPrefix.resolved_through(final) > 0
-    end
-  end
-
-  describe "the two watermarks are separate" do
-    test "a gateway resolution does NOT by itself reclaim anything" do
-      t = 1 |> ResolvedPrefix.new() |> record!(1, @authoritative) |> record!(2, @authoritative)
-
-      assert ResolvedPrefix.resolved_through(t) == 2
-
-      # THE POINT: the remote prefix moved, but no local bytes may be released. Conflating these
-      # would delete spool evidence on the strength of a PubAck alone.
-      assert ResolvedPrefix.reclaimable_through(t) == 0
-    end
-
-    test "one local terminal event does not vouch for an earlier sequence" do
-      t =
-        1
-        |> ResolvedPrefix.new()
-        |> record!(1, @quarantine)
-        |> record!(2, @authoritative)
-        |> terminal!(2)
-
-      # Sequence 1's local quarantine transaction is still pending, so the watermark stays below
-      # it and its evidence is retained.
-      assert ResolvedPrefix.reclaimable_through(t) == 0
-      assert ResolvedPrefix.disposition(t, 1) == {:ok, @quarantine}
-
-      t = terminal!(t, 1)
-
-      # Now the whole contiguous run releases, and the released evidence is dropped.
-      assert ResolvedPrefix.reclaimable_through(t) == 2
-      assert ResolvedPrefix.disposition(t, 1) == :error
-      assert ResolvedPrefix.disposition(t, 2) == :error
-    end
-
-    test "reclaim never exceeds resolution, and an unresolved sequence is refused" do
-      t = 1 |> ResolvedPrefix.new() |> record!(1, @authoritative)
-
-      assert {:error, :not_resolved} = ResolvedPrefix.record_terminal_outcome(t, 2)
-
-      t = terminal!(t, 1)
-      assert ResolvedPrefix.reclaimable_through(t) <= ResolvedPrefix.resolved_through(t)
-    end
-
-    test "recording a terminal outcome twice is idempotent" do
-      t = 1 |> ResolvedPrefix.new() |> record!(1, @authoritative) |> terminal!(1)
-      assert {:ok, same} = ResolvedPrefix.record_terminal_outcome(t, 1)
-      assert ResolvedPrefix.reclaimable_through(same) == 1
-    end
-
-    test "a retryable cap holds the reclaim watermark down too" do
-      t =
-        1
-        |> ResolvedPrefix.new()
-        |> record!(1, @retryable)
-        |> record!(2, @authoritative)
-
-      # 2 is resolved remotely but sits behind the cap, so it is not inside the prefix and
-      # cannot be reclaimed.
-      assert {:error, :not_resolved} = ResolvedPrefix.record_terminal_outcome(t, 2)
-      assert ResolvedPrefix.reclaimable_through(t) == 0
-    end
-  end
-
-  describe "lane bounds" do
-    test "a lane starting above 1 refuses anything below its base" do
-      t = ResolvedPrefix.new(100)
-
-      assert ResolvedPrefix.resolved_through(t) == 99
-      assert {:error, :below_base} = ResolvedPrefix.record(t, 99, @authoritative)
-      assert {:error, :below_base} = ResolvedPrefix.record_terminal_outcome(t, 99)
-
-      t = record!(t, 100, @authoritative)
-      assert ResolvedPrefix.resolved_through(t) == 100
-    end
-
-    test "sequence 0 does not exist, so a fresh lane reports nothing resolved" do
-      t = ResolvedPrefix.new(1)
-
-      # 0 rather than 1: "nothing resolved yet", not "sequence 0 resolved".
-      assert ResolvedPrefix.resolved_through(t) == 0
-      assert ResolvedPrefix.reclaimable_through(t) == 0
-      assert {:error, :below_base} = ResolvedPrefix.record(t, 0, @authoritative)
-    end
-
-    test "u64 max is a valid final sequence and terminates" do
-      # The Go implementation hung here with a `s <= seq` counter that wrapped. Termination is
-      # decided by SET MEMBERSHIP instead, so the final sequence completes rather than looping.
-      max = 0xFFFFFFFFFFFFFFFF
-      t = max |> ResolvedPrefix.new() |> record!(max, @authoritative)
-
-      assert ResolvedPrefix.resolved_through(t) == max
-
-      t = terminal!(t, max)
-      assert ResolvedPrefix.reclaimable_through(t) == max
-      assert ResolvedPrefix.retained_dispositions(t) == 0
-    end
-  end
-
-  describe "retained state is released, not accumulated" do
-    test "evidence is dropped exactly as the reclaim watermark passes it" do
-      t = Enum.reduce(1..10, ResolvedPrefix.new(1), &record!(&2, &1, @authoritative))
-
-      assert ResolvedPrefix.resolved_through(t) == 10
-      assert ResolvedPrefix.retained_dispositions(t) == 10
-
-      t = Enum.reduce(1..7, t, &terminal!(&2, &1))
-
-      assert ResolvedPrefix.reclaimable_through(t) == 7
-
-      # NOT VACUOUS: an implementation that never released would report 10 here, and the tracker
-      # would grow without bound over a long-lived lane.
-      assert ResolvedPrefix.retained_dispositions(t) == 3
-    end
-
-    test "a long out-of-order burst collapses to no pending state once the gap fills" do
-      t = Enum.reduce(2..50, ResolvedPrefix.new(1), &record!(&2, &1, @authoritative))
-
-      assert ResolvedPrefix.pending_out_of_order(t) == 49
-      assert ResolvedPrefix.resolved_through(t) == 0
-
-      t = record!(t, 1, @authoritative)
-
-      assert ResolvedPrefix.resolved_through(t) == 50
-      assert ResolvedPrefix.pending_out_of_order(t) == 0
-      assert ResolvedPrefix.pending_disposition(t, 25) == :error
     end
   end
 end
