@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import json
+import math
 import re
+import subprocess
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -23,6 +25,12 @@ INVOCATION_PATH = "/invocation/"
 TARGET_URL_PREFIX = "https://carverauto.buildbuddy.io/invocation/"
 HISTORICAL_NOT_APPLICABLE = "HISTORICAL_NOT_APPLICABLE"
 FULL_SHA = re.compile(r"^[0-9a-f]{40}$")
+TARGET_DECLARATION = re.compile(
+    rb'(?m)^[ \t]*name[ \t]*=[ \t]*"large_ingestion_release_gate"[ \t]*,?[ \t]*(?:#[^\r\n]*)?\r?$'
+)
+ACTION_DECLARATION = re.compile(
+    rb'(?m)^[ \t]*-[ \t]+name:[ \t]*"LargeIngestionGate"[ \t]*(?:#[^\r\n]*)?\r?$'
+)
 
 
 class PolicyError(Exception):
@@ -38,7 +46,7 @@ class GitEvidence(Protocol):
 
 
 class StatusSource(Protocol):
-    def snapshot(self) -> Sequence["CommitStatus"]: ...
+    def snapshot(self, timeout_seconds: float) -> Sequence["CommitStatus"]: ...
 
 
 class Clock(Protocol):
@@ -86,6 +94,13 @@ class GitRepository:
         return stdout
 
     @staticmethod
+    def _stderr_bytes(result: object, operation: str) -> bytes:
+        stderr = getattr(result, "stderr", None)
+        if not isinstance(stderr, bytes):
+            raise PolicyError(f"git {operation} returned malformed diagnostics")
+        return stderr
+
+    @staticmethod
     def _decode(stdout: bytes, operation: str) -> str:
         try:
             return stdout.decode("utf-8")
@@ -98,6 +113,8 @@ class GitRepository:
         )
         if getattr(result, "returncode", None) != 0:
             raise PolicyError("git revision could not be resolved")
+        if self._stderr_bytes(result, "resolution"):
+            raise PolicyError("git revision resolution was ambiguous or emitted a warning")
         value = self._decode(self._stdout_bytes(result, "resolution"), "resolution").strip()
         if not FULL_SHA.fullmatch(value):
             raise PolicyError("git resolution did not return one full SHA")
@@ -196,7 +213,9 @@ class GhStatusClient:
         self.runner = runner
         self.environment = environment
 
-    def snapshot(self) -> Sequence[CommitStatus]:
+    def snapshot(self, timeout_seconds: float) -> Sequence[CommitStatus]:
+        if not math.isfinite(timeout_seconds) or timeout_seconds <= 0:
+            raise PolicyError("GitHub status request timeout must be finite positive")
         argv = [
             "gh",
             "api",
@@ -213,7 +232,10 @@ class GhStatusClient:
                 check=False,
                 env=child_environment,
                 shell=False,
+                timeout=timeout_seconds,
             )
+        except subprocess.TimeoutExpired as error:
+            raise PolicyError("GitHub status request timed out") from error
         except OSError as error:
             raise PolicyError("GitHub status request could not execute") from error
         if getattr(result, "returncode", None) != 0:
@@ -298,10 +320,10 @@ def determine_applicability(
         if release_marker != MARKER_BYTES:
             raise PolicyError("release marker is malformed")
         target = git.read_tree_file(resolved_release, TARGET_PATH)
-        if target is None or TARGET_TEXT not in target:
+        if target is None or not TARGET_DECLARATION.search(target):
             raise PolicyError("release tree lacks the large-ingestion Bazel target")
         action = git.read_tree_file(resolved_release, ACTION_PATH)
-        if action is None or ACTION_TEXT not in action:
+        if action is None or not ACTION_DECLARATION.search(action):
             raise PolicyError("release tree lacks the LargeIngestionGate action")
         return True
 
@@ -320,6 +342,14 @@ def latest_status(statuses: Sequence[CommitStatus]) -> CommitStatus | None:
 
 
 def validate_target_url(candidate: str, configured_prefix: str) -> str:
+    if not isinstance(candidate, str) or not isinstance(configured_prefix, str):
+        raise PolicyError("BuildBuddy invocation URL could not be parsed")
+    if any(
+        character.isspace() or ord(character) < 0x20 or ord(character) == 0x7F
+        for value in (candidate, configured_prefix)
+        for character in value
+    ):
+        raise PolicyError("BuildBuddy invocation URL contains raw whitespace or control characters")
     try:
         configured = urlparse(configured_prefix)
         parsed = urlparse(candidate)
@@ -366,16 +396,30 @@ def wait_for_gate(
     poll_seconds: float,
     target_url_prefix: str,
 ) -> GateResult:
+    if (
+        not math.isfinite(timeout_seconds)
+        or not math.isfinite(poll_seconds)
+        or timeout_seconds <= 0
+        or poll_seconds <= 0
+    ):
+        raise PolicyError("timeout and polling intervals must be finite positive values")
+
     applicable = determine_applicability(git, release_commit, base_ref)
     if not applicable:
         return GateResult(HISTORICAL_NOT_APPLICABLE)
 
-    if timeout_seconds <= 0 or poll_seconds <= 0:
-        raise PolicyError("timeout and polling intervals must be positive")
     source = status_factory()
     deadline = clock.monotonic() + timeout_seconds
     while True:
-        newest = latest_status(source.snapshot())
+        before_snapshot = clock.monotonic()
+        if before_snapshot >= deadline:
+            raise PolicyError("timed out waiting for LargeIngestionGate success")
+        snapshot = source.snapshot(deadline - before_snapshot)
+        after_snapshot = clock.monotonic()
+        if after_snapshot >= deadline:
+            raise PolicyError("timed out waiting for LargeIngestionGate success")
+
+        newest = latest_status(snapshot)
         if newest is not None:
             if newest.state == "success":
                 target_url = validate_target_url(newest.target_url, target_url_prefix)
@@ -389,7 +433,4 @@ def wait_for_gate(
                     f"newest LargeIngestionGate status has unknown state {newest.state!r}"
                 )
 
-        now = clock.monotonic()
-        if now >= deadline:
-            raise PolicyError("timed out waiting for LargeIngestionGate success")
-        clock.sleep(min(poll_seconds, deadline - now))
+        clock.sleep(min(poll_seconds, deadline - after_snapshot))

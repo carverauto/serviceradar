@@ -1166,6 +1166,31 @@ class ReleaseLargeIngestionQualificationContractTest(unittest.TestCase):
         ):
             self.assertIn(evidence, tests)
 
+    def test_python_qualification_hardening_is_registered(self):
+        library = RELEASE_GATE_LIBRARY.read_text(encoding="utf-8")
+        cli = RELEASE_GATE_CLI.read_text(encoding="utf-8")
+        tests = RELEASE_GATE_TEST.read_text(encoding="utf-8")
+
+        self.assertIn("TARGET_DECLARATION.search(target)", library)
+        self.assertIn("ACTION_DECLARATION.search(action)", library)
+        self.assertNotIn("TARGET_TEXT not in target", library)
+        self.assertNotIn("ACTION_TEXT not in action", library)
+        self.assertIn("timeout=timeout_seconds", library)
+        self.assertIn("except subprocess.TimeoutExpired", library)
+        self.assertIn("math.isfinite", library)
+        self.assertIn("math.isfinite", cli)
+        for regression in (
+            "test_comment_only_and_lookalike_target_declarations_fail_before_status",
+            "test_comment_only_and_lookalike_action_declarations_fail_before_status",
+            "test_success_returned_after_deadline_is_rejected",
+            "test_gh_runner_receives_remaining_monotonic_budget_each_snapshot",
+            "test_hung_gh_snapshot_timeout_is_a_policy_error",
+            "test_successful_ambiguous_revision_warning_fails_closed",
+            "test_url_rejects_raw_whitespace_or_controls_before_parsing",
+            "test_nonfinite_timeout_and_poll_are_rejected_with_sanitized_cli_errors",
+        ):
+            self.assertIn(regression, tests)
+
     def test_release_permissions_checkout_and_qualifier_are_exact(self):
         self.assertEqual(
             ("contents: write", "id-token: write", "statuses: read"),

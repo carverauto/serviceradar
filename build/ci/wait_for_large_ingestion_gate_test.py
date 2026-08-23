@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import io
 import json
+import math
 import subprocess
 import sys
 import tempfile
@@ -29,10 +30,10 @@ class FakeGit:
         self.shallow = False
         self.ancestry = {(RELEASE, BASE): True}
         self.files = {
-            (BASE, gate.MARKER_PATH): gate.MARKER_BYTES,
-            (RELEASE, gate.MARKER_PATH): gate.MARKER_BYTES,
-            (RELEASE, gate.TARGET_PATH): b'prefix name = "large_ingestion_release_gate" suffix',
-            (RELEASE, gate.ACTION_PATH): b'prefix name: "LargeIngestionGate" suffix',
+            (BASE, "build/ci/large_ingestion_gate_contract.v1"): b"large-ingestion-gate-contract-v1\n",
+            (RELEASE, "build/ci/large_ingestion_gate_contract.v1"): b"large-ingestion-gate-contract-v1\n",
+            (RELEASE, "elixir/serviceradar_core/BUILD.bazel"): b'    name = "large_ingestion_release_gate",\n',
+            (RELEASE, "buildbuddy.yaml"): b'  - name: "LargeIngestionGate"\n',
         }
         self.introductions = [INTRODUCTION]
 
@@ -72,7 +73,7 @@ class CountingStatusSource:
         self.snapshots = list(snapshots)
         self.calls = 0
 
-    def snapshot(self):
+    def snapshot(self, timeout_seconds):
         self.calls += 1
         if not self.snapshots:
             return []
@@ -110,7 +111,7 @@ def status(
     target_url=VALID_URL,
     created_at="2026-08-23T12:00:00Z",
     status_id=1,
-    context=gate.STATUS_CONTEXT,
+    context="LargeIngestionGate",
 ):
     timestamp = datetime.fromisoformat(created_at.replace("Z", "+00:00"))
     return gate.CommitStatus(state, context, target_url, timestamp, status_id)
@@ -226,6 +227,40 @@ class ApplicabilityTest(unittest.TestCase):
                     )
                 self.assertEqual(0, factory.calls)
 
+    def test_comment_only_and_lookalike_target_declarations_fail_before_status(self):
+        invalid_targets = (
+            b'# name = "large_ingestion_release_gate"\n',
+            b'other_name = "large_ingestion_release_gate"\n',
+            b'name = "large_ingestion_release_gate_lookalike"\n',
+        )
+        for source in invalid_targets:
+            with self.subTest(source=source):
+                fake = FakeGit()
+                fake.files[(RELEASE, "elixir/serviceradar_core/BUILD.bazel")] = source
+                factory = Factory(CountingStatusSource([[status()]]))
+                with self.assertRaisesRegex(gate.PolicyError, "Bazel target"):
+                    gate.wait_for_gate(
+                        fake, factory, FakeClock(), RELEASE, "origin/staging", 1800, 15, PREFIX
+                    )
+                self.assertEqual(0, factory.calls)
+
+    def test_comment_only_and_lookalike_action_declarations_fail_before_status(self):
+        invalid_actions = (
+            b'# - name: "LargeIngestionGate"\n',
+            b'display_name: "LargeIngestionGate"\n',
+            b'- name: "LargeIngestionGateLookalike"\n',
+        )
+        for source in invalid_actions:
+            with self.subTest(source=source):
+                fake = FakeGit()
+                fake.files[(RELEASE, "buildbuddy.yaml")] = source
+                factory = Factory(CountingStatusSource([[status()]]))
+                with self.assertRaisesRegex(gate.PolicyError, "action"):
+                    gate.wait_for_gate(
+                        fake, factory, FakeClock(), RELEASE, "origin/staging", 1800, 15, PREFIX
+                    )
+                self.assertEqual(0, factory.calls)
+
     def test_marker_bearing_feature_commit_before_first_parent_merge_is_applicable(self):
         fake = FakeGit()
         fake.ancestry[(RELEASE, INTRODUCTION)] = True
@@ -234,6 +269,20 @@ class ApplicabilityTest(unittest.TestCase):
 
 
 class StatusPolicyTest(unittest.TestCase):
+    def test_policy_constants_match_the_permanent_external_contract(self):
+        self.assertEqual("build/ci/large_ingestion_gate_contract.v1", gate.MARKER_PATH)
+        self.assertEqual(b"large-ingestion-gate-contract-v1\n", gate.MARKER_BYTES)
+        self.assertEqual("elixir/serviceradar_core/BUILD.bazel", gate.TARGET_PATH)
+        self.assertEqual(b'name = "large_ingestion_release_gate"', gate.TARGET_TEXT)
+        self.assertEqual("buildbuddy.yaml", gate.ACTION_PATH)
+        self.assertEqual(b'name: "LargeIngestionGate"', gate.ACTION_TEXT)
+        self.assertEqual("LargeIngestionGate", gate.STATUS_CONTEXT)
+        self.assertEqual("carverauto.buildbuddy.io", gate.BUILDBUDDY_HOST)
+        self.assertEqual("/invocation/", gate.INVOCATION_PATH)
+        self.assertEqual(
+            "https://carverauto.buildbuddy.io/invocation/", gate.TARGET_URL_PREFIX
+        )
+
     def test_latest_uses_timestamp_then_id_not_response_order(self):
         older = status(created_at="2026-08-23T11:59:59Z", status_id=99)
         newer_low_id = status(state="pending", status_id=1)
@@ -254,11 +303,25 @@ class StatusPolicyTest(unittest.TestCase):
             "https://evil.example@carverauto.buildbuddy.io/invocation/abc",
             "not a URL",
             "",
+            VALID_URL + " ",
+            VALID_URL + "\t",
+            VALID_URL + "\nhttps://evil.example/",
         )
         for candidate in invalid:
             with self.subTest(candidate=candidate):
                 with self.assertRaises(gate.PolicyError):
                     gate.validate_target_url(candidate, PREFIX)
+
+    def test_url_rejects_raw_whitespace_or_controls_before_parsing(self):
+        for candidate, configured in (
+            (VALID_URL + "\n", PREFIX),
+            (VALID_URL.replace("abc123", "abc\t123"), PREFIX),
+            (VALID_URL, PREFIX + "\n"),
+            (VALID_URL, PREFIX.replace("invocation", "invocation\t")),
+        ):
+            with self.subTest(candidate=candidate, configured=configured):
+                with self.assertRaisesRegex(gate.PolicyError, "whitespace or control"):
+                    gate.validate_target_url(candidate, configured)
 
     def test_configured_prefix_cannot_weaken_fixed_policy(self):
         for prefix in (
@@ -294,7 +357,89 @@ class PollingTest(unittest.TestCase):
                         fake, Factory(source), clock, RELEASE, "origin/staging", 1800, 15, PREFIX
                     )
                 self.assertEqual(1800, clock.now)
+                self.assertEqual(120, source.calls)
                 self.assertTrue(all(value == 15 for value in clock.sleeps))
+
+    def test_success_returned_after_deadline_is_rejected(self):
+        fake = FakeGit()
+        clock = FakeClock()
+
+        class SlowSuccessSource:
+            def snapshot(self, timeout_seconds=None):
+                clock.now = 1801
+                return [status()]
+
+        with self.assertRaisesRegex(gate.PolicyError, "timed out"):
+            gate.wait_for_gate(
+                fake,
+                Factory(SlowSuccessSource()),
+                clock,
+                RELEASE,
+                "origin/staging",
+                1800,
+                15,
+                PREFIX,
+            )
+
+    def test_gh_runner_receives_remaining_monotonic_budget_each_snapshot(self):
+        pending = [[{
+            "state": "pending",
+            "context": "LargeIngestionGate",
+            "target_url": "",
+            "created_at": "2026-08-23T12:00:00Z",
+            "id": 1,
+        }]]
+        success = [[{
+            "state": "success",
+            "context": "LargeIngestionGate",
+            "target_url": VALID_URL,
+            "created_at": "2026-08-23T12:01:00Z",
+            "id": 2,
+        }]]
+        runner = QueueRunner([
+            completed(stdout=json.dumps(pending).encode()),
+            completed(stdout=json.dumps(success).encode()),
+        ])
+        result = gate.wait_for_gate(
+            FakeGit(),
+            lambda: gate.GhStatusClient(
+                "carverauto/serviceradar", RELEASE, "test-token", runner, {"PATH": "/bin"}
+            ),
+            FakeClock(),
+            RELEASE,
+            "origin/staging",
+            30,
+            15,
+            PREFIX,
+        )
+        self.assertEqual("QUALIFIED", result.message)
+        self.assertEqual([30, 15], [call[1]["timeout"] for call in runner.calls])
+
+    def test_hung_gh_snapshot_timeout_is_a_policy_error(self):
+        runner = QueueRunner([subprocess.TimeoutExpired(["gh", "api"], 12.5)])
+        source = gate.GhStatusClient(
+            "carverauto/serviceradar", RELEASE, "test-token", runner, {"PATH": "/bin"}
+        )
+        with self.assertRaisesRegex(gate.PolicyError, "timed out"):
+            gate.wait_for_gate(
+                FakeGit(), Factory(source), FakeClock(), RELEASE, "origin/staging", 12.5, 5, PREFIX
+            )
+
+    def test_nonfinite_timeout_or_poll_is_rejected_before_status_construction(self):
+        for timeout, poll in (
+            (math.nan, 15),
+            (math.inf, 15),
+            (1800, math.nan),
+            (1800, math.inf),
+        ):
+            with self.subTest(timeout=timeout, poll=poll):
+                factory = Factory(CountingStatusSource([[status()]]))
+                with self.assertRaisesRegex(gate.PolicyError, "finite positive"):
+                    gate.wait_for_gate(
+                        FakeGit(), factory, FakeClock(), RELEASE, "origin/staging",
+                        timeout, poll, PREFIX,
+                    )
+                self.assertEqual(0, factory.calls)
 
     def test_older_success_does_not_mask_newer_pending(self):
         newer = status(state="pending", created_at="2026-08-23T12:01:00Z", status_id=2)
@@ -358,7 +503,7 @@ class GhStatusClientTest(unittest.TestCase):
              "created_at": "2026-08-23T12:00:00Z", "id": 8},
         ]]
         client, runner = self.make_client(payload)
-        statuses = client.snapshot()
+        statuses = client.snapshot(30)
         self.assertEqual([8], [item.id for item in statuses])
         argv, kwargs = runner.calls[0]
         self.assertEqual(
@@ -380,7 +525,7 @@ class GhStatusClientTest(unittest.TestCase):
              "created_at": "2026-08-23T12:01:00Z", "id": 9},
         ]]
         client, _ = self.make_client(payload)
-        self.assertEqual("pending", gate.latest_status(client.snapshot()).state)
+        self.assertEqual("pending", gate.latest_status(client.snapshot(30)).state)
 
     def test_nonzero_invalid_json_and_wrong_page_shapes_fail(self):
         cases = (
@@ -399,7 +544,7 @@ class GhStatusClientTest(unittest.TestCase):
                     "carverauto/serviceradar", RELEASE, "top-secret", runner, {"PATH": "/bin"}
                 )
                 with self.assertRaises(gate.PolicyError) as caught:
-                    client.snapshot()
+                    client.snapshot(30)
                 self.assertNotIn("top-secret", str(caught.exception))
 
     def test_malformed_matching_status_records_fail(self):
@@ -422,7 +567,7 @@ class GhStatusClientTest(unittest.TestCase):
             with self.subTest(record=record):
                 client, _ = self.make_client([[record]])
                 with self.assertRaises(gate.PolicyError):
-                    client.snapshot()
+                    client.snapshot(30)
 
 
 class GitRepositoryTest(unittest.TestCase):
@@ -453,10 +598,36 @@ class GitRepositoryTest(unittest.TestCase):
         self.assertTrue(repository.is_ancestor(RELEASE, BASE))
         self.assertEqual(gate.MARKER_BYTES, repository.read_tree_file(RELEASE, gate.MARKER_PATH))
         self.assertEqual([INTRODUCTION], repository.marker_introductions("origin/staging"))
+        self.assertEqual(
+            [
+                ["git", "-C", "/tmp/workspace", "rev-parse", "--verify", "1111111111111111111111111111111111111111^{commit}"],
+                ["git", "-C", "/tmp/workspace", "rev-parse", "--is-shallow-repository"],
+                ["git", "-C", "/tmp/workspace", "merge-base", "--is-ancestor", "1111111111111111111111111111111111111111", "2222222222222222222222222222222222222222"],
+                ["git", "-C", "/tmp/workspace", "ls-tree", "-z", "--full-tree", "1111111111111111111111111111111111111111", "--", "build/ci/large_ingestion_gate_contract.v1"],
+                ["git", "-C", "/tmp/workspace", "show", "1111111111111111111111111111111111111111:build/ci/large_ingestion_gate_contract.v1"],
+                ["git", "-C", "/tmp/workspace", "log", "--first-parent", "--reverse", "--diff-filter=A", "--format=%H", "origin/staging", "--", "build/ci/large_ingestion_gate_contract.v1"],
+            ],
+            [argv for argv, _ in runner.calls],
+        )
         for argv, kwargs in runner.calls:
-            self.assertEqual(["git", "-C", str(workspace)], argv[:3])
+            self.assertEqual(["git", "-C", "/tmp/workspace"], argv[:3])
             self.assertIs(False, kwargs["shell"])
             self.assertTrue(kwargs["capture_output"])
+
+    def test_successful_ambiguous_revision_warning_fails_closed(self):
+        runner = QueueRunner([
+            completed(
+                stdout=b"1111111111111111111111111111111111111111\n",
+                stderr=b"warning: refname 'origin/staging' is ambiguous.\n",
+            )
+        ])
+        repository = gate.GitRepository(Path("/tmp/workspace"), runner)
+        with self.assertRaisesRegex(gate.PolicyError, "ambiguous"):
+            repository.resolve("origin/staging")
+        self.assertEqual(
+            ["git", "-C", "/tmp/workspace", "rev-parse", "--verify", "origin/staging^{commit}"],
+            runner.calls[0][0],
+        )
 
     def test_expected_false_and_unexpected_ancestry_exit(self):
         false_runner = QueueRunner([completed(returncode=1)])
@@ -531,6 +702,30 @@ class CliTest(unittest.TestCase):
                     io.StringIO(), io.StringIO(), QueueRunner([]),
                 )
                 self.assertNotEqual(0, code)
+
+    def test_nonfinite_timeout_and_poll_are_rejected_with_sanitized_cli_errors(self):
+        cases = (
+            ("1800", "nan"),
+            ("1800", "inf"),
+            ("nan", "15"),
+            ("inf", "15"),
+        )
+        for timeout, poll in cases:
+            with self.subTest(timeout=timeout, poll=poll):
+                argv = self.valid_argv()
+                argv[argv.index("--timeout-seconds") + 1] = timeout
+                argv[argv.index("--poll-seconds") + 1] = poll
+                out, err = io.StringIO(), io.StringIO()
+                code = cli.run_cli(
+                    argv,
+                    {"BUILD_WORKSPACE_DIRECTORY": "/tmp", "GH_TOKEN": "test-token"},
+                    out,
+                    err,
+                    QueueRunner([]),
+                )
+                self.assertEqual(1, code)
+                self.assertIn("finite positive", err.getvalue())
+                self.assertNotIn("test-token", out.getvalue() + err.getvalue())
 
     def test_git_root_failure_is_sanitized_and_does_not_log_token(self):
         with tempfile.TemporaryDirectory() as temporary:

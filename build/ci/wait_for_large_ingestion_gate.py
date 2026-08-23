@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import math
 import os
 import re
 import subprocess
@@ -66,8 +67,13 @@ def _run(
         raise PolicyError("base ref must be nonempty")
     if not arguments.token_env:
         raise PolicyError("token environment variable name must be nonempty")
-    if arguments.timeout_seconds <= 0 or arguments.poll_seconds <= 0:
-        raise PolicyError("timeout and polling intervals must be positive")
+    if (
+        not math.isfinite(arguments.timeout_seconds)
+        or not math.isfinite(arguments.poll_seconds)
+        or arguments.timeout_seconds <= 0
+        or arguments.poll_seconds <= 0
+    ):
+        raise PolicyError("timeout and polling intervals must be finite positive values")
     if arguments.target_url_prefix != TARGET_URL_PREFIX:
         raise PolicyError("target URL prefix must be the fixed BuildBuddy invocation prefix")
 
