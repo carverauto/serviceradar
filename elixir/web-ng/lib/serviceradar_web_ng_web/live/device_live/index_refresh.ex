@@ -13,6 +13,14 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexRefresh do
   @max_limit 100
   @device_pubsub_refresh_debounce_ms 1_000
 
+  # Keep page/cursor so a later PubSub refresh reloads the same list window
+  # instead of jumping back to the head.
+  def remember_list_params(socket, params, uri) when is_map(params) do
+    socket
+    |> assign(:last_params, params)
+    |> assign(:last_uri, uri)
+  end
+
   def refresh_devices(socket, opts \\ []) do
     params =
       opts

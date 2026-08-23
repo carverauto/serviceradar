@@ -753,7 +753,7 @@ defmodule ServiceRadarWebNGWeb.UIComponents do
       </div>
       <div class="flex items-center gap-1">
         <.ui_button
-          :if={@has_prev and @current_page > 2}
+          :if={@current_page > 1}
           type="button"
           variant="outline"
           size="sm"
