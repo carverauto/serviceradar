@@ -125,15 +125,83 @@ def normalized_shell_lines(shell: str) -> tuple[str, ...]:
     return tuple(logical_lines)
 
 
-def normalized_flag_test_commands(action: str) -> tuple[str, ...]:
-    commands = []
-    pattern = re.compile(
-        r"(?:command\s+)?bazel\s+test\s+\$(?:FLAGS|\{FLAGS\})(?=\s|$)"
+def shell_command_segments(line: str) -> tuple[str, ...]:
+    """Split one logical shell line at unquoted command terminators."""
+    segments = []
+    start = 0
+    index = 0
+    quote = None
+    while index < len(line):
+        character = line[index]
+        if character == "\\" and quote != "'":
+            index += 2
+            continue
+        if quote:
+            if character == quote:
+                quote = None
+            index += 1
+            continue
+        if character in ("'", '"'):
+            quote = character
+            index += 1
+            continue
+
+        terminator = next(
+            (
+                candidate
+                for candidate in (";;", "&&", "||", ";")
+                if line.startswith(candidate, index)
+            ),
+            None,
+        )
+        if terminator:
+            segment = line[start:index].strip()
+            if segment:
+                segments.append(segment)
+            index += len(terminator)
+            start = index
+            continue
+        index += 1
+
+    segment = line[start:].strip()
+    if segment:
+        segments.append(segment)
+    return tuple(segments)
+
+
+def is_executable_bazel_test(segment: str, start: int) -> bool:
+    """Reject mentions of ``bazel test`` that are arguments to another command."""
+    prefix = segment[:start].strip()
+    if not prefix:
+        return True
+    if prefix.endswith((")", "$(", "(")):
+        return True
+    if re.search(r"(?:^|\s)(?:if|then|elif|while|until|do|!|time)$", prefix):
+        return True
+    prefix_tokens = prefix.split()
+    return bool(prefix_tokens) and all(
+        re.match(r"^[A-Za-z_][A-Za-z0-9_]*=", token)
+        for token in prefix_tokens
     )
+
+
+def normalized_bazel_test_commands(action: str) -> tuple[str, ...]:
+    """Inventory every literal executable ``bazel test`` in lifecycle order."""
+    commands = []
+    pattern = re.compile(r"(?:command\s+)?bazel\s+test\b")
     for line in normalized_shell_lines(database_lifecycle_shell(action)):
-        for match in pattern.finditer(line):
-            command = pattern.sub("bazel test $FLAGS", line[match.start() :], count=1)
-            commands.append(command)
+        for segment in shell_command_segments(line):
+            match = pattern.search(segment)
+            if not match or not is_executable_bazel_test(segment, match.start()):
+                continue
+            command = segment[match.start() :]
+            command = re.sub(r"^command\s+", "", command, count=1)
+            command = re.sub(
+                r"\$\{(PREFLIGHT_FLAGS|FLAGS)\}",
+                lambda variable: f"${variable.group(1)}",
+                command,
+            )
+            commands.append(" ".join(command.split()))
     return tuple(commands)
 
 
@@ -315,6 +383,27 @@ class IntegrationBenchmarkContractTest(unittest.TestCase):
 
 
 class WorkflowIntegrationLifecycleContractTest(unittest.TestCase):
+    preflight_migrate_command = (
+        "bazel test $PREFLIGHT_FLAGS "
+        "//elixir/serviceradar_core:migrate_template"
+    )
+    preflight_migrate_arm = (
+        '*"migration(s) pending"*) bazel test $PREFLIGHT_FLAGS '
+        "//elixir/serviceradar_core:migrate_template ;;"
+    )
+    preflight_pending_arm = (
+        '*"migration(s) pending"*) echo "template remains pending after preflight" '
+        ">&2; exit 1 ;;"
+    )
+    measured_pending_arm = (
+        '*"migration(s) pending"*) echo "template changed during measured lifecycle" '
+        ">&2; exit 1 ;;"
+    )
+    preflight_prepare = (
+        'preflight="$(bazel run -c opt --config=ci '
+        "--//build:enable_integration_tests --//build:run_id=$PREFLIGHT_RUN_ID "
+        '//rust/integration-db:prepare_template)"'
+    )
     ordinary_suite = (
         "bazel test $FLAGS //... "
         "--test_tag_filters=integration_test,-large_ingestion_test,-acceptance_test"
@@ -400,6 +489,7 @@ class WorkflowIntegrationLifecycleContractTest(unittest.TestCase):
             wait,
             self.sweep,
             self.current_prepare,
+            self.measured_pending_arm,
             provision_command,
             suite_command,
         )
@@ -414,40 +504,43 @@ class WorkflowIntegrationLifecycleContractTest(unittest.TestCase):
         measured_start = re.search(r"^RUN_ID=", shell, re.MULTILINE)
         self.assertIsNotNone(measured_start)
         preflight = shell[: measured_start.start()]
-        prepare = "//rust/integration-db:prepare_template"
-        migrate = (
-            "bazel test $PREFLIGHT_FLAGS "
-            "//elixir/serviceradar_core:migrate_template"
-        )
-        final_pending = 'echo "template remains pending after preflight"'
-        self.assertEqual(2, preflight.count(prepare))
-        self.assertEqual(1, preflight.count(migrate))
-        first_prepare = preflight.index(prepare)
-        conditional_migrate = preflight.index(migrate, first_prepare)
-        second_prepare = preflight.index(prepare, first_prepare + len(prepare))
-        pending_check = preflight.index(final_pending, second_prepare)
-        self.assertLess(first_prepare, conditional_migrate)
-        self.assertLess(conditional_migrate, second_prepare)
-        self.assertLess(second_prepare, pending_check)
+        lines = normalized_shell_lines(preflight)
+        prepare_positions = [
+            index for index, line in enumerate(lines) if line == self.preflight_prepare
+        ]
+        self.assertEqual(2, len(prepare_positions))
+        self.assertEqual(1, lines.count(self.preflight_migrate_arm))
+        self.assertEqual(1, lines.count(self.preflight_pending_arm))
+        conditional_migrate = lines.index(self.preflight_migrate_arm)
+        pending_check = lines.index(self.preflight_pending_arm)
+        self.assertLess(prepare_positions[0], conditional_migrate)
+        self.assertLess(conditional_migrate, prepare_positions[1])
+        self.assertLess(prepare_positions[1], pending_check)
 
     def test_task6_database_flags_disable_cache_and_remote_upload(self):
         for action_name in ("BazelCI", "LargeIngestionGate"):
             with self.subTest(action=action_name):
                 self.assert_cache_flags(action_name)
 
-    def test_flag_command_extractor_normalizes_equivalent_syntax_without_hiding_suffixes(self):
+    def test_bazel_test_command_extractor_inventories_every_literal_form(self):
         synthetic_action = """  - name: "Synthetic"
     steps:
       - run: |
-          command   bazel   test   ${FLAGS}   //example:braced
-          bazel test $FLAGS //example:masked || true
+          case "$state" in
+            pending) bazel test $PREFLIGHT_FLAGS //example:preflight ;;
+          esac
+          command   bazel   test   ${FLAGS}   //example:braced && bazel test --config=ci //example:inline
+          bazel test ${PREFLIGHT_FLAGS} //example:preflight-braced; command bazel test $FLAGS //example:after-semicolon
 """
         self.assertEqual(
             (
+                "bazel test $PREFLIGHT_FLAGS //example:preflight",
                 "bazel test $FLAGS //example:braced",
-                "bazel test $FLAGS //example:masked || true",
+                "bazel test --config=ci //example:inline",
+                "bazel test $PREFLIGHT_FLAGS //example:preflight-braced",
+                "bazel test $FLAGS //example:after-semicolon",
             ),
-            normalized_flag_test_commands(synthetic_action),
+            normalized_bazel_test_commands(synthetic_action),
         )
 
     def assert_common_measured_lifecycle(
@@ -638,9 +731,10 @@ class WorkflowIntegrationLifecycleContractTest(unittest.TestCase):
             self.ordinary_suite,
         )
         self.assert_observer_and_cleanup_contract(action)
-        commands = normalized_flag_test_commands(action)
+        commands = normalized_bazel_test_commands(action)
         self.assertEqual(
             (
+                self.preflight_migrate_command,
                 "bazel test $FLAGS //rust/integration-db:teardown_db",
                 self.sweep,
                 "bazel test $FLAGS //rust/integration-db:provision_db",
@@ -727,9 +821,10 @@ class WorkflowIntegrationLifecycleContractTest(unittest.TestCase):
             self.heavy_suite,
         )
         self.assert_observer_and_cleanup_contract(action)
-        commands = normalized_flag_test_commands(action)
+        commands = normalized_bazel_test_commands(action)
         self.assertEqual(
             (
+                self.preflight_migrate_command,
                 "bazel test $FLAGS //rust/integration-db:teardown_db",
                 self.sweep,
                 self.heavy_provision,
