@@ -14,11 +14,11 @@
 #
 # Scheduled dependency audit for the Elixir workspace.
 #
-# The Elixir Quality workflow already audits dependencies, but only on push/PR
-# with `elixir/**` path filters. That answers "did this change introduce a
-# vulnerable dependency?" -- it cannot answer "was a vulnerability published
-# today against a dependency we have not touched in months?", because nothing
-# triggers it. This workflow's trigger is the calendar.
+# Dependency audits are not a pull-request gate. Elixir Quality PRs run
+# format + Credo only; mix hex.audit / mix deps.audit run on this calendar
+# job and on the daily BuildBuddy Elixir quality action. This workflow's
+# trigger is the calendar, so an advisory published against a lockfile
+# nobody has touched still gets a run.
 
 name: Elixir Dependency Audit
 
@@ -34,8 +34,8 @@ on:
         type: boolean
         default: true
   # Only the audit machinery itself. This workflow deliberately does NOT gate
-  # ordinary Elixir changes -- Elixir Quality already does that, and duplicating
-  # it here would just add a slow required check to every PR.
+  # ordinary Elixir changes -- duplicating it on every PR would add a slow
+  # required check with no extra signal over the daily run.
   pull_request:
     branches: [staging]
     paths:

@@ -155,3 +155,80 @@ actions:
           --test_tag_filters=benchmark
           --test_output=all
           //...
+
+  # Full Mix analyzer contract (compile --warnings-as-errors, xref, Credo,
+  # hex/deps audit, Sobelow, OpenAPI dump). Not a PR gate: those steps compile
+  # each project's Mix closure and were the bulk of the old 18m+ Elixir Quality
+  # required check. PRs keep mix format + mix credo --strict in
+  # .github/workflows/elixir-quality.yml; BazelCI above already compiles and
+  # tests the Elixir tree.
+  #
+  # --skip-nif: the workflow-runner image has no gcc/cargo (by design; C/Rust
+  # link is RBE). BazelCI already builds the NIFs. Mix still type-checks the
+  # Rustler stub modules.
+  #
+  # Same pool as BazelCI (one replica). 07:00 UTC is chosen so a weekday run
+  # usually misses US-hours PR traffic; if both are queued, one waits.
+  - name: "Elixir Quality (daily)"
+    self_hosted: true
+    pool: "workflows"
+    container_image: "docker://registry.carverauto.dev/serviceradar/buildbuddy-workflow-runner:v1.0.24.3"
+    platform_properties:
+      OSFamily: "linux"
+      Arch: "amd64"
+      dockerNetwork: "bridge"
+    triggers:
+      schedule:
+        crons:
+          - "0 7 * * *"
+    timeout: 3h
+    resource_requests:
+      memory: "32GB"
+      disk: "40GB"
+    env:
+      HEX_HTTP_CONCURRENCY: "1"
+      HEX_HTTP_TIMEOUT: "120"
+    steps:
+      - run: |
+          set -euo pipefail
+
+          OTP_VERSION="28.3"
+          ELIXIR_VERSION="1.19.4"
+          prefix="${HOME}/.serviceradar-beam"
+          otp_dir="${prefix}/otp-${OTP_VERSION}"
+          elixir_dir="${prefix}/elixir-${ELIXIR_VERSION}-otp-28"
+
+          mkdir -p "${prefix}"
+
+          if [[ ! -x "${otp_dir}/bin/erl" ]]; then
+            rm -rf "${otp_dir}"
+            tmpdir="$(mktemp -d)"
+            curl -fsSL "https://builds.hex.pm/builds/otp/amd64/ubuntu-24.04/OTP-${OTP_VERSION}.tar.gz" \
+              | tar -xz -C "${tmpdir}"
+            mv "${tmpdir}/OTP-${OTP_VERSION}" "${otp_dir}"
+            rm -rf "${tmpdir}"
+            (cd "${otp_dir}" && ./Install -sasl "${otp_dir}")
+            test -x "${otp_dir}/bin/erl"
+          fi
+
+          if [[ ! -x "${elixir_dir}/bin/mix" ]]; then
+            rm -rf "${elixir_dir}"
+            mkdir -p "${elixir_dir}"
+            curl -fsSL "https://builds.hex.pm/builds/elixir/v${ELIXIR_VERSION}-otp-28.zip" \
+              -o /tmp/elixir.zip
+            unzip -q /tmp/elixir.zip -d "${elixir_dir}"
+            rm -f /tmp/elixir.zip
+          fi
+
+          export PATH="${elixir_dir}/bin:${otp_dir}/bin:${PATH}"
+          erl -eval 'io:format("~s~n", [erlang:system_info(otp_release)]), halt().' -noshell
+          elixir --version
+          mix --version
+
+          mix local.hex --force
+          mix local.rebar --force
+
+          ./scripts/elixir_quality.sh --all --skip-dialyzer --skip-nif
+
+          (cd elixir/web-ng && mix serviceradar.openapi.dump --check)
+

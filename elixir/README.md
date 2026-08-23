@@ -815,11 +815,17 @@ bazel build //elixir/...
 
 ### Quality gates
 
-Formatting, Credo and Dialyzer are not Bazel targets; they run through Mix:
+Formatting, Credo and Dialyzer are not Bazel targets; they run through Mix.
+
+Pull requests gate `mix format --check-formatted` and `mix credo --strict` via
+`.github/workflows/elixir-quality.yml` (`--lint-only`). Compile warnings, xref,
+dependency audits, Sobelow, and the OpenAPI dump check run daily from
+`//buildbuddy.yaml` (`Elixir Quality (daily)`).
 
 ```sh
-./scripts/elixir_quality.sh --project elixir/serviceradar_core
-./scripts/elixir_quality.sh --project elixir/web-ng --phoenix
+./scripts/elixir_quality.sh --project elixir/serviceradar_core --lint-only
+./scripts/elixir_quality.sh --project elixir/web-ng --lint-only
+./scripts/elixir_quality.sh --all --skip-dialyzer --skip-nif
 ```
 
 web-ng additionally has `//elixir/web-ng:precommit`, which runs `mix precommit_fast` (three

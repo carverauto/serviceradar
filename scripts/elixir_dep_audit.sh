@@ -19,9 +19,9 @@
 # This exists alongside the per-project audit in scripts/elixir_quality.sh, and
 # closes two gaps that one cannot:
 #
-#   1. TIME. The quality gate runs on push/PR with `elixir/**` path filters. An
-#      advisory published tomorrow against a dependency nobody touches is never
-#      detected, because nothing triggers the gate. This script is meant to run
+#   1. TIME. Pull-request Elixir Quality is format + Credo only. An advisory
+#      published tomorrow against a dependency nobody touches is never
+#      detected by a path-filtered PR gate. This script is meant to run
 #      on a schedule, where the trigger is the calendar rather than a diff.
 #
 #   2. FAIL-OPEN. See ensure_advisory_db below. This is the important one.

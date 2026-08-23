@@ -58,7 +58,9 @@ BAZEL_UNIT_TEST_FLAGS ?= $(BAZEL_CI_FLAGS)
 BAZEL_UNIT_TEST_FILTERS ?= --test_tag_filters=-integration_test,-acceptance_test
 
 # Every Mix project under elixir/, in the order CI walks them. Keep this in step with
-# run_quality in .forgejo/workflows/elixir-quality.yml -- that workflow is what gates a PR.
+# scripts/elixir_quality.sh workspace_projects and .github/workflows/elixir-quality.yml.
+# PRs gate format + Credo (--lint-only); the rest of the Mix contract runs daily from
+# //buildbuddy.yaml.
 #
 # This list used to be copied into lint-elixir, lint-elixir-dialyzer and format-elixir
 # separately, and all three drifted: they still named `connection` and `elixir_uuid`, deleted
