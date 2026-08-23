@@ -187,11 +187,23 @@ The installation SHALL evaluate exactly one platform partition rule, `network_sc
 by this requirement. The output-contract bundle pins the rule; every other rule identifier SHALL
 be refused until the contract registry defines it, and a contract naming no rule SHALL be refused.
 
-`network_scope_v1` SHALL apply to the durable-record route profile. Its transcript SHALL be the
-raw `network_scope_id` bytes exactly as signed -- no domain prefix, no length framing, and no
-concatenation with any other coordinate. The partition SHALL be
+`network_scope_v1` SHALL apply ONLY when the resolved output-contract bundle explicitly pins it.
+It is NOT a property of the durable-record route profile: partition rules are pinned per output
+contract, and a bundle may instead pin a rule that hashes scope plus execution/shard, scope plus
+agent and event ID, or source assignment plus run.
+
+Its transcript SHALL be the raw `network_scope_id` bytes exactly as signed -- no domain prefix, no
+length framing, and no concatenation with any other coordinate. The partition SHALL be
 `FNV-1a/32(transcript) mod 64`, where FNV-1a/32 uses offset basis 2166136261 and prime 16777619,
 and 64 is the fixed logical partition count.
+
+Selecting the logical partition is NOT altering the subject. `network_scope_id` SHALL NOT appear
+as a subject token, SHALL NOT prefix the subject, and SHALL NOT change the fixed family or
+traffic class; it selects only which `pNN` of the already-fixed family/class the record occupies,
+exactly as a bulk durable record for logical partition `p07` publishes to
+`telemetry.edge-record.v1.bulk.p07`. The requirement that no network-scope value alter subject
+authority is therefore preserved: the authority is the family and class, which the rule never
+touches.
 
 An empty or absent `network_scope_id` SHALL be refused rather than mapped to partition 0, because
 zero is a real partition and a default would place every unpopulated contract on one shard.

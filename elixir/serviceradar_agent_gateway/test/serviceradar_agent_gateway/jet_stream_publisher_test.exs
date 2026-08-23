@@ -60,10 +60,53 @@ defmodule ServiceRadarAgentGateway.JetStreamPublisherTest do
       assert JetStreamPublisher.retryable?(:systemic)
     end
 
-    test "a record that can never fit is the one proven poison" do
-      body = ~s({"error":{"code":400,"description":"message size exceeds maximum"}})
-      assert {:error, :poison} = JetStreamPublisher.parse_ack(body)
+    test "a SIZE refusal is NOT proof of poison, because the broker cannot tell us why" do
+      # NATS emits 10054 when headers plus payload exceed EITHER the server MaxPayload OR the
+      # target stream's configured MaxMsgSize. A stale stream configuration therefore produces it
+      # for a record entirely valid under the frozen ABI bounds, so treating it as terminal DLQs
+      # a good record. Only a local frozen-bound preflight (task 3.4) can prove poison.
+      assert {:error, :systemic} =
+               JetStreamPublisher.parse_ack(
+                 ~s({"error":{"code":400,"err_code":10054,"description":"message size exceeds maximum"}})
+               )
+
+      # ...and by description alone, which carries the same ambiguity.
+      assert {:error, :systemic} =
+               JetStreamPublisher.parse_ack(~s({"error":{"code":400,"description":"message size exceeds maximum"}}))
+    end
+
+    test "NOTHING the broker says currently classifies as poison" do
+      # :poison exists and is terminal but has no producer here until the preflight lands. If a
+      # broker code ever maps to it again, this test is where that has to be argued.
+      bodies = [
+        ~s({"error":{"code":400,"err_code":10054,"description":"message size exceeds maximum"}}),
+        ~s({"error":{"code":400,"err_code":10060,"description":"expected stream does not match"}}),
+        ~s({"error":{"code":400,"err_code":10071,"description":"wrong last sequence: 5"}}),
+        ~s({"error":{"code":503,"description":"no responders"}}),
+        ~s({"error":{"code":400,"description":"something new"}}),
+        "not json"
+      ]
+
+      for body <- bodies do
+        assert {:error, class} = JetStreamPublisher.parse_ack(body)
+
+        assert JetStreamPublisher.retryable?(class),
+               "#{body} classified as #{class}, which is terminal"
+      end
+
       refute JetStreamPublisher.retryable?(:poison)
+    end
+
+    test "a non-string error description classifies instead of raising" do
+      # `to_string/1` raises Protocol.UndefinedError on a map or list, and the error object is
+      # whatever the broker sent.
+      for desc <- [~s({}), ~s([1,2]), "null", "17", "true"] do
+        assert {:error, class} =
+                 JetStreamPublisher.parse_ack(~s({"error":{"description":#{desc}}})),
+               "description #{desc} did not classify"
+
+        assert JetStreamPublisher.retryable?(class)
+      end
     end
 
     test "an UNKNOWN broker refusal withholds rather than DLQ-ing" do
@@ -309,20 +352,32 @@ defmodule ServiceRadarAgentGateway.JetStreamPublisherTest do
       assert header(planned.headers, "Nats-Expected-Stream") == planned.route.expected_stream
     end
 
-    test "the header key multiset is EXACTLY the four permitted keys, once each" do
-      # Previously only the presence of each key was checked, so an extra semantic header or a
-      # duplicate key could ride along unnoticed.
-      {:ok, planned} = JetStreamPublisher.plan(vector_publication())
-      keys = Enum.map(planned.headers, &elem(&1, 0))
+    test "the header key multiset is EXACTLY four keys once each, in EVERY delivery mode" do
+      # Asserted for fresh AND renewal. Checking fresh alone let a renewal-only extra header
+      # survive the whole publisher file, because every other fixture here is fresh.
+      cap = EdgeSignedCapabilityV1.decode(load("delivery_renewal_cap.bin"))
+      renewal = PublicationIdentity.mode_renewal()
+      {:ok, proof} = PublicationIdentity.delivery_proof_digest(cap, renewal)
 
-      assert Enum.sort(keys) == [
-               "Nats-Expected-Stream",
-               "Nats-Msg-Id",
-               "Sr-Edge-Delivery-Id",
-               "Sr-Edge-Transport-Provenance"
-             ]
+      renewal_pub =
+        vector_publication()
+        |> Map.put(:delivery_mode, renewal)
+        |> Map.put(:delivery_proof, proof)
 
-      assert length(keys) == length(Enum.uniq(keys)), "a header key appears more than once"
+      for {label, pub} <- [{"fresh", vector_publication()}, {"renewal", renewal_pub}] do
+        {:ok, planned} = JetStreamPublisher.plan(pub)
+        keys = Enum.map(planned.headers, &elem(&1, 0))
+
+        assert Enum.sort(keys) == [
+                 "Nats-Expected-Stream",
+                 "Nats-Msg-Id",
+                 "Sr-Edge-Delivery-Id",
+                 "Sr-Edge-Transport-Provenance"
+               ],
+               "#{label} mode emitted #{inspect(Enum.sort(keys))}"
+
+        assert length(keys) == length(Enum.uniq(keys)), "#{label} mode repeated a header key"
+      end
     end
 
     test "the provenance value is EXACT for a fresh delivery, not merely nonempty" do

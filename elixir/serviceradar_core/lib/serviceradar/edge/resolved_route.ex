@@ -10,14 +10,14 @@ defmodule ServiceRadar.Edge.ResolvedRoute do
   ## Opaque, and NOT a publisher input
 
   The type is `@opaque` and there is no public constructor: build one only through
-  `ServiceRadar.Edge.StreamRoute.resolve/1` or `resolve_dlq/2`.
+  `ServiceRadar.Edge.StreamRoute.resolve/1`. There is no DLQ constructor -- `resolve_dlq/2` was
+  removed because a DLQ route must be derived from a failure context that does not exist yet.
 
   Opacity alone would not be enough, because a struct is still a map at runtime and Dialyzer is
   advisory. The real protection is that `ServiceRadarAgentGateway.JetStreamPublisher` does not
   ACCEPT a route at all -- it resolves one from the same authenticated publication it is about to
   send. A forged or stale route therefore has nowhere to enter, which is a stronger guarantee than
-  asking callers not to build one. Routes are returned for audit and for the DLQ derivation, never
-  taken as input.
+  asking callers not to build one. Routes are returned for audit, never taken as input.
 
   `partition` is `nil` for a singular subject that carries no partition token -- the recovery
   lane. It is NOT `0`: zero is a real partition, and conflating "unpartitioned" with "partition
