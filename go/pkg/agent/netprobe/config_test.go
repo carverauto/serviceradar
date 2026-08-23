@@ -433,3 +433,129 @@ func TestWriteBootstrapConfigReplacesReadOnlyExistingFile(t *testing.T) {
 		t.Fatalf("bootstrap config mode = %o, want 640", got)
 	}
 }
+
+// The two properties addons/netprobe/config.schema.json has declared since the
+// manifest was written, and which the add-on config path silently ignored until
+// they were added to addonConfig.
+//
+// Nothing errored, because the merge leaves an absent field at its base value --
+// so an operator setting DPI or a per-device binding through the add-on surface
+// simply had no effect, and the config that reached netprobe looked exactly like
+// one where they had set nothing.
+// goconst counts identical literals across the whole package, tests included.
+// Naming the protocol here keeps test data from pushing a production literal in
+// translator.go over the threshold and making an unrelated file look at fault.
+const testProtocolTLS = "tls"
+
+func TestApplyAddonConfigJSONCarriesDpiAndDeviceBindings(t *testing.T) {
+	base := &netprobepb.VisibilityAgentConfig{
+		Enabled: true,
+		Dpi:     &netprobepb.DpiConfig{Enabled: false},
+	}
+
+	merged, err := ApplyAddonConfigJSON(base, []byte(`{
+		"dpi": {"enabled": true, "protocols": ["`+testProtocolTLS+`", " http "]},
+		"device_bindings": [
+			{
+				"ip": " 192.168.1.10 ",
+				"profile_id": "profile-a",
+				"profile_name": "Camera",
+				"sample_interval_ms": 500,
+				"fingerprint": {"tcp": true, "tls": true, "http": false},
+				"dpi": {"enabled": true, "protocols": ["dns"]}
+			}
+		]
+	}`))
+	if err != nil {
+		t.Fatalf("ApplyAddonConfigJSON() error = %v", err)
+	}
+
+	if !merged.GetDpi().GetEnabled() {
+		t.Fatal("dpi.enabled was not carried from the add-on config")
+	}
+	if got := merged.GetDpi().GetProtocols(); len(got) != 2 || got[0] != testProtocolTLS || got[1] != "http" {
+		t.Fatalf("dpi.protocols = %v, want [tls http] with whitespace trimmed", got)
+	}
+
+	bindings := merged.GetDeviceBindings()
+	if len(bindings) != 1 {
+		t.Fatalf("device_bindings length = %d, want 1", len(bindings))
+	}
+
+	binding := bindings[0]
+	if binding.GetIp() != "192.168.1.10" {
+		t.Fatalf("binding ip = %q, want the trimmed address", binding.GetIp())
+	}
+	if binding.GetProfileId() != "profile-a" || binding.GetProfileName() != "Camera" {
+		t.Fatalf("binding profile = %q/%q", binding.GetProfileId(), binding.GetProfileName())
+	}
+	if binding.GetSampleIntervalMs() != 500 {
+		t.Fatalf("binding sample interval = %d, want 500", binding.GetSampleIntervalMs())
+	}
+	if !binding.GetFingerprint().GetTcp() || !binding.GetFingerprint().GetTls() {
+		t.Fatal("binding fingerprint toggles were not carried")
+	}
+	if binding.GetFingerprint().GetHttp() {
+		t.Fatal("binding fingerprint http was set true, want the supplied false")
+	}
+	if !binding.GetDpi().GetEnabled() {
+		t.Fatal("per-binding dpi was not carried")
+	}
+}
+
+func TestApplyAddonConfigJSONAbsentDpiAndBindingsKeepTheBase(t *testing.T) {
+	// The merge rule for every other field: absent means "not specified", not
+	// "set to empty". Without this, an add-on config that omits them would wipe
+	// bindings the base VisibilityConfig supplied.
+	base := &netprobepb.VisibilityAgentConfig{
+		Dpi:            &netprobepb.DpiConfig{Enabled: true, Protocols: []string{testProtocolTLS}},
+		DeviceBindings: []*netprobepb.DeviceBinding{{Ip: "10.0.0.5", ProfileId: "keep-me"}},
+	}
+
+	merged, err := ApplyAddonConfigJSON(base, []byte(`{"enabled": true}`))
+	if err != nil {
+		t.Fatalf("ApplyAddonConfigJSON() error = %v", err)
+	}
+
+	if !merged.GetDpi().GetEnabled() {
+		t.Fatal("absent dpi wiped the base value")
+	}
+	if len(merged.GetDeviceBindings()) != 1 || merged.GetDeviceBindings()[0].GetIp() != "10.0.0.5" {
+		t.Fatalf("absent device_bindings wiped the base value: %v", merged.GetDeviceBindings())
+	}
+}
+
+func TestApplyAddonConfigJSONEmptyDeviceBindingsClears(t *testing.T) {
+	// Present-but-empty is how an operator removes every binding. If this were
+	// treated the same as absent, a binding could be added through this surface
+	// and never removed through it.
+	base := &netprobepb.VisibilityAgentConfig{
+		DeviceBindings: []*netprobepb.DeviceBinding{{Ip: "10.0.0.5"}},
+	}
+
+	merged, err := ApplyAddonConfigJSON(base, []byte(`{"device_bindings": []}`))
+	if err != nil {
+		t.Fatalf("ApplyAddonConfigJSON() error = %v", err)
+	}
+
+	if len(merged.GetDeviceBindings()) != 0 {
+		t.Fatalf("device_bindings = %v, want cleared", merged.GetDeviceBindings())
+	}
+}
+
+func TestApplyAddonConfigJSONDropsABindingWithNoIP(t *testing.T) {
+	// The schema marks `ip` required; this is the runtime half. A binding with
+	// no address can never match anything, so carrying it would just be a
+	// permanently dead entry in the config netprobe applies.
+	merged, err := ApplyAddonConfigJSON(nil, []byte(`{
+		"device_bindings": [{"ip": "   ", "profile_id": "orphan"}, {"ip": "10.0.0.7"}]
+	}`))
+	if err != nil {
+		t.Fatalf("ApplyAddonConfigJSON() error = %v", err)
+	}
+
+	bindings := merged.GetDeviceBindings()
+	if len(bindings) != 1 || bindings[0].GetIp() != "10.0.0.7" {
+		t.Fatalf("device_bindings = %v, want only the addressed binding", bindings)
+	}
+}

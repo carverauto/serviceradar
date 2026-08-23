@@ -98,6 +98,90 @@ type addonConfig struct {
 	ExternalFlowMatchWindowMs    *uint32    `json:"external_flow_match_window_ms"`
 	FlowAttributionIpcBatch      *bool      `json:"flow_attribution_ipc_batch"`
 	EmitRawFlowAttributionEvents *bool      `json:"emit_raw_flow_attribution_events"`
+	// Both declared by addons/netprobe/config.schema.json since the manifest
+	// was written, and both absent from this struct until now -- so an operator
+	// who set DPI or a per-device binding through the add-on surface had it
+	// silently ignored. The merge below leaves the base VisibilityConfig value
+	// in place for an absent field, which is why this lost capability rather
+	// than data, and why nothing ever errored.
+	Dpi            *addonDpiConfig      `json:"dpi"`
+	DeviceBindings []addonDeviceBinding `json:"device_bindings"`
+}
+
+type addonDpiConfig struct {
+	Enabled   *bool      `json:"enabled"`
+	Protocols stringList `json:"protocols"`
+}
+
+type addonFingerprintConfig struct {
+	Tcp  *bool `json:"tcp"`
+	Tls  *bool `json:"tls"`
+	Http *bool `json:"http"`
+}
+
+type addonDeviceBinding struct {
+	IP               string                  `json:"ip"`
+	ProfileID        string                  `json:"profile_id"`
+	ProfileName      string                  `json:"profile_name"`
+	SampleIntervalMs uint32                  `json:"sample_interval_ms"`
+	Fingerprint      *addonFingerprintConfig `json:"fingerprint"`
+	Dpi              *addonDpiConfig         `json:"dpi"`
+}
+
+func (d *addonDpiConfig) toProto() *netprobepb.DpiConfig {
+	if d == nil {
+		return nil
+	}
+
+	out := &netprobepb.DpiConfig{Protocols: trimStrings(d.Protocols)}
+	if d.Enabled != nil {
+		out.Enabled = *d.Enabled
+	}
+
+	return out
+}
+
+func (f *addonFingerprintConfig) toProto() *netprobepb.FingerprintConfig {
+	if f == nil {
+		return nil
+	}
+
+	out := &netprobepb.FingerprintConfig{}
+	if f.Tcp != nil {
+		out.Tcp = *f.Tcp
+	}
+	if f.Tls != nil {
+		out.Tls = *f.Tls
+	}
+	if f.Http != nil {
+		out.Http = *f.Http
+	}
+
+	return out
+}
+
+// A binding with no IP addresses nothing, so it is dropped rather than carried
+// as an entry that can never match. The schema marks `ip` required; this is the
+// runtime half of that.
+func deviceBindingsToProto(bindings []addonDeviceBinding) []*netprobepb.DeviceBinding {
+	out := make([]*netprobepb.DeviceBinding, 0, len(bindings))
+	for _, binding := range bindings {
+		ip := strings.TrimSpace(binding.IP)
+		if ip == "" {
+			continue
+		}
+
+		out = append(out, &netprobepb.DeviceBinding{
+			Ip:               ip,
+			ProfileId:        strings.TrimSpace(binding.ProfileID),
+			ProfileName:      strings.TrimSpace(binding.ProfileName),
+			SampleIntervalMs: binding.SampleIntervalMs,
+			Fingerprint:      binding.Fingerprint.toProto(),
+			Dpi:              binding.Dpi.toProto(),
+		})
+	}
+
+	return out
 }
 
 func defaultVisibilityAgentConfig() *netprobepb.VisibilityAgentConfig {
@@ -172,6 +256,16 @@ func ApplyAddonConfigJSON(
 	}
 	if addon.EmitRawFlowAttributionEvents != nil {
 		merged.EmitRawFlowAttributionEvents = *addon.EmitRawFlowAttributionEvents
+	}
+	if addon.Dpi != nil {
+		merged.Dpi = addon.Dpi.toProto()
+	}
+	// Replaced wholesale rather than merged element-wise: the operator's list IS
+	// the intended set, and an element-wise merge would make removing a binding
+	// impossible through this surface. Same rule capture_interfaces already
+	// follows -- absent keeps the base, present replaces it.
+	if addon.DeviceBindings != nil {
+		merged.DeviceBindings = deviceBindingsToProto(addon.DeviceBindings)
 	}
 
 	return merged, nil

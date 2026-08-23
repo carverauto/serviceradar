@@ -68,7 +68,22 @@ defmodule ServiceRadar.Plugins.AddonConfigContractFixtures do
       "process_snapshot_interval_s" => 30,
       "external_flow_match_window_ms" => 1_500,
       "flow_attribution_ipc_batch" => true,
-      "emit_raw_flow_attribution_events" => false
+      "emit_raw_flow_attribution_events" => false,
+      # Declared by config.schema.json since the manifest was written, but never
+      # represented here -- so the delivery path was never exercised for them,
+      # and the agent's decoder silently ignored both until they were added to
+      # addonConfig. Present now so the fixture proves core emits them.
+      "dpi" => %{"enabled" => true, "protocols" => ["tls", "http"]},
+      "device_bindings" => [
+        %{
+          "ip" => "192.168.1.10",
+          "profile_id" => "camera-profile",
+          "profile_name" => "Camera",
+          "sample_interval_ms" => 500,
+          "fingerprint" => %{"tcp" => true, "tls" => true, "http" => false},
+          "dpi" => %{"enabled" => true, "protocols" => ["dns"]}
+        }
+      ]
     },
     "otel-collector" => %{
       "output" => %{"backend" => "jetstream"},
