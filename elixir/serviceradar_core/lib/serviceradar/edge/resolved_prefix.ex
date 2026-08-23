@@ -104,7 +104,9 @@ defmodule ServiceRadar.Edge.ResolvedPrefix do
   A `REJECTED_RETRYABLE` disposition is retained but never resolves, so it caps the prefix
   exactly like a missing outcome. Recording does not advance reclamation.
 
-  Errors: `:unknown_disposition`, `:below_base`, `:conflict`.
+  Errors: `:unknown_disposition`, `:below_base`, `:conflict`. Which one is returned when an
+  input is invalid in several ways at once is UNSPECIFIED -- callers may branch on the reason
+  but must not depend on a precedence between them.
   """
   @spec record(t(), non_neg_integer(), atom()) :: {:ok, t()} | {:error, atom()}
   def record(%__MODULE__{} = t, seq, disposition) do
