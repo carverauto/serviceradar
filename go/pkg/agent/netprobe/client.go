@@ -46,6 +46,7 @@ const (
 	EventStreamFlowAttr      = "flow_attribution"
 	EventStreamProcessSnap   = "process_snapshot"
 	EventStreamDeviceCensus  = "device_census"
+	EventStreamMdns          = "mdns"
 	EventDropBackpressure    = "backpressure"
 )
 
@@ -98,11 +99,13 @@ type Client struct {
 	flowEvents       chan *netprobepb.FlowAttributionEvent
 	processSnapshots chan *netprobepb.ProcessSnapshot
 	censusSnapshots  chan *netprobepb.DeviceCensusSnapshot
+	mdnsSnapshots    chan *netprobepb.MdnsSnapshot
 	done             chan struct{}
 
 	// Chunked census snapshots are reassembled before they reach the channel,
 	// so consumers only ever see whole snapshots.
 	censusAssembler *censusAssembler
+	mdnsAssembler   *mdnsAssembler
 
 	closeOnce sync.Once
 	closeErr  atomic.Value
@@ -123,6 +126,7 @@ type Client struct {
 	droppedFlowEvents        atomic.Uint64
 	droppedProcessSnapshots  atomic.Uint64
 	droppedCensusSnapshots   atomic.Uint64
+	droppedMdnsSnapshots     atomic.Uint64
 	eventDropRecorder        EventDropRecorder
 }
 
@@ -152,6 +156,8 @@ func NewClient(conn net.Conn, eventBuffer int, opts ...ClientOption) *Client {
 		processSnapshots: make(chan *netprobepb.ProcessSnapshot, eventBuffer),
 		censusSnapshots:  make(chan *netprobepb.DeviceCensusSnapshot, censusSnapshotBuffer),
 		censusAssembler:  newCensusAssembler(),
+		mdnsSnapshots:    make(chan *netprobepb.MdnsSnapshot, censusSnapshotBuffer),
+		mdnsAssembler:    newMdnsAssembler(),
 		done:             make(chan struct{}),
 	}
 	for _, opt := range opts {
@@ -164,6 +170,7 @@ func NewClient(conn net.Conn, eventBuffer int, opts ...ClientOption) *Client {
 		close(c.flowEvents)
 		close(c.processSnapshots)
 		close(c.censusSnapshots)
+		close(c.mdnsSnapshots)
 
 		return c
 	}
@@ -302,6 +309,40 @@ func (c *Client) FlowAttributionEvents() <-chan *netprobepb.FlowAttributionEvent
 // ProcessSnapshots returns the bounded stream of process snapshots from netprobe.
 func (c *Client) ProcessSnapshots() <-chan *netprobepb.ProcessSnapshot {
 	return c.processSnapshots
+}
+
+// MdnsSnapshots returns the bounded stream of COMPLETE mDNS snapshots. Chunked
+// snapshots are reassembled before they appear here, so a consumer never sees a
+// fragment.
+func (c *Client) MdnsSnapshots() <-chan *netprobepb.MdnsSnapshot {
+	return c.mdnsSnapshots
+}
+
+// DroppedMdnsSnapshots returns mDNS snapshots dropped because the downstream
+// consumer was slow.
+func (c *Client) DroppedMdnsSnapshots() uint64 {
+	return c.droppedMdnsSnapshots.Load()
+}
+
+// enqueueMdnsSnapshot reassembles a chunk and forwards only whole snapshots.
+//
+// Same posture as the census: core writes nothing for a payload that does not
+// declare itself complete, so a fragment reaching the push loop would cost a
+// gRPC round trip to land no rows.
+func (c *Client) enqueueMdnsSnapshot(chunk *netprobepb.MdnsSnapshot) {
+	snapshot, reason := c.mdnsAssembler.Offer(chunk)
+	if reason != "" && c.eventDropRecorder != nil {
+		c.eventDropRecorder.IncEventDrop(EventStreamMdns, reason)
+	}
+	if snapshot == nil {
+		return
+	}
+
+	select {
+	case c.mdnsSnapshots <- snapshot:
+	default:
+		c.recordEventDrop(EventStreamMdns, EventDropBackpressure)
+	}
 }
 
 // CensusSnapshots returns the bounded stream of COMPLETE passive device census
@@ -485,7 +526,7 @@ func (c *Client) DroppedCensusChunks() map[string]uint64 {
 		return nil
 	}
 
-	return c.censusAssembler.DroppedCensusChunks()
+	return c.censusAssembler.DroppedChunks()
 }
 
 // Close closes the IPC connection and unblocks pending requests.
@@ -562,6 +603,7 @@ func (c *Client) readLoop() {
 	defer close(c.flowEvents)
 	defer close(c.processSnapshots)
 	defer close(c.censusSnapshots)
+	defer close(c.mdnsSnapshots)
 
 	for {
 		frame, err := readFrame(c.conn)
@@ -605,6 +647,9 @@ func (c *Client) readLoop() {
 			}
 			if chunk := frame.GetDeviceCensusSnapshot(); chunk != nil {
 				c.enqueueCensusSnapshot(chunk)
+			}
+			if chunk := frame.GetMdnsSnapshot(); chunk != nil {
+				c.enqueueMdnsSnapshot(chunk)
 			}
 			continue
 		}
@@ -669,6 +714,9 @@ func (c *Client) recordEventDrop(stream, reason string) {
 	}
 	if stream == EventStreamDeviceCensus && reason == EventDropBackpressure {
 		c.droppedCensusSnapshots.Add(1)
+	}
+	if stream == EventStreamMdns && reason == EventDropBackpressure {
+		c.droppedMdnsSnapshots.Add(1)
 	}
 	if c.eventDropRecorder != nil {
 		c.eventDropRecorder.IncEventDrop(stream, reason)

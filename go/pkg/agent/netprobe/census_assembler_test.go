@@ -136,7 +136,7 @@ func TestCensusAssemblerDiscardsASetWhoseChunkCountChanges(t *testing.T) {
 	assert.Nil(t, out)
 	assert.Equal(t, CensusDropChunkCountChanged, reason)
 	assert.Zero(t, a.pendingSets(), "the poisoned set must be dropped, not left to grow")
-	assert.Equal(t, uint64(1), a.DroppedCensusChunks()[CensusDropChunkCountChanged])
+	assert.Equal(t, uint64(1), a.DroppedChunks()[CensusDropChunkCountChanged])
 }
 
 func TestCensusAssemblerRejectsAnOutOfRangeChunkIndex(t *testing.T) {
@@ -185,7 +185,7 @@ func TestCensusAssemblerExpiresAPartialSetFromADeadNetprobe(t *testing.T) {
 	require.Nil(t, firstOf(a.Offer(censusChunk("live", 0, 2, false, "mac-b"))))
 
 	assert.Equal(t, 1, a.pendingSets(), "only the live set should remain")
-	assert.Equal(t, uint64(1), a.DroppedCensusChunks()[CensusDropPartialExpired])
+	assert.Equal(t, uint64(1), a.DroppedChunks()[CensusDropPartialExpired])
 }
 
 func TestCensusAssemblerBoundsConcurrentPartialSets(t *testing.T) {
@@ -206,7 +206,7 @@ func TestCensusAssemblerBoundsConcurrentPartialSets(t *testing.T) {
 	}
 
 	assert.LessOrEqual(t, a.pendingSets(), censusMaxPartialSets)
-	assert.Positive(t, a.DroppedCensusChunks()[CensusDropPartialEvicted])
+	assert.Positive(t, a.DroppedChunks()[CensusDropPartialEvicted])
 }
 
 func TestCensusAssemblerIgnoresNil(t *testing.T) {
