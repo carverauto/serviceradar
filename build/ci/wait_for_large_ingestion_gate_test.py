@@ -32,8 +32,12 @@ class FakeGit:
         self.files = {
             (BASE, "build/ci/large_ingestion_gate_contract.v1"): b"large-ingestion-gate-contract-v1\n",
             (RELEASE, "build/ci/large_ingestion_gate_contract.v1"): b"large-ingestion-gate-contract-v1\n",
-            (RELEASE, "elixir/serviceradar_core/BUILD.bazel"): b'    name = "large_ingestion_release_gate",\n',
-            (RELEASE, "buildbuddy.yaml"): b'  - name: "LargeIngestionGate"\n',
+            (RELEASE, "elixir/serviceradar_core/BUILD.bazel"): (
+                b'ex_unit_test(\n    name = "large_ingestion_release_gate",\n)\n'
+            ),
+            (RELEASE, "buildbuddy.yaml"): (
+                b'actions:\n  - name: "LargeIngestionGate"\n'
+            ),
         }
         self.introductions = [INTRODUCTION]
 
@@ -244,6 +248,19 @@ class ApplicabilityTest(unittest.TestCase):
                     )
                 self.assertEqual(0, factory.calls)
 
+    def test_starlark_multiline_string_target_lookalike_fails_before_status(self):
+        fake = FakeGit()
+        fake.files[(RELEASE, "elixir/serviceradar_core/BUILD.bazel")] = b'''notice = """
+name = "large_ingestion_release_gate"
+"""
+'''
+        factory = Factory(CountingStatusSource([[status()]]))
+        with self.assertRaisesRegex(gate.PolicyError, "Bazel target"):
+            gate.wait_for_gate(
+                fake, factory, FakeClock(), RELEASE, "origin/staging", 1800, 15, PREFIX
+            )
+        self.assertEqual(0, factory.calls)
+
     def test_comment_only_and_lookalike_action_declarations_fail_before_status(self):
         invalid_actions = (
             b'# - name: "LargeIngestionGate"\n',
@@ -256,6 +273,44 @@ class ApplicabilityTest(unittest.TestCase):
                 fake.files[(RELEASE, "buildbuddy.yaml")] = source
                 factory = Factory(CountingStatusSource([[status()]]))
                 with self.assertRaisesRegex(gate.PolicyError, "action"):
+                    gate.wait_for_gate(
+                        fake, factory, FakeClock(), RELEASE, "origin/staging", 1800, 15, PREFIX
+                    )
+                self.assertEqual(0, factory.calls)
+
+    def test_yaml_block_scalar_action_lookalike_fails_before_status(self):
+        fake = FakeGit()
+        fake.files[(RELEASE, "buildbuddy.yaml")] = b'''actions:
+  - name: "OtherAction"
+    steps:
+      - run: |
+          echo "inactive declaration follows"
+          - name: "LargeIngestionGate"
+'''
+        factory = Factory(CountingStatusSource([[status()]]))
+        with self.assertRaisesRegex(gate.PolicyError, "action"):
+            gate.wait_for_gate(
+                fake, factory, FakeClock(), RELEASE, "origin/staging", 1800, 15, PREFIX
+            )
+        self.assertEqual(0, factory.calls)
+
+    def test_malformed_target_or_action_source_fails_before_status(self):
+        malformed = (
+            (
+                "elixir/serviceradar_core/BUILD.bazel",
+                b'ex_unit_test(\n    name = "large_ingestion_release_gate",\n',
+            ),
+            (
+                "buildbuddy.yaml",
+                b'actions:\n\t- name: "LargeIngestionGate"\n',
+            ),
+        )
+        for path, source in malformed:
+            with self.subTest(path=path):
+                fake = FakeGit()
+                fake.files[(RELEASE, path)] = source
+                factory = Factory(CountingStatusSource([[status()]]))
+                with self.assertRaises(gate.PolicyError):
                     gate.wait_for_gate(
                         fake, factory, FakeClock(), RELEASE, "origin/staging", 1800, 15, PREFIX
                     )

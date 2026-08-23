@@ -2,10 +2,13 @@
 
 from __future__ import annotations
 
+import ast
+import io
 import json
 import math
 import re
 import subprocess
+import tokenize
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -25,12 +28,121 @@ INVOCATION_PATH = "/invocation/"
 TARGET_URL_PREFIX = "https://carverauto.buildbuddy.io/invocation/"
 HISTORICAL_NOT_APPLICABLE = "HISTORICAL_NOT_APPLICABLE"
 FULL_SHA = re.compile(r"^[0-9a-f]{40}$")
-TARGET_DECLARATION = re.compile(
-    rb'(?m)^[ \t]*name[ \t]*=[ \t]*"large_ingestion_release_gate"[ \t]*,?[ \t]*(?:#[^\r\n]*)?\r?$'
-)
-ACTION_DECLARATION = re.compile(
-    rb'(?m)^[ \t]*-[ \t]+name:[ \t]*"LargeIngestionGate"[ \t]*(?:#[^\r\n]*)?\r?$'
-)
+
+
+def _starlark_tokens(source: bytes) -> tuple[tokenize.TokenInfo, ...] | None:
+    if not isinstance(source, bytes):
+        return None
+    try:
+        source.decode("utf-8")
+        tokens = tuple(tokenize.tokenize(io.BytesIO(source).readline))
+    except (IndentationError, LookupError, SyntaxError, tokenize.TokenError, UnicodeDecodeError):
+        return None
+
+    delimiters = {"(": ")", "[": "]", "{": "}"}
+    stack: list[str] = []
+    for token in tokens:
+        if token.type == tokenize.ERRORTOKEN and not token.string.isspace():
+            return None
+        if token.type != tokenize.OP:
+            continue
+        if token.string in delimiters:
+            stack.append(delimiters[token.string])
+        elif token.string in delimiters.values():
+            if not stack or stack.pop() != token.string:
+                return None
+    if stack:
+        return None
+
+    ignored = {
+        tokenize.COMMENT,
+        tokenize.DEDENT,
+        tokenize.ENCODING,
+        tokenize.ENDMARKER,
+        tokenize.INDENT,
+        tokenize.NEWLINE,
+        tokenize.NL,
+    }
+    return tuple(token for token in tokens if token.type not in ignored)
+
+
+def has_large_ingestion_target(source: bytes) -> bool:
+    """Recognize the active ex_unit_test declaration, excluding text and comments."""
+    tokens = _starlark_tokens(source)
+    if tokens is None:
+        return False
+
+    opening = {"(", "[", "{"}
+    closing = {")", "]", "}"}
+    for index, token in enumerate(tokens[:-1]):
+        if (
+            token.type != tokenize.NAME
+            or token.string != "ex_unit_test"
+            or token.start[1] != 0
+            or tokens[index + 1].type != tokenize.OP
+            or tokens[index + 1].string != "("
+        ):
+            continue
+
+        depth = 1
+        cursor = index + 2
+        while cursor < len(tokens):
+            current = tokens[cursor]
+            if current.type == tokenize.OP and current.string in opening:
+                depth += 1
+            elif current.type == tokenize.OP and current.string in closing:
+                depth -= 1
+                if depth == 0:
+                    break
+            elif (
+                depth == 1
+                and current.type == tokenize.NAME
+                and current.string == "name"
+                and cursor + 3 < len(tokens)
+                and tokens[cursor + 1].type == tokenize.OP
+                and tokens[cursor + 1].string == "="
+                and tokens[cursor + 2].type == tokenize.STRING
+                and tokens[cursor + 3].type == tokenize.OP
+                and tokens[cursor + 3].string in {",", ")"}
+            ):
+                try:
+                    value = ast.literal_eval(tokens[cursor + 2].string)
+                except (SyntaxError, ValueError):
+                    return False
+                if value == "large_ingestion_release_gate":
+                    return True
+            cursor += 1
+    return False
+
+
+def has_large_ingestion_action(source: bytes) -> bool:
+    """Recognize the exact top-level action entry in the root actions mapping."""
+    if not isinstance(source, bytes):
+        return False
+    try:
+        text = source.decode("utf-8")
+    except UnicodeDecodeError:
+        return False
+    for index, character in enumerate(text):
+        if character == "\t" or character == "\x00":
+            return False
+        if ord(character) < 0x20 and character not in {"\n", "\r"}:
+            return False
+        if character == "\r" and (index + 1 == len(text) or text[index + 1] != "\n"):
+            return False
+
+    lines = text.splitlines()
+    action_headers = [index for index, line in enumerate(lines) if line == "actions:"]
+    if len(action_headers) != 1:
+        return False
+
+    found = False
+    for line in lines[action_headers[0] + 1 :]:
+        if line and not line[0].isspace() and not line.startswith("#"):
+            break
+        if line == '  - name: "LargeIngestionGate"':
+            found = True
+    return found
 
 
 class PolicyError(Exception):
@@ -320,10 +432,10 @@ def determine_applicability(
         if release_marker != MARKER_BYTES:
             raise PolicyError("release marker is malformed")
         target = git.read_tree_file(resolved_release, TARGET_PATH)
-        if target is None or not TARGET_DECLARATION.search(target):
+        if target is None or not has_large_ingestion_target(target):
             raise PolicyError("release tree lacks the large-ingestion Bazel target")
         action = git.read_tree_file(resolved_release, ACTION_PATH)
-        if action is None or not ACTION_DECLARATION.search(action):
+        if action is None or not has_large_ingestion_action(action):
             raise PolicyError("release tree lacks the LargeIngestionGate action")
         return True
 

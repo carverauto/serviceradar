@@ -1171,8 +1171,13 @@ class ReleaseLargeIngestionQualificationContractTest(unittest.TestCase):
         cli = RELEASE_GATE_CLI.read_text(encoding="utf-8")
         tests = RELEASE_GATE_TEST.read_text(encoding="utf-8")
 
-        self.assertIn("TARGET_DECLARATION.search(target)", library)
-        self.assertIn("ACTION_DECLARATION.search(action)", library)
+        self.assertIn("has_large_ingestion_target(target)", library)
+        self.assertIn("has_large_ingestion_action(action)", library)
+        self.assertIn("tokenize.tokenize", library)
+        self.assertNotIn("TARGET_DECLARATION", library)
+        self.assertNotIn("ACTION_DECLARATION", library)
+        self.assertNotIn(".search(target)", library)
+        self.assertNotIn(".search(action)", library)
         self.assertNotIn("TARGET_TEXT not in target", library)
         self.assertNotIn("ACTION_TEXT not in action", library)
         self.assertIn("timeout=timeout_seconds", library)
@@ -1182,6 +1187,9 @@ class ReleaseLargeIngestionQualificationContractTest(unittest.TestCase):
         for regression in (
             "test_comment_only_and_lookalike_target_declarations_fail_before_status",
             "test_comment_only_and_lookalike_action_declarations_fail_before_status",
+            "test_starlark_multiline_string_target_lookalike_fails_before_status",
+            "test_yaml_block_scalar_action_lookalike_fails_before_status",
+            "test_malformed_target_or_action_source_fails_before_status",
             "test_success_returned_after_deadline_is_rejected",
             "test_gh_runner_receives_remaining_monotonic_budget_each_snapshot",
             "test_hung_gh_snapshot_timeout_is_a_policy_error",
