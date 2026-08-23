@@ -626,6 +626,9 @@ generate-proto: ## Generate Go and Rust code from protobuf definitions
 		proto/agent/addon/v1/addon.proto
 	@protoc -I=proto -I=. \
 		--go_out=proto --go_opt=paths=source_relative \
+		proto/agent/discovery/v1/discovery.proto
+	@protoc -I=proto -I=. \
+		--go_out=proto --go_opt=paths=source_relative \
 		proto/metric/v1/metric.proto
 	@echo "$(COLOR_BOLD)Generated Go protobuf code$(COLOR_RESET)"
 
@@ -671,6 +674,7 @@ generate-proto-elixir: install-protoc-gen-elixir ## Generate Elixir code from pr
 		proto/identitymap/v1/identity_map.proto \
 		proto/agent/netprobe/v1/netprobe.proto \
 		proto/agent/addon/v1/addon.proto \
+		proto/agent/discovery/v1/discovery.proto \
 		proto/metric/v1/metric.proto
 	@cd elixir/serviceradar_core && \
 		mix format --force "$(abspath $(ELIXIR_PROTO_OUT))/**/*.pb.ex"

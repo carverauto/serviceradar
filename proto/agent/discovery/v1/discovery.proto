@@ -1,0 +1,101 @@
+/*
+ * Copyright 2026 Carver Automation Corporation.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+syntax = "proto3";
+
+package serviceradar.agent.discovery.v1;
+
+option go_package = "github.com/carverauto/serviceradar/proto/agent/discovery/v1;discoverypb";
+
+// DiscoveryEnvelope carries device observations an add-on made about OTHER
+// hosts, from the add-on to the control plane, through the agent and gateway
+// unchanged.
+//
+// It rides as the payload of a
+// serviceradar.agent.addon.v1.TelemetryRecord whose payload_kind is
+// TELEMETRY_PAYLOAD_KIND_DISCOVERY_V1.
+//
+// THE POINT OF THIS MESSAGE is that `schema` is a string. Adding a new
+// observation type is one registry entry in core: no proto edit, no Go/Elixir/
+// Rust regeneration, no agent or gateway change, no agent release. Everything
+// between the add-on and core treats `payload` as opaque bytes and must
+// continue to.
+//
+// Nothing here is trusted for identity. agent_id, gateway_id and partition are
+// stamped by the control plane from the gateway-attested status metadata, and
+// the source string comes from the schema registry -- never from this message.
+// See serviceradar.agent.addon.v1.TelemetrySource for the same rule stated for
+// telemetry.
+message DiscoveryEnvelope {
+  // schema names the payload contract, for example
+  // "serviceradar.netprobe.census.v1". Core maps it to a decoder and to the
+  // identity policy that governs the observations it produces. An unregistered
+  // schema is dropped loudly; it is never ingested on a guess.
+  string schema = 1;
+
+  // producer_id names the add-on that observed this, for operator display and
+  // telemetry only. It is NOT an identity claim and MUST NOT be used to
+  // attribute an observation to a device or an agent.
+  string producer_id = 2;
+
+  // observation_scope is the supersession key: within one schema, a later
+  // envelope with the same scope replaces an earlier one. netprobe uses the
+  // capture interface name, so a snapshot of eth0 never hides eth1. Empty
+  // means no supersession.
+  string observation_scope = 3;
+
+  // snapshot_id set means SNAPSHOT semantics: the envelope (with its siblings,
+  // see part_index) is a complete replacement for observation_scope, and a
+  // device absent from it has gone away. Empty means EVENT semantics: an
+  // independent observation that adds to what is known and implies nothing
+  // about what is missing.
+  //
+  // Producers that restart MUST seed this with something that cannot repeat --
+  // netprobe uses its process start time -- so a reassembler can never merge
+  // parts of two different snapshots.
+  string snapshot_id = 4;
+
+  // part_index and part_count split one snapshot across several envelopes when
+  // it does not fit a single telemetry batch. Reassembly happens in the CONTROL
+  // PLANE, not the agent: the agent forwards parts without understanding them.
+  //
+  // This is not an optional nicety. The agent drops a whole batch that exceeds
+  // its size cap, with no re-queue -- so an unsplit oversized snapshot is total
+  // silence for exactly the largest segments, which are the ones that matter.
+  uint32 part_index = 5;
+  uint32 part_count = 6;
+
+  // complete marks the last part of a snapshot. A set is ingested only when
+  // every part has arrived AND one of them is marked complete; counting parts
+  // alone accepts a set whose final part never came but which received a
+  // duplicate instead.
+  bool complete = 7;
+
+  // generated_at_unix_nano is when the producer built this envelope, not when
+  // it observed anything. Supersession compares this rather than arrival order,
+  // because nothing between here and core guarantees ordering.
+  int64 generated_at_unix_nano = 8;
+
+  // dropped_since_last counts observations the producer discarded since its
+  // previous envelope for this scope -- a full ring buffer, a table at
+  // capacity. A quiet segment and a saturated producer look identical without
+  // it.
+  uint64 dropped_since_last = 9;
+
+  // payload is the schema-specific body. Opaque to the agent and the gateway;
+  // decoded only in core, only by the decoder the schema registry names.
+  bytes payload = 10;
+}
