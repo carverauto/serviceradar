@@ -1,5 +1,5 @@
 defmodule ServiceRadar.AgentConfig.DependencyCatalogTest do
-  use ExUnit.Case, async: true
+  use ExUnit.Case, async: false
 
   alias Ash.Notifier.Notification
   alias ServiceRadar.AgentConfig.DependencyCatalog

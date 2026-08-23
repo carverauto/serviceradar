@@ -27,6 +27,9 @@ async fn main() -> Result<()> {
         Ok(capacity) => capacity,
         Err(error) => return finish_startup(Err(error), peaks, &run_prefix, start_ms),
     };
+    if let Err(error) = capacity.validate_required_pool_slots(args.required_pool_slots) {
+        return finish(Err(error), peaks, &run_prefix, start_ms, capacity);
+    }
     let mut quiescence = Quiescence::default();
     let mut quiescent = false;
 

@@ -4,7 +4,7 @@
 
 **Goal:** Reduce the exact-SHA BuildBuddy ordinary integration lifecycle p95 by at least 50% versus the controlled before cohort, keep the after p95 at 90 seconds or less, and report whether the 60% stretch is reached, with no isolation regression.
 
-**Architecture:** Keep eight template-cloned shard databases as the production topology while treating one cap-eight BEAM as the primary topology challenger, inventory every selected ExUnit module plus zero-selected source, and schedule transaction-isolated modules at cap four while quarantining global-state cases and pruning unit-only shard inputs. Configure suite-global state once, pin each Repo pool at 12, place whole sources using common source load plus serial-module sum and four-slot async-module makespan, then measure CPU and pre-registered runner-layout bundles in separate non-cohort diagnostics before the authoritative cohorts; a challenger is adopted only after it wins the registered evidence screen and an explicit OpenSpec amendment passes the complete acceptance cohort.
+**Architecture:** Use exactly one async BEAM at frozen cap eight plus one through seven deterministic serial BEAM lanes at cap one. Each lane receives its own disposable `sr_core_test_<run>_<lane>` clone on `srql-fixtures`; demo and production databases are forbidden. Inventory every selected ExUnit module plus zero-selected source, run transaction-owned async modules in the async lane, reserve `serial_0` for fixed-external sources, and place remaining serial sources by deterministic LPT before any timing. Pin every Repo pool at 12, permit at most eight test BEAMs and 96 configured pool slots, and fail closed when fixture capacity cannot fund the topology. CPU diagnostics and authoritative cohorts use that frozen source map; there is no topology challenger matrix.
 
 **Tech Stack:** Elixir 1.19, ExUnit, Ecto SQL Sandbox, Ash, Bazel/Starlark, Python `unittest`, Rust integration-database lifecycle targets, BuildBuddy Workflows.
 
@@ -13,10 +13,13 @@
 ## Global Constraints
 
 - Work only in `/Users/mfreeman/src/serviceradar-wt-parallel-integration-tests` on `proposal/parallelize-integration-tests`.
-- Preserve exactly eight production ordinary shards, `s0` through `s7`, unless a measured challenger wins and OpenSpec is explicitly amended.
-- Evaluate the one-BEAM cap-eight bundle as the primary topology challenger; primary status gives it investigative priority, not permission to bypass the registered safety, median-win, amendment, or full-cohort gates.
+- Use exactly one async lane at cap 8 and one through seven serial lanes at cap 1. `serial_0` is reserved for `fixed_external`; `load_only` sources run in no ordinary lane.
+- Give every lane one disposable `sr_core_test_<run>_<lane>` clone on `srql-fixtures`. Demo and production databases are forbidden.
+- Keep each lane pool at 12 and no more than eight test BEAMs / 96 configured pool slots. Calculate `safe_pool_budget = min(96, floor(0.90 * usable_client_slots))` and `serial_lanes = min(serial_source_count, max(1, floor(safe_pool_budget / 12) - 1))`; fail before provisioning if one async and one serial lane cannot be funded.
+- Any pool headroom is only for processes supervised inside a test BEAM; it is never capacity reserved for deployed applications.
+- Freeze the source map and lane count before CPU timing or cohorts. Later measurements cannot retune membership, caps, or lane count.
 - Keep every integration Repo pool at exactly 12 throughout cap, CPU, topology, and cohort comparisons.
-- Stage the broad async set through a complete observed `max_cases: 2` wave before changing the checked-in production cap to 4.
+- Stage the broad async set through a complete observed `max_cases: 2` wave before raising the frozen async lane cap to 8.
 - Every selected ExUnit module must have one unique disposition row; a zero-selected source gets one `load_only` sentinel, and every selected row in a retained source must share one async/serial mode.
 - Never mark unboxed, DDL, `TRUNCATE`, materialized-view, fixed-external, Application-global, Oban-global, unfiltered telemetry/PubSub, fixed-registry, unmanaged-child, or true multi-connection behavior async.
 - Do not add or extend a shell script. New executable behavior is a Bazel target.
@@ -35,10 +38,10 @@
 - `ci_heavy_gate_contract_test.py`: source-disposition, startup, runner, workflow, and topology drift checks.
 - `elixir/serviceradar_core/test/support/integration_selection_formatter.ex`: stable selected identity output as `module|test_name`.
 - `build/integration_selection_equivalence_test.py`: Bazel-owned two-run all-source versus pruned-source equivalence orchestration.
-- `build/integration_shards.bzl`: cap, pool environment, dispositions, concurrency-aware placement, and diagnostic topology helpers.
-- `build/integration_shards_test.bzl`: deterministic placement, disposition, cap, and synthetic makespan tests.
-- `elixir/serviceradar_core/BUILD.bazel`: production shards plus manual diagnostic targets.
-- `rust/integration-db/BUILD.bazel`: exact database provisioning targets needed by topology diagnostics.
+- `build/integration_shards.bzl`: lane cap/pool environment, dispositions, capacity preflight, and deterministic placement.
+- `build/integration_shards_test.bzl`: deterministic placement, disposition, capacity, and source-map tests.
+- `elixir/serviceradar_core/BUILD.bazel`: production async and serial lane targets.
+- `rust/integration-db/BUILD.bazel`: exact database provisioning targets for the fixed lanes.
 - `buildbuddy.yaml`: explicit CPU sizing and allowlisted benchmark topology selection.
 - Audited test modules listed in Tasks 2-4: async promotions, source splits, and test-local namespace normalization.
 - `openspec/changes/parallelize-core-integration-tests/{benchmark,tasks}.md`: raw diagnostic/cohort evidence and completion ledger.
@@ -392,7 +395,7 @@ Each eventual TSV row names its actual reason (`oban_global`, `application_env`,
 
 - [ ] **Step 7: Split the two heterogeneous source files**
 
-Move `ServiceRadar.Scans.AdhocScanNatsFixtureConfigTest` into `adhoc_scan_nats_fixture_config_test.exs`. Move `ServiceRadar.Plugins.AnomalyAddonProfileSeederDbTest` into `anomaly_addon_profile_seeder_db_test.exs`, leaving the async schema-only module in the original source so it can be classified `load_only` for integration selection. Preserve every assertion and target inclusion. Add a contract rejecting any ordinary source that contains both selected async and selected serial ExUnit modules; source-level placement and hybrid selection are invalid until every retained source has one selected execution mode.
+Move `ServiceRadar.Scans.AdhocScanNatsFixtureConfigTest` into `adhoc_scan_nats_fixture_config_test.exs`. Move `ServiceRadar.Plugins.AnomalyAddonProfileSeederDbTest` into `anomaly_addon_profile_seeder_db_test.exs`, leaving the async schema-only module in the original source so it can be classified `load_only` for integration selection. Preserve every assertion and target inclusion. Add a contract rejecting any ordinary source that contains both selected async and selected serial ExUnit modules; source-level lane placement is invalid until every retained source has one selected execution mode.
 
 - [ ] **Step 8: Create the exhaustive final disposition inventory**
 
@@ -445,7 +448,7 @@ git commit -m "test(elixir): isolate global integration test state"
 
 ---
 
-### Task 5: Advance to cap four and place for concurrent execution
+### Task 5: Freeze the async-plus-serial production lane map
 
 **Files:**
 - Modify: `build/integration_shards.bzl`
@@ -457,56 +460,53 @@ git commit -m "test(elixir): isolate global integration test state"
 
 **Interfaces:**
 - Consumes: exhaustive module dispositions and same-trace module weights.
-- Produces: production cap 4, explicit pool 12, expanded runner markers, and deterministic relative load `source_load + serial_sum + async_makespan`.
+- Produces: one async cap-eight lane, capacity-bounded cap-one serial lanes, explicit pool 12, and a frozen deterministic source map.
 
-- [ ] **Step 1: Write cap/pool RED tests**
+- [ ] **Step 1: Write topology/pool RED tests**
 
-Change Starlark assertions to expect `INTEGRATION_MAX_CASES == 4` and every integration environment to contain:
+Change Starlark assertions to require one async lane at cap 8, one through seven serial lanes at cap 1, and every integration environment to contain pool size 12. The capacity preflight SHALL calculate:
 
 ```python
-"SERVICERADAR_INTEGRATION_MAX_CASES": "4",
 "SERVICERADAR_TEST_DATABASE_POOL_SIZE": "12",
-"SERVICERADAR_TEST_TOPOLOGY": "8",
-"SERVICERADAR_TEST_LANE": "ordinary",
+"SERVICERADAR_TEST_LANE": "async|serial_N",
 ```
 
-Extend the Elixir parser regression for `integration_max_cases!(value, maximum \\ 12)` so `13` fails against maximum 12. Require unit targets not to inherit these integration variables. Run RED.
+Require `safe_pool_budget = min(96, floor(0.90 * usable_client_slots))` and `serial_lanes = min(serial_source_count, max(1, floor(safe_pool_budget / 12) - 1))`; invalid capacity fails before provisioning. Require unit targets not to inherit integration variables. Run RED.
 
-- [ ] **Step 2: Implement cap four and the expanded marker**
+- [ ] **Step 2: Implement frozen lanes and runner markers**
 
-Set the production cap to 4, pass pool size 12 and topology/lane through every generated target, and parse cap values in the inclusive range `1..maximum`. Add `TestSupport.test_repo_pool_size!/0`, returning the effective Repo pool size from application config. Emit exactly one marker per integration BEAM containing:
+Generate exactly one async target at cap 8 and the computed serial targets at cap 1. Pass pool size 12 and lane identity through every generated target, and emit exactly one marker per integration BEAM. Every lane gets a distinct guarded disposable clone on `srql-fixtures`; never demo or production. `serial_0` is preseeded with every `fixed_external` source and `load_only` appears nowhere.
 
 ```text
-SERVICERADAR_INTEGRATION_RUNNER topology=8 lane=ordinary max_cases=4 schedulers=N repo_pool=12 trace=false timeouts=enabled
+SERVICERADAR_INTEGRATION_RUNNER lane=async|serial_N max_cases=8|1 schedulers=N repo_pool=12 trace=false timeouts=enabled
 ```
 
 Profiling markers retain cap one, trace true, and infinite timeouts.
 
-- [ ] **Step 3: Write concurrency-aware scheduler RED tests**
+- [ ] **Step 3: Write deterministic placement RED tests**
 
 Add pure Starlark helpers with these interfaces:
 
 ```python
-def predicted_async_makespan(async_jobs, module_weight, max_cases):
-def predicted_shard_load(sources, source_jobs, module_weight, source_load_weight, max_cases):
-def partition_by_execution_model(srcs, source_jobs, shard_names, max_cases, fixed_sources):
+def serial_lane_count(serial_source_count, usable_client_slots):
+def place_serial_sources(serial_sources, serial_lane_names, fixed_sources):
 ```
 
-The first greedily list-schedules descending indivisible async module weights onto `max_cases` slots. The second adds one common relative source-load unit per retained file and every serial module weight to that makespan. The partitioner assigns whole sources and chooses the candidate shard minimizing `(global_max_after_add, candidate_load, source_count, shard_name)`. Add synthetic fixtures where sum-only LPT stacks serial work and where one all-async source contributes two independently scheduled module jobs; require deterministic results for reversed input. Run RED.
+The async lane contains every async source exactly once. Preseed `serial_0`, then assign remaining serial sources by descending `1 + selected_serial_module_count`, breaking ties by source path and lane name. Require exact stability for reversed/shuffled input, no mixed selected-mode source, and no `load_only` source. Run RED.
 
-- [ ] **Step 4: Implement placement and refresh weights**
+- [ ] **Step 4: Implement and freeze placement**
 
-Add `_ASYNC_SAFE_SRCS`, `_SOURCE_MODULE_JOBS`, and exported accessors in `build/integration_shards.bzl` for scheduler input. Extend the Python contract to require exact equality with inventory rows and module declarations, so duplicated representations cannot drift. Implement the helpers, retain fixed-source preseed in `s7`, and run one complete serial non-cohort trace at cap one. Aggregate trace case durations by module; every selected module below the cutoff receives common module weight one, and every retained source receives a separate common source-load weight one. All values are relative scheduling units, not wall-time forecasts.
+Add the async and serial source sets plus their frozen mapping to `build/integration_shards.bzl`. Extend the Python contract to require exact equality with the final disposition inventory and module declarations. Hash/check in the mapping before CPU timing; later traces are evidence only and cannot alter it.
 
-- [ ] **Step 5: Run the full cap-four safety wave**
+- [ ] **Step 5: Run the fixed-lane safety wave**
 
-Run all eight shards in one Bazel invocation with pool 12, trace off, finite timeouts, retries one, the observer active, and fresh databases. Require:
+Run the one async lane and every serial lane in one Bazel invocation with pool 12, trace off, finite timeouts, retries one, the observer active, and fresh clones. Require:
 
-- every runner marker matches cap 4 and pool 12;
+- the async marker matches cap 8, every serial marker cap 1, and all pools are 12;
 - zero failed or retry-hidden targets, ownership errors, deadlocks, queue drops, or leaked processes;
-- run-scoped peak at most 144 and fixture-wide peak at most 90% of usable slots;
+- at most eight test BEAMs / 96 configured pool slots and fixture-wide peak at most 90% of usable slots;
 - two zero samples before successful teardown;
-- slowest/fastest non-empty shard ratio at most 1.5.
+- slowest/fastest non-empty serial-lane ratio at most 1.5.
 
 - [ ] **Step 6: Commit**
 
@@ -515,7 +515,7 @@ git add build/integration_shards.bzl build/integration_shards_test.bzl \
   elixir/serviceradar_core/config/test.exs \
   elixir/serviceradar_core/test/test_helper.exs \
   elixir/serviceradar_core/BUILD.bazel ci_heavy_gate_contract_test.py
-git commit -m "test(ci): schedule integration shards by async makespan"
+git commit -m "test(ci): freeze async and serial integration lanes"
 ```
 
 ---
@@ -532,36 +532,22 @@ git commit -m "test(ci): schedule integration shards by async makespan"
 - Modify: `openspec/changes/parallelize-core-integration-tests/benchmark.md`
 
 **Interfaces:**
-- Consumes: final source dispositions, cap-four placement, pool 12, and observer lifecycle.
-- Produces: an explicit CPU winner plus committed runner-layout diagnostics ready to run against the later frozen final SHA.
+- Consumes: the frozen async/serial source map, pool 12, and observer lifecycle.
+- Produces: an explicit CPU winner for the single production topology.
 
 - [ ] **Step 1: Add CPU action contract tests**
 
-Add `IntegrationBenchmarkCPU2` and `IntegrationBenchmarkCPU12`; their normalized blocks differ only in `resource_requests.cpu`: `"2000m"` and `"12000m"`. Both pin pool 12, run the complete ordinary pull-request integration wildcard (core eight-shard topology plus identical SRQL and other non-core integration targets), and require the exact expected SHA. Extend the harness contract to prove every other field and command block is byte-equivalent after replacing action name and CPU value. Run RED.
+Add `IntegrationBenchmarkCPU2` and `IntegrationBenchmarkCPU12`; their normalized blocks differ only in `resource_requests.cpu`: `"2000m"` and `"12000m"`. Both pin pool 12, run the complete ordinary pull-request integration wildcard (the frozen async plus serial lanes and identical SRQL and other non-core integration targets), and require the exact expected SHA. Extend the harness contract to prove every other field and command block is byte-equivalent after replacing action name and CPU value. Run RED.
 
 Add `//:integration_cpu_diagnostic_input_hash`, covering every ordinary test source, relevant BUILD/Starlark/config/helper input, observer/lifecycle implementation, runner image/pool, and normalized CPU2/CPU12 action blocks. It deliberately excludes the later production-winner CPU field while including everything that can change either diagnostic arm's work or runtime semantics.
 
-- [ ] **Step 2: Add strict topology selection**
+- [ ] **Step 2: Enforce the single production topology**
 
-Add manual Bazel targets for:
+Keep the authoritative `IntegrationBenchmark` as the pull-request wildcard with no topology selector. Its source map SHALL consist only of the one async cap-eight target and the computed cap-one serial targets. Contracts prove each ordinary source appears exactly once, `fixed_external` sources appear only in `serial_0`, `load_only` sources appear nowhere, every lane receives a guarded clone on `srql-fixtures`, and calculated capacity never exceeds eight BEAMs or 96 configured pool slots. No one/four/eight/hybrid manual challenger targets or runner-layout action are registered.
 
-- `integration_tests_topology_1`, the primary topology challenger, containing every ordinary core
-  source at cap eight so four of the Repo's 12 connections remain available to application-owned
-  work and the suite pays the fixed BEAM startup cost once;
-- four deterministic `integration_tests_topology_4_sN` targets at cap seven;
-- the production eight cap-four targets;
-- `integration_tests_hybrid_async_0` and `integration_tests_hybrid_async_1` at cap seven;
-- `integration_tests_hybrid_serial_0`, `integration_tests_hybrid_serial_1`, and
-  `integration_tests_hybrid_serial_2` at cap one. The hybrid source sets are disjoint and their union
-  is every ordinary source.
+- [ ] **Step 3: Provision only frozen-lane databases**
 
-The one/four/eight/hybrid caps are pre-registered, remain frozen for all five attempts, and may not be tuned after observing results. One BEAM is the primary challenger because it directly tests whether eliminating seven fixed BEAM startups outweighs its lower outer parallelism; four and hybrid remain registered secondary challengers, and primary status changes neither the comparison threshold nor the adoption gate. In every multi-BEAM arm, put all `fixed_external` sources together in one designated serial lane and prove none appears elsewhere. Tag diagnostics `manual` so ordinary `//...` selection does not run duplicate sources. Add a separate non-authoritative `IntegrationTopologyBenchmark` action that requires both `SERVICERADAR_BENCHMARK_EXPECTED_SHA` and one of `1`, `4`, `8`, or `hybrid` in `SERVICERADAR_BENCHMARK_TOPOLOGY`. Before provisioning it asserts effective `git rev-parse HEAD` equals the expected SHA, maps topology to a checked-in core label list, and appends the same checked-in ordinary non-core target list in every arm; all labels execute in one `bazel test` call. Contracts prove each core source and selected-test identity union equals the production eight-shard core workload and prove the checked-in non-core list equals exactly the production pull-request wildcard's ordinary target set minus the production core labels and excluded heavy target. Each diagnostic arm therefore replaces only the production core labels while preserving the complete ordinary workload. Invalid/missing topology, missing SHA, or a SHA mismatch fails before provisioning. The authoritative `IntegrationBenchmark` remains the unchanged pull-request wildcard and accepts no topology selector.
-
-Generate the four-BEAM membership with `partition_by_execution_model(..., max_cases=7)`. For the hybrid, partition all-async sources across its two lanes by cap-seven module makespan and common source load; partition serial sources across its three lanes by common source load plus serial-module LPT after pre-seeding every fixed-external source into `integration_tests_hybrid_serial_2`. Freeze exact membership and predicted relative loads in deterministic reversed/shuffled-input contracts so an arbitrary split cannot make a challenger lose.
-
-- [ ] **Step 3: Provision only each arm's databases**
-
-Reuse exact `s0..sN` suffixes where possible and add Bazel provision targets only when a lane needs a distinct suffix. Every target declares the run-id file and core migrations. The topology contract proves provision/test suffix equality and teardown ownership; do not add a lifecycle shell wrapper.
+Use the frozen `async` and `serial_N` suffixes. Every target declares the run-id file and core migrations. The topology contract proves provision/test suffix equality, `srql-fixtures` ownership, and teardown ownership; do not add a lifecycle shell wrapper.
 
 - [ ] **Step 4: Commit diagnostic infrastructure**
 
@@ -571,7 +557,7 @@ Run every static action/topology/lifecycle contract, then commit the runnable ac
 git add BUILD.bazel buildbuddy.yaml ci_heavy_gate_contract_test.py \
   build/integration_shards.bzl build/integration_shards_test.bzl \
   elixir/serviceradar_core/BUILD.bazel rust/integration-db/BUILD.bazel
-git commit -m "test(ci): add integration runner diagnostics"
+git commit -m "test(ci): enforce fixed integration lane topology"
 ```
 
 - [ ] **Step 5: Obtain authorization and push the diagnostic commit**
@@ -590,7 +576,7 @@ On that exact published diagnostic SHA, alternate five attempts per arm between 
 
 - [ ] **Step 7: Apply and commit the CPU winner**
 
-Set the selected explicit CPU request in production `BazelCI`, `IntegrationBenchmark`, and `IntegrationTopologyBenchmark`; retain the fixed CPU2/CPU12 diagnostic actions as evidence tools. Extend the contract to require the production and authoritative values to agree. Append the ten CPU rows and selection calculation to `benchmark.md`, run static contracts, and commit:
+Set the selected explicit CPU request in production `BazelCI` and `IntegrationBenchmark`; retain the fixed CPU2/CPU12 diagnostic actions as evidence tools. Extend the contract to require the production and authoritative values to agree. Append the ten CPU rows and selection calculation to `benchmark.md`, run static contracts, and commit:
 
 ```bash
 git add buildbuddy.yaml ci_heavy_gate_contract_test.py \
@@ -598,7 +584,7 @@ git add buildbuddy.yaml ci_heavy_gate_contract_test.py \
 git commit -m "test(ci): pin integration workflow CPU"
 ```
 
-Do not run runner-layout diagnostics yet. Task 7 first verifies the candidate, repairs/freezes the corrected before/after lineage with this final CPU request, and publishes those immutable SHAs.
+Task 7 first verifies the candidate, repairs/freezes the corrected before/after lineage with this final CPU request, and publishes those immutable SHAs.
 
 ---
 
@@ -610,14 +596,14 @@ Do not run runner-layout diagnostics yet. Task 7 first verifies the candidate, r
 - Modify only if evidence requires: dispositions, module flags/splits, cap, and placement weights.
 
 **Interfaces:**
-- Consumes: explicit CPU winner, final eight-shard cap-four candidate, identical benchmark harness, and exact-SHA observer evidence.
+- Consumes: explicit CPU winner, frozen async-plus-serial candidate, identical benchmark harness, and exact-SHA observer evidence.
 - Produces: one exact-SHA non-cohort smoke, accepted 20-row before/after cohorts, a hard BuildBuddy relative-p95 result of at least 50%, an after p95 of at most 90 seconds, a reported 60% stretch result, heavy-gate evidence, and truthful OpenSpec completion state.
 
 - [ ] **Step 1: Run one exact-SHA BuildBuddy smoke**
 
-If the current CPU-pinned cap-four candidate is not already published, obtain explicit authorization and run only `git push github proposal/parallelize-integration-tests:refs/heads/proposal/parallelize-integration-tests`; this provisional smoke publication may be superseded by the frozen history in Step 3. Record the resulting full SHA, verify that exact object exists on GitHub, and trigger exactly one synchronous, retry-disabled `IntegrationBenchmark` attempt using the request contract in `openspec/changes/parallelize-core-integration-tests/benchmark.md`: `SERVICERADAR_BENCHMARK_EXPECTED_SHA` equals that full SHA, `async` is `false`, and workflow retry is disabled. Do not pass a topology selector.
+If the current CPU-pinned fixed-lane candidate is not already published, obtain explicit authorization and run only `git push github proposal/parallelize-integration-tests:refs/heads/proposal/parallelize-integration-tests`; this provisional smoke publication may be superseded by the frozen history in Step 3. Record the resulting full SHA, verify that exact object exists on GitHub, and trigger exactly one synchronous, retry-disabled `IntegrationBenchmark` attempt using the request contract in `openspec/changes/parallelize-core-integration-tests/benchmark.md`: `SERVICERADAR_BENCHMARK_EXPECTED_SHA` equals that full SHA, `async` is `false`, and workflow retry is disabled. Do not pass a topology selector.
 
-Treat this attempt as a non-cohort smoke, not latency evidence. Require the workflow's effective HEAD to equal the requested SHA, the normalized action resource request to equal the selected CPU, every ordinary shard marker to report cap four, its actual scheduler count, trace disabled, finite timeouts, and Repo pool 12, and suite, observer, and teardown status to be zero with no ownership error, deadlock, queue/drop signal, leaked process, or disposable-database residue. A red or censored smoke returns to the owning implementation task, produces a new candidate SHA, and must be rerun before repository verification.
+Treat this attempt as a non-cohort smoke, not latency evidence. Require the workflow's effective HEAD to equal the requested SHA, the async marker to report cap eight, every serial marker cap one, its actual scheduler count, trace disabled, finite timeouts, Repo pool 12, and at most eight test BEAMs / 96 configured pool slots. Require suite, observer, and teardown status to be zero with no ownership error, deadlock, queue/drop signal, leaked process, or disposable-database residue. A red or censored smoke returns to the owning implementation task, produces a new candidate SHA, and must be rerun before repository verification.
 
 - [ ] **Step 2: Run heavy and repository verification**
 
@@ -639,9 +625,9 @@ Every command must exit zero. Fixing a failure returns to the relevant implement
 
 - [ ] **Step 3: Freeze comparable before and after SHAs**
 
-Apply the final normalized benchmark action, observer sources/rule, explicit CPU request, pool 12, full pull-request wildcard target selection, and marker format identically to the corrected before revision and final after revision. The before workload remains cap one; the after workload is cap four. Verify the harness hash matches exactly and the instrumentation commit is the direct parent of the first behavior change. Record full SHAs and hash.
+Apply the final normalized benchmark action, observer sources/rule, explicit CPU request, pool 12, full pull-request wildcard target selection, and marker format identically to the corrected before revision and final after revision. The before workload remains cap one; the after workload uses the frozen async cap-eight and serial cap-one lanes. Verify the harness hash matches exactly and the instrumentation commit is the direct parent of the first behavior change. Record full SHAs and hash.
 
-Complete any required history repair now, replaying implementation commits without changing their final tree. Re-run Step 2 against the repaired final tree and prove the tree hash matches the verified candidate before accepting the new SHAs. Record the current remote feature-branch OID before the rewrite so the next push can use an exact lease. CPU evidence may carry across only when `integration_cpu_diagnostic_input_hash` is identical at the published diagnostic SHA and frozen after SHA; record both SHAs and hashes. A mismatch marks all ten CPU attempts for rerun immediately after Step 4 publishes the frozen SHA. Runner-layout and cohort evidence never carries from a superseded SHA.
+Complete any required history repair now, replaying implementation commits without changing their final tree. Re-run Step 2 against the repaired final tree and prove the tree hash matches the verified candidate before accepting the new SHAs. Record the current remote feature-branch OID before the rewrite so the next push can use an exact lease. CPU and cohort evidence never carries from a superseded SHA. CPU evidence may carry only when `integration_cpu_diagnostic_input_hash` is identical at the published diagnostic SHA and frozen after SHA; record both SHAs and hashes. A mismatch marks all ten CPU attempts for rerun immediately after Step 4 publishes the frozen SHA.
 
 - [ ] **Step 4: Obtain push authorization and publish only the feature ref**
 
@@ -665,17 +651,13 @@ git push \
 
 Never use an unleased force push. Verify the published before/after SHAs and harness hash through GitHub before starting diagnostics. If the frozen after SHA differs from the provisional SHA exercised in Step 1, rerun the exact Step 1 smoke against the frozen after SHA now; provisional smoke evidence never carries across a changed SHA.
 
-If Step 3 found a CPU diagnostic-input hash mismatch, rerun five CPU2 and five CPU12 attempts now on the published frozen after SHA before any runner-layout attempt. Reapply the pre-registered selection rule. If the winner changes, stop: update the production CPU request, rerun Steps 1--3, republish with a new exact lease, and repeat this confirmation. Do not carry a CPU decision across a changed diagnostic input.
+If Step 3 found a CPU diagnostic-input hash mismatch, rerun five CPU2 and five CPU12 attempts now on the published frozen after SHA before the authoritative cohorts. Reapply the pre-registered selection rule. If the winner changes, stop: update the production CPU request, rerun Steps 1--3, republish with a new exact lease, and repeat this confirmation. Do not carry a CPU decision across a changed diagnostic input.
 
-- [ ] **Step 5: Run runner-layout diagnostics on the frozen after SHA**
-
-Run five no-overlap rounds containing one attempt each for one, four, eight, and hybrid against the exact frozen after SHA. Treat one BEAM as the primary challenger in analysis and reporting, while rotating the arm order by one position per round so cluster time and cache drift cannot systematically favor it or any other bundle. Before each timed attempt, explicitly build every selected core label (manual challengers or production-eight labels) and the invariant non-core label list with the exact measured configuration; do not rely on `bazel build //...`, which excludes `manual` targets. Keep selected CPU, pool 12, template state, flags, source SHA, complete selected-test/source workload, identical non-core target set, and lifecycle identical. Record every failure, per-Repo queue/drop signal, and fixture-wide peak. All five eight-BEAM reference attempts and all five attempts for a compared challenger must be safety-clean; otherwise stop and restart the screen after correction. Primary status grants one BEAM no adoption preference: retain production topology eight unless a challenger has at least 10% lower median and passes all five-run safety/headroom gates. Such a result stops this task for an OpenSpec amendment; only the amended layout's full 20-run acceptance can authorize a production target change. After implementing the amended topology, return to Steps 1-4: rerun the exact-SHA smoke and repository verification, freeze and publish comparable before/after SHAs, and reevaluate CPU whenever the diagnostic-input hash changes. Then rerun this complete topology screen before starting cohorts.
-
-- [ ] **Step 6: Run alternating exact-SHA cohorts for the hard performance gates**
+- [ ] **Step 5: Run alternating exact-SHA cohorts for the hard performance gates**
 
 Trigger `IntegrationBenchmark` sequentially, alternating before then after, with exact expected SHA, `async: false`, and retries disabled. Do not pass a topology selector to the authoritative action. Continue until each revision has 20 consecutive successful full lifecycles. These cohorts carry both hard performance gates: relative p95 improvement of at least 50% and after p95 of at most 90 seconds; 60% is the stretch result to report. Record every started failed or censored row; a behavior fix creates a new after SHA and restarts that sequence.
 
-- [ ] **Step 7: Evaluate the gates**
+- [ ] **Step 6: Evaluate the gates**
 
 Compute untrimmed median, nearest-rank p95 (row 19), and:
 
@@ -683,11 +665,11 @@ Compute untrimmed median, nearest-rank p95 (row 19), and:
 relative improvement = (before_p95 - after_p95) / before_p95 * 100
 ```
 
-Require relative BuildBuddy p95 improvement of at least 50%, after p95 at most 90.0 seconds, 20/20 retry-free stability in both cohorts, every after skew at most 1.5, run peak at most 144, fixture peak at most 90% usable slots, zero ownership/deadlock/leak/cleanup failures, explicit identical CPU, and Repo pool 12. Report the exact relative improvement and whether the 60% stretch was reached. Neither the Step 1 smoke nor any topology diagnostic can substitute for either hard cohort gate.
+Require relative BuildBuddy p95 improvement of at least 50%, after p95 at most 90.0 seconds, 20/20 retry-free stability in both cohorts, every after serial-lane skew at most 1.5, at most eight test BEAMs / 96 configured pool slots, fixture peak at most 90% usable slots, zero ownership/deadlock/leak/cleanup failures, explicit identical CPU, and Repo pool 12. Report the exact relative improvement and whether the 60% stretch was reached. The Step 1 smoke cannot substitute for either hard cohort gate.
 
-- [ ] **Step 8: Update evidence and commit**
+- [ ] **Step 7: Update evidence and commit**
 
-Mark only tasks backed by implementation and required evidence. Append CPU, topology, smoke, cohort, connection, and heavy-gate rows to `benchmark.md`; preserve failed and superseded rows.
+Mark only tasks backed by implementation and required evidence. Append CPU, fixed-lane, smoke, cohort, connection, and heavy-gate rows to `benchmark.md`; preserve failed and superseded rows.
 
 ```bash
 git add openspec/changes/parallelize-core-integration-tests/benchmark.md \

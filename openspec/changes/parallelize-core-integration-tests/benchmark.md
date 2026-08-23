@@ -80,7 +80,8 @@ JSON
 `BUILDBUDDY_API_KEY` and `BENCHMARK_SHA` must already be set; the request is never run with shell
 tracing. The returned invocation id/URL is recorded before the next sequential attempt starts.
 
-Each attempt uses a fresh run id and the production lifecycle:
+Each attempt uses a fresh run id and the CI lifecycle against the development-only
+`srql-fixtures` cluster:
 
 ```text
 sweep -> prepare/current check -> provision -> ordinary integration wildcard -> teardown
@@ -128,11 +129,12 @@ measured product outcome is ordinary pull-request latency; the gain combines hea
 extraction, unit-only source-load pruning, bounded concurrency, targeted test-work reduction, and
 rebalancing and must not be described as a pure transaction-concurrency microbenchmark.
 
-## Non-cohort CPU and runner-layout diagnostics
+## Non-cohort CPU diagnostics
 
 CPU sizing is selected before the authoritative cohorts. On one final-source revision, five
 attempts per arm alternate between 2 CPUs and 12 CPUs. Both arms pin
-`SERVICERADAR_TEST_DATABASE_POOL_SIZE=12` and otherwise use the same eight-shard cap-four sources,
+`SERVICERADAR_TEST_DATABASE_POOL_SIZE=12` and otherwise use the same fixed async-plus-serial lane
+sources,
 the complete ordinary pull-request integration wildcard (including invariant SRQL and other
 non-core targets), build warmth, observer, lifecycle, flags, and cleanup. The selected explicit CPU
 request must be identical in the before and after accepted harnesses. These diagnostic rows are
@@ -148,49 +150,34 @@ CPU evidence may carry to the frozen after SHA only when the checked-in CPU diag
 is identical. That hash covers ordinary test sources, relevant build/config/helper inputs,
 observer/lifecycle code, runner image/pool, and normalized CPU2/CPU12 action blocks while excluding
 only the later production-winner field. Both SHA/hash tuples are recorded. A mismatch requires all
-ten CPU attempts to rerun after the frozen SHA is published and before any layout attempt.
+ten CPU attempts to rerun after the frozen SHA is published and before the authoritative cohorts.
 
-The same final-source revision also runs five no-overlap fresh-database rounds with one attempt per
-layout. The arm order rotates by one position per round so time and cache drift cannot favor a
-single layout:
+The production benchmark has no topology challenger matrix. Before the clock starts it freezes
+the complete selected source/identity union, one async lane at cap eight, the capacity-derived
+serial lane count at cap one, and pool 12 per lane. The lane count is
+`min(serial_source_count, max(1, floor(min(96, floor(0.90 * usable_client_slots)) / 12) - 1))`;
+preflight fails if it cannot fund one async and one serial lane. The topology never exceeds eight
+BEAMs / 96 configured pool slots. Every lane receives a fresh disposable `sr_core_test_<run>_<lane>`
+clone on `srql-fixtures`; demo and production databases are forbidden.
 
-- one BEAM containing every ordinary core source at cap eight, reserving four connections in its
-  12-connection Repo pool for application-owned work;
-- four BEAMs with deterministic exhaustive core-source placement at cap seven;
-- eight BEAMs at the final cap of four; and
-- a five-BEAM hybrid with two exhaustive async lanes at cap seven and three exhaustive serial lanes
-  at cap one; the two source sets are disjoint and their union is every ordinary source.
+The ordinary wildcard also selects the three pre-existing SRQL integration binaries. Each may
+hold a five-connection pool plus its administrator lock connection, so the observer's capacity
+preflight reserves 114 connections: 96 for the core topology plus 18 for those unchanged targets.
+This does not enlarge a core Repo pool or add another core BEAM lane.
 
-The caps are pre-registered as 8/7/4/(7 async, 1 serial) for one/four/eight/hybrid respectively,
-remain frozen for all five attempts, and cannot be tuned after results are observed. The
-non-authoritative `IntegrationTopologyBenchmark` action swaps only the core topology labels and
-adds the same checked-in SRQL/other non-core target list in every arm. A static query contract proves
-that list is exactly the production pull-request wildcard's ordinary target set minus the production
-core labels and excluded heavy target. Every arm replaces only those core labels, and its core
-source plus selected-test identity union equals the production eight-shard core workload. Every
-multi-BEAM arm keeps all
-`fixed_external` sources together in one designated serial lane; they never appear in another lane.
-The four-BEAM arm uses the cap-seven execution model. The hybrid balances async sources by
-cap-seven module makespan and serial sources by source load plus serial-module LPT after
-fixed-external preseed. Static tests freeze deterministic membership and predicted relative loads.
-Before the clock starts, the action explicitly builds every selected core label (manual challenger
-or production-eight) and the invariant non-core labels with the measured configuration. A wildcard
-`bazel build //...` is not a substitute because it excludes `manual` targets. The topology actions emit `topology`, `lane`,
-`max_cases`, `schedulers_online`, and effective Repo pool size in addition to trace and timeout
-modes. Every arm uses the same complete selected-test/source workload, identical non-core target
-set, current template, retry policy, and full lifecycle, and every row records wall time, connection peaks, per-Repo queue/drop evidence,
-failure classification, and residue. A challenger with at least 10% lower median plus every
-five-run safety/headroom gate earns an explicit proposal amendment; it can replace eight ordinary
-shards only after the amended layout passes the full 20-run acceptance contract. The authoritative
-`IntegrationBenchmark` continues to run the pull-request wildcard and accepts no topology selector.
+The focused heavy action has a separate capacity contract and does not use the ordinary 114-slot
+bound. Its parent `ServiceRadar.Repo` is pinned to 12, and cold bootstrap may concurrently start a
+normal child Repo with pool size 2 while the parent remains alive. `StartupMigrations` also opens
+one direct Postgrex administrator connection concurrently. The heavy observer therefore requires
+15 workload slots before readiness and provisioning. Its own administrator connection is excluded
+from that reservation and reported separately. Fifteen is a configured-capacity bound, not a claim
+that all 15 sessions are simultaneously active in every sample.
 
-All five eight-BEAM reference attempts and all five attempts for a compared challenger must be
-safety-clean. A failure or censored reference makes the screen invalid and requires correction plus
-a complete restarted five-round screen before medians are compared.
-
-These are deployable runner-layout bundles, not a causal BEAM-count experiment: BEAM count,
-per-BEAM cap, and aggregate Repo-pool capacity vary together. Results may choose a bundle but MUST
-NOT be described as the isolated effect of reducing BEAM count.
+All async sources appear once in the async lane, `load_only` sources appear nowhere, and serial
+sources are deterministically LPT-balanced after all `fixed_external` sources preseed `serial_0`.
+The source map is input-hashed and cannot change after timing. Runner markers emit `topology`,
+`lane`, `max_cases`, `schedulers_online`, effective Repo pool size, trace mode, and timeout mode.
+Headroom belongs only to test-supervised processes inside a test BEAM, never deployed applications.
 
 The 259.00-second host-local wave remains directional historical evidence, not an acceptance
 baseline. The current ConfigManager CI instance intentionally names in-cluster endpoints that a
@@ -218,9 +205,8 @@ Every attempt records:
 - requested source SHA, effective HEAD, reported base SHA, benchmark-action hash, BuildBuddy
   invocation URL, run id, runner image, pool, and UTC start/end;
 - lifecycle seconds from the clock boundary above;
-- TestRunner duration for each of
-  `//elixir/serviceradar_core:integration_tests_s0` through `integration_tests_s7`;
-- each shard's `SERVICERADAR_INTEGRATION_RUNNER` startup marker, proving topology, lane, declared
+- TestRunner duration for the async target and every selected serial-lane target;
+- each lane's `SERVICERADAR_INTEGRATION_RUNNER` startup marker, proving topology, lane, declared
   `max_cases`, `System.schedulers_online()`, effective Repo pool size, trace mode, and timeout mode
   used by that execution;
 - maximum sampled run-scoped and fixture-wide PostgreSQL connections, with sample interval,
@@ -256,7 +242,7 @@ Statistics use the raw values without trimming outliers:
 
 - median is the average of ordered values 10 and 11;
 - nearest-rank p95 is ordered value 19 of 20;
-- per-attempt shard skew is `max(duration) / min(non-empty duration)`;
+- per-attempt serial-lane skew is `max(duration) / min(non-empty serial-lane duration)`;
 - relative p95 improvement is `(before_p95 - after_p95) / before_p95 * 100`.
 
 An infrastructure event may be classified separately only when the logs prove the test lifecycle
@@ -282,11 +268,12 @@ The implementation is accepted only when all of these are true:
 | Isolation | Zero sandbox ownership errors or cross-owner visibility failures |
 | Database locking | Zero PostgreSQL deadlocks |
 | Cleanup | Two consecutive zero run-scoped samples before teardown and zero disposable databases after teardown |
-| Balance | Every after attempt has shard skew at most 1.5 |
-| Topology | Exactly eight ordinary shards unless an amended challenger wins; Repo pool size exactly 12 |
+| Balance | Every after attempt has serial-lane skew at most 1.5 |
+| Topology | Exactly one async BEAM at cap 8 plus one through seven serial BEAMs at cap 1; Repo pool size exactly 12 per BEAM and at most 96 configured slots |
 | Runner capacity | Identical explicit CPU request in before/after; runner markers prove schedulers and pool |
-| Run-scoped connections | Peak at most 144, preserving 48 connections above eight 12-connection pools |
+| Run-scoped connections | Peak at most 114: the fixed 96-slot core envelope plus 18 connections for the three selected SRQL binaries |
 | Fixture-wide connections | Maximum sampled value at most `floor(live usable client slots * 0.90)` |
+| Heavy capacity | Parent Repo pool 12 plus concurrent cold-bootstrap child Repo pool 2 plus one direct `StartupMigrations` Postgrex administrator connection; observer requires 15 workload slots before readiness and provisioning |
 | Heavy coverage | Both ingestion gates and intact cold bootstrap pass in the focused lifecycle |
 
 The report always includes before/after median, p95, relative delta, and whether the 60% relative
@@ -486,7 +473,9 @@ failures, no bootstrap cleanup warning, zero dedicated-database residue, and zer
 1,800-second budgets. A preceding diagnostic that deliberately supplied a 20-second sandbox-owner
 timeout failed only the cardinality test and is excluded from timing evidence; removing that
 non-target override produced the green result above. The actual BuildBuddy guarded lifecycle still
-must run repeatedly before heavy-gate status publication is accepted.
+must run repeatedly before heavy-gate status publication is accepted. This direct run did not
+exercise or record the corrected guarded observer preflight at 15 workload slots, so it does not
+satisfy pending Tasks 2.6 or 5.6.
 
 ### Corrected-layout green ordinary wave
 

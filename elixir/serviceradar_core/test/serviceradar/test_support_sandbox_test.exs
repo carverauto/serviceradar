@@ -65,6 +65,31 @@ defmodule ServiceRadar.TestSupportSandboxTest do
     end
   end
 
+  test "no-option startup preserves the audit writer setting" do
+    previous = Application.fetch_env(:serviceradar_core, :audit_writer_async?)
+    Application.put_env(:serviceradar_core, :audit_writer_async?, true)
+
+    on_exit(fn -> restore_env(:audit_writer_async?, previous) end)
+
+    assert :ok = TestSupport.start_core!(sandbox_owner?: false)
+    assert Application.fetch_env!(:serviceradar_core, :audit_writer_async?)
+  end
+
+  test "explicit startup configures synchronous audit writes" do
+    previous = Application.fetch_env(:serviceradar_core, :audit_writer_async?)
+    Application.put_env(:serviceradar_core, :audit_writer_async?, true)
+
+    on_exit(fn -> restore_env(:audit_writer_async?, previous) end)
+
+    assert :ok =
+             TestSupport.start_core!(
+               sandbox_owner?: false,
+               synchronous_audit_writes?: true
+             )
+
+    refute Application.fetch_env!(:serviceradar_core, :audit_writer_async?)
+  end
+
   test "stopping one non-shared owner leaves the other owner usable" do
     with_probe_table(fn qualified_table ->
       with_owner_runner(fn runner_a, owner_a ->
@@ -130,6 +155,57 @@ defmodule ServiceRadar.TestSupportSandboxTest do
         end
       after
         TestSupport.stop_repo_owner(parent_owner, shared: false)
+      end
+    end)
+  end
+
+  test "shared owner lets a legitimate caller wait through brief connection contention" do
+    TestSupport.with_repo_owner(%{async: false}, fn ->
+      parent = self()
+
+      {holder, holder_ref} =
+        spawn_monitor(fn ->
+          Repo.checkout(fn ->
+            send(parent, {:shared_connection_held, self()})
+
+            receive do
+              {:release_shared_connection, ^parent} -> :ok
+            after
+              5_000 -> raise "shared connection was not released"
+            end
+          end)
+        end)
+
+      try do
+        assert_receive {:shared_connection_held, ^holder}, 1_000
+
+        {waiter, waiter_ref} =
+          spawn_monitor(fn ->
+            send(parent, {:waiting_query_started, self()})
+            send(parent, {:waiting_query_result, self(), Repo.query("SELECT 42")})
+          end)
+
+        try do
+          assert_receive {:waiting_query_started, ^waiter}, 1_000
+          await_ownership_proxy_queue!(1_000)
+          refute_receive {:waiting_query_result, ^waiter, _result}, 0
+
+          queued_at = System.monotonic_time(:millisecond)
+          Process.sleep(1_250)
+          assert System.monotonic_time(:millisecond) - queued_at >= 1_250
+          assert Process.alive?(waiter)
+
+          send(holder, {:release_shared_connection, self()})
+
+          assert_receive {:waiting_query_result, ^waiter, {:ok, %{rows: [[42]]}}}, 1_000
+          assert_receive {:DOWN, ^waiter_ref, :process, ^waiter, :normal}, 1_000
+          assert_receive {:DOWN, ^holder_ref, :process, ^holder, :normal}, 1_000
+        after
+          stop_test_process(waiter)
+        end
+      after
+        send(holder, {:release_shared_connection, self()})
+        stop_test_process(holder)
       end
     end)
   end
@@ -286,6 +362,37 @@ defmodule ServiceRadar.TestSupportSandboxTest do
     assert_receive {:DOWN, ^ref, :process, ^owner, _reason}, 1_000
   end
 
+  defp await_ownership_proxy_queue!(timeout_ms) do
+    deadline = System.monotonic_time(:millisecond) + timeout_ms
+    do_await_ownership_proxy_queue(deadline)
+  end
+
+  defp do_await_ownership_proxy_queue(deadline) do
+    %{pid: ownership_pool} = Ecto.Adapter.lookup_meta(Repo.get_dynamic_repo())
+
+    queued? =
+      ownership_pool
+      |> DBConnection.get_connection_metrics(pool: DBConnection.Ownership)
+      |> Enum.any?(fn
+        %{source: {:proxy, _pid}, checkout_queue_length: length} when length > 0 -> true
+        _metric -> false
+      end)
+
+    cond do
+      queued? ->
+        :ok
+
+      System.monotonic_time(:millisecond) >= deadline ->
+        flunk("waiting query did not enter the ownership proxy queue")
+
+      true ->
+        receive do
+        after
+          5 -> do_await_ownership_proxy_queue(deadline)
+        end
+    end
+  end
+
   defp stop_test_process(pid) do
     ref = Process.monitor(pid)
     Process.exit(pid, :shutdown)
@@ -298,4 +405,7 @@ defmodule ServiceRadar.TestSupportSandboxTest do
         flunk("test-owned process did not stop: #{inspect(pid)}")
     end
   end
+
+  defp restore_env(key, {:ok, value}), do: Application.put_env(:serviceradar_core, key, value)
+  defp restore_env(key, :error), do: Application.delete_env(:serviceradar_core, key)
 end

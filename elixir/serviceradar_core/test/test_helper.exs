@@ -4,17 +4,18 @@ Application.ensure_all_started(:telemetry)
 
 # Opt-in slowest-test report, for balancing the integration shards.
 #
-# //build:integration_shards.bzl partitions test FILES round-robin, which balances count but
-# not runtime -- Bazel cannot know how long a test takes. Measured spread across 8 shards was
-# 17.9s to 103.7s of ExUnit time, so the slowest shard sets the wall clock and the rest idle.
+# //build:integration_shards.bzl partitions test files using checked-in runtime hints because
+# Bazel cannot infer source cost. A historical count-balanced layout ranged from 17.9s to 103.7s
+# of ExUnit time, so the slowest shard set the wall clock while the others idled.
 #
 # After the canonical fixture lifecycle provisions s6:
 #
 #   bazel test "${TEST_FLAGS[@]}" --test_env=SERVICERADAR_TEST_SLOWEST=15 \
 #     --test_output=all //elixir/serviceradar_core:integration_tests_s6
 #
-# Off unless the variable is set: the report costs nothing to collect but adds noise to every
-# normal run.
+# This is profiling-only. ExUnit's built-in slowest report enables trace, which forces
+# max_cases: 1 and changes test timeouts to :infinity. Integration runs therefore reject the
+# report unless their declared cap is already one; timed CI and acceptance runs leave it unset.
 slowest =
   case Integer.parse(System.get_env("SERVICERADAR_TEST_SLOWEST") || "") do
     {count, ""} when count > 0 -> [slowest: count]
@@ -63,18 +64,64 @@ if database_available? do
         System.get_env("SERVICERADAR_INTEGRATION_MAX_CASES")
       )
 
+    selection_formatter =
+      case System.get_env("SERVICERADAR_INTEGRATION_SELECTION_OUTPUT") do
+        nil ->
+          []
+
+        _configured ->
+          [
+            formatters: [
+              ExUnit.CLIFormatter,
+              ServiceRadar.IntegrationSelectionFormatter
+            ]
+          ]
+      end
+
+    topology = System.get_env("SERVICERADAR_TEST_TOPOLOGY", "8")
+    lane = System.get_env("SERVICERADAR_TEST_LANE", "ordinary")
+
+    repo_pool =
+      :serviceradar_core
+      |> Application.fetch_env!(ServiceRadar.Repo)
+      |> Keyword.fetch!(:pool_size)
+
+    if slowest != [] and integration_max_cases != 1 do
+      raise ArgumentError, """
+      SERVICERADAR_TEST_SLOWEST cannot be combined with concurrent integration execution.
+
+      ExUnit's built-in slowest report enables trace, forces max_cases to 1, and disables test
+      timeouts. Use it only in a non-cohort profiling run with
+      SERVICERADAR_INTEGRATION_MAX_CASES=1.
+      """
+    end
+
+    if slowest == [] do
+      IO.puts(
+        "SERVICERADAR_INTEGRATION_RUNNER topology=#{topology} lane=#{lane} max_cases=#{integration_max_cases} schedulers=#{System.schedulers_online()} repo_pool=#{repo_pool} trace=false timeouts=enabled"
+      )
+    else
+      IO.puts(
+        "SERVICERADAR_INTEGRATION_RUNNER topology=#{topology} lane=#{lane} max_cases=1 schedulers=#{System.schedulers_online()} repo_pool=#{repo_pool} trace=true timeouts=infinity profiling_only=true"
+      )
+    end
+
     ExUnit.start(
       [
         exclude: [:test, :external, :cluster, :large_ingestion, :benchmark],
         include: [:integration, :requires_app],
         max_cases: integration_max_cases
-      ] ++ slowest
+      ] ++ slowest ++ selection_formatter
     )
   else
     ExUnit.start([exclude: [:external, :cluster, :large_ingestion, :benchmark]] ++ slowest)
   end
 
-  ServiceRadar.TestSupport.start_core!(sandbox_owner?: false, sandbox_mode: :manual)
+  ServiceRadar.TestSupport.start_core!(
+    sandbox_owner?: false,
+    sandbox_mode: :manual,
+    synchronous_audit_writes?: true
+  )
 else
   # Asking for the integration-only selection without a database is always a mistake, and a
   # silent fallback here is worse than a failure: the run would quietly execute the
@@ -84,8 +131,9 @@ else
     raise """
     SERVICERADAR_ONLY_INTEGRATION is set but no test database URL is present.
 
-    Set SRQL_TEST_DATABASE_URL or SERVICERADAR_TEST_DATABASE_URL. Guarded Bazel integration
-    invocations forward the base URL through --config=database_env.
+    Run the guarded Bazel lifecycle documented in
+    .agents/skills/srql-fixtures-db-tests/SKILL.md. For one focused Mix test, first create a
+    disposable codex_* scratch database on srql-fixtures and use its verify-full URL and CA.
     """
   end
 
@@ -109,11 +157,11 @@ else
   )
 end
 
-# For integration tests that need the database, use:
-# mix test --include integration
-#
-# And ensure the database is set up first:
-# mix ecto.create && mix ecto.migrate
+# Run the complete integration suite through the guarded Bazel lifecycle in
+# .agents/skills/srql-fixtures-db-tests/SKILL.md. It owns the unique run id, typed srql-fixtures
+# endpoint, per-lane disposable clones, and outcome-bearing teardown. Direct Mix execution is only
+# for a focused test against a separately created disposable srql-fixtures scratch database; never
+# point it at demo, production, or the shared fixture database itself.
 #
 # For cluster tests that bring up :peer nodes, use:
 # mix test --include cluster

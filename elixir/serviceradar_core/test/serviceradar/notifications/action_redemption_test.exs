@@ -12,7 +12,7 @@ defmodule ServiceRadar.Notifications.ActionRedemptionTest do
   end-to-end redemption through the existing `Alert` actions.
   """
 
-  use ServiceRadar.DataCase, async: false
+  use ServiceRadar.DataCase, async: true
 
   alias Ecto.Adapters.SQL
   alias ServiceRadar.Actors.SystemActor

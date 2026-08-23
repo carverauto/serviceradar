@@ -13,6 +13,10 @@
       changes pool mode.
 - [x] 1.6 Document the async eligibility and serial exception criteria in DataCase/TestSupport
       module documentation and in the core test helper guidance.
+- [x] 1.7 Fail closed before Repo startup when any database-backed direct Mix invocation does not
+      present the `srql-fixtures` TLS identity, `verify-full`, the fixture CA, and a disposable
+      `sr_core_test_*` or `codex_*` database name. Permit `sr_core_template` only for the typed
+      template-migration lifecycle.
 
 ## 2. Source-separated heavy release qualification
 - [x] 2.1 Move the 50,000-device router case and the identifier-cardinality gate into release-gate
@@ -34,8 +38,11 @@
       any of those heavy sources. Keep the newly introduced target/action/status identifiers
       permanent and stable.
 - [ ] 2.6 Exercise the broadened heavy target serially under its real lifecycle, verify it remains
-      within the action deadline, and prove both the dedicated run-prefix database and bootstrap's
-      separately named scratch database are removed.
+      within the action deadline, verify the parent Repo is pinned to 12, the concurrent
+      cold-bootstrap child Repo is pinned to 2, and the direct Postgrex administrator connection
+      opened by `StartupMigrations` counts as one more workload slot. Verify the observer reserves
+      all 15 workload slots before readiness and provisioning, then prove both the dedicated
+      run-prefix database and bootstrap's separately named scratch database are removed.
 
 ## 3. Bounded in-shard concurrency and broad promotion
 - [x] 3.1 Define the checked-in integration `max_cases` constant as 2, pass it to all eight generated
@@ -77,13 +84,15 @@
 - [x] 3.12 Anchor stalled-dispatch reconciliation tests to the production-persisted `started_at`
       timestamp rather than an earlier synthetic clock; retain the deterministic traced RED and
       five-consecutive-run traced GREEN evidence.
-- [ ] 3.13 Add a RED/GREEN startup-neutrality regression; make no-option `start_core!` preserve
+- [x] 3.13 Add a RED/GREEN startup-neutrality regression; make no-option `start_core!` preserve
       Application configuration, make `test_helper.exs` explicitly establish synchronous audit
       writes once, and remove redundant startup blocks from promoted modules.
 - [ ] 3.14 Promote the nine fully audited broad-wave modules (seeder reconciliation, dispatcher
       delivery/grouping, action redemption, delivery isolation, suppression dedupe, DIRE
       remediation, sweep-results flow, and agent-config credential delivery) and run focused
       collision/stability tests at cap two.
+      Status: all nine are included in the exhaustive async promotion, but the requested focused
+      cap-two collision/stability run remains pending.
 - [ ] 3.15 Split or normalize the prioritized mixed modules: endpoint-inventory unboxed races,
       dispatcher-routing fixed PubSub assertions, dispatcher-edge registry keys, agent-gateway
       release-signing configuration, dispatcher telemetry filtering, sync/cache identifiers,
@@ -94,35 +103,28 @@
       with zero selected modules. Prove all-source and pruned-source selected test identities are
       equal before excluding unit-only files from integration shards; reject missing, duplicate,
       fixed-resource-async, mixed-selected-mode, and module-local global configuration cases.
-- [ ] 3.17 Run one complete trace-free, timeout-enabled, retry-free, observer-covered eight-shard
-      wave at `max_cases: 2`; require zero ownership errors, deadlocks, queue drops, process leaks,
-      database residue, or connection-threshold violations before advancing.
-- [ ] 3.18 Pin `SERVICERADAR_TEST_DATABASE_POOL_SIZE=12`, raise the checked-in ordinary cap to 4,
-      and extend fail-closed parsing, markers, and topology tests without changing shard count,
-      pool size, or fixture capacity.
-- [ ] 3.19 Replace sum-only LPT with deterministic concurrency-aware placement. Compute each shard
-      as common retained-source load plus serial-module-weight sum plus four-slot async-module
-      list-scheduling makespan; prove exhaustive, disjoint, glob-order-independent placement and
-      fixed-resource `s7` pinning with synthetic Starlark tests, including an all-async source with
-      multiple module jobs, then repeat the complete observed cap-four safety wave on the final
-      placement.
+      Status: the 765-source / 258-selected-module disposition and exact Starlark projection are
+      checked in and statically enforced; the real all-source/pruned-source ExUnit identity
+      equivalence run remains pending.
+- [x] 3.17 Complete the exhaustive audit, split every mixed selected-mode source, and freeze one
+      async source set plus serial source set before timing; exclude load-only sources.
+- [x] 3.18 Pin every ordinary BEAM's Repo pool at 12 and implement one async lane at cap eight plus
+      capacity-bounded serial lanes at cap one. Fail closed unless
+      `min(96, floor(0.90 * usable_client_slots))` funds the computed topology, which may never
+      exceed eight BEAMs / 96 configured slots.
+- [x] 3.19 Deterministically preseed all fixed-external sources in `serial_0`, LPT-balance remaining
+      serial sources by `1 + selected_serial_module_count`, and prove exact, disjoint,
+      glob-order-independent source/identity membership before timing. Every lane must use its own
+      disposable `sr_core_test_<run-id>_<lane>` clone.
 - [ ] 3.20 Run five attempts per arm, alternating same-revision BuildBuddy diagnostics at explicit 2 CPU and 12 CPU
       with Repo pool 12 and all other factors fixed. Record scheduler/pool markers and select one
       explicit CPU request for production `BazelCI` and both authoritative revisions. Twelve CPUs
       is selectable only with five safety-clean runs. If both are selectable, 12 CPUs wins only
       with a median at least 10% lower; if one is selectable use it, and if neither is, stop.
-- [ ] 3.21 Add non-gating manual topology targets and lifecycle contracts for one BEAM at cap eight
-      as the primary challenger,
-      four BEAMs at cap seven, final eight BEAMs at cap four, and a five-BEAM hybrid with two async
-      lanes at cap seven plus three serial lanes at cap one. Freeze these caps before measurement,
-      swap only core labels, prove the identical non-core list is exactly the production ordinary
-      wildcard remainder, explicitly prebuild every selected core/non-core label outside the clock,
-      and co-locate fixed-external sources in one lane per
-      multi-BEAM arm.
-      Run five fresh, retry-free attempts per arm in rotated no-overlap rounds; retain eight
-      production shards unless a challenger is at least 10% faster, passes every screen
-      safety/headroom gate, receives an explicit proposal amendment, and then passes the amended
-      20-run acceptance contract.
+- [ ] 3.21 Run the fixed production topology through a fresh trace-free, timeout-enabled,
+      retry-free, observer-covered safety wave. Require zero ownership errors, deadlocks, queue
+      drops, process/database residue, or connection-threshold violations; do not run one/four/
+      eight/hybrid challenger diagnostics or retune membership from the result.
 - [ ] 3.22 Run one retry-free exact-SHA `IntegrationBenchmark` smoke with the final harness before
       spending the acceptance cohorts. Require a current template, successful outcome-bearing
       teardown, exact runner markers, and zero ownership, deadlock, queue-drop, connection-headroom,
@@ -172,8 +174,9 @@
       ordinary lifecycle through outcome-bearing teardown with Bazel and workflow retries disabled;
       use literal database-prefix matching rather than unescaped SQL `LIKE`, preflight migrations
       outside the clock, capture the end timestamp immediately when teardown returns, and require
-      runner markers proving before `max_cases: 1`, intermediate `max_cases: 2`, final after
-      `max_cases: 4`, topology/lane, scheduler count, Repo pool size 12, trace off, and timeouts on.
+      runner markers proving before `max_cases: 1`, intermediate `max_cases: 2`, final async lane
+      `max_cases: 8`, final serial lanes `max_cases: 1`, topology/lane, scheduler count, Repo pool
+      size 12, trace off, and timeouts on.
       Status: local directional runs exercise the collector and invariants, but the authoritative
       BuildBuddy cohort table is intentionally still empty.
 - [ ] 5.3 After tasks 5.6 and 6.1--6.3 pass on the final candidate, run alternating exact-SHA cohorts
@@ -190,8 +193,8 @@
       including the existing SRQL/other integration targets and excluding only the
       `large_ingestion_test`-tagged heavy release-qualification target (including cold bootstrap),
       report whether the relative p95 improvement reaches the 60% stretch target, with the
-      eight-shard topology or the amended winning topology if a challenger is adopted, explicit
-      identical CPU allocation, and Repo pool size 12 per BEAM.
+      fixed one-async-plus-serial-lanes topology, explicit identical CPU allocation, and Repo pool
+      size 12 per BEAM.
 - [ ] 5.6 Run the focused large-ingestion lifecycle repeatedly, verify successful default-branch
       status publication, and prove teardown removes every matching database.
 
@@ -199,8 +202,8 @@
 - [ ] 6.1 Reconcile implementation with `complete-config-manager-adoption`,
       `route-bazel-cache-through-shared-edge`, and `add-srql-fixture-cert-manager-tls`.
       Status: the feature branch still needs reconciliation with the current `staging` history.
-- [ ] 6.2 Run focused Elixir support tests, Rust lifecycle tests, Bazel configuration tests, all
-      eight core integration shards, and the large-ingestion release gate.
+- [ ] 6.2 Run focused Elixir support tests, Rust lifecycle tests, Bazel configuration tests, the
+      async target, every selected serial target, and the large-ingestion release gate.
       Status: focused/static contracts and local target-equivalent shard/heavy runs are green; the
       exact guarded Bazel all-shard and heavy lifecycle sequence remains pending.
 - [ ] 6.3 Run `make lint`, `make test`, and `git diff --check`.

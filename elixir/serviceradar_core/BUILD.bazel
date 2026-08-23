@@ -4,9 +4,10 @@ load("@rules_elixir//:mix_app.bzl", "mix_app")
 load(
     "@serviceradar//build:integration_shards.bzl",
     "LARGE_INGESTION_DB_SHARD",
-    "integration_shard_names",
+    "LARGE_INGESTION_REPO_POOL_SIZE",
+    "integration_lane_names",
     "integration_test_env",
-    "partition_by_shard",
+    "partition_by_lane",
 )
 load("@serviceradar//build:integration_tests.bzl", "requires_shared_fixture")
 
@@ -19,16 +20,22 @@ ALL_TEST_SRCS = glob(
     exclude = [
         "test/db/**",
         "test/release_gates/**",
+        # Full cold-start qualification applies the production baseline plus every migration,
+        # then runs startup again to cover the normal :migrated branch. Even its quiet serial
+        # cost exceeds the complete PR lifecycle budget, so it runs once in the source-separated
+        # release qualification target below rather than in any ordinary lane.
+        "test/serviceradar/cluster/database_bootstrap_integration_test.exs",
         # This brings up real peer nodes and has its own discoverable target
         # below so the normal helper's :cluster exclusion cannot skip it.
         "test/serviceradar/edge/agent_command_bus_rpc_registry_test.exs",
     ],
 )
 
-# Disjoint partition of ALL_TEST_SRCS, one bucket per integration shard.
-INTEGRATION_SHARD_SRCS = partition_by_shard(ALL_TEST_SRCS)
+# Disjoint selected-source partition: one audited async BEAM plus serial BEAM lanes. Unit-only
+# files remain in ALL_TEST_SRCS for the database-free unit targets but are not loaded here.
+INTEGRATION_LANE_SRCS = partition_by_lane(ALL_TEST_SRCS)
 
-# Files integration tests open at runtime. Both the eight ordinary shards and the focused
+# Files integration tests open at runtime. Both the eight ordinary lanes and the focused
 # large-ingestion gate use the same application/configuration fixtures, but release-gate test
 # sources remain source-separated and arrive only through the dedicated target's srcs.
 INTEGRATION_RUNTIME_DATA = glob(
@@ -84,7 +91,26 @@ INTEGRATION_RUNTIME_DATA = glob(
     # relative path //rust/integration-db reads -- so provision, the suite and teardown
     # cannot disagree about which database they own.
     "//build:run_id_file",
+    # Guarded suites resolve their endpoint from the one CI fixture identity, exactly as the Rust
+    # provisioner and template migrator do. Focused workstation Mix tests use a separately created
+    # srql-fixtures scratch database; a guarded Bazel lane cannot select localhost.
+    "//config/environments:ci_binpb",
 ]
+
+INTEGRATION_TEST_DEPS = [
+    ":erlang_app",
+    "//config/manager_config/elixir:manager",
+    "//config/manager_secret/elixir:secret",
+]
+
+# Static inputs for the repository-level integration execution contract. Keep the unit target on
+# ALL_TEST_SRCS, while the ordinary database lanes below use only the audited selected-source
+# union. The contract needs every source in order to fail when the glob and disposition inventory
+# drift in either direction.
+filegroup(
+    name = "integration_contract_test_inputs",
+    srcs = ALL_TEST_SRCS + ["test/INTEGRATION_SOURCE_DISPOSITIONS.tsv"],
+)
 
 filegroup(
     name = "srcs",
@@ -112,7 +138,7 @@ filegroup(
 # invalidated:
 #
 #   :erlang_app (53s) -> :erlang_app_prod (53s) -> //elixir/web-ng:erlang_app (62s)
-#   -> agent_gateway, core_elx, every ex_unit_test target, all 8 integration shards
+#   -> agent_gateway, core_elx, every ex_unit_test target, all 8 integration lanes
 #
 # i.e. the entire ~190s critical chain for a one-line change to a file the application never
 # compiles. Bazel was correct to rebuild -- a declared input changed. The input was wrong.
@@ -414,33 +440,25 @@ ex_unit_test(
     deps = [":erlang_app"],
 )
 
-# SHARDED, with a database each.
+# ONE ASYNC BEAM PLUS SERIAL BEAM LANES, with a disposable srql-fixtures database each.
 #
-# These tests share a mutable external resource, and Ecto's SQL sandbox isolates concurrent
-# tests within a BEAM VM but not across OS processes. Parallel targets against ONE database
-# deadlock: measured at 25 failures across 6 of 7 groups, dominated by
-# `40P01 deadlock_detected`, where each group passed when run on its own.
-#
-# The fix is a database per shard, not fewer shards. That is only affordable because
-# provisioning is now a `CREATE DATABASE ... TEMPLATE` file copy (~0.7s) off a pre-migrated
-# template rather than a 368-migration replay. //rust/integration-db:provision_db clones every
-# shard for CI; provision_db_sN clones only one for a focused local run. Both come from the
-# same //build:integration_shards.bzl list these targets are generated from, and
-# test/db/integration_env.exs turns SERVICERADAR_TEST_DB_SHARD into the matching name. One
-# list, both sides.
-#
-# Shard count and the arithmetic behind it are documented in //build:integration_shards.bzl.
+# Audited transaction-owned modules run together in the async lane at cap eight. Every module
+# with a concrete database-global, VM-global, process-global, or external-resource blocker runs
+# at cap one in one of seven serial lanes. Each BEAM points at its own
+# sr_core_test_<run-id>_<lane> clone on srql-fixtures; neither demo nor production is eligible.
+# //build:integration_shards.bzl owns the lane names, caps, pool size, and deterministic source
+# map used by both these targets and //rust/integration-db provisioning.
 [
     ex_unit_test(
-        name = "integration_tests_{}".format(shard),
+        name = "integration_tests_{}".format(lane),
         size = "enormous",
-        srcs = INTEGRATION_SHARD_SRCS[shard],
+        srcs = INTEGRATION_LANE_SRCS[lane],
         # Files the tests open at runtime. ex_unit_test stages only srcs and data, so anything
         # read from disk has to be declared: several tests load a specific migration out of
         # priv/repo/migrations to assert on it, and test/support carries fixtures.
         #
-        # Every shard gets the full data set: which shard holds which test file is an
-        # implementation detail of the partition, so narrowing this per shard would break the
+        # Every lane gets the full data set: which lane holds which test file is an
+        # implementation detail of the partition, so narrowing this per lane would break the
         # moment a file moved between them.
         data = INTEGRATION_RUNTIME_DATA,
         elixir_opts = [
@@ -459,26 +477,31 @@ ex_unit_test(
             "test/test_helper.exs",
         ],
         # Runs ONLY the complement of :unit_tests -- the tests that need a running application
-        # and a database. Every ordinary shard gets the same bounded ExUnit contract.
-        env = integration_test_env(shard),
+        # and a database. The async lane has cap eight; every serial lane has cap one.
+        env = integration_test_env(lane),
         tags = ["integration_test"],
         # NO exec_properties, deliberately.
         target_compatible_with = requires_shared_fixture(),
-        deps = [":erlang_app"],
+        deps = INTEGRATION_TEST_DEPS,
     )
-    for shard in integration_shard_names()
+    for lane in integration_lane_names()
 ]
 
-# The two full-strength release suites are physically absent from ALL_TEST_SRCS and share one
-# focused disposable database. Keep this target singular: ExUnit schedules at most one case in
-# its BEAM so the two application-global ingestion setups cannot overlap.
+# The full-strength ingestion suites and cold database-bootstrap qualification are physically
+# absent from ALL_TEST_SRCS. The target receives one focused disposable database for ingestion;
+# bootstrap deliberately creates and cleans its own random scratch database. Keep this target
+# singular: ExUnit schedules at most one case in its BEAM so application-global ingestion setups
+# cannot overlap and the DDL-heavy bootstrap cannot contend with ordinary PR lanes. The legacy
+# target name remains stable because release qualification records key off it.
 ex_unit_test(
     name = "large_ingestion_release_gate",
     size = "enormous",
     srcs = glob(
         ["test/release_gates/large_ingestion/*_test.exs"],
         allow_empty = False,
-    ),
+    ) + [
+        "test/serviceradar/cluster/database_bootstrap_integration_test.exs",
+    ],
     data = INTEGRATION_RUNTIME_DATA,
     elixir_opts = [
         "-r",
@@ -491,6 +514,9 @@ ex_unit_test(
     env = {
         "SERVICERADAR_ONLY_INTEGRATION": "1",
         "SERVICERADAR_INTEGRATION_MAX_CASES": "1",
+        # Pin the parent application Repo. Cold bootstrap also starts a temporary two-connection
+        # Repo and one direct admin connection, so the observer reserves 12 + 2 + 1 = 15 slots.
+        "SERVICERADAR_TEST_DATABASE_POOL_SIZE": str(LARGE_INGESTION_REPO_POOL_SIZE),
         "SERVICERADAR_TEST_DB_SHARD": LARGE_INGESTION_DB_SHARD,
         "SERVICERADAR_LARGE_INGESTION_DEVICE_COUNT": "50000",
         "SERVICERADAR_LARGE_INGESTION_CHUNK_SIZE": "1000",
@@ -500,18 +526,18 @@ ex_unit_test(
         "large_ingestion_test",
     ],
     target_compatible_with = requires_shared_fixture(),
-    deps = [":erlang_app"],
+    deps = INTEGRATION_TEST_DEPS,
 )
 
 # Kept so the workflow, and anyone with the old target in muscle memory, can still say
-# //elixir/serviceradar_core:integration_tests and get every shard.
+# //elixir/serviceradar_core:integration_tests and get the complete audited lane set.
 test_suite(
     name = "integration_tests",
     tags = ["integration_test"],
     target_compatible_with = requires_shared_fixture(),
     tests = [
-        ":integration_tests_{}".format(shard)
-        for shard in integration_shard_names()
+        ":integration_tests_{}".format(lane)
+        for lane in integration_lane_names()
     ],
 )
 
@@ -542,6 +568,22 @@ test_suite(
 # Do not reintroduce the old backend-specific `test.env-secrets` exec property. Fixture values
 # are supplied by the Bazel client and the database-facing TestRunner stays local.
 ex_unit_test(
+    name = "integration_env_config_test",
+    size = "small",
+    srcs = ["test/db/integration_env_config_test.exs"],
+    data = [
+        "config/test_database_guard.exs",
+        "test/db/fixture_config.exs",
+        "test/db/integration_env_config.exs",
+        "//config/environments:ci_binpb",
+    ],
+    deps = [
+        "//config/manager_config/elixir:manager",
+        "//config/manager_secret/elixir:secret",
+    ],
+)
+
+ex_unit_test(
     name = "migrate_template",
     size = "enormous",
     srcs = ["test/db/migrate_db_test.exs"],
@@ -559,12 +601,10 @@ ex_unit_test(
         "test/db/db_task_helper.exs",
         "test/db/fixture_config.exs",
         "test/db/template_env.exs",
-        # The compiled instance for every kind this target can run as. DECLARED, so the
-        # configuration under test is the artifact the build just produced and validated, and
-        # Bazel reruns this when it changes -- the same contract //rust/integration-db has.
-        # `ci` is what //buildbuddy.yaml selects; `localhost` is what a developer selects.
+        # The CI fixture instance is DECLARED, so the configuration under test is the artifact
+        # the build just produced and validated, and Bazel reruns this when it changes -- the
+        # same contract //rust/integration-db has. This guarded lifecycle is not a localhost path.
         "//config/environments:ci_binpb",
-        "//config/environments:localhost_binpb",
     ],
     elixir_opts = [
         # BEFORE the config loader: config/test.exs reads SERVICERADAR_TEST_DATABASE_URL

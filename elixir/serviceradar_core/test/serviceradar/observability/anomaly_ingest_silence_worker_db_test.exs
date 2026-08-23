@@ -1,5 +1,5 @@
 defmodule ServiceRadar.Observability.AnomalyIngestSilenceWorkerDBTest do
-  use ServiceRadar.DataCase, async: false
+  use ServiceRadar.DataCase, async: true
 
   alias ServiceRadar.Observability.AnomalyIngestSilenceWorker
   alias ServiceRadar.Repo

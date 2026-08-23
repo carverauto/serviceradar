@@ -2,9 +2,9 @@
 
 ## Why
 The core integration phase is the dominant warm-cache CI cost. In five recent successful
-BuildBuddy pull-request runs it took 2m21s to 4m22s, with a typical result near 2m27s. The eight
-Bazel shards already run in parallel and use separate template-cloned databases, but every shard
-forces ExUnit to `max_cases: 1`, so database-safe modules inside each BEAM still run serially.
+BuildBuddy pull-request runs it took 2m21s to 4m22s, with a typical result near 2m27s. The legacy
+eight-Bazel-shard layout uses separate template-cloned databases, but every shard forces ExUnit to
+`max_cases: 1`, so database-safe modules inside each BEAM still run serially.
 
 The suite already has the Elixir equivalent of Marvin's Diesel pattern: `ServiceRadar.DataCase`
 starts a rollback-only Ecto SQL Sandbox owner for each test and stops it on exit. The missing work
@@ -34,9 +34,17 @@ restart idempotence. A quiet serial profile was already about 115 seconds, above
 eight-shard treatment. Parallelizing shard databases cannot divide that sequential DDL workload.
 
 ## What Changes
-- Retain the existing eight database-backed Bazel shards and stage bounded ExUnit concurrency
-  inside each shard from two to four concurrently scheduled async modules per BEAM, without
-  increasing Repo pool sizes.
+- Replace production eight-way source sharding with exactly one shared async BEAM at frozen
+  `max_cases: 8` and one through seven serial BEAM lanes at `max_cases: 1`. Every lane receives
+  its own disposable `sr_core_test_<run-id>_<lane>` clone on `srql-fixtures`; neither `demo` nor a
+  production database is an eligible endpoint.
+- Pin every lane's Repo pool at 12 and cap the topology at eight BEAMs / 96 configured pool slots.
+  The serial-lane count is selected and frozen before timing from the live safe fixture budget:
+  `min(serial_source_count, max(1, floor(min(96, floor(0.90 * usable_client_slots)) / 12) - 1))`.
+  A preflight unable to fund one async and one serial lane fails closed. Any spare pool connections
+  are capacity for processes supervised inside a test BEAM, never for deployed applications.
+  The workflow-wide preflight additionally accounts for 18 possible connections from the three
+  existing SRQL integration binaries selected by the same ordinary wildcard, for 114 total.
 - Configure suite-global test state once in `test_helper.exs`; make ordinary no-option
   `start_core!` calls idempotent and free of Application-environment mutation before async modules
   are scheduled.
@@ -47,9 +55,9 @@ eight-shard treatment. Parallelizing shard databases cannot divide that sequenti
 - Account for every ordinary source and classify every selected ExUnit module, including direct
   DataCase and non-DataCase modules, into:
   - a transaction-isolated lane that may opt in with `async: true`;
-  - a shard-serial lane for unboxed transactions, DDL, `TRUNCATE`, materialized-view refreshes,
+  - a serial lane for unboxed transactions, DDL, `TRUNCATE`, materialized-view refreshes,
     application-environment mutation, and shared application processes; and
-  - a designated outer-shard lane for tests that share fixed NATS or other fixture-global resource
+  - designated serial lane `serial_0` for tests that share fixed NATS or other fixture-global resource
     names across BEAMs.
 - Promote every transaction-isolated module found by that audit, record a concrete checked-in
   blocker for every quarantined serial module, and split mixed modules so their transaction-only
@@ -71,6 +79,12 @@ eight-shard treatment. Parallelizing shard databases cannot divide that sequenti
   ordinary pull-request integration targets cannot select any of them through ExUnit include
   precedence. Introduce the target/status identifiers as permanent stable contracts and use marker
   ancestry to preserve genuinely historical release behavior.
+- Pin the heavy target's parent `ServiceRadar.Repo` pool to 12 and the normal child Repo used by
+  cold bootstrap to 2. The parent remains alive while that child runs, and
+  `StartupMigrations` concurrently opens one direct Postgrex administrator connection. The heavy
+  observer must therefore reserve 15 workload slots before readiness and provisioning. The
+  observer's own session remains separately excluded and reported. This focused 15-slot
+  reservation is distinct from the ordinary wildcard's 114-slot workflow-wide preflight.
 - Give the dedicated target a `large_ingestion_test` Bazel tag and explicitly exclude that tag from
   the pull-request integration wildcard, so the separate target itself is not selected by
   `--test_tag_filters=integration_test`.
@@ -79,20 +93,10 @@ eight-shard treatment. Parallelizing shard databases cannot divide that sequenti
   result for the exact release commit before publication using
   a tested Bazel qualifier and permanent introduction marker that distinguish truly historical
   tags from later contract deletion.
-- Re-measure and rebalance the eight file partitions with a concurrency-aware model that adds
-  common retained-source load and serial-module weight to the list-scheduled async-module makespan
-  at the configured cap, rather than balancing only total source weight.
-- Make one BEAM the primary topology challenger and run controlled one-, four-, and eight-BEAM
-  runner-layout diagnostics at frozen caps eight, seven,
-  and four plus a five-BEAM hybrid with two async lanes at cap seven and three serial lanes at cap
-  one on the same source revision. Swap only core topology labels, retain an exhaustive SRQL/other
-  non-core target list equal to the production ordinary wildcard remainder, explicitly prebuild
-  manual labels outside the clock, and co-locate every fixed-external source in one designated lane
-  for each multi-BEAM arm. The final ordinary topology remains eight shards unless an alternative
-  clears the five-run screen by at least 10%, passes its isolation/connection gates, receives an
-  explicit proposal amendment, and then passes the amended 20-run retry-free acceptance contract.
-- Treat those arms as pre-registered deployable bundles, not an isolated BEAM-count experiment,
-  because BEAM count, inner cap, and aggregate Repo-pool capacity vary together.
+- Freeze the final source membership before timing: every all-async source goes to the one async
+  BEAM; `load_only` sources are excluded; serial sources are LPT-balanced across the selected serial
+  lanes by `(1 + selected_serial_module_count, source path)`, with every `fixed_external` source
+  preseeded in `serial_0`. No topology diagnostic may retune lane count or membership after results.
 - Require the authoritative exact-SHA BuildBuddy after cohort to improve nearest-rank p95 by at
   least 50% versus the controlled before cohort and to remain at or below 90 seconds. Report 60%
   as the stretch result. Retain the 259.00-second host-local run as historical diagnostic evidence,
@@ -103,9 +107,10 @@ eight-shard treatment. Parallelizing shard databases cannot divide that sequenti
 ## Non-Goals
 - Replace Ecto SQL Sandbox with a custom transaction implementation.
 - Run DDL, unboxed, NATS, or process-global tests concurrently.
-- Increase the eight-shard count or the existing Repo pool sizes during the staged rollout.
-- Adopt the one-BEAM challenger without the exact-workload safety and latency comparison; startup
-  savings alone do not prove the accumulated serial tail is faster.
+- Increase the eight-BEAM / 96-slot capacity envelope or any per-BEAM Repo pool size during the
+  staged rollout.
+- Reintroduce one/four/eight/hybrid topology-challenger diagnostics or retune lane count after
+  observing timings.
 - Create a database or BEAM VM per individual test file.
 - Shorten cold full-repository compilation; this proposal targets the integration lifecycle after
   build artifacts and the database template are current.
@@ -136,7 +141,7 @@ eight-shard treatment. Parallelizing shard databases cannot divide that sequenti
   - `.github/workflows/release.yml`
   - `build/ci/large_ingestion_gate_contract.v1` and the Bazel-owned release qualifier
   - Bazel configuration and source-partition tests
-  - non-gating CPU/topology diagnostic targets and runner markers
+  - non-gating CPU diagnostic targets and fixed-lane runner markers
 - Coordination:
   - Preserve the guarded lifecycle and local, non-cached database `TestRunner` contract from
     `route-bazel-cache-through-shared-edge`.

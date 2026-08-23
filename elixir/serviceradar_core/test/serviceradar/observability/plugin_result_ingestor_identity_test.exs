@@ -90,7 +90,7 @@ defmodule ServiceRadar.Observability.PluginResultIngestorIdentityTest do
         end)
       end)
 
-    assert_receive :cross_gateway_observation_lock_held
+    assert_receive :cross_gateway_observation_lock_held, 5_000
 
     tasks =
       for status <- [first_status, second_status] do

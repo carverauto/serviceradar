@@ -13,7 +13,6 @@
 # when those were absent. That fallback is why there is no fallback here -- two concurrent runs
 # against one fixture landed on the same database and each teardown dropped the other's data.
 # Failing closed is the point: a missing id must stop the suite, not silently repoint it.
-disposable_prefix = "sr_core_test_"
 
 # Where rules_elixir puts a declared input.
 #
@@ -40,73 +39,14 @@ end
 
 base_name = run_id_path |> File.read!() |> String.trim()
 
-# Fail closed, with the same guidance //rust/integration-db gives. An empty file is what
-# //build:run_id_file writes when the flag is unset.
-if base_name == "" do
-  raise """
-  --//build:run_id is not set, so there is no database name to operate on.
+# The guarded suite has exactly one legitimate endpoint. Resolve it from the typed
+# SERVICERADAR_ENV instance, just as template migration and the Rust provisioner do. This
+# deliberately overwrites any legacy SRQL_TEST_DATABASE_URL or direct Repo URL so provisioning
+# and execution cannot be sent to different servers.
+Code.require_file("fixture_config.exs", __DIR__)
+Code.require_file("integration_env_config.exs", __DIR__)
 
-  Every step of the integration lifecycle derives its disposable database from this one
-  value, and it has no default ON PURPOSE: a constant fallback name lets two runs against
-  the same fixture share a database, and each teardown then drops the other's data.
-
-  Mint one id and pass it to EVERY invocation of the sequence:
-
-      RUN_ID=$(uuidgen | tr -d - | tr 'A-Z' 'a-z' | cut -c1-8)
-  """
-end
-
-# The prefix is written by //build/run_id.bzl and checked here independently, exactly as
-# rust/integration-db/src/lib.rs does. If the two ever drift this must fail rather than point a
-# suite -- and the teardown that follows it -- outside the disposable namespace.
-if not String.starts_with?(base_name, disposable_prefix) do
-  raise "run id file holds #{inspect(base_name)}, which does not start with " <>
-          "#{inspect(disposable_prefix)}"
-end
-
-# Same shape Rust enforces (MIN_RUN_ID_BYTES/MAX_RUN_ID_BYTES in rust/integration-db). An
-# unquoted dash or an uppercase letter in a PostgreSQL identifier is a different database or a
-# syntax error depending on where it lands, so raw `uuidgen` output must not pass either side.
-run_id = String.replace_prefix(base_name, disposable_prefix, "")
-
-if not String.match?(run_id, ~r/\A[a-z0-9]{8,32}\z/) do
-  raise "--//build:run_id must be 8..32 characters of [a-z0-9], got #{inspect(run_id)} -- " <>
-          "mint one with `uuidgen | tr -d - | tr 'A-Z' 'a-z' | cut -c1-8`"
-end
-
-# Each shard gets its OWN database. The suite is split across parallel Bazel targets, and
-# Ecto's SQL sandbox isolates concurrent tests within a BEAM VM but not across OS processes
-# -- parallel shards against one database deadlock (40P01). The suffix is set per target by
-# //build:integration_shards.bzl; //rust/integration-db clones the same set of names.
-#
-# Absent (an unsharded or hand-run target) the base name is used unchanged.
-database =
-  case System.get_env("SERVICERADAR_TEST_DB_SHARD") do
-    shard when is_binary(shard) and shard != "" ->
-      if !String.match?(shard, ~r/\A[a-z0-9_]+\z/) do
-        raise "SERVICERADAR_TEST_DB_SHARD must be [a-z0-9_]+, got #{inspect(shard)}"
-      end
-
-      "#{base_name}_#{shard}"
-
-    _ ->
-      base_name
-  end
-
-# Only derive when the fixture URL is present and nothing has already pinned an explicit
-# target, so a developer pointing at their own database is never overridden.
-base = System.get_env("SRQL_TEST_DATABASE_URL")
-
-if is_binary(base) and base != "" and
-     System.get_env("SERVICERADAR_TEST_DATABASE_URL") in [nil, ""] do
-  uri = URI.parse(base)
-
-  if uri.scheme not in ["postgres", "postgresql", "ecto"] do
-    raise "SRQL_TEST_DATABASE_URL has unexpected scheme #{inspect(uri.scheme)}"
-  end
-
-  # Replace only the path; the authority and any query (sslmode=...) survive untouched.
-  derived = URI.to_string(%{uri | path: "/" <> database})
-
-  System.put_env("SERVICERADAR_TEST_DATABASE_URL", derived)
-end
+ServiceRadar.DB.IntegrationEnvConfig.configure!(
+  base_name,
+  System.get_env("SERVICERADAR_TEST_DB_SHARD")
+)

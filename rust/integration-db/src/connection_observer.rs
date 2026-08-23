@@ -51,6 +51,25 @@ impl Capacity {
             .saturating_sub(self.superuser_reserved)
             .saturating_sub(self.reserved)
     }
+
+    /// Returns the largest pool allocation that keeps ten percent of usable client slots free.
+    pub fn safe_client_slots(self) -> u64 {
+        let usable_slots = self.usable_client_slots();
+        let whole_tens = usable_slots / 10;
+        let remainder = usable_slots % 10;
+        whole_tens * 9 + remainder * 9 / 10
+    }
+
+    /// Rejects a requested pool allocation that would consume the required safety headroom.
+    pub fn validate_required_pool_slots(self, required_pool_slots: u64) -> Result<()> {
+        let safe_slots = self.safe_client_slots();
+        if required_pool_slots > safe_slots {
+            bail!(
+                "required pool slots {required_pool_slots} exceed safe client slots {safe_slots}"
+            );
+        }
+        Ok(())
+    }
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -135,6 +154,7 @@ pub struct ObserverArgs {
     pub quiescent_file: PathBuf,
     pub stop_file: PathBuf,
     pub max_seconds: u64,
+    pub required_pool_slots: u64,
 }
 
 impl ObserverArgs {
@@ -150,6 +170,7 @@ impl ObserverArgs {
         let mut quiescent_file = None;
         let mut stop_file = None;
         let mut max_seconds = None;
+        let mut required_pool_slots = None;
 
         while let Some(flag) = args.next() {
             let value = args
@@ -176,6 +197,18 @@ impl ObserverArgs {
                     }
                     max_seconds = Some(seconds);
                 }
+                "--required-pool-slots" => {
+                    if required_pool_slots.is_some() {
+                        bail!("duplicate --required-pool-slots");
+                    }
+                    let slots = value.parse::<u64>().with_context(|| {
+                        format!("invalid --required-pool-slots value {value:?}")
+                    })?;
+                    if slots == 0 {
+                        bail!("--required-pool-slots must be greater than zero");
+                    }
+                    required_pool_slots = Some(slots);
+                }
                 unknown => bail!("unknown flag {unknown}"),
             }
         }
@@ -186,6 +219,8 @@ impl ObserverArgs {
             quiescent_file: required_path(quiescent_file, "--quiescent-file")?,
             stop_file: required_path(stop_file, "--stop-file")?,
             max_seconds: max_seconds.ok_or_else(|| anyhow!("missing --max-seconds"))?,
+            required_pool_slots: required_pool_slots
+                .ok_or_else(|| anyhow!("missing --required-pool-slots"))?,
         })
     }
 }
@@ -382,6 +417,91 @@ mod tests {
         ])
         .is_err());
         assert!(ObserverArgs::parse(["observe_connections", "--wat", "x"]).is_err());
+    }
+
+    #[test]
+    fn parser_requires_and_parses_positive_required_pool_slots() {
+        let missing = ObserverArgs::parse([
+            "observe_connections",
+            "--ready-file",
+            "ready",
+            "--suite-complete-file",
+            "suite-complete",
+            "--quiescent-file",
+            "quiescent",
+            "--stop-file",
+            "stop",
+            "--max-seconds",
+            "60",
+        ])
+        .unwrap_err();
+        assert_eq!(missing.to_string(), "missing --required-pool-slots");
+
+        let zero = ObserverArgs::parse([
+            "observe_connections",
+            "--ready-file",
+            "ready",
+            "--suite-complete-file",
+            "suite-complete",
+            "--quiescent-file",
+            "quiescent",
+            "--stop-file",
+            "stop",
+            "--max-seconds",
+            "60",
+            "--required-pool-slots",
+            "0",
+        ])
+        .unwrap_err();
+        assert_eq!(
+            zero.to_string(),
+            "--required-pool-slots must be greater than zero"
+        );
+
+        let parsed = ObserverArgs::parse([
+            "observe_connections",
+            "--ready-file",
+            "ready",
+            "--suite-complete-file",
+            "suite-complete",
+            "--quiescent-file",
+            "quiescent",
+            "--stop-file",
+            "stop",
+            "--max-seconds",
+            "60",
+            "--required-pool-slots",
+            "177",
+        ])
+        .unwrap();
+        assert_eq!(parsed.required_pool_slots, 177);
+    }
+
+    #[test]
+    fn capacity_rejects_required_pool_slots_above_safe_headroom() {
+        let capacity = Capacity {
+            max: 200,
+            superuser_reserved: 3,
+            reserved: 0,
+        };
+
+        let error = capacity.validate_required_pool_slots(178).unwrap_err();
+
+        assert_eq!(
+            error.to_string(),
+            "required pool slots 178 exceed safe client slots 177"
+        );
+    }
+
+    #[test]
+    fn capacity_accepts_required_pool_slots_at_safe_headroom() {
+        let capacity = Capacity {
+            max: 200,
+            superuser_reserved: 3,
+            reserved: 0,
+        };
+
+        capacity.validate_required_pool_slots(177).unwrap();
     }
 
     #[test]

@@ -1,5 +1,5 @@
 defmodule ServiceRadar.Edge.RemoteAccessBrokerTest do
-  use ExUnit.Case, async: true
+  use ExUnit.Case, async: false
 
   alias ServiceRadar.Edge.RemoteAccessBroker
   alias ServiceRadar.Edge.RemoteAccessSession

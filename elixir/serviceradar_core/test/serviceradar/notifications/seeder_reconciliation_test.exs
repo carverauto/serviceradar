@@ -14,7 +14,7 @@ defmodule ServiceRadar.Notifications.SeederReconciliationTest do
   outranks both: a provider an operator disabled is never re-enabled.
   """
 
-  use ServiceRadar.DataCase, async: false
+  use ServiceRadar.DataCase, async: true
 
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Notifications.Declarative.Catalog

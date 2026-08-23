@@ -1,5 +1,5 @@
 defmodule ServiceRadar.Inventory.VisibilityProfileAuditTest do
-  use ServiceRadar.DataCase, async: false
+  use ServiceRadar.DataCase, async: true
 
   alias ServiceRadar.Inventory.VisibilityProfile
   alias ServiceRadar.Repo

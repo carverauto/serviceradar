@@ -1,7 +1,10 @@
 # Package placeholder for repository alias helper.
 load("@bazel_skylib//rules:common_settings.bzl", "bool_flag", "string_flag")
+load("@rules_elixir//:ex_unit_test.bzl", "ex_unit_test")
 load(
     ":integration_shards_test.bzl",
+    "insufficient_capacity",
+    "insufficient_capacity_failure_test",
     "integration_shards_topology_test",
     "missing_fixed_source",
     "missing_fixed_source_failure_test",
@@ -9,6 +12,13 @@ load(
 load(":run_id.bzl", "run_id_file")
 
 package(default_visibility = ["//visibility:public"])
+
+ex_unit_test(
+    name = "integration_selection_formatter_test",
+    size = "small",
+    srcs = ["integration_selection_formatter_test.exs"],
+    data = ["//elixir/serviceradar_core:test/support/integration_selection_formatter.ex"],
+)
 
 integration_shards_topology_test(
     name = "integration_shards_topology_test",
@@ -23,9 +33,19 @@ missing_fixed_source_failure_test(
     target_under_test = ":missing_fixed_source",
 )
 
+insufficient_capacity(
+    name = "insufficient_capacity",
+)
+
+insufficient_capacity_failure_test(
+    name = "insufficient_capacity_failure_test",
+    target_under_test = ":insufficient_capacity",
+)
+
 test_suite(
     name = "integration_shards_test",
     tests = [
+        ":insufficient_capacity_failure_test",
         ":integration_shards_topology_test",
         ":missing_fixed_source_failure_test",
     ],
@@ -35,6 +55,7 @@ exports_files([
         "benchmark_runner.py",
     "elixir_test_config_loader.exs",
     "integration_shards.bzl",
+    "integration_test_dispositions.bzl",
     "repo_alias.bzl",
 ])
 

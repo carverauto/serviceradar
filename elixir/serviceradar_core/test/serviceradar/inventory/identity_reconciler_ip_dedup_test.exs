@@ -3,7 +3,7 @@ defmodule ServiceRadar.Inventory.IdentityReconcilerIpDedupTest do
   Integration coverage for IP-based de-duplication behavior.
   """
 
-  use ServiceRadar.DataCase, async: false
+  use ServiceRadar.DataCase, async: true
 
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Inventory.Device

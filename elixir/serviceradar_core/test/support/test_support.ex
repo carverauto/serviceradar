@@ -19,11 +19,13 @@ defmodule ServiceRadar.TestSupport do
 
   @doc "Starts core without implicitly taking database ownership."
   def start_core!(opts \\ []) do
-    Application.put_env(
-      :serviceradar_core,
-      :audit_writer_async?,
-      not Keyword.get(opts, :synchronous_audit_writes?, true)
-    )
+    if Keyword.has_key?(opts, :synchronous_audit_writes?) do
+      Application.put_env(
+        :serviceradar_core,
+        :audit_writer_async?,
+        not Keyword.fetch!(opts, :synchronous_audit_writes?)
+      )
+    end
 
     {:ok, _} = Application.ensure_all_started(:serviceradar_core)
     ensure_repo_started!()

@@ -5,7 +5,7 @@ load("@rules_rs//rs:rust_test.bzl", "rust_test")
 load(
     "//build:integration_shards.bzl",
     "LARGE_INGESTION_DB_SHARD",
-    "integration_shard_names",
+    "integration_lane_names",
 )
 load("//build:integration_tests.bzl", "requires_shared_fixture")
 
@@ -21,7 +21,6 @@ load("//build:integration_tests.bzl", "requires_shared_fixture")
 FIXTURE_DATA = [
     "//build:run_id_file",
     "//config/environments:ci_binpb",
-    "//config/environments:localhost_binpb",
 ]
 
 package(default_visibility = ["//visibility:public"])
@@ -149,13 +148,13 @@ rust_test(
     srcs = ["tests/provision_db_test.rs"],
     crate_root = "tests/provision_db_test.rs",
     data = FIXTURE_DATA + ["//elixir/serviceradar_core:migrations"],
-    # One database per integration shard, from the same .bzl that generates the Elixir shard
+    # One database per integration lane, from the same .bzl that generates the Elixir lane
     # targets, so the two name sets cannot drift.
     #
-    # env, NOT args: libtest reads a bare argv entry as a test-name filter, so passing shard
+    # env, NOT args: libtest reads a bare argv entry as a test-name filter, so passing lane
     # names as args matched no test, ran nothing and exited 0 -- green having provisioned
     # nothing at all.
-    env = {"SERVICERADAR_TEST_DB_SHARDS": ",".join(integration_shard_names())},
+    env = {"SERVICERADAR_TEST_DB_SHARDS": ",".join(integration_lane_names())},
     tags = [
         "external",
         "manual",
@@ -172,7 +171,8 @@ rust_test(
 )
 
 # The source-separated release gate needs only its dedicated database. It deliberately does not
-# participate in integration_shard_names(), so ordinary provisioning remains exactly s0..s7.
+# participate in integration_lane_names(), so ordinary provisioning remains exactly the frozen
+# async/serial lane set.
 rust_test(
     name = "provision_db_large_ingestion",
     size = "medium",
@@ -195,16 +195,16 @@ rust_test(
     ],
 )
 
-# Focused developer targets clone only the shard that will run, instead of touching seven
-# additional databases. The shard list still comes from the same .bzl as the Elixir targets.
+# Focused developer targets clone only the lane that will run, instead of touching seven
+# additional databases. The lane list still comes from the same .bzl as the Elixir targets.
 [
     rust_test(
-        name = "provision_db_{}".format(shard),
+        name = "provision_db_{}".format(lane),
         size = "medium",
         srcs = ["tests/provision_db_test.rs"],
         crate_root = "tests/provision_db_test.rs",
         data = FIXTURE_DATA + ["//elixir/serviceradar_core:migrations"],
-        env = {"SERVICERADAR_TEST_DB_SHARDS": shard},
+        env = {"SERVICERADAR_TEST_DB_SHARDS": lane},
         tags = [
             "external",
             "manual",
@@ -219,7 +219,7 @@ rust_test(
             "//rust/srql:srql_lib",
         ],
     )
-    for shard in integration_shard_names()
+    for lane in integration_lane_names()
 ]
 
 # Creates the template if absent and reports whether it needs migrating.

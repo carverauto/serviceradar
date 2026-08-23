@@ -8,7 +8,7 @@ defmodule ServiceRadar.Identity.AuthSettingsSecretTest do
   `:encrypted_oidc_client_secret_encrypted` storage column, so the call raised
   `Ash.Error.Changes.NoSuchAttribute` and the SSO-config path never worked.
   """
-  use ServiceRadar.DataCase, async: false
+  use ServiceRadar.DataCase, async: true
 
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Identity.AuthSettings

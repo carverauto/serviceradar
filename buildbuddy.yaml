@@ -94,7 +94,7 @@ actions:
             set -a; . "$PREFLIGHT_ENV_FILE"; set +a
             PREFLIGHT_FLAGS="-c opt --config=ci --strategy=TestRunner=local --//build:enable_integration_tests
                --//build:run_id=$PREFLIGHT_RUN_ID --test_env=SERVICERADAR_ENV=ci --flaky_test_attempts=1
-               --test_output=all --test_env=SERVICERADAR_TEST_SLOWEST=15
+               --test_output=all
                --nocache_test_results --noremote_upload_local_results
                --test_env=SERVICERADAR_SECRET_DATABASE_PASSWORD
                --test_env=SERVICERADAR_SECRET_DATABASE_ADMIN_PASSWORD
@@ -119,7 +119,7 @@ actions:
           export SERVICERADAR_FIXTURE_ENV_FILE
           FLAGS="-c opt --config=ci --strategy=TestRunner=local --//build:enable_integration_tests
              --//build:run_id=$RUN_ID --test_env=SERVICERADAR_ENV=ci --flaky_test_attempts=1
-             --test_output=all --test_env=SERVICERADAR_TEST_SLOWEST=15
+             --test_output=all
              --nocache_test_results --noremote_upload_local_results
              --test_env=SERVICERADAR_SECRET_DATABASE_PASSWORD
              --test_env=SERVICERADAR_SECRET_DATABASE_ADMIN_PASSWORD
@@ -227,7 +227,7 @@ actions:
           bazel run -c opt --config=ci --//build:enable_integration_tests --//build:run_id=$RUN_ID //:buildbuddy_setup_fixture_env
           set -a; . "$SERVICERADAR_FIXTURE_ENV_FILE"; set +a
           FLAGS="$FLAGS $SERVICERADAR_TEST_ENV_FLAGS"
-          bazel run -c opt --config=ci --//build:enable_integration_tests --//build:run_id=$RUN_ID //rust/integration-db:observe_connections -- --ready-file "$READY_FILE" --suite-complete-file "$SUITE_COMPLETE_FILE" --quiescent-file "$QUIESCENT_FILE" --stop-file "$STOP_FILE" --max-seconds 1800 &
+          bazel run -c opt --config=ci --//build:enable_integration_tests --//build:run_id=$RUN_ID //rust/integration-db:observe_connections -- --ready-file "$READY_FILE" --suite-complete-file "$SUITE_COMPLETE_FILE" --quiescent-file "$QUIESCENT_FILE" --stop-file "$STOP_FILE" --max-seconds 1800 --required-pool-slots 114 &
           OBSERVER_PID=$!
           wait_for_observer_ready 30 || exit 1
 
@@ -333,7 +333,7 @@ actions:
             set -a; . "$PREFLIGHT_ENV_FILE"; set +a
             PREFLIGHT_FLAGS="-c opt --config=ci --strategy=TestRunner=local --//build:enable_integration_tests
                --//build:run_id=$PREFLIGHT_RUN_ID --test_env=SERVICERADAR_ENV=ci --flaky_test_attempts=1
-               --test_output=all --test_env=SERVICERADAR_TEST_SLOWEST=15
+               --test_output=all
                --nocache_test_results --noremote_upload_local_results
                --test_env=SERVICERADAR_SECRET_DATABASE_PASSWORD
                --test_env=SERVICERADAR_SECRET_DATABASE_ADMIN_PASSWORD
@@ -358,7 +358,7 @@ actions:
           export SERVICERADAR_FIXTURE_ENV_FILE
           FLAGS="-c opt --config=ci --strategy=TestRunner=local --//build:enable_integration_tests
              --//build:run_id=$RUN_ID --test_env=SERVICERADAR_ENV=ci --flaky_test_attempts=1
-             --test_output=all --test_env=SERVICERADAR_TEST_SLOWEST=15
+             --test_output=all
              --nocache_test_results --noremote_upload_local_results
              --test_env=SERVICERADAR_SECRET_DATABASE_PASSWORD
              --test_env=SERVICERADAR_SECRET_DATABASE_ADMIN_PASSWORD
@@ -466,7 +466,7 @@ actions:
           bazel run -c opt --config=ci --//build:enable_integration_tests --//build:run_id=$RUN_ID //:buildbuddy_setup_fixture_env
           set -a; . "$SERVICERADAR_FIXTURE_ENV_FILE"; set +a
           FLAGS="$FLAGS $SERVICERADAR_TEST_ENV_FLAGS"
-          bazel run -c opt --config=ci --//build:enable_integration_tests --//build:run_id=$RUN_ID //rust/integration-db:observe_connections -- --ready-file "$READY_FILE" --suite-complete-file "$SUITE_COMPLETE_FILE" --quiescent-file "$QUIESCENT_FILE" --stop-file "$STOP_FILE" --max-seconds 1800 &
+          bazel run -c opt --config=ci --//build:enable_integration_tests --//build:run_id=$RUN_ID //rust/integration-db:observe_connections -- --ready-file "$READY_FILE" --suite-complete-file "$SUITE_COMPLETE_FILE" --quiescent-file "$QUIESCENT_FILE" --stop-file "$STOP_FILE" --max-seconds 1800 --required-pool-slots 15 &
           OBSERVER_PID=$!
           wait_for_observer_ready 30 || exit 1
 
@@ -538,7 +538,8 @@ actions:
             set -a; . "$PREFLIGHT_ENV_FILE"; set +a
             PREFLIGHT_FLAGS="-c opt --config=ci --strategy=TestRunner=local --//build:enable_integration_tests
                --//build:run_id=$PREFLIGHT_RUN_ID --test_env=SERVICERADAR_ENV=ci --flaky_test_attempts=1
-               --test_output=all --test_env=SERVICERADAR_TEST_SLOWEST=15
+               --test_output=all
+               --nocache_test_results --noremote_upload_local_results
                --test_env=SERVICERADAR_SECRET_DATABASE_PASSWORD
                --test_env=SERVICERADAR_SECRET_DATABASE_ADMIN_PASSWORD
                --test_env=SERVICERADAR_SECRET_DGRAPH_ADMIN_PASSWORD
@@ -561,7 +562,8 @@ actions:
           export SERVICERADAR_FIXTURE_ENV_FILE
           FLAGS="-c opt --config=ci --strategy=TestRunner=local --//build:enable_integration_tests
              --//build:run_id=$RUN_ID --test_env=SERVICERADAR_ENV=ci --flaky_test_attempts=1
-             --test_output=all --test_env=SERVICERADAR_TEST_SLOWEST=15
+             --test_output=all
+             --nocache_test_results --noremote_upload_local_results
              --test_env=SERVICERADAR_SECRET_DATABASE_PASSWORD
              --test_env=SERVICERADAR_SECRET_DATABASE_ADMIN_PASSWORD
              --test_env=SERVICERADAR_SECRET_DGRAPH_ADMIN_PASSWORD"
@@ -628,7 +630,7 @@ actions:
           bazel run -c opt --config=ci --//build:enable_integration_tests --//build:run_id=$RUN_ID //:buildbuddy_setup_fixture_env
           set -a; . "$SERVICERADAR_FIXTURE_ENV_FILE"; set +a
           FLAGS="$FLAGS $SERVICERADAR_TEST_ENV_FLAGS"
-          bazel run -c opt --config=ci --//build:enable_integration_tests --//build:run_id=$RUN_ID //rust/integration-db:observe_connections -- --ready-file "$READY_FILE" --suite-complete-file "$SUITE_COMPLETE_FILE" --quiescent-file "$QUIESCENT_FILE" --stop-file "$STOP_FILE" --max-seconds 1800 &
+          bazel run -c opt --config=ci --//build:enable_integration_tests --//build:run_id=$RUN_ID //rust/integration-db:observe_connections -- --ready-file "$READY_FILE" --suite-complete-file "$SUITE_COMPLETE_FILE" --quiescent-file "$QUIESCENT_FILE" --stop-file "$STOP_FILE" --max-seconds 1800 --required-pool-slots 114 &
           OBSERVER_PID=$!
           wait_for_marker "$READY_FILE" 30 || { echo "observer did not become ready" >&2; exit 1; }
 

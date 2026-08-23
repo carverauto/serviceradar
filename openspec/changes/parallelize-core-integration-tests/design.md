@@ -87,36 +87,37 @@ mixed files whose small unsafe portion currently serializes a large safe portion
 - Give every selected ExUnit module an explicit checked-in disposition and account for every
   zero-selected source: promoted async, quarantined serial with concrete evidence, or load-only.
 - Preserve coverage while removing the large-ingestion release gate from ordinary pull requests.
-- Keep the current eight database shards, template clone path, TLS posture, credential scope, and
-  cleanup guarantees.
-- Prove one complete retry-free, observed eight-shard safety wave at cap two before advancing to
-  cap four, then reserve the 20-run exact-SHA cohorts for final acceptance.
+- Keep the current template-clone path, TLS posture, credential scope, disposable-database guard,
+  and cleanup guarantees while using at most eight ordinary BEAM lanes.
+- Run the user-directed production topology: one async BEAM at cap eight plus deterministic serial
+  lanes at cap one, then reserve the 20-run exact-SHA cohorts for final acceptance.
 
 ### Non-Goals
 - Make every integration module async.
 - Let a transaction sandbox pretend that DDL, NATS, application configuration, ETS, registries, or
   global supervisors are test-local.
-- Add more database shards, Repo connections, or fixture capacity in the first rollout.
-- Collapse the ordinary suite into one BEAM without controlled evidence; unavoidable serial work
-  would accumulate instead of being distributed across outer shards.
+- Add database lanes, Repo connections, or fixture capacity beyond the existing eight-BEAM /
+  96-configured-slot envelope.
+- Run ordinary serial work in the async BEAM or make topology/lane membership a post-measurement
+  tuning knob.
 - Change SRQL fixture tests, which already have separate database contracts and are not the
   measured critical path.
 - Solve cold repository build times.
 
 ## Architecture
 
-The ordinary pull-request path remains a two-level bounded topology:
+The ordinary pull-request path uses one shared async BEAM and deterministic serial BEAM lanes:
 
 ```text
 BuildBuddy PR action
   -> prepare one current template
-  -> clone s0..s7 databases
-  -> run eight Bazel shard targets in parallel
-       -> one BEAM per shard
-       -> cap two during the migration safety wave, then at most four async modules per BEAM
-       -> each active test case owns one rollback-only connection
-       -> serial modules run with shared ownership and no overlap in that BEAM
-       -> fixed shared-external-resource modules are pinned to one designated shard
+  -> calculate and freeze lane count from live safe fixture capacity
+  -> clone sr_core_test_<run-id>_async and sr_core_test_<run-id>_serial_<n> databases
+  -> run one async Bazel target plus one through seven serial targets in parallel
+       -> async: exactly one BEAM, max_cases 8, one rollback-only owner per active case
+       -> serial: max_cases 1 per BEAM, one lane per disposable clone
+       -> fixed shared-external-resource modules are preseeded in serial_0
+       -> load-only sources are absent from every ordinary lane
   -> teardown every database for the run prefix
 ```
 
@@ -135,29 +136,27 @@ BuildBuddy default-branch/nightly/release action
 
 ## Decisions
 
-### Decision: Stage in-shard concurrency from two to four
-ExUnit only schedules modules declared `async: true` concurrently; `async: false` modules retain
-the serial barrier semantics within their BEAM. The cap is set by the Bazel integration target
-environment and parsed by `test_helper.exs`, with invalid, missing, non-positive, or above-pool
-values failing closed for an integration target.
+### Decision: Freeze one async BEAM plus capacity-bounded serial lanes
+ExUnit schedules only modules declared `async: true` concurrently. Production therefore has exactly
+one async BEAM at frozen `max_cases: 8`; every serial lane is a separate BEAM at frozen
+`max_cases: 1`. The cap and lane are set by Bazel environment and parsed fail-closed by
+`test_helper.exs`.
 
-The rollout has two explicit states:
+Every lane pins a 12-connection Repo pool. The maximum configured topology is eight BEAMs and 96
+pool slots, matching the existing envelope. Before any timed attempt, preflight reads live usable
+fixture slots and computes:
 
-- migration safety wave: all eight shards use `max_cases: 2`, trace is off, timeouts are enabled,
-  retries are disabled, and the connection observer covers provision through teardown;
-- final treatment: only after that wave has zero ownership errors, deadlocks, checkout drops,
-  leaked processes, or database residue and retains connection headroom, all eight shards advance
-  together to `max_cases: 4` and repeat the same safety gate.
+```text
+safe_pool_budget = min(96, floor(0.90 * usable_client_slots))
+serial_lane_count = min(serial_source_count,
+                        max(1, floor(safe_pool_budget / 12) - 1))
+```
 
-Eight shards continue to create eight BEAMs and eight Repo pools, each with the unchanged pool size
-of 12. Raising the scheduler cap does not raise configured connection capacity; it allows more
-audited modules to contend for the existing pool. A cap-four failure is fixed by correcting the
-classification, ownership routing, or workload—not by retries, a larger pool, or relaxed
-timeouts. The final accepted runner marker is `max_cases=4 trace=false timeouts=enabled`.
-
-One checked-in Starlark constant defines the current ordinary cap so generated targets cannot
-drift. Configuration tests freeze cap two during the safety commit and cap four in the final
-treatment commit.
+The run fails before provisioning if this cannot fund one async and one serial lane. The computed
+count and all source membership are checked in and input-hashed before timing; they are never tuned
+from timing results. Headroom is only for processes supervised inside a test BEAM, never for a
+deployed application. A safety failure is fixed by classification, owner routing, or workload—not
+by retries, a larger pool, or relaxed timeouts.
 
 ### Decision: Control workflow CPU and Repo capacity independently
 The BuildBuddy actions currently request memory and disk but omit CPU. The workflow executor's
@@ -170,7 +169,7 @@ therefore change two variables at once.
 
 Before the final latency cohorts, five attempts per arm alternate same-revision diagnostics for
 explicit 2-CPU and 12-CPU workflow allocations. Both arms pin
-`SERVICERADAR_TEST_DATABASE_POOL_SIZE=12`, run the same eight-shard cap-four source topology, and
+`SERVICERADAR_TEST_DATABASE_POOL_SIZE=12`, run the same frozen async-cap-eight and serial-cap-one source topology, and
 use identical build warmth, lifecycle, observer, retries, trace, and timeout settings. The runner
 marker includes scheduler count, integration cap, effective Repo pool size, topology, and lane.
 
@@ -233,7 +232,7 @@ sweep-results flow, and agent-config credential-delivery modules. The next wave 
 normalizes endpoint inventory races, dispatcher routing PubSub assertions, dispatcher edge registry
 keys, agent-gateway release signing, dispatcher telemetry handlers, sync identifiers/caches,
 identity telemetry, remote-access session races, and agent-command-bus global processes. Each wave
-runs through the cap-two safety gate before the final cap-four treatment.
+runs through the cap-two safety gate before the frozen async-cap-eight treatment.
 
 ### Decision: Make sandbox ownership locally composable
 `checkout_repo!/1` continues using `Sandbox.start_owner!/2`, with `shared: not context[:async]`.
@@ -261,7 +260,7 @@ default 50 ms queue bound is too short for that supported path: the focused regr
 waiting query being dropped after roughly 984 ms under sustained concurrent checkouts. The test
 Repo therefore uses finite 1,000 ms `queue_target` and `queue_interval` defaults, preserves the
 existing environment overrides and pool sizes, and must pass both that focused RED/GREEN regression
-and a complete eight-shard wave. This is a measured bound, not a general timeout ratchet; it must
+and a complete fixed-lane wave. This is a measured bound, not a general timeout ratchet; it must
 not be raised toward the 20-second checkout timeout to conceal starvation or lost ownership.
 
 The current `with_repo_owner/1` shared-owner helper cannot enforce that rule because it receives no
@@ -282,30 +281,29 @@ test claims to exercise. The remote-access lock races therefore run unboxed, pin
 and perform exact failure-safe cleanup. The allocator capacity test follows the same per-test
 unboxed rule, with ten concurrent checkouts against the unchanged pool of twelve.
 
-That module-level flag is sufficient for state shared only by one shard database or one BEAM. It is
-not sufficient for NATS streams, fixed subjects, or another fixture-global resource because the
-eight Bazel targets are separate OS processes. Tests that use a fixed external namespace are pinned
-to one designated existing shard (initially `s7`) and remain `async: false`. The other seven shards
-must contain no test using that fixed resource. A test may remain outside the designated shard only
-when its external resource name is unique per test/run and its cleanup is scoped to that name.
+That module-level flag is sufficient for state shared only by one lane database or one BEAM. It is
+not sufficient for NATS streams, fixed subjects, or another fixture-global resource because serial
+lanes are separate OS processes. Tests that use a fixed external namespace are pinned to `serial_0`
+and remain `async: false`; no async lane or other serial lane may use that namespace. A test may
+remain outside `serial_0` only when its external resource name is unique per test/run and cleanup is
+scoped to that name.
 
 The existing fixed-resource list is re-audited rather than inherited as truth. A row needs concrete
 evidence of a mutable shared namespace, cross-BEAM negative assertion, or collision. A read-only
 external smoke test such as the Proxmox API source is classified from its actual Repo, VM, and
 external behavior and is not pinned merely because it was historically in the list.
 
-The designated lane does not create a ninth database or BEAM. It reserves a source class within the
-existing `s7` target, and the partitioner may add transaction-isolated sources to that shard for
-runtime balance. ExUnit completes all async modules before its synchronous phase, so the
-fixture-global modules do not overlap another module in `s7`; the source-class guard ensures no
-other shard can overlap them through the same external resource.
+`serial_0` is one of the capacity-bounded serial lanes, not an additional database or BEAM. It is
+preseeded before deterministic serial LPT placement; no transaction-isolated source is added to it.
+The source-class guard prevents every other lane from overlapping fixture-global resources through
+the same namespace.
 
 | Behavior | Required scope | Reason |
 | --- | --- | --- |
 | DDL, extension/graph changes, materialized-view refresh | `async: false` in any shard | Each outer shard has its own database, but catalog locks are not test-transaction local |
 | `TRUNCATE` or committed cleanup | `async: false` in any shard | Cross-test locks and visibility conflict inside one database |
 | `sandbox: :unboxed` | `async: false` in any shard | It disables the rollback boundary |
-| fixed NATS stream/subject or another fixture-global name | `async: false` in designated `s7` only | The external state is shared across BEAMs |
+| fixed NATS stream/subject or another fixture-global name | `async: false` in `serial_0` only | The external state is shared across BEAMs |
 | uniquely named external resource with scoped cleanup | Audited case; async only with explicit proof | Isolation comes from the unique namespace, not Ecto |
 | `Application.put_env/delete_env`, persistent term, global logger state | `async: false` in any shard | State is shared by one BEAM |
 | globally named/application-supervised database clients | `async: false` in any shard | One process cannot belong to two sandbox owners |
@@ -319,7 +317,7 @@ Code review, a checked-in async allowlist, and a checked-in serial-quarantine in
 broader semantic classification, including the single-shard external-resource source list. Every
 selected module appears in exactly one disposition row; a source may therefore have multiple rows.
 A source is classified async only when every selected ExUnit module it contributes is explicitly
-async. A mixed-mode source must be split before source-level placement or hybrid selection; the existing adhoc-scan
+async. A mixed-mode source must be split before source-level lane placement; the existing adhoc-scan
 NATS and anomaly-profile seeder files are explicit migration cases. Every serial row cites a
 concrete operation, resource, or call chain and required scope in the audit; a reason token or grep
 heuristic is not treated as proof of safety.
@@ -370,12 +368,17 @@ deletion. The target has:
   ordinary shard targets;
 - a dedicated `large_ingestion` database suffix derived from that declared run-id file;
 - the shared-fixture compatibility guard;
+- an explicitly pinned parent `ServiceRadar.Repo` pool size of 12;
+- a fixed pool size of 2 for the normal child Repo started by cold bootstrap while the parent Repo
+  remains alive;
+- one direct Postgrex administrator connection opened concurrently by `StartupMigrations`, counted
+  as heavy workload capacity rather than as observer overhead;
 - `integration_test` and `large_ingestion_test` Bazel tags for discovery and policy;
 - local, non-cached `TestRunner` execution under the guarded lifecycle.
 
 The ordinary unit and integration source sets exclude the release-gate directory and the explicit
 bootstrap source. This physical source boundary, not `exclude: :large_ingestion`, guarantees that
-positive ExUnit includes cannot pull any heavy test back into one of the eight shard targets.
+positive ExUnit includes cannot pull any heavy test back into an ordinary lane target.
 
 The dedicated target retains `integration_test` so the ordinary unit wildcard continues excluding
 it, and adds `large_ingestion_test`. The pull-request integration wildcard changes to
@@ -384,8 +387,8 @@ selecting the dedicated target itself when the workflow asks for all integration
 Source separation protects ExUnit selection inside the shards; the negative Bazel target tag
 protects wildcard target selection.
 
-`build/integration_shards.bzl` exports the dedicated suffix separately from `s0..s7`.
-`provision_db` continues cloning exactly the eight PR databases; a focused
+`build/integration_shards.bzl` exports the dedicated suffix separately from the async and serial lane suffixes.
+`provision_db` clones only the calculated ordinary lane databases; a focused
 `provision_db_large_ingestion` target declares the same run-id file, fixture configuration, and
 core migration filegroup as the ordinary provision targets, and supplies only the dedicated suffix
 through `SERVICERADAR_TEST_DB_SHARDS`. It clones only the heavy-gate database. Teardown already owns
@@ -398,7 +401,11 @@ developer diagnosis, but CI release qualification cannot lower either workload.
 The bootstrap workload remains two production startup invocations against a fresh scratch
 database. The first covers `:empty` by applying the committed baseline and pending migration
 history; the second covers the normal `:migrated` restart branch and idempotence. It is moved, not
-reduced. A quiet provisional serial cost of roughly 115 seconds already exceeds the complete
+reduced. `max_cases: 1` serializes ExUnit modules but does not eliminate the Repo overlap: the
+parent pool of 12 remains alive while cold bootstrap starts its normal child pool of 2, and
+`StartupMigrations` concurrently opens one direct Postgrex administrator connection. The heavy
+lifecycle therefore has a 15-slot configured workload envelope. A quiet provisional serial cost
+of roughly 115 seconds already exceeds the complete
 90-second PR goal, and the first pass exceeded its 300-second timeout during a true eight-shard
 local treatment. A dedicated sequential PR phase would therefore impose an impossible latency
 floor; the existing default-branch/nightly/release qualification cadence preserves coverage
@@ -417,6 +424,14 @@ The action runs only the focused heavy provision and test targets, not all eight
 stable action name and classic GitHub commit-status context are
 `LargeIngestionGate`. BuildBuddy's linked GitHub App, not a credential passed into the Bazel action,
 posts that status for the exact workflow commit with a BuildBuddy target URL.
+
+Before `provision_db_large_ingestion`, the action starts the Bazel-owned observer with
+`required_pool_slots=15` and waits for its ready handshake. That reservation is the parent Repo's
+12 configured slots, the concurrently possible cold-bootstrap child Repo's 2 slots, and the one
+direct Postgrex administrator connection opened by `StartupMigrations`. It is independent of the
+ordinary workflow's 114-slot preflight; the observer's own administrator connection is excluded
+from the workload reservation and reported separately. If the live safe fixture budget cannot fund
+all 15 workload slots, the heavy action fails before provisioning.
 
 The release workflow already resolves the immutable tag commit. After Bazelisk and the authenticated
 remote configuration are available, but before Cosign, ORAS, artifact builds, or publication, it
@@ -457,98 +472,45 @@ the workflow contract test proves the release job invokes the Bazel target at th
 This keeps the expensive coverage frequent and release-blocking without charging every developer
 change. It also keeps tests on BuildBuddy, while GitHub remains the collaboration and release host.
 
-### Decision: Rebalance with serial weight plus async makespan
-The current partition gives heavy files priority because file-count round robin did not balance
-runtime. Once heavy release qualification is extracted and some modules overlap, those hints are
-stale.
+### Decision: Freeze source membership before timing
+The final checked-in disposition is the only source of ordinary-lane membership. Every source whose
+selected modules are all async goes to the single async BEAM; every selected serial source goes to a
+serial lane; and every `load_only` source is absent. A mixed selected-mode source must be split
+before it can enter this topology.
 
-After the async set is stable, all eight shards run in one separately labeled, non-cohort profiling
-wave with `SERVICERADAR_TEST_SLOWEST` absent, the declared integration cap set to one, ExUnit tracing
-enabled explicitly, and test timeouts disabled explicitly. This emits every case duration in one
-consistent execution mode. ExUnit's built-in slowest report also changes runner semantics, so the
-ordinary PR action, heavy gate, and controlled benchmark action must never enable it. Those
-authoritative runs instead emit an effective-runner marker proving their configured `max_cases`,
-trace mode, and timeout mode.
+`serial_0` receives every `fixed_external` source first. The remaining serial sources are placed
+with deterministic LPT using the pre-measurement weight
+`1 + selected_serial_module_count`; ties use source path, then lane name. This is a reproducible
+initial balance, not a wall-time forecast. The checked-in lane count, source map, and exact selected
+identity union are built and validated before timing starts. A timing result cannot change them.
 
-The complete profiling trace is aggregated by module. Rounded relative weights are checked in for
-every selected module at or above the declared cutoff, while every selected module below it
-receives one common default weight; that default is a scheduling unit, not an invented runtime claim. Profiling
-durations never enter the before/after latency cohorts. A subsequent trace-free `max_cases: 2`
-validation wave must meet the safety requirements before advancing to cap four; final placement is
-then validated trace-free at `max_cases: 4`.
+The async lane has no outer placement decision: it receives every all-async selected source once and
+ExUnit list-schedules its selected module jobs at cap eight. The serial lanes use only the frozen
+pre-measurement LPT source weight above. Later traces can describe the resulting workload but cannot
+retune the production lane count or membership for the measured revision.
 
-The sum-only LPT layout was useful while almost every module was serial, but it overstates work that
-can overlap and can stack hard serial blockers behind the same shard. Final placement carries every
-selected module job from the checked-in disposition inventory and computes:
+### Decision: Production topology is not a challenger matrix
+The ordinary topology is fixed by the ruling: one async BEAM at cap eight and up to seven serial
+BEAM lanes at cap one. It is not compared with one/four/eight/hybrid alternatives and no result can
+silently change it. The async cap leaves four connections in that same test BEAM's 12-connection
+pool for test-owned processes such as sharded alert-engine workers. They are not held for any
+deployed ServiceRadar application, and no demo or production workload participates in this
+lifecycle. Cap 12 would remove the test-BEAM checkout headroom and is forbidden.
 
-```text
-relative predicted shard load =
-  retained_source_count * common_source_load_weight
-  + sum(serial module weights)
-  + list_schedule_makespan(async module weights, max_cases=4)
-```
-
-The common source-load weight is one relative unit for every retained file. Trace-derived module
-weights are compared only with values from the same complete trace and never converted to wall-time
-forecasts. List scheduling sorts async modules by descending measured weight and places each
-indivisible module on the least-loaded one of four virtual slots. The outer partitioner then considers sources
-in descending measured weight and assigns each source to the shard that minimizes the resulting
-global predicted maximum, followed by candidate-shard load, source count, and shard name as stable
-tie-breakers. Fixed-resource sources preseed `s7` and remain immovable. Tests prove deterministic,
-disjoint placement, disposition completeness, and a synthetic case where sum-only LPT would hide a
-serial critical path. A stale measured entry is harmless: if its source disappears it participates
-in no assignment.
-
-### Decision: Make one BEAM the primary measured topology challenger
-The approximately 36-second BEAM/runfiles cost is paid by every shard in compute, but eight shard
-starts overlap on the wall-clock critical path. Outer shards also distribute hard-serial work that
-one BEAM would have to execute cumulatively. Existing trace-instrumented case weights and the
-trace-free aggregate duration are intentionally not subtracted or used to forecast wall time: the
-measurement modes are not commensurate. They are sufficient only for relative placement within a
-single complete trace. Controlled lifecycle measurements decide whether avoiding BEAM startup
-outweighs accumulating serial work.
-
-The implementation provides non-gating, same-revision runner-layout diagnostics rather than
-treating the model as proof. The one-BEAM arm is the primary analytical challenger: it
-pays source loading and application startup once, uses one database, and lets ExUnit schedule the
-audited transaction-safe modules within that VM. One-BEAM at cap eight, four-BEAM at cap seven, final eight-BEAM at
-cap four, and five-BEAM hybrid variants use the same ordinary sources, trace-off mode, timeouts,
-retry policy, current template, and fresh disposable databases. These are pre-registered deployable
-bundles: BEAM count, per-BEAM cap, and aggregate Repo-pool capacity vary together, so results select
-a runner layout and MUST NOT be attributed to BEAM count alone. Caps are frozen before the five
-attempts and cannot be tuned after results are observed. Cap eight reserves four connections in
-the one-BEAM Repo pool for application-owned work; cap 12 would have no checkout headroom and could
-measure queue saturation instead of a viable layout. The hybrid
-has two async lanes at cap seven plus three serial lanes at cap one, with an exhaustive,
-disjoint union of ordinary core sources. Every multi-BEAM variant co-locates all fixed-external
-sources in one designated serial lane. Four-BEAM sources are frozen from the same execution model
-at cap seven. Hybrid async sources are balanced by cap-seven module makespan; hybrid serial sources
-are balanced by source load plus serial-module LPT after fixed-external sources preseed one serial
-lane. Static tests freeze deterministic membership and predicted relative loads. A separate diagnostic action swaps only those core labels,
-while an identical checked-in SRQL/other non-core target list runs in every arm. A static contract
-proves that list is exactly the production pull-request wildcard's ordinary target set minus the
-production core labels and excluded heavy target. Every arm replaces only those core labels, and
-its core source plus selected-test identity union must equal the production eight-shard core
-workload. The action explicitly builds the selected manual labels with the measured configuration
-before the clock. Five no-overlap
-rounds rotate the one/four/eight/hybrid arm order by one position per round; each attempt records
-lifecycle wall time, runner markers, connection peaks, failures, and residue. These rows never
-enter the 20-run acceptance cohorts. The authoritative benchmark remains
-the full pull-request integration wildcard and accepts no topology selector. The ordinary topology
-remains eight shards unless a smaller or hybrid topology beats it by at least 10% and satisfies
-every five-run screen safety and headroom gate. That result earns an explicit OpenSpec amendment;
-the amended layout must then pass the full 20-run acceptance contract before adoption. No
-diagnostic target is silently rewritten into production.
+Every ordinary lane uses the same source revision, trace-off mode, finite timeouts, retry policy,
+current template, per-BEAM pool size, and disposable-fixture contract. The authoritative benchmark
+measures this fixed source union; it has no topology selector. Any future topology change requires a
+new approved OpenSpec change and a new exact-SHA acceptance cohort.
 
 Template preparation and any migration run in a separate preflight before measurement. The
 end-to-end measurement starts immediately before fixture configuration is materialized and its end
 timestamp is captured immediately when teardown returns, before observer shutdown/wait overhead.
 The in-clock template check is current-only; a newly pending result is retained as non-cohort and
 cannot migrate inside the timing window. The preceding full-build step must have warmed the exact
-Bazel configuration. The measured ordinary wave includes
-every target selected by the pull-request integration filter (the eight core shards, the
-designated shared-resource lane within them, SRQL fixture targets, and other existing integration
-targets) and excludes only the source-separated heavy release-qualification target (the two
+Bazel configuration. The measured ordinary wave includes every target selected by the
+pull-request integration filter (the async target, all selected serial targets, SRQL fixture
+targets, and other existing integration targets) and excludes only the source-separated heavy
+release-qualification target (the two
 large-ingestion suites plus cold bootstrap). Over 20 consecutive runs, p95 is the nearest-rank
 19th ordered value.
 
@@ -559,8 +521,10 @@ Acceptance requires:
   including whether it reaches the 60% stretch target;
 - 20 consecutive retry-free before attempts and 20 consecutive retry-free after attempts under an
   identical exact-SHA harness;
-- no shard more than 1.5 times the runtime of the fastest non-empty shard in any accepted after run;
-- sampled run-scoped connections at most 144 and fixture-wide connections at most
+- no serial lane more than 1.5 times the runtime of the fastest non-empty serial lane in any
+  accepted after run;
+- sampled run-scoped connections at most 114 (the core topology's 96 slots plus three existing
+  SRQL integration targets at six connections each) and fixture-wide connections at most
   `floor(live usable client slots * 0.90)` in every accepted after run;
 - two consecutive zero run-scoped samples before teardown and no database under the run prefix
   after teardown; and
@@ -583,6 +547,14 @@ This proposal changes scheduling and test ownership only. It does not change:
 - credential forwarding only to explicit integration profiles;
 - the template migration source or configuration-manager ownership.
 
+Every CI, CPU-diagnostic, and cohort database in this proposal is a disposable
+`sr_core_test_<run-id>_<lane>` clone on the development-only `srql-fixtures` CNPG fixture. Neither
+`demo` nor any production database is a permitted endpoint. Repo-pool headroom refers only to
+components started inside the test BEAM, such as the alert engine's sharded GenServers; it is not
+capacity reserved for a deployed application. Focused direct Mix runs fail before Repo startup
+unless they identify the same fixture with verified TLS and use a separately created disposable
+scratch database.
+
 `complete-config-manager-adoption` overlaps `buildbuddy.yaml` and fixture environment setup. The
 implementation must apply against whichever configuration transport is current and must not
 restore a retired environment bridge. Bazel targets consume the final contract rather than owning
@@ -596,6 +568,10 @@ how secrets are materialized.
   use the project helper rather than switching the Repo to shared mode.
 - A failure in either ordinary or heavy integration tests still runs teardown for the same run id.
 - A teardown failure fails an otherwise green action.
+- A heavy observer preflight that cannot fund the parent pool of 12, the concurrent cold-bootstrap
+  child pool of 2, and `StartupMigrations`' one direct Postgrex administrator connection fails
+  before readiness and provisioning; serial ExUnit scheduling MUST NOT reduce that 15-slot
+  reservation.
 - A missing or failed heavy-gate commit status blocks release publication.
 - A historical release tag whose commit predates the permanent gate-contract marker reports the
   gate as not applicable. Marker removal at or after the introduction commit, or a marker-bearing
@@ -609,7 +585,7 @@ how secrets are materialized.
 2. Split the large-ingestion source and add its focused database lifecycle and BuildBuddy action.
    Verify ordinary PR target queries cannot reach the heavy source.
 3. Refactor shared versus non-shared owner teardown, pin fixed shared-external-resource tests to
-   the designated outer shard, and audit the first transaction-only modules.
+   `serial_0`, and audit the first transaction-only modules.
 4. Add the startup-neutrality RED/GREEN regression, move suite-global audit configuration into
    `test_helper.exs`, and remove redundant startup from promoted modules.
 5. Inventory every selected ExUnit module plus load-only source, prune unit-only sources after an
@@ -617,19 +593,17 @@ how secrets are materialized.
    modules, and split or normalize prioritized mixed modules with explicit evidence.
 6. Run the complete observed cap-two safety wave with retries disabled; repair any classification,
    ownership, queue, or cleanup defect before proceeding.
-7. Profile once at cap one, replace sum-only LPT with concurrency-aware placement, advance all
-   ordinary shards to cap four with Repo pool size pinned to 12, and run the safety wave only after
-   the final placement is in effect.
+7. Freeze the complete source map before timing: one async lane at cap eight and capacity-bounded
+   serial lanes at cap one, with Repo pool size pinned to 12. Run the safety wave only after that
+   placement is in effect.
 8. Publish the diagnostic actions, run non-cohort 2-CPU versus 12-CPU diagnostics, and freeze the
    explicit safe CPU winner in production and benchmark actions.
 9. Pass heavy/full repository verification, repair and freeze the before/after lineage without
    changing the verified final tree, publish exact SHAs, and run an exact-SHA BuildBuddy smoke.
-10. Run rotated one-/four-/eight-BEAM plus hybrid runner-layout diagnostics on the frozen final SHA;
-    retain eight shards unless an alternative clears the amendment threshold and later full gate.
-11. Run 20 alternating exact-SHA before and final-cap-after BuildBuddy cohorts with retries
+10. Run 20 alternating exact-SHA before and frozen-lane-after BuildBuddy cohorts with retries
     disabled; require after p95 at most 90 seconds and at least 50% relative improvement, and
     report whether the 60% stretch target is reached.
-12. Land the marker, complete qualifier, and workflow wiring atomically. After merge, verify the
+11. Land the marker, complete qualifier, and workflow wiring atomically. After merge, verify the
    `staging` push status before tagging when practical; otherwise the tag-triggered action must
    satisfy the same exact-SHA poll within its 30-minute deadline.
 
@@ -660,7 +634,10 @@ not reintroduce it into every pull request.
   justified by a focused regression and a green full wave, while actual starvation, sandbox-owner
   loss, and a test crossing its timeout remain cohort-breaking failures.
 - The separate heavy action adds default-branch compute. It removes that compute from every PR and
-  runs only one BEAM/database, so total developer latency falls while coverage remains frequent.
+  runs only one ExUnit BEAM/database, so total developer latency falls while coverage remains
+  frequent. During cold bootstrap that BEAM's 12-slot parent Repo overlaps a 2-slot normal child
+  Repo and `StartupMigrations`' direct Postgrex administrator connection, so capacity planning and
+  observer preflight must reserve 15 rather than infer 12 from the one-BEAM topology.
 - Release status enforcement introduces a dependency on the BuildBuddy action completing. The
   release workflow must report the pending/failed context clearly and time out rather than publish
   without evidence. The permanent introduction marker is part of the compatibility contract and
@@ -669,33 +646,24 @@ not reintroduce it into every pull request.
 ## Alternatives Considered
 
 ### Collapse every ordinary test into one BEAM
-Selected as the primary measured challenger, not as an unmeasured production default.
-Eight approximately 36-second startup/source-load phases overlap in wall time, so collapsing them
-saves aggregate runner work rather than an automatic seven times 36 seconds of elapsed time. One
-BEAM also accumulates every hard-serial module. Available measurements
-do not support a valid one-BEAM wall-time forecast because the async audit uses trace-instrumented
-case weights while the aggregate baseline is trace-free. The controlled topology diagnostic is the
-decision evidence; a safety-clean winner may replace the eight-shard default through the stated
-amendment and acceptance gate.
+Rejected. One BEAM would accumulate every hard-serial module and would remove the separate serial
+database/process boundaries required by the audit.
 
-### Use one async BEAM plus serial-isolation targets
-Retained as a measured challenger rather than the initial production topology. A hybrid can reduce
-repeated compute, but it needs exhaustive async/serial source separation and enough serial lanes to
-balance blockers; once those lanes exist it is still a multi-BEAM design. It may replace eight
-ordinary shards only through the documented 10% improvement, safety gates, and proposal amendment.
+### Split async work across multiple BEAMs
+Rejected. The ruling requires exactly one shared async BEAM. Serial parallelism is provided only by
+the capacity-bounded serial lanes, whose membership is frozen before timing.
 
-### Increase from eight to sixteen Bazel shards
-Rejected for the first iteration. Every extra shard repeats about 36 seconds of aggregate BEAM
-startup/source-load work, increases Repo pools and fixture databases, and cannot divide a single
-47-second test.
+### Increase beyond eight ordinary BEAM lanes
+Rejected. Every extra lane repeats BEAM startup/source-load work and would exceed the fixed
+96-configured-slot pool envelope.
 
 ### Raise `max_cases` for every module
 Rejected. `async: false` modules would still serialize, while changing all modules to async would
 race DDL, NATS, application configuration, and global supervisors.
 
 ### Give every test file its own database
-Rejected. Template cloning is cheap, but BEAM startup and runfiles staging are not. The outer shard
-count is already near the useful point of diminishing returns.
+Rejected. Template cloning is cheap, but BEAM startup and runfiles staging are not; source placement
+is intentionally limited to one async lane plus at most seven serial lanes.
 
 ### Use unboxed transactions like ordinary tests
 Rejected. Unboxed mode exists specifically for behavior that cannot run inside the sandbox
@@ -707,7 +675,5 @@ structural guarantee that ordinary shard targets cannot compile or select the he
 with a negative Bazel tag filter so the wildcard cannot select its dedicated target.
 
 ## Open Questions
-- None. The isolation classes, staged cap two-to-four rollout, full disposition audit,
-  concurrency-aware placement, CPU/topology diagnostics, source-separated heavy gate, BuildBuddy
-  schedule, and acceptance thresholds are the approved design. Diagnostic winners are selected by
-  the explicit criteria above rather than an unresolved design choice.
+- None. The isolation classes, full disposition audit, fixed async/serial lane topology,
+  source-separated heavy gate, BuildBuddy schedule, and acceptance thresholds are approved.

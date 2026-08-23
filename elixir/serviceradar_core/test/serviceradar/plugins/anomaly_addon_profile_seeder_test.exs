@@ -157,7 +157,7 @@ defmodule ServiceRadar.Plugins.AnomalyAddonProfileSeederDbTest do
   `SingleEnabledAddonProfile` on every boot.
   """
 
-  use ServiceRadar.DataCase, async: false
+  use ServiceRadar.DataCase, async: true
 
   import ExUnit.CaptureLog
 

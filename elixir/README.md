@@ -50,7 +50,7 @@ bazel build //elixir/serviceradar_core:erlang_app   # just one app
 | --- | --- | --- |
 | `elixir/datasvc` | `erlang_app` | gRPC data service |
 | `elixir/serviceradar_srql` | `erlang_app` | Wraps the `srql_nif` Rust NIF |
-| `elixir/serviceradar_core` | `erlang_app`, `unit_tests`, `integration_tests_s0..s7`, `migrate_template`, `migrations` | The big one; ~2700 unit + ~1570 integration tests |
+| `elixir/serviceradar_core` | `erlang_app`, `unit_tests`, `integration_tests_async`, `integration_tests_serial_0..serial_6`, `migrate_template`, `migrations` | The big one; ~2700 unit + ~1570 integration tests |
 | `elixir/serviceradar_agent_gateway` | `erlang_app`, `unit_tests`, `release_tar` | |
 | `elixir/web-ng` | `erlang_app`, `unit_tests`, `deps_cache`, `precommit`, `release_tar` | Phoenix; see `elixir/web-ng/AGENTS.md` |
 | `elixir/serviceradar_core_elx` | `release_tar` | Release wrapper, no `mix_app` |
@@ -74,7 +74,7 @@ Shared Starlark lives in `//build`:
 | `mix_app.bzl` | Compile a Mix project in one action. The core rule. |
 | `elixir_tests.bzl` | `ex_unit_tests` macro: generate grouped ExUnit targets |
 | `elixir_test_config_loader.exs` | Applies `config/config.exs` the way `mix test` does |
-| `integration_shards.bzl` | Shard count/names, shared with `//rust/integration-db` |
+| `integration_shards.bzl` | Async/serial lane topology, shared with `//rust/integration-db` |
 | `mix_deps.bzl`, `mix_precommit.bzl`, `mix_release.bzl` | web-ng dep cache, quality gate, release tarballs |
 
 ## Toolchain
@@ -343,16 +343,19 @@ PostgreSQL fixture (CNPG with TimescaleDB and Apache AGE).
 
 ### Shape
 
-- **8 shards**, `integration_tests_s0` .. `integration_tests_s7`, one Bazel target each, each
-  with **its own database**.
-- Shard count, names and the file partition live in `//build:integration_shards.bzl`, which is
-  read by both the Elixir targets and `//rust/integration-db:provision_db`. One list, both
-  sides -- a mismatch would not be a build error, it would be a suite running against a
-  database nothing provisioned.
-- A database per shard is not optional. Ecto's SQL sandbox isolates concurrent tests inside a
-  BEAM VM and does nothing across OS processes, so parallel targets against one database
-  deadlock (measured: 25 failures across 6 of 7 groups, dominated by `40P01
-  deadlock_detected`, where each group passed alone).
+- **8 lanes**: `integration_tests_async` plus `integration_tests_serial_0` through
+  `integration_tests_serial_6`. Each has its own database and matching provision target:
+  `provision_db_async` or `provision_db_serial_0` through `provision_db_serial_6`.
+- Lane names and the audited source partition live in `//build:integration_shards.bzl`, which
+  both the Elixir targets and Rust provisioner read. The async lane runs `max_cases=8`; every
+  serial lane runs `max_cases=1`.
+- Every ordinary lane uses `pool_size=12`. The async BEAM's eight test cases leave four checkout
+  slots as BEAM-internal headroom for test-supervised child processes; they are not capacity for
+  more BEAMs or for deployed services.
+- A database per lane is mandatory. Ecto's SQL sandbox isolates concurrent tests inside one BEAM
+  VM and does nothing across OS processes. The only allowed target databases are disposable
+  `sr_core_test_<run-id>_<lane>` clones on `srql-fixtures`; never point this topology at demo,
+  production, or another non-disposable database.
 
 ### The template
 
@@ -375,10 +378,15 @@ Bazel deliberately does not order tests, so sequencing is the caller's job:
 //rust/integration-db:sweep_stale_dbs     drop leaked databases from previous runs
 //rust/integration-db:prepare_template    create the template if absent; report if it is behind
 //elixir/serviceradar_core:migrate_template   only when behind; the only step that needs the BEAM
-//rust/integration-db:provision_db        clone one database per shard from the template
-//elixir/serviceradar_core:integration_tests_s0..s7
+//rust/integration-db:provision_db_async  clone the async lane database from the template
+//elixir/serviceradar_core:integration_tests_async
+//rust/integration-db:provision_db_serial_0..serial_6
+//elixir/serviceradar_core:integration_tests_serial_0..serial_6
 //rust/integration-db:teardown_db         drop the per-run databases
 ```
+
+Pair a provision and test target with the exact same suffix. These targets are for disposable
+`srql-fixtures` clones only; never substitute demo or production.
 
 `migrate_template` is the only piece that must run on the BEAM, because the migrations are
 `use Ecto.Migration` modules and only `Ecto.Migrator` can apply them. Everything else --
@@ -390,7 +398,7 @@ creating databases, extensions, AGE graphs, sweeping, teardown -- is Rust, which
 | Tag | Meaning here |
 | --- | --- |
 | `manual` | Keeps the target out of `//...`, so an ordinary `bazel test` never points DDL at the shared fixture, and never reports a vacuous pass when the fixture URL is absent. Every database target has it. |
-| `external` | Disables Bazel's **test caching**. Load-bearing on the lifecycle targets: a cached "pass" would mean a rerun provisioned nothing and dropped nothing. Supported shard invocations pass `--nocache_test_results` because shard outcomes depend on mutable fixture state. CI additionally disables uploading local test results; a workstation does not, so locally compiled cache misses can still populate the shared cache. |
+| `external` | Disables Bazel's **test caching**. Load-bearing on the lifecycle targets: a cached "pass" would mean a rerun provisioned nothing and dropped nothing. Supported lane invocations pass `--nocache_test_results` because lane outcomes depend on mutable fixture state. CI additionally disables uploading local test results; a workstation does not, so locally compiled cache misses can still populate the shared cache. |
 
 ## Native NIFs
 
@@ -601,25 +609,34 @@ database-free tier and included in the integration tier.
 `use ServiceRadar.DataCase` gives you the Ecto sandbox; use plain `ExUnit.Case, async: false`
 if the test drives its own connections, so it does not hold a sandbox connection idle.
 
-**2. Nothing to declare for sharding.** `ALL_TEST_SRCS` globs `test/**/*_test.exs` and
-`partition_by_shard` deals the files out, so a new file lands in a shard automatically.
+**2. Classify the source for lane selection.** `ALL_TEST_SRCS` globs `test/**/*_test.exs`, and
+the checked-in disposition inventory places every selected source in `partition_by_lane` as async
+or serial. Do not assign a file based on a one-off duration measurement.
 
-The one exception is `test/db/**`, which the glob excludes. Those files are the database
+The normal exception is `test/db/**`, which the glob excludes. Those files are the database
 lifecycle targets (`migrate_db_test.exs` and its helpers), declared individually rather than
-partitioned -- they are not suite tests. Do not put an ordinary test there.
+partitioned -- they are not suite tests. Do not put an ordinary test there. A deliberately heavy
+test may also be explicitly source-separated when its complete production-path coverage cannot
+fit the PR lifecycle budget; cold database bootstrap is the current example and runs intact in
+`//elixir/serviceradar_core:large_ingestion_release_gate`. Any new exception requires a checked-in
+source-membership contract and release-qualification coverage.
 
-**3. If the test is slow**, add it to `_HEAVY_SRCS` in `//build:integration_shards.bzl` so it
-does not share a shard with another slow file. Measure it as the shard step of the
-[canonical fixture lifecycle](../.agents/skills/srql-fixtures-db-tests/SKILL.md), after the
-matching `provision_db_s6` target:
+**3. If the test is slow**, profile it as a lane step of the
+[canonical fixture lifecycle](../.agents/skills/srql-fixtures-db-tests/SKILL.md), after its
+matching provision target. Use `provision_db_async` with `integration_tests_async`, or the same
+`serial_0` through `serial_6` suffix on `provision_db_serial_*` and
+`integration_tests_serial_*`. Built-in slowest reporting enables trace, forces serial execution,
+and disables test timeouts, so explicitly set the profiling cap to one and never use this command
+as latency or concurrency evidence:
 
 ```sh
-bazel test "${TEST_FLAGS[@]}" --test_env=SERVICERADAR_TEST_SLOWEST=15 \
-  --test_output=all //elixir/serviceradar_core:integration_tests_s6
+bazel test "${TEST_FLAGS[@]}" --test_env=SERVICERADAR_INTEGRATION_MAX_CASES=1 \
+  --test_env=SERVICERADAR_TEST_SLOWEST=15 \
+  --test_output=all //elixir/serviceradar_core:integration_tests_serial_6
 ```
 
-That list is a hint, not a contract -- a stale entry costs a slightly worse balance, a missing
-one shows up as a single slow shard.
+Profiling does not change lane membership. Update an audited disposition only when the source's
+isolation semantics change; controlled BuildBuddy cohorts remain acceptance evidence.
 
 **4. If you added a migration**, nothing special: migrations are append-only and
 `Ecto.Migrator` tracks what it applied, so `prepare_template` notices the template is behind
@@ -734,15 +751,16 @@ Every part of that is load-bearing:
 - **The `PG_VERSION` guard.** Without it the command is single-use: `docker stop` followed by
   `docker start` re-runs `initdb` against a populated directory, it fails, and the container
   exits 1 before `postgres` ever starts. The guard makes the fixture survive a restart with
-  its template and shard databases intact.
+  its template and lane databases intact.
 - **`--auth-host=trust` plus the `pg_hba.conf` line.** Without them every connection fails
   with `no pg_hba.conf entry for host ...`.
 - **`shared_preload_libraries=...,age`.** AGE must be *preloaded*, not merely on the
   `search_path`. `create_graph` fails without the library loaded, which surfaces during
   template preparation, not at connect time.
-- **`max_connections=300`.** Eight shards plus their pools exceed the default 100.
-- **`max_worker_processes=64`.** Each cloned shard database carries Timescale's
-  continuous-aggregate policy jobs, and eight of them exhaust the default. The symptom is a
+- **`max_connections=300`.** One async and seven serial test BEAMs, each with a 12-connection
+  pool, exceed the default 100.
+- **`max_worker_processes=64`.** Each cloned lane database carries Timescale's
+  continuous-aggregate policy jobs, and all eight lanes exhaust the default. The symptom is a
   log full of `failed to launch job NNNN "Refresh Continuous Aggregate Policy": failed to
   start a background worker`. Harmless for the tests, which do not depend on background
   refresh, but it buries real errors.
@@ -751,7 +769,8 @@ On Apple Silicon the image is `linux/amd64` and runs under emulation; Docker pri
 warning, which is expected.
 
 Then create the owner role. A fresh `initdb` has only `postgres`, and
-`//rust/integration-db:{prepare_template,provision_db}` create every database owned by the
+`//rust/integration-db:{prepare_template,provision_db_async,provision_db_serial_0..serial_6}`
+create every database owned by the
 **user in `SRQL_TEST_DATABASE_URL`** -- `serviceradar` for the DSN below:
 
 ```sh
@@ -772,7 +791,7 @@ You do **not** need to create `serviceradar_bootstrap_test` -- `StartupMigration
 application role itself, which is part of what the bootstrap test exercises.
 
 Then establish one numeric run identity for the entire lifecycle. Keep the fixture URL in
-`SRQL_TEST_DATABASE_URL`; the integration target derives its disposable shard URL inside the test
+`SRQL_TEST_DATABASE_URL`; the integration target derives its disposable lane URL inside the test
 action:
 
 ```sh
@@ -788,9 +807,10 @@ RUN_ID="$(uuidgen | tr -d - | tr 'A-Z' 'a-z' | cut -c1-8)"
 Invoke the Bazel targets with the caller-owned cleanup trap in
 `.agents/skills/srql-fixtures-db-tests/SKILL.md`. For this Docker fixture, reuse the recipe from
 `RUN_ID` onward with the two URLs and run id above; omit its Kubernetes host/TLS
-exports plus `buildbuddy_setup_fixture_env`/source lines, and use matching `provision_db_sN` and
-`integration_tests_sN` labels. The canonical cleanup preserves a red shard status and also fails
-an otherwise-green run when teardown fails.
+exports plus `buildbuddy_setup_fixture_env`/source lines. This Docker setup is a local development
+fixture, not a substitute for the guarded async/serial topology: that topology requires disposable
+`srql-fixtures` clones and must never target demo or production. The canonical cleanup preserves a
+red lane status and also fails an otherwise-green run when teardown fails.
 
 **Put a password in the admin DSN even on a `trust` fixture.** `StartupMigrations` discards
 admin credentials whose password is empty and silently falls back to the unprivileged
@@ -843,7 +863,7 @@ reads Rust sources.
 | `module Connection is not loaded and could not be found` | A `path:` dep edge dropped. Add it to `@path_deps` in `third_party/hex/gen_hex_bazel.exs`. |
 | `{:bad_lib, "Failed to find library init function"}` | `RUSTLER_PRIMARY_NIF_INIT=1` missing from the NIF's `rustc_env`. |
 | Cargo runs during a Bazel build | `skip_compilation?: true` missing from `extra_config`. |
-| `40P01 deadlock_detected` across integration groups | Two shards sharing a database. Check `provision_db` ran with the current shard list. |
+| `40P01 deadlock_detected` across integration groups | Two lanes sharing a database. Check the matching `provision_db_async` or `provision_db_serial_*` target ran first. |
 | Integration suite green having run zero tests | Fixture URL absent, so `test_helper` took the no-database branch. The `manual` tag exists to prevent this. |
 | `42501 must be owner of schema platform` | Admin DSN has no password; see [Running things locally](#running-things-locally). |
 | `template ... is behind by N migration(s)` | Run `//elixir/serviceradar_core:migrate_template`. |
@@ -856,7 +876,7 @@ reads Rust sources.
 
 - `//build:mix_app.bzl` -- the compile rule, with rationale
 - `//build:elixir_tests.bzl` -- test grouping, with the arithmetic
-- `//build:integration_shards.bzl` -- shard count and why eight
+- `//build:integration_shards.bzl` -- async/serial lane topology and capacity
 - `//rust/integration-db` -- database lifecycle
 - `elixir/web-ng/AGENTS.md` -- Phoenix/LiveView/Ash rules for web-ng
 - `rust/README_RUST.md` -- Rust dependency rules, which NIFs are subject to

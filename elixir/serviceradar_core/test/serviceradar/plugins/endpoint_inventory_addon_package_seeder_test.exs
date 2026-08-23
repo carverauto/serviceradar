@@ -3,7 +3,7 @@ defmodule ServiceRadar.Plugins.EndpointInventoryAddonPackageSeederTest do
   DB-backed coverage for the ScaLibr endpoint inventory native add-on seed.
   """
 
-  use ServiceRadar.DataCase, async: false
+  use ServiceRadar.DataCase, async: true
 
   alias ServiceRadar.Edge.AgentConfigGenerator
   alias ServiceRadar.Infrastructure.Agent

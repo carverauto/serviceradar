@@ -1,5 +1,6 @@
 """Static contract for the explicit-only core integration benchmark harness."""
 
+import csv
 import hashlib
 import re
 import sys
@@ -13,7 +14,10 @@ OBSERVER_SOURCE = ROOT / "rust/integration-db/src/connection_observer.rs"
 OBSERVER_BINARY = ROOT / "rust/integration-db/src/bin/observe_connections.rs"
 OBSERVER_BUILD = ROOT / "rust/integration-db/BUILD.bazel"
 CORE_BUILD = ROOT / "elixir/serviceradar_core/BUILD.bazel"
+CORE_TEST_ROOT = ROOT / "elixir/serviceradar_core/test"
+INTEGRATION_DISPOSITIONS = CORE_TEST_ROOT / "INTEGRATION_SOURCE_DISPOSITIONS.tsv"
 INTEGRATION_SHARDS = ROOT / "build/integration_shards.bzl"
+INTEGRATION_DISPOSITIONS_BZL = ROOT / "build/integration_test_dispositions.bzl"
 RELEASE_WORKFLOW = ROOT / ".github/workflows/release.yml"
 RELEASE_GATE_MARKER = ROOT / "build/ci/large_ingestion_gate_contract.v1"
 RELEASE_GATE_BUILD = ROOT / "build/ci/BUILD.bazel"
@@ -21,6 +25,18 @@ RELEASE_GATE_LIBRARY = ROOT / "build/ci/large_ingestion_gate.py"
 RELEASE_GATE_CLI = ROOT / "build/ci/wait_for_large_ingestion_gate.py"
 RELEASE_GATE_TEST = ROOT / "build/ci/wait_for_large_ingestion_gate_test.py"
 TEST_HELPER = ROOT / "elixir/serviceradar_core/test/test_helper.exs"
+TEST_SUPPORT = ROOT / "elixir/serviceradar_core/test/support/test_support.ex"
+INTEGRATION_ENV = ROOT / "elixir/serviceradar_core/test/db/integration_env.exs"
+INTEGRATION_ENV_CONFIG = (
+    ROOT / "elixir/serviceradar_core/test/db/integration_env_config.exs"
+)
+TEST_DATABASE_GUARD = (
+    ROOT / "elixir/serviceradar_core/config/test_database_guard.exs"
+)
+CORE_TEST_CONFIG = ROOT / "elixir/serviceradar_core/config/test.exs"
+CI_ENVIRONMENT = ROOT / "config/environments/ci.textproto"
+SRQL_INTEGRATION_BUILD = ROOT / "integration_tests/srql/BUILD.bazel"
+SRQL_INTEGRATION_HARNESS = ROOT / "integration_tests/srql/tests/support/harness.rs"
 ORDINARY_RESULTS_ROUTER = (
     ROOT
     / "elixir/serviceradar_core/test/serviceradar/results_router_integration_test.exs"
@@ -38,28 +54,130 @@ FIXED_EXTERNAL_RESOURCE_PATHS = (
     "test/integration/proxmox_api_smoke_integration_test.exs",
     "test/serviceradar/scans/adhoc_scan_nats_e2e_test.exs",
 )
-ASYNC_SAFE_SRCS = (
-    "test/integration/advisory_feed_loader_integration_test.exs",
-    "test/integration/secret_broker_audit_integration_test.exs",
-)
 SERIAL_COMPOSITE_CHECK_SRCS = (
     "test/serviceradar/composite_checks/composite_check_test.exs",
     "test/serviceradar/composite_checks/composite_check_rule_test.exs",
     "test/serviceradar/composite_checks/composite_check_input_test.exs",
     "test/serviceradar/composite_checks/device_composite_check_result_test.exs",
 )
+DATABASE_BOOTSTRAP_SOURCE = (
+    "test/serviceradar/cluster/database_bootstrap_integration_test.exs"
+)
+DATABASE_BOOTSTRAP_TEST = ROOT / "elixir/serviceradar_core" / DATABASE_BOOTSTRAP_SOURCE
+STARTUP_MIGRATIONS = (
+    ROOT
+    / "elixir/serviceradar_core/lib/serviceradar/cluster/startup_migrations.ex"
+)
+
+DISPOSITION_FIELDS = (
+    "source",
+    "module",
+    "case_kind",
+    "mode",
+    "reason",
+    "evidence",
+)
+SELECTED_CASE_KINDS = {"data_case", "non_data_case"}
+SELECTED_MODES = {"async", "serial"}
+SERIAL_REASONS = {
+    "application_env",
+    "ddl",
+    "fixed_external",
+    "global_cache",
+    "global_process",
+    "global_pubsub",
+    "global_registry",
+    "global_telemetry",
+    "materialized_view",
+    "multi_connection",
+    "oban_global",
+    "truncate",
+    "unboxed",
+    "unmanaged_child",
+    "vm_global",
+}
 
 
 def fixed_external_resource_sources() -> tuple[str, ...]:
-    source = INTEGRATION_SHARDS.read_text(encoding="utf-8")
+    source = INTEGRATION_DISPOSITIONS_BZL.read_text(encoding="utf-8")
     match = re.search(
-        r"_FIXED_EXTERNAL_RESOURCE_SRCS = \[\n(?P<sources>.*?)\n\]",
+        r"FIXED_EXTERNAL_INTEGRATION_SRCS = \[\n(?P<sources>.*?)\n\]",
         source,
         re.DOTALL,
     )
     if not match:
-        raise AssertionError("_FIXED_EXTERNAL_RESOURCE_SRCS is missing")
+        raise AssertionError("FIXED_EXTERNAL_INTEGRATION_SRCS is missing")
     return tuple(re.findall(r'^    "([^"]+)",$', match.group("sources"), re.MULTILINE))
+
+
+def projected_integration_sources(name: str) -> tuple[str, ...]:
+    source = INTEGRATION_DISPOSITIONS_BZL.read_text(encoding="utf-8")
+    match = re.search(
+        rf"{re.escape(name)} = \[\n(?P<sources>.*?)\n\]",
+        source,
+        re.DOTALL,
+    )
+    if not match:
+        raise AssertionError(f"{name} is missing")
+    return tuple(re.findall(r'^    "([^"]+)",$', match.group("sources"), re.MULTILINE))
+
+
+def projected_serial_module_counts() -> dict[str, int]:
+    source = INTEGRATION_DISPOSITIONS_BZL.read_text(encoding="utf-8")
+    match = re.search(
+        r"SERIAL_INTEGRATION_MODULE_COUNTS = \{\n(?P<entries>.*?)\n\}",
+        source,
+        re.DOTALL,
+    )
+    if not match:
+        raise AssertionError("SERIAL_INTEGRATION_MODULE_COUNTS is missing")
+    return {
+        path: int(count)
+        for path, count in re.findall(
+            r'^    "([^"]+)": ([0-9]+),$', match.group("entries"), re.MULTILINE
+        )
+    }
+
+
+def ordinary_core_test_sources() -> tuple[str, ...]:
+    excluded_sources = {
+        DATABASE_BOOTSTRAP_SOURCE,
+        "test/serviceradar/edge/agent_command_bus_rpc_registry_test.exs",
+    }
+    sources = []
+
+    for path in CORE_TEST_ROOT.rglob("*_test.exs"):
+        source = path.relative_to(CORE_TEST_ROOT.parent).as_posix()
+        if source.startswith("test/db/") or source.startswith("test/release_gates/"):
+            continue
+        if source in excluded_sources:
+            continue
+        sources.append(source)
+
+    return tuple(sorted(sources))
+
+
+def integration_dispositions() -> tuple[dict[str, str], ...]:
+    with INTEGRATION_DISPOSITIONS.open(encoding="utf-8", newline="") as stream:
+        reader = csv.DictReader(stream, delimiter="\t")
+        if tuple(reader.fieldnames or ()) != DISPOSITION_FIELDS:
+            raise AssertionError(
+                f"unexpected disposition fields: {reader.fieldnames!r}; "
+                f"expected {DISPOSITION_FIELDS!r}"
+            )
+        return tuple(reader)
+
+
+def module_source_block(source: str, module: str) -> str:
+    text = (CORE_TEST_ROOT.parent / source).read_text(encoding="utf-8")
+    declaration = re.search(
+        rf"(?m)^defmodule\s+{re.escape(module)}\s+do\s*$", text
+    )
+    if not declaration:
+        raise AssertionError(f"{source} does not declare {module}")
+    next_module = re.search(r"(?m)^defmodule\s+", text[declaration.end() :])
+    end = declaration.end() + next_module.start() if next_module else len(text)
+    return text[declaration.start() : end]
 
 
 def integration_only_branch() -> str:
@@ -308,16 +426,21 @@ class IntegrationBenchmarkContractTest(unittest.TestCase):
             "BAZEL_PROFILE=ci",
             "--flaky_test_attempts=1",
             "--test_output=all",
-            "SERVICERADAR_TEST_SLOWEST=15",
             "--strategy=TestRunner=local",
             "integration_test,-large_ingestion_test,-acceptance_test",
             "//rust/integration-db:observe_connections",
             "--max-seconds 1800",
+            "--required-pool-slots 114",
             "od -An -tx1 -N4 /dev/urandom",
             "//:buildbuddy_setup_fixture_env",
             "//rust/integration-db:teardown_db",
         ):
             self.assertIn(required, self.action)
+
+        # ExUnit's built-in slowest report implicitly enables trace, which forces
+        # max_cases=1 and disables test timeouts. Authoritative benchmark runs must
+        # exercise the checked-in integration concurrency cap instead.
+        self.assertNotIn("SERVICERADAR_TEST_SLOWEST", self.action)
 
     def test_expected_sha_is_checked_before_any_build_or_registry_work(self):
         sha_check = self.action.index("SERVICERADAR_BENCHMARK_EXPECTED_SHA")
@@ -367,6 +490,20 @@ class IntegrationBenchmarkContractTest(unittest.TestCase):
         ):
             self.assertIn(use, measured)
             self.assertLess(flags, measured.index(use))
+
+    def test_database_flags_disable_cache_and_remote_upload(self):
+        preflight_start = self.action.index('PREFLIGHT_FLAGS="')
+        preflight_end = self.action.index('preflight="$(bazel', preflight_start)
+        measured_start = self.action.index('\n          FLAGS="-c opt --config=ci')
+        measured_end = self.action.index("OBSERVER_DIR=", measured_start)
+
+        for phase, block in (
+            ("preflight", self.action[preflight_start:preflight_end]),
+            ("measured", self.action[measured_start:measured_end]),
+        ):
+            with self.subTest(phase=phase):
+                self.assertEqual(1, block.count("--nocache_test_results"))
+                self.assertEqual(1, block.count("--noremote_upload_local_results"))
 
     def test_clock_and_observer_markers_cannot_drift(self):
         self.assertIn("mktemp -d", self.action)
@@ -446,13 +583,14 @@ class WorkflowIntegrationLifecycleContractTest(unittest.TestCase):
         "bazel run -c opt --config=ci --//build:enable_integration_tests "
         "--//build:run_id=$RUN_ID //:buildbuddy_setup_fixture_env"
     )
-    observer_start = (
-        "bazel run -c opt --config=ci --//build:enable_integration_tests "
-        "--//build:run_id=$RUN_ID //rust/integration-db:observe_connections -- "
-        '--ready-file "$READY_FILE" --suite-complete-file "$SUITE_COMPLETE_FILE" '
-        '--quiescent-file "$QUIESCENT_FILE" --stop-file "$STOP_FILE" '
-        "--max-seconds 1800 &"
-    )
+    def observer_start(self, required_pool_slots: int) -> str:
+        return (
+            "bazel run -c opt --config=ci --//build:enable_integration_tests "
+            "--//build:run_id=$RUN_ID //rust/integration-db:observe_connections -- "
+            '--ready-file "$READY_FILE" --suite-complete-file "$SUITE_COMPLETE_FILE" '
+            '--quiescent-file "$QUIESCENT_FILE" --stop-file "$STOP_FILE" '
+            f"--max-seconds 1800 --required-pool-slots {required_pool_slots} &"
+        )
     sweep = "bazel test $FLAGS //rust/integration-db:sweep_stale_dbs"
     current_prepare = (
         'template="$(bazel run -c opt --config=ci '
@@ -497,6 +635,7 @@ class WorkflowIntegrationLifecycleContractTest(unittest.TestCase):
         action: str,
         provision_command: str,
         suite_command: str,
+        required_pool_slots: int,
     ) -> None:
         measured = measured_database_lifecycle_shell(action)
         lines = normalized_shell_lines(measured)
@@ -511,7 +650,7 @@ class WorkflowIntegrationLifecycleContractTest(unittest.TestCase):
 
         expected = (
             self.fixture_setup,
-            self.observer_start,
+            self.observer_start(required_pool_slots),
             wait,
             self.sweep,
             self.current_prepare,
@@ -543,10 +682,78 @@ class WorkflowIntegrationLifecycleContractTest(unittest.TestCase):
         self.assertLess(conditional_migrate, prepare_positions[1])
         self.assertLess(prepare_positions[1], pending_check)
 
-    def test_task6_database_flags_disable_cache_and_remote_upload(self):
+    def test_database_flags_disable_cache_and_remote_upload(self):
         for action_name in ("BazelCI", "LargeIngestionGate"):
             with self.subTest(action=action_name):
                 self.assert_cache_flags(action_name)
+
+    def test_guarded_elixir_suites_cannot_bypass_the_typed_ci_fixture(self):
+        preload = INTEGRATION_ENV.read_text(encoding="utf-8")
+        resolver = INTEGRATION_ENV_CONFIG.read_text(encoding="utf-8")
+        core_build = CORE_BUILD.read_text(encoding="utf-8")
+        ci_environment = CI_ENVIRONMENT.read_text(encoding="utf-8")
+
+        self.assertIn("ServiceRadar.DB.IntegrationEnvConfig.configure!(", preload)
+        self.assertNotIn('System.get_env("SRQL_TEST_DATABASE_URL")', preload)
+        self.assertNotIn(
+            'System.get_env("SERVICERADAR_TEST_DATABASE_URL")', preload
+        )
+        self.assertIn("fixture_resolver \\\\ &FixtureConfig.resolve!/1", resolver)
+        self.assertIn("System.put_env(@database_url_env, url)", resolver)
+        self.assertIn('"//config/environments:ci_binpb"', core_build)
+        self.assertIn('"//config/manager_config/elixir:manager"', core_build)
+        self.assertIn('"//config/manager_secret/elixir:secret"', core_build)
+        self.assertIn(
+            'host: "srql-fixture-rw.srql-fixtures.svc.cluster.local"',
+            ci_environment,
+        )
+        self.assertIn('database: "srql_fixture"', ci_environment)
+
+    def test_every_direct_database_backed_mix_run_is_confined_to_srql_fixtures(self):
+        guard = TEST_DATABASE_GUARD.read_text(encoding="utf-8")
+        test_config = CORE_TEST_CONFIG.read_text(encoding="utf-8")
+
+        self.assertIn(
+            '@fixture_tls_name "srql-fixture-rw.srql-fixtures.svc.cluster.local"',
+            guard,
+        )
+        self.assertIn("sr_core_test_", guard)
+        self.assertIn("codex_", guard)
+        self.assertIn('ssl_mode != "verify-full"', guard)
+        self.assertIn("not ca_configured?", guard)
+        self.assertIn("validate_query!(uri.query)", guard)
+        self.assertIn("fixture_dial_target?", guard)
+        self.assertIn('Code.require_file("test_database_guard.exs", __DIR__)', test_config)
+        self.assertIn("alias ServiceRadar.DB.TestDatabaseGuard", test_config)
+        self.assertIn("TestDatabaseGuard.validate!", test_config)
+        self.assertNotIn("SERVICERADAR_TEST_DATABASE_TEMPLATE_LIFECYCLE", test_config)
+
+    def test_guarded_bazel_database_targets_stage_only_the_ci_fixture_identity(self):
+        core_build = CORE_BUILD.read_text(encoding="utf-8")
+        integration_db_build = OBSERVER_BUILD.read_text(encoding="utf-8")
+        srql_build = SRQL_INTEGRATION_BUILD.read_text(encoding="utf-8")
+
+        for source in (core_build, integration_db_build, srql_build):
+            self.assertIn("//config/environments:ci_binpb", source)
+            self.assertNotIn("//config/environments:localhost_binpb", source)
+
+    def test_cold_bootstrap_scratch_cleanup_is_outcome_bearing(self):
+        source = DATABASE_BOOTSTRAP_TEST.read_text(encoding="utf-8")
+        self.assertIn(
+            "on_exit(fn ->\n      drop_database!(admin_opts, scratch_db)\n    end)",
+            source,
+        )
+        self.assertIn("defp drop_database!(admin_opts, database) do", source)
+        self.assertIn('raise "failed to drop bootstrap scratch database', source)
+        self.assertNotIn("sweep_stale_dbs will collect it", source)
+
+    def test_cold_bootstrap_admin_ddl_uses_the_typed_fixture_endpoint(self):
+        source = DATABASE_BOOTSTRAP_TEST.read_text(encoding="utf-8")
+        self.assertIn('FixtureConfig.admin_url!("postgres")', source)
+        self.assertNotIn(
+            'System.get_env("SERVICERADAR_TEST_ADMIN_URL")', source
+        )
+        self.assertNotIn('System.get_env("SRQL_TEST_ADMIN_URL")', source)
 
     def test_bazel_test_command_extractor_inventories_every_literal_form(self):
         synthetic_action = """  - name: "Synthetic"
@@ -574,8 +781,10 @@ class WorkflowIntegrationLifecycleContractTest(unittest.TestCase):
         action: str,
         provision_command: str,
         suite_command: str,
+        required_pool_slots: int,
     ) -> None:
         for required in (
+            'SRQL_FIXTURE_CA_URL: "http://srql-fixture-ca-incluster.srql-fixtures.svc.cluster.local/ca.crt"',
             "export BAZEL_PROFILE=ci",
             "export SERVICERADAR_ENV=ci",
             "--strategy=TestRunner=local",
@@ -583,7 +792,6 @@ class WorkflowIntegrationLifecycleContractTest(unittest.TestCase):
             "--//build:run_id=$RUN_ID",
             "--flaky_test_attempts=1",
             "--test_output=all",
-            "--test_env=SERVICERADAR_TEST_SLOWEST=15",
             "od -An -tx1 -N4 /dev/urandom",
             "export RUN_ID",
             "//:buildbuddy_setup_fixture_env",
@@ -593,10 +801,19 @@ class WorkflowIntegrationLifecycleContractTest(unittest.TestCase):
             '--quiescent-file "$QUIESCENT_FILE"',
             '--stop-file "$STOP_FILE"',
             "--max-seconds 1800",
+            f"--required-pool-slots {required_pool_slots}",
             provision_command,
             suite_command,
         ):
             self.assertIn(required, action)
+
+        environment_bindings = re.findall(
+            r"\bSERVICERADAR_ENV=([A-Za-z0-9_-]+)", action
+        )
+        self.assertTrue(environment_bindings)
+        self.assertEqual({"ci"}, set(environment_bindings))
+
+        self.assertNotIn("SERVICERADAR_TEST_SLOWEST", action)
 
         measured_start = action.index("\n          RUN_ID=")
         measured = action[measured_start:]
@@ -610,7 +827,6 @@ class WorkflowIntegrationLifecycleContractTest(unittest.TestCase):
             "--test_env=SERVICERADAR_ENV=ci",
             "--flaky_test_attempts=1",
             "--test_output=all",
-            "--test_env=SERVICERADAR_TEST_SLOWEST=15",
         ):
             self.assertIn(measured_flag, measured[flags:cleanup])
         for secret in (
@@ -765,6 +981,7 @@ class WorkflowIntegrationLifecycleContractTest(unittest.TestCase):
             action,
             "bazel test $FLAGS //rust/integration-db:provision_db",
             self.ordinary_suite,
+            114,
         )
         self.assertEqual(1, action.count(self.ordinary_suite))
         self.assertNotIn(
@@ -778,6 +995,7 @@ class WorkflowIntegrationLifecycleContractTest(unittest.TestCase):
             action,
             "bazel test $FLAGS //rust/integration-db:provision_db",
             self.ordinary_suite,
+            114,
         )
         self.assert_observer_and_cleanup_contract(action)
         self.assert_teardown_suffix_mutations_are_rejected(action)
@@ -846,6 +1064,7 @@ class WorkflowIntegrationLifecycleContractTest(unittest.TestCase):
             action,
             self.heavy_provision,
             self.heavy_suite,
+            15,
         )
         self.assertEqual(1, action.count(self.heavy_provision))
         self.assertEqual(1, action.count(self.heavy_suite))
@@ -869,6 +1088,7 @@ class WorkflowIntegrationLifecycleContractTest(unittest.TestCase):
             action,
             self.heavy_provision,
             self.heavy_suite,
+            15,
         )
         self.assert_observer_and_cleanup_contract(action)
         self.assert_teardown_suffix_mutations_are_rejected(action)
@@ -898,31 +1118,127 @@ class WorkflowIntegrationLifecycleContractTest(unittest.TestCase):
                 source,
             )
 
-    def test_async_safe_sources_are_explicitly_audited_data_cases(self):
-        self.assertTrue(set(ASYNC_SAFE_SRCS).isdisjoint(FIXED_EXTERNAL_RESOURCE_PATHS))
+    def test_integration_disposition_inventory_is_exhaustive_and_concrete(self):
+        rows = integration_dispositions()
+        selected = [row for row in rows if row["mode"] in SELECTED_MODES]
+        load_only = [row for row in rows if row["mode"] == "load_only"]
 
-        prohibited_semantics = (
-            "sandbox: :unboxed",
-            "Application.put_env",
-            "Application.delete_env",
-            "TRUNCATE",
-            "CREATE TABLE",
-            "REFRESH MATERIALIZED",
-            "Gnat.",
-            "Nats",
+        self.assertEqual(258, len(selected))
+        self.assertEqual(507, len(load_only))
+        self.assertEqual(765, len(rows))
+        self.assertEqual(
+            set(ordinary_core_test_sources()),
+            {row["source"] for row in rows},
         )
 
-        for relative_path in ASYNC_SAFE_SRCS:
-            source = (ROOT / "elixir/serviceradar_core" / relative_path).read_text(
-                encoding="utf-8"
-            )
-            self.assertEqual(1, source.count("use ServiceRadar.DataCase, async: true"))
+        keys = [(row["source"], row["module"]) for row in rows]
+        self.assertEqual(len(keys), len(set(keys)), "duplicate disposition key")
 
-            for prohibited in prohibited_semantics:
-                self.assertNotIn(prohibited, source, relative_path)
+        modes_by_source: dict[str, set[str]] = {}
+        for row in rows:
+            source = row["source"]
+            modes_by_source.setdefault(source, set()).add(row["mode"])
+            self.assertTrue(row["evidence"].strip(), row)
+            self.assertNotEqual(row["reason"], row["evidence"].strip(), row)
+            self.assertFalse(
+                {"pending", "legacy", "unknown"}
+                & {value.strip().lower() for value in row.values()},
+                row,
+            )
+
+            if row["mode"] == "load_only":
+                self.assertEqual("-", row["module"], row)
+                self.assertEqual("not_selected", row["case_kind"], row)
+                self.assertEqual("not_selected", row["reason"], row)
+                continue
+
+            self.assertIn(row["case_kind"], SELECTED_CASE_KINDS, row)
+            self.assertIn(row["mode"], SELECTED_MODES, row)
+            if row["mode"] == "async":
+                self.assertEqual(
+                    "transaction_owner"
+                    if row["case_kind"] == "data_case"
+                    else "explicit_async",
+                    row["reason"],
+                    row,
+                )
+            else:
+                self.assertIn(row["reason"], SERIAL_REASONS, row)
+
+        for source, modes in modes_by_source.items():
+            selected_modes = modes & SELECTED_MODES
+            self.assertLessEqual(len(selected_modes), 1, (source, modes))
+            self.assertFalse(
+                "load_only" in modes and selected_modes,
+                (source, modes),
+            )
+
+    def test_selected_module_declarations_match_the_disposition_inventory(self):
+        for row in integration_dispositions():
+            if row["mode"] == "load_only":
+                continue
+
+            block = module_source_block(row["source"], row["module"])
+            declarations = re.findall(
+                r"(?m)^\s*use\s+(ServiceRadar\.DataCase|ExUnit\.Case),\s*async:\s*(true|false)\s*$",
+                block,
+            )
+            self.assertEqual(1, len(declarations), row)
+            case_template, async_value = declarations[0]
+            self.assertEqual(
+                "ServiceRadar.DataCase"
+                if row["case_kind"] == "data_case"
+                else "ExUnit.Case",
+                case_template,
+                row,
+            )
+            self.assertEqual(
+                "true" if row["mode"] == "async" else "false",
+                async_value,
+                row,
+            )
+
+    def test_fixed_external_dispositions_are_confined_to_serial_zero_inputs(self):
+        rows = integration_dispositions()
+        fixed_rows = [row for row in rows if row["reason"] == "fixed_external"]
+
+        self.assertEqual(
+            set(FIXED_EXTERNAL_RESOURCE_PATHS),
+            {row["source"] for row in fixed_rows},
+        )
+        for row in fixed_rows:
+            self.assertEqual("serial", row["mode"], row)
+            self.assertEqual("data_case", row["case_kind"], row)
+
+    def test_starlark_lane_projection_exactly_matches_the_inventory(self):
+        rows = integration_dispositions()
+        async_sources = tuple(
+            sorted({row["source"] for row in rows if row["mode"] == "async"})
+        )
+        serial_counts: dict[str, int] = {}
+        for row in rows:
+            if row["mode"] == "serial":
+                serial_counts[row["source"]] = serial_counts.get(row["source"], 0) + 1
+
+        self.assertEqual(
+            async_sources,
+            projected_integration_sources("ASYNC_INTEGRATION_SRCS"),
+        )
+        self.assertEqual(serial_counts, projected_serial_module_counts())
+        self.assertEqual(
+            FIXED_EXTERNAL_RESOURCE_PATHS,
+            projected_integration_sources("FIXED_EXTERNAL_INTEGRATION_SRCS"),
+        )
+        self.assertTrue(set(async_sources).isdisjoint(serial_counts))
+        self.assertTrue(
+            set(FIXED_EXTERNAL_RESOURCE_PATHS).issubset(serial_counts)
+        )
 
     def test_composite_check_sources_remain_serial_data_cases(self):
-        self.assertTrue(set(SERIAL_COMPOSITE_CHECK_SRCS).isdisjoint(ASYNC_SAFE_SRCS))
+        async_sources = set(
+            projected_integration_sources("ASYNC_INTEGRATION_SRCS")
+        )
+        self.assertTrue(set(SERIAL_COMPOSITE_CHECK_SRCS).isdisjoint(async_sources))
         self.assertTrue(
             set(SERIAL_COMPOSITE_CHECK_SRCS).isdisjoint(FIXED_EXTERNAL_RESOURCE_PATHS)
         )
@@ -937,10 +1253,44 @@ class WorkflowIntegrationLifecycleContractTest(unittest.TestCase):
     def test_core_integration_targets_share_the_bounded_environment(self):
         core_build = CORE_BUILD.read_text(encoding="utf-8")
         generated_targets = ordinary_integration_target_comprehension(core_build)
-        unit_tests = core_build[core_build.index('name = "unit_tests"') : core_build.index("integration_tests_{}")]
+        unit_tests = core_build[
+            core_build.index('name = "unit_tests"') : core_build.index(
+                '[\n    ex_unit_test(\n        name = "integration_tests_{}"'
+            )
+        ]
 
-        self.assertIn("env = integration_test_env(shard)", generated_targets)
+        self.assertIn("srcs = INTEGRATION_LANE_SRCS[lane]", generated_targets)
+        self.assertIn("env = integration_test_env(lane)", generated_targets)
+        self.assertIn("for lane in integration_lane_names()", generated_targets)
+        self.assertNotIn("srcs = ALL_TEST_SRCS", generated_targets)
         self.assertNotIn("SERVICERADAR_INTEGRATION_MAX_CASES", unit_tests)
+
+    def test_obsolete_topology_challenger_is_absent(self):
+        core_build = CORE_BUILD.read_text(encoding="utf-8")
+        shard_build = INTEGRATION_SHARDS.read_text(encoding="utf-8")
+
+        self.assertNotIn("integration_tests_topology_1", core_build)
+        self.assertNotIn("one_beam_integration_test_env", shard_build)
+        self.assertNotIn("INTEGRATION_MAX_CASES = 2", shard_build)
+        self.assertIn("INTEGRATION_ASYNC_MAX_CASES = 8", shard_build)
+        self.assertIn("INTEGRATION_SERIAL_MAX_CASES = 1", shard_build)
+        self.assertIn("INTEGRATION_REPO_POOL_SIZE = 12", shard_build)
+        self.assertIn("INTEGRATION_MAX_BEAMS = 8", shard_build)
+        self.assertIn("INTEGRATION_MAX_POOL_SLOTS = 96", shard_build)
+        self.assertIn("INTEGRATION_AUXILIARY_CONNECTION_SLOTS = 18", shard_build)
+        self.assertIn("INTEGRATION_WORKFLOW_CONNECTION_SLOTS = 114", shard_build)
+
+    def test_workflow_capacity_includes_the_three_selected_srql_harnesses(self):
+        srql_build = SRQL_INTEGRATION_BUILD.read_text(encoding="utf-8")
+        harness = SRQL_INTEGRATION_HARNESS.read_text(encoding="utf-8")
+
+        self.assertEqual(3, srql_build.count('tags = ["integration_test"]'))
+        self.assertIn("max_pool_size: 5", harness)
+        self.assertIn("RemoteFixtureGuard::acquire", harness)
+        self.assertIn(
+            "INTEGRATION_AUXILIARY_CONNECTION_SLOTS = 18",
+            INTEGRATION_SHARDS.read_text(encoding="utf-8"),
+        )
 
     def test_integration_cap_is_parsed_before_starting_ex_unit(self):
         source = TEST_HELPER.read_text(encoding="utf-8")
@@ -953,16 +1303,64 @@ class WorkflowIntegrationLifecycleContractTest(unittest.TestCase):
         environment_read = branch.index(
             'System.get_env("SERVICERADAR_INTEGRATION_MAX_CASES")', parser_call
         )
+        formatter_env = branch.index(
+            'System.get_env("SERVICERADAR_INTEGRATION_SELECTION_OUTPUT")',
+            environment_read,
+        )
+        formatter_config = branch.index(
+            "ServiceRadar.IntegrationSelectionFormatter",
+            formatter_env,
+        )
+        self.assertIn("formatters:", branch[formatter_env:formatter_config])
+        self.assertIn("ExUnit.CLIFormatter", branch[formatter_env:formatter_config])
+        slowest_guard = branch.index(
+            "if slowest != [] and integration_max_cases != 1 do", formatter_config
+        )
+        runner_marker = branch.index(
+            '"SERVICERADAR_INTEGRATION_RUNNER topology=#{topology} lane=#{lane} '
+            'max_cases=#{integration_max_cases} schedulers=#{System.schedulers_online()} '
+            'repo_pool=#{repo_pool} trace=false timeouts=enabled"',
+            slowest_guard,
+        )
+        profiling_marker = branch.index(
+            '"SERVICERADAR_INTEGRATION_RUNNER topology=#{topology} lane=#{lane} max_cases=1 '
+            'schedulers=#{System.schedulers_online()} repo_pool=#{repo_pool} trace=true '
+            'timeouts=infinity profiling_only=true"',
+            slowest_guard,
+        )
         ex_unit_start = branch.index("ExUnit.start(", environment_read)
         max_cases_option = branch.index("max_cases: integration_max_cases", ex_unit_start)
 
         self.assertLess(branch.index(selection), parser_assignment)
         self.assertLess(parser_assignment, parser_call)
         self.assertLess(parser_call, environment_read)
-        self.assertLess(environment_read, ex_unit_start)
+        self.assertLess(environment_read, formatter_env)
+        self.assertLess(formatter_env, formatter_config)
+        self.assertLess(formatter_config, slowest_guard)
+        self.assertLess(slowest_guard, runner_marker)
+        self.assertLess(runner_marker, profiling_marker)
+        self.assertLess(profiling_marker, ex_unit_start)
         self.assertLess(ex_unit_start, max_cases_option)
         self.assertNotIn("integration_max_cases!", outside_branch)
         self.assertNotIn("max_cases: integration_max_cases", outside_branch)
+
+    def test_repeated_core_startup_does_not_implicitly_mutate_audit_configuration(self):
+        support = TEST_SUPPORT.read_text(encoding="utf-8")
+        helper = TEST_HELPER.read_text(encoding="utf-8")
+
+        self.assertEqual(
+            1,
+            support.count(
+                "if Keyword.has_key?(opts, :synchronous_audit_writes?) do"
+            ),
+        )
+        self.assertIn(
+            "not Keyword.fetch!(opts, :synchronous_audit_writes?)", support
+        )
+        self.assertNotIn(
+            "Keyword.get(opts, :synchronous_audit_writes?", support
+        )
+        self.assertEqual(1, helper.count("synchronous_audit_writes?: true"))
 
     def test_large_ingestion_gate_has_dedicated_sources_and_database(self):
         core_build = CORE_BUILD.read_text(encoding="utf-8")
@@ -973,7 +1371,7 @@ class WorkflowIntegrationLifecycleContractTest(unittest.TestCase):
         release_cardinality = RELEASE_IDENTIFIER_CARDINALITY.read_text(encoding="utf-8")
         all_test_sources = core_build[
             core_build.index("ALL_TEST_SRCS =") : core_build.index(
-                "INTEGRATION_SHARD_SRCS ="
+                "INTEGRATION_LANE_SRCS ="
             )
         ]
         runtime_data = core_build[
@@ -1032,10 +1430,18 @@ class WorkflowIntegrationLifecycleContractTest(unittest.TestCase):
             "//elixir/serviceradar_core:large_ingestion_release_gate",
             release_cardinality,
         )
-        self.assertNotIn(
-            '"test/serviceradar/results_router_integration_test.exs"',
-            shard_build[shard_build.index("_HEAVY_SRCS =") :],
-        )
+        for release_gate_source in (
+            "test/release_gates/large_ingestion/results_router_release_gate_test.exs",
+            "test/release_gates/large_ingestion/identifier_cardinality_release_gate_test.exs",
+        ):
+            self.assertNotIn(release_gate_source, shard_build)
+
+        # Cold bootstrap is production-startup qualification, not ordinary PR-shard work: one
+        # quiet serial run already exceeds the complete 90-second PR lifecycle budget. Keep the
+        # full two-pass test intact, but make its source membership structurally exclusive.
+        self.assertIn(f'"{DATABASE_BOOTSTRAP_SOURCE}"', all_test_sources)
+        self.assertNotIn(DATABASE_BOOTSTRAP_SOURCE, shard_build)
+        self.assertEqual(2, core_build.count(f'"{DATABASE_BOOTSTRAP_SOURCE}"'))
 
         self.assertIn('"test/release_gates/**"', all_test_sources)
         self.assertIn('"test/release_gates/**"', runtime_data)
@@ -1047,6 +1453,7 @@ class WorkflowIntegrationLifecycleContractTest(unittest.TestCase):
         self.assertEqual(1, core_build.count('name = "large_ingestion_release_gate"'))
         self.assertIn('size = "enormous"', release_target)
         self.assertIn('"test/release_gates/large_ingestion/*_test.exs"', release_target)
+        self.assertEqual(1, release_target.count(f'"{DATABASE_BOOTSTRAP_SOURCE}"'))
         self.assertIn("allow_empty = False", release_target)
         self.assertIn("data = INTEGRATION_RUNTIME_DATA", release_target)
         self.assertIn('"test/test_helper.exs"', release_target)
@@ -1058,6 +1465,10 @@ class WorkflowIntegrationLifecycleContractTest(unittest.TestCase):
         self.assertIn('"SERVICERADAR_ONLY_INTEGRATION": "1"', release_target)
         self.assertIn(
             '"SERVICERADAR_INTEGRATION_MAX_CASES": "1"', release_target
+        )
+        self.assertIn(
+            '"SERVICERADAR_TEST_DATABASE_POOL_SIZE": str(LARGE_INGESTION_REPO_POOL_SIZE)',
+            release_target,
         )
         self.assertIn(
             '"SERVICERADAR_TEST_DB_SHARD": LARGE_INGESTION_DB_SHARD',
@@ -1074,6 +1485,15 @@ class WorkflowIntegrationLifecycleContractTest(unittest.TestCase):
         self.assertIn('"large_ingestion_test",', release_target)
         self.assertIn("target_compatible_with = requires_shared_fixture()", release_target)
 
+        bootstrap = DATABASE_BOOTSTRAP_TEST.read_text(encoding="utf-8")
+        self.assertEqual(1, bootstrap.count("|> Keyword.put(:pool_size, 2)"))
+        self.assertEqual(
+            1,
+            bootstrap.count('{"SERVICERADAR_TEST_DATABASE_POOL_SIZE", "2"}'),
+        )
+        startup_migrations = STARTUP_MIGRATIONS.read_text(encoding="utf-8")
+        self.assertEqual(1, startup_migrations.count("case Postgrex.start_link(opts) do"))
+
         self.assertEqual(1, integration_db_build.count('name = "provision_db_large_ingestion"'))
         self.assertIn('srcs = ["tests/provision_db_test.rs"]', release_provision)
         self.assertIn('crate_root = "tests/provision_db_test.rs"', release_provision)
@@ -1087,7 +1507,7 @@ class WorkflowIntegrationLifecycleContractTest(unittest.TestCase):
         )
         self.assertIn("target_compatible_with = requires_shared_fixture()", release_provision)
         self.assertIn(
-            '"SERVICERADAR_TEST_DB_SHARDS": ",".join(integration_shard_names())',
+            '"SERVICERADAR_TEST_DB_SHARDS": ",".join(integration_lane_names())',
             ordinary_provision,
         )
         self.assertNotIn("LARGE_INGESTION_DB_SHARD", ordinary_provision)

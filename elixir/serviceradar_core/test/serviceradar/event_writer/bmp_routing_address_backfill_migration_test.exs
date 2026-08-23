@@ -1,5 +1,5 @@
 defmodule ServiceRadar.EventWriter.BmpRoutingAddressBackfillMigrationTest do
-  use ServiceRadar.DataCase, async: false
+  use ServiceRadar.DataCase, async: true
 
   alias ServiceRadar.Repo
   alias ServiceRadar.Repo.Migrations.BackfillCanonicalBmpRoutingAddresses, as: Migration

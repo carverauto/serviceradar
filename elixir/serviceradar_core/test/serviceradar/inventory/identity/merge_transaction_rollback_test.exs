@@ -22,7 +22,7 @@ defmodule ServiceRadar.Inventory.Identity.MergeTransactionRollbackTest do
   from, so a change in Ash's default surfaces here rather than in production.
   """
 
-  use ServiceRadar.DataCase, async: false
+  use ServiceRadar.DataCase, async: true
 
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Inventory.Device

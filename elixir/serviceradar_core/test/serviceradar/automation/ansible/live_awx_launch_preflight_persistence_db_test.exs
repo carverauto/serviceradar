@@ -6,7 +6,7 @@ defmodule ServiceRadar.Automation.Ansible.LiveAwxLaunchPreflightPersistenceDbTes
   only route from `SecureChildLauncher` to durable mutable rows.
   """
 
-  use ServiceRadar.DataCase, async: false
+  use ServiceRadar.DataCase, async: true
 
   alias Ecto.Adapters.SQL
   alias ServiceRadar.Actors.SystemActor
