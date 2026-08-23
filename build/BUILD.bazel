@@ -26,6 +26,8 @@ integration_shards_topology_test(
 
 missing_fixed_source(
     name = "missing_fixed_source",
+    # Deliberately fails analysis; only its analysistest wrapper should select it.
+    tags = ["manual"],
 )
 
 missing_fixed_source_failure_test(
@@ -35,6 +37,8 @@ missing_fixed_source_failure_test(
 
 insufficient_capacity(
     name = "insufficient_capacity",
+    # Deliberately fails analysis; only its analysistest wrapper should select it.
+    tags = ["manual"],
 )
 
 insufficient_capacity_failure_test(
