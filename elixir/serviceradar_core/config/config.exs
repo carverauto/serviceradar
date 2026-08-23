@@ -332,8 +332,11 @@ config :swoosh, :api_client, false
 # not shell out to cargo. mix_app already skips these NIFs under Bazel via
 # extra_config. See elixir/web-ng/config/config.exs for the full rationale.
 if System.get_env("SERVICERADAR_SKIP_NIF_COMPILATION") == "1" do
-  config :serviceradar_core, ServiceRadar.Observability.DispositionKernels, skip_compilation?: true
+  config :serviceradar_core, ServiceRadar.Observability.DispositionKernels,
+    skip_compilation?: true
+
   config :serviceradar_core, ServiceRadar.Observability.Zen.Native, skip_compilation?: true
+
   config :serviceradar_srql, ServiceRadarSRQL.Native, skip_compilation?: true
 end
 
