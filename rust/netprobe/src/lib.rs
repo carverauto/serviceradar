@@ -7,6 +7,7 @@ pub mod attribution;
 pub mod capabilities;
 pub mod capture;
 pub mod census;
+pub mod mdns;
 pub mod config;
 pub mod dpi;
 #[cfg(target_os = "linux")]
