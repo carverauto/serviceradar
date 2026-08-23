@@ -36,6 +36,7 @@
 use std::fs;
 
 pub mod config;
+pub mod connection_observer;
 
 use anyhow::{bail, Context, Result};
 use srql::db::PgRustlsConnect;

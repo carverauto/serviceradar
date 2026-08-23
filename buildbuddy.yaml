@@ -155,3 +155,137 @@ actions:
           --test_tag_filters=benchmark
           --test_output=all
           //...
+
+  # This is deliberately a branch-only measurement action, not a pull-request gate. Its
+  # command block is hashed by //:integration_benchmark_harness_hash and stays identical
+  # between the before and after revisions of the parallelization benchmark.
+  - name: "IntegrationBenchmark"
+    env:
+      OCI_REGISTRY: "registry.carverauto.dev"
+      OCI_AUTH_REQUIRED: "1"
+      SRQL_FIXTURE_CA_URL: "http://srql-fixture-ca-incluster.srql-fixtures.svc.cluster.local/ca.crt"
+    self_hosted: true
+    pool: "workflows"
+    container_image: "docker://registry.carverauto.dev/serviceradar/buildbuddy-workflow-runner:v1.0.24.3"
+    platform_properties:
+      OSFamily: "linux"
+      Arch: "amd64"
+      dockerNetwork: "bridge"
+    triggers:
+      push:
+        branches:
+          - "benchmark/parallel-core-integration"
+    resource_requests:
+      memory: "50GB"
+      disk: "40GB"
+    steps:
+      - run: >-
+          bazel run -c opt --config=ci --//build:enable_integration_tests //:buildbuddy_setup_docker_auth --verbose_failures
+
+      - run: >-
+          bazel build -c opt --config=ci --//build:enable_integration_tests //...
+
+      - run: |
+          set -euo pipefail
+          umask 077
+
+          export SERVICERADAR_ENV=ci
+          export BAZEL_PROFILE=ci
+          : "${SERVICERADAR_BENCHMARK_EXPECTED_SHA:?SERVICERADAR_BENCHMARK_EXPECTED_SHA is required}"
+          EFFECTIVE_HEAD="$(git rev-parse HEAD)"
+          [ "$SERVICERADAR_BENCHMARK_EXPECTED_SHA" = "$EFFECTIVE_HEAD" ] || {
+            echo "benchmark requested $SERVICERADAR_BENCHMARK_EXPECTED_SHA but checked out $EFFECTIVE_HEAD" >&2
+            exit 1
+          }
+
+          RUN_ID="$(od -An -tx1 -N4 /dev/urandom | tr -d ' \n')"
+          export RUN_ID
+          SERVICERADAR_FIXTURE_ENV_FILE="$(mktemp "${TMPDIR:-/tmp}/serviceradar-fixture-env.XXXXXX")"
+          export SERVICERADAR_FIXTURE_ENV_FILE
+
+          # Preflight is intentionally outside the clock. It may migrate, then proves the
+          # template current before the measured lifecycle starts.
+          bazel run -c opt --config=ci --//build:enable_integration_tests --//build:run_id=$RUN_ID //:buildbuddy_setup_fixture_env
+          set -a; . "$SERVICERADAR_FIXTURE_ENV_FILE"; set +a
+          FLAGS="-c opt --config=ci --strategy=TestRunner=local --//build:enable_integration_tests
+             --//build:run_id=$RUN_ID --test_env=SERVICERADAR_ENV=ci --flaky_test_attempts=1
+             --test_output=all --test_env=SERVICERADAR_TEST_SLOWEST=15
+             --test_env=SERVICERADAR_SECRET_DATABASE_PASSWORD
+             --test_env=SERVICERADAR_SECRET_DATABASE_ADMIN_PASSWORD
+             --test_env=SERVICERADAR_SECRET_DGRAPH_ADMIN_PASSWORD
+             $SERVICERADAR_TEST_ENV_FLAGS"
+          preflight="$(bazel run -c opt --config=ci --//build:enable_integration_tests --//build:run_id=$RUN_ID //rust/integration-db:prepare_template)"
+          echo "$preflight"
+          case "$preflight" in
+            *"migration(s) pending"*) bazel test $FLAGS //elixir/serviceradar_core:migrate_template ;;
+          esac
+          preflight="$(bazel run -c opt --config=ci --//build:enable_integration_tests --//build:run_id=$RUN_ID //rust/integration-db:prepare_template)"
+          echo "$preflight"
+          case "$preflight" in
+            *"migration(s) pending"*) echo "template remains pending after preflight" >&2; exit 1 ;;
+          esac
+
+          OBSERVER_DIR="$(mktemp -d)"
+          READY_FILE="$OBSERVER_DIR/ready"
+          SUITE_COMPLETE_FILE="$OBSERVER_DIR/suite-complete"
+          QUIESCENT_FILE="$OBSERVER_DIR/quiescent"
+          STOP_FILE="$OBSERVER_DIR/stop"
+          [ ! -e "${READY_FILE}" ] && [ ! -e "${SUITE_COMPLETE_FILE}" ] && [ ! -e "${QUIESCENT_FILE}" ] && [ ! -e "${STOP_FILE}" ]
+          OBSERVER_PID=""
+          SUITE_STATUS=1
+
+          wait_for_marker() {
+            marker="$1"
+            limit="$2"
+            elapsed=0
+            while [ ! -e "$marker" ] && [ "$elapsed" -lt "$limit" ]; do
+              sleep 1
+              elapsed=$((elapsed + 1))
+            done
+            [ -e "$marker" ]
+          }
+
+          cleanup() {
+            original_status=$?
+            set +e
+            teardown_status=0
+            observer_status=0
+            bazel test $FLAGS //rust/integration-db:teardown_db
+            teardown_status=$?
+            END_NS="$(date +%s%N)"
+            if [ -n "$OBSERVER_PID" ]; then
+              touch "$STOP_FILE"
+              wait "$OBSERVER_PID"
+              observer_status=$?
+            fi
+            echo "SERVICERADAR_INTEGRATION_BENCHMARK start_ns=$START_NS end_ns=$END_NS suite_status=$SUITE_STATUS teardown_status=$teardown_status observer_status=$observer_status"
+            rm -f "$SERVICERADAR_FIXTURE_ENV_FILE"
+            rm -rf "$OBSERVER_DIR"
+            trap - EXIT
+            if [ "$original_status" -ne 0 ] || [ "$SUITE_STATUS" -ne 0 ] || [ "$teardown_status" -ne 0 ] || [ "$observer_status" -ne 0 ]; then
+              exit 1
+            fi
+          }
+
+          START_NS="$(date +%s%N)"
+          trap cleanup EXIT
+          bazel run -c opt --config=ci --//build:enable_integration_tests --//build:run_id=$RUN_ID //:buildbuddy_setup_fixture_env
+          set -a; . "$SERVICERADAR_FIXTURE_ENV_FILE"; set +a
+          bazel run -c opt --config=ci --//build:enable_integration_tests --//build:run_id=$RUN_ID //rust/integration-db:observe_connections -- --ready-file "$READY_FILE" --suite-complete-file "$SUITE_COMPLETE_FILE" --quiescent-file "$QUIESCENT_FILE" --stop-file "$STOP_FILE" --max-seconds 1800 &
+          OBSERVER_PID=$!
+          wait_for_marker "$READY_FILE" 30 || { echo "observer did not become ready" >&2; exit 1; }
+
+          bazel test $FLAGS //rust/integration-db:sweep_stale_dbs
+          template="$(bazel run -c opt --config=ci --//build:enable_integration_tests --//build:run_id=$RUN_ID //rust/integration-db:prepare_template)"
+          echo "$template"
+          case "$template" in
+            *"migration(s) pending"*) echo "template changed during benchmark; warm-up/non-cohort" >&2; exit 1 ;;
+          esac
+          bazel test $FLAGS //rust/integration-db:provision_db
+          set +e
+          bazel test $FLAGS //... --test_tag_filters=integration_test,-large_ingestion_test,-acceptance_test
+          SUITE_STATUS=$?
+          set -e
+          touch "$SUITE_COMPLETE_FILE"
+          wait_for_marker "$QUIESCENT_FILE" 30 || { echo "observer did not observe quiescence" >&2; exit 1; }
+          [ "$SUITE_STATUS" -eq 0 ]

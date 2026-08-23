@@ -1,5 +1,6 @@
 load("@bazel_gazelle//:def.bzl", "gazelle")
 load("@platforms//host:extension.bzl", "host_platform")
+load("@rules_python//python:py_binary.bzl", "py_binary")
 load("@rules_python//python:py_test.bzl", "py_test")
 load("@rules_shell//shell:sh_binary.bzl", "sh_binary")
 
@@ -86,6 +87,32 @@ py_test(
         "//elixir/web-ng:config/config.exs",
         "//helm/serviceradar:values-demo.yaml",
         "//helm/serviceradar:values.yaml",
+    ],
+)
+
+py_test(
+    name = "ci_heavy_gate_contract_test",
+    size = "small",
+    srcs = ["ci_heavy_gate_contract_test.py"],
+    data = [
+        "buildbuddy.yaml",
+        "//rust/integration-db:BUILD.bazel",
+        "//rust/integration-db:src/bin/observe_connections.rs",
+        "//rust/integration-db:src/connection_observer.rs",
+    ],
+)
+
+py_binary(
+    name = "integration_benchmark_harness_hash",
+    srcs = ["ci_heavy_gate_contract_test.py"],
+    main = "ci_heavy_gate_contract_test.py",
+    args = ["--hash-integration-benchmark"],
+    tags = ["no-remote"],
+    data = [
+        "buildbuddy.yaml",
+        "//rust/integration-db:BUILD.bazel",
+        "//rust/integration-db:src/bin/observe_connections.rs",
+        "//rust/integration-db:src/connection_observer.rs",
     ],
 )
 

@@ -213,3 +213,21 @@ rust_binary(
         "//rust/srql:srql_lib",
     ],
 )
+
+# Samples the shared fixture while the dedicated IntegrationBenchmark lifecycle runs. It is
+# manual so ordinary wildcards never connect to the fixture; BuildBuddy starts it explicitly
+# after fixture credentials have been materialized.
+rust_binary(
+    name = "observe_connections",
+    srcs = ["src/bin/observe_connections.rs"],
+    data = FIXTURE_DATA,
+    tags = ["manual"],
+    target_compatible_with = requires_shared_fixture(),
+    deps = all_crate_deps(
+        cargo_only = True,
+        normal = True,
+    ) + [
+        ":serviceradar_integration_db",
+        "//rust/srql:srql_lib",
+    ],
+)

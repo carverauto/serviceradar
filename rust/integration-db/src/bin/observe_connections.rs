@@ -1,0 +1,78 @@
+use std::{path::Path, time::Duration};
+
+use anyhow::{Context, Result};
+use serviceradar_integration_db::{
+    connect_admin,
+    connection_observer::{
+        capacity, completion_status, epoch_millis, sample, ObserverArgs, Peaks, Quiescence,
+        SampleWindow, SAMPLE_INTERVAL_MS,
+    },
+    database_name,
+};
+
+#[tokio::main]
+async fn main() -> Result<()> {
+    let args = ObserverArgs::parse(std::env::args())?;
+    let run_prefix = database_name()?;
+    let (client, _connection) = connect_admin(None).await?;
+    let capacity = capacity(&client).await?;
+    let start_ms = epoch_millis()?;
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(args.max_seconds);
+    let mut peaks = Peaks::default();
+    let mut quiescence = Quiescence::default();
+    let mut quiescent = false;
+
+    record_sample(&client, &run_prefix, &mut peaks).await?;
+    write_marker(&args.ready_file)?;
+
+    loop {
+        if args.stop_file.exists() {
+            let status = completion_status(quiescent, true, false);
+            print_summary(peaks, &run_prefix, start_ms, capacity)?;
+            return status.map_err(anyhow::Error::msg);
+        }
+
+        if tokio::time::Instant::now() >= deadline {
+            let status = completion_status(quiescent, false, true);
+            print_summary(peaks, &run_prefix, start_ms, capacity)?;
+            return status.map_err(anyhow::Error::msg);
+        }
+
+        tokio::time::sleep(Duration::from_millis(SAMPLE_INTERVAL_MS)).await;
+        let counts = sample(&client, &run_prefix).await?;
+        peaks.record(counts.run_scoped, counts.fixture_wide);
+
+        if quiescence.record(args.suite_complete_file.exists(), counts.run_scoped) && !quiescent {
+            write_marker(&args.quiescent_file)?;
+            quiescent = true;
+        }
+    }
+}
+
+async fn record_sample(
+    client: &tokio_postgres::Client,
+    run_prefix: &str,
+    peaks: &mut Peaks,
+) -> Result<()> {
+    let counts = sample(client, run_prefix).await?;
+    peaks.record(counts.run_scoped, counts.fixture_wide);
+    Ok(())
+}
+
+fn write_marker(path: &Path) -> Result<()> {
+    std::fs::write(path, b"").with_context(|| format!("write observer marker {}", path.display()))
+}
+
+fn print_summary(
+    peaks: Peaks,
+    run_prefix: &str,
+    start_ms: u64,
+    capacity: serviceradar_integration_db::connection_observer::Capacity,
+) -> Result<()> {
+    let end_ms = epoch_millis()?;
+    println!(
+        "SERVICERADAR_CONNECTION_OBSERVER {}",
+        peaks.summary_json(run_prefix, SampleWindow { start_ms, end_ms }, capacity)
+    );
+    Ok(())
+}
