@@ -35,6 +35,8 @@ FIXED_EXTERNAL_RESOURCE_PATHS = (
 ASYNC_SAFE_SRCS = (
     "test/integration/advisory_feed_loader_integration_test.exs",
     "test/integration/secret_broker_audit_integration_test.exs",
+)
+SERIAL_COMPOSITE_CHECK_SRCS = (
     "test/serviceradar/composite_checks/composite_check_test.exs",
     "test/serviceradar/composite_checks/composite_check_rule_test.exs",
     "test/serviceradar/composite_checks/composite_check_input_test.exs",
@@ -285,6 +287,19 @@ class IntegrationBenchmarkContractTest(unittest.TestCase):
 
             for prohibited in prohibited_semantics:
                 self.assertNotIn(prohibited, source, relative_path)
+
+    def test_composite_check_sources_remain_serial_data_cases(self):
+        self.assertTrue(set(SERIAL_COMPOSITE_CHECK_SRCS).isdisjoint(ASYNC_SAFE_SRCS))
+        self.assertTrue(
+            set(SERIAL_COMPOSITE_CHECK_SRCS).isdisjoint(FIXED_EXTERNAL_RESOURCE_PATHS)
+        )
+
+        for relative_path in SERIAL_COMPOSITE_CHECK_SRCS:
+            source = (ROOT / "elixir/serviceradar_core" / relative_path).read_text(
+                encoding="utf-8"
+            )
+            self.assertEqual(1, source.count("use ServiceRadar.DataCase, async: false"))
+            self.assertEqual(0, source.count("use ServiceRadar.DataCase, async: true"))
 
     def test_core_integration_targets_share_the_bounded_environment(self):
         core_build = CORE_BUILD.read_text(encoding="utf-8")

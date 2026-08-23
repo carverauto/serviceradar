@@ -1,5 +1,5 @@
 defmodule ServiceRadar.CompositeChecks.CompositeCheckRuleTest do
-  use ServiceRadar.DataCase, async: true
+  use ServiceRadar.DataCase, async: false
 
   alias Ash.Error.Forbidden
   alias ServiceRadar.Actors.SystemActor

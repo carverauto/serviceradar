@@ -1,5 +1,5 @@
 defmodule ServiceRadar.CompositeChecks.DeviceCompositeCheckResultTest do
-  use ServiceRadar.DataCase, async: true
+  use ServiceRadar.DataCase, async: false
 
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.CompositeChecks.CompositeCheck
