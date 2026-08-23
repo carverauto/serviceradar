@@ -40,6 +40,7 @@ go_test(
         "mdns_assembler_test.go",
         "mdns_translator_test.go",
         "sidecar_census_test.go",
+        "snapshot_size_budget_test.go",
         "sidecar_mdns_test.go",
         "sidecar_test.go",
         "translator_test.go",
@@ -55,5 +56,6 @@ go_test(
         "@com_github_rs_zerolog//:zerolog",
         "@com_github_stretchr_testify//assert",
         "@com_github_stretchr_testify//require",
+        "@org_golang_google_protobuf//proto",
     ],
 )
