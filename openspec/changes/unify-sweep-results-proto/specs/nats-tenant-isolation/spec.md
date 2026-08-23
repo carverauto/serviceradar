@@ -187,11 +187,32 @@ The installation SHALL evaluate exactly one platform partition rule, `network_sc
 by this requirement. The output-contract bundle pins the rule; every other rule identifier SHALL
 be refused until the contract registry defines it, and a contract naming no rule SHALL be refused.
 
-`network_scope_v1` SHALL apply to the durable-record route profile. Its transcript SHALL be the
-raw `network_scope_id` bytes exactly as signed -- no domain prefix, no length framing, and no
-concatenation with any other coordinate. The partition SHALL be
+`network_scope_v1` SHALL apply ONLY when the resolved output-contract bundle explicitly pins it.
+It is NOT a property of the durable-record route profile: partition rules are pinned per output
+contract, and a bundle may instead pin a rule that hashes scope plus execution/shard, scope plus
+agent and event ID, or source assignment plus run.
+
+Its transcript SHALL be the raw `network_scope_id` bytes exactly as signed -- no domain prefix, no
+length framing, and no concatenation with any other coordinate. The partition SHALL be
 `FNV-1a/32(transcript) mod 64`, where FNV-1a/32 uses offset basis 2166136261 and prime 16777619,
 and 64 is the fixed logical partition count.
+
+Subject AUTHORITY and partition SELECTION are different things, and only the first is closed to
+`network_scope_id`.
+
+The rule DOES determine which `pNN` a record occupies, and `pNN` is part of the subject string --
+saying otherwise would contradict this requirement's own transcript. What `network_scope_id` SHALL
+NOT do is alter subject AUTHORITY: it SHALL NOT appear as a subject token, SHALL NOT prefix the
+subject, SHALL NOT select or widen a credential's subject authority, and SHALL NOT change the
+versioned family or the traffic class. Those are fixed by the route profile and the effective
+grant before any partition is computed.
+
+Within that already-fixed authority, the platform-owned rule selects the partition from
+AUTHENTICATED outer context, exactly as a bulk durable record for logical partition `p07`
+publishes to `telemetry.edge-record.v1.bulk.p07`. The existing prohibition on caller text or
+`network_scope_id` altering that subject binds CALLER-SUPPLIED interpolation and credential
+authority, not the platform rule that assigns `pNN` -- a record must land on some partition, and
+the requirement above already names one.
 
 An empty or absent `network_scope_id` SHALL be refused rather than mapped to partition 0, because
 zero is a real partition and a default would place every unpopulated contract on one shard.
