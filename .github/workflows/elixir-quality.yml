@@ -178,6 +178,49 @@ jobs:
         working-directory: elixir/web-ng
         run: mix serviceradar.openapi.dump --check
 
+      # `make verify-proto-elixir` regenerates every checked-in .pb.ex from proto/ and fails on
+      # a diff. It was written as a "CI drift guard" but nothing ever invoked it -- not the
+      # Makefile, not a workflow -- so the bindings could drift from the contract indefinitely.
+      # This is the only Elixir leg with the project the bindings live in, and protoc is
+      # installed here rather than for the whole matrix because the other six legs never
+      # generate protos. Version and checksum are pinned exactly as rust-checks.yml pins them.
+      - name: Install protoc
+        if: ${{ matrix.name == 'serviceradar_core' }}
+        env:
+          PROTOC_VERSION: '35.1'
+          PROTOC_SHA256: '6930ebf62bd4ea607b98fff052596c6ee564b9835b4ce172c75a3f53ae9d91b7'
+        run: |
+          set -euo pipefail
+
+          case "$(uname -m)" in
+            x86_64|amd64) asset="protoc-${PROTOC_VERSION}-linux-x86_64.zip" ;;
+            *) echo "unsupported protoc runner architecture: $(uname -m)" >&2; exit 1 ;;
+          esac
+
+          install_dir="${RUNNER_TEMP:-/tmp}/protoc"
+          rm -rf "${install_dir}"
+          mkdir -p "${install_dir}"
+
+          curl -fsSL --retry 3 \
+            "https://github.com/protocolbuffers/protobuf/releases/download/v${PROTOC_VERSION}/${asset}" \
+            -o "${install_dir}/${asset}"
+          printf '%s  %s\n' "${PROTOC_SHA256}" "${install_dir}/${asset}" | sha256sum -c -
+
+          unzip -q "${install_dir}/${asset}" -d "${install_dir}"
+          chmod +x "${install_dir}/bin/protoc"
+
+          echo "${install_dir}/bin" >> "${GITHUB_PATH}"
+          {
+            echo "PROTOC=${install_dir}/bin/protoc"
+            echo "PROTOC_INCLUDE=${install_dir}/include"
+          } >> "${GITHUB_ENV}"
+
+          "${install_dir}/bin/protoc" --version
+
+      - name: Check committed Elixir protobuf bindings are up to date
+        if: ${{ matrix.name == 'serviceradar_core' }}
+        run: make verify-proto-elixir
+
   # Neither script starts a BEAM -- they read files and shell out to jq -- so this needs no
   # toolchain and no cache, and does not belong behind a seven-way compile matrix.
   db-checks:

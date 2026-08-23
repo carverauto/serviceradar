@@ -670,6 +670,7 @@ generate-proto-elixir: install-protoc-gen-elixir ## Generate Elixir code from pr
 		proto/desktop_media.proto \
 		proto/identitymap/v1/identity_map.proto \
 		proto/agent/netprobe/v1/netprobe.proto \
+		proto/agent/addon/v1/addon.proto \
 		proto/metric/v1/metric.proto
 	@cd elixir/serviceradar_core && \
 		mix format --force "$(abspath $(ELIXIR_PROTO_OUT))/**/*.pb.ex"
