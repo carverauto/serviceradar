@@ -650,23 +650,36 @@ async fn response_for_frame(
             })),
         })),
         Some(netprobe_frame::Payload::ApplyConfig(apply)) => {
-            match apply
-                .config
-                .and_then(|config| runtime_config.apply(config).ok())
-            {
-                Some(config_hash) => Ok(Some(NetprobeFrame {
+            // The apply error is KEPT rather than discarded with `.ok()`.
+            //
+            // It used to collapse every failure into "visibility config is
+            // missing or invalid" with no log line -- so a refusal that says
+            // exactly which field needs a restart reached neither the operator
+            // nor any telemetry, and there was no way to tell a malformed config
+            // from a legitimate one this process cannot become.
+            let result = match apply.config {
+                None => Err(anyhow::anyhow!("visibility config is missing")),
+                Some(config) => runtime_config.apply(config),
+            };
+
+            match result {
+                Ok(config_hash) => Ok(Some(NetprobeFrame {
                     sequence,
                     payload: Some(netprobe_frame::Payload::ConfigAck(ConfigAck {
                         config_hash,
                     })),
                 })),
-                None => Ok(Some(NetprobeFrame {
-                    sequence,
-                    payload: Some(netprobe_frame::Payload::Error(ErrorFrame {
-                        code: "invalid_config".to_string(),
-                        message: "visibility config is missing or invalid".to_string(),
-                    })),
-                })),
+                Err(err) => {
+                    log::warn!("rejected ApplyConfig: {err:#}");
+
+                    Ok(Some(NetprobeFrame {
+                        sequence,
+                        payload: Some(netprobe_frame::Payload::Error(ErrorFrame {
+                            code: "invalid_config".to_string(),
+                            message: format!("{err:#}"),
+                        })),
+                    }))
+                }
             }
         }
         Some(netprobe_frame::Payload::BannerBatch(batch)) => Ok(Some(NetprobeFrame {
