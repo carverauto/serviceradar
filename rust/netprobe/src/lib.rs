@@ -7,7 +7,6 @@ pub mod attribution;
 pub mod capabilities;
 pub mod capture;
 pub mod census;
-pub mod mdns;
 pub mod config;
 pub mod dpi;
 #[cfg(target_os = "linux")]
@@ -26,6 +25,7 @@ pub mod ipc;
 pub mod ja4;
 pub mod kernel;
 pub mod lifecycle;
+pub mod mdns;
 pub mod metrics;
 #[allow(dead_code)]
 pub mod muonfp;
