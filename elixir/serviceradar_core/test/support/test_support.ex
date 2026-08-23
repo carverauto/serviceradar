@@ -41,6 +41,8 @@ defmodule ServiceRadar.TestSupport do
 
   @doc "Checks out a rollback-only database owner for the current test."
   def checkout_repo!(context \\ %{}) do
+    reject_async_unboxed!(context)
+
     cond do
       is_nil(Process.whereis(ServiceRadar.Repo)) ->
         :ok
@@ -55,29 +57,37 @@ defmodule ServiceRadar.TestSupport do
         :ok
 
       true ->
+        shared? = not context[:async]
         owner_opts = sandbox_owner_opts(context)
         owner = Sandbox.start_owner!(ServiceRadar.Repo, owner_opts)
 
         ExUnit.Callbacks.on_exit(fn ->
-          stop_repo_owner(owner)
+          stop_repo_owner(owner, shared: shared?)
         end)
 
         {:ok, sandbox_owner: owner}
     end
   end
 
-  @doc "Runs a function in a fresh rollback-only database owner."
-  def with_repo_owner(fun) when is_function(fun, 0) do
+  @doc "Runs a serial test helper in a fresh shared rollback-only database owner."
+  def with_repo_owner(context, fun) when is_function(fun, 0) do
+    reject_async_shared_owner!(context)
     owner = Sandbox.start_owner!(ServiceRadar.Repo, shared: true)
 
     try do
       fun.()
     after
-      stop_repo_owner(owner)
+      stop_repo_owner(owner, shared: true)
     end
   end
 
-  defp stop_repo_owner(owner) do
+  @doc false
+  def stop_repo_owner(owner, shared: false) do
+    if Process.alive?(owner), do: Sandbox.stop_owner(owner)
+    :ok
+  end
+
+  def stop_repo_owner(owner, shared: true) do
     drain_stateful_alert_engines()
     drain_dependency_dispatcher_tasks()
     drain_result_coordination_tasks()
@@ -88,6 +98,22 @@ defmodule ServiceRadar.TestSupport do
   after
     # start_owner!/2 leaves the pool pointing at the stopped shared owner.
     Sandbox.mode(ServiceRadar.Repo, :manual)
+  end
+
+  @doc "Allows a test-owned child to use the caller's SQL Sandbox transaction."
+  def allow_sandbox(child_pid) when is_pid(child_pid) do
+    ServiceRadar.Repo
+    |> Sandbox.allow(self(), child_pid)
+    |> validate_sandbox_allowance!(child_pid)
+  end
+
+  @doc false
+  def validate_sandbox_allowance!(result, _child_pid)
+      when result in [:ok, {:already, :allowed}], do: :ok
+
+  def validate_sandbox_allowance!(result, child_pid) do
+    raise ArgumentError,
+          "could not allow test-owned child #{inspect(child_pid)} in the SQL sandbox: #{inspect(result)}"
   end
 
   @doc false
@@ -255,6 +281,19 @@ defmodule ServiceRadar.TestSupport do
       timeout -> Keyword.put(opts, :ownership_timeout, timeout)
     end
   end
+
+  defp reject_async_unboxed!(%{async: true, sandbox: :unboxed}) do
+    raise ArgumentError,
+          "async tests cannot use unboxed sandbox mode; move this test to the serial lane"
+  end
+
+  defp reject_async_unboxed!(_context), do: :ok
+
+  defp reject_async_shared_owner!(%{async: true}) do
+    raise ArgumentError, "a shared owner cannot be started from an async test context"
+  end
+
+  defp reject_async_shared_owner!(_context), do: :ok
 
   @doc false
   def sandbox_ownership_timeout(context) do
