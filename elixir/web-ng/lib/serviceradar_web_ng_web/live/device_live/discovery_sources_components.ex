@@ -16,6 +16,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.DiscoverySourcesComponents do
 
   use ServiceRadarWebNGWeb, :html
 
+  import ServiceRadarWebNGWeb.DeviceLive.IntegrationLogos, only: [wordmark: 1]
+
   attr(:device_row, :map, required: true)
   attr(:source_observations, :list, default: [])
 
@@ -55,7 +57,9 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.DiscoverySourcesComponents do
           ]}
           data-tip={chip.tip}
         >
+          <.wordmark :if={chip.logo} name={chip.logo} class="h-3.5 w-auto" />
           <.icon
+            :if={is_nil(chip.logo)}
             name={chip.icon}
             class={[
               "size-3.5 shrink-0",
@@ -63,7 +67,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.DiscoverySourcesComponents do
               !chip.tip && "text-sr-muted"
             ]}
           />
-          <span class="truncate">{chip.label}</span>
+          <span :if={is_nil(chip.logo)} class="truncate">{chip.label}</span>
           <span
             :if={chip.item_count > 0}
             class="rounded-full bg-secondary/15 px-1.5 text-[10px] font-semibold leading-4 text-secondary"
@@ -190,10 +194,15 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.DiscoverySourcesComponents do
       key: source,
       label: label,
       icon: icon,
+      logo: source_logo(source),
       item_count: length(items),
       tip: chip_tip(items)
     }
   end
+
+  defp source_logo("armis"), do: :armis
+  defp source_logo("netbox"), do: :netbox
+  defp source_logo(_source), do: nil
 
   # Concise "Label: value · Label: value" summary surfaced on hover for sources
   # that carry curated scoped metadata. `nil` for sources with none, which keeps
