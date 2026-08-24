@@ -1,6 +1,6 @@
 import {describe, expect, it} from "vitest"
 
-import {collapsedFarm01Graph, reverseGraphArrays} from "./fixtures/farm01_topology_regression"
+import {collapsedFarm01Graph, expandedFarm01Graph, reverseGraphArrays} from "./fixtures/farm01_topology_regression"
 import {prepareTopologyOverviewInput} from "./topology_overview_projection"
 
 describe("topology_overview_projection", () => {
@@ -133,6 +133,29 @@ describe("topology_overview_projection", () => {
     const shuffled = prepareTopologyOverviewInput(reverseGraphArrays(graph))
 
     expect(forward.treeRelations.find((relation) => relation.targetId === "summary")).toMatchObject({sourceId: "alpha"})
+    expect(forward.crossLinks).toContainEqual(expect.objectContaining({
+      pairId: "overview:pair:beta|summary",
+      semanticRelationIds: ["beta-summary"],
+      evidence: [expect.objectContaining({id: "beta-summary"})],
+    }))
     expect(shuffled).toEqual(forward)
+  })
+
+  it("never admits endpoint members to the overview even when they carry non-attachment evidence", () => {
+    const graph = expandedFarm01Graph()
+    const memberIndex = graph.nodes.findIndex((node) => node.id === "farm01:endpoint-member-01")
+    const anchorIndex = graph.nodes.findIndex((node) => node.id === "farm01:gateway-01")
+    graph.edges.push({
+      id: "farm01:member-observed-link",
+      source: memberIndex,
+      target: anchorIndex,
+      topologyClass: "observed",
+      evidenceClass: "observed",
+    })
+
+    const overview = prepareTopologyOverviewInput(graph)
+
+    expect(overview.nodes.find((node) => node.id === "farm01:endpoint-member-01")).toBeUndefined()
+    expect(overview.nodes.some((node) => node.type === "endpoint-member")).toEqual(false)
   })
 })

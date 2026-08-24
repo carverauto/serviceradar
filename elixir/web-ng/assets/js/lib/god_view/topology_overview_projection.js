@@ -197,7 +197,8 @@ function aggregatePairs(graph, normalized) {
 
 function overviewNodes(normalized, nonAttachmentIncident) {
   const infrastructure = normalized.nodes.filter(
-    (node) => node.type === "endpoint-anchor" || node.backbone || nonAttachmentIncident.has(node.id),
+    (node) => node.type !== "endpoint-member" &&
+      (node.type === "endpoint-anchor" || node.backbone || nonAttachmentIncident.has(node.id)),
   )
   const infrastructureIds = new Set(infrastructure.map((node) => node.id))
   const summaries = normalized.nodes.filter(
@@ -311,20 +312,22 @@ function orientForest(treePairs, infrastructure, transportDegree) {
 }
 
 function summaryRelations(summaries, infrastructureIds, pairs) {
-  const result = []
+  const relations = []
+  const crossLinks = []
   for (const summary of [...summaries].sort((left, right) => left.id.localeCompare(right.id))) {
     const anchorId = stringValue(detailsFor(summary.raw).cluster_anchor_id)
-    const matchingPair = pairs
+    const matchingPairs = pairs
       .filter((pair) => pair.nodeIds.includes(summary.id) && pair.nodeIds.some((id) => infrastructureIds.has(id)))
-      .sort(comparePair)[0]
+      .sort(comparePair)
+    const matchingPair = matchingPairs[0]
     const parentId = matchingPair
       ? matchingPair.nodeIds.find((id) => id !== summary.id && infrastructureIds.has(id))
       : (infrastructureIds.has(anchorId) ? anchorId : "")
     if (parentId === "") continue
 
-    if (matchingPair) result.push(relationFromPair(matchingPair, parentId, summary.id))
+    if (matchingPair) relations.push(relationFromPair(matchingPair, parentId, summary.id))
     else {
-      result.push({
+      relations.push({
         id: `overview:summary:${parentId}|${summary.id}`,
         pairId: `overview:summary:${parentId}|${summary.id}`,
         sourceId: parentId,
@@ -335,8 +338,13 @@ function summaryRelations(summaries, infrastructureIds, pairs) {
         summary: true,
       })
     }
+
+    for (const rejectedPair of matchingPairs.slice(1)) {
+      const rejectedParentId = rejectedPair.nodeIds.find((id) => id !== summary.id && infrastructureIds.has(id))
+      crossLinks.push(relationFromPair(rejectedPair, rejectedParentId, summary.id))
+    }
   }
-  return result
+  return {relations, crossLinks}
 }
 
 function graphKeyFor({semanticNodes, roots, semanticTreeRelations, crossLinks, synthetic}) {
@@ -367,7 +375,10 @@ export function prepareTopologyOverviewInput(graph) {
   }
 
   const oriented = orientForest(treePairs, infrastructure, transportDegree)
-  const summaryLeaves = summaryRelations(summaries, infrastructureIds, pairs)
+  const {relations: summaryLeaves, crossLinks: summaryCrossLinks} = summaryRelations(summaries, infrastructureIds, pairs)
+  const allCrossLinks = [...crossLinks, ...summaryCrossLinks].sort(
+    (left, right) => left.pairId.localeCompare(right.pairId) || left.sourceId.localeCompare(right.sourceId),
+  )
   const synthetic = {nodeIds: [], relationIds: []}
   const nodes = [...semanticNodes]
   const treeRelations = [...oriented.relations, ...summaryLeaves]
@@ -398,7 +409,7 @@ export function prepareTopologyOverviewInput(graph) {
     infrastructureNodes: infrastructure.length,
     collapsedSummaries: summaries.length,
     treeRelations: semanticTreeRelations.length,
-    crossLinks: crossLinks.length,
+    crossLinks: allCrossLinks.length,
     omittedAttachmentNodes,
     omittedMalformedEdges,
     components: oriented.roots.length,
@@ -410,9 +421,9 @@ export function prepareTopologyOverviewInput(graph) {
     nodes,
     roots: oriented.roots,
     treeRelations,
-    crossLinks,
+    crossLinks: allCrossLinks,
     synthetic,
-    graphKey: graphKeyFor({semanticNodes, roots: oriented.roots, semanticTreeRelations, crossLinks, synthetic}),
+    graphKey: graphKeyFor({semanticNodes, roots: oriented.roots, semanticTreeRelations, crossLinks: allCrossLinks, synthetic}),
     manifest,
   }
 }
