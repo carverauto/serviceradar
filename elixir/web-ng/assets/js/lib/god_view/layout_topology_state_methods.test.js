@@ -171,6 +171,27 @@ describe("layout_topology_state_methods", () => {
     }
   })
 
+  it("can prepare a layout without mutating accepted layout metadata", async () => {
+    const context = makeContext({state: {
+      layoutMode: "elk-scene",
+      layoutRevision: 40,
+      lastLayoutKey: "accepted-layout",
+    }})
+
+    const out = await context.prepareGraphLayout(
+      collapsedFarm01Graph(),
+      41,
+      "new-stamp",
+      {commit: false},
+    )
+
+    expect(out._layoutRevision).toBe(41)
+    expect(out._layoutCacheKey).not.toBe("accepted-layout")
+    expect(context.state.layoutMode).toBe("elk-scene")
+    expect(context.state.layoutRevision).toBe(40)
+    expect(context.state.lastLayoutKey).toBe("accepted-layout")
+  })
+
   it("contains all 24 expanded members in one accepted compound group", async () => {
     const context = makeContext()
 

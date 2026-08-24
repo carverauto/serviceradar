@@ -4,7 +4,9 @@ import {
   fitTopologyScene,
   focusTopologyGroup,
   measureGodViewSafeRect,
+  normalizeGodViewSafeRect,
 } from "./rendering_scene_view"
+import {admitTopologyLabels} from "./rendering_label_collision"
 
 function expandedScene() {
   return {
@@ -82,25 +84,46 @@ describe("rendering_scene_view", () => {
     expect(el.querySelectorAll).toHaveBeenCalledTimes(1)
   })
 
-  it("fits complete expanded scene visuals and admitted labels in at most two idempotent passes", () => {
+  it("falls back to nonzero client dimensions when the DOM rect is collapsed", () => {
+    const el = {
+      clientWidth: 640,
+      clientHeight: 480,
+      getBoundingClientRect: () => ({left: 20, top: 30, right: 20, bottom: 30, width: 0, height: 0}),
+      querySelectorAll: () => [],
+    }
+
+    expect(measureGodViewSafeRect(el)).toEqual({left: 0, top: 0, right: 640, bottom: 480})
+  })
+
+  it("normalizes collapsed and out-of-range safe bounds within the viewport", () => {
+    expect(normalizeGodViewSafeRect(
+      {left: 999, top: 999, right: -10, bottom: -5},
+      {width: 320, height: 260},
+    )).toEqual({left: 0, top: 0, right: 320, bottom: 260})
+  })
+
+  it("fits complete expanded scene visuals with real two-pass label admission", () => {
     const scene = expandedScene()
     const viewport = {width: 1000, height: 700, minZoom: -3, maxZoom: 5}
     const safeRect = {left: 40, top: 30, right: 820, bottom: 610}
     const glyphBoxes = scene.nodes.map((node) => ({nodeId: node.id, width: 52, height: 52}))
-    const admitLabels = vi.fn(({viewState, projectedGlyphBoxes}) => {
+    let admissionPasses = 0
+    const admitLabels = ({safeRect: admissionRect, projectedGlyphBoxes}) => {
+      admissionPasses += 1
       const glyph = projectedGlyphBoxes.find((item) => item.nodeId === "member-top")
-      return {
-        admitted: [{
+      return admitTopologyLabels({
+        candidates: [{
           nodeId: "member-top",
-          anchor: "right",
-          box: {left: glyph.right + 4, top: glyph.top, right: glyph.right + 124, bottom: glyph.top + 24},
-          pixelOffset: [30, 0],
-          textAnchor: "start",
-          alignmentBaseline: "center",
+          text: "Member Top With A Long Label",
+          point: [(glyph.left + glyph.right) / 2, (glyph.top + glyph.bottom) / 2],
+          role: "member",
         }],
-        viewState,
-      }
-    })
+        glyphBoxes: projectedGlyphBoxes,
+        routeCorridors: [],
+        safeRect: admissionRect,
+        measureText: () => ({width: 168, height: 16}),
+      })
+    }
     const input = {scene, viewport, safeRect, glyphBoxes, admitLabels}
 
     const first = fitTopologyScene(input)
@@ -108,7 +131,7 @@ describe("rendering_scene_view", () => {
     const projected = projectedSceneBounds(scene, first.viewState, viewport, glyphBoxes)
 
     expect(second).toEqual(first)
-    expect(admitLabels).toHaveBeenCalledTimes(4)
+    expect(admissionPasses).toBe(4)
     expect(projected.left).toBeGreaterThanOrEqual(safeRect.left - 1)
     expect(projected.top).toBeGreaterThanOrEqual(safeRect.top - 1)
     expect(projected.right).toBeLessThanOrEqual(safeRect.right + 1)
@@ -149,6 +172,48 @@ describe("rendering_scene_view", () => {
     expect(last[1] + 20).toBeLessThanOrEqual(safeRect.bottom + 1)
   })
 
+  it("lowers the effective Deck camera bound to fit a 10,000-unit accepted route", () => {
+    const scene = {
+      bounds: {minX: 0, minY: 0, maxX: 10_000, maxY: 500},
+      nodes: [],
+      groups: [],
+      routes: [{
+        id: "long-route",
+        strokeWidth: 40,
+        points: [{x: 0, y: 0}, {x: 10_000, y: 500}],
+      }],
+    }
+    const viewport = {width: 1000, height: 700, minZoom: -3, maxZoom: 5}
+    const safeRect = {left: 40, top: 30, right: 820, bottom: 610}
+
+    const {viewState} = fitTopologyScene({scene, viewport, safeRect})
+    const first = project(scene.routes[0].points[0], viewState, viewport)
+    const last = project(scene.routes[0].points.at(-1), viewState, viewport)
+
+    expect(viewState.zoom).toBeLessThan(-3)
+    expect(viewState.minZoom).toBeLessThanOrEqual(viewState.zoom)
+    expect(first[0] - 20).toBeGreaterThanOrEqual(safeRect.left - 1)
+    expect(first[1] - 20).toBeGreaterThanOrEqual(safeRect.top - 1)
+    expect(last[0] + 20).toBeLessThanOrEqual(safeRect.right + 1)
+    expect(last[1] + 20).toBeLessThanOrEqual(safeRect.bottom + 1)
+  })
+
+  it("reports a fit as infeasible when fixed-pixel visuals exceed the safe rectangle", () => {
+    const scene = {
+      bounds: {minX: 0, minY: 0, maxX: 1, maxY: 1},
+      nodes: [{id: "oversized", center: {x: 0.5, y: 0.5}, width: 1, height: 1}],
+      groups: [],
+      routes: [],
+    }
+
+    expect(() => fitTopologyScene({
+      scene,
+      viewport: {width: 320, height: 260, minZoom: -3, maxZoom: 5},
+      safeRect: {left: 20, top: 20, right: 120, bottom: 120},
+      glyphBoxes: [{nodeId: "oversized", width: 140, height: 40}],
+    })).toThrow(/cannot fit/i)
+  })
+
   it("focuses only a selected group, its anchor, and its trunk route", () => {
     const scene = expandedScene()
     scene.nodes.push({id: "unrelated", center: {x: 4200, y: 1800}, width: 112, height: 112})
@@ -170,5 +235,52 @@ describe("rendering_scene_view", () => {
     expect(anchor[0]).toBeGreaterThanOrEqual(safeRect.left - 1)
     expect(anchor[1]).toBeGreaterThanOrEqual(safeRect.top - 1)
     expect(unrelated[0]).toBeGreaterThan(safeRect.right + 1000)
+  })
+
+  it("keeps every focused member, anchor, gateway, and trunk halo inside at low scale", () => {
+    const scene = {
+      bounds: {minX: 0, minY: 0, maxX: 40_000, maxY: 8_000},
+      nodes: [
+        {id: "anchor", center: {x: 0, y: 1000}, width: 112, height: 112},
+        {id: "gateway", center: {x: 2000, y: 1000}, width: 112, height: 112, groupId: "group-a"},
+        {id: "member-edge", center: {x: 10_000, y: 2000}, width: 96, height: 96, groupId: "group-a"},
+        {id: "unrelated", center: {x: 40_000, y: 8_000}, width: 112, height: 112},
+      ],
+      groups: [{
+        id: "group-a",
+        bounds: {minX: 2000, minY: 0, maxX: 10_000, maxY: 2000},
+        anchorId: "anchor",
+        gatewayId: "gateway",
+        memberIds: ["member-edge"],
+      }],
+      routes: [{
+        id: "trunk",
+        sourceId: "anchor",
+        targetId: "gateway",
+        strokeWidth: 38,
+        points: [{x: 0, y: 1000}, {x: 1000, y: 1000}, {x: 2000, y: 1000}],
+      }],
+    }
+    const viewport = {width: 1000, height: 700, minZoom: -3, maxZoom: 5}
+    const safeRect = {left: 40, top: 30, right: 820, bottom: 610}
+
+    const viewState = focusTopologyGroup({scene, groupId: "group-a", viewport, safeRect})
+
+    expect(viewState.zoom).toBeLessThan(-3)
+    for (const nodeId of ["anchor", "gateway", "member-edge"]) {
+      const node = scene.nodes.find((candidate) => candidate.id === nodeId)
+      const center = project(node.center, viewState, viewport)
+      expect(center[0] - 26).toBeGreaterThanOrEqual(safeRect.left - 1)
+      expect(center[1] - 26).toBeGreaterThanOrEqual(safeRect.top - 1)
+      expect(center[0] + 26).toBeLessThanOrEqual(safeRect.right + 1)
+      expect(center[1] + 26).toBeLessThanOrEqual(safeRect.bottom + 1)
+    }
+    for (const point of scene.routes[0].points) {
+      const screen = project(point, viewState, viewport)
+      expect(screen[0] - 19).toBeGreaterThanOrEqual(safeRect.left - 1)
+      expect(screen[1] - 19).toBeGreaterThanOrEqual(safeRect.top - 1)
+      expect(screen[0] + 19).toBeLessThanOrEqual(safeRect.right + 1)
+      expect(screen[1] + 19).toBeLessThanOrEqual(safeRect.bottom + 1)
+    }
   })
 })

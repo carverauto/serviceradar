@@ -172,6 +172,66 @@ describe("lifecycle_dom_interaction_methods", () => {
     expect(ctx.deps.refreshGraphLayersForViewState).toHaveBeenCalledTimes(1)
   })
 
+  it("custom wheel zoom keeps an accepted ELK scene local across legacy tier thresholds", () => {
+    const scene = {id: "authoritative-scene"}
+    const graph = {_layoutMode: "elk-scene", _topologyScene: scene, nodes: [], edges: []}
+    const canvas = {getBoundingClientRect: () => ({left: 0, top: 0, width: 1000, height: 600})}
+    const ctx = makeContext({
+      state: {
+        canvas,
+        lastGraph: graph,
+        zoomMode: "auto",
+        zoomTier: "local",
+        viewState: {zoom: 0, minZoom: -5, maxZoom: 5, target: [0, 0, 0]},
+      },
+      deps: {resolveZoomTier: vi.fn(() => "global")},
+    })
+
+    ctx.handleWheelZoom({
+      clientX: 500,
+      clientY: 300,
+      deltaY: 1000,
+      preventDefault: vi.fn(),
+      stopPropagation: vi.fn(),
+    })
+
+    expect(ctx.state.viewState.zoom).toBeLessThan(0)
+    expect(ctx.state.zoomTier).toBe("local")
+    expect(ctx.state.lastGraph).toBe(graph)
+    expect(ctx.state.lastGraph._topologyScene).toBe(scene)
+    expect(ctx.deps.resolveZoomTier).not.toHaveBeenCalled()
+    expect(ctx.deps.setZoomTier).not.toHaveBeenCalled()
+    expect(ctx.deps.renderGraph).not.toHaveBeenCalled()
+    expect(ctx.deps.refreshGraphLayersForViewState).toHaveBeenCalledTimes(1)
+  })
+
+  it("custom pan keeps an accepted ELK scene identity and only refreshes layers", () => {
+    const scene = {id: "authoritative-scene"}
+    const graph = {_layoutMode: "elk-scene", _topologyScene: scene, nodes: [], edges: []}
+    const ctx = makeContext({
+      state: {
+        canvas: {style: {cursor: "grabbing"}},
+        lastGraph: graph,
+        zoomMode: "auto",
+        zoomTier: "local",
+        viewState: {zoom: -1, minZoom: -5, maxZoom: 5, target: [0, 0, 0]},
+        dragState: {pointerId: 7, lastX: 100, lastY: 100},
+      },
+      deps: {resolveZoomTier: vi.fn(() => "regional")},
+    })
+
+    ctx.handlePanMove({pointerId: 7, clientX: 140, clientY: 120, preventDefault: vi.fn()})
+
+    expect(ctx.state.viewState.target).not.toEqual([0, 0, 0])
+    expect(ctx.state.zoomTier).toBe("local")
+    expect(ctx.state.lastGraph).toBe(graph)
+    expect(ctx.state.lastGraph._topologyScene).toBe(scene)
+    expect(ctx.deps.resolveZoomTier).not.toHaveBeenCalled()
+    expect(ctx.deps.setZoomTier).not.toHaveBeenCalled()
+    expect(ctx.deps.renderGraph).not.toHaveBeenCalled()
+    expect(ctx.deps.refreshGraphLayersForViewState).toHaveBeenCalledTimes(1)
+  })
+
   it("applyDeckViewState refreshes layers without layout in a fixed zoom tier", () => {
     const ctx = makeContext({state: {zoomMode: "regional"}})
     const nextViewState = {zoom: 0.5, minZoom: -2, maxZoom: 5, target: [120, 80, 0]}

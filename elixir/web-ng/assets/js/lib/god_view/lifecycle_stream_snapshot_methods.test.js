@@ -1,7 +1,14 @@
 import {describe, expect, it, vi} from "vitest"
 
 import {bindApi, createStateBackedContext} from "./api_helpers"
+import {godViewLifecycleDomSetupMethods} from "./lifecycle_dom_setup_methods"
 import {godViewLifecycleStreamSnapshotMethods} from "./lifecycle_stream_snapshot_methods"
+
+function deferred() {
+  let resolve
+  const promise = new Promise((next) => { resolve = next })
+  return {promise, resolve}
+}
 
 function buildFrame(payloadBytes) {
   const payload = Uint8Array.from(payloadBytes)
@@ -146,6 +153,162 @@ describe("lifecycle_stream_snapshot_methods", () => {
         rendered_edge_count: 3,
       }),
     )
+  })
+
+  it("a newer snapshot cancels an older resize layout before graph or metadata acceptance", async () => {
+    const resizeLayout = deferred()
+    const snapshotLayout = deferred()
+    const oldGraph = {
+      nodes: [{id: "old"}],
+      edges: [],
+      _layoutMode: "elk-scene",
+      _layoutCacheKey: "old-landscape-layout",
+      _topologyScene: {profileKey: "landscape"},
+    }
+    const resizedOldGraph = {
+      ...oldGraph,
+      _layoutCacheKey: "old-portrait-layout",
+      _topologyScene: {profileKey: "portrait"},
+    }
+    const rawNewGraph = {nodes: [{id: "new"}], edges: []}
+    const newGraph = {
+      ...rawNewGraph,
+      _layoutMode: "elk-scene",
+      _layoutRevision: 42,
+      _layoutCacheKey: "new-portrait-layout",
+      _topologyScene: {profileKey: "portrait"},
+    }
+    const state = {
+      lastRevision: 41,
+      lastTopologyStamp: "old-stamp",
+      lastSnapshotAt: 0,
+      layoutRequestToken: 0,
+      lastGraph: oldGraph,
+      layoutMode: "elk-scene",
+      layoutRevision: 41,
+      lastLayoutKey: "old-landscape-layout",
+      viewportProfileKey: "landscape",
+      pendingViewportProfileKey: "portrait",
+      lastVisibleNodeCount: 0,
+      lastVisibleEdgeCount: 0,
+      selectedNodeIndex: null,
+      rendererMode: "deck",
+      zoomTier: "local",
+      zoomMode: "auto",
+      lastPipelineStats: null,
+      userCameraLocked: false,
+      pushEvent: vi.fn(),
+      summary: {textContent: ""},
+    }
+    const deps = {
+      decodeArrowGraph: vi.fn(() => rawNewGraph),
+      graphTopologyStamp: vi.fn(() => "new-stamp"),
+      prepareGraphLayout: vi.fn((graph) => graph === oldGraph ? resizeLayout.promise : snapshotLayout.promise),
+      ensureBitmapMetadata: vi.fn(() => ({})),
+      sameTopology: vi.fn(() => false),
+      renderGraph: vi.fn(),
+      animateTransition: vi.fn(),
+      focusClusterNeighborhood: vi.fn(() => false),
+      normalizePipelineStats: vi.fn(() => ({})),
+    }
+    const methods = createStateBackedContext(state, deps)
+    Object.assign(
+      methods,
+      bindApi(methods, godViewLifecycleDomSetupMethods),
+      bindApi(methods, godViewLifecycleStreamSnapshotMethods),
+    )
+
+    const resizeRequest = methods.requestTopologyProfileLayout(oldGraph, "portrait")
+    const snapshotRequest = methods.handleSnapshot(buildFrame([1, 2, 3]))
+    snapshotLayout.resolve(newGraph)
+    await snapshotRequest
+
+    expect(state.lastGraph).toBe(newGraph)
+    expect(state.lastRevision).toBe(42)
+    expect(state.lastTopologyStamp).toBe("new-stamp")
+    expect(state.lastLayoutKey).toBe("new-portrait-layout")
+    expect(state.viewportProfileKey).toBe("portrait")
+
+    resizeLayout.resolve(resizedOldGraph)
+    expect(await resizeRequest).toBe(false)
+
+    expect(state.lastGraph).toBe(newGraph)
+    expect(state.lastRevision).toBe(42)
+    expect(state.lastTopologyStamp).toBe("new-stamp")
+    expect(state.lastLayoutKey).toBe("new-portrait-layout")
+    expect(state.viewportProfileKey).toBe("portrait")
+    expect(deps.renderGraph).not.toHaveBeenCalledWith(resizedOldGraph)
+    expect(deps.animateTransition).toHaveBeenCalledTimes(1)
+    expect(deps.animateTransition).toHaveBeenCalledWith(oldGraph, newGraph)
+  })
+
+  it("a resize of the old graph cannot supersede an in-flight snapshot", async () => {
+    const snapshotLayout = deferred()
+    const resizeLayout = deferred()
+    const oldGraph = {
+      nodes: [{id: "old"}],
+      edges: [],
+      _layoutMode: "elk-scene",
+      _layoutCacheKey: "old-layout",
+      _topologyScene: {profileKey: "landscape"},
+    }
+    const rawNewGraph = {nodes: [{id: "new"}], edges: []}
+    const newGraph = {
+      ...rawNewGraph,
+      _layoutMode: "elk-scene",
+      _layoutRevision: 42,
+      _layoutCacheKey: "new-layout",
+      _topologyScene: {profileKey: "landscape"},
+    }
+    const resizedOldGraph = {...oldGraph, _layoutCacheKey: "resized-old-layout"}
+    const state = {
+      lastRevision: 41,
+      lastTopologyStamp: "old-stamp",
+      lastSnapshotAt: 0,
+      layoutRequestToken: 0,
+      lastGraph: oldGraph,
+      lastVisibleNodeCount: 0,
+      lastVisibleEdgeCount: 0,
+      selectedNodeIndex: null,
+      rendererMode: "deck",
+      zoomTier: "local",
+      zoomMode: "auto",
+      lastPipelineStats: null,
+      userCameraLocked: false,
+      pushEvent: vi.fn(),
+      summary: {textContent: ""},
+    }
+    const deps = {
+      decodeArrowGraph: vi.fn(() => rawNewGraph),
+      graphTopologyStamp: vi.fn(() => "new-stamp"),
+      prepareGraphLayout: vi.fn((graph) => graph === rawNewGraph ? snapshotLayout.promise : resizeLayout.promise),
+      ensureBitmapMetadata: vi.fn(() => ({})),
+      sameTopology: vi.fn(() => false),
+      renderGraph: vi.fn(),
+      animateTransition: vi.fn(),
+      focusClusterNeighborhood: vi.fn(() => false),
+      normalizePipelineStats: vi.fn(() => ({})),
+    }
+    const methods = createStateBackedContext(state, deps)
+    Object.assign(
+      methods,
+      bindApi(methods, godViewLifecycleDomSetupMethods),
+      bindApi(methods, godViewLifecycleStreamSnapshotMethods),
+    )
+
+    const snapshotRequest = methods.handleSnapshot(buildFrame([1, 2, 3]))
+    const resizeRequest = methods.requestTopologyProfileLayout(oldGraph, "portrait")
+    resizeLayout.resolve(resizedOldGraph)
+    expect(await resizeRequest).toBe(false)
+    expect(state.lastGraph).toBe(oldGraph)
+
+    snapshotLayout.resolve(newGraph)
+    await snapshotRequest
+
+    expect(state.lastGraph).toBe(newGraph)
+    expect(state.lastLayoutKey).toBe("new-layout")
+    expect(deps.renderGraph).not.toHaveBeenCalledWith(resizedOldGraph)
+    expect(deps.animateTransition).toHaveBeenCalledWith(oldGraph, newGraph)
   })
 
   it("handleSnapshot re-arms autoFit on topology changes when the user has not locked the camera", async () => {

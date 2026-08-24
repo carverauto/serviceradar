@@ -12,18 +12,27 @@ function finiteNumber(value, fallback = 0) {
 function finiteRect(rect, fallbackWidth = 0, fallbackHeight = 0) {
   const left = finiteNumber(rect?.left)
   const top = finiteNumber(rect?.top)
-  const width = Math.max(0, finiteNumber(rect?.width, finiteNumber(rect?.right) - left || fallbackWidth))
-  const height = Math.max(0, finiteNumber(rect?.height, finiteNumber(rect?.bottom) - top || fallbackHeight))
+  const positiveDimension = (...values) => {
+    for (const value of values) {
+      const number = Number(value)
+      if (Number.isFinite(number) && number > 0) return number
+    }
+    return 0
+  }
+  const width = positiveDimension(rect?.width, finiteNumber(rect?.right) - left, fallbackWidth)
+  const height = positiveDimension(rect?.height, finiteNumber(rect?.bottom) - top, fallbackHeight)
   return {left, top, right: left + width, bottom: top + height, width, height}
 }
 
-function normalizedSafeRect(safeRect, viewport) {
+export function normalizeGodViewSafeRect(safeRect, viewport) {
   const width = Math.max(1, finiteNumber(viewport?.width, 1))
   const height = Math.max(1, finiteNumber(viewport?.height, 1))
-  const left = Math.max(0, Math.min(width, finiteNumber(safeRect?.left)))
-  const right = Math.max(left + 1, Math.min(width, finiteNumber(safeRect?.right, width)))
-  const top = Math.max(0, Math.min(height, finiteNumber(safeRect?.top)))
-  const bottom = Math.max(top + 1, Math.min(height, finiteNumber(safeRect?.bottom, height)))
+  const rawLeft = Math.max(0, Math.min(width, finiteNumber(safeRect?.left)))
+  const rawRight = Math.max(0, Math.min(width, finiteNumber(safeRect?.right, width)))
+  const rawTop = Math.max(0, Math.min(height, finiteNumber(safeRect?.top)))
+  const rawBottom = Math.max(0, Math.min(height, finiteNumber(safeRect?.bottom, height)))
+  const [left, right] = rawRight - rawLeft >= 1 ? [rawLeft, rawRight] : [0, width]
+  const [top, bottom] = rawBottom - rawTop >= 1 ? [rawTop, rawBottom] : [0, height]
   return {left, top, right, bottom}
 }
 
@@ -167,10 +176,9 @@ function axisExtents(specs, scale, axis) {
 function fitVisualSpecs(specs, viewport, safeRect, previousViewState = {}) {
   const width = Math.max(1, finiteNumber(viewport?.width, 1))
   const height = Math.max(1, finiteNumber(viewport?.height, 1))
-  const safe = normalizedSafeRect(safeRect, {width, height})
-  const minZoom = finiteNumber(viewport?.minZoom ?? viewport?.viewState?.minZoom ?? previousViewState?.minZoom, DEFAULT_MIN_ZOOM)
-  const maxZoom = Math.max(minZoom, finiteNumber(viewport?.maxZoom ?? viewport?.viewState?.maxZoom ?? previousViewState?.maxZoom, DEFAULT_MAX_ZOOM))
-  const minScale = 2 ** minZoom
+  const safe = normalizeGodViewSafeRect(safeRect, {width, height})
+  const requestedMinZoom = finiteNumber(viewport?.minZoom ?? viewport?.viewState?.minZoom ?? previousViewState?.minZoom, DEFAULT_MIN_ZOOM)
+  const maxZoom = Math.max(requestedMinZoom, finiteNumber(viewport?.maxZoom ?? viewport?.viewState?.maxZoom ?? previousViewState?.maxZoom, DEFAULT_MAX_ZOOM))
   const maxScale = 2 ** maxZoom
   const safeWidth = safe.right - safe.left
   const safeHeight = safe.bottom - safe.top
@@ -179,21 +187,38 @@ function fitVisualSpecs(specs, viewport, safeRect, previousViewState = {}) {
     const y = axisExtents(specs, scale, "y")
     return x.max - x.min <= safeWidth + 1e-9 && y.max - y.min <= safeHeight + 1e-9
   }
+  const guaranteedScale = (axis, safeSpan) => {
+    const worldKey = axis === "x" ? "worldX" : "worldY"
+    const lowerPad = axis === "x" ? "leftPad" : "topPad"
+    const upperPad = axis === "x" ? "rightPad" : "bottomPad"
+    const worldValues = specs.map((spec) => finiteNumber(spec[worldKey]))
+    const worldSpan = Math.max(...worldValues) - Math.min(...worldValues)
+    const fixedSpan = Math.max(...specs.map((spec) => finiteNumber(spec[lowerPad]))) +
+      Math.max(...specs.map((spec) => finiteNumber(spec[upperPad])))
+    if (worldSpan <= 0) return fixedSpan <= safeSpan ? maxScale : 0
+    return Math.max(0, (safeSpan - fixedSpan) / worldSpan)
+  }
 
   let scale = maxScale
   if (!fits(maxScale)) {
-    if (!fits(minScale)) {
-      scale = minScale
-    } else {
-      let lower = minScale
-      let upper = maxScale
-      for (let pass = 0; pass < 56; pass += 1) {
-        const middle = (lower + upper) / 2
-        if (fits(middle)) lower = middle
-        else upper = middle
-      }
-      scale = lower
+    if (!fits(0)) {
+      throw new RangeError("topology scene cannot fit fixed-pixel visuals inside the safe rectangle")
     }
+    let lower = Math.min(
+      maxScale,
+      guaranteedScale("x", safeWidth),
+      guaranteedScale("y", safeHeight),
+    )
+    if (!(lower > 0) || !fits(lower)) {
+      throw new RangeError("topology scene cannot fit at a positive Deck camera scale")
+    }
+    let upper = maxScale
+    for (let pass = 0; pass < 56; pass += 1) {
+      const middle = (lower + upper) / 2
+      if (fits(middle)) lower = middle
+      else upper = middle
+    }
+    scale = lower
   }
 
   const x = axisExtents(specs, scale, "x")
@@ -202,10 +227,12 @@ function fitVisualSpecs(specs, viewport, safeRect, previousViewState = {}) {
   const safeCenterY = (safe.top + safe.bottom) / 2
   const targetX = ((width / 2) + ((x.min + x.max) / 2) - safeCenterX) / scale
   const targetY = ((height / 2) + ((y.min + y.max) / 2) - safeCenterY) / scale
+  const zoom = Math.log2(scale)
+  const minZoom = Math.min(requestedMinZoom, zoom)
   return {
     ...previousViewState,
     target: [targetX, targetY, 0],
-    zoom: Math.log2(scale),
+    zoom,
     minZoom,
     maxZoom,
   }
@@ -288,11 +315,15 @@ function runAdmission(admitLabels, scene, viewport, safeRect, glyphSpecs, viewSt
  * makes identical calls idempotent and prevents recursive label chasing.
  */
 export function fitTopologyScene({scene, viewport = {}, safeRect, glyphBoxes = [], admitLabels} = {}) {
-  const safe = normalizedSafeRect(safeRect, viewport)
+  const safe = normalizeGodViewSafeRect(safeRect, viewport)
+  const canvas = normalizeGodViewSafeRect(
+    {left: 0, top: 0, right: viewport?.width, bottom: viewport?.height},
+    viewport,
+  )
   const glyphSpecs = glyphVisualSpecs(scene, glyphBoxes)
   const baseSpecs = baseVisualSpecs(scene, glyphBoxes)
   let viewState = fitVisualSpecs(baseSpecs, viewport, safe, viewport?.viewState || {})
-  let labels = runAdmission(admitLabels, scene, viewport, safe, glyphSpecs, viewState)
+  let labels = runAdmission(admitLabels, scene, viewport, canvas, glyphSpecs, viewState)
 
   if (labels.some((label) => !boxInside(label?.box, safe))) {
     const labelSpecs = labelVisualSpecs(scene, labels, viewState, viewport)
@@ -308,7 +339,6 @@ export function fitTopologyScene({scene, viewport = {}, safeRect, glyphBoxes = [
 
 function focusScene(scene, group) {
   const nodeById = new Map((scene?.nodes || []).map((node) => [String(node?.id || ""), node]))
-  const anchor = nodeById.get(String(group?.anchorId || ""))
   const descendants = new Set([group?.id, group?.gatewayId, ...(group?.memberIds || [])].map(String))
   const trunks = (scene?.routes || []).filter((route) => {
     const sourceId = String(route?.sourceId || "")
@@ -316,9 +346,15 @@ function focusScene(scene, group) {
     const anchorId = String(group?.anchorId || "")
     return (sourceId === anchorId && descendants.has(targetId)) || (targetId === anchorId && descendants.has(sourceId))
   })
+  const nodeIds = new Set([
+    group?.anchorId,
+    group?.gatewayId,
+    ...(group?.memberIds || []),
+    ...trunks.flatMap((route) => [route?.sourceId, route?.targetId]),
+  ].map(String))
   return {
     bounds: group.bounds,
-    nodes: anchor ? [anchor] : [],
+    nodes: [...nodeIds].map((id) => nodeById.get(id)).filter(Boolean),
     groups: [group],
     routes: trunks,
   }

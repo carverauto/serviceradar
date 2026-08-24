@@ -82,7 +82,13 @@ describe("lifecycle_dom_setup_methods", () => {
 
   it("crossing usable aspect 1.2 invalidates and requests one fresh profile layout", async () => {
     const previousGraph = {_layoutMode: "elk-scene", _topologyScene: {profileKey: "landscape"}, nodes: [], edges: []}
-    const portraitGraph = {_layoutMode: "elk-scene", _topologyScene: {profileKey: "portrait"}, nodes: [], edges: []}
+    const portraitGraph = {
+      _layoutMode: "elk-scene",
+      _layoutCacheKey: "accepted-portrait-layout",
+      _topologyScene: {profileKey: "portrait"},
+      nodes: [],
+      edges: [],
+    }
     const state = {
       el: {
         clientWidth: 660,
@@ -100,7 +106,7 @@ describe("lifecycle_dom_setup_methods", () => {
       viewportProfileKey: "landscape",
       lastLayoutKey: "accepted-landscape-layout",
       userCameraLocked: false,
-      resizeLayoutRequestToken: 0,
+      layoutRequestToken: 0,
     }
     const deps = {
       autoFitViewState: vi.fn(),
@@ -117,9 +123,9 @@ describe("lifecycle_dom_setup_methods", () => {
     await Promise.resolve()
 
     expect(state.viewportProfileKey).toBe("portrait")
-    expect(state.lastLayoutKey).toBe(null)
+    expect(state.lastLayoutKey).toBe("accepted-portrait-layout")
     expect(deps.prepareGraphLayout).toHaveBeenCalledTimes(1)
-    expect(deps.prepareGraphLayout).toHaveBeenCalledWith(previousGraph, 8, "same-graph")
+    expect(deps.prepareGraphLayout).toHaveBeenCalledWith(previousGraph, 8, "same-graph", {commit: false})
     expect(state.lastGraph).toBe(portraitGraph)
     expect(deps.renderGraph).toHaveBeenCalledWith(portraitGraph)
   })

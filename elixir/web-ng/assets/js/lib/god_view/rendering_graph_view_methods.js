@@ -156,7 +156,6 @@ export const godViewRenderingGraphViewMethods = {
       })
 
       this.state.viewState = fitted.viewState
-      this.state.topologyFittedLabels = fitted.admittedLabels
       this.state.hasAutoFit = true
       this.state.isProgrammaticViewUpdate = true
       this.state.deck.setProps({viewState: this.state.viewState})

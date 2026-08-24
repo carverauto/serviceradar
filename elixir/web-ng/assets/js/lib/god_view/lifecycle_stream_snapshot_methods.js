@@ -5,6 +5,8 @@ export const godViewLifecycleStreamSnapshotMethods = {
     const startedAt = performance.now()
     const requestToken = Number(this.state.layoutRequestToken || 0) + 1
     this.state.layoutRequestToken = requestToken
+    this.state.latestSnapshotLayoutToken = requestToken
+    this.state.pendingSnapshotLayoutToken = requestToken
 
     try {
       const snapshot = this.parseSnapshotMessage(msg)
@@ -16,8 +18,13 @@ export const godViewLifecycleStreamSnapshotMethods = {
       const decodeStart = performance.now()
       const rawGraph = this.deps.decodeArrowGraph(bytes)
       const topologyStamp = this.deps.graphTopologyStamp(rawGraph)
-      const graph = await this.deps.prepareGraphLayout(rawGraph, revision, topologyStamp)
-      if (requestToken !== this.state.layoutRequestToken) return
+      const graph = await this.deps.prepareGraphLayout(
+        rawGraph,
+        revision,
+        topologyStamp,
+        {commit: false},
+      )
+      if (requestToken !== this.state.latestSnapshotLayoutToken) return
       const decodeMs = Math.round((performance.now() - decodeStart) * 100) / 100
       const bitmapMetadata = this.deps.ensureBitmapMetadata(snapshot.bitmapMetadata, graph.nodes)
 
@@ -26,6 +33,14 @@ export const godViewLifecycleStreamSnapshotMethods = {
       const topologyUnchanged = this.deps.sameTopology(previousGraph, graph, topologyStamp, revision)
       if (!topologyUnchanged && !this.state.userCameraLocked) {
         this.state.hasAutoFit = false
+      }
+      this.state.layoutMode = graph._layoutMode
+      this.state.layoutRevision = revision
+      this.state.lastLayoutKey = graph._layoutCacheKey ?? null
+      const graphProfileKey = graph._topologyScene?.profileKey
+      this.state.viewportProfileKey = graphProfileKey || this.state.viewportProfileKey
+      if (!this.state.pendingViewportProfileKey || this.state.pendingViewportProfileKey === graphProfileKey) {
+        this.state.pendingViewportProfileKey = null
       }
       this.state.lastGraph = graph
       if (topologyUnchanged) {
@@ -71,9 +86,25 @@ export const godViewLifecycleStreamSnapshotMethods = {
         render_ms: renderMs,
         pipeline_stats: this.deps.normalizePipelineStats(this.state.lastPipelineStats),
       })
+      const pendingProfileKey = this.state.pendingViewportProfileKey
+      if (
+        pendingProfileKey &&
+        pendingProfileKey !== graphProfileKey &&
+        typeof this.requestTopologyProfileLayout === "function"
+      ) {
+        globalThis.queueMicrotask(() => {
+          if (this.state.lastGraph !== graph || this.state.pendingViewportProfileKey !== pendingProfileKey) return
+          void this.requestTopologyProfileLayout(graph, pendingProfileKey)
+        })
+      }
     } catch (error) {
+      if (requestToken !== this.state.latestSnapshotLayoutToken) return
       this.state.summary.textContent = "snapshot decode failed"
       this.state.pushEvent("god_view_stream_error", {reason: "decode_error", message: `${error}`})
+    } finally {
+      if (this.state.pendingSnapshotLayoutToken === requestToken) {
+        this.state.pendingSnapshotLayoutToken = null
+      }
     }
   },
   parseSnapshotMessage(msg) {

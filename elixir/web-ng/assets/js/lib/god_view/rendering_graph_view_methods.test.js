@@ -234,13 +234,19 @@ describe("rendering_graph_view_methods", () => {
 
   it("autoFitViewState uses complete immutable ELK scene bounds and keeps the managed view local", () => {
     const scene = {
-      bounds: {minX: -200, minY: -100, maxX: 1400, maxY: 700},
+      bounds: {minX: -200, minY: -100, maxX: 9800, maxY: 700},
       nodes: [
         {id: "left", center: {x: -144, y: 0}, width: 112, height: 112},
-        {id: "right", center: {x: 1344, y: 600}, width: 112, height: 112},
+        {id: "right", center: {x: 9744, y: 600}, width: 112, height: 112},
       ],
       groups: [],
-      routes: [{id: "route", sourceId: "left", targetId: "right", points: [{x: -200, y: 0}, {x: 1400, y: 700}]}],
+      routes: [{
+        id: "route",
+        sourceId: "left",
+        targetId: "right",
+        strokeWidth: 40,
+        points: [{x: -200, y: 0}, {x: 9800, y: 700}],
+      }],
     }
     const state = {
       deck: {setProps: vi.fn()},
@@ -260,12 +266,14 @@ describe("rendering_graph_view_methods", () => {
 
     const topLeft = projectNode({x: scene.bounds.minX, y: scene.bounds.minY}, state)
     const bottomRight = projectNode({x: scene.bounds.maxX, y: scene.bounds.maxY}, state)
-    expect(topLeft.x).toBeGreaterThanOrEqual(state.topologyLabelSafeRect.left - 1)
-    expect(topLeft.y).toBeGreaterThanOrEqual(state.topologyLabelSafeRect.top - 1)
-    expect(bottomRight.x).toBeLessThanOrEqual(state.topologyLabelSafeRect.right + 1)
-    expect(bottomRight.y).toBeLessThanOrEqual(state.topologyLabelSafeRect.bottom + 1)
+    expect(topLeft.x - 20).toBeGreaterThanOrEqual(state.topologyLabelSafeRect.left - 1)
+    expect(topLeft.y - 20).toBeGreaterThanOrEqual(state.topologyLabelSafeRect.top - 1)
+    expect(bottomRight.x + 20).toBeLessThanOrEqual(state.topologyLabelSafeRect.right + 1)
+    expect(bottomRight.y + 20).toBeLessThanOrEqual(state.topologyLabelSafeRect.bottom + 1)
+    expect(state.viewState.zoom).toBeLessThan(-3)
+    expect(state.viewState.minZoom).toBeLessThanOrEqual(state.viewState.zoom)
     expect(deps.setZoomTier).toHaveBeenCalledWith("local", true)
-    expect(scene.bounds).toEqual({minX: -200, minY: -100, maxX: 1400, maxY: 700})
+    expect(scene.bounds).toEqual({minX: -200, minY: -100, maxX: 9800, maxY: 700})
   })
 
   it("forced managed refit leaves a user-locked camera untouched", () => {

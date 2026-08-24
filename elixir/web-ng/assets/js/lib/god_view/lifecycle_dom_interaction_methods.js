@@ -80,9 +80,13 @@ export const godViewLifecycleDomInteractionMethods = {
     this.state.deck.setProps({viewState: this.state.viewState})
 
     if (syncZoomTier && this.state.zoomMode === "auto") {
-      const clientRadial = this.state.lastGraph?._layoutMode === "client-radial"
-      const nextTier = clientRadial ? "local" : this.deps.resolveZoomTier(this.state.viewState.zoom || 0)
-      this.deps.setZoomTier(nextTier, false)
+      const layoutMode = this.state.lastGraph?._layoutMode
+      if (layoutMode === "elk-scene") {
+        this.state.zoomTier = "local"
+      } else {
+        const nextTier = layoutMode === "client-radial" ? "local" : this.deps.resolveZoomTier(this.state.viewState.zoom || 0)
+        this.deps.setZoomTier(nextTier, false)
+      }
     }
 
     this.deps.refreshGraphLayersForViewState()

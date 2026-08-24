@@ -249,7 +249,7 @@ export const godViewLifecycleDomSetupMethods = {
     const height = Math.max(260, Math.floor(this.state.el.clientHeight || 0))
     const previousWidth = Number(this.state.viewportWidth)
     const previousHeight = Number(this.state.viewportHeight)
-    const previousProfileKey = this.state.viewportProfileKey
+    const previousProfileKey = this.state.pendingViewportProfileKey || this.state.viewportProfileKey
     const safeRect = measureGodViewSafeRect(this.state.el)
     const safeInsets = {
       left: safeRect.left,
@@ -260,10 +260,11 @@ export const godViewLifecycleDomSetupMethods = {
     const profile = viewportProfileForSize(width, height, safeInsets)
     const sizeChanged = width !== previousWidth || height !== previousHeight
 
+    if (!previousProfileKey) this.state.viewportProfileKey = profile.key
+
     this.state.viewportWidth = width
     this.state.viewportHeight = height
     this.state.viewportSafeInsets = safeInsets
-    this.state.viewportProfileKey = profile.key
     this.state.topologyLabelSafeRect = safeRect
     this.state.canvas.style.width = `${width}px`
     this.state.canvas.style.height = `${height}px`
@@ -274,8 +275,13 @@ export const godViewLifecycleDomSetupMethods = {
 
     if (!sizeChanged || !this.state.lastGraph) return
     if (previousProfileKey && previousProfileKey !== profile.key) {
-      this.state.lastLayoutKey = null
-      void this.requestTopologyProfileLayout(this.state.lastGraph)
+      this.state.pendingViewportProfileKey = profile.key
+      void this.requestTopologyProfileLayout(this.state.lastGraph, profile.key)
+      this.deps.refreshGraphLayersForViewState?.()
+      return
+    }
+
+    if (this.state.pendingViewportProfileKey === profile.key) {
       this.deps.refreshGraphLayersForViewState?.()
       return
     }
@@ -285,22 +291,43 @@ export const godViewLifecycleDomSetupMethods = {
     }
     this.deps.refreshGraphLayersForViewState?.()
   },
-  async requestTopologyProfileLayout(graph) {
+  async requestTopologyProfileLayout(graph, profileKey = null) {
     if (typeof this.deps.prepareGraphLayout !== "function") return false
-    const requestToken = Number(this.state.resizeLayoutRequestToken || 0) + 1
-    this.state.resizeLayoutRequestToken = requestToken
+    const requestToken = Number(this.state.layoutRequestToken || 0) + 1
+    this.state.layoutRequestToken = requestToken
+    const snapshotToken = this.state.latestSnapshotLayoutToken
+    const revision = this.state.lastRevision
+    const topologyStamp = this.state.lastTopologyStamp
     try {
       const laidOut = await this.deps.prepareGraphLayout(
         graph,
-        this.state.lastRevision,
-        this.state.lastTopologyStamp,
+        revision,
+        topologyStamp,
+        {commit: false},
       )
-      if (requestToken !== this.state.resizeLayoutRequestToken || !laidOut) return false
+      const current =
+        requestToken === this.state.layoutRequestToken &&
+        snapshotToken === this.state.latestSnapshotLayoutToken &&
+        !this.state.pendingSnapshotLayoutToken &&
+        this.state.lastGraph === graph
+      if (!current || !laidOut) return false
+      this.state.layoutMode = laidOut._layoutMode
+      this.state.layoutRevision = revision
+      this.state.lastLayoutKey = laidOut._layoutCacheKey ?? null
+      this.state.viewportProfileKey = profileKey || laidOut._topologyScene?.profileKey || this.state.viewportProfileKey
+      this.state.pendingViewportProfileKey = null
       this.state.lastGraph = laidOut
       if (!this.state.userCameraLocked) this.state.hasAutoFit = false
       this.deps.renderGraph?.(laidOut)
       return true
     } catch (error) {
+      if (
+        requestToken !== this.state.layoutRequestToken ||
+        snapshotToken !== this.state.latestSnapshotLayoutToken ||
+        this.state.pendingSnapshotLayoutToken ||
+        this.state.lastGraph !== graph
+      ) return false
+      this.state.pendingViewportProfileKey = null
       if (this.state.summary) this.state.summary.textContent = `layout resize failed: ${String(error)}`
       return false
     }
@@ -358,7 +385,7 @@ export const godViewLifecycleDomSetupMethods = {
         }
         // Deck applies initialViewState after this callback returns. Defer the
         // layer-only refresh so projection reads the newly rebuilt viewport.
-        queueMicrotask(() => this.deps.refreshGraphLayersForViewState())
+        globalThis.queueMicrotask(() => this.deps.refreshGraphLayersForViewState())
       },
       onError: (error, layer) => {
         const layerId = String(layer?.id || "")

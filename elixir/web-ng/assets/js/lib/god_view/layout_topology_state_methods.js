@@ -134,7 +134,7 @@ export const godViewLayoutTopologyStateMethods = {
     return lines
   },
 
-  async prepareGraphLayout(graph, revision, topologyStamp) {
+  async prepareGraphLayout(graph, revision, topologyStamp, {commit = true} = {}) {
     const {state} = this
     if (!graph || !Array.isArray(graph.nodes) || !Array.isArray(graph.edges)) return graph
 
@@ -149,9 +149,11 @@ export const godViewLayoutTopologyStateMethods = {
     const cached = this.getCachedGraphLayout(layoutKey)
 
     if (cached) {
-      state.layoutMode = cached._layoutMode
-      state.layoutRevision = revision
-      state.lastLayoutKey = layoutKey
+      if (commit) {
+        state.layoutMode = cached._layoutMode
+        state.layoutRevision = revision
+        state.lastLayoutKey = layoutKey
+      }
       return cached
     }
 
@@ -166,9 +168,11 @@ export const godViewLayoutTopologyStateMethods = {
     if (finalGraph._topologyScene && !finalGraph._layoutError) {
       this.storeCachedGraphLayout(layoutKey, finalGraph)
     }
-    state.layoutMode = finalGraph._layoutMode
-    state.layoutRevision = revision
-    state.lastLayoutKey = layoutKey
+    if (commit) {
+      state.layoutMode = finalGraph._layoutMode
+      state.layoutRevision = revision
+      state.lastLayoutKey = layoutKey
+    }
     return finalGraph
   },
 
