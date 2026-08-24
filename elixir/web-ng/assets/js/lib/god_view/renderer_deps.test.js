@@ -23,6 +23,7 @@ function makeContext() {
     },
     rendering: {
       renderGraph: vi.fn((...args) => ["rendering.renderGraph", ...args]),
+      refreshGraphLayersForViewState: vi.fn((...args) => ["rendering.refreshGraphLayersForViewState", ...args]),
       stateDisplayName: vi.fn((...args) => ["rendering.stateDisplayName", ...args]),
       edgeTopologyClass: vi.fn((...args) => ["rendering.edgeTopologyClass", ...args]),
       focusNodeByIndex: vi.fn((...args) => ["rendering.focusNodeByIndex", ...args]),
@@ -68,6 +69,7 @@ describe("renderer_deps", () => {
     const deps = buildLifecycleDeps(context)
 
     expect(deps.renderGraph("g")).toEqual(["rendering.renderGraph", "g"])
+    expect(deps.refreshGraphLayersForViewState()).toEqual(["rendering.refreshGraphLayersForViewState"])
     expect(deps.focusNodeByIndex(3, true)).toEqual(["rendering.focusNodeByIndex", 3, true])
     expect(deps.ensureBitmapMetadata({}, [])).toEqual(["rendering.ensureBitmapMetadata", {}, []])
     expect(deps.normalizePipelineStats({})).toEqual(["rendering.normalizePipelineStats", {}])

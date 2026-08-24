@@ -161,4 +161,24 @@ describe("admitTopologyLabels", () => {
     expect(result.admitted.some((item) => item.nodeId === "selected")).toBe(false)
     expect(result.detailsFallbackIds).toEqual(["selected"])
   })
+
+  it("uses a fallback wide enough to prevent full-width Unicode labels from overlapping", () => {
+    const result = admitTopologyLabels({
+      candidates: [
+        {nodeId: "wide-a", text: "Ｗ漢Ｗ漢", point: [100, 100], fontSize: 12},
+        {nodeId: "wide-b", text: "Ｗ漢Ｗ漢", point: [148, 100], fontSize: 12},
+      ],
+      glyphBoxes: [
+        {nodeId: "wide-a", left: 90, top: 90, right: 110, bottom: 110},
+        {nodeId: "wide-b", left: 138, top: 90, right: 158, bottom: 110},
+      ],
+      routeCorridors: [],
+      safeRect: {left: 0, top: 0, right: 300, bottom: 220},
+    })
+
+    expect(result.admitted).toHaveLength(2)
+    expect(result.admitted[0].box.right - result.admitted[0].box.left).toBeGreaterThanOrEqual(56)
+    expect(pairwiseIntersections(result.admitted)).toEqual([])
+    expect(result.admitted.map((item) => item.anchor)).toEqual(["top", "right"])
+  })
 })

@@ -41,6 +41,7 @@ function makeContext({state = {}, deps = {}, overrides = {}} = {}) {
   }
   const initialDeps = {
     renderGraph: vi.fn(),
+    refreshGraphLayersForViewState: vi.fn(),
     setZoomTier: vi.fn(),
     resolveZoomTier: vi.fn(() => "local"),
     ...deps,
@@ -167,7 +168,20 @@ describe("lifecycle_dom_interaction_methods", () => {
     expect(worldAfter.y).toBeCloseTo(worldBefore.y, 5)
     expect(ctx.state.userCameraLocked).toEqual(true)
     expect(ctx.state.deck.setProps).toHaveBeenCalledWith({viewState: ctx.state.viewState})
-    expect(deps.setZoomTier).toHaveBeenCalledWith("regional", true)
+    expect(deps.setZoomTier).toHaveBeenCalledWith("regional", false)
+    expect(ctx.deps.refreshGraphLayersForViewState).toHaveBeenCalledTimes(1)
+  })
+
+  it("applyDeckViewState refreshes layers without layout in a fixed zoom tier", () => {
+    const ctx = makeContext({state: {zoomMode: "regional"}})
+    const nextViewState = {zoom: 0.5, minZoom: -2, maxZoom: 5, target: [120, 80, 0]}
+
+    ctx.applyDeckViewState(nextViewState)
+
+    expect(ctx.state.deck.setProps).toHaveBeenCalledWith({viewState: nextViewState})
+    expect(ctx.deps.refreshGraphLayersForViewState).toHaveBeenCalledTimes(1)
+    expect(ctx.deps.setZoomTier).not.toHaveBeenCalled()
+    expect(ctx.deps.renderGraph).not.toHaveBeenCalled()
   })
 
   it("handleMapControlClick triggers fit without collapsing expanded clusters", () => {

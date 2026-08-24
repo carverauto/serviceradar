@@ -285,6 +285,9 @@ export const godViewLifecycleDomSetupMethods = {
           const nextTier = clientRadial ? "local" : this.deps.resolveZoomTier(viewState.zoom || 0)
           this.deps.setZoomTier(nextTier, false)
         }
+        // Deck applies initialViewState after this callback returns. Defer the
+        // layer-only refresh so projection reads the newly rebuilt viewport.
+        queueMicrotask(() => this.deps.refreshGraphLayersForViewState())
       },
       onError: (error, layer) => {
         const layerId = String(layer?.id || "")

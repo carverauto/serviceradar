@@ -1,6 +1,7 @@
 import {describe, expect, it, vi} from "vitest"
 
 vi.mock("@deck.gl/core", () => ({
+  COORDINATE_SYSTEM: {CARTESIAN: "cartesian"},
   Deck: class MockDeck {
     constructor(props) {
       this.props = props
@@ -14,7 +15,10 @@ vi.mock("@deck.gl/core", () => ({
 }))
 
 import {bindApi, createStateBackedContext} from "./api_helpers"
+import {godViewLayoutClusterMethods} from "./layout_cluster_methods"
 import {godViewLifecycleDomSetupMethods} from "./lifecycle_dom_setup_methods"
+import {godViewRenderingGraphCoreMethods} from "./rendering_graph_core_methods"
+import {godViewRenderingGraphLayerNodeMethods} from "./rendering_graph_layer_node_methods"
 
 describe("lifecycle_dom_setup_methods", () => {
   it("createDeckInstance routes tooltip/hover/click through deps bridge", () => {
@@ -36,6 +40,7 @@ describe("lifecycle_dom_setup_methods", () => {
       handlePick: vi.fn(),
       setZoomTier: vi.fn(),
       resolveZoomTier: vi.fn(() => "local"),
+      refreshGraphLayersForViewState: vi.fn(),
     }
     const ctx = createStateBackedContext(state, deps)
     Object.assign(ctx, bindApi(ctx, godViewLifecycleDomSetupMethods))
@@ -76,6 +81,7 @@ describe("lifecycle_dom_setup_methods", () => {
       handlePick: vi.fn(),
       setZoomTier: vi.fn(),
       resolveZoomTier: vi.fn(() => "regional"),
+      refreshGraphLayersForViewState: vi.fn(),
     }
     const ctx = createStateBackedContext(state, deps)
     Object.assign(ctx, bindApi(ctx, godViewLifecycleDomSetupMethods))
@@ -91,6 +97,110 @@ describe("lifecycle_dom_setup_methods", () => {
     expect(deps.setZoomTier).toHaveBeenCalledWith("local", false)
     expect(deps.resolveZoomTier).not.toHaveBeenCalled()
     expect(state.userCameraLocked).toBe(true)
+  })
+
+  it("recomputes label admission for same-tier pan and zoom without reshaping or laying out", async () => {
+    const scene = {routes: []}
+    const effective = {shape: "regional", _layoutMode: "elk-scene", _topologyScene: scene}
+    const nodeData = [{
+      index: 0,
+      id: "router",
+      label: "Router",
+      position: [100, 100, 0],
+      state: 2,
+      operUp: 1,
+      clusterCount: 1,
+      details: {},
+    }]
+    const state = {
+      canvas: {},
+      deck: null,
+      visual: {bg: [10, 10, 10, 255], label: [255, 255, 255, 255], edgeLabel: [200, 200, 200, 255]},
+      layers: {mantle: true, crust: true, atmosphere: false, security: true},
+      animationPhase: 0,
+      hoveredNodeIndex: null,
+      viewState: {zoom: 0, target: [100, 100, 0]},
+      isProgrammaticViewUpdate: false,
+      userCameraLocked: false,
+      zoomMode: "auto",
+      zoomTier: "regional",
+      lastGraph: {_layoutMode: "elk-scene"},
+      packetFlowEnabled: false,
+      topologyLabelSafeRect: {left: 0, top: 0, right: 220, bottom: 220},
+      topologyLabelMeasureText: () => ({width: 40, height: 12}),
+    }
+    const tierRenderGraph = vi.fn()
+    const layoutContext = createStateBackedContext(state, {renderGraph: tierRenderGraph})
+    Object.assign(layoutContext, bindApi(layoutContext, godViewLayoutClusterMethods))
+
+    const reshapeGraph = vi.fn(() => effective)
+    const renderingContext = createStateBackedContext(state, {ensureDeck: vi.fn(), reshapeGraph})
+    Object.assign(
+      renderingContext,
+      bindApi(renderingContext, godViewRenderingGraphCoreMethods),
+      bindApi(renderingContext, godViewRenderingGraphLayerNodeMethods),
+      {
+        autoFitViewState: vi.fn(),
+        buildVisibleGraphData: vi.fn(() => ({
+          nodeData,
+          edgeData: [],
+          edgeLabelData: [],
+          rootPulseNodes: [],
+          selectedVisibleNode: null,
+        })),
+        renderSelectionDetails: vi.fn(),
+        buildGraphLayers: (nextEffective, nextNodeData, _edgeData, edgeLabelData) =>
+          renderingContext.buildNodeAndLabelLayers(nextEffective, nextNodeData, edgeLabelData),
+        nodeColor: () => [255, 0, 0, 255],
+        nodeNeutralColor: () => [128, 128, 128, 255],
+      },
+    )
+    const refreshGraphLayersForViewState = vi.fn(() => renderingContext.refreshGraphLayersForViewState())
+    const deps = {
+      getNodeTooltip: vi.fn(),
+      handleHover: vi.fn(),
+      handlePick: vi.fn(),
+      setZoomTier: layoutContext.setZoomTier,
+      resolveZoomTier: layoutContext.resolveZoomTier,
+      refreshGraphLayersForViewState,
+    }
+    const lifecycleContext = createStateBackedContext(state, deps)
+    Object.assign(lifecycleContext, bindApi(lifecycleContext, godViewLifecycleDomSetupMethods))
+    const deckInstance = lifecycleContext.createDeckInstance(220, 220)
+    const layerSets = []
+    let deckViewState = {...state.viewState}
+    state.deck = {
+      getViewports: () => [{
+        width: 220,
+        height: 220,
+        project: ([x, y]) => {
+          const scale = 2 ** deckViewState.zoom
+          return [110 + ((x - deckViewState.target[0]) * scale), 110 + ((y - deckViewState.target[1]) * scale)]
+        },
+      }],
+      setProps: vi.fn(({layers}) => layerSets.push(layers)),
+    }
+    renderingContext.renderGraph(state.lastGraph)
+
+    const emitDeckViewStateChange = async (viewState) => {
+      deckInstance.props.onViewStateChange({viewState})
+      // Deck applies initialViewState after its public callback returns.
+      deckViewState = viewState
+      await Promise.resolve()
+    }
+    await emitDeckViewStateChange({zoom: 0, target: [100, 180, 0]})
+    await emitDeckViewStateChange({zoom: 0.5, target: [100, 180, 0]})
+
+    const admissions = layerSets.slice(1).map((layers) => {
+      const labelLayer = layers.find((layer) => layer.id === "god-view-node-labels")
+      return labelLayer.props.data.map((item) => item.labelAdmission.anchor)
+    })
+    expect(admissions).toEqual([["right"], ["bottom"]])
+    expect(refreshGraphLayersForViewState).toHaveBeenCalledTimes(2)
+    expect(reshapeGraph).toHaveBeenCalledTimes(1)
+    expect(tierRenderGraph).not.toHaveBeenCalled()
+    expect(state.lastGraphLayerFrame.effective).toBe(effective)
+    expect(effective._topologyScene).toBe(scene)
   })
 
   it("handleDetailsPanelClick closes the details card", () => {

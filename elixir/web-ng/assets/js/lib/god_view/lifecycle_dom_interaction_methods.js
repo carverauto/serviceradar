@@ -82,8 +82,10 @@ export const godViewLifecycleDomInteractionMethods = {
     if (syncZoomTier && this.state.zoomMode === "auto") {
       const clientRadial = this.state.lastGraph?._layoutMode === "client-radial"
       const nextTier = clientRadial ? "local" : this.deps.resolveZoomTier(this.state.viewState.zoom || 0)
-      this.deps.setZoomTier(nextTier, true)
+      this.deps.setZoomTier(nextTier, false)
     }
+
+    this.deps.refreshGraphLayersForViewState()
   },
   handlePanMove(event) {
     if (!this.state.deck) return

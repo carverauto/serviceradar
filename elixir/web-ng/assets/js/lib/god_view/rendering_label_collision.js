@@ -76,8 +76,16 @@ function measuredTextBox(candidate, measureText) {
   const measuredWidth = typeof measurement === "number" ? measurement : Number(measurement?.width)
   const measuredHeight = Number(measurement?.height)
   const metricsHeight = finiteNumber(measurement?.actualBoundingBoxAscent) + finiteNumber(measurement?.actualBoundingBoxDescent)
-  const fallbackWidth = Math.ceil(Math.max(1, text.length) * fontSize * 0.75)
-  const fallbackHeight = Math.ceil(fontSize * 1.25)
+  const lines = text.split(/\r\n|\r|\n/u)
+  const fallbackLineUnits = Math.max(
+    1,
+    ...lines.map((line) => Array.from(line).reduce((units, codePoint) => units + (codePoint === "\t" ? 4 : 1), 0)),
+  )
+  // One em per Unicode code point covers full-width/CJK and wide Latin
+  // glyphs. Counting combining marks and emoji sequences separately is an
+  // intentional overestimate when real canvas metrics are unavailable.
+  const fallbackWidth = Math.ceil(fallbackLineUnits * fontSize)
+  const fallbackHeight = Math.ceil(Math.max(1, lines.length) * fontSize * 1.25)
 
   return {
     width: Number.isFinite(measuredWidth) && measuredWidth >= 0 ? measuredWidth : fallbackWidth,

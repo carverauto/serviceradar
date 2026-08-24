@@ -1,4 +1,32 @@
 export const godViewRenderingGraphCoreMethods = {
+  refreshGraphLayersForViewState() {
+    const frame = this.state.lastGraphLayerFrame
+    if (!this.state.deck || !frame) return false
+
+    let layers
+    try {
+      layers = this.buildGraphLayers(
+        frame.effective,
+        frame.nodeData,
+        frame.edgeData,
+        frame.edgeLabelData,
+        frame.rootPulseNodes,
+      )
+    } catch (error) {
+      this.state.layers.atmosphere = false
+      layers = this.buildGraphLayers(
+        frame.effective,
+        frame.nodeData,
+        frame.edgeData,
+        frame.edgeLabelData,
+        frame.rootPulseNodes,
+      )
+      if (this.state.summary) this.state.summary.textContent = `render fallback: ${String(error)}`
+    }
+
+    this.state.deck.setProps({layers})
+    return true
+  },
   renderGraph(graph) {
     this.deps.ensureDeck()
     this.autoFitViewState(graph)
@@ -7,6 +35,7 @@ export const godViewRenderingGraphCoreMethods = {
 
     const {edgeData, edgeLabelData, nodeData, rootPulseNodes, selectedVisibleNode} = this.buildVisibleGraphData(effective)
     this.renderSelectionDetails(selectedVisibleNode)
+    this.state.lastGraphLayerFrame = {effective, nodeData, edgeData, edgeLabelData, rootPulseNodes}
 
     let layers
     try {
