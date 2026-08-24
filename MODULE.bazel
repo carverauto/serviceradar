@@ -490,10 +490,8 @@ rdp_connector_crates.annotation(
     deps = ["@zlib"],
 )
 
-# aws-lc-sys is never compiled. Both rustls consumers here -- the probe and sspi -- pin
-# `ring`/`std`/`tls12` with default-features off, so aws-lc-rs is never enabled. rules_rs warns
-# anyway because it checks every lockfile package rather than what builds; adopting its
-# suggestion would add the @aws-lc module and a bindgen toolchain for zero actions.
+# aws-lc-sys silence lives in Cargo.toml metadata (root hub and rdp-connector-probe).
+# Do not adopt the well-known @aws-lc + bindgen snippet: that crate is never compiled.
 use_repo(
     rdp_connector_crates,
     "rdp_connector_crates",

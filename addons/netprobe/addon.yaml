@@ -13,7 +13,7 @@
 # shipped in this manifest's bundle yet, pending that design open question.
 id: netprobe
 name: Host Network Visibility (netprobe)
-version: 0.2.47
+version: 0.2.48
 description: >-
   Passive host fingerprinting (p0f/JA4), DPI, eBPF process attribution, and flow
   visibility. Capability-granted long-running daemon delivered as a signed

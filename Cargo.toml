@@ -246,3 +246,12 @@ gen_build_script = "off"
 [workspace.metadata.rules_rs.annotations."libz-sys"]
 deps = ["zlib"]
 gen_build_script = "off"
+
+# aws-lc-sys is never compiled. rustls is pinned to ring/tls12 with default-features
+# off, so aws-lc-rs is never enabled. rules_rs still warns because it scans every
+# lockfile package rather than what actually builds. Adopting its well-known
+# annotation would add the @aws-lc module and a bindgen toolchain for zero actions;
+# this keeps the default build-script path and silences that warning. Same table
+# in rust/rdp-connector-probe/Cargo.toml for the detached RDP hub.
+[workspace.metadata.rules_rs.annotations."aws-lc-sys"]
+gen_build_script = "on"
