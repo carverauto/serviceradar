@@ -22,8 +22,6 @@ use anyhow::Result;
 #[cfg(feature = "remote-capture")]
 use etherparse::{NetHeaders, PacketHeaders, TcpHeader, TcpOptionElement, TransportHeader};
 
-#[cfg(target_os = "linux")]
-use crate::event_queue::EventSender;
 use crate::hassh;
 use crate::proto::netprobe::{
     FingerprintDisagreement, FingerprintEvent, FingerprintMatch, LicenseCleanFingerprint,
