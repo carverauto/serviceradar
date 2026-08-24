@@ -1,5 +1,7 @@
 import {Deck, OrthographicView} from "@deck.gl/core"
+import {viewportProfileForSize} from "./layout_elk_scene"
 import {detectThemeMode, visualForTheme, hudStyleForTheme} from "./lifecycle_bootstrap_state_defaults_methods"
+import {measureGodViewSafeRect} from "./rendering_scene_view"
 
 export const godViewLifecycleDomSetupMethods = {
   redrawDeckAfterClick() {
@@ -202,6 +204,7 @@ export const godViewLifecycleDomSetupMethods = {
     this.state.summary.className =
       "pointer-events-none absolute bottom-3 left-3 z-20 rounded-lg px-3 py-2 text-[11px] font-medium"
     this.state.summary.style.cssText = hudStyle
+    this.state.summary.setAttribute("data-god-view-safe-area", "status")
     this.state.summary.textContent = "Waiting for snapshot..."
 
     this.state.details = document.createElement("div")
@@ -218,6 +221,7 @@ export const godViewLifecycleDomSetupMethods = {
 
     this.state.mapControls = document.createElement("div")
     this.state.mapControls.className = "sr-god-view-map-controls"
+    this.state.mapControls.setAttribute("data-god-view-safe-area", "controls")
     this.state.mapControls.innerHTML = `
       <button type="button" class="sr-ops-map-control-button" data-god-view-map-action="zoom-in" aria-label="Zoom in">+</button>
       <button type="button" class="sr-ops-map-control-button" data-god-view-map-action="zoom-out" aria-label="Zoom out">-</button>
@@ -243,12 +247,73 @@ export const godViewLifecycleDomSetupMethods = {
     if (!this.state.canvas) return
     const width = Math.max(320, Math.floor(this.state.el.clientWidth || 0))
     const height = Math.max(260, Math.floor(this.state.el.clientHeight || 0))
+    const previousWidth = Number(this.state.viewportWidth)
+    const previousHeight = Number(this.state.viewportHeight)
+    const previousProfileKey = this.state.viewportProfileKey
+    const safeRect = measureGodViewSafeRect(this.state.el)
+    const safeInsets = {
+      left: safeRect.left,
+      top: safeRect.top,
+      right: Math.max(0, width - safeRect.right),
+      bottom: Math.max(0, height - safeRect.bottom),
+    }
+    const profile = viewportProfileForSize(width, height, safeInsets)
+    const sizeChanged = width !== previousWidth || height !== previousHeight
+
+    this.state.viewportWidth = width
+    this.state.viewportHeight = height
+    this.state.viewportSafeInsets = safeInsets
+    this.state.viewportProfileKey = profile.key
+    this.state.topologyLabelSafeRect = safeRect
     this.state.canvas.style.width = `${width}px`
     this.state.canvas.style.height = `${height}px`
     if (this.state.deck) {
       this.state.deck.setProps({width, height})
       this.state.deck.redraw(true)
     }
+
+    if (!sizeChanged || !this.state.lastGraph) return
+    if (previousProfileKey && previousProfileKey !== profile.key) {
+      this.state.lastLayoutKey = null
+      void this.requestTopologyProfileLayout(this.state.lastGraph)
+      this.deps.refreshGraphLayersForViewState?.()
+      return
+    }
+
+    if (!this.state.userCameraLocked) {
+      this.deps.autoFitViewState?.(this.state.lastGraph, {force: true})
+    }
+    this.deps.refreshGraphLayersForViewState?.()
+  },
+  async requestTopologyProfileLayout(graph) {
+    if (typeof this.deps.prepareGraphLayout !== "function") return false
+    const requestToken = Number(this.state.resizeLayoutRequestToken || 0) + 1
+    this.state.resizeLayoutRequestToken = requestToken
+    try {
+      const laidOut = await this.deps.prepareGraphLayout(
+        graph,
+        this.state.lastRevision,
+        this.state.lastTopologyStamp,
+      )
+      if (requestToken !== this.state.resizeLayoutRequestToken || !laidOut) return false
+      this.state.lastGraph = laidOut
+      if (!this.state.userCameraLocked) this.state.hasAutoFit = false
+      this.deps.renderGraph?.(laidOut)
+      return true
+    } catch (error) {
+      if (this.state.summary) this.state.summary.textContent = `layout resize failed: ${String(error)}`
+      return false
+    }
+  },
+  observeTopologyContainer() {
+    if (!this.state.el) return
+    if (typeof globalThis.ResizeObserver === "function") {
+      this.state.resizeObserver?.disconnect?.()
+      this.state.resizeObserver = new globalThis.ResizeObserver(() => this.resizeCanvas())
+      this.state.resizeObserver.observe(this.state.el)
+      return
+    }
+    window.addEventListener("resize", this.resizeCanvas)
   },
   createDeckInstance(width, height) {
     return new Deck({
@@ -281,9 +346,15 @@ export const godViewLifecycleDomSetupMethods = {
           // client-radial already authored the overview. Switching to
           // regional/global reclustering after the first pan/click moves the
           // nodes out from under the camera and the canvas looks empty.
-          const clientRadial = this.state.lastGraph?._layoutMode === "client-radial"
-          const nextTier = clientRadial ? "local" : this.deps.resolveZoomTier(viewState.zoom || 0)
-          this.deps.setZoomTier(nextTier, false)
+          const layoutMode = this.state.lastGraph?._layoutMode
+          if (layoutMode === "elk-scene") {
+            // The accepted ELK scene already owns geometry. Keep its display
+            // policy local without entering the legacy tier reshaping path.
+            this.state.zoomTier = "local"
+          } else {
+            const nextTier = layoutMode === "client-radial" ? "local" : this.deps.resolveZoomTier(viewState.zoom || 0)
+            this.deps.setZoomTier(nextTier, false)
+          }
         }
         // Deck applies initialViewState after this callback returns. Defer the
         // layer-only refresh so projection reads the newly rebuilt viewport.

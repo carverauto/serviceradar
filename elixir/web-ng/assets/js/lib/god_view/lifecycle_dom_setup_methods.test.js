@@ -21,6 +21,141 @@ import {godViewRenderingGraphCoreMethods} from "./rendering_graph_core_methods"
 import {godViewRenderingGraphLayerNodeMethods} from "./rendering_graph_layer_node_methods"
 
 describe("lifecycle_dom_setup_methods", () => {
+  it("observeTopologyContainer watches the actual topology container", () => {
+    const originalResizeObserver = globalThis.ResizeObserver
+    const observe = vi.fn()
+    const disconnect = vi.fn()
+    const ResizeObserver = vi.fn(function ResizeObserver(callback) {
+      this.callback = callback
+      this.observe = observe
+      this.disconnect = disconnect
+    })
+    globalThis.ResizeObserver = ResizeObserver
+    const state = {el: {id: "topology-container"}, resizeObserver: null}
+    const ctx = createStateBackedContext(state, {})
+    Object.assign(ctx, bindApi(ctx, godViewLifecycleDomSetupMethods))
+
+    try {
+      ctx.observeTopologyContainer()
+      expect(ResizeObserver).toHaveBeenCalledTimes(1)
+      expect(observe).toHaveBeenCalledWith(state.el)
+      expect(state.resizeObserver).toBeInstanceOf(ResizeObserver)
+    } finally {
+      globalThis.ResizeObserver = originalResizeObserver
+    }
+  })
+
+  it("same-profile container resize refits camera and labels without invalidating ELK", () => {
+    const state = {
+      el: {
+        clientWidth: 960,
+        clientHeight: 600,
+        getBoundingClientRect: () => ({left: 0, top: 0, width: 960, height: 600, right: 960, bottom: 600}),
+        querySelectorAll: () => [],
+      },
+      canvas: {style: {}},
+      deck: {setProps: vi.fn(), redraw: vi.fn()},
+      lastGraph: {_layoutMode: "elk-scene", _topologyScene: {profileKey: "landscape"}},
+      viewportWidth: 900,
+      viewportHeight: 600,
+      viewportProfileKey: "landscape",
+      lastLayoutKey: "accepted-landscape-layout",
+      userCameraLocked: false,
+    }
+    const deps = {
+      autoFitViewState: vi.fn(),
+      refreshGraphLayersForViewState: vi.fn(),
+      prepareGraphLayout: vi.fn(),
+      renderGraph: vi.fn(),
+    }
+    const ctx = createStateBackedContext(state, deps)
+    Object.assign(ctx, bindApi(ctx, godViewLifecycleDomSetupMethods))
+
+    ctx.resizeCanvas()
+
+    expect(state.deck.setProps).toHaveBeenCalledWith({width: 960, height: 600})
+    expect(deps.autoFitViewState).toHaveBeenCalledWith(state.lastGraph, {force: true})
+    expect(deps.refreshGraphLayersForViewState).toHaveBeenCalledTimes(1)
+    expect(deps.prepareGraphLayout).not.toHaveBeenCalled()
+    expect(state.lastLayoutKey).toBe("accepted-landscape-layout")
+  })
+
+  it("crossing usable aspect 1.2 invalidates and requests one fresh profile layout", async () => {
+    const previousGraph = {_layoutMode: "elk-scene", _topologyScene: {profileKey: "landscape"}, nodes: [], edges: []}
+    const portraitGraph = {_layoutMode: "elk-scene", _topologyScene: {profileKey: "portrait"}, nodes: [], edges: []}
+    const state = {
+      el: {
+        clientWidth: 660,
+        clientHeight: 600,
+        getBoundingClientRect: () => ({left: 0, top: 0, width: 660, height: 600, right: 660, bottom: 600}),
+        querySelectorAll: () => [],
+      },
+      canvas: {style: {}},
+      deck: {setProps: vi.fn(), redraw: vi.fn()},
+      lastGraph: previousGraph,
+      lastRevision: 8,
+      lastTopologyStamp: "same-graph",
+      viewportWidth: 960,
+      viewportHeight: 600,
+      viewportProfileKey: "landscape",
+      lastLayoutKey: "accepted-landscape-layout",
+      userCameraLocked: false,
+      resizeLayoutRequestToken: 0,
+    }
+    const deps = {
+      autoFitViewState: vi.fn(),
+      refreshGraphLayersForViewState: vi.fn(),
+      prepareGraphLayout: vi.fn(async () => portraitGraph),
+      renderGraph: vi.fn(),
+    }
+    const ctx = createStateBackedContext(state, deps)
+    Object.assign(ctx, bindApi(ctx, godViewLifecycleDomSetupMethods))
+
+    ctx.resizeCanvas()
+    ctx.resizeCanvas()
+    await Promise.resolve()
+    await Promise.resolve()
+
+    expect(state.viewportProfileKey).toBe("portrait")
+    expect(state.lastLayoutKey).toBe(null)
+    expect(deps.prepareGraphLayout).toHaveBeenCalledTimes(1)
+    expect(deps.prepareGraphLayout).toHaveBeenCalledWith(previousGraph, 8, "same-graph")
+    expect(state.lastGraph).toBe(portraitGraph)
+    expect(deps.renderGraph).toHaveBeenCalledWith(portraitGraph)
+  })
+
+  it("user-locked resize updates Deck and label projection without auto-refitting", () => {
+    const state = {
+      el: {
+        clientWidth: 980,
+        clientHeight: 600,
+        getBoundingClientRect: () => ({left: 0, top: 0, width: 980, height: 600, right: 980, bottom: 600}),
+        querySelectorAll: () => [],
+      },
+      canvas: {style: {}},
+      deck: {setProps: vi.fn(), redraw: vi.fn()},
+      lastGraph: {_layoutMode: "elk-scene", _topologyScene: {profileKey: "landscape"}},
+      viewportWidth: 900,
+      viewportHeight: 600,
+      viewportProfileKey: "landscape",
+      userCameraLocked: true,
+    }
+    const deps = {
+      autoFitViewState: vi.fn(),
+      refreshGraphLayersForViewState: vi.fn(),
+      prepareGraphLayout: vi.fn(),
+    }
+    const ctx = createStateBackedContext(state, deps)
+    Object.assign(ctx, bindApi(ctx, godViewLifecycleDomSetupMethods))
+
+    ctx.resizeCanvas()
+
+    expect(state.deck.setProps).toHaveBeenCalledWith({width: 980, height: 600})
+    expect(deps.autoFitViewState).not.toHaveBeenCalled()
+    expect(deps.refreshGraphLayersForViewState).toHaveBeenCalledTimes(1)
+    expect(deps.prepareGraphLayout).not.toHaveBeenCalled()
+  })
+
   it("createDeckInstance routes tooltip/hover/click through deps bridge", () => {
     const originalRaf = globalThis.requestAnimationFrame
     const raf = vi.fn((cb) => cb())

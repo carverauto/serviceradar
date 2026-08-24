@@ -1,3 +1,5 @@
+import {fitTopologyScene, focusTopologyGroup, measureGodViewSafeRect} from "./rendering_scene_view"
+
 function nodeDetails(node) {
   return node?.details && typeof node.details === "object" ? node.details : {}
 }
@@ -101,9 +103,68 @@ export const godViewRenderingGraphViewMethods = {
     const framedNodes = radialOverviewNodes.length > 0 ? radialOverviewNodes : overviewNodes.length > 0 ? overviewNodes : finiteNodes
     return this.boundsForNodes(framedNodes)
   },
-  autoFitViewState(graph) {
-    if (!this.state.deck || !graph || !Array.isArray(graph.nodes) || graph.nodes.length === 0) return
-    if (this.state.hasAutoFit || this.state.userCameraLocked) return
+  autoFitViewState(graph, options = {}) {
+    if (!this.state.deck || !graph || !Array.isArray(graph.nodes)) return
+    if ((!options.force && this.state.hasAutoFit) || this.state.userCameraLocked) return
+
+    const managedScene = graph?._layoutMode === "elk-scene" ? graph?._topologyScene : null
+    if (managedScene) {
+      const width = Math.max(1, this.state.el.clientWidth || 1)
+      const height = Math.max(1, this.state.el.clientHeight || 1)
+      const safeRect = this.state.topologyLabelSafeRect || measureGodViewSafeRect(this.state.el)
+      const graphNodeById = new Map(graph.nodes.map((node) => [String(node?.id || ""), node]))
+      const glyphBoxes = (managedScene.nodes || []).map((sceneNode) => {
+        const graphNode = graphNodeById.get(String(sceneNode?.id || ""))
+        const radius = typeof this.nodeHaloRadiusPixels === "function"
+          ? Math.max(0, Number(this.nodeHaloRadiusPixels(graphNode)) || 0)
+          : 26
+        return {nodeId: sceneNode.id, width: radius * 2, height: radius * 2}
+      })
+      const admitLabels = typeof this.admitNodeLabelsForViewport === "function" && typeof this.selectNodeLabels === "function"
+        ? ({viewState, safeRect: fitSafeRect}) => {
+            const viewport = {
+              width,
+              height,
+              project: ([x, y]) => {
+                const scale = 2 ** viewState.zoom
+                return [
+                  (width / 2) + ((Number(x) - viewState.target[0]) * scale),
+                  (height / 2) + ((Number(y) - viewState.target[1]) * scale),
+                ]
+              },
+            }
+            const protectedNodes = graph.nodes.map((node, index) => ({
+              ...node,
+              index,
+              position: [Number(node?.x) || 0, Number(node?.y) || 0, 0],
+            }))
+            const candidates = this.selectNodeLabels(protectedNodes, "local")
+            return this.admitNodeLabelsForViewport(
+              {...graph, shape: "local"},
+              candidates,
+              protectedNodes,
+              {viewport, safeRect: fitSafeRect},
+            )
+          }
+        : undefined
+      const fitted = fitTopologyScene({
+        scene: managedScene,
+        viewport: {...this.state.viewState, width, height, viewState: this.state.viewState},
+        safeRect,
+        glyphBoxes,
+        admitLabels,
+      })
+
+      this.state.viewState = fitted.viewState
+      this.state.topologyFittedLabels = fitted.admittedLabels
+      this.state.hasAutoFit = true
+      this.state.isProgrammaticViewUpdate = true
+      this.state.deck.setProps({viewState: this.state.viewState})
+      if (this.state.zoomMode === "auto") this.deps.setZoomTier("local", true)
+      return
+    }
+
+    if (graph.nodes.length === 0) return
 
     const bounds = this.autoFitBounds(graph)
     if (!bounds) return
@@ -139,6 +200,24 @@ export const godViewRenderingGraphViewMethods = {
   focusClusterNeighborhood(graph, clusterId) {
     const normalizedClusterId = typeof clusterId === "string" ? clusterId.trim() : ""
     if (!this.state.deck || !graph || !Array.isArray(graph.nodes) || normalizedClusterId === "") return false
+    if (this.state.userCameraLocked) return false
+
+    if (graph?._layoutMode === "elk-scene" && graph?._topologyScene) {
+      const width = Math.max(1, this.state.el.clientWidth || 1)
+      const height = Math.max(1, this.state.el.clientHeight || 1)
+      const viewState = focusTopologyGroup({
+        scene: graph._topologyScene,
+        groupId: normalizedClusterId,
+        viewport: {...this.state.viewState, width, height, viewState: this.state.viewState},
+        safeRect: this.state.topologyLabelSafeRect || measureGodViewSafeRect(this.state.el),
+      })
+      if (!viewState) return false
+      this.state.viewState = viewState
+      this.state.isProgrammaticViewUpdate = true
+      this.state.deck.setProps({viewState})
+      if (this.state.zoomMode === "auto") this.deps.setZoomTier("local", true)
+      return true
+    }
 
     const clusterNodes = graph.nodes.filter((node) => {
       const details = node?.details || {}
