@@ -341,13 +341,16 @@ mode `async` or `serial`, and one sentinel `load_only` row for a source with no 
 `load_only` source is excluded from the ordinary integration source union while remaining in the
 unchanged unit-test targets.
 
-This is guarded by behavior rather than tag-text heuristics alone. A manual all-source control and
-the pruned-source candidate emit stable selected test identifiers through a project-owned ExUnit
-formatter under the same include/exclude configuration; their sets must be exactly equal before
-the production shard sources change. Files containing selected and unselected modules are allowed
-only when all selected modules have one async mode. Files containing selected modules with mixed
-async modes are split. The adhoc-scan NATS and anomaly-profile seeder sources are split so their
-selected database/global cases and unrelated async cases are source-addressable.
+This is guarded by behavior rather than tag-text heuristics alone. Six database-free
+`IntegrationSelectionManifestRunner` chunks load the corpus without starting the application or
+running test bodies: two cover the pruned selected-source candidate and four cover the load-only
+complement. The runner evaluates the real `ExUnit.Filters` include/exclude configuration and emits
+delimiter-safe `(source, module, test-name)` identities. The selected-chunk union must exactly equal
+the union of all six chunks before the production shard sources change, and every load-only chunk
+must emit no selected identity. Files containing selected and unselected modules are allowed only
+when all selected modules have one async mode. Files containing selected modules with mixed async
+modes are split. The adhoc-scan NATS and anomaly-profile seeder sources are split so their selected
+database/global cases and unrelated async cases are source-addressable.
 
 Placement models module-level selected case weights because ExUnit schedules modules, not files.
 It adds a separate common source-load weight for every retained source rather than fabricating

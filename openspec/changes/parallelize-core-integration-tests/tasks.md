@@ -195,7 +195,8 @@
       release-gate extraction, async promotion, and 258-identity allocator correction; recompute
       auditable relative source weights, assign sources by deterministic least-estimated-load
       sum-only partitioning, then require slowest/fastest non-empty shard skew no greater than 1.5.
-      This evidence remains valid but does not satisfy pending concurrency-aware task 3.19.
+      This historical evidence remains valid; completed task 3.19 separately proves the final
+      concurrency-aware fixed-resource placement and deterministic source/identity membership.
 - [ ] 5.5 Demonstrate nearest-rank p95 at or below 90 seconds and at least 50% below the accepted
       before p95 over the accepted 20-run after cohort,
       including the existing SRQL/other integration targets and excluding only the
