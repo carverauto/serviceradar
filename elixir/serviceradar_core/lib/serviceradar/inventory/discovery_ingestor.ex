@@ -108,6 +108,27 @@ defmodule ServiceRadar.Inventory.DiscoveryIngestor do
     end
   end
 
+  # A schema whose decoder folds a payload into ONE observation per subject cannot
+  # be reassembled by concatenation: every part decodes to the same subject, and
+  # `build_device_upsert_records` keeps the last record per device rather than
+  # merging them, so the final part would silently replace all the earlier ones.
+  # Refused loudly instead. Nothing splits these today (`part_count` is 1 at the
+  # producer), so this is a guard against a future chunker, not a live path.
+  defp decode_and_enqueue([_ | [_ | _]] = payloads, envelope, entry, attested)
+       when entry.decoder == ServiceRadar.Inventory.Discovery.Decoders.Process do
+    emit(:unsplittable_schema, %{schema: envelope.schema, parts: length(payloads)}, attested)
+
+    Logger.error(
+      "Discovery: refusing a multi-part #{envelope.schema}; its decoder folds each part " <>
+        "into one observation per subject, so concatenating parts would keep only the last",
+      schema: envelope.schema,
+      parts: length(payloads),
+      agent_id: attested[:agent_id]
+    )
+
+    :ok
+  end
+
   defp decode_and_enqueue(payloads, envelope, entry, attested) do
     decoded =
       Enum.reduce_while(payloads, {:ok, []}, fn part, {:ok, acc} ->

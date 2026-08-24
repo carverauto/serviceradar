@@ -924,4 +924,5 @@ defmodule Serviceradar.Agent.Netprobe.V1.ProcessSnapshotBatch do
     syntax: :proto3
 
   field :snapshot, 1, type: Serviceradar.Agent.Netprobe.V1.ProcessSnapshot
+  field :subject_ip, 2, type: :string, json_name: "subjectIp"
 end
