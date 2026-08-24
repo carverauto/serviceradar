@@ -555,7 +555,33 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
 
   defp runtime_link_to_edge(_), do: nil
 
+  @doc false
+  @spec runtime_links_to_edges([map()]) :: [map()]
+  def runtime_links_to_edges(links) when is_list(links) do
+    links
+    |> Enum.map(&runtime_link_to_edge/1)
+    |> Enum.reject(&is_nil/1)
+  end
+
+  def runtime_links_to_edges(_links), do: []
+
   defp build_runtime_link_edge(link, source, target) do
+    metadata = Map.get(link, :metadata) || %{}
+
+    raw_evidence_class =
+      metadata["raw_evidence_class"] || metadata[:raw_evidence_class] ||
+        Map.get(link, :evidence_class) || metadata["evidence_class"] || metadata[:evidence_class]
+
+    raw_relation_type =
+      metadata["raw_relation_type"] || metadata[:raw_relation_type] ||
+        Map.get(link, :relation_type) || metadata["relation_type"] || metadata[:relation_type]
+
+    metadata =
+      metadata
+      |> maybe_put_edge_metadata("raw_evidence_class", normalize_id(raw_evidence_class))
+      |> maybe_put_edge_metadata("raw_relation_type", normalize_id(raw_relation_type))
+
+    link = Map.put(link, :metadata, metadata)
     local_if_name = normalize_id(Map.get(link, :local_if_name))
     neighbor_if_name = normalize_id(Map.get(link, :neighbor_if_name))
     flow_pps = normalize_u32(Map.get(link, :flow_pps, 0))
@@ -589,7 +615,7 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
       local_if_index_ba: Map.get(link, :local_if_index_ba),
       local_if_name_ba: directional_if_name(link, :local_if_name_ba, neighbor_if_name, local_if_name),
       label: edge_label(link, flow_pps, capacity_bps),
-      metadata: Map.get(link, :metadata) || %{}
+      metadata: metadata
     }
   end
 
@@ -598,16 +624,15 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
   end
 
   defp build_nodes_and_edges(actor, raw_links) do
-    raw_edges =
-      raw_links
-      |> Enum.map(&runtime_link_to_edge/1)
-      |> Enum.reject(&is_nil/1)
+    raw_edges = runtime_links_to_edges(raw_links)
 
     raw_edge_node_ids = raw_edges |> Enum.flat_map(&[&1.source, &1.target]) |> Enum.uniq()
 
     with {:ok, devices} <- fetch_devices(actor, raw_edge_node_ids) do
       initial_device_by_id = Map.new(devices, &{&1.uid, &1})
-      edges = collapse_endpoint_attachments(raw_edges, initial_device_by_id)
+      edge_pipeline = prepare_runtime_edge_pipeline(raw_edges, initial_device_by_id)
+      edges = edge_pipeline.final_edges
+
       edge_node_ids = edges |> Enum.flat_map(&[&1.source, &1.target]) |> Enum.uniq()
       node_pps_by_id = node_pps_by_id(edges)
 
@@ -638,8 +663,8 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
           Enum.count(edge_node_ids, fn id -> not Map.has_key?(device_by_id, id) end)
 
         pipeline_stats =
-          raw_edges
-          |> pipeline_stats(edges, edges, nodes, unresolved_endpoints)
+          edge_pipeline
+          |> runtime_edge_pipeline_stats(nodes, unresolved_endpoints)
           |> Map.merge(edge_contract_stats)
           |> Map.merge(component_stats(nodes, edges))
 
@@ -647,6 +672,35 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
       end
     end
   end
+
+  @doc false
+  def prepare_runtime_edge_pipeline(raw_edges, device_by_id) when is_list(raw_edges) and is_map(device_by_id) do
+    final_edges =
+      raw_edges
+      |> connectivity_preserving_inferred_segment_edges(device_by_id)
+      |> collapse_endpoint_attachments_preserving_inferred_segments(device_by_id)
+
+    %{
+      raw_edges: raw_edges,
+      pair_edges: final_edges,
+      final_edges: final_edges
+    }
+  end
+
+  def prepare_runtime_edge_pipeline(_raw_edges, _device_by_id) do
+    %{raw_edges: [], pair_edges: [], final_edges: []}
+  end
+
+  @doc false
+  def runtime_edge_pipeline_stats(
+        %{raw_edges: raw_edges, pair_edges: pair_edges, final_edges: final_edges},
+        final_nodes,
+        unresolved_endpoints
+      ) do
+    pipeline_stats(raw_edges, pair_edges, final_edges, final_nodes, unresolved_endpoints)
+  end
+
+  def runtime_edge_pipeline_stats(_edge_pipeline, _final_nodes, _unresolved_endpoints), do: %{}
 
   defp pipeline_stats(raw_links, pair_links, final_edges, final_nodes, unresolved_endpoints)
        when is_list(raw_links) and is_list(pair_links) and is_list(final_edges) and is_list(final_nodes) and
@@ -661,9 +715,9 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
       final_nodes: length(final_nodes),
       unplaced_nodes: unplaced_nodes,
       edge_parity_delta: edge_parity_delta,
-      raw_direct: count_by_evidence(raw_links, "direct"),
-      raw_inferred: count_by_evidence(raw_links, "inferred"),
-      raw_attachment: count_by_evidence(raw_links, "endpoint-attachment"),
+      raw_direct: count_by_raw_evidence(raw_links, "direct"),
+      raw_inferred: count_by_raw_evidence(raw_links, "inferred"),
+      raw_attachment: count_by_raw_evidence(raw_links, "endpoint-attachment"),
       pair_direct: count_by_evidence(pair_links, "direct"),
       pair_inferred: count_by_evidence(pair_links, "inferred"),
       pair_attachment: count_by_evidence(pair_links, "endpoint-attachment"),
@@ -675,6 +729,191 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
   end
 
   defp pipeline_stats(_raw_links, _pair_links, _final_edges, _final_nodes, _unresolved_endpoints), do: %{}
+
+  # Device-to-device inferred-segment edges exist so disconnected transport
+  # components stay attached to the graph. The read model projects them with
+  # relation_type ATTACHED_TO, so their raw evidence must be retained after edge
+  # conversion. Attachment candidates are collapsed later and cannot prove
+  # transport connectivity here. Build a deterministic spanning forest over
+  # only the non-attachment edges that are guaranteed to survive that collapse.
+  @doc false
+  def connectivity_preserving_inferred_segment_edges(edges, device_by_id) when is_list(edges) and is_map(device_by_id) do
+    {inferred_segment_edges, other_edges} =
+      Enum.split_with(edges, &inferred_segment_edge?/1)
+
+    case inferred_segment_edges do
+      [] ->
+        edges
+
+      inferred_segment_edges ->
+        transport_components =
+          other_edges
+          |> Enum.reject(&attachment_candidate_edge?(&1, device_by_id))
+          |> Enum.reduce(%{}, &union_edge_endpoints/2)
+
+        {kept, _components} =
+          inferred_segment_edges
+          |> Enum.sort_by(&canonical_inferred_segment_edge_key/1)
+          |> Enum.reduce({[], transport_components}, fn edge, {kept, components} ->
+            case normalized_edge_endpoints(edge) do
+              {:ok, source, target} ->
+                if connected_endpoints?(components, source, target) do
+                  {kept, components}
+                else
+                  {[edge | kept], union_endpoints(components, source, target)}
+                end
+
+              :error ->
+                {[edge | kept], components}
+            end
+          end)
+
+        other_edges ++ Enum.reverse(kept)
+    end
+  end
+
+  def connectivity_preserving_inferred_segment_edges(_edges, _device_by_id), do: []
+
+  @doc false
+  def collapse_endpoint_attachments_preserving_inferred_segments(edges, device_by_id)
+      when is_list(edges) and is_map(device_by_id) do
+    {retained_inferred_edges, collapsible_edges} =
+      Enum.split_with(edges, &inferred_segment_edge?/1)
+
+    collapsed_edges = collapse_endpoint_attachments(collapsible_edges, device_by_id)
+
+    collapsed_edges ++
+      Enum.map(retained_inferred_edges, &normalize_connectivity_forest_bridge/1)
+  end
+
+  def collapse_endpoint_attachments_preserving_inferred_segments(_edges, _device_by_id), do: []
+
+  defp normalize_connectivity_forest_bridge(edge) when is_map(edge) do
+    metadata = Map.get(edge, :metadata) || %{}
+
+    raw_relation_type =
+      metadata["raw_relation_type"] || metadata[:raw_relation_type] ||
+        metadata["relation_type"] || metadata[:relation_type] || Map.get(edge, :relation_type)
+
+    raw_evidence_class =
+      metadata["raw_evidence_class"] || metadata[:raw_evidence_class] ||
+        metadata["evidence_class"] || metadata[:evidence_class] || Map.get(edge, :evidence_class)
+
+    metadata =
+      metadata
+      |> Map.put("raw_relation_type", raw_relation_type)
+      |> Map.put("raw_evidence_class", raw_evidence_class)
+      |> Map.put("relation_type", "INFERRED_TO")
+      |> Map.put("evidence_class", "inferred")
+      |> Map.put("topology_plane", "backbone")
+      |> Map.put("connectivity_forest_bridge", true)
+
+    normalized =
+      edge
+      |> Map.put(:evidence_class, "inferred")
+      |> Map.put(:metadata, metadata)
+
+    Map.put(
+      normalized,
+      :label,
+      edge_label(normalized, Map.get(normalized, :flow_pps, 0), Map.get(normalized, :capacity_bps, 0))
+    )
+  end
+
+  defp normalize_connectivity_forest_bridge(edge), do: edge
+
+  defp canonical_inferred_segment_edge_key(edge) do
+    case normalized_edge_endpoints(edge) do
+      {:ok, source, target} ->
+        {left, right} = if source <= target, do: {source, target}, else: {target, source}
+
+        {
+          left,
+          right,
+          normalize_id(Map.get(edge, :protocol)) || "",
+          normalize_id(Map.get(edge, :local_if_name)) || "",
+          Map.get(edge, :local_if_index) || -1,
+          normalize_id(Map.get(edge, :neighbor_if_name)) || "",
+          Map.get(edge, :neighbor_if_index) || -1,
+          normalize_id(Map.get(edge, :confidence_reason)) || "",
+          :erlang.term_to_binary(edge, [:deterministic])
+        }
+
+      :error ->
+        {"", "", "", "", -1, "", -1, "", :erlang.term_to_binary(edge, [:deterministic])}
+    end
+  end
+
+  defp union_edge_endpoints(edge, components) do
+    case normalized_edge_endpoints(edge) do
+      {:ok, source, target} -> union_endpoints(components, source, target)
+      :error -> components
+    end
+  end
+
+  defp normalized_edge_endpoints(edge) when is_map(edge) do
+    source = normalize_id(Map.get(edge, :source))
+    target = normalize_id(Map.get(edge, :target))
+
+    if is_binary(source) and is_binary(target) and source != target do
+      {:ok, source, target}
+    else
+      :error
+    end
+  end
+
+  defp normalized_edge_endpoints(_edge), do: :error
+
+  defp connected_endpoints?(components, source, target) do
+    component_root(components, source) == component_root(components, target)
+  end
+
+  defp union_endpoints(components, source, target) do
+    source_root = component_root(components, source)
+    target_root = component_root(components, target)
+
+    components =
+      components
+      |> Map.put_new(source, source)
+      |> Map.put_new(target, target)
+
+    cond do
+      source_root == target_root ->
+        components
+
+      source_root < target_root ->
+        Map.put(components, target_root, source_root)
+
+      true ->
+        Map.put(components, source_root, target_root)
+    end
+  end
+
+  defp component_root(components, endpoint) do
+    case Map.get(components, endpoint) do
+      nil -> endpoint
+      ^endpoint -> endpoint
+      parent -> component_root(components, parent)
+    end
+  end
+
+  defp inferred_segment_edge?(edge) when is_map(edge) do
+    raw_evidence = Map.get(edge, :evidence_class)
+    metadata = Map.get(edge, :metadata) || %{}
+
+    raw_evidence == "inferred-segment" or
+      (metadata["evidence_class"] || metadata[:evidence_class]) == "inferred-segment" or
+      (metadata["raw_evidence_class"] || metadata[:raw_evidence_class]) == "inferred-segment"
+  end
+
+  defp inferred_segment_edge?(_edge), do: false
+
+  defp connectivity_forest_bridge?(edge) when is_map(edge) do
+    metadata = Map.get(edge, :metadata) || %{}
+    (metadata["connectivity_forest_bridge"] || metadata[:connectivity_forest_bridge]) == true
+  end
+
+  defp connectivity_forest_bridge?(_edge), do: false
 
   defp collapse_endpoint_attachments(edges, device_by_id) when is_list(edges) and is_map(device_by_id) do
     {attachment_edges, other_edges} =
@@ -1157,6 +1396,10 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
 
   defp count_by_evidence(items, expected) when is_list(items) and is_binary(expected) do
     Enum.count(items, fn item -> evidence_class(item) == expected end)
+  end
+
+  defp count_by_raw_evidence(items, expected) when is_list(items) and is_binary(expected) do
+    Enum.count(items, fn item -> raw_evidence_class(item) == expected end)
   end
 
   defp edge_protocol(edge) do
@@ -2133,7 +2376,6 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
   defp edge_topology_class(edge) do
     case evidence_class(edge) do
       "endpoint-attachment" -> "endpoints"
-      "inferred-segment" -> "endpoints"
       "inferred" -> "inferred"
       "logical" -> "logical"
       "hosted" -> "hosted"
@@ -4628,8 +4870,21 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
     end)
   end
 
-  defp edge_details_json(edge) when is_map(edge) do
+  @doc false
+  def edge_details_json(edge) when is_map(edge) do
     metadata = Map.get(edge, :metadata) || %{}
+
+    serialized_metadata =
+      %{
+        relation_type: map_value(metadata, "relation_type"),
+        topology_plane: map_value(metadata, "topology_plane")
+      }
+      |> maybe_put_edge_metadata(:raw_relation_type, map_value(metadata, "raw_relation_type"))
+      |> maybe_put_edge_metadata(:raw_evidence_class, map_value(metadata, "raw_evidence_class"))
+      |> maybe_put_edge_metadata(
+        :connectivity_forest_bridge,
+        map_value(metadata, "connectivity_forest_bridge")
+      )
 
     %{
       source_id: Map.get(edge, :source),
@@ -4642,14 +4897,14 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
       telemetry_observed_at: Map.get(edge, :telemetry_observed_at),
       interface_sparkline: Map.get(edge, :interface_sparkline, []),
       interface_sparkline_label: Map.get(edge, :interface_sparkline_label),
-      metadata: %{
-        relation_type: map_value(metadata, "relation_type"),
-        topology_plane: map_value(metadata, "topology_plane")
-      }
+      metadata: serialized_metadata
     }
   end
 
-  defp edge_details_json(_edge), do: %{}
+  def edge_details_json(_edge), do: %{}
+
+  defp maybe_put_edge_metadata(metadata, _key, nil) when is_map(metadata), do: metadata
+  defp maybe_put_edge_metadata(metadata, key, value) when is_map(metadata), do: Map.put(metadata, key, value)
 
   defp relation_exists?(relation_name) do
     case Repo.query("SELECT to_regclass($1) IS NOT NULL", [relation_name]) do
@@ -4680,12 +4935,22 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
 
   defp to_float(_value), do: 0.0
 
-  defp rendered_pipeline_stats(pipeline_stats, nodes, edges)
-       when is_map(pipeline_stats) and is_list(nodes) and is_list(edges) do
+  @doc false
+  def rendered_pipeline_stats(pipeline_stats, nodes, edges)
+      when is_map(pipeline_stats) and is_list(nodes) and is_list(edges) do
     class_counts = edge_topology_class_counts(edges)
+    raw_links = Map.get(pipeline_stats, :raw_links, 0)
+
+    edge_parity_delta =
+      if is_integer(raw_links) and raw_links >= 0 do
+        abs(raw_links - length(edges))
+      else
+        0
+      end
 
     pipeline_stats
     |> Map.put(:final_edges, length(edges))
+    |> Map.put(:edge_parity_delta, edge_parity_delta)
     |> Map.put(:final_nodes, length(nodes))
     |> Map.put(:final_direct, count_by_evidence(edges, "direct"))
     |> Map.put(:final_inferred, count_by_evidence(edges, "inferred"))
@@ -4699,7 +4964,7 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
     |> Map.merge(component_stats(nodes, edges))
   end
 
-  defp rendered_pipeline_stats(pipeline_stats, _nodes, _edges), do: pipeline_stats
+  def rendered_pipeline_stats(pipeline_stats, _nodes, _edges), do: pipeline_stats
 
   defp resolve_coordinate_collisions(nodes) when is_list(nodes) do
     nodes_by_id = Map.new(nodes, &{&1.id, &1})
@@ -5259,6 +5524,24 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
       "unknown"
   end
 
+  defp raw_evidence_class(link) when is_map(link) do
+    metadata = Map.get(link, :metadata) || %{}
+
+    explicit =
+      metadata["raw_evidence_class"] || metadata[:raw_evidence_class] ||
+        metadata["evidence_class"] || metadata[:evidence_class] || Map.get(link, :evidence_class)
+
+    relation_type =
+      metadata["raw_relation_type"] || metadata[:raw_relation_type] ||
+        metadata["relation_type"] || metadata[:relation_type] || Map.get(link, :relation_type)
+
+    normalized_evidence_class(explicit) ||
+      evidence_class_from_relation_type(relation_type) ||
+      evidence_class(link)
+  end
+
+  defp raw_evidence_class(_link), do: "unknown"
+
   defp endpoint_attachment_edge?(edge) when is_map(edge) do
     evidence_class(edge) == "endpoint-attachment"
   end
@@ -5332,8 +5615,9 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
   defp attachment_identity_hint?(_edge, _device_by_id), do: false
 
   defp promote_attachment_candidate_edge(edge, device_by_id) when is_map(edge) and is_map(device_by_id) do
-    if inferred_segment_attachment_candidate?(edge, device_by_id) or
-         single_identifier_attachment_candidate?(edge, device_by_id) do
+    if not connectivity_forest_bridge?(edge) and
+         (inferred_segment_attachment_candidate?(edge, device_by_id) or
+            single_identifier_attachment_candidate?(edge, device_by_id)) do
       metadata =
         edge
         |> Map.get(:metadata, %{})
@@ -5365,8 +5649,9 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
   defp promote_projection_attachment_candidates(edges, _nodes) when is_list(edges), do: edges
 
   defp promote_projection_attachment_candidate_edge(edge, nodes_by_id) when is_map(edge) and is_map(nodes_by_id) do
-    if inferred_segment_projection_attachment_candidate?(edge, nodes_by_id) or
-         single_identifier_projection_attachment_candidate?(edge, nodes_by_id) do
+    if not connectivity_forest_bridge?(edge) and
+         (inferred_segment_projection_attachment_candidate?(edge, nodes_by_id) or
+            single_identifier_projection_attachment_candidate?(edge, nodes_by_id)) do
       metadata =
         edge
         |> Map.get(:metadata, %{})

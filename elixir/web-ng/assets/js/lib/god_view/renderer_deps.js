@@ -21,6 +21,7 @@
 /**
  * @typedef {object} GodViewRenderingApi
  * @property {(...args: any[]) => any} renderGraph
+ * @property {(...args: any[]) => any} refreshGraphLayersForViewState
  * @property {(...args: any[]) => any} stateDisplayName
  * @property {(...args: any[]) => any} edgeTopologyClass
  * @property {(...args: any[]) => any} focusNodeByIndex
@@ -32,6 +33,8 @@
  * @property {(...args: any[]) => any} handlePick
  * @property {(...args: any[]) => any} autoFitViewState
  * @property {(...args: any[]) => any} focusClusterNeighborhood
+ * @property {(...args: any[]) => any} managedVisualDensityForViewScale
+ * @property {(...args: any[]) => any} managedViewStateForCamera
  */
 
 /**
@@ -71,6 +74,7 @@ export const RENDERING_DEP_KEYS = ["resolveZoomTier", "setZoomTier", "reshapeGra
 /**
  * @typedef {object} GodViewLifecycleDeps
  * @property {(...args: any[]) => any} renderGraph
+ * @property {(...args: any[]) => any} refreshGraphLayersForViewState
  * @property {(...args: any[]) => any} focusNodeByIndex
  * @property {(...args: any[]) => any} ensureBitmapMetadata
  * @property {(...args: any[]) => any} normalizePipelineStats
@@ -87,9 +91,12 @@ export const RENDERING_DEP_KEYS = ["resolveZoomTier", "setZoomTier", "reshapeGra
  * @property {(...args: any[]) => any} animateTransition
  * @property {(...args: any[]) => any} autoFitViewState
  * @property {(...args: any[]) => any} focusClusterNeighborhood
+ * @property {(...args: any[]) => any} managedVisualDensityForViewScale
+ * @property {(...args: any[]) => any} managedViewStateForCamera
  */
 export const LIFECYCLE_DEP_KEYS = [
   "renderGraph",
+  "refreshGraphLayersForViewState",
   "focusNodeByIndex",
   "ensureBitmapMetadata",
   "normalizePipelineStats",
@@ -106,6 +113,8 @@ export const LIFECYCLE_DEP_KEYS = [
   "animateTransition",
   "autoFitViewState",
   "focusClusterNeighborhood",
+  "managedVisualDensityForViewScale",
+  "managedViewStateForCamera",
 ]
 
 /**
@@ -142,6 +151,7 @@ export function buildRenderingDeps(context) {
 export function buildLifecycleDeps(context) {
   return {
     renderGraph: (...args) => context.rendering.renderGraph(...args),
+    refreshGraphLayersForViewState: (...args) => context.rendering.refreshGraphLayersForViewState(...args),
     focusNodeByIndex: (...args) => context.rendering.focusNodeByIndex(...args),
     ensureBitmapMetadata: (...args) => context.rendering.ensureBitmapMetadata(...args),
     normalizePipelineStats: (...args) => context.rendering.normalizePipelineStats(...args),
@@ -158,5 +168,7 @@ export function buildLifecycleDeps(context) {
     animateTransition: (...args) => context.layout.animateTransition(...args),
     autoFitViewState: (...args) => context.rendering.autoFitViewState(...args),
     focusClusterNeighborhood: (...args) => context.rendering.focusClusterNeighborhood(...args),
+    managedVisualDensityForViewScale: (...args) => context.rendering.managedVisualDensityForViewScale(...args),
+    managedViewStateForCamera: (...args) => context.rendering.managedViewStateForCamera(...args),
   }
 }

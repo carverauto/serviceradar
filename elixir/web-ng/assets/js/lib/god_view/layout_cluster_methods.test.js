@@ -194,4 +194,54 @@ describe("layout_cluster_methods", () => {
     expect(regionalCtx.reshapeGraph(graph).shape).toEqual("regional")
     expect(regionalCtx.reclusterByGrid).toHaveBeenCalledWith(graph)
   })
+
+  it.each([
+    {zoomMode: "global", zoomTier: "local"},
+    {zoomMode: "regional", zoomTier: "local"},
+    {zoomMode: "auto", zoomTier: "global"},
+    {zoomMode: "auto", zoomTier: "regional"},
+  ])("keeps an accepted ELK scene authoritative in $zoomMode/$zoomTier", ({zoomMode, zoomTier}) => {
+    const graph = {
+      shape: "global",
+      _layoutMode: "elk-scene",
+      _topologyScene: {key: "accepted-scene", routes: [], groups: []},
+      nodes: [{id: "node-a", x: 120, y: 80}],
+      edges: [],
+    }
+    const ctx = makeContext({state: {zoomMode, zoomTier}})
+    ctx.reclusterByState = vi.fn(() => ({shape: "global"}))
+    ctx.reclusterByGrid = vi.fn(() => ({shape: "regional"}))
+
+    const reshaped = ctx.reshapeGraph(graph)
+
+    expect(reshaped).toEqual({...graph, shape: "local"})
+    expect(reshaped._topologyScene).toBe(graph._topologyScene)
+    expect(reshaped.nodes).toBe(graph.nodes)
+    expect(ctx.reclusterByState).not.toHaveBeenCalled()
+    expect(ctx.reclusterByGrid).not.toHaveBeenCalled()
+  })
+
+  it("keeps accepted ELK semantic shape local across visual-density changes", () => {
+    const graph = {
+      shape: "regional",
+      _layoutMode: "elk-scene",
+      _topologyScene: {key: "accepted-scene", routes: [], groups: []},
+      nodes: [{id: "node-a", x: 120, y: 80}],
+      edges: [],
+    }
+    const ctx = makeContext({state: {managedTopologyVisualDensity: "overview"}})
+    ctx.reclusterByState = vi.fn(() => ({shape: "global", nodes: []}))
+    ctx.reclusterByGrid = vi.fn(() => ({shape: "regional", nodes: []}))
+
+    const overview = ctx.reshapeGraph(graph)
+    ctx.state.managedTopologyVisualDensity = "detail"
+    const detail = ctx.reshapeGraph(graph)
+
+    expect(overview).toEqual({...graph, shape: "local"})
+    expect(detail).toEqual({...graph, shape: "local"})
+    expect(overview._topologyScene).toBe(graph._topologyScene)
+    expect(overview.nodes).toBe(graph.nodes)
+    expect(ctx.reclusterByState).not.toHaveBeenCalled()
+    expect(ctx.reclusterByGrid).not.toHaveBeenCalled()
+  })
 })

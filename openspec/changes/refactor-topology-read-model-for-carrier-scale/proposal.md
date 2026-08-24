@@ -30,3 +30,4 @@ We need a carrier-scale topology contract that makes the default view bounded, t
 
 ## Dependencies
 - Builds on the operator goals behind `add-topology-endpoint-visibility`, `add-topology-default-clustered-view`, and `refactor-topology-layout-stability-and-performance`, but intentionally replaces their current architectural assumptions where they still allow mixed graph semantics, split layout authority, or unbounded endpoint expansion.
+- Delegates compound client geometry, route decoding/rendering, screen-space collision admission, camera bounds, and dense geometry fixtures to `refactor-god-view-elk-scene`. This carrier-scale change retains ownership of bounded snapshot/read-model semantics, visible-member and paging budgets, zoom-tier label-count budgets, HTTP bootstrap, and causal semantics; it SHALL NOT introduce a competing layout or route projection.

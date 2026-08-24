@@ -15,7 +15,8 @@ The SQL read-model projection SHALL be complete relative to canonical AGE adjace
 - **GIVEN** a device's only canonical edge is a Device-to-Device `ATTACHED_TO` edge with `evidence_class = 'inferred-segment'`
 - **WHEN** the SQL read-model projection refreshes from AGE
 - **THEN** the projection SHALL include a row connecting that device to its attachment neighbor
-- **AND** the God-View snapshot SHALL render the device connected to its anchor instead of as an island
+- **AND** the God-View attachment census or bounded drill-down SHALL preserve a recoverable connection to its anchor instead of representing it as an island
+- **AND** this completeness SHALL NOT require every attachment device to render simultaneously as a default backbone peer
 
 #### Scenario: Projection completeness matches canonical adjacency
 - **GIVEN** the canonical AGE graph contains N distinct devices participating in Device-to-Device canonical edges

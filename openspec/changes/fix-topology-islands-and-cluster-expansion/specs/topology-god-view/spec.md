@@ -20,24 +20,25 @@ The God-View layout SHALL place devices whose only connectivity is an endpoint a
 #### Scenario: Attachment-only device renders near its anchor
 - **GIVEN** a device whose only edges are attachment-plane rows referencing an anchor infrastructure node
 - **WHEN** the client lays out the snapshot
-- **THEN** the device SHALL be positioned on a ring or spiral around that anchor
+- **THEN** the device SHALL remain in the anchor's connected layout neighborhood through the configured single geometry authority
 - **AND** the device SHALL NOT be routed to unplaced residual lanes
 
-### Requirement: Spiral Endpoint Cluster Layout
-The God-View client SHALL place expanded endpoint-cluster members in a collision-free spiral arrangement around the anchor, ordered by member grouping, selecting placement by scoring node overlap and edge crossings.
+### Requirement: Collision-Safe Endpoint Cluster Layout
+The God-View client SHALL place expanded endpoint-cluster members through the configured single geometry authority with deterministic membership containment, node separation, and routed-edge clearance.
 
-#### Scenario: Expanded members form a collision-free spiral
+#### Scenario: Expanded members form a collision-safe group
 - **GIVEN** an endpoint cluster with N visible members expands
 - **WHEN** the client lays out the expanded cluster
-- **THEN** members SHALL be arranged on a spiral path around the anchor with no two member nodes overlapping
+- **THEN** every member SHALL remain contained in the cluster's allocated layout neighborhood
+- **AND** no two member node boxes SHALL overlap
 
-#### Scenario: Placement minimizes overlap and crossings
-- **GIVEN** multiple candidate placements exist for an expanded cluster
-- **WHEN** the client selects a placement
-- **THEN** it SHALL score candidates by member-node overlap count and intersections between member edges and unrelated edges
-- **AND** the placement with the lowest score SHALL be selected
+#### Scenario: Expanded group avoids unrelated geometry
+- **GIVEN** an endpoint cluster expands near unrelated topology nodes or groups
+- **WHEN** the configured geometry authority lays out and routes the visible graph
+- **THEN** the expanded group SHALL NOT overlap unrelated node or group boxes
+- **AND** its rendered trunk SHALL NOT pass through a nonincident node or group interior
 
 #### Scenario: Degenerate small clusters
 - **WHEN** an expanded cluster has fewer than 3 visible members
-- **THEN** the client MAY use the linear fallback arrangement
-- **AND** the result SHALL still be free of node overlap
+- **THEN** the configured geometry authority SHALL use the same layout contract as for larger clusters
+- **AND** the result SHALL remain free of node overlap

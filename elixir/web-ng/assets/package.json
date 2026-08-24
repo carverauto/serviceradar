@@ -54,11 +54,13 @@
     "world-atlas": "^2.0.2"
   },
   "devDependencies": {
+    "@playwright/test": "1.51.0",
     "@tailwindcss/cli": "4.1.12",
     "esbuild": "0.25.4",
     "eslint": "^9.39.3",
     "tailwindcss": "4.1.12",
-    "vitest": "^3.2.4"
+    "vitest": "^3.2.4",
+    "wgsl_reflect": "1.2.3"
   },
   "pnpm": {
     "overrides": {
