@@ -1,5 +1,6 @@
 import {COORDINATE_SYSTEM} from "@deck.gl/core"
 import {LineLayer, ScatterplotLayer, TextLayer} from "@deck.gl/layers"
+import {admitTopologyLabels} from "./rendering_label_collision"
 
 export const godViewRenderingGraphLayerNodeMethods = {
   visualClusterCount(node) {
@@ -85,6 +86,11 @@ export const godViewRenderingGraphLayerNodeMethods = {
   backboneLabelCandidate(node) {
     return !this.endpointSummaryLabel(node) && !this.expandedEndpointMemberLabel(node)
   },
+  focusedNodeLabel(node) {
+    if (node?.focused === true) return true
+    const hoveredNodeIndex = this.state?.hoveredNodeIndex
+    return hoveredNodeIndex !== null && hoveredNodeIndex !== undefined && hoveredNodeIndex === node?.index
+  },
   nodeLabelPriority(node) {
     const details = node?.details || {}
     const clusterKind = String(details?.cluster_kind || "")
@@ -94,7 +100,7 @@ export const godViewRenderingGraphLayerNodeMethods = {
     const state = Number(node?.state ?? 3)
 
     return [
-      node?.selected === true ? 1 : 0,
+      node?.selected === true || this.focusedNodeLabel(node) ? 1 : 0,
       this.unplacedNodeLabel(node) ? 1 : 0,
       this.backboneLabelCandidate(node) ? 1 : 0,
       clusterKind === "endpoint-anchor" ? 1 : 0,
@@ -125,9 +131,9 @@ export const godViewRenderingGraphLayerNodeMethods = {
   },
   selectNodeLabels(nodeData, shape) {
     if (!Array.isArray(nodeData) || nodeData.length === 0) return []
-    const selected = nodeData.filter((node) => node?.selected === true)
+    const attended = nodeData.filter((node) => node?.selected === true || this.focusedNodeLabel(node))
     const candidates = nodeData.filter((node) => {
-      if (node?.selected === true) return true
+      if (node?.selected === true || this.focusedNodeLabel(node)) return true
       const details = node?.details || {}
       const clusterKind = String(details?.cluster_kind || "")
       const expandedEndpointMember = this.expandedEndpointMemberLabel(node)
@@ -153,7 +159,7 @@ export const godViewRenderingGraphLayerNodeMethods = {
     const nonExpandedCandidates = ordered.filter((node) => !this.expandedEndpointMemberLabel(node))
     const budget = this.labelBudgetForShape(shape, nonExpandedCandidates.length)
     const endpointSummaryBudget = this.endpointSummaryLabelBudgetForShape(shape)
-    if (budget <= 0 && selected.length === 0 && expandedEndpointMembers.length === 0 && unplacedNodes.length === 0) return []
+    if (budget <= 0 && attended.length === 0 && expandedEndpointMembers.length === 0 && unplacedNodes.length === 0) return []
     const orderedBackbone = ordered.filter((node) => this.backboneLabelCandidate(node))
     const orderedEndpointSummaries = ordered.filter((node) => {
       if (!this.endpointSummaryLabel(node)) return false
@@ -164,7 +170,7 @@ export const godViewRenderingGraphLayerNodeMethods = {
     const seen = new Set()
     let endpointSummaryCount = 0
 
-    for (const node of [...selected, ...expandedEndpointMembers, ...unplacedNodes]) {
+    for (const node of [...attended, ...expandedEndpointMembers, ...unplacedNodes]) {
       const id = String(node?.id || "")
       if (id === "" || seen.has(id)) continue
       seen.add(id)
@@ -180,13 +186,123 @@ export const godViewRenderingGraphLayerNodeMethods = {
       }
       seen.add(id)
       picked.push(node)
-      if (picked.length >= budget + expandedEndpointMembers.length + selected.length + unplacedNodes.length) break
+      if (picked.length >= budget + expandedEndpointMembers.length + attended.length + unplacedNodes.length) break
     }
 
     return picked
   },
+  activeTopologyLabelViewport() {
+    if (typeof this.state?.deck?.getViewports !== "function") return null
+    const [viewport] = this.state.deck.getViewports()
+    return viewport && typeof viewport.project === "function" ? viewport : null
+  },
+  topologyLabelSafeRect(viewport, measured = this.state?.topologyLabelSafeRect) {
+    if (measured && [measured.left, measured.top, measured.right, measured.bottom].every(Number.isFinite)) {
+      return measured
+    }
+
+    const canvasRect = this.state?.canvas?.getBoundingClientRect?.()
+    const width = Number(canvasRect?.width ?? viewport?.width)
+    const height = Number(canvasRect?.height ?? viewport?.height)
+    return {
+      left: 0,
+      top: 0,
+      right: Number.isFinite(width) ? Math.max(0, width) : 0,
+      bottom: Number.isFinite(height) ? Math.max(0, height) : 0,
+    }
+  },
+  topologyRouteStrokeWidth(route) {
+    const metadata = route?.metadata && typeof route.metadata === "object" ? route.metadata : {}
+    for (const value of [route?.strokeWidth, route?.width, metadata.strokeWidth, metadata.stroke_width]) {
+      const width = Number(value)
+      if (Number.isFinite(width) && width > 0) return width
+    }
+    // Scene routes do not otherwise carry live telemetry widths. Protect the
+    // maximum width of the visible routed layer so fallback admission cannot
+    // overlap a stroke that expands after telemetry or focus changes.
+    if (this.state?.layers?.mantle !== false) return 38
+    if (this.state?.layers?.crust !== false) return 12
+    return 0
+  },
+  admitNodeLabelsForViewport(effective, labelCandidates, protectedNodes = labelCandidates, options = {}) {
+    const viewport = options.viewport || this.activeTopologyLabelViewport()
+    if (!viewport) {
+      return {
+        admitted: [],
+        detailsFallbackIds: (labelCandidates || [])
+          .filter((node) => node?.selected === true || this.focusedNodeLabel(node))
+          .map((node) => String(node?.id || ""))
+          .filter(Boolean)
+          .sort(),
+      }
+    }
+
+    const projectedById = new Map()
+    const glyphBoxes = []
+    for (const node of protectedNodes || []) {
+      const nodeId = String(node?.id || "")
+      if (nodeId === "") continue
+      const projected = viewport.project(node?.position || [0, 0, 0])
+      const x = Number(projected?.[0])
+      const y = Number(projected?.[1])
+      if (!Number.isFinite(x) || !Number.isFinite(y)) continue
+      projectedById.set(nodeId, [x, y])
+      const radius = Math.max(0, Number(this.nodeHaloRadiusPixels(node)) || 0)
+      glyphBoxes.push({nodeId, left: x - radius, top: y - radius, right: x + radius, bottom: y + radius})
+    }
+
+    const fontSize = effective?.shape === "local" ? 12 : 10
+    const candidates = (labelCandidates || []).flatMap((node) => {
+      const nodeId = String(node?.id || "")
+      const point = projectedById.get(nodeId)
+      if (!point) return []
+      const summary = this.endpointSummaryLabel(node)
+      return [{
+        nodeId,
+        text: String(node?.label || nodeId),
+        point,
+        selected: node?.selected === true,
+        focused: this.focusedNodeLabel(node),
+        role: summary ? "summary" : this.backboneLabelCandidate(node) ? "infrastructure" : "member",
+        state: node?.state,
+        operUp: node?.operUp,
+        pps: node?.pps,
+        fontSize,
+      }]
+    })
+    const routeCorridors = (effective?._topologyScene?.routes || []).flatMap((route) => {
+      const points = (route?.points || []).flatMap((point) => {
+        const projected = viewport.project([Number(point?.x), Number(point?.y), 0])
+        const x = Number(projected?.[0])
+        const y = Number(projected?.[1])
+        return Number.isFinite(x) && Number.isFinite(y) ? [[x, y]] : []
+      })
+      if (points.length < 2) return []
+      return [{points, strokeWidth: this.topologyRouteStrokeWidth(route)}]
+    })
+    const suppliedMeasureText = options.measureText || this.state?.topologyLabelMeasureText
+    const measureText = typeof suppliedMeasureText === "function"
+      ? (text, candidate) => suppliedMeasureText(text, candidate)
+      : undefined
+
+    return admitTopologyLabels({
+      candidates,
+      glyphBoxes,
+      routeCorridors,
+      safeRect: this.topologyLabelSafeRect(viewport, options.safeRect),
+      measureText,
+    })
+  },
   buildNodeAndLabelLayers(effective, nodeData, edgeLabelData) {
-    const labelData = this.selectNodeLabels(nodeData, effective.shape)
+    const labelCandidates = this.selectNodeLabels(nodeData, effective.shape)
+    const labelAdmission = this.admitNodeLabelsForViewport(effective, labelCandidates, nodeData)
+    const nodeById = new Map(nodeData.map((node) => [String(node?.id || ""), node]))
+    const labelData = labelAdmission.admitted.flatMap((admitted) => {
+      const node = nodeById.get(admitted.nodeId)
+      return node ? [{...node, labelAdmission: admitted}] : []
+    })
+    this.state.topologyLabelDetailsFallbackIds = [...labelAdmission.detailsFallbackIds]
+    const managedTopologyOverview = effective?._layoutMode === "elk-scene"
 
     return [
       new LineLayer({
@@ -302,20 +418,20 @@ export const godViewRenderingGraphLayerNodeMethods = {
               getColor: this.state.visual.label,
               fontFamily: "Inter, system-ui, sans-serif",
               fontWeight: 600,
-              getPixelOffset: (d) => this.nodeLabelPixelOffset(d),
-              getTextAnchor: (d) => this.nodeLabelTextAnchor(d),
-              getAlignmentBaseline: (d) => this.nodeLabelAlignmentBaseline(d),
+              getPixelOffset: (d) => d.labelAdmission.pixelOffset,
+              getTextAnchor: (d) => d.labelAdmission.textAnchor,
+              getAlignmentBaseline: (d) => d.labelAdmission.alignmentBaseline,
               billboard: true,
               pickable: true,
               updateTriggers: {
-                getPixelOffset: labelData.map((node) => node?.details?.cluster_panel_side || "").join("|"),
-                getTextAnchor: labelData.map((node) => node?.details?.cluster_panel_side || "").join("|"),
-                getAlignmentBaseline: labelData.map((node) => node?.details?.cluster_panel_side || "").join("|"),
+                getPixelOffset: labelData.map((node) => `${node.id}:${node.labelAdmission.pixelOffset.join(",")}`).join("|"),
+                getTextAnchor: labelData.map((node) => `${node.id}:${node.labelAdmission.textAnchor}`).join("|"),
+                getAlignmentBaseline: labelData.map((node) => `${node.id}:${node.labelAdmission.alignmentBaseline}`).join("|"),
               },
             }),
           ]
         : []),
-      ...(this.state.layers.mantle && (effective.shape === "local" || effective.shape === "regional")
+      ...(this.state.layers.mantle && !managedTopologyOverview && (effective.shape === "local" || effective.shape === "regional")
         ? [
             new TextLayer({
               id: "god-view-edge-labels",
