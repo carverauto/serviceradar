@@ -206,7 +206,7 @@ ureq = "3.3"
 urlencoding = "2"
 uuid = { version = "1", default-features = false, features = ["std"] }
 which = "8.0"
-zen-engine = "0.55"
+zen-engine = "2.0"
 zeroize = { version = "1", default-features = false }
 
 [patch.crates-io]
