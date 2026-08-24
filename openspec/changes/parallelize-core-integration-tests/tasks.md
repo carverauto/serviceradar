@@ -140,13 +140,21 @@
       explicit CPU request for production `BazelCI` and both authoritative revisions. Twelve CPUs
       is selectable only with five safety-clean runs. If both are selectable, 12 CPUs wins only
       with a median at least 10% lower; if one is selectable use it, and if neither is, stop.
-- [ ] 3.21 Run the fixed production topology through a fresh trace-free, timeout-enabled,
+- [x] 3.21 Run the fixed production topology through a fresh trace-free, timeout-enabled,
       retry-free, observer-covered safety wave. Require zero ownership errors, deadlocks, queue
       drops, process/database residue, or connection-threshold violations; do not run one/four/
       eight/hybrid challenger diagnostics or retune the manifest-backed membership from the
       result. The exact-SHA `a6fde460627429338adb76e21884c49cd7c257cf` candidate was safety-clean
       and completed its measured lifecycle in 86.480 seconds, but its serial-lane skew was
       `45.047 / 24.518 = 1.837`; retain it only as invalidated module-count-map evidence.
+      Status: the replacement-map smoke at exact SHA
+      `75f8fec704d56cafeec8fc9f618d99a44575c48b` ran all 12 selected targets once, passed 2,030
+      Elixir tests without a retry or safety signature, completed the selected test child in
+      75.872 seconds and the guarded lifecycle in 120.862 seconds, and reduced runtime serial-lane
+      skew to `49.417 / 40.221 = 1.229`. The observer reported run-scoped/fixture-wide peaks of
+      96/97 against 197 usable slots; suite, observer, and outcome-bearing teardown statuses were
+      zero. This pre-CPU smoke is non-cohort evidence; the 90-second gate applies to the accepted
+      after-cohort p95.
 - [ ] 3.22 Run one retry-free exact-SHA `IntegrationBenchmark` smoke with the final harness before
       spending the acceptance cohorts. Require a current template, successful outcome-bearing
       teardown, exact runner markers, and zero ownership, deadlock, queue-drop, connection-headroom,

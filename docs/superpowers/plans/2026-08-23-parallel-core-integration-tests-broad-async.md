@@ -537,7 +537,7 @@ git commit -m "test(ci): freeze async and serial integration lanes"
 
 - [ ] **Step 1: Add CPU action contract tests**
 
-Add `IntegrationBenchmarkCPU2` and `IntegrationBenchmarkCPU12`; their normalized blocks differ only in `resource_requests.cpu`: `"2000m"` and `"12000m"`. Both pin pool 12, run the complete ordinary pull-request integration wildcard (the frozen async plus serial lanes and identical SRQL and other non-core integration targets), and require the exact expected SHA. Extend the harness contract to prove every other field and command block is byte-equivalent after replacing action name and CPU value. Run RED.
+Add `IntegrationBenchmarkCPU2` and `IntegrationBenchmarkCPU12`; their normalized blocks differ only in `resource_requests.cpu`: `"2"` and `"12"`. Both pin pool 12, run the complete ordinary pull-request integration wildcard (the frozen async plus serial lanes and identical SRQL and other non-core integration targets), and require the exact expected SHA. Extend the harness contract to prove every other field and command block is byte-equivalent after replacing action name and CPU value. Run RED.
 
 Add `//:integration_cpu_diagnostic_input_hash`, covering every ordinary test source, relevant BUILD/Starlark/config/helper input, observer/lifecycle implementation, runner image/pool, and normalized CPU2/CPU12 action blocks. It deliberately excludes the later production-winner CPU field while including everything that can change either diagnostic arm's work or runtime semantics.
 

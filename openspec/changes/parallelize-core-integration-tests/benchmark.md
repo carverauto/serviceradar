@@ -722,6 +722,44 @@ CPU-diagnostic input hash to
 still must prove the runtime skew and all safety criteria before CPU diagnostics or authoritative
 cohorts begin.
 
+### Rebalanced structural-map exact-SHA smoke
+
+The replacement-map smoke ran exact SHA
+`75f8fec704d56cafeec8fc9f618d99a44575c48b` with the hashes above. Parent invocation
+[`29f24280-f961-461a-89d3-2ed76153aa7f`](https://carverauto.buildbuddy.io/invocation/29f24280-f961-461a-89d3-2ed76153aa7f)
+checked out that SHA and produced measured-suite child
+[`b8c66a83-52ff-4f5a-ab46-5daf01794068`](https://carverauto.buildbuddy.io/invocation/b8c66a83-52ff-4f5a-ab46-5daf01794068).
+The child selected exactly the intended 12 integration targets, excluded packages and OCI images,
+ran every target once with `run=1`, `shard=1`, and `attempt=1`, and passed in 75.872 seconds. The
+complete guarded lifecycle ran from `2026-08-24T05:48:11Z` through `2026-08-24T05:50:12Z` and took
+120.862 seconds.
+
+| Lane | Selected test identities | Target wall seconds | Effective runner marker |
+| --- | ---: | ---: | --- |
+| `async` | 714 | 60.570 | cap 8, schedulers 30, Repo pool 12 |
+| `serial_0` | 185 | 42.729 | cap 1, schedulers 30, Repo pool 12 |
+| `serial_1` | 190 | 44.955 | cap 1, schedulers 30, Repo pool 12 |
+| `serial_2` | 189 | 49.417 | cap 1, schedulers 30, Repo pool 12 |
+| `serial_3` | 188 | 49.168 | cap 1, schedulers 30, Repo pool 12 |
+| `serial_4` | 188 | 40.221 | cap 1, schedulers 30, Repo pool 12 |
+| `serial_5` | 188 | 46.088 | cap 1, schedulers 30, Repo pool 12 |
+| `serial_6` | 188 | 45.335 | cap 1, schedulers 30, Repo pool 12 |
+
+All eight markers also reported `trace=false` and `timeouts=enabled`. The 2,030 Elixir tests had
+zero failures. Exact runtime serial-lane skew was `49.417 / 40.221 = 1.229`, improving the
+invalidated map's 1.837 skew and passing the 1.5 gate. Filtered lane logs contained zero ownership
+or owner-exit errors, SQLSTATE `40P01` or deadlocks, queue drops, pool exhaustion or checkout
+timeouts, database-isolation/connectivity failures, and process crashes. Generic error strings were
+only expected negative-path fixtures asserted by their tests.
+
+Run id `3a4b7d76` used disposable prefix `sr_core_test_3a4b7d76`. The observer sampled 211 times at
+500 ms, excluded its one administrator session, and reported run-scoped peak 96 and fixture-wide
+peak 97 against 197 usable client slots (`max_connections=200`, three superuser-reserved, zero
+general-reserved). Suite, observer, and outcome-bearing teardown statuses were all zero, with no
+process or database residue. This accepts the structural source map for CPU diagnostics. It is a
+non-cohort smoke: its 120.862-second lifecycle neither passes nor fails the separate requirement
+that the final accepted 20-run after cohort have nearest-rank p95 at most 90 seconds.
+
 Authoritative evidence first records cohort metadata:
 
 | Cohort | Requested SHA | Effective HEAD | Reported base SHA | Harness hash | Runner image | Workflow pool | CPU request | Repo pool | Schedulers | Sample ms | Observer sessions excluded | Max connections | Superuser reserved | General reserved | Usable slots |

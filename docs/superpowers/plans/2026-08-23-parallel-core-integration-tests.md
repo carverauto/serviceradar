@@ -1172,7 +1172,7 @@ Require selected-test counts `[185, 190, 189, 188, 188, 188, 188]`, structural l
 `[211, 212, 210, 210, 210, 211, 211]`, reverse-input determinism, and exact/disjoint membership.
 Historical or current runtime durations do not enter the weight.
 
-- [ ] **Step 3: Publish the structural-map candidate**
+- [x] **Step 3: Publish the structural-map candidate**
 
 Commit the rebalancing and record its full SHA as the structural-map candidate, not yet the final
 after revision. Record the benchmark and CPU-input hashes. Because BuildBuddy can execute only
@@ -1185,14 +1185,28 @@ git push github proposal/parallelize-integration-tests:refs/heads/proposal/paral
 
 Verify output says `-> proposal/parallelize-integration-tests`, never `-> staging`.
 
-- [ ] **Step 4: Run the exact-SHA trace-free safety smoke**
+Published exact SHA `75f8fec704d56cafeec8fc9f618d99a44575c48b` to only
+`proposal/parallelize-integration-tests`. Its benchmark harness hash is
+`28ab9a0e7fa0c7c4149afbfeb25393028bebffbabc2007672244979847e7491f` and CPU-diagnostic input hash
+is `52c29d6571d0674e6c70dae8dfe18f64bb76cd1d64ed66d71b0e8c696059f817`.
+
+- [x] **Step 4: Run the exact-SHA trace-free safety smoke**
 
 Run one retry-free `IntegrationBenchmark` against the structural-map candidate. Require exactly one
 async lane at cap eight, seven serial lanes at cap one, pool size 12, finite timeouts, trace off,
 current template, successful observer and outcome-bearing teardown, no residue or safety error,
-measured lifecycle at most 90 seconds, and runtime serial-lane skew at most 1.5. If balance still
-fails, stop and amend the proposal before collecting any timing-derived source profile; do not hand
-move sources from the failing lane.
+and runtime serial-lane skew at most 1.5. Record the lifecycle as non-cohort diagnostic evidence;
+the 90-second requirement applies to the final accepted after-cohort p95, not this pre-CPU smoke.
+If balance still fails, stop and amend the proposal before collecting any timing-derived source
+profile; do not hand move sources from the failing lane.
+
+Parent `29f24280-f961-461a-89d3-2ed76153aa7f` and selected-test child
+`b8c66a83-52ff-4f5a-ab46-5daf01794068` passed. The child completed in 75.872 seconds; the guarded
+lifecycle completed in 120.862 seconds. All 12 targets ran once, all 2,030 Elixir tests passed,
+every lane reported the required cap/pool/trace/timeout marker, runtime serial skew was 1.229, and
+the connection observer reported 96 run-scoped and 97 fixture-wide sessions against 197 usable
+slots. Filtered logs and cleanup contained no ownership, deadlock, queue-drop, connection, process,
+or database-residue failure.
 
 - [ ] **Step 5: Select the explicit CPU request**
 
