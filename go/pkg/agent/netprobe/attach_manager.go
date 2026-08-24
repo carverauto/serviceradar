@@ -27,6 +27,7 @@ import (
 	"time"
 
 	"github.com/carverauto/serviceradar/go/pkg/agent/sidecar"
+	addonpb "github.com/carverauto/serviceradar/proto/agent/addon/v1"
 	"github.com/rs/zerolog"
 )
 
@@ -59,6 +60,11 @@ type AttachManagerConfig struct {
 	ShutdownGrace      time.Duration
 	ClientFactory      sidecar.ClientFactory
 	Logger             zerolog.Logger
+	// AddonTelemetrySink, when set, starts the AddonService telemetry pump
+	// alongside the health loop. Socket discovery already lives here, so the
+	// pump derives its path from the same RuntimeDir the IPC client uses rather
+	// than being configured separately and drifting from it.
+	AddonTelemetrySink func(*addonpb.TelemetryBatch)
 }
 
 // AttachManager tracks the externally supervised netprobe process and exposes its
@@ -129,6 +135,25 @@ func (m *AttachManager) StartAttach(ctx context.Context) error {
 	m.status.LastError = ""
 	m.wg.Add(1)
 	go m.healthLoop(m.ctx)
+
+	if m.cfg.AddonTelemetrySink != nil {
+		pump, err := NewAddonPump(AddonPumpConfig{
+			SocketPath: AttachAddonSocketPath(m.cfg.RuntimeDir, name),
+			Sink:       m.cfg.AddonTelemetrySink,
+			Logger:     m.cfg.Logger,
+		})
+		if err != nil {
+			// Not fatal: the legacy channel still carries discovery, so a pump
+			// that cannot be constructed degrades to the pre-cutover behaviour.
+			m.cfg.Logger.Error().Err(err).Msg("Failed to start netprobe AddonService pump")
+		} else {
+			m.wg.Add(1)
+			go func() {
+				defer m.wg.Done()
+				pump.Run(m.ctx)
+			}()
+		}
+	}
 
 	return nil
 }
@@ -291,6 +316,14 @@ func applyAttachDefaults(cfg AttachManagerConfig) AttachManagerConfig {
 
 func attachSocketPath(runtimeDir, name string) string {
 	return filepath.Join(attachSidecarRuntimeDir(runtimeDir, name), "ipc.sock")
+}
+
+// AttachAddonSocketPath is netprobe's AddonService socket: a sibling of the
+// legacy IPC socket. Kept in agreement with netprobe's own
+// default_addon_socket_path, which derives the same name from --socket so the
+// systemd unit does not have to carry the flag.
+func AttachAddonSocketPath(runtimeDir, name string) string {
+	return filepath.Join(attachSidecarRuntimeDir(runtimeDir, name), "addon.sock")
 }
 
 func attachConfigPath(configDir, name string) string {
