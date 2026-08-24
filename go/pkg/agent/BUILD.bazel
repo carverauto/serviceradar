@@ -242,6 +242,7 @@ go_test(
         "push_loop_netprobe_attach_test.go",
         "push_loop_plugin_results_test.go",
         "push_loop_snmp_test.go",
+        "push_loop_source_ip_test.go",
         "push_loop_test.go",
         "push_loop_workload_identity_test.go",
         "release_runtime_test.go",
