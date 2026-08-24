@@ -30,11 +30,22 @@ Two gaps follow:
 
 So the two rows share no identifier and `Identity.DuplicateSweep` refuses to merge them --
 **correctly**. Two distinct strong MACs are not evidence of one device, and merging because MACs
-look sequential would collapse genuinely separate hardware. The alias does not rescue it either:
-the router confirms `192.168.1.1` as an identity alias with 858 sightings, and
-`Lookups.bulk_lookup_by_ip/1` even resolves alias BEFORE primary IP (`lookup_devices_by_ip` queries
-only `ips -- Map.keys(alias_map)`) -- but an alias steers FUTURE updates and is not an identifier,
-so it cannot merge a device that already exists at that address.
+look sequential would collapse genuinely separate hardware.
+
+The alias is not the missing piece either, and the reason is sharper than "an alias is not an
+identifier". An alias IS wired to merge: `AliasGuard.maybe_merge_ip_alias_device/3` (called from
+`identity/resolver.ex:79` and `:85`) merges the alias holder with the resolved device under reason
+`ip_alias_conflict`. It did not fire here because it was VETOED --
+`distinct_strong_identity_conflict?/3` -> `distinct_mac_conflict?/3` (`alias_guard.ex:74`) finds the
+two MAC sets entirely disjoint, and `Mac.any_hardware_mac_siblings?/2` recognises only the U/L-bit
+flip (which is why `F692BF75C721` pairs with `F492BF75C721`, and why a third row legitimately
+collapsed into the router on 2026-08-12). `...C72B` gets no such pass.
+
+That veto is correct on the evidence available -- disjoint MACs are the network-agnostic tell that a
+recycled IP has rebound to different hardware -- and it is also why there is no `merge_audit` row
+for the pair: a refusal writes no audit. It matters for the remedy: once the chassis carries
+`...C72B`, the MAC sets are no longer disjoint, the veto lifts, and this path merges the pair
+directly rather than waiting on the sweep.
 
 This is not a reconciler bug. The reconciler is starved of the one fact that would let it act.
 

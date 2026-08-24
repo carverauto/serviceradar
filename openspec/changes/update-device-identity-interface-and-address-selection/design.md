@@ -20,8 +20,14 @@ into a single "MACs we saw near this device" set.
 ## Why this needs no new merge rule
 
 The pair in the motivating case fails to merge because they share no identifier -- not because the
-merge policy is too strict. Once the parent device carries `...C72B`, the two rows share a strong
-MAC and `DuplicateSweep` merges them on its next pass. It runs every five minutes.
+merge policy is too strict. TWO existing paths would merge them the moment that changes:
+
+- `AliasGuard.maybe_merge_ip_alias_device/3`, which already sees the `192.168.1.1` alias and is
+  vetoed only by `distinct_mac_conflict?/3` finding the MAC sets disjoint. Registering the
+  interface MAC removes the disjointness and the veto lifts.
+- `DuplicateSweep`, which merges on a shared strong identifier and runs every five minutes.
+
+Neither needs a new rule; both need the same missing fact.
 
 That is deliberate: this change adds EVIDENCE, and leaves the decision to the existing policy.
 Adding a merge rule ("merge if MACs differ only in the last octet", "merge if one's IP is another's
