@@ -145,7 +145,7 @@ describe("rendering_graph_data_methods", () => {
             sourceId: "a",
             targetId: "b",
             points: [{x: 0, y: 0}, {x: 10, y: 0}],
-            relationIds: [],
+            relationIds: ["a-b"],
             metadata: {},
           },
           {
@@ -153,10 +153,38 @@ describe("rendering_graph_data_methods", () => {
             sourceId: "a",
             targetId: "b",
             points: [{x: 0, y: 0}, {x: Number.NaN, y: 5}, {x: 10, y: 0}],
-            relationIds: [],
+            relationIds: ["a-b"],
             metadata: {},
           },
         ],
+      },
+      nodes: [
+        {id: "a", x: 0, y: 0, state: 0, label: "A", operUp: 1, details: {}},
+        {id: "b", x: 10, y: 0, state: 1, label: "B", operUp: 1, details: {}},
+      ],
+      edges: [{id: "a-b", source: 0, target: 1, topologyClass: "backbone"}],
+    }
+
+    const out = ctx.buildVisibleGraphData(effective)
+
+    expect(out.edgeData).toHaveLength(1)
+    expect(out.edgeData[0].interactionKey).toEqual("local:valid")
+  })
+
+  it("fails closed with a deterministic diagnostic when a route has no relation bindings", () => {
+    const ctx = baseContext()
+    const effective = {
+      shape: "local",
+      _layoutMode: "elk-scene",
+      _topologyScene: {
+        routes: [{
+          id: "orphan-route",
+          sourceId: "a",
+          targetId: "b",
+          points: [{x: 0, y: 0}, {x: 10, y: 0}],
+          relationIds: [],
+          metadata: {flowPps: 999_999},
+        }],
       },
       nodes: [
         {id: "a", x: 0, y: 0, state: 0, label: "A", operUp: 1, details: {}},
@@ -167,11 +195,49 @@ describe("rendering_graph_data_methods", () => {
 
     const out = ctx.buildVisibleGraphData(effective)
 
-    expect(out.edgeData).toHaveLength(1)
-    expect(out.edgeData[0].interactionKey).toEqual("local:valid")
+    expect(out.edgeData).toEqual([])
+    expect(ctx.state.topologyRouteDiagnostics).toEqual([{
+      routeId: "orphan-route",
+      reason: "missing-relation-bindings",
+      relationIds: [],
+      missingRelationIds: [],
+    }])
   })
 
-  it("keeps route metadata authoritative while enriching empty fields from semantic relations", () => {
+  it("fails closed when even one contributing relation cannot be resolved", () => {
+    const ctx = baseContext()
+    const effective = {
+      shape: "local",
+      _layoutMode: "elk-scene",
+      _topologyScene: {
+        routes: [{
+          id: "partial-route",
+          sourceId: "a",
+          targetId: "b",
+          points: [{x: 0, y: 0}, {x: 10, y: 0}],
+          relationIds: ["known", "missing"],
+          metadata: {flowPps: 999_999},
+        }],
+      },
+      nodes: [
+        {id: "a", x: 0, y: 0, state: 0, label: "A", operUp: 1, details: {}},
+        {id: "b", x: 10, y: 0, state: 1, label: "B", operUp: 1, details: {}},
+      ],
+      edges: [{id: "known", source: 0, target: 1, topologyClass: "backbone", flowPps: 7}],
+    }
+
+    const out = ctx.buildVisibleGraphData(effective)
+
+    expect(out.edgeData).toEqual([])
+    expect(ctx.state.topologyRouteDiagnostics).toEqual([{
+      routeId: "partial-route",
+      reason: "unresolved-relation-bindings",
+      relationIds: ["known", "missing"],
+      missingRelationIds: ["missing"],
+    }])
+  })
+
+  it("ignores stale route metadata and derives semantic fields from current relations", () => {
     const ctx = baseContext()
     const effective = {
       shape: "local",
@@ -199,10 +265,10 @@ describe("rendering_graph_data_methods", () => {
     const out = ctx.buildVisibleGraphData(effective)
 
     expect(out.edgeData[0]).toMatchObject({
-      flowPps: 11,
-      flowPpsAb: 7,
+      flowPps: 130,
+      flowPpsAb: 75,
       flowPpsBa: 55,
-      label: "pre-aggregated route",
+      label: "a -> b",
     })
     expect(out.edgeData[0].relationIds).toEqual(["forward", "reverse"])
   })
@@ -249,7 +315,15 @@ describe("rendering_graph_data_methods", () => {
     const normalCtx = topologyAwareContext(topologyLayers)
     const normal = managedRouteGraph({
       nodes: [
-        {id: "switch", x: 0, y: 0, state: 0, label: "Switch", operUp: 1, details: {cluster_kind: "endpoint-anchor"}},
+        {
+          id: "switch",
+          x: 0,
+          y: 0,
+          state: 0,
+          label: "Switch",
+          operUp: 1,
+          details: {cluster_id: "cluster-a", cluster_kind: "endpoint-anchor", cluster_anchor_id: "switch"},
+        },
         {id: "client", x: 100, y: 0, state: 1, label: "Client", operUp: 1, details: {}},
       ],
       edges: [{id: "normal-endpoint", source: 0, target: 1, topologyClass: "endpoints"}],
@@ -264,8 +338,24 @@ describe("rendering_graph_data_methods", () => {
     const censusCtx = topologyAwareContext(topologyLayers)
     const census = managedRouteGraph({
       nodes: [
-        {id: "switch", x: 0, y: 0, state: 0, label: "Switch", operUp: 1, details: {cluster_kind: "endpoint-anchor"}},
-        {id: "census", x: 100, y: 0, state: 1, label: "12 endpoints", operUp: 1, details: {cluster_kind: "endpoint-summary"}},
+        {
+          id: "switch",
+          x: 0,
+          y: 0,
+          state: 0,
+          label: "Switch",
+          operUp: 1,
+          details: {cluster_id: "cluster-a", cluster_kind: "endpoint-anchor", cluster_anchor_id: "switch"},
+        },
+        {
+          id: "census",
+          x: 100,
+          y: 0,
+          state: 1,
+          label: "12 endpoints",
+          operUp: 1,
+          details: {cluster_id: "cluster-a", cluster_kind: "endpoint-summary", cluster_anchor_id: "switch"},
+        },
       ],
       edges: [{id: "census-endpoint", source: 0, target: 1, topologyClass: "endpoints"}],
       route: {id: "census-route", sourceId: "switch", targetId: "census", relationIds: ["census-endpoint"]},
@@ -277,32 +367,63 @@ describe("rendering_graph_data_methods", () => {
     expect(censusOut.edgeData).toHaveLength(1)
     expect(censusOut.edgeData[0].relationIds).toEqual(["census-endpoint"])
     expect(censusCtx.state.layoutEngine.layout).not.toHaveBeenCalled()
+
+    censusCtx.state.topologyLayers = {backbone: false, inferred: false, endpoints: false}
+    expect(censusCtx.buildVisibleGraphData(census).edgeData).toEqual([])
   })
 
-  it("retains the managed expanded-member trunk while the endpoint layer is off", () => {
+  it.each([
+    {
+      name: "summary points at another anchor",
+      anchor: {cluster_id: "cluster-a", cluster_kind: "endpoint-anchor", cluster_anchor_id: "switch"},
+      summary: {cluster_id: "cluster-a", cluster_kind: "endpoint-summary", cluster_anchor_id: "other-switch"},
+    },
+    {
+      name: "summary belongs to another cluster",
+      anchor: {cluster_id: "cluster-a", cluster_kind: "endpoint-anchor", cluster_anchor_id: "switch"},
+      summary: {cluster_id: "cluster-b", cluster_kind: "endpoint-summary", cluster_anchor_id: "switch"},
+    },
+    {
+      name: "summary is joined to an arbitrary node",
+      anchor: {},
+      summary: {cluster_id: "cluster-a", cluster_kind: "endpoint-summary", cluster_anchor_id: "switch"},
+    },
+  ])("does not retain a noncanonical managed census relation when $name", ({anchor, summary}) => {
     const ctx = topologyAwareContext({backbone: true, inferred: false, endpoints: false})
     const graph = managedRouteGraph({
       nodes: [
-        {id: "switch", x: 0, y: 0, state: 0, label: "Switch", operUp: 1, details: {cluster_kind: "endpoint-anchor"}},
-        {
-          id: "member",
-          x: 100,
-          y: 0,
-          state: 1,
-          label: "Member",
-          operUp: 1,
-          details: {cluster_kind: "endpoint-member", cluster_expanded: true},
-        },
+        {id: "switch", x: 0, y: 0, state: 0, label: "Switch", operUp: 1, details: anchor},
+        {id: "census", x: 100, y: 0, state: 1, label: "Summary", operUp: 1, details: summary},
       ],
-      edges: [{id: "member-endpoint", source: 0, target: 1, topologyClass: "endpoints"}],
-      route: {id: "member-route", sourceId: "switch", targetId: "member", relationIds: ["member-endpoint"]},
+      edges: [{id: "invalid-census", source: 0, target: 1, topologyClass: "endpoints"}],
+      route: {id: "invalid-route", sourceId: "switch", targetId: "census", relationIds: ["invalid-census"]},
     })
 
     const out = ctx.buildVisibleGraphData(graph)
 
-    expect(out.nodeData.map((node) => node.id)).toEqual(["switch", "member"])
-    expect(out.edgeData).toHaveLength(1)
-    expect(out.edgeData[0].relationIds).toEqual(["member-endpoint"])
+    expect(out.edgeData).toEqual([])
+  })
+
+  it("keeps prepared expanded members layout-only when managed endpoint routes are hidden", async () => {
+    const graph = expandedFarm01Graph()
+    const input = prepareTopologySceneInput(graph)
+    const memberRelationIds = input.layoutRelations.flatMap((relation) => relation.relationIds)
+
+    expect(memberRelationIds).toHaveLength(24)
+    expect(input.renderedRelations.flatMap((relation) => relation.relationIds)).not.toEqual(
+      expect.arrayContaining(memberRelationIds),
+    )
+
+    const scene = await layoutTopologyScene(input, {engine: new ELK(), profile: LANDSCAPE_PROFILE})
+    const effective = {shape: "local", ...applyTopologySceneToGraph(graph, scene)}
+    const ctx = topologyAwareContext({backbone: true, inferred: false, endpoints: false})
+    const out = ctx.buildVisibleGraphData(effective)
+
+    const renderedRelationIds = out.edgeData.flatMap((edge) => edge.relationIds)
+    expect(renderedRelationIds.some((relationId) => relationId.startsWith("farm01:attachment:member-"))).toEqual(false)
+    expect(renderedRelationIds.some((relationId) => relationId.startsWith("farm01:attachment:device-"))).toEqual(false)
+    expect(renderedRelationIds.some((relationId) => relationId.startsWith("farm01:attachment:summary-"))).toEqual(true)
+    expect(ctx.state.layoutEngine.layout).not.toHaveBeenCalled()
   })
 
   it("filters only disabled constituents from a mixed-class managed route", () => {
@@ -601,8 +722,8 @@ describe("rendering_graph_data_methods", () => {
       shape: "local",
       nodes: [
         {id: "router", x: 1, y: 2, state: 0, label: "Router", pps: 10, operUp: 1, details: {}},
-        {id: "switch", x: 3, y: 4, state: 1, label: "Switch", pps: 20, operUp: 2, details: {cluster_kind: "endpoint-anchor"}},
-        {id: "census", x: 5, y: 6, state: 1, label: "12 endpoints", pps: 5, operUp: 1, details: {cluster_kind: "endpoint-summary"}},
+        {id: "switch", x: 3, y: 4, state: 1, label: "Switch", pps: 20, operUp: 2, details: {cluster_id: "cluster-a", cluster_kind: "endpoint-anchor", cluster_anchor_id: "switch"}},
+        {id: "census", x: 5, y: 6, state: 1, label: "12 endpoints", pps: 5, operUp: 1, details: {cluster_id: "cluster-a", cluster_kind: "endpoint-summary", cluster_anchor_id: "switch"}},
         {id: "client", x: 7, y: 8, state: 1, label: "Client", pps: 5, operUp: 1, details: {cluster_kind: "endpoint-member"}},
       ],
       edges: [
@@ -634,8 +755,8 @@ describe("rendering_graph_data_methods", () => {
     const effective = {
       shape: "local",
       nodes: [
-        {id: "switch", x: 3, y: 4, state: 1, label: "Switch", pps: 20, operUp: 2, details: {cluster_kind: "endpoint-anchor"}},
-        {id: "census", x: 5, y: 6, state: 1, label: "12 endpoints", pps: 5, operUp: 1, details: {cluster_kind: "endpoint-summary", cluster_expanded: true, cluster_anchor_id: "switch"}},
+        {id: "switch", x: 3, y: 4, state: 1, label: "Switch", pps: 20, operUp: 2, details: {cluster_id: "cluster-a", cluster_kind: "endpoint-anchor", cluster_anchor_id: "switch"}},
+        {id: "census", x: 5, y: 6, state: 1, label: "12 endpoints", pps: 5, operUp: 1, details: {cluster_id: "cluster-a", cluster_kind: "endpoint-summary", cluster_expanded: true, cluster_anchor_id: "switch"}},
         {
           id: "client",
           x: 7,
@@ -644,7 +765,7 @@ describe("rendering_graph_data_methods", () => {
           label: "Client",
           pps: 5,
           operUp: 1,
-          details: {cluster_kind: "endpoint-member", cluster_expanded: true},
+          details: {cluster_id: "cluster-a", cluster_kind: "endpoint-member", cluster_expanded: true, cluster_anchor_id: "switch"},
         },
       ],
       edges: [

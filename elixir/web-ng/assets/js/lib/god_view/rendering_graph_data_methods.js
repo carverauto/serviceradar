@@ -1,5 +1,19 @@
+import {topologyRelationId} from "./topology_relation_identity"
+
 function isEndpointCensusSummary(node) {
   return String(node?.details?.cluster_kind || "").trim() === "endpoint-summary"
+}
+
+function clusterKind(node) {
+  return String(node?.details?.cluster_kind || "").trim()
+}
+
+function clusterId(node) {
+  return String(node?.details?.cluster_id || "").trim()
+}
+
+function clusterAnchorId(node) {
+  return String(node?.details?.cluster_anchor_id || "").trim()
 }
 
 function isClusterExpanded(node) {
@@ -48,18 +62,6 @@ function midpointOnPath(path) {
   return [...path[path.length - 1]]
 }
 
-function rawRelationId(edge, nodes) {
-  const explicitId = String(edge?.id || edge?.edge_id || "").trim()
-  if (explicitId !== "") return explicitId
-
-  const sourceId = String(nodes[Number(edge?.source)]?.id || "").trim()
-  const targetId = String(nodes[Number(edge?.target)]?.id || "").trim()
-  const [left, right] = [sourceId, targetId].sort((a, b) => a.localeCompare(b))
-  const topologyClass = String(edge?.topologyClass || "").trim().toLowerCase() || "unknown"
-  const label = String(edge?.label || "").trim()
-  return `semantic:${left}|${right}|${topologyClass}|${label}`
-}
-
 export function hasManagedTopologySceneRoutes(effective) {
   return (
     effective?.shape === "local" &&
@@ -95,16 +97,45 @@ export const godViewRenderingGraphDataMethods = {
 
       const source = effective.nodes[Number(edge?.source)]
       const target = effective.nodes[Number(edge?.target)]
-      return isEndpointCensusSummary(source) || isEndpointCensusSummary(target)
+      const summary = isEndpointCensusSummary(source)
+        ? source
+        : (isEndpointCensusSummary(target) ? target : null)
+      const anchor = summary === source ? target : source
+      if (!summary || clusterKind(anchor) !== "endpoint-anchor") return false
+
+      const summaryClusterId = clusterId(summary)
+      return (
+        summaryClusterId !== "" &&
+        clusterId(anchor) === summaryClusterId &&
+        clusterAnchorId(summary) === String(anchor?.id || "")
+      )
     }
 
     const expandedMemberEdge = (edge) => {
       if (effective.shape !== "local") return false
+      if (edgeTopologyClass(edge) !== "endpoints") return false
       const source = effective.nodes[Number(edge?.source)]
       const target = effective.nodes[Number(edge?.target)]
       const expandedMember = (node) =>
-        String(node?.details?.cluster_kind || "").trim() === "endpoint-member" && isClusterExpanded(node)
-      return expandedMember(source) || expandedMember(target)
+        clusterKind(node) === "endpoint-member" && isClusterExpanded(node)
+      const member = expandedMember(source) ? source : (expandedMember(target) ? target : null)
+      const other = member === source ? target : source
+      if (!member || !other) return false
+
+      const memberClusterId = clusterId(member)
+      const ownerId = clusterAnchorId(member)
+      if (memberClusterId === "" || ownerId === "") return false
+
+      const otherIsOwner =
+        clusterKind(other) === "endpoint-anchor" &&
+        String(other.id || "") === ownerId &&
+        clusterId(other) === memberClusterId
+      const otherResolvesToOwner =
+        isEndpointCensusSummary(other) &&
+        isClusterExpanded(other) &&
+        clusterId(other) === memberClusterId &&
+        clusterAnchorId(other) === ownerId
+      return otherIsOwner || otherResolvesToOwner
     }
 
     if (endpointIncidentFlags) {
@@ -226,7 +257,7 @@ export const godViewRenderingGraphDataMethods = {
       ? this.buildTopologySceneEdgeData(
         effective,
         edgeTopologyClass,
-        (edge) => this.edgeEnabledByTopologyLayer(edge) || attachmentCensusEdge(edge) || expandedMemberEdge(edge),
+        (edge) => this.edgeEnabledByTopologyLayer(edge) || attachmentCensusEdge(edge),
       )
       : this.aggregateVisibleEdges(this.collapseExpandedMemberTrunks(rawEdgeData, visibleNodes))
     const edgeKeys = new Set(edgeData.map((edge) => edge.interactionKey))
@@ -267,10 +298,16 @@ export const godViewRenderingGraphDataMethods = {
   },
   buildTopologySceneEdgeData(effective, edgeTopologyClass, relationEnabled) {
     const routes = effective?._topologyScene?.routes || []
+    const diagnostics = []
+    this.state.topologyRouteDiagnostics = diagnostics
     const relationVisible = typeof relationEnabled === "function" ? relationEnabled : () => true
-    const relationById = new Map(
-      (effective.edges || []).map((edge) => [rawRelationId(edge, effective.nodes || []), edge]),
-    )
+    const relationById = new Map()
+    for (const edge of effective.edges || []) {
+      const relationId = topologyRelationId(edge, effective.nodes || [])
+      const matching = relationById.get(relationId) || []
+      matching.push(edge)
+      relationById.set(relationId, matching)
+    }
     const nodeByIndex = effective.nodes || []
     const classBuckets = ["backbone", "logical", "hosted", "inferred", "observed", "endpoints", "unknown"]
     const emptyClassCounts = () => Object.fromEntries(classBuckets.map((bucket) => [bucket, 0]))
@@ -294,17 +331,41 @@ export const godViewRenderingGraphDataMethods = {
         const routeRelationIds = Array.isArray(route?.relationIds)
           ? [...route.relationIds].sort((left, right) => String(left).localeCompare(String(right)))
           : []
-        const resolvedRelations = routeRelationIds
-          .map((relationId) => ({relationId, relation: relationById.get(relationId)}))
-          .filter(({relation}) => Boolean(relation))
+        if (routeRelationIds.length === 0) {
+          diagnostics.push({
+            routeId: String(route?.id || ""),
+            reason: "missing-relation-bindings",
+            relationIds: [],
+            missingRelationIds: [],
+          })
+          return null
+        }
+
+        const missingRelationIds = routeRelationIds.filter((relationId) => {
+          const matches = relationById.get(relationId)
+          return !Array.isArray(matches) || matches.length === 0
+        })
+        if (missingRelationIds.length > 0) {
+          diagnostics.push({
+            routeId: String(route?.id || ""),
+            reason: "unresolved-relation-bindings",
+            relationIds: routeRelationIds,
+            missingRelationIds,
+          })
+          return null
+        }
+
+        const resolvedRelations = routeRelationIds.flatMap((relationId) =>
+          (relationById.get(relationId) || []).map((relation) => ({relationId, relation})),
+        )
         const enabledRelations = resolvedRelations.filter(({relation}) => relationVisible(relation))
         if (resolvedRelations.length > 0 && enabledRelations.length === 0) return null
         const relations = enabledRelations.map(({relation}) => relation)
         const relationIds = resolvedRelations.length > 0
-          ? enabledRelations.map(({relationId}) => relationId)
+          ? Array.from(new Set(enabledRelations.map(({relationId}) => relationId)))
           : routeRelationIds
         const metadata = route?.metadata && typeof route.metadata === "object" ? route.metadata : {}
-        const useRouteMetadata = enabledRelations.length === resolvedRelations.length
+        const useRouteMetadata = false
         const topologyClassCounts = emptyClassCounts()
         const directional = {
           flowPpsAb: 0,
@@ -387,7 +448,7 @@ export const godViewRenderingGraphDataMethods = {
           details: useRouteMetadata && metadata.details && typeof metadata.details === "object"
             ? metadata.details
             : relationDetails.find((details) => Array.isArray(details.interface_sparkline) && details.interface_sparkline.length > 1) || relationDetails[0] || {},
-          edgeCount: Math.max(1, relationIds.length),
+          edgeCount: Math.max(1, relations.length),
           interactionKey: `local:${route.id}`,
         }
       })

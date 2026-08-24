@@ -1,3 +1,5 @@
+import {canonicalSemanticRelationId} from "./topology_relation_identity"
+
 function stringValue(value) {
   return typeof value === "string" ? value.trim() : String(value || "").trim()
 }
@@ -41,11 +43,7 @@ function isAttachmentRelation(edge) {
 function semanticRelationId(edge, sourceId, targetId) {
   const explicitId = stringValue(edge?.id || edge?.edge_id)
   if (explicitId !== "") return explicitId
-
-  const [left, right] = [sourceId, targetId].sort((a, b) => a.localeCompare(b))
-  const topologyClass = stringValue(edge?.topologyClass).toLowerCase() || "unknown"
-  const label = stringValue(edge?.label)
-  return `semantic:${left}|${right}|${topologyClass}|${label}`
+  return canonicalSemanticRelationId(edge, sourceId, targetId)
 }
 
 export function canonicalRenderedRelationId(sourceId, targetId) {

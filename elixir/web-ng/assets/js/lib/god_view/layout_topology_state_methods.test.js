@@ -83,7 +83,7 @@ describe("layout_topology_state_methods", () => {
     )
   })
 
-  it("dedupeGraphById removes duplicate nodes and remaps edges", () => {
+  it("dedupeGraphById removes duplicate nodes and preserves every remapped semantic edge", () => {
     const context = makeContext()
     const graph = {
       nodes: [
@@ -100,9 +100,12 @@ describe("layout_topology_state_methods", () => {
     const out = context.dedupeGraphById(graph)
 
     expect(out.nodes).toHaveLength(2)
-    expect(out.edges).toHaveLength(1)
+    expect(out.edges).toHaveLength(2)
     expect(out.nodes[0].details.cluster_expanded).toEqual(true)
-    expect(out.edges[0]).toMatchObject({source: 0, target: 1})
+    expect(out.edges).toEqual([
+      expect.objectContaining({source: 0, target: 1}),
+      expect.objectContaining({source: 0, target: 1}),
+    ])
   })
 
   it("dedupeGraphById preserves duplicate-node aggregation semantics", () => {
@@ -155,6 +158,62 @@ describe("layout_topology_state_methods", () => {
         },
       }),
     ])
+  })
+
+  it("preserves parallel, reverse, and exact duplicate semantic relations with canonical identities", () => {
+    const context = makeContext()
+    const graph = {
+      nodes: [{id: "a", details: {}}, {id: "b", details: {}}],
+      edges: [
+        {
+          source: 0,
+          target: 1,
+          topologyClass: "backbone",
+          protocol: "snmp",
+          evidenceClass: "direct",
+          label: "uplink",
+          flowPps: 100,
+          details: {source_if_index: 10, source_interface: "xe-0/0/0", target_if_index: 20, target_interface: "xe-0/0/1"},
+        },
+        {
+          source: 1,
+          target: 0,
+          topologyClass: "backbone",
+          protocol: "snmp",
+          evidenceClass: "direct",
+          label: "uplink",
+          flowPps: 50,
+          details: {source_if_index: 20, source_interface: "xe-0/0/1", target_if_index: 10, target_interface: "xe-0/0/0"},
+        },
+        {
+          source: 0,
+          target: 1,
+          topologyClass: "backbone",
+          protocol: "snmp",
+          evidenceClass: "direct",
+          label: "uplink",
+          flowPps: 7,
+          details: {source_if_index: 11, source_interface: "xe-0/0/2", target_if_index: 21, target_interface: "xe-0/0/3"},
+        },
+        {
+          source: 0,
+          target: 1,
+          topologyClass: "backbone",
+          protocol: "snmp",
+          evidenceClass: "direct",
+          label: "uplink",
+          flowPps: 30,
+          details: {source_if_index: 10, source_interface: "xe-0/0/0", target_if_index: 20, target_interface: "xe-0/0/1"},
+        },
+      ],
+    }
+
+    const out = context.dedupeGraphById(graph)
+
+    expect(out.edges).toHaveLength(4)
+    expect(out.edges.every((edge) => typeof edge.id === "string" && edge.id.startsWith("semantic:"))).toEqual(true)
+    expect(new Set(out.edges.map((edge) => edge.id)).size).toEqual(3)
+    expect(out.edges.map((edge) => edge.flowPps)).toEqual([100, 50, 7, 30])
   })
 
   it("uses one ELK scene as the geometry authority for both farm01 fixture states", async () => {
@@ -233,7 +292,11 @@ describe("layout_topology_state_methods", () => {
     expect(context.state.layoutEngine.layout.mock.calls.length - callsBeforeHit).toEqual(0)
     expect(context.state.layoutEngine.layout).toHaveBeenCalledTimes(1)
     expect(second).not.toBe(first)
-    expect(second._topologyScene).toBe(first._topologyScene)
+    expect(second._topologyScene).not.toBe(first._topologyScene)
+    expect(sceneCenters(second)).toEqual(sceneCenters(first))
+    expect(second._topologyScene.routes.map((route) => route.points)).toEqual(
+      first._topologyScene.routes.map((route) => route.points),
+    )
     expect(second._layoutCacheKey).toEqual(first._layoutCacheKey)
     expect(second._layoutRevision).toEqual(10)
     expect(second.revision).toEqual(10)
@@ -244,11 +307,47 @@ describe("layout_topology_state_methods", () => {
       details: expect.objectContaining({live: "current"}),
     })
     expect(second.edges[0]).toMatchObject({flowPps: 4321, details: {live: "current"}})
-    expect(context.state.layoutCache.get(first._layoutCacheKey)).toBe(first._topologyScene)
+    const cachedGeometry = context.state.layoutCache.get(first._layoutCacheKey)
+    expect(cachedGeometry).not.toBe(first._topologyScene)
+    expect(cachedGeometry).not.toHaveProperty("manifest")
+    expect(cachedGeometry).not.toHaveProperty("key")
+    expect(cachedGeometry.routes[0]).toEqual({
+      id: first._topologyScene.routes[0].id,
+      points: first._topologyScene.routes[0].points,
+    })
+    expect(cachedGeometry.routes[0]).not.toHaveProperty("relationIds")
+    expect(cachedGeometry.routes[0]).not.toHaveProperty("metadata")
     expect(Object.isFrozen(first._topologyScene)).toEqual(true)
     expect(Object.isFrozen(first._topologyScene.nodes)).toEqual(true)
     expect(Object.isFrozen(first._topologyScene.nodes[0].center)).toEqual(true)
     expect(Object.isFrozen(first._topologyScene.routes[0].points)).toEqual(true)
+    expect(Object.isFrozen(cachedGeometry)).toEqual(true)
+    expect(Object.isFrozen(cachedGeometry.routes[0].points)).toEqual(true)
+  })
+
+  it("rebuilds the current manifest on a structural cache hit", async () => {
+    const context = makeContext()
+    const graph = collapsedFarm01Graph()
+    const first = await context.prepareGraphLayout(graph, 20, "first")
+    const currentGraph = {
+      ...graph,
+      revision: 21,
+      edges: [
+        ...graph.edges,
+        {...graph.edges[0], flowPps: 91, details: {sample: "new duplicate"}},
+      ],
+    }
+
+    const second = await context.prepareGraphLayout(currentGraph, 21, "telemetry-duplicate")
+
+    expect(context.state.layoutEngine.layout).toHaveBeenCalledTimes(1)
+    expect(second._layoutCacheKey).toEqual(first._layoutCacheKey)
+    expect(second._topologyScene).not.toBe(first._topologyScene)
+    expect(second._topologyScene.manifest.semanticEdges).toEqual(first._topologyScene.manifest.semanticEdges + 1)
+    expect(second._topologyScene.routes.map((route) => route.relationIds)).toEqual(
+      first._topologyScene.routes.map((route) => route.relationIds),
+    )
+    expect(second.edges.at(-1)).toMatchObject({flowPps: 91, details: {sample: "new duplicate"}})
   })
 
   it("keeps the cache stable within a viewport profile and invalidates across the profile threshold", async () => {
@@ -264,7 +363,8 @@ describe("layout_topology_state_methods", () => {
     const portrait = await context.prepareGraphLayout(graph, 10, "stamp")
 
     expect(sameProfile).not.toBe(first)
-    expect(sameProfile._topologyScene).toBe(first._topologyScene)
+    expect(sameProfile._topologyScene).not.toBe(first._topologyScene)
+    expect(sceneCenters(sameProfile)).toEqual(sceneCenters(first))
     expect(portrait._topologyScene).not.toBe(first._topologyScene)
     expect(context.state.layoutEngine.layout).toHaveBeenCalledTimes(2)
     expect(first._topologyScene.profileKey).toEqual("landscape")
@@ -278,6 +378,35 @@ describe("layout_topology_state_methods", () => {
 
     expect(collapsed._layoutCacheKey).not.toEqual(expanded._layoutCacheKey)
     expect(context.state.layoutEngine.layout).toHaveBeenCalledTimes(2)
+  })
+
+  it("invalidates cached geometry when semantic evidence changes", async () => {
+    const context = makeContext()
+    const graph = collapsedFarm01Graph()
+    const withoutServerIdentity = {
+      ...graph,
+      edges: graph.edges.map((edge, index) => index === 0
+        ? {...edge, id: undefined, evidenceClass: "direct"}
+        : edge),
+    }
+    const changedEvidence = {
+      ...withoutServerIdentity,
+      edges: withoutServerIdentity.edges.map((edge, index) => index === 0
+        ? {...edge, evidenceClass: "endpoint-attachment"}
+        : edge),
+    }
+
+    const first = await context.prepareGraphLayout(withoutServerIdentity, 30, "same-topology")
+    const second = await context.prepareGraphLayout(changedEvidence, 31, "same-topology")
+
+    expect(context.state.layoutEngine.layout).toHaveBeenCalledTimes(2)
+    expect(second._layoutCacheKey).not.toEqual(first._layoutCacheKey)
+    expect(second._topologyScene.manifest.attachmentEdges).toEqual(
+      first._topologyScene.manifest.attachmentEdges + 1,
+    )
+    expect(second.edges[0].evidenceClass).toEqual("endpoint-attachment")
+    expect(second._topologyScene.routes.flatMap((route) => route.relationIds)).toContain(second.edges[0].id)
+    expect(second._topologyScene.routes.flatMap((route) => route.relationIds)).not.toContain(first.edges[0].id)
   })
 
   it("ignores legacy input coordinates when applying accepted ELK centers", async () => {
@@ -350,7 +479,8 @@ describe("layout_topology_state_methods", () => {
 
     const reused = await context.prepareGraphLayout(graph, 15, "new-stamp")
 
-    expect(reused._topologyScene).toBe(accepted._topologyScene)
+    expect(reused._topologyScene).not.toBe(accepted._topologyScene)
+    expect(sceneCenters(reused)).toEqual(sceneCenters(accepted))
     expect(reused._layoutMode).toEqual("elk-scene")
     expect(reused._layoutRevision).toEqual(15)
     expect(reused._layoutError).toContain("transient ELK failure")
@@ -386,6 +516,7 @@ describe("layout_topology_state_methods", () => {
     }
     const currentGraph = {
       ...graph,
+      revision: 17,
       nodes: graph.nodes.map((node, index) => index === 0
         ? {...node, label: "Current gateway label", state: 3, pps: 9876}
         : node),
@@ -393,6 +524,7 @@ describe("layout_topology_state_methods", () => {
         ? {...edge, metadata: {sample: "current"}, pps: 4321}
         : edge),
     }
+    currentGraph.edges.push({...graph.edges[0], flowPps: 99, details: {sample: "current duplicate"}})
 
     const reused = await context.prepareGraphLayout(currentGraph, 17, "telemetry-only-stamp")
 
@@ -404,8 +536,13 @@ describe("layout_topology_state_methods", () => {
     expect(reused.edges[0]).toMatchObject({metadata: {sample: "current"}, pps: 4321})
     expect(reused.nodes[0].x).toEqual(accepted.nodes[0].x)
     expect(reused.nodes[0].y).toEqual(accepted.nodes[0].y)
-    expect(reused._topologyScene).toBe(accepted._topologyScene)
+    expect(reused._topologyScene).not.toBe(accepted._topologyScene)
+    expect(sceneCenters(reused)).toEqual(sceneCenters(accepted))
+    expect(reused._topologyScene.manifest.semanticEdges).toEqual(
+      accepted._topologyScene.manifest.semanticEdges + 1,
+    )
     expect(reused._layoutRevision).toEqual(17)
+    expect(reused.revision).toEqual(17)
     expect(reused._layoutCacheKey).toEqual(accepted._layoutCacheKey)
     expect(reused._layoutError).toEqual("transient ELK failure")
   })

@@ -6,6 +6,7 @@ import {
   viewportProfileForSize,
 } from "./layout_elk_scene"
 import {prepareTopologySceneInput} from "./topology_scene_graph"
+import {topologyRelationId} from "./topology_relation_identity"
 
 let defaultLayoutEngine = null
 const MAX_LAYOUT_CACHE_ENTRIES = 12
@@ -100,6 +101,92 @@ function immutableTopologyScene(value) {
   return Object.freeze(value)
 }
 
+function topologySceneGeometry(scene) {
+  if (!scene || typeof scene !== "object") return null
+  return {
+    nodes: (scene.nodes || []).map((node) => ({
+      id: node.id,
+      center: {...node.center},
+      width: node.width,
+      height: node.height,
+    })),
+    groups: (scene.groups || []).map((group) => ({
+      id: group.id,
+      bounds: {...group.bounds},
+    })),
+    routes: (scene.routes || []).map((route) => ({
+      id: route.id,
+      points: (route.points || []).map((point) => ({...point})),
+    })),
+    bounds: {...scene.bounds},
+  }
+}
+
+function topologySceneFromGeometry(sceneInput, profile, geometry) {
+  if (!geometry || typeof geometry !== "object") return null
+
+  const nodeGeometry = new Map((geometry.nodes || []).map((node) => [node.id, node]))
+  const groupGeometry = new Map((geometry.groups || []).map((group) => [group.id, group]))
+  const routeGeometry = new Map((geometry.routes || []).map((route) => [route.id, route]))
+  const currentNodes = Array.isArray(sceneInput?.nodes) ? sceneInput.nodes : []
+  const currentGroups = (sceneInput?.groups || []).filter((group) => group.expanded)
+  const currentRoutes = Array.isArray(sceneInput?.renderedRelations) ? sceneInput.renderedRelations : []
+
+  if (
+    nodeGeometry.size !== currentNodes.length ||
+    groupGeometry.size !== currentGroups.length ||
+    routeGeometry.size !== currentRoutes.length
+  ) return null
+
+  const nodes = currentNodes.map((node) => {
+    const cached = nodeGeometry.get(node.id)
+    if (!cached) return null
+    return {
+      id: node.id,
+      center: cached.center,
+      width: cached.width,
+      height: cached.height,
+      groupId: node.groupId,
+      render: node.render,
+    }
+  })
+  const groups = currentGroups.map((group) => {
+    const cached = groupGeometry.get(group.id)
+    if (!cached) return null
+    return {
+      id: group.id,
+      bounds: cached.bounds,
+      memberIds: [...(group.memberIds || [])].sort((left, right) => left.localeCompare(right)),
+      anchorId: group.anchorId,
+      gatewayId: group.gatewayId,
+    }
+  })
+  const routes = currentRoutes.map((route) => {
+    const cached = routeGeometry.get(route.id)
+    if (!cached) return null
+    return {
+      id: route.id,
+      sourceId: route.sourceId,
+      targetId: route.targetId,
+      points: cached.points,
+      relationIds: [...(route.relationIds || [])].sort((left, right) => left.localeCompare(right)),
+      metadata: route.metadata && typeof route.metadata === "object" ? {...route.metadata} : {},
+    }
+  })
+  if (nodes.includes(null) || groups.includes(null) || routes.includes(null)) return null
+
+  return immutableTopologyScene({
+    nodes,
+    groups,
+    routes,
+    bounds: geometry.bounds,
+    key: `${sceneInput.graphKey}:${profile.key}`,
+    graphKey: sceneInput.graphKey,
+    profileKey: profile.key,
+    manifest: {...sceneInput.manifest},
+  })
+}
+
 function stripCoordinates(graph) {
   const {
     _topologyScene,
@@ -152,7 +239,8 @@ export const godViewLayoutTopologyStateMethods = {
       state.viewportSafeInsets,
     )
     const layoutKey = this.graphLayoutCacheKey(sceneInput, profile)
-    const cachedScene = this.getCachedGraphLayout(layoutKey)
+    const cachedGeometry = this.getCachedGraphLayout(layoutKey)
+    const cachedScene = topologySceneFromGeometry(sceneInput, profile, cachedGeometry)
 
     if (cachedScene) {
       const cachedGraph = {
@@ -200,7 +288,9 @@ export const godViewLayoutTopologyStateMethods = {
   storeCachedGraphLayout(layoutKey, scene) {
     const {state} = this
     if (!(state.layoutCache instanceof Map)) state.layoutCache = new Map()
-    state.layoutCache.set(layoutKey, immutableTopologyScene(scene))
+    const geometry = topologySceneGeometry(scene)
+    if (!geometry) return
+    state.layoutCache.set(layoutKey, immutableTopologyScene(geometry))
     while (state.layoutCache.size > MAX_LAYOUT_CACHE_ENTRIES) {
       state.layoutCache.delete(state.layoutCache.keys().next().value)
     }
@@ -220,10 +310,14 @@ export const godViewLayoutTopologyStateMethods = {
       const previousGraph = this.state.lastGraph
       const compatible =
         previousGraph?._layoutCacheKey === layoutKey && previousGraph?._topologyScene
+      const previousGeometry = compatible
+        ? topologySceneGeometry(previousGraph._topologyScene)
+        : null
+      const recoveredScene = topologySceneFromGeometry(sceneInput, profile, previousGeometry)
 
-      if (compatible) {
+      if (recoveredScene) {
         return {
-          ...applyTopologySceneToGraph(stripCoordinates(graph), previousGraph._topologyScene),
+          ...applyTopologySceneToGraph(stripCoordinates(graph), recoveredScene),
           _layoutRevision: revision,
           _layoutCacheKey: layoutKey,
           _layoutError: diagnostic,
@@ -265,25 +359,12 @@ export const godViewLayoutTopologyStateMethods = {
     }
 
     const edges = []
-    const seenEdgeKeys = new Set()
     for (const edge of graph.edges) {
       const source = originalToDeduped[Number(edge?.source)]
       const target = originalToDeduped[Number(edge?.target)]
       if (!Number.isInteger(source) || !Number.isInteger(target) || source === target) continue
-      const explicitId = typeof edge?.id === "string" && edge.id.trim() !== "" ? edge.id.trim() : null
-      const edgeKey = explicitId
-        ? `id:${explicitId}`
-        : [
-            source,
-            target,
-            String(edge?.topologyClass || ""),
-            String(edge?.label || ""),
-            String(edge?.protocol || ""),
-            String(edge?.evidenceClass || ""),
-          ].join("|")
-      if (seenEdgeKeys.has(edgeKey)) continue
-      seenEdgeKeys.add(edgeKey)
-      edges.push({...edge, source, target})
+      const remapped = {...edge, source, target}
+      edges.push({...remapped, id: topologyRelationId(remapped, nodes)})
     }
 
     return {

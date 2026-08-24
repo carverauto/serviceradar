@@ -26,27 +26,55 @@ describe("topology_scene_graph", () => {
     expect(shuffled).toEqual(forward)
   })
 
-  it("uses an undirected stable route identity with sorted semantic relation ids", () => {
+  it("keeps direction and interface identity distinct inside one undirected rendered route", () => {
     const scene = prepareTopologySceneInput({
       nodes: [
         {id: "zulu", details: {}},
         {id: "alpha", details: {}},
       ],
       edges: [
-        {source: 0, target: 1, topologyClass: "backbone", label: "primary"},
-        {id: "edge-01", source: 1, target: 0, topologyClass: "backbone", label: "reverse"},
+        {
+          source: 0,
+          target: 1,
+          topologyClass: "backbone",
+          protocol: "snmp",
+          evidenceClass: "direct",
+          label: "primary",
+          details: {source_if_index: 10, source_interface: "xe-0/0/0", target_if_index: 20, target_interface: "xe-0/0/1"},
+          metadata: {relation_type: "CONNECTED_TO", topology_plane: "physical"},
+        },
+        {
+          source: 1,
+          target: 0,
+          topologyClass: "backbone",
+          protocol: "snmp",
+          evidenceClass: "direct",
+          label: "primary",
+          details: {source_if_index: 20, source_interface: "xe-0/0/1", target_if_index: 10, target_interface: "xe-0/0/0"},
+          metadata: {relation_type: "CONNECTED_TO", topology_plane: "physical"},
+        },
+        {
+          source: 0,
+          target: 1,
+          topologyClass: "backbone",
+          protocol: "snmp",
+          evidenceClass: "direct",
+          label: "primary",
+          details: {source_if_index: 11, source_interface: "xe-0/0/2", target_if_index: 21, target_interface: "xe-0/0/3"},
+          metadata: {relation_type: "CONNECTED_TO", topology_plane: "physical"},
+        },
       ],
     })
 
     expect(canonicalRenderedRelationId("zulu", "alpha")).toEqual("rendered:alpha|zulu")
-    expect(scene.renderedRelations).toEqual([
-      {
-        id: "rendered:alpha|zulu",
-        sourceId: "alpha",
-        targetId: "zulu",
-        relationIds: ["edge-01", "semantic:alpha|zulu|backbone|primary"],
-      },
-    ])
+    expect(scene.renderedRelations).toHaveLength(1)
+    expect(scene.renderedRelations[0]).toMatchObject({
+      id: "rendered:alpha|zulu",
+      sourceId: "alpha",
+      targetId: "zulu",
+    })
+    expect(scene.renderedRelations[0].relationIds).toHaveLength(3)
+    expect(new Set(scene.renderedRelations[0].relationIds).size).toEqual(3)
   })
 
   it("keeps expanded members as layout-only gateway constraints", () => {

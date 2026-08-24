@@ -1,5 +1,7 @@
 import {tableFromIPC} from "apache-arrow"
 
+import {topologyRelationId} from "./topology_relation_identity"
+
 export const godViewLifecycleStreamDecodeMethods = {
   parseOptionalFloat(value) {
     if (value == null) return NaN
@@ -115,7 +117,7 @@ export const godViewLifecycleStreamDecodeMethods = {
 
     return {
       nodes,
-      edges,
+      edges: edges.map((edge) => ({...edge, id: topologyRelationId(edge, nodes)})),
       edgeSourceIndex: Uint32Array.from(edgeSourceIndex),
       edgeTargetIndex: Uint32Array.from(edgeTargetIndex),
     }
