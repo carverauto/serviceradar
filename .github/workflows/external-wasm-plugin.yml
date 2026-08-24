@@ -201,7 +201,7 @@ jobs:
             -o spdx-json="${GITHUB_WORKSPACE}/external-plugin-dist/${plugin_id}.spdx.json"
 
       - name: Retain unprivileged build output
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v7
         with:
           name: external-wasm-${{ github.run_id }}
           path: external-plugin-dist/
@@ -356,7 +356,7 @@ jobs:
             "${RUNNER_TEMP}/serviceradar-wasm-plugin-index.json"
 
       - name: Retain signed release evidence
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v7
         with:
           name: external-wasm-signed-${{ github.run_id }}
           path: |
