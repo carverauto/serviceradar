@@ -385,13 +385,13 @@ fn parse_bgp_open_placeholder(data: &mut Bytes, consume_len: usize) -> Result<Bg
     let version = raw[0];
     let asn = u16::from_be_bytes([raw[1], raw[2]]);
     let hold_time = u16::from_be_bytes([raw[3], raw[4]]);
-    let sender_ip = Ipv4Addr::new(raw[5], raw[6], raw[7], raw[8]);
+    let bgp_identifier = Ipv4Addr::new(raw[5], raw[6], raw[7], raw[8]);
 
     Ok(BgpMessage::Open(BgpOpenMessage {
         version,
         asn: Asn::new_16bit(asn),
         hold_time,
-        sender_ip,
+        bgp_identifier,
         extended_length: false,
         opt_params: Vec::new(),
     }))

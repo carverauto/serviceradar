@@ -172,17 +172,17 @@ dependencies = [
 
 [[package]]
 name = "arancini-lib"
-version = "0.7.3"
+version = "0.7.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "cfa1d93f62e8fe460d28c08cb79c63dcb7da0a27225c32333ec5d43fd7cf4a64"
+checksum = "b9d89e0ee34594eef8dd4ffd24bd111b5a6d64e321d81850006c00d8cfe5d1f0"
 dependencies = [
  "ahash 0.8.12",
  "anyhow",
- "bgpkit-parser 0.15.0",
+ "bgpkit-parser",
  "bytes",
  "chrono",
  "metrics",
- "rand 0.9.5",
+ "rand 0.10.2",
  "serde",
  "tokio",
  "tracing",
@@ -740,23 +740,6 @@ dependencies = [
 
 [[package]]
 name = "bgpkit-parser"
-version = "0.15.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c455bf7b26d83d961eb633c815b64f466b5bc349f33d014f3b6a8cdf113e9406"
-dependencies = [
- "bitflags 2.13.1",
- "bytes",
- "chrono",
- "ipnet",
- "itertools 0.14.0",
- "log",
- "num_enum",
- "regex",
- "serde",
-]
-
-[[package]]
-name = "bgpkit-parser"
 version = "0.20.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7c58fcccfe233d986f01f79d34af0dc17fb29174b8d3ca0af72436f2a08af9e0"
@@ -769,6 +752,7 @@ dependencies = [
  "log",
  "num_enum",
  "regex",
+ "serde",
  "smallvec",
  "zerocopy",
 ]
@@ -6369,7 +6353,7 @@ dependencies = [
  "anyhow",
  "arancini-lib",
  "async-nats",
- "bgpkit-parser 0.20.0",
+ "bgpkit-parser",
  "bytes",
  "chrono",
  "clap 4.6.6",
