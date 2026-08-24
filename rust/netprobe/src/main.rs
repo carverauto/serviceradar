@@ -179,8 +179,12 @@ async fn main() -> Result<()> {
     }
 
     let (shutdown_tx, shutdown_rx) = watch::channel(false);
-    let (_fingerprint_event_tx, fingerprint_event_rx) = event_queue::bounded(4096);
-    let (_dpi_event_tx, dpi_event_rx) = event_queue::bounded(4096);
+    // Broadcast, not mpsc: the AddonService subscribes once per StreamTelemetry
+    // RPC, and a single mpsc receiver could be handed out once only -- an agent
+    // pump reconnect would then never see another fingerprint until netprobe
+    // restarted. Same shape as census, mDNS and the process snapshots.
+    let (fingerprint_event_tx, _) = broadcast::channel(4096);
+    let (dpi_event_tx, _) = broadcast::channel(4096);
     // Flow attribution events can arrive in short bursts on busy worker nodes.
     // Keep the local IPC queue bounded, but large enough that the single agent
     // client can absorb bursty ring-buffer drains before its upstream push loop
@@ -228,8 +232,8 @@ async fn main() -> Result<()> {
                     ebpf_object,
                     &config,
                     metrics.clone(),
-                    _fingerprint_event_tx.clone(),
-                    _dpi_event_tx.clone(),
+                    fingerprint_event_tx.clone(),
+                    dpi_event_tx.clone(),
                     config
                         .emit_raw_flow_attribution_events
                         .then(|| flow_attribution_event_tx.clone()),
@@ -269,9 +273,13 @@ async fn main() -> Result<()> {
             .unwrap_or_else(|| default_addon_socket_path(&args.socket));
         let addon = addon_service::NetprobeAddon::new(
             env!("CARGO_PKG_VERSION"),
-            census_snapshot_tx.clone(),
-            mdns_snapshot_tx.clone(),
-            process_snapshot_tx.clone(),
+            addon_service::TelemetryChannels {
+                census: census_snapshot_tx.clone(),
+                mdns: mdns_snapshot_tx.clone(),
+                process: process_snapshot_tx.clone(),
+                fingerprint: fingerprint_event_tx.clone(),
+                dpi: dpi_event_tx.clone(),
+            },
             // The SAME RuntimeConfig the IPC server holds, so both channels
             // converge on one VisibilityState rather than two that can disagree
             // about what is currently applied.
@@ -302,8 +310,6 @@ async fn main() -> Result<()> {
     let mut ipc_task = tokio::spawn(
         IpcServer::new(
             args.socket,
-            fingerprint_event_rx,
-            dpi_event_rx,
             flow_attribution_event_tx,
             flow_attribution_event_rx,
             census_snapshot_tx,

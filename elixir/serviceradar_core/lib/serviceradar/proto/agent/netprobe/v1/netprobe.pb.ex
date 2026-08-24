@@ -915,6 +915,7 @@ defmodule Serviceradar.Agent.Netprobe.V1.DpiEventBatch do
   field :batch_start_unix_nano, 2, type: :int64, json_name: "batchStartUnixNano"
   field :batch_end_unix_nano, 3, type: :int64, json_name: "batchEndUnixNano"
   field :dropped_since_last, 4, type: :uint32, json_name: "droppedSinceLast"
+  field :subject_ips, 5, repeated: true, type: :string, json_name: "subjectIps"
 end
 
 defmodule Serviceradar.Agent.Netprobe.V1.ProcessSnapshotBatch do

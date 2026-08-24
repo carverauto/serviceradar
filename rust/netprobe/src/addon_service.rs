@@ -44,8 +44,8 @@ use crate::fingerprint::{
     SERVICERADAR_ADDITIONS_REVISION, SERVICERADAR_RECOG_ADDITIONS_REVISION,
 };
 use crate::proto::netprobe::{
-    DeviceCensusSnapshot, MdnsSnapshot, ProcessSnapshot, ProcessSnapshotBatch,
-    VisibilityAgentConfig,
+    DeviceCensusSnapshot, DpiEvent, DpiEventBatch, FingerprintEvent, FingerprintEventBatch,
+    MdnsSnapshot, ProcessSnapshot, ProcessSnapshotBatch, VisibilityAgentConfig,
 };
 use crate::runtime_config::RuntimeConfig;
 
@@ -55,8 +55,17 @@ use crate::runtime_config::RuntimeConfig;
 pub const CENSUS_SCHEMA: &str = "serviceradar.netprobe.census.v1";
 pub const MDNS_SCHEMA: &str = "serviceradar.netprobe.mdns.v1";
 pub const PROCESS_SCHEMA: &str = "serviceradar.netprobe.process.v1";
+pub const FINGERPRINT_SCHEMA: &str = "serviceradar.netprobe.fingerprint.v1";
+pub const DPI_SCHEMA: &str = "serviceradar.netprobe.dpi.v1";
 
 const ADDON_ID: &str = "netprobe";
+
+/// Batch caps for the event schemas. The size cap keeps a batch far below the Go
+/// gRPC client's default 4 MiB receive limit -- which kills the WHOLE stream, not
+/// one batch -- and the flush interval bounds the envelope rate when traffic is
+/// heavy. Whichever comes first wins.
+const MAX_EVENTS_PER_BATCH: usize = 512;
+const EVENT_BATCH_FLUSH: std::time::Duration = std::time::Duration::from_secs(2);
 
 /// The values netprobe actually booted with.
 ///
@@ -71,13 +80,25 @@ pub struct StartupSnapshot {
     pub flow_table_max_entries: u32,
 }
 
+/// The five broadcast channels netprobe publishes telemetry on.
+///
+/// Grouped because they are one thing -- "where netprobe's telemetry comes from"
+/// -- and passing them as five positional senders made every call site a place to
+/// transpose two of the same type.
+#[derive(Clone)]
+pub struct TelemetryChannels {
+    pub census: broadcast::Sender<DeviceCensusSnapshot>,
+    pub mdns: broadcast::Sender<MdnsSnapshot>,
+    pub process: broadcast::Sender<ProcessSnapshot>,
+    pub fingerprint: broadcast::Sender<FingerprintEvent>,
+    pub dpi: broadcast::Sender<DpiEvent>,
+}
+
 /// netprobe's `AddonService` implementation.
 #[derive(Clone)]
 pub struct NetprobeAddon {
     version: String,
-    census: broadcast::Sender<DeviceCensusSnapshot>,
-    mdns: broadcast::Sender<MdnsSnapshot>,
-    process: broadcast::Sender<ProcessSnapshot>,
+    channels: TelemetryChannels,
     runtime_config: RuntimeConfig,
     startup: StartupSnapshot,
 }
@@ -85,17 +106,13 @@ pub struct NetprobeAddon {
 impl NetprobeAddon {
     pub fn new(
         version: impl Into<String>,
-        census: broadcast::Sender<DeviceCensusSnapshot>,
-        mdns: broadcast::Sender<MdnsSnapshot>,
-        process: broadcast::Sender<ProcessSnapshot>,
+        channels: TelemetryChannels,
         runtime_config: RuntimeConfig,
         startup: StartupSnapshot,
     ) -> Self {
         Self {
             version: version.into(),
-            census,
-            mdns,
-            process,
+            channels,
             runtime_config,
             startup,
         }
@@ -203,7 +220,7 @@ impl Addon for NetprobeAddon {
 
     fn stream_telemetry(&self) -> TelemetryStream {
         let census = snapshot_stream(
-            self.census.subscribe(),
+            self.channels.census.subscribe(),
             CENSUS_SCHEMA,
             |snapshot: &DeviceCensusSnapshot| {
                 (
@@ -216,7 +233,7 @@ impl Addon for NetprobeAddon {
         );
 
         let mdns = snapshot_stream(
-            self.mdns.subscribe(),
+            self.channels.mdns.subscribe(),
             MDNS_SCHEMA,
             |snapshot: &MdnsSnapshot| {
                 (
@@ -224,6 +241,61 @@ impl Addon for NetprobeAddon {
                     snapshot.snapshot_id.clone(),
                     snapshot.generated_at_unix_nano,
                     snapshot.encode_to_vec(),
+                )
+            },
+        );
+
+        // Events are BATCHED on a wall-clock cadence, unlike the snapshot schemas
+        // which emit one envelope per snapshot. A fingerprint fires per SYN, and
+        // there is no backpressure anywhere downstream -- the agent's sink is a
+        // non-blocking drop-newest channel -- so one envelope per event would be
+        // discarded at the agent rather than slowed at the producer. Bounding the
+        // envelope rate by cadence keeps the volume a function of time, not of
+        // traffic.
+        let fingerprint = event_batch_stream(
+            self.channels.fingerprint.subscribe(),
+            FINGERPRINT_SCHEMA,
+            |events: Vec<FingerprintEvent>| {
+                let generated_at = events
+                    .last()
+                    .map(|event| event.observed_at_unix_nano)
+                    .unwrap_or_default();
+
+                (
+                    generated_at,
+                    FingerprintEventBatch {
+                        events,
+                        batch_end_unix_nano: generated_at,
+                        ..Default::default()
+                    }
+                    .encode_to_vec(),
+                )
+            },
+        );
+
+        let dpi_collector_ip = self.runtime_config.collector_ip();
+        let dpi = event_batch_stream(
+            self.channels.dpi.subscribe(),
+            DPI_SCHEMA,
+            move |events: Vec<DpiEvent>| {
+                let generated_at = events
+                    .last()
+                    .map(|event| event.observed_at_unix_nano)
+                    .unwrap_or_default();
+                let subject_ips = events
+                    .iter()
+                    .map(|event| dpi_subject_ip(event, &dpi_collector_ip))
+                    .collect();
+
+                (
+                    generated_at,
+                    DpiEventBatch {
+                        events,
+                        batch_end_unix_nano: generated_at,
+                        subject_ips,
+                        ..Default::default()
+                    }
+                    .encode_to_vec(),
                 )
             },
         );
@@ -244,11 +316,11 @@ impl Addon for NetprobeAddon {
                  so a process listing cannot name the host it describes"
             );
 
-            return Box::pin(census.merge(mdns));
+            return Box::pin(census.merge(mdns).merge(fingerprint).merge(dpi));
         }
 
         let process = snapshot_stream(
-            self.process.subscribe(),
+            self.channels.process.subscribe(),
             PROCESS_SCHEMA,
             move |snapshot: &ProcessSnapshot| {
                 (
@@ -270,7 +342,13 @@ impl Addon for NetprobeAddon {
             },
         );
 
-        Box::pin(census.merge(mdns).merge(process))
+        Box::pin(
+            census
+                .merge(mdns)
+                .merge(process)
+                .merge(fingerprint)
+                .merge(dpi),
+        )
     }
 }
 
@@ -331,6 +409,74 @@ fn rejected(error: impl Into<String>) -> ConfigureResult {
 /// the last, so falling behind means the older views are worth skipping -- and
 /// the count of skipped ones is reported as `dropped_since_last` so a quiet
 /// segment and a saturated producer stay distinguishable.
+/// The device a DPI event describes.
+///
+/// The collector's own address wins when it is EITHER endpoint, then source,
+/// then destination -- the rule the agent's Go translator applied, reproduced
+/// here because it is the only side that knows the collector's address. Core can
+/// only prefer source, which is why this choice cannot be deferred to it.
+fn dpi_subject_ip(event: &DpiEvent, collector_ip: &str) -> String {
+    let source = event.source_ip.trim();
+    let destination = event.destination_ip.trim();
+    let collector = collector_ip.trim();
+
+    if !collector.is_empty() && (collector == source || collector == destination) {
+        return collector.to_owned();
+    }
+    if !source.is_empty() {
+        return source.to_owned();
+    }
+
+    destination.to_owned()
+}
+
+/// One envelope per BATCH of events, on a wall-clock cadence.
+///
+/// `snapshot_stream` emits one envelope per item, which is right for a snapshot
+/// and wrong for an event: a fingerprint fires per SYN. See the call site for why
+/// the rate has to be bounded by time rather than by traffic.
+///
+/// The envelope is framed as a single complete part with an EMPTY
+/// `observation_scope`, which is what opts a payload out of supersession
+/// (`buffer.ex:161`). Events are independent; a scope would make each batch
+/// supersede the one before it by watermark and drop everything but the newest.
+fn event_batch_stream<T, F>(
+    receiver: broadcast::Receiver<T>,
+    schema: &'static str,
+    encode: F,
+) -> impl Stream<Item = Result<pb::TelemetryBatch, tonic::Status>> + Send + 'static
+where
+    T: Clone + Send + 'static,
+    F: Fn(Vec<T>) -> (i64, Vec<u8>) + Send + 'static,
+{
+    BroadcastStream::new(receiver)
+        .filter_map(move |item| match item {
+            Ok(event) => Some(event),
+            Err(tokio_stream::wrappers::errors::BroadcastStreamRecvError::Lagged(skipped)) => {
+                log::debug!("{schema}: dropped {skipped} event(s) before they could be batched");
+                None
+            }
+        })
+        .chunks_timeout(MAX_EVENTS_PER_BATCH, EVENT_BATCH_FLUSH)
+        .filter_map(move |events| {
+            if events.is_empty() {
+                return None;
+            }
+
+            let (generated_at, payload) = encode(events);
+
+            Some(Ok(batch_for(
+                schema,
+                // Empty scope: opts out of supersession. See the doc comment.
+                String::new(),
+                String::new(),
+                generated_at,
+                payload,
+                0,
+            )))
+        })
+}
+
 fn snapshot_stream<T, F>(
     receiver: broadcast::Receiver<T>,
     schema: &'static str,
@@ -457,6 +603,33 @@ fn restrict_socket_permissions(path: &Path) -> Result<()> {
 mod tests {
     use super::*;
 
+    /// Channels plus the senders a test needs to publish on.
+    fn test_channels() -> (
+        TelemetryChannels,
+        broadcast::Sender<ProcessSnapshot>,
+        broadcast::Sender<FingerprintEvent>,
+        broadcast::Sender<DpiEvent>,
+    ) {
+        let (census, _) = broadcast::channel(8);
+        let (mdns, _) = broadcast::channel(8);
+        let (process, _) = broadcast::channel(8);
+        let (fingerprint, _) = broadcast::channel(8);
+        let (dpi, _) = broadcast::channel(8);
+
+        (
+            TelemetryChannels {
+                census,
+                mdns,
+                process: process.clone(),
+                fingerprint: fingerprint.clone(),
+                dpi: dpi.clone(),
+            },
+            process,
+            fingerprint,
+            dpi,
+        )
+    }
+
     fn census_snapshot() -> DeviceCensusSnapshot {
         DeviceCensusSnapshot {
             observations: vec![],
@@ -526,14 +699,9 @@ mod tests {
 
     #[tokio::test]
     async fn health_reports_the_capability_state_the_agent_reads() {
-        let (census, _) = broadcast::channel(4);
-        let (mdns, _) = broadcast::channel(4);
-        let (process, _) = broadcast::channel(4);
         let addon = NetprobeAddon::new(
             "0.2.44",
-            census,
-            mdns,
-            process,
+            test_channels().0,
             RuntimeConfig::new(&crate::config::Config::default()),
             StartupSnapshot::default(),
         );
@@ -567,21 +735,15 @@ mod tests {
     }
 
     fn addon_with(startup: StartupSnapshot) -> NetprobeAddon {
-        let (census, _) = broadcast::channel(4);
-        let (mdns, _) = broadcast::channel(4);
         let config = crate::config::Config {
             capture_interfaces: startup.capture_interfaces.clone(),
             flow_table_max_entries: startup.flow_table_max_entries,
             ..Default::default()
         };
 
-        let (process, _) = broadcast::channel(4);
-
         NetprobeAddon::new(
             "0.2.44",
-            census,
-            mdns,
-            process,
+            test_channels().0,
             RuntimeConfig::new(&config),
             startup,
         )
@@ -685,10 +847,13 @@ mod tests {
 
     fn addon_with_collector_ip(
         collector_ip: &str,
-    ) -> (NetprobeAddon, broadcast::Sender<ProcessSnapshot>) {
-        let (census, _) = broadcast::channel(4);
-        let (mdns, _) = broadcast::channel(4);
-        let (process, _) = broadcast::channel(4);
+    ) -> (
+        NetprobeAddon,
+        broadcast::Sender<ProcessSnapshot>,
+        broadcast::Sender<FingerprintEvent>,
+        broadcast::Sender<DpiEvent>,
+    ) {
+        let (channels, process, fingerprint, dpi) = test_channels();
         let config = crate::config::Config {
             collector_ip: collector_ip.to_owned(),
             ..Default::default()
@@ -696,20 +861,20 @@ mod tests {
 
         (
             NetprobeAddon::new(
-                "0.2.48",
-                census,
-                mdns,
-                process.clone(),
+                "0.2.50",
+                channels,
                 RuntimeConfig::new(&config),
                 StartupSnapshot::default(),
             ),
             process,
+            fingerprint,
+            dpi,
         )
     }
 
     #[tokio::test]
     async fn a_process_snapshot_carries_its_subject_and_supersedes_by_host() {
-        let (addon, process) = addon_with_collector_ip("10.20.30.40");
+        let (addon, process, _fingerprint, _dpi) = addon_with_collector_ip("10.20.30.40");
         let mut stream = addon.stream_telemetry();
 
         process
@@ -754,7 +919,7 @@ mod tests {
         // Not served, rather than served with an empty subject. Core would have
         // to guess which device a process listing describes, and guessing wrong
         // attaches a host's processes to someone else's device.
-        let (addon, process) = addon_with_collector_ip("");
+        let (addon, process, _fingerprint, _dpi) = addon_with_collector_ip("");
         let mut stream = addon.stream_telemetry();
 
         process
@@ -770,5 +935,139 @@ mod tests {
             .is_ok();
 
         assert!(!yielded, "a process snapshot was emitted with no subject");
+    }
+
+    #[test]
+    fn dpi_subject_prefers_the_collector_at_either_endpoint() {
+        let collector = "10.20.30.40";
+
+        // Collector as SOURCE.
+        assert_eq!(
+            dpi_subject_ip(
+                &DpiEvent {
+                    source_ip: collector.into(),
+                    destination_ip: "10.20.30.60".into(),
+                    ..Default::default()
+                },
+                collector
+            ),
+            collector
+        );
+
+        // Collector as DESTINATION -- the arm core cannot reproduce, because it
+        // has no attested collector address and can only prefer source.
+        assert_eq!(
+            dpi_subject_ip(
+                &DpiEvent {
+                    source_ip: "10.20.30.65".into(),
+                    destination_ip: collector.into(),
+                    ..Default::default()
+                },
+                collector
+            ),
+            collector,
+            "the collector must win from the destination side too"
+        );
+    }
+
+    #[test]
+    fn dpi_subject_falls_back_to_source_then_destination() {
+        assert_eq!(
+            dpi_subject_ip(
+                &DpiEvent {
+                    source_ip: "10.20.30.61".into(),
+                    destination_ip: "10.20.30.62".into(),
+                    ..Default::default()
+                },
+                "10.20.30.40"
+            ),
+            "10.20.30.61"
+        );
+
+        assert_eq!(
+            dpi_subject_ip(
+                &DpiEvent {
+                    destination_ip: "10.20.30.63".into(),
+                    ..Default::default()
+                },
+                ""
+            ),
+            "10.20.30.63"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_fingerprint_batch_opts_out_of_supersession() {
+        let (addon, _process, fingerprint, _dpi) = addon_with_collector_ip("10.20.30.40");
+        let mut stream = addon.stream_telemetry();
+
+        fingerprint
+            .send(FingerprintEvent {
+                ip: "10.20.30.41".into(),
+                observed_at_unix_nano: 1_700_000_060_000_000_000,
+                ..Default::default()
+            })
+            .expect("send");
+
+        let batch = tokio::time::timeout(std::time::Duration::from_secs(10), stream.next())
+            .await
+            .expect("stream did not yield")
+            .expect("stream ended")
+            .expect("batch");
+
+        let record = batch.records.first().expect("one record");
+        let envelope =
+            discovery_pb::DiscoveryEnvelope::decode(record.payload.as_slice()).expect("envelope");
+
+        assert_eq!(envelope.schema, FINGERPRINT_SCHEMA);
+        // THE point of this test. A scope would make each batch supersede the one
+        // before it by watermark (buffer.ex:161), and all but the newest would be
+        // dropped -- events are independent, not a replacing view.
+        assert!(
+            envelope.observation_scope.is_empty(),
+            "an event batch must opt out of supersession"
+        );
+        assert!(envelope.complete);
+        assert_eq!(envelope.part_count, 1);
+
+        let payload =
+            FingerprintEventBatch::decode(envelope.payload.as_slice()).expect("fingerprint batch");
+        assert_eq!(payload.events.len(), 1);
+    }
+
+    #[tokio::test]
+    async fn a_dpi_batch_carries_the_subject_netprobe_chose() {
+        let (addon, _process, _fingerprint, dpi) = addon_with_collector_ip("10.20.30.40");
+        let mut stream = addon.stream_telemetry();
+
+        // Collector is the DESTINATION: core could only have picked the source.
+        dpi.send(DpiEvent {
+            protocol: "tls".into(),
+            source_ip: "10.20.30.65".into(),
+            destination_ip: "10.20.30.40".into(),
+            observed_at_unix_nano: 1_700_000_060_000_000_000,
+            ..Default::default()
+        })
+        .expect("send");
+
+        let batch = tokio::time::timeout(std::time::Duration::from_secs(10), stream.next())
+            .await
+            .expect("stream did not yield")
+            .expect("stream ended")
+            .expect("batch");
+
+        let record = batch.records.first().expect("one record");
+        let envelope =
+            discovery_pb::DiscoveryEnvelope::decode(record.payload.as_slice()).expect("envelope");
+        let payload = DpiEventBatch::decode(envelope.payload.as_slice()).expect("dpi batch");
+
+        assert_eq!(
+            payload.subject_ips,
+            vec!["10.20.30.40".to_string()],
+            "netprobe must resolve the subject; core cannot"
+        );
+        // The packet's real direction is untouched -- the choice rides alongside
+        // rather than being smuggled through source_ip.
+        assert_eq!(payload.events[0].source_ip, "10.20.30.65");
     }
 }

@@ -33,8 +33,8 @@ defmodule ServiceRadar.Inventory.Discovery.Decoders.Dpi do
   @spec decode(binary()) :: {:ok, [observation()], stats()} | {:error, term()}
   def decode(payload) when is_binary(payload) do
     case safe_decode(payload) do
-      {:ok, %DpiEventBatch{events: events}} ->
-        {observations, stats} = translate(events)
+      {:ok, %DpiEventBatch{events: events, subject_ips: subject_ips}} ->
+        {observations, stats} = translate(events, subject_ips || [])
         {:ok, observations, stats}
 
       {:error, reason} ->
@@ -50,15 +50,16 @@ defmodule ServiceRadar.Inventory.Discovery.Decoders.Dpi do
     error -> {:error, {:decode_failed, Exception.message(error)}}
   end
 
-  defp translate(events) do
+  defp translate(events, subject_ips) do
     events
+    |> Enum.with_index()
     |> Enum.reduce(
       {[], %{events: 0, observations: 0, skipped_no_protocol: 0, skipped_no_ip: 0}},
       fn
-        event, {acc, stats} ->
+        {event, index}, {acc, stats} ->
           stats = Map.update!(stats, :events, &(&1 + 1))
 
-          case observation(event) do
+          case observation(event, Enum.at(subject_ips, index)) do
             {:ok, observation} ->
               {[observation | acc], Map.update!(stats, :observations, &(&1 + 1))}
 
@@ -70,9 +71,9 @@ defmodule ServiceRadar.Inventory.Discovery.Decoders.Dpi do
     |> then(fn {acc, stats} -> {Enum.reverse(acc), stats} end)
   end
 
-  defp observation(%DpiEvent{} = event) do
+  defp observation(%DpiEvent{} = event, chosen_subject) do
     protocol = event.protocol |> trim() |> String.downcase()
-    ip = subject_ip(event)
+    ip = subject_ip(event, chosen_subject)
 
     cond do
       protocol == "" -> {:skip, :skipped_no_protocol}
@@ -81,21 +82,27 @@ defmodule ServiceRadar.Inventory.Discovery.Decoders.Dpi do
     end
   end
 
-  defp observation(_event), do: {:skip, :skipped_no_protocol}
+  defp observation(_event, _chosen_subject), do: {:skip, :skipped_no_protocol}
 
   # A DPI event has two endpoints and the device is a choice between them. The
-  # Go translator prefers the collector when it is one of them, then source, then
-  # destination -- reproduced exactly, because which endpoint is chosen decides
-  # which device the evidence lands on.
+  # collector's own address wins when it is EITHER one -- and only netprobe can
+  # apply that rule, because only netprobe knows its own address. So it makes the
+  # choice and sends it in `subject_ips`, positionally aligned with `events`.
   #
-  # Core does not know the collector's address (it is not in the attested
-  # metadata), so the collector arm cannot be evaluated here. It does not need to
-  # be: netprobe now selects the endpoint when it builds the payload, and the
-  # producer is the only side that knows its own address.
-  defp subject_ip(%DpiEvent{} = event) do
-    case trim(event.source_ip) do
-      "" -> trim(event.destination_ip)
-      source -> source
+  # The fallback is source-then-destination, which is what core can work out
+  # alone. It is reached when the producer is too old to send a subject, or sent
+  # an empty one -- and it is WRONG whenever the collector was the destination,
+  # which is precisely why the choice moved to the producer.
+  defp subject_ip(%DpiEvent{} = event, chosen_subject) do
+    case trim(chosen_subject) do
+      "" ->
+        case trim(event.source_ip) do
+          "" -> trim(event.destination_ip)
+          source -> source
+        end
+
+      chosen ->
+        chosen
     end
   end
 
