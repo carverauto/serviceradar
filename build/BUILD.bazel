@@ -31,7 +31,10 @@ ex_unit_test(
     name = "integration_selection_equivalence_test",
     size = "large",
     srcs = ["integration_selection_equivalence_test.exs"],
-    data = ["//elixir/serviceradar_core:test/INTEGRATION_SOURCE_DISPOSITIONS.tsv"],
+    data = [
+        ":integration_test_dispositions.bzl",
+        "//elixir/serviceradar_core:test/INTEGRATION_SOURCE_DISPOSITIONS.tsv",
+    ],
     env = {
         "SERVICERADAR_SELECTION_LOAD_ONLY_RUNNERS": ",".join(_INTEGRATION_SELECTION_RUNNERS.load_only),
         "SERVICERADAR_SELECTION_SELECTED_RUNNERS": ",".join(_INTEGRATION_SELECTION_RUNNERS.selected),

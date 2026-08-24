@@ -97,10 +97,14 @@ eight-shard treatment. Parallelizing shard databases cannot divide that sequenti
   result for the exact release commit before publication using
   a tested Bazel qualifier and permanent introduction marker that distinguish truly historical
   tags from later contract deletion.
-- Freeze the final source membership before timing: every all-async source goes to the one async
-  BEAM; `load_only` sources are excluded; serial sources are LPT-balanced across the selected serial
-  lanes by `(1 + selected_serial_module_count, source path)`, with every `fixed_external` source
-  preseeded in `serial_0`. No topology diagnostic may retune lane count or membership after results.
+- Freeze the final source membership before CPU diagnostics and authoritative cohorts: every
+  all-async source goes to the one async BEAM; `load_only` sources are excluded; serial sources are
+  LPT-balanced across the selected serial lanes: rank by descending
+  `1 + selected_serial_test_identity_count` then source path, and select the destination lane by
+  current load, source count, then lane name. Every `fixed_external` source is preseeded in
+  `serial_0`. The counts come from the existing database-free runner using ExUnit's real filters
+  and are checked against the selected identity union. Runtime timings do not enter the weight.
+  Once that manifest-backed map is frozen, no diagnostic may retune lane count or membership.
 - Require the authoritative exact-SHA BuildBuddy after cohort to improve nearest-rank p95 by at
   least 50% versus the controlled before cohort and to remain at or below 90 seconds. Report 60%
   as the stretch result. Retain the 259.00-second host-local run as historical diagnostic evidence,
@@ -113,8 +117,8 @@ eight-shard treatment. Parallelizing shard databases cannot divide that sequenti
 - Run DDL, unboxed, NATS, or process-global tests concurrently.
 - Increase the eight-BEAM / 96-slot capacity envelope or any per-BEAM Repo pool size during the
   staged rollout.
-- Reintroduce one/four/eight/hybrid topology-challenger diagnostics or retune lane count after
-  observing timings.
+- Reintroduce one/four/eight/hybrid topology-challenger diagnostics or retune the final lane count
+  or manifest-backed source map after observing timings.
 - Create a database or BEAM VM per individual test file.
 - Shorten cold full-repository compilation; this proposal targets the integration lifecycle after
   build artifacts and the database template are current.

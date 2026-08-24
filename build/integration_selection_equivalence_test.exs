@@ -9,6 +9,7 @@ defmodule ServiceRadar.IntegrationSelectionEquivalenceTest do
   @selected_runners_env "SERVICERADAR_SELECTION_SELECTED_RUNNERS"
   @load_only_runners_env "SERVICERADAR_SELECTION_LOAD_ONLY_RUNNERS"
   @dispositions "elixir/serviceradar_core/test/INTEGRATION_SOURCE_DISPOSITIONS.tsv"
+  @projection "build/integration_test_dispositions.bzl"
   @header "source\tmodule\tcase_kind\tmode\treason\tevidence"
   @database_env ~w(
     DATABASE_URL
@@ -67,6 +68,16 @@ defmodule ServiceRadar.IntegrationSelectionEquivalenceTest do
     additional selected modules:
     #{format_module_identities(additional_modules)}
     """
+
+    serial_sources = disposition_sources!("serial")
+
+    selected_serial_counts =
+      selected
+      |> Enum.frequencies_by(fn {source, _module, _test_name} -> source end)
+      |> Map.take(serial_sources)
+
+    assert projected_serial_test_counts!() == selected_serial_counts,
+           "checked-in serial selected-test counts differ from the real ExUnit selection manifest"
 
     leaking_load_only =
       for runner <- load_only_runners,
@@ -159,6 +170,59 @@ defmodule ServiceRadar.IntegrationSelectionEquivalenceTest do
           raise "invalid integration disposition row: #{inspect(fields)}"
       end
     end)
+  end
+
+  defp disposition_sources!(mode) do
+    path = runfile_path!(@dispositions)
+    [header | rows] = path |> File.read!() |> String.split("\n", trim: true)
+
+    if header != @header do
+      raise "unexpected integration disposition header: #{inspect(header)}"
+    end
+
+    rows
+    |> Enum.flat_map(fn row ->
+      case String.split(row, "\t", parts: 6) do
+        [source, _module, _case_kind, ^mode, _reason, _evidence] -> [source]
+        [_source, _module, _case_kind, _other_mode, _reason, _evidence] -> []
+        fields -> raise "invalid integration disposition row: #{inspect(fields)}"
+      end
+    end)
+    |> Enum.uniq()
+    |> Enum.sort()
+  end
+
+  defp projected_serial_test_counts! do
+    projection = @projection |> runfile_path!() |> File.read!()
+
+    entries =
+      case Regex.run(
+             ~r/SERIAL_INTEGRATION_SELECTED_TEST_COUNTS = \{\n(.*?)\n\}/s,
+             projection,
+             capture: :all_but_first
+           ) do
+        [entries] -> entries
+        nil -> raise "SERIAL_INTEGRATION_SELECTED_TEST_COUNTS is missing from #{@projection}"
+      end
+
+    counts =
+      ~r/^    "([^"]+)": ([0-9]+),$/m
+      |> Regex.scan(entries, capture: :all_but_first)
+      |> Map.new(fn [source, count] -> {source, String.to_integer(count)} end)
+
+    if map_size(counts) == 0 do
+      raise "SERIAL_INTEGRATION_SELECTED_TEST_COUNTS contains no entries"
+    end
+
+    counts
+  end
+
+  defp runfile_path!(relative_path) do
+    Path.join([
+      System.fetch_env!("TEST_SRCDIR"),
+      System.fetch_env!("TEST_WORKSPACE"),
+      relative_path
+    ])
   end
 
   defp parse_identity!(@identity_prefix <> encoded) do

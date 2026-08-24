@@ -159,10 +159,11 @@ preflight validates the fixed selected workload; it never rederives or shrinks t
 lanes from current occupancy. The observer separately records run-scoped and fixture-wide occupancy
 peaks. Except for its own reported administrator session, unrelated live fixture sessions remain in
 the fixture-wide samples; they are not subtracted to manufacture an available-slot value. The fixed
-lane count and all source membership are checked in and input-hashed before timing and are never
-tuned from timing results. Headroom is only for processes supervised inside a test BEAM, never for
-a deployed application. A safety failure is fixed by classification, owner routing, or workload—
-not by retries, a larger pool, or relaxed timeouts.
+lane count and final manifest-backed source membership are checked in and input-hashed before CPU
+diagnostics or authoritative cohorts and are never tuned from timing results. Headroom is only for
+processes supervised inside a test BEAM, never for a deployed application. A safety failure is
+fixed by classification, owner routing, or workload—not by retries, a larger pool, or relaxed
+timeouts.
 
 ### Decision: Control workflow CPU and Repo capacity independently
 The BuildBuddy actions currently request memory and disk but omit CPU. The workflow executor's
@@ -376,12 +377,12 @@ cases are source-addressable. The anomaly-profile seeder's one selected database
 beside an unselected schema-only module; because the selected module changes VM-global Logger
 configuration, the entire retained integration source is serial.
 
-Placement models module-level selected case weights because ExUnit schedules modules, not files.
-It adds a separate common source-load weight for every retained source rather than fabricating
-serial case time for `load_only` files. The checked-in ordinary source list equals the distinct
-sources having async/serial module rows; the async-safe source list equals sources whose selected
-module rows are all async. A checked-in source-to-module job map is exact-checked against the
-inventory and a synthetic multi-module source proves its jobs remain independently schedulable.
+Placement models exact selected test-identity counts aggregated by source because ExUnit schedules
+the selected module jobs rather than every loaded file. It adds a separate common source-load
+weight for every retained serial source rather than fabricating serial case time for `load_only`
+files. The checked-in ordinary source list equals the distinct sources having async/serial module
+rows; the async-safe source list equals sources whose selected module rows are all async. The real
+database-free ExUnit filter pass exact-checks the count projection against the identity union.
 
 ### Decision: Source-separate heavy release qualification
 The 50,000-device router test and the 500-device, three-round identifier-cardinality gate move out
@@ -506,7 +507,7 @@ the workflow contract test proves the release job invokes the Bazel target at th
 This keeps the expensive coverage frequent and release-blocking without charging every developer
 change. It also keeps tests on BuildBuddy, while GitHub remains the collaboration and release host.
 
-### Decision: Freeze source membership before timing
+### Decision: Freeze source membership before CPU diagnostics and authoritative timing
 The final checked-in disposition is the only source of ordinary-lane membership. Every source whose
 selected modules are all async goes to the single async BEAM; every selected serial source goes to a
 serial lane; and every `load_only` source is absent. A mixed selected-mode source must be split
@@ -514,13 +515,26 @@ before it can enter this topology.
 
 `serial_0` receives every `fixed_external` source first. The remaining serial sources are placed
 with deterministic LPT using the pre-measurement weight
-`1 + selected_serial_module_count`; ties use source path, then lane name. This is a reproducible
-initial balance, not a wall-time forecast. The checked-in eight-lane topology, source map, and exact selected
-identity union are built and validated before timing starts. A timing result cannot change them.
+`1 + selected_serial_test_identity_count`. Sources are ranked by descending weight then source
+path; each is placed in the lane with the least current load, then fewest sources, then lane name.
+The identity count is emitted by the existing database-free selection runner using ExUnit's real
+include/exclude filters, checked in as a Starlark projection, and verified against the exact
+selected identity union. It is a reproducible workload-size proxy, not a wall-time forecast. The
+checked-in eight-lane topology, source map, counts, and exact selected identity union are built and
+validated before CPU diagnostics or authoritative cohorts start. A runtime timing result cannot
+change them.
+
+The first trace-free smoke exposed why the earlier module-count proxy could not be accepted: all
+159 serial sources contained one selected module, so every weight was two and the purported LPT
+assignment degenerated to alphabetical source-count round-robin. Its 24.5--45.0 second serial-lane
+spread failed the already-defined 1.5 balance gate. That smoke invalidates the candidate map; it is
+not an authoritative cohort and none of its per-lane timings is used as a source weight. Replacing
+the uniform proxy with selection-manifest identity counts is a proposal amendment made before the
+new map is frozen.
 
 The async lane has no outer placement decision: it receives every all-async selected source once and
 ExUnit list-schedules its selected module jobs at cap eight. The serial lanes use only the frozen
-pre-measurement LPT source weight above. Later traces can describe the resulting workload but cannot
+database-free LPT source weight above. Later traces can describe the resulting workload but cannot
 retune the production lane count or membership for the measured revision.
 
 ### Decision: Production topology is not a challenger matrix
@@ -632,9 +646,9 @@ how secrets are materialized.
    modules, and split or normalize prioritized mixed modules with explicit evidence.
 6. Run the complete observed cap-two safety wave with retries disabled; repair any classification,
    ownership, queue, or cleanup defect before proceeding.
-7. Freeze the complete source map before timing: one async lane at cap eight and exactly seven
-   serial lanes at cap one, with Repo pool size pinned to 12. Run the safety wave only after that
-   placement is in effect.
+7. Freeze the complete manifest-backed source map before CPU diagnostics or authoritative cohorts:
+   one async lane at cap eight and exactly seven serial lanes at cap one, with Repo pool size pinned
+   to 12. Run the safety wave only after that placement is in effect.
 8. Publish the diagnostic actions, run non-cohort 2-CPU versus 12-CPU diagnostics, and freeze the
    explicit safe CPU winner in production and benchmark actions.
 9. Pass heavy/full repository verification, repair and freeze the before/after lineage without
@@ -692,7 +706,8 @@ database/process boundaries required by the audit.
 
 ### Split async work across multiple BEAMs
 Rejected. The ruling requires exactly one shared async BEAM. Serial parallelism is provided only by
-the seven frozen serial lanes, whose membership is frozen before timing.
+the seven frozen serial lanes, whose manifest-backed membership is frozen before CPU diagnostics
+and authoritative cohorts.
 
 ### Increase beyond eight ordinary BEAM lanes
 Rejected. Every extra lane repeats BEAM startup/source-load work and would exceed the fixed

@@ -4,28 +4,34 @@
 
 **Goal:** Cut the warm ordinary pull-request integration lifecycle to a retry-free p95 of 90 seconds or less while preserving database, process, external-resource, and release-gate isolation.
 
-**Architecture:** Keep the existing eight template-cloned PostgreSQL databases and eight Bazel shard targets, stage audited transaction-only ExUnit modules from cap two to cap four inside each BEAM, and place sources using serial weight plus async makespan. Split shared versus non-shared Ecto Sandbox teardown, pin fixed external-resource sources to `s7`, and move heavy qualification into one separately provisioned BuildBuddy gate. Use one instrumentation-only baseline commit and the same non-merging benchmark action for controlled 20-run before/after cohorts.
+**Architecture:** Run exactly one shared async BEAM at ExUnit cap eight and seven serial BEAMs at
+cap one, each against its own template-cloned disposable PostgreSQL database on `srql-fixtures`.
+Pin every Repo pool to 12, place serial sources with database-free selected-test-identity LPT, and
+confine fixed external resources to `serial_0`. Source-separate heavy qualification into its own
+BuildBuddy gate. Use one instrumentation-only baseline commit and the same non-merging benchmark
+action for controlled 20-run before/after cohorts.
 
 **Tech Stack:** Elixir 1.19, ExUnit, Ecto SQL Sandbox, Bazel/Starlark, Rust/tokio-postgres, BuildBuddy Workflows, GitHub Actions, Python `unittest` static contract tests.
 
 **Spec:** `openspec/changes/parallelize-core-integration-tests/` (especially `design.md`, `benchmark.md`, and `specs/integration-test-execution/spec.md`)
 
-> **Intermediate audit state (2026-08-23):** The initial candidate list below contained six async
+> **Historical audit state (2026-08-23):** The initial candidate list below contained six async
 > promotions. Runtime-path review proved that the four composite-check modules can reach the global
 > `Oban.cancel_all_jobs/1` path, so they remain `async: false`. Only advisory feed loader and secret
-> broker audit were promoted in the narrow pass. That state is not the final design: the approved
-> broad-async continuation, staged cap four, CPU/topology diagnostics, and concurrency-aware
-> placement are implemented by
-> `docs/superpowers/plans/2026-08-23-parallel-core-integration-tests-broad-async.md`, which
-> supersedes Task 8's narrow-pass acceptance sequence.
+> broker audit were promoted in the narrow pass. The separate broad-async plan then superseded that
+> narrow pass. The active OpenSpec and Task 8 below now supersede both plans' older `s0..s7`, cap-two
+> or cap-four, measured-weight, and `s7` fixed-resource instructions. Tasks 1--7 retain historical
+> implementation evidence; their obsolete topology language is not an executable current ruling.
 
 ## Global Constraints
 
 - Use the isolated worktree `/Users/mfreeman/src/serviceradar-wt-parallel-integration-tests` on branch `proposal/parallelize-integration-tests`.
-- Keep exactly eight ordinary database shards named `s0` through `s7`; do not increase Repo pool sizes.
-- Set the initial in-shard ExUnit cap to exactly `2`; missing, malformed, zero, or negative integration values fail before tests execute.
+- Keep exactly eight ordinary database lanes named `async` and `serial_0` through `serial_6`; do
+  not increase the 12-connection Repo pool per lane.
+- Set the async ExUnit cap to exactly `8` and every serial cap to exactly `1`; missing, malformed,
+  zero, negative, or lane-incompatible integration values fail before tests execute.
 - Async promotion is opt-in. `:unboxed`, DDL, `TRUNCATE`, refresh, app-global state, global process, true multi-connection, fixed NATS, and live external tests remain serial.
-- Fixed shared-external-resource sources are `async: false` and exist only in the designated ordinary shard `s7`.
+- Fixed shared-external-resource sources are `async: false` and exist only in `serial_0`.
 - The 50,000-device router gate and 500-device/three-round identifier-cardinality gate remain full-strength and move outside ordinary test source sets.
 - All database-facing TestRunner actions stay local and non-cached; credentials remain scoped to the guarded integration lifecycle.
 - Preserve `sweep -> prepare -> conditional migrate -> provision -> suite -> teardown`, live CA, `verify-full`, the declared run-id file, and outcome-bearing teardown.
@@ -39,7 +45,8 @@
 - `rust/integration-db/src/connection_observer.rs`: pure peak aggregation plus live `pg_stat_activity` sampling.
 - `rust/integration-db/src/bin/observe_connections.rs`: bounded Bazel-owned observer used by measured workflows.
 - `rust/integration-db/src/lib.rs` and `rust/integration-db/BUILD.bazel`: observer exports/target and focused heavy provisioner.
-- `build/integration_shards.bzl`: the eight-shard, max-cases, heavy-suffix, async-audit, and fixed-resource source contract.
+- `build/integration_shards.bzl`: the one-async-plus-seven-serial lane, max-cases, heavy-suffix,
+  async-audit, manifest-backed placement, and fixed-resource source contract.
 - `build/integration_shards_test.bzl` and `build/BUILD.bazel`: hermetic Starlark topology tests.
 - `elixir/serviceradar_core/test/support/{test_support,data_case}.ex`: Sandbox ownership, allowance, cap parser, and guidance.
 - `elixir/serviceradar_core/test/serviceradar/test_support_sandbox_test.exs`: ownership/guard/allowance/parser regressions.
@@ -1131,38 +1138,45 @@ Expected: PASS.
 ### Task 8: Rebalance, run paired cohorts, and close the change
 
 **Files:**
+- Modify: `build/integration_test_dispositions.bzl`
 - Modify: `build/integration_shards.bzl`
+- Modify: `build/integration_shards_test.bzl`
+- Modify: `build/integration_selection_equivalence_test.exs`
+- Modify: `build/BUILD.bazel`
 - Modify: `openspec/changes/parallelize-core-integration-tests/benchmark.md`
 - Modify: `openspec/changes/parallelize-core-integration-tests/tasks.md`
 - Modify only if evidence demands reclassification: the two promoted files and four audited serial
   composite-check files.
 
 **Interfaces:**
-- Consumes: BuildBuddy timings, separately collected serial/non-cohort ExUnit profiling output,
-  observer JSON, and all implemented targets.
-- Produces: measured heavy hints, all attempt rows, accepted 20-run before/after cohorts, final decision, and evidenced checklist.
+- Consumes: the database-free ExUnit selected-identity manifest, BuildBuddy timings, observer JSON,
+  and all implemented targets.
+- Produces: an exact manifest-backed serial placement, all attempt rows, accepted 20-run
+  before/after cohorts, final decision, and evidenced checklist.
 
-- [ ] **Step 1: Run a complete serial/non-cohort profiling wave**
+- [x] **Step 1: Write red structural-balance and manifest-equivalence contracts**
 
-Warm the exact candidate configuration/template. Run all eight shards once with retries one,
-`max_cases: 1`, tracing enabled, and test timeouts disabled so every case duration is emitted. Do
-not use built-in `slowest`; collect the complete trace and label the run profiling-only, never part
-of a timed cohort. Derive source weights from all emitted cases, then run one ordinary trace-free
-`max_cases: 2` validation lifecycle with outcome-bearing teardown. Any ownership, deadlock, queue,
-or cleanup failure returns the offending module to `async: false` before continuing.
+Extend the topology contract to require serial source counts
+`[26, 22, 21, 22, 22, 23, 23]`. Extend the database-free selection-equivalence test to reject a
+missing or stale `SERIAL_INTEGRATION_SELECTED_TEST_COUNTS` projection by comparing it exactly with
+the real filtered `(source, module, test-name)` union. Observe RED: the old module-count partition
+returns `[23, 23, 23, 23, 23, 22, 22]`, and the projection is absent.
 
-- [ ] **Step 2: Rebalance from measured weights**
+- [x] **Step 2: Rebalance from selected-test identity counts**
 
-Use only repeatedly emitted slow files to derive rounded relative scheduling weights, with one
-common default weight for every unmeasured source. Assign sources deterministically by descending
-weight to the least estimated-load shard; use source count and shard name as tie-breakers. Fixed-
-resource sources remain forced to `s7` and preseed its estimated load. Run
-`//build:integration_shards_test` and query all eight generated targets.
+Check in one positive exact selected-test count for every serial source and verify it against the
+database-free selection runner. Assign sources by deterministic descending
+`1 + selected_serial_test_identity_count` to the least structurally loaded serial lane; use source
+count and lane name as tie-breakers. Keep all fixed-resource sources preseeded in `serial_0`.
+Require selected-test counts `[185, 190, 189, 188, 188, 188, 188]`, structural loads
+`[211, 212, 210, 210, 210, 211, 211]`, reverse-input determinism, and exact/disjoint membership.
+Historical or current runtime durations do not enter the weight.
 
-- [ ] **Step 3: Freeze after SHA and authorize external execution**
+- [ ] **Step 3: Publish the structural-map candidate**
 
-Commit rebalancing and record its full SHA as the after revision. Confirm the benchmark action hash
-matches before. Because BuildBuddy can execute only commits reachable from GitHub, obtain user
+Commit the rebalancing and record its full SHA as the structural-map candidate, not yet the final
+after revision. Record the benchmark and CPU-input hashes. Because BuildBuddy can execute only
+commits reachable from GitHub, obtain user
 authorization for an explicit feature-branch push if it has not already been granted. Any push uses:
 
 ```bash
@@ -1171,7 +1185,29 @@ git push github proposal/parallelize-integration-tests:refs/heads/proposal/paral
 
 Verify output says `-> proposal/parallelize-integration-tests`, never `-> staging`.
 
-- [ ] **Step 4: Trigger alternating exact-SHA pairs**
+- [ ] **Step 4: Run the exact-SHA trace-free safety smoke**
+
+Run one retry-free `IntegrationBenchmark` against the structural-map candidate. Require exactly one
+async lane at cap eight, seven serial lanes at cap one, pool size 12, finite timeouts, trace off,
+current template, successful observer and outcome-bearing teardown, no residue or safety error,
+measured lifecycle at most 90 seconds, and runtime serial-lane skew at most 1.5. If balance still
+fails, stop and amend the proposal before collecting any timing-derived source profile; do not hand
+move sources from the failing lane.
+
+- [ ] **Step 5: Select the explicit CPU request**
+
+Run five alternating attempts each at explicit 2 CPU and 12 CPU with the final structural map and
+Repo pool 12. Twelve CPU is selectable only if all five attempts are safety-clean. If both are
+selectable, choose 12 only when its median is at least 10% lower; if neither is selectable, stop.
+Apply the winner identically to production `BazelCI` and both authoritative benchmark revisions.
+
+- [ ] **Step 6: Freeze and smoke the final after SHA**
+
+Commit the CPU winner and all evidence-only documentation, record the full SHA and harness/input
+hashes, push it with the same explicit feature-branch refspec, then run one final exact-SHA smoke.
+Any behavior or harness change creates a new candidate and requires this step again.
+
+- [ ] **Step 7: Trigger alternating exact-SHA pairs**
 
 Use BuildBuddy `ExecuteWorkflow` for `IntegrationBenchmark`, explicit before/after commit, expected
 SHA environment, `async: false`, and `disable_retry: true`. Alternate one before then one after,
@@ -1187,15 +1223,16 @@ sequence. Retain superseded rows with their original SHA. Keep an already accept
 unless the harness changes; any harness change must be applied identically to both revisions and
 invalidates both accepted sequences.
 
-- [ ] **Step 5: Evaluate every gate**
+- [ ] **Step 8: Evaluate every gate**
 
 Calculate accepted-cohort median, nearest-rank p95 (ordered value 19), relative delta, every after
 run's max/min non-empty shard ratio, maximum sampled run/fixture connections, live usable slots,
 and pre-teardown zero samples. Required: after p95 <= 90.0 s; 20/20 retry-free pass in both cohorts;
 every after skew <= 1.5; run peak <= 144; fixture peak <= `floor(usable slots * 0.90)`; zero ownership,
-deadlock, process/database leak, or teardown failure; exactly eight shards; unchanged pool sizes.
+deadlock, process/database leak, or teardown failure; exactly one async plus seven serial lanes;
+unchanged pool sizes.
 
-- [ ] **Step 6: Exercise the heavy lifecycle and candidate status**
+- [ ] **Step 9: Exercise the heavy lifecycle and candidate status**
 
 Run the focused provision/gate/teardown sequence at least three times with fixed CI values. Execute
 `LargeIngestionGate` explicitly for the exact after commit and record its BuildBuddy
@@ -1208,7 +1245,7 @@ After merge, verify the first applicable `staging` commit receives a successful
 observation does not block opening the implementation PR; leave OpenSpec task 5.6 (and any wording
 that specifically claims default-branch publication) unchecked until that evidence exists.
 
-- [ ] **Step 7: Run fresh repository verification**
+- [ ] **Step 10: Run fresh repository verification and request final review**
 
 ```bash
 bazel test -c opt --config=remote //:ci_heavy_gate_contract_test //build:integration_shards_test //build/ci:wait_for_large_ingestion_gate_test //rust/integration-db:serviceradar_integration_db_test
@@ -1218,13 +1255,10 @@ git diff --check
 openspec validate parallelize-core-integration-tests --strict
 ```
 
-Expected: every command exits 0.
-
-- [ ] **Step 8: Mark evidenced tasks and request final review**
-
-Change `[ ]` to `[x]` only where implementation and required external evidence exist. Run a fresh
-spec-compliance review followed by code-quality review; resolve findings through the implementer
-and reviewer loop, rerun affected verification, and commit:
+Expected: every command exits 0. Change `[ ]` to `[x]` only where implementation and required
+external evidence exist. Run a fresh spec-compliance review followed by code-quality review;
+resolve findings through the implementer and reviewer loop, rerun affected verification, and
+commit:
 
 ```bash
 git add build/integration_shards.bzl openspec/changes/parallelize-core-integration-tests

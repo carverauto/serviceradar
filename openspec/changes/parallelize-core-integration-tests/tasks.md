@@ -123,9 +123,18 @@
       do not resize the topology from current occupancy. Validate the effective Repo pool against
       the exact 12-connection topology before ExUnit or the application starts.
 - [x] 3.19 Deterministically preseed all fixed-external sources in `serial_0`, LPT-balance remaining
-      serial sources by `1 + selected_serial_module_count`, and prove exact, disjoint,
-      glob-order-independent source/identity membership before timing. Every lane must use its own
-      disposable `sr_core_test_<run-id>_<lane>` clone.
+      serial sources by `1 + selected_serial_test_identity_count`, and prove that the checked-in
+      counts exactly match the database-free ExUnit selection manifest and produce exact,
+      disjoint, glob-order-independent source/identity membership before CPU diagnostics or
+      authoritative cohorts. Every lane must use its own disposable
+      `sr_core_test_<run-id>_<lane>` clone. The superseded module-count candidate is invalidated:
+      all 159 weights were identical and its first smoke failed the 1.5 serial-lane balance gate.
+      Status: the executable selection-equivalence contract verifies all 159 checked-in counts
+      against 1,316 real selected ExUnit identities. The deterministic partition has selected-test
+      counts `[185, 190, 189, 188, 188, 188, 188]`, source counts
+      `[26, 22, 21, 22, 22, 23, 23]`, and structural LPT loads
+      `[211, 212, 210, 210, 210, 211, 211]`; reverse-input construction is identical and all three
+      fixed-external sources remain in `serial_0`.
 - [ ] 3.20 Run five attempts per arm, alternating same-revision BuildBuddy diagnostics at explicit 2 CPU and 12 CPU
       with Repo pool 12 and all other factors fixed. Record scheduler/pool markers and select one
       explicit CPU request for production `BazelCI` and both authoritative revisions. Twelve CPUs
@@ -134,7 +143,10 @@
 - [ ] 3.21 Run the fixed production topology through a fresh trace-free, timeout-enabled,
       retry-free, observer-covered safety wave. Require zero ownership errors, deadlocks, queue
       drops, process/database residue, or connection-threshold violations; do not run one/four/
-      eight/hybrid challenger diagnostics or retune membership from the result.
+      eight/hybrid challenger diagnostics or retune the manifest-backed membership from the
+      result. The exact-SHA `a6fde460627429338adb76e21884c49cd7c257cf` candidate was safety-clean
+      and completed its measured lifecycle in 86.480 seconds, but its serial-lane skew was
+      `45.047 / 24.518 = 1.837`; retain it only as invalidated module-count-map evidence.
 - [ ] 3.22 Run one retry-free exact-SHA `IntegrationBenchmark` smoke with the final harness before
       spending the acceptance cohorts. Require a current template, successful outcome-bearing
       teardown, exact runner markers, and zero ownership, deadlock, queue-drop, connection-headroom,
@@ -203,8 +215,10 @@
       release-gate extraction, async promotion, and 258-identity allocator correction; recompute
       auditable relative source weights, assign sources by deterministic least-estimated-load
       sum-only partitioning, then require slowest/fastest non-empty shard skew no greater than 1.5.
-      This historical evidence remains valid; completed task 3.19 separately proves the final
-      concurrency-aware fixed-resource placement and deterministic source/identity membership.
+      Retain this as historical evidence only: its older local runner mode and membership do not
+      supply final source weights. Completed task 3.19 supersedes that historical map with the
+      database-free exact-selected-identity rule and separately proves the final concurrency-aware
+      fixed-resource placement and deterministic source/identity membership.
 - [ ] 5.5 Demonstrate nearest-rank p95 at or below 90 seconds and at least 50% below the accepted
       before p95 over the accepted 20-run after cohort,
       including the existing SRQL/other integration targets and excluding only the

@@ -117,9 +117,11 @@ The common measurement flags are:
 
 `SERVICERADAR_TEST_SLOWEST` is forbidden in an authoritative timed or gating run. The built-in
 report enables ExUnit trace, which forces serial execution and disables test timeouts even when the
-target declares another `max_cases` value. Slow-case data used to refresh partition hints comes
-from a separately labeled non-cohort profiling run with
-`SERVICERADAR_INTEGRATION_MAX_CASES=1`; its lifecycle duration is never included in either cohort.
+target declares another `max_cases` value. Historical slow-case output came from separately labeled
+non-cohort profiling runs with `SERVICERADAR_INTEGRATION_MAX_CASES=1`; their lifecycle durations are
+never included in either cohort. Under the final placement contract, such output is descriptive
+only and cannot refresh source weights or membership. Those come exclusively from the checked-in,
+database-free exact selected-test-identity projection.
 
 Both revisions use the same benchmark target selection:
 
@@ -298,8 +300,10 @@ The implementation is accepted only when all of these are true:
 The report always includes before/after median, p95, relative delta, and whether the 60% relative
 stretch threshold passed. The 90-second BuildBuddy bound, 50% BuildBuddy relative bound, and every
 required row in the table above are acceptance criteria. Any safety threshold failure stops rollout; the cap returns to
-two and the offending module returns to the serial lane before the wave restarts. A cap-two failure
-returns the cap to one while the ownership defect is corrected.
+the candidate is invalidated and no cohort restarts. An ownership or classification defect moves
+the offending module to the serial disposition, regenerates the manifest-backed map and hashes,
+and creates a new exact-SHA candidate. A balance-only failure requires an OpenSpec amendment before
+any timing-derived profile or membership change; cap fallback is not part of the fixed topology.
 
 ## Evidence record
 
@@ -673,7 +677,50 @@ become async after full-module promotion, mixed-module splitting, and test-local
 normalization. Those values are relative placement weights only. They MUST NOT be subtracted from
 the 1,398.6-second trace-free aggregate or converted into cap-two, cap-eight, or one-BEAM wall-time
 forecasts. The CPU, topology, historical cap-two, frozen cap-eight, local, and exact-SHA protocols
-comparable measurements used for decisions.
+remain the only comparable measurements used for decisions.
+
+### Corrected exact-SHA harness smoke and structural lane rebalance
+
+The first exact-SHA smoke after constraining both build and test selection ran commit
+`a6fde460627429338adb76e21884c49cd7c257cf`. Its prebuild selected exactly the 12 intended
+integration targets plus four lifecycle helpers. The timed child built 27 actions, selected exactly
+12 tests, and completed in 52.521 seconds; the complete measured fixture lifecycle was 86.480
+seconds. All 12 targets passed on attempt one, teardown succeeded, the observer reported run and
+fixture peaks of 96 and 97 connections, and filtered logs contained no ownership error, deadlock,
+queue-drop, or residue evidence. This is the first valid absolute-goal smoke, but it is not an
+authoritative before/after cohort.
+
+Its serial target walls were 24.518, 29.134, 34.318, 40.283, 45.047, 33.858, and 30.578 seconds.
+The resulting `45.047 / 24.518 = 1.837` skew fails the required 1.5 balance gate. Inspection showed
+that all 159 serial sources had exactly one selected module, making the old
+`1 + selected_serial_module_count` weight uniformly two. The candidate therefore implemented
+alphabetical source-count round-robin, not meaningful LPT. The smoke is retained as safety and
+harness evidence but invalidates that source map.
+
+The replacement uses no wall-time measurement. The existing database-free selection runners emit
+the exact `(source, module, test-name)` union selected by ExUnit's real filters. A checked-in
+159-source projection is now executable-contract-checked against all 1,316 serial identities and
+feeds deterministic LPT weight `1 + selected_serial_test_identity_count`. Before another fixture
+smoke, the new map has these structural properties:
+
+| Lane | Sources | Selected test identities | Structural load |
+| --- | ---: | ---: | ---: |
+| `serial_0` | 26 | 185 | 211 |
+| `serial_1` | 22 | 190 | 212 |
+| `serial_2` | 21 | 189 | 210 |
+| `serial_3` | 22 | 188 | 210 |
+| `serial_4` | 22 | 188 | 210 |
+| `serial_5` | 23 | 188 | 211 |
+| `serial_6` | 23 | 188 | 211 |
+
+All three fixed-external sources remain confined to `serial_0`; reversed source input produces the
+same map. Structural selected-test skew is 1.027 and load skew is 1.010. These are placement
+invariants, not runtime forecasts. The harness hash remains
+`28ab9a0e7fa0c7c4149afbfeb25393028bebffbabc2007672244979847e7491f`; the rebalance changes the
+CPU-diagnostic input hash to
+`52c29d6571d0674e6c70dae8dfe18f64bb76cd1d64ed66d71b0e8c696059f817`. A fresh exact-SHA smoke
+still must prove the runtime skew and all safety criteria before CPU diagnostics or authoritative
+cohorts begin.
 
 Authoritative evidence first records cohort metadata:
 

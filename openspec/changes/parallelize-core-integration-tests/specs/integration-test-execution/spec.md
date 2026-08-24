@@ -231,23 +231,31 @@ run-scoped and fixture-wide occupancy peaks but SHALL NOT reduce the lane count 
 unrelated live fixture sessions from the fixture-wide samples. Headroom is capacity for
 test-supervised processes inside test BEAMs only, never for deployed applications.
 
-#### Scenario: Fixed lane topology is frozen
+#### Scenario: Fixed lane topology is frozen before CPU diagnostics and cohorts
 - **GIVEN** the complete selected-module disposition and the proposal-time audit of 197 usable
   fixture client slots
-- **WHEN** the ordinary topology is prepared before timing
+- **WHEN** the ordinary topology is prepared before CPU diagnostics or authoritative cohorts
 - **THEN** it SHALL contain exactly one async lane and exactly seven serial lanes
 - **AND** every all-async source SHALL appear exactly once in the async lane
 - **AND** every selected serial source SHALL appear exactly once in a serial lane
 - **AND** every load-only source SHALL appear in no ordinary lane
-- **AND** the eight-lane source/identity map SHALL be checked in and input-hashed
+- **AND** the eight-lane source/identity map and selected-test-count projection SHALL be checked in
+  and input-hashed
 - **AND** no timing result SHALL retune that map
 
 #### Scenario: Serial lanes are deterministic and fixed external work is isolated
-- **GIVEN** the serial source set and selected serial module counts
+- **GIVEN** the serial source set and exact selected serial test identities emitted by the
+  database-free ExUnit selection runner
 - **WHEN** serial lanes are assigned
 - **THEN** every `fixed_external` source SHALL preseed `serial_0`
-- **AND** all remaining serial sources SHALL use deterministic LPT weight
-  `1 + selected_serial_module_count` with source-path and lane-name tie-breakers
+- **AND** all remaining serial sources SHALL be ranked by descending deterministic LPT weight
+  `1 + selected_serial_test_identity_count` then source path
+- **AND** each ranked source SHALL select a lane by current load, then source count, then lane name
+- **AND** the checked-in counts SHALL exactly match the current selected identity union
+- **AND** no runtime duration SHALL enter the source weight
+- **AND** lane-order source counts SHALL be `[26, 22, 21, 22, 22, 23, 23]`
+- **AND** lane-order selected-test counts SHALL be `[185, 190, 189, 188, 188, 188, 188]`
+- **AND** lane-order structural loads SHALL be `[211, 212, 210, 210, 210, 211, 211]`
 - **AND** no async or other serial lane SHALL contain a fixed-external source
 
 #### Scenario: Ordinary provisioning uses one clone per lane
@@ -315,7 +323,7 @@ none. The async lane uses ExUnit's cap-eight module scheduler. Serial placement 
 pre-measurement LPT rule and MUST NOT treat its relative source weights as wall-time forecasts.
 
 #### Scenario: Lane placement is deterministic
-- **GIVEN** complete source/module dispositions and serial module counts
+- **GIVEN** complete source/module dispositions and exact selected serial test-identity counts
 - **WHEN** ordinary sources are placed repeatedly in different input orders
 - **THEN** every selected source SHALL appear in exactly one permitted lane
 - **AND** the resulting lane map SHALL be identical
@@ -329,19 +337,19 @@ pre-measurement LPT rule and MUST NOT treat its relative source weights as wall-
 - **AND** legacy list membership or read-only external access alone SHALL NOT qualify a source as
   `fixed_external`
 
-### Requirement: Production lane topology is frozen before timing
+### Requirement: Production lane topology is frozen before CPU diagnostics and authoritative timing
 The one-async-plus-seven-serial-lanes production topology SHALL not run one/four/eight/hybrid
 challenger diagnostics. All timing, CPU selection, and authoritative cohorts use the same frozen
 eight-lane count, source map, caps, per-BEAM pool, fixture configuration, retries, and current
 template.
 
-#### Scenario: Topology configuration is frozen before measurement
+#### Scenario: Topology configuration is frozen before CPU diagnostics and cohorts
 - **GIVEN** the proposal-time capacity audit and checked-in eight-lane map
 - **WHEN** CPU diagnostics or cohorts begin
 - **THEN** exactly one async lane SHALL have cap 8
 - **AND** exactly seven serial lanes SHALL have cap 1
 - **AND** each lane SHALL have pool size 12
-- **AND** no timing result SHALL tune lane count, membership, or cap
+- **AND** no timing result SHALL tune lane count, membership, source weight, or cap
 
 #### Scenario: Runtime capacity preflight fails closed without resizing
 - **GIVEN** the frozen eight-lane topology and fixed 114-slot ordinary selected workload

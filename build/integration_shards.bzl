@@ -32,6 +32,7 @@ load(
     "ASYNC_INTEGRATION_SRCS",
     "FIXED_EXTERNAL_INTEGRATION_SRCS",
     "SERIAL_INTEGRATION_MODULE_COUNTS",
+    "SERIAL_INTEGRATION_SELECTED_TEST_COUNTS",
 )
 
 INTEGRATION_ASYNC_MAX_CASES = 8
@@ -109,6 +110,9 @@ def async_integration_sources():
 def serial_source_module_counts():
     return dict(SERIAL_INTEGRATION_MODULE_COUNTS)
 
+def serial_source_test_counts():
+    return dict(SERIAL_INTEGRATION_SELECTED_TEST_COUNTS)
+
 def fixed_external_resource_sources():
     return list(FIXED_EXTERNAL_INTEGRATION_SRCS)
 
@@ -172,10 +176,10 @@ def integration_test_env(lane):
     }
 
 def _source_weight(source):
-    # One load unit plus one unit per selected serial module. The current homogeneous inventory
-    # has one selected module per source, but retaining the count makes the rule correct when a
-    # future source contains several serial modules.
-    return 1 + SERIAL_INTEGRATION_MODULE_COUNTS[source]
+    # One source-load unit plus one unit per exact test identity selected by ExUnit's real filters.
+    # The database-free selection-equivalence test verifies this checked-in projection, so the LPT
+    # input is structural and reproducible rather than a timing-derived weight.
+    return 1 + SERIAL_INTEGRATION_SELECTED_TEST_COUNTS[source]
 
 def _least_loaded_lane(lanes, loads, counts):
     selected = lanes[0]
@@ -209,6 +213,13 @@ def partition_by_lane(all_test_sources):
     for source in FIXED_EXTERNAL_INTEGRATION_SRCS:
         if source not in SERIAL_INTEGRATION_MODULE_COUNTS:
             fail("fixed external resource source is not serial: {}".format(source))
+
+    if sorted(SERIAL_INTEGRATION_SELECTED_TEST_COUNTS.keys()) != sorted(SERIAL_INTEGRATION_MODULE_COUNTS.keys()):
+        fail("serial selected-test-count projection differs from serial source inventory")
+
+    for source, test_count in SERIAL_INTEGRATION_SELECTED_TEST_COUNTS.items():
+        if test_count <= 0:
+            fail("serial selected-test count must be positive: {}={}".format(source, test_count))
 
     serial_lanes = integration_serial_lane_names()
     partitions = {lane: [] for lane in integration_lane_names()}

@@ -25,6 +25,7 @@ load(
     "partition_by_lane",
     "serial_lane_count_for_capacity",
     "serial_source_module_counts",
+    "serial_source_test_counts",
 )
 
 _FIXED_EXTERNAL_RESOURCE_SRCS = [
@@ -115,9 +116,12 @@ def _integration_shards_topology_test_impl(ctx):
 
     async_sources = async_integration_sources()
     serial_counts = serial_source_module_counts()
+    serial_test_counts = serial_source_test_counts()
     selected_sources = integration_selected_sources()
     asserts.equals(env, 120, len(async_sources))
     asserts.equals(env, 159, len(serial_counts))
+    asserts.equals(env, 159, len(serial_test_counts))
+    asserts.equals(env, sorted(serial_counts.keys()), sorted(serial_test_counts.keys()))
     asserts.equals(env, 279, len(selected_sources))
     asserts.equals(env, _FIXED_EXTERNAL_RESOURCE_SRCS, fixed_external_resource_sources())
 
@@ -129,16 +133,25 @@ def _integration_shards_topology_test_impl(ctx):
     partitioned_sources = []
     serial_partitioned_sources = []
     serial_lane_sizes = []
+    serial_lane_test_counts = []
+    serial_lane_weights = []
     for lane in lanes:
         partitioned_sources += partitions[lane]
         if lane != "async":
             serial_partitioned_sources += partitions[lane]
             serial_lane_sizes.append(len(partitions[lane]))
+            lane_test_count = 0
+            for source in partitions[lane]:
+                lane_test_count += serial_test_counts[source]
+            serial_lane_test_counts.append(lane_test_count)
+            serial_lane_weights.append(lane_test_count + len(partitions[lane]))
 
     asserts.equals(env, sorted(selected_sources), sorted(partitioned_sources))
     asserts.equals(env, len(selected_sources), len(partitioned_sources))
     asserts.equals(env, sorted(serial_counts.keys()), sorted(serial_partitioned_sources))
-    asserts.true(env, max(serial_lane_sizes) - min(serial_lane_sizes) <= 1)
+    asserts.equals(env, [26, 22, 21, 22, 22, 23, 23], serial_lane_sizes)
+    asserts.equals(env, [185, 190, 189, 188, 188, 188, 188], serial_lane_test_counts)
+    asserts.equals(env, [211, 212, 210, 210, 210, 211, 211], serial_lane_weights)
 
     for source in _FIXED_EXTERNAL_RESOURCE_SRCS:
         asserts.true(env, source in partitions[FIXED_EXTERNAL_RESOURCE_LANE])
