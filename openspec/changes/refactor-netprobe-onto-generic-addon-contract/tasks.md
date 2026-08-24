@@ -85,14 +85,14 @@
 
 ## 5. Agent cutover
 
-- [ ] 5.1 Pump netprobe's `StreamTelemetry` batches into the existing
+- [x] 5.1 Pump netprobe's `StreamTelemetry` batches into the existing
   `Server.handleAddonTelemetry(addonID, batch)` buffer, beside the existing `netprobe.AttachManager`
   which already owns socket discovery and health. Do NOT add a transport abstraction, `Spec.Transport`,
   a manifest-schema field, or an add-on-manager dispatch arm — see design.md "Rejected alternatives"
-- [ ] 5.2 Single-consumer rule: the agent stops draining the legacy census/mDNS snapshot channel the
+- [x] 5.2 Single-consumer rule: the agent stops draining the legacy census/mDNS snapshot channel the
   moment the `AddonService` client connects, and falls back if it disconnects. Without this, core
   ingests each census twice during the cutover
-- [ ] 5.3 Delete `push_loop_netprobe_census.go`, `push_loop_netprobe_mdns.go`,
+- [x] 5.3 Delete `push_loop_netprobe_census.go`, `push_loop_netprobe_mdns.go`,
   `netprobe/census_translator.go`, `netprobe/mdns_translator.go`, `netprobe/census_assembler.go`,
   `netprobe/mdns_assembler.go`, `netprobe/chunk_assembler.go`, `DrainCensusSnapshots`,
   `DrainMdnsSnapshots`, and the tag-30/31 readLoop arms
@@ -115,12 +115,35 @@
 
 - [ ] 6.1 Delete `go/pkg/agent/netprobe/` and the netprobe `oneof` arms; netprobe stops binding the
   legacy socket. Land only after 5.1-5.7 are confirmed in the fleet
-- [ ] 6.2 Retire the now-dead `@census_service_types` / `@mdns_service_types` `ResultsRouter` clauses
-  and redirect their tests at the registry invariant, so no test is left guarding a route nothing uses
+- [ ] 6.2 Retire the `@census_service_types` / `@mdns_service_types` `ResultsRouter` clauses and
+  redirect their tests at the registry invariant, so no test is left guarding a route nothing uses.
+
+  **BLOCKED, and the clauses are NOT "now-dead" — verified 2026-08-23.** The census producer
+  shipped in **v1.4.42**, the current `VERSION`: `git cat-file -e v1.4.42:go/pkg/agent/push_loop_netprobe_census.go`
+  resolves, and `v1.4.42:go/pkg/agent/push_loop.go:554` calls it unconditionally every push cycle,
+  emitting `service_type: "netprobe-census"` with the hardcoded `source: "results"`
+  (`push_loop_status.go:670-679`) -- a byte-exact match for the guard at `results_router.ex:284`.
+  Nothing between agent and router filters it. Agents roll independently of core, so
+  "new core + old agent" is the normal intermediate state of every rollout; the 5.3 deletion's
+  safety argument covers agent<->netprobe co-location on one host, NOT agent<->core skew, which is
+  the axis this task depends on. (The mDNS half genuinely never reached a tag -- absent from
+  v1.4.42 -- but splitting the two leaves the task neither done nor undone.)
+
+  **And when it unblocks, this must NOT be a bare deletion.** With the clauses gone the status falls
+  through to `results_router.ex:363` `defp process(_status, _opts), do: :ok`, which is total: no
+  crash, no log line, and `:ok` lets `publish_status_update/1` upsert the service **HEALTHY** while
+  discarding 100% of the payload. The census stream is snapshot-superseding, so each dropped push is
+  gone with no backfill -- device inventory, not recoverable telemetry. A crash would be strictly
+  safer than this. Replace the two clauses with ONE explicit retirement clause that logs at
+  `warning` (sampled -- an old agent emits every cycle) naming the service type and the emitting
+  `agent_id`, plus a countable telemetry event, mirroring `discovery_ingestor.ex:76-94`
+  (`outcome: :unregistered_schema`). Delete THAT clause a release or two later, once the warning has
+  stayed silent. Keep one test asserting the drop is loud rather than deleting
+  `results_router_test.exs:197-236` outright.
 
 ## 7. Verification
 
-- [ ] 7.1 Go unit tests: the pump forwards an opaque batch without inspecting it; the single-consumer
+- [x] 7.1 Go unit tests: the pump forwards an opaque batch without inspecting it; the single-consumer
   switchover; fallback when `addon.sock` is absent
 - [ ] 7.2 Elixir DB-backed tests (srql-fixtures lifecycle): census updates satisfy
   `passive_census_source?/1`, mDNS updates satisfy `enrichment_only_source?/1` and create no device,

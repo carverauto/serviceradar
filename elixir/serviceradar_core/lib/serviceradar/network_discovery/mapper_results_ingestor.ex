@@ -10,6 +10,7 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
   alias Ash.Error.Unknown
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Identity.AliasEvents
+  alias ServiceRadar.Identity.AliasPolicy
   alias ServiceRadar.Identity.DeviceAliasState
   alias ServiceRadar.Inventory.Device
   alias ServiceRadar.Inventory.DeviceIdentifier
@@ -1340,7 +1341,36 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
     end)
   end
 
+  @doc """
+  Whether an address may be seeded as a candidate device.
+
+  Public as a testable seam. The rule is the same one aliases use: an address
+  every device has (loopback, link-local, unspecified) identifies nothing, so a
+  device record at that address describes nothing.
+  """
+  def candidate_device_address?(ip), do: AliasPolicy.valid_alias_ip?(ip)
+
   defp ensure_candidate_device(ip, partition, source_device_id, actor) do
+    if candidate_device_address?(ip) do
+      do_ensure_candidate_device(ip, partition, source_device_id, actor)
+    else
+      # Never mint a device for an address that cannot identify one. AliasPolicy
+      # rejects loopback, unspecified, and link-local (fe80::/10, 169.254/16) --
+      # every device has those, so a device record "at" one of them describes
+      # nothing.
+      #
+      # Observed: 169.254.0.1, an APIPA address reported on switchcff8f2's own
+      # interface, became device sr:b53d5a38 with no hostname and no MAC. Worse,
+      # it was self-sustaining -- once the record existed, sweep picked it up as
+      # a target (the record carries sweep_consecutive_failures) and revived it
+      # through the undelete path, clearing the deleted_reason. Deleting it by
+      # hand was not enough while something kept re-creating it.
+      Logger.debug("Skipping candidate device for unroutable address #{ip}")
+      :ok
+    end
+  end
+
+  defp do_ensure_candidate_device(ip, partition, source_device_id, actor) do
     existing = lookup_device_uids_by_ip([ip])
 
     if Map.has_key?(existing, ip) do
@@ -1403,7 +1433,7 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
   AliasEvents producer so both enforce one rule. Kept public because tests and
   callers in this module reference it directly.
   """
-  defdelegate valid_alias_ip?(value), to: ServiceRadar.Identity.AliasPolicy
+  defdelegate valid_alias_ip?(value), to: AliasPolicy
 
   # Resolve device_ids from device_ip addresses by looking up existing devices.
   # The agent sends device_id as "partition:ip" but Device.uid is "sr:<uuid>".

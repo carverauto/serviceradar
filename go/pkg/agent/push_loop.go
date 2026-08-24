@@ -551,8 +551,6 @@ func (p *PushLoop) pushStatus(ctx context.Context) {
 	sentMapperTopology := p.pushMapperTopology(ctx)
 	sentSNMPMetrics := p.pushSNMPMetrics(ctx)
 	sentNetprobeResults := p.pushNetprobeResults(ctx)
-	sentNetprobeCensus := p.pushNetprobeCensusResults(ctx)
-	sentNetprobeMdns := p.pushNetprobeMdnsResults(ctx)
 	sentFlowAttribution := p.pushFlowAttribution(ctx)
 	sentWorkloadIdentity := p.pushWorkloadIdentity(ctx)
 	sentPluginResults := p.pushPluginResults(ctx)
@@ -570,8 +568,6 @@ func (p *PushLoop) pushStatus(ctx context.Context) {
 		!sentMapperTopology &&
 		!sentSNMPMetrics &&
 		!sentNetprobeResults &&
-		!sentNetprobeCensus &&
-		!sentNetprobeMdns &&
 		!sentFlowAttribution &&
 		!sentWorkloadIdentity &&
 		!sentPluginResults &&
