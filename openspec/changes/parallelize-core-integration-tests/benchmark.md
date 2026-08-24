@@ -218,10 +218,12 @@ Every attempt records:
   effective-HEAD assertion, and failure classification.
 
 The checked-in Bazel-owned connection observer samples `pg_stat_activity` every 500 milliseconds.
-Run-scoped connections are sessions whose database name begins with the guarded run's disposable
-database prefix. Because the prefix contains `_`, the query uses literal prefix comparison such as
-`left(datname, char_length($1)) = $1`; it MUST NOT use an unescaped SQL `LIKE` pattern. Fixture-wide
-connections are all non-background sessions on the fixture. The observer starts after fixture
+Run-scoped connections are sessions whose database name either equals the guarded run's disposable
+base database or begins with that base followed by the literal `_` lane delimiter. The query uses
+`datname = $1 OR left(datname, char_length($1) + 1) = $1 || '_'`; it MUST NOT use an unescaped SQL
+`LIKE` pattern or an unbounded raw-prefix comparison. This prevents adjacent manual run IDs such as
+`deadbeef` and `deadbeef1` from sharing observer counts. Fixture-wide connections are all
+non-background sessions on the fixture. The observer starts after fixture
 configuration is materialized and before provisioning, waits for a bounded ready handshake before
 the lifecycle continues, and stops after teardown. Ready/suite/quiescent/stop paths are initially
 absent children of one private temporary directory; they are never pre-created with `mktemp`.
