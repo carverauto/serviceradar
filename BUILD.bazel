@@ -1,5 +1,6 @@
 load("@bazel_gazelle//:def.bzl", "gazelle")
 load("@platforms//host:extension.bzl", "host_platform")
+load("@rules_python//python:py_binary.bzl", "py_binary")
 load("@rules_python//python:py_test.bzl", "py_test")
 load("@rules_shell//shell:sh_binary.bzl", "sh_binary")
 
@@ -84,9 +85,107 @@ py_test(
     data = [
         "//docs:cosign.pub",
         "//elixir/web-ng:config/config.exs",
-        "//helm/serviceradar:values-demo.yaml",
         "//helm/serviceradar:values.yaml",
+        "//helm/serviceradar:values-demo.yaml",
     ],
+)
+
+py_test(
+    name = "ci_heavy_gate_contract_test",
+    size = "small",
+    srcs = ["ci_heavy_gate_contract_test.py"],
+    data = [
+        ".bazelrc",
+        ".github/workflows/release.yml",
+        "BUILD.bazel",
+        "buildbuddy.yaml",
+        "openspec/changes/parallelize-core-integration-tests/benchmark.md",
+        "//build:integration_shards.bzl",
+        "//build:integration_test_dispositions.bzl",
+        "//build:integration_tests.bzl",
+        "//build/ci:BUILD.bazel",
+        "//build/ci:large_ingestion_gate",
+        "//build/ci:large_ingestion_gate_contract.v1",
+        "//build/ci:wait_for_large_ingestion_gate",
+        "//build/ci:wait_for_large_ingestion_gate_test",
+        "//config/environments:ci.textproto",
+        "//elixir/serviceradar_core:BUILD.bazel",
+        "//elixir/serviceradar_core:config/test.exs",
+        "//elixir/serviceradar_core:config/test_database_guard.exs",
+        "//elixir/serviceradar_core:integration_contract_test_inputs",
+        "//elixir/serviceradar_core:lib/serviceradar/cluster/startup_migrations.ex",
+        "//elixir/serviceradar_core:priv/repo/baseline/platform_schema.sql",
+        "//elixir/serviceradar_core:test/db/integration_env.exs",
+        "//elixir/serviceradar_core:test/db/integration_env_config.exs",
+        "//elixir/serviceradar_core:test/integration/advisory_feed_loader_integration_test.exs",
+        "//elixir/serviceradar_core:test/integration/netflow_ingestion_integration_test.exs",
+        "//elixir/serviceradar_core:test/integration/proxmox_api_smoke_integration_test.exs",
+        "//elixir/serviceradar_core:test/integration/secret_broker_audit_integration_test.exs",
+        "//elixir/serviceradar_core:test/release_gates/large_ingestion/identifier_cardinality_release_gate_test.exs",
+        "//elixir/serviceradar_core:test/release_gates/large_ingestion/results_router_release_gate_test.exs",
+        "//elixir/serviceradar_core:test/serviceradar/cluster/database_bootstrap_integration_test.exs",
+        "//elixir/serviceradar_core:test/serviceradar/composite_checks/composite_check_input_test.exs",
+        "//elixir/serviceradar_core:test/serviceradar/composite_checks/composite_check_rule_test.exs",
+        "//elixir/serviceradar_core:test/serviceradar/composite_checks/composite_check_test.exs",
+        "//elixir/serviceradar_core:test/serviceradar/composite_checks/device_composite_check_result_test.exs",
+        "//elixir/serviceradar_core:test/serviceradar/results_router_integration_test.exs",
+        "//elixir/serviceradar_core:test/serviceradar/scans/adhoc_scan_nats_e2e_test.exs",
+        "//elixir/serviceradar_core:test/support/data_case.ex",
+        "//elixir/serviceradar_core:test/support/test_support.ex",
+        "//elixir/serviceradar_core:test/test_helper.exs",
+        "//integration_tests/srql:integration_benchmark_input_files",
+        "//integration_tests/srql:integration_capacity_contract_inputs",
+        "//rust/integration-db:BUILD.bazel",
+        "//rust/integration-db:src/bin/observe_connections.rs",
+        "//rust/integration-db:src/connection_observer.rs",
+        "//rust/integration-db:srcs",
+    ],
+)
+
+py_binary(
+    name = "integration_benchmark_harness_hash",
+    srcs = ["ci_heavy_gate_contract_test.py"],
+    args = ["--hash-integration-benchmark"],
+    data = [
+        "buildbuddy.yaml",
+        "//rust/integration-db:BUILD.bazel",
+        "//rust/integration-db:src/bin/observe_connections.rs",
+        "//rust/integration-db:src/connection_observer.rs",
+    ],
+    main = "ci_heavy_gate_contract_test.py",
+    # This target shares its source with the remotely executed contract test. Disabling
+    # bytecode output keeps its no-remote execution requirement from claiming the same .pyc.
+    precompile = "disabled",
+    tags = ["no-remote"],
+)
+
+py_binary(
+    name = "integration_cpu_diagnostic_input_hash",
+    srcs = ["ci_heavy_gate_contract_test.py"],
+    args = ["--hash-integration-cpu-diagnostic-inputs"],
+    data = [
+        ".bazelrc",
+        "buildbuddy.yaml",
+        "//build:integration_shards.bzl",
+        "//build:integration_test_dispositions.bzl",
+        "//build:integration_tests.bzl",
+        "//config/environments:ci.textproto",
+        "//elixir/serviceradar_core:BUILD.bazel",
+        "//elixir/serviceradar_core:config/test.exs",
+        "//elixir/serviceradar_core:config/test_database_guard.exs",
+        "//elixir/serviceradar_core:integration_contract_test_inputs",
+        "//elixir/serviceradar_core:priv/repo/baseline/platform_schema.sql",
+        "//elixir/serviceradar_core:test/db/integration_env.exs",
+        "//elixir/serviceradar_core:test/db/integration_env_config.exs",
+        "//elixir/serviceradar_core:test/support/data_case.ex",
+        "//elixir/serviceradar_core:test/support/test_support.ex",
+        "//elixir/serviceradar_core:test/test_helper.exs",
+        "//integration_tests/srql:integration_benchmark_input_files",
+        "//rust/integration-db:srcs",
+    ],
+    main = "ci_heavy_gate_contract_test.py",
+    precompile = "disabled",
+    tags = ["no-remote"],
 )
 
 py_test(

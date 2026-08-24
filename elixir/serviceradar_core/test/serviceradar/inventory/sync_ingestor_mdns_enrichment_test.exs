@@ -9,7 +9,7 @@ defmodule ServiceRadar.Inventory.SyncIngestorMdnsEnrichmentTest do
   passes while announcements start creating devices.
   """
 
-  use ServiceRadar.DataCase, async: false
+  use ServiceRadar.DataCase, async: true
 
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Inventory.DeviceIdentifier

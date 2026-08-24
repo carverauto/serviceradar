@@ -1,5 +1,5 @@
 defmodule ServiceRadar.Inventory.AdvisoryFeeds.FeedDefinitionSeederTest do
-  use ServiceRadar.DataCase, async: false
+  use ServiceRadar.DataCase, async: true
   use Oban.Testing, repo: ServiceRadar.Repo, prefix: "platform"
 
   alias ServiceRadar.Credentials.NetworkCredentialSecret
@@ -27,7 +27,6 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.FeedDefinitionSeederTest do
     }
 
     destroy_seeded_definitions(actor)
-    on_exit(fn -> destroy_seeded_definitions(actor) end)
 
     {:ok, actor: actor}
   end

@@ -1,5 +1,5 @@
 defmodule ServiceRadar.Observability.AnomalyIngestSilenceWorkerDBTest do
-  use ServiceRadar.DataCase, async: false
+  use ServiceRadar.DataCase, async: true
 
   alias ServiceRadar.Observability.AnomalyIngestSilenceWorker
   alias ServiceRadar.Repo
@@ -20,7 +20,6 @@ defmodule ServiceRadar.Observability.AnomalyIngestSilenceWorkerDBTest do
     unique = System.unique_integer([:positive])
     series_key = "test-anomaly-silence-#{unique}"
 
-    on_exit(fn -> delete_rows!(series_key) end)
     delete_rows!(series_key)
 
     {:ok, series_key: series_key}

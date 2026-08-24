@@ -5,9 +5,9 @@ defmodule ServiceRadar.Inventory.IdentifierCardinalityGateTest do
   MAC orderings/subsets must not grow `device_identifiers` beyond the
   per-device caps, and re-ingesting identical data must add zero rows.
 
-  Excluded by default; run with:
+  Run through the guarded database lifecycle with:
 
-      SERVICERADAR_TEST_DATABASE_URL=... mix test --only large_ingestion
+      bazel test ... //elixir/serviceradar_core:large_ingestion_release_gate
   """
 
   use ServiceRadar.DataCase, async: false
@@ -21,6 +21,7 @@ defmodule ServiceRadar.Inventory.IdentifierCardinalityGateTest do
   alias ServiceRadar.Repo
   alias ServiceRadar.TestSupport
 
+  @moduletag :integration
   @moduletag :large_ingestion
 
   @devices 500

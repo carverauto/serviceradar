@@ -3,7 +3,7 @@ defmodule ServiceRadar.Inventory.IdentityReconcilerIdentifiersTest do
   Integration coverage for multi-identifier resolution and merge outcomes.
   """
 
-  use ServiceRadar.DataCase, async: false
+  use ServiceRadar.DataCase, async: true
 
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Inventory.Device

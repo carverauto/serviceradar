@@ -1,6 +1,7 @@
 import Config
 
 alias Ecto.Adapters.SQL.Sandbox
+alias ServiceRadar.DB.TestDatabaseGuard
 
 # Test database configuration
 read_url_file = fn
@@ -54,10 +55,15 @@ parse_sslmode = fn
 end
 
 db_url =
-  System.get_env("SERVICERADAR_TEST_DATABASE_URL") ||
-    System.get_env("SRQL_TEST_DATABASE_URL") ||
-    read_url_file.(System.get_env("SERVICERADAR_TEST_DATABASE_URL_FILE")) ||
-    read_url_file.(System.get_env("SRQL_TEST_DATABASE_URL_FILE"))
+  Enum.find(
+    [
+      System.get_env("SERVICERADAR_TEST_DATABASE_URL"),
+      System.get_env("SRQL_TEST_DATABASE_URL"),
+      read_url_file.(System.get_env("SERVICERADAR_TEST_DATABASE_URL_FILE")),
+      read_url_file.(System.get_env("SRQL_TEST_DATABASE_URL_FILE"))
+    ],
+    &(is_binary(&1) and String.trim(&1) != "")
+  )
 
 ssl_mode =
   parse_sslmode.(db_url) ||
@@ -138,6 +144,8 @@ ssl_server_name =
     System.get_env("SRQL_TEST_DATABASE_SERVER_NAME") ||
     System.get_env("CNPG_TLS_SERVER_NAME")
 
+ssl_server_name_value = ssl_server_name
+
 ssl_server_name =
   case ssl_server_name do
     value when is_binary(value) and value != "" -> to_charlist(value)
@@ -162,6 +170,17 @@ ssl_enabled =
     ca_certs not in [nil, []] -> true
     true -> ssl_ca || ssl_cert || ssl_key
   end
+
+if db_url do
+  Code.require_file("test_database_guard.exs", __DIR__)
+
+  TestDatabaseGuard.validate!(db_url,
+    tls_server_name: ssl_server_name_value,
+    ssl_mode: ssl_mode,
+    ca_configured?: ca_certs not in [nil, []] or (is_binary(ssl_ca) and ssl_ca != ""),
+    template_lifecycle?: TestDatabaseGuard.template_lifecycle_authorized?()
+  )
+end
 
 pool_size =
   System.get_env("SERVICERADAR_TEST_DATABASE_POOL_SIZE") ||
@@ -196,25 +215,30 @@ search_path = System.get_env("CNPG_SEARCH_PATH", "platform, public, ag_catalog")
 # `*_DATABASE_POOL_SIZE` overrides still win for the shared fixture DB.
 default_test_pool_size = max(min(System.schedulers_online() * 2, 16), 12)
 
+# Serial integration tests share one rollback-only sandbox connection with
+# their allowed child processes. DBConnection's 50 ms queue target can drop a
+# legitimate child during brief contention. A finite one-second target and
+# interval let the ownership proxy absorb that expected contention while still
+# shedding sustained overload. Environment overrides still win, and the Repo
+# pool sizes stay unchanged.
+default_test_queue_target = 1_000
+default_test_queue_interval = 1_000
+
 repo_config =
   if db_url do
     base =
       [
         url: db_url,
         pool: Sandbox,
-        pool_size: pool_size || default_test_pool_size
+        pool_size: pool_size || default_test_pool_size,
+        queue_target: queue_target || default_test_queue_target,
+        queue_interval: queue_interval || default_test_queue_interval
       ]
-      |> then(fn opts ->
-        if queue_target, do: Keyword.put(opts, :queue_target, queue_target), else: opts
-      end)
-      |> then(fn opts ->
-        if queue_interval, do: Keyword.put(opts, :queue_interval, queue_interval), else: opts
-      end)
-      |> then(fn opts ->
-        if ownership_timeout,
-          do: Keyword.put(opts, :ownership_timeout, ownership_timeout),
-          else: opts
-      end)
+
+    base =
+      if ownership_timeout,
+        do: Keyword.put(base, :ownership_timeout, ownership_timeout),
+        else: base
 
     if ssl_enabled do
       put_if = fn opts, key, value ->
@@ -248,7 +272,9 @@ repo_config =
       hostname: "localhost",
       database: "serviceradar_test#{System.get_env("MIX_TEST_PARTITION")}",
       pool: Sandbox,
-      pool_size: default_test_pool_size
+      pool_size: default_test_pool_size,
+      queue_target: queue_target || default_test_queue_target,
+      queue_interval: queue_interval || default_test_queue_interval
     ]
   end
 

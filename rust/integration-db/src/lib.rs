@@ -36,6 +36,7 @@
 use std::fs;
 
 pub mod config;
+pub mod connection_observer;
 
 use anyhow::{bail, Context, Result};
 use srql::db::PgRustlsConnect;
@@ -155,11 +156,24 @@ fn validated_run_database_name(staged: &str) -> Result<String> {
     };
 
     if !(MIN_RUN_ID_BYTES..=MAX_RUN_ID_BYTES).contains(&id.len())
-        || !id.bytes().all(|b| b.is_ascii_lowercase() || b.is_ascii_digit())
+        || !id
+            .bytes()
+            .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit())
     {
         bail!(
             "--//build:run_id must be {MIN_RUN_ID_BYTES}..={MAX_RUN_ID_BYTES} characters of \
              [a-z0-9], got {id:?} -- mint one with \
+             `uuidgen | tr -d - | tr 'A-Z' 'a-z' | cut -c1-{MIN_RUN_ID_BYTES}`"
+        );
+    }
+
+    // The heavy bootstrap qualification owns sr_core_test_bootstrap_<random> scratch databases.
+    // teardown_run also drops every <base>_% database, so accepting the exact base
+    // sr_core_test_bootstrap would let one manual lifecycle delete another run's scratch DB.
+    if id == "bootstrap" {
+        bail!(
+            "--//build:run_id value {id:?} is reserved for heavy bootstrap scratch databases; \
+             mint a unique run id with \
              `uuidgen | tr -d - | tr 'A-Z' 'a-z' | cut -c1-{MIN_RUN_ID_BYTES}`"
         );
     }
@@ -210,7 +224,6 @@ pub fn database_url() -> Result<String> {
     Ok(fixture.database_url(&name)?.expose().to_string())
 }
 
-
 /// Remove every credential-bearing URL component before writing a database endpoint to logs.
 ///
 /// PostgreSQL accepts passwords in either userinfo or the query string, so stripping only the
@@ -228,7 +241,6 @@ pub fn redacted_database_url(url: &str) -> String {
     }
 }
 
-
 /// Refuse to touch anything that is not a per-run database.
 pub fn assert_disposable(database: &str) -> Result<()> {
     if !database.starts_with(DISPOSABLE_PREFIX) {
@@ -239,22 +251,9 @@ pub fn assert_disposable(database: &str) -> Result<()> {
 
 /// The role that owns the template database and every clone taken from it.
 ///
-/// Derived from `SRQL_TEST_DATABASE_URL`, because it MUST be the role the suite connects as:
-/// the tests run as the application user, and a database owned by anyone else fails on the
-/// first DDL they attempt.
-///
-/// `scripts/reset-test-db.sh` took the owner from that DSN's user and refused to run without
-/// one. Porting it to Rust replaced that with a hardcoded `"serviceradar"` -- a name the
-/// shared fixture has never had. Its roles are `srql` (the application role, from
-/// `srql-test-db-credentials`) and `srql_hydra` (admin); there is no `serviceradar`, and every
-/// database on it is owned by `srql`, which is exactly what the shell script produced.
-///
-/// So `CREATE DATABASE ... OWNER serviceradar` failed with `role "serviceradar" does not
-/// exist`, naming a role nothing in the configuration ever asked for -- which reads like a
-/// missing grant on the fixture rather than an assumption in this crate.
-///
-/// `SERVICERADAR_TEST_DATABASE_OWNER` still overrides, for a fixture that deliberately
-/// separates the owning role from the connecting one.
+/// Resolved from `database.owning_role` in the declared environment, alongside the application
+/// role that runs the suite. There is no per-setting environment override: provisioning and test
+/// connections therefore cannot silently disagree about the owner of a disposable clone.
 pub fn database_owner() -> Result<String> {
     Ok(config::Fixture::from_env()?.owning_role()?.to_string())
 }
@@ -304,7 +303,6 @@ pub fn parse_pg_config(url: &str, variable: &str) -> Result<PgConfig> {
 /// rejects the verifying values outright, and leaving it in would make the parse fail on a DSN
 /// that is otherwise correct.
 pub use srql::db::strip_sslmode;
-
 
 async fn connect(config: PgConfig) -> Result<(Client, JoinHandle<()>)> {
     let fixture = config::Fixture::from_env()?;
@@ -400,7 +398,8 @@ fn tls_connector_for(fixture: &config::Fixture) -> Result<Option<PgRustlsConnect
     // credential pipeline that rewrote it; a DSN from a secret store bypassed the check entirely.
     let verifies = matches!(
         fixture.tls_mode()?,
-        serviceradar_config_schema::TlsMode::VerifyCa | serviceradar_config_schema::TlsMode::VerifyFull
+        serviceradar_config_schema::TlsMode::VerifyCa
+            | serviceradar_config_schema::TlsMode::VerifyFull
     );
     if !verifies {
         return Ok(None);
@@ -798,8 +797,6 @@ mod tests {
         assert!(assert_disposable("srql_fixture").is_err());
     }
 
-
-
     #[test]
     fn redacted_database_url_hides_userinfo_and_query_credentials() {
         assert_eq!(
@@ -852,7 +849,10 @@ mod tests {
         let error = parse_pg_config(&libpq, "SRQL_TEST_ADMIN_URL")
             .expect_err("the libpq shape must not silently work");
         let chain = format!("{error:#}");
-        assert!(chain.contains("sslsni"), "must name the rejected option: {chain}");
+        assert!(
+            chain.contains("sslsni"),
+            "must name the rejected option: {chain}"
+        );
     }
 
     /// A well-formed staged name survives unchanged.
@@ -862,6 +862,22 @@ mod tests {
         assert_eq!(name, "sr_core_test_a1b2c3d4");
     }
 
+    #[test]
+    fn validated_run_database_name_rejects_the_bootstrap_scratch_prefix() {
+        let error = validated_run_database_name("sr_core_test_bootstrap")
+            .unwrap_err()
+            .to_string();
+
+        assert!(
+            error.contains("bootstrap"),
+            "must name the reserved id: {error}"
+        );
+        assert!(
+            error.contains("reserved"),
+            "must explain the rejection: {error}"
+        );
+    }
+
     /// The unset flag writes an EMPTY file rather than failing at analysis, so this is the
     /// message a developer actually sees. It has to name the flag and say there is no default,
     /// because the old code silently substituted one constant name for every run.
@@ -869,9 +885,18 @@ mod tests {
     fn validated_run_database_name_rejects_an_unset_flag_with_actionable_guidance() {
         let error = validated_run_database_name("").unwrap_err().to_string();
 
-        assert!(error.contains("--//build:run_id"), "must name the flag: {error}");
-        assert!(error.contains("no default"), "must say there is no default: {error}");
-        assert!(error.contains("uuidgen"), "must show how to mint one: {error}");
+        assert!(
+            error.contains("--//build:run_id"),
+            "must name the flag: {error}"
+        );
+        assert!(
+            error.contains("no default"),
+            "must say there is no default: {error}"
+        );
+        assert!(
+            error.contains("uuidgen"),
+            "must show how to mint one: {error}"
+        );
         // The failure surfaces in one of six invocations but the fix belongs to all of them.
         for target in [
             "sweep_stale_dbs",
@@ -910,8 +935,14 @@ mod tests {
         let too_short = format!("{DISPOSABLE_PREFIX}{}", "a".repeat(MIN_RUN_ID_BYTES - 1));
         let too_long = format!("{DISPOSABLE_PREFIX}{}", "a".repeat(MAX_RUN_ID_BYTES + 1));
 
-        assert!(validated_run_database_name(&too_short).is_err(), "{too_short}");
-        assert!(validated_run_database_name(&too_long).is_err(), "{too_long}");
+        assert!(
+            validated_run_database_name(&too_short).is_err(),
+            "{too_short}"
+        );
+        assert!(
+            validated_run_database_name(&too_long).is_err(),
+            "{too_long}"
+        );
     }
 
     /// `uuidgen` output is rejected until it has been stripped and lowercased, which is why the

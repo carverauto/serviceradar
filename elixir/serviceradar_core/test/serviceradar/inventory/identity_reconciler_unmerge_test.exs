@@ -3,7 +3,7 @@ defmodule ServiceRadar.Inventory.IdentityReconcilerUnmergeTest do
   Tests for device unmerge behavior.
   """
 
-  use ServiceRadar.DataCase, async: false
+  use ServiceRadar.DataCase, async: true
 
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Inventory.Device

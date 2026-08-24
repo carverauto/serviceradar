@@ -1,5 +1,5 @@
 defmodule ServiceRadar.Plugins.EdgePrincipalPartitionMigrationDbTest do
-  use ServiceRadar.DataCase, async: false
+  use ServiceRadar.DataCase, async: true
 
   alias ServiceRadar.Repo
   alias ServiceRadar.Repo.Migrations.BindEdgePrincipalsToPartitions, as: Migration
