@@ -9,7 +9,9 @@ function packetFlowStamp(edgeData) {
     const edge = edgeData[i] || {}
     const key = edge.interactionKey || `${edge.sourceId || "s"}:${edge.targetId || "t"}:${i}`
     const telemetryEligible = edge.telemetryEligible === false || edge.telemetry_eligible === false ? 0 : 1
-    acc += `|${key}:${Number(edge.flowPps || 0)}:${Number(edge.flowBps || 0)}:${Number(edge.flowPpsAb || 0)}:${Number(edge.flowPpsBa || 0)}:${Number(edge.flowBpsAb || 0)}:${Number(edge.flowBpsBa || 0)}:${Number(edge.capacityBps || 0)}:${telemetryEligible}:${String(edge.topologyClass || "unknown")}`
+    const path = Array.isArray(edge.path) ? edge.path : []
+    const pathStamp = path.map((point) => `${Number(point?.[0] || 0)},${Number(point?.[1] || 0)}`).join(">")
+    acc += `|${key}:${Number(edge.flowPps || 0)}:${Number(edge.flowBps || 0)}:${Number(edge.flowPpsAb || 0)}:${Number(edge.flowPpsBa || 0)}:${Number(edge.flowBpsAb || 0)}:${Number(edge.flowBpsBa || 0)}:${Number(edge.capacityBps || 0)}:${telemetryEligible}:${String(edge.topologyClass || "unknown")}:${pathStamp}`
   }
   return acc
 }
@@ -76,6 +78,7 @@ export const godViewRenderingStyleEdgeParticleMethods = {
       if (particles.length >= maxParticles) break
       const edge = edgeData[i]
       if (edge?.telemetryEligible === false || edge?.telemetry_eligible === false) continue
+      if (Array.isArray(edge?.path) && edge.path.length > 2) continue
       const topologyStyle = edgeTopologyVisualStyleValue(edge)
       const src = edge?.sourcePosition
       const dst = edge?.targetPosition

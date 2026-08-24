@@ -1,5 +1,5 @@
 import {COORDINATE_SYSTEM} from "@deck.gl/core"
-import {ArcLayer, LineLayer, ScatterplotLayer} from "@deck.gl/layers"
+import {ArcLayer, LineLayer, PathLayer, ScatterplotLayer} from "@deck.gl/layers"
 import PacketFlowLayer from "../deckgl/PacketFlowLayer"
 import {edgeTopologyVisualStyleValue} from "./rendering_style_edge_topology_methods"
 
@@ -28,15 +28,20 @@ export const godViewRenderingGraphLayerTransportMethods = {
     const packetFlowData = (this.state.layers.atmosphere && this.state.packetFlowEnabled)
       ? this.buildPacketFlowInstances(edgeData)
       : []
+    const routedTopologyScene = effective.shape === "local" && effective._layoutMode === "elk-scene"
 
     const mantleLayers = this.state.layers.mantle
       ? [
-          new LineLayer({
+          new (routedTopologyScene ? PathLayer : LineLayer)({
             id: "god-view-edges-mantle",
             data: edgeData,
             coordinateSystem: COORDINATE_SYSTEM.CARTESIAN,
-            getSourcePosition: (d) => d.sourcePosition,
-            getTargetPosition: (d) => d.targetPosition,
+            ...(routedTopologyScene
+              ? {getPath: (d) => d.path}
+              : {
+                  getSourcePosition: (d) => d.sourcePosition,
+                  getTargetPosition: (d) => d.targetPosition,
+                }),
             getColor: (d) => {
               const base = this.state.visual.mantleEdgeBase
               const alphaBase = this.state.visual.mantleEdgeAlphaBase ?? 128
@@ -72,24 +77,38 @@ export const godViewRenderingGraphLayerTransportMethods = {
     const crustLayers =
       this.state.layers.crust
         ? [
-            new ArcLayer({
+            new (routedTopologyScene ? PathLayer : ArcLayer)({
               id: "god-view-edges-crust",
               data: edgeData,
               coordinateSystem: COORDINATE_SYSTEM.CARTESIAN,
-              getSourcePosition: (d) => d.sourcePosition,
-              getTargetPosition: (d) => d.targetPosition,
-              getSourceColor: (d) => {
-                const source = this.edgeTelemetryArcColors(d.flowBps, d.capacityBps, d.flowPps).source
-                const style = edgeTopologyVisualStyleValue(d)
-                const edgeAlpha = Math.min(255, source[3] * alphaMult(d) * style.crustAlphaScale)
-                return [source[0], source[1], source[2], Math.max(style.crustAlphaFloor, edgeAlpha)]
-              },
-              getTargetColor: (d) => {
-                const target = this.edgeTelemetryArcColors(d.flowBps, d.capacityBps, d.flowPps).target
-                const style = edgeTopologyVisualStyleValue(d)
-                const edgeAlpha = Math.min(255, target[3] * alphaMult(d) * style.crustAlphaScale)
-                return [target[0], target[1], target[2], Math.max(style.crustAlphaFloor, edgeAlpha)]
-              },
+              ...(routedTopologyScene
+                ? {
+                    getPath: (d) => d.path,
+                    getColor: (d) => {
+                      const color = typeof this.edgeTelemetryColor === "function"
+                        ? this.edgeTelemetryColor(d.flowBps, d.capacityBps, d.flowPps, true)
+                        : this.edgeTelemetryArcColors(d.flowBps, d.capacityBps, d.flowPps).source
+                      const style = edgeTopologyVisualStyleValue(d)
+                      const edgeAlpha = Math.min(255, color[3] * alphaMult(d) * style.crustAlphaScale)
+                      return [color[0], color[1], color[2], Math.max(style.crustAlphaFloor, edgeAlpha)]
+                    },
+                  }
+                : {
+                    getSourcePosition: (d) => d.sourcePosition,
+                    getTargetPosition: (d) => d.targetPosition,
+                    getSourceColor: (d) => {
+                      const source = this.edgeTelemetryArcColors(d.flowBps, d.capacityBps, d.flowPps).source
+                      const style = edgeTopologyVisualStyleValue(d)
+                      const edgeAlpha = Math.min(255, source[3] * alphaMult(d) * style.crustAlphaScale)
+                      return [source[0], source[1], source[2], Math.max(style.crustAlphaFloor, edgeAlpha)]
+                    },
+                    getTargetColor: (d) => {
+                      const target = this.edgeTelemetryArcColors(d.flowBps, d.capacityBps, d.flowPps).target
+                      const style = edgeTopologyVisualStyleValue(d)
+                      const edgeAlpha = Math.min(255, target[3] * alphaMult(d) * style.crustAlphaScale)
+                      return [target[0], target[1], target[2], Math.max(style.crustAlphaFloor, edgeAlpha)]
+                    },
+                  }),
               getWidth: (d) => {
                 const style = edgeTopologyVisualStyleValue(d)
                 const base = Math.max(
@@ -100,7 +119,7 @@ export const godViewRenderingGraphLayerTransportMethods = {
               },
               getPolygonOffset: (d) => (this.edgeIsFocused(d) ? [0, -1000] : [0, 0]),
               widthUnits: "pixels",
-              greatCircle: false,
+              ...(routedTopologyScene ? {} : {greatCircle: false}),
               pickable: true,
               parameters: {
                 blend: true,
@@ -109,8 +128,12 @@ export const godViewRenderingGraphLayerTransportMethods = {
                 depthWrite: false,
               },
               updateTriggers: {
-                getSourceColor: [hasFocus, this.state.hoveredEdgeKey, this.state.selectedEdgeKey],
-                getTargetColor: [hasFocus, this.state.hoveredEdgeKey, this.state.selectedEdgeKey],
+                ...(routedTopologyScene
+                  ? {getColor: [hasFocus, this.state.hoveredEdgeKey, this.state.selectedEdgeKey]}
+                  : {
+                      getSourceColor: [hasFocus, this.state.hoveredEdgeKey, this.state.selectedEdgeKey],
+                      getTargetColor: [hasFocus, this.state.hoveredEdgeKey, this.state.selectedEdgeKey],
+                    }),
                 getWidth: [zoomScale, hasFocus, this.state.hoveredEdgeKey, this.state.selectedEdgeKey],
                 getPolygonOffset: [hasFocus, this.state.hoveredEdgeKey, this.state.selectedEdgeKey],
               },

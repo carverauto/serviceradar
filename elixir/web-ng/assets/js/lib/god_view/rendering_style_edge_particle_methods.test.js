@@ -3,6 +3,24 @@ import {describe, expect, it} from "vitest"
 import {godViewRenderingStyleEdgeParticleMethods} from "./rendering_style_edge_particle_methods"
 
 describe("rendering_style_edge_particle_methods", () => {
+  it("omits particles for bent routes until polyline distance sampling exists", () => {
+    const particles = godViewRenderingStyleEdgeParticleMethods.buildPacketFlowInstances([
+      {
+        sourcePosition: [0, 0, 0],
+        targetPosition: [100, 100, 0],
+        path: [[0, 0, 0], [100, 0, 0], [100, 100, 0]],
+        flowPps: 1000,
+        flowBps: 10_000_000,
+        flowPpsAb: 1000,
+        flowBpsAb: 10_000_000,
+        capacityBps: 20_000_000,
+        telemetryEligible: true,
+      },
+    ])
+
+    expect(particles).toEqual([])
+  })
+
   it("buildPacketFlowInstances enforces visibility floors on low-but-real telemetry links", () => {
     const particles = godViewRenderingStyleEdgeParticleMethods.buildPacketFlowInstances([
       {

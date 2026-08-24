@@ -1,9 +1,47 @@
 import {describe, expect, it, vi} from "vitest"
+import {ArcLayer, PathLayer} from "@deck.gl/layers"
 
 import {bindApi, createStateBackedContext} from "./api_helpers"
 import {godViewRenderingGraphLayerTransportMethods} from "./rendering_graph_layer_transport_methods"
 
 describe("rendering_graph_layer_transport_methods", () => {
+  it("renders routed topology edges through one shared PathLayer path", () => {
+    const state = {
+      animationPhase: 1.2,
+      hoveredEdgeKey: "local:route:a-b",
+      selectedEdgeKey: "local:route:a-b",
+      layers: {mantle: true, crust: true, atmosphere: false, security: false},
+      visual: {
+        mantleEdgeBase: [30, 80, 140],
+        mantleEdgeAlphaBase: 128,
+        mantleEdgeAlphaBoost: 32,
+      },
+    }
+    const ctx = createStateBackedContext(state, {geoGridData: vi.fn(() => [])})
+    Object.assign(ctx, bindApi(ctx, godViewRenderingGraphLayerTransportMethods), {
+      edgeTelemetryColor: vi.fn(() => [100, 160, 255, 150]),
+      edgeWidthPixels: vi.fn(() => 2.2),
+      edgeIsFocused: vi.fn(() => true),
+    })
+    const edge = {
+      interactionKey: "local:route:a-b",
+      path: [[0, 0, 0], [40, 0, 0], [40, 80, 0]],
+      sourcePosition: [0, 0, 0],
+      targetPosition: [40, 80, 0],
+      topologyClass: "backbone",
+    }
+
+    const out = ctx.buildTransportAndEffectLayers({shape: "local", _layoutMode: "elk-scene"}, [], [edge])
+
+    expect(out.mantleLayers[0]).toBeInstanceOf(PathLayer)
+    expect(out.crustLayers[0]).toBeInstanceOf(PathLayer)
+    expect(out.mantleLayers[0].props.getPath(edge)).toBe(edge.path)
+    expect(out.crustLayers[0].props.getPath(edge)).toBe(edge.path)
+    expect(out.mantleLayers[0]).not.toBeInstanceOf(ArcLayer)
+    expect(out.crustLayers[0]).not.toBeInstanceOf(ArcLayer)
+    expect(out.crustLayers[0].props.getColor(edge)).toEqual([100, 160, 255, 255])
+  })
+
   it("buildTransportAndEffectLayers includes atmosphere particles with additive blend settings", () => {
     const state = {
       animationPhase: 1.2,
