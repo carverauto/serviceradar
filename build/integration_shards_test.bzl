@@ -107,17 +107,17 @@ def _integration_shards_topology_test_impl(ctx):
     asserts.equals(env, 15, LARGE_INGESTION_WORKFLOW_CONNECTION_SLOTS)
     asserts.equals(env, "serial_0", FIXED_EXTERNAL_RESOURCE_LANE)
 
-    asserts.equals(env, 7, serial_lane_count_for_capacity(197, 158))
-    asserts.equals(env, 7, serial_lane_count_for_capacity(107, 158))
-    asserts.equals(env, 6, serial_lane_count_for_capacity(106, 158))
-    asserts.equals(env, 1, serial_lane_count_for_capacity(27, 158))
+    asserts.equals(env, 7, serial_lane_count_for_capacity(197, 159))
+    asserts.equals(env, 7, serial_lane_count_for_capacity(107, 159))
+    asserts.equals(env, 6, serial_lane_count_for_capacity(106, 159))
+    asserts.equals(env, 1, serial_lane_count_for_capacity(27, 159))
     asserts.equals(env, 1, serial_lane_count_for_capacity(197, 1))
 
     async_sources = async_integration_sources()
     serial_counts = serial_source_module_counts()
     selected_sources = integration_selected_sources()
-    asserts.equals(env, 120, len(async_sources))
-    asserts.equals(env, 158, len(serial_counts))
+    asserts.equals(env, 119, len(async_sources))
+    asserts.equals(env, 159, len(serial_counts))
     asserts.equals(env, 278, len(selected_sources))
     asserts.equals(env, _FIXED_EXTERNAL_RESOURCE_SRCS, fixed_external_resource_sources())
 

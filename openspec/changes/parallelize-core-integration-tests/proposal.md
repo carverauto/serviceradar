@@ -135,7 +135,7 @@ eight-shard treatment. Parallelizing shard databases cannot divide that sequenti
   - exhaustive async/serial DataCase disposition inventory and audited module splits
   - audited core integration test modules
   - `elixir/serviceradar_core/test/serviceradar/results_router_integration_test.exs`
-  - `elixir/serviceradar_core/test/serviceradar/inventory/identifier_cardinality_gate_test.exs`
+  - `elixir/serviceradar_core/test/release_gates/large_ingestion/identifier_cardinality_release_gate_test.exs`
   - source-separated large-ingestion release-gate modules
   - `elixir/serviceradar_core/test/serviceradar/cluster/database_bootstrap_integration_test.exs`
   - `openspec/changes/parallelize-core-integration-tests/benchmark.md`

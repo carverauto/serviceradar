@@ -349,8 +349,10 @@ delimiter-safe `(source, module, test-name)` identities. The selected-chunk unio
 the union of all six chunks before the production shard sources change, and every load-only chunk
 must emit no selected identity. Files containing selected and unselected modules are allowed only
 when all selected modules have one async mode. Files containing selected modules with mixed async
-modes are split. The adhoc-scan NATS and anomaly-profile seeder sources are split so their selected
-database/global cases and unrelated async cases are source-addressable.
+modes are split. The adhoc-scan NATS source is split so its selected global case and unrelated async
+cases are source-addressable. The anomaly-profile seeder's one selected database module remains
+beside an unselected schema-only module; because the selected module changes VM-global Logger
+configuration, the entire retained integration source is serial.
 
 Placement models module-level selected case weights because ExUnit schedules modules, not files.
 It adds a separate common source-load weight for every retained source rather than fabricating

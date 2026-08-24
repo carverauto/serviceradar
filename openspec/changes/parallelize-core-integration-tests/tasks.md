@@ -111,8 +111,10 @@
 - [x] 3.17 Complete the exhaustive audit, split every mixed selected-mode source, and freeze one
       async source set plus serial source set before timing; exclude load-only sources.
       Status: final review moved all seven selected modules with unfiltered VM-global telemetry
-      handlers from async to serial. The only async module that attaches telemetry now filters in
-      the callback by its unique `agent_uid` before forwarding an event to the test process.
+      handlers and the anomaly profile seeder module with VM-global Logger configuration from async
+      to serial, leaving 119 async and 159 serial selected modules. The only async module that
+      attaches telemetry now filters in the callback by its unique `agent_uid` before forwarding an
+      event to the test process, and a static contract rejects `Logger.configure/1` in async modules.
 - [x] 3.18 Pin every ordinary BEAM's Repo pool at 12 and implement the proposal-time frozen topology:
       one async lane at cap eight plus exactly seven serial lanes at cap one, for eight BEAMs / 96
       configured core pool slots. Require the runtime observer to fail closed unless live total

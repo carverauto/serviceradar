@@ -1158,6 +1158,14 @@ class WorkflowIntegrationLifecycleContractTest(unittest.TestCase):
         self.assertEqual(2, source.count(":telemetry.attach("))
         self.assertEqual(2, source.count("if metadata.agent_uid == agent_uid do"))
 
+    def test_async_modules_do_not_mutate_vm_global_logger_configuration(self):
+        for row in integration_dispositions():
+            if row["mode"] != "async":
+                continue
+
+            block = module_source_block(row["source"], row["module"])
+            self.assertNotIn("Logger.configure(", block, row)
+
     def test_integration_disposition_inventory_is_exhaustive_and_concrete(self):
         rows = integration_dispositions()
         selected = [row for row in rows if row["mode"] in SELECTED_MODES]
