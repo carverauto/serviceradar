@@ -344,20 +344,40 @@ defmodule ServiceRadar.Inventory.Discovery.EnrichmentParityTest do
         ]
       }
 
-      payload = ProcessSnapshotBatch.encode(%ProcessSnapshotBatch{snapshot: snapshot})
-      assert {:ok, [observation], _stats} = Decoders.Process.decode(payload, "10.20.30.40")
+      payload =
+        ProcessSnapshotBatch.encode(%ProcessSnapshotBatch{
+          snapshot: snapshot,
+          subject_ip: "10.20.30.40"
+        })
+
+      assert {:ok, [observation], _stats} = Decoders.Process.decode(payload)
 
       assert_parity("process_snapshot", observation)
     end
 
     test "no subject address is a drop, not a guess" do
+      # The subject travels IN the payload. It used to be a second argument, which
+      # DiscoveryIngestor never passes -- so every snapshot was skipped. This
+      # asserts the drop happens only when the payload genuinely carries no
+      # subject, not because of how the decoder is called.
       payload =
         ProcessSnapshotBatch.encode(%ProcessSnapshotBatch{
           snapshot: %ProcessSnapshot{fingerprint: "f", observed_at_unix_nano: @observed_at}
         })
 
-      assert {:ok, [], stats} = Decoders.Process.decode(payload, "")
+      assert {:ok, [], stats} = Decoders.Process.decode(payload)
       assert stats.skipped_no_subject == 1
+    end
+
+    test "the decoder the ingestor actually calls is decode/1" do
+      # decode_and_enqueue/4 calls entry.decoder.decode(part) with ONE argument.
+      # A decoder exporting only decode/2 would raise or, with a default, silently
+      # skip everything it was handed.
+      # ensure_loaded! first: function_exported?/3 answers false for a module that
+      # has not been loaded yet, which makes this pass or fail on test ordering
+      # rather than on the thing it is checking.
+      Code.ensure_loaded!(Decoders.Process)
+      assert function_exported?(Decoders.Process, :decode, 1)
     end
   end
 end

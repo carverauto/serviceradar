@@ -559,4 +559,11 @@ message DpiEventBatch {
 // semantics, since the envelope carries them for every payload.
 message ProcessSnapshotBatch {
   ProcessSnapshot snapshot = 1;
+  // The address of the host these processes are listening on -- the collector's
+  // own. It travels IN the payload because a decoder is handed payload bytes and
+  // nothing else, and because core has no attested collector address to fall
+  // back on. Empty means the observation cannot be placed and is dropped:
+  // attaching a host's process listing to the wrong device is worse than not
+  // attaching it.
+  string subject_ip = 2;
 }

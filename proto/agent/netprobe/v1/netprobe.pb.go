@@ -4232,8 +4232,15 @@ func (x *DpiEventBatch) GetDroppedSinceLast() uint32 {
 // told from a shrinking one. Wrapping it in the envelope is what gives it those
 // semantics, since the envelope carries them for every payload.
 type ProcessSnapshotBatch struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Snapshot      *ProcessSnapshot       `protobuf:"bytes,1,opt,name=snapshot,proto3" json:"snapshot,omitempty"`
+	state    protoimpl.MessageState `protogen:"open.v1"`
+	Snapshot *ProcessSnapshot       `protobuf:"bytes,1,opt,name=snapshot,proto3" json:"snapshot,omitempty"`
+	// The address of the host these processes are listening on -- the collector's
+	// own. It travels IN the payload because a decoder is handed payload bytes and
+	// nothing else, and because core has no attested collector address to fall
+	// back on. Empty means the observation cannot be placed and is dropped:
+	// attaching a host's process listing to the wrong device is worse than not
+	// attaching it.
+	SubjectIp     string `protobuf:"bytes,2,opt,name=subject_ip,json=subjectIp,proto3" json:"subject_ip,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -4273,6 +4280,13 @@ func (x *ProcessSnapshotBatch) GetSnapshot() *ProcessSnapshot {
 		return x.Snapshot
 	}
 	return nil
+}
+
+func (x *ProcessSnapshotBatch) GetSubjectIp() string {
+	if x != nil {
+		return x.SubjectIp
+	}
+	return ""
 }
 
 var File_agent_netprobe_v1_netprobe_proto protoreflect.FileDescriptor
@@ -4667,9 +4681,11 @@ const file_agent_netprobe_v1_netprobe_proto_rawDesc = "" +
 	"\x06events\x18\x01 \x03(\v2(.serviceradar.agent.netprobe.v1.DpiEventR\x06events\x121\n" +
 	"\x15batch_start_unix_nano\x18\x02 \x01(\x03R\x12batchStartUnixNano\x12-\n" +
 	"\x13batch_end_unix_nano\x18\x03 \x01(\x03R\x10batchEndUnixNano\x12,\n" +
-	"\x12dropped_since_last\x18\x04 \x01(\rR\x10droppedSinceLast\"c\n" +
+	"\x12dropped_since_last\x18\x04 \x01(\rR\x10droppedSinceLast\"\x82\x01\n" +
 	"\x14ProcessSnapshotBatch\x12K\n" +
-	"\bsnapshot\x18\x01 \x01(\v2/.serviceradar.agent.netprobe.v1.ProcessSnapshotR\bsnapshot*\x9d\x01\n" +
+	"\bsnapshot\x18\x01 \x01(\v2/.serviceradar.agent.netprobe.v1.ProcessSnapshotR\bsnapshot\x12\x1d\n" +
+	"\n" +
+	"subject_ip\x18\x02 \x01(\tR\tsubjectIp*\x9d\x01\n" +
 	"\x10DeviceCensusKind\x12\"\n" +
 	"\x1eDEVICE_CENSUS_KIND_UNSPECIFIED\x10\x00\x12\"\n" +
 	"\x1eDEVICE_CENSUS_KIND_ARP_REQUEST\x10\x01\x12 \n" +

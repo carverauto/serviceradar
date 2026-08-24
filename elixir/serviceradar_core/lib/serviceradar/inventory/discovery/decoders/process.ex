@@ -22,10 +22,14 @@ defmodule ServiceRadar.Inventory.Discovery.Decoders.Process do
 
   ## The address
 
-  The snapshot itself carries no address, so `observation_scope` on the envelope
-  supplies it: the producer knows its own address and core does not. An empty
-  scope is a drop rather than a guess -- attaching a host's process listing to
-  the wrong device is worse than not attaching it.
+  `ProcessSnapshotBatch.subject_ip` carries it, IN the payload. It has to travel
+  there rather than out of band, because `DiscoveryIngestor.decode_and_enqueue/4`
+  hands a decoder payload bytes and nothing else -- an earlier version of this
+  module took the subject as a second argument and was therefore never called
+  with one, so it skipped every snapshot it was given.
+
+  Empty is a drop rather than a guess: attaching a host's process listing to the
+  wrong device is worse than not attaching it.
   """
 
   alias Serviceradar.Agent.Netprobe.V1.ProcessSnapshot
@@ -37,15 +41,13 @@ defmodule ServiceRadar.Inventory.Discovery.Decoders.Process do
   @type observation :: %{optional(String.t()) => term()}
   @type stats :: %{atom() => non_neg_integer()}
 
-  @spec decode(binary(), String.t()) :: {:ok, [observation()], stats()} | {:error, term()}
-  def decode(payload, subject_ip \\ "")
-
-  def decode(payload, subject_ip) when is_binary(payload) do
+  @spec decode(binary()) :: {:ok, [observation()], stats()} | {:error, term()}
+  def decode(payload) when is_binary(payload) do
     case safe_decode(payload) do
       {:ok, %ProcessSnapshotBatch{snapshot: nil}} ->
         {:ok, [], %{snapshots: 0, observations: 0}}
 
-      {:ok, %ProcessSnapshotBatch{snapshot: snapshot}} ->
+      {:ok, %ProcessSnapshotBatch{snapshot: snapshot, subject_ip: subject_ip}} ->
         translate(snapshot, trim(subject_ip))
 
       {:error, reason} ->
@@ -53,7 +55,7 @@ defmodule ServiceRadar.Inventory.Discovery.Decoders.Process do
     end
   end
 
-  def decode(_payload, _subject_ip), do: {:error, :invalid_payload}
+  def decode(_payload), do: {:error, :invalid_payload}
 
   defp safe_decode(payload) do
     {:ok, ProcessSnapshotBatch.decode(payload)}
