@@ -407,13 +407,7 @@ fn parse_peer_up_tlvs(data: &mut Bytes) -> Vec<PeerUpNotificationTlv> {
             break;
         }
 
-        let info_type = match PeerUpTlvType::try_from(info_type_raw) {
-            Ok(info_type) => info_type,
-            Err(_) => {
-                let _ = data.split_to(4 + info_len);
-                continue;
-            }
-        };
+        let info_type = PeerUpTlvType::from(info_type_raw);
 
         let info_value = String::from_utf8_lossy(&data[4..4 + info_len]).to_string();
         let _ = data.split_to(4 + info_len);
