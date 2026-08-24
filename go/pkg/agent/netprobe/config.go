@@ -87,6 +87,10 @@ type bootstrapConfig struct {
 	ExternalFlowMatchWindowMs    uint32     `json:"external_flow_match_window_ms,omitempty"`
 	FlowAttributionIpcBatch      bool       `json:"flow_attribution_ipc_batch"`
 	EmitRawFlowAttributionEvents bool       `json:"emit_raw_flow_attribution_events"`
+	// Written so netprobe has it from BOOT, not only once the agent connects and
+	// applies config. The payloads that need it (DPI subject selection, the
+	// process snapshot's subject) start flowing before the first apply.
+	CollectorIP string `json:"collector_ip,omitempty"`
 }
 
 type addonConfig struct {
@@ -289,6 +293,7 @@ func WriteBootstrapConfig(path string, cfg *netprobepb.VisibilityAgentConfig) er
 		payload.ExternalFlowMatchWindowMs = cfg.GetExternalFlowMatchWindowMs()
 		payload.FlowAttributionIpcBatch = cfg.GetFlowAttributionIpcBatch()
 		payload.EmitRawFlowAttributionEvents = cfg.GetEmitRawFlowAttributionEvents()
+		payload.CollectorIP = strings.TrimSpace(cfg.GetCollectorIp())
 	}
 
 	data, err := json.MarshalIndent(payload, "", "  ")

@@ -19,6 +19,10 @@ use crate::{
 pub struct RuntimeConfig {
     inner: Arc<RwLock<VisibilityState>>,
     capture_interfaces: Arc<Vec<String>>,
+    /// Where netprobe is running, stamped by the agent. See
+    /// VisibilityAgentConfig.collector_ip -- DPI subject selection and the
+    /// process snapshot both need it and neither can guess it.
+    collector_ip: Arc<RwLock<String>>,
     flow_table_max_entries: u32,
     // Startup-only, like the two above, and stored for the same reason: apply()
     // has to compare a requested config against what this PROCESS is running.
@@ -103,6 +107,7 @@ impl RuntimeConfig {
                 flow_attribution_ipc_batch: config.flow_attribution_ipc_batch,
             })),
             capture_interfaces: Arc::new(normalize_capture_interfaces(&config.capture_interfaces)),
+            collector_ip: Arc::new(RwLock::new(config.collector_ip.trim().to_owned())),
             flow_table_max_entries: config.effective_flow_table_max_entries(),
             process_snapshot_interval_s: config.process_snapshot_interval_s,
             emit_raw_flow_attribution_events: config.emit_raw_flow_attribution_events,
@@ -175,6 +180,20 @@ impl RuntimeConfig {
         let external_flow_match_window_ms =
             effective_external_flow_match_window_ms(config.external_flow_match_window_ms);
 
+        // An EMPTY collector_ip means "this config did not carry one", never
+        // "clear the one you have". The AddonService Configure path builds its
+        // VisibilityAgentConfig from operator-facing JSON, which deliberately has
+        // no collector_ip field -- so without this guard the first Configure call
+        // would wipe the address the bootstrap config supplied at boot, and DPI
+        // subject selection would silently stop.
+        let requested_collector_ip = config.collector_ip.trim().to_owned();
+        if !requested_collector_ip.is_empty() {
+            *self
+                .collector_ip
+                .write()
+                .expect("collector ip lock poisoned") = requested_collector_ip;
+        }
+
         let config_hash = config_hash(&config);
         let mut state = self.inner.write().expect("runtime config lock poisoned");
         *state = next;
@@ -184,6 +203,15 @@ impl RuntimeConfig {
             .expect("external flow match window lock poisoned") = external_flow_match_window_ms;
 
         Ok(config_hash)
+    }
+
+    /// Empty when the agent has not supplied one. Callers must treat that as
+    /// "cannot name a subject" and skip, rather than substituting a guess.
+    pub fn collector_ip(&self) -> String {
+        self.collector_ip
+            .read()
+            .expect("collector ip lock poisoned")
+            .clone()
     }
 
     pub fn external_flow_match_window_ms(&self) -> u32 {
@@ -860,6 +888,64 @@ mod tests {
         assert!(
             message.contains("capture_interfaces") && message.contains("restart"),
             "message should name the field and the remedy: {message}"
+        );
+    }
+
+    #[test]
+    fn collector_ip_comes_from_the_bootstrap_config() {
+        let config = Config {
+            collector_ip: "  10.20.30.40  ".to_string(),
+            ..Default::default()
+        };
+
+        assert_eq!(RuntimeConfig::new(&config).collector_ip(), "10.20.30.40");
+    }
+
+    #[test]
+    fn collector_ip_defaults_to_empty_rather_than_a_guess() {
+        // Empty is the honest answer when the agent has not stamped one. Callers
+        // must skip the payloads that need a subject rather than invent one.
+        assert_eq!(RuntimeConfig::new(&Config::default()).collector_ip(), "");
+    }
+
+    #[test]
+    fn apply_updates_the_collector_ip() {
+        let runtime_config = RuntimeConfig::new(&Config::default());
+
+        runtime_config
+            .apply(VisibilityAgentConfig {
+                enabled: true,
+                collector_ip: "10.20.30.41".to_string(),
+                ..Default::default()
+            })
+            .expect("apply");
+
+        assert_eq!(runtime_config.collector_ip(), "10.20.30.41");
+    }
+
+    #[test]
+    fn apply_without_a_collector_ip_does_not_wipe_the_one_we_have() {
+        // The AddonService Configure path builds its VisibilityAgentConfig from
+        // operator-facing JSON, which has no collector_ip field. Without this,
+        // the first Configure call after boot would clear the address the
+        // bootstrap supplied and DPI subject selection would silently stop.
+        let config = Config {
+            collector_ip: "10.20.30.40".to_string(),
+            ..Default::default()
+        };
+        let runtime_config = RuntimeConfig::new(&config);
+
+        runtime_config
+            .apply(VisibilityAgentConfig {
+                enabled: true,
+                ..Default::default()
+            })
+            .expect("apply");
+
+        assert_eq!(
+            runtime_config.collector_ip(),
+            "10.20.30.40",
+            "an absent collector_ip means 'not supplied', never 'clear it'"
         );
     }
 }

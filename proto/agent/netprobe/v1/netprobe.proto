@@ -97,6 +97,24 @@ message VisibilityAgentConfig {
   bool flow_attribution_ipc_batch = 43;
   bool emit_raw_flow_attribution_events = 44;
 
+  // The address of the host netprobe is running on, stamped by the agent from
+  // its own configuration.
+  //
+  // netprobe cannot work this out for itself -- it has no notion of "the" host
+  // address, and picking one from a capture interface would be a guess that
+  // disagrees with the identity the agent already reports under. Two things need
+  // it, and both are wrong without it:
+  //
+  //   * DPI subject selection. A DPI event has two endpoints and the device is a
+  //     choice between them; the collector's own address wins when it is either
+  //     one. Core cannot make that choice (it has no attested collector address),
+  //     so netprobe must, before it sends.
+  //   * The process snapshot's subject, which IS this host.
+  //
+  // Empty means neither can be done and the affected payloads are not emitted,
+  // rather than emitted against a guessed subject.
+  string collector_ip = 48;
+
   reserved 21 to 39;
   reserved 45 to 47;
   reserved "flow_attribution";

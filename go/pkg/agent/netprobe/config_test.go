@@ -17,6 +17,7 @@
 package netprobe
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -557,5 +558,66 @@ func TestApplyAddonConfigJSONDropsABindingWithNoIP(t *testing.T) {
 	bindings := merged.GetDeviceBindings()
 	if len(bindings) != 1 || bindings[0].GetIp() != "10.0.0.7" {
 		t.Fatalf("device_bindings = %v, want only the addressed binding", bindings)
+	}
+}
+
+func TestBootstrapConfigCarriesCollectorIP(t *testing.T) {
+	// netprobe needs the address from BOOT, not from the first config apply: the
+	// payloads that need a subject start flowing before the agent connects.
+	path := filepath.Join(t.TempDir(), "netprobe.json")
+
+	if err := WriteBootstrapConfig(path, &netprobepb.VisibilityAgentConfig{
+		Enabled:     true,
+		CollectorIp: "  10.20.30.40  ",
+	}); err != nil {
+		t.Fatalf("WriteBootstrapConfig: %v", err)
+	}
+
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read bootstrap config: %v", err)
+	}
+
+	var decoded struct {
+		CollectorIP string `json:"collector_ip"`
+	}
+	if err := json.Unmarshal(raw, &decoded); err != nil {
+		t.Fatalf("unmarshal bootstrap config: %v", err)
+	}
+	if decoded.CollectorIP != "10.20.30.40" {
+		t.Fatalf("collector_ip = %q, want %q (trimmed)", decoded.CollectorIP, "10.20.30.40")
+	}
+}
+
+func TestBootstrapConfigOmitsAnUnsetCollectorIP(t *testing.T) {
+	// Absent rather than empty: netprobe reads an absent value as "not supplied"
+	// and keeps whatever it already had, so writing "" would be a wipe.
+	path := filepath.Join(t.TempDir(), "netprobe.json")
+
+	if err := WriteBootstrapConfig(path, &netprobepb.VisibilityAgentConfig{Enabled: true}); err != nil {
+		t.Fatalf("WriteBootstrapConfig: %v", err)
+	}
+
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read bootstrap config: %v", err)
+	}
+	if strings.Contains(string(raw), "collector_ip") {
+		t.Fatalf("unset collector_ip must be omitted, got: %s", raw)
+	}
+}
+
+func TestAddonConfigJSONCannotOverrideCollectorIP(t *testing.T) {
+	// The add-on config JSON is OPERATOR-controlled. The collector address is
+	// agent runtime context, and an operator naming a different host's address
+	// would send every fingerprint and DPI subject to the wrong device.
+	base := &netprobepb.VisibilityAgentConfig{Enabled: true, CollectorIp: "10.20.30.40"}
+
+	merged, err := ApplyAddonConfigJSON(base, []byte(`{"enabled":true,"collector_ip":"10.99.99.99"}`))
+	if err != nil {
+		t.Fatalf("ApplyAddonConfigJSON: %v", err)
+	}
+	if got := merged.GetCollectorIp(); got != "10.20.30.40" {
+		t.Fatalf("collector_ip = %q, want the agent's %q; operator config must not relocate the collector", got, "10.20.30.40")
 	}
 }

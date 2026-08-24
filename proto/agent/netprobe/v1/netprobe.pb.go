@@ -772,8 +772,25 @@ type VisibilityAgentConfig struct {
 	ExternalFlowMatchWindowMs    uint32                 `protobuf:"varint,42,opt,name=external_flow_match_window_ms,json=externalFlowMatchWindowMs,proto3" json:"external_flow_match_window_ms,omitempty"`
 	FlowAttributionIpcBatch      bool                   `protobuf:"varint,43,opt,name=flow_attribution_ipc_batch,json=flowAttributionIpcBatch,proto3" json:"flow_attribution_ipc_batch,omitempty"`
 	EmitRawFlowAttributionEvents bool                   `protobuf:"varint,44,opt,name=emit_raw_flow_attribution_events,json=emitRawFlowAttributionEvents,proto3" json:"emit_raw_flow_attribution_events,omitempty"`
-	unknownFields                protoimpl.UnknownFields
-	sizeCache                    protoimpl.SizeCache
+	// The address of the host netprobe is running on, stamped by the agent from
+	// its own configuration.
+	//
+	// netprobe cannot work this out for itself -- it has no notion of "the" host
+	// address, and picking one from a capture interface would be a guess that
+	// disagrees with the identity the agent already reports under. Two things need
+	// it, and both are wrong without it:
+	//
+	//   - DPI subject selection. A DPI event has two endpoints and the device is a
+	//     choice between them; the collector's own address wins when it is either
+	//     one. Core cannot make that choice (it has no attested collector address),
+	//     so netprobe must, before it sends.
+	//   - The process snapshot's subject, which IS this host.
+	//
+	// Empty means neither can be done and the affected payloads are not emitted,
+	// rather than emitted against a guessed subject.
+	CollectorIp   string `protobuf:"bytes,48,opt,name=collector_ip,json=collectorIp,proto3" json:"collector_ip,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *VisibilityAgentConfig) Reset() {
@@ -874,6 +891,13 @@ func (x *VisibilityAgentConfig) GetEmitRawFlowAttributionEvents() bool {
 		return x.EmitRawFlowAttributionEvents
 	}
 	return false
+}
+
+func (x *VisibilityAgentConfig) GetCollectorIp() string {
+	if x != nil {
+		return x.CollectorIp
+	}
+	return ""
 }
 
 type DeviceBinding struct {
@@ -4340,7 +4364,7 @@ const file_agent_netprobe_v1_netprobe_proto_rawDesc = "" +
 	"\n" +
 	"ErrorFrame\x12\x12\n" +
 	"\x04code\x18\x01 \x01(\tR\x04code\x12\x18\n" +
-	"\amessage\x18\x02 \x01(\tR\amessage\"\xda\x05\n" +
+	"\amessage\x18\x02 \x01(\tR\amessage\"\xfd\x05\n" +
 	"\x15VisibilityAgentConfig\x12\x18\n" +
 	"\aenabled\x18\x01 \x01(\bR\aenabled\x12-\n" +
 	"\x12capture_interfaces\x18\x02 \x03(\tR\x11captureInterfaces\x12V\n" +
@@ -4351,7 +4375,8 @@ const file_agent_netprobe_v1_netprobe_proto_rawDesc = "" +
 	"\x1bprocess_snapshot_interval_s\x18) \x01(\rR\x18processSnapshotIntervalS\x12@\n" +
 	"\x1dexternal_flow_match_window_ms\x18* \x01(\rR\x19externalFlowMatchWindowMs\x12;\n" +
 	"\x1aflow_attribution_ipc_batch\x18+ \x01(\bR\x17flowAttributionIpcBatch\x12F\n" +
-	" emit_raw_flow_attribution_events\x18, \x01(\bR\x1cemitRawFlowAttributionEventsJ\x04\b\x15\x10(J\x04\b-\x100R\x10flow_attributionR\x19workload_identity_enabledR\fcri_endpointR$workload_identity_refresh_interval_s\"\xa1\x02\n" +
+	" emit_raw_flow_attribution_events\x18, \x01(\bR\x1cemitRawFlowAttributionEvents\x12!\n" +
+	"\fcollector_ip\x180 \x01(\tR\vcollectorIpJ\x04\b\x15\x10(J\x04\b-\x100R\x10flow_attributionR\x19workload_identity_enabledR\fcri_endpointR$workload_identity_refresh_interval_s\"\xa1\x02\n" +
 	"\rDeviceBinding\x12\x0e\n" +
 	"\x02ip\x18\x01 \x01(\tR\x02ip\x12\x1d\n" +
 	"\n" +
