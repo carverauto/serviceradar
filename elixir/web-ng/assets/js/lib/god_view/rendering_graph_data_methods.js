@@ -62,6 +62,82 @@ function midpointOnPath(path) {
   return [...path[path.length - 1]]
 }
 
+function stableSerializedValue(value) {
+  if (Array.isArray(value)) {
+    return `[${value.map((entry) => stableSerializedValue(entry)).join(",")}]`
+  }
+
+  if (value && typeof value === "object") {
+    const fields = Object.keys(value)
+      .sort()
+      .map((key) => `${JSON.stringify(key)}:${stableSerializedValue(value[key])}`)
+    return `{${fields.join(",")}}`
+  }
+
+  const serialized = JSON.stringify(value)
+  return serialized === undefined ? String(value) : serialized
+}
+
+function stableStringCompare(left, right) {
+  if (left < right) return -1
+  if (left > right) return 1
+  return 0
+}
+
+function observationEpoch(details) {
+  const value = details?.telemetry_observed_at ?? details?.observed_at
+  if (value === null || value === undefined || value === "") return null
+
+  const epoch = typeof value === "number" ? value : Date.parse(String(value))
+  return Number.isFinite(epoch) ? epoch : null
+}
+
+function deterministicRelationPresentation(relations) {
+  const candidates = (relations || []).map((relation) => {
+    const details = relation?.details && typeof relation.details === "object" && !Array.isArray(relation.details)
+      ? relation.details
+      : {}
+    return {
+      details,
+      label: String(relation?.label || "").trim(),
+      observedAt: observationEpoch(details),
+      serializedDetails: stableSerializedValue(details),
+      telemetrySource: String(details.telemetry_source || "").trim(),
+    }
+  })
+
+  candidates.sort((left, right) => {
+    const leftHasObservation = left.observedAt !== null
+    const rightHasObservation = right.observedAt !== null
+    if (leftHasObservation !== rightHasObservation) return leftHasObservation ? -1 : 1
+    if (leftHasObservation && left.observedAt !== right.observedAt) return right.observedAt - left.observedAt
+
+    return stableStringCompare(left.telemetrySource, right.telemetrySource) ||
+      stableStringCompare(left.serializedDetails, right.serializedDetails) ||
+      stableStringCompare(left.label, right.label)
+  })
+
+  const representative = candidates[0]
+  const details = representative ? {...representative.details} : {}
+  const sparklineCandidate = candidates.find((candidate) =>
+    Array.isArray(candidate.details.interface_sparkline) && candidate.details.interface_sparkline.length > 0,
+  )
+
+  if (sparklineCandidate) {
+    details.interface_sparkline = [...sparklineCandidate.details.interface_sparkline]
+    if (Object.hasOwn(sparklineCandidate.details, "interface_sparkline_label")) {
+      details.interface_sparkline_label = sparklineCandidate.details.interface_sparkline_label
+    } else {
+      delete details.interface_sparkline_label
+    }
+  }
+
+  return {
+    details,
+    label: candidates.find((candidate) => candidate.label)?.label || "",
+  }
+}
+
 export function hasManagedTopologySceneRoutes(effective) {
   return (
     effective?.shape === "local" &&
@@ -407,13 +483,8 @@ export const godViewRenderingGraphDataMethods = {
         const relationCapacityBps = relations.length > 0
           ? Math.max(0, ...relations.map((relation) => Number(relation?.capacityBps) || 0))
           : 0
-        const relationLabels = relations
-          .map((relation) => String(relation?.label || "").trim())
-          .filter(Boolean)
-        const relationDetails = relations
-          .map((relation) => relation?.details)
-          .filter((details) => details && typeof details === "object")
-        const label = String((useRouteMetadata && metadata.label) || relationLabels[0] || `${route.sourceId} -> ${route.targetId}`)
+        const presentation = deterministicRelationPresentation(relations)
+        const label = String((useRouteMetadata && metadata.label) || presentation.label || `${route.sourceId} -> ${route.targetId}`)
         const telemetryEligible = useRouteMetadata && (Object.hasOwn(metadata, "telemetryEligible") || Object.hasOwn(metadata, "telemetry_eligible"))
           ? metadata.telemetryEligible !== false && metadata.telemetry_eligible !== false
           : relations.length > 0
@@ -447,7 +518,7 @@ export const godViewRenderingGraphDataMethods = {
           evidenceClass: evidenceClasses.length === 1 ? evidenceClasses[0] : "",
           details: useRouteMetadata && metadata.details && typeof metadata.details === "object"
             ? metadata.details
-            : relationDetails.find((details) => Array.isArray(details.interface_sparkline) && details.interface_sparkline.length > 1) || relationDetails[0] || {},
+            : presentation.details,
           edgeCount: Math.max(1, relations.length),
           interactionKey: `local:${route.id}`,
         }
@@ -594,7 +665,7 @@ export const godViewRenderingGraphDataMethods = {
         labels: new Set(),
         protocols: new Set(),
         evidenceClasses: new Set(),
-        detailsList: [],
+        presentationRelations: [],
       }
 
       const edgeWeight = Math.max(1, Number(edge.weight || edge.edgeCount || 1))
@@ -618,29 +689,25 @@ export const godViewRenderingGraphDataMethods = {
       if (edge.label) current.labels.add(String(edge.label))
       if (edge.protocol) current.protocols.add(String(edge.protocol))
       if (edge.evidenceClass) current.evidenceClasses.add(String(edge.evidenceClass))
-      if (edge.details && typeof edge.details === "object") current.detailsList.push(edge.details)
+      current.presentationRelations.push(edge)
       acc.set(key, current)
     }
 
     const aggregated = Array.from(acc.values()).map((edge) => {
-      const labels = Array.from(edge.labels)
+      const labels = Array.from(edge.labels).sort()
       const protocols = Array.from(edge.protocols).sort()
       const evidenceClasses = Array.from(edge.evidenceClasses).sort()
       const classBuckets = Object.entries(edge.topologyClassCounts || {})
         .filter(([, count]) => Number(count || 0) > 0)
         .sort((left, right) => Number(right[1] || 0) - Number(left[1] || 0))
       const dominantClass = classBuckets.length === 1 ? classBuckets[0][0] : ""
-      const detailCandidates = Array.isArray(edge.detailsList) ? edge.detailsList : []
-      const details =
-        detailCandidates.find((candidate) => Array.isArray(candidate.interface_sparkline) && candidate.interface_sparkline.length > 1) ||
-        detailCandidates[0] ||
-        {}
-      const {signatures: _signatures, labels: _labels, protocols: _protocols, evidenceClasses: _evidenceClasses, detailsList: _detailsList, ...plainEdge} = edge
+      const presentation = deterministicRelationPresentation(edge.presentationRelations)
+      const {signatures: _signatures, labels: _labels, protocols: _protocols, evidenceClasses: _evidenceClasses, presentationRelations: _presentationRelations, ...plainEdge} = edge
 
       return {
         ...plainEdge,
-        details,
-        label: labels[0] || edge.label,
+        details: presentation.details,
+        label: presentation.label || labels[0] || edge.label,
         topologyClass: dominantClass,
         protocol: protocols.length === 1 ? protocols[0] : "",
         evidenceClass: evidenceClasses.length === 1 ? evidenceClasses[0] : "",

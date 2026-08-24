@@ -28,7 +28,6 @@ export function canonicalSemanticRelationId(edge, sourceId, targetId) {
     stringValue(details.source_interface ?? edge?.local_if_name_ab ?? edge?.local_if_name),
     stringValue(details.target_if_index ?? edge?.local_if_index_ba ?? edge?.neighbor_if_index),
     stringValue(details.target_interface ?? edge?.local_if_name_ba ?? edge?.neighbor_if_name),
-    stringValue(edge?.label),
     stringValue(edge?.relationType ?? metadataValue(metadata, "relation_type")),
     stringValue(metadataValue(metadata, "topology_plane")),
     stringValue(edge?.confidenceTier ?? edge?.confidence_tier ?? metadataValue(metadata, "confidence_tier")),

@@ -1,5 +1,6 @@
+import ELK from "elkjs/lib/elk.bundled.js"
 import {tableFromArrays, tableToIPC} from "apache-arrow"
-import {describe, expect, it} from "vitest"
+import {describe, expect, it, vi} from "vitest"
 
 import {bindApi, createStateBackedContext} from "./api_helpers"
 import {godViewLayoutTopologyStateMethods} from "./layout_topology_state_methods"
@@ -63,8 +64,95 @@ const RELATIONS = [
   },
 ]
 
-function arrowBytes(edgeOrder) {
-  const relations = edgeOrder.map((index) => RELATIONS[index])
+const DUPLICATE_RELATIONS = [
+  {
+    source: 0,
+    target: 1,
+    flowPps: 100,
+    flowBps: 1_000_000,
+    capacityBps: 1_000_000_000,
+    topologyClass: "backbone",
+    protocol: "snmp",
+    evidenceClass: "direct",
+    label: "SNMP BACKBONE 100pps / 1G",
+    sourceIfIndex: 10,
+    sourceInterface: "xe-0/0/0",
+    targetIfIndex: 20,
+    targetInterface: "xe-0/0/1",
+    details: {
+      telemetry_source: "interface-old",
+      telemetry_observed_at: "2026-08-24T01:00:00Z",
+      tie_breaker: "old",
+      interface_sparkline_label: "Older interface history",
+      interface_sparkline: [{bucket: "00:55", value: 10}, {bucket: "01:00", value: 20}],
+    },
+  },
+  {
+    source: 0,
+    target: 1,
+    flowPps: 200,
+    flowBps: 2_000_000,
+    capacityBps: 2_000_000_000,
+    topologyClass: "backbone",
+    protocol: "snmp",
+    evidenceClass: "direct",
+    label: "SNMP BACKBONE 200pps / 2G",
+    sourceIfIndex: 10,
+    sourceInterface: "xe-0/0/0",
+    targetIfIndex: 20,
+    targetInterface: "xe-0/0/1",
+    details: {
+      telemetry_source: "interface-b",
+      telemetry_observed_at: "2026-08-24T02:00:00Z",
+      tie_breaker: "sparkline-source",
+      interface_sparkline_label: "Current interface history",
+      interface_sparkline: [{bucket: "01:55", value: 30}, {bucket: "02:00", value: 40}],
+    },
+  },
+  {
+    source: 0,
+    target: 1,
+    flowPps: 300,
+    flowBps: 3_000_000,
+    capacityBps: 3_000_000_000,
+    topologyClass: "backbone",
+    protocol: "snmp",
+    evidenceClass: "direct",
+    label: "SNMP BACKBONE 300pps / 3G",
+    sourceIfIndex: 10,
+    sourceInterface: "xe-0/0/0",
+    targetIfIndex: 20,
+    targetInterface: "xe-0/0/1",
+    details: {
+      telemetry_source: "interface-a",
+      telemetry_observed_at: "2026-08-24T02:00:00Z",
+      tie_breaker: "z",
+    },
+  },
+  {
+    source: 0,
+    target: 1,
+    flowPps: 400,
+    flowBps: 4_000_000,
+    capacityBps: 4_000_000_000,
+    topologyClass: "backbone",
+    protocol: "snmp",
+    evidenceClass: "direct",
+    label: "SNMP BACKBONE 400pps / 4G",
+    sourceIfIndex: 10,
+    sourceInterface: "xe-0/0/0",
+    targetIfIndex: 20,
+    targetInterface: "xe-0/0/1",
+    details: {
+      telemetry_source: "interface-a",
+      telemetry_observed_at: "2026-08-24T02:00:00Z",
+      tie_breaker: "a",
+    },
+  },
+]
+
+function arrowBytes(edgeOrder, sourceRelations = RELATIONS) {
+  const relations = edgeOrder.map((index) => sourceRelations[index])
   const nodeRows = [
     {id: "a", label: "A"},
     {id: "b", label: "B"},
@@ -79,6 +167,7 @@ function arrowBytes(edgeOrder) {
     source_interface: relation.sourceInterface,
     target_if_index: relation.targetIfIndex,
     target_interface: relation.targetInterface,
+    ...(relation.details || {}),
     metadata: {relation_type: "CONNECTED_TO", topology_plane: "physical"},
   }))
 
@@ -94,8 +183,8 @@ function arrowBytes(edgeOrder) {
     edge_source: edgeValues("source"),
     edge_target: edgeValues("target"),
     edge_pps: edgeValues("flowPps"),
-    edge_flow_bps: edgeValues("flowPps"),
-    edge_capacity_bps: edgeValues("flowPps"),
+    edge_flow_bps: edgeValues("flowBps"),
+    edge_capacity_bps: edgeValues("capacityBps"),
     edge_telemetry_eligible: edgeValues("source").map((value) => value == null ? null : 1),
     edge_label: edgeValues("label"),
     edge_topology_class: edgeValues("topologyClass"),
@@ -119,6 +208,24 @@ function decode(bytes) {
 
 function dedupe(graph) {
   return godViewLayoutTopologyStateMethods.dedupeGraphById.call({state: {}}, graph)
+}
+
+function layoutContext() {
+  const engine = new ELK()
+  return {
+    state: {
+      layoutMode: "auto",
+      layoutRevision: null,
+      layoutCache: new Map(),
+      lastLayoutKey: null,
+      layoutEngine: {layout: vi.fn((graph) => engine.layout(graph))},
+      lastGraph: null,
+      viewportWidth: 1920,
+      viewportHeight: 1080,
+      viewportSafeInsets: {top: 0, right: 0, bottom: 0, left: 0},
+    },
+    ...godViewLayoutTopologyStateMethods,
+  }
 }
 
 function renderingContext(topologyLayers) {
@@ -154,6 +261,74 @@ function effectiveGraph(graph, sceneInput) {
 }
 
 describe("Arrow relation identity integration", () => {
+  it("reuses structural geometry when only the server-formatted rate label changes", async () => {
+    const snapshots = [
+      {
+        source: 0,
+        target: 1,
+        flowPps: 100,
+        flowBps: 1_000_000,
+        capacityBps: 1_000_000_000,
+        topologyClass: "backbone",
+        protocol: "snmp",
+        evidenceClass: "direct",
+        label: "SNMP BACKBONE 100pps / 1G",
+        sourceIfIndex: 10,
+        sourceInterface: "xe-0/0/0",
+        targetIfIndex: 20,
+        targetInterface: "xe-0/0/1",
+        details: {telemetry_source: "interface", telemetry_observed_at: "2026-08-24T01:00:00Z"},
+      },
+      {
+        source: 0,
+        target: 1,
+        flowPps: 1_200,
+        flowBps: 8_000_000,
+        capacityBps: 10_000_000_000,
+        topologyClass: "backbone",
+        protocol: "snmp",
+        evidenceClass: "direct",
+        label: "SNMP BACKBONE 1.2Kpps / 10G",
+        sourceIfIndex: 10,
+        sourceInterface: "xe-0/0/0",
+        targetIfIndex: 20,
+        targetInterface: "xe-0/0/1",
+        details: {telemetry_source: "interface", telemetry_observed_at: "2026-08-24T01:01:00Z"},
+      },
+    ]
+    const firstGraph = decode(arrowBytes([0], [snapshots[0]]))
+    const currentGraph = decode(arrowBytes([0], [snapshots[1]]))
+    const firstInput = prepareTopologySceneInput(dedupe(firstGraph))
+    const currentInput = prepareTopologySceneInput(dedupe(currentGraph))
+    const context = layoutContext()
+
+    expect(currentGraph.edges[0].id).toEqual(firstGraph.edges[0].id)
+    expect(currentInput.graphKey).toEqual(firstInput.graphKey)
+
+    const first = await context.prepareGraphLayout(firstGraph, 1, "rate:100")
+    const current = await context.prepareGraphLayout(currentGraph, 2, "rate:1200")
+    const rendered = renderingContext({backbone: true, inferred: false, endpoints: false})
+      .buildVisibleGraphData({shape: "local", ...current})
+
+    expect(context.state.layoutEngine.layout).toHaveBeenCalledTimes(1)
+    expect(current._layoutCacheKey).toEqual(first._layoutCacheKey)
+    expect(current._topologyScene).not.toBe(first._topologyScene)
+    expect(current.edges[0]).toMatchObject({
+      label: "SNMP BACKBONE 1.2Kpps / 10G",
+      flowPps: 1_200,
+      flowBps: 8_000_000,
+      capacityBps: 10_000_000_000,
+      details: expect.objectContaining({telemetry_observed_at: "2026-08-24T01:01:00Z"}),
+    })
+    expect(rendered.edgeData[0]).toMatchObject({
+      label: "SNMP BACKBONE 1.2Kpps / 10G",
+      flowPps: 1_200,
+      flowBps: 8_000_000,
+      capacityBps: 10_000_000_000,
+      details: expect.objectContaining({telemetry_observed_at: "2026-08-24T01:01:00Z"}),
+    })
+  })
+
   it("preserves parallel and reverse identities and aggregates every exact duplicate deterministically", () => {
     const decodedForward = decode(arrowBytes([0, 1, 2, 3]))
     const decodedShuffled = decode(arrowBytes([3, 2, 1, 0]))
@@ -198,5 +373,43 @@ describe("Arrow relation identity integration", () => {
 
     const shuffledAll = renderingContext({backbone: true, inferred: true, endpoints: false})
     expect(shuffledAll.buildVisibleGraphData(effectiveGraph(shuffled, shuffledScene)).edgeData[0].flowPps).toEqual(187)
+  })
+
+  it("selects duplicate presentation details deterministically across Arrow row order", () => {
+    const forward = dedupe(decode(arrowBytes([0, 1, 2, 3], DUPLICATE_RELATIONS)))
+    const shuffled = dedupe(decode(arrowBytes([3, 0, 2, 1], DUPLICATE_RELATIONS)))
+    const forwardScene = prepareTopologySceneInput(forward)
+    const shuffledScene = prepareTopologySceneInput(shuffled)
+
+    expect(new Set(forward.edges.map((edge) => edge.id)).size).toEqual(1)
+    expect(shuffledScene).toEqual(forwardScene)
+
+    const forwardEdge = renderingContext({backbone: true, inferred: false, endpoints: false})
+      .buildVisibleGraphData(effectiveGraph(forward, forwardScene)).edgeData[0]
+    const shuffledEdge = renderingContext({backbone: true, inferred: false, endpoints: false})
+      .buildVisibleGraphData(effectiveGraph(shuffled, shuffledScene)).edgeData[0]
+
+    expect(shuffledEdge).toEqual(forwardEdge)
+    expect(forwardEdge).toMatchObject({
+      label: "SNMP BACKBONE 400pps / 4G",
+      flowPps: 1_000,
+      flowBps: 10_000_000,
+      capacityBps: 4_000_000_000,
+      edgeCount: 4,
+      details: {
+        source_id: "a",
+        target_id: "b",
+        source_if_index: 10,
+        source_interface: "xe-0/0/0",
+        target_if_index: 20,
+        target_interface: "xe-0/0/1",
+        telemetry_source: "interface-a",
+        telemetry_observed_at: "2026-08-24T02:00:00Z",
+        tie_breaker: "a",
+        interface_sparkline_label: "Current interface history",
+        interface_sparkline: [{bucket: "01:55", value: 30}, {bucket: "02:00", value: 40}],
+        metadata: {relation_type: "CONNECTED_TO", topology_plane: "physical"},
+      },
+    })
   })
 })
