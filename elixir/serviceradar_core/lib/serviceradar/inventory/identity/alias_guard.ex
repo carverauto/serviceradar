@@ -12,6 +12,7 @@ defmodule ServiceRadar.Inventory.Identity.AliasGuard do
   alias ServiceRadar.Inventory.Device
   alias ServiceRadar.Inventory.DeviceIdentifier
   alias ServiceRadar.Inventory.Identity.Ids
+  alias ServiceRadar.Inventory.Identity.InterfaceMacs
   alias ServiceRadar.Inventory.Identity.Mac
   alias ServiceRadar.Inventory.Identity.MergeEngine
   alias ServiceRadar.Inventory.Identity.Resolver
@@ -77,7 +78,43 @@ defmodule ServiceRadar.Inventory.Identity.AliasGuard do
 
     macs_a != [] and macs_b != [] and
       MapSet.disjoint?(MapSet.new(macs_a), MapSet.new(macs_b)) and
-      not Mac.any_hardware_mac_siblings?(macs_a, macs_b)
+      not Mac.any_hardware_mac_siblings?(macs_a, macs_b) and
+      not same_chassis?(device_a, device_b, macs_a, macs_b, actor)
+  end
+
+  # Whether one device's OWN interface table claims a MAC the other device is
+  # anchored by -- the tell that these are two addresses of one chassis rather
+  # than two pieces of hardware.
+  #
+  # This NARROWS a veto; it is not a merge rule. The merge it unblocks still
+  # requires its own evidence: a confirmed IP alias. Without that alias nothing
+  # here causes a merge, which is why an own-interface claim alone can never
+  # collapse two devices.
+  #
+  # The veto exists because disjoint MACs are the network-agnostic tell that a
+  # recycled IP has rebound to different hardware. An own-interface claim is
+  # direct evidence that it has NOT: the chassis itself, over authenticated
+  # SNMP, reports that MAC as one of its interfaces.
+  #
+  # Measured before shipping, on a 126-device deployment: this narrowing changes
+  # the outcome for exactly ONE device pair -- the router whose WAN and LAN
+  # addresses had become two devices -- and that pair claims each other's MACs in
+  # BOTH directions, because SNMP polled both addresses and got the same
+  # interface table.
+  #
+  # Cost is two indexed lookups on device_identifiers, which holds a few rows per
+  # device. It deliberately does NOT read platform.discovered_interfaces, which
+  # stores ~98 rows per interface state and would be unusable at 50k-1M devices.
+  defp same_chassis?(device_a, device_b, macs_a, macs_b, actor) do
+    claims?(device_a, macs_b, actor) or claims?(device_b, macs_a, actor)
+  end
+
+  defp claims?(device_id, other_macs, actor) do
+    other_macs != [] and
+      not MapSet.disjoint?(
+        InterfaceMacs.registered_values(device_id, actor),
+        MapSet.new(other_macs)
+      )
   end
 
   defp device_macs(device_id, actor) do
