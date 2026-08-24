@@ -1,0 +1,31 @@
+{
+  "ip": "10.20.30.41",
+  "metadata": {
+    "_alias_collector_ip": "10.20.30.40",
+    "_alias_last_seen_at": "2026-08-23T15:46:40Z",
+    "_alias_last_seen_ip": "10.20.30.41",
+    "agent_id": "agent-synthetic-1",
+    "discovery_source": "passive-netprobe",
+    "gateway_id": "gateway-synthetic-1",
+    "ip_alias:10.20.30.41": "2026-08-23T15:46:40Z",
+    "passive_fingerprint.interface": "eth0",
+    "passive_fingerprint.observed_at": "2026-08-23T15:46:40Z",
+    "passive_fingerprint.observed_at_unix_nano": "1787500000000000000",
+    "passive_fingerprint.profile_id": "linux-hosts",
+    "passive_fingerprint.protocol": "tcp",
+    "passive_fingerprint.source": "passive-netprobe",
+    "passive_fingerprint.tcp.confidence": "0.860",
+    "passive_fingerprint.tcp.ip_version": "4",
+    "passive_fingerprint.tcp.mss": "1460",
+    "passive_fingerprint.tcp.options_layout": "mss,sok,ts",
+    "passive_fingerprint.tcp.os_family": "linux",
+    "passive_fingerprint.tcp.os_name": "Linux 5.x",
+    "passive_fingerprint.tcp.payload_class": "syn",
+    "passive_fingerprint.tcp.quirks": "df",
+    "passive_fingerprint.tcp.signature": "64240:64:1:60:M1460,S,T,N,W7",
+    "passive_fingerprint.tcp.ttl": "64",
+    "passive_fingerprint.tcp.window_scale": "7",
+    "passive_fingerprint.tcp.window_size": "64240",
+    "source": "passive-netprobe"
+  }
+}
