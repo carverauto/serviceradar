@@ -72,10 +72,22 @@ func NewAddonPump(cfg AddonPumpConfig) (*AddonPump, error) {
 
 // Run keeps a telemetry stream attached until ctx is cancelled.
 //
-// This is the ONLY path by which census and mDNS discovery reaches core. The
-// legacy IPC arms that used to carry them are gone, so a netprobe too old to
-// serve AddonService reports no devices at all -- deliberately, because the
-// agent and the add-on ship and deploy together.
+// This is the ONLY path by which netprobe discovery reaches core -- census,
+// mDNS, fingerprints, DPI and the process listing. The legacy IPC arms that
+// carried them are gone, so a netprobe too old to serve AddonService reports no
+// devices at all.
+//
+// That IS reachable, and an earlier version of this comment claimed otherwise:
+// "the agent and the add-on ship and deploy together". They do not.
+// addons/netprobe/addon.yaml declares `delivery: pushed-artifact` with its own
+// version line and `base_agent: ">=1.2.0"` -- a FLOOR, which is an explicit
+// statement that skew is permitted. A host can run a new agent against an old
+// netprobe.
+//
+// Which is why the failure is loud rather than silent: the reconnect loop below
+// logs at WARN, so an operator sees "no discovery is being collected" instead of
+// a fleet that has quietly stopped reporting devices. Do not downgrade that to
+// debug on the theory that it cannot happen.
 func (p *AddonPump) Run(ctx context.Context) {
 	backoff := p.cfg.MinBackoff
 
