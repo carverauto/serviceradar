@@ -24,7 +24,15 @@ defmodule ServiceRadar.Inventory.DiscoveryIngestorTest do
     # A fresh buffer per test. Watermarks persist by design, so a shared one
     # would let an earlier test's snapshot supersede a later test's -- which is
     # correct behavior and a broken fixture.
-    start_supervised!(Buffer)
+    #
+    # RESET rather than start_supervised!: the application supervisor already owns
+    # a Buffer under the default name (application.ex), so starting one here dies
+    # with {:already_started, ...} -- which is exactly what every test in this
+    # file did, silently, for as long as it has existed. Starting one under a
+    # different name would not help either: DiscoveryIngestor calls
+    # Buffer.offer/1 with the default name, so the test's instance would never be
+    # consulted.
+    Buffer.reset()
 
     parent = self()
 
