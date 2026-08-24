@@ -1,3 +1,4 @@
+import ELK from "elkjs/lib/elk.bundled.js"
 import {describe, expect, it} from "vitest"
 
 import {
@@ -66,6 +67,48 @@ function elkLayout({includeGamma = true, duplicateAlpha = false, alpha = {x: 0, 
   }
 }
 
+function routeCollisionInput() {
+  return {
+    nodes: ["a", "b", "c", "d"].map((id) => ({id, label: id, role: "infrastructure", type: "switch"})),
+    roots: ["a", "c"],
+    treeRelations: [
+      {id: "a-b", sourceId: "a", targetId: "b", semanticRelationIds: ["wire:a-b"]},
+      {id: "c-d", sourceId: "c", targetId: "d", semanticRelationIds: ["wire:c-d"]},
+    ],
+    crossLinks: [],
+    synthetic: {nodeIds: [], relationIds: []},
+    graphKey: "route-collision",
+    manifest: {glyphs: 4, treeRelations: 2, crossLinks: 0},
+  }
+}
+
+function routeCollisionLayout(positions, input = routeCollisionInput()) {
+  return {
+    id: "root",
+    children: input.nodes.map((node) => ({id: node.id, ...positions[node.id], width: 112, height: 112})),
+    edges: input.treeRelations.map((relation) => ({
+      id: relation.id,
+      sources: [relation.sourceId],
+      targets: [relation.targetId],
+    })),
+  }
+}
+
+function numericIdOverviewInput() {
+  return {
+    nodes: [
+      {id: "101", label: "Numeric", role: "infrastructure", type: "gateway"},
+      {id: "beta", label: "Beta", role: "infrastructure", type: "switch"},
+    ],
+    roots: ["101"],
+    treeRelations: [{id: "101-beta", sourceId: "101", targetId: "beta", semanticRelationIds: ["wire:101-beta"]}],
+    crossLinks: [],
+    synthetic: {nodeIds: [], relationIds: []},
+    graphKey: "numeric-id",
+    manifest: {glyphs: 2, treeRelations: 1, crossLinks: 0},
+  }
+}
+
 describe("layout_elk_radial_overview", () => {
   it("builds a deterministic Radial forest without cross-link geometry", () => {
     const graph = buildElkRadialOverviewGraph(disconnectedOverviewInput())
@@ -86,6 +129,13 @@ describe("layout_elk_radial_overview", () => {
       .map((node) => node.layoutOptions["org.eclipse.elk.radial.orderId"])).toEqual([0, 1, 2])
     expect(graph.children.filter((node) => node.id === "alpha")).toHaveLength(1)
     expect(graph.children.filter((node) => node.id === "gamma")).toHaveLength(1)
+    expect(graph.children.find((node) => node.id === "overview:super-root")).toMatchObject({width: 0, height: 0})
+  })
+
+  it("passes the zero-size ELK-only component root to the real Radial algorithm", async () => {
+    const layout = await new ELK().layout(buildElkRadialOverviewGraph(disconnectedOverviewInput()))
+
+    expect(layout.children.map((node) => node.id)).toContain("overview:super-root")
   })
 
   it("decodes only semantic Radial geometry, clips tree chords, and retains disclosure metadata", () => {
@@ -167,6 +217,31 @@ describe("layout_elk_radial_overview", () => {
     expect(validation.errors).toContain("route alpha-beta intersects nonincident node gamma")
   })
 
+  it("rejects nonincident crossing and collinearly overlapping semantic chords", () => {
+    const input = routeCollisionInput()
+    const crossing = decodeElkRadialOverview(routeCollisionLayout({
+      a: {x: 0, y: 0}, b: {x: 300, y: 300}, c: {x: 0, y: 300}, d: {x: 300, y: 0},
+    }), input)
+    const overlap = decodeElkRadialOverview(routeCollisionLayout({
+      a: {x: 0, y: 0}, b: {x: 500, y: 0}, c: {x: 200, y: 0}, d: {x: 700, y: 0},
+    }), input)
+
+    expect(validateTopologyOverview(crossing, input).errors).toContain("routes a-b and c-d cross")
+    expect(validateTopologyOverview(overlap, input).errors).toContain("routes a-b and c-d have overlapping interiors")
+  })
+
+  it("allows only a shared semantic endpoint contact within route intersection tolerance", () => {
+    const input = routeCollisionInput()
+    input.treeRelations[1] = {id: "c-b", sourceId: "c", targetId: "b", semanticRelationIds: ["wire:c-b"]}
+    const scene = JSON.parse(JSON.stringify(decodeElkRadialOverview(routeCollisionLayout({
+      a: {x: 0, y: 0}, b: {x: 300, y: 0}, c: {x: 0, y: 300}, d: {x: 300, y: 300},
+    }, input), input)))
+    scene.routes[1] = {...scene.routes[1], points: [{x: 56, y: 300}, {x: 300, y: 56}]}
+    scene.physicalRoutes = scene.routes
+
+    expect(validateTopologyOverview(scene, input)).toEqual({ok: true, errors: []})
+  })
+
   it("uses ELK as the only coordinate authority and applies semantic coordinates immutably", async () => {
     const input = overviewInput()
     const graph = {
@@ -186,5 +261,26 @@ describe("layout_elk_radial_overview", () => {
     ])
     expect(graph.nodes[0]).toEqual({id: "gamma", x: 999, y: 999})
     expect(Object.isFrozen(graph.edges)).toEqual(false)
+  })
+
+  it("applies overview geometry to numeric and whitespace-padded raw node IDs", () => {
+    const input = numericIdOverviewInput()
+    const scene = decodeElkRadialOverview({
+      id: "root",
+      children: [
+        {id: "101", x: 0, y: 0, width: 112, height: 112},
+        {id: "beta", x: 200, y: 0, width: 112, height: 112},
+      ],
+      edges: [{id: "101-beta", sources: ["101"], targets: ["beta"]}],
+    }, input)
+
+    const laidOut = applyTopologyOverviewToGraph({
+      nodes: [{id: 101, x: 999, y: 999}, {id: " beta ", x: 999, y: 999}],
+    }, scene)
+
+    expect(laidOut.nodes).toEqual([
+      expect.objectContaining({id: 101, x: 56, y: 56}),
+      expect.objectContaining({id: " beta ", x: 256, y: 56}),
+    ])
   })
 })

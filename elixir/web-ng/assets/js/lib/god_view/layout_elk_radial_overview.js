@@ -1,11 +1,15 @@
 const SEMANTIC_ENVELOPE = 112
-const SYNTHETIC_ENVELOPE = 1
+const SYNTHETIC_ENVELOPE = 0
 const NODE_SPACING = 96
 const SCENE_PADDING = 64
 const EPSILON = 0.01
 
 function isFinitePoint(point) {
   return Number.isFinite(point?.x) && Number.isFinite(point?.y)
+}
+
+function canonicalNodeId(value) {
+  return value == null ? "" : String(value).trim()
 }
 
 function deepFreeze(value) {
@@ -102,6 +106,62 @@ function pointOnSegment(point, start, end) {
     && point.x <= Math.max(start.x, end.x) + EPSILON
     && point.y >= Math.min(start.y, end.y) - EPSILON
     && point.y <= Math.max(start.y, end.y) + EPSILON
+}
+
+function pointsContact(left, right) {
+  return Math.hypot(left.x - right.x, left.y - right.y) <= EPSILON
+}
+
+function properSegmentIntersection(firstStart, firstEnd, secondStart, secondEnd) {
+  const firstStartSide = orientation(secondStart, secondEnd, firstStart)
+  const firstEndSide = orientation(secondStart, secondEnd, firstEnd)
+  const secondStartSide = orientation(firstStart, firstEnd, secondStart)
+  const secondEndSide = orientation(firstStart, firstEnd, secondEnd)
+  return ((firstStartSide > EPSILON && firstEndSide < -EPSILON)
+    || (firstStartSide < -EPSILON && firstEndSide > EPSILON))
+    && ((secondStartSide > EPSILON && secondEndSide < -EPSILON)
+      || (secondStartSide < -EPSILON && secondEndSide > EPSILON))
+}
+
+function collinearlyOverlap(firstStart, firstEnd, secondStart, secondEnd) {
+  if (Math.abs(orientation(firstStart, firstEnd, secondStart)) > EPSILON
+    || Math.abs(orientation(firstStart, firstEnd, secondEnd)) > EPSILON) return false
+  const axis = Math.abs(firstEnd.x - firstStart.x) >= Math.abs(firstEnd.y - firstStart.y) ? "x" : "y"
+  const overlap = Math.min(Math.max(firstStart[axis], firstEnd[axis]), Math.max(secondStart[axis], secondEnd[axis]))
+    - Math.max(Math.min(firstStart[axis], firstEnd[axis]), Math.min(secondStart[axis], secondEnd[axis]))
+  return overlap > EPSILON
+}
+
+function routeEndpointContact(route, nodeId) {
+  if (route.sourceId === nodeId) return route.points[0]
+  if (route.targetId === nodeId) return route.points.at(-1)
+  return null
+}
+
+function isSharedSemanticEndpointContact(first, second, point) {
+  const commonNodeIds = [first.sourceId, first.targetId].filter((id) => id === second.sourceId || id === second.targetId)
+  return commonNodeIds.some((nodeId) => {
+    const firstContact = routeEndpointContact(first, nodeId)
+    const secondContact = routeEndpointContact(second, nodeId)
+    return firstContact && secondContact && pointsContact(point, firstContact) && pointsContact(point, secondContact)
+  })
+}
+
+function routePairConflict(first, second) {
+  for (let firstIndex = 1; firstIndex < first.points.length; firstIndex += 1) {
+    const firstStart = first.points[firstIndex - 1]
+    const firstEnd = first.points[firstIndex]
+    for (let secondIndex = 1; secondIndex < second.points.length; secondIndex += 1) {
+      const secondStart = second.points[secondIndex - 1]
+      const secondEnd = second.points[secondIndex]
+      if (collinearlyOverlap(firstStart, firstEnd, secondStart, secondEnd)) return "overlap"
+      if (properSegmentIntersection(firstStart, firstEnd, secondStart, secondEnd)) return "cross"
+      const contacts = [firstStart, firstEnd, secondStart, secondEnd]
+        .filter((point) => pointOnSegment(point, firstStart, firstEnd) && pointOnSegment(point, secondStart, secondEnd))
+      if (contacts.some((point) => !isSharedSemanticEndpointContact(first, second, point))) return "cross"
+    }
+  }
+  return null
 }
 
 function segmentIntersectsOpenBox(start, end, box) {
@@ -221,7 +281,7 @@ export function buildElkRadialOverviewGraph(input) {
       targets: [relation.targetId],
     })),
   }
-  return deepFreeze(graph)
+  return graph
 }
 
 export function decodeElkRadialOverview(layout, input) {
@@ -381,6 +441,16 @@ export function validateTopologyOverview(scene, input) {
   if (routes.length !== expectedRouteIds.size || physicalRoutes.length !== expectedRouteIds.size) {
     errors.push("overview scene has an unexpected semantic route count")
   }
+  for (let leftIndex = 0; leftIndex < physicalRoutes.length; leftIndex += 1) {
+    const left = physicalRoutes[leftIndex]
+    if (!Array.isArray(left?.points) || !left.points.every(isFinitePoint)) continue
+    for (const right of physicalRoutes.slice(leftIndex + 1)) {
+      if (!Array.isArray(right?.points) || !right.points.every(isFinitePoint)) continue
+      const conflict = routePairConflict(left, right)
+      if (conflict === "overlap") errors.push(`routes ${left.id} and ${right.id} have overlapping interiors`)
+      if (conflict === "cross") errors.push(`routes ${left.id} and ${right.id} cross`)
+    }
+  }
 
   return deepFreeze({ok: errors.length === 0, errors})
 }
@@ -395,10 +465,10 @@ export async function layoutTopologyOverview(input, elk) {
 }
 
 export function applyTopologyOverviewToGraph(graph, scene) {
-  const sceneNodeById = new Map((scene?.nodes || []).map((node) => [node.id, node]))
+  const sceneNodeById = new Map((scene?.nodes || []).map((node) => [canonicalNodeId(node.id), node]))
   const copiedGraph = clone(graph || {})
   const nodes = (copiedGraph.nodes || []).map((node) => {
-    const geometry = sceneNodeById.get(node?.id)
+    const geometry = sceneNodeById.get(canonicalNodeId(node?.id))
     return geometry ? {...node, x: geometry.center.x, y: geometry.center.y} : {...node}
   })
   return deepFreeze({
