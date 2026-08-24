@@ -39,8 +39,26 @@ defmodule ServiceRadar.Inventory.Sync.SourcePolicyMdnsTest do
       refute SourcePolicy.enrichment_only_source?(update("armis", %{}))
       refute SourcePolicy.enrichment_only_source?(update("sweep", %{}))
       refute SourcePolicy.enrichment_only_source?(update("mapper", %{}))
-      refute SourcePolicy.enrichment_only_source?(update("passive-netprobe", %{}))
       refute SourcePolicy.enrichment_only_source?(nil)
+    end
+
+    test "passive netprobe fingerprints are enrichment-only too" do
+      # This line used to be a `refute`. It was wrong, and the cost was a
+      # REPRODUCED over-merge: passive-netprobe was absent from every branch of
+      # observer_agent_source?/1, so the COLLECTOR's agent_id -- which the agent
+      # stamps on every fingerprint update -- stayed first in the identifier
+      # priority and every fingerprinted host strong-matched the collector's own
+      # device. See sync_ingestor_passive_netprobe_identity_test.exs.
+      assert SourcePolicy.enrichment_only_source?(update("passive-netprobe", %{}))
+      assert SourcePolicy.observer_agent_source?(update("passive-netprobe", %{}))
+
+      assert SourcePolicy.enrichment_only_source?(
+               update("agent", %{"identity_source" => "netprobe_fingerprint"})
+             )
+
+      assert SourcePolicy.enrichment_only_source?(
+               update("agent", %{"identity_source" => "netprobe_dpi"})
+             )
     end
   end
 

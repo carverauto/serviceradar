@@ -203,8 +203,19 @@ defmodule ServiceRadar.Inventory.SyncIngestor do
   defp resolve_updates(normalized_updates, actor) do
     all_identifiers = Lookups.extract_all_identifiers(normalized_updates)
     existing_mappings = Lookups.bulk_lookup_identifiers(all_identifiers)
-    normalized_updates = drop_unmatched_enrichment_updates(normalized_updates, existing_mappings)
+    # Resolved BEFORE the enrichment gate, not after. An enrichment-only source
+    # whose only subject key is an IP -- a passive fingerprint -- has no strong
+    # identifier at all, so an identifier-only gate discards 100% of its updates
+    # and says so at debug level. The IP map is built from the unfiltered list,
+    # which is a harmless superset for BatchResolver below.
     existing_ip_to_device = Lookups.bulk_lookup_by_ip(normalized_updates)
+
+    normalized_updates =
+      drop_unmatched_enrichment_updates(
+        normalized_updates,
+        existing_mappings,
+        existing_ip_to_device
+      )
 
     updates_with_ids =
       Enum.map(normalized_updates, fn update ->
@@ -237,11 +248,12 @@ defmodule ServiceRadar.Inventory.SyncIngestor do
   #
   # See SourcePolicy.enrichment_only_source?/1 for why mDNS is not allowed to
   # bring a device into existence.
-  defp drop_unmatched_enrichment_updates(updates, existing_mappings) do
+  defp drop_unmatched_enrichment_updates(updates, existing_mappings, existing_ip_to_device) do
     {kept, dropped} =
       Enum.split_with(updates, fn update ->
         not SourcePolicy.enrichment_only_source?(update) or
-          Lookups.matches_existing_device?(update, existing_mappings)
+          Lookups.matches_existing_device?(update, existing_mappings) or
+          enrichment_ip_matches_existing_device?(update, existing_ip_to_device)
       end)
 
     if dropped != [] do
@@ -254,6 +266,21 @@ defmodule ServiceRadar.Inventory.SyncIngestor do
     end
 
     kept
+  end
+
+  # An address already claimed by a device is a legitimate anchor for enrichment,
+  # and for an IP-only source it is the ONLY one. It still cannot create: an IP
+  # that matches nothing leaves the update dropped, which is the whole point of
+  # the gate.
+  #
+  # This does not weaken the mDNS rule it was written for. mDNS updates carry no
+  # IP by design (the translator omits it deliberately), so for them this clause
+  # is unreachable and MAC matching remains the only way through.
+  defp enrichment_ip_matches_existing_device?(update, existing_ip_to_device) do
+    case update.ip do
+      ip when is_binary(ip) and ip != "" -> Map.has_key?(existing_ip_to_device, ip)
+      _ -> false
+    end
   end
 
   defp upsert_devices([], _strong_uids), do: {:ok, %{}}
