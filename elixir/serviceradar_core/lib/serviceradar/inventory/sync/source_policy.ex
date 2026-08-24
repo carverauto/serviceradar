@@ -77,13 +77,34 @@ defmodule ServiceRadar.Inventory.Sync.SourcePolicy do
   predicate decides whether a MAC may be *used*; this one decides whether the
   update may bring a device into existence at all, which no metadata check can
   answer.
+
+  `passive-netprobe` (TCP/TLS/HTTP fingerprints and DPI) belongs here for a
+  second, sharper reason, and being listed here fixes a REPRODUCED over-merge.
+  The agent stamps the COLLECTOR's `agent_id` on every fingerprint update, both
+  top-level and in metadata. `agent_id` is first in `Ids.identifier_priority/0`,
+  so while this source was unclassified it was also absent from
+  `observer_agent_source?/1` -- which is exactly the predicate that demotes a
+  collector's own id from an identifying attribute to an observation. Every
+  fingerprinted host therefore strong-matched the collector's OWN device.
+  Reproduced against a real database in
+  `test/serviceradar/inventory/sync_ingestor_passive_netprobe_identity_test.exs`:
+  collector and host came back with one shared uid.
+
+  Listing it here fixes both halves at once, because `observer_agent_source?/1`
+  has `enrichment_only_source?/1` as a disjunct: the collector's id stops
+  identifying the host, AND a fingerprint can no longer mint a device. That
+  second half matters as much as the first -- a fingerprint's only subject key
+  is an IP, and an IP-keyed device with nothing anchoring it is the IP-squatting
+  failure. A SYN fingerprint says what something at an address looks like; the
+  census says something is there. Only the census may create.
   """
   def enrichment_only_source?(update) when is_map(update) do
     source = String.downcase(to_string(update.source || ""))
     metadata = update.metadata || %{}
     identity_source = String.downcase(to_string(metadata["identity_source"] || ""))
 
-    source in ["netprobe-mdns", "passive-mdns"] or identity_source == "netprobe_mdns"
+    source in ["netprobe-mdns", "passive-mdns", "passive-netprobe"] or
+      identity_source in ["netprobe_mdns", "netprobe_fingerprint", "netprobe_dpi"]
   end
 
   def enrichment_only_source?(_update), do: false

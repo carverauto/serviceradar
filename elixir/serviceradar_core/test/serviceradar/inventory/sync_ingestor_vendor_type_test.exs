@@ -424,6 +424,29 @@ defmodule ServiceRadar.Inventory.SyncIngestorVendorTypeTest do
   test "normalizes passive netprobe DPI evidence onto canonical device metadata", %{actor: actor} do
     ip = unique_ip()
 
+    # DPI is enrichment-only: it describes whatever is at an address, it does not
+    # establish that anything is there, so it cannot mint the device it lands on.
+    # This test is about metadata normalization, so give it a device to normalize
+    # onto. See SourcePolicy.enrichment_only_source?/1.
+    seed_id = "dpi-seed-#{System.unique_integer([:positive])}"
+
+    assert :ok =
+             SyncIngestor.ingest_updates(
+               [
+                 %{
+                   "ip" => ip,
+                   "mac" => unique_mac(),
+                   "source" => "armis",
+                   "metadata" => %{
+                     "integration_id" => seed_id,
+                     "integration_type" => "armis",
+                     "armis_device_id" => seed_id
+                   }
+                 }
+               ],
+               actor: actor
+             )
+
     dpi_update = %{
       "ip" => ip,
       "source" => "passive-netprobe",
