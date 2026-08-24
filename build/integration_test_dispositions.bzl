@@ -7,6 +7,7 @@ ASYNC_INTEGRATION_SRCS = [
     "test/integration/secret_broker_audit_integration_test.exs",
     "test/serviceradar/agent_commands/status_handler_result_gate_db_test.exs",
     "test/serviceradar/application_startup_test.exs",
+    "test/serviceradar/async_sandbox_configuration_test.exs",
     "test/serviceradar/automation/ansible/automation_awx_launch_preflight_evidence_test.exs",
     "test/serviceradar/automation/ansible/awx_template_binding_test.exs",
     "test/serviceradar/automation/ansible/live_awx_launch_preflight_persistence_db_test.exs",

@@ -82,6 +82,7 @@ exports_files([
     "elixir_test_config_loader.exs",
     "integration_shards.bzl",
     "integration_test_dispositions.bzl",
+    "integration_tests.bzl",
     "repo_alias.bzl",
 ])
 

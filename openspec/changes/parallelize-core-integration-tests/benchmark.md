@@ -146,11 +146,13 @@ selectable, rollout stops; if only one is selectable, it wins. If both are selec
 only when its untrimmed median lifecycle is at least 10% below the 2-CPU median; otherwise 2 CPUs
 wins deterministically. There is no post-result tuning or subjective tie-break.
 
-CPU evidence may carry to the frozen after SHA only when the checked-in CPU diagnostic-input hash
-is identical. That hash covers ordinary test sources, relevant build/config/helper inputs,
-observer/lifecycle code, runner image/pool, and normalized CPU2/CPU12 action blocks while excluding
-only the later production-winner field. Both SHA/hash tuples are recorded. A mismatch requires all
-ten CPU attempts to rerun after the frozen SHA is published and before the authoritative cohorts.
+CPU evidence may carry to the frozen after SHA only when the checked-in
+`//:integration_cpu_diagnostic_input_hash` value is identical. That hash covers every selected core
+test source, its complete disposition/source map, relevant Bazel/Elixir configuration and helpers,
+the PostgreSQL baseline, the integration database lifecycle, the complete invariant SRQL workload,
+runner image/pool, and normalized base/CPU2/CPU12 action blocks. It deliberately excludes the later
+production-winner CPU field. Both SHA/hash tuples are recorded. A mismatch requires all ten CPU
+attempts to rerun after the frozen SHA is published and before the authoritative cohorts.
 
 The production benchmark has no topology challenger matrix. Before the clock starts it freezes
 the complete selected source/identity union, exactly one async lane at cap eight, exactly seven

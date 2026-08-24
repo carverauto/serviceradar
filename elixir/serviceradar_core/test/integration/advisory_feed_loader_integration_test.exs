@@ -27,19 +27,7 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.LoaderIntegrationTest do
 
   setup do
     feed_key = "loader-itest-#{System.unique_integer([:positive])}"
-    on_exit(fn -> cleanup(feed_key) end)
     {:ok, feed_key: feed_key}
-  end
-
-  defp cleanup(feed_key) do
-    Repo.delete_all(
-      from(a in "vulnerability_advisories",
-        where: a.provider == ^@provider and a.feed_key == ^feed_key
-      ),
-      prefix: @schema
-    )
-  rescue
-    _ -> :ok
   end
 
   defp record(id, modified_at) do

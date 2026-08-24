@@ -103,7 +103,7 @@
       with zero selected modules. Prove all-source and pruned-source selected test identities are
       equal before excluding unit-only files from integration shards; reject missing, duplicate,
       fixed-resource-async, mixed-selected-mode, and module-local global configuration cases.
-      Status: the 780-source / 278-selected-module disposition, exact Starlark projection, and real
+      Status: the 781-source / 279-selected-module disposition, exact Starlark projection, and real
       all-source/pruned ExUnit-filter equivalence over `(source, module, test-name)` identities are
       checked in and enforced. The first real run found 19 modules whose nested support macro
       injects `:requires_app`; those false load-only rows are now serial integration coverage, and
@@ -112,7 +112,7 @@
       async source set plus serial source set before timing; exclude load-only sources.
       Status: final review moved all seven selected modules with unfiltered VM-global telemetry
       handlers and the anomaly profile seeder module with VM-global Logger configuration from async
-      to serial, leaving 119 async and 159 serial selected modules. The only async module that
+      to serial, leaving 120 async and 159 serial selected modules. The only product async module that
       attaches telemetry now filters in the callback by its unique `agent_uid` before forwarding an
       event to the test process, and a static contract rejects `Logger.configure/1` in async modules.
 - [x] 3.18 Pin every ordinary BEAM's Repo pool at 12 and implement the proposal-time frozen topology:
@@ -138,6 +138,11 @@
       spending the acceptance cohorts. Require a current template, successful outcome-bearing
       teardown, exact runner markers, and zero ownership, deadlock, queue-drop, connection-headroom,
       process-residue, or database-residue failures.
+- [x] 3.23 Diagnose the first exact-SHA smoke without retrying victims: remove database cleanup from
+      async `on_exit` handlers and statically restrict async teardown callbacks; use the rollup
+      trigger's existing transaction-local bypass for async Sandbox owners so device writers do not
+      queue on `device_inventory_counts['total']`; prove allowed-child inheritance, rollback
+      non-leakage, actual trigger suppression, and trigger-enabled serial rollup coverage.
 
 ## 4. BuildBuddy and release qualification
 - [x] 4.1 Add a separate BuildBuddy action for the focused heavy lifecycle, triggered on pushes to
@@ -216,7 +221,7 @@
       `interface_ip_alias_test.exs`, `interface_alias_cap_test.exs`, and
       `candidate_device_address_test.exs`, are real-ExUnit-verified load-only sources, and the
       modified `mapper_role_heuristic_test.exs` remains load-only. The exhaustive disposition now
-      contains 780 source rows and 278 selected modules.
+      contains 781 source rows and 279 selected modules.
 - [ ] 6.2 Run focused Elixir support tests, Rust lifecycle tests, Bazel configuration tests, the
       async target, every selected serial target, and the large-ingestion release gate.
       Status: focused/static contracts and local target-equivalent shard/heavy runs are green; the

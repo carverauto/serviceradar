@@ -13,6 +13,15 @@ filegroup(
     visibility = ["//:__pkg__"],
 )
 
+# Complete checked-in workload inputs for the controlled IntegrationBenchmark CPU arms. The
+# diagnostic hash uses this set to reject carrying CPU evidence across any SRQL test/harness
+# change, while the narrower capacity contract above remains scoped to its static assertions.
+filegroup(
+    name = "integration_benchmark_input_files",
+    srcs = glob(["**"]),
+    visibility = ["//:__pkg__"],
+)
+
 # SRQL integration tests.
 #
 # These resolve the declared `ci` ConfigManager instance, create their own disposable

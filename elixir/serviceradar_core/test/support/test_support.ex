@@ -80,9 +80,18 @@ defmodule ServiceRadar.TestSupport do
           stop_repo_owner(owner, shared: shared?)
         end)
 
+        configure_async_sandbox_transaction!(context)
+
         {:ok, sandbox_owner: owner}
     end
   end
+
+  defp configure_async_sandbox_transaction!(%{async: true}) do
+    ServiceRadar.Repo.query!("SET LOCAL platform.skip_inventory_rollup = 'on'")
+    :ok
+  end
+
+  defp configure_async_sandbox_transaction!(_context), do: :ok
 
   @doc "Runs a serial test helper in a fresh shared rollback-only database owner."
   def with_repo_owner(context, fun) when is_function(fun, 0) do

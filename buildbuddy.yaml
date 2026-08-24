@@ -501,7 +501,7 @@ actions:
     resource_requests:
       memory: "50GB"
       disk: "40GB"
-    steps:
+    steps: &integration_benchmark_steps
       # Refuse a synthetic or stale checkout before spending any registry/build capacity.
       - run: |
           set -euo pipefail
@@ -642,6 +642,54 @@ actions:
           esac
           bazel test $FLAGS //rust/integration-db:provision_db
           bazel test $FLAGS //... --test_tag_filters=integration_test,-large_ingestion_test,-acceptance_test
+
+  # Same exact benchmark steps, with only the workflow CPU allocation changed. These actions are
+  # explicit diagnostics: five alternating attempts per arm select the one CPU request later
+  # applied to BazelCI and both accepted before/after cohorts.
+  - name: "IntegrationBenchmarkCPU2"
+    env:
+      OCI_REGISTRY: "registry.carverauto.dev"
+      OCI_AUTH_REQUIRED: "1"
+      SRQL_FIXTURE_CA_URL: "http://srql-fixture-ca-incluster.srql-fixtures.svc.cluster.local/ca.crt"
+    self_hosted: true
+    pool: "workflows"
+    container_image: "docker://registry.carverauto.dev/serviceradar/buildbuddy-workflow-runner:v1.0.24.3"
+    platform_properties:
+      OSFamily: "linux"
+      Arch: "amd64"
+      dockerNetwork: "bridge"
+    triggers:
+      push:
+        branches:
+          - "benchmark/parallel-core-integration-cpu2"
+    resource_requests:
+      cpu: "2"
+      memory: "50GB"
+      disk: "40GB"
+    steps: *integration_benchmark_steps
+
+  - name: "IntegrationBenchmarkCPU12"
+    env:
+      OCI_REGISTRY: "registry.carverauto.dev"
+      OCI_AUTH_REQUIRED: "1"
+      SRQL_FIXTURE_CA_URL: "http://srql-fixture-ca-incluster.srql-fixtures.svc.cluster.local/ca.crt"
+    self_hosted: true
+    pool: "workflows"
+    container_image: "docker://registry.carverauto.dev/serviceradar/buildbuddy-workflow-runner:v1.0.24.3"
+    platform_properties:
+      OSFamily: "linux"
+      Arch: "amd64"
+      dockerNetwork: "bridge"
+    triggers:
+      push:
+        branches:
+          - "benchmark/parallel-core-integration-cpu12"
+    resource_requests:
+      cpu: "12"
+      memory: "50GB"
+      disk: "40GB"
+    steps: *integration_benchmark_steps
+
   # Full Mix analyzer contract (compile --warnings-as-errors, xref, Credo,
   # hex/deps audit, Sobelow, OpenAPI dump). Not a PR gate: those steps compile
   # each project's Mix closure and were the bulk of the old 18m+ Elixir Quality

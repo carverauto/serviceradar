@@ -260,6 +260,28 @@ The owner teardown has two paths:
 No async teardown may call `Sandbox.mode/2`. This prevents one test from checking in every other
 test's connections.
 
+### Decision: Keep projection-only inventory rollups off async owner transactions
+The production `ocsf_devices` rollup trigger updates the singleton
+`device_inventory_counts['total']` row for every device mutation. A normal request transaction is
+short, but an ExUnit Sandbox transaction remains open for the complete test. Eight otherwise
+independent device-writing tests therefore queue behind one row lock until their owners roll back;
+when a table-locking operation enters the same graph, PostgreSQL can deadlock the writers.
+
+The trigger already has a production bulk-write escape hatch:
+`current_setting('platform.skip_inventory_rollup', true) = 'on'`. Immediately after an async
+non-shared owner starts, test support sets that existing flag with `SET LOCAL`. The setting belongs
+only to that rollback-only connection and transaction, is inherited by explicitly allowed child
+processes using the same owner, and disappears when the owner ends. Serial/shared owners do not set
+it. No trigger is disabled on the template or clone, and no production function gains a test-only
+branch.
+
+Async eligibility therefore also means that a test does not assert the cached inventory-rollup
+projection. The existing `SyncIngestorVendorTypeTest` remains serial: it refreshes the projection,
+performs a below-bulk-threshold device ingest, and proves the live row trigger updates total,
+availability, type, and vendor counts. A database-backed sandbox regression proves the async
+setting reaches allowed children, suppresses real trigger updates, does not leak to a fresh serial
+owner, and leaves that serial owner's trigger enabled.
+
 The shared-owner path legitimately multiplexes cooperating processes through one sandbox owner,
 so bursts can queue at that ownership proxy even while the Repo pool still has capacity. The
 default 50 ms queue bound is too short for that supported path: the focused regression observes a

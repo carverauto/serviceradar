@@ -27,7 +27,6 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.FeedDefinitionSeederTest do
     }
 
     destroy_seeded_definitions(actor)
-    on_exit(fn -> destroy_seeded_definitions(actor) end)
 
     {:ok, actor: actor}
   end

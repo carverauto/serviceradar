@@ -127,6 +127,27 @@ be granted to multiple concurrent owners.
 - **THEN** the second owner SHALL NOT inherit the allowance
 - **AND** it SHALL NOT observe the first owner's uncommitted writes
 
+### Requirement: Async sandbox owners avoid the inventory-rollup singleton lock
+Every async DataCase owner SHALL set the existing `platform.skip_inventory_rollup` PostgreSQL
+setting locally for its rollback-only transaction before test work begins. The setting MUST NOT be
+session-global, clone-global, or applied to a serial owner. Tests that assert the cached inventory
+rollup projection SHALL remain serial with the real trigger enabled.
+
+#### Scenario: Async owner bypasses projection-only trigger work
+- **GIVEN** an async DataCase owner has started its rollback-only transaction
+- **WHEN** test setup configures transaction-local database behavior
+- **THEN** `platform.skip_inventory_rollup` SHALL equal `on` on that owner connection
+- **AND** an explicitly allowed child SHALL observe the same setting
+- **AND** an `ocsf_devices` mutation SHALL NOT update inventory count projection rows
+
+#### Scenario: Rollup bypass cannot leak into serial coverage
+- **GIVEN** an async owner with the rollup bypass ends
+- **WHEN** a fresh serial/shared owner starts
+- **THEN** the fresh owner SHALL NOT observe `platform.skip_inventory_rollup = on`
+- **AND** an `ocsf_devices` mutation SHALL execute the real inventory-rollup trigger
+- **AND** the selected integration source that asserts rollup totals, types, and vendors SHALL
+  remain `async: false` in a serial lane
+
 ### Requirement: Unsafe integration tests use the serial scope matching their shared state
 Affected integration modules SHALL use the serial scope matching their shared state. Modules that
 use unboxed transactions, DDL, `TRUNCATE`, materialized-view refresh, application-global
@@ -281,7 +302,8 @@ topology.
 - **WHEN** the frozen after SHA is selected
 - **THEN** CPU evidence MAY carry forward only if both SHAs have the same checked-in diagnostic
   input hash covering ordinary sources, runtime/build inputs, observer/lifecycle, runner
-  image/pool, and normalized CPU2/CPU12 actions
+  image/pool, and normalized base/CPU2/CPU12 actions with only the later production-winner CPU
+  field omitted
 - **AND** both SHA/hash tuples SHALL be recorded
 - **AND** a hash difference SHALL require all ten CPU attempts to rerun after the frozen after SHA
   is published and before the authoritative cohorts

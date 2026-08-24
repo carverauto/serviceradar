@@ -52,13 +52,6 @@ defmodule ServiceRadar.Plugins.RetiredProducerScheduleCleanerTest do
     {:ok, stale} = create_schedule(retired_package.id, "cisa_kev.refresh", actor)
     {:ok, live} = create_schedule(live_package.id, "endpoint.refresh", actor)
 
-    # Register teardown before the assertions so a failure cannot leak rows.
-    on_exit(fn ->
-      cleanup(live, actor)
-      cleanup_package(live_package, actor)
-      cleanup_package(retired_package, actor)
-    end)
-
     assert :ok = RetiredProducerScheduleCleaner.clean()
 
     assert {:ok, nil} = fetch_schedule(stale.id, actor)
@@ -150,7 +143,4 @@ defmodule ServiceRadar.Plugins.RetiredProducerScheduleCleanerTest do
     |> Ash.Query.filter(id == ^id)
     |> Ash.read_one(actor: actor)
   end
-
-  defp cleanup(schedule, actor), do: Ash.destroy(schedule, actor: actor)
-  defp cleanup_package(package, actor), do: Ash.destroy(package, actor: actor)
 end

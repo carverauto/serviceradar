@@ -199,6 +199,77 @@ defmodule ServiceRadar.TestSupportSandboxTest do
     end
   end
 
+  test "async owner bypasses the singleton rollup while a fresh serial owner keeps it enabled" do
+    {:ok, sandbox_owner: owner} = TestSupport.checkout_repo!(%{async: true})
+    suffix = System.unique_integer([:positive])
+    async_type = "sandbox-async-type-#{suffix}"
+    async_vendor = "sandbox-async-vendor-#{suffix}"
+
+    assert %{rows: [["on"]]} =
+             Repo.query!("SELECT current_setting('platform.skip_inventory_rollup', true)")
+
+    assert %{rows: [[async_total_before]]} =
+             Repo.query!(
+               "SELECT COALESCE((SELECT value FROM platform.device_inventory_counts WHERE key = 'total'), 0)"
+             )
+
+    Repo.query!(
+      "INSERT INTO platform.ocsf_devices (uid, type, vendor_name) VALUES ($1, $2, $3)",
+      ["sr:sandbox-async-rollup-#{suffix}", async_type, async_vendor]
+    )
+
+    assert %{rows: [[^async_total_before]]} =
+             Repo.query!(
+               "SELECT COALESCE((SELECT value FROM platform.device_inventory_counts WHERE key = 'total'), 0)"
+             )
+
+    assert %{rows: [[0]]} =
+             Repo.query!(
+               "SELECT count(*) FROM platform.device_inventory_type_counts WHERE type = $1",
+               [async_type]
+             )
+
+    assert %{rows: [[0]]} =
+             Repo.query!(
+               "SELECT count(*) FROM platform.device_inventory_vendor_counts WHERE vendor_name = $1",
+               [async_vendor]
+             )
+
+    TestSupport.stop_repo_owner(owner, shared: false)
+
+    TestSupport.with_repo_owner(%{async: false}, fn ->
+      serial_type = "sandbox-serial-type-#{suffix}"
+
+      assert %{rows: [[setting]]} =
+               Repo.query!("SELECT current_setting('platform.skip_inventory_rollup', true)")
+
+      refute setting == "on"
+
+      assert %{rows: [[serial_total_before]]} =
+               Repo.query!(
+                 "SELECT COALESCE((SELECT value FROM platform.device_inventory_counts WHERE key = 'total'), 0)"
+               )
+
+      Repo.query!(
+        "INSERT INTO platform.ocsf_devices (uid, type) VALUES ($1, $2)",
+        ["sr:sandbox-serial-rollup-#{suffix}", serial_type]
+      )
+
+      assert %{rows: [[serial_total_after]]} =
+               Repo.query!(
+                 "SELECT COALESCE((SELECT value FROM platform.device_inventory_counts WHERE key = 'total'), 0)"
+               )
+
+      assert serial_total_after == serial_total_before + 1
+
+      assert %{rows: [[1]]} =
+               Repo.query!(
+                 "SELECT count(*) FROM platform.device_inventory_type_counts WHERE type = $1",
+                 [serial_type]
+               )
+    end)
+  end
+
   test "allowed children see a parent transaction while another owner stays isolated" do
     with_probe_table(fn qualified_table ->
       parent_owner = Sandbox.start_owner!(Repo, shared: false)

@@ -25,15 +25,6 @@ defmodule ServiceRadar.EventWriter.DeviceCorrelationTest do
     agent_id = "agent-security-correlation-#{unique}"
     create_agent!(actor, agent_id, device.uid)
 
-    on_exit(fn ->
-      Repo.query!("DELETE FROM platform.workload_identity_current WHERE partition = $1", [
-        partition
-      ])
-
-      Repo.query!("DELETE FROM platform.ocsf_agents WHERE uid = $1", [agent_id])
-      Repo.query!("DELETE FROM platform.ocsf_devices WHERE uid = $1", [device.uid])
-    end)
-
     %{actor: actor, partition: partition, device: device, agent_id: agent_id, unique: unique}
   end
 

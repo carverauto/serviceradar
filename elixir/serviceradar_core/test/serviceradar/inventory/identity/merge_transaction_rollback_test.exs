@@ -61,8 +61,6 @@ defmodule ServiceRadar.Inventory.Identity.MergeTransactionRollbackTest do
   test "the deprecated Ash.transaction commits the same work", %{actor: actor} do
     uid = "sr:" <> Ecto.UUID.generate()
 
-    on_exit(fn -> destroy_device(uid) end)
-
     result =
       Ash.transaction([Device], fn ->
         {:ok, _device} = create_device(actor, uid, "10.90.0.2")
@@ -109,15 +107,5 @@ defmodule ServiceRadar.Inventory.Identity.MergeTransactionRollbackTest do
       %Ash.Page.Offset{results: results} -> results
       results when is_list(results) -> results
     end
-  end
-
-  defp destroy_device(uid) do
-    actor = SystemActor.system(:merge_transaction_rollback_test)
-
-    actor
-    |> rows(uid)
-    |> Enum.each(&Ash.destroy!(&1, actor: actor, authorize?: false))
-  rescue
-    _ -> :ok
   end
 end

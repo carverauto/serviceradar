@@ -9,6 +9,7 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parent
+BAZELRC = ROOT / ".bazelrc"
 WORKFLOW = ROOT / "buildbuddy.yaml"
 OBSERVER_SOURCE = ROOT / "rust/integration-db/src/connection_observer.rs"
 OBSERVER_BINARY = ROOT / "rust/integration-db/src/bin/observe_connections.rs"
@@ -21,6 +22,7 @@ CORE_TEST_ROOT = ROOT / "elixir/serviceradar_core/test"
 INTEGRATION_DISPOSITIONS = CORE_TEST_ROOT / "INTEGRATION_SOURCE_DISPOSITIONS.tsv"
 INTEGRATION_SHARDS = ROOT / "build/integration_shards.bzl"
 INTEGRATION_DISPOSITIONS_BZL = ROOT / "build/integration_test_dispositions.bzl"
+INTEGRATION_TESTS_BZL = ROOT / "build/integration_tests.bzl"
 RELEASE_WORKFLOW = ROOT / ".github/workflows/release.yml"
 RELEASE_GATE_MARKER = ROOT / "build/ci/large_ingestion_gate_contract.v1"
 RELEASE_GATE_BUILD = ROOT / "build/ci/BUILD.bazel"
@@ -29,6 +31,16 @@ RELEASE_GATE_CLI = ROOT / "build/ci/wait_for_large_ingestion_gate.py"
 RELEASE_GATE_TEST = ROOT / "build/ci/wait_for_large_ingestion_gate_test.py"
 TEST_HELPER = ROOT / "elixir/serviceradar_core/test/test_helper.exs"
 TEST_SUPPORT = ROOT / "elixir/serviceradar_core/test/support/test_support.ex"
+DATA_CASE = ROOT / "elixir/serviceradar_core/test/support/data_case.ex"
+PLATFORM_BASELINE = (
+    ROOT / "elixir/serviceradar_core/priv/repo/baseline/platform_schema.sql"
+)
+INVENTORY_ROLLUP_TRIGGER_SOURCE = (
+    "test/serviceradar/inventory/sync_ingestor_vendor_type_test.exs"
+)
+ASYNC_SANDBOX_CONFIGURATION_SOURCE = (
+    "test/serviceradar/async_sandbox_configuration_test.exs"
+)
 INTEGRATION_ENV = ROOT / "elixir/serviceradar_core/test/db/integration_env.exs"
 INTEGRATION_ENV_CONFIG = (
     ROOT / "elixir/serviceradar_core/test/db/integration_env_config.exs"
@@ -40,6 +52,8 @@ CORE_TEST_CONFIG = ROOT / "elixir/serviceradar_core/config/test.exs"
 CI_ENVIRONMENT = ROOT / "config/environments/ci.textproto"
 SRQL_INTEGRATION_BUILD = ROOT / "integration_tests/srql/BUILD.bazel"
 SRQL_INTEGRATION_HARNESS = ROOT / "integration_tests/srql/tests/support/harness.rs"
+SRQL_INTEGRATION_ROOT = ROOT / "integration_tests/srql"
+INTEGRATION_DB_ROOT = ROOT / "rust/integration-db"
 ORDINARY_RESULTS_ROUTER = (
     ROOT
     / "elixir/serviceradar_core/test/serviceradar/results_router_integration_test.exs"
@@ -63,6 +77,11 @@ SERIAL_COMPOSITE_CHECK_SRCS = (
     "test/serviceradar/composite_checks/composite_check_input_test.exs",
     "test/serviceradar/composite_checks/device_composite_check_result_test.exs",
 )
+ASYNC_ON_EXIT_ALLOWED_SOURCES = {
+    "test/serviceradar/integrations/armis_northbound_runner_test.exs",
+    "test/serviceradar/inventory/agent_link_repair_worker_test.exs",
+    "test/serviceradar/notifications/dispatcher_delivery_test.exs",
+}
 DATABASE_BOOTSTRAP_SOURCE = (
     "test/serviceradar/cluster/database_bootstrap_integration_test.exs"
 )
@@ -408,6 +427,79 @@ def harness_hash() -> str:
     return digest.hexdigest()
 
 
+def cpu_diagnostic_input_paths() -> tuple[Path, ...]:
+    """Return every file whose content can change the CPU diagnostic workload."""
+    selected_sources = {
+        CORE_TEST_ROOT.parent / row["source"]
+        for row in integration_dispositions()
+        if row["mode"] in SELECTED_MODES
+    }
+    fixed_inputs = {
+        BAZELRC,
+        Path(__file__).resolve(),
+        CORE_BUILD,
+        CORE_TEST_CONFIG,
+        CI_ENVIRONMENT,
+        DATA_CASE,
+        INTEGRATION_DISPOSITIONS,
+        INTEGRATION_DISPOSITIONS_BZL,
+        INTEGRATION_ENV,
+        INTEGRATION_ENV_CONFIG,
+        INTEGRATION_SHARDS,
+        INTEGRATION_TESTS_BZL,
+        PLATFORM_BASELINE,
+        TEST_DATABASE_GUARD,
+        TEST_HELPER,
+        TEST_SUPPORT,
+    }
+    lifecycle_inputs = {
+        path
+        for root in (INTEGRATION_DB_ROOT, SRQL_INTEGRATION_ROOT)
+        for path in root.rglob("*")
+        if path.is_file()
+    }
+    return tuple(
+        sorted(
+            fixed_inputs | selected_sources | lifecycle_inputs,
+            key=lambda path: path.relative_to(ROOT).as_posix(),
+        )
+    )
+
+
+def normalized_cpu_diagnostic_action(action: str) -> str:
+    """Exclude the one post-diagnostic production CPU choice from the base action."""
+    cpu_requests = re.findall(r'^      cpu: "([^"]+)"$', action, re.MULTILINE)
+    if len(cpu_requests) > 1:
+        raise AssertionError("benchmark action has multiple CPU resource requests")
+    if cpu_requests and cpu_requests[0] not in {"2", "12"}:
+        raise AssertionError(
+            f"unsupported benchmark CPU resource request: {cpu_requests[0]}"
+        )
+    return re.sub(r'^      cpu: "(?:2|12)"\n', "", action, count=1, flags=re.MULTILINE)
+
+
+def cpu_diagnostic_input_hash() -> str:
+    """Hash CPU-arm actions plus the complete checked-in measured workload."""
+    digest = hashlib.sha256()
+    for name in (
+        "IntegrationBenchmark",
+        "IntegrationBenchmarkCPU2",
+        "IntegrationBenchmarkCPU12",
+    ):
+        digest.update(normalized(f"action:{name}"))
+        action = named_action(name)
+        if name == "IntegrationBenchmark":
+            action = normalized_cpu_diagnostic_action(action)
+        digest.update(normalized(action))
+
+    for path in cpu_diagnostic_input_paths():
+        relative_path = path.relative_to(ROOT).as_posix()
+        digest.update(normalized(f"path:{relative_path}"))
+        digest.update(normalized(path.read_text(encoding="utf-8")))
+
+    return digest.hexdigest()
+
+
 class IntegrationBenchmarkContractTest(unittest.TestCase):
     def setUp(self):
         self.action = integration_benchmark_action()
@@ -421,6 +513,86 @@ class IntegrationBenchmarkContractTest(unittest.TestCase):
         self.assertIn('branches:\n          - "benchmark/parallel-core-integration"', self.action)
         self.assertNotIn("pull_request:", self.action)
         self.assertNotIn("merge", self.action.lower())
+
+    def test_cpu_diagnostic_actions_reuse_the_exact_harness_and_pin_one_cpu_size(self):
+        self.assertIn("steps: &integration_benchmark_steps", self.action)
+
+        for name, cpu, branch in (
+            (
+                "IntegrationBenchmarkCPU2",
+                "2",
+                "benchmark/parallel-core-integration-cpu2",
+            ),
+            (
+                "IntegrationBenchmarkCPU12",
+                "12",
+                "benchmark/parallel-core-integration-cpu12",
+            ),
+        ):
+            action = named_action(name)
+            self.assertIn('pool: "workflows"', action)
+            self.assertIn(f'cpu: "{cpu}"', action)
+            self.assertIn(f'branches:\n          - "{branch}"', action)
+            self.assertIn("steps: *integration_benchmark_steps", action)
+            self.assertNotIn("      - run:", action)
+
+    def test_cpu_diagnostic_hash_covers_execution_inputs_but_not_production_cpu(self):
+        paths = {
+            path.relative_to(ROOT).as_posix()
+            for path in cpu_diagnostic_input_paths()
+        }
+
+        for required in (
+            ".bazelrc",
+            "build/integration_shards.bzl",
+            "build/integration_test_dispositions.bzl",
+            "elixir/serviceradar_core/BUILD.bazel",
+            "elixir/serviceradar_core/priv/repo/baseline/platform_schema.sql",
+            "elixir/serviceradar_core/test/support/test_support.ex",
+            "rust/integration-db/src/lib.rs",
+            "integration_tests/srql/tests/support/harness.rs",
+        ):
+            self.assertIn(required, paths)
+
+        selected_sources = {
+            row["source"]
+            for row in integration_dispositions()
+            if row["mode"] in SELECTED_MODES
+        }
+        self.assertTrue(selected_sources)
+        self.assertTrue(
+            selected_sources.issubset(
+                {
+                    path.relative_to(CORE_TEST_ROOT.parent).as_posix()
+                    for path in cpu_diagnostic_input_paths()
+                    if path.is_relative_to(CORE_TEST_ROOT.parent)
+                }
+            )
+        )
+
+        digest = cpu_diagnostic_input_hash()
+        self.assertRegex(digest, r"^[0-9a-f]{64}$")
+        self.assertNotEqual(harness_hash(), digest)
+
+        root_build = (ROOT / "BUILD.bazel").read_text(encoding="utf-8")
+        hash_rule = named_starlark_rule(
+            root_build,
+            "py_binary",
+            "integration_cpu_diagnostic_input_hash",
+        )
+        self.assertIn('args = ["--hash-integration-cpu-diagnostic-inputs"]', hash_rule)
+        self.assertNotIn("BazelCI", hash_rule)
+
+        with_selected_cpu = self.action.replace(
+            '    resource_requests:\n      memory: "50GB"',
+            '    resource_requests:\n      cpu: "12"\n      memory: "50GB"',
+            1,
+        )
+        self.assertNotEqual(self.action, with_selected_cpu)
+        self.assertEqual(
+            normalized_cpu_diagnostic_action(self.action),
+            normalized_cpu_diagnostic_action(with_selected_cpu),
+        )
 
     def test_lifecycle_has_the_fixed_measurement_contract(self):
         for required in (
@@ -1166,14 +1338,144 @@ class WorkflowIntegrationLifecycleContractTest(unittest.TestCase):
             block = module_source_block(row["source"], row["module"])
             self.assertNotIn("Logger.configure(", block, row)
 
+    def test_async_on_exit_callbacks_are_non_database_cleanup_only(self):
+        async_sources = {
+            row["source"]
+            for row in integration_dispositions()
+            if row["mode"] == "async"
+        }
+
+        def on_exit_lines(source: str) -> tuple[str, ...]:
+            return tuple(
+                line.strip()
+                for line in source.splitlines()
+                if re.match(r"^\s*on_exit\s*\(", line)
+            )
+
+        sources_with_on_exit = {
+            source
+            for source in async_sources
+            if on_exit_lines(
+                (CORE_TEST_ROOT.parent / source).read_text(encoding="utf-8")
+            )
+        }
+
+        self.assertEqual(ASYNC_ON_EXIT_ALLOWED_SOURCES, sources_with_on_exit)
+
+        allowed_callbacks = {
+            "test/serviceradar/integrations/armis_northbound_runner_test.exs": {
+                "on_exit(stop_server)": 1,
+            },
+            "test/serviceradar/inventory/agent_link_repair_worker_test.exs": {
+                "on_exit(fn -> :telemetry.detach(handler_id) end)": 8,
+                "on_exit(fn -> :telemetry.detach(unresolved_handler) end)": 1,
+            },
+            "test/serviceradar/notifications/dispatcher_delivery_test.exs": {
+                "on_exit(fn -> RateLimiter.reset(channel.id) end)": 2,
+            },
+        }
+
+        for source, expected_lines in allowed_callbacks.items():
+            text = (CORE_TEST_ROOT.parent / source).read_text(encoding="utf-8")
+            actual_lines = on_exit_lines(text)
+            self.assertEqual(sum(expected_lines.values()), len(actual_lines), source)
+            self.assertEqual(set(expected_lines), set(actual_lines), source)
+            for line, expected_count in expected_lines.items():
+                self.assertEqual(expected_count, actual_lines.count(line), source)
+
+    def test_async_sandbox_bypasses_the_singleton_rollup_lock_with_serial_coverage(self):
+        support = TEST_SUPPORT.read_text(encoding="utf-8")
+        baseline = PLATFORM_BASELINE.read_text(encoding="utf-8")
+        setting = "platform.skip_inventory_rollup"
+
+        self.assertIn(
+            'configure_async_sandbox_transaction!(context)',
+            support,
+        )
+        self.assertIn(
+            "defp configure_async_sandbox_transaction!(%{async: true})",
+            support,
+        )
+        self.assertEqual(
+            1,
+            support.count(
+                f'ServiceRadar.Repo.query!("SET LOCAL {setting} = \'on\'")'
+            ),
+        )
+        self.assertIn(
+            f"current_setting('{setting}', true) = 'on'",
+            baseline,
+        )
+
+        [configuration_row] = [
+            row
+            for row in integration_dispositions()
+            if row["source"] == ASYNC_SANDBOX_CONFIGURATION_SOURCE
+        ]
+        self.assertEqual("async", configuration_row["mode"])
+        configuration_source = (
+            CORE_TEST_ROOT.parent / ASYNC_SANDBOX_CONFIGURATION_SOURCE
+        ).read_text(encoding="utf-8")
+        self.assertIn("use ServiceRadar.DataCase, async: true", configuration_source)
+        self.assertIn(
+            "ServiceRadar.TestSupport.checkout_repo!(context)",
+            DATA_CASE.read_text(encoding="utf-8"),
+        )
+        self.assertIn(
+            "SELECT current_setting('platform.skip_inventory_rollup', true)",
+            configuration_source,
+        )
+        self.assertIn("DataCase.allow_sandbox(child)", configuration_source)
+
+        [rollup_row] = [
+            row
+            for row in integration_dispositions()
+            if row["source"] == INVENTORY_ROLLUP_TRIGGER_SOURCE
+        ]
+        self.assertEqual("serial", rollup_row["mode"])
+        self.assertEqual("ddl", rollup_row["reason"])
+
+        rollup_source = (
+            CORE_TEST_ROOT.parent / INVENTORY_ROLLUP_TRIGGER_SOURCE
+        ).read_text(encoding="utf-8")
+        self.assertIn("use ServiceRadar.DataCase, async: false", rollup_source)
+        self.assertIn("refresh_device_inventory_rollups", rollup_source)
+        self.assertIn("device_inventory_counts", rollup_source)
+
+        sandbox_regression = (
+            CORE_TEST_ROOT / "serviceradar/test_support_sandbox_test.exs"
+        ).read_text(encoding="utf-8")
+        self.assertIn("async_total_before", sandbox_regression)
+        self.assertIn("^async_total_before", sandbox_regression)
+        self.assertIn(
+            "serial_total_after == serial_total_before + 1",
+            sandbox_regression,
+        )
+
+        rollup_tokens = (
+            "refresh_device_inventory_rollups",
+            "device_inventory_counts",
+            "device_inventory_type_counts",
+            "device_inventory_vendor_counts",
+        )
+        async_sources = {
+            row["source"]
+            for row in integration_dispositions()
+            if row["mode"] == "async"
+        }
+        for source in async_sources:
+            text = (CORE_TEST_ROOT.parent / source).read_text(encoding="utf-8")
+            for token in rollup_tokens:
+                self.assertNotIn(token, text, source)
+
     def test_integration_disposition_inventory_is_exhaustive_and_concrete(self):
         rows = integration_dispositions()
         selected = [row for row in rows if row["mode"] in SELECTED_MODES]
         load_only = [row for row in rows if row["mode"] == "load_only"]
 
-        self.assertEqual(278, len(selected))
+        self.assertEqual(279, len(selected))
         self.assertEqual(502, len(load_only))
-        self.assertEqual(780, len(rows))
+        self.assertEqual(781, len(rows))
         self.assertEqual(
             set(ordinary_core_test_sources()),
             {row["source"] for row in rows},
@@ -1774,5 +2076,7 @@ class ReleaseLargeIngestionQualificationContractTest(unittest.TestCase):
 if __name__ == "__main__":
     if sys.argv[1:] == ["--hash-integration-benchmark"]:
         print(harness_hash())
+    elif sys.argv[1:] == ["--hash-integration-cpu-diagnostic-inputs"]:
+        print(cpu_diagnostic_input_hash())
     else:
         unittest.main()
