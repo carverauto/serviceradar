@@ -10,7 +10,13 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent
 BAZELRC = ROOT / ".bazelrc"
+MODULE_FILE = ROOT / "MODULE.bazel"
 WORKFLOW = ROOT / "buildbuddy.yaml"
+PLAYWRIGHT_BUILD = ROOT / "elixir/web-ng/test/playwright/BUILD.bazel"
+PLAYWRIGHT_EXECUTOR_IMAGE = (
+    "docker://registry.carverauto.dev/serviceradar/playwright-rbe@sha256:"
+    "d9266ee97f0dbd297618a10afb00b5006ebf2bb19dd38887da3230ed4b7829ea"
+)
 OBSERVER_SOURCE = ROOT / "rust/integration-db/src/connection_observer.rs"
 OBSERVER_BINARY = ROOT / "rust/integration-db/src/bin/observe_connections.rs"
 OBSERVER_BUILD = ROOT / "rust/integration-db/BUILD.bazel"
@@ -798,6 +804,11 @@ class WorkflowIntegrationLifecycleContractTest(unittest.TestCase):
         "--build_tag_filters=integration_test,-large_ingestion_test,-acceptance_test "
         "--test_tag_filters=integration_test,-large_ingestion_test,-acceptance_test //..."
     )
+    playwright_acceptance = (
+        "bazel test -c opt --config=ci "
+        "//elixir/web-ng/test/playwright:god_view_elk_scene_acceptance "
+        "--test_output=errors --nocache_test_results --flaky_test_attempts=1"
+    )
     heavy_provision = (
         "bazel test $FLAGS "
         "//rust/integration-db:provision_db_large_ingestion"
@@ -1245,6 +1256,36 @@ class WorkflowIntegrationLifecycleContractTest(unittest.TestCase):
                 if "$FLAGS" in command and "//..." in command
             ),
         )
+
+    def test_bazel_ci_runs_the_browser_acceptance_gate_once_before_database_setup(self):
+        action = named_action("BazelCI")
+        normalized_action = " ".join(action.split())
+        unit_suite = (
+            "bazel test -c opt --config=ci --//build:enable_integration_tests "
+            "//... --test_tag_filters=-integration_test,-acceptance_test,-benchmark"
+        )
+
+        self.assertEqual(1, normalized_action.count(self.playwright_acceptance))
+        self.assertLess(
+            normalized_action.index(unit_suite),
+            normalized_action.index(self.playwright_acceptance),
+        )
+        self.assertLess(
+            normalized_action.index(self.playwright_acceptance),
+            normalized_action.index("PREFLIGHT_RUN_ID="),
+        )
+
+    def test_browser_gate_uses_only_the_digest_pinned_executor_browser(self):
+        module_source = MODULE_FILE.read_text(encoding="utf-8")
+        target_source = PLAYWRIGHT_BUILD.read_text(encoding="utf-8")
+
+        self.assertNotIn("rules_playwright", module_source)
+        self.assertNotIn("@web_ng_playwright", target_source)
+        self.assertNotIn("playwright-browsers", target_source)
+        self.assertIn('"PLAYWRIGHT_BROWSERS_PATH": "/ms-playwright"', target_source)
+        self.assertIn(f'"container-image": "{PLAYWRIGHT_EXECUTOR_IMAGE}"', target_source)
+        self.assertIn('"no-local"', target_source)
+        self.assertIn('"no-remote-cache"', target_source)
 
     def test_large_ingestion_gate_has_exact_independent_trigger(self):
         action = named_action("LargeIngestionGate")

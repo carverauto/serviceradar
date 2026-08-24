@@ -51,7 +51,6 @@ bazel_dep(name = "bazel_skylib", version = "1.9.2", repo_name = "bazel_skylib")
 bazel_dep(name = "rules_foreign_cc", version = "0.15.1")
 bazel_dep(name = "aspect_rules_js", version = "2.6.0")
 bazel_dep(name = "aspect_rules_ts", version = "3.7.0")
-bazel_dep(name = "rules_playwright", version = "0.5.3")
 bazel_dep(name = "rules_cc", version = "0.2.22")
 
 # OpenSSL as cc_library; The one consumer is openssl-sys (annotation below), which in turn feeds pq-src.
@@ -862,19 +861,6 @@ npm.npm_translate_lock(
     verify_node_modules_ignored = "//:.bazelignore",
 )
 use_repo(npm, "web_ng_npm")
-
-# Browser acceptance tests use the Chromium build paired with @playwright/test 1.51.0.
-# The explicit integrity entry makes the browser executable a verified repository input;
-# native browser libraries come from the target-scoped execution image, not the host.
-playwright = use_extension("@rules_playwright//playwright:extensions.bzl", "playwright", dev_dependency = True)
-playwright.repo(
-    name = "web_ng_playwright",
-    browsers_json = "//elixir/web-ng/test/playwright:playwright-browsers.1.51.0.json",
-    integrity_path_map = {
-        "builds/chromium/1161/chromium-linux.zip": "sha256-JduALM52KixcCCsRVnG4w3+O+HwtCONn0hbVbpVeJJY=",
-    },
-)
-use_repo(playwright, "web_ng_playwright")
 
 # --- External binary artifacts ----------------------------------------------
 

@@ -60,6 +60,14 @@ actions:
           bazel test -c opt --config=ci --//build:enable_integration_tests
           //... --test_tag_filters=-integration_test,-acceptance_test,-benchmark
 
+      # The topology geometry acceptance target is intentionally excluded from the
+      # ordinary unit sweep. Run it once in the digest-pinned Playwright executor;
+      # its screenshots and traces are retained through TEST_UNDECLARED_OUTPUTS_DIR.
+      - run: >-
+          bazel test -c opt --config=ci
+          //elixir/web-ng/test/playwright:god_view_elk_scene_acceptance
+          --test_output=errors --nocache_test_results --flaky_test_attempts=1
+
       # The database lifecycle. ONE step: the invocations share a shell, and BuildBuddy has no
       # `if: always()`, so a trap is the only way to guarantee teardown after a red suite.
       #
