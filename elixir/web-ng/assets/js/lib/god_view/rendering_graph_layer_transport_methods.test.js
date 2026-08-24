@@ -1,10 +1,33 @@
 import {describe, expect, it, vi} from "vitest"
-import {ArcLayer, PathLayer} from "@deck.gl/layers"
+import {ArcLayer, LineLayer, PathLayer} from "@deck.gl/layers"
 
 import {bindApi, createStateBackedContext} from "./api_helpers"
 import {godViewRenderingGraphLayerTransportMethods} from "./rendering_graph_layer_transport_methods"
 
 describe("rendering_graph_layer_transport_methods", () => {
+  it("keeps local ELK-tagged graphs without scene routes on the legacy transport layers", () => {
+    const state = {
+      animationPhase: 1.2,
+      layers: {mantle: true, crust: true, atmosphere: false, security: false},
+      visual: {mantleEdgeBase: [30, 80, 140], mantleEdgeAlphaBase: 128, mantleEdgeAlphaBoost: 32},
+    }
+    const ctx = createStateBackedContext(state, {geoGridData: vi.fn(() => [])})
+    Object.assign(ctx, bindApi(ctx, godViewRenderingGraphLayerTransportMethods), {
+      edgeTelemetryArcColors: vi.fn(() => ({source: [100, 100, 255, 120], target: [200, 120, 255, 120]})),
+      edgeWidthPixels: vi.fn(() => 2.2),
+      edgeIsFocused: vi.fn(() => false),
+    })
+
+    const out = ctx.buildTransportAndEffectLayers(
+      {shape: "local", _layoutMode: "elk-scene", _topologyScene: {}},
+      [],
+      [{sourcePosition: [0, 0, 0], targetPosition: [40, 20, 0], topologyClass: "backbone"}],
+    )
+
+    expect(out.mantleLayers[0]).toBeInstanceOf(LineLayer)
+    expect(out.crustLayers[0]).toBeInstanceOf(ArcLayer)
+  })
+
   it("renders routed topology edges through one shared PathLayer path", () => {
     const state = {
       animationPhase: 1.2,
@@ -31,7 +54,11 @@ describe("rendering_graph_layer_transport_methods", () => {
       topologyClass: "backbone",
     }
 
-    const out = ctx.buildTransportAndEffectLayers({shape: "local", _layoutMode: "elk-scene"}, [], [edge])
+    const out = ctx.buildTransportAndEffectLayers(
+      {shape: "local", _layoutMode: "elk-scene", _topologyScene: {routes: [{id: "route:a-b"}]}},
+      [],
+      [edge],
+    )
 
     expect(out.mantleLayers[0]).toBeInstanceOf(PathLayer)
     expect(out.crustLayers[0]).toBeInstanceOf(PathLayer)

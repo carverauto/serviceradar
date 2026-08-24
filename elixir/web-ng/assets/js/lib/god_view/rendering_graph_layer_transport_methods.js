@@ -1,6 +1,7 @@
 import {COORDINATE_SYSTEM} from "@deck.gl/core"
 import {ArcLayer, LineLayer, PathLayer, ScatterplotLayer} from "@deck.gl/layers"
 import PacketFlowLayer from "../deckgl/PacketFlowLayer"
+import {hasManagedTopologySceneRoutes} from "./rendering_graph_data_methods"
 import {edgeTopologyVisualStyleValue} from "./rendering_style_edge_topology_methods"
 
 export const godViewRenderingGraphLayerTransportMethods = {
@@ -28,7 +29,7 @@ export const godViewRenderingGraphLayerTransportMethods = {
     const packetFlowData = (this.state.layers.atmosphere && this.state.packetFlowEnabled)
       ? this.buildPacketFlowInstances(edgeData)
       : []
-    const routedTopologyScene = effective.shape === "local" && effective._layoutMode === "elk-scene"
+    const routedTopologyScene = hasManagedTopologySceneRoutes(effective)
 
     const mantleLayers = this.state.layers.mantle
       ? [

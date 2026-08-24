@@ -9,9 +9,8 @@ function isClusterExpanded(node) {
 
 function finiteRoutePath(points) {
   if (!Array.isArray(points)) return []
-  return points
-    .filter((point) => Number.isFinite(Number(point?.x)) && Number.isFinite(Number(point?.y)))
-    .map((point) => [Number(point.x), Number(point.y), 0])
+  if (!points.every((point) => Number.isFinite(Number(point?.x)) && Number.isFinite(Number(point?.y)))) return []
+  return points.map((point) => [Number(point.x), Number(point.y), 0])
 }
 
 function midpointOnPath(path) {
@@ -59,6 +58,14 @@ function rawRelationId(edge, nodes) {
   const topologyClass = String(edge?.topologyClass || "").trim().toLowerCase() || "unknown"
   const label = String(edge?.label || "").trim()
   return `semantic:${left}|${right}|${topologyClass}|${label}`
+}
+
+export function hasManagedTopologySceneRoutes(effective) {
+  return (
+    effective?.shape === "local" &&
+    effective?._layoutMode === "elk-scene" &&
+    Array.isArray(effective?._topologyScene?.routes)
+  )
 }
 
 export const godViewRenderingGraphDataMethods = {
@@ -214,10 +221,7 @@ export const godViewRenderingGraphDataMethods = {
       })
       .filter(Boolean)
 
-    const managedTopologyScene =
-      effective.shape === "local" &&
-      effective._layoutMode === "elk-scene" &&
-      Array.isArray(effective?._topologyScene?.routes)
+    const managedTopologyScene = hasManagedTopologySceneRoutes(effective)
     const edgeData = managedTopologyScene
       ? this.buildTopologySceneEdgeData(effective, edgeTopologyClass)
       : this.aggregateVisibleEdges(this.collapseExpandedMemberTrunks(rawEdgeData, visibleNodes))
@@ -282,7 +286,9 @@ export const godViewRenderingGraphDataMethods = {
         const path = finiteRoutePath(route?.points)
         if (path.length < 2) return null
 
-        const relationIds = Array.isArray(route?.relationIds) ? [...route.relationIds] : []
+        const relationIds = Array.isArray(route?.relationIds)
+          ? [...route.relationIds].sort((left, right) => String(left).localeCompare(String(right)))
+          : []
         const relations = relationIds.map((relationId) => relationById.get(relationId)).filter(Boolean)
         const metadata = route?.metadata && typeof route.metadata === "object" ? route.metadata : {}
         const topologyClassCounts = emptyClassCounts()

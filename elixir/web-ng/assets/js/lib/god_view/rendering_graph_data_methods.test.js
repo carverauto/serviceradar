@@ -4,7 +4,7 @@ import {bindApi, createStateBackedContext} from "./api_helpers"
 import ELK from "elkjs/lib/elk.bundled.js"
 
 import {LANDSCAPE_PROFILE, applyTopologySceneToGraph, layoutTopologyScene} from "./layout_elk_scene"
-import {expandedFarm01Graph} from "./fixtures/farm01_topology_regression"
+import {collapsedFarm01Graph, expandedFarm01Graph} from "./fixtures/farm01_topology_regression"
 import {godViewRenderingGraphDataMethods} from "./rendering_graph_data_methods"
 import {prepareTopologySceneInput} from "./topology_scene_graph"
 
@@ -47,26 +47,29 @@ function baseContext({state = {}, deps = {}, overrides = {}} = {}) {
 
 describe("rendering_graph_data_methods", () => {
   it("uses pre-laid scene routes without post-layout aggregation", async () => {
-    const graph = expandedFarm01Graph()
-    const input = prepareTopologySceneInput(graph)
-    const scene = await layoutTopologyScene(input, {engine: new ELK(), profile: LANDSCAPE_PROFILE})
-    const laidOut = applyTopologySceneToGraph(graph, scene)
     const collapseExpandedMemberTrunks = vi.fn()
     const aggregateVisibleEdges = vi.fn()
     const ctx = baseContext({overrides: {collapseExpandedMemberTrunks, aggregateVisibleEdges}})
 
-    const out = ctx.buildVisibleGraphData({shape: "local", ...laidOut})
-    const expectedRelationIds = scene.routes.flatMap((route) => route.relationIds).sort()
+    for (const graph of [collapsedFarm01Graph(), expandedFarm01Graph()]) {
+      const input = prepareTopologySceneInput(graph)
+      const scene = await layoutTopologyScene(input, {engine: new ELK(), profile: LANDSCAPE_PROFILE})
+      const laidOut = applyTopologySceneToGraph(graph, scene)
+      const out = ctx.buildVisibleGraphData({shape: "local", ...laidOut})
 
-    expect(out.edgeData).toHaveLength(32)
-    expect(out.edgeData.every((edge) => edge.path.length >= 2)).toBe(true)
-    expect(out.edgeData.flatMap((edge) => edge.relationIds).sort()).toEqual(expectedRelationIds)
+      expect(out.edgeData).toHaveLength(32)
+      expect(out.edgeData.map((edge) => edge.interactionKey).sort()).toEqual(
+        scene.routes.map((route) => `local:${route.id}`).sort(),
+      )
+      for (const route of scene.routes) {
+        const edge = out.edgeData.find((candidate) => candidate.interactionKey === `local:${route.id}`)
+        expect(edge.path).toEqual(route.points.map((point) => [point.x, point.y, 0]))
+        expect(edge.relationIds).toEqual([...route.relationIds].sort())
+      }
+    }
+
     expect(collapseExpandedMemberTrunks).not.toHaveBeenCalled()
     expect(aggregateVisibleEdges).not.toHaveBeenCalled()
-
-    const bentRoute = scene.routes.find((route) => route.points.length > 2)
-    const bentEdge = out.edgeData.find((edge) => edge.interactionKey === `local:${bentRoute.id}`)
-    expect(bentEdge.path).toEqual(bentRoute.points.map((point) => [point.x, point.y, 0]))
   })
 
   it("samples a scene route midpoint by cumulative polyline distance", () => {
@@ -94,6 +97,44 @@ describe("rendering_graph_data_methods", () => {
     const out = ctx.buildVisibleGraphData(effective)
 
     expect(out.edgeData[0].midpoint).toEqual([10, 10, 0])
+  })
+
+  it("rejects a route with a non-finite intermediate point instead of shortcutting it", () => {
+    const ctx = baseContext()
+    const effective = {
+      shape: "local",
+      _layoutMode: "elk-scene",
+      _topologyScene: {
+        routes: [
+          {
+            id: "valid",
+            sourceId: "a",
+            targetId: "b",
+            points: [{x: 0, y: 0}, {x: 10, y: 0}],
+            relationIds: [],
+            metadata: {},
+          },
+          {
+            id: "invalid-middle",
+            sourceId: "a",
+            targetId: "b",
+            points: [{x: 0, y: 0}, {x: Number.NaN, y: 5}, {x: 10, y: 0}],
+            relationIds: [],
+            metadata: {},
+          },
+        ],
+      },
+      nodes: [
+        {id: "a", x: 0, y: 0, state: 0, label: "A", operUp: 1, details: {}},
+        {id: "b", x: 10, y: 0, state: 1, label: "B", operUp: 1, details: {}},
+      ],
+      edges: [],
+    }
+
+    const out = ctx.buildVisibleGraphData(effective)
+
+    expect(out.edgeData).toHaveLength(1)
+    expect(out.edgeData[0].interactionKey).toEqual("local:valid")
   })
 
   it("keeps route metadata authoritative while enriching empty fields from semantic relations", () => {
@@ -129,6 +170,7 @@ describe("rendering_graph_data_methods", () => {
       flowPpsBa: 55,
       label: "pre-aggregated route",
     })
+    expect(out.edgeData[0].relationIds).toEqual(["forward", "reverse"])
   })
 
   it("buildVisibleGraphData creates visible node/edge data and clears stale edge keys", () => {
