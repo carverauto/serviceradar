@@ -3,6 +3,7 @@ import {describe, expect, it} from "vitest"
 
 import {
   LANDSCAPE_PROFILE,
+  PORTRAIT_PROFILE,
   buildElkSceneGraph,
   decodeElkScene,
   layoutTopologyScene,
@@ -26,6 +27,39 @@ function findElkNode(node, id) {
     if (found) return found
   }
   return null
+}
+
+function allElkEdges(node) {
+  return [
+    ...(node?.edges || []),
+    ...(node?.children || []).flatMap((child) => allElkEdges(child)),
+  ]
+}
+
+function locallyRelatedGroupSceneInput() {
+  return {
+    nodes: [
+      {id: "anchor", kind: "node", groupId: null, render: true},
+      {id: "gateway", kind: "endpoint-summary", groupId: "group", render: false},
+      {id: "member-a", kind: "endpoint-member", groupId: "group", render: true},
+      {id: "member-b", kind: "endpoint-member", groupId: "group", render: true},
+    ],
+    groups: [{
+      id: "group",
+      anchorId: "anchor",
+      gatewayId: "gateway",
+      memberIds: ["member-a", "member-b"],
+      expanded: true,
+    }],
+    renderedRelations: [
+      {id: "root-trunk", sourceId: "anchor", targetId: "gateway", relationIds: ["root"]},
+      {id: "local-member", sourceId: "member-a", targetId: "member-b", relationIds: ["local"]},
+    ],
+    layoutRelations: [
+      {id: "pack-a", sourceId: "gateway", targetId: "member-a"},
+      {id: "pack-b", sourceId: "gateway", targetId: "member-b"},
+    ],
+  }
 }
 
 function containerRelativeSceneInput() {
@@ -155,7 +189,7 @@ describe("layout_elk_scene", () => {
     expect({width: gateway.width, height: gateway.height}).toEqual({width: 112, height: 112})
     expect(gateway.layoutOptions?.["serviceradar.render"]).toEqual("false")
     expect({width: member.width, height: member.height}).toEqual({width: 96, height: 96})
-    const packingEdges = elkGraph.edges.filter(
+    const packingEdges = group.edges.filter(
       (edge) => edge.layoutOptions?.["serviceradar.render"] === "false",
     )
     const memberIds = [...expandedGroup.memberIds].sort((left, right) => left.localeCompare(right))
@@ -179,6 +213,26 @@ describe("layout_elk_scene", () => {
       "elk.edgeRouting": "ORTHOGONAL",
       "elk.direction": "RIGHT",
     })
+  })
+
+  it("owns every relation at its lowest common compound without duplicating root edges", () => {
+    const elkGraph = buildElkSceneGraph(locallyRelatedGroupSceneInput(), PORTRAIT_PROFILE)
+    const group = findElkNode(elkGraph, "group")
+
+    expect(elkGraph.edges.map((edge) => edge.id)).toEqual(["root-trunk"])
+    expect(group.edges.map((edge) => edge.id)).toEqual(["local-member", "pack-a", "pack-b"])
+    expect(group.edges.find((edge) => edge.id === "local-member")?.layoutOptions).toMatchObject({
+      "serviceradar.render": "true",
+    })
+    expect(group.edges.filter(
+      (edge) => edge.layoutOptions?.["serviceradar.render"] === "false",
+    )).toHaveLength(2)
+    expect(allElkEdges(elkGraph).map((edge) => edge.id).sort()).toEqual([
+      "local-member",
+      "pack-a",
+      "pack-b",
+      "root-trunk",
+    ])
   })
 
   it("keeps collapsed summaries in the root scene without compound member groups", () => {

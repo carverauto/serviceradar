@@ -155,28 +155,51 @@ export function buildElkSceneGraph(sceneInput, profile = LANDSCAPE_PROFILE) {
     .filter((group) => group.expanded)
     .sort((left, right) => left.id.localeCompare(right.id))
   const expandedGroupIds = new Set(expandedGroups.map((group) => group.id))
+  const packedRelations = packedLayoutRelations(sceneInput, profile)
+  const groupIdByNodeId = new Map()
   const groupedNodeIds = new Set()
+
+  for (const group of expandedGroups) {
+    groupIdByNodeId.set(group.gatewayId, group.id)
+    for (const memberId of group.memberIds || []) groupIdByNodeId.set(memberId, group.id)
+  }
+
+  const ownedRelations = [
+    ...(sceneInput?.renderedRelations || []).map((relation) => ({relation, render: true})),
+    ...packedRelations.map((relation) => ({relation, render: false})),
+  ].map((owned) => {
+    const sourceGroupId = groupIdByNodeId.get(owned.relation.sourceId)
+    const targetGroupId = groupIdByNodeId.get(owned.relation.targetId)
+    return {
+      ...owned,
+      ownerId: sourceGroupId && sourceGroupId === targetGroupId ? sourceGroupId : null,
+    }
+  })
 
   const compoundChildren = expandedGroups.map((group) => {
     const childIds = [group.gatewayId, ...(group.memberIds || [])]
       .filter((id) => nodeById.has(id))
       .sort((left, right) => left.localeCompare(right))
     childIds.forEach((id) => groupedNodeIds.add(id))
+    const groupRelations = ownedRelations.filter((owned) => owned.ownerId === group.id)
 
     return {
       id: group.id,
       layoutOptions: elkLayoutOptions(profile, "endpoint-group"),
       children: childIds.map((id) => elkLeaf(nodeById.get(id))),
+      edges: groupRelations
+        .map(({relation, render}) => relationEdge(relation, render))
+        .sort((left, right) => left.id.localeCompare(right.id)),
     }
   })
 
   const rootLeaves = nodes
     .filter((node) => !groupedNodeIds.has(node.id) && !expandedGroupIds.has(node.groupId))
     .map(elkLeaf)
-  const edges = [
-    ...(sceneInput?.renderedRelations || []).map((relation) => relationEdge(relation, true)),
-    ...packedLayoutRelations(sceneInput, profile).map((relation) => relationEdge(relation, false)),
-  ].sort((left, right) => left.id.localeCompare(right.id))
+  const edges = ownedRelations
+    .filter((owned) => owned.ownerId === null)
+    .map(({relation, render}) => relationEdge(relation, render))
+    .sort((left, right) => left.id.localeCompare(right.id))
 
   return {
     id: "god-view-root",
