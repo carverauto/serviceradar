@@ -484,8 +484,6 @@ actions:
   # between the before and after revisions of the parallelization benchmark.
   - name: "IntegrationBenchmark"
     env:
-      OCI_REGISTRY: "registry.carverauto.dev"
-      OCI_AUTH_REQUIRED: "1"
       SRQL_FIXTURE_CA_URL: "http://srql-fixture-ca-incluster.srql-fixtures.svc.cluster.local/ca.crt"
     self_hosted: true
     pool: "workflows"
@@ -502,7 +500,7 @@ actions:
       memory: "50GB"
       disk: "40GB"
     steps: &integration_benchmark_steps
-      # Refuse a synthetic or stale checkout before spending any registry/build capacity.
+      # Refuse a synthetic or stale checkout before spending any build capacity.
       - run: |
           set -euo pipefail
           : "${SERVICERADAR_BENCHMARK_EXPECTED_SHA:?SERVICERADAR_BENCHMARK_EXPECTED_SHA is required}"
@@ -512,11 +510,22 @@ actions:
             exit 1
           }
 
+      # Warm only the ordinary integration targets selected by the measured wildcard. Their
+      # transitive compile/runtime dependencies are still built, but unrelated packages, release
+      # archives, OCI images, and push targets stay out of this integration-only action.
       - run: >-
-          bazel run -c opt --config=ci --//build:enable_integration_tests //:buildbuddy_setup_docker_auth --verbose_failures
+          bazel build -c opt --config=ci --//build:enable_integration_tests
+          --build_tag_filters=integration_test,-large_ingestion_test,-acceptance_test //...
 
+      # These manual lifecycle targets execute inside the measured clock, so warm them explicitly.
+      # The positive integration filter above intentionally excludes manual targets.
       - run: >-
-          bazel build -c opt --config=ci --//build:enable_integration_tests //...
+          bazel build -c opt --config=ci --//build:enable_integration_tests
+          --build_tag_filters=
+          //rust/integration-db:observe_connections
+          //rust/integration-db:sweep_stale_dbs
+          //rust/integration-db:provision_db
+          //rust/integration-db:teardown_db
 
       - run: |
           set -euo pipefail
@@ -648,8 +657,6 @@ actions:
   # applied to BazelCI and both accepted before/after cohorts.
   - name: "IntegrationBenchmarkCPU2"
     env:
-      OCI_REGISTRY: "registry.carverauto.dev"
-      OCI_AUTH_REQUIRED: "1"
       SRQL_FIXTURE_CA_URL: "http://srql-fixture-ca-incluster.srql-fixtures.svc.cluster.local/ca.crt"
     self_hosted: true
     pool: "workflows"
@@ -670,8 +677,6 @@ actions:
 
   - name: "IntegrationBenchmarkCPU12"
     env:
-      OCI_REGISTRY: "registry.carverauto.dev"
-      OCI_AUTH_REQUIRED: "1"
       SRQL_FIXTURE_CA_URL: "http://srql-fixture-ca-incluster.srql-fixtures.svc.cluster.local/ca.crt"
     self_hosted: true
     pool: "workflows"

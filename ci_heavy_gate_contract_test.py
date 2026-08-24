@@ -535,6 +535,8 @@ class IntegrationBenchmarkContractTest(unittest.TestCase):
             self.assertIn(f'branches:\n          - "{branch}"', action)
             self.assertIn("steps: *integration_benchmark_steps", action)
             self.assertNotIn("      - run:", action)
+            self.assertNotIn("OCI_REGISTRY", action)
+            self.assertNotIn("OCI_AUTH_REQUIRED", action)
 
     def test_cpu_diagnostic_hash_covers_execution_inputs_but_not_production_cpu(self):
         paths = {
@@ -635,12 +637,41 @@ class IntegrationBenchmarkContractTest(unittest.TestCase):
             benchmark,
         )
 
-    def test_expected_sha_is_checked_before_any_build_or_registry_work(self):
+    def test_expected_sha_is_checked_before_any_build(self):
         sha_check = self.action.index("SERVICERADAR_BENCHMARK_EXPECTED_SHA")
-        docker_auth = self.action.index("//:buildbuddy_setup_docker_auth")
-        full_build = self.action.index("bazel build -c opt --config=ci")
-        self.assertLess(sha_check, docker_auth)
-        self.assertLess(sha_check, full_build)
+        integration_prebuild = self.action.index("bazel build -c opt --config=ci")
+        self.assertLess(sha_check, integration_prebuild)
+        self.assertNotIn("//:buildbuddy_setup_docker_auth", self.action)
+        self.assertNotIn("OCI_REGISTRY", self.action)
+        self.assertNotIn("OCI_AUTH_REQUIRED", self.action)
+
+    def test_prebuild_warms_only_the_measured_integration_targets(self):
+        build_start = self.action.index("bazel build -c opt --config=ci")
+        lifecycle_start = self.action.index("      - run: |", build_start)
+        prebuild = self.action[build_start:lifecycle_start]
+
+        self.assertIn("--//build:enable_integration_tests", prebuild)
+        self.assertIn(
+            "--build_tag_filters=integration_test,-large_ingestion_test,-acceptance_test",
+            prebuild,
+        )
+        self.assertEqual(1, prebuild.count("//..."))
+
+        manual_prebuild_filter = "--build_tag_filters="
+        self.assertEqual(2, prebuild.count(manual_prebuild_filter))
+        for target in (
+            "//rust/integration-db:observe_connections",
+            "//rust/integration-db:sweep_stale_dbs",
+            "//rust/integration-db:provision_db",
+            "//rust/integration-db:teardown_db",
+        ):
+            self.assertEqual(1, prebuild.count(target), target)
+
+        self.assertRegex(
+            prebuild,
+            r"--build_tag_filters=\s+//rust/integration-db:observe_connections",
+        )
+        self.assertEqual(2, prebuild.count("bazel build"))
 
     def test_preflight_is_private_and_cannot_warm_the_measured_run(self):
         for required in (

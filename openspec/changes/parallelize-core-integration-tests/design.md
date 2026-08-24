@@ -539,8 +539,10 @@ Template preparation and any migration run in a separate preflight before measur
 end-to-end measurement starts immediately before fixture configuration is materialized and its end
 timestamp is captured immediately when teardown returns, before observer shutdown/wait overhead.
 The in-clock template check is current-only; a newly pending result is retained as non-cohort and
-cannot migrate inside the timing window. The preceding full-build step must have warmed the exact
-Bazel configuration. The measured ordinary wave includes every target selected by the
+cannot migrate inside the timing window. The preceding integration-only prebuild must have warmed
+the exact Bazel configuration, measured target dependency closures, and the four manual lifecycle
+targets that execute inside the clock. It must not build unrelated packages, release archives, OCI
+images, or push targets. The measured ordinary wave includes every target selected by the
 pull-request integration filter (the async target, all selected serial targets, SRQL fixture
 targets, and other existing integration targets) and excludes only the source-separated heavy
 release-qualification target (the two

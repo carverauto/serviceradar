@@ -496,13 +496,16 @@ successful BuildBuddy result for the immutable tag commit.
 Before bounded concurrency is considered complete, the implementation SHALL pass at least 20
 consecutive CI-equivalent ordinary integration lifecycles with test retries disabled. Measurement
 SHALL start before fixture configuration materialization and end after successful teardown, with a
-current template and the exact Bazel configuration already built. The end timestamp SHALL be
-captured immediately when teardown returns, before observer shutdown/wait overhead. It SHALL
-include all targets selected by the ordinary pull-request integration filter and exclude only the
-`large_ingestion_test`-tagged heavy release-qualification target. Across that run set, nearest-rank
-p95 SHALL be at most 90 seconds, and relative p95 improvement versus the controlled before cohort
-SHALL be at least 50%. Whether relative improvement reaches the 60% stretch target SHALL be
-reported. The slowest non-empty serial lane
+current template and the exact Bazel configuration already built. The prebuild SHALL contain the
+ordinary integration targets, their dependencies, and the manual connection-observer, sweep,
+provision, and teardown targets that run inside the clock. It SHALL exclude unrelated package,
+release-archive, OCI-image, and push targets. The end timestamp SHALL be captured immediately when
+teardown returns, before observer shutdown/wait overhead. It SHALL include all targets selected by
+the ordinary pull-request integration filter and exclude only the `large_ingestion_test`-tagged
+heavy release-qualification target. Across that run set, nearest-rank p95 SHALL be at most 90
+seconds, and relative p95 improvement versus the controlled before cohort SHALL be at least 50%.
+Whether relative improvement reaches the 60% stretch target SHALL be reported. The slowest
+non-empty serial lane
 SHALL be no more than 1.5 times the fastest, and there SHALL be no sandbox ownership error,
 deadlock, leaked test process, leaked disposable database, or retry-masked failure.
 

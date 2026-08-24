@@ -40,8 +40,13 @@ effective HEAD so a synthetic merge can never be mislabeled as either cohort.
 
 Before recording either cohort:
 
-1. Complete `bazel build -c opt --config=ci --//build:enable_integration_tests //...` for the exact
-   source revision and configuration under test.
+1. Complete the integration-only prebuild for the exact source revision and configuration under
+   test. It uses
+   `--build_tag_filters=integration_test,-large_ingestion_test,-acceptance_test //...`, so Bazel
+   warms the measured targets and their transitive dependencies without building unrelated
+   packages, release archives, OCI images, or push targets. A second prebuild clears the positive
+   tag filter and explicitly warms the four manual targets that run inside the clock:
+   `observe_connections`, `sweep_stale_dbs`, `provision_db`, and `teardown_db`.
 2. Run the guarded template preparation path. If it reports pending migrations, migrate it and
    repeat preparation in an isolated preflight subshell before starting the clock. The measured
    lifecycle checks the template again but never migrates. If it has become pending, that row is
@@ -89,12 +94,12 @@ sweep -> prepare/current check -> provision -> ordinary integration wildcard -> 
 
 The clock starts immediately before
 `bazel run ... //:buildbuddy_setup_fixture_env` and stops after the matching
-`//rust/integration-db:teardown_db` attempt returns, whether it succeeds or fails. Docker
-authentication, the full build, and template migration are outside the clock. Fixture
-configuration materialization, sweep, the current-template check, provisioning, all ordinary
-integration targets, and outcome-bearing teardown are inside it. A failed teardown makes the row a
-failure and its duration censored: it remains in the attempt log but is excluded from latency
-statistics because the required lifecycle endpoint was not reached successfully.
+`//rust/integration-db:teardown_db` attempt returns, whether it succeeds or fails. The two narrow
+prebuilds and template migration are outside the clock. Fixture configuration materialization,
+sweep, the current-template check, provisioning, all ordinary integration targets, and
+outcome-bearing teardown are inside it. A failed teardown makes the row a failure and its duration
+censored: it remains in the attempt log but is excluded from latency statistics because the
+required lifecycle endpoint was not reached successfully.
 
 The common measurement flags are:
 
@@ -290,6 +295,18 @@ two and the offending module returns to the serial lane before the wave restarts
 returns the cap to one while the ownership defect is corrected.
 
 ## Evidence record
+
+### Rejected prebuild-only attempts
+
+Two 2026-08-24 attempts at candidate `16024dc890f050fd806a41cce0900a75f2777d0c`
+ended before fixture materialization and are not timing or safety rows. Parent
+`4a49c462-d08a-49a8-8b0b-9643d79fb754` failed to create a workflow invocation when Kubernetes
+rotated the sole workflow executor. Parent `798d3c24-6516-4f5b-9a30-753ad6b1190e` reached child
+`ad48569c-b333-48c0-99d8-0c3ca4631927`, exposing that the provisional prebuild used unfiltered
+`bazel build //...` and therefore built packages, release archives, and OCI images unrelated to the
+integration selection. That parent was canceled before database preflight or `START_NS` and the
+prebuild was replaced by the two narrow commands defined above. Neither attempt can enter a
+benchmark cohort.
 
 Historical observations motivated the work but are not the controlled before cohort. Five recent
 successful pull-request integration phases ranged from 141 to 262 seconds. A separately inspected
