@@ -125,6 +125,11 @@ function normalizeScene(scene) {
   )
 }
 
+function glyphBoxesOverlap(left, right, epsilon = 1) {
+  return Math.min(left.right, right.right) - Math.max(left.left, right.left) > epsilon
+    && Math.min(left.bottom, right.bottom) - Math.max(left.top, right.top) > epsilon
+}
+
 describe("layout_elk_scene", () => {
   it("quantizes usable viewport shape into stable landscape and portrait profiles", () => {
     expect(viewportProfileForSize(1920, 1080, {left: 320, right: 0})).toBe(LANDSCAPE_PROFILE)
@@ -143,6 +148,26 @@ describe("layout_elk_scene", () => {
         (child) => child.layoutOptions?.["serviceradar.kind"] === "endpoint-member",
       ),
     ).toHaveLength(24)
+    const gateway = group.children.find((child) => child.id === expandedGroup.gatewayId)
+    const member = group.children.find(
+      (child) => child.layoutOptions?.["serviceradar.kind"] === "endpoint-member",
+    )
+    expect({width: gateway.width, height: gateway.height}).toEqual({width: 112, height: 112})
+    expect(gateway.layoutOptions?.["serviceradar.render"]).toEqual("false")
+    expect({width: member.width, height: member.height}).toEqual({width: 96, height: 96})
+    const packingEdges = elkGraph.edges.filter(
+      (edge) => edge.layoutOptions?.["serviceradar.render"] === "false",
+    )
+    const memberIds = [...expandedGroup.memberIds].sort((left, right) => left.localeCompare(right))
+    expect(packingEdges).toHaveLength(24)
+    for (const memberId of memberIds.slice(0, 4)) {
+      expect(packingEdges.find((edge) => edge.targets[0] === memberId)?.sources).toEqual([
+        expandedGroup.gatewayId,
+      ])
+    }
+    expect(packingEdges.find((edge) => edge.targets[0] === memberIds[4])?.sources).toEqual([
+      memberIds[0],
+    ])
     expect(
       elkGraph.edges.filter(
         (edge) => edge.layoutOptions?.["serviceradar.render"] !== "false",
@@ -159,9 +184,15 @@ describe("layout_elk_scene", () => {
   it("keeps collapsed summaries in the root scene without compound member groups", () => {
     const input = prepareTopologySceneInput(collapsedFarm01Graph())
     const elkGraph = buildElkSceneGraph(input, LANDSCAPE_PROFILE)
+    const visibleSummaries = input.nodes.filter((node) => node.kind === "endpoint-summary" && node.render)
 
     expect(elkGraph.children.some((child) => child.id === input.groups[0].gatewayId)).toEqual(true)
     expect(input.groups.every((group) => findElkNode(elkGraph, group.id) === null)).toEqual(true)
+    expect(visibleSummaries).toHaveLength(6)
+    for (const summary of visibleSummaries) {
+      const elkSummary = findElkNode(elkGraph, summary.id)
+      expect({width: elkSummary.width, height: elkSummary.height}).toEqual({width: 448, height: 448})
+    }
   })
 
   it("decodes edge section points from edge.container coordinates", () => {
@@ -374,6 +405,7 @@ describe("layout_elk_scene", () => {
     })
     const {viewState} = fitTopologyScene({scene, viewport, safeRect, glyphBoxes})
     const scale = 2 ** viewState.zoom
+    expect(scale).toBeGreaterThanOrEqual(40 / 192)
     const project = (point) => ({
       x: (viewport.width / 2) + ((point.x - viewState.target[0]) * scale),
       y: (viewport.height / 2) + ((point.y - viewState.target[1]) * scale),
@@ -389,6 +421,14 @@ describe("layout_elk_scene", () => {
         bottom: center.y + (glyph.height / 2),
       }
     })
+    const glyphOverlaps = []
+    for (let left = 0; left < glyphs.length; left += 1) {
+      for (let right = left + 1; right < glyphs.length; right += 1) {
+        if (glyphBoxesOverlap(glyphs[left], glyphs[right])) {
+          glyphOverlaps.push(`${glyphs[left].nodeId}->${glyphs[right].nodeId}`)
+        }
+      }
+    }
     const collisions = scene.routes.flatMap((route) => {
       const projectedRoute = {...route, strokeWidth: 6, projectedPoints: route.points.map(project)}
       return glyphs
@@ -400,6 +440,7 @@ describe("layout_elk_scene", () => {
     expect(collisions).not.toContain(
       "rendered:farm01:attachment-02|farm01:gateway-02->farm01:attachment-08",
     )
+    expect(glyphOverlaps).toEqual([])
     expect(collisions).toEqual([])
   })
 })

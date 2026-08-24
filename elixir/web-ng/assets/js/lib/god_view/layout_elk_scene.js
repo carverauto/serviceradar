@@ -8,6 +8,10 @@ const SIBLING_SPACING = 96
 const ROUTE_CLEARANCE = 96
 const INTERSECTION_EPSILON = 0.01
 const FIXED_RANDOM_SEED = 1729
+const VISIBLE_ENDPOINT_SUMMARY_ENVELOPE = 448
+const EXPANDED_GATEWAY_ENVELOPE = 112
+const ENDPOINT_MEMBER_ENVELOPE = 96
+const ORDINARY_NODE_ENVELOPE = 112
 
 export const LANDSCAPE_PROFILE = Object.freeze({
   key: "landscape",
@@ -72,9 +76,16 @@ function elkLayoutOptions(profile, kind) {
 function dimensionsForNode(node) {
   // A collapsed summary can render a 45.875px halo. Its larger invisible ELK
   // envelope prevents fitted routes from entering that fixed-pixel glyph.
-  if (node.kind === "endpoint-summary") return {width: 448, height: 448}
-  if (node.kind === "endpoint-member") return {width: 96, height: 96}
-  return {width: 112, height: 112}
+  if (node.kind === "endpoint-summary") {
+    const envelope = node.render === false
+      ? EXPANDED_GATEWAY_ENVELOPE
+      : VISIBLE_ENDPOINT_SUMMARY_ENVELOPE
+    return {width: envelope, height: envelope}
+  }
+  if (node.kind === "endpoint-member") {
+    return {width: ENDPOINT_MEMBER_ENVELOPE, height: ENDPOINT_MEMBER_ENVELOPE}
+  }
+  return {width: ORDINARY_NODE_ENVELOPE, height: ORDINARY_NODE_ENVELOPE}
 }
 
 function elkLeaf(node) {
@@ -97,6 +108,44 @@ function relationEdge(relation, render) {
       "serviceradar.render": String(render),
     },
   }
+}
+
+function compoundPackingLaneCount(memberCount, profile) {
+  if (memberCount <= 1) return Math.max(0, memberCount)
+  const targetAspectRatio = Math.max(0.1, Number(profile?.targetAspectRatio) || 1)
+  const crossAxisCount = profile?.direction === "DOWN"
+    ? Math.sqrt(memberCount * targetAspectRatio)
+    : Math.sqrt(memberCount / targetAspectRatio)
+  return Math.max(1, Math.min(memberCount, Math.round(crossAxisCount)))
+}
+
+function packedLayoutRelations(sceneInput, profile) {
+  const relations = [...(sceneInput?.layoutRelations || [])]
+  const relationByTarget = new Map(relations.map((relation) => [relation.targetId, relation]))
+  const packedRelationIds = new Set()
+  const packed = []
+
+  // A gateway star forces every member into one layered rank. Rewire only
+  // non-rendered packing constraints into aspect-shaped lanes; rendered
+  // topology relations and their endpoint bindings remain untouched.
+  for (const group of [...(sceneInput?.groups || [])]
+    .filter((candidate) => candidate.expanded)
+    .sort((left, right) => left.id.localeCompare(right.id))) {
+    const memberIds = [...(group.memberIds || [])].sort((left, right) => left.localeCompare(right))
+    const laneCount = compoundPackingLaneCount(memberIds.length, profile)
+    memberIds.forEach((memberId, index) => {
+      const relation = relationByTarget.get(memberId)
+      if (!relation) return
+      const sourceId = index < laneCount ? group.gatewayId : memberIds[index - laneCount]
+      packed.push({...relation, sourceId})
+      packedRelationIds.add(relation.id)
+    })
+  }
+
+  return [
+    ...packed,
+    ...relations.filter((relation) => !packedRelationIds.has(relation.id)),
+  ]
 }
 
 export function buildElkSceneGraph(sceneInput, profile = LANDSCAPE_PROFILE) {
@@ -126,7 +175,7 @@ export function buildElkSceneGraph(sceneInput, profile = LANDSCAPE_PROFILE) {
     .map(elkLeaf)
   const edges = [
     ...(sceneInput?.renderedRelations || []).map((relation) => relationEdge(relation, true)),
-    ...(sceneInput?.layoutRelations || []).map((relation) => relationEdge(relation, false)),
+    ...packedLayoutRelations(sceneInput, profile).map((relation) => relationEdge(relation, false)),
   ].sort((left, right) => left.id.localeCompare(right.id))
 
   return {
