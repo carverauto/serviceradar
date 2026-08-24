@@ -22,4 +22,4 @@
 ## 5. Verification
 - [ ] 5.1 Demo environment: two simultaneous cluster expansions render without node overlap or member-edge crossings (screenshots; requires image rollout)
 - [ ] 5.2 Status-bar class counts show attachment devices connected (att count up, islands 0)
-- [ ] 5.3 Full gates: `make test` (Bazel unit shards) before PR; `openspec validate --strict` passing
+- [x] 5.3 Full gates: `make test` (Bazel unit shards) before PR; `openspec validate --strict` passing
