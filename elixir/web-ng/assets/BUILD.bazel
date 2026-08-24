@@ -17,7 +17,7 @@ on assets/** and the HEEx templates, so an .ex-only change is a cache hit.
 """
 
 load("@aspect_bazel_lib//lib:copy_to_directory.bzl", "copy_to_directory")
-load("@aspect_rules_js//js:defs.bzl", "js_binary", "js_run_binary")
+load("@aspect_rules_js//js:defs.bzl", "js_binary", "js_library", "js_run_binary", "js_test")
 load("@web_ng_npm//elixir/web-ng/assets:@tailwindcss/cli/package_json.bzl", tailwind_bin = "bin")
 load("@web_ng_npm//:defs.bzl", "npm_link_all_packages")
 load("//build:phoenix_digest.bzl", "phoenix_digest")
@@ -33,6 +33,66 @@ exports_files([
 # This is what replaces `bun install`, and with it the node_modules symlink into the
 # executor's mutable /cache.
 npm_link_all_packages(name = "node_modules")
+
+# The complete God-View JavaScript surface, including production modules,
+# contract suites, and canonical topology fixtures. Keeping this one declared
+# input set prevents a new scene module or fixture from silently falling out of
+# the Bazel unit gate.
+filegroup(
+    name = "god_view_scene_test_srcs",
+    srcs = glob([
+        "js/lib/god_view/**/*.js",
+        "js/lib/deckgl/**/*.js",
+        "js/wasm/god_view_exec_runtime.js",
+    ]) + ["js/lib/GodViewRenderer.js"],
+)
+
+js_test(
+    name = "god_view_scene_tests",
+    args = [
+        "$(rootpath %s)" % test
+        for test in glob(["js/lib/god_view/*.test.js"])
+    ],
+    chdir = package_name(),
+    data = glob([
+        "js/lib/god_view/**/*.js",
+        "js/lib/deckgl/**/*.js",
+        "js/wasm/god_view_exec_runtime.js",
+    ]) + [
+        ":node_modules",
+        "js/lib/GodViewRenderer.js",
+    ],
+    entry_point = "god_view_scene_test_runner.mjs",
+    tags = ["unit_test"],
+)
+
+js_binary(
+    name = "god_view_elk_scene_bundler",
+    data = [":node_modules/esbuild"],
+    entry_point = "god_view_elk_scene_bundle.mjs",
+)
+
+js_run_binary(
+    name = "god_view_elk_scene_bundle",
+    srcs = [
+        ":god_view_scene_test_srcs",
+        ":node_modules",
+        "god_view_elk_scene_harness.js",
+    ],
+    args = [
+        "god_view_elk_scene_harness.js",
+        "god_view_elk_scene.bundle.js",
+    ],
+    chdir = package_name(),
+    outs = ["god_view_elk_scene.bundle.js"],
+    tool = ":god_view_elk_scene_bundler",
+)
+
+js_library(
+    name = "god_view_elk_scene_acceptance_test_lib",
+    srcs = ["god_view_elk_scene_acceptance.playwright.js"],
+    deps = [":node_modules/@playwright/test"],
+)
 
 # Everything under assets/, minus installed dependency trees. node_modules is listed in
 # //.bazelignore, so Bazel does not see it; the excludes here are belt-and-braces for a

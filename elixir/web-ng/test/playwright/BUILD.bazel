@@ -1,0 +1,36 @@
+load("@web_ng_npm//elixir/web-ng/assets:@playwright/test/package_json.bzl", playwright_bin = "bin")
+
+package(default_visibility = ["//visibility:public"])
+
+exports_files(["playwright-browsers.1.51.0.json"])
+
+playwright_bin.playwright_test(
+    name = "god_view_elk_scene_acceptance",
+    size = "small",
+    args = [
+        "test",
+        "--config=playwright.config.js",
+    ],
+    chdir = package_name(),
+    data = [
+        "//elixir/web-ng/assets:god_view_elk_scene_bundle",
+        "//elixir/web-ng/assets:god_view_elk_scene_acceptance_test_lib",
+        "//elixir/web-ng/assets:node_modules/@playwright/test",
+        "@web_ng_playwright//:chromium",
+        "god_view_elk_scene.playwright.js",
+        "playwright.config.js",
+    ],
+    env = {
+        "CI": "1",
+        "GOD_VIEW_ACCEPTANCE_BUNDLE": "$(rootpath //elixir/web-ng/assets:god_view_elk_scene_bundle)",
+        "PLAYWRIGHT_BROWSERS_PATH": "$(rootpath @web_ng_playwright//:chromium)/../",
+    },
+    exec_properties = {
+        "container-image": "docker://registry.carverauto.dev/serviceradar/playwright-rbe@sha256:d9266ee97f0dbd297618a10afb00b5006ebf2bb19dd38887da3230ed4b7829ea",
+    },
+    tags = [
+        "acceptance_test",
+        "external",
+        "no-remote-cache",
+    ],
+)

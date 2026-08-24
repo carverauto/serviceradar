@@ -1,7 +1,7 @@
 import {describe, expect, it, vi} from "vitest"
 
-vi.mock("@deck.gl/core", () => ({
-  COORDINATE_SYSTEM: {CARTESIAN: "cartesian"},
+vi.mock("@deck.gl/core", async (importOriginal) => ({
+  ...(await importOriginal()),
   Deck: class MockDeck {
     constructor(props) {
       this.props = props
