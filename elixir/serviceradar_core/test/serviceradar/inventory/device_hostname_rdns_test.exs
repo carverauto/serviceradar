@@ -56,8 +56,16 @@ defmodule ServiceRadar.Inventory.DeviceHostnameRdnsTest do
              DeviceHostnameRdns.result_attrs(device, "core-sw.farm.lan", "ok", nil, now)
 
     assert attrs.hostname == "core-sw.farm.lan"
-    assert attrs.metadata["rdns"]["status"] == "ok"
-    assert attrs.metadata["rdns"]["hostname"] == "core-sw.farm.lan"
+    # A PATCH, not the whole metadata map: the write merges in the database so it
+    # cannot carry another writer's keys back with it.
+    assert attrs.metadata_patch == %{
+             "rdns" => %{
+               "looked_up_at" => DateTime.to_iso8601(now),
+               "status" => "ok",
+               "hostname" => "core-sw.farm.lan",
+               "error" => nil
+             }
+           }
   end
 
   test "result_attrs does not overwrite on NXDOMAIN" do
@@ -68,7 +76,8 @@ defmodule ServiceRadar.Inventory.DeviceHostnameRdnsTest do
              DeviceHostnameRdns.result_attrs(device, nil, "error", ":nxdomain", now)
 
     refute Map.has_key?(attrs, :hostname)
-    assert attrs.metadata["rdns"]["status"] == "error"
+    assert attrs.metadata_patch["rdns"]["status"] == "error"
+    assert Map.keys(attrs.metadata_patch) == ["rdns"]
   end
 
   test "run applies usable PTR results through the injected persist callback" do
