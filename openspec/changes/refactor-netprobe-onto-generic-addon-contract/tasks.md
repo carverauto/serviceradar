@@ -77,7 +77,26 @@ the legacy producers.
 - [x] 3.1 Add `addon-sdk` to `rust/netprobe`; bind a second socket post-`--drop-user` and serve
   `AddonService` via `serve_on_listener(addon, listener, None)`. Implement `Info` / `Configure` /
   `Health`. Legacy `NetprobeFrame` socket untouched
-- [ ] 3.2 **HALF DONE.** Socket mode landed -- the socket is bound after `--drop-user` and chmod'd
+- [~] 3.2 **SO_PEERCRED WILL NOT BE IMPLEMENTED -- it is a no-op here, and the reason is worth
+  keeping.** Mode 0600 owned by the runtime user already excludes every uid except that user and
+  root, so the entire marginal population a uid allowlist would add is root -- and root defeats a
+  uid check with one `setuid` before `connect`. It would also reject clients that work today (a
+  `sudo` dev loop, `sudo grpcurl -unix` for triage) and reject them invisibly.
+
+  What the mode does NOT do is distinguish THE AGENT from any other process running as the same
+  user -- and on the shipped units those ARE the same user (`User=serviceradar` in the agent unit;
+  `--drop-user serviceradar` in netprobe's). Only mutual authentication separates them. The SDK
+  implements mTLS (`addon_sdk::tls::build_server_mtls`, `serve_on_listener(.., Some(tls))`), but it
+  is fed by go-plugin's AutoMTLS handshake and netprobe is systemd-supervised rather than
+  agent-launched -- there is no handshake to carry a cert. Closing that needs cert distribution for
+  a supervised add-on, which is a change of its own, not a line in this one.
+
+  DONE instead: the mode is now PINNED by tests (`the_addon_socket_is_owner_only`,
+  `binding_over_a_stale_socket_succeeds`) and the reasoning is recorded at
+  `restrict_socket_permissions`. The mode is the whole access control on this socket, it was set by
+  one unguarded line, and nothing stopped a umask change or a refactor loosening it silently.
+
+  Original text: Socket mode landed -- the socket is bound after `--drop-user` and chmod'd
   0600 (`addon_service.rs:595`, verified on alma-test01 as `srw------- serviceradar serviceradar`).
   `SO_PEERCRED` is NOT implemented: zero references in `rust/netprobe/` or `rust/addon-sdk/`. Mode
   0600 means only the owner and root can connect, which is most of the value, but the peer's
