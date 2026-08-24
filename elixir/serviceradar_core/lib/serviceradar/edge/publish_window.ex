@@ -25,9 +25,16 @@ defmodule ServiceRadar.Edge.PublishWindow do
   semantics "SHALL be chosen and stated HERE, not discovered from whichever verdict the current Go
   code returns" -- and inventing the caps here is precisely that failure.
 
-  So `ValidateLaneOpenAck` decides legality; this module does accounting. The only checks kept are
-  TYPE preconditions (a non-negative integer), which are a programming contract rather than a claim
-  about the wire.
+  So legality is the lane-open validator's, and this module does accounting. The only checks kept
+  are TYPE preconditions (a non-negative integer), which are a programming contract rather than a
+  claim about the wire.
+
+  UNBACKED UNTIL 1.7-e LANDS: Go has `ValidateLaneOpenAck`; THIS RUNTIME HAS NO PEER. Elixir has
+  `SemanticValidate.validate_lane_open/1`, which is an enum/shape check on the REQUEST half only --
+  there is no ack validator here at all. So today nothing on this side validates a grant before it
+  reaches this window, and saying "the validator handles it" would name something that does not
+  exist. 1.7-e owes that peer, and it is the reason this module refuses to substitute for it: an
+  accounting module inventing the caps is how the gap would get papered over instead of closed.
 
   ## A deadline does NOT release credits
 
@@ -57,6 +64,17 @@ defmodule ServiceRadar.Edge.PublishWindow do
   """
 
   @u64_max 0xFFFFFFFFFFFFFFFF
+
+  # The kinds that END an attempt and therefore release its credits. An ALLOWLIST on purpose:
+  # see settle/4 on why membership of the generated enum is not the question.
+  @resolving [
+    :EDGE_RECORD_DISPOSITION_KIND_ACCEPTED_AUTHORITATIVE,
+    :EDGE_RECORD_DISPOSITION_KIND_ACCEPTED_AUDIT_ONLY,
+    :EDGE_RECORD_DISPOSITION_KIND_ACCEPTED_QUARANTINE,
+    :EDGE_RECORD_DISPOSITION_KIND_REJECTED_PERMANENT
+  ]
+
+  @retryable :EDGE_RECORD_DISPOSITION_KIND_REJECTED_RETRYABLE
 
   @enforce_keys [:frame_credits, :byte_credits, :outstanding, :bytes_outstanding]
   defstruct [:frame_credits, :byte_credits, :outstanding, :bytes_outstanding]
@@ -143,18 +161,53 @@ defmodule ServiceRadar.Edge.PublishWindow do
   end
 
   @doc """
-  Releases one frame's credits once its publication is settled.
+  Releases one frame's credits, given the DISPOSITION that ended the attempt and the PubAck that
+  proves it.
 
-  PRECONDITION, which this module cannot check: the caller must have a VALIDATED PubAck for this
-  sequence, or a terminal disposition that ends the attempt. It is not enough that a reply arrived
-  -- an ack from an unexpected stream, or one that failed sequence validation, is not a settlement,
-  and releasing on it would return budget for a frame whose fate is unknown. The publisher owns
-  that validation; this records the consequence.
+  The PubAck is a REQUIRED ARGUMENT, not a documented precondition. An earlier version took only a
+  sequence and described the requirement in prose, which meant nothing enforced it: any caller
+  could release budget for a frame whose fate was unknown, and the comment would still read as
+  though it were guarded. Task 3.5 resolves a sequence only after ITS REQUIRED PubAck, so the
+  argument list is where that belongs.
+
+    * a RESOLVING disposition requires a PubAck -- `nil` is refused with `:pub_ack_required`
+    * `REJECTED_RETRYABLE` does NOT settle at all: it is transient, the frame stays outstanding
+      and stays charged, and the publisher re-arms and republishes. Releasing on it would return
+      budget for work the gateway has not accepted
+    * only the FOUR known resolving kinds settle. Unspecified, undeclared, and any member the
+      proto gains later are all refused -- membership of the generated enum is not the question,
+      because a future kind nobody has classified must not release credits by default
+
+  This module cannot verify that the PubAck is VALID -- that it came from the expected stream and
+  passed sequence validation. That remains the publisher's, and is stated here rather than implied.
+  What it can enforce is that one was produced at all.
 
   This is the ONLY thing that returns budget. See the moduledoc on why a deadline does not.
   """
-  @spec settle(t(), pos_integer()) :: {:ok, t()} | {:error, atom()}
-  def settle(%__MODULE__{} = w, seq) do
+  @spec settle(t(), pos_integer(), atom(), term()) :: {:ok, t()} | {:error, atom()}
+  def settle(%__MODULE__{} = w, seq, disposition, pub_ack) do
+    cond do
+      disposition == @retryable ->
+        # Transient. The frame is still in flight; re-arm it instead.
+        {:error, :not_settled}
+
+      # ALLOWLIST, not "is it declared". Asking the generated mapping whether a kind exists is
+      # fail-OPEN for anything added later: a future member is neither unspecified nor retryable,
+      # so it would fall through to a release and hand back credits for an outcome nobody has
+      # classified. Only the four known resolving kinds settle; everything else -- unspecified,
+      # undeclared, or a member the proto gains tomorrow -- is refused until someone decides.
+      disposition not in @resolving ->
+        {:error, :unknown_disposition}
+
+      is_nil(pub_ack) ->
+        {:error, :pub_ack_required}
+
+      true ->
+        release(w, seq)
+    end
+  end
+
+  defp release(w, seq) do
     case Map.fetch(w.outstanding, seq) do
       {:ok, {bytes, _deadline}} ->
         {:ok,
