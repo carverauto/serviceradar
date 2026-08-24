@@ -886,3 +886,42 @@ defmodule Serviceradar.Agent.Netprobe.V1.DeviceCensusSnapshot do
   field :chunk_count, 7, type: :uint32, json_name: "chunkCount"
   field :dropped_since_last, 8, type: :uint32, json_name: "droppedSinceLast"
 end
+
+defmodule Serviceradar.Agent.Netprobe.V1.FingerprintEventBatch do
+  @moduledoc false
+
+  use Protobuf,
+    full_name: "serviceradar.agent.netprobe.v1.FingerprintEventBatch",
+    protoc_gen_elixir_version: "0.16.0",
+    syntax: :proto3
+
+  field :events, 1, repeated: true, type: Serviceradar.Agent.Netprobe.V1.FingerprintEvent
+  field :batch_start_unix_nano, 2, type: :int64, json_name: "batchStartUnixNano"
+  field :batch_end_unix_nano, 3, type: :int64, json_name: "batchEndUnixNano"
+  field :dropped_since_last, 4, type: :uint32, json_name: "droppedSinceLast"
+end
+
+defmodule Serviceradar.Agent.Netprobe.V1.DpiEventBatch do
+  @moduledoc false
+
+  use Protobuf,
+    full_name: "serviceradar.agent.netprobe.v1.DpiEventBatch",
+    protoc_gen_elixir_version: "0.16.0",
+    syntax: :proto3
+
+  field :events, 1, repeated: true, type: Serviceradar.Agent.Netprobe.V1.DpiEvent
+  field :batch_start_unix_nano, 2, type: :int64, json_name: "batchStartUnixNano"
+  field :batch_end_unix_nano, 3, type: :int64, json_name: "batchEndUnixNano"
+  field :dropped_since_last, 4, type: :uint32, json_name: "droppedSinceLast"
+end
+
+defmodule Serviceradar.Agent.Netprobe.V1.ProcessSnapshotBatch do
+  @moduledoc false
+
+  use Protobuf,
+    full_name: "serviceradar.agent.netprobe.v1.ProcessSnapshotBatch",
+    protoc_gen_elixir_version: "0.16.0",
+    syntax: :proto3
+
+  field :snapshot, 1, type: Serviceradar.Agent.Netprobe.V1.ProcessSnapshot
+end

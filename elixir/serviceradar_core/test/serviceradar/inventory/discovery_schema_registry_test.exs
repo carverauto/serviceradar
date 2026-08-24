@@ -131,7 +131,7 @@ defmodule ServiceRadar.Inventory.DiscoverySchemaRegistryTest do
   end
 
   describe "the existing router/policy pairing is not orphaned" do
-    test "census and mDNS remain routable by service type while both paths are live" do
+    test "every registered source stays routable by service type while both paths are live" do
       # ResultsRouter still carries the census and mDNS routes, and
       # source_policy_census_test.exs / source_policy_mdns_test.exs assert THOSE
       # against SourcePolicy. The discovery path bypasses ResultsRouter
@@ -143,7 +143,8 @@ defmodule ServiceRadar.Inventory.DiscoverySchemaRegistryTest do
       router_sources =
         MapSet.new(
           ServiceRadar.ResultsRouter.census_service_types() ++
-            ServiceRadar.ResultsRouter.mdns_service_types(),
+            ServiceRadar.ResultsRouter.mdns_service_types() ++
+            ServiceRadar.ResultsRouter.passive_netprobe_service_types(),
           &to_string/1
         )
 

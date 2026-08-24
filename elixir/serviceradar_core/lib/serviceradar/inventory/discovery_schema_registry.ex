@@ -47,9 +47,17 @@ defmodule ServiceRadar.Inventory.DiscoverySchemaRegistry do
   # a shipping producer are registered. Guessing a source here is not a
   # harmless placeholder -- it is a guardrail pointed at the wrong thing.
   #
-  # netprobe DPI/fingerprint (`passive-netprobe`) is deliberately absent: its
-  # translator sets no identity_source today, so registering it would mean
-  # inventing one. It joins when its cutover is designed.
+  # netprobe fingerprint/DPI/process all keep `source: "passive-netprobe"`, which
+  # is the string their Go translator already wrote and the one
+  # `SourcePolicy.enrichment_only_source?/1` classifies. Changing it here would
+  # silently rewrite `discovery_sources` on every device they touch for no gain --
+  # `identity_source` is what distinguishes the three.
+  #
+  # All three are `:enrichment_only`. Fingerprint and DPI describe whatever is at
+  # an address and never establish that anything is there; the process listing
+  # describes the agent host, which always already has a device. See
+  # `SourcePolicy.enrichment_only_source?/1` for the over-merge that
+  # classification fixed.
   @schemas %{
     "serviceradar.netprobe.census.v1" => %{
       source: "netprobe-census",
@@ -62,6 +70,24 @@ defmodule ServiceRadar.Inventory.DiscoverySchemaRegistry do
       identity_source: "netprobe_mdns",
       policy_class: :enrichment_only,
       decoder: Decoders.Mdns
+    },
+    "serviceradar.netprobe.fingerprint.v1" => %{
+      source: "passive-netprobe",
+      identity_source: "netprobe_fingerprint",
+      policy_class: :enrichment_only,
+      decoder: Decoders.Fingerprint
+    },
+    "serviceradar.netprobe.dpi.v1" => %{
+      source: "passive-netprobe",
+      identity_source: "netprobe_dpi",
+      policy_class: :enrichment_only,
+      decoder: Decoders.Dpi
+    },
+    "serviceradar.netprobe.process.v1" => %{
+      source: "passive-netprobe",
+      identity_source: "netprobe_process",
+      policy_class: :enrichment_only,
+      decoder: Decoders.Process
     }
   }
 

@@ -32,6 +32,7 @@ go_test(
     srcs = [
         "addon_pump_test.go",
         "attach_manager_test.go",
+        "enrichment_golden_test.go",
         "client_test.go",
         "config_test.go",
         "framing_test.go",
@@ -39,6 +40,7 @@ go_test(
         "sidecar_test.go",
         "translator_test.go",
     ],
+    data = glob(["testdata/enrichment_golden/*.json"]),
     embed = [":netprobe"],
     deps = [
         "//go/pkg/agent/sidecar",
@@ -54,6 +56,16 @@ go_test(
         "@com_github_stretchr_testify//require",
         "@org_golang_google_protobuf//proto",
     ],
+)
+
+# Fingerprint/DPI/process fixtures, captured from the translators BEFORE task 5.4
+# deletes them, for the same reason and with the same rule as the census/mDNS set
+# below: once the Go code is gone these files are the only record of the
+# behaviour the Elixir decoders have to reproduce.
+filegroup(
+    name = "enrichment_golden_fixtures",
+    srcs = glob(["testdata/enrichment_golden/*.json"]),
+    visibility = ["//visibility:public"],
 )
 
 # The golden fixtures are the captured output of the Go translators that used to

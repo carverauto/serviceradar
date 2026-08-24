@@ -4078,6 +4078,203 @@ func (x *DeviceCensusSnapshot) GetDroppedSinceLast() uint32 {
 	return 0
 }
 
+// Payload of a `serviceradar.netprobe.fingerprint.v1` DiscoveryEnvelope.
+//
+// A batch of independent EVENTS, not a snapshot: a fingerprint is a sighting,
+// and there is no complete-view-of-a-segment to supersede. The envelope's
+// snapshot/part fields are therefore set for framing only -- nothing downstream
+// treats a fingerprint batch as replacing its predecessor.
+type FingerprintEventBatch struct {
+	state              protoimpl.MessageState `protogen:"open.v1"`
+	Events             []*FingerprintEvent    `protobuf:"bytes,1,rep,name=events,proto3" json:"events,omitempty"`
+	BatchStartUnixNano int64                  `protobuf:"varint,2,opt,name=batch_start_unix_nano,json=batchStartUnixNano,proto3" json:"batch_start_unix_nano,omitempty"`
+	BatchEndUnixNano   int64                  `protobuf:"varint,3,opt,name=batch_end_unix_nano,json=batchEndUnixNano,proto3" json:"batch_end_unix_nano,omitempty"`
+	// Events the sidecar queue dropped since the previous batch.
+	DroppedSinceLast uint32 `protobuf:"varint,4,opt,name=dropped_since_last,json=droppedSinceLast,proto3" json:"dropped_since_last,omitempty"`
+	unknownFields    protoimpl.UnknownFields
+	sizeCache        protoimpl.SizeCache
+}
+
+func (x *FingerprintEventBatch) Reset() {
+	*x = FingerprintEventBatch{}
+	mi := &file_agent_netprobe_v1_netprobe_proto_msgTypes[41]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *FingerprintEventBatch) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*FingerprintEventBatch) ProtoMessage() {}
+
+func (x *FingerprintEventBatch) ProtoReflect() protoreflect.Message {
+	mi := &file_agent_netprobe_v1_netprobe_proto_msgTypes[41]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use FingerprintEventBatch.ProtoReflect.Descriptor instead.
+func (*FingerprintEventBatch) Descriptor() ([]byte, []int) {
+	return file_agent_netprobe_v1_netprobe_proto_rawDescGZIP(), []int{41}
+}
+
+func (x *FingerprintEventBatch) GetEvents() []*FingerprintEvent {
+	if x != nil {
+		return x.Events
+	}
+	return nil
+}
+
+func (x *FingerprintEventBatch) GetBatchStartUnixNano() int64 {
+	if x != nil {
+		return x.BatchStartUnixNano
+	}
+	return 0
+}
+
+func (x *FingerprintEventBatch) GetBatchEndUnixNano() int64 {
+	if x != nil {
+		return x.BatchEndUnixNano
+	}
+	return 0
+}
+
+func (x *FingerprintEventBatch) GetDroppedSinceLast() uint32 {
+	if x != nil {
+		return x.DroppedSinceLast
+	}
+	return 0
+}
+
+// Payload of a `serviceradar.netprobe.dpi.v1` DiscoveryEnvelope. Event
+// semantics, for the same reason as FingerprintEventBatch.
+type DpiEventBatch struct {
+	state              protoimpl.MessageState `protogen:"open.v1"`
+	Events             []*DpiEvent            `protobuf:"bytes,1,rep,name=events,proto3" json:"events,omitempty"`
+	BatchStartUnixNano int64                  `protobuf:"varint,2,opt,name=batch_start_unix_nano,json=batchStartUnixNano,proto3" json:"batch_start_unix_nano,omitempty"`
+	BatchEndUnixNano   int64                  `protobuf:"varint,3,opt,name=batch_end_unix_nano,json=batchEndUnixNano,proto3" json:"batch_end_unix_nano,omitempty"`
+	DroppedSinceLast   uint32                 `protobuf:"varint,4,opt,name=dropped_since_last,json=droppedSinceLast,proto3" json:"dropped_since_last,omitempty"`
+	unknownFields      protoimpl.UnknownFields
+	sizeCache          protoimpl.SizeCache
+}
+
+func (x *DpiEventBatch) Reset() {
+	*x = DpiEventBatch{}
+	mi := &file_agent_netprobe_v1_netprobe_proto_msgTypes[42]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *DpiEventBatch) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*DpiEventBatch) ProtoMessage() {}
+
+func (x *DpiEventBatch) ProtoReflect() protoreflect.Message {
+	mi := &file_agent_netprobe_v1_netprobe_proto_msgTypes[42]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use DpiEventBatch.ProtoReflect.Descriptor instead.
+func (*DpiEventBatch) Descriptor() ([]byte, []int) {
+	return file_agent_netprobe_v1_netprobe_proto_rawDescGZIP(), []int{42}
+}
+
+func (x *DpiEventBatch) GetEvents() []*DpiEvent {
+	if x != nil {
+		return x.Events
+	}
+	return nil
+}
+
+func (x *DpiEventBatch) GetBatchStartUnixNano() int64 {
+	if x != nil {
+		return x.BatchStartUnixNano
+	}
+	return 0
+}
+
+func (x *DpiEventBatch) GetBatchEndUnixNano() int64 {
+	if x != nil {
+		return x.BatchEndUnixNano
+	}
+	return 0
+}
+
+func (x *DpiEventBatch) GetDroppedSinceLast() uint32 {
+	if x != nil {
+		return x.DroppedSinceLast
+	}
+	return 0
+}
+
+// Payload of a `serviceradar.netprobe.process.v1` DiscoveryEnvelope.
+//
+// Unlike the two above this IS a snapshot -- the complete set of local listeners
+// at a moment -- which is what ProcessSnapshot always was without being able to
+// say so: it carries no snapshot_id, chunk_index, chunk_count or complete, so a
+// split across frames could not be reassembled and a partial set could not be
+// told from a shrinking one. Wrapping it in the envelope is what gives it those
+// semantics, since the envelope carries them for every payload.
+type ProcessSnapshotBatch struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Snapshot      *ProcessSnapshot       `protobuf:"bytes,1,opt,name=snapshot,proto3" json:"snapshot,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ProcessSnapshotBatch) Reset() {
+	*x = ProcessSnapshotBatch{}
+	mi := &file_agent_netprobe_v1_netprobe_proto_msgTypes[43]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ProcessSnapshotBatch) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ProcessSnapshotBatch) ProtoMessage() {}
+
+func (x *ProcessSnapshotBatch) ProtoReflect() protoreflect.Message {
+	mi := &file_agent_netprobe_v1_netprobe_proto_msgTypes[43]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ProcessSnapshotBatch.ProtoReflect.Descriptor instead.
+func (*ProcessSnapshotBatch) Descriptor() ([]byte, []int) {
+	return file_agent_netprobe_v1_netprobe_proto_rawDescGZIP(), []int{43}
+}
+
+func (x *ProcessSnapshotBatch) GetSnapshot() *ProcessSnapshot {
+	if x != nil {
+		return x.Snapshot
+	}
+	return nil
+}
+
 var File_agent_netprobe_v1_netprobe_proto protoreflect.FileDescriptor
 
 const file_agent_netprobe_v1_netprobe_proto_rawDesc = "" +
@@ -4460,7 +4657,19 @@ const file_agent_netprobe_v1_netprobe_proto_rawDesc = "" +
 	"chunkIndex\x12\x1f\n" +
 	"\vchunk_count\x18\a \x01(\rR\n" +
 	"chunkCount\x12,\n" +
-	"\x12dropped_since_last\x18\b \x01(\rR\x10droppedSinceLast*\x9d\x01\n" +
+	"\x12dropped_since_last\x18\b \x01(\rR\x10droppedSinceLast\"\xf1\x01\n" +
+	"\x15FingerprintEventBatch\x12H\n" +
+	"\x06events\x18\x01 \x03(\v20.serviceradar.agent.netprobe.v1.FingerprintEventR\x06events\x121\n" +
+	"\x15batch_start_unix_nano\x18\x02 \x01(\x03R\x12batchStartUnixNano\x12-\n" +
+	"\x13batch_end_unix_nano\x18\x03 \x01(\x03R\x10batchEndUnixNano\x12,\n" +
+	"\x12dropped_since_last\x18\x04 \x01(\rR\x10droppedSinceLast\"\xe1\x01\n" +
+	"\rDpiEventBatch\x12@\n" +
+	"\x06events\x18\x01 \x03(\v2(.serviceradar.agent.netprobe.v1.DpiEventR\x06events\x121\n" +
+	"\x15batch_start_unix_nano\x18\x02 \x01(\x03R\x12batchStartUnixNano\x12-\n" +
+	"\x13batch_end_unix_nano\x18\x03 \x01(\x03R\x10batchEndUnixNano\x12,\n" +
+	"\x12dropped_since_last\x18\x04 \x01(\rR\x10droppedSinceLast\"c\n" +
+	"\x14ProcessSnapshotBatch\x12K\n" +
+	"\bsnapshot\x18\x01 \x01(\v2/.serviceradar.agent.netprobe.v1.ProcessSnapshotR\bsnapshot*\x9d\x01\n" +
 	"\x10DeviceCensusKind\x12\"\n" +
 	"\x1eDEVICE_CENSUS_KIND_UNSPECIFIED\x10\x00\x12\"\n" +
 	"\x1eDEVICE_CENSUS_KIND_ARP_REQUEST\x10\x01\x12 \n" +
@@ -4480,7 +4689,7 @@ func file_agent_netprobe_v1_netprobe_proto_rawDescGZIP() []byte {
 }
 
 var file_agent_netprobe_v1_netprobe_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
-var file_agent_netprobe_v1_netprobe_proto_msgTypes = make([]protoimpl.MessageInfo, 43)
+var file_agent_netprobe_v1_netprobe_proto_msgTypes = make([]protoimpl.MessageInfo, 46)
 var file_agent_netprobe_v1_netprobe_proto_goTypes = []any{
 	(DeviceCensusKind)(0),             // 0: serviceradar.agent.netprobe.v1.DeviceCensusKind
 	(*NetprobeFrame)(nil),             // 1: serviceradar.agent.netprobe.v1.NetprobeFrame
@@ -4524,8 +4733,11 @@ var file_agent_netprobe_v1_netprobe_proto_goTypes = []any{
 	(*MdnsSnapshot)(nil),              // 39: serviceradar.agent.netprobe.v1.MdnsSnapshot
 	(*DeviceCensusObservation)(nil),   // 40: serviceradar.agent.netprobe.v1.DeviceCensusObservation
 	(*DeviceCensusSnapshot)(nil),      // 41: serviceradar.agent.netprobe.v1.DeviceCensusSnapshot
-	nil,                               // 42: serviceradar.agent.netprobe.v1.WorkloadIdentity.LabelsEntry
-	nil,                               // 43: serviceradar.agent.netprobe.v1.WorkloadIdentity.AnnotationsEntry
+	(*FingerprintEventBatch)(nil),     // 42: serviceradar.agent.netprobe.v1.FingerprintEventBatch
+	(*DpiEventBatch)(nil),             // 43: serviceradar.agent.netprobe.v1.DpiEventBatch
+	(*ProcessSnapshotBatch)(nil),      // 44: serviceradar.agent.netprobe.v1.ProcessSnapshotBatch
+	nil,                               // 45: serviceradar.agent.netprobe.v1.WorkloadIdentity.LabelsEntry
+	nil,                               // 46: serviceradar.agent.netprobe.v1.WorkloadIdentity.AnnotationsEntry
 }
 var file_agent_netprobe_v1_netprobe_proto_depIdxs = []int32{
 	2,  // 0: serviceradar.agent.netprobe.v1.NetprobeFrame.apply_config:type_name -> serviceradar.agent.netprobe.v1.ApplyConfig
@@ -4573,8 +4785,8 @@ var file_agent_netprobe_v1_netprobe_proto_depIdxs = []int32{
 	15, // 42: serviceradar.agent.netprobe.v1.LicenseCleanFingerprint.recog_smtp:type_name -> serviceradar.agent.netprobe.v1.RecogFingerprintMatch
 	15, // 43: serviceradar.agent.netprobe.v1.LicenseCleanFingerprint.recog_ntp:type_name -> serviceradar.agent.netprobe.v1.RecogFingerprintMatch
 	19, // 44: serviceradar.agent.netprobe.v1.OsMatch.disagreements:type_name -> serviceradar.agent.netprobe.v1.FingerprintDisagreement
-	42, // 45: serviceradar.agent.netprobe.v1.WorkloadIdentity.labels:type_name -> serviceradar.agent.netprobe.v1.WorkloadIdentity.LabelsEntry
-	43, // 46: serviceradar.agent.netprobe.v1.WorkloadIdentity.annotations:type_name -> serviceradar.agent.netprobe.v1.WorkloadIdentity.AnnotationsEntry
+	45, // 45: serviceradar.agent.netprobe.v1.WorkloadIdentity.labels:type_name -> serviceradar.agent.netprobe.v1.WorkloadIdentity.LabelsEntry
+	46, // 46: serviceradar.agent.netprobe.v1.WorkloadIdentity.annotations:type_name -> serviceradar.agent.netprobe.v1.WorkloadIdentity.AnnotationsEntry
 	24, // 47: serviceradar.agent.netprobe.v1.FlowAttributionEvent.workload_identity:type_name -> serviceradar.agent.netprobe.v1.WorkloadIdentity
 	25, // 48: serviceradar.agent.netprobe.v1.FlowAttributionEventBatch.events:type_name -> serviceradar.agent.netprobe.v1.FlowAttributionEvent
 	28, // 49: serviceradar.agent.netprobe.v1.ProcessSnapshot.entries:type_name -> serviceradar.agent.netprobe.v1.ProcessSnapshotEntry
@@ -4585,11 +4797,14 @@ var file_agent_netprobe_v1_netprobe_proto_depIdxs = []int32{
 	38, // 54: serviceradar.agent.netprobe.v1.MdnsSnapshot.devices:type_name -> serviceradar.agent.netprobe.v1.MdnsDevice
 	0,  // 55: serviceradar.agent.netprobe.v1.DeviceCensusObservation.kind:type_name -> serviceradar.agent.netprobe.v1.DeviceCensusKind
 	40, // 56: serviceradar.agent.netprobe.v1.DeviceCensusSnapshot.observations:type_name -> serviceradar.agent.netprobe.v1.DeviceCensusObservation
-	57, // [57:57] is the sub-list for method output_type
-	57, // [57:57] is the sub-list for method input_type
-	57, // [57:57] is the sub-list for extension type_name
-	57, // [57:57] is the sub-list for extension extendee
-	0,  // [0:57] is the sub-list for field type_name
+	11, // 57: serviceradar.agent.netprobe.v1.FingerprintEventBatch.events:type_name -> serviceradar.agent.netprobe.v1.FingerprintEvent
+	23, // 58: serviceradar.agent.netprobe.v1.DpiEventBatch.events:type_name -> serviceradar.agent.netprobe.v1.DpiEvent
+	27, // 59: serviceradar.agent.netprobe.v1.ProcessSnapshotBatch.snapshot:type_name -> serviceradar.agent.netprobe.v1.ProcessSnapshot
+	60, // [60:60] is the sub-list for method output_type
+	60, // [60:60] is the sub-list for method input_type
+	60, // [60:60] is the sub-list for extension type_name
+	60, // [60:60] is the sub-list for extension extendee
+	0,  // [0:60] is the sub-list for field type_name
 }
 
 func init() { file_agent_netprobe_v1_netprobe_proto_init() }
@@ -4629,7 +4844,7 @@ func file_agent_netprobe_v1_netprobe_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_agent_netprobe_v1_netprobe_proto_rawDesc), len(file_agent_netprobe_v1_netprobe_proto_rawDesc)),
 			NumEnums:      1,
-			NumMessages:   43,
+			NumMessages:   46,
 			NumExtensions: 0,
 			NumServices:   0,
 		},
