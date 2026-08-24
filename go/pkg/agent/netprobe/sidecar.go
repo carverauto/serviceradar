@@ -71,12 +71,20 @@ type Sidecar struct {
 	censusSnaps                  chan *netprobepb.DeviceCensusSnapshot
 	mdnsSnaps                    chan *netprobepb.MdnsSnapshot
 	droppedFlowAttributionEvents atomic.Uint64
-	healthy                      atomic.Bool
-	unhealthy                    atomic.Bool
-	runningAsRoot                atomic.Bool
-	engineVersion                atomic.Value
-	revisions                    atomic.Value
-	lastError                    atomic.Value
+	// addonStreamOwnsDiscovery is the single-consumer rule. netprobe emits every
+	// census/mDNS snapshot on BOTH channels -- the legacy IPC socket and the
+	// AddonService stream subscribe to the same tokio broadcast -- so an agent
+	// that drains both makes core ingest each census twice. The gate lives on
+	// the drain rather than at the two push-loop call sites because it is a
+	// property of the source: a third caller must not be able to reintroduce the
+	// double-ingest by forgetting to ask.
+	addonStreamOwnsDiscovery atomic.Bool
+	healthy                  atomic.Bool
+	unhealthy                atomic.Bool
+	runningAsRoot            atomic.Bool
+	engineVersion            atomic.Value
+	revisions                atomic.Value
+	lastError                atomic.Value
 
 	// desiredConfig + applyMu implement apply-on-connect: the latest desired visibility
 	// config is (re)applied over IPC whenever a client connects, so a systemd-managed
@@ -411,6 +419,53 @@ func (s *Sidecar) DrainProcessSnapshots(max int) []*netprobepb.ProcessSnapshot {
 	return snapshots
 }
 
+// SetAddonStreamOwnsDiscovery hands census/mDNS ownership to the AddonService
+// stream, or takes it back when that stream drops.
+//
+// Taking ownership does not need to stop the legacy channel: its producer sends
+// non-blocking with a drop-oldest default (see startEventPumps), so an undrained
+// buffer costs four snapshots of memory and nothing else.
+//
+// RELEASING it does need care. The snapshots buffered while the addon stream was
+// authoritative are older than what that stream already delivered, and a census
+// is a complete replacement -- pushing one now would resurrect devices that have
+// since aged out. So the buffers are flushed on the way back, and the legacy path
+// resumes from netprobe's next snapshot rather than from the backlog.
+func (s *Sidecar) SetAddonStreamOwnsDiscovery(owned bool) {
+	if s == nil {
+		return
+	}
+	if previous := s.addonStreamOwnsDiscovery.Swap(owned); previous && !owned {
+		s.flushDiscoverySnapshots()
+	}
+}
+
+// AddonStreamOwnsDiscovery reports whether the AddonService stream is the
+// authoritative census/mDNS consumer.
+func (s *Sidecar) AddonStreamOwnsDiscovery() bool {
+	return s != nil && s.addonStreamOwnsDiscovery.Load()
+}
+
+// flushDiscoverySnapshots discards whatever the legacy channel buffered while it
+// was not the authoritative consumer.
+func (s *Sidecar) flushDiscoverySnapshots() {
+	for {
+		select {
+		case <-s.censusSnaps:
+		default:
+			goto mdns
+		}
+	}
+mdns:
+	for {
+		select {
+		case <-s.mdnsSnaps:
+		default:
+			return
+		}
+	}
+}
+
 // DrainMdnsSnapshots removes up to max complete mDNS snapshots, keeping only
 // the newest per interface.
 //
@@ -419,6 +474,9 @@ func (s *Sidecar) DrainProcessSnapshots(max int) []*netprobepb.ProcessSnapshot {
 // resurrect evidence that has since aged out. Compared on generated_at rather
 // than arrival, because nothing downstream of the channel guarantees ordering.
 func (s *Sidecar) DrainMdnsSnapshots(max int) []*netprobepb.MdnsSnapshot {
+	if s.AddonStreamOwnsDiscovery() {
+		return nil
+	}
 	if max <= 0 {
 		max = defaultCensusSnapshotBuffer
 	}
@@ -470,6 +528,9 @@ func collectNewestMdns(
 // a push tick was missed, and applying them in order would end on the right
 // answer only by luck of ordering downstream.
 func (s *Sidecar) DrainCensusSnapshots(max int) []*netprobepb.DeviceCensusSnapshot {
+	if s.AddonStreamOwnsDiscovery() {
+		return nil
+	}
 	if max <= 0 {
 		max = defaultCensusSnapshotBuffer
 	}

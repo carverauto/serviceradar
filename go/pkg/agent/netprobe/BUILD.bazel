@@ -3,6 +3,7 @@ load("@io_bazel_rules_go//go:def.bzl", "go_library", "go_test")
 go_library(
     name = "netprobe",
     srcs = [
+        "addon_pump.go",
         "attach_manager.go",
         "census_assembler.go",
         "census_translator.go",
@@ -23,7 +24,10 @@ go_library(
         "//proto",
         "//proto/agent/netprobe/v1:netprobepb",
         "//proto/discovery",
+        "//proto/agent/addon/v1:addonpb",
         "@com_github_rs_zerolog//:zerolog",
+        "@org_golang_google_grpc//:grpc",
+        "@org_golang_google_grpc//credentials/insecure",
         "@org_golang_google_protobuf//proto",
     ],
 )
@@ -31,6 +35,7 @@ go_library(
 go_test(
     name = "netprobe_test",
     srcs = [
+        "addon_pump_test.go",
         "attach_manager_test.go",
         "census_assembler_test.go",
         "census_translator_test.go",
@@ -55,7 +60,9 @@ go_test(
         "//proto",
         "//proto/agent/netprobe/v1:netprobepb",
         "//proto/discovery",
+        "//proto/agent/addon/v1:addonpb",
         "@com_github_rs_zerolog//:zerolog",
+        "@org_golang_google_grpc//:grpc",
         "@com_github_stretchr_testify//assert",
         "@com_github_stretchr_testify//require",
         "@org_golang_google_protobuf//proto",

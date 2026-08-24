@@ -85,11 +85,11 @@
 
 ## 5. Agent cutover
 
-- [ ] 5.1 Pump netprobe's `StreamTelemetry` batches into the existing
+- [x] 5.1 Pump netprobe's `StreamTelemetry` batches into the existing
   `Server.handleAddonTelemetry(addonID, batch)` buffer, beside the existing `netprobe.AttachManager`
   which already owns socket discovery and health. Do NOT add a transport abstraction, `Spec.Transport`,
   a manifest-schema field, or an add-on-manager dispatch arm — see design.md "Rejected alternatives"
-- [ ] 5.2 Single-consumer rule: the agent stops draining the legacy census/mDNS snapshot channel the
+- [x] 5.2 Single-consumer rule: the agent stops draining the legacy census/mDNS snapshot channel the
   moment the `AddonService` client connects, and falls back if it disconnects. Without this, core
   ingests each census twice during the cutover
 - [ ] 5.3 Delete `push_loop_netprobe_census.go`, `push_loop_netprobe_mdns.go`,
@@ -120,7 +120,7 @@
 
 ## 7. Verification
 
-- [ ] 7.1 Go unit tests: the pump forwards an opaque batch without inspecting it; the single-consumer
+- [x] 7.1 Go unit tests: the pump forwards an opaque batch without inspecting it; the single-consumer
   switchover; fallback when `addon.sock` is absent
 - [ ] 7.2 Elixir DB-backed tests (srql-fixtures lifecycle): census updates satisfy
   `passive_census_source?/1`, mDNS updates satisfy `enrichment_only_source?/1` and create no device,

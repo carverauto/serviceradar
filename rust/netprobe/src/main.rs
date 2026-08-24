@@ -61,7 +61,7 @@ mod server;
 mod tls_server;
 
 use std::{
-    path::PathBuf,
+    path::{Path, PathBuf},
     sync::{Arc, Mutex},
     time::Duration,
 };
@@ -82,6 +82,19 @@ use crate::{
 #[cfg(target_os = "linux")]
 use crate::lifecycle::{drop_runtime_privileges, prepare_ebpf_privileged_resources};
 
+/// The AddonService socket, when `--addon-socket` is not given: a sibling of
+/// the legacy IPC socket named `addon.sock`.
+///
+/// Derived rather than required, because the systemd unit is installed verbatim
+/// next to the binary. A unit that named the flag would fail to start any
+/// netprobe too old to parse it -- strictly worse than the agent falling back
+/// to the legacy channel, which is the case this whole path exists to make
+/// survivable. Binding is already best-effort (see the spawn below), so a
+/// derived path that cannot be bound costs a log line, not a start.
+fn default_addon_socket_path(ipc_socket: &Path) -> PathBuf {
+    ipc_socket.with_file_name("addon.sock")
+}
+
 #[derive(Debug, Parser)]
 #[command(author, version, about)]
 struct Args {
@@ -91,9 +104,9 @@ struct Args {
     /// Socket for the generic AddonService contract, served alongside the
     /// legacy IPC socket above.
     ///
-    /// Optional on purpose: an agent that does not yet consume this path must
-    /// still be able to run netprobe, and netprobe must not fail to start
-    /// because a new socket could not be bound.
+    /// Optional on purpose: when unset it defaults to a sibling of `--socket`,
+    /// so the contract is served without the systemd unit naming it. See
+    /// `default_addon_socket_path`.
     #[arg(long, env = "SERVICERADAR_NETPROBE_ADDON_SOCKET")]
     addon_socket: Option<PathBuf>,
 
@@ -249,7 +262,11 @@ async fn main() -> Result<()> {
     // Served on its own socket, bound after privileges are dropped so it is
     // owned by the unprivileged runtime user. The legacy IPC socket below is
     // untouched: both run until the agent is confirmed to consume this one.
-    if let Some(addon_socket) = args.addon_socket.clone() {
+    {
+        let addon_socket = args
+            .addon_socket
+            .clone()
+            .unwrap_or_else(|| default_addon_socket_path(&args.socket));
         let addon = addon_service::NetprobeAddon::new(
             env!("CARGO_PKG_VERSION"),
             census_snapshot_tx.clone(),
@@ -409,8 +426,27 @@ async fn wait_for_shutdown() {
 
 #[cfg(test)]
 mod tests {
-    use super::{VisibilityStartupMode, select_visibility_startup};
+    use super::{VisibilityStartupMode, default_addon_socket_path, select_visibility_startup};
     use crate::config::Config;
+    use std::path::{Path, PathBuf};
+
+    #[test]
+    fn addon_socket_defaults_beside_the_ipc_socket() {
+        assert_eq!(
+            default_addon_socket_path(Path::new("/run/serviceradar/netprobe/ipc.sock")),
+            PathBuf::from("/run/serviceradar/netprobe/addon.sock")
+        );
+    }
+
+    #[test]
+    fn addon_socket_default_follows_a_relocated_ipc_socket() {
+        // The agent derives the same sibling from whatever --socket the unit
+        // names, so a non-default runtime dir must stay in agreement.
+        assert_eq!(
+            default_addon_socket_path(Path::new("/tmp/np-test/ipc.sock")),
+            PathBuf::from("/tmp/np-test/addon.sock")
+        );
+    }
 
     #[test]
     fn disabled_config_does_not_start_ebpf_when_object_is_present() {
