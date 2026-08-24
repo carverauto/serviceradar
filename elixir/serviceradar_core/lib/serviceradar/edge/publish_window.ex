@@ -11,12 +11,23 @@ defmodule ServiceRadar.Edge.PublishWindow do
   window is deterministic and a test does not have to sleep. The process that owns the lane owns
   the term; supervision belongs to the publisher that will drive this.
 
-  ## The bounds come from the GRANT, not from a local guess
+  ## The bounds come from the GRANT, and their LEGALITY is not decided here
 
-  `granted_frame_credits` (uint32) and `granted_byte_credits` (uint64) arrive in
-  `EdgeRecordLaneOpenAck`. They are the gateway's own answer to the agent's request, so the window
-  is constructed FROM the ack rather than from a configured constant that could disagree with what
-  was granted on the wire.
+  `granted_frame_credits` and `granted_byte_credits` arrive in `EdgeRecordLaneOpenAck`, so the
+  window is sized FROM the ack rather than from configuration that could disagree with the wire.
+
+  It does NOT adjudicate whether a grant is legal. Task 1.7-e owns the lane-handshake admission
+  bounds -- the exact nonce range, the credit caps, and the return relation
+  `1 <= granted <= requested` -- and those are NOT YET FROZEN. An earlier version of this module
+  validated the grant against uint32/uint64 wire maxima and documented a zero grant as "a real
+  answer", which was wrong twice: the caps are separate normative values 1.7-e has still to state,
+  and its return relation makes zero a REFUSAL rather than a legal grant. 1.7-e says a different
+  semantics "SHALL be chosen and stated HERE, not discovered from whichever verdict the current Go
+  code returns" -- and inventing the caps here is precisely that failure.
+
+  So `ValidateLaneOpenAck` decides legality; this module does accounting. The only checks kept are
+  TYPE preconditions (a non-negative integer), which are a programming contract rather than a claim
+  about the wire.
 
   ## A deadline does NOT release credits
 
@@ -45,7 +56,6 @@ defmodule ServiceRadar.Edge.PublishWindow do
   rather than leaving a caller to infer it.
   """
 
-  @u32_max 0xFFFFFFFF
   @u64_max 0xFFFFFFFFFFFFFFFF
 
   @enforce_keys [:frame_credits, :byte_credits, :outstanding, :bytes_outstanding]
@@ -60,10 +70,16 @@ defmodule ServiceRadar.Edge.PublishWindow do
           }
 
   @doc """
-  A window sized by the credits the gateway GRANTED in `EdgeRecordLaneOpenAck`.
+  A window sized by the credits an ALREADY-VALIDATED `EdgeRecordLaneOpenAck` granted.
 
-  Zero credits are legal and admit nothing -- a grant of zero is a real answer, not a missing
-  value to be defaulted away.
+  Only type preconditions are checked. Whether a grant is admissible -- the caps, and the
+  `1 <= granted <= requested` relation -- belongs to task 1.7-e and `ValidateLaneOpenAck`; see the
+  moduledoc for why this module must not decide it.
+
+  A zero grant is ACCEPTED here and admits nothing. That is not a claim that zero is legal: 1.7-e's
+  return relation makes it a refusal, and the validator upstream is where that refusal happens. A
+  window handed zero simply has no capacity, which is the safe behaviour for a value that should
+  never have reached it.
   """
   @spec new(non_neg_integer(), non_neg_integer()) :: {:ok, t()} | {:error, atom()}
   def new(granted_frame_credits, granted_byte_credits) do
@@ -71,14 +87,7 @@ defmodule ServiceRadar.Edge.PublishWindow do
       not is_integer(granted_frame_credits) or granted_frame_credits < 0 ->
         {:error, :frame_credits}
 
-      # uint32 on the wire; a larger value could not have come from a lane-open ack.
-      granted_frame_credits > @u32_max ->
-        {:error, :frame_credits}
-
       not is_integer(granted_byte_credits) or granted_byte_credits < 0 ->
-        {:error, :byte_credits}
-
-      granted_byte_credits > @u64_max ->
         {:error, :byte_credits}
 
       true ->
@@ -134,8 +143,13 @@ defmodule ServiceRadar.Edge.PublishWindow do
   end
 
   @doc """
-  Releases one frame's credits once its publication is settled -- a validated PubAck, or a
-  terminal disposition that ends the attempt.
+  Releases one frame's credits once its publication is settled.
+
+  PRECONDITION, which this module cannot check: the caller must have a VALIDATED PubAck for this
+  sequence, or a terminal disposition that ends the attempt. It is not enough that a reply arrived
+  -- an ack from an unexpected stream, or one that failed sequence validation, is not a settlement,
+  and releasing on it would return budget for a frame whose fate is unknown. The publisher owns
+  that validation; this records the consequence.
 
   This is the ONLY thing that returns budget. See the moduledoc on why a deadline does not.
   """
@@ -156,6 +170,34 @@ defmodule ServiceRadar.Edge.PublishWindow do
   end
 
   @doc """
+  Replaces an outstanding frame's PubAck deadline, leaving its credits charged.
+
+  This is the republish path, and without it the retry was UNREPRESENTABLE: `admit/4` refuses an
+  outstanding slot (`:already_outstanding`) and `settle/2` would release credits for a frame that
+  is still in flight, so an expired frame could be reported forever but never re-armed.
+
+  Charges nothing and releases nothing -- the bytes were already committed and the publication is
+  the same publication on the same slot. Only the deadline moves.
+
+  Refuses a sequence that is not outstanding: there is no frame to re-arm, and silently admitting
+  one here would bypass both bounds.
+  """
+  @spec rearm(t(), pos_integer(), integer()) :: {:ok, t()} | {:error, atom()}
+  def rearm(%__MODULE__{} = w, seq, deadline_at) do
+    if is_integer(deadline_at) do
+      case Map.fetch(w.outstanding, seq) do
+        {:ok, {bytes, _old}} ->
+          {:ok, %{w | outstanding: Map.put(w.outstanding, seq, {bytes, deadline_at})}}
+
+        :error ->
+          {:error, :not_outstanding}
+      end
+    else
+      {:error, :deadline}
+    end
+  end
+
+  @doc """
   The outstanding sequences whose PubAck deadline has passed, oldest first.
 
   REPORTS ONLY. The frames stay outstanding and stay charged, because the publisher republishes
@@ -169,12 +211,19 @@ defmodule ServiceRadar.Edge.PublishWindow do
     |> Enum.map(&elem(&1, 0))
   end
 
-  @doc "Whether another frame of `bytes` would be admitted right now."
+  @doc """
+  Whether another frame of `bytes` would be admitted right now.
+
+  `false` for a malformed size rather than raising or guessing: asking "may I admit garbage" has a
+  correct answer, and it is no.
+  """
   @spec admits?(t(), non_neg_integer()) :: boolean()
-  def admits?(%__MODULE__{} = w, bytes) do
+  def admits?(%__MODULE__{} = w, bytes) when is_integer(bytes) and bytes >= 0 do
     map_size(w.outstanding) + 1 <= w.frame_credits and
       w.bytes_outstanding + bytes <= w.byte_credits
   end
+
+  def admits?(%__MODULE__{}, _bytes), do: false
 
   @doc "How many frames are outstanding."
   @spec outstanding_frames(t()) :: non_neg_integer()

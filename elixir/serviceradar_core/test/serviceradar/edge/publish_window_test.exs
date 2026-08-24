@@ -27,17 +27,23 @@ defmodule ServiceRadar.Edge.PublishWindowTest do
       assert {:error, :frame_credits_exhausted} = PublishWindow.admit(none, 1, 0, 100)
     end
 
-    test "credits outside their wire range are refused" do
-      # granted_frame_credits is uint32, granted_byte_credits uint64: a larger value could not
-      # have come from a lane-open ack, so accepting it would size a window from a number the
-      # wire cannot carry.
-      assert {:error, :frame_credits} = PublishWindow.new(0xFFFFFFFF + 1, 10)
-      assert {:error, :byte_credits} = PublishWindow.new(1, 0xFFFFFFFFFFFFFFFF + 1)
+    test "grant LEGALITY is not decided here; only type preconditions are" do
+      # An earlier version refused grants above uint32/uint64 maxima and called a zero grant "a
+      # real answer". Both froze semantics task 1.7-e owns and has not stated: the caps are
+      # separate normative values, and 1.7-e's return relation `1 <= granted <= requested` makes
+      # zero a REFUSAL. ValidateLaneOpenAck adjudicates; this module accounts.
+      assert {:ok, _} = PublishWindow.new(0xFFFFFFFF + 1, 10)
+      assert {:ok, _} = PublishWindow.new(1, 0xFFFFFFFFFFFFFFFF + 1)
+
+      # A zero grant is accepted and simply has no capacity -- safe behaviour for a value that
+      # should never have reached here, NOT a claim that zero is legal.
+      {:ok, none} = PublishWindow.new(0, 0)
+      refute PublishWindow.admits?(none, 0)
+
+      # Type preconditions remain: these are programming errors, not wire judgements.
       assert {:error, :frame_credits} = PublishWindow.new(-1, 10)
       assert {:error, :byte_credits} = PublishWindow.new(1, -1)
-
-      # ...and the maxima themselves are legal.
-      assert {:ok, _} = PublishWindow.new(0xFFFFFFFF, 0xFFFFFFFFFFFFFFFF)
+      assert {:error, :frame_credits} = PublishWindow.new(nil, 10)
     end
   end
 
@@ -137,7 +143,12 @@ defmodule ServiceRadar.Edge.PublishWindowTest do
     # meant to catch them. An exact inventory makes ANY new public function fail until someone
     # classifies it -- which is the point, because the question "does this release credits?" has
     # to be answered deliberately rather than inferred from what it was called.
-    @public_surface [
+    # MACROS ARE PUBLIC SURFACE TOO, and `__info__(:functions)` omits them entirely -- so a
+    # `defmacro release_expired(...)` would add a releasing entry point the function-only
+    # inventory could never see. Empty today, and ASSERTED empty rather than assumed.
+    @public_macros []
+
+    @public_functions [
       {:__struct__, 0},
       {:__struct__, 1},
       {:admit, 4},
@@ -149,16 +160,20 @@ defmodule ServiceRadar.Edge.PublishWindowTest do
       {:outstanding?, 2},
       {:outstanding_bytes, 1},
       {:outstanding_frames, 1},
+      {:rearm, 3},
       {:settle, 2}
     ]
 
-    test "the public surface is EXACTLY the classified inventory" do
+    test "the public surface is EXACTLY the classified inventory, macros included" do
       {:module, _} = Code.ensure_loaded(PublishWindow)
 
-      actual = :functions |> PublishWindow.__info__() |> Enum.sort()
+      actual =
+        Enum.sort(PublishWindow.__info__(:functions) ++ PublishWindow.__info__(:macros))
 
-      added = actual -- @public_surface
-      removed = @public_surface -- actual
+      classified = Enum.sort(@public_functions ++ @public_macros)
+
+      added = actual -- classified
+      removed = classified -- actual
 
       assert added === [],
              "new public function(s) #{inspect(added)}: classify whether they release credits, " <>
@@ -281,6 +296,99 @@ defmodule ServiceRadar.Edge.PublishWindowTest do
       assert PublishWindow.available_bytes(w) === 100
       assert {:ok, w} = PublishWindow.admit(w, 4, 100, 1_000)
       assert {:error, :frame_credits_exhausted} = PublishWindow.admit(w, 5, 1, 1_000)
+    end
+  end
+
+  describe "an expired frame can be re-armed without releasing credits" do
+    test "rearm/3 moves the deadline and charges nothing" do
+      # Without this the retry was UNREPRESENTABLE: admit/4 refuses an outstanding slot and
+      # settle/2 would release credits for a frame still in flight, so an expired frame could be
+      # reported forever and never re-armed.
+      w = 2 |> window(1000) |> admit!(1, 400, 100) |> admit!(2, 400, 100)
+
+      assert PublishWindow.expired(w, 500) === [1, 2]
+
+      {:ok, w} = PublishWindow.rearm(w, 1, 900)
+
+      # No longer expired at 500, and nothing about the budget moved.
+      assert PublishWindow.expired(w, 500) === [2]
+      assert PublishWindow.outstanding_frames(w) === 2
+      assert PublishWindow.outstanding_bytes(w) === 800
+      assert PublishWindow.available_bytes(w) === 200
+      assert PublishWindow.available_frames(w) === 0
+    end
+
+    test "re-arming does NOT create capacity, so the bound still holds" do
+      w = 1 |> window(100) |> admit!(1, 100, 10)
+
+      {:ok, w} = PublishWindow.rearm(w, 1, 999)
+
+      refute PublishWindow.admits?(w, 1)
+      assert {:error, :frame_credits_exhausted} = PublishWindow.admit(w, 2, 0, 999)
+    end
+
+    test "re-arming something not outstanding is refused" do
+      w = admit!(window(), 1, 100, 500)
+      {:ok, settled} = PublishWindow.settle(w, 1)
+
+      assert {:error, :not_outstanding} = PublishWindow.rearm(w, 99, 900)
+      assert {:error, :not_outstanding} = PublishWindow.rearm(settled, 1, 900)
+      assert {:error, :deadline} = PublishWindow.rearm(w, 1, nil)
+    end
+
+    test "a re-armed frame settles exactly once, releasing its original bytes" do
+      w = 2 |> window(1000) |> admit!(1, 375, 100)
+      {:ok, w} = PublishWindow.rearm(w, 1, 900)
+      {:ok, w} = PublishWindow.settle(w, 1)
+
+      assert PublishWindow.outstanding_bytes(w) === 0
+      assert {:error, :not_outstanding} = PublishWindow.settle(w, 1)
+    end
+  end
+
+  describe "admits?/2 answers for malformed sizes instead of raising" do
+    test "a nonsense size is not admissible" do
+      w = window(4, 1000)
+
+      refute PublishWindow.admits?(w, -1)
+      refute PublishWindow.admits?(w, nil)
+      refute PublishWindow.admits?(w, "100")
+      refute PublishWindow.admits?(w, 1.5)
+
+      # ...and a legal size still is, so the clause above did not swallow everything.
+      assert PublishWindow.admits?(w, 100)
+    end
+  end
+
+  describe "the bound is never TRANSIENTLY exceeded" do
+    test "no admit sequence ever reports more outstanding than granted" do
+      # Checks the invariant after EVERY operation, not only at the end: a window that
+      # overcommitted and then corrected itself would pass an end-state assertion.
+      frames = 3
+      bytes = 300
+
+      Enum.reduce(1..40, window(frames, bytes), fn i, w ->
+        size = rem(i * 37, 150) + 1
+
+        w =
+          case PublishWindow.admit(w, i, size, 500) do
+            {:ok, w2} -> w2
+            {:error, _} -> w
+          end
+
+        assert PublishWindow.outstanding_frames(w) <= frames
+        assert PublishWindow.outstanding_bytes(w) <= bytes
+
+        # Settle the oldest occasionally, so the window actually cycles rather than filling once.
+        if rem(i, 3) === 0 do
+          case PublishWindow.expired(w, 500) do
+            [oldest | _] -> elem(PublishWindow.settle(w, oldest), 1)
+            [] -> w
+          end
+        else
+          w
+        end
+      end)
     end
   end
 
