@@ -206,6 +206,97 @@ defmodule ServiceRadar.Inventory.SyncIngestorPassiveNetprobeIdentityTest do
            """
   end
 
+  describe "which netprobe payloads may bring a device into existence" do
+    @tag :visibility
+    test "an ARP census sighting of an unknown device creates one", %{actor: actor} do
+      ip = unique_ip()
+      mac = unique_mac()
+
+      assert :ok = SyncIngestor.ingest_updates([census_update(ip, mac)], actor: actor)
+
+      assert [device] = devices_for_ip(actor, ip),
+             """
+             the census did not create a device. If this fails while the
+             create-nothing tests below still pass, the rule has become
+             "netprobe may never create" rather than "only the census may".
+             """
+
+      assert device.mac == mac
+    end
+
+    @tag :visibility
+    test "an mDNS announcement about an unknown device creates nothing", %{actor: actor} do
+      update = mdns_update(unique_mac())
+
+      assert :ok = SyncIngestor.ingest_updates([update], actor: actor)
+
+      assert device_count_for_mac(update["mac"]) == 0,
+             "a spoofable multicast announcement minted a device"
+    end
+
+    @tag :visibility
+    test "a DPI observation of an unknown address creates nothing", %{actor: actor} do
+      ip = unique_ip()
+
+      assert :ok = SyncIngestor.ingest_updates([dpi_update(ip)], actor: actor)
+
+      # A DPI event's subject is a CHOICE between two endpoints. Letting that
+      # choice create devices mints one per arbitrary internet peer.
+      assert devices_for_ip(actor, ip) == []
+    end
+
+    @tag :visibility
+    test "a process attribution for an unknown address creates nothing", %{actor: actor} do
+      ip = unique_ip()
+
+      assert :ok = SyncIngestor.ingest_updates([process_update(ip)], actor: actor)
+
+      assert devices_for_ip(actor, ip) == []
+    end
+  end
+
+  describe "enrichment-only payloads still enrich what the census established" do
+    @tag :visibility
+    test "mDNS lands on the census device rather than a second one", %{actor: actor} do
+      ip = unique_ip()
+      mac = unique_mac()
+
+      assert :ok = SyncIngestor.ingest_updates([census_update(ip, mac)], actor: actor)
+      assert [seeded] = devices_for_ip(actor, ip)
+
+      assert :ok = SyncIngestor.ingest_updates([mdns_update(mac)], actor: actor)
+
+      assert [enriched] = devices_for_ip(actor, ip)
+      assert enriched.uid == seeded.uid
+
+      # Without this the create-nothing tests above would pass just as well with
+      # the payload silently discarded in every case.
+      assert enriched.metadata["mdns.services"] == "_ssh._tcp",
+             "the announcement was dropped rather than applied: #{inspect(Map.keys(enriched.metadata || %{}))}"
+    end
+
+    @tag :visibility
+    test "DPI lands on the census device rather than a second one", %{actor: actor} do
+      ip = unique_ip()
+
+      assert :ok = SyncIngestor.ingest_updates([census_update(ip, unique_mac())], actor: actor)
+      assert [seeded] = devices_for_ip(actor, ip)
+
+      assert :ok = SyncIngestor.ingest_updates([dpi_update(ip)], actor: actor)
+
+      assert [enriched] = devices_for_ip(actor, ip)
+
+      assert enriched.uid == seeded.uid,
+             "DPI created a second device for an address the census already owns"
+
+      # The gate matches an address-only enrichment source on its ADDRESS: it has
+      # no strong identifier to match on, and before that was true every such
+      # payload was discarded with only a debug line.
+      assert enriched.metadata["dpi.protocol"] == "dns",
+             "the DPI observation was dropped rather than applied: #{inspect(Map.keys(enriched.metadata || %{}))}"
+    end
+  end
+
   # The real translator's output, reproduced key for key: top-level agent_id from
   # push_loop_mapper_netprobe.go, metadata agent_id + alias keys from
   # translator.go baseMetadata, evidence keys from addEvidenceMetadata.
@@ -286,5 +377,94 @@ defmodule ServiceRadar.Inventory.SyncIngestorPassiveNetprobeIdentityTest do
     |> Enum.chunk_every(2)
     |> Enum.map_join(":", &Enum.join/1)
     |> then(&("A8:" <> &1))
+  end
+
+  # Duplicated from the top-level field on purpose, exactly as Decoders.Census
+  # does: SourcePolicy.census_anchorable_mac?/1 reads metadata["mac"], so a
+  # census update carrying its MAC only at the top level registers no mac
+  # identifier and nothing can ever enrich it.
+  defp census_update(ip, mac) do
+    observed_at = "2026-08-23T14:30:01.123456789Z"
+
+    %{
+      "ip" => ip,
+      "mac" => mac,
+      "source" => "netprobe-census",
+      "timestamp" => observed_at,
+      "metadata" => %{
+        "identity_source" => "netprobe_census",
+        "discovery_source" => "netprobe-census",
+        "source" => "netprobe-census",
+        "mac" => mac,
+        "device_census.interface" => "eth0",
+        "device_census.protocol" => "arp",
+        "device_census.observed_at" => observed_at,
+        "_alias_last_seen_ip" => ip,
+        "_alias_last_seen_at" => observed_at,
+        "ip_alias:#{ip}" => observed_at
+      }
+    }
+  end
+
+  # mDNS carries no IP by design -- the translator omits it -- so MAC matching is
+  # the only way it can reach an existing device.
+  defp mdns_update(mac) do
+    %{
+      "mac" => mac,
+      "source" => "netprobe-mdns",
+      "metadata" => %{
+        "identity_source" => "netprobe_mdns",
+        "discovery_source" => "netprobe-mdns",
+        "source" => "netprobe-mdns",
+        "mdns.services" => "_ssh._tcp"
+      }
+    }
+  end
+
+  defp dpi_update(ip) do
+    observed_at = "2026-08-23T14:30:02.123456789Z"
+
+    %{
+      "ip" => ip,
+      "source" => "passive-netprobe",
+      "timestamp" => observed_at,
+      "metadata" => %{
+        "identity_source" => "netprobe_dpi",
+        "discovery_source" => "passive-netprobe",
+        "source" => "passive-netprobe",
+        "dpi.source" => "passive-netprobe",
+        "dpi.protocol" => "dns",
+        "dpi.observed_at" => observed_at,
+        "_alias_last_seen_ip" => ip,
+        "_alias_last_seen_at" => observed_at,
+        "ip_alias:#{ip}" => observed_at
+      }
+    }
+  end
+
+  defp process_update(ip) do
+    observed_at = "2026-08-23T14:30:03.123456789Z"
+
+    %{
+      "ip" => ip,
+      "source" => "passive-netprobe",
+      "timestamp" => observed_at,
+      "metadata" => %{
+        "identity_source" => "netprobe_process",
+        "discovery_source" => "passive-netprobe",
+        "source" => "passive-netprobe",
+        "process.name" => "sshd",
+        "process.observed_at" => observed_at,
+        "_alias_last_seen_ip" => ip,
+        "_alias_last_seen_at" => observed_at
+      }
+    }
+  end
+
+  defp device_count_for_mac(mac) do
+    %{rows: [[count]]} =
+      Repo.query!("SELECT count(*) FROM platform.ocsf_devices WHERE mac = $1", [mac])
+
+    count
   end
 end
