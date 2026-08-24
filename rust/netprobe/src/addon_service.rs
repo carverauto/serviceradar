@@ -43,7 +43,10 @@ use crate::fingerprint::{
     P0F_CORPUS_REVISION, RECOG_CORPUS_REVISION, SATORI_CORPUS_REVISION,
     SERVICERADAR_ADDITIONS_REVISION, SERVICERADAR_RECOG_ADDITIONS_REVISION,
 };
-use crate::proto::netprobe::{DeviceCensusSnapshot, MdnsSnapshot, VisibilityAgentConfig};
+use crate::proto::netprobe::{
+    DeviceCensusSnapshot, MdnsSnapshot, ProcessSnapshot, ProcessSnapshotBatch,
+    VisibilityAgentConfig,
+};
 use crate::runtime_config::RuntimeConfig;
 
 /// Schema names the control plane registers decoders and identity policy
@@ -51,6 +54,7 @@ use crate::runtime_config::RuntimeConfig;
 /// an unregistered schema is dropped, loudly, rather than guessed at.
 pub const CENSUS_SCHEMA: &str = "serviceradar.netprobe.census.v1";
 pub const MDNS_SCHEMA: &str = "serviceradar.netprobe.mdns.v1";
+pub const PROCESS_SCHEMA: &str = "serviceradar.netprobe.process.v1";
 
 const ADDON_ID: &str = "netprobe";
 
@@ -73,6 +77,7 @@ pub struct NetprobeAddon {
     version: String,
     census: broadcast::Sender<DeviceCensusSnapshot>,
     mdns: broadcast::Sender<MdnsSnapshot>,
+    process: broadcast::Sender<ProcessSnapshot>,
     runtime_config: RuntimeConfig,
     startup: StartupSnapshot,
 }
@@ -82,6 +87,7 @@ impl NetprobeAddon {
         version: impl Into<String>,
         census: broadcast::Sender<DeviceCensusSnapshot>,
         mdns: broadcast::Sender<MdnsSnapshot>,
+        process: broadcast::Sender<ProcessSnapshot>,
         runtime_config: RuntimeConfig,
         startup: StartupSnapshot,
     ) -> Self {
@@ -89,6 +95,7 @@ impl NetprobeAddon {
             version: version.into(),
             census,
             mdns,
+            process,
             runtime_config,
             startup,
         }
@@ -221,7 +228,49 @@ impl Addon for NetprobeAddon {
             },
         );
 
-        Box::pin(census.merge(mdns))
+        // Resolved ONCE per stream: it can only change on a config apply, and
+        // re-reading the lock per snapshot would buy nothing.
+        let collector_ip = self.runtime_config.collector_ip();
+
+        if collector_ip.is_empty() {
+            // No subject, so the schema is not served at all -- rather than
+            // served with an empty one. Core would have to guess which device a
+            // process listing describes, and guessing wrong attaches a host's
+            // processes to someone else's device. The agent stamps the address
+            // (VisibilityAgentConfig.collector_ip); until it does, this is the
+            // honest state.
+            log::warn!(
+                "{PROCESS_SCHEMA}: not served -- no collector_ip has been supplied, \
+                 so a process listing cannot name the host it describes"
+            );
+
+            return Box::pin(census.merge(mdns));
+        }
+
+        let process = snapshot_stream(
+            self.process.subscribe(),
+            PROCESS_SCHEMA,
+            move |snapshot: &ProcessSnapshot| {
+                (
+                    // Scope IS set here, unlike the event schemas: a process
+                    // listing completely replaces the host's previous one, so it
+                    // SHOULD supersede by watermark, and there is exactly one
+                    // listing per host.
+                    collector_ip.clone(),
+                    snapshot.fingerprint.clone(),
+                    snapshot.observed_at_unix_nano,
+                    ProcessSnapshotBatch {
+                        snapshot: Some(snapshot.clone()),
+                        // Carried IN the payload: a decoder is handed payload
+                        // bytes and nothing else.
+                        subject_ip: collector_ip.clone(),
+                    }
+                    .encode_to_vec(),
+                )
+            },
+        );
+
+        Box::pin(census.merge(mdns).merge(process))
     }
 }
 
@@ -479,10 +528,12 @@ mod tests {
     async fn health_reports_the_capability_state_the_agent_reads() {
         let (census, _) = broadcast::channel(4);
         let (mdns, _) = broadcast::channel(4);
+        let (process, _) = broadcast::channel(4);
         let addon = NetprobeAddon::new(
             "0.2.44",
             census,
             mdns,
+            process,
             RuntimeConfig::new(&crate::config::Config::default()),
             StartupSnapshot::default(),
         );
@@ -524,7 +575,16 @@ mod tests {
             ..Default::default()
         };
 
-        NetprobeAddon::new("0.2.44", census, mdns, RuntimeConfig::new(&config), startup)
+        let (process, _) = broadcast::channel(4);
+
+        NetprobeAddon::new(
+            "0.2.44",
+            census,
+            mdns,
+            process,
+            RuntimeConfig::new(&config),
+            startup,
+        )
     }
 
     #[tokio::test]
@@ -621,5 +681,94 @@ mod tests {
 
         assert!(!result.accepted);
         assert!(result.error.contains("parse"));
+    }
+
+    fn addon_with_collector_ip(
+        collector_ip: &str,
+    ) -> (NetprobeAddon, broadcast::Sender<ProcessSnapshot>) {
+        let (census, _) = broadcast::channel(4);
+        let (mdns, _) = broadcast::channel(4);
+        let (process, _) = broadcast::channel(4);
+        let config = crate::config::Config {
+            collector_ip: collector_ip.to_owned(),
+            ..Default::default()
+        };
+
+        (
+            NetprobeAddon::new(
+                "0.2.48",
+                census,
+                mdns,
+                process.clone(),
+                RuntimeConfig::new(&config),
+                StartupSnapshot::default(),
+            ),
+            process,
+        )
+    }
+
+    #[tokio::test]
+    async fn a_process_snapshot_carries_its_subject_and_supersedes_by_host() {
+        let (addon, process) = addon_with_collector_ip("10.20.30.40");
+        let mut stream = addon.stream_telemetry();
+
+        process
+            .send(ProcessSnapshot {
+                fingerprint: "synthetic-1".to_owned(),
+                observed_at_unix_nano: 1_700_000_060_000_000_000,
+                ..Default::default()
+            })
+            .expect("send");
+
+        let batch = tokio::time::timeout(std::time::Duration::from_secs(5), stream.next())
+            .await
+            .expect("stream did not yield")
+            .expect("stream ended")
+            .expect("batch");
+
+        let record = batch.records.first().expect("one record");
+        let envelope =
+            discovery_pb::DiscoveryEnvelope::decode(record.payload.as_slice()).expect("envelope");
+
+        assert_eq!(envelope.schema, PROCESS_SCHEMA);
+        // Scope IS set, unlike the event schemas: a process listing replaces the
+        // host's previous one, so it should supersede by watermark.
+        assert_eq!(envelope.observation_scope, "10.20.30.40");
+        assert!(envelope.complete);
+        assert_eq!(envelope.part_count, 1);
+
+        let payload =
+            ProcessSnapshotBatch::decode(envelope.payload.as_slice()).expect("process batch");
+        assert_eq!(
+            payload.subject_ip, "10.20.30.40",
+            "the subject travels IN the payload; a decoder gets nothing else"
+        );
+        assert_eq!(
+            payload.snapshot.expect("snapshot").fingerprint,
+            "synthetic-1"
+        );
+    }
+
+    #[tokio::test]
+    async fn no_collector_ip_means_the_process_schema_is_not_served() {
+        // Not served, rather than served with an empty subject. Core would have
+        // to guess which device a process listing describes, and guessing wrong
+        // attaches a host's processes to someone else's device.
+        let (addon, process) = addon_with_collector_ip("");
+        let mut stream = addon.stream_telemetry();
+
+        process
+            .send(ProcessSnapshot {
+                fingerprint: "synthetic-1".to_owned(),
+                observed_at_unix_nano: 1_700_000_060_000_000_000,
+                ..Default::default()
+            })
+            .ok();
+
+        let yielded = tokio::time::timeout(std::time::Duration::from_millis(250), stream.next())
+            .await
+            .is_ok();
+
+        assert!(!yielded, "a process snapshot was emitted with no subject");
     }
 }

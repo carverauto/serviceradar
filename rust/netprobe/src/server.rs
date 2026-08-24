@@ -8,7 +8,6 @@ use std::{
 };
 
 use anyhow::{Context, Result};
-use prost::Message;
 use tokio::{
     net::{UnixListener, UnixStream},
     sync::mpsc::error::{TryRecvError, TrySendError},
@@ -31,7 +30,7 @@ use crate::{
     proto::netprobe::{
         ConfigAck, DeviceCensusSnapshot, DpiEvent, ErrorFrame, ExternalFlowAck, ExternalFlowRecord,
         FingerprintEvent, FlowAttributionEvent, FlowAttributionEventBatch, MdnsSnapshot,
-        NetprobeFrame, PingAck, ProcessSnapshot, ProcessSnapshotEntry, netprobe_frame,
+        NetprobeFrame, PingAck, netprobe_frame,
     },
     runtime_config::RuntimeConfig,
 };
@@ -49,7 +48,6 @@ pub struct IpcServer {
     dpi_events: Arc<Mutex<EventReceiver<DpiEvent>>>,
     flow_attribution_events: EventSender<Arc<FlowAttributionEvent>>,
     flow_attribution_rx: Arc<Mutex<EventReceiver<Arc<FlowAttributionEvent>>>>,
-    process_snapshots: broadcast::Sender<ProcessSnapshot>,
     census_snapshots: broadcast::Sender<DeviceCensusSnapshot>,
     mdns_snapshots: broadcast::Sender<MdnsSnapshot>,
     external_flow_matcher: SharedExternalFlowMatcher,
@@ -65,7 +63,6 @@ impl IpcServer {
         dpi_event_rx: EventReceiver<DpiEvent>,
         flow_attribution_events: EventSender<Arc<FlowAttributionEvent>>,
         flow_attribution_rx: EventReceiver<Arc<FlowAttributionEvent>>,
-        process_snapshots: broadcast::Sender<ProcessSnapshot>,
         census_snapshots: broadcast::Sender<DeviceCensusSnapshot>,
         mdns_snapshots: broadcast::Sender<MdnsSnapshot>,
         external_flow_matcher: SharedExternalFlowMatcher,
@@ -79,7 +76,6 @@ impl IpcServer {
             dpi_events: Arc::new(Mutex::new(dpi_event_rx)),
             flow_attribution_events,
             flow_attribution_rx: Arc::new(Mutex::new(flow_attribution_rx)),
-            process_snapshots,
             census_snapshots,
             mdns_snapshots,
             external_flow_matcher,
@@ -114,7 +110,6 @@ impl IpcServer {
                     let dpi_rx = Arc::clone(&self.dpi_events);
                     let flow_attribution_tx = self.flow_attribution_events.clone();
                     let flow_attribution_rx = Arc::clone(&self.flow_attribution_rx);
-                    let process_snapshot_rx = self.process_snapshots.subscribe();
                     let census_snapshot_rx = self.census_snapshots.subscribe();
                     let mdns_snapshot_rx = self.mdns_snapshots.subscribe();
                     let external_flow_matcher = self.external_flow_matcher.clone();
@@ -128,7 +123,6 @@ impl IpcServer {
                             dpi_rx,
                             flow_attribution_tx,
                             flow_attribution_rx,
-                            process_snapshot_rx,
                             census_snapshot_rx,
                             mdns_snapshot_rx,
                             external_flow_matcher,
@@ -187,7 +181,6 @@ async fn handle_client(
     dpi_events: Arc<Mutex<EventReceiver<DpiEvent>>>,
     flow_attribution_tx: EventSender<Arc<FlowAttributionEvent>>,
     flow_attribution_events: Arc<Mutex<EventReceiver<Arc<FlowAttributionEvent>>>>,
-    mut process_snapshots: broadcast::Receiver<ProcessSnapshot>,
     mut census_snapshots: broadcast::Receiver<DeviceCensusSnapshot>,
     mut mdns_snapshots: broadcast::Receiver<MdnsSnapshot>,
     external_flows: SharedExternalFlowMatcher,
@@ -257,25 +250,6 @@ async fn handle_client(
                         }
                     }
                     None => return Ok(()),
-                }
-            }
-            snapshot = process_snapshots.recv() => {
-                match snapshot {
-                    Ok(snapshot) => {
-                        write_process_snapshot_frames(
-                            &mut writer,
-                            snapshot,
-                            &mut encode_buffer,
-                            &metrics,
-                        ).await?;
-                    }
-                    Err(broadcast::error::RecvError::Lagged(skipped)) => {
-                        metrics.inc_process_snapshot_events_dropped("lagged_receiver", skipped);
-                        log::warn!("netprobe IPC client lagged; skipped {skipped} process snapshot(s)");
-                    }
-                    Err(broadcast::error::RecvError::Closed) => {
-                        return Ok(());
-                    }
                 }
             }
             snapshot = mdns_snapshots.recv() => {
@@ -404,86 +378,6 @@ where
     Ok(())
 }
 
-async fn write_process_snapshot_frames<W>(
-    writer: &mut W,
-    snapshot: ProcessSnapshot,
-    encode_buffer: &mut Vec<u8>,
-    metrics: &Metrics,
-) -> Result<(), crate::framing::FramingError>
-where
-    W: tokio::io::AsyncWrite + Unpin,
-{
-    if process_snapshot_frame_len(&snapshot) <= MAX_FRAME_SIZE {
-        let frame = process_snapshot_frame(snapshot);
-        write_reused_frame(writer, &frame, encode_buffer, metrics).await?;
-        return Ok(());
-    }
-
-    let ProcessSnapshot {
-        fingerprint,
-        observed_at_unix_nano,
-        entries,
-    } = snapshot;
-
-    let base_payload_len = process_snapshot_base_payload_len(&fingerprint, observed_at_unix_nano);
-    let mut current_payload_len = base_payload_len;
-    let mut current = ProcessSnapshot {
-        fingerprint: fingerprint.clone(),
-        observed_at_unix_nano,
-        entries: Vec::new(),
-    };
-    let mut chunks = 0u64;
-    let mut dropped_entries = 0u64;
-
-    for entry in entries {
-        let entry_wire_len = process_snapshot_entry_wire_len(&entry);
-
-        if process_snapshot_frame_len_from_payload_len(current_payload_len + entry_wire_len)
-            <= MAX_FRAME_SIZE
-        {
-            current.entries.push(entry);
-            current_payload_len += entry_wire_len;
-            continue;
-        }
-
-        if !current.entries.is_empty() {
-            let frame = process_snapshot_frame(current);
-            write_reused_frame(writer, &frame, encode_buffer, metrics).await?;
-            chunks += 1;
-        }
-
-        current = ProcessSnapshot {
-            fingerprint: fingerprint.clone(),
-            observed_at_unix_nano,
-            entries: Vec::new(),
-        };
-        current_payload_len = base_payload_len;
-
-        if process_snapshot_frame_len_from_payload_len(base_payload_len + entry_wire_len)
-            > MAX_FRAME_SIZE
-        {
-            dropped_entries += 1;
-        } else {
-            current.entries.push(entry);
-            current_payload_len += entry_wire_len;
-        }
-    }
-
-    if !current.entries.is_empty() {
-        let frame = process_snapshot_frame(current);
-        write_reused_frame(writer, &frame, encode_buffer, metrics).await?;
-        chunks += 1;
-    }
-
-    if dropped_entries > 0 {
-        metrics.inc_process_snapshot_events_dropped("oversized_entry", dropped_entries);
-        log::warn!("dropped {dropped_entries} oversized process snapshot entrie(s)");
-    }
-
-    log::debug!("split oversized process snapshot into {chunks} IPC frame(s)");
-    Ok(())
-}
-
 /// Write one mDNS snapshot, split across frames when it does not fit.
 ///
 /// Chunking lives in `mdns::chunk_mdns_snapshot` for the same reason the
@@ -561,65 +455,6 @@ fn census_max_payload_len() -> usize {
     // boundary would make the budget depend on the very length being budgeted.
     const ENVELOPE_WORST_CASE: usize = 16;
     MAX_FRAME_SIZE.saturating_sub(ENVELOPE_WORST_CASE)
-}
-
-fn process_snapshot_frame(snapshot: ProcessSnapshot) -> NetprobeFrame {
-    NetprobeFrame {
-        sequence: 0,
-        payload: Some(netprobe_frame::Payload::ProcessSnapshot(snapshot)),
-    }
-}
-
-fn process_snapshot_frame_len(snapshot: &ProcessSnapshot) -> usize {
-    process_snapshot_frame_len_from_payload_len(process_snapshot_payload_len(snapshot))
-}
-
-fn process_snapshot_frame_len_from_payload_len(payload_len: usize) -> usize {
-    length_delimited_field_len(22, payload_len)
-}
-
-fn process_snapshot_payload_len(snapshot: &ProcessSnapshot) -> usize {
-    let mut len =
-        process_snapshot_base_payload_len(&snapshot.fingerprint, snapshot.observed_at_unix_nano);
-    for entry in &snapshot.entries {
-        len += process_snapshot_entry_wire_len(entry);
-    }
-    len
-}
-
-fn process_snapshot_base_payload_len(fingerprint: &str, observed_at_unix_nano: i64) -> usize {
-    let fingerprint_len = if fingerprint.is_empty() {
-        0
-    } else {
-        length_delimited_field_len(1, fingerprint.len())
-    };
-    let observed_len = if observed_at_unix_nano == 0 {
-        0
-    } else {
-        key_len(2, 0) + varint_len(observed_at_unix_nano as u64)
-    };
-    fingerprint_len + observed_len
-}
-
-fn process_snapshot_entry_wire_len(entry: &ProcessSnapshotEntry) -> usize {
-    length_delimited_field_len(3, entry.encoded_len())
-}
-
-fn length_delimited_field_len(field_number: u32, payload_len: usize) -> usize {
-    key_len(field_number, 2) + prost::length_delimiter_len(payload_len) + payload_len
-}
-
-fn key_len(field_number: u32, wire_type: u32) -> usize {
-    varint_len(u64::from((field_number << 3) | wire_type))
-}
-
-fn varint_len(mut value: u64) -> usize {
-    let mut len = 1;
-    while value >= 0x80 {
-        value >>= 7;
-        len += 1;
-    }
-    len
 }
 
 async fn response_for_frame(
@@ -777,10 +612,7 @@ mod tests {
         sync::{broadcast, watch},
     };
 
-    use super::{
-        IpcServer, ingest_external_flow_record, process_snapshot_frame_len,
-        write_process_snapshot_frames,
-    };
+    use super::{IpcServer, ingest_external_flow_record};
     use crate::external_flow::SharedExternalFlowMatcher;
     use crate::{
         config::Config,
@@ -808,7 +640,6 @@ mod tests {
         let (_event_tx, event_rx) = crate::event_queue::bounded(16);
         let (_dpi_tx, dpi_rx) = crate::event_queue::bounded(16);
         let (flow_tx, flow_rx) = crate::event_queue::bounded(16);
-        let (process_tx, _) = broadcast::channel(16);
         let (census_tx, _) = broadcast::channel(16);
         let (mdns_tx, _) = broadcast::channel(16);
         let server = IpcServer::new(
@@ -817,7 +648,6 @@ mod tests {
             dpi_rx,
             flow_tx,
             flow_rx,
-            process_tx,
             census_tx,
             mdns_tx,
             test_external_flow_matcher(),
@@ -873,7 +703,6 @@ mod tests {
         let (_event_tx, event_rx) = crate::event_queue::bounded(16);
         let (_dpi_tx, dpi_rx) = crate::event_queue::bounded(16);
         let (flow_tx, flow_rx) = crate::event_queue::bounded(16);
-        let (process_tx, _) = broadcast::channel(16);
         let (census_tx, _) = broadcast::channel(16);
         let (mdns_tx, _) = broadcast::channel(16);
         let server = IpcServer::new(
@@ -882,7 +711,6 @@ mod tests {
             dpi_rx,
             flow_tx,
             flow_rx,
-            process_tx,
             census_tx,
             mdns_tx,
             test_external_flow_matcher(),
@@ -913,7 +741,6 @@ mod tests {
         let (event_tx, event_rx) = crate::event_queue::bounded(16);
         let (_dpi_tx, dpi_rx) = crate::event_queue::bounded(16);
         let (flow_tx, flow_rx) = crate::event_queue::bounded(16);
-        let (process_tx, _) = broadcast::channel(16);
         let (census_tx, _) = broadcast::channel(16);
         let (mdns_tx, _) = broadcast::channel(16);
         let server = IpcServer::new(
@@ -922,7 +749,6 @@ mod tests {
             dpi_rx,
             flow_tx,
             flow_rx,
-            process_tx,
             census_tx,
             mdns_tx,
             test_external_flow_matcher(),
@@ -956,7 +782,6 @@ mod tests {
         let (_event_tx, event_rx) = crate::event_queue::bounded(16);
         let (dpi_tx, dpi_rx) = crate::event_queue::bounded(16);
         let (flow_tx, flow_rx) = crate::event_queue::bounded(16);
-        let (process_tx, _) = broadcast::channel(16);
         let (census_tx, _) = broadcast::channel(16);
         let (mdns_tx, _) = broadcast::channel(16);
         let server = IpcServer::new(
@@ -965,7 +790,6 @@ mod tests {
             dpi_rx,
             flow_tx,
             flow_rx,
-            process_tx,
             census_tx,
             mdns_tx,
             test_external_flow_matcher(),
@@ -999,7 +823,6 @@ mod tests {
         let (_event_tx, event_rx) = crate::event_queue::bounded(16);
         let (_dpi_tx, dpi_rx) = crate::event_queue::bounded(16);
         let (flow_tx, flow_rx) = crate::event_queue::bounded(16);
-        let (process_tx, _) = broadcast::channel(16);
         let (census_tx, _) = broadcast::channel(16);
         let (mdns_tx, _) = broadcast::channel(16);
         let matcher = test_external_flow_matcher();
@@ -1010,7 +833,6 @@ mod tests {
             dpi_rx,
             flow_tx.clone(),
             flow_rx,
-            process_tx,
             census_tx,
             mdns_tx,
             matcher,
@@ -1044,7 +866,6 @@ mod tests {
         let (_event_tx, event_rx) = crate::event_queue::bounded(16);
         let (_dpi_tx, dpi_rx) = crate::event_queue::bounded(16);
         let (flow_tx, flow_rx) = crate::event_queue::bounded(16);
-        let (process_tx, _) = broadcast::channel(16);
         let (census_tx, _) = broadcast::channel(16);
         let (mdns_tx, _) = broadcast::channel(16);
         let matcher = SharedExternalFlowMatcher::new(0);
@@ -1054,7 +875,6 @@ mod tests {
             dpi_rx,
             flow_tx.clone(),
             flow_rx,
-            process_tx,
             census_tx,
             mdns_tx,
             matcher.clone(),
@@ -1122,7 +942,6 @@ mod tests {
         let (_event_tx, event_rx) = crate::event_queue::bounded(16);
         let (_dpi_tx, dpi_rx) = crate::event_queue::bounded(16);
         let (flow_tx, flow_rx) = crate::event_queue::bounded(16);
-        let (process_tx, _) = broadcast::channel(16);
         let (census_tx, _) = broadcast::channel(16);
         let (mdns_tx, _) = broadcast::channel(16);
         let matcher = test_external_flow_matcher();
@@ -1133,7 +952,6 @@ mod tests {
             dpi_rx,
             flow_tx.clone(),
             flow_rx,
-            process_tx,
             census_tx,
             mdns_tx,
             matcher,
@@ -1186,7 +1004,6 @@ mod tests {
         let (_event_tx, event_rx) = crate::event_queue::bounded(16);
         let (_dpi_tx, dpi_rx) = crate::event_queue::bounded(16);
         let (flow_tx, flow_rx) = crate::event_queue::bounded(16);
-        let (process_tx, _) = broadcast::channel(16);
         let (census_tx, _) = broadcast::channel(16);
         let (mdns_tx, _) = broadcast::channel(16);
         let server = IpcServer::new(
@@ -1195,7 +1012,6 @@ mod tests {
             dpi_rx,
             flow_tx,
             flow_rx,
-            process_tx,
             census_tx,
             mdns_tx,
             test_external_flow_matcher(),
@@ -1244,7 +1060,6 @@ mod tests {
         let (_event_tx, event_rx) = crate::event_queue::bounded(16);
         let (_dpi_tx, dpi_rx) = crate::event_queue::bounded(16);
         let (flow_tx, flow_rx) = crate::event_queue::bounded(16);
-        let (process_tx, _) = broadcast::channel(16);
         let (census_tx, _) = broadcast::channel(16);
         let (mdns_tx, _) = broadcast::channel(16);
         let server = IpcServer::new(
@@ -1253,7 +1068,6 @@ mod tests {
             dpi_rx,
             flow_tx,
             flow_rx,
-            process_tx,
             census_tx,
             mdns_tx.clone(),
             test_external_flow_matcher(),
@@ -1357,7 +1171,6 @@ mod tests {
         let (_event_tx, event_rx) = crate::event_queue::bounded(16);
         let (_dpi_tx, dpi_rx) = crate::event_queue::bounded(16);
         let (flow_tx, flow_rx) = crate::event_queue::bounded(16);
-        let (process_tx, _) = broadcast::channel(16);
         let (census_tx, _) = broadcast::channel(16);
         let (mdns_tx, _) = broadcast::channel(16);
         let server = IpcServer::new(
@@ -1366,7 +1179,6 @@ mod tests {
             dpi_rx,
             flow_tx,
             flow_rx,
-            process_tx,
             census_tx.clone(),
             mdns_tx,
             test_external_flow_matcher(),
@@ -1398,102 +1210,6 @@ mod tests {
         task.await.unwrap().unwrap();
     }
 
-    #[tokio::test]
-    async fn streams_process_snapshots_to_connected_client() {
-        let dir = TempDir::new().unwrap();
-        let socket = dir.path().join("ipc.sock");
-        let (shutdown_tx, shutdown_rx) = watch::channel(false);
-        let (_event_tx, event_rx) = crate::event_queue::bounded(16);
-        let (_dpi_tx, dpi_rx) = crate::event_queue::bounded(16);
-        let (flow_tx, flow_rx) = crate::event_queue::bounded(16);
-        let (process_tx, _) = broadcast::channel(16);
-        let (census_tx, _) = broadcast::channel(16);
-        let (mdns_tx, _) = broadcast::channel(16);
-        let server = IpcServer::new(
-            &socket,
-            event_rx,
-            dpi_rx,
-            flow_tx,
-            flow_rx,
-            process_tx.clone(),
-            census_tx,
-            mdns_tx,
-            test_external_flow_matcher(),
-            RuntimeConfig::new(&Config::default()),
-            Metrics::new().unwrap(),
-        );
-        let task = tokio::spawn(server.run(shutdown_rx));
-
-        wait_for_socket(&socket).await;
-
-        let mut client = UnixStream::connect(&socket).await.unwrap();
-        wait_for_event_receiver(&process_tx).await;
-        process_tx.send(process_snapshot()).unwrap();
-
-        let response = read_frame(&mut client).await.unwrap().unwrap();
-        assert_eq!(response.sequence, 0);
-        let Some(netprobe_frame::Payload::ProcessSnapshot(snapshot)) = response.payload else {
-            panic!("expected process snapshot");
-        };
-        assert_eq!(snapshot.fingerprint, "fp-1");
-        assert_eq!(snapshot.entries.len(), 1);
-
-        shutdown_tx.send(true).unwrap();
-        task.await.unwrap().unwrap();
-    }
-
-    #[tokio::test]
-    async fn splits_oversized_process_snapshots_to_fit_ipc_frames() {
-        let metrics = Metrics::new().unwrap();
-        let large_cmdline = "x".repeat(768 * 1024);
-        let entries = (0..10)
-            .map(|idx| ProcessSnapshotEntry {
-                local_ip: "10.42.221.137".to_string(),
-                local_port: 10_000 + (idx % 50),
-                transport_protocol: "tcp".to_string(),
-                pid: 100_000 + idx,
-                tgid: 100_000 + idx,
-                uid: 1000,
-                gid: 1000,
-                comm: "longhorn-instan".to_string(),
-                redacted_cmdline: vec![large_cmdline.clone()],
-                container_id: format!("{idx:064x}"),
-                workload_identity: None,
-            })
-            .collect::<Vec<_>>();
-        let snapshot = ProcessSnapshot {
-            fingerprint: "large-snapshot".to_string(),
-            observed_at_unix_nano: 42,
-            entries,
-        };
-        assert!(process_snapshot_frame_len(&snapshot) > MAX_FRAME_SIZE);
-
-        let (mut writer, mut reader) = duplex(64 * 1024);
-        let writer_task = tokio::spawn(async move {
-            let mut buffer = Vec::new();
-            write_process_snapshot_frames(&mut writer, snapshot, &mut buffer, &metrics)
-                .await
-                .unwrap();
-        });
-
-        let mut chunks = 0;
-        let mut total_entries = 0;
-        while let Some(frame) = read_frame(&mut reader).await.unwrap() {
-            assert!(frame.encoded_len() <= MAX_FRAME_SIZE);
-            let Some(netprobe_frame::Payload::ProcessSnapshot(chunk)) = frame.payload else {
-                panic!("expected process snapshot chunk");
-            };
-            assert_eq!(chunk.fingerprint, "large-snapshot");
-            assert_eq!(chunk.observed_at_unix_nano, 42);
-            chunks += 1;
-            total_entries += chunk.entries.len();
-        }
-
-        writer_task.await.unwrap();
-        assert!(chunks > 1, "expected oversized snapshot to split");
-        assert_eq!(total_entries, 10);
-    }
-
     #[cfg(feature = "remote-capture")]
     #[tokio::test]
     async fn streams_fixture_traffic_events_to_connected_client() {
@@ -1503,7 +1219,6 @@ mod tests {
         let (event_tx, event_rx) = crate::event_queue::bounded(16);
         let (_dpi_tx, dpi_rx) = crate::event_queue::bounded(16);
         let (flow_tx, flow_rx) = crate::event_queue::bounded(16);
-        let (process_tx, _) = broadcast::channel(16);
         let (census_tx, _) = broadcast::channel(16);
         let (mdns_tx, _) = broadcast::channel(16);
         let server = IpcServer::new(
@@ -1512,7 +1227,6 @@ mod tests {
             dpi_rx,
             flow_tx,
             flow_rx,
-            process_tx,
             census_tx,
             mdns_tx,
             test_external_flow_matcher(),
@@ -1548,7 +1262,6 @@ mod tests {
         let (_event_tx, event_rx) = crate::event_queue::bounded(16);
         let (_dpi_tx, dpi_rx) = crate::event_queue::bounded(16);
         let (flow_tx, flow_rx) = crate::event_queue::bounded(16);
-        let (process_tx, _) = broadcast::channel(16);
         let (census_tx, _) = broadcast::channel(16);
         let (mdns_tx, _) = broadcast::channel(16);
         let server = IpcServer::new(
@@ -1557,7 +1270,6 @@ mod tests {
             dpi_rx,
             flow_tx,
             flow_rx,
-            process_tx,
             census_tx,
             mdns_tx,
             test_external_flow_matcher(),
