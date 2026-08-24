@@ -271,25 +271,31 @@ the legacy producers.
   only in a DB-backed local run. The setup now branches on `Process.whereis/1` (start when absent,
   `Buffer.reset/1` when the app owns it); a test-local name fixes neither world, because
   `DiscoveryIngestor` calls `Buffer.offer/1` with the DEFAULT name.
-- [~] 7.3 e2e on `alma-test01` -- HOST HALF PROVEN, CORE HALF NOT. Staged netprobe 0.2.51
-  (`//build/native_addons:stage_netprobe_addon`) and an agent built from this branch
-  (`//build/packaging/agent:stage_agent_rpm`), both scp'd to the lab host. Proven on the wire:
-  netprobe serves `AddonService` on `/run/serviceradar/netprobe/addon.sock` at mode **0600**
-  (the `restrict_socket_permissions` read-back guard), the agent pump attaches
-  ("stream attached; discovery is flowing"), and it RECONNECTS after netprobe restarts.
-  Two things e2e caught that no unit test did:
-  (a) `collector_ip` is resolved ONCE per `StreamTelemetry` stream, so if the pump attaches before
-      the first `Configure` lands, `process.v1` is silently unserved for the life of that stream --
-      the schema only appeared after a netprobe restart that read `collector_ip` from bootstrap.
-      `RuntimeConfig::apply` is correct (updates when non-empty, never wipes); the ordering is the
-      gap.
-  (b) "stream attached" only logs on the first DELIVERED batch, which waits for the census snapshot
-      interval (~2 min), not the per-observation events. An attached-but-silent pump is
-      indistinguishable from a broken one for that window.
-  NOT proven: core ingestion. alma-test01 streams to `agent-gateway.k8s-farm.carverauto.dev`
-  (farm01), whose core runs a RELEASED build with no `netprobe.*.v1` registry entries -- so the
-  payloads that MOVED are expected to be dropped as unregistered schemas there. Confirming the
-  ingest half needs a core built from this branch, not the farm01 fleet.
+- [x] 7.3 e2e on `alma-test01` -> farm01. Staged netprobe 0.2.51
+  (`//build/native_addons:stage_netprobe_addon`) and an agent from this branch
+  (`//build/packaging/agent:stage_agent_rpm`) onto the lab host; rolled core + agent-gateway on
+  farm01 (helm rev 119, digests `176f296c` / `33358f30`).
+  PROVEN: netprobe serves `AddonService` on `addon.sock` at mode 0600 (the
+  `restrict_socket_permissions` read-back guard); the agent pump attaches and RECONNECTS after a
+  netprobe restart; core routes `TELEMETRY_PAYLOAD_KIND_DISCOVERY_V1` to `DiscoveryIngestor`; and
+  census + mDNS ingest live -- 39 census / 5 mDNS devices updated AFTER the rollout gate
+  (last pod ready 21:09:32Z), which is the only window where old pods cannot be the explanation.
+  NOT observed end-to-end: `fingerprint.v1` and `dpi.v1` produce nothing on this host because
+  netprobe refuses AF_XDP on `ens18` (it carries the default route; redirect would black-hole
+  host connectivity) -- a deliberate guard, not a gap in the contract.
+  `process.v1` is SERVED and has a real producer (`FlowAttributionRuntime`, gated on
+  `process_snapshot_interval > 0`), but nothing lands, and the cause is worth keeping:
+  **the agent's `host_ip` is stale.** `/etc/serviceradar/agent.json` says `192.168.2.243` while
+  the host is `192.168.1.171`; `push_loop_config.go:763` stamps that value verbatim as netprobe's
+  `collector_ip`, and a process snapshot names its subject with it. On farm01 `192.168.2.243`
+  matches 0 devices and `192.168.1.171` matches 1 -- so the payload is correctly DROPPED by the
+  enrichment-only rule instead of minting an IP-squatting device. The policy is working; the
+  input is wrong. Any DPI subject choice on that host is mislabelled the same way.
+  Two ordering facts e2e caught that no unit test did:
+  (a) `collector_ip` is resolved ONCE per `StreamTelemetry` stream, so a pump that attaches before
+      the first `Configure` leaves `process.v1` unserved for that stream's life.
+  (b) "stream attached" only logs on the first DELIVERED batch, which waits for the census
+      snapshot interval (~2 min) -- an attached-but-silent pump looks broken for that window.
 - [ ] 7.4 **PARTIALLY DEMONSTRATED, NOT MET.** Three schemas were added end-to-end
   (`fingerprint.v1`, `dpi.v1`, `process.v1`) with **zero agent and zero gateway changes** -- the
   pump forwards batches verbatim, which is the property this contract exists for. But each needed
