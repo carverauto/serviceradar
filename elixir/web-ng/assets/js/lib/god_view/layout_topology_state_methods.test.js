@@ -212,17 +212,43 @@ describe("layout_topology_state_methods", () => {
     })).toEqual(true)
   })
 
-  it("reuses an exact structural graph and viewport-profile cache hit without invoking ELK", async () => {
+  it("reapplies cached immutable scene geometry to current telemetry across revisions", async () => {
     const context = makeContext()
-    const graph = expandedFarm01Graph()
-    const first = await context.prepareGraphLayout(graph, 9, "stamp")
+    const graph = collapsedFarm01Graph()
+    const first = await context.prepareGraphLayout(graph, 9, "old-stamp")
     const callsBeforeHit = context.state.layoutEngine.layout.mock.calls.length
+    const currentGraph = {
+      ...graph,
+      revision: 10,
+      nodes: graph.nodes.map((node, index) => index === 0
+        ? {...node, label: "Current gateway", state: 3, pps: 9876, details: {...node.details, live: "current"}}
+        : node),
+      edges: graph.edges.map((edge, index) => index === 0
+        ? {...edge, flowPps: 4321, details: {live: "current"}}
+        : edge),
+    }
 
-    const second = await context.prepareGraphLayout(graph, 9, "stamp")
+    const second = await context.prepareGraphLayout(currentGraph, 10, "new-stamp")
 
     expect(context.state.layoutEngine.layout.mock.calls.length - callsBeforeHit).toEqual(0)
     expect(context.state.layoutEngine.layout).toHaveBeenCalledTimes(1)
-    expect(second).toBe(first)
+    expect(second).not.toBe(first)
+    expect(second._topologyScene).toBe(first._topologyScene)
+    expect(second._layoutCacheKey).toEqual(first._layoutCacheKey)
+    expect(second._layoutRevision).toEqual(10)
+    expect(second.revision).toEqual(10)
+    expect(second.nodes[0]).toMatchObject({
+      label: "Current gateway",
+      state: 3,
+      pps: 9876,
+      details: expect.objectContaining({live: "current"}),
+    })
+    expect(second.edges[0]).toMatchObject({flowPps: 4321, details: {live: "current"}})
+    expect(context.state.layoutCache.get(first._layoutCacheKey)).toBe(first._topologyScene)
+    expect(Object.isFrozen(first._topologyScene)).toEqual(true)
+    expect(Object.isFrozen(first._topologyScene.nodes)).toEqual(true)
+    expect(Object.isFrozen(first._topologyScene.nodes[0].center)).toEqual(true)
+    expect(Object.isFrozen(first._topologyScene.routes[0].points)).toEqual(true)
   })
 
   it("keeps the cache stable within a viewport profile and invalidates across the profile threshold", async () => {
@@ -237,8 +263,9 @@ describe("layout_topology_state_methods", () => {
     context.state.viewportHeight = 1000
     const portrait = await context.prepareGraphLayout(graph, 10, "stamp")
 
-    expect(sameProfile).toBe(first)
-    expect(portrait).not.toBe(first)
+    expect(sameProfile).not.toBe(first)
+    expect(sameProfile._topologyScene).toBe(first._topologyScene)
+    expect(portrait._topologyScene).not.toBe(first._topologyScene)
     expect(context.state.layoutEngine.layout).toHaveBeenCalledTimes(2)
     expect(first._topologyScene.profileKey).toEqual("landscape")
     expect(portrait._topologyScene.profileKey).toEqual("portrait")
@@ -311,7 +338,7 @@ describe("layout_topology_state_methods", () => {
     expect(out.nodes.every((node) => node.x === undefined && node.y === undefined)).toEqual(true)
   })
 
-  it("reuses only an exactly compatible last-good scene after ELK failure", async () => {
+  it("reuses only a structurally and profile-compatible last-good scene after ELK failure", async () => {
     const context = makeContext()
     const graph = expandedFarm01Graph()
     const accepted = await context.prepareGraphLayout(graph, 14, "stamp")
@@ -321,16 +348,31 @@ describe("layout_topology_state_methods", () => {
       layout: vi.fn(async () => { throw new Error("transient ELK failure") }),
     }
 
-    const reused = await context.prepareGraphLayout(graph, 14, "stamp")
+    const reused = await context.prepareGraphLayout(graph, 15, "new-stamp")
 
     expect(reused._topologyScene).toBe(accepted._topologyScene)
     expect(reused._layoutMode).toEqual("elk-scene")
+    expect(reused._layoutRevision).toEqual(15)
     expect(reused._layoutError).toContain("transient ELK failure")
 
     context.state.layoutCache.clear()
-    const incompatible = await context.prepareGraphLayout(collapsedFarm01Graph(), 14, "stamp")
-    expect(incompatible._topologyScene).toBeUndefined()
-    expect(incompatible.nodes.every((node) => node.x === undefined && node.y === undefined)).toEqual(true)
+    const structurallyDifferent = {
+      ...graph,
+      nodes: graph.nodes.map((node, index) => index === 0 ? {...node, id: `${node.id}:replacement`} : node),
+    }
+    const incompatibleGraph = await context.prepareGraphLayout(structurallyDifferent, 15, "new-stamp")
+    expect(incompatibleGraph._topologyScene).toBeUndefined()
+    expect(incompatibleGraph.nodes.every((node) => node.x === undefined && node.y === undefined)).toEqual(true)
+
+    const incompatibleExpansion = await context.prepareGraphLayout(collapsedFarm01Graph(), 15, "new-stamp")
+    expect(incompatibleExpansion._topologyScene).toBeUndefined()
+    expect(incompatibleExpansion.nodes.every((node) => node.x === undefined && node.y === undefined)).toEqual(true)
+
+    context.state.viewportWidth = 800
+    context.state.viewportHeight = 1000
+    const incompatibleProfile = await context.prepareGraphLayout(graph, 15, "new-stamp")
+    expect(incompatibleProfile._topologyScene).toBeUndefined()
+    expect(incompatibleProfile.nodes.every((node) => node.x === undefined && node.y === undefined)).toEqual(true)
   })
 
   it("reapplies a compatible last-good scene without replacing current graph data", async () => {
@@ -352,7 +394,7 @@ describe("layout_topology_state_methods", () => {
         : edge),
     }
 
-    const reused = await context.prepareGraphLayout(currentGraph, 16, "stamp")
+    const reused = await context.prepareGraphLayout(currentGraph, 17, "telemetry-only-stamp")
 
     expect(reused.nodes[0]).toMatchObject({
       label: "Current gateway label",
@@ -363,6 +405,8 @@ describe("layout_topology_state_methods", () => {
     expect(reused.nodes[0].x).toEqual(accepted.nodes[0].x)
     expect(reused.nodes[0].y).toEqual(accepted.nodes[0].y)
     expect(reused._topologyScene).toBe(accepted._topologyScene)
+    expect(reused._layoutRevision).toEqual(17)
+    expect(reused._layoutCacheKey).toEqual(accepted._layoutCacheKey)
     expect(reused._layoutError).toEqual("transient ELK failure")
   })
 

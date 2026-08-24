@@ -94,6 +94,12 @@ function layoutErrorMessage(error) {
   return String(error || "unknown ELK layout error")
 }
 
+function immutableTopologyScene(value) {
+  if (!value || typeof value !== "object" || Object.isFrozen(value)) return value
+  for (const child of Object.values(value)) immutableTopologyScene(child)
+  return Object.freeze(value)
+}
+
 function stripCoordinates(graph) {
   const {
     _topologyScene,
@@ -145,16 +151,21 @@ export const godViewLayoutTopologyStateMethods = {
       state.viewportHeight,
       state.viewportSafeInsets,
     )
-    const layoutKey = this.graphLayoutCacheKey(sceneInput, revision, topologyStamp, profile)
-    const cached = this.getCachedGraphLayout(layoutKey)
+    const layoutKey = this.graphLayoutCacheKey(sceneInput, profile)
+    const cachedScene = this.getCachedGraphLayout(layoutKey)
 
-    if (cached) {
+    if (cachedScene) {
+      const cachedGraph = {
+        ...applyTopologySceneToGraph(stripCoordinates(deduped), cachedScene),
+        _layoutRevision: revision,
+        _layoutCacheKey: layoutKey,
+      }
       if (commit) {
-        state.layoutMode = cached._layoutMode
+        state.layoutMode = cachedGraph._layoutMode
         state.layoutRevision = revision
         state.lastLayoutKey = layoutKey
       }
-      return cached
+      return cachedGraph
     }
 
     const finalGraph = await this.computeClientTopologyLayout(
@@ -166,7 +177,7 @@ export const godViewLayoutTopologyStateMethods = {
     )
 
     if (finalGraph._topologyScene && !finalGraph._layoutError) {
-      this.storeCachedGraphLayout(layoutKey, finalGraph)
+      this.storeCachedGraphLayout(layoutKey, finalGraph._topologyScene)
     }
     if (commit) {
       state.layoutMode = finalGraph._layoutMode
@@ -176,9 +187,8 @@ export const godViewLayoutTopologyStateMethods = {
     return finalGraph
   },
 
-  graphLayoutCacheKey(sceneInput, revision, topologyStamp, profile) {
-    const revisionToken = Number.isFinite(revision) ? revision : "na"
-    return `${revisionToken}:${String(topologyStamp || "na")}:${profile.key}:${sceneInput.graphKey}`
+  graphLayoutCacheKey(sceneInput, profile) {
+    return `${sceneInput.graphKey}:${profile.key}`
   },
 
   getCachedGraphLayout(layoutKey) {
@@ -187,10 +197,10 @@ export const godViewLayoutTopologyStateMethods = {
     return cache.get(layoutKey) || null
   },
 
-  storeCachedGraphLayout(layoutKey, graph) {
+  storeCachedGraphLayout(layoutKey, scene) {
     const {state} = this
     if (!(state.layoutCache instanceof Map)) state.layoutCache = new Map()
-    state.layoutCache.set(layoutKey, graph)
+    state.layoutCache.set(layoutKey, immutableTopologyScene(scene))
     while (state.layoutCache.size > MAX_LAYOUT_CACHE_ENTRIES) {
       state.layoutCache.delete(state.layoutCache.keys().next().value)
     }
@@ -199,9 +209,9 @@ export const godViewLayoutTopologyStateMethods = {
   async computeClientTopologyLayout(graph, sceneInput, layoutKey, profile, revision) {
     try {
       const engine = this.state.layoutEngine || getDefaultLayoutEngine()
-      const scene = await layoutTopologyScene(sceneInput, {engine, profile})
+      const scene = immutableTopologyScene(await layoutTopologyScene(sceneInput, {engine, profile}))
       return {
-        ...applyTopologySceneToGraph(graph, scene),
+        ...applyTopologySceneToGraph(stripCoordinates(graph), scene),
         _layoutRevision: revision,
         _layoutCacheKey: layoutKey,
       }
@@ -213,7 +223,7 @@ export const godViewLayoutTopologyStateMethods = {
 
       if (compatible) {
         return {
-          ...applyTopologySceneToGraph(graph, previousGraph._topologyScene),
+          ...applyTopologySceneToGraph(stripCoordinates(graph), previousGraph._topologyScene),
           _layoutRevision: revision,
           _layoutCacheKey: layoutKey,
           _layoutError: diagnostic,

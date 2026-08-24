@@ -223,7 +223,11 @@ export const godViewRenderingGraphDataMethods = {
 
     const managedTopologyScene = hasManagedTopologySceneRoutes(effective)
     const edgeData = managedTopologyScene
-      ? this.buildTopologySceneEdgeData(effective, edgeTopologyClass)
+      ? this.buildTopologySceneEdgeData(
+        effective,
+        edgeTopologyClass,
+        (edge) => this.edgeEnabledByTopologyLayer(edge) || attachmentCensusEdge(edge) || expandedMemberEdge(edge),
+      )
       : this.aggregateVisibleEdges(this.collapseExpandedMemberTrunks(rawEdgeData, visibleNodes))
     const edgeKeys = new Set(edgeData.map((edge) => edge.interactionKey))
     if (this.state.hoveredEdgeKey && !edgeKeys.has(this.state.hoveredEdgeKey)) this.state.hoveredEdgeKey = null
@@ -261,8 +265,9 @@ export const godViewRenderingGraphDataMethods = {
 
     return {edgeData, edgeLabelData, nodeData, rootPulseNodes, selectedVisibleNode}
   },
-  buildTopologySceneEdgeData(effective, edgeTopologyClass) {
+  buildTopologySceneEdgeData(effective, edgeTopologyClass, relationEnabled) {
     const routes = effective?._topologyScene?.routes || []
+    const relationVisible = typeof relationEnabled === "function" ? relationEnabled : () => true
     const relationById = new Map(
       (effective.edges || []).map((edge) => [rawRelationId(edge, effective.nodes || []), edge]),
     )
@@ -286,11 +291,20 @@ export const godViewRenderingGraphDataMethods = {
         const path = finiteRoutePath(route?.points)
         if (path.length < 2) return null
 
-        const relationIds = Array.isArray(route?.relationIds)
+        const routeRelationIds = Array.isArray(route?.relationIds)
           ? [...route.relationIds].sort((left, right) => String(left).localeCompare(String(right)))
           : []
-        const relations = relationIds.map((relationId) => relationById.get(relationId)).filter(Boolean)
+        const resolvedRelations = routeRelationIds
+          .map((relationId) => ({relationId, relation: relationById.get(relationId)}))
+          .filter(({relation}) => Boolean(relation))
+        const enabledRelations = resolvedRelations.filter(({relation}) => relationVisible(relation))
+        if (resolvedRelations.length > 0 && enabledRelations.length === 0) return null
+        const relations = enabledRelations.map(({relation}) => relation)
+        const relationIds = resolvedRelations.length > 0
+          ? enabledRelations.map(({relationId}) => relationId)
+          : routeRelationIds
         const metadata = route?.metadata && typeof route.metadata === "object" ? route.metadata : {}
+        const useRouteMetadata = enabledRelations.length === resolvedRelations.length
         const topologyClassCounts = emptyClassCounts()
         const directional = {
           flowPpsAb: 0,
@@ -312,6 +326,7 @@ export const godViewRenderingGraphDataMethods = {
         }
 
         const metadataNumber = (field) => {
+          if (!useRouteMetadata) return null
           if (!Object.hasOwn(metadata, field)) return null
           const value = Number(metadata[field])
           return Number.isFinite(value) ? value : null
@@ -337,8 +352,8 @@ export const godViewRenderingGraphDataMethods = {
         const relationDetails = relations
           .map((relation) => relation?.details)
           .filter((details) => details && typeof details === "object")
-        const label = String(metadata.label || relationLabels[0] || `${route.sourceId} -> ${route.targetId}`)
-        const telemetryEligible = Object.hasOwn(metadata, "telemetryEligible") || Object.hasOwn(metadata, "telemetry_eligible")
+        const label = String((useRouteMetadata && metadata.label) || relationLabels[0] || `${route.sourceId} -> ${route.targetId}`)
+        const telemetryEligible = useRouteMetadata && (Object.hasOwn(metadata, "telemetryEligible") || Object.hasOwn(metadata, "telemetry_eligible"))
           ? metadata.telemetryEligible !== false && metadata.telemetry_eligible !== false
           : relations.length > 0
             ? relations.some((relation) => relation?.telemetryEligible !== false && relation?.telemetry_eligible !== false)
@@ -369,7 +384,7 @@ export const godViewRenderingGraphDataMethods = {
           topologyClassCounts,
           protocol: protocols.length === 1 ? protocols[0] : "",
           evidenceClass: evidenceClasses.length === 1 ? evidenceClasses[0] : "",
-          details: metadata.details && typeof metadata.details === "object"
+          details: useRouteMetadata && metadata.details && typeof metadata.details === "object"
             ? metadata.details
             : relationDetails.find((details) => Array.isArray(details.interface_sparkline) && details.interface_sparkline.length > 1) || relationDetails[0] || {},
           edgeCount: Math.max(1, relationIds.length),

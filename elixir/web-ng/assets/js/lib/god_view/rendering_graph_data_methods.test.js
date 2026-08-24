@@ -6,6 +6,7 @@ import ELK from "elkjs/lib/elk.bundled.js"
 import {LANDSCAPE_PROFILE, applyTopologySceneToGraph, layoutTopologyScene} from "./layout_elk_scene"
 import {collapsedFarm01Graph, expandedFarm01Graph} from "./fixtures/farm01_topology_regression"
 import {godViewRenderingGraphDataMethods} from "./rendering_graph_data_methods"
+import {godViewRenderingStyleEdgeTopologyMethods} from "./rendering_style_edge_topology_methods"
 import {prepareTopologySceneInput} from "./topology_scene_graph"
 
 function baseContext({state = {}, deps = {}, overrides = {}} = {}) {
@@ -43,6 +44,39 @@ function baseContext({state = {}, deps = {}, overrides = {}} = {}) {
   })
 
   return runtime
+}
+
+function managedRouteGraph({nodes, edges, route}) {
+  return {
+    shape: "local",
+    _layoutMode: "elk-scene",
+    _topologyScene: {
+      key: "managed-filter-scene",
+      routes: [{
+        id: route.id,
+        sourceId: route.sourceId,
+        targetId: route.targetId,
+        points: route.points || [{x: 0, y: 0}, {x: 100, y: 0}],
+        relationIds: route.relationIds,
+        metadata: route.metadata || {},
+      }],
+    },
+    nodes,
+    edges,
+  }
+}
+
+function topologyAwareContext(topologyLayers) {
+  return baseContext({
+    state: {
+      topologyLayers,
+      layoutEngine: {layout: vi.fn()},
+    },
+    overrides: {
+      edgeTopologyClass: godViewRenderingStyleEdgeTopologyMethods.edgeTopologyClass,
+      edgeEnabledByTopologyLayer: godViewRenderingStyleEdgeTopologyMethods.edgeEnabledByTopologyLayer,
+    },
+  })
 }
 
 describe("rendering_graph_data_methods", () => {
@@ -171,6 +205,145 @@ describe("rendering_graph_data_methods", () => {
       label: "pre-aggregated route",
     })
     expect(out.edgeData[0].relationIds).toEqual(["forward", "reverse"])
+  })
+
+  it.each([
+    {
+      name: "backbone off",
+      topologyLayers: {backbone: false, inferred: false, endpoints: false},
+      topologyClass: "backbone",
+      expectedRoutes: 0,
+    },
+    {
+      name: "inferred off",
+      topologyLayers: {backbone: true, inferred: false, endpoints: false},
+      topologyClass: "inferred",
+      expectedRoutes: 0,
+    },
+    {
+      name: "inferred on",
+      topologyLayers: {backbone: false, inferred: true, endpoints: false},
+      topologyClass: "inferred",
+      expectedRoutes: 1,
+    },
+  ])("filters managed scene routes when $name", ({topologyLayers, topologyClass, expectedRoutes}) => {
+    const ctx = topologyAwareContext(topologyLayers)
+    const scene = managedRouteGraph({
+      nodes: [
+        {id: "a", x: 0, y: 0, state: 0, label: "A", operUp: 1, details: {}},
+        {id: "b", x: 100, y: 0, state: 1, label: "B", operUp: 1, details: {}},
+      ],
+      edges: [{id: "relation", source: 0, target: 1, topologyClass}],
+      route: {id: "route", sourceId: "a", targetId: "b", relationIds: ["relation"]},
+    })
+
+    const out = ctx.buildVisibleGraphData(scene)
+
+    expect(out.edgeData).toHaveLength(expectedRoutes)
+    expect(ctx.state.layoutEngine.layout).not.toHaveBeenCalled()
+    expect(scene._topologyScene.routes[0].points).toEqual([{x: 0, y: 0}, {x: 100, y: 0}])
+  })
+
+  it("hides a normal managed endpoint route and node while retaining the attachment census trunk", () => {
+    const topologyLayers = {backbone: true, inferred: false, endpoints: false}
+    const normalCtx = topologyAwareContext(topologyLayers)
+    const normal = managedRouteGraph({
+      nodes: [
+        {id: "switch", x: 0, y: 0, state: 0, label: "Switch", operUp: 1, details: {cluster_kind: "endpoint-anchor"}},
+        {id: "client", x: 100, y: 0, state: 1, label: "Client", operUp: 1, details: {}},
+      ],
+      edges: [{id: "normal-endpoint", source: 0, target: 1, topologyClass: "endpoints"}],
+      route: {id: "normal-route", sourceId: "switch", targetId: "client", relationIds: ["normal-endpoint"]},
+    })
+
+    const normalOut = normalCtx.buildVisibleGraphData(normal)
+
+    expect(normalOut.nodeData.map((node) => node.id)).toEqual(["switch"])
+    expect(normalOut.edgeData).toEqual([])
+
+    const censusCtx = topologyAwareContext(topologyLayers)
+    const census = managedRouteGraph({
+      nodes: [
+        {id: "switch", x: 0, y: 0, state: 0, label: "Switch", operUp: 1, details: {cluster_kind: "endpoint-anchor"}},
+        {id: "census", x: 100, y: 0, state: 1, label: "12 endpoints", operUp: 1, details: {cluster_kind: "endpoint-summary"}},
+      ],
+      edges: [{id: "census-endpoint", source: 0, target: 1, topologyClass: "endpoints"}],
+      route: {id: "census-route", sourceId: "switch", targetId: "census", relationIds: ["census-endpoint"]},
+    })
+
+    const censusOut = censusCtx.buildVisibleGraphData(census)
+
+    expect(censusOut.nodeData.map((node) => node.id)).toEqual(["switch", "census"])
+    expect(censusOut.edgeData).toHaveLength(1)
+    expect(censusOut.edgeData[0].relationIds).toEqual(["census-endpoint"])
+    expect(censusCtx.state.layoutEngine.layout).not.toHaveBeenCalled()
+  })
+
+  it("retains the managed expanded-member trunk while the endpoint layer is off", () => {
+    const ctx = topologyAwareContext({backbone: true, inferred: false, endpoints: false})
+    const graph = managedRouteGraph({
+      nodes: [
+        {id: "switch", x: 0, y: 0, state: 0, label: "Switch", operUp: 1, details: {cluster_kind: "endpoint-anchor"}},
+        {
+          id: "member",
+          x: 100,
+          y: 0,
+          state: 1,
+          label: "Member",
+          operUp: 1,
+          details: {cluster_kind: "endpoint-member", cluster_expanded: true},
+        },
+      ],
+      edges: [{id: "member-endpoint", source: 0, target: 1, topologyClass: "endpoints"}],
+      route: {id: "member-route", sourceId: "switch", targetId: "member", relationIds: ["member-endpoint"]},
+    })
+
+    const out = ctx.buildVisibleGraphData(graph)
+
+    expect(out.nodeData.map((node) => node.id)).toEqual(["switch", "member"])
+    expect(out.edgeData).toHaveLength(1)
+    expect(out.edgeData[0].relationIds).toEqual(["member-endpoint"])
+  })
+
+  it("filters only disabled constituents from a mixed-class managed route", () => {
+    const ctx = topologyAwareContext({backbone: false, inferred: true, endpoints: false})
+    const graph = managedRouteGraph({
+      nodes: [
+        {id: "a", x: 0, y: 0, state: 0, label: "A", operUp: 1, details: {}},
+        {id: "b", x: 100, y: 0, state: 1, label: "B", operUp: 1, details: {}},
+      ],
+      edges: [
+        {id: "backbone", source: 0, target: 1, topologyClass: "backbone", flowPps: 100},
+        {id: "inferred", source: 0, target: 1, topologyClass: "inferred", flowPps: 7},
+      ],
+      route: {
+        id: "mixed-route",
+        sourceId: "a",
+        targetId: "b",
+        relationIds: ["backbone", "inferred"],
+        metadata: {flowPps: 107},
+      },
+    })
+
+    const inferredOnly = ctx.buildVisibleGraphData(graph)
+
+    expect(inferredOnly.edgeData).toHaveLength(1)
+    expect(inferredOnly.edgeData[0]).toMatchObject({
+      relationIds: ["inferred"],
+      flowPps: 7,
+      topologyClass: "inferred",
+      topologyClassCounts: expect.objectContaining({backbone: 0, inferred: 1}),
+    })
+
+    ctx.state.topologyLayers = {backbone: true, inferred: false, endpoints: false}
+    const backboneOnly = ctx.buildVisibleGraphData(graph)
+    expect(backboneOnly.edgeData[0]).toMatchObject({
+      relationIds: ["backbone"],
+      flowPps: 100,
+      topologyClass: "backbone",
+      topologyClassCounts: expect.objectContaining({backbone: 1, inferred: 0}),
+    })
+    expect(ctx.state.layoutEngine.layout).not.toHaveBeenCalled()
   })
 
   it("buildVisibleGraphData creates visible node/edge data and clears stale edge keys", () => {

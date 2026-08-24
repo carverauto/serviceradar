@@ -14,6 +14,9 @@ export const godViewLayoutClusterMethods = {
   },
   reshapeGraph(graph) {
     const {state} = this
+    if (graph?._layoutMode === "elk-scene" && graph?._topologyScene) {
+      return {...graph, shape: "local"}
+    }
     const tier = state.zoomMode === "auto" ? state.zoomTier : state.zoomMode
     if (tier === "local") return {shape: "local", ...graph}
     if (tier === "global") return this.reclusterByState(graph)
