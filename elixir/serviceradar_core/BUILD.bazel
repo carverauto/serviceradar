@@ -6,6 +6,7 @@ load(
     "LARGE_INGESTION_DB_SHARD",
     "LARGE_INGESTION_REPO_POOL_SIZE",
     "integration_lane_names",
+    "integration_selection_source_sets",
     "integration_test_env",
     "partition_by_lane",
 )
@@ -34,6 +35,8 @@ ALL_TEST_SRCS = glob(
 # Disjoint selected-source partition: one audited async BEAM plus serial BEAM lanes. Unit-only
 # files remain in ALL_TEST_SRCS for the database-free unit targets but are not loaded here.
 INTEGRATION_LANE_SRCS = partition_by_lane(ALL_TEST_SRCS)
+
+INTEGRATION_SELECTION_SOURCE_SETS = integration_selection_source_sets(ALL_TEST_SRCS)
 
 # Files integration tests open at runtime. Both the eight ordinary lanes and the focused
 # large-ingestion gate use the same application/configuration fixtures, but release-gate test
@@ -95,6 +98,35 @@ INTEGRATION_RUNTIME_DATA = glob(
     # provisioner and template migrator do. Focused workstation Mix tests use a separately created
     # srql-fixtures scratch database; a guarded Bazel lane cannot select localhost.
     "//config/environments:ci_binpb",
+]
+
+# Compile-time files needed by the database-free selection loaders. This deliberately omits the
+# config loader, run-id artifact, and CI fixture identity from INTEGRATION_RUNTIME_DATA: no
+# selection tool has an endpoint it could connect to. Test bodies never execute, so runtime-only
+# addon fixtures are not needed here.
+INTEGRATION_SELECTION_DATA = glob(
+    [
+        "config/**",
+        "lib/**",
+        "priv/**",
+        "test/**",
+    ],
+    allow_empty = True,
+    exclude = [
+        "test/**/*_test.exs",
+        "test/release_gates/**",
+    ],
+) + [
+    "//addons/anomaly-addon:anomaly_manifest",
+    "//go/cmd/wasm-plugins/alienvault-otx:srcs",
+    "//go/cmd/wasm-plugins/awx:srcs",
+    "//go/cmd/wasm-plugins/axis:srcs",
+    "//go/cmd/wasm-plugins/dusk-checker:srcs",
+    "//go/cmd/wasm-plugins/netbox:srcs",
+    "//go/cmd/wasm-plugins/opentext-network-automation:srcs",
+    "//go/cmd/wasm-plugins/proxmox:srcs",
+    "//go/cmd/wasm-plugins/sample-northbound:srcs",
+    "//go/cmd/wasm-plugins/unifi-protect:srcs",
 ]
 
 INTEGRATION_TEST_DEPS = [
@@ -445,6 +477,46 @@ ex_unit_test(
     deps = [":erlang_app"],
 )
 
+# Selection-only tools for //build:integration_selection_equivalence_test. Two deterministic
+# chunks whose union is the selected set and four chunks covering the exact load-only complement
+# run in parallel fresh BEAMs.
+# Each uses ParallelCompiler to load its real sources, then asks ExUnit.Filters which modules match
+# the ordinary integration contract. No tool loads test_helper.exs, starts the ServiceRadar
+# application, receives a database endpoint, or executes a test body. The tools are manual because
+# only the Bazel comparator should execute them directly.
+[
+    ex_unit_test(
+        name = name,
+        size = "large",
+        srcs = ["test/support/integration_selection_manifest_runner.exs"],
+        data = INTEGRATION_SELECTION_DATA + sources,
+        env = {
+            "DATABASE_URL": "",
+            "PG_DATABASE_URL": "",
+            "SRQL_TEST_DATABASE_URL": "",
+            "SERVICERADAR_TEST_DATABASE_URL": "",
+            "SRQL_TEST_DATABASE_URL_FILE": "",
+            "SERVICERADAR_TEST_DATABASE_URL_FILE": "",
+            "SERVICERADAR_SELECTION_SOURCES": ",".join(sources),
+        },
+        tags = ["manual"],
+        deps = [":erlang_app"],
+    )
+    for name, sources in [
+        (
+            "integration_selection_selected_{}_runner".format(index),
+            INTEGRATION_SELECTION_SOURCE_SETS.selected_chunks[index],
+        )
+        for index in range(len(INTEGRATION_SELECTION_SOURCE_SETS.selected_chunks))
+    ] + [
+        (
+            "integration_selection_load_only_{}_runner".format(index),
+            INTEGRATION_SELECTION_SOURCE_SETS.load_only_chunks[index],
+        )
+        for index in range(len(INTEGRATION_SELECTION_SOURCE_SETS.load_only_chunks))
+    ]
+]
+
 # ONE ASYNC BEAM PLUS SERIAL BEAM LANES, with a disposable srql-fixtures database each.
 #
 # Audited transaction-owned modules run together in the async lane at cap eight. Every module
@@ -519,6 +591,8 @@ ex_unit_test(
     env = {
         "SERVICERADAR_ONLY_INTEGRATION": "1",
         "SERVICERADAR_INTEGRATION_MAX_CASES": "1",
+        "SERVICERADAR_TEST_TOPOLOGY": "large_ingestion",
+        "SERVICERADAR_TEST_LANE": "large_ingestion",
         # Pin the parent application Repo. Cold bootstrap also starts a temporary two-connection
         # Repo and one direct admin connection, so the observer reserves 12 + 2 + 1 = 15 slots.
         "SERVICERADAR_TEST_DATABASE_POOL_SIZE": str(LARGE_INGESTION_REPO_POOL_SIZE),

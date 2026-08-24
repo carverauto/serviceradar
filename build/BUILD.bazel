@@ -1,6 +1,8 @@
 # Package placeholder for repository alias helper.
 load("@bazel_skylib//rules:common_settings.bzl", "bool_flag", "string_flag")
 load("@rules_elixir//:ex_unit_test.bzl", "ex_unit_test")
+load("@rules_elixir//:mix_payloads.bzl", "mix_payloads")
+load(":integration_shards.bzl", "integration_selection_runner_names")
 load(
     ":integration_shards_test.bzl",
     "insufficient_capacity",
@@ -17,7 +19,27 @@ ex_unit_test(
     name = "integration_selection_formatter_test",
     size = "small",
     srcs = ["integration_selection_formatter_test.exs"],
-    data = ["//elixir/serviceradar_core:test/support/integration_selection_formatter.ex"],
+    data = [
+        "//elixir/serviceradar_core:test/support/integration_selection_formatter.ex",
+        "//elixir/serviceradar_core:test/support/integration_selection_manifest.ex",
+    ],
+)
+
+_INTEGRATION_SELECTION_RUNNERS = integration_selection_runner_names()
+
+ex_unit_test(
+    name = "integration_selection_equivalence_test",
+    size = "large",
+    srcs = ["integration_selection_equivalence_test.exs"],
+    data = ["//elixir/serviceradar_core:test/INTEGRATION_SOURCE_DISPOSITIONS.tsv"],
+    env = {
+        "SERVICERADAR_SELECTION_LOAD_ONLY_RUNNERS": ",".join(_INTEGRATION_SELECTION_RUNNERS.load_only),
+        "SERVICERADAR_SELECTION_SELECTED_RUNNERS": ",".join(_INTEGRATION_SELECTION_RUNNERS.selected),
+    },
+    tools = [
+        "//elixir/serviceradar_core:{}".format(name)
+        for name in _INTEGRATION_SELECTION_RUNNERS.selected + _INTEGRATION_SELECTION_RUNNERS.load_only
+    ],
 )
 
 integration_shards_topology_test(
@@ -56,7 +78,7 @@ test_suite(
 )
 
 exports_files([
-        "benchmark_runner.py",
+    "benchmark_runner.py",
     "elixir_test_config_loader.exs",
     "integration_shards.bzl",
     "integration_test_dispositions.bzl",
@@ -108,8 +130,6 @@ run_id_file(
     name = "run_id_file",
     run_id = ":run_id",
 )
-
-load("@rules_elixir//:mix_payloads.bzl", "mix_payloads")
 
 # Inputs every Mix compile in this repository needs. Resolved as a toolchain (registered in
 # //MODULE.bazel), so neither the ~15 first-party call sites nor the 269 generated Hex stubs

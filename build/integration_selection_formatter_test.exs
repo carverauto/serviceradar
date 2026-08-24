@@ -8,10 +8,19 @@ formatter_path =
 
 if File.exists?(formatter_path), do: Code.require_file(formatter_path)
 
+manifest_path =
+  Path.expand(
+    "../elixir/serviceradar_core/test/support/integration_selection_manifest.ex",
+    __DIR__
+  )
+
+if File.exists?(manifest_path), do: Code.require_file(manifest_path)
+
 defmodule ServiceRadar.IntegrationSelectionFormatterTest do
   use ExUnit.Case, async: false
 
   alias ServiceRadar.IntegrationSelectionFormatter
+  alias ServiceRadar.IntegrationSelectionManifest
 
   @output_env "SERVICERADAR_INTEGRATION_SELECTION_OUTPUT"
   @moduletag :capture_log
@@ -111,11 +120,68 @@ defmodule ServiceRadar.IntegrationSelectionFormatterTest do
     assert message =~ "ambiguous selected test identity"
   end
 
+  test "selects exact source and module identities with the integration runner filters" do
+    root = "/workspace/elixir/serviceradar_core"
+
+    modules = [
+      test_module(
+        Selection.RequiresAppTest,
+        "#{root}/test/requires_app_test.exs",
+        [%{requires_app: true}],
+        async?: true,
+        group: nil
+      ),
+      test_module(
+        Selection.SkippedIntegrationTest,
+        "#{root}/test/skipped_integration_test.exs",
+        [%{integration: true, skip: "fixture unavailable"}],
+        async?: false,
+        group: nil
+      ),
+      test_module(
+        Selection.ExternalIntegrationTest,
+        "#{root}/test/external_integration_test.exs",
+        [%{external: true, integration: true}],
+        async?: false,
+        group: nil
+      ),
+      test_module(
+        Selection.UnitOnlyTest,
+        "#{root}/test/unit_only_test.exs",
+        [%{}],
+        async?: true,
+        group: nil
+      )
+    ]
+
+    assert IntegrationSelectionManifest.selected_source_modules(modules, root) ==
+             MapSet.new([
+               {"test/external_integration_test.exs", Selection.ExternalIntegrationTest},
+               {"test/requires_app_test.exs", Selection.RequiresAppTest},
+               {"test/skipped_integration_test.exs", Selection.SkippedIntegrationTest}
+             ])
+  end
+
   defp emit(formatter, test), do: GenServer.cast(formatter, {:test_finished, test})
   defp finish(formatter), do: GenServer.cast(formatter, {:suite_finished, %{}})
 
   defp exunit_test(module, name, state \\ nil) do
     %ExUnit.Test{module: module, name: name, state: state}
+  end
+
+  defp test_module(module, file, test_tags, config) do
+    tests =
+      test_tags
+      |> Enum.with_index(1)
+      |> Enum.map(fn {tags, index} ->
+        %ExUnit.Test{
+          module: module,
+          name: String.to_atom("test selection #{index}"),
+          tags: Map.merge(%{file: file, line: index, test_type: :test}, tags)
+        }
+      end)
+
+    {%ExUnit.TestModule{file: file, name: module, tags: %{}, tests: tests}, Map.new(config)}
   end
 
   defp await_file(path, attempts \\ 25)

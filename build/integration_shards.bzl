@@ -43,6 +43,12 @@ INTEGRATION_AUXILIARY_CONNECTION_SLOTS = 18
 INTEGRATION_WORKFLOW_CONNECTION_SLOTS = 114
 FROZEN_FIXTURE_USABLE_CLIENT_SLOTS = 197
 
+# Hermetic source-selection proof: deterministic selected and load-only chunks run concurrently
+# in fresh BEAMs, keeping the always-on contract off the integration lifecycle critical path while
+# still executing ExUnit's real filters for every ordinary source.
+INTEGRATION_SELECTION_SELECTED_CHUNK_COUNT = 2
+INTEGRATION_SELECTION_LOAD_ONLY_CHUNK_COUNT = 4
+
 # This is a source-separated release-gate database suffix, not an ordinary lane.
 LARGE_INGESTION_DB_SHARD = "large_ingestion"
 LARGE_INGESTION_REPO_POOL_SIZE = 12
@@ -108,6 +114,44 @@ def fixed_external_resource_sources():
 
 def integration_selected_sources():
     return sorted(ASYNC_INTEGRATION_SRCS + SERIAL_INTEGRATION_MODULE_COUNTS.keys())
+
+def integration_selection_source_sets(all_test_sources):
+    """Returns the selected set plus deterministic chunks covering its exact complement."""
+    selected = integration_selected_sources()
+    source_set = {source: True for source in all_test_sources}
+
+    for source in selected:
+        if source not in source_set:
+            fail("selected integration source is absent from ALL_TEST_SRCS: {}".format(source))
+
+    selected_set = {source: True for source in selected}
+    load_only = sorted([source for source in all_test_sources if source not in selected_set])
+    selected_chunks = [[] for _index in range(INTEGRATION_SELECTION_SELECTED_CHUNK_COUNT)]
+    chunks = [[] for _index in range(INTEGRATION_SELECTION_LOAD_ONLY_CHUNK_COUNT)]
+
+    for index, source in enumerate(selected):
+        selected_chunks[index % INTEGRATION_SELECTION_SELECTED_CHUNK_COUNT].append(source)
+
+    for index, source in enumerate(load_only):
+        chunks[index % INTEGRATION_SELECTION_LOAD_ONLY_CHUNK_COUNT].append(source)
+
+    return struct(
+        selected = selected,
+        selected_chunks = selected_chunks,
+        load_only_chunks = chunks,
+    )
+
+def integration_selection_runner_names():
+    return struct(
+        selected = [
+            "integration_selection_selected_{}_runner".format(index)
+            for index in range(INTEGRATION_SELECTION_SELECTED_CHUNK_COUNT)
+        ],
+        load_only = [
+            "integration_selection_load_only_{}_runner".format(index)
+            for index in range(INTEGRATION_SELECTION_LOAD_ONLY_CHUNK_COUNT)
+        ],
+    )
 
 def integration_test_env(lane):
     """Returns the complete fail-closed runner environment for one audited lane."""
