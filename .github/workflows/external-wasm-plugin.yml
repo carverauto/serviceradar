@@ -250,7 +250,7 @@ jobs:
           fetch-depth: 0
 
       - name: Restore unprivileged build output
-        uses: actions/download-artifact@v3
+        uses: actions/download-artifact@v8
         with:
           name: external-wasm-${{ github.run_id }}
           path: external-plugin-dist
