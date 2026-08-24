@@ -167,6 +167,17 @@ fn validated_run_database_name(staged: &str) -> Result<String> {
         );
     }
 
+    // The heavy bootstrap qualification owns sr_core_test_bootstrap_<random> scratch databases.
+    // teardown_run also drops every <base>_% database, so accepting the exact base
+    // sr_core_test_bootstrap would let one manual lifecycle delete another run's scratch DB.
+    if id == "bootstrap" {
+        bail!(
+            "--//build:run_id value {id:?} is reserved for heavy bootstrap scratch databases; \
+             mint a unique run id with \
+             `uuidgen | tr -d - | tr 'A-Z' 'a-z' | cut -c1-{MIN_RUN_ID_BYTES}`"
+        );
+    }
+
     Ok(staged.to_string())
 }
 
@@ -849,6 +860,22 @@ mod tests {
     fn validated_run_database_name_accepts_a_well_formed_name() {
         let name = validated_run_database_name("sr_core_test_a1b2c3d4").unwrap();
         assert_eq!(name, "sr_core_test_a1b2c3d4");
+    }
+
+    #[test]
+    fn validated_run_database_name_rejects_the_bootstrap_scratch_prefix() {
+        let error = validated_run_database_name("sr_core_test_bootstrap")
+            .unwrap_err()
+            .to_string();
+
+        assert!(
+            error.contains("bootstrap"),
+            "must name the reserved id: {error}"
+        );
+        assert!(
+            error.contains("reserved"),
+            "must explain the rejection: {error}"
+        );
     }
 
     /// The unset flag writes an EMPTY file rather than failing at analysis, so this is the
