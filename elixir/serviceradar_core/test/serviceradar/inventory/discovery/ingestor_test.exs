@@ -24,7 +24,23 @@ defmodule ServiceRadar.Inventory.DiscoveryIngestorTest do
     # A fresh buffer per test. Watermarks persist by design, so a shared one
     # would let an earlier test's snapshot supersede a later test's -- which is
     # correct behavior and a broken fixture.
-    start_supervised!(Buffer)
+    #
+    # Both branches are load-bearing, because this file runs in two very
+    # different worlds. In the database-free unit tier (the Bazel
+    # //elixir/serviceradar_core:unit_tests_* shards) the application is never
+    # started -- test_helper.exs says so explicitly -- so nothing owns the
+    # default name and the test must start the Buffer itself. In a DB-backed run
+    # the application supervisor already owns that name (application.ex), and
+    # start_supervised! there dies with {:already_started, ...}, which is what
+    # every test in this file did locally.
+    #
+    # Starting one under a test-local name would fix neither world:
+    # DiscoveryIngestor calls Buffer.offer/1 with the DEFAULT name, so the test's
+    # instance would never be consulted.
+    case Process.whereis(Buffer) do
+      nil -> start_supervised!(Buffer)
+      _pid -> Buffer.reset()
+    end
 
     parent = self()
 

@@ -255,11 +255,41 @@ the legacy producers.
 
 - [x] 7.1 Go unit tests: the pump forwards an opaque batch without inspecting it; the single-consumer
   switchover; fallback when `addon.sock` is absent
-- [ ] 7.2 Elixir DB-backed tests (srql-fixtures lifecycle): census updates satisfy
-  `passive_census_source?/1`, mDNS updates satisfy `enrichment_only_source?/1` and create no device,
-  a hostile `source`/`agent_id` in the payload is ignored, an unknown schema is dropped loudly
-- [ ] 7.3 e2e on `alma-test01`: netprobe emits `DISCOVERY_V1` → agent forwards → core ingests →
-  devices appear with the same identity they had before the cutover (compare against the 1.5 fixtures)
+- [x] 7.2 Elixir DB-backed tests (srql-fixtures lifecycle) -- PR #4002. Create-vs-enrich is now
+  covered against a real database for every netprobe payload: the census CREATES; mDNS, DPI and
+  process create nothing for an unknown subject and still enrich a device the census established;
+  fingerprint's version already existed. Falsified by mutation -- emptying
+  `enrichment_only_source?/1` fails exactly the three create-nothing tests. Added to
+  `sync_ingestor_passive_netprobe_identity_test.exs` rather than a new file, because a new
+  integration SOURCE has to be registered in `test/INTEGRATION_SOURCE_DISPOSITIONS.tsv` and
+  hand-projected into `build/integration_test_dispositions.bzl`; reusing a source with the same
+  disposition is one count (3 -> 9).
+  Also fixed `discovery/ingestor_test.exs`, whose setup ran `start_supervised!(Buffer)` against the
+  name `application.ex:126` owns. Note what that does and does NOT mean: that file is plain
+  `ExUnit.Case`, so in the database-free unit tier -- where `test_helper.exs` never starts the
+  application -- nothing owned the name and the tests passed, which is why CI was green. They fail
+  only in a DB-backed local run. The setup now branches on `Process.whereis/1` (start when absent,
+  `Buffer.reset/1` when the app owns it); a test-local name fixes neither world, because
+  `DiscoveryIngestor` calls `Buffer.offer/1` with the DEFAULT name.
+- [~] 7.3 e2e on `alma-test01` -- HOST HALF PROVEN, CORE HALF NOT. Staged netprobe 0.2.51
+  (`//build/native_addons:stage_netprobe_addon`) and an agent built from this branch
+  (`//build/packaging/agent:stage_agent_rpm`), both scp'd to the lab host. Proven on the wire:
+  netprobe serves `AddonService` on `/run/serviceradar/netprobe/addon.sock` at mode **0600**
+  (the `restrict_socket_permissions` read-back guard), the agent pump attaches
+  ("stream attached; discovery is flowing"), and it RECONNECTS after netprobe restarts.
+  Two things e2e caught that no unit test did:
+  (a) `collector_ip` is resolved ONCE per `StreamTelemetry` stream, so if the pump attaches before
+      the first `Configure` lands, `process.v1` is silently unserved for the life of that stream --
+      the schema only appeared after a netprobe restart that read `collector_ip` from bootstrap.
+      `RuntimeConfig::apply` is correct (updates when non-empty, never wipes); the ordering is the
+      gap.
+  (b) "stream attached" only logs on the first DELIVERED batch, which waits for the census snapshot
+      interval (~2 min), not the per-observation events. An attached-but-silent pump is
+      indistinguishable from a broken one for that window.
+  NOT proven: core ingestion. alma-test01 streams to `agent-gateway.k8s-farm.carverauto.dev`
+  (farm01), whose core runs a RELEASED build with no `netprobe.*.v1` registry entries -- so the
+  payloads that MOVED are expected to be dropped as unregistered schemas there. Confirming the
+  ingest half needs a core built from this branch, not the farm01 fleet.
 - [ ] 7.4 **PARTIALLY DEMONSTRATED, NOT MET.** Three schemas were added end-to-end
   (`fingerprint.v1`, `dpi.v1`, `process.v1`) with **zero agent and zero gateway changes** -- the
   pump forwards batches verbatim, which is the property this contract exists for. But each needed

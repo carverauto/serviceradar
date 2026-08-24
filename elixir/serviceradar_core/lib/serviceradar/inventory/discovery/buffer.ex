@@ -82,6 +82,21 @@ defmodule ServiceRadar.Inventory.Discovery.Buffer do
     GenServer.call(Keyword.get(opts, :name, __MODULE__), :dropped)
   end
 
+  @doc """
+  Drop every buffered part and every supersession watermark.
+
+  Test-facing. The watermarks persist by design -- that is what makes a late
+  snapshot unable to undo a newer one -- so tests that exercise supersession need
+  a way back to a known state. They cannot get it by starting their own Buffer:
+  `DiscoveryIngestor` calls `offer/1` with the default name, so a second instance
+  under a test name would simply never be consulted, and starting one under the
+  DEFAULT name fails because the application supervisor already owns it.
+  """
+  @spec reset(keyword()) :: :ok
+  def reset(opts \\ []) do
+    GenServer.call(Keyword.get(opts, :name, __MODULE__), :reset)
+  end
+
   @impl true
   def init(_opts), do: {:ok, %__MODULE__{}}
 
@@ -93,6 +108,8 @@ defmodule ServiceRadar.Inventory.Discovery.Buffer do
   end
 
   def handle_call(:dropped, _from, state), do: {:reply, state.dropped, state}
+
+  def handle_call(:reset, _from, _state), do: {:reply, :ok, %__MODULE__{}}
 
   defp do_offer(envelope, now, state) do
     part_count = envelope.part_count || 0
