@@ -40,15 +40,11 @@ resources:
     memory: "32Gi"
     ephemeral-storage: "50Gi"
 
-affinity:
-  nodeAffinity:
-    requiredDuringSchedulingIgnoredDuringExecution:
-      nodeSelectorTerms:
-        - matchExpressions:
-            - key: kubernetes.io/hostname
-              operator: NotIn
-              values:
-                - k8s-cp3-worker3
+# k8s-cp3-worker3 used to be NotIn here after the 2026-08-09 DiskPressure incident
+# (BuildBuddy hostPath on /var/lib/buildbuddy filling the OS disk). That cache was
+# purged and moved to /mnt/buildbuddy; on 2026-08-24 kubelet DiskPressure was False
+# with 329G free of 589G on that node. Leaving it excluded only stranded a 1.2T
+# cache disk. Do not put caches back on root.
 
 extraVolumes:
   - name: cache-volume
