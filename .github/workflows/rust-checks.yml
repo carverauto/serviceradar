@@ -141,7 +141,7 @@ jobs:
       # a shared key would have them race to save the same entry -- one wins, the other logs
       # a "cache already exists" warning every run.
       - name: Cache Cargo registry
-        uses: actions/cache@v6
+        uses: actions/cache@v6.1.0
         with:
           path: |
             ~/.cargo/registry
@@ -151,7 +151,7 @@ jobs:
             ${{ runner.os }}-cargo-registry-clippy-
 
       - name: Cache Cargo build
-        uses: actions/cache@v6
+        uses: actions/cache@v6.1.0
         with:
           path: target
           key: ${{ runner.os }}-cargo-clippy-${{ hashFiles('**/Cargo.lock') }}
@@ -228,7 +228,7 @@ jobs:
           cargo --version
 
       - name: Cache Cargo registry
-        uses: actions/cache@v6
+        uses: actions/cache@v6.1.0
         with:
           path: |
             ~/.cargo/registry
