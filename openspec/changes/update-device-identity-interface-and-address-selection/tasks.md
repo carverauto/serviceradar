@@ -24,20 +24,27 @@
 
 ## 3. Register interface MACs as identifiers
 
-- [ ] 3.1 Register MACs from the device's OWN interface table as strong identifiers of that device.
-- [ ] 3.2 Enforce the boundary: neighbour/observed MACs MUST NOT be registered as identifiers of the
-  observing device. This is the over-merge risk; make it a test, not a comment.
-- [ ] 3.3 Reuse the existing eligibility rules rather than restating them — locally-administered and
-  randomized MACs do not anchor (`census_anchorable_mac?/1`), and the polling-agent exclusion holds.
+- [x] 3.1 Registered under the distinct type `:interface_mac` (NOT `:mac` -- see the proposal's
+  correction), via `Identity.InterfaceMacs`, wired into `ingest_interfaces/2` after device
+  resolution. Writes are change-gated: existing values are read once per device and only new MACs
+  are written, so a poll that discovers nothing new writes nothing. At 1M devices and 15 polls/day
+  the unconditional version would be hundreds of millions of upserts/day.
+- [x] 3.2 Only the device's OWN interface table feeds registration; neighbour tables are a different
+  code path and are untouched. Covered by "an unrelated interface MAC does not lift the veto".
+- [x] 3.3 Two independent guards: the mapper's existing `primary_identity_interface?/1` (no
+  loopback/virtual/bridge/tunnel) and a refusal of locally-administered addresses -- 14 of 67
+  interface MACs on the measured deployment.
 - [ ] 3.4 Handle the U/L-flipped duplicate: `F692BF75C721` is the locally-administered form of
   `F492BF75C721` (EUI-64 derived). It must not register as a second distinct NIC.
 
 ## 4. Primary-address preference (#3905)
 
-- [ ] 4.1 Implement the ranking: routable > private > ULA > link-local; loopback never primary.
-- [ ] 4.2 Promote an existing routable alias when the primary is link-local or ULA. Promotion must
-  not create a device or change which device an address resolves to.
-- [ ] 4.3 A device with no routable address keeps its current primary rather than being emptied.
+- [x] 4.1 `Identity.Address` (Elixir) and `platform.sr_address_rank/1` (SQL, by migration), pinned
+  together by a parity test that caught a real divergence on its first run.
+- [x] 4.2 Implemented as NEVER-DOWNGRADE in the upsert rather than only-promote: an equal-ranked
+  address must still win or a genuine re-IP would be refused and every device would freeze at its
+  first address.
+- [x] 4.3 Covered: its current rank is equal, not higher, so the incoming value still applies.
 - [ ] 4.4 Keep link-local/ULA recorded as aliases and valid sighting evidence.
 
 ## 5. Verify against the real data

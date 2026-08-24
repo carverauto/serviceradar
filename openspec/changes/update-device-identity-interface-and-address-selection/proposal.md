@@ -63,8 +63,19 @@ it cannot be used to reach or correlate the device.
 
 ## What Changes
 
-- **ADD interface-MAC device identity.** MACs discovered on a device's own interfaces SHALL be
-  registered as identifiers of that device, so a chassis is identified by every NIC it owns.
+- **ADD interface-MAC corroboration.** MACs discovered on a device's own interfaces SHALL be
+  recorded against that device under a DISTINCT identifier type, `:interface_mac`.
+
+  **Corrected during implementation.** This originally said to register them as `:mac`
+  identifiers, and that does not work. `DeviceIdentifier` uniqueness is
+  `(identifier_type, identifier_value, partition)` and its upsert deliberately excludes
+  `device_id` -- "silent last-writer-wins repoints collapsed distinct devices" -- so a MAC already
+  owned by the other device stays with it. `MergePolicy` separately blocks MAC-only merges,
+  noting they are "too noisy (especially interface MACs observed by mapper)". Both rules are
+  right and neither is being weakened; a distinct TYPE coexists with the other device's `:mac`
+  row instead of fighting them. `:interface_mac` is absent from `Ids.identifier_priority/0`, so
+  it never resolves an update or identifies a device on its own.
+
   Existing exclusions stay: locally-administered/randomized MACs must not anchor, and the polling
   agent exclusion is unchanged.
 - **ADD interface address binding.** An address learned for an interface SHALL be recorded on that
@@ -72,8 +83,19 @@ it cannot be used to reach or correlate the device.
 - **MODIFY primary-address selection.** A routable address SHALL outrank a link-local or ULA when
   choosing a device's primary IP. Where a device already holds a routable alias, that address
   SHALL be promoted. Resolves #3905.
-- Not BREAKING for merge policy: no new merge rule is introduced. Once the parent device carries
-  the interface MAC, the EXISTING duplicate sweep merges the pair on its next five-minute pass.
+- Not BREAKING for merge policy: no new merge rule is introduced. What changes is that
+  `AliasGuard.distinct_mac_conflict?/3` no longer treats two devices as distinct hardware when one
+  reports the other's MAC on its own interfaces. That NARROWS a veto; the merge it unblocks still
+  requires its own evidence, a confirmed IP alias.
+
+  **Also corrected during implementation:** the duplicate sweep does NOT merge the pair, because
+  the two rows still hold different `:mac` values. The alias guard is what merges them, and only
+  because the alias was already there.
+
+  Blast radius measured before shipping on a 126-device deployment: the narrowing changes the
+  outcome for exactly ONE device pair -- the chassis whose WAN and LAN addresses had split -- and
+  that pair claims each other's MACs in BOTH directions, because SNMP polled both addresses and
+  returned the same interface table.
 
 ## Impact
 
