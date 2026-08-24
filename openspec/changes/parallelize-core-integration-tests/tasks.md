@@ -109,6 +109,8 @@
       integration coverage, and mutation testing proves an omitted selected identity fails.
 - [x] 3.17 Complete the exhaustive audit, split every mixed selected-mode source, and freeze one
       async source set plus serial source set before timing; exclude load-only sources.
+      Status: final review moved `IdentityReconcilerMergeTest` from async to serial because its
+      unfiltered VM-global merge telemetry handler can receive events from other async modules.
 - [x] 3.18 Pin every ordinary BEAM's Repo pool at 12 and implement the proposal-time frozen topology:
       one async lane at cap eight plus exactly seven serial lanes at cap one, for eight BEAMs / 96
       configured core pool slots. Require the runtime observer to fail closed unless live total
@@ -214,7 +216,7 @@
       Status: focused/static contracts and local target-equivalent shard/heavy runs are green; the
       exact guarded Bazel all-shard and heavy lifecycle sequence remains pending.
 - [ ] 6.3 Run `make lint`, `make test`, and `git diff --check`.
-      Status: `make test` is green with all 199 targets passing and `git diff --check` is green.
+      Status: `make test` is green with all 200 targets passing and `git diff --check` is green.
       `make lint` reports zero Go issues, then the locally installed SwiftLint aborts while loading
       `sourcekitdInProc.framework`; the complete lint target remains pending in a compatible runner.
 - [x] 6.4 Run `openspec validate parallelize-core-integration-tests --strict`.
