@@ -86,7 +86,7 @@ function containerRelativeElkResult() {
         targets: ["gateway"],
         sections: [
           {
-            startPoint: {x: 0, y: 0},
+            startPoint: {x: -40, y: 0},
             bendPoints: [{x: 80, y: 0}],
             endPoint: {x: 120, y: 100},
           },
@@ -169,10 +169,31 @@ describe("layout_elk_scene", () => {
 
     expect(decoded.nodes.find((node) => node.id === "gateway").center).toEqual({x: 245, y: 155})
     expect(decoded.routes.find((route) => route.id === "trunk").points).toEqual([
-      {x: 100, y: 40},
+      {x: 60, y: 40},
       {x: 180, y: 40},
       {x: 220, y: 140},
     ])
+    expect(validateTopologyScene(decoded)).toEqual({ok: true, errors: []})
+  })
+
+  it.each([
+    ["missing source", undefined, ["gateway"]],
+    ["extra source", ["anchor", "unknown"], ["gateway"]],
+    ["missing target", ["anchor"], undefined],
+    ["extra target", ["anchor"], ["gateway", "unknown"]],
+    ["swapped endpoints", ["gateway"], ["anchor"]],
+    ["unknown source", ["unknown"], ["gateway"]],
+    ["unknown target", ["anchor"], ["unknown"]],
+  ])("rejects a rendered ELK edge with %s bindings", (_description, sources, targets) => {
+    const elkResult = containerRelativeElkResult()
+    elkResult.edges[0].sources = sources
+    elkResult.edges[0].targets = targets
+
+    const scene = decodeElkScene(elkResult, containerRelativeSceneInput())
+    const result = validateTopologyScene(scene)
+
+    expect(result.ok).toEqual(false)
+    expect(result.errors.some((error) => error.includes("endpoint binding"))).toEqual(true)
   })
 
   it("rejects an expected expanded group when ELK returns its nodes as root leaves", () => {
@@ -215,14 +236,44 @@ describe("layout_elk_scene", () => {
   it("treats route points at or below the 0.01 layout tolerance as degenerate", () => {
     for (const delta of [0.009, 0.01]) {
       const scene = validScene()
-      scene.routes[0].points = [{x: 0, y: 0}, {x: delta, y: 0}]
+      scene.nodes[0] = {...scene.nodes[0], center: {x: 0, y: 0}, width: 0.001, height: 0.001}
+      scene.nodes[1] = {...scene.nodes[1], center: {x: delta + 0.001, y: 0}, width: 0.001, height: 0.001}
+      scene.routes[0].points = [{x: 0.0005, y: 0}, {x: delta + 0.0005, y: 0}]
 
       expect(validateTopologyScene(scene).ok, `delta ${delta}`).toEqual(false)
     }
 
     const separated = validScene()
-    separated.routes[0].points = [{x: 0, y: 0}, {x: 0.0101, y: 0}]
+    separated.nodes[0] = {...separated.nodes[0], center: {x: 0, y: 0}, width: 0.001, height: 0.001}
+    separated.nodes[1] = {...separated.nodes[1], center: {x: 0.0111, y: 0}, width: 0.001, height: 0.001}
+    separated.routes[0].points = [{x: 0.0005, y: 0}, {x: 0.0106, y: 0}]
     expect(validateTopologyScene(separated)).toEqual({ok: true, errors: []})
+  })
+
+  it("rejects a finite route shifted away from both declared endpoint boundaries", () => {
+    const scene = validScene()
+    scene.routes[0].points = [{x: 10, y: 20}, {x: 90, y: 20}]
+
+    const result = validateTopologyScene(scene)
+
+    expect(result.ok).toEqual(false)
+    expect(result.errors).toEqual(expect.arrayContaining([
+      expect.stringContaining("source endpoint left"),
+      expect.stringContaining("target endpoint right"),
+    ]))
+  })
+
+  it("rejects a route whose polyline ends contact the opposite declared endpoints", () => {
+    const scene = validScene()
+    scene.routes[0].points = [{x: 90, y: 0}, {x: 10, y: 0}]
+
+    const result = validateTopologyScene(scene)
+
+    expect(result.ok).toEqual(false)
+    expect(result.errors).toEqual(expect.arrayContaining([
+      expect.stringContaining("source endpoint left"),
+      expect.stringContaining("target endpoint right"),
+    ]))
   })
 
   it("rejects a rendered relation repeated in multiple ELK containers", () => {

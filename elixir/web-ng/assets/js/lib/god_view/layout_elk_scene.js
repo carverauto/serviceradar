@@ -170,6 +170,18 @@ function decodedPoints(edge, ownerId, elements) {
   }))
 }
 
+function renderedEdgeEndpointBindingError(edge, relation) {
+  if (!edge) return null
+  const sourcesMatch = Array.isArray(edge.sources)
+    && edge.sources.length === 1
+    && edge.sources[0] === relation.sourceId
+  const targetsMatch = Array.isArray(edge.targets)
+    && edge.targets.length === 1
+    && edge.targets[0] === relation.targetId
+  if (sourcesMatch && targetsMatch) return null
+  return `route ${relation.id} has invalid ELK endpoint binding; expected exactly ${relation.sourceId} -> ${relation.targetId}`
+}
+
 function boxForNode(node) {
   return {
     minX: node.center.x - node.width / 2,
@@ -249,6 +261,7 @@ export function decodeElkScene(elkResult, sceneInput) {
     .map((relation) => {
       const candidates = edgeOwners.get(relation.id) || []
       const decoded = candidates.length === 1 ? candidates[0] : null
+      const endpointBindingError = renderedEdgeEndpointBindingError(decoded?.edge, relation)
       return {
         id: relation.id,
         sourceId: relation.sourceId,
@@ -256,6 +269,7 @@ export function decodeElkScene(elkResult, sceneInput) {
         points: decodedPoints(decoded?.edge, decoded?.ownerId, elements),
         relationIds: [...(relation.relationIds || [])].sort((left, right) => left.localeCompare(right)),
         metadata: relation.metadata && typeof relation.metadata === "object" ? {...relation.metadata} : {},
+        ...(endpointBindingError ? {endpointBindingError} : {}),
       }
     })
     .sort((left, right) => left.id.localeCompare(right.id))
@@ -335,6 +349,20 @@ function hasDistinctRoutePoints(points) {
   return false
 }
 
+function pointContactsBoxBoundary(point, box) {
+  if (!point || !finiteBox(box)) return false
+  const withinX = point.x >= box.minX - INTERSECTION_EPSILON
+    && point.x <= box.maxX + INTERSECTION_EPSILON
+  const withinY = point.y >= box.minY - INTERSECTION_EPSILON
+    && point.y <= box.maxY + INTERSECTION_EPSILON
+  if (!withinX || !withinY) return false
+
+  return Math.abs(point.x - box.minX) <= INTERSECTION_EPSILON
+    || Math.abs(point.x - box.maxX) <= INTERSECTION_EPSILON
+    || Math.abs(point.y - box.minY) <= INTERSECTION_EPSILON
+    || Math.abs(point.y - box.maxY) <= INTERSECTION_EPSILON
+}
+
 export function validateTopologyScene(scene) {
   const errors = []
   const nodes = Array.isArray(scene?.nodes) ? scene.nodes : []
@@ -394,6 +422,10 @@ export function validateTopologyScene(scene) {
   }
 
   for (const route of routes) {
+    if (route.endpointBindingError) {
+      errors.push(route.endpointBindingError)
+      continue
+    }
     if (!Array.isArray(route.points) || route.points.length < 2) {
       errors.push(`route ${route.id} must decode from exactly one continuous section`)
       continue
@@ -405,6 +437,15 @@ export function validateTopologyScene(scene) {
     if (!hasDistinctRoutePoints(route.points)) {
       errors.push(`route ${route.id} must decode from exactly one continuous section`)
       continue
+    }
+
+    const sourceBox = nodeBoxes.get(route.sourceId)
+    const targetBox = nodeBoxes.get(route.targetId)
+    if (!pointContactsBoxBoundary(route.points[0], sourceBox)) {
+      errors.push(`route ${route.id} does not contact source endpoint ${route.sourceId} boundary within ${INTERSECTION_EPSILON}`)
+    }
+    if (!pointContactsBoxBoundary(route.points.at(-1), targetBox)) {
+      errors.push(`route ${route.id} does not contact target endpoint ${route.targetId} boundary within ${INTERSECTION_EPSILON}`)
     }
 
     for (const node of nodes) {
