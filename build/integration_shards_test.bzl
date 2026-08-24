@@ -149,9 +149,9 @@ def _integration_shards_topology_test_impl(ctx):
     asserts.equals(env, sorted(selected_sources), sorted(partitioned_sources))
     asserts.equals(env, len(selected_sources), len(partitioned_sources))
     asserts.equals(env, sorted(serial_counts.keys()), sorted(serial_partitioned_sources))
-    asserts.equals(env, [26, 22, 22, 23, 22, 22, 23], serial_lane_sizes)
-    asserts.equals(env, [186, 191, 191, 190, 189, 189, 189], serial_lane_test_counts)
-    asserts.equals(env, [212, 213, 213, 213, 211, 211, 212], serial_lane_weights)
+    asserts.equals(env, [26, 22, 21, 22, 23, 23, 23], serial_lane_sizes)
+    asserts.equals(env, [187, 192, 191, 190, 190, 190, 190], serial_lane_test_counts)
+    asserts.equals(env, [213, 214, 212, 212, 213, 213, 213], serial_lane_weights)
 
     for source in _FIXED_EXTERNAL_RESOURCE_SRCS:
         asserts.true(env, source in partitions[FIXED_EXTERNAL_RESOURCE_LANE])

@@ -761,15 +761,33 @@ defmodule ServiceRadar.Inventory.Sync.DeviceWrites do
           # clear to NULL (vacates ocsf_devices_unique_active_ip_idx). A bare
           # COALESCE would treat '' as present and store empty strings, which
           # diverged from the release classifier and broke blank-IP handoffs.
+          #
+          # The rank guard is NEVER-DOWNGRADE, deliberately not "only promote".
+          # An equal-ranked address must still win, because that is a host
+          # genuinely changing address (192.168.2.243 -> 192.168.1.171) and
+          # refusing it would freeze every device at its first address. What it
+          # blocks is a WORSE address overwriting a good one: an NDP census
+          # sighting carries a `fe80::` link-local, and before this guard that
+          # silently replaced a routable primary -- 25 of 126 live devices on one
+          # deployment (GitHub #3905).
+          #
+          # A device whose only known address is link-local keeps it: its current
+          # rank is then equal, not higher, so the incoming value still applies.
           ip:
             fragment(
               """
               CASE
                 WHEN EXCLUDED.ip IS NULL THEN ?
                 WHEN btrim(EXCLUDED.ip) = '' THEN NULL
-                ELSE EXCLUDED.ip
+                WHEN ? IS NULL THEN EXCLUDED.ip
+                WHEN platform.sr_address_rank(EXCLUDED.ip) >= platform.sr_address_rank(?)
+                  THEN EXCLUDED.ip
+                ELSE ?
               END
               """,
+              d.ip,
+              d.ip,
+              d.ip,
               d.ip
             ),
           mac: fragment("COALESCE(EXCLUDED.mac, ?)", d.mac),
