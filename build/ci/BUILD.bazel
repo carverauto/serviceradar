@@ -17,8 +17,8 @@ py_binary(
     name = "wait_for_large_ingestion_gate",
     srcs = ["wait_for_large_ingestion_gate.py"],
     data = ["large_ingestion_gate_contract.v1"],
-    deps = [":large_ingestion_gate"],
     visibility = ["//visibility:public"],
+    deps = [":large_ingestion_gate"],
 )
 
 py_test(
@@ -26,9 +26,9 @@ py_test(
     size = "small",
     srcs = ["wait_for_large_ingestion_gate_test.py"],
     data = ["large_ingestion_gate_contract.v1"],
+    visibility = ["//visibility:public"],
     deps = [
         ":large_ingestion_gate",
         ":wait_for_large_ingestion_gate",
     ],
-    visibility = ["//visibility:public"],
 )

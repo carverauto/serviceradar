@@ -90,14 +90,6 @@ SRQL_IT_DEPS = [
 
 rust_test(
     name = "srql_api_test",
-    # This target's own disposable database, so three concurrent targets cannot reset
-    # each other's. env, not a config field: it varies by BUILD target, not by environment.
-    # RUST_TEST_THREADS=1: every test in the binary resets this one database, and libtest
-    # runs tests on parallel threads by default -- so they would wipe each other mid-run.
-    env = {
-        "SRQL_TEST_DB_SUFFIX": "srqlapi",
-        "RUST_TEST_THREADS": "1",
-    },
     srcs = [
         "tests/api.rs",
         "tests/support/harness.rs",
@@ -106,6 +98,14 @@ rust_test(
     crate_name = "srql_api_tests",
     crate_root = "tests/api.rs",
     data = SRQL_IT_DATA,
+    # This target's own disposable database, so three concurrent targets cannot reset
+    # each other's. env, not a config field: it varies by BUILD target, not by environment.
+    # RUST_TEST_THREADS=1: every test in the binary resets this one database, and libtest
+    # runs tests on parallel threads by default -- so they would wipe each other mid-run.
+    env = {
+        "SRQL_TEST_DB_SUFFIX": "srqlapi",
+        "RUST_TEST_THREADS": "1",
+    },
     # integration_test, NOT manual. `manual` removed these from //... expansion BEFORE tag
     # filters were considered, so no wildcard could ever reach them and every caller had to
     # name them explicitly -- which is how srql_device_grouped_stats_test ended up running in
@@ -120,14 +120,6 @@ rust_test(
 
 rust_test(
     name = "srql_comprehensive_test",
-    # This target's own disposable database, so three concurrent targets cannot reset
-    # each other's. env, not a config field: it varies by BUILD target, not by environment.
-    # RUST_TEST_THREADS=1: every test in the binary resets this one database, and libtest
-    # runs tests on parallel threads by default -- so they would wipe each other mid-run.
-    env = {
-        "SRQL_TEST_DB_SUFFIX": "srqlcomp",
-        "RUST_TEST_THREADS": "1",
-    },
     srcs = [
         "tests/comprehensive_queries.rs",
         "tests/support/harness.rs",
@@ -136,6 +128,14 @@ rust_test(
     crate_name = "srql_comprehensive_tests",
     crate_root = "tests/comprehensive_queries.rs",
     data = SRQL_IT_DATA,
+    # This target's own disposable database, so three concurrent targets cannot reset
+    # each other's. env, not a config field: it varies by BUILD target, not by environment.
+    # RUST_TEST_THREADS=1: every test in the binary resets this one database, and libtest
+    # runs tests on parallel threads by default -- so they would wipe each other mid-run.
+    env = {
+        "SRQL_TEST_DB_SUFFIX": "srqlcomp",
+        "RUST_TEST_THREADS": "1",
+    },
     # integration_test, NOT manual. `manual` removed these from //... expansion BEFORE tag
     # filters were considered, so no wildcard could ever reach them and every caller had to
     # name them explicitly -- which is how srql_device_grouped_stats_test ended up running in
@@ -153,14 +153,6 @@ rust_test(
 # which never hand the SQL to a server.
 rust_test(
     name = "srql_device_grouped_stats_test",
-    # This target's own disposable database, so three concurrent targets cannot reset
-    # each other's. env, not a config field: it varies by BUILD target, not by environment.
-    # RUST_TEST_THREADS=1: every test in the binary resets this one database, and libtest
-    # runs tests on parallel threads by default -- so they would wipe each other mid-run.
-    env = {
-        "SRQL_TEST_DB_SUFFIX": "srqlstats",
-        "RUST_TEST_THREADS": "1",
-    },
     srcs = [
         "tests/device_grouped_stats.rs",
         "tests/support/harness.rs",
@@ -169,6 +161,14 @@ rust_test(
     crate_name = "srql_device_grouped_stats_tests",
     crate_root = "tests/device_grouped_stats.rs",
     data = SRQL_IT_DATA,
+    # This target's own disposable database, so three concurrent targets cannot reset
+    # each other's. env, not a config field: it varies by BUILD target, not by environment.
+    # RUST_TEST_THREADS=1: every test in the binary resets this one database, and libtest
+    # runs tests on parallel threads by default -- so they would wipe each other mid-run.
+    env = {
+        "SRQL_TEST_DB_SUFFIX": "srqlstats",
+        "RUST_TEST_THREADS": "1",
+    },
     # integration_test, NOT manual. `manual` removed these from //... expansion BEFORE tag
     # filters were considered, so no wildcard could ever reach them and every caller had to
     # name them explicitly -- which is how srql_device_grouped_stats_test ended up running in
