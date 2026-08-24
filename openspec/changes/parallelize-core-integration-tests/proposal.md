@@ -35,16 +35,19 @@ eight-shard treatment. Parallelizing shard databases cannot divide that sequenti
 
 ## What Changes
 - Replace production eight-way source sharding with exactly one shared async BEAM at frozen
-  `max_cases: 8` and one through seven serial BEAM lanes at `max_cases: 1`. Every lane receives
+  `max_cases: 8` and exactly seven serial BEAM lanes at `max_cases: 1`. Every lane receives
   its own disposable `sr_core_test_<run-id>_<lane>` clone on `srql-fixtures`; neither `demo` nor a
   production database is an eligible endpoint.
-- Pin every lane's Repo pool at 12 and cap the topology at eight BEAMs / 96 configured pool slots.
-  The serial-lane count is selected and frozen before timing from the live safe fixture budget:
-  `min(serial_source_count, max(1, floor(min(96, floor(0.90 * usable_client_slots)) / 12) - 1))`.
-  A preflight unable to fund one async and one serial lane fails closed. Any spare pool connections
-  are capacity for processes supervised inside a test BEAM, never for deployed applications.
-  The workflow-wide preflight additionally accounts for 18 possible connections from the three
-  existing SRQL integration binaries selected by the same ordinary wildcard, for 114 total.
+- Pin every lane's Repo pool at 12 and freeze the topology at eight BEAMs / 96 configured core pool
+  slots. This one-async-plus-seven-serial shape was selected at proposal time from the audited
+  `srql-fixtures` capacity of 197 usable client slots. The ordinary wildcard also selects three
+  existing SRQL integration binaries with 18 possible connections, so the fixed selected workload
+  requires 114 slots. Before provisioning, the runtime observer fails closed unless the server's
+  live total usable capacity can fund all 114 slots while retaining 10% headroom. It records live
+  run-scoped and fixture-wide occupancy peaks, but it does not derive a smaller lane count from
+  current occupancy or subtract unrelated live sessions from the fixture-wide samples. Any spare
+  pool connections are capacity for processes supervised inside a test BEAM, never for deployed
+  applications.
 - Configure suite-global test state once in `test_helper.exs`; make ordinary no-option
   `start_core!` calls idempotent and free of Application-environment mutation before async modules
   are scheduled.

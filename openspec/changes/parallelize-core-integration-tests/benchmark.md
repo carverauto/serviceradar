@@ -153,17 +153,18 @@ only the later production-winner field. Both SHA/hash tuples are recorded. A mis
 ten CPU attempts to rerun after the frozen SHA is published and before the authoritative cohorts.
 
 The production benchmark has no topology challenger matrix. Before the clock starts it freezes
-the complete selected source/identity union, one async lane at cap eight, the capacity-derived
-serial lane count at cap one, and pool 12 per lane. The lane count is
-`min(serial_source_count, max(1, floor(min(96, floor(0.90 * usable_client_slots)) / 12) - 1))`;
-preflight fails if it cannot fund one async and one serial lane. The topology never exceeds eight
-BEAMs / 96 configured pool slots. Every lane receives a fresh disposable `sr_core_test_<run>_<lane>`
-clone on `srql-fixtures`; demo and production databases are forbidden.
+the complete selected source/identity union, exactly one async lane at cap eight, exactly seven
+serial lanes at cap one, and pool 12 per lane. This eight-BEAM / 96-core-slot topology was selected
+and frozen at proposal time from the audited 197 usable client slots on `srql-fixtures`; production
+does not recalculate the lane count from live occupancy. Every lane receives a fresh disposable
+`sr_core_test_<run>_<lane>` clone on `srql-fixtures`; demo and production databases are forbidden.
 
 The ordinary wildcard also selects the three pre-existing SRQL integration binaries. Each may
-hold a five-connection pool plus its administrator lock connection, so the observer's capacity
-preflight reserves 114 connections: 96 for the core topology plus 18 for those unchanged targets.
-This does not enlarge a core Repo pool or add another core BEAM lane.
+hold a five-connection pool plus its administrator lock connection, so the fixed selected workload
+requires 114 slots: 96 for the core topology plus 18 for those unchanged targets. Before readiness,
+the observer queries live total server capacity and fails closed unless
+`114 <= floor(0.90 * usable_client_slots)`. This check does not enlarge a core Repo pool, add or
+remove a core BEAM lane, or subtract current fixture occupancy to derive a smaller topology.
 
 The focused heavy action has a separate capacity contract and does not use the ordinary 114-slot
 bound. Its parent `ServiceRadar.Repo` is pinned to 12, and cold bootstrap may concurrently start a
@@ -229,7 +230,9 @@ Its one administrator session is emitted as
 also emits UTC epoch-millisecond `sample_window_start_ms` and `sample_window_end_ms`. The metric is
 explicitly a maximum sampled value, not a claim that a 500 ms poll observes every sub-interval
 spike. It also queries the live capacity settings rather than assuming the committed CNPG manifest
-is the server currently under test.
+is the server currently under test. Unrelated live fixture sessions remain included in the
+fixture-wide samples; only the observer's own reported session is excluded. Live occupancy is
+therefore recorded as evidence, not subtracted from total server capacity to resize the topology.
 
 After the suite exits, the action writes its suite-complete marker and waits for the observer's
 quiescent marker before teardown starts. The observer writes that marker only after zero run-scoped
@@ -269,10 +272,10 @@ The implementation is accepted only when all of these are true:
 | Database locking | Zero PostgreSQL deadlocks |
 | Cleanup | Two consecutive zero run-scoped samples before teardown and zero disposable databases after teardown |
 | Balance | Every after attempt has serial-lane skew at most 1.5 |
-| Topology | Exactly one async BEAM at cap 8 plus one through seven serial BEAMs at cap 1; Repo pool size exactly 12 per BEAM and at most 96 configured slots |
+| Topology | Exactly one async BEAM at cap 8 plus exactly seven serial BEAMs at cap 1; Repo pool size exactly 12 per BEAM and exactly 96 configured core slots |
 | Runner capacity | Identical explicit CPU request in before/after; runner markers prove schedulers and pool |
 | Run-scoped connections | Peak at most 114: the fixed 96-slot core envelope plus 18 connections for the three selected SRQL binaries |
-| Fixture-wide connections | Maximum sampled value at most `floor(live usable client slots * 0.90)` |
+| Fixture-wide connections | Maximum sampled value, including unrelated fixture sessions and excluding only the observer's reported session, at most `floor(live usable client slots * 0.90)` |
 | Heavy capacity | Parent Repo pool 12 plus concurrent cold-bootstrap child Repo pool 2 plus one direct `StartupMigrations` Postgrex administrator connection; observer requires 15 workload slots before readiness and provisioning |
 | Heavy coverage | Both ingestion gates and intact cold bootstrap pass in the focused lifecycle |
 

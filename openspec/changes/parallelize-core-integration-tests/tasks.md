@@ -108,10 +108,11 @@
       equivalence run remains pending.
 - [x] 3.17 Complete the exhaustive audit, split every mixed selected-mode source, and freeze one
       async source set plus serial source set before timing; exclude load-only sources.
-- [x] 3.18 Pin every ordinary BEAM's Repo pool at 12 and implement one async lane at cap eight plus
-      capacity-bounded serial lanes at cap one. Fail closed unless
-      `min(96, floor(0.90 * usable_client_slots))` funds the computed topology, which may never
-      exceed eight BEAMs / 96 configured slots.
+- [x] 3.18 Pin every ordinary BEAM's Repo pool at 12 and implement the proposal-time frozen topology:
+      one async lane at cap eight plus exactly seven serial lanes at cap one, for eight BEAMs / 96
+      configured core pool slots. Require the runtime observer to fail closed unless live total
+      server usable capacity funds the fixed 114-slot ordinary selected workload with 10% headroom;
+      do not resize the topology from current occupancy.
 - [x] 3.19 Deterministically preseed all fixed-external sources in `serial_0`, LPT-balance remaining
       serial sources by `1 + selected_serial_module_count`, and prove exact, disjoint,
       glob-order-independent source/identity membership before timing. Every lane must use its own
@@ -169,8 +170,9 @@
       harness identical at the final revision.
       Status: the observer, action, and static contracts are implemented; direct-parent history
       repair and the final identical-harness freeze remain cohort prerequisites.
-- [ ] 5.2 Capture per-shard duration, maximum sampled fixture/run connections, live connection
-      capacity, observer-session exclusion, UTC sample window, pre-teardown zero samples, and the
+- [ ] 5.2 Capture per-shard duration, maximum sampled fixture/run connections (with unrelated
+      fixture sessions retained in the fixture-wide count), live total server connection capacity,
+      observer-session exclusion, UTC sample window, pre-teardown zero samples, and the
       ordinary lifecycle through outcome-bearing teardown with Bazel and workflow retries disabled;
       use literal database-prefix matching rather than unescaped SQL `LIKE`, preflight migrations
       outside the clock, capture the end timestamp immediately when teardown returns, and require
@@ -193,8 +195,8 @@
       including the existing SRQL/other integration targets and excluding only the
       `large_ingestion_test`-tagged heavy release-qualification target (including cold bootstrap),
       report whether the relative p95 improvement reaches the 60% stretch target, with the
-      fixed one-async-plus-serial-lanes topology, explicit identical CPU allocation, and Repo pool
-      size 12 per BEAM.
+      fixed one-async-plus-seven-serial-lanes topology, explicit identical CPU allocation, and Repo
+      pool size 12 per BEAM.
 - [ ] 5.6 Run the focused large-ingestion lifecycle repeatedly, verify successful default-branch
       status publication, and prove teardown removes every matching database.
 

@@ -88,9 +88,10 @@ mixed files whose small unsafe portion currently serializes a large safe portion
   zero-selected source: promoted async, quarantined serial with concrete evidence, or load-only.
 - Preserve coverage while removing the large-ingestion release gate from ordinary pull requests.
 - Keep the current template-clone path, TLS posture, credential scope, disposable-database guard,
-  and cleanup guarantees while using at most eight ordinary BEAM lanes.
-- Run the user-directed production topology: one async BEAM at cap eight plus deterministic serial
-  lanes at cap one, then reserve the 20-run exact-SHA cohorts for final acceptance.
+  and cleanup guarantees while using exactly eight ordinary BEAM lanes.
+- Run the user-directed production topology: one async BEAM at cap eight plus exactly seven
+  deterministic serial lanes at cap one, then reserve the 20-run exact-SHA cohorts for final
+  acceptance.
 
 ### Non-Goals
 - Make every integration module async.
@@ -111,9 +112,9 @@ The ordinary pull-request path uses one shared async BEAM and deterministic seri
 ```text
 BuildBuddy PR action
   -> prepare one current template
-  -> calculate and freeze lane count from live safe fixture capacity
-  -> clone sr_core_test_<run-id>_async and sr_core_test_<run-id>_serial_<n> databases
-  -> run one async Bazel target plus one through seven serial targets in parallel
+  -> verify live total server capacity funds the fixed 114-slot selected workload with 10% headroom
+  -> clone sr_core_test_<run-id>_async and seven sr_core_test_<run-id>_serial_<n> databases
+  -> run one async Bazel target plus exactly seven serial targets in parallel
        -> async: exactly one BEAM, max_cases 8, one rollback-only owner per active case
        -> serial: max_cases 1 per BEAM, one lane per disposable clone
        -> fixed shared-external-resource modules are preseeded in serial_0
@@ -136,27 +137,31 @@ BuildBuddy default-branch/nightly/release action
 
 ## Decisions
 
-### Decision: Freeze one async BEAM plus capacity-bounded serial lanes
+### Decision: Freeze one async BEAM plus exactly seven serial lanes
 ExUnit schedules only modules declared `async: true` concurrently. Production therefore has exactly
-one async BEAM at frozen `max_cases: 8`; every serial lane is a separate BEAM at frozen
-`max_cases: 1`. The cap and lane are set by Bazel environment and parsed fail-closed by
-`test_helper.exs`.
+one async BEAM at frozen `max_cases: 8` and exactly seven serial BEAMs at frozen `max_cases: 1`.
+The cap and lane are set by Bazel environment and parsed fail-closed by `test_helper.exs`.
 
-Every lane pins a 12-connection Repo pool. The maximum configured topology is eight BEAMs and 96
-pool slots, matching the existing envelope. Before any timed attempt, preflight reads live usable
-fixture slots and computes:
+Every lane pins a 12-connection Repo pool, so the fixed core topology is eight BEAMs and 96 pool
+slots, matching the existing envelope. This topology was chosen and frozen at proposal time from
+the fixture's audited 197 usable client slots:
 
 ```text
-safe_pool_budget = min(96, floor(0.90 * usable_client_slots))
-serial_lane_count = min(serial_source_count,
-                        max(1, floor(safe_pool_budget / 12) - 1))
+audited_safe_slots = floor(0.90 * 197) = 177
+fixed_core_slots = 8 * 12 = 96
+fixed_selected_workload_slots = 96 + 18 SRQL slots = 114
 ```
 
-The run fails before provisioning if this cannot fund one async and one serial lane. The computed
-count and all source membership are checked in and input-hashed before timing; they are never tuned
-from timing results. Headroom is only for processes supervised inside a test BEAM, never for a
-deployed application. A safety failure is fixed by classification, owner routing, or workload—not
-by retries, a larger pool, or relaxed timeouts.
+Before every run, the observer reads the server's live `max_connections` and reserved-connection
+settings and fails before provisioning unless `114 <= floor(0.90 * usable_client_slots)`. That
+preflight validates the fixed selected workload; it never rederives or shrinks the seven serial
+lanes from current occupancy. The observer separately records run-scoped and fixture-wide occupancy
+peaks. Except for its own reported administrator session, unrelated live fixture sessions remain in
+the fixture-wide samples; they are not subtracted to manufacture an available-slot value. The fixed
+lane count and all source membership are checked in and input-hashed before timing and are never
+tuned from timing results. Headroom is only for processes supervised inside a test BEAM, never for
+a deployed application. A safety failure is fixed by classification, owner routing, or workload—
+not by retries, a larger pool, or relaxed timeouts.
 
 ### Decision: Control workflow CPU and Repo capacity independently
 The BuildBuddy actions currently request memory and disk but omit CPU. The workflow executor's
@@ -293,7 +298,7 @@ evidence of a mutable shared namespace, cross-BEAM negative assertion, or collis
 external smoke test such as the Proxmox API source is classified from its actual Repo, VM, and
 external behavior and is not pinned merely because it was historically in the list.
 
-`serial_0` is one of the capacity-bounded serial lanes, not an additional database or BEAM. It is
+`serial_0` is one of the seven frozen serial lanes, not an additional database or BEAM. It is
 preseeded before deterministic serial LPT placement; no transaction-isolated source is added to it.
 The source-class guard prevents every other lane from overlapping fixture-global resources through
 the same namespace.
@@ -388,7 +393,7 @@ Source separation protects ExUnit selection inside the shards; the negative Baze
 protects wildcard target selection.
 
 `build/integration_shards.bzl` exports the dedicated suffix separately from the async and serial lane suffixes.
-`provision_db` clones only the calculated ordinary lane databases; a focused
+`provision_db` clones only the eight frozen ordinary lane databases; a focused
 `provision_db_large_ingestion` target declares the same run-id file, fixture configuration, and
 core migration filegroup as the ordinary provision targets, and supplies only the dedicated suffix
 through `SERVICERADAR_TEST_DB_SHARDS`. It clones only the heavy-gate database. Teardown already owns
@@ -430,8 +435,8 @@ Before `provision_db_large_ingestion`, the action starts the Bazel-owned observe
 12 configured slots, the concurrently possible cold-bootstrap child Repo's 2 slots, and the one
 direct Postgrex administrator connection opened by `StartupMigrations`. It is independent of the
 ordinary workflow's 114-slot preflight; the observer's own administrator connection is excluded
-from the workload reservation and reported separately. If the live safe fixture budget cannot fund
-all 15 workload slots, the heavy action fails before provisioning.
+from the workload reservation and reported separately. If the live total server capacity cannot
+fund all 15 workload slots while retaining 10% headroom, the heavy action fails before provisioning.
 
 The release workflow already resolves the immutable tag commit. After Bazelisk and the authenticated
 remote configuration are available, but before Cosign, ORAS, artifact builds, or publication, it
@@ -481,7 +486,7 @@ before it can enter this topology.
 `serial_0` receives every `fixed_external` source first. The remaining serial sources are placed
 with deterministic LPT using the pre-measurement weight
 `1 + selected_serial_module_count`; ties use source path, then lane name. This is a reproducible
-initial balance, not a wall-time forecast. The checked-in lane count, source map, and exact selected
+initial balance, not a wall-time forecast. The checked-in eight-lane topology, source map, and exact selected
 identity union are built and validated before timing starts. A timing result cannot change them.
 
 The async lane has no outer placement decision: it receives every all-async selected source once and
@@ -490,7 +495,7 @@ pre-measurement LPT source weight above. Later traces can describe the resulting
 retune the production lane count or membership for the measured revision.
 
 ### Decision: Production topology is not a challenger matrix
-The ordinary topology is fixed by the ruling: one async BEAM at cap eight and up to seven serial
+The ordinary topology is fixed by the ruling: one async BEAM at cap eight and exactly seven serial
 BEAM lanes at cap one. It is not compared with one/four/eight/hybrid alternatives and no result can
 silently change it. The async cap leaves four connections in that same test BEAM's 12-connection
 pool for test-owned processes such as sharded alert-engine workers. They are not held for any
@@ -524,8 +529,9 @@ Acceptance requires:
 - no serial lane more than 1.5 times the runtime of the fastest non-empty serial lane in any
   accepted after run;
 - sampled run-scoped connections at most 114 (the core topology's 96 slots plus three existing
-  SRQL integration targets at six connections each) and fixture-wide connections at most
-  `floor(live usable client slots * 0.90)` in every accepted after run;
+  SRQL integration targets at six connections each) and fixture-wide connections, including
+  unrelated live fixture sessions but excluding the observer's reported administrator session, at
+  most `floor(live usable client slots * 0.90)` in every accepted after run;
 - two consecutive zero run-scoped samples before teardown and no database under the run prefix
   after teardown; and
 - no sandbox ownership error, deadlock, leaked task, leaked database, or retry-masked failure in
@@ -593,7 +599,7 @@ how secrets are materialized.
    modules, and split or normalize prioritized mixed modules with explicit evidence.
 6. Run the complete observed cap-two safety wave with retries disabled; repair any classification,
    ownership, queue, or cleanup defect before proceeding.
-7. Freeze the complete source map before timing: one async lane at cap eight and capacity-bounded
+7. Freeze the complete source map before timing: one async lane at cap eight and exactly seven
    serial lanes at cap one, with Repo pool size pinned to 12. Run the safety wave only after that
    placement is in effect.
 8. Publish the diagnostic actions, run non-cohort 2-CPU versus 12-CPU diagnostics, and freeze the
@@ -624,8 +630,10 @@ not reintroduce it into every pull request.
 - A test-owned child may query before an allowance is installed. Async conversions must control
   child startup or use caller ancestry so database work cannot race the allowance.
 - The eight Repo pools already reserve more connections than the typical active query count. Both
-  staged caps and the CPU experiment pin pool size to 12; acceptance records peak fixture
-  connections and stops rollout if the existing 200-connection ceiling loses operational headroom.
+  staged caps and the CPU experiment pin pool size to 12; the observer validates that live total
+  server capacity funds the fixed 114-slot workload with 10% headroom, while acceptance records
+  fixture-wide peak occupancy including unrelated fixture sessions and stops rollout if operational
+  headroom is lost.
 - A larger CPU request can reduce scheduler starvation but also consumes more workflow-cluster
   capacity. The separate 2-versus-12 diagnostic and identical accepted-cohort request prevent an
   infrastructure change from being misattributed to the async implementation.
@@ -651,7 +659,7 @@ database/process boundaries required by the audit.
 
 ### Split async work across multiple BEAMs
 Rejected. The ruling requires exactly one shared async BEAM. Serial parallelism is provided only by
-the capacity-bounded serial lanes, whose membership is frozen before timing.
+the seven frozen serial lanes, whose membership is frozen before timing.
 
 ### Increase beyond eight ordinary BEAM lanes
 Rejected. Every extra lane repeats BEAM startup/source-load work and would exceed the fixed
@@ -663,7 +671,7 @@ race DDL, NATS, application configuration, and global supervisors.
 
 ### Give every test file its own database
 Rejected. Template cloning is cheap, but BEAM startup and runfiles staging are not; source placement
-is intentionally limited to one async lane plus at most seven serial lanes.
+is intentionally fixed at one async lane plus exactly seven serial lanes.
 
 ### Use unboxed transactions like ordinary tests
 Rejected. Unboxed mode exists specifically for behavior that cannot run inside the sandbox

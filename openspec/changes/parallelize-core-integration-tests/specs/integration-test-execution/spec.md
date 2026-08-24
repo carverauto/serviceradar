@@ -190,25 +190,30 @@ cleanup make the external state independent. Test support MUST reject `async: tr
 - **AND** Ecto transaction isolation alone SHALL NOT be accepted as that evidence
 
 ### Requirement: Core integration parallelism uses fixed async and serial lanes
-The ordinary core integration suite SHALL run exactly one async BEAM at `max_cases: 8` plus one
-through seven serial BEAM lanes at `max_cases: 1`. Every lane SHALL pin a 12-connection Repo pool,
-use a distinct disposable `sr_core_test_<run-id>_<lane>` clone on `srql-fixtures`, and collectively
-use no more than eight BEAMs / 96 configured pool slots. Neither `demo` nor a production database
-is an eligible endpoint.
+The ordinary core integration suite SHALL run exactly one async BEAM at `max_cases: 8` plus exactly
+seven serial BEAM lanes at `max_cases: 1`. Every lane SHALL pin a 12-connection Repo pool, use a
+distinct disposable `sr_core_test_<run-id>_<lane>` clone on `srql-fixtures`, and collectively use
+exactly eight BEAMs / 96 configured core pool slots. Neither `demo` nor a production database is an
+eligible endpoint.
 
-Before provisioning, the implementation SHALL compute
-`safe_pool_budget = min(96, floor(0.90 * usable_client_slots))` and
-`serial_lanes = min(serial_source_count, max(1, floor(safe_pool_budget / 12) - 1))`.
-It SHALL fail closed when that calculation cannot fund one async and one serial lane. Headroom is
-capacity for test-supervised processes inside test BEAMs only, never for deployed applications.
+The topology SHALL be chosen and frozen at proposal time from the audited `srql-fixtures` capacity,
+not derived from current runtime occupancy. Before provisioning, the observer SHALL read the live
+total server usable capacity and fail closed unless
+`114 <= floor(0.90 * usable_client_slots)`, where 114 is the fixed 96-slot core topology plus 18
+slots for the three SRQL binaries selected by the ordinary wildcard. The observer SHALL record
+run-scoped and fixture-wide occupancy peaks but SHALL NOT reduce the lane count or subtract
+unrelated live fixture sessions from the fixture-wide samples. Headroom is capacity for
+test-supervised processes inside test BEAMs only, never for deployed applications.
 
 #### Scenario: Fixed lane topology is frozen
-- **GIVEN** the complete selected-module disposition and live fixture capacity
+- **GIVEN** the complete selected-module disposition and the proposal-time audit of 197 usable
+  fixture client slots
 - **WHEN** the ordinary topology is prepared before timing
-- **THEN** every all-async source SHALL appear exactly once in the async lane
+- **THEN** it SHALL contain exactly one async lane and exactly seven serial lanes
+- **AND** every all-async source SHALL appear exactly once in the async lane
 - **AND** every selected serial source SHALL appear exactly once in a serial lane
 - **AND** every load-only source SHALL appear in no ordinary lane
-- **AND** the resulting lane count and source/identity map SHALL be checked in and input-hashed
+- **AND** the eight-lane source/identity map SHALL be checked in and input-hashed
 - **AND** no timing result SHALL retune that map
 
 #### Scenario: Serial lanes are deterministic and fixed external work is isolated
@@ -227,10 +232,10 @@ capacity for test-supervised processes inside test BEAMs only, never for deploye
 
 #### Scenario: Invalid capacity or concurrency configuration fails
 - **GIVEN** a lane receives missing, malformed, zero, negative, or unsupported concurrency settings,
-  or the fixture cannot fund the required minimum topology
+  or live total server capacity cannot fund the fixed 114-slot selected workload with 10% headroom
 - **WHEN** `test_helper.exs` configures ExUnit or lifecycle preflight runs
 - **THEN** the lifecycle SHALL fail before executing integration tests
-- **AND** it SHALL NOT silently use machine scheduler count, a smaller untallied topology, or a
+- **AND** it SHALL NOT silently use machine scheduler count, a smaller topology, or a
   database outside the disposable fixture namespace
 
 ### Requirement: Workflow CPU and Repo capacity are controlled independently
@@ -298,27 +303,28 @@ pre-measurement LPT rule and MUST NOT treat its relative source weights as wall-
   `fixed_external`
 
 ### Requirement: Production lane topology is frozen before timing
-The one-async-plus-serial-lanes production topology SHALL not run one/four/eight/hybrid challenger
-diagnostics. All timing, CPU selection, and authoritative cohorts use the same frozen lane count,
-source map, caps, per-BEAM pool, fixture configuration, retries, and current template.
+The one-async-plus-seven-serial-lanes production topology SHALL not run one/four/eight/hybrid
+challenger diagnostics. All timing, CPU selection, and authoritative cohorts use the same frozen
+eight-lane count, source map, caps, per-BEAM pool, fixture configuration, retries, and current
+template.
 
 #### Scenario: Topology configuration is frozen before measurement
-- **GIVEN** the checked-in capacity calculation and lane map
+- **GIVEN** the proposal-time capacity audit and checked-in eight-lane map
 - **WHEN** CPU diagnostics or cohorts begin
 - **THEN** exactly one async lane SHALL have cap 8
-- **AND** every serial lane SHALL have cap 1
+- **AND** exactly seven serial lanes SHALL have cap 1
 - **AND** each lane SHALL have pool size 12
 - **AND** no timing result SHALL tune lane count, membership, or cap
 
-#### Scenario: Capacity preflight fails closed
-- **GIVEN** the available fixture capacity and complete serial source set
-- **WHEN** the lane map is generated
-- **THEN** the runner SHALL calculate `safe_pool_budget = min(96, floor(0.90 * usable_client_slots))`
-- **AND** it SHALL calculate `serial_lanes = min(serial_source_count, max(1, floor(safe_pool_budget / 12) - 1))`
-- **AND** it SHALL fail before provisioning if that calculation cannot fund one async lane and one
-  serial lane, or if the resulting lane count exceeds eight
+#### Scenario: Runtime capacity preflight fails closed without resizing
+- **GIVEN** the frozen eight-lane topology and fixed 114-slot ordinary selected workload
+- **WHEN** the observer reads the server's live maximum and reserved connection settings
+- **THEN** it SHALL require `114 <= floor(0.90 * usable_client_slots)` before readiness and
+  provisioning
+- **AND** it SHALL fail closed if total server capacity does not meet that requirement
+- **AND** it SHALL NOT derive fewer serial lanes from current fixture occupancy
 - **AND** it SHALL provision a distinct disposable `sr_core_test_<run>_<lane>` clone on
-  `srql-fixtures` for every resulting lane
+  `srql-fixtures` for each of the eight frozen lanes
 
 ### Requirement: Heavy release qualification is source-separated from pull-request tests
 Both large-ingestion release-gate suites and the intact two-pass cold database-bootstrap test SHALL
@@ -373,8 +379,8 @@ of the ordinary wildcard's 114-slot workflow-wide preflight.
   one workload slot
 - **AND** the observer SHALL require 15 workload slots
 - **AND** `max_cases: 1` SHALL NOT reduce that reservation
-- **AND** the action SHALL fail before provisioning when the live safe fixture budget cannot fund
-  all 15 workload slots
+- **AND** the action SHALL fail before provisioning when live total server capacity cannot fund all
+  15 workload slots while retaining 10% headroom
 - **AND** the observer's own administrator connection SHALL be excluded from the workload
   reservation and reported separately
 
@@ -496,7 +502,7 @@ effective-runner marker showing the declared `max_cases`, trace mode, and timeou
 - **AND** the report SHALL state whether BuildBuddy relative improvement reached the 60% stretch
   target
 - **AND** slowest/fastest non-empty serial-lane skew SHALL be at most 1.5
-- **AND** the result SHALL use the frozen one-async-plus-serial topology and Repo pool size 12
+- **AND** the result SHALL use the frozen one-async-plus-seven-serial topology and Repo pool size 12
 
 #### Scenario: Before and after cohorts are comparable
 - **GIVEN** the instrumentation-only before commit is the direct parent of the first behavior change
@@ -520,10 +526,11 @@ effective-runner marker showing the declared `max_cases`, trace mode, and timeou
   session, and record the UTC sample window plus live capacity settings
 - **AND** it SHALL observe two consecutive zero run-scoped samples after suite completion and before
   teardown
-- **AND** every accepted after attempt SHALL use no more than eight BEAMs / 96 configured pool slots
+- **AND** every accepted after attempt SHALL use exactly eight BEAMs / 96 configured core pool slots
 - **AND** the ordinary wildcard's three existing SRQL binaries SHALL add at most 18 configured
   connections, for a workflow-wide preflight requirement and run-scoped peak limit of 114
-- **AND** fixture-wide peak SHALL be at most `floor(usable client slots * 0.90)`
+- **AND** fixture-wide peak SHALL retain unrelated live fixture sessions, exclude only the
+  observer's reported administrator session, and be at most `floor(usable client slots * 0.90)`
 
 #### Scenario: Template migration is outside accepted measurements
 - **GIVEN** template preflight detects pending migrations
