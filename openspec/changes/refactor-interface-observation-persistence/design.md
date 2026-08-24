@@ -43,6 +43,25 @@ Writing history as a side effect of polling frequency conflates them: it makes s
 a function of how often we ask rather than of how often the answer changes. At
 1M devices that difference is ~1.2 TB/day versus a few hundred MB.
 
+### The history has a named consumer
+
+Interface history is wanted for **causal analysis of network outages** -- "what changed
+on the network around the time this broke". That is a requirement on the SHAPE of the
+history, not just its existence:
+
+- It must record **what changed** -- previous value, new value, which fields -- because
+  the query is "what changed in this window", not "what did every interface look like at
+  time T". A snapshot-per-change forces the consumer to diff adjacent rows to recover the
+  event, and to guess whether an absent row means unchanged or unobserved.
+- It must be **queryable by time window and by device**, since that is how an outage
+  investigation enters it.
+- Retention must cover the forensic horizon the causal engine looks back over. A window
+  shorter than that silently makes past outages unexplainable.
+
+This is also the strongest argument AGAINST the current per-poll table: it already
+contains every one of those transitions, and buries each in ~98 restatements, which is
+precisely why nothing can consume it today.
+
 ## Why this is not solved by making it a hypertable
 
 Compression and retention would shrink the symptom while leaving the cause: 99% of

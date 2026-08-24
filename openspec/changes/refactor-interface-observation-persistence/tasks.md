@@ -11,9 +11,14 @@
   write path -- application code, SRQL surfaces, dashboards, and anything that
   compensates today by ordering on `timestamp` and taking the newest. A reader that
   silently depends on duplicates is the way this change breaks something.
-- [ ] 1.3 Decide, with the maintainer, whether interface history is needed beyond "when
-  did this last change", and the retention window if so. Do not assume; the proposal
-  deliberately leaves it open.
+- [x] 1.3 **ANSWERED (maintainer, 2026-08-25): history IS needed, for causal analysis.**
+  The use case is outage forensics -- "what changed on the network around the time this
+  broke". That shapes the schema rather than merely enabling it: the history must record
+  WHAT CHANGED (previous value, new value, which fields), not just a snapshot of the new
+  state, because a causal query asks "what changed in this window", not "what did every
+  interface look like". A poll log cannot answer it -- 98 near-identical rows per
+  interface bury the three real transitions. Retention window still to be set; it must
+  cover the forensic horizon the causal engine looks back over.
 
 ## 2. Stop manufacturing changes
 
