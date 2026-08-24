@@ -34,6 +34,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.MetadataSummaryProvenanceTest do
     # No integration card is fabricated from generic fields.
     refute html =~ "Armis"
     refute html =~ "NetBox"
+    refute html =~ "/images/integrations/armis.svg"
+    refute html =~ "/images/integrations/netbox.svg"
 
     # And specifically none of the generic values are mislabeled as an
     # integration device id / role.
@@ -66,6 +68,9 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.MetadataSummaryProvenanceTest do
     assert html =~ "Armis"
     assert html =~ "18497"
     assert html =~ "Multifunction Printer"
+    assert html =~ "/images/integrations/armis.svg"
+    assert html =~ "/images/integrations/armis-dark.svg"
+    refute html =~ "hero-shield-check"
     refute html =~ "NetBox"
   end
 
@@ -99,6 +104,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.MetadataSummaryProvenanceTest do
     assert html =~ "NetBox"
     assert html =~ "nb-123"
     assert html =~ "core-switch"
+    assert html =~ "/images/integrations/netbox.svg"
+    refute html =~ "hero-server-stack"
     refute html =~ "Armis"
   end
 

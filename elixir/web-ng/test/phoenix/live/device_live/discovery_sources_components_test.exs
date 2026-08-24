@@ -33,6 +33,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.DiscoverySourcesComponentsTest do
       )
 
     assert html =~ "Armis"
+    assert html =~ "/images/integrations/armis.svg"
+    assert html =~ "/images/integrations/armis-dark.svg"
     assert html =~ "Example Inventory"
     assert html =~ "External Network Inventory"
     assert html =~ "example-prod"
@@ -71,5 +73,47 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.DiscoverySourcesComponentsTest do
     assert html =~ "Region:"
     assert html =~ "central"
     assert html =~ "Current"
+  end
+
+  test "renders the vendored Armis wordmark instead of a shield-and-text chip" do
+    html =
+      render_component(&DiscoverySourcesComponents.discovery_sources_section/1,
+        device_row: %{
+          "discovery_sources" => ["armis"],
+          "metadata" => %{"armis_device_id" => "armis-42"}
+        }
+      )
+
+    assert html =~ "Armis"
+    assert html =~ "/images/integrations/armis.svg"
+    assert html =~ "/images/integrations/armis-dark.svg"
+    refute html =~ "hero-shield-check"
+  end
+
+  test "packages both Armis wordmarks with the app" do
+    priv = Application.app_dir(:serviceradar_web_ng, "priv/static/images/integrations")
+
+    assert File.exists?(Path.join(priv, "armis.svg"))
+    assert File.exists?(Path.join(priv, "armis-dark.svg"))
+  end
+
+  test "renders the vendored NetBox wordmark instead of a stack-and-text chip" do
+    html =
+      render_component(&DiscoverySourcesComponents.discovery_sources_section/1,
+        device_row: %{
+          "discovery_sources" => ["netbox"],
+          "metadata" => %{"netbox_device_id" => "nb-9"}
+        }
+      )
+
+    assert html =~ "NetBox"
+    assert html =~ "/images/integrations/netbox.svg"
+    refute html =~ "hero-server-stack"
+  end
+
+  test "packages the NetBox wordmark with the app" do
+    priv = Application.app_dir(:serviceradar_web_ng, "priv/static/images/integrations")
+
+    assert File.exists?(Path.join(priv, "netbox.svg"))
   end
 end
