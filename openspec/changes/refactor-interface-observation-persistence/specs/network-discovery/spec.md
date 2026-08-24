@@ -48,18 +48,39 @@ reordered but otherwise identical set is not treated as a change.
 - **THEN** the stored address set SHALL be unchanged
 - **AND** no additional stored observation SHALL be created
 
-### Requirement: Interface History Is Bounded and Change-Driven
+### Requirement: Interface History Is Bounded, Change-Driven, and Records the Change
 
-Where interface history is retained, it SHALL be written only when semantic state
-changes, and SHALL have an explicit retention policy. The volume of retained history
-SHALL be a function of how often interfaces change, never of how often they are
-polled.
+Interface history SHALL be written only when semantic state changes, and SHALL have an
+explicit retention policy. The volume of retained history SHALL be a function of how
+often interfaces change, never of how often they are polled.
+
+Each history entry SHALL record what changed — the previous value, the new value, and
+which fields changed — not only a snapshot of the new state. Its consumer is causal
+analysis of network outages, which asks "what changed in this window"; a snapshot-only
+history forces that consumer to diff adjacent rows to recover the event and cannot
+distinguish "unchanged" from "unobserved".
+
+History SHALL be queryable by time window and by device. The retention window SHALL
+cover the forensic horizon over which causal analysis looks back.
 
 #### Scenario: Polling faster does not grow history
 
 - **GIVEN** a deployment that halves its discovery interval
 - **WHEN** interface state does not change
 - **THEN** the volume of retained interface history SHALL NOT increase
+
+#### Scenario: A change entry names what changed
+
+- **GIVEN** an interface stored with operational status `up`
+- **WHEN** a poll reports it as `down`
+- **THEN** a history entry SHALL record the previous value `up`, the new value `down`,
+  and that operational status was the field that changed
+
+#### Scenario: An outage window can be queried for network changes
+
+- **GIVEN** interface changes recorded across a period
+- **WHEN** history is queried for a time window and a set of devices
+- **THEN** the changes that occurred in that window SHALL be returned
 
 #### Scenario: Retention is enforced
 
