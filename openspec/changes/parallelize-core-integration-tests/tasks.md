@@ -104,7 +104,7 @@
       with zero selected modules. Prove all-source and pruned-source selected test identities are
       equal before excluding unit-only files from integration shards; reject missing, duplicate,
       fixed-resource-async, mixed-selected-mode, and module-local global configuration cases.
-      Status: the 781-source / 279-selected-module disposition, exact Starlark projection, and real
+      Status: the 786-source / 283-selected-module disposition, exact Starlark projection, and real
       all-source/pruned ExUnit-filter equivalence over `(source, module, test-name)` identities are
       checked in and enforced. The first real run found 19 modules whose nested support macro
       injects `:requires_app`; those false load-only rows are now serial integration coverage, and
@@ -113,7 +113,7 @@
       async source set plus serial source set before timing; exclude load-only sources.
       Status: final review moved all seven selected modules with unfiltered VM-global telemetry
       handlers and the anomaly profile seeder module with VM-global Logger configuration from async
-      to serial, leaving 120 async and 159 serial selected modules. The only product async module that
+      to serial, leaving 123 async and 160 serial selected modules. The only product async module that
       attaches telemetry now filters in the callback by its unique `agent_uid` before forwarding an
       event to the test process, and a static contract rejects `Logger.configure/1` in async modules.
 - [x] 3.18 Pin every ordinary BEAM's Repo pool at 12 and implement the proposal-time frozen topology:
@@ -129,11 +129,11 @@
       authoritative cohorts. Every lane must use its own disposable
       `sr_core_test_<run-id>_<lane>` clone. The superseded module-count candidate is invalidated:
       all 159 weights were identical and its first smoke failed the 1.5 serial-lane balance gate.
-      Status: the executable selection-equivalence contract verifies all 159 checked-in counts
-      against 1,316 real selected ExUnit identities. The deterministic partition has selected-test
-      counts `[185, 190, 189, 188, 188, 188, 188]`, source counts
-      `[26, 22, 21, 22, 22, 23, 23]`, and structural LPT loads
-      `[211, 212, 210, 210, 210, 211, 211]`; reverse-input construction is identical and all three
+      Status: the executable selection-equivalence contract verifies all 160 checked-in counts
+      against 1,319 real selected ExUnit identities. The deterministic partition has selected-test
+      counts `[185, 190, 190, 189, 189, 188, 188]`, source counts
+      `[26, 22, 22, 23, 23, 22, 22]`, and structural LPT loads
+      `[211, 212, 212, 212, 212, 210, 210]`; reverse-input construction is identical and all three
       fixed-external sources remain in `serial_0`.
 - [ ] 3.20 Run five attempts per arm, alternating same-revision BuildBuddy diagnostics at explicit 2 CPU and 12 CPU
       with Repo pool 12 and all other factors fixed. Record scheduler/pool markers and select one
@@ -244,7 +244,7 @@
       `interface_ip_alias_test.exs`, `interface_alias_cap_test.exs`, and
       `candidate_device_address_test.exs`, are real-ExUnit-verified load-only sources, and the
       modified `mapper_role_heuristic_test.exs` remains load-only. The exhaustive disposition now
-      contains 781 source rows and 279 selected modules.
+      contains 786 source rows and 283 selected modules.
 - [ ] 6.2 Run focused Elixir support tests, Rust lifecycle tests, Bazel configuration tests, the
       async target, every selected serial target, and the large-ingestion release gate.
       Status: focused/static contracts and local target-equivalent shard/heavy runs are green; the

@@ -8,18 +8,13 @@ defmodule ServiceRadar.Inventory.Remediation.NetprobeAliasDebrisTest do
   of their own.
   """
 
-  use ServiceRadar.DataCase, async: false
+  use ServiceRadar.DataCase, async: true
 
   alias ServiceRadar.Inventory.Remediation.Manifest
   alias ServiceRadar.Inventory.Remediation.NetprobeAliasDebris
   alias ServiceRadar.Repo
 
   @moduletag :integration
-
-  setup_all do
-    ServiceRadar.TestSupport.start_core!()
-    :ok
-  end
 
   setup do
     {:ok, actor: ServiceRadar.Actors.SystemActor.system(:netprobe_alias_debris_test)}

@@ -393,11 +393,12 @@ ex_unit_tests(
         # Path.expand("../../../../../addons/...", __DIR__) -- so no tag can skip it and it
         # has to be a declared input. ex_unit_test mirrors the workspace layout, which is
         # what puts it where that relative path resolves.
-        # Read at runtime by test/serviceradar/inventory/discovery/golden_parity_test.exs,
-        # which compares the Elixir decoders against output captured from the Go
-        # translators. They live in the Go package that produces them, so the
-        # runfiles tree only contains them if they are declared here.
+        # Read at runtime by the discovery parity tests, which compare the Elixir
+        # decoders against output captured from the Go translators. They live in
+        # the Go package that produces them, so the runfiles tree only contains
+        # them if they are declared here.
         "//go/pkg/agent/netprobe:discovery_golden_fixtures",
+        "//go/pkg/agent/netprobe:enrichment_golden_fixtures",
         "//addons/anomaly-addon:anomaly_manifest",
         # Likewise module level: test/serviceradar/plugins/manifest_test.exs globs
         # go/cmd/wasm-plugins/**/{config*.schema.json,plugin*.yaml} and raises if the glob

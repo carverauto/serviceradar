@@ -253,9 +253,9 @@ test-supervised processes inside test BEAMs only, never for deployed application
 - **AND** each ranked source SHALL select a lane by current load, then source count, then lane name
 - **AND** the checked-in counts SHALL exactly match the current selected identity union
 - **AND** no runtime duration SHALL enter the source weight
-- **AND** lane-order source counts SHALL be `[26, 22, 21, 22, 22, 23, 23]`
-- **AND** lane-order selected-test counts SHALL be `[185, 190, 189, 188, 188, 188, 188]`
-- **AND** lane-order structural loads SHALL be `[211, 212, 210, 210, 210, 211, 211]`
+- **AND** lane-order source counts SHALL be `[26, 22, 22, 23, 23, 22, 22]`
+- **AND** lane-order selected-test counts SHALL be `[185, 190, 190, 189, 189, 188, 188]`
+- **AND** lane-order structural loads SHALL be `[211, 212, 212, 212, 212, 210, 210]`
 - **AND** no async or other serial lane SHALL contain a fixed-external source
 
 #### Scenario: Ordinary provisioning uses one clone per lane
