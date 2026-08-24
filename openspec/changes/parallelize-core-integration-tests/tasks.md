@@ -103,7 +103,7 @@
       with zero selected modules. Prove all-source and pruned-source selected test identities are
       equal before excluding unit-only files from integration shards; reject missing, duplicate,
       fixed-resource-async, mixed-selected-mode, and module-local global configuration cases.
-      Status: the 779-source / 278-selected-module disposition, exact Starlark projection, and real
+      Status: the 780-source / 278-selected-module disposition, exact Starlark projection, and real
       all-source/pruned ExUnit-filter equivalence over `(source, module, test-name)` identities are
       checked in and enforced. The first real run found 19 modules whose nested support macro
       injects `:requires_app`; those false load-only rows are now serial integration coverage, and
@@ -209,10 +209,11 @@
 ## 6. Repository verification
 - [x] 6.1 Reconcile implementation with `complete-config-manager-adoption`,
       `route-bazel-cache-through-shared-edge`, and `add-srql-fixture-cert-manager-tls`.
-      Status: merged current `github/staging` through `e644675a90`; the latest core sources,
-      `interface_ip_alias_test.exs` and `interface_alias_cap_test.exs`, are real-ExUnit-verified
-      load-only sources, and the modified `mapper_role_heuristic_test.exs` remains load-only. The
-      exhaustive disposition now contains 779 source rows and 278 selected modules.
+      Status: merged current `github/staging` through `70a88c91f9`; the latest core sources,
+      `interface_ip_alias_test.exs`, `interface_alias_cap_test.exs`, and
+      `candidate_device_address_test.exs`, are real-ExUnit-verified load-only sources, and the
+      modified `mapper_role_heuristic_test.exs` remains load-only. The exhaustive disposition now
+      contains 780 source rows and 278 selected modules.
 - [ ] 6.2 Run focused Elixir support tests, Rust lifecycle tests, Bazel configuration tests, the
       async target, every selected serial target, and the large-ingestion release gate.
       Status: focused/static contracts and local target-equivalent shard/heavy runs are green; the
