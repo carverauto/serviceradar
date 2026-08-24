@@ -32,12 +32,22 @@ defmodule ServiceRadar.Repo.Migrations.AddAddressRankFunction do
     STRICT
     PARALLEL SAFE
     AS $$
-      WITH raw AS (
+      WITH trimmed AS (
+        -- Strip a %zone and a /cidr before parsing, matching
+        -- Identity.Address.normalize/1. Both reach inventory from real
+        -- collectors: SNMP reports link-locals as `fe80::1%eth0`, and interface
+        -- addresses arrive as `192.168.1.1/24`. Without this, pg_input_is_valid
+        -- rejects them and they rank 0 while Elixir ranks them correctly -- a
+        -- divergence the parity test catches.
+        SELECT split_part(split_part(btrim(addr), '%', 1), '/', 1) AS t
+      ),
+      raw AS (
         SELECT CASE
-          WHEN btrim(addr) = '' THEN NULL
-          WHEN NOT pg_input_is_valid(btrim(addr), 'inet') THEN NULL
-          ELSE btrim(addr)::inet
+          WHEN t = '' THEN NULL
+          WHEN NOT pg_input_is_valid(t, 'inet') THEN NULL
+          ELSE t::inet
         END AS a
+        FROM trimmed
       ),
       norm AS (
         -- An IPv4-mapped address (::ffff:a.b.c.d) is an IPv4 address wearing an

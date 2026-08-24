@@ -393,6 +393,12 @@ defmodule ServiceRadar.Inventory.SyncIngestorIpConflictTest do
         "fdff::1",
         "::ffff:192.168.1.1",
         "::ffff:8.8.8.8",
+        # Forms real collectors actually send: SNMP reports link-locals with a
+        # zone, and interface addresses arrive in CIDR form.
+        "fe80::1%eth0",
+        "192.168.1.1/24",
+        "0.0.0.0/0",
+        "  10.0.0.5  ",
         "not-an-ip",
         ""
       ]
