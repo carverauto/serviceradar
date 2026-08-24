@@ -51,6 +51,9 @@ pub struct AddonConfigJson {
     pub dpi: Option<DpiJson>,
     #[serde(default)]
     pub device_bindings: Vec<DeviceBindingJson>,
+    /// Agent-stamped, never operator-set. See VisibilityAgentConfig.collector_ip.
+    #[serde(default)]
+    pub collector_ip: String,
 }
 
 #[derive(Debug, Clone, Default, Deserialize)]
@@ -160,6 +163,7 @@ impl From<AddonConfigJson> for VisibilityAgentConfig {
             external_flow_match_window_ms: value.external_flow_match_window_ms,
             flow_attribution_ipc_batch: value.flow_attribution_ipc_batch,
             emit_raw_flow_attribution_events: value.emit_raw_flow_attribution_events,
+            collector_ip: value.collector_ip.trim().to_owned(),
         }
     }
 }

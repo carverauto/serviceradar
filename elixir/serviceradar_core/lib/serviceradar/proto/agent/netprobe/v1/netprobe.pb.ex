@@ -207,6 +207,8 @@ defmodule Serviceradar.Agent.Netprobe.V1.VisibilityAgentConfig do
   field :emit_raw_flow_attribution_events, 44,
     type: :bool,
     json_name: "emitRawFlowAttributionEvents"
+
+  field :collector_ip, 48, type: :string, json_name: "collectorIp"
 end
 
 defmodule Serviceradar.Agent.Netprobe.V1.DeviceBinding do

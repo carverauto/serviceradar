@@ -748,6 +748,21 @@ func (p *PushLoop) applyVisibilityConfig(
 	}
 
 	parsed := agentnetprobe.ParseVisibilityConfig(cfg)
+
+	// Stamped from the agent's own configuration, not from the gateway payload:
+	// this is runtime context about WHERE netprobe is running, and the agent is
+	// the only thing that knows it. netprobe cannot derive it -- picking an
+	// address off a capture interface would be a guess that disagrees with the
+	// identity the agent already reports under -- and core has no attested
+	// collector address either. Without it netprobe cannot choose a DPI event's
+	// subject endpoint or name the host a process snapshot describes.
+	//
+	// Set after the gateway parse and before the add-on JSON merge, so an
+	// operator cannot override it with a different host's address.
+	if p.server.config != nil && parsed.NetprobeConfig != nil {
+		parsed.NetprobeConfig.CollectorIp = strings.TrimSpace(p.server.config.HostIP)
+	}
+
 	netprobeAddon := netprobeSystemdAssignment(addons)
 	systemdManaged := netprobeAddon != nil
 	if systemdManaged {
