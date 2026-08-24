@@ -6,7 +6,8 @@ exports_files(["playwright-browsers.1.51.0.json"])
 
 playwright_bin.playwright_test(
     name = "god_view_elk_scene_acceptance",
-    size = "small",
+    # Cold RBE Chromium startup can exceed the small class's 60-second timeout.
+    size = "medium",
     args = [
         "test",
         "--config=playwright.config.js",

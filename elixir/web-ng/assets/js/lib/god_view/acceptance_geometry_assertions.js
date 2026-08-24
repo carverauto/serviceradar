@@ -76,9 +76,17 @@ export function segmentAabbDistance(start, end, box) {
     segmentDistance(start, end, corner, corners[(index + 1) % corners.length])))
 }
 
+function routeStrokeRadius(route) {
+  const strokeWidth = route?.strokeWidth
+  if (!Number.isFinite(strokeWidth) || strokeWidth <= 0) {
+    throw new RangeError("route must expose a finite positive strokeWidth")
+  }
+  return strokeWidth / 2
+}
+
 export function routeStrokeHitsBox(route, box, boxPadding = 0) {
   const points = Array.isArray(route?.projectedPoints) ? route.projectedPoints : []
-  const radius = Math.max(0, Number(route?.strokeWidth) || 0) / 2
+  const radius = routeStrokeRadius(route)
   const inflated = {
     left: box.left - boxPadding,
     top: box.top - boxPadding,
@@ -92,9 +100,9 @@ export function routeStrokeHitsBox(route, box, boxPadding = 0) {
 }
 
 export function routeInsideSafeRect(route, safeRect, epsilon = GEOMETRY_EPSILON) {
+  const radius = routeStrokeRadius(route)
   const points = Array.isArray(route?.projectedPoints) ? route.projectedPoints : []
   if (points.length === 0) return false
-  const radius = Math.max(0, Number(route?.strokeWidth) || 0) / 2
   return points.every((point) => point.x - radius >= safeRect.left - epsilon
     && point.y - radius >= safeRect.top - epsilon
     && point.x + radius <= safeRect.right + epsilon

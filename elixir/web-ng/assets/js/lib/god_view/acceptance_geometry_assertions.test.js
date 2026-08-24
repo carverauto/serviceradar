@@ -33,6 +33,15 @@ describe("God-View browser geometry assertions", () => {
     expect(routeInsideSafeRect(route({points: [{x: 19, y: 40}, {x: 80, y: 40}]}), safeRect)).toBe(true)
   })
 
+  it.each([undefined, Number.NaN, 0, -1])("rejects invalid route stroke width %s", (strokeWidth) => {
+    const invalidRoute = {...route(), strokeWidth}
+
+    expect(() => routeStrokeHitsBox(invalidRoute, {left: 2, top: 2, right: 8, bottom: 8}))
+      .toThrow(/finite positive strokeWidth/)
+    expect(() => routeInsideSafeRect({...invalidRoute, projectedPoints: []}, {left: 0, top: 0, right: 100, bottom: 100}))
+      .toThrow(/finite positive strokeWidth/)
+  })
+
   it("detects an unrelated route endpoint touching another route interior", () => {
     const horizontal = route({sourceId: "left", targetId: "right"})
     const tee = route({sourceId: "top", targetId: "tee", points: [{x: 5, y: -5}, {x: 5, y: 0}]})
@@ -57,6 +66,17 @@ describe("God-View browser geometry assertions", () => {
       sourceId: "shared",
       targetId: "bottom",
       points: [{x: 10, y: 10}, {x: 5, y: 0}, {x: 5, y: -5}],
+    })
+
+    expect(routeInteriorsIntersect(first, second)).toBe(true)
+  })
+
+  it("detects collinear overlap between unrelated route interiors", () => {
+    const first = route({sourceId: "left", targetId: "middle"})
+    const second = route({
+      sourceId: "overlap-start",
+      targetId: "overlap-end",
+      points: [{x: 5, y: 0}, {x: 15, y: 0}],
     })
 
     expect(routeInteriorsIntersect(first, second)).toBe(true)

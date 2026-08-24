@@ -10,7 +10,9 @@ export default {
   workers: 1,
   retries: 0,
   reporter: "line",
-  timeout: 180_000,
+  // Stay below Bazel's 300-second medium budget while allowing cold RBE
+  // Chromium and trace persistence to complete without an inner timeout.
+  timeout: 240_000,
   use: {
     headless: true,
   },

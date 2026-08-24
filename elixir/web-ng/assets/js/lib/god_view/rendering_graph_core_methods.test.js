@@ -151,15 +151,15 @@ describe("God-View acceptance geometry hook", () => {
     })
     expect(snapshot.nodes).toHaveLength(2)
     expect(snapshot.routes).toEqual([{
-      id: "rendered:router-a|router-b",
       sourceId: "router-a",
       targetId: "router-b",
-      relationIds: ["edge-a-b"],
       strokeWidth: 38,
       points: [{x: 20, y: 40}, {x: 60, y: 40}, {x: 60, y: 60}, {x: 100, y: 60}],
       projectedPoints: [{x: 120, y: 240}, {x: 160, y: 240}, {x: 160, y: 260}, {x: 200, y: 260}],
-      box: {left: 120, top: 240, right: 200, bottom: 260},
     }])
+    expect(Object.keys(snapshot.routes[0]).sort()).toEqual([
+      "points", "projectedPoints", "sourceId", "strokeWidth", "targetId",
+    ])
     expect(snapshot.glyphs).toEqual([
       {nodeId: "router-a", left: 100, top: 220, right: 140, bottom: 260},
       {nodeId: "router-b", left: 180, top: 240, right: 220, bottom: 280},
@@ -181,32 +181,43 @@ describe("God-View acceptance geometry hook", () => {
     expect(serialized).not.toMatch(/pps|flow|protocol|credential|csrf|bearer|token|42_000|42000|999999/i)
   })
 
-  it("refreshes the accepted snapshot after a later render", () => {
+  it("refreshes through the view-state path and deletes a stale hook after acceptance is disabled", () => {
     globalThis.window = {__SR_GOD_VIEW_ACCEPTANCE__: true}
     const {context, effective} = renderContext()
 
     godViewRenderingGraphCoreMethods.renderGraph.call(context, effective)
     const firstSnapshot = globalThis.window.__SR_GOD_VIEW_GEOMETRY__()
-    effective._layoutCacheKey = "8:fixture:landscape:updated-scene"
-    effective._topologyScene.nodes[0].center.x = 40
+    context.state.viewState = {target: [72, 64, 0], zoom: 2, minZoom: -3, maxZoom: 5}
 
-    godViewRenderingGraphCoreMethods.renderGraph.call(context, effective)
+    expect(godViewRenderingGraphCoreMethods.refreshGraphLayersForViewState.call(context)).toBe(true)
 
     const secondSnapshot = globalThis.window.__SR_GOD_VIEW_GEOMETRY__()
     expect(secondSnapshot).not.toBe(firstSnapshot)
-    expect(secondSnapshot.sceneKey).toBe("8:fixture:landscape:updated-scene")
-    expect(secondSnapshot.nodes[0].box.left).toBe(20)
-  })
-
-  it("deletes a published hook when acceptance mode is disabled before a later render", () => {
-    globalThis.window = {__SR_GOD_VIEW_ACCEPTANCE__: true}
-    const {context, effective} = renderContext()
-    godViewRenderingGraphCoreMethods.renderGraph.call(context, effective)
-    expect(globalThis.window.__SR_GOD_VIEW_GEOMETRY__).toEqual(expect.any(Function))
+    expect(secondSnapshot.viewState).toEqual({target: [72, 64, 0], zoom: 2, minZoom: -3, maxZoom: 5})
 
     globalThis.window.__SR_GOD_VIEW_ACCEPTANCE__ = false
-    godViewRenderingGraphCoreMethods.renderGraph.call(context, effective)
+    expect(godViewRenderingGraphCoreMethods.refreshGraphLayersForViewState.call(context)).toBe(true)
 
+    expect(globalThis.window.__SR_GOD_VIEW_GEOMETRY__).toBeUndefined()
+  })
+
+  it.each([
+    ["has no matching rendered layer", () => []],
+    ["has a NaN width", () => [{
+      id: "god-view-edges-mantle",
+      props: {data: [{sourceId: "router-a", targetId: "router-b"}], getWidth: () => Number.NaN},
+    }]],
+    ["has a zero width", () => [{
+      id: "god-view-edges-mantle",
+      props: {data: [{sourceId: "router-a", targetId: "router-b"}], getWidth: () => 0},
+    }]],
+  ])("fails loudly when an acceptance route %s", (_description, buildLayers) => {
+    globalThis.window = {__SR_GOD_VIEW_ACCEPTANCE__: true}
+    const {context, effective} = renderContext()
+    context.buildGraphLayers = buildLayers
+
+    expect(() => godViewRenderingGraphCoreMethods.renderGraph.call(context, effective))
+      .toThrow(/route router-a -> router-b.*finite positive rendered stroke width/i)
     expect(globalThis.window.__SR_GOD_VIEW_GEOMETRY__).toBeUndefined()
   })
 })

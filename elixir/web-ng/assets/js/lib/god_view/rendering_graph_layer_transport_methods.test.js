@@ -64,6 +64,8 @@ describe("rendering_graph_layer_transport_methods", () => {
     expect(out.crustLayers[0]).toBeInstanceOf(PathLayer)
     expect(out.mantleLayers[0].props.getPath(edge)).toBe(edge.path)
     expect(out.crustLayers[0].props.getPath(edge)).toBe(edge.path)
+    expect(out.mantleLayers[0].props.jointRounded).toBe(true)
+    expect(out.crustLayers[0].props.jointRounded).toBe(true)
     expect(out.mantleLayers[0]).not.toBeInstanceOf(ArcLayer)
     expect(out.crustLayers[0]).not.toBeInstanceOf(ArcLayer)
     expect(out.crustLayers[0].props.getColor(edge)).toEqual([100, 160, 255, 255])

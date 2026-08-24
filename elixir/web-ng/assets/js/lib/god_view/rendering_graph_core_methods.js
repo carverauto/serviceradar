@@ -35,23 +35,14 @@ function nodeWorldBox(node) {
 }
 
 function projectedRoute(viewport, route) {
-  if (typeof viewport?.project !== "function") return {projectedPoints: [], box: plainBox()}
+  if (typeof viewport?.project !== "function") return []
   const projectedPoints = (route?.points || []).flatMap((point) => {
     const projected = viewport.project([finiteNumber(point?.x), finiteNumber(point?.y), 0])
     const x = Number(projected?.[0])
     const y = Number(projected?.[1])
     return Number.isFinite(x) && Number.isFinite(y) ? [{x, y}] : []
   })
-  if (projectedPoints.length === 0) return {projectedPoints, box: plainBox()}
-  return {
-    projectedPoints,
-    box: {
-      left: Math.min(...projectedPoints.map((point) => point.x)),
-      top: Math.min(...projectedPoints.map((point) => point.y)),
-      right: Math.max(...projectedPoints.map((point) => point.x)),
-      bottom: Math.max(...projectedPoints.map((point) => point.y)),
-    },
-  }
+  return projectedPoints
 }
 
 function acceptanceWindow() {
@@ -66,7 +57,7 @@ function layerData(layers, id) {
 
 function renderedRouteStrokeWidth(layers, route) {
   const interactionKey = `local:${String(route?.id || "")}`
-  return (layers || [])
+  const widths = (layers || [])
     .filter((layer) => layer?.id === "god-view-edges-mantle" || layer?.id === "god-view-edges-crust")
     .flatMap((layer) => {
       const props = layer?.props || {}
@@ -75,12 +66,30 @@ function renderedRouteStrokeWidth(layers, route) {
         || (candidate?.sourceId === route?.sourceId && candidate?.targetId === route?.targetId))
       if (!edge) return []
       const accessorWidth = typeof props.getWidth === "function" ? props.getWidth(edge) : props.getWidth
-      const scaledWidth = Math.max(0, finiteNumber(accessorWidth)) * Math.max(0, finiteNumber(props.widthScale, 1))
-      const minimum = Math.max(0, finiteNumber(props.widthMinPixels))
-      const maximum = Math.max(minimum, finiteNumber(props.widthMaxPixels, Number.POSITIVE_INFINITY))
+      const widthScale = props.widthScale == null ? 1 : Number(props.widthScale)
+      if (!Number.isFinite(accessorWidth) || accessorWidth <= 0 || !Number.isFinite(widthScale) || widthScale <= 0) {
+        throw new RangeError(
+          `acceptance geometry route ${String(route?.sourceId || "")} -> ${String(route?.targetId || "")} must have a finite positive rendered stroke width`,
+        )
+      }
+      const scaledWidth = accessorWidth * widthScale
+      const minimum = props.widthMinPixels == null ? 0 : Number(props.widthMinPixels)
+      const maximum = props.widthMaxPixels == null ? Number.POSITIVE_INFINITY : Number(props.widthMaxPixels)
+      if (!Number.isFinite(minimum) || minimum < 0
+        || (props.widthMaxPixels != null && (!Number.isFinite(maximum) || maximum <= 0))) {
+        throw new RangeError(
+          `acceptance geometry route ${String(route?.sourceId || "")} -> ${String(route?.targetId || "")} must have a finite positive rendered stroke width`,
+        )
+      }
       return [Math.min(maximum, Math.max(minimum, scaledWidth))]
     })
-    .reduce((maximum, width) => Math.max(maximum, width), 0)
+  const strokeWidth = widths.reduce((maximum, width) => Math.max(maximum, width), 0)
+  if (!Number.isFinite(strokeWidth) || strokeWidth <= 0) {
+    throw new RangeError(
+      `acceptance geometry route ${String(route?.sourceId || "")} -> ${String(route?.targetId || "")} must have a finite positive rendered stroke width`,
+    )
+  }
+  return strokeWidth
 }
 
 function acceptanceGeometrySnapshot(context, effective, nodeData, edgeData, layers) {
@@ -134,19 +143,15 @@ function acceptanceGeometrySnapshot(context, effective, nodeData, edgeData, laye
       box: plainBox(group?.bounds),
     })),
     routes: (scene?.routes || []).map((route) => {
-      const projection = projectedRoute(viewport, route)
       return {
-        id: String(route?.id || ""),
         sourceId: String(route?.sourceId || ""),
         targetId: String(route?.targetId || ""),
-        relationIds: (route?.relationIds || []).map((id) => String(id)),
         strokeWidth: renderedRouteStrokeWidth(layers, route),
         points: (route?.points || []).map((point) => ({
           x: finiteNumber(point?.x),
           y: finiteNumber(point?.y),
         })),
-        projectedPoints: projection.projectedPoints,
-        box: projection.box,
+        projectedPoints: projectedRoute(viewport, route),
       }
     }),
     glyphs: (nodeData || []).flatMap((node) => {

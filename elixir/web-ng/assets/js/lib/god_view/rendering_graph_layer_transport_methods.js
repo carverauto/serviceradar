@@ -38,7 +38,7 @@ export const godViewRenderingGraphLayerTransportMethods = {
             data: edgeData,
             coordinateSystem: COORDINATE_SYSTEM.CARTESIAN,
             ...(routedTopologyScene
-              ? {getPath: (d) => d.path}
+              ? {getPath: (d) => d.path, jointRounded: true}
               : {
                   getSourcePosition: (d) => d.sourcePosition,
                   getTargetPosition: (d) => d.targetPosition,
@@ -85,6 +85,7 @@ export const godViewRenderingGraphLayerTransportMethods = {
               ...(routedTopologyScene
                 ? {
                     getPath: (d) => d.path,
+                    jointRounded: true,
                     getColor: (d) => {
                       const color = typeof this.edgeTelemetryColor === "function"
                         ? this.edgeTelemetryColor(d.flowBps, d.capacityBps, d.flowPps, true)

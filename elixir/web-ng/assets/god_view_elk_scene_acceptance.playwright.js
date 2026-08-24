@@ -38,12 +38,22 @@ function inside(box, safe, epsilon = 1) {
     && box.bottom <= safe.bottom + epsilon
 }
 
+function routeDescription(route) {
+  return `${route.sourceId} -> ${route.targetId}`
+}
+
 function assertScene(snapshot, expected) {
   expect(snapshot.counts).toEqual(expected)
   expect(snapshot.glyphs).toHaveLength(expected.renderedGlyphs)
   expect(snapshot.routes).toHaveLength(expected.renderedRoutes)
   expect(snapshot.labels).toHaveLength(expected.admittedLabels)
   expect(groupGeometryViolations(snapshot)).toEqual([])
+  for (const route of snapshot.routes) {
+    expect(
+      Number.isFinite(route.strokeWidth) && route.strokeWidth > 0,
+      `${routeDescription(route)} must expose a finite positive rendered stroke width`,
+    ).toBe(true)
+  }
 
   for (let left = 0; left < snapshot.nodes.length; left += 1) {
     for (let right = left + 1; right < snapshot.nodes.length; right += 1) {
@@ -56,7 +66,7 @@ function assertScene(snapshot, expected) {
     for (let right = left + 1; right < snapshot.routes.length; right += 1) {
       const a = snapshot.routes[left]
       const b = snapshot.routes[right]
-      expect(routeInteriorsIntersect(a, b), `${a.id} intersects ${b.id}`).toBe(false)
+      expect(routeInteriorsIntersect(a, b), `${routeDescription(a)} intersects ${routeDescription(b)}`).toBe(false)
     }
   }
 
@@ -71,14 +81,14 @@ function assertScene(snapshot, expected) {
       expect(overlaps(label.box, glyph), `${label.nodeId} label hits ${glyph.nodeId}`).toBe(false)
     }
     for (const route of snapshot.routes) {
-      expect(routeStrokeHitsBox(route, label.box), `${label.nodeId} label hits ${route.id}`).toBe(false)
+      expect(routeStrokeHitsBox(route, label.box), `${label.nodeId} label hits ${routeDescription(route)}`).toBe(false)
     }
   }
   for (const glyph of snapshot.glyphs) {
     expect(inside(glyph, snapshot.safeRect), `${glyph.nodeId} glyph leaves safe rect`).toBe(true)
   }
   for (const route of snapshot.routes) {
-    expect(routeInsideSafeRect(route, snapshot.safeRect), `${route.id} route leaves safe rect`).toBe(true)
+    expect(routeInsideSafeRect(route, snapshot.safeRect), `${routeDescription(route)} route leaves safe rect`).toBe(true)
     for (const glyph of snapshot.glyphs) {
       if (glyph.nodeId === route.sourceId || glyph.nodeId === route.targetId) continue
       const distances = route.projectedPoints.slice(1).map((point, index) =>
@@ -86,7 +96,7 @@ function assertScene(snapshot, expected) {
       const clearance = Math.min(...distances) - (route.strokeWidth / 2)
       expect(
         routeStrokeHitsBox(route, glyph),
-        `${route.id} hits nonincident glyph ${glyph.nodeId}; stroke=${route.strokeWidth}; clearance=${clearance}; glyph=${JSON.stringify(glyph)}`,
+        `${routeDescription(route)} hits nonincident glyph ${glyph.nodeId}; stroke=${route.strokeWidth}; clearance=${clearance}; glyph=${JSON.stringify(glyph)}`,
       ).toBe(false)
     }
   }
@@ -98,7 +108,7 @@ function stableGeometry(snapshot) {
     counts: snapshot.counts,
     nodes: snapshot.nodes,
     groups: snapshot.groups,
-    routes: snapshot.routes.map(({projectedPoints: _projected, box: _box, ...route}) => route),
+    routes: snapshot.routes.map(({projectedPoints: _projected, ...route}) => route),
   }
 }
 
@@ -162,17 +172,27 @@ test("gates the canonical God-View ELK scene through the production renderer", a
     semanticNodes: 78, semanticEdges: 82, attachmentEdges: 72, renderedRoutes: 32, renderedGlyphs: 76, admittedLabels: 38,
   })
   const concurrentGeometry = stableGeometry(concurrentResult.snapshot)
-  await phase(page, context, "concurrent-expanded", "profile-threshold")
+  await phase(page, context, "concurrent-expanded", "collapse-reexpand-profile-threshold")
 
-  await page.evaluate(() => window.__SR_GOD_VIEW_HARNESS__.renderFixture("second"))
+  const firstCollapsed = await page.evaluate(() => window.__SR_GOD_VIEW_HARNESS__.renderFixture("second"))
+  expect(firstCollapsed.snapshot.groups).toHaveLength(1)
+  expect(firstCollapsed.snapshot.groups[0].memberIds).toHaveLength(24)
+  assertScene(firstCollapsed.snapshot, {
+    semanticNodes: 54, semanticEdges: 58, attachmentEdges: 48, renderedRoutes: 32, renderedGlyphs: 53, admittedLabels: 29,
+  })
+
   const reexpanded = await page.evaluate(() => window.__SR_GOD_VIEW_HARNESS__.renderFixture("concurrent"))
   expect(stableGeometry(reexpanded.snapshot)).toEqual(concurrentGeometry)
+  assertScene(reexpanded.snapshot, {
+    semanticNodes: 78, semanticEdges: 82, attachmentEdges: 72, renderedRoutes: 32, renderedGlyphs: 76, admittedLabels: 38,
+  })
 
   const portrait = await page.evaluate(() => window.__SR_GOD_VIEW_HARNESS__.profile(800, 1000))
   expect(portrait.profileKey).not.toEqual(concurrentResult.snapshot.profileKey)
   expect(portrait.profileKey).toMatch(/portrait/)
-  await context.tracing.stop({path: resolve(OUTPUT_DIR, "profile-threshold.trace.zip")})
+  await context.tracing.stop({path: resolve(OUTPUT_DIR, "collapse-reexpand-profile-threshold.trace.zip")})
   expect((await readdir(OUTPUT_DIR)).sort()).toEqual([
+    "collapse-reexpand-profile-threshold.trace.zip",
     "collapsed.png",
     "collapsed.trace.zip",
     "concurrent-expanded.png",
@@ -181,6 +201,5 @@ test("gates the canonical God-View ELK scene through the production renderer", a
     "expanded.trace.zip",
     "fit.png",
     "fit.trace.zip",
-    "profile-threshold.trace.zip",
   ])
 })
