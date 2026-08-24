@@ -99,6 +99,7 @@ function deterministicRelationPresentation(relations) {
       : {}
     return {
       details,
+      hasSparkline: Array.isArray(details.interface_sparkline) && details.interface_sparkline.length > 0,
       label: String(relation?.label || "").trim(),
       observedAt: observationEpoch(details),
       serializedDetails: stableSerializedValue(details),
@@ -107,6 +108,8 @@ function deterministicRelationPresentation(relations) {
   })
 
   candidates.sort((left, right) => {
+    if (left.hasSparkline !== right.hasSparkline) return left.hasSparkline ? -1 : 1
+
     const leftHasObservation = left.observedAt !== null
     const rightHasObservation = right.observedAt !== null
     if (leftHasObservation !== rightHasObservation) return leftHasObservation ? -1 : 1
@@ -118,23 +121,10 @@ function deterministicRelationPresentation(relations) {
   })
 
   const representative = candidates[0]
-  const details = representative ? {...representative.details} : {}
-  const sparklineCandidate = candidates.find((candidate) =>
-    Array.isArray(candidate.details.interface_sparkline) && candidate.details.interface_sparkline.length > 0,
-  )
-
-  if (sparklineCandidate) {
-    details.interface_sparkline = [...sparklineCandidate.details.interface_sparkline]
-    if (Object.hasOwn(sparklineCandidate.details, "interface_sparkline_label")) {
-      details.interface_sparkline_label = sparklineCandidate.details.interface_sparkline_label
-    } else {
-      delete details.interface_sparkline_label
-    }
-  }
 
   return {
-    details,
-    label: candidates.find((candidate) => candidate.label)?.label || "",
+    details: representative ? {...representative.details} : {},
+    label: representative?.label || "",
   }
 }
 

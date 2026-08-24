@@ -375,7 +375,7 @@ describe("Arrow relation identity integration", () => {
     expect(shuffledAll.buildVisibleGraphData(effectiveGraph(shuffled, shuffledScene)).edgeData[0].flowPps).toEqual(187)
   })
 
-  it("selects duplicate presentation details deterministically across Arrow row order", () => {
+  it("selects one coherent duplicate presentation record across Arrow row order", () => {
     const forward = dedupe(decode(arrowBytes([0, 1, 2, 3], DUPLICATE_RELATIONS)))
     const shuffled = dedupe(decode(arrowBytes([3, 0, 2, 1], DUPLICATE_RELATIONS)))
     const forwardScene = prepareTopologySceneInput(forward)
@@ -391,7 +391,7 @@ describe("Arrow relation identity integration", () => {
 
     expect(shuffledEdge).toEqual(forwardEdge)
     expect(forwardEdge).toMatchObject({
-      label: "SNMP BACKBONE 400pps / 4G",
+      label: "SNMP BACKBONE 200pps / 2G",
       flowPps: 1_000,
       flowBps: 10_000_000,
       capacityBps: 4_000_000_000,
@@ -403,9 +403,9 @@ describe("Arrow relation identity integration", () => {
         source_interface: "xe-0/0/0",
         target_if_index: 20,
         target_interface: "xe-0/0/1",
-        telemetry_source: "interface-a",
+        telemetry_source: "interface-b",
         telemetry_observed_at: "2026-08-24T02:00:00Z",
-        tie_breaker: "a",
+        tie_breaker: "sparkline-source",
         interface_sparkline_label: "Current interface history",
         interface_sparkline: [{bucket: "01:55", value: 30}, {bucket: "02:00", value: 40}],
         metadata: {relation_type: "CONNECTED_TO", topology_plane: "physical"},
