@@ -71,8 +71,8 @@ pub struct NetprobeEbpfRuntime {
     // In attribution-only mode we don't run the fingerprint/DPI producers, but the
     // IPC server streams those event types to the agent; dropping the senders would
     // close those channels and disconnect the agent. Hold them open (no producer).
-    _fingerprint_keepalive: Option<EventSender<FingerprintEvent>>,
-    _dpi_keepalive: Option<EventSender<DpiEvent>>,
+    _fingerprint_keepalive: Option<broadcast::Sender<FingerprintEvent>>,
+    _dpi_keepalive: Option<broadcast::Sender<DpiEvent>>,
     _ebpf: Ebpf,
 }
 
@@ -82,8 +82,8 @@ impl NetprobeEbpfRuntime {
         object_path: &Path,
         config: &Config,
         metrics: Metrics,
-        fingerprint_events: EventSender<FingerprintEvent>,
-        dpi_events: EventSender<DpiEvent>,
+        fingerprint_events: broadcast::Sender<FingerprintEvent>,
+        dpi_events: broadcast::Sender<DpiEvent>,
         flow_attribution_events: Option<EventSender<Arc<FlowAttributionEvent>>>,
         process_snapshots: broadcast::Sender<ProcessSnapshot>,
         census_snapshots: broadcast::Sender<DeviceCensusSnapshot>,
@@ -309,8 +309,8 @@ impl NetprobeEbpfRuntime {
     fn attribution_only_with_census(
         ebpf: Ebpf,
         attribution_runtime: FlowAttributionRuntime,
-        fingerprint_events: EventSender<FingerprintEvent>,
-        dpi_events: EventSender<DpiEvent>,
+        fingerprint_events: broadcast::Sender<FingerprintEvent>,
+        dpi_events: broadcast::Sender<DpiEvent>,
         reason: &str,
         census_runtime: Option<DeviceCensusRuntime>,
         mdns_runtime: Option<MdnsRuntime>,
@@ -330,8 +330,8 @@ impl NetprobeEbpfRuntime {
     fn attribution_only(
         ebpf: Ebpf,
         attribution_runtime: FlowAttributionRuntime,
-        fingerprint_events: EventSender<FingerprintEvent>,
-        dpi_events: EventSender<DpiEvent>,
+        fingerprint_events: broadcast::Sender<FingerprintEvent>,
+        dpi_events: broadcast::Sender<DpiEvent>,
         reason: &str,
     ) -> Self {
         log::info!(
