@@ -9,10 +9,12 @@ PR #3928 and PR #3937 repaired important topology semantics, including lost atta
 - Make one compound ELK layout the production geometry authority for every node, group, and rendered relation in the bounded visible graph.
 - Canonicalize and collapse semantic relations into stable rendered-route entities before layout so ELK optimizes exactly the strokes deck.gl will draw.
 - Represent expanded endpoint clusters as real compound layout groups so ELK allocates space for their members instead of placing them in a post-layout projection pass.
+- Own every rendered and layout-only relation at the lowest common compound containing both endpoints; only genuinely cross-compound relations remain root-owned.
 - Preserve ELK route sections as scene geometry and render those polylines instead of drawing direct source-to-target arcs through unrelated nodes and groups.
 - Keep the existing collapsed-cluster edge contract: expansion may reveal members without multiplying visible transport trunks.
 - Add deterministic screen-space label decluttering because fixed-pixel text and glyph halos are renderer concerns that ELK cannot model reliably in world coordinates.
 - Fit the complete visual scene and focus complete selected neighborhoods using routed geometry, glyph extents, labels, and measured UI safe areas.
+- Select a truthful managed presentation-density contract when fixed-pixel glyphs or route strokes cannot fit at detail size, without changing ELK-authored nodes, groups, or route points.
 - Add paired collapsed/expanded farm01-style fixtures and geometry assertions that fail on overlap, clipping, unstable placement, or route/node intersection.
 - Remove the custom radial/spiral geometry path entirely. If ELK fails, preserve the last exactly compatible good scene or show an explicit recoverable layout error; do not silently switch algorithms.
 
@@ -40,3 +42,4 @@ PR #3928 and PR #3937 repaired important topology semantics, including lost atta
 - Guaranteeing a crossing-free drawing for every mathematically possible graph. The hard contract is no duplicate or coincident rendered relation, no node/group overlap, no route through a nonincident node or group, and no nonincident route crossing/overlap in the supported dense acceptance fixtures; ELK minimizes crossings for other bounded graphs and the adapter validates the enforceable runtime invariants.
 - Preserving the existing source-to-target edge color gradient; standard `PathLayer` uses one deterministic route color in this change.
 - Replacing deck.gl or adding a second layout dependency.
+- Adding an independent portrait packer or post-layout coordinate transform; evaluated native ELK packing variants either lost cross-hierarchy route sections or remained below the required portrait fit scale.

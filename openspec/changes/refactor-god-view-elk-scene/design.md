@@ -49,13 +49,15 @@ The ELK graph contains:
 
 - root-level infrastructure and standalone nodes;
 - one compound child node for each visible endpoint cluster;
-- a non-rendered summary/gateway node and expanded member nodes inside the group;
+- a non-rendered summary/gateway node with a `112x112` world-unit outer envelope and expanded member nodes inside the group;
 - pre-aggregated visible infrastructure and anchor-to-group relations; and
 - layout-only gateway-to-member constraints that allocate internal space without rendering a fan of member spokes.
 
 The profile uses layered layout, compound-child handling, and orthogonal routing. Direction comes from a quantized usable-viewport profile: `RIGHT` for landscape and `DOWN` for portrait. Node and group sizes include obstacle padding, while fixed-pixel label collision remains a renderer step.
 
 All nodes, edges, children, and contributing-relation arrays are sorted by stable identifiers. ELK uses a fixed `elk.randomSeed`; determinism is required within tolerance for the pinned elkjs version, not across engine upgrades. The cache key includes structural graph identity, expansion set, and viewport profile. Input iteration order must not change the result.
+
+Every relation is owned by the lowest common ELK compound containing both endpoints. Rendered member relations and non-rendered packing constraints whose endpoints are inside one expanded group live on that group; only relations that cross group boundaries remain on the root. This preserves ELK's coordinate-frame and hierarchy-routing contract instead of asking the root graph to lay out detached group-local edges.
 
 Why not flat ELK plus a later group packer: it would retain two geometry authorities and allow endpoint groups to overwrite space that the backbone already occupied.
 
@@ -115,6 +117,10 @@ Fit resolves the label/camera dependency with a bounded two-pass algorithm:
 
 Calling Fit again with unchanged scene and viewport inputs produces the same view state and label set within tolerance. Managed camera states validate projected glyph separation. ELK obstacle boxes are conservatively sized for the minimum supported managed-view scale; if the bounded scene still cannot fit without glyph collision, lower-priority members remain summarized by the upstream visible-member budget.
 
+Managed views prefer the detail presentation and fall back to the overview presentation only when the accepted camera scale cannot support the detail extents. Overview caps ordinary and expanded-member outer radii at `10` CSS pixels, collapsed-summary outer radii at `20` CSS pixels, endpoint-anchor outer radii at `12` CSS pixels, and routed mantle/crust width at `10` CSS pixels. Detail route width is capped at `12` CSS pixels. The selected density also chooses the existing label-candidate shape.
+
+Managed visual density is presentation state, not geometry. It may cap glyph radii, route stroke widths, and label candidates, but it MUST NOT change the semantic graph, ELK input envelopes, decoded node/group coordinates, or route centerline points, and it MUST NOT invoke a second layout or post-layout packing pass. Manual camera changes recompute the feasible presentation contract against the same accepted scene.
+
 The usable viewport rectangle determines the profile and camera fit. Sizes stay in one of two buckets; crossing a bucket may rerun ELK, while ordinary camera changes and same-bucket resizes only recompute projection, labels, and fit.
 
 ### Decision 8: Initial constants and tolerances are explicit
@@ -122,9 +128,10 @@ The first implementation uses these named defaults so tests share one oracle:
 
 - landscape profile at usable aspect ratio `>= 1.2`, `RIGHT` direction, target aspect `1.6`;
 - portrait profile below `1.2`, `DOWN` direction, target aspect `0.75`;
-- ELK node boxes `448x448` world units for endpoint summaries, `96x96` for expanded members, and `112x112` for other visible glyphs; the summary envelope is deliberately larger because its fixed-pixel halo is the maximum managed-view obstacle;
+- ELK node boxes `448x448` world units for visible collapsed endpoint summaries, a named `112x112` outer envelope for the hidden expanded gateway, `96x96` for expanded members, and `112x112` for ordinary/anchor glyphs; the visible summary envelope remains deliberately larger because its fixed-pixel halo is the maximum managed-view obstacle;
 - compound inner padding `48` world units and sibling group separation `96` world units;
 - route-to-node clearance `96` world units, route-to-route spacing `192` world units, and intersection epsilon `0.01` world units;
+- overview outer-radius caps of `10` CSS pixels for ordinary/member glyphs, `20` for summaries, and `12` for anchors; managed route-width caps of `10` CSS pixels in overview and `12` in detail;
 - label padding `4` CSS pixels;
 - layout determinism tolerance `0.01` world units and browser projection tolerance `1` CSS pixel; and
 - at most the two Fit passes described above.
@@ -146,6 +153,7 @@ Required browserless assertions include:
 - one valid section per rendered relation with no positive intersection against a nonincident padded node or group interior;
 - no positive crossing, T-junction, or collinear overlap between nonincident rendered-route interiors in the browser acceptance fixtures;
 - projected glyph boxes do not overlap in managed camera states;
+- managed density changes only presentation extents and leaves normalized ELK node, group, and route geometry unchanged;
 - admitted labels do not intersect each other, non-owning protected glyphs, routed strokes, or UI safe areas; and
 - Fit is idempotent and contains the complete visual scene in the safe viewport.
 
@@ -158,6 +166,8 @@ Playwright uses the real Deck/WebGL surface and production font metrics. It asse
 ## Risks / Trade-offs
 - Compound ELK layout may cost more than the custom radial path.
   - Mitigation: the visible graph and member caps are bounded, layout inputs are cached by stable keys, and camera/label changes do not rerun layout.
+- Native one-call portrait packing does not provide a safe escape hatch for this compound graph.
+  - `SEPARATE_CHILDREN`, box, and rectpacking variants produced only 30 of 32 rendered route sections when relations crossed child containers. `INCLUDE_CHILDREN` preserved all 32 routes but absorbed child direction into the global layered layout and remained below the required portrait scale. Built-in wrapping, alternative layering, and deterministic reverse constraints also remained below the required scale. These alternatives were rejected instead of accepting route loss, fixture-specific packing, or a second geometry authority; managed presentation density makes the accepted ELK scene feasible without moving it.
 - ELK compound routing can produce unexpected section coordinate frames or invalid sections.
   - Mitigation: isolate coordinate decoding and validation in a pure adapter and reject invalid scenes.
 - Orthogonal routes can look mechanical or include more bends.

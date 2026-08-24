@@ -4,11 +4,13 @@
 
 **Goal:** Replace God-View's radial/spiral/direct-edge composition with one deterministic compound ELK scene whose nodes, groups, routes, labels, and managed camera views satisfy executable collision and stability invariants.
 
-**Architecture:** A pure semantic adapter canonicalizes the bounded decoded graph into rendered relations and compound endpoint groups before layout. A pure ELK adapter builds one graph and decodes absolute nodes, groups, and routes into `graph._topologyScene`; rendering, labels, and camera code consume that scene without authoring new geometry. Tests progress from exact semantic fixtures to real ELK geometry, deck.gl layer contracts, screen-space collision logic, and browser acceptance.
+**Architecture:** A pure semantic adapter canonicalizes the bounded decoded graph into rendered relations and compound endpoint groups before layout. A pure ELK adapter builds one graph and decodes absolute nodes, groups, and routes into `graph._topologyScene`; rendering, labels, managed visual density, and camera code consume that scene without authoring new geometry. Tests progress from exact semantic fixtures to real ELK geometry, deck.gl layer contracts, screen-space collision logic, and browser acceptance.
 
 **Tech Stack:** JavaScript ES modules, elkjs 0.11.1, deck.gl 9.2 `PathLayer`, Vitest 3.2, Bazel `aspect_rules_js`, Phoenix web-ng, Playwright CLI/browser acceptance.
 
 **Spec:** `openspec/changes/refactor-god-view-elk-scene/design.md` and `openspec/changes/refactor-god-view-elk-scene/specs/topology-god-view/spec.md`
+
+**Completion record (2026-08-24):** The production scene, post-review endpoint binding, strict compound ownership, managed visual-density fallback, and hermetic browser acceptance are complete. The final browser gate passed in one uncached attempt with retries disabled and exactly nine declared outputs. Demo rollout remains unchecked. `make test-toolchains` remains blocked only by Go `-coverpkg` rejecting the upstream leading BOM in `github.com/cilium/ebpf@v0.22.0/asm/func_lin.go:1:1`; the module file and zip hashes match, ordinary `go build github.com/cilium/ebpf/asm` succeeds, and the CI-equivalent `make test` passed 193/193.
 
 ## Global Constraints
 
@@ -18,13 +20,16 @@
 - Canonical rendered relations are built before ELK; the farm01-style fixture contract is `30/34/24/32 -> 54/58/48/32` for decoded nodes/semantic edges/attachment-class edges/rendered routes.
 - Expanded summaries are visible glyphs while collapsed and non-rendered gateways while expanded; expansion adds exactly 24 `endpoint-member` nodes and does not change rendered-route count.
 - Rendered ELK edges are simple one-source/one-target edges and must decode to exactly one continuous section with at least two distinct points.
+- Every rendered and layout-only relation is owned by the lowest common ELK compound containing both endpoints; group-local edges live on that group and only genuinely cross-compound relations remain root-owned.
 - Landscape profile: usable aspect `>= 1.2`, `RIGHT`, target aspect `1.6`; portrait: below `1.2`, `DOWN`, target aspect `0.75`; ELK uses a fixed random seed.
-- Node boxes: endpoint summaries `448x448`, expanded members `96x96`, other glyphs `112x112`; compound padding `48`; sibling group separation and route-to-node clearance `96`; route-to-route spacing `192`; intersection epsilon `0.01`, all world units. Routed PathLayer joints are rounded so the rendered stroke matches the capsule clearance oracle.
+- Node boxes: visible collapsed endpoint summaries `448x448`, hidden expanded gateways with the named `112` world-unit outer-envelope size (`112x112`), expanded members `96x96`, and other glyphs `112x112`; compound padding `48`; sibling group separation and route-to-node clearance `96`; route-to-route spacing `192`; intersection epsilon `0.01`, all world units. Routed PathLayer joints are rounded so the rendered stroke matches the capsule clearance oracle.
+- Managed overview outer-radius caps are `10` CSS pixels for ordinary/member glyphs, `20` for collapsed summaries, and `12` for anchors; managed route-width caps are `10` CSS pixels in overview and `12` in detail. Density is presentation-only and cannot change ELK inputs, accepted node/group geometry, or route centerlines.
 - Label padding is `4` CSS pixels; layout tolerance is `0.01` world units; browser tolerance is `1` CSS pixel; Fit performs at most two passes.
 - Existing visible-member limits and zoom-tier label budgets remain authoritative upper bounds; edge labels stay suppressed in the overview.
 - Standard `PathLayer` uses one deterministic dominant/status color per route; bent-route particles are disabled until path-distance sampling exists.
 - Preserve user changes and unrelated files; use `apply_patch` for tracked file edits.
 - Before any Bazel command, verify `.bazelrc.remote` exists in the worktree. Do not read generated Bazel output.
+- Do not add a portrait-only packer or post-layout transform. Native one-call ELK packing experiments were rejected because some lost cross-hierarchy route sections and the variants that preserved all routes still provided insufficient portrait fit scale.
 
 ---
 
@@ -157,7 +162,7 @@ Expected: FAIL because the ELK scene adapter does not exist.
 
 - [ ] **Step 3: Implement constants, builder, decoder, and validation**
 
-Use the exact Global Constraints. Build root and compound options with `elk.algorithm=layered`, `elk.hierarchyHandling=INCLUDE_CHILDREN`, `elk.edgeRouting=ORTHOGONAL`, fixed seed, explicit node/group spacing, and stable child/edge order. Decode node centers separately from group bounds. Resolve edge section offsets from `edge.container`. Reject non-finite geometry, invalid section counts, overlapping non-nested boxes, members outside groups, and route intersections with nonincident padded interiors.
+Use the exact Global Constraints. Build root and compound options with `elk.algorithm=layered`, `elk.hierarchyHandling=INCLUDE_CHILDREN`, `elk.edgeRouting=ORTHOGONAL`, fixed seed, explicit node/group spacing, and stable child/edge order. Store each edge exactly once on the lowest common compound containing its endpoints. Decode node centers separately from group bounds. Resolve edge section offsets from `edge.container`. Reject non-finite geometry, mismatched source/target arrays, invalid section counts, endpoint-detached routes, overlapping non-nested boxes, members outside groups, and route intersections with nonincident padded interiors.
 
 - [ ] **Step 4: Add a real-ELK failing integration test**
 
@@ -332,6 +337,7 @@ git commit -m "feat(topology): declutter labels in screen space"
 - Produces: `measureGodViewSafeRect(el)` from actual control/status DOM bounds.
 - Produces: `fitTopologyScene({scene, viewport, safeRect, glyphBoxes, admitLabels})` returning `{viewState, admittedLabels}` after at most two passes.
 - Produces: `focusTopologyGroup({scene, groupId, viewport, safeRect})`.
+- Produces: a feasible managed density selection whose role-specific fixed-pixel caps apply without replacing or mutating `scene`.
 - Consumes: Task 2 scene bounds/groups/routes and Task 4 label admission.
 
 - [ ] **Step 1: Write failing Fit and focus tests**
@@ -356,7 +362,7 @@ Expected: FAIL because current Fit only uses node centers/radii and focus uses a
 
 - [ ] **Step 3: Implement the pure two-pass solver and integrate view methods**
 
-Fit scene world geometry with measured safe insets and conservative glyph allowance, admit labels, refit once only when retained labels escape the safe rectangle, then re-admit/cull. Focus only the selected compound group, anchor, and trunk. Use one offset-sign convention. Keep managed views in local zoom tier so the ELK scene is not immediately replaced by regional grid clustering.
+Fit scene world geometry with measured safe insets and conservative glyph allowance, prefer the detail presentation, and select overview only when its role-specific caps are required for feasibility. Admit labels, refit once only when retained labels escape the safe rectangle, then re-admit/cull. Focus only the selected compound group, anchor, and trunk. Use one offset-sign convention. Keep managed views in local zoom tier so the ELK scene is not immediately replaced by regional grid clustering. Density selection must reuse the exact accepted ELK nodes, groups, and route points.
 
 - [ ] **Step 4: Add ResizeObserver profile tests**
 
@@ -414,7 +420,7 @@ At a pinned `1920x1080` CSS viewport with DPR `1`, reduced motion, disabled anim
 
 - [ ] **Step 4: Add the Bazel acceptance target and run it explicitly**
 
-Declare the browser test and fixture inputs in a Bazel target tagged `acceptance_test`; use the repository's pinned browser/runtime mechanism and output screenshot/trace artifacts through declared test outputs.
+Declare the browser test and fixture inputs in a Bazel target tagged `acceptance_test`; use the repository's pinned browser/runtime mechanism and output screenshot/trace artifacts through declared test outputs. The final flow must also prove portrait overview feasibility with the exact density caps while retaining the accepted ELK geometry, collapse/re-expand invariants, and all nine declared outputs.
 
 Run: `test -f .bazelrc.remote && bazel test -c opt --config=remote //elixir/web-ng/test/playwright:god_view_elk_scene_acceptance --test_output=errors`
 
@@ -435,7 +441,7 @@ openspec validate fix-topology-islands-and-cluster-expansion --strict
 openspec validate refactor-topology-read-model-for-carrier-scale --strict
 ```
 
-Expected: every command exits zero with no test warnings attributable to this change.
+Expected: every branch-owned check exits zero with no warning attributable to this change. If `make test-toolchains` reaches the known Go `-coverpkg` upstream-BOM failure at `github.com/cilium/ebpf@v0.22.0/asm/func_lin.go:1:1`, preserve that task as unchecked and record the exact evidence; do not misreport it as green or alter product code to hide it.
 
 - [ ] **Step 6: Mark verified OpenSpec tasks and commit gates**
 

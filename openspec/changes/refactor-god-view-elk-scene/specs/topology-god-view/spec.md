@@ -86,6 +86,8 @@ The system SHALL distinguish visual-only filter toggles from structural reshape 
 ### Requirement: ELK is the single visible topology geometry authority
 The God-View client SHALL produce the complete bounded visible topology scene through one compound ELK layout invocation. It SHALL NOT apply a second backbone, satellite, endpoint-cluster, route, fallback, or backend-coordinate projection pass to the accepted result.
 
+Managed visual density SHALL remain presentation-only state. It MAY change fixed-pixel glyph radii, rendered route widths, and label candidate budgets, but it SHALL NOT change the semantic graph, ELK input geometry, accepted node/group coordinates, or accepted route points.
+
 #### Scenario: Collapsed topology uses one layout authority
 - **GIVEN** a bounded snapshot with infrastructure nodes and collapsed endpoint summaries
 - **WHEN** the client computes topology geometry
@@ -110,8 +112,18 @@ The God-View client SHALL produce the complete bounded visible topology scene th
 - **THEN** the surface SHALL show a recoverable layout error
 - **AND** it SHALL NOT invent geometry with a radial, spiral, lane, grid, fallback, or backend coordinate path
 
+#### Scenario: Presentation density reuses the accepted scene
+- **GIVEN** an accepted ELK scene and a camera scale that requires a different managed visual density
+- **WHEN** the renderer changes glyph, route, or label presentation extents
+- **THEN** normalized node, group, and route geometry SHALL remain unchanged
+- **AND** the client SHALL NOT invoke ELK or a post-layout packing pass solely for the density change
+
 ### Requirement: Expanded endpoint clusters are compound layout groups
 The God-View client SHALL represent each expanded endpoint cluster as a compound layout group allocated together with the rest of the bounded graph. Every member SHALL be contained by its group, and non-nested node and group boxes SHALL NOT overlap.
+
+A visible collapsed summary SHALL reserve its conservative `448x448` world-unit ELK envelope. When expanded, the same non-rendered gateway SHALL reserve the named `112x112` world-unit outer envelope appropriate to routing and packing rather than retaining the visible-summary envelope.
+
+Each rendered or layout-only relation SHALL be owned by the lowest common ELK compound containing both endpoints. A relation whose endpoints belong to the same expanded group SHALL be group-owned; only a relation that crosses compound boundaries SHALL be root-owned.
 
 #### Scenario: Expanded members remain inside their group
 - **GIVEN** an endpoint cluster with bounded visible membership
@@ -131,6 +143,13 @@ The God-View client SHALL represent each expanded endpoint cluster as a compound
 - **THEN** the summary SHALL act as a non-rendered gateway inside the compound group
 - **AND** the scene SHALL retain one rendered anchor-to-group trunk
 - **AND** layout-only member constraints SHALL NOT create a rendered fan of duplicate trunks
+
+#### Scenario: Compound-local relations use their lowest common owner
+- **GIVEN** an expanded group containing two relation endpoints
+- **WHEN** the client builds the compound ELK graph
+- **THEN** that rendered or layout-only relation SHALL be stored on the group owner exactly once
+- **AND** it SHALL NOT be duplicated on the root edge array
+- **AND** relations crossing group boundaries SHALL remain root-owned
 
 ### Requirement: Rendered relations are canonicalized before ELK
 The God-View client SHALL collapse semantic relations into stable rendered-route entities before building the ELK graph. Each rendered entity SHALL have one canonical direction, one stable ELK edge identifier, and a sorted list of contributing semantic relation identifiers.
@@ -201,6 +220,8 @@ After applying configured zoom-tier candidate budgets, the God-View renderer SHA
 ### Requirement: Managed camera operations use complete visual bounds
 God-View initial view and Fit SHALL contain the complete visual scene inside the measured safe viewport. Focus SHALL contain the selected neighborhood's complete visual bounds. Both SHALL account for relevant nodes, compound groups, routed edges, glyph extents, admitted labels, and interface safe areas through one coordinate convention.
 
+Managed views SHALL prefer the detail presentation when it is feasible. When detail is infeasible but overview is feasible, overview SHALL cap ordinary and expanded-member outer radii at `10` CSS pixels, collapsed-summary outer radii at `20` CSS pixels, endpoint-anchor outer radii at `12` CSS pixels, and rendered route widths at `10` CSS pixels. Detail rendered route widths SHALL be capped at `12` CSS pixels.
+
 #### Scenario: Fit avoids controls and status chrome
 - **GIVEN** a scene whose content extends toward the control panel or status strip
 - **WHEN** the operator invokes Fit
@@ -224,6 +245,13 @@ God-View initial view and Fit SHALL contain the complete visual scene inside the
 - **WHEN** the client computes initial view, Fit, or focus
 - **THEN** projected glyph boxes SHALL NOT overlap each other within browser tolerance
 - **AND** members that cannot fit at the minimum supported managed-view scale SHALL remain summarized by the configured upstream budget
+
+#### Scenario: Portrait managed view selects a feasible presentation contract
+- **GIVEN** one accepted portrait-profile ELK scene whose fixed-pixel detail extents cannot fit without collision
+- **WHEN** the client computes initial view, Fit, focus, or a manual managed view
+- **THEN** it SHALL select the first feasible detail-or-overview presentation contract
+- **AND** overview glyph and route extents SHALL obey the role-specific caps
+- **AND** the accepted ELK nodes, groups, and route points SHALL remain unchanged
 
 #### Scenario: Fit is bounded and idempotent
 - **GIVEN** unchanged scene and viewport inputs
