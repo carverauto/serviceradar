@@ -266,8 +266,25 @@ the legacy producers.
   `sync_ingestor_passive_netprobe_identity_test.exs`. Falsified by mutation -- emptying
   `enrichment_only_source?/1` fails exactly the three create-nothing tests. 74 tests, 0 failures
   (previously 11 failures, all the setup crash).
-- [ ] 7.3 e2e on `alma-test01`: netprobe emits `DISCOVERY_V1` → agent forwards → core ingests →
-  devices appear with the same identity they had before the cutover (compare against the 1.5 fixtures)
+- [~] 7.3 e2e on `alma-test01` -- HOST HALF PROVEN, CORE HALF NOT. Staged netprobe 0.2.51
+  (`//build/native_addons:stage_netprobe_addon`) and an agent built from this branch
+  (`//build/packaging/agent:stage_agent_rpm`), both scp'd to the lab host. Proven on the wire:
+  netprobe serves `AddonService` on `/run/serviceradar/netprobe/addon.sock` at mode **0600**
+  (the `restrict_socket_permissions` read-back guard), the agent pump attaches
+  ("stream attached; discovery is flowing"), and it RECONNECTS after netprobe restarts.
+  Two things e2e caught that no unit test did:
+  (a) `collector_ip` is resolved ONCE per `StreamTelemetry` stream, so if the pump attaches before
+      the first `Configure` lands, `process.v1` is silently unserved for the life of that stream --
+      the schema only appeared after a netprobe restart that read `collector_ip` from bootstrap.
+      `RuntimeConfig::apply` is correct (updates when non-empty, never wipes); the ordering is the
+      gap.
+  (b) "stream attached" only logs on the first DELIVERED batch, which waits for the census snapshot
+      interval (~2 min), not the per-observation events. An attached-but-silent pump is
+      indistinguishable from a broken one for that window.
+  NOT proven: core ingestion. alma-test01 streams to `agent-gateway.k8s-farm.carverauto.dev`
+  (farm01), whose core runs a RELEASED build with no `netprobe.*.v1` registry entries -- so the
+  payloads that MOVED are expected to be dropped as unregistered schemas there. Confirming the
+  ingest half needs a core built from this branch, not the farm01 fleet.
 - [ ] 7.4 **PARTIALLY DEMONSTRATED, NOT MET.** Three schemas were added end-to-end
   (`fingerprint.v1`, `dpi.v1`, `process.v1`) with **zero agent and zero gateway changes** -- the
   pump forwards batches verbatim, which is the property this contract exists for. But each needed
