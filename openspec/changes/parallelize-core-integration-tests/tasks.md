@@ -98,14 +98,15 @@
       release-signing configuration, dispatcher telemetry filtering, sync/cache identifiers,
       identity telemetry, remote-access session races, and agent-command-bus global processes.
       Promote each safe remainder and retain exact serial quarantine for every extracted blocker.
-- [ ] 3.16 Build the final exhaustive checked-in disposition with one unique `(source, module)` row
+- [x] 3.16 Build the final exhaustive checked-in disposition with one unique `(source, module)` row
       for every selected DataCase/non-DataCase module and one load-only sentinel only for a source
       with zero selected modules. Prove all-source and pruned-source selected test identities are
       equal before excluding unit-only files from integration shards; reject missing, duplicate,
       fixed-resource-async, mixed-selected-mode, and module-local global configuration cases.
-      Status: the 777-source / 259-selected-module disposition and exact Starlark projection are
-      checked in and statically enforced; the real all-source/pruned-source ExUnit identity
-      equivalence run remains pending.
+      Status: the 778-source / 278-selected-module disposition, exact Starlark projection, and real
+      ExUnit-filter equivalence are checked in and enforced. The first real run found 19 modules
+      whose nested support macro injects `:requires_app`; those false load-only rows are now serial
+      integration coverage, and mutation testing proves an omitted selected identity fails.
 - [x] 3.17 Complete the exhaustive audit, split every mixed selected-mode source, and freeze one
       async source set plus serial source set before timing; exclude load-only sources.
 - [x] 3.18 Pin every ordinary BEAM's Repo pool at 12 and implement the proposal-time frozen topology:
@@ -204,9 +205,9 @@
 ## 6. Repository verification
 - [x] 6.1 Reconcile implementation with `complete-config-manager-adoption`,
       `route-bazel-cache-through-shared-edge`, and `add-srql-fixture-cert-manager-tls`.
-      Status: merged current `github/staging` through `ff55b6726c` and re-audited all 12 core test
-      sources added through `ce705b844b`; the four later staging commits touch only netprobe, so the
-      exhaustive disposition remains 777 source rows and 259 selected modules.
+      Status: merged current `github/staging` through `2f13a5f1b9`; the latest core source,
+      `interface_ip_alias_test.exs`, is a real-ExUnit-verified load-only source. The exhaustive
+      disposition now contains 778 source rows and 278 selected modules.
 - [ ] 6.2 Run focused Elixir support tests, Rust lifecycle tests, Bazel configuration tests, the
       async target, every selected serial target, and the large-ingestion release gate.
       Status: focused/static contracts and local target-equivalent shard/heavy runs are green; the

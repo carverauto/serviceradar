@@ -282,6 +282,7 @@ test/serviceradar/identity/current_user_authority_test.exs	-	not_selected	load_o
 test/serviceradar/identity/device_authorization_test.exs	-	not_selected	load_only	not_selected	Static selection audit: this ALL_TEST_SRCS source has zero :integration/:requires_app identities; formatter not run.
 test/serviceradar/identity/device_lookup_alias_test.exs	ServiceRadar.Identity.DeviceLookupAliasTest	data_case	serial	global_cache	test:22-29 clears application-supervised IdentityCache
 test/serviceradar/identity/identity_cache_test.exs	ServiceRadar.Identity.IdentityCacheTest	non_data_case	serial	global_process	test:9-35 starts and rewrites global IdentityCache GenServer state
+test/serviceradar/identity/interface_ip_alias_test.exs	-	not_selected	load_only	not_selected	Real ExUnit selection manifest: ServiceRadar.Identity.InterfaceIpAliasTest has no :integration/:requires_app identity; its load-only chunk emits zero selected identities.
 test/serviceradar/identity/password_hash_test.exs	-	not_selected	load_only	not_selected	Static selection audit: this ALL_TEST_SRCS source has zero :integration/:requires_app identities; formatter not run.
 test/serviceradar/identity/rbac/catalog_test.exs	-	not_selected	load_only	not_selected	Static selection audit: this ALL_TEST_SRCS source has zero :integration/:requires_app identities; formatter not run.
 test/serviceradar/identity/role_mapping_support_test.exs	-	not_selected	load_only	not_selected	Static selection audit: this ALL_TEST_SRCS source has zero :integration/:requires_app identities; formatter not run.
