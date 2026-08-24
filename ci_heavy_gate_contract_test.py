@@ -1511,9 +1511,9 @@ class WorkflowIntegrationLifecycleContractTest(unittest.TestCase):
         selected = [row for row in rows if row["mode"] in SELECTED_MODES]
         load_only = [row for row in rows if row["mode"] == "load_only"]
 
-        self.assertEqual(279, len(selected))
-        self.assertEqual(502, len(load_only))
-        self.assertEqual(781, len(rows))
+        self.assertEqual(283, len(selected))
+        self.assertEqual(503, len(load_only))
+        self.assertEqual(786, len(rows))
         self.assertEqual(
             set(ordinary_core_test_sources()),
             {row["source"] for row in rows},

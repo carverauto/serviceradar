@@ -9,18 +9,13 @@ defmodule ServiceRadar.Inventory.DeviceMetadataMergeTest do
   quietly went back to an older value -- which is why it survived long enough to
   block a remediation pass.
   """
-  use ServiceRadar.DataCase, async: false
+  use ServiceRadar.DataCase, async: true
 
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Inventory.Device
   alias ServiceRadar.Inventory.SyncIngestor
 
   require Ash.Query
-
-  setup_all do
-    ServiceRadar.TestSupport.start_core!()
-    :ok
-  end
 
   setup do
     {:ok, actor: SystemActor.system(:device_metadata_merge_test)}
