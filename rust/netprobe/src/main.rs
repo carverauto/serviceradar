@@ -271,6 +271,7 @@ async fn main() -> Result<()> {
             env!("CARGO_PKG_VERSION"),
             census_snapshot_tx.clone(),
             mdns_snapshot_tx.clone(),
+            process_snapshot_tx.clone(),
             // The SAME RuntimeConfig the IPC server holds, so both channels
             // converge on one VisibilityState rather than two that can disagree
             // about what is currently applied.
@@ -305,7 +306,6 @@ async fn main() -> Result<()> {
             dpi_event_rx,
             flow_attribution_event_tx,
             flow_attribution_event_rx,
-            process_snapshot_tx,
             census_snapshot_tx,
             mdns_snapshot_tx,
             external_flow_matcher,
