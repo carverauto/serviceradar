@@ -101,7 +101,51 @@
   gain real snapshot semantics, fixing today's partial-fragment device updates (netprobe splits them
   across frames with no chunk fields)
 - [ ] 5.5 Move banner matching to `AddonService.RunCommand`; the confidence and unknown-corpus filters
-  move into netprobe
+  move into netprobe.
+
+  **DESIGNED AND NOT BUILT -- as written this does not achieve its purpose.**
+  Verified 2026-08-24:
+
+  * **The filters are nearly a no-op.** `rust/netprobe/src/ipc/match_banner.rs`
+    returns exactly ONE `BannerMatch` per observation, in order, using an
+    `unknown_match` sentinel (`corpus_label: "unknown"`, `confidence: 0.0`) for a
+    miss -- padding that exists only to keep the response positionally 1:1. The
+    agent's two filters (`banner_grab_handler.go:160`) delete exactly that
+    padding: there is no match with `confidence <= 0` and a non-"unknown" label,
+    nor "unknown" with `confidence > 0`. "Move the filters into netprobe" means
+    "stop emitting the padding".
+  * **It does not unblock the 5.4 deletion.** Read literally (RunCommand returns
+    matches) the agent still runs `bannerMatchToFingerprintEvent` ->
+    `EnqueueFingerprintEvent` -> `s.events` -> `DrainEvents` -> `translator.go`.
+    Only the wire changes.
+  * **Do NOT collapse active fingerprints into `serviceradar.netprobe.fingerprint.v1`.**
+    The ingestor stamps the top-level source from the registry, so they would
+    arrive as `passive-netprobe` and a device's `discovery_sources` would stop
+    saying `sweep_active`. An active banner grab is the strongest present-tense
+    evidence of address occupancy netprobe produces -- a completed TCP handshake
+    plus an application banner, unspoofable off-path -- and should not be filed
+    under the passive source. If they ever move, register a SECOND schema whose
+    registry entry carries `source: "sweep_active"`.
+  * **Two prerequisites do not exist.** netprobe cannot construct a
+    `FingerprintEvent` (the agent supplies host/timestamp/protocol from its own
+    `BannerObservation`), and the agent has NO RunCommand client for netprobe --
+    `AttachManager` builds only the StreamTelemetry pump.
+  * **Rollout:** the add-on ships independently (`delivery: pushed-artifact`,
+    `base_agent: ">=1.2.0"`, a floor), so the agent must try RunCommand and FALL
+    BACK to the IPC `MatchBanners`; the IPC call may only be deleted a release
+    later, once the netprobe version implementing it has converged.
+
+  **Checked and NOT a problem** (recorded so it is not re-raised): a review
+  claimed a stale alias would capture these observations. It does not.
+  `Lookups.lookup_alias_device_ids_by_ip` filters `state in [:confirmed, :updated]`,
+  and every `find_device_uid_by_alias` caller in `mapper_results_ingestor.ex`
+  resolves by primary IP FIRST (`find_live_device_uid_by_ip:586`,
+  `resolve_or_create_topology_candidate_uid:729`, `do_ensure_candidate_device:1376`,
+  `resolve_device_ids:1455` before `create_missing_devices:1458`). The alias path
+  is reached only when no device owns the address directly. The narrow residual
+  case is an address whose own device is absent or soft-deleted, where a `:stale`
+  alias can both mis-attribute and be reactivated (`maybe_reactivate_alias:1736`).
+
 - [ ] 5.6 Move flow attribution to a generalized acked relay: generalize `RelayOtlp`'s hardcoded
   identity constants and the gateway's `otlp_relay_publisher.ex` routing. Keep
   `FlowAttributionEventBatch` payload bytes byte-identical so the hand-mirrored
