@@ -773,6 +773,18 @@ defmodule ServiceRadar.Inventory.Sync.DeviceWrites do
           #
           # A device whose only known address is link-local keeps it: its current
           # rank is then equal, not higher, so the incoming value still applies.
+          #
+          # LEAST(rank, 40) collapses global and private into ONE routable tier
+          # for this comparison. Both are legitimate primary addresses, and a
+          # host re-addressed from a public to an RFC1918 address is a real move,
+          # not noise -- comparing the fine-grained ranks would refuse it and
+          # freeze the device on a stale public address. The finer ranking still
+          # applies where it belongs, in Identity.Address.best/1, which chooses
+          # among addresses known at the SAME time.
+          #
+          # What stays blocked is what this guard is for: ULA (30) and link-local
+          # (20) cannot overwrite anything routable, and nothing can overwrite
+          # with an address that is never a primary (0).
           ip:
             fragment(
               """
@@ -780,7 +792,8 @@ defmodule ServiceRadar.Inventory.Sync.DeviceWrites do
                 WHEN EXCLUDED.ip IS NULL THEN ?
                 WHEN btrim(EXCLUDED.ip) = '' THEN NULL
                 WHEN ? IS NULL THEN EXCLUDED.ip
-                WHEN platform.sr_address_rank(EXCLUDED.ip) >= platform.sr_address_rank(?)
+                WHEN LEAST(platform.sr_address_rank(EXCLUDED.ip), 40)
+                     >= LEAST(platform.sr_address_rank(?), 40)
                   THEN EXCLUDED.ip
                 ELSE ?
               END

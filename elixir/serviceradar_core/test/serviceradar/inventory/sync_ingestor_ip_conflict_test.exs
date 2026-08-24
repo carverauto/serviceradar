@@ -459,6 +459,41 @@ defmodule ServiceRadar.Inventory.SyncIngestorIpConflictTest do
              "a same-class re-IP was refused; devices would freeze at their first address"
     end
 
+    test "a public-to-private re-address is NOT refused", %{actor: actor} do
+      # global outranks private in Identity.Address, which is right when choosing
+      # among addresses known at once. Applying that to the upsert would freeze a
+      # host that genuinely moved from a public to an RFC1918 address on its
+      # stale public one -- so the downgrade check collapses both into one
+      # routable tier.
+      mac = unique_universal_mac()
+      public_ip = "203.0.113.#{:rand.uniform(200) + 20}"
+      private_ip = unused_private_ip()
+
+      assert :ok = SyncIngestor.ingest_updates([mac_update(mac, public_ip)], actor: actor)
+      assert device_ip_for_mac(mac, actor) == public_ip
+
+      assert :ok = SyncIngestor.ingest_updates([mac_update(mac, private_ip)], actor: actor)
+
+      assert device_ip_for_mac(mac, actor) == private_ip,
+             "a genuine public->private re-address was refused; the device would be frozen on a stale public address"
+    end
+
+    test "a ULA still cannot overwrite a routable primary", %{actor: actor} do
+      mac = unique_universal_mac()
+      routable = unused_private_ip()
+
+      assert :ok = SyncIngestor.ingest_updates([mac_update(mac, routable)], actor: actor)
+
+      assert :ok =
+               SyncIngestor.ingest_updates(
+                 [mac_update(mac, "fd2f:420a:24b1:1:f692:bfff:fe75:c7ef")],
+                 actor: actor
+               )
+
+      assert device_ip_for_mac(mac, actor) == routable,
+             "a ULA clobbered a routable primary"
+    end
+
     test "a routable address promotes a link-local primary", %{actor: actor} do
       mac = unique_universal_mac()
       link_local = "fe80::f692:bfff:fe75:c7ab"
