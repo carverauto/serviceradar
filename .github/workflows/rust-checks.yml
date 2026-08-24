@@ -76,7 +76,7 @@ jobs:
     # why tests are Bazel-only.
     steps:
       - name: Checkout
-        uses: actions/checkout@v7
+        uses: actions/checkout@v7.0.1
 
       - name: Install Socket Firewall
         run: bash scripts/ci/install-sfw.sh
@@ -206,7 +206,7 @@ jobs:
     # RustSec advisories for rust/rdp-connector-probe, the review-only IronRDP probe.
     steps:
       - name: Checkout
-        uses: actions/checkout@v7
+        uses: actions/checkout@v7.0.1
 
       - name: Install Socket Firewall
         run: bash scripts/ci/install-sfw.sh
