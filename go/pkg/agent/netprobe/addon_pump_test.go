@@ -41,7 +41,6 @@ type fakeAddonService struct {
 
 	batches        []*addonpb.TelemetryBatch
 	closeAfterSend bool
-	released       chan struct{}
 }
 
 func (f *fakeAddonService) StreamTelemetry(
@@ -64,7 +63,8 @@ func (f *fakeAddonService) StreamTelemetry(
 func startFakeAddonService(t *testing.T, socketPath string, svc *fakeAddonService) {
 	t.Helper()
 
-	listener, err := net.Listen("unix", socketPath)
+	var lc net.ListenConfig
+	listener, err := lc.Listen(context.Background(), "unix", socketPath)
 	require.NoError(t, err)
 
 	server := grpc.NewServer()
