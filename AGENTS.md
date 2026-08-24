@@ -146,6 +146,11 @@ Keep this managed block so 'openspec update' can refresh the instructions.
     has run. "The delete returned `{:ok, ...}`" is not evidence the row is gone.
   - Prefer an audit record that is **append-only**. An audit that can reject a
     write grows a bypass flag, and the bypass becomes the default.
+  - Device revivals are now recorded: a trigger writes
+    `platform.device_revival_audit` whenever `deleted_at` goes from set to NULL,
+    capturing the `deleted_by`/`deleted_reason` the revival is about to destroy.
+    If a deletion you made appears to have been undone, query that table by
+    `device_uid` rather than re-deleting and hoping.
 
 - **A verification must be able to FAIL, and you must read what it actually
   printed.** Three times in one session a check — not the system — was the broken
