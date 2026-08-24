@@ -204,11 +204,18 @@ jobs:
         run: make verify-proto-elixir
       # TESTS MOVED TO BAZEL.
       #
-      # 33 sequential `mix test --no-start` steps and one `go test` used to live here. Measured at
-      # the exact head this replaced, the whole job took 12m26s; the six focused Bazel targets run
-      # in 2m22s cold and in parallel. That is the honest comparison -- this job still pays for
-      # toolchain setup, buf lint and the two drift guards, so the end-to-end saving is the test
-      # portion, not the whole 12m26s.
+      # 33 sequential `mix test --no-start` steps and one `go test` used to live here.
+      #
+      # MEASURED, end to end, not estimated: this job took 12m26s before and 9m28s after -- about
+      # 24%. The dramatic-sounding numbers quoted while this was in review (20m44s, then 2m22s)
+      # were both misleading: 20m44s was an older run, and 2m22s is the six focused Bazel targets
+      # in isolation, not this job. The mix steps ran against an already-compiled project and were
+      # cheap; toolchain setup, the protoc build, deps.get and the two drift guards dominate what
+      # remains.
+      #
+      # SPEED IS THE SMALLER WIN. The larger ones are that these suites now run under Bazel at all
+      # on this branch (cached, parallel, on the workflow fleet), and that a target discovers a new
+      # test file while a hand-maintained list of step names does not.
       #
       # Every file the removed steps named is ALREADY a Bazel target:
       #   31 files -> //elixir/serviceradar_core:unit_tests_serviceradar_edge
