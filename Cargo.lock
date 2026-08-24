@@ -178,7 +178,7 @@ checksum = "cfa1d93f62e8fe460d28c08cb79c63dcb7da0a27225c32333ec5d43fd7cf4a64"
 dependencies = [
  "ahash 0.8.12",
  "anyhow",
- "bgpkit-parser",
+ "bgpkit-parser 0.15.0",
  "bytes",
  "chrono",
  "metrics",
@@ -753,6 +753,24 @@ dependencies = [
  "num_enum",
  "regex",
  "serde",
+]
+
+[[package]]
+name = "bgpkit-parser"
+version = "0.20.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7c58fcccfe233d986f01f79d34af0dc17fb29174b8d3ca0af72436f2a08af9e0"
+dependencies = [
+ "bitflags 2.13.1",
+ "bytes",
+ "chrono",
+ "ipnet",
+ "itertools 0.15.0",
+ "log",
+ "num_enum",
+ "regex",
+ "smallvec",
+ "zerocopy",
 ]
 
 [[package]]
@@ -3162,6 +3180,15 @@ name = "itertools"
 version = "0.14.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "2b192c782037fadd9cfa75548310488aabdbf3d2da73885b31bd0abd03351285"
+dependencies = [
+ "either",
+]
+
+[[package]]
+name = "itertools"
+version = "0.15.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8b4baf93f58d4425749ca49a51c50ebab072c5df6994d08fed93541c331481dc"
 dependencies = [
  "either",
 ]
@@ -6342,7 +6369,7 @@ dependencies = [
  "anyhow",
  "arancini-lib",
  "async-nats",
- "bgpkit-parser",
+ "bgpkit-parser 0.20.0",
  "bytes",
  "chrono",
  "clap 4.6.6",
@@ -6917,6 +6944,9 @@ name = "smallvec"
 version = "1.15.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8ed6a63f02c8539c91a8685a86f4099661ba3da017932f6ebbea6de3f0fa7c90"
+dependencies = [
+ "serde",
+]
 
 [[package]]
 name = "smartstring"
@@ -7603,7 +7633,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "32497e9a4c7b38532efcdebeef879707aa9f794296a4f0244f6f69e9bc8574bd"
 dependencies = [
  "fastrand",
- "getrandom 0.3.4",
+ "getrandom 0.4.3",
  "once_cell",
  "rustix 1.1.4",
  "windows-sys 0.61.2",
