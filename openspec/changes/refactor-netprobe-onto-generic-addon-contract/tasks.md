@@ -291,6 +291,11 @@ the legacy producers.
   matches 0 devices and `192.168.1.171` matches 1 -- so the payload is correctly DROPPED by the
   enrichment-only rule instead of minting an IP-squatting device. The policy is working; the
   input is wrong. Any DPI subject choice on that host is mislabelled the same way.
+  ENRICHMENT-ONLY VERIFIED IN PRODUCTION, not just in tests: across farm01's entire device
+  population including soft-deleted rows, 23 devices have ever carried `mdns.*` metadata and
+  **0** of them lack `device_census.*` evidence (83 devices carry census evidence). Every device
+  mDNS has ever touched was established by the census first, so mDNS has never minted one. The
+  check is falsifiable -- a single mDNS-created device would make that second count nonzero.
   Two ordering facts e2e caught that no unit test did:
   (a) `collector_ip` is resolved ONCE per `StreamTelemetry` stream, so a pump that attaches before
       the first `Configure` leaves `process.v1` unserved for that stream's life.
