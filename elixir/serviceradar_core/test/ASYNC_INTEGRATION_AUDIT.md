@@ -1,30 +1,33 @@
-# Async integration audit
+# Integration concurrency audit
 
-This record is the first, deliberately conservative, async wave for the core
-integration shards. Each promoted module uses the non-shared rollback-only
-`ServiceRadar.DataCase` owner supplied to its test process. None starts a
-database child process, so none needs `ServiceRadar.DataCase.allow_sandbox/1`.
+This file originally recorded the first two-module async experiment. That snapshot has been
+superseded by the exhaustive inventory in
+`elixir/serviceradar_core/test/INTEGRATION_SOURCE_DISPOSITIONS.tsv`. The TSV records every source
+in `ALL_TEST_SRCS`, every selected module's async or serial disposition, and the code evidence for
+that decision. `build/integration_test_dispositions.bzl` is its generated projection; the CI
+contract requires the two to agree exactly.
 
-## Promoted modules
+## Current topology
 
-| Source | Transaction and identifier evidence | Excluded shared-state behavior |
-| --- | --- | --- |
-| `test/integration/advisory_feed_loader_integration_test.exs` | Loader reads and writes in the test body use the test's Repo owner. The `loader-itest-#{System.unique_integer(...)}` feed key scopes the provider/feed rows and coordinates to one test. The `on_exit` cleanup runs in a separate process, is best-effort, and is not relied on for isolation; the rollback-only DataCase owner rolls the test body back. | No unboxed mode, DDL, application mutation, external service, global database worker, or child process. |
-| `test/integration/secret_broker_audit_integration_test.exs` | Provider, secret, and audit writes execute synchronously through the calling test transaction. The provider name, secret name, external reference, grant ID, and consumer ID include one `System.unique_integer/1` value. | No unboxed mode, DDL, application mutation, external service, global database worker, or child process. |
+- `integration_tests_async` runs all audited async sources in one BEAM with `max_cases: 8`.
+- `integration_tests_serial_0` through `integration_tests_serial_6` split the remaining selected
+  sources across seven BEAMs, each with `max_cases: 1`.
+- Every BEAM receives its own disposable `srql-fixtures` database clone. No lane uses demo,
+  production, or the shared fixture database itself.
+- Fixed external-resource tests (NetFlow ingestion, ad-hoc scan NATS E2E, and Proxmox smoke) are
+  serial and confined together to `serial_0`; they are never distributed across concurrent BEAMs.
 
-## Explicit serial decisions
+`build/integration_shards.bzl` owns these lane names, concurrency caps, and the deterministic
+source partition.
 
-| Source or lane | Reason it remains serial |
-| --- | --- |
-| Credential event writer | Mutates application environment to exercise the success-event flag. |
-| Credential broker grant lifecycle | `setup_all` starts core and mutates application configuration. |
-| Ordinary ResultsRouter | Mutates three application environment values for ingestion behavior. |
-| First-user role assignment | Uses unboxed sandbox mode, `TRUNCATE`, and true multiple database connections. |
-| Onboarding package atomicity | Uses unboxed mode, global crypto configuration, and lock-visibility behavior. |
-| Remote access sessions | Mutates application configuration, uses task concurrency, and performs committed cleanup. |
-| Composite check, rule, input, and device-result modules | Each creates `CompositeCheck`, whose registered `ScheduleNotifier.notify/1` calls `EvaluationWorker.cancel/1` for the draft record; that calls global `Oban.cancel_all_jobs/1`. This application-supervised database worker cannot be shared by concurrent owners. |
-| NetFlow ingestion | Uses a fixed external NATS resource and is pinned to the serial `s7` lane. |
-| Ad-hoc scan NATS E2E | Uses a fixed external NATS resource and is pinned to the serial `s7` lane. |
-| Proxmox smoke | Uses a fixed external resource and is pinned to the serial `s7` lane. |
+## Representative dispositions
 
-Rollup and `RemoteAccessHostKeys` are intentionally outside this first wave and remain serial.
+The advisory-feed loader, credential-broker grant lifecycle, secret-broker audit, and
+`RemoteAccessHostKeys` modules are currently async. Their TSV rows contain the transaction-owner
+or explicit-async evidence supporting those decisions.
+
+The credential event writer, ResultsRouter, first-user role assignment, onboarding package
+atomicity, remote-access sessions, and composite-check rollup modules remain serial because they
+touch application-global state, use unboxed or independent database connections, truncate shared
+tables, or reach global workers. The TSV is authoritative for these reasons and for every other
+selected module; this document is only an orientation to the final audit.

@@ -2,16 +2,16 @@
 # This allows unit tests to run without requiring a database
 Application.ensure_all_started(:telemetry)
 
-# Opt-in slowest-test report, for balancing the integration shards.
+# Opt-in slowest-test report, for profiling a serial integration lane.
 #
-# //build:integration_shards.bzl partitions test files using checked-in runtime hints because
-# Bazel cannot infer source cost. A historical count-balanced layout ranged from 17.9s to 103.7s
-# of ExUnit time, so the slowest shard set the wall clock while the others idled.
+# //build:integration_shards.bzl assigns audited async sources to one concurrent BEAM and balances
+# audited blockers across serial BEAMs. Bazel cannot infer runtime, so this report can identify
+# hotspots within a serial lane, but it is not benchmark or concurrency evidence.
 #
-# After the canonical fixture lifecycle provisions s6:
+# After the canonical fixture lifecycle provisions serial_6:
 #
 #   bazel test "${TEST_FLAGS[@]}" --test_env=SERVICERADAR_TEST_SLOWEST=15 \
-#     --test_output=all //elixir/serviceradar_core:integration_tests_s6
+#     --test_output=all //elixir/serviceradar_core:integration_tests_serial_6
 #
 # This is profiling-only. ExUnit's built-in slowest report enables trace, which forces
 # max_cases: 1 and changes test timeouts to :infinity. Integration runs therefore reject the
