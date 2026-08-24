@@ -26,6 +26,9 @@ defmodule ServiceRadar.TestSupport do
                                       {{"async_serial", "serial_#{index}"}, 1}
                                     end)
                                 )
+  @integration_runner_pool_sizes Map.new(@integration_runner_max_cases, fn
+                                   {runner, _max_cases} -> {runner, 12}
+                                 end)
 
   @doc "Starts core without implicitly taking database ownership."
   def start_core!(opts \\ []) do
@@ -136,6 +139,13 @@ defmodule ServiceRadar.TestSupport do
         _ -> raise ArgumentError, "SERVICERADAR_INTEGRATION_MAX_CASES must be a positive integer"
       end
 
+    if profiling? and count != 1 do
+      raise ArgumentError, """
+      SERVICERADAR_TEST_SLOWEST cannot be combined with concurrent integration execution;
+      profiling requires max_cases=1, got #{count}
+      """
+    end
+
     expected_count =
       case {@integration_runner_max_cases[{topology, lane}], profiling?} do
         {configured_count, false} when is_integer(configured_count) -> configured_count
@@ -149,6 +159,20 @@ defmodule ServiceRadar.TestSupport do
       raise ArgumentError, """
       unsupported integration runner configuration: topology=#{inspect(topology)} \
       lane=#{inspect(lane)} max_cases=#{count} profiling=#{inspect(profiling?)}
+      """
+    end
+  end
+
+  @doc "Validates the effective Repo pool against the capacity-audited runner topology."
+  def integration_repo_pool_size!(pool_size, topology, lane) do
+    expected_pool_size = @integration_runner_pool_sizes[{topology, lane}]
+
+    if is_integer(pool_size) and pool_size == expected_pool_size do
+      pool_size
+    else
+      raise ArgumentError, """
+      unsupported integration Repo pool configuration: topology=#{inspect(topology)} \
+      lane=#{inspect(lane)} pool_size=#{inspect(pool_size)} expected=#{inspect(expected_pool_size)}
       """
     end
   end

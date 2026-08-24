@@ -1144,8 +1144,8 @@ class WorkflowIntegrationLifecycleContractTest(unittest.TestCase):
         selected = [row for row in rows if row["mode"] in SELECTED_MODES]
         load_only = [row for row in rows if row["mode"] == "load_only"]
 
-        self.assertEqual(259, len(selected))
-        self.assertEqual(518, len(load_only))
+        self.assertEqual(278, len(selected))
+        self.assertEqual(499, len(load_only))
         self.assertEqual(777, len(rows))
         self.assertEqual(
             set(ordinary_core_test_sources()),
@@ -1204,8 +1204,17 @@ class WorkflowIntegrationLifecycleContractTest(unittest.TestCase):
                 r"(?m)^\s*use\s+(ServiceRadar\.DataCase|ExUnit\.Case),\s*async:\s*(true|false)\s*$",
                 block,
             )
-            self.assertEqual(1, len(declarations), row)
-            case_template, async_value = declarations[0]
+            indirect_data_case = re.findall(
+                r"(?m)^\s*use\s+ServiceRadar\.Observability\.PluginResultIngestorTestSupport\s*$",
+                block,
+            )
+            self.assertEqual(1, len(declarations) + len(indirect_data_case), row)
+
+            if indirect_data_case:
+                case_template, async_value = "ServiceRadar.DataCase", "false"
+            else:
+                case_template, async_value = declarations[0]
+
             self.assertEqual(
                 "ServiceRadar.DataCase"
                 if row["case_kind"] == "data_case"
@@ -1340,20 +1349,23 @@ class WorkflowIntegrationLifecycleContractTest(unittest.TestCase):
         )
         self.assertIn("formatters:", branch[formatter_env:formatter_config])
         self.assertIn("ExUnit.CLIFormatter", branch[formatter_env:formatter_config])
-        slowest_guard = branch.index(
-            "if slowest != [] and integration_max_cases != 1 do", formatter_config
+        repo_pool_read = branch.index(
+            "Keyword.fetch!(:pool_size)", formatter_config
+        )
+        repo_pool_validation = branch.index(
+            "ServiceRadar.TestSupport.integration_repo_pool_size!", repo_pool_read
         )
         runner_marker = branch.index(
             '"SERVICERADAR_INTEGRATION_RUNNER topology=#{topology} lane=#{lane} '
             'max_cases=#{integration_max_cases} schedulers=#{System.schedulers_online()} '
             'repo_pool=#{repo_pool} trace=false timeouts=enabled"',
-            slowest_guard,
+            repo_pool_validation,
         )
         profiling_marker = branch.index(
             '"SERVICERADAR_INTEGRATION_RUNNER topology=#{topology} lane=#{lane} max_cases=1 '
             'schedulers=#{System.schedulers_online()} repo_pool=#{repo_pool} trace=true '
             'timeouts=infinity profiling_only=true"',
-            slowest_guard,
+            repo_pool_validation,
         )
         ex_unit_start = branch.index("ExUnit.start(", environment_read)
         max_cases_option = branch.index("max_cases: integration_max_cases", ex_unit_start)
@@ -1366,8 +1378,9 @@ class WorkflowIntegrationLifecycleContractTest(unittest.TestCase):
         self.assertLess(parser_call, environment_read)
         self.assertLess(environment_read, formatter_env)
         self.assertLess(formatter_env, formatter_config)
-        self.assertLess(formatter_config, slowest_guard)
-        self.assertLess(slowest_guard, runner_marker)
+        self.assertLess(formatter_config, repo_pool_read)
+        self.assertLess(repo_pool_read, repo_pool_validation)
+        self.assertLess(repo_pool_validation, runner_marker)
         self.assertLess(runner_marker, profiling_marker)
         self.assertLess(profiling_marker, ex_unit_start)
         self.assertLess(ex_unit_start, max_cases_option)
@@ -1382,7 +1395,10 @@ class WorkflowIntegrationLifecycleContractTest(unittest.TestCase):
         self.assertIn('{{"large_ingestion", "large_ingestion"}, 1}', support)
         self.assertIn('{{"focused", "focused"}, 1}', support)
         self.assertIn('{{"async_serial", "serial_#{index}"}, 1}', support)
+        self.assertIn("@integration_runner_pool_sizes", support)
+        self.assertIn("SERVICERADAR_TEST_SLOWEST cannot be combined", support)
         self.assertIn("unsupported integration runner configuration", support)
+        self.assertIn("unsupported integration Repo pool configuration", support)
         self.assertNotIn("def integration_max_cases!(value) do", support)
 
     def test_repeated_core_startup_does_not_implicitly_mutate_audit_configuration(self):
@@ -1506,6 +1522,12 @@ class WorkflowIntegrationLifecycleContractTest(unittest.TestCase):
         self.assertIn('"SERVICERADAR_ONLY_INTEGRATION": "1"', release_target)
         self.assertIn(
             '"SERVICERADAR_INTEGRATION_MAX_CASES": "1"', release_target
+        )
+        self.assertIn(
+            '"SERVICERADAR_TEST_TOPOLOGY": "large_ingestion"', release_target
+        )
+        self.assertIn(
+            '"SERVICERADAR_TEST_LANE": "large_ingestion"', release_target
         )
         self.assertIn(
             '"SERVICERADAR_TEST_DATABASE_POOL_SIZE": str(LARGE_INGESTION_REPO_POOL_SIZE)',

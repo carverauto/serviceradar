@@ -2,7 +2,7 @@
 # This allows unit tests to run without requiring a database
 Application.ensure_all_started(:telemetry)
 
-# Opt-in slowest-test report, for profiling a serial integration lane.
+# Opt-in slowest-test report, for profiling an integration lane.
 #
 # //build:integration_shards.bzl assigns audited async sources to one concurrent BEAM and balances
 # audited blockers across serial BEAMs. Bazel cannot infer runtime, so this report can identify
@@ -89,15 +89,7 @@ if database_available? do
       |> Application.fetch_env!(ServiceRadar.Repo)
       |> Keyword.fetch!(:pool_size)
 
-    if slowest != [] and integration_max_cases != 1 do
-      raise ArgumentError, """
-      SERVICERADAR_TEST_SLOWEST cannot be combined with concurrent integration execution.
-
-      ExUnit's built-in slowest report enables trace, forces max_cases to 1, and disables test
-      timeouts. Use it only in a non-cohort profiling run with
-      SERVICERADAR_INTEGRATION_MAX_CASES=1.
-      """
-    end
+    ServiceRadar.TestSupport.integration_repo_pool_size!(repo_pool, topology, lane)
 
     if slowest == [] do
       IO.puts(

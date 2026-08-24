@@ -196,6 +196,11 @@ distinct disposable `sr_core_test_<run-id>_<lane>` clone on `srql-fixtures`, and
 exactly eight BEAMs / 96 configured core pool slots. Neither `demo` nor a production database is an
 eligible endpoint.
 
+Before ExUnit or the application starts, the runner SHALL compare the effective Repo pool from the
+loaded test configuration with the topology contract and fail unless it is exactly 12. Logging an
+unexpected pool without rejecting it is insufficient because the observer's 114-slot reservation
+assumes eight 12-connection pools.
+
 The topology SHALL be chosen and frozen at proposal time from the audited `srql-fixtures` capacity,
 not derived from current runtime occupancy. Before provisioning, the observer SHALL read the live
 total server usable capacity and fail closed unless

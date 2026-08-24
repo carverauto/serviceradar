@@ -240,22 +240,9 @@ pub fn assert_disposable(database: &str) -> Result<()> {
 
 /// The role that owns the template database and every clone taken from it.
 ///
-/// Derived from `SRQL_TEST_DATABASE_URL`, because it MUST be the role the suite connects as:
-/// the tests run as the application user, and a database owned by anyone else fails on the
-/// first DDL they attempt.
-///
-/// `scripts/reset-test-db.sh` took the owner from that DSN's user and refused to run without
-/// one. Porting it to Rust replaced that with a hardcoded `"serviceradar"` -- a name the
-/// shared fixture has never had. Its roles are `srql` (the application role, from
-/// `srql-test-db-credentials`) and `srql_hydra` (admin); there is no `serviceradar`, and every
-/// database on it is owned by `srql`, which is exactly what the shell script produced.
-///
-/// So `CREATE DATABASE ... OWNER serviceradar` failed with `role "serviceradar" does not
-/// exist`, naming a role nothing in the configuration ever asked for -- which reads like a
-/// missing grant on the fixture rather than an assumption in this crate.
-///
-/// `SERVICERADAR_TEST_DATABASE_OWNER` still overrides, for a fixture that deliberately
-/// separates the owning role from the connecting one.
+/// Resolved from `database.owning_role` in the declared environment, alongside the application
+/// role that runs the suite. There is no per-setting environment override: provisioning and test
+/// connections therefore cannot silently disagree about the owner of a disposable clone.
 pub fn database_owner() -> Result<String> {
     Ok(config::Fixture::from_env()?.owning_role()?.to_string())
 }

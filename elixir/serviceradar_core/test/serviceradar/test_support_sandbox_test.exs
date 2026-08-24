@@ -34,7 +34,6 @@ defmodule ServiceRadar.IntegrationRunnerConfigurationTest do
     unsupported = [
       {"999", "async_serial", "async", false},
       {"1", "async_serial", "async", false},
-      {"8", "async_serial", "async", true},
       {"8", "async_serial", "serial_0", false},
       {"1", "async_serial", "serial_7", false},
       {"1", "large_ingestion", "async", false},
@@ -44,6 +43,42 @@ defmodule ServiceRadar.IntegrationRunnerConfigurationTest do
     for {value, topology, lane, profiling?} <- unsupported do
       assert_raise ArgumentError, ~r/unsupported integration runner configuration/s, fn ->
         TestSupport.integration_max_cases!(value, topology, lane, profiling?)
+      end
+    end
+  end
+
+  test "integration max cases rejects concurrent slowest profiling with actionable guidance" do
+    assert_raise ArgumentError, ~r/SERVICERADAR_TEST_SLOWEST.*max_cases.*1/s, fn ->
+      TestSupport.integration_max_cases!("8", "async_serial", "async", true)
+    end
+  end
+
+  test "integration Repo pool accepts only the audited runner topology" do
+    assert TestSupport.integration_repo_pool_size!(12, "async_serial", "async") == 12
+
+    for lane <- Enum.map(0..6, &"serial_#{&1}") do
+      assert TestSupport.integration_repo_pool_size!(12, "async_serial", lane) == 12
+    end
+
+    assert TestSupport.integration_repo_pool_size!(12, "large_ingestion", "large_ingestion") ==
+             12
+
+    assert TestSupport.integration_repo_pool_size!(12, "focused", "focused") == 12
+  end
+
+  test "integration Repo pool rejects unsupported sizes and runner combinations" do
+    unsupported = [
+      {999, "async_serial", "async"},
+      {1, "async_serial", "async"},
+      {12, "async_serial", "serial_7"},
+      {1, "large_ingestion", "large_ingestion"},
+      {1, "focused", "focused"},
+      {12, "unknown", "unknown"}
+    ]
+
+    for {pool_size, topology, lane} <- unsupported do
+      assert_raise ArgumentError, ~r/unsupported integration Repo pool configuration/s, fn ->
+        TestSupport.integration_repo_pool_size!(pool_size, topology, lane)
       end
     end
   end

@@ -112,7 +112,8 @@
       one async lane at cap eight plus exactly seven serial lanes at cap one, for eight BEAMs / 96
       configured core pool slots. Require the runtime observer to fail closed unless live total
       server usable capacity funds the fixed 114-slot ordinary selected workload with 10% headroom;
-      do not resize the topology from current occupancy.
+      do not resize the topology from current occupancy. Validate the effective Repo pool against
+      the exact 12-connection topology before ExUnit or the application starts.
 - [x] 3.19 Deterministically preseed all fixed-external sources in `serial_0`, LPT-balance remaining
       serial sources by `1 + selected_serial_module_count`, and prove exact, disjoint,
       glob-order-independent source/identity membership before timing. Every lane must use its own

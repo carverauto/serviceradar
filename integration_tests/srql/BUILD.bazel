@@ -15,17 +15,14 @@ filegroup(
 
 # SRQL integration tests.
 #
-# These talk to the shared CNPG fixture over the network via SRQL_TEST_DATABASE_URL /
-# SRQL_TEST_ADMIN_URL. CI callers keep compilation remote/cacheable but deliberately place
-# each database-facing TestRunner on the workflow runner, which owns the fixture credentials
-# and network route.
-# tests/support/harness.rs applies tests/fixtures/{schema,seed}.sql itself and SKIPS
-# outright when those two variables are absent, so no target here ever starts a database.
+# These resolve the declared `ci` ConfigManager instance, create their own disposable
+# `sr_core_test_<run-id>_<suffix>` databases on `srql-fixtures`, and fail rather than skip when
+# fixture configuration is absent. CI keeps compilation remote/cacheable but deliberately places
+# each database-facing TestRunner on the workflow runner, which owns the fixture credentials and
+# network route.
 #
-# `manual` stays: they need the fixture credentials in the environment and they run DDL
-# against a fixture concurrent branches share, so a step that wants them must name them
-# explicitly, pass an empty --test_tag_filters=, and opt in with
-# --//build:enable_integration_tests.
+# `integration_test` makes the guarded wildcard select them. `requires_shared_fixture()` is the
+# independent opt-in: without --//build:enable_integration_tests the targets are incompatible.
 #
 # WHAT WAS HERE BEFORE, and why it is gone:
 #
@@ -48,10 +45,9 @@ filegroup(
 # that is a design change to discuss, not a `data` entry -- the shared fixture is the
 # contract, and //rust/integration-db owns its lifecycle.
 #
-# TLS travels as PEM CONTENT so the action is independent of a runner-local certificate path:
-# callers explicitly select //.bazelrc's database_env profile to forward
-# SRQL_TEST_DATABASE_CA_CERT, and the harness materializes it when PGSSLROOTCERT does not name a
-# readable path. Generic remote tests do not receive this credential-bearing environment.
+# TLS posture, server name, and CA bundle URL come from the same declared `ci` instance as the
+# endpoint. The harness uses SRQL's shared TLS resolver, so it cannot silently select a runner-local
+# certificate path or disagree with the lifecycle about which server is being verified.
 #
 # `all_crate_deps(..., cargo_only = True)` resolves this crate's own dev-dependencies from
 # //integration_tests/srql/Cargo.toml. `cargo_only` keeps the result to third-party crates:
