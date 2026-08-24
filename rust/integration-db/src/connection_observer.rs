@@ -13,7 +13,8 @@ pub const SAMPLE_INTERVAL_MS: u64 = 500;
 const OBSERVER_SESSIONS_EXCLUDED: u64 = 1;
 
 pub const RUN_SCOPED_COUNT_SQL: &str = "SELECT \
-    count(*) FILTER (WHERE left(datname, char_length($1)) = $1)::bigint, \
+    count(*) FILTER (WHERE datname = $1 \
+        OR left(datname, char_length($1) + 1) = $1 || '_')::bigint, \
     count(*)::bigint \
  FROM pg_stat_activity \
  WHERE backend_type = 'client backend' \
@@ -116,7 +117,7 @@ impl Peaks {
     }
 }
 
-/// Samples all fixture client backends and the literal disposable-database prefix subset.
+/// Samples all fixture client backends and the exact or underscore-delimited run database set.
 pub async fn sample(client: &Client, run_prefix: &str) -> Result<ConnectionCounts> {
     let row = client
         .query_one(RUN_SCOPED_COUNT_SQL, &[&run_prefix])
@@ -400,8 +401,10 @@ mod tests {
     }
 
     #[test]
-    fn run_prefix_query_treats_underscores_literally() {
-        assert!(RUN_SCOPED_COUNT_SQL.contains("left(datname, char_length($1)) = $1"));
+    fn run_prefix_query_uses_an_exact_or_underscore_delimited_scope() {
+        assert!(RUN_SCOPED_COUNT_SQL.contains("datname = $1"));
+        assert!(RUN_SCOPED_COUNT_SQL.contains("left(datname, char_length($1) + 1) = $1 || '_'"));
+        assert!(!RUN_SCOPED_COUNT_SQL.contains("left(datname, char_length($1)) = $1"));
         assert!(!RUN_SCOPED_COUNT_SQL.contains("LIKE"));
     }
 
