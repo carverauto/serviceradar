@@ -104,9 +104,10 @@
       equal before excluding unit-only files from integration shards; reject missing, duplicate,
       fixed-resource-async, mixed-selected-mode, and module-local global configuration cases.
       Status: the 779-source / 278-selected-module disposition, exact Starlark projection, and real
-      ExUnit-filter equivalence are checked in and enforced. The first real run found 19 modules
-      whose nested support macro injects `:requires_app`; those false load-only rows are now serial
-      integration coverage, and mutation testing proves an omitted selected identity fails.
+      all-source/pruned ExUnit-filter equivalence over `(source, module, test-name)` identities are
+      checked in and enforced. The first real run found 19 modules whose nested support macro
+      injects `:requires_app`; those false load-only rows are now serial integration coverage, and
+      mutation testing proves an omitted selected identity fails.
 - [x] 3.17 Complete the exhaustive audit, split every mixed selected-mode source, and freeze one
       async source set plus serial source set before timing; exclude load-only sources.
       Status: final review moved all seven selected modules with unfiltered VM-global telemetry

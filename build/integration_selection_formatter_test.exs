@@ -120,7 +120,7 @@ defmodule ServiceRadar.IntegrationSelectionFormatterTest do
     assert message =~ "ambiguous selected test identity"
   end
 
-  test "selects exact source and module identities with the integration runner filters" do
+  test "selects exact source, module, and test-name identities with the integration filters" do
     root = "/workspace/elixir/serviceradar_core"
 
     modules = [
@@ -154,11 +154,13 @@ defmodule ServiceRadar.IntegrationSelectionFormatterTest do
       )
     ]
 
-    assert IntegrationSelectionManifest.selected_source_modules(modules, root) ==
+    assert IntegrationSelectionManifest.selected_source_test_identities(modules, root) ==
              MapSet.new([
-               {"test/external_integration_test.exs", Selection.ExternalIntegrationTest},
-               {"test/requires_app_test.exs", Selection.RequiresAppTest},
-               {"test/skipped_integration_test.exs", Selection.SkippedIntegrationTest}
+               {"test/external_integration_test.exs", Selection.ExternalIntegrationTest,
+                :"test selection 1"},
+               {"test/requires_app_test.exs", Selection.RequiresAppTest, :"test selection 1"},
+               {"test/skipped_integration_test.exs", Selection.SkippedIntegrationTest,
+                :"test selection 1"}
              ])
   end
 

@@ -19,7 +19,7 @@ defmodule ServiceRadar.IntegrationSelectionEquivalenceTest do
     SERVICERADAR_TEST_DATABASE_URL_FILE
   )
 
-  test "selected sources match the disposition identities and load-only sources select nothing" do
+  test "all-source and pruned runs select identical tests and match disposition modules" do
     selected_runners = runner_names!(@selected_runners_env)
 
     load_only_runners = runner_names!(@load_only_runners_env)
@@ -31,21 +31,41 @@ defmodule ServiceRadar.IntegrationSelectionEquivalenceTest do
         MapSet.union(identities, Map.fetch!(results, runner))
       end)
 
-    expected = disposition_identities!()
+    all_source =
+      Enum.reduce(selected_runners ++ load_only_runners, MapSet.new(), fn runner, identities ->
+        MapSet.union(identities, Map.fetch!(results, runner))
+      end)
 
-    refute MapSet.size(expected) == 0, "disposition inventory unexpectedly selected no modules"
+    refute MapSet.size(all_source) == 0, "all-source control unexpectedly selected no tests"
 
-    missing = expected |> MapSet.difference(selected) |> Enum.sort()
-    additional = selected |> MapSet.difference(expected) |> Enum.sort()
+    missing = all_source |> MapSet.difference(selected) |> Enum.sort()
+    additional = selected |> MapSet.difference(all_source) |> Enum.sort()
 
     assert missing == [] and additional == [], """
-    selected-source ExUnit identities differ from the disposition inventory
+    pruned-source ExUnit test identities differ from the all-source control
 
-    missing from selected-source run:
+    missing from pruned-source run:
     #{format_identities(missing)}
 
-    additional in selected-source run:
+    additional in pruned-source run:
     #{format_identities(additional)}
+    """
+
+    selected_modules =
+      MapSet.new(selected, fn {source, module, _test_name} -> {source, module} end)
+
+    expected_modules = disposition_module_identities!()
+    missing_modules = expected_modules |> MapSet.difference(selected_modules) |> Enum.sort()
+    additional_modules = selected_modules |> MapSet.difference(expected_modules) |> Enum.sort()
+
+    assert missing_modules == [] and additional_modules == [], """
+    selected-source ExUnit modules differ from the disposition inventory
+
+    missing selected modules:
+    #{format_module_identities(missing_modules)}
+
+    additional selected modules:
+    #{format_module_identities(additional_modules)}
     """
 
     leaking_load_only =
@@ -112,7 +132,7 @@ defmodule ServiceRadar.IntegrationSelectionEquivalenceTest do
     {tool_name, identities}
   end
 
-  defp disposition_identities! do
+  defp disposition_module_identities! do
     path =
       Path.join([
         System.fetch_env!("TEST_SRCDIR"),
@@ -142,15 +162,37 @@ defmodule ServiceRadar.IntegrationSelectionEquivalenceTest do
   end
 
   defp parse_identity!(@identity_prefix <> encoded) do
-    case String.split(encoded, "|", parts: 2) do
-      [source, module] when source != "" and module != "" -> {source, module}
-      _ -> raise ArgumentError, "malformed integration selection identity: #{inspect(encoded)}"
+    case String.split(encoded, "|", parts: 3) do
+      [source, module, test_name] ->
+        decoded =
+          Enum.map([source, module, test_name], &Base.url_decode64!(&1, padding: false))
+
+        case decoded do
+          [source, module, test_name]
+          when source != "" and module != "" and test_name != "" ->
+            {source, module, test_name}
+
+          _ ->
+            raise ArgumentError,
+                  "empty integration selection identity component: #{inspect(decoded)}"
+        end
+
+      _ ->
+        raise ArgumentError, "malformed integration selection identity: #{inspect(encoded)}"
     end
   end
 
   defp format_identities([]), do: "  (none)"
 
   defp format_identities(identities) do
+    Enum.map_join(identities, "\n", fn {source, module, test_name} ->
+      "  #{source} | #{module} | #{test_name}"
+    end)
+  end
+
+  defp format_module_identities([]), do: "  (none)"
+
+  defp format_module_identities(identities) do
     Enum.map_join(identities, "\n", fn {source, module} -> "  #{source} | #{module}" end)
   end
 

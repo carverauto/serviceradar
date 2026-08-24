@@ -28,15 +28,15 @@ defmodule ServiceRadar.IntegrationSelectionManifestRunner do
 
     source_root
     |> loaded_test_modules()
-    |> IntegrationSelectionManifest.selected_source_modules(source_root)
+    |> IntegrationSelectionManifest.selected_source_test_identities(source_root)
     |> Enum.sort()
-    |> Enum.each(fn {source, module} ->
-      identity = "#{source}|#{inspect(module)}"
-
-      if String.contains?(identity, ["\n", "\r", "\t"]) do
-        raise ArgumentError, "ambiguous integration selection identity: #{inspect(identity)}"
+    |> Enum.each(fn {source, module, test_name} ->
+      if !is_atom(test_name) do
+        raise ArgumentError, "integration test name must be an atom: #{inspect(test_name)}"
       end
 
+      components = [source, inspect(module), Atom.to_string(test_name)]
+      identity = Enum.map_join(components, "|", &Base.url_encode64(&1, padding: false))
       IO.puts(@identity_prefix <> identity)
     end)
   end

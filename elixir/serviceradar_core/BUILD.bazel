@@ -480,8 +480,8 @@ ex_unit_test(
 # Selection-only tools for //build:integration_selection_equivalence_test. Two deterministic
 # chunks whose union is the selected set and four chunks covering the exact load-only complement
 # run in parallel fresh BEAMs.
-# Each uses ParallelCompiler to load its real sources, then asks ExUnit.Filters which modules match
-# the ordinary integration contract. No tool loads test_helper.exs, starts the ServiceRadar
+# Each uses ParallelCompiler to load its real sources, then asks ExUnit.Filters which exact tests
+# match the ordinary integration contract. No tool loads test_helper.exs, starts the ServiceRadar
 # application, receives a database endpoint, or executes a test body. The tools are manual because
 # only the Bazel comparator should execute them directly.
 [
