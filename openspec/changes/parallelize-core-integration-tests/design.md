@@ -1,13 +1,14 @@
 ## Context
-ServiceRadar core currently has two levels of database isolation:
+Before this proposal, ServiceRadar core had two levels of database isolation:
 
 1. Bazel partitions all core integration test files across eight `ex_unit_test` targets.
 2. Each target receives a separately cloned PostgreSQL database (`s0` through `s7`), and each
    `ServiceRadar.DataCase` test starts a rollback-only Ecto SQL Sandbox owner.
 
-The first level prevents independent BEAM VMs from deadlocking against one shared database. The
-second level already has the semantics needed for concurrent transactional tests inside one BEAM,
-but the runner fixes `max_cases: 1` and nearly every DataCase module is declared `async: false`.
+The first level prevented independent BEAM VMs from deadlocking against one shared database. The
+second level already had the semantics needed for concurrent transactional tests inside one BEAM,
+but the baseline runner fixed `max_cases: 1` and nearly every DataCase module was declared
+`async: false`.
 
 The sampled critical path shows why the next optimization belongs inside the existing shards:
 

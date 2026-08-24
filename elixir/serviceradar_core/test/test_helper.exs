@@ -59,9 +59,15 @@ if database_available? do
   # The checked-in cap bounds only async modules. Serial modules retain ExUnit's non-overlap
   # barrier inside their shard.
   if System.get_env("SERVICERADAR_ONLY_INTEGRATION") in ["1", "true", "TRUE"] do
+    topology = System.get_env("SERVICERADAR_TEST_TOPOLOGY", "focused")
+    lane = System.get_env("SERVICERADAR_TEST_LANE", "focused")
+
     integration_max_cases =
       ServiceRadar.TestSupport.integration_max_cases!(
-        System.get_env("SERVICERADAR_INTEGRATION_MAX_CASES")
+        System.get_env("SERVICERADAR_INTEGRATION_MAX_CASES"),
+        topology,
+        lane,
+        slowest != []
       )
 
     selection_formatter =
@@ -77,9 +83,6 @@ if database_available? do
             ]
           ]
       end
-
-    topology = System.get_env("SERVICERADAR_TEST_TOPOLOGY", "8")
-    lane = System.get_env("SERVICERADAR_TEST_LANE", "ordinary")
 
     repo_pool =
       :serviceradar_core

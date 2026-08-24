@@ -1319,6 +1319,12 @@ class WorkflowIntegrationLifecycleContractTest(unittest.TestCase):
         branch = integration_only_branch()
         outside_branch = source[: source.index(selection)] + source[source.index(branch) + len(branch) :]
 
+        topology_read = branch.index(
+            'System.get_env("SERVICERADAR_TEST_TOPOLOGY", "focused")'
+        )
+        lane_read = branch.index(
+            'System.get_env("SERVICERADAR_TEST_LANE", "focused")'
+        )
         parser_assignment = branch.index("integration_max_cases =")
         parser_call = branch.index("ServiceRadar.TestSupport.integration_max_cases!", parser_assignment)
         environment_read = branch.index(
@@ -1351,8 +1357,11 @@ class WorkflowIntegrationLifecycleContractTest(unittest.TestCase):
         )
         ex_unit_start = branch.index("ExUnit.start(", environment_read)
         max_cases_option = branch.index("max_cases: integration_max_cases", ex_unit_start)
+        parser_arguments = branch[parser_call:formatter_env]
 
         self.assertLess(branch.index(selection), parser_assignment)
+        self.assertLess(topology_read, parser_assignment)
+        self.assertLess(lane_read, parser_assignment)
         self.assertLess(parser_assignment, parser_call)
         self.assertLess(parser_call, environment_read)
         self.assertLess(environment_read, formatter_env)
@@ -1362,8 +1371,19 @@ class WorkflowIntegrationLifecycleContractTest(unittest.TestCase):
         self.assertLess(runner_marker, profiling_marker)
         self.assertLess(profiling_marker, ex_unit_start)
         self.assertLess(ex_unit_start, max_cases_option)
+        self.assertIn("topology,", parser_arguments)
+        self.assertIn("lane,", parser_arguments)
+        self.assertIn("slowest != []", parser_arguments)
         self.assertNotIn("integration_max_cases!", outside_branch)
         self.assertNotIn("max_cases: integration_max_cases", outside_branch)
+
+        support = TEST_SUPPORT.read_text(encoding="utf-8")
+        self.assertIn('{{"async_serial", "async"}, 8}', support)
+        self.assertIn('{{"large_ingestion", "large_ingestion"}, 1}', support)
+        self.assertIn('{{"focused", "focused"}, 1}', support)
+        self.assertIn('{{"async_serial", "serial_#{index}"}, 1}', support)
+        self.assertIn("unsupported integration runner configuration", support)
+        self.assertNotIn("def integration_max_cases!(value) do", support)
 
     def test_repeated_core_startup_does_not_implicitly_mutate_audit_configuration(self):
         support = TEST_SUPPORT.read_text(encoding="utf-8")

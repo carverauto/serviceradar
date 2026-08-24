@@ -1,3 +1,54 @@
+defmodule ServiceRadar.IntegrationRunnerConfigurationTest do
+  use ExUnit.Case, async: true
+
+  alias ServiceRadar.TestSupport
+
+  test "integration max cases accepts only the audited runner topology" do
+    assert TestSupport.integration_max_cases!("8", "async_serial", "async", false) == 8
+    assert TestSupport.integration_max_cases!("1", "async_serial", "async", true) == 1
+
+    for lane <- Enum.map(0..6, &"serial_#{&1}") do
+      assert TestSupport.integration_max_cases!("1", "async_serial", lane, false) == 1
+      assert TestSupport.integration_max_cases!("1", "async_serial", lane, true) == 1
+    end
+
+    assert TestSupport.integration_max_cases!(
+             "1",
+             "large_ingestion",
+             "large_ingestion",
+             false
+           ) == 1
+
+    assert TestSupport.integration_max_cases!("1", "focused", "focused", false) == 1
+  end
+
+  test "integration max cases rejects malformed values" do
+    for value <- [nil, "", "two", "0", "-1", "2x"] do
+      assert_raise ArgumentError, ~r/SERVICERADAR_INTEGRATION_MAX_CASES.*positive integer/s, fn ->
+        TestSupport.integration_max_cases!(value, "focused", "focused", false)
+      end
+    end
+  end
+
+  test "integration max cases rejects unsupported runner combinations" do
+    unsupported = [
+      {"999", "async_serial", "async", false},
+      {"1", "async_serial", "async", false},
+      {"8", "async_serial", "async", true},
+      {"8", "async_serial", "serial_0", false},
+      {"1", "async_serial", "serial_7", false},
+      {"1", "large_ingestion", "async", false},
+      {"1", "unknown", "unknown", false}
+    ]
+
+    for {value, topology, lane, profiling?} <- unsupported do
+      assert_raise ArgumentError, ~r/unsupported integration runner configuration/s, fn ->
+        TestSupport.integration_max_cases!(value, topology, lane, profiling?)
+      end
+    end
+  end
+end
+
 defmodule ServiceRadar.TestSupportSandboxTest do
   use ExUnit.Case, async: false
 
@@ -51,18 +102,6 @@ defmodule ServiceRadar.TestSupportSandboxTest do
     end
 
     assert_raise DBConnection.OwnershipError, fn -> Repo.query!("SELECT 1") end
-  end
-
-  test "integration max cases accepts a positive integer" do
-    assert TestSupport.integration_max_cases!("2") == 2
-  end
-
-  test "integration max cases fails closed" do
-    for value <- [nil, "", "two", "0", "-1", "2x"] do
-      assert_raise ArgumentError, ~r/SERVICERADAR_INTEGRATION_MAX_CASES.*positive integer/s, fn ->
-        TestSupport.integration_max_cases!(value)
-      end
-    end
   end
 
   test "no-option startup preserves the audit writer setting" do

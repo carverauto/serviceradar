@@ -16,6 +16,16 @@ defmodule ServiceRadar.TestSupport do
   @result_coordination_registry_poll_ms 10
   @stateful_engine_drain_timeout_ms 5_000
   @stateful_engine_registry_poll_ms 10
+  @integration_runner_max_cases Map.new(
+                                  [
+                                    {{"async_serial", "async"}, 8},
+                                    {{"large_ingestion", "large_ingestion"}, 1},
+                                    {{"focused", "focused"}, 1}
+                                  ] ++
+                                    Enum.map(0..6, fn index ->
+                                      {{"async_serial", "serial_#{index}"}, 1}
+                                    end)
+                                )
 
   @doc "Starts core without implicitly taking database ownership."
   def start_core!(opts \\ []) do
@@ -118,11 +128,28 @@ defmodule ServiceRadar.TestSupport do
           "SQL sandbox allowance failed for test-owned child #{inspect(child_pid)}: #{inspect(result)}"
   end
 
-  @doc "Parses the required bounded ExUnit concurrency value for integration shards."
-  def integration_max_cases!(value) do
-    case Integer.parse(value || "") do
-      {count, ""} when count > 0 -> count
-      _ -> raise ArgumentError, "SERVICERADAR_INTEGRATION_MAX_CASES must be a positive integer"
+  @doc "Validates ExUnit concurrency against the audited integration runner topology."
+  def integration_max_cases!(value, topology, lane, profiling?) do
+    count =
+      case Integer.parse(value || "") do
+        {parsed, ""} when parsed > 0 -> parsed
+        _ -> raise ArgumentError, "SERVICERADAR_INTEGRATION_MAX_CASES must be a positive integer"
+      end
+
+    expected_count =
+      case {@integration_runner_max_cases[{topology, lane}], profiling?} do
+        {configured_count, false} when is_integer(configured_count) -> configured_count
+        {configured_count, true} when is_integer(configured_count) -> min(configured_count, 1)
+        _ -> nil
+      end
+
+    if count == expected_count do
+      count
+    else
+      raise ArgumentError, """
+      unsupported integration runner configuration: topology=#{inspect(topology)} \
+      lane=#{inspect(lane)} max_cases=#{count} profiling=#{inspect(profiling?)}
+      """
     end
   end
 

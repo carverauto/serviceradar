@@ -637,7 +637,7 @@ Authoritative evidence first records cohort metadata:
 Every started attempt then uses this schema. The invocation contains the effective-runner marker
 and observer window; the summary columns keep every threshold independently recomputable:
 
-| Cohort | Attempt | Invocation | Run id | Topology | Lane/cap marker | UTC start | UTC end | Observer UTC start | Observer UTC end | Lifecycle s / censored | s0 | s1 | s2 | s3 | s4 | s5 | s6 | s7 | Skew | Run sampled peak | Fixture sampled peak | Pre-teardown zero samples | Bazel retries | Workflow retries | Suite | Observer | Teardown | Classification |
+| Cohort | Attempt | Invocation | Run id | Topology | Lane/cap marker | UTC start | UTC end | Observer UTC start | Observer UTC end | Lifecycle s / censored | async | serial_0 | serial_1 | serial_2 | serial_3 | serial_4 | serial_5 | serial_6 | Skew | Run sampled peak | Fixture sampled peak | Pre-teardown zero samples | Bazel retries | Workflow retries | Suite | Observer | Teardown | Classification |
 | --- | ---: | --- | --- | --- | --- | --- | --- | --- | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- | --- | --- | --- |
 
 The completed change appends every attempt row, including failed sequences, followed by the
