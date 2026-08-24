@@ -65,7 +65,14 @@ defmodule ServiceRadar.NetworkDiscovery.MapperRoleHeuristicTest do
     end
 
     test "a device with few physical interfaces is not promoted" do
-      assert %{role: "unknown"} = role(switch_metrics(1, %{physical_like_count: 4}))
+      # The assertion is that it is not a SWITCH. It resolves to "host" rather
+      # than "unknown" since host_role_score became reachable -- a 4-interface
+      # single-homed device is a host, and saying so is strictly better than
+      # declining to classify it. What must not happen is switch_l2.
+      result = role(switch_metrics(1, %{physical_like_count: 4}))
+
+      refute result.role == "switch_l2"
+      assert result.role == "host"
     end
 
     test "a device seen under several device_ips is not promoted" do
@@ -106,7 +113,10 @@ defmodule ServiceRadar.NetworkDiscovery.MapperRoleHeuristicTest do
     # role. Harmless today only because nothing distinguishes "host" from
     # "unknown" downstream. If the ceiling is ever raised, this test should fail
     # and be replaced with real host assertions.
-    test "the host role is currently unreachable" do
+    test "a genuine host resolves to host, not unknown and not switch_l2" do
+      # Previously unreachable: the terms totalled 20+15+10 = 45 against a
+      # threshold of 50, so this device scored "unknown" -- or switch_l2@55 once
+      # alias==0, because that term did not require any L2 evidence.
       ideal_host = %{
         device_ip_count: 1,
         stable_l3_alias_count: 1,
@@ -115,7 +125,29 @@ defmodule ServiceRadar.NetworkDiscovery.MapperRoleHeuristicTest do
         wireless_like_count: 0
       }
 
-      assert %{role: "unknown", confidence: 45} = role(ideal_host)
+      assert %{role: "host", confidence: 65} = role(ideal_host)
+    end
+
+    test "switch_l2 requires L2 evidence, not merely the absence of aliases" do
+      # The observed defect: demo classified a 2-interface MikroTik -- whose own
+      # SNMP type is "Router" -- as switch_l2@55, on alias==0 plus a single
+      # device_ip and nothing switch-like at all.
+      mikrotik = %{
+        device_ip_count: 1,
+        stable_l3_alias_count: 0,
+        bridge_like_count: 0,
+        physical_like_count: 1,
+        wireless_like_count: 0
+      }
+
+      refute role(mikrotik).role == "switch_l2"
+      assert %{role: "host"} = role(mikrotik)
+    end
+
+    test "a port-dense device is still a switch" do
+      # The counterpart guard: narrowing switch_l2 must not cost a real switch
+      # its role.
+      assert %{role: "switch_l2", confidence: 75} = role(switch_metrics(0))
     end
   end
 
