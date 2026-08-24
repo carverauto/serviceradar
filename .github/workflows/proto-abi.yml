@@ -206,12 +206,14 @@ jobs:
       #
       # 33 sequential `mix test --no-start` steps and one `go test` used to live here.
       #
-      # MEASURED, end to end, not estimated: this job took 12m26s before and 9m28s after -- about
-      # 24%. The dramatic-sounding numbers quoted while this was in review (20m44s, then 2m22s)
-      # were both misleading: 20m44s was an older run, and 2m22s is the six focused Bazel targets
-      # in isolation, not this job. The mix steps ran against an already-compiled project and were
-      # cheap; toolchain setup, the protoc build, deps.get and the two drift guards dominate what
-      # remains.
+      # MEASURED, end to end: 36m29s pre-migration, 9m28s-12m26s after. The removed sequential
+      # block alone accounted for about 22m08s.
+      #
+      # Three wrong numbers were published before this one, in both directions. "20m44s -> 2m22s"
+      # compared an old run against six Bazel targets in isolation rather than this job, and
+      # over-claimed. "12m26s -> 9m28s, about 24%" then treated 12m26s as the pre-migration
+      # baseline when it was already a post-migration observation, and under-claimed by roughly
+      # 24 minutes. The honest figure is the first line.
       #
       # SPEED IS THE SMALLER WIN. The larger ones are that these suites now run under Bazel at all
       # on this branch (cached, parallel, on the workflow fleet), and that a target discovers a new
