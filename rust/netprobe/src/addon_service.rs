@@ -584,9 +584,28 @@ fn bind_socket(path: &Path) -> Result<UnixListener> {
     Ok(listener)
 }
 
-/// Owner-only. `AddonService` exposes `Configure` and `RunCommand`, so the
-/// socket must not be reachable by any local process that happens to share the
-/// runtime group -- which is what the legacy IPC socket allows today.
+/// Owner-only. `AddonService` exposes `Configure` and `RunCommand`, so the socket
+/// must not be reachable by any local process that happens to share the runtime
+/// group -- which is what the legacy IPC socket allows today.
+///
+/// THIS MODE IS THE WHOLE ACCESS CONTROL on this socket, so it is pinned by a
+/// test rather than left to a umask or a future refactor.
+///
+/// It is deliberately NOT paired with an `SO_PEERCRED` uid check, though the
+/// change proposal asked for one. Such a check would be a no-op here: 0600 owned
+/// by the runtime user already excludes every uid except that user and root, and
+/// root defeats a uid allowlist in one `setuid` before `connect`. It would also
+/// reject clients that work today -- a `sudo` dev loop, `sudo grpcurl -unix` for
+/// triage -- and reject them invisibly.
+///
+/// What the mode does NOT do is distinguish THE AGENT from any other process
+/// running as the same user, and on the shipped units those are the same user
+/// (`User=serviceradar` in the agent unit, `--drop-user serviceradar` here). Only
+/// mutual authentication separates them. The SDK implements mTLS
+/// (`addon_sdk::tls::build_server_mtls`), but it is fed by go-plugin's AutoMTLS
+/// handshake, and netprobe is systemd-supervised rather than agent-launched --
+/// there is no handshake to carry a cert. Closing that gap needs cert
+/// distribution for a supervised add-on, which is a larger change than this one.
 fn restrict_socket_permissions(path: &Path) -> Result<()> {
     #[cfg(unix)]
     {
@@ -1069,5 +1088,41 @@ mod tests {
         // The packet's real direction is untouched -- the choice rides alongside
         // rather than being smuggled through source_ip.
         assert_eq!(payload.events[0].source_ip, "10.20.30.65");
+    }
+
+    #[tokio::test]
+    async fn the_addon_socket_is_owner_only() {
+        // The mode IS the access control on this socket -- it is what keeps a
+        // process sharing the runtime GROUP away from Configure and RunCommand.
+        // Pinned so a umask change or a refactor of bind_socket cannot loosen it
+        // silently; there is no second mechanism behind it to catch that.
+        use std::os::unix::fs::PermissionsExt;
+
+        let dir = tempfile::tempdir().expect("tempdir");
+        let path = dir.path().join("addon.sock");
+
+        let _listener = bind_socket(&path).expect("bind");
+
+        let mode = std::fs::metadata(&path).expect("stat").permissions().mode() & 0o777;
+        assert_eq!(
+            mode, 0o600,
+            "the AddonService socket must be owner-only; got {mode:o}"
+        );
+    }
+
+    #[tokio::test]
+    async fn binding_over_a_stale_socket_succeeds() {
+        // An unclean shutdown leaves a socket file that refuses bind with
+        // EADDRINUSE even though nothing is listening, which would wedge every
+        // subsequent start.
+        let dir = tempfile::tempdir().expect("tempdir");
+        let path = dir.path().join("addon.sock");
+
+        std::fs::write(&path, b"").expect("stale file");
+        let _listener = bind_socket(&path).expect("bind over stale socket");
+
+        use std::os::unix::fs::PermissionsExt;
+        let mode = std::fs::metadata(&path).expect("stat").permissions().mode() & 0o777;
+        assert_eq!(mode, 0o600, "a rebind must restrict the mode too");
     }
 }
