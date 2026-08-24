@@ -115,8 +115,31 @@
 
 - [ ] 6.1 Delete `go/pkg/agent/netprobe/` and the netprobe `oneof` arms; netprobe stops binding the
   legacy socket. Land only after 5.1-5.7 are confirmed in the fleet
-- [ ] 6.2 Retire the now-dead `@census_service_types` / `@mdns_service_types` `ResultsRouter` clauses
-  and redirect their tests at the registry invariant, so no test is left guarding a route nothing uses
+- [ ] 6.2 Retire the `@census_service_types` / `@mdns_service_types` `ResultsRouter` clauses and
+  redirect their tests at the registry invariant, so no test is left guarding a route nothing uses.
+
+  **BLOCKED, and the clauses are NOT "now-dead" — verified 2026-08-23.** The census producer
+  shipped in **v1.4.42**, the current `VERSION`: `git cat-file -e v1.4.42:go/pkg/agent/push_loop_netprobe_census.go`
+  resolves, and `v1.4.42:go/pkg/agent/push_loop.go:554` calls it unconditionally every push cycle,
+  emitting `service_type: "netprobe-census"` with the hardcoded `source: "results"`
+  (`push_loop_status.go:670-679`) -- a byte-exact match for the guard at `results_router.ex:284`.
+  Nothing between agent and router filters it. Agents roll independently of core, so
+  "new core + old agent" is the normal intermediate state of every rollout; the 5.3 deletion's
+  safety argument covers agent<->netprobe co-location on one host, NOT agent<->core skew, which is
+  the axis this task depends on. (The mDNS half genuinely never reached a tag -- absent from
+  v1.4.42 -- but splitting the two leaves the task neither done nor undone.)
+
+  **And when it unblocks, this must NOT be a bare deletion.** With the clauses gone the status falls
+  through to `results_router.ex:363` `defp process(_status, _opts), do: :ok`, which is total: no
+  crash, no log line, and `:ok` lets `publish_status_update/1` upsert the service **HEALTHY** while
+  discarding 100% of the payload. The census stream is snapshot-superseding, so each dropped push is
+  gone with no backfill -- device inventory, not recoverable telemetry. A crash would be strictly
+  safer than this. Replace the two clauses with ONE explicit retirement clause that logs at
+  `warning` (sampled -- an old agent emits every cycle) naming the service type and the emitting
+  `agent_id`, plus a countable telemetry event, mirroring `discovery_ingestor.ex:76-94`
+  (`outcome: :unregistered_schema`). Delete THAT clause a release or two later, once the warning has
+  stayed silent. Keep one test asserting the drop is loud rather than deleting
+  `results_router_test.exs:197-236` outright.
 
 ## 7. Verification
 
