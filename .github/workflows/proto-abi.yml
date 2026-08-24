@@ -66,7 +66,7 @@ on:
       - 'elixir/serviceradar_agent_gateway/mix.exs'
       - 'elixir/serviceradar_agent_gateway/mix.lock'
       # Bazel registration and the test helper: a change to either can leave the shard running
-      # nothing while the Mix step below still passes.
+      # nothing, and the shard IS the gate now that the per-file Mix steps are gone.
       - 'elixir/serviceradar_agent_gateway/BUILD.bazel'
       - 'elixir/serviceradar_agent_gateway/test/test_helper.exs'
       - 'elixir/serviceradar_core/BUILD.bazel'
@@ -109,7 +109,7 @@ on:
       - 'elixir/serviceradar_agent_gateway/mix.exs'
       - 'elixir/serviceradar_agent_gateway/mix.lock'
       # Bazel registration and the test helper: a change to either can leave the shard running
-      # nothing while the Mix step below still passes.
+      # nothing, and the shard IS the gate now that the per-file Mix steps are gone.
       - 'elixir/serviceradar_agent_gateway/BUILD.bazel'
       - 'elixir/serviceradar_agent_gateway/test/test_helper.exs'
       - 'elixir/serviceradar_core/BUILD.bazel'
@@ -204,11 +204,22 @@ jobs:
         run: make verify-proto-elixir
       # TESTS MOVED TO BAZEL.
       #
-      # 33 sequential `mix test --no-start` steps and one `go test` used to live here, taking 20+
-      # minutes with no caching and no parallelism. Every one of those files is ALREADY a Bazel
-      # target -- 31 in //elixir/serviceradar_core:unit_tests_serviceradar_edge, one in
-      # :unit_tests_serviceradar_other, and the Go suites in //proto/edge/v1:edgev1_golden_test
-      # and //go/pkg/edge/{edgerecord,execstate,projection}:*_test.
+      # 33 sequential `mix test --no-start` steps and one `go test` used to live here. Measured at
+      # the exact head this replaced, the whole job took 12m26s; the six focused Bazel targets run
+      # in 2m22s cold and in parallel. That is the honest comparison -- this job still pays for
+      # toolchain setup, buf lint and the two drift guards, so the end-to-end saving is the test
+      # portion, not the whole 12m26s.
+      #
+      # Every file the removed steps named is ALREADY a Bazel target:
+      #   31 files -> //elixir/serviceradar_core:unit_tests_serviceradar_edge
+      #    1 file  -> //elixir/serviceradar_core:unit_tests_serviceradar_other
+      #    gateway -> //elixir/serviceradar_agent_gateway:unit_tests_serviceradar_agent_gateway
+      #    Go      -> //proto/edge/v1:edgev1_golden_test and
+      #               //go/pkg/edge/{edgerecord,execstate,projection}:*_test
+      #
+      # The gateway target was omitted from the first version of this inventory even though the
+      # publisher suite was one of the removed steps -- an inventory that misses a target is the
+      # same defect as a list that misses a file.
       #
       # They were duplicated here for one reason: BazelCI's `pull_request` trigger was filtered to
       # `staging`, so NOTHING Bazel ran on PRs into the usp-01-proposal integration branch. That
@@ -220,6 +231,10 @@ jobs:
       # protoc/Rust toolchain this job installs, and the enum-transform fixture below is a plain
       # script with no Bazel target. Giving it one is worthwhile follow-up; deleting the step
       # without one would silently drop the check.
+      #
+      # DISCOVERY: `go test ./...` FOUND test files; a go_test target LISTS them, so dropping the
+      # go step traded a complete run for a silently incomplete one. //build:go_test_inventory_test
+      # closes that: it fails when a *_test.go exists that its package's go_test does not name.
 
       # Fixture test for the post-generation transform itself: proves it is idempotent and
       # fails closed on inventory / generator-version / partial-patch drift.
