@@ -58,6 +58,7 @@ defmodule ServiceRadar.Inventory.Remediation.DireRemediation do
   alias ServiceRadar.Inventory.Remediation.ArmisUnmerge
   alias ServiceRadar.Inventory.Remediation.BlobPurge
   alias ServiceRadar.Inventory.Remediation.Manifest
+  alias ServiceRadar.Inventory.Remediation.NetprobeAliasDebris
   alias ServiceRadar.Inventory.Remediation.ProxmoxDups
   alias ServiceRadar.Inventory.Remediation.StaleAgentDevices
   alias ServiceRadar.Inventory.Remediation.TestDebris
@@ -83,6 +84,7 @@ defmodule ServiceRadar.Inventory.Remediation.DireRemediation do
     "stale-agent-devices",
     "agent-links",
     "proxmox-dups",
+    "netprobe-alias-debris",
     @armis_unmerge_step,
     @armis_dups_step
   ]
@@ -306,6 +308,9 @@ defmodule ServiceRadar.Inventory.Remediation.DireRemediation do
 
   defp run_step("proxmox-dups", mode, opts, manifest, actor),
     do: ProxmoxDups.run(mode, opts, manifest, actor)
+
+  defp run_step("netprobe-alias-debris", mode, opts, manifest, actor),
+    do: NetprobeAliasDebris.run(mode, opts, manifest, actor)
 
   defp run_step("armis-unmerge", mode, opts, manifest, actor),
     do: ArmisUnmerge.run(mode, opts, manifest, actor)
