@@ -28,9 +28,9 @@ use crate::{
     ipc::match_banner,
     metrics::Metrics,
     proto::netprobe::{
-        ConfigAck, DeviceCensusSnapshot, DpiEvent, ErrorFrame, ExternalFlowAck, ExternalFlowRecord,
-        FingerprintEvent, FlowAttributionEvent, FlowAttributionEventBatch, MdnsSnapshot,
-        NetprobeFrame, PingAck, netprobe_frame,
+        ConfigAck, DeviceCensusSnapshot, ErrorFrame, ExternalFlowAck, ExternalFlowRecord,
+        FlowAttributionEvent, FlowAttributionEventBatch, MdnsSnapshot, NetprobeFrame, PingAck,
+        netprobe_frame,
     },
     runtime_config::RuntimeConfig,
 };
@@ -44,8 +44,6 @@ const FLOW_ATTRIBUTION_IPC_BATCH_WAIT: Duration = Duration::from_millis(250);
 pub struct IpcServer {
     socket_path: PathBuf,
     active_client: Arc<AtomicBool>,
-    fingerprint_events: Arc<Mutex<EventReceiver<FingerprintEvent>>>,
-    dpi_events: Arc<Mutex<EventReceiver<DpiEvent>>>,
     flow_attribution_events: EventSender<Arc<FlowAttributionEvent>>,
     flow_attribution_rx: Arc<Mutex<EventReceiver<Arc<FlowAttributionEvent>>>>,
     census_snapshots: broadcast::Sender<DeviceCensusSnapshot>,
@@ -59,8 +57,6 @@ impl IpcServer {
     #[allow(clippy::too_many_arguments)]
     pub fn new(
         socket_path: impl Into<PathBuf>,
-        fingerprint_event_rx: EventReceiver<FingerprintEvent>,
-        dpi_event_rx: EventReceiver<DpiEvent>,
         flow_attribution_events: EventSender<Arc<FlowAttributionEvent>>,
         flow_attribution_rx: EventReceiver<Arc<FlowAttributionEvent>>,
         census_snapshots: broadcast::Sender<DeviceCensusSnapshot>,
@@ -72,8 +68,6 @@ impl IpcServer {
         Self {
             socket_path: socket_path.into(),
             active_client: Arc::new(AtomicBool::new(false)),
-            fingerprint_events: Arc::new(Mutex::new(fingerprint_event_rx)),
-            dpi_events: Arc::new(Mutex::new(dpi_event_rx)),
             flow_attribution_events,
             flow_attribution_rx: Arc::new(Mutex::new(flow_attribution_rx)),
             census_snapshots,
@@ -106,8 +100,6 @@ impl IpcServer {
                     }
 
                     let active_client = Arc::clone(&self.active_client);
-                    let fingerprint_rx = Arc::clone(&self.fingerprint_events);
-                    let dpi_rx = Arc::clone(&self.dpi_events);
                     let flow_attribution_tx = self.flow_attribution_events.clone();
                     let flow_attribution_rx = Arc::clone(&self.flow_attribution_rx);
                     let census_snapshot_rx = self.census_snapshots.subscribe();
@@ -119,8 +111,6 @@ impl IpcServer {
                         let _guard = ActiveClientGuard(active_client);
                         let result = handle_client(
                             stream,
-                            fingerprint_rx,
-                            dpi_rx,
                             flow_attribution_tx,
                             flow_attribution_rx,
                             census_snapshot_rx,
@@ -177,8 +167,6 @@ async fn reject_concurrent_client(mut stream: UnixStream) -> Result<()> {
 #[allow(clippy::too_many_arguments)]
 async fn handle_client(
     stream: UnixStream,
-    fingerprint_events: Arc<Mutex<EventReceiver<FingerprintEvent>>>,
-    dpi_events: Arc<Mutex<EventReceiver<DpiEvent>>>,
     flow_attribution_tx: EventSender<Arc<FlowAttributionEvent>>,
     flow_attribution_events: Arc<Mutex<EventReceiver<Arc<FlowAttributionEvent>>>>,
     mut census_snapshots: broadcast::Receiver<DeviceCensusSnapshot>,
@@ -204,30 +192,6 @@ async fn handle_client(
                     &flow_attribution_tx,
                 ).await? {
                     write_reused_frame(&mut writer, &response, &mut encode_buffer, &metrics).await?;
-                }
-            }
-            event = recv_event(&fingerprint_events) => {
-                match event {
-                    Some(event) => {
-                        let frame = NetprobeFrame {
-                            sequence: 0,
-                            payload: Some(netprobe_frame::Payload::FingerprintEvent(event)),
-                        };
-                        write_reused_frame(&mut writer, &frame, &mut encode_buffer, &metrics).await?;
-                    }
-                    None => return Ok(()),
-                }
-            }
-            event = recv_event(&dpi_events) => {
-                match event {
-                    Some(event) => {
-                        let frame = NetprobeFrame {
-                            sequence: 0,
-                            payload: Some(netprobe_frame::Payload::DpiEvent(event)),
-                        };
-                        write_reused_frame(&mut writer, &frame, &mut encode_buffer, &metrics).await?;
-                    }
-                    None => return Ok(()),
                 }
             }
             event = recv_event(&flow_attribution_events) => {
@@ -604,10 +568,8 @@ fn now_unix_nano() -> i64 {
 mod tests {
     use std::sync::Arc;
 
-    use prost::Message;
     use tempfile::TempDir;
     use tokio::{
-        io::duplex,
         net::UnixStream,
         sync::{broadcast, watch},
     };
@@ -621,13 +583,11 @@ mod tests {
             RECOG_CORPUS_REVISION, SATORI_CORPUS_REVISION, SERVICERADAR_ADDITIONS_REVISION,
             SERVICERADAR_RECOG_ADDITIONS_REVISION,
         },
-        framing::{MAX_FRAME_SIZE, read_frame, write_frame},
+        framing::{read_frame, write_frame},
         metrics::Metrics,
         proto::netprobe::{
-            ApplyConfig, DeviceCensusSnapshot, DpiEvent, ExternalFlowRecord, FingerprintEvent,
-            FlowAttributionEvent, MdnsSnapshot, NetprobeFrame, Ping, ProcessSnapshot,
-            ProcessSnapshotEntry, TcpFingerprint, VisibilityAgentConfig, fingerprint_event,
-            netprobe_frame,
+            ApplyConfig, DeviceCensusSnapshot, ExternalFlowRecord, FlowAttributionEvent,
+            MdnsSnapshot, NetprobeFrame, Ping, VisibilityAgentConfig, netprobe_frame,
         },
         runtime_config::RuntimeConfig,
     };
@@ -637,15 +597,11 @@ mod tests {
         let dir = TempDir::new().unwrap();
         let socket = dir.path().join("ipc.sock");
         let (shutdown_tx, shutdown_rx) = watch::channel(false);
-        let (_event_tx, event_rx) = crate::event_queue::bounded(16);
-        let (_dpi_tx, dpi_rx) = crate::event_queue::bounded(16);
         let (flow_tx, flow_rx) = crate::event_queue::bounded(16);
         let (census_tx, _) = broadcast::channel(16);
         let (mdns_tx, _) = broadcast::channel(16);
         let server = IpcServer::new(
             &socket,
-            event_rx,
-            dpi_rx,
             flow_tx,
             flow_rx,
             census_tx,
@@ -700,15 +656,11 @@ mod tests {
         let dir = TempDir::new().unwrap();
         let socket = dir.path().join("ipc.sock");
         let (shutdown_tx, shutdown_rx) = watch::channel(false);
-        let (_event_tx, event_rx) = crate::event_queue::bounded(16);
-        let (_dpi_tx, dpi_rx) = crate::event_queue::bounded(16);
         let (flow_tx, flow_rx) = crate::event_queue::bounded(16);
         let (census_tx, _) = broadcast::channel(16);
         let (mdns_tx, _) = broadcast::channel(16);
         let server = IpcServer::new(
             &socket,
-            event_rx,
-            dpi_rx,
             flow_tx,
             flow_rx,
             census_tx,
@@ -734,94 +686,10 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn streams_fingerprint_events_to_connected_client() {
-        let dir = TempDir::new().unwrap();
-        let socket = dir.path().join("ipc.sock");
-        let (shutdown_tx, shutdown_rx) = watch::channel(false);
-        let (event_tx, event_rx) = crate::event_queue::bounded(16);
-        let (_dpi_tx, dpi_rx) = crate::event_queue::bounded(16);
-        let (flow_tx, flow_rx) = crate::event_queue::bounded(16);
-        let (census_tx, _) = broadcast::channel(16);
-        let (mdns_tx, _) = broadcast::channel(16);
-        let server = IpcServer::new(
-            &socket,
-            event_rx,
-            dpi_rx,
-            flow_tx,
-            flow_rx,
-            census_tx,
-            mdns_tx,
-            test_external_flow_matcher(),
-            RuntimeConfig::new(&Config::default()),
-            Metrics::new().unwrap(),
-        );
-        let task = tokio::spawn(server.run(shutdown_rx));
-
-        wait_for_socket(&socket).await;
-
-        let mut client = UnixStream::connect(&socket).await.unwrap();
-        event_tx.try_send(fingerprint_event()).unwrap();
-
-        let response = read_frame(&mut client).await.unwrap().unwrap();
-        assert_eq!(response.sequence, 0);
-        let Some(netprobe_frame::Payload::FingerprintEvent(event)) = response.payload else {
-            panic!("expected fingerprint event");
-        };
-        assert_eq!(event.ip, "192.0.2.10");
-        assert_eq!(event.interface_name, "eth0");
-
-        shutdown_tx.send(true).unwrap();
-        task.await.unwrap().unwrap();
-    }
-
-    #[tokio::test]
-    async fn streams_dpi_events_to_connected_client() {
-        let dir = TempDir::new().unwrap();
-        let socket = dir.path().join("ipc.sock");
-        let (shutdown_tx, shutdown_rx) = watch::channel(false);
-        let (_event_tx, event_rx) = crate::event_queue::bounded(16);
-        let (dpi_tx, dpi_rx) = crate::event_queue::bounded(16);
-        let (flow_tx, flow_rx) = crate::event_queue::bounded(16);
-        let (census_tx, _) = broadcast::channel(16);
-        let (mdns_tx, _) = broadcast::channel(16);
-        let server = IpcServer::new(
-            &socket,
-            event_rx,
-            dpi_rx,
-            flow_tx,
-            flow_rx,
-            census_tx,
-            mdns_tx,
-            test_external_flow_matcher(),
-            RuntimeConfig::new(&Config::default()),
-            Metrics::new().unwrap(),
-        );
-        let task = tokio::spawn(server.run(shutdown_rx));
-
-        wait_for_socket(&socket).await;
-
-        let mut client = UnixStream::connect(&socket).await.unwrap();
-        dpi_tx.try_send(dpi_event()).unwrap();
-
-        let response = read_frame(&mut client).await.unwrap().unwrap();
-        assert_eq!(response.sequence, 0);
-        let Some(netprobe_frame::Payload::DpiEvent(event)) = response.payload else {
-            panic!("expected DPI event");
-        };
-        assert_eq!(event.protocol, "dns");
-        assert_eq!(event.interface_name, "eth0");
-
-        shutdown_tx.send(true).unwrap();
-        task.await.unwrap().unwrap();
-    }
-
-    #[tokio::test]
     async fn streams_flow_attribution_events_to_connected_client() {
         let dir = TempDir::new().unwrap();
         let socket = dir.path().join("ipc.sock");
         let (shutdown_tx, shutdown_rx) = watch::channel(false);
-        let (_event_tx, event_rx) = crate::event_queue::bounded(16);
-        let (_dpi_tx, dpi_rx) = crate::event_queue::bounded(16);
         let (flow_tx, flow_rx) = crate::event_queue::bounded(16);
         let (census_tx, _) = broadcast::channel(16);
         let (mdns_tx, _) = broadcast::channel(16);
@@ -829,8 +697,6 @@ mod tests {
         matcher.observe_attribution(&flow_attribution_event());
         let server = IpcServer::new(
             &socket,
-            event_rx,
-            dpi_rx,
             flow_tx.clone(),
             flow_rx,
             census_tx,
@@ -863,16 +729,12 @@ mod tests {
         let dir = TempDir::new().unwrap();
         let socket = dir.path().join("ipc.sock");
         let (shutdown_tx, shutdown_rx) = watch::channel(false);
-        let (_event_tx, event_rx) = crate::event_queue::bounded(16);
-        let (_dpi_tx, dpi_rx) = crate::event_queue::bounded(16);
         let (flow_tx, flow_rx) = crate::event_queue::bounded(16);
         let (census_tx, _) = broadcast::channel(16);
         let (mdns_tx, _) = broadcast::channel(16);
         let matcher = SharedExternalFlowMatcher::new(0);
         let server = IpcServer::new(
             &socket,
-            event_rx,
-            dpi_rx,
             flow_tx.clone(),
             flow_rx,
             census_tx,
@@ -939,8 +801,6 @@ mod tests {
         let dir = TempDir::new().unwrap();
         let socket = dir.path().join("ipc.sock");
         let (shutdown_tx, shutdown_rx) = watch::channel(false);
-        let (_event_tx, event_rx) = crate::event_queue::bounded(16);
-        let (_dpi_tx, dpi_rx) = crate::event_queue::bounded(16);
         let (flow_tx, flow_rx) = crate::event_queue::bounded(16);
         let (census_tx, _) = broadcast::channel(16);
         let (mdns_tx, _) = broadcast::channel(16);
@@ -948,8 +808,6 @@ mod tests {
         matcher.observe_attribution(&flow_attribution_event());
         let server = IpcServer::new(
             &socket,
-            event_rx,
-            dpi_rx,
             flow_tx.clone(),
             flow_rx,
             census_tx,
@@ -1001,15 +859,11 @@ mod tests {
         let dir = TempDir::new().unwrap();
         let socket = dir.path().join("ipc.sock");
         let (shutdown_tx, shutdown_rx) = watch::channel(false);
-        let (_event_tx, event_rx) = crate::event_queue::bounded(16);
-        let (_dpi_tx, dpi_rx) = crate::event_queue::bounded(16);
         let (flow_tx, flow_rx) = crate::event_queue::bounded(16);
         let (census_tx, _) = broadcast::channel(16);
         let (mdns_tx, _) = broadcast::channel(16);
         let server = IpcServer::new(
             &socket,
-            event_rx,
-            dpi_rx,
             flow_tx,
             flow_rx,
             census_tx,
@@ -1057,15 +911,11 @@ mod tests {
         let dir = TempDir::new().unwrap();
         let socket = dir.path().join("ipc.sock");
         let (shutdown_tx, shutdown_rx) = watch::channel(false);
-        let (_event_tx, event_rx) = crate::event_queue::bounded(16);
-        let (_dpi_tx, dpi_rx) = crate::event_queue::bounded(16);
         let (flow_tx, flow_rx) = crate::event_queue::bounded(16);
         let (census_tx, _) = broadcast::channel(16);
         let (mdns_tx, _) = broadcast::channel(16);
         let server = IpcServer::new(
             &socket,
-            event_rx,
-            dpi_rx,
             flow_tx,
             flow_rx,
             census_tx,
@@ -1168,15 +1018,11 @@ mod tests {
         let dir = TempDir::new().unwrap();
         let socket = dir.path().join("ipc.sock");
         let (shutdown_tx, shutdown_rx) = watch::channel(false);
-        let (_event_tx, event_rx) = crate::event_queue::bounded(16);
-        let (_dpi_tx, dpi_rx) = crate::event_queue::bounded(16);
         let (flow_tx, flow_rx) = crate::event_queue::bounded(16);
         let (census_tx, _) = broadcast::channel(16);
         let (mdns_tx, _) = broadcast::channel(16);
         let server = IpcServer::new(
             &socket,
-            event_rx,
-            dpi_rx,
             flow_tx,
             flow_rx,
             census_tx.clone(),
@@ -1217,14 +1063,11 @@ mod tests {
         let socket = dir.path().join("ipc.sock");
         let (shutdown_tx, shutdown_rx) = watch::channel(false);
         let (event_tx, event_rx) = crate::event_queue::bounded(16);
-        let (_dpi_tx, dpi_rx) = crate::event_queue::bounded(16);
         let (flow_tx, flow_rx) = crate::event_queue::bounded(16);
         let (census_tx, _) = broadcast::channel(16);
         let (mdns_tx, _) = broadcast::channel(16);
         let server = IpcServer::new(
             &socket,
-            event_rx,
-            dpi_rx,
             flow_tx,
             flow_rx,
             census_tx,
@@ -1259,15 +1102,11 @@ mod tests {
         let dir = TempDir::new().unwrap();
         let socket = dir.path().join("ipc.sock");
         let (shutdown_tx, shutdown_rx) = watch::channel(false);
-        let (_event_tx, event_rx) = crate::event_queue::bounded(16);
-        let (_dpi_tx, dpi_rx) = crate::event_queue::bounded(16);
         let (flow_tx, flow_rx) = crate::event_queue::bounded(16);
         let (census_tx, _) = broadcast::channel(16);
         let (mdns_tx, _) = broadcast::channel(16);
         let server = IpcServer::new(
             &socket,
-            event_rx,
-            dpi_rx,
             flow_tx,
             flow_rx,
             census_tx,
@@ -1355,38 +1194,6 @@ mod tests {
 
     // Exercises the deprecated-but-still-supported tcp evidence path.
     #[allow(deprecated)]
-    fn fingerprint_event() -> FingerprintEvent {
-        FingerprintEvent {
-            ip: "192.0.2.10".to_string(),
-            profile_id: "profile-1".to_string(),
-            interface_name: "eth0".to_string(),
-            observed_at_unix_nano: 123,
-            evidence: Some(fingerprint_event::Evidence::Tcp(TcpFingerprint {
-                signature: "sig".to_string(),
-                os_family: "linux".to_string(),
-                os_name: "Linux".to_string(),
-                confidence: 1.0,
-                ..Default::default()
-            })),
-        }
-    }
-
-    fn dpi_event() -> DpiEvent {
-        DpiEvent {
-            source_ip: "192.0.2.10".to_string(),
-            destination_ip: "198.51.100.20".to_string(),
-            source_port: 49_152,
-            destination_port: 53,
-            transport_protocol: "udp".to_string(),
-            protocol: "dns".to_string(),
-            confidence: 0.95,
-            observed_at_unix_nano: 123,
-            interface_name: "eth0".to_string(),
-            dissector_id: "dns_header".to_string(),
-            ..Default::default()
-        }
-    }
-
     #[tokio::test]
     async fn ingest_external_flow_record_emits_matched_via_queue_and_bumps_counter() {
         let metrics = Metrics::new().unwrap();
@@ -1549,25 +1356,6 @@ mod tests {
             bytes: 4096,
             packets: 9,
             ..Default::default()
-        }
-    }
-
-    fn process_snapshot() -> ProcessSnapshot {
-        ProcessSnapshot {
-            fingerprint: "fp-1".to_string(),
-            observed_at_unix_nano: 123,
-            entries: vec![crate::proto::netprobe::ProcessSnapshotEntry {
-                local_ip: "192.0.2.10".to_string(),
-                local_port: 443,
-                transport_protocol: "tcp".to_string(),
-                pid: 123,
-                tgid: 123,
-                uid: 1000,
-                gid: 1000,
-                comm: "nginx".to_string(),
-                redacted_cmdline: vec!["/usr/sbin/nginx".to_string()],
-                ..Default::default()
-            }],
         }
     }
 

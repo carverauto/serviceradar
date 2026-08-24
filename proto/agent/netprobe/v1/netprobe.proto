@@ -565,6 +565,18 @@ message DpiEventBatch {
   int64 batch_start_unix_nano = 2;
   int64 batch_end_unix_nano = 3;
   uint32 dropped_since_last = 4;
+  // The device each event describes, chosen by netprobe, positionally aligned
+  // with `events`.
+  //
+  // A DPI event has TWO endpoints and the device is a choice between them: the
+  // collector's own address wins when it is either one. Only netprobe can make
+  // that choice, because only netprobe knows its own address -- core has none
+  // attested. Carried alongside rather than by rewriting `source_ip`, so the
+  // packet's actual direction is not falsified to smuggle a decision through it.
+  //
+  // An empty entry means netprobe could not choose, and core falls back to
+  // source-then-destination.
+  repeated string subject_ips = 5;
 }
 
 // Payload of a `serviceradar.netprobe.process.v1` DiscoveryEnvelope.

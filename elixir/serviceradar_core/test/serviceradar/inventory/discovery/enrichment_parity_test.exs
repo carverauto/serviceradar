@@ -87,9 +87,14 @@ defmodule ServiceRadar.Inventory.Discovery.EnrichmentParityTest do
   end
 
   defp decode_dpi!(event) do
-    payload = DpiEventBatch.encode(%DpiEventBatch{events: [event]})
-    assert {:ok, [observation], _stats} = Decoders.Dpi.decode(payload)
+    assert {:ok, [observation], _stats} = decode_dpi_batch([event], [])
     observation
+  end
+
+  defp decode_dpi_batch(events, subject_ips) do
+    Decoders.Dpi.decode(
+      DpiEventBatch.encode(%DpiEventBatch{events: events, subject_ips: subject_ips})
+    )
   end
 
   describe "fingerprint" do
@@ -278,12 +283,12 @@ defmodule ServiceRadar.Inventory.Discovery.EnrichmentParityTest do
       assert_parity("dpi_collector_is_endpoint", decode_dpi!(event))
     end
 
-    test "collector-as-DESTINATION is the one arm core cannot reproduce" do
-      # Go prefers the collector over the source when the collector is either
-      # endpoint. Core has no attested collector address, so it cannot make that
-      # choice -- which means the PRODUCER has to make it before sending. This
-      # asserts the divergence rather than leaving it untested, so that wiring
-      # netprobe up without the endpoint selection fails here.
+    test "the subject netprobe chose wins over core's source-first fallback" do
+      # Go prefers the collector when it is EITHER endpoint. Core cannot: it has
+      # no attested collector address and can only prefer source. So netprobe
+      # makes the choice and sends it in `subject_ips`, and this asserts core
+      # honours it -- including the destination case, which is the whole reason
+      # the choice moved to the producer.
       event = %DpiEvent{
         protocol: "tls",
         source_ip: "10.20.30.65",
@@ -291,13 +296,31 @@ defmodule ServiceRadar.Inventory.Discovery.EnrichmentParityTest do
         observed_at_unix_nano: @observed_at
       }
 
-      golden = golden!("dpi_collector_is_destination")
-      observation = decode_dpi!(event)
+      payload =
+        DpiEventBatch.encode(%DpiEventBatch{events: [event], subject_ips: ["10.20.30.40"]})
 
-      assert golden["ip"] == "10.20.30.40", "the Go translator chose the collector"
+      assert {:ok, [observation], _stats} = Decoders.Dpi.decode(payload)
+
+      golden = golden!("dpi_collector_is_destination")
+      assert observation["ip"] == golden["ip"], "core must land on the endpoint Go chose"
+      assert_parity("dpi_collector_is_destination", observation)
+    end
+
+    test "an absent subject falls back to source, which is wrong when the collector was destination" do
+      # The fallback exists for a producer too old to send a subject. It is
+      # asserted so the cost of that path is visible rather than assumed benign:
+      # it picks the peer, not the collector.
+      event = %DpiEvent{
+        protocol: "tls",
+        source_ip: "10.20.30.65",
+        destination_ip: "10.20.30.40",
+        observed_at_unix_nano: @observed_at
+      }
+
+      assert {:ok, [observation], _stats} = decode_dpi_batch([event], [])
 
       assert observation["ip"] == "10.20.30.65",
-             "core can only choose the source; netprobe must select the endpoint itself"
+             "without a producer-chosen subject core can only prefer source"
     end
 
     test "the skip rules survived the port" do

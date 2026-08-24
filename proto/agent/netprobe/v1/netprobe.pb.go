@@ -4185,8 +4185,20 @@ type DpiEventBatch struct {
 	BatchStartUnixNano int64                  `protobuf:"varint,2,opt,name=batch_start_unix_nano,json=batchStartUnixNano,proto3" json:"batch_start_unix_nano,omitempty"`
 	BatchEndUnixNano   int64                  `protobuf:"varint,3,opt,name=batch_end_unix_nano,json=batchEndUnixNano,proto3" json:"batch_end_unix_nano,omitempty"`
 	DroppedSinceLast   uint32                 `protobuf:"varint,4,opt,name=dropped_since_last,json=droppedSinceLast,proto3" json:"dropped_since_last,omitempty"`
-	unknownFields      protoimpl.UnknownFields
-	sizeCache          protoimpl.SizeCache
+	// The device each event describes, chosen by netprobe, positionally aligned
+	// with `events`.
+	//
+	// A DPI event has TWO endpoints and the device is a choice between them: the
+	// collector's own address wins when it is either one. Only netprobe can make
+	// that choice, because only netprobe knows its own address -- core has none
+	// attested. Carried alongside rather than by rewriting `source_ip`, so the
+	// packet's actual direction is not falsified to smuggle a decision through it.
+	//
+	// An empty entry means netprobe could not choose, and core falls back to
+	// source-then-destination.
+	SubjectIps    []string `protobuf:"bytes,5,rep,name=subject_ips,json=subjectIps,proto3" json:"subject_ips,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *DpiEventBatch) Reset() {
@@ -4245,6 +4257,13 @@ func (x *DpiEventBatch) GetDroppedSinceLast() uint32 {
 		return x.DroppedSinceLast
 	}
 	return 0
+}
+
+func (x *DpiEventBatch) GetSubjectIps() []string {
+	if x != nil {
+		return x.SubjectIps
+	}
+	return nil
 }
 
 // Payload of a `serviceradar.netprobe.process.v1` DiscoveryEnvelope.
@@ -4701,12 +4720,14 @@ const file_agent_netprobe_v1_netprobe_proto_rawDesc = "" +
 	"\x06events\x18\x01 \x03(\v20.serviceradar.agent.netprobe.v1.FingerprintEventR\x06events\x121\n" +
 	"\x15batch_start_unix_nano\x18\x02 \x01(\x03R\x12batchStartUnixNano\x12-\n" +
 	"\x13batch_end_unix_nano\x18\x03 \x01(\x03R\x10batchEndUnixNano\x12,\n" +
-	"\x12dropped_since_last\x18\x04 \x01(\rR\x10droppedSinceLast\"\xe1\x01\n" +
+	"\x12dropped_since_last\x18\x04 \x01(\rR\x10droppedSinceLast\"\x82\x02\n" +
 	"\rDpiEventBatch\x12@\n" +
 	"\x06events\x18\x01 \x03(\v2(.serviceradar.agent.netprobe.v1.DpiEventR\x06events\x121\n" +
 	"\x15batch_start_unix_nano\x18\x02 \x01(\x03R\x12batchStartUnixNano\x12-\n" +
 	"\x13batch_end_unix_nano\x18\x03 \x01(\x03R\x10batchEndUnixNano\x12,\n" +
-	"\x12dropped_since_last\x18\x04 \x01(\rR\x10droppedSinceLast\"\x82\x01\n" +
+	"\x12dropped_since_last\x18\x04 \x01(\rR\x10droppedSinceLast\x12\x1f\n" +
+	"\vsubject_ips\x18\x05 \x03(\tR\n" +
+	"subjectIps\"\x82\x01\n" +
 	"\x14ProcessSnapshotBatch\x12K\n" +
 	"\bsnapshot\x18\x01 \x01(\v2/.serviceradar.agent.netprobe.v1.ProcessSnapshotR\bsnapshot\x12\x1d\n" +
 	"\n" +
