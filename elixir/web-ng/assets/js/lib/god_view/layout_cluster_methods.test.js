@@ -220,4 +220,28 @@ describe("layout_cluster_methods", () => {
     expect(ctx.reclusterByState).not.toHaveBeenCalled()
     expect(ctx.reclusterByGrid).not.toHaveBeenCalled()
   })
+
+  it("maps accepted ELK visual density to display shape without reclustering geometry", () => {
+    const graph = {
+      shape: "regional",
+      _layoutMode: "elk-scene",
+      _topologyScene: {key: "accepted-scene", routes: [], groups: []},
+      nodes: [{id: "node-a", x: 120, y: 80}],
+      edges: [],
+    }
+    const ctx = makeContext({state: {managedTopologyVisualDensity: "overview"}})
+    ctx.reclusterByState = vi.fn(() => ({shape: "global", nodes: []}))
+    ctx.reclusterByGrid = vi.fn(() => ({shape: "regional", nodes: []}))
+
+    const overview = ctx.reshapeGraph(graph)
+    ctx.state.managedTopologyVisualDensity = "detail"
+    const detail = ctx.reshapeGraph(graph)
+
+    expect(overview).toEqual({...graph, shape: "global"})
+    expect(detail).toEqual({...graph, shape: "local"})
+    expect(overview._topologyScene).toBe(graph._topologyScene)
+    expect(overview.nodes).toBe(graph.nodes)
+    expect(ctx.reclusterByState).not.toHaveBeenCalled()
+    expect(ctx.reclusterByGrid).not.toHaveBeenCalled()
+  })
 })

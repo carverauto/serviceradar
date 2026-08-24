@@ -1,4 +1,10 @@
 import {fitTopologyScene, focusTopologyGroup, measureGodViewSafeRect} from "./rendering_scene_view"
+import {
+  MANAGED_VISUAL_DENSITY_DETAIL,
+  MANAGED_VISUAL_DENSITY_PREFERENCE,
+  managedNodeVisualRole,
+  managedVisualDensityContract,
+} from "./rendering_managed_visual_density"
 
 function nodeDetails(node) {
   return node?.details && typeof node.details === "object" ? node.details : {}
@@ -46,7 +52,175 @@ function preferredAutoFitZoomTier(graph) {
   return graph?._layoutMode === "client-radial" ? "local" : null
 }
 
+function managedGraphNodes(graph) {
+  return new Map((graph?.nodes || []).map((node, index) => [String(node?.id || ""), {node, index}]))
+}
+
+function managedGlyphBox(context, graphNodes, sceneNode, managedVisualDensity) {
+  const nodeId = String(sceneNode?.id || "")
+  const graphNode = graphNodes.get(nodeId)?.node
+  if (!graphNode || typeof context.nodeVisibleOuterRadiusPixels !== "function") {
+    throw new RangeError(`managed topology node ${nodeId} has no renderer-derived glyph extents`)
+  }
+  const radius = Number(context.nodeVisibleOuterRadiusPixels(graphNode, {managedVisualDensity}))
+  if (!Number.isFinite(radius) || radius <= 0) {
+    throw new RangeError(`managed topology node ${nodeId} has invalid renderer-derived glyph extents`)
+  }
+  return {nodeId: sceneNode.id, width: radius * 2, height: radius * 2}
+}
+
+function managedGlyphSeparationConstraint(context, graph, graphNodes, managedVisualDensity) {
+  const specs = (graph?._topologyScene?.nodes || []).flatMap((sceneNode) => {
+    if (sceneNode?.render === false) return []
+    const entry = graphNodes.get(String(sceneNode?.id || ""))
+    if (!entry) return []
+    const glyph = managedGlyphBox(context, graphNodes, sceneNode, managedVisualDensity)
+    return [{
+      nodeId: String(sceneNode.id || ""),
+      role: managedNodeVisualRole(entry.node),
+      worldX: Number(sceneNode?.center?.x),
+      worldY: Number(sceneNode?.center?.y),
+      halfWidth: Number(glyph.width) / 2,
+      halfHeight: Number(glyph.height) / 2,
+    }]
+  })
+  let limiting = {
+    scale: 0,
+    leftId: "",
+    rightId: "",
+    axis: "x",
+    limitingRolePair: [],
+  }
+  for (let leftIndex = 0; leftIndex < specs.length; leftIndex += 1) {
+    for (let rightIndex = leftIndex + 1; rightIndex < specs.length; rightIndex += 1) {
+      const left = specs[leftIndex]
+      const right = specs[rightIndex]
+      const distanceX = Math.abs(right.worldX - left.worldX)
+      const distanceY = Math.abs(right.worldY - left.worldY)
+      const requiredX = left.halfWidth + right.halfWidth
+      const requiredY = left.halfHeight + right.halfHeight
+      const scaleX = distanceX > 0 ? requiredX / distanceX : Number.POSITIVE_INFINITY
+      const scaleY = distanceY > 0 ? requiredY / distanceY : Number.POSITIVE_INFINITY
+      const axis = scaleX <= scaleY ? "x" : "y"
+      const scale = Math.min(scaleX, scaleY)
+      if (scale > limiting.scale) {
+        limiting = {
+          scale,
+          leftId: left.nodeId,
+          rightId: right.nodeId,
+          axis,
+          limitingRolePair: [left.role, right.role],
+        }
+      }
+    }
+  }
+  return limiting
+}
+
+function managedDensityConstraints(context, graph) {
+  const graphNodes = managedGraphNodes(graph)
+  return Object.fromEntries(MANAGED_VISUAL_DENSITY_PREFERENCE.map((managedVisualDensity) => [
+    managedVisualDensity,
+    managedGlyphSeparationConstraint(context, graph, graphNodes, managedVisualDensity),
+  ]))
+}
+
+function managedLabelAdmission(context, graph, graphNodes, width, height, managedVisualDensity) {
+  if (typeof context.admitNodeLabelsForViewport !== "function" || typeof context.selectNodeLabels !== "function") {
+    return undefined
+  }
+  return ({scene, viewState, safeRect}) => {
+    const protectedNodes = (scene?.nodes || []).flatMap((sceneNode) => {
+      if (sceneNode?.render === false) return []
+      const entry = graphNodes.get(String(sceneNode?.id || ""))
+      if (!entry) return []
+      return [{
+        ...entry.node,
+        index: entry.index,
+        position: [Number(sceneNode?.center?.x) || 0, Number(sceneNode?.center?.y) || 0, 0],
+      }]
+    })
+    const viewport = {
+      width,
+      height,
+      project: ([x, y]) => {
+        const scale = 2 ** viewState.zoom
+        return [
+          (width / 2) + ((Number(x) - viewState.target[0]) * scale),
+          (height / 2) + ((Number(y) - viewState.target[1]) * scale),
+        ]
+      },
+    }
+    const candidates = context.selectNodeLabels(
+      protectedNodes,
+      graph?.shape,
+      {managedVisualDensity},
+    )
+    return context.admitNodeLabelsForViewport(
+      {...graph, _topologyScene: scene},
+      candidates,
+      protectedNodes,
+      {viewport, safeRect, managedVisualDensity},
+    )
+  }
+}
+
+function fitManagedTopologyScene(context, graph, scene, viewport, safeRect, graphNodes) {
+  let lastInfeasible = null
+  for (const managedVisualDensity of MANAGED_VISUAL_DENSITY_PREFERENCE) {
+    const glyphBoxes = (scene.nodes || [])
+      .filter((sceneNode) => sceneNode?.render !== false)
+      .map((sceneNode) => managedGlyphBox(context, graphNodes, sceneNode, managedVisualDensity))
+    const admitLabels = managedLabelAdmission(
+      context,
+      graph,
+      graphNodes,
+      viewport.width,
+      viewport.height,
+      managedVisualDensity,
+    )
+    try {
+      return {
+        ...fitTopologyScene({
+          scene,
+          viewport,
+          safeRect,
+          glyphBoxes,
+          routeStrokeWidth: managedVisualDensityContract(managedVisualDensity).routeMaxWidth,
+          admitLabels,
+        }),
+        managedVisualDensity,
+      }
+    } catch (error) {
+      if (!(error instanceof RangeError)) throw error
+      lastInfeasible = error
+    }
+  }
+  throw lastInfeasible || new RangeError("managed topology has no feasible visual-density contract")
+}
+
 export const godViewRenderingGraphViewMethods = {
+  managedVisualDensityForViewScale(graph, scale) {
+    const cameraScale = Number(scale)
+    if (!Number.isFinite(cameraScale) || cameraScale <= 0) {
+      throw new RangeError(`managed topology camera scale must be finite and positive; scale=${String(scale)}`)
+    }
+    if (graph?._layoutMode !== "elk-scene" || !graph?._topologyScene) {
+      throw new RangeError("managed visual density requires an accepted ELK topology scene")
+    }
+    const constraints = managedDensityConstraints(this, graph)
+    for (const managedVisualDensity of MANAGED_VISUAL_DENSITY_PREFERENCE) {
+      if (cameraScale + 1e-9 >= constraints[managedVisualDensity].scale) {
+        return {managedVisualDensity, constraints}
+      }
+    }
+    const overview = constraints.overview
+    throw new RangeError(
+      `no feasible managed visual density at scale=${cameraScale}; overview requires scale=${overview.scale} ` +
+      `for ${overview.leftId}(${overview.limitingRolePair[0] || "unknown"}) and ` +
+      `${overview.rightId}(${overview.limitingRolePair[1] || "unknown"}) on axis=${overview.axis}`,
+    )
+  },
   fitViewPadding(width, height) {
     const safeWidth = Math.max(1, Number(width) || 1)
     const safeHeight = Math.max(1, Number(height) || 1)
@@ -112,50 +286,18 @@ export const godViewRenderingGraphViewMethods = {
       const width = Math.max(1, this.state.el.clientWidth || 1)
       const height = Math.max(1, this.state.el.clientHeight || 1)
       const safeRect = this.state.topologyLabelSafeRect || measureGodViewSafeRect(this.state.el)
-      const graphNodeById = new Map(graph.nodes.map((node) => [String(node?.id || ""), node]))
-      const glyphBoxes = (managedScene.nodes || []).map((sceneNode) => {
-        const graphNode = graphNodeById.get(String(sceneNode?.id || ""))
-        const radius = typeof this.nodeHaloRadiusPixels === "function"
-          ? Math.max(0, Number(this.nodeHaloRadiusPixels(graphNode)) || 0)
-          : 26
-        return {nodeId: sceneNode.id, width: radius * 2, height: radius * 2}
-      })
-      const admitLabels = typeof this.admitNodeLabelsForViewport === "function" && typeof this.selectNodeLabels === "function"
-        ? ({viewState, safeRect: fitSafeRect}) => {
-            const viewport = {
-              width,
-              height,
-              project: ([x, y]) => {
-                const scale = 2 ** viewState.zoom
-                return [
-                  (width / 2) + ((Number(x) - viewState.target[0]) * scale),
-                  (height / 2) + ((Number(y) - viewState.target[1]) * scale),
-                ]
-              },
-            }
-            const protectedNodes = graph.nodes.map((node, index) => ({
-              ...node,
-              index,
-              position: [Number(node?.x) || 0, Number(node?.y) || 0, 0],
-            }))
-            const candidates = this.selectNodeLabels(protectedNodes, "local")
-            return this.admitNodeLabelsForViewport(
-              {...graph, shape: "local"},
-              candidates,
-              protectedNodes,
-              {viewport, safeRect: fitSafeRect},
-            )
-          }
-        : undefined
-      const fitted = fitTopologyScene({
-        scene: managedScene,
-        viewport: {...this.state.viewState, width, height, viewState: this.state.viewState},
+      const graphNodes = managedGraphNodes(graph)
+      const fitted = fitManagedTopologyScene(
+        this,
+        graph,
+        managedScene,
+        {...this.state.viewState, width, height, viewState: this.state.viewState},
         safeRect,
-        glyphBoxes,
-        admitLabels,
-      })
+        graphNodes,
+      )
 
       this.state.viewState = fitted.viewState
+      this.state.managedTopologyVisualDensity = fitted.managedVisualDensity
       this.state.hasAutoFit = true
       this.state.isProgrammaticViewUpdate = true
       this.state.deck.setProps({viewState: this.state.viewState})
@@ -204,14 +346,31 @@ export const godViewRenderingGraphViewMethods = {
     if (graph?._layoutMode === "elk-scene" && graph?._topologyScene) {
       const width = Math.max(1, this.state.el.clientWidth || 1)
       const height = Math.max(1, this.state.el.clientHeight || 1)
+      const graphNodes = managedGraphNodes(graph)
       const viewState = focusTopologyGroup({
         scene: graph._topologyScene,
         groupId: normalizedClusterId,
         viewport: {...this.state.viewState, width, height, viewState: this.state.viewState},
         safeRect: this.state.topologyLabelSafeRect || measureGodViewSafeRect(this.state.el),
+        glyphBoxForNode: (sceneNode) => managedGlyphBox(
+          this,
+          graphNodes,
+          sceneNode,
+          MANAGED_VISUAL_DENSITY_DETAIL,
+        ),
+        routeStrokeWidth: managedVisualDensityContract(MANAGED_VISUAL_DENSITY_DETAIL).routeMaxWidth,
+        admitLabels: managedLabelAdmission(
+          this,
+          graph,
+          graphNodes,
+          width,
+          height,
+          MANAGED_VISUAL_DENSITY_DETAIL,
+        ),
       })
       if (!viewState) return false
       this.state.viewState = viewState
+      this.state.managedTopologyVisualDensity = MANAGED_VISUAL_DENSITY_DETAIL
       this.state.isProgrammaticViewUpdate = true
       this.state.deck.setProps({viewState})
       if (this.state.zoomMode === "auto") this.deps.setZoomTier("local", true)

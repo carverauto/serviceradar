@@ -1,4 +1,5 @@
 import GodViewRenderer from "./js/lib/GodViewRenderer"
+import {installGodViewAcceptanceGeometryObserver} from "./god_view_acceptance_geometry_observer"
 import {
   collapsedFarm01Graph,
   expandedFarm01Graph,
@@ -67,6 +68,7 @@ async function start() {
   await document.fonts.ready
   const root = document.querySelector("#god-view-fixture")
   const renderer = new GodViewRenderer(root, () => {}, () => {})
+  installGodViewAcceptanceGeometryObserver(renderer.context)
   const {state, layout, rendering, lifecycle} = renderer.context
   lifecycle.initLifecycleState()
   lifecycle.bindLifecycleMethods()

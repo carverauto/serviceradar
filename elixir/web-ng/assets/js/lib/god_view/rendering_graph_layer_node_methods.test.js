@@ -404,6 +404,59 @@ describe("rendering_graph_layer_node_methods", () => {
     expect(ctx.topologyRouteStrokeWidth({})).toEqual(0)
   })
 
+  it("uses one truthful managed visual-density contract for glyphs, rings, routes, and labels", () => {
+    const state = {
+      animationPhase: Math.PI / 4,
+      layers: {mantle: true, crust: true},
+    }
+    const ctx = createStateBackedContext(state, {})
+    Object.assign(ctx, bindApi(ctx, godViewRenderingGraphLayerNodeMethods))
+    const member = {
+      id: "member",
+      selected: true,
+      clusterCount: 1,
+      details: {cluster_kind: "endpoint-member", cluster_expanded: true},
+    }
+    const summary = {
+      id: "summary",
+      clusterCount: 20,
+      details: {cluster_kind: "endpoint-summary"},
+    }
+    const anchor = {
+      id: "anchor",
+      clusterCount: 1,
+      details: {cluster_kind: "endpoint-anchor"},
+    }
+
+    expect(ctx.nodeVisibleOuterRadiusPixels(member, {managedVisualDensity: "overview"})).toBe(10)
+    expect(ctx.nodeVisibleOuterRadiusPixels(member, {managedVisualDensity: "detail"})).toBe(20)
+    expect(ctx.nodeCoreRadiusPixels(member)).toBeLessThanOrEqual(10)
+    expect(ctx.nodeRingRadiusPixels(member, {managedVisualDensity: "overview"})).toBeLessThanOrEqual(9)
+    expect(
+      ctx.nodeRingRadiusPixels(member, {managedVisualDensity: "overview"}) + 1,
+    ).toBeLessThanOrEqual(ctx.nodeVisibleOuterRadiusPixels(member, {managedVisualDensity: "overview"}))
+    expect(ctx.nodeVisibleOuterRadiusPixels(summary, {managedVisualDensity: "overview"})).toBe(20)
+    expect(ctx.nodeVisibleOuterRadiusPixels(anchor, {managedVisualDensity: "overview"})).toBe(12)
+    expect(ctx.nodeVisibleOuterRadiusPixels(summary, {managedVisualDensity: "detail"})).toBe(41.375)
+    expect(ctx.nodeVisibleOuterRadiusPixels(anchor, {managedVisualDensity: "detail"})).toBe(20)
+    expect(ctx.nodeCoreRadiusPixels(summary, {managedVisualDensity: "overview"})).toBeLessThanOrEqual(20)
+    expect(ctx.nodeCoreRadiusPixels(anchor, {managedVisualDensity: "overview"})).toBeLessThanOrEqual(12)
+    expect(ctx.topologyRouteStrokeWidth({}, {managedVisualDensity: "overview"})).toBe(10)
+    expect(ctx.topologyRouteStrokeWidth({}, {managedVisualDensity: "detail"})).toBe(12)
+    expect(ctx.topologyRouteStrokeWidth({})).toBe(38)
+
+    const labels = ctx.selectNodeLabels(
+      Array.from({length: 24}, (_, index) => ({
+        id: `node-${index}`,
+        label: `Node ${index}`,
+        details: {},
+      })),
+      "regional",
+      {managedVisualDensity: "overview"},
+    )
+    expect(labels).toHaveLength(8)
+  })
+
   it("visualClusterCount only scales endpoint summaries", () => {
     const state = {
       animationPhase: 0,

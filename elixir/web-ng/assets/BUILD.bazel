@@ -44,7 +44,12 @@ filegroup(
         "js/lib/god_view/**/*.js",
         "js/lib/deckgl/**/*.js",
         "js/wasm/god_view_exec_runtime.js",
-    ]) + ["js/lib/GodViewRenderer.js"],
+    ]) + [
+        "god_view_acceptance_geometry_observer.js",
+        "god_view_acceptance_geometry_observer.test.js",
+        "god_view_production_bundle_contract.test.js",
+        "js/lib/GodViewRenderer.js",
+    ],
 )
 
 js_test(
@@ -52,7 +57,10 @@ js_test(
     size = "small",
     args = [
         "$(rootpath %s)" % test
-        for test in glob(["js/lib/god_view/*.test.js"])
+        for test in glob([
+            "god_view_*test.js",
+            "js/lib/god_view/*.test.js",
+        ])
     ],
     chdir = package_name(),
     data = glob([
@@ -60,7 +68,11 @@ js_test(
         "js/lib/deckgl/**/*.js",
         "js/wasm/god_view_exec_runtime.js",
     ]) + [
+        ":bundle_srcs",
         ":node_modules",
+        "god_view_acceptance_geometry_observer.js",
+        "god_view_acceptance_geometry_observer.test.js",
+        "god_view_production_bundle_contract.test.js",
         "js/lib/GodViewRenderer.js",
     ],
     entry_point = "god_view_scene_test_runner.mjs",

@@ -367,7 +367,8 @@ export const godViewLifecycleDomSetupMethods = {
       },
       onViewStateChange: ({viewState}) => {
         this.state.viewState = viewState
-        if (!this.state.isProgrammaticViewUpdate) this.state.userCameraLocked = true
+        const programmaticUpdate = this.state.isProgrammaticViewUpdate === true
+        if (!programmaticUpdate) this.state.userCameraLocked = true
         this.state.isProgrammaticViewUpdate = false
         if (this.state.zoomMode === "auto") {
           // client-radial already authored the overview. Switching to
@@ -375,9 +376,16 @@ export const godViewLifecycleDomSetupMethods = {
           // nodes out from under the camera and the canvas looks empty.
           const layoutMode = this.state.lastGraph?._layoutMode
           if (layoutMode === "elk-scene") {
-            // The accepted ELK scene already owns geometry. Keep its display
-            // policy local without entering the legacy tier reshaping path.
+            // The accepted ELK scene already owns geometry. Manual camera
+            // changes may switch only its renderer density/display policy.
             this.state.zoomTier = "local"
+            if (!programmaticUpdate) {
+              const selection = this.deps.managedVisualDensityForViewScale(
+                this.state.lastGraph,
+                2 ** Number(viewState?.zoom || 0),
+              )
+              this.state.managedTopologyVisualDensity = selection.managedVisualDensity
+            }
           } else {
             const nextTier = layoutMode === "client-radial" ? "local" : this.deps.resolveZoomTier(viewState.zoom || 0)
             this.deps.setZoomTier(nextTier, false)

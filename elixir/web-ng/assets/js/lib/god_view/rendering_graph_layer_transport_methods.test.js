@@ -71,6 +71,75 @@ describe("rendering_graph_layer_transport_methods", () => {
     expect(out.crustLayers[0].props.getColor(edge)).toEqual([100, 160, 255, 255])
   })
 
+  it.each([
+    ["overview", 10],
+    ["detail", 12],
+  ])("caps every focused managed PathLayer stroke at the %s density", (density, maximum) => {
+    const state = {
+      animationPhase: 1.2,
+      managedTopologyVisualDensity: density,
+      hoveredEdgeKey: "local:route:a-b",
+      selectedEdgeKey: "local:route:a-b",
+      viewState: {zoom: 3},
+      layers: {mantle: true, crust: true, atmosphere: false, security: false},
+      visual: {
+        mantleEdgeBase: [30, 80, 140],
+        mantleEdgeAlphaBase: 128,
+        mantleEdgeAlphaBoost: 32,
+      },
+    }
+    const ctx = createStateBackedContext(state, {geoGridData: vi.fn(() => [])})
+    Object.assign(ctx, bindApi(ctx, godViewRenderingGraphLayerTransportMethods), {
+      edgeTelemetryColor: vi.fn(() => [100, 160, 255, 150]),
+      edgeWidthPixels: vi.fn(() => 100),
+      edgeIsFocused: vi.fn(() => true),
+    })
+    const edge = {
+      interactionKey: "local:route:a-b",
+      path: [[0, 0, 0], [40, 0, 0]],
+      topologyClass: "backbone",
+    }
+
+    const out = ctx.buildTransportAndEffectLayers(
+      {shape: "regional", _layoutMode: "elk-scene", _topologyScene: {routes: [{id: "route:a-b"}]}},
+      [],
+      [edge],
+    )
+
+    expect(out.mantleLayers[0].props.getWidth(edge)).toBe(maximum)
+    expect(out.crustLayers[0].props.getWidth(edge)).toBe(maximum)
+  })
+
+  it("leaves legacy LineLayer and ArcLayer width behavior unchanged", () => {
+    const state = {
+      animationPhase: 1.2,
+      managedTopologyVisualDensity: "overview",
+      hoveredEdgeKey: "legacy",
+      selectedEdgeKey: "legacy",
+      viewState: {zoom: 3},
+      layers: {mantle: true, crust: true, atmosphere: false, security: false},
+      visual: {
+        mantleEdgeBase: [30, 80, 140],
+        mantleEdgeAlphaBase: 128,
+        mantleEdgeAlphaBoost: 32,
+      },
+    }
+    const ctx = createStateBackedContext(state, {geoGridData: vi.fn(() => [])})
+    Object.assign(ctx, bindApi(ctx, godViewRenderingGraphLayerTransportMethods), {
+      edgeTelemetryArcColors: vi.fn(() => ({source: [100, 100, 255, 120], target: [200, 120, 255, 120]})),
+      edgeWidthPixels: vi.fn(() => 100),
+      edgeIsFocused: vi.fn(() => true),
+    })
+    const edge = {sourcePosition: [0, 0, 0], targetPosition: [40, 0, 0], topologyClass: "backbone"}
+
+    const out = ctx.buildTransportAndEffectLayers({shape: "regional"}, [], [edge])
+
+    expect(out.mantleLayers[0]).toBeInstanceOf(LineLayer)
+    expect(out.crustLayers[0]).toBeInstanceOf(ArcLayer)
+    expect(out.mantleLayers[0].props.getWidth(edge)).toBe(38)
+    expect(out.crustLayers[0].props.getWidth(edge)).toBe(12)
+  })
+
   it("buildTransportAndEffectLayers includes atmosphere particles with additive blend settings", () => {
     const state = {
       animationPhase: 1.2,

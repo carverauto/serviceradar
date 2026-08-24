@@ -19,6 +19,7 @@ import {godViewLayoutClusterMethods} from "./layout_cluster_methods"
 import {godViewLifecycleDomSetupMethods} from "./lifecycle_dom_setup_methods"
 import {godViewRenderingGraphCoreMethods} from "./rendering_graph_core_methods"
 import {godViewRenderingGraphLayerNodeMethods} from "./rendering_graph_layer_node_methods"
+import {godViewRenderingGraphViewMethods} from "./rendering_graph_view_methods"
 
 describe("lifecycle_dom_setup_methods", () => {
   it("observeTopologyContainer watches the actual topology container", () => {
@@ -303,6 +304,7 @@ describe("lifecycle_dom_setup_methods", () => {
       handlePick: vi.fn(),
       setZoomTier: layoutContext.setZoomTier,
       resolveZoomTier: layoutContext.resolveZoomTier,
+      managedVisualDensityForViewScale: vi.fn(() => ({managedVisualDensity: "detail"})),
       refreshGraphLayersForViewState,
     }
     const lifecycleContext = createStateBackedContext(state, deps)
@@ -340,8 +342,95 @@ describe("lifecycle_dom_setup_methods", () => {
     expect(refreshGraphLayersForViewState).toHaveBeenCalledTimes(2)
     expect(reshapeGraph).toHaveBeenCalledTimes(1)
     expect(tierRenderGraph).not.toHaveBeenCalled()
-    expect(state.lastGraphLayerFrame.effective).toBe(effective)
+    expect(state.lastGraphLayerFrame.effective.shape).toBe("local")
+    expect(state.lastGraphLayerFrame.effective._topologyScene).toBe(scene)
     expect(effective._topologyScene).toBe(scene)
+  })
+
+  it("switches managed density and display shape together without changing accepted ELK geometry", async () => {
+    const routePoints = Object.freeze([
+      Object.freeze({x: 0, y: 0}),
+      Object.freeze({x: 192, y: 0}),
+    ])
+    const routes = Object.freeze([
+      Object.freeze({sourceId: "left", targetId: "right", points: routePoints}),
+    ])
+    const sceneNodes = Object.freeze([
+      Object.freeze({id: "left", center: Object.freeze({x: 0, y: 0}), render: true}),
+      Object.freeze({id: "right", center: Object.freeze({x: 192, y: 0}), render: true}),
+    ])
+    const scene = Object.freeze({
+      bounds: Object.freeze({minX: 0, minY: 0, maxX: 192, maxY: 1}),
+      nodes: sceneNodes,
+      groups: Object.freeze([]),
+      routes,
+    })
+    const graphNodes = Object.freeze([
+      Object.freeze({id: "left", x: 0, y: 0, details: Object.freeze({cluster_kind: "endpoint-member", cluster_expanded: true})}),
+      Object.freeze({id: "right", x: 192, y: 0, details: Object.freeze({cluster_kind: "endpoint-member", cluster_expanded: true})}),
+    ])
+    const graph = Object.freeze({shape: "local", _layoutMode: "elk-scene", _topologyScene: scene, nodes: graphNodes})
+    const initialEffective = {...graph}
+    const state = {
+      canvas: {},
+      visual: {bg: [10, 10, 10, 255]},
+      layers: {atmosphere: false},
+      viewState: {zoom: -1, target: [96, 0, 0]},
+      isProgrammaticViewUpdate: false,
+      userCameraLocked: false,
+      zoomMode: "auto",
+      zoomTier: "local",
+      managedTopologyVisualDensity: "detail",
+      lastGraph: graph,
+      lastGraphLayerFrame: {
+        effective: initialEffective,
+        nodeData: graphNodes,
+        edgeData: [],
+        edgeLabelData: [],
+        rootPulseNodes: [],
+      },
+    }
+    const renderingContext = createStateBackedContext(state, {})
+    Object.assign(
+      renderingContext,
+      bindApi(renderingContext, godViewRenderingGraphCoreMethods),
+      bindApi(renderingContext, godViewRenderingGraphLayerNodeMethods),
+      bindApi(renderingContext, godViewRenderingGraphViewMethods),
+      {buildGraphLayers: vi.fn(() => [])},
+    )
+    state.deck = {setProps: vi.fn()}
+    const refreshGraphLayersForViewState = vi.fn(() => renderingContext.refreshGraphLayersForViewState())
+    const deps = {
+      getNodeTooltip: vi.fn(),
+      handleHover: vi.fn(),
+      handlePick: vi.fn(),
+      setZoomTier: vi.fn(),
+      resolveZoomTier: vi.fn(() => "local"),
+      managedVisualDensityForViewScale: renderingContext.managedVisualDensityForViewScale,
+      refreshGraphLayersForViewState,
+    }
+    const lifecycleContext = createStateBackedContext(state, deps)
+    Object.assign(lifecycleContext, bindApi(lifecycleContext, godViewLifecycleDomSetupMethods))
+    const deckInstance = lifecycleContext.createDeckInstance(1000, 700)
+    const originalGeometry = JSON.stringify(scene)
+
+    deckInstance.props.onViewStateChange({viewState: {zoom: Math.log2(0.15), target: [96, 0, 0]}})
+    await Promise.resolve()
+    expect(state.managedTopologyVisualDensity).toBe("overview")
+    expect(state.lastGraphLayerFrame.effective.shape).toBe("global")
+    expect(state.lastGraphLayerFrame.effective._topologyScene).toBe(scene)
+    expect(state.lastGraphLayerFrame.effective.nodes).toBe(graphNodes)
+    expect(state.lastGraphLayerFrame.effective._topologyScene.routes).toBe(routes)
+
+    deckInstance.props.onViewStateChange({viewState: {zoom: Math.log2(0.25), target: [96, 0, 0]}})
+    await Promise.resolve()
+    expect(state.managedTopologyVisualDensity).toBe("detail")
+    expect(state.lastGraphLayerFrame.effective.shape).toBe("local")
+    expect(state.lastGraphLayerFrame.effective._topologyScene).toBe(scene)
+    expect(state.lastGraphLayerFrame.effective.nodes).toBe(graphNodes)
+    expect(state.lastGraphLayerFrame.effective._topologyScene.routes).toBe(routes)
+    expect(JSON.stringify(scene)).toBe(originalGeometry)
+    expect(refreshGraphLayersForViewState).toHaveBeenCalledTimes(2)
   })
 
   it("handleDetailsPanelClick closes the details card", () => {

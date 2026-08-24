@@ -1,6 +1,11 @@
 import {COORDINATE_SYSTEM} from "@deck.gl/core"
 import {LineLayer, ScatterplotLayer, TextLayer} from "@deck.gl/layers"
 import {admitTopologyLabels} from "./rendering_label_collision"
+import {
+  managedNodeOuterRadiusCap,
+  managedVisualDensityContract,
+  normalizeManagedVisualDensity,
+} from "./rendering_managed_visual_density"
 
 export const godViewRenderingGraphLayerNodeMethods = {
   visualClusterCount(node) {
@@ -12,8 +17,33 @@ export const godViewRenderingGraphLayerNodeMethods = {
     }
     return 1
   },
-  nodeHaloRadiusPixels(node) {
-    return Math.min(8 + (this.visualClusterCount(node) - 1) * 0.45, 26) * 2.5
+  nodeHaloRadiusPixels(node, options = {}) {
+    const radius = Math.min(8 + (this.visualClusterCount(node) - 1) * 0.45, 26) * 2.5
+    if (!options.managedVisualDensity) return radius
+    return Math.min(radius, managedNodeOuterRadiusCap(node, options.managedVisualDensity))
+  },
+  nodeRingRadiusPixels(node, options = {}) {
+    const baseRadius = Math.min(12 + (this.visualClusterCount(node) - 1) * 0.45, 32)
+    const phase = Number(this.state?.animationPhase)
+    const index = Number(node?.index)
+    const breathe = Math.sin(
+      ((Number.isFinite(phase) ? phase : 0) * 2.0) + (Number.isFinite(index) ? index : 0),
+    ) * 2.0
+    const radius = baseRadius + breathe
+    if (!options.managedVisualDensity) return radius
+    const outerCap = managedNodeOuterRadiusCap(node, options.managedVisualDensity)
+    const halfLineWidth = node?.selected ? 1 : 0.5
+    return Math.min(radius, Math.max(0, outerCap - halfLineWidth))
+  },
+  nodeCoreRadiusPixels(node, options = {}) {
+    const radius = Math.min(4 + (this.visualClusterCount(node) - 1) * 0.2, 14)
+    if (!options.managedVisualDensity) return radius
+    return Math.min(radius, managedNodeOuterRadiusCap(node, options.managedVisualDensity))
+  },
+  nodeVisibleOuterRadiusPixels(node, options = {}) {
+    const halo = this.nodeHaloRadiusPixels(node, options)
+    const ring = this.nodeRingRadiusPixels(node, options) + (node?.selected ? 1 : 0.5)
+    return Math.max(halo, ring, this.nodeCoreRadiusPixels(node, options))
   },
   labelBudgetForShape(shape, candidateCount = 0) {
     switch (shape) {
@@ -129,7 +159,7 @@ export const godViewRenderingGraphLayerNodeMethods = {
 
     return 0
   },
-  selectNodeLabels(nodeData, shape) {
+  selectNodeLabels(nodeData, shape, options = {}) {
     if (!Array.isArray(nodeData) || nodeData.length === 0) return []
     const attended = nodeData.filter((node) => node?.selected === true || this.focusedNodeLabel(node))
     const candidates = nodeData.filter((node) => {
@@ -151,14 +181,17 @@ export const godViewRenderingGraphLayerNodeMethods = {
       return true
     })
     const ordered = [...candidates].sort((left, right) => this.compareNodeLabelPriority(left, right))
-    const memberBudget = this.expandedEndpointMemberLabelBudgetForShape(shape)
+    const labelShape = options.managedVisualDensity
+      ? managedVisualDensityContract(options.managedVisualDensity).labelShape
+      : shape
+    const memberBudget = this.expandedEndpointMemberLabelBudgetForShape(labelShape)
     const expandedEndpointMembers = ordered
       .filter((node) => this.expandedEndpointMemberLabel(node))
       .slice(0, memberBudget)
     const unplacedNodes = ordered.filter((node) => this.unplacedNodeLabel(node))
     const nonExpandedCandidates = ordered.filter((node) => !this.expandedEndpointMemberLabel(node))
-    const budget = this.labelBudgetForShape(shape, nonExpandedCandidates.length)
-    const endpointSummaryBudget = this.endpointSummaryLabelBudgetForShape(shape)
+    const budget = this.labelBudgetForShape(labelShape, nonExpandedCandidates.length)
+    const endpointSummaryBudget = this.endpointSummaryLabelBudgetForShape(labelShape)
     if (budget <= 0 && attended.length === 0 && expandedEndpointMembers.length === 0 && unplacedNodes.length === 0) return []
     const orderedBackbone = ordered.filter((node) => this.backboneLabelCandidate(node))
     const orderedEndpointSummaries = ordered.filter((node) => {
@@ -211,7 +244,11 @@ export const godViewRenderingGraphLayerNodeMethods = {
       bottom: Number.isFinite(height) ? Math.max(0, height) : 0,
     }
   },
-  topologyRouteStrokeWidth(route) {
+  topologyRouteStrokeWidth(route, options = {}) {
+    if (options.managedVisualDensity) {
+      if (this.state?.layers?.mantle === false && this.state?.layers?.crust === false) return 0
+      return managedVisualDensityContract(options.managedVisualDensity).routeMaxWidth
+    }
     const metadata = route?.metadata && typeof route.metadata === "object" ? route.metadata : {}
     for (const value of [route?.strokeWidth, route?.width, metadata.strokeWidth, metadata.stroke_width]) {
       const width = Number(value)
@@ -247,7 +284,7 @@ export const godViewRenderingGraphLayerNodeMethods = {
       const y = Number(projected?.[1])
       if (!Number.isFinite(x) || !Number.isFinite(y)) continue
       projectedById.set(nodeId, [x, y])
-      const radius = Math.max(0, Number(this.nodeHaloRadiusPixels(node)) || 0)
+      const radius = Math.max(0, Number(this.nodeVisibleOuterRadiusPixels(node, options)) || 0)
       glyphBoxes.push({nodeId, left: x - radius, top: y - radius, right: x + radius, bottom: y + radius})
     }
 
@@ -278,7 +315,7 @@ export const godViewRenderingGraphLayerNodeMethods = {
         return Number.isFinite(x) && Number.isFinite(y) ? [[x, y]] : []
       })
       if (points.length < 2) return []
-      return [{points, strokeWidth: this.topologyRouteStrokeWidth(route)}]
+      return [{points, strokeWidth: this.topologyRouteStrokeWidth(route, options)}]
     })
     const suppliedMeasureText = options.measureText || this.state?.topologyLabelMeasureText
     const measureText = typeof suppliedMeasureText === "function"
@@ -294,15 +331,19 @@ export const godViewRenderingGraphLayerNodeMethods = {
     })
   },
   buildNodeAndLabelLayers(effective, nodeData, edgeLabelData) {
-    const labelCandidates = this.selectNodeLabels(nodeData, effective.shape)
-    const labelAdmission = this.admitNodeLabelsForViewport(effective, labelCandidates, nodeData)
+    const managedTopologyOverview = effective?._layoutMode === "elk-scene"
+    const managedVisualDensity = managedTopologyOverview
+      ? normalizeManagedVisualDensity(this.state.managedTopologyVisualDensity)
+      : null
+    const densityOptions = managedVisualDensity ? {managedVisualDensity} : {}
+    const labelCandidates = this.selectNodeLabels(nodeData, effective.shape, densityOptions)
+    const labelAdmission = this.admitNodeLabelsForViewport(effective, labelCandidates, nodeData, densityOptions)
     const nodeById = new Map(nodeData.map((node) => [String(node?.id || ""), node]))
     const labelData = labelAdmission.admitted.flatMap((admitted) => {
       const node = nodeById.get(admitted.nodeId)
       return node ? [{...node, labelAdmission: admitted}] : []
     })
     this.state.topologyLabelDetailsFallbackIds = [...labelAdmission.detailsFallbackIds]
-    const managedTopologyOverview = effective?._layoutMode === "elk-scene"
 
     return [
       new LineLayer({
@@ -328,7 +369,7 @@ export const godViewRenderingGraphLayerNodeMethods = {
         data: nodeData,
         coordinateSystem: COORDINATE_SYSTEM.CARTESIAN,
         getPosition: (d) => d.position,
-        getRadius: (d) => this.nodeHaloRadiusPixels(d),
+        getRadius: (d) => this.nodeHaloRadiusPixels(d, densityOptions),
         radiusUnits: "pixels",
         filled: true,
         stroked: false,
@@ -349,11 +390,7 @@ export const godViewRenderingGraphLayerNodeMethods = {
         data: nodeData,
         coordinateSystem: COORDINATE_SYSTEM.CARTESIAN,
         getPosition: (d) => d.position,
-        getRadius: (d) => {
-          const baseRadius = Math.min(12 + (this.visualClusterCount(d) - 1) * 0.45, 32)
-          const breathe = Math.sin((this.state.animationPhase * 2.0) + d.index) * 2.0
-          return baseRadius + breathe
-        },
+        getRadius: (d) => this.nodeRingRadiusPixels(d, densityOptions),
         radiusUnits: "pixels",
         radiusMinPixels: 5,
         stroked: true,
@@ -375,7 +412,7 @@ export const godViewRenderingGraphLayerNodeMethods = {
         data: nodeData,
         coordinateSystem: COORDINATE_SYSTEM.CARTESIAN,
         getPosition: (d) => d.position,
-        getRadius: (d) => this.nodeHaloRadiusPixels(d),
+        getRadius: (d) => this.nodeHaloRadiusPixels(d, densityOptions),
         radiusUnits: "pixels",
         stroked: false,
         filled: true,
@@ -392,7 +429,7 @@ export const godViewRenderingGraphLayerNodeMethods = {
         data: nodeData,
         coordinateSystem: COORDINATE_SYSTEM.CARTESIAN,
         getPosition: (d) => d.position,
-        getRadius: (d) => Math.min(4 + (this.visualClusterCount(d) - 1) * 0.2, 14),
+        getRadius: (d) => this.nodeCoreRadiusPixels(d, densityOptions),
         radiusUnits: "pixels",
         radiusMinPixels: 3,
         stroked: false,

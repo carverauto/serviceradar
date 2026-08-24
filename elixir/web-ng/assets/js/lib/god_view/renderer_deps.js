@@ -33,6 +33,7 @@
  * @property {(...args: any[]) => any} handlePick
  * @property {(...args: any[]) => any} autoFitViewState
  * @property {(...args: any[]) => any} focusClusterNeighborhood
+ * @property {(...args: any[]) => any} managedVisualDensityForViewScale
  */
 
 /**
@@ -89,6 +90,7 @@ export const RENDERING_DEP_KEYS = ["resolveZoomTier", "setZoomTier", "reshapeGra
  * @property {(...args: any[]) => any} animateTransition
  * @property {(...args: any[]) => any} autoFitViewState
  * @property {(...args: any[]) => any} focusClusterNeighborhood
+ * @property {(...args: any[]) => any} managedVisualDensityForViewScale
  */
 export const LIFECYCLE_DEP_KEYS = [
   "renderGraph",
@@ -109,6 +111,7 @@ export const LIFECYCLE_DEP_KEYS = [
   "animateTransition",
   "autoFitViewState",
   "focusClusterNeighborhood",
+  "managedVisualDensityForViewScale",
 ]
 
 /**
@@ -162,5 +165,6 @@ export function buildLifecycleDeps(context) {
     animateTransition: (...args) => context.layout.animateTransition(...args),
     autoFitViewState: (...args) => context.rendering.autoFitViewState(...args),
     focusClusterNeighborhood: (...args) => context.rendering.focusClusterNeighborhood(...args),
+    managedVisualDensityForViewScale: (...args) => context.rendering.managedVisualDensityForViewScale(...args),
   }
 }

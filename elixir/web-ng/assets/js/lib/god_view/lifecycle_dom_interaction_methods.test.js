@@ -44,6 +44,7 @@ function makeContext({state = {}, deps = {}, overrides = {}} = {}) {
     refreshGraphLayersForViewState: vi.fn(),
     setZoomTier: vi.fn(),
     resolveZoomTier: vi.fn(() => "local"),
+    managedVisualDensityForViewScale: vi.fn(() => ({managedVisualDensity: "detail"})),
     ...deps,
   }
 
@@ -203,6 +204,55 @@ describe("lifecycle_dom_interaction_methods", () => {
     expect(ctx.deps.setZoomTier).not.toHaveBeenCalled()
     expect(ctx.deps.renderGraph).not.toHaveBeenCalled()
     expect(ctx.deps.refreshGraphLayersForViewState).toHaveBeenCalledTimes(1)
+  })
+
+  it("button zoom synchronizes managed density before refreshing immutable ELK layers", () => {
+    const routes = Object.freeze([
+      Object.freeze({sourceId: "left", targetId: "right", points: Object.freeze([{x: 0, y: 0}, {x: 192, y: 0}])}),
+    ])
+    const scene = Object.freeze({routes})
+    const graphNodes = Object.freeze([
+      Object.freeze({id: "left", x: 0, y: 0}),
+      Object.freeze({id: "right", x: 192, y: 0}),
+    ])
+    const graph = Object.freeze({_layoutMode: "elk-scene", _topologyScene: scene, nodes: graphNodes, edges: Object.freeze([])})
+    const densitiesAtRefresh = []
+    const managedVisualDensityForViewScale = vi.fn((_graph, scale) => ({
+      managedVisualDensity: scale < 0.2 ? "overview" : "detail",
+    }))
+    const ctx = makeContext({
+      state: {
+        canvas: {getBoundingClientRect: () => ({left: 0, top: 0, width: 1000, height: 600})},
+        lastGraph: graph,
+        zoomMode: "auto",
+        zoomTier: "local",
+        managedTopologyVisualDensity: "detail",
+        viewState: {zoom: Math.log2(0.25), minZoom: -5, maxZoom: 5, target: [96, 0, 0]},
+      },
+      deps: {
+        managedVisualDensityForViewScale,
+        refreshGraphLayersForViewState: vi.fn(() => {
+          densitiesAtRefresh.push(ctx.state.managedTopologyVisualDensity)
+        }),
+      },
+    })
+    const originalGeometry = JSON.stringify(scene)
+
+    ctx.zoomDeckCamera(Math.log2(0.15) - Math.log2(0.25))
+    expect(ctx.state.managedTopologyVisualDensity).toBe("overview")
+    ctx.zoomDeckCamera(Math.log2(0.25) - Math.log2(0.15))
+    expect(ctx.state.managedTopologyVisualDensity).toBe("detail")
+
+    expect(densitiesAtRefresh).toEqual(["overview", "detail"])
+    expect(managedVisualDensityForViewScale.mock.calls[0][0]).toBe(graph)
+    expect(managedVisualDensityForViewScale.mock.calls[0][1]).toBeCloseTo(0.15, 12)
+    expect(managedVisualDensityForViewScale.mock.calls[1][0]).toBe(graph)
+    expect(managedVisualDensityForViewScale.mock.calls[1][1]).toBeCloseTo(0.25, 12)
+    expect(ctx.state.lastGraph).toBe(graph)
+    expect(ctx.state.lastGraph.nodes).toBe(graphNodes)
+    expect(ctx.state.lastGraph._topologyScene).toBe(scene)
+    expect(ctx.state.lastGraph._topologyScene.routes).toBe(routes)
+    expect(JSON.stringify(scene)).toBe(originalGeometry)
   })
 
   it("custom pan keeps an accepted ELK scene identity and only refreshes layers", () => {

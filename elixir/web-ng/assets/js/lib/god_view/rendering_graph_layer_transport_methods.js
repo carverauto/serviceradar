@@ -2,6 +2,7 @@ import {COORDINATE_SYSTEM} from "@deck.gl/core"
 import {ArcLayer, LineLayer, PathLayer, ScatterplotLayer} from "@deck.gl/layers"
 import PacketFlowLayer from "../deckgl/PacketFlowLayer"
 import {hasManagedTopologySceneRoutes} from "./rendering_graph_data_methods"
+import {managedVisualDensityContract} from "./rendering_managed_visual_density"
 import {edgeTopologyVisualStyleValue} from "./rendering_style_edge_topology_methods"
 
 export const godViewRenderingGraphLayerTransportMethods = {
@@ -30,6 +31,9 @@ export const godViewRenderingGraphLayerTransportMethods = {
       ? this.buildPacketFlowInstances(edgeData)
       : []
     const routedTopologyScene = hasManagedTopologySceneRoutes(effective)
+    const managedRouteMaxWidth = routedTopologyScene
+      ? managedVisualDensityContract(this.state.managedTopologyVisualDensity).routeMaxWidth
+      : null
 
     const mantleLayers = this.state.layers.mantle
       ? [
@@ -55,7 +59,7 @@ export const godViewRenderingGraphLayerTransportMethods = {
             getWidth: (d) => {
               const style = edgeTopologyVisualStyleValue(d)
               const tube = (this.edgeWidthPixels(d.capacityBps, d.flowPps, d.flowBps) * zoomScale * 1.35 * style.mantleWidthScale) + 2.0
-              return Math.min(38, tube + (this.edgeIsFocused(d) ? 2.0 : 0))
+              return Math.min(managedRouteMaxWidth ?? 38, tube + (this.edgeIsFocused(d) ? 2.0 : 0))
             },
             getPolygonOffset: (d) => (this.edgeIsFocused(d) ? [0, -1000] : [0, 0]),
             widthUnits: "pixels",
@@ -117,7 +121,8 @@ export const godViewRenderingGraphLayerTransportMethods = {
                   3.0,
                   Math.min((this.edgeWidthPixels(d.capacityBps, d.flowPps, d.flowBps) * 0.98 * zoomScale * style.crustWidthScale) + 0.6, 11.5),
                 )
-                return this.edgeIsFocused(d) ? Math.min(12.0, base + 2.0) : base
+                const maximum = managedRouteMaxWidth ?? 12.0
+                return this.edgeIsFocused(d) ? Math.min(maximum, base + 2.0) : Math.min(maximum, base)
               },
               getPolygonOffset: (d) => (this.edgeIsFocused(d) ? [0, -1000] : [0, 0]),
               widthUnits: "pixels",

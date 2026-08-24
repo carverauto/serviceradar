@@ -83,6 +83,11 @@ export const godViewLifecycleDomInteractionMethods = {
       const layoutMode = this.state.lastGraph?._layoutMode
       if (layoutMode === "elk-scene") {
         this.state.zoomTier = "local"
+        const selection = this.deps.managedVisualDensityForViewScale(
+          this.state.lastGraph,
+          2 ** Number(this.state.viewState.zoom || 0),
+        )
+        this.state.managedTopologyVisualDensity = selection.managedVisualDensity
       } else {
         const nextTier = layoutMode === "client-radial" ? "local" : this.deps.resolveZoomTier(this.state.viewState.zoom || 0)
         this.deps.setZoomTier(nextTier, false)

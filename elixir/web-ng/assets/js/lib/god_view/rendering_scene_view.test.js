@@ -146,6 +146,53 @@ describe("rendering_scene_view", () => {
     }
   })
 
+  it("fits asymmetric role-specific glyph extents when containment and separation are feasible", () => {
+    const scene = {
+      bounds: {minX: 0, minY: 0, maxX: 1000, maxY: 100},
+      nodes: [
+        {id: "summary", center: {x: 100, y: 50}, width: 1, height: 1},
+        {id: "member", center: {x: 900, y: 50}, width: 1, height: 1},
+      ],
+      groups: [],
+      routes: [],
+    }
+    const viewport = {width: 300, height: 180, minZoom: -8, maxZoom: 5}
+    const safeRect = {left: 20, top: 20, right: 280, bottom: 160}
+    const glyphBoxes = [
+      {nodeId: "summary", width: 130, height: 90},
+      {nodeId: "member", width: 40, height: 40},
+    ]
+
+    const {viewState} = fitTopologyScene({scene, viewport, safeRect, glyphBoxes})
+    const projected = projectedSceneBounds(scene, viewState, viewport, glyphBoxes)
+
+    expect(projected.left).toBeGreaterThanOrEqual(safeRect.left - 1)
+    expect(projected.right).toBeLessThanOrEqual(safeRect.right + 1)
+    expect(intersectByMoreThanOnePixel(projected.glyphs[0], projected.glyphs[1])).toBe(false)
+  })
+
+  it("rejects the dense long-span scene when containment requires overlapping fixed-pixel glyphs", () => {
+    const nodes = Array.from({length: 100}, (_unused, index) => ({
+      id: `dense-${index}`,
+      center: {x: index * 208, y: 50},
+      width: 1,
+      height: 1,
+    }))
+    const scene = {
+      bounds: {minX: 0, minY: 0, maxX: 99 * 208, maxY: 100},
+      nodes,
+      groups: [],
+      routes: [],
+    }
+
+    expect(() => fitTopologyScene({
+      scene,
+      viewport: {width: 1000, height: 300, minZoom: -12, maxZoom: 5},
+      safeRect: {left: 0, top: 0, right: 1000, bottom: 300},
+      glyphBoxes: nodes.map((node) => ({nodeId: node.id, width: 52, height: 52})),
+    })).toThrow(/glyph separation.*dense-0.*dense-1.*axis=x.*requires scale=.*available containment scale=/i)
+  })
+
   it("keeps fixed-pixel routed stroke extents inside the safe rectangle", () => {
     const scene = {
       bounds: {minX: 0, minY: 0, maxX: 1000, maxY: 500},
@@ -170,6 +217,23 @@ describe("rendering_scene_view", () => {
     expect(first[1] - 20).toBeGreaterThanOrEqual(safeRect.top - 1)
     expect(last[0] + 20).toBeLessThanOrEqual(safeRect.right + 1)
     expect(last[1] + 20).toBeLessThanOrEqual(safeRect.bottom + 1)
+  })
+
+  it("fits against the renderer-declared managed route width", () => {
+    const scene = {
+      bounds: {minX: 0, minY: 0, maxX: 1000, maxY: 100},
+      nodes: [],
+      groups: [],
+      routes: [{sourceId: "left", targetId: "right", points: [{x: 0, y: 50}, {x: 1000, y: 50}]}],
+    }
+    const viewport = {width: 120, height: 200, minZoom: -8, maxZoom: 5}
+    const safeRect = {left: 0, top: 0, right: 120, bottom: 200}
+
+    const overview = fitTopologyScene({scene, viewport, safeRect, routeStrokeWidth: 10})
+    const legacy = fitTopologyScene({scene, viewport, safeRect})
+
+    expect(2 ** overview.viewState.zoom).toBeCloseTo(0.11, 6)
+    expect(overview.viewState.zoom).toBeGreaterThan(legacy.viewState.zoom)
   })
 
   it("lowers the effective Deck camera bound to fit a 10,000-unit accepted route", () => {
@@ -221,7 +285,13 @@ describe("rendering_scene_view", () => {
     const viewport = {width: 1000, height: 700, minZoom: -3, maxZoom: 5}
     const safeRect = {left: 40, top: 30, right: 820, bottom: 610}
 
-    const viewState = focusTopologyGroup({scene, groupId: "group-a", viewport, safeRect})
+    const viewState = focusTopologyGroup({
+      scene,
+      groupId: "group-a",
+      viewport,
+      safeRect,
+      glyphBoxForNode: (node) => ({nodeId: node.id, width: 52, height: 52}),
+    })
     const group = scene.groups[0]
     const groupTopLeft = project({x: group.bounds.minX, y: group.bounds.minY}, viewState, viewport)
     const groupBottomRight = project({x: group.bounds.maxX, y: group.bounds.maxY}, viewState, viewport)
@@ -235,6 +305,72 @@ describe("rendering_scene_view", () => {
     expect(anchor[0]).toBeGreaterThanOrEqual(safeRect.left - 1)
     expect(anchor[1]).toBeGreaterThanOrEqual(safeRect.top - 1)
     expect(unrelated[0]).toBeGreaterThan(safeRect.right + 1000)
+  })
+
+  it("excludes a non-rendered neighborhood node from focus glyph feasibility", () => {
+    const scene = expandedScene()
+    scene.nodes.push({
+      id: "hidden-summary",
+      center: {...scene.nodes[1].center},
+      width: 1,
+      height: 1,
+      groupId: "group-a",
+      render: false,
+    })
+    scene.groups[0].memberIds.push("hidden-summary")
+
+    expect(() => focusTopologyGroup({
+      scene,
+      groupId: "group-a",
+      viewport: {width: 1000, height: 700, minZoom: -3, maxZoom: 5},
+      safeRect: {left: 40, top: 30, right: 820, bottom: 610},
+      glyphBoxForNode: (node) => ({
+        nodeId: node.id,
+        width: node.id === "hidden-summary" ? 160 : 52,
+        height: node.id === "hidden-summary" ? 160 : 52,
+      }),
+    })).not.toThrow()
+  })
+
+  it("requires focus callers to supply renderer-derived glyph extents", () => {
+    expect(() => focusTopologyGroup({
+      scene: expandedScene(),
+      groupId: "group-a",
+      viewport: {width: 1000, height: 700, minZoom: -3, maxZoom: 5},
+      safeRect: {left: 40, top: 30, right: 820, bottom: 610},
+    })).toThrow(/renderer-derived glyph box/i)
+  })
+
+  it("rejects focus when complete group containment would overlap rendered glyphs", () => {
+    const scene = {
+      bounds: {minX: 0, minY: 0, maxX: 10_000, maxY: 100},
+      nodes: [
+        {id: "anchor", center: {x: 0, y: 50}, width: 1, height: 1},
+        {id: "gateway", center: {x: 208, y: 50}, width: 1, height: 1, groupId: "dense-group"},
+        {id: "far-member", center: {x: 10_000, y: 50}, width: 1, height: 1, groupId: "dense-group"},
+      ],
+      groups: [{
+        id: "dense-group",
+        bounds: {minX: 208, minY: 0, maxX: 10_000, maxY: 100},
+        anchorId: "anchor",
+        gatewayId: "gateway",
+        memberIds: ["far-member"],
+      }],
+      routes: [{
+        id: "trunk",
+        sourceId: "anchor",
+        targetId: "gateway",
+        points: [{x: 0, y: 50}, {x: 208, y: 50}],
+      }],
+    }
+
+    expect(() => focusTopologyGroup({
+      scene,
+      groupId: "dense-group",
+      viewport: {width: 1000, height: 300, minZoom: -12, maxZoom: 5},
+      safeRect: {left: 0, top: 0, right: 1000, bottom: 300},
+      glyphBoxForNode: (node) => ({nodeId: node.id, width: 52, height: 52}),
+    })).toThrow(/glyph separation.*anchor.*gateway.*requires scale=.*available containment scale=/i)
   })
 
   it("keeps every focused member, anchor, gateway, and trunk halo inside at low scale", () => {
@@ -264,7 +400,13 @@ describe("rendering_scene_view", () => {
     const viewport = {width: 1000, height: 700, minZoom: -3, maxZoom: 5}
     const safeRect = {left: 40, top: 30, right: 820, bottom: 610}
 
-    const viewState = focusTopologyGroup({scene, groupId: "group-a", viewport, safeRect})
+    const viewState = focusTopologyGroup({
+      scene,
+      groupId: "group-a",
+      viewport,
+      safeRect,
+      glyphBoxForNode: (node) => ({nodeId: node.id, width: 52, height: 52}),
+    })
 
     expect(viewState.zoom).toBeLessThan(-3)
     for (const nodeId of ["anchor", "gateway", "member-edge"]) {

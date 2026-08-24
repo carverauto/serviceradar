@@ -1,6 +1,7 @@
 import {describe, expect, it, vi} from "vitest"
 
 import {bindApi, createStateBackedContext} from "./api_helpers"
+import {godViewRenderingGraphLayerNodeMethods} from "./rendering_graph_layer_node_methods"
 import {godViewRenderingGraphViewMethods} from "./rendering_graph_view_methods"
 
 function projectNode(node, state) {
@@ -260,9 +261,20 @@ describe("rendering_graph_view_methods", () => {
     }
     const deps = {setZoomTier: vi.fn(), resolveZoomTier: vi.fn(() => "regional")}
     const ctx = createStateBackedContext(state, deps)
-    Object.assign(ctx, bindApi(ctx, godViewRenderingGraphViewMethods))
+    Object.assign(
+      ctx,
+      bindApi(ctx, godViewRenderingGraphLayerNodeMethods),
+      bindApi(ctx, godViewRenderingGraphViewMethods),
+    )
 
-    ctx.autoFitViewState({_layoutMode: "elk-scene", _topologyScene: scene, nodes: []})
+    ctx.autoFitViewState({
+      _layoutMode: "elk-scene",
+      _topologyScene: scene,
+      nodes: [
+        {id: "left", x: -144, y: 0, details: {}},
+        {id: "right", x: 9744, y: 600, details: {}},
+      ],
+    })
 
     const topLeft = projectNode({x: scene.bounds.minX, y: scene.bounds.minY}, state)
     const bottomRight = projectNode({x: scene.bounds.maxX, y: scene.bounds.maxY}, state)
@@ -274,6 +286,202 @@ describe("rendering_graph_view_methods", () => {
     expect(state.viewState.minZoom).toBeLessThanOrEqual(state.viewState.zoom)
     expect(deps.setZoomTier).toHaveBeenCalledWith("local", true)
     expect(scene.bounds).toEqual({minX: -200, minY: -100, maxX: 9800, maxY: 700})
+  })
+
+  it("fails managed fitting when renderer-derived glyph extents are unavailable", () => {
+    const scene = {
+      bounds: {minX: 0, minY: 0, maxX: 100, maxY: 100},
+      nodes: [{id: "visible", center: {x: 50, y: 50}, width: 1, height: 1, render: true}],
+      groups: [],
+      routes: [],
+    }
+    const state = {
+      deck: {setProps: vi.fn()},
+      hasAutoFit: false,
+      userCameraLocked: false,
+      zoomMode: "auto",
+      viewState: {minZoom: -3, maxZoom: 5, zoom: 0, target: [0, 0, 0]},
+      el: {clientWidth: 300, clientHeight: 180},
+      topologyLabelSafeRect: {left: 20, top: 20, right: 280, bottom: 160},
+    }
+    const ctx = createStateBackedContext(state, {setZoomTier: vi.fn(), resolveZoomTier: vi.fn(() => "local")})
+    Object.assign(ctx, bindApi(ctx, godViewRenderingGraphViewMethods))
+
+    expect(() => ctx.autoFitViewState({
+      _layoutMode: "elk-scene",
+      _topologyScene: scene,
+      nodes: [{id: "visible", x: 50, y: 50, details: {}}],
+    })).toThrow(/renderer-derived glyph extents/i)
+  })
+
+  it("uses only actually rendered scene nodes for managed glyph feasibility", () => {
+    const scene = {
+      bounds: {minX: 0, minY: 0, maxX: 1000, maxY: 100},
+      nodes: [
+        {id: "visible-left", center: {x: 100, y: 50}, width: 1, height: 1, render: true},
+        {id: "hidden", center: {x: 100, y: 50}, width: 1, height: 1, render: false},
+        {id: "visible-right", center: {x: 900, y: 50}, width: 1, height: 1, render: true},
+      ],
+      groups: [],
+      routes: [],
+    }
+    const state = {
+      deck: {setProps: vi.fn()},
+      hasAutoFit: false,
+      userCameraLocked: false,
+      zoomMode: "auto",
+      viewState: {minZoom: -8, maxZoom: 5, zoom: 0, target: [0, 0, 0]},
+      el: {clientWidth: 300, clientHeight: 180},
+      topologyLabelSafeRect: {left: 20, top: 20, right: 280, bottom: 160},
+    }
+    const ctx = createStateBackedContext(state, {setZoomTier: vi.fn(), resolveZoomTier: vi.fn(() => "local")})
+    Object.assign(
+      ctx,
+      bindApi(ctx, godViewRenderingGraphLayerNodeMethods),
+      bindApi(ctx, godViewRenderingGraphViewMethods),
+    )
+    const graph = {
+      _layoutMode: "elk-scene",
+      _topologyScene: scene,
+      nodes: [
+        {id: "visible-left", x: 100, y: 50, details: {}},
+        {id: "hidden", x: 100, y: 50, clusterCount: 100, details: {cluster_kind: "endpoint-summary"}},
+        {id: "visible-right", x: 900, y: 50, details: {}},
+      ],
+    }
+
+    expect(() => ctx.autoFitViewState(graph)).not.toThrow()
+  })
+
+  it("tries detail first, selects a feasible overview contract, and preserves graph shape", () => {
+    const scene = {
+      bounds: {minX: 0, minY: 0, maxX: 192, maxY: 1},
+      nodes: [
+        {id: "left", center: {x: 0, y: 0}, width: 1, height: 1, render: true},
+        {id: "right", center: {x: 192, y: 0}, width: 1, height: 1, render: true},
+      ],
+      groups: [],
+      routes: [],
+    }
+    const state = {
+      deck: {setProps: vi.fn()},
+      hasAutoFit: false,
+      userCameraLocked: false,
+      zoomMode: "auto",
+      layers: {mantle: true, crust: true},
+      viewState: {minZoom: -8, maxZoom: 5, zoom: 0, target: [0, 0, 0]},
+      el: {clientWidth: 50, clientHeight: 200},
+      topologyLabelSafeRect: {left: 0, top: 0, right: 50, bottom: 200},
+    }
+    const deps = {setZoomTier: vi.fn(), resolveZoomTier: vi.fn(() => "regional")}
+    const ctx = createStateBackedContext(state, deps)
+    Object.assign(
+      ctx,
+      bindApi(ctx, godViewRenderingGraphLayerNodeMethods),
+      bindApi(ctx, godViewRenderingGraphViewMethods),
+    )
+    const originalSelect = ctx.selectNodeLabels
+    ctx.selectNodeLabels = vi.fn((...args) => originalSelect(...args))
+    const graph = {
+      shape: "regional",
+      _layoutMode: "elk-scene",
+      _topologyScene: scene,
+      nodes: [
+        {id: "left", x: 0, y: 0, label: "Left", details: {cluster_kind: "endpoint-member", cluster_expanded: true}},
+        {id: "right", x: 192, y: 0, label: "Right", details: {cluster_kind: "endpoint-member", cluster_expanded: true}},
+      ],
+    }
+
+    expect(() => ctx.autoFitViewState(graph)).not.toThrow()
+    expect(state.managedTopologyVisualDensity).toBe("overview")
+    expect(graph.shape).toBe("regional")
+    expect(ctx.selectNodeLabels).toHaveBeenLastCalledWith(
+      expect.any(Array),
+      "regional",
+      {managedVisualDensity: "overview"},
+    )
+  })
+
+  it("keeps a feasible managed scene in the highest-detail contract", () => {
+    const scene = {
+      bounds: {minX: 0, minY: 0, maxX: 192, maxY: 1},
+      nodes: [
+        {id: "left", center: {x: 0, y: 0}, width: 1, height: 1, render: true},
+        {id: "right", center: {x: 192, y: 0}, width: 1, height: 1, render: true},
+      ],
+      groups: [],
+      routes: [],
+    }
+    const state = {
+      deck: {setProps: vi.fn()},
+      hasAutoFit: false,
+      userCameraLocked: false,
+      zoomMode: "auto",
+      layers: {mantle: true, crust: true},
+      viewState: {minZoom: -8, maxZoom: 5, zoom: 0, target: [0, 0, 0]},
+      el: {clientWidth: 100, clientHeight: 200},
+      topologyLabelSafeRect: {left: 0, top: 0, right: 100, bottom: 200},
+    }
+    const ctx = createStateBackedContext(state, {setZoomTier: vi.fn(), resolveZoomTier: vi.fn(() => "local")})
+    Object.assign(
+      ctx,
+      bindApi(ctx, godViewRenderingGraphLayerNodeMethods),
+      bindApi(ctx, godViewRenderingGraphViewMethods),
+    )
+
+    ctx.autoFitViewState({
+      shape: "local",
+      _layoutMode: "elk-scene",
+      _topologyScene: scene,
+      nodes: [
+        {id: "left", x: 0, y: 0, details: {cluster_kind: "endpoint-member", cluster_expanded: true}},
+        {id: "right", x: 192, y: 0, details: {cluster_kind: "endpoint-member", cluster_expanded: true}},
+      ],
+    })
+
+    expect(state.managedTopologyVisualDensity).toBe("detail")
+  })
+
+  it("selects manual-zoom density from actual role-specific glyph separation", () => {
+    const scene = {
+      bounds: {minX: 0, minY: 0, maxX: 600, maxY: 192},
+      nodes: [
+        {id: "member-left", center: {x: 0, y: 0}, width: 96, height: 96, render: true},
+        {id: "member-right", center: {x: 192, y: 0}, width: 96, height: 96, render: true},
+        {id: "anchor", center: {x: 0, y: 192}, width: 112, height: 112, render: true},
+        {id: "summary", center: {x: 600, y: 192}, width: 448, height: 448, render: true},
+      ],
+      groups: [],
+      routes: [],
+    }
+    const graph = {
+      _layoutMode: "elk-scene",
+      _topologyScene: scene,
+      nodes: [
+        {id: "member-left", clusterCount: 1, details: {cluster_kind: "endpoint-member", cluster_expanded: true}},
+        {id: "member-right", clusterCount: 1, details: {cluster_kind: "endpoint-member", cluster_expanded: true}},
+        {id: "anchor", clusterCount: 1, details: {cluster_kind: "endpoint-anchor"}},
+        {id: "summary", clusterCount: 100, details: {cluster_kind: "endpoint-summary"}},
+      ],
+    }
+    const state = {animationPhase: 0}
+    const ctx = createStateBackedContext(state, {})
+    Object.assign(
+      ctx,
+      bindApi(ctx, godViewRenderingGraphLayerNodeMethods),
+      bindApi(ctx, godViewRenderingGraphViewMethods),
+    )
+
+    const detail = ctx.managedVisualDensityForViewScale(graph, 0.4)
+    const overview = ctx.managedVisualDensityForViewScale(graph, 0.2)
+
+    expect(detail.managedVisualDensity).toBe("detail")
+    expect(overview.managedVisualDensity).toBe("overview")
+    expect(detail.constraints.detail.limitingRolePair).toEqual(["member", "member"])
+    expect(overview.constraints.overview.scale).toBeLessThanOrEqual(0.2)
+    expect(() => ctx.managedVisualDensityForViewScale(graph, 0.01)).toThrow(
+      /no feasible managed visual density.*scale=0.01/i,
+    )
   })
 
   it("forced managed refit leaves a user-locked camera untouched", () => {
@@ -402,6 +610,91 @@ describe("rendering_graph_view_methods", () => {
     expect(state.viewState.target[0]).toBeLessThan(760)
     expect(state.viewState.target[1]).toBeGreaterThan(220)
     expect(state.viewState.target[1]).toBeLessThan(320)
+  })
+
+  it("focuses complete ELK neighborhood visuals using actual summary halo and admitted labels", () => {
+    const selectedGroup = {
+      id: "group-a",
+      bounds: {minX: 300, minY: 20, maxX: 700, maxY: 300},
+      anchorId: "anchor-a",
+      gatewayId: "summary-a",
+      memberIds: ["member-a"],
+    }
+    const otherGroup = {
+      id: "group-b",
+      bounds: {minX: 4000, minY: 20, maxX: 4300, maxY: 300},
+      anchorId: "anchor-b",
+      gatewayId: "summary-b",
+      memberIds: ["member-b"],
+    }
+    const scene = {
+      bounds: {minX: 0, minY: 0, maxX: 4300, maxY: 320},
+      nodes: [
+        {id: "anchor-a", center: {x: 0, y: 160}, width: 1, height: 1},
+        {id: "summary-a", center: {x: 300, y: 160}, width: 1, height: 1, groupId: "group-a"},
+        {id: "member-a", center: {x: 700, y: 160}, width: 1, height: 1, groupId: "group-a"},
+        {id: "anchor-b", center: {x: 3800, y: 160}, width: 1, height: 1},
+        {id: "summary-b", center: {x: 4000, y: 160}, width: 1, height: 1, groupId: "group-b"},
+        {id: "member-b", center: {x: 4300, y: 160}, width: 1, height: 1, groupId: "group-b"},
+      ],
+      groups: [selectedGroup, otherGroup],
+      routes: [
+        {id: "trunk-a", sourceId: "anchor-a", targetId: "summary-a", strokeWidth: 38, points: [{x: 0, y: 160}, {x: 300, y: 160}]},
+        {id: "trunk-b", sourceId: "anchor-b", targetId: "summary-b", strokeWidth: 38, points: [{x: 3800, y: 160}, {x: 4000, y: 160}]},
+      ],
+    }
+    const nodes = [
+      {id: "anchor-a", x: 0, y: 160, label: "Anchor A", details: {cluster_kind: "endpoint-anchor"}},
+      {id: "summary-a", x: 300, y: 160, label: "One hundred endpoints", clusterCount: 100, details: {cluster_kind: "endpoint-summary"}},
+      {id: "member-a", x: 700, y: 160, label: "Selected neighborhood member", details: {cluster_kind: "endpoint-member", cluster_expanded: true}},
+      {id: "anchor-b", x: 3800, y: 160, label: "Anchor B", details: {cluster_kind: "endpoint-anchor"}},
+      {id: "summary-b", x: 4000, y: 160, label: "Other summary", clusterCount: 24, details: {cluster_kind: "endpoint-summary"}},
+      {id: "member-b", x: 4300, y: 160, label: "Other member", details: {cluster_kind: "endpoint-member", cluster_expanded: true}},
+    ]
+    const state = {
+      deck: {setProps: vi.fn()},
+      userCameraLocked: false,
+      isProgrammaticViewUpdate: false,
+      zoomMode: "auto",
+      layers: {mantle: true, crust: true},
+      viewState: {minZoom: -4, maxZoom: 5, zoom: 0, target: [0, 0, 0]},
+      el: {clientWidth: 1000, clientHeight: 700},
+      topologyLabelSafeRect: {left: 40, top: 30, right: 820, bottom: 610},
+      topologyLabelMeasureText: () => ({width: 180, height: 18}),
+    }
+    const deps = {setZoomTier: vi.fn(), resolveZoomTier: vi.fn(() => "local")}
+    const ctx = createStateBackedContext(state, deps)
+    Object.assign(
+      ctx,
+      bindApi(ctx, godViewRenderingGraphLayerNodeMethods),
+      bindApi(ctx, godViewRenderingGraphViewMethods),
+    )
+    const originalAdmission = ctx.admitNodeLabelsForViewport
+    ctx.admitNodeLabelsForViewport = vi.fn((...args) => originalAdmission(...args))
+    const originalGroups = scene.groups.map((group) => ({...group, memberIds: [...group.memberIds]}))
+
+    const focused = ctx.focusClusterNeighborhood(
+      {_layoutMode: "elk-scene", _topologyScene: scene, shape: "local", nodes},
+      selectedGroup.id,
+    )
+
+    expect(focused).toBe(true)
+    expect(state.managedTopologyVisualDensity).toBe("detail")
+    const summary = projectNode(nodes[1], state)
+    const summaryRadius = ctx.nodeHaloRadiusPixels(nodes[1])
+    expect(summaryRadius).toBe(65)
+    expect(summary.x - summaryRadius).toBeGreaterThanOrEqual(state.topologyLabelSafeRect.left - 1)
+    expect(summary.x + summaryRadius).toBeLessThanOrEqual(state.topologyLabelSafeRect.right + 1)
+    expect(ctx.admitNodeLabelsForViewport).toHaveBeenCalled()
+    const finalAdmission = ctx.admitNodeLabelsForViewport.mock.results.at(-1).value
+    expect(finalAdmission.admitted.length).toBeGreaterThan(0)
+    for (const label of finalAdmission.admitted) {
+      expect(label.box.left).toBeGreaterThanOrEqual(state.topologyLabelSafeRect.left - 1)
+      expect(label.box.top).toBeGreaterThanOrEqual(state.topologyLabelSafeRect.top - 1)
+      expect(label.box.right).toBeLessThanOrEqual(state.topologyLabelSafeRect.right + 1)
+      expect(label.box.bottom).toBeLessThanOrEqual(state.topologyLabelSafeRect.bottom + 1)
+    }
+    expect(scene.groups).toEqual(originalGroups)
   })
 })
 

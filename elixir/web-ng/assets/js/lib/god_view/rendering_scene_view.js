@@ -134,14 +134,57 @@ function glyphVisualSpecs(scene, glyphBoxes) {
     const radius = Math.max(0, finiteNumber(glyph?.radius))
     const width = Math.max(0, finiteNumber(glyph?.width, finiteNumber(glyph?.right) - finiteNumber(glyph?.left))) || radius * 2
     const height = Math.max(0, finiteNumber(glyph?.height, finiteNumber(glyph?.bottom) - finiteNumber(glyph?.top))) || radius * 2
-    return [{nodeId: String(glyph?.nodeId || ""), worldX, worldY, leftPad: width / 2, rightPad: width / 2, topPad: height / 2, bottomPad: height / 2}]
+    const leftPad = glyph?.leftPad == null ? width / 2 : Math.max(0, finiteNumber(glyph.leftPad))
+    const rightPad = glyph?.rightPad == null ? width / 2 : Math.max(0, finiteNumber(glyph.rightPad))
+    const topPad = glyph?.topPad == null ? height / 2 : Math.max(0, finiteNumber(glyph.topPad))
+    const bottomPad = glyph?.bottomPad == null ? height / 2 : Math.max(0, finiteNumber(glyph.bottomPad))
+    return [{nodeId: String(glyph?.nodeId || ""), worldX, worldY, leftPad, rightPad, topPad, bottomPad}]
   })
 }
 
-function baseVisualSpecs(scene, glyphBoxes) {
+function pairAxisSeparationScale(left, right, axis) {
+  const worldKey = axis === "x" ? "worldX" : "worldY"
+  const lowerPad = axis === "x" ? "leftPad" : "topPad"
+  const upperPad = axis === "x" ? "rightPad" : "bottomPad"
+  const delta = finiteNumber(right[worldKey]) - finiteNumber(left[worldKey])
+  const distance = Math.abs(delta)
+  const requiredPixels = delta >= 0
+    ? finiteNumber(left[upperPad]) + finiteNumber(right[lowerPad])
+    : finiteNumber(right[upperPad]) + finiteNumber(left[lowerPad])
+  if (requiredPixels <= 0) return 0
+  return distance > 0 ? requiredPixels / distance : Number.POSITIVE_INFINITY
+}
+
+function glyphSeparationConstraint(glyphSpecs) {
+  let constraint = {scale: 0, leftId: "", rightId: "", axis: "x"}
+  for (let leftIndex = 0; leftIndex < glyphSpecs.length; leftIndex += 1) {
+    for (let rightIndex = leftIndex + 1; rightIndex < glyphSpecs.length; rightIndex += 1) {
+      const left = glyphSpecs[leftIndex]
+      const right = glyphSpecs[rightIndex]
+      const xScale = pairAxisSeparationScale(left, right, "x")
+      const yScale = pairAxisSeparationScale(left, right, "y")
+      const axis = xScale <= yScale ? "x" : "y"
+      const pairScale = Math.min(xScale, yScale)
+      if (pairScale > constraint.scale) {
+        constraint = {
+          scale: pairScale,
+          leftId: String(left.nodeId || ""),
+          rightId: String(right.nodeId || ""),
+          axis,
+        }
+      }
+    }
+  }
+  return constraint
+}
+
+function baseVisualSpecs(scene, glyphBoxes, routeStrokeWidth) {
   const bounds = completeSceneBounds(scene)
   const routeSpecs = (scene?.routes || []).flatMap((route) => {
-    const strokeWidth = Math.max(0, finiteNumber(route?.strokeWidth, CONSERVATIVE_ROUTE_STROKE_PX))
+    const declaredRouteWidth = Number(routeStrokeWidth)
+    const strokeWidth = Number.isFinite(declaredRouteWidth) && declaredRouteWidth > 0
+      ? declaredRouteWidth
+      : Math.max(0, finiteNumber(route?.strokeWidth, CONSERVATIVE_ROUTE_STROKE_PX))
     const strokeRadius = strokeWidth / 2
     return (route?.points || []).flatMap((point) => {
       if (!Number.isFinite(point?.x) || !Number.isFinite(point?.y)) return []
@@ -173,7 +216,7 @@ function axisExtents(specs, scale, axis) {
   }
 }
 
-function fitVisualSpecs(specs, viewport, safeRect, previousViewState = {}) {
+function fitVisualSpecs(specs, glyphSpecs, viewport, safeRect, previousViewState = {}) {
   const width = Math.max(1, finiteNumber(viewport?.width, 1))
   const height = Math.max(1, finiteNumber(viewport?.height, 1))
   const safe = normalizeGodViewSafeRect(safeRect, {width, height})
@@ -182,6 +225,7 @@ function fitVisualSpecs(specs, viewport, safeRect, previousViewState = {}) {
   const maxScale = 2 ** maxZoom
   const safeWidth = safe.right - safe.left
   const safeHeight = safe.bottom - safe.top
+  const separation = glyphSeparationConstraint(glyphSpecs)
   const fits = (scale) => {
     const x = axisExtents(specs, scale, "x")
     const y = axisExtents(specs, scale, "y")
@@ -219,6 +263,13 @@ function fitVisualSpecs(specs, viewport, safeRect, previousViewState = {}) {
       else upper = middle
     }
     scale = lower
+  }
+
+  if (!Number.isFinite(separation.scale) || scale + 1e-9 < separation.scale) {
+    throw new RangeError(
+      `topology glyph separation for ${separation.leftId} and ${separation.rightId} on axis=${separation.axis} ` +
+      `requires scale=${separation.scale}, but available containment scale=${scale} inside the safe rectangle`,
+    )
   }
 
   const x = axisExtents(specs, scale, "x")
@@ -314,20 +365,27 @@ function runAdmission(admitLabels, scene, viewport, safeRect, glyphSpecs, viewSt
  * refit. `previous` is deliberately not an input to the calculation, which
  * makes identical calls idempotent and prevents recursive label chasing.
  */
-export function fitTopologyScene({scene, viewport = {}, safeRect, glyphBoxes = [], admitLabels} = {}) {
+export function fitTopologyScene({
+  scene,
+  viewport = {},
+  safeRect,
+  glyphBoxes = [],
+  routeStrokeWidth,
+  admitLabels,
+} = {}) {
   const safe = normalizeGodViewSafeRect(safeRect, viewport)
   const canvas = normalizeGodViewSafeRect(
     {left: 0, top: 0, right: viewport?.width, bottom: viewport?.height},
     viewport,
   )
   const glyphSpecs = glyphVisualSpecs(scene, glyphBoxes)
-  const baseSpecs = baseVisualSpecs(scene, glyphBoxes)
-  let viewState = fitVisualSpecs(baseSpecs, viewport, safe, viewport?.viewState || {})
+  const baseSpecs = baseVisualSpecs(scene, glyphBoxes, routeStrokeWidth)
+  let viewState = fitVisualSpecs(baseSpecs, glyphSpecs, viewport, safe, viewport?.viewState || {})
   let labels = runAdmission(admitLabels, scene, viewport, canvas, glyphSpecs, viewState)
 
   if (labels.some((label) => !boxInside(label?.box, safe))) {
     const labelSpecs = labelVisualSpecs(scene, labels, viewState, viewport)
-    viewState = fitVisualSpecs([...baseSpecs, ...labelSpecs], viewport, safe, viewState)
+    viewState = fitVisualSpecs([...baseSpecs, ...labelSpecs], glyphSpecs, viewport, safe, viewState)
     labels = runAdmission(admitLabels, scene, viewport, safe, glyphSpecs, viewState)
   }
 
@@ -360,11 +418,35 @@ function focusScene(scene, group) {
   }
 }
 
-export function focusTopologyGroup({scene, groupId, viewport = {}, safeRect} = {}) {
+export function focusTopologyGroup({
+  scene,
+  groupId,
+  viewport = {},
+  safeRect,
+  glyphBoxForNode,
+  routeStrokeWidth,
+  admitLabels,
+} = {}) {
   const normalizedId = String(groupId || "").trim()
   const group = (scene?.groups || []).find((candidate) => String(candidate?.id || "") === normalizedId)
   if (!group) return null
+  if (typeof glyphBoxForNode !== "function") {
+    throw new TypeError("topology focus requires a renderer-derived glyph box resolver")
+  }
   const neighborhood = focusScene(scene, group)
-  const glyphBoxes = neighborhood.nodes.map((node) => ({nodeId: node.id, width: 52, height: 52}))
-  return fitTopologyScene({scene: neighborhood, viewport, safeRect, glyphBoxes}).viewState
+  const glyphBoxes = neighborhood.nodes.filter((node) => node?.render !== false).map((node) => {
+    const measured = glyphBoxForNode(node)
+    if (!measured || typeof measured !== "object") {
+      throw new RangeError(`topology focus has no renderer-derived glyph box for ${String(node?.id || "")}`)
+    }
+    return {nodeId: node.id, ...measured}
+  })
+  return fitTopologyScene({
+    scene: neighborhood,
+    viewport,
+    safeRect,
+    glyphBoxes,
+    routeStrokeWidth,
+    admitLabels,
+  }).viewState
 }

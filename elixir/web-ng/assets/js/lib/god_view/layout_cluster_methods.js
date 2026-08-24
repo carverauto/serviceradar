@@ -1,3 +1,5 @@
+import {managedVisualDensityContract} from "./rendering_managed_visual_density"
+
 export const godViewLayoutClusterMethods = {
   resolveZoomTier(zoom) {
     if (zoom < -0.3) return "global"
@@ -15,7 +17,10 @@ export const godViewLayoutClusterMethods = {
   reshapeGraph(graph) {
     const {state} = this
     if (graph?._layoutMode === "elk-scene" && graph?._topologyScene) {
-      return {...graph, shape: "local"}
+      return {
+        ...graph,
+        shape: managedVisualDensityContract(state.managedTopologyVisualDensity).labelShape,
+      }
     }
     const tier = state.zoomMode === "auto" ? state.zoomTier : state.zoomMode
     if (tier === "local") return {shape: "local", ...graph}

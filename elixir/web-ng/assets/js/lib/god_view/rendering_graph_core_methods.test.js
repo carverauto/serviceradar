@@ -1,4 +1,4 @@
-import {afterEach, describe, expect, it, vi} from "vitest"
+import {describe, expect, it, vi} from "vitest"
 
 import {godViewRenderingGraphCoreMethods} from "./rendering_graph_core_methods"
 
@@ -106,118 +106,27 @@ function renderContext() {
   return {context, effective}
 }
 
-function assertDeeplyFrozenPlainData(value) {
-  if (value === null || typeof value !== "object") return
-  expect(Object.getPrototypeOf(value)).toBe(value instanceof Array ? Array.prototype : Object.prototype)
-  expect(Object.isFrozen(value)).toBe(true)
-  for (const child of Object.values(value)) assertDeeplyFrozenPlainData(child)
-}
-
-afterEach(() => {
-  delete globalThis.window
-})
-
-describe("God-View acceptance geometry hook", () => {
-  it("does not expose a geometry hook during default production rendering", () => {
-    globalThis.window = {}
+describe("God-View render frame observer seam", () => {
+  it("notifies a neutral optional frame observer after render and view-state refresh", () => {
     const {context, effective} = renderContext()
+    context.state.renderFrameObserver = vi.fn()
 
     godViewRenderingGraphCoreMethods.renderGraph.call(context, effective)
+    expect(context.state.renderFrameObserver).toHaveBeenCalledTimes(1)
+    expect(context.state.renderFrameObserver).toHaveBeenLastCalledWith(expect.objectContaining({
+      context,
+      effective,
+    }))
 
-    expect(globalThis.window.__SR_GOD_VIEW_GEOMETRY__).toBeUndefined()
-  })
-
-  it("exposes immutable plain semantic and geometry data only in acceptance mode", () => {
-    globalThis.window = {__SR_GOD_VIEW_ACCEPTANCE__: true}
-    const {context, effective} = renderContext()
-
-    godViewRenderingGraphCoreMethods.renderGraph.call(context, effective)
-
-    expect(globalThis.window.__SR_GOD_VIEW_GEOMETRY__).toEqual(expect.any(Function))
-    const snapshot = globalThis.window.__SR_GOD_VIEW_GEOMETRY__()
-    expect(snapshot).toMatchObject({
-      sceneKey: "7:fixture:landscape:scene-key",
-      profileKey: "landscape",
-      counts: {
-        semanticNodes: 2,
-        semanticEdges: 1,
-        attachmentEdges: 0,
-        renderedRoutes: 1,
-        renderedGlyphs: 2,
-        admittedLabels: 1,
-      },
-      safeRect: {left: 80, top: 48, right: 1870, bottom: 1012},
-      viewState: {target: [60, 50, 0], zoom: 1.25, minZoom: -3, maxZoom: 5},
-    })
-    expect(snapshot.nodes).toHaveLength(2)
-    expect(snapshot.routes).toEqual([{
-      sourceId: "router-a",
-      targetId: "router-b",
-      strokeWidth: 38,
-      points: [{x: 20, y: 40}, {x: 60, y: 40}, {x: 60, y: 60}, {x: 100, y: 60}],
-      projectedPoints: [{x: 120, y: 240}, {x: 160, y: 240}, {x: 160, y: 260}, {x: 200, y: 260}],
-    }])
-    expect(Object.keys(snapshot.routes[0]).sort()).toEqual([
-      "points", "projectedPoints", "sourceId", "strokeWidth", "targetId",
-    ])
-    expect(snapshot.glyphs).toEqual([
-      {nodeId: "router-a", left: 100, top: 220, right: 140, bottom: 260},
-      {nodeId: "router-b", left: 180, top: 240, right: 220, bottom: 280},
-    ])
-    expect(snapshot.labels).toEqual([{
-      nodeId: "router-a",
-      box: {left: 121, top: 201, right: 177, bottom: 217},
-    }])
-    assertDeeplyFrozenPlainData(snapshot)
-  })
-
-  it("never leaks runtime telemetry or credentials through the acceptance snapshot", () => {
-    globalThis.window = {__SR_GOD_VIEW_ACCEPTANCE__: true}
-    const {context, effective} = renderContext()
-
-    godViewRenderingGraphCoreMethods.renderGraph.call(context, effective)
-
-    const serialized = JSON.stringify(globalThis.window.__SR_GOD_VIEW_GEOMETRY__())
-    expect(serialized).not.toMatch(/pps|flow|protocol|credential|csrf|bearer|token|42_000|42000|999999/i)
-  })
-
-  it("refreshes through the view-state path and deletes a stale hook after acceptance is disabled", () => {
-    globalThis.window = {__SR_GOD_VIEW_ACCEPTANCE__: true}
-    const {context, effective} = renderContext()
-
-    godViewRenderingGraphCoreMethods.renderGraph.call(context, effective)
-    const firstSnapshot = globalThis.window.__SR_GOD_VIEW_GEOMETRY__()
     context.state.viewState = {target: [72, 64, 0], zoom: 2, minZoom: -3, maxZoom: 5}
-
     expect(godViewRenderingGraphCoreMethods.refreshGraphLayersForViewState.call(context)).toBe(true)
-
-    const secondSnapshot = globalThis.window.__SR_GOD_VIEW_GEOMETRY__()
-    expect(secondSnapshot).not.toBe(firstSnapshot)
-    expect(secondSnapshot.viewState).toEqual({target: [72, 64, 0], zoom: 2, minZoom: -3, maxZoom: 5})
-
-    globalThis.window.__SR_GOD_VIEW_ACCEPTANCE__ = false
-    expect(godViewRenderingGraphCoreMethods.refreshGraphLayersForViewState.call(context)).toBe(true)
-
-    expect(globalThis.window.__SR_GOD_VIEW_GEOMETRY__).toBeUndefined()
+    expect(context.state.renderFrameObserver).toHaveBeenCalledTimes(2)
   })
 
-  it.each([
-    ["has no matching rendered layer", () => []],
-    ["has a NaN width", () => [{
-      id: "god-view-edges-mantle",
-      props: {data: [{sourceId: "router-a", targetId: "router-b"}], getWidth: () => Number.NaN},
-    }]],
-    ["has a zero width", () => [{
-      id: "god-view-edges-mantle",
-      props: {data: [{sourceId: "router-a", targetId: "router-b"}], getWidth: () => 0},
-    }]],
-  ])("fails loudly when an acceptance route %s", (_description, buildLayers) => {
-    globalThis.window = {__SR_GOD_VIEW_ACCEPTANCE__: true}
+  it("renders normally without an observer", () => {
     const {context, effective} = renderContext()
-    context.buildGraphLayers = buildLayers
 
-    expect(() => godViewRenderingGraphCoreMethods.renderGraph.call(context, effective))
-      .toThrow(/route router-a -> router-b.*finite positive rendered stroke width/i)
-    expect(globalThis.window.__SR_GOD_VIEW_GEOMETRY__).toBeUndefined()
+    expect(() => godViewRenderingGraphCoreMethods.renderGraph.call(context, effective)).not.toThrow()
+    expect(context.state.deck.setProps).toHaveBeenCalledWith({layers: expect.any(Array)})
   })
 })

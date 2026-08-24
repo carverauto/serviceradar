@@ -5,7 +5,7 @@ import ELK from "elkjs/lib/elk.bundled.js"
 
 import {LANDSCAPE_PROFILE, applyTopologySceneToGraph, layoutTopologyScene} from "./layout_elk_scene"
 import {collapsedFarm01Graph, expandedFarm01Graph} from "./fixtures/farm01_topology_regression"
-import {godViewRenderingGraphDataMethods} from "./rendering_graph_data_methods"
+import {godViewRenderingGraphDataMethods, hasManagedTopologySceneRoutes} from "./rendering_graph_data_methods"
 import {godViewRenderingStyleEdgeTopologyMethods} from "./rendering_style_edge_topology_methods"
 import {prepareTopologySceneInput} from "./topology_scene_graph"
 
@@ -80,6 +80,15 @@ function topologyAwareContext(topologyLayers) {
 }
 
 describe("rendering_graph_data_methods", () => {
+  it("keeps accepted ELK scene routes authoritative at overview display shape", () => {
+    const scene = {routes: []}
+    expect(hasManagedTopologySceneRoutes({
+      shape: "global",
+      _layoutMode: "elk-scene",
+      _topologyScene: scene,
+    })).toBe(true)
+  })
+
   it("uses pre-laid scene routes without post-layout aggregation", async () => {
     const collapseExpandedMemberTrunks = vi.fn()
     const aggregateVisibleEdges = vi.fn()

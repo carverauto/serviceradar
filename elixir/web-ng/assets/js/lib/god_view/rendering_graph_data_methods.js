@@ -130,7 +130,6 @@ function deterministicRelationPresentation(relations) {
 
 export function hasManagedTopologySceneRoutes(effective) {
   return (
-    effective?.shape === "local" &&
     effective?._layoutMode === "elk-scene" &&
     Array.isArray(effective?._topologyScene?.routes)
   )
