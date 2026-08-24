@@ -3,7 +3,7 @@ defmodule ServiceRadar.Inventory.IdentityReconcilerMacClassificationTest do
   Tests for MAC address classification and confidence-gated merge behavior.
   """
 
-  use ServiceRadar.DataCase, async: true
+  use ServiceRadar.DataCase, async: false
 
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Inventory.Device

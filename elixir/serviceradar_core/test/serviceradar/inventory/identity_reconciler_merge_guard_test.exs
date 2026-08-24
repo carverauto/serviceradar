@@ -10,7 +10,7 @@ defmodule ServiceRadar.Inventory.IdentityReconcilerMergeGuardTest do
     being resurrected
   """
 
-  use ServiceRadar.DataCase, async: true
+  use ServiceRadar.DataCase, async: false
 
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Identity.DeviceAliasState

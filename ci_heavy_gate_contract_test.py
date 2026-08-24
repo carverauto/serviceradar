@@ -1139,6 +1139,25 @@ class WorkflowIntegrationLifecycleContractTest(unittest.TestCase):
                 source,
             )
 
+    def test_async_telemetry_handlers_are_callback_scoped(self):
+        async_sources = {
+            row["source"]
+            for row in integration_dispositions()
+            if row["mode"] == "async"
+        }
+        telemetry_sources = {
+            source
+            for source in async_sources
+            if ":telemetry.attach"
+            in (CORE_TEST_ROOT.parent / source).read_text(encoding="utf-8")
+        }
+        filtered_source = "test/serviceradar/inventory/agent_link_repair_worker_test.exs"
+
+        self.assertEqual({filtered_source}, telemetry_sources)
+        source = (CORE_TEST_ROOT.parent / filtered_source).read_text(encoding="utf-8")
+        self.assertEqual(2, source.count(":telemetry.attach("))
+        self.assertEqual(2, source.count("if metadata.agent_uid == agent_uid do"))
+
     def test_integration_disposition_inventory_is_exhaustive_and_concrete(self):
         rows = integration_dispositions()
         selected = [row for row in rows if row["mode"] in SELECTED_MODES]
