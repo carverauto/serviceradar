@@ -1313,11 +1313,13 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
           "device_role_source" => role.source
         }
 
-        merged = Map.merge(metadata, role_metadata)
-
-        if merged != metadata do
+        # The comparison still uses the freshly read map -- it is only deciding
+        # whether there is anything to write. The WRITE sends the role keys alone
+        # and merges them in the database, so a concurrent writer's keys are not
+        # carried back from this read.
+        if Map.merge(metadata, role_metadata) != metadata do
           device
-          |> Ash.Changeset.for_update(:update, %{metadata: merged})
+          |> Ash.Changeset.for_update(:merge_metadata, %{metadata_patch: role_metadata})
           |> Ash.update(actor: actor)
         end
 

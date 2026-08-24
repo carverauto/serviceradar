@@ -312,6 +312,25 @@ defmodule ServiceRadar.Inventory.Device do
       change set_attribute(:modified_time, &DateTime.utc_now/0)
     end
 
+    update :merge_metadata do
+      description """
+      Merge a patch into metadata in the database, leaving every key the patch does
+      not name untouched.
+
+      Use this instead of reading metadata, Map.put-ing into it and writing the
+      whole map back: that loses whatever another writer committed in between,
+      silently. See ServiceRadar.Inventory.Changes.MergeDeviceMetadata.
+      """
+
+      accept []
+      require_atomic? true
+
+      argument :metadata_patch, :map, allow_nil?: false
+
+      change ServiceRadar.Inventory.Changes.MergeDeviceMetadata
+      change set_attribute(:modified_time, &DateTime.utc_now/0)
+    end
+
     update :write_facts do
       description """
       Merge externally supplied scalar facts into metadata with server-stamped
