@@ -261,7 +261,7 @@ defmodule ServiceRadar.Edge.PublishWindow do
   Replaces an outstanding frame's PubAck deadline, leaving its credits charged.
 
   This is the republish path, and without it the retry was UNREPRESENTABLE: `admit/4` refuses an
-  outstanding slot (`:already_outstanding`) and `settle/2` would release credits for a frame that
+  outstanding slot (`:already_outstanding`) and `settle/4` would release credits for a frame that
   is still in flight, so an expired frame could be reported forever but never re-armed.
 
   Charges nothing and releases nothing -- the bytes were already committed and the publication is
