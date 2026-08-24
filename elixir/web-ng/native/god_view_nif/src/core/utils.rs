@@ -282,6 +282,16 @@ pub(crate) fn runtime_graph_row_from_term(row: Term<'_>) -> Option<RuntimeGraphR
         .and_then(|meta| map_get_any(meta, runtime_graph_atoms::relation_type(), "relation_type"))
         .and_then(term_as_string)
         .unwrap_or_default();
+    let metadata_evidence_class = metadata_term
+        .and_then(|meta| {
+            map_get_any(
+                meta,
+                runtime_graph_atoms::evidence_class(),
+                "evidence_class",
+            )
+        })
+        .and_then(term_as_string)
+        .unwrap_or_else(|| evidence_class.clone());
     let metadata_topology_plane = metadata_term
         .and_then(|meta| {
             map_get_any(
@@ -299,6 +309,7 @@ pub(crate) fn runtime_graph_row_from_term(row: Term<'_>) -> Option<RuntimeGraphR
         "confidence_tier": metadata_confidence_tier,
         "confidence_score": metadata_confidence_score,
         "relation_type": metadata_relation_type,
+        "evidence_class": metadata_evidence_class,
         "topology_plane": metadata_topology_plane
     })
     .to_string();

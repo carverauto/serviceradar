@@ -6,8 +6,9 @@ exports_files(["playwright-browsers.1.51.0.json"])
 
 playwright_bin.playwright_test(
     name = "god_view_elk_scene_acceptance",
-    # Cold RBE Chromium startup can exceed the small class's 60-second timeout.
-    size = "medium",
+    # The full six-phase WebGL geometry gate plus trace artifact upload exceeds
+    # the medium class's 300-second budget on cold RBE executors.
+    size = "large",
     args = [
         "test",
         "--config=playwright.config.js",

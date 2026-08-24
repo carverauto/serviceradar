@@ -5,19 +5,70 @@ import {
   routeInsideSafeRect,
   routeInteriorsIntersect,
   routeStrokeHitsBox,
+  routeStrokesOverlap,
   segmentAabbDistance,
+  transportLayerRouteIdViolations,
 } from "./acceptance_geometry_assertions"
 
 function route({
   sourceId = "a",
   targetId = "b",
+  sourceContactId,
+  targetContactId,
+  junctions = [],
   points = [{x: 0, y: 0}, {x: 10, y: 0}],
   strokeWidth = 38,
 } = {}) {
-  return {sourceId, targetId, points, projectedPoints: points, strokeWidth}
+  return {
+    sourceId,
+    targetId,
+    sourceContactId,
+    targetContactId,
+    junctions,
+    points,
+    projectedPoints: points,
+    strokeWidth,
+  }
 }
 
 describe("God-View browser geometry assertions", () => {
+  const exactTransportSnapshot = () => ({
+    scenePhysicalRouteIds: ["rendered:a", "manifold:a:trunk"],
+    enabledTransportRouteFamilies: ["mantle", "crust"],
+    renderedPhysicalRouteLayers: [
+      {layerId: "god-view-edges-mantle", routeCount: 1, routeIds: ["rendered:a"]},
+      {layerId: "god-view-edges-mantle-auxiliary", routeCount: 1, routeIds: ["manifold:a:trunk"]},
+      {layerId: "god-view-edges-crust", routeCount: 1, routeIds: ["rendered:a"]},
+      {layerId: "god-view-edges-crust-auxiliary", routeCount: 1, routeIds: ["manifold:a:trunk"]},
+    ],
+  })
+
+  it("accepts exactly one rendering of every physical route in mantle and crust", () => {
+    expect(transportLayerRouteIdViolations(exactTransportSnapshot())).toEqual([])
+  })
+
+  it("rejects a duplicate physical route in the mantle layers", () => {
+    const snapshot = exactTransportSnapshot()
+    snapshot.renderedPhysicalRouteLayers[0].routeIds.push("rendered:a")
+    snapshot.renderedPhysicalRouteLayers[0].routeCount += 1
+
+    expect(transportLayerRouteIdViolations(snapshot)).toEqual([
+      "mantle route rendered:a is rendered 2 times; expected 1",
+      "mantle and crust route ID multisets differ",
+    ])
+  })
+
+  it("rejects a physical route omitted from the crust layers", () => {
+    const snapshot = exactTransportSnapshot()
+    snapshot.renderedPhysicalRouteLayers[2].routeIds = []
+    snapshot.renderedPhysicalRouteLayers[2].routeCount = 0
+
+    expect(transportLayerRouteIdViolations(snapshot)).toEqual([
+      "crust route rendered:a is rendered 0 times; expected 1",
+      "mantle and crust route ID multisets differ",
+    ])
+  })
+
   it("measures segment clearance from an AABB instead of only centerline crossing", () => {
     const box = {left: 2, top: 19, right: 8, bottom: 29}
 
@@ -47,6 +98,43 @@ describe("God-View browser geometry assertions", () => {
     const tee = route({sourceId: "top", targetId: "tee", points: [{x: 5, y: -5}, {x: 5, y: 0}]})
 
     expect(routeInteriorsIntersect(horizontal, tee)).toBe(true)
+  })
+
+  it("allows a manifold branch to meet its rail only at their declared shared junction", () => {
+    const rail = route({
+      sourceId: "hub",
+      targetId: "hub",
+      sourceContactId: "rail:start",
+      targetContactId: "rail:end",
+      junctions: [{id: "rail:branch:one", point: {x: 5, y: 0}}],
+    })
+    const branch = route({
+      sourceId: "hub",
+      targetId: "leaf",
+      sourceContactId: "rail:branch:one",
+      targetContactId: "leaf:port",
+      points: [{x: 5, y: 0}, {x: 5, y: 10}],
+    })
+
+    expect(routeInteriorsIntersect(rail, branch)).toBe(false)
+  })
+
+  it("rejects a manifold branch touching a rail at an undeclared junction", () => {
+    const rail = route({
+      sourceId: "hub",
+      targetId: "hub",
+      sourceContactId: "rail:start",
+      targetContactId: "rail:end",
+    })
+    const branch = route({
+      sourceId: "hub",
+      targetId: "leaf",
+      sourceContactId: "rail:branch:one",
+      targetContactId: "leaf:port",
+      points: [{x: 5, y: 0}, {x: 5, y: 10}],
+    })
+
+    expect(routeInteriorsIntersect(rail, branch)).toBe(true)
   })
 
   it("allows only the shared semantic endpoint coordinate of incident routes", () => {
@@ -80,6 +168,54 @@ describe("God-View browser geometry assertions", () => {
     })
 
     expect(routeInteriorsIntersect(first, second)).toBe(true)
+  })
+
+  it("detects visible overlap between close parallel route strokes without a centerline crossing", () => {
+    const first = route({
+      strokeWidth: 10,
+      points: [{x: 0, y: 0}, {x: 100, y: 0}],
+    })
+    const overlapping = route({
+      sourceId: "c",
+      targetId: "d",
+      strokeWidth: 10,
+      points: [{x: 0, y: 8}, {x: 100, y: 8}],
+    })
+    const clear = {...overlapping, points: [{x: 0, y: 11}, {x: 100, y: 11}], projectedPoints: [{x: 0, y: 11}, {x: 100, y: 11}]}
+
+    expect(routeInteriorsIntersect(first, overlapping)).toBe(false)
+    expect(routeStrokesOverlap(first, overlapping)).toBe(true)
+    expect(routeStrokesOverlap(first, clear)).toBe(false)
+  })
+
+  it("allows visible manifold strokes to join only inside their declared shared junction", () => {
+    const rail = route({
+      sourceId: "hub",
+      targetId: "hub",
+      sourceContactId: "rail:start",
+      targetContactId: "rail:end",
+      strokeWidth: 10,
+      points: [{x: 0, y: 0}, {x: 100, y: 0}],
+      junctions: [{
+        id: "rail:branch:one",
+        point: {x: 50, y: 0},
+        projectedPoint: {x: 50, y: 0},
+      }],
+    })
+    const branch = route({
+      sourceId: "hub",
+      targetId: "leaf",
+      sourceContactId: "rail:branch:one",
+      targetContactId: "leaf:port",
+      strokeWidth: 10,
+      points: [{x: 50, y: 0}, {x: 50, y: 100}],
+    })
+
+    expect(routeStrokesOverlap(rail, branch)).toBe(false)
+    expect(routeStrokesOverlap(
+      {...rail, junctions: []},
+      branch,
+    )).toBe(true)
   })
 
   it("reports group overlap, nonmember overlap, and escaped declared members", () => {

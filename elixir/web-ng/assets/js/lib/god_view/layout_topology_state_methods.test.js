@@ -297,6 +297,9 @@ describe("layout_topology_state_methods", () => {
     expect(second._topologyScene.routes.map((route) => route.points)).toEqual(
       first._topologyScene.routes.map((route) => route.points),
     )
+    expect(second._topologyScene.physicalRoutes.map((route) => route.points)).toEqual(
+      first._topologyScene.physicalRoutes.map((route) => route.points),
+    )
     expect(second._layoutCacheKey).toEqual(first._layoutCacheKey)
     expect(second._layoutRevision).toEqual(10)
     expect(second.revision).toEqual(10)
@@ -311,10 +314,12 @@ describe("layout_topology_state_methods", () => {
     expect(cachedGeometry).not.toBe(first._topologyScene)
     expect(cachedGeometry).not.toHaveProperty("manifest")
     expect(cachedGeometry).not.toHaveProperty("key")
-    expect(cachedGeometry.routes[0]).toEqual({
+    expect(cachedGeometry.routes[0]).toMatchObject({
       id: first._topologyScene.routes[0].id,
       points: first._topologyScene.routes[0].points,
     })
+    expect(cachedGeometry.manifolds).toHaveLength(8)
+    expect(cachedGeometry.auxiliaryRoutes).toHaveLength(16)
     expect(cachedGeometry.routes[0]).not.toHaveProperty("relationIds")
     expect(cachedGeometry.routes[0]).not.toHaveProperty("metadata")
     expect(Object.isFrozen(first._topologyScene)).toEqual(true)

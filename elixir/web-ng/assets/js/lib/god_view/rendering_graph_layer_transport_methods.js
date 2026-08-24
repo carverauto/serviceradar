@@ -2,7 +2,7 @@ import {COORDINATE_SYSTEM} from "@deck.gl/core"
 import {ArcLayer, LineLayer, PathLayer, ScatterplotLayer} from "@deck.gl/layers"
 import PacketFlowLayer from "../deckgl/PacketFlowLayer"
 import {hasManagedTopologySceneRoutes} from "./rendering_graph_data_methods"
-import {managedVisualDensityContract} from "./rendering_managed_visual_density"
+import {managedVisualDensityContract, normalizeManagedVisualDensity} from "./rendering_managed_visual_density"
 import {edgeTopologyVisualStyleValue} from "./rendering_style_edge_topology_methods"
 
 export const godViewRenderingGraphLayerTransportMethods = {
@@ -31,15 +31,31 @@ export const godViewRenderingGraphLayerTransportMethods = {
       ? this.buildPacketFlowInstances(edgeData)
       : []
     const routedTopologyScene = hasManagedTopologySceneRoutes(effective)
-    const managedRouteMaxWidth = routedTopologyScene
-      ? managedVisualDensityContract(this.state.managedTopologyVisualDensity).routeMaxWidth
+    const managedVisualDensity = routedTopologyScene
+      ? normalizeManagedVisualDensity(this.state.managedTopologyVisualDensity)
       : null
+    const managedRouteMaxWidth = routedTopologyScene
+      ? managedVisualDensityContract(managedVisualDensity).routeMaxWidth
+      : null
+    const hasAuxiliaryEdges = routedTopologyScene && edgeData.some((edge) => edge?.auxiliary === true)
+    const auxiliaryEdgeData = hasAuxiliaryEdges
+      ? edgeData.filter((edge) => edge?.auxiliary === true)
+      : []
+    const semanticEdgeData = hasAuxiliaryEdges
+      ? edgeData.filter((edge) => edge?.auxiliary !== true)
+      : edgeData
+    const transportDataSets = auxiliaryEdgeData.length > 0
+      ? [
+          {suffix: "-auxiliary", data: auxiliaryEdgeData, pickable: false},
+          {suffix: "", data: semanticEdgeData, pickable: true},
+        ]
+      : [{suffix: "", data: semanticEdgeData, pickable: true}]
 
     const mantleLayers = this.state.layers.mantle
-      ? [
+      ? transportDataSets.map((dataSet) => (
           new (routedTopologyScene ? PathLayer : LineLayer)({
-            id: "god-view-edges-mantle",
-            data: edgeData,
+            id: `god-view-edges-mantle${dataSet.suffix}`,
+            data: dataSet.data,
             coordinateSystem: COORDINATE_SYSTEM.CARTESIAN,
             ...(routedTopologyScene
               ? {getPath: (d) => d.path, jointRounded: true}
@@ -64,7 +80,7 @@ export const godViewRenderingGraphLayerTransportMethods = {
             getPolygonOffset: (d) => (this.edgeIsFocused(d) ? [0, -1000] : [0, 0]),
             widthUnits: "pixels",
             widthMinPixels: 6,
-            pickable: true,
+            pickable: dataSet.pickable,
             parameters: {
               blend: true,
               blendFunc: [770, 771],
@@ -72,19 +88,19 @@ export const godViewRenderingGraphLayerTransportMethods = {
             },
             updateTriggers: {
               getColor: [hasFocus, this.state.hoveredEdgeKey, this.state.selectedEdgeKey, this.state.visual.mantleEdgeBase, this.state.visual.mantleEdgeAlphaBase],
-              getWidth: [zoomScale, hasFocus, this.state.hoveredEdgeKey, this.state.selectedEdgeKey],
+              getWidth: [zoomScale, hasFocus, this.state.hoveredEdgeKey, this.state.selectedEdgeKey, managedVisualDensity],
               getPolygonOffset: [hasFocus, this.state.hoveredEdgeKey, this.state.selectedEdgeKey],
             },
-          }),
-        ]
+          })
+        ))
       : []
 
     const crustLayers =
       this.state.layers.crust
-        ? [
+        ? transportDataSets.map((dataSet) => (
             new (routedTopologyScene ? PathLayer : ArcLayer)({
-              id: "god-view-edges-crust",
-              data: edgeData,
+              id: `god-view-edges-crust${dataSet.suffix}`,
+              data: dataSet.data,
               coordinateSystem: COORDINATE_SYSTEM.CARTESIAN,
               ...(routedTopologyScene
                 ? {
@@ -127,7 +143,7 @@ export const godViewRenderingGraphLayerTransportMethods = {
               getPolygonOffset: (d) => (this.edgeIsFocused(d) ? [0, -1000] : [0, 0]),
               widthUnits: "pixels",
               ...(routedTopologyScene ? {} : {greatCircle: false}),
-              pickable: true,
+              pickable: dataSet.pickable,
               parameters: {
                 blend: true,
                 blendFunc: [770, 771],
@@ -141,11 +157,11 @@ export const godViewRenderingGraphLayerTransportMethods = {
                       getSourceColor: [hasFocus, this.state.hoveredEdgeKey, this.state.selectedEdgeKey],
                       getTargetColor: [hasFocus, this.state.hoveredEdgeKey, this.state.selectedEdgeKey],
                     }),
-                getWidth: [zoomScale, hasFocus, this.state.hoveredEdgeKey, this.state.selectedEdgeKey],
+                getWidth: [zoomScale, hasFocus, this.state.hoveredEdgeKey, this.state.selectedEdgeKey, managedVisualDensity],
                 getPolygonOffset: [hasFocus, this.state.hoveredEdgeKey, this.state.selectedEdgeKey],
               },
-            }),
-          ]
+            })
+          ))
         : []
 
     const atmosphereLayers = this.state.layers.atmosphere && packetFlowData.length > 0

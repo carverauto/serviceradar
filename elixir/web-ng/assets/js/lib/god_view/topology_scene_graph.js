@@ -25,6 +25,8 @@ function expandedFlag(value) {
 }
 
 function isAttachmentRelation(edge) {
+  if (expandedFlag(edge?.metadata?.connectivity_forest_bridge)) return false
+
   const topologyClass = stringValue(edge?.topologyClass).toLowerCase()
   const evidenceClass = stringValue(edge?.evidenceClass).toLowerCase()
   const relationType = stringValue(edge?.metadata?.relation_type || edge?.relationType).toUpperCase()
@@ -71,6 +73,7 @@ function sceneNodes(graph) {
       kind,
       clusterId: clusterId(node),
       anchorId: anchorId(node),
+      topologyPlane: stringValue(details.topology_plane).toLowerCase(),
       expanded: expandedFlag(details.cluster_expanded),
     }
   })
@@ -132,6 +135,21 @@ function isMemberAnchorRelation(source, target, groupsById) {
   return {group, member}
 }
 
+function renderedRelationEndpoints(source, target, hasAttachmentEvidence) {
+  const ordered = [source, target].sort((left, right) => left.id.localeCompare(right.id))
+  if (!hasAttachmentEvidence) return ordered
+
+  const isSatellite = (node) =>
+    node.kind === "endpoint-summary" ||
+    node.kind === "endpoint-member" ||
+    node.topologyPlane === "attachment"
+  const leftIsSatellite = isSatellite(ordered[0])
+  const rightIsSatellite = isSatellite(ordered[1])
+  return leftIsSatellite !== rightIsSatellite && leftIsSatellite
+    ? [ordered[1], ordered[0]]
+    : ordered
+}
+
 function relations(graph, indexedNodes, groups) {
   const sourceEdges = Array.isArray(graph?.edges) ? graph.edges : []
   const groupsById = new Map(groups.map((group) => [group.id, group]))
@@ -146,7 +164,8 @@ function relations(graph, indexedNodes, groups) {
     if (!source || !target || source.id === target.id) continue
 
     semanticEdges += 1
-    if (isAttachmentRelation(edge)) attachmentEdges += 1
+    const attachmentRelation = isAttachmentRelation(edge)
+    if (attachmentRelation) attachmentEdges += 1
     const relationId = semanticRelationId(edge, source.id, target.id)
     const memberAnchor = isMemberAnchorRelation(source, target, groupsById)
     if (memberAnchor) {
@@ -157,14 +176,35 @@ function relations(graph, indexedNodes, groups) {
     }
 
     const id = canonicalRenderedRelationId(source.id, target.id)
-    const [sourceId, targetId] = [source.id, target.id].sort((left, right) => left.localeCompare(right))
-    const current = rendered.get(id) || {id, sourceId, targetId, relationIds: []}
+    const [left, right] = [source, target].sort(
+      (leftNode, rightNode) => leftNode.id.localeCompare(rightNode.id),
+    )
+    const current = rendered.get(id) || {
+      id,
+      left,
+      right,
+      hasAttachmentEvidence: false,
+      relationIds: [],
+    }
+    current.hasAttachmentEvidence = current.hasAttachmentEvidence || attachmentRelation
     current.relationIds.push(relationId)
     rendered.set(id, current)
   }
 
   const renderedRelations = Array.from(rendered.values())
-    .map((relation) => ({...relation, relationIds: sortedUnique(relation.relationIds)}))
+    .map((relation) => {
+      const [source, target] = renderedRelationEndpoints(
+        relation.left,
+        relation.right,
+        relation.hasAttachmentEvidence,
+      )
+      return {
+        id: relation.id,
+        sourceId: source.id,
+        targetId: target.id,
+        relationIds: sortedUnique(relation.relationIds),
+      }
+    })
     .sort((left, right) => left.id.localeCompare(right.id))
   const layoutRelations = groups
     .filter((group) => group.expanded)

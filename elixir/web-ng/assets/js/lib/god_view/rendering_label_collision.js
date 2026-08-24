@@ -283,6 +283,7 @@ export function admitTopologyLabels({
   glyphBoxes = [],
   routeCorridors = [],
   safeRect,
+  maximumCount = Number.POSITIVE_INFINITY,
   measureText,
 } = {}) {
   const normalizedSafeRect = normalizedBox(safeRect, [0, 0])
@@ -297,6 +298,10 @@ export function admitTopologyLabels({
   const admitted = []
   const admittedCandidates = new Map()
   const detailsFallbackIds = []
+  const parsedMaximumCount = Number(maximumCount)
+  const labelLimit = Number.isFinite(parsedMaximumCount)
+    ? Math.max(0, Math.floor(parsedMaximumCount))
+    : Number.POSITIVE_INFINITY
 
   for (const candidate of ordered) {
     const point = Array.isArray(candidate.point) ? candidate.point : [0, 0]
@@ -304,6 +309,11 @@ export function admitTopologyLabels({
     const metrics = measuredTextBox(candidate, measureText)
     const attention = candidate.selected === true || candidate.focused === true
     let placed = false
+
+    if (admitted.length >= labelLimit) {
+      if (attention) detailsFallbackIds.push(candidate.nodeId)
+      continue
+    }
 
     for (const anchor of ANCHORS) {
       const placement = anchorPlacement(candidate, ownerGlyph, metrics, anchor)

@@ -1,10 +1,18 @@
-import {fitTopologyScene, focusTopologyGroup, measureGodViewSafeRect} from "./rendering_scene_view"
 import {
-  MANAGED_VISUAL_DENSITY_DETAIL,
+  fitTopologyScene,
+  focusTopologyGroup,
+  measureGodViewSafeRect,
+  normalizeGodViewSafeRect,
+  topologyGroupFocusScene,
+} from "./rendering_scene_view"
+import {ROUTE_CLEARANCE} from "./layout_elk_scene"
+import {
   MANAGED_VISUAL_DENSITY_PREFERENCE,
   managedNodeVisualRole,
   managedVisualDensityContract,
 } from "./rendering_managed_visual_density"
+
+const MANAGED_DENSITY_LAYOUT_CACHE_LIMIT = 8
 
 function nodeDetails(node) {
   return node?.details && typeof node.details === "object" ? node.details : {}
@@ -69,8 +77,8 @@ function managedGlyphBox(context, graphNodes, sceneNode, managedVisualDensity) {
   return {nodeId: sceneNode.id, width: radius * 2, height: radius * 2}
 }
 
-function managedGlyphSeparationConstraint(context, graph, graphNodes, managedVisualDensity) {
-  const specs = (graph?._topologyScene?.nodes || []).flatMap((sceneNode) => {
+function managedGlyphSpecs(context, graph, graphNodes, managedVisualDensity) {
+  return (graph?._topologyScene?.nodes || []).flatMap((sceneNode) => {
     if (sceneNode?.render === false) return []
     const entry = graphNodes.get(String(sceneNode?.id || ""))
     if (!entry) return []
@@ -84,6 +92,9 @@ function managedGlyphSeparationConstraint(context, graph, graphNodes, managedVis
       halfHeight: Number(glyph.height) / 2,
     }]
   })
+}
+
+function managedGlyphSeparationConstraint(specs) {
   let limiting = {
     scale: 0,
     leftId: "",
@@ -117,12 +128,599 @@ function managedGlyphSeparationConstraint(context, graph, graphNodes, managedVis
   return limiting
 }
 
-function managedDensityConstraints(context, graph) {
-  const graphNodes = managedGraphNodes(graph)
-  return Object.fromEntries(MANAGED_VISUAL_DENSITY_PREFERENCE.map((managedVisualDensity) => [
+function closestPointOnSegment(point, start, end) {
+  const segmentX = end.x - start.x
+  const segmentY = end.y - start.y
+  const lengthSquared = (segmentX * segmentX) + (segmentY * segmentY)
+  if (!(lengthSquared > 0)) return null
+  const projection = (
+    ((point.x - start.x) * segmentX) +
+    ((point.y - start.y) * segmentY)
+  ) / lengthSquared
+  const t = Math.max(0, Math.min(1, projection))
+  return {x: start.x + (segmentX * t), y: start.y + (segmentY * t)}
+}
+
+function finiteRoutePoints(route) {
+  return (route?.points || []).flatMap((point) => {
+    const x = Number(point?.x)
+    const y = Number(point?.y)
+    return Number.isFinite(x) && Number.isFinite(y) ? [{x, y}] : []
+  })
+}
+
+function pointToSegmentSeparation(point, start, end) {
+  const closest = closestPointOnSegment(point, start, end)
+  return closest
+    ? {distance: Math.hypot(point.x - closest.x, point.y - closest.y), point, closest}
+    : {distance: Number.POSITIVE_INFINITY, point, closest: null}
+}
+
+function segmentSeparation(leftStart, leftEnd, rightStart, rightEnd) {
+  const leftVector = {x: leftEnd.x - leftStart.x, y: leftEnd.y - leftStart.y}
+  const rightVector = {x: rightEnd.x - rightStart.x, y: rightEnd.y - rightStart.y}
+  const betweenStarts = {x: leftStart.x - rightStart.x, y: leftStart.y - rightStart.y}
+  const dot = (left, right) => (left.x * right.x) + (left.y * right.y)
+  const leftLengthSquared = dot(leftVector, leftVector)
+  const rightLengthSquared = dot(rightVector, rightVector)
+
+  if (!(leftLengthSquared > 0)) {
+    const result = pointToSegmentSeparation(leftStart, rightStart, rightEnd)
+    return {distance: result.distance, leftPoint: leftStart, rightPoint: result.closest}
+  }
+  if (!(rightLengthSquared > 0)) {
+    const result = pointToSegmentSeparation(rightStart, leftStart, leftEnd)
+    return {distance: result.distance, leftPoint: result.closest, rightPoint: rightStart}
+  }
+
+  const vectorDot = dot(leftVector, rightVector)
+  const leftStartDot = dot(leftVector, betweenStarts)
+  const rightStartDot = dot(rightVector, betweenStarts)
+  const denominator = (leftLengthSquared * rightLengthSquared) - (vectorDot * vectorDot)
+  const denominatorTolerance = Number.EPSILON * Math.max(
+    1,
+    Math.abs(leftLengthSquared * rightLengthSquared),
+    Math.abs(vectorDot * vectorDot),
+  ) * 64
+  let leftNumerator
+  let leftDenominator = denominator
+  let rightNumerator
+  let rightDenominator = denominator
+
+  if (Math.abs(denominator) <= denominatorTolerance) {
+    leftNumerator = 0
+    leftDenominator = 1
+    rightNumerator = rightStartDot
+    rightDenominator = rightLengthSquared
+  } else {
+    leftNumerator = (vectorDot * rightStartDot) - (rightLengthSquared * leftStartDot)
+    rightNumerator = (leftLengthSquared * rightStartDot) - (vectorDot * leftStartDot)
+    if (leftNumerator < 0) {
+      leftNumerator = 0
+      rightNumerator = rightStartDot
+      rightDenominator = rightLengthSquared
+    } else if (leftNumerator > leftDenominator) {
+      leftNumerator = leftDenominator
+      rightNumerator = rightStartDot + vectorDot
+      rightDenominator = rightLengthSquared
+    }
+  }
+
+  if (rightNumerator < 0) {
+    rightNumerator = 0
+    if (-leftStartDot < 0) {
+      leftNumerator = 0
+    } else if (-leftStartDot > leftLengthSquared) {
+      leftNumerator = leftDenominator
+    } else {
+      leftNumerator = -leftStartDot
+      leftDenominator = leftLengthSquared
+    }
+  } else if (rightNumerator > rightDenominator) {
+    rightNumerator = rightDenominator
+    if ((-leftStartDot + vectorDot) < 0) {
+      leftNumerator = 0
+    } else if ((-leftStartDot + vectorDot) > leftLengthSquared) {
+      leftNumerator = leftDenominator
+    } else {
+      leftNumerator = -leftStartDot + vectorDot
+      leftDenominator = leftLengthSquared
+    }
+  }
+
+  const leftParameter = leftNumerator === 0 ? 0 : leftNumerator / leftDenominator
+  const rightParameter = rightNumerator === 0 ? 0 : rightNumerator / rightDenominator
+  const leftPoint = {
+    x: leftStart.x + (leftParameter * leftVector.x),
+    y: leftStart.y + (leftParameter * leftVector.y),
+  }
+  const rightPoint = {
+    x: rightStart.x + (rightParameter * rightVector.x),
+    y: rightStart.y + (rightParameter * rightVector.y),
+  }
+  const rawDistance = Math.hypot(leftPoint.x - rightPoint.x, leftPoint.y - rightPoint.y)
+  const coordinateScale = Math.max(
+    1,
+    Math.abs(leftStart.x),
+    Math.abs(leftStart.y),
+    Math.abs(leftEnd.x),
+    Math.abs(leftEnd.y),
+    Math.abs(rightStart.x),
+    Math.abs(rightStart.y),
+    Math.abs(rightEnd.x),
+    Math.abs(rightEnd.y),
+  )
+  const numericContactTolerance = Number.EPSILON * coordinateScale * 64
+  return {
+    distance: rawDistance <= numericContactTolerance ? 0 : rawDistance,
+    leftPoint,
+    rightPoint,
+  }
+}
+
+function managedRouteGlyphClearanceConstraint(graph, specs, managedVisualDensity) {
+  const routeRadius = managedVisualDensityContract(managedVisualDensity).routeMaxWidth / 2
+  let limiting = {
+    scale: 0,
+    leftId: "",
+    rightId: "",
+    axis: "normal",
+    limitingRolePair: [],
+  }
+
+  for (const route of graph?._topologyScene?.physicalRoutes || graph?._topologyScene?.routes || []) {
+    const routeId = String(route?.id || "")
+    const sourceId = String(route?.sourceId || "")
+    const targetId = String(route?.targetId || "")
+    const incidentNodeIds = new Set(route?.incidentNodeIds || [sourceId, targetId])
+    const points = finiteRoutePoints(route)
+    for (const spec of specs) {
+      if (incidentNodeIds.has(spec.nodeId)) continue
+      for (let pointIndex = 1; pointIndex < points.length; pointIndex += 1) {
+        const closest = closestPointOnSegment(
+          {x: spec.worldX, y: spec.worldY},
+          points[pointIndex - 1],
+          points[pointIndex],
+        )
+        if (!closest) continue
+        const offsetX = spec.worldX - closest.x
+        const offsetY = spec.worldY - closest.y
+        const worldDistance = Math.hypot(offsetX, offsetY)
+        const requiredPixels = worldDistance > 0
+          ? (
+              (Math.abs(offsetX / worldDistance) * spec.halfWidth) +
+              (Math.abs(offsetY / worldDistance) * spec.halfHeight) +
+              routeRadius
+            )
+          : spec.halfWidth + spec.halfHeight + routeRadius
+        const scale = worldDistance > 0
+          ? requiredPixels / worldDistance
+          : Number.POSITIVE_INFINITY
+        if (scale > limiting.scale) {
+          limiting = {
+            scale,
+            leftId: routeId,
+            rightId: spec.nodeId,
+            axis: "normal",
+            limitingRolePair: ["route", spec.role],
+            limitingKind: "route-glyph",
+            routeId,
+            nodeId: spec.nodeId,
+          }
+        }
+      }
+    }
+  }
+
+  return limiting
+}
+
+function routePathMetrics(points) {
+  const cumulativeLengths = [0]
+  for (let pointIndex = 1; pointIndex < points.length; pointIndex += 1) {
+    cumulativeLengths.push(
+      cumulativeLengths.at(-1) + Math.hypot(
+        points[pointIndex].x - points[pointIndex - 1].x,
+        points[pointIndex].y - points[pointIndex - 1].y,
+      ),
+    )
+  }
+  return {cumulativeLengths, totalLength: cumulativeLengths.at(-1) || 0}
+}
+
+function endpointEnvelopeRadii(scene) {
+  const radii = new Map()
+  for (const node of scene?.nodes || []) {
+    const width = Math.max(0, Number(node?.width) || 0)
+    const height = Math.max(0, Number(node?.height) || 0)
+    radii.set(String(node?.id || ""), Math.hypot(width, height) / 2)
+  }
+  for (const group of scene?.groups || []) {
+    const width = Math.max(0, Number(group?.bounds?.maxX) - Number(group?.bounds?.minX))
+    const height = Math.max(0, Number(group?.bounds?.maxY) - Number(group?.bounds?.minY))
+    radii.set(String(group?.id || ""), Math.hypot(width, height) / 2)
+  }
+  return radii
+}
+
+function sharedEndpointApproachLimit(route, endpointId, envelopeRadii, maximumFraction) {
+  const endpointRadius = Math.max(0, Number(envelopeRadii.get(endpointId)) || 0)
+  const geometricLimit = Math.min(
+    ROUTE_CLEARANCE * 2,
+    Math.max(ROUTE_CLEARANCE, endpointRadius + ROUTE_CLEARANCE),
+  )
+  const sourceTerminalEnd = Math.min(2, route.cumulativeLengths.length - 1)
+  const targetTerminalStart = Math.max(0, route.cumulativeLengths.length - 3)
+  const terminalApproachLength = route.sourceId === endpointId
+    ? route.cumulativeLengths[sourceTerminalEnd]
+    : route.totalLength - route.cumulativeLengths[targetTerminalStart]
+  // The shared port funnel ends at the first of the terminal bend or the
+  // endpoint chrome envelope. A long terminal leg must not turn most of a
+  // nearly overlapping route into exempt endpoint contact. Always retain a
+  // non-funnel tail; routes sharing both semantic endpoints retain a middle
+  // between their two bounded funnels.
+  return Math.min(
+    geometricLimit,
+    terminalApproachLength,
+    route.totalLength * maximumFraction,
+  )
+}
+
+function routeSegmentsOutsideSharedEndpointApproaches(route, sharedEndpointIds, envelopeRadii) {
+  const sharesSource = sharedEndpointIds.includes(route.sourceId)
+  const sharesTarget = sharedEndpointIds.includes(route.targetId)
+  const maximumFraction = sharesSource && sharesTarget ? 0.45 : 0.9
+  const sourceLimit = sharesSource
+    ? sharedEndpointApproachLimit(route, route.sourceId, envelopeRadii, maximumFraction)
+    : 0
+  const targetLimit = sharesTarget
+    ? sharedEndpointApproachLimit(route, route.targetId, envelopeRadii, maximumFraction)
+    : 0
+  const lowerDistance = sourceLimit
+  const upperDistance = Math.max(lowerDistance, route.totalLength - targetLimit)
+  const segments = []
+
+  for (let pointIndex = 1; pointIndex < route.points.length; pointIndex += 1) {
+    const segmentStartDistance = route.cumulativeLengths[pointIndex - 1]
+    const segmentEndDistance = route.cumulativeLengths[pointIndex]
+    const segmentLength = segmentEndDistance - segmentStartDistance
+    if (!(segmentLength > 0)) continue
+    const clippedStartDistance = Math.max(segmentStartDistance, lowerDistance)
+    const clippedEndDistance = Math.min(segmentEndDistance, upperDistance)
+    if (!(clippedEndDistance > clippedStartDistance)) continue
+    const startRatio = (clippedStartDistance - segmentStartDistance) / segmentLength
+    const endRatio = (clippedEndDistance - segmentStartDistance) / segmentLength
+    const start = route.points[pointIndex - 1]
+    const end = route.points[pointIndex]
+    segments.push({
+      index: pointIndex - 1,
+      start: {
+        x: start.x + ((end.x - start.x) * startRatio),
+        y: start.y + ((end.y - start.y) * startRatio),
+      },
+      end: {
+        x: start.x + ((end.x - start.x) * endRatio),
+        y: start.y + ((end.y - start.y) * endRatio),
+      },
+    })
+  }
+  return segments
+}
+
+function routeDistanceAtPoint(route, point) {
+  for (let pointIndex = 1; pointIndex < route.points.length; pointIndex += 1) {
+    const start = route.points[pointIndex - 1]
+    const end = route.points[pointIndex]
+    const dx = end.x - start.x
+    const dy = end.y - start.y
+    const lengthSquared = (dx * dx) + (dy * dy)
+    if (!(lengthSquared > 0)) continue
+    const parameter = Math.max(0, Math.min(1, (
+      ((point.x - start.x) * dx) + ((point.y - start.y) * dy)
+    ) / lengthSquared))
+    const closest = {x: start.x + (parameter * dx), y: start.y + (parameter * dy)}
+    if (Math.hypot(point.x - closest.x, point.y - closest.y) <= 0.01) {
+      return route.cumulativeLengths[pointIndex - 1] + (Math.sqrt(lengthSquared) * parameter)
+    }
+  }
+  return null
+}
+
+function routeSegmentsOutsideDeclaredJunctionApproaches(route, sharedJunctionIds) {
+  const excluded = (route.junctions || []).flatMap((junction) => {
+    if (!sharedJunctionIds.includes(String(junction?.id || ""))) return []
+    const distance = routeDistanceAtPoint(route, junction.point)
+    if (!Number.isFinite(distance)) return []
+    return [{
+      start: Math.max(0, distance - (ROUTE_CLEARANCE * 2)),
+      end: Math.min(route.totalLength, distance + (ROUTE_CLEARANCE * 2)),
+    }]
+  }).sort((left, right) => left.start - right.start)
+  const allowed = []
+  let cursor = 0
+  for (const interval of excluded) {
+    if (interval.start > cursor) allowed.push({start: cursor, end: interval.start})
+    cursor = Math.max(cursor, interval.end)
+  }
+  if (cursor < route.totalLength) allowed.push({start: cursor, end: route.totalLength})
+
+  const segments = []
+  for (let pointIndex = 1; pointIndex < route.points.length; pointIndex += 1) {
+    const segmentStartDistance = route.cumulativeLengths[pointIndex - 1]
+    const segmentEndDistance = route.cumulativeLengths[pointIndex]
+    const segmentLength = segmentEndDistance - segmentStartDistance
+    if (!(segmentLength > 0)) continue
+    for (const interval of allowed) {
+      const clippedStartDistance = Math.max(segmentStartDistance, interval.start)
+      const clippedEndDistance = Math.min(segmentEndDistance, interval.end)
+      if (!(clippedEndDistance > clippedStartDistance)) continue
+      const startRatio = (clippedStartDistance - segmentStartDistance) / segmentLength
+      const endRatio = (clippedEndDistance - segmentStartDistance) / segmentLength
+      const start = route.points[pointIndex - 1]
+      const end = route.points[pointIndex]
+      segments.push({
+        index: pointIndex - 1,
+        start: {x: start.x + ((end.x - start.x) * startRatio), y: start.y + ((end.y - start.y) * startRatio)},
+        end: {x: start.x + ((end.x - start.x) * endRatio), y: start.y + ((end.y - start.y) * endRatio)},
+      })
+    }
+  }
+  return segments
+}
+
+function managedRouteSeparationConstraint(graph, managedVisualDensity) {
+  const requiredPixels = managedVisualDensityContract(managedVisualDensity).routeMaxWidth
+  const scene = graph?._topologyScene
+  const envelopeRadii = endpointEnvelopeRadii(scene)
+  const routes = (graph?._topologyScene?.physicalRoutes || graph?._topologyScene?.routes || []).map((route) => ({
+    id: String(route?.id || ""),
+    sourceId: String(route?.sourceContactId || route?.sourceId || ""),
+    targetId: String(route?.targetContactId || route?.targetId || ""),
+    points: finiteRoutePoints(route),
+    junctions: (route?.junctions || []).map((junction) => ({
+      id: String(junction?.id || ""),
+      point: {x: Number(junction?.point?.x), y: Number(junction?.point?.y)},
+    })),
+  })).map((route) => ({...route, ...routePathMetrics(route.points)}))
+  let limiting = {
+    scale: 0,
+    leftId: "",
+    rightId: "",
+    axis: "normal",
+    limitingRolePair: [],
+  }
+
+  for (let leftIndex = 0; leftIndex < routes.length; leftIndex += 1) {
+    for (let rightIndex = leftIndex + 1; rightIndex < routes.length; rightIndex += 1) {
+      const left = routes[leftIndex]
+      const right = routes[rightIndex]
+      const sharedEndpointIds = [left.sourceId, left.targetId]
+        .filter((endpointId) => endpointId !== "" && (endpointId === right.sourceId || endpointId === right.targetId))
+      const rightJunctionIds = new Set(right.junctions.map((junction) => junction.id))
+      const sharedJunctionIds = left.junctions
+        .map((junction) => junction.id)
+        .filter((junctionId) => junctionId !== "" && rightJunctionIds.has(junctionId))
+      const leftSegments = sharedJunctionIds.length > 0
+        ? routeSegmentsOutsideDeclaredJunctionApproaches(left, sharedJunctionIds)
+        : routeSegmentsOutsideSharedEndpointApproaches(left, sharedEndpointIds, envelopeRadii)
+      const rightSegments = sharedJunctionIds.length > 0
+        ? routeSegmentsOutsideDeclaredJunctionApproaches(right, sharedJunctionIds)
+        : routeSegmentsOutsideSharedEndpointApproaches(right, sharedEndpointIds, envelopeRadii)
+      let minimumDistance = Number.POSITIVE_INFINITY
+      let minimumLeftSegment = null
+      let minimumRightSegment = null
+      for (const leftSegment of leftSegments) {
+        for (const rightSegment of rightSegments) {
+          const separation = segmentSeparation(
+            leftSegment.start,
+            leftSegment.end,
+            rightSegment.start,
+            rightSegment.end,
+          )
+          if (separation.distance > 0) {
+            if (separation.distance < minimumDistance) {
+              minimumDistance = separation.distance
+              minimumLeftSegment = leftSegment.index
+              minimumRightSegment = rightSegment.index
+            }
+          }
+        }
+      }
+      if (!Number.isFinite(minimumDistance)) continue
+      const scale = requiredPixels / minimumDistance
+      if (scale > limiting.scale) {
+        limiting = {
+          scale,
+          leftId: left.id,
+          rightId: right.id,
+          axis: "normal",
+          limitingRolePair: ["route", "route"],
+          limitingKind: "route-route",
+          routeIds: [left.id, right.id],
+          segmentIndexes: [minimumLeftSegment, minimumRightSegment],
+        }
+      }
+    }
+  }
+
+  return limiting
+}
+
+function strongerManagedConstraint(left, right) {
+  return right.scale > left.scale ? right : left
+}
+
+function stableManagedDensityCacheKey(graph, specsByDensity) {
+  // The accepted layout key owns immutable scene geometry. Include renderer
+  // glyph extents so presentation-policy changes cannot reuse stale floors.
+  const layoutKey = String(graph?._layoutCacheKey || "").trim()
+  const sceneKey = String(graph?._topologyScene?.key || "").trim()
+  const stableSceneKey = layoutKey !== ""
+    ? `layout:${layoutKey}`
+    : (sceneKey !== "" ? `scene:${sceneKey}:${String(graph?._topologyScene?.profileKey || "")}` : "")
+  if (stableSceneKey === "") return null
+  const glyphSignature = MANAGED_VISUAL_DENSITY_PREFERENCE.map((managedVisualDensity) => [
     managedVisualDensity,
-    managedGlyphSeparationConstraint(context, graph, graphNodes, managedVisualDensity),
+    ...(specsByDensity[managedVisualDensity] || []).map((spec) => [
+      spec.nodeId,
+      spec.role,
+      spec.worldX,
+      spec.worldY,
+      spec.halfWidth,
+      spec.halfHeight,
+    ]),
+  ])
+  return `${stableSceneKey}:glyphs:${JSON.stringify(glyphSignature)}`
+}
+
+function rememberStableManagedDensityConstraints(context, cacheKey, constraints) {
+  if (!context?.state || cacheKey === null) return
+  const current = context.state.managedTopologyDensityConstraintsLayoutCache
+  const next = current instanceof Map ? new Map(current) : new Map()
+  next.delete(cacheKey)
+  next.set(cacheKey, constraints)
+  while (next.size > MANAGED_DENSITY_LAYOUT_CACHE_LIMIT) {
+    next.delete(next.keys().next().value)
+  }
+  context.state.managedTopologyDensityConstraintsLayoutCache = next
+}
+
+function managedDensityConstraints(context, graph) {
+  const cached = context?.state?.managedTopologyDensityConstraintsCache
+  if (cached?.graph === graph && cached?.scene === graph?._topologyScene) {
+    return cached.constraints
+  }
+  const graphNodes = managedGraphNodes(graph)
+  const specsByDensity = Object.fromEntries(MANAGED_VISUAL_DENSITY_PREFERENCE.map((managedVisualDensity) => [
+    managedVisualDensity,
+    managedGlyphSpecs(context, graph, graphNodes, managedVisualDensity),
   ]))
+  const stableCacheKey = stableManagedDensityCacheKey(graph, specsByDensity)
+  const stableCache = context?.state?.managedTopologyDensityConstraintsLayoutCache
+  const stableConstraints = stableCacheKey === null || !(stableCache instanceof Map)
+    ? null
+    : stableCache.get(stableCacheKey)
+  if (stableConstraints) {
+    context.state.managedTopologyDensityConstraintsCache = {
+      graph,
+      scene: graph?._topologyScene,
+      constraints: stableConstraints,
+    }
+    rememberStableManagedDensityConstraints(context, stableCacheKey, stableConstraints)
+    return stableConstraints
+  }
+  const constraints = Object.fromEntries(MANAGED_VISUAL_DENSITY_PREFERENCE.map((managedVisualDensity) => {
+    const specs = specsByDensity[managedVisualDensity]
+    const glyphConstraint = managedGlyphSeparationConstraint(specs)
+    const routeConstraint = managedRouteGlyphClearanceConstraint(graph, specs, managedVisualDensity)
+    const routeSeparation = managedRouteSeparationConstraint(graph, managedVisualDensity)
+    const routeWidth = (
+      graph?._topologyScene?.physicalRoutes || graph?._topologyScene?.routes || []
+    ).length > 0
+      ? managedVisualDensityContract(managedVisualDensity).routeMaxWidth
+      : 0
+    const limitingConstraint = strongerManagedConstraint(
+      strongerManagedConstraint(glyphConstraint, routeConstraint),
+      routeSeparation,
+    )
+    return [managedVisualDensity, {
+      ...limitingConstraint,
+      minimumSafeWidth: Math.max(routeWidth, ...specs.map((spec) => spec.halfWidth * 2), 0),
+      minimumSafeHeight: Math.max(routeWidth, ...specs.map((spec) => spec.halfHeight * 2), 0),
+    }]
+  }))
+  if (context?.state) {
+    context.state.managedTopologyDensityConstraintsCache = {
+      graph,
+      scene: graph?._topologyScene,
+      constraints,
+    }
+  }
+  rememberStableManagedDensityConstraints(context, stableCacheKey, constraints)
+  return constraints
+}
+
+function currentManagedSafeRect(context, explicitSafeRect = null) {
+  const state = context?.state
+  const rawSafeRect = explicitSafeRect || state?.topologyLabelSafeRect || (
+    state?.el ? measureGodViewSafeRect(state.el) : null
+  )
+  if (!rawSafeRect) return null
+  const width = Math.max(
+    1,
+    Number(state?.viewportWidth) || 0,
+    Number(state?.el?.clientWidth) || 0,
+    Number(rawSafeRect?.right) || 0,
+  )
+  const height = Math.max(
+    1,
+    Number(state?.viewportHeight) || 0,
+    Number(state?.el?.clientHeight) || 0,
+    Number(rawSafeRect?.bottom) || 0,
+  )
+  return normalizeGodViewSafeRect(rawSafeRect, {width, height})
+}
+
+function managedSafeDimensions(safeRect) {
+  if (!safeRect) return null
+  return {
+    width: Math.max(0, Number(safeRect.right) - Number(safeRect.left)),
+    height: Math.max(0, Number(safeRect.bottom) - Number(safeRect.top)),
+  }
+}
+
+function managedConstraintFitsSafeRect(constraint, safeDimensions) {
+  if (!safeDimensions) return true
+  return (
+    safeDimensions.width + 1e-9 >= Number(constraint?.minimumSafeWidth || 0) &&
+    safeDimensions.height + 1e-9 >= Number(constraint?.minimumSafeHeight || 0)
+  )
+}
+
+function selectManagedDensityForScale(
+  constraints,
+  scale,
+  requiredManagedVisualDensity = null,
+  safeRect = null,
+) {
+  const cameraScale = Number(scale)
+  if (!Number.isFinite(cameraScale) || cameraScale <= 0) {
+    throw new RangeError(`managed topology camera scale must be finite and positive; scale=${String(scale)}`)
+  }
+  if (
+    requiredManagedVisualDensity !== null &&
+    !MANAGED_VISUAL_DENSITY_PREFERENCE.includes(requiredManagedVisualDensity)
+  ) {
+    throw new RangeError(`unknown managed visual density ${String(requiredManagedVisualDensity)}`)
+  }
+  const candidates = requiredManagedVisualDensity === null
+    ? MANAGED_VISUAL_DENSITY_PREFERENCE
+    : [requiredManagedVisualDensity]
+  const safeDimensions = managedSafeDimensions(safeRect)
+  for (const managedVisualDensity of candidates) {
+    if (
+      managedConstraintFitsSafeRect(constraints[managedVisualDensity], safeDimensions) &&
+      cameraScale + 1e-9 >= constraints[managedVisualDensity].scale
+    ) {
+      return managedVisualDensity
+    }
+  }
+  if (requiredManagedVisualDensity !== null) {
+    const required = constraints[requiredManagedVisualDensity]
+    throw new RangeError(
+      `managed visual density ${requiredManagedVisualDensity} requires scale=${required.scale}, ` +
+      `safe=${required.minimumSafeWidth || 0}x${required.minimumSafeHeight || 0}; ` +
+      `scale=${cameraScale}, available=${safeDimensions?.width ?? "unknown"}x${safeDimensions?.height ?? "unknown"}`,
+    )
+  }
+  const overview = constraints.overview
+  throw new RangeError(
+    `no feasible managed visual density at scale=${cameraScale}; overview requires scale=${overview.scale} ` +
+    `and safe=${overview.minimumSafeWidth || 0}x${overview.minimumSafeHeight || 0}; ` +
+    `available=${safeDimensions?.width ?? "unknown"}x${safeDimensions?.height ?? "unknown"}; ` +
+    `for ${overview.leftId}(${overview.limitingRolePair[0] || "unknown"}) and ` +
+    `${overview.rightId}(${overview.limitingRolePair[1] || "unknown"}) on axis=${overview.axis}`,
+  )
 }
 
 function managedLabelAdmission(context, graph, graphNodes, width, height, managedVisualDensity) {
@@ -166,6 +764,7 @@ function managedLabelAdmission(context, graph, graphNodes, width, height, manage
 }
 
 function fitManagedTopologyScene(context, graph, scene, viewport, safeRect, graphNodes) {
+  const constraints = managedDensityConstraints(context, graph)
   let lastInfeasible = null
   for (const managedVisualDensity of MANAGED_VISUAL_DENSITY_PREFERENCE) {
     const glyphBoxes = (scene.nodes || [])
@@ -187,6 +786,7 @@ function fitManagedTopologyScene(context, graph, scene, viewport, safeRect, grap
           safeRect,
           glyphBoxes,
           routeStrokeWidth: managedVisualDensityContract(managedVisualDensity).routeMaxWidth,
+          minimumScale: constraints[managedVisualDensity].scale,
           admitLabels,
         }),
         managedVisualDensity,
@@ -199,27 +799,124 @@ function fitManagedTopologyScene(context, graph, scene, viewport, safeRect, grap
   throw lastInfeasible || new RangeError("managed topology has no feasible visual-density contract")
 }
 
-export const godViewRenderingGraphViewMethods = {
-  managedVisualDensityForViewScale(graph, scale) {
-    const cameraScale = Number(scale)
-    if (!Number.isFinite(cameraScale) || cameraScale <= 0) {
-      throw new RangeError(`managed topology camera scale must be finite and positive; scale=${String(scale)}`)
+function focusManagedTopologyGroup(context, graph, groupId, viewport, safeRect, graphNodes) {
+  const focusScene = topologyGroupFocusScene(graph?._topologyScene, groupId)
+  if (!focusScene) return null
+  const focusNodeIds = new Set((focusScene.nodes || []).map((node) => String(node?.id || "")))
+  const layoutCacheKey = String(graph?._layoutCacheKey || "").trim()
+  const focusGraph = {
+    ...graph,
+    _layoutCacheKey: layoutCacheKey === "" ? "" : `${layoutCacheKey}:focus:${String(groupId)}`,
+    _topologyScene: focusScene,
+    nodes: (graph?.nodes || []).filter((node) => focusNodeIds.has(String(node?.id || ""))),
+  }
+  const constraints = managedDensityConstraints(context, focusGraph)
+  let lastInfeasible = null
+  for (const managedVisualDensity of MANAGED_VISUAL_DENSITY_PREFERENCE) {
+    try {
+      const viewState = focusTopologyGroup({
+        scene: graph._topologyScene,
+        groupId,
+        viewport,
+        safeRect,
+        glyphBoxForNode: (sceneNode) => managedGlyphBox(
+          context,
+          graphNodes,
+          sceneNode,
+          managedVisualDensity,
+        ),
+        routeStrokeWidth: managedVisualDensityContract(managedVisualDensity).routeMaxWidth,
+        minimumScale: constraints[managedVisualDensity].scale,
+        admitLabels: managedLabelAdmission(
+          context,
+          graph,
+          graphNodes,
+          viewport.width,
+          viewport.height,
+          managedVisualDensity,
+        ),
+      })
+      return viewState ? {viewState, managedVisualDensity, constraints} : null
+    } catch (error) {
+      if (!(error instanceof RangeError)) throw error
+      lastInfeasible = error
     }
+  }
+  throw lastInfeasible || new RangeError("managed topology focus has no feasible visual-density contract")
+}
+
+function managedSceneFloorKey(graph) {
+  const layoutKey = String(graph?._layoutCacheKey || "").trim()
+  if (layoutKey !== "") return `layout:${layoutKey}`
+  const sceneKey = String(graph?._topologyScene?.key || "").trim()
+  return sceneKey === "" ? null : `scene:${sceneKey}`
+}
+
+export const godViewRenderingGraphViewMethods = {
+  managedVisualDensityForViewScale(graph, scale, options = {}) {
     if (graph?._layoutMode !== "elk-scene" || !graph?._topologyScene) {
       throw new RangeError("managed visual density requires an accepted ELK topology scene")
     }
     const constraints = managedDensityConstraints(this, graph)
-    for (const managedVisualDensity of MANAGED_VISUAL_DENSITY_PREFERENCE) {
-      if (cameraScale + 1e-9 >= constraints[managedVisualDensity].scale) {
-        return {managedVisualDensity, constraints}
-      }
+    const safeRect = currentManagedSafeRect(this, options?.safeRect)
+    return {
+      managedVisualDensity: selectManagedDensityForScale(constraints, scale, null, safeRect),
+      constraints,
     }
-    const overview = constraints.overview
-    throw new RangeError(
-      `no feasible managed visual density at scale=${cameraScale}; overview requires scale=${overview.scale} ` +
-      `for ${overview.leftId}(${overview.limitingRolePair[0] || "unknown"}) and ` +
-      `${overview.rightId}(${overview.limitingRolePair[1] || "unknown"}) on axis=${overview.axis}`,
+  },
+  managedViewStateForCamera(graph, viewState, options = {}) {
+    if (graph?._layoutMode !== "elk-scene" || !graph?._topologyScene) {
+      return {viewState, managedVisualDensity: null, constraints: null}
+    }
+
+    const constraints = options?.densityConstraints || managedDensityConstraints(this, graph)
+    const overviewScale = Number(constraints.overview.scale)
+    if (!Number.isFinite(overviewScale) || overviewScale < 0) {
+      throw new RangeError(`managed topology overview separation scale is invalid; scale=${String(overviewScale)}`)
+    }
+    const requestedMaxZoom = Number(viewState?.maxZoom)
+    const requestedZoom = Number(viewState?.zoom)
+    const configuredBaseMinZoom = Number(this.state.managedTopologyCameraBaseMinZoom)
+    const baseMinZoom = Number.isFinite(configuredBaseMinZoom) ? configuredBaseMinZoom : -2
+    const maxZoom = Number.isFinite(requestedMaxZoom) ? requestedMaxZoom : 5
+    const separationMinZoom = overviewScale > 0 ? Math.log2(overviewScale) : Number.NEGATIVE_INFINITY
+    const fittedContainmentZoom = Number(options?.fittedContainmentZoom)
+    const storedSceneMinZoom = Number(this.state.managedTopologySceneMinZoom)
+    const sceneFloorKey = managedSceneFloorKey(graph)
+    const storedSceneMatches = sceneFloorKey === null
+      ? this.state.managedTopologySceneForMinZoom === graph._topologyScene
+      : this.state.managedTopologySceneMinZoomKey === sceneFloorKey
+    let minZoom
+    if (Number.isFinite(fittedContainmentZoom)) {
+      minZoom = Math.max(separationMinZoom, Math.min(baseMinZoom, fittedContainmentZoom))
+      this.state.managedTopologySceneMinZoom = minZoom
+      this.state.managedTopologySceneMinZoomKey = sceneFloorKey
+      this.state.managedTopologySceneForMinZoom = graph._topologyScene
+    } else if (storedSceneMatches && Number.isFinite(storedSceneMinZoom)) {
+      minZoom = Math.max(separationMinZoom, storedSceneMinZoom)
+    } else {
+      minZoom = Math.max(separationMinZoom, baseMinZoom)
+    }
+    if (maxZoom + 1e-9 < minZoom) {
+      throw new RangeError(
+        `managed topology overview minimum zoom=${minZoom} exceeds camera maxZoom=${maxZoom}`,
+      )
+    }
+    const zoom = Math.max(minZoom, Math.min(maxZoom, Number.isFinite(requestedZoom) ? requestedZoom : 0))
+    const requiredManagedVisualDensity = options?.fittedManagedVisualDensity ?? null
+    const safeRect = currentManagedSafeRect(this, options?.safeRect)
+    const managedVisualDensity = selectManagedDensityForScale(
+      constraints,
+      2 ** zoom,
+      requiredManagedVisualDensity,
+      safeRect,
     )
+
+    return {
+      viewState: {...viewState, zoom, minZoom, maxZoom},
+      managedVisualDensity,
+      constraints,
+    }
   },
   fitViewPadding(width, height) {
     const safeWidth = Math.max(1, Number(width) || 1)
@@ -279,9 +976,19 @@ export const godViewRenderingGraphViewMethods = {
   },
   autoFitViewState(graph, options = {}) {
     if (!this.state.deck || !graph || !Array.isArray(graph.nodes)) return
-    if ((!options.force && this.state.hasAutoFit) || this.state.userCameraLocked) return
-
     const managedScene = graph?._layoutMode === "elk-scene" ? graph?._topologyScene : null
+    if (this.state.userCameraLocked) {
+      if (managedScene) {
+        const selection = this.managedVisualDensityForViewScale(
+          graph,
+          2 ** Number(this.state.viewState?.zoom || 0),
+        )
+        this.state.managedTopologyVisualDensity = selection.managedVisualDensity
+      }
+      return
+    }
+    if (!options.force && this.state.hasAutoFit) return
+
     if (managedScene) {
       const width = Math.max(1, this.state.el.clientWidth || 1)
       const height = Math.max(1, this.state.el.clientHeight || 1)
@@ -296,8 +1003,16 @@ export const godViewRenderingGraphViewMethods = {
         graphNodes,
       )
 
-      this.state.viewState = fitted.viewState
-      this.state.managedTopologyVisualDensity = fitted.managedVisualDensity
+      const selected = this.managedViewStateForCamera(
+        graph,
+        fitted.viewState,
+        {
+          fittedContainmentZoom: fitted.viewState.zoom,
+          fittedManagedVisualDensity: fitted.managedVisualDensity,
+        },
+      )
+      this.state.viewState = selected.viewState
+      this.state.managedTopologyVisualDensity = selected.managedVisualDensity
       this.state.hasAutoFit = true
       this.state.isProgrammaticViewUpdate = true
       this.state.deck.setProps({viewState: this.state.viewState})
@@ -347,32 +1062,28 @@ export const godViewRenderingGraphViewMethods = {
       const width = Math.max(1, this.state.el.clientWidth || 1)
       const height = Math.max(1, this.state.el.clientHeight || 1)
       const graphNodes = managedGraphNodes(graph)
-      const viewState = focusTopologyGroup({
-        scene: graph._topologyScene,
-        groupId: normalizedClusterId,
-        viewport: {...this.state.viewState, width, height, viewState: this.state.viewState},
-        safeRect: this.state.topologyLabelSafeRect || measureGodViewSafeRect(this.state.el),
-        glyphBoxForNode: (sceneNode) => managedGlyphBox(
-          this,
-          graphNodes,
-          sceneNode,
-          MANAGED_VISUAL_DENSITY_DETAIL,
-        ),
-        routeStrokeWidth: managedVisualDensityContract(MANAGED_VISUAL_DENSITY_DETAIL).routeMaxWidth,
-        admitLabels: managedLabelAdmission(
-          this,
-          graph,
-          graphNodes,
-          width,
-          height,
-          MANAGED_VISUAL_DENSITY_DETAIL,
-        ),
-      })
-      if (!viewState) return false
-      this.state.viewState = viewState
-      this.state.managedTopologyVisualDensity = MANAGED_VISUAL_DENSITY_DETAIL
+      const focused = focusManagedTopologyGroup(
+        this,
+        graph,
+        normalizedClusterId,
+        {...this.state.viewState, width, height, viewState: this.state.viewState},
+        this.state.topologyLabelSafeRect || measureGodViewSafeRect(this.state.el),
+        graphNodes,
+      )
+      if (!focused) return false
+      const selected = this.managedViewStateForCamera(
+        graph,
+        focused.viewState,
+        {
+          fittedContainmentZoom: focused.viewState.zoom,
+          fittedManagedVisualDensity: focused.managedVisualDensity,
+          densityConstraints: focused.constraints,
+        },
+      )
+      this.state.viewState = selected.viewState
+      this.state.managedTopologyVisualDensity = selected.managedVisualDensity
       this.state.isProgrammaticViewUpdate = true
-      this.state.deck.setProps({viewState})
+      this.state.deck.setProps({viewState: this.state.viewState})
       if (this.state.zoomMode === "auto") this.deps.setZoomTier("local", true)
       return true
     }

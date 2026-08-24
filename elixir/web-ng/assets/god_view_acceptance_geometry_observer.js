@@ -34,9 +34,9 @@ function nodeWorldBox(node) {
   }
 }
 
-function projectedRoute(viewport, route) {
+function projectedRoute(viewport, points) {
   if (typeof viewport?.project !== "function") return []
-  return (route?.points || []).flatMap((point) => {
+  return (points || []).flatMap((point) => {
     const projected = viewport.project([finiteNumber(point?.x), finiteNumber(point?.y), 0])
     const x = Number(projected?.[0])
     const y = Number(projected?.[1])
@@ -44,20 +44,93 @@ function projectedRoute(viewport, route) {
   })
 }
 
+function projectedPoint(viewport, point) {
+  return projectedRoute(viewport, [point])[0] || {x: Number.NaN, y: Number.NaN}
+}
+
+function projectedWorldBox(viewport, box) {
+  const points = projectedRoute(viewport, [
+    {x: box?.minX, y: box?.minY},
+    {x: box?.maxX, y: box?.minY},
+    {x: box?.maxX, y: box?.maxY},
+    {x: box?.minX, y: box?.maxY},
+  ])
+  if (points.length !== 4) return {left: Number.NaN, top: Number.NaN, right: Number.NaN, bottom: Number.NaN}
+  return {
+    left: Math.min(...points.map((point) => point.x)),
+    top: Math.min(...points.map((point) => point.y)),
+    right: Math.max(...points.map((point) => point.x)),
+    bottom: Math.max(...points.map((point) => point.y)),
+  }
+}
+
 function layerData(layers, id) {
   const layer = (layers || []).find((candidate) => candidate?.id === id)
   return Array.isArray(layer?.props?.data) ? layer.props.data : []
 }
 
+function topologyTransportLayers(layers) {
+  return (layers || []).filter((layer) => (
+    layer?.id?.startsWith("god-view-edges-mantle") ||
+    layer?.id?.startsWith("god-view-edges-crust")
+  ))
+}
+
+function plainPath(path) {
+  return (Array.isArray(path) ? path : []).flatMap((point) => {
+    const x = Number(Array.isArray(point) ? point[0] : point?.x)
+    const y = Number(Array.isArray(point) ? point[1] : point?.y)
+    return Number.isFinite(x) && Number.isFinite(y) ? [{x, y}] : []
+  })
+}
+
+function renderedPhysicalRouteRecords(layers) {
+  const records = new Map()
+  for (const layer of topologyTransportLayers(layers)) {
+    const props = layer?.props || {}
+    for (const edge of Array.isArray(props.data) ? props.data : []) {
+      const routeId = String(edge?.routeId || "")
+      if (routeId === "") continue
+      const path = typeof props.getPath === "function" ? props.getPath(edge) : edge?.path
+      const record = records.get(routeId) || {edge, layerPaths: []}
+      record.layerPaths.push({layerId: String(layer.id || ""), points: plainPath(path)})
+      records.set(routeId, record)
+    }
+  }
+  return records
+}
+
+function renderedPhysicalRouteLayers(layers) {
+  return topologyTransportLayers(layers).map((layer) => {
+    const routeIds = (Array.isArray(layer?.props?.data) ? layer.props.data : [])
+      .map((edge) => String(edge?.routeId || ""))
+    return {
+      layerId: String(layer?.id || ""),
+      routeCount: routeIds.length,
+      routeIds,
+    }
+  })
+}
+
+function enabledTransportRouteFamilies(context, layers) {
+  const renderedFamilies = new Set(topologyTransportLayers(layers).flatMap((layer) => {
+    if (layer?.id?.startsWith("god-view-edges-mantle")) return ["mantle"]
+    if (layer?.id?.startsWith("god-view-edges-crust")) return ["crust"]
+    return []
+  }))
+  return ["mantle", "crust"].filter((family) => (
+    context.state?.layers?.[family] === true || renderedFamilies.has(family)
+  ))
+}
+
 function renderedRouteStrokeWidth(layers, route) {
-  const interactionKey = `local:${String(route?.id || "")}`
   const widths = (layers || [])
-    .filter((layer) => layer?.id === "god-view-edges-mantle" || layer?.id === "god-view-edges-crust")
+    .filter((layer) => layer?.id?.startsWith("god-view-edges-mantle") || layer?.id?.startsWith("god-view-edges-crust"))
     .flatMap((layer) => {
       const props = layer?.props || {}
-      const edge = (Array.isArray(props.data) ? props.data : []).find((candidate) =>
-        candidate?.interactionKey === interactionKey
-        || (candidate?.sourceId === route?.sourceId && candidate?.targetId === route?.targetId))
+      const edge = (Array.isArray(props.data) ? props.data : []).find((candidate) => (
+        String(candidate?.routeId || "") === String(route?.id || "")
+      ))
       if (!edge) return []
       const accessorWidth = typeof props.getWidth === "function" ? props.getWidth(edge) : props.getWidth
       const widthScale = props.widthScale == null ? 1 : Number(props.widthScale)
@@ -100,6 +173,42 @@ function acceptanceGeometrySnapshot({context, effective, nodeData, edgeData, lay
   }
   const viewState = context.state?.viewState || {}
   const labels = layerData(layers, "god-view-node-labels")
+  const scenePhysicalRoutes = scene?.physicalRoutes || scene?.routes || []
+  const sceneRouteById = new Map(scenePhysicalRoutes.map((route) => [String(route?.id || ""), route]))
+  const renderedRouteRecords = renderedPhysicalRouteRecords(layers)
+  const orderedRenderedRouteIds = [
+    ...scenePhysicalRoutes
+      .map((route) => String(route?.id || ""))
+      .filter((routeId) => renderedRouteRecords.has(routeId)),
+    ...[...renderedRouteRecords.keys()]
+      .filter((routeId) => !sceneRouteById.has(routeId))
+      .sort((left, right) => left.localeCompare(right)),
+  ]
+  const routes = orderedRenderedRouteIds.map((routeId) => {
+    const record = renderedRouteRecords.get(routeId)
+    const edge = record?.edge || {}
+    const sceneRoute = sceneRouteById.get(routeId) || {}
+    const points = record?.layerPaths?.[0]?.points || []
+    return {
+      id: routeId,
+      auxiliary: sceneRoute?.auxiliary === true || edge?.auxiliary === true,
+      sourceId: String(sceneRoute?.sourceId || edge?.sourceId || ""),
+      targetId: String(sceneRoute?.targetId || edge?.targetId || ""),
+      sourceContactId: String(sceneRoute?.sourceContactId || sceneRoute?.sourceId || edge?.sourceId || ""),
+      targetContactId: String(sceneRoute?.targetContactId || sceneRoute?.targetId || edge?.targetId || ""),
+      semanticRouteIds: (sceneRoute?.semanticRouteIds || edge?.semanticRouteIds || []).map(String),
+      junctions: (sceneRoute?.junctions || []).map((junction) => ({
+        id: String(junction?.id || ""),
+        point: {x: finiteNumber(junction?.point?.x), y: finiteNumber(junction?.point?.y)},
+        projectedPoint: projectedPoint(viewport, junction?.point),
+      })),
+      strokeWidth: renderedRouteStrokeWidth(layers, {...sceneRoute, ...edge, id: routeId}),
+      scenePoints: plainPath(sceneRoute?.points),
+      layerPaths: record?.layerPaths || [],
+      points,
+      projectedPoints: projectedRoute(viewport, points),
+    }
+  })
 
   return deepFreeze({
     sceneKey: String(effective?._layoutCacheKey || scene?.graphKey || ""),
@@ -108,7 +217,14 @@ function acceptanceGeometrySnapshot({context, effective, nodeData, edgeData, lay
       semanticNodes: finiteNumber(manifest.nodes),
       semanticEdges: finiteNumber(manifest.semanticEdges),
       attachmentEdges: finiteNumber(manifest.attachmentEdges),
-      renderedRoutes: Array.isArray(edgeData) ? edgeData.length : finiteNumber(manifest.renderedRoutes),
+      renderedRoutes: Array.isArray(edgeData)
+        ? edgeData.filter((edge) => edge?.auxiliary !== true).length
+        : finiteNumber(manifest.renderedRoutes),
+      physicalRoutes: Array.isArray(scene?.physicalRoutes)
+        ? scene.physicalRoutes.length
+        : Array.isArray(scene?.routes) ? scene.routes.length : 0,
+      renderedPhysicalRoutes: renderedRouteRecords.size,
+      manifolds: Array.isArray(scene?.manifolds) ? scene.manifolds.length : 0,
       renderedGlyphs: Array.isArray(nodeData) ? nodeData.length : finiteNumber(manifest.renderedGlyphs),
       admittedLabels: labels.length,
     },
@@ -131,21 +247,17 @@ function acceptanceGeometrySnapshot({context, effective, nodeData, edgeData, lay
     })),
     groups: (scene?.groups || []).map((group) => ({
       id: String(group?.id || ""),
+      parentGroupId: group?.parentGroupId == null ? null : String(group.parentGroupId),
       anchorId: String(group?.anchorId || ""),
       gatewayId: String(group?.gatewayId || ""),
       memberIds: (group?.memberIds || []).map((id) => String(id)),
       box: plainBox(group?.bounds),
+      projectedBox: projectedWorldBox(viewport, group?.bounds),
     })),
-    routes: (scene?.routes || []).map((route) => ({
-      sourceId: String(route?.sourceId || ""),
-      targetId: String(route?.targetId || ""),
-      strokeWidth: renderedRouteStrokeWidth(layers, route),
-      points: (route?.points || []).map((point) => ({
-        x: finiteNumber(point?.x),
-        y: finiteNumber(point?.y),
-      })),
-      projectedPoints: projectedRoute(viewport, route),
-    })),
+    scenePhysicalRouteIds: scenePhysicalRoutes.map((route) => String(route?.id || "")),
+    enabledTransportRouteFamilies: enabledTransportRouteFamilies(context, layers),
+    renderedPhysicalRouteLayers: renderedPhysicalRouteLayers(layers),
+    routes,
     glyphs: (nodeData || []).flatMap((node) => {
       if (typeof viewport?.project !== "function") return []
       const projected = viewport.project(node?.position || [0, 0, 0])

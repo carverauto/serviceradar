@@ -7566,6 +7566,10 @@ defmodule ServiceRadarWebNG.Topology.GodViewStreamTest do
     replace_runtime_graph_links!(graph_ref, rows)
 
     assert {:ok, %{snapshot: snapshot}} = latest_snapshot_for_test()
+    assert snapshot.pipeline_stats.raw_links == 4
+    assert snapshot.pipeline_stats.unique_pairs == 3
+    assert snapshot.pipeline_stats.final_edges == 3
+    assert snapshot.pipeline_stats.edge_parity_delta == 1
 
     # The redundant segment edge is gone; the server stays attached via LLDP.
     refute find_edge(snapshot, switch_uid, server_uid)
@@ -7593,6 +7597,310 @@ defmodule ServiceRadarWebNG.Topology.GodViewStreamTest do
       end)
 
     assert length(cluster_edges) <= 1
+  end
+
+  test "latest_snapshot/0 keeps an inferred bridge when shared attachments collapse" do
+    {:ok, graph_ref} = RuntimeGraph.get_graph_ref()
+    original_rows = Native.runtime_graph_get_links(graph_ref)
+
+    on_exit(fn ->
+      Native.runtime_graph_replace_links(graph_ref, original_rows)
+    end)
+
+    actor = SystemActor.system(:god_view_stream_test)
+    suffix = System.unique_integer([:positive])
+    left_uid = "sr:attachment-bridge-left-#{suffix}"
+    right_uid = "sr:attachment-bridge-right-#{suffix}"
+    endpoint_uid = "sr:attachment-bridge-endpoint-#{suffix}"
+
+    create_topology_device(actor, left_uid, "attachment-bridge-left-#{suffix}", %{
+      ip: "198.51.100.230",
+      type_id: 9,
+      is_available: true
+    })
+
+    create_topology_device(actor, right_uid, "attachment-bridge-right-#{suffix}", %{
+      ip: "198.51.100.231",
+      type_id: 9,
+      is_available: true
+    })
+
+    create_topology_device(actor, endpoint_uid, nil, %{
+      ip: "198.51.100.232",
+      type_id: 2,
+      is_available: true
+    })
+
+    attachment_row = fn anchor_uid, anchor_ip ->
+      %{
+        local_device_id: anchor_uid,
+        local_device_ip: anchor_ip,
+        local_if_name: nil,
+        local_if_index: nil,
+        neighbor_if_name: nil,
+        neighbor_if_index: nil,
+        neighbor_device_id: endpoint_uid,
+        neighbor_mgmt_addr: "198.51.100.232",
+        protocol: "snmp-l2",
+        evidence_class: "endpoint-attachment",
+        confidence_tier: "medium",
+        confidence_reason: "single_identifier_inference",
+        flow_pps: 0,
+        flow_bps: 0,
+        capacity_bps: 0,
+        flow_pps_ab: 0,
+        flow_pps_ba: 0,
+        flow_bps_ab: 0,
+        flow_bps_ba: 0,
+        telemetry_source: "none",
+        telemetry_observed_at: "2026-03-19T17:00:00Z",
+        metadata: %{
+          "relation_type" => "ATTACHED_TO",
+          "evidence_class" => "endpoint-attachment"
+        }
+      }
+    end
+
+    inferred_bridge = %{
+      local_device_id: left_uid,
+      local_device_ip: "198.51.100.230",
+      local_if_name: nil,
+      local_if_index: nil,
+      neighbor_if_name: nil,
+      neighbor_if_index: nil,
+      neighbor_device_id: right_uid,
+      neighbor_mgmt_addr: "198.51.100.231",
+      protocol: "snmp-l2",
+      evidence_class: "inferred-segment",
+      confidence_tier: "medium",
+      confidence_reason: "arp_fdb_port_mapping",
+      flow_pps: 0,
+      flow_bps: 0,
+      capacity_bps: 0,
+      flow_pps_ab: 0,
+      flow_pps_ba: 0,
+      flow_bps_ab: 0,
+      flow_bps_ba: 0,
+      telemetry_source: "none",
+      telemetry_observed_at: "2026-03-19T17:00:00Z",
+      metadata: %{"relation_type" => "ATTACHED_TO", "evidence_class" => "inferred-segment"}
+    }
+
+    replace_runtime_graph_links!(graph_ref, [
+      attachment_row.(left_uid, "198.51.100.230"),
+      attachment_row.(right_uid, "198.51.100.231"),
+      inferred_bridge
+    ])
+
+    assert {:ok, %{snapshot: snapshot}} = latest_snapshot_for_test()
+
+    assert Enum.count(snapshot.edges, fn edge ->
+             edge.source == endpoint_uid or edge.target == endpoint_uid
+           end) == 1
+
+    assert snapshot_connected?(snapshot, left_uid, right_uid)
+  end
+
+  test "latest_snapshot/0 protects an inferred bridge from a stronger attachment group peer" do
+    {:ok, graph_ref} = RuntimeGraph.get_graph_ref()
+    original_rows = Native.runtime_graph_get_links(graph_ref)
+
+    on_exit(fn ->
+      Native.runtime_graph_replace_links(graph_ref, original_rows)
+    end)
+
+    actor = SystemActor.system(:god_view_stream_test)
+    suffix = System.unique_integer([:positive])
+    left_uid = "sr:attachment-competition-left-#{suffix}"
+    right_uid = "sr:attachment-competition-right-#{suffix}"
+    competitor_uid = "sr:attachment-competition-peer-#{suffix}"
+
+    create_topology_device(actor, left_uid, "attachment-competition-left-#{suffix}", %{
+      ip: "198.51.100.240",
+      type_id: 9,
+      is_available: true
+    })
+
+    create_topology_device(actor, right_uid, "attachment-competition-right-#{suffix}", %{
+      ip: "198.51.100.241",
+      type_id: 9,
+      is_available: true
+    })
+
+    create_topology_device(actor, competitor_uid, "attachment-competition-peer-#{suffix}", %{
+      ip: "198.51.100.242",
+      type_id: 9,
+      is_available: true
+    })
+
+    row_defaults = %{
+      local_if_name: nil,
+      local_if_index: nil,
+      neighbor_if_name: nil,
+      neighbor_if_index: nil,
+      protocol: "snmp-l2",
+      flow_pps: 0,
+      flow_bps: 0,
+      capacity_bps: 0,
+      flow_pps_ab: 0,
+      flow_pps_ba: 0,
+      flow_bps_ab: 0,
+      flow_bps_ba: 0,
+      telemetry_source: "none",
+      telemetry_observed_at: "2026-03-19T17:00:00Z"
+    }
+
+    inferred_bridge =
+      Map.merge(row_defaults, %{
+        local_device_id: left_uid,
+        local_device_ip: "198.51.100.240",
+        neighbor_device_id: right_uid,
+        neighbor_mgmt_addr: "198.51.100.241",
+        evidence_class: "inferred-segment",
+        confidence_tier: "medium",
+        confidence_reason: "arp_fdb_port_mapping",
+        metadata: %{"relation_type" => "ATTACHED_TO", "evidence_class" => "inferred-segment"}
+      })
+
+    stronger_attachment =
+      Map.merge(row_defaults, %{
+        local_device_id: competitor_uid,
+        local_device_ip: "198.51.100.242",
+        neighbor_device_id: right_uid,
+        neighbor_mgmt_addr: "198.51.100.241",
+        evidence_class: "endpoint-attachment",
+        confidence_tier: "high",
+        confidence_reason: "direct",
+        metadata: %{
+          "relation_type" => "ATTACHED_TO",
+          "evidence_class" => "endpoint-attachment"
+        }
+      })
+
+    replace_runtime_graph_links!(graph_ref, [inferred_bridge, stronger_attachment])
+
+    assert {:ok, %{snapshot: snapshot}} = latest_snapshot_for_test()
+    assert find_edge(snapshot, competitor_uid, right_uid)
+    assert snapshot_connected?(snapshot, left_uid, right_uid)
+  end
+
+  test "latest_snapshot/0 protects an inferred bridge endpoint from cluster projection" do
+    {:ok, graph_ref} = RuntimeGraph.get_graph_ref()
+    original_rows = Native.runtime_graph_get_links(graph_ref)
+
+    on_exit(fn ->
+      Native.runtime_graph_replace_links(graph_ref, original_rows)
+    end)
+
+    actor = SystemActor.system(:god_view_stream_test)
+    suffix = System.unique_integer([:positive])
+    firewall_uid = "sr:cluster-bridge-firewall-#{suffix}"
+    switch_uid = "sr:cluster-bridge-switch-#{suffix}"
+    bridge_endpoint_uid = "sr:cluster-bridge-endpoint-#{suffix}"
+
+    other_endpoint_uids =
+      Enum.map(1..3, &"sr:cluster-bridge-member-#{suffix}-#{&1}")
+
+    create_topology_device(actor, firewall_uid, "cluster-bridge-firewall-#{suffix}", %{
+      ip: "198.51.100.244",
+      type_id: 9,
+      is_available: true
+    })
+
+    create_topology_device(actor, switch_uid, "cluster-bridge-switch-#{suffix}", %{
+      ip: "198.51.100.245",
+      type_id: 10,
+      is_available: true
+    })
+
+    create_topology_device(actor, bridge_endpoint_uid, nil, %{
+      ip: "198.51.100.246",
+      type_id: 2,
+      is_available: true
+    })
+
+    other_endpoint_uids
+    |> Enum.with_index(247)
+    |> Enum.each(fn {uid, octet} ->
+      create_topology_device(actor, uid, nil, %{
+        ip: "198.51.100.#{octet}",
+        type_id: 2,
+        is_available: true
+      })
+    end)
+
+    row_defaults = %{
+      local_if_name: nil,
+      local_if_index: nil,
+      neighbor_if_name: nil,
+      neighbor_if_index: nil,
+      protocol: "snmp-l2",
+      flow_pps: 0,
+      flow_bps: 0,
+      capacity_bps: 0,
+      flow_pps_ab: 0,
+      flow_pps_ba: 0,
+      flow_bps_ab: 0,
+      flow_bps_ba: 0,
+      telemetry_source: "none",
+      telemetry_observed_at: "2026-03-19T17:00:00Z"
+    }
+
+    attachment_row = fn endpoint_uid, endpoint_ip ->
+      Map.merge(row_defaults, %{
+        local_device_id: switch_uid,
+        local_device_ip: "198.51.100.245",
+        neighbor_device_id: endpoint_uid,
+        neighbor_mgmt_addr: endpoint_ip,
+        evidence_class: "endpoint-attachment",
+        confidence_tier: "high",
+        confidence_reason: "direct",
+        metadata: %{
+          "relation_type" => "ATTACHED_TO",
+          "evidence_class" => "endpoint-attachment"
+        }
+      })
+    end
+
+    inferred_bridge =
+      Map.merge(row_defaults, %{
+        local_device_id: firewall_uid,
+        local_device_ip: "198.51.100.244",
+        neighbor_device_id: bridge_endpoint_uid,
+        neighbor_mgmt_addr: "198.51.100.246",
+        evidence_class: "inferred-segment",
+        confidence_tier: "medium",
+        confidence_reason: "arp_fdb_port_mapping",
+        metadata: %{"relation_type" => "ATTACHED_TO", "evidence_class" => "inferred-segment"}
+      })
+
+    other_attachment_rows =
+      other_endpoint_uids
+      |> Enum.with_index(247)
+      |> Enum.map(fn {uid, octet} -> attachment_row.(uid, "198.51.100.#{octet}") end)
+
+    replace_runtime_graph_links!(
+      graph_ref,
+      [inferred_bridge, attachment_row.(bridge_endpoint_uid, "198.51.100.246")] ++
+        other_attachment_rows
+    )
+
+    assert {:ok, %{snapshot: snapshot}} = latest_snapshot_for_test()
+
+    bridge = find_edge(snapshot, firewall_uid, bridge_endpoint_uid)
+    assert bridge.evidence_class == "inferred"
+    assert bridge.metadata["relation_type"] == "INFERRED_TO"
+    assert bridge.metadata["raw_relation_type"] == "ATTACHED_TO"
+    assert bridge.metadata["raw_evidence_class"] == "inferred-segment"
+    assert bridge.metadata["connectivity_forest_bridge"] == true
+    assert snapshot_connected?(snapshot, firewall_uid, bridge_endpoint_uid)
+
+    cluster_id = "cluster:endpoints:" <> switch_uid
+    cluster = Enum.find(snapshot.nodes, &(&1.id == cluster_id))
+    cluster_details = Jason.decode!(cluster.details_json)
+
+    assert cluster_details["cluster_member_count"] == 3
+    assert Enum.any?(snapshot.nodes, &(&1.id == bridge_endpoint_uid))
   end
 
   test "latest_snapshot/0 expands clustered endpoints with backend-authored membership metadata" do
@@ -8677,6 +8985,36 @@ defmodule ServiceRadarWebNG.Topology.GodViewStreamTest do
       (edge.source == source_id and edge.target == target_id) or
         (edge.source == target_id and edge.target == source_id)
     end)
+  end
+
+  defp snapshot_connected?(snapshot, source_id, target_id) do
+    adjacency =
+      Enum.reduce(snapshot.edges, %{}, fn edge, acc ->
+        acc
+        |> Map.update(edge.source, MapSet.new([edge.target]), &MapSet.put(&1, edge.target))
+        |> Map.update(edge.target, MapSet.new([edge.source]), &MapSet.put(&1, edge.source))
+      end)
+
+    reachable_snapshot_node?([source_id], target_id, adjacency, MapSet.new())
+  end
+
+  defp reachable_snapshot_node?([], _target_id, _adjacency, _visited), do: false
+
+  defp reachable_snapshot_node?([target_id | _rest], target_id, _adjacency, _visited), do: true
+
+  defp reachable_snapshot_node?([node_id | rest], target_id, adjacency, visited) do
+    if MapSet.member?(visited, node_id) do
+      reachable_snapshot_node?(rest, target_id, adjacency, visited)
+    else
+      neighbors = adjacency |> Map.get(node_id, MapSet.new()) |> MapSet.to_list()
+
+      reachable_snapshot_node?(
+        rest ++ neighbors,
+        target_id,
+        adjacency,
+        MapSet.put(visited, node_id)
+      )
+    end
   end
 
   defp directional_runtime_row(

@@ -5,6 +5,7 @@ import ELK from "elkjs/lib/elk.bundled.js"
 
 import {LANDSCAPE_PROFILE, applyTopologySceneToGraph, layoutTopologyScene} from "./layout_elk_scene"
 import {collapsedFarm01Graph, expandedFarm01Graph} from "./fixtures/farm01_topology_regression"
+import {godViewLayoutClusterMethods} from "./layout_cluster_methods"
 import {godViewRenderingGraphDataMethods, hasManagedTopologySceneRoutes} from "./rendering_graph_data_methods"
 import {godViewRenderingStyleEdgeTopologyMethods} from "./rendering_style_edge_topology_methods"
 import {prepareTopologySceneInput} from "./topology_scene_graph"
@@ -80,6 +81,63 @@ function topologyAwareContext(topologyLayers) {
 }
 
 describe("rendering_graph_data_methods", () => {
+  it("keeps endpoint census, selected details, and trunk parity across managed densities", () => {
+    const topologyLayers = {backbone: true, inferred: false, endpoints: false}
+    const ctx = topologyAwareContext(topologyLayers)
+    Object.assign(ctx, bindApi(ctx, godViewLayoutClusterMethods))
+    ctx.state.zoomMode = "local"
+    ctx.state.zoomTier = "local"
+    ctx.state.selectedNodeIndex = 1
+    const graph = managedRouteGraph({
+      nodes: [
+        {
+          id: "switch",
+          x: 0,
+          y: 0,
+          state: 0,
+          label: "Switch",
+          operUp: 1,
+          details: {cluster_id: "cluster-a", cluster_kind: "endpoint-anchor"},
+        },
+        {
+          id: "census",
+          x: 100,
+          y: 0,
+          state: 1,
+          label: "24 endpoints",
+          operUp: 1,
+          details: {
+            cluster_id: "cluster-a",
+            cluster_kind: "endpoint-summary",
+            cluster_anchor_id: "switch",
+          },
+        },
+      ],
+      edges: [{id: "census-endpoint", source: 0, target: 1, topologyClass: "endpoints"}],
+      route: {
+        id: "census-route",
+        sourceId: "switch",
+        targetId: "census",
+        relationIds: ["census-endpoint"],
+      },
+    })
+
+    const renderAtDensity = (managedTopologyVisualDensity) => {
+      ctx.state.managedTopologyVisualDensity = managedTopologyVisualDensity
+      const effective = ctx.reshapeGraph(graph)
+      return {effective, visible: ctx.buildVisibleGraphData(effective)}
+    }
+    const overview = renderAtDensity("overview")
+    const detail = renderAtDensity("detail")
+
+    for (const frame of [overview, detail]) {
+      expect(frame.effective.shape).toBe("local")
+      expect(frame.visible.nodeData.map((node) => node.id)).toEqual(["switch", "census"])
+      expect(frame.visible.edgeData.map((edge) => edge.relationIds)).toEqual([["census-endpoint"]])
+      expect(frame.visible.selectedVisibleNode?.id).toBe("census")
+    }
+  })
+
   it("keeps accepted ELK scene routes authoritative at overview display shape", () => {
     const scene = {routes: []}
     expect(hasManagedTopologySceneRoutes({
@@ -100,14 +158,22 @@ describe("rendering_graph_data_methods", () => {
       const laidOut = applyTopologySceneToGraph(graph, scene)
       const out = ctx.buildVisibleGraphData({shape: "local", ...laidOut})
 
-      expect(out.edgeData).toHaveLength(32)
-      expect(out.edgeData.map((edge) => edge.interactionKey).sort()).toEqual(
+      expect(out.edgeData).toHaveLength(scene.physicalRoutes.length)
+      expect(out.edgeData.filter((edge) => !edge.auxiliary).map((edge) => edge.interactionKey).sort()).toEqual(
         scene.routes.map((route) => `local:${route.id}`).sort(),
       )
+      expect(out.edgeData.filter((edge) => edge.auxiliary)).toHaveLength(scene.manifolds.length * 2)
+      expect(ctx.state.lastVisibleEdgeCount).toBe(32)
       for (const route of scene.routes) {
         const edge = out.edgeData.find((candidate) => candidate.interactionKey === `local:${route.id}`)
         expect(edge.path).toEqual(route.points.map((point) => [point.x, point.y, 0]))
         expect(edge.relationIds).toEqual([...route.relationIds].sort())
+      }
+      for (const route of scene.physicalRoutes.filter((candidate) => candidate.auxiliary)) {
+        const edge = out.edgeData.find((candidate) => candidate.routeId === route.id)
+        expect(edge?.path).toEqual(route.points.map((point) => [point.x, point.y, 0]))
+        expect(edge?.interactionKey).toBeNull()
+        expect(edge?.telemetryEligible).toBe(false)
       }
     }
 
@@ -317,6 +383,27 @@ describe("rendering_graph_data_methods", () => {
     expect(out.edgeData).toHaveLength(expectedRoutes)
     expect(ctx.state.layoutEngine.layout).not.toHaveBeenCalled()
     expect(scene._topologyScene.routes[0].points).toEqual([{x: 0, y: 0}, {x: 100, y: 0}])
+  })
+
+  it("removes a managed route when a state filter hides either rendered endpoint", () => {
+    const ctx = baseContext({
+      overrides: {
+        visibilityMask: vi.fn(() => Uint8Array.from([1, 0])),
+      },
+    })
+    const graph = managedRouteGraph({
+      nodes: [
+        {id: "a", x: 0, y: 0, state: 0, label: "A", operUp: 1, details: {}},
+        {id: "b", x: 100, y: 0, state: 1, label: "B", operUp: 1, details: {}},
+      ],
+      edges: [{id: "a-b", source: 0, target: 1, topologyClass: "backbone"}],
+      route: {id: "route:a-b", sourceId: "a", targetId: "b", relationIds: ["a-b"]},
+    })
+
+    const out = ctx.buildVisibleGraphData(graph)
+
+    expect(out.nodeData.map((node) => node.id)).toEqual(["a"])
+    expect(out.edgeData).toEqual([])
   })
 
   it("hides a normal managed endpoint route and node while retaining the attachment census trunk", () => {

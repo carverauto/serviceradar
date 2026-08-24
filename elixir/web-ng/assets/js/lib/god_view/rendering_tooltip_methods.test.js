@@ -200,4 +200,22 @@ describe("rendering_tooltip_methods", () => {
     expect(ctx.state.hoveredNodeIndex).toEqual(null)
     expect(ctx.state.canvas.style.cursor).toEqual("grab")
   })
+
+  it("focuses a manifold rail or trunk with any semantic branch it serves", () => {
+    const ctx = buildContext()
+    ctx.edgeIsFocused = godViewRenderingTooltipMethods.edgeIsFocused.bind(ctx)
+    const manifold = {
+      interactionKey: null,
+      auxiliary: true,
+      semanticRouteIds: ["route:a-b", "route:a-c"],
+    }
+
+    ctx.state.selectedEdgeKey = "local:route:a-c"
+    expect(ctx.edgeIsFocused(manifold)).toBe(true)
+    ctx.state.selectedEdgeKey = "local:route:other"
+    ctx.state.hoveredEdgeKey = "local:route:a-b"
+    expect(ctx.edgeIsFocused(manifold)).toBe(true)
+    ctx.state.hoveredEdgeKey = "local:route:other"
+    expect(ctx.edgeIsFocused(manifold)).toBe(false)
+  })
 })

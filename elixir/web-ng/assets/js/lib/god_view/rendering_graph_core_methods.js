@@ -1,5 +1,3 @@
-import {managedVisualDensityContract} from "./rendering_managed_visual_density"
-
 function notifyRenderFrame(context, effective, nodeData, edgeData, layers) {
   const observer = context.state?.renderFrameObserver
   if (typeof observer !== "function") return
@@ -8,16 +6,8 @@ function notifyRenderFrame(context, effective, nodeData, edgeData, layers) {
 
 export const godViewRenderingGraphCoreMethods = {
   refreshGraphLayersForViewState() {
-    let frame = this.state.lastGraphLayerFrame
+    const frame = this.state.lastGraphLayerFrame
     if (!this.state.deck || !frame) return false
-
-    if (frame.effective?._layoutMode === "elk-scene" && frame.effective?._topologyScene) {
-      const shape = managedVisualDensityContract(this.state.managedTopologyVisualDensity).labelShape
-      if (frame.effective.shape !== shape) {
-        frame = {...frame, effective: {...frame.effective, shape}}
-        this.state.lastGraphLayerFrame = frame
-      }
-    }
 
     let layers
     try {

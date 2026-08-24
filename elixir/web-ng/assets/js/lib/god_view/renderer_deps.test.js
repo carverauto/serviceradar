@@ -33,6 +33,8 @@ function makeContext() {
       getNodeTooltip: vi.fn((...args) => ["rendering.getNodeTooltip", ...args]),
       handleHover: vi.fn((...args) => ["rendering.handleHover", ...args]),
       handlePick: vi.fn((...args) => ["rendering.handlePick", ...args]),
+      managedVisualDensityForViewScale: vi.fn((...args) => ["rendering.managedVisualDensityForViewScale", ...args]),
+      managedViewStateForCamera: vi.fn((...args) => ["rendering.managedViewStateForCamera", ...args]),
     },
     lifecycle: {
       ensureDeck: vi.fn((...args) => ["lifecycle.ensureDeck", ...args]),
@@ -78,6 +80,16 @@ describe("renderer_deps", () => {
     expect(deps.getNodeTooltip({object: {id: "n1"}})).toEqual(["rendering.getNodeTooltip", {object: {id: "n1"}}])
     expect(deps.handleHover({object: {id: "n1"}})).toEqual(["rendering.handleHover", {object: {id: "n1"}}])
     expect(deps.handlePick({object: {id: "n1"}})).toEqual(["rendering.handlePick", {object: {id: "n1"}}])
+    expect(deps.managedVisualDensityForViewScale({nodes: []}, 0.5)).toEqual([
+      "rendering.managedVisualDensityForViewScale",
+      {nodes: []},
+      0.5,
+    ])
+    expect(deps.managedViewStateForCamera({nodes: []}, {zoom: 0})).toEqual([
+      "rendering.managedViewStateForCamera",
+      {nodes: []},
+      {zoom: 0},
+    ])
     expect(deps.setZoomTier("global", false)).toEqual(["layout.setZoomTier", "global", false])
     expect(deps.resolveZoomTier(0.1)).toEqual(["layout.resolveZoomTier", 0.1])
     expect(deps.prepareGraphLayout({}, 1, "t")).toEqual(["layout.prepareGraphLayout", {}, 1, "t"])

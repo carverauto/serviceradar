@@ -107,25 +107,24 @@ describe("managed topology visual density", () => {
     const selection = ctx.managedVisualDensityForViewScale(graph, scale)
     expect(state.managedTopologyVisualDensity).toBe("overview")
     expect(selection.managedVisualDensity).toBe("overview")
-    expect(selection.constraints.detail.scale).toBeCloseTo(40 / 192, 12)
+    expect(selection.constraints.detail.scale).toBeCloseTo(40 / 208, 12)
     expect(selection.constraints.detail.limitingRolePair).toEqual(["member", "member"])
     expect([
       selection.constraints.detail.leftId,
       selection.constraints.detail.rightId,
     ].sort()).toEqual([
       "farm01:endpoint-member-01-01",
-      "farm01:endpoint-member-01-03",
+      "farm01:endpoint-member-01-02",
     ])
-    expect(selection.constraints.overview.scale).toBeCloseTo(20 / 192, 12)
-    expect(selection.constraints.overview.limitingRolePair).toEqual(["member", "member"])
-    expect([
-      selection.constraints.overview.leftId,
-      selection.constraints.overview.rightId,
-    ].sort()).toEqual([
-      "farm01:endpoint-member-01-01",
-      "farm01:endpoint-member-01-03",
-    ])
-    expect(scale - selection.constraints.overview.scale).toBeGreaterThan(0.01)
+    expect(selection.constraints.overview.scale).toBeCloseTo(22 / 224, 12)
+    expect(selection.constraints.overview.limitingRolePair).toEqual(["ordinary", "anchor"])
+    expect(scale - selection.constraints.overview.scale).toBeGreaterThan(0)
+    // These are projected pixel margins at the smallest supported concurrent
+    // portrait safe rectangle. They keep fixed-width glyphs and 10px routes
+    // disjoint after browser rounding without weakening the renderer floors.
+    expect((224 * scale) - 22).toBeGreaterThan(0.5)
+    expect((208 * scale) - 20).toBeGreaterThan(1)
+    expect((104 * scale) - 10).toBeGreaterThan(0.5)
 
     const graphNodeById = new Map(graph.nodes.map((node) => [node.id, node]))
     const glyphs = scene.nodes.flatMap((sceneNode) => {
@@ -170,7 +169,7 @@ describe("managed topology visual density", () => {
     }
 
     const glyphById = new Map(glyphs.map((glyph) => [glyph.nodeId, glyph]))
-    for (const route of scene.routes) {
+    for (const route of scene.physicalRoutes) {
       const renderedRoute = {
         sourceId: route.sourceId,
         targetId: route.targetId,
@@ -179,7 +178,7 @@ describe("managed topology visual density", () => {
       }
       expect(renderedRoute.strokeWidth).toBe(10)
       for (const glyph of glyphById.values()) {
-        if (glyph.nodeId === renderedRoute.sourceId || glyph.nodeId === renderedRoute.targetId) continue
+        if ((route.incidentNodeIds || [route.sourceId, route.targetId]).includes(glyph.nodeId)) continue
         expect(
           routeStrokeHitsBox(renderedRoute, glyph),
           `${renderedRoute.sourceId}->${renderedRoute.targetId} hits ${glyph.nodeId}(${glyph.role})`,

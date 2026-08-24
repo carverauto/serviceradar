@@ -1,7 +1,128 @@
 import {Deck, OrthographicView} from "@deck.gl/core"
 import {viewportProfileForSize} from "./layout_elk_scene"
 import {detectThemeMode, visualForTheme, hudStyleForTheme} from "./lifecycle_bootstrap_state_defaults_methods"
-import {measureGodViewSafeRect} from "./rendering_scene_view"
+import {
+  godViewSafeAreaElements,
+  godViewSafeAreaRoot,
+  measureGodViewSafeRect,
+} from "./rendering_scene_view"
+import {
+  runRecoverableManagedCameraUpdate,
+  surfaceRecoverableManagedTopologyError,
+} from "./lifecycle_managed_camera_recovery"
+
+function safeInsetsChanged(previous, current) {
+  if (!previous) return true
+  return ["left", "top", "right", "bottom"].some((edge) => {
+    const previousValue = Number(previous?.[edge])
+    return !Number.isFinite(previousValue) || Math.abs(previousValue - current[edge]) > 0.5
+  })
+}
+
+function reconcileSafeAreaResizeTargets(state) {
+  const previousTargets = state.safeAreaResizeTargets instanceof Set
+    ? state.safeAreaResizeTargets
+    : new Set()
+  const nextTargets = new Set(
+    godViewSafeAreaElements(state.el).filter((element) => element && element !== state.el),
+  )
+
+  for (const element of previousTargets) {
+    if (!nextTargets.has(element)) state.resizeObserver?.unobserve?.(element)
+  }
+  for (const element of nextTargets) {
+    if (!previousTargets.has(element)) state.resizeObserver?.observe?.(element)
+  }
+
+  const changed =
+    previousTargets.size !== nextTargets.size ||
+    [...previousTargets].some((element) => !nextTargets.has(element))
+  state.safeAreaResizeTargets = nextTargets
+  return changed
+}
+
+function refreshLayersAfterResize(context, {clearErrorOnSuccess = true} = {}) {
+  const refresh = () => context.deps.refreshGraphLayersForViewState?.()
+  const managedScene = context.state.lastGraph?._layoutMode === "elk-scene"
+    && context.state.lastGraph?._topologyScene
+  if (managedScene) {
+    return runRecoverableManagedCameraUpdate(context, refresh, {clearErrorOnSuccess})
+  }
+  return {ok: true, value: refresh()}
+}
+
+function captureTopologyRenderState(state) {
+  return {
+    values: {
+      hasAutoFit: state.hasAutoFit,
+      hoveredEdgeKey: state.hoveredEdgeKey,
+      isProgrammaticViewUpdate: state.isProgrammaticViewUpdate,
+      lastDetailsHtml: state.lastDetailsHtml,
+      lastGraph: state.lastGraph,
+      lastGraphLayerFrame: state.lastGraphLayerFrame,
+      lastLayoutKey: state.lastLayoutKey,
+      lastVisibleEdgeCount: state.lastVisibleEdgeCount,
+      lastVisibleNodeCount: state.lastVisibleNodeCount,
+      layoutMode: state.layoutMode,
+      layoutRevision: state.layoutRevision,
+      managedTopologyDensityConstraintsCache: state.managedTopologyDensityConstraintsCache,
+      managedTopologyDensityConstraintsLayoutCache: state.managedTopologyDensityConstraintsLayoutCache,
+      managedTopologySceneForMinZoom: state.managedTopologySceneForMinZoom,
+      managedTopologySceneMinZoom: state.managedTopologySceneMinZoom,
+      managedTopologySceneMinZoomKey: state.managedTopologySceneMinZoomKey,
+      managedTopologyVisualDensity: state.managedTopologyVisualDensity,
+      packetFlowCache: state.packetFlowCache,
+      packetFlowCacheStamp: state.packetFlowCacheStamp,
+      pendingClusterFocus: state.pendingClusterFocus,
+      pendingViewportProfileKey: state.pendingViewportProfileKey,
+      selectedEdgeKey: state.selectedEdgeKey,
+      topologyLabelDetailsFallbackIds: state.topologyLabelDetailsFallbackIds,
+      topologyRouteDiagnostics: state.topologyRouteDiagnostics,
+      viewState: state.viewState,
+      viewportProfileKey: state.viewportProfileKey,
+      wasmReady: state.wasmReady,
+      zoomTier: state.zoomTier,
+    },
+    layersAtmosphere: state.layers?.atmosphere,
+    traversalMaskBuffer: state.traversalMaskBuffer,
+    traversalMaskContents: state.traversalMaskBuffer?.slice?.(),
+    visibilityMaskBuffer: state.visibilityMaskBuffer,
+    visibilityMaskContents: state.visibilityMaskBuffer?.slice?.(),
+  }
+}
+
+function restoreTopologyRenderState(state, captured) {
+  Object.assign(state, captured.values)
+  if (state.layers && captured.layersAtmosphere !== undefined) {
+    state.layers.atmosphere = captured.layersAtmosphere
+  }
+  if (captured.traversalMaskBuffer && captured.traversalMaskContents) {
+    captured.traversalMaskBuffer.set(captured.traversalMaskContents)
+  }
+  if (captured.visibilityMaskBuffer && captured.visibilityMaskContents) {
+    captured.visibilityMaskBuffer.set(captured.visibilityMaskContents)
+  }
+  state.traversalMaskBuffer = captured.traversalMaskBuffer
+  state.visibilityMaskBuffer = captured.visibilityMaskBuffer
+}
+
+function restoreLastGoodRender(context, captured) {
+  restoreTopologyRenderState(context.state, captured)
+  try {
+    if (captured.values.lastGraph) context.deps.renderGraph?.(captured.values.lastGraph)
+  } catch (_restoreError) {
+    // Preserve the original render failure; the accepted state is restored below.
+  }
+  restoreTopologyRenderState(context.state, captured)
+  try {
+    if (captured.values.viewState) {
+      context.state.deck?.setProps?.({viewState: captured.values.viewState})
+    }
+  } catch (_restoreError) {
+    // A failed best-effort camera restore must not replace the original error.
+  }
+  restoreTopologyRenderState(context.state, captured)
+}
 
 export const godViewLifecycleDomSetupMethods = {
   redrawDeckAfterClick() {
@@ -210,6 +331,7 @@ export const godViewLifecycleDomSetupMethods = {
     this.state.details = document.createElement("div")
     this.state.details.className =
       "pointer-events-auto absolute left-3 top-3 z-30 max-w-sm whitespace-pre-line rounded-lg px-4 py-3 text-xs hidden shadow-xl"
+    this.state.details.setAttribute("data-god-view-safe-area", "left")
     this.state.details.style.cssText = hudStyle
     this.state.details.style.pointerEvents = "auto"
     this.state.details.addEventListener("pointerdown", (event) => {
@@ -249,6 +371,7 @@ export const godViewLifecycleDomSetupMethods = {
     const height = Math.max(260, Math.floor(this.state.el.clientHeight || 0))
     const previousWidth = Number(this.state.viewportWidth)
     const previousHeight = Number(this.state.viewportHeight)
+    const previousSafeInsets = this.state.viewportSafeInsets
     const previousProfileKey = this.state.pendingViewportProfileKey || this.state.viewportProfileKey
     const safeRect = measureGodViewSafeRect(this.state.el)
     const safeInsets = {
@@ -259,6 +382,7 @@ export const godViewLifecycleDomSetupMethods = {
     }
     const profile = viewportProfileForSize(width, height, safeInsets)
     const sizeChanged = width !== previousWidth || height !== previousHeight
+    const safeAreaChanged = safeInsetsChanged(previousSafeInsets, safeInsets)
 
     if (!previousProfileKey) this.state.viewportProfileKey = profile.key
 
@@ -273,23 +397,39 @@ export const godViewLifecycleDomSetupMethods = {
       this.state.deck.redraw(true)
     }
 
-    if (!sizeChanged || !this.state.lastGraph) return
+    if ((!sizeChanged && !safeAreaChanged) || !this.state.lastGraph) return
     if (previousProfileKey && previousProfileKey !== profile.key) {
       this.state.pendingViewportProfileKey = profile.key
       void this.requestTopologyProfileLayout(this.state.lastGraph, profile.key)
-      this.deps.refreshGraphLayersForViewState?.()
+      refreshLayersAfterResize(this, {clearErrorOnSuccess: false})
       return
     }
 
     if (this.state.pendingViewportProfileKey === profile.key) {
-      this.deps.refreshGraphLayersForViewState?.()
+      refreshLayersAfterResize(this, {clearErrorOnSuccess: false})
       return
     }
 
+    let cameraUpdateAccepted = true
     if (!this.state.userCameraLocked) {
-      this.deps.autoFitViewState?.(this.state.lastGraph, {force: true})
+      const result = runRecoverableManagedCameraUpdate(this, () => {
+        this.deps.autoFitViewState?.(this.state.lastGraph, {force: true})
+      })
+      cameraUpdateAccepted = result.ok
+    } else if (this.state.lastGraph?._layoutMode === "elk-scene" && this.state.lastGraph?._topologyScene) {
+      const result = runRecoverableManagedCameraUpdate(this, () => {
+        const selection = this.deps.managedVisualDensityForViewScale?.(
+          this.state.lastGraph,
+          2 ** Number(this.state.viewState?.zoom || 0),
+          {safeRect},
+        )
+        if (selection?.managedVisualDensity) {
+          this.state.managedTopologyVisualDensity = selection.managedVisualDensity
+        }
+      })
+      cameraUpdateAccepted = result.ok
     }
-    this.deps.refreshGraphLayersForViewState?.()
+    refreshLayersAfterResize(this, {clearErrorOnSuccess: cameraUpdateAccepted})
   },
   async requestTopologyProfileLayout(graph, profileKey = null) {
     if (typeof this.deps.prepareGraphLayout !== "function") return false
@@ -311,14 +451,34 @@ export const godViewLifecycleDomSetupMethods = {
         !this.state.pendingSnapshotLayoutToken &&
         this.state.lastGraph === graph
       if (!current || !laidOut) return false
-      this.state.layoutMode = laidOut._layoutMode
-      this.state.layoutRevision = revision
-      this.state.lastLayoutKey = laidOut._layoutCacheKey ?? null
-      this.state.viewportProfileKey = profileKey || laidOut._topologyScene?.profileKey || this.state.viewportProfileKey
-      this.state.pendingViewportProfileKey = null
-      this.state.lastGraph = laidOut
-      if (!this.state.userCameraLocked) this.state.hasAutoFit = false
-      this.deps.renderGraph?.(laidOut)
+      const unrecoverableLayoutError =
+        laidOut?._layoutMode === "elk-scene-error" ||
+        (laidOut?._layoutError && !laidOut?._topologyScene)
+      if (unrecoverableLayoutError) {
+        const message = `${laidOut?._layoutError || "ELK layout unavailable"}`
+        this.state.pendingViewportProfileKey = null
+        surfaceRecoverableManagedTopologyError(this, message, {
+          errorReason: "layout_error",
+          errorSummary: "topology layout unavailable",
+        })
+        return false
+      }
+      const previousAcceptanceState = captureTopologyRenderState(this.state)
+      const renderResult = runRecoverableManagedCameraUpdate(this, () => {
+        this.state.layoutMode = laidOut._layoutMode
+        this.state.layoutRevision = revision
+        this.state.lastLayoutKey = laidOut._layoutCacheKey ?? null
+        this.state.viewportProfileKey = profileKey || laidOut._topologyScene?.profileKey || this.state.viewportProfileKey
+        this.state.pendingViewportProfileKey = null
+        this.state.lastGraph = laidOut
+        if (!this.state.userCameraLocked) this.state.hasAutoFit = false
+        this.deps.renderGraph?.(laidOut)
+      })
+      if (!renderResult.ok) {
+        restoreLastGoodRender(this, previousAcceptanceState)
+        this.state.pendingViewportProfileKey = null
+        return false
+      }
       return true
     } catch (error) {
       if (
@@ -328,19 +488,46 @@ export const godViewLifecycleDomSetupMethods = {
         this.state.lastGraph !== graph
       ) return false
       this.state.pendingViewportProfileKey = null
-      if (this.state.summary) this.state.summary.textContent = `layout resize failed: ${String(error)}`
+      surfaceRecoverableManagedTopologyError(this, error, {
+        errorReason: "layout_error",
+        errorSummary: `layout resize failed: ${String(error)}`,
+      })
       return false
     }
   },
   observeTopologyContainer() {
     if (!this.state.el) return
+
+    this.state.resizeObserver?.disconnect?.()
+    this.state.safeAreaMutationObserver?.disconnect?.()
+    this.state.resizeObserver = null
+    this.state.safeAreaMutationObserver = null
+    this.state.safeAreaResizeTargets = null
+
     if (typeof globalThis.ResizeObserver === "function") {
-      this.state.resizeObserver?.disconnect?.()
       this.state.resizeObserver = new globalThis.ResizeObserver(() => this.resizeCanvas())
       this.state.resizeObserver.observe(this.state.el)
-      return
+    } else {
+      window.addEventListener("resize", this.resizeCanvas)
     }
-    window.addEventListener("resize", this.resizeCanvas)
+
+    reconcileSafeAreaResizeTargets(this.state)
+
+    if (typeof globalThis.MutationObserver === "function") {
+      this.state.safeAreaMutationObserver = new globalThis.MutationObserver((records) => {
+        const targetsChanged = reconcileSafeAreaResizeTargets(this.state)
+        const safeAreaAttributeChanged = (records || []).some((record) =>
+          record?.type === "attributes" && this.state.safeAreaResizeTargets?.has(record.target),
+        )
+        if (targetsChanged || safeAreaAttributeChanged) this.resizeCanvas()
+      })
+      this.state.safeAreaMutationObserver.observe(godViewSafeAreaRoot(this.state.el), {
+        attributes: true,
+        attributeFilter: ["data-god-view-safe-area", "class"],
+        childList: true,
+        subtree: true,
+      })
+    }
   },
   createDeckInstance(width, height) {
     return new Deck({
@@ -366,34 +553,55 @@ export const godViewLifecycleDomSetupMethods = {
         this.redrawDeckAfterClick()
       },
       onViewStateChange: ({viewState}) => {
-        this.state.viewState = viewState
         const programmaticUpdate = this.state.isProgrammaticViewUpdate === true
-        if (!programmaticUpdate) this.state.userCameraLocked = true
-        this.state.isProgrammaticViewUpdate = false
-        if (this.state.zoomMode === "auto") {
-          // client-radial already authored the overview. Switching to
-          // regional/global reclustering after the first pan/click moves the
-          // nodes out from under the camera and the canvas looks empty.
-          const layoutMode = this.state.lastGraph?._layoutMode
-          if (layoutMode === "elk-scene") {
-            // The accepted ELK scene already owns geometry. Manual camera
-            // changes may switch only its renderer density/display policy.
-            this.state.zoomTier = "local"
-            if (!programmaticUpdate) {
-              const selection = this.deps.managedVisualDensityForViewScale(
-                this.state.lastGraph,
-                2 ** Number(viewState?.zoom || 0),
-              )
-              this.state.managedTopologyVisualDensity = selection.managedVisualDensity
-            }
-          } else {
-            const nextTier = layoutMode === "client-radial" ? "local" : this.deps.resolveZoomTier(viewState.zoom || 0)
-            this.deps.setZoomTier(nextTier, false)
+        const layoutMode = this.state.lastGraph?._layoutMode
+        const managedScene = layoutMode === "elk-scene" && this.state.lastGraph?._topologyScene
+        const applyViewState = () => {
+          let nextViewState = {...this.state.viewState, ...viewState}
+          if (managedScene && !programmaticUpdate) {
+            const selection = this.deps.managedViewStateForCamera(this.state.lastGraph, nextViewState)
+            nextViewState = selection.viewState
+            this.state.managedTopologyVisualDensity = selection.managedVisualDensity
           }
+          this.state.viewState = nextViewState
+          if (!programmaticUpdate) this.state.userCameraLocked = true
+          this.state.isProgrammaticViewUpdate = false
+          if (this.state.zoomMode === "auto") {
+            // client-radial already authored the overview. Switching to
+            // regional/global reclustering after the first pan/click moves the
+            // nodes out from under the camera and the canvas looks empty.
+            if (managedScene) {
+              // The accepted ELK scene already owns geometry. Manual camera
+              // changes may switch only its renderer density policy.
+              this.state.zoomTier = "local"
+            } else {
+              const nextTier = layoutMode === "client-radial" ? "local" : this.deps.resolveZoomTier(nextViewState.zoom || 0)
+              this.deps.setZoomTier(nextTier, false)
+            }
+          }
+          return nextViewState
         }
+        let acceptedViewState
+        let cameraAccepted = true
+        if (managedScene) {
+          const result = runRecoverableManagedCameraUpdate(this, applyViewState)
+          cameraAccepted = result.ok
+          acceptedViewState = result.ok ? result.value : this.state.viewState
+        } else {
+          acceptedViewState = applyViewState()
+        }
+        if (!cameraAccepted) return acceptedViewState
+
         // Deck applies initialViewState after this callback returns. Defer the
         // layer-only refresh so projection reads the newly rebuilt viewport.
-        globalThis.queueMicrotask(() => this.deps.refreshGraphLayersForViewState())
+        globalThis.queueMicrotask(() => {
+          if (managedScene) {
+            runRecoverableManagedCameraUpdate(this, () => this.deps.refreshGraphLayersForViewState())
+          } else {
+            this.deps.refreshGraphLayersForViewState()
+          }
+        })
+        return acceptedViewState
       },
       onError: (error, layer) => {
         const layerId = String(layer?.id || "")

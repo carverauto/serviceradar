@@ -119,8 +119,13 @@ describe("God-View render frame observer seam", () => {
     }))
 
     context.state.viewState = {target: [72, 64, 0], zoom: 2, minZoom: -3, maxZoom: 5}
+    context.state.managedTopologyVisualDensity = "overview"
     expect(godViewRenderingGraphCoreMethods.refreshGraphLayersForViewState.call(context)).toBe(true)
     expect(context.state.renderFrameObserver).toHaveBeenCalledTimes(2)
+    expect(context.state.lastGraphLayerFrame.effective.shape).toBe("local")
+    expect(context.state.renderFrameObserver).toHaveBeenLastCalledWith(expect.objectContaining({
+      effective: expect.objectContaining({shape: "local"}),
+    }))
   })
 
   it("renders normally without an observer", () => {

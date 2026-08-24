@@ -1,5 +1,73 @@
 const GEOMETRY_EPSILON = 0.01
 
+function routeIdCounts(routeIds) {
+  const counts = new Map()
+  for (const routeId of routeIds || []) {
+    const normalized = String(routeId || "")
+    counts.set(normalized, (counts.get(normalized) || 0) + 1)
+  }
+  return counts
+}
+
+function transportRouteFamily(layerId) {
+  const normalized = String(layerId || "")
+  if (normalized.startsWith("god-view-edges-mantle")) return "mantle"
+  if (normalized.startsWith("god-view-edges-crust")) return "crust"
+  return null
+}
+
+function routeIdMultisetsEqual(left, right) {
+  const leftCounts = routeIdCounts(left)
+  const rightCounts = routeIdCounts(right)
+  const routeIds = new Set([...leftCounts.keys(), ...rightCounts.keys()])
+  return [...routeIds].every((routeId) => leftCounts.get(routeId) === rightCounts.get(routeId))
+}
+
+export function transportLayerRouteIdViolations(snapshot) {
+  const expectedRouteIds = Array.isArray(snapshot?.scenePhysicalRouteIds)
+    ? snapshot.scenePhysicalRouteIds.map((routeId) => String(routeId || ""))
+    : []
+  const renderedLayers = Array.isArray(snapshot?.renderedPhysicalRouteLayers)
+    ? snapshot.renderedPhysicalRouteLayers
+    : []
+  const enabledFamilies = new Set(Array.isArray(snapshot?.enabledTransportRouteFamilies)
+    ? snapshot.enabledTransportRouteFamilies.map(String)
+    : renderedLayers.map((layer) => transportRouteFamily(layer?.layerId)).filter(Boolean))
+  const expectedCounts = routeIdCounts(expectedRouteIds)
+  const renderedByFamily = new Map(["mantle", "crust"].map((family) => [family, []]))
+  const violations = []
+
+  for (const layer of renderedLayers) {
+    const routeIds = Array.isArray(layer?.routeIds) ? layer.routeIds.map((routeId) => String(routeId || "")) : []
+    const routeCount = Number(layer?.routeCount)
+    if (routeCount !== routeIds.length) {
+      violations.push(`layer ${String(layer?.layerId || "")} reports ${routeCount} routes but exposes ${routeIds.length} route IDs`)
+    }
+    const family = transportRouteFamily(layer?.layerId)
+    if (family) renderedByFamily.get(family).push(...routeIds)
+  }
+
+  for (const family of ["mantle", "crust"]) {
+    if (!enabledFamilies.has(family)) continue
+    const renderedCounts = routeIdCounts(renderedByFamily.get(family))
+    const routeIds = [...new Set([...expectedCounts.keys(), ...renderedCounts.keys()])]
+      .sort((left, right) => left.localeCompare(right))
+    for (const routeId of routeIds) {
+      const expectedCount = expectedCounts.get(routeId) || 0
+      const renderedCount = renderedCounts.get(routeId) || 0
+      if (renderedCount === expectedCount) continue
+      const displayRouteId = routeId === "" ? "<missing routeId>" : routeId
+      violations.push(`${family} route ${displayRouteId} is rendered ${renderedCount} times; expected ${expectedCount}`)
+    }
+  }
+
+  if (enabledFamilies.has("mantle") && enabledFamilies.has("crust")
+    && !routeIdMultisetsEqual(renderedByFamily.get("mantle"), renderedByFamily.get("crust"))) {
+    violations.push("mantle and crust route ID multisets differ")
+  }
+  return violations
+}
+
 function orientation(a, b, c) {
   return ((b.x - a.x) * (c.y - a.y)) - ((b.y - a.y) * (c.x - a.x))
 }
@@ -109,21 +177,118 @@ export function routeInsideSafeRect(route, safeRect, epsilon = GEOMETRY_EPSILON)
     && point.y + radius <= safeRect.bottom + epsilon)
 }
 
-function semanticEndpoint(route, nodeId) {
-  const points = Array.isArray(route?.points) ? route.points : []
-  if (nodeId === route?.sourceId) return points[0]
-  if (nodeId === route?.targetId) return points.at(-1)
-  return null
+function projectedRouteContactPoints(route) {
+  const points = Array.isArray(route?.projectedPoints) ? route.projectedPoints : []
+  const contacts = new Map()
+  const add = (id, point) => {
+    const normalizedId = String(id || "")
+    if (normalizedId === "" || !Number.isFinite(point?.x) || !Number.isFinite(point?.y)) return
+    contacts.set(normalizedId, point)
+  }
+  add(route?.sourceContactId || route?.sourceId, points[0])
+  add(route?.targetContactId || route?.targetId, points.at(-1))
+  for (const junction of route?.junctions || []) {
+    add(junction?.id, junction?.projectedPoint)
+  }
+  return contacts
 }
 
-function isGenuineSharedEndpoint(routeA, routeB, point) {
-  const sharedIds = [routeA?.sourceId, routeA?.targetId]
-    .filter((id) => id && (id === routeB?.sourceId || id === routeB?.targetId))
-  return sharedIds.some((id) => {
-    const endpointA = semanticEndpoint(routeA, id)
-    const endpointB = semanticEndpoint(routeB, id)
-    return endpointA && endpointB && samePoint(endpointA, endpointB) && samePoint(point, endpointA)
+function sharedProjectedJunctions(routeA, routeB) {
+  const first = projectedRouteContactPoints(routeA)
+  const second = projectedRouteContactPoints(routeB)
+  return [...first].flatMap(([id, point]) => {
+    const other = second.get(id)
+    return other && samePoint(point, other) ? [point] : []
   })
+}
+
+function pointAlongSegment(start, end, ratio) {
+  return {
+    x: start.x + ((end.x - start.x) * ratio),
+    y: start.y + ((end.y - start.y) * ratio),
+  }
+}
+
+function segmentPiecesOutsideJunctions(start, end, junctions, radius) {
+  const deltaX = end.x - start.x
+  const deltaY = end.y - start.y
+  const lengthSquared = (deltaX * deltaX) + (deltaY * deltaY)
+  if (lengthSquared <= GEOMETRY_EPSILON * GEOMETRY_EPSILON) return []
+  let intervals = [[0, 1]]
+  for (const junction of junctions) {
+    const offsetX = start.x - junction.x
+    const offsetY = start.y - junction.y
+    const linear = 2 * ((offsetX * deltaX) + (offsetY * deltaY))
+    const constant = (offsetX * offsetX) + (offsetY * offsetY) - (radius * radius)
+    const discriminant = (linear * linear) - (4 * lengthSquared * constant)
+    if (discriminant < 0) continue
+    const root = Math.sqrt(Math.max(0, discriminant))
+    const insideStart = Math.max(0, (-linear - root) / (2 * lengthSquared))
+    const insideEnd = Math.min(1, (-linear + root) / (2 * lengthSquared))
+    if (insideEnd <= insideStart) continue
+    intervals = intervals.flatMap(([from, to]) => {
+      if (insideEnd <= from || insideStart >= to) return [[from, to]]
+      return [
+        ...(insideStart > from ? [[from, Math.min(to, insideStart)]] : []),
+        ...(insideEnd < to ? [[Math.max(from, insideEnd), to]] : []),
+      ]
+    })
+  }
+  return intervals
+    .filter(([from, to]) => to - from > GEOMETRY_EPSILON)
+    .map(([from, to]) => [
+      pointAlongSegment(start, end, from),
+      pointAlongSegment(start, end, to),
+    ])
+}
+
+function projectedRouteSegmentsOutsideSharedJunctions(route, junctions, radius) {
+  const points = Array.isArray(route?.projectedPoints) ? route.projectedPoints : []
+  const segments = []
+  for (let index = 1; index < points.length; index += 1) {
+    segments.push(...segmentPiecesOutsideJunctions(
+      points[index - 1],
+      points[index],
+      junctions,
+      radius,
+    ))
+  }
+  return segments
+}
+
+export function routeStrokesOverlap(routeA, routeB, epsilon = GEOMETRY_EPSILON) {
+  const combinedRadius = routeStrokeRadius(routeA) + routeStrokeRadius(routeB)
+  const junctions = sharedProjectedJunctions(routeA, routeB)
+  const exclusionRadius = combinedRadius + epsilon
+  const firstSegments = projectedRouteSegmentsOutsideSharedJunctions(routeA, junctions, exclusionRadius)
+  const secondSegments = projectedRouteSegmentsOutsideSharedJunctions(routeB, junctions, exclusionRadius)
+  for (const [firstStart, firstEnd] of firstSegments) {
+    for (const [secondStart, secondEnd] of secondSegments) {
+      if (segmentDistance(firstStart, firstEnd, secondStart, secondEnd) < combinedRadius - epsilon) {
+        return true
+      }
+    }
+  }
+  return false
+}
+
+function routeContactIdsAtPoint(route, point) {
+  const points = Array.isArray(route?.points) ? route.points : []
+  const ids = new Set()
+  if (samePoint(point, points[0])) ids.add(route?.sourceContactId || route?.sourceId)
+  if (samePoint(point, points.at(-1))) ids.add(route?.targetContactId || route?.targetId)
+  for (const junction of route?.junctions || []) {
+    if (junction?.id && samePoint(point, junction.point)) ids.add(junction.id)
+  }
+  ids.delete(undefined)
+  ids.delete("")
+  return ids
+}
+
+function isDeclaredSharedContact(routeA, routeB, point) {
+  const first = routeContactIdsAtPoint(routeA, point)
+  const second = routeContactIdsAtPoint(routeB, point)
+  return [...first].some((id) => second.has(id))
 }
 
 export function routeInteriorsIntersect(routeA, routeB) {
@@ -139,7 +304,7 @@ export function routeInteriorsIntersect(routeA, routeB) {
       const contacts = [aStart, aEnd, bStart, bEnd]
         .filter((point, index, all) => all.findIndex((candidate) => samePoint(candidate, point)) === index)
         .filter((point) => pointOnSegment(point, aStart, aEnd) && pointOnSegment(point, bStart, bEnd))
-      if (contacts.some((point) => !isGenuineSharedEndpoint(routeA, routeB, point))) return true
+      if (contacts.some((point) => !isDeclaredSharedContact(routeA, routeB, point))) return true
     }
   }
   return false

@@ -46,6 +46,135 @@ describe("lifecycle_dom_setup_methods", () => {
     }
   })
 
+  it("observeTopologyContainer watches the production sibling safe-area controls", () => {
+    const originalResizeObserver = globalThis.ResizeObserver
+    const observe = vi.fn()
+    const disconnect = vi.fn()
+    const ResizeObserver = vi.fn(function ResizeObserver(callback) {
+      this.callback = callback
+      this.observe = observe
+      this.disconnect = disconnect
+    })
+    globalThis.ResizeObserver = ResizeObserver
+    const controls = {id: "god-view-controls"}
+    const safeRoot = {querySelectorAll: vi.fn(() => [controls])}
+    const el = {
+      id: "god-view-binary-stream",
+      closest: vi.fn(() => safeRoot),
+    }
+    const state = {el, resizeObserver: null}
+    const ctx = createStateBackedContext(state, {})
+    Object.assign(ctx, bindApi(ctx, godViewLifecycleDomSetupMethods))
+
+    try {
+      ctx.observeTopologyContainer()
+      expect(observe).toHaveBeenCalledWith(el)
+      expect(observe).toHaveBeenCalledWith(controls)
+      expect(observe).toHaveBeenCalledTimes(2)
+    } finally {
+      globalThis.ResizeObserver = originalResizeObserver
+    }
+  })
+
+  it("observeTopologyContainer reconciles safe-area chrome inserted and removed after setup", () => {
+    const originalResizeObserver = globalThis.ResizeObserver
+    const originalMutationObserver = globalThis.MutationObserver
+    const observeResize = vi.fn()
+    const unobserveResize = vi.fn()
+    const ResizeObserver = vi.fn(function ResizeObserver(callback) {
+      this.callback = callback
+      this.observe = observeResize
+      this.unobserve = unobserveResize
+      this.disconnect = vi.fn()
+    })
+    let mutationCallback = null
+    const observeMutations = vi.fn()
+    const MutationObserver = vi.fn(function MutationObserver(callback) {
+      mutationCallback = callback
+      this.observe = observeMutations
+      this.disconnect = vi.fn()
+    })
+    globalThis.ResizeObserver = ResizeObserver
+    globalThis.MutationObserver = MutationObserver
+
+    const controls = {id: "god-view-controls"}
+    const warning = {id: "god-view-backbone-empty-warning"}
+    const safeElements = [controls]
+    const safeRoot = {querySelectorAll: vi.fn(() => safeElements)}
+    const el = {
+      id: "god-view-binary-stream",
+      closest: vi.fn(() => safeRoot),
+    }
+    const state = {el, resizeObserver: null}
+    const ctx = createStateBackedContext(state, {})
+    Object.assign(ctx, bindApi(ctx, godViewLifecycleDomSetupMethods))
+    ctx.resizeCanvas = vi.fn()
+
+    try {
+      ctx.observeTopologyContainer()
+
+      expect(observeMutations).toHaveBeenCalledWith(safeRoot, {
+        attributes: true,
+        attributeFilter: ["data-god-view-safe-area", "class"],
+        childList: true,
+        subtree: true,
+      })
+
+      safeElements.push(warning)
+      mutationCallback([])
+      expect(observeResize).toHaveBeenCalledWith(warning)
+      expect(ctx.resizeCanvas).toHaveBeenCalledTimes(1)
+
+      safeElements.splice(safeElements.indexOf(controls), 1)
+      mutationCallback([])
+      expect(unobserveResize).toHaveBeenCalledWith(controls)
+      expect(ctx.resizeCanvas).toHaveBeenCalledTimes(2)
+    } finally {
+      globalThis.ResizeObserver = originalResizeObserver
+      globalThis.MutationObserver = originalMutationObserver
+    }
+  })
+
+  it("ensureDOM marks the details panel as left-side safe-area chrome", () => {
+    const originalDocument = globalThis.document
+    const originalWindow = globalThis.window
+    const makeElement = () => {
+      const attributes = new Map()
+      return {
+        style: {},
+        classList: {add: vi.fn()},
+        addEventListener: vi.fn(),
+        appendChild: vi.fn(),
+        setAttribute: (name, value) => attributes.set(name, value),
+        getAttribute: (name) => attributes.get(name),
+      }
+    }
+    globalThis.document = {
+      documentElement: {getAttribute: () => "light"},
+      createElement: vi.fn(() => makeElement()),
+    }
+    globalThis.window = {
+      addEventListener: vi.fn(),
+      matchMedia: vi.fn(() => ({matches: false})),
+    }
+    const state = {
+      el: makeElement(),
+      canvas: null,
+      summary: null,
+      visual: {bg: [10, 17, 20, 255]},
+    }
+    const ctx = createStateBackedContext(state, {})
+    Object.assign(ctx, bindApi(ctx, godViewLifecycleDomSetupMethods))
+
+    try {
+      ctx.ensureDOM()
+      expect(state.details.getAttribute("data-god-view-safe-area")).toBe("left")
+    } finally {
+      globalThis.document = originalDocument
+      globalThis.window = originalWindow
+    }
+  })
+
   it("same-profile container resize refits camera and labels without invalidating ELK", () => {
     const state = {
       el: {
@@ -79,6 +208,383 @@ describe("lifecycle_dom_setup_methods", () => {
     expect(deps.refreshGraphLayersForViewState).toHaveBeenCalledTimes(1)
     expect(deps.prepareGraphLayout).not.toHaveBeenCalled()
     expect(state.lastLayoutKey).toBe("accepted-landscape-layout")
+  })
+
+  it("safe-chrome-only changes refit and refresh when the usable profile is unchanged", () => {
+    const controls = {
+      getAttribute: () => "right",
+      getBoundingClientRect: () => ({left: 860, top: 12, right: 948, bottom: 240, width: 88, height: 228}),
+    }
+    const safeRoot = {querySelectorAll: () => [controls]}
+    const graph = {_layoutMode: "elk-scene", _topologyScene: {profileKey: "landscape"}}
+    const state = {
+      el: {
+        clientWidth: 960,
+        clientHeight: 600,
+        getBoundingClientRect: () => ({left: 0, top: 0, width: 960, height: 600, right: 960, bottom: 600}),
+        closest: () => safeRoot,
+      },
+      canvas: {style: {}},
+      deck: {setProps: vi.fn(), redraw: vi.fn()},
+      lastGraph: graph,
+      viewportWidth: 960,
+      viewportHeight: 600,
+      viewportSafeInsets: {left: 0, top: 0, right: 0, bottom: 0},
+      topologyLabelSafeRect: {left: 0, top: 0, right: 960, bottom: 600},
+      viewportProfileKey: "landscape",
+      userCameraLocked: false,
+    }
+    const deps = {
+      autoFitViewState: vi.fn(),
+      refreshGraphLayersForViewState: vi.fn(),
+      prepareGraphLayout: vi.fn(),
+    }
+    const ctx = createStateBackedContext(state, deps)
+    Object.assign(ctx, bindApi(ctx, godViewLifecycleDomSetupMethods))
+
+    ctx.resizeCanvas()
+
+    expect(state.viewportSafeInsets).toEqual({left: 0, top: 0, right: 108, bottom: 0})
+    expect(state.topologyLabelSafeRect).toEqual({left: 0, top: 0, right: 852, bottom: 600})
+    expect(deps.autoFitViewState).toHaveBeenCalledWith(graph, {force: true})
+    expect(deps.refreshGraphLayersForViewState).toHaveBeenCalledTimes(1)
+    expect(deps.prepareGraphLayout).not.toHaveBeenCalled()
+  })
+
+  it("contains an impossible unlocked safe-area refit and preserves the accepted camera", () => {
+    const acceptedViewState = {zoom: 0, minZoom: -8, maxZoom: 5, target: [120, 80, 0]}
+    const graph = {_layoutMode: "elk-scene", _topologyScene: {profileKey: "landscape"}}
+    const state = {
+      el: {
+        clientWidth: 960,
+        clientHeight: 600,
+        getBoundingClientRect: () => ({left: 0, top: 0, width: 960, height: 600, right: 960, bottom: 600}),
+        querySelectorAll: () => [],
+      },
+      canvas: {style: {}},
+      deck: {setProps: vi.fn(), redraw: vi.fn()},
+      lastGraph: graph,
+      viewportWidth: 900,
+      viewportHeight: 600,
+      viewportProfileKey: "landscape",
+      userCameraLocked: false,
+      hasAutoFit: true,
+      isProgrammaticViewUpdate: false,
+      managedTopologyVisualDensity: "detail",
+      viewState: acceptedViewState,
+      summary: {textContent: "accepted topology"},
+      pushEvent: vi.fn(),
+    }
+    const deps = {
+      autoFitViewState: vi.fn(() => {
+        state.viewState = {zoom: 5, target: [999, 999, 0]}
+        state.managedTopologyVisualDensity = "overview"
+        state.hasAutoFit = false
+        state.isProgrammaticViewUpdate = true
+        throw new RangeError("no feasible managed visual density")
+      }),
+      refreshGraphLayersForViewState: vi.fn(),
+      prepareGraphLayout: vi.fn(),
+    }
+    const ctx = createStateBackedContext(state, deps)
+    Object.assign(ctx, bindApi(ctx, godViewLifecycleDomSetupMethods))
+
+    expect(() => ctx.resizeCanvas()).not.toThrow()
+
+    expect(state.viewState).toBe(acceptedViewState)
+    expect(state.managedTopologyVisualDensity).toBe("detail")
+    expect(state.hasAutoFit).toBe(true)
+    expect(state.isProgrammaticViewUpdate).toBe(false)
+    expect(state.summary.textContent).toBe("topology render unavailable")
+    expect(state.pushEvent).toHaveBeenCalledWith("god_view_stream_error", {
+      reason: "render_error",
+      message: "RangeError: no feasible managed visual density",
+    })
+    expect(deps.refreshGraphLayersForViewState).toHaveBeenCalledTimes(1)
+  })
+
+  it.each([
+    ["unlocked", false],
+    ["locked", true],
+  ])("contains a failed %s managed resize refresh without rejecting its accepted camera", (_mode, userCameraLocked) => {
+    const originalViewState = {zoom: 0, minZoom: -8, maxZoom: 5, target: [120, 80, 0]}
+    const fittedViewState = {zoom: 1, minZoom: -8, maxZoom: 5, target: [140, 90, 0]}
+    const graph = {_layoutMode: "elk-scene", _topologyScene: {profileKey: "landscape"}}
+    const acceptedDeckLayers = ["accepted-layer"]
+    const failedDeckLayers = ["failed-layer"]
+    const deck = {
+      props: {layers: acceptedDeckLayers},
+      setProps: vi.fn(function setProps(nextProps) {
+        Object.assign(this.props, nextProps)
+      }),
+      redraw: vi.fn(),
+    }
+    const state = {
+      el: {
+        clientWidth: 960,
+        clientHeight: 600,
+        getBoundingClientRect: () => ({left: 0, top: 0, width: 960, height: 600, right: 960, bottom: 600}),
+        querySelectorAll: () => [],
+      },
+      canvas: {style: {}},
+      deck,
+      layers: {mantle: true, crust: true, atmosphere: true, security: true},
+      lastGraph: graph,
+      viewportWidth: 900,
+      viewportHeight: 600,
+      viewportProfileKey: "landscape",
+      userCameraLocked,
+      hasAutoFit: true,
+      managedTopologyVisualDensity: "detail",
+      viewState: originalViewState,
+      summary: {textContent: "accepted topology"},
+      pushEvent: vi.fn(),
+    }
+    const deps = {
+      autoFitViewState: vi.fn(() => {
+        state.viewState = fittedViewState
+        state.managedTopologyVisualDensity = "overview"
+      }),
+      managedVisualDensityForViewScale: vi.fn(() => ({managedVisualDensity: "overview"})),
+      refreshGraphLayersForViewState: vi.fn(() => {
+        state.layers.atmosphere = false
+        deck.setProps({layers: failedDeckLayers})
+        throw new Error("resize layer refresh failed")
+      }),
+      prepareGraphLayout: vi.fn(),
+    }
+    const ctx = createStateBackedContext(state, deps)
+    Object.assign(ctx, bindApi(ctx, godViewLifecycleDomSetupMethods))
+
+    expect(() => ctx.resizeCanvas()).not.toThrow()
+
+    expect(state.viewState).toBe(userCameraLocked ? originalViewState : fittedViewState)
+    expect(state.managedTopologyVisualDensity).toBe("overview")
+    expect(state.layers.atmosphere).toBe(true)
+    expect(deck.props.layers).toBe(acceptedDeckLayers)
+    expect(state.summary.textContent).toBe("topology render unavailable")
+    expect(state.pushEvent).toHaveBeenCalledWith("god_view_stream_error", {
+      reason: "render_error",
+      message: "Error: resize layer refresh failed",
+    })
+    expect(deps.prepareGraphLayout).not.toHaveBeenCalled()
+  })
+
+  it.each([
+    ["profile crossing", "landscape", null, 600, 900, true],
+    ["pending profile", "portrait", "portrait", 620, 900, false],
+  ])("contains a failed managed resize refresh during a %s", (
+    _branch,
+    viewportProfileKey,
+    pendingViewportProfileKey,
+    width,
+    height,
+    requestsLayout,
+  ) => {
+    const acceptedViewState = {zoom: 0, minZoom: -8, maxZoom: 5, target: [120, 80, 0]}
+    const graph = {_layoutMode: "elk-scene", _topologyScene: {profileKey: viewportProfileKey}}
+    const acceptedDeckLayers = ["accepted-layer"]
+    const deck = {
+      props: {layers: acceptedDeckLayers},
+      setProps: vi.fn(function setProps(nextProps) {
+        Object.assign(this.props, nextProps)
+      }),
+      redraw: vi.fn(),
+    }
+    const state = {
+      el: {
+        clientWidth: width,
+        clientHeight: height,
+        getBoundingClientRect: () => ({left: 0, top: 0, width, height, right: width, bottom: height}),
+        querySelectorAll: () => [],
+      },
+      canvas: {style: {}},
+      deck,
+      layers: {mantle: true, crust: true, atmosphere: true, security: true},
+      lastGraph: graph,
+      viewportWidth: width - 20,
+      viewportHeight: height,
+      viewportProfileKey,
+      pendingViewportProfileKey,
+      userCameraLocked: true,
+      managedTopologyVisualDensity: "detail",
+      viewState: acceptedViewState,
+      summary: {textContent: "accepted topology"},
+      pushEvent: vi.fn(),
+    }
+    const deps = {
+      refreshGraphLayersForViewState: vi.fn(() => {
+        state.layers.atmosphere = false
+        deck.setProps({layers: ["failed-layer"]})
+        throw new Error("profile resize refresh failed")
+      }),
+    }
+    const ctx = createStateBackedContext(state, deps)
+    Object.assign(ctx, bindApi(ctx, godViewLifecycleDomSetupMethods), {
+      requestTopologyProfileLayout: vi.fn(),
+    })
+
+    expect(() => ctx.resizeCanvas()).not.toThrow()
+
+    expect(ctx.requestTopologyProfileLayout).toHaveBeenCalledTimes(requestsLayout ? 1 : 0)
+    expect(state.viewState).toBe(acceptedViewState)
+    expect(state.layers.atmosphere).toBe(true)
+    expect(deck.props.layers).toBe(acceptedDeckLayers)
+    expect(state.summary.textContent).toBe("topology render unavailable")
+    expect(state.pushEvent).toHaveBeenCalledWith("god_view_stream_error", {
+      reason: "render_error",
+      message: "Error: profile resize refresh failed",
+    })
+  })
+
+  it.each([
+    ["profile crossing", "landscape", null, 600, 900],
+    ["pending profile", "portrait", "portrait", 620, 900],
+  ])("does not clear a managed camera error by repainting an old scene during a %s", (
+    _branch,
+    viewportProfileKey,
+    pendingViewportProfileKey,
+    width,
+    height,
+  ) => {
+    const graph = {_layoutMode: "elk-scene", _topologyScene: {profileKey: viewportProfileKey}}
+    const state = {
+      el: {
+        clientWidth: width,
+        clientHeight: height,
+        getBoundingClientRect: () => ({left: 0, top: 0, width, height, right: width, bottom: height}),
+        querySelectorAll: () => [],
+      },
+      canvas: {style: {}},
+      deck: {setProps: vi.fn(), redraw: vi.fn()},
+      lastGraph: graph,
+      viewportWidth: width - 20,
+      viewportHeight: height,
+      viewportProfileKey,
+      pendingViewportProfileKey,
+      userCameraLocked: true,
+      viewState: {zoom: 0, minZoom: -8, maxZoom: 5, target: [120, 80, 0]},
+      summary: {textContent: "topology render unavailable"},
+      managedTopologyCameraErrorActive: true,
+      managedTopologyCameraErrorPreviousSummary: "accepted topology",
+    }
+    const deps = {refreshGraphLayersForViewState: vi.fn()}
+    const ctx = createStateBackedContext(state, deps)
+    Object.assign(ctx, bindApi(ctx, godViewLifecycleDomSetupMethods), {
+      requestTopologyProfileLayout: vi.fn(),
+    })
+
+    ctx.resizeCanvas()
+
+    expect(deps.refreshGraphLayersForViewState).toHaveBeenCalledTimes(1)
+    expect(state.summary.textContent).toBe("topology render unavailable")
+    expect(state.managedTopologyCameraErrorActive).toBe(true)
+    expect(state.managedTopologyCameraErrorPreviousSummary).toBe("accepted topology")
+  })
+
+  it("clears a locked safe-area error after density selection becomes feasible", () => {
+    let width = 980
+    const acceptedViewState = {zoom: 0, minZoom: -8, maxZoom: 5, target: [20, 30, 0]}
+    const graph = {_layoutMode: "elk-scene", _topologyScene: {profileKey: "landscape"}}
+    const state = {
+      el: {
+        get clientWidth() { return width },
+        clientHeight: 600,
+        getBoundingClientRect: () => ({left: 0, top: 0, width, height: 600, right: width, bottom: 600}),
+        querySelectorAll: () => [],
+      },
+      canvas: {style: {}},
+      deck: {setProps: vi.fn(), redraw: vi.fn()},
+      lastGraph: graph,
+      viewportWidth: 900,
+      viewportHeight: 600,
+      viewportProfileKey: "landscape",
+      userCameraLocked: true,
+      managedTopologyVisualDensity: "detail",
+      viewState: acceptedViewState,
+      summary: {textContent: "accepted topology"},
+      pushEvent: vi.fn(),
+    }
+    const deps = {
+      managedVisualDensityForViewScale: vi.fn()
+        .mockImplementationOnce(() => {
+          state.summary.textContent = "transient failed selection"
+          throw new RangeError("safe rectangle is too small")
+        })
+        .mockReturnValueOnce({managedVisualDensity: "overview"}),
+      refreshGraphLayersForViewState: vi.fn(),
+      prepareGraphLayout: vi.fn(),
+    }
+    const ctx = createStateBackedContext(state, deps)
+    Object.assign(ctx, bindApi(ctx, godViewLifecycleDomSetupMethods))
+
+    expect(() => ctx.resizeCanvas()).not.toThrow()
+    expect(state.viewState).toBe(acceptedViewState)
+    expect(state.managedTopologyVisualDensity).toBe("detail")
+    expect(state.summary.textContent).toBe("topology render unavailable")
+    expect(state.pushEvent).toHaveBeenCalledTimes(1)
+
+    width = 990
+    expect(() => ctx.resizeCanvas()).not.toThrow()
+    expect(state.viewState).toBe(acceptedViewState)
+    expect(state.managedTopologyVisualDensity).toBe("overview")
+    expect(state.summary.textContent).toBe("accepted topology")
+    expect(state.pushEvent).toHaveBeenCalledTimes(1)
+  })
+
+  it("safe-chrome-only profile crossings request a fresh ELK layout", async () => {
+    const controls = {
+      getAttribute: () => "right",
+      getBoundingClientRect: () => ({left: 668, top: 12, right: 948, bottom: 360, width: 280, height: 348}),
+    }
+    const safeRoot = {querySelectorAll: () => [controls]}
+    const previousGraph = {_layoutMode: "elk-scene", _topologyScene: {profileKey: "landscape"}, nodes: [], edges: []}
+    const portraitGraph = {
+      _layoutMode: "elk-scene",
+      _layoutCacheKey: "accepted-portrait-layout",
+      _topologyScene: {profileKey: "portrait"},
+      nodes: [],
+      edges: [],
+    }
+    const state = {
+      el: {
+        clientWidth: 960,
+        clientHeight: 600,
+        getBoundingClientRect: () => ({left: 0, top: 0, width: 960, height: 600, right: 960, bottom: 600}),
+        closest: () => safeRoot,
+      },
+      canvas: {style: {}},
+      deck: {setProps: vi.fn(), redraw: vi.fn()},
+      lastGraph: previousGraph,
+      lastRevision: 8,
+      lastTopologyStamp: "same-graph",
+      viewportWidth: 960,
+      viewportHeight: 600,
+      viewportSafeInsets: {left: 0, top: 0, right: 0, bottom: 0},
+      topologyLabelSafeRect: {left: 0, top: 0, right: 960, bottom: 600},
+      viewportProfileKey: "landscape",
+      lastLayoutKey: "accepted-landscape-layout",
+      userCameraLocked: false,
+      layoutRequestToken: 0,
+    }
+    const deps = {
+      autoFitViewState: vi.fn(),
+      refreshGraphLayersForViewState: vi.fn(),
+      prepareGraphLayout: vi.fn(async () => portraitGraph),
+      renderGraph: vi.fn(),
+    }
+    const ctx = createStateBackedContext(state, deps)
+    Object.assign(ctx, bindApi(ctx, godViewLifecycleDomSetupMethods))
+
+    ctx.resizeCanvas()
+    await Promise.resolve()
+    await Promise.resolve()
+
+    expect(deps.prepareGraphLayout).toHaveBeenCalledWith(previousGraph, 8, "same-graph", {commit: false})
+    expect(state.viewportProfileKey).toBe("portrait")
+    expect(state.lastGraph).toBe(portraitGraph)
+    expect(deps.renderGraph).toHaveBeenCalledWith(portraitGraph)
+    expect(deps.refreshGraphLayersForViewState).toHaveBeenCalledTimes(1)
   })
 
   it("crossing usable aspect 1.2 invalidates and requests one fresh profile layout", async () => {
@@ -131,7 +637,311 @@ describe("lifecycle_dom_setup_methods", () => {
     expect(deps.renderGraph).toHaveBeenCalledWith(portraitGraph)
   })
 
+  it("preserves the accepted scene when a profile resize returns an ELK error sentinel", async () => {
+    const previousGraph = {
+      _layoutMode: "elk-scene",
+      _layoutCacheKey: "accepted-landscape-layout",
+      _topologyScene: {profileKey: "landscape"},
+      nodes: [{id: "positioned", x: 10, y: 20}],
+      edges: [],
+    }
+    const failedGraph = {
+      _layoutMode: "elk-scene-error",
+      _layoutCacheKey: "failed-portrait-layout",
+      _layoutError: "portrait ELK failure",
+      nodes: [{id: "unpositioned"}],
+      edges: [],
+    }
+    const recoveredGraph = {
+      _layoutMode: "elk-scene",
+      _layoutCacheKey: "accepted-portrait-layout",
+      _topologyScene: {profileKey: "portrait"},
+      nodes: [{id: "recovered", x: 50, y: 60}],
+      edges: [],
+    }
+    const state = {
+      lastGraph: previousGraph,
+      lastRevision: 8,
+      lastTopologyStamp: "same-graph",
+      layoutMode: "elk-scene",
+      layoutRevision: 8,
+      lastLayoutKey: "accepted-landscape-layout",
+      viewportProfileKey: "landscape",
+      pendingViewportProfileKey: "portrait",
+      layoutRequestToken: 0,
+      pendingSnapshotLayoutToken: null,
+      userCameraLocked: false,
+      hasAutoFit: true,
+      pushEvent: vi.fn(),
+      summary: {textContent: "accepted scene"},
+    }
+    const deps = {
+      prepareGraphLayout: vi.fn()
+        .mockResolvedValueOnce(failedGraph)
+        .mockResolvedValueOnce(recoveredGraph),
+      renderGraph: vi.fn(),
+    }
+    const ctx = createStateBackedContext(state, deps)
+    Object.assign(ctx, bindApi(ctx, godViewLifecycleDomSetupMethods))
+
+    expect(await ctx.requestTopologyProfileLayout(previousGraph, "portrait")).toBe(false)
+
+    expect(state.lastGraph).toBe(previousGraph)
+    expect(state.lastRevision).toBe(8)
+    expect(state.lastTopologyStamp).toBe("same-graph")
+    expect(state.layoutMode).toBe("elk-scene")
+    expect(state.layoutRevision).toBe(8)
+    expect(state.lastLayoutKey).toBe("accepted-landscape-layout")
+    expect(state.viewportProfileKey).toBe("landscape")
+    expect(state.pendingViewportProfileKey).toBe(null)
+    expect(state.hasAutoFit).toBe(true)
+    expect(state.summary.textContent).toBe("topology layout unavailable")
+    expect(state.managedTopologyCameraErrorActive).toBe(true)
+    expect(state.managedTopologyCameraErrorPreviousSummary).toBe("accepted scene")
+    expect(state.pushEvent).toHaveBeenCalledWith("god_view_stream_error", {
+      reason: "layout_error",
+      message: "portrait ELK failure",
+    })
+    expect(deps.renderGraph).not.toHaveBeenCalled()
+
+    state.pendingViewportProfileKey = "portrait"
+    expect(await ctx.requestTopologyProfileLayout(previousGraph, "portrait")).toBe(true)
+
+    expect(state.lastGraph).toBe(recoveredGraph)
+    expect(state.summary.textContent).toBe("accepted scene")
+    expect(state.managedTopologyCameraErrorActive).toBe(false)
+    expect(state.managedTopologyCameraErrorPreviousSummary).toBeNull()
+    expect(deps.renderGraph).toHaveBeenCalledWith(recoveredGraph)
+  })
+
+  it("clears a rejected profile-layout diagnostic after an accepted retry", async () => {
+    const previousGraph = {
+      _layoutMode: "elk-scene",
+      _layoutCacheKey: "accepted-landscape-layout",
+      _topologyScene: {profileKey: "landscape"},
+      nodes: [],
+      edges: [],
+    }
+    const recoveredGraph = {
+      _layoutMode: "elk-scene",
+      _layoutCacheKey: "accepted-portrait-layout",
+      _topologyScene: {profileKey: "portrait"},
+      nodes: [],
+      edges: [],
+    }
+    const state = {
+      lastGraph: previousGraph,
+      lastRevision: 8,
+      lastTopologyStamp: "same-graph",
+      layoutMode: "elk-scene",
+      layoutRevision: 8,
+      lastLayoutKey: "accepted-landscape-layout",
+      viewportProfileKey: "landscape",
+      pendingViewportProfileKey: "portrait",
+      layoutRequestToken: 0,
+      pendingSnapshotLayoutToken: null,
+      userCameraLocked: false,
+      hasAutoFit: true,
+      pushEvent: vi.fn(),
+      summary: {textContent: "accepted scene"},
+    }
+    const deps = {
+      prepareGraphLayout: vi.fn()
+        .mockRejectedValueOnce(new Error("ELK worker crashed"))
+        .mockResolvedValueOnce(recoveredGraph),
+      renderGraph: vi.fn(),
+    }
+    const ctx = createStateBackedContext(state, deps)
+    Object.assign(ctx, bindApi(ctx, godViewLifecycleDomSetupMethods))
+
+    expect(await ctx.requestTopologyProfileLayout(previousGraph, "portrait")).toBe(false)
+
+    expect(state.lastGraph).toBe(previousGraph)
+    expect(state.summary.textContent).toBe("layout resize failed: Error: ELK worker crashed")
+    expect(state.managedTopologyCameraErrorActive).toBe(true)
+    expect(state.managedTopologyCameraErrorPreviousSummary).toBe("accepted scene")
+    expect(state.pushEvent).toHaveBeenCalledWith("god_view_stream_error", {
+      reason: "layout_error",
+      message: "Error: ELK worker crashed",
+    })
+
+    state.pendingViewportProfileKey = "portrait"
+    expect(await ctx.requestTopologyProfileLayout(previousGraph, "portrait")).toBe(true)
+
+    expect(state.lastGraph).toBe(recoveredGraph)
+    expect(state.summary.textContent).toBe("accepted scene")
+    expect(state.managedTopologyCameraErrorActive).toBe(false)
+    expect(state.managedTopologyCameraErrorPreviousSummary).toBeNull()
+    expect(deps.renderGraph).toHaveBeenCalledWith(recoveredGraph)
+  })
+
+  it("rolls back a profile layout whose render throws and accepts a later retry", async () => {
+    const previousGraph = {
+      _layoutMode: "elk-scene",
+      _layoutCacheKey: "accepted-landscape-layout",
+      _topologyScene: {profileKey: "landscape"},
+      nodes: [{id: "positioned", x: 10, y: 20}],
+      edges: [],
+    }
+    const failedGraph = {
+      _layoutMode: "elk-scene",
+      _layoutCacheKey: "failed-portrait-layout",
+      _topologyScene: {profileKey: "portrait"},
+      nodes: [{id: "failed", x: 30, y: 40}],
+      edges: [],
+    }
+    const recoveredGraph = {
+      _layoutMode: "elk-scene",
+      _layoutCacheKey: "accepted-portrait-layout",
+      _topologyScene: {profileKey: "portrait"},
+      nodes: [{id: "recovered", x: 50, y: 60}],
+      edges: [],
+    }
+    const previousViewState = {target: [10, 20, 0], zoom: 1, minZoom: -2, maxZoom: 5}
+    const previousLayerFrame = {effective: previousGraph}
+    const previousConstraintsCache = {graph: previousGraph, scene: previousGraph._topologyScene}
+    const previousConstraintsLayoutCache = new Map([["accepted-layout", previousConstraintsCache]])
+    const previousRouteDiagnostics = [{routeId: "accepted"}]
+    const previousLabelFallbackIds = ["accepted-label"]
+    const previousVisibilityMask = Uint8Array.from([1, 0])
+    const previousTraversalMask = Uint8Array.from([1, 1])
+    const previousPacketFlowCache = [{edgeIndex: 0}]
+    const state = {
+      lastGraph: previousGraph,
+      lastRevision: 8,
+      lastTopologyStamp: "same-graph",
+      layoutMode: "elk-scene",
+      layoutRevision: 8,
+      lastLayoutKey: "accepted-landscape-layout",
+      viewportProfileKey: "landscape",
+      pendingViewportProfileKey: "portrait",
+      layoutRequestToken: 0,
+      pendingSnapshotLayoutToken: null,
+      userCameraLocked: false,
+      hasAutoFit: true,
+      isProgrammaticViewUpdate: false,
+      viewState: previousViewState,
+      zoomTier: "local",
+      managedTopologySceneForMinZoom: previousGraph._topologyScene,
+      managedTopologySceneMinZoom: -1.5,
+      managedTopologySceneMinZoomKey: "layout:accepted-landscape-layout",
+      managedTopologyVisualDensity: "overview",
+      managedTopologyDensityConstraintsCache: previousConstraintsCache,
+      managedTopologyDensityConstraintsLayoutCache: previousConstraintsLayoutCache,
+      lastGraphLayerFrame: previousLayerFrame,
+      lastVisibleNodeCount: 1,
+      lastVisibleEdgeCount: 0,
+      hoveredEdgeKey: "accepted:hovered",
+      selectedEdgeKey: "accepted:selected",
+      topologyRouteDiagnostics: previousRouteDiagnostics,
+      topologyLabelDetailsFallbackIds: previousLabelFallbackIds,
+      lastDetailsHtml: "accepted details",
+      visibilityMaskBuffer: previousVisibilityMask,
+      traversalMaskBuffer: previousTraversalMask,
+      wasmReady: true,
+      packetFlowCache: previousPacketFlowCache,
+      packetFlowCacheStamp: "accepted-flow",
+      layers: {atmosphere: true},
+      pushEvent: vi.fn(),
+      summary: {textContent: "accepted scene"},
+    }
+    let onscreenGraph = previousGraph
+    const deps = {
+      prepareGraphLayout: vi.fn()
+        .mockResolvedValueOnce(failedGraph)
+        .mockResolvedValueOnce(recoveredGraph),
+      renderGraph: vi.fn((graph) => {
+        onscreenGraph = graph
+        if (graph !== failedGraph) return
+        state.hasAutoFit = true
+        state.isProgrammaticViewUpdate = true
+        state.viewState = {target: [30, 40, 0], zoom: 3, minZoom: 2, maxZoom: 5}
+        state.managedTopologyDensityConstraintsCache = {graph: failedGraph}
+        state.managedTopologyDensityConstraintsLayoutCache = new Map([["failed-layout", {graph: failedGraph}]])
+        state.managedTopologySceneForMinZoom = failedGraph._topologyScene
+        state.managedTopologySceneMinZoom = 2
+        state.managedTopologySceneMinZoomKey = "layout:failed-portrait-layout"
+        state.managedTopologyVisualDensity = "detail"
+        state.zoomTier = "regional"
+        state.lastGraphLayerFrame = {effective: failedGraph}
+        state.lastVisibleNodeCount = 9
+        state.lastVisibleEdgeCount = 7
+        state.hoveredEdgeKey = null
+        state.selectedEdgeKey = null
+        state.topologyRouteDiagnostics = [{routeId: "failed"}]
+        state.topologyLabelDetailsFallbackIds = ["failed-label"]
+        state.lastDetailsHtml = "failed details"
+        state.visibilityMaskBuffer.fill(0)
+        state.traversalMaskBuffer.fill(0)
+        state.wasmReady = false
+        state.packetFlowCache = [{edgeIndex: 9}]
+        state.packetFlowCacheStamp = "failed-flow"
+        state.layers.atmosphere = false
+        throw new RangeError("portrait camera infeasible")
+      }),
+    }
+    const ctx = createStateBackedContext(state, deps)
+    Object.assign(ctx, bindApi(ctx, godViewLifecycleDomSetupMethods))
+
+    expect(await ctx.requestTopologyProfileLayout(previousGraph, "portrait")).toBe(false)
+
+    expect(onscreenGraph).toBe(previousGraph)
+    expect(state.lastGraph).toBe(previousGraph)
+    expect(state.layoutMode).toBe("elk-scene")
+    expect(state.layoutRevision).toBe(8)
+    expect(state.lastLayoutKey).toBe("accepted-landscape-layout")
+    expect(state.viewportProfileKey).toBe("landscape")
+    expect(state.pendingViewportProfileKey).toBe(null)
+    expect(state.hasAutoFit).toBe(true)
+    expect(state.isProgrammaticViewUpdate).toBe(false)
+    expect(state.viewState).toBe(previousViewState)
+    expect(state.managedTopologyDensityConstraintsCache).toBe(previousConstraintsCache)
+    expect(state.managedTopologyDensityConstraintsLayoutCache).toBe(previousConstraintsLayoutCache)
+    expect(state.managedTopologySceneForMinZoom).toBe(previousGraph._topologyScene)
+    expect(state.managedTopologySceneMinZoom).toBe(-1.5)
+    expect(state.managedTopologySceneMinZoomKey).toBe("layout:accepted-landscape-layout")
+    expect(state.managedTopologyVisualDensity).toBe("overview")
+    expect(state.zoomTier).toBe("local")
+    expect(state.lastGraphLayerFrame).toBe(previousLayerFrame)
+    expect(state.lastVisibleNodeCount).toBe(1)
+    expect(state.lastVisibleEdgeCount).toBe(0)
+    expect(state.hoveredEdgeKey).toBe("accepted:hovered")
+    expect(state.selectedEdgeKey).toBe("accepted:selected")
+    expect(state.topologyRouteDiagnostics).toBe(previousRouteDiagnostics)
+    expect(state.topologyLabelDetailsFallbackIds).toBe(previousLabelFallbackIds)
+    expect(state.lastDetailsHtml).toBe("accepted details")
+    expect(state.visibilityMaskBuffer).toBe(previousVisibilityMask)
+    expect(Array.from(state.visibilityMaskBuffer)).toEqual([1, 0])
+    expect(state.traversalMaskBuffer).toBe(previousTraversalMask)
+    expect(Array.from(state.traversalMaskBuffer)).toEqual([1, 1])
+    expect(state.wasmReady).toBe(true)
+    expect(state.packetFlowCache).toBe(previousPacketFlowCache)
+    expect(state.packetFlowCacheStamp).toBe("accepted-flow")
+    expect(state.layers.atmosphere).toBe(true)
+    expect(state.summary.textContent).toBe("topology render unavailable")
+    expect(state.managedTopologyCameraErrorActive).toBe(true)
+    expect(state.managedTopologyCameraErrorPreviousSummary).toBe("accepted scene")
+    expect(state.pushEvent).toHaveBeenCalledWith("god_view_stream_error", {
+      reason: "render_error",
+      message: "RangeError: portrait camera infeasible",
+    })
+
+    state.pendingViewportProfileKey = "portrait"
+    expect(await ctx.requestTopologyProfileLayout(previousGraph, "portrait")).toBe(true)
+
+    expect(onscreenGraph).toBe(recoveredGraph)
+    expect(state.lastGraph).toBe(recoveredGraph)
+    expect(state.layoutRevision).toBe(8)
+    expect(state.lastLayoutKey).toBe("accepted-portrait-layout")
+    expect(state.viewportProfileKey).toBe("portrait")
+    expect(state.pendingViewportProfileKey).toBe(null)
+    expect(state.summary.textContent).toBe("accepted scene")
+    expect(state.managedTopologyCameraErrorActive).toBe(false)
+    expect(state.managedTopologyCameraErrorPreviousSummary).toBeNull()
+  })
+
   it("user-locked resize updates Deck and label projection without auto-refitting", () => {
+    const graph = {_layoutMode: "elk-scene", _topologyScene: {profileKey: "landscape"}}
     const state = {
       el: {
         clientWidth: 980,
@@ -141,14 +951,17 @@ describe("lifecycle_dom_setup_methods", () => {
       },
       canvas: {style: {}},
       deck: {setProps: vi.fn(), redraw: vi.fn()},
-      lastGraph: {_layoutMode: "elk-scene", _topologyScene: {profileKey: "landscape"}},
+      lastGraph: graph,
       viewportWidth: 900,
       viewportHeight: 600,
       viewportProfileKey: "landscape",
       userCameraLocked: true,
+      viewState: {zoom: 0, target: [20, 30, 0]},
+      managedTopologyVisualDensity: "detail",
     }
     const deps = {
       autoFitViewState: vi.fn(),
+      managedVisualDensityForViewScale: vi.fn(() => ({managedVisualDensity: "overview"})),
       refreshGraphLayersForViewState: vi.fn(),
       prepareGraphLayout: vi.fn(),
     }
@@ -159,6 +972,13 @@ describe("lifecycle_dom_setup_methods", () => {
 
     expect(state.deck.setProps).toHaveBeenCalledWith({width: 980, height: 600})
     expect(deps.autoFitViewState).not.toHaveBeenCalled()
+    expect(deps.managedVisualDensityForViewScale).toHaveBeenCalledWith(
+      graph,
+      1,
+      {safeRect: {left: 0, top: 0, right: 980, bottom: 600}},
+    )
+    expect(state.managedTopologyVisualDensity).toBe("overview")
+    expect(state.viewState).toEqual({zoom: 0, target: [20, 30, 0]})
     expect(deps.refreshGraphLayersForViewState).toHaveBeenCalledTimes(1)
     expect(deps.prepareGraphLayout).not.toHaveBeenCalled()
   })
@@ -241,9 +1061,151 @@ describe("lifecycle_dom_setup_methods", () => {
     expect(state.userCameraLocked).toBe(true)
   })
 
+  it("contains an infeasible managed Deck camera update and preserves accepted state", () => {
+    const acceptedViewState = {zoom: 0, minZoom: -8, maxZoom: 5, target: [20, 30, 0]}
+    const graph = {_layoutMode: "elk-scene", _topologyScene: {routes: []}, nodes: []}
+    const state = {
+      canvas: {},
+      visual: {bg: [10, 10, 10, 255]},
+      layers: {atmosphere: false},
+      deck: {setProps: vi.fn()},
+      lastGraph: graph,
+      viewState: acceptedViewState,
+      managedTopologyVisualDensity: "detail",
+      userCameraLocked: false,
+      isProgrammaticViewUpdate: false,
+      zoomMode: "local",
+      summary: {textContent: "accepted topology"},
+      pushEvent: vi.fn(),
+    }
+    const deps = {
+      getNodeTooltip: vi.fn(),
+      handleHover: vi.fn(),
+      handlePick: vi.fn(),
+      managedViewStateForCamera: vi.fn(() => {
+        throw new RangeError("no feasible managed visual density")
+      }),
+      refreshGraphLayersForViewState: vi.fn(),
+    }
+    const ctx = createStateBackedContext(state, deps)
+    Object.assign(ctx, bindApi(ctx, godViewLifecycleDomSetupMethods))
+    const instance = ctx.createDeckInstance(800, 600)
+
+    let callbackResult = null
+    expect(() => {
+      callbackResult = instance.props.onViewStateChange({
+        viewState: {...acceptedViewState, zoom: 2},
+      })
+    }).not.toThrow()
+
+    expect(state.viewState).toBe(acceptedViewState)
+    expect(callbackResult).toBe(acceptedViewState)
+    expect(state.managedTopologyVisualDensity).toBe("detail")
+    expect(state.userCameraLocked).toBe(false)
+    expect(state.summary.textContent).toBe("topology render unavailable")
+    expect(state.pushEvent).toHaveBeenCalledWith("god_view_stream_error", {
+      reason: "render_error",
+      message: "RangeError: no feasible managed visual density",
+    })
+  })
+
+  it("returns the accepted managed camera so Deck does not adopt the raw uncontrolled input", () => {
+    const acceptedViewState = {zoom: 0, minZoom: -8, maxZoom: 5, target: [20, 30, 0]}
+    const rawViewState = {...acceptedViewState, zoom: -10}
+    const clampedViewState = {...rawViewState, zoom: -2}
+    const graph = {_layoutMode: "elk-scene", _topologyScene: {routes: []}, nodes: []}
+    const state = {
+      canvas: {},
+      visual: {bg: [10, 10, 10, 255]},
+      deck: {setProps: vi.fn()},
+      lastGraph: graph,
+      viewState: acceptedViewState,
+      managedTopologyVisualDensity: "detail",
+      userCameraLocked: false,
+      isProgrammaticViewUpdate: false,
+      zoomMode: "local",
+    }
+    const deps = {
+      getNodeTooltip: vi.fn(),
+      handleHover: vi.fn(),
+      handlePick: vi.fn(),
+      managedViewStateForCamera: vi.fn(() => ({
+        viewState: clampedViewState,
+        managedVisualDensity: "overview",
+      })),
+      refreshGraphLayersForViewState: vi.fn(),
+    }
+    const ctx = createStateBackedContext(state, deps)
+    Object.assign(ctx, bindApi(ctx, godViewLifecycleDomSetupMethods))
+    const instance = ctx.createDeckInstance(800, 600)
+
+    const callbackResult = instance.props.onViewStateChange({viewState: rawViewState})
+    const deckAdoptedViewState = callbackResult || rawViewState
+
+    expect(state.viewState).toBe(clampedViewState)
+    expect(state.managedTopologyVisualDensity).toBe("overview")
+    expect(deckAdoptedViewState).toBe(clampedViewState)
+  })
+
+  it("contains a deferred managed layer-refresh failure without rejecting the accepted camera", () => {
+    const originalQueueMicrotask = globalThis.queueMicrotask
+    let queuedRefresh = null
+    globalThis.queueMicrotask = (callback) => {
+      queuedRefresh = callback
+    }
+    const acceptedViewState = {zoom: 0, minZoom: -8, maxZoom: 5, target: [20, 30, 0]}
+    const nextViewState = {...acceptedViewState, zoom: 1}
+    const graph = {_layoutMode: "elk-scene", _topologyScene: {routes: []}, nodes: []}
+    const state = {
+      canvas: {},
+      visual: {bg: [10, 10, 10, 255]},
+      deck: {setProps: vi.fn()},
+      lastGraph: graph,
+      viewState: acceptedViewState,
+      managedTopologyVisualDensity: "detail",
+      userCameraLocked: false,
+      isProgrammaticViewUpdate: false,
+      zoomMode: "local",
+      summary: {textContent: "accepted topology"},
+      pushEvent: vi.fn(),
+    }
+    const deps = {
+      getNodeTooltip: vi.fn(),
+      handleHover: vi.fn(),
+      handlePick: vi.fn(),
+      managedViewStateForCamera: vi.fn(() => ({
+        viewState: nextViewState,
+        managedVisualDensity: "detail",
+      })),
+      refreshGraphLayersForViewState: vi.fn(() => {
+        throw new Error("projection failed")
+      }),
+    }
+    const ctx = createStateBackedContext(state, deps)
+    Object.assign(ctx, bindApi(ctx, godViewLifecycleDomSetupMethods))
+
+    try {
+      const instance = ctx.createDeckInstance(800, 600)
+      expect(instance.props.onViewStateChange({viewState: nextViewState})).toBe(nextViewState)
+      expect(typeof queuedRefresh).toBe("function")
+
+      expect(() => queuedRefresh()).not.toThrow()
+
+      expect(state.viewState).toBe(nextViewState)
+      expect(state.managedTopologyVisualDensity).toBe("detail")
+      expect(state.summary.textContent).toBe("topology render unavailable")
+      expect(state.pushEvent).toHaveBeenCalledWith("god_view_stream_error", {
+        reason: "render_error",
+        message: "Error: projection failed",
+      })
+    } finally {
+      globalThis.queueMicrotask = originalQueueMicrotask
+    }
+  })
+
   it("recomputes label admission for same-tier pan and zoom without reshaping or laying out", async () => {
     const scene = {routes: []}
-    const effective = {shape: "regional", _layoutMode: "elk-scene", _topologyScene: scene}
+    const effective = {shape: "local", _layoutMode: "elk-scene", _topologyScene: scene}
     const nodeData = [{
       index: 0,
       id: "router",
@@ -347,7 +1309,9 @@ describe("lifecycle_dom_setup_methods", () => {
     expect(effective._topologyScene).toBe(scene)
   })
 
-  it("switches managed density and display shape together without changing accepted ELK geometry", async () => {
+  it.each(["auto", "local", "global", "regional"])(
+    "switches managed density in %s mode without changing local ELK semantics",
+    async (zoomMode) => {
     const routePoints = Object.freeze([
       Object.freeze({x: 0, y: 0}),
       Object.freeze({x: 192, y: 0}),
@@ -375,11 +1339,12 @@ describe("lifecycle_dom_setup_methods", () => {
       canvas: {},
       visual: {bg: [10, 10, 10, 255]},
       layers: {atmosphere: false},
-      viewState: {zoom: -1, target: [96, 0, 0]},
+      viewState: {zoom: -1, minZoom: -8, maxZoom: 5, target: [96, 0, 0]},
       isProgrammaticViewUpdate: false,
       userCameraLocked: false,
-      zoomMode: "auto",
+      zoomMode,
       zoomTier: "local",
+      managedTopologyCameraBaseMinZoom: -8,
       managedTopologyVisualDensity: "detail",
       lastGraph: graph,
       lastGraphLayerFrame: {
@@ -407,6 +1372,7 @@ describe("lifecycle_dom_setup_methods", () => {
       setZoomTier: vi.fn(),
       resolveZoomTier: vi.fn(() => "local"),
       managedVisualDensityForViewScale: renderingContext.managedVisualDensityForViewScale,
+      managedViewStateForCamera: (...args) => renderingContext.managedViewStateForCamera(...args),
       refreshGraphLayersForViewState,
     }
     const lifecycleContext = createStateBackedContext(state, deps)
@@ -414,15 +1380,19 @@ describe("lifecycle_dom_setup_methods", () => {
     const deckInstance = lifecycleContext.createDeckInstance(1000, 700)
     const originalGeometry = JSON.stringify(scene)
 
-    deckInstance.props.onViewStateChange({viewState: {zoom: Math.log2(0.15), target: [96, 0, 0]}})
+    deckInstance.props.onViewStateChange({
+      viewState: {...state.viewState, zoom: Math.log2(0.15), target: [96, 0, 0]},
+    })
     await Promise.resolve()
     expect(state.managedTopologyVisualDensity).toBe("overview")
-    expect(state.lastGraphLayerFrame.effective.shape).toBe("global")
+    expect(state.lastGraphLayerFrame.effective.shape).toBe("local")
     expect(state.lastGraphLayerFrame.effective._topologyScene).toBe(scene)
     expect(state.lastGraphLayerFrame.effective.nodes).toBe(graphNodes)
     expect(state.lastGraphLayerFrame.effective._topologyScene.routes).toBe(routes)
 
-    deckInstance.props.onViewStateChange({viewState: {zoom: Math.log2(0.25), target: [96, 0, 0]}})
+    deckInstance.props.onViewStateChange({
+      viewState: {...state.viewState, zoom: Math.log2(0.25), target: [96, 0, 0]},
+    })
     await Promise.resolve()
     expect(state.managedTopologyVisualDensity).toBe("detail")
     expect(state.lastGraphLayerFrame.effective.shape).toBe("local")

@@ -5,6 +5,7 @@ import {
   focusTopologyGroup,
   measureGodViewSafeRect,
   normalizeGodViewSafeRect,
+  topologyGroupFocusScene,
 } from "./rendering_scene_view"
 import {admitTopologyLabels} from "./rendering_label_collision"
 
@@ -82,6 +83,47 @@ describe("rendering_scene_view", () => {
 
     expect(measureGodViewSafeRect(el)).toEqual({left: 0, top: 0, right: 1000, bottom: 594})
     expect(el.querySelectorAll).toHaveBeenCalledTimes(1)
+  })
+
+  it("measures the production sibling control panel from the marked safe-area root", () => {
+    const controls = {
+      getAttribute: vi.fn(() => "right"),
+      getBoundingClientRect: () => ({left: 860, top: 52, right: 1088, bottom: 300, width: 228, height: 248}),
+    }
+    const safeRoot = {
+      querySelectorAll: vi.fn(() => [controls]),
+    }
+    const el = {
+      clientWidth: 1000,
+      clientHeight: 660,
+      getBoundingClientRect: () => ({left: 100, top: 40, right: 1100, bottom: 700, width: 1000, height: 660}),
+      closest: vi.fn(() => safeRoot),
+      querySelectorAll: vi.fn(() => []),
+    }
+
+    expect(measureGodViewSafeRect(el)).toEqual({left: 0, top: 0, right: 752, bottom: 660})
+    expect(el.closest).toHaveBeenCalledWith("[data-god-view-safe-root]")
+    expect(safeRoot.querySelectorAll).toHaveBeenCalledWith(
+      "[data-god-view-safe-area], .sr-god-view-map-controls",
+    )
+  })
+
+  it("reserves declared top warning and left details chrome for scene fitting", () => {
+    const warning = {
+      getAttribute: vi.fn(() => "top"),
+      getBoundingClientRect: () => ({left: 300, top: 52, right: 650, bottom: 100, width: 350, height: 48}),
+    }
+    const details = {
+      getAttribute: vi.fn(() => "left"),
+      getBoundingClientRect: () => ({left: 112, top: 130, right: 412, bottom: 400, width: 300, height: 270}),
+    }
+    const safeRoot = {querySelectorAll: vi.fn(() => [warning, details])}
+    const el = {
+      getBoundingClientRect: () => ({left: 100, top: 40, right: 1100, bottom: 700, width: 1000, height: 660}),
+      closest: vi.fn(() => safeRoot),
+    }
+
+    expect(measureGodViewSafeRect(el)).toEqual({left: 320, top: 68, right: 1000, bottom: 660})
   })
 
   it("falls back to nonzero client dimensions when the DOM rect is collapsed", () => {
@@ -191,6 +233,22 @@ describe("rendering_scene_view", () => {
       safeRect: {left: 0, top: 0, right: 1000, bottom: 300},
       glyphBoxes: nodes.map((node) => ({nodeId: node.id, width: 52, height: 52})),
     })).toThrow(/glyph separation.*dense-0.*dense-1.*axis=x.*requires scale=.*available containment scale=/i)
+  })
+
+  it("rejects fitting below a renderer-derived fixed-pixel clearance floor", () => {
+    const scene = {
+      bounds: {minX: 0, minY: 0, maxX: 1000, maxY: 100},
+      nodes: [],
+      groups: [],
+      routes: [],
+    }
+
+    expect(() => fitTopologyScene({
+      scene,
+      viewport: {width: 100, height: 100, minZoom: -8, maxZoom: 5},
+      safeRect: {left: 0, top: 0, right: 100, bottom: 100},
+      minimumScale: 0.2,
+    })).toThrow(/fixed-pixel clearance requires scale=0.2.*available containment scale=/i)
   })
 
   it("keeps fixed-pixel routed stroke extents inside the safe rectangle", () => {
@@ -305,6 +363,112 @@ describe("rendering_scene_view", () => {
     expect(anchor[0]).toBeGreaterThanOrEqual(safeRect.left - 1)
     expect(anchor[1]).toBeGreaterThanOrEqual(safeRect.top - 1)
     expect(unrelated[0]).toBeGreaterThan(safeRect.right + 1000)
+  })
+
+  it("includes every selected-member branch and its associated manifold paths in focus geometry", () => {
+    const scene = expandedScene()
+    const memberRoute = {
+      id: "member-link",
+      sourceId: "member-top",
+      targetId: "member-bottom",
+      sourceManifoldId: "manifold:member-top:source",
+      points: [{x: 920, y: 144}, {x: 920, y: 376}],
+    }
+    const manifoldRail = {
+      id: "manifold:member-top:source:rail",
+      sourceId: "member-top",
+      targetId: "member-top",
+      auxiliary: true,
+      semanticRouteIds: ["member-link"],
+      points: [{x: 880, y: 120}, {x: 960, y: 120}],
+    }
+    scene.routes.push(memberRoute)
+    scene.physicalRoutes = [...scene.routes, manifoldRail]
+    scene.manifolds = [{id: "manifold:member-top:source", semanticRouteIds: ["member-link"]}]
+
+    const focused = topologyGroupFocusScene(scene, "group-a")
+
+    expect(focused.routes.map((route) => route.id).sort()).toEqual(["member-link", "trunk"])
+    expect(focused.physicalRoutes.map((route) => route.id).sort()).toEqual([
+      "manifold:member-top:source:rail",
+      "member-link",
+      "trunk",
+    ])
+    expect(focused.manifolds.map((manifold) => manifold.id)).toEqual([
+      "manifold:member-top:source",
+    ])
+  })
+
+  it("fits every anchor-incident external glyph, physical path, and admitted label in the focused neighborhood", () => {
+    const scene = expandedScene()
+    const external = {id: "external-gateway", center: {x: 4000, y: 250}, width: 112, height: 112}
+    const externalRoute = {
+      id: "anchor-external",
+      sourceId: "anchor",
+      targetId: external.id,
+      points: [{x: 136, y: 250}, {x: 3944, y: 250}],
+    }
+    const externalRail = {
+      id: "manifold:external-gateway:target:rail",
+      sourceId: external.id,
+      targetId: external.id,
+      auxiliary: true,
+      semanticRouteIds: [externalRoute.id],
+      points: [{x: 3944, y: 100}, {x: 3944, y: 400}],
+    }
+    scene.nodes.push(external)
+    scene.routes.push(externalRoute)
+    scene.physicalRoutes = [...scene.routes, externalRail]
+    scene.manifolds = [{id: "manifold:external-gateway:target", semanticRouteIds: [externalRoute.id]}]
+
+    const focused = topologyGroupFocusScene(scene, "group-a")
+
+    expect(focused.nodes.map((node) => node.id)).toContain(external.id)
+    expect(focused.routes.map((route) => route.id)).toContain(externalRoute.id)
+    expect(focused.physicalRoutes.map((route) => route.id)).toContain(externalRail.id)
+    expect(focused.manifolds.map((manifold) => manifold.id)).toContain(
+      "manifold:external-gateway:target",
+    )
+
+    const viewport = {width: 1800, height: 700, minZoom: -8, maxZoom: 5}
+    const safeRect = {left: 40, top: 30, right: 1700, bottom: 610}
+    let admittedLabel = null
+    const viewState = focusTopologyGroup({
+      scene,
+      groupId: "group-a",
+      viewport,
+      safeRect,
+      glyphBoxForNode: (node) => ({nodeId: node.id, width: 52, height: 52}),
+      routeStrokeWidth: 10,
+      admitLabels: ({scene: neighborhood, viewState: candidate}) => {
+        if (!neighborhood.nodes.some((node) => node.id === external.id)) return []
+        const [x, y] = project(external.center, candidate, viewport)
+        admittedLabel = {nodeId: external.id, box: {left: x + 30, top: y - 9, right: x + 190, bottom: y + 9}}
+        return [admittedLabel]
+      },
+    })
+
+    for (const node of focused.nodes.filter((candidate) => candidate.render !== false)) {
+      const [x, y] = project(node.center, viewState, viewport)
+      expect(x - 26).toBeGreaterThanOrEqual(safeRect.left - 1)
+      expect(y - 26).toBeGreaterThanOrEqual(safeRect.top - 1)
+      expect(x + 26).toBeLessThanOrEqual(safeRect.right + 1)
+      expect(y + 26).toBeLessThanOrEqual(safeRect.bottom + 1)
+    }
+    for (const route of focused.physicalRoutes) {
+      for (const point of route.points) {
+        const [x, y] = project(point, viewState, viewport)
+        expect(x - 5).toBeGreaterThanOrEqual(safeRect.left - 1)
+        expect(y - 5).toBeGreaterThanOrEqual(safeRect.top - 1)
+        expect(x + 5).toBeLessThanOrEqual(safeRect.right + 1)
+        expect(y + 5).toBeLessThanOrEqual(safeRect.bottom + 1)
+      }
+    }
+    expect(admittedLabel).toBeTruthy()
+    expect(admittedLabel.box.left).toBeGreaterThanOrEqual(safeRect.left - 1)
+    expect(admittedLabel.box.top).toBeGreaterThanOrEqual(safeRect.top - 1)
+    expect(admittedLabel.box.right).toBeLessThanOrEqual(safeRect.right + 1)
+    expect(admittedLabel.box.bottom).toBeLessThanOrEqual(safeRect.bottom + 1)
   })
 
   it("excludes a non-rendered neighborhood node from focus glyph feasibility", () => {

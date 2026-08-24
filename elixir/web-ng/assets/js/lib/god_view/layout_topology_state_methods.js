@@ -117,6 +117,36 @@ function topologySceneGeometry(scene) {
     routes: (scene.routes || []).map((route) => ({
       id: route.id,
       points: (route.points || []).map((point) => ({...point})),
+      sourceContactId: route.sourceContactId,
+      targetContactId: route.targetContactId,
+      sourceManifoldId: route.sourceManifoldId,
+      targetManifoldId: route.targetManifoldId,
+      junctions: (route.junctions || []).map((junction) => ({
+        id: junction.id,
+        point: {...junction.point},
+      })),
+    })),
+    manifolds: (scene.manifolds || []).map((manifold) => ({
+      ...manifold,
+      nodeContact: {...manifold.nodeContact},
+      trunkContact: {...manifold.trunkContact},
+      trunkPoints: (manifold.trunkPoints || []).map((point) => ({...point})),
+      railPoints: (manifold.railPoints || []).map((point) => ({...point})),
+      branchContacts: (manifold.branchContacts || []).map((branch) => ({
+        ...branch,
+        point: {...branch.point},
+      })),
+      relationIds: undefined,
+    })),
+    auxiliaryRoutes: (scene.physicalRoutes || []).filter((route) => route.auxiliary).map((route) => ({
+      ...route,
+      points: (route.points || []).map((point) => ({...point})),
+      junctions: (route.junctions || []).map((junction) => ({
+        id: junction.id,
+        point: {...junction.point},
+      })),
+      relationIds: undefined,
+      metadata: undefined,
     })),
     bounds: {...scene.bounds},
   }
@@ -169,16 +199,38 @@ function topologySceneFromGeometry(sceneInput, profile, geometry) {
       sourceId: route.sourceId,
       targetId: route.targetId,
       points: cached.points,
+      sourceContactId: cached.sourceContactId,
+      targetContactId: cached.targetContactId,
+      ...(cached.sourceManifoldId ? {sourceManifoldId: cached.sourceManifoldId} : {}),
+      ...(cached.targetManifoldId ? {targetManifoldId: cached.targetManifoldId} : {}),
+      junctions: cached.junctions || [],
       relationIds: [...(route.relationIds || [])].sort((left, right) => left.localeCompare(right)),
       metadata: route.metadata && typeof route.metadata === "object" ? {...route.metadata} : {},
     }
   })
   if (nodes.includes(null) || groups.includes(null) || routes.includes(null)) return null
 
+  const currentRouteById = new Map(routes.map((route) => [route.id, route]))
+  const relationIdsForRoutes = (routeIds) => Array.from(new Set((routeIds || []).flatMap(
+    (routeId) => currentRouteById.get(routeId)?.relationIds || [],
+  ))).sort((left, right) => left.localeCompare(right))
+  const manifolds = (geometry.manifolds || []).map((manifold) => ({
+    ...manifold,
+    relationIds: relationIdsForRoutes(manifold.semanticRouteIds),
+  }))
+  const auxiliaryRoutes = (geometry.auxiliaryRoutes || []).map((route) => ({
+    ...route,
+    relationIds: relationIdsForRoutes(route.semanticRouteIds),
+    metadata: {},
+  }))
+  const physicalRoutes = [...routes, ...auxiliaryRoutes]
+
   return immutableTopologyScene({
     nodes,
     groups,
     routes,
+    manifolds,
+    physicalRoutes,
     bounds: geometry.bounds,
     key: `${sceneInput.graphKey}:${profile.key}`,
     graphKey: sceneInput.graphKey,

@@ -221,7 +221,7 @@ describe("layout_cluster_methods", () => {
     expect(ctx.reclusterByGrid).not.toHaveBeenCalled()
   })
 
-  it("maps accepted ELK visual density to display shape without reclustering geometry", () => {
+  it("keeps accepted ELK semantic shape local across visual-density changes", () => {
     const graph = {
       shape: "regional",
       _layoutMode: "elk-scene",
@@ -237,7 +237,7 @@ describe("layout_cluster_methods", () => {
     ctx.state.managedTopologyVisualDensity = "detail"
     const detail = ctx.reshapeGraph(graph)
 
-    expect(overview).toEqual({...graph, shape: "global"})
+    expect(overview).toEqual({...graph, shape: "local"})
     expect(detail).toEqual({...graph, shape: "local"})
     expect(overview._topologyScene).toBe(graph._topologyScene)
     expect(overview.nodes).toBe(graph.nodes)

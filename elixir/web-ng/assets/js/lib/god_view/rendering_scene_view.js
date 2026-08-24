@@ -3,6 +3,8 @@ const BROWSER_TOLERANCE_PX = 1
 const DEFAULT_MIN_ZOOM = -3
 const DEFAULT_MAX_ZOOM = 5
 const CONSERVATIVE_ROUTE_STROKE_PX = 38
+const GOD_VIEW_SAFE_AREA_SELECTOR = "[data-god-view-safe-area], .sr-god-view-map-controls"
+const GOD_VIEW_SAFE_ROOT_SELECTOR = "[data-god-view-safe-root]"
 
 function finiteNumber(value, fallback = 0) {
   const number = Number(value)
@@ -36,6 +38,14 @@ export function normalizeGodViewSafeRect(safeRect, viewport) {
   return {left, top, right, bottom}
 }
 
+export function godViewSafeAreaRoot(el) {
+  return el?.closest?.(GOD_VIEW_SAFE_ROOT_SELECTOR) || el
+}
+
+export function godViewSafeAreaElements(el) {
+  return Array.from(godViewSafeAreaRoot(el)?.querySelectorAll?.(GOD_VIEW_SAFE_AREA_SELECTOR) || [])
+}
+
 /**
  * Measures the canvas-local rectangle that does not sit under God-View chrome.
  * Chrome is assigned to its nearest container edge; vertical edges win corner
@@ -46,7 +56,7 @@ export function measureGodViewSafeRect(el) {
   const safe = {left: 0, top: 0, right: container.width, bottom: container.height}
   if (container.width <= 0 || container.height <= 0) return safe
 
-  const chrome = Array.from(el?.querySelectorAll?.("[data-god-view-safe-area], .sr-god-view-map-controls") || [])
+  const chrome = godViewSafeAreaElements(el)
   for (const element of chrome) {
     const rect = finiteRect(element?.getBoundingClientRect?.())
     if (rect.width <= 0 || rect.height <= 0) continue
@@ -65,7 +75,11 @@ export function measureGodViewSafeRect(el) {
       {edge: "right", distance: Math.abs(container.width - local.right)},
     ]
     edges.sort((left, right) => left.distance - right.distance)
-    switch (edges[0].edge) {
+    const declaredEdge = element?.getAttribute?.("data-god-view-safe-area")
+    const edge = ["top", "bottom", "left", "right"].includes(declaredEdge)
+      ? declaredEdge
+      : edges[0].edge
+    switch (edge) {
       case "top":
         safe.top = Math.max(safe.top, local.bottom + SAFE_CHROME_GAP_PX)
         break
@@ -108,7 +122,7 @@ function completeSceneBounds(scene) {
       boxes.push(group.bounds)
     }
   }
-  for (const route of scene?.routes || []) {
+  for (const route of scene?.physicalRoutes || scene?.routes || []) {
     for (const point of route?.points || []) {
       if (Number.isFinite(point?.x) && Number.isFinite(point?.y)) {
         boxes.push({minX: point.x, minY: point.y, maxX: point.x, maxY: point.y})
@@ -180,7 +194,7 @@ function glyphSeparationConstraint(glyphSpecs) {
 
 function baseVisualSpecs(scene, glyphBoxes, routeStrokeWidth) {
   const bounds = completeSceneBounds(scene)
-  const routeSpecs = (scene?.routes || []).flatMap((route) => {
+  const routeSpecs = (scene?.physicalRoutes || scene?.routes || []).flatMap((route) => {
     const declaredRouteWidth = Number(routeStrokeWidth)
     const strokeWidth = Number.isFinite(declaredRouteWidth) && declaredRouteWidth > 0
       ? declaredRouteWidth
@@ -216,7 +230,7 @@ function axisExtents(specs, scale, axis) {
   }
 }
 
-function fitVisualSpecs(specs, glyphSpecs, viewport, safeRect, previousViewState = {}) {
+function fitVisualSpecs(specs, glyphSpecs, viewport, safeRect, previousViewState = {}, minimumScale = 0) {
   const width = Math.max(1, finiteNumber(viewport?.width, 1))
   const height = Math.max(1, finiteNumber(viewport?.height, 1))
   const safe = normalizeGodViewSafeRect(safeRect, {width, height})
@@ -226,6 +240,10 @@ function fitVisualSpecs(specs, glyphSpecs, viewport, safeRect, previousViewState
   const safeWidth = safe.right - safe.left
   const safeHeight = safe.bottom - safe.top
   const separation = glyphSeparationConstraint(glyphSpecs)
+  const declaredMinimumScale = Number(minimumScale)
+  if (!Number.isFinite(declaredMinimumScale) || declaredMinimumScale < 0) {
+    throw new RangeError(`topology visual minimum scale must be finite and non-negative; scale=${String(minimumScale)}`)
+  }
   const fits = (scale) => {
     const x = axisExtents(specs, scale, "x")
     const y = axisExtents(specs, scale, "y")
@@ -269,6 +287,12 @@ function fitVisualSpecs(specs, glyphSpecs, viewport, safeRect, previousViewState
     throw new RangeError(
       `topology glyph separation for ${separation.leftId} and ${separation.rightId} on axis=${separation.axis} ` +
       `requires scale=${separation.scale}, but available containment scale=${scale} inside the safe rectangle`,
+    )
+  }
+  if (scale + 1e-9 < declaredMinimumScale) {
+    throw new RangeError(
+      `topology fixed-pixel clearance requires scale=${declaredMinimumScale}, ` +
+      `but available containment scale=${scale} inside the safe rectangle`,
     )
   }
 
@@ -371,6 +395,7 @@ export function fitTopologyScene({
   safeRect,
   glyphBoxes = [],
   routeStrokeWidth,
+  minimumScale = 0,
   admitLabels,
 } = {}) {
   const safe = normalizeGodViewSafeRect(safeRect, viewport)
@@ -380,12 +405,26 @@ export function fitTopologyScene({
   )
   const glyphSpecs = glyphVisualSpecs(scene, glyphBoxes)
   const baseSpecs = baseVisualSpecs(scene, glyphBoxes, routeStrokeWidth)
-  let viewState = fitVisualSpecs(baseSpecs, glyphSpecs, viewport, safe, viewport?.viewState || {})
+  let viewState = fitVisualSpecs(
+    baseSpecs,
+    glyphSpecs,
+    viewport,
+    safe,
+    viewport?.viewState || {},
+    minimumScale,
+  )
   let labels = runAdmission(admitLabels, scene, viewport, canvas, glyphSpecs, viewState)
 
   if (labels.some((label) => !boxInside(label?.box, safe))) {
     const labelSpecs = labelVisualSpecs(scene, labels, viewState, viewport)
-    viewState = fitVisualSpecs([...baseSpecs, ...labelSpecs], glyphSpecs, viewport, safe, viewState)
+    viewState = fitVisualSpecs(
+      [...baseSpecs, ...labelSpecs],
+      glyphSpecs,
+      viewport,
+      safe,
+      viewState,
+      minimumScale,
+    )
     labels = runAdmission(admitLabels, scene, viewport, safe, glyphSpecs, viewState)
   }
 
@@ -397,12 +436,16 @@ export function fitTopologyScene({
 
 function focusScene(scene, group) {
   const nodeById = new Map((scene?.nodes || []).map((node) => [String(node?.id || ""), node]))
-  const descendants = new Set([group?.id, group?.gatewayId, ...(group?.memberIds || [])].map(String))
+  const descendants = new Set([
+    group?.id,
+    group?.anchorId,
+    group?.gatewayId,
+    ...(group?.memberIds || []),
+  ].map(String))
   const trunks = (scene?.routes || []).filter((route) => {
     const sourceId = String(route?.sourceId || "")
     const targetId = String(route?.targetId || "")
-    const anchorId = String(group?.anchorId || "")
-    return (sourceId === anchorId && descendants.has(targetId)) || (targetId === anchorId && descendants.has(sourceId))
+    return descendants.has(sourceId) || descendants.has(targetId)
   })
   const nodeIds = new Set([
     group?.anchorId,
@@ -410,12 +453,32 @@ function focusScene(scene, group) {
     ...(group?.memberIds || []),
     ...trunks.flatMap((route) => [route?.sourceId, route?.targetId]),
   ].map(String))
-  return {
-    bounds: group.bounds,
+  const trunkIds = new Set(trunks.map((route) => String(route?.id || "")))
+  const physicalRoutes = (scene?.physicalRoutes || scene?.routes || []).filter((route) => (
+    trunkIds.has(String(route?.id || "")) ||
+    (route?.semanticRouteIds || []).some((routeId) => trunkIds.has(String(routeId)))
+  ))
+  const manifoldIds = new Set(physicalRoutes.flatMap((route) => [
+    route?.sourceManifoldId,
+    route?.targetManifoldId,
+    String(route?.id || "").endsWith(":trunk") || String(route?.id || "").endsWith(":rail")
+      ? String(route.id).replace(/:(?:trunk|rail)$/, "")
+      : null,
+  ]).filter(Boolean))
+  const neighborhood = {
     nodes: [...nodeIds].map((id) => nodeById.get(id)).filter(Boolean),
     groups: [group],
     routes: trunks,
+    manifolds: (scene?.manifolds || []).filter((manifold) => manifoldIds.has(manifold.id)),
+    physicalRoutes,
   }
+  return {...neighborhood, bounds: completeSceneBounds(neighborhood)}
+}
+
+export function topologyGroupFocusScene(scene, groupId) {
+  const normalizedId = String(groupId || "").trim()
+  const group = (scene?.groups || []).find((candidate) => String(candidate?.id || "") === normalizedId)
+  return group ? focusScene(scene, group) : null
 }
 
 export function focusTopologyGroup({
@@ -425,15 +488,15 @@ export function focusTopologyGroup({
   safeRect,
   glyphBoxForNode,
   routeStrokeWidth,
+  minimumScale = 0,
   admitLabels,
 } = {}) {
   const normalizedId = String(groupId || "").trim()
-  const group = (scene?.groups || []).find((candidate) => String(candidate?.id || "") === normalizedId)
-  if (!group) return null
+  const neighborhood = topologyGroupFocusScene(scene, normalizedId)
+  if (!neighborhood) return null
   if (typeof glyphBoxForNode !== "function") {
     throw new TypeError("topology focus requires a renderer-derived glyph box resolver")
   }
-  const neighborhood = focusScene(scene, group)
   const glyphBoxes = neighborhood.nodes.filter((node) => node?.render !== false).map((node) => {
     const measured = glyphBoxForNode(node)
     if (!measured || typeof measured !== "object") {
@@ -447,6 +510,7 @@ export function focusTopologyGroup({
     safeRect,
     glyphBoxes,
     routeStrokeWidth,
+    minimumScale,
     admitLabels,
   }).viewState
 }

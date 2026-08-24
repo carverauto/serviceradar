@@ -77,6 +77,96 @@ describe("topology_scene_graph", () => {
     expect(new Set(scene.renderedRelations[0].relationIds).size).toEqual(3)
   })
 
+  it("orients attachment routes from infrastructure toward their satellite", () => {
+    const scene = prepareTopologySceneInput({
+      nodes: [
+        {id: "attachment", details: {topology_plane: "attachment"}},
+        {id: "gateway", details: {cluster_kind: "endpoint-anchor"}},
+      ],
+      edges: [{
+        id: "attached:gateway|attachment",
+        source: 0,
+        target: 1,
+        topologyClass: "endpoints",
+        evidenceClass: "endpoint-attachment",
+      }],
+    })
+
+    expect(scene.renderedRelations).toEqual([{
+      id: "rendered:attachment|gateway",
+      sourceId: "gateway",
+      targetId: "attachment",
+      relationIds: ["attached:gateway|attachment"],
+    }])
+  })
+
+  it("treats retained connectivity-forest bridges as transport despite raw attachment provenance", () => {
+    const scene = prepareTopologySceneInput({
+      nodes: [
+        {id: "z-infrastructure", details: {topology_plane: "backbone"}},
+        {id: "a-satellite", details: {topology_plane: "attachment"}},
+      ],
+      edges: [{
+        id: "inferred-bridge",
+        source: 0,
+        target: 1,
+        topologyClass: "inferred",
+        evidenceClass: "inferred",
+        metadata: {
+          relation_type: "INFERRED_TO",
+          topology_plane: "attachment",
+          raw_relation_type: "ATTACHED_TO",
+          raw_evidence_class: "inferred-segment",
+          connectivity_forest_bridge: true,
+        },
+      }],
+    })
+
+    expect(scene.manifest.attachmentEdges).toEqual(0)
+    expect(scene.renderedRelations).toEqual([{
+      id: "rendered:a-satellite|z-infrastructure",
+      sourceId: "a-satellite",
+      targetId: "z-infrastructure",
+      relationIds: ["inferred-bridge"],
+    }])
+  })
+
+  it("chooses aggregate attachment direction independently of contributing edge order", () => {
+    const graph = {
+      nodes: [
+        {id: "z-infra", details: {}},
+        {id: "a-satellite", details: {topology_plane: "attachment"}},
+      ],
+      edges: [
+        {
+          id: "attached",
+          source: 0,
+          target: 1,
+          topologyClass: "endpoints",
+          evidenceClass: "endpoint-attachment",
+        },
+        {
+          id: "direct",
+          source: 1,
+          target: 0,
+          topologyClass: "backbone",
+          evidenceClass: "direct",
+        },
+      ],
+    }
+
+    const attachmentFirst = prepareTopologySceneInput(graph)
+    const directFirst = prepareTopologySceneInput({...graph, edges: [...graph.edges].reverse()})
+
+    expect(directFirst).toEqual(attachmentFirst)
+    expect(attachmentFirst.renderedRelations).toEqual([{
+      id: "rendered:a-satellite|z-infra",
+      sourceId: "z-infra",
+      targetId: "a-satellite",
+      relationIds: ["attached", "direct"],
+    }])
+  })
+
   it("keeps expanded members as layout-only gateway constraints", () => {
     const scene = prepareTopologySceneInput(expandedFarm01Graph())
     const group = scene.groups.find((candidate) => candidate.expanded)

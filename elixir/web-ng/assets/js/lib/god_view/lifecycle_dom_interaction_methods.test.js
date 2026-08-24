@@ -2,6 +2,9 @@ import {afterEach, beforeEach, describe, expect, it, vi} from "vitest"
 
 import {bindApi, createStateBackedContext} from "./api_helpers"
 import {godViewLifecycleDomInteractionMethods} from "./lifecycle_dom_interaction_methods"
+import {godViewRenderingGraphCoreMethods} from "./rendering_graph_core_methods"
+import {godViewRenderingGraphLayerNodeMethods} from "./rendering_graph_layer_node_methods"
+import {godViewRenderingGraphViewMethods} from "./rendering_graph_view_methods"
 
 afterEach(() => {
   vi.restoreAllMocks()
@@ -45,6 +48,10 @@ function makeContext({state = {}, deps = {}, overrides = {}} = {}) {
     setZoomTier: vi.fn(),
     resolveZoomTier: vi.fn(() => "local"),
     managedVisualDensityForViewScale: vi.fn(() => ({managedVisualDensity: "detail"})),
+    managedViewStateForCamera: vi.fn((_graph, viewState) => ({
+      viewState,
+      managedVisualDensity: "detail",
+    })),
     ...deps,
   }
 
@@ -217,8 +224,9 @@ describe("lifecycle_dom_interaction_methods", () => {
     ])
     const graph = Object.freeze({_layoutMode: "elk-scene", _topologyScene: scene, nodes: graphNodes, edges: Object.freeze([])})
     const densitiesAtRefresh = []
-    const managedVisualDensityForViewScale = vi.fn((_graph, scale) => ({
-      managedVisualDensity: scale < 0.2 ? "overview" : "detail",
+    const managedViewStateForCamera = vi.fn((_graph, viewState) => ({
+      viewState,
+      managedVisualDensity: (2 ** viewState.zoom) < 0.2 ? "overview" : "detail",
     }))
     const ctx = makeContext({
       state: {
@@ -230,7 +238,7 @@ describe("lifecycle_dom_interaction_methods", () => {
         viewState: {zoom: Math.log2(0.25), minZoom: -5, maxZoom: 5, target: [96, 0, 0]},
       },
       deps: {
-        managedVisualDensityForViewScale,
+        managedViewStateForCamera,
         refreshGraphLayersForViewState: vi.fn(() => {
           densitiesAtRefresh.push(ctx.state.managedTopologyVisualDensity)
         }),
@@ -244,15 +252,161 @@ describe("lifecycle_dom_interaction_methods", () => {
     expect(ctx.state.managedTopologyVisualDensity).toBe("detail")
 
     expect(densitiesAtRefresh).toEqual(["overview", "detail"])
-    expect(managedVisualDensityForViewScale.mock.calls[0][0]).toBe(graph)
-    expect(managedVisualDensityForViewScale.mock.calls[0][1]).toBeCloseTo(0.15, 12)
-    expect(managedVisualDensityForViewScale.mock.calls[1][0]).toBe(graph)
-    expect(managedVisualDensityForViewScale.mock.calls[1][1]).toBeCloseTo(0.25, 12)
+    expect(managedViewStateForCamera.mock.calls[0][0]).toBe(graph)
+    expect(2 ** managedViewStateForCamera.mock.calls[0][1].zoom).toBeCloseTo(0.15, 12)
+    expect(managedViewStateForCamera.mock.calls[1][0]).toBe(graph)
+    expect(2 ** managedViewStateForCamera.mock.calls[1][1].zoom).toBeCloseTo(0.25, 12)
     expect(ctx.state.lastGraph).toBe(graph)
     expect(ctx.state.lastGraph.nodes).toBe(graphNodes)
     expect(ctx.state.lastGraph._topologyScene).toBe(scene)
     expect(ctx.state.lastGraph._topologyScene.routes).toBe(routes)
     expect(JSON.stringify(scene)).toBe(originalGeometry)
+  })
+
+  it("contains an infeasible custom camera update and preserves the accepted camera", () => {
+    const acceptedViewState = {zoom: 0, minZoom: -5, maxZoom: 5, target: [96, 0, 0]}
+    const graph = {_layoutMode: "elk-scene", _topologyScene: {routes: []}, nodes: [], edges: []}
+    const ctx = makeContext({
+      state: {
+        canvas: {getBoundingClientRect: () => ({left: 0, top: 0, width: 1000, height: 600})},
+        lastGraph: graph,
+        viewState: acceptedViewState,
+        managedTopologyVisualDensity: "detail",
+        userCameraLocked: false,
+        isProgrammaticViewUpdate: false,
+        summary: {textContent: "accepted topology"},
+        pushEvent: vi.fn(),
+      },
+      deps: {
+        managedViewStateForCamera: vi.fn(() => {
+          throw new RangeError("no feasible managed visual density")
+        }),
+      },
+    })
+
+    expect(() => ctx.zoomDeckCamera(0.35)).not.toThrow()
+
+    expect(ctx.state.viewState).toBe(acceptedViewState)
+    expect(ctx.state.managedTopologyVisualDensity).toBe("detail")
+    expect(ctx.state.userCameraLocked).toBe(false)
+    expect(ctx.state.isProgrammaticViewUpdate).toBe(false)
+    expect(ctx.state.deck.setProps).not.toHaveBeenCalled()
+    expect(ctx.deps.refreshGraphLayersForViewState).not.toHaveBeenCalled()
+    expect(ctx.state.summary.textContent).toBe("topology render unavailable")
+    expect(ctx.state.pushEvent).toHaveBeenCalledWith("god_view_stream_error", {
+      reason: "render_error",
+      message: "RangeError: no feasible managed visual density",
+    })
+  })
+
+  it("rolls back render-layer mutations when a managed custom camera refresh fails", () => {
+    const acceptedViewState = {zoom: 0, minZoom: -5, maxZoom: 5, target: [96, 0, 0]}
+    const graph = {_layoutMode: "elk-scene", _topologyScene: {routes: []}, nodes: [], edges: []}
+    const frame = {effective: graph, nodeData: [], edgeData: [], edgeLabelData: [], rootPulseNodes: []}
+    const acceptedFallbackIds = ["accepted-label"]
+    const state = {
+      lastGraph: graph,
+      lastGraphLayerFrame: frame,
+      layers: {mantle: true, crust: true, atmosphere: true, security: true},
+      topologyLabelDetailsFallbackIds: acceptedFallbackIds,
+      viewState: acceptedViewState,
+      managedTopologyVisualDensity: "detail",
+      summary: {textContent: "accepted topology"},
+      pushEvent: vi.fn(),
+    }
+    const ctx = makeContext({state})
+    Object.assign(ctx, bindApi(ctx, godViewRenderingGraphCoreMethods), {
+      buildGraphLayers: vi.fn(() => {
+        ctx.state.topologyLabelDetailsFallbackIds = ["failed-label"]
+        throw new Error("both layer builds failed")
+      }),
+    })
+    ctx.deps.refreshGraphLayersForViewState = () => ctx.refreshGraphLayersForViewState()
+
+    expect(() => ctx.applyDeckViewState({...acceptedViewState, zoom: 1})).not.toThrow()
+
+    expect(ctx.state.viewState).toBe(acceptedViewState)
+    expect(ctx.state.managedTopologyVisualDensity).toBe("detail")
+    expect(ctx.state.layers.atmosphere).toBe(true)
+    expect(ctx.state.lastGraphLayerFrame).toBe(frame)
+    expect(ctx.state.topologyLabelDetailsFallbackIds).toBe(acceptedFallbackIds)
+    expect(ctx.state.summary.textContent).toBe("topology render unavailable")
+    expect(ctx.state.pushEvent).toHaveBeenCalledWith("god_view_stream_error", {
+      reason: "render_error",
+      message: "Error: both layer builds failed",
+    })
+  })
+
+  it.each([
+    ["local", "button"],
+    ["global", "button"],
+    ["regional", "button"],
+    ["local", "wheel"],
+    ["global", "wheel"],
+    ["regional", "wheel"],
+  ])("auto-fit then %s-mode %s zoom stops at the real managed minimum", (zoomMode, action) => {
+    const scene = Object.freeze({
+      bounds: Object.freeze({minX: 0, minY: 0, maxX: 192, maxY: 1}),
+      nodes: Object.freeze([
+        Object.freeze({id: "left", center: Object.freeze({x: 0, y: 0}), render: true}),
+        Object.freeze({id: "right", center: Object.freeze({x: 192, y: 0}), render: true}),
+      ]),
+      groups: Object.freeze([]),
+      routes: Object.freeze([]),
+    })
+    const graph = Object.freeze({
+      shape: "local",
+      _layoutMode: "elk-scene",
+      _topologyScene: scene,
+      nodes: Object.freeze([
+        Object.freeze({id: "left", x: 0, y: 0, label: "L", details: Object.freeze({cluster_kind: "endpoint-member", cluster_expanded: true})}),
+        Object.freeze({id: "right", x: 192, y: 0, label: "R", details: Object.freeze({cluster_kind: "endpoint-member", cluster_expanded: true})}),
+      ]),
+      edges: Object.freeze([]),
+    })
+    const ctx = makeContext({
+      state: {
+        canvas: {getBoundingClientRect: () => ({left: 0, top: 0, width: 100, height: 200})},
+        el: {clientWidth: 100, clientHeight: 200},
+        lastGraph: graph,
+        zoomMode,
+        managedTopologyVisualDensity: "detail",
+        layers: {mantle: true, crust: true},
+        topologyLabelSafeRect: {left: 0, top: 0, right: 100, bottom: 200},
+        topologyLabelMeasureText: () => ({width: 6, height: 12}),
+        hasAutoFit: false,
+        userCameraLocked: false,
+        viewState: {zoom: 0, minZoom: -8, maxZoom: 5, target: [96, 0, 0]},
+      },
+    })
+    Object.assign(
+      ctx,
+      bindApi(ctx, godViewRenderingGraphLayerNodeMethods),
+      bindApi(ctx, godViewRenderingGraphViewMethods),
+    )
+    ctx.deps.managedVisualDensityForViewScale = (...args) => ctx.managedVisualDensityForViewScale(...args)
+    ctx.deps.managedViewStateForCamera = (...args) => ctx.managedViewStateForCamera(...args)
+
+    ctx.autoFitViewState(graph)
+    if (action === "button") {
+      ctx.zoomDeckCamera(-100)
+    } else {
+      for (let pass = 0; pass < 16; pass += 1) {
+        ctx.handleWheelZoom({
+          clientX: 50,
+          clientY: 100,
+          deltaY: 1000,
+          preventDefault: vi.fn(),
+          stopPropagation: vi.fn(),
+        })
+      }
+    }
+
+    expect(ctx.state.viewState.minZoom).toEqual(-2)
+    expect(ctx.state.viewState.zoom).toEqual(-2)
+    expect(ctx.state.managedTopologyVisualDensity).toBe("detail")
+    expect(ctx.state.lastGraph).toBe(graph)
+    expect(ctx.state.lastGraph._topologyScene).toBe(scene)
   })
 
   it("custom pan keeps an accepted ELK scene identity and only refreshes layers", () => {
@@ -320,5 +474,37 @@ describe("lifecycle_dom_interaction_methods", () => {
     expect(ctx.deps.autoFitViewState).toHaveBeenCalledWith(graph)
     expect(ctx.state.userCameraLocked).toEqual(false)
     expect(ctx.state.hasAutoFit).toEqual(false)
+  })
+
+  it("contains an infeasible managed fit and preserves the accepted camera lock", () => {
+    const acceptedViewState = {zoom: 0, minZoom: -2, maxZoom: 5, target: [0, 0, 0]}
+    const graph = {_layoutMode: "elk-scene", _topologyScene: {}, nodes: []}
+    const pushEvent = vi.fn()
+    const ctx = makeContext({
+      state: {
+        lastGraph: graph,
+        viewState: acceptedViewState,
+        userCameraLocked: true,
+        hasAutoFit: true,
+        summary: {textContent: "accepted topology"},
+        pushEvent,
+      },
+      deps: {
+        autoFitViewState: vi.fn(() => {
+          throw new RangeError("no fit")
+        }),
+      },
+    })
+
+    expect(() => ctx.resetViewCamera({collapseExpanded: false})).not.toThrow()
+
+    expect(ctx.state.viewState).toBe(acceptedViewState)
+    expect(ctx.state.userCameraLocked).toBe(true)
+    expect(ctx.state.hasAutoFit).toBe(true)
+    expect(ctx.state.summary.textContent).toBe("topology render unavailable")
+    expect(pushEvent).toHaveBeenCalledWith("god_view_stream_error", {
+      reason: "render_error",
+      message: "RangeError: no fit",
+    })
   })
 })

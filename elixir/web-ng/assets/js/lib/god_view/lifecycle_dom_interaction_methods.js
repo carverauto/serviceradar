@@ -1,4 +1,5 @@
 import {canvasPoint, focalZoomViewState, panViewState, wheelZoomDelta} from "./deck_camera_controls"
+import {runRecoverableManagedCameraUpdate} from "./lifecycle_managed_camera_recovery"
 
 export const godViewLifecycleDomInteractionMethods = {
   startAnimationLoop() {
@@ -71,30 +72,48 @@ export const godViewLifecycleDomInteractionMethods = {
       startY: Number(event.clientY || 0),
     }
   },
-  applyDeckViewState(viewState, {userLocked = true, syncZoomTier = true} = {}) {
-    if (!this.state.deck || !viewState) return
+  applyDeckViewState(
+    viewState,
+    {userLocked = true, syncZoomTier = true, recoverManaged = true} = {},
+  ) {
+    if (!this.state.deck || !viewState) return false
 
-    this.state.viewState = viewState
-    this.state.userCameraLocked = userLocked
-    this.state.isProgrammaticViewUpdate = true
-    this.state.deck.setProps({viewState: this.state.viewState})
-
-    if (syncZoomTier && this.state.zoomMode === "auto") {
-      const layoutMode = this.state.lastGraph?._layoutMode
-      if (layoutMode === "elk-scene") {
-        this.state.zoomTier = "local"
-        const selection = this.deps.managedVisualDensityForViewScale(
+    const layoutMode = this.state.lastGraph?._layoutMode
+    const managedScene = layoutMode === "elk-scene" && this.state.lastGraph?._topologyScene
+    const applyViewState = () => {
+      let nextViewState = viewState
+      if (managedScene) {
+        const selection = this.deps.managedViewStateForCamera(
           this.state.lastGraph,
-          2 ** Number(this.state.viewState.zoom || 0),
+          {...this.state.viewState, ...viewState},
         )
+        nextViewState = selection.viewState
         this.state.managedTopologyVisualDensity = selection.managedVisualDensity
-      } else {
-        const nextTier = layoutMode === "client-radial" ? "local" : this.deps.resolveZoomTier(this.state.viewState.zoom || 0)
-        this.deps.setZoomTier(nextTier, false)
       }
+
+      this.state.viewState = nextViewState
+      this.state.userCameraLocked = userLocked
+      this.state.isProgrammaticViewUpdate = true
+      this.state.deck.setProps({viewState: this.state.viewState})
+
+      if (syncZoomTier && this.state.zoomMode === "auto") {
+        if (managedScene) {
+          this.state.zoomTier = "local"
+        } else {
+          const nextTier = layoutMode === "client-radial" ? "local" : this.deps.resolveZoomTier(this.state.viewState.zoom || 0)
+          this.deps.setZoomTier(nextTier, false)
+        }
+      }
+
+      this.deps.refreshGraphLayersForViewState()
+      return nextViewState
     }
 
-    this.deps.refreshGraphLayersForViewState()
+    if (managedScene && recoverManaged) {
+      return runRecoverableManagedCameraUpdate(this, applyViewState).ok
+    }
+    applyViewState()
+    return true
   },
   handlePanMove(event) {
     if (!this.state.deck) return
@@ -180,20 +199,27 @@ export const godViewLifecycleDomInteractionMethods = {
     this.applyDeckViewState(focalZoomViewState(this.state.viewState, point, nextZoom))
   },
   resetViewCamera({collapseExpanded = true} = {}) {
-    if (!this.state.deck) return
+    if (!this.state.deck) return false
 
-    this.state.userCameraLocked = false
-    this.state.hasAutoFit = false
+    const resetCamera = () => {
+      this.state.userCameraLocked = false
+      this.state.hasAutoFit = false
 
-    const hasExpandedClusters = Array.isArray(this.state.lastGraph?.nodes)
-      && this.state.lastGraph.nodes.some((node) => node?.details?.cluster_expanded === true)
+      const hasExpandedClusters = Array.isArray(this.state.lastGraph?.nodes)
+        && this.state.lastGraph.nodes.some((node) => node?.details?.cluster_expanded === true)
 
-    if (collapseExpanded && hasExpandedClusters && typeof this.collapseAllClusters === "function") {
-      this.collapseAllClusters()
-      return
+      if (collapseExpanded && hasExpandedClusters && typeof this.collapseAllClusters === "function") {
+        this.collapseAllClusters()
+        return
+      }
+
+      this.deps.autoFitViewState(this.state.lastGraph)
     }
 
-    this.deps.autoFitViewState(this.state.lastGraph)
+    const managedScene = this.state.lastGraph?._layoutMode === "elk-scene" && this.state.lastGraph?._topologyScene
+    if (managedScene) return runRecoverableManagedCameraUpdate(this, resetCamera).ok
+    resetCamera()
+    return true
   },
   handleMapControlClick(event) {
     const action = event.target?.closest?.("[data-god-view-map-action]")?.getAttribute("data-god-view-map-action")

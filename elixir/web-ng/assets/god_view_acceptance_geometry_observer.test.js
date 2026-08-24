@@ -70,7 +70,14 @@ function renderContext() {
     deps: {ensureDeck: vi.fn(), reshapeGraph: () => effective},
     autoFitViewState: vi.fn(),
     buildVisibleGraphData: () => ({
-      edgeData: [{sourceId: "router-a", targetId: "router-b", flowPps: 42_000, protocol: "credential-looking-telemetry"}],
+      edgeData: [{
+        routeId: "rendered:router-a|router-b",
+        sourceId: "router-a",
+        targetId: "router-b",
+        path: [[20, 40, 0], [60, 40, 0], [60, 60, 0], [100, 60, 0]],
+        flowPps: 42_000,
+        protocol: "credential-looking-telemetry",
+      }],
       edgeLabelData: [],
       nodeData,
       rootPulseNodes: [],
@@ -82,11 +89,14 @@ function renderContext() {
       id: "god-view-edges-mantle",
       props: {
         data: [{
+          routeId: "rendered:router-a|router-b",
           interactionKey: "local:rendered:router-a|router-b",
           sourceId: "router-a",
           targetId: "router-b",
+          path: [[20, 40, 0], [60, 40, 0], [60, 60, 0], [100, 60, 0]],
           flowPps: 42_000,
         }],
+        getPath: (edge) => edge.path,
         getWidth: () => 38,
         widthMinPixels: 6,
         widthUnits: "pixels",
@@ -131,6 +141,9 @@ describe("God-View acceptance-only geometry observer", () => {
         semanticEdges: 1,
         attachmentEdges: 0,
         renderedRoutes: 1,
+        physicalRoutes: 1,
+        renderedPhysicalRoutes: 1,
+        manifolds: 0,
         renderedGlyphs: 2,
         admittedLabels: 1,
       },
@@ -138,14 +151,26 @@ describe("God-View acceptance-only geometry observer", () => {
       viewState: {target: [60, 50, 0], zoom: 1.25, minZoom: -3, maxZoom: 5},
     })
     expect(snapshot.routes).toEqual([{
+      id: "rendered:router-a|router-b",
+      auxiliary: false,
       sourceId: "router-a",
       targetId: "router-b",
+      sourceContactId: "router-a",
+      targetContactId: "router-b",
+      semanticRouteIds: [],
+      junctions: [],
       strokeWidth: 38,
+      scenePoints: [{x: 20, y: 40}, {x: 60, y: 40}, {x: 60, y: 60}, {x: 100, y: 60}],
+      layerPaths: [{
+        layerId: "god-view-edges-mantle",
+        points: [{x: 20, y: 40}, {x: 60, y: 40}, {x: 60, y: 60}, {x: 100, y: 60}],
+      }],
       points: [{x: 20, y: 40}, {x: 60, y: 40}, {x: 60, y: 60}, {x: 100, y: 60}],
       projectedPoints: [{x: 120, y: 240}, {x: 160, y: 240}, {x: 160, y: 260}, {x: 200, y: 260}],
     }])
     expect(Object.keys(snapshot.routes[0]).sort()).toEqual([
-      "points", "projectedPoints", "sourceId", "strokeWidth", "targetId",
+      "auxiliary", "id", "junctions", "layerPaths", "points", "projectedPoints", "scenePoints",
+      "semanticRouteIds", "sourceContactId", "sourceId", "strokeWidth", "targetContactId", "targetId",
     ])
     expect(snapshot.glyphs).toEqual([
       {nodeId: "router-a", left: 100, top: 220, right: 140, bottom: 260},
@@ -198,14 +223,13 @@ describe("God-View acceptance-only geometry observer", () => {
   })
 
   it.each([
-    ["has no matching rendered layer", () => []],
     ["has a NaN width", () => [{
       id: "god-view-edges-mantle",
-      props: {data: [{sourceId: "router-a", targetId: "router-b"}], getWidth: () => Number.NaN},
+      props: {data: [{routeId: "rendered:router-a|router-b"}], getWidth: () => Number.NaN},
     }]],
     ["has a zero width", () => [{
       id: "god-view-edges-mantle",
-      props: {data: [{sourceId: "router-a", targetId: "router-b"}], getWidth: () => 0},
+      props: {data: [{routeId: "rendered:router-a|router-b"}], getWidth: () => 0},
     }]],
   ])("fails loudly when an acceptance route %s", (_description, buildLayers) => {
     const target = {[ACCEPTANCE_FLAG]: true}
@@ -216,5 +240,100 @@ describe("God-View acceptance-only geometry observer", () => {
     expect(() => godViewRenderingGraphCoreMethods.renderGraph.call(context, effective))
       .toThrow(/route router-a -> router-b.*finite positive rendered stroke width/i)
     expect(target[GEOMETRY_HOOK]).toBeUndefined()
+  })
+
+  it("reports a missing exact physical route instead of borrowing a same-endpoint auxiliary path", () => {
+    const target = {[ACCEPTANCE_FLAG]: true}
+    const {context, effective} = renderContext()
+    effective._topologyScene.physicalRoutes = [
+      {...effective._topologyScene.routes[0], id: "auxiliary:one", auxiliary: true},
+      {...effective._topologyScene.routes[0], id: "auxiliary:two", auxiliary: true},
+    ]
+    context.buildVisibleGraphData = () => ({
+      edgeData: [], edgeLabelData: [], nodeData: [], rootPulseNodes: [], selectedVisibleNode: null,
+    })
+    context.buildGraphLayers = () => [{
+      id: "god-view-edges-mantle-auxiliary",
+      props: {
+        data: [{
+          routeId: "auxiliary:one",
+          sourceId: "router-a",
+          targetId: "router-b",
+          path: [[20, 40, 0], [100, 60, 0]],
+        }],
+        getPath: (edge) => edge.path,
+        getWidth: () => 10,
+      },
+    }]
+    installGodViewAcceptanceGeometryObserver(context, target)
+
+    godViewRenderingGraphCoreMethods.renderGraph.call(context, effective)
+    const snapshot = target[GEOMETRY_HOOK]()
+
+    expect(snapshot.counts).toMatchObject({physicalRoutes: 2, renderedPhysicalRoutes: 1})
+    expect(snapshot.routes.map((route) => route.id)).toEqual(["auxiliary:one"])
+  })
+
+  it("publishes the exact PathLayer path separately from the decoded scene path", () => {
+    const target = {[ACCEPTANCE_FLAG]: true}
+    const {context, effective} = renderContext()
+    context.buildGraphLayers = () => [{
+      id: "god-view-edges-mantle",
+      props: {
+        data: [{
+          routeId: "rendered:router-a|router-b",
+          sourceId: "router-a",
+          targetId: "router-b",
+          path: [[20, 40, 0], [100, 60, 0]],
+        }],
+        getPath: (edge) => edge.path,
+        getWidth: () => 10,
+      },
+    }]
+    installGodViewAcceptanceGeometryObserver(context, target)
+
+    godViewRenderingGraphCoreMethods.renderGraph.call(context, effective)
+    const [route] = target[GEOMETRY_HOOK]().routes
+
+    expect(route.points).toEqual([{x: 20, y: 40}, {x: 100, y: 60}])
+    expect(route.scenePoints).toEqual(effective._topologyScene.routes[0].points)
+    expect(route.points).not.toEqual(route.scenePoints)
+  })
+
+  it("preserves duplicate and missing route IDs independently for every transport layer", () => {
+    const target = {[ACCEPTANCE_FLAG]: true}
+    const {context, effective} = renderContext()
+    const routeId = "rendered:router-a|router-b"
+    const renderedEdge = {
+      routeId,
+      sourceId: "router-a",
+      targetId: "router-b",
+      path: [[20, 40, 0], [60, 40, 0], [60, 60, 0], [100, 60, 0]],
+    }
+    const layerProps = (data) => ({
+      data,
+      getPath: (edge) => edge.path,
+      getWidth: () => 10,
+    })
+    context.buildGraphLayers = () => [
+      {
+        id: "god-view-edges-mantle",
+        props: layerProps([renderedEdge, {...renderedEdge}]),
+      },
+      {
+        id: "god-view-edges-crust",
+        props: layerProps([]),
+      },
+    ]
+    installGodViewAcceptanceGeometryObserver(context, target)
+
+    godViewRenderingGraphCoreMethods.renderGraph.call(context, effective)
+    const snapshot = target[GEOMETRY_HOOK]()
+
+    expect(snapshot.scenePhysicalRouteIds).toEqual([routeId])
+    expect(snapshot.renderedPhysicalRouteLayers).toEqual([
+      {layerId: "god-view-edges-mantle", routeCount: 2, routeIds: [routeId, routeId]},
+      {layerId: "god-view-edges-crust", routeCount: 0, routeIds: []},
+    ])
   })
 })

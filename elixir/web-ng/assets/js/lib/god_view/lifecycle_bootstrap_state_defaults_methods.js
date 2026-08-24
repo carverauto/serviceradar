@@ -172,6 +172,12 @@ export const godViewLifecycleBootstrapStateDefaultsMethods = {
     this.state.lastRevision = null
     this.state.lastTopologyStamp = null
     this.state.pendingClusterFocus = null
+    this.state.managedTopologyCameraBaseMinZoom = -2
+    this.state.managedTopologySceneMinZoom = null
+    this.state.managedTopologySceneMinZoomKey = null
+    this.state.managedTopologySceneForMinZoom = null
+    this.state.managedTopologyCameraErrorActive = false
+    this.state.managedTopologyCameraErrorPreviousSummary = null
     this.state.visual = visualForTheme(detectThemeMode())
     this.state.viewState = {
       target: [320, 160, 0],

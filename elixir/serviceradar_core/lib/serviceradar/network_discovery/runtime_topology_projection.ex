@@ -34,7 +34,17 @@ defmodule ServiceRadar.NetworkDiscovery.RuntimeTopologyProjection do
         OR (coalesce(r.relation_type, '') = '' AND toLower(coalesce(r.evidence_class, '')) IN ['direct', 'direct-physical', 'direct-logical', 'hosted-virtual'])
       )
     WITH a, b, r
-    ORDER BY coalesce(r.last_observed_at, r.observed_at) DESC
+    ORDER BY coalesce(r.last_observed_at, r.observed_at) DESC,
+      a.id ASC,
+      b.id ASC,
+      toUpper(coalesce(r.relation_type, type(r), '')) ASC,
+      toLower(coalesce(r.evidence_class, '')) ASC,
+      coalesce(r.local_if_index, -1) ASC,
+      coalesce(r.local_if_name, '') ASC,
+      coalesce(r.neighbor_if_index, -1) ASC,
+      coalesce(r.neighbor_if_name, '') ASC,
+      coalesce(r.protocol, r.source, 'unknown') ASC,
+      coalesce(r.link_key, '') ASC
     LIMIT #{@max_backbone_link_rows}
     RETURN {
       local_device_id: a.id,
@@ -99,7 +109,18 @@ defmodule ServiceRadar.NetworkDiscovery.RuntimeTopologyProjection do
       AND bi.device_id STARTS WITH 'sr:'
       AND ai.device_id <> bi.device_id
     WITH a, b, ai, bi, r
-    ORDER BY coalesce(r.last_observed_at, r.observed_at) DESC
+    ORDER BY coalesce(r.last_observed_at, r.observed_at) DESC,
+      ai.device_id ASC,
+      bi.device_id ASC,
+      type(r) ASC,
+      toLower(coalesce(r.evidence_class, '')) ASC,
+      coalesce(ai.ifindex, -1) ASC,
+      coalesce(ai.name, '') ASC,
+      coalesce(bi.ifindex, -1) ASC,
+      coalesce(bi.name, '') ASC,
+      coalesce(r.protocol, r.source, 'unknown') ASC,
+      coalesce(ai.id, '') ASC,
+      coalesce(bi.id, '') ASC
     LIMIT #{@max_attachment_link_rows}
     RETURN {
       local_device_id: ai.device_id,
@@ -150,7 +171,17 @@ defmodule ServiceRadar.NetworkDiscovery.RuntimeTopologyProjection do
       AND toUpper(coalesce(r.relation_type, '')) = 'ATTACHED_TO'
       AND toLower(coalesce(r.evidence_class, '')) = 'inferred-segment'
     WITH a, b, r
-    ORDER BY coalesce(r.last_observed_at, r.observed_at) DESC
+    ORDER BY coalesce(r.last_observed_at, r.observed_at) DESC,
+      a.id ASC,
+      b.id ASC,
+      toUpper(coalesce(r.relation_type, type(r), '')) ASC,
+      toLower(coalesce(r.evidence_class, '')) ASC,
+      coalesce(r.local_if_index, -1) ASC,
+      coalesce(r.local_if_name, '') ASC,
+      coalesce(r.neighbor_if_index, -1) ASC,
+      coalesce(r.neighbor_if_name, '') ASC,
+      coalesce(r.protocol, r.source, 'unknown') ASC,
+      coalesce(r.link_key, '') ASC
     LIMIT #{@max_attachment_link_rows}
     RETURN {
       local_device_id: a.id,
@@ -248,7 +279,13 @@ defmodule ServiceRadar.NetworkDiscovery.RuntimeTopologyProjection do
               l.topology_plane
             ),
           desc_nulls_last: l.observed_at,
-          desc: l.inserted_at
+          desc: l.inserted_at,
+          asc: l.local_device_id,
+          asc: l.neighbor_device_id,
+          asc: l.relation_type,
+          asc: l.evidence_class,
+          asc: fragment("?::text", l.row),
+          asc: l.id
         ],
         limit: ^limit,
         select: l.row

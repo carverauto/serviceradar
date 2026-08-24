@@ -162,6 +162,64 @@ describe("admitTopologyLabels", () => {
     expect(result.detailsFallbackIds).toEqual(["selected"])
   })
 
+  it("backfills blocked priority candidates without exceeding the caller's label budget", () => {
+    const candidates = [
+      ...Array.from({length: 8}, (_, index) => ({
+        nodeId: `blocked-${index}`,
+        text: `Blocked ${index}`,
+        point: [500, 300],
+        role: "infrastructure",
+        operationalRelevance: 20 - index,
+        fontSize: 10,
+      })),
+      ...Array.from({length: 12}, (_, index) => ({
+        nodeId: `fallback-${index}`,
+        text: `Fallback ${index}`,
+        point: [60 + ((index % 6) * 170), 60 + (Math.floor(index / 6) * 480)],
+        role: "infrastructure",
+        operationalRelevance: 10 - index,
+        fontSize: 10,
+      })),
+    ]
+    const glyphBoxes = candidates.map((candidate) => ({
+      nodeId: candidate.nodeId,
+      left: candidate.point[0] - 10,
+      top: candidate.point[1] - 10,
+      right: candidate.point[0] + 10,
+      bottom: candidate.point[1] + 10,
+    }))
+    const input = {
+      candidates,
+      glyphBoxes,
+      routeCorridors: [
+        {points: [[510, 300], [510, 350]], strokeWidth: 10},
+        {points: [[450, 310], [550, 310]], strokeWidth: 10},
+        {points: [[490, 300], [490, 350]], strokeWidth: 10},
+      ],
+      safeRect: {left: 0, top: 0, right: 1000, bottom: 600},
+      maximumCount: 8,
+      measureText: () => ({width: 48, height: 12}),
+    }
+
+    const first = admitTopologyLabels(input)
+    const reordered = admitTopologyLabels({...input, candidates: [...candidates].reverse()})
+
+    expect(first.admitted).toHaveLength(8)
+    expect(first.admitted.map((item) => item.nodeId)).toEqual([
+      "blocked-0",
+      "fallback-0",
+      "fallback-1",
+      "fallback-2",
+      "fallback-3",
+      "fallback-4",
+      "fallback-5",
+      "fallback-6",
+    ])
+    expect(pairwiseIntersections(first.admitted)).toEqual([])
+    expect(first.admitted.every((item) => input.routeCorridors.every((route) => !boxIntersectsCorridor(item.box, route)))).toBe(true)
+    expect(reordered).toEqual(first)
+  })
+
   it("uses a fallback wide enough to prevent full-width Unicode labels from overlapping", () => {
     const result = admitTopologyLabels({
       candidates: [

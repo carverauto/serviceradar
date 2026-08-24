@@ -254,6 +254,7 @@ export const godViewRenderingGraphDataMethods = {
       zHeight: 0,
     }))
     const visibleById = new Map(visibleNodes.map((node) => [node.id, node]))
+    const visibleByNormalizedId = new Map(visibleNodes.map((node) => [String(node.id || ""), node]))
     const resolveVisibleEndpoint = (node) => {
       if (!node) return null
       if (node.visible) return node
@@ -262,6 +263,24 @@ export const godViewRenderingGraphDataMethods = {
       if (anchorId === "") return null
       const anchor = visibleById.get(anchorId)
       return anchor?.visible ? anchor : null
+    }
+    const managedRouteEndpointVisible = (endpointId, otherEndpointId) => {
+      const normalizedEndpointId = String(endpointId || "")
+      const node = visibleByNormalizedId.get(normalizedEndpointId)
+      if (node?.visible) return true
+      if (!node || !isEndpointCensusSummary(node) || !isClusterExpanded(node)) return false
+
+      const anchorId = clusterAnchorId(node)
+      const anchor = visibleByNormalizedId.get(anchorId)
+      if (!anchor?.visible || String(otherEndpointId || "") !== anchorId) return false
+      const sceneNode = (effective?._topologyScene?.nodes || [])
+        .find((candidate) => String(candidate?.id || "") === normalizedEndpointId)
+      const group = (effective?._topologyScene?.groups || []).find((candidate) => (
+        String(candidate?.id || "") === clusterId(node) &&
+        String(candidate?.gatewayId || "") === normalizedEndpointId &&
+        String(candidate?.anchorId || "") === anchorId
+      ))
+      return sceneNode?.render === false && Boolean(group)
     }
 
     const rawEdgeData = effective.edges
@@ -323,6 +342,10 @@ export const godViewRenderingGraphDataMethods = {
         effective,
         edgeTopologyClass,
         (edge) => this.edgeEnabledByTopologyLayer(edge) || attachmentCensusEdge(edge),
+        (route) => (
+          managedRouteEndpointVisible(route?.sourceId, route?.targetId) &&
+          managedRouteEndpointVisible(route?.targetId, route?.sourceId)
+        ),
       )
       : this.aggregateVisibleEdges(this.collapseExpandedMemberTrunks(rawEdgeData, visibleNodes))
     const edgeKeys = new Set(edgeData.map((edge) => edge.interactionKey))
@@ -352,7 +375,7 @@ export const godViewRenderingGraphDataMethods = {
     const rootPulseNodes = nodeData.filter((node) => node.state === 0)
 
     this.state.lastVisibleNodeCount = nodeData.length
-    this.state.lastVisibleEdgeCount = edgeData.length
+    this.state.lastVisibleEdgeCount = edgeData.filter((edge) => edge?.auxiliary !== true).length
 
     const selectedVisibleNode =
       effective.shape !== "local" || this.state.selectedNodeIndex === null
@@ -361,11 +384,16 @@ export const godViewRenderingGraphDataMethods = {
 
     return {edgeData, edgeLabelData, nodeData, rootPulseNodes, selectedVisibleNode}
   },
-  buildTopologySceneEdgeData(effective, edgeTopologyClass, relationEnabled) {
-    const routes = effective?._topologyScene?.routes || []
+  buildTopologySceneEdgeData(effective, edgeTopologyClass, relationEnabled, routeEnabled) {
+    const semanticRoutes = effective?._topologyScene?.routes || []
+    const routes = effective?._topologyScene?.physicalRoutes || semanticRoutes
     const diagnostics = []
     this.state.topologyRouteDiagnostics = diagnostics
     const relationVisible = typeof relationEnabled === "function" ? relationEnabled : () => true
+    const routeVisible = typeof routeEnabled === "function" ? routeEnabled : () => true
+    const visibleSemanticRouteIds = new Set(
+      semanticRoutes.filter((route) => routeVisible(route)).map((route) => String(route?.id || "")),
+    )
     const relationById = new Map()
     for (const edge of effective.edges || []) {
       const relationId = topologyRelationId(edge, effective.nodes || [])
@@ -390,6 +418,12 @@ export const godViewRenderingGraphDataMethods = {
 
     return routes
       .map((route) => {
+        const auxiliary = route?.auxiliary === true
+        if (
+          auxiliary
+            ? !(route?.semanticRouteIds || []).some((routeId) => visibleSemanticRouteIds.has(String(routeId)))
+            : !routeVisible(route)
+        ) return null
         const path = finiteRoutePath(route?.points)
         if (path.length < 2) return null
 
@@ -473,7 +507,9 @@ export const godViewRenderingGraphDataMethods = {
           ? Math.max(0, ...relations.map((relation) => Number(relation?.capacityBps) || 0))
           : 0
         const presentation = deterministicRelationPresentation(relations)
-        const label = String((useRouteMetadata && metadata.label) || presentation.label || `${route.sourceId} -> ${route.targetId}`)
+        const label = auxiliary
+          ? ""
+          : String((useRouteMetadata && metadata.label) || presentation.label || `${route.sourceId} -> ${route.targetId}`)
         const telemetryEligible = useRouteMetadata && (Object.hasOwn(metadata, "telemetryEligible") || Object.hasOwn(metadata, "telemetry_eligible"))
           ? metadata.telemetryEligible !== false && metadata.telemetry_eligible !== false
           : relations.length > 0
@@ -483,6 +519,7 @@ export const godViewRenderingGraphDataMethods = {
         const evidenceClasses = Array.from(new Set(relations.map((relation) => String(relation?.evidenceClass || "")).filter(Boolean))).sort()
 
         return {
+          routeId: route.id,
           sourceId: route.sourceId,
           targetId: route.targetId,
           sourcePosition: [...path[0]],
@@ -500,16 +537,18 @@ export const godViewRenderingGraphDataMethods = {
           midpoint: midpointOnPath(path),
           label: label.length > 56 ? `${label.slice(0, 56)}...` : label,
           connectionLabel: this.connectionKindFromLabel(label),
-          telemetryEligible,
+          telemetryEligible: auxiliary ? false : telemetryEligible,
           topologyClass: dominantClass(topologyClassCounts),
           topologyClassCounts,
           protocol: protocols.length === 1 ? protocols[0] : "",
           evidenceClass: evidenceClasses.length === 1 ? evidenceClasses[0] : "",
+          auxiliary,
+          semanticRouteIds: [...(route?.semanticRouteIds || [])],
           details: useRouteMetadata && metadata.details && typeof metadata.details === "object"
             ? metadata.details
             : presentation.details,
           edgeCount: Math.max(1, relations.length),
-          interactionKey: `local:${route.id}`,
+          interactionKey: auxiliary ? null : `local:${route.id}`,
         }
       })
       .filter(Boolean)

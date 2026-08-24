@@ -3,15 +3,23 @@ const DEFAULT_VIEWPORT_HEIGHT = 720
 const LANDSCAPE_ASPECT_THRESHOLD = 1.2
 const COMPOUND_PADDING = 48
 const SIBLING_SPACING = 96
+const CROSS_AXIS_NODE_SPACING = 112
+const COMPOUND_BETWEEN_LAYER_SPACING = 112
+const BETWEEN_LAYER_ROUTE_CLEARANCE = 104
 // ELK works in world units while route strokes and glyph halos remain fixed CSS
 // pixels. Matching the sibling corridor keeps fitted routes clear of 20px halos.
-const ROUTE_CLEARANCE = 96
-const INTERSECTION_EPSILON = 0.01
+export const ROUTE_CLEARANCE = 96
+export const INTERSECTION_EPSILON = 0.01
 const FIXED_RANDOM_SEED = 1729
 const VISIBLE_ENDPOINT_SUMMARY_ENVELOPE = 448
 const EXPANDED_GATEWAY_ENVELOPE = 112
 const ENDPOINT_MEMBER_ENVELOPE = 96
 const ORDINARY_NODE_ENVELOPE = 112
+// Twice the rendered-route corridor keeps a centered trunk clear of the
+// nearest branch when a manifold has an even branch count.
+const MANIFOLD_SLOT_SPACING = BETWEEN_LAYER_ROUTE_CLEARANCE * 2
+const PORTRAIT_PORT_SIDES = Object.freeze({source: "SOUTH", target: "NORTH"})
+const LANDSCAPE_PORT_SIDES = Object.freeze({source: "EAST", target: "WEST"})
 
 export const LANDSCAPE_PROFILE = Object.freeze({
   key: "landscape",
@@ -59,12 +67,14 @@ function elkLayoutOptions(profile, kind) {
     "elk.direction": profile.direction,
     "elk.aspectRatio": String(profile.targetAspectRatio),
     "elk.randomSeed": String(FIXED_RANDOM_SEED),
-    "elk.spacing.nodeNode": String(SIBLING_SPACING),
-    "elk.spacing.edgeNode": String(ROUTE_CLEARANCE),
+    "elk.spacing.nodeNode": String(CROSS_AXIS_NODE_SPACING),
+    "elk.spacing.edgeNode": String(BETWEEN_LAYER_ROUTE_CLEARANCE),
     "elk.spacing.edgeEdge": String(ROUTE_CLEARANCE * 2),
     "elk.spacing.componentComponent": String(SIBLING_SPACING),
-    "elk.layered.spacing.nodeNodeBetweenLayers": String(SIBLING_SPACING),
-    "elk.layered.spacing.edgeNodeBetweenLayers": String(ROUTE_CLEARANCE),
+    "elk.layered.spacing.nodeNodeBetweenLayers": String(
+      kind === "endpoint-group" ? COMPOUND_BETWEEN_LAYER_SPACING : SIBLING_SPACING,
+    ),
+    "elk.layered.spacing.edgeNodeBetweenLayers": String(BETWEEN_LAYER_ROUTE_CLEARANCE),
     "elk.layered.spacing.edgeEdgeBetweenLayers": String(ROUTE_CLEARANCE * 2),
     "elk.layered.crossingMinimization.strategy": "LAYER_SWEEP",
     "elk.layered.nodePlacement.strategy": "NETWORK_SIMPLEX",
@@ -88,13 +98,26 @@ function dimensionsForNode(node) {
   return {width: ORDINARY_NODE_ENVELOPE, height: ORDINARY_NODE_ENVELOPE}
 }
 
-function elkLeaf(node) {
+function elkLeaf(node, manifoldSpecs = [], directPortSpecs = []) {
+  const ports = [
+    ...manifoldSpecs.map((spec) => ({id: spec.glyphPortId, side: spec.branchSide})),
+    ...directPortSpecs.map((spec) => ({id: spec.id, side: spec.side})),
+  ]
   return {
     id: node.id,
     ...dimensionsForNode(node),
+    ...(ports.length > 0 ? {
+      ports: ports.map((port) => ({
+        id: port.id,
+        width: 0,
+        height: 0,
+        layoutOptions: {"elk.port.side": port.side},
+      })),
+    } : {}),
     layoutOptions: {
       "serviceradar.kind": node.kind,
       "serviceradar.render": String(node.render),
+      ...(ports.length > 0 ? {"elk.portConstraints": "FIXED_SIDE"} : {}),
     },
   }
 }
@@ -102,10 +125,155 @@ function elkLeaf(node) {
 function relationEdge(relation, render) {
   return {
     id: relation.id,
-    sources: [relation.sourceId],
-    targets: [relation.targetId],
+    sources: [relation.sourcePortId || relation.sourceId],
+    targets: [relation.targetPortId || relation.targetId],
     layoutOptions: {
       "serviceradar.render": String(render),
+    },
+  }
+}
+
+function manifoldId(nodeId, endpoint) {
+  return `manifold:${nodeId}:${endpoint}`
+}
+
+function relationPortId(relationId, nodeId) {
+  return `port:${nodeId}:${relationId}`
+}
+
+function manifoldBranchPortId(relationId, nodeId, endpoint) {
+  return `${manifoldId(nodeId, endpoint)}:branch:${relationId}`
+}
+
+function manifoldTrunkPortId(nodeId, endpoint) {
+  return `${manifoldId(nodeId, endpoint)}:trunk`
+}
+
+function manifoldGlyphPortId(nodeId, endpoint) {
+  return `${manifoldId(nodeId, endpoint)}:glyph`
+}
+
+function manifoldTrunkEdgeId(nodeId, endpoint) {
+  return `${manifoldId(nodeId, endpoint)}:trunk-edge`
+}
+
+function elkManifoldBindings(ownedRelations, profile) {
+  const relationSpecsByRole = new Map()
+  const bindingsByRelationId = new Map()
+  for (const {relation, render} of ownedRelations) {
+    // Layout-only packing relations are invisible constraints. Let layered ELK
+    // choose their implicit ports; reserving fixed-pixel visual corridors for
+    // them needlessly inflates expanded endpoint compounds.
+    if (!render) continue
+    for (const [nodeId, endpoint] of [
+      [relation.sourceId, "source"],
+      [relation.targetId, "target"],
+    ]) {
+      const roleKey = `${nodeId}\u0000${endpoint}`
+      const current = relationSpecsByRole.get(roleKey) || []
+      current.push({
+        relationId: relation.id,
+        endpoint,
+        nodeId,
+      })
+      relationSpecsByRole.set(roleKey, current)
+    }
+  }
+
+  const sides = profile?.direction === "DOWN" ? PORTRAIT_PORT_SIDES : LANDSCAPE_PORT_SIDES
+  const manifoldsByNodeId = new Map()
+  const directPortsByNodeId = new Map()
+  for (const specs of relationSpecsByRole.values()) {
+    specs.sort((left, right) => left.relationId.localeCompare(right.relationId))
+    const {nodeId, endpoint} = specs[0]
+    const branchSide = sides[endpoint]
+    if (specs.length === 1) {
+      const relationId = specs[0].relationId
+      const directPort = {id: relationPortId(relationId, nodeId), relationId, endpoint, side: branchSide}
+      const currentPorts = directPortsByNodeId.get(nodeId) || []
+      currentPorts.push(directPort)
+      directPortsByNodeId.set(nodeId, currentPorts)
+      const binding = bindingsByRelationId.get(relationId) || {}
+      binding[endpoint === "source" ? "sourcePortId" : "targetPortId"] = directPort.id
+      bindingsByRelationId.set(relationId, binding)
+      continue
+    }
+    const trunkSide = profile?.direction === "DOWN"
+      ? (branchSide === "SOUTH" ? "NORTH" : "SOUTH")
+      : (branchSide === "EAST" ? "WEST" : "EAST")
+    const manifold = {
+      id: manifoldId(nodeId, endpoint),
+      nodeId,
+      endpoint,
+      branchSide,
+      trunkSide,
+      glyphPortId: manifoldGlyphPortId(nodeId, endpoint),
+      trunkPortId: manifoldTrunkPortId(nodeId, endpoint),
+      trunkEdgeId: manifoldTrunkEdgeId(nodeId, endpoint),
+      branches: specs.map((spec) => ({
+        ...spec,
+        id: manifoldBranchPortId(spec.relationId, nodeId, endpoint),
+      })),
+    }
+    const current = manifoldsByNodeId.get(nodeId) || []
+    current.push(manifold)
+    manifoldsByNodeId.set(nodeId, current)
+    for (const relation of manifold.branches) {
+      const binding = bindingsByRelationId.get(relation.relationId) || {}
+      binding[endpoint === "source" ? "sourcePortId" : "targetPortId"] = relation.id
+      bindingsByRelationId.set(relation.relationId, binding)
+    }
+  }
+  for (const [nodeId, specs] of manifoldsByNodeId) {
+    manifoldsByNodeId.set(nodeId, specs.sort((left, right) => left.endpoint.localeCompare(right.endpoint)))
+  }
+  for (const [nodeId, specs] of directPortsByNodeId) {
+    directPortsByNodeId.set(nodeId, specs.sort((left, right) => left.id.localeCompare(right.id)))
+  }
+  return {bindingsByRelationId, manifoldsByNodeId, directPortsByNodeId}
+}
+
+function elkFanoutManifold(spec, profile) {
+  const crossAxisSize = (spec.branches.length + 1) * MANIFOLD_SLOT_SPACING
+  return {
+    id: spec.id,
+    width: profile?.direction === "DOWN" ? crossAxisSize : 0,
+    height: profile?.direction === "DOWN" ? 0 : crossAxisSize,
+    ports: [
+      {
+        id: spec.trunkPortId,
+        width: 0,
+        height: 0,
+        layoutOptions: {"elk.port.side": spec.trunkSide},
+      },
+      ...spec.branches.map((branch) => ({
+        id: branch.id,
+        width: 0,
+        height: 0,
+        layoutOptions: {"elk.port.side": spec.branchSide},
+      })),
+    ],
+    layoutOptions: {
+      "serviceradar.kind": "fanout-manifold",
+      "serviceradar.node-id": spec.nodeId,
+      "serviceradar.endpoint": spec.endpoint,
+      "elk.portConstraints": "FIXED_SIDE",
+    },
+  }
+}
+
+function elkFanoutTrunk(spec) {
+  const sourceId = spec.endpoint === "source" ? spec.glyphPortId : spec.trunkPortId
+  const targetId = spec.endpoint === "source" ? spec.trunkPortId : spec.glyphPortId
+  return {
+    id: spec.trunkEdgeId,
+    sources: [sourceId],
+    targets: [targetId],
+    layoutOptions: {
+      "serviceradar.kind": "fanout-trunk",
+      "serviceradar.node-id": spec.nodeId,
+      "serviceradar.endpoint": spec.endpoint,
+      "serviceradar.render": "auxiliary",
     },
   }
 }
@@ -116,7 +284,7 @@ function compoundPackingLaneCount(memberCount, profile) {
   const crossAxisCount = profile?.direction === "DOWN"
     ? Math.sqrt(memberCount * targetAspectRatio)
     : Math.sqrt(memberCount / targetAspectRatio)
-  return Math.max(1, Math.min(memberCount, Math.round(crossAxisCount)))
+  return Math.max(1, Math.min(memberCount, Math.ceil(crossAxisCount)))
 }
 
 function packedLayoutRelations(sceneInput, profile) {
@@ -175,31 +343,62 @@ export function buildElkSceneGraph(sceneInput, profile = LANDSCAPE_PROFILE) {
       ownerId: sourceGroupId && sourceGroupId === targetGroupId ? sourceGroupId : null,
     }
   })
+  const {
+    bindingsByRelationId,
+    manifoldsByNodeId,
+    directPortsByNodeId,
+  } = elkManifoldBindings(ownedRelations, profile)
+  const portedRelations = ownedRelations.map((owned) => ({
+    ...owned,
+    relation: {
+      ...owned.relation,
+      ...(bindingsByRelationId.get(owned.relation.id) || {}),
+    },
+  }))
 
   const compoundChildren = expandedGroups.map((group) => {
     const childIds = [group.gatewayId, ...(group.memberIds || [])]
       .filter((id) => nodeById.has(id))
       .sort((left, right) => left.localeCompare(right))
     childIds.forEach((id) => groupedNodeIds.add(id))
-    const groupRelations = ownedRelations.filter((owned) => owned.ownerId === group.id)
+    const groupRelations = portedRelations.filter((owned) => owned.ownerId === group.id)
+    const manifoldSpecs = childIds.flatMap((id) => manifoldsByNodeId.get(id) || [])
 
     return {
       id: group.id,
       layoutOptions: elkLayoutOptions(profile, "endpoint-group"),
-      children: childIds.map((id) => elkLeaf(nodeById.get(id))),
-      edges: groupRelations
-        .map(({relation, render}) => relationEdge(relation, render))
-        .sort((left, right) => left.id.localeCompare(right.id)),
+      children: [
+        ...childIds.map((id) => elkLeaf(
+          nodeById.get(id),
+          manifoldsByNodeId.get(id) || [],
+          directPortsByNodeId.get(id) || [],
+        )),
+        ...manifoldSpecs.map((spec) => elkFanoutManifold(spec, profile)),
+      ].sort((left, right) => left.id.localeCompare(right.id)),
+      edges: [
+        ...groupRelations.map(({relation, render}) => relationEdge(relation, render)),
+        ...manifoldSpecs.map(elkFanoutTrunk),
+      ].sort((left, right) => left.id.localeCompare(right.id)),
     }
   })
 
-  const rootLeaves = nodes
+  const rootNodes = nodes
     .filter((node) => !groupedNodeIds.has(node.id) && !expandedGroupIds.has(node.groupId))
-    .map(elkLeaf)
-  const edges = ownedRelations
-    .filter((owned) => owned.ownerId === null)
-    .map(({relation, render}) => relationEdge(relation, render))
-    .sort((left, right) => left.id.localeCompare(right.id))
+  const rootManifoldSpecs = rootNodes.flatMap((node) => manifoldsByNodeId.get(node.id) || [])
+  const rootLeaves = [
+    ...rootNodes.map((node) => elkLeaf(
+      node,
+      manifoldsByNodeId.get(node.id) || [],
+      directPortsByNodeId.get(node.id) || [],
+    )),
+    ...rootManifoldSpecs.map((spec) => elkFanoutManifold(spec, profile)),
+  ]
+  const edges = [
+    ...portedRelations
+      .filter((owned) => owned.ownerId === null)
+      .map(({relation, render}) => relationEdge(relation, render)),
+    ...rootManifoldSpecs.map(elkFanoutTrunk),
+  ].sort((left, right) => left.id.localeCompare(right.id))
 
   return {
     id: "god-view-root",
@@ -227,6 +426,13 @@ function indexElkResult(node, parentOrigin, elements, edgeOwners) {
     candidates.push({edge, ownerId: node.id})
     edgeOwners.set(edge.id, candidates)
   }
+  for (const port of node.ports || []) {
+    const portOrigin = {
+      x: origin.x + finiteOrNaN(port.x ?? 0),
+      y: origin.y + finiteOrNaN(port.y ?? 0),
+    }
+    elements.set(port.id, {node: port, origin: portOrigin, parentId: node.id})
+  }
   for (const child of node.children || []) indexElkResult(child, origin, elements, edgeOwners)
 }
 
@@ -242,16 +448,143 @@ function decodedPoints(edge, ownerId, elements) {
   }))
 }
 
-function renderedEdgeEndpointBindingError(edge, relation) {
+function renderedEdgeEndpointBindingError(edge, relation, binding, elements) {
   if (!edge) return null
+  const expectedSource = binding?.sourcePortId || relation.sourceId
+  const expectedTarget = binding?.targetPortId || relation.targetId
   const sourcesMatch = Array.isArray(edge.sources)
     && edge.sources.length === 1
-    && edge.sources[0] === relation.sourceId
+    && edge.sources[0] === expectedSource
   const targetsMatch = Array.isArray(edge.targets)
     && edge.targets.length === 1
-    && edge.targets[0] === relation.targetId
-  if (sourcesMatch && targetsMatch) return null
-  return `route ${relation.id} has invalid ELK endpoint binding; expected exactly ${relation.sourceId} -> ${relation.targetId}`
+    && edge.targets[0] === expectedTarget
+  const endpointsExist = elements.has(expectedSource) && elements.has(expectedTarget)
+  if (sourcesMatch && targetsMatch && endpointsExist) return null
+  return `route ${relation.id} has invalid ELK endpoint binding; expected exactly ${expectedSource} -> ${expectedTarget}`
+}
+
+function renderedEdgeEndpointGeometryError(points, relation, binding, elements) {
+  if (!Array.isArray(points) || points.length < 2) return null
+  const sourcePortId = binding?.sourcePortId || relation.sourceId
+  const targetPortId = binding?.targetPortId || relation.targetId
+  if (!pointsContact(points[0], decodedElementCenter(sourcePortId, elements))) {
+    return `route ${relation.id} section source does not contact bound ELK port ${sourcePortId}`
+  }
+  if (!pointsContact(points.at(-1), decodedElementCenter(targetPortId, elements))) {
+    return `route ${relation.id} section target does not contact bound ELK port ${targetPortId}`
+  }
+  return null
+}
+
+function decodedRenderedRoute(relation, binding, elements, edgeOwners) {
+  const renderedCandidates = edgeOwners.get(relation.id) || []
+  const rendered = renderedCandidates.length === 1 ? renderedCandidates[0] : null
+  const points = decodedPoints(rendered?.edge, rendered?.ownerId, elements)
+  const bindingError = renderedCandidates.length === 1
+    ? renderedEdgeEndpointBindingError(rendered?.edge, relation, binding, elements)
+    : `route ${relation.id} must decode from exactly one continuous section`
+  return {
+    points,
+    endpointBindingError: bindingError || renderedEdgeEndpointGeometryError(
+      points,
+      relation,
+      binding,
+      elements,
+    ),
+  }
+}
+
+function decodedElementCenter(elementId, elements) {
+  const decoded = elements.get(elementId)
+  const width = finiteOrNaN(decoded?.node?.width ?? 0)
+  const height = finiteOrNaN(decoded?.node?.height ?? 0)
+  return {
+    x: finiteOrNaN(decoded?.origin?.x) + (width / 2),
+    y: finiteOrNaN(decoded?.origin?.y) + (height / 2),
+  }
+}
+
+function manifoldBranchJunctionId(manifoldSpec, routeId) {
+  return `${manifoldSpec.id}:junction:${routeId}`
+}
+
+function manifoldTrunkJunctionId(manifoldSpec) {
+  return `${manifoldSpec.id}:junction:trunk`
+}
+
+function manifoldGlyphJunctionId(manifoldSpec) {
+  return `${manifoldSpec.id}:junction:glyph`
+}
+
+function decodedManifolds(sceneInput, elements, edgeOwners) {
+  const rendered = (sceneInput?.renderedRelations || []).map((relation) => ({relation, render: true}))
+  const {manifoldsByNodeId} = elkManifoldBindings(rendered, LANDSCAPE_PROFILE)
+  return [...manifoldsByNodeId.values()]
+    .flat()
+    .map((spec) => {
+      const decoded = elements.get(spec.id)
+      const origin = decoded?.origin || {x: Number.NaN, y: Number.NaN}
+      const width = finiteOrNaN(decoded?.node?.width)
+      const height = finiteOrNaN(decoded?.node?.height)
+      const expectedCrossAxis = (spec.branches.length + 1) * MANIFOLD_SLOT_SPACING
+      const dimensionContractMatches = (
+        Math.abs(width) <= INTERSECTION_EPSILON
+          && Math.abs(height - expectedCrossAxis) <= INTERSECTION_EPSILON
+      ) || (
+        Math.abs(height) <= INTERSECTION_EPSILON
+          && Math.abs(width - expectedCrossAxis) <= INTERSECTION_EPSILON
+      )
+      const nodeContact = decodedElementCenter(spec.glyphPortId, elements)
+      const trunkContact = decodedElementCenter(spec.trunkPortId, elements)
+      const branchContacts = spec.branches.map((branch) => ({
+        routeId: branch.relationId,
+        junctionId: manifoldBranchJunctionId(spec, branch.relationId),
+        point: decodedElementCenter(branch.id, elements),
+      }))
+      const railContacts = [trunkContact, ...branchContacts.map((branch) => branch.point)]
+      const railPoints = width > height
+        ? [
+            {x: Math.min(...railContacts.map((point) => point.x)), y: origin.y},
+            {x: Math.max(...railContacts.map((point) => point.x)), y: origin.y},
+          ]
+        : [
+            {x: origin.x, y: Math.min(...railContacts.map((point) => point.y))},
+            {x: origin.x, y: Math.max(...railContacts.map((point) => point.y))},
+          ]
+      const trunkCandidates = edgeOwners.get(spec.trunkEdgeId) || []
+      const trunk = trunkCandidates.length === 1 ? trunkCandidates[0] : null
+      const expectedSource = spec.endpoint === "source" ? spec.glyphPortId : spec.trunkPortId
+      const expectedTarget = spec.endpoint === "source" ? spec.trunkPortId : spec.glyphPortId
+      const bindingMatches = Array.isArray(trunk?.edge?.sources)
+        && trunk.edge.sources.length === 1
+        && trunk.edge.sources[0] === expectedSource
+        && Array.isArray(trunk?.edge?.targets)
+        && trunk.edge.targets.length === 1
+        && trunk.edge.targets[0] === expectedTarget
+      const relationsById = new Map((sceneInput?.renderedRelations || []).map((relation) => [relation.id, relation]))
+      const relationIds = Array.from(new Set(spec.branches.flatMap(
+        (branch) => relationsById.get(branch.relationId)?.relationIds || [],
+      ))).sort((left, right) => left.localeCompare(right))
+      return {
+        id: spec.id,
+        nodeId: spec.nodeId,
+        endpoint: spec.endpoint,
+        nodeContact,
+        trunkContact,
+        trunkPoints: decodedPoints(trunk?.edge, trunk?.ownerId, elements),
+        railPoints,
+        branchContacts,
+        relationIds,
+        semanticRouteIds: spec.branches.map((branch) => branch.relationId),
+        ...(!dimensionContractMatches ? {
+          geometryContractError: `manifold ${spec.id} must retain one zero flow axis and exact ${expectedCrossAxis} cross-axis length`,
+        } : {}),
+        ...(trunkCandidates.length !== 1 || !bindingMatches
+          ? {endpointBindingError: `manifold ${spec.id} must decode from exactly one correctly bound ELK trunk edge`}
+          : {}),
+      }
+    })
+    .sort((left, right) => left.id.localeCompare(right.id))
 }
 
 function boxForNode(node) {
@@ -292,6 +625,10 @@ export function decodeElkScene(elkResult, sceneInput) {
       const decoded = elements.get(sceneNode.id)
       const width = finiteOrNaN(decoded?.node?.width)
       const height = finiteOrNaN(decoded?.node?.height)
+      const required = dimensionsForNode(sceneNode)
+      const undersized = Number.isFinite(width) && Number.isFinite(height)
+        && (width + INTERSECTION_EPSILON < required.width
+          || height + INTERSECTION_EPSILON < required.height)
       return {
         id: sceneNode.id,
         center: {
@@ -302,6 +639,9 @@ export function decodeElkScene(elkResult, sceneInput) {
         height,
         groupId: sceneNode.groupId,
         render: sceneNode.render,
+        ...(undersized ? {
+          geometryContractError: `node ${sceneNode.id} is smaller than its required ${required.width} x ${required.height} ELK envelope`,
+        } : {}),
       }
     })
     .sort((left, right) => left.id.localeCompare(right.id))
@@ -329,28 +669,101 @@ export function decodeElkScene(elkResult, sceneInput) {
     })
     .sort((left, right) => left.id.localeCompare(right.id))
 
+  const rendered = (sceneInput?.renderedRelations || []).map((relation) => ({relation, render: true}))
+  const {bindingsByRelationId} = elkManifoldBindings(rendered, LANDSCAPE_PROFILE)
+  const manifolds = decodedManifolds(sceneInput, elements, edgeOwners)
+  const manifoldById = new Map(manifolds.map((manifold) => [manifold.id, manifold]))
   const routes = [...(sceneInput?.renderedRelations || [])]
     .map((relation) => {
-      const candidates = edgeOwners.get(relation.id) || []
-      const decoded = candidates.length === 1 ? candidates[0] : null
-      const endpointBindingError = renderedEdgeEndpointBindingError(decoded?.edge, relation)
+      const binding = bindingsByRelationId.get(relation.id) || {}
+      const decoded = decodedRenderedRoute(relation, binding, elements, edgeOwners)
+      const sourceManifold = manifoldById.get(manifoldId(relation.sourceId, "source"))
+      const targetManifold = manifoldById.get(manifoldId(relation.targetId, "target"))
+      const sourceJunctionId = sourceManifold
+        ? manifoldBranchJunctionId(sourceManifold, relation.id)
+        : relationPortId(relation.id, relation.sourceId)
+      const targetJunctionId = targetManifold
+        ? manifoldBranchJunctionId(targetManifold, relation.id)
+        : relationPortId(relation.id, relation.targetId)
       return {
         id: relation.id,
         sourceId: relation.sourceId,
         targetId: relation.targetId,
-        points: decodedPoints(decoded?.edge, decoded?.ownerId, elements),
+        sourceContactId: sourceJunctionId,
+        targetContactId: targetJunctionId,
+        ...(sourceManifold ? {sourceManifoldId: sourceManifold.id} : {}),
+        ...(targetManifold ? {targetManifoldId: targetManifold.id} : {}),
+        points: decoded.points,
+        junctions: [
+          ...(sourceManifold && decoded.points[0]
+            ? [{id: sourceJunctionId, point: decoded.points[0]}]
+            : []),
+          ...(targetManifold && decoded.points.at(-1)
+            ? [{id: targetJunctionId, point: decoded.points.at(-1)}]
+            : []),
+        ],
         relationIds: [...(relation.relationIds || [])].sort((left, right) => left.localeCompare(right)),
         metadata: relation.metadata && typeof relation.metadata === "object" ? {...relation.metadata} : {},
-        ...(endpointBindingError ? {endpointBindingError} : {}),
+        ...(decoded.endpointBindingError ? {endpointBindingError: decoded.endpointBindingError} : {}),
       }
     })
     .sort((left, right) => left.id.localeCompare(right.id))
+
+  const manifoldRoutes = manifolds.flatMap((manifold) => {
+    const trunkJunctionId = manifoldTrunkJunctionId(manifold)
+    const nodeJunctionId = manifoldGlyphJunctionId(manifold)
+    const trunkSourceContactId = manifold.endpoint === "source" ? nodeJunctionId : trunkJunctionId
+    const trunkTargetContactId = manifold.endpoint === "source" ? trunkJunctionId : nodeJunctionId
+    const trunk = {
+      id: `${manifold.id}:trunk`,
+      sourceId: manifold.nodeId,
+      targetId: manifold.nodeId,
+      sourceContactId: trunkSourceContactId,
+      targetContactId: trunkTargetContactId,
+      points: manifold.trunkPoints,
+      relationIds: manifold.relationIds,
+      semanticRouteIds: manifold.semanticRouteIds,
+      incidentNodeIds: [manifold.nodeId],
+      auxiliary: true,
+      kind: "manifold-trunk",
+      junctions: [
+        {id: nodeJunctionId, point: manifold.nodeContact},
+        {id: trunkJunctionId, point: manifold.trunkContact},
+        ...manifold.branchContacts
+          .filter((branch) => pointsContact(branch.point, manifold.trunkContact))
+          .map((branch) => ({id: branch.junctionId, point: branch.point})),
+      ],
+      metadata: {},
+    }
+    const rail = {
+      id: `${manifold.id}:rail`,
+      sourceId: manifold.nodeId,
+      targetId: manifold.nodeId,
+      sourceContactId: `${manifold.id}:rail:start`,
+      targetContactId: `${manifold.id}:rail:end`,
+      points: manifold.railPoints,
+      relationIds: manifold.relationIds,
+      semanticRouteIds: manifold.semanticRouteIds,
+      incidentNodeIds: [manifold.nodeId],
+      auxiliary: true,
+      kind: "manifold-rail",
+      junctions: [
+        {id: trunkJunctionId, point: manifold.trunkContact},
+        ...manifold.branchContacts.map((branch) => ({id: branch.junctionId, point: branch.point})),
+      ],
+      metadata: {},
+    }
+    return [trunk, rail]
+  }).sort((left, right) => left.id.localeCompare(right.id))
+  const physicalRoutes = [...routes, ...manifoldRoutes]
 
   return {
     nodes,
     groups,
     routes,
-    bounds: sceneBounds(nodes, groups, routes),
+    manifolds,
+    physicalRoutes,
+    bounds: sceneBounds(nodes, groups, physicalRoutes),
   }
 }
 
@@ -374,12 +787,12 @@ function boxContains(outer, inner) {
   )
 }
 
-function segmentIntersectsOpenBox(start, end, box) {
+function segmentIntersectsOpenBox(start, end, box, clearance = ROUTE_CLEARANCE) {
   const interior = {
-    minX: box.minX - ROUTE_CLEARANCE + INTERSECTION_EPSILON,
-    minY: box.minY - ROUTE_CLEARANCE + INTERSECTION_EPSILON,
-    maxX: box.maxX + ROUTE_CLEARANCE - INTERSECTION_EPSILON,
-    maxY: box.maxY + ROUTE_CLEARANCE - INTERSECTION_EPSILON,
+    minX: box.minX - clearance + INTERSECTION_EPSILON,
+    minY: box.minY - clearance + INTERSECTION_EPSILON,
+    maxX: box.maxX + clearance - INTERSECTION_EPSILON,
+    maxY: box.maxY + clearance - INTERSECTION_EPSILON,
   }
   let lower = 0
   let upper = 1
@@ -403,11 +816,169 @@ function segmentIntersectsOpenBox(start, end, box) {
   return upper > INTERSECTION_EPSILON && lower < 1 - INTERSECTION_EPSILON
 }
 
-function routeIntersectsBox(route, box) {
+function routeIntersectsBox(route, box, clearance = ROUTE_CLEARANCE) {
   for (let index = 1; index < route.points.length; index += 1) {
-    if (segmentIntersectsOpenBox(route.points[index - 1], route.points[index], box)) return true
+    if (segmentIntersectsOpenBox(
+      route.points[index - 1],
+      route.points[index],
+      box,
+      clearance,
+    )) return true
   }
   return false
+}
+
+function orientation(start, end, point) {
+  return ((end.x - start.x) * (point.y - start.y))
+    - ((end.y - start.y) * (point.x - start.x))
+}
+
+function segmentLength(start, end) {
+  return Math.hypot(end.x - start.x, end.y - start.y)
+}
+
+function signedPerpendicularDistance(start, end, point) {
+  const length = segmentLength(start, end)
+  if (length <= INTERSECTION_EPSILON) return Number.NaN
+  return orientation(start, end, point) / length
+}
+
+function pointsContact(first, second) {
+  return Math.hypot(second.x - first.x, second.y - first.y) <= INTERSECTION_EPSILON
+}
+
+function pointContactsSegment(point, start, end) {
+  const length = segmentLength(start, end)
+  if (length <= INTERSECTION_EPSILON) return pointsContact(point, start)
+  if (Math.abs(signedPerpendicularDistance(start, end, point)) > INTERSECTION_EPSILON) return false
+  const along = (
+    ((point.x - start.x) * (end.x - start.x)) +
+    ((point.y - start.y) * (end.y - start.y))
+  ) / length
+  return along >= -INTERSECTION_EPSILON && along <= length + INTERSECTION_EPSILON
+}
+
+function segmentsHaveCoincidentInteriors(firstStart, firstEnd, secondStart, secondEnd) {
+  const firstLength = segmentLength(firstStart, firstEnd)
+  const secondLength = segmentLength(secondStart, secondEnd)
+  if (firstLength <= INTERSECTION_EPSILON || secondLength <= INTERSECTION_EPSILON) return false
+  if (
+    Math.abs(signedPerpendicularDistance(firstStart, firstEnd, secondStart)) > INTERSECTION_EPSILON ||
+    Math.abs(signedPerpendicularDistance(firstStart, firstEnd, secondEnd)) > INTERSECTION_EPSILON ||
+    Math.abs(signedPerpendicularDistance(secondStart, secondEnd, firstStart)) > INTERSECTION_EPSILON ||
+    Math.abs(signedPerpendicularDistance(secondStart, secondEnd, firstEnd)) > INTERSECTION_EPSILON
+  ) return false
+
+  const directionX = (firstEnd.x - firstStart.x) / firstLength
+  const directionY = (firstEnd.y - firstStart.y) / firstLength
+  const secondStartProjection = (
+    ((secondStart.x - firstStart.x) * directionX) +
+    ((secondStart.y - firstStart.y) * directionY)
+  )
+  const secondEndProjection = (
+    ((secondEnd.x - firstStart.x) * directionX) +
+    ((secondEnd.y - firstStart.y) * directionY)
+  )
+  const overlap = Math.min(
+    firstLength,
+    Math.max(secondStartProjection, secondEndProjection),
+  ) - Math.max(
+    0,
+    Math.min(secondStartProjection, secondEndProjection),
+  )
+  return overlap > INTERSECTION_EPSILON
+}
+
+function segmentsProperlyCross(firstStart, firstEnd, secondStart, secondEnd) {
+  if (
+    segmentLength(firstStart, firstEnd) <= INTERSECTION_EPSILON ||
+    segmentLength(secondStart, secondEnd) <= INTERSECTION_EPSILON
+  ) return false
+  const firstToSecondStart = signedPerpendicularDistance(firstStart, firstEnd, secondStart)
+  const firstToSecondEnd = signedPerpendicularDistance(firstStart, firstEnd, secondEnd)
+  const secondToFirstStart = signedPerpendicularDistance(secondStart, secondEnd, firstStart)
+  const secondToFirstEnd = signedPerpendicularDistance(secondStart, secondEnd, firstEnd)
+  return (
+    (
+      (firstToSecondStart > INTERSECTION_EPSILON && firstToSecondEnd < -INTERSECTION_EPSILON) ||
+      (firstToSecondStart < -INTERSECTION_EPSILON && firstToSecondEnd > INTERSECTION_EPSILON)
+    ) && (
+      (secondToFirstStart > INTERSECTION_EPSILON && secondToFirstEnd < -INTERSECTION_EPSILON) ||
+      (secondToFirstStart < -INTERSECTION_EPSILON && secondToFirstEnd > INTERSECTION_EPSILON)
+    )
+  )
+}
+
+function segmentContactPoints(firstStart, firstEnd, secondStart, secondEnd) {
+  const candidates = [
+    [firstStart, secondStart, secondEnd],
+    [firstEnd, secondStart, secondEnd],
+    [secondStart, firstStart, firstEnd],
+    [secondEnd, firstStart, firstEnd],
+  ]
+  const contacts = []
+  for (const [point, otherStart, otherEnd] of candidates) {
+    if (!pointContactsSegment(point, otherStart, otherEnd)) continue
+    if (contacts.some((contact) => pointsContact(contact, point))) continue
+    contacts.push(point)
+  }
+  return contacts
+}
+
+function routeEndpointIdsAtPoint(route, point) {
+  const points = Array.isArray(route?.points) ? route.points : []
+  const endpointIds = new Set()
+  const sourceId = String(route?.sourceContactId || route?.sourceId || "")
+  const targetId = String(route?.targetContactId || route?.targetId || "")
+  if (sourceId !== "" && pointsContact(points[0], point)) endpointIds.add(sourceId)
+  if (targetId !== "" && pointsContact(points.at(-1), point)) endpointIds.add(targetId)
+  for (const junction of route?.junctions || []) {
+    const junctionId = String(junction?.id || "")
+    if (junctionId !== "" && pointsContact(junction?.point, point)) endpointIds.add(junctionId)
+  }
+  return endpointIds
+}
+
+function genuineSharedRouteEndpointContact(first, second, point) {
+  const firstEndpointIds = routeEndpointIdsAtPoint(first, point)
+  const secondEndpointIds = routeEndpointIdsAtPoint(second, point)
+  return [...firstEndpointIds].some((endpointId) => secondEndpointIds.has(endpointId))
+}
+
+function routePairGeometry(first, second) {
+  const firstPoints = Array.isArray(first?.points) ? first.points : []
+  const secondPoints = Array.isArray(second?.points) ? second.points : []
+  if (
+    firstPoints.length < 2 ||
+    secondPoints.length < 2 ||
+    !firstPoints.every((point) => Number.isFinite(point?.x) && Number.isFinite(point?.y)) ||
+    !secondPoints.every((point) => Number.isFinite(point?.x) && Number.isFinite(point?.y))
+  ) return {coincidentInteriors: false, diagnosticContact: false}
+
+  let coincidentInteriors = false
+  let diagnosticContact = false
+
+  for (let firstIndex = 1; firstIndex < firstPoints.length; firstIndex += 1) {
+    for (let secondIndex = 1; secondIndex < secondPoints.length; secondIndex += 1) {
+      const firstStart = firstPoints[firstIndex - 1]
+      const firstEnd = firstPoints[firstIndex]
+      const secondStart = secondPoints[secondIndex - 1]
+      const secondEnd = secondPoints[secondIndex]
+      if (segmentsHaveCoincidentInteriors(firstStart, firstEnd, secondStart, secondEnd)) {
+        coincidentInteriors = true
+        continue
+      }
+      if (segmentsProperlyCross(firstStart, firstEnd, secondStart, secondEnd)) {
+        diagnosticContact = true
+        continue
+      }
+      const contacts = segmentContactPoints(firstStart, firstEnd, secondStart, secondEnd)
+      if (contacts.some((point) => !genuineSharedRouteEndpointContact(first, second, point))) {
+        diagnosticContact = true
+      }
+    }
+  }
+  return {coincidentInteriors, diagnosticContact}
 }
 
 function hasDistinctRoutePoints(points) {
@@ -435,12 +1006,24 @@ function pointContactsBoxBoundary(point, box) {
     || Math.abs(point.y - box.maxY) <= INTERSECTION_EPSILON
 }
 
+function pointContactsPolyline(point, points) {
+  for (let index = 1; index < (points || []).length; index += 1) {
+    if (pointContactsSegment(point, points[index - 1], points[index])) return true
+  }
+  return false
+}
+
 export function validateTopologyScene(scene) {
   const errors = []
+  let routeCrossingPairs = 0
   const nodes = Array.isArray(scene?.nodes) ? scene.nodes : []
   const groups = Array.isArray(scene?.groups) ? scene.groups : []
   const routes = Array.isArray(scene?.routes) ? scene.routes : []
+  const manifolds = Array.isArray(scene?.manifolds) ? scene.manifolds : []
+  const physicalRoutes = Array.isArray(scene?.physicalRoutes) ? scene.physicalRoutes : routes
   const nodeById = new Map(nodes.map((node) => [node.id, node]))
+  const routeById = new Map(routes.map((route) => [route.id, route]))
+  const manifoldById = new Map(manifolds.map((manifold) => [manifold.id, manifold]))
   const nodeBoxes = new Map()
 
   for (const node of nodes) {
@@ -449,6 +1032,7 @@ export function validateTopologyScene(scene) {
       errors.push(`node ${node.id} has non-finite geometry`)
       continue
     }
+    if (node.geometryContractError) errors.push(node.geometryContractError)
     nodeBoxes.set(node.id, boxForNode(node))
   }
 
@@ -493,7 +1077,7 @@ export function validateTopologyScene(scene) {
     }
   }
 
-  for (const route of routes) {
+  for (const route of physicalRoutes) {
     if (route.endpointBindingError) {
       errors.push(route.endpointBindingError)
       continue
@@ -511,31 +1095,33 @@ export function validateTopologyScene(scene) {
       continue
     }
 
-    const sourceBox = nodeBoxes.get(route.sourceId)
-    const targetBox = nodeBoxes.get(route.targetId)
-    if (!pointContactsBoxBoundary(route.points[0], sourceBox)) {
-      errors.push(`route ${route.id} does not contact source endpoint ${route.sourceId} boundary within ${INTERSECTION_EPSILON}`)
-    }
-    if (!pointContactsBoxBoundary(route.points.at(-1), targetBox)) {
-      errors.push(`route ${route.id} does not contact target endpoint ${route.targetId} boundary within ${INTERSECTION_EPSILON}`)
-    }
+    const incidentNodeIds = new Set(
+      Array.isArray(route.incidentNodeIds)
+        ? route.incidentNodeIds
+        : [route.sourceId, route.targetId],
+    )
 
     for (const node of nodes) {
-      if (node.id === route.sourceId || node.id === route.targetId) continue
       const box = nodeBoxes.get(node.id)
-      if (box && routeIntersectsBox(route, box)) {
+      if (!box) continue
+      if (incidentNodeIds.has(node.id) && routeIntersectsBox(route, box, 0)) {
+        const role = !route.auxiliary && node.id === route.sourceId
+          ? "source "
+          : (!route.auxiliary && node.id === route.targetId ? "target " : "")
+        errors.push(`route ${route.id} traverses incident ${role}node ${node.id} open interior`)
+      } else if (!incidentNodeIds.has(node.id) && routeIntersectsBox(route, box)) {
         errors.push(`route ${route.id} intersects nonincident node ${node.id}`)
       }
     }
 
     for (const group of groups) {
-      const sourceGroupId = nodeById.get(route.sourceId)?.groupId
-      const targetGroupId = nodeById.get(route.targetId)?.groupId
+      const incidentGroupIds = new Set([...incidentNodeIds]
+        .map((nodeId) => nodeById.get(nodeId)?.groupId)
+        .filter(Boolean))
       if (
         group.id === route.sourceId ||
         group.id === route.targetId ||
-        group.id === sourceGroupId ||
-        group.id === targetGroupId
+        incidentGroupIds.has(group.id)
       ) continue
       if (finiteBox(group.bounds) && routeIntersectsBox(route, group.bounds)) {
         errors.push(`route ${route.id} intersects nonincident group ${group.id}`)
@@ -543,7 +1129,81 @@ export function validateTopologyScene(scene) {
     }
   }
 
-  return {ok: errors.length === 0, errors}
+  for (const route of routes) {
+    if (!Array.isArray(route.points) || route.points.length < 2) continue
+    const sourceBox = nodeBoxes.get(route.sourceId)
+    const targetBox = nodeBoxes.get(route.targetId)
+    const sourceManifold = route.sourceManifoldId
+      ? manifoldById.get(route.sourceManifoldId)
+      : null
+    const targetManifold = route.targetManifoldId
+      ? manifoldById.get(route.targetManifoldId)
+      : null
+    if (sourceManifold) {
+      const branch = sourceManifold.branchContacts.find((candidate) => candidate.routeId === route.id)
+      if (!branch || !pointsContact(route.points[0], branch.point)) {
+        errors.push(`route ${route.id} does not contact source manifold ${sourceManifold.id}`)
+      }
+    } else if (!pointContactsBoxBoundary(route.points[0], sourceBox)) {
+      errors.push(`route ${route.id} does not contact source endpoint ${route.sourceId} boundary within ${INTERSECTION_EPSILON}`)
+    }
+    if (targetManifold) {
+      const branch = targetManifold.branchContacts.find((candidate) => candidate.routeId === route.id)
+      if (!branch || !pointsContact(route.points.at(-1), branch.point)) {
+        errors.push(`route ${route.id} does not contact target manifold ${targetManifold.id}`)
+      }
+    } else if (!pointContactsBoxBoundary(route.points.at(-1), targetBox)) {
+      errors.push(`route ${route.id} does not contact target endpoint ${route.targetId} boundary within ${INTERSECTION_EPSILON}`)
+    }
+  }
+
+  for (const manifold of manifolds) {
+    if (manifold.geometryContractError) errors.push(manifold.geometryContractError)
+    if (manifold.endpointBindingError) errors.push(manifold.endpointBindingError)
+    const nodeBox = nodeBoxes.get(manifold.nodeId)
+    if (!pointContactsBoxBoundary(manifold.nodeContact, nodeBox)) {
+      errors.push(`manifold ${manifold.id} does not contact node ${manifold.nodeId} boundary`)
+    }
+    const trunkPoints = Array.isArray(manifold.trunkPoints) ? manifold.trunkPoints : []
+    const expectedStart = manifold.endpoint === "source" ? manifold.nodeContact : manifold.trunkContact
+    const expectedEnd = manifold.endpoint === "source" ? manifold.trunkContact : manifold.nodeContact
+    if (
+      trunkPoints.length < 2 ||
+      !pointsContact(trunkPoints[0], expectedStart) ||
+      !pointsContact(trunkPoints.at(-1), expectedEnd)
+    ) {
+      errors.push(`manifold ${manifold.id} trunk is disconnected`)
+    }
+    if (!pointContactsPolyline(manifold.trunkContact, manifold.railPoints)) {
+      errors.push(`manifold ${manifold.id} trunk does not contact its rail`)
+    }
+    for (const branch of manifold.branchContacts || []) {
+      const route = routeById.get(branch.routeId)
+      const routePoint = manifold.endpoint === "source" ? route?.points?.[0] : route?.points?.at(-1)
+      if (!pointContactsPolyline(branch.point, manifold.railPoints)) {
+        errors.push(`manifold ${manifold.id} branch ${branch.routeId} does not contact its rail`)
+      }
+      if (!routePoint || !pointsContact(routePoint, branch.point)) {
+        errors.push(`manifold ${manifold.id} branch ${branch.routeId} does not contact its route`)
+      }
+    }
+  }
+
+  for (let leftIndex = 0; leftIndex < physicalRoutes.length; leftIndex += 1) {
+    for (let rightIndex = leftIndex + 1; rightIndex < physicalRoutes.length; rightIndex += 1) {
+      const left = physicalRoutes[leftIndex]
+      const right = physicalRoutes[rightIndex]
+      const geometry = routePairGeometry(left, right)
+      if (geometry.coincidentInteriors) {
+        const [leftId, rightId] = [String(left?.id || ""), String(right?.id || "")]
+          .sort((first, second) => first.localeCompare(second))
+        errors.push(`routes ${leftId} and ${rightId} have coincident interior segments`)
+      }
+      if (geometry.diagnosticContact) routeCrossingPairs += 1
+    }
+  }
+
+  return {ok: errors.length === 0, errors, diagnostics: {routeCrossingPairs}}
 }
 
 export async function layoutTopologyScene(

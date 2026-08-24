@@ -71,6 +71,57 @@ describe("rendering_graph_layer_transport_methods", () => {
     expect(out.crustLayers[0].props.getColor(edge)).toEqual([100, 160, 255, 255])
   })
 
+  it("renders manifold rails and trunks beneath semantic branches without making them pick targets", () => {
+    const state = {
+      animationPhase: 1.2,
+      layers: {mantle: true, crust: true, atmosphere: false, security: false},
+      visual: {
+        mantleEdgeBase: [30, 80, 140],
+        mantleEdgeAlphaBase: 128,
+        mantleEdgeAlphaBoost: 32,
+      },
+    }
+    const ctx = createStateBackedContext(state, {geoGridData: vi.fn(() => [])})
+    Object.assign(ctx, bindApi(ctx, godViewRenderingGraphLayerTransportMethods), {
+      edgeTelemetryColor: vi.fn(() => [100, 160, 255, 150]),
+      edgeWidthPixels: vi.fn(() => 2.2),
+      edgeIsFocused: vi.fn(() => false),
+    })
+    const semantic = {
+      routeId: "route:a-b",
+      interactionKey: "local:route:a-b",
+      path: [[40, 0, 0], [80, 0, 0]],
+    }
+    const auxiliary = {
+      routeId: "manifold:a:source:rail",
+      auxiliary: true,
+      interactionKey: null,
+      semanticRouteIds: ["route:a-b"],
+      path: [[0, -20, 0], [0, 20, 0]],
+    }
+
+    const out = ctx.buildTransportAndEffectLayers(
+      {shape: "local", _layoutMode: "elk-scene", _topologyScene: {routes: [{id: "route:a-b"}]}},
+      [],
+      [semantic, auxiliary],
+    )
+
+    expect(out.mantleLayers.map((layer) => layer.id)).toEqual([
+      "god-view-edges-mantle-auxiliary",
+      "god-view-edges-mantle",
+    ])
+    expect(out.crustLayers.map((layer) => layer.id)).toEqual([
+      "god-view-edges-crust-auxiliary",
+      "god-view-edges-crust",
+    ])
+    for (const layers of [out.mantleLayers, out.crustLayers]) {
+      expect(layers[0].props.data).toEqual([auxiliary])
+      expect(layers[0].props.pickable).toBe(false)
+      expect(layers[1].props.data).toEqual([semantic])
+      expect(layers[1].props.pickable).toBe(true)
+    }
+  })
+
   it.each([
     ["overview", 10],
     ["detail", 12],
@@ -108,6 +159,47 @@ describe("rendering_graph_layer_transport_methods", () => {
 
     expect(out.mantleLayers[0].props.getWidth(edge)).toBe(maximum)
     expect(out.crustLayers[0].props.getWidth(edge)).toBe(maximum)
+  })
+
+  it("invalidates both managed route width accessors when density changes with identical edge data", () => {
+    const edgeData = [{
+      interactionKey: "local:route:a-b",
+      path: [[0, 0, 0], [40, 0, 0]],
+      topologyClass: "backbone",
+    }]
+    const state = {
+      animationPhase: 1.2,
+      managedTopologyVisualDensity: "overview",
+      viewState: {zoom: 3},
+      layers: {mantle: true, crust: true, atmosphere: false, security: false},
+      visual: {
+        mantleEdgeBase: [30, 80, 140],
+        mantleEdgeAlphaBase: 128,
+        mantleEdgeAlphaBoost: 32,
+      },
+    }
+    const ctx = createStateBackedContext(state, {geoGridData: vi.fn(() => [])})
+    Object.assign(ctx, bindApi(ctx, godViewRenderingGraphLayerTransportMethods), {
+      edgeTelemetryColor: vi.fn(() => [100, 160, 255, 150]),
+      edgeWidthPixels: vi.fn(() => 100),
+      edgeIsFocused: vi.fn(() => false),
+    })
+    const effective = {
+      shape: "local",
+      _layoutMode: "elk-scene",
+      _topologyScene: {routes: [{id: "route:a-b"}]},
+    }
+
+    const overview = ctx.buildTransportAndEffectLayers(effective, [], edgeData)
+    state.managedTopologyVisualDensity = "detail"
+    const detail = ctx.buildTransportAndEffectLayers(effective, [], edgeData)
+
+    for (const key of ["mantleLayers", "crustLayers"]) {
+      expect(overview[key][0].props.data).toBe(edgeData)
+      expect(detail[key][0].props.data).toBe(edgeData)
+      expect(overview[key][0].props.updateTriggers.getWidth).toContain("overview")
+      expect(detail[key][0].props.updateTriggers.getWidth).toContain("detail")
+    }
   })
 
   it("leaves legacy LineLayer and ArcLayer width behavior unchanged", () => {

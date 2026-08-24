@@ -34,6 +34,7 @@
  * @property {(...args: any[]) => any} autoFitViewState
  * @property {(...args: any[]) => any} focusClusterNeighborhood
  * @property {(...args: any[]) => any} managedVisualDensityForViewScale
+ * @property {(...args: any[]) => any} managedViewStateForCamera
  */
 
 /**
@@ -91,6 +92,7 @@ export const RENDERING_DEP_KEYS = ["resolveZoomTier", "setZoomTier", "reshapeGra
  * @property {(...args: any[]) => any} autoFitViewState
  * @property {(...args: any[]) => any} focusClusterNeighborhood
  * @property {(...args: any[]) => any} managedVisualDensityForViewScale
+ * @property {(...args: any[]) => any} managedViewStateForCamera
  */
 export const LIFECYCLE_DEP_KEYS = [
   "renderGraph",
@@ -112,6 +114,7 @@ export const LIFECYCLE_DEP_KEYS = [
   "autoFitViewState",
   "focusClusterNeighborhood",
   "managedVisualDensityForViewScale",
+  "managedViewStateForCamera",
 ]
 
 /**
@@ -166,5 +169,6 @@ export function buildLifecycleDeps(context) {
     autoFitViewState: (...args) => context.rendering.autoFitViewState(...args),
     focusClusterNeighborhood: (...args) => context.rendering.focusClusterNeighborhood(...args),
     managedVisualDensityForViewScale: (...args) => context.rendering.managedVisualDensityForViewScale(...args),
+    managedViewStateForCamera: (...args) => context.rendering.managedViewStateForCamera(...args),
   }
 }

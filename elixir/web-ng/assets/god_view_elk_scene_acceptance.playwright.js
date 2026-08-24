@@ -6,8 +6,10 @@ import {
   groupGeometryViolations,
   routeInsideSafeRect,
   routeInteriorsIntersect,
+  routeStrokesOverlap,
   routeStrokeHitsBox,
   segmentAabbDistance,
+  transportLayerRouteIdViolations,
 } from "./js/lib/god_view/acceptance_geometry_assertions.js"
 
 const OUTPUT_DIR = process.env.TEST_UNDECLARED_OUTPUTS_DIR
@@ -55,47 +57,26 @@ function assertProjectedGlyphsDisjoint(snapshot, phase) {
   }
 }
 
-function projectedWorldBox(snapshot, box) {
-  const nodeById = new Map(snapshot.nodes.map((node) => [node.id, node]))
-  const glyphSamples = snapshot.glyphs.flatMap((glyph) => {
-    const node = nodeById.get(glyph.nodeId)
-    if (!node) return []
-    return [{
-      world: {x: (node.box.left + node.box.right) / 2, y: (node.box.top + node.box.bottom) / 2},
-      screen: {x: (glyph.left + glyph.right) / 2, y: (glyph.top + glyph.bottom) / 2},
-    }]
-  })
-  const routeSamples = snapshot.routes.flatMap((route) => route.points.map((point, index) => ({
-    world: point,
-    screen: route.projectedPoints[index],
-  }))).filter((sample) => sample.screen)
-  const samples = [...glyphSamples, ...routeSamples]
-  expect(samples.length, "focused scene needs a projected geometry sample").toBeGreaterThan(0)
-  const origin = samples[0]
-  const xSample = samples.find((sample) => Math.abs(sample.world.x - origin.world.x) > 1e-9)
-  const ySample = samples.find((sample) => Math.abs(sample.world.y - origin.world.y) > 1e-9)
-  const cameraScale = 2 ** snapshot.viewState.zoom
-  const scaleX = xSample
-    ? (xSample.screen.x - origin.screen.x) / (xSample.world.x - origin.world.x)
-    : cameraScale
-  const scaleY = ySample
-    ? (ySample.screen.y - origin.screen.y) / (ySample.world.y - origin.world.y)
-    : cameraScale
-  const offsetX = origin.screen.x - (origin.world.x * scaleX)
-  const offsetY = origin.screen.y - (origin.world.y * scaleY)
-  const xs = [box.left, box.right].map((value) => offsetX + (value * scaleX))
-  const ys = [box.top, box.bottom].map((value) => offsetY + (value * scaleY))
-  return {left: Math.min(...xs), top: Math.min(...ys), right: Math.max(...xs), bottom: Math.max(...ys)}
-}
-
 function assertFocusedNeighborhood(snapshot, groupId) {
   assertProjectedGlyphsDisjoint(snapshot, "focus")
   const group = snapshot.groups.find((candidate) => candidate.id === groupId)
   expect(group, `focused group ${groupId} must remain expanded`).toBeTruthy()
-  expect(inside(projectedWorldBox(snapshot, group.box), snapshot.safeRect), `${groupId} group leaves safe rect`).toBe(true)
+  expect(inside(group.projectedBox, snapshot.safeRect), `${groupId} group leaves safe rect`).toBe(true)
 
   const selectedIds = new Set([group.anchorId, group.gatewayId, ...group.memberIds])
-  const selectedGlyphs = snapshot.glyphs.filter((glyph) => selectedIds.has(glyph.nodeId))
+  const semanticRoutes = snapshot.routes.filter((route) => route.auxiliary !== true
+    && (selectedIds.has(route.sourceId) || selectedIds.has(route.targetId)))
+  expect(semanticRoutes.length, `${groupId} focused semantic routes are missing`).toBeGreaterThan(0)
+  const semanticRouteIds = new Set(semanticRoutes.map((route) => route.id))
+  const focusedRoutes = snapshot.routes.filter((route) => semanticRouteIds.has(route.id)
+    || route.semanticRouteIds.some((routeId) => semanticRouteIds.has(routeId)))
+  const focusedNodeIds = new Set(selectedIds)
+  for (const route of semanticRoutes) {
+    focusedNodeIds.add(route.sourceId)
+    focusedNodeIds.add(route.targetId)
+  }
+
+  const selectedGlyphs = snapshot.glyphs.filter((glyph) => focusedNodeIds.has(glyph.nodeId))
   expect(selectedGlyphs.length, `${groupId} must retain its member and anchor glyphs`).toBeGreaterThan(group.memberIds.length)
   const glyphIds = new Set(selectedGlyphs.map((glyph) => glyph.nodeId))
   for (const nodeId of [group.anchorId, ...group.memberIds]) {
@@ -105,26 +86,69 @@ function assertFocusedNeighborhood(snapshot, groupId) {
     expect(inside(glyph, snapshot.safeRect), `${glyph.nodeId} focused glyph leaves safe rect`).toBe(true)
   }
 
-  const trunkRoutes = snapshot.routes.filter((route) =>
-    (route.sourceId === group.anchorId && selectedIds.has(route.targetId))
-    || (route.targetId === group.anchorId && selectedIds.has(route.sourceId)))
-  expect(trunkRoutes.length, `${groupId} trunk route is missing`).toBeGreaterThan(0)
-  for (const route of trunkRoutes) {
-    expect(routeInsideSafeRect(route, snapshot.safeRect), `${routeDescription(route)} focused trunk leaves safe rect`).toBe(true)
+  expect(focusedRoutes.some((route) => route.auxiliary === true), `${groupId} focused manifold paths are missing`).toBe(true)
+  for (const route of focusedRoutes) {
+    expect(routeInsideSafeRect(route, snapshot.safeRect), `${routeDescription(route)} focused route leaves safe rect`).toBe(true)
+    for (const glyph of selectedGlyphs) {
+      if (glyph.nodeId === route.sourceId || glyph.nodeId === route.targetId) continue
+      expect(
+        routeStrokeHitsBox(route, glyph),
+        `${routeDescription(route)} focused route hits ${glyph.nodeId}`,
+      ).toBe(false)
+    }
+  }
+  for (let left = 0; left < focusedRoutes.length; left += 1) {
+    for (let right = left + 1; right < focusedRoutes.length; right += 1) {
+      const first = focusedRoutes[left]
+      const second = focusedRoutes[right]
+      expect(
+        routeInteriorsIntersect(first, second),
+        `${routeDescription(first)} focused route intersects ${routeDescription(second)}`,
+      ).toBe(false)
+      expect(
+        routeStrokesOverlap(first, second),
+        `${routeDescription(first)} focused stroke overlaps ${routeDescription(second)}`,
+      ).toBe(false)
+    }
   }
 
-  const selectedLabels = snapshot.labels.filter((label) => selectedIds.has(label.nodeId))
+  const selectedLabels = snapshot.labels.filter((label) => focusedNodeIds.has(label.nodeId))
   expect(selectedLabels.length, `${groupId} must retain admitted neighborhood labels`).toBeGreaterThan(0)
-  for (const label of selectedLabels) {
+  for (let left = 0; left < selectedLabels.length; left += 1) {
+    const label = selectedLabels[left]
     expect(inside(label.box, snapshot.safeRect), `${label.nodeId} focused label leaves safe rect`).toBe(true)
+    for (let right = left + 1; right < selectedLabels.length; right += 1) {
+      expect(
+        overlaps(label.box, selectedLabels[right].box),
+        `${label.nodeId} focused label collision`,
+      ).toBe(false)
+    }
+    for (const glyph of selectedGlyphs) {
+      if (glyph.nodeId === label.nodeId) continue
+      expect(overlaps(label.box, glyph), `${label.nodeId} focused label hits ${glyph.nodeId}`).toBe(false)
+    }
+    for (const route of focusedRoutes) {
+      expect(
+        routeStrokeHitsBox(route, label.box),
+        `${label.nodeId} focused label hits ${routeDescription(route)}`,
+      ).toBe(false)
+    }
   }
 }
 
 function assertScene(snapshot, expected) {
   expect(snapshot.counts).toEqual(expected)
   expect(snapshot.glyphs).toHaveLength(expected.renderedGlyphs)
-  expect(snapshot.routes).toHaveLength(expected.renderedRoutes)
-  expect(snapshot.labels).toHaveLength(expected.admittedLabels)
+  expect(snapshot.routes.filter((route) => route.auxiliary !== true)).toHaveLength(expected.renderedRoutes)
+  expect(snapshot.routes).toHaveLength(expected.renderedPhysicalRoutes)
+  expect(new Set(snapshot.routes.map((route) => route.id)).size).toBe(expected.physicalRoutes)
+  expect(snapshot.scenePhysicalRouteIds).toHaveLength(expected.physicalRoutes)
+  expect(new Set(snapshot.scenePhysicalRouteIds).size).toBe(expected.physicalRoutes)
+  expect(
+    transportLayerRouteIdViolations(snapshot),
+    "each enabled mantle/crust layer family must render every ELK physical route exactly once",
+  ).toEqual([])
+  expect(snapshot.labels).toHaveLength(snapshot.counts.admittedLabels)
   expect(groupGeometryViolations(snapshot)).toEqual([])
   assertProjectedGlyphsDisjoint(snapshot, snapshot.sceneKey || "scene")
   for (const route of snapshot.routes) {
@@ -132,6 +156,14 @@ function assertScene(snapshot, expected) {
       Number.isFinite(route.strokeWidth) && route.strokeWidth > 0,
       `${routeDescription(route)} must expose a finite positive rendered stroke width`,
     ).toBe(true)
+    expect(route.points, `${route.id} rendered path differs from its ELK scene path`).toEqual(route.scenePoints)
+    expect(route.layerPaths.length, `${route.id} is absent from every rendered PathLayer`).toBeGreaterThan(0)
+    for (const layerPath of route.layerPaths) {
+      expect(
+        layerPath.points,
+        `${route.id} differs in rendered layer ${layerPath.layerId}`,
+      ).toEqual(route.scenePoints)
+    }
   }
 
   for (let left = 0; left < snapshot.nodes.length; left += 1) {
@@ -146,6 +178,7 @@ function assertScene(snapshot, expected) {
       const a = snapshot.routes[left]
       const b = snapshot.routes[right]
       expect(routeInteriorsIntersect(a, b), `${routeDescription(a)} intersects ${routeDescription(b)}`).toBe(false)
+      expect(routeStrokesOverlap(a, b), `${routeDescription(a)} stroke overlaps ${routeDescription(b)}`).toBe(false)
     }
   }
 
@@ -178,6 +211,14 @@ function assertScene(snapshot, expected) {
         `${routeDescription(route)} hits nonincident glyph ${glyph.nodeId}; stroke=${route.strokeWidth}; clearance=${clearance}; glyph=${JSON.stringify(glyph)}`,
       ).toBe(false)
     }
+    for (const group of snapshot.groups) {
+      const incidentNodeIds = new Set([group.gatewayId, ...group.memberIds])
+      if (incidentNodeIds.has(route.sourceId) || incidentNodeIds.has(route.targetId)) continue
+      expect(
+        routeStrokeHitsBox(route, group.projectedBox),
+        `${routeDescription(route)} hits nonincident group ${group.id}`,
+      ).toBe(false)
+    }
   }
 }
 
@@ -186,9 +227,16 @@ function stableGeometry(snapshot) {
     profileKey: snapshot.profileKey,
     counts: snapshot.counts,
     nodes: snapshot.nodes,
-    groups: snapshot.groups,
-    routes: snapshot.routes.map(({projectedPoints: _projected, ...route}) => route),
+    groups: snapshot.groups.map(({projectedBox: _projected, ...group}) => group),
+    routes: snapshot.routes.map(({projectedPoints: _projected, ...route}) => ({
+      ...route,
+      junctions: route.junctions.map(({projectedPoint: _junctionProjection, ...junction}) => junction),
+    })),
   }
+}
+
+function stableGroups(snapshot) {
+  return snapshot.groups.map(({projectedBox: _projected, ...group}) => group)
 }
 
 async function phase(page, context, name, nextName) {
@@ -223,7 +271,8 @@ test("gates the canonical God-View ELK scene through the production renderer", a
 
   const collapsedResult = await page.evaluate(() => window.__SR_GOD_VIEW_HARNESS__.renderFixture("collapsed"))
   assertScene(collapsedResult.snapshot, {
-    semanticNodes: 30, semanticEdges: 34, attachmentEdges: 24, renderedRoutes: 32, renderedGlyphs: 30, admittedLabels: 12,
+    semanticNodes: 30, semanticEdges: 34, attachmentEdges: 24, renderedRoutes: 32,
+    physicalRoutes: 48, renderedPhysicalRoutes: 48, manifolds: 8, renderedGlyphs: 30, admittedLabels: 12,
   })
   await phase(page, context, "collapsed", "expanded")
 
@@ -231,7 +280,8 @@ test("gates the canonical God-View ELK scene through the production renderer", a
   expect(expandedResult.snapshot.groups).toHaveLength(1)
   expect(expandedResult.snapshot.groups[0].memberIds).toHaveLength(24)
   assertScene(expandedResult.snapshot, {
-    semanticNodes: 54, semanticEdges: 58, attachmentEdges: 48, renderedRoutes: 32, renderedGlyphs: 53, admittedLabels: 15,
+    semanticNodes: 54, semanticEdges: 58, attachmentEdges: 48, renderedRoutes: 32,
+    physicalRoutes: 48, renderedPhysicalRoutes: 48, manifolds: 8, renderedGlyphs: 53, admittedLabels: 17,
   })
   await phase(page, context, "expanded", "fit")
 
@@ -246,7 +296,7 @@ test("gates the canonical God-View ELK scene through the production renderer", a
 
   const focused = await page.evaluate(() => window.__SR_GOD_VIEW_HARNESS__.focus())
   expect(focused.viewState).not.toEqual(secondFit.viewState)
-  expect(focused.groups).toEqual(expandedResult.snapshot.groups)
+  expect(stableGroups(focused)).toEqual(stableGroups(expandedResult.snapshot))
   expect(focused.nodes).toEqual(expandedResult.snapshot.nodes)
   expect(stableGeometry(focused).routes).toEqual(stableGeometry(expandedResult.snapshot).routes)
   assertFocusedNeighborhood(focused, "cluster:endpoints:farm01:gateway-01")
@@ -254,7 +304,8 @@ test("gates the canonical God-View ELK scene through the production renderer", a
   const concurrentResult = await page.evaluate(() => window.__SR_GOD_VIEW_HARNESS__.renderFixture("concurrent"))
   expect(concurrentResult.snapshot.groups).toHaveLength(2)
   assertScene(concurrentResult.snapshot, {
-    semanticNodes: 78, semanticEdges: 82, attachmentEdges: 72, renderedRoutes: 32, renderedGlyphs: 76, admittedLabels: 15,
+    semanticNodes: 78, semanticEdges: 82, attachmentEdges: 72, renderedRoutes: 32,
+    physicalRoutes: 48, renderedPhysicalRoutes: 48, manifolds: 8, renderedGlyphs: 76, admittedLabels: 15,
   })
   const concurrentGeometry = stableGeometry(concurrentResult.snapshot)
   await phase(page, context, "concurrent-expanded", "collapse-reexpand-profile-threshold")
@@ -263,20 +314,23 @@ test("gates the canonical God-View ELK scene through the production renderer", a
   expect(firstCollapsed.snapshot.groups).toHaveLength(1)
   expect(firstCollapsed.snapshot.groups[0].memberIds).toHaveLength(24)
   assertScene(firstCollapsed.snapshot, {
-    semanticNodes: 54, semanticEdges: 58, attachmentEdges: 48, renderedRoutes: 32, renderedGlyphs: 53, admittedLabels: 12,
+    semanticNodes: 54, semanticEdges: 58, attachmentEdges: 48, renderedRoutes: 32,
+    physicalRoutes: 48, renderedPhysicalRoutes: 48, manifolds: 8, renderedGlyphs: 53, admittedLabels: 14,
   })
 
   const reexpanded = await page.evaluate(() => window.__SR_GOD_VIEW_HARNESS__.renderFixture("concurrent"))
   expect(stableGeometry(reexpanded.snapshot)).toEqual(concurrentGeometry)
   assertScene(reexpanded.snapshot, {
-    semanticNodes: 78, semanticEdges: 82, attachmentEdges: 72, renderedRoutes: 32, renderedGlyphs: 76, admittedLabels: 15,
+    semanticNodes: 78, semanticEdges: 82, attachmentEdges: 72, renderedRoutes: 32,
+    physicalRoutes: 48, renderedPhysicalRoutes: 48, manifolds: 8, renderedGlyphs: 76, admittedLabels: 15,
   })
 
   const portrait = await page.evaluate(() => window.__SR_GOD_VIEW_HARNESS__.profile(800, 1000))
   expect(portrait.profileKey).not.toEqual(concurrentResult.snapshot.profileKey)
   expect(portrait.profileKey).toMatch(/portrait/)
   assertScene(portrait, {
-    semanticNodes: 78, semanticEdges: 82, attachmentEdges: 72, renderedRoutes: 32, renderedGlyphs: 76, admittedLabels: 5,
+    semanticNodes: 78, semanticEdges: 82, attachmentEdges: 72, renderedRoutes: 32,
+    physicalRoutes: 48, renderedPhysicalRoutes: 48, manifolds: 8, renderedGlyphs: 76, admittedLabels: 7,
   })
   await context.tracing.stop({path: resolve(OUTPUT_DIR, "collapse-reexpand-profile-threshold.trace.zip")})
   expect((await readdir(OUTPUT_DIR)).sort()).toEqual([

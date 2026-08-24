@@ -121,6 +121,23 @@ export const godViewRenderingGraphLayerNodeMethods = {
     const hoveredNodeIndex = this.state?.hoveredNodeIndex
     return hoveredNodeIndex !== null && hoveredNodeIndex !== undefined && hoveredNodeIndex === node?.index
   },
+  nodeLabelCandidate(node) {
+    if (node?.selected === true || this.focusedNodeLabel(node)) return true
+    const details = node?.details || {}
+    const clusterKind = String(details?.cluster_kind || "")
+    const expandedEndpointMember = this.expandedEndpointMemberLabel(node)
+    if (clusterKind === "endpoint-member" && !expandedEndpointMember) return false
+    // Topology sightings with a human hostname (switchcff8f2) should stay
+    // labeled. Only suppress opaque sr: identities from that source.
+    if (
+      String(details?.identity_source || "") === "mapper_topology_sighting" &&
+      !expandedEndpointMember &&
+      this.opaqueIdentityLabel(node)
+    ) {
+      return false
+    }
+    return !this.opaqueIdentityLabel(node)
+  },
   nodeLabelPriority(node) {
     const details = node?.details || {}
     const clusterKind = String(details?.cluster_kind || "")
@@ -162,24 +179,7 @@ export const godViewRenderingGraphLayerNodeMethods = {
   selectNodeLabels(nodeData, shape, options = {}) {
     if (!Array.isArray(nodeData) || nodeData.length === 0) return []
     const attended = nodeData.filter((node) => node?.selected === true || this.focusedNodeLabel(node))
-    const candidates = nodeData.filter((node) => {
-      if (node?.selected === true || this.focusedNodeLabel(node)) return true
-      const details = node?.details || {}
-      const clusterKind = String(details?.cluster_kind || "")
-      const expandedEndpointMember = this.expandedEndpointMemberLabel(node)
-      if (clusterKind === "endpoint-member" && !expandedEndpointMember) return false
-      // Topology sightings with a human hostname (switchcff8f2) should stay
-      // labeled. Only suppress opaque sr: identities from that source.
-      if (
-        String(details?.identity_source || "") === "mapper_topology_sighting" &&
-        !expandedEndpointMember &&
-        this.opaqueIdentityLabel(node)
-      ) {
-        return false
-      }
-      if (this.opaqueIdentityLabel(node)) return false
-      return true
-    })
+    const candidates = nodeData.filter((node) => this.nodeLabelCandidate(node))
     const ordered = [...candidates].sort((left, right) => this.compareNodeLabelPriority(left, right))
     const labelShape = options.managedVisualDensity
       ? managedVisualDensityContract(options.managedVisualDensity).labelShape
@@ -223,6 +223,32 @@ export const godViewRenderingGraphLayerNodeMethods = {
     }
 
     return picked
+  },
+  nodeLabelAdmissionPool(nodeData, selectedCandidates, options = {}) {
+    if (options.managedVisualDensity !== "overview") return selectedCandidates
+
+    const selectedSummaryIds = new Set(
+      selectedCandidates
+        .filter((node) => this.endpointSummaryLabel(node))
+        .map((node) => String(node?.id || "")),
+    )
+    const orderedFallbacks = nodeData
+      .filter((node) => this.nodeLabelCandidate(node))
+      .sort((left, right) => this.compareNodeLabelPriority(left, right))
+      .filter((node) => (
+        this.backboneLabelCandidate(node) || selectedSummaryIds.has(String(node?.id || ""))
+      ))
+    const pool = []
+    const seen = new Set()
+
+    for (const node of [...selectedCandidates, ...orderedFallbacks]) {
+      const id = String(node?.id || "")
+      if (id === "" || seen.has(id)) continue
+      seen.add(id)
+      pool.push(node)
+    }
+
+    return pool
   },
   activeTopologyLabelViewport() {
     if (typeof this.state?.deck?.getViewports !== "function") return null
@@ -288,8 +314,12 @@ export const godViewRenderingGraphLayerNodeMethods = {
       glyphBoxes.push({nodeId, left: x - radius, top: y - radius, right: x + radius, bottom: y + radius})
     }
 
-    const fontSize = effective?.shape === "local" ? 12 : 10
-    const candidates = (labelCandidates || []).flatMap((node) => {
+    const labelShape = options.managedVisualDensity
+      ? managedVisualDensityContract(options.managedVisualDensity).labelShape
+      : effective?.shape
+    const fontSize = labelShape === "local" ? 12 : 10
+    const candidateCount = Array.isArray(labelCandidates) ? labelCandidates.length : 0
+    const candidates = (labelCandidates || []).flatMap((node, candidateIndex) => {
       const nodeId = String(node?.id || "")
       const point = projectedById.get(nodeId)
       if (!point) return []
@@ -304,10 +334,15 @@ export const godViewRenderingGraphLayerNodeMethods = {
         state: node?.state,
         operUp: node?.operUp,
         pps: node?.pps,
+        operationalRelevance: options.preserveCandidateOrder
+          ? candidateCount - candidateIndex
+          : undefined,
         fontSize,
       }]
     })
-    const routeCorridors = (effective?._topologyScene?.routes || []).flatMap((route) => {
+    const routeCorridors = (
+      effective?._topologyScene?.physicalRoutes || effective?._topologyScene?.routes || []
+    ).flatMap((route) => {
       const points = (route?.points || []).flatMap((point) => {
         const projected = viewport.project([Number(point?.x), Number(point?.y), 0])
         const x = Number(projected?.[0])
@@ -327,6 +362,7 @@ export const godViewRenderingGraphLayerNodeMethods = {
       glyphBoxes,
       routeCorridors,
       safeRect: this.topologyLabelSafeRect(viewport, options.safeRect),
+      maximumCount: options.maximumLabelCount,
       measureText,
     })
   },
@@ -336,8 +372,17 @@ export const godViewRenderingGraphLayerNodeMethods = {
       ? normalizeManagedVisualDensity(this.state.managedTopologyVisualDensity)
       : null
     const densityOptions = managedVisualDensity ? {managedVisualDensity} : {}
-    const labelCandidates = this.selectNodeLabels(nodeData, effective.shape, densityOptions)
-    const labelAdmission = this.admitNodeLabelsForViewport(effective, labelCandidates, nodeData, densityOptions)
+    const labelShape = managedVisualDensity
+      ? managedVisualDensityContract(managedVisualDensity).labelShape
+      : effective.shape
+    const selectedLabelCandidates = this.selectNodeLabels(nodeData, effective.shape, densityOptions)
+    const backfillOverviewLabels = managedVisualDensity === "overview"
+    const labelCandidates = this.nodeLabelAdmissionPool(nodeData, selectedLabelCandidates, densityOptions)
+    const labelAdmission = this.admitNodeLabelsForViewport(effective, labelCandidates, nodeData, {
+      ...densityOptions,
+      maximumLabelCount: backfillOverviewLabels ? selectedLabelCandidates.length : undefined,
+      preserveCandidateOrder: backfillOverviewLabels,
+    })
     const nodeById = new Map(nodeData.map((node) => [String(node?.id || ""), node]))
     const labelData = labelAdmission.admitted.flatMap((admitted) => {
       const node = nodeById.get(admitted.nodeId)
@@ -384,6 +429,9 @@ export const godViewRenderingGraphLayerNodeMethods = {
           depthTest: false,
           depthWrite: false,
         },
+        updateTriggers: {
+          getRadius: managedVisualDensity,
+        },
       }),
       new ScatterplotLayer({
         id: "god-view-nodes-ring",
@@ -404,7 +452,7 @@ export const godViewRenderingGraphLayerNodeMethods = {
           depthWrite: false,
         },
         updateTriggers: {
-          getRadius: this.state.animationPhase,
+          getRadius: [this.state.animationPhase, managedVisualDensity],
         },
       }),
       new ScatterplotLayer({
@@ -423,6 +471,9 @@ export const godViewRenderingGraphLayerNodeMethods = {
           depthTest: false,
           depthWrite: false,
         },
+        updateTriggers: {
+          getRadius: managedVisualDensity,
+        },
       }),
       new ScatterplotLayer({
         id: "god-view-nodes",
@@ -440,6 +491,9 @@ export const godViewRenderingGraphLayerNodeMethods = {
           depthTest: false,
           depthWrite: false,
         },
+        updateTriggers: {
+          getRadius: managedVisualDensity,
+        },
       }),
       ...(this.state.layers.mantle && (effective.shape === "local" || effective.shape === "regional" || effective.shape === "global")
         ? [
@@ -449,9 +503,9 @@ export const godViewRenderingGraphLayerNodeMethods = {
               coordinateSystem: COORDINATE_SYSTEM.CARTESIAN,
               getPosition: (d) => d.position,
               getText: (d) => d.label,
-              getSize: effective.shape === "local" ? 12 : 10,
+              getSize: labelShape === "local" ? 12 : 10,
               sizeUnits: "pixels",
-              sizeMinPixels: effective.shape === "local" ? 10 : 8,
+              sizeMinPixels: labelShape === "local" ? 10 : 8,
               getColor: this.state.visual.label,
               fontFamily: "Inter, system-ui, sans-serif",
               fontWeight: 600,
