@@ -104,7 +104,12 @@ defmodule ServiceRadar.Inventory.Sync.SourcePolicy do
     identity_source = String.downcase(to_string(metadata["identity_source"] || ""))
 
     source in ["netprobe-mdns", "passive-mdns", "passive-netprobe"] or
-      identity_source in ["netprobe_mdns", "netprobe_fingerprint", "netprobe_dpi"]
+      identity_source in [
+        "netprobe_mdns",
+        "netprobe_fingerprint",
+        "netprobe_dpi",
+        "netprobe_process"
+      ]
   end
 
   def enrichment_only_source?(_update), do: false

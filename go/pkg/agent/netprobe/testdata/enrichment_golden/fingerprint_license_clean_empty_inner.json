@@ -10,6 +10,7 @@
     "ip_alias:10.20.30.47": "2026-08-23T15:46:40Z",
     "passive_fingerprint.observed_at": "2026-08-23T15:46:40Z",
     "passive_fingerprint.observed_at_unix_nano": "1787500000000000000",
+    "passive_fingerprint.protocol": "license_clean",
     "passive_fingerprint.source": "passive-netprobe",
     "source": "passive-netprobe"
   }
