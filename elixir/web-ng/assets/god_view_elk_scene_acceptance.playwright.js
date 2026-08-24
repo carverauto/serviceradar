@@ -1,6 +1,14 @@
 import {expect, test} from "@playwright/test"
-import {mkdir} from "node:fs/promises"
+import {mkdir, readdir} from "node:fs/promises"
 import {resolve} from "node:path"
+
+import {
+  groupGeometryViolations,
+  routeInsideSafeRect,
+  routeInteriorsIntersect,
+  routeStrokeHitsBox,
+  segmentAabbDistance,
+} from "./js/lib/god_view/acceptance_geometry_assertions.js"
 
 const OUTPUT_DIR = process.env.TEST_UNDECLARED_OUTPUTS_DIR
 if (!OUTPUT_DIR) throw new Error("TEST_UNDECLARED_OUTPUTS_DIR is required")
@@ -30,82 +38,12 @@ function inside(box, safe, epsilon = 1) {
     && box.bottom <= safe.bottom + epsilon
 }
 
-function orientation(a, b, c) {
-  return ((b.x - a.x) * (c.y - a.y)) - ((b.y - a.y) * (c.x - a.x))
-}
-
-function properSegmentIntersection(a, b, c, d, epsilon = 0.01) {
-  const abC = orientation(a, b, c)
-  const abD = orientation(a, b, d)
-  const cdA = orientation(c, d, a)
-  const cdB = orientation(c, d, b)
-  return ((abC > epsilon && abD < -epsilon) || (abC < -epsilon && abD > epsilon))
-    && ((cdA > epsilon && cdB < -epsilon) || (cdA < -epsilon && cdB > epsilon))
-}
-
-function samePoint(a, b, epsilon = 0.01) {
-  return Math.abs(a.x - b.x) <= epsilon && Math.abs(a.y - b.y) <= epsilon
-}
-
-function pointOnSegment(point, start, end, epsilon = 0.01) {
-  return Math.abs(orientation(start, end, point)) <= epsilon
-    && point.x >= Math.min(start.x, end.x) - epsilon
-    && point.x <= Math.max(start.x, end.x) + epsilon
-    && point.y >= Math.min(start.y, end.y) - epsilon
-    && point.y <= Math.max(start.y, end.y) + epsilon
-}
-
-function collinearOverlap(a, b, c, d, epsilon = 0.01) {
-  if (Math.abs(orientation(a, b, c)) > epsilon || Math.abs(orientation(a, b, d)) > epsilon) return false
-  const axis = Math.abs(b.x - a.x) >= Math.abs(b.y - a.y) ? "x" : "y"
-  const overlap = Math.min(Math.max(a[axis], b[axis]), Math.max(c[axis], d[axis]))
-    - Math.max(Math.min(a[axis], b[axis]), Math.min(c[axis], d[axis]))
-  return overlap > epsilon
-}
-
-function routeInteriorsIntersect(a, b, epsilon = 0.01) {
-  for (let aIndex = 1; aIndex < a.length; aIndex += 1) {
-    for (let bIndex = 1; bIndex < b.length; bIndex += 1) {
-      const [aStart, aEnd] = [a[aIndex - 1], a[aIndex]]
-      const [bStart, bEnd] = [b[bIndex - 1], b[bIndex]]
-      if (properSegmentIntersection(aStart, aEnd, bStart, bEnd, epsilon)) return true
-      if (collinearOverlap(aStart, aEnd, bStart, bEnd, epsilon)) return true
-
-      for (const point of [aStart, aEnd, bStart, bEnd]) {
-        const isAEndpoint = samePoint(point, a[0], epsilon) || samePoint(point, a.at(-1), epsilon)
-        const isBEndpoint = samePoint(point, b[0], epsilon) || samePoint(point, b.at(-1), epsilon)
-        if (!isAEndpoint && !isBEndpoint
-          && pointOnSegment(point, aStart, aEnd, epsilon)
-          && pointOnSegment(point, bStart, bEnd, epsilon)) return true
-      }
-    }
-  }
-  return false
-}
-
-function segmentCrossesBox(a, b, box, epsilon = 0.5) {
-  const inner = {
-    left: box.left + epsilon,
-    top: box.top + epsilon,
-    right: box.right - epsilon,
-    bottom: box.bottom - epsilon,
-  }
-  if (inner.left >= inner.right || inner.top >= inner.bottom) return false
-  if (a.x > inner.left && a.x < inner.right && a.y > inner.top && a.y < inner.bottom) return true
-  if (b.x > inner.left && b.x < inner.right && b.y > inner.top && b.y < inner.bottom) return true
-  const corners = [
-    {x: inner.left, y: inner.top},
-    {x: inner.right, y: inner.top},
-    {x: inner.right, y: inner.bottom},
-    {x: inner.left, y: inner.bottom},
-  ]
-  return corners.some((corner, index) => properSegmentIntersection(a, b, corner, corners[(index + 1) % 4]))
-}
-
 function assertScene(snapshot, expected) {
-  expect(snapshot.counts).toMatchObject(expected)
+  expect(snapshot.counts).toEqual(expected)
   expect(snapshot.glyphs).toHaveLength(expected.renderedGlyphs)
   expect(snapshot.routes).toHaveLength(expected.renderedRoutes)
+  expect(snapshot.labels).toHaveLength(expected.admittedLabels)
+  expect(groupGeometryViolations(snapshot)).toEqual([])
 
   for (let left = 0; left < snapshot.nodes.length; left += 1) {
     for (let right = left + 1; right < snapshot.nodes.length; right += 1) {
@@ -118,8 +56,7 @@ function assertScene(snapshot, expected) {
     for (let right = left + 1; right < snapshot.routes.length; right += 1) {
       const a = snapshot.routes[left]
       const b = snapshot.routes[right]
-      if ([a.sourceId, a.targetId].some((id) => id === b.sourceId || id === b.targetId)) continue
-      expect(routeInteriorsIntersect(a.points, b.points), `${a.id} intersects ${b.id}`).toBe(false)
+      expect(routeInteriorsIntersect(a, b), `${a.id} intersects ${b.id}`).toBe(false)
     }
   }
 
@@ -134,19 +71,24 @@ function assertScene(snapshot, expected) {
       expect(overlaps(label.box, glyph), `${label.nodeId} label hits ${glyph.nodeId}`).toBe(false)
     }
     for (const route of snapshot.routes) {
-      for (let index = 1; index < route.projectedPoints.length; index += 1) {
-        expect(
-          segmentCrossesBox(route.projectedPoints[index - 1], route.projectedPoints[index], label.box),
-          `${label.nodeId} label hits ${route.id}`,
-        ).toBe(false)
-      }
+      expect(routeStrokeHitsBox(route, label.box), `${label.nodeId} label hits ${route.id}`).toBe(false)
     }
   }
   for (const glyph of snapshot.glyphs) {
     expect(inside(glyph, snapshot.safeRect), `${glyph.nodeId} glyph leaves safe rect`).toBe(true)
   }
   for (const route of snapshot.routes) {
-    expect(inside(route.box, snapshot.safeRect), `${route.id} route leaves safe rect`).toBe(true)
+    expect(routeInsideSafeRect(route, snapshot.safeRect), `${route.id} route leaves safe rect`).toBe(true)
+    for (const glyph of snapshot.glyphs) {
+      if (glyph.nodeId === route.sourceId || glyph.nodeId === route.targetId) continue
+      const distances = route.projectedPoints.slice(1).map((point, index) =>
+        segmentAabbDistance(route.projectedPoints[index], point, glyph))
+      const clearance = Math.min(...distances) - (route.strokeWidth / 2)
+      expect(
+        routeStrokeHitsBox(route, glyph),
+        `${route.id} hits nonincident glyph ${glyph.nodeId}; stroke=${route.strokeWidth}; clearance=${clearance}; glyph=${JSON.stringify(glyph)}`,
+      ).toBe(false)
+    }
   }
 }
 
@@ -160,12 +102,14 @@ function stableGeometry(snapshot) {
   }
 }
 
-async function phase(page, context, name) {
+async function phase(page, context, name, nextName) {
   const screenshot = resolve(OUTPUT_DIR, `${name}.png`)
   const trace = resolve(OUTPUT_DIR, `${name}.trace.zip`)
   await page.screenshot({path: screenshot, animations: "disabled"})
   await context.tracing.stop({path: trace})
-  await context.tracing.start({screenshots: true, snapshots: true, sources: true, title: name})
+  if (nextName) {
+    await context.tracing.start({screenshots: true, snapshots: true, sources: true, title: nextName})
+  }
 }
 
 test("gates the canonical God-View ELK scene through the production renderer", async ({page, context}) => {
@@ -190,24 +134,24 @@ test("gates the canonical God-View ELK scene through the production renderer", a
 
   const collapsedResult = await page.evaluate(() => window.__SR_GOD_VIEW_HARNESS__.renderFixture("collapsed"))
   assertScene(collapsedResult.snapshot, {
-    semanticNodes: 30, semanticEdges: 34, attachmentEdges: 24, renderedRoutes: 32, renderedGlyphs: 30,
+    semanticNodes: 30, semanticEdges: 34, attachmentEdges: 24, renderedRoutes: 32, renderedGlyphs: 30, admittedLabels: 8,
   })
-  await phase(page, context, "collapsed")
+  await phase(page, context, "collapsed", "expanded")
 
   const expandedResult = await page.evaluate(() => window.__SR_GOD_VIEW_HARNESS__.renderFixture("expanded"))
   expect(expandedResult.snapshot.groups).toHaveLength(1)
   expect(expandedResult.snapshot.groups[0].memberIds).toHaveLength(24)
   assertScene(expandedResult.snapshot, {
-    semanticNodes: 54, semanticEdges: 58, attachmentEdges: 48, renderedRoutes: 32, renderedGlyphs: 53,
+    semanticNodes: 54, semanticEdges: 58, attachmentEdges: 48, renderedRoutes: 32, renderedGlyphs: 53, admittedLabels: 26,
   })
-  await phase(page, context, "expanded")
+  await phase(page, context, "expanded", "fit")
 
   const firstFit = await page.evaluate(() => window.__SR_GOD_VIEW_HARNESS__.fit())
   const secondFit = await page.evaluate(() => window.__SR_GOD_VIEW_HARNESS__.fit())
   expect(secondFit.viewState).toEqual(firstFit.viewState)
   expect(secondFit.glyphs).toEqual(firstFit.glyphs)
   expect(secondFit.labels).toEqual(firstFit.labels)
-  await phase(page, context, "fit")
+  await phase(page, context, "fit", "concurrent-expanded")
 
   const focused = await page.evaluate(() => window.__SR_GOD_VIEW_HARNESS__.focus())
   expect(focused.viewState).not.toEqual(secondFit.viewState)
@@ -215,10 +159,10 @@ test("gates the canonical God-View ELK scene through the production renderer", a
   const concurrentResult = await page.evaluate(() => window.__SR_GOD_VIEW_HARNESS__.renderFixture("concurrent"))
   expect(concurrentResult.snapshot.groups).toHaveLength(2)
   assertScene(concurrentResult.snapshot, {
-    semanticNodes: 78, semanticEdges: 82, attachmentEdges: 72, renderedRoutes: 32, renderedGlyphs: 76,
+    semanticNodes: 78, semanticEdges: 82, attachmentEdges: 72, renderedRoutes: 32, renderedGlyphs: 76, admittedLabels: 38,
   })
   const concurrentGeometry = stableGeometry(concurrentResult.snapshot)
-  await phase(page, context, "concurrent-expanded")
+  await phase(page, context, "concurrent-expanded", "profile-threshold")
 
   await page.evaluate(() => window.__SR_GOD_VIEW_HARNESS__.renderFixture("second"))
   const reexpanded = await page.evaluate(() => window.__SR_GOD_VIEW_HARNESS__.renderFixture("concurrent"))
@@ -228,4 +172,15 @@ test("gates the canonical God-View ELK scene through the production renderer", a
   expect(portrait.profileKey).not.toEqual(concurrentResult.snapshot.profileKey)
   expect(portrait.profileKey).toMatch(/portrait/)
   await context.tracing.stop({path: resolve(OUTPUT_DIR, "profile-threshold.trace.zip")})
+  expect((await readdir(OUTPUT_DIR)).sort()).toEqual([
+    "collapsed.png",
+    "collapsed.trace.zip",
+    "concurrent-expanded.png",
+    "concurrent-expanded.trace.zip",
+    "expanded.png",
+    "expanded.trace.zip",
+    "fit.png",
+    "fit.trace.zip",
+    "profile-threshold.trace.zip",
+  ])
 })

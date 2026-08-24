@@ -15,6 +15,9 @@ import {
   reverseGraphArrays,
 } from "./fixtures/farm01_topology_regression"
 import {prepareTopologySceneInput} from "./topology_scene_graph"
+import {routeStrokeHitsBox} from "./acceptance_geometry_assertions"
+import {godViewRenderingGraphLayerNodeMethods} from "./rendering_graph_layer_node_methods"
+import {fitTopologyScene} from "./rendering_scene_view"
 
 function findElkNode(node, id) {
   if (node?.id === id) return node
@@ -300,5 +303,52 @@ describe("layout_elk_scene", () => {
       expect(first.routes).toHaveLength(32)
       expect(normalizeScene(second)).toEqual(normalizeScene(first))
     }
+  })
+
+  it("keeps every expanded Farm01 route clear of every nonincident rendered glyph at fitted scale", async () => {
+    const graph = expandedFarm01Graph()
+    const scene = await layoutTopologyScene(prepareTopologySceneInput(graph), {
+      engine: new ELK(),
+      profile: LANDSCAPE_PROFILE,
+    })
+    const viewport = {width: 1920, height: 1080, minZoom: -3, maxZoom: 5}
+    const safeRect = {left: 0, top: 0, right: 1920, bottom: 1030}
+    const graphNodeById = new Map(graph.nodes.map((node) => [node.id, node]))
+    const nodeMethods = godViewRenderingGraphLayerNodeMethods
+    const radiusContext = {visualClusterCount: nodeMethods.visualClusterCount}
+    const renderedNodes = scene.nodes.filter((node) => node.render)
+    const glyphBoxes = renderedNodes.map((node) => {
+      const radius = nodeMethods.nodeHaloRadiusPixels.call(radiusContext, graphNodeById.get(node.id))
+      return {nodeId: node.id, width: radius * 2, height: radius * 2}
+    })
+    const {viewState} = fitTopologyScene({scene, viewport, safeRect, glyphBoxes})
+    const scale = 2 ** viewState.zoom
+    const project = (point) => ({
+      x: (viewport.width / 2) + ((point.x - viewState.target[0]) * scale),
+      y: (viewport.height / 2) + ((point.y - viewState.target[1]) * scale),
+    })
+    const glyphs = glyphBoxes.map((glyph) => {
+      const node = scene.nodes.find((candidate) => candidate.id === glyph.nodeId)
+      const center = project(node.center)
+      return {
+        nodeId: glyph.nodeId,
+        left: center.x - (glyph.width / 2),
+        top: center.y - (glyph.height / 2),
+        right: center.x + (glyph.width / 2),
+        bottom: center.y + (glyph.height / 2),
+      }
+    })
+    const collisions = scene.routes.flatMap((route) => {
+      const projectedRoute = {...route, strokeWidth: 6, projectedPoints: route.points.map(project)}
+      return glyphs
+        .filter((glyph) => glyph.nodeId !== route.sourceId && glyph.nodeId !== route.targetId)
+        .filter((glyph) => routeStrokeHitsBox(projectedRoute, glyph))
+        .map((glyph) => `${route.id}->${glyph.nodeId}`)
+    })
+
+    expect(collisions).not.toContain(
+      "rendered:farm01:attachment-02|farm01:gateway-02->farm01:attachment-08",
+    )
+    expect(collisions).toEqual([])
   })
 })

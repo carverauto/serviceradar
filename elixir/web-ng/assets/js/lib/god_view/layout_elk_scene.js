@@ -3,7 +3,9 @@ const DEFAULT_VIEWPORT_HEIGHT = 720
 const LANDSCAPE_ASPECT_THRESHOLD = 1.2
 const COMPOUND_PADDING = 48
 const SIBLING_SPACING = 96
-const ROUTE_CLEARANCE = 8
+// ELK works in world units while route strokes and glyph halos remain fixed CSS
+// pixels. Matching the sibling corridor keeps fitted routes clear of 20px halos.
+const ROUTE_CLEARANCE = 96
 const INTERSECTION_EPSILON = 0.01
 const FIXED_RANDOM_SEED = 1729
 
@@ -68,7 +70,9 @@ function elkLayoutOptions(profile, kind) {
 }
 
 function dimensionsForNode(node) {
-  if (node.kind === "endpoint-summary") return {width: 160, height: 160}
+  // A collapsed summary can render a 45.875px halo. Its larger invisible ELK
+  // envelope prevents fitted routes from entering that fixed-pixel glyph.
+  if (node.kind === "endpoint-summary") return {width: 448, height: 448}
   if (node.kind === "endpoint-member") return {width: 96, height: 96}
   return {width: 112, height: 112}
 }

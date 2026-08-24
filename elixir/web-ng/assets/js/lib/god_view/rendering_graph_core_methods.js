@@ -64,6 +64,25 @@ function layerData(layers, id) {
   return Array.isArray(layer?.props?.data) ? layer.props.data : []
 }
 
+function renderedRouteStrokeWidth(layers, route) {
+  const interactionKey = `local:${String(route?.id || "")}`
+  return (layers || [])
+    .filter((layer) => layer?.id === "god-view-edges-mantle" || layer?.id === "god-view-edges-crust")
+    .flatMap((layer) => {
+      const props = layer?.props || {}
+      const edge = (Array.isArray(props.data) ? props.data : []).find((candidate) =>
+        candidate?.interactionKey === interactionKey
+        || (candidate?.sourceId === route?.sourceId && candidate?.targetId === route?.targetId))
+      if (!edge) return []
+      const accessorWidth = typeof props.getWidth === "function" ? props.getWidth(edge) : props.getWidth
+      const scaledWidth = Math.max(0, finiteNumber(accessorWidth)) * Math.max(0, finiteNumber(props.widthScale, 1))
+      const minimum = Math.max(0, finiteNumber(props.widthMinPixels))
+      const maximum = Math.max(minimum, finiteNumber(props.widthMaxPixels, Number.POSITIVE_INFINITY))
+      return [Math.min(maximum, Math.max(minimum, scaledWidth))]
+    })
+    .reduce((maximum, width) => Math.max(maximum, width), 0)
+}
+
 function acceptanceGeometrySnapshot(context, effective, nodeData, edgeData, layers) {
   const scene = effective?._topologyScene || {}
   const manifest = scene?.manifest || {}
@@ -121,6 +140,7 @@ function acceptanceGeometrySnapshot(context, effective, nodeData, edgeData, laye
         sourceId: String(route?.sourceId || ""),
         targetId: String(route?.targetId || ""),
         relationIds: (route?.relationIds || []).map((id) => String(id)),
+        strokeWidth: renderedRouteStrokeWidth(layers, route),
         points: (route?.points || []).map((point) => ({
           x: finiteNumber(point?.x),
           y: finiteNumber(point?.y),

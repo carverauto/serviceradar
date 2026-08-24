@@ -49,6 +49,7 @@ filegroup(
 
 js_test(
     name = "god_view_scene_tests",
+    size = "small",
     args = [
         "$(rootpath %s)" % test
         for test in glob(["js/lib/god_view/*.test.js"])
@@ -89,9 +90,17 @@ js_run_binary(
 )
 
 js_library(
+    name = "god_view_scene_assertions_lib",
+    srcs = ["js/lib/god_view/acceptance_geometry_assertions.js"],
+)
+
+js_library(
     name = "god_view_elk_scene_acceptance_test_lib",
     srcs = ["god_view_elk_scene_acceptance.playwright.js"],
-    deps = [":node_modules/@playwright/test"],
+    deps = [
+        ":god_view_scene_assertions_lib",
+        ":node_modules/@playwright/test",
+    ],
 )
 
 # Everything under assets/, minus installed dependency trees. node_modules is listed in

@@ -86,7 +86,21 @@ function renderContext() {
     }),
     renderSelectionDetails: vi.fn(),
     nodeHaloRadiusPixels: () => 20,
-    buildGraphLayers: () => [{id: "god-view-node-labels", props: {data: labelData}}],
+    topologyRouteStrokeWidth: () => 38,
+    buildGraphLayers: () => [{
+      id: "god-view-edges-mantle",
+      props: {
+        data: [{
+          interactionKey: "local:rendered:router-a|router-b",
+          sourceId: "router-a",
+          targetId: "router-b",
+          flowPps: 42_000,
+        }],
+        getWidth: () => 38,
+        widthMinPixels: 6,
+        widthUnits: "pixels",
+      },
+    }, {id: "god-view-node-labels", props: {data: labelData}}],
   }
 
   return {context, effective}
@@ -141,6 +155,7 @@ describe("God-View acceptance geometry hook", () => {
       sourceId: "router-a",
       targetId: "router-b",
       relationIds: ["edge-a-b"],
+      strokeWidth: 38,
       points: [{x: 20, y: 40}, {x: 60, y: 40}, {x: 60, y: 60}, {x: 100, y: 60}],
       projectedPoints: [{x: 120, y: 240}, {x: 160, y: 240}, {x: 160, y: 260}, {x: 200, y: 260}],
       box: {left: 120, top: 240, right: 200, bottom: 260},
@@ -164,5 +179,34 @@ describe("God-View acceptance geometry hook", () => {
 
     const serialized = JSON.stringify(globalThis.window.__SR_GOD_VIEW_GEOMETRY__())
     expect(serialized).not.toMatch(/pps|flow|protocol|credential|csrf|bearer|token|42_000|42000|999999/i)
+  })
+
+  it("refreshes the accepted snapshot after a later render", () => {
+    globalThis.window = {__SR_GOD_VIEW_ACCEPTANCE__: true}
+    const {context, effective} = renderContext()
+
+    godViewRenderingGraphCoreMethods.renderGraph.call(context, effective)
+    const firstSnapshot = globalThis.window.__SR_GOD_VIEW_GEOMETRY__()
+    effective._layoutCacheKey = "8:fixture:landscape:updated-scene"
+    effective._topologyScene.nodes[0].center.x = 40
+
+    godViewRenderingGraphCoreMethods.renderGraph.call(context, effective)
+
+    const secondSnapshot = globalThis.window.__SR_GOD_VIEW_GEOMETRY__()
+    expect(secondSnapshot).not.toBe(firstSnapshot)
+    expect(secondSnapshot.sceneKey).toBe("8:fixture:landscape:updated-scene")
+    expect(secondSnapshot.nodes[0].box.left).toBe(20)
+  })
+
+  it("deletes a published hook when acceptance mode is disabled before a later render", () => {
+    globalThis.window = {__SR_GOD_VIEW_ACCEPTANCE__: true}
+    const {context, effective} = renderContext()
+    godViewRenderingGraphCoreMethods.renderGraph.call(context, effective)
+    expect(globalThis.window.__SR_GOD_VIEW_GEOMETRY__).toEqual(expect.any(Function))
+
+    globalThis.window.__SR_GOD_VIEW_ACCEPTANCE__ = false
+    godViewRenderingGraphCoreMethods.renderGraph.call(context, effective)
+
+    expect(globalThis.window.__SR_GOD_VIEW_GEOMETRY__).toBeUndefined()
   })
 })
