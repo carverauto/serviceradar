@@ -238,7 +238,9 @@ actions:
             *"migration(s) pending"*) echo "template changed during measured lifecycle" >&2; exit 1 ;;
           esac
           bazel test $FLAGS //rust/integration-db:provision_db
-          bazel test $FLAGS //... --test_tag_filters=integration_test,-large_ingestion_test,-acceptance_test
+          # test_tag_filters controls execution, not every top-level target Bazel builds from
+          # //.... Keep build selection identical so packages and images stay out of this wave.
+          bazel test $FLAGS --build_tests_only --build_tag_filters=integration_test,-large_ingestion_test,-acceptance_test --test_tag_filters=integration_test,-large_ingestion_test,-acceptance_test //...
 
       # Run all go race conditions tests (race on, pure off); --flaky_test_attempts=1 overrides the repo default of 2;
       #
@@ -650,7 +652,9 @@ actions:
             *"migration(s) pending"*) echo "template changed during benchmark; warm-up/non-cohort" >&2; exit 1 ;;
           esac
           bazel test $FLAGS //rust/integration-db:provision_db
-          bazel test $FLAGS //... --test_tag_filters=integration_test,-large_ingestion_test,-acceptance_test
+          # test_tag_filters controls execution, not every top-level target Bazel builds from
+          # //.... Keep build selection identical so packages and images stay out of the clock.
+          bazel test $FLAGS --build_tests_only --build_tag_filters=integration_test,-large_ingestion_test,-acceptance_test --test_tag_filters=integration_test,-large_ingestion_test,-acceptance_test //...
 
   # Same exact benchmark steps, with only the workflow CPU allocation changed. These actions are
   # explicit diagnostics: five alternating attempts per arm select the one CPU request later

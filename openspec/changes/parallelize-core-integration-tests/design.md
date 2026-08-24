@@ -415,10 +415,11 @@ positive ExUnit includes cannot pull any heavy test back into an ordinary lane t
 
 The dedicated target retains `integration_test` so the ordinary unit wildcard continues excluding
 it, and adds `large_ingestion_test`. The pull-request integration wildcard changes to
-`integration_test,-large_ingestion_test,-acceptance_test`. This second boundary prevents Bazel from
-selecting the dedicated target itself when the workflow asks for all integration-tagged targets.
-Source separation protects ExUnit selection inside the shards; the negative Bazel target tag
-protects wildcard target selection.
+matching build/test filters of `integration_test,-large_ingestion_test,-acceptance_test` and adds
+`--build_tests_only`. This second boundary prevents Bazel from building or running the dedicated
+target itself, as well as unrelated non-test wildcard targets, when the workflow asks for all
+integration-tagged targets. Source separation protects ExUnit selection inside the shards; the
+negative Bazel target tag and build-only-test restriction protect wildcard target selection.
 
 `build/integration_shards.bzl` exports the dedicated suffix separately from the async and serial lane suffixes.
 `provision_db` clones only the eight frozen ordinary lane databases; a focused
@@ -542,10 +543,12 @@ The in-clock template check is current-only; a newly pending result is retained 
 cannot migrate inside the timing window. The preceding integration-only prebuild must have warmed
 the exact Bazel configuration, measured target dependency closures, and the four manual lifecycle
 targets that execute inside the clock. It must not build unrelated packages, release archives, OCI
-images, or push targets. The measured ordinary wave includes every target selected by the
-pull-request integration filter (the async target, all selected serial targets, SRQL fixture
-targets, and other existing integration targets) and excludes only the source-separated heavy
-release-qualification target (the two
+images, or push targets. The measured `bazel test //...` command pairs `--build_tests_only` with
+identical build/test tag filters; `--test_tag_filters` alone is insufficient because Bazel can still
+build excluded tests and unrelated non-test wildcard targets. The measured ordinary wave includes
+every target selected by the pull-request integration filter (the async target, all selected serial
+targets, SRQL fixture targets, and other existing integration targets) and excludes only the
+source-separated heavy release-qualification target (the two
 large-ingestion suites plus cold bootstrap). Over 20 consecutive runs, p95 is the nearest-rank
 19th ordered value.
 

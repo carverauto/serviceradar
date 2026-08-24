@@ -124,8 +124,15 @@ from a separately labeled non-cohort profiling run with
 Both revisions use the same benchmark target selection:
 
 ```text
+--build_tests_only
+--build_tag_filters=integration_test,-large_ingestion_test,-acceptance_test
 --test_tag_filters=integration_test,-large_ingestion_test,-acceptance_test
 ```
+
+The benchmark contract requires all three flags on the measured `bazel test //...` command.
+Test-tag filtering alone prevents excluded tests from executing but still allows Bazel to build
+unrelated top-level wildcard targets. The matching build filter plus `--build_tests_only` makes the
+in-clock build selection the same 12-target ordinary integration selection warmed before the clock.
 
 The negative Bazel tag changes nothing at the before revision because no target has that tag and
 the two ingestion gates plus cold bootstrap are still compiled into ordinary integration shards.
@@ -307,6 +314,24 @@ rotated the sole workflow executor. Parent `798d3c24-6516-4f5b-9a30-753ad6b1190e
 integration selection. That parent was canceled before database preflight or `START_NS` and the
 prebuild was replaced by the two narrow commands defined above. Neither attempt can enter a
 benchmark cohort.
+
+### Rejected broad measured-wave attempt
+
+The 2026-08-24 exact-SHA smoke at candidate
+`58589a1183c5e4549fae6ae097bc7e9ec4c233e5`, parent invocation
+`c85e45ca-cdc7-4281-a593-63caaa56cc53`, passed all 12 ordinary integration tests and outcome-bearing
+teardown. The observer reported run-scoped peak 96, fixture-wide peak 97 of 197 usable client slots,
+and zero suite, observer, and teardown statuses. Its two prebuild children correctly built exactly
+12 integration targets and four lifecycle helpers.
+
+The measured wildcard child `faef069c-0a99-4d59-8265-1e641ab2fdcc` nevertheless exposed a second
+selection defect: `--test_tag_filters` prevented unrelated tests from running but, without
+`--build_tests_only` and the matching `--build_tag_filters`, Bazel built 1,586 top-level targets and
+74,496 actions, including package and OCI-image targets. The child lasted 82.990 seconds and the
+guarded lifecycle lasted 122.969 seconds. Those times are rejected because unrelated build work ran
+inside the clock. The successful test and cleanup results remain non-timing safety evidence. The
+measured command now carries all three selection flags above; this attempt cannot enter a benchmark
+or CPU-diagnostic cohort.
 
 Historical observations motivated the work but are not the controlled before cohort. Five recent
 successful pull-request integration phases ranged from 141 to 262 seconds. A separately inspected

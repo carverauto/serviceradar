@@ -31,8 +31,9 @@
       ordinary eight-shard provisioning.
 - [x] 2.4 Add lifecycle/configuration tests proving the Elixir target and Rust provision target
       derive the same database name, ordinary unit/integration targets exclude the heavy source,
-      the pull-request integration wildcard excludes the `large_ingestion_test` Bazel tag, and
-      teardown owns the dedicated suffix.
+      the pull-request integration wildcard uses `--build_tests_only` with matching build/test tag
+      filters that exclude `large_ingestion_test`, no unrelated top-level target enters the
+      integration wave, and teardown owns the dedicated suffix.
 - [x] 2.5 Prove the release target runs both full ingestion workloads plus the intact two-pass cold
       database-bootstrap test, and the ordinary PR integration suite neither embeds nor selects
       any of those heavy sources. Keep the newly introduced target/action/status identifiers

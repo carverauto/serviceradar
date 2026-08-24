@@ -710,7 +710,9 @@ class IntegrationBenchmarkContractTest(unittest.TestCase):
             "bazel test $FLAGS //rust/integration-db:teardown_db",
             "bazel test $FLAGS //rust/integration-db:sweep_stale_dbs",
             "bazel test $FLAGS //rust/integration-db:provision_db",
-            "bazel test $FLAGS //... --test_tag_filters=integration_test,-large_ingestion_test,-acceptance_test",
+            "bazel test $FLAGS --build_tests_only "
+            "--build_tag_filters=integration_test,-large_ingestion_test,-acceptance_test "
+            "--test_tag_filters=integration_test,-large_ingestion_test,-acceptance_test //...",
         ):
             self.assertIn(use, measured)
             self.assertLess(flags, measured.index(use))
@@ -792,8 +794,9 @@ class WorkflowIntegrationLifecycleContractTest(unittest.TestCase):
         '//rust/integration-db:prepare_template)"'
     )
     ordinary_suite = (
-        "bazel test $FLAGS //... "
-        "--test_tag_filters=integration_test,-large_ingestion_test,-acceptance_test"
+        "bazel test $FLAGS --build_tests_only "
+        "--build_tag_filters=integration_test,-large_ingestion_test,-acceptance_test "
+        "--test_tag_filters=integration_test,-large_ingestion_test,-acceptance_test //..."
     )
     heavy_provision = (
         "bazel test $FLAGS "
@@ -1236,7 +1239,11 @@ class WorkflowIntegrationLifecycleContractTest(unittest.TestCase):
         )
         self.assertEqual(
             (self.ordinary_suite,),
-            tuple(command for command in commands if "$FLAGS //..." in command),
+            tuple(
+                command
+                for command in commands
+                if "$FLAGS" in command and "//..." in command
+            ),
         )
 
     def test_large_ingestion_gate_has_exact_independent_trigger(self):

@@ -88,9 +88,10 @@ eight-shard treatment. Parallelizing shard databases cannot divide that sequenti
   observer must therefore reserve 15 workload slots before readiness and provisioning. The
   observer's own session remains separately excluded and reported. This focused 15-slot
   reservation is distinct from the ordinary wildcard's 114-slot workflow-wide preflight.
-- Give the dedicated target a `large_ingestion_test` Bazel tag and explicitly exclude that tag from
-  the pull-request integration wildcard, so the separate target itself is not selected by
-  `--test_tag_filters=integration_test`.
+- Give the dedicated target a `large_ingestion_test` Bazel tag and make the pull-request integration
+  wildcard use `--build_tests_only` with matching build/test tag filters that explicitly exclude
+  it. This keeps the separate target, packages, release archives, OCI images, and push targets out
+  of the ordinary integration wave.
 - Run the heavy target in a separate BuildBuddy action on the default branch, nightly, and for
   release tags; keep the full bootstrap and ingestion assertions unchanged; require a successful
   result for the exact release commit before publication using

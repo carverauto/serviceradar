@@ -176,7 +176,7 @@ fixed:
 
 | Use | Provision target | Suite selection |
 | --- | --- | --- |
-| Ordinary/benchmark | `//rust/integration-db:provision_db` | `//... --test_tag_filters=integration_test,-large_ingestion_test,-acceptance_test` |
+| Ordinary/benchmark | `//rust/integration-db:provision_db` | `--build_tests_only --build_tag_filters=integration_test,-large_ingestion_test,-acceptance_test --test_tag_filters=integration_test,-large_ingestion_test,-acceptance_test //...` |
 | Focused Sandbox | `//rust/integration-db:provision_db` | the single resolved `$SANDBOX_TARGET` |
 | Heavy gate | `//rust/integration-db:provision_db_large_ingestion` | `//elixir/serviceradar_core:large_ingestion_release_gate` |
 
@@ -900,8 +900,14 @@ Require only sweep, prepare, conditional migration, `provision_db_large_ingestio
 Change only the ordinary integration wildcard to:
 
 ```text
+--build_tests_only
+--build_tag_filters=integration_test,-large_ingestion_test,-acceptance_test
 --test_tag_filters=integration_test,-large_ingestion_test,-acceptance_test
+//...
 ```
+
+The build and test filters must remain identical. `--test_tag_filters` alone prevents execution but
+does not keep unrelated top-level wildcard targets out of the measured build graph.
 
 Use `--test_output=all` and require `SERVICERADAR_TEST_SLOWEST` to be absent from its suite. Record a
 nanosecond start immediately before measured fixture materialization, after the separate template

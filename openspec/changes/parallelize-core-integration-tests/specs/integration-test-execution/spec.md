@@ -490,6 +490,9 @@ successful BuildBuddy result for the immutable tag commit.
 - **WHEN** the ordinary BuildBuddy PR action runs
 - **THEN** it SHALL run the frozen ordinary async and serial integration lanes
 - **AND** its integration target filter SHALL include `-large_ingestion_test`
+- **AND** its measured wildcard SHALL use `--build_tests_only` and the same build/test tag filters
+- **AND** it SHALL NOT build unrelated package, release-archive, OCI-image, or push targets as part
+  of the integration wave
 - **AND** it SHALL NOT run the source-separated heavy release-qualification target
 
 ### Requirement: Parallel integration acceptance is measured and retry-free
@@ -499,11 +502,14 @@ SHALL start before fixture configuration materialization and end after successfu
 current template and the exact Bazel configuration already built. The prebuild SHALL contain the
 ordinary integration targets, their dependencies, and the manual connection-observer, sweep,
 provision, and teardown targets that run inside the clock. It SHALL exclude unrelated package,
-release-archive, OCI-image, and push targets. The end timestamp SHALL be captured immediately when
-teardown returns, before observer shutdown/wait overhead. It SHALL include all targets selected by
-the ordinary pull-request integration filter and exclude only the `large_ingestion_test`-tagged
-heavy release-qualification target. Across that run set, nearest-rank p95 SHALL be at most 90
-seconds, and relative p95 improvement versus the controlled before cohort SHALL be at least 50%.
+release-archive, OCI-image, and push targets. The measured ordinary wildcard SHALL use
+`--build_tests_only` plus identical positive and negative build/test tag filters so excluded tests
+and unrelated non-test targets are neither built nor executed inside the clock. The end timestamp
+SHALL be captured immediately when teardown returns, before observer shutdown/wait overhead. It
+SHALL include all targets selected by the ordinary pull-request integration filter and exclude only
+the `large_ingestion_test`-tagged heavy release-qualification target. Across that run set,
+nearest-rank p95 SHALL be at most 90 seconds, and relative p95 improvement versus the controlled
+before cohort SHALL be at least 50%.
 Whether relative improvement reaches the 60% stretch target SHALL be reported. The slowest
 non-empty serial lane
 SHALL be no more than 1.5 times the fastest, and there SHALL be no sandbox ownership error,
