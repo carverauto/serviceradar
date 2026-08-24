@@ -44,12 +44,29 @@ function expandedFlag(value) {
 function mergeGraphNodes(existing, incoming) {
   const existingDetails = graphNodeDetails(existing)
   const incomingDetails = graphNodeDetails(incoming)
+  const existingX = Number(existing?.x)
+  const existingY = Number(existing?.y)
+  const incomingX = Number(incoming?.x)
+  const incomingY = Number(incoming?.y)
   return {
-    ...incoming,
     ...existing,
+    ...incoming,
+    x: Number.isFinite(existingX) ? existingX : (Number.isFinite(incomingX) ? incomingX : 0),
+    y: Number.isFinite(existingY) ? existingY : (Number.isFinite(incomingY) ? incomingY : 0),
+    label:
+      typeof existing?.label === "string" && existing.label.trim() !== ""
+        ? existing.label
+        : incoming?.label,
+    clusterCount: Math.max(
+      1,
+      Number(existing?.clusterCount || 1),
+      Number(incoming?.clusterCount || 1),
+    ),
+    pps: Math.max(Number(existing?.pps || 0), Number(incoming?.pps || 0)),
+    operUp: Number(existing?.operUp || 0) || Number(incoming?.operUp || 0),
     details: {
-      ...incomingDetails,
       ...existingDetails,
+      ...incomingDetails,
       cluster_expanded:
         expandedFlag(existingDetails.cluster_expanded) ||
         expandedFlag(incomingDetails.cluster_expanded),
@@ -78,8 +95,16 @@ function layoutErrorMessage(error) {
 }
 
 function stripCoordinates(graph) {
+  const {
+    _topologyScene,
+    _layoutMode,
+    _layoutCacheKey,
+    _layoutRevision,
+    _layoutError,
+    ...withoutLayoutAnnotations
+  } = graph || {}
   return {
-    ...graph,
+    ...withoutLayoutAnnotations,
     nodes: (graph?.nodes || []).map((node) => {
       const {x: _x, y: _y, ...withoutCoordinates} = node
       return withoutCoordinates
@@ -184,7 +209,9 @@ export const godViewLayoutTopologyStateMethods = {
 
       if (compatible) {
         return {
-          ...previousGraph,
+          ...applyTopologySceneToGraph(graph, previousGraph._topologyScene),
+          _layoutRevision: revision,
+          _layoutCacheKey: layoutKey,
           _layoutError: diagnostic,
         }
       }

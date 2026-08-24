@@ -105,6 +105,58 @@ describe("layout_topology_state_methods", () => {
     expect(out.edges[0]).toMatchObject({source: 0, target: 1})
   })
 
+  it("dedupeGraphById preserves duplicate-node aggregation semantics", () => {
+    const context = makeContext()
+    const graph = {
+      nodes: [
+        {
+          id: "router-1",
+          label: "Preferred label",
+          state: 1,
+          x: 10,
+          y: Number.NaN,
+          pps: 200,
+          clusterCount: 4,
+          operUp: 0,
+          details: {shared: "existing", existingOnly: true, cluster_expanded: false},
+        },
+        {
+          id: "router-1",
+          label: "Incoming label",
+          state: 3,
+          x: 20,
+          y: 30,
+          pps: 900,
+          clusterCount: 12,
+          operUp: 1,
+          details: {shared: "incoming", incomingOnly: true, cluster_expanded: true},
+        },
+      ],
+      edges: [],
+    }
+
+    const out = context.dedupeGraphById(graph)
+
+    expect(out.nodes).toEqual([
+      expect.objectContaining({
+        id: "router-1",
+        label: "Preferred label",
+        state: 3,
+        x: 10,
+        y: 30,
+        pps: 900,
+        clusterCount: 12,
+        operUp: 1,
+        details: {
+          shared: "incoming",
+          existingOnly: true,
+          incomingOnly: true,
+          cluster_expanded: true,
+        },
+      }),
+    ])
+  })
+
   it("uses one ELK scene as the geometry authority for both farm01 fixture states", async () => {
     for (const graph of [collapsedFarm01Graph(), expandedFarm01Graph()]) {
       const context = makeContext()
@@ -212,6 +264,32 @@ describe("layout_topology_state_methods", () => {
     expect(context.state.layoutCache.size).toEqual(0)
   })
 
+  it("removes stale scene and layout annotations after an incompatible ELK failure", async () => {
+    const context = makeContext({
+      state: {
+        layoutEngine: {layout: vi.fn(async () => { throw new Error("new ELK failure") })},
+      },
+    })
+    const graph = {
+      ...collapsedFarm01Graph(),
+      nodes: collapsedFarm01Graph().nodes.map((node) => ({...node, x: 10, y: 20})),
+      _topologyScene: {key: "stale-scene"},
+      _layoutMode: "elk-scene",
+      _layoutCacheKey: "stale-key",
+      _layoutRevision: 1,
+      _layoutError: "stale error",
+    }
+
+    const out = await context.prepareGraphLayout(graph, 15, "new-stamp")
+
+    expect(out._topologyScene).toBeUndefined()
+    expect(out._layoutMode).toEqual("elk-scene-error")
+    expect(out._layoutCacheKey).not.toEqual("stale-key")
+    expect(out._layoutRevision).toEqual(15)
+    expect(out._layoutError).toEqual("new ELK failure")
+    expect(out.nodes.every((node) => node.x === undefined && node.y === undefined)).toEqual(true)
+  })
+
   it("reuses only an exactly compatible last-good scene after ELK failure", async () => {
     const context = makeContext()
     const graph = expandedFarm01Graph()
@@ -232,6 +310,39 @@ describe("layout_topology_state_methods", () => {
     const incompatible = await context.prepareGraphLayout(collapsedFarm01Graph(), 14, "stamp")
     expect(incompatible._topologyScene).toBeUndefined()
     expect(incompatible.nodes.every((node) => node.x === undefined && node.y === undefined)).toEqual(true)
+  })
+
+  it("reapplies a compatible last-good scene without replacing current graph data", async () => {
+    const context = makeContext()
+    const graph = collapsedFarm01Graph()
+    const accepted = await context.prepareGraphLayout(graph, 16, "stamp")
+    context.state.lastGraph = accepted
+    context.state.layoutCache.clear()
+    context.state.layoutEngine = {
+      layout: vi.fn(async () => { throw new Error("transient ELK failure") }),
+    }
+    const currentGraph = {
+      ...graph,
+      nodes: graph.nodes.map((node, index) => index === 0
+        ? {...node, label: "Current gateway label", state: 3, pps: 9876}
+        : node),
+      edges: graph.edges.map((edge, index) => index === 0
+        ? {...edge, metadata: {sample: "current"}, pps: 4321}
+        : edge),
+    }
+
+    const reused = await context.prepareGraphLayout(currentGraph, 16, "stamp")
+
+    expect(reused.nodes[0]).toMatchObject({
+      label: "Current gateway label",
+      state: 3,
+      pps: 9876,
+    })
+    expect(reused.edges[0]).toMatchObject({metadata: {sample: "current"}, pps: 4321})
+    expect(reused.nodes[0].x).toEqual(accepted.nodes[0].x)
+    expect(reused.nodes[0].y).toEqual(accepted.nodes[0].y)
+    expect(reused._topologyScene).toBe(accepted._topologyScene)
+    expect(reused._layoutError).toEqual("transient ELK failure")
   })
 
   it("sameTopology accepts stable backend revisions even if the client stamp changed", () => {

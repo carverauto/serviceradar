@@ -172,6 +172,19 @@ describe("layout_elk_scene", () => {
     ])
   })
 
+  it("rejects an expected expanded group when ELK returns its nodes as root leaves", () => {
+    const elkResult = containerRelativeElkResult()
+    elkResult.children = elkResult.children.filter((child) => child.id !== "group")
+    elkResult.children.push({id: "gateway", x: 220, y: 130, width: 50, height: 50})
+
+    const scene = decodeElkScene(elkResult, containerRelativeSceneInput())
+    const result = validateTopologyScene(scene)
+
+    expect(scene.groups).toHaveLength(1)
+    expect(result.ok).toEqual(false)
+    expect(result.errors.some((error) => error.includes("group group has non-finite geometry"))).toEqual(true)
+  })
+
   it("rejects non-finite decoded geometry", () => {
     const scene = validScene()
     scene.nodes[0].center.x = Number.NaN
@@ -194,6 +207,19 @@ describe("layout_elk_scene", () => {
 
     expect(result.ok).toEqual(false)
     expect(result.errors.some((error) => error.includes("continuous section"))).toEqual(true)
+  })
+
+  it("treats route points at or below the 0.01 layout tolerance as degenerate", () => {
+    for (const delta of [0.009, 0.01]) {
+      const scene = validScene()
+      scene.routes[0].points = [{x: 0, y: 0}, {x: delta, y: 0}]
+
+      expect(validateTopologyScene(scene).ok, `delta ${delta}`).toEqual(false)
+    }
+
+    const separated = validScene()
+    separated.routes[0].points = [{x: 0, y: 0}, {x: 0.0101, y: 0}]
+    expect(validateTopologyScene(separated)).toEqual({ok: true, errors: []})
   })
 
   it("rejects a rendered relation repeated in multiple ELK containers", () => {

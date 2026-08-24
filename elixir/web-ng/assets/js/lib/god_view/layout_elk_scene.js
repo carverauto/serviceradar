@@ -219,18 +219,20 @@ export function decodeElkScene(elkResult, sceneInput) {
     .sort((left, right) => left.id.localeCompare(right.id))
 
   const groups = [...(sceneInput?.groups || [])]
-    .filter((group) => group.expanded && elements.has(group.id))
+    .filter((group) => group.expanded)
     .map((group) => {
       const decoded = elements.get(group.id)
-      const width = finiteOrNaN(decoded.node.width)
-      const height = finiteOrNaN(decoded.node.height)
+      const width = finiteOrNaN(decoded?.node?.width)
+      const height = finiteOrNaN(decoded?.node?.height)
+      const originX = finiteOrNaN(decoded?.origin?.x)
+      const originY = finiteOrNaN(decoded?.origin?.y)
       return {
         id: group.id,
         bounds: {
-          minX: decoded.origin.x,
-          minY: decoded.origin.y,
-          maxX: decoded.origin.x + width,
-          maxY: decoded.origin.y + height,
+          minX: originX,
+          minY: originY,
+          maxX: originX + width,
+          maxY: originY + height,
         },
         memberIds: [...(group.memberIds || [])].sort((left, right) => left.localeCompare(right)),
         anchorId: group.anchorId,
@@ -318,6 +320,17 @@ function routeIntersectsBox(route, box) {
   return false
 }
 
+function hasDistinctRoutePoints(points) {
+  for (let leftIndex = 0; leftIndex < points.length; leftIndex += 1) {
+    for (let rightIndex = leftIndex + 1; rightIndex < points.length; rightIndex += 1) {
+      const deltaX = points[rightIndex].x - points[leftIndex].x
+      const deltaY = points[rightIndex].y - points[leftIndex].y
+      if (Math.hypot(deltaX, deltaY) > INTERSECTION_EPSILON) return true
+    }
+  }
+  return false
+}
+
 export function validateTopologyScene(scene) {
   const errors = []
   const nodes = Array.isArray(scene?.nodes) ? scene.nodes : []
@@ -377,15 +390,16 @@ export function validateTopologyScene(scene) {
   }
 
   for (const route of routes) {
-    const distinctPoints = new Set(
-      (route.points || []).map((point) => `${Number(point?.x).toFixed(6)}:${Number(point?.y).toFixed(6)}`),
-    )
-    if (!Array.isArray(route.points) || route.points.length < 2 || distinctPoints.size < 2) {
+    if (!Array.isArray(route.points) || route.points.length < 2) {
       errors.push(`route ${route.id} must decode from exactly one continuous section`)
       continue
     }
     if (!route.points.every((point) => Number.isFinite(point?.x) && Number.isFinite(point?.y))) {
       errors.push(`route ${route.id} has non-finite geometry`)
+      continue
+    }
+    if (!hasDistinctRoutePoints(route.points)) {
+      errors.push(`route ${route.id} must decode from exactly one continuous section`)
       continue
     }
 
