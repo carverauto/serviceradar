@@ -255,9 +255,17 @@ the legacy producers.
 
 - [x] 7.1 Go unit tests: the pump forwards an opaque batch without inspecting it; the single-consumer
   switchover; fallback when `addon.sock` is absent
-- [ ] 7.2 Elixir DB-backed tests (srql-fixtures lifecycle): census updates satisfy
-  `passive_census_source?/1`, mDNS updates satisfy `enrichment_only_source?/1` and create no device,
-  a hostile `source`/`agent_id` in the payload is ignored, an unknown schema is dropped loudly
+- [x] 7.2 Elixir DB-backed tests (srql-fixtures lifecycle) -- PR #4002. The hostile-`source`,
+  hostile-`agent_id` and unknown-schema cases were already written in `discovery/ingestor_test.exs`
+  but had NEVER RUN: its setup called `start_supervised!(Buffer)` against the Buffer
+  `application.ex:126` already owns, so all 11 tests died on `{:already_started, _}` before their
+  bodies. Fixed with `Buffer.reset/1` (a test-local name will not work -- `DiscoveryIngestor` calls
+  `Buffer.offer/1` with the default name). Create-vs-enrich is now covered against a real database
+  for every payload: census CREATES; mDNS, DPI and process create nothing for an unknown subject
+  and still enrich a device the census established; fingerprint's version already lived in
+  `sync_ingestor_passive_netprobe_identity_test.exs`. Falsified by mutation -- emptying
+  `enrichment_only_source?/1` fails exactly the three create-nothing tests. 74 tests, 0 failures
+  (previously 11 failures, all the setup crash).
 - [ ] 7.3 e2e on `alma-test01`: netprobe emits `DISCOVERY_V1` → agent forwards → core ingests →
   devices appear with the same identity they had before the cutover (compare against the 1.5 fixtures)
 - [ ] 7.4 **PARTIALLY DEMONSTRATED, NOT MET.** Three schemas were added end-to-end
