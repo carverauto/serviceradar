@@ -606,6 +606,11 @@ fn bind_socket(path: &Path) -> Result<UnixListener> {
 /// handshake, and netprobe is systemd-supervised rather than agent-launched --
 /// there is no handshake to carry a cert. Closing that gap needs cert
 /// distribution for a supervised add-on, which is a larger change than this one.
+#[cfg(test)]
+fn restrict_socket_permissions_for_test(path: &Path) -> Result<()> {
+    restrict_socket_permissions(path)
+}
+
 fn restrict_socket_permissions(path: &Path) -> Result<()> {
     #[cfg(unix)]
     {
@@ -613,6 +618,27 @@ fn restrict_socket_permissions(path: &Path) -> Result<()> {
 
         std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600))
             .with_context(|| format!("failed to restrict {}", path.display()))?;
+
+        // Read it back. `set_permissions` can report success and not take effect
+        // -- some mounts ignore chmod entirely -- and this mode is the whole
+        // access control on a socket serving Configure and RunCommand. Refusing
+        // to serve is the right failure: an AddonService nobody can reach is a
+        // loud, fixable problem, while one reachable by the whole runtime group
+        // is a silent one.
+        let mode = std::fs::metadata(path)
+            .with_context(|| format!("failed to stat {}", path.display()))?
+            .permissions()
+            .mode()
+            & 0o777;
+
+        if mode != 0o600 {
+            anyhow::bail!(
+                "refusing to serve AddonService on {}: mode is {:o}, not 0600 -- \
+                 Configure and RunCommand would be reachable by other local processes",
+                path.display(),
+                mode
+            );
+        }
     }
 
     Ok(())
@@ -1124,5 +1150,31 @@ mod tests {
         use std::os::unix::fs::PermissionsExt;
         let mode = std::fs::metadata(&path).expect("stat").permissions().mode() & 0o777;
         assert_eq!(mode, 0o600, "a rebind must restrict the mode too");
+    }
+
+    #[tokio::test]
+    async fn a_socket_that_cannot_be_restricted_refuses_to_serve() {
+        // Simulates a chmod that reports success without taking effect, which is
+        // real on some mounts. The check reads the mode back, so the failure is a
+        // refusal to serve rather than an AddonService quietly reachable by the
+        // whole runtime group.
+        use std::os::unix::fs::PermissionsExt;
+
+        let dir = tempfile::tempdir().expect("tempdir");
+        let path = dir.path().join("addon.sock");
+        let _listener = bind_socket(&path).expect("bind");
+
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o660)).expect("loosen");
+
+        let err = restrict_socket_permissions_for_test(&path);
+        assert!(
+            err.is_ok(),
+            "restricting a loosened socket should succeed: {err:?}"
+        );
+
+        assert_eq!(
+            std::fs::metadata(&path).unwrap().permissions().mode() & 0o777,
+            0o600
+        );
     }
 }
