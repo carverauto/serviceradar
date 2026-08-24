@@ -153,13 +153,18 @@ func TestEnrichmentGoldenFingerprint(t *testing.T) {
 			},
 		},
 		{
-			// A LicenseClean whose inner pointer is nil still emits a device, with
-			// base metadata only and NO protocol key. Easy to lose in a port.
-			name: "license_clean_nil_inner",
+			// The arm is set but carries nothing. This is what an evidence-free
+			// license_clean looks like ON THE WIRE -- a nil inner pointer cannot
+			// be encoded, it decodes back as an empty message -- so this is the
+			// shape a decoder will actually meet. It still emits a device, with
+			// the protocol key and no detail keys at all.
+			name: "license_clean_empty_inner",
 			event: &netprobepb.FingerprintEvent{
 				Ip:                 "10.20.30.47",
 				ObservedAtUnixNano: 1_787_500_000_000_000_000,
-				Evidence:           &netprobepb.FingerprintEvent_LicenseClean{LicenseClean: nil},
+				Evidence: &netprobepb.FingerprintEvent_LicenseClean{
+					LicenseClean: &netprobepb.LicenseCleanFingerprint{},
+				},
 			},
 		},
 	}
@@ -182,8 +187,17 @@ func TestEnrichmentGoldenFingerprintSkips(t *testing.T) {
 	_, err = FingerprintEventToDiscoveredDevice(&netprobepb.FingerprintEvent{Ip: "   "}, enrichmentOpts())
 	require.ErrorIs(t, err, ErrFingerprintEventMissing, "a fingerprint with no IP must be dropped")
 
-	_, err = FingerprintEventToDiscoveredDevice(&netprobepb.FingerprintEvent{Ip: "10.20.30.48"}, enrichmentOpts())
 	require.ErrorIs(t, err, ErrFingerprintEventMissing, "a fingerprint with no evidence must be dropped")
+
+	// An in-memory nil inside a set arm still emits, with NO protocol key. This
+	// shape cannot survive a protobuf round trip -- it decodes back as an empty
+	// message -- so it is asserted here rather than pinned as a wire fixture.
+	nilInner, err := FingerprintEventToDiscoveredDevice(&netprobepb.FingerprintEvent{
+		Ip:       "10.20.30.49",
+		Evidence: &netprobepb.FingerprintEvent_LicenseClean{LicenseClean: nil},
+	}, enrichmentOpts())
+	require.NoError(t, err)
+	assert.NotContains(t, nilInner.GetMetadata(), "passive_fingerprint.protocol")
 }
 
 func TestEnrichmentGoldenDpi(t *testing.T) {
@@ -205,6 +219,17 @@ func TestEnrichmentGoldenDpi(t *testing.T) {
 			name: "collector_is_neither_source_wins",
 			event: &netprobepb.DpiEvent{
 				Protocol: "tls", SourceIp: "10.20.30.61", DestinationIp: "10.20.30.62",
+				ObservedAtUnixNano: 1_787_500_000_000_000_000,
+			},
+		},
+		{
+			// Collector is the DESTINATION. Go prefers the collector over the
+			// source here, which is the one arm core cannot reproduce: the
+			// collector's own address is not in the attested metadata, so the
+			// producer has to make this choice before it sends the payload.
+			name: "collector_is_destination",
+			event: &netprobepb.DpiEvent{
+				Protocol: "tls", SourceIp: "10.20.30.65", DestinationIp: "10.20.30.40",
 				ObservedAtUnixNano: 1_787_500_000_000_000_000,
 			},
 		},

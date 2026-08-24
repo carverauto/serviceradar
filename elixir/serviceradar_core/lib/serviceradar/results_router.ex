@@ -233,6 +233,16 @@ defmodule ServiceRadar.ResultsRouter do
   # ServiceRadar.DataCase, which carries @moduletag :requires_app, and the unit
   # tier excludes :requires_app -- so those tests run only in the integration
   # shards.
+  # Passive netprobe evidence: fingerprints, DPI and the local process listing.
+  # In an attribute with an accessor for the same reason as the census and mDNS
+  # lists below -- discovery_schema_registry_test.exs pins the DISCOVERY_V1
+  # sources against the routes they replace, so the two cannot drift apart
+  # silently while both paths are live.
+  @passive_netprobe_service_types ["passive-netprobe", :passive_netprobe]
+
+  @doc false
+  def passive_netprobe_service_types, do: @passive_netprobe_service_types
+
   @census_service_types ["netprobe-census", :netprobe_census, "passive-census"]
 
   @doc false
@@ -266,8 +276,7 @@ defmodule ServiceRadar.ResultsRouter do
   end
 
   defp process(%{source: source, service_type: service_type} = status, _opts)
-       when source in ["results", :results] and
-              service_type in ["passive-netprobe", :passive_netprobe] do
+       when source in ["results", :results] and service_type in @passive_netprobe_service_types do
     schedule_sync_ingestion(status)
   end
 

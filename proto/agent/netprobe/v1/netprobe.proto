@@ -525,3 +525,38 @@ message DeviceCensusSnapshot {
   // Bindings the kernel ring dropped since the previous snapshot.
   uint32 dropped_since_last = 8;
 }
+
+// Payload of a `serviceradar.netprobe.fingerprint.v1` DiscoveryEnvelope.
+//
+// A batch of independent EVENTS, not a snapshot: a fingerprint is a sighting,
+// and there is no complete-view-of-a-segment to supersede. The envelope's
+// snapshot/part fields are therefore set for framing only -- nothing downstream
+// treats a fingerprint batch as replacing its predecessor.
+message FingerprintEventBatch {
+  repeated FingerprintEvent events = 1;
+  int64 batch_start_unix_nano = 2;
+  int64 batch_end_unix_nano = 3;
+  // Events the sidecar queue dropped since the previous batch.
+  uint32 dropped_since_last = 4;
+}
+
+// Payload of a `serviceradar.netprobe.dpi.v1` DiscoveryEnvelope. Event
+// semantics, for the same reason as FingerprintEventBatch.
+message DpiEventBatch {
+  repeated DpiEvent events = 1;
+  int64 batch_start_unix_nano = 2;
+  int64 batch_end_unix_nano = 3;
+  uint32 dropped_since_last = 4;
+}
+
+// Payload of a `serviceradar.netprobe.process.v1` DiscoveryEnvelope.
+//
+// Unlike the two above this IS a snapshot -- the complete set of local listeners
+// at a moment -- which is what ProcessSnapshot always was without being able to
+// say so: it carries no snapshot_id, chunk_index, chunk_count or complete, so a
+// split across frames could not be reassembled and a partial set could not be
+// told from a shrinking one. Wrapping it in the envelope is what gives it those
+// semantics, since the envelope carries them for every payload.
+message ProcessSnapshotBatch {
+  ProcessSnapshot snapshot = 1;
+}
