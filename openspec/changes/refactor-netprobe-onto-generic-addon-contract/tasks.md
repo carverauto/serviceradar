@@ -92,7 +92,7 @@
 - [x] 5.2 Single-consumer rule: the agent stops draining the legacy census/mDNS snapshot channel the
   moment the `AddonService` client connects, and falls back if it disconnects. Without this, core
   ingests each census twice during the cutover
-- [ ] 5.3 Delete `push_loop_netprobe_census.go`, `push_loop_netprobe_mdns.go`,
+- [x] 5.3 Delete `push_loop_netprobe_census.go`, `push_loop_netprobe_mdns.go`,
   `netprobe/census_translator.go`, `netprobe/mdns_translator.go`, `netprobe/census_assembler.go`,
   `netprobe/mdns_assembler.go`, `netprobe/chunk_assembler.go`, `DrainCensusSnapshots`,
   `DrainMdnsSnapshots`, and the tag-30/31 readLoop arms

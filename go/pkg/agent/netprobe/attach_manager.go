@@ -140,7 +140,6 @@ func (m *AttachManager) StartAttach(ctx context.Context) error {
 		pump, err := NewAddonPump(AddonPumpConfig{
 			SocketPath: AttachAddonSocketPath(m.cfg.RuntimeDir, name),
 			Sink:       m.cfg.AddonTelemetrySink,
-			Sidecar:    m.sidecar,
 			Logger:     m.cfg.Logger,
 		})
 		if err != nil {

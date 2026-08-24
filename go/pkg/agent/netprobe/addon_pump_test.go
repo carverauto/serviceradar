@@ -26,7 +26,6 @@ import (
 	"time"
 
 	addonpb "github.com/carverauto/serviceradar/proto/agent/addon/v1"
-	netprobepb "github.com/carverauto/serviceradar/proto/agent/netprobe/v1"
 	"github.com/rs/zerolog"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -86,20 +85,12 @@ func shortSocketPath(t *testing.T) string {
 	return filepath.Join(dir, "addon.sock")
 }
 
-func pumpTestSidecar() *Sidecar {
-	return &Sidecar{
-		censusSnaps: make(chan *netprobepb.DeviceCensusSnapshot, defaultCensusSnapshotBuffer),
-		mdnsSnaps:   make(chan *netprobepb.MdnsSnapshot, defaultCensusSnapshotBuffer),
-	}
-}
-
-func newTestPump(t *testing.T, socketPath string, sc *Sidecar, sink func(*addonpb.TelemetryBatch)) *AddonPump {
+func newTestPump(t *testing.T, socketPath string, sink func(*addonpb.TelemetryBatch)) *AddonPump {
 	t.Helper()
 
 	pump, err := NewAddonPump(AddonPumpConfig{
 		SocketPath: socketPath,
 		Sink:       sink,
-		Sidecar:    sc,
 		Logger:     zerolog.Nop(),
 		MinBackoff: 10 * time.Millisecond,
 		MaxBackoff: 20 * time.Millisecond,
@@ -129,8 +120,7 @@ func TestAddonPumpForwardsBatchesWithoutInspectingThem(t *testing.T) {
 	received := make([]*addonpb.TelemetryBatch, 0, 1)
 	done := make(chan struct{})
 
-	sc := pumpTestSidecar()
-	pump := newTestPump(t, socketPath, sc, func(batch *addonpb.TelemetryBatch) {
+	pump := newTestPump(t, socketPath, func(batch *addonpb.TelemetryBatch) {
 		mu.Lock()
 		defer mu.Unlock()
 		received = append(received, batch)
@@ -157,78 +147,42 @@ func TestAddonPumpForwardsBatchesWithoutInspectingThem(t *testing.T) {
 		"payload must reach the buffer byte-identical")
 }
 
-func TestAddonPumpTakesDiscoveryOwnershipOnFirstBatch(t *testing.T) {
-	socketPath := shortSocketPath(t)
-	startFakeAddonService(t, socketPath, &fakeAddonService{batches: []*addonpb.TelemetryBatch{opaqueBatch()}})
-
-	sc := pumpTestSidecar()
-	require.False(t, sc.AddonStreamOwnsDiscovery(), "legacy channel owns discovery until a batch arrives")
-
-	forwarded := make(chan struct{}, 1)
-	pump := newTestPump(t, socketPath, sc, func(*addonpb.TelemetryBatch) {
-		// Ownership must already be held HERE: if it were taken after the
-		// forward, the legacy loop could push the same snapshot core just got.
-		assert.True(t, sc.AddonStreamOwnsDiscovery(), "ownership must be taken before the first forward")
-		select {
-		case forwarded <- struct{}{}:
-		default:
-		}
-	})
-
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-	go pump.Run(ctx)
-
-	select {
-	case <-forwarded:
-	case <-ctx.Done():
-		t.Fatal("pump never forwarded a batch")
-	}
-
-	require.Eventually(t, sc.AddonStreamOwnsDiscovery, 5*time.Second, 10*time.Millisecond)
-
-	// The single-consumer rule: with the stream authoritative, the legacy drain
-	// yields nothing even though snapshots are sitting in the buffer.
-	sc.censusSnaps <- censusSnapshotFor("eth0", 100, "aa:bb:cc:dd:ee:ff")
-	assert.Empty(t, sc.DrainCensusSnapshots(0), "legacy census drain must be inert while the stream owns discovery")
-	assert.Empty(t, sc.DrainMdnsSnapshots(0), "legacy mDNS drain must be inert while the stream owns discovery")
-}
-
-func TestAddonPumpLeavesLegacyChannelAuthoritativeWhenSocketAbsent(t *testing.T) {
-	// A netprobe too old to serve the contract: nothing is listening.
+func TestAddonPumpForwardsNothingWhenSocketAbsent(t *testing.T) {
+	// A netprobe too old to serve the contract: nothing is listening. The pump
+	// must keep retrying quietly rather than spin or forward a partial batch --
+	// there is no legacy channel behind it any more, so the host simply reports
+	// no devices until netprobe is updated.
 	socketPath := shortSocketPath(t)
 
-	sc := pumpTestSidecar()
-	pump := newTestPump(t, socketPath, sc, func(*addonpb.TelemetryBatch) {
+	pump := newTestPump(t, socketPath, func(*addonpb.TelemetryBatch) {
 		t.Error("pump must not forward anything when the socket is absent")
 	})
 
 	ctx, cancel := context.WithTimeout(context.Background(), 300*time.Millisecond)
 	defer cancel()
 	pump.Run(ctx)
-
-	assert.False(t, sc.AddonStreamOwnsDiscovery(), "ownership must stay with the legacy channel")
-
-	sc.censusSnaps <- censusSnapshotFor("eth0", 100, "aa:bb:cc:dd:ee:ff")
-	assert.Len(t, sc.DrainCensusSnapshots(0), 1, "legacy census drain must keep working")
 }
 
-func TestAddonPumpReleasesOwnershipAndDiscardsStaleBacklogOnStreamEnd(t *testing.T) {
+func TestAddonPumpReconnectsAfterTheStreamEnds(t *testing.T) {
+	// netprobe restarting under the agent is routine (add-on upgrades, config
+	// changes that need a restart). Discovery has no second channel to fall back
+	// to, so a pump that gave up after one stream would silently end device
+	// collection for that host until the agent itself restarted.
 	socketPath := shortSocketPath(t)
 	startFakeAddonService(t, socketPath, &fakeAddonService{
 		batches:        []*addonpb.TelemetryBatch{opaqueBatch()},
 		closeAfterSend: true,
 	})
 
-	sc := pumpTestSidecar()
-	forwarded := make(chan struct{}, 1)
-	pump := newTestPump(t, socketPath, sc, func(*addonpb.TelemetryBatch) {
-		// Queued while the stream is authoritative, so it is older than what the
-		// stream already delivered. It must not survive the handover back.
-		sc.censusSnaps <- censusSnapshotFor("eth0", 100, "aa:bb:cc:dd:ee:ff")
-		select {
-		case forwarded <- struct{}{}:
-		default:
+	var mu sync.Mutex
+	forwards := 0
+	twice := make(chan struct{})
+	pump := newTestPump(t, socketPath, func(*addonpb.TelemetryBatch) {
+		mu.Lock()
+		defer mu.Unlock()
+		forwards++
+		if forwards == 2 {
+			close(twice)
 		}
 	})
 
@@ -237,18 +191,10 @@ func TestAddonPumpReleasesOwnershipAndDiscardsStaleBacklogOnStreamEnd(t *testing
 	go pump.Run(ctx)
 
 	select {
-	case <-forwarded:
+	case <-twice:
 	case <-ctx.Done():
-		t.Fatal("pump never forwarded a batch")
+		mu.Lock()
+		defer mu.Unlock()
+		t.Fatalf("pump did not reconnect after the stream ended (forwards=%d)", forwards)
 	}
-
-	// The stream closed, so ownership returns to the legacy channel -- with the
-	// backlog dropped rather than replayed. Replaying it would resurrect devices
-	// that aged out of the newer view the stream already delivered.
-	require.Eventually(t, func() bool { return !sc.AddonStreamOwnsDiscovery() }, 5*time.Second, 10*time.Millisecond)
-	assert.Empty(t, sc.DrainCensusSnapshots(0), "snapshots buffered under stream ownership must be discarded")
-
-	// And the legacy path is live again for whatever netprobe sends next.
-	sc.censusSnaps <- censusSnapshotFor("eth0", 200, "aa:bb:cc:dd:ee:ff")
-	assert.Len(t, sc.DrainCensusSnapshots(0), 1, "legacy census drain must resume after fallback")
 }

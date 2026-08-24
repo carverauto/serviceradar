@@ -30,18 +30,14 @@ import (
 )
 
 const (
-	DefaultSidecarName               = "netprobe"
-	DefaultBinaryPath                = "/usr/local/lib/serviceradar/bin/serviceradar-netprobe"
-	DefaultLogFormat                 = "json"
-	defaultHealthPort         uint16 = 0
-	defaultSidecarEventBuffer        = 1024
-	// One complete snapshot per interface every couple of minutes, and each one
-	// supersedes the last entirely. A deep buffer would only preserve stale
-	// segment views for a consumer to process in order and then discard.
-	defaultCensusSnapshotBuffer  = 4
-	defaultFlowAttributionBuffer = 65_536
-	defaultApplyWaitInterval     = 100 * time.Millisecond
-	defaultDesiredApplyTimeout   = 30 * time.Second
+	DefaultSidecarName                  = "netprobe"
+	DefaultBinaryPath                   = "/usr/local/lib/serviceradar/bin/serviceradar-netprobe"
+	DefaultLogFormat                    = "json"
+	defaultHealthPort            uint16 = 0
+	defaultSidecarEventBuffer           = 1024
+	defaultFlowAttributionBuffer        = 65_536
+	defaultApplyWaitInterval            = 100 * time.Millisecond
+	defaultDesiredApplyTimeout          = 30 * time.Second
 )
 
 var ErrSidecarUnavailable = errors.New("netprobe sidecar is unavailable")
@@ -68,23 +64,13 @@ type Sidecar struct {
 	dpiEvents                    chan *netprobepb.DpiEvent
 	flowEvents                   chan *netprobepb.FlowAttributionEvent
 	processSnaps                 chan *netprobepb.ProcessSnapshot
-	censusSnaps                  chan *netprobepb.DeviceCensusSnapshot
-	mdnsSnaps                    chan *netprobepb.MdnsSnapshot
 	droppedFlowAttributionEvents atomic.Uint64
-	// addonStreamOwnsDiscovery is the single-consumer rule. netprobe emits every
-	// census/mDNS snapshot on BOTH channels -- the legacy IPC socket and the
-	// AddonService stream subscribe to the same tokio broadcast -- so an agent
-	// that drains both makes core ingest each census twice. The gate lives on
-	// the drain rather than at the two push-loop call sites because it is a
-	// property of the source: a third caller must not be able to reintroduce the
-	// double-ingest by forgetting to ask.
-	addonStreamOwnsDiscovery atomic.Bool
-	healthy                  atomic.Bool
-	unhealthy                atomic.Bool
-	runningAsRoot            atomic.Bool
-	engineVersion            atomic.Value
-	revisions                atomic.Value
-	lastError                atomic.Value
+	healthy                      atomic.Bool
+	unhealthy                    atomic.Bool
+	runningAsRoot                atomic.Bool
+	engineVersion                atomic.Value
+	revisions                    atomic.Value
+	lastError                    atomic.Value
 
 	// desiredConfig + applyMu implement apply-on-connect: the latest desired visibility
 	// config is (re)applied over IPC whenever a client connects, so a systemd-managed
@@ -133,8 +119,6 @@ func NewSidecar(cfg SidecarConfig) *Sidecar {
 		dpiEvents:    make(chan *netprobepb.DpiEvent, defaultSidecarEventBuffer),
 		flowEvents:   make(chan *netprobepb.FlowAttributionEvent, defaultFlowAttributionBuffer),
 		processSnaps: make(chan *netprobepb.ProcessSnapshot, defaultSidecarEventBuffer),
-		censusSnaps:  make(chan *netprobepb.DeviceCensusSnapshot, defaultCensusSnapshotBuffer),
-		mdnsSnaps:    make(chan *netprobepb.MdnsSnapshot, defaultCensusSnapshotBuffer),
 		baseCtx:      context.Background(),
 	}
 	// Default push primitive reuses ApplyConfig (poll-for-client + Client.ApplyConfig).
@@ -419,161 +403,6 @@ func (s *Sidecar) DrainProcessSnapshots(max int) []*netprobepb.ProcessSnapshot {
 	return snapshots
 }
 
-// SetAddonStreamOwnsDiscovery hands census/mDNS ownership to the AddonService
-// stream, or takes it back when that stream drops.
-//
-// Taking ownership does not need to stop the legacy channel: its producer sends
-// non-blocking with a drop-oldest default (see startEventPumps), so an undrained
-// buffer costs four snapshots of memory and nothing else.
-//
-// RELEASING it does need care. The snapshots buffered while the addon stream was
-// authoritative are older than what that stream already delivered, and a census
-// is a complete replacement -- pushing one now would resurrect devices that have
-// since aged out. So the buffers are flushed on the way back, and the legacy path
-// resumes from netprobe's next snapshot rather than from the backlog.
-func (s *Sidecar) SetAddonStreamOwnsDiscovery(owned bool) {
-	if s == nil {
-		return
-	}
-	if previous := s.addonStreamOwnsDiscovery.Swap(owned); previous && !owned {
-		s.flushDiscoverySnapshots()
-	}
-}
-
-// AddonStreamOwnsDiscovery reports whether the AddonService stream is the
-// authoritative census/mDNS consumer.
-func (s *Sidecar) AddonStreamOwnsDiscovery() bool {
-	return s != nil && s.addonStreamOwnsDiscovery.Load()
-}
-
-// flushDiscoverySnapshots discards whatever the legacy channel buffered while it
-// was not the authoritative consumer.
-func (s *Sidecar) flushDiscoverySnapshots() {
-	for {
-		select {
-		case <-s.censusSnaps:
-		default:
-			goto mdns
-		}
-	}
-mdns:
-	for {
-		select {
-		case <-s.mdnsSnaps:
-		default:
-			return
-		}
-	}
-}
-
-// DrainMdnsSnapshots removes up to max complete mDNS snapshots, keeping only
-// the newest per interface.
-//
-// Same collapsing rule as the census and for the same reason: each snapshot is
-// a complete replacement, so pushing an older view after a newer one would
-// resurrect evidence that has since aged out. Compared on generated_at rather
-// than arrival, because nothing downstream of the channel guarantees ordering.
-func (s *Sidecar) DrainMdnsSnapshots(max int) []*netprobepb.MdnsSnapshot {
-	if s.AddonStreamOwnsDiscovery() {
-		return nil
-	}
-	if max <= 0 {
-		max = defaultCensusSnapshotBuffer
-	}
-
-	newest := make(map[string]*netprobepb.MdnsSnapshot, max)
-	order := make([]string, 0, max)
-
-	for range max {
-		select {
-		case snapshot := <-s.mdnsSnaps:
-			if snapshot == nil {
-				continue
-			}
-			iface := snapshot.GetInterfaceName()
-			if _, seen := newest[iface]; !seen {
-				order = append(order, iface)
-			}
-			if existing, seen := newest[iface]; !seen ||
-				snapshot.GetGeneratedAtUnixNano() >= existing.GetGeneratedAtUnixNano() {
-				newest[iface] = snapshot
-			}
-		default:
-			return collectNewestMdns(newest, order)
-		}
-	}
-
-	return collectNewestMdns(newest, order)
-}
-
-func collectNewestMdns(
-	newest map[string]*netprobepb.MdnsSnapshot,
-	order []string,
-) []*netprobepb.MdnsSnapshot {
-	out := make([]*netprobepb.MdnsSnapshot, 0, len(order))
-	for _, iface := range order {
-		if snapshot := newest[iface]; snapshot != nil {
-			out = append(out, snapshot)
-		}
-	}
-
-	return out
-}
-
-// DrainCensusSnapshots removes up to max complete census snapshots.
-//
-// Only the NEWEST snapshot per interface is returned. Each one is a complete
-// replacement for the last, so pushing an older view after a newer one would
-// resurrect devices that have since aged out -- the buffer can hold several if
-// a push tick was missed, and applying them in order would end on the right
-// answer only by luck of ordering downstream.
-func (s *Sidecar) DrainCensusSnapshots(max int) []*netprobepb.DeviceCensusSnapshot {
-	if s.AddonStreamOwnsDiscovery() {
-		return nil
-	}
-	if max <= 0 {
-		max = defaultCensusSnapshotBuffer
-	}
-
-	newest := make(map[string]*netprobepb.DeviceCensusSnapshot, max)
-	order := make([]string, 0, max)
-
-	for range max {
-		select {
-		case snapshot := <-s.censusSnaps:
-			if snapshot == nil {
-				continue
-			}
-			iface := snapshot.GetInterfaceName()
-			if _, seen := newest[iface]; !seen {
-				order = append(order, iface)
-			}
-			if existing, seen := newest[iface]; !seen ||
-				snapshot.GetGeneratedAtUnixNano() >= existing.GetGeneratedAtUnixNano() {
-				newest[iface] = snapshot
-			}
-		default:
-			return collectNewest(newest, order)
-		}
-	}
-
-	return collectNewest(newest, order)
-}
-
-func collectNewest(
-	newest map[string]*netprobepb.DeviceCensusSnapshot,
-	order []string,
-) []*netprobepb.DeviceCensusSnapshot {
-	out := make([]*netprobepb.DeviceCensusSnapshot, 0, len(order))
-	for _, iface := range order {
-		if snapshot := newest[iface]; snapshot != nil {
-			out = append(out, snapshot)
-		}
-	}
-
-	return out
-}
-
 // DroppedFlowAttributionEvents returns the cumulative number of
 // FlowAttributionEvents dropped due to backpressure in either the IPC
 // client buffer or the sidecar fan-in buffer.
@@ -620,7 +449,7 @@ func (s *Sidecar) setClient(client *Client) {
 
 func (s *Sidecar) forwardEvents(client *Client) {
 	var wg sync.WaitGroup
-	wg.Add(6)
+	wg.Add(4)
 	go func() {
 		defer wg.Done()
 		for event := range client.Events() {
@@ -657,28 +486,6 @@ func (s *Sidecar) forwardEvents(client *Client) {
 			select {
 			case s.processSnaps <- snapshot:
 			default:
-			}
-		}
-	}()
-	go func() {
-		defer wg.Done()
-		for snapshot := range client.MdnsSnapshots() {
-			select {
-			case s.mdnsSnaps <- snapshot:
-			default:
-				// Superseded, not lost: each snapshot is a complete view.
-			}
-		}
-	}()
-	go func() {
-		defer wg.Done()
-		for snapshot := range client.CensusSnapshots() {
-			select {
-			case s.censusSnaps <- snapshot:
-			default:
-				// Dropping the OLDEST view is what the buffer depth already
-				// encodes: the newest snapshot is complete, so a dropped one
-				// costs nothing a later push does not restate.
 			}
 		}
 	}()

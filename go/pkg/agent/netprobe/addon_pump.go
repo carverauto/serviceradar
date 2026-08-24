@@ -45,7 +45,6 @@ type AddonPumpConfig struct {
 	// the payloads: a new payload schema must cost zero agent changes, which is
 	// only true while the agent stays ignorant of what it is forwarding.
 	Sink       func(*addonpb.TelemetryBatch)
-	Sidecar    *Sidecar
 	Logger     zerolog.Logger
 	MinBackoff time.Duration
 	MaxBackoff time.Duration
@@ -73,17 +72,15 @@ func NewAddonPump(cfg AddonPumpConfig) (*AddonPump, error) {
 
 // Run keeps a telemetry stream attached until ctx is cancelled.
 //
-// A netprobe too old to serve the contract is not an error state: there is no
-// socket to dial, the pump stays in backoff, and the legacy channel keeps
-// carrying discovery. That is the whole mixed-version story -- the agent runs
-// the same code against both, and which channel is authoritative is decided by
-// whether batches actually arrive.
+// This is the ONLY path by which census and mDNS discovery reaches core. The
+// legacy IPC arms that used to carry them are gone, so a netprobe too old to
+// serve AddonService reports no devices at all -- deliberately, because the
+// agent and the add-on ship and deploy together.
 func (p *AddonPump) Run(ctx context.Context) {
 	backoff := p.cfg.MinBackoff
 
 	for ctx.Err() == nil {
 		delivered, err := p.session(ctx)
-		p.cfg.Sidecar.SetAddonStreamOwnsDiscovery(false)
 
 		if ctx.Err() != nil {
 			return
@@ -94,10 +91,10 @@ func (p *AddonPump) Run(ctx context.Context) {
 			// A stream that delivered before failing is a working contract with
 			// a dropped connection, not an absent one. Reconnect promptly.
 			backoff = p.cfg.MinBackoff
-			p.cfg.Logger.Info().Err(err).Msg("Netprobe AddonService stream ended; falling back to legacy channel")
+			p.cfg.Logger.Warn().Err(err).Msg("Netprobe AddonService stream ended; discovery is stalled until it reconnects")
 		case err != nil:
-			p.cfg.Logger.Debug().Err(err).Str("socket", p.cfg.SocketPath).
-				Msg("Netprobe AddonService unavailable; legacy channel remains authoritative")
+			p.cfg.Logger.Warn().Err(err).Str("socket", p.cfg.SocketPath).
+				Msg("Netprobe AddonService unavailable; no discovery is being collected")
 		}
 
 		select {
@@ -113,10 +110,11 @@ func (p *AddonPump) Run(ctx context.Context) {
 }
 
 // session runs one connection. It reports whether any batch was delivered, which
-// is what separates "netprobe does not serve this yet" from "the stream broke".
+// separates "netprobe does not serve this" from "the stream broke", and decides
+// whether to reconnect promptly or keep backing off.
 func (p *AddonPump) session(ctx context.Context) (bool, error) {
 	// Checked before dialing so a netprobe that predates the contract produces a
-	// stat error rather than a stream of connection failures.
+	// clear stat error rather than a stream of connection failures.
 	if _, err := os.Stat(p.cfg.SocketPath); err != nil {
 		return false, err
 	}
@@ -146,17 +144,10 @@ func (p *AddonPump) session(ctx context.Context) (bool, error) {
 			return delivered, err
 		}
 
-		// Ownership is taken on the first batch rather than at stream open, and
-		// BEFORE forwarding it. Taking it at open would stop the legacy drain
-		// for a stream that then dies having delivered nothing, and the flush on
-		// release would discard buffered snapshots nothing replaced. Setting it
-		// after the first forward would let the legacy loop push the same
-		// snapshot core just received.
 		if !delivered {
 			delivered = true
-			p.cfg.Sidecar.SetAddonStreamOwnsDiscovery(true)
 			p.cfg.Logger.Info().Str("socket", p.cfg.SocketPath).
-				Msg("Netprobe AddonService stream is authoritative for discovery")
+				Msg("Netprobe AddonService stream attached; discovery is flowing")
 		}
 
 		p.cfg.Sink(batch)
