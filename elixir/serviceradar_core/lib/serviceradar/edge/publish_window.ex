@@ -25,16 +25,16 @@ defmodule ServiceRadar.Edge.PublishWindow do
   semantics "SHALL be chosen and stated HERE, not discovered from whichever verdict the current Go
   code returns" -- and inventing the caps here is precisely that failure.
 
-  So legality is the lane-open validator's, and this module does accounting. The only checks kept
-  are TYPE preconditions (a non-negative integer), which are a programming contract rather than a
-  claim about the wire.
+  NOTHING VALIDATES THE GRANT ON THIS SIDE TODAY. Go has `ValidateLaneOpenAck`; this runtime has no
+  peer. Elixir has `SemanticValidate.validate_lane_open/1`, an enum/shape check on the REQUEST half
+  only -- there is no lane-ack validator here at all. An earlier revision wrote "legality is the
+  lane-open validator's", which reads as though something upstream checks it; nothing does, and 1.7-e
+  owes that peer.
 
-  UNBACKED UNTIL 1.7-e LANDS: Go has `ValidateLaneOpenAck`; THIS RUNTIME HAS NO PEER. Elixir has
-  `SemanticValidate.validate_lane_open/1`, which is an enum/shape check on the REQUEST half only --
-  there is no ack validator here at all. So today nothing on this side validates a grant before it
-  reaches this window, and saying "the validator handles it" would name something that does not
-  exist. 1.7-e owes that peer, and it is the reason this module refuses to substitute for it: an
-  accounting module inventing the caps is how the gap would get papered over instead of closed.
+  So the grant reaching this window is UNVALIDATED, and this module still declines to validate it:
+  an accounting module inventing the caps is how the gap gets papered over instead of closed. The
+  only checks kept are TYPE preconditions (a non-negative integer) -- a programming contract, not a
+  claim about the wire.
 
   ## A deadline does NOT release credits
 
@@ -44,7 +44,7 @@ defmodule ServiceRadar.Edge.PublishWindow do
   out twice and the real in-flight total would exceed the grant -- a bound that relaxes exactly
   when the broker is already struggling.
 
-  So `expired/2` REPORTS; only `settle/2` releases. Expiry is a signal to republish, not a
+  So `expired/2` REPORTS; only `settle/4` releases. Expiry is a signal to republish, not a
   reclaim.
 
   ## Transition policy, stated once
@@ -53,10 +53,13 @@ defmodule ServiceRadar.Edge.PublishWindow do
       admit a sequence already outstanding       -> {:error, :already_outstanding}
       admit beyond the frame grant               -> {:error, :frame_credits_exhausted}
       admit beyond the byte grant                -> {:error, :byte_credits_exhausted}
-      settle an outstanding sequence             -> {:ok, window}
-      settle anything else                       -> {:error, :not_outstanding}
+      settle with a resolving outcome + PubAck   -> {:ok, window}
+      settle with `:retryable_rejection`         -> {:error, :not_settled}
+      settle without usable PubAck evidence      -> {:error, :pub_ack_required}
+      settle an unknown internal outcome         -> {:error, :unknown_outcome}
+      settle anything not outstanding            -> {:error, :not_outstanding}
 
-  `settle/2` does NOT distinguish "never admitted" from "already settled", and does not pretend
+  `settle/4` does NOT distinguish "never admitted" from "already settled", and does not pretend
   to: once a slot leaves the window there is nothing retained to tell the two apart. Reporting
   them separately would require keeping every settled sequence forever, which is the unbounded
   growth this module exists to prevent. Both are `:not_outstanding`, and the docstring says so
@@ -65,16 +68,21 @@ defmodule ServiceRadar.Edge.PublishWindow do
 
   @u64_max 0xFFFFFFFFFFFFFFFF
 
-  # The kinds that END an attempt and therefore release its credits. An ALLOWLIST on purpose:
-  # see settle/4 on why membership of the generated enum is not the question.
-  @resolving [
-    :EDGE_RECORD_DISPOSITION_KIND_ACCEPTED_AUTHORITATIVE,
-    :EDGE_RECORD_DISPOSITION_KIND_ACCEPTED_AUDIT_ONLY,
-    :EDGE_RECORD_DISPOSITION_KIND_ACCEPTED_QUARANTINE,
-    :EDGE_RECORD_DISPOSITION_KIND_REJECTED_PERMANENT
-  ]
+  # The SIX INTERNAL OUTCOMES of task 3.5, not the five wire dispositions. The mapping is not
+  # one-to-one: quarantine_publication and security_quarantine_publication BOTH map to
+  # ACCEPTED_QUARANTINE on the wire, so the wire member cannot say which destination a PubAck had
+  # to come from. Taking the wire disposition here made the required destination unidentifiable.
+  #
+  # An ALLOWLIST, so an outcome added later cannot release credits by default.
+  @settling_outcomes %{
+    primary_publication: :EDGE_RECORD_DISPOSITION_KIND_ACCEPTED_AUTHORITATIVE,
+    audit_publication: :EDGE_RECORD_DISPOSITION_KIND_ACCEPTED_AUDIT_ONLY,
+    quarantine_publication: :EDGE_RECORD_DISPOSITION_KIND_ACCEPTED_QUARANTINE,
+    security_quarantine_publication: :EDGE_RECORD_DISPOSITION_KIND_ACCEPTED_QUARANTINE,
+    permanent_rejection: :EDGE_RECORD_DISPOSITION_KIND_REJECTED_PERMANENT
+  }
 
-  @retryable :EDGE_RECORD_DISPOSITION_KIND_REJECTED_RETRYABLE
+  @retryable_outcome :retryable_rejection
 
   @enforce_keys [:frame_credits, :byte_credits, :outstanding, :bytes_outstanding]
   defstruct [:frame_credits, :byte_credits, :outstanding, :bytes_outstanding]
@@ -94,10 +102,11 @@ defmodule ServiceRadar.Edge.PublishWindow do
   `1 <= granted <= requested` relation -- belongs to task 1.7-e and `ValidateLaneOpenAck`; see the
   moduledoc for why this module must not decide it.
 
-  A zero grant is ACCEPTED here and admits nothing. That is not a claim that zero is legal: 1.7-e's
-  return relation makes it a refusal, and the validator upstream is where that refusal happens. A
-  window handed zero simply has no capacity, which is the safe behaviour for a value that should
-  never have reached it.
+  A zero grant is NOT REJECTED HERE, and that is not a claim that zero is legal -- 1.7-e's return
+  relation `1 <= granted` makes it a refusal. It is that this module does not adjudicate grants at
+  all, and no validator on this side does either yet, so a zero can reach here. When it does the
+  window simply has no capacity and admits nothing, which is the safe behaviour for a value that
+  should have been refused upstream.
   """
   @spec new(non_neg_integer(), non_neg_integer()) :: {:ok, t()} | {:error, atom()}
   def new(granted_frame_credits, granted_byte_credits) do
@@ -170,13 +179,19 @@ defmodule ServiceRadar.Edge.PublishWindow do
   though it were guarded. Task 3.5 resolves a sequence only after ITS REQUIRED PubAck, so the
   argument list is where that belongs.
 
-    * a RESOLVING disposition requires a PubAck -- `nil` is refused with `:pub_ack_required`
-    * `REJECTED_RETRYABLE` does NOT settle at all: it is transient, the frame stays outstanding
+  `outcome` is one of task 3.5's SIX INTERNAL OUTCOMES, not a wire disposition. The wire has five
+  members and cannot distinguish `quarantine_publication` from `security_quarantine_publication`,
+  so it cannot identify which destination's PubAck was required -- which is why taking the wire
+  member here was wrong.
+
+    * a settling outcome requires a PubAck that LOOKS LIKE ONE. `false`, `{:error, :timeout}`, a
+      bare atom and a malformed map are all refused with `:pub_ack_required`; an earlier revision
+      accepted every one of them because it only checked `not is_nil/1`
+    * `:retryable_rejection` does NOT settle at all: it is transient, the frame stays outstanding
       and stays charged, and the publisher re-arms and republishes. Releasing on it would return
       budget for work the gateway has not accepted
-    * only the FOUR known resolving kinds settle. Unspecified, undeclared, and any member the
-      proto gains later are all refused -- membership of the generated enum is not the question,
-      because a future kind nobody has classified must not release credits by default
+    * an outcome outside the allowlist is refused, so one added later cannot release credits
+      before anyone has classified it
 
   This module cannot verify that the PubAck is VALID -- that it came from the expected stream and
   passed sequence validation. That remains the publisher's, and is stated here rather than implied.
@@ -184,28 +199,48 @@ defmodule ServiceRadar.Edge.PublishWindow do
 
   This is the ONLY thing that returns budget. See the moduledoc on why a deadline does not.
   """
-  @spec settle(t(), pos_integer(), atom(), term()) :: {:ok, t()} | {:error, atom()}
-  def settle(%__MODULE__{} = w, seq, disposition, pub_ack) do
+  @spec settle(t(), pos_integer(), atom(), map()) :: {:ok, t()} | {:error, atom()}
+  def settle(%__MODULE__{} = w, seq, outcome, pub_ack) do
     cond do
-      disposition == @retryable ->
+      outcome == @retryable_outcome ->
         # Transient. The frame is still in flight; re-arm it instead.
         {:error, :not_settled}
 
-      # ALLOWLIST, not "is it declared". Asking the generated mapping whether a kind exists is
-      # fail-OPEN for anything added later: a future member is neither unspecified nor retryable,
-      # so it would fall through to a release and hand back credits for an outcome nobody has
-      # classified. Only the four known resolving kinds settle; everything else -- unspecified,
-      # undeclared, or a member the proto gains tomorrow -- is refused until someone decides.
-      disposition not in @resolving ->
-        {:error, :unknown_disposition}
+      not Map.has_key?(@settling_outcomes, outcome) ->
+        {:error, :unknown_outcome}
 
-      is_nil(pub_ack) ->
+      not usable_pub_ack?(pub_ack) ->
         {:error, :pub_ack_required}
 
       true ->
         release(w, seq)
     end
   end
+
+  # A PubAck must LOOK LIKE ONE. `not is_nil(pub_ack)` accepted `false`, `{:error, :timeout}`, a
+  # bare atom, and a malformed map -- every one of which released credits for a frame whose fate
+  # was unknown. This is the shape `JetStreamPublisher.parse_ack/1` returns for a success.
+  #
+  # It still cannot judge whether the ack is AUTHENTIC or came from the destination this outcome
+  # required -- the publisher fences that against the resolved route. What it can refuse is
+  # evidence that is not a PubAck at all.
+  defp usable_pub_ack?(%{stream: stream, seq: seq})
+       when is_binary(stream) and stream != "" and is_integer(seq) and seq >= 1, do: true
+
+  defp usable_pub_ack?(_), do: false
+
+  @doc """
+  The wire disposition an internal outcome maps to.
+
+  FIVE wire members for SIX outcomes: `quarantine_publication` and
+  `security_quarantine_publication` both report `ACCEPTED_QUARANTINE`, so the SECURITY-quarantine
+  ROUTING path must be preserved separately -- the wire disposition alone cannot express it.
+  """
+  @spec wire_disposition(atom()) :: {:ok, atom()} | :error
+  def wire_disposition(@retryable_outcome),
+    do: {:ok, :EDGE_RECORD_DISPOSITION_KIND_REJECTED_RETRYABLE}
+
+  def wire_disposition(outcome), do: Map.fetch(@settling_outcomes, outcome)
 
   defp release(w, seq) do
     case Map.fetch(w.outstanding, seq) do
@@ -226,7 +261,7 @@ defmodule ServiceRadar.Edge.PublishWindow do
   Replaces an outstanding frame's PubAck deadline, leaving its credits charged.
 
   This is the republish path, and without it the retry was UNREPRESENTABLE: `admit/4` refuses an
-  outstanding slot (`:already_outstanding`) and `settle/2` would release credits for a frame that
+  outstanding slot (`:already_outstanding`) and `settle/4` would release credits for a frame that
   is still in flight, so an expired frame could be reported forever but never re-armed.
 
   Charges nothing and releases nothing -- the bytes were already committed and the publication is
