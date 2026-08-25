@@ -52,6 +52,7 @@ defmodule ServiceRadar.Inventory do
     resource ServiceRadar.Inventory.VisibilityProfile
     resource ServiceRadar.Inventory.DeviceGroup
     resource ServiceRadar.Inventory.DeviceIdentifier
+    resource ServiceRadar.Inventory.DeviceInterfaceMac
     resource ServiceRadar.Inventory.DeviceSourceObservation
     resource ServiceRadar.Inventory.DeviceSourceSnapshot
     resource ServiceRadar.Inventory.SourceIdentityConflict

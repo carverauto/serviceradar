@@ -8,6 +8,7 @@ defmodule ServiceRadar.Inventory.Identity.DuplicateSweep do
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Inventory.Device
   alias ServiceRadar.Inventory.DeviceIdentifier
+  alias ServiceRadar.Inventory.DeviceInterfaceMac
   alias ServiceRadar.Inventory.Identity.Ids
   alias ServiceRadar.Inventory.Identity.Mac
   alias ServiceRadar.Inventory.Identity.MergeEngine
@@ -41,7 +42,8 @@ defmodule ServiceRadar.Inventory.Identity.DuplicateSweep do
       duplicate_identifier_groups() ++
         hardware_mac_sibling_groups() ++
         agent_anchor_sibling_groups() ++
-        column_mac_groups()
+        column_mac_groups() ++
+        interface_mac_chassis_groups()
 
     components =
       identifier_duplicates
@@ -251,6 +253,66 @@ defmodule ServiceRadar.Inventory.Identity.DuplicateSweep do
     |> Enum.reject(fn {mac, _uid, _owner, _partition} -> Mac.locally_administered_mac?(mac) end)
     |> Enum.map(fn {mac, uid, owner, partition} ->
       {{partition, :mac_column, mac}, MapSet.new([uid, owner])}
+    end)
+    |> Enum.uniq()
+  end
+
+  # One chassis reached at two addresses becomes two device rows anchored by
+  # DIFFERENT interface MACs, so they share no identifier and every other group
+  # source here correctly finds nothing. The evidence that they are one device is
+  # that one of them reports the other's anchor MAC on its OWN interface table,
+  # over authenticated SNMP.
+  #
+  # This is not "merge on a shared MAC" -- MergePolicy blocks MAC-only matches as
+  # "too noisy (especially interface MACs observed by mapper)", and that stays
+  # true for MACs merely OBSERVED. The distinction is ownership: a neighbour
+  # table says what a device can see, an interface table says what it IS.
+  #
+  # Chosen over calling AliasGuard from BatchResolver, and the measurement is why.
+  # On a 126-device deployment that alternative would have merged 6 pairs, and 5
+  # of them had NO MAC evidence on either side -- four keyed on a `fe80::`
+  # link-local alias, which is not unique beyond a link.
+  # `distinct_strong_identity_conflict?/3` cannot stop those: it returns false
+  # when either side has no MACs, because unknown is not distinct. This source
+  # merges only where positive hardware evidence exists, which on the same
+  # deployment was exactly one pair -- the chassis.
+  defp interface_mac_chassis_groups do
+    import Ecto.Query
+
+    rows =
+      ServiceRadar.Repo.all(
+        from(im in DeviceInterfaceMac,
+          join: di in DeviceIdentifier,
+          on: di.identifier_type == :mac and di.identifier_value == im.mac,
+          join: owner in Device,
+          on: owner.uid == im.device_id and is_nil(owner.deleted_at),
+          join: other in Device,
+          on: other.uid == di.device_id and is_nil(other.deleted_at),
+          where: di.device_id != im.device_id,
+          where: not like(im.device_id, "serviceradar:%"),
+          where: not like(di.device_id, "serviceradar:%"),
+          select: {im.mac, im.device_id, di.device_id, di.partition}
+        )
+      )
+
+    interface_mac_chassis_groups_from_rows(rows)
+  end
+
+  @doc false
+  # Pure half of interface_mac_chassis_groups/0, so the evidence bar is testable
+  # without a database. Locally-administered MACs are rejected here as well as by
+  # the writer: tap/veth/dummy addresses are synthesised, not hardware, and that
+  # guarantee must not depend on which rows the query happens to return.
+  @spec interface_mac_chassis_groups_from_rows([
+          {String.t(), String.t(), String.t(), String.t()}
+        ]) :: [{{String.t(), atom(), String.t()}, MapSet.t()}]
+  def interface_mac_chassis_groups_from_rows(rows) when is_list(rows) do
+    rows
+    |> Enum.reject(fn {mac, _owner, _other, _partition} ->
+      Mac.locally_administered_mac?(mac)
+    end)
+    |> Enum.map(fn {mac, owner, other, partition} ->
+      {{partition, :interface_mac_chassis, mac}, MapSet.new([owner, other])}
     end)
     |> Enum.uniq()
   end

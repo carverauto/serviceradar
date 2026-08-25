@@ -761,15 +761,46 @@ defmodule ServiceRadar.Inventory.Sync.DeviceWrites do
           # clear to NULL (vacates ocsf_devices_unique_active_ip_idx). A bare
           # COALESCE would treat '' as present and store empty strings, which
           # diverged from the release classifier and broke blank-IP handoffs.
+          #
+          # The rank guard is NEVER-DOWNGRADE, deliberately not "only promote".
+          # An equal-ranked address must still win, because that is a host
+          # genuinely changing address (192.168.2.243 -> 192.168.1.171) and
+          # refusing it would freeze every device at its first address. What it
+          # blocks is a WORSE address overwriting a good one: an NDP census
+          # sighting carries a `fe80::` link-local, and before this guard that
+          # silently replaced a routable primary -- 25 of 126 live devices on one
+          # deployment (GitHub #3905).
+          #
+          # A device whose only known address is link-local keeps it: its current
+          # rank is then equal, not higher, so the incoming value still applies.
+          #
+          # LEAST(rank, 40) collapses global and private into ONE routable tier
+          # for this comparison. Both are legitimate primary addresses, and a
+          # host re-addressed from a public to an RFC1918 address is a real move,
+          # not noise -- comparing the fine-grained ranks would refuse it and
+          # freeze the device on a stale public address. The finer ranking still
+          # applies where it belongs, in Identity.Address.best/1, which chooses
+          # among addresses known at the SAME time.
+          #
+          # What stays blocked is what this guard is for: ULA (30) and link-local
+          # (20) cannot overwrite anything routable, and nothing can overwrite
+          # with an address that is never a primary (0).
           ip:
             fragment(
               """
               CASE
                 WHEN EXCLUDED.ip IS NULL THEN ?
                 WHEN btrim(EXCLUDED.ip) = '' THEN NULL
-                ELSE EXCLUDED.ip
+                WHEN ? IS NULL THEN EXCLUDED.ip
+                WHEN LEAST(platform.sr_address_rank(EXCLUDED.ip), 40)
+                     >= LEAST(platform.sr_address_rank(?), 40)
+                  THEN EXCLUDED.ip
+                ELSE ?
               END
               """,
+              d.ip,
+              d.ip,
+              d.ip,
               d.ip
             ),
           mac: fragment("COALESCE(EXCLUDED.mac, ?)", d.mac),

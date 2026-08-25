@@ -14,6 +14,7 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
   alias ServiceRadar.Identity.DeviceAliasState
   alias ServiceRadar.Inventory.Device
   alias ServiceRadar.Inventory.DeviceIdentifier
+  alias ServiceRadar.Inventory.Identity.InterfaceMacs
   alias ServiceRadar.Inventory.IdentityReconciler
   alias ServiceRadar.Inventory.Interface
   alias ServiceRadar.Inventory.InterfaceClassifier
@@ -51,6 +52,7 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
     with {:ok, updates} <- decode_payload(message),
          records = build_interface_records(updates),
          resolved_records = resolve_device_ids(records, actor),
+         :ok <- register_interface_macs(resolved_records, actor),
          :ok <- process_mapper_alias_updates(resolved_records, actor) do
       classified_records = InterfaceClassifier.classify_interfaces(resolved_records, actor)
 
@@ -89,6 +91,39 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
         Logger.warning("Mapper interface ingestion failed: #{inspect(reason)}")
         {:error, reason}
     end
+  end
+
+  # Record the MACs each device reports on its OWN interfaces, as :interface_mac
+  # identifiers. Corroboration only -- :interface_mac is absent from
+  # Ids.identifier_priority/0, so it never resolves an update or identifies a
+  # device. It exists so AliasGuard can tell "another address of this chassis"
+  # from "different hardware"; see Identity.InterfaceMacs.
+  #
+  # Reuses primary_identity_interface?/1, so loopback, virtual, bridge and
+  # tunnel interfaces are excluded here exactly as they are for identity seeding.
+  # InterfaceMacs additionally refuses locally-administered addresses and skips
+  # values already registered, so a poll that discovers nothing new writes
+  # nothing.
+  #
+  # Never fails ingestion: interface evidence is the point of this path, and
+  # corroboration that could not be recorded is worth less than the interfaces
+  # themselves.
+  defp register_interface_macs(records, actor) do
+    records
+    |> Enum.filter(&primary_identity_interface?/1)
+    |> Enum.group_by(& &1.device_id)
+    |> Enum.each(fn {device_id, grouped} ->
+      macs = Enum.map(grouped, & &1.if_phys_address)
+      partition = grouped |> List.first() |> Map.get(:partition)
+
+      InterfaceMacs.register(device_id, macs, partition, actor)
+    end)
+
+    :ok
+  rescue
+    error ->
+      Logger.warning("Interface MAC registration failed: #{inspect(error)}")
+      :ok
   end
 
   @spec ingest_topology(binary() | nil, map()) :: :ok | {:error, term()}
