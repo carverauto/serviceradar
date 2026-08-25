@@ -24,7 +24,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexHelpersTest do
              ip: "192.0.2.10",
              type: "network",
              tags: ["site=lab", "role=edge"],
-             metadata: %{},
+             metadata: %{"site" => "lab", "role" => "edge"},
              source_line: 2
            }
   end
@@ -40,6 +40,53 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexHelpersTest do
     assert device.hostname == ""
     assert device.ip == "192.0.2.11"
     assert device.tags == ["gate=B40"]
+    assert device.metadata == %{"gate" => "B40"}
+  end
+
+  test "parse_csv_file copies key=value tags into metadata for All Metadata" do
+    path =
+      csv_fixture("""
+      hostname,ip,type,tags
+      rids-sfo-e6,10.0.4.17,rids,rids=true|site=SFO|concourse=E|gate=E6|model=DAK_VENUS1500_4LINE|config=efids|rows=4|cols=24|source=rids
+      """)
+
+    assert {:ok, [device], []} = IndexCsvImport.parse_csv_file(path)
+
+    assert device.tags == [
+             "rids=true",
+             "site=SFO",
+             "concourse=E",
+             "gate=E6",
+             "model=DAK_VENUS1500_4LINE",
+             "config=efids",
+             "rows=4",
+             "cols=24",
+             "source=rids"
+           ]
+
+    assert device.metadata == %{
+             "rids" => "true",
+             "site" => "SFO",
+             "concourse" => "E",
+             "gate" => "E6",
+             "model" => "DAK_VENUS1500_4LINE",
+             "config" => "efids",
+             "rows" => "4",
+             "cols" => "24",
+             "source" => "rids"
+           }
+  end
+
+  test "parse_csv_file extra columns overlay tag pairs in metadata" do
+    path =
+      csv_fixture("""
+      hostname,ip,tags,site
+      rids-den-a14,10.130.20.228,site=ZZC|gate=A14,ZZC-override
+      """)
+
+    assert {:ok, [device], []} = IndexCsvImport.parse_csv_file(path)
+    assert device.tags == ["site=ZZC", "gate=A14"]
+    assert device.metadata == %{"site" => "ZZC-override", "gate" => "A14"}
   end
 
   test "parse_csv_file accepts a hostname-only row for DNS resolution" do
@@ -401,7 +448,13 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexHelpersTest do
     assert device.ip == "10.102.61.31"
     assert device.type == "rids"
     assert device.tags == ["rids=true", "site=BOS", "concourse=B", "gate=B23"]
-    assert device.metadata == %{}
+
+    assert device.metadata == %{
+             "rids" => "true",
+             "site" => "BOS",
+             "concourse" => "B",
+             "gate" => "B23"
+           }
   end
 
   test "parse_csv_file puts extra columns into metadata" do
@@ -413,7 +466,12 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexHelpersTest do
 
     assert {:ok, [device], []} = IndexCsvImport.parse_csv_file(path)
     assert device.tags == ["rids=true"]
-    assert device.metadata == %{"model" => "DAK_VENUS1500_4LINE", "site" => "BOS"}
+
+    assert device.metadata == %{
+             "rids" => "true",
+             "model" => "DAK_VENUS1500_4LINE",
+             "site" => "BOS"
+           }
   end
 
   test "import_devices counts existing-device upserts as updates" do
