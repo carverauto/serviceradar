@@ -36,6 +36,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.MetadataSummaryProvenanceTest do
     refute html =~ "NetBox"
     refute html =~ "/images/integrations/armis.svg"
     refute html =~ "/images/integrations/netbox.svg"
+    refute html =~ "/images/integrations/proxmox.svg"
+    refute html =~ "/images/integrations/ansible.svg"
 
     # And specifically none of the generic values are mislabeled as an
     # integration device id / role.
@@ -174,5 +176,23 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.MetadataSummaryProvenanceTest do
 
     assert html =~ "Armis"
     assert html =~ "Low"
+  end
+
+  test "a device with Proxmox candidate evidence shows the Proxmox wordmark" do
+    html =
+      render_summary(%{
+        "discovery_sources" => ["proxmox", "sweep"],
+        "metadata" => %{
+          "proxmox_candidate" => true,
+          "proxmox_candidate_title" => "pve-01",
+          "proxmox_candidate_service" => "pveproxy"
+        }
+      })
+
+    assert html =~ "Proxmox"
+    assert html =~ "pve-01"
+    assert html =~ "/images/integrations/proxmox.svg"
+    assert html =~ "/images/integrations/proxmox-dark.svg"
+    refute html =~ "hero-cube-transparent"
   end
 end
