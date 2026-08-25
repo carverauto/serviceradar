@@ -3830,7 +3830,50 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
        stop_on_error?: false,
        upsert?: true,
        upsert_identity: :unique_interface,
-       upsert_fields: []
+       # Enumerated, and deliberately NOT shared with the sync writer.
+       #
+       # `[]` is inert today because :unique_interface still contains :timestamp,
+       # so a poll never conflicts -- it inserts. The moment that key drops
+       # :timestamp (refactor-interface-observation-persistence), ash_postgres
+       # turns an empty list into `DO UPDATE SET <key> = EXCLUDED.<key>`, which
+       # freezes every column at its first-observed value forever. Listing the
+       # fields now makes the rekey a key change and nothing else.
+       #
+       # A writer must list ONLY the fields it actually sets. `inventory/sync/`
+       # does not set if_index, if_speed, speed_bps, if_admin_status,
+       # if_oper_status, if_type, mtu, duplex or available_metrics; if it shared
+       # this list it would write NULL over the mapper's operational data on
+       # every sync run. That failure is invisible until after the rekey, which
+       # is why the two lists are separate rather than a shared constant.
+       #
+       # :created_at is excluded on purpose -- first observation, not latest.
+       upsert_fields: [
+         :timestamp,
+         :agent_id,
+         :gateway_id,
+         :partition,
+         :device_ip,
+         :if_index,
+         :if_name,
+         :if_descr,
+         :if_alias,
+         :if_speed,
+         :speed_bps,
+         :if_phys_address,
+         :ip_addresses,
+         :if_admin_status,
+         :if_oper_status,
+         :if_type,
+         :if_type_name,
+         :interface_kind,
+         :classifications,
+         :classification_meta,
+         :classification_source,
+         :mtu,
+         :duplex,
+         :metadata,
+         :available_metrics
+       ]
      ]}
   end
 
