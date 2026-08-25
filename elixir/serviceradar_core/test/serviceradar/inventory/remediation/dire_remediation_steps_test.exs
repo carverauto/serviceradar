@@ -46,6 +46,18 @@ defmodule ServiceRadar.Inventory.Remediation.DireRemediationStepsTest do
     assert "link-local-alias-archive" in DireRemediation.steps()
   end
 
+  test "link-local-alias-archive runs before any step that can merge" do
+    Application.delete_env(:serviceradar_core, DireRemediation)
+    steps = DireRemediation.steps()
+    ll = Enum.find_index(steps, &(&1 == "link-local-alias-archive"))
+    al = Enum.find_index(steps, &(&1 == "agent-links"))
+    px = Enum.find_index(steps, &(&1 == "proxmox-dups"))
+
+    assert is_integer(ll)
+    assert ll < al
+    assert ll < px
+  end
+
   test "armis-dups is included only when config opts it back in" do
     set_enable_armis_dups(true)
     assert "armis-dups" in DireRemediation.steps()

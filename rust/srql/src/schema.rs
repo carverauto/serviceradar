@@ -421,7 +421,7 @@ diesel::table! {
     use diesel::pg::sql_types::Array;
     use diesel::sql_types::*;
 
-    discovered_interfaces (timestamp, device_id, interface_uid) {
+    discovered_interfaces (device_id, interface_uid) {
         timestamp -> Timestamptz,
         agent_id -> Nullable<Text>,
         gateway_id -> Nullable<Text>,

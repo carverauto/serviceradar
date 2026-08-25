@@ -8,6 +8,7 @@ defmodule ServiceRadar.Inventory.Identity.AliasGuard do
   """
 
   alias ServiceRadar.Actors.SystemActor
+  alias ServiceRadar.Identity.AliasPolicy
   alias ServiceRadar.Identity.DeviceAliasState
   alias ServiceRadar.Inventory.Device
   alias ServiceRadar.Inventory.DeviceIdentifier
@@ -24,7 +25,8 @@ defmodule ServiceRadar.Inventory.Identity.AliasGuard do
     ip = Ids.ids_get_string(ids, :ip)
     partition = Ids.ids_get_partition(ids)
 
-    with true <- Ids.present_id?(ip),
+    with true <- AliasPolicy.valid_alias_ip?(ip),
+         true <- Ids.present_id?(ip),
          {:ok, alias_device_id} when is_binary(alias_device_id) and alias_device_id != "" <-
            Resolver.lookup_alias_device_id(ip, partition, actor),
          true <- alias_device_id != device_id,

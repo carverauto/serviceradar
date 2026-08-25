@@ -1377,4 +1377,14 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestorTest do
              ) == ["192.168.1.1"]
     end
   end
+
+  describe "find_device_uid_by_alias/3" do
+    test "does not treat leftover link-local :ip rows as merge evidence" do
+      assert {:ok, nil} =
+               MapperResultsIngestor.find_device_uid_by_alias("fe80::1", "default", nil)
+
+      assert {:ok, nil} =
+               MapperResultsIngestor.find_device_uid_by_alias("169.254.1.1", "default", nil)
+    end
+  end
 end

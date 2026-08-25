@@ -1714,7 +1714,16 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
       :ok
   end
 
-  defp find_device_uid_by_alias(device_ip, partition, actor) do
+  @doc false
+  def find_device_uid_by_alias(device_ip, partition, actor) do
+    if AliasPolicy.valid_alias_ip?(device_ip) do
+      do_find_device_uid_by_alias(device_ip, partition, actor)
+    else
+      {:ok, nil}
+    end
+  end
+
+  defp do_find_device_uid_by_alias(device_ip, partition, actor) do
     case DeviceAliasState.lookup_by_value(:ip, device_ip, actor: actor) do
       {:ok, aliases} ->
         aliases
@@ -1779,10 +1788,15 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
     {state_rank, sighting_count, last_seen_unix}
   end
 
-  defp maybe_reactivate_alias(%DeviceAliasState{state: :stale} = alias_state, actor) do
-    alias_state
-    |> Ash.Changeset.for_update(:reactivate, %{})
-    |> Ash.update(actor: actor)
+  defp maybe_reactivate_alias(
+         %DeviceAliasState{state: :stale, alias_value: value} = alias_state,
+         actor
+       ) do
+    if AliasPolicy.valid_alias_ip?(value) do
+      alias_state
+      |> Ash.Changeset.for_update(:reactivate, %{})
+      |> Ash.update(actor: actor)
+    end
 
     :ok
   rescue

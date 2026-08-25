@@ -61,6 +61,36 @@ defmodule ServiceRadar.Identity.AliasEventsLinkLocalTest do
     refute link_local in values, "fe80:: became identity alias evidence via AliasEvents"
   end
 
+  test "process_and_persist does not create an :ip alias for 169.254/16", %{actor: actor} do
+    {:ok, device} = create_device(actor)
+    routable = unique_ip("persist-apipa")
+    apipa = "169.254.#{rem(System.unique_integer([:positive]), 200) + 1}.1"
+
+    assert {:ok, _events} =
+             AliasEvents.process_and_persist(
+               [
+                 %{
+                   device_id: device.uid,
+                   partition: "default",
+                   timestamp: DateTime.utc_now(),
+                   metadata: %{
+                     "_alias_last_seen_at" => "2026-08-25T00:00:00Z",
+                     "_alias_last_seen_ip" => routable,
+                     "ip_alias:#{routable}" => "2026-08-25T00:00:00Z",
+                     "ip_alias:#{apipa}" => "2026-08-25T00:00:00Z"
+                   }
+                 }
+               ],
+               actor: actor,
+               confirm_threshold: 1
+             )
+
+    values = alias_values(device.uid, actor)
+
+    assert routable in values
+    refute apipa in values, "169.254/16 became identity alias evidence via AliasEvents"
+  end
+
   test "create_detected refuses an :ip alias that is link-local", %{actor: actor} do
     {:ok, device} = create_device(actor)
     link_local = "fe80::#{unique_hextet()}"

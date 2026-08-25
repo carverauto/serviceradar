@@ -134,14 +134,18 @@ the history store exists. The causal-analysis consumer needs it; nothing today b
 
 ## 5. Migration
 
-- [x] 5.1 Migration keeps `DISTINCT ON (device_id, interface_uid) ... timestamp DESC`.
-  The table is converted from a hypertable to a regular relation so the unique
-  key need not include `timestamp`.
+- [x] 5.1 Migration keeps `DISTINCT ON (device_id, interface_uid) ... timestamp DESC`
+  for last-observed columns, then overlays latest-non-null mapper operational
+  columns (`if_index` and the eight others `InterfacesUpsertFieldsTest` names)
+  so a later sparse sync row cannot blank SNMP fields. The table is converted
+  from a hypertable to a regular relation so the unique key need not include
+  `timestamp`.
 - [x] 5.2 Migration moduledoc states that historical restatements are discarded and
   that a change-only history store is a later change. `down/0` refuses to restore
   discarded rows.
-- [x] 5.3 `20260825020000_rekey_discovered_interfaces_current_state.exs` under
-  `platform`. Ingestion runs no DDL.
+- [x] 5.3 `20260825030000_rekey_discovered_interfaces_current_state.exs` under
+  `platform`. Ingestion runs no DDL. Version is after staging's
+  `20260825020000_cascade_mapper_job_dependants` (#4020).
 
 ## 6. Verify against the real failure
 

@@ -14,6 +14,10 @@ defmodule ServiceRadar.Identity.AliasPolicy do
   callers.
   """
 
+  alias ServiceRadar.Inventory.Identity.Address
+
+  @aliasable_classes [:global, :private, :unique_local]
+
   @doc """
   Whether `value` may be stored as a device alias.
 
@@ -28,22 +32,15 @@ defmodule ServiceRadar.Identity.AliasPolicy do
 
   Link-local addresses remain valid on interface records; they are only barred
   from being device *aliases*.
+
+  Classification is `Inventory.Identity.Address.classify/1`, not a second
+  parser: Address already unwraps `%zone`, `/cidr`, and IPv4-mapped
+  `::ffff:a.b.c.d`. Reimplementing that here would accept `::ffff:169.254.1.1`
+  as identity evidence.
   """
   @spec valid_alias_ip?(term()) :: boolean()
-  def valid_alias_ip?(nil), do: false
-  def valid_alias_ip?(""), do: false
-  def valid_alias_ip?("0.0.0.0"), do: false
-  def valid_alias_ip?("::"), do: false
-  def valid_alias_ip?("::1"), do: false
-
   def valid_alias_ip?(value) when is_binary(value) do
-    case :inet.parse_address(to_charlist(value)) do
-      {:ok, {127, _, _, _}} -> false
-      {:ok, {169, 254, _, _}} -> false
-      {:ok, {a, _, _, _, _, _, _, _}} when a >= 0xFE80 and a <= 0xFEBF -> false
-      {:ok, _} -> true
-      _ -> false
-    end
+    Address.classify(value) in @aliasable_classes
   end
 
   def valid_alias_ip?(_), do: false

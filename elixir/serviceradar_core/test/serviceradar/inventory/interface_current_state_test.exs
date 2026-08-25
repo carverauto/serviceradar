@@ -9,9 +9,18 @@ defmodule ServiceRadar.Inventory.InterfaceCurrentStateTest do
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Inventory.Device
   alias ServiceRadar.Inventory.Interface
+  alias ServiceRadar.Repo
+  alias ServiceRadar.Repo.Migrations.RekeyDiscoveredInterfacesCurrentState
   alias ServiceRadar.TestSupport
 
   require Ash.Query
+
+  @migration_path Path.expand(
+                    "../../../priv/repo/migrations/20260825030000_rekey_discovered_interfaces_current_state.exs",
+                    __DIR__
+                  )
+  @external_resource @migration_path
+  Code.require_file(@migration_path)
 
   @moduletag :integration
 
@@ -35,6 +44,69 @@ defmodule ServiceRadar.Inventory.InterfaceCurrentStateTest do
 
     rows = interfaces_for(device.uid, actor)
     assert [%Interface{interface_uid: ^uid, timestamp: ^t2}] = rows
+  end
+
+  test "collapse keeps mapper if_index when a later sparse sync row would win" do
+    suffix = System.unique_integer([:positive])
+    src = "collapse_src_#{suffix}"
+    dest = "collapse_dest_#{suffix}"
+    device_id = "sr:collapse-#{suffix}"
+    uid = "name:eth0"
+    t1 = ~U[2026-08-25 00:00:00Z]
+    t2 = ~U[2026-08-25 00:05:00Z]
+
+    Repo.query!("""
+    CREATE TEMP TABLE #{src} (
+      device_id text NOT NULL,
+      interface_uid text NOT NULL,
+      timestamp timestamptz NOT NULL,
+      created_at timestamptz,
+      if_index integer,
+      if_speed bigint,
+      speed_bps bigint,
+      if_admin_status integer,
+      if_oper_status integer,
+      if_type integer,
+      mtu integer,
+      duplex text,
+      available_metrics jsonb
+    )
+    """)
+
+    Repo.query!(
+      """
+      INSERT INTO #{src} (
+        device_id, interface_uid, timestamp, created_at,
+        if_index, if_speed, speed_bps, if_admin_status, if_oper_status,
+        if_type, mtu, duplex, available_metrics
+      ) VALUES
+        ($1, $2, $3, $3, 17, 1000000000, 1000000000, 1, 1, 6, 1500, 'full', '[]'::jsonb),
+        ($1, $2, $4, $4, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL)
+      """,
+      [device_id, uid, t1, t2]
+    )
+
+    Repo.query!("""
+    CREATE TEMP TABLE #{dest} AS
+    SELECT DISTINCT ON (device_id, interface_uid) *
+    FROM #{src}
+    ORDER BY device_id, interface_uid, timestamp DESC, created_at DESC NULLS LAST
+    """)
+
+    %{rows: [[nil]]} =
+      Repo.query!("SELECT if_index FROM #{dest} WHERE device_id = $1", [device_id])
+
+    Repo.query!(RekeyDiscoveredInterfacesCurrentState.coalesce_mapper_columns_sql(src, dest))
+
+    %{rows: [[if_index, if_speed, duplex]]} =
+      Repo.query!(
+        "SELECT if_index, if_speed, duplex FROM #{dest} WHERE device_id = $1",
+        [device_id]
+      )
+
+    assert if_index == 17
+    assert if_speed == 1_000_000_000
+    assert duplex == "full"
   end
 
   test "a device with several matching interfaces counts once as an SNMP target", %{actor: actor} do

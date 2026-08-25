@@ -6,6 +6,7 @@ defmodule ServiceRadar.Inventory.Sync.Lookups do
 
   import Ecto.Query
 
+  alias ServiceRadar.Identity.AliasPolicy
   alias ServiceRadar.Identity.DeviceAliasState
   alias ServiceRadar.Inventory.Device
   alias ServiceRadar.Inventory.DeviceIdentifier
@@ -185,18 +186,24 @@ defmodule ServiceRadar.Inventory.Sync.Lookups do
   end
 
   def lookup_alias_device_ids_by_ip(ips) do
-    query =
-      from(a in DeviceAliasState,
-        where:
-          a.alias_type == :ip and a.alias_value in ^ips and
-            a.state in [:confirmed, :updated],
-        select: {a.alias_value, a.device_id}
-      )
+    case Enum.filter(ips, &AliasPolicy.valid_alias_ip?/1) do
+      [] ->
+        %{}
 
-    query
-    |> Repo.all()
-    |> Enum.filter(fn {_ip, uid} -> IdentityReconciler.serviceradar_uuid?(uid) end)
-    |> Map.new()
+      ips ->
+        query =
+          from(a in DeviceAliasState,
+            where:
+              a.alias_type == :ip and a.alias_value in ^ips and
+                a.state in [:confirmed, :updated],
+            select: {a.alias_value, a.device_id}
+          )
+
+        query
+        |> Repo.all()
+        |> Enum.filter(fn {_ip, uid} -> IdentityReconciler.serviceradar_uuid?(uid) end)
+        |> Map.new()
+    end
   rescue
     e ->
       Logger.warning("Bulk IP alias lookup failed: #{inspect(e)}")

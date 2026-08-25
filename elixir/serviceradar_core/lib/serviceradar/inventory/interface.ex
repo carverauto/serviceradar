@@ -171,12 +171,14 @@ defmodule ServiceRadar.Inventory.Interface do
   end
 
   attributes do
-    # Composite primary key: timestamp + device_id + interface_uid
+    # Last-observed. Identity is (device_id, interface_uid); putting timestamp
+    # on the Ash primary key is the append-only mechanism GitHub #4021 removes.
+    # Ash bulk update/destroy identify rows by this key, so it must match
+    # Postgres PRIMARY KEY (device_id, interface_uid).
     attribute :timestamp, :utc_datetime do
       allow_nil? false
-      primary_key? true
       public? true
-      description "When interface was discovered/updated"
+      description "When interface was last observed"
     end
 
     attribute :device_id, :string do

@@ -83,10 +83,11 @@ defmodule ServiceRadar.Inventory.Remediation.DireRemediation do
     "blob-purge",
     "test-debris",
     "stale-agent-devices",
+    # Archive leftover link-local aliases before any step that can merge.
+    "link-local-alias-archive",
+    "netprobe-alias-debris",
     "agent-links",
     "proxmox-dups",
-    "netprobe-alias-debris",
-    "link-local-alias-archive",
     @armis_unmerge_step,
     @armis_dups_step
   ]
