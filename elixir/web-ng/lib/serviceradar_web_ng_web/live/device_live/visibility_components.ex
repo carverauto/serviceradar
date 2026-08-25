@@ -538,19 +538,24 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.VisibilityComponents do
 
   defp proxmox_metadata_group(metadata) when is_map(metadata) do
     if proxmox_metadata_evidence?(metadata) do
-      metadata_group("Proxmox", "hero-cube-transparent", [
-        metadata_item("Candidate", metadata_lookup(metadata, "proxmox_candidate")),
-        metadata_item("Evidence", metadata_lookup(metadata, "proxmox_candidate_evidence")),
-        metadata_item("Service", metadata_lookup(metadata, "proxmox_candidate_service")),
-        metadata_item("Port", metadata_lookup(metadata, "proxmox_candidate_port")),
-        metadata_item("Title", metadata_lookup(metadata, "proxmox_candidate_title"))
-      ])
+      metadata_group(
+        "Proxmox",
+        "hero-cube-transparent",
+        [
+          metadata_item("Candidate", metadata_lookup(metadata, "proxmox_candidate")),
+          metadata_item("Evidence", metadata_lookup(metadata, "proxmox_candidate_evidence")),
+          metadata_item("Service", metadata_lookup(metadata, "proxmox_candidate_service")),
+          metadata_item("Port", metadata_lookup(metadata, "proxmox_candidate_port")),
+          metadata_item("Title", metadata_lookup(metadata, "proxmox_candidate_title"))
+        ],
+        logo: :proxmox
+      )
     else
-      metadata_group("Proxmox", "hero-cube-transparent", [])
+      metadata_group("Proxmox", "hero-cube-transparent", [], logo: :proxmox)
     end
   end
 
-  defp proxmox_metadata_group(_metadata), do: metadata_group("Proxmox", "hero-cube-transparent", [])
+  defp proxmox_metadata_group(_metadata), do: metadata_group("Proxmox", "hero-cube-transparent", [], logo: :proxmox)
 
   defp proxmox_metadata_evidence?(metadata) when is_map(metadata) do
     truthy?(metadata_lookup(metadata, "proxmox_candidate")) or

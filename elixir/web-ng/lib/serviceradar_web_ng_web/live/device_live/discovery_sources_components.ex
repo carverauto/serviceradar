@@ -202,6 +202,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.DiscoverySourcesComponents do
 
   defp source_logo("armis"), do: :armis
   defp source_logo("netbox"), do: :netbox
+  defp source_logo(source) when source in ["proxmox", "proxmox-api", "proxmox_candidate"], do: :proxmox
+  defp source_logo(source) when source in ["awx", "ansible"], do: :ansible
   defp source_logo(_source), do: nil
 
   # Concise "Label: value · Label: value" summary surfaced on hover for sources
