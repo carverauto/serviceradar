@@ -161,6 +161,44 @@ defmodule ServiceRadar.Inventory.SyncIngestorAliasMergeTest do
   end
 
   describe "interface MAC registration" do
+    test "two rows of ONE chassis can both claim the same MAC", %{actor: actor} do
+      # The defect this table exists to fix. Two device rows that are the same
+      # chassis report the SAME interface MACs. Under a globally-unique identifier
+      # the first to register owned every one and the twin owned none -- observed
+      # on farm01 as 11 MACs on one row and 0 on the twin that reported 16. The
+      # loser then re-attempted every MAC on every poll forever, each attempt
+      # silently updating the other device's row and counting as a success.
+      {:ok, a} = create_device(actor, "chassis-wan-side")
+      {:ok, b} = create_device(actor, "chassis-lan-side")
+
+      shared = "f4:92:bf:75:c7:81"
+
+      assert InterfaceMacs.register(a.uid, [shared], nil, actor) == 1
+      assert InterfaceMacs.register(b.uid, [shared], nil, actor) == 1
+
+      assert MapSet.member?(InterfaceMacs.registered_values(a.uid, actor), "F492BF75C781")
+
+      assert MapSet.member?(InterfaceMacs.registered_values(b.uid, actor), "F492BF75C781"),
+             "the second device could not claim a MAC the first already claimed"
+    end
+
+    test "the change gate still holds for the second claimant", %{actor: actor} do
+      # The scale consequence of the old defect: the loser's own set always read
+      # back empty, so it never converged and wrote on every poll. At 1M devices
+      # duplicates are the common case, which is exactly where steady-state zero
+      # was claimed.
+      {:ok, a} = create_device(actor, "chassis-first")
+      {:ok, b} = create_device(actor, "chassis-second")
+
+      shared = "f4:92:bf:75:c7:82"
+
+      assert InterfaceMacs.register(a.uid, [shared], nil, actor) == 1
+      assert InterfaceMacs.register(b.uid, [shared], nil, actor) == 1
+
+      assert InterfaceMacs.register(b.uid, [shared], nil, actor) == 0,
+             "the second claimant re-wrote a MAC it already holds; its change gate never engages"
+    end
+
     test "refuses locally-administered addresses", %{actor: actor} do
       {:ok, device} = create_device(actor, "virtualized-host")
 

@@ -39,7 +39,6 @@ defmodule ServiceRadar.Inventory.DeviceIdentifier do
     :netbox_device_id,
     :hardware_serial,
     :mac,
-    :interface_mac,
     :ip,
     :passive_fingerprint
   ]

@@ -8,7 +8,7 @@ defmodule ServiceRadar.Inventory.Identity.InterfaceMacs do
   nothing could answer before: *is this other device actually a different piece
   of hardware, or another address of this same chassis?*
 
-  ## Why a separate identifier type
+  ## Why a separate table, keyed per device
 
   A chassis reachable at two addresses becomes two device rows, each anchored by
   a different interface MAC (`f4:92:bf:75:c7:21` on the WAN, `…:2b` on the LAN).
@@ -20,15 +20,30 @@ defmodule ServiceRadar.Inventory.Identity.InterfaceMacs do
   "silent last-writer-wins repoints collapsed distinct devices". The row stays
   with whoever owns it.
 
-  A distinct TYPE sidesteps that entirely — `:interface_mac/…:2b` on device A
-  coexists with `:mac/…:2b` on device B — without weakening the ownership rule.
+  A distinct identifier TYPE did not fix it either, and the reason is worth
+  keeping: uniqueness there is still global per `(type, value, partition)`, and
+  the two device rows of one chassis report the SAME interface MACs. The first to
+  register owned all of them; its twin owned none and re-attempted every MAC on
+  every poll forever, each attempt silently updating the other device's row and
+  being counted as a success. Observed on farm01: 11 MACs on one row, 0 on the
+  twin that reported 16.
+
+  `DeviceInterfaceMac` is keyed `(device_id, mac)`. Each device records what IT
+  observed, and two rows of one chassis may both claim the same MAC — which is
+  precisely the signal that they are one chassis.
 
   ## Why not read the interface table directly
 
   `platform.discovered_interfaces` stores ~98 rows per interface state and grows
   without bound (see `refactor-interface-observation-persistence`). Scanning it
-  inside a merge check would be unusable at 50k-1M devices. `device_identifiers`
-  is small and indexed, so the check stays an indexed lookup at any scale.
+  inside a merge check would be unusable at 50k-1M devices.
+
+  `device_interface_macs` is keyed `(device_id, mac)`, so "which MACs does this
+  device claim" and "does it claim any of THESE" are both primary-key prefix
+  scans. Cardinality is far lower than interface count -- measured on real
+  hardware, a switch reporting 239 interfaces has 26 distinct MACs, because VLANs
+  and subinterfaces share a base address -- so a 160-port chassis costs tens of
+  rows, not hundreds.
 
   ## Two independent guards on what may be registered
 
@@ -50,7 +65,7 @@ defmodule ServiceRadar.Inventory.Identity.InterfaceMacs do
   steady state costs reads and no writes.
   """
 
-  alias ServiceRadar.Inventory.DeviceIdentifier
+  alias ServiceRadar.Inventory.DeviceInterfaceMac
   alias ServiceRadar.Inventory.Identity.Mac
 
   require Ash.Query
@@ -105,11 +120,11 @@ defmodule ServiceRadar.Inventory.Identity.InterfaceMacs do
   def registered_values(device_id, actor) do
     query_opts = if actor, do: [actor: actor], else: []
 
-    DeviceIdentifier
-    |> Ash.Query.filter(device_id == ^device_id and identifier_type == :interface_mac)
+    DeviceInterfaceMac
+    |> Ash.Query.filter(device_id == ^device_id)
     |> Ash.read(query_opts)
     |> case do
-      {:ok, identifiers} -> MapSet.new(identifiers, & &1.identifier_value)
+      {:ok, rows} -> MapSet.new(rows, & &1.mac)
       _ -> MapSet.new()
     end
   rescue
@@ -121,18 +136,15 @@ defmodule ServiceRadar.Inventory.Identity.InterfaceMacs do
   defp upsert(device_id, value, partition, actor) do
     query_opts = if actor, do: [actor: actor], else: []
 
-    DeviceIdentifier
+    DeviceInterfaceMac
     |> Ash.Changeset.for_create(:upsert, %{
       device_id: device_id,
-      identifier_type: :interface_mac,
-      identifier_value: value,
-      partition: partition,
-      confidence: :strong,
-      source: "interface_table"
+      mac: value,
+      partition: partition
     })
     |> Ash.create(query_opts)
     |> case do
-      {:ok, _identifier} ->
+      {:ok, _row} ->
         true
 
       {:error, error} ->
