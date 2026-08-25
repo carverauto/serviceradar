@@ -195,13 +195,24 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexCsvImport do
     if hostname == "" and ip == "" do
       {:skip, line, "needs a hostname or an ip"}
     else
+      tags = parse_tags(get_csv_value(values, header_map, "tags"))
+
+      # `key=value` pieces in the tags column are the documented CSV channel
+      # for operator fields (site, gate, model, …). They must also land in
+      # `metadata` — All Metadata on device details reads that map, not tags.
+      # Extra CSV columns overlay the same keys when both are present.
+      metadata =
+        tags
+        |> tag_pairs_as_metadata()
+        |> Map.merge(extra_column_metadata(values, header_map))
+
       {:ok,
        %{
          hostname: hostname,
          ip: ip,
          type: get_csv_value(values, header_map, "type") || "",
-         tags: parse_tags(get_csv_value(values, header_map, "tags")),
-         metadata: extra_column_metadata(values, header_map),
+         tags: tags,
+         metadata: metadata,
          # Kept so a creation failure can name the line the operator wrote,
          # not a running tally. ManualDeviceCreator builds its own attribute
          # map and ignores this.
@@ -239,6 +250,25 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexCsvImport do
     |> String.split("|")
     |> Enum.map(&String.trim/1)
     |> Enum.reject(&(&1 == ""))
+  end
+
+  defp tag_pairs_as_metadata(tags) when is_list(tags) do
+    Enum.reduce(tags, %{}, fn tag, acc ->
+      case String.split(tag, "=", parts: 2) do
+        [key, value] ->
+          key = String.trim(key)
+          value = String.trim(value)
+
+          if key == "" or value == "" do
+            acc
+          else
+            Map.put(acc, key, value)
+          end
+
+        _ ->
+          acc
+      end
+    end)
   end
 
   defp extra_column_metadata(values, header_map) do
