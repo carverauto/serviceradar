@@ -163,6 +163,48 @@ defmodule ServiceRadarWebNG.Devices.ManualDeviceCreatorTest do
     assert restored.tags == %{"owner" => "ops"}
   end
 
+  test "upsert merges spreadsheet tags and metadata onto an existing IP-matched device", %{
+    scope: scope
+  } do
+    ip = "203.0.113.#{rem(System.unique_integer([:positive]), 200) + 20}"
+
+    assert {:ok, existing} =
+             create_device(scope, %{
+               uid: "armis-existing-#{System.unique_integer([:positive])}",
+               hostname: "armis-host",
+               ip: ip,
+               type: "server",
+               type_id: 1,
+               tags: %{"env" => "prod"},
+               metadata: %{"other_writer" => "keep-me"},
+               is_managed: true,
+               is_active: true
+             })
+
+    assert {:ok, :updated, device} =
+             ManualDeviceCreator.upsert(scope, %{
+               hostname: "rids-bos-b23",
+               ip: ip,
+               type: "rids",
+               tags: ["rids=true", "site=BOS", "gate=B23"],
+               metadata: %{"concourse" => "B", "model" => "DAK_VENUS1500_4LINE"}
+             })
+
+    assert device.uid == existing.uid
+    assert device.hostname == "rids-bos-b23"
+    assert device.ip == ip
+    assert device.type == "server"
+    assert device.type_id == 1
+    assert device.tags["env"] == "prod"
+    assert device.tags["rids"] == "true"
+    assert device.tags["site"] == "BOS"
+    assert device.tags["gate"] == "B23"
+    assert device.metadata["other_writer"] == "keep-me"
+    assert device.metadata["concourse"] == "B"
+    assert device.metadata["model"] == "DAK_VENUS1500_4LINE"
+    assert "manual" in device.discovery_sources
+  end
+
   test "merges active hostname-only duplicate into resolved-IP canonical device", %{scope: scope} do
     hostname = "manual-merge-#{System.unique_integer([:positive])}.example"
     assert {:ok, resolved_ip} = HostnameResolverStub.resolve(hostname)
