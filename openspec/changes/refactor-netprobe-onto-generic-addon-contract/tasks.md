@@ -253,10 +253,74 @@ the legacy producers.
   case is an address whose own device is absent or soft-deleted, where a `:stale`
   alias can both mis-attribute and be reactivated (`maybe_reactivate_alias:1736`).
 
-- [~] 5.6 Move flow attribution to a generalized acked relay: generalize `RelayOtlp`'s hardcoded
-  identity constants and the gateway's `otlp_relay_publisher.ex` routing. Keep
-  `FlowAttributionEventBatch` payload bytes byte-identical, and keep the ack/quarantine queue at the
-  agent.
+- [~] 5.6 **AUDITED 2026-08-25: DO NOT MOVE FLOW ATTRIBUTION ONTO THE RELAY.** The codegen half is
+  done (kept below); the transport half should not be built as written.
+
+  **The premise is false.** 5.6's stated reason for the relay is the ordered-prefix / positive-ack /
+  poison-quarantine contract. Flow attribution ALREADY has it -- `push_loop_flow_attribution.go`
+  `flowAttributionDeliveryQueue` / `acknowledgePrefix` / `quarantineFirst`, with no removal without
+  `resp.Received`. Gateway strictness is already identical too: `@strict_delivery_sources` in
+  `agent_gateway_server.ex` contains BOTH `otlp-relay` and `flow-attribution`. There is no delta to win.
+
+  **The move would make delivery WORSE, in two specific ways.**
+  1. It downgrades the durability terminus. Today the agent's ack returns only after the CNPG UPSERT
+     commits. The relay's ack returns after `Gnat.pub` -- core NATS, fire-and-forget, **no JetStream
+     PubAck**. The "acked relay" is an at-least-once transport ending in an at-most-once publish.
+  2. It adds a silent drop-and-ack hole. `otlp_relay_publisher.ex` `route/2` handles only OTLP payload
+     kinds; anything else hits `defp route(_kind, _subjects), do: :error`, whose branch logs a warning
+     and returns `{:cont, :ok}` -- the record is DISCARDED and the batch still acks. Flow attribution
+     today fails closed instead.
+
+  **The JetStream-first hard rule does not compel it, and the move would not satisfy the rule anyway.**
+  The data does land in CNPG directly (`status_handler.ex` -> `flow_attribution.ex` -> `persistence.ex`
+  raw multi-CTE INSERT), so the rule is not met literally. But the rule's stated rationale is that "a
+  metric that lands straight in a hypertable is invisible to every real-time consumer until it is
+  queried back out" -- and `flow_process_attribution_current` is NOT a hypertable and not a time
+  series. It is a plain last-write-wins current-state table whose only consumer is an in-DB SQL
+  correlator on a 120s cycle over a 15-minute window. No real-time subscriber is being starved,
+  because there is nothing here to subscribe to. And routing it through the relay would satisfy the
+  rule's letter while leaving no consumer (no `event_writer` processor exists for it) and no delivery
+  confirmation. **Whether this whole class of current-state writes -- flow attribution, workload
+  identity, plugin results -- is in the rule's scope is a question for a human to settle once, not
+  something to resolve by bolting one payload onto a relay that does not itself satisfy the rule.**
+
+  **It unblocks nothing today.** 5.6 exists as a precondition for 6.1, so flow attribution is not
+  demoted to the lossy `StreamTelemetry` path when the bespoke IPC is retired (`design.md`, "Loss
+  semantics"). 6.1 lands only after 5.1-5.7 are confirmed in the fleet, and 6.2 is still blocked on a
+  release shipping without the legacy census producer. Doing 5.6 now ships risk with no payoff.
+
+  **Prerequisites do not exist either.** netprobe implements only `info`/`configure`/`health`/
+  `stream_telemetry` -- no `relay_otlp`, so it inherits the SDK's `unimplemented` default -- and it has
+  no durable spool. The only spool is ~2,400 lines inside the otel crate, coupled to
+  `OtlpRelayFrame`/`TelemetryBatch`; reusing it means extracting a shared crate first.
+
+  **If any part is ever built, build only the minimal one:** parameterize the relay pump's identity
+  triple (`addon_otlp_relay.go` hardcodes `otlp-relay` / `otel-collector` / `otlp-relay`) and extend
+  the gateway's payload-kind route table, WITHOUT moving flow attribution. Three designs were scored by
+  three judges on different lenses; safety preferred a staged variant and reversibility the minimal
+  one, but the value-lens judge conceded the minimal design "moves constants around and says so."
+  That is the honest summary: there is little to win until 6.1 is actually close.
+
+  **Two real defects WERE found in the current path, and they are the work worth doing instead.** Both
+  are filed rather than fixed, because the obvious fix for the first reintroduces a problem that was
+  already fixed once:
+  * GitHub #4030 -- delivery has only two outcomes: false-ack, or tear down the agent's whole status
+    stream. `5a4bbf9fd3` (Jul 11) removed flow attribution from `should_buffer?` precisely to avoid the
+    false ack; `33b1b9ba54` (Jul 20) put it back because a core outage was tearing down the agent's
+    entire stream. Both are right. The resolution is a third outcome -- `received: false`, which the
+    protocol expresses and the agent already handles, but which the gateway hardcodes to `true`.
+  * GitHub #4031 -- flow-attribution persistence runs INSIDE the singleton `StatusHandler`'s
+    `handle_call`, serialising every other status on that node behind a multi-CTE UPSERT of up to 4096
+    rows. The same function already carves out endpoint inventory to a bounded admission queue, with a
+    comment naming this exact hazard. Do NOT fix it by making the call asynchronous -- the synchronous
+    reply is what makes the ack mean "committed".
+
+  Note the audit also produced one claim that did NOT survive checking, recorded so it is not repeated:
+  that the add-on Configure path defaults `flow_attribution_ipc_batch` to the non-batched arm. The
+  observation is real (`addon_config_json.rs` uses a bare `#[serde(default)]` on `bool`, i.e. false,
+  against `true` in `config.rs`), but `ConfigSchema.normalize_params/2` injects schema defaults at
+  author time and `ApplyAddonConfigDefaults` runs it on the assignment, profile, policy and seeder
+  paths. Latent inconsistency, not a live bug.
 
   **The codegen half is DONE, and it was smaller than this task assumed.** The task says to "add real
   generation for `flow_attribution_event.pb.ex` in the same change". No generation had to be added:
@@ -276,7 +340,88 @@ the legacy producers.
   Left for the rest of 5.6: generalizing `RelayOtlp`'s identity constants
   (`go/pkg/agent/addon_otlp_relay.go:48-50` hardcodes `otlp-relay` / `otel-collector` / `otlp-relay`)
   and the gateway's `otlp_relay_publisher.ex` routing, and moving flow attribution onto it.
-- [ ] 5.7 Delete the dead arms rather than porting them: `ExternalFlowRecord`/`ExternalFlowAck`
+
+- [~] 5.7 **AUDITED 2026-08-25; ALL THREE ARMS STAY. Do not delete on the strength of this task's
+  original wording -- two of its three claims are false, and the third is a live product decision that
+  went the other way.** Ten agents swept go/, rust/, elixir/, proto/, docs/, helm/, addons/,
+  openspec/ and git history; each "dead" verdict then faced three independent skeptics (production
+  reachability, operator surface, version skew). Findings, each verified against the source by hand
+  afterwards rather than accepted:
+
+  * **tag-21 `flow_attribution_event` is LIVE. Not deletable, and the premise is wrong.**
+    - It is the `else` arm of a live runtime branch at `rust/netprobe/src/server.rs:200-212`, selected
+      by `flow_attribution_ipc_batch`, reached on every drained eBPF attribution event.
+    - **It is an operator-documented escape hatch**, not an internal fallback:
+      `addons/netprobe/config.schema.json:54-60` renders it as an admin toggle ("Disable only for
+      debugging older agents or framing issues") and `docs/docs/netprobe.md:130` repeats the advice.
+      Deleting the branch while the toggle survives means an operator can select a mode whose
+      implementation is gone, and `addon_service.rs` still answers `accepted: true` -- this repo's own
+      "job reported success while writing nothing" failure shape.
+    - **Skew is measured, not hypothetical:** five published netprobe tags (0.2.3 x2, 0.2.5 x3) predate
+      the batching commit `34e551432e` and emit tag 21 exclusively, verified by
+      `git merge-base --is-ancestor`, not by version-string comparison. The agent has no minimum-peer
+      check, `framing.go` uses plain `proto.Unmarshal`, and the `readLoop` has no default branch -- so
+      deleting the consumer at `client.go:554-556` is SILENT total loss of flow attribution for those
+      hosts: no log, no metric, no `recordEventDrop`.
+
+  * **`ExternalFlowRecord`/`ExternalFlowAck` are test-only in-tree but NOT deletable today.**
+    - Confirmed: the only Go callers are `client_test.go`, and the Rust handler at `server.rs:490-506`
+      is live code that no production sender can reach.
+    - But `openspec/changes/add-host-network-visibility-sidecar` carries an ACTIVE, unarchived
+      requirement "External NetFlow attribution join" (`specs/host-network-visibility/spec.md:360-382`)
+      with tasks 21.1/21.2 marked `[x]`. Deleting the arm silently un-implements a shipped requirement.
+    - `addons/netprobe/config.schema.json:46-53` exposes `external_flow_match_window_ms` as an operator
+      key that exists only to tune the matcher only this arm reads; the root schema is
+      `additionalProperties: false`, so removing the property fails validation for every persisted
+      `AddonAssignment.params` row still carrying it.
+    - The Rust matcher is WRITTEN by the live eBPF attribution hot path (`attribution.rs:1865`) and READ
+      only here -- so today it is a write-only map. Delete the arm and the matcher together or neither;
+      `external_flow.rs:131` also owns `default_external_flow_match_window_ms()`, which
+      `config.rs`/`runtime_config.rs` import, so deleting the file alone breaks bootstrap config parsing.
+
+  * **`StartRemoteCapture`/`PcapngBlock` are genuinely dead CODE -- and deliberately reserved SPEC.**
+    - Zero references outside generated bindings and openspec prose; not one test. Both messages carry
+      zero fields (confirmed in the generated Elixir, which emits one `field` line per declared field).
+    - But they are placeholders that `add-host-network-visibility-sidecar` task 4.1 `[x]` created ON
+      PURPOSE, and its **unchecked Phase 5** ("Remote pcapng capture sessions", `tasks.md:242-260`)
+      plus normative spec deltas (`specs/remote-packet-capture/spec.md:104,113,121`) are written against
+      them by name. This is a conflict between two live proposals, not dead code.
+    - **DECIDED 2026-08-25 (maintainer): Phase 5 is unfinished work, not abandoned. Leave the
+      placeholders; they are OUT OF SCOPE for 5.7.** Tracked in GitHub issue #4025, which records what
+      Phase 5 still specifies, what exists today (only the two zero-field messages), and the lookalike
+      that must not be mistaken for progress -- `rust/netprobe/src/capture.rs` gates on a cargo feature
+      named `remote-capture`, but that is the PASSIVE interface opener for fingerprinting/DPI, is off in
+      every build, and touches neither message.
+
+  **Cross-cutting, and required before ANY of these arms is removed:**
+  * `NetprobeFrame` (`proto/agent/netprobe/v1/netprobe.proto:26-52`) has **no `reserved` statement at
+    all**. The repo convention is well established and includes a comment naming what was removed --
+    `proto/monitoring.proto:218,254,276,307,861,927-928`, and `netprobe.proto`'s own
+    `VisibilityAgentConfig:118-121`. Reservations go on the enclosing MESSAGE; proto3 forbids them
+    inside a `oneof` block.
+  * **Nothing in CI would catch a missing `reserved`.** `buf.yaml` declares `lint` only, with no
+    `breaking:` section, and `make proto-lint` is `buf lint`. A future field reusing a freed tag would
+    be accepted silently and mis-decode against un-upgraded peers. Tracked as GitHub issue #4026, which
+    also proposes a loud unknown-arm branch in the agent `readLoop` -- that one should land BEFORE any
+    arm is retired, since it is what makes the retirement observable rather than silent.
+  * Deleting any arm requires regenerating TWO committed trees -- `netprobe.pb.go` (`Makefile:623-625`)
+    and `netprobe.pb.ex` (`Makefile:677`), the latter guarded by `verify-proto-elixir`
+    (`Makefile:685-690`), a `git diff --exit-code` drift gate. Rust needs no committed change;
+    `rust/netprobe/build.rs` regenerates via prost at build time.
+
+  **Separately found, worth fixing on its own merits (NOT a blocker):** `flow_attribution_ipc_batch`
+  and `emit_raw_flow_attribution_events` are parsed by two Rust structs with OPPOSITE defaults --
+  `config.rs:11-12` defaults both to `true`, while `addon_config_json.rs:46-49` uses a bare
+  `#[serde(default)]` on `bool`, which is `false`. An audit agent concluded from this that the
+  non-batched path is the DEFAULT on the add-on Configure surface; **that conclusion is wrong and was
+  checked** -- `ConfigSchema.normalize_params/2` injects schema defaults at author time
+  (`config_schema.ex:78-80`) and `ApplyAddonConfigDefaults` runs it on the assignment, profile, policy
+  and seeder paths, so `true` is materialized into stored params in the normal case. The divergence is
+  latent, not live. It still deserves fixing: correctness currently depends on a THIRD component always
+  injecting a default, and `ApplyAddonConfigDefaults` falls through unchanged when a package row has no
+  `config_schema`. Make the Rust parser self-consistent with the schema, and pin it with a test.
+
+  Original text: Delete the dead arms rather than porting them: `ExternalFlowRecord`/`ExternalFlowAck`
   (test-only callers), `StartRemoteCapture`/`PcapngBlock` (empty messages, no code), and the tag-21
   non-batched flow-attribution fallback (disabled by default)
 
