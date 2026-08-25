@@ -69,7 +69,7 @@ function overlaps(left, right, epsilon = 0.5) {
 }
 
 describe("managed topology visual density", () => {
-  it("fails a label-infeasible portrait overview closed before evaluating its renderer geometry", async () => {
+  it("degrades a label-infeasible portrait overview and fails the same scene closed at detail", async () => {
     const source = concurrentExpandedFarm01Graph()
     const scene = await layoutTopologyScene(prepareTopologySceneInput(source), {
       engine: new ELK(),
@@ -102,13 +102,20 @@ describe("managed topology visual density", () => {
       bindApi(ctx, godViewRenderingGraphViewMethods),
     )
 
-    expect(() => ctx.autoFitViewState(graph)).toThrow(
-      /managed topology overview is missing required labels: farm01:attachment-01.*farm01:endpoint-member-01-01.*farm01:gateway-05/i,
-    )
+    // An overview is unbounded in practice, so labels that cannot be placed are
+    // dropped and the surface still renders with an accepted camera. The same
+    // scene at detail is a bounded, deliberately framed set and still fails
+    // closed, because there an unplaceable label means the frame is wrong.
+    expect(() => ctx.autoFitViewState(graph)).not.toThrow()
+    expect(Number.isFinite(state.viewState.zoom)).toBe(true)
 
-    // The remainder isolates the overview renderer's glyph/route envelope. It
-    // is not an accepted managed state because the required-label check above
-    // deliberately failed closed.
+    state.hasAutoFit = false
+    state.userCameraLocked = false
+    expect(() => ctx.autoFitViewState({...graph, _topologySemanticLevel: "detail"}))
+      .toThrow(/managed topology detail is missing required labels/i)
+
+    // The remainder isolates the overview renderer's glyph/route envelope using
+    // its own containment fit, independent of the camera accepted above.
     const graphNodeById = new Map(graph.nodes.map((node) => [node.id, node]))
     const containment = fitTopologyScene({
       scene,

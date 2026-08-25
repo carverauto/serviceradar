@@ -102,6 +102,41 @@ describe("rendering_graph_layer_node_methods", () => {
     expect(JSON.stringify(scene)).toEqual(sceneBefore)
   })
 
+  it("preserves route endpoints and chooses a route-clear diagonal for four-way fanout", () => {
+    const scene = topologyScene({
+      routes: [
+        {id: "north", sourceId: "router", targetId: "north", points: [{x: 100, y: 100}, {x: 100, y: 50}]},
+        {id: "east", sourceId: "router", targetId: "east", points: [{x: 100, y: 100}, {x: 170, y: 100}]},
+        {id: "south", sourceId: "router", targetId: "south", points: [{x: 100, y: 100}, {x: 100, y: 150}]},
+        {id: "west", sourceId: "router", targetId: "west", points: [{x: 100, y: 100}, {x: 30, y: 100}]},
+      ],
+    })
+    const state = {
+      deck: {getViewports: () => [{width: 220, height: 220, project: ([x, y]) => [x, y]}]},
+      topologyLabelSafeRect: {left: 0, top: 0, right: 220, bottom: 220},
+      topologyLabelMeasureText: () => ({width: 40, height: 12}),
+    }
+    const ctx = createStateBackedContext(state, {})
+    Object.assign(ctx, bindApi(ctx, godViewRenderingGraphLayerNodeMethods))
+    const graph = {shape: "local", _layoutMode: "elk-radial-overview", _topologyScene: scene}
+    const labels = [{
+      id: "router",
+      label: "Router",
+      position: [100, 100, 0],
+      state: 2,
+      operUp: 1,
+      clusterCount: 1,
+      details: {},
+    }]
+
+    const result = ctx.admitNodeLabelsForViewport(graph, labels, labels, {
+      requiredLabelIds: ["router"],
+    })
+
+    expect(result.missingRequiredLabelIds).toEqual([])
+    expect(result.admitted).toMatchObject([{nodeId: "router", anchor: "top-right"}])
+  })
+
   it("recomputes admission from a changed Deck viewport without mutating or laying out the scene", () => {
     let projectedY = 100
     const project = vi.fn(([x]) => [x, projectedY])
@@ -668,7 +703,7 @@ describe("rendering_graph_layer_node_methods", () => {
     expect(layers.find((layer) => layer.id === "god-view-node-labels")).toBeUndefined()
   })
 
-  it("rejects managed layer construction with actionable missing label IDs", () => {
+  it("fails managed detail construction closed and degrades an overview with observable dropped IDs", () => {
     const nodeData = ["zeta", "alpha"].map((id, index) => ({
       index,
       id,
@@ -695,12 +730,26 @@ describe("rendering_graph_layer_node_methods", () => {
     const ctx = createStateBackedContext(state, {})
     Object.assign(ctx, bindApi(ctx, godViewRenderingGraphLayerNodeMethods))
 
+    // Detail is a bounded, deliberately framed set, so a label that cannot be
+    // placed means the frame is wrong and construction fails closed with ids
+    // the caller can act on.
+    expect(() => ctx.buildNodeAndLabelLayers({
+      shape: "local",
+      _layoutMode: "elk-radial-overview",
+      _topologySemanticLevel: "detail",
+      _topologyScene: topologyScene(),
+    }, nodeData, [])).toThrow(/managed topology detail is missing required labels.*alpha, zeta/i)
+
+    // An overview is unbounded in practice, so it degrades instead: the layers
+    // still build and the ids that could not be placed stay observable rather
+    // than blanking the whole surface.
     expect(() => ctx.buildNodeAndLabelLayers({
       shape: "local",
       _layoutMode: "elk-radial-overview",
       _topologySemanticLevel: "overview",
       _topologyScene: topologyScene(),
-    }, nodeData, [])).toThrow(/managed topology.*missing required labels.*alpha, zeta/i)
+    }, nodeData, [])).not.toThrow()
+    expect(state.topologyOverviewDroppedLabelIds).toEqual(["alpha", "zeta"])
   })
 
   it("visualClusterCount only scales endpoint summaries", () => {

@@ -340,7 +340,12 @@ export const godViewRenderingGraphLayerNodeMethods = {
         return Number.isFinite(x) && Number.isFinite(y) ? [[x, y]] : []
       })
       if (points.length < 2) return []
-      return [{points, strokeWidth: this.topologyRouteStrokeWidth(route, options)}]
+      return [{
+        sourceId: String(route?.sourceId || ""),
+        targetId: String(route?.targetId || ""),
+        points,
+        strokeWidth: this.topologyRouteStrokeWidth(route, options),
+      }]
     })
     const suppliedMeasureText = options.measureText || this.state?.topologyLabelMeasureText
     const measureText = typeof suppliedMeasureText === "function"
@@ -377,10 +382,21 @@ export const godViewRenderingGraphLayerNodeMethods = {
         : undefined,
     })
     if (managedTopologyScene && labelAdmission.missingRequiredLabelIds.length > 0) {
-      throw new RangeError(
-        `managed topology ${topologySemanticLevel(effective)} is missing required labels: ` +
-        labelAdmission.missingRequiredLabelIds.join(", "),
-      )
+      const semanticLevel = topologySemanticLevel(effective)
+      // A detail scene is a bounded, deliberately framed set, so a label that
+      // cannot be placed means the frame is wrong and we fail closed. An
+      // overview is unbounded in practice -- expanding a cluster can add
+      // arbitrarily many nodes -- so an unplaceable label must degrade rather
+      // than blank the surface. Dropped ids stay observable for diagnostics.
+      if (semanticLevel === "detail") {
+        throw new RangeError(
+          `managed topology ${semanticLevel} is missing required labels: ` +
+          labelAdmission.missingRequiredLabelIds.join(", "),
+        )
+      }
+      this.state.topologyOverviewDroppedLabelIds = [...labelAdmission.missingRequiredLabelIds]
+    } else if (managedTopologyScene) {
+      this.state.topologyOverviewDroppedLabelIds = []
     }
     const nodeById = new Map(nodeData.map((node) => [String(node?.id || ""), node]))
     const labelData = labelAdmission.admitted.flatMap((admitted) => {

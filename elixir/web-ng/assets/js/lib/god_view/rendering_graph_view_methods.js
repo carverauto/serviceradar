@@ -786,7 +786,10 @@ function fitManagedTopologyScene(context, graph, scene, viewport, safeRect, grap
       managedVisualDensity,
     ),
   })
-  if (!fit.ok) {
+  // Detail fails closed. Overview degrades: fitTopologyScene always returns a
+  // usable viewState plus the labels it could place, so the camera still fits
+  // and the surface still renders without the labels that would not fit.
+  if (!fit.ok && semanticLevel === "detail") {
     throw new RangeError(
       `managed topology ${semanticLevel} is missing required labels: ${fit.missingRequiredLabelIds.join(", ")}`,
     )
