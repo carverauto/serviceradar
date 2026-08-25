@@ -540,16 +540,15 @@ defmodule ServiceRadar.Edge.PublishWindowTest do
     end
 
     test "credits are conserved even when some admits are REFUSED" do
-      # Renamed to what it proves. It used to be titled "outstanding bytes never exceed the
-      # grant", but it asserted the bounds only on the FINAL state -- which the equality below
-      # shows is an EMPTY window, making `0 <= 700` and `0 <= 2` trivially true. Those assertions
-      # could not detect a transient overcommit that a later transition corrected. The 40-step
-      # test carries the per-transition bound property; this one carries something different.
+      # The 40-step test carries the per-transition bound property. What is distinct here: five
+      # 300-byte frames are offered to a 2-frame/700-byte window, so an admit is REFUSED mid-run,
+      # and conservation must survive that.
       #
-      # What is distinct here: five 300-byte frames are offered to a 2-frame/700-byte window, so
-      # admits are REFUSED mid-run. Conservation must survive that -- a refusal that charged
-      # anything, or a settle-after-refusal that released something never charged, shows up as a
-      # window that does not return to its starting state.
+      # The evidence is an EXACT RESULT TRACE, not a count of failures. A pooled counter let a
+      # false-success admit pass: if admit/4 returned {:ok, w} without recording or charging the
+      # frame, no admit would be refused, the later settle of that never-admitted sequence would
+      # supply the only failure, and `final === start` would still hold because nothing was ever
+      # charged. Asserting WHICH operation failed WITH WHICH reason closes that direction.
       ops = [
         {:admit, 1, 300},
         {:admit, 2, 300},
@@ -565,24 +564,36 @@ defmodule ServiceRadar.Edge.PublishWindowTest do
 
       start = window(2, 700)
 
-      {final, refusals} =
-        Enum.reduce(ops, {start, 0}, fn
-          {:admit, seq, bytes}, {w, refused} ->
+      {final, trace} =
+        Enum.reduce(ops, {start, []}, fn
+          {:admit, seq, bytes}, {w, acc} ->
             case PublishWindow.admit(w, seq, bytes, 500) do
-              {:ok, w2} -> {w2, refused}
-              {:error, _} -> {w, refused + 1}
+              {:ok, w2} -> {w2, [{:admit, seq, :ok} | acc]}
+              {:error, reason} -> {w, [{:admit, seq, reason} | acc]}
             end
 
-          {:settle, seq}, {w, refused} ->
+          {:settle, seq}, {w, acc} ->
             case PublishWindow.settle(w, seq, @primary) do
-              {:ok, w2} -> {w2, refused}
-              {:error, _} -> {w, refused + 1}
+              {:ok, w2} -> {w2, [{:settle, seq, :ok} | acc]}
+              {:error, reason} -> {w, [{:settle, seq, reason} | acc]}
             end
         end)
 
-      # NOT VACUOUS, and this is the part the old version never checked: the run must actually
-      # have hit refusals, or it is just the clean round-trip test above under another name.
-      assert refusals > 0, "no admit or settle was refused; the window was never pressured"
+      # Every operation, in order, with its exact outcome. The two failures are at specific
+      # positions for specific reasons: sequence 3 cannot be admitted because the FRAME grant is
+      # full, and therefore cannot later be settled.
+      assert Enum.reverse(trace) === [
+               {:admit, 1, :ok},
+               {:admit, 2, :ok},
+               {:admit, 3, :frame_credits_exhausted},
+               {:settle, 1, :ok},
+               {:admit, 4, :ok},
+               {:settle, 2, :ok},
+               {:settle, 3, :not_outstanding},
+               {:admit, 5, :ok},
+               {:settle, 4, :ok},
+               {:settle, 5, :ok}
+             ]
 
       assert final === start, "credits were not conserved across a run containing refusals"
     end
