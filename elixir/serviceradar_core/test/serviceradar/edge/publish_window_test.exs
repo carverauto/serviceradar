@@ -15,10 +15,6 @@ defmodule ServiceRadar.Edge.PublishWindowTest do
   @primary :primary_publication
   @retryable :retryable_rejection
 
-  # A stand-in for a validated PubAck. This module cannot check validity -- that is the
-  # publisher's -- so the test supplies a present, opaque token.
-  defp ack, do: %{stream: "TELEMETRY_EDGE_RECORD_V1_BULK", seq: 1, duplicate: false}
-
   # The outstanding set, without reaching through the opaque struct in every test.
   defp outstanding_seqs(w) do
     1..60
@@ -34,7 +30,8 @@ defmodule ServiceRadar.Edge.PublishWindowTest do
 
   describe "the grant is the bound" do
     test "credits come from the lane-open ack, and zero admits nothing" do
-      # A grant of zero is a real answer, not a missing value to default away.
+      # Zero is NOT legal -- 1.7-e's `1 <= granted` makes it a refusal. It reaches here because
+      # nothing on this side validates a lane ack, and a window handed zero simply has no capacity.
       {:ok, none} = PublishWindow.new(0, 0)
 
       assert PublishWindow.available_frames(none) === 0
@@ -46,7 +43,7 @@ defmodule ServiceRadar.Edge.PublishWindowTest do
       # An earlier version refused grants above uint32/uint64 maxima and called a zero grant "a
       # real answer". Both froze semantics task 1.7-e owns and has not stated: the caps are
       # separate normative values, and 1.7-e's return relation `1 <= granted <= requested` makes
-      # zero a REFUSAL. ValidateLaneOpenAck adjudicates; this module accounts.
+      # zero a REFUSAL. nothing on this side adjudicates; this module accounts.
       assert {:ok, _} = PublishWindow.new(0xFFFFFFFF + 1, 10)
       assert {:ok, _} = PublishWindow.new(1, 0xFFFFFFFFFFFFFFFF + 1)
 
@@ -80,7 +77,7 @@ defmodule ServiceRadar.Edge.PublishWindowTest do
       assert {:error, :frame_credits_exhausted} = PublishWindow.admit(w, 5, 1, 500)
 
       # Settling one makes room for exactly one.
-      {:ok, w} = PublishWindow.settle(w, 1, @primary, ack())
+      {:ok, w} = PublishWindow.settle(w, 1, @primary)
       assert {:ok, w} = PublishWindow.admit(w, 5, 1, 500)
       assert {:error, :frame_credits_exhausted} = PublishWindow.admit(w, 6, 1, 500)
     end
@@ -176,15 +173,16 @@ defmodule ServiceRadar.Edge.PublishWindowTest do
       {:outstanding_bytes, 1},
       {:outstanding_frames, 1},
       {:rearm, 3},
-      {:settle, 4},
-      {:wire_disposition, 1}
+      {:settle, 3},
+      {:wire_disposition, 1},
+      {:internal_outcomes, 0}
     ]
 
     test "the public surface is EXACTLY the classified inventory, PER KIND" do
       {:module, _} = Code.ensure_loaded(PublishWindow)
 
       # Compared SEPARATELY, not as one merged set. Merging them lets a kind substitution pass:
-      # turning `def settle/2` into `defmacro settle/2` leaves {:settle, 2} present either way,
+      # turning `def settle/3` into `defmacro settle/3` leaves {:settle, 2} present either way,
       # while changing the call semantics to compile-time expansion. The guard exists to make any
       # change of public surface explicit, and the KIND is part of that surface.
       functions = Enum.sort(PublishWindow.__info__(:functions))
@@ -200,12 +198,23 @@ defmodule ServiceRadar.Edge.PublishWindowTest do
                "removed #{inspect(@public_macros -- macros)}"
     end
 
-    test "expired/2 is a pure report: the window is unchanged by asking" do
-      w = admit!(window(), 1, 100, 100)
+    test "asking repeatedly does not drain capacity" do
+      # The previous version compared the immutable input to itself, which cannot fail. What is
+      # actually observable is CAPACITY: if asking released anything, available_* would move.
+      w = 2 |> window(500) |> admit!(1, 200, 100)
 
-      assert PublishWindow.expired(w, 999) === [1]
-      assert PublishWindow.expired(w, 999) === [1]
+      before_frames = PublishWindow.available_frames(w)
+      before_bytes = PublishWindow.available_bytes(w)
+
+      Enum.each(1..20, fn _ -> PublishWindow.expired(w, 999) end)
+
+      assert PublishWindow.available_frames(w) === before_frames
+      assert PublishWindow.available_bytes(w) === before_bytes
       assert PublishWindow.outstanding?(w, 1)
+
+      # NOT VACUOUS: settling DOES move those numbers, so the assertions above can fail.
+      {:ok, settled} = PublishWindow.settle(w, 1, @primary)
+      refute PublishWindow.available_bytes(settled) === before_bytes
     end
 
     test "expiry is inclusive of the deadline instant and ordered oldest first" do
@@ -225,7 +234,7 @@ defmodule ServiceRadar.Edge.PublishWindowTest do
     test "settling releases exactly that frame's bytes" do
       w = 4 |> window(1000) |> admit!(1, 250, 500) |> admit!(2, 125, 500)
 
-      {:ok, w} = PublishWindow.settle(w, 1, @primary, ack())
+      {:ok, w} = PublishWindow.settle(w, 1, @primary)
 
       assert PublishWindow.outstanding_bytes(w) === 125
       assert PublishWindow.available_bytes(w) === 875
@@ -235,12 +244,12 @@ defmodule ServiceRadar.Edge.PublishWindowTest do
 
     test "settling anything not outstanding is refused, not a silent no-op" do
       w = admit!(window(), 1, 100, 500)
-      {:ok, settled} = PublishWindow.settle(w, 1, @primary, ack())
+      {:ok, settled} = PublishWindow.settle(w, 1, @primary)
 
       # Never admitted, and already settled, are BOTH :not_outstanding. Telling them apart would
       # require retaining every settled sequence forever, which is the growth this bounds.
-      assert {:error, :not_outstanding} = PublishWindow.settle(w, 99, @primary, ack())
-      assert {:error, :not_outstanding} = PublishWindow.settle(settled, 1, @primary, ack())
+      assert {:error, :not_outstanding} = PublishWindow.settle(w, 99, @primary)
+      assert {:error, :not_outstanding} = PublishWindow.settle(settled, 1, @primary)
     end
   end
 
@@ -264,7 +273,7 @@ defmodule ServiceRadar.Edge.PublishWindowTest do
 
       assert PublishWindow.outstanding_bytes(w) === 400
 
-      {:ok, w} = PublishWindow.settle(w, 2, @primary, ack())
+      {:ok, w} = PublishWindow.settle(w, 2, @primary)
 
       assert PublishWindow.outstanding_bytes(w) === 150,
              "settling frame 2 did not release exactly its 250 bytes"
@@ -277,12 +286,12 @@ defmodule ServiceRadar.Edge.PublishWindowTest do
 
     test "a SECOND settlement releases nothing further" do
       w = 4 |> window(1000) |> admit!(1, 300, 500) |> admit!(2, 100, 500)
-      {:ok, once} = PublishWindow.settle(w, 1, @primary, ack())
+      {:ok, once} = PublishWindow.settle(w, 1, @primary)
 
       assert PublishWindow.outstanding_bytes(once) === 100
       assert PublishWindow.available_bytes(once) === 900
 
-      assert {:error, :not_outstanding} = PublishWindow.settle(once, 1, @primary, ack())
+      assert {:error, :not_outstanding} = PublishWindow.settle(once, 1, @primary)
 
       # The evidence that matters is the OBSERVABLE CAPACITY afterwards, not a comparison of an
       # immutable input to itself: a double-release would show up as 600 bytes outstanding or as
@@ -307,7 +316,7 @@ defmodule ServiceRadar.Edge.PublishWindowTest do
       assert {:error, :frame_credits_exhausted} = PublishWindow.admit(w, 4, 100, 1_000)
 
       # Settling ONE frame admits exactly ONE replacement, not more.
-      {:ok, w} = PublishWindow.settle(w, 2, @primary, ack())
+      {:ok, w} = PublishWindow.settle(w, 2, @primary)
 
       assert PublishWindow.available_frames(w) === 1
       assert PublishWindow.available_bytes(w) === 100
@@ -319,7 +328,7 @@ defmodule ServiceRadar.Edge.PublishWindowTest do
   describe "an expired frame can be re-armed without releasing credits" do
     test "rearm/3 moves the deadline and charges nothing" do
       # Without this the retry was UNREPRESENTABLE: admit/4 refuses an outstanding slot and
-      # settle/2 would release credits for a frame still in flight, so an expired frame could be
+      # settle/3 would release credits for a frame still in flight, so an expired frame could be
       # reported forever and never re-armed.
       w = 2 |> window(1000) |> admit!(1, 400, 100) |> admit!(2, 400, 100)
 
@@ -346,7 +355,7 @@ defmodule ServiceRadar.Edge.PublishWindowTest do
 
     test "re-arming something not outstanding is refused" do
       w = admit!(window(), 1, 100, 500)
-      {:ok, settled} = PublishWindow.settle(w, 1, @primary, ack())
+      {:ok, settled} = PublishWindow.settle(w, 1, @primary)
 
       assert {:error, :not_outstanding} = PublishWindow.rearm(w, 99, 900)
       assert {:error, :not_outstanding} = PublishWindow.rearm(settled, 1, 900)
@@ -356,10 +365,10 @@ defmodule ServiceRadar.Edge.PublishWindowTest do
     test "a re-armed frame settles exactly once, releasing its original bytes" do
       w = 2 |> window(1000) |> admit!(1, 375, 100)
       {:ok, w} = PublishWindow.rearm(w, 1, 900)
-      {:ok, w} = PublishWindow.settle(w, 1, @primary, ack())
+      {:ok, w} = PublishWindow.settle(w, 1, @primary)
 
       assert PublishWindow.outstanding_bytes(w) === 0
-      assert {:error, :not_outstanding} = PublishWindow.settle(w, 1, @primary, ack())
+      assert {:error, :not_outstanding} = PublishWindow.settle(w, 1, @primary)
     end
   end
 
@@ -402,7 +411,7 @@ defmodule ServiceRadar.Edge.PublishWindowTest do
         # coverage.
         if rem(i, 3) === 0 do
           case Map.keys(outstanding_seqs(w)) do
-            [seq | _] -> elem(PublishWindow.settle(w, seq, @primary, ack()), 1)
+            [seq | _] -> elem(PublishWindow.settle(w, seq, @primary), 1)
             [] -> w
           end
         else
@@ -412,139 +421,94 @@ defmodule ServiceRadar.Edge.PublishWindowTest do
     end
   end
 
-  describe "settling REQUIRES its PubAck" do
-    test "a resolving disposition without a PubAck is refused" do
-      # The requirement used to be prose in a docstring, so nothing enforced it: any caller could
-      # release budget for a frame whose fate was unknown while the comment read as a guard.
-      w = admit!(window(), 1, 100, 500)
+  describe "settling is ACCOUNTING ONLY, and says so" do
+    test "there is NO PubAck parameter, because an Ack-shaped map was not proof" do
+      # The previous arity took a raw map and called it evidence. It proved nothing: one
+      # bulk-stream ack settled all five terminal outcomes, and the same ack could settle a second
+      # lane sequence under a different outcome. Removing the parameter is the honest fix -- a
+      # weaker imitation of proof in front of a real gap is worse than an acknowledged gap.
+      {:module, _} = Code.ensure_loaded(PublishWindow)
 
-      assert {:error, :pub_ack_required} = PublishWindow.settle(w, 1, @primary, nil)
-
-      # Nothing was released.
-      assert PublishWindow.outstanding_bytes(w) === 100
-      assert PublishWindow.outstanding?(w, 1)
+      refute function_exported?(PublishWindow, :settle, 4)
+      assert function_exported?(PublishWindow, :settle, 3)
     end
 
     test "a RETRYABLE outcome does not settle at all" do
-      # Transient: the frame is still in flight and stays charged. Releasing on it would return
-      # budget for work the gateway has not accepted -- the same error as releasing on expiry.
       w = admit!(window(), 1, 100, 500)
 
-      assert {:error, :not_settled} = PublishWindow.settle(w, 1, @retryable, ack())
-      assert {:error, :not_settled} = PublishWindow.settle(w, 1, @retryable, nil)
-
+      assert {:error, :not_settled} = PublishWindow.settle(w, 1, @retryable)
       assert PublishWindow.outstanding_bytes(w) === 100
 
-      # The correct response is to re-arm and republish.
       assert {:ok, w} = PublishWindow.rearm(w, 1, 900)
       assert PublishWindow.outstanding_bytes(w) === 100
     end
 
-    test "every resolving kind settles when its PubAck is present" do
-      for kind <- [
-            :primary_publication,
-            :audit_publication,
-            :quarantine_publication,
-            :security_quarantine_publication,
-            :permanent_rejection
-          ] do
+    test "every settling outcome releases; the retryable one does not" do
+      for outcome <- PublishWindow.internal_outcomes() do
         w = admit!(window(), 1, 100, 500)
-        assert {:ok, settled} = PublishWindow.settle(w, 1, kind, ack()), "#{kind} did not settle"
-        assert PublishWindow.outstanding_bytes(settled) === 0
+        result = PublishWindow.settle(w, 1, outcome)
+
+        if outcome === @retryable do
+          assert {:error, :not_settled} = result
+        else
+          assert {:ok, settled} = result, "#{outcome} did not settle"
+          assert PublishWindow.outstanding_bytes(settled) === 0
+        end
       end
-    end
-
-    test "the settling set is EXACTLY the five publication outcomes" do
-      # SIX internal outcomes, FIVE of which settle. Derived by asking settle/4 rather than by
-      # restating a list, so an outcome added to the allowlist without classification shows here.
-      candidates = [
-        :primary_publication,
-        :audit_publication,
-        :quarantine_publication,
-        :security_quarantine_publication,
-        :permanent_rejection,
-        :retryable_rejection,
-        :some_future_outcome
-      ]
-
-      settling =
-        Enum.filter(candidates, fn outcome ->
-          w = admit!(window(), 1, 100, 500)
-          match?({:ok, _}, PublishWindow.settle(w, 1, outcome, ack()))
-        end)
-
-      assert settling === [
-               :primary_publication,
-               :audit_publication,
-               :quarantine_publication,
-               :security_quarantine_publication,
-               :permanent_rejection
-             ]
-    end
-
-    test "the wire mapping is five-to-six: both quarantines report ACCEPTED_QUARANTINE" do
-      # Task 3.5: the mapping is NOT one-to-one, which is why settle/4 takes the internal outcome.
-      # If it took the wire member it could not tell which destination's PubAck was required.
-      assert PublishWindow.wire_disposition(:quarantine_publication) ===
-               {:ok, :EDGE_RECORD_DISPOSITION_KIND_ACCEPTED_QUARANTINE}
-
-      assert PublishWindow.wire_disposition(:security_quarantine_publication) ===
-               {:ok, :EDGE_RECORD_DISPOSITION_KIND_ACCEPTED_QUARANTINE}
-
-      # Distinct internally, identical on the wire -- so the SECURITY routing path cannot be
-      # recovered from the wire member and must be preserved separately.
-      refute :quarantine_publication === :security_quarantine_publication
-
-      assert PublishWindow.wire_disposition(:retryable_rejection) ===
-               {:ok, :EDGE_RECORD_DISPOSITION_KIND_REJECTED_RETRYABLE}
-
-      assert PublishWindow.wire_disposition(:nope) === :error
-    end
-
-    test "evidence that is NOT a PubAck does not release credits" do
-      # `not is_nil/1` accepted every one of these. Each released credits for a frame whose fate
-      # was unknown -- a false, an error tuple, a bare atom, a malformed or wrong-shaped map.
-      for bogus <- [
-            false,
-            true,
-            :ok,
-            {:error, :timeout},
-            {:ok, %{}},
-            %{},
-            %{stream: "S"},
-            %{seq: 1},
-            %{stream: "", seq: 1},
-            %{stream: "S", seq: 0},
-            %{stream: "S", seq: -1},
-            %{stream: :atom_stream, seq: 1},
-            "PubAck",
-            0
-          ] do
-        w = admit!(window(), 1, 100, 500)
-
-        assert {:error, :pub_ack_required} = PublishWindow.settle(w, 1, @primary, bogus),
-               "#{inspect(bogus)} was accepted as PubAck evidence"
-
-        assert PublishWindow.outstanding_bytes(w) === 100
-      end
-
-      # ...and a well-formed one still settles, so the clause above did not refuse everything.
-      w = admit!(window(), 1, 100, 500)
-      assert {:ok, settled} = PublishWindow.settle(w, 1, @primary, %{stream: "S", seq: 1})
-      assert PublishWindow.outstanding_bytes(settled) === 0
     end
 
     test "an unknown internal outcome fails closed" do
       w = admit!(window(), 1, 100, 500)
 
       for bad <- [nil, :EDGE_RECORD_DISPOSITION_KIND_ACCEPTED_AUTHORITATIVE, :future, 99, "x"] do
-        assert {:error, :unknown_outcome} = PublishWindow.settle(w, 1, bad, ack()),
+        assert {:error, :unknown_outcome} = PublishWindow.settle(w, 1, bad),
                "#{inspect(bad)} was accepted"
       end
 
-      # A WIRE disposition is explicitly not an internal outcome: passing one is a caller error,
-      # not a synonym.
       assert PublishWindow.outstanding_bytes(w) === 100
+    end
+
+    test "the six-to-five mapping is EXACT and BIDIRECTIONAL against the generated enum" do
+      # The previous version checked only both quarantines plus retryable, so primary, audit and
+      # permanent could be remapped with it still green -- and it compared hard-coded atoms, so a
+      # rename or removal in the generated enum also left it green.
+      expected = %{
+        primary_publication: :EDGE_RECORD_DISPOSITION_KIND_ACCEPTED_AUTHORITATIVE,
+        audit_publication: :EDGE_RECORD_DISPOSITION_KIND_ACCEPTED_AUDIT_ONLY,
+        quarantine_publication: :EDGE_RECORD_DISPOSITION_KIND_ACCEPTED_QUARANTINE,
+        security_quarantine_publication: :EDGE_RECORD_DISPOSITION_KIND_ACCEPTED_QUARANTINE,
+        permanent_rejection: :EDGE_RECORD_DISPOSITION_KIND_REJECTED_PERMANENT,
+        retryable_rejection: :EDGE_RECORD_DISPOSITION_KIND_REJECTED_RETRYABLE
+      }
+
+      # FORWARD: the module's outcome inventory is exactly these six, and each maps as stated.
+      assert Enum.sort(PublishWindow.internal_outcomes()) === Enum.sort(Map.keys(expected))
+
+      for {outcome, wire} <- expected do
+        assert PublishWindow.wire_disposition(outcome) === {:ok, wire},
+               "#{outcome} no longer maps to #{wire}"
+      end
+
+      # BACKWARD: every wire member reached is a real member of the GENERATED enum, and the five
+      # distinct targets are exactly the enum's non-unspecified members. A rename or removal
+      # upstream fails here instead of leaving hard-coded atoms agreeing with themselves.
+      declared =
+        Serviceradar.Edge.V1.EdgeRecordDispositionKind.mapping()
+        |> Map.keys()
+        |> Enum.reject(&(&1 === :EDGE_RECORD_DISPOSITION_KIND_UNSPECIFIED))
+        |> Enum.sort()
+
+      assert expected |> Map.values() |> Enum.uniq() |> Enum.sort() === declared,
+             "the outcomes do not cover exactly the declared wire members"
+
+      # SIX to FIVE: the collapse is real, and it is the quarantine pair that collapses.
+      assert map_size(expected) === 6
+      assert expected |> Map.values() |> Enum.uniq() |> length() === 5
+
+      assert expected.quarantine_publication === expected.security_quarantine_publication
+      refute :quarantine_publication === :security_quarantine_publication
+
+      assert PublishWindow.wire_disposition(:nope) === :error
     end
   end
 
@@ -560,7 +524,7 @@ defmodule ServiceRadar.Edge.PublishWindowTest do
 
       settled =
         Enum.reduce(1..8, w, fn seq, acc ->
-          {:ok, acc} = PublishWindow.settle(acc, seq, @primary, ack())
+          {:ok, acc} = PublishWindow.settle(acc, seq, @primary)
           acc
         end)
 
@@ -575,7 +539,7 @@ defmodule ServiceRadar.Edge.PublishWindowTest do
 
       settled =
         Enum.reduce([3, 1, 4, 2], w, fn seq, acc ->
-          {:ok, acc} = PublishWindow.settle(acc, seq, @primary, ack())
+          {:ok, acc} = PublishWindow.settle(acc, seq, @primary)
           acc
         end)
 
@@ -606,7 +570,7 @@ defmodule ServiceRadar.Edge.PublishWindowTest do
             end
 
           {:settle, seq, _}, w ->
-            case PublishWindow.settle(w, seq, @primary, ack()) do
+            case PublishWindow.settle(w, seq, @primary) do
               {:ok, w2} -> w2
               {:error, _} -> w
             end
