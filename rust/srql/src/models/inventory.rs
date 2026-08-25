@@ -164,6 +164,7 @@ pub struct DeviceRow {
     pub discovery_sources: Option<Vec<String>>,
     pub is_available: Option<bool>,
     pub is_active: Option<bool>,
+    pub tags: Option<DbJson>,
     pub metadata: Option<DbJson>,
     pub deleted_at: Option<DateTime<Utc>>,
     pub deleted_by: Option<String>,
@@ -225,6 +226,9 @@ impl DeviceRow {
             "discovery_sources": self.discovery_sources.unwrap_or_default(),
             "is_available": self.is_available.unwrap_or(false),
             "is_active": self.is_active.unwrap_or(true),
+            "tags": self
+                .tags
+                .map_or(serde_json::json!({}), serde_json::Value::from),
             "metadata": self
                 .metadata
                 .map_or(serde_json::json!({}), serde_json::Value::from),
