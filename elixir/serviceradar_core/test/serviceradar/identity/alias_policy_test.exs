@@ -4,6 +4,10 @@ defmodule ServiceRadar.Identity.AliasPolicyTest do
   use ExUnit.Case, async: true
 
   alias ServiceRadar.Identity.AliasPolicy
+  alias ServiceRadar.Identity.DeviceLookup
+  alias ServiceRadar.Inventory.Identity.AliasGuard
+  alias ServiceRadar.Inventory.Identity.Resolver
+  alias ServiceRadar.Inventory.Sync.Lookups
 
   describe "valid_alias_ip?/1" do
     test "accepts routable addresses of both families" do
@@ -51,6 +55,38 @@ defmodule ServiceRadar.Identity.AliasPolicyTest do
       for value <- ["not-an-ip", "hostname.local", "1.2.3.4.5", :atom, 42, %{}] do
         refute AliasPolicy.valid_alias_ip?(value)
       end
+    end
+
+    test "rejects IPv4-mapped loopback and link-local" do
+      refute AliasPolicy.valid_alias_ip?("::ffff:169.254.1.1")
+      refute AliasPolicy.valid_alias_ip?("::ffff:127.0.0.1")
+      assert AliasPolicy.valid_alias_ip?("::ffff:192.168.1.1")
+      assert AliasPolicy.valid_alias_ip?("::ffff:8.8.8.8")
+    end
+  end
+
+  describe "identity readers fail closed on leftover link-local aliases" do
+    test "Resolver.lookup_alias_device_id does not treat fe80:: as merge evidence" do
+      assert {:ok, nil} = Resolver.lookup_alias_device_id("fe80::1", "default", nil)
+      assert {:ok, nil} = Resolver.lookup_alias_device_id("169.254.1.1", "default", nil)
+      assert {:ok, nil} = Resolver.lookup_alias_device_id("::ffff:169.254.1.1", "default", nil)
+    end
+
+    test "AliasGuard does not merge on a link-local IP" do
+      assert :ok =
+               AliasGuard.maybe_merge_ip_alias_device(
+                 "sr:a",
+                 %{ip: "fe80::1", partition: "default"},
+                 nil
+               )
+    end
+
+    test "DeviceLookup skips leftover link-local alias values" do
+      assert DeviceLookup.lookup_detected_aliases_by_ip(["fe80::1", "169.254.0.1"], []) == %{}
+    end
+
+    test "Lookups skips leftover link-local alias values" do
+      assert Lookups.lookup_alias_device_ids_by_ip(["fe80::1", "169.254.0.1"]) == %{}
     end
   end
 end

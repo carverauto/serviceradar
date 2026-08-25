@@ -118,11 +118,11 @@ def _integration_shards_topology_test_impl(ctx):
     serial_counts = serial_source_module_counts()
     serial_test_counts = serial_source_test_counts()
     selected_sources = integration_selected_sources()
-    asserts.equals(env, 123, len(async_sources))
+    asserts.equals(env, 126, len(async_sources))
     asserts.equals(env, 160, len(serial_counts))
     asserts.equals(env, 160, len(serial_test_counts))
     asserts.equals(env, sorted(serial_counts.keys()), sorted(serial_test_counts.keys()))
-    asserts.equals(env, 283, len(selected_sources))
+    asserts.equals(env, 286, len(selected_sources))
     asserts.equals(env, _FIXED_EXTERNAL_RESOURCE_SRCS, fixed_external_resource_sources())
 
     partitions = partition_by_lane(selected_sources)

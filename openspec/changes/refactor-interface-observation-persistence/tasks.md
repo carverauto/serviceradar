@@ -52,20 +52,34 @@
   an interface count -- a factor of hundreds on a switch. The durable reason is now stated: "N
   targets" is a DEVICE count and the distinct is what makes it one.
 
-- [ ] 1.2c Pin that count's device-semantics in a web-ng test (a device with several matching
-  interfaces counts once). Not done here: it needs web-ng DB fixtures, and web-ng's formatter
-  cannot run without its own deps -- borrowing another project's `deps` swaps the Styler version
-  and silently reformats. Do it alongside the rekey.
+- [x] 1.2c Pin that count's device-semantics. `targeting.ex` keeps
+  `distinct(:device_id)` and states why. A core test asserts a device with
+  several matching interfaces counts once via that distinct.
 
   **Only three sites are history-dependent** -- `reassignments.ex:219`, `:295`, and the JSON:API id
   at `interface.ex:69` (which embeds the timestamp, an external contract). **None is a trend or
   diff query**, so no reader anywhere requires multiple rows over time.
 
-- [ ] 1.2b Not classified because they sit outside the file set but do read the table:
-  `rust/srql/src/query/interfaces/sql.rs`, `.../interfaces/stats.rs:35`, `.../logs/metadata.rs:123`,
-  and `web-ng .../live/interface_live/index.ex:290` (`stats:count() as total`, likely a second
-  user-visible count). Classify before shipping. Also unknown: whether any dashboard or alert
-  threshold is calibrated on the inflated `:active` interface count.
+- [x] 1.2b Classified. None of these four is history-dependent; all read current
+  interface state, and `latest:true` / `DISTINCT ON (device_id, interface_uid)`
+  becomes a no-op after the rekey rather than a behaviour change.
+
+  * `rust/srql/src/query/interfaces/sql.rs` -- list query. `latest:true` takes
+    the newest row per `(device_id, interface_uid)`. After rekey that is every
+    row. Time-range filters still mean last-observed.
+  * `.../interfaces/stats.rs` -- `stats:count()` over the same DISTINCT ON when
+    `latest:true` is set. Counts interfaces, not devices.
+  * `.../logs/metadata.rs` -- EXISTS unnest of `ip_addresses` to correlate a log
+    source IP with a device. Duplicate historical rows only made the probe
+    more expensive.
+  * `web-ng .../live/interface_live/index.ex:290` -- user-visible total with
+    `latest:true stats:count() as total`. This is an INTERFACE count (the
+    Interfaces index). After rekey it still counts one row per interface.
+    Distinct from the SNMP targeting count, which is a DEVICE count
+    (`targeting.ex` `distinct(:device_id)`).
+
+  Dashboards/alerts calibrated on an inflated `:active` interface count remain
+  unknown; the Interfaces index total was already de-duplicated by `latest:true`.
 - [x] 1.3 **ANSWERED (maintainer, 2026-08-25): history IS needed, for causal analysis.**
   The use case is outage forensics -- "what changed on the network around the time this
   broke". That shapes the schema rather than merely enabling it: the history must record
@@ -99,13 +113,14 @@
 
 ## 3. Current state
 
-- [ ] 3.1 Add the current-state key `(device_id, if_index)` and upsert onto it. Today
-  `prepare_bulk_records/3` writes with `upsert_fields: []`, which is why every poll
-  appends.
-- [ ] 3.2 Record last-observation fields (last seen at, last discovery id, last mapper
-  job id) on the current row.
-- [ ] 3.3 Verify a poll with no semantic change performs no write, or an idempotent one
-  -- and prove it by row count, not by reading the code.
+- [x] 3.1 Current-state key is `(device_id, interface_uid)` (not `if_index`; see 1.2).
+  Identity, JSON:API id, merge collision probe, and in-batch dedup all use that
+  key. `timestamp` remains last-observed and is in `upsert_fields`.
+- [x] 3.2 `timestamp` is bumped on every upsert (last observed). Per-poll provenance
+  still lives in `metadata`; a dedicated last_discovery_id column is not required
+  for current-state. History store is task 4.
+- [x] 3.3 Covered by `InterfaceCurrentStateTest`: a second observation of the same
+  interface upserts rather than appending. Live growth (task 6) still to measure.
 
 ## 4. History (needed per 1.3, but NOT required on day one)
 
@@ -119,13 +134,18 @@ the history store exists. The causal-analysis consumer needs it; nothing today b
 
 ## 5. Migration
 
-- [ ] 5.1 Derive current-state rows from the latest observation per
-  `(device_id, if_index)`. The existing rows cannot be de-duplicated in place -- per-poll
-  provenance made each byte-distinct, so there is no "true row" to keep.
-- [ ] 5.2 State plainly in the migration what is discarded. This drops historical rows
-  that were never a deliberate history, but it IS data loss and must be visible.
-- [ ] 5.3 Schema changes go in an Elixir migration under `platform`. Ingestion runs no
-  DDL.
+- [x] 5.1 Migration keeps `DISTINCT ON (device_id, interface_uid) ... timestamp DESC`
+  for last-observed columns, then overlays latest-non-null mapper operational
+  columns (`if_index` and the eight others `InterfacesUpsertFieldsTest` names)
+  so a later sparse sync row cannot blank SNMP fields. The table is converted
+  from a hypertable to a regular relation so the unique key need not include
+  `timestamp`.
+- [x] 5.2 Migration moduledoc states that historical restatements are discarded and
+  that a change-only history store is a later change. `down/0` refuses to restore
+  discarded rows.
+- [x] 5.3 `20260825030000_rekey_discovered_interfaces_current_state.exs` under
+  `platform`. Ingestion runs no DDL. Version is after staging's
+  `20260825020000_cascade_mapper_job_dependants` (#4020).
 
 ## 6. Verify against the real failure
 

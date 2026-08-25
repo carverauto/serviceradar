@@ -1352,4 +1352,39 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestorTest do
       refute MapperResultsIngestor.valid_alias_ip?("0x7f000001")
     end
   end
+
+  describe "alias_ips_for_role/3" do
+    # This is the mapper producer, not AliasPolicy itself. A test of
+    # valid_alias_ip?/1 does not prove the mapper still consults it when it
+    # decides which addresses become identity aliases. GitHub #4022.
+    test "a router does not emit link-local interface addresses as identity aliases" do
+      assert MapperResultsIngestor.alias_ips_for_role(
+               "router",
+               "192.168.1.1",
+               ["fe80::1", "fe80::f692:bfff:fe75:c72a", "febf::1", "10.0.0.1"]
+             ) == ["192.168.1.1", "10.0.0.1"]
+    end
+
+    test "a non-router whose only address is link-local gets no identity alias" do
+      assert MapperResultsIngestor.alias_ips_for_role("host", "fe80::1", ["192.168.1.1"]) == []
+    end
+
+    test "IPv4 link-local (APIPA) is also excluded" do
+      assert MapperResultsIngestor.alias_ips_for_role(
+               "router",
+               "169.254.1.1",
+               ["192.168.1.1"]
+             ) == ["192.168.1.1"]
+    end
+  end
+
+  describe "find_device_uid_by_alias/3" do
+    test "does not treat leftover link-local :ip rows as merge evidence" do
+      assert {:ok, nil} =
+               MapperResultsIngestor.find_device_uid_by_alias("fe80::1", "default", nil)
+
+      assert {:ok, nil} =
+               MapperResultsIngestor.find_device_uid_by_alias("169.254.1.1", "default", nil)
+    end
+  end
 end

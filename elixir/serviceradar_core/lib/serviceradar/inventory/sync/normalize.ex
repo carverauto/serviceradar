@@ -5,6 +5,7 @@ defmodule ServiceRadar.Inventory.Sync.Normalize do
   IP enrichment).
   """
 
+  alias ServiceRadar.Identity.AliasPolicy
   alias ServiceRadar.Inventory.ActiveFingerprintPayload
   alias ServiceRadar.Inventory.DpiPayload
   alias ServiceRadar.Inventory.PassiveFingerprintPayload
@@ -357,15 +358,23 @@ defmodule ServiceRadar.Inventory.Sync.Normalize do
       alias_ips =
         alias_ips
         |> maybe_add_alias_ip(update.ip)
+        |> Enum.filter(&AliasPolicy.valid_alias_ip?/1)
         |> Enum.uniq()
 
-      metadata =
-        metadata
-        |> Map.put("_alias_last_seen_at", ts_string)
-        |> maybe_put("_alias_last_seen_ip", update.ip)
-        |> add_alias_ip_keys(alias_ips, ts_string)
+      if alias_ips == [] do
+        update
+      else
+        last_seen_ip =
+          if AliasPolicy.valid_alias_ip?(update.ip), do: update.ip
 
-      %{update | metadata: metadata, timestamp: timestamp}
+        metadata =
+          metadata
+          |> Map.put("_alias_last_seen_at", ts_string)
+          |> maybe_put("_alias_last_seen_ip", last_seen_ip)
+          |> add_alias_ip_keys(alias_ips, ts_string)
+
+        %{update | metadata: metadata, timestamp: timestamp}
+      end
     end
   end
 

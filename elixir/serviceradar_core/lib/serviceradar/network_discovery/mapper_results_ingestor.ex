@@ -1089,13 +1089,24 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
     :ok
   end
 
-  defp alias_ips_for_role("router", current_ip, stable_interface_ips) do
+  @doc """
+  Which addresses become identity (`:ip`) aliases for a mapper-discovered device.
+
+  Public as a testable seam: this is the mapper producer of alias evidence.
+  GitHub #4022 requires this path to be proven independently of `AliasPolicy`
+  and of `AliasEvents.process_and_persist/2`. A test of `valid_alias_ip?/1`
+  alone does not prove the mapper still consults it here.
+  """
+  def alias_ips_for_role(role, current_ip, stable_interface_ips),
+    do: do_alias_ips_for_role(role, current_ip, stable_interface_ips)
+
+  defp do_alias_ips_for_role("router", current_ip, stable_interface_ips) do
     [current_ip | stable_interface_ips]
     |> Enum.filter(&valid_alias_ip?/1)
     |> Enum.uniq()
   end
 
-  defp alias_ips_for_role(_role, current_ip, _stable_interface_ips) do
+  defp do_alias_ips_for_role(_role, current_ip, _stable_interface_ips) do
     if valid_alias_ip?(current_ip), do: [current_ip], else: []
   end
 
@@ -1703,7 +1714,16 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
       :ok
   end
 
-  defp find_device_uid_by_alias(device_ip, partition, actor) do
+  @doc false
+  def find_device_uid_by_alias(device_ip, partition, actor) do
+    if AliasPolicy.valid_alias_ip?(device_ip) do
+      do_find_device_uid_by_alias(device_ip, partition, actor)
+    else
+      {:ok, nil}
+    end
+  end
+
+  defp do_find_device_uid_by_alias(device_ip, partition, actor) do
     case DeviceAliasState.lookup_by_value(:ip, device_ip, actor: actor) do
       {:ok, aliases} ->
         aliases
@@ -1768,10 +1788,15 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
     {state_rank, sighting_count, last_seen_unix}
   end
 
-  defp maybe_reactivate_alias(%DeviceAliasState{state: :stale} = alias_state, actor) do
-    alias_state
-    |> Ash.Changeset.for_update(:reactivate, %{})
-    |> Ash.update(actor: actor)
+  defp maybe_reactivate_alias(
+         %DeviceAliasState{state: :stale, alias_value: value} = alias_state,
+         actor
+       ) do
+    if AliasPolicy.valid_alias_ip?(value) do
+      alias_state
+      |> Ash.Changeset.for_update(:reactivate, %{})
+      |> Ash.update(actor: actor)
+    end
 
     :ok
   rescue
@@ -3816,10 +3841,7 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
     filtered = Enum.reject(records, &missing_interface_identity?/1)
     log_filtered_interfaces(records, filtered)
 
-    deduped =
-      filtered
-      |> Enum.uniq_by(&interface_identity_key/1)
-      |> dedupe_by_interface()
+    deduped = dedupe_by_interface(filtered)
 
     log_deduped_interfaces(filtered, deduped)
 
@@ -3832,19 +3854,12 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
        upsert_identity: :unique_interface,
        # Enumerated, and deliberately NOT shared with the sync writer.
        #
-       # `[]` is inert today because :unique_interface still contains :timestamp,
-       # so a poll never conflicts -- it inserts. The moment that key drops
-       # :timestamp (refactor-interface-observation-persistence), ash_postgres
-       # turns an empty list into `DO UPDATE SET <key> = EXCLUDED.<key>`, which
-       # freezes every column at its first-observed value forever. Listing the
-       # fields now makes the rekey a key change and nothing else.
-       #
-       # A writer must list ONLY the fields it actually sets. `inventory/sync/`
-       # does not set if_index, if_speed, speed_bps, if_admin_status,
-       # if_oper_status, if_type, mtu, duplex or available_metrics; if it shared
-       # this list it would write NULL over the mapper's operational data on
-       # every sync run. That failure is invisible until after the rekey, which
-       # is why the two lists are separate rather than a shared constant.
+       # An empty list becomes `DO UPDATE SET <key> = EXCLUDED.<key>` and
+       # freezes every column at its first-observed value. A writer must list
+       # ONLY the fields it actually sets. `inventory/sync/` does not set
+       # if_index, if_speed, speed_bps, if_admin_status, if_oper_status,
+       # if_type, mtu, duplex or available_metrics; if it shared this list it
+       # would write NULL over the mapper's operational data on every sync run.
        #
        # :created_at is excluded on purpose -- first observation, not latest.
        upsert_fields: [
@@ -4126,8 +4141,8 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
   defp bulk_error_message(error), do: inspect(error)
 
   defp missing_interface_identity?(record) do
-    key = interface_identity_key(record)
-    elem(key, 0) == nil or elem(key, 1) == nil or elem(key, 2) == nil
+    is_nil(get_record_value(record, :device_id, "device_id")) or
+      is_nil(get_record_value(record, :interface_uid, "interface_uid"))
   end
 
   defp log_filtered_interfaces(records, filtered) do
@@ -4167,16 +4182,6 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
   end
 
   defp timescaledb_pkey_violation?(_), do: false
-
-  defp interface_identity_key(record) when is_map(record) do
-    {
-      get_record_value(record, :timestamp, "timestamp"),
-      get_record_value(record, :device_id, "device_id"),
-      get_record_value(record, :interface_uid, "interface_uid")
-    }
-  end
-
-  defp interface_identity_key(_record), do: {nil, nil, nil}
 
   defp get_record_value(record, atom_key, string_key) when is_map(record) do
     Map.get(record, atom_key) || Map.get(record, string_key)

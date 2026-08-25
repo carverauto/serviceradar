@@ -2,11 +2,9 @@ defmodule ServiceRadar.Inventory.Sync.InterfacesUpsertFieldsTest do
   @moduledoc """
   The sync writer may only overwrite fields it actually sets.
 
-  `upsert_fields: []` is inert today because `:unique_interface` still contains
-  `:timestamp`, so a poll never conflicts. Once that key drops `:timestamp`
-  (refactor-interface-observation-persistence) conflicts start happening on every
-  poll, and a field listed here that the builder does not set writes NULL over
-  whatever the mapper wrote.
+  A field listed here that the builder does not set writes NULL over
+  whatever the mapper wrote, on every poll, because `:unique_interface` is
+  current-state `(device_id, interface_uid)`.
 
   This writer does not populate `if_index`, `if_speed`, `speed_bps`,
   `if_admin_status`, `if_oper_status`, `if_type`, `mtu`, `duplex` or

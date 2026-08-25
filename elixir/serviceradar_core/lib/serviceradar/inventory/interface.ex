@@ -2,9 +2,9 @@ defmodule ServiceRadar.Inventory.Interface do
   @moduledoc """
   Network interface resource for discovered interfaces.
 
-  Maps to the `discovered_interfaces` TimescaleDB hypertable which stores
-  interface observations. Each record represents an interface state at a
-  specific point in time. Retention policy keeps recent observations (3 days).
+  Maps to `platform.discovered_interfaces`, which stores current interface
+  state: one row per `(device_id, interface_uid)`, upserted. `timestamp` is
+  last observed, not part of the identity.
 
   ## Admin/Oper Status Values
 
@@ -67,7 +67,7 @@ defmodule ServiceRadar.Inventory.Interface do
 
     # Composite primary key: use delimiter-based encoding
     primary_key do
-      keys [:timestamp, :device_id, :interface_uid]
+      keys [:device_id, :interface_uid]
       delimiter "~"
     end
 
@@ -171,12 +171,14 @@ defmodule ServiceRadar.Inventory.Interface do
   end
 
   attributes do
-    # Composite primary key: timestamp + device_id + interface_uid
+    # Last-observed. Identity is (device_id, interface_uid); putting timestamp
+    # on the Ash primary key is the append-only mechanism GitHub #4021 removes.
+    # Ash bulk update/destroy identify rows by this key, so it must match
+    # Postgres PRIMARY KEY (device_id, interface_uid).
     attribute :timestamp, :utc_datetime do
       allow_nil? false
-      primary_key? true
       public? true
-      description "When interface was discovered/updated"
+      description "When interface was last observed"
     end
 
     attribute :device_id, :string do
@@ -446,7 +448,8 @@ defmodule ServiceRadar.Inventory.Interface do
   def canonical_ip_addresses(_addresses), do: []
 
   identities do
-    # Identity for composite primary key - used for upsert operations
-    identity :unique_interface, [:timestamp, :device_id, :interface_uid]
+    # Current-state identity. :timestamp is last-observed, not part of the key
+    # -- including it is what made every poll insert. GitHub #4021.
+    identity :unique_interface, [:device_id, :interface_uid]
   end
 end
