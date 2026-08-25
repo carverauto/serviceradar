@@ -253,7 +253,8 @@ The wire `resolved_through_sequence` is the REMOTE terminal-disposition-through
 watermark (what the gateway resolved): it advances only across a contiguous run for
 which every sequence is accepted-authoritative (primary-stream PubAck),
 accepted-audit-only (audit-stream PubAck), accepted-quarantine (quarantine-DLQ
-PubAck), or rejected-permanent (reject-audit DLQ PubAck); a rejected-retryable
+PubAck), accepted-quarantine via the SECURITY-quarantine DLQ PubAck, or
+rejected-permanent (reject-audit DLQ PubAck); a rejected-retryable
 outcome leaves that sequence and every higher sequence unresolved and MUST NOT
 advance the prefix. The agent maintains a SEPARATE durable local reclaim watermark
 that advances a spool sequence only AFTER the agent's own local durability for that
@@ -1000,8 +1001,11 @@ For every delivery frame the gateway:
    waits for PubAck.
 8. Returns accepted/rejected dispositions and advances only the contiguous
    resolved spool prefix after the required PubAck for a primary-stream,
-   audit-stream, quarantine-DLQ, or reject-audit-DLQ disposition; a retryable
-   rejection never advances it.
+   audit-stream, quarantine-DLQ, SECURITY-quarantine-DLQ, or reject-audit-DLQ
+   disposition; a retryable rejection never advances it. The security-quarantine
+   PubAck is listed EXPLICITLY because both quarantine variants collapse onto one
+   wire member: omitting it from an exhaustive list lets a compromise-revoked
+   record reach its DLQ and then pin the resolved prefix forever.
 
 
 The JetStream body is the exact deterministic `EdgeRecordV1` binary produced and

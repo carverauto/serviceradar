@@ -58,6 +58,10 @@ defmodule ServiceRadar.Edge.PublishWindow do
       settle an unknown internal outcome         -> {:error, :unknown_outcome}
       settle anything not outstanding            -> {:error, :not_outstanding}
 
+  PRECEDENCE: the outcome is checked FIRST, so an unknown outcome on a sequence that is also not
+  outstanding reports `:unknown_outcome`, not `:not_outstanding`. The last row holds only for a
+  known settling outcome.
+
   `settle/3` does NOT distinguish "never admitted" from "already settled", and does not pretend
   to: once a slot leaves the window there is nothing retained to tell the two apart. Reporting
   them separately would require keeping every settled sequence forever, which is the unbounded
@@ -134,9 +138,11 @@ defmodule ServiceRadar.Edge.PublishWindow do
   @doc """
   Admits one frame into the window, charging `bytes` and recording its PubAck deadline.
 
-  `bytes` is whatever the caller passes. NOTHING here binds it to the actual encoded frame size --
-  that binding is owed by the part-3 publisher, and until it exists the byte bound is only as
-  accurate as its caller.
+  `bytes` is whatever the caller passes. NOTHING here binds it to the actual encoded frame size.
+  That binding is owed by TASK 3.4 -- which requires publishing the exact
+  `EdgeDeliveryFrameV1.record_bytes` and bounding asynchronous publication by encoded bytes --
+  together with the remaining 3.3(c) publisher integration. Until it exists the byte bound is only
+  as accurate as its caller.
 
   `deadline_at` is a monotonic instant supplied by the caller; this module never reads a clock and
   does NOT own the deadline POLICY -- how long an attempt may wait is the publisher's.
@@ -199,8 +205,8 @@ defmodule ServiceRadar.Edge.PublishWindow do
   THE CALLER MUST have verified, before calling: that a validated PubAck exists for this exact
   publication attempt, that it came from the destination the outcome requires, and that it
   corresponds to this record identity. None of that is checkable here, and pretending otherwise put
-  a false guarantee in front of a real gap. Task 3.5's enforcement is OWED by the part-3 publisher
-  and remains OPEN.
+  a false guarantee in front of a real gap. That enforcement is OWED by TASK 3.5 together with the
+  remaining 3.3(c) publisher integration, and remains OPEN.
 
   `outcome` is one of task 3.5's SIX INTERNAL OUTCOMES, not a wire disposition -- the wire has five
   members and cannot distinguish `quarantine_publication` from `security_quarantine_publication`,
