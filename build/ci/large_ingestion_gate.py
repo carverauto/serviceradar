@@ -337,6 +337,17 @@ class GhStatusClient:
         ]
         child_environment = dict(self.environment)
         child_environment["GH_TOKEN"] = self.token
+        # bazel run's hermetic PATH is the Python toolchain plus /bin:/usr/bin.
+        # The signing runner's `gh` lives in $HOME/.local/bin (or /usr/local/bin)
+        # and is invisible unless we put those directories back.
+        path_parts = ["/usr/local/bin", "/usr/bin", "/bin"]
+        home = child_environment.get("HOME")
+        if isinstance(home, str) and home:
+            path_parts.insert(0, str(Path(home) / ".local" / "bin"))
+        existing_path = child_environment.get("PATH")
+        if isinstance(existing_path, str) and existing_path:
+            path_parts.append(existing_path)
+        child_environment["PATH"] = ":".join(path_parts)
         try:
             result = self.runner(
                 argv,

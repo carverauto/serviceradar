@@ -568,8 +568,27 @@ class GhStatusClientTest(unittest.TestCase):
         self.assertIs(False, kwargs["shell"])
         self.assertTrue(kwargs["capture_output"])
         self.assertEqual("top-secret", kwargs["env"]["GH_TOKEN"])
+        self.assertTrue(kwargs["env"]["PATH"].startswith("/usr/local/bin:/usr/bin:/bin:"))
+        self.assertIn("/bin", kwargs["env"]["PATH"])
         self.assertNotIn("top-secret", repr(argv))
         self.assertNotIn("top-secret", repr(kwargs.get("errors")))
+
+    def test_home_local_bin_is_prepended_when_home_is_set(self):
+        payload = [[
+            {"state": "success", "context": gate.STATUS_CONTEXT, "target_url": VALID_URL,
+             "created_at": "2026-08-23T12:00:00Z", "id": 8},
+        ]]
+        runner = QueueRunner([completed(stdout=json.dumps(payload).encode())])
+        client = gate.GhStatusClient(
+            "carverauto/serviceradar", RELEASE, "top-secret", runner,
+            {"PATH": "/bin", "HOME": "/tmp/release-home"},
+        )
+        client.snapshot(30)
+        path = runner.calls[0][1]["env"]["PATH"]
+        self.assertEqual(
+            "/tmp/release-home/.local/bin:/usr/local/bin:/usr/bin:/bin:/bin",
+            path,
+        )
 
     def test_pagination_newer_later_page_is_visible_to_latest_selection(self):
         payload = [[
