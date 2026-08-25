@@ -3,6 +3,19 @@ const SYNTHETIC_ENVELOPE = 0
 const NODE_SPACING = 96
 const SCENE_PADDING = 64
 const EPSILON = 0.01
+const RADIAL_BASE_RADIUS = SEMANTIC_ENVELOPE * 2
+const RADIAL_RADIUS_ATTEMPTS = Object.freeze([
+  RADIAL_BASE_RADIUS,
+  RADIAL_BASE_RADIUS * 2,
+  RADIAL_BASE_RADIUS * 4,
+])
+
+class RetryableRadialGeometryError extends Error {
+  constructor(message) {
+    super(message)
+    this.name = "RetryableRadialGeometryError"
+  }
+}
 
 function isFinitePoint(point) {
   return Number.isFinite(point?.x) && Number.isFinite(point?.y)
@@ -202,7 +215,7 @@ function chordForRelation(relation, nodeById) {
   if (!source || !target) throw new Error(`relation ${relation.id} has no semantic geometry endpoint`)
   const identicalCenters = Math.abs(source.center.x - target.center.x) <= EPSILON
     && Math.abs(source.center.y - target.center.y) <= EPSILON
-  if (identicalCenters) throw new Error(`relation ${relation.id} has coincident semantic geometry`)
+  if (identicalCenters) throw new RetryableRadialGeometryError(`relation ${relation.id} has coincident semantic geometry`)
   return [
     clippedPoint(source.center, target.center, source.width, source.height),
     clippedPoint(target.center, source.center, target.width, target.height),
@@ -253,7 +266,7 @@ function indexElkLayout(node, origin, records, edges, isRoot = false) {
   for (const child of node.children || []) indexElkLayout(child, currentOrigin, records, edges)
 }
 
-export function buildElkRadialOverviewGraph(input) {
+export function buildElkRadialOverviewGraph(input, {radius = RADIAL_BASE_RADIUS} = {}) {
   assertInput(input)
   const nodes = expectedNodes(input)
   const semantic = semanticNodes(input)
@@ -264,6 +277,9 @@ export function buildElkRadialOverviewGraph(input) {
       "elk.algorithm": "radial",
       "org.eclipse.elk.radial.centerOnRoot": "true",
       "org.eclipse.elk.radial.sorter": "ID",
+      "org.eclipse.elk.radial.radius": String(radius),
+      "org.eclipse.elk.radial.compactor": "NONE",
+      "org.eclipse.elk.radial.wedgeCriteria": "NODE_SIZE",
       "elk.spacing.nodeNode": String(NODE_SPACING),
       "elk.padding": `[top=${SCENE_PADDING},left=${SCENE_PADDING},bottom=${SCENE_PADDING},right=${SCENE_PADDING}]`,
     },
@@ -457,11 +473,20 @@ export function validateTopologyOverview(scene, input) {
 
 export async function layoutTopologyOverview(input, elk) {
   if (!elk || typeof elk.layout !== "function") throw new Error("ELK layout engine is unavailable")
-  const layout = await elk.layout(buildElkRadialOverviewGraph(input))
-  const scene = decodeElkRadialOverview(layout, input)
-  const validation = validateTopologyOverview(scene, input)
-  if (!validation.ok) throw new Error(`invalid radial topology overview: ${validation.errors.join("; ")}`)
-  return scene
+  let lastFailure = "unknown geometry failure"
+  for (const radius of RADIAL_RADIUS_ATTEMPTS) {
+    const layout = await elk.layout(buildElkRadialOverviewGraph(input, {radius}))
+    try {
+      const scene = decodeElkRadialOverview(layout, input)
+      const validation = validateTopologyOverview(scene, input)
+      if (validation.ok) return scene
+      lastFailure = validation.errors.join("; ") || lastFailure
+    } catch (error) {
+      if (!(error instanceof RetryableRadialGeometryError)) throw error
+      lastFailure = error.message
+    }
+  }
+  throw new Error(`invalid radial topology overview: ${lastFailure}`)
 }
 
 export function applyTopologyOverviewToGraph(graph, scene) {

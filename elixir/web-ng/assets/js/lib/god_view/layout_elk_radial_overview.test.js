@@ -8,6 +8,7 @@ import {
   layoutTopologyOverview,
   validateTopologyOverview,
 } from "./layout_elk_radial_overview"
+import {prepareTopologyOverviewInput} from "./topology_overview_projection"
 
 function overviewInput() {
   return {
@@ -109,6 +110,91 @@ function numericIdOverviewInput() {
   }
 }
 
+function densePollutedRadialGraph(endpointCount = 160) {
+  const nodes = [
+    {id: "core", details: {type: "Router", device_role: "router", topology_plane: "backbone"}},
+    {id: "access", details: {type: "Switch", device_role: "switch_l2", topology_plane: "backbone"}},
+    ...Array.from({length: endpointCount}, (_, index) => ({
+      id: `attachment-${String(index).padStart(3, "0")}`,
+      details: {
+        type: "unknown",
+        identity_source: "endpoint_attachment_projection",
+        topology_plane: "backbone",
+      },
+    })),
+  ]
+  return {
+    nodes,
+    edges: [
+      {
+        id: "core-access",
+        source: 0,
+        target: 1,
+        topologyClass: "backbone",
+        evidenceClass: "direct",
+        metadata: {evidence_class: "direct-physical", relation_type: "CONNECTS_TO", topology_plane: "backbone"},
+      },
+      ...nodes.slice(2).map((node, index) => ({
+        id: `access-${node.id}`,
+        source: 1,
+        target: index + 2,
+        topologyClass: "inferred",
+        evidenceClass: "inferred",
+        metadata: {
+          connectivity_forest_bridge: true,
+          evidence_class: "inferred",
+          relation_type: "INFERRED_TO",
+          topology_plane: "backbone",
+        },
+      })),
+    ],
+  }
+}
+
+function crowdedComponentForestInput() {
+  const nodes = Array.from({length: 20}, (_, index) => ({
+    id: `node-${String(index).padStart(2, "0")}`,
+    label: `Node ${index}`,
+    role: index < 2 ? "summary" : "infrastructure",
+    type: index < 2 ? "endpoint-summary" : "switch",
+  }))
+  const semanticPairs = [
+    [3, 6], [3, 19], [6, 17], [17, 13],
+    [4, 10], [4, 15], [15, 5], [5, 2], [2, 9], [2, 11], [2, 16], [2, 18],
+    [12, 7], [12, 8], [12, 14],
+    [3, 0], [4, 1],
+  ]
+  const treeRelations = semanticPairs.map(([source, target], index) => ({
+    id: `relation-${String(index).padStart(2, "0")}`,
+    sourceId: nodes[source].id,
+    targetId: nodes[target].id,
+    semanticRelationIds: [`wire-${String(index).padStart(2, "0")}`],
+  }))
+  const rootIds = [3, 4, 12].map((index) => nodes[index].id)
+  const syntheticRelations = rootIds.map((rootId) => ({
+    id: `overview:super-root|${rootId}`,
+    sourceId: "overview:super-root",
+    targetId: rootId,
+    synthetic: true,
+  }))
+
+  return {
+    nodes: [
+      ...nodes,
+      {id: "overview:super-root", label: "", role: "synthetic", type: "super-root", synthetic: true, width: 0, height: 0},
+    ],
+    roots: rootIds,
+    treeRelations: [...treeRelations, ...syntheticRelations],
+    crossLinks: [],
+    synthetic: {
+      nodeIds: ["overview:super-root"],
+      relationIds: syntheticRelations.map((relation) => relation.id),
+    },
+    graphKey: "crowded-component-forest",
+    manifest: {glyphs: nodes.length, treeRelations: treeRelations.length, crossLinks: 0},
+  }
+}
+
 describe("layout_elk_radial_overview", () => {
   it("builds a deterministic Radial forest without cross-link geometry", () => {
     const graph = buildElkRadialOverviewGraph(disconnectedOverviewInput())
@@ -117,6 +203,9 @@ describe("layout_elk_radial_overview", () => {
       "elk.algorithm": "radial",
       "org.eclipse.elk.radial.centerOnRoot": "true",
       "org.eclipse.elk.radial.sorter": "ID",
+      "org.eclipse.elk.radial.radius": "224",
+      "org.eclipse.elk.radial.compactor": "NONE",
+      "org.eclipse.elk.radial.wedgeCriteria": "NODE_SIZE",
     })
     expect(graph.children.map((node) => node.id)).toEqual(["alpha", "beta", "gamma", "overview:super-root"])
     expect(graph.edges.map((edge) => edge.id)).toEqual([
@@ -136,6 +225,75 @@ describe("layout_elk_radial_overview", () => {
     const layout = await new ELK().layout(buildElkRadialOverviewGraph(disconnectedOverviewInput()))
 
     expect(layout.children.map((node) => node.id)).toContain("overview:super-root")
+  })
+
+  it("lays out a crowded multi-component transport forest without semantic geometry conflicts", async () => {
+    const input = crowdedComponentForestInput()
+    const scene = await layoutTopologyOverview(input, new ELK())
+
+    expect(scene.nodes).toHaveLength(20)
+    expect(scene.routes).toHaveLength(17)
+    expect(validateTopologyOverview(scene, input)).toEqual({ok: true, errors: []})
+  })
+
+  it("retries invalid Radial geometry with deterministic bounded ring radii", async () => {
+    const attemptedRadii = []
+    const firstLayout = elkLayout()
+    firstLayout.children = firstLayout.children.map((node) => node.id === "gamma" ? {...node, x: 130, y: 0} : node)
+    const elk = {
+      async layout(graph) {
+        attemptedRadii.push(graph.layoutOptions["org.eclipse.elk.radial.radius"])
+        return attemptedRadii.length === 1 ? firstLayout : elkLayout()
+      },
+    }
+
+    const scene = await layoutTopologyOverview(overviewInput(), elk)
+
+    expect(attemptedRadii).toEqual(["224", "448"])
+    expect(validateTopologyOverview(scene, overviewInput())).toEqual({ok: true, errors: []})
+  })
+
+  it("retries coincident semantic centers with the next bounded ring radius", async () => {
+    const attemptedRadii = []
+    const coincidentLayout = elkLayout()
+    coincidentLayout.children = coincidentLayout.children.map((node) => node.id === "beta" ? {...node, x: 0, y: 0} : node)
+    const elk = {
+      async layout(graph) {
+        attemptedRadii.push(graph.layoutOptions["org.eclipse.elk.radial.radius"])
+        return attemptedRadii.length === 1 ? coincidentLayout : elkLayout()
+      },
+    }
+
+    const scene = await layoutTopologyOverview(overviewInput(), elk)
+
+    expect(attemptedRadii).toEqual(["224", "448"])
+    expect(validateTopologyOverview(scene, overviewInput())).toEqual({ok: true, errors: []})
+  })
+
+  it("fails closed after the bounded Radial radius attempts are exhausted", async () => {
+    const attemptedRadii = []
+    const invalidLayout = elkLayout()
+    invalidLayout.children = invalidLayout.children.map((node) => node.id === "gamma" ? {...node, x: 130, y: 0} : node)
+    const elk = {
+      async layout(graph) {
+        attemptedRadii.push(graph.layoutOptions["org.eclipse.elk.radial.radius"])
+        return invalidLayout
+      },
+    }
+
+    await expect(layoutTopologyOverview(overviewInput(), elk)).rejects.toThrow(
+      "route alpha-beta intersects nonincident node gamma",
+    )
+    expect(attemptedRadii).toEqual(["224", "448", "896"])
+  })
+
+  it("lays out the bounded backbone instead of a high-cardinality inferred endpoint fanout", async () => {
+    const input = prepareTopologyOverviewInput(densePollutedRadialGraph())
+    const scene = await layoutTopologyOverview(input, new ELK())
+
+    expect(input.manifest).toMatchObject({glyphs: 2, treeRelations: 1, omittedAttachmentNodes: 160})
+    expect(scene.nodes.map((node) => node.id)).toEqual(["access", "core"])
+    expect(validateTopologyOverview(scene, input)).toEqual({ok: true, errors: []})
   })
 
   it("decodes only semantic Radial geometry, clips tree chords, and retains disclosure metadata", () => {

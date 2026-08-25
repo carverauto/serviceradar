@@ -3,6 +3,72 @@ import {describe, expect, it} from "vitest"
 import {collapsedFarm01Graph, expandedFarm01Graph, reverseGraphArrays} from "./fixtures/farm01_topology_regression"
 import {prepareTopologyOverviewInput} from "./topology_overview_projection"
 
+function denseLowTrustFanoutGraph(endpointCount = 160) {
+  const nodes = [
+    {id: "core", details: {type: "Router", device_role: "router", topology_plane: "backbone"}},
+    {id: "access", details: {type: "Switch", device_role: "switch_l2", topology_plane: "backbone"}},
+    {id: "handoff", details: {type: "Firewall", identity_source: "inventory", topology_plane: "backbone"}},
+    {id: "sighting", details: {type: "Router", identity_source: "mapper_topology_sighting", topology_plane: "backbone"}},
+    {id: "guest", details: {type: "Virtual", device_role: "virtual-guest", topology_plane: "backbone"}},
+    ...Array.from({length: endpointCount}, (_, index) => ({
+      id: `attachment-${String(index).padStart(3, "0")}`,
+      details: {
+        type: index === 0 ? "Switch" : "unknown",
+        identity_source: "endpoint_attachment_projection",
+        topology_plane: "backbone",
+      },
+    })),
+  ]
+  const indexById = new Map(nodes.map((node, index) => [node.id, index]))
+  const inferred = (targetId, id) => ({
+    id,
+    source: indexById.get("access"),
+    target: indexById.get(targetId),
+    topologyClass: "inferred",
+    evidenceClass: "inferred",
+    metadata: {
+      connectivity_forest_bridge: true,
+      evidence_class: "inferred",
+      relation_type: "INFERRED_TO",
+      topology_plane: "backbone",
+    },
+  })
+
+  return {
+    nodes,
+    edges: [
+      {
+        id: "core-access",
+        source: indexById.get("core"),
+        target: indexById.get("access"),
+        topologyClass: "backbone",
+        evidenceClass: "direct",
+        metadata: {evidence_class: "direct-physical", relation_type: "CONNECTS_TO", topology_plane: "backbone"},
+      },
+      {
+        id: "core-handoff",
+        source: indexById.get("core"),
+        target: indexById.get("handoff"),
+        topologyClass: "backbone",
+        evidenceClass: "direct",
+        metadata: {evidence_class: "direct-physical", relation_type: "CONNECTS_TO", topology_plane: "backbone"},
+      },
+      inferred("sighting", "access-sighting"),
+      {
+        id: "core-guest",
+        source: indexById.get("core"),
+        target: indexById.get("guest"),
+        topologyClass: "hosted",
+        evidenceClass: "hosted",
+        metadata: {evidence_class: "hosted-virtual", relation_type: "HOSTED_ON", topology_plane: "hosted"},
+      },
+      ...nodes
+        .filter((node) => node.id.startsWith("attachment-"))
+        .map((node) => inferred(node.id, `access-${node.id}`)),
+    ],
+  }
+}
+
 describe("topology_overview_projection", () => {
   it("is invariant under shuffled farm01 input", () => {
     const forward = prepareTopologyOverviewInput(collapsedFarm01Graph())
@@ -40,9 +106,9 @@ describe("topology_overview_projection", () => {
   it("selects two trusted cycle edges and preserves the rejected pair as a cross-link", () => {
     const overview = prepareTopologyOverviewInput({
       nodes: [
-        {id: "gamma", details: {topology_plane: "backbone"}},
-        {id: "alpha", details: {topology_plane: "backbone"}},
-        {id: "beta", details: {topology_plane: "backbone"}},
+        {id: "gamma", details: {type: "Switch", topology_plane: "backbone"}},
+        {id: "alpha", details: {type: "Router", topology_plane: "backbone"}},
+        {id: "beta", details: {type: "Switch", topology_plane: "backbone"}},
       ],
       edges: [
         {id: "gamma-alpha", source: 0, target: 1, topologyClass: "backbone", evidenceClass: "direct"},
@@ -65,10 +131,10 @@ describe("topology_overview_projection", () => {
   it("adds an ELK-only super-root for disconnected components without including it in the semantic manifest", () => {
     const overview = prepareTopologyOverviewInput({
       nodes: [
-        {id: "bravo", details: {topology_plane: "backbone"}},
-        {id: "alpha", details: {topology_plane: "backbone"}},
-        {id: "delta", details: {topology_plane: "backbone"}},
-        {id: "charlie", details: {topology_plane: "backbone"}},
+        {id: "bravo", details: {type: "Switch", topology_plane: "backbone"}},
+        {id: "alpha", details: {type: "Router", topology_plane: "backbone"}},
+        {id: "delta", details: {type: "Switch", topology_plane: "backbone"}},
+        {id: "charlie", details: {type: "Router", topology_plane: "backbone"}},
       ],
       edges: [
         {id: "bravo-alpha", source: 0, target: 1, topologyClass: "backbone"},
@@ -93,8 +159,8 @@ describe("topology_overview_projection", () => {
   it("omits malformed and self-loop input while aggregating duplicate semantic evidence deterministically", () => {
     const graph = {
       nodes: [
-        {id: " beta ", details: {topology_plane: "backbone"}},
-        {id: "alpha", details: {topology_plane: "backbone"}},
+        {id: " beta ", details: {type: "Switch", topology_plane: "backbone"}},
+        {id: "alpha", details: {type: "Router", topology_plane: "backbone"}},
         {id: "attachment", details: {topology_plane: "attachment"}},
         {id: "", details: {topology_plane: "backbone"}},
       ],
@@ -157,5 +223,27 @@ describe("topology_overview_projection", () => {
 
     expect(overview.nodes.find((node) => node.id === "farm01:endpoint-member-01")).toBeUndefined()
     expect(overview.nodes.some((node) => node.type === "endpoint-member")).toEqual(false)
+  })
+
+  it("keeps low-trust inferred endpoint fanout bounded while preserving a direct transport handoff", () => {
+    const overview = prepareTopologyOverviewInput(denseLowTrustFanoutGraph())
+
+    expect(overview.nodes.filter((node) => !node.synthetic).map((node) => node.id)).toEqual([
+      "access",
+      "core",
+      "handoff",
+    ])
+    expect(overview.treeRelations.map((relation) => relation.id)).toEqual([
+      "overview:pair:access|core",
+      "overview:pair:core|handoff",
+    ])
+    expect(overview.crossLinks).toEqual([])
+    expect(overview.manifest).toMatchObject({
+      glyphs: 3,
+      infrastructureNodes: 3,
+      treeRelations: 2,
+      omittedAttachmentNodes: 162,
+      components: 1,
+    })
   })
 })

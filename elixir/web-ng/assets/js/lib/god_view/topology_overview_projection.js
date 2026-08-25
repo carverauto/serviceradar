@@ -1,6 +1,24 @@
 import {canonicalSemanticRelationId} from "./topology_relation_identity"
 
 const SUPER_ROOT_ID = "overview:super-root"
+// Keep this boundary aligned with the server's endpoint-like classification:
+// incidental connectivity must never promote an observation into overview transport.
+const TRANSPORT_NODE_TYPES = new Set([
+  "access_point",
+  "ap",
+  "endpoint_cluster",
+  "firewall",
+  "hub",
+  "ids",
+  "ips",
+  "load_balancer",
+  "router",
+  "switch",
+])
+const NON_PROMOTABLE_IDENTITY_SOURCES = new Set([
+  "endpoint_attachment_projection",
+  "mapper_topology_sighting",
+])
 
 function stringValue(value) {
   return value == null ? "" : String(value).trim()
@@ -79,12 +97,36 @@ function trustRank(edge) {
 
 function nodeType(node) {
   const details = detailsFor(node)
-  return stringValue(details.cluster_kind || node?.kind).toLowerCase() || "node"
+  return stringValue(details.cluster_kind || details.type || node?.kind).toLowerCase() || "node"
 }
 
-function isBackboneNode(node) {
-  const plane = stringValue(detailsFor(node).topology_plane).toLowerCase()
-  return plane === "backbone"
+function canonicalNodeType(value) {
+  return stringValue(value).toLowerCase().replace(/[\s-]+/g, "_")
+}
+
+function isTransportInfrastructureNode(node) {
+  if (node.type === "endpoint-anchor") return true
+  const identitySource = stringValue(detailsFor(node.raw).identity_source).toLowerCase()
+  return !NON_PROMOTABLE_IDENTITY_SOURCES.has(identitySource)
+    && TRANSPORT_NODE_TYPES.has(canonicalNodeType(node.type))
+}
+
+function isTransportRelation(edge) {
+  if (isAttachmentRelation(edge)) return false
+
+  const metadata = metadataFor(edge)
+  const topologyClass = stringValue(edge?.topologyClass).toLowerCase()
+  const evidenceClass = stringValue(edge?.evidenceClass ?? edge?.evidence_class).toLowerCase()
+  const relationType = stringValue(edge?.relationType ?? metadata.relation_type).toUpperCase()
+  const topologyPlane = stringValue(metadata.topology_plane).toLowerCase()
+  if (topologyClass === "hosted" || evidenceClass === "hosted" || topologyPlane === "hosted" || relationType === "HOSTED_ON") {
+    return false
+  }
+
+  return ["backbone", "inferred", "logical", "observed"].includes(topologyClass)
+    || ["direct", "inferred", "logical", "observed"].includes(evidenceClass)
+    || ["backbone", "logical", "physical"].includes(topologyPlane)
+    || ["CONNECTS_TO", "INFERRED_TO", "LOGICAL_PEER"].includes(relationType)
 }
 
 function normalizeNodes(graph) {
@@ -97,7 +139,7 @@ function normalizeNodes(graph) {
     if (id === "") return
     indexToId.set(index, id)
 
-    const candidate = {id, raw: stableValue(rawNode), type: nodeType(rawNode), backbone: isBackboneNode(rawNode)}
+    const candidate = {id, raw: stableValue(rawNode), type: nodeType(rawNode)}
     const current = byId.get(id)
     if (!current || stableJson(candidate.raw).localeCompare(stableJson(current.raw)) < 0) byId.set(id, candidate)
   })
@@ -138,7 +180,6 @@ function aggregatePairs(graph, normalized) {
   const knownIds = new Set(normalized.nodes.map((node) => node.id))
   const pairs = new Map()
   const transportDegree = new Map(normalized.nodes.map((node) => [node.id, 0]))
-  const nonAttachmentIncident = new Set()
   let omittedMalformedEdges = 0
 
   for (const edge of rawEdges) {
@@ -150,9 +191,8 @@ function aggregatePairs(graph, normalized) {
     }
 
     const attachment = isAttachmentRelation(edge)
-    if (!attachment) {
-      nonAttachmentIncident.add(sourceId)
-      nonAttachmentIncident.add(targetId)
+    const transport = isTransportRelation(edge)
+    if (transport) {
       transportDegree.set(sourceId, (transportDegree.get(sourceId) || 0) + 1)
       transportDegree.set(targetId, (transportDegree.get(targetId) || 0) + 1)
     }
@@ -163,16 +203,17 @@ function aggregatePairs(graph, normalized) {
       pairId: id,
       nodeIds: [sourceId, targetId].sort((left, right) => left.localeCompare(right)),
       entries: [],
-      hasNonAttachment: false,
+      hasTransport: false,
     }
     const relationId = semanticRelationId(edge, sourceId, targetId)
     current.entries.push({
       attachment,
+      transport,
       evidence: evidenceFor(edge, relationId, sourceId, targetId),
       relationId,
       trustRank: trustRank(edge),
     })
-    current.hasNonAttachment = current.hasNonAttachment || !attachment
+    current.hasTransport = current.hasTransport || transport
     pairs.set(id, current)
   }
 
@@ -192,14 +233,11 @@ function aggregatePairs(graph, normalized) {
     }
   })
 
-  return {pairs: aggregated, transportDegree, nonAttachmentIncident, omittedMalformedEdges}
+  return {pairs: aggregated, transportDegree, omittedMalformedEdges}
 }
 
-function overviewNodes(normalized, nonAttachmentIncident) {
-  const infrastructure = normalized.nodes.filter(
-    (node) => node.type !== "endpoint-member" &&
-      (node.type === "endpoint-anchor" || node.backbone || nonAttachmentIncident.has(node.id)),
-  )
+function overviewNodes(normalized) {
+  const infrastructure = normalized.nodes.filter(isTransportInfrastructureNode)
   const infrastructureIds = new Set(infrastructure.map((node) => node.id))
   const summaries = normalized.nodes.filter(
     (node) => node.type === "endpoint-summary" && !infrastructureIds.has(node.id),
@@ -246,7 +284,7 @@ function createUnionFind(nodeIds) {
 }
 
 function roleRank(node) {
-  return node.type === "endpoint-anchor" ? 0 : (node.backbone ? 1 : 2)
+  return node.type === "endpoint-anchor" ? 0 : 1
 }
 
 function infrastructureTypeRank(node) {
@@ -359,11 +397,11 @@ function graphKeyFor({semanticNodes, roots, semanticTreeRelations, crossLinks, s
 
 export function prepareTopologyOverviewInput(graph) {
   const normalized = normalizeNodes(graph)
-  const {pairs, transportDegree, nonAttachmentIncident, omittedMalformedEdges} = aggregatePairs(graph, normalized)
-  const {infrastructureIds, semanticNodes, summaries, visibleIds} = overviewNodes(normalized, nonAttachmentIncident)
+  const {pairs, transportDegree, omittedMalformedEdges} = aggregatePairs(graph, normalized)
+  const {infrastructureIds, semanticNodes, summaries, visibleIds} = overviewNodes(normalized)
   const infrastructure = normalized.nodes.filter((node) => infrastructureIds.has(node.id))
   const candidatePairs = pairs
-    .filter((pair) => pair.hasNonAttachment && pair.nodeIds.every((id) => infrastructureIds.has(id)))
+    .filter((pair) => pair.hasTransport && pair.nodeIds.every((id) => infrastructureIds.has(id)))
     .sort(comparePair)
   const unionFind = createUnionFind(infrastructure.map((node) => node.id))
   const treePairs = []
