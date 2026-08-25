@@ -184,6 +184,66 @@ describe("lifecycle_dom_setup_methods", () => {
     }
   })
 
+  it("ensureDOM installs browser text metrics for managed topology label fitting", () => {
+    const originalDocument = globalThis.document
+    const originalWindow = globalThis.window
+    const measureText = vi.fn((text) => ({
+      width: String(text).length * 6,
+      actualBoundingBoxAscent: 8,
+      actualBoundingBoxDescent: 2,
+    }))
+    const measurementContext = {font: "", measureText}
+    let canvasCount = 0
+    const makeElement = (tagName) => {
+      const attributes = new Map()
+      const element = {
+        style: {},
+        classList: {add: vi.fn()},
+        addEventListener: vi.fn(),
+        appendChild: vi.fn(),
+        setAttribute: (name, value) => attributes.set(name, value),
+        getAttribute: (name) => attributes.get(name),
+      }
+      if (tagName === "canvas") {
+        canvasCount += 1
+        element.getContext = vi.fn((kind) => (
+          canvasCount > 1 && kind === "2d" ? measurementContext : null
+        ))
+      }
+      return element
+    }
+    globalThis.document = {
+      documentElement: {getAttribute: () => "light"},
+      createElement: vi.fn((tagName) => makeElement(tagName)),
+    }
+    globalThis.window = {
+      addEventListener: vi.fn(),
+      matchMedia: vi.fn(() => ({matches: false})),
+    }
+    const state = {
+      el: makeElement("div"),
+      canvas: null,
+      summary: null,
+      visual: {bg: [10, 17, 20, 255]},
+    }
+    const ctx = createStateBackedContext(state, {})
+    Object.assign(ctx, bindApi(ctx, godViewLifecycleDomSetupMethods))
+
+    try {
+      ctx.ensureDOM()
+      expect(state.topologyLabelMeasureText).toBeTypeOf("function")
+      expect(state.topologyLabelMeasureText("USWPro24 (192.168.1.131)", {fontSize: 10})).toMatchObject({
+        width: 144,
+        actualBoundingBoxAscent: 8,
+        actualBoundingBoxDescent: 2,
+      })
+      expect(measurementContext.font).toBe("600 10px Inter, system-ui, sans-serif")
+    } finally {
+      globalThis.document = originalDocument
+      globalThis.window = originalWindow
+    }
+  })
+
   it("same-profile container resize refits camera and labels without invalidating ELK", () => {
     const state = {
       el: {

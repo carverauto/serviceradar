@@ -315,6 +315,19 @@ export const godViewLifecycleDomSetupMethods = {
     this.state.canvas.className = "h-full w-full rounded bg-transparent"
     this.state.canvas.style.cursor = "grab"
 
+    const labelMeasurementCanvas = document.createElement("canvas")
+    const labelMeasurementContext = labelMeasurementCanvas.getContext?.("2d")
+    this.state.topologyLabelMeasureText = labelMeasurementContext
+      ? (text, candidate = {}) => {
+          const requestedFontSize = Number(candidate?.fontSize)
+          const fontSize = Number.isFinite(requestedFontSize) && requestedFontSize > 0
+            ? requestedFontSize
+            : 12
+          labelMeasurementContext.font = `600 ${fontSize}px Inter, system-ui, sans-serif`
+          return labelMeasurementContext.measureText(String(text || ""))
+        }
+      : null
+
     this.state.atmosphereOverlay = document.createElement("div")
     this.state.atmosphereOverlay.className = "pointer-events-none absolute inset-0 z-10 rounded"
     this.state.atmosphereOverlay.style.background = "transparent"
@@ -535,7 +548,20 @@ export const godViewLifecycleDomSetupMethods = {
       width,
       height,
       views: new OrthographicView({id: "god-view-ortho"}),
-      controller: false,
+      // Managed scenes own geometry, not the camera. Gestures are allowed
+      // and then clamped by onViewStateChange via managedViewStateForCamera,
+      // so trackpad pinch / two-finger zoom and drag-pan work without letting
+      // the user desync the accepted ELK scene. Rotation stays off: the scene
+      // is authored in an OrthographicView with a fixed up-axis.
+      controller: {
+        scrollZoom: {smooth: true},
+        dragPan: true,
+        touchZoom: true,
+        dragRotate: false,
+        touchRotate: false,
+        doubleClickZoom: false,
+        keyboard: false,
+      },
       pickingRadius: 8,
       useDevicePixels: true,
       initialViewState: this.state.viewState,
