@@ -180,11 +180,17 @@ jobs:
         run: |
           bazel build \
             -c opt \
-            --config=ci \
+            # --config=remote, not --config=ci: :ci points the disk/repo caches at
+            # /bazel-cache, a node volume only the BuildBuddy executors mount, so on an
+            # ARC runner it dies with "/bazel-cache (Permission denied): could not
+            # acquire lock on repo contents cache". Both configs inherit remote_base, so
+            # RBE execution and the remote cache are identical; only the LOCAL cache path
+            # differs, and this job caches BAZELISK_HOME only anyway.
+            --config=remote \
             //:images
 
       - name: Verify managed agent release key stamp
-        run: ./scripts/verify-agent-release-key-stamp.sh -c opt --config=ci
+        run: ./scripts/verify-agent-release-key-stamp.sh -c opt --config=remote
 
       - name: Publish images
         env:
@@ -196,9 +202,9 @@ jobs:
         run: |
           set -euo pipefail
           # --remote_download_outputs=all overrides the --remote_download_minimal that
-          # --config=ci inherits: sign-oci-publish.sh below reads the image metadata back out
+          # --config=remote inherits: sign-oci-publish.sh below reads the image metadata back out
           # of `bazel info bazel-bin`, which is empty when outputs stay in the CAS.
-          cmd=(bazel run -c opt --config=ci --remote_download_outputs=all --stamp //:push)
+          cmd=(bazel run -c opt --config=remote --remote_download_outputs=all --stamp //:push)
           if [[ -n "${EXTRA_TAG}" ]]; then
             cmd+=(-- --tag "${EXTRA_TAG}")
           fi
