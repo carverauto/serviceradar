@@ -6,6 +6,7 @@ mod af_xdp;
 mod af_xdp_classifier;
 #[allow(dead_code)]
 mod attribution;
+mod banner_command;
 #[allow(dead_code)]
 mod capabilities;
 #[allow(dead_code)]

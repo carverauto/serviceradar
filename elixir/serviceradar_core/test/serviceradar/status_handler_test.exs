@@ -1,11 +1,11 @@
 defmodule ServiceRadar.StatusHandlerTest do
   use ExUnit.Case, async: false
 
-  alias Netprobepb.FlowAttributionEvent
-  alias Netprobepb.FlowAttributionEventBatch
   alias Serviceradar.Agent.Addon.V1.TelemetryBatch
   alias Serviceradar.Agent.Addon.V1.TelemetryRecord
   alias Serviceradar.Agent.Addon.V1.TelemetrySource
+  alias Serviceradar.Agent.Netprobe.V1.FlowAttributionEvent
+  alias Serviceradar.Agent.Netprobe.V1.FlowAttributionEventBatch
   alias ServiceRadar.Observability.CausalPredictionSubject
   alias ServiceRadar.StatusHandler
 

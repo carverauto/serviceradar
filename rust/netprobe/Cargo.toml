@@ -38,6 +38,7 @@ prometheus = { workspace = true }
 prost = { workspace = true }
 quick-xml = { workspace = true }
 regex-automata = { workspace = true, features = ["meta", "unicode"] }
+base64 = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
 sha2 = { workspace = true }

@@ -6,6 +6,7 @@ pub mod af_xdp;
 pub mod af_xdp_classifier;
 #[allow(dead_code)]
 pub mod attribution;
+pub mod banner_command;
 pub mod capabilities;
 pub mod capture;
 pub mod census;
