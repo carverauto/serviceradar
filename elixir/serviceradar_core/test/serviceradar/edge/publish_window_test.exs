@@ -539,44 +539,52 @@ defmodule ServiceRadar.Edge.PublishWindowTest do
       assert settled === start
     end
 
-    test "outstanding bytes never exceed the grant across an interleaved run" do
+    test "credits are conserved even when some admits are REFUSED" do
+      # Renamed to what it proves. It used to be titled "outstanding bytes never exceed the
+      # grant", but it asserted the bounds only on the FINAL state -- which the equality below
+      # shows is an EMPTY window, making `0 <= 700` and `0 <= 2` trivially true. Those assertions
+      # could not detect a transient overcommit that a later transition corrected. The 40-step
+      # test carries the per-transition bound property; this one carries something different.
+      #
+      # What is distinct here: five 300-byte frames are offered to a 2-frame/700-byte window, so
+      # admits are REFUSED mid-run. Conservation must survive that -- a refusal that charged
+      # anything, or a settle-after-refusal that released something never charged, shows up as a
+      # window that does not return to its starting state.
       ops = [
         {:admit, 1, 300},
         {:admit, 2, 300},
-        {:settle, 1, 0},
         {:admit, 3, 300},
+        {:settle, 1},
         {:admit, 4, 300},
-        {:settle, 2, 0},
-        {:settle, 3, 0},
+        {:settle, 2},
+        {:settle, 3},
         {:admit, 5, 300},
-        {:settle, 4, 0},
-        {:settle, 5, 0}
+        {:settle, 4},
+        {:settle, 5}
       ]
 
-      final =
-        ops
-        |> Enum.reduce(window(2, 700), fn
-          {:admit, seq, bytes}, w ->
+      start = window(2, 700)
+
+      {final, refusals} =
+        Enum.reduce(ops, {start, 0}, fn
+          {:admit, seq, bytes}, {w, refused} ->
             case PublishWindow.admit(w, seq, bytes, 500) do
-              {:ok, w2} -> w2
-              {:error, _} -> w
+              {:ok, w2} -> {w2, refused}
+              {:error, _} -> {w, refused + 1}
             end
 
-          {:settle, seq, _}, w ->
+          {:settle, seq}, {w, refused} ->
             case PublishWindow.settle(w, seq, @primary) do
-              {:ok, w2} -> w2
-              {:error, _} -> w
+              {:ok, w2} -> {w2, refused}
+              {:error, _} -> {w, refused + 1}
             end
         end)
-        |> tap(fn w ->
-          assert PublishWindow.outstanding_bytes(w) <= 700
-          assert PublishWindow.outstanding_frames(w) <= 2
-        end)
 
-      # NOT VACUOUS: a window that admitted nothing would satisfy the bounds trivially, so the
-      # run must actually have cycled work through.
-      assert PublishWindow.outstanding_frames(final) === 0
-      assert final === window(2, 700)
+      # NOT VACUOUS, and this is the part the old version never checked: the run must actually
+      # have hit refusals, or it is just the clean round-trip test above under another name.
+      assert refusals > 0, "no admit or settle was refused; the window was never pressured"
+
+      assert final === start, "credits were not conserved across a run containing refusals"
     end
   end
 end
