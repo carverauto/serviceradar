@@ -1401,7 +1401,7 @@ describe("rendering_graph_view_methods", () => {
     expect(state.viewState.target[1]).toBeLessThan(320)
   })
 
-  it("does not downgrade detail focus because of a density-derived camera floor", () => {
+  it("fails detail focus closed instead of retrying missing labels at overview density", () => {
     const group = {
       id: "g",
       bounds: {minX: 0, minY: 0, maxX: 192, maxY: 1},
@@ -1419,6 +1419,7 @@ describe("rendering_graph_view_methods", () => {
     const graph = {
       shape: "local",
       _layoutMode: "elk-scene-detail",
+      _topologySemanticLevel: "detail",
       _layoutCacheKey: "narrow-focus",
       _topologyScene: scene,
       nodes: [
@@ -1433,6 +1434,7 @@ describe("rendering_graph_view_methods", () => {
       isProgrammaticViewUpdate: false,
       zoomMode: "auto",
       layers: {mantle: true, crust: true},
+      managedTopologyVisualDensity: "detail",
       managedTopologyCameraBaseMinZoom: -8,
       viewState: {minZoom: -8, maxZoom: 5, zoom: 0, target: [0, 0, 0]},
       el: {clientWidth: 50, clientHeight: 200},
@@ -1445,10 +1447,59 @@ describe("rendering_graph_view_methods", () => {
       bindApi(ctx, godViewRenderingGraphLayerNodeMethods),
       bindApi(ctx, godViewRenderingGraphViewMethods),
     )
+    ctx.admitNodeLabelsForViewport = vi.fn((_effective, _candidates, _protectedNodes, options) => ({
+      admitted: [],
+      detailsFallbackIds: [],
+      missingRequiredLabelIds: options.managedVisualDensity === "detail" ? ["zeta", "alpha"] : [],
+    }))
 
-    expect(() => ctx.focusClusterNeighborhood(graph, "g")).not.toThrow()
+    expect(() => ctx.focusClusterNeighborhood(graph, "g")).toThrow(
+      /topology focus.*missing required labels.*alpha, zeta/i,
+    )
     expect(state.managedTopologyVisualDensity).toBe("detail")
-    expect(state.deck.setProps).toHaveBeenCalledTimes(1)
+    expect(state.deck.setProps).not.toHaveBeenCalled()
+    expect(ctx.admitNodeLabelsForViewport.mock.calls.map((call) => call[3].managedVisualDensity)).toEqual(["detail"])
+  })
+
+  it("uses overview density directly for overview-semantic focus", () => {
+    const group = {id: "g", bounds: {minX: 0, minY: 0, maxX: 100, maxY: 1}, memberIds: ["member"]}
+    const scene = {
+      bounds: {minX: 0, minY: 0, maxX: 100, maxY: 1},
+      nodes: [{id: "member", center: {x: 50, y: 0}, width: 1, height: 1, groupId: "g", render: true}],
+      groups: [group],
+      routes: [],
+    }
+    const graph = {
+      shape: "local",
+      _layoutMode: "elk-radial-overview",
+      _topologySemanticLevel: "overview",
+      _layoutCacheKey: "overview-focus-density",
+      _topologyScene: scene,
+      nodes: [{id: "member", x: 50, y: 0, label: "Member", details: {cluster_kind: "endpoint-member"}}],
+    }
+    const state = {
+      animationPhase: 0,
+      deck: {setProps: vi.fn()},
+      userCameraLocked: false,
+      zoomMode: "auto",
+      layers: {mantle: true, crust: true},
+      managedTopologyVisualDensity: "overview",
+      viewState: {minZoom: -8, maxZoom: 5, zoom: 0, target: [0, 0, 0]},
+      el: {clientWidth: 300, clientHeight: 200},
+      topologyLabelSafeRect: {left: 0, top: 0, right: 300, bottom: 200},
+    }
+    const ctx = createStateBackedContext(state, {setZoomTier: vi.fn(), resolveZoomTier: vi.fn(() => "local")})
+    Object.assign(
+      ctx,
+      bindApi(ctx, godViewRenderingGraphLayerNodeMethods),
+      bindApi(ctx, godViewRenderingGraphViewMethods),
+    )
+    const originalAdmission = ctx.admitNodeLabelsForViewport
+    ctx.admitNodeLabelsForViewport = vi.fn((...args) => originalAdmission(...args))
+
+    expect(ctx.focusClusterNeighborhood(graph, "g")).toBe(true)
+    expect(state.managedTopologyVisualDensity).toBe("overview")
+    expect(ctx.admitNodeLabelsForViewport.mock.calls.map((call) => call[3].managedVisualDensity)).toEqual(["overview"])
   })
 
   it("lets a complete managed focus fit below the configured base zoom without clipping it", () => {
@@ -1477,6 +1528,7 @@ describe("rendering_graph_view_methods", () => {
     const graph = {
       shape: "local",
       _layoutMode: "elk-scene-detail",
+      _topologySemanticLevel: "detail",
       _layoutCacheKey: "wide-focus",
       _topologyScene: scene,
       nodes: [
@@ -1495,6 +1547,7 @@ describe("rendering_graph_view_methods", () => {
       viewState: {minZoom: -2, maxZoom: 5, zoom: 0, target: [0, 0, 0]},
       el: {clientWidth: 1000, clientHeight: 400},
       topologyLabelSafeRect: {left: 0, top: 0, right: 1000, bottom: 400},
+      topologyLabelMeasureText: () => ({width: 6, height: 12}),
     }
     const ctx = createStateBackedContext(state, {setZoomTier: vi.fn(), resolveZoomTier: vi.fn(() => "local")})
     Object.assign(
@@ -1513,7 +1566,7 @@ describe("rendering_graph_view_methods", () => {
     expect(right).toBeLessThanOrEqual(state.topologyLabelSafeRect.right + 1)
   })
 
-  it("scopes managed focus density floors to the selected ELK neighborhood", () => {
+  it("contains managed detail focus to the selected ELK neighborhood without a density floor", () => {
     const selectedGroup = {
       id: "selected",
       bounds: {minX: 944, minY: 0, maxX: 20_056, maxY: 112},
@@ -1547,6 +1600,7 @@ describe("rendering_graph_view_methods", () => {
     const graph = {
       shape: "local",
       _layoutMode: "elk-scene-detail",
+      _topologySemanticLevel: "detail",
       _layoutCacheKey: "focus-neighborhood-density",
       _topologyScene: scene,
       nodes: [
@@ -1637,9 +1691,9 @@ describe("rendering_graph_view_methods", () => {
       zoomMode: "auto",
       layers: {mantle: true, crust: true},
       viewState: {minZoom: -4, maxZoom: 5, zoom: 0, target: [0, 0, 0]},
-      el: {clientWidth: 1000, clientHeight: 700},
-      topologyLabelSafeRect: {left: 40, top: 30, right: 820, bottom: 610},
-      topologyLabelMeasureText: () => ({width: 180, height: 18}),
+      el: {clientWidth: 1400, clientHeight: 700},
+      topologyLabelSafeRect: {left: 40, top: 30, right: 1300, bottom: 610},
+      topologyLabelMeasureText: () => ({width: 60, height: 12}),
     }
     const deps = {setZoomTier: vi.fn(), resolveZoomTier: vi.fn(() => "local")}
     const ctx = createStateBackedContext(state, deps)
@@ -1653,7 +1707,13 @@ describe("rendering_graph_view_methods", () => {
     const originalGroups = scene.groups.map((group) => ({...group, memberIds: [...group.memberIds]}))
 
     const focused = ctx.focusClusterNeighborhood(
-      {_layoutMode: "elk-scene-detail", _topologyScene: scene, shape: "local", nodes},
+      {
+        _layoutMode: "elk-scene-detail",
+        _topologySemanticLevel: "detail",
+        _topologyScene: scene,
+        shape: "local",
+        nodes,
+      },
       selectedGroup.id,
     )
 

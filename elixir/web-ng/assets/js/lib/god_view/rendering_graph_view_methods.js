@@ -806,37 +806,29 @@ function focusManagedTopologyGroup(context, graph, groupId, viewport, safeRect, 
     nodes: (graph?.nodes || []).filter((node) => focusNodeIds.has(String(node?.id || ""))),
   }
   const constraints = managedDensityConstraints(context, focusGraph)
-  let lastInfeasible = null
-  for (const managedVisualDensity of MANAGED_VISUAL_DENSITY_PREFERENCE) {
-    try {
-      const viewState = focusTopologyGroup({
-        scene: graph._topologyScene,
-        groupId,
-        viewport,
-        safeRect,
-        glyphBoxForNode: (sceneNode) => managedGlyphBox(
-          context,
-          graphNodes,
-          sceneNode,
-          managedVisualDensity,
-        ),
-        routeStrokeWidth: managedVisualDensityContract(managedVisualDensity).routeMaxWidth,
-        admitLabels: managedLabelAdmission(
-          context,
-          graph,
-          graphNodes,
-          viewport.width,
-          viewport.height,
-          managedVisualDensity,
-        ),
-      })
-      return viewState ? {viewState, managedVisualDensity, constraints} : null
-    } catch (error) {
-      if (!(error instanceof RangeError)) throw error
-      lastInfeasible = error
-    }
-  }
-  throw lastInfeasible || new RangeError("managed topology focus has no feasible visual-density contract")
+  const managedVisualDensity = topologySemanticLevel(graph) === "detail" ? "detail" : "overview"
+  const fit = focusTopologyGroup({
+    scene: graph._topologyScene,
+    groupId,
+    viewport,
+    safeRect,
+    glyphBoxForNode: (sceneNode) => managedGlyphBox(
+      context,
+      graphNodes,
+      sceneNode,
+      managedVisualDensity,
+    ),
+    routeStrokeWidth: managedVisualDensityContract(managedVisualDensity).routeMaxWidth,
+    admitLabels: managedLabelAdmission(
+      context,
+      graph,
+      graphNodes,
+      viewport.width,
+      viewport.height,
+      managedVisualDensity,
+    ),
+  })
+  return fit ? {...fit, managedVisualDensity, constraints} : null
 }
 
 function managedSceneFloorKey(graph) {

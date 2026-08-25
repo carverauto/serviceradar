@@ -418,9 +418,9 @@ export const godViewLifecycleDomSetupMethods = {
       cameraUpdateAccepted = result.ok
     } else if (hasManagedTopologyScene(this.state.lastGraph)) {
       const result = runRecoverableManagedCameraUpdate(this, () => {
-        const selection = this.deps.managedVisualDensityForViewScale?.(
+        const selection = this.deps.managedViewStateForCamera?.(
           this.state.lastGraph,
-          2 ** Number(this.state.viewState?.zoom || 0),
+          this.state.viewState,
           {safeRect},
         )
         if (selection?.managedVisualDensity) {

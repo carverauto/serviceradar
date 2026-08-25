@@ -494,7 +494,10 @@ export const godViewRenderingGraphLayerNodeMethods = {
           getRadius: managedVisualDensity,
         },
       }),
-      ...(this.state.layers.mantle && (effective.shape === "local" || effective.shape === "regional" || effective.shape === "global")
+      ...(managedTopologyScene || (
+        this.state.layers.mantle &&
+        (effective.shape === "local" || effective.shape === "regional" || effective.shape === "global")
+      )
         ? [
             new TextLayer({
               id: "god-view-node-labels",

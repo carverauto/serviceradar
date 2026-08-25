@@ -572,7 +572,7 @@ describe("rendering_graph_layer_node_methods", () => {
   it.each([
     {semanticLevel: "overview", layoutMode: "elk-radial-overview", density: "overview"},
     {semanticLevel: "detail", layoutMode: "elk-scene-detail", density: "detail"},
-  ])("labels every rendered $semanticLevel semantic glyph", ({semanticLevel, layoutMode, density}) => {
+  ])("renders every $semanticLevel semantic label despite disabled mantle and legacy shape gating", ({semanticLevel, layoutMode, density}) => {
     const nodeData = [
       {id: "sr:opaque", label: "sr:opaque", details: {}},
       {id: "endpoint-member", label: "192.0.2.10", details: {cluster_kind: "endpoint-member"}},
@@ -591,7 +591,7 @@ describe("rendering_graph_layer_node_methods", () => {
       animationPhase: 0,
       hoveredNodeIndex: null,
       managedTopologyVisualDensity: density,
-      layers: {mantle: true, crust: true, atmosphere: false, security: true},
+      layers: {mantle: false, crust: true, atmosphere: false, security: true},
       visual: {
         label: [255, 255, 255, 255],
         edgeLabel: [200, 200, 200, 255],
@@ -608,7 +608,7 @@ describe("rendering_graph_layer_node_methods", () => {
       nodeNeutralColor: () => [128, 128, 128, 255],
     })
     const effective = {
-      shape: "local",
+      shape: "legacy-hidden-shape",
       _layoutMode: layoutMode,
       _topologySemanticLevel: semanticLevel,
       _topologyScene: topologyScene(),
@@ -616,7 +616,8 @@ describe("rendering_graph_layer_node_methods", () => {
 
     const layers = ctx.buildNodeAndLabelLayers(effective, nodeData, [])
     const glyphIds = layers.find((layer) => layer.id === "god-view-nodes").props.data.map((node) => node.id).sort()
-    const labelIds = layers.find((layer) => layer.id === "god-view-node-labels").props.data.map((node) => node.id).sort()
+    const labelLayer = layers.find((layer) => layer.id === "god-view-node-labels")
+    const labelIds = labelLayer?.props.data.map((node) => node.id).sort() || []
 
     expect(glyphIds).toEqual([
       "endpoint-member",
@@ -626,6 +627,45 @@ describe("rendering_graph_layer_node_methods", () => {
       "sr:opaque",
     ])
     expect(labelIds).toEqual(glyphIds)
+  })
+
+  it.each([
+    {mantle: false, shape: "local"},
+    {mantle: true, shape: "legacy-hidden-shape"},
+  ])("preserves nonmanaged label gating for mantle=$mantle and shape=$shape", ({mantle, shape}) => {
+    const nodeData = [{
+      index: 0,
+      id: "legacy-router",
+      label: "Legacy router",
+      position: [100, 100, 0],
+      state: 2,
+      operUp: 1,
+      clusterCount: 1,
+      details: {},
+    }]
+    const state = {
+      animationPhase: 0,
+      layers: {mantle, crust: true, atmosphere: false, security: true},
+      visual: {
+        label: [255, 255, 255, 255],
+        edgeLabel: [200, 200, 200, 255],
+        nodeFill: [80, 120, 180, 255],
+      },
+      canvas: {getBoundingClientRect: () => ({width: 220, height: 220})},
+      deck: {getViewports: () => [{width: 220, height: 220, project: ([x, y]) => [x, y]}]},
+      topologyLabelSafeRect: {left: 0, top: 0, right: 220, bottom: 220},
+      topologyLabelMeasureText: () => ({width: 72, height: 12}),
+    }
+    const ctx = createStateBackedContext(state, {})
+    Object.assign(ctx, bindApi(ctx, godViewRenderingGraphLayerNodeMethods), {
+      nodeColor: () => [255, 0, 0, 255],
+      nodeNeutralColor: () => [128, 128, 128, 255],
+    })
+
+    const layers = ctx.buildNodeAndLabelLayers({shape}, nodeData, [])
+
+    expect(layers.find((layer) => layer.id === "god-view-nodes")).toBeTruthy()
+    expect(layers.find((layer) => layer.id === "god-view-node-labels")).toBeUndefined()
   })
 
   it("rejects managed layer construction with actionable missing label IDs", () => {

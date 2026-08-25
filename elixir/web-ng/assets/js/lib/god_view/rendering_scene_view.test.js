@@ -430,7 +430,7 @@ describe("rendering_scene_view", () => {
     const viewport = {width: 1000, height: 700, minZoom: -3, maxZoom: 5}
     const safeRect = {left: 40, top: 30, right: 820, bottom: 610}
 
-    const viewState = focusTopologyGroup({
+    const {viewState} = focusTopologyGroup({
       scene,
       groupId: "group-a",
       viewport,
@@ -450,6 +450,38 @@ describe("rendering_scene_view", () => {
     expect(anchor[0]).toBeGreaterThanOrEqual(safeRect.left - 1)
     expect(anchor[1]).toBeGreaterThanOrEqual(safeRect.top - 1)
     expect(unrelated[0]).toBeGreaterThan(safeRect.right + 1000)
+  })
+
+  it("returns a structured successful focus result", () => {
+    const result = focusTopologyGroup({
+      scene: expandedScene(),
+      groupId: "group-a",
+      viewport: {width: 1000, height: 700, minZoom: -3, maxZoom: 5},
+      safeRect: {left: 40, top: 30, right: 820, bottom: 610},
+      glyphBoxForNode: (node) => ({nodeId: node.id, width: 52, height: 52}),
+    })
+
+    expect(result).toMatchObject({
+      ok: true,
+      fitZoom: expect.any(Number),
+      admittedLabels: [],
+      missingRequiredLabelIds: [],
+      viewState: {target: expect.any(Array), zoom: expect.any(Number)},
+    })
+  })
+
+  it("fails focus closed with deterministic missing required label IDs", () => {
+    expect(() => focusTopologyGroup({
+      scene: expandedScene(),
+      groupId: "group-a",
+      viewport: {width: 1000, height: 700, minZoom: -3, maxZoom: 5},
+      safeRect: {left: 40, top: 30, right: 820, bottom: 610},
+      glyphBoxForNode: (node) => ({nodeId: node.id, width: 52, height: 52}),
+      admitLabels: () => ({
+        admitted: [],
+        missingRequiredLabelIds: ["zeta", "alpha", "zeta"],
+      }),
+    })).toThrow(/topology focus.*missing required labels.*alpha, zeta/i)
   })
 
   it("includes every selected-member branch and its associated manifold paths in focus geometry", () => {
@@ -520,7 +552,7 @@ describe("rendering_scene_view", () => {
     const viewport = {width: 1800, height: 700, minZoom: -8, maxZoom: 5}
     const safeRect = {left: 40, top: 30, right: 1700, bottom: 610}
     let admittedLabel = null
-    const viewState = focusTopologyGroup({
+    const {viewState} = focusTopologyGroup({
       scene,
       groupId: "group-a",
       viewport,
@@ -615,7 +647,7 @@ describe("rendering_scene_view", () => {
       }],
     }
 
-    const viewState = focusTopologyGroup({
+    const {viewState} = focusTopologyGroup({
       scene,
       groupId: "dense-group",
       viewport: {width: 1000, height: 300, minZoom: -12, maxZoom: 5},
@@ -654,7 +686,7 @@ describe("rendering_scene_view", () => {
     const viewport = {width: 1000, height: 700, minZoom: -3, maxZoom: 5}
     const safeRect = {left: 40, top: 30, right: 820, bottom: 610}
 
-    const viewState = focusTopologyGroup({
+    const {viewState} = focusTopologyGroup({
       scene,
       groupId: "group-a",
       viewport,

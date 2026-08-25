@@ -460,12 +460,18 @@ export function focusTopologyGroup({
     }
     return {nodeId: node.id, ...measured}
   })
-  return fitTopologyScene({
+  const fit = fitTopologyScene({
     scene: neighborhood,
     viewport,
     safeRect,
     glyphBoxes,
     routeStrokeWidth,
     admitLabels,
-  }).viewState
+  })
+  if (!fit.ok) {
+    throw new RangeError(
+      `topology focus is missing required labels: ${fit.missingRequiredLabelIds.join(", ")}`,
+    )
+  }
+  return fit
 }

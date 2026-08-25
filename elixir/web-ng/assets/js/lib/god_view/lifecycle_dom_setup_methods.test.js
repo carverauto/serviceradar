@@ -354,7 +354,11 @@ describe("lifecycle_dom_setup_methods", () => {
         state.viewState = fittedViewState
         state.managedTopologyVisualDensity = "overview"
       }),
-      managedVisualDensityForViewScale: vi.fn(() => ({managedVisualDensity: "overview"})),
+      managedViewStateForCamera: vi.fn(() => ({
+        viewState: originalViewState,
+        managedVisualDensity: "overview",
+        constraints: null,
+      })),
       refreshGraphLayersForViewState: vi.fn(() => {
         state.layers.atmosphere = false
         deck.setProps({layers: failedDeckLayers})
@@ -491,7 +495,7 @@ describe("lifecycle_dom_setup_methods", () => {
     expect(state.managedTopologyCameraErrorPreviousSummary).toBe("accepted topology")
   })
 
-  it("clears a locked safe-area error after density selection becomes feasible", () => {
+  it("clears a locked safe-area error after semantic camera selection succeeds", () => {
     let width = 980
     const acceptedViewState = {zoom: 0, minZoom: -8, maxZoom: 5, target: [20, 30, 0]}
     const graph = {_layoutMode: "elk-scene-detail", _topologyScene: topologyScene({profileKey: "landscape"})}
@@ -515,12 +519,16 @@ describe("lifecycle_dom_setup_methods", () => {
       pushEvent: vi.fn(),
     }
     const deps = {
-      managedVisualDensityForViewScale: vi.fn()
+      managedViewStateForCamera: vi.fn()
         .mockImplementationOnce(() => {
           state.summary.textContent = "transient failed selection"
           throw new RangeError("safe rectangle is too small")
         })
-        .mockReturnValueOnce({managedVisualDensity: "overview"}),
+        .mockReturnValueOnce({
+          viewState: acceptedViewState,
+          managedVisualDensity: "overview",
+          constraints: null,
+        }),
       refreshGraphLayersForViewState: vi.fn(),
       prepareGraphLayout: vi.fn(),
     }
@@ -949,8 +957,19 @@ describe("lifecycle_dom_setup_methods", () => {
     expect(state.managedTopologyCameraErrorPreviousSummary).toBeNull()
   })
 
-  it("user-locked resize updates Deck and label projection without auto-refitting", () => {
-    const graph = {_layoutMode: "elk-scene-detail", _topologyScene: topologyScene({profileKey: "landscape"})}
+  it("user-locked same-profile resize preserves the live low-scale camera through semantic density selection", () => {
+    const liveContainmentScale = 0.019548
+    const graph = {
+      _layoutMode: "elk-scene-detail",
+      _topologySemanticLevel: "detail",
+      _topologyScene: topologyScene({profileKey: "landscape"}),
+    }
+    const acceptedViewState = {
+      zoom: Math.log2(liveContainmentScale),
+      minZoom: -12,
+      maxZoom: 5,
+      target: [20, 30, 0],
+    }
     const state = {
       el: {
         clientWidth: 980,
@@ -965,12 +984,23 @@ describe("lifecycle_dom_setup_methods", () => {
       viewportHeight: 600,
       viewportProfileKey: "landscape",
       userCameraLocked: true,
-      viewState: {zoom: 0, target: [20, 30, 0]},
+      viewState: acceptedViewState,
       managedTopologyVisualDensity: "detail",
+      summary: {textContent: "accepted topology"},
+      pushEvent: vi.fn(),
     }
     const deps = {
       autoFitViewState: vi.fn(),
-      managedVisualDensityForViewScale: vi.fn(() => ({managedVisualDensity: "overview"})),
+      managedVisualDensityForViewScale: vi.fn(() => {
+        throw new RangeError(
+          "no feasible managed visual density at scale=0.019548; overview requires scale=0.089285",
+        )
+      }),
+      managedViewStateForCamera: vi.fn(() => ({
+        viewState: acceptedViewState,
+        managedVisualDensity: "detail",
+        constraints: null,
+      })),
       refreshGraphLayersForViewState: vi.fn(),
       prepareGraphLayout: vi.fn(),
     }
@@ -981,13 +1011,17 @@ describe("lifecycle_dom_setup_methods", () => {
 
     expect(state.deck.setProps).toHaveBeenCalledWith({width: 980, height: 600})
     expect(deps.autoFitViewState).not.toHaveBeenCalled()
-    expect(deps.managedVisualDensityForViewScale).toHaveBeenCalledWith(
+    expect(deps.managedVisualDensityForViewScale).not.toHaveBeenCalled()
+    expect(deps.managedViewStateForCamera).toHaveBeenCalledWith(
       graph,
-      1,
+      acceptedViewState,
       {safeRect: {left: 0, top: 0, right: 980, bottom: 600}},
     )
-    expect(state.managedTopologyVisualDensity).toBe("overview")
-    expect(state.viewState).toEqual({zoom: 0, target: [20, 30, 0]})
+    expect(state.managedTopologyVisualDensity).toBe("detail")
+    expect(state.viewState).toBe(acceptedViewState)
+    expect(2 ** state.viewState.zoom).toBeCloseTo(liveContainmentScale, 12)
+    expect(state.summary.textContent).toBe("accepted topology")
+    expect(state.pushEvent).not.toHaveBeenCalled()
     expect(deps.refreshGraphLayersForViewState).toHaveBeenCalledTimes(1)
     expect(deps.prepareGraphLayout).not.toHaveBeenCalled()
   })
