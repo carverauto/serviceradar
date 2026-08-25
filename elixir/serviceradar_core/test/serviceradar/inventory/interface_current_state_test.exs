@@ -69,7 +69,7 @@ defmodule ServiceRadar.Inventory.InterfaceCurrentStateTest do
       if_type integer,
       mtu integer,
       duplex text,
-      available_metrics jsonb
+      available_metrics jsonb[]
     )
     """)
 
@@ -80,7 +80,8 @@ defmodule ServiceRadar.Inventory.InterfaceCurrentStateTest do
         if_index, if_speed, speed_bps, if_admin_status, if_oper_status,
         if_type, mtu, duplex, available_metrics
       ) VALUES
-        ($1, $2, $3, $3, 17, 1000000000, 1000000000, 1, 1, 6, 1500, 'full', '[]'::jsonb),
+        ($1, $2, $3, $3, 17, 1000000000, 1000000000, 1, 1, 6, 1500, 'full',
+         ARRAY['{"name":"ifInOctets"}'::jsonb]),
         ($1, $2, $4, $4, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL)
       """,
       [device_id, uid, t1, t2]
@@ -98,15 +99,16 @@ defmodule ServiceRadar.Inventory.InterfaceCurrentStateTest do
 
     Repo.query!(RekeyDiscoveredInterfacesCurrentState.coalesce_mapper_columns_sql(src, dest))
 
-    %{rows: [[if_index, if_speed, duplex]]} =
+    %{rows: [[if_index, if_speed, duplex, available_metrics]]} =
       Repo.query!(
-        "SELECT if_index, if_speed, duplex FROM #{dest} WHERE device_id = $1",
+        "SELECT if_index, if_speed, duplex, available_metrics FROM #{dest} WHERE device_id = $1",
         [device_id]
       )
 
     assert if_index == 17
     assert if_speed == 1_000_000_000
     assert duplex == "full"
+    assert available_metrics == [%{"name" => "ifInOctets"}]
   end
 
   test "a device with several matching interfaces counts once as an SNMP target", %{actor: actor} do

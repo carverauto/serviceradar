@@ -167,8 +167,7 @@ defmodule ServiceRadar.Repo.Migrations.RekeyDiscoveredInterfacesCurrentState do
 
     aggs =
       Enum.map_join(@mapper_operational_columns, ",\n        ", fn col ->
-        "(array_agg(#{col} ORDER BY timestamp DESC, created_at DESC NULLS LAST) " <>
-          "FILTER (WHERE #{col} IS NOT NULL))[1] AS #{col}"
+        latest_non_null_agg(col)
       end)
 
     """
@@ -186,5 +185,18 @@ defmodule ServiceRadar.Repo.Migrations.RekeyDiscoveredInterfacesCurrentState do
     WHERE d.device_id = c.device_id
       AND d.interface_uid = c.interface_uid
     """
+  end
+
+  # `array_agg(jsonb[])[1]` is jsonb, not jsonb[]: PostgreSQL concatenates
+  # array inputs, so the subscript is one element of the inner array. Round
+  # the whole value through text so latest-non-null keeps the mapper array.
+  defp latest_non_null_agg("available_metrics") do
+    "(array_agg(available_metrics::text ORDER BY timestamp DESC, created_at DESC NULLS LAST) " <>
+      "FILTER (WHERE available_metrics IS NOT NULL))[1]::jsonb[] AS available_metrics"
+  end
+
+  defp latest_non_null_agg(col) do
+    "(array_agg(#{col} ORDER BY timestamp DESC, created_at DESC NULLS LAST) " <>
+      "FILTER (WHERE #{col} IS NOT NULL))[1] AS #{col}"
   end
 end
