@@ -154,7 +154,16 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.Targeting do
         :unknown
 
       query ->
-        # Add distinct on device_id to avoid counting historical snapshots.
+        # This is a DEVICE count, not an interface count -- "N targets" means the
+        # number of devices SNMP polling would target, and a device with twelve
+        # matching interfaces is one target. The distinct is what makes it one.
+        #
+        # It also happens to hide the append-only bloat in discovered_interfaces
+        # (~98 rows per interface state), and that WAS the original reason.
+        # refactor-interface-observation-persistence removes the bloat, at which
+        # point that reason evaporates and this line starts looking redundant.
+        # It is not: delete it and the number silently changes from devices to
+        # interfaces, which for a switch is a factor of hundreds.
         query = Ash.Query.distinct(query, :device_id)
 
         case Ash.count(query, scope: scope) do
