@@ -509,12 +509,46 @@ the legacy producers.
       the first `Configure` leaves `process.v1` unserved for that stream's life.
   (b) "stream attached" only logs on the first DELIVERED batch, which waits for the census
       snapshot interval (~2 min) -- an attached-but-silent pump looks broken for that window.
-- [ ] 7.4 **PARTIALLY DEMONSTRATED, NOT MET.** Three schemas were added end-to-end
-  (`fingerprint.v1`, `dpi.v1`, `process.v1`) with **zero agent and zero gateway changes** -- the
-  pump forwards batches verbatim, which is the property this contract exists for. But each needed
-  a NEW proto message for its payload (`FingerprintEventBatch`, `DpiEventBatch`,
-  `ProcessSnapshotBatch`), so the "zero proto changes" half is unproven. The real acceptance test
-  is a schema reusing an EXISTING payload message, touching only the registry and a decoder.
-  Original text: Add a NEW payload schema end-to-end and confirm it required **zero** agent, gateway and
-  proto changes. This is the acceptance test for the whole change
-- [ ] 7.5 `openspec validate refactor-netprobe-onto-generic-addon-contract --strict`
+- [ ] 7.4 **BLOCKED, and the blocker is now exact.** Three schemas went end-to-end
+  (`fingerprint.v1`, `dpi.v1`, `process.v1`) with **zero agent and zero gateway changes** -- the pump
+  forwards batches verbatim, which is the property this contract exists for. But each needed a NEW
+  proto message for its payload, so the "zero proto changes" half is still unproven.
+
+  **The acceptance test that would prove it is now fully designed** (investigated 2026-08-25), and it
+  is one registry entry and nothing else:
+
+  ```elixir
+  "serviceradar.netprobe.fingerprint.active.v1" => %{
+    source: "sweep_active",
+    identity_source: "netprobe_fingerprint_active",
+    policy_class: :enrichment_only,
+    decoder: Decoders.Fingerprint          # the SAME decoder, reused unchanged
+  }
+  ```
+
+  Zero proto changes (reuses `FingerprintEventBatch`), zero agent changes, zero gateway changes, and
+  zero new decoder code. Nothing else in the repo demonstrates the property as sharply.
+
+  **It cannot be added yet, and the reason is this module's own rule:** "Only schemas whose source
+  string and identity_source are already decided by a SHIPPING PRODUCER are registered. Guessing a
+  source here is not a harmless placeholder -- it is a guardrail pointed at the wrong thing." There is
+  no producer for active fingerprints on `DISCOVERY_V1`. They are produced by the agent's banner-grab
+  planner (`banner_grab/candidate_planner.go` sets `Source: SourceSweepActive`) and consumed by
+  `netprobe/translator.go` on the AGENT-LOCAL path, never crossing the telemetry stream. So 7.4 is
+  gated behind the same relocation 6.1 needs, not behind more design.
+
+  **Two findings from that investigation, both traps for whoever does 6.1:**
+  * `Decoders.Fingerprint` ALREADY discriminates active from passive -- `sweep_active?/1` keys on
+    `profile_id == "sweep_active"` and `source/1` returns `"sweep_active"` instead of
+    `"passive-netprobe"`. **That branch is dead code today**, written in anticipation of a producer
+    that never arrived. Do not read its existence as evidence that active fingerprints already work.
+  * Even when reached, the decoder's determination would be DISCARDED.
+    `discovery_ingestor.ex` `stamp/3` -- commented "THE identity boundary. Nothing here reads the
+    payload." -- does `Map.put("source", entry.source)`, overwriting whatever the decoder computed.
+    That is deliberate: a payload must not be able to choose its own guardrail. The consequence is
+    that routing active fingerprints through `fingerprint.v1` would silently file them as
+    `passive-netprobe`, and the ONLY correct route is a second registry entry, exactly as above. This
+    confirms the caution recorded in 5.5 rather than superseding it.
+
+- [x] 7.5 **DONE.** `openspec validate refactor-netprobe-onto-generic-addon-contract --strict` ->
+  "Change 'refactor-netprobe-onto-generic-addon-contract' is valid" (2026-08-25).
