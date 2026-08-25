@@ -258,7 +258,87 @@ the legacy producers.
   `FlowAttributionEventBatch` payload bytes byte-identical so the hand-mirrored
   `flow_attribution_event.pb.ex` decoder keeps working, and add real generation for that file in the
   same change. Keep the ack/quarantine queue at the agent
-- [ ] 5.7 Delete the dead arms rather than porting them: `ExternalFlowRecord`/`ExternalFlowAck`
+- [~] 5.7 **AUDITED 2026-08-25; ALL THREE ARMS STAY. Do not delete on the strength of this task's
+  original wording -- two of its three claims are false, and the third is a live product decision that
+  went the other way.** Ten agents swept go/, rust/, elixir/, proto/, docs/, helm/, addons/,
+  openspec/ and git history; each "dead" verdict then faced three independent skeptics (production
+  reachability, operator surface, version skew). Findings, each verified against the source by hand
+  afterwards rather than accepted:
+
+  * **tag-21 `flow_attribution_event` is LIVE. Not deletable, and the premise is wrong.**
+    - It is the `else` arm of a live runtime branch at `rust/netprobe/src/server.rs:200-212`, selected
+      by `flow_attribution_ipc_batch`, reached on every drained eBPF attribution event.
+    - **It is an operator-documented escape hatch**, not an internal fallback:
+      `addons/netprobe/config.schema.json:54-60` renders it as an admin toggle ("Disable only for
+      debugging older agents or framing issues") and `docs/docs/netprobe.md:130` repeats the advice.
+      Deleting the branch while the toggle survives means an operator can select a mode whose
+      implementation is gone, and `addon_service.rs` still answers `accepted: true` -- this repo's own
+      "job reported success while writing nothing" failure shape.
+    - **Skew is measured, not hypothetical:** five published netprobe tags (0.2.3 x2, 0.2.5 x3) predate
+      the batching commit `34e551432e` and emit tag 21 exclusively, verified by
+      `git merge-base --is-ancestor`, not by version-string comparison. The agent has no minimum-peer
+      check, `framing.go` uses plain `proto.Unmarshal`, and the `readLoop` has no default branch -- so
+      deleting the consumer at `client.go:554-556` is SILENT total loss of flow attribution for those
+      hosts: no log, no metric, no `recordEventDrop`.
+
+  * **`ExternalFlowRecord`/`ExternalFlowAck` are test-only in-tree but NOT deletable today.**
+    - Confirmed: the only Go callers are `client_test.go`, and the Rust handler at `server.rs:490-506`
+      is live code that no production sender can reach.
+    - But `openspec/changes/add-host-network-visibility-sidecar` carries an ACTIVE, unarchived
+      requirement "External NetFlow attribution join" (`specs/host-network-visibility/spec.md:360-382`)
+      with tasks 21.1/21.2 marked `[x]`. Deleting the arm silently un-implements a shipped requirement.
+    - `addons/netprobe/config.schema.json:46-53` exposes `external_flow_match_window_ms` as an operator
+      key that exists only to tune the matcher only this arm reads; the root schema is
+      `additionalProperties: false`, so removing the property fails validation for every persisted
+      `AddonAssignment.params` row still carrying it.
+    - The Rust matcher is WRITTEN by the live eBPF attribution hot path (`attribution.rs:1865`) and READ
+      only here -- so today it is a write-only map. Delete the arm and the matcher together or neither;
+      `external_flow.rs:131` also owns `default_external_flow_match_window_ms()`, which
+      `config.rs`/`runtime_config.rs` import, so deleting the file alone breaks bootstrap config parsing.
+
+  * **`StartRemoteCapture`/`PcapngBlock` are genuinely dead CODE -- and deliberately reserved SPEC.**
+    - Zero references outside generated bindings and openspec prose; not one test. Both messages carry
+      zero fields (confirmed in the generated Elixir, which emits one `field` line per declared field).
+    - But they are placeholders that `add-host-network-visibility-sidecar` task 4.1 `[x]` created ON
+      PURPOSE, and its **unchecked Phase 5** ("Remote pcapng capture sessions", `tasks.md:242-260`)
+      plus normative spec deltas (`specs/remote-packet-capture/spec.md:104,113,121`) are written against
+      them by name. This is a conflict between two live proposals, not dead code.
+    - **DECIDED 2026-08-25 (maintainer): Phase 5 is unfinished work, not abandoned. Leave the
+      placeholders; they are OUT OF SCOPE for 5.7.** Tracked in GitHub issue #4025, which records what
+      Phase 5 still specifies, what exists today (only the two zero-field messages), and the lookalike
+      that must not be mistaken for progress -- `rust/netprobe/src/capture.rs` gates on a cargo feature
+      named `remote-capture`, but that is the PASSIVE interface opener for fingerprinting/DPI, is off in
+      every build, and touches neither message.
+
+  **Cross-cutting, and required before ANY of these arms is removed:**
+  * `NetprobeFrame` (`proto/agent/netprobe/v1/netprobe.proto:26-52`) has **no `reserved` statement at
+    all**. The repo convention is well established and includes a comment naming what was removed --
+    `proto/monitoring.proto:218,254,276,307,861,927-928`, and `netprobe.proto`'s own
+    `VisibilityAgentConfig:118-121`. Reservations go on the enclosing MESSAGE; proto3 forbids them
+    inside a `oneof` block.
+  * **Nothing in CI would catch a missing `reserved`.** `buf.yaml` declares `lint` only, with no
+    `breaking:` section, and `make proto-lint` is `buf lint`. A future field reusing a freed tag would
+    be accepted silently and mis-decode against un-upgraded peers. Tracked as GitHub issue #4026, which
+    also proposes a loud unknown-arm branch in the agent `readLoop` -- that one should land BEFORE any
+    arm is retired, since it is what makes the retirement observable rather than silent.
+  * Deleting any arm requires regenerating TWO committed trees -- `netprobe.pb.go` (`Makefile:623-625`)
+    and `netprobe.pb.ex` (`Makefile:677`), the latter guarded by `verify-proto-elixir`
+    (`Makefile:685-690`), a `git diff --exit-code` drift gate. Rust needs no committed change;
+    `rust/netprobe/build.rs` regenerates via prost at build time.
+
+  **Separately found, worth fixing on its own merits (NOT a blocker):** `flow_attribution_ipc_batch`
+  and `emit_raw_flow_attribution_events` are parsed by two Rust structs with OPPOSITE defaults --
+  `config.rs:11-12` defaults both to `true`, while `addon_config_json.rs:46-49` uses a bare
+  `#[serde(default)]` on `bool`, which is `false`. An audit agent concluded from this that the
+  non-batched path is the DEFAULT on the add-on Configure surface; **that conclusion is wrong and was
+  checked** -- `ConfigSchema.normalize_params/2` injects schema defaults at author time
+  (`config_schema.ex:78-80`) and `ApplyAddonConfigDefaults` runs it on the assignment, profile, policy
+  and seeder paths, so `true` is materialized into stored params in the normal case. The divergence is
+  latent, not live. It still deserves fixing: correctness currently depends on a THIRD component always
+  injecting a default, and `ApplyAddonConfigDefaults` falls through unchanged when a package row has no
+  `config_schema`. Make the Rust parser self-consistent with the schema, and pin it with a test.
+
+  Original text: Delete the dead arms rather than porting them: `ExternalFlowRecord`/`ExternalFlowAck`
   (test-only callers), `StartRemoteCapture`/`PcapngBlock` (empty messages, no code), and the tag-21
   non-batched flow-attribution fallback (disabled by default)
 
