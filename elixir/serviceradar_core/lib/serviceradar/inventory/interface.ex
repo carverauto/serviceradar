@@ -90,6 +90,20 @@ defmodule ServiceRadar.Inventory.Interface do
 
     create :create do
       accept @interface_fields
+
+      change fn changeset, _context ->
+        case Ash.Changeset.fetch_change(changeset, :ip_addresses) do
+          {:ok, addresses} when is_list(addresses) ->
+            Ash.Changeset.change_attribute(
+              changeset,
+              :ip_addresses,
+              ServiceRadar.Inventory.Interface.canonical_ip_addresses(addresses)
+            )
+
+          _ ->
+            changeset
+        end
+      end
     end
 
     update :reassign_device do
@@ -395,6 +409,41 @@ defmodule ServiceRadar.Inventory.Interface do
 
     calculate :primary_ip, :string, expr(fragment("(?)[1]", ip_addresses))
   end
+
+  @doc """
+  Canonical order for an interface's addresses: most useful first, then
+  deduplicated and sorted for stability.
+
+  Two reasons, and the second is the one that costs money.
+
+  `primary_ip` is defined as `ip_addresses[1]`, so the array's order IS a
+  semantic. Today that order is whatever the collector happened to serialise:
+  one real interface produced **12 distinct textual values for 3 distinct
+  address sets**, nine of them pure permutations. `primary_ip` therefore
+  already changes between polls at random -- ordering here does not break a
+  working thing, it makes a broken one deterministic, and makes "primary" mean
+  the most reachable address rather than the luckiest one.
+
+  Those permutations also make every stored row byte-distinct, which is half of
+  why `discovered_interfaces` holds ~98 rows per interface state: nothing can
+  tell a real change from a reshuffle. Sorting must happen on WRITE -- a reader
+  cannot un-write rows that already exist, and the comparison that decides
+  whether to write happens first.
+
+  Ranking is `Identity.Address`, the same one that decides a device's primary
+  IP, so an interface and its device agree about what a useful address is.
+  """
+  @spec canonical_ip_addresses(term()) :: [String.t()]
+  def canonical_ip_addresses(addresses) when is_list(addresses) do
+    addresses
+    |> Enum.filter(&is_binary/1)
+    |> Enum.map(&String.trim/1)
+    |> Enum.reject(&(&1 == ""))
+    |> Enum.uniq()
+    |> Enum.sort_by(&{-ServiceRadar.Inventory.Identity.Address.rank(&1), &1})
+  end
+
+  def canonical_ip_addresses(_addresses), do: []
 
   identities do
     # Identity for composite primary key - used for upsert operations
