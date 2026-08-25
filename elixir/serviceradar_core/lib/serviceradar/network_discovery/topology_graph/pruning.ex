@@ -121,7 +121,7 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph.Pruning do
     Application.get_env(
       :serviceradar_core,
       :mapper_topology_prune_stale_projected_links_enabled,
-      false
-    ) == true
+      true
+    ) != false
   end
 end
