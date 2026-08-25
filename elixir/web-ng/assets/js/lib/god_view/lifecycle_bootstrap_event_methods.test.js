@@ -89,7 +89,7 @@ describe("lifecycle_bootstrap_event_methods", () => {
   it("keeps a fixed managed zoom-mode change transactional when camera selection fails", () => {
     let handler = null
     const acceptedViewState = {zoom: 0, minZoom: -2, maxZoom: 5, target: [0, 0, 0]}
-    const graph = {_layoutMode: "elk-scene", _topologyScene: {}, nodes: []}
+    const graph = {_layoutMode: "elk-scene-detail", _topologyScene: {}, nodes: []}
     const state = {
       zoomMode: "auto",
       zoomTier: "local",
@@ -143,7 +143,7 @@ describe("lifecycle_bootstrap_event_methods", () => {
     })
     const graph = Object.freeze({
       shape: "local",
-      _layoutMode: "elk-scene",
+      _layoutMode: "elk-scene-detail",
       _topologyScene: scene,
       nodes: Object.freeze([
         Object.freeze({id: "left", details: Object.freeze({cluster_kind: "endpoint-member", cluster_expanded: true})}),
@@ -198,7 +198,7 @@ describe("lifecycle_bootstrap_event_methods", () => {
     let handler = null
     const graph = Object.freeze({
       shape: "local",
-      _layoutMode: "elk-scene",
+      _layoutMode: "elk-scene-detail",
       _topologyScene: Object.freeze({nodes: Object.freeze([]), routes: Object.freeze([])}),
       nodes: Object.freeze([{id: "selected"}]),
     })
@@ -290,7 +290,7 @@ describe("lifecycle_bootstrap_event_methods", () => {
   it("contains an infeasible managed fallback reset and preserves the accepted lock", () => {
     let handler = null
     const acceptedViewState = {zoom: 0, minZoom: -2, maxZoom: 5, target: [0, 0, 0]}
-    const graph = {_layoutMode: "elk-scene", _topologyScene: {}, nodes: []}
+    const graph = {_layoutMode: "elk-scene-detail", _topologyScene: {}, nodes: []}
     const state = {
       deck: {setProps: vi.fn()},
       userCameraLocked: true,

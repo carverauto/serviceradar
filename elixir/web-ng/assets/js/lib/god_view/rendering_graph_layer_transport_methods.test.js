@@ -55,7 +55,7 @@ describe("rendering_graph_layer_transport_methods", () => {
     }
 
     const out = ctx.buildTransportAndEffectLayers(
-      {shape: "local", _layoutMode: "elk-scene", _topologyScene: {routes: [{id: "route:a-b"}]}},
+      {shape: "local", _layoutMode: "elk-radial-overview", _topologyScene: {routes: [{id: "route:a-b"}]}},
       [],
       [edge],
     )
@@ -101,7 +101,7 @@ describe("rendering_graph_layer_transport_methods", () => {
     }
 
     const out = ctx.buildTransportAndEffectLayers(
-      {shape: "local", _layoutMode: "elk-scene", _topologyScene: {routes: [{id: "route:a-b"}]}},
+      {shape: "local", _layoutMode: "elk-scene-detail", _topologyScene: {routes: [{id: "route:a-b"}]}},
       [],
       [semantic, auxiliary],
     )
@@ -152,7 +152,7 @@ describe("rendering_graph_layer_transport_methods", () => {
     }
 
     const out = ctx.buildTransportAndEffectLayers(
-      {shape: "regional", _layoutMode: "elk-scene", _topologyScene: {routes: [{id: "route:a-b"}]}},
+      {shape: "regional", _layoutMode: "elk-scene-detail", _topologyScene: {routes: [{id: "route:a-b"}]}},
       [],
       [edge],
     )
@@ -186,7 +186,7 @@ describe("rendering_graph_layer_transport_methods", () => {
     })
     const effective = {
       shape: "local",
-      _layoutMode: "elk-scene",
+      _layoutMode: "elk-scene-detail",
       _topologyScene: {routes: [{id: "route:a-b"}]},
     }
 

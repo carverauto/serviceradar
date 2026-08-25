@@ -182,7 +182,7 @@ describe("lifecycle_dom_interaction_methods", () => {
 
   it("custom wheel zoom keeps an accepted ELK scene local across legacy tier thresholds", () => {
     const scene = {id: "authoritative-scene"}
-    const graph = {_layoutMode: "elk-scene", _topologyScene: scene, nodes: [], edges: []}
+    const graph = {_layoutMode: "elk-scene-detail", _topologyScene: scene, nodes: [], edges: []}
     const canvas = {getBoundingClientRect: () => ({left: 0, top: 0, width: 1000, height: 600})}
     const ctx = makeContext({
       state: {
@@ -222,7 +222,7 @@ describe("lifecycle_dom_interaction_methods", () => {
       Object.freeze({id: "left", x: 0, y: 0}),
       Object.freeze({id: "right", x: 192, y: 0}),
     ])
-    const graph = Object.freeze({_layoutMode: "elk-scene", _topologyScene: scene, nodes: graphNodes, edges: Object.freeze([])})
+    const graph = Object.freeze({_layoutMode: "elk-scene-detail", _topologyScene: scene, nodes: graphNodes, edges: Object.freeze([])})
     const densitiesAtRefresh = []
     const managedViewStateForCamera = vi.fn((_graph, viewState) => ({
       viewState,
@@ -265,7 +265,7 @@ describe("lifecycle_dom_interaction_methods", () => {
 
   it("contains an infeasible custom camera update and preserves the accepted camera", () => {
     const acceptedViewState = {zoom: 0, minZoom: -5, maxZoom: 5, target: [96, 0, 0]}
-    const graph = {_layoutMode: "elk-scene", _topologyScene: {routes: []}, nodes: [], edges: []}
+    const graph = {_layoutMode: "elk-scene-detail", _topologyScene: {routes: []}, nodes: [], edges: []}
     const ctx = makeContext({
       state: {
         canvas: {getBoundingClientRect: () => ({left: 0, top: 0, width: 1000, height: 600})},
@@ -301,7 +301,7 @@ describe("lifecycle_dom_interaction_methods", () => {
 
   it("rolls back render-layer mutations when a managed custom camera refresh fails", () => {
     const acceptedViewState = {zoom: 0, minZoom: -5, maxZoom: 5, target: [96, 0, 0]}
-    const graph = {_layoutMode: "elk-scene", _topologyScene: {routes: []}, nodes: [], edges: []}
+    const graph = {_layoutMode: "elk-scene-detail", _topologyScene: {routes: []}, nodes: [], edges: []}
     const frame = {effective: graph, nodeData: [], edgeData: [], edgeLabelData: [], rootPulseNodes: []}
     const acceptedFallbackIds = ["accepted-label"]
     const state = {
@@ -356,7 +356,7 @@ describe("lifecycle_dom_interaction_methods", () => {
     })
     const graph = Object.freeze({
       shape: "local",
-      _layoutMode: "elk-scene",
+      _layoutMode: "elk-scene-detail",
       _topologyScene: scene,
       nodes: Object.freeze([
         Object.freeze({id: "left", x: 0, y: 0, label: "L", details: Object.freeze({cluster_kind: "endpoint-member", cluster_expanded: true})}),
@@ -411,7 +411,7 @@ describe("lifecycle_dom_interaction_methods", () => {
 
   it("custom pan keeps an accepted ELK scene identity and only refreshes layers", () => {
     const scene = {id: "authoritative-scene"}
-    const graph = {_layoutMode: "elk-scene", _topologyScene: scene, nodes: [], edges: []}
+    const graph = {_layoutMode: "elk-scene-detail", _topologyScene: scene, nodes: [], edges: []}
     const ctx = makeContext({
       state: {
         canvas: {style: {cursor: "grabbing"}},
@@ -478,7 +478,7 @@ describe("lifecycle_dom_interaction_methods", () => {
 
   it("contains an infeasible managed fit and preserves the accepted camera lock", () => {
     const acceptedViewState = {zoom: 0, minZoom: -2, maxZoom: 5, target: [0, 0, 0]}
-    const graph = {_layoutMode: "elk-scene", _topologyScene: {}, nodes: []}
+    const graph = {_layoutMode: "elk-scene-detail", _topologyScene: {}, nodes: []}
     const pushEvent = vi.fn()
     const ctx = makeContext({
       state: {

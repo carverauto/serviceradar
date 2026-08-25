@@ -1,4 +1,5 @@
 import {runRecoverableManagedCameraUpdate} from "./lifecycle_managed_camera_recovery"
+import {hasManagedTopologyScene} from "./topology_layout_mode"
 
 export const godViewLifecycleBootstrapEventZoomMethods = {
   registerZoomModeEvent() {
@@ -8,7 +9,7 @@ export const godViewLifecycleBootstrapEventZoomMethods = {
         this.state.zoomMode = normalized
         return
       }
-      const managedScene = this.state.lastGraph?._layoutMode === "elk-scene" && this.state.lastGraph?._topologyScene
+      const managedScene = hasManagedTopologyScene(this.state.lastGraph)
 
       if (normalized === "auto") {
         const nextTier = managedScene ? "local" : this.deps.resolveZoomTier(this.state.viewState.zoom || 0)

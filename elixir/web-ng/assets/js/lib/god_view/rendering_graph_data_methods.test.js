@@ -50,7 +50,7 @@ function baseContext({state = {}, deps = {}, overrides = {}} = {}) {
 function managedRouteGraph({nodes, edges, route}) {
   return {
     shape: "local",
-    _layoutMode: "elk-scene",
+    _layoutMode: "elk-scene-detail",
     _topologyScene: {
       key: "managed-filter-scene",
       routes: [{
@@ -140,11 +140,10 @@ describe("rendering_graph_data_methods", () => {
 
   it("keeps accepted ELK scene routes authoritative at overview display shape", () => {
     const scene = {routes: []}
-    expect(hasManagedTopologySceneRoutes({
-      shape: "global",
-      _layoutMode: "elk-scene",
-      _topologyScene: scene,
-    })).toBe(true)
+    expect(hasManagedTopologySceneRoutes({shape: "global", _layoutMode: "elk-radial-overview", _topologyScene: scene})).toBe(true)
+    expect(hasManagedTopologySceneRoutes({shape: "local", _layoutMode: "elk-scene-detail", _topologyScene: scene})).toBe(true)
+    expect(hasManagedTopologySceneRoutes({shape: "local", _layoutMode: "elk-scene", _topologyScene: scene})).toBe(false)
+    expect(hasManagedTopologySceneRoutes({shape: "local", _layoutMode: "elk-scene-detail-error", _topologyScene: scene})).toBe(false)
   })
 
   it("uses pre-laid scene routes without post-layout aggregation", async () => {
@@ -185,7 +184,7 @@ describe("rendering_graph_data_methods", () => {
     const ctx = baseContext()
     const effective = {
       shape: "local",
-      _layoutMode: "elk-scene",
+      _layoutMode: "elk-scene-detail",
       _topologyScene: {
         routes: [{
           id: "route:a-b",
@@ -212,7 +211,7 @@ describe("rendering_graph_data_methods", () => {
     const ctx = baseContext()
     const effective = {
       shape: "local",
-      _layoutMode: "elk-scene",
+      _layoutMode: "elk-scene-detail",
       _topologyScene: {
         routes: [
           {
@@ -250,7 +249,7 @@ describe("rendering_graph_data_methods", () => {
     const ctx = baseContext()
     const effective = {
       shape: "local",
-      _layoutMode: "elk-scene",
+      _layoutMode: "elk-scene-detail",
       _topologyScene: {
         routes: [{
           id: "orphan-route",
@@ -283,7 +282,7 @@ describe("rendering_graph_data_methods", () => {
     const ctx = baseContext()
     const effective = {
       shape: "local",
-      _layoutMode: "elk-scene",
+      _layoutMode: "elk-scene-detail",
       _topologyScene: {
         routes: [{
           id: "partial-route",
@@ -316,7 +315,7 @@ describe("rendering_graph_data_methods", () => {
     const ctx = baseContext()
     const effective = {
       shape: "local",
-      _layoutMode: "elk-scene",
+      _layoutMode: "elk-scene-detail",
       _topologyScene: {
         routes: [{
           id: "route:a-b",

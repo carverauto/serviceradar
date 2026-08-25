@@ -1,5 +1,6 @@
 import {canvasPoint, focalZoomViewState, panViewState, wheelZoomDelta} from "./deck_camera_controls"
 import {runRecoverableManagedCameraUpdate} from "./lifecycle_managed_camera_recovery"
+import {hasManagedTopologyScene} from "./topology_layout_mode"
 
 export const godViewLifecycleDomInteractionMethods = {
   startAnimationLoop() {
@@ -79,7 +80,7 @@ export const godViewLifecycleDomInteractionMethods = {
     if (!this.state.deck || !viewState) return false
 
     const layoutMode = this.state.lastGraph?._layoutMode
-    const managedScene = layoutMode === "elk-scene" && this.state.lastGraph?._topologyScene
+    const managedScene = hasManagedTopologyScene(this.state.lastGraph)
     const applyViewState = () => {
       let nextViewState = viewState
       if (managedScene) {
@@ -216,7 +217,7 @@ export const godViewLifecycleDomInteractionMethods = {
       this.deps.autoFitViewState(this.state.lastGraph)
     }
 
-    const managedScene = this.state.lastGraph?._layoutMode === "elk-scene" && this.state.lastGraph?._topologyScene
+    const managedScene = hasManagedTopologyScene(this.state.lastGraph)
     if (managedScene) return runRecoverableManagedCameraUpdate(this, resetCamera).ok
     resetCamera()
     return true

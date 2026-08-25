@@ -1,4 +1,5 @@
 import {topologyRelationId} from "./topology_relation_identity"
+import {hasManagedTopologyScene} from "./topology_layout_mode"
 
 function isEndpointCensusSummary(node) {
   return String(node?.details?.cluster_kind || "").trim() === "endpoint-summary"
@@ -130,7 +131,7 @@ function deterministicRelationPresentation(relations) {
 
 export function hasManagedTopologySceneRoutes(effective) {
   return (
-    effective?._layoutMode === "elk-scene" &&
+    hasManagedTopologyScene(effective) &&
     Array.isArray(effective?._topologyScene?.routes)
   )
 }

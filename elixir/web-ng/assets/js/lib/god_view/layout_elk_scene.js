@@ -1243,6 +1243,6 @@ export function applyTopologySceneToGraph(graph, scene) {
     ...graph,
     nodes,
     _topologyScene: scene,
-    _layoutMode: "elk-scene",
+    _layoutMode: "elk-scene-detail",
   }
 }

@@ -11,6 +11,7 @@ import {
   managedNodeVisualRole,
   managedVisualDensityContract,
 } from "./rendering_managed_visual_density"
+import {hasManagedTopologyScene} from "./topology_layout_mode"
 
 const MANAGED_DENSITY_LAYOUT_CACHE_LIMIT = 8
 
@@ -854,7 +855,7 @@ function managedSceneFloorKey(graph) {
 
 export const godViewRenderingGraphViewMethods = {
   managedVisualDensityForViewScale(graph, scale, options = {}) {
-    if (graph?._layoutMode !== "elk-scene" || !graph?._topologyScene) {
+    if (!hasManagedTopologyScene(graph)) {
       throw new RangeError("managed visual density requires an accepted ELK topology scene")
     }
     const constraints = managedDensityConstraints(this, graph)
@@ -865,7 +866,7 @@ export const godViewRenderingGraphViewMethods = {
     }
   },
   managedViewStateForCamera(graph, viewState, options = {}) {
-    if (graph?._layoutMode !== "elk-scene" || !graph?._topologyScene) {
+    if (!hasManagedTopologyScene(graph)) {
       return {viewState, managedVisualDensity: null, constraints: null}
     }
 
@@ -976,7 +977,7 @@ export const godViewRenderingGraphViewMethods = {
   },
   autoFitViewState(graph, options = {}) {
     if (!this.state.deck || !graph || !Array.isArray(graph.nodes)) return
-    const managedScene = graph?._layoutMode === "elk-scene" ? graph?._topologyScene : null
+    const managedScene = hasManagedTopologyScene(graph) ? graph._topologyScene : null
     if (this.state.userCameraLocked) {
       if (managedScene) {
         const selection = this.managedVisualDensityForViewScale(
@@ -1058,7 +1059,7 @@ export const godViewRenderingGraphViewMethods = {
     if (!this.state.deck || !graph || !Array.isArray(graph.nodes) || normalizedClusterId === "") return false
     if (this.state.userCameraLocked) return false
 
-    if (graph?._layoutMode === "elk-scene" && graph?._topologyScene) {
+    if (hasManagedTopologyScene(graph)) {
       const width = Math.max(1, this.state.el.clientWidth || 1)
       const height = Math.max(1, this.state.el.clientHeight || 1)
       const graphNodes = managedGraphNodes(graph)

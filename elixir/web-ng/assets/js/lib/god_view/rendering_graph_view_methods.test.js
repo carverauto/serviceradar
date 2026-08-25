@@ -269,7 +269,7 @@ describe("rendering_graph_view_methods", () => {
     )
 
     ctx.autoFitViewState({
-      _layoutMode: "elk-scene",
+      _layoutMode: "elk-scene-detail",
       _topologyScene: scene,
       nodes: [
         {id: "left", x: -144, y: 0, details: {}},
@@ -309,7 +309,7 @@ describe("rendering_graph_view_methods", () => {
     Object.assign(ctx, bindApi(ctx, godViewRenderingGraphViewMethods))
 
     expect(() => ctx.autoFitViewState({
-      _layoutMode: "elk-scene",
+      _layoutMode: "elk-scene-detail",
       _topologyScene: scene,
       nodes: [{id: "visible", x: 50, y: 50, details: {}}],
     })).toThrow(/renderer-derived glyph extents/i)
@@ -342,7 +342,7 @@ describe("rendering_graph_view_methods", () => {
       bindApi(ctx, godViewRenderingGraphViewMethods),
     )
     const graph = {
-      _layoutMode: "elk-scene",
+      _layoutMode: "elk-scene-detail",
       _topologyScene: scene,
       nodes: [
         {id: "visible-left", x: 100, y: 50, details: {}},
@@ -385,7 +385,7 @@ describe("rendering_graph_view_methods", () => {
     ctx.selectNodeLabels = vi.fn((...args) => originalSelect(...args))
     const graph = {
       shape: "regional",
-      _layoutMode: "elk-scene",
+      _layoutMode: "elk-scene-detail",
       _topologyScene: scene,
       nodes: [
         {id: "left", x: 0, y: 0, label: "Left", details: {cluster_kind: "endpoint-member", cluster_expanded: true}},
@@ -433,7 +433,7 @@ describe("rendering_graph_view_methods", () => {
 
     ctx.autoFitViewState({
       shape: "local",
-      _layoutMode: "elk-scene",
+      _layoutMode: "elk-scene-detail",
       _layoutCacheKey: "single-summary",
       _topologyScene: scene,
       nodes: [{
@@ -457,7 +457,7 @@ describe("rendering_graph_view_methods", () => {
     }
     const graph = {
       shape: "local",
-      _layoutMode: "elk-scene",
+      _layoutMode: "elk-scene-detail",
       _layoutCacheKey: "single-node-narrow-safe-width",
       _topologyScene: scene,
       nodes: [{id: "node", x: 0.5, y: 0.5, details: {}}],
@@ -519,7 +519,7 @@ describe("rendering_graph_view_methods", () => {
     }
     const graph = {
       shape: "local",
-      _layoutMode: "elk-scene",
+      _layoutMode: "elk-scene-detail",
       _layoutCacheKey: "single-route-narrow-safe-height",
       _topologyScene: scene,
       nodes: [],
@@ -571,7 +571,7 @@ describe("rendering_graph_view_methods", () => {
     }
     const graph = {
       shape: "local",
-      _layoutMode: "elk-scene",
+      _layoutMode: "elk-scene-detail",
       _layoutCacheKey: "route-glyph-clearance",
       _topologyScene: scene,
       nodes: [
@@ -647,7 +647,7 @@ describe("rendering_graph_view_methods", () => {
     }
     const graph = {
       shape: "local",
-      _layoutMode: "elk-scene",
+      _layoutMode: "elk-scene-detail",
       _layoutCacheKey: "route-route-clearance",
       _topologyScene: scene,
       nodes: [],
@@ -698,7 +698,7 @@ describe("rendering_graph_view_methods", () => {
     },
   ])("still constrains noncontact route portions when routes $name", ({route}) => {
     const graph = {
-      _layoutMode: "elk-scene",
+      _layoutMode: "elk-scene-detail",
       _layoutCacheKey: `contact-then-parallel:${route.sourceId}`,
       _topologyScene: {
         bounds: {minX: 0, minY: -100, maxX: 1000, maxY: 100},
@@ -747,7 +747,7 @@ describe("rendering_graph_view_methods", () => {
     },
   ])("does not exempt the complete $name short-route pair at a shared endpoint", ({baseline, sibling}) => {
     const graph = {
-      _layoutMode: "elk-scene",
+      _layoutMode: "elk-scene-detail",
       _layoutCacheKey: `short-shared-endpoint:${baseline.length}:${sibling[1].y}`,
       _topologyScene: {
         bounds: {minX: 0, minY: 0, maxX: 1000, maxY: 100},
@@ -780,7 +780,7 @@ describe("rendering_graph_view_methods", () => {
 
   it("bounds a shared endpoint funnel to endpoint chrome when long terminal legs nearly overlap", () => {
     const graph = {
-      _layoutMode: "elk-scene",
+      _layoutMode: "elk-scene-detail",
       _layoutCacheKey: "long-shared-endpoint-funnel",
       _topologyScene: {
         bounds: {minX: 0, minY: -100, maxX: 1000, maxY: 100},
@@ -826,7 +826,7 @@ describe("rendering_graph_view_methods", () => {
     {name: "long coordinates", length: 20_000, gap: 5, feasibleScale: 2},
   ])("normalizes route contact math for $name", ({name, length, gap, feasibleScale}) => {
     const graph = {
-      _layoutMode: "elk-scene",
+      _layoutMode: "elk-scene-detail",
       _layoutCacheKey: `near-parallel:${name}`,
       _topologyScene: {
         bounds: {minX: 0, minY: 0, maxX: length, maxY: gap},
@@ -860,7 +860,7 @@ describe("rendering_graph_view_methods", () => {
 
   it("leaves an accepted proper route crossing under the route validator contract", () => {
     const graph = {
-      _layoutMode: "elk-scene",
+      _layoutMode: "elk-scene-detail",
       _layoutCacheKey: "accepted-proper-crossing",
       _topologyScene: {
         bounds: {minX: 0, minY: 0, maxX: 100, maxY: 100},
@@ -916,7 +916,7 @@ describe("rendering_graph_view_methods", () => {
 
     ctx.autoFitViewState({
       shape: "local",
-      _layoutMode: "elk-scene",
+      _layoutMode: "elk-scene-detail",
       _topologyScene: scene,
       nodes: [
         {id: "left", x: 0, y: 0, details: {cluster_kind: "endpoint-member", cluster_expanded: true}},
@@ -940,7 +940,7 @@ describe("rendering_graph_view_methods", () => {
       routes: [],
     }
     const graph = {
-      _layoutMode: "elk-scene",
+      _layoutMode: "elk-scene-detail",
       _topologyScene: scene,
       nodes: [
         {id: "member-left", clusterCount: 1, details: {cluster_kind: "endpoint-member", cluster_expanded: true}},
@@ -980,7 +980,7 @@ describe("rendering_graph_view_methods", () => {
       },
     })
     const hydratedGraph = (onRead) => ({
-      _layoutMode: "elk-scene",
+      _layoutMode: "elk-scene-detail",
       _layoutCacheKey: "stable-hydrated-layout",
       _topologyScene: {
         key: "stable-scene",
@@ -1027,7 +1027,7 @@ describe("rendering_graph_view_methods", () => {
     }
     const graph = {
       shape: "local",
-      _layoutMode: "elk-scene",
+      _layoutMode: "elk-scene-detail",
       _topologyScene: scene,
       nodes: [
         {id: "left", details: {cluster_kind: "endpoint-member", cluster_expanded: true}},
@@ -1070,7 +1070,7 @@ describe("rendering_graph_view_methods", () => {
       }
       return {
         shape: "local",
-        _layoutMode: "elk-scene",
+        _layoutMode: "elk-scene-detail",
         _topologyScene: scene,
         nodes: [
           {id: "left", x: 0, y: 0, details: {cluster_kind: "endpoint-member", cluster_expanded: true}},
@@ -1112,7 +1112,7 @@ describe("rendering_graph_view_methods", () => {
   it("retains a fitted scene floor across immutable cache hydration with the same layout key", () => {
     const managedGraph = () => ({
       shape: "local",
-      _layoutMode: "elk-scene",
+      _layoutMode: "elk-scene-detail",
       _layoutCacheKey: "portrait-layout",
       _topologyScene: {
         bounds: {minX: 0, minY: 0, maxX: 1000, maxY: 1},
@@ -1175,7 +1175,7 @@ describe("rendering_graph_view_methods", () => {
     )
 
     ctx.autoFitViewState({
-      _layoutMode: "elk-scene",
+      _layoutMode: "elk-scene-detail",
       _topologyScene: expandedSceneForViewTest(),
       nodes: [{id: "node", x: 0, y: 0}],
     }, {force: true})
@@ -1196,7 +1196,7 @@ describe("rendering_graph_view_methods", () => {
       routes: [],
     }
     const graph = {
-      _layoutMode: "elk-scene",
+      _layoutMode: "elk-scene-detail",
       _topologyScene: scene,
       nodes: [
         {id: "left", x: 0, y: 0, details: {}},
@@ -1349,7 +1349,7 @@ describe("rendering_graph_view_methods", () => {
     }
     const graph = {
       shape: "local",
-      _layoutMode: "elk-scene",
+      _layoutMode: "elk-scene-detail",
       _layoutCacheKey: "narrow-focus",
       _topologyScene: scene,
       nodes: [
@@ -1407,7 +1407,7 @@ describe("rendering_graph_view_methods", () => {
     }
     const graph = {
       shape: "local",
-      _layoutMode: "elk-scene",
+      _layoutMode: "elk-scene-detail",
       _layoutCacheKey: "wide-focus",
       _topologyScene: scene,
       nodes: [
@@ -1477,7 +1477,7 @@ describe("rendering_graph_view_methods", () => {
     }
     const graph = {
       shape: "local",
-      _layoutMode: "elk-scene",
+      _layoutMode: "elk-scene-detail",
       _layoutCacheKey: "focus-neighborhood-density",
       _topologyScene: scene,
       nodes: [
@@ -1584,7 +1584,7 @@ describe("rendering_graph_view_methods", () => {
     const originalGroups = scene.groups.map((group) => ({...group, memberIds: [...group.memberIds]}))
 
     const focused = ctx.focusClusterNeighborhood(
-      {_layoutMode: "elk-scene", _topologyScene: scene, shape: "local", nodes},
+      {_layoutMode: "elk-scene-detail", _topologyScene: scene, shape: "local", nodes},
       selectedGroup.id,
     )
 
