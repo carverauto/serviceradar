@@ -77,11 +77,22 @@
 
 ## 2. Stop manufacturing changes
 
-- [ ] 2.1 Sort `ip_addresses` canonically on write. Measured: 12 textual values for 3
-  real sets on a single interface.
-- [ ] 2.2 Move per-poll provenance (`discovery_id`, `mapper_job_id`, `discovery_time`)
-  out of anything that participates in change detection. Measured: `metadata` had 129
-  distinct values across 129 rows while every semantic column had exactly 1.
+- [x] 2.1 DONE. Canonical order is routability-first (`Identity.Address`), not alphabetical.
+  `primary_ip` is `ip_addresses[1]`, so the order is a semantic -- and alphabetical sorting would
+  hand primary to `10.0.0.5` over `192.168.1.1` purely on digits. It also turned out to fix a live
+  bug rather than prevent a future one: with 12 textual values for 3 real sets, `primary_ip`
+  already changed between polls at random. Nothing consumes that calculation today (checked: not
+  SRQL, not loaded anywhere), so the surface being changed was unreliable rather than working.
+  Enforced as a `change` on `:create`, so both writers are covered.
+- [~] 2.2 PARTIALLY DONE -- `upsert_fields` enumerated at both writers, which is the half that
+  must precede the rekey. The two lists are deliberately asymmetric: `inventory/sync/` never sets
+  if_index, if_speed, speed_bps, if_admin_status, if_oper_status, if_type, mtu, duplex or
+  available_metrics, so a shared list would write NULL over the mapper's operational data on every
+  sync run -- silently, and only once conflicts start happening. Sync's list is a named function
+  with a test deriving the valid set from a real record.
+  STILL TO DO: `metadata` carries `discovery_id`/`mapper_job_id`/`discovery_time`, which is what
+  makes every row byte-distinct (129 distinct values across 129 rows while every semantic column
+  had 1). It must stop participating in change detection.
 - [ ] 2.3 Confirm no OTHER column carries per-poll noise. The audit that found the two
   above: for one `(device_id, if_index)`, count DISTINCT per column and compare against
   the row count.
