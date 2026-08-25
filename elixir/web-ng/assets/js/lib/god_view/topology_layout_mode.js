@@ -5,8 +5,32 @@ export function topologySemanticLevel(graph) {
   return graph?._topologySemanticLevel === "detail" ? "detail" : "overview"
 }
 
+function isPlainObject(value) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false
+  const prototype = Object.getPrototypeOf(value)
+  return prototype === Object.prototype || prototype === null
+}
+
+function hasFiniteBounds(bounds) {
+  return (
+    isPlainObject(bounds) &&
+    Number.isFinite(bounds.minX) &&
+    Number.isFinite(bounds.minY) &&
+    Number.isFinite(bounds.maxX) &&
+    Number.isFinite(bounds.maxY) &&
+    bounds.minX <= bounds.maxX &&
+    bounds.minY <= bounds.maxY
+  )
+}
+
 function hasTopologyScene(graph) {
-  return Boolean(graph?._topologyScene) && typeof graph._topologyScene === "object"
+  const scene = graph?._topologyScene
+  return (
+    isPlainObject(scene) &&
+    Array.isArray(scene.nodes) &&
+    Array.isArray(scene.routes) &&
+    hasFiniteBounds(scene.bounds)
+  )
 }
 
 export function isOverviewScene(graph) {

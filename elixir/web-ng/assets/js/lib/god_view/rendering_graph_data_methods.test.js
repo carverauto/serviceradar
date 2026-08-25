@@ -10,6 +10,15 @@ import {godViewRenderingGraphDataMethods, hasManagedTopologySceneRoutes} from ".
 import {godViewRenderingStyleEdgeTopologyMethods} from "./rendering_style_edge_topology_methods"
 import {prepareTopologySceneInput} from "./topology_scene_graph"
 
+function topologyScene(overrides = {}) {
+  return {
+    nodes: [],
+    routes: [],
+    bounds: {minX: 0, minY: 0, maxX: 0, maxY: 0},
+    ...overrides,
+  }
+}
+
 function baseContext({state = {}, deps = {}, overrides = {}} = {}) {
   const initialState = {
     selectedNodeIndex: null,
@@ -53,6 +62,8 @@ function managedRouteGraph({nodes, edges, route}) {
     _layoutMode: "elk-scene-detail",
     _topologyScene: {
       key: "managed-filter-scene",
+      nodes: [],
+      bounds: {minX: 0, minY: 0, maxX: 100, maxY: 0},
       routes: [{
         id: route.id,
         sourceId: route.sourceId,
@@ -139,7 +150,7 @@ describe("rendering_graph_data_methods", () => {
   })
 
   it("keeps accepted ELK scene routes authoritative at overview display shape", () => {
-    const scene = {routes: []}
+    const scene = topologyScene()
     expect(hasManagedTopologySceneRoutes({shape: "global", _layoutMode: "elk-radial-overview", _topologyScene: scene})).toBe(true)
     expect(hasManagedTopologySceneRoutes({shape: "local", _layoutMode: "elk-scene-detail", _topologyScene: scene})).toBe(true)
     expect(hasManagedTopologySceneRoutes({shape: "local", _layoutMode: "elk-scene", _topologyScene: scene})).toBe(false)
@@ -186,6 +197,8 @@ describe("rendering_graph_data_methods", () => {
       shape: "local",
       _layoutMode: "elk-scene-detail",
       _topologyScene: {
+        nodes: [],
+        bounds: {minX: 0, minY: 0, maxX: 10, maxY: 30},
         routes: [{
           id: "route:a-b",
           sourceId: "a",
@@ -213,6 +226,8 @@ describe("rendering_graph_data_methods", () => {
       shape: "local",
       _layoutMode: "elk-scene-detail",
       _topologyScene: {
+        nodes: [],
+        bounds: {minX: 0, minY: 0, maxX: 10, maxY: 0},
         routes: [
           {
             id: "valid",
@@ -251,6 +266,8 @@ describe("rendering_graph_data_methods", () => {
       shape: "local",
       _layoutMode: "elk-scene-detail",
       _topologyScene: {
+        nodes: [],
+        bounds: {minX: 0, minY: 0, maxX: 10, maxY: 0},
         routes: [{
           id: "orphan-route",
           sourceId: "a",
@@ -284,6 +301,8 @@ describe("rendering_graph_data_methods", () => {
       shape: "local",
       _layoutMode: "elk-scene-detail",
       _topologyScene: {
+        nodes: [],
+        bounds: {minX: 0, minY: 0, maxX: 10, maxY: 0},
         routes: [{
           id: "partial-route",
           sourceId: "a",
@@ -317,6 +336,8 @@ describe("rendering_graph_data_methods", () => {
       shape: "local",
       _layoutMode: "elk-scene-detail",
       _topologyScene: {
+        nodes: [],
+        bounds: {minX: 0, minY: 0, maxX: 20, maxY: 0},
         routes: [{
           id: "route:a-b",
           sourceId: "a",

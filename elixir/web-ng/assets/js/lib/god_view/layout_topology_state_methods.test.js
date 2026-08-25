@@ -634,6 +634,29 @@ describe("layout_topology_state_methods", () => {
     expect(rejected.nodes.every((node) => node.x === undefined && node.y === undefined)).toBe(true)
   })
 
+  it("rejects malformed last-known-good scene geometry before recovery", async () => {
+    const context = makeContext()
+    const graph = collapsedFarm01Graph()
+    const accepted = await context.prepareGraphLayout(graph, 18, "accepted")
+    context.state.lastGraph = {
+      ...accepted,
+      _topologyScene: {
+        ...accepted._topologyScene,
+        bounds: {...accepted._topologyScene.bounds, maxX: Number.NaN},
+      },
+    }
+    context.state.layoutCache.clear()
+    context.state.layoutEngine = {
+      layout: vi.fn(async () => { throw new Error("malformed fallback probe") }),
+    }
+
+    const rejected = await context.prepareGraphLayout(graph, 19, "retry")
+
+    expect(rejected._layoutMode).toBe("elk-radial-overview-error")
+    expect(rejected._topologyScene).toBeUndefined()
+    expect(rejected.nodes.every((node) => node.x === undefined && node.y === undefined)).toBe(true)
+  })
+
   it("reapplies a compatible last-good scene without replacing current graph data", async () => {
     const context = makeContext()
     const graph = detailGraph(collapsedFarm01Graph())

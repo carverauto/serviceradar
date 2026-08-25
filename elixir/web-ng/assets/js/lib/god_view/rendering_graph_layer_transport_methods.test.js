@@ -4,6 +4,15 @@ import {ArcLayer, LineLayer, PathLayer} from "@deck.gl/layers"
 import {bindApi, createStateBackedContext} from "./api_helpers"
 import {godViewRenderingGraphLayerTransportMethods} from "./rendering_graph_layer_transport_methods"
 
+function topologyScene(overrides = {}) {
+  return {
+    nodes: [],
+    routes: [],
+    bounds: {minX: 0, minY: 0, maxX: 0, maxY: 0},
+    ...overrides,
+  }
+}
+
 describe("rendering_graph_layer_transport_methods", () => {
   it("keeps local ELK-tagged graphs without scene routes on the legacy transport layers", () => {
     const state = {
@@ -55,7 +64,7 @@ describe("rendering_graph_layer_transport_methods", () => {
     }
 
     const out = ctx.buildTransportAndEffectLayers(
-      {shape: "local", _layoutMode: "elk-radial-overview", _topologyScene: {routes: [{id: "route:a-b"}]}},
+      {shape: "local", _layoutMode: "elk-radial-overview", _topologyScene: topologyScene({routes: [{id: "route:a-b"}]})},
       [],
       [edge],
     )
@@ -101,7 +110,7 @@ describe("rendering_graph_layer_transport_methods", () => {
     }
 
     const out = ctx.buildTransportAndEffectLayers(
-      {shape: "local", _layoutMode: "elk-scene-detail", _topologyScene: {routes: [{id: "route:a-b"}]}},
+      {shape: "local", _layoutMode: "elk-scene-detail", _topologyScene: topologyScene({routes: [{id: "route:a-b"}]})},
       [],
       [semantic, auxiliary],
     )
@@ -152,7 +161,7 @@ describe("rendering_graph_layer_transport_methods", () => {
     }
 
     const out = ctx.buildTransportAndEffectLayers(
-      {shape: "regional", _layoutMode: "elk-scene-detail", _topologyScene: {routes: [{id: "route:a-b"}]}},
+      {shape: "regional", _layoutMode: "elk-scene-detail", _topologyScene: topologyScene({routes: [{id: "route:a-b"}]})},
       [],
       [edge],
     )
@@ -187,7 +196,7 @@ describe("rendering_graph_layer_transport_methods", () => {
     const effective = {
       shape: "local",
       _layoutMode: "elk-scene-detail",
-      _topologyScene: {routes: [{id: "route:a-b"}]},
+      _topologyScene: topologyScene({routes: [{id: "route:a-b"}]}),
     }
 
     const overview = ctx.buildTransportAndEffectLayers(effective, [], edgeData)

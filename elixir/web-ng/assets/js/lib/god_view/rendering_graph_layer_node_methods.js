@@ -6,6 +6,7 @@ import {
   managedVisualDensityContract,
   normalizeManagedVisualDensity,
 } from "./rendering_managed_visual_density"
+import {hasManagedTopologyScene} from "./topology_layout_mode"
 
 export const godViewRenderingGraphLayerNodeMethods = {
   visualClusterCount(node) {
@@ -367,8 +368,8 @@ export const godViewRenderingGraphLayerNodeMethods = {
     })
   },
   buildNodeAndLabelLayers(effective, nodeData, edgeLabelData) {
-    const managedTopologyOverview = effective?._layoutMode === "elk-scene"
-    const managedVisualDensity = managedTopologyOverview
+    const managedTopologyScene = hasManagedTopologyScene(effective)
+    const managedVisualDensity = managedTopologyScene
       ? normalizeManagedVisualDensity(this.state.managedTopologyVisualDensity)
       : null
     const densityOptions = managedVisualDensity ? {managedVisualDensity} : {}
@@ -522,7 +523,7 @@ export const godViewRenderingGraphLayerNodeMethods = {
             }),
           ]
         : []),
-      ...(this.state.layers.mantle && !managedTopologyOverview && (effective.shape === "local" || effective.shape === "regional")
+      ...(this.state.layers.mantle && !managedTopologyScene && (effective.shape === "local" || effective.shape === "regional")
         ? [
             new TextLayer({
               id: "god-view-edge-labels",

@@ -12,6 +12,7 @@ import {
 import {prepareTopologyOverviewInput} from "./topology_overview_projection"
 import {prepareTopologySceneInput} from "./topology_scene_graph"
 import {
+  hasManagedTopologyScene,
   TOPOLOGY_DETAIL_MODE,
   TOPOLOGY_OVERVIEW_MODE,
   topologySemanticLevel,
@@ -441,12 +442,14 @@ export const godViewLayoutTopologyStateMethods = {
         _layoutRevision: revision,
         _layoutCacheKey: layoutKey,
       }
-      if (commit) {
-        state.layoutMode = cachedGraph._layoutMode
-        state.layoutRevision = revision
-        state.lastLayoutKey = layoutKey
+      if (hasManagedTopologyScene(cachedGraph)) {
+        if (commit) {
+          state.layoutMode = cachedGraph._layoutMode
+          state.layoutRevision = revision
+          state.lastLayoutKey = layoutKey
+        }
+        return cachedGraph
       }
-      return cachedGraph
     }
 
     const finalGraph = await this.computeClientTopologyLayout(
@@ -505,7 +508,8 @@ export const godViewLayoutTopologyStateMethods = {
       const compatible =
         previousGraph?._layoutCacheKey === layoutKey &&
         previousGraph?._layoutMode === adapter.mode &&
-        topologySemanticLevel(previousGraph) === adapter.semanticLevel
+        topologySemanticLevel(previousGraph) === adapter.semanticLevel &&
+        hasManagedTopologyScene(previousGraph)
       const previousGeometry = compatible
         ? topologySceneGeometry(previousGraph._topologyScene)
         : null
@@ -517,12 +521,13 @@ export const godViewLayoutTopologyStateMethods = {
       )
 
       if (recoveredScene) {
-        return {
+        const recoveredGraph = {
           ...adapter.apply(stripCoordinates(graph), recoveredScene),
           _layoutRevision: revision,
           _layoutCacheKey: layoutKey,
           _layoutError: diagnostic,
         }
+        if (hasManagedTopologyScene(recoveredGraph)) return recoveredGraph
       }
 
       return {

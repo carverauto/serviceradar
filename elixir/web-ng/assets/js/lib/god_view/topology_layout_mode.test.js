@@ -8,6 +8,12 @@ import {
 } from "./topology_layout_mode"
 
 describe("topology_layout_mode", () => {
+  const scene = {
+    nodes: [],
+    routes: [],
+    bounds: {minX: 0, minY: 0, maxX: 0, maxY: 0},
+  }
+
   it("normalizes only the explicit bounded-detail marker to detail", () => {
     expect(topologySemanticLevel()).toBe("overview")
     expect(topologySemanticLevel({})).toBe("overview")
@@ -17,8 +23,8 @@ describe("topology_layout_mode", () => {
   })
 
   it("recognizes only radial overview and Layered detail scenes as managed", () => {
-    const overview = {_layoutMode: "elk-radial-overview", _topologyScene: {routes: []}}
-    const detail = {_layoutMode: "elk-scene-detail", _topologyScene: {routes: []}}
+    const overview = {_layoutMode: "elk-radial-overview", _topologyScene: scene}
+    const detail = {_layoutMode: "elk-scene-detail", _topologyScene: scene}
 
     expect(isOverviewScene(overview)).toBe(true)
     expect(isDetailScene(detail)).toBe(true)
@@ -27,13 +33,26 @@ describe("topology_layout_mode", () => {
   })
 
   it.each([
-    {_layoutMode: "elk-scene", _topologyScene: {routes: []}},
-    {_layoutMode: "elk-radial-overview-error", _topologyScene: {routes: []}},
-    {_layoutMode: "elk-scene-detail-error", _topologyScene: {routes: []}},
+    {_layoutMode: "elk-scene", _topologyScene: scene},
+    {_layoutMode: "elk-radial-overview-error", _topologyScene: scene},
+    {_layoutMode: "elk-scene-detail-error", _topologyScene: scene},
     {_layoutMode: "elk-radial-overview"},
     {_layoutMode: "elk-scene-detail"},
     {_layoutMode: "elk-radial-overview", _topologyScene: "malformed"},
     {_layoutMode: "elk-scene-detail", _topologyScene: true},
+    {_layoutMode: "elk-radial-overview", _topologyScene: []},
+    {_layoutMode: "elk-scene-detail", _topologyScene: {}},
+    {_layoutMode: "elk-radial-overview", _topologyScene: {...scene, nodes: {}}},
+    {_layoutMode: "elk-scene-detail", _topologyScene: {...scene, routes: null}},
+    {_layoutMode: "elk-radial-overview", _topologyScene: {...scene, bounds: {}}},
+    {
+      _layoutMode: "elk-scene-detail",
+      _topologyScene: {...scene, bounds: {minX: 0, minY: 0, maxX: Number.NaN, maxY: 0}},
+    },
+    {
+      _layoutMode: "elk-radial-overview",
+      _topologyScene: {...scene, bounds: {minX: 1, minY: 0, maxX: 0, maxY: 0}},
+    },
   ])("rejects legacy, error, and sceneless modes as managed scene authorities", (graph) => {
     expect(hasManagedTopologyScene(graph)).toBe(false)
     expect(isOverviewScene(graph)).toBe(false)

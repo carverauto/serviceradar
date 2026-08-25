@@ -21,6 +21,15 @@ import {godViewRenderingGraphCoreMethods} from "./rendering_graph_core_methods"
 import {godViewRenderingGraphLayerNodeMethods} from "./rendering_graph_layer_node_methods"
 import {godViewRenderingGraphViewMethods} from "./rendering_graph_view_methods"
 
+function topologyScene(overrides = {}) {
+  return {
+    nodes: [],
+    routes: [],
+    bounds: {minX: 0, minY: 0, maxX: 0, maxY: 0},
+    ...overrides,
+  }
+}
+
 describe("lifecycle_dom_setup_methods", () => {
   it("observeTopologyContainer watches the actual topology container", () => {
     const originalResizeObserver = globalThis.ResizeObserver
@@ -185,7 +194,7 @@ describe("lifecycle_dom_setup_methods", () => {
       },
       canvas: {style: {}},
       deck: {setProps: vi.fn(), redraw: vi.fn()},
-      lastGraph: {_layoutMode: "elk-scene-detail", _topologyScene: {profileKey: "landscape"}},
+      lastGraph: {_layoutMode: "elk-scene-detail", _topologyScene: topologyScene({profileKey: "landscape"})},
       viewportWidth: 900,
       viewportHeight: 600,
       viewportProfileKey: "landscape",
@@ -216,7 +225,7 @@ describe("lifecycle_dom_setup_methods", () => {
       getBoundingClientRect: () => ({left: 860, top: 12, right: 948, bottom: 240, width: 88, height: 228}),
     }
     const safeRoot = {querySelectorAll: () => [controls]}
-    const graph = {_layoutMode: "elk-scene-detail", _topologyScene: {profileKey: "landscape"}}
+    const graph = {_layoutMode: "elk-scene-detail", _topologyScene: topologyScene({profileKey: "landscape"})}
     const state = {
       el: {
         clientWidth: 960,
@@ -253,7 +262,7 @@ describe("lifecycle_dom_setup_methods", () => {
 
   it("contains an impossible unlocked safe-area refit and preserves the accepted camera", () => {
     const acceptedViewState = {zoom: 0, minZoom: -8, maxZoom: 5, target: [120, 80, 0]}
-    const graph = {_layoutMode: "elk-scene-detail", _topologyScene: {profileKey: "landscape"}}
+    const graph = {_layoutMode: "elk-scene-detail", _topologyScene: topologyScene({profileKey: "landscape"})}
     const state = {
       el: {
         clientWidth: 960,
@@ -309,7 +318,7 @@ describe("lifecycle_dom_setup_methods", () => {
   ])("contains a failed %s managed resize refresh without rejecting its accepted camera", (_mode, userCameraLocked) => {
     const originalViewState = {zoom: 0, minZoom: -8, maxZoom: 5, target: [120, 80, 0]}
     const fittedViewState = {zoom: 1, minZoom: -8, maxZoom: 5, target: [140, 90, 0]}
-    const graph = {_layoutMode: "elk-scene-detail", _topologyScene: {profileKey: "landscape"}}
+    const graph = {_layoutMode: "elk-scene-detail", _topologyScene: topologyScene({profileKey: "landscape"})}
     const acceptedDeckLayers = ["accepted-layer"]
     const failedDeckLayers = ["failed-layer"]
     const deck = {
@@ -382,7 +391,7 @@ describe("lifecycle_dom_setup_methods", () => {
     requestsLayout,
   ) => {
     const acceptedViewState = {zoom: 0, minZoom: -8, maxZoom: 5, target: [120, 80, 0]}
-    const graph = {_layoutMode: "elk-scene-detail", _topologyScene: {profileKey: viewportProfileKey}}
+    const graph = {_layoutMode: "elk-scene-detail", _topologyScene: topologyScene({profileKey: viewportProfileKey})}
     const acceptedDeckLayers = ["accepted-layer"]
     const deck = {
       props: {layers: acceptedDeckLayers},
@@ -447,7 +456,7 @@ describe("lifecycle_dom_setup_methods", () => {
     width,
     height,
   ) => {
-    const graph = {_layoutMode: "elk-scene-detail", _topologyScene: {profileKey: viewportProfileKey}}
+    const graph = {_layoutMode: "elk-scene-detail", _topologyScene: topologyScene({profileKey: viewportProfileKey})}
     const state = {
       el: {
         clientWidth: width,
@@ -485,7 +494,7 @@ describe("lifecycle_dom_setup_methods", () => {
   it("clears a locked safe-area error after density selection becomes feasible", () => {
     let width = 980
     const acceptedViewState = {zoom: 0, minZoom: -8, maxZoom: 5, target: [20, 30, 0]}
-    const graph = {_layoutMode: "elk-scene-detail", _topologyScene: {profileKey: "landscape"}}
+    const graph = {_layoutMode: "elk-scene-detail", _topologyScene: topologyScene({profileKey: "landscape"})}
     const state = {
       el: {
         get clientWidth() { return width },
@@ -538,11 +547,11 @@ describe("lifecycle_dom_setup_methods", () => {
       getBoundingClientRect: () => ({left: 668, top: 12, right: 948, bottom: 360, width: 280, height: 348}),
     }
     const safeRoot = {querySelectorAll: () => [controls]}
-    const previousGraph = {_layoutMode: "elk-scene-detail", _topologyScene: {profileKey: "landscape"}, nodes: [], edges: []}
+    const previousGraph = {_layoutMode: "elk-scene-detail", _topologyScene: topologyScene({profileKey: "landscape"}), nodes: [], edges: []}
     const portraitGraph = {
       _layoutMode: "elk-scene-detail",
       _layoutCacheKey: "accepted-portrait-layout",
-      _topologyScene: {profileKey: "portrait"},
+      _topologyScene: topologyScene({profileKey: "portrait"}),
       nodes: [],
       edges: [],
     }
@@ -588,11 +597,11 @@ describe("lifecycle_dom_setup_methods", () => {
   })
 
   it("crossing usable aspect 1.2 invalidates and requests one fresh profile layout", async () => {
-    const previousGraph = {_layoutMode: "elk-scene-detail", _topologyScene: {profileKey: "landscape"}, nodes: [], edges: []}
+    const previousGraph = {_layoutMode: "elk-scene-detail", _topologyScene: topologyScene({profileKey: "landscape"}), nodes: [], edges: []}
     const portraitGraph = {
       _layoutMode: "elk-scene-detail",
       _layoutCacheKey: "accepted-portrait-layout",
-      _topologyScene: {profileKey: "portrait"},
+      _topologyScene: topologyScene({profileKey: "portrait"}),
       nodes: [],
       edges: [],
     }
@@ -641,7 +650,7 @@ describe("lifecycle_dom_setup_methods", () => {
     const previousGraph = {
       _layoutMode: "elk-scene-detail",
       _layoutCacheKey: "accepted-landscape-layout",
-      _topologyScene: {profileKey: "landscape"},
+      _topologyScene: topologyScene({profileKey: "landscape"}),
       nodes: [{id: "positioned", x: 10, y: 20}],
       edges: [],
     }
@@ -655,7 +664,7 @@ describe("lifecycle_dom_setup_methods", () => {
     const recoveredGraph = {
       _layoutMode: "elk-scene-detail",
       _layoutCacheKey: "accepted-portrait-layout",
-      _topologyScene: {profileKey: "portrait"},
+      _topologyScene: topologyScene({profileKey: "portrait"}),
       nodes: [{id: "recovered", x: 50, y: 60}],
       edges: [],
     }
@@ -718,14 +727,14 @@ describe("lifecycle_dom_setup_methods", () => {
     const previousGraph = {
       _layoutMode: "elk-scene-detail",
       _layoutCacheKey: "accepted-landscape-layout",
-      _topologyScene: {profileKey: "landscape"},
+      _topologyScene: topologyScene({profileKey: "landscape"}),
       nodes: [],
       edges: [],
     }
     const recoveredGraph = {
       _layoutMode: "elk-scene-detail",
       _layoutCacheKey: "accepted-portrait-layout",
-      _topologyScene: {profileKey: "portrait"},
+      _topologyScene: topologyScene({profileKey: "portrait"}),
       nodes: [],
       edges: [],
     }
@@ -779,21 +788,21 @@ describe("lifecycle_dom_setup_methods", () => {
     const previousGraph = {
       _layoutMode: "elk-scene-detail",
       _layoutCacheKey: "accepted-landscape-layout",
-      _topologyScene: {profileKey: "landscape"},
+      _topologyScene: topologyScene({profileKey: "landscape"}),
       nodes: [{id: "positioned", x: 10, y: 20}],
       edges: [],
     }
     const failedGraph = {
       _layoutMode: "elk-scene-detail",
       _layoutCacheKey: "failed-portrait-layout",
-      _topologyScene: {profileKey: "portrait"},
+      _topologyScene: topologyScene({profileKey: "portrait"}),
       nodes: [{id: "failed", x: 30, y: 40}],
       edges: [],
     }
     const recoveredGraph = {
       _layoutMode: "elk-scene-detail",
       _layoutCacheKey: "accepted-portrait-layout",
-      _topologyScene: {profileKey: "portrait"},
+      _topologyScene: topologyScene({profileKey: "portrait"}),
       nodes: [{id: "recovered", x: 50, y: 60}],
       edges: [],
     }
@@ -941,7 +950,7 @@ describe("lifecycle_dom_setup_methods", () => {
   })
 
   it("user-locked resize updates Deck and label projection without auto-refitting", () => {
-    const graph = {_layoutMode: "elk-scene-detail", _topologyScene: {profileKey: "landscape"}}
+    const graph = {_layoutMode: "elk-scene-detail", _topologyScene: topologyScene({profileKey: "landscape"})}
     const state = {
       el: {
         clientWidth: 980,
@@ -1063,7 +1072,7 @@ describe("lifecycle_dom_setup_methods", () => {
 
   it("contains an infeasible managed Deck camera update and preserves accepted state", () => {
     const acceptedViewState = {zoom: 0, minZoom: -8, maxZoom: 5, target: [20, 30, 0]}
-    const graph = {_layoutMode: "elk-scene-detail", _topologyScene: {routes: []}, nodes: []}
+    const graph = {_layoutMode: "elk-scene-detail", _topologyScene: topologyScene(), nodes: []}
     const state = {
       canvas: {},
       visual: {bg: [10, 10, 10, 255]},
@@ -1113,7 +1122,7 @@ describe("lifecycle_dom_setup_methods", () => {
     const acceptedViewState = {zoom: 0, minZoom: -8, maxZoom: 5, target: [20, 30, 0]}
     const rawViewState = {...acceptedViewState, zoom: -10}
     const clampedViewState = {...rawViewState, zoom: -2}
-    const graph = {_layoutMode: "elk-scene-detail", _topologyScene: {routes: []}, nodes: []}
+    const graph = {_layoutMode: "elk-scene-detail", _topologyScene: topologyScene(), nodes: []}
     const state = {
       canvas: {},
       visual: {bg: [10, 10, 10, 255]},
@@ -1155,7 +1164,7 @@ describe("lifecycle_dom_setup_methods", () => {
     }
     const acceptedViewState = {zoom: 0, minZoom: -8, maxZoom: 5, target: [20, 30, 0]}
     const nextViewState = {...acceptedViewState, zoom: 1}
-    const graph = {_layoutMode: "elk-scene-detail", _topologyScene: {routes: []}, nodes: []}
+    const graph = {_layoutMode: "elk-scene-detail", _topologyScene: topologyScene(), nodes: []}
     const state = {
       canvas: {},
       visual: {bg: [10, 10, 10, 255]},
@@ -1204,7 +1213,7 @@ describe("lifecycle_dom_setup_methods", () => {
   })
 
   it("recomputes label admission for same-tier pan and zoom without reshaping or laying out", async () => {
-    const scene = {routes: []}
+    const scene = topologyScene()
     const effective = {shape: "local", _layoutMode: "elk-scene-detail", _topologyScene: scene}
     const nodeData = [{
       index: 0,

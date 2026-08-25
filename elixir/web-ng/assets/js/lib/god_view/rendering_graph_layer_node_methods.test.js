@@ -3,6 +3,15 @@ import {describe, expect, it, vi} from "vitest"
 import {bindApi, createStateBackedContext} from "./api_helpers"
 import {godViewRenderingGraphLayerNodeMethods} from "./rendering_graph_layer_node_methods"
 
+function topologyScene(overrides = {}) {
+  return {
+    nodes: [],
+    routes: [],
+    bounds: {minX: 0, minY: 0, maxX: 0, maxY: 0},
+    ...overrides,
+  }
+}
+
 describe("rendering_graph_layer_node_methods", () => {
   it("buildNodeAndLabelLayers makes node labels pickable", () => {
     const state = {
@@ -40,13 +49,13 @@ describe("rendering_graph_layer_node_methods", () => {
 
   it("projects budgeted candidates and routes into the measured safe rectangle before building TextLayer", () => {
     const project = vi.fn(([x, y]) => [x, y])
-    const scene = {
+    const scene = topologyScene({
       routes: [{
         id: "route:a-b",
         points: [{x: 65, y: 70}, {x: 135, y: 70}],
         metadata: {strokeWidth: 2},
       }],
-    }
+    })
     const state = {
       animationPhase: 0,
       hoveredNodeIndex: null,
@@ -66,7 +75,7 @@ describe("rendering_graph_layer_node_methods", () => {
       connectionKindFromLabel: () => "LINK",
     })
 
-    const effective = {shape: "local", _layoutMode: "elk-scene", _topologyScene: scene}
+    const effective = {shape: "local", _layoutMode: "elk-radial-overview", _topologyScene: scene}
     const layers = ctx.buildNodeAndLabelLayers(
       effective,
       [{index: 0, id: "router", label: "Router", position: [100, 100, 0], state: 2, operUp: 1, clusterCount: 1, details: {}}],
@@ -96,7 +105,7 @@ describe("rendering_graph_layer_node_methods", () => {
   it("recomputes admission from a changed Deck viewport without mutating or laying out the scene", () => {
     let projectedY = 100
     const project = vi.fn(([x]) => [x, projectedY])
-    const scene = {routes: []}
+    const scene = topologyScene()
     const layoutTopologyScene = vi.fn()
     const state = {
       hoveredNodeIndex: null,
@@ -109,7 +118,7 @@ describe("rendering_graph_layer_node_methods", () => {
     Object.assign(ctx, bindApi(ctx, godViewRenderingGraphLayerNodeMethods), {
       layoutTopologyScene,
     })
-    const effective = {shape: "local", _layoutMode: "elk-scene", _topologyScene: scene}
+    const effective = {shape: "local", _layoutMode: "elk-radial-overview", _topologyScene: scene}
     const labels = [{
       index: 0,
       id: "router",
@@ -490,8 +499,8 @@ describe("rendering_graph_layer_node_methods", () => {
     })
     const effective = {
       shape: "local",
-      _layoutMode: "elk-scene",
-      _topologyScene: {routes: []},
+      _layoutMode: "elk-radial-overview",
+      _topologyScene: topologyScene(),
     }
 
     const overview = ctx.buildNodeAndLabelLayers(effective, nodeData, [])
@@ -509,7 +518,9 @@ describe("rendering_graph_layer_node_methods", () => {
     expect(layer(detail, "god-view-nodes-ring").props.updateTriggers.getRadius).toEqual([3.25, "detail"])
   })
 
-  it("uses managed label density for font size while semantic shape stays local", () => {
+  it.each(["elk-radial-overview", "elk-scene-detail"])(
+    "uses managed label density for font size in %s while semantic shape stays local",
+    (layoutMode) => {
     const nodeData = [{
       index: 0,
       id: "router",
@@ -535,7 +546,15 @@ describe("rendering_graph_layer_node_methods", () => {
       nodeColor: () => [255, 0, 0, 255],
       nodeNeutralColor: () => [128, 128, 128, 255],
     })
-    const effective = {shape: "local", _layoutMode: "elk-scene", _topologyScene: {routes: []}}
+    const effective = {
+      shape: "local",
+      _layoutMode: layoutMode,
+      _topologyScene: {
+        nodes: [],
+        routes: [],
+        bounds: {minX: 0, minY: 0, maxX: 0, maxY: 0},
+      },
+    }
 
     const overview = ctx.buildNodeAndLabelLayers(effective, nodeData, [])
     state.managedTopologyVisualDensity = "detail"
@@ -547,7 +566,8 @@ describe("rendering_graph_layer_node_methods", () => {
     expect(overviewLabels.props.sizeMinPixels).toBe(8)
     expect(detailLabels.props.getSize).toBe(12)
     expect(detailLabels.props.sizeMinPixels).toBe(10)
-  })
+    },
+  )
 
   it("backfills collision-blocked overview priorities from the remaining semantic candidates", () => {
     const blocked = Array.from({length: 8}, (_, index) => ({
@@ -571,13 +591,13 @@ describe("rendering_graph_layer_node_methods", () => {
       clusterCount: 1,
       details: {},
     }))
-    const scene = {
+    const scene = topologyScene({
       routes: [
         {points: [{x: 510, y: 300}, {x: 510, y: 350}]},
         {points: [{x: 450, y: 310}, {x: 550, y: 310}]},
         {points: [{x: 490, y: 300}, {x: 490, y: 350}]},
       ],
-    }
+    })
     const state = {
       animationPhase: 0,
       hoveredNodeIndex: null,
@@ -598,7 +618,7 @@ describe("rendering_graph_layer_node_methods", () => {
       nodeColor: () => [255, 0, 0, 255],
       nodeNeutralColor: () => [128, 128, 128, 255],
     })
-    const effective = {shape: "local", _layoutMode: "elk-scene", _topologyScene: scene}
+    const effective = {shape: "local", _layoutMode: "elk-radial-overview", _topologyScene: scene}
     const labelsFor = (nodes) => ctx
       .buildNodeAndLabelLayers(effective, nodes, [])
       .find((layer) => layer.id === "god-view-node-labels")
