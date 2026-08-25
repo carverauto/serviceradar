@@ -77,8 +77,21 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-bazel-
 
-      - name: Install build dependencies
-        run: ./scripts/ci/ensure-forgejo-tools.sh bazel-build
+      # No ensure-forgejo-tools.sh step. It is a Forgejo-era bootstrap that
+      # apt-installs a local toolchain (libpcap-dev, protobuf-compiler, cmake,
+      # flex, bison...) and fails on the GitHub ARC runners, which run non-root:
+      #
+      #   missing required CI tools for profile bazel-build: file pkg-config:libpcap
+      #   This job is running non-root; rebuild the Forgejo CI image ...
+      #
+      # It is also unnecessary. This job builds through RBE, so compilation runs
+      # on BuildBuddy executors and the runner needs Bazel plus credentials, not
+      # a C toolchain. native-addons.yml and wasm-plugins.yml build and publish
+      # on this same runner with no such step and pass; publish-oci.yml was the
+      # only workflow still calling it, which is why it alone broke -- its
+      # auto-trigger was removed in 2026-06 and nothing exercised it since.
+      #
+      # The script itself stays: .forgejo/workflows/* still reference it.
 
       - name: Install Bazelisk
         run: ./scripts/install-bazelisk.sh
