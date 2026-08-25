@@ -59,3 +59,28 @@ describe("topology_layout_mode", () => {
     expect(isDetailScene(graph)).toBe(false)
   })
 })
+
+describe("topology_layout_mode expansion-derived semantic level", () => {
+  it("treats a graph carrying an expanded cluster as bounded detail", () => {
+    expect(topologySemanticLevel({
+      nodes: [
+        {id: "gw", details: {cluster_kind: "endpoint-anchor"}},
+        {id: "cluster", details: {cluster_kind: "endpoint-summary", cluster_expanded: true}},
+      ],
+    })).toBe("detail")
+  })
+
+  it("keeps a fully collapsed graph in radial overview", () => {
+    expect(topologySemanticLevel({
+      nodes: [
+        {id: "gw", details: {cluster_kind: "endpoint-anchor"}},
+        {id: "cluster", details: {cluster_kind: "endpoint-summary", cluster_expanded: false}},
+      ],
+    })).toBe("overview")
+  })
+
+  it("ignores malformed node collections when deriving the semantic level", () => {
+    expect(topologySemanticLevel({nodes: "malformed"})).toBe("overview")
+    expect(topologySemanticLevel({nodes: [null, 7, {details: null}]})).toBe("overview")
+  })
+})

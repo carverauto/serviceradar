@@ -1,8 +1,25 @@
 export const TOPOLOGY_OVERVIEW_MODE = "elk-radial-overview"
 export const TOPOLOGY_DETAIL_MODE = "elk-scene-detail"
 
+export function clusterExpandedFlag(value) {
+  return value === true || value === "true" || value === 1
+}
+
+// A cluster the operator has expanded is the only signal that promotes a graph out of
+// the radial overview. The server never sends a semantic level, so deriving it here is
+// what makes the bounded-detail adapter reachable at all; `_topologySemanticLevel`
+// remains an explicit override for harnesses that need detail without an expansion.
+export function hasExpandedCluster(graph) {
+  return (
+    Array.isArray(graph?.nodes) &&
+    graph.nodes.some((node) => clusterExpandedFlag(node?.details?.cluster_expanded))
+  )
+}
+
 export function topologySemanticLevel(graph) {
-  return graph?._topologySemanticLevel === "detail" ? "detail" : "overview"
+  const declared = graph?._topologySemanticLevel
+  if (declared === "detail" || declared === "overview") return declared
+  return hasExpandedCluster(graph) ? "detail" : "overview"
 }
 
 function isPlainObject(value) {

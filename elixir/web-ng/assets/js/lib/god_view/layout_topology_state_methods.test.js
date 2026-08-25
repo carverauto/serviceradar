@@ -2,6 +2,7 @@ import ELK from "elkjs/lib/elk.bundled.js"
 import {describe, expect, it, vi} from "vitest"
 
 import {
+  FARM01_EXPECTED,
   collapsedFarm01Graph,
   expandedFarm01Graph,
 } from "./fixtures/farm01_topology_regression"
@@ -313,20 +314,21 @@ describe("layout_topology_state_methods", () => {
     expect(out.edges.map((edge) => edge.flowPps)).toEqual([100, 50, 7, 30])
   })
 
-  it("uses one radial overview scene as the geometry authority for both farm01 fixture states", async () => {
-    for (const graph of [collapsedFarm01Graph(), expandedFarm01Graph()]) {
-      const context = makeContext()
+  it.each([
+    {state: "collapsed", build: collapsedFarm01Graph, mode: "elk-radial-overview", routes: 11},
+    {state: "expanded", build: expandedFarm01Graph, mode: "elk-scene-detail", routes: 32},
+  ])("uses one accepted scene as the geometry authority for the $state farm01 fixture", async ({build, mode, routes}) => {
+    const context = makeContext()
 
-      const out = await context.prepareGraphLayout(graph, 5, "stamp")
+    const out = await context.prepareGraphLayout(build(), 5, "stamp")
 
-      expect(context.state.layoutEngine.layout).toHaveBeenCalledTimes(1)
-      expect(out._layoutMode).toEqual("elk-radial-overview")
-      expect(out._topologyScene.routes).toHaveLength(11)
-      expect(out._topologyScene.nodes.every((node) => (
-        Number.isFinite(node.center.x) && Number.isFinite(node.center.y)
-      ))).toEqual(true)
-      expect(context.state.layoutMode).toEqual("elk-radial-overview")
-    }
+    expect(context.state.layoutEngine.layout).toHaveBeenCalledTimes(1)
+    expect(out._layoutMode).toEqual(mode)
+    expect(out._topologyScene.routes).toHaveLength(routes)
+    expect(out._topologyScene.nodes.every((node) => (
+      Number.isFinite(node.center.x) && Number.isFinite(node.center.y)
+    ))).toEqual(true)
+    expect(context.state.layoutMode).toEqual(mode)
   })
 
   it("can prepare a layout without mutating accepted layout metadata", async () => {
@@ -710,5 +712,27 @@ describe("layout_topology_state_methods", () => {
     )
 
     expect(same).toEqual(true)
+  })
+})
+
+describe("layout_topology_state_methods expanded cluster promotion", () => {
+  it("renders every expanded cluster member without an injected semantic-level marker", async () => {
+    const graph = expandedFarm01Graph()
+    const memberIds = graph.nodes
+      .filter((node) => node.details?.cluster_kind === "endpoint-member")
+      .map((node) => node.id)
+    expect(memberIds).toHaveLength(FARM01_EXPECTED.addedMemberCount)
+
+    const laidOut = await makeContext().prepareGraphLayout(graph, 1, "expanded")
+    const sceneIds = new Set((laidOut._topologyScene?.nodes || []).map((node) => String(node.id)))
+
+    expect(laidOut._layoutMode).toBe("elk-scene-detail")
+    expect(memberIds.filter((id) => sceneIds.has(id))).toHaveLength(memberIds.length)
+  })
+
+  it("keeps a collapsed graph on the radial overview adapter", async () => {
+    const laidOut = await makeContext().prepareGraphLayout(collapsedFarm01Graph(), 1, "collapsed")
+
+    expect(laidOut._layoutMode).toBe("elk-radial-overview")
   })
 })

@@ -75,7 +75,14 @@ describe("managed topology visual density", () => {
       engine: new ELK(),
       profile: PORTRAIT_PROFILE,
     })
-    const graph = {shape: "local", ...applyTopologySceneToGraph(source, scene)}
+    const graph = {
+      shape: "local",
+      ...applyTopologySceneToGraph(source, scene),
+      // Pin the density explicitly: this scene carries expanded clusters, which now
+      // derive detail on their own. The contract under test is the label policy of
+      // each density over identical geometry, not how the density was chosen.
+      _topologySemanticLevel: "overview",
+    }
     const width = 800
     const height = 1000
     const safeRect = {left: 0, top: 0, right: 800, bottom: 960}

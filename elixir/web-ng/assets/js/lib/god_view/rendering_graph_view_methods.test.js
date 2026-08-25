@@ -1093,6 +1093,7 @@ describe("rendering_graph_view_methods", () => {
     const graph = {
       shape: "local",
       _layoutMode: "elk-scene-detail",
+      _topologySemanticLevel: "overview",
       _topologyScene: scene,
       nodes: [
         {id: "left", details: {cluster_kind: "endpoint-member", cluster_expanded: true}},
