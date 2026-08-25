@@ -9,7 +9,7 @@ defmodule ServiceRadar.FlowAttribution do
   smaller implementation modules under `ServiceRadar.FlowAttribution`.
   """
 
-  alias Netprobepb.FlowAttributionEvent
+  alias Serviceradar.Agent.Netprobe.V1.FlowAttributionEvent
   alias ServiceRadar.FlowAttribution.Correlation
   alias ServiceRadar.FlowAttribution.EventRows
   alias ServiceRadar.FlowAttribution.Persistence
