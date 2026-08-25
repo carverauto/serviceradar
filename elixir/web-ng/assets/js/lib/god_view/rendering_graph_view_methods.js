@@ -11,9 +11,10 @@ import {
   managedNodeVisualRole,
   managedVisualDensityContract,
 } from "./rendering_managed_visual_density"
-import {hasManagedTopologyScene} from "./topology_layout_mode"
+import {hasManagedTopologyScene, topologySemanticLevel} from "./topology_layout_mode"
 
 const MANAGED_DENSITY_LAYOUT_CACHE_LIMIT = 8
+const MANAGED_ABSOLUTE_MIN_ZOOM = -24
 
 function nodeDetails(node) {
   return node?.details && typeof node.details === "object" ? node.details : {}
@@ -765,39 +766,32 @@ function managedLabelAdmission(context, graph, graphNodes, width, height, manage
 }
 
 function fitManagedTopologyScene(context, graph, scene, viewport, safeRect, graphNodes) {
-  const constraints = managedDensityConstraints(context, graph)
-  let lastInfeasible = null
-  for (const managedVisualDensity of MANAGED_VISUAL_DENSITY_PREFERENCE) {
-    const glyphBoxes = (scene.nodes || [])
-      .filter((sceneNode) => sceneNode?.render !== false)
-      .map((sceneNode) => managedGlyphBox(context, graphNodes, sceneNode, managedVisualDensity))
-    const admitLabels = managedLabelAdmission(
+  const semanticLevel = topologySemanticLevel(graph)
+  const managedVisualDensity = semanticLevel === "detail" ? "detail" : "overview"
+  const glyphBoxes = (scene.nodes || [])
+    .filter((sceneNode) => sceneNode?.render !== false)
+    .map((sceneNode) => managedGlyphBox(context, graphNodes, sceneNode, managedVisualDensity))
+  const fit = fitTopologyScene({
+    scene,
+    viewport,
+    safeRect,
+    glyphBoxes,
+    routeStrokeWidth: managedVisualDensityContract(managedVisualDensity).routeMaxWidth,
+    admitLabels: managedLabelAdmission(
       context,
       graph,
       graphNodes,
       viewport.width,
       viewport.height,
       managedVisualDensity,
+    ),
+  })
+  if (!fit.ok) {
+    throw new RangeError(
+      `managed topology ${semanticLevel} is missing required labels: ${fit.missingRequiredLabelIds.join(", ")}`,
     )
-    try {
-      return {
-        ...fitTopologyScene({
-          scene,
-          viewport,
-          safeRect,
-          glyphBoxes,
-          routeStrokeWidth: managedVisualDensityContract(managedVisualDensity).routeMaxWidth,
-          minimumScale: constraints[managedVisualDensity].scale,
-          admitLabels,
-        }),
-        managedVisualDensity,
-      }
-    } catch (error) {
-      if (!(error instanceof RangeError)) throw error
-      lastInfeasible = error
-    }
   }
-  throw lastInfeasible || new RangeError("managed topology has no feasible visual-density contract")
+  return {...fit, managedVisualDensity}
 }
 
 function focusManagedTopologyGroup(context, graph, groupId, viewport, safeRect, graphNodes) {
@@ -827,7 +821,6 @@ function focusManagedTopologyGroup(context, graph, groupId, viewport, safeRect, 
           managedVisualDensity,
         ),
         routeStrokeWidth: managedVisualDensityContract(managedVisualDensity).routeMaxWidth,
-        minimumScale: constraints[managedVisualDensity].scale,
         admitLabels: managedLabelAdmission(
           context,
           graph,
@@ -871,16 +864,9 @@ export const godViewRenderingGraphViewMethods = {
     }
 
     const constraints = options?.densityConstraints || managedDensityConstraints(this, graph)
-    const overviewScale = Number(constraints.overview.scale)
-    if (!Number.isFinite(overviewScale) || overviewScale < 0) {
-      throw new RangeError(`managed topology overview separation scale is invalid; scale=${String(overviewScale)}`)
-    }
     const requestedMaxZoom = Number(viewState?.maxZoom)
     const requestedZoom = Number(viewState?.zoom)
-    const configuredBaseMinZoom = Number(this.state.managedTopologyCameraBaseMinZoom)
-    const baseMinZoom = Number.isFinite(configuredBaseMinZoom) ? configuredBaseMinZoom : -2
-    const maxZoom = Number.isFinite(requestedMaxZoom) ? requestedMaxZoom : 5
-    const separationMinZoom = overviewScale > 0 ? Math.log2(overviewScale) : Number.NEGATIVE_INFINITY
+    const requestedMinZoom = Number(viewState?.minZoom)
     const fittedContainmentZoom = Number(options?.fittedContainmentZoom)
     const storedSceneMinZoom = Number(this.state.managedTopologySceneMinZoom)
     const sceneFloorKey = managedSceneFloorKey(graph)
@@ -889,28 +875,28 @@ export const godViewRenderingGraphViewMethods = {
       : this.state.managedTopologySceneMinZoomKey === sceneFloorKey
     let minZoom
     if (Number.isFinite(fittedContainmentZoom)) {
-      minZoom = Math.max(separationMinZoom, Math.min(baseMinZoom, fittedContainmentZoom))
+      minZoom = Math.max(
+        MANAGED_ABSOLUTE_MIN_ZOOM,
+        Math.min(Number.isFinite(requestedMinZoom) ? requestedMinZoom : MANAGED_ABSOLUTE_MIN_ZOOM, fittedContainmentZoom),
+      )
       this.state.managedTopologySceneMinZoom = minZoom
       this.state.managedTopologySceneMinZoomKey = sceneFloorKey
       this.state.managedTopologySceneForMinZoom = graph._topologyScene
     } else if (storedSceneMatches && Number.isFinite(storedSceneMinZoom)) {
-      minZoom = Math.max(separationMinZoom, storedSceneMinZoom)
+      minZoom = Math.max(
+        MANAGED_ABSOLUTE_MIN_ZOOM,
+        Math.min(Number.isFinite(requestedMinZoom) ? requestedMinZoom : MANAGED_ABSOLUTE_MIN_ZOOM, storedSceneMinZoom),
+      )
     } else {
-      minZoom = Math.max(separationMinZoom, baseMinZoom)
-    }
-    if (maxZoom + 1e-9 < minZoom) {
-      throw new RangeError(
-        `managed topology overview minimum zoom=${minZoom} exceeds camera maxZoom=${maxZoom}`,
+      minZoom = Math.max(
+        MANAGED_ABSOLUTE_MIN_ZOOM,
+        Number.isFinite(requestedMinZoom) ? requestedMinZoom : MANAGED_ABSOLUTE_MIN_ZOOM,
       )
     }
+    const maxZoom = Math.max(minZoom, Number.isFinite(requestedMaxZoom) ? requestedMaxZoom : 5)
     const zoom = Math.max(minZoom, Math.min(maxZoom, Number.isFinite(requestedZoom) ? requestedZoom : 0))
-    const requiredManagedVisualDensity = options?.fittedManagedVisualDensity ?? null
-    const safeRect = currentManagedSafeRect(this, options?.safeRect)
-    const managedVisualDensity = selectManagedDensityForScale(
-      constraints,
-      2 ** zoom,
-      requiredManagedVisualDensity,
-      safeRect,
+    const managedVisualDensity = options?.fittedManagedVisualDensity ?? (
+      topologySemanticLevel(graph) === "detail" ? "detail" : "overview"
     )
 
     return {
@@ -980,10 +966,7 @@ export const godViewRenderingGraphViewMethods = {
     const managedScene = hasManagedTopologyScene(graph) ? graph._topologyScene : null
     if (this.state.userCameraLocked) {
       if (managedScene) {
-        const selection = this.managedVisualDensityForViewScale(
-          graph,
-          2 ** Number(this.state.viewState?.zoom || 0),
-        )
+        const selection = this.managedViewStateForCamera(graph, this.state.viewState)
         this.state.managedTopologyVisualDensity = selection.managedVisualDensity
       }
       return

@@ -138,10 +138,10 @@ describe("lifecycle_bootstrap_event_methods", () => {
   })
 
   it.each([
-    ["global", -0.6780719051126377, "overview"],
+    ["global", -0.9, "detail"],
     ["regional", 0.35, "detail"],
     ["local", 1.65, "detail"],
-  ])("clamps fixed %s camera through the managed density selector", (mode, expectedZoom, expectedDensity) => {
+  ])("keeps fixed %s camera within the permissive floor at detail semantics", (mode, expectedZoom, expectedDensity) => {
     let handler = null
     const scene = Object.freeze({
       bounds: Object.freeze({minX: 0, minY: 0, maxX: 32, maxY: 0}),
@@ -154,6 +154,7 @@ describe("lifecycle_bootstrap_event_methods", () => {
     const graph = Object.freeze({
       shape: "local",
       _layoutMode: "elk-scene-detail",
+      _topologySemanticLevel: "detail",
       _topologyScene: scene,
       nodes: Object.freeze([
         Object.freeze({id: "left", details: Object.freeze({cluster_kind: "endpoint-member", cluster_expanded: true})}),
@@ -195,7 +196,8 @@ describe("lifecycle_bootstrap_event_methods", () => {
     handler({mode})
 
     expect(state.zoomMode).toBe(mode)
-    expect(state.viewState.minZoom).toBeCloseTo(-0.6780719051126377, 12)
+    expect(state.viewState.minZoom).toBe(-2)
+    expect(state.viewState.minZoom).toBeLessThanOrEqual(state.viewState.zoom)
     expect(state.viewState.zoom).toBeCloseTo(expectedZoom, 12)
     expect(state.managedTopologyVisualDensity).toBe(expectedDensity)
     expect(state.lastGraph).toBe(graph)

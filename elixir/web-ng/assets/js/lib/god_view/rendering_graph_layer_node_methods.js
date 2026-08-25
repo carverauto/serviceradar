@@ -6,7 +6,7 @@ import {
   managedVisualDensityContract,
   normalizeManagedVisualDensity,
 } from "./rendering_managed_visual_density"
-import {hasManagedTopologyScene} from "./topology_layout_mode"
+import {hasManagedTopologyScene, topologySemanticLevel} from "./topology_layout_mode"
 
 export const godViewRenderingGraphLayerNodeMethods = {
   visualClusterCount(node) {
@@ -179,6 +179,11 @@ export const godViewRenderingGraphLayerNodeMethods = {
   },
   selectNodeLabels(nodeData, shape, options = {}) {
     if (!Array.isArray(nodeData) || nodeData.length === 0) return []
+    if (options.managedVisualDensity) {
+      return nodeData
+        .filter((node) => String(node?.id || "") !== "")
+        .sort((left, right) => this.compareNodeLabelPriority(left, right))
+    }
     const attended = nodeData.filter((node) => node?.selected === true || this.focusedNodeLabel(node))
     const candidates = nodeData.filter((node) => this.nodeLabelCandidate(node))
     const ordered = [...candidates].sort((left, right) => this.compareNodeLabelPriority(left, right))
@@ -225,31 +230,8 @@ export const godViewRenderingGraphLayerNodeMethods = {
 
     return picked
   },
-  nodeLabelAdmissionPool(nodeData, selectedCandidates, options = {}) {
-    if (options.managedVisualDensity !== "overview") return selectedCandidates
-
-    const selectedSummaryIds = new Set(
-      selectedCandidates
-        .filter((node) => this.endpointSummaryLabel(node))
-        .map((node) => String(node?.id || "")),
-    )
-    const orderedFallbacks = nodeData
-      .filter((node) => this.nodeLabelCandidate(node))
-      .sort((left, right) => this.compareNodeLabelPriority(left, right))
-      .filter((node) => (
-        this.backboneLabelCandidate(node) || selectedSummaryIds.has(String(node?.id || ""))
-      ))
-    const pool = []
-    const seen = new Set()
-
-    for (const node of [...selectedCandidates, ...orderedFallbacks]) {
-      const id = String(node?.id || "")
-      if (id === "" || seen.has(id)) continue
-      seen.add(id)
-      pool.push(node)
-    }
-
-    return pool
+  nodeLabelAdmissionPool(_nodeData, selectedCandidates, _options = {}) {
+    return selectedCandidates
   },
   activeTopologyLabelViewport() {
     if (typeof this.state?.deck?.getViewports !== "function") return null
@@ -291,6 +273,12 @@ export const godViewRenderingGraphLayerNodeMethods = {
   admitNodeLabelsForViewport(effective, labelCandidates, protectedNodes = labelCandidates, options = {}) {
     const viewport = options.viewport || this.activeTopologyLabelViewport()
     if (!viewport) {
+      const missingRequiredLabelIds = (options.requiredLabelIds || (
+        options.managedVisualDensity ? (labelCandidates || []).map((node) => node?.id) : []
+      ))
+        .map((nodeId) => String(nodeId || ""))
+        .filter(Boolean)
+        .sort()
       return {
         admitted: [],
         detailsFallbackIds: (labelCandidates || [])
@@ -298,6 +286,7 @@ export const godViewRenderingGraphLayerNodeMethods = {
           .map((node) => String(node?.id || ""))
           .filter(Boolean)
           .sort(),
+        missingRequiredLabelIds,
       }
     }
 
@@ -364,6 +353,9 @@ export const godViewRenderingGraphLayerNodeMethods = {
       routeCorridors,
       safeRect: this.topologyLabelSafeRect(viewport, options.safeRect),
       maximumCount: options.maximumLabelCount,
+      requiredLabelIds: options.requiredLabelIds || (
+        options.managedVisualDensity ? candidates.map((candidate) => candidate.nodeId) : undefined
+      ),
       measureText,
     })
   },
@@ -377,13 +369,19 @@ export const godViewRenderingGraphLayerNodeMethods = {
       ? managedVisualDensityContract(managedVisualDensity).labelShape
       : effective.shape
     const selectedLabelCandidates = this.selectNodeLabels(nodeData, effective.shape, densityOptions)
-    const backfillOverviewLabels = managedVisualDensity === "overview"
     const labelCandidates = this.nodeLabelAdmissionPool(nodeData, selectedLabelCandidates, densityOptions)
     const labelAdmission = this.admitNodeLabelsForViewport(effective, labelCandidates, nodeData, {
       ...densityOptions,
-      maximumLabelCount: backfillOverviewLabels ? selectedLabelCandidates.length : undefined,
-      preserveCandidateOrder: backfillOverviewLabels,
+      requiredLabelIds: managedTopologyScene
+        ? nodeData.map((node) => String(node?.id || "")).filter(Boolean)
+        : undefined,
     })
+    if (managedTopologyScene && labelAdmission.missingRequiredLabelIds.length > 0) {
+      throw new RangeError(
+        `managed topology ${topologySemanticLevel(effective)} is missing required labels: ` +
+        labelAdmission.missingRequiredLabelIds.join(", "),
+      )
+    }
     const nodeById = new Map(nodeData.map((node) => [String(node?.id || ""), node]))
     const labelData = labelAdmission.admitted.flatMap((admitted) => {
       const node = nodeById.get(admitted.nodeId)

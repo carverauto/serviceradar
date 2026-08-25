@@ -1319,7 +1319,7 @@ describe("lifecycle_dom_setup_methods", () => {
   })
 
   it.each(["auto", "local", "global", "regional"])(
-    "switches managed density in %s mode without changing local ELK semantics",
+    "keeps detail density in %s mode without changing local ELK semantics",
     async (zoomMode) => {
     const routePoints = Object.freeze([
       Object.freeze({x: 0, y: 0}),
@@ -1342,7 +1342,13 @@ describe("lifecycle_dom_setup_methods", () => {
       Object.freeze({id: "left", x: 0, y: 0, details: Object.freeze({cluster_kind: "endpoint-member", cluster_expanded: true})}),
       Object.freeze({id: "right", x: 192, y: 0, details: Object.freeze({cluster_kind: "endpoint-member", cluster_expanded: true})}),
     ])
-    const graph = Object.freeze({shape: "local", _layoutMode: "elk-scene-detail", _topologyScene: scene, nodes: graphNodes})
+    const graph = Object.freeze({
+      shape: "local",
+      _layoutMode: "elk-scene-detail",
+      _topologySemanticLevel: "detail",
+      _topologyScene: scene,
+      nodes: graphNodes,
+    })
     const initialEffective = {...graph}
     const state = {
       canvas: {},
@@ -1393,7 +1399,7 @@ describe("lifecycle_dom_setup_methods", () => {
       viewState: {...state.viewState, zoom: Math.log2(0.15), target: [96, 0, 0]},
     })
     await Promise.resolve()
-    expect(state.managedTopologyVisualDensity).toBe("overview")
+    expect(state.managedTopologyVisualDensity).toBe("detail")
     expect(state.lastGraphLayerFrame.effective.shape).toBe("local")
     expect(state.lastGraphLayerFrame.effective._topologyScene).toBe(scene)
     expect(state.lastGraphLayerFrame.effective.nodes).toBe(graphNodes)

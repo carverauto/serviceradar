@@ -107,6 +107,36 @@ describe("admitTopologyLabels", () => {
     expect(first.admitted.map((item) => item.nodeId)).toEqual(
       Array.from({length: 24}, (_, index) => `member-${String(index).padStart(2, "0")}`),
     )
+    expect(first.missingRequiredLabelIds).toEqual([])
+    expect(reordered).toEqual(first)
+  })
+
+  it("reports every missing required label ID in deterministic order", () => {
+    const input = {
+      candidates: [
+        {nodeId: "ordinary", text: "Ordinary", point: [80, 60], role: "infrastructure"},
+        {nodeId: "selected", text: "Selected", point: [80, 60], role: "member", selected: true},
+      ],
+      glyphBoxes: [
+        {nodeId: "selected", left: 72, top: 52, right: 88, bottom: 68},
+      ],
+      routeCorridors: [
+        {points: [[20, 85], [140, 85]], strokeWidth: 8},
+      ],
+      safeRect: {left: 10, top: 10, right: 150, bottom: 110},
+      requiredLabelIds: ["z-missing-candidate", "selected", "ordinary"],
+      measureText: () => ({width: 48, height: 12}),
+    }
+
+    const first = admitTopologyLabels(input)
+    const reordered = admitTopologyLabels({
+      ...input,
+      candidates: [...input.candidates].reverse(),
+      requiredLabelIds: [...input.requiredLabelIds].reverse(),
+    })
+
+    expect(first.admitted.map((item) => item.nodeId)).toEqual(["selected"])
+    expect(first.missingRequiredLabelIds).toEqual(["ordinary", "z-missing-candidate"])
     expect(reordered).toEqual(first)
   })
 

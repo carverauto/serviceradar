@@ -284,6 +284,7 @@ export function admitTopologyLabels({
   routeCorridors = [],
   safeRect,
   maximumCount = Number.POSITIVE_INFINITY,
+  requiredLabelIds,
   measureText,
 } = {}) {
   const normalizedSafeRect = normalizedBox(safeRect, [0, 0])
@@ -350,5 +351,12 @@ export function admitTopologyLabels({
 
   admitted.sort((left, right) => compareCandidates(admittedCandidates.get(left.nodeId), admittedCandidates.get(right.nodeId)))
   detailsFallbackIds.sort((left, right) => stableCompare(left, right))
-  return {admitted, detailsFallbackIds}
+  const requiredIds = (Array.isArray(requiredLabelIds) ? requiredLabelIds : ordered.map((candidate) => candidate.nodeId))
+    .map((nodeId) => String(nodeId || ""))
+    .filter((nodeId) => nodeId !== "")
+  const admittedIds = new Set(admitted.map((placement) => placement.nodeId))
+  const missingRequiredLabelIds = [...new Set(requiredIds)]
+    .filter((nodeId) => !admittedIds.has(nodeId))
+    .sort(stableCompare)
+  return {admitted, detailsFallbackIds, missingRequiredLabelIds}
 }

@@ -357,7 +357,7 @@ describe("lifecycle_dom_interaction_methods", () => {
     ["local", "wheel"],
     ["global", "wheel"],
     ["regional", "wheel"],
-  ])("auto-fit then %s-mode %s zoom stops at the real managed minimum", (zoomMode, action) => {
+  ])("auto-fit then %s-mode %s zoom reaches the permissive managed minimum", (zoomMode, action) => {
     const scene = Object.freeze({
       bounds: Object.freeze({minX: 0, minY: 0, maxX: 192, maxY: 1}),
       nodes: Object.freeze([
@@ -370,6 +370,7 @@ describe("lifecycle_dom_interaction_methods", () => {
     const graph = Object.freeze({
       shape: "local",
       _layoutMode: "elk-scene-detail",
+      _topologySemanticLevel: "detail",
       _topologyScene: scene,
       nodes: Object.freeze([
         Object.freeze({id: "left", x: 0, y: 0, label: "L", details: Object.freeze({cluster_kind: "endpoint-member", cluster_expanded: true})}),
@@ -415,8 +416,8 @@ describe("lifecycle_dom_interaction_methods", () => {
       }
     }
 
-    expect(ctx.state.viewState.minZoom).toEqual(-2)
-    expect(ctx.state.viewState.zoom).toEqual(-2)
+    expect(ctx.state.viewState.minZoom).toEqual(-8)
+    expect(ctx.state.viewState.zoom).toEqual(-8)
     expect(ctx.state.managedTopologyVisualDensity).toBe("detail")
     expect(ctx.state.lastGraph).toBe(graph)
     expect(ctx.state.lastGraph._topologyScene).toBe(scene)

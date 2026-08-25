@@ -8,6 +8,7 @@ import {PORTRAIT_PROFILE, applyTopologySceneToGraph, layoutTopologyScene} from "
 import {godViewRenderingGraphLayerNodeMethods} from "./rendering_graph_layer_node_methods"
 import {godViewRenderingGraphViewMethods} from "./rendering_graph_view_methods"
 import {managedNodeVisualRole} from "./rendering_managed_visual_density"
+import {fitTopologyScene} from "./rendering_scene_view"
 import {prepareTopologySceneInput} from "./topology_scene_graph"
 
 function concurrentExpandedFarm01Graph() {
@@ -68,7 +69,7 @@ function overlaps(left, right, epsilon = 0.5) {
 }
 
 describe("managed topology visual density", () => {
-  it("keeps the canonical concurrent portrait scene truthful at overview density", async () => {
+  it("fails a label-infeasible portrait overview closed before evaluating its renderer geometry", async () => {
     const source = concurrentExpandedFarm01Graph()
     const scene = await layoutTopologyScene(prepareTopologySceneInput(source), {
       engine: new ELK(),
@@ -101,7 +102,28 @@ describe("managed topology visual density", () => {
       bindApi(ctx, godViewRenderingGraphViewMethods),
     )
 
-    ctx.autoFitViewState(graph)
+    expect(() => ctx.autoFitViewState(graph)).toThrow(
+      /managed topology overview is missing required labels: farm01:attachment-01.*farm01:endpoint-member-01-01.*farm01:gateway-05/i,
+    )
+
+    // The remainder isolates the overview renderer's glyph/route envelope. It
+    // is not an accepted managed state because the required-label check above
+    // deliberately failed closed.
+    const graphNodeById = new Map(graph.nodes.map((node) => [node.id, node]))
+    const containment = fitTopologyScene({
+      scene,
+      viewport: {...state.viewState, width, height, viewState: state.viewState},
+      safeRect,
+      glyphBoxes: scene.nodes.flatMap((sceneNode) => {
+        if (sceneNode.render === false) return []
+        const node = graphNodeById.get(sceneNode.id)
+        const radius = ctx.nodeVisibleOuterRadiusPixels(node, {managedVisualDensity: "overview"})
+        return [{nodeId: sceneNode.id, width: radius * 2, height: radius * 2}]
+      }),
+      routeStrokeWidth: 10,
+    })
+    state.viewState = containment.viewState
+    state.managedTopologyVisualDensity = "overview"
 
     const scale = 2 ** state.viewState.zoom
     const selection = ctx.managedVisualDensityForViewScale(graph, scale)
@@ -126,7 +148,6 @@ describe("managed topology visual density", () => {
     expect((208 * scale) - 20).toBeGreaterThan(1)
     expect((104 * scale) - 10).toBeGreaterThan(0.5)
 
-    const graphNodeById = new Map(graph.nodes.map((node) => [node.id, node]))
     const glyphs = scene.nodes.flatMap((sceneNode) => {
       if (sceneNode.render === false) return []
       const node = graphNodeById.get(sceneNode.id)

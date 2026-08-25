@@ -174,6 +174,9 @@ describe("rendering_scene_view", () => {
 
     expect(second).toEqual(first)
     expect(admissionPasses).toBe(4)
+    expect(first.ok).toBe(true)
+    expect(first.fitZoom).toBe(first.viewState.zoom)
+    expect(first.missingRequiredLabelIds).toEqual([])
     expect(projected.left).toBeGreaterThanOrEqual(safeRect.left - 1)
     expect(projected.top).toBeGreaterThanOrEqual(safeRect.top - 1)
     expect(projected.right).toBeLessThanOrEqual(safeRect.right + 1)
@@ -213,42 +216,126 @@ describe("rendering_scene_view", () => {
     expect(intersectByMoreThanOnePixel(projected.glyphs[0], projected.glyphs[1])).toBe(false)
   })
 
-  it("rejects the dense long-span scene when containment requires overlapping fixed-pixel glyphs", () => {
+  it("fits the live containment scale without promoting the glyph-separation scale to a camera floor", () => {
+    const containmentScale = 0.019548
+    const glyphWidth = 20
+    const worldSpan = (1000 - glyphWidth) / containmentScale
     const nodes = Array.from({length: 100}, (_unused, index) => ({
       id: `dense-${index}`,
-      center: {x: index * 208, y: 50},
-      width: 1,
-      height: 1,
+      center: {x: (worldSpan * index) / 99, y: 50},
+      width: 0,
+      height: 0,
     }))
     const scene = {
-      bounds: {minX: 0, minY: 0, maxX: 99 * 208, maxY: 100},
+      bounds: {minX: 0, minY: 0, maxX: worldSpan, maxY: 100},
       nodes,
       groups: [],
       routes: [],
     }
 
-    expect(() => fitTopologyScene({
+    const result = fitTopologyScene({
       scene,
       viewport: {width: 1000, height: 300, minZoom: -12, maxZoom: 5},
       safeRect: {left: 0, top: 0, right: 1000, bottom: 300},
-      glyphBoxes: nodes.map((node) => ({nodeId: node.id, width: 52, height: 52})),
-    })).toThrow(/glyph separation.*dense-0.*dense-1.*axis=x.*requires scale=.*available containment scale=/i)
+      glyphBoxes: nodes.map((node) => ({nodeId: node.id, width: glyphWidth, height: glyphWidth})),
+      minimumScale: 0.089285,
+    })
+
+    expect(result.ok).toBe(true)
+    expect(2 ** result.fitZoom).toBeCloseTo(containmentScale, 6)
+    expect(result.viewState.minZoom).toBeLessThanOrEqual(result.fitZoom)
   })
 
-  it("rejects fitting below a renderer-derived fixed-pixel clearance floor", () => {
+  it.each([
+    {name: "landscape", viewport: {width: 1200, height: 600}, bounds: {maxX: 12_000, maxY: 2_000}},
+    {name: "portrait", viewport: {width: 600, height: 1200}, bounds: {maxX: 2_000, maxY: 12_000}},
+  ])("contains every node, route, and label-safe envelope after idempotent $name Fit", ({viewport, bounds}) => {
+    const safeRect = {left: 40, top: 50, right: viewport.width - 80, bottom: viewport.height - 90}
     const scene = {
-      bounds: {minX: 0, minY: 0, maxX: 1000, maxY: 100},
-      nodes: [],
+      bounds: {minX: 0, minY: 0, ...bounds},
+      nodes: [
+        {id: "alpha", center: {x: 0, y: 0}, width: 0, height: 0},
+        {id: "omega", center: {x: bounds.maxX, y: bounds.maxY}, width: 0, height: 0},
+      ],
       groups: [],
-      routes: [],
+      routes: [{
+        id: "alpha-omega",
+        strokeWidth: 12,
+        points: [{x: 0, y: 0}, {x: bounds.maxX / 2, y: bounds.maxY / 2}, {x: bounds.maxX, y: bounds.maxY}],
+      }],
+    }
+    const glyphBoxes = scene.nodes.map((node) => ({nodeId: node.id, width: 40, height: 40}))
+    const admitLabels = ({projectedGlyphBoxes, safeRect: admissionRect}) => admitTopologyLabels({
+      candidates: projectedGlyphBoxes.map((glyph) => ({
+        nodeId: glyph.nodeId,
+        text: glyph.nodeId,
+        point: [(glyph.left + glyph.right) / 2, (glyph.top + glyph.bottom) / 2],
+      })),
+      glyphBoxes: projectedGlyphBoxes,
+      safeRect: admissionRect,
+      requiredLabelIds: ["omega", "alpha"],
+      measureText: () => ({width: 56, height: 14}),
+    })
+    const input = {
+      scene,
+      viewport: {...viewport, minZoom: -3, maxZoom: 5},
+      safeRect,
+      glyphBoxes,
+      routeStrokeWidth: 12,
+      admitLabels,
     }
 
-    expect(() => fitTopologyScene({
-      scene,
+    const first = fitTopologyScene(input)
+    const second = fitTopologyScene(input)
+
+    expect(first.ok).toBe(true)
+    expect(second.ok).toBe(true)
+    expect(second.fitZoom).toBeCloseTo(first.fitZoom, 12)
+    expect(second.viewState.target[0]).toBeCloseTo(first.viewState.target[0], 12)
+    expect(second.viewState.target[1]).toBeCloseTo(first.viewState.target[1], 12)
+    expect(first.viewState.minZoom).toBeLessThanOrEqual(first.fitZoom)
+    expect(first.admittedLabels.map((label) => label.nodeId).sort()).toEqual(["alpha", "omega"])
+    expect(first.missingRequiredLabelIds).toEqual([])
+
+    for (const [node, glyph] of scene.nodes.map((node, index) => [node, glyphBoxes[index]])) {
+      const [x, y] = project(node.center, first.viewState, viewport)
+      expect(x - (glyph.width / 2)).toBeGreaterThanOrEqual(safeRect.left - 1)
+      expect(y - (glyph.height / 2)).toBeGreaterThanOrEqual(safeRect.top - 1)
+      expect(x + (glyph.width / 2)).toBeLessThanOrEqual(safeRect.right + 1)
+      expect(y + (glyph.height / 2)).toBeLessThanOrEqual(safeRect.bottom + 1)
+    }
+    for (const point of scene.routes[0].points) {
+      const [x, y] = project(point, first.viewState, viewport)
+      expect(x - 6).toBeGreaterThanOrEqual(safeRect.left - 1)
+      expect(y - 6).toBeGreaterThanOrEqual(safeRect.top - 1)
+      expect(x + 6).toBeLessThanOrEqual(safeRect.right + 1)
+      expect(y + 6).toBeLessThanOrEqual(safeRect.bottom + 1)
+    }
+    for (const label of first.admittedLabels) {
+      expect(label.box.left).toBeGreaterThanOrEqual(safeRect.left - 1)
+      expect(label.box.top).toBeGreaterThanOrEqual(safeRect.top - 1)
+      expect(label.box.right).toBeLessThanOrEqual(safeRect.right + 1)
+      expect(label.box.bottom).toBeLessThanOrEqual(safeRect.bottom + 1)
+    }
+  })
+
+  it("returns deterministic missing required label IDs as semantic infeasibility", () => {
+    const result = fitTopologyScene({
+      scene: {
+        bounds: {minX: 0, minY: 0, maxX: 100, maxY: 100},
+        nodes: [{id: "alpha", center: {x: 50, y: 50}, width: 0, height: 0}],
+        groups: [],
+        routes: [],
+      },
       viewport: {width: 100, height: 100, minZoom: -8, maxZoom: 5},
       safeRect: {left: 0, top: 0, right: 100, bottom: 100},
-      minimumScale: 0.2,
-    })).toThrow(/fixed-pixel clearance requires scale=0.2.*available containment scale=/i)
+      glyphBoxes: [{nodeId: "alpha", width: 20, height: 20}],
+      admitLabels: () => ({admitted: [], missingRequiredLabelIds: ["zeta", "alpha"]}),
+    })
+
+    expect(result.ok).toBe(false)
+    expect(result.admittedLabels).toEqual([])
+    expect(result.missingRequiredLabelIds).toEqual(["alpha", "zeta"])
   })
 
   it("keeps fixed-pixel routed stroke extents inside the safe rectangle", () => {
@@ -505,7 +592,7 @@ describe("rendering_scene_view", () => {
     })).toThrow(/renderer-derived glyph box/i)
   })
 
-  it("rejects focus when complete group containment would overlap rendered glyphs", () => {
+  it("keeps focus containment-first when fixed-pixel glyph separation would conflict", () => {
     const scene = {
       bounds: {minX: 0, minY: 0, maxX: 10_000, maxY: 100},
       nodes: [
@@ -528,13 +615,16 @@ describe("rendering_scene_view", () => {
       }],
     }
 
-    expect(() => focusTopologyGroup({
+    const viewState = focusTopologyGroup({
       scene,
       groupId: "dense-group",
       viewport: {width: 1000, height: 300, minZoom: -12, maxZoom: 5},
       safeRect: {left: 0, top: 0, right: 1000, bottom: 300},
       glyphBoxForNode: (node) => ({nodeId: node.id, width: 52, height: 52}),
-    })).toThrow(/glyph separation.*anchor.*gateway.*requires scale=.*available containment scale=/i)
+    })
+
+    expect(viewState.minZoom).toBeLessThanOrEqual(viewState.zoom)
+    expect(2 ** viewState.zoom).toBeLessThan(52 / 208)
   })
 
   it("keeps every focused member, anchor, gateway, and trunk halo inside at low scale", () => {

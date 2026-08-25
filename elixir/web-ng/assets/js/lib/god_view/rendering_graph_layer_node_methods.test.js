@@ -463,7 +463,7 @@ describe("rendering_graph_layer_node_methods", () => {
       "regional",
       {managedVisualDensity: "overview"},
     )
-    expect(labels).toHaveLength(8)
+    expect(labels).toHaveLength(24)
   })
 
   it("invalidates every density-sensitive node accessor with unchanged layer data", () => {
@@ -569,38 +569,78 @@ describe("rendering_graph_layer_node_methods", () => {
     },
   )
 
-  it("backfills collision-blocked overview priorities from the remaining semantic candidates", () => {
-    const blocked = Array.from({length: 8}, (_, index) => ({
+  it.each([
+    {semanticLevel: "overview", layoutMode: "elk-radial-overview", density: "overview"},
+    {semanticLevel: "detail", layoutMode: "elk-scene-detail", density: "detail"},
+  ])("labels every rendered $semanticLevel semantic glyph", ({semanticLevel, layoutMode, density}) => {
+    const nodeData = [
+      {id: "sr:opaque", label: "sr:opaque", details: {}},
+      {id: "endpoint-member", label: "192.0.2.10", details: {cluster_kind: "endpoint-member"}},
+      {id: "endpoint-summary", label: "20 endpoints", clusterCount: 20, details: {cluster_kind: "endpoint-summary"}},
+      {id: "expanded-member", label: "192.0.2.11", details: {cluster_kind: "endpoint-member", cluster_expanded: true}},
+      {id: "router", label: "Router", details: {}},
+    ].map((node, index) => ({
       index,
-      id: `blocked-${index}`,
-      label: `Blocked ${index}`,
-      position: [500, 300, 0],
-      state: 0,
+      position: [80 + (index * 170), 180, 0],
+      state: 2,
       operUp: 1,
-      clusterCount: 1,
-      details: {},
+      clusterCount: node.clusterCount || 1,
+      ...node,
     }))
-    const fallbackPoints = [[60, 60], [300, 60], [600, 540], [900, 540]]
-    const fallback = fallbackPoints.map((position, index) => ({
-      index: blocked.length + index,
-      id: `fallback-${index}`,
-      label: `Fallback ${index}`,
-      position: [...position, 0],
-      state: 1,
-      operUp: 1,
-      clusterCount: 1,
-      details: {},
-    }))
-    const scene = topologyScene({
-      routes: [
-        {points: [{x: 510, y: 300}, {x: 510, y: 350}]},
-        {points: [{x: 450, y: 310}, {x: 550, y: 310}]},
-        {points: [{x: 490, y: 300}, {x: 490, y: 350}]},
-      ],
-    })
     const state = {
       animationPhase: 0,
       hoveredNodeIndex: null,
+      managedTopologyVisualDensity: density,
+      layers: {mantle: true, crust: true, atmosphere: false, security: true},
+      visual: {
+        label: [255, 255, 255, 255],
+        edgeLabel: [200, 200, 200, 255],
+        nodeFill: [80, 120, 180, 255],
+      },
+      canvas: {getBoundingClientRect: () => ({width: 1000, height: 360})},
+      deck: {getViewports: () => [{width: 1000, height: 360, project: ([x, y]) => [x, y]}]},
+      topologyLabelSafeRect: {left: 0, top: 0, right: 1000, bottom: 360},
+      topologyLabelMeasureText: () => ({width: 72, height: 12}),
+    }
+    const ctx = createStateBackedContext(state, {})
+    Object.assign(ctx, bindApi(ctx, godViewRenderingGraphLayerNodeMethods), {
+      nodeColor: () => [255, 0, 0, 255],
+      nodeNeutralColor: () => [128, 128, 128, 255],
+    })
+    const effective = {
+      shape: "local",
+      _layoutMode: layoutMode,
+      _topologySemanticLevel: semanticLevel,
+      _topologyScene: topologyScene(),
+    }
+
+    const layers = ctx.buildNodeAndLabelLayers(effective, nodeData, [])
+    const glyphIds = layers.find((layer) => layer.id === "god-view-nodes").props.data.map((node) => node.id).sort()
+    const labelIds = layers.find((layer) => layer.id === "god-view-node-labels").props.data.map((node) => node.id).sort()
+
+    expect(glyphIds).toEqual([
+      "endpoint-member",
+      "endpoint-summary",
+      "expanded-member",
+      "router",
+      "sr:opaque",
+    ])
+    expect(labelIds).toEqual(glyphIds)
+  })
+
+  it("rejects managed layer construction with actionable missing label IDs", () => {
+    const nodeData = ["zeta", "alpha"].map((id, index) => ({
+      index,
+      id,
+      label: id,
+      position: [20, 20, 0],
+      state: 2,
+      operUp: 1,
+      clusterCount: 1,
+      details: {},
+    }))
+    const state = {
+      animationPhase: 0,
       managedTopologyVisualDensity: "overview",
       layers: {mantle: true, crust: true, atmosphere: false, security: true},
       visual: {
@@ -608,34 +648,19 @@ describe("rendering_graph_layer_node_methods", () => {
         edgeLabel: [200, 200, 200, 255],
         nodeFill: [80, 120, 180, 255],
       },
-      canvas: {getBoundingClientRect: () => ({width: 1000, height: 600})},
-      deck: {getViewports: () => [{width: 1000, height: 600, project: ([x, y]) => [x, y]}]},
-      topologyLabelSafeRect: {left: 0, top: 0, right: 1000, bottom: 600},
-      topologyLabelMeasureText: () => ({width: 48, height: 12}),
+      deck: {getViewports: () => [{width: 40, height: 40, project: ([x, y]) => [x, y]}]},
+      topologyLabelSafeRect: {left: 0, top: 0, right: 40, bottom: 40},
+      topologyLabelMeasureText: () => ({width: 40, height: 12}),
     }
     const ctx = createStateBackedContext(state, {})
-    Object.assign(ctx, bindApi(ctx, godViewRenderingGraphLayerNodeMethods), {
-      nodeColor: () => [255, 0, 0, 255],
-      nodeNeutralColor: () => [128, 128, 128, 255],
-    })
-    const effective = {shape: "local", _layoutMode: "elk-radial-overview", _topologyScene: scene}
-    const labelsFor = (nodes) => ctx
-      .buildNodeAndLabelLayers(effective, nodes, [])
-      .find((layer) => layer.id === "god-view-node-labels")
-      .props.data
-      .map((node) => ({id: node.id, admission: node.labelAdmission}))
+    Object.assign(ctx, bindApi(ctx, godViewRenderingGraphLayerNodeMethods))
 
-    const first = labelsFor([...blocked, ...fallback])
-    const reordered = labelsFor([...fallback, ...blocked].reverse())
-
-    expect(first.map(({id}) => id)).toEqual([
-      "blocked-0",
-      "fallback-0",
-      "fallback-1",
-      "fallback-2",
-      "fallback-3",
-    ])
-    expect(reordered).toEqual(first)
+    expect(() => ctx.buildNodeAndLabelLayers({
+      shape: "local",
+      _layoutMode: "elk-radial-overview",
+      _topologySemanticLevel: "overview",
+      _topologyScene: topologyScene(),
+    }, nodeData, [])).toThrow(/managed topology.*missing required labels.*alpha, zeta/i)
   })
 
   it("visualClusterCount only scales endpoint summaries", () => {
