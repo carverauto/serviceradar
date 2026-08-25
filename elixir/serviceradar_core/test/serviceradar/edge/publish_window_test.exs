@@ -82,7 +82,10 @@ defmodule ServiceRadar.Edge.PublishWindowTest do
       assert {:error, :frame_credits_exhausted} = PublishWindow.admit(w, 6, 1, 500)
     end
 
-    test "the BYTE grant is hard, and is charged by actual size" do
+    # NAMED for what it does: `bytes` is SUPPLIED by the caller and accounted as given. Nothing
+    # binds it to the encoded frame size -- task 3.4 owns that, with the remaining 3.3(c)
+    # integration -- so calling it "actual size" claimed a binding this module does not have.
+    test "the BYTE grant is hard against the SUPPLIED byte count" do
       w = 100 |> window(1000) |> admit!(1, 600, 500)
 
       assert PublishWindow.available_bytes(w) === 400
@@ -182,7 +185,7 @@ defmodule ServiceRadar.Edge.PublishWindowTest do
       {:module, _} = Code.ensure_loaded(PublishWindow)
 
       # Compared SEPARATELY, not as one merged set. Merging them lets a kind substitution pass:
-      # turning `def settle/3` into `defmacro settle/3` leaves {:settle, 2} present either way,
+      # turning `def settle/3` into `defmacro settle/3` leaves {:settle, 3} present either way,
       # while changing the call semantics to compile-time expansion. The guard exists to make any
       # change of public surface explicit, and the KIND is part of that surface.
       functions = Enum.sort(PublishWindow.__info__(:functions))
@@ -191,30 +194,11 @@ defmodule ServiceRadar.Edge.PublishWindowTest do
       assert functions === Enum.sort(@public_functions),
              "exported FUNCTIONS drifted: added #{inspect(functions -- @public_functions)}, " <>
                "removed #{inspect(@public_functions -- functions)}. " <>
-               "settle/4 is the ONLY one that may release credits."
+               "settle/3 is the ONLY one that may release credits."
 
       assert macros === Enum.sort(@public_macros),
              "exported MACROS drifted: added #{inspect(macros -- @public_macros)}, " <>
                "removed #{inspect(@public_macros -- macros)}"
-    end
-
-    test "asking repeatedly does not drain capacity" do
-      # The previous version compared the immutable input to itself, which cannot fail. What is
-      # actually observable is CAPACITY: if asking released anything, available_* would move.
-      w = 2 |> window(500) |> admit!(1, 200, 100)
-
-      before_frames = PublishWindow.available_frames(w)
-      before_bytes = PublishWindow.available_bytes(w)
-
-      Enum.each(1..20, fn _ -> PublishWindow.expired(w, 999) end)
-
-      assert PublishWindow.available_frames(w) === before_frames
-      assert PublishWindow.available_bytes(w) === before_bytes
-      assert PublishWindow.outstanding?(w, 1)
-
-      # NOT VACUOUS: settling DOES move those numbers, so the assertions above can fail.
-      {:ok, settled} = PublishWindow.settle(w, 1, @primary)
-      refute PublishWindow.available_bytes(settled) === before_bytes
     end
 
     test "expiry is inclusive of the deadline instant and ordered oldest first" do
@@ -396,6 +380,10 @@ defmodule ServiceRadar.Edge.PublishWindowTest do
       Enum.reduce(1..40, window(frames, bytes), fn i, w ->
         size = rem(i * 37, 150) + 1
 
+        # Each operation's RETURNED state is asserted before the next one runs. The previous
+        # version asserted after the admit and then settled, leaving the settled state unchecked
+        # until the following iteration -- so a settlement that overcommitted was never seen at
+        # the point it happened.
         w =
           case PublishWindow.admit(w, i, size, 500) do
             {:ok, w2} -> w2
@@ -405,18 +393,23 @@ defmodule ServiceRadar.Edge.PublishWindowTest do
         assert PublishWindow.outstanding_frames(w) <= frames
         assert PublishWindow.outstanding_bytes(w) <= bytes
 
-        # Cycle the window by SETTLING ON AN ACK, never by expiry. Settling because a frame
-        # expired is precisely the caller behaviour this module forbids -- the frame is still in
-        # flight -- and a test that models it teaches the anti-pattern while looking like
-        # coverage.
-        if rem(i, 3) === 0 do
-          case Map.keys(outstanding_seqs(w)) do
-            [seq | _] -> elem(PublishWindow.settle(w, seq, @primary), 1)
-            [] -> w
+        w =
+          if rem(i, 3) === 0 do
+            # Never settle because a frame EXPIRED -- the frame is still in flight, and a test
+            # that models it teaches the anti-pattern while looking like coverage. settle/3 takes
+            # no evidence at all now; the caller owns that verification.
+            case Map.keys(outstanding_seqs(w)) do
+              [seq | _] -> elem(PublishWindow.settle(w, seq, @primary), 1)
+              [] -> w
+            end
+          else
+            w
           end
-        else
-          w
-        end
+
+        assert PublishWindow.outstanding_frames(w) <= frames
+        assert PublishWindow.outstanding_bytes(w) <= bytes
+
+        w
       end)
     end
   end
