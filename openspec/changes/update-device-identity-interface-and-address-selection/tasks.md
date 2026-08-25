@@ -47,6 +47,36 @@
 - [x] 4.3 Covered: its current rank is equal, not higher, so the incoming value still applies.
 - [ ] 4.4 Keep link-local/ULA recorded as aliases and valid sighting evidence.
 
+## 4b. BLOCKING FINDING (2026-08-25): the path this unblocks is unreachable from bulk ingest
+
+Verified on farm01 after deploying the veto narrowing:
+
+- `AliasGuard.distinct_mac_conflict?(A, B)` now returns **false** -- the narrowing works, confirmed
+  by calling it in a production pod against the real chassis pair.
+- The pair still did not merge after 13 minutes.
+
+The reason is structural, not a defect in this change. `maybe_merge_ip_alias_device/3` is called
+ONLY from `identity/resolver.ex:79` and `:85`. `BatchResolver` -- which is what `SyncIngestor`
+uses -- references `AliasGuard` **zero** times. Every bulk source (census, sweep, mDNS, netprobe,
+armis) resolves through `BatchResolver`, so none of them can reach the alias merge.
+
+Confirmed empirically rather than inferred: `platform.merge_audit` on farm01 holds 23 rows, ALL
+`identifier_backfill` from `identity_reconciler` (the duplicate sweep), and **0** with reason
+`ip_alias_conflict`. The alias merge has never run in this deployment's history.
+
+So the chassis pair cannot merge today by either route: the alias path is unreachable from bulk
+ingest, and the duplicate sweep needs a SHARED strong identifier, which two different interface
+MACs are not.
+
+- [ ] 4b.1 **DECISION NEEDED.** Two options, both with real blast radius at 50k-1M devices:
+  - (a) Call the alias guard from `BatchResolver`. This enables alias-driven merges for EVERY bulk
+    source at once -- behaviour that has never run in production. Needs the same measured
+    blast-radius treatment the veto narrowing got before shipping.
+  - (b) Teach `DuplicateSweep` to treat an own-interface MAC claim as shared evidence. Narrower,
+    but it changes the sweep, which runs every five minutes over the whole device set.
+- [ ] 4b.2 Whichever is chosen, measure how many pairs it would newly merge BEFORE shipping, the
+  way the veto narrowing was measured -- it moved exactly one pair on 126 devices.
+
 ## 5. Verify against the real data
 
 - [ ] 5.1 Re-run 1.1 and 1.2 and confirm both now fail to reproduce.
