@@ -42,10 +42,22 @@ defmodule ServiceRadar.Repo.Migrations.AddDeviceInterfaceMacs do
       'MACs a device reports on its own interfaces. Corroboration for identity only -- never an identifier, never resolves an update. Keyed per device so two rows of one chassis can each claim the same MAC.';
     """)
 
-    # The :interface_mac identifier rows this replaces. They are unreachable by
-    # design once the code reads the new table, and leaving them would let a stale
-    # claim outlive the device that made it.
-    execute("DELETE FROM platform.device_identifiers WHERE identifier_type = 'interface_mac'")
+    # NO cleanup of the :interface_mac identifier rows this replaces.
+    #
+    # A DELETE here is a synchronous cleanup on the first-boot path, which
+    # scripts/db/check-baseline-metadata.sh forbids for migrations newer than the
+    # baseline -- correctly, because startup work that scans a table is unbounded
+    # on a large deployment.
+    #
+    # It is also unnecessary. `:interface_mac` was never released: it existed only
+    # between two commits on a feature branch, so on every real deployment this
+    # DELETE would match zero rows and still pay for the scan. The one cluster
+    # that has such rows is a lab cluster running an unreleased build, and it is
+    # cleaned up as an operator task.
+    #
+    # The rows are inert regardless -- nothing reads `identifier_type =
+    # 'interface_mac'` once this migration lands, and the type is no longer in
+    # DeviceIdentifier's allowed list, so no new ones can be written.
   end
 
   def down do
