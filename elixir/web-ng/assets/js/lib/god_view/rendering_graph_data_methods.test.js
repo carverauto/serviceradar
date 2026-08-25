@@ -3,11 +3,13 @@ import {describe, expect, it, vi} from "vitest"
 import {bindApi, createStateBackedContext} from "./api_helpers"
 import ELK from "elkjs/lib/elk.bundled.js"
 
+import {applyTopologyOverviewToGraph, layoutTopologyOverview} from "./layout_elk_radial_overview"
 import {LANDSCAPE_PROFILE, applyTopologySceneToGraph, layoutTopologyScene} from "./layout_elk_scene"
 import {collapsedFarm01Graph, expandedFarm01Graph} from "./fixtures/farm01_topology_regression"
 import {godViewLayoutClusterMethods} from "./layout_cluster_methods"
 import {godViewRenderingGraphDataMethods, hasManagedTopologySceneRoutes} from "./rendering_graph_data_methods"
 import {godViewRenderingStyleEdgeTopologyMethods} from "./rendering_style_edge_topology_methods"
+import {prepareTopologyOverviewInput} from "./topology_overview_projection"
 import {prepareTopologySceneInput} from "./topology_scene_graph"
 
 function topologyScene(overrides = {}) {
@@ -92,6 +94,166 @@ function topologyAwareContext(topologyLayers) {
 }
 
 describe("rendering_graph_data_methods", () => {
+  it("excludes finite raw overview nodes that are absent from the managed scene", () => {
+    const ctx = baseContext()
+    const graph = {
+      shape: "local",
+      _layoutMode: "elk-radial-overview",
+      _topologyScene: topologyScene({
+        nodes: [{id: "placed", center: {x: 20, y: 30}, width: 40, height: 40}],
+      }),
+      nodes: [
+        {id: "placed", x: 20, y: 30, state: 1, label: "Placed", operUp: 1, details: {}},
+        {id: "raw-only", x: 80, y: 90, state: 1, label: "Raw only", operUp: 1, details: {}},
+      ],
+      edges: [],
+    }
+
+    const out = ctx.buildVisibleGraphData(graph)
+
+    expect(out.nodeData.map((node) => node.id)).toEqual(["placed"])
+    expect(out.nodeData.every((node) => node.position.every(Number.isFinite))).toBe(true)
+    expect(ctx.state.lastVisibleNodeCount).toBe(1)
+  })
+
+  it("excludes managed overview scene members with non-finite graph coordinates", () => {
+    const ctx = baseContext()
+    const graph = {
+      shape: "local",
+      _layoutMode: "elk-radial-overview",
+      _topologyScene: topologyScene({
+        nodes: [
+          {id: "placed", center: {x: 20, y: 30}, width: 40, height: 40},
+          {id: "unplaced", center: {x: 80, y: 90}, width: 40, height: 40},
+        ],
+      }),
+      nodes: [
+        {id: "placed", x: 20, y: 30, state: 1, label: "Placed", operUp: 1, details: {}},
+        {id: "unplaced", x: null, y: 90, state: 1, label: "Unplaced", operUp: 1, details: {}},
+      ],
+      edges: [],
+    }
+
+    const out = ctx.buildVisibleGraphData(graph)
+
+    expect(out.nodeData.map((node) => node.id)).toEqual(["placed"])
+    expect(out.nodeData.every((node) => node.position.every(Number.isFinite))).toBe(true)
+    expect(ctx.state.lastVisibleNodeCount).toBe(1)
+  })
+
+  it("excludes finite overview scene nodes explicitly marked render false", () => {
+    const ctx = baseContext()
+    const graph = {
+      shape: "local",
+      _layoutMode: "elk-radial-overview",
+      _topologyScene: topologyScene({
+        nodes: [
+          {id: "placed", center: {x: 20, y: 30}, width: 40, height: 40},
+          {id: "hidden", center: {x: 80, y: 90}, width: 40, height: 40, render: false},
+        ],
+      }),
+      nodes: [
+        {id: "placed", x: 20, y: 30, state: 1, label: "Placed", operUp: 1, details: {}},
+        {id: "hidden", x: 80, y: 90, state: 1, label: "Hidden", operUp: 1, details: {}},
+      ],
+      edges: [],
+    }
+
+    const out = ctx.buildVisibleGraphData(graph)
+
+    expect(out.nodeData.map((node) => node.id)).toEqual(["placed"])
+    expect(ctx.state.lastVisibleNodeCount).toBe(1)
+  })
+
+  it("renders an adapter-applied radial overview from semantic scene geometry only", async () => {
+    const ctx = baseContext()
+    const rawGraph = {
+      shape: "local",
+      nodes: [
+        {
+          id: "access",
+          x: -800,
+          y: -900,
+          state: 2,
+          label: "Access",
+          operUp: 1,
+          details: {type: "Switch", topology_plane: "backbone"},
+        },
+        {
+          id: "core",
+          x: -700,
+          y: -600,
+          state: 2,
+          label: "Core",
+          operUp: 1,
+          details: {type: "Router", topology_plane: "backbone"},
+        },
+        {
+          id: "stale-raw-endpoint",
+          x: 777,
+          y: 888,
+          state: 3,
+          label: "Stale raw endpoint",
+          operUp: 0,
+          details: {
+            type: "unknown",
+            identity_source: "endpoint_attachment_projection",
+            topology_plane: "attachment",
+          },
+        },
+      ],
+      edges: [
+        {
+          id: "link:core-access",
+          source: 1,
+          target: 0,
+          topologyClass: "backbone",
+          evidenceClass: "direct",
+          metadata: {relation_type: "CONNECTS_TO", topology_plane: "backbone"},
+        },
+        {
+          id: "link:access-stale",
+          source: 0,
+          target: 2,
+          topologyClass: "endpoints",
+          evidenceClass: "endpoint-attachment",
+          metadata: {relation_type: "ATTACHED_TO", topology_plane: "attachment"},
+        },
+      ],
+    }
+    const overviewInput = prepareTopologyOverviewInput(rawGraph)
+    const scene = await layoutTopologyOverview(overviewInput, new ELK())
+    const laidOut = applyTopologyOverviewToGraph(rawGraph, scene)
+
+    const out = ctx.buildVisibleGraphData(laidOut)
+
+    const renderableSceneNodes = scene.nodes.filter((node) => node.render !== false)
+    const sceneNodeById = new Map(renderableSceneNodes.map((node) => [node.id, node]))
+    const glyphIds = out.nodeData.map((node) => node.id)
+    expect(glyphIds).toEqual(renderableSceneNodes.map((node) => node.id))
+    expect(glyphIds).not.toContain("stale-raw-endpoint")
+    expect(laidOut.nodes.find((node) => node.id === "stale-raw-endpoint")).toMatchObject({x: 777, y: 888})
+    for (const glyph of out.nodeData) {
+      const center = sceneNodeById.get(glyph.id).center
+      expect(glyph.position).toEqual([center.x, center.y, 0])
+    }
+
+    const sceneRouteById = new Map(scene.routes.map((route) => [route.id, route]))
+    expect(out.edgeData).toHaveLength(scene.routes.length)
+    for (const edge of out.edgeData) {
+      const route = sceneRouteById.get(edge.routeId)
+      expect([edge.sourceId, edge.targetId]).toEqual([route.sourceId, route.targetId])
+      expect(glyphIds).toContain(edge.sourceId)
+      expect(glyphIds).toContain(edge.targetId)
+      expect(edge.sourcePosition).toEqual([route.points[0].x, route.points[0].y, 0])
+      expect(edge.targetPosition).toEqual([
+        route.points.at(-1).x,
+        route.points.at(-1).y,
+        0,
+      ])
+    }
+  })
+
   it("keeps endpoint census, selected details, and trunk parity across managed densities", () => {
     const topologyLayers = {backbone: true, inferred: false, endpoints: false}
     const ctx = topologyAwareContext(topologyLayers)
