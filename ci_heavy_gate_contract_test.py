@@ -2046,6 +2046,8 @@ class ReleaseLargeIngestionQualificationContractTest(unittest.TestCase):
             library,
         )
         self.assertIn('child_environment["GH_TOKEN"] = self.token', library)
+        self.assertIn('Path(home) / ".local" / "bin"', library)
+        self.assertIn('"/usr/local/bin", "/usr/bin", "/bin"', library)
         self.assertNotIn("top-secret", library + cli)
         for evidence in (
             "test_introduction_equality_with_markerless_release_is_deletion",
@@ -2053,6 +2055,7 @@ class ReleaseLargeIngestionQualificationContractTest(unittest.TestCase):
             "test_introduction_absent_repeated_or_malformed_fails",
             "test_marker_bearing_feature_commit_before_first_parent_merge_is_applicable",
             "test_exact_argv_slurp_shape_token_isolation_and_shell_false",
+            "test_home_local_bin_is_prepended_when_home_is_set",
             "test_missing_and_pending_timeout_at_fake_1800_second_deadline",
         ):
             self.assertIn(evidence, tests)
@@ -2108,6 +2111,7 @@ class ReleaseLargeIngestionQualificationContractTest(unittest.TestCase):
             "Cache Bazel artifacts",
             "Configure BuildBuddy remote cache",
             "Install Bazelisk",
+            "Install GitHub CLI",
             "Wait for large-ingestion gate",
             "Install Cosign",
             "Install ORAS",

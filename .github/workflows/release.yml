@@ -191,6 +191,34 @@ jobs:
       - name: Install Bazelisk
         run: ./scripts/install-bazelisk.sh
 
+      # The large-ingestion waiter shells out to `gh`. serviceradar-signing does
+      # not ship it, and `bazel run` hides $HOME/.local/bin. Install here so the
+      # next step can see it; the waiter also prepends this directory to PATH.
+      - name: Install GitHub CLI
+        run: |
+          set -euo pipefail
+          source ./scripts/install-download-integrity.sh
+          VERSION="2.98.0"
+          INSTALL_DIR="${HOME}/.local/bin"
+          mkdir -p "${INSTALL_DIR}"
+          echo "${INSTALL_DIR}" >> "${GITHUB_PATH}"
+          if [[ -x "${INSTALL_DIR}/gh" ]]; then
+            echo "gh already installed at ${INSTALL_DIR}/gh"
+            "${INSTALL_DIR}/gh" --version
+            exit 0
+          fi
+          archive="gh_${VERSION}_linux_amd64.tar.gz"
+          url="https://github.com/cli/cli/releases/download/v${VERSION}/${archive}"
+          expected_sha256="3b8ac6b30336802fc1a858d7c084e11cdf24ac1a761ca90b68022d7d729208de"
+          tmpdir="$(mktemp -d)"
+          trap 'rm -rf "${tmpdir}"' EXIT
+          sr_require_sha256 "$expected_sha256" "gh v${VERSION} ${archive}"
+          curl --fail --location --retry 5 --retry-all-errors --output "${tmpdir}/${archive}" "${url}"
+          sr_verify_sha256 "${tmpdir}/${archive}" "$expected_sha256" "gh v${VERSION} ${archive}"
+          tar -xzf "${tmpdir}/${archive}" -C "${tmpdir}"
+          install -m 0755 "${tmpdir}/gh_${VERSION}_linux_amd64/bin/gh" "${INSTALL_DIR}/gh"
+          echo "Installed gh $("${INSTALL_DIR}/gh" --version | head -n1) to ${INSTALL_DIR}/gh"
+
       - name: Wait for large-ingestion gate
         env:
           RELEASE_COMMIT: ${{ steps.source.outputs.commit }}
