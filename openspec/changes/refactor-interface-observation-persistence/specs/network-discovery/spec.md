@@ -5,7 +5,8 @@
 ### Requirement: Interface Observations Are Stored as Current State
 
 Discovered interface state SHALL be stored as one current row per
-`(device_id, if_index)`, updated in place. A discovery poll SHALL NOT create a new
+`(device_id, interface_uid)`, updated in place. `if_index` SHALL NOT be used as the key: it is
+nullable and not every producer sets it. A discovery poll SHALL NOT create a new
 stored row for an interface whose semantic state is unchanged.
 
 Semantic state SHALL comprise the interface's identity and operational attributes —
@@ -20,7 +21,7 @@ Provenance changing alone SHALL NOT constitute a change.
 
 - **GIVEN** an interface whose attributes and addresses do not change
 - **WHEN** it is polled repeatedly over many discovery runs
-- **THEN** exactly one current row SHALL exist for that `(device_id, if_index)`
+- **THEN** exactly one current row SHALL exist for that `(device_id, interface_uid)`
 - **AND** its last-observation fields SHALL reflect the most recent poll
 
 #### Scenario: A new discovery id alone is not a change
