@@ -1,3 +1,148 @@
+# ServiceRadar v1.4.43
+
+Makes device identity stop inventing devices it only overheard, identifies
+hosts from mDNS without probing, moves netprobe's discovery onto the
+generic add-on contract, and stops the topology graph asserting links
+nothing has confirmed for months.
+
+## Whats New
+
+**1.4.43**
+- Identity: a passive netprobe fingerprint no longer resolves onto the
+  collector that observed it. The same class of bug had already been
+  fixed for the census; this closes the fingerprint path, plus the
+  address debris it left behind on hosts a collector had absorbed.
+  (PRs #3971, #3979)
+- Identity: device metadata is merged in the database instead of being
+  read, modified and written back whole, which was silently discarding
+  concurrent writers' fields. (PR #3976)
+- Identity: every device revival is recorded in an append-only audit
+  table. A revival used to clear `deleted_reason`/`deleted_by`, leaving
+  a resurrected device indistinguishable from one never deleted.
+  (PR #3974)
+- Identity: a link-local (`fe80::`) sighting can no longer overwrite a
+  routable primary IP, and link-local addresses are no longer accepted
+  as cross-device alias evidence. Addresses are now ranked by
+  routability in both Elixir and SQL, with a parity test. Existing
+  link-local alias rows are archived rather than marked stale, because
+  stale alias debris in this system self-revives.
+  (PRs #4007, #4009, #4027)
+- Identity: interface MACs anchor a device through a per-device table
+  rather than a global identifier, so two chassis sharing an interface
+  MAC no longer collapse into one. (PRs #4007, #4027)
+- Identity: the duplicate-device sweep now also merges a host split
+  between a MAC column and a MAC identifier row. (PR #3883)
+- Inventory: `discovered_interfaces` is keyed to current state instead
+  of appending a row per poll. A four-device sample held 36,816 rows
+  for 374 distinct states -- 98x amplification, growing 767 rows per
+  device per day with no retention and no compression. (PR #4027)
+- Inventory: vendor is derived from the IEEE OUI registry instead of
+  waiting on an integration to fill it in. (PR #3880)
+- Inventory: mDNS/DNS-SD announcements identify a host without a probe.
+  Capture is in-kernel (no avahi), snapshots ride the same discovery
+  path as census, and core classifies from the evidence.
+  (PRs #3885, #3887, #3888, #3891, #3896, #3899, #3901)
+- Inventory: a mapper's own interface address no longer mints a
+  phantom device, an unroutable address mints nothing, IPv6 addresses
+  come from `ipAddressTable`, and a switch no longer loses its role to
+  one management address. (PRs #3907, #3929, #3933, #3947)
+- Netprobe: census, mDNS, fingerprint, DPI and process observations now
+  ride the generic add-on contract as `DISCOVERY_V1` payloads named by a
+  schema STRING, decoded in core against goldens captured from the Go
+  translators before they were removed. Adding an observation type costs
+  a registry entry, not an agent release.
+  (PRs #3906, #3934, #3943, #3981, #3982, #3990, #3995, #3996)
+- Netprobe: banner matching moved to `AddonService.RunCommand`, the last
+  FUNCTIONAL request/response arm on the bespoke IPC socket. Misses are
+  no longer padded with a zero-confidence sentinel the caller had to
+  strip. The agent falls back to the legacy arm against an older
+  netprobe, so a mixed fleet keeps working. (PR #4023)
+- Netprobe: the collector's address is stamped from the live interface
+  rather than the onboarding pin, so a re-IP'd host stops attributing
+  traffic to its old address. (PRs #3991, #4004)
+- Netprobe: a restart no longer leaks a TC classifier on the
+  full-capture path, and ApplyConfig now reports the settings it used
+  to drop silently. (PRs #3918, #3940)
+- Topology: projected links age out on the discovery cadence and stale
+  links are pruned by default. A deleted discovery job used to leave its
+  seeds and UniFi controllers orphaned, freezing hundreds of edges as
+  permanently "current". Deleting a job now cascades to its dependants.
+  (PRs #4019, #4020)
+- Topology: one authoritative compound ELK scene replaces the remaining
+  hand-authored geometry -- node placement, endpoint grouping and edge
+  routing. Overlapping, penetrating or crossing routes are rejected and
+  the last valid scene is retained transactionally, so a bad layout can
+  no longer render. Redundant device-level inferred-segment evidence is
+  collapsed without disconnecting otherwise isolated devices.
+  (PRs #3928, #3999)
+- Web UI: Armis, NetBox, Proxmox and Ansible logos on device details;
+  mDNS discovery sources render with correct acronym casing; interface
+  addresses show in the IP Aliases panel, labelled.
+  (PRs #3942, #3983, #4014, #4016)
+- Web UI: the device Flows tab keeps its summary and sparkline, puts
+  protocol breakdown in the four-card row, and inventory pagination
+  survives a refresh. (PRs #3895, #3916, #3923)
+- SRQL: device flow queries scope by the device's resolved addresses,
+  not `device_id`, so a host whose IP is only on an alias still shows
+  traffic. NetFlow exporters resolve the same way.
+  (PRs #3897, #3902)
+- Sync: a raw UUID binary no longer poisons the bulk device upsert, and
+  an unencodable metadata value is dropped instead of failing the
+  whole write. (PRs #3915, #3920)
+- CNPG: the image pin is `18.4.0-sr4` at a digest that exists. The
+  previous tag pointed at a digest Harbor never published, so a fresh
+  cluster could not pull it. (PR #3889)
+- CI: the OCI publish workflow runs on ARC runners again -- it was
+  bootstrapping Forgejo tools that cannot install as non-root, and
+  pointing its cache at a volume only BuildBuddy executors mount.
+  (PRs #4015, #4017)
+- CI: a test target that executes zero tests now fails instead of
+  reporting success. (PR #3972)
+
+## Upgrade Notes
+
+- **`discovered_interfaces` is re-keyed to current state (migration
+  `20260825030000`).** Historical per-poll rows are discarded. They were
+  never a deliberate history -- per-poll provenance made every row
+  byte-distinct, so there is no "true row" to keep -- but this IS data
+  loss and is called out in the migration itself. `timestamp` keeps
+  meaning "last observed" and is still bumped every poll, so liveness
+  queries and the device Interfaces tab are unaffected.
+- **Link-local identity aliases are archived (migration
+  `20260825031000`).** Archived rather than deleted or marked stale:
+  stale alias rows in this system self-revive.
+- Six migrations ship in this release; `migrations.expectedVersion` is
+  `20260825031000`:
+  - `20260824020000` device revival audit
+  - `20260825000000` `sr_address_rank` function
+  - `20260825010000` per-device interface MAC table
+  - `20260825020000` cascade mapper job dependants
+  - `20260825030000` rekey `discovered_interfaces` to current state
+  - `20260825031000` archive link-local identity aliases
+- Netprobe: publish the add-on at **0.2.52**. mDNS identification, the
+  generic add-on contract, live collector-IP stamping and banner
+  `RunCommand` are not on the fleet until that bundle rolls out. An
+  agent older than 1.4.43 still talks the legacy IPC socket, so a
+  mixed fleet keeps working during the rollout.
+- Topology: stale projected links are pruned by default
+  (`mapper_topology_prune_stale_projected_links_enabled`, default
+  true). The first mapper run after upgrade will drop edges whose
+  `last_observed_at` is older than the discovery cadence. Unseen-link
+  pruning stays off unless you set
+  `mapper_topology_prune_unseen_projected_links_enabled`.
+- Mapper: deleting a discovery job now deletes its seeds and UniFi
+  controllers with it (migration `20260825020000`). Intended -- those
+  rows were what froze topology edges as permanently current.
+- CNPG: if you pin `cnpg.imageTag` / `cnpg.imageName` yourself, move
+  to `18.4.0-sr4` (or the chart's digest). The previous pin did not
+  exist in Harbor.
+- Known, not fixed: about thirty Helm sub-feature flags remain inert,
+  including `cnpg.enabled=false` and `core.migrations.enabled=false`,
+  which still render their resources (issue #3859). On the device
+  flows tab the Services facet stays empty and the traffic chart
+  renders no data. A change-only interface history table is not in
+  this release (issue #4021).
+
 # ServiceRadar v1.4.42
 
 Lands passive L2 device discovery in netprobe end to end, unblocks
