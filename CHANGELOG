@@ -1,3 +1,47 @@
+# ServiceRadar v1.4.44
+
+CSV device import upserts instead of skipping, copies tag pairs into
+All Metadata, and SRQL actually returns those tags on `in:devices`
+rows. A native-add-on seeder placeholder no longer blocks the signed
+bundle. Downsampled series can split by a tag key.
+
+## Whats New
+
+**1.4.44**
+- Inventory: CSV import preview no longer CaseClauseError's on a
+  finished upload. A re-import upserts matching devices instead of
+  skipping them as already-exist, merges spreadsheet tags, and copies
+  `key=value` pieces from the tags column into metadata so All Metadata
+  on device details is populated. Extra CSV columns still overlay the
+  same keys. (PRs #4040, #4042)
+- Inventory: a verified native-add-on import can replace an unverified
+  seeder placeholder for the same version, so first-party add-ons are
+  no longer frozen at the last pre-seeder bundle. (PR #4041)
+- SRQL: `in:devices` rows include the `tags` JSONB map, matching the
+  filters and grouping that already used `tags.<key>`. Dashboard
+  packages that declare a tags field no longer receive empty maps.
+  (PR #4044)
+- SRQL: downsampled timeseries can split with `series:tags.<key>`, the
+  query shape fleet dashboards need that `stats: by` cannot express
+  because it has no time buckets. (PR #4037)
+- CI: the release large-ingestion waiter installs `gh` on the signing
+  runner so the wait is a real gate instead of FileNotFoundError.
+  (PR #4036)
+
+## Upgrade Notes
+
+- No schema migrations in this release. `migrations.expectedVersion`
+  stays `20260825031000`.
+- Re-import a device CSV to fill All Metadata on rows that landed
+  before 1.4.44. Tags were already stored; metadata was not.
+- Native add-on seeder/import: after upgrade, a signed bundle for a
+  version that only had a seeder placeholder can replace that row.
+  Netprobe and other first-party add-ons stuck on a pre-seeder version
+  become importable.
+- Dashboard packages that group on `tags.<key>` start working against
+  `in:devices` without a metadata fallback. Republish is not required
+  if the package already requested the `tags` field.
+
 # ServiceRadar v1.4.43
 
 Makes device identity stop inventing devices it only overheard, identifies
