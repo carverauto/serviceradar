@@ -60,8 +60,16 @@ happens **across polls over time**, which is where the growth is.
 
 ## What Changes
 
-- **ADD a current-state model.** One row per `(device_id, if_index)`, upserted. On the
+- **ADD a current-state model.** One row per `(device_id, interface_uid)`, upserted. On the
   measured sample this is 374 rows in place of 36,816.
+
+  **The key is `interface_uid`, NOT `if_index`** -- corrected after reading the schema. `if_index`
+  is `allow_nil? true` and `inventory/sync/interfaces.ex` never sets it, so sync-produced rows
+  carry NULL and a Postgres unique index would not dedupe them. `interface_uid` is
+  `allow_nil? false` and already `primary_key? true`. On farm01 the two keys are currently
+  indistinguishable (340 distinct pairs each, zero NULLs) only because every interface there comes
+  from the mapper -- which is exactly the kind of coincidence that makes a wrong key look right
+  until another producer appears.
 - **ADD semantic change detection.** A poll that observes no change to the semantic
   state SHALL NOT produce a new stored observation. Per-poll provenance
   (`discovery_id`, `mapper_job_id`, `discovery_time`) updates `last_seen`-style fields

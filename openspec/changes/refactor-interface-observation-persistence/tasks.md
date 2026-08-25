@@ -7,10 +7,46 @@
   if_phys_address, if_oper_status, if_admin_status, if_speed, sorted(ip_addresses))`.
   Baseline to beat: **36,816 rows / 374 states = 98x**, 767 rows/device/day, 57 MB for
   4 devices, no hypertable, no retention, no compression.
-- [ ] 1.2 Enumerate every reader of `platform.discovered_interfaces` before changing the
-  write path -- application code, SRQL surfaces, dashboards, and anything that
-  compensates today by ordering on `timestamp` and taking the newest. A reader that
-  silently depends on duplicates is the way this change breaks something.
+- [x] 1.2 **DONE. 19 Elixir modules + SRQL read this table.** Every read site classified; the
+  findings below were verified against the source and the database, not inferred.
+
+  **The key must be `(device_id, interface_uid)`, not `(device_id, if_index)`.** `if_index` is
+  `allow_nil? true` (`interface.ex:182-184`) and `sync/interfaces.ex` never sets it, so sync rows
+  carry NULL and a unique index would not dedupe them. `interface_uid` is `allow_nil? false` and
+  already `primary_key? true` (`interface.ex:175-178`). On farm01 both keys look identical -- 340
+  distinct pairs each, zero NULLs -- but only because every interface there comes from the mapper.
+
+  **Four things must change BEFORE the identity does, in this order:**
+
+  1. `identity :unique_interface, [:timestamp, :device_id, :interface_uid]` (`interface.ex:401`)
+     is the append-only mechanism itself. `timestamp` in the key is why every poll inserts.
+  2. `upsert_fields: []` at both writers (`mapper_results_ingestor.ex:3833`,
+     `sync/interfaces.ex:164`) is dead today but becomes destructive the moment the key changes:
+     ash_postgres emits `DO UPDATE SET <key> = EXCLUDED.<key>`, so every column would freeze at
+     its first-observed value forever. Enumerate the fields explicitly first.
+  3. `reassignments.ex:219-235` probes for collisions with `timestamp in ^timestamps` and maps to
+     `{timestamp, interface_uid}`. Drop `timestamp` from the identity and the probe always misses,
+     rows route to `bulk_update`, and hit a duplicate key. It runs inside `Ash.transact` with
+     `rollback_on_error?: true` (`merge_engine.ex:226`), so the failure is **every device merge
+     rolling back** -- presenting as a merge bug, not an interface bug.
+  4. `timestamp` must keep meaning "last observed" and be bumped on every poll. Three readers
+     depend on it: `mapper_results_ingestor.ex:2193` (`ago(6, "hour")` liveness -- stable tunnels
+     would age out and derived topology edges silently stop) and `interface_data.ex:661/:720`
+     (`time:last_3d` -- the device Interfaces tab renders empty).
+
+  **The only user-visible count** is `web-ng .../snmp_profiles_live/index/targeting.ex:144/158`
+  ("N targets"). Its `distinct(:device_id)` hides the 98x today; keep it, or a device count becomes
+  an interface count. Pin the current output in a test before touching the write path.
+
+  **Only three sites are history-dependent** -- `reassignments.ex:219`, `:295`, and the JSON:API id
+  at `interface.ex:69` (which embeds the timestamp, an external contract). **None is a trend or
+  diff query**, so no reader anywhere requires multiple rows over time.
+
+- [ ] 1.2b Not classified because they sit outside the file set but do read the table:
+  `rust/srql/src/query/interfaces/sql.rs`, `.../interfaces/stats.rs:35`, `.../logs/metadata.rs:123`,
+  and `web-ng .../live/interface_live/index.ex:290` (`stats:count() as total`, likely a second
+  user-visible count). Classify before shipping. Also unknown: whether any dashboard or alert
+  threshold is calibrated on the inflated `:active` interface count.
 - [x] 1.3 **ANSWERED (maintainer, 2026-08-25): history IS needed, for causal analysis.**
   The use case is outage forensics -- "what changed on the network around the time this
   broke". That shapes the schema rather than merely enabling it: the history must record
@@ -41,7 +77,10 @@
 - [ ] 3.3 Verify a poll with no semantic change performs no write, or an idempotent one
   -- and prove it by row count, not by reading the code.
 
-## 4. History, only if 1.3 says it is needed
+## 4. History (needed per 1.3, but NOT required on day one)
+
+Because no reader requires multiple rows over time (1.2), the current-state change can ship before
+the history store exists. The causal-analysis consumer needs it; nothing today breaks without it.
 
 - [ ] 4.1 Write a history row ONLY on semantic change.
 - [ ] 4.2 Make it a hypertable with compression and an explicit retention policy.
