@@ -24,6 +24,7 @@ NETPROBE_PROC_MACROS = [
 NETPROBE_DEPS = [
     "//rust/addon-sdk:addon_sdk",
     "@crates//:anyhow",
+    "@crates//:base64",
     "@crates//:clap",
     "@crates//:crossbeam-channel",
     "@crates//:env_logger",
@@ -81,7 +82,7 @@ NETPROBE_RUSTC_FLAGS = select({
     "//conditions:default": [],
 })
 
-NETPROBE_VERSION = "0.2.51"
+NETPROBE_VERSION = "0.2.52"
 
 cargo_build_script(
     name = "build_script",

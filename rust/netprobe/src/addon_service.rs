@@ -25,8 +25,8 @@ use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
 use addon_sdk::{
-    Addon, ConfigureResult, Health, HealthStatus, Info, TelemetryStream, discovery_pb,
-    discovery_record, pb, serve_on_listener,
+    Addon, CommandRequest, CommandResult, ConfigureResult, Health, HealthStatus, Info,
+    TelemetryStream, discovery_pb, discovery_record, pb, serve_on_listener,
 };
 use anyhow::{Context, Result};
 use async_trait::async_trait;
@@ -37,6 +37,7 @@ use tokio_stream::wrappers::BroadcastStream;
 use tokio_stream::{Stream, StreamExt};
 
 use crate::addon_config_json::AddonConfigJson;
+use crate::banner_command;
 use crate::capabilities;
 use crate::fingerprint::{
     FINGERPRINT_ENGINE_VERSION, JA4_BASE_SPEC_REVISION, MUONFP_CORPUS_REVISION,
@@ -216,6 +217,49 @@ impl Addon for NetprobeAddon {
             degradation_reason: String::new(),
             details,
         })
+    }
+
+    /// Corpus matching for the agent's ACTIVE sweep banner grabs.
+    ///
+    /// This is the generic-contract replacement for the `NetprobeFrame.BannerBatch`
+    /// IPC arm -- the last functional request/response arm on the legacy socket, so
+    /// this method is what lets that socket be retired.
+    ///
+    /// Unlike every other RPC here the agent is the DATA PRODUCER: it opens the TCP
+    /// connections and reads the banners itself, and calls netprobe only for the
+    /// corpora. The results are the agent's observations, not netprobe's, which is
+    /// why they go back in the response rather than out on the telemetry stream.
+    ///
+    /// An unusable request is an unsuccessful result, never an `Err`: `Err` becomes
+    /// a gRPC transport failure the agent retries, and a payload that does not parse
+    /// will not parse the second time either.
+    async fn run_command(&self, request: CommandRequest) -> Result<CommandResult> {
+        if request.action_id != banner_command::MATCH_BANNERS_ACTION {
+            return Ok(refused(format!(
+                "unsupported action_id {:?}",
+                request.action_id
+            )));
+        }
+
+        // Checked rather than ignored: the schema names the payload shape, and a
+        // caller sending a different one is asking for a contract this build does
+        // not implement. Guessing would decode it as v1 and answer confidently.
+        if request.schema != banner_command::MATCH_BANNERS_SCHEMA {
+            return Ok(refused(format!(
+                "unsupported schema {:?} for action {:?}",
+                request.schema, request.action_id
+            )));
+        }
+
+        match banner_command::handle_match_banners(&request.payload_json) {
+            Ok(payload_json) => Ok(CommandResult {
+                success: true,
+                message: String::new(),
+                payload_json,
+                metadata: Default::default(),
+            }),
+            Err(message) => Ok(refused(message)),
+        }
     }
 
     fn stream_telemetry(&self) -> TelemetryStream {
@@ -399,6 +443,19 @@ fn rejected(error: impl Into<String>) -> ConfigureResult {
         config_hash: String::new(),
         accepted: false,
         error: error.into(),
+    }
+}
+
+/// A command this build cannot carry out, reported as a result rather than an
+/// error. The distinction matters at this seam: an `Err` surfaces as a gRPC
+/// status the agent treats as a transport fault and retries, while an
+/// unsuccessful result is a durable answer that reaches the caller intact.
+fn refused(message: impl Into<String>) -> CommandResult {
+    CommandResult {
+        success: false,
+        message: message.into(),
+        payload_json: Vec::new(),
+        metadata: Default::default(),
     }
 }
 
@@ -777,6 +834,84 @@ mod tests {
         );
         // Prose stays out of details.
         assert!(health.degradation_reason.is_empty());
+    }
+
+    fn match_banners_request(payload_json: Vec<u8>) -> CommandRequest {
+        CommandRequest {
+            command_id: "cmd-1".to_owned(),
+            command_type: "addon.run_command".to_owned(),
+            action_id: banner_command::MATCH_BANNERS_ACTION.to_owned(),
+            schema: banner_command::MATCH_BANNERS_SCHEMA.to_owned(),
+            payload_json,
+            deadline_unix: 0,
+            metadata: Default::default(),
+        }
+    }
+
+    #[tokio::test]
+    async fn run_command_matches_banners_over_the_generic_contract() {
+        let addon = addon_with(StartupSnapshot::default());
+        // "Apache/2.4.58 (Ubuntu)" -- base64 so binary banners survive intact.
+        let payload = br#"{"observations":[{"observation_id":42,"protocol":"http","banner_b64":"QXBhY2hlLzIuNC41OCAoVWJ1bnR1KQ=="}]}"#;
+
+        let result = addon
+            .run_command(match_banners_request(payload.to_vec()))
+            .await
+            .expect("command runs");
+
+        assert!(result.success, "{}", result.message);
+        let body: serde_json::Value =
+            serde_json::from_slice(&result.payload_json).expect("json response");
+        assert_eq!(body["observations"], 1);
+        assert_eq!(body["matches"][0]["observation_id"], 42);
+        assert_eq!(body["matches"][0]["product"], "HTTPD");
+    }
+
+    #[tokio::test]
+    async fn run_command_refuses_an_unknown_action_and_schema() {
+        let addon = addon_with(StartupSnapshot::default());
+
+        let mut wrong_action = match_banners_request(br#"{"observations":[]}"#.to_vec());
+        wrong_action.action_id = "harvest_everything".to_owned();
+        let result = addon.run_command(wrong_action).await.expect("answers");
+        assert!(!result.success);
+        assert!(
+            result.message.contains("unsupported action_id"),
+            "{}",
+            result.message
+        );
+
+        // A schema this build does not implement must be refused rather than
+        // decoded as v1 -- guessing would answer confidently about the wrong shape.
+        let mut wrong_schema = match_banners_request(br#"{"observations":[]}"#.to_vec());
+        wrong_schema.schema = "serviceradar.netprobe.banner_match.v99".to_owned();
+        let result = addon.run_command(wrong_schema).await.expect("answers");
+        assert!(!result.success);
+        assert!(
+            result.message.contains("unsupported schema"),
+            "{}",
+            result.message
+        );
+    }
+
+    #[tokio::test]
+    async fn a_malformed_command_payload_is_a_result_not_a_transport_error() {
+        // Mirrors configure/0: an Err here becomes a gRPC status the agent
+        // retries, and a payload that does not parse will not parse next time.
+        let addon = addon_with(StartupSnapshot::default());
+
+        let result = addon
+            .run_command(match_banners_request(b"{not json".to_vec()))
+            .await
+            .expect("answers rather than erroring");
+
+        assert!(!result.success);
+        assert!(
+            result.message.contains("could not parse"),
+            "{}",
+            result.message
+        );
+        assert!(result.payload_json.is_empty());
     }
 
     fn addon_with(startup: StartupSnapshot) -> NetprobeAddon {

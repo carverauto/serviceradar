@@ -136,6 +136,11 @@ func (m *AttachManager) StartAttach(ctx context.Context) error {
 	m.wg.Add(1)
 	go m.healthLoop(m.ctx)
 
+	// The command client rides the same socket the telemetry pump uses. Wired
+	// here rather than at construction because this is where the runtime dir and
+	// sidecar name are both known, so the two cannot drift apart.
+	m.sidecar.SetAddonCommandClient(NewAddonCommandClient(AttachAddonSocketPath(m.cfg.RuntimeDir, name)))
+
 	if m.cfg.AddonTelemetrySink != nil {
 		pump, err := NewAddonPump(AddonPumpConfig{
 			SocketPath: AttachAddonSocketPath(m.cfg.RuntimeDir, name),

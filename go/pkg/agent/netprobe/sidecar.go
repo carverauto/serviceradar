@@ -72,6 +72,11 @@ type Sidecar struct {
 	revisions                    atomic.Value
 	lastError                    atomic.Value
 
+	// addonCommands is netprobe's generic AddonService.RunCommand client, set by
+	// AttachManager once it knows the socket path. nil until then, and nil forever
+	// on a host whose netprobe predates the contract.
+	addonCommands atomic.Pointer[AddonCommandClient]
+
 	// desiredConfig + applyMu implement apply-on-connect: the latest desired visibility
 	// config is (re)applied over IPC whenever a client connects, so a systemd-managed
 	// netprobe that the agent only attaches to (does not launch) gets its full config on
@@ -294,7 +299,49 @@ func (s *Sidecar) pushDesired() {
 		Msg("Applied desired visibility config to attached netprobe")
 }
 
+// SetAddonCommandClient installs the generic-contract command client. Safe to
+// call before or after netprobe is up: the client dials lazily.
+func (s *Sidecar) SetAddonCommandClient(client *AddonCommandClient) {
+	s.addonCommands.Store(client)
+}
+
+// MatchBanners runs corpus matching for the agent's ACTIVE sweep banner grabs.
+//
+// It tries the generic AddonService.RunCommand contract first and falls back to
+// the legacy NetprobeFrame IPC arm. Both paths are live deliberately:
+// addons/netprobe declares `base_agent: ">=1.2.0"` -- a FLOOR, not a pin -- and
+// the add-on ships as a pushed artifact on its own version line, so a new agent
+// running against an older netprobe is a supported deployment rather than a
+// transient during rollout. The IPC arm may only be deleted a release after the
+// netprobe that implements RunCommand has converged across the fleet.
 func (s *Sidecar) MatchBanners(ctx context.Context, batch *netprobepb.BannerBatch) (*netprobepb.BannerMatchBatch, error) {
+	if commands := s.addonCommands.Load(); commands != nil {
+		matches, err := commands.MatchBanners(ctx, batch)
+
+		switch {
+		case err == nil:
+			return matches, nil
+		case errors.Is(err, ErrAddonCommandUnavailable):
+			// The expected state against a netprobe that predates the contract.
+			// Checked BEFORE ctx: an absent socket is not a context problem, and
+			// testing ctx first would report "cancelled" for a host that simply has
+			// no command contract -- swallowing the fallback on every shutdown.
+			// Debug, not warn: on an un-upgraded fleet this fires once per batch.
+			s.logger.Debug().Err(err).
+				Msg("Netprobe command contract unavailable; matching banners over legacy IPC")
+		case ctx.Err() != nil:
+			// The caller is shutting down or timed out. Falling back would block
+			// on an IPC client that can no longer be waited for.
+			return nil, err
+		default:
+			// netprobe HAS the socket and the call still failed. The fallback keeps
+			// matching working, but this has to be visible or a real defect in the
+			// new path hides behind the old one for a whole release.
+			s.logger.Warn().Err(err).
+				Msg("Netprobe RunCommand banner matching failed; falling back to legacy IPC")
+		}
+	}
+
 	ticker := time.NewTicker(defaultApplyWaitInterval)
 	defer ticker.Stop()
 

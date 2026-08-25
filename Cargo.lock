@@ -6623,6 +6623,7 @@ dependencies = [
  "aya-build",
  "aya-ebpf",
  "aya-log",
+ "base64 0.22.1",
  "clap 4.6.6",
  "crossbeam-channel",
  "env_logger",

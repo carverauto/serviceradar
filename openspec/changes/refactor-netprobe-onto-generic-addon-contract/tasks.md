@@ -162,11 +162,56 @@ the legacy producers.
   `netprobe/translator.go` and the netprobe half of `push_loop_mapper_netprobe.go`. Process snapshots
   gain real snapshot semantics, fixing today's partial-fragment device updates (netprobe splits them
   across frames with no chunk fields)
-- [ ] 5.5 Move banner matching to `AddonService.RunCommand`; the confidence and unknown-corpus filters
-  move into netprobe.
+- [x] 5.5 **DONE.** Banner matching is served over `AddonService.RunCommand` and the filters now
+  live in netprobe. `BannerBatch` was the last functional request/response arm on the bespoke
+  socket, so this is what makes retiring it possible.
 
-  **DESIGNED AND NOT BUILT -- as written this does not achieve its purpose.**
-  Verified 2026-08-24:
+  Shipped:
+  * netprobe implements `Addon::run_command` for `action_id: "match_banners"` under
+    `schema: "serviceradar.netprobe.banner_match.v1"` (`rust/netprobe/src/banner_command.rs`).
+    The schema is CHECKED, not ignored: a payload naming a shape this build does not implement
+    is refused rather than decoded as v1 and answered confidently about.
+  * The filters moved in, which as predicted meant deleting the padding: `match_banner_batch`
+    now returns only real matches and `unknown_match` is gone. The response is no longer
+    positionally 1:1 with the request -- callers already joined on `observation_id`, so nothing
+    downstream changed. Both transports benefit; the IPC arm returns the shorter batch too, and
+    an old agent's now-redundant filter is harmless.
+  * The agent gained the RunCommand client the task noted did not exist
+    (`go/pkg/agent/netprobe/addon_command.go`), on the SAME socket the telemetry pump uses so
+    the two cannot drift.
+  * Skew is handled as required: `Sidecar.MatchBanners` tries RunCommand and falls back to the
+    IPC arm. `addons/netprobe/addon.yaml` declares `base_agent: ">=1.2.0"` -- a floor -- so a new
+    agent against an old netprobe is a supported deployment, not a rollout transient.
+
+  Two decisions worth not re-litigating:
+  * **Only the three fields the matcher reads travel** (`observation_id`, `protocol`, banner
+    bytes). `host`/`port`/`source`/`observed_at` stay on the agent, which re-attaches them when
+    building the fingerprint event. `observed_at` is the sharp one: nanoseconds since epoch
+    exceed 2^53, so any consumer parsing JSON numbers as doubles truncates it silently. Adding a
+    field later is additive and costs no schema bump. Pinned by a test.
+  * **Banner bytes ride as base64, not as a JSON string.** The matcher lossily converts to UTF-8
+    itself, so a string looks equivalent -- but Go replaces each invalid BYTE with U+FFFD while
+    Rust's `from_utf8_lossy` replaces each invalid SEQUENCE with one. They disagree on exactly
+    the binary banners (SMB, RDP, DNS, NTP) this path exists to identify, and the disagreement
+    would surface as a corpus match quietly changing rather than as an error. Go's
+    `encoding/json` emits standard-padded base64 for `[]byte`, which is byte-identical to what
+    Rust's `STANDARD` engine decodes.
+
+  Still open, and NOT part of this task:
+  * The IPC `MatchBanners` arm and the fallback in `Sidecar.MatchBanners` may only be deleted a
+    release AFTER the netprobe implementing RunCommand has converged across the fleet.
+  * **This still does not unblock the 5.4 translator deletion, exactly as predicted** -- but the
+    reason is now narrower than "a new core schema is needed". The agent still runs
+    `bannerMatchToFingerprintEvent` -> `EnqueueFingerprintEvent` -> `s.events` -> `DrainEvents`
+    -> `translator.go`. That queue is AGENT-LOCAL and, since 5.3/5.4 stopped netprobe writing
+    passive fingerprints over IPC, it now contains ONLY the agent's own active banner-grab
+    fingerprints. So it is no longer netprobe IPC in any sense -- it merely LIVES in
+    `go/pkg/agent/netprobe/`. What 6.1 needs is a RELOCATION of that queue and `translator.go`
+    into the agent package, not a second registered schema. Registering
+    `sweep_active` fingerprints as their own DISCOVERY_V1 schema remains a separate, optional
+    change; do not do it as a side effect of the deletion.
+
+  Original analysis, verified 2026-08-24 and kept because each point was acted on:
 
   * **The filters are nearly a no-op.** `rust/netprobe/src/ipc/match_banner.rs`
     returns exactly ONE `BannerMatch` per observation, in order, using an
