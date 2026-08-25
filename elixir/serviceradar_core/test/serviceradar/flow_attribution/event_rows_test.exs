@@ -1,7 +1,7 @@
 defmodule ServiceRadar.FlowAttribution.EventRowsTest do
   use ExUnit.Case, async: true
 
-  alias Netprobepb.FlowAttributionEvent
+  alias Serviceradar.Agent.Netprobe.V1.FlowAttributionEvent
   alias ServiceRadar.FlowAttribution.EventRows
 
   test "attribution_key is socket-scoped (ignores pid/comm/container)" do

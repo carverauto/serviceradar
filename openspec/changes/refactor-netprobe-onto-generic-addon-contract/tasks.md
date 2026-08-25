@@ -208,11 +208,29 @@ the legacy producers.
   case is an address whose own device is absent or soft-deleted, where a `:stale`
   alias can both mis-attribute and be reactivated (`maybe_reactivate_alias:1736`).
 
-- [ ] 5.6 Move flow attribution to a generalized acked relay: generalize `RelayOtlp`'s hardcoded
+- [~] 5.6 Move flow attribution to a generalized acked relay: generalize `RelayOtlp`'s hardcoded
   identity constants and the gateway's `otlp_relay_publisher.ex` routing. Keep
-  `FlowAttributionEventBatch` payload bytes byte-identical so the hand-mirrored
-  `flow_attribution_event.pb.ex` decoder keeps working, and add real generation for that file in the
-  same change. Keep the ack/quarantine queue at the agent
+  `FlowAttributionEventBatch` payload bytes byte-identical, and keep the ack/quarantine queue at the
+  agent.
+
+  **The codegen half is DONE, and it was smaller than this task assumed.** The task says to "add real
+  generation for `flow_attribution_event.pb.ex` in the same change". No generation had to be added:
+  `Serviceradar.Agent.Netprobe.V1.{WorkloadIdentity,FlowAttributionEvent,FlowAttributionEventBatch}`
+  were ALREADY generated into `netprobe.pb.ex`, and the hand-mirrored file was a second copy of the
+  same three messages under a different module namespace. Compared field by field before touching
+  anything: all 20 `FlowAttributionEvent` fields, all 15 `WorkloadIdentity` fields (including both
+  map entries) and all 4 batch fields matched the proto and each other exactly -- so the copy had not
+  yet drifted, and the swap cannot change decoding, since protobuf decoding depends only on field
+  number and type.
+  Removed: the duplicate, plus `lib/netprobepb.ex`, which existed ONLY as a `Boundary` shell to stop
+  the compiler warning that the hand-written structs were "not included in any boundary" -- not as a
+  wrapping abstraction, so removing it does not touch the "wrap third-party APIs" rule. The generated
+  modules already have their own shell (`lib/serviceradar_agent_netprobe_v1.ex`) and were already in
+  the root boundary's `deps`, which is why the swap needed no boundary change beyond deleting the dead
+  entry.
+  Left for the rest of 5.6: generalizing `RelayOtlp`'s identity constants
+  (`go/pkg/agent/addon_otlp_relay.go:48-50` hardcodes `otlp-relay` / `otel-collector` / `otlp-relay`)
+  and the gateway's `otlp_relay_publisher.ex` routing, and moving flow attribution onto it.
 - [ ] 5.7 Delete the dead arms rather than porting them: `ExternalFlowRecord`/`ExternalFlowAck`
   (test-only callers), `StartRemoteCapture`/`PcapngBlock` (empty messages, no code), and the tag-21
   non-batched flow-attribution fallback (disabled by default)

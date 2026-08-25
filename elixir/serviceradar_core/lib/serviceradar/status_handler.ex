@@ -5,7 +5,7 @@ defmodule ServiceRadar.StatusHandler do
   Results payloads are routed to ResultsRouter when available.
 
   When `source == "flow-attribution"` the status message carries a
-  `Netprobepb.FlowAttributionEventBatch` payload drained by the agent's
+  `Serviceradar.Agent.Netprobe.V1.FlowAttributionEventBatch` payload drained by the agent's
   netprobe sidecar. Each contained `FlowAttributionEvent` is written to CNPG
   with the gateway-derived partition and agent identity; the in-cluster
   correlation worker joins it against collected flow rows without publishing a
@@ -14,9 +14,9 @@ defmodule ServiceRadar.StatusHandler do
 
   use GenServer
 
-  alias Netprobepb.FlowAttributionEventBatch
   alias Serviceradar.Agent.Addon.V1.TelemetryBatch
   alias Serviceradar.Agent.Addon.V1.TelemetryRecord
+  alias Serviceradar.Agent.Netprobe.V1.FlowAttributionEventBatch
   alias ServiceRadar.Inventory.DiscoveryIngestor
   alias ServiceRadar.Inventory.SyncIngestorQueue
   alias ServiceRadar.NATS.Connection

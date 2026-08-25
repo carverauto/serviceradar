@@ -1,6 +1,7 @@
 defmodule ServiceRadar.FlowAttributionTest do
   use ServiceRadar.DataCase, async: false
 
+  alias Serviceradar.Agent.Netprobe.V1.FlowAttributionEvent
   alias ServiceRadar.FlowAttribution
   alias ServiceRadar.FlowAttribution.Persistence
   alias ServiceRadar.Repo
@@ -109,7 +110,7 @@ defmodule ServiceRadar.FlowAttributionTest do
       |> Kernel.*(60)
       |> DateTime.from_unix!()
 
-    event = %Netprobepb.FlowAttributionEvent{
+    event = %FlowAttributionEvent{
       transport_protocol: "tcp",
       local_ip: "10.42.221.147",
       local_port: 6379,
@@ -220,7 +221,7 @@ defmodule ServiceRadar.FlowAttributionTest do
       }
     })
 
-    event = %Netprobepb.FlowAttributionEvent{
+    event = %FlowAttributionEvent{
       transport_protocol: "udp",
       local_ip: "10.0.2.9",
       local_port: 7946,
@@ -274,7 +275,7 @@ defmodule ServiceRadar.FlowAttributionTest do
       }
     })
 
-    event = %Netprobepb.FlowAttributionEvent{
+    event = %FlowAttributionEvent{
       transport_protocol: "udp",
       local_ip: "10.0.2.13",
       local_port: 7946,
@@ -284,7 +285,7 @@ defmodule ServiceRadar.FlowAttributionTest do
       uid: 1000,
       comm: "speaker",
       container_id: container_id,
-      workload_identity: %Netprobepb.WorkloadIdentity{
+      workload_identity: %Serviceradar.Agent.Netprobe.V1.WorkloadIdentity{
         container_id: container_id,
         pod_namespace: "metallb-system",
         pod_name: "speaker-r7zlz",
