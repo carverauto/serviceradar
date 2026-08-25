@@ -46,6 +46,13 @@ const (
 // netprobe is still deployed. Callers fall back to the legacy IPC arm.
 var ErrAddonCommandUnavailable = errors.New("netprobe AddonService command socket unavailable")
 
+// ErrAddonCommandRefused reports that netprobe answered and DECLINED the command
+// -- an unknown action, an unimplemented schema, or a payload it could not parse.
+// Deliberately distinct from ErrAddonCommandUnavailable: conflating "the add-on
+// is not there" with "the add-on rejected us" would let a genuine contract break
+// hide as an un-upgraded netprobe for as long as the fallback keeps working.
+var ErrAddonCommandRefused = errors.New("netprobe refused the addon command")
+
 // AddonCommandClient calls netprobe's AddonService.RunCommand.
 //
 // This is the generic-contract replacement for the NetprobeFrame.BannerBatch IPC
@@ -145,7 +152,7 @@ func (c *AddonCommandClient) MatchBanners(
 	}
 
 	if !response.GetSuccess() {
-		return nil, fmt.Errorf("netprobe refused match_banners: %s", response.GetMessage())
+		return nil, fmt.Errorf("%w: %s: %s", ErrAddonCommandRefused, matchBannersAction, response.GetMessage())
 	}
 
 	return decodeBannerMatchResponse(response.GetPayloadJson())

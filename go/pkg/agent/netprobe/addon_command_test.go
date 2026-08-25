@@ -19,7 +19,6 @@ package netprobe
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"net"
 	"os"
 	"path/filepath"
@@ -58,7 +57,8 @@ func serveFakeAddon(t *testing.T, server *fakeAddonCommandServer) string {
 	t.Cleanup(func() { _ = os.RemoveAll(dir) })
 
 	path := filepath.Join(dir, "addon.sock")
-	listener, err := net.Listen("unix", path)
+	var listenConfig net.ListenConfig
+	listener, err := listenConfig.Listen(context.Background(), "unix", path)
 	require.NoError(t, err)
 
 	grpcServer := grpc.NewServer()
@@ -177,6 +177,7 @@ func TestMatchBannersSurfacesARefusal(t *testing.T) {
 
 	_, err := client.MatchBanners(context.Background(), &netprobepb.BannerBatch{})
 
+	require.ErrorIs(t, err, ErrAddonCommandRefused)
 	require.ErrorContains(t, err, "unsupported schema")
 	// NOT reported as unavailable: the socket answered. Conflating the two would
 	// let a genuine contract break hide as an un-upgraded netprobe forever.
@@ -202,9 +203,10 @@ func TestSidecarFallsBackToIPCWhenTheCommandContractIsAbsent(t *testing.T) {
 
 	_, err := sc.MatchBanners(ctx, &netprobepb.BannerBatch{})
 
-	require.Error(t, err)
-	require.True(t, errors.Is(err, context.Canceled),
-		"expected the legacy IPC wait to be reached, got %v", err)
+	// context.Canceled proves the legacy IPC wait was reached: the addon path
+	// returns ErrAddonCommandUnavailable, so seeing THAT here would mean the
+	// fallback never happened.
+	require.ErrorIs(t, err, context.Canceled)
 }
 
 func keysOf(m map[string]any) []string {
