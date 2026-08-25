@@ -29,6 +29,14 @@
      rows route to `bulk_update`, and hit a duplicate key. It runs inside `Ash.transact` with
      `rollback_on_error?: true` (`merge_engine.ex:226`), so the failure is **every device merge
      rolling back** -- presenting as a merge bug, not an interface bug.
+
+     **CORRECTION to this ordering: it must change in the SAME commit as the identity, not
+     before.** The probe decides move-vs-destroy: non-colliding rows are moved to the survivor
+     (`bulk_update_interfaces/3`), colliding ones are destroyed (`bulk_delete_interfaces/2`).
+     Re-keying the probe on `interface_uid` alone while the identity still contains `timestamp`
+     would classify rows as colliding that today do not collide, and destroy rows that today are
+     legitimately moved. The probe key must equal the identity at all times, so the two move
+     together.
   4. `timestamp` must keep meaning "last observed" and be bumped on every poll. Three readers
      depend on it: `mapper_results_ingestor.ex:2193` (`ago(6, "hour")` liveness -- stable tunnels
      would age out and derived topology edges silently stop) and `interface_data.ex:661/:720`
@@ -36,7 +44,18 @@
 
   **The only user-visible count** is `web-ng .../snmp_profiles_live/index/targeting.ex:144/158`
   ("N targets"). Its `distinct(:device_id)` hides the 98x today; keep it, or a device count becomes
-  an interface count. Pin the current output in a test before touching the write path.
+  an interface count.
+
+  Its comment has been corrected already, because the comment WAS the hazard: it said the distinct
+  exists "to avoid counting historical snapshots", which this change makes false. A reader would
+  then correctly conclude the line is obsolete and delete it, silently turning a device count into
+  an interface count -- a factor of hundreds on a switch. The durable reason is now stated: "N
+  targets" is a DEVICE count and the distinct is what makes it one.
+
+- [ ] 1.2c Pin that count's device-semantics in a web-ng test (a device with several matching
+  interfaces counts once). Not done here: it needs web-ng DB fixtures, and web-ng's formatter
+  cannot run without its own deps -- borrowing another project's `deps` swaps the Styler version
+  and silently reformats. Do it alongside the rekey.
 
   **Only three sites are history-dependent** -- `reassignments.ex:219`, `:295`, and the JSON:API id
   at `interface.ex:69` (which embeds the timestamp, an external contract). **None is a trend or
