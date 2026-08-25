@@ -4,7 +4,10 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph.Utils do
   alias ServiceRadar.NetworkDiscovery.TopologyGraph.Utils.Cypher
   alias ServiceRadar.NetworkDiscovery.TopologyGraph.Utils.RiskSummary
 
+  require Logger
+
   @default_stale_minutes 180
+  @default_multiplier 3
   @physical_direct_protocols ["lldp", "cdp", "unifi-api"]
   @logical_direct_protocols ["wireguard-derived", "bgp", "ospf", "ipsec"]
   @hosted_protocols ["proxmox", "proxmox-api", "vmware", "esxi", "hyperv", "kvm"]
@@ -42,19 +45,119 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph.Utils do
 
   def base_metric_name(_), do: nil
 
-  def stale_cutoff_iso8601 do
-    stale_minutes =
-      :serviceradar_core
-      |> Application.get_env(
-        :mapper_topology_edge_stale_minutes,
-        @default_stale_minutes
-      )
-      |> normalize_positive_int(@default_stale_minutes)
+  @doc """
+  The instant before which a projected topology edge is no longer asserted as
+  current.
 
+  Derived from how often discovery actually runs, not from a fixed wall-clock
+  window. A topology edge is a claim about how the network is wired *now*; the
+  only thing that keeps it true is re-observation. So the question "is this
+  stale?" is really "has this survived several chances to be re-observed?", and
+  that depends on the discovery interval.
+
+  A fixed cutoff gets this wrong in both directions. At 180 minutes against an
+  hourly job it is three chances -- fine. Against a 6-hour job it is half of one
+  interval, so every healthy edge is deleted between runs and re-created on the
+  next, flapping the map forever. Against a 5-minute job it lets a dead link
+  stand for 36 intervals.
+
+  So: `multiplier * slowest enabled discovery interval`, floored at
+  #{@default_stale_minutes} minutes so a very fast job cannot prune edges faster
+  than downstream consumers can read them. The SLOWEST interval is used rather
+  than a per-edge one because an edge records no job -- pruning on anything
+  faster would delete links the slowest job has not yet had a chance to refresh.
+
+  `:mapper_topology_edge_stale_minutes` still overrides everything when set, for
+  an operator who wants a fixed window.
+  """
+  def stale_cutoff_iso8601 do
     DateTime.utc_now()
-    |> DateTime.add(-stale_minutes * 60, :second)
+    |> DateTime.add(-stale_minutes() * 60, :second)
     |> DateTime.truncate(:second)
     |> DateTime.to_iso8601()
+  end
+
+  @doc false
+  @spec stale_minutes() :: pos_integer()
+  def stale_minutes do
+    case Application.get_env(:serviceradar_core, :mapper_topology_edge_stale_minutes) do
+      explicit when is_integer(explicit) and explicit > 0 ->
+        explicit
+
+      _ ->
+        derive_stale_minutes(discovery_interval_strings(), stale_interval_multiplier())
+    end
+  end
+
+  @doc false
+  @spec stale_interval_multiplier() :: pos_integer()
+  def stale_interval_multiplier do
+    :serviceradar_core
+    |> Application.get_env(:mapper_topology_edge_stale_interval_multiplier, @default_multiplier)
+    |> normalize_positive_int(@default_multiplier)
+  end
+
+  @doc """
+  Pure half of `stale_minutes/0`: the window implied by a set of discovery
+  intervals.
+
+  Split out so the rule is testable without a database, and so the failure mode
+  is explicit -- with no intervals to reason about (no jobs, or none parseable)
+  it returns the floor rather than something derived from nothing.
+  """
+  @spec derive_stale_minutes([String.t()], pos_integer()) :: pos_integer()
+  def derive_stale_minutes(interval_strings, multiplier) when is_list(interval_strings) do
+    interval_strings
+    |> Enum.map(&parse_interval_minutes/1)
+    |> Enum.reject(&is_nil/1)
+    |> case do
+      [] -> @default_stale_minutes
+      minutes -> max(@default_stale_minutes, Enum.max(minutes) * multiplier)
+    end
+  end
+
+  @doc """
+  Parse a discovery interval (`"15m"`, `"2h"`, `"90s"`, `"1d"`) into whole
+  minutes, rounding up so a sub-minute interval never becomes zero.
+  """
+  @spec parse_interval_minutes(term()) :: pos_integer() | nil
+  def parse_interval_minutes(value) when is_binary(value) do
+    case Regex.run(~r/^\s*(\d+)\s*([smhd])?\s*$/i, value) do
+      [_, digits] -> to_minutes(String.to_integer(digits), "m")
+      [_, digits, unit] -> to_minutes(String.to_integer(digits), String.downcase(unit))
+      _ -> nil
+    end
+  end
+
+  def parse_interval_minutes(_value), do: nil
+
+  defp to_minutes(0, _unit), do: nil
+  defp to_minutes(n, "s"), do: max(1, div(n + 59, 60))
+  defp to_minutes(n, "m"), do: n
+  defp to_minutes(n, "h"), do: n * 60
+  defp to_minutes(n, "d"), do: n * 60 * 24
+  defp to_minutes(_n, _unit), do: nil
+
+  # Enabled jobs only: a disabled job will never refresh anything, so holding
+  # the cutoff open for its interval would keep dead edges alive indefinitely --
+  # which is the exact failure this change exists to fix.
+  defp discovery_interval_strings do
+    import Ecto.Query, only: [from: 2]
+
+    ServiceRadar.Repo.all(
+      from(j in "mapper_jobs",
+        prefix: "platform",
+        where: j.enabled == true,
+        select: j.interval
+      )
+    )
+  rescue
+    error ->
+      Logger.warning(
+        "Topology stale window: could not read discovery intervals: #{inspect(error)}"
+      )
+
+      []
   end
 
   def normalize_positive_int(value, _default) when is_integer(value) and value > 0, do: value
