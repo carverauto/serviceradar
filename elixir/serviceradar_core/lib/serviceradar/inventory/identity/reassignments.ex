@@ -194,10 +194,9 @@ defmodule ServiceRadar.Inventory.Identity.Reassignments do
 
       {:ok, records} ->
         interface_uids = records |> Enum.map(& &1.interface_uid) |> Enum.uniq()
-        timestamps = records |> Enum.map(& &1.timestamp) |> Enum.uniq()
 
         with {:ok, existing_keys} <-
-               fetch_existing_interface_keys(to_id, interface_uids, timestamps, actor) do
+               fetch_existing_interface_keys(to_id, interface_uids, actor) do
           {to_update, to_delete} =
             Enum.split_with(records, fn record ->
               not existing_interface_key?(existing_keys, record)
@@ -213,21 +212,18 @@ defmodule ServiceRadar.Inventory.Identity.Reassignments do
     end
   end
 
-  defp fetch_existing_interface_keys(_to_id, [], _timestamps, _actor), do: {:ok, []}
-  defp fetch_existing_interface_keys(_to_id, _uids, [], _actor), do: {:ok, []}
+  defp fetch_existing_interface_keys(_to_id, [], _actor), do: {:ok, []}
 
-  defp fetch_existing_interface_keys(to_id, interface_uids, timestamps, actor) do
+  defp fetch_existing_interface_keys(to_id, interface_uids, actor) do
     existing_query =
       Interface
-      |> Ash.Query.filter(
-        device_id == ^to_id and interface_uid in ^interface_uids and timestamp in ^timestamps
-      )
+      |> Ash.Query.filter(device_id == ^to_id and interface_uid in ^interface_uids)
       |> Ash.Query.for_read(:read, %{}, actor: actor)
 
     case Ash.read(existing_query, actor: actor) do
       {:ok, existing} ->
         existing
-        |> Enum.map(&{&1.timestamp, &1.interface_uid})
+        |> Enum.map(& &1.interface_uid)
         |> then(&{:ok, &1})
 
       {:error, _} = error ->
@@ -292,6 +288,6 @@ defmodule ServiceRadar.Inventory.Identity.Reassignments do
   end
 
   defp existing_interface_key?(existing_keys, record) when is_list(existing_keys) do
-    Enum.member?(existing_keys, {record.timestamp, record.interface_uid})
+    Enum.member?(existing_keys, record.interface_uid)
   end
 end

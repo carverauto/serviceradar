@@ -17,9 +17,10 @@ defmodule ServiceRadar.Inventory.Identity.Address do
     link_local  fe80::/10, 169.254/16 -- valid only on one link
     loopback / unspecified -- never a primary address
 
-  Link-local and ULA addresses stay valuable as EVIDENCE: NDP census sightings
-  arrive that way, and they remain recorded as aliases. Only the choice of
-  primary address is affected.
+  ULA addresses stay valuable as alias evidence. Link-local does not: it is
+  unique per link, not globally, so it must never become a device alias
+  (GitHub #4022). It remains valid on interface records. Only the choice of
+  primary address is affected here.
 
   Parsing goes through `:inet.parse_address/1` rather than string prefixes. A
   prefix test gets `fe80::/10` wrong (the range runs `fe80`..`febf`, so "fe9"

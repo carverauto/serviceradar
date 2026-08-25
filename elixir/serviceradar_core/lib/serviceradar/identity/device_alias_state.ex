@@ -111,6 +111,8 @@ defmodule ServiceRadar.Identity.DeviceAliasState do
       description "Create a new alias detection"
       accept @alias_fields
 
+      validate {ServiceRadar.Identity.Validations.AliasValue, []}
+
       change fn changeset, _context ->
         now = DateTime.utc_now()
 

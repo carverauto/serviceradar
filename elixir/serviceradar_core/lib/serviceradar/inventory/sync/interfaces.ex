@@ -162,9 +162,7 @@ defmodule ServiceRadar.Inventory.Sync.Interfaces do
   # that the builder does not set writes NULL over whatever the mapper wrote --
   # this writer never populates if_index, if_speed, speed_bps, if_admin_status,
   # if_oper_status, if_type, mtu, duplex or available_metrics, and copying the
-  # mapper's list here would silently blank all nine on every sync run. That is
-  # invisible until :timestamp leaves :unique_interface and conflicts start
-  # happening at all.
+  # mapper's list here would silently blank all nine on every sync run.
   @spec upsert_fields() :: [atom()]
   def upsert_fields do
     [

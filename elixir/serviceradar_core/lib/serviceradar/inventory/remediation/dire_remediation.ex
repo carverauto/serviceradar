@@ -57,6 +57,7 @@ defmodule ServiceRadar.Inventory.Remediation.DireRemediation do
   alias ServiceRadar.Inventory.Remediation.ArmisDups
   alias ServiceRadar.Inventory.Remediation.ArmisUnmerge
   alias ServiceRadar.Inventory.Remediation.BlobPurge
+  alias ServiceRadar.Inventory.Remediation.LinkLocalAliasArchive
   alias ServiceRadar.Inventory.Remediation.Manifest
   alias ServiceRadar.Inventory.Remediation.NetprobeAliasDebris
   alias ServiceRadar.Inventory.Remediation.ProxmoxDups
@@ -85,6 +86,7 @@ defmodule ServiceRadar.Inventory.Remediation.DireRemediation do
     "agent-links",
     "proxmox-dups",
     "netprobe-alias-debris",
+    "link-local-alias-archive",
     @armis_unmerge_step,
     @armis_dups_step
   ]
@@ -311,6 +313,9 @@ defmodule ServiceRadar.Inventory.Remediation.DireRemediation do
 
   defp run_step("netprobe-alias-debris", mode, opts, manifest, actor),
     do: NetprobeAliasDebris.run(mode, opts, manifest, actor)
+
+  defp run_step("link-local-alias-archive", mode, opts, manifest, actor),
+    do: LinkLocalAliasArchive.run(mode, opts, manifest, actor)
 
   defp run_step("armis-unmerge", mode, opts, manifest, actor),
     do: ArmisUnmerge.run(mode, opts, manifest, actor)

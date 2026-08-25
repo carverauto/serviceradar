@@ -43,6 +43,7 @@ defmodule ServiceRadar.Inventory.Remediation.DireRemediationStepsTest do
     # The safe steps remain present.
     assert "blob-purge" in DireRemediation.steps()
     assert "proxmox-dups" in DireRemediation.steps()
+    assert "link-local-alias-archive" in DireRemediation.steps()
   end
 
   test "armis-dups is included only when config opts it back in" do
