@@ -806,14 +806,71 @@ defmodule ServiceRadar.Inventory.Sync.DeviceWrites do
           mac: fragment("COALESCE(EXCLUDED.mac, ?)", d.mac),
           hostname: fragment("COALESCE(EXCLUDED.hostname, ?)", d.hostname),
           name: fragment("COALESCE(EXCLUDED.name, ?)", d.name),
+          # A type an operator set by hand outranks one an integration inferred.
+          #
+          # Without this, `type` was the one identity field with no precedence
+          # at all: any non-empty incoming string won unconditionally, unlike
+          # `ip` directly above. So an Armis sync relabelled 280 of 412
+          # hand-imported RIDS displays as "Interactive Kiosks", "Thin Client",
+          # "IP Cameras" -- Armis' own inventory categories, passed through
+          # verbatim by `Enrichment.explicit_type_tuple/1`'s `{explicit, 99}`
+          # catch-all. Every SRQL query and rollup selecting `type:rids` then
+          # silently matched a third of the fleet and reported it as the whole.
+          #
+          # The claim is keyed on `discovery_sources` containing 'manual',
+          # which is durable: every writer merges that array rather than
+          # replacing it, so the manual origin survives any number of later
+          # syncs. In `ON CONFLICT DO UPDATE`, `d.` is the PRE-update row
+          # regardless of SET-clause order, so this reads the same array the
+          # `discovery_sources` clause below is about to extend.
+          #
+          # 'Unknown' is not a human answer, it is the absence of one. Both
+          # `Enrichment` (via `Normalize.first_meaningful_string/2`) and SRQL
+          # (`COALESCE(NULLIF(trim(type), ''), 'Unknown')`) already treat it as
+          # the no-type sentinel, and the 20260521 backfill migration selected
+          # rows on exactly that expression. A device carrying it is protecting
+          # nothing, so an integration's guess is still strictly better.
+          #
+          # This is narrower than the `ip` rank guard on purpose. It is not a
+          # general "first writer wins": an integration still freely overwrites
+          # a type another integration inferred, and still fills a blank one.
+          # The only thing it refuses is demoting a human's answer to a guess.
+          #
+          # `type` and `type_id` MUST move together -- holding one and not the
+          # other yields type='rids' with type_id=99, a row that agrees with
+          # neither source. Both carry the identical condition for that reason.
           type:
             fragment(
-              "COALESCE(NULLIF(EXCLUDED.type, ''), ?)",
+              """
+              CASE
+                WHEN 'manual' = ANY(COALESCE(?, ARRAY[]::text[]))
+                     AND NOT ('manual' = ANY(COALESCE(EXCLUDED.discovery_sources, ARRAY[]::text[])))
+                     AND lower(COALESCE(NULLIF(btrim(?), ''), 'unknown')) <> 'unknown'
+                  THEN ?
+                ELSE COALESCE(NULLIF(EXCLUDED.type, ''), ?)
+              END
+              """,
+              d.discovery_sources,
+              d.type,
+              d.type,
               d.type
             ),
           type_id:
             fragment(
-              "CASE WHEN EXCLUDED.type_id IS NOT NULL AND EXCLUDED.type_id > 0 THEN EXCLUDED.type_id ELSE ? END",
+              """
+              CASE
+                WHEN 'manual' = ANY(COALESCE(?, ARRAY[]::text[]))
+                     AND NOT ('manual' = ANY(COALESCE(EXCLUDED.discovery_sources, ARRAY[]::text[])))
+                     AND lower(COALESCE(NULLIF(btrim(?), ''), 'unknown')) <> 'unknown'
+                  THEN ?
+                WHEN EXCLUDED.type_id IS NOT NULL AND EXCLUDED.type_id > 0
+                  THEN EXCLUDED.type_id
+                ELSE ?
+              END
+              """,
+              d.discovery_sources,
+              d.type,
+              d.type_id,
               d.type_id
             ),
           vendor_name: fragment("COALESCE(EXCLUDED.vendor_name, ?)", d.vendor_name),
