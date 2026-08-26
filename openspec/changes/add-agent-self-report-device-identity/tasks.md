@@ -14,12 +14,19 @@
 
 ## 2. Classify the source
 
-- [ ] 2.1 Add `agent-self-report` to `SourcePolicy` as a first-party source: NOT in
-  `observer_agent_source?/1`, so `include_agent_identifier?/2` admits its `agent_id`.
-- [ ] 2.2 Confirm by test that no EXISTING source changes classification. `observer_agent_source?/1`
-  has `enrichment_only_source?/1` as a disjunct, so edits there reach further than they read.
-- [ ] 2.3 Assert the source may create — it must not be swept into the enrichment-only set, which
-  is the rule that forbids creation.
+- [x] 2.1 **DONE.** `SourcePolicy.agent_self_report_source/0` and `agent_self_report_source?/1`
+  name the source explicitly. Note what the code turned out to be: `observer_agent_source?/1` is a
+  POSITIVE list, so a new source is first-party by DEFAULT and no edit was needed to admit it. The
+  value added is that the intent is now visible and the properties it depends on are pinned by
+  tests -- nothing would have failed loudly if someone later swept it into
+  `enrichment_only_source?/1`, which is a disjunct of `observer_agent_source?/1` and would silently
+  strip both anchoring AND creation.
+- [x] 2.2 **DONE.** `source_policy_self_report_test.exs` asserts every previously-observer source
+  is still an observer and still refused an `agent_id`, and that every enrichment-only source and
+  `identity_source` is unchanged.
+- [x] 2.3 **DONE.** Asserted directly, plus the sharper case: a self-report carrying an
+  `identity_source` in its metadata still is not demoted, since `enrichment_only_source?/1` keys on
+  that field as well as on `source`.
 
 ## 3. Produce the self-report
 
@@ -61,8 +68,8 @@
 
 ## 7. Close the documentation gap
 
-- [ ] 7.1 `inventory/discovery/decoders/process.ex` justifies `:enrichment_only` on the grounds
-  that "sysmon and the agent's own self-report create" the agent host's device. That is currently
-  false on farm01. Once this change ships it becomes true; until then, correct the comment rather
-  than leaving a claim the data contradicts.
+- [x] 7.1 **DONE.** Comment corrected, with the measurement that contradicts it recorded inline:
+  only 15 devices out of 50,212 on the demo cluster carry an `agent_id` identifier at all, and the
+  agent host's device is minted by OBSERVER sources. The note points at this change and says to
+  delete itself once the claim becomes true.
 - [ ] 7.2 `openspec validate add-agent-self-report-device-identity --strict`

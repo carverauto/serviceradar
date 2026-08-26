@@ -169,6 +169,7 @@ pub struct DeviceRow {
     pub deleted_at: Option<DateTime<Utc>>,
     pub deleted_by: Option<String>,
     pub deleted_reason: Option<String>,
+    pub partition: String,
 }
 
 impl DeviceRow {
@@ -235,6 +236,7 @@ impl DeviceRow {
             "deleted_at": self.deleted_at,
             "deleted_by": self.deleted_by,
             "deleted_reason": self.deleted_reason,
+            "partition": self.partition,
         })
     }
 }

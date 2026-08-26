@@ -331,11 +331,17 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
   defp process_batch(results, execution_id, sweep_group_id, agent_id, actor) do
     # Step 1: Extract all IPs for bulk device lookup
     ips = results |> Enum.map(&extract_ip/1) |> Enum.reject(&is_nil/1) |> Enum.uniq()
+    partition = sweep_group_partition(sweep_group_id, actor)
 
-    # Step 2: Batch lookup existing devices by IP (confirmed aliases only)
-    # DB connection's search_path determines the schema
+    # Step 2: Batch lookup existing devices by IP in this sweep group's partition.
+    # Isolation and monitoring copies of the same address must not share status.
     device_map =
-      DeviceLookup.batch_lookup_by_ip(ips, actor: actor, include_deleted: true, use_cache: false)
+      DeviceLookup.batch_lookup_by_ip(ips,
+        actor: actor,
+        include_deleted: true,
+        use_cache: false,
+        partition: partition
+      )
 
     # Step 3: Find IPs without existing devices
     known_ips = Map.keys(device_map)
@@ -343,7 +349,11 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
 
     # Step 4: Check detected aliases for unknown IPs (fallback before skipping)
     detected_alias_map =
-      DeviceLookup.lookup_detected_aliases_by_ip(unknown_ips, actor: actor, include_deleted: true)
+      DeviceLookup.lookup_detected_aliases_by_ip(unknown_ips,
+        actor: actor,
+        include_deleted: true,
+        partition: partition
+      )
 
     detected_ips = Map.keys(detected_alias_map)
 
@@ -359,7 +369,8 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
         results,
         unknown_ips -- detected_ips,
         sweep_group_id,
-        actor
+        actor,
+        partition
       )
 
     # Step 5: Merge all device sources
@@ -435,8 +446,15 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
       |> Enum.reject(&is_nil/1)
       |> Enum.uniq()
 
+    partition = sweep_group_partition(sweep_group_id, actor)
+
     device_map =
-      DeviceLookup.batch_lookup_by_ip(ips, actor: actor, include_deleted: true, use_cache: false)
+      DeviceLookup.batch_lookup_by_ip(ips,
+        actor: actor,
+        include_deleted: true,
+        use_cache: false,
+        partition: partition
+      )
 
     results
     |> MapperPromotion.promote(
@@ -448,9 +466,10 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
     |> prefix_promotion_stats()
   end
 
-  defp create_available_unknown_devices(_results, [], _sweep_group_id, _actor), do: %{}
+  defp create_available_unknown_devices(_results, [], _sweep_group_id, _actor, _partition),
+    do: %{}
 
-  defp create_available_unknown_devices(results, unknown_ips, sweep_group_id, actor) do
+  defp create_available_unknown_devices(results, unknown_ips, _sweep_group_id, actor, partition) do
     available_unknown_hosts =
       results
       |> Enum.filter(fn result ->
@@ -462,14 +481,14 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
     if map_size(available_unknown_hosts) == 0 do
       %{}
     else
-      partition = sweep_group_partition(sweep_group_id, actor)
       available_unknown_ips = Map.keys(available_unknown_hosts)
 
       active_existing_map =
         DeviceLookup.batch_lookup_by_ip(available_unknown_ips,
           actor: actor,
           include_deleted: false,
-          use_cache: false
+          use_cache: false,
+          partition: partition
         )
 
       hosts_to_create = Map.drop(available_unknown_hosts, Map.keys(active_existing_map))
@@ -481,7 +500,8 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
       DeviceLookup.batch_lookup_by_ip(available_unknown_ips,
         actor: actor,
         include_deleted: true,
-        use_cache: false
+        use_cache: false,
+        partition: partition
       )
     end
   end
@@ -505,6 +525,7 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
     attrs = %{
       uid: uid,
       ip: ip,
+      partition: partition,
       hostname: hostname,
       discovery_sources: ["sweep"],
       is_available: true,

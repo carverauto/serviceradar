@@ -53,6 +53,7 @@ defmodule ServiceRadar.Inventory.Device do
     :name,
     :hostname,
     :ip,
+    :partition,
     :mac,
     :uid_alt,
     :vendor_name,
@@ -205,12 +206,20 @@ defmodule ServiceRadar.Inventory.Device do
     read :by_ip do
       argument :ip, :string, allow_nil?: false
 
+      argument :partition, :string do
+        allow_nil? true
+      end
+
       argument :include_deleted, :boolean do
         allow_nil? true
         default false
       end
 
-      filter expr(ip == ^arg(:ip) and (is_nil(deleted_at) or ^arg(:include_deleted)))
+      filter expr(
+               ip == ^arg(:ip) and (is_nil(deleted_at) or ^arg(:include_deleted)) and
+                 (is_nil(^arg(:partition)) or ^arg(:partition) == "" or
+                    partition == ^arg(:partition))
+             )
     end
 
     read :by_mac do
@@ -518,6 +527,13 @@ defmodule ServiceRadar.Inventory.Device do
     attribute :ip, :string do
       public? true
       description "Primary IP address"
+    end
+
+    attribute :partition, :string do
+      allow_nil? false
+      default "default"
+      public? true
+      description "Network partition. The same IP may exist in more than one partition."
     end
 
     attribute :mac, :string do

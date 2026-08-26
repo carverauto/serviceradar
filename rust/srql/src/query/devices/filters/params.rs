@@ -19,6 +19,7 @@ pub(in crate::query::devices) fn collect_filter_params(
     match filter.field.as_str() {
         "uid" => collect_text_params(params, filter, true),
         "hostname" => collect_text_params(params, filter, false),
+        "partition" => collect_text_params(params, filter, true),
         "mac" => collect_mac_params(params, filter),
         "ip" => collect_ip_params(params, filter),
         "gateway_id"

@@ -204,6 +204,7 @@ diesel::table! {
         deleted_at -> Nullable<Timestamptz>,
         deleted_by -> Nullable<Text>,
         deleted_reason -> Nullable<Text>,
+        partition -> Text,
     }
 }
 

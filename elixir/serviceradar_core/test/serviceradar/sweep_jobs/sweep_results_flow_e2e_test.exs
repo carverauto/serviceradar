@@ -1352,6 +1352,84 @@ defmodule ServiceRadar.SweepJobs.SweepResultsFlowE2ETest do
     refute_receive {:mapper_multibatch_dispatch, _, _, _}
   end
 
+  test "ingest results updates only the sweep group's partition copy of an IP", %{
+    actor: actor,
+    agent_id: agent_id
+  } do
+    unique_id = Ash.UUID.generate()
+    ip = unique_ip("isolation-#{unique_id}")
+    isolation_partition = "rids-#{unique_id}"
+
+    {:ok, monitoring} =
+      Device
+      |> Ash.Changeset.for_create(
+        :create,
+        %{
+          uid: "device-monitoring-#{unique_id}",
+          ip: ip,
+          partition: "default",
+          hostname: "monitoring-#{unique_id}",
+          discovery_sources: ["sweep"],
+          is_available: true
+        },
+        actor: actor
+      )
+      |> Ash.create()
+
+    {:ok, isolation} =
+      Device
+      |> Ash.Changeset.for_create(
+        :create,
+        %{
+          uid: "device-isolation-#{unique_id}",
+          ip: ip,
+          partition: isolation_partition,
+          hostname: "isolation-#{unique_id}",
+          discovery_sources: ["manual"],
+          is_available: true
+        },
+        actor: actor
+      )
+      |> Ash.create()
+
+    {:ok, group} =
+      SweepGroup
+      |> Ash.Changeset.for_create(
+        :create,
+        %{
+          name: "Isolation Sweep #{unique_id}",
+          partition: isolation_partition,
+          agent_id: agent_id,
+          interval: "15m",
+          static_targets: [ip]
+        },
+        actor: actor
+      )
+      |> Ash.create()
+
+    assert {:ok, _stats} =
+             SweepResultsIngestor.ingest_results(
+               [
+                 %{
+                   "host_ip" => ip,
+                   "available" => false,
+                   "icmp_status" => %{"available" => false}
+                 }
+               ],
+               Ash.UUID.generate(),
+               actor: actor,
+               sweep_group_id: group.id,
+               agent_id: agent_id,
+               config_version: "hash-isolation-#{unique_id}"
+             )
+
+    {:ok, monitoring_after} = Device.get_by_uid(monitoring.uid, false, actor: actor)
+    {:ok, isolation_after} = Device.get_by_uid(isolation.uid, false, actor: actor)
+
+    assert monitoring_after.is_available
+    refute isolation_after.is_available
+  end
+
   test "ingest results suppresses duplicate mapper promotion during cooldown", %{
     actor: actor,
     agent_id: agent_id

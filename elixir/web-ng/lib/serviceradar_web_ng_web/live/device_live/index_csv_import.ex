@@ -14,7 +14,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexCsvImport do
   @max_hostname_only_rows 100
   @dns_max_concurrency 10
   @dns_timeout 2_000
-  @reserved_csv_columns ~w(hostname ip type tags)
+  @reserved_csv_columns ~w(hostname ip type tags partition)
 
   @doc false
   # Phoenix.LiveView.uploaded_entries/2 returns `{completed, in_progress}`.
@@ -195,30 +195,56 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexCsvImport do
     if hostname == "" and ip == "" do
       {:skip, line, "needs a hostname or an ip"}
     else
-      tags = parse_tags(get_csv_value(values, header_map, "tags"))
+      case parse_row_partition(trimmed_csv_value(values, header_map, "partition")) do
+        {:error, slug} ->
+          {:skip, line, "invalid partition '#{slug}'"}
 
-      # `key=value` pieces in the tags column are the documented CSV channel
-      # for operator fields (site, gate, model, …). They must also land in
-      # `metadata` — All Metadata on device details reads that map, not tags.
-      # Extra CSV columns overlay the same keys when both are present.
-      metadata =
-        tags
-        |> tag_pairs_as_metadata()
-        |> Map.merge(extra_column_metadata(values, header_map))
+        {:ok, partition} ->
+          tags = parse_tags(get_csv_value(values, header_map, "tags"))
 
-      {:ok,
-       %{
-         hostname: hostname,
-         ip: ip,
-         type: get_csv_value(values, header_map, "type") || "",
-         tags: tags,
-         metadata: metadata,
-         # Kept so a creation failure can name the line the operator wrote,
-         # not a running tally. ManualDeviceCreator builds its own attribute
-         # map and ignores this.
-         source_line: line
-       }}
+          # `key=value` pieces in the tags column are the documented CSV channel
+          # for operator fields (site, gate, model, …). They must also land in
+          # `metadata` — All Metadata on device details reads that map, not tags.
+          # Extra CSV columns overlay the same keys when both are present.
+          metadata =
+            tags
+            |> tag_pairs_as_metadata()
+            |> Map.merge(extra_column_metadata(values, header_map))
+
+          {:ok,
+           %{
+             hostname: hostname,
+             ip: ip,
+             partition: partition,
+             type: get_csv_value(values, header_map, "type") || "",
+             tags: tags,
+             metadata: metadata,
+             # Kept so a creation failure can name the line the operator wrote,
+             # not a running tally. ManualDeviceCreator builds its own attribute
+             # map and ignores this.
+             source_line: line
+           }}
+      end
     end
+  end
+
+  defp parse_row_partition(value) do
+    ManualDeviceCreator.parse_partition(value)
+  end
+
+  @doc false
+  def apply_import_partition(devices, default_partition) when is_list(devices) do
+    default = ManualDeviceCreator.coerce_partition(default_partition)
+
+    Enum.map(devices, fn device ->
+      case Map.get(device, :partition) || Map.get(device, "partition") do
+        value when is_binary(value) and value != "" ->
+          Map.put(device, :partition, value)
+
+        _ ->
+          Map.put(device, :partition, default)
+      end
+    end)
   end
 
   # Headers are matched case-insensitively and trimmed, so `HostName`, ` IP `,
@@ -313,6 +339,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexCsvImport do
   @doc false
   def import_devices(scope, devices, create_device, resolve_hostname, opts \\ [])
       when is_list(devices) and is_function(create_device, 2) and is_function(resolve_hostname, 1) and is_list(opts) do
+    devices = apply_import_partition(devices, Keyword.get(opts, :default_partition, "default"))
+
     case prepare_hostname_rows(devices, resolve_hostname, opts) do
       {:ok, prepared_rows} ->
         do_import_devices(prepared_rows, scope, create_device)
@@ -452,6 +480,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexCsvImport do
     ManualDeviceCreator.create(scope, %{
       hostname: params["hostname"],
       ip: params["ip"],
+      partition: params["partition"],
       type: params["type"],
       tags: parse_form_tags(params["tags"])
     })
