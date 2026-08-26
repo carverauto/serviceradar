@@ -83,6 +83,7 @@ defmodule ServiceRadar.CompositeChecks.Evaluation do
     |> Scope.stream_uids(opts)
     |> Enum.reduce({0, []}, fn uids, {count, acc} ->
       {:ok, rows} = evaluate_devices(check, inputs, rules, uids, opts)
+      persist_canonical_availability(check, rows, actor)
       {count + length(rows), acc ++ persist_page(check, rows, started_at, actor)}
     end)
   end
@@ -198,6 +199,54 @@ defmodule ServiceRadar.CompositeChecks.Evaluation do
       %{}
     end
   end
+
+  defp persist_canonical_availability(%{write_canonical_availability: true}, rows, actor) do
+    Enum.each(rows, fn row ->
+      case canonical_available(row.status) do
+        nil ->
+          :ok
+
+        available? ->
+          write_device_availability(row.device_uid, available?, actor)
+      end
+    end)
+  end
+
+  defp persist_canonical_availability(_check, _rows, _actor), do: :ok
+
+  defp canonical_available(:healthy), do: true
+  defp canonical_available(:down), do: false
+  defp canonical_available(_status), do: nil
+
+  defp write_device_availability(device_uid, available?, actor) do
+    case Device.get_by_uid(device_uid, false, actor: actor) do
+      {:ok, device} ->
+        device = unwrap_device(device)
+
+        case device
+             |> Ash.Changeset.for_update(:set_availability, %{is_available: available?},
+               actor: actor
+             )
+             |> Ash.update() do
+          {:ok, _device} ->
+            :ok
+
+          {:error, reason} ->
+            Logger.warning(
+              "composite check failed to write canonical availability",
+              device_uid: device_uid,
+              reason: inspect(reason)
+            )
+        end
+
+      _missing ->
+        :ok
+    end
+  end
+
+  defp unwrap_device(%{results: [device | _]}), do: device
+  defp unwrap_device([device | _]), do: device
+  defp unwrap_device(device), do: device
 
   defp persist_page(check, rows, started_at, actor) do
     existing = load_existing(check, rows)

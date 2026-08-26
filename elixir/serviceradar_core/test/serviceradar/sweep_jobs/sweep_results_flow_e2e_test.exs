@@ -1,6 +1,8 @@
 defmodule ServiceRadar.SweepJobs.SweepResultsFlowE2ETest do
   use ServiceRadar.DataCase, async: false
 
+  import ExUnit.CaptureLog
+
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Identity.DeviceAliasState
   alias ServiceRadar.Identity.IdentityCache
@@ -567,6 +569,7 @@ defmodule ServiceRadar.SweepJobs.SweepResultsFlowE2ETest do
           hostname: "available-wins-#{unique_id}",
           discovery_sources: ["sweep"],
           is_available: false,
+          availability_source_agent_id: primary_agent_id,
           metadata: %{}
         },
         actor: actor
@@ -642,6 +645,7 @@ defmodule ServiceRadar.SweepJobs.SweepResultsFlowE2ETest do
           hostname: "per-agent-availability-#{unique_id}",
           discovery_sources: ["sweep"],
           is_available: false,
+          availability_source_agent_id: reachable_agent_id,
           metadata: %{}
         },
         actor: actor
@@ -733,7 +737,8 @@ defmodule ServiceRadar.SweepJobs.SweepResultsFlowE2ETest do
         :create,
         %{
           name: "Sweep Create #{unique_id}",
-          partition: partition
+          partition: partition,
+          agent_id: agent_id
         },
         actor: actor,
         actor: actor
@@ -831,7 +836,11 @@ defmodule ServiceRadar.SweepJobs.SweepResultsFlowE2ETest do
       SweepGroup
       |> Ash.Changeset.for_create(
         :create,
-        %{name: "Sweep Duplicate Active IP #{unique_id}", partition: partition},
+        %{
+          name: "Sweep Duplicate Active IP #{unique_id}",
+          partition: partition,
+          agent_id: agent_id
+        },
         actor: actor
       )
       |> Ash.create()
@@ -898,7 +907,7 @@ defmodule ServiceRadar.SweepJobs.SweepResultsFlowE2ETest do
       SweepGroup
       |> Ash.Changeset.for_create(
         :create,
-        %{name: "Sweep Restore Deleted #{unique_id}", partition: partition},
+        %{name: "Sweep Restore Deleted #{unique_id}", partition: partition, agent_id: agent_id},
         actor: actor
       )
       |> Ash.create()
@@ -973,7 +982,7 @@ defmodule ServiceRadar.SweepJobs.SweepResultsFlowE2ETest do
       SweepGroup
       |> Ash.Changeset.for_create(
         :create,
-        %{name: "Sweep Changed IP #{unique_id}", partition: partition},
+        %{name: "Sweep Changed IP #{unique_id}", partition: partition, agent_id: agent_id},
         actor: actor
       )
       |> Ash.create()
@@ -1759,25 +1768,30 @@ defmodule ServiceRadar.SweepJobs.SweepResultsFlowE2ETest do
       "icmp_status" => %{"available" => true}
     }
 
-    assert {:ok, _} =
-             SweepResultsIngestor.ingest_results(
-               [host_result],
-               exec_a,
-               actor: actor,
-               sweep_group_id: group.id,
-               agent_id: agent_a,
-               config_version: "all-agents-a-#{unique_id}"
-             )
+    conflict_log =
+      CaptureLog.capture_log(fn ->
+        assert {:ok, _} =
+                 SweepResultsIngestor.ingest_results(
+                   [host_result],
+                   exec_a,
+                   actor: actor,
+                   sweep_group_id: group.id,
+                   agent_id: agent_a,
+                   config_version: "all-agents-a-#{unique_id}"
+                 )
 
-    assert {:ok, _} =
-             SweepResultsIngestor.ingest_results(
-               [host_result],
-               exec_b,
-               actor: actor,
-               sweep_group_id: group.id,
-               agent_id: agent_b,
-               config_version: "all-agents-b-#{unique_id}"
-             )
+        assert {:ok, _} =
+                 SweepResultsIngestor.ingest_results(
+                   [host_result],
+                   exec_b,
+                   actor: actor,
+                   sweep_group_id: group.id,
+                   agent_id: agent_b,
+                   config_version: "all-agents-b-#{unique_id}"
+                 )
+      end)
+
+    refute conflict_log =~ "MULTI-AGENT CONFLICT"
 
     {:ok, execution_page} =
       SweepGroupExecution
@@ -1802,6 +1816,34 @@ defmodule ServiceRadar.SweepJobs.SweepResultsFlowE2ETest do
     assert daa_b.is_available
     assert daa_b.sweep_group_id == group.id
     assert daa_b.execution_id == exec_b
+
+    {:ok, canonical} = Device.get_by_uid(device.uid, false, actor: actor)
+    canonical = single_result(canonical)
+    refute canonical.is_available
+
+    assert {:ok, pinned} =
+             canonical
+             |> Ash.Changeset.for_update(
+               :set_availability_source,
+               %{availability_source_agent_id: agent_a},
+               actor: actor
+             )
+             |> Ash.update()
+
+    assert {:ok, _} =
+             SweepResultsIngestor.ingest_results(
+               [host_result],
+               Ash.UUID.generate(),
+               actor: actor,
+               sweep_group_id: group.id,
+               agent_id: agent_a,
+               config_version: "all-agents-a-pinned-#{unique_id}"
+             )
+
+    {:ok, after_pin} = Device.get_by_uid(pinned.uid, false, actor: actor)
+    after_pin = single_result(after_pin)
+    assert after_pin.is_available
+    assert after_pin.availability_source_agent_id == agent_a
   end
 
   defp single_result([result]), do: result

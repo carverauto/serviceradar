@@ -949,19 +949,27 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
 
     restore_deleted_devices(Enum.uniq(available_uids ++ unavailable_uids), actor)
 
-    # DB connection's search_path determines the schema
-    # Mark available devices (resets failure count)
-    recovered_rows = update_device_statuses_available(available_uids, status_timestamp, agent_id)
+    # All-agents groups always write per-agent DAA. Canonical is_available is
+    # owned by availability_source_agent_id: with no pin, every scanner would
+    # fight over the one device bit. Assigned groups keep the legacy
+    # unpinned-or-matching writer.
+    require_source_match? = all_agents_group?(sweep_group_id)
 
-    # Apply hysteresis for unavailable devices
-    # Only mark unavailable after consecutive failure threshold is exceeded
-    # "Available wins" window is based on sweep interval
+    recovered_rows =
+      update_device_statuses_available(
+        available_uids,
+        status_timestamp,
+        agent_id,
+        require_source_match?
+      )
+
     down_rows =
       update_device_statuses_with_hysteresis(
         unavailable_uids,
         status_timestamp,
         sweep_group_id,
-        agent_id
+        agent_id,
+        require_source_match?
       )
 
     maybe_emit_availability_events(
@@ -1232,9 +1240,9 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
   end
 
   # Mark devices as available and reset consecutive failure count
-  defp update_device_statuses_available([], _timestamp, _agent_id), do: []
+  defp update_device_statuses_available([], _timestamp, _agent_id, _require_source_match?), do: []
 
-  defp update_device_statuses_available(device_uids, timestamp, agent_id) do
+  defp update_device_statuses_available(device_uids, timestamp, agent_id, require_source_match?) do
     # DB connection's search_path determines the schema
     # Reset consecutive failure count to 0 when device becomes available
     sql = """
@@ -1259,13 +1267,22 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
     ) old
     WHERE d.uid = old.uid
       AND (
-        NULLIF(BTRIM(d.availability_source_agent_id), '') IS NULL
-        OR d.availability_source_agent_id = $3
+        (
+          NOT $4::boolean
+          AND (
+            NULLIF(BTRIM(d.availability_source_agent_id), '') IS NULL
+            OR d.availability_source_agent_id = $3
+          )
+        )
+        OR (
+          $4::boolean
+          AND d.availability_source_agent_id = $3
+        )
       )
     RETURNING d.uid, old.was_available, d.is_available, old.hostname, old.ip
     """
 
-    case Repo.query(sql, [device_uids, timestamp, agent_id]) do
+    case Repo.query(sql, [device_uids, timestamp, agent_id, require_source_match?]) do
       {:ok, %{num_rows: count, rows: rows}} ->
         Logger.debug(
           "SweepResultsIngestor: Marked #{count} devices as available (reset failure count)"
@@ -1285,9 +1302,21 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
   # Apply hysteresis for unavailable devices
   # Only marks device as unavailable after threshold consecutive failures
   # "Available wins" - skips devices recently marked available by another sweep
-  defp update_device_statuses_with_hysteresis([], _timestamp, _sweep_group_id, _agent_id), do: []
+  defp update_device_statuses_with_hysteresis(
+         [],
+         _timestamp,
+         _sweep_group_id,
+         _agent_id,
+         _require_source_match?
+       ), do: []
 
-  defp update_device_statuses_with_hysteresis(device_uids, timestamp, sweep_group_id, agent_id) do
+  defp update_device_statuses_with_hysteresis(
+         device_uids,
+         timestamp,
+         sweep_group_id,
+         agent_id,
+         require_source_match?
+       ) do
     # DB connection's search_path determines the schema
     #
     # Hysteresis logic using metadata.sweep_consecutive_failures:
@@ -1345,8 +1374,17 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
           )
       )
       AND (
-        NULLIF(BTRIM(d.availability_source_agent_id), '') IS NULL
-        OR d.availability_source_agent_id = $5
+        (
+          NOT $6::boolean
+          AND (
+            NULLIF(BTRIM(d.availability_source_agent_id), '') IS NULL
+            OR d.availability_source_agent_id = $5
+          )
+        )
+        OR (
+          $6::boolean
+          AND d.availability_source_agent_id = $5
+        )
       )
     RETURNING d.uid, old.was_available, d.is_available, old.hostname, old.ip
     """
@@ -1356,7 +1394,8 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
            @unavailable_threshold,
            timestamp,
            available_wins_cutoff,
-           agent_id
+           agent_id,
+           require_source_match?
          ]) do
       {:ok, %{num_rows: count, rows: rows}} ->
         skipped = length(device_uids) - count
@@ -1820,14 +1859,22 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
     end
   end
 
-  # Detect when multiple agents are submitting results for the same sweep group
-  # This can cause availability flapping as agents overwrite each other's results
+  # Assigned groups should have one scanner. All-agents groups (nil / blank
+  # agent_id) are supposed to report from every scanner; that is not a conflict.
   defp detect_multi_agent_conflict(nil, _agent_id), do: :ok
   defp detect_multi_agent_conflict("", _agent_id), do: :ok
   defp detect_multi_agent_conflict(_sweep_group_id, nil), do: :ok
   defp detect_multi_agent_conflict(_sweep_group_id, ""), do: :ok
 
   defp detect_multi_agent_conflict(sweep_group_id, agent_id) do
+    if all_agents_group?(sweep_group_id) do
+      :ok
+    else
+      detect_assigned_group_multi_agent_conflict(sweep_group_id, agent_id)
+    end
+  end
+
+  defp detect_assigned_group_multi_agent_conflict(sweep_group_id, agent_id) do
     # Check for recent executions from different agents in the last hour
     one_hour_ago = DateTime.add(DateTime.utc_now(), -3600, :second)
 
@@ -1855,6 +1902,15 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
     end
 
     :ok
+  end
+
+  defp all_agents_group?(sweep_group_id) when sweep_group_id in [nil, ""], do: false
+
+  defp all_agents_group?(sweep_group_id) do
+    case Repo.get(SweepGroup, sweep_group_id) do
+      %SweepGroup{agent_id: agent_id} -> agent_id in [nil, ""]
+      _missing -> false
+    end
   end
 
   defp create_execution(

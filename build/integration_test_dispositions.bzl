@@ -315,7 +315,7 @@ SERIAL_INTEGRATION_SELECTED_TEST_COUNTS = {
     "test/serviceradar/composite_checks/composite_check_rule_test.exs": 11,
     "test/serviceradar/composite_checks/composite_check_test.exs": 6,
     "test/serviceradar/composite_checks/device_composite_check_result_test.exs": 6,
-    "test/serviceradar/composite_checks/evaluation_test.exs": 13,
+    "test/serviceradar/composite_checks/evaluation_test.exs": 15,
     "test/serviceradar/composite_checks/evaluation_worker_test.exs": 6,
     "test/serviceradar/composite_checks/merge_reassignment_test.exs": 6,
     "test/serviceradar/composite_checks/readiness_test.exs": 12,

@@ -297,6 +297,55 @@ defmodule ServiceRadar.CompositeChecks.EvaluationTest do
     end
   end
 
+  test "does not write Device.is_available unless the check opts in", %{check: check} do
+    now = DateTime.utc_now()
+    availability("device-1", "agent-a", true, now)
+    availability("device-1", "agent-b", false, now)
+
+    {:ok, device} = Device.get_by_uid("device-1", false, actor: actor())
+
+    assert {:ok, _} =
+             device
+             |> Ash.Changeset.for_update(:set_availability, %{is_available: false},
+               actor: actor()
+             )
+             |> Ash.update()
+
+    assert {:ok, _} = run(check)
+
+    {:ok, after_eval} = Device.get_by_uid("device-1", false, actor: actor())
+    refute after_eval.is_available
+  end
+
+  test "write_canonical_availability projects a healthy verdict onto Device.is_available", %{
+    check: check
+  } do
+    now = DateTime.utc_now()
+    availability("device-1", "agent-a", true, now)
+    availability("device-1", "agent-b", false, now)
+
+    assert {:ok, check} =
+             check
+             |> Ash.Changeset.for_update(:update, %{write_canonical_availability: true},
+               actor: actor()
+             )
+             |> Ash.update()
+
+    {:ok, device} = Device.get_by_uid("device-1", false, actor: actor())
+
+    assert {:ok, _} =
+             device
+             |> Ash.Changeset.for_update(:set_availability, %{is_available: false},
+               actor: actor()
+             )
+             |> Ash.update()
+
+    assert {:ok, _} = run(check)
+
+    {:ok, after_eval} = Device.get_by_uid("device-1", false, actor: actor())
+    assert after_eval.is_available
+  end
+
   test "evaluate_devices resolves without persisting", %{check: check} do
     now = DateTime.utc_now()
     availability("device-1", "agent-a", true, now)
