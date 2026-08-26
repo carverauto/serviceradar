@@ -765,27 +765,115 @@ function managedLabelAdmission(context, graph, graphNodes, width, height, manage
   }
 }
 
-function fitManagedTopologyScene(context, graph, scene, viewport, safeRect, graphNodes) {
-  const semanticLevel = topologySemanticLevel(graph)
-  const managedVisualDensity = semanticLevel === "detail" ? "detail" : "overview"
+function fitManagedSceneAtDensity(
+  context,
+  graph,
+  scene,
+  viewport,
+  safeRect,
+  graphNodes,
+  managedVisualDensity,
+  {admitLabels = true} = {},
+) {
   const glyphBoxes = (scene.nodes || [])
     .filter((sceneNode) => sceneNode?.render !== false)
     .map((sceneNode) => managedGlyphBox(context, graphNodes, sceneNode, managedVisualDensity))
-  const fit = fitTopologyScene({
+  return fitTopologyScene({
     scene,
     viewport,
     safeRect,
     glyphBoxes,
     routeStrokeWidth: managedVisualDensityContract(managedVisualDensity).routeMaxWidth,
-    admitLabels: managedLabelAdmission(
+    admitLabels: admitLabels
+      ? managedLabelAdmission(
+        context,
+        graph,
+        graphNodes,
+        viewport.width,
+        viewport.height,
+        managedVisualDensity,
+      )
+      : undefined,
+  })
+}
+
+function managedDensityHolds(constraint, safeDimensions, fit) {
+  const fittedScale = 2 ** Number(fit?.viewState?.zoom)
+  return (
+    managedConstraintFitsSafeRect(constraint, safeDimensions) &&
+    Number.isFinite(fittedScale) &&
+    fittedScale + 1e-9 >= Number(constraint?.scale || 0)
+  )
+}
+
+// Whether a density holds depends on the scale the scene fits into, and that scale depends
+// on the density's own glyph extents -- so it cannot be answered before fitting. Reading the
+// density straight off the semantic level is what let detail overlap glyphs on a viewport
+// too small for it.
+//
+// Measure each candidate with a label-free probe, then fit once at the winner. The probe is
+// exact for this question: fitTopologyScene fits glyph and route extents first and refits
+// only when an admitted label escapes the safe rect, so the label pass it skips cannot change
+// the scale the separation constraint is defined against. Probing rather than fitting for
+// real matters because scenes that must step down are the common case, not the exception --
+// keeping the preferred fit instead measured slower (444s vs 426s over the acceptance suite),
+// since a rejected density's full fit is wasted. A scene already at overview has one
+// candidate and takes the single fit it always took.
+function selectFeasibleManagedDensity(
+  context,
+  graph,
+  scene,
+  viewport,
+  safeRect,
+  graphNodes,
+  preferred,
+  constraints,
+  safeDimensions,
+) {
+  const candidates = MANAGED_VISUAL_DENSITY_PREFERENCE.slice(
+    MANAGED_VISUAL_DENSITY_PREFERENCE.indexOf(preferred),
+  )
+  if (candidates.length < 2) return preferred
+
+  for (const candidate of candidates) {
+    const probe = fitManagedSceneAtDensity(
       context,
       graph,
+      scene,
+      viewport,
+      safeRect,
       graphNodes,
-      viewport.width,
-      viewport.height,
-      managedVisualDensity,
-    ),
-  })
+      candidate,
+      {admitLabels: false},
+    )
+    if (managedDensityHolds(constraints[candidate], safeDimensions, probe)) return candidate
+  }
+  return preferred
+}
+
+function fitManagedTopologyScene(context, graph, scene, viewport, safeRect, graphNodes) {
+  const semanticLevel = topologySemanticLevel(graph)
+  const managedVisualDensity = selectFeasibleManagedDensity(
+    context,
+    graph,
+    scene,
+    viewport,
+    safeRect,
+    graphNodes,
+    semanticLevel === "detail" ? "detail" : "overview",
+    managedDensityConstraints(context, graph),
+    managedSafeDimensions(safeRect),
+  )
+  const fit = fitManagedSceneAtDensity(
+    context,
+    graph,
+    scene,
+    viewport,
+    safeRect,
+    graphNodes,
+    managedVisualDensity,
+  )
+
   // A bounded, deliberately framed scene fails closed. Everything else degrades:
   // fitTopologyScene always returns a usable viewState plus the labels it could place,
   // so the camera still fits and the surface still renders without the labels that would

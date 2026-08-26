@@ -443,6 +443,14 @@ export function prepareTopologyOverviewInput(graph) {
   const semanticTreeRelations = treeRelations.filter((relation) => !relation.synthetic)
   const omittedAttachmentNodes = normalized.nodes.filter((node) => !visibleIds.has(node.id)).length
   const manifest = {
+    // The scene observer and the acceptance contract read a manifest in the detail
+    // projection's vocabulary. Report those three keys here too rather than leaving them
+    // undefined, which surfaced as an overview scene claiming zero nodes and zero edges.
+    // attachmentEdges is genuinely 0: the overview renders none, and the ones it left out
+    // are counted in omittedAttachmentNodes.
+    nodes: semanticNodes.length,
+    semanticEdges: semanticTreeRelations.length + allCrossLinks.length,
+    attachmentEdges: 0,
     glyphs: semanticNodes.length,
     infrastructureNodes: infrastructure.length,
     collapsedSummaries: summaries.length,

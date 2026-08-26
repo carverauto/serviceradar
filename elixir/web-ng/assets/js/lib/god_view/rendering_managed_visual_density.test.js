@@ -127,6 +127,10 @@ describe("managed topology visual density", () => {
       state.userCameraLocked = false
       expect(() => ctx.autoFitViewState(expanded)).not.toThrow()
       expect(Number.isFinite(state.viewState.zoom)).toBe(true)
+      // Detail glyph extents do not hold their separation constraint at the scale this
+      // portrait safe rect fits 78 nodes into. Density is a feasibility question, not a
+      // restatement of the semantic level -- taking detail anyway is what overlaps glyphs.
+      expect(state.managedTopologyVisualDensity).toBe("overview")
     }
 
     // A genuinely bounded frame -- nothing expanded -- still fails closed, because there
