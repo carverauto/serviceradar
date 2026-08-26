@@ -172,6 +172,102 @@ defmodule ServiceRadar.TestSupport do
     end
   end
 
+  @doc """
+  Fails when the test database has migrations applied that this checkout does not contain.
+
+  ## Why this is not covered by `mix ecto.migrate`
+
+  `sr_core_template` is a SHARED, CROSS-BRANCH resource, and it only ever ratchets FORWARD:
+  whichever branch runs the lifecycle first leaves its schema behind for every branch that
+  clones it afterwards. A branch that is BEHIND therefore runs its own code against a FUTURE
+  schema -- and nothing in the existing lifecycle notices, because Ecto only ever asks
+  "is anything PENDING?". A behind-branch's migrations are a strict SUBSET of what is applied,
+  so the answer is no and `mix ecto.migrate` prints "Migrations already up".
+
+  This is not hypothetical. On 2026-08-25, staging's
+  `20260825030000_rekey_discovered_interfaces_current_state` rekeyed
+  `discovered_interfaces` from `(timestamp, device_id, interface_uid)` to
+  `(device_id, interface_uid)` and updated `Inventory.Interface`'s identity to match. Every
+  branch cut before that kept the three-column identity, cloned staging's rekeyed template,
+  and emitted `ON CONFLICT (timestamp, device_id, interface_uid)` against a table with no
+  such constraint. The result was 15 opaque `42P10 invalid_column_reference` failures spread
+  over four unrelated-looking test files in two shards, with no mention of a migration
+  anywhere -- which is what this replaces with one line naming the extra versions.
+
+  ## Direction matters
+
+  Only EXTRA APPLIED versions are an error. Pending ones are the normal "you need to migrate"
+  case that Ecto already reports well, and the lifecycle's migrate step exists to fix. Failing
+  on those here would turn a routine first run into a hard stop.
+  """
+  def assert_migrations_not_ahead!(applied_versions, on_disk_versions)
+      when is_list(applied_versions) and is_list(on_disk_versions) do
+    # NOT VACUOUS: an empty on-disk list would make every applied version "extra" and produce a
+    # confusing failure that blames the database for a staging bug, so it is its own error.
+    if on_disk_versions == [] do
+      raise ArgumentError, """
+      no migration files were found on disk, so schema drift cannot be assessed.
+
+      This is a packaging fault, not a database fault: the guard needs priv/repo/migrations
+      staged as a runtime input to compare against.
+      """
+    end
+
+    case Enum.sort(applied_versions -- on_disk_versions) do
+      [] ->
+        :ok
+
+      extra ->
+        raise ArgumentError, """
+        the test database is AHEAD of this checkout: #{length(extra)} migration(s) are applied \
+        that this branch does not contain.
+
+        Extra applied versions: #{Enum.join(extra, ", ")}
+
+        The shared sr_core_template only ratchets forward, so a branch behind staging clones a
+        FUTURE schema and runs its own resources against it. `mix ecto.migrate` cannot see this
+        -- it only reports PENDING migrations, and this branch has none.
+
+        Merge or rebase onto the branch that added those migrations. Do NOT re-provision: a
+        fresh clone of the same template reproduces it exactly.
+        """
+    end
+  end
+
+  @doc """
+  Reads the applied and on-disk migration versions and hands them to
+  `assert_migrations_not_ahead!/2`.
+
+  Separate from the pure check so the comparison is testable without a database, and so a
+  failure here is unambiguously about IO rather than about drift.
+  """
+  def assert_database_schema_not_ahead!(repo \\ ServiceRadar.Repo) do
+    prefix =
+      :serviceradar_core
+      |> Application.get_env(repo, [])
+      |> Keyword.get(:migration_default_prefix, "public")
+
+    # The Repo is started in MANUAL sandbox mode, so a bare query here has no ownership and
+    # fails with "cannot find ownership process". This runs before any test has checked a
+    # connection out, which is exactly the case unboxed_run/2 exists for -- the same way Oban's
+    # own verify_migrated!/1 reads its migration state at boot.
+    %{rows: rows} =
+      Sandbox.unboxed_run(repo, fn ->
+        Ecto.Adapters.SQL.query!(repo, ~s(SELECT version FROM "#{prefix}".schema_migrations), [])
+      end)
+
+    applied = Enum.map(rows, fn [version] -> to_string(version) end)
+
+    on_disk =
+      :serviceradar_core
+      |> Application.app_dir("priv/repo/migrations")
+      |> File.ls!()
+      |> Enum.filter(&String.ends_with?(&1, ".exs"))
+      |> Enum.map(&(&1 |> String.split("_", parts: 2) |> hd()))
+
+    assert_migrations_not_ahead!(applied, on_disk)
+  end
+
   @doc "Validates the effective Repo pool against the capacity-audited runner topology."
   def integration_repo_pool_size!(pool_size, topology, lane) do
     expected_pool_size = @integration_runner_pool_sizes[{topology, lane}]

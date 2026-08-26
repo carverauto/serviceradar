@@ -117,6 +117,12 @@ if database_available? do
     sandbox_mode: :manual,
     synchronous_audit_writes?: true
   )
+
+  # AFTER the Repo is up and BEFORE any test runs: the shared template only ratchets forward,
+  # so a branch behind staging silently clones a future schema. Caught here it is one line
+  # naming the extra migrations; caught by the tests it is a scatter of constraint errors that
+  # name no migration at all. See assert_migrations_not_ahead!/2 for the incident this encodes.
+  ServiceRadar.TestSupport.assert_database_schema_not_ahead!()
 else
   # Asking for the integration-only selection without a database is always a mistake, and a
   # silent fallback here is worse than a failure: the run would quietly execute the
