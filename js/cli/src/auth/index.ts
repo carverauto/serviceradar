@@ -29,11 +29,17 @@ export async function dispatchAuth(
 
 export function printAuthHelp(): void {
   console.log(`Usage:
-  serviceradar-cli auth login   --instance <url> [--web] [--no-browser] [--token <existing-token>]
+  serviceradar-cli auth login   --instance <url> [--web] [--no-browser] [--ca-file <pem>] [--token <existing-token>]
   serviceradar-cli auth status  [--instance <url>]
   serviceradar-cli auth logout  [--instance <url>]
 
 Reads/writes ~/.config/serviceradar/credentials.json (mode 0600).
+
+Private / corporate CAs:
+  Node does not use the OS trust store. If curl works but login fails with
+  UNABLE_TO_GET_ISSUER_CERT_LOCALLY, put the issuer PEM at
+  ~/.config/serviceradar/ca-bundle.pem, or pass --ca-file / set
+  SERVICERADAR_CA_FILE or NODE_EXTRA_CA_CERTS.
 
 Login flows:
   default        OAuth 2.0 Device Authorization Grant (RFC 8628). The CLI
@@ -45,5 +51,6 @@ Login flows:
                  and exchanges the returned code for a long-lived token.
 
 Both flows fall back to manual token paste when the corresponding
-endpoints return 404, so any partially-shipped server still works.`)
+endpoints return 404. TLS and network failures are reported instead of
+that fallback.`)
 }

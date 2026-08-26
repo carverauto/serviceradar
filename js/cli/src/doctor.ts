@@ -3,14 +3,15 @@
 // and `doctor` walks the runtime, install, project, and auth surfaces and
 // prints actionable hints when pieces are missing.
 
-import {existsSync, readFileSync} from "node:fs"
+import {existsSync, readdirSync, readFileSync} from "node:fs"
 import {join, resolve} from "node:path"
 import {spawn} from "node:child_process"
 
-import {credentialsPath, readCredentials} from "./auth/credentials.js"
+import {credentialsDir, credentialsPath, readCredentials} from "./auth/credentials.js"
 import {loadConfig, resolveConfigPath} from "./config.js"
 import {DEFAULT_RENDERER_ENTRY} from "./manifest.js"
 import {CLI_ROOT, HARNESS_DIR, TEMPLATES_DIR} from "./paths.js"
+import {defaultCaBundlePath, resolveExtraCaFile} from "./tls_ca.js"
 import {relativePath} from "./utils.js"
 
 export function readPackageVersion(directory: string): string | null {
@@ -84,6 +85,34 @@ export async function doctorCommand(options: Record<string, any>): Promise<void>
   } else {
     console.log("  stored instances:     (no credentials file yet — `serviceradar-cli auth login --instance <url>` to authenticate)")
   }
+  const extraCa = resolveExtraCaFile()
+  const defaultCa = defaultCaBundlePath()
+  if (extraCa) {
+    console.log(`  extra CA file:        ${extraCa}${process.env.NODE_EXTRA_CA_CERTS === extraCa ? " (loaded)" : ""}`)
+  } else {
+    console.log(`  extra CA file:        (none — Node ignores the OS trust store; place a PEM at ${defaultCa})`)
+  }
+
+  // A PEM sitting in the config directory under any other name is the failure
+  // mode this whole section exists to prevent: the operator believes the CA is
+  // installed, autodetect never looks at it, and the only symptom is a bare
+  // `fetch failed`. Name the files we can see but will not load.
+  for (const ignored of unusedPemFiles(extraCa)) {
+    console.log(`  unused PEM:           ${ignored} — not loaded; rename it to ${defaultCa} or pass --ca-file ${ignored}`)
+  }
+}
+
+function unusedPemFiles(loaded: string | undefined): string[] {
+  let entries: string[]
+  try {
+    entries = readdirSync(credentialsDir())
+  } catch {
+    return []
+  }
+  return entries
+    .filter((entry) => /\.(pem|crt|cer)$/i.test(entry))
+    .map((entry) => join(credentialsDir(), entry))
+    .filter((path) => path !== loaded)
 }
 
 async function detectExecVersion(command: string): Promise<string | null> {
