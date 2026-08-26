@@ -551,6 +551,12 @@ INTEGRATION_SELECTION_DATA = glob(
     "//go/cmd/wasm-plugins/sample-northbound:srcs",
     "//go/cmd/wasm-plugins/starlink:srcs",
     "//go/cmd/wasm-plugins/unifi-protect:srcs",
+    # Both are MODULE-level reads, so the selection loaders hit them while merely compiling the
+    # source -- a selection runner never executes a test body, but it does compile every file it
+    # loads. Being staged in INTEGRATION_RUNTIME_DATA is not enough: that list belongs to the
+    # suites, this one to the load-only and selected runners.
+    "//proto/edge/v1:edge_testdata",
+    "bench/sweep_ingress_fixtures.exs",
 ]
 
 INTEGRATION_TEST_DEPS = [
