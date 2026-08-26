@@ -251,3 +251,61 @@ describe("managed topology visual density", () => {
     }
   }, 20_000)
 })
+
+describe("unmeasured topology surface", () => {
+  async function fittedFarm01Scene() {
+    const source = collapsedFarm01Graph()
+    const scene = await layoutTopologyScene(prepareTopologySceneInput(source), {
+      engine: new ELK(),
+      profile: PORTRAIT_PROFILE,
+    })
+    return {shape: "local", ...applyTopologySceneToGraph(source, scene)}
+  }
+
+  function contextFor(width, height) {
+    const state = {
+      animationPhase: 0,
+      deck: {setProps() {}},
+      hasAutoFit: false,
+      userCameraLocked: false,
+      isProgrammaticViewUpdate: false,
+      zoomMode: "auto",
+      layers: {mantle: true, crust: true},
+      viewState: {minZoom: -8, maxZoom: 5, zoom: 0, target: [0, 0, 0]},
+      el: {clientWidth: width, clientHeight: height},
+      topologyLabelSafeRect: {left: 0, top: 0, right: width, bottom: height},
+      topologyLabelMeasureText: (text) => ({width: String(text).length * 6, height: 12}),
+    }
+    const ctx = createStateBackedContext(state, {setZoomTier() {}, resolveZoomTier: () => "local"})
+    Object.assign(
+      ctx,
+      bindApi(ctx, godViewRenderingGraphLayerNodeMethods),
+      bindApi(ctx, godViewRenderingGraphViewMethods),
+    )
+    return {ctx, state}
+  }
+
+  // A surface that has not been laid out yet reports clientWidth/clientHeight of 0. Glyph
+  // extents are fixed pixels, so nothing fits at any zoom and the fit correctly calls it
+  // impossible -- but that describes an unmeasured container, not an unfittable scene.
+  // Throwing there poisons the first render of every page load that loses this race.
+  it("defers the fit instead of failing on a surface that has not been measured", async () => {
+    const graph = await fittedFarm01Scene()
+
+    for (const [width, height] of [[0, 0], [0, 996], [727, 0]]) {
+      const {ctx, state} = contextFor(width, height)
+
+      expect(() => ctx.autoFitViewState(graph)).not.toThrow()
+      expect(state.hasAutoFit, `${width}x${height} must stay unfitted so a later resize retries`).toBe(false)
+    }
+  })
+
+  it("still fits once the surface reports a size", async () => {
+    const graph = await fittedFarm01Scene()
+    const {ctx, state} = contextFor(800, 1000)
+
+    expect(() => ctx.autoFitViewState(graph)).not.toThrow()
+    expect(state.hasAutoFit).toBe(true)
+    expect(Number.isFinite(state.viewState.zoom)).toBe(true)
+  })
+})
