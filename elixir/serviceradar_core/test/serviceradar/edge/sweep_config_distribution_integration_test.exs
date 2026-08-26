@@ -241,6 +241,63 @@ defmodule ServiceRadar.Edge.SweepConfigDistributionIntegrationTest do
     assert device_ip in compiled["targets"]
   end
 
+  test "an All-agents group is compiled onto every agent in the partition", %{
+    actor: actor
+  } do
+    unique_id = System.unique_integer([:positive])
+    agent_a = "agent-a-#{unique_id}"
+    agent_b = "agent-b-#{unique_id}"
+    target = "10.2.#{rem(unique_id, 200) + 20}.#{rem(div(unique_id, 200), 200) + 20}"
+
+    {:ok, group} =
+      SweepGroup
+      |> Ash.Changeset.for_create(
+        :create,
+        %{
+          name: "All agents #{unique_id}",
+          partition: "default",
+          agent_id: "",
+          interval: "2m",
+          sweep_modes: ["icmp"],
+          static_targets: [target]
+        },
+        actor: actor
+      )
+      |> Ash.create()
+
+    assert is_nil(group.agent_id)
+
+    {:ok, pinned} =
+      group
+      |> Ash.Changeset.for_update(:update, %{agent_id: agent_a}, actor: actor)
+      |> Ash.update()
+
+    assert pinned.agent_id == agent_a
+
+    {:ok, group} =
+      pinned
+      |> Ash.Changeset.for_update(:update, %{agent_id: ""}, actor: actor)
+      |> Ash.update()
+
+    assert is_nil(group.agent_id)
+
+    ConfigServer.invalidate(:sweep)
+
+    {:ok, entry_a} = ConfigServer.get_config(:sweep, "default", agent_a)
+    {:ok, entry_b} = ConfigServer.get_config(:sweep, "default", agent_b)
+
+    ids_a = Enum.map(entry_a.config["groups"] || [], & &1["sweep_group_id"])
+    ids_b = Enum.map(entry_b.config["groups"] || [], & &1["sweep_group_id"])
+
+    assert group.id in ids_a
+    assert group.id in ids_b
+
+    compiled_a = Enum.find(entry_a.config["groups"], &(&1["sweep_group_id"] == group.id))
+    compiled_b = Enum.find(entry_b.config["groups"], &(&1["sweep_group_id"] == group.id))
+    assert target in compiled_a["targets"]
+    assert target in compiled_b["targets"]
+  end
+
   defp device_target_networks(compiled_group) do
     Enum.map(compiled_group["device_targets"] || [], & &1["network"])
   end

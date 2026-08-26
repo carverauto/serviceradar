@@ -17,7 +17,13 @@ defmodule ServiceRadar.CompositeChecks.CompositeCheck do
   alias ServiceRadar.CompositeChecks.Validations.EnforceReadiness
   alias ServiceRadar.CompositeChecks.Validations.ScopeQuery
 
-  @create_fields [:name, :description, :scope_query, :evaluation_interval_seconds]
+  @create_fields [
+    :name,
+    :description,
+    :scope_query,
+    :evaluation_interval_seconds,
+    :write_canonical_availability
+  ]
   @update_fields @create_fields
 
   postgres do
@@ -124,6 +130,20 @@ defmodule ServiceRadar.CompositeChecks.CompositeCheck do
       default 300
       public? true
       constraints min: 60, max: 86_400
+    end
+
+    attribute :write_canonical_availability, :boolean do
+      allow_nil? false
+      default false
+      public? true
+
+      description """
+      When true, a healthy verdict sets Device.is_available and a down verdict
+      clears it. Off by default: composite checks derive a separate verdict
+      (and Armis northbound reads that verdict as its own custom field).
+      Availability Sources remain the way to pick which sweep agent owns the
+      canonical bit.
+      """
     end
 
     attribute :state, :atom do

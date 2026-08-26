@@ -16,7 +16,8 @@ defmodule ServiceRadarWebNGWeb.Settings.CompositeChecksLive.FormState do
       "name" => "",
       "description" => "",
       "scope_query" => "in:devices",
-      "evaluation_interval_seconds" => Integer.to_string(@default_interval)
+      "evaluation_interval_seconds" => Integer.to_string(@default_interval),
+      "write_canonical_availability" => "false"
     }
   end
 
@@ -26,7 +27,9 @@ defmodule ServiceRadarWebNGWeb.Settings.CompositeChecksLive.FormState do
       "name" => check.name || "",
       "description" => check.description || "",
       "scope_query" => check.scope_query || "",
-      "evaluation_interval_seconds" => Integer.to_string(check.evaluation_interval_seconds || @default_interval)
+      "evaluation_interval_seconds" => Integer.to_string(check.evaluation_interval_seconds || @default_interval),
+      "write_canonical_availability" =>
+        if(Map.get(check, :write_canonical_availability, false), do: "true", else: "false")
     }
   end
 
@@ -239,7 +242,8 @@ defmodule ServiceRadarWebNGWeb.Settings.CompositeChecksLive.FormState do
       name: String.trim(form["name"] || ""),
       description: blank_to_nil(form["description"]),
       scope_query: String.trim(form["scope_query"] || ""),
-      evaluation_interval_seconds: parse_interval(form["evaluation_interval_seconds"])
+      evaluation_interval_seconds: parse_interval(form["evaluation_interval_seconds"]),
+      write_canonical_availability: form["write_canonical_availability"] in [true, "true"]
     }
   end
 

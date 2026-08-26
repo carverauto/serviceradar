@@ -418,14 +418,75 @@ defmodule ServiceRadar.Edge.AgentCommandBus do
     opts =
       add_context(opts, %{sweep_group_id: group.id, partition_id: dispatch_partition})
 
-    dispatch_for_assignment(
-      dispatch_partition,
-      agent_id,
-      "sweep",
-      "sweep.run_group",
-      payload,
-      opts
-    )
+    case agent_id do
+      nil ->
+        dispatch_sweep_group_to_all(dispatch_partition, payload, opts)
+
+      agent_id ->
+        dispatch_for_assignment(
+          dispatch_partition,
+          agent_id,
+          "sweep",
+          "sweep.run_group",
+          payload,
+          opts
+        )
+    end
+  end
+
+  # All-agents groups compile onto every scanner in the partition. Run now must
+  # fan out the same way; picking the first online session by agent_id left the
+  # rest of the fleet idle.
+  defp dispatch_sweep_group_to_all(partition, payload, opts) do
+    listing_opts =
+      Keyword.take(opts, [:registry_present?, :local_registry_reader, :registry_rpc])
+
+    case list_online_agents_for_assignment(partition, "sweep", listing_opts) do
+      [] ->
+        {:error, :agent_offline}
+
+      sessions ->
+        results =
+          Enum.map(sessions, fn session ->
+            dispatch_opts =
+              opts
+              |> put_assignment_context(session.partition_id, "sweep")
+              |> Keyword.put(
+                :required_gateway_node,
+                gateway_node_from_metadata(session.metadata)
+              )
+
+            {session.agent_id,
+             dispatch(session.agent_id, "sweep.run_group", payload, dispatch_opts)}
+          end)
+
+        succeeded =
+          Enum.flat_map(results, fn
+            {_agent_id, {:ok, command_id}} -> [command_id]
+            _failed -> []
+          end)
+
+        failed =
+          Enum.flat_map(results, fn
+            {agent_id, {:error, reason}} -> [{agent_id, reason}]
+            _ok -> []
+          end)
+
+        if succeeded == [] do
+          case List.first(failed) do
+            {_agent_id, reason} -> {:error, reason}
+            nil -> {:error, :agent_offline}
+          end
+        else
+          if failed != [] do
+            Logger.warning(
+              "Run now for all-agents sweep dispatched to #{length(succeeded)}/#{length(sessions)} agents; failures=#{inspect(failed)}"
+            )
+          end
+
+          {:ok, succeeded}
+        end
+    end
   end
 
   # SweepGroup.partition is the device-lookup partition. Isolation scans pin a
@@ -1723,17 +1784,25 @@ defmodule ServiceRadar.Edge.AgentCommandBus do
 
   @doc false
   def pick_online_agent(partition, capability, opts) when is_list(opts) do
+    case list_online_agents_for_assignment(partition, capability, opts) do
+      [%{agent_id: agent_id, pid: pid, metadata: metadata} | _] ->
+        {:ok, agent_id, pid, metadata}
+
+      [] ->
+        {:error, :agent_offline}
+    end
+  end
+
+  @doc false
+  def list_online_agents_for_assignment(partition, capability, opts \\ []) do
     opts
     |> list_online_sessions()
     |> Enum.filter(fn session ->
       session.canonical_principal? and session.partition_id == partition and
         (capability == nil or capability in session.capabilities)
     end)
+    |> Enum.uniq_by(& &1.agent_id)
     |> Enum.sort_by(& &1.agent_id)
-    |> case do
-      [%{agent_id: agent_id, pid: pid, metadata: metadata} | _] -> {:ok, agent_id, pid, metadata}
-      [] -> {:error, :agent_offline}
-    end
   end
 
   defp process_alive?(pid) when is_pid(pid) do

@@ -94,6 +94,27 @@ defmodule ServiceRadar.Edge.AgentCommandBusRegistryTest do
            end)
   end
 
+  test "all-agents listing returns every online sweep agent in the partition" do
+    alma = "agent-alma-#{System.unique_integer([:positive])}"
+    k8s = "k8s-agent-#{System.unique_integer([:positive])}"
+    other = "other-partition-#{System.unique_integer([:positive])}"
+    gateway_node = :gateway@sweep
+
+    start_session(alma, "default", gateway_node, :alma, ["sweep", "icmp"])
+    start_session(k8s, "default", gateway_node, :k8s, ["sweep", "icmp"])
+    start_session(other, "rids", gateway_node, :rids, ["sweep", "icmp"])
+
+    assert eventually(fn ->
+             ids =
+               "default"
+               |> AgentCommandBus.list_online_agents_for_assignment("sweep")
+               |> Enum.map(& &1.agent_id)
+               |> Enum.sort()
+
+             ids == Enum.sort([alma, k8s])
+           end)
+  end
+
   test "unassigned selection uses remote registry entries when no local registry is present" do
     agent_id = "remote-mapper-#{System.unique_integer([:positive])}"
     gateway_node = :serviceradar_agent_gateway@remote

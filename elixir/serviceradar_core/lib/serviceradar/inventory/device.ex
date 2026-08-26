@@ -758,7 +758,7 @@ defmodule ServiceRadar.Inventory.Device do
     attribute :availability_source_agent_id, :string do
       public? true
 
-      description "Agent whose sweep results drive canonical device availability; nil keeps legacy fallback behavior"
+      description "Agent whose sweep results drive canonical device availability. Required for All-agents sweep groups; nil lets an assigned group's scanner write the bit."
     end
 
     attribute :availability_source_profile_id, :uuid do

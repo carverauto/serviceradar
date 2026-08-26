@@ -1,6 +1,7 @@
 defmodule ServiceRadar.SweepJobs.SweepResultsFlowE2ETest do
   use ServiceRadar.DataCase, async: false
 
+  alias ExUnit.CaptureLog
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Identity.DeviceAliasState
   alias ServiceRadar.Identity.IdentityCache
@@ -567,6 +568,7 @@ defmodule ServiceRadar.SweepJobs.SweepResultsFlowE2ETest do
           hostname: "available-wins-#{unique_id}",
           discovery_sources: ["sweep"],
           is_available: false,
+          availability_source_agent_id: primary_agent_id,
           metadata: %{}
         },
         actor: actor
@@ -642,6 +644,7 @@ defmodule ServiceRadar.SweepJobs.SweepResultsFlowE2ETest do
           hostname: "per-agent-availability-#{unique_id}",
           discovery_sources: ["sweep"],
           is_available: false,
+          availability_source_agent_id: reachable_agent_id,
           metadata: %{}
         },
         actor: actor
@@ -733,7 +736,8 @@ defmodule ServiceRadar.SweepJobs.SweepResultsFlowE2ETest do
         :create,
         %{
           name: "Sweep Create #{unique_id}",
-          partition: partition
+          partition: partition,
+          agent_id: agent_id
         },
         actor: actor,
         actor: actor
@@ -831,7 +835,11 @@ defmodule ServiceRadar.SweepJobs.SweepResultsFlowE2ETest do
       SweepGroup
       |> Ash.Changeset.for_create(
         :create,
-        %{name: "Sweep Duplicate Active IP #{unique_id}", partition: partition},
+        %{
+          name: "Sweep Duplicate Active IP #{unique_id}",
+          partition: partition,
+          agent_id: agent_id
+        },
         actor: actor
       )
       |> Ash.create()
@@ -898,7 +906,7 @@ defmodule ServiceRadar.SweepJobs.SweepResultsFlowE2ETest do
       SweepGroup
       |> Ash.Changeset.for_create(
         :create,
-        %{name: "Sweep Restore Deleted #{unique_id}", partition: partition},
+        %{name: "Sweep Restore Deleted #{unique_id}", partition: partition, agent_id: agent_id},
         actor: actor
       )
       |> Ash.create()
@@ -973,7 +981,7 @@ defmodule ServiceRadar.SweepJobs.SweepResultsFlowE2ETest do
       SweepGroup
       |> Ash.Changeset.for_create(
         :create,
-        %{name: "Sweep Changed IP #{unique_id}", partition: partition},
+        %{name: "Sweep Changed IP #{unique_id}", partition: partition, agent_id: agent_id},
         actor: actor
       )
       |> Ash.create()
@@ -1708,6 +1716,133 @@ defmodule ServiceRadar.SweepJobs.SweepResultsFlowE2ETest do
     [device] = device_page.results
     assert device.metadata["sweep_mapper_promotion"]["last_status"] == "skipped"
     assert device.metadata["sweep_mapper_promotion"]["last_reason"] == "no_eligible_mapper_job"
+  end
+
+  test "an All-agents group records availability from every reporting scanner", %{
+    actor: actor
+  } do
+    unique_id = Ash.UUID.generate()
+    ip = unique_ip("all-agents-#{unique_id}")
+    agent_a = "agent-a-#{unique_id}"
+    agent_b = "agent-b-#{unique_id}"
+
+    {:ok, device} =
+      Device
+      |> Ash.Changeset.for_create(
+        :create,
+        %{
+          uid: "device-all-agents-#{unique_id}",
+          ip: ip,
+          partition: "default",
+          hostname: "all-agents-#{unique_id}",
+          discovery_sources: ["manual"],
+          is_available: false
+        },
+        actor: actor
+      )
+      |> Ash.create()
+
+    {:ok, group} =
+      SweepGroup
+      |> Ash.Changeset.for_create(
+        :create,
+        %{
+          name: "All Agents Sweep #{unique_id}",
+          partition: "default",
+          agent_id: nil,
+          interval: "15m",
+          static_targets: [ip],
+          sweep_modes: ["icmp"]
+        },
+        actor: actor
+      )
+      |> Ash.create()
+
+    exec_a = Ash.UUID.generate()
+    exec_b = Ash.UUID.generate()
+
+    host_result = %{
+      "host_ip" => ip,
+      "available" => true,
+      "icmp_status" => %{"available" => true}
+    }
+
+    conflict_log =
+      CaptureLog.capture_log(fn ->
+        assert {:ok, _} =
+                 SweepResultsIngestor.ingest_results(
+                   [host_result],
+                   exec_a,
+                   actor: actor,
+                   sweep_group_id: group.id,
+                   agent_id: agent_a,
+                   config_version: "all-agents-a-#{unique_id}"
+                 )
+
+        assert {:ok, _} =
+                 SweepResultsIngestor.ingest_results(
+                   [host_result],
+                   exec_b,
+                   actor: actor,
+                   sweep_group_id: group.id,
+                   agent_id: agent_b,
+                   config_version: "all-agents-b-#{unique_id}"
+                 )
+      end)
+
+    refute conflict_log =~ "MULTI-AGENT CONFLICT"
+
+    {:ok, execution_page} =
+      SweepGroupExecution
+      |> Ash.Query.filter(sweep_group_id == ^group.id)
+      |> Ash.read(actor: actor)
+
+    executions = results_from(execution_page)
+
+    assert MapSet.new(Enum.map(executions, & &1.agent_id)) == MapSet.new([agent_a, agent_b])
+    assert Enum.all?(executions, &(&1.status == :completed))
+    assert Enum.all?(executions, &(&1.hosts_available == 1))
+
+    {:ok, daa_a} =
+      DeviceAgentAvailability.get_by_device_agent(device.uid, agent_a, actor: actor)
+
+    {:ok, daa_b} =
+      DeviceAgentAvailability.get_by_device_agent(device.uid, agent_b, actor: actor)
+
+    assert daa_a.is_available
+    assert daa_a.sweep_group_id == group.id
+    assert daa_a.execution_id == exec_a
+    assert daa_b.is_available
+    assert daa_b.sweep_group_id == group.id
+    assert daa_b.execution_id == exec_b
+
+    {:ok, canonical} = Device.get_by_uid(device.uid, false, actor: actor)
+    canonical = single_result(canonical)
+    refute canonical.is_available
+
+    assert {:ok, pinned} =
+             canonical
+             |> Ash.Changeset.for_update(
+               :set_availability_source,
+               %{availability_source_agent_id: agent_a},
+               actor: actor
+             )
+             |> Ash.update()
+
+    assert {:ok, _} =
+             SweepResultsIngestor.ingest_results(
+               [host_result],
+               Ash.UUID.generate(),
+               actor: actor,
+               sweep_group_id: group.id,
+               agent_id: agent_a,
+               config_version: "all-agents-a-pinned-#{unique_id}"
+             )
+
+    {:ok, after_pin} = Device.get_by_uid(pinned.uid, false, actor: actor)
+    after_pin = single_result(after_pin)
+    assert after_pin.is_available
+    assert after_pin.availability_source_agent_id == agent_a
   end
 
   defp single_result([result]), do: result
