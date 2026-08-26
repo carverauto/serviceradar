@@ -1710,6 +1710,100 @@ defmodule ServiceRadar.SweepJobs.SweepResultsFlowE2ETest do
     assert device.metadata["sweep_mapper_promotion"]["last_reason"] == "no_eligible_mapper_job"
   end
 
+  test "an All-agents group records availability from every reporting scanner", %{
+    actor: actor
+  } do
+    unique_id = Ash.UUID.generate()
+    ip = unique_ip("all-agents-#{unique_id}")
+    agent_a = "agent-a-#{unique_id}"
+    agent_b = "agent-b-#{unique_id}"
+
+    {:ok, device} =
+      Device
+      |> Ash.Changeset.for_create(
+        :create,
+        %{
+          uid: "device-all-agents-#{unique_id}",
+          ip: ip,
+          partition: "default",
+          hostname: "all-agents-#{unique_id}",
+          discovery_sources: ["manual"],
+          is_available: false
+        },
+        actor: actor
+      )
+      |> Ash.create()
+
+    {:ok, group} =
+      SweepGroup
+      |> Ash.Changeset.for_create(
+        :create,
+        %{
+          name: "All Agents Sweep #{unique_id}",
+          partition: "default",
+          agent_id: nil,
+          interval: "15m",
+          static_targets: [ip],
+          sweep_modes: ["icmp"]
+        },
+        actor: actor
+      )
+      |> Ash.create()
+
+    exec_a = Ash.UUID.generate()
+    exec_b = Ash.UUID.generate()
+
+    host_result = %{
+      "host_ip" => ip,
+      "available" => true,
+      "icmp_status" => %{"available" => true}
+    }
+
+    assert {:ok, _} =
+             SweepResultsIngestor.ingest_results(
+               [host_result],
+               exec_a,
+               actor: actor,
+               sweep_group_id: group.id,
+               agent_id: agent_a,
+               config_version: "all-agents-a-#{unique_id}"
+             )
+
+    assert {:ok, _} =
+             SweepResultsIngestor.ingest_results(
+               [host_result],
+               exec_b,
+               actor: actor,
+               sweep_group_id: group.id,
+               agent_id: agent_b,
+               config_version: "all-agents-b-#{unique_id}"
+             )
+
+    {:ok, execution_page} =
+      SweepGroupExecution
+      |> Ash.Query.filter(sweep_group_id == ^group.id)
+      |> Ash.read(actor: actor)
+
+    executions = results_from(execution_page)
+
+    assert MapSet.new(Enum.map(executions, & &1.agent_id)) == MapSet.new([agent_a, agent_b])
+    assert Enum.all?(executions, &(&1.status == :completed))
+    assert Enum.all?(executions, &(&1.hosts_available == 1))
+
+    {:ok, daa_a} =
+      DeviceAgentAvailability.get_by_device_agent(device.uid, agent_a, actor: actor)
+
+    {:ok, daa_b} =
+      DeviceAgentAvailability.get_by_device_agent(device.uid, agent_b, actor: actor)
+
+    assert daa_a.is_available
+    assert daa_a.sweep_group_id == group.id
+    assert daa_a.execution_id == exec_a
+    assert daa_b.is_available
+    assert daa_b.sweep_group_id == group.id
+    assert daa_b.execution_id == exec_b
+  end
+
   defp single_result([result]), do: result
   defp single_result(result), do: result
 end
