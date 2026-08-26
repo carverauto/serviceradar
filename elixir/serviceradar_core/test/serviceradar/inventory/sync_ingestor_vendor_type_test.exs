@@ -696,25 +696,26 @@ defmodule ServiceRadar.Inventory.SyncIngestorVendorTypeTest do
     # No "manual" anywhere in this device's history, so the guard must not fire.
     # Without this the change would silently become "first writer wins", which
     # freezes every integration-discovered device at its first classification.
-    assert :ok =
-             SyncIngestor.ingest_updates(
-               [
-                 %{
-                   "ip" => ip,
-                   "hostname" => "integration-type-test",
-                   "source" => "armis",
-                   "metadata" => %{
-                     "integration_id" => "armis-reclass-#{System.unique_integer([:positive])}",
-                     "integration_type" => "armis",
-                     "armis_type" => "Tablet"
-                   }
-                 }
-               ],
-               actor: actor
-             )
-
-    assert fetch_device_by_ip!(actor, ip).type == "Tablet"
-
+    #
+    # ORDER IS LOAD-BEARING, and not incidentally. `integration_id` is a strong
+    # identifier for netbox but explicitly NOT for armis
+    # (`SourcePolicy.identifier_types/2`). So armis resolves this address by IP
+    # and merges onto whatever already holds it, while netbox arrives with a
+    # strong identity of its own.
+    #
+    # Two DIFFERENT strong identities claiming one IP do not converge, by
+    # design: the later one keeps its identity, loses the address, and a
+    # SourceIdentityConflict is recorded instead
+    # (`sync/device_writes.ex:556-581`, pinned by
+    # `sync_batch_resolution_test.exs:161`). Writing this armis-first would
+    # therefore assert the opposite of a deliberate, separately-tested
+    # invariant -- and it would fail by minting a second, IP-less device rather
+    # than by refusing the reclassification, which is a confusing way to learn
+    # that.
+    #
+    # netbox-first is the ordering that actually exercises what this test is
+    # named for: one integration reclassifying a type another integration
+    # inferred, on one device.
     assert :ok =
              SyncIngestor.ingest_updates(
                [
@@ -733,6 +734,31 @@ defmodule ServiceRadar.Inventory.SyncIngestorVendorTypeTest do
              )
 
     assert fetch_device_by_ip!(actor, ip).type == "Switch"
+
+    assert :ok =
+             SyncIngestor.ingest_updates(
+               [
+                 %{
+                   "ip" => ip,
+                   "hostname" => "integration-type-test",
+                   "source" => "armis",
+                   "metadata" => %{
+                     "integration_id" => "armis-reclass-#{System.unique_integer([:positive])}",
+                     "integration_type" => "armis",
+                     "armis_type" => "Tablet"
+                   }
+                 }
+               ],
+               actor: actor
+             )
+
+    reclassified = fetch_device_by_ip!(actor, ip)
+    assert reclassified.type == "Tablet"
+
+    # One device, not two: the reclassification landed on the netbox row rather
+    # than forking. This is what regresses if the exemption above is dropped.
+    assert "netbox" in reclassified.discovery_sources
+    assert "armis" in reclassified.discovery_sources
   end
 
   test "an integration still fills a blank type on a manually created device", %{actor: actor} do

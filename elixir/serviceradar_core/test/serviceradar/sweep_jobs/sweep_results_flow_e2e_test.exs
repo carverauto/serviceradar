@@ -47,7 +47,7 @@ defmodule ServiceRadar.SweepJobs.SweepResultsFlowE2ETest do
     unique_id = Ash.UUID.generate()
     existing_ip = unique_ip("stats-existing-#{unique_id}")
     new_ip = unique_ip("stats-new-#{unique_id}")
-    partition = "partition-stats-#{unique_id}"
+    partition = "default"
 
     {:ok, _device} =
       Device
@@ -185,7 +185,7 @@ defmodule ServiceRadar.SweepJobs.SweepResultsFlowE2ETest do
         :create,
         %{
           name: "Banner Audit #{unique_id}",
-          partition: "partition-banner-audit-#{unique_id}",
+          partition: "default",
           agent_id: agent_id
         },
         actor: actor
@@ -271,7 +271,7 @@ defmodule ServiceRadar.SweepJobs.SweepResultsFlowE2ETest do
     unique_id = Ash.UUID.generate()
     icmp_ip = unique_ip("aggregate-icmp-#{unique_id}")
     tcp_ip = unique_ip("aggregate-tcp-#{unique_id}")
-    partition = "partition-aggregate-#{unique_id}"
+    partition = "default"
 
     for {uid, ip} <- [{"device-icmp-#{unique_id}", icmp_ip}, {"device-tcp-#{unique_id}", tcp_ip}] do
       {:ok, _device} =
@@ -376,7 +376,7 @@ defmodule ServiceRadar.SweepJobs.SweepResultsFlowE2ETest do
       SweepGroup
       |> Ash.Changeset.for_create(
         :create,
-        %{name: "Per Agent #{unique_id}", partition: "partition-#{unique_id}"},
+        %{name: "Per Agent #{unique_id}", partition: "default"},
         actor: actor
       )
       |> Ash.create()
@@ -500,7 +500,7 @@ defmodule ServiceRadar.SweepJobs.SweepResultsFlowE2ETest do
         :create,
         %{
           name: "Canonical Unavailable #{unique_id}",
-          partition: "partition-canonical-unavailable-#{unique_id}",
+          partition: "default",
           agent_id: agent_id,
           interval: "1h"
         },
@@ -579,7 +579,7 @@ defmodule ServiceRadar.SweepJobs.SweepResultsFlowE2ETest do
         :create,
         %{
           name: "Available Wins #{unique_id}",
-          partition: "partition-available-wins-#{unique_id}",
+          partition: "default",
           interval: "1h"
         },
         actor: actor
@@ -669,7 +669,7 @@ defmodule ServiceRadar.SweepJobs.SweepResultsFlowE2ETest do
         :create,
         %{
           name: "Per-Agent Availability #{unique_id}",
-          partition: "partition-per-agent-availability-#{unique_id}",
+          partition: "default",
           interval: "15m"
         },
         actor: actor
@@ -725,7 +725,7 @@ defmodule ServiceRadar.SweepJobs.SweepResultsFlowE2ETest do
   } do
     unique_id = Ash.UUID.generate()
     new_ip = unique_ip("create-#{unique_id}")
-    partition = "partition-create-#{unique_id}"
+    partition = "default"
 
     {:ok, group} =
       SweepGroup
@@ -800,7 +800,7 @@ defmodule ServiceRadar.SweepJobs.SweepResultsFlowE2ETest do
   } do
     unique_id = Ash.UUID.generate()
     ip = unique_ip("duplicate-active-ip-#{unique_id}")
-    partition = "partition-duplicate-active-ip-#{unique_id}"
+    partition = "default"
 
     {:ok, device} =
       Device
@@ -868,7 +868,7 @@ defmodule ServiceRadar.SweepJobs.SweepResultsFlowE2ETest do
   } do
     unique_id = Ash.UUID.generate()
     ip = unique_ip("restore-deleted-#{unique_id}")
-    partition = "partition-restore-deleted-#{unique_id}"
+    partition = "default"
 
     {:ok, device} =
       Device
@@ -937,7 +937,7 @@ defmodule ServiceRadar.SweepJobs.SweepResultsFlowE2ETest do
     unique_id = Ash.UUID.generate()
     old_ip = unique_ip("changed-old-#{unique_id}")
     new_ip = unique_ip("changed-new-#{unique_id}")
-    partition = "partition-changed-ip-#{unique_id}"
+    partition = "default"
 
     {:ok, device} =
       Device
@@ -1024,7 +1024,7 @@ defmodule ServiceRadar.SweepJobs.SweepResultsFlowE2ETest do
     unique_id = Ash.UUID.generate()
     new_ip = unique_ip("promote-#{unique_id}")
     mapper_job_name = "mapper-promote-#{unique_id}"
-    partition = "partition-promote-#{unique_id}"
+    partition = "default"
 
     {:ok, _agent} =
       Agent
@@ -1113,7 +1113,7 @@ defmodule ServiceRadar.SweepJobs.SweepResultsFlowE2ETest do
     unique_id = Ash.UUID.generate()
     new_ip = unique_ip("stale-cache-#{unique_id}")
     mapper_job_name = "mapper-stale-cache-#{unique_id}"
-    partition = "partition-stale-cache-#{unique_id}"
+    partition = "default"
 
     IdentityCache.put(new_ip, %{
       canonical_device_id: "sr:stale-cache-#{unique_id}",
@@ -1205,7 +1205,7 @@ defmodule ServiceRadar.SweepJobs.SweepResultsFlowE2ETest do
   } do
     unique_id = Ash.UUID.generate()
     ip = unique_ip("stale-promotion-map-#{unique_id}")
-    partition = "partition-stale-promotion-map-#{unique_id}"
+    partition = "default"
     active_uid = "device-stale-promotion-active-#{unique_id}"
     stale_uid = "device-stale-promotion-stale-#{unique_id}"
 
@@ -1267,7 +1267,7 @@ defmodule ServiceRadar.SweepJobs.SweepResultsFlowE2ETest do
     ip_one = unique_ip("multibatch-one-#{unique_id}")
     ip_two = unique_ip("multibatch-two-#{unique_id}")
     mapper_job_name = "mapper-multibatch-#{unique_id}"
-    partition = "partition-multibatch-#{unique_id}"
+    partition = "default"
 
     {:ok, _agent} =
       Agent
@@ -1407,21 +1407,26 @@ defmodule ServiceRadar.SweepJobs.SweepResultsFlowE2ETest do
       )
       |> Ash.create()
 
-    assert {:ok, _stats} =
-             SweepResultsIngestor.ingest_results(
-               [
-                 %{
-                   "host_ip" => ip,
-                   "available" => false,
-                   "icmp_status" => %{"available" => false}
-                 }
-               ],
-               Ash.UUID.generate(),
-               actor: actor,
-               sweep_group_id: group.id,
-               agent_id: agent_id,
-               config_version: "hash-isolation-#{unique_id}"
-             )
+    # Marking a device unavailable requires @unavailable_threshold (2) consecutive
+    # failed sweeps; one failure only increments the counter. Sweep twice so this
+    # test asserts partition isolation rather than tripping over hysteresis.
+    for attempt <- 1..2 do
+      assert {:ok, _stats} =
+               SweepResultsIngestor.ingest_results(
+                 [
+                   %{
+                     "host_ip" => ip,
+                     "available" => false,
+                     "icmp_status" => %{"available" => false}
+                   }
+                 ],
+                 Ash.UUID.generate(),
+                 actor: actor,
+                 sweep_group_id: group.id,
+                 agent_id: agent_id,
+                 config_version: "hash-isolation-#{attempt}-#{unique_id}"
+               )
+    end
 
     {:ok, monitoring_after} = Device.get_by_uid(monitoring.uid, false, actor: actor)
     {:ok, isolation_after} = Device.get_by_uid(isolation.uid, false, actor: actor)
@@ -1437,7 +1442,7 @@ defmodule ServiceRadar.SweepJobs.SweepResultsFlowE2ETest do
     unique_id = Ash.UUID.generate()
     ip = unique_ip("cooldown-#{unique_id}")
     mapper_job_name = "mapper-cooldown-#{unique_id}"
-    partition = "partition-cooldown-#{unique_id}"
+    partition = "default"
 
     {:ok, _agent} =
       Agent
@@ -1508,7 +1513,7 @@ defmodule ServiceRadar.SweepJobs.SweepResultsFlowE2ETest do
     unique_id = Ash.UUID.generate()
     ip = unique_ip("interval-#{unique_id}")
     mapper_job_name = "mapper-interval-#{unique_id}"
-    partition = "partition-interval-#{unique_id}"
+    partition = "default"
 
     {:ok, _agent} =
       Agent
@@ -1575,7 +1580,7 @@ defmodule ServiceRadar.SweepJobs.SweepResultsFlowE2ETest do
   } do
     unique_id = Ash.UUID.generate()
     ip = unique_ip("self-#{unique_id}")
-    partition = "partition-self-#{unique_id}"
+    partition = "default"
     device_uid = "device-self-#{unique_id}"
 
     {:ok, _agent} =
@@ -1663,7 +1668,7 @@ defmodule ServiceRadar.SweepJobs.SweepResultsFlowE2ETest do
   } do
     unique_id = Ash.UUID.generate()
     ip = unique_ip("skip-#{unique_id}")
-    partition = "partition-skip-#{unique_id}"
+    partition = "default"
 
     {:ok, group} =
       SweepGroup
