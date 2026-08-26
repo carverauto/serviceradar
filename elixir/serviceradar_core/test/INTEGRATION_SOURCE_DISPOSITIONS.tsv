@@ -418,6 +418,7 @@ test/serviceradar/inventory/sync/lookups_enrichment_test.exs	-	not_selected	load
 test/serviceradar/inventory/sync/mac_vendor_test.exs	-	not_selected	load_only	not_selected	Static selection audit: this ALL_TEST_SRCS source has zero :integration/:requires_app identities; formatter not run.
 test/serviceradar/inventory/sync/source_policy_census_test.exs	-	not_selected	load_only	not_selected	Static selection audit: this ALL_TEST_SRCS source has zero :integration/:requires_app identities; formatter not run.
 test/serviceradar/inventory/sync/source_policy_mdns_test.exs	-	not_selected	load_only	not_selected	Static selection audit: this ALL_TEST_SRCS source has zero :integration/:requires_app identities; formatter not run.
+test/serviceradar/inventory/sync/source_policy_self_report_test.exs	-	not_selected	load_only	not_selected	Static selection audit: this ALL_TEST_SRCS source has zero :integration/:requires_app identities; formatter not run.
 test/serviceradar/inventory/sync_batch_resolution_test.exs	ServiceRadar.Inventory.SyncBatchResolutionTest	data_case	async	transaction_owner	test:14 DataCase owner; no database child
 test/serviceradar/inventory/sync_ingestor_active_ip_cross_handoff_test.exs	ServiceRadar.Inventory.SyncIngestorActiveIpCrossHandoffTest	data_case	serial	unboxed	test:11-23 module unboxed; test:97-107 drives real Task transactions
 test/serviceradar/inventory/sync_ingestor_agent_id_test.exs	ServiceRadar.Inventory.SyncIngestorAgentIdTest	data_case	async	transaction_owner	test:7 DataCase owner; no database child
