@@ -12,7 +12,15 @@ export default {
   reporter: "line",
   // Bound the browser work independently of Bazel's large-test allowance while
   // leaving room for cold RBE Chromium startup and the final trace flush.
-  timeout: 420_000,
+  //
+  // Six phases of real WebGL rendering, and each managed fit now measures whether its
+  // visual density actually holds at the scale the scene fits into rather than assuming
+  // it. That costs a label-free probe per candidate density on scenes that must step down.
+  // Measured ~426s here against the previous 420s bound, which had left ~10% over the
+  // then-380s suite. Raised to keep a real margin over run-to-run RBE variance (~20s
+  // observed) instead of sitting on the edge, and still well inside the 900s Bazel allows
+  // a large test, so Bazel's timeout stays the outer bound.
+  timeout: 600_000,
   use: {
     headless: true,
   },
