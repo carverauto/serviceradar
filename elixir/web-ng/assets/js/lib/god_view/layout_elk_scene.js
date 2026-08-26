@@ -8,6 +8,20 @@ const COMPOUND_BETWEEN_LAYER_SPACING = 112
 const BETWEEN_LAYER_ROUTE_CLEARANCE = 104
 // ELK works in world units while route strokes and glyph halos remain fixed CSS
 // pixels. Matching the sibling corridor keeps fitted routes clear of 20px halos.
+// The endpoint-cluster summary node is named with the cluster id itself, and the compound
+// group that holds it is keyed by that same cluster id -- so the container and one of its own
+// children arrive at ELK sharing an identifier. `indexElkResult` keys by id, the child is
+// indexed after its parent, and every lookup for the container then resolves to a 96x96 leaf
+// instead of the box ELK actually laid out. That misreads every member as outside its group
+// and resolves in-group edge origins against the wrong point, which is both halves of
+// "invalid topology scene: node ... is outside group ...; route ... does not contact bound
+// ELK port ...". Namespace the container so a node id can never shadow it.
+const ELK_GROUP_CONTAINER_PREFIX = "elk-group:"
+
+export function elkGroupContainerId(groupId) {
+  return `${ELK_GROUP_CONTAINER_PREFIX}${groupId}`
+}
+
 export const ROUTE_CLEARANCE = 96
 export const INTERSECTION_EPSILON = 0.01
 const FIXED_RANDOM_SEED = 1729
@@ -365,7 +379,7 @@ export function buildElkSceneGraph(sceneInput, profile = LANDSCAPE_PROFILE) {
     const manifoldSpecs = childIds.flatMap((id) => manifoldsByNodeId.get(id) || [])
 
     return {
-      id: group.id,
+      id: elkGroupContainerId(group.id),
       layoutOptions: elkLayoutOptions(profile, "endpoint-group"),
       children: [
         ...childIds.map((id) => elkLeaf(
@@ -649,7 +663,7 @@ export function decodeElkScene(elkResult, sceneInput) {
   const groups = [...(sceneInput?.groups || [])]
     .filter((group) => group.expanded)
     .map((group) => {
-      const decoded = elements.get(group.id)
+      const decoded = elements.get(elkGroupContainerId(group.id))
       const width = finiteOrNaN(decoded?.node?.width)
       const height = finiteOrNaN(decoded?.node?.height)
       const originX = finiteOrNaN(decoded?.origin?.x)
