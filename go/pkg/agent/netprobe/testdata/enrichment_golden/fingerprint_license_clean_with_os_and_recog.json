@@ -1,0 +1,27 @@
+{
+  "ip": "10.20.30.46",
+  "metadata": {
+    "_alias_collector_ip": "10.20.30.40",
+    "_alias_last_seen_at": "2026-08-23T15:46:40Z",
+    "_alias_last_seen_ip": "10.20.30.46",
+    "agent_id": "agent-synthetic-1",
+    "discovery_source": "passive-netprobe",
+    "gateway_id": "gateway-synthetic-1",
+    "ip_alias:10.20.30.46": "2026-08-23T15:46:40Z",
+    "passive_fingerprint.observed_at": "2026-08-23T15:46:40Z",
+    "passive_fingerprint.observed_at_unix_nano": "1787500000000000000",
+    "passive_fingerprint.os.confidence": "0.750",
+    "passive_fingerprint.os.family": "synthetic",
+    "passive_fingerprint.os.name": "Synthetic OS",
+    "passive_fingerprint.os.version_range": "1.x",
+    "passive_fingerprint.protocol": "license_clean",
+    "passive_fingerprint.recog.http.os_family": "synthetic",
+    "passive_fingerprint.recog.http.product": "synthetic-httpd",
+    "passive_fingerprint.recog.http.version": "1.2",
+    "passive_fingerprint.recog.ssh.os_family": "",
+    "passive_fingerprint.recog.ssh.product": "synthetic-sshd",
+    "passive_fingerprint.recog.ssh.version": "9.9",
+    "passive_fingerprint.source": "passive-netprobe",
+    "source": "passive-netprobe"
+  }
+}

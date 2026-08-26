@@ -165,13 +165,17 @@ path_belongs_to_addon() {
       # it here the gate would let a changed artifact ship under an unchanged
       # version -- the false negative it exists to prevent.
       case "${path}" in
-        addons/netprobe/*|rust/netprobe/*) return 0 ;;
+        addons/netprobe/*|rust/netprobe/*|rust/addon-sdk/*) return 0 ;;
         third_party/netprobe_ebpf_vendor/*) return 0 ;;
       esac
       ;;
     powerdns)
+      # rust/addon-sdk is compiled INTO this binary, so a change there changes
+      # the shipped artifact exactly as a change to the add-on's own crate does.
+      # Without it the gate has a false negative: SDK code that alters several
+      # add-ons at once, under unchanged versions for all of them.
       case "${path}" in
-        addons/powerdns/*|rust/powerdns/*) return 0 ;;
+        addons/powerdns/*|rust/powerdns/*|rust/addon-sdk/*) return 0 ;;
       esac
       ;;
     workload-identity)
@@ -195,13 +199,21 @@ path_belongs_to_addon() {
       esac
       ;;
     anomaly)
+      # rust/addon-sdk is compiled INTO this binary, so a change there changes
+      # the shipped artifact exactly as a change to the add-on's own crate does.
+      # Without it the gate has a false negative: SDK code that alters several
+      # add-ons at once, under unchanged versions for all of them.
       case "${path}" in
-        addons/anomaly-addon/*|rust/anomaly-addon/*) return 0 ;;
+        addons/anomaly-addon/*|rust/anomaly-addon/*|rust/addon-sdk/*) return 0 ;;
       esac
       ;;
     otel-collector)
+      # rust/addon-sdk is compiled INTO this binary, so a change there changes
+      # the shipped artifact exactly as a change to the add-on's own crate does.
+      # Without it the gate has a false negative: SDK code that alters several
+      # add-ons at once, under unchanged versions for all of them.
       case "${path}" in
-        addons/otel-collector/*|rust/otel-addon/*|rust/otel/*) return 0 ;;
+        addons/otel-collector/*|rust/otel-addon/*|rust/otel/*|rust/addon-sdk/*) return 0 ;;
       esac
       ;;
   esac

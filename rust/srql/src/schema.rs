@@ -199,6 +199,7 @@ diesel::table! {
         discovery_sources -> Nullable<Array<Text>>,
         is_available -> Nullable<Bool>,
         is_active -> Nullable<Bool>,
+        tags -> Nullable<Jsonb>,
         metadata -> Nullable<Jsonb>,
         deleted_at -> Nullable<Timestamptz>,
         deleted_by -> Nullable<Text>,
@@ -421,7 +422,7 @@ diesel::table! {
     use diesel::pg::sql_types::Array;
     use diesel::sql_types::*;
 
-    discovered_interfaces (timestamp, device_id, interface_uid) {
+    discovered_interfaces (device_id, interface_uid) {
         timestamp -> Timestamptz,
         agent_id -> Nullable<Text>,
         gateway_id -> Nullable<Text>,

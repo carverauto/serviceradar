@@ -1,7 +1,7 @@
 defmodule ServiceRadar.FlowAttribution.EventRows do
   @moduledoc false
 
-  alias Netprobepb.FlowAttributionEvent
+  alias Serviceradar.Agent.Netprobe.V1.FlowAttributionEvent
 
   @spec from_event(FlowAttributionEvent.t() | term(), String.t() | nil, String.t() | nil) ::
           map() | nil

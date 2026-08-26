@@ -5,7 +5,7 @@ use crate::query::flows::{
 use crate::{
     error::{Result, ServiceError},
     parser::{DownsampleAgg, Entity},
-    query::QueryPlan,
+    query::{QueryPlan, filters_common::is_valid_jsonb_key},
 };
 
 pub(super) fn resolve_value_column(
@@ -154,10 +154,25 @@ pub(super) fn series_expr(plan: &QueryPlan, table: &str) -> Result<String> {
                 "device_id" => "device_id".to_string(),
                 "gateway_id" => "gateway_id".to_string(),
                 "agent_id" => "agent_id".to_string(),
+                // Pre-existing alias for `tags.core_id`, retained because
+                // callers depend on the shorter spelling.
                 "core_id" => "tags->>'core_id'".to_string(),
                 "partition" => "partition".to_string(),
                 "target_device_ip" => "target_device_ip".to_string(),
                 "if_index" => "if_index::text".to_string(),
+                // Split by an arbitrary tag. This expression is interpolated
+                // into the SELECT and GROUP BY lists, so the key is validated
+                // before it can reach the string — same rule as tag filtering
+                // and tag grouping.
+                candidate if candidate.starts_with("tags.") => {
+                    let key = candidate.strip_prefix("tags.").unwrap_or_default();
+                    if !is_valid_jsonb_key(key) {
+                        return Err(ServiceError::InvalidRequest(format!(
+                            "invalid tag key '{key}' in series field"
+                        )));
+                    }
+                    format!("tags->>'{key}'")
+                }
                 other => {
                     return Err(ServiceError::InvalidRequest(format!(
                         "unsupported series field '{other}' for {table}"

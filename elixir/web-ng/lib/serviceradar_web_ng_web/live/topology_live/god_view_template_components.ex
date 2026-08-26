@@ -8,7 +8,7 @@ defmodule ServiceRadarWebNGWeb.TopologyLive.GodViewTemplateComponents do
       <:header>
         <div class="text-sm font-semibold">Topology Surface</div>
       </:header>
-      <div class="relative">
+      <div class="relative" data-god-view-safe-root="true">
         <div
           id="god-view-binary-stream"
           phx-hook="GodViewBinaryStream"
@@ -42,6 +42,7 @@ defmodule ServiceRadarWebNGWeb.TopologyLive.GodViewTemplateComponents do
           :if={backbone_warning = backbone_empty_warning(@pipeline_stats)}
           id="god-view-backbone-empty-warning"
           class="pointer-events-none absolute inset-x-0 top-3 z-10 flex justify-center px-3"
+          data-god-view-safe-area="top"
           data-testid="backbone-empty-warning"
         >
           <div
@@ -73,6 +74,7 @@ defmodule ServiceRadarWebNGWeb.TopologyLive.GodViewTemplateComponents do
           id="god-view-controls"
           phx-hook="GodViewControlsState"
           data-collapsed={to_string(@controls_collapsed)}
+          data-god-view-safe-area="right"
           class="absolute right-3 top-3 z-20 pointer-events-auto"
         >
           <div class="w-[220px] rounded-lg border border-sr-line/70 bg-sr-surface/85 p-2 shadow-lg backdrop-blur-md">

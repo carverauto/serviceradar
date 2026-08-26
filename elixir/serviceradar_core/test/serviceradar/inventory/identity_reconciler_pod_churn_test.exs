@@ -15,7 +15,7 @@ defmodule ServiceRadar.Inventory.IdentityReconcilerPodChurnTest do
   resurrecting the tombstone.
   """
 
-  use ServiceRadar.DataCase, async: false
+  use ServiceRadar.DataCase, async: true
 
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Edge.AgentGatewaySync

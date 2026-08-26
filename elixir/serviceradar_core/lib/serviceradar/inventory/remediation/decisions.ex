@@ -528,4 +528,83 @@ defmodule ServiceRadar.Inventory.Remediation.Decisions do
       partition: partition
     })
   end
+
+  @doc """
+  Which `ip_alias:` keys on a device are netprobe over-merge debris.
+
+  Returns `{:skip, reason}` or `{:purge, [address]}`. Fail-closed: every guard
+  below removes a way for a LEGITIMATE alias to be mistaken for debris, and an
+  alias left behind costs nothing that a later run cannot take.
+
+  The defect: a passive netprobe fingerprint used to identify the COLLECTOR that
+  observed it rather than the host it described (fixed forward in the
+  `passive-netprobe` enrichment-only classification), leaving the observed host's
+  address as an `ip_alias:` on the collector's own device.
+
+  There is NO provenance to key on -- `device_alias_states` has no source column,
+  and `ip_alias:` keys have five writers. So each guard rules out one writer or
+  one legitimate shape:
+
+    * `:not_netprobe` -- the device never took a passive-netprobe update, so
+      netprobe cannot be responsible for anything on it.
+    * `:mapper_wrote_here` -- the mapper is the other writer of foreign-looking
+      `ip_alias:` keys, and it writes a device's OWN alternate addresses. If it
+      ever wrote to this device we cannot attribute any single key.
+    * `:router_role` -- for router-role devices the mapper deliberately records
+      the device's own interface addresses as `ip_alias:` and NOWHERE else, so
+      every other guard is vacuous for exactly that population. A multi-homed
+      gateway is also where netprobe is most likely to run, which is what makes
+      this the dangerous case rather than an unlikely one.
+    * `:no_addresses` -- nothing to do.
+
+  and per address:
+
+    * an address equal to the device's own `ip` is its self-alias, never debris;
+    * an address with NO device of its own is NOT purged. It may be the only
+      record that the address was ever seen, and this pass is not allowed to be
+      the thing that loses it.
+  """
+  @spec plan_netprobe_alias_purge(map()) :: {:skip, atom()} | {:purge, [String.t()]}
+  def plan_netprobe_alias_purge(device) when is_map(device) do
+    sources = device[:discovery_sources] || []
+    own_ip = trim(device[:ip])
+
+    cond do
+      "passive-netprobe" not in sources ->
+        {:skip, :not_netprobe}
+
+      "mapper" in sources ->
+        {:skip, :mapper_wrote_here}
+
+      router_role?(device) ->
+        {:skip, :router_role}
+
+      true ->
+        purgeable =
+          device
+          |> Map.get(:foreign_aliases, [])
+          |> Enum.map(&trim/1)
+          |> Enum.reject(&(&1 == "" or &1 == own_ip))
+          |> Enum.filter(&(&1 in (device[:addresses_with_own_device] || [])))
+          |> Enum.uniq()
+
+        if purgeable == [], do: {:skip, :no_addresses}, else: {:purge, purgeable}
+    end
+  end
+
+  defp router_role?(device) do
+    metadata = device[:metadata] || %{}
+
+    role =
+      metadata
+      |> Map.get("device_role", Map.get(metadata, "_device_role"))
+      |> to_string()
+      |> String.downcase()
+      |> String.trim()
+
+    role == "router"
+  end
+
+  defp trim(nil), do: ""
+  defp trim(value), do: value |> to_string() |> String.trim()
 end

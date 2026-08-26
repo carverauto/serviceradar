@@ -20,7 +20,7 @@ PUBLISHABLE_IMAGES = [
     {
         "image": "cnpg_image_amd64",
         "repository": "registry.carverauto.dev/serviceradar/serviceradar-cnpg",
-        "static_tags": ["18.3.0-sr5"],
+        "static_tags": ["18.4.0-sr4"],
     },
     {
         "image": "cnpg_analytics_image_amd64",

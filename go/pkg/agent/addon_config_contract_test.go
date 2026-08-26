@@ -108,6 +108,25 @@ func TestAddonConfigContract_Netprobe(t *testing.T) {
 	require.Equal(t, uint32(1500), cfg.GetExternalFlowMatchWindowMs())
 	require.True(t, cfg.GetFlowAttributionIpcBatch())
 	require.False(t, cfg.GetEmitRawFlowAttributionEvents())
+
+	// dpi and device_bindings are declared by config.schema.json and emitted by
+	// the control plane, but the agent's addonConfig decoded neither until now --
+	// so an operator setting them through the add-on surface had them silently
+	// ignored, with nothing erroring because an absent field keeps its base
+	// value. Asserted here so the whole path stays exercised end to end.
+	require.True(t, cfg.GetDpi().GetEnabled())
+	require.Equal(t, []string{"tls", "http"}, cfg.GetDpi().GetProtocols())
+
+	bindings := cfg.GetDeviceBindings()
+	require.Len(t, bindings, 1)
+	require.Equal(t, "192.168.1.10", bindings[0].GetIp())
+	require.Equal(t, "camera-profile", bindings[0].GetProfileId())
+	require.Equal(t, uint32(500), bindings[0].GetSampleIntervalMs())
+	require.True(t, bindings[0].GetFingerprint().GetTcp())
+	require.True(t, bindings[0].GetFingerprint().GetTls())
+	require.False(t, bindings[0].GetFingerprint().GetHttp())
+	require.True(t, bindings[0].GetDpi().GetEnabled())
+	require.Equal(t, []string{"dns"}, bindings[0].GetDpi().GetProtocols())
 }
 
 func TestAddonConfigContract_BumblebeeScan(t *testing.T) {

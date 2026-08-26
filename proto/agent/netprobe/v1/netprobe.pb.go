@@ -116,6 +116,7 @@ type NetprobeFrame struct {
 	//	*NetprobeFrame_ExternalFlowAck
 	//	*NetprobeFrame_FlowAttributionBatch
 	//	*NetprobeFrame_DeviceCensusSnapshot
+	//	*NetprobeFrame_MdnsSnapshot
 	Payload       isNetprobeFrame_Payload `protobuf_oneof:"payload"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -318,6 +319,15 @@ func (x *NetprobeFrame) GetDeviceCensusSnapshot() *DeviceCensusSnapshot {
 	return nil
 }
 
+func (x *NetprobeFrame) GetMdnsSnapshot() *MdnsSnapshot {
+	if x != nil {
+		if x, ok := x.Payload.(*NetprobeFrame_MdnsSnapshot); ok {
+			return x.MdnsSnapshot
+		}
+	}
+	return nil
+}
+
 type isNetprobeFrame_Payload interface {
 	isNetprobeFrame_Payload()
 }
@@ -392,6 +402,10 @@ type NetprobeFrame_DeviceCensusSnapshot struct {
 	DeviceCensusSnapshot *DeviceCensusSnapshot `protobuf:"bytes,30,opt,name=device_census_snapshot,json=deviceCensusSnapshot,proto3,oneof"`
 }
 
+type NetprobeFrame_MdnsSnapshot struct {
+	MdnsSnapshot *MdnsSnapshot `protobuf:"bytes,31,opt,name=mdns_snapshot,json=mdnsSnapshot,proto3,oneof"`
+}
+
 func (*NetprobeFrame_ApplyConfig) isNetprobeFrame_Payload() {}
 
 func (*NetprobeFrame_ConfigAck) isNetprobeFrame_Payload() {}
@@ -425,6 +439,8 @@ func (*NetprobeFrame_ExternalFlowAck) isNetprobeFrame_Payload() {}
 func (*NetprobeFrame_FlowAttributionBatch) isNetprobeFrame_Payload() {}
 
 func (*NetprobeFrame_DeviceCensusSnapshot) isNetprobeFrame_Payload() {}
+
+func (*NetprobeFrame_MdnsSnapshot) isNetprobeFrame_Payload() {}
 
 type ApplyConfig struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
@@ -756,8 +772,25 @@ type VisibilityAgentConfig struct {
 	ExternalFlowMatchWindowMs    uint32                 `protobuf:"varint,42,opt,name=external_flow_match_window_ms,json=externalFlowMatchWindowMs,proto3" json:"external_flow_match_window_ms,omitempty"`
 	FlowAttributionIpcBatch      bool                   `protobuf:"varint,43,opt,name=flow_attribution_ipc_batch,json=flowAttributionIpcBatch,proto3" json:"flow_attribution_ipc_batch,omitempty"`
 	EmitRawFlowAttributionEvents bool                   `protobuf:"varint,44,opt,name=emit_raw_flow_attribution_events,json=emitRawFlowAttributionEvents,proto3" json:"emit_raw_flow_attribution_events,omitempty"`
-	unknownFields                protoimpl.UnknownFields
-	sizeCache                    protoimpl.SizeCache
+	// The address of the host netprobe is running on, stamped by the agent from
+	// its own configuration.
+	//
+	// netprobe cannot work this out for itself -- it has no notion of "the" host
+	// address, and picking one from a capture interface would be a guess that
+	// disagrees with the identity the agent already reports under. Two things need
+	// it, and both are wrong without it:
+	//
+	//   - DPI subject selection. A DPI event has two endpoints and the device is a
+	//     choice between them; the collector's own address wins when it is either
+	//     one. Core cannot make that choice (it has no attested collector address),
+	//     so netprobe must, before it sends.
+	//   - The process snapshot's subject, which IS this host.
+	//
+	// Empty means neither can be done and the affected payloads are not emitted,
+	// rather than emitted against a guessed subject.
+	CollectorIp   string `protobuf:"bytes,48,opt,name=collector_ip,json=collectorIp,proto3" json:"collector_ip,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *VisibilityAgentConfig) Reset() {
@@ -858,6 +891,13 @@ func (x *VisibilityAgentConfig) GetEmitRawFlowAttributionEvents() bool {
 		return x.EmitRawFlowAttributionEvents
 	}
 	return false
+}
+
+func (x *VisibilityAgentConfig) GetCollectorIp() string {
+	if x != nil {
+		return x.CollectorIp
+	}
+	return ""
 }
 
 type DeviceBinding struct {
@@ -3537,6 +3577,315 @@ func (x *BannerMatchBatch) GetMatches() []*BannerMatch {
 	return nil
 }
 
+// One TXT attribute from an mDNS announcement.
+//
+// A pair rather than a map entry because RFC 6763 6.4 gives three distinct
+// meanings that a map<string,string> collapses into two: `key` means the
+// attribute is present with no value (boolean true), `key=` means present with
+// an empty value, and those are different claims about the device. `has_value`
+// preserves that.
+type MdnsTxtPair struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Key           string                 `protobuf:"bytes,1,opt,name=key,proto3" json:"key,omitempty"`
+	Value         string                 `protobuf:"bytes,2,opt,name=value,proto3" json:"value,omitempty"`
+	HasValue      bool                   `protobuf:"varint,3,opt,name=has_value,json=hasValue,proto3" json:"has_value,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *MdnsTxtPair) Reset() {
+	*x = MdnsTxtPair{}
+	mi := &file_agent_netprobe_v1_netprobe_proto_msgTypes[36]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *MdnsTxtPair) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*MdnsTxtPair) ProtoMessage() {}
+
+func (x *MdnsTxtPair) ProtoReflect() protoreflect.Message {
+	mi := &file_agent_netprobe_v1_netprobe_proto_msgTypes[36]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use MdnsTxtPair.ProtoReflect.Descriptor instead.
+func (*MdnsTxtPair) Descriptor() ([]byte, []int) {
+	return file_agent_netprobe_v1_netprobe_proto_rawDescGZIP(), []int{36}
+}
+
+func (x *MdnsTxtPair) GetKey() string {
+	if x != nil {
+		return x.Key
+	}
+	return ""
+}
+
+func (x *MdnsTxtPair) GetValue() string {
+	if x != nil {
+		return x.Value
+	}
+	return ""
+}
+
+func (x *MdnsTxtPair) GetHasValue() bool {
+	if x != nil {
+		return x.HasValue
+	}
+	return false
+}
+
+// What one device has advertised about itself over mDNS.
+//
+// This is EVIDENCE, not identity. Instance names are user-settable and services
+// are shared between products, so nothing here may create or merge a device --
+// it enriches one the passive census already bound to a MAC.
+type MdnsDevice struct {
+	state          protoimpl.MessageState `protogen:"open.v1"`
+	Mac            string                 `protobuf:"bytes,1,opt,name=mac,proto3" json:"mac,omitempty"`
+	Ip             string                 `protobuf:"bytes,2,opt,name=ip,proto3" json:"ip,omitempty"`
+	InterfaceIndex uint32                 `protobuf:"varint,3,opt,name=interface_index,json=interfaceIndex,proto3" json:"interface_index,omitempty"`
+	// Sorted and deduplicated, e.g. "_airplay._tcp", "_googlecast._tcp".
+	ServiceTypes []string `protobuf:"bytes,4,rep,name=service_types,json=serviceTypes,proto3" json:"service_types,omitempty"`
+	// Allowlisted keys only. Devices put serial numbers and auth tokens in TXT,
+	// so netprobe collects a closed set that names a product and nothing else.
+	Txt []*MdnsTxtPair `protobuf:"bytes,5,rep,name=txt,proto3" json:"txt,omitempty"`
+	// Every distinct model string seen from this MAC, sorted.
+	//
+	// A set rather than one value because HomeKit relays announcements for paired
+	// accessories: one MAC on a live segment advertised both B620AP (HomePod
+	// mini) and J255AP (Apple TV).
+	Models []string `protobuf:"bytes,6,rep,name=models,proto3" json:"models,omitempty"`
+	// True when models holds more than one entry. Core must not assign a device
+	// type from an ambiguous device: the evidence says this MAC speaks for two
+	// products, not that the device is one of them.
+	AmbiguousModel    bool  `protobuf:"varint,7,opt,name=ambiguous_model,json=ambiguousModel,proto3" json:"ambiguous_model,omitempty"`
+	FirstSeenUnixNano int64 `protobuf:"varint,8,opt,name=first_seen_unix_nano,json=firstSeenUnixNano,proto3" json:"first_seen_unix_nano,omitempty"`
+	LastSeenUnixNano  int64 `protobuf:"varint,9,opt,name=last_seen_unix_nano,json=lastSeenUnixNano,proto3" json:"last_seen_unix_nano,omitempty"`
+	// At least one announcement from this device exceeded netprobe's copy cap, so
+	// a model may exist in bytes that were never read. A receiver should wait for
+	// another announcement rather than concluding the device sent none.
+	Truncated     bool `protobuf:"varint,10,opt,name=truncated,proto3" json:"truncated,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *MdnsDevice) Reset() {
+	*x = MdnsDevice{}
+	mi := &file_agent_netprobe_v1_netprobe_proto_msgTypes[37]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *MdnsDevice) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*MdnsDevice) ProtoMessage() {}
+
+func (x *MdnsDevice) ProtoReflect() protoreflect.Message {
+	mi := &file_agent_netprobe_v1_netprobe_proto_msgTypes[37]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use MdnsDevice.ProtoReflect.Descriptor instead.
+func (*MdnsDevice) Descriptor() ([]byte, []int) {
+	return file_agent_netprobe_v1_netprobe_proto_rawDescGZIP(), []int{37}
+}
+
+func (x *MdnsDevice) GetMac() string {
+	if x != nil {
+		return x.Mac
+	}
+	return ""
+}
+
+func (x *MdnsDevice) GetIp() string {
+	if x != nil {
+		return x.Ip
+	}
+	return ""
+}
+
+func (x *MdnsDevice) GetInterfaceIndex() uint32 {
+	if x != nil {
+		return x.InterfaceIndex
+	}
+	return 0
+}
+
+func (x *MdnsDevice) GetServiceTypes() []string {
+	if x != nil {
+		return x.ServiceTypes
+	}
+	return nil
+}
+
+func (x *MdnsDevice) GetTxt() []*MdnsTxtPair {
+	if x != nil {
+		return x.Txt
+	}
+	return nil
+}
+
+func (x *MdnsDevice) GetModels() []string {
+	if x != nil {
+		return x.Models
+	}
+	return nil
+}
+
+func (x *MdnsDevice) GetAmbiguousModel() bool {
+	if x != nil {
+		return x.AmbiguousModel
+	}
+	return false
+}
+
+func (x *MdnsDevice) GetFirstSeenUnixNano() int64 {
+	if x != nil {
+		return x.FirstSeenUnixNano
+	}
+	return 0
+}
+
+func (x *MdnsDevice) GetLastSeenUnixNano() int64 {
+	if x != nil {
+		return x.LastSeenUnixNano
+	}
+	return 0
+}
+
+func (x *MdnsDevice) GetTruncated() bool {
+	if x != nil {
+		return x.Truncated
+	}
+	return false
+}
+
+// A COMPLETE current-state view of what one interface's segment has advertised.
+//
+// Complete for the same reason the census is: absence has to mean "this device
+// stopped announcing" rather than "it was quiet during one tick".
+type MdnsSnapshot struct {
+	state               protoimpl.MessageState `protogen:"open.v1"`
+	Devices             []*MdnsDevice          `protobuf:"bytes,1,rep,name=devices,proto3" json:"devices,omitempty"`
+	SnapshotId          string                 `protobuf:"bytes,2,opt,name=snapshot_id,json=snapshotId,proto3" json:"snapshot_id,omitempty"`
+	InterfaceName       string                 `protobuf:"bytes,3,opt,name=interface_name,json=interfaceName,proto3" json:"interface_name,omitempty"`
+	GeneratedAtUnixNano int64                  `protobuf:"varint,4,opt,name=generated_at_unix_nano,json=generatedAtUnixNano,proto3" json:"generated_at_unix_nano,omitempty"`
+	// False when the snapshot had to be split across frames; only the frame that
+	// sets this completes the set.
+	Complete   bool   `protobuf:"varint,5,opt,name=complete,proto3" json:"complete,omitempty"`
+	ChunkIndex uint32 `protobuf:"varint,6,opt,name=chunk_index,json=chunkIndex,proto3" json:"chunk_index,omitempty"`
+	ChunkCount uint32 `protobuf:"varint,7,opt,name=chunk_count,json=chunkCount,proto3" json:"chunk_count,omitempty"`
+	// Announcements the kernel ring dropped since the previous snapshot.
+	DroppedSinceLast uint32 `protobuf:"varint,8,opt,name=dropped_since_last,json=droppedSinceLast,proto3" json:"dropped_since_last,omitempty"`
+	unknownFields    protoimpl.UnknownFields
+	sizeCache        protoimpl.SizeCache
+}
+
+func (x *MdnsSnapshot) Reset() {
+	*x = MdnsSnapshot{}
+	mi := &file_agent_netprobe_v1_netprobe_proto_msgTypes[38]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *MdnsSnapshot) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*MdnsSnapshot) ProtoMessage() {}
+
+func (x *MdnsSnapshot) ProtoReflect() protoreflect.Message {
+	mi := &file_agent_netprobe_v1_netprobe_proto_msgTypes[38]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use MdnsSnapshot.ProtoReflect.Descriptor instead.
+func (*MdnsSnapshot) Descriptor() ([]byte, []int) {
+	return file_agent_netprobe_v1_netprobe_proto_rawDescGZIP(), []int{38}
+}
+
+func (x *MdnsSnapshot) GetDevices() []*MdnsDevice {
+	if x != nil {
+		return x.Devices
+	}
+	return nil
+}
+
+func (x *MdnsSnapshot) GetSnapshotId() string {
+	if x != nil {
+		return x.SnapshotId
+	}
+	return ""
+}
+
+func (x *MdnsSnapshot) GetInterfaceName() string {
+	if x != nil {
+		return x.InterfaceName
+	}
+	return ""
+}
+
+func (x *MdnsSnapshot) GetGeneratedAtUnixNano() int64 {
+	if x != nil {
+		return x.GeneratedAtUnixNano
+	}
+	return 0
+}
+
+func (x *MdnsSnapshot) GetComplete() bool {
+	if x != nil {
+		return x.Complete
+	}
+	return false
+}
+
+func (x *MdnsSnapshot) GetChunkIndex() uint32 {
+	if x != nil {
+		return x.ChunkIndex
+	}
+	return 0
+}
+
+func (x *MdnsSnapshot) GetChunkCount() uint32 {
+	if x != nil {
+		return x.ChunkCount
+	}
+	return 0
+}
+
+func (x *MdnsSnapshot) GetDroppedSinceLast() uint32 {
+	if x != nil {
+		return x.DroppedSinceLast
+	}
+	return 0
+}
+
 // One device the passive census currently believes is present on a segment.
 type DeviceCensusObservation struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
@@ -3560,7 +3909,7 @@ type DeviceCensusObservation struct {
 
 func (x *DeviceCensusObservation) Reset() {
 	*x = DeviceCensusObservation{}
-	mi := &file_agent_netprobe_v1_netprobe_proto_msgTypes[36]
+	mi := &file_agent_netprobe_v1_netprobe_proto_msgTypes[39]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3572,7 +3921,7 @@ func (x *DeviceCensusObservation) String() string {
 func (*DeviceCensusObservation) ProtoMessage() {}
 
 func (x *DeviceCensusObservation) ProtoReflect() protoreflect.Message {
-	mi := &file_agent_netprobe_v1_netprobe_proto_msgTypes[36]
+	mi := &file_agent_netprobe_v1_netprobe_proto_msgTypes[39]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3585,7 +3934,7 @@ func (x *DeviceCensusObservation) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DeviceCensusObservation.ProtoReflect.Descriptor instead.
 func (*DeviceCensusObservation) Descriptor() ([]byte, []int) {
-	return file_agent_netprobe_v1_netprobe_proto_rawDescGZIP(), []int{36}
+	return file_agent_netprobe_v1_netprobe_proto_rawDescGZIP(), []int{39}
 }
 
 func (x *DeviceCensusObservation) GetMac() string {
@@ -3669,7 +4018,7 @@ type DeviceCensusSnapshot struct {
 
 func (x *DeviceCensusSnapshot) Reset() {
 	*x = DeviceCensusSnapshot{}
-	mi := &file_agent_netprobe_v1_netprobe_proto_msgTypes[37]
+	mi := &file_agent_netprobe_v1_netprobe_proto_msgTypes[40]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3681,7 +4030,7 @@ func (x *DeviceCensusSnapshot) String() string {
 func (*DeviceCensusSnapshot) ProtoMessage() {}
 
 func (x *DeviceCensusSnapshot) ProtoReflect() protoreflect.Message {
-	mi := &file_agent_netprobe_v1_netprobe_proto_msgTypes[37]
+	mi := &file_agent_netprobe_v1_netprobe_proto_msgTypes[40]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3694,7 +4043,7 @@ func (x *DeviceCensusSnapshot) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DeviceCensusSnapshot.ProtoReflect.Descriptor instead.
 func (*DeviceCensusSnapshot) Descriptor() ([]byte, []int) {
-	return file_agent_netprobe_v1_netprobe_proto_rawDescGZIP(), []int{37}
+	return file_agent_netprobe_v1_netprobe_proto_rawDescGZIP(), []int{40}
 }
 
 func (x *DeviceCensusSnapshot) GetObservations() []*DeviceCensusObservation {
@@ -3753,11 +4102,241 @@ func (x *DeviceCensusSnapshot) GetDroppedSinceLast() uint32 {
 	return 0
 }
 
+// Payload of a `serviceradar.netprobe.fingerprint.v1` DiscoveryEnvelope.
+//
+// A batch of independent EVENTS, not a snapshot: a fingerprint is a sighting,
+// and there is no complete-view-of-a-segment to supersede. The envelope's
+// snapshot/part fields are therefore set for framing only -- nothing downstream
+// treats a fingerprint batch as replacing its predecessor.
+type FingerprintEventBatch struct {
+	state              protoimpl.MessageState `protogen:"open.v1"`
+	Events             []*FingerprintEvent    `protobuf:"bytes,1,rep,name=events,proto3" json:"events,omitempty"`
+	BatchStartUnixNano int64                  `protobuf:"varint,2,opt,name=batch_start_unix_nano,json=batchStartUnixNano,proto3" json:"batch_start_unix_nano,omitempty"`
+	BatchEndUnixNano   int64                  `protobuf:"varint,3,opt,name=batch_end_unix_nano,json=batchEndUnixNano,proto3" json:"batch_end_unix_nano,omitempty"`
+	// Events the sidecar queue dropped since the previous batch.
+	DroppedSinceLast uint32 `protobuf:"varint,4,opt,name=dropped_since_last,json=droppedSinceLast,proto3" json:"dropped_since_last,omitempty"`
+	unknownFields    protoimpl.UnknownFields
+	sizeCache        protoimpl.SizeCache
+}
+
+func (x *FingerprintEventBatch) Reset() {
+	*x = FingerprintEventBatch{}
+	mi := &file_agent_netprobe_v1_netprobe_proto_msgTypes[41]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *FingerprintEventBatch) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*FingerprintEventBatch) ProtoMessage() {}
+
+func (x *FingerprintEventBatch) ProtoReflect() protoreflect.Message {
+	mi := &file_agent_netprobe_v1_netprobe_proto_msgTypes[41]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use FingerprintEventBatch.ProtoReflect.Descriptor instead.
+func (*FingerprintEventBatch) Descriptor() ([]byte, []int) {
+	return file_agent_netprobe_v1_netprobe_proto_rawDescGZIP(), []int{41}
+}
+
+func (x *FingerprintEventBatch) GetEvents() []*FingerprintEvent {
+	if x != nil {
+		return x.Events
+	}
+	return nil
+}
+
+func (x *FingerprintEventBatch) GetBatchStartUnixNano() int64 {
+	if x != nil {
+		return x.BatchStartUnixNano
+	}
+	return 0
+}
+
+func (x *FingerprintEventBatch) GetBatchEndUnixNano() int64 {
+	if x != nil {
+		return x.BatchEndUnixNano
+	}
+	return 0
+}
+
+func (x *FingerprintEventBatch) GetDroppedSinceLast() uint32 {
+	if x != nil {
+		return x.DroppedSinceLast
+	}
+	return 0
+}
+
+// Payload of a `serviceradar.netprobe.dpi.v1` DiscoveryEnvelope. Event
+// semantics, for the same reason as FingerprintEventBatch.
+type DpiEventBatch struct {
+	state              protoimpl.MessageState `protogen:"open.v1"`
+	Events             []*DpiEvent            `protobuf:"bytes,1,rep,name=events,proto3" json:"events,omitempty"`
+	BatchStartUnixNano int64                  `protobuf:"varint,2,opt,name=batch_start_unix_nano,json=batchStartUnixNano,proto3" json:"batch_start_unix_nano,omitempty"`
+	BatchEndUnixNano   int64                  `protobuf:"varint,3,opt,name=batch_end_unix_nano,json=batchEndUnixNano,proto3" json:"batch_end_unix_nano,omitempty"`
+	DroppedSinceLast   uint32                 `protobuf:"varint,4,opt,name=dropped_since_last,json=droppedSinceLast,proto3" json:"dropped_since_last,omitempty"`
+	// The device each event describes, chosen by netprobe, positionally aligned
+	// with `events`.
+	//
+	// A DPI event has TWO endpoints and the device is a choice between them: the
+	// collector's own address wins when it is either one. Only netprobe can make
+	// that choice, because only netprobe knows its own address -- core has none
+	// attested. Carried alongside rather than by rewriting `source_ip`, so the
+	// packet's actual direction is not falsified to smuggle a decision through it.
+	//
+	// An empty entry means netprobe could not choose, and core falls back to
+	// source-then-destination.
+	SubjectIps    []string `protobuf:"bytes,5,rep,name=subject_ips,json=subjectIps,proto3" json:"subject_ips,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *DpiEventBatch) Reset() {
+	*x = DpiEventBatch{}
+	mi := &file_agent_netprobe_v1_netprobe_proto_msgTypes[42]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *DpiEventBatch) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*DpiEventBatch) ProtoMessage() {}
+
+func (x *DpiEventBatch) ProtoReflect() protoreflect.Message {
+	mi := &file_agent_netprobe_v1_netprobe_proto_msgTypes[42]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use DpiEventBatch.ProtoReflect.Descriptor instead.
+func (*DpiEventBatch) Descriptor() ([]byte, []int) {
+	return file_agent_netprobe_v1_netprobe_proto_rawDescGZIP(), []int{42}
+}
+
+func (x *DpiEventBatch) GetEvents() []*DpiEvent {
+	if x != nil {
+		return x.Events
+	}
+	return nil
+}
+
+func (x *DpiEventBatch) GetBatchStartUnixNano() int64 {
+	if x != nil {
+		return x.BatchStartUnixNano
+	}
+	return 0
+}
+
+func (x *DpiEventBatch) GetBatchEndUnixNano() int64 {
+	if x != nil {
+		return x.BatchEndUnixNano
+	}
+	return 0
+}
+
+func (x *DpiEventBatch) GetDroppedSinceLast() uint32 {
+	if x != nil {
+		return x.DroppedSinceLast
+	}
+	return 0
+}
+
+func (x *DpiEventBatch) GetSubjectIps() []string {
+	if x != nil {
+		return x.SubjectIps
+	}
+	return nil
+}
+
+// Payload of a `serviceradar.netprobe.process.v1` DiscoveryEnvelope.
+//
+// Unlike the two above this IS a snapshot -- the complete set of local listeners
+// at a moment -- which is what ProcessSnapshot always was without being able to
+// say so: it carries no snapshot_id, chunk_index, chunk_count or complete, so a
+// split across frames could not be reassembled and a partial set could not be
+// told from a shrinking one. Wrapping it in the envelope is what gives it those
+// semantics, since the envelope carries them for every payload.
+type ProcessSnapshotBatch struct {
+	state    protoimpl.MessageState `protogen:"open.v1"`
+	Snapshot *ProcessSnapshot       `protobuf:"bytes,1,opt,name=snapshot,proto3" json:"snapshot,omitempty"`
+	// The address of the host these processes are listening on -- the collector's
+	// own. It travels IN the payload because a decoder is handed payload bytes and
+	// nothing else, and because core has no attested collector address to fall
+	// back on. Empty means the observation cannot be placed and is dropped:
+	// attaching a host's process listing to the wrong device is worse than not
+	// attaching it.
+	SubjectIp     string `protobuf:"bytes,2,opt,name=subject_ip,json=subjectIp,proto3" json:"subject_ip,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ProcessSnapshotBatch) Reset() {
+	*x = ProcessSnapshotBatch{}
+	mi := &file_agent_netprobe_v1_netprobe_proto_msgTypes[43]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ProcessSnapshotBatch) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ProcessSnapshotBatch) ProtoMessage() {}
+
+func (x *ProcessSnapshotBatch) ProtoReflect() protoreflect.Message {
+	mi := &file_agent_netprobe_v1_netprobe_proto_msgTypes[43]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ProcessSnapshotBatch.ProtoReflect.Descriptor instead.
+func (*ProcessSnapshotBatch) Descriptor() ([]byte, []int) {
+	return file_agent_netprobe_v1_netprobe_proto_rawDescGZIP(), []int{43}
+}
+
+func (x *ProcessSnapshotBatch) GetSnapshot() *ProcessSnapshot {
+	if x != nil {
+		return x.Snapshot
+	}
+	return nil
+}
+
+func (x *ProcessSnapshotBatch) GetSubjectIp() string {
+	if x != nil {
+		return x.SubjectIp
+	}
+	return ""
+}
+
 var File_agent_netprobe_v1_netprobe_proto protoreflect.FileDescriptor
 
 const file_agent_netprobe_v1_netprobe_proto_rawDesc = "" +
 	"\n" +
-	" agent/netprobe/v1/netprobe.proto\x12\x1eserviceradar.agent.netprobe.v1\"\xa6\f\n" +
+	" agent/netprobe/v1/netprobe.proto\x12\x1eserviceradar.agent.netprobe.v1\"\xfb\f\n" +
 	"\rNetprobeFrame\x12\x1a\n" +
 	"\bsequence\x18\x01 \x01(\x04R\bsequence\x12P\n" +
 	"\fapply_config\x18\x02 \x01(\v2+.serviceradar.agent.netprobe.v1.ApplyConfigH\x00R\vapplyConfig\x12J\n" +
@@ -3777,7 +4356,8 @@ const file_agent_netprobe_v1_netprobe_proto_rawDesc = "" +
 	"\x12banner_match_batch\x18\x1b \x01(\v20.serviceradar.agent.netprobe.v1.BannerMatchBatchH\x00R\x10bannerMatchBatch\x12]\n" +
 	"\x11external_flow_ack\x18\x1c \x01(\v2/.serviceradar.agent.netprobe.v1.ExternalFlowAckH\x00R\x0fexternalFlowAck\x12q\n" +
 	"\x16flow_attribution_batch\x18\x1d \x01(\v29.serviceradar.agent.netprobe.v1.FlowAttributionEventBatchH\x00R\x14flowAttributionBatch\x12l\n" +
-	"\x16device_census_snapshot\x18\x1e \x01(\v24.serviceradar.agent.netprobe.v1.DeviceCensusSnapshotH\x00R\x14deviceCensusSnapshotB\t\n" +
+	"\x16device_census_snapshot\x18\x1e \x01(\v24.serviceradar.agent.netprobe.v1.DeviceCensusSnapshotH\x00R\x14deviceCensusSnapshot\x12S\n" +
+	"\rmdns_snapshot\x18\x1f \x01(\v2,.serviceradar.agent.netprobe.v1.MdnsSnapshotH\x00R\fmdnsSnapshotB\t\n" +
 	"\apayload\"\\\n" +
 	"\vApplyConfig\x12M\n" +
 	"\x06config\x18\x01 \x01(\v25.serviceradar.agent.netprobe.v1.VisibilityAgentConfigR\x06config\",\n" +
@@ -3803,7 +4383,7 @@ const file_agent_netprobe_v1_netprobe_proto_rawDesc = "" +
 	"\n" +
 	"ErrorFrame\x12\x12\n" +
 	"\x04code\x18\x01 \x01(\tR\x04code\x12\x18\n" +
-	"\amessage\x18\x02 \x01(\tR\amessage\"\xda\x05\n" +
+	"\amessage\x18\x02 \x01(\tR\amessage\"\xfd\x05\n" +
 	"\x15VisibilityAgentConfig\x12\x18\n" +
 	"\aenabled\x18\x01 \x01(\bR\aenabled\x12-\n" +
 	"\x12capture_interfaces\x18\x02 \x03(\tR\x11captureInterfaces\x12V\n" +
@@ -3814,7 +4394,8 @@ const file_agent_netprobe_v1_netprobe_proto_rawDesc = "" +
 	"\x1bprocess_snapshot_interval_s\x18) \x01(\rR\x18processSnapshotIntervalS\x12@\n" +
 	"\x1dexternal_flow_match_window_ms\x18* \x01(\rR\x19externalFlowMatchWindowMs\x12;\n" +
 	"\x1aflow_attribution_ipc_batch\x18+ \x01(\bR\x17flowAttributionIpcBatch\x12F\n" +
-	" emit_raw_flow_attribution_events\x18, \x01(\bR\x1cemitRawFlowAttributionEventsJ\x04\b\x15\x10(J\x04\b-\x100R\x10flow_attributionR\x19workload_identity_enabledR\fcri_endpointR$workload_identity_refresh_interval_s\"\xa1\x02\n" +
+	" emit_raw_flow_attribution_events\x18, \x01(\bR\x1cemitRawFlowAttributionEvents\x12!\n" +
+	"\fcollector_ip\x180 \x01(\tR\vcollectorIpJ\x04\b\x15\x10(J\x04\b-\x100R\x10flow_attributionR\x19workload_identity_enabledR\fcri_endpointR$workload_identity_refresh_interval_s\"\xa1\x02\n" +
 	"\rDeviceBinding\x12\x0e\n" +
 	"\x02ip\x18\x01 \x01(\tR\x02ip\x12\x1d\n" +
 	"\n" +
@@ -4083,7 +4664,36 @@ const file_agent_netprobe_v1_netprobe_proto_rawDesc = "" +
 	"confidence\x12$\n" +
 	"\x0eraw_pattern_id\x18\a \x01(\tR\frawPatternId\"Y\n" +
 	"\x10BannerMatchBatch\x12E\n" +
-	"\amatches\x18\x01 \x03(\v2+.serviceradar.agent.netprobe.v1.BannerMatchR\amatches\"\xd2\x02\n" +
+	"\amatches\x18\x01 \x03(\v2+.serviceradar.agent.netprobe.v1.BannerMatchR\amatches\"R\n" +
+	"\vMdnsTxtPair\x12\x10\n" +
+	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
+	"\x05value\x18\x02 \x01(\tR\x05value\x12\x1b\n" +
+	"\thas_value\x18\x03 \x01(\bR\bhasValue\"\xfa\x02\n" +
+	"\n" +
+	"MdnsDevice\x12\x10\n" +
+	"\x03mac\x18\x01 \x01(\tR\x03mac\x12\x0e\n" +
+	"\x02ip\x18\x02 \x01(\tR\x02ip\x12'\n" +
+	"\x0finterface_index\x18\x03 \x01(\rR\x0einterfaceIndex\x12#\n" +
+	"\rservice_types\x18\x04 \x03(\tR\fserviceTypes\x12=\n" +
+	"\x03txt\x18\x05 \x03(\v2+.serviceradar.agent.netprobe.v1.MdnsTxtPairR\x03txt\x12\x16\n" +
+	"\x06models\x18\x06 \x03(\tR\x06models\x12'\n" +
+	"\x0fambiguous_model\x18\a \x01(\bR\x0eambiguousModel\x12/\n" +
+	"\x14first_seen_unix_nano\x18\b \x01(\x03R\x11firstSeenUnixNano\x12-\n" +
+	"\x13last_seen_unix_nano\x18\t \x01(\x03R\x10lastSeenUnixNano\x12\x1c\n" +
+	"\ttruncated\x18\n" +
+	" \x01(\bR\ttruncated\"\xdd\x02\n" +
+	"\fMdnsSnapshot\x12D\n" +
+	"\adevices\x18\x01 \x03(\v2*.serviceradar.agent.netprobe.v1.MdnsDeviceR\adevices\x12\x1f\n" +
+	"\vsnapshot_id\x18\x02 \x01(\tR\n" +
+	"snapshotId\x12%\n" +
+	"\x0einterface_name\x18\x03 \x01(\tR\rinterfaceName\x123\n" +
+	"\x16generated_at_unix_nano\x18\x04 \x01(\x03R\x13generatedAtUnixNano\x12\x1a\n" +
+	"\bcomplete\x18\x05 \x01(\bR\bcomplete\x12\x1f\n" +
+	"\vchunk_index\x18\x06 \x01(\rR\n" +
+	"chunkIndex\x12\x1f\n" +
+	"\vchunk_count\x18\a \x01(\rR\n" +
+	"chunkCount\x12,\n" +
+	"\x12dropped_since_last\x18\b \x01(\rR\x10droppedSinceLast\"\xd2\x02\n" +
 	"\x17DeviceCensusObservation\x12\x10\n" +
 	"\x03mac\x18\x01 \x01(\tR\x03mac\x12\x0e\n" +
 	"\x02ip\x18\x02 \x01(\tR\x02ip\x12'\n" +
@@ -4105,7 +4715,23 @@ const file_agent_netprobe_v1_netprobe_proto_rawDesc = "" +
 	"chunkIndex\x12\x1f\n" +
 	"\vchunk_count\x18\a \x01(\rR\n" +
 	"chunkCount\x12,\n" +
-	"\x12dropped_since_last\x18\b \x01(\rR\x10droppedSinceLast*\x9d\x01\n" +
+	"\x12dropped_since_last\x18\b \x01(\rR\x10droppedSinceLast\"\xf1\x01\n" +
+	"\x15FingerprintEventBatch\x12H\n" +
+	"\x06events\x18\x01 \x03(\v20.serviceradar.agent.netprobe.v1.FingerprintEventR\x06events\x121\n" +
+	"\x15batch_start_unix_nano\x18\x02 \x01(\x03R\x12batchStartUnixNano\x12-\n" +
+	"\x13batch_end_unix_nano\x18\x03 \x01(\x03R\x10batchEndUnixNano\x12,\n" +
+	"\x12dropped_since_last\x18\x04 \x01(\rR\x10droppedSinceLast\"\x82\x02\n" +
+	"\rDpiEventBatch\x12@\n" +
+	"\x06events\x18\x01 \x03(\v2(.serviceradar.agent.netprobe.v1.DpiEventR\x06events\x121\n" +
+	"\x15batch_start_unix_nano\x18\x02 \x01(\x03R\x12batchStartUnixNano\x12-\n" +
+	"\x13batch_end_unix_nano\x18\x03 \x01(\x03R\x10batchEndUnixNano\x12,\n" +
+	"\x12dropped_since_last\x18\x04 \x01(\rR\x10droppedSinceLast\x12\x1f\n" +
+	"\vsubject_ips\x18\x05 \x03(\tR\n" +
+	"subjectIps\"\x82\x01\n" +
+	"\x14ProcessSnapshotBatch\x12K\n" +
+	"\bsnapshot\x18\x01 \x01(\v2/.serviceradar.agent.netprobe.v1.ProcessSnapshotR\bsnapshot\x12\x1d\n" +
+	"\n" +
+	"subject_ip\x18\x02 \x01(\tR\tsubjectIp*\x9d\x01\n" +
 	"\x10DeviceCensusKind\x12\"\n" +
 	"\x1eDEVICE_CENSUS_KIND_UNSPECIFIED\x10\x00\x12\"\n" +
 	"\x1eDEVICE_CENSUS_KIND_ARP_REQUEST\x10\x01\x12 \n" +
@@ -4125,7 +4751,7 @@ func file_agent_netprobe_v1_netprobe_proto_rawDescGZIP() []byte {
 }
 
 var file_agent_netprobe_v1_netprobe_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
-var file_agent_netprobe_v1_netprobe_proto_msgTypes = make([]protoimpl.MessageInfo, 40)
+var file_agent_netprobe_v1_netprobe_proto_msgTypes = make([]protoimpl.MessageInfo, 46)
 var file_agent_netprobe_v1_netprobe_proto_goTypes = []any{
 	(DeviceCensusKind)(0),             // 0: serviceradar.agent.netprobe.v1.DeviceCensusKind
 	(*NetprobeFrame)(nil),             // 1: serviceradar.agent.netprobe.v1.NetprobeFrame
@@ -4164,10 +4790,16 @@ var file_agent_netprobe_v1_netprobe_proto_goTypes = []any{
 	(*BannerBatch)(nil),               // 34: serviceradar.agent.netprobe.v1.BannerBatch
 	(*BannerMatch)(nil),               // 35: serviceradar.agent.netprobe.v1.BannerMatch
 	(*BannerMatchBatch)(nil),          // 36: serviceradar.agent.netprobe.v1.BannerMatchBatch
-	(*DeviceCensusObservation)(nil),   // 37: serviceradar.agent.netprobe.v1.DeviceCensusObservation
-	(*DeviceCensusSnapshot)(nil),      // 38: serviceradar.agent.netprobe.v1.DeviceCensusSnapshot
-	nil,                               // 39: serviceradar.agent.netprobe.v1.WorkloadIdentity.LabelsEntry
-	nil,                               // 40: serviceradar.agent.netprobe.v1.WorkloadIdentity.AnnotationsEntry
+	(*MdnsTxtPair)(nil),               // 37: serviceradar.agent.netprobe.v1.MdnsTxtPair
+	(*MdnsDevice)(nil),                // 38: serviceradar.agent.netprobe.v1.MdnsDevice
+	(*MdnsSnapshot)(nil),              // 39: serviceradar.agent.netprobe.v1.MdnsSnapshot
+	(*DeviceCensusObservation)(nil),   // 40: serviceradar.agent.netprobe.v1.DeviceCensusObservation
+	(*DeviceCensusSnapshot)(nil),      // 41: serviceradar.agent.netprobe.v1.DeviceCensusSnapshot
+	(*FingerprintEventBatch)(nil),     // 42: serviceradar.agent.netprobe.v1.FingerprintEventBatch
+	(*DpiEventBatch)(nil),             // 43: serviceradar.agent.netprobe.v1.DpiEventBatch
+	(*ProcessSnapshotBatch)(nil),      // 44: serviceradar.agent.netprobe.v1.ProcessSnapshotBatch
+	nil,                               // 45: serviceradar.agent.netprobe.v1.WorkloadIdentity.LabelsEntry
+	nil,                               // 46: serviceradar.agent.netprobe.v1.WorkloadIdentity.AnnotationsEntry
 }
 var file_agent_netprobe_v1_netprobe_proto_depIdxs = []int32{
 	2,  // 0: serviceradar.agent.netprobe.v1.NetprobeFrame.apply_config:type_name -> serviceradar.agent.netprobe.v1.ApplyConfig
@@ -4186,49 +4818,55 @@ var file_agent_netprobe_v1_netprobe_proto_depIdxs = []int32{
 	36, // 13: serviceradar.agent.netprobe.v1.NetprobeFrame.banner_match_batch:type_name -> serviceradar.agent.netprobe.v1.BannerMatchBatch
 	30, // 14: serviceradar.agent.netprobe.v1.NetprobeFrame.external_flow_ack:type_name -> serviceradar.agent.netprobe.v1.ExternalFlowAck
 	26, // 15: serviceradar.agent.netprobe.v1.NetprobeFrame.flow_attribution_batch:type_name -> serviceradar.agent.netprobe.v1.FlowAttributionEventBatch
-	38, // 16: serviceradar.agent.netprobe.v1.NetprobeFrame.device_census_snapshot:type_name -> serviceradar.agent.netprobe.v1.DeviceCensusSnapshot
-	7,  // 17: serviceradar.agent.netprobe.v1.ApplyConfig.config:type_name -> serviceradar.agent.netprobe.v1.VisibilityAgentConfig
-	8,  // 18: serviceradar.agent.netprobe.v1.VisibilityAgentConfig.device_bindings:type_name -> serviceradar.agent.netprobe.v1.DeviceBinding
-	10, // 19: serviceradar.agent.netprobe.v1.VisibilityAgentConfig.dpi:type_name -> serviceradar.agent.netprobe.v1.DpiConfig
-	9,  // 20: serviceradar.agent.netprobe.v1.DeviceBinding.fingerprint:type_name -> serviceradar.agent.netprobe.v1.FingerprintConfig
-	10, // 21: serviceradar.agent.netprobe.v1.DeviceBinding.dpi:type_name -> serviceradar.agent.netprobe.v1.DpiConfig
-	20, // 22: serviceradar.agent.netprobe.v1.FingerprintEvent.tcp:type_name -> serviceradar.agent.netprobe.v1.TcpFingerprint
-	21, // 23: serviceradar.agent.netprobe.v1.FingerprintEvent.tls:type_name -> serviceradar.agent.netprobe.v1.TlsFingerprint
-	22, // 24: serviceradar.agent.netprobe.v1.FingerprintEvent.http:type_name -> serviceradar.agent.netprobe.v1.HttpFingerprint
-	12, // 25: serviceradar.agent.netprobe.v1.FingerprintEvent.license_clean:type_name -> serviceradar.agent.netprobe.v1.LicenseCleanFingerprint
-	13, // 26: serviceradar.agent.netprobe.v1.LicenseCleanFingerprint.p0f_match:type_name -> serviceradar.agent.netprobe.v1.P0fFingerprintMatch
-	17, // 27: serviceradar.agent.netprobe.v1.LicenseCleanFingerprint.ja4_match:type_name -> serviceradar.agent.netprobe.v1.FingerprintMatch
-	17, // 28: serviceradar.agent.netprobe.v1.LicenseCleanFingerprint.hassh_match:type_name -> serviceradar.agent.netprobe.v1.FingerprintMatch
-	18, // 29: serviceradar.agent.netprobe.v1.LicenseCleanFingerprint.os_match:type_name -> serviceradar.agent.netprobe.v1.OsMatch
-	14, // 30: serviceradar.agent.netprobe.v1.LicenseCleanFingerprint.muonfp:type_name -> serviceradar.agent.netprobe.v1.MuonFpFingerprintMatch
-	15, // 31: serviceradar.agent.netprobe.v1.LicenseCleanFingerprint.recog_http:type_name -> serviceradar.agent.netprobe.v1.RecogFingerprintMatch
-	15, // 32: serviceradar.agent.netprobe.v1.LicenseCleanFingerprint.recog_ssh:type_name -> serviceradar.agent.netprobe.v1.RecogFingerprintMatch
-	15, // 33: serviceradar.agent.netprobe.v1.LicenseCleanFingerprint.recog_smb:type_name -> serviceradar.agent.netprobe.v1.RecogFingerprintMatch
-	15, // 34: serviceradar.agent.netprobe.v1.LicenseCleanFingerprint.recog_ftp:type_name -> serviceradar.agent.netprobe.v1.RecogFingerprintMatch
-	15, // 35: serviceradar.agent.netprobe.v1.LicenseCleanFingerprint.recog_telnet:type_name -> serviceradar.agent.netprobe.v1.RecogFingerprintMatch
-	15, // 36: serviceradar.agent.netprobe.v1.LicenseCleanFingerprint.recog_snmp:type_name -> serviceradar.agent.netprobe.v1.RecogFingerprintMatch
-	15, // 37: serviceradar.agent.netprobe.v1.LicenseCleanFingerprint.recog_sip:type_name -> serviceradar.agent.netprobe.v1.RecogFingerprintMatch
-	15, // 38: serviceradar.agent.netprobe.v1.LicenseCleanFingerprint.recog_rdp:type_name -> serviceradar.agent.netprobe.v1.RecogFingerprintMatch
-	15, // 39: serviceradar.agent.netprobe.v1.LicenseCleanFingerprint.recog_dns:type_name -> serviceradar.agent.netprobe.v1.RecogFingerprintMatch
-	16, // 40: serviceradar.agent.netprobe.v1.LicenseCleanFingerprint.satori_matches:type_name -> serviceradar.agent.netprobe.v1.SatoriFingerprintMatch
-	15, // 41: serviceradar.agent.netprobe.v1.LicenseCleanFingerprint.recog_smtp:type_name -> serviceradar.agent.netprobe.v1.RecogFingerprintMatch
-	15, // 42: serviceradar.agent.netprobe.v1.LicenseCleanFingerprint.recog_ntp:type_name -> serviceradar.agent.netprobe.v1.RecogFingerprintMatch
-	19, // 43: serviceradar.agent.netprobe.v1.OsMatch.disagreements:type_name -> serviceradar.agent.netprobe.v1.FingerprintDisagreement
-	39, // 44: serviceradar.agent.netprobe.v1.WorkloadIdentity.labels:type_name -> serviceradar.agent.netprobe.v1.WorkloadIdentity.LabelsEntry
-	40, // 45: serviceradar.agent.netprobe.v1.WorkloadIdentity.annotations:type_name -> serviceradar.agent.netprobe.v1.WorkloadIdentity.AnnotationsEntry
-	24, // 46: serviceradar.agent.netprobe.v1.FlowAttributionEvent.workload_identity:type_name -> serviceradar.agent.netprobe.v1.WorkloadIdentity
-	25, // 47: serviceradar.agent.netprobe.v1.FlowAttributionEventBatch.events:type_name -> serviceradar.agent.netprobe.v1.FlowAttributionEvent
-	28, // 48: serviceradar.agent.netprobe.v1.ProcessSnapshot.entries:type_name -> serviceradar.agent.netprobe.v1.ProcessSnapshotEntry
-	24, // 49: serviceradar.agent.netprobe.v1.ProcessSnapshotEntry.workload_identity:type_name -> serviceradar.agent.netprobe.v1.WorkloadIdentity
-	33, // 50: serviceradar.agent.netprobe.v1.BannerBatch.observations:type_name -> serviceradar.agent.netprobe.v1.BannerObservation
-	35, // 51: serviceradar.agent.netprobe.v1.BannerMatchBatch.matches:type_name -> serviceradar.agent.netprobe.v1.BannerMatch
-	0,  // 52: serviceradar.agent.netprobe.v1.DeviceCensusObservation.kind:type_name -> serviceradar.agent.netprobe.v1.DeviceCensusKind
-	37, // 53: serviceradar.agent.netprobe.v1.DeviceCensusSnapshot.observations:type_name -> serviceradar.agent.netprobe.v1.DeviceCensusObservation
-	54, // [54:54] is the sub-list for method output_type
-	54, // [54:54] is the sub-list for method input_type
-	54, // [54:54] is the sub-list for extension type_name
-	54, // [54:54] is the sub-list for extension extendee
-	0,  // [0:54] is the sub-list for field type_name
+	41, // 16: serviceradar.agent.netprobe.v1.NetprobeFrame.device_census_snapshot:type_name -> serviceradar.agent.netprobe.v1.DeviceCensusSnapshot
+	39, // 17: serviceradar.agent.netprobe.v1.NetprobeFrame.mdns_snapshot:type_name -> serviceradar.agent.netprobe.v1.MdnsSnapshot
+	7,  // 18: serviceradar.agent.netprobe.v1.ApplyConfig.config:type_name -> serviceradar.agent.netprobe.v1.VisibilityAgentConfig
+	8,  // 19: serviceradar.agent.netprobe.v1.VisibilityAgentConfig.device_bindings:type_name -> serviceradar.agent.netprobe.v1.DeviceBinding
+	10, // 20: serviceradar.agent.netprobe.v1.VisibilityAgentConfig.dpi:type_name -> serviceradar.agent.netprobe.v1.DpiConfig
+	9,  // 21: serviceradar.agent.netprobe.v1.DeviceBinding.fingerprint:type_name -> serviceradar.agent.netprobe.v1.FingerprintConfig
+	10, // 22: serviceradar.agent.netprobe.v1.DeviceBinding.dpi:type_name -> serviceradar.agent.netprobe.v1.DpiConfig
+	20, // 23: serviceradar.agent.netprobe.v1.FingerprintEvent.tcp:type_name -> serviceradar.agent.netprobe.v1.TcpFingerprint
+	21, // 24: serviceradar.agent.netprobe.v1.FingerprintEvent.tls:type_name -> serviceradar.agent.netprobe.v1.TlsFingerprint
+	22, // 25: serviceradar.agent.netprobe.v1.FingerprintEvent.http:type_name -> serviceradar.agent.netprobe.v1.HttpFingerprint
+	12, // 26: serviceradar.agent.netprobe.v1.FingerprintEvent.license_clean:type_name -> serviceradar.agent.netprobe.v1.LicenseCleanFingerprint
+	13, // 27: serviceradar.agent.netprobe.v1.LicenseCleanFingerprint.p0f_match:type_name -> serviceradar.agent.netprobe.v1.P0fFingerprintMatch
+	17, // 28: serviceradar.agent.netprobe.v1.LicenseCleanFingerprint.ja4_match:type_name -> serviceradar.agent.netprobe.v1.FingerprintMatch
+	17, // 29: serviceradar.agent.netprobe.v1.LicenseCleanFingerprint.hassh_match:type_name -> serviceradar.agent.netprobe.v1.FingerprintMatch
+	18, // 30: serviceradar.agent.netprobe.v1.LicenseCleanFingerprint.os_match:type_name -> serviceradar.agent.netprobe.v1.OsMatch
+	14, // 31: serviceradar.agent.netprobe.v1.LicenseCleanFingerprint.muonfp:type_name -> serviceradar.agent.netprobe.v1.MuonFpFingerprintMatch
+	15, // 32: serviceradar.agent.netprobe.v1.LicenseCleanFingerprint.recog_http:type_name -> serviceradar.agent.netprobe.v1.RecogFingerprintMatch
+	15, // 33: serviceradar.agent.netprobe.v1.LicenseCleanFingerprint.recog_ssh:type_name -> serviceradar.agent.netprobe.v1.RecogFingerprintMatch
+	15, // 34: serviceradar.agent.netprobe.v1.LicenseCleanFingerprint.recog_smb:type_name -> serviceradar.agent.netprobe.v1.RecogFingerprintMatch
+	15, // 35: serviceradar.agent.netprobe.v1.LicenseCleanFingerprint.recog_ftp:type_name -> serviceradar.agent.netprobe.v1.RecogFingerprintMatch
+	15, // 36: serviceradar.agent.netprobe.v1.LicenseCleanFingerprint.recog_telnet:type_name -> serviceradar.agent.netprobe.v1.RecogFingerprintMatch
+	15, // 37: serviceradar.agent.netprobe.v1.LicenseCleanFingerprint.recog_snmp:type_name -> serviceradar.agent.netprobe.v1.RecogFingerprintMatch
+	15, // 38: serviceradar.agent.netprobe.v1.LicenseCleanFingerprint.recog_sip:type_name -> serviceradar.agent.netprobe.v1.RecogFingerprintMatch
+	15, // 39: serviceradar.agent.netprobe.v1.LicenseCleanFingerprint.recog_rdp:type_name -> serviceradar.agent.netprobe.v1.RecogFingerprintMatch
+	15, // 40: serviceradar.agent.netprobe.v1.LicenseCleanFingerprint.recog_dns:type_name -> serviceradar.agent.netprobe.v1.RecogFingerprintMatch
+	16, // 41: serviceradar.agent.netprobe.v1.LicenseCleanFingerprint.satori_matches:type_name -> serviceradar.agent.netprobe.v1.SatoriFingerprintMatch
+	15, // 42: serviceradar.agent.netprobe.v1.LicenseCleanFingerprint.recog_smtp:type_name -> serviceradar.agent.netprobe.v1.RecogFingerprintMatch
+	15, // 43: serviceradar.agent.netprobe.v1.LicenseCleanFingerprint.recog_ntp:type_name -> serviceradar.agent.netprobe.v1.RecogFingerprintMatch
+	19, // 44: serviceradar.agent.netprobe.v1.OsMatch.disagreements:type_name -> serviceradar.agent.netprobe.v1.FingerprintDisagreement
+	45, // 45: serviceradar.agent.netprobe.v1.WorkloadIdentity.labels:type_name -> serviceradar.agent.netprobe.v1.WorkloadIdentity.LabelsEntry
+	46, // 46: serviceradar.agent.netprobe.v1.WorkloadIdentity.annotations:type_name -> serviceradar.agent.netprobe.v1.WorkloadIdentity.AnnotationsEntry
+	24, // 47: serviceradar.agent.netprobe.v1.FlowAttributionEvent.workload_identity:type_name -> serviceradar.agent.netprobe.v1.WorkloadIdentity
+	25, // 48: serviceradar.agent.netprobe.v1.FlowAttributionEventBatch.events:type_name -> serviceradar.agent.netprobe.v1.FlowAttributionEvent
+	28, // 49: serviceradar.agent.netprobe.v1.ProcessSnapshot.entries:type_name -> serviceradar.agent.netprobe.v1.ProcessSnapshotEntry
+	24, // 50: serviceradar.agent.netprobe.v1.ProcessSnapshotEntry.workload_identity:type_name -> serviceradar.agent.netprobe.v1.WorkloadIdentity
+	33, // 51: serviceradar.agent.netprobe.v1.BannerBatch.observations:type_name -> serviceradar.agent.netprobe.v1.BannerObservation
+	35, // 52: serviceradar.agent.netprobe.v1.BannerMatchBatch.matches:type_name -> serviceradar.agent.netprobe.v1.BannerMatch
+	37, // 53: serviceradar.agent.netprobe.v1.MdnsDevice.txt:type_name -> serviceradar.agent.netprobe.v1.MdnsTxtPair
+	38, // 54: serviceradar.agent.netprobe.v1.MdnsSnapshot.devices:type_name -> serviceradar.agent.netprobe.v1.MdnsDevice
+	0,  // 55: serviceradar.agent.netprobe.v1.DeviceCensusObservation.kind:type_name -> serviceradar.agent.netprobe.v1.DeviceCensusKind
+	40, // 56: serviceradar.agent.netprobe.v1.DeviceCensusSnapshot.observations:type_name -> serviceradar.agent.netprobe.v1.DeviceCensusObservation
+	11, // 57: serviceradar.agent.netprobe.v1.FingerprintEventBatch.events:type_name -> serviceradar.agent.netprobe.v1.FingerprintEvent
+	23, // 58: serviceradar.agent.netprobe.v1.DpiEventBatch.events:type_name -> serviceradar.agent.netprobe.v1.DpiEvent
+	27, // 59: serviceradar.agent.netprobe.v1.ProcessSnapshotBatch.snapshot:type_name -> serviceradar.agent.netprobe.v1.ProcessSnapshot
+	60, // [60:60] is the sub-list for method output_type
+	60, // [60:60] is the sub-list for method input_type
+	60, // [60:60] is the sub-list for extension type_name
+	60, // [60:60] is the sub-list for extension extendee
+	0,  // [0:60] is the sub-list for field type_name
 }
 
 func init() { file_agent_netprobe_v1_netprobe_proto_init() }
@@ -4254,6 +4892,7 @@ func file_agent_netprobe_v1_netprobe_proto_init() {
 		(*NetprobeFrame_ExternalFlowAck)(nil),
 		(*NetprobeFrame_FlowAttributionBatch)(nil),
 		(*NetprobeFrame_DeviceCensusSnapshot)(nil),
+		(*NetprobeFrame_MdnsSnapshot)(nil),
 	}
 	file_agent_netprobe_v1_netprobe_proto_msgTypes[10].OneofWrappers = []any{
 		(*FingerprintEvent_Tcp)(nil),
@@ -4267,7 +4906,7 @@ func file_agent_netprobe_v1_netprobe_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_agent_netprobe_v1_netprobe_proto_rawDesc), len(file_agent_netprobe_v1_netprobe_proto_rawDesc)),
 			NumEnums:      1,
-			NumMessages:   40,
+			NumMessages:   46,
 			NumExtensions: 0,
 			NumServices:   0,
 		},

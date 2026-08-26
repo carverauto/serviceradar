@@ -703,6 +703,29 @@ func (p *PushLoop) applyMapperConfig(configJSON []byte) {
 		Msg("Applied mapper config from gateway")
 }
 
+// stampCollectorIP records WHERE netprobe is running, for the payloads that
+// need a subject: DPI endpoint selection and the process snapshot.
+//
+// Extracted so it is testable. The rule it enforces is one line but easy to get
+// wrong: the address comes from getSourceIP(), never from config.HostIP.
+// `host_ip` in agent.json is an onboard-time pin, and a re-IP'd host leaves it
+// pointing at an address that is no longer on any local interface -- while
+// getSourceIP() keeps the pin only while it is still live and otherwise
+// re-detects, which is what Hello, PushStatus, SNMP, plugin signals and
+// workload identity all already use.
+//
+// Getting it wrong fails SILENTLY. netprobe stamps the stale address as the
+// subject of every process snapshot, core matches it against no device, and the
+// enrichment-only rule correctly drops the payload -- so nothing errors, nothing
+// warns, and the schema simply never appears.
+func (p *PushLoop) stampCollectorIP(cfg *netprobepb.VisibilityAgentConfig) {
+	if cfg == nil {
+		return
+	}
+
+	cfg.CollectorIp = p.getSourceIP()
+}
+
 func (p *PushLoop) applyVisibilityConfig(
 	ctx context.Context,
 	cfg *proto.VisibilityConfig,
@@ -748,6 +771,30 @@ func (p *PushLoop) applyVisibilityConfig(
 	}
 
 	parsed := agentnetprobe.ParseVisibilityConfig(cfg)
+
+	// Stamped from the agent's own view of where it is, not from the gateway payload:
+	// this is runtime context about WHERE netprobe is running, and the agent is
+	// the only thing that knows it. netprobe cannot derive it -- picking an
+	// address off a capture interface would be a guess that disagrees with the
+	// identity the agent already reports under -- and core has no attested
+	// collector address either. Without it netprobe cannot choose a DPI event's
+	// subject endpoint or name the host a process snapshot describes.
+	//
+	// Set after the gateway parse and before the add-on JSON merge, so an
+	// operator cannot override it with a different host's address.
+	//
+	// getSourceIP(), NOT config.HostIP. `host_ip` in agent.json is a bootstrap
+	// pin written at onboard time, and a re-IP'd host leaves it pointing at an
+	// address that is no longer on any local interface. getSourceIP() keeps the
+	// pin only while it is still live and otherwise re-detects -- which is what
+	// every other outbound path already uses (Hello, PushStatus, SNMP, plugin
+	// signals, workload identity). Reading the raw pin here made netprobe label
+	// DPI subjects and process snapshots with a stale address: on a lab host
+	// whose pin said 192.168.2.243 while the interface held 192.168.1.171,
+	// nothing matched, and every process snapshot was correctly dropped by the
+	// enrichment-only rule for naming a device that does not exist.
+	p.stampCollectorIP(parsed.NetprobeConfig)
+
 	netprobeAddon := netprobeSystemdAssignment(addons)
 	systemdManaged := netprobeAddon != nil
 	if systemdManaged {

@@ -41,8 +41,9 @@ image:
   tag: enterprise-v2.290.0
   imagePullPolicy: IfNotPresent
 
-# One runner at a time. The action in //buildbuddy.yaml has no `allow_concurrent_runs`, so a
-# second staging push queues rather than needing a second pod.
+# One runner at a time. Neither action in //buildbuddy.yaml sets `allow_concurrent_runs`, so a
+# second run (another PR's BazelCI, or the daily Elixir quality cron) queues rather than
+# needing a second pod.
 replicas: 1
 
 # Both scalers off, deliberately and for different reasons.
@@ -112,16 +113,10 @@ resources:
     memory: "64Gi"
     ephemeral-storage: "50Gi"
 
-# Same exclusion as the build fleet.
-affinity:
-  nodeAffinity:
-    requiredDuringSchedulingIgnoredDuringExecution:
-      nodeSelectorTerms:
-        - matchExpressions:
-            - key: kubernetes.io/hostname
-              operator: NotIn
-              values:
-                - k8s-cp3-worker3
+# k8s-cp3-worker3 is eligible again. Same story as ./values.yaml: the 2026-08-09
+# DiskPressure pin was leftover after the cache moved to /mnt/buildbuddy. A second
+# workflow replica still needs hostname anti-affinity against other workflow pods
+# (shared hostPath), not an exclusion of this node.
 
 extraVolumes:
   # A DIFFERENT hostPath from ./values.yaml, and this is not cosmetic.
@@ -269,8 +264,8 @@ config:
       max_runner_memory_usage_bytes: -1
       # Default 16 GB, measured over the repo checkout AND the sibling Bazel output base, so a
       # single real build clears it. Capped rather than -1 because this lands on the node's
-      # /mnt/buildbuddy volume, and DiskPressure there already cost this fleet a node
-      # (see `affinity` above).
+      # /mnt/buildbuddy volume; DiskPressure on that disk is what originally cost a node,
+      # not the OS root.
       max_runner_disk_size_bytes: 100000000000 # 100 GB
       # One pod, one workflow at a time, and a paused runner keeps its memory resident. Exceeding
       # this evicts the oldest rather than rejecting the new one, so it is a ceiling, not a gate.

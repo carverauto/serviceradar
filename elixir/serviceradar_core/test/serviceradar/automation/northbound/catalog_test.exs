@@ -1,5 +1,5 @@
 defmodule ServiceRadar.Automation.Northbound.CatalogTest do
-  use ServiceRadar.DataCase, async: false
+  use ServiceRadar.DataCase, async: true
 
   alias ServiceRadar.Automation.Northbound
   alias ServiceRadar.Automation.Northbound.ActionDescriptor

@@ -33,6 +33,15 @@ pub struct Config {
     pub flow_attribution_ipc_batch: bool,
     #[serde(default = "default_external_flow_match_window_ms")]
     pub external_flow_match_window_ms: u32,
+    /// The address of the host netprobe runs on, stamped by the agent.
+    ///
+    /// Not derivable here: netprobe has no notion of "the" host address, and
+    /// picking one off a capture interface would be a guess that disagrees with
+    /// the identity the agent reports under. Empty means the payloads that need
+    /// a subject -- DPI endpoint selection, the process snapshot -- cannot name
+    /// one, and are not emitted rather than emitted against a guess.
+    #[serde(default)]
+    pub collector_ip: String,
 }
 
 #[derive(Debug, Error, PartialEq, Eq)]
@@ -59,6 +68,7 @@ impl Default for Config {
             emit_raw_flow_attribution_events: DEFAULT_EMIT_RAW_FLOW_ATTRIBUTION_EVENTS,
             flow_attribution_ipc_batch: DEFAULT_FLOW_ATTRIBUTION_IPC_BATCH,
             external_flow_match_window_ms: default_external_flow_match_window_ms(),
+            collector_ip: String::new(),
         }
     }
 }

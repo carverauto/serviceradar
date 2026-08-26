@@ -119,6 +119,8 @@ defmodule Mix.Tasks.Serviceradar.DireRemediation do
     "blob-purge",
     "test-debris",
     "stale-agent-devices",
+    "link-local-alias-archive",
+    "netprobe-alias-debris",
     "agent-links",
     "proxmox-dups",
     "armis-unmerge",

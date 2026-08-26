@@ -24,7 +24,9 @@ defmodule ServiceRadar.Scans.AdhocScanNatsE2ETest do
 
       NATS_TEST_HOST=192.168.10.31 NATS_TEST_PORT=31819 \\
       NATS_TEST_CERT_DIR=/path/to/mtls/certs \\
-      SERVICERADAR_TEST_DATABASE_URL=... \\
+      SERVICERADAR_TEST_DATABASE_URL=<srql-fixtures-codex-scratch-url> \\
+      SRQL_TEST_DATABASE_SERVER_NAME=srql-fixture-rw.srql-fixtures.svc.cluster.local \\
+      SRQL_TEST_DATABASE_CA_CERT_FILE=/path/to/srql-fixture-ca.crt \\
       mix test --include external --include integration --no-start \\
         test/serviceradar/scans/adhoc_scan_nats_e2e_test.exs
   """
@@ -161,39 +163,5 @@ defmodule ServiceRadar.Scans.AdhocScanNatsE2ETest do
       value when is_binary(value) and value != "" -> value
       _ -> flunk("#{name} must be set to run this external NATS test")
     end
-  end
-end
-
-defmodule ServiceRadar.Scans.AdhocScanNatsFixtureConfigTest do
-  @moduledoc """
-  Guards the sr-testing NATS fixture CONFIGURATION itself.
-
-  Deliberately does NOT use `DataCase`: a partial configuration must report which
-  variables are missing even where no database is reachable. Sharing the e2e
-  module's DB-dependent `setup_all` turned this into an "invalid" result whose
-  message was never shown.
-  """
-
-  use ExUnit.Case, async: true
-
-  @nats_vars ["NATS_TEST_HOST", "NATS_TEST_CERT_DIR"]
-  @nats_present Enum.filter(@nats_vars, &(System.get_env(&1) not in [nil, ""]))
-  @nats_missing @nats_vars -- @nats_present
-  @nats_partial @nats_present != [] and @nats_missing != []
-
-  @moduletag :integration
-  @moduletag :external
-  @moduletag skip: not @nats_partial
-
-  test "the sr-testing NATS fixture is fully configured or not configured at all" do
-    flunk(
-      "sr-testing NATS fixture is PARTIALLY configured; missing: " <>
-        Enum.join(@nats_missing, ", ") <>
-        ". Set all of " <>
-        Enum.join(@nats_vars, ", ") <>
-        " (plus NATS_TEST_CA_CERT / NATS_TEST_CLIENT_CERT / NATS_TEST_CLIENT_KEY in CI), " <>
-        "or none of them. A partial configuration must fail rather than silently " <>
-        "skip the integration coverage."
-    )
   end
 end

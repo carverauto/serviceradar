@@ -6,7 +6,7 @@ defmodule ServiceRadar.Inventory.IdentityReconcilerInterfaceMacTest do
   interface MACs for a polled device, preventing false merges.
   """
 
-  use ServiceRadar.DataCase, async: false
+  use ServiceRadar.DataCase, async: true
 
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Inventory.Device

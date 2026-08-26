@@ -3,6 +3,8 @@ defmodule ServiceRadar.Observability.PluginResultSlotAllocatorTest do
 
   alias ServiceRadar.Observability.PluginResultSlot
 
+  @identity_count 258
+
   @tag timeout: 180_000
   test "legacy occupancy moves a result to an earlier complete event block" do
     Application.put_env(:serviceradar_core, :plugin_result_handlers, [])
@@ -51,6 +53,7 @@ defmodule ServiceRadar.Observability.PluginResultSlotAllocatorTest do
     refute first_base == second_base
   end
 
+  @tag sandbox: :unboxed
   @tag timeout: 300_000
   test "more than 257 synchronized identities retain distinct event blocks" do
     Application.put_env(:serviceradar_core, :plugin_result_handlers, [SuccessfulHandler])
@@ -62,9 +65,12 @@ defmodule ServiceRadar.Observability.PluginResultSlotAllocatorTest do
     )
 
     {payload, base_status, observed_at} = plugin_result_fixture(assignment?: false)
+    on_exit(fn -> cleanup_capacity_rows(base_status) end)
 
+    # The allocator's legacy boundary is 257. Exactly one identity beyond it proves spillover
+    # without repeating 42 end-to-end ingests that add no boundary coverage.
     statuses =
-      Enum.map(1..300, fn index ->
+      Enum.map(1..@identity_count, fn index ->
         %{
           base_status
           | agent_id: "#{base_status.agent_id}-#{index}",
@@ -73,14 +79,22 @@ defmodule ServiceRadar.Observability.PluginResultSlotAllocatorTest do
         }
       end)
 
-    # This test exercises allocator capacity for identities with the same logical
-    # timestamp. Concurrency is covered by the identity and slot-lock tests; using
-    # one task per identity here only overloads the shared SQL sandbox owner.
-    results = Enum.map(statuses, &PluginResultIngestor.ingest(payload, &1))
+    # This is an unboxed test because the sequential form exceeds the real 300-second timeout.
+    # Ten independent connections exercise the same end-to-end capacity contract while leaving
+    # two slots in the unchanged 12-connection test pool for the test process and application.
+    results =
+      statuses
+      |> Task.async_stream(
+        &PluginResultIngestor.ingest(payload, &1),
+        max_concurrency: 10,
+        ordered: false,
+        timeout: 120_000
+      )
+      |> Enum.to_list()
 
-    assert Enum.all?(results, &(&1 == :ok))
+    assert Enum.all?(results, &(&1 == {:ok, :ok}))
 
-    Enum.each(1..300, fn _index ->
+    Enum.each(1..@identity_count, fn _index ->
       assert_receive {:successful_handler_ingest, ^payload}, 1_000
     end)
 
@@ -101,12 +115,12 @@ defmodule ServiceRadar.Observability.PluginResultSlotAllocatorTest do
         [base_status.gateway_id, base_status.service_name, observation_timestamp]
       ).rows
 
-    assert length(reported_rows) == 300
+    assert length(reported_rows) == @identity_count
 
     block_bases =
       Enum.map(reported_rows, &assert_reported_event_block(&1, observed_at))
 
-    assert block_bases |> MapSet.new() |> MapSet.size() == 300
+    assert block_bases |> MapSet.new() |> MapSet.size() == @identity_count
 
     assert Enum.any?(block_bases, fn block_base ->
              DateTime.diff(observed_at, block_base, :microsecond) > 1_000_000
@@ -120,5 +134,21 @@ defmodule ServiceRadar.Observability.PluginResultSlotAllocatorTest do
         partition: "#{status.partition}-#{suffix}",
         service_type: "#{status.service_type}-#{suffix}"
     }
+  end
+
+  defp cleanup_capacity_rows(status) do
+    agent_prefix = "#{status.agent_id}-"
+
+    for table <- ["service_state", "service_status"] do
+      Repo.query!(
+        """
+        DELETE FROM platform.#{table}
+        WHERE gateway_id = $1
+          AND service_name = $2
+          AND left(agent_id, char_length($3)) = $3
+        """,
+        [status.gateway_id, status.service_name, agent_prefix]
+      )
+    end
   end
 end

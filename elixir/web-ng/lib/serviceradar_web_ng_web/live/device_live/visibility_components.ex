@@ -3,6 +3,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.VisibilityComponents do
 
   use ServiceRadarWebNGWeb, :html
 
+  import ServiceRadarWebNGWeb.DeviceLive.IntegrationLogos, only: [wordmark: 1]
   import ServiceRadarWebNGWeb.DeviceLive.ProcessTablePagination, only: [search_bar: 1, paginator: 1]
 
   alias ServiceRadarWebNG.RBAC
@@ -65,8 +66,9 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.VisibilityComponents do
             class="min-w-0 rounded-lg border border-sr-line bg-sr-subtle/20 p-3"
           >
             <div class="mb-2 flex items-center gap-2">
-              <.icon name={group.icon} class="size-4 text-sr-muted" />
-              <span class="text-xs font-semibold text-sr-muted">
+              <.wordmark :if={group.logo} name={group.logo} class="h-4 w-auto" />
+              <.icon :if={is_nil(group.logo)} name={group.icon} class="size-4 text-sr-muted" />
+              <span :if={is_nil(group.logo)} class="text-xs font-semibold text-sr-muted">
                 {group.title}
               </span>
             </div>
@@ -517,8 +519,13 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.VisibilityComponents do
     )
   end
 
-  defp metadata_group(title, icon, items) do
-    %{title: title, icon: icon, items: Enum.reject(items, &is_nil/1)}
+  defp metadata_group(title, icon, items, opts \\ []) do
+    %{
+      title: title,
+      icon: icon,
+      logo: Keyword.get(opts, :logo),
+      items: Enum.reject(items, &is_nil/1)
+    }
   end
 
   defp metadata_vendor_group(title, icon, metadata, items, source_keys) do
@@ -531,19 +538,24 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.VisibilityComponents do
 
   defp proxmox_metadata_group(metadata) when is_map(metadata) do
     if proxmox_metadata_evidence?(metadata) do
-      metadata_group("Proxmox", "hero-cube-transparent", [
-        metadata_item("Candidate", metadata_lookup(metadata, "proxmox_candidate")),
-        metadata_item("Evidence", metadata_lookup(metadata, "proxmox_candidate_evidence")),
-        metadata_item("Service", metadata_lookup(metadata, "proxmox_candidate_service")),
-        metadata_item("Port", metadata_lookup(metadata, "proxmox_candidate_port")),
-        metadata_item("Title", metadata_lookup(metadata, "proxmox_candidate_title"))
-      ])
+      metadata_group(
+        "Proxmox",
+        "hero-cube-transparent",
+        [
+          metadata_item("Candidate", metadata_lookup(metadata, "proxmox_candidate")),
+          metadata_item("Evidence", metadata_lookup(metadata, "proxmox_candidate_evidence")),
+          metadata_item("Service", metadata_lookup(metadata, "proxmox_candidate_service")),
+          metadata_item("Port", metadata_lookup(metadata, "proxmox_candidate_port")),
+          metadata_item("Title", metadata_lookup(metadata, "proxmox_candidate_title"))
+        ],
+        logo: :proxmox
+      )
     else
-      metadata_group("Proxmox", "hero-cube-transparent", [])
+      metadata_group("Proxmox", "hero-cube-transparent", [], logo: :proxmox)
     end
   end
 
-  defp proxmox_metadata_group(_metadata), do: metadata_group("Proxmox", "hero-cube-transparent", [])
+  defp proxmox_metadata_group(_metadata), do: metadata_group("Proxmox", "hero-cube-transparent", [], logo: :proxmox)
 
   defp proxmox_metadata_evidence?(metadata) when is_map(metadata) do
     truthy?(metadata_lookup(metadata, "proxmox_candidate")) or
@@ -566,101 +578,111 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.VisibilityComponents do
 
   defp armis_metadata_group(metadata, sources) when is_map(metadata) do
     if integration_provenance?(metadata, sources, "armis", ["armis_device_id", "armis_id"]) do
-      metadata_group("Armis", "hero-shield-check", [
-        metadata_item(
-          "Device ID",
-          metadata_first_value(metadata, ["armis_device_id", "armis_id"]),
-          mono: true,
-          external_href: metadata_lookup(metadata, "armis_device_url")
-        ),
-        metadata_item(
-          "Type",
-          metadata_first_value(metadata, ["armis_type", "device_type", "type"])
-        ),
-        metadata_item(
-          "Category",
-          metadata_first_value(metadata, ["armis_category", "category"])
-        ),
-        metadata_item(
-          "Boundaries",
-          metadata_first_value(metadata, ["armis_boundary_names", "boundary_names"])
-        ),
-        metadata_item("Risk level", metadata_lookup(metadata, "armis_risk_level")),
-        metadata_item(
-          "Risk score",
-          metadata_first_value(metadata, ["armis_risk_score", "risk_score"])
-        ),
-        metadata_item(
-          "Tags",
-          metadata_first_value(metadata, ["armis_tags", "source_tags", "tags"])
-        ),
-        metadata_item(
-          "Visibility",
-          metadata_first_value(metadata, ["armis_visibility", "visibility"])
-        ),
-        metadata_item(
-          "Purdue level",
-          metadata_first_value(metadata, ["armis_purdue_level", "purdue_level"])
-        ),
-        metadata_item(
-          "Serial numbers",
-          metadata_first_value(metadata, [
-            "armis_serial_numbers",
-            "serial_numbers",
-            "serial_number"
-          ])
-        )
-      ])
+      metadata_group(
+        "Armis",
+        "hero-shield-check",
+        [
+          metadata_item(
+            "Device ID",
+            metadata_first_value(metadata, ["armis_device_id", "armis_id"]),
+            mono: true,
+            external_href: metadata_lookup(metadata, "armis_device_url")
+          ),
+          metadata_item(
+            "Type",
+            metadata_first_value(metadata, ["armis_type", "device_type", "type"])
+          ),
+          metadata_item(
+            "Category",
+            metadata_first_value(metadata, ["armis_category", "category"])
+          ),
+          metadata_item(
+            "Boundaries",
+            metadata_first_value(metadata, ["armis_boundary_names", "boundary_names"])
+          ),
+          metadata_item("Risk level", metadata_lookup(metadata, "armis_risk_level")),
+          metadata_item(
+            "Risk score",
+            metadata_first_value(metadata, ["armis_risk_score", "risk_score"])
+          ),
+          metadata_item(
+            "Tags",
+            metadata_first_value(metadata, ["armis_tags", "source_tags", "tags"])
+          ),
+          metadata_item(
+            "Visibility",
+            metadata_first_value(metadata, ["armis_visibility", "visibility"])
+          ),
+          metadata_item(
+            "Purdue level",
+            metadata_first_value(metadata, ["armis_purdue_level", "purdue_level"])
+          ),
+          metadata_item(
+            "Serial numbers",
+            metadata_first_value(metadata, [
+              "armis_serial_numbers",
+              "serial_numbers",
+              "serial_number"
+            ])
+          )
+        ],
+        logo: :armis
+      )
     else
-      metadata_group("Armis", "hero-shield-check", [])
+      metadata_group("Armis", "hero-shield-check", [], logo: :armis)
     end
   end
 
-  defp armis_metadata_group(_metadata, _sources), do: metadata_group("Armis", "hero-shield-check", [])
+  defp armis_metadata_group(_metadata, _sources), do: metadata_group("Armis", "hero-shield-check", [], logo: :armis)
 
   defp netbox_metadata_group(metadata, sources) when is_map(metadata) do
     netbox_keys = ["netbox_device_id", "netbox_id", "netbox_role", "netbox_device_type", "netbox_tags"]
 
     if integration_provenance?(metadata, sources, "netbox", netbox_keys) do
-      metadata_group("NetBox", "hero-server-stack", [
-        metadata_item(
-          "Device ID",
-          metadata_first_value(metadata, ["netbox_device_id", "netbox_id"]),
-          mono: true
-        ),
-        metadata_item(
-          "Site",
-          summarize_json_metadata(metadata_first_value(metadata, ["site", "site_name", "site_slug"]))
-        ),
-        metadata_item(
-          "Tenant",
-          summarize_json_metadata(metadata_first_value(metadata, ["tenant", "tenant_name", "account"]))
-        ),
-        metadata_item(
-          "Role",
-          metadata_first_value(metadata, ["netbox_role", "device_role", "role", "device_role_name"])
-        ),
-        metadata_item("Status", metadata_first_value(metadata, ["status", "device_status"])),
-        metadata_item(
-          "Platform",
-          metadata_first_value(metadata, ["platform", "platform_name"])
-        ),
-        metadata_item(
-          "Rack",
-          summarize_json_metadata(metadata_first_value(metadata, ["rack", "rack_name"]))
-        ),
-        metadata_item(
-          "Location",
-          summarize_json_metadata(metadata_first_value(metadata, ["location", "location_name"]))
-        ),
-        metadata_item("Tags", metadata_first_value(metadata, ["netbox_tags", "tags"]))
-      ])
+      metadata_group(
+        "NetBox",
+        "hero-server-stack",
+        [
+          metadata_item(
+            "Device ID",
+            metadata_first_value(metadata, ["netbox_device_id", "netbox_id"]),
+            mono: true
+          ),
+          metadata_item(
+            "Site",
+            summarize_json_metadata(metadata_first_value(metadata, ["site", "site_name", "site_slug"]))
+          ),
+          metadata_item(
+            "Tenant",
+            summarize_json_metadata(metadata_first_value(metadata, ["tenant", "tenant_name", "account"]))
+          ),
+          metadata_item(
+            "Role",
+            metadata_first_value(metadata, ["netbox_role", "device_role", "role", "device_role_name"])
+          ),
+          metadata_item("Status", metadata_first_value(metadata, ["status", "device_status"])),
+          metadata_item(
+            "Platform",
+            metadata_first_value(metadata, ["platform", "platform_name"])
+          ),
+          metadata_item(
+            "Rack",
+            summarize_json_metadata(metadata_first_value(metadata, ["rack", "rack_name"]))
+          ),
+          metadata_item(
+            "Location",
+            summarize_json_metadata(metadata_first_value(metadata, ["location", "location_name"]))
+          ),
+          metadata_item("Tags", metadata_first_value(metadata, ["netbox_tags", "tags"]))
+        ],
+        logo: :netbox
+      )
     else
-      metadata_group("NetBox", "hero-server-stack", [])
+      metadata_group("NetBox", "hero-server-stack", [], logo: :netbox)
     end
   end
 
-  defp netbox_metadata_group(_metadata, _sources), do: metadata_group("NetBox", "hero-server-stack", [])
+  defp netbox_metadata_group(_metadata, _sources), do: metadata_group("NetBox", "hero-server-stack", [], logo: :netbox)
 
   # Neutral home for generic device descriptors that any discovery source may
   # populate. These are NOT integration provenance, so they never imply Armis /

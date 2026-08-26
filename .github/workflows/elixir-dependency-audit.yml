@@ -14,11 +14,11 @@
 #
 # Scheduled dependency audit for the Elixir workspace.
 #
-# The Elixir Quality workflow already audits dependencies, but only on push/PR
-# with `elixir/**` path filters. That answers "did this change introduce a
-# vulnerable dependency?" -- it cannot answer "was a vulnerability published
-# today against a dependency we have not touched in months?", because nothing
-# triggers it. This workflow's trigger is the calendar.
+# Dependency audits are not a pull-request gate. Elixir Quality PRs run
+# format + Credo only; mix hex.audit / mix deps.audit run on this calendar
+# job and on the daily BuildBuddy Elixir quality action. This workflow's
+# trigger is the calendar, so an advisory published against a lockfile
+# nobody has touched still gets a run.
 
 name: Elixir Dependency Audit
 
@@ -34,8 +34,8 @@ on:
         type: boolean
         default: true
   # Only the audit machinery itself. This workflow deliberately does NOT gate
-  # ordinary Elixir changes -- Elixir Quality already does that, and duplicating
-  # it here would just add a slow required check to every PR.
+  # ordinary Elixir changes -- duplicating it on every PR would add a slow
+  # required check with no extra signal over the daily run.
   pull_request:
     branches: [staging]
     paths:
@@ -68,10 +68,10 @@ jobs:
     env:
       ImageOS: ubuntu24
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
 
       - name: Setup Beam
-        uses: erlef/setup-beam@fc68ffb90438ef2936bbb3251622353b3dcb2f93
+        uses: erlef/setup-beam@54075bcc5e249e4758d363f27d099f55d843f124
         env:
           ImageOS: ubuntu24
         with:
@@ -82,7 +82,7 @@ jobs:
       # cache the advisory database: that is fetched fresh on every run, and the
       # script fails the job rather than fall back to a stale copy.
       - name: Cache Elixir dependencies
-        uses: actions/cache@668228422ae6a00e4ad889ee87cd7109ec5666a7
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9
         with:
           path: |
             ~/.hex

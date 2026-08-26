@@ -3,7 +3,7 @@ defmodule ServiceRadar.Plugins.NetprobeAddonPackageSeederTest do
   DB-backed coverage for the netprobe native add-on control-plane seed.
   """
 
-  use ServiceRadar.DataCase, async: false
+  use ServiceRadar.DataCase, async: true
 
   alias ServiceRadar.Edge.AgentConfigGenerator
   alias ServiceRadar.Infrastructure.Agent

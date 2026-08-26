@@ -356,7 +356,23 @@ static L2_OBSERVATIONS: RingBuf = RingBuf::pinned(1 << 20, 0);
 // device's FIRST sighting is always emitted and refreshes are rate limited.
 // LRU so a busy segment evicts cold entries instead of failing to insert.
 #[map(name = "l2_seen")]
-static L2_SEEN: LruHashMap<L2SeenKey, u64> = LruHashMap::pinned(65536, 0);
+static L2_SEEN: LruHashMap<L2SeenKey, u64> = LruHashMap::pinned(L2_SEEN_MAX_ENTRIES, 0);
+
+// Sized for the segment, not for a round number.
+//
+// An LRU hash PREALLOCATES: BPF_F_NO_PREALLOC is not supported for
+// BPF_MAP_TYPE_LRU_HASH, so every entry is committed at load time whether or
+// not it is ever used. At 65536 this map reserved 6.5 MB to hold 14 live
+// entries on a real segment -- memory an edge device does not have to spare.
+//
+// The key is (interface, MAC, IP), so the worst realistic case is a full /24
+// where every host has several IPv6 addresses as well: 254 * ~10 = ~2500.
+// 8192 keeps roughly 3x headroom over that and costs ~0.85 MB.
+//
+// Undersizing has a real cost, which is why the headroom is deliberate: the
+// LRU evicts under pressure, an evicted binding is re-emitted, and sustained
+// re-emission is exactly what the watchdog shuts the census down for.
+const L2_SEEN_MAX_ENTRIES: u32 = 8192;
 
 // Census observations the ring could not accept because it was full.
 //
@@ -368,8 +384,90 @@ static L2_SEEN: LruHashMap<L2SeenKey, u64> = LruHashMap::pinned(65536, 0);
 // Without this counter the snapshot's `dropped_since_last` would be
 // permanently zero, and an operator could not tell a quiet segment from one
 // that is silently losing observations.
+// mDNS announcements, payload included. Separate ring from l2_observations so a
+// burst of announcements cannot starve the census, which is the signal that
+// binds MAC to IP and therefore the thing mDNS enriches.
+#[map(name = "mdns_observations")]
+static MDNS_OBSERVATIONS: RingBuf = RingBuf::pinned(1 << 20, 0);
+
+// Suppression for mDNS, keyed by (interface, MAC, payload hash).
+//
+// NOT keyed by MAC alone, which is what the census does. The census can do that
+// because every ARP sighting from one binding is equivalent. mDNS packets from
+// one device are NOT equivalent: a device announces its service in one packet
+// and the TXT carrying its model in another, milliseconds apart. Suppressing
+// per MAC would keep the first and drop exactly the record that identifies the
+// device.
+//
+// Hashing the content instead drops what is genuinely redundant -- devices
+// re-announce identical records constantly -- while letting a burst of distinct
+// records through. A sender that varies its payload defeats this, which is what
+// the userspace watchdog is for.
+#[map(name = "mdns_seen")]
+static MDNS_SEEN: LruHashMap<MdnsSeenKey, u64> = LruHashMap::pinned(MDNS_SEEN_MAX_ENTRIES, 0);
+
+// Same reasoning as L2_SEEN. Keyed by (interface, MAC, content hash), so a
+// device contributes one entry per distinct announcement it makes within the
+// refresh window rather than one entry total. 8192 covers a full /24 at ~30
+// distinct announcements each and costs ~0.75 MB; the map held 39 entries on a
+// live segment.
+const MDNS_SEEN_MAX_ENTRIES: u32 = 8192;
+
+#[repr(C)]
+#[derive(Copy, Clone, Eq, PartialEq)]
+pub struct MdnsSeenKey {
+    pub interface_index: u32,
+    pub reserved: u32,
+    pub mac: [u8; 6],
+    pub reserved2: [u8; 2],
+    pub payload_hash: u64,
+}
+
+pub const MDNS_PORT: u16 = 5353;
+pub const MDNS_RECORD_VERSION: u16 = 1;
+/// Bytes of UDP payload copied per announcement.
+///
+/// Live capture on a real segment topped out at 473 bytes, so 512 covers what
+/// is actually sent while keeping the record small enough that a 1 MiB ring
+/// holds ~1800 of them. Anything longer is copied up to the cap and flagged, so
+/// a receiver knows the model may be in the part that was cut rather than
+/// concluding the device did not send one.
+pub const MDNS_PAYLOAD_CAP: usize = 512;
+pub const MDNS_FLAG_TRUNCATED: u16 = 1 << 0;
+pub const MDNS_FLAG_IPV6: u16 = 1 << 1;
+/// How long an identical announcement stays suppressed.
+const MDNS_REFRESH_INTERVAL_NS: u64 = 60 * 1_000_000_000;
+
+#[repr(C)]
+#[derive(Copy, Clone)]
+pub struct MdnsObservationRecord {
+    pub version: u16,
+    pub flags: u16,
+    pub payload_len: u16,
+    pub reserved0: u16,
+    pub interface_index: u32,
+    pub reserved1: u32,
+    pub observed_ns: u64,
+    pub mac: [u8; 6],
+    pub reserved2: [u8; 2],
+    pub ip: [u8; 16],
+    pub payload: [u8; MDNS_PAYLOAD_CAP],
+}
+
 #[map(name = "l2_ring_drops")]
-static L2_RING_DROPS: PerCpuArray<u64> = PerCpuArray::pinned(1, 0);
+static L2_RING_DROPS: PerCpuArray<u64> = PerCpuArray::pinned(4, 0);
+
+// Slot 0: observations the ring could not accept because it was full.
+pub const L2_STAT_RING_FULL: u32 = 0;
+// Slot 1: suppression-cache inserts that failed. Non-zero here means the
+// census is emitting every frame instead of one per refresh interval, which
+// the userspace watchdog will shut the census down for.
+pub const L2_STAT_SUPPRESS_INSERT_FAILED: u32 = 1;
+// Slot 2: mDNS announcements the ring could not accept.
+pub const MDNS_STAT_RING_FULL: u32 = 2;
+// Slot 3: mDNS suppression inserts that failed. Non-zero means every
+// announcement is re-emitted; the watchdog will shut the collector down.
+pub const MDNS_STAT_SUPPRESS_INSERT_FAILED: u32 = 3;
 
 #[repr(C)]
 #[derive(Copy, Clone, Eq, PartialEq)]
@@ -423,6 +521,7 @@ pub fn netprobe_tc_ingress(ctx: TcContext) -> i32 {
     // observe_l2_device checks it only after the cheap ethertype filter passes.
     // now_ns() is likewise deferred: bpf_ktime_get_ns is a helper call.
     observe_l2_device(&ctx);
+    observe_mdns(&ctx);
     if account_flow(&ctx) {
         // The tail call MUST live in the entry program: the BPF verifier rejects
         // bpf_tail_call inside bpf-to-bpf subprograms. Falls through to TC_ACT_OK
@@ -2114,8 +2213,22 @@ fn mac_is_locally_administered(mac: &[u8; 6]) -> bool {
 // yet lookups behaved as misses and every frame was emitted. The flow table is
 // the pattern that demonstrably works in this same program, so match it.
 #[inline(never)]
-fn l2_should_emit(key: &L2SeenKey, observed_ns: u64) -> bool {
-    if let Some(last_ptr) = L2_SEEN.get_ptr_mut(key) {
+// Takes the key BY VALUE, and is deliberately NOT #[inline(never)].
+//
+// Both matter, and the second one cost a live debugging session. As a
+// non-inlined function taking `&L2SeenKey`, this received a pointer into the
+// CALLER's stack frame and handed it straight to bpf_map_update_elem across a
+// BPF-to-BPF call. The program verified and loaded, `flow_table` (an
+// LruHashMap updated the same way from the same program) filled normally, and
+// yet `l2_seen` stayed at exactly 0 entries under live traffic -- every insert
+// silently failed, nothing was ever suppressed, and the watchdog killed the
+// census 10 seconds after every start.
+//
+// update_flow_table is the working precedent and does it the other way: it
+// builds the key as a local value in its own frame and passes `&local` to the
+// helpers. Copy that shape, not just its choice of get_ptr_mut + BPF_ANY.
+fn l2_should_emit(key: L2SeenKey, observed_ns: u64) -> bool {
+    if let Some(last_ptr) = L2_SEEN.get_ptr_mut(&key) {
         // SAFETY: kernel-returned map pointer, valid for this invocation.
         let last = unsafe { &mut *last_ptr };
         // saturating_sub so a non-monotonic clock cannot make this emit forever.
@@ -2125,7 +2238,17 @@ fn l2_should_emit(key: &L2SeenKey, observed_ns: u64) -> bool {
         *last = observed_ns;
         return true;
     }
-    let _ = L2_SEEN.insert(key, &observed_ns, BPF_ANY as u64);
+    if L2_SEEN.insert(&key, &observed_ns, BPF_ANY as u64).is_err() {
+        // A failed insert means this binding is not remembered, so the next
+        // frame from it emits again. Counted rather than discarded: silently
+        // dropping this error is what turned a one-line calling-convention bug
+        // into an unsuppressed flood with no diagnosable cause.
+        if let Some(failures) = L2_RING_DROPS.get_ptr_mut(L2_STAT_SUPPRESS_INSERT_FAILED) {
+            // SAFETY: per-CPU array slot 1 exists (capacity 2) and is only
+            // accessed from this CPU for the duration of this program run.
+            unsafe { *failures = (*failures).saturating_add(1) };
+        }
+    }
     true
 }
 
@@ -2277,7 +2400,7 @@ fn observe_l2_device(ctx: &TcContext) {
         mac: record.mac,
         ip: record.ip,
     };
-    if !l2_should_emit(&key, observed_ns) {
+    if !l2_should_emit(key, observed_ns) {
         return;
     }
 
@@ -2285,7 +2408,7 @@ fn observe_l2_device(ctx: &TcContext) {
         // Ring full: userspace is not draining fast enough. Record the loss so
         // the snapshot can report it rather than silently under-reporting the
         // segment.
-        if let Some(drops) = L2_RING_DROPS.get_ptr_mut(0) {
+        if let Some(drops) = L2_RING_DROPS.get_ptr_mut(L2_STAT_RING_FULL) {
             // SAFETY: per-CPU array slot 0 exists (capacity 1) and is only
             // accessed from this CPU for the duration of this program run.
             unsafe { *drops = (*drops).saturating_add(1) };
@@ -2294,6 +2417,276 @@ fn observe_l2_device(ctx: &TcContext) {
     };
     entry.write(record);
     entry.submit(0);
+}
+
+// Observe one mDNS announcement.
+//
+// HOT PATH FIRST, same discipline as observe_l2_device. This runs on every
+// ingress frame and the overwhelming majority are ordinary unicast traffic, so
+// the cheap rejections come first: ethertype, then IP protocol, then the
+// destination port. Only a frame that is actually UDP/5353 pays for a MAC read,
+// an allowlist lookup, a clock read, a hash, or a ring reservation.
+fn observe_mdns(ctx: &TcContext) {
+    let mut offset = ETH_HEADER_LEN;
+    let Some(mut ethertype) = load_be_u16(ctx, 12) else {
+        return;
+    };
+    if ethertype == ETH_P_8021Q || ethertype == ETH_P_8021AD {
+        let Some(inner) = load_be_u16(ctx, 16) else {
+            return;
+        };
+        ethertype = inner;
+        offset = offset.saturating_add(VLAN_HEADER_LEN);
+    }
+
+    let (ip_protocol_offset, is_v6) = match ethertype {
+        ETH_P_IP => (offset + 9, false),
+        ETH_P_IPV6 => (offset + 6, true),
+        _ => return,
+    };
+
+    let Some(protocol) = load_u8(ctx, ip_protocol_offset) else {
+        return;
+    };
+    if u16::from(protocol) != IPPROTO_UDP {
+        return;
+    }
+
+    // IPv4 carries a variable header length; IPv6's is fixed. An IPv4 packet
+    // with options would otherwise have its ports read from the wrong offset.
+    let udp_offset = if is_v6 {
+        offset + IPV6_HEADER_LEN
+    } else {
+        let Some(version_ihl) = load_u8(ctx, offset) else {
+            return;
+        };
+        let ihl = usize::from(version_ihl & 0x0F) * 4;
+        if ihl < 20 {
+            return;
+        }
+        offset + ihl
+    };
+
+    let Some(destination_port) = load_be_u16(ctx, udp_offset + 2) else {
+        return;
+    };
+    if destination_port != MDNS_PORT {
+        return;
+    }
+
+    // Past here the frame is genuinely mDNS, which is a vanishing fraction of
+    // traffic, so the remaining work is affordable.
+    if interface_config(skb_interface_index(ctx)).is_none() {
+        return;
+    }
+
+    let Some(udp_length) = load_be_u16(ctx, udp_offset + 4) else {
+        return;
+    };
+    let payload_offset = udp_offset + UDP_HEADER_LEN;
+    // The UDP length covers the header, so anything at or below it carries no
+    // payload and cannot be a DNS message.
+    if usize::from(udp_length) <= UDP_HEADER_LEN {
+        return;
+    }
+    let declared = usize::from(udp_length) - UDP_HEADER_LEN;
+
+    let Some(source_mac) = load_bytes::<6>(ctx, 6) else {
+        return;
+    };
+    if source_mac[0] & 0x01 != 0 {
+        // Group/broadcast source address: never a device's own address.
+        return;
+    }
+
+    let observed_ns = now_ns();
+
+    let Some(mut entry) = MDNS_OBSERVATIONS.reserve::<MdnsObservationRecord>(0) else {
+        if let Some(drops) = L2_RING_DROPS.get_ptr_mut(MDNS_STAT_RING_FULL) {
+            // SAFETY: per-CPU slot 2 exists (capacity 4) and is CPU-local.
+            unsafe { *drops = (*drops).saturating_add(1) };
+        }
+        return;
+    };
+
+    // SAFETY: reserve returned space sized for exactly this type; every field is
+    // written below before submit, and the payload is zeroed first so a short
+    // packet cannot leak whatever the ring held before.
+    let record = unsafe { &mut *entry.as_mut_ptr() };
+    record.version = MDNS_RECORD_VERSION;
+    record.flags = if is_v6 { MDNS_FLAG_IPV6 } else { 0 };
+    record.reserved0 = 0;
+    record.reserved1 = 0;
+    record.interface_index = skb_interface_index(ctx);
+    record.observed_ns = observed_ns;
+    record.mac = source_mac;
+    record.reserved2 = [0u8; 2];
+    record.ip = [0u8; 16];
+    record.payload = [0u8; MDNS_PAYLOAD_CAP];
+
+    if is_v6 {
+        if let Some(source) = load_bytes::<16>(ctx, offset + 8) {
+            record.ip = source;
+        }
+    } else if let Some(source) = load_bytes::<4>(ctx, offset + 12) {
+        record.ip[..4].copy_from_slice(&source);
+    }
+
+    // Copy in ONE call whose length is a compile-time constant.
+    //
+    // A runtime-variable length is rejected outright. The verifier reported:
+    //   R4 invalid zero-sized read: u64=[0,4294967233]
+    // because a slice bound by a computed value gives it neither a non-zero
+    // lower bound nor a usable upper one. Clamping the value in Rust is not
+    // enough -- the constant has to be visible in the instruction stream.
+    //
+    // A descending ladder picks the largest constant that fits, so at most 63
+    // bytes of a packet's tail are lost. Announcements observed on a live
+    // segment ran 215-473 bytes, so in practice this copies what matters.
+    // Below the smallest rung the packet is too short to carry a TXT record
+    // worth reading, so it is dropped rather than partially copied.
+    //
+    // Copying straight into the ring reservation is also required rather than
+    // stylistic: the BPF stack is 512 bytes in total and the payload alone is
+    // 512.
+    // The RAW helper, not TcContext::load_bytes.
+    //
+    // aya's wrapper clamps the length to `skb->len - offset` before calling
+    // bpf_skb_load_bytes:
+    //     let len = len.checked_sub(offset)?;   // runtime
+    //     let len = len.min(dst.len());         // min(runtime, const) -> runtime
+    // so even a constant-sized destination slice arrives at the helper as a
+    // variable, and the verifier refuses it:
+    //     R4 invalid zero-sized read: u64=[0,31]
+    // It has no non-zero lower bound to work with. Passing the literal directly
+    // is the only way to give R4 a constant.
+    //
+    // The helper itself rejects a read past the end of the packet, so trying
+    // constants in descending order is safe: the first that fits wins, and no
+    // bounds arithmetic of ours has to be trusted.
+    let mut copied = 0usize;
+    macro_rules! copy_largest_that_fits {
+        ($($len:literal),*) => {
+            $(
+                if copied == 0 && declared >= $len {
+                    // SAFETY: the destination is the ring reservation, which is
+                    // sized MDNS_PAYLOAD_CAP and every literal below is <= that.
+                    // The helper bounds the source read itself.
+                    let ret = unsafe {
+                        aya_ebpf::helpers::bpf_skb_load_bytes(
+                            ctx.skb.skb as *const _,
+                            payload_offset as u32,
+                            record.payload.as_mut_ptr() as *mut _,
+                            $len as u32,
+                        )
+                    };
+                    if ret == 0 {
+                        copied = $len;
+                    }
+                }
+            )*
+        };
+    }
+    // 16-byte granularity, not 64. The coarse ladder set MDNS_FLAG_TRUNCATED on
+    // essentially every record observed on a live segment -- a 215-byte
+    // announcement copied 192 bytes and lost 23 -- which both discarded the tail
+    // where a trailing TXT can live and made the flag meaningless because it was
+    // always set. At 16 bytes the worst case is 15 lost and the flag once again
+    // means something a receiver can act on.
+    //
+    // The failed attempts cost only a helper call that returns an error, and
+    // only for packets that are already rare.
+    copy_largest_that_fits!(
+        512, 496, 480, 464, 448, 432, 416, 400, 384, 368, 352, 336, 320, 304, 288, 272, 256, 240,
+        224, 208, 192, 176, 160, 144, 128, 112, 96, 80, 64, 48, 32, 16
+    );
+
+    if copied == 0 {
+        entry.discard(0);
+        return;
+    }
+    // TRUNCATED means the announcement was longer than we can carry, which is
+    // actionable: the model may be in the part that was never copied, so a
+    // receiver should wait for another announcement rather than concluding the
+    // device did not send one.
+    //
+    // It deliberately does NOT mean "the copy ladder rounded down". Setting it
+    // for that fired on 26 of 27 records observed live -- the ladder lands on an
+    // exact multiple only 1/16 of the time -- which made the flag carry no
+    // information at all. The <=15 trailing bytes a round-down loses are
+    // reflected honestly in payload_len, and the DNS parser simply stops at the
+    // last record it can complete.
+    if declared > MDNS_PAYLOAD_CAP {
+        record.flags |= MDNS_FLAG_TRUNCATED;
+    }
+    record.payload_len = copied as u16;
+
+    if !mdns_should_emit(record.interface_index, source_mac, &record.payload, copied, observed_ns) {
+        entry.discard(0);
+        return;
+    }
+
+    entry.submit(0);
+}
+
+// Suppress an announcement whose content we have already seen from this device.
+//
+// Hashes the copied payload rather than keying on the MAC alone: see MDNS_SEEN.
+// FNV-1a over a bounded prefix -- the DNS header and first records are what
+// differ between a service announcement and the TXT that names the model, so a
+// prefix discriminates them without walking the whole packet on every frame.
+#[inline(never)]
+fn mdns_should_emit(
+    interface_index: u32,
+    mac: [u8; 6],
+    payload: &[u8; MDNS_PAYLOAD_CAP],
+    len: usize,
+    observed_ns: u64,
+) -> bool {
+    const HASH_PREFIX: usize = 128;
+    let mut hash: u64 = 0xcbf2_9ce4_8422_2325;
+    // Both bounds are kept in the loop condition. The second is redundant in
+    // Rust but not to the verifier, which needs a constant ceiling it can see
+    // to prove the index stays inside the array.
+    let bounded = if len < HASH_PREFIX { len } else { HASH_PREFIX };
+    let mut index = 0usize;
+    while index < bounded && index < HASH_PREFIX {
+        hash ^= u64::from(payload[index]);
+        hash = hash.wrapping_mul(0x0000_0100_0000_01b3);
+        index += 1;
+    }
+    // Length participates so two packets sharing a prefix but differing in size
+    // are not collapsed.
+    hash ^= len as u64;
+
+    let key = MdnsSeenKey {
+        interface_index,
+        reserved: 0,
+        mac,
+        reserved2: [0u8; 2],
+        payload_hash: hash,
+    };
+
+    // By VALUE, and not #[inline(never)] on the map access itself: a &key from
+    // the caller's frame handed to a map helper across a BPF-to-BPF call makes
+    // every insert silently fail. That cost a live debugging session on the
+    // census (l2_seen sat at 0 entries while flow_table filled normally).
+    if let Some(last_ptr) = MDNS_SEEN.get_ptr_mut(&key) {
+        let last = unsafe { &mut *last_ptr };
+        if observed_ns.saturating_sub(*last) < MDNS_REFRESH_INTERVAL_NS {
+            return false;
+        }
+        *last = observed_ns;
+        return true;
+    }
+
+    if MDNS_SEEN.insert(&key, &observed_ns, BPF_ANY as u64).is_err() {
+        if let Some(failures) = L2_RING_DROPS.get_ptr_mut(MDNS_STAT_SUPPRESS_INSERT_FAILED) {
+            // SAFETY: per-CPU slot 3 exists (capacity 4) and is CPU-local.
+            unsafe { *failures = (*failures).saturating_add(1) };
+        }
+    }
+    true
 }
 
 fn load_u8(ctx: &TcContext, offset: usize) -> Option<u8> {

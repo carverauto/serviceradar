@@ -26,6 +26,8 @@ defmodule ServiceRadar.Cluster.DatabaseBootstrapIntegrationTest do
 
   import ExUnit.Assertions
 
+  alias ServiceRadar.DB.FixtureConfig
+
   @moduletag :integration
   @moduletag :requires_app
   # 180s was enough for two bootstrap runs on a quiet fixture and left
@@ -39,17 +41,17 @@ defmodule ServiceRadar.Cluster.DatabaseBootstrapIntegrationTest do
   @admin_query_timeout 120_000
 
   @result_prefix "BOOTSTRAP_RESULT:"
-  @admin_url System.get_env("SERVICERADAR_TEST_ADMIN_URL") ||
-               System.get_env("SRQL_TEST_ADMIN_URL")
-
-  if @admin_url in [nil, ""] do
-    @moduletag skip: "set SERVICERADAR_TEST_ADMIN_URL or SRQL_TEST_ADMIN_URL"
-  end
 
   setup_all do
     {:ok, _} = Application.ensure_all_started(:postgrex)
     {:ok, _} = Application.ensure_all_started(:ecto_sql)
-    assert_usable_admin_password!(@admin_url)
+
+    # This target is part of the guarded fixture lifecycle. Resolve its DDL connection from the
+    # same typed SERVICERADAR_ENV instance as provisioning and the suite; never accept a legacy
+    # ambient admin DSN that could point the scratch CREATE/DROP at another server. Keep the secret
+    # in setup state rather than compiling it into the test module as an attribute.
+    admin_url = FixtureConfig.admin_url!("postgres")
+    assert_usable_admin_password!(admin_url)
 
     {subprocess_ca_file, remove_subprocess_ca_file?} = subprocess_ca_file()
 
@@ -63,14 +65,13 @@ defmodule ServiceRadar.Cluster.DatabaseBootstrapIntegrationTest do
     end
 
     {:ok,
-     admin_url: @admin_url,
-     admin_opts: postgres_opts(@admin_url),
+     admin_url: admin_url,
+     admin_opts: postgres_opts(admin_url),
      subprocess_ca_file: subprocess_ca_file}
   end
 
-  # No admin DSN at all is "unconfigured" and skips above. A DSN without a password is
-  # "partially configured", and the established convention in this suite is to fail loudly
-  # rather than run a test that silently covers nothing (see test/test_helper.exs).
+  # A missing admin password is a partially configured guarded fixture and fails while the typed
+  # URL above is resolved rather than silently skipping the release qualification.
   #
   # StartupMigrations reaches PostgreSQL as an administrator through
   # `admin_connection_attempts/0`, which drops every candidate whose password is empty. Hand
@@ -91,10 +92,9 @@ defmodule ServiceRadar.Cluster.DatabaseBootstrapIntegrationTest do
       privileges: StartupMigrations discards passwordless admin credentials and would fall
       back to the unprivileged application role.
 
-      Put a password in SERVICERADAR_TEST_ADMIN_URL (or SRQL_TEST_ADMIN_URL). A fixture using
-      `trust` authentication ignores the value, so any non-empty password will do:
-
-        postgres://postgres:postgres@host:5432/postgres?sslmode=disable
+      Configure database.admin_password for the selected SERVICERADAR_ENV identity. The guarded
+      CI lifecycle selects the srql-fixtures `ci` instance and resolves that secret before this
+      module can issue any DDL.
       """)
     end
   end
@@ -103,27 +103,14 @@ defmodule ServiceRadar.Cluster.DatabaseBootstrapIntegrationTest do
     # Integration shards and retries use independent BEAM VMs against the same CNPG fixture,
     # so System.unique_integer/1 alone cannot make the database name globally unique.
     suffix = Base.encode16(:crypto.strong_rand_bytes(8), case: :lower)
-    # The `sr_core_test_` prefix is what makes the on_exit backstop below real: sweep_stale_dbs
-    # collects that prefix and nothing else, so a `serviceradar_bootstrap_test_*` leak was
-    # permanent despite the comment promising otherwise.
+    # The `sr_core_test_` prefix lets a later stale sweep recover residue after infrastructure
+    # failure. The current heavy action still fails unless its own on_exit DROP succeeds.
     scratch_db = "sr_core_test_bootstrap_#{suffix}"
 
     create_database!(admin_opts, scratch_db)
 
     on_exit(fn ->
-      # The bootstrap assertions already ran. A slow DROP on a loaded
-      # eight-shard fixture must not flip a green test red: sweep_stale_dbs
-      # is the backstop for a leftover scratch database.
-      case drop_database(admin_opts, scratch_db) do
-        :ok ->
-          :ok
-
-        {:error, reason} ->
-          IO.warn(
-            "bootstrap scratch #{scratch_db} drop failed (#{inspect(reason)}); " <>
-              "sweep_stale_dbs will collect it"
-          )
-      end
+      drop_database!(admin_opts, scratch_db)
     end)
 
     {:ok, scratch_db: scratch_db}
@@ -624,6 +611,16 @@ defmodule ServiceRadar.Cluster.DatabaseBootstrapIntegrationTest do
         timeout: @admin_query_timeout
       )
     end)
+  end
+
+  defp drop_database!(admin_opts, database) do
+    case drop_database(admin_opts, database) do
+      :ok ->
+        :ok
+
+      {:error, reason} ->
+        raise "failed to drop bootstrap scratch database #{database}: #{inspect(reason)}"
+    end
   end
 
   defp drop_database(admin_opts, database) do

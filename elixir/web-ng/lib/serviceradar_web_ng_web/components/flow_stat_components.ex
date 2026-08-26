@@ -209,7 +209,11 @@ defmodule ServiceRadarWebNGWeb.FlowStatComponents do
 
   attr :id, :string, required: true
   attr :data_json, :string, required: true, doc: "JSON array of {t: epoch_ms, v: number}"
-  attr :color, :string, default: "oklch(var(--p))"
+  # `oklch(var(--p))` was a daisyUI token. daisyUI is no longer loaded
+  # (assets/css/app.css keeps it commented out), so --p is undefined and the
+  # stroke rendered invisible against the dark card. Use the design system's
+  # own brand token, which is defined for both themes.
+  attr :color, :string, default: "var(--sr-color-brand)"
   attr :height, :integer, default: 32
   attr :class, :any, default: nil
 
@@ -240,6 +244,7 @@ defmodule ServiceRadarWebNGWeb.FlowStatComponents do
 
   attr :height, :integer, default: 200
   attr :class, :any, default: nil
+  attr :chrome, :boolean, default: true
 
   def protocol_breakdown(assigns) do
     ~H"""
@@ -247,7 +252,10 @@ defmodule ServiceRadarWebNGWeb.FlowStatComponents do
       id={@id}
       phx-hook="FlowDonut"
       data-slices={@data_json}
-      class={["rounded-xl border border-sr-line bg-sr-surface p-4", @class]}
+      class={[
+        @chrome && "rounded-xl border border-sr-line bg-sr-surface p-4",
+        @class
+      ]}
     >
       <div class="flex items-center justify-center" style={"height: #{@height}px"}>
         <canvas class="max-w-full max-h-full"></canvas>

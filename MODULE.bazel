@@ -26,7 +26,7 @@ git_override(
 # @openssl would break that pairing. zstd and zlib have no such coupling.
 bazel_dep(name = "zstd", version = "1.5.7.bcr.1")
 bazel_dep(name = "zlib", version = "1.3.2")
-bazel_dep(name = "rules_python", version = "2.2.0")
+bazel_dep(name = "rules_python", version = "2.3.2")
 bazel_dep(name = "rules_nodejs", version = "6.7.5")
 bazel_dep(name = "rules_proto", version = "7.1.0")
 bazel_dep(name = "protobuf", version = "35.1", repo_name = "com_google_protobuf")
@@ -52,6 +52,7 @@ bazel_dep(name = "rules_foreign_cc", version = "0.15.1")
 bazel_dep(name = "aspect_rules_js", version = "2.6.0")
 bazel_dep(name = "aspect_rules_ts", version = "3.7.0")
 bazel_dep(name = "rules_cc", version = "0.2.22")
+
 # OpenSSL as cc_library; The one consumer is openssl-sys (annotation below), which in turn feeds pq-src.
 bazel_dep(name = "openssl", version = "3.5.5.bcr.4")
 bazel_dep(name = "buildifier_prebuilt", version = "8.5.1.3")
@@ -258,6 +259,13 @@ aya_ebpf_ext.bpf_linker(
 # Configure hermetic Python toolchains for consistent behavior across
 # local builds and remote cache. This prevents architecture mismatches
 # when rules_multirun pulls cached artifacts.
+#
+# Declare that this module uses explicit packages. The matching root Bazel
+# option also applies the future rules_python default to transitive tools so
+# their implicit-package deprecation warnings do not leak into our builds.
+rules_python_config = use_extension("@rules_python//python/extensions:config.bzl", "config")
+rules_python_config.explicit_init_py(default = True)
+
 #
 # IMPORTANT: Register host toolchains FIRST so they take precedence for
 # host-transitioned targets like rules_multirun (which use cfg="host").
@@ -482,10 +490,8 @@ rdp_connector_crates.annotation(
     deps = ["@zlib"],
 )
 
-# aws-lc-sys is never compiled. Both rustls consumers here -- the probe and sspi -- pin
-# `ring`/`std`/`tls12` with default-features off, so aws-lc-rs is never enabled. rules_rs warns
-# anyway because it checks every lockfile package rather than what builds; adopting its
-# suggestion would add the @aws-lc module and a bindgen toolchain for zero actions.
+# aws-lc-sys silence lives in Cargo.toml metadata (root hub and rdp-connector-probe).
+# Do not adopt the well-known @aws-lc + bindgen snippet: that crate is never compiled.
 use_repo(
     rdp_connector_crates,
     "rdp_connector_crates",

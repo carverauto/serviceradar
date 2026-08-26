@@ -2,6 +2,7 @@ use crate::query::BindParam;
 use chrono::{DateTime, Utc};
 use diesel::pg::Pg;
 
+#[derive(Debug)]
 pub(super) enum SqlBindValue {
     Text(String),
     TextArray(Vec<String>),

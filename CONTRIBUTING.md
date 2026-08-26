@@ -135,6 +135,11 @@ For local guardrails before code reaches Forgejo:
 This repo uses:
 
 - `.githooks/pre-commit` to chain the repo-managed checks and the existing `god_view` quick checks
+- `.githooks/mix-format-elixir` (via pre-commit) to `mix format` staged Elixir files and
+  **fail the commit** if that Mix project has no `deps/styler` or is still unformatted.
+  CI runs `mix format --check-formatted` on every Elixir project; the hook used to
+  `|| true` and skip missing deps, which is how unformatted files reached PRs.
+  Run `mix deps.get` in the Mix project you are editing so the hook can see Styler.
 - `.githooks/pre-push` to run a local `gitleaks` scan of commits being pushed when `gitleaks` or Docker is available
 
 The authoritative merge gate remains Forgejo Actions, but keeping the local hooks enabled is the fastest way to catch accidental secrets before they leave your machine.

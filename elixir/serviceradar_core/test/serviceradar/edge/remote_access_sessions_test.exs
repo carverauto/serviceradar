@@ -153,8 +153,10 @@ defmodule ServiceRadar.Edge.RemoteAccessSessionsTest do
     refute inspect(attach_denial_audit) =~ ticket
   end
 
+  @tag sandbox: :unboxed
   test "attach ticket consume is atomic under concurrent replay" do
     uid = unique_uid("ticket-race")
+    register_committed_race_cleanup!(device_uid: uid)
     insert_device!(uid, agent_id: "agent-ticket-race", gateway_id: "gateway-ticket-race")
 
     assert {:ok, %{session: session, ticket: ticket}} =
@@ -168,23 +170,24 @@ defmodule ServiceRadar.Edge.RemoteAccessSessionsTest do
     assert_receive {:remote_access_audit, create_audit}
     assert create_audit[:action] == :remote_access_session_create
 
-    owner = self()
-
     results =
-      1..4
-      |> Enum.map(fn _attempt ->
-        Task.async(fn ->
-          Process.put(:remote_access_audit_owner, owner)
-
+      run_committed_race!(
+        """
+        SELECT id
+        FROM platform.remote_access_sessions
+        WHERE id = $1::text::uuid
+        FOR UPDATE
+        """,
+        [session.id],
+        fn ->
           RemoteAccessSessions.attach_with_ticket(ticket,
             session_id: session.id,
             actor: @system_actor,
             trusted_internal_attach?: true,
             audit_writer: AuditSink
           )
-        end)
-      end)
-      |> Enum.map(&Task.await(&1, 15_000))
+        end
+      )
 
     assert 1 ==
              Enum.count(results, fn
@@ -788,19 +791,48 @@ defmodule ServiceRadar.Edge.RemoteAccessSessionsTest do
              )
   end
 
+  @tag sandbox: :unboxed
   test "approved access request bind rolls back losing concurrent session creates" do
-    uid = unique_uid("access-request-race")
+    suffix = System.unique_integer([:positive])
+    uid = "remote-access-access-request-race-#{suffix}"
+    agent_id = "agent-access-request-race-#{suffix}"
+    gateway_id = "gateway-access-request-race-#{suffix}"
+    credential_suffix = "access-request-race-#{suffix}"
+    credential_secret_name = "remote-access-ssh-#{credential_suffix}"
+    credential_rule_name = "remote-access-ssh-rule-#{credential_suffix}"
+    requester_id = Ecto.UUID.generate()
+    requester_profile_id = Ecto.UUID.generate()
+    reviewer_id = Ecto.UUID.generate()
+    reviewer_profile_id = Ecto.UUID.generate()
+
+    register_committed_race_cleanup!(
+      device_uid: uid,
+      credential_secret_name: credential_secret_name,
+      credential_rule_name: credential_rule_name,
+      user_ids: [requester_id, reviewer_id],
+      role_profile_ids: [requester_profile_id, reviewer_profile_id]
+    )
 
     insert_device!(uid,
-      agent_id: "agent-access-request-race",
-      gateway_id: "gateway-access-request-race"
+      agent_id: agent_id,
+      gateway_id: gateway_id
     )
 
     credential_rule_id =
-      create_credential_rule!("access-request-race", scope_value: "agent-access-request-race").id
+      create_credential_rule!(credential_suffix,
+        scope_value: agent_id,
+        secret_name: credential_secret_name,
+        rule_name: credential_rule_name
+      ).id
 
-    requester_id = insert_user!("race-requester")
-    reviewer_id = insert_user!("race-reviewer")
+    ^requester_id =
+      insert_user!("race-requester-#{suffix}",
+        id: requester_id,
+        profile_id: requester_profile_id
+      )
+
+    ^reviewer_id =
+      insert_user!("race-reviewer-#{suffix}", id: reviewer_id, profile_id: reviewer_profile_id)
 
     assert {:ok, access_request} =
              RemoteAccessRequests.create(
@@ -812,8 +844,8 @@ defmodule ServiceRadar.Edge.RemoteAccessSessionsTest do
                  target_port: 22,
                  protocol: :ssh,
                  adapter: :ssh,
-                 agent_id: "agent-access-request-race",
-                 gateway_id: "gateway-access-request-race",
+                 agent_id: agent_id,
+                 gateway_id: gateway_id,
                  credential_custody_mode: :centrally_brokered,
                  credential_rule_id: credential_rule_id,
                  reason: "race maintenance",
@@ -835,14 +867,16 @@ defmodule ServiceRadar.Edge.RemoteAccessSessionsTest do
     assert_receive {:remote_access_audit, approval_audit}
     assert approval_audit[:action] == :remote_access_request_approved
 
-    owner = self()
-
     results =
-      1..4
-      |> Enum.map(fn _attempt ->
-        Task.async(fn ->
-          Process.put(:remote_access_audit_owner, owner)
-
+      run_committed_race!(
+        """
+        SELECT id
+        FROM platform.remote_access_requests
+        WHERE id = $1::text::uuid
+        FOR UPDATE
+        """,
+        [approved.id],
+        fn ->
           RemoteAccessSessions.request_open(
             uid,
             %{
@@ -854,9 +888,8 @@ defmodule ServiceRadar.Edge.RemoteAccessSessionsTest do
             actor: @system_actor,
             audit_writer: AuditSink
           )
-        end)
-      end)
-      |> Enum.map(&Task.await(&1, 15_000))
+        end
+      )
 
     successes =
       Enum.filter(results, fn
@@ -1830,6 +1863,211 @@ defmodule ServiceRadar.Edge.RemoteAccessSessionsTest do
     refute_receive {:remote_access_audit, %{action: :remote_access_recording_created}}, 50
   end
 
+  defp run_committed_race!(lock_sql, lock_params, operation)
+       when is_binary(lock_sql) and is_list(lock_params) and is_function(operation, 0) do
+    parent = self()
+    race_ref = make_ref()
+    race_deadline = System.monotonic_time(:millisecond) + 45_000
+    remaining_timeout = fn -> max(race_deadline - System.monotonic_time(:millisecond), 0) end
+
+    # The holder keeps the target row unavailable until all four racers prove they are
+    # concurrently waiting. Racers use checkout, not an enclosing transaction, so the
+    # application transactions under test retain their real commit/rollback behavior.
+    lock_holder =
+      Task.async(fn ->
+        Repo.transaction(fn ->
+          assert %Postgrex.Result{num_rows: 1} = Repo.query!(lock_sql, lock_params)
+          [[backend_pid]] = Repo.query!("SELECT pg_backend_pid()").rows
+          send(parent, {:committed_race_lock_held, race_ref, self(), backend_pid})
+
+          receive do
+            {:release_committed_race_lock, ^race_ref} -> :ok
+          after
+            remaining_timeout.() -> raise "timed out waiting to release committed race lock"
+          end
+        end)
+      end)
+
+    try do
+      assert_receive {:committed_race_lock_held, ^race_ref, lock_holder_pid,
+                      lock_holder_backend_pid},
+                     remaining_timeout.()
+
+      assert lock_holder_pid == lock_holder.pid
+
+      racers =
+        for _attempt <- 1..4 do
+          Task.async(fn ->
+            Repo.checkout(
+              fn ->
+                [[backend_pid]] = Repo.query!("SELECT pg_backend_pid()").rows
+                send(parent, {:committed_race_ready, race_ref, self(), backend_pid})
+
+                receive do
+                  {:run_committed_race, ^race_ref} -> :ok
+                after
+                  remaining_timeout.() -> raise "timed out waiting to start committed race"
+                end
+
+                Process.put(:remote_access_audit_owner, parent)
+                operation.()
+              end,
+              timeout: remaining_timeout.()
+            )
+          end)
+        end
+
+      try do
+        ready =
+          for _racer <- racers do
+            assert_receive {:committed_race_ready, ^race_ref, racer_pid, backend_pid},
+                           remaining_timeout.()
+
+            {racer_pid, backend_pid}
+          end
+
+        assert MapSet.new(Enum.map(ready, &elem(&1, 0))) ==
+                 MapSet.new(Enum.map(racers, & &1.pid))
+
+        racer_backend_pids = Enum.map(ready, &elem(&1, 1))
+        assert 4 == racer_backend_pids |> MapSet.new() |> MapSet.size()
+        refute lock_holder_backend_pid in racer_backend_pids
+
+        Enum.each(racers, &send(&1.pid, {:run_committed_race, race_ref}))
+        assert :ok = await_racers_waiting_on_locks(racer_backend_pids, race_deadline)
+
+        send(lock_holder.pid, {:release_committed_race_lock, race_ref})
+        assert {:ok, :ok} = Task.await(lock_holder, remaining_timeout.())
+
+        Enum.map(racers, &Task.await(&1, remaining_timeout.()))
+      after
+        Enum.each(racers, fn racer ->
+          if Process.alive?(racer.pid), do: Task.shutdown(racer, :brutal_kill)
+        end)
+      end
+    after
+      if Process.alive?(lock_holder.pid) do
+        send(lock_holder.pid, {:release_committed_race_lock, race_ref})
+
+        if is_nil(Task.yield(lock_holder, 1_000)) do
+          Task.shutdown(lock_holder, :brutal_kill)
+        end
+      end
+    end
+  end
+
+  defp await_racers_waiting_on_locks(backend_pids, deadline) do
+    waiting_backend_pids =
+      MapSet.new(
+        Repo.query!(
+          """
+          SELECT pid
+          FROM pg_stat_activity
+          WHERE datname = current_database()
+            AND pid = ANY($1::int[])
+            AND state = 'active'
+            AND wait_event_type = 'Lock'
+            AND cardinality(pg_blocking_pids(pid)) > 0
+          """,
+          [backend_pids]
+        ).rows,
+        &List.first/1
+      )
+
+    expected_backend_pids = MapSet.new(backend_pids)
+
+    cond do
+      MapSet.equal?(waiting_backend_pids, expected_backend_pids) ->
+        :ok
+
+      System.monotonic_time(:millisecond) >= deadline ->
+        flunk(
+          "expected all race backends #{inspect(expected_backend_pids)} to wait on locks, " <>
+            "observed #{inspect(waiting_backend_pids)}"
+        )
+
+      true ->
+        Process.sleep(10)
+        await_racers_waiting_on_locks(backend_pids, deadline)
+    end
+  end
+
+  defp register_committed_race_cleanup!(opts) do
+    device_uid = Keyword.fetch!(opts, :device_uid)
+    credential_rule_name = Keyword.get(opts, :credential_rule_name)
+    credential_secret_name = Keyword.get(opts, :credential_secret_name)
+    user_ids = Keyword.get(opts, :user_ids, [])
+    role_profile_ids = Keyword.get(opts, :role_profile_ids, [])
+
+    on_exit(fn ->
+      assert {:ok, :ok} =
+               Repo.transaction(fn ->
+                 Repo.query!(
+                   "DELETE FROM platform.remote_access_requests WHERE device_uid = $1",
+                   [device_uid]
+                 )
+
+                 Repo.query!(
+                   "DELETE FROM platform.remote_access_sessions WHERE device_uid = $1",
+                   [device_uid]
+                 )
+
+                 if is_binary(credential_rule_name) do
+                   Repo.query!(
+                     """
+                     DELETE FROM platform.network_credential_rule_versions
+                     WHERE version_source_id IN (
+                       SELECT id
+                       FROM platform.network_credential_rules
+                       WHERE provider = 'ssh' AND name = $1
+                     )
+                     """,
+                     [credential_rule_name]
+                   )
+
+                   Repo.query!(
+                     "DELETE FROM platform.network_credential_rules WHERE provider = 'ssh' AND name = $1",
+                     [credential_rule_name]
+                   )
+                 end
+
+                 if is_binary(credential_secret_name) do
+                   Repo.query!(
+                     """
+                     DELETE FROM platform.network_credential_secret_versions
+                     WHERE version_source_id IN (
+                       SELECT id
+                       FROM platform.network_credential_secrets
+                       WHERE provider = 'ssh' AND name = $1
+                     )
+                     """,
+                     [credential_secret_name]
+                   )
+
+                   Repo.query!(
+                     "DELETE FROM platform.network_credential_secrets WHERE provider = 'ssh' AND name = $1",
+                     [credential_secret_name]
+                   )
+                 end
+
+                 Enum.each(user_ids, fn user_id ->
+                   Repo.query!("DELETE FROM platform.ng_users WHERE id = $1::text::uuid", [
+                     user_id
+                   ])
+                 end)
+
+                 Enum.each(role_profile_ids, fn profile_id ->
+                   Repo.query!("DELETE FROM platform.role_profiles WHERE id = $1::text::uuid", [
+                     profile_id
+                   ])
+                 end)
+
+                 Repo.query!("DELETE FROM platform.ocsf_devices WHERE uid = $1", [device_uid])
+                 :ok
+               end)
+    end)
+  end
+
   defp insert_device!(uid, opts) do
     now = DateTime.utc_now()
 
@@ -1849,9 +2087,9 @@ defmodule ServiceRadar.Edge.RemoteAccessSessionsTest do
     ])
   end
 
-  defp insert_user!(label) do
-    id = Ecto.UUID.generate()
-    profile_id = Ecto.UUID.generate()
+  defp insert_user!(label, opts \\ []) do
+    id = Keyword.get_lazy(opts, :id, &Ecto.UUID.generate/0)
+    profile_id = Keyword.get_lazy(opts, :profile_id, &Ecto.UUID.generate/0)
     now = DateTime.utc_now()
 
     Repo.insert_all("role_profiles", [
@@ -1893,10 +2131,20 @@ defmodule ServiceRadar.Edge.RemoteAccessSessionsTest do
   end
 
   defp create_credential_rule!(suffix, attrs) do
+    secret_name =
+      Keyword.get_lazy(attrs, :secret_name, fn ->
+        "remote-access-ssh-#{suffix}-#{System.unique_integer([:positive])}"
+      end)
+
+    rule_name =
+      Keyword.get_lazy(attrs, :rule_name, fn ->
+        "remote-access-ssh-rule-#{System.unique_integer([:positive])}"
+      end)
+
     {:ok, secret} =
       NetworkCredentialSecret
       |> Ash.Changeset.for_create(:create, %{
-        name: "remote-access-ssh-#{suffix}-#{System.unique_integer([:positive])}",
+        name: secret_name,
         provider: "ssh",
         credential_kind: :ssh_private_key,
         username: "root",
@@ -1908,7 +2156,7 @@ defmodule ServiceRadar.Edge.RemoteAccessSessionsTest do
     {:ok, rule} =
       NetworkCredentialRule
       |> Ash.Changeset.for_create(:create, %{
-        name: "remote-access-ssh-rule-#{System.unique_integer([:positive])}",
+        name: rule_name,
         provider: "ssh",
         auth_method: :ssh_private_key,
         purpose: :console_access,

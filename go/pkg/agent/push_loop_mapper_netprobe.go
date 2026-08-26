@@ -97,8 +97,14 @@ func (p *PushLoop) pushNetprobeResults(ctx context.Context) bool {
 	netprobeSidecar := p.server.netprobeSidecar
 	agentID := p.server.config.AgentID
 	partition := p.server.config.Partition
-	collectorIP := p.server.config.HostIP
 	p.server.mu.RUnlock()
+
+	// Outside the RLock on purpose: getSourceIP() takes p.server.mu.RLock
+	// itself, and sync.RWMutex is not reentrant -- a writer arriving between the
+	// two acquisitions deadlocks the push loop. Same reason it is getSourceIP()
+	// rather than config.HostIP: the configured value is an onboard-time pin
+	// that a re-IP'd host leaves stale.
+	collectorIP := p.getSourceIP()
 
 	if netprobeSidecar == nil {
 		return false

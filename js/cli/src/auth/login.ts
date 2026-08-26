@@ -8,6 +8,7 @@ import {createHash, randomBytes} from "node:crypto"
 import {createServer, type Server} from "node:http"
 import type {AddressInfo} from "node:net"
 
+import {formatFetchFailure} from "../tls_ca.js"
 import {codedError, errorCode, errorMessage, openBrowser, readLineFromStdin, relativePath} from "../utils.js"
 import type {CredentialEntry} from "./credentials.js"
 import {credentialsPath, normalizeInstanceUrl, upsertStoredCredential} from "./credentials.js"
@@ -48,6 +49,7 @@ export async function authLoginCommand(options: Record<string, any>): Promise<vo
     } else {
       console.warn("Device-code login is not available on this instance yet.")
     }
+    if (errorMessage(error)) console.warn(`  ${errorMessage(error)}`)
     console.warn("Falling back to manual token entry. Generate a long-lived CLI token in the ServiceRadar UI and paste it below.")
     credential = await promptManualToken(instance, options)
   }
@@ -70,7 +72,7 @@ async function runDeviceCodeFlow(instance: string, options: Record<string, any>)
       }),
     })
   } catch (error) {
-    throw codedError(`device-code request failed: ${errorMessage(error)}`, "DEVICE_CODE_UNAVAILABLE")
+    throw new Error(`device-code request failed: ${formatFetchFailure(error)}`)
   }
 
   if (response.status === 404) {
@@ -106,11 +108,20 @@ async function runDeviceCodeFlow(instance: string, options: Record<string, any>)
   let pollIntervalMs = interval
   while (Date.now() < deadline) {
     await new Promise((res) => setTimeout(res, pollIntervalMs))
-    const pollResponse = await fetch(tokenUrl, {
-      method: "POST",
-      headers: {"content-type": "application/json"},
-      body: JSON.stringify({grant_type: "urn:ietf:params:oauth:grant-type:device_code", device_code: deviceCode}),
-    })
+    let pollResponse: Response
+    try {
+      pollResponse = await fetch(tokenUrl, {
+        method: "POST",
+        headers: {"content-type": "application/json"},
+        body: JSON.stringify({grant_type: "urn:ietf:params:oauth:grant-type:device_code", device_code: deviceCode}),
+      })
+    } catch (error) {
+      // Deliberately fatal rather than retried: a poll that cannot reach the
+      // instance at all is a TLS or DNS fault, not the transient 429-ish case
+      // RFC 8628 asks us to back off on, and silently re-polling it for the
+      // full 15-minute window only delays the message that explains it.
+      throw new Error(`device-code poll failed: ${formatFetchFailure(error)}`)
+    }
 
     let body: any = null
     try {
@@ -240,7 +251,7 @@ async function runWebPkceFlow(instance: string, options: Record<string, any>): P
       }),
     })
   } catch (error) {
-    throw codedError(`PKCE token exchange failed: ${errorMessage(error)}`, "DEVICE_CODE_UNAVAILABLE")
+    throw new Error(`PKCE token exchange failed: ${formatFetchFailure(error)}`)
   }
 
   if (tokenResponse.status === 404) {

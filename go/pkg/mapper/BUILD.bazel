@@ -94,6 +94,7 @@ go_test(
         "mapper_agent_service_test.go",
         "mikrotik_poller_test.go",
         "proxmox_poller_test.go",
+        "snmp_interface_ipaddr_v6_test.go",
         "snmp_l2_bridge_test.go",
         "snmp_l2_topology_test.go",
         "snmp_polling_test.go",

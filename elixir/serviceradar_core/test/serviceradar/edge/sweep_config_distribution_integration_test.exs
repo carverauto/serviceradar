@@ -1,5 +1,5 @@
 defmodule ServiceRadar.Edge.SweepConfigDistributionIntegrationTest do
-  use ServiceRadar.DataCase, async: false
+  use ServiceRadar.DataCase, async: true
 
   alias ServiceRadar.AgentConfig.ConfigServer
   alias ServiceRadar.Edge.AgentConfigGenerator

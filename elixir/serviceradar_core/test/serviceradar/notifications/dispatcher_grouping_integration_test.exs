@@ -8,7 +8,7 @@ defmodule ServiceRadar.Notifications.DispatcherGroupingIntegrationTest do
   be read.
   """
 
-  use ServiceRadar.DataCase, async: false
+  use ServiceRadar.DataCase, async: true
 
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Monitoring.Alert

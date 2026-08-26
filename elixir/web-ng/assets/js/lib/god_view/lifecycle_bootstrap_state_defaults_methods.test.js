@@ -17,5 +17,11 @@ describe("lifecycle_bootstrap_state_defaults_methods", () => {
       endpoints: false,
       mtr_paths: true,
     })
+    expect(state.managedTopologyCameraBaseMinZoom).toEqual(-2)
+    expect(state.managedTopologySceneMinZoom).toBeNull()
+    expect(state.managedTopologySceneMinZoomKey).toBeNull()
+    expect(state.managedTopologySceneForMinZoom).toBeNull()
+    expect(state.managedTopologyCameraErrorActive).toBe(false)
+    expect(state.managedTopologyCameraErrorPreviousSummary).toBeNull()
   })
 })

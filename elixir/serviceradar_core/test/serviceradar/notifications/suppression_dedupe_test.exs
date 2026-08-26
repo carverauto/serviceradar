@@ -22,7 +22,7 @@ defmodule ServiceRadar.Notifications.SuppressionDedupeTest do
   dispatcher because that is the path that produces it.
   """
 
-  use ServiceRadar.DataCase, async: false
+  use ServiceRadar.DataCase, async: true
 
   alias Ecto.Adapters.SQL
   alias ServiceRadar.Actors.SystemActor

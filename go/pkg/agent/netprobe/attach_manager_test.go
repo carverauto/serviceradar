@@ -250,3 +250,25 @@ func ExampleAttachManager_Mode() {
 	fmt.Println(started, attach)
 	// Output: false false
 }
+
+// The agent derives the AddonService socket independently of netprobe, which
+// derives it from --socket (default_addon_socket_path in rust/netprobe/src/main.rs).
+// Nothing at runtime reconciles the two: if they disagree, the pump quietly
+// never connects and discovery silently stays on the legacy channel forever.
+// Pinning them as siblings is what makes that drift a test failure instead.
+func TestAddonSocketIsASiblingOfTheIPCSocket(t *testing.T) {
+	const runtimeDir = "/run/serviceradar"
+
+	ipc := attachSocketPath(runtimeDir, DefaultSidecarName)
+	addon := AttachAddonSocketPath(runtimeDir, DefaultSidecarName)
+
+	if got, want := ipc, "/run/serviceradar/netprobe/ipc.sock"; got != want {
+		t.Fatalf("IPC socket path drifted from the shipped unit: got %q, want %q", got, want)
+	}
+	if got, want := addon, "/run/serviceradar/netprobe/addon.sock"; got != want {
+		t.Fatalf("addon socket path drifted from netprobe's default: got %q, want %q", got, want)
+	}
+	if filepath.Dir(addon) != filepath.Dir(ipc) {
+		t.Fatalf("addon socket %q is not a sibling of IPC socket %q", addon, ipc)
+	}
+}

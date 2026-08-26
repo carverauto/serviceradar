@@ -1,5 +1,5 @@
 defmodule ServiceRadar.Observability.TemplateSeederTest do
-  use ServiceRadar.DataCase, async: false
+  use ServiceRadar.DataCase, async: true
 
   alias ServiceRadar.Observability.StatefulAlertRuleTemplate
   alias ServiceRadar.Observability.TemplateSeeder

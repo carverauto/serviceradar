@@ -15,7 +15,7 @@ spec:
   # unresolved __isoc23_strtoul). sr3 starts but its base was the bullseye 
   # tag, so PostGIS cannot load: libldap-2.5.so.0 is missing. sr4 is the first build
   # on the bookworm base with the extensions compiled under a sysroot from it.
-  imageName: registry.carverauto.dev/serviceradar/serviceradar-cnpg:18.4.0-sr4@sha256:e54ee02582dbb2584388c03837911c1b1cb185cea92d60d2be7a08102b5a7910
+  imageName: registry.carverauto.dev/serviceradar/serviceradar-cnpg:18.4.0-sr4@sha256:59e442dec59fac3149e3a3c49ba0cc2987bfb052bca1a0ea8c01b4bb31427d1d
   # Harbor has GC'd this digest before. IfNotPresent lets a TLS reload reuse the
   # node cache instead of taking the only primary down on a registry 404.
   imagePullPolicy: IfNotPresent

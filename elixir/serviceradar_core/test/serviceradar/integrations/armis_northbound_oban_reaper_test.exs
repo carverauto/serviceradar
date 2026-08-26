@@ -5,7 +5,7 @@ defmodule ServiceRadar.Integrations.ArmisNorthboundObanReaperTest.SupportStub do
 end
 
 defmodule ServiceRadar.Integrations.ArmisNorthboundObanReaperTest do
-  use ServiceRadar.DataCase, async: false
+  use ServiceRadar.DataCase, async: true
 
   alias ServiceRadar.Integrations.ArmisNorthboundObanReaper
   alias ServiceRadar.Integrations.ArmisNorthboundRunWorker

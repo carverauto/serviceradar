@@ -1,9 +1,12 @@
+mod addon_config_json;
+mod addon_service;
 #[allow(dead_code, unused_imports)]
 mod af_xdp;
 #[allow(dead_code)]
 mod af_xdp_classifier;
 #[allow(dead_code)]
 mod attribution;
+mod banner_command;
 #[allow(dead_code)]
 mod capabilities;
 #[allow(dead_code)]
@@ -34,6 +37,8 @@ mod ja4;
 mod kernel;
 #[allow(dead_code)]
 mod lifecycle;
+#[allow(dead_code)]
+mod mdns;
 mod metrics;
 #[allow(dead_code)]
 mod muonfp;
@@ -57,7 +62,7 @@ mod server;
 mod tls_server;
 
 use std::{
-    path::PathBuf,
+    path::{Path, PathBuf},
     sync::{Arc, Mutex},
     time::Duration,
 };
@@ -78,11 +83,33 @@ use crate::{
 #[cfg(target_os = "linux")]
 use crate::lifecycle::{drop_runtime_privileges, prepare_ebpf_privileged_resources};
 
+/// The AddonService socket, when `--addon-socket` is not given: a sibling of
+/// the legacy IPC socket named `addon.sock`.
+///
+/// Derived rather than required, because the systemd unit is installed verbatim
+/// next to the binary. A unit that named the flag would fail to start any
+/// netprobe too old to parse it -- strictly worse than the agent falling back
+/// to the legacy channel, which is the case this whole path exists to make
+/// survivable. Binding is already best-effort (see the spawn below), so a
+/// derived path that cannot be bound costs a log line, not a start.
+fn default_addon_socket_path(ipc_socket: &Path) -> PathBuf {
+    ipc_socket.with_file_name("addon.sock")
+}
+
 #[derive(Debug, Parser)]
 #[command(author, version, about)]
 struct Args {
     #[arg(long, env = "SERVICERADAR_NETPROBE_SOCKET")]
     socket: PathBuf,
+
+    /// Socket for the generic AddonService contract, served alongside the
+    /// legacy IPC socket above.
+    ///
+    /// Optional on purpose: when unset it defaults to a sibling of `--socket`,
+    /// so the contract is served without the systemd unit naming it. See
+    /// `default_addon_socket_path`.
+    #[arg(long, env = "SERVICERADAR_NETPROBE_ADDON_SOCKET")]
+    addon_socket: Option<PathBuf>,
 
     #[arg(long, env = "SERVICERADAR_NETPROBE_CONFIG")]
     config: Option<PathBuf>,
@@ -153,8 +180,12 @@ async fn main() -> Result<()> {
     }
 
     let (shutdown_tx, shutdown_rx) = watch::channel(false);
-    let (_fingerprint_event_tx, fingerprint_event_rx) = event_queue::bounded(4096);
-    let (_dpi_event_tx, dpi_event_rx) = event_queue::bounded(4096);
+    // Broadcast, not mpsc: the AddonService subscribes once per StreamTelemetry
+    // RPC, and a single mpsc receiver could be handed out once only -- an agent
+    // pump reconnect would then never see another fingerprint until netprobe
+    // restarted. Same shape as census, mDNS and the process snapshots.
+    let (fingerprint_event_tx, _) = broadcast::channel(4096);
+    let (dpi_event_tx, _) = broadcast::channel(4096);
     // Flow attribution events can arrive in short bursts on busy worker nodes.
     // Keep the local IPC queue bounded, but large enough that the single agent
     // client can absorb bursty ring-buffer drains before its upstream push loop
@@ -166,6 +197,10 @@ async fn main() -> Result<()> {
     // the older ones rather than replay them: each snapshot supersedes the last
     // completely, so the newest is the only one worth delivering.
     let (census_snapshot_tx, _) = broadcast::channel(4);
+    // Same reasoning as the census channel: each mDNS snapshot completely
+    // replaces the last, so a lagging receiver should get the newest rather
+    // than a backlog of superseded views.
+    let (mdns_snapshot_tx, _) = broadcast::channel(4);
     let runtime_config = RuntimeConfig::new(&config);
     let external_flow_matcher =
         SharedExternalFlowMatcher::new(runtime_config.external_flow_match_window_ms());
@@ -198,13 +233,14 @@ async fn main() -> Result<()> {
                     ebpf_object,
                     &config,
                     metrics.clone(),
-                    _fingerprint_event_tx.clone(),
-                    _dpi_event_tx.clone(),
+                    fingerprint_event_tx.clone(),
+                    dpi_event_tx.clone(),
                     config
                         .emit_raw_flow_attribution_events
                         .then(|| flow_attribution_event_tx.clone()),
                     process_snapshot_tx.clone(),
                     census_snapshot_tx.clone(),
+                    mdns_snapshot_tx.clone(),
                     external_flow_matcher.clone(),
                     Arc::clone(&_fingerprint_gate),
                     Arc::clone(&_dpi_gate),
@@ -228,15 +264,57 @@ async fn main() -> Result<()> {
         metrics.clone(),
         shutdown_rx.clone(),
     ));
+    // Served on its own socket, bound after privileges are dropped so it is
+    // owned by the unprivileged runtime user. The legacy IPC socket below is
+    // untouched: both run until the agent is confirmed to consume this one.
+    {
+        let addon_socket = args
+            .addon_socket
+            .clone()
+            .unwrap_or_else(|| default_addon_socket_path(&args.socket));
+        let addon = addon_service::NetprobeAddon::new(
+            env!("CARGO_PKG_VERSION"),
+            addon_service::TelemetryChannels {
+                census: census_snapshot_tx.clone(),
+                mdns: mdns_snapshot_tx.clone(),
+                process: process_snapshot_tx.clone(),
+                fingerprint: fingerprint_event_tx.clone(),
+                dpi: dpi_event_tx.clone(),
+            },
+            // The SAME RuntimeConfig the IPC server holds, so both channels
+            // converge on one VisibilityState rather than two that can disagree
+            // about what is currently applied.
+            runtime_config.clone(),
+            // What this process actually booted with. The startup-only checks
+            // must compare against the running values, not against the last
+            // config netprobe was handed.
+            addon_service::StartupSnapshot {
+                capture_interfaces: config.capture_interfaces.clone(),
+                flow_table_max_entries: crate::config::effective_flow_table_max_entries(
+                    config.flow_table_max_entries,
+                    config.capture_interfaces.len(),
+                ),
+            },
+        );
+
+        // Deliberately NOT selected on below. A failure to serve the new
+        // contract must not stop netprobe serving the legacy IPC the agent
+        // still depends on, so this is logged rather than fatal. The agent
+        // notices a dead socket by failing to connect.
+        tokio::spawn(async move {
+            if let Err(err) = addon_service::serve(addon, addon_socket).await {
+                log::error!("AddonService terminated: {err:#}");
+            }
+        });
+    }
+
     let mut ipc_task = tokio::spawn(
         IpcServer::new(
             args.socket,
-            fingerprint_event_rx,
-            dpi_event_rx,
             flow_attribution_event_tx,
             flow_attribution_event_rx,
-            process_snapshot_tx,
             census_snapshot_tx,
+            mdns_snapshot_tx,
             external_flow_matcher,
             runtime_config,
             metrics,
@@ -355,8 +433,27 @@ async fn wait_for_shutdown() {
 
 #[cfg(test)]
 mod tests {
-    use super::{VisibilityStartupMode, select_visibility_startup};
+    use super::{VisibilityStartupMode, default_addon_socket_path, select_visibility_startup};
     use crate::config::Config;
+    use std::path::{Path, PathBuf};
+
+    #[test]
+    fn addon_socket_defaults_beside_the_ipc_socket() {
+        assert_eq!(
+            default_addon_socket_path(Path::new("/run/serviceradar/netprobe/ipc.sock")),
+            PathBuf::from("/run/serviceradar/netprobe/addon.sock")
+        );
+    }
+
+    #[test]
+    fn addon_socket_default_follows_a_relocated_ipc_socket() {
+        // The agent derives the same sibling from whatever --socket the unit
+        // names, so a non-default runtime dir must stay in agreement.
+        assert_eq!(
+            default_addon_socket_path(Path::new("/tmp/np-test/ipc.sock")),
+            PathBuf::from("/tmp/np-test/addon.sock")
+        );
+    }
 
     #[test]
     fn disabled_config_does_not_start_ebpf_when_object_is_present() {

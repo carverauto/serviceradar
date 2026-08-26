@@ -11,7 +11,7 @@ defmodule ServiceRadar.Edge.AgentGatewaySyncConfigAckTest do
   - `evaluate_agent_config_health/3` transitions config_health on wedge and clear.
   """
 
-  use ServiceRadar.DataCase, async: false
+  use ServiceRadar.DataCase, async: true
 
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Edge.AgentGatewaySync

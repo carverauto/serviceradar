@@ -1,0 +1,23 @@
+{
+  "ip": "10.20.30.40",
+  "metadata": {
+    "_alias_last_seen_at": "2026-08-23T15:46:40Z",
+    "_alias_last_seen_ip": "10.20.30.40",
+    "agent_id": "agent-synthetic-1",
+    "discovery_source": "passive-netprobe",
+    "gateway_id": "gateway-synthetic-1",
+    "ip_alias:10.20.30.40": "2026-08-23T15:46:40Z",
+    "local_processes.container_count": "1",
+    "local_processes.entry_count": "3",
+    "local_processes.fingerprint": "synthetic-fingerprint-1",
+    "local_processes.observed_at": "2026-08-23T15:46:40Z",
+    "local_processes.observed_at_unix_nano": "1787500000000000000",
+    "local_processes.port_count": "3",
+    "local_processes.process_count": "3",
+    "local_processes.protocols": "tcp,udp",
+    "local_processes.schema": "summary_v1",
+    "local_processes.tcp_port_count": "2",
+    "local_processes.udp_port_count": "1",
+    "source": "passive-netprobe"
+  }
+}

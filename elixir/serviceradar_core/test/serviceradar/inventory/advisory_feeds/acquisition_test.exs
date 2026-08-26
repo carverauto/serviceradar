@@ -1,5 +1,5 @@
 defmodule ServiceRadar.Inventory.AdvisoryFeeds.AcquisitionTest do
-  use ExUnit.Case, async: true
+  use ExUnit.Case, async: false
 
   alias ServiceRadar.Inventory.AdvisoryFeeds.Acquisition
 

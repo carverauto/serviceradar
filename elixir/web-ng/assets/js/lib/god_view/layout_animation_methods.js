@@ -1,9 +1,14 @@
 export const godViewLayoutAnimationMethods = {
   animateTransition(previousGraph, nextGraph) {
     const {state, deps} = this
-    if (state.pendingAnimationFrame) {
+    if (state.pendingAnimationFrame !== null && state.pendingAnimationFrame !== undefined) {
       cancelAnimationFrame(state.pendingAnimationFrame)
       state.pendingAnimationFrame = null
+    }
+
+    if (nextGraph?._layoutMode === "elk-scene" && nextGraph?._topologyScene) {
+      deps.renderGraph(nextGraph)
+      return
     }
 
     const shouldAnimate =

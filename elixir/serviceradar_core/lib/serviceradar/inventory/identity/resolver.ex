@@ -6,6 +6,7 @@ defmodule ServiceRadar.Inventory.Identity.Resolver do
   """
 
   alias ServiceRadar.Ash.Page
+  alias ServiceRadar.Identity.AliasPolicy
   alias ServiceRadar.Identity.DeviceAliasState
   alias ServiceRadar.Inventory.Device
   alias ServiceRadar.Inventory.DeviceIdentifier
@@ -259,6 +260,14 @@ defmodule ServiceRadar.Inventory.Identity.Resolver do
   @spec lookup_alias_device_id(String.t(), String.t() | nil, term(), keyword()) ::
           {:ok, String.t() | nil} | {:error, term()}
   def lookup_alias_device_id(ip, partition, actor, opts \\ []) do
+    if AliasPolicy.valid_alias_ip?(ip) do
+      do_lookup_alias_device_id(ip, partition, actor, opts)
+    else
+      {:ok, nil}
+    end
+  end
+
+  defp do_lookup_alias_device_id(ip, partition, actor, opts) do
     query_opts = if actor, do: [actor: actor], else: []
     include_detected = Keyword.get(opts, :include_detected, false)
 

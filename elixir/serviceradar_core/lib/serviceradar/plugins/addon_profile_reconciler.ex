@@ -9,6 +9,7 @@ defmodule ServiceRadar.Plugins.AddonProfileReconciler do
 
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Plugins.AddonAssignment
+  alias ServiceRadar.Plugins.AddonRolloutEligibility, as: Eligibility
   alias ServiceRadar.Plugins.MapUtils
   alias ServiceRadar.Plugins.SRQLInputResolver
   alias ServiceRadar.Plugins.ValueUtils
@@ -418,6 +419,10 @@ defmodule ServiceRadar.Plugins.AddonProfileReconciler do
         {"missing_required_capability",
          "target is missing package-required agent capabilities: #{Enum.join(missing_agent_capabilities, ", ")}"}
 
+      not Eligibility.hostable_addon?(package_supervision(profile), compatibility_row) ->
+        {"cannot_host_native_addons",
+         "target does not accept native add-on assignments (containerized agent)"}
+
       true ->
         nil
     end
@@ -625,6 +630,18 @@ defmodule ServiceRadar.Plugins.AddonProfileReconciler do
 
       _ ->
         ValueUtils.map_value(profile, [:artifacts, "artifacts"]) || %{}
+    end
+  end
+
+  defp package_supervision(profile) do
+    profile
+    |> profile_package()
+    |> case do
+      package when is_map(package) ->
+        ValueUtils.string_value(package, [:supervision, "supervision"])
+
+      _ ->
+        ValueUtils.string_value(profile, [:supervision, "supervision"])
     end
   end
 
