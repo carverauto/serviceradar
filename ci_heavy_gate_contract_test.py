@@ -1552,13 +1552,27 @@ class WorkflowIntegrationLifecycleContractTest(unittest.TestCase):
         selected = [row for row in rows if row["mode"] in SELECTED_MODES]
         load_only = [row for row in rows if row["mode"] == "load_only"]
 
-        self.assertEqual(286, len(selected))
-        self.assertEqual(508, len(load_only))
-        self.assertEqual(794, len(rows))
+        # Relations, not three pinned totals. These were 286 / 508 / 794 -- and
+        # 286 + 508 == 794, so the only invariant was that selected and load_only
+        # partition the inventory. Pinning the absolutes meant every added or
+        # removed test file failed this gate even when the inventory was correct,
+        # and made two concurrent PRs invalidate each other, since CI tests the
+        # MERGE of a branch with its base. The set equality below is the real
+        # exhaustiveness check and is not affected by how many tests exist.
+        self.assertEqual(
+            len(selected) + len(load_only),
+            len(rows),
+            "selected and load_only must partition the disposition inventory",
+        )
         self.assertEqual(
             set(ordinary_core_test_sources()),
             {row["source"] for row in rows},
         )
+
+        # Floors, as a tripwire against a truncated inventory. Deliberately far
+        # below the real figures -- these are not counts to maintain.
+        self.assertGreater(len(selected), 100, "selected inventory looks truncated")
+        self.assertGreater(len(load_only), 100, "load_only inventory looks truncated")
 
         keys = [(row["source"], row["module"]) for row in rows]
         self.assertEqual(len(keys), len(set(keys)), "duplicate disposition key")
