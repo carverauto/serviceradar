@@ -11,7 +11,7 @@ import {
   managedNodeVisualRole,
   managedVisualDensityContract,
 } from "./rendering_managed_visual_density"
-import {hasManagedTopologyScene, topologySemanticLevel} from "./topology_layout_mode"
+import {hasExpandedCluster, hasManagedTopologyScene, topologySemanticLevel} from "./topology_layout_mode"
 
 const MANAGED_DENSITY_LAYOUT_CACHE_LIMIT = 8
 const MANAGED_ABSOLUTE_MIN_ZOOM = -24
@@ -786,10 +786,12 @@ function fitManagedTopologyScene(context, graph, scene, viewport, safeRect, grap
       managedVisualDensity,
     ),
   })
-  // Detail fails closed. Overview degrades: fitTopologyScene always returns a
-  // usable viewState plus the labels it could place, so the camera still fits
-  // and the surface still renders without the labels that would not fit.
-  if (!fit.ok && semanticLevel === "detail") {
+  // A bounded, deliberately framed scene fails closed. Everything else degrades:
+  // fitTopologyScene always returns a usable viewState plus the labels it could place,
+  // so the camera still fits and the surface still renders without the labels that would
+  // not fit. Expansion is the unbounded case and must degrade even though it derives
+  // detail -- see the note in rendering_graph_layer_node_methods.js.
+  if (!fit.ok && semanticLevel === "detail" && !hasExpandedCluster(graph)) {
     throw new RangeError(
       `managed topology ${semanticLevel} is missing required labels: ${fit.missingRequiredLabelIds.join(", ")}`,
     )
@@ -830,6 +832,7 @@ function focusManagedTopologyGroup(context, graph, groupId, viewport, safeRect, 
       viewport.height,
       managedVisualDensity,
     ),
+    degradeUnplaceableLabels: hasExpandedCluster(graph),
   })
   return fit ? {...fit, managedVisualDensity, constraints} : null
 }

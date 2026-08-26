@@ -446,6 +446,11 @@ export function focusTopologyGroup({
   glyphBoxForNode,
   routeStrokeWidth,
   admitLabels,
+  // Focus normally fails closed: the caller framed this set deliberately, so a label that
+  // will not fit means the frame is wrong. A neighborhood built by expanding a cluster is
+  // the exception -- its size is whatever the operator expanded, and no viewport labels 24
+  // members -- so the caller marks it and takes the fit with its unplaced ids instead.
+  degradeUnplaceableLabels = false,
 } = {}) {
   const normalizedId = String(groupId || "").trim()
   const neighborhood = topologyGroupFocusScene(scene, normalizedId)
@@ -468,7 +473,7 @@ export function focusTopologyGroup({
     routeStrokeWidth,
     admitLabels,
   })
-  if (!fit.ok) {
+  if (!fit.ok && !degradeUnplaceableLabels) {
     throw new RangeError(
       `topology focus is missing required labels: ${fit.missingRequiredLabelIds.join(", ")}`,
     )

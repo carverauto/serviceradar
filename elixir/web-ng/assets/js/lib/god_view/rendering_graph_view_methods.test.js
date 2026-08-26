@@ -1423,9 +1423,12 @@ describe("rendering_graph_view_methods", () => {
       _topologySemanticLevel: "detail",
       _layoutCacheKey: "narrow-focus",
       _topologyScene: scene,
+      // Nothing expanded: this is a bounded frame, which is the case that still fails
+      // closed. The subject here is that focus does not silently retry at overview
+      // density, not how the scene became bounded.
       nodes: [
-        {id: "left", x: 0, y: 0, details: {cluster_kind: "endpoint-member", cluster_expanded: true}},
-        {id: "right", x: 192, y: 0, details: {cluster_kind: "endpoint-member", cluster_expanded: true}},
+        {id: "left", x: 0, y: 0, details: {}},
+        {id: "right", x: 192, y: 0, details: {}},
       ],
     }
     const state = {

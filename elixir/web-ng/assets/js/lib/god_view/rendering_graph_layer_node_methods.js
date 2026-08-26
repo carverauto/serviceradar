@@ -6,7 +6,7 @@ import {
   managedVisualDensityContract,
   normalizeManagedVisualDensity,
 } from "./rendering_managed_visual_density"
-import {hasManagedTopologyScene, topologySemanticLevel} from "./topology_layout_mode"
+import {hasExpandedCluster, hasManagedTopologyScene, topologySemanticLevel} from "./topology_layout_mode"
 
 export const godViewRenderingGraphLayerNodeMethods = {
   visualClusterCount(node) {
@@ -383,20 +383,27 @@ export const godViewRenderingGraphLayerNodeMethods = {
     })
     if (managedTopologyScene && labelAdmission.missingRequiredLabelIds.length > 0) {
       const semanticLevel = topologySemanticLevel(effective)
-      // A detail scene is a bounded, deliberately framed set, so a label that
-      // cannot be placed means the frame is wrong and we fail closed. An
-      // overview is unbounded in practice -- expanding a cluster can add
-      // arbitrarily many nodes -- so an unplaceable label must degrade rather
-      // than blank the surface. Dropped ids stay observable for diagnostics.
-      if (semanticLevel === "detail") {
+      // Fail closed only for a bounded, deliberately framed scene, where a label that
+      // cannot be placed means the frame itself is wrong.
+      //
+      // The unbounded case is expansion -- it can add arbitrarily many member nodes to a
+      // scene sized for a handful. That property belongs to the expansion, not to the
+      // overview mode it was originally attached to: while the semantic level had no
+      // writer every scene read as "overview", so gating on the level alone happened to
+      // cover expansion. Now that expanding promotes a graph to detail, gating on the
+      // level would fail closed on precisely the scene that needs to degrade.
+      //
+      // The focus path in rendering_scene_view.js is a deliberate frame and still fails
+      // closed. Dropped ids stay observable for diagnostics.
+      if (semanticLevel === "detail" && !hasExpandedCluster(effective)) {
         throw new RangeError(
           `managed topology ${semanticLevel} is missing required labels: ` +
           labelAdmission.missingRequiredLabelIds.join(", "),
         )
       }
-      this.state.topologyOverviewDroppedLabelIds = [...labelAdmission.missingRequiredLabelIds]
+      this.state.topologyDroppedLabelIds = [...labelAdmission.missingRequiredLabelIds]
     } else if (managedTopologyScene) {
-      this.state.topologyOverviewDroppedLabelIds = []
+      this.state.topologyDroppedLabelIds = []
     }
     const nodeById = new Map(nodeData.map((node) => [String(node?.id || ""), node]))
     const labelData = labelAdmission.admitted.flatMap((admitted) => {

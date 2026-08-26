@@ -749,7 +749,7 @@ describe("rendering_graph_layer_node_methods", () => {
       _topologySemanticLevel: "overview",
       _topologyScene: topologyScene(),
     }, nodeData, [])).not.toThrow()
-    expect(state.topologyOverviewDroppedLabelIds).toEqual(["alpha", "zeta"])
+    expect(state.topologyDroppedLabelIds).toEqual(["alpha", "zeta"])
   })
 
   it("visualClusterCount only scales endpoint summaries", () => {
@@ -769,5 +769,78 @@ describe("rendering_graph_layer_node_methods", () => {
     })).toEqual(1)
     expect(ctx.visualClusterCount({clusterCount: 18, details: {cluster_kind: "endpoint-anchor"}})).toEqual(1)
     expect(ctx.visualClusterCount({clusterCount: 18, details: {}})).toEqual(1)
+  })
+})
+
+describe("rendering_graph_layer_node_methods expanded detail label degradation", () => {
+  function unplaceableNodeData() {
+    return ["zeta", "alpha"].map((id, index) => ({
+      index,
+      id,
+      label: id,
+      position: [20, 20, 0],
+      state: 2,
+      operUp: 1,
+      clusterCount: 1,
+      details: {},
+    }))
+  }
+
+  function crampedState() {
+    return {
+      animationPhase: 0,
+      managedTopologyVisualDensity: "detail",
+      layers: {mantle: true, crust: true, atmosphere: false, security: true},
+      visual: {
+        label: [255, 255, 255, 255],
+        edgeLabel: [200, 200, 200, 255],
+        nodeFill: [80, 120, 180, 255],
+      },
+      deck: {getViewports: () => [{width: 40, height: 40, project: ([x, y]) => [x, y]}]},
+      topologyLabelSafeRect: {left: 0, top: 0, right: 40, bottom: 40},
+      topologyLabelMeasureText: () => ({width: 40, height: 12}),
+    }
+  }
+
+  function contextFor(state) {
+    const ctx = createStateBackedContext(state, {})
+    Object.assign(ctx, bindApi(ctx, godViewRenderingGraphLayerNodeMethods))
+    return ctx
+  }
+
+  it("degrades a detail scene reached by expanding a cluster", () => {
+    // Expansion is what makes a scene unbounded -- it can add arbitrarily many member
+    // nodes -- so this is the case that must degrade, whichever semantic level it lands
+    // in. No explicit marker: the level is derived from the expanded cluster, exactly as
+    // production does it.
+    const state = crampedState()
+    const graph = {
+      shape: "local",
+      _layoutMode: "elk-scene-detail",
+      _topologyScene: topologyScene(),
+      nodes: [
+        {id: "gateway", details: {cluster_kind: "endpoint-anchor"}},
+        {id: "cluster", details: {cluster_kind: "endpoint-summary", cluster_expanded: true}},
+        {id: "alpha", details: {cluster_kind: "endpoint-member", cluster_expanded: true}},
+        {id: "zeta", details: {cluster_kind: "endpoint-member", cluster_expanded: true}},
+      ],
+    }
+
+    expect(() => contextFor(state).buildNodeAndLabelLayers(graph, unplaceableNodeData(), [])).not.toThrow()
+    expect(state.topologyDroppedLabelIds).toEqual(["alpha", "zeta"])
+  })
+
+  it("still fails a bounded detail frame closed when nothing is expanded", () => {
+    const state = crampedState()
+    const graph = {
+      shape: "local",
+      _layoutMode: "elk-scene-detail",
+      _topologySemanticLevel: "detail",
+      _topologyScene: topologyScene(),
+      nodes: [{id: "gateway", details: {cluster_kind: "endpoint-anchor"}}],
+    }
+
+    expect(() => contextFor(state).buildNodeAndLabelLayers(graph, unplaceableNodeData(), []))
+      .toThrow(/managed topology detail is missing required labels.*alpha, zeta/i)
   })
 })

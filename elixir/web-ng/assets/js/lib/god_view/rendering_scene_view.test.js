@@ -470,6 +470,31 @@ describe("rendering_scene_view", () => {
     })
   })
 
+  it("degrades focus for an unbounded expanded neighborhood instead of failing closed", () => {
+    // Focusing an expanded cluster frames a set whose size the operator chose by expanding
+    // it -- a 24-member cluster cannot label every member at any viewport. The caller marks
+    // that case so focus still returns a usable camera, with the ids it could not place left
+    // observable, rather than refusing to render the neighborhood at all.
+    const result = focusTopologyGroup({
+      scene: expandedScene(),
+      groupId: "group-a",
+      viewport: {width: 1000, height: 700, minZoom: -3, maxZoom: 5},
+      safeRect: {left: 40, top: 30, right: 820, bottom: 610},
+      glyphBoxForNode: (node) => ({nodeId: node.id, width: 52, height: 52}),
+      admitLabels: () => ({
+        admitted: [],
+        missingRequiredLabelIds: ["zeta", "alpha", "zeta"],
+      }),
+      degradeUnplaceableLabels: true,
+    })
+
+    expect(result).toMatchObject({
+      ok: false,
+      missingRequiredLabelIds: ["alpha", "zeta"],
+      viewState: {target: expect.any(Array), zoom: expect.any(Number)},
+    })
+  })
+
   it("fails focus closed with deterministic missing required label IDs", () => {
     expect(() => focusTopologyGroup({
       scene: expandedScene(),

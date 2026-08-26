@@ -9,6 +9,7 @@ import {godViewRenderingGraphLayerNodeMethods} from "./rendering_graph_layer_nod
 import {godViewRenderingGraphViewMethods} from "./rendering_graph_view_methods"
 import {managedNodeVisualRole} from "./rendering_managed_visual_density"
 import {fitTopologyScene} from "./rendering_scene_view"
+import {topologySemanticLevel} from "./topology_layout_mode"
 import {prepareTopologySceneInput} from "./topology_scene_graph"
 
 function concurrentExpandedFarm01Graph() {
@@ -69,7 +70,7 @@ function overlaps(left, right, epsilon = 0.5) {
 }
 
 describe("managed topology visual density", () => {
-  it("degrades a label-infeasible portrait overview and fails the same scene closed at detail", async () => {
+  it("degrades a label-infeasible expanded portrait scene and fails a bounded frame closed", async () => {
     const source = concurrentExpandedFarm01Graph()
     const scene = await layoutTopologyScene(prepareTopologySceneInput(source), {
       engine: new ELK(),
@@ -109,16 +110,40 @@ describe("managed topology visual density", () => {
       bindApi(ctx, godViewRenderingGraphViewMethods),
     )
 
-    // An overview is unbounded in practice, so labels that cannot be placed are
-    // dropped and the surface still renders with an accepted camera. The same
-    // scene at detail is a bounded, deliberately framed set and still fails
-    // closed, because there an unplaceable label means the frame is wrong.
+    // Labels that cannot be placed are dropped and the surface still renders with an
+    // accepted camera.
     expect(() => ctx.autoFitViewState(graph)).not.toThrow()
     expect(Number.isFinite(state.viewState.zoom)).toBe(true)
 
+    // Production reaches this same scene with no pinned marker at all: the expanded
+    // clusters derive detail on their own. Expansion is the unbounded case -- it can add
+    // arbitrarily many members to a scene sized for a handful -- so it must degrade there
+    // too, or expanding a cluster cannot render. Pinning detail does not change that:
+    // boundedness is a property of the scene, not of the marker.
+    const derivedDetail = {shape: "local", ...applyTopologySceneToGraph(source, scene)}
+    expect(topologySemanticLevel(derivedDetail)).toBe("detail")
+    for (const expanded of [derivedDetail, {...derivedDetail, _topologySemanticLevel: "detail"}]) {
+      state.hasAutoFit = false
+      state.userCameraLocked = false
+      expect(() => ctx.autoFitViewState(expanded)).not.toThrow()
+      expect(Number.isFinite(state.viewState.zoom)).toBe(true)
+    }
+
+    // A genuinely bounded frame -- nothing expanded -- still fails closed, because there
+    // an unplaceable label means the frame itself is wrong.
+    const boundedSource = collapsedFarm01Graph()
+    const boundedScene = await layoutTopologyScene(prepareTopologySceneInput(boundedSource), {
+      engine: new ELK(),
+      profile: PORTRAIT_PROFILE,
+    })
+    const boundedDetail = {
+      shape: "local",
+      ...applyTopologySceneToGraph(boundedSource, boundedScene),
+      _topologySemanticLevel: "detail",
+    }
     state.hasAutoFit = false
     state.userCameraLocked = false
-    expect(() => ctx.autoFitViewState({...graph, _topologySemanticLevel: "detail"}))
+    expect(() => ctx.autoFitViewState(boundedDetail))
       .toThrow(/managed topology detail is missing required labels/i)
 
     // The remainder isolates the overview renderer's glyph/route envelope using
