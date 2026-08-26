@@ -174,6 +174,73 @@ defmodule ServiceRadar.Edge.SweepConfigDistributionIntegrationTest do
     refute "tcp" in compiled_group["modes"]
   end
 
+  test "compiles an isolation group onto the assigned agent in a different partition", %{
+    actor: actor,
+    agent_id: agent_id
+  } do
+    unique_id = System.unique_integer([:positive])
+    agent_partition = "default"
+    device_partition = "rids-#{unique_id}"
+    device_ip = "10.1.#{rem(unique_id, 200) + 20}.#{rem(div(unique_id, 200), 200) + 20}"
+
+    {:ok, _device} =
+      Device
+      |> Ash.Changeset.for_create(
+        :create,
+        %{
+          uid: "device-rids-#{unique_id}",
+          ip: device_ip,
+          partition: device_partition
+        },
+        actor: actor
+      )
+      |> Ash.create()
+
+    {:ok, assigned_group} =
+      SweepGroup
+      |> Ash.Changeset.for_create(
+        :create,
+        %{
+          name: "Isolation assigned #{unique_id}",
+          partition: device_partition,
+          agent_id: agent_id,
+          interval: "2m",
+          sweep_modes: ["icmp"],
+          static_targets: [device_ip]
+        },
+        actor: actor
+      )
+      |> Ash.create()
+
+    {:ok, _unassigned_group} =
+      SweepGroup
+      |> Ash.Changeset.for_create(
+        :create,
+        %{
+          name: "Isolation unassigned #{unique_id}",
+          partition: device_partition,
+          interval: "2m",
+          sweep_modes: ["icmp"],
+          static_targets: ["10.255.255.1"]
+        },
+        actor: actor
+      )
+      |> Ash.create()
+
+    {:ok, entry} = ConfigServer.get_config(:sweep, agent_partition, agent_id)
+
+    compiled_ids = Enum.map(entry.config["groups"] || [], & &1["sweep_group_id"])
+    assert assigned_group.id in compiled_ids
+
+    refute Enum.any?(
+             entry.config["groups"] || [],
+             &(&1["name"] == "Isolation unassigned #{unique_id}")
+           )
+
+    compiled = Enum.find(entry.config["groups"], &(&1["sweep_group_id"] == assigned_group.id))
+    assert device_ip in compiled["targets"]
+  end
+
   defp device_target_networks(compiled_group) do
     Enum.map(compiled_group["device_targets"] || [], & &1["network"])
   end

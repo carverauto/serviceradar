@@ -59,7 +59,9 @@ defmodule ServiceRadar.AgentConfig.Compilers.SweepCompiler do
     # DB connection's search_path determines the schema
     actor = opts[:actor] || SystemActor.system(:sweep_compiler)
 
-    # Load sweep groups for this partition/agent
+    # Load groups assigned to this agent (any device partition) plus unassigned
+    # groups in the agent's own partition. Device partition != agent partition
+    # for isolation scans.
     groups = load_sweep_groups(partition, agent_id, actor)
 
     # Load profiles that might be referenced

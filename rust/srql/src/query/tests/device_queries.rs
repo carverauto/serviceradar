@@ -454,6 +454,24 @@ fn devices_inventory_summary_rollup_returns_all_type_and_vendor_buckets() {
 }
 
 #[test]
+fn devices_partition_filter_uses_partition_column() {
+    let query = "in:devices partition:rids sort:hostname:asc limit:500";
+    let plan = plan_for(query);
+
+    let (sql, params) = devices::to_sql_and_params(&plan).expect("should build devices SQL");
+    let lower = sql.to_lowercase();
+
+    assert!(
+        lower.contains("\"ocsf_devices\".\"partition\" = $"),
+        "expected partition equality in SQL, got: {sql}"
+    );
+    assert!(
+        matches!(params.first(), Some(BindParam::Text(value)) if value == "rids"),
+        "expected rids partition bind, got: {params:?}"
+    );
+}
+
+#[test]
 fn devices_type_unknown_filter_matches_normalized_type_bucket() {
     let query = r#"in:devices type:"Unknown""#;
     let plan = plan_for(query);

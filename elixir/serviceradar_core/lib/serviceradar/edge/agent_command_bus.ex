@@ -413,18 +413,37 @@ defmodule ServiceRadar.Edge.AgentCommandBus do
 
   def run_sweep_group(group, opts \\ []) do
     payload = %{sweep_group_id: group.id}
+    {dispatch_partition, agent_id} = sweep_dispatch_assignment(group)
 
     opts =
-      add_context(opts, %{sweep_group_id: group.id, partition_id: group.partition || "default"})
+      add_context(opts, %{sweep_group_id: group.id, partition_id: dispatch_partition})
 
     dispatch_for_assignment(
-      group.partition || "default",
-      group.agent_id,
+      dispatch_partition,
+      agent_id,
       "sweep",
       "sweep.run_group",
       payload,
       opts
     )
+  end
+
+  # SweepGroup.partition is the device-lookup partition. Isolation scans pin a
+  # scanner that lives in a different control-session partition, so run_now
+  # must dispatch to the agent's live partition rather than the group's.
+  defp sweep_dispatch_assignment(group) do
+    group_partition = group.partition || "default"
+
+    case normalize_agent_id(group.agent_id) do
+      nil ->
+        {group_partition, nil}
+
+      agent_id ->
+        case unique_control_partition(agent_id) do
+          {:ok, agent_partition} -> {agent_partition, agent_id}
+          {:error, _reason} -> {group_partition, agent_id}
+        end
+    end
   end
 
   def dispatch_bulk_mtr(agent_id, targets, opts \\ []) when is_list(targets) do

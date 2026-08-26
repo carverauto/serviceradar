@@ -14,14 +14,15 @@ defmodule ServiceRadar.CompositeChecks.Validation.CoverageTest do
     "10.#{rem(n, 250) + 1}.#{rem(div(n, 250), 250) + 1}.#{rem(div(n, 62_500), 253) + 1}"
   end
 
-  defp create_device!(ip) do
+  defp create_device!(ip, partition \\ "default") do
     Device
     |> Ash.Changeset.for_create(
       :create,
       %{
         uid: "sr:" <> Ecto.UUID.generate(),
         hostname: "cov-#{System.unique_integer([:positive])}",
-        ip: ip
+        ip: ip,
+        partition: partition
       },
       actor: actor()
     )
@@ -129,6 +130,26 @@ defmodule ServiceRadar.CompositeChecks.Validation.CoverageTest do
 
     assert {:ok, settings} = Coverage.cover(device.uid, ip, "default", "agent-x")
     assert settings.ports == [22]
+    assert settings.modes == ["icmp"]
+  end
+
+  test "an isolation group covers a device from an agent in another partition" do
+    ip = unique_ip()
+    isolation_partition = "rids-#{System.unique_integer([:positive])}"
+    device = create_device!(ip, isolation_partition)
+    profile = create_profile!(%{ports: [], sweep_modes: ["icmp"]})
+
+    create_group!(%{
+      partition: isolation_partition,
+      agent_id: "k8s-agent",
+      static_targets: [ip],
+      profile_id: profile.id,
+      sweep_modes: ["icmp"]
+    })
+
+    assert {:ok, settings} =
+             Coverage.cover(device.uid, ip, isolation_partition, "k8s-agent")
+
     assert settings.modes == ["icmp"]
   end
 end

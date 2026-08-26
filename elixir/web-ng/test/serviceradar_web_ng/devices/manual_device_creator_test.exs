@@ -244,6 +244,51 @@ defmodule ServiceRadarWebNG.Devices.ManualDeviceCreatorTest do
     assert {:error, _} = Device.get_by_uid(legacy.uid, false, scope: scope)
   end
 
+  test "the same IP can be created independently in default and another partition", %{
+    scope: scope
+  } do
+    ip = "203.0.113.#{rem(System.unique_integer([:positive]), 200) + 20}"
+
+    assert {:ok, isolation} =
+             ManualDeviceCreator.create(scope, %{
+               hostname: "rids-isolation",
+               ip: ip,
+               type: "rids",
+               tags: ["role=isolation"]
+             })
+
+    assert isolation.partition == "default"
+
+    assert {:ok, monitoring} =
+             ManualDeviceCreator.create(scope, %{
+               hostname: "rids-monitoring",
+               ip: ip,
+               partition: "rids",
+               type: "rids",
+               tags: ["role=monitoring"]
+             })
+
+    assert monitoring.partition == "rids"
+    assert monitoring.uid != isolation.uid
+    assert monitoring.ip == isolation.ip
+
+    assert {:ok, :updated, updated_monitoring} =
+             ManualDeviceCreator.upsert(scope, %{
+               hostname: "rids-monitoring",
+               ip: ip,
+               partition: "rids",
+               tags: ["site=ZZA"]
+             })
+
+    assert updated_monitoring.uid == monitoring.uid
+    assert updated_monitoring.tags["role"] == "monitoring"
+    assert updated_monitoring.tags["site"] == "ZZA"
+
+    assert {:ok, still_isolation} = Device.get_by_uid(isolation.uid, false, scope: scope)
+    assert still_isolation.tags == %{"role" => "isolation"}
+    refute still_isolation.tags["site"]
+  end
+
   defp restore_app_env(key, nil), do: Application.delete_env(:serviceradar_web_ng, key)
   defp restore_app_env(key, value), do: Application.put_env(:serviceradar_web_ng, key, value)
 
