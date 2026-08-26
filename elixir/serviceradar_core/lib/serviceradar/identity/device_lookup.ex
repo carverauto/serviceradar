@@ -182,7 +182,7 @@ defmodule ServiceRadar.Identity.DeviceLookup do
 
       remaining_ips = unique_ips -- Map.keys(alias_results)
 
-      {cache_hits, cache_misses} = fetch_cache_hits(remaining_ips, use_cache)
+      {cache_hits, cache_misses} = fetch_cache_hits(remaining_ips, use_cache, partition)
       db_results = lookup_devices_by_ips(cache_misses, actor, include_deleted, partition)
 
       cache_db_results(alias_results, use_cache)
@@ -230,13 +230,37 @@ defmodule ServiceRadar.Identity.DeviceLookup do
     )
   end
 
-  defp fetch_cache_hits(unique_ips, true) do
+  # The cache is keyed on IP alone, but the live unique index is
+  # (partition, ip): the same address can exist in a monitoring partition and
+  # in an isolation partition as two DIFFERENT devices. A cached record from
+  # another partition is therefore not an answer to this question -- treat it
+  # as a MISS so the lookup falls through to the partition-scoped DB query.
+  #
+  # Deliberately NOT re-keyed on {partition, ip}. Four invalidation sites
+  # (device_notifier, device_identifier_notifier, device_alias_state_notifier
+  # and sync/state_events) call IdentityCache.delete/1 with a bare IP, so
+  # changing the key format would silently turn every one of them into a
+  # no-op and strand stale entries forever -- a worse bug than this one.
+  defp fetch_cache_hits(unique_ips, true, partition) do
     {hits, misses} = IdentityCache.get_batch(unique_ips)
+
+    {matching, mismatched} =
+      Enum.split_with(hits, fn {_ip, record} -> record_partition?(record, partition) end)
+
+    misses = misses ++ Enum.map(mismatched, fn {ip, _record} -> ip end)
+
     emit_authoritative_fallback_telemetry(length(misses), :cache_miss)
-    {hits, misses}
+    {Map.new(matching), misses}
   end
 
-  defp fetch_cache_hits(unique_ips, false), do: {%{}, unique_ips}
+  defp fetch_cache_hits(unique_ips, false, _partition), do: {%{}, unique_ips}
+
+  defp record_partition?(%{partition: value}, partition) when is_binary(value) and value != "",
+    do: value == partition
+
+  # A record cached without a usable partition predates partitioning; only the
+  # default partition may claim it. Mirrors device_partition/1's fallback.
+  defp record_partition?(_record, partition), do: partition == "default"
 
   defp cache_db_results(db_results, true) do
     Enum.each(db_results, fn {ip, record} ->
@@ -309,7 +333,7 @@ defmodule ServiceRadar.Identity.DeviceLookup do
       keys,
       %{found: false, record: nil, matched_key: nil, resolved_via: "miss"},
       fn key, _acc ->
-        case cached_record_for_key(key, use_cache) do
+        case cached_record_for_key(key, use_cache, partition) do
           {:ok, record} ->
             {:halt, %{found: true, record: record, matched_key: key, resolved_via: "cache"}}
 
@@ -320,14 +344,18 @@ defmodule ServiceRadar.Identity.DeviceLookup do
     )
   end
 
-  defp cached_record_for_key(%{kind: :ip, value: value}, true) do
+  defp cached_record_for_key(%{kind: :ip, value: value}, true, partition) do
     case IdentityCache.get(value) do
-      nil -> :miss
-      record -> {:ok, record}
+      nil ->
+        :miss
+
+      record ->
+        # Same cross-partition guard as fetch_cache_hits/3.
+        if record_partition?(record, partition), do: {:ok, record}, else: :miss
     end
   end
 
-  defp cached_record_for_key(_key, _use_cache), do: :miss
+  defp cached_record_for_key(_key, _use_cache, _partition), do: :miss
 
   defp handle_lookup_miss(key, actor, include_deleted, use_cache, partition) do
     case lookup_by_key(key, actor, include_deleted, partition) do
