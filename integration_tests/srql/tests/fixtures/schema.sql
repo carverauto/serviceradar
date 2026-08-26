@@ -62,7 +62,8 @@ CREATE TABLE public.ocsf_devices (
     tags                JSONB,
     deleted_at          TIMESTAMPTZ,
     deleted_by          TEXT,
-    deleted_reason      TEXT
+    deleted_reason      TEXT,
+    partition           TEXT        NOT NULL DEFAULT 'default'
 );
 
 -- The SRQL engine schema-qualifies device-identity correlation lookups as

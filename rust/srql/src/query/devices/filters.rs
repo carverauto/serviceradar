@@ -35,8 +35,9 @@ use crate::{
     schema::ocsf_devices::dsl::{
         agent_id as col_agent_id, availability_source_agent_id as col_availability_source_agent_id,
         deleted_at as col_deleted_at, gateway_id as col_gateway_id, hostname as col_hostname,
-        is_available as col_is_available, model as col_model, risk_level as col_risk_level,
-        type_id as col_type_id, uid as col_uid, vendor_name as col_vendor_name,
+        is_available as col_is_available, model as col_model, partition as col_partition,
+        risk_level as col_risk_level, type_id as col_type_id, uid as col_uid,
+        vendor_name as col_vendor_name,
     },
 };
 use diesel::dsl::{not, sql};
@@ -73,6 +74,9 @@ pub(super) fn apply_filter<'a>(
                 col_hostname,
                 "hostname filter does not support lists"
             )?;
+        }
+        "partition" => {
+            query = apply_text_filter!(query, filter, col_partition)?;
         }
         "ip" => {
             query = apply_ip_filter(query, filter)?;

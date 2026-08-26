@@ -9,7 +9,12 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexHelpersTest do
   @moduletag :db_free
 
   test "parse_csv_file handles quoted commas and pipe-separated tags" do
-    path = Path.join(System.tmp_dir!(), "serviceradar-device-import-#{System.unique_integer([:positive])}.csv")
+    path =
+      Path.join(
+        System.tmp_dir!(),
+        "serviceradar-device-import-#{System.unique_integer([:positive])}.csv"
+      )
+
     on_exit(fn -> File.rm(path) end)
 
     File.write!(path, """
@@ -22,6 +27,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexHelpersTest do
     assert device == %{
              hostname: "router, core",
              ip: "192.0.2.10",
+             partition: "",
              type: "network",
              tags: ["site=lab", "role=edge"],
              metadata: %{"site" => "lab", "role" => "edge"},
@@ -310,7 +316,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexHelpersTest do
       send(test_process, {:resolver_started, hostname, self()})
 
       receive do
-        :continue -> {:ok, "192.0.2.#{hostname |> String.replace_prefix("host-", "") |> String.split(".") |> hd()}"}
+        :continue ->
+          {:ok, "192.0.2.#{hostname |> String.replace_prefix("host-", "") |> String.split(".") |> hd()}"}
       end
     end
 
@@ -494,5 +501,44 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexHelpersTest do
 
     assert IndexCsvImport.import_success_message(0, 3) ==
              "Updated 3 existing device(s) with imported tags and metadata."
+  end
+
+  test "parse_csv_file reads a partition column and keeps it out of metadata" do
+    path =
+      csv_fixture("""
+      hostname,ip,type,partition,tags
+      rids-iah-b40,10.0.0.1,rids,rids,rids=true|site=ZZA
+      """)
+
+    assert {:ok, [device], []} = IndexCsvImport.parse_csv_file(path)
+    assert device.partition == "rids"
+    assert device.metadata == %{"rids" => "true", "site" => "ZZA"}
+  end
+
+  test "parse_csv_file downcases a partition slug" do
+    path = csv_fixture("hostname,ip,partition\nhost-a,192.0.2.40,RIDS\n")
+
+    assert {:ok, [device], []} = IndexCsvImport.parse_csv_file(path)
+    assert device.partition == "rids"
+  end
+
+  test "parse_csv_file skips an invalid partition slug" do
+    path = csv_fixture("hostname,ip,partition\nhost-a,192.0.2.41,Not A Slug\n")
+
+    assert {:error, errors} = IndexCsvImport.parse_csv_file(path)
+    assert "No valid device rows found in CSV" in errors
+    assert "Row 2 skipped: invalid partition 'not a slug'" in errors
+  end
+
+  test "apply_import_partition fills blank rows from the modal default" do
+    devices = [
+      %{hostname: "a", ip: "192.0.2.50", partition: ""},
+      %{hostname: "b", ip: "192.0.2.51", partition: "lab"}
+    ]
+
+    assert [
+             %{partition: "rids", ip: "192.0.2.50"},
+             %{partition: "lab", ip: "192.0.2.51"}
+           ] = IndexCsvImport.apply_import_partition(devices, "rids")
   end
 end

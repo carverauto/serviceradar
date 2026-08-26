@@ -12,6 +12,7 @@ pub(super) fn build_grouped_stats_filter_clause(
     let clause = match filter.field.as_str() {
         "uid" => clauses::build_grouped_text_clause("uid", filter, &mut binds)?,
         "hostname" => clauses::build_grouped_text_clause("hostname", filter, &mut binds)?,
+        "partition" => clauses::build_grouped_text_clause("partition", filter, &mut binds)?,
         "ip" => clauses::build_grouped_text_clause("ip", filter, &mut binds)?,
         "mac" => clauses::build_grouped_mac_clause(filter, &mut binds)?,
         "gateway_id" => clauses::build_grouped_text_clause("gateway_id", filter, &mut binds)?,
