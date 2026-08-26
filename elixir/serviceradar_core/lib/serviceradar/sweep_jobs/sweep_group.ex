@@ -26,8 +26,12 @@ defmodule ServiceRadar.SweepJobs.SweepGroup do
 
   ## Agent Assignment
 
-  - `partition`: Required partition for this sweep group
-  - `agent_id`: Optional specific agent (nil = any agent in partition)
+  - `partition`: Device-lookup partition for ingest. Unassigned groups are
+    compiled onto agents that live in this same partition.
+  - `agent_id`: Optional specific scanner (nil = any agent in `partition`).
+    An explicit agent still receives and runs the group even when that agent
+    lives in another partition, which is how isolation scans work: a scanner
+    on a blocked subnet probes devices in a different device partition.
   """
 
   use Ash.Resource,
@@ -172,14 +176,23 @@ defmodule ServiceRadar.SweepJobs.SweepGroup do
     end
 
     read :for_agent_partition do
-      description "Get groups for a specific agent and partition"
+      description """
+      Groups this agent should run.
+
+      Includes (1) groups assigned to this agent, including isolation scans
+      whose device partition differs from the agent's, and (2) unassigned
+      groups whose partition matches the agent's.
+      """
+
       argument :agent_id, :string, allow_nil?: true
       argument :partition, :string, allow_nil?: false
 
       filter expr(
                enabled == true and
-                 partition == ^arg(:partition) and
-                 (is_nil(^arg(:agent_id)) or agent_id == ^arg(:agent_id) or is_nil(agent_id))
+                 ((not is_nil(^arg(:agent_id)) and agent_id == ^arg(:agent_id)) or
+                    (partition == ^arg(:partition) and
+                       (is_nil(^arg(:agent_id)) or is_nil(agent_id) or
+                          agent_id == ^arg(:agent_id))))
              )
     end
   end
@@ -212,13 +225,13 @@ defmodule ServiceRadar.SweepJobs.SweepGroup do
       allow_nil? false
       public? true
       default "default"
-      description "Partition for this sweep group"
+      description "Device-lookup partition; unassigned groups also compile onto agents here"
     end
 
     attribute :agent_id, :string do
       allow_nil? true
       public? true
-      description "Specific agent ID (nil = any agent in partition)"
+      description "Specific scanner agent ID (nil = any agent in partition)"
     end
 
     attribute :enabled, :boolean do

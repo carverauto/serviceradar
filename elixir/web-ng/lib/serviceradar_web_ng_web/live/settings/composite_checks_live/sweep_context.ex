@@ -80,10 +80,10 @@ defmodule ServiceRadarWebNGWeb.Settings.CompositeChecksLive.SweepContext do
 
   defp groups_for(nil, _partition, _opts), do: []
 
-  # `:for_agent_partition` is the read whose filter is exactly this rule:
-  # enabled, in this partition, and either assigned to this agent or assigned to
-  # none. `:by_agent` looks closer but ignores partition, so it would credit a
-  # vantage point with partition-wide groups from a partition it cannot see.
+  # `:for_agent_partition` is the read whose filter is: enabled, and either
+  # assigned to this agent (including isolation scans whose device partition
+  # differs) or unassigned in this agent's partition. `:by_agent` ignores
+  # partition entirely and would credit a vantage with every unassigned group.
   defp groups_for(agent_id, partition, opts) do
     SweepGroup
     |> Ash.Query.for_read(:for_agent_partition, %{agent_id: agent_id, partition: partition})
