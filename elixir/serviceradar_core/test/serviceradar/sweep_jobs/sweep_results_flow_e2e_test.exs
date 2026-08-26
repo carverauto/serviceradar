@@ -1,8 +1,7 @@
 defmodule ServiceRadar.SweepJobs.SweepResultsFlowE2ETest do
   use ServiceRadar.DataCase, async: false
 
-  import ExUnit.CaptureLog
-
+  alias ExUnit.CaptureLog
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Identity.DeviceAliasState
   alias ServiceRadar.Identity.IdentityCache
