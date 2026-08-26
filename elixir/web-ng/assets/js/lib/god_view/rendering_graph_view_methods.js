@@ -1060,8 +1060,22 @@ export const godViewRenderingGraphViewMethods = {
     if (!options.force && this.state.hasAutoFit) return
 
     if (managedScene) {
-      const width = Math.max(1, this.state.el.clientWidth || 1)
-      const height = Math.max(1, this.state.el.clientHeight || 1)
+      // A surface that has not been laid out yet reports 0. Glyph extents are fixed pixels,
+      // so once that 0 is clamped to 1 nothing fits at any zoom, and the fit correctly calls
+      // the scene impossible -- but what it is describing is an unmeasured container, not an
+      // unfittable scene. Throwing there is caught as a camera failure, which rolls the
+      // camera back and leaves the surface reporting "topology render unavailable" with the
+      // graph parked off-screen at a default camera.
+      //
+      // Defer instead, leaving hasAutoFit false so the resize observer fits as soon as the
+      // surface has a size. A measured-but-tiny surface still fails closed: that is a real
+      // condition worth surfacing, and it is not this race.
+      const measuredWidth = Number(this.state.el?.clientWidth) || 0
+      const measuredHeight = Number(this.state.el?.clientHeight) || 0
+      if (measuredWidth <= 0 || measuredHeight <= 0) return
+
+      const width = Math.max(1, measuredWidth)
+      const height = Math.max(1, measuredHeight)
       const safeRect = this.state.topologyLabelSafeRect || measureGodViewSafeRect(this.state.el)
       const graphNodes = managedGraphNodes(graph)
       const fitted = fitManagedTopologyScene(
