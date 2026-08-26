@@ -1002,6 +1002,16 @@ describe("layout_elk_scene", () => {
     }
   })
 
+  it("labels the Layered adapter output as bounded detail", async () => {
+    const graph = collapsedFarm01Graph()
+    const scene = await layoutTopologyScene(prepareTopologySceneInput(graph), {
+      engine: new ELK(),
+      profile: LANDSCAPE_PROFILE,
+    })
+
+    expect(applyTopologySceneToGraph(graph, scene)._layoutMode).toBe("elk-scene-detail")
+  })
+
   it("keeps every Farm01 manifold physically connected from its fitted glyph to every semantic branch", async () => {
     for (const graph of [collapsedFarm01Graph(), expandedFarm01Graph()]) {
       const scene = await layoutTopologyScene(prepareTopologySceneInput(graph), {

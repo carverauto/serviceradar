@@ -1,3 +1,5 @@
+import {hasManagedTopologyScene} from "./topology_layout_mode"
+
 export const godViewLayoutClusterMethods = {
   resolveZoomTier(zoom) {
     if (zoom < -0.3) return "global"
@@ -14,7 +16,7 @@ export const godViewLayoutClusterMethods = {
   },
   reshapeGraph(graph) {
     const {state} = this
-    if (graph?._layoutMode === "elk-scene" && graph?._topologyScene) {
+    if (hasManagedTopologyScene(graph)) {
       return {
         ...graph,
         shape: "local",

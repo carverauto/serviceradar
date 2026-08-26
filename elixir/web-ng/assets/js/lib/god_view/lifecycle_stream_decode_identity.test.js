@@ -179,7 +179,7 @@ function arrowBytes(edgeOrder, sourceRelations = RELATIONS) {
     node_label: nodeValues("label"),
     node_pps: Float64Array.from({length: totalRows}, () => 0),
     node_oper_up: Int8Array.from([1, 1, ...relations.map(() => 0)]),
-    node_details: [JSON.stringify({id: "a"}), JSON.stringify({id: "b"}), ...relations.map(() => null)],
+    node_details: [JSON.stringify({id: "a", type: "Router"}), JSON.stringify({id: "b", type: "Switch"}), ...relations.map(() => null)],
     edge_source: edgeValues("source"),
     edge_target: edgeValues("target"),
     edge_pps: edgeValues("flowPps"),

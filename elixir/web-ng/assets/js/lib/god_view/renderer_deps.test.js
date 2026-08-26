@@ -80,11 +80,6 @@ describe("renderer_deps", () => {
     expect(deps.getNodeTooltip({object: {id: "n1"}})).toEqual(["rendering.getNodeTooltip", {object: {id: "n1"}}])
     expect(deps.handleHover({object: {id: "n1"}})).toEqual(["rendering.handleHover", {object: {id: "n1"}}])
     expect(deps.handlePick({object: {id: "n1"}})).toEqual(["rendering.handlePick", {object: {id: "n1"}}])
-    expect(deps.managedVisualDensityForViewScale({nodes: []}, 0.5)).toEqual([
-      "rendering.managedVisualDensityForViewScale",
-      {nodes: []},
-      0.5,
-    ])
     expect(deps.managedViewStateForCamera({nodes: []}, {zoom: 0})).toEqual([
       "rendering.managedViewStateForCamera",
       {nodes: []},

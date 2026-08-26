@@ -1,6 +1,15 @@
 export const TOPOLOGY_LABEL_PADDING_PX = 4
 
-const ANCHORS = ["top", "right", "bottom", "left"]
+const ANCHORS = [
+  "top",
+  "right",
+  "bottom",
+  "left",
+  "top-right",
+  "bottom-right",
+  "bottom-left",
+  "top-left",
+]
 const EPSILON = 1e-9
 
 function finiteNumber(value, fallback = 0) {
@@ -154,6 +163,66 @@ function anchorPlacement(candidate, ownerGlyph, metrics, anchor) {
         alignmentBaseline: "center",
       }
     }
+    case "top-right": {
+      return {
+        nodeId: String(candidate.nodeId),
+        anchor,
+        box: {
+          left: ownerGlyph.right,
+          top: ownerGlyph.top - metrics.height - (padding * 2),
+          right: ownerGlyph.right + metrics.width + (padding * 2),
+          bottom: ownerGlyph.top,
+        },
+        pixelOffset: [(ownerGlyph.right - x) + padding, (ownerGlyph.top - y) - padding],
+        textAnchor: "start",
+        alignmentBaseline: "bottom",
+      }
+    }
+    case "bottom-right": {
+      return {
+        nodeId: String(candidate.nodeId),
+        anchor,
+        box: {
+          left: ownerGlyph.right,
+          top: ownerGlyph.bottom,
+          right: ownerGlyph.right + metrics.width + (padding * 2),
+          bottom: ownerGlyph.bottom + metrics.height + (padding * 2),
+        },
+        pixelOffset: [(ownerGlyph.right - x) + padding, (ownerGlyph.bottom - y) + padding],
+        textAnchor: "start",
+        alignmentBaseline: "top",
+      }
+    }
+    case "bottom-left": {
+      return {
+        nodeId: String(candidate.nodeId),
+        anchor,
+        box: {
+          left: ownerGlyph.left - metrics.width - (padding * 2),
+          top: ownerGlyph.bottom,
+          right: ownerGlyph.left,
+          bottom: ownerGlyph.bottom + metrics.height + (padding * 2),
+        },
+        pixelOffset: [(ownerGlyph.left - x) - padding, (ownerGlyph.bottom - y) + padding],
+        textAnchor: "end",
+        alignmentBaseline: "top",
+      }
+    }
+    case "top-left": {
+      return {
+        nodeId: String(candidate.nodeId),
+        anchor,
+        box: {
+          left: ownerGlyph.left - metrics.width - (padding * 2),
+          top: ownerGlyph.top - metrics.height - (padding * 2),
+          right: ownerGlyph.left,
+          bottom: ownerGlyph.top,
+        },
+        pixelOffset: [(ownerGlyph.left - x) - padding, (ownerGlyph.top - y) - padding],
+        textAnchor: "end",
+        alignmentBaseline: "bottom",
+      }
+    }
     case "top":
     default: {
       const offset = (ownerGlyph.top - y) - padding
@@ -267,10 +336,142 @@ function boxIntersectsRoute(box, route) {
   return false
 }
 
+function pointDistance(first, second) {
+  return Math.hypot(
+    finiteNumber(first?.[0]) - finiteNumber(second?.[0]),
+    finiteNumber(first?.[1]) - finiteNumber(second?.[1]),
+  )
+}
+
+function inflatedBox(box, amount) {
+  return {
+    left: finiteNumber(box?.left) - amount,
+    top: finiteNumber(box?.top) - amount,
+    right: finiteNumber(box?.right) + amount,
+    bottom: finiteNumber(box?.bottom) + amount,
+  }
+}
+
+function pointInsideBox(point, box) {
+  return (
+    point[0] >= box.left - EPSILON &&
+    point[0] <= box.right + EPSILON &&
+    point[1] >= box.top - EPSILON &&
+    point[1] <= box.bottom + EPSILON
+  )
+}
+
+// Distance travelled along `points` before the polyline first leaves `box`.
+// Zero when it does not start inside. Only this leading run is exempt, so a
+// route that leaves and later re-enters is still treated as an obstacle.
+function leadingExitDistance(points, box) {
+  if (!pointInsideBox(points[0], box)) return 0
+  let travelled = 0
+  for (let index = 1; index < points.length; index += 1) {
+    const start = points[index - 1]
+    const end = points[index]
+    const segmentLength = pointDistance(start, end)
+    if (!(segmentLength > EPSILON)) continue
+    if (!pointInsideBox(end, box)) {
+      let inside = 0
+      let outside = 1
+      for (let step = 0; step < 48; step += 1) {
+        const mid = (inside + outside) / 2
+        const probe = [
+          start[0] + ((end[0] - start[0]) * mid),
+          start[1] + ((end[1] - start[1]) * mid),
+        ]
+        if (pointInsideBox(probe, box)) inside = mid
+        else outside = mid
+      }
+      return travelled + (segmentLength * inside)
+    }
+    travelled += segmentLength
+  }
+  return travelled
+}
+
+function clippedSegment(start, end, startDistance, endDistance, segmentStart, segmentEnd) {
+  const segmentLength = segmentEnd - segmentStart
+  if (!(segmentLength > EPSILON)) return null
+  const startRatio = (startDistance - segmentStart) / segmentLength
+  const endRatio = (endDistance - segmentStart) / segmentLength
+  return [
+    [
+      start[0] + ((end[0] - start[0]) * startRatio),
+      start[1] + ((end[1] - start[1]) * startRatio),
+    ],
+    [
+      start[0] + ((end[0] - start[0]) * endRatio),
+      start[1] + ((end[1] - start[1]) * endRatio),
+    ],
+  ]
+}
+
+function boxIntersectsIncidentRouteOutsideOwnerApproach(box, route, candidate, ownerGlyph) {
+  const points = (Array.isArray(route?.points) ? route.points : []).map((point) => [
+    finiteNumber(point?.[0]),
+    finiteNumber(point?.[1]),
+  ])
+  if (points.length < 2) return false
+
+  const ownerId = String(candidate?.nodeId ?? "")
+  const sourceId = String(route?.sourceId ?? "")
+  const targetId = String(route?.targetId ?? "")
+  const routeRadius = Math.max(0, finiteNumber(route?.strokeWidth, 1) / 2)
+  // Exempt exactly the run an incident route needs to clear the owner's own
+  // glyph, measured against the glyph rectangle rather than a corner radius.
+  // Anything beyond that is a real obstacle, so a label can never sit on top
+  // of its own outgoing route.
+  const contactBox = inflatedBox(ownerGlyph, TOPOLOGY_LABEL_PADDING_PX + routeRadius)
+  const sourceApproach = sourceId === ownerId ? leadingExitDistance(points, contactBox) : 0
+  const targetApproach = targetId === ownerId
+    ? leadingExitDistance([...points].reverse(), contactBox)
+    : 0
+
+  const cumulative = [0]
+  for (let index = 1; index < points.length; index += 1) {
+    cumulative.push(cumulative.at(-1) + pointDistance(points[index - 1], points[index]))
+  }
+  const totalLength = cumulative.at(-1)
+  const checkedStart = Math.min(totalLength, sourceApproach)
+  const checkedEnd = Math.max(checkedStart, totalLength - targetApproach)
+
+  for (let index = 1; index < points.length; index += 1) {
+    const segmentStart = cumulative[index - 1]
+    const segmentEnd = cumulative[index]
+    const checkStart = Math.max(segmentStart, checkedStart)
+    const checkEnd = Math.min(segmentEnd, checkedEnd)
+    if (!(checkEnd > checkStart + EPSILON)) continue
+    const clipped = clippedSegment(
+      points[index - 1],
+      points[index],
+      checkStart,
+      checkEnd,
+      segmentStart,
+      segmentEnd,
+    )
+    if (clipped && segmentBoxDistance(clipped[0], clipped[1], box) < routeRadius - EPSILON) return true
+  }
+  return false
+}
+
 function fixedObstacleFree(placement, candidate, glyphBoxes, routeCorridors, safeRect) {
   if (!boxInside(placement.box, safeRect)) return false
   if (glyphBoxes.some((glyph) => glyph.nodeId !== candidate.nodeId && boxesIntersect(placement.box, glyph.box))) return false
-  if (routeCorridors.some((route) => boxIntersectsRoute(placement.box, route))) return false
+  if (routeCorridors.some((route) => {
+    const sourceId = String(route?.sourceId ?? "")
+    const targetId = String(route?.targetId ?? "")
+    const incidentToOwner = sourceId === candidate.nodeId || targetId === candidate.nodeId
+    return incidentToOwner
+      ? boxIntersectsIncidentRouteOutsideOwnerApproach(
+          placement.box,
+          route,
+          candidate,
+          glyphBoxes.find((glyph) => glyph.nodeId === candidate.nodeId)?.box || normalizedBox(null, candidate.point),
+        )
+      : boxIntersectsRoute(placement.box, route)
+  })) return false
   return true
 }
 
@@ -284,6 +485,7 @@ export function admitTopologyLabels({
   routeCorridors = [],
   safeRect,
   maximumCount = Number.POSITIVE_INFINITY,
+  requiredLabelIds,
   measureText,
 } = {}) {
   const normalizedSafeRect = normalizedBox(safeRect, [0, 0])
@@ -350,5 +552,12 @@ export function admitTopologyLabels({
 
   admitted.sort((left, right) => compareCandidates(admittedCandidates.get(left.nodeId), admittedCandidates.get(right.nodeId)))
   detailsFallbackIds.sort((left, right) => stableCompare(left, right))
-  return {admitted, detailsFallbackIds}
+  const requiredIds = (Array.isArray(requiredLabelIds) ? requiredLabelIds : ordered.map((candidate) => candidate.nodeId))
+    .map((nodeId) => String(nodeId || ""))
+    .filter((nodeId) => nodeId !== "")
+  const admittedIds = new Set(admitted.map((placement) => placement.nodeId))
+  const missingRequiredLabelIds = [...new Set(requiredIds)]
+    .filter((nodeId) => !admittedIds.has(nodeId))
+    .sort(stableCompare)
+  return {admitted, detailsFallbackIds, missingRequiredLabelIds}
 }

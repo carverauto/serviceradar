@@ -10,6 +10,7 @@ import {
   runRecoverableManagedCameraUpdate,
   surfaceRecoverableManagedTopologyError,
 } from "./lifecycle_managed_camera_recovery"
+import {hasManagedTopologyScene} from "./topology_layout_mode"
 
 function safeInsetsChanged(previous, current) {
   if (!previous) return true
@@ -43,8 +44,7 @@ function reconcileSafeAreaResizeTargets(state) {
 
 function refreshLayersAfterResize(context, {clearErrorOnSuccess = true} = {}) {
   const refresh = () => context.deps.refreshGraphLayersForViewState?.()
-  const managedScene = context.state.lastGraph?._layoutMode === "elk-scene"
-    && context.state.lastGraph?._topologyScene
+  const managedScene = hasManagedTopologyScene(context.state.lastGraph)
   if (managedScene) {
     return runRecoverableManagedCameraUpdate(context, refresh, {clearErrorOnSuccess})
   }
@@ -315,6 +315,19 @@ export const godViewLifecycleDomSetupMethods = {
     this.state.canvas.className = "h-full w-full rounded bg-transparent"
     this.state.canvas.style.cursor = "grab"
 
+    const labelMeasurementCanvas = document.createElement("canvas")
+    const labelMeasurementContext = labelMeasurementCanvas.getContext?.("2d")
+    this.state.topologyLabelMeasureText = labelMeasurementContext
+      ? (text, candidate = {}) => {
+          const requestedFontSize = Number(candidate?.fontSize)
+          const fontSize = Number.isFinite(requestedFontSize) && requestedFontSize > 0
+            ? requestedFontSize
+            : 12
+          labelMeasurementContext.font = `600 ${fontSize}px Inter, system-ui, sans-serif`
+          return labelMeasurementContext.measureText(String(text || ""))
+        }
+      : null
+
     this.state.atmosphereOverlay = document.createElement("div")
     this.state.atmosphereOverlay.className = "pointer-events-none absolute inset-0 z-10 rounded"
     this.state.atmosphereOverlay.style.background = "transparent"
@@ -416,11 +429,11 @@ export const godViewLifecycleDomSetupMethods = {
         this.deps.autoFitViewState?.(this.state.lastGraph, {force: true})
       })
       cameraUpdateAccepted = result.ok
-    } else if (this.state.lastGraph?._layoutMode === "elk-scene" && this.state.lastGraph?._topologyScene) {
+    } else if (hasManagedTopologyScene(this.state.lastGraph)) {
       const result = runRecoverableManagedCameraUpdate(this, () => {
-        const selection = this.deps.managedVisualDensityForViewScale?.(
+        const selection = this.deps.managedViewStateForCamera?.(
           this.state.lastGraph,
-          2 ** Number(this.state.viewState?.zoom || 0),
+          this.state.viewState,
           {safeRect},
         )
         if (selection?.managedVisualDensity) {
@@ -535,7 +548,20 @@ export const godViewLifecycleDomSetupMethods = {
       width,
       height,
       views: new OrthographicView({id: "god-view-ortho"}),
-      controller: false,
+      // Managed scenes own geometry, not the camera. Gestures are allowed
+      // and then clamped by onViewStateChange via managedViewStateForCamera,
+      // so trackpad pinch / two-finger zoom and drag-pan work without letting
+      // the user desync the accepted ELK scene. Rotation stays off: the scene
+      // is authored in an OrthographicView with a fixed up-axis.
+      controller: {
+        scrollZoom: {smooth: true},
+        dragPan: true,
+        touchZoom: true,
+        dragRotate: false,
+        touchRotate: false,
+        doubleClickZoom: false,
+        keyboard: false,
+      },
       pickingRadius: 8,
       useDevicePixels: true,
       initialViewState: this.state.viewState,
@@ -555,7 +581,7 @@ export const godViewLifecycleDomSetupMethods = {
       onViewStateChange: ({viewState}) => {
         const programmaticUpdate = this.state.isProgrammaticViewUpdate === true
         const layoutMode = this.state.lastGraph?._layoutMode
-        const managedScene = layoutMode === "elk-scene" && this.state.lastGraph?._topologyScene
+        const managedScene = hasManagedTopologyScene(this.state.lastGraph)
         const applyViewState = () => {
           let nextViewState = {...this.state.viewState, ...viewState}
           if (managedScene && !programmaticUpdate) {

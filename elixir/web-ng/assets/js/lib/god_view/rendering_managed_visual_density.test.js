@@ -8,6 +8,8 @@ import {PORTRAIT_PROFILE, applyTopologySceneToGraph, layoutTopologyScene} from "
 import {godViewRenderingGraphLayerNodeMethods} from "./rendering_graph_layer_node_methods"
 import {godViewRenderingGraphViewMethods} from "./rendering_graph_view_methods"
 import {managedNodeVisualRole} from "./rendering_managed_visual_density"
+import {fitTopologyScene} from "./rendering_scene_view"
+import {topologySemanticLevel} from "./topology_layout_mode"
 import {prepareTopologySceneInput} from "./topology_scene_graph"
 
 function concurrentExpandedFarm01Graph() {
@@ -68,13 +70,20 @@ function overlaps(left, right, epsilon = 0.5) {
 }
 
 describe("managed topology visual density", () => {
-  it("keeps the canonical concurrent portrait scene truthful at overview density", async () => {
+  it("degrades a label-infeasible expanded portrait scene and fails a bounded frame closed", async () => {
     const source = concurrentExpandedFarm01Graph()
     const scene = await layoutTopologyScene(prepareTopologySceneInput(source), {
       engine: new ELK(),
       profile: PORTRAIT_PROFILE,
     })
-    const graph = {shape: "local", ...applyTopologySceneToGraph(source, scene)}
+    const graph = {
+      shape: "local",
+      ...applyTopologySceneToGraph(source, scene),
+      // Pin the density explicitly: this scene carries expanded clusters, which now
+      // derive detail on their own. The contract under test is the label policy of
+      // each density over identical geometry, not how the density was chosen.
+      _topologySemanticLevel: "overview",
+    }
     const width = 800
     const height = 1000
     const safeRect = {left: 0, top: 0, right: 800, bottom: 960}
@@ -101,7 +110,63 @@ describe("managed topology visual density", () => {
       bindApi(ctx, godViewRenderingGraphViewMethods),
     )
 
-    ctx.autoFitViewState(graph)
+    // Labels that cannot be placed are dropped and the surface still renders with an
+    // accepted camera.
+    expect(() => ctx.autoFitViewState(graph)).not.toThrow()
+    expect(Number.isFinite(state.viewState.zoom)).toBe(true)
+
+    // Production reaches this same scene with no pinned marker at all: the expanded
+    // clusters derive detail on their own. Expansion is the unbounded case -- it can add
+    // arbitrarily many members to a scene sized for a handful -- so it must degrade there
+    // too, or expanding a cluster cannot render. Pinning detail does not change that:
+    // boundedness is a property of the scene, not of the marker.
+    const derivedDetail = {shape: "local", ...applyTopologySceneToGraph(source, scene)}
+    expect(topologySemanticLevel(derivedDetail)).toBe("detail")
+    for (const expanded of [derivedDetail, {...derivedDetail, _topologySemanticLevel: "detail"}]) {
+      state.hasAutoFit = false
+      state.userCameraLocked = false
+      expect(() => ctx.autoFitViewState(expanded)).not.toThrow()
+      expect(Number.isFinite(state.viewState.zoom)).toBe(true)
+      // Detail glyph extents do not hold their separation constraint at the scale this
+      // portrait safe rect fits 78 nodes into. Density is a feasibility question, not a
+      // restatement of the semantic level -- taking detail anyway is what overlaps glyphs.
+      expect(state.managedTopologyVisualDensity).toBe("overview")
+    }
+
+    // A genuinely bounded frame -- nothing expanded -- still fails closed, because there
+    // an unplaceable label means the frame itself is wrong.
+    const boundedSource = collapsedFarm01Graph()
+    const boundedScene = await layoutTopologyScene(prepareTopologySceneInput(boundedSource), {
+      engine: new ELK(),
+      profile: PORTRAIT_PROFILE,
+    })
+    const boundedDetail = {
+      shape: "local",
+      ...applyTopologySceneToGraph(boundedSource, boundedScene),
+      _topologySemanticLevel: "detail",
+    }
+    state.hasAutoFit = false
+    state.userCameraLocked = false
+    expect(() => ctx.autoFitViewState(boundedDetail))
+      .toThrow(/managed topology detail is missing required labels/i)
+
+    // The remainder isolates the overview renderer's glyph/route envelope using
+    // its own containment fit, independent of the camera accepted above.
+    const graphNodeById = new Map(graph.nodes.map((node) => [node.id, node]))
+    const containment = fitTopologyScene({
+      scene,
+      viewport: {...state.viewState, width, height, viewState: state.viewState},
+      safeRect,
+      glyphBoxes: scene.nodes.flatMap((sceneNode) => {
+        if (sceneNode.render === false) return []
+        const node = graphNodeById.get(sceneNode.id)
+        const radius = ctx.nodeVisibleOuterRadiusPixels(node, {managedVisualDensity: "overview"})
+        return [{nodeId: sceneNode.id, width: radius * 2, height: radius * 2}]
+      }),
+      routeStrokeWidth: 10,
+    })
+    state.viewState = containment.viewState
+    state.managedTopologyVisualDensity = "overview"
 
     const scale = 2 ** state.viewState.zoom
     const selection = ctx.managedVisualDensityForViewScale(graph, scale)
@@ -126,7 +191,6 @@ describe("managed topology visual density", () => {
     expect((208 * scale) - 20).toBeGreaterThan(1)
     expect((104 * scale) - 10).toBeGreaterThan(0.5)
 
-    const graphNodeById = new Map(graph.nodes.map((node) => [node.id, node]))
     const glyphs = scene.nodes.flatMap((sceneNode) => {
       if (sceneNode.render === false) return []
       const node = graphNodeById.get(sceneNode.id)

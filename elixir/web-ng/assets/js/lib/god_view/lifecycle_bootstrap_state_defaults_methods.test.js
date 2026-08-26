@@ -4,17 +4,21 @@ import {bindApi, createStateBackedContext} from "./api_helpers"
 import {godViewLifecycleBootstrapStateDefaultsMethods} from "./lifecycle_bootstrap_state_defaults_methods"
 
 describe("lifecycle_bootstrap_state_defaults_methods", () => {
-  it("initLifecycleState hides endpoint topology by default", () => {
+  it("initLifecycleState shows the attachment plane by default and keeps inferred off", () => {
     const state = {}
     const ctx = createStateBackedContext(state, {})
     Object.assign(ctx, bindApi(ctx, godViewLifecycleBootstrapStateDefaultsMethods))
 
     ctx.initLifecycleState()
 
+    // Most infrastructure has no backbone adjacency at all -- its only links are
+    // attachment-class -- so defaulting `endpoints` off drew genuinely connected
+    // devices as isolated dots until something flipped the layer on. `inferred`
+    // stays off: it is low-confidence segment data and belongs behind a toggle.
     expect(state.topologyLayers).toEqual({
       backbone: true,
       inferred: false,
-      endpoints: false,
+      endpoints: true,
       mtr_paths: true,
     })
     expect(state.managedTopologyCameraBaseMinZoom).toEqual(-2)

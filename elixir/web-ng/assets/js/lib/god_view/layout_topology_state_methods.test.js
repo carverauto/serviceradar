@@ -2,6 +2,7 @@ import ELK from "elkjs/lib/elk.bundled.js"
 import {describe, expect, it, vi} from "vitest"
 
 import {
+  FARM01_EXPECTED,
   collapsedFarm01Graph,
   expandedFarm01Graph,
 } from "./fixtures/farm01_topology_regression"
@@ -41,7 +42,104 @@ function sceneCenters(graph) {
   )
 }
 
+function detailGraph(graph) {
+  return {...graph, _topologySemanticLevel: "detail"}
+}
+
 describe("layout_topology_state_methods", () => {
+  it("selects radial overview by default and Layered detail only for an explicit bounded-detail graph", async () => {
+    const overviewContext = makeContext()
+    const overview = await overviewContext.prepareGraphLayout(collapsedFarm01Graph(), 1, "overview")
+    const detailContext = makeContext()
+    const detail = await detailContext.prepareGraphLayout({
+      ...collapsedFarm01Graph(),
+      _topologySemanticLevel: "detail",
+    }, 2, "detail")
+
+    expect(overview._layoutMode).toBe("elk-radial-overview")
+    expect(overview._topologyScene.profileKey).toBe("radial-overview")
+    expect(overview._topologyScene.routes).toHaveLength(11)
+    expect(detail._layoutMode).toBe("elk-scene-detail")
+    expect(detail._topologyScene.profileKey).toBe("landscape")
+    expect(detail._topologyScene.routes).toHaveLength(32)
+  })
+
+  it("keys cached geometry by semantic level, adapter profile, and structural graph identity", () => {
+    const context = makeContext()
+
+    expect(context.graphLayoutCacheKey(
+      {graphKey: "graph-a"},
+      {key: "radial-overview"},
+      "overview",
+    )).toBe("overview:radial-overview:graph-a")
+    expect(context.graphLayoutCacheKey(
+      {graphKey: "graph-a"},
+      {key: "landscape"},
+      "detail",
+    )).toBe("detail:landscape:graph-a")
+  })
+
+  it("hydrates overview geometry with current projection metadata and never cached cross-link metadata", async () => {
+    const context = makeContext()
+    const graph = collapsedFarm01Graph()
+    const first = await context.prepareGraphLayout(graph, 3, "first")
+    const cachedGeometry = context.state.layoutCache.get(first._layoutCacheKey)
+    context.state.layoutCache.set(first._layoutCacheKey, {
+      ...cachedGeometry,
+      nodes: cachedGeometry.nodes.map((node) => ({...node, label: "stale cached label"})),
+      routes: cachedGeometry.routes.map((route) => ({...route, evidence: [{id: "stale-route"}]})),
+      crossLinks: [{id: "stale-cross-link", evidence: [{id: "stale-cross-link"}]}],
+    })
+    const currentGraph = {
+      ...graph,
+      nodes: graph.nodes.map((node, index) => index === 0
+        ? {...node, label: "Current gateway label"}
+        : node),
+      edges: graph.edges.map((edge) => {
+        if (edge.id === "farm01:backbone:01") {
+          return {...edge, metadata: {...edge.metadata, live: "current-tree-route"}}
+        }
+        if (edge.id === "farm01:backbone:03") {
+          return {...edge, metadata: {...edge.metadata, live: "current-cross-link"}}
+        }
+        return edge
+      }),
+    }
+
+    const second = await context.prepareGraphLayout(currentGraph, 4, "second")
+
+    expect(context.state.layoutEngine.layout).toHaveBeenCalledTimes(1)
+    expect(second._layoutCacheKey).toBe(first._layoutCacheKey)
+    expect(sceneCenters(second)).toEqual(sceneCenters(first))
+    expect(second._topologyScene.nodes.find((node) => node.id === graph.nodes[0].id)?.label).toBe(
+      "Current gateway label",
+    )
+    expect(second._topologyScene.routes.flatMap((route) => route.evidence)).toContainEqual(
+      expect.objectContaining({metadata: expect.objectContaining({live: "current-tree-route"})}),
+    )
+    expect(second._topologyScene.crossLinks.flatMap((relation) => relation.evidence)).toContainEqual(
+      expect.objectContaining({metadata: expect.objectContaining({live: "current-cross-link"})}),
+    )
+    expect(second._topologyScene.crossLinks).not.toContainEqual(
+      expect.objectContaining({id: "stale-cross-link"}),
+    )
+    expect(cachedGeometry).not.toHaveProperty("crossLinks")
+  })
+
+  it("keeps radial overview cache geometry reusable across viewport profiles", async () => {
+    const context = makeContext()
+    const graph = collapsedFarm01Graph()
+    const first = await context.prepareGraphLayout(graph, 5, "landscape")
+    context.state.viewportWidth = 600
+    context.state.viewportHeight = 1200
+
+    const portraitViewport = await context.prepareGraphLayout(graph, 6, "portrait")
+
+    expect(context.state.layoutEngine.layout).toHaveBeenCalledTimes(1)
+    expect(portraitViewport._layoutCacheKey).toBe(first._layoutCacheKey)
+    expect(sceneCenters(portraitViewport)).toEqual(sceneCenters(first))
+  })
+
   it("initializes deterministic viewport dimensions and safe insets for scene profiling", () => {
     const state = {}
 
@@ -216,23 +314,26 @@ describe("layout_topology_state_methods", () => {
     expect(out.edges.map((edge) => edge.flowPps)).toEqual([100, 50, 7, 30])
   })
 
-  it("uses one ELK scene as the geometry authority for both farm01 fixture states", async () => {
-    for (const graph of [collapsedFarm01Graph(), expandedFarm01Graph()]) {
-      const context = makeContext()
+  it.each([
+    {state: "collapsed", build: collapsedFarm01Graph, mode: "elk-radial-overview", routes: 11},
+    {state: "expanded", build: expandedFarm01Graph, mode: "elk-scene-detail", routes: 32},
+  ])("uses one accepted scene as the geometry authority for the $state farm01 fixture", async ({build, mode, routes}) => {
+    const context = makeContext()
 
-      const out = await context.prepareGraphLayout(graph, 5, "stamp")
+    const out = await context.prepareGraphLayout(build(), 5, "stamp")
 
-      expect(context.state.layoutEngine.layout).toHaveBeenCalledTimes(1)
-      expect(out._layoutMode).toEqual("elk-scene")
-      expect(out._topologyScene.routes).toHaveLength(32)
-      expect(out.nodes.every((node) => Number.isFinite(node.x) && Number.isFinite(node.y))).toEqual(true)
-      expect(context.state.layoutMode).toEqual("elk-scene")
-    }
+    expect(context.state.layoutEngine.layout).toHaveBeenCalledTimes(1)
+    expect(out._layoutMode).toEqual(mode)
+    expect(out._topologyScene.routes).toHaveLength(routes)
+    expect(out._topologyScene.nodes.every((node) => (
+      Number.isFinite(node.center.x) && Number.isFinite(node.center.y)
+    ))).toEqual(true)
+    expect(context.state.layoutMode).toEqual(mode)
   })
 
   it("can prepare a layout without mutating accepted layout metadata", async () => {
     const context = makeContext({state: {
-      layoutMode: "elk-scene",
+      layoutMode: "elk-radial-overview",
       layoutRevision: 40,
       lastLayoutKey: "accepted-layout",
     }})
@@ -246,7 +347,7 @@ describe("layout_topology_state_methods", () => {
 
     expect(out._layoutRevision).toBe(41)
     expect(out._layoutCacheKey).not.toBe("accepted-layout")
-    expect(context.state.layoutMode).toBe("elk-scene")
+    expect(context.state.layoutMode).toBe("elk-radial-overview")
     expect(context.state.layoutRevision).toBe(40)
     expect(context.state.lastLayoutKey).toBe("accepted-layout")
   })
@@ -254,7 +355,7 @@ describe("layout_topology_state_methods", () => {
   it("contains all 24 expanded members in one accepted compound group", async () => {
     const context = makeContext()
 
-    const out = await context.prepareGraphLayout(expandedFarm01Graph(), 6, "expanded")
+    const out = await context.prepareGraphLayout(detailGraph(expandedFarm01Graph()), 6, "expanded")
     const [group] = out._topologyScene.groups
     const nodesById = new Map(out._topologyScene.nodes.map((node) => [node.id, node]))
 
@@ -273,7 +374,7 @@ describe("layout_topology_state_methods", () => {
 
   it("reapplies cached immutable scene geometry to current telemetry across revisions", async () => {
     const context = makeContext()
-    const graph = collapsedFarm01Graph()
+    const graph = detailGraph(collapsedFarm01Graph())
     const first = await context.prepareGraphLayout(graph, 9, "old-stamp")
     const callsBeforeHit = context.state.layoutEngine.layout.mock.calls.length
     const currentGraph = {
@@ -332,7 +433,7 @@ describe("layout_topology_state_methods", () => {
 
   it("rebuilds the current manifest on a structural cache hit", async () => {
     const context = makeContext()
-    const graph = collapsedFarm01Graph()
+    const graph = detailGraph(collapsedFarm01Graph())
     const first = await context.prepareGraphLayout(graph, 20, "first")
     const currentGraph = {
       ...graph,
@@ -357,7 +458,7 @@ describe("layout_topology_state_methods", () => {
 
   it("keeps the cache stable within a viewport profile and invalidates across the profile threshold", async () => {
     const context = makeContext()
-    const graph = collapsedFarm01Graph()
+    const graph = detailGraph(collapsedFarm01Graph())
     const first = await context.prepareGraphLayout(graph, 10, "stamp")
     context.state.viewportWidth = 1600
     context.state.viewportHeight = 1000
@@ -378,8 +479,8 @@ describe("layout_topology_state_methods", () => {
 
   it("includes structural graph identity in the cache key", async () => {
     const context = makeContext()
-    const collapsed = await context.prepareGraphLayout(collapsedFarm01Graph(), 11, "same-stamp")
-    const expanded = await context.prepareGraphLayout(expandedFarm01Graph(), 11, "same-stamp")
+    const collapsed = await context.prepareGraphLayout(detailGraph(collapsedFarm01Graph()), 11, "same-stamp")
+    const expanded = await context.prepareGraphLayout(detailGraph(expandedFarm01Graph()), 11, "same-stamp")
 
     expect(collapsed._layoutCacheKey).not.toEqual(expanded._layoutCacheKey)
     expect(context.state.layoutEngine.layout).toHaveBeenCalledTimes(2)
@@ -387,7 +488,7 @@ describe("layout_topology_state_methods", () => {
 
   it("invalidates cached geometry when semantic evidence changes", async () => {
     const context = makeContext()
-    const graph = collapsedFarm01Graph()
+    const graph = detailGraph(collapsedFarm01Graph())
     const withoutServerIdentity = {
       ...graph,
       edges: graph.edges.map((edge, index) => index === 0
@@ -453,10 +554,10 @@ describe("layout_topology_state_methods", () => {
       },
     })
     const graph = {
-      ...collapsedFarm01Graph(),
+      ...detailGraph(collapsedFarm01Graph()),
       nodes: collapsedFarm01Graph().nodes.map((node) => ({...node, x: 10, y: 20})),
       _topologyScene: {key: "stale-scene"},
-      _layoutMode: "elk-scene",
+      _layoutMode: "elk-scene-detail",
       _layoutCacheKey: "stale-key",
       _layoutRevision: 1,
       _layoutError: "stale error",
@@ -465,7 +566,7 @@ describe("layout_topology_state_methods", () => {
     const out = await context.prepareGraphLayout(graph, 15, "new-stamp")
 
     expect(out._topologyScene).toBeUndefined()
-    expect(out._layoutMode).toEqual("elk-scene-error")
+    expect(out._layoutMode).toEqual("elk-scene-detail-error")
     expect(out._layoutCacheKey).not.toEqual("stale-key")
     expect(out._layoutRevision).toEqual(15)
     expect(out._layoutError).toEqual("new ELK failure")
@@ -474,7 +575,7 @@ describe("layout_topology_state_methods", () => {
 
   it("reuses only a structurally and profile-compatible last-good scene after ELK failure", async () => {
     const context = makeContext()
-    const graph = expandedFarm01Graph()
+    const graph = detailGraph(expandedFarm01Graph())
     const accepted = await context.prepareGraphLayout(graph, 14, "stamp")
     context.state.lastGraph = accepted
     context.state.layoutCache.clear()
@@ -486,7 +587,7 @@ describe("layout_topology_state_methods", () => {
 
     expect(reused._topologyScene).not.toBe(accepted._topologyScene)
     expect(sceneCenters(reused)).toEqual(sceneCenters(accepted))
-    expect(reused._layoutMode).toEqual("elk-scene")
+    expect(reused._layoutMode).toEqual("elk-scene-detail")
     expect(reused._layoutRevision).toEqual(15)
     expect(reused._layoutError).toContain("transient ELK failure")
 
@@ -499,7 +600,11 @@ describe("layout_topology_state_methods", () => {
     expect(incompatibleGraph._topologyScene).toBeUndefined()
     expect(incompatibleGraph.nodes.every((node) => node.x === undefined && node.y === undefined)).toEqual(true)
 
-    const incompatibleExpansion = await context.prepareGraphLayout(collapsedFarm01Graph(), 15, "new-stamp")
+    const incompatibleExpansion = await context.prepareGraphLayout(
+      detailGraph(collapsedFarm01Graph()),
+      15,
+      "new-stamp",
+    )
     expect(incompatibleExpansion._topologyScene).toBeUndefined()
     expect(incompatibleExpansion.nodes.every((node) => node.x === undefined && node.y === undefined)).toEqual(true)
 
@@ -510,9 +615,53 @@ describe("layout_topology_state_methods", () => {
     expect(incompatibleProfile.nodes.every((node) => node.x === undefined && node.y === undefined)).toEqual(true)
   })
 
-  it("reapplies a compatible last-good scene without replacing current graph data", async () => {
+  it("rejects last-known-good geometry from a different semantic mode even when its key is spoofed", async () => {
     const context = makeContext()
     const graph = collapsedFarm01Graph()
+    const acceptedOverview = await context.prepareGraphLayout(graph, 16, "overview")
+    context.state.lastGraph = {
+      ...acceptedOverview,
+      _layoutMode: "elk-scene-detail",
+      _topologySemanticLevel: "detail",
+    }
+    context.state.layoutCache.clear()
+    context.state.layoutEngine = {
+      layout: vi.fn(async () => { throw new Error("cross-mode fallback probe") }),
+    }
+
+    const rejected = await context.prepareGraphLayout(graph, 17, "overview-retry")
+
+    expect(rejected._layoutMode).toBe("elk-radial-overview-error")
+    expect(rejected._topologyScene).toBeUndefined()
+    expect(rejected.nodes.every((node) => node.x === undefined && node.y === undefined)).toBe(true)
+  })
+
+  it("rejects malformed last-known-good scene geometry before recovery", async () => {
+    const context = makeContext()
+    const graph = collapsedFarm01Graph()
+    const accepted = await context.prepareGraphLayout(graph, 18, "accepted")
+    context.state.lastGraph = {
+      ...accepted,
+      _topologyScene: {
+        ...accepted._topologyScene,
+        bounds: {...accepted._topologyScene.bounds, maxX: Number.NaN},
+      },
+    }
+    context.state.layoutCache.clear()
+    context.state.layoutEngine = {
+      layout: vi.fn(async () => { throw new Error("malformed fallback probe") }),
+    }
+
+    const rejected = await context.prepareGraphLayout(graph, 19, "retry")
+
+    expect(rejected._layoutMode).toBe("elk-radial-overview-error")
+    expect(rejected._topologyScene).toBeUndefined()
+    expect(rejected.nodes.every((node) => node.x === undefined && node.y === undefined)).toBe(true)
+  })
+
+  it("reapplies a compatible last-good scene without replacing current graph data", async () => {
+    const context = makeContext()
+    const graph = detailGraph(collapsedFarm01Graph())
     const accepted = await context.prepareGraphLayout(graph, 16, "stamp")
     context.state.lastGraph = accepted
     context.state.layoutCache.clear()
@@ -563,5 +712,27 @@ describe("layout_topology_state_methods", () => {
     )
 
     expect(same).toEqual(true)
+  })
+})
+
+describe("layout_topology_state_methods expanded cluster promotion", () => {
+  it("renders every expanded cluster member without an injected semantic-level marker", async () => {
+    const graph = expandedFarm01Graph()
+    const memberIds = graph.nodes
+      .filter((node) => node.details?.cluster_kind === "endpoint-member")
+      .map((node) => node.id)
+    expect(memberIds).toHaveLength(FARM01_EXPECTED.addedMemberCount)
+
+    const laidOut = await makeContext().prepareGraphLayout(graph, 1, "expanded")
+    const sceneIds = new Set((laidOut._topologyScene?.nodes || []).map((node) => String(node.id)))
+
+    expect(laidOut._layoutMode).toBe("elk-scene-detail")
+    expect(memberIds.filter((id) => sceneIds.has(id))).toHaveLength(memberIds.length)
+  })
+
+  it("keeps a collapsed graph on the radial overview adapter", async () => {
+    const laidOut = await makeContext().prepareGraphLayout(collapsedFarm01Graph(), 1, "collapsed")
+
+    expect(laidOut._layoutMode).toBe("elk-radial-overview")
   })
 })

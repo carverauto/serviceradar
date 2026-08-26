@@ -271,8 +271,8 @@ test("gates the canonical God-View ELK scene through the production renderer", a
 
   const collapsedResult = await page.evaluate(() => window.__SR_GOD_VIEW_HARNESS__.renderFixture("collapsed"))
   assertScene(collapsedResult.snapshot, {
-    semanticNodes: 30, semanticEdges: 34, attachmentEdges: 24, renderedRoutes: 32,
-    physicalRoutes: 48, renderedPhysicalRoutes: 48, manifolds: 8, renderedGlyphs: 30, admittedLabels: 12,
+    semanticNodes: 12, semanticEdges: 14, attachmentEdges: 0, renderedRoutes: 11,
+    physicalRoutes: 11, renderedPhysicalRoutes: 11, manifolds: 0, renderedGlyphs: 12, admittedLabels: 12,
   })
   await phase(page, context, "collapsed", "expanded")
 
@@ -281,7 +281,7 @@ test("gates the canonical God-View ELK scene through the production renderer", a
   expect(expandedResult.snapshot.groups[0].memberIds).toHaveLength(24)
   assertScene(expandedResult.snapshot, {
     semanticNodes: 54, semanticEdges: 58, attachmentEdges: 48, renderedRoutes: 32,
-    physicalRoutes: 48, renderedPhysicalRoutes: 48, manifolds: 8, renderedGlyphs: 53, admittedLabels: 17,
+    physicalRoutes: 48, renderedPhysicalRoutes: 48, manifolds: 8, renderedGlyphs: 53, admittedLabels: 36,
   })
   await phase(page, context, "expanded", "fit")
 
@@ -305,7 +305,7 @@ test("gates the canonical God-View ELK scene through the production renderer", a
   expect(concurrentResult.snapshot.groups).toHaveLength(2)
   assertScene(concurrentResult.snapshot, {
     semanticNodes: 78, semanticEdges: 82, attachmentEdges: 72, renderedRoutes: 32,
-    physicalRoutes: 48, renderedPhysicalRoutes: 48, manifolds: 8, renderedGlyphs: 76, admittedLabels: 15,
+    physicalRoutes: 48, renderedPhysicalRoutes: 48, manifolds: 8, renderedGlyphs: 76, admittedLabels: 34,
   })
   const concurrentGeometry = stableGeometry(concurrentResult.snapshot)
   await phase(page, context, "concurrent-expanded", "collapse-reexpand-profile-threshold")
@@ -315,14 +315,14 @@ test("gates the canonical God-View ELK scene through the production renderer", a
   expect(firstCollapsed.snapshot.groups[0].memberIds).toHaveLength(24)
   assertScene(firstCollapsed.snapshot, {
     semanticNodes: 54, semanticEdges: 58, attachmentEdges: 48, renderedRoutes: 32,
-    physicalRoutes: 48, renderedPhysicalRoutes: 48, manifolds: 8, renderedGlyphs: 53, admittedLabels: 14,
+    physicalRoutes: 48, renderedPhysicalRoutes: 48, manifolds: 8, renderedGlyphs: 53, admittedLabels: 29,
   })
 
   const reexpanded = await page.evaluate(() => window.__SR_GOD_VIEW_HARNESS__.renderFixture("concurrent"))
   expect(stableGeometry(reexpanded.snapshot)).toEqual(concurrentGeometry)
   assertScene(reexpanded.snapshot, {
     semanticNodes: 78, semanticEdges: 82, attachmentEdges: 72, renderedRoutes: 32,
-    physicalRoutes: 48, renderedPhysicalRoutes: 48, manifolds: 8, renderedGlyphs: 76, admittedLabels: 15,
+    physicalRoutes: 48, renderedPhysicalRoutes: 48, manifolds: 8, renderedGlyphs: 76, admittedLabels: 34,
   })
 
   const portrait = await page.evaluate(() => window.__SR_GOD_VIEW_HARNESS__.profile(800, 1000))
@@ -330,7 +330,7 @@ test("gates the canonical God-View ELK scene through the production renderer", a
   expect(portrait.profileKey).toMatch(/portrait/)
   assertScene(portrait, {
     semanticNodes: 78, semanticEdges: 82, attachmentEdges: 72, renderedRoutes: 32,
-    physicalRoutes: 48, renderedPhysicalRoutes: 48, manifolds: 8, renderedGlyphs: 76, admittedLabels: 7,
+    physicalRoutes: 48, renderedPhysicalRoutes: 48, manifolds: 8, renderedGlyphs: 76, admittedLabels: 23,
   })
   await context.tracing.stop({path: resolve(OUTPUT_DIR, "collapse-reexpand-profile-threshold.trace.zip")})
   expect((await readdir(OUTPUT_DIR)).sort()).toEqual([
