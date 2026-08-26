@@ -18,12 +18,6 @@ defmodule ServiceRadar.Repo.Migrations.AddOcsfDevicesPartition do
     """)
 
     execute("""
-    UPDATE platform.ocsf_devices
-    SET partition = 'default'
-    WHERE partition IS NULL OR btrim(partition) = '';
-    """)
-
-    execute("""
     DROP INDEX IF EXISTS platform.ocsf_devices_unique_active_ip_idx;
     """)
 
