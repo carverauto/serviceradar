@@ -1465,3 +1465,50 @@ fn translate_timeseries_series_rejects_unsafe_tag_key() {
         "an unsafe series tag key must be rejected"
     );
 }
+
+/// Filters accepted `tags.<key>` on the raw and stats paths, and `series:` could
+/// split a bucketed aggregate by a tag — but a bucketed query could not be
+/// SCOPED to one. "Clients per site over time" worked while "clients at ORD over
+/// time" did not.
+#[test]
+fn translate_downsample_tag_filter_reaches_the_sql() {
+    let sql = translate_query(
+        "in:timeseries_metrics metric_name:aruba.ssid.client_count tags.site_code:ORD time:last_1h bucket:10m agg:sum series:tags.ssid",
+    )
+    .expect("downsample tag filter should translate");
+
+    assert!(
+        sql.contains("tags->>'site_code'"),
+        "the site predicate must reach the SQL: {sql}"
+    );
+    assert!(
+        sql.contains("tags->>'ssid'"),
+        "the series split must survive alongside it: {sql}"
+    );
+}
+
+#[test]
+fn translate_downsample_tag_filter_rejects_unsafe_keys() {
+    for bad in ["tags.a'b", "tags.a\"b", "tags.", "tags.a b"] {
+        let query = format!(
+            "in:timeseries_metrics {bad}:x time:last_1h bucket:10m agg:sum series:metric_name"
+        );
+        assert!(
+            translate_query(&query).is_err(),
+            "{bad} must be rejected as a downsample filter key"
+        );
+    }
+}
+
+/// An unknown field must still error rather than being dropped — the failure
+/// mode that made the stats path report fleet-wide numbers as though scoped.
+#[test]
+fn translate_downsample_unknown_filter_still_errors() {
+    assert!(
+        translate_query(
+            "in:timeseries_metrics nonsense_field:x time:last_1h bucket:10m agg:sum series:metric_name"
+        )
+        .is_err(),
+        "an inapplicable downsample filter must not be silently dropped"
+    );
+}
