@@ -8,6 +8,37 @@ defmodule ServiceRadar.Inventory.Sync.SourcePolicy do
   alias ServiceRadar.Inventory.Identity.Mac
   alias ServiceRadar.Inventory.IdentityReconciler
 
+  @agent_self_report_source "agent-self-report"
+
+  @doc """
+  The source string an agent uses when reporting about ITSELF.
+
+  First-party by construction: the agent is the subject of the update, not an
+  observer of some other host, so its `agent_id` is allowed to anchor the device.
+  Every other source that carries an `agent_id` is describing a host it merely
+  saw, which is why `observer_agent_source?/1` demotes them.
+  """
+  @spec agent_self_report_source() :: String.t()
+  def agent_self_report_source, do: @agent_self_report_source
+
+  @doc """
+  True when the update is an agent reporting about itself.
+
+  Kept as a named predicate rather than an inline string compare so the three
+  properties this source depends on are testable as a set: it must not be an
+  observer, it must not be enrichment-only, and its `agent_id` must be admitted.
+  `observer_agent_source?/1` is a positive list, so a new source is first-party
+  by DEFAULT -- which means nothing would fail loudly if someone later swept this
+  one into `enrichment_only_source?/1` and silently removed its ability to create
+  a device. The tests around this predicate are that alarm.
+  """
+  @spec agent_self_report_source?(map()) :: boolean()
+  def agent_self_report_source?(update) when is_map(update) do
+    String.downcase(to_string(update.source || "")) == @agent_self_report_source
+  end
+
+  def agent_self_report_source?(_update), do: false
+
   def valid_ip?(value) when is_binary(value), do: String.trim(value) != ""
   def valid_ip?(_value), do: false
 
