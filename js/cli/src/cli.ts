@@ -7,13 +7,15 @@ import {parseArgs} from "./args.js"
 import {dispatchAuth} from "./auth/index.js"
 import {dispatchDashboard} from "./dashboard/index.js"
 import {doctorCommand, printVersion} from "./doctor.js"
+import {describeError, ensureExtraCaCertificates} from "./tls_ca.js"
 
 main().catch((error: any) => {
-  console.error(error?.message || error)
+  console.error(describeError(error))
   process.exitCode = 1
 })
 
 async function main(): Promise<void> {
+  ensureExtraCaCertificates()
   const argv = process.argv.slice(2)
   const [first = "help", ...rest] = argv
 
@@ -76,7 +78,7 @@ Common dashboard subcommands:
   serviceradar-cli dashboard import [--config dashboard.config.mjs] [--exec "command"]
 
 Auth subcommands:
-  serviceradar-cli auth login   --instance <url> [--no-browser] [--token <existing-token>]
+  serviceradar-cli auth login   --instance <url> [--no-browser] [--ca-file <pem>] [--token <existing-token>]
   serviceradar-cli auth status  [--instance <url>]
   serviceradar-cli auth logout  [--instance <url>]
 

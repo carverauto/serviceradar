@@ -590,6 +590,138 @@ test("doctor prints runtime + project diagnostics", async () => {
   assert.match(stdout, /credentials path:/)
 })
 
+test("formatFetchFailure explains private-CA TLS errors", async () => {
+  const {formatFetchFailure, isTlsTrustError} = await import("../dist/tls_ca.js")
+  const error = Object.assign(new Error("fetch failed"), {
+    cause: Object.assign(new Error("unable to get local issuer certificate"), {
+      code: "UNABLE_TO_GET_ISSUER_CERT_LOCALLY",
+    }),
+  })
+  assert.equal(isTlsTrustError(error), true)
+  const formatted = formatFetchFailure(error)
+  assert.match(formatted, /UNABLE_TO_GET_ISSUER_CERT_LOCALLY/)
+  assert.match(formatted, /does not use the OS certificate store/)
+  assert.match(formatted, /ca-bundle\.pem/)
+})
+
+test("doctor names a PEM it can see but will not load", async () => {
+  const credsHome = await mkdtemp(join(tmpdir(), "sr-cli-doctor-pem-"))
+  const bundleDir = join(credsHome, "serviceradar")
+  await execFileAsync("mkdir", ["-p", bundleDir])
+  // Deliberately NOT ca-bundle.pem. This is the silent miss: the operator
+  // believes the CA is installed, autodetect never looks at it, and the only
+  // symptom is a bare `fetch failed`.
+  const misnamed = join(bundleDir, "corp-ca-bundle.pem")
+  await writeFile(misnamed, "-----BEGIN CERTIFICATE-----\nnot-a-real-cert\n-----END CERTIFICATE-----\n")
+
+  const {stdout} = await execFileAsync(
+    process.execPath,
+    [cliPath.pathname, "doctor"],
+    {env: {...process.env, HOME: credsHome, XDG_CONFIG_HOME: credsHome, NODE_EXTRA_CA_CERTS: "", SERVICERADAR_CA_FILE: ""}},
+  )
+  assert.match(stdout, /unused PEM:.*corp-ca-bundle\.pem/)
+  assert.match(stdout, /rename it to .*ca-bundle\.pem/)
+})
+
+test("describeError surfaces the cause Node hides behind `fetch failed`", async () => {
+  const {describeError} = await import("../dist/tls_ca.js")
+
+  // Node reports every fetch fault as a bare TypeError and puts the reason on
+  // .cause, so printing error.message alone is an unexplained crash.
+  const refused = Object.assign(new TypeError("fetch failed"), {
+    cause: Object.assign(new Error("connect ECONNREFUSED 127.0.0.1:1"), {code: "ECONNREFUSED"}),
+  })
+  assert.match(describeError(refused), /ECONNREFUSED/)
+
+  // A message that already carries its own detail is not annotated twice.
+  const already = new Error("publish request failed: nope (ECONNREFUSED)")
+  assert.equal(describeError(already), "publish request failed: nope (ECONNREFUSED)")
+
+  // A plain error is passed through untouched.
+  assert.equal(describeError(new Error("--route is required")), "--route is required")
+
+  // A cause with no `code` still has to surface its message — that sentence is
+  // the only information the failure carries.
+  const codeless = Object.assign(new TypeError("fetch failed"), {cause: new Error("bad port")})
+  assert.match(describeError(codeless), /bad port/)
+})
+
+test("caFileFromArgv accepts both --ca-file spellings", async () => {
+  const {caFileFromArgv} = await import("../dist/tls_ca.js")
+  assert.equal(caFileFromArgv(["node", "cli", "--ca-file", "/tmp/a.pem"]), "/tmp/a.pem")
+  assert.equal(caFileFromArgv(["node", "cli", "--ca-file=/tmp/b.pem"]), "/tmp/b.pem")
+  assert.equal(caFileFromArgv(["node", "cli", "--ca-file", "--yes"]), undefined)
+  assert.equal(caFileFromArgv(["node", "cli"]), undefined)
+})
+
+test("publish reports why the upload failed instead of a bare `fetch failed`", async () => {
+  const projectDir = await mkdtemp(join(tmpdir(), "sr-dashboard-publish-netfail-"))
+  await execFileAsync("mkdir", ["-p", join(projectDir, "src"), join(projectDir, "dist")])
+  await writeFile(join(projectDir, "src/main.jsx"), "export function mountDashboard() {}\n")
+  await writeFile(join(projectDir, "dashboard.config.json"), JSON.stringify({
+    manifest: {
+      id: "com.example.dashboard",
+      name: "Example",
+      version: "1.0.0",
+      data_frames: [],
+      renderer: {kind: "browser_module", interface_version: "dashboard-browser-module-v1", entrypoint: "mountDashboard", trust: "trusted"},
+    },
+  }))
+  await writeFile(join(projectDir, "dist/renderer.js"), "export function mountDashboard() {}\n")
+  await execFileAsync(process.execPath, [cliPath.pathname, "manifest"], {cwd: projectDir})
+
+  await assert.rejects(
+    () => execFileAsync(
+      process.execPath,
+      [cliPath.pathname, "dashboard", "publish", "--instance", "http://127.0.0.1:45999", "--route", "demo", "--token", "t", "--yes"],
+      {cwd: projectDir, env: {...process.env, SERVICERADAR_TOKEN: ""}},
+    ),
+    (error) => {
+      // The URL that was tried, and the reason it failed.
+      assert.match(error.stderr, /publish request to http:\/\/127\.0\.0\.1:45999\/api\/v1\/dashboard-packages failed/)
+      assert.match(error.stderr, /ECONNREFUSED/)
+      assert.doesNotMatch(error.stderr, /^fetch failed$/m)
+      return true
+    },
+  )
+})
+
+test("auth login reports network failures instead of the missing-endpoint fallback", async () => {
+  const credsHome = await mkdtemp(join(tmpdir(), "sr-cli-auth-netfail-"))
+  await assert.rejects(
+    () => execFileAsync(
+      process.execPath,
+      [cliPath.pathname, "auth", "login", "--instance", "https://127.0.0.1:1", "--no-browser", "--token", "manual-token-abc"],
+      {env: {...process.env, HOME: credsHome, XDG_CONFIG_HOME: credsHome, SERVICERADAR_TOKEN: "", NODE_EXTRA_CA_CERTS: ""}},
+    ),
+    (error) => {
+      assert.match(error.stderr, /device-code request failed/)
+      assert.doesNotMatch(error.stderr, /Device-code login is not available/)
+      return true
+    },
+  )
+})
+
+test("auth login re-execs with a configured CA bundle and still runs --version", async () => {
+  const credsHome = await mkdtemp(join(tmpdir(), "sr-cli-auth-ca-"))
+  const bundleDir = join(credsHome, "serviceradar")
+  await execFileAsync("mkdir", ["-p", bundleDir])
+  const bundlePath = join(bundleDir, "ca-bundle.pem")
+  await execFileAsync("openssl", [
+    "req", "-x509", "-newkey", "rsa:2048", "-nodes",
+    "-keyout", join(bundleDir, "key.pem"),
+    "-out", bundlePath,
+    "-days", "1",
+    "-subj", "/CN=serviceradar-cli-test",
+  ])
+  const {stdout} = await execFileAsync(
+    process.execPath,
+    [cliPath.pathname, "--version"],
+    {env: {...process.env, HOME: credsHome, XDG_CONFIG_HOME: credsHome, NODE_EXTRA_CA_CERTS: ""}},
+  )
+  assert.match(stdout, /^@carverauto\/serviceradar-cli \d+\.\d+\.\d+/m)
+})
+
 test("auth login falls back to manual token when device endpoint is missing", async () => {
   const credsHome = await mkdtemp(join(tmpdir(), "sr-cli-auth-manual-"))
   // Run a stub HTTP server that 404s the device endpoint to force the fallback.

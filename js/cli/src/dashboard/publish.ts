@@ -13,6 +13,7 @@ import {normalizeInstanceUrl} from "../auth/credentials.js"
 import {resolveCredentialToken} from "../auth/index.js"
 import {loadConfig} from "../config.js"
 import {outputDir, rendererArtifact, sha256File} from "../manifest.js"
+import {formatFetchFailure} from "../tls_ca.js"
 import {readLineFromStdin, relativePath} from "../utils.js"
 
 export async function publishCommand(options: Record<string, any>): Promise<void> {
@@ -82,14 +83,22 @@ export async function publishCommand(options: Record<string, any>): Promise<void
   form.set("renderer", new Blob([rendererBytes], {type: "application/javascript"}), artifact)
   form.set("route", route)
 
-  const response = await fetch(importUrl, {
-    method: "POST",
-    headers: {
-      authorization: `Bearer ${credential.token}`,
-      accept: "application/json",
-    },
-    body: form,
-  })
+  let response: Response
+  try {
+    response = await fetch(importUrl, {
+      method: "POST",
+      headers: {
+        authorization: `Bearer ${credential.token}`,
+        accept: "application/json",
+      },
+      body: form,
+    })
+  } catch (error) {
+    // Without this the upload dies as a bare `fetch failed`: Node puts the
+    // actual reason on `error.cause`, and on an instance behind a private CA
+    // that reason is the whole diagnosis.
+    throw new Error(`publish request to ${importUrl} failed: ${formatFetchFailure(error)}`)
+  }
 
   const payload = await readJson(response)
   if (!response.ok) {
@@ -110,15 +119,25 @@ export async function publishCommand(options: Record<string, any>): Promise<void
 
   const installedId = payload?.id || payload?.dashboard_id || manifest.id
   const enableUrl = `${instance}/api/v1/dashboard-packages/${encodeURIComponent(installedId)}/enable`
-  const enableResponse = await fetch(enableUrl, {
-    method: "POST",
-    headers: {
-      authorization: `Bearer ${credential.token}`,
-      accept: "application/json",
-      "content-type": "application/json",
-    },
-    body: JSON.stringify({route}),
-  })
+  let enableResponse: Response
+  try {
+    enableResponse = await fetch(enableUrl, {
+      method: "POST",
+      headers: {
+        authorization: `Bearer ${credential.token}`,
+        accept: "application/json",
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({route}),
+    })
+  } catch (error) {
+    // The package is already uploaded at this point, so say so — otherwise a
+    // network blip here reads as "the publish failed" and invites a retry that
+    // returns version_already_published.
+    throw new Error(
+      `${manifest.id}@${manifest.version} published, but the enable request to ${enableUrl} failed: ${formatFetchFailure(error)}\n→ the package is on the instance; enable the route in the UI, or rerun once connectivity is back`,
+    )
+  }
 
   const enablePayload = await readJson(enableResponse)
   if (!enableResponse.ok) {
