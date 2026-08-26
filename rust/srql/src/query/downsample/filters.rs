@@ -8,6 +8,7 @@ use crate::query::flows::{
 use crate::{
     error::{Result, ServiceError},
     parser::{Entity, Filter, FilterOp},
+    query::filters_common::is_valid_jsonb_key,
 };
 
 pub(super) fn filter_clause(
@@ -339,6 +340,21 @@ fn timeseries_filter_clause(filter: &Filter) -> Result<(String, Vec<SqlBindValue
         | "target_device_ip" | "partition" => text_clause(filter.field.as_str(), filter),
         "if_index" => int_clause("if_index", filter, false),
         "value" => float_clause("value", filter, true),
+        // Completes the tag story. Filters already accept `tags.<key>` on the raw
+        // and stats paths, and `series:tags.<key>` splits a bucketed aggregate by
+        // one — but a bucketed query could not be SCOPED to a tag, so "clients at
+        // ORD over time" was inexpressible while "clients per site over time" was
+        // fine. The key is validated before interpolation, as everywhere else.
+        field if field.starts_with("tags.") => {
+            let key = field.strip_prefix("tags.").unwrap_or_default();
+            if !is_valid_jsonb_key(key) {
+                return Err(ServiceError::InvalidRequest(format!(
+                    "invalid tag key '{key}' in downsample filter"
+                )));
+            }
+
+            text_clause(&format!("tags->>'{key}'"), filter)
+        }
         other => Err(ServiceError::InvalidRequest(format!(
             "unsupported filter field for downsample timeseries_metrics: '{other}'"
         ))),
