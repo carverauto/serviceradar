@@ -175,6 +175,31 @@ describe("ChartRangeSelection hook", () => {
     expect(overlay.getAttribute("width")).toBe("580")
   })
 
+  it.each([
+    {
+      buckets: [initialBuckets[0]],
+      label: "a one-bucket chart",
+      startX: 36,
+      endX: 43,
+    },
+    {
+      buckets: initialBuckets,
+      label: "one bucket of a multi-bucket chart",
+      startX: 36,
+      endX: 43,
+    },
+  ])("commits a drag over 6px within $label", ({buckets, startX, endX}) => {
+    const {pushEvent, svg} = mount({buckets})
+
+    drag(svg, startX, endX)
+
+    expect(pushEvent).toHaveBeenCalledOnce()
+    expect(pushEvent).toHaveBeenCalledWith("select_events_range", {
+      start: "2026-08-27T10:00:00Z",
+      end: "2026-08-27T10:59:59.999999Z",
+    })
+  })
+
   it("does not emit sub-threshold, cancelled, or lost-capture drags", () => {
     const {overlay, pushEvent, svg} = mount()
 
@@ -224,15 +249,39 @@ describe("ChartRangeSelection hook", () => {
       start: "2026-08-27T12:00:00Z",
       end: "2026-08-27T13:59:59.999999Z",
     })
+  })
+
+  it("Escape cancels transient state while retaining the active cursor", () => {
+    const {ctx, overlay, pushEvent, root, status, svg} = mount()
+    svg.dispatch(pointer("pointerdown", 36, "mouse", 8))
+    svg.dispatch(pointer("pointermove", 326, "mouse", 8))
+    expect(ctx.rangeActiveIndex).toBe(1)
+    expect(svg.capturedPointers.has(8)).toBe(true)
 
     const escape = key("Escape")
     root.focused = true
     root.dispatch(escape)
+
     expect(escape.preventDefault).toHaveBeenCalledOnce()
     expect(root.focused).toBe(true)
-    expect(overlay.classList.contains("hidden")).toBe(true)
+    expect(svg.capturedPointers.has(8)).toBe(false)
+    expect(ctx.rangePointer).toBeNull()
     expect(ctx.rangeAnchorIndex).toBeNull()
-    expect(ctx.rangeActiveIndex).toBeNull()
+    expect(ctx.rangeActiveIndex).toBe(1)
+    expect(overlay.classList.contains("hidden")).toBe(true)
+    expect(overlay.hasAttribute("x")).toBe(false)
+    expect(overlay.hasAttribute("width")).toBe(false)
+    expect(status.textContent).toBe("")
+
+    root.dispatch(key("Enter"))
+    expect(pushEvent).toHaveBeenCalledOnce()
+    expect(pushEvent).toHaveBeenCalledWith("select_events_range", {
+      start: "2026-08-27T12:00:00Z",
+      end: "2026-08-27T12:59:59.999999Z",
+    })
+
+    root.dispatch(key("ArrowLeft"))
+    expect(ctx.rangeActiveIndex).toBe(0)
   })
 
   it("clears stale state and rebinds fresh metadata after a LiveView update", () => {

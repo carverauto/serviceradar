@@ -120,7 +120,7 @@ export default {
     this.releaseRangePointerCapture()
     this.rangePointer = null
 
-    if (!moved || activeIndex === pointer.anchorIndex) {
+    if (!moved) {
       this.resetRangeSelection()
       return
     }
@@ -150,7 +150,7 @@ export default {
     event.preventDefault()
 
     if (event.key === "Escape") {
-      this.resetRangeSelection()
+      this.cancelRangeSelection()
       return
     }
 
@@ -214,10 +214,14 @@ export default {
   },
 
   resetRangeSelection() {
+    this.cancelRangeSelection()
+    this.rangeActiveIndex = null
+  },
+
+  cancelRangeSelection() {
     this.releaseRangePointerCapture()
     this.rangePointer = null
     this.rangeAnchorIndex = null
-    this.rangeActiveIndex = null
     this.rangeOverlay?.classList.add("hidden")
     this.rangeOverlay?.removeAttribute("x")
     this.rangeOverlay?.removeAttribute("width")
