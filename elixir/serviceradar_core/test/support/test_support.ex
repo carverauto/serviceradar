@@ -10,6 +10,8 @@ defmodule ServiceRadar.TestSupport do
   alias ServiceRadar.ProcessRegistry
 
   @sandbox_teardown_margin_ms 60_000
+  @sandbox_owner_attempts 3
+  @sandbox_owner_retry_ms 100
   @dependency_dispatcher_drain_timeout_ms 30_000
   @dependency_dispatcher_registry_poll_ms 10
   @result_coordination_drain_timeout_ms 70_000
@@ -74,7 +76,7 @@ defmodule ServiceRadar.TestSupport do
       true ->
         shared? = not context[:async]
         owner_opts = sandbox_owner_opts(context)
-        owner = Sandbox.start_owner!(ServiceRadar.Repo, owner_opts)
+        owner = start_sandbox_owner!(ServiceRadar.Repo, owner_opts)
 
         ExUnit.Callbacks.on_exit(fn ->
           stop_repo_owner(owner, shared: shared?)
@@ -96,7 +98,7 @@ defmodule ServiceRadar.TestSupport do
   @doc "Runs a serial test helper in a fresh shared rollback-only database owner."
   def with_repo_owner(context, fun) when is_function(fun, 0) do
     reject_async_shared_owner!(context)
-    owner = Sandbox.start_owner!(ServiceRadar.Repo, shared: true)
+    owner = start_sandbox_owner!(ServiceRadar.Repo, shared: true)
 
     try do
       fun.()
@@ -351,6 +353,33 @@ defmodule ServiceRadar.TestSupport do
       timeout -> Keyword.put(opts, :ownership_timeout, timeout)
     end
   end
+
+  # start_owner!/2 does `{:ok, pid} = Agent.start/1`. A pool :queue_timeout inside
+  # Agent.init therefore becomes MatchError, not ConnectionError. The first serial
+  # DataCase checkout can lose that race while Postgrex is still connecting after
+  # the eight-lane fixture stampede; later tests in the same BEAM then pass.
+  defp start_sandbox_owner!(repo, opts, attempts_left \\ @sandbox_owner_attempts) do
+    Sandbox.start_owner!(repo, opts)
+  rescue
+    exception ->
+      if attempts_left > 1 and sandbox_owner_queue_timeout?(exception) do
+        Process.sleep(@sandbox_owner_retry_ms)
+        start_sandbox_owner!(repo, opts, attempts_left - 1)
+      else
+        reraise exception, __STACKTRACE__
+      end
+  end
+
+  @doc false
+  def sandbox_owner_queue_timeout?(%MatchError{term: {:error, {exception, _stack}}}) do
+    sandbox_owner_queue_timeout?(exception)
+  end
+
+  def sandbox_owner_queue_timeout?(%DBConnection.ConnectionError{reason: :queue_timeout}) do
+    true
+  end
+
+  def sandbox_owner_queue_timeout?(_exception), do: false
 
   defp reject_async_unboxed!(%{async: true, sandbox: :unboxed}) do
     raise ArgumentError,
