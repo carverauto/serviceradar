@@ -130,6 +130,35 @@ func TestGenerateDeviceIDPrefersExistingIdentityForSameIP(t *testing.T) {
 	}
 }
 
+func TestGenerateDeviceIDDoesNotReuseIdentityForDistinctHardware(t *testing.T) {
+	engine := &DiscoveryEngine{}
+	job := &DiscoveryJob{
+		Results: &DiscoveryResults{
+			Devices: []*DiscoveredDevice{
+				{
+					DeviceID: "mac-00602f3cd90b",
+					IP:       "192.168.6.167",
+					MAC:      "00:60:2f:3c:d9:0b",
+					Metadata: map[string]string{},
+				},
+			},
+		},
+		deviceMap: map[string]*DeviceInterfaceMap{},
+	}
+
+	device := &DiscoveredDevice{
+		IP:       "192.168.6.167",
+		MAC:      "bc:24:11:26:40:e7",
+		DeviceID: "",
+	}
+
+	engine.generateDeviceID(job, device, device.IP)
+
+	if device.DeviceID != "mac-bc24112640e7" {
+		t.Fatalf("expected distinct hardware to keep its own MAC identity, got %q", device.DeviceID)
+	}
+}
+
 func TestApplyTopologyEvidenceClassAssignsConfidenceTier(t *testing.T) {
 	link := &TopologyLink{
 		Protocol: "lldp",

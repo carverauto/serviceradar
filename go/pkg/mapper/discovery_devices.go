@@ -124,6 +124,14 @@ func (e *DiscoveryEngine) applyCanonicalIdentityFromIP(job *DiscoveryJob, device
 		return
 	}
 
+	// A recycled IP (DHCP, VIP, stale ARP) that now answers for different
+	// hardware must not inherit the previous occupant's identity. UniFi
+	// UAA/LAA siblings of the same NIC still canonicalize; disjoint MACs
+	// stay two devices.
+	if distinctHardwareMACs(device.MAC, existingMAC) {
+		return
+	}
+
 	currentID := strings.TrimSpace(device.DeviceID)
 	if currentID == "" || strings.HasPrefix(currentID, "ip-") || currentID == existingID {
 		device.DeviceID = existingID
