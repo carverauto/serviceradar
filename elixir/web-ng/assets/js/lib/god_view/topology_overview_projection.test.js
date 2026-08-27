@@ -175,10 +175,66 @@ describe("topology_overview_projection", () => {
     const overview = prepareTopologyOverviewInput(graph)
     const relation = overview.treeRelations.find((candidate) => candidate.pairId === "overview:pair:alpha|beta")
 
-    expect(overview.nodes.map((node) => node.id)).toEqual(["alpha", "beta"])
+    // "attachment" is a real endpoint attached to a switch, and a lone client on an anchor is
+    // now drawn rather than discarded -- an anchor holding one or two clients used to render as
+    // an isolated dot with the clients gone. Malformed and self-loop input is still omitted.
+    expect(overview.nodes.map((node) => node.id)).toEqual(["alpha", "attachment", "beta"])
     expect(relation).toMatchObject({semanticRelationIds: ["a-duplicate", "z-duplicate"]})
     expect(relation.evidence.map((evidence) => evidence.id)).toEqual(["a-duplicate", "z-duplicate"])
-    expect(overview.manifest).toMatchObject({omittedMalformedEdges: 2, omittedAttachmentNodes: 1})
+    expect(overview.manifest).toMatchObject({
+      omittedMalformedEdges: 2,
+      omittedAttachmentNodes: 0,
+      attachedEndpoints: 1,
+    })
+  })
+
+  it("admits a sub-threshold attachment fan but drops one the server should have summarized", () => {
+    // Two anchors, both with endpoints the server left unclustered. The bound is enforced here
+    // rather than assumed: "anything at or above the cluster minimum is already a summary" only
+    // holds when the server actually clustered, and where it did not, a raw fan would bury the
+    // backbone. An anchor over the limit keeps NONE of its endpoints -- a partial fan would
+    // misrepresent itself as the whole set.
+    const nodes = [
+      {id: "small-anchor", details: {type: "Switch", topology_plane: "backbone"}},
+      {id: "big-anchor", details: {type: "Switch", topology_plane: "backbone"}},
+      {id: "spine", details: {type: "Router", topology_plane: "backbone"}},
+    ]
+    const edges = [
+      {id: "spine-small", source: 0, target: 2, topologyClass: "backbone", evidenceClass: "direct"},
+      {id: "spine-big", source: 1, target: 2, topologyClass: "backbone", evidenceClass: "direct"},
+    ]
+
+    const attach = (anchorIndex, id) => {
+      edges.push({
+        id: `att:${id}`,
+        source: anchorIndex,
+        target: nodes.length,
+        topologyClass: "endpoints",
+        evidenceClass: "endpoint-attachment",
+        metadata: {relation_type: "ATTACHED_TO", topology_plane: "attachment"},
+      })
+      nodes.push({id, details: {type: "unknown", topology_plane: "attachment"}})
+    }
+
+    attach(0, "small-1")
+    attach(0, "small-2")
+    for (let index = 0; index < 5; index += 1) attach(1, `big-${index}`)
+
+    const overview = prepareTopologyOverviewInput({nodes, edges})
+    const ids = overview.nodes.filter((node) => !node.synthetic).map((node) => node.id)
+
+    expect(ids).toContain("small-1")
+    expect(ids).toContain("small-2")
+    for (let index = 0; index < 5; index += 1) {
+      expect(ids).not.toContain(`big-${index}`)
+    }
+    expect(overview.manifest).toMatchObject({attachedEndpoints: 2, omittedAttachmentNodes: 5})
+
+    // Both admitted endpoints hang off their anchor, so the anchor is not left edgeless.
+    const parents = overview.treeRelations
+      .filter((relation) => ["small-1", "small-2"].includes(relation.targetId))
+      .map((relation) => relation.sourceId)
+    expect(parents).toEqual(["small-anchor", "small-anchor"])
   })
 
   it("chooses a summary parent by canonical pair when multiple attachment candidates exist", () => {

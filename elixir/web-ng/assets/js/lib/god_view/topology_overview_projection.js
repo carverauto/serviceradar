@@ -224,6 +224,7 @@ function aggregatePairs(graph, normalized) {
       nodeIds: [sourceId, targetId].sort((left, right) => left.localeCompare(right)),
       entries: [],
       hasTransport: false,
+      hasAttachment: false,
     }
     const relationId = semanticRelationId(edge, sourceId, targetId)
     current.entries.push({
@@ -234,6 +235,7 @@ function aggregatePairs(graph, normalized) {
       trustRank: trustRank(edge),
     })
     current.hasTransport = current.hasTransport || transport
+    current.hasAttachment = current.hasAttachment || attachment
     pairs.set(id, current)
   }
 
@@ -256,7 +258,61 @@ function aggregatePairs(graph, normalized) {
   return {pairs: aggregated, transportDegree, omittedMalformedEdges}
 }
 
-function overviewNodes(normalized) {
+// An endpoint the server did not cluster -- its anchor holds fewer than the cluster minimum --
+// arrives as a plain node with a real attachment to admitted infrastructure. Admitting only
+// clustered endpoints dropped it and took its anchor's only edges with it: a fleet where most
+// anchors hold one or two clients rendered those anchors as isolated dots with the clients gone.
+// A switch with two clients should draw two clients, not nothing.
+//
+// The cap is enforced here rather than assumed. "Anything at or above the cluster minimum is
+// already a summary" only holds when the server actually clustered; where it did not, a
+// low-trust ARP/FDB fanout arrives as hundreds of bare endpoints off one anchor and would bury
+// the backbone it is supposed to sit beside. An anchor over the limit keeps none of them --
+// that set belongs in a summary, and drawing a partial fan would misrepresent it as complete.
+const MAX_UNCLUSTERED_ENDPOINTS_PER_ANCHOR = 2
+
+// A node the endpoint-attachment projection synthesized is a stand-in that the cluster
+// projection supersedes, never something to draw in its own right --
+// isTransportInfrastructureNode already refuses to promote these, and admitting one here as a
+// bare endpoint would put the superseded copy back on the surface.
+function promotableEndpointNode(node) {
+  const identitySource = stringValue(detailsFor(node.raw).identity_source).toLowerCase()
+  return !NON_PROMOTABLE_IDENTITY_SOURCES.has(identitySource)
+}
+
+function attachedEndpointNodes(normalized, pairs, infrastructureIds, excludedIds) {
+  const promotableIds = new Set(
+    normalized.nodes.filter(promotableEndpointNode).map((node) => node.id),
+  )
+  const byAnchor = new Map()
+  for (const pair of pairs || []) {
+    const [left, right] = pair.nodeIds || []
+    if (!left || !right) continue
+    // Attachment pairs only. A connectivity-forest bridge also joins infrastructure to a
+    // non-infrastructure node -- a virtual guest, or a raw projection stand-in -- and admitting
+    // on any pair pulled those onto the surface, which is precisely the fanout the overview
+    // exists to keep out.
+    if (!pair.hasAttachment) continue
+    const leftInfrastructure = infrastructureIds.has(left)
+    if (leftInfrastructure === infrastructureIds.has(right)) continue
+    const anchorId = leftInfrastructure ? left : right
+    const endpointId = leftInfrastructure ? right : left
+    if (excludedIds.has(endpointId) || !promotableIds.has(endpointId)) continue
+    const bucket = byAnchor.get(anchorId) || new Set()
+    bucket.add(endpointId)
+    byAnchor.set(anchorId, bucket)
+  }
+
+  const attachedIds = new Set()
+  for (const endpointIds of byAnchor.values()) {
+    if (endpointIds.size > MAX_UNCLUSTERED_ENDPOINTS_PER_ANCHOR) continue
+    for (const endpointId of endpointIds) attachedIds.add(endpointId)
+  }
+
+  return normalized.nodes.filter((node) => attachedIds.has(node.id))
+}
+
+function overviewNodes(normalized, pairs) {
   const infrastructure = normalized.nodes.filter(isTransportInfrastructureNode)
   const infrastructureIds = new Set(infrastructure.map((node) => node.id))
   const summaries = normalized.nodes.filter(
@@ -269,12 +325,22 @@ function overviewNodes(normalized) {
   const members = normalized.nodes.filter(
     (node) => isExpandedEndpointMember(node) && !infrastructureIds.has(node.id) && !summaryIds.has(node.id),
   )
-  const visibleIds = new Set([...infrastructure, ...summaries, ...members].map((node) => node.id))
+  // Every endpoint-summary is excluded, not just the admitted ones: an ELABORATED summary is
+  // deliberately absent from summaryIds, and readmitting it here as a bare endpoint would undo
+  // exactly the island fix that removed it.
+  const excludedIds = new Set([
+    ...infrastructureIds,
+    ...normalized.nodes.filter((node) => node.type === "endpoint-summary").map((node) => node.id),
+    ...members.map((node) => node.id),
+  ])
+  const attached = attachedEndpointNodes(normalized, pairs, infrastructureIds, excludedIds)
+  const leaves = [...members, ...attached]
+  const visibleIds = new Set([...infrastructure, ...summaries, ...leaves].map((node) => node.id))
   const roleFor = (node) => {
     if (infrastructureIds.has(node.id)) return "infrastructure"
     return summaryIds.has(node.id) ? "summary" : "member"
   }
-  const semanticNodes = [...infrastructure, ...summaries, ...members]
+  const semanticNodes = [...infrastructure, ...summaries, ...leaves]
     .map((node) => ({
       id: node.id,
       label: stringValue(node.raw?.label),
@@ -283,7 +349,7 @@ function overviewNodes(normalized) {
     }))
     .sort((left, right) => left.id.localeCompare(right.id))
 
-  return {infrastructureIds, members, semanticNodes, summaries, visibleIds}
+  return {attached, infrastructureIds, leaves, members, semanticNodes, summaries, visibleIds}
 }
 
 function comparePair(left, right) {
@@ -486,7 +552,8 @@ function graphKeyFor({semanticNodes, roots, semanticTreeRelations, crossLinks, s
 export function prepareTopologyOverviewInput(graph) {
   const normalized = normalizeNodes(graph)
   const {pairs, transportDegree, omittedMalformedEdges} = aggregatePairs(graph, normalized)
-  const {infrastructureIds, members, semanticNodes, summaries, visibleIds} = overviewNodes(normalized)
+  const {attached, infrastructureIds, leaves, members, semanticNodes, summaries, visibleIds} =
+    overviewNodes(normalized, pairs)
   const infrastructure = normalized.nodes.filter((node) => infrastructureIds.has(node.id))
   const candidatePairs = pairs
     .filter((pair) => pair.hasTransport && pair.nodeIds.every((id) => infrastructureIds.has(id)))
@@ -510,7 +577,7 @@ export function prepareTopologyOverviewInput(graph) {
   const treeRelations = [
     ...oriented.relations,
     ...summaryLeaves,
-    ...memberRelations(members, visibleIds, pairs, infrastructureIds),
+    ...memberRelations(leaves, visibleIds, pairs, infrastructureIds),
   ]
 
   if (oriented.roots.length > 1) {
@@ -547,6 +614,9 @@ export function prepareTopologyOverviewInput(graph) {
     infrastructureNodes: infrastructure.length,
     collapsedSummaries: summaries.length,
     expandedMembers: members.length,
+    // Endpoints admitted directly because their anchor held too few to cluster. Previously
+    // these were counted only in omittedAttachmentNodes -- i.e. silently discarded.
+    attachedEndpoints: attached.length,
     treeRelations: semanticTreeRelations.length,
     crossLinks: allCrossLinks.length,
     omittedAttachmentNodes,
