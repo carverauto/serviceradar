@@ -51,6 +51,26 @@ defmodule ServiceRadar.Edge.PublisherPoolTest do
       assert %{outstanding_frames: 0, available_bytes: 300} = PublisherPool.capacity(interactive)
     end
 
+    test "two pools never publish on the same NATS connection" do
+      # Separate accounting over ONE socket is not separate capacity: both lanes would queue in
+      # the same Gnat mailbox, so a saturated lane could stall another whose credits were free.
+      # Invisible from the window numbers, which is why it is asserted on the reported connection.
+      connections =
+        for class <- PublisherPool.classes() do
+          %{connection: connection} = PublisherPool.capacity(pool(class))
+          connection
+        end
+
+      assert length(Enum.uniq(connections)) === length(connections)
+
+      # NOT VACUOUS: each pool reports the connection its own lane owns, not just some unique
+      # value -- a per-pool counter would also pass a pure uniqueness check.
+      for class <- PublisherPool.classes() do
+        %{connection: connection} = PublisherPool.capacity(pool(class))
+        assert connection === ServiceRadar.Edge.PublisherLane.connection_name(class)
+      end
+    end
+
     test "there is no cross-class API to borrow through" do
       # Structural: a pool holds one window and has no reference to another, so borrowing is
       # unrepresentable rather than merely unimplemented.

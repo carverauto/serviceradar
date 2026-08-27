@@ -35,6 +35,8 @@ defmodule ServiceRadar.NATS.Supervisor do
 
   use Supervisor
 
+  alias ServiceRadar.Edge.PublisherLane
+
   require Logger
 
   @connection_name :serviceradar_nats
@@ -49,6 +51,43 @@ defmodule ServiceRadar.NATS.Supervisor do
   """
   def connection_name, do: @connection_name
 
+  @doc """
+  The shared connection plus one publisher connection per edge publisher lane.
+
+  The publisher connections are SEPARATE so that a saturated lane cannot consume another lane's
+  capacity: sharing one connection would put every lane's outstanding requests behind the same
+  socket and the same Gnat process mailbox, which is precisely the borrowing the per-lane windows
+  exist to prevent. Names come from `PublisherLane` rather than being restated here, so the
+  supervisor cannot start a connection no pool uses, or miss one a pool expects.
+  """
+  def connection_names do
+    [@connection_name | Enum.map(PublisherLane.lanes(), &PublisherLane.connection_name/1)]
+  end
+
+  @doc """
+  One `Gnat.ConnectionSupervisor` child spec per `connection_names/0`.
+
+  Public so the ID UNIQUENESS can be tested without a NATS server. That is not a detail:
+  `Gnat.ConnectionSupervisor`'s default child id is the MODULE, so four of them under one
+  supervisor collide on id and `Supervisor.init/2` starts only the first. The failure is silent
+  in the worst way -- the shared connection comes up, the application boots, and three publisher
+  lanes simply have no connection until something tries to publish. Giving each spec the
+  registered name as its id is what makes them distinct children.
+  """
+  def child_specs(connection_settings, backoff_period) do
+    Enum.map(connection_names(), fn name ->
+      Supervisor.child_spec(
+        {Gnat.ConnectionSupervisor,
+         %{
+           name: name,
+           backoff_period: backoff_period,
+           connection_settings: [connection_settings]
+         }},
+        id: name
+      )
+    end)
+  end
+
   @impl true
   def init(_opts) do
     config = Application.get_env(:serviceradar_core, ServiceRadar.NATS.Connection, [])
@@ -56,17 +95,11 @@ defmodule ServiceRadar.NATS.Supervisor do
 
     case build_connection_settings(config) do
       {:ok, connection_settings} ->
-        gnat_supervisor_settings = %{
-          name: @connection_name,
-          backoff_period: Keyword.get(config, :backoff_period, @backoff_period),
-          connection_settings: [connection_settings]
-        }
+        backoff_period = Keyword.get(config, :backoff_period, @backoff_period)
 
-        children = [
-          {Gnat.ConnectionSupervisor, gnat_supervisor_settings}
-        ]
+        children = child_specs(connection_settings, backoff_period)
 
-        Logger.info("Starting NATS supervisor with connection name: #{@connection_name}")
+        Logger.info("Starting NATS supervisor with connections: #{inspect(connection_names())}")
         Supervisor.init(children, strategy: :one_for_one)
 
       {:error, reason} ->
