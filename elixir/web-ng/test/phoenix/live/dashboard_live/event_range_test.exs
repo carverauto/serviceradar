@@ -33,6 +33,7 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.EventRangeTest do
     assert :error = EventRange.buckets([%{bucket: ~U[2026-08-27 10:00:00Z]}, %{}])
     assert :error = EventRange.buckets([%{bucket: "2026-08-27T12:00:00Z"}])
     assert :error = EventRange.buckets([%{bucket: non_utc_bucket()}])
+    assert :error = EventRange.buckets([%{bucket: zero_offset_non_utc_bucket()}])
   end
 
   test "returns parsed UTC times for an exact rendered selection across a missing wall-clock hour" do
@@ -90,6 +91,23 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.EventRangeTest do
       time_zone: "Etc/GMT+5",
       zone_abbr: "-05",
       utc_offset: -18_000,
+      std_offset: 0,
+      calendar: Calendar.ISO
+    }
+  end
+
+  defp zero_offset_non_utc_bucket do
+    %DateTime{
+      year: 2026,
+      month: 1,
+      day: 27,
+      hour: 10,
+      minute: 0,
+      second: 0,
+      microsecond: {0, 0},
+      time_zone: "Europe/London",
+      zone_abbr: "GMT",
+      utc_offset: 0,
       std_offset: 0,
       calendar: Calendar.ISO
     }
