@@ -32,6 +32,7 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.EventRangeTest do
     assert :error = EventRange.buckets(%{bucket: ~U[2026-08-27 10:00:00Z]})
     assert :error = EventRange.buckets([%{bucket: ~U[2026-08-27 10:00:00Z]}, %{}])
     assert :error = EventRange.buckets([%{bucket: "2026-08-27T12:00:00Z"}])
+    assert :error = EventRange.buckets([%{bucket: non_utc_bucket()}])
   end
 
   test "returns parsed UTC times for an exact rendered selection across a missing wall-clock hour" do
@@ -55,11 +56,42 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.EventRangeTest do
     end
   end
 
+  test "rejects temporally ordered boundaries whose rendered indexes are reversed" do
+    points = [
+      %{bucket: ~U[2026-08-27 13:00:00Z]},
+      %{bucket: ~U[2026-08-27 10:00:00Z]},
+      %{bucket: ~U[2026-08-27 12:00:00Z]}
+    ]
+
+    assert :error =
+             EventRange.selection(points, %{
+               "start" => "2026-08-27T12:00:00Z",
+               "end" => "2026-08-27T13:59:59.999999Z"
+             })
+  end
+
   defp points do
     [
       %{bucket: ~U[2026-08-27 10:00:00Z]},
       %{bucket: ~N[2026-08-27 12:00:00]},
       %{bucket: ~U[2026-08-27 13:00:00Z]}
     ]
+  end
+
+  defp non_utc_bucket do
+    %DateTime{
+      year: 2026,
+      month: 8,
+      day: 27,
+      hour: 10,
+      minute: 0,
+      second: 0,
+      microsecond: {0, 0},
+      time_zone: "Etc/GMT+5",
+      zone_abbr: "-05",
+      utc_offset: -18_000,
+      std_offset: 0,
+      calendar: Calendar.ISO
+    }
   end
 end

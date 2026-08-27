@@ -54,7 +54,8 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.EventRange do
 
   def selection(_points, _params), do: :error
 
-  defp bucket_start(%{bucket: %DateTime{} = bucket}), do: {:ok, DateTime.truncate(bucket, :second)}
+  defp bucket_start(%{bucket: %DateTime{utc_offset: 0, std_offset: 0} = bucket}),
+    do: {:ok, DateTime.truncate(bucket, :second)}
 
   defp bucket_start(%{bucket: %NaiveDateTime{} = bucket}) do
     {:ok, bucket |> NaiveDateTime.truncate(:second) |> DateTime.from_naive!("Etc/UTC")}
