@@ -2902,6 +2902,7 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
     )
     |> Enum.reduce(%{}, &accumulate_selected_endpoint_cluster_group/2)
     |> Map.values()
+    |> coalesce_subquorum_anchor_groups()
     |> Enum.map(fn group ->
       anchor_node = Map.get(nodes_by_id, Map.get(group, :anchor_id))
 
@@ -4263,6 +4264,59 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
   end
 
   defp endpoint_cluster_id(anchor_id, _anchor_if_index) when is_binary(anchor_id), do: "cluster:endpoints:" <> anchor_id
+
+  # A cluster is keyed on (anchor, bridge port), and an access switch learns exactly one host
+  # per port -- so an eight-port switch with eight hosts produced eight groups of ONE member,
+  # every one of them failing @endpoint_cluster_min_members, and clustered nothing. The quorum
+  # was being asked of each port instead of the anchor.
+  #
+  # The per-port key is deliberate and is kept: a downstream dumb switch hanging off a single
+  # port is genuinely its own cluster, and a port group that reaches quorum on its own keeps
+  # its `:ifindex:N` identity untouched. Only an anchor's SUB-QUORUM port groups are folded
+  # into one anchor-level group, so the minimum is asked once per anchor. An anchor with a
+  # single sub-quorum port is left exactly as it was.
+  # Public for the same reason connectivity_preserving_inferred_segment_edges/2 is: clustering
+  # is otherwise reachable only through latest_snapshot/2, which needs a database, so the file
+  # that covers it carries no :db_free tag and never runs under `make test`.
+  @doc false
+  def coalesce_subquorum_anchor_groups(groups) when is_list(groups) do
+    {quorate, subquorum} =
+      Enum.split_with(
+        groups,
+        &(length(Map.get(&1, :endpoint_ids, [])) >= @endpoint_cluster_min_members)
+      )
+
+    merged =
+      subquorum
+      |> Enum.group_by(&Map.get(&1, :anchor_id))
+      |> Enum.flat_map(fn
+        {_anchor_id, [only_one]} -> [only_one]
+        {anchor_id, port_groups} when is_binary(anchor_id) -> [merge_anchor_port_groups(anchor_id, port_groups)]
+        {_anchor_id, port_groups} -> port_groups
+      end)
+
+    quorate ++ merged
+  end
+
+  def coalesce_subquorum_anchor_groups(groups), do: groups
+
+  defp merge_anchor_port_groups(anchor_id, port_groups) when is_binary(anchor_id) and is_list(port_groups) do
+    concat = fn key -> port_groups |> Enum.flat_map(&Map.get(&1, key, [])) |> Enum.uniq() end
+
+    %{
+      cluster_id: endpoint_cluster_id(anchor_id, nil),
+      anchor_id: anchor_id,
+      # The merged group spans ports, so it cannot claim one.
+      anchor_if_index: nil,
+      anchor_if_name: nil,
+      endpoint_ids: concat.(:endpoint_ids),
+      source_endpoint_ids: concat.(:source_endpoint_ids),
+      target_endpoint_ids: concat.(:target_endpoint_ids),
+      source_identity_endpoint_ids: concat.(:source_identity_endpoint_ids),
+      target_identity_endpoint_ids: concat.(:target_identity_endpoint_ids),
+      edges: Enum.flat_map(port_groups, &Map.get(&1, :edges, []))
+    }
+  end
 
   defp build_endpoint_cluster_node(group, anchor, idx, total, nodes_by_id) when is_map(group) and is_map(nodes_by_id) do
     endpoints =

@@ -341,6 +341,71 @@ defmodule ServiceRadarWebNG.Topology.GodViewStreamConversionTest do
     assert bridge.metadata["connectivity_forest_bridge"] == true
   end
 
+  # An access switch learns one host per bridge port, and clusters are keyed on
+  # (anchor, port). Eight hosts on eight ports produced eight groups of ONE and cleared the
+  # 3-member minimum on none of them, so a switch full of servers rendered as a bare dot.
+  describe "endpoint cluster port coalescing" do
+    defp port_group(anchor, if_index, endpoint_ids) do
+      %{
+        cluster_id:
+          if(is_integer(if_index),
+            do: "cluster:endpoints:#{anchor}:ifindex:#{if_index}",
+            else: "cluster:endpoints:#{anchor}"
+          ),
+        anchor_id: anchor,
+        anchor_if_index: if_index,
+        anchor_if_name: if(is_integer(if_index), do: "port#{if_index}"),
+        endpoint_ids: endpoint_ids,
+        source_endpoint_ids: endpoint_ids,
+        target_endpoint_ids: [],
+        source_identity_endpoint_ids: endpoint_ids,
+        target_identity_endpoint_ids: [],
+        edges: Enum.map(endpoint_ids, &%{id: "att:#{&1}"})
+      }
+    end
+
+    test "one host per port on an access switch coalesces into a single anchor group" do
+      groups =
+        for index <- 1..8, do: port_group("sw-access", index, ["ep-#{index}"])
+
+      assert [merged] = GodViewStream.coalesce_subquorum_anchor_groups(groups)
+      assert merged.anchor_id == "sw-access"
+      assert merged.cluster_id == "cluster:endpoints:sw-access"
+      assert length(merged.endpoint_ids) == 8
+      # A merged group spans ports and must not claim one.
+      assert merged.anchor_if_index == nil
+      assert merged.anchor_if_name == nil
+      assert length(merged.edges) == 8
+    end
+
+    test "a port that already reaches quorum keeps its per-port identity" do
+      quorate = port_group("sw-mixed", 10, ["a", "b", "c"])
+      singles = for index <- 1..2, do: port_group("sw-mixed", index, ["ep-#{index}"])
+
+      result = GodViewStream.coalesce_subquorum_anchor_groups([quorate | singles])
+      by_id = Map.new(result, &{&1.cluster_id, &1})
+
+      # The downstream-switch-on-one-port cluster is deliberate and survives untouched.
+      assert by_id["cluster:endpoints:sw-mixed:ifindex:10"].anchor_if_index == 10
+      assert by_id["cluster:endpoints:sw-mixed:ifindex:10"].endpoint_ids == ["a", "b", "c"]
+      # The two sub-quorum ports fold together.
+      assert length(by_id["cluster:endpoints:sw-mixed"].endpoint_ids) == 2
+    end
+
+    test "an anchor with a single sub-quorum port is left exactly as it was" do
+      only = port_group("sw-quiet", 3, ["lonely"])
+      assert GodViewStream.coalesce_subquorum_anchor_groups([only]) == [only]
+    end
+
+    test "groups from different anchors never merge with each other" do
+      groups = [port_group("sw-a", 1, ["a1"]), port_group("sw-b", 1, ["b1"])]
+      result = GodViewStream.coalesce_subquorum_anchor_groups(groups)
+
+      assert result |> Enum.map(& &1.anchor_id) |> Enum.sort() == ["sw-a", "sw-b"]
+      assert Enum.all?(result, &(length(&1.endpoint_ids) == 1))
+    end
+  end
+
   defp converted_edge(source, target, raw_evidence_class, attrs \\ %{}) do
     relation_type = if raw_evidence_class == "direct", do: "CONNECTS_TO", else: "ATTACHED_TO"
     evidence_class = if raw_evidence_class == "inferred-segment", do: "endpoint-attachment", else: raw_evidence_class
