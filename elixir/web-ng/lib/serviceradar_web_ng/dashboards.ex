@@ -23,6 +23,11 @@ defmodule ServiceRadarWebNG.Dashboards do
   defdelegate set_default_instance(id, opts \\ []), to: Packages
   defdelegate enabled_instances(opts \\ []), to: Packages
   defdelegate get_enabled_instance_by_slug(slug, opts \\ []), to: Packages
+  defdelegate package_has_viewable_instance?(package_id, opts \\ []), to: Packages
+  defdelegate list_instance_access_grants(scope, instance_id), to: Packages
+  defdelegate grant_instance_to_user(scope, attrs), to: Packages
+  defdelegate grant_instance_to_group(scope, attrs), to: Packages
+  defdelegate revoke_instance_access_grant(scope, grant), to: Packages
 
   defdelegate list_authored_dashboards(scope, filters \\ %{}), to: Authored, as: :list_dashboards
   defdelegate get_authored_dashboard(scope, id, opts \\ []), to: Authored, as: :get_dashboard

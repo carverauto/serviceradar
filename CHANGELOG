@@ -8,6 +8,16 @@ every Argo sync.
 
 ## Whats New
 
+**Unreleased**
+- Dashboards: package dashboards now have the same visibility and grant
+  model as authored dashboards (`private` / `shared` / `public`, plus
+  user and group grants on the instance). Existing dashboards stay
+  public with a null owner, so this release changes no one's audience.
+  A later release will flip the shipped `dashboards.packages.default_visibility`
+  default; this one ships `public`. Policy Editor Dashboards tab is
+  rebuilt from catalog metadata, and `cli.dashboard.*` keys alias
+  `dashboards.packages.*` rather than being renamed.
+
 **1.4.46**
 - Topology: an access switch draws the endpoints attached to it.
   Three successive stages destroyed the evidence. The spanning

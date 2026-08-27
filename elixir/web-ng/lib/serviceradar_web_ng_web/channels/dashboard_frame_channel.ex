@@ -5,6 +5,7 @@ defmodule ServiceRadarWebNGWeb.DashboardFrameChannel do
   alias ServiceRadar.Dashboards.DashboardInstance
   alias ServiceRadarWebNG.Dashboards
   alias ServiceRadarWebNG.Dashboards.FrameRunner
+  alias ServiceRadarWebNG.RBAC
   alias ServiceRadarWebNGWeb.Endpoint
 
   require Logger
@@ -21,10 +22,13 @@ defmodule ServiceRadarWebNGWeb.DashboardFrameChannel do
     with true <- Map.has_key?(socket.assigns, :current_user),
          {:ok, stream} <- verify_stream_token(token),
          :ok <- verify_route_slug(route_slug, stream),
+         :ok <- verify_token_user(stream, socket),
+         {:ok, scope} <- RBAC.authorize_current(socket.assigns.current_scope, []),
          {:ok, %DashboardInstance{}} <-
-           Dashboards.get_enabled_instance_by_slug(route_slug, scope: socket.assigns.current_scope) do
+           Dashboards.get_enabled_instance_by_slug(route_slug, scope: scope) do
       socket =
         socket
+        |> assign(:current_scope, scope)
         |> assign(:route_slug, route_slug)
         |> assign(:initial_data_frames, initial_data_frames(stream))
         |> assign(:deferred_data_frames, deferred_data_frames(stream))
@@ -41,6 +45,8 @@ defmodule ServiceRadarWebNGWeb.DashboardFrameChannel do
       {:ok, %{"refresh_interval_ms" => socket.assigns.refresh_ms}, socket}
     else
       false -> {:error, %{reason: "unauthorized"}}
+      {:error, :unauthorized} -> {:error, %{reason: "unauthorized"}}
+      {:error, :permission_revoked} -> {:error, %{reason: "unauthorized"}}
       {:error, :invalid_route} -> {:error, %{reason: "invalid_stream"}}
       {:error, :not_found} -> {:error, %{reason: "dashboard_unavailable"}}
       {:error, reason} -> {:error, %{reason: format_error(reason)}}
@@ -171,9 +177,11 @@ defmodule ServiceRadarWebNGWeb.DashboardFrameChannel do
       socket
   end
 
-  def stream_token(route_slug, data_frames, active_frame_ids \\ []) when is_binary(route_slug) and is_list(data_frames) do
+  def stream_token(route_slug, data_frames, user_id, active_frame_ids \\ [])
+      when is_binary(route_slug) and is_list(data_frames) and not is_nil(user_id) do
     Phoenix.Token.sign(Endpoint, @stream_salt, %{
       "route_slug" => route_slug,
+      "user_id" => to_string(user_id),
       "data_frames" => data_frames,
       "active_frame_ids" => normalize_frame_ids(active_frame_ids)
     })
@@ -188,6 +196,18 @@ defmodule ServiceRadarWebNGWeb.DashboardFrameChannel do
   defp verify_route_slug(route_slug, %{"route_slug" => route_slug}), do: :ok
   defp verify_route_slug(route_slug, %{route_slug: route_slug}), do: :ok
   defp verify_route_slug(_route_slug, _stream), do: {:error, :invalid_route}
+
+  defp verify_token_user(stream, socket) do
+    token_user_id = stream["user_id"] || stream[:user_id]
+    socket_user_id = socket.assigns[:current_user] && socket.assigns.current_user.id
+
+    if token_user_id not in [nil, ""] and socket_user_id not in [nil, ""] and
+         to_string(token_user_id) == to_string(socket_user_id) do
+      :ok
+    else
+      {:error, :unauthorized}
+    end
+  end
 
   defp normalize_data_frames(data_frames) when is_list(data_frames), do: data_frames
   defp normalize_data_frames(_data_frames), do: []

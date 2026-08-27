@@ -112,6 +112,7 @@ config :serviceradar_core, Oban,
 # Configure the shared repo from serviceradar_core
 # Ash manages all migrations in serviceradar_core/priv/repo/migrations/
 config :serviceradar_core, ServiceRadar.Repo, migration_source: "ash_schema_migrations"
+config :serviceradar_core, :dashboard_packages, default_visibility: :public
 
 # Heartbeats still persist as logs.internal.* in CNPG. The live.logs.*
 # fan-out is core-only; web-ng's NATS identity cannot publish it.

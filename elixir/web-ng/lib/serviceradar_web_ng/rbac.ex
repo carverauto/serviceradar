@@ -28,16 +28,16 @@ defmodule ServiceRadarWebNG.RBAC do
   def permissions_for_scope(_), do: MapSet.new()
 
   def can?(%Scope{user: %User{}, permissions: %MapSet{} = permissions}, permission) when is_binary(permission) do
-    MapSet.member?(permissions, permission)
+    CoreRBAC.Catalog.holds?(permissions, permission)
   end
 
   def can?(%Scope{user: user, permissions: %MapSet{} = permissions}, permission)
       when not is_nil(user) and is_binary(permission) do
-    MapSet.member?(permissions, permission)
+    CoreRBAC.Catalog.holds?(permissions, permission)
   end
 
   def can?(%Scope{permissions: %MapSet{} = permissions}, permission) when is_binary(permission) do
-    MapSet.member?(permissions, permission)
+    CoreRBAC.Catalog.holds?(permissions, permission)
   end
 
   def can?(%Scope{user: user}, permission) when is_binary(permission) do

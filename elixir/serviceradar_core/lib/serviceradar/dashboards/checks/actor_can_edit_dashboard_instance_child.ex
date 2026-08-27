@@ -1,6 +1,6 @@
-defmodule ServiceRadar.Dashboards.Checks.ActorCanAccessDashboard do
+defmodule ServiceRadar.Dashboards.Checks.ActorCanEditDashboardInstanceChild do
   @moduledoc """
-  Filters authored dashboards to records visible to the current actor.
+  Filters instance grant rows through edit access on their parent instance.
   """
 
   use Ash.Policy.FilterCheck
@@ -10,7 +10,7 @@ defmodule ServiceRadar.Dashboards.Checks.ActorCanAccessDashboard do
   alias ServiceRadar.Dashboards.Checks.SubjectGrant
 
   @impl true
-  def describe(_opts), do: "actor can access authored dashboard"
+  def describe(_opts), do: "actor can edit parent package dashboard instance"
 
   @impl true
   def filter(%{id: actor_id, role: :system}, _authorizer, _opts) when not is_nil(actor_id) do
@@ -18,8 +18,8 @@ defmodule ServiceRadar.Dashboards.Checks.ActorCanAccessDashboard do
   end
 
   def filter(%{id: actor_id}, _authorizer, _opts) when not is_nil(actor_id) do
-    SubjectGrant.authored_access(actor_id)
+    SubjectGrant.parent_instance_edit(actor_id)
   end
 
-  def filter(_actor, _authorizer, _opts), do: expr(visibility == :public)
+  def filter(_actor, _authorizer, _opts), do: expr(false)
 end
