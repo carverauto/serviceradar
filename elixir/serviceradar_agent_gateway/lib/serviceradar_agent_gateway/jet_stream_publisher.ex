@@ -45,6 +45,7 @@ defmodule ServiceRadarAgentGateway.JetStreamPublisher do
   """
 
   alias ServiceRadar.Edge.PublicationIdentity
+  alias ServiceRadar.Edge.PublisherLane
   alias ServiceRadar.Edge.StreamRoute
   alias ServiceRadar.NATS.Connection
 
@@ -82,9 +83,20 @@ defmodule ServiceRadarAgentGateway.JetStreamPublisher do
   @spec publish_record(map(), keyword()) ::
           {:ok, pub_ack()} | {:error, error_class()} | {:error, {:derivation, term()}}
   def publish_record(publication, opts \\ []) when is_map(publication) do
-    with {:ok, route} <- resolve_route(publication) do
-      send_to(route, publication, opts)
+    contract = contract_of(publication)
+
+    with {:ok, route} <- wrap(StreamRoute.resolve(contract)),
+         {:ok, lane} <- resolve_lane(contract) do
+      send_to(route, lane, publication, opts)
     end
+  end
+
+  # The lane comes from the SAME verified contract as the route, not from a second lookup and not
+  # from anything on the frame. That is what makes "an agent cannot select the recovery publisher"
+  # true at this call site rather than only in PublisherLane's docs: the route profile here is the
+  # one the effective grant produced.
+  defp resolve_lane(contract) do
+    wrap(PublisherLane.for_lane(contract.route_profile, contract.traffic_class))
   end
 
   @doc """
@@ -133,10 +145,10 @@ defmodule ServiceRadarAgentGateway.JetStreamPublisher do
   defp wrap({:ok, value}), do: {:ok, value}
   defp wrap({:error, reason}), do: {:error, {:derivation, reason}}
 
-  defp send_to(route, publication, opts) do
+  defp send_to(route, lane, publication, opts) do
     with {:ok, bytes} <- record_bytes(publication),
          {:ok, headers} <- headers_for(route, publication) do
-      request(route, bytes, headers, opts)
+      request(route, lane, bytes, headers, opts)
     end
   end
 
@@ -183,11 +195,19 @@ defmodule ServiceRadarAgentGateway.JetStreamPublisher do
     end
   end
 
-  defp request(route, payload, headers, opts) do
+  defp request(route, lane, payload, headers, opts) do
     conn = Keyword.get(opts, :connection, Connection)
     timeout = Keyword.get(opts, :receive_timeout, @default_timeout)
+    # The LANE's connection, not the shared one. Sharing `:serviceradar_nats` put every lane's
+    # outstanding requests behind the same socket and the same Gnat mailbox, so a bulk backlog
+    # could stall an interactive or recovery frame whose own credits were free -- separate
+    # accounting over one transport is not separate capacity.
+    connection_name = PublisherLane.connection_name(lane)
 
-    case conn.request(route.subject, payload, headers: headers, receive_timeout: timeout) do
+    case conn.request(connection_name, route.subject, payload,
+           headers: headers,
+           receive_timeout: timeout
+         ) do
       {:ok, %{body: body}} ->
         fence(route.expected_stream, parse_ack(body))
 

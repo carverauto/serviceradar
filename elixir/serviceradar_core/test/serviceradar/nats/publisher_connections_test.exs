@@ -57,6 +57,59 @@ defmodule ServiceRadar.NATS.PublisherConnectionsTest do
     assert Enum.sort(ids) === Enum.sort(NATSSupervisor.connection_names())
   end
 
+  describe "init/1 is what actually supervises them" do
+    # Everything above tests the DECLARED inventory. Two mutations survived that: setting every
+    # child's inner Gnat name to :serviceradar_nats while keeping four unique child ids, and
+    # supervising only the first spec. Both are invisible to child_specs/2 assertions about ids,
+    # and both are catastrophic at runtime -- the first collides on one registered name, the
+    # second leaves three lanes with no connection. These bind init/1 itself.
+
+    test "supervises exactly the declared inventory" do
+      {:ok, {_flags, children}} = NATSSupervisor.init([])
+
+      assert length(children) === length(NATSSupervisor.connection_names())
+
+      assert children |> Enum.map(& &1.id) |> Enum.sort() ===
+               Enum.sort(NATSSupervisor.connection_names())
+    end
+
+    test "every supervised child registers the Gnat name its id claims" do
+      {:ok, {_flags, children}} = NATSSupervisor.init([])
+
+      registered =
+        Enum.map(children, fn child ->
+          {Gnat.ConnectionSupervisor, :start_link, [settings | _]} = child.start
+          {child.id, settings.name}
+        end)
+
+      # The id and the REGISTERED name must be the same connection. An id-only assertion passes
+      # while every child registers :serviceradar_nats, which is the collision that leaves the
+      # lanes sharing one socket.
+      for {id, name} <- registered do
+        assert id === name, "child #{inspect(id)} registers #{inspect(name)}"
+      end
+
+      assert registered |> Enum.map(&elem(&1, 1)) |> Enum.sort() ===
+               Enum.sort(NATSSupervisor.connection_names())
+
+      # NOT VACUOUS: the names are distinct, so this cannot pass with one name repeated four times
+      # even if id and name happened to agree.
+      assert registered |> Enum.map(&elem(&1, 1)) |> Enum.uniq() |> length() === 4
+    end
+
+    test "each lane's connection is supervised, by name" do
+      {:ok, {_flags, children}} = NATSSupervisor.init([])
+      names = Enum.map(children, fn c -> c.start |> elem(2) |> hd() |> Map.fetch!(:name) end)
+
+      for lane <- PublisherLane.lanes() do
+        assert PublisherLane.connection_name(lane) in names,
+               "lane #{inspect(lane)} has no supervised connection"
+      end
+
+      assert NATSSupervisor.connection_name() in names
+    end
+  end
+
   test "the count does not grow with anything except lanes" do
     # The spec forbids a connection per network scope, agent, producer assignment, run, output
     # contract, package, or logical partition. connection_names/0 takes NO arguments, so there is

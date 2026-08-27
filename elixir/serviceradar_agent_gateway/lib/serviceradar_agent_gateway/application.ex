@@ -70,6 +70,7 @@ defmodule ServiceRadarAgentGateway.Application do
 
   use Application
 
+  alias ServiceRadar.Edge.PublisherSupervisor
   alias ServiceRadar.NATS.Connection
   alias ServiceRadar.Telemetry.OtelSetup
 
@@ -105,6 +106,7 @@ defmodule ServiceRadarAgentGateway.Application do
       [
         pubsub_child(),
         nats_connection_child(),
+        edge_publisher_pools_child(),
         process_registry_child(),
         gateway_tracker_child(),
         agent_tracker_child(),
@@ -287,6 +289,19 @@ defmodule ServiceRadarAgentGateway.Application do
         nil
       else
         ServiceRadar.NATS.Supervisor
+      end
+    end
+  end
+
+  # The edge publisher pools: one window owner per lane. Gated on the same switch as the NATS
+  # connections, because a pool without a connection has nothing to bound, and started AFTER them
+  # so the connection a lane publishes on exists before its window admits anything.
+  defp edge_publisher_pools_child do
+    if gateway_publisher_enabled?() do
+      if Process.whereis(PublisherSupervisor) do
+        nil
+      else
+        PublisherSupervisor
       end
     end
   end
