@@ -98,9 +98,14 @@ agent-sr-test-pve04   05:05:37  is_available: TRUE    <- 77 min stale, never exp
 
 ## 3. Guard and stats observability
 
-- [ ] 3.1 Log a refused canonical prune with counts, fraction and the override that permits
-      it. Today nothing logs until an edge is prune-eligible, so a blocked guard is
-      invisible.
+- [x] 3.1 WITHDRAWN -- already implemented, and correctly. `report_prune_refusal/5`
+      (canonical_rebuild.ex:397) emits a `prune_refused` telemetry event AND
+      `Logger.error("Canonical topology stale prune refused (reason): would delete N of M
+      canonical edges in one pass (max fraction F); set canonical_prune_guard_override to
+      force")` -- counts, total, fraction and the override, exactly what this task proposed
+      adding. The reason no such line appeared in demo's logs is that nothing was
+      prune-eligible yet: the stale edges were still inside the 30-day retention window, so
+      `guarded_prune/2` was never reached. "The guard blocks silently" was wrong.
 - [ ] 3.2 Fix `raw_evidence_class/1` precedence, or rename its counters. It resolves
       explicit evidence before `relation_type`, the inverse of `evidence_class/1`, so
       `raw_attachment: 0` was reported against 334 real `ATTACHED_TO` links. That single

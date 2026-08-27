@@ -43,7 +43,7 @@ simply stopped reporting.
   page rather than only by hand-crafted admin API call.
 - **Device expiry.** A device unseen for a retention window is soft-deleted by the same
   mechanism topology links already use, instead of living forever.
-- **Guard observability.** A blocked prune says so, with the numbers and the override
+- ~~**Guard observability.**~~ WITHDRAWN: already implemented -- see tasks.md 3.1.
   that unblocks it. A guardrail that fails closed and silently is indistinguishable from
   a mechanism that was never built.
 - **Honest pipeline stats.** `raw_attachment` reports what the pipeline *decided*, not
