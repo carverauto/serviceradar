@@ -25,6 +25,7 @@ defmodule ServiceRadarWebNGWeb.Settings.CompositeChecksLive.SweepContext do
           ports: [integer()],
           modes: [String.t()],
           interval: String.t() | nil,
+          interval_seconds: pos_integer() | nil,
           profile_name: String.t() | nil
         }
 
@@ -108,9 +109,71 @@ defmodule ServiceRadarWebNGWeb.Settings.CompositeChecksLive.SweepContext do
       ports: group.ports || profile_field(group, :ports) || [],
       modes: group.sweep_modes || profile_field(group, :sweep_modes) || [],
       interval: group.interval,
+      interval_seconds: interval_seconds(group.interval),
       profile_name: profile_field(group, :name)
     }
   end
+
+  @doc """
+  The slowest sweep interval covering each agent, in seconds.
+
+  A vantage point's freshness window has to be at least this long or the
+  resolver reports unknown for the whole scope between runs. Keyed by agent id
+  because that is what a vantage point row carries; agents with no covering
+  group are absent rather than zero, so "no coverage" stays distinguishable
+  from "covered by an instant sweep".
+  """
+  @spec coverage_intervals([entry()]) :: %{optional(String.t()) => pos_integer()}
+  def coverage_intervals(entries) do
+    Enum.reduce(entries, %{}, fn entry, acc ->
+      seconds =
+        entry.groups
+        |> Enum.map(& &1.interval_seconds)
+        |> Enum.reject(&is_nil/1)
+        |> case do
+          [] -> nil
+          values -> Enum.max(values)
+        end
+
+      case {entry.agent_id, seconds} do
+        {agent_id, seconds} when is_binary(agent_id) and is_integer(seconds) ->
+          Map.put(acc, agent_id, seconds)
+
+        _ ->
+          acc
+      end
+    end)
+  end
+
+  @doc """
+  A sweep group's operator-facing duration string ("30s", "5m", "1h") in seconds.
+
+  Public because it is the parser the freshness comparison depends on, and an
+  unparsed unit silently disables that comparison. Anything unrecognised yields
+  nil, which suppresses the comparison rather than inventing a number to compare
+  against — guessing here would warn about a mismatch that may not exist.
+  """
+  @spec interval_seconds(String.t() | nil) :: pos_integer() | nil
+  def interval_seconds(nil), do: nil
+
+  def interval_seconds(interval) when is_binary(interval) do
+    case Integer.parse(String.trim(interval)) do
+      {value, unit} when value > 0 ->
+        case String.trim(unit) do
+          "" -> value
+          "s" -> value
+          "m" -> value * 60
+          "h" -> value * 3600
+          "d" -> value * 86_400
+          _ -> nil
+        end
+
+      _ ->
+        nil
+    end
+  end
+
+  def interval_seconds(_interval), do: nil
 
   defp profile_field(%{profile: %Ash.NotLoaded{}}, _field), do: nil
   defp profile_field(%{profile: nil}, _field), do: nil

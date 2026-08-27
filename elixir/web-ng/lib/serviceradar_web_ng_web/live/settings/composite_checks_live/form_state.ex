@@ -33,7 +33,20 @@ defmodule ServiceRadarWebNGWeb.Settings.CompositeChecksLive.FormState do
     }
   end
 
-  @default_max_age 900
+  # A vantage point's freshness window must be at least as long as the sweep
+  # cadence that feeds it, or the resolver returns :unknown for the whole
+  # scope between runs. The old default was 900 seconds, which is shorter than
+  # every sweep interval this ships with except the 5-minute one -- on hourly
+  # sweeps it meant a check could only see one agent at a time, flipping to the
+  # other as each agent's run landed, and reporting "0 of N devices have
+  # results" for the rest of the hour.
+  #
+  # 3600 matches the common hourly group. It is deliberately biased long: an
+  # over-long window accepts stale evidence, which the readiness panel shows,
+  # while an over-short one silently produces no verdicts at all. The inline
+  # warning in the form is what catches the mismatch either way, since no single
+  # constant can be right for every sweep interval.
+  @default_max_age 3600
 
   @doc """
   A blank vantage point row.

@@ -133,6 +133,7 @@ defmodule ServiceRadarWebNGWeb.Settings.CompositeChecksLive.Components do
   attr(:builder_in_sync, :boolean, default: true)
   attr(:save_error, :string, default: nil)
   attr(:vantage_points, :list, default: [])
+  attr(:coverage_intervals, :map, default: %{})
   attr(:device_facts, :list, default: [])
   attr(:fact_key_suggestions, :list, default: [])
   attr(:agents, :list, default: [])
@@ -225,6 +226,7 @@ defmodule ServiceRadarWebNGWeb.Settings.CompositeChecksLive.Components do
       <.vantage_points
         rows={@vantage_points}
         agents={@agents}
+        coverage_intervals={@coverage_intervals}
         errors={Enum.filter(@errors, fn {field, _msg} -> field == "vantage_points" end)}
       />
 
@@ -426,6 +428,9 @@ defmodule ServiceRadarWebNGWeb.Settings.CompositeChecksLive.Components do
   attr(:rows, :list, required: true)
   attr(:agents, :list, required: true)
   attr(:errors, :list, default: [])
+  # agent_id => slowest covering sweep interval in seconds. Empty on :new,
+  # where no inputs exist yet and there is nothing to compare against.
+  attr(:coverage_intervals, :map, default: %{})
 
   def vantage_points(assigns) do
     ~H"""
@@ -462,6 +467,34 @@ defmodule ServiceRadarWebNGWeb.Settings.CompositeChecksLive.Components do
 
         <.vantage_role_badge expected={row["expected"]} />
 
+        <span class="text-xs text-sr-ink-muted">using results younger than</span>
+
+        <input
+          type="text"
+          inputmode="numeric"
+          name={"vantage_points[#{index}][max_age_seconds]"}
+          value={row["max_age_seconds"]}
+          aria-label="Freshness window in seconds"
+          class="w-24 rounded-sr-control border border-sr-border bg-sr-surface-muted px-2 py-1 text-sm text-sr-ink"
+        />
+
+        <span class="text-xs text-sr-ink-muted">seconds</span>
+
+        <p
+          :if={stale_window?(row, @coverage_intervals)}
+          class="basis-full rounded-sr-control border border-amber-500/40 bg-amber-500/5 p-3 text-xs text-amber-400"
+          data-vantage-stale-window={row["agent_id"]}
+        >
+          <span class="font-medium">
+            This window is shorter than the sweep that feeds it.
+          </span>
+          The slowest group covering this agent runs every {covering_interval(
+            row,
+            @coverage_intervals
+          )}s, so between runs every device resolves unknown and the check reports no results for
+          this vantage point. Use at least that long.
+        </p>
+
         <button
           type="button"
           phx-click="remove_vantage_point"
@@ -496,6 +529,35 @@ defmodule ServiceRadarWebNGWeb.Settings.CompositeChecksLive.Components do
     </section>
     """
   end
+
+  # A freshness window shorter than the sweep interval feeding it cannot ever be
+  # satisfied for the whole scope: between two runs of an hourly sweep, a
+  # 15-minute window leaves 45 minutes where every device resolves unknown. This
+  # is the check that makes that visible while it is still editable, rather than
+  # as an unexplained "0 of N devices have results" on the readiness panel.
+  defp stale_window?(row, coverage_intervals) do
+    with interval when is_integer(interval) <- covering_interval(row, coverage_intervals),
+         max_age when is_integer(max_age) <- parse_seconds(row["max_age_seconds"]) do
+      max_age < interval
+    else
+      _ -> false
+    end
+  end
+
+  defp covering_interval(row, coverage_intervals) do
+    Map.get(coverage_intervals, row["agent_id"])
+  end
+
+  defp parse_seconds(value) when is_integer(value), do: value
+
+  defp parse_seconds(value) when is_binary(value) do
+    case Integer.parse(String.trim(value)) do
+      {seconds, ""} when seconds > 0 -> seconds
+      _ -> nil
+    end
+  end
+
+  defp parse_seconds(_value), do: nil
 
   attr(:expected, :string, default: nil)
 
