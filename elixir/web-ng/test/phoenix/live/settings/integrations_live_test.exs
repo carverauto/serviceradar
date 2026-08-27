@@ -66,7 +66,18 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLiveTest do
 
     {:ok, lv, html} = live(conn, ~p"/settings/networks/integrations/#{source.id}/edit")
 
-    assert has_element?(lv, "input[name='cred_api_key'][value='key']")
+    # The stored key must never be rendered back into the form. It is masked and
+    # carries NO value attribute at all -- the same shape as cred_api_secret --
+    # so a re-render cannot clobber a half-typed value either. This assertion
+    # previously read `[value='key']`, which encoded the exposure as intended
+    # behaviour; the credentials map is a single AshCloak-encrypted, sensitive?
+    # true blob with no per-key distinction, so the key is exactly as sensitive
+    # as the secret beside it.
+    assert has_element?(lv, "input[name='cred_api_key'][type='password']")
+    refute has_element?(lv, "input[name='cred_api_key'][value='key']")
+    refute has_element?(lv, "input[name='cred_api_key'][value]")
+    assert html =~ "API key:"
+    # Identifiers, not secrets: these stay prefilled on purpose.
     assert has_element?(lv, "input[name='cred_v3_client_id']")
     assert has_element?(lv, "input[name='cred_v3_vendor_id']")
     refute has_element?(lv, "input[name='form[gateway_id]']")
@@ -150,6 +161,42 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLiveTest do
            }
   end
 
+  test "submitting a blank api key keeps the stored one", %{conn: conn, scope: scope} do
+    # This is now the COMMON path, not an edge case: the key field is no longer
+    # prefilled, so every save that does not deliberately rotate it submits "".
+    # maybe_add_cred/3 is a no-op on "" and the merge starts from
+    # existing_credentials, which is what makes removing the prefill safe --
+    # api_secret has relied on exactly this since it was never prefilled.
+    agent = create_connected_agent!()
+
+    source =
+      create_armis_source!(scope, %{
+        name: "Armis Blank Key Preserve #{System.unique_integer([:positive])}",
+        agent_id: agent.uid,
+        credentials: %{api_key: "existing-api-key", api_secret: "existing-secret"}
+      })
+
+    {:ok, lv, _html} = live(conn, ~p"/settings/networks/integrations/#{source.id}/edit")
+
+    lv
+    |> form("#edit_source_form", %{
+      "form" => %{
+        "name" => source.name,
+        "endpoint" => source.endpoint,
+        "agent_id" => agent.uid,
+        "discovery_interval_seconds" => "3600"
+      },
+      "cred_api_key" => "",
+      "cred_api_secret" => ""
+    })
+    |> render_submit()
+
+    updated_source = get_source_by_name!(source.name, scope)
+
+    assert updated_source.credentials["api_key"] == "existing-api-key"
+    assert updated_source.credentials["api_secret"] == "existing-secret"
+  end
+
   test "edit modal exposes armis northbound settings", %{conn: conn, scope: scope} do
     source =
       create_armis_source!(scope, %{
@@ -226,15 +273,21 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLiveTest do
     source =
       create_armis_source!(scope, %{
         name: "Armis Credential Detail",
-        credentials: %{api_key: "visible-armis-api-key", api_secret: "hidden-armis-secret"}
+        credentials: %{api_key: "hidden-armis-api-key", api_secret: "hidden-armis-secret"}
       })
 
     {:ok, _lv, html} = live(conn, ~p"/settings/networks/integrations/#{source.id}")
 
     assert html =~ "Credentials"
-    assert html =~ "visible-armis-api-key"
-    assert html =~ "Saved"
+    # Neither credential is ever rendered. The detail panel reports PRESENCE for
+    # both, which is all an operator needs to know whether a save took. The key
+    # was previously printed verbatim in a <code> block next to a secret that
+    # correctly showed only a badge -- the fixture was even named
+    # "visible-armis-api-key" -- but nothing in the schema makes the key less
+    # sensitive than the secret.
+    refute html =~ "hidden-armis-api-key"
     refute html =~ "hidden-armis-secret"
+    assert html =~ "Saved"
   end
 
   test "details modal shows recent agent config dispatch diagnostics", %{
