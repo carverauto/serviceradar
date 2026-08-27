@@ -1582,12 +1582,13 @@ class WorkflowIntegrationLifecycleContractTest(unittest.TestCase):
                     self.assert_observer_and_cleanup_contract(mutated)
 
     def assert_pull_request_fleet_action(self, name: str) -> dict:
-        """A BazelCI action: pull requests to staging only, on a workflows-pr runner it fits."""
+        """A BazelCI action: pull requests to approved bases, on a workflows-pr runner it fits."""
         workflow = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))
         matches = [item for item in workflow["actions"] if item["name"] == name]
         self.assertEqual(1, len(matches), name)
         action = matches[0]
-        self.assertEqual({"pull_request": {"branches": ["staging"]}}, action["triggers"])
+        branches = ["staging", "usp-01-proposal"] if name == "BazelCI" else ["staging"]
+        self.assertEqual({"pull_request": {"branches": branches}}, action["triggers"])
         self.assertIs(True, action["self_hosted"])
         self.assertEqual("workflows-pr", action["pool"])
         self.assertEqual(
