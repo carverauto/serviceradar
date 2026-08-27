@@ -43,11 +43,16 @@ agent-dusk01          06:19:30  is_available: FALSE   <- correct, and ignored
 agent-sr-test-pve04   05:05:37  is_available: TRUE    <- 77 min stale, never expired
 ```
 
-- [ ] 0b.1 **A negative sweep refreshes `last_seen_time`.** dusk01 reported the host down at
-      06:19:30 and the device's `last_seen_time` was bumped to 06:19:46 -- sixteen seconds
-      later. Being *checked and found dead* is recorded as *being seen*. Decide whether an
-      availability probe may refresh last-seen at all; presence of a probe is not presence of
-      a host.
+- [ ] 0b.1 **Inventory presence is recorded as liveness.** CORRECTED 2026-08-27: the sweep is
+      NOT the culprit. `sweep_results_ingestor.ex` writes `last_seen_time` in exactly one place
+      (line 1252, the positive path); the negative path deliberately does not, and carries the
+      comment "Do not use last_seen_time here: inventory integrations can refresh it
+      independently and would otherwise keep failed sweep targets online forever."
+      That is exactly what is happening through another door: MikroTik's sources are
+      `mapper,proxmox,sweep`, and Proxmox still lists a POWERED-OFF guest as a configured VM,
+      so the inventory sync refreshes last-seen for a host that cannot answer. Decide whether
+      an inventory integration may refresh last-seen at all -- being *configured* is not being
+      *present*.
 - [ ] 0b.2 **The canonical bit is frozen true.** `availability_source_agent_id` is empty, so
       per the v1.4.45 upgrade note the canonical `is_available` is never updated for a device
       covered only by an all-agents group. The agent's correct `false` never lands.
