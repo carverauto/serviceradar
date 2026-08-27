@@ -4,7 +4,7 @@ defmodule ServiceRadar.EventWriter.Processors.AnomalyEpisodeRegistryDbTest do
   # pre-encoded binary stored `last_payload` as a JSONB string scalar that Ash
   # could not load as :map (crashing every AnomalyEpisode read). The pure
   # registry test stubs the repo and cannot catch parameter-encoding bugs.
-  use ServiceRadar.DataCase, async: false
+  use ServiceRadar.DataCase, async: true
 
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.EventWriter.Processors.AnalyticsSignals

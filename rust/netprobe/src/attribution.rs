@@ -2464,9 +2464,10 @@ fn flow_attribution_event(
         endpoints(&flow.flow, flow.pid.local_endpoint)?;
     // Never emit process name without a userspace pid. Kernel idle/softirq
     // paths previously produced comm=swapper/* with pid=0 ("Unmatched" rows).
-    let process = flow.process.as_ref().filter(|details| {
-        details.pid != 0 && details.tgid != 0 && !details.comm.is_empty()
-    });
+    let process = flow
+        .process
+        .as_ref()
+        .filter(|details| details.pid != 0 && details.tgid != 0 && !details.comm.is_empty());
     let has_process = process.is_some() && flow.pid.pid != 0 && flow.pid.tgid != 0;
 
     Some(FlowAttributionEvent {
@@ -2789,8 +2790,8 @@ mod tests {
         AF_INET, AttributedFlow, FLOW_ENDPOINT_B, FlowPidRecord, IPPROTO_TCP, IPPROTO_UDP,
         ProcessDetails, ProcessInfoRecord, ProcfsEnricher, REDACTED_CMDLINE_MAX_BYTES,
         cap_redacted_cmdline, comm_from_bytes, container_id, flow_attribution_event,
-        is_userspace_process, likely_service_side_tuple, preferred_process_owner,
-        redacted_cmdline, trim_to_utf8_boundary,
+        is_userspace_process, likely_service_side_tuple, preferred_process_owner, redacted_cmdline,
+        trim_to_utf8_boundary,
     };
     #[cfg(target_os = "linux")]
     use super::{
@@ -3781,7 +3782,11 @@ mod tests {
         let app = root.path().join("99");
         fs::create_dir_all(&app).unwrap();
         fs::write(app.join("comm"), "gitea\n").unwrap();
-        fs::write(app.join("status"), "Name:\tgitea\nPid:\t99\nVmSize:\t1234 kB\n").unwrap();
+        fs::write(
+            app.join("status"),
+            "Name:\tgitea\nPid:\t99\nVmSize:\t1234 kB\n",
+        )
+        .unwrap();
         std::os::unix::fs::symlink("/usr/bin/gitea", app.join("exe")).unwrap();
         assert!(is_userspace_process(root.path(), 99));
     }
@@ -3827,7 +3832,10 @@ mod tests {
         let event = flow_attribution_event(&flow, 1).unwrap();
         assert_eq!(event.pid, 0);
         assert_eq!(event.tgid, 0);
-        assert!(event.comm.is_empty(), "must not emit kernel comm without pid");
+        assert!(
+            event.comm.is_empty(),
+            "must not emit kernel comm without pid"
+        );
     }
 
     #[test]
@@ -3905,8 +3913,7 @@ mod tests {
         .unwrap();
         std::os::unix::fs::symlink("socket:[4242]", app_dir.join("fd/3")).unwrap();
 
-        let snapshot =
-            ProcfsEnricher::with_root(root.path()).process_snapshot(&HashMap::new(), 1);
+        let snapshot = ProcfsEnricher::with_root(root.path()).process_snapshot(&HashMap::new(), 1);
 
         assert_eq!(snapshot.entries.len(), 1);
         assert_eq!(snapshot.entries[0].pid, 99);

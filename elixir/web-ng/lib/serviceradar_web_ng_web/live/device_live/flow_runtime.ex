@@ -9,6 +9,12 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.FlowRuntime do
   alias ServiceRadarWebNGWeb.DeviceLive.FlowIpEnrichment
   alias ServiceRadarWebNGWeb.DeviceLive.QueryData
 
+  # Interactive flow reloads run in the LiveView process itself, so an
+  # unguarded Task.async child crash here kills the page outright. Everything
+  # goes through DeviceTaskData, which runs the batch unlinked and bounded.
+  @slow_flow_task_ms 1_500
+  @flow_reload_timeout_ms 15_000
+
   @allowed_flow_filter_fields ~w(
     src_endpoint_ip dst_endpoint_ip dst_endpoint_port protocol_name
     protocol_group protocol_num proto direction_label dst_service_label app sampler_address
@@ -26,10 +32,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.FlowRuntime do
     query = "#{base} sort:time:desc"
     opts = %{scope: scope, limit: flows_limit, cursor: nil}
 
-    flows_task = Task.async(fn -> {:flows, FlowData.load_zoomed_flows(srql_mod, query, opts)} end)
-    stats_task = Task.async(fn -> {:stats, FlowData.load_device_flow_stats(srql_mod, uid, scope, base)} end)
-
-    results = DeviceTaskData.yield_many([flows_task, stats_task], 15_000)
+    results = run_flow_reload(srql_mod, query, opts, uid, scope, base)
 
     srql = socket.assigns.srql |> Map.put(:query, base) |> Map.put(:draft, base)
 
@@ -99,25 +102,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.FlowRuntime do
       query = "#{zoomed_base} sort:time:desc"
       opts = %{scope: scope, limit: flows_limit, cursor: nil}
 
-      flows_task =
-        Task.async(fn ->
-          try do
-            {:flows, FlowData.load_zoomed_flows(srql_mod, query, opts)}
-          rescue
-            _ -> {:flows, {[], %{}, "Failed to load flows for selected range"}}
-          end
-        end)
-
-      stats_task =
-        Task.async(fn ->
-          try do
-            {:stats, FlowData.load_device_flow_stats(srql_mod, uid, scope, zoomed_base)}
-          rescue
-            _ -> {:stats, FlowData.empty_flow_stats_bundle()}
-          end
-        end)
-
-      results = DeviceTaskData.yield_many([flows_task, stats_task], 15_000)
+      results = run_flow_reload(srql_mod, query, opts, uid, scope, zoomed_base)
       srql = socket.assigns.srql |> Map.put(:query, zoomed_base) |> Map.put(:draft, zoomed_base)
 
       socket
@@ -138,10 +123,18 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.FlowRuntime do
     uid = socket.assigns.device_uid
     scope = socket.assigns.current_scope
 
-    flows_task = Task.async(fn -> {:flows, FlowData.load_flows(srql_mod, uid, scope, nil, flows_limit)} end)
-    stats_task = Task.async(fn -> {:stats, FlowData.load_device_flow_stats(srql_mod, uid, scope)} end)
-
-    results = DeviceTaskData.yield_many([flows_task, stats_task], 15_000)
+    results =
+      DeviceTaskData.run(
+        [
+          DeviceTaskData.spec(@slow_flow_task_ms, :flows, fn ->
+            FlowData.load_flows(srql_mod, uid, scope, nil, flows_limit)
+          end),
+          DeviceTaskData.spec(@slow_flow_task_ms, :stats, fn ->
+            FlowData.load_device_flow_stats(srql_mod, uid, scope)
+          end)
+        ],
+        @flow_reload_timeout_ms
+      )
 
     default_query = QueryData.default_flows_query(uid)
     srql = socket.assigns.srql |> Map.put(:query, default_query) |> Map.put(:draft, default_query)
@@ -238,18 +231,33 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.FlowRuntime do
     query = "#{base} sort:time:desc"
     opts = %{scope: scope, limit: flows_limit, cursor: nil}
 
-    flows_task = Task.async(fn -> {:flows, FlowData.load_zoomed_flows(srql_mod, query, opts)} end)
-    stats_task = Task.async(fn -> {:stats, FlowData.load_device_flow_stats(srql_mod, uid, scope, base)} end)
-
-    results = DeviceTaskData.yield_many([flows_task, stats_task], 15_000)
+    results = run_flow_reload(srql_mod, query, opts, uid, scope, base)
 
     socket
     |> assign_flow_results(results)
     |> FlowIpEnrichment.enrich_socket()
   end
 
+  defp run_flow_reload(srql_mod, query, opts, uid, scope, base) do
+    DeviceTaskData.run(
+      [
+        DeviceTaskData.spec(@slow_flow_task_ms, :flows, fn ->
+          FlowData.load_zoomed_flows(srql_mod, query, opts)
+        end),
+        DeviceTaskData.spec(@slow_flow_task_ms, :stats, fn ->
+          FlowData.load_device_flow_stats(srql_mod, uid, scope, base)
+        end)
+      ],
+      @flow_reload_timeout_ms
+    )
+  end
+
   defp assign_flow_results(socket, results) do
-    {flows, pagination, flows_error} = Map.get(results, :flows, {[], %{}, nil})
+    # Every caller of this function fills :flows from DeviceTaskData.run/3, so a
+    # missing key means that load crashed or ran out of budget. Say so instead
+    # of rendering an empty table that looks like "this device has no flows".
+    {flows, pagination, flows_error} =
+      Map.get(results, :flows, {[], %{}, "Failed to load flows for the selected range"})
 
     {flow_stats, sparkline_json, proto_json, chart_keys, chart_points, top_talkers_json, top_destinations_json,
      top_peers_json, top_ports_json, top_protocols_json, facet_data} =

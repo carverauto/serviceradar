@@ -137,7 +137,7 @@ must not receive them.
 ### 7. Replica placement before cutover
 
 `srql-fixture-2` cannot pull
-`registry.carverauto.dev/serviceradar/serviceradar-cnpg:18.4.0-sr4@sha256:e54ee02582dbb2584388c03837911c1b1cb185cea92d60d2be7a08102b5a7910`
+`registry.carverauto.dev/serviceradar/serviceradar-cnpg:18.4.0-sr4@sha256:59e442dec59fac3149e3a3c49ba0cc2987bfb052bca1a0ea8c01b4bb31427d1d`
 on `k8s-cp3-worker3` (the same node the BB fleets already exclude). Reloading TLS on a 1/2
 Not Ready cluster is an unnecessary outage risk. Add affinity/tolerations so both instances
 land on nodes that can pull Harbor, and wait for `Ready=True` before switching

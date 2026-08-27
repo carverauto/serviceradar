@@ -585,8 +585,39 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyProjectionContractTest do
   end
 
   describe "pruning policy gates" do
-    test "stale projected-link pruning is disabled by default" do
-      assert TopologyGraph.prune_stale_projected_links_enabled?() == false
+    test "stale projected-link pruning is ENABLED by default" do
+      # Flipped deliberately. Shipped off, a topology edge was asserted as
+      # current forever: one deployment served 14-day-old links from a discovery
+      # job that had been deleted, and an operator's only recourse was a manual
+      # purge of the graph.
+      #
+      # A topology edge is a claim about how the network is wired NOW, and the
+      # only thing keeping it true is re-observation. Off-by-default made the
+      # map state its last known guess with no expiry.
+      #
+      # Safe to default on because the window is derived from the discovery
+      # interval rather than a wall clock -- see
+      # TopologyGraph.Utils.derive_stale_minutes/2. An operator can still pin a
+      # fixed window with :mapper_topology_edge_stale_minutes, or set the flag
+      # to false outright.
+      assert TopologyGraph.prune_stale_projected_links_enabled?() == true
+    end
+
+    test "an explicit false still disables it" do
+      Application.put_env(
+        :serviceradar_core,
+        :mapper_topology_prune_stale_projected_links_enabled,
+        false
+      )
+
+      on_exit(fn ->
+        Application.delete_env(
+          :serviceradar_core,
+          :mapper_topology_prune_stale_projected_links_enabled
+        )
+      end)
+
+      refute TopologyGraph.prune_stale_projected_links_enabled?()
     end
   end
 

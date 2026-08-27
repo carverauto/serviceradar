@@ -891,6 +891,26 @@ func (p *PushLoop) reconcileStagedSystemdUnits(
 		return false
 	}
 
+	// Relabel here, in the agent, and not only inside the root-owned updater.
+	//
+	// The agent self-updates (the packaged /usr/local/bin/serviceradar-agent is a shim
+	// that execs the staged release), but serviceradar-agent-updater is a setuid-root
+	// binary owned by the RPM and is NEVER replaced by a release activation. A host
+	// that has self-updated for months still runs whatever updater its original package
+	// shipped, so a privileged fix added to the updater simply never arrives: hosts in
+	// the field were still on the pre-1.4.39 updater, whose install path has no relabel
+	// at all, leaving every staged binary var_lib_t and every start at 203/EXEC.
+	//
+	// The agent's own uid owns the staged tree and can relabel it, so doing it here
+	// makes the fix travel with the component that actually updates. The updater still
+	// relabels too when it is new enough; chcon is idempotent and both calls are
+	// best-effort, so this is additive, never a regression on a host without SELinux.
+	relabel := p.relabelStagedAddonExecutables
+	if relabel == nil {
+		relabel = relabelStagedAddonExecutables
+	}
+	relabel(runtimeRoot, a.GetAddonId())
+
 	if err := install(ctx, a.GetAddonId(), units, enable, addonResourcesFromProto(a.GetResources())); err != nil {
 		rollback("failed to install systemd add-on units; rolled back", err)
 		return false

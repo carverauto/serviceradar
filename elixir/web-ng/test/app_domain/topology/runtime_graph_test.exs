@@ -107,6 +107,19 @@ defmodule ServiceRadarWebNG.Topology.RuntimeGraphTest do
     assert query =~ "'confidence_reason', 'authoritative_virtualization_inventory'"
     assert query =~ "'virtualization_provider', h.provider"
     assert query =~ "'virtualization_guest_vmid', g.vmid"
+
+    # Guests can tie on timestamps and device ids, so the unique provider identity must be
+    # complete before LIMIT rather than leaving provider_ref ambiguous across providers.
+    assert [
+             "COALESCE(g.observed_at, h.observed_at, g.updated_at, h.updated_at) DESC",
+             "h.device_uid ASC",
+             "g.device_uid ASC",
+             "h.provider ASC",
+             "h.provider_ref ASC",
+             "g.provider ASC",
+             "g.provider_ref ASC"
+           ] = bounded_order_keys(query)
+
     assert query =~ "LIMIT $1"
   end
 
@@ -271,7 +284,7 @@ defmodule ServiceRadarWebNG.Topology.RuntimeGraphTest do
     refute RuntimeGraph.attachment_runtime_row?(inferred_row)
   end
 
-  test "prioritize_runtime_rows/1 keeps backbone rows first and bounds attachment rows" do
+  test "prioritize_runtime_rows/1 keeps backbone and inferred-segment rows first and bounds each row class" do
     backbone_rows =
       Enum.map(1..5_010, fn idx ->
         %{
@@ -292,15 +305,89 @@ defmodule ServiceRadarWebNG.Topology.RuntimeGraphTest do
         }
       end)
 
-    prioritized = RuntimeGraph.prioritize_runtime_rows(backbone_rows ++ attachment_rows)
+    inferred_segment_rows =
+      Enum.map(1..2_010, fn idx ->
+        %{
+          local_device_id: "sr:inferred-segment-#{idx}",
+          neighbor_device_id: "sr:inferred-segment-peer-#{idx}",
+          evidence_class: "inferred-segment",
+          metadata: %{"relation_type" => "ATTACHED_TO"}
+        }
+      end)
 
-    assert length(prioritized) == 7_000
+    prioritized =
+      RuntimeGraph.prioritize_runtime_rows(backbone_rows ++ attachment_rows ++ inferred_segment_rows)
+
+    assert length(prioritized) == 9_000
     assert Enum.count(prioritized, &RuntimeGraph.backbone_runtime_row?/1) == 5_000
-    assert Enum.count(prioritized, &RuntimeGraph.attachment_runtime_row?/1) == 2_000
+    assert Enum.count(prioritized, &RuntimeGraph.attachment_runtime_row?/1) == 4_000
 
-    assert Enum.take(prioritized, 3) == Enum.take(backbone_rows, 3)
-    assert Enum.at(prioritized, 4_999) == Enum.at(backbone_rows, 4_999)
-    assert Enum.at(prioritized, 5_000) == hd(attachment_rows)
+    assert Enum.count(prioritized, &(Map.get(&1, :evidence_class) == "inferred-segment")) ==
+             2_000
+
+    assert Enum.count(prioritized, &(Map.get(&1, :evidence_class) == "endpoint-attachment")) ==
+             2_000
+
+    assert Enum.all?(Enum.take(prioritized, 5_000), &RuntimeGraph.backbone_runtime_row?/1)
+
+    assert Enum.all?(
+             Enum.slice(prioritized, 5_000, 2_000),
+             &(Map.get(&1, :evidence_class) == "inferred-segment")
+           )
+
+    assert Enum.all?(
+             Enum.slice(prioritized, 7_000, 2_000),
+             &(Map.get(&1, :evidence_class) == "endpoint-attachment")
+           )
+  end
+
+  test "prioritize_runtime_rows/1 preserves the sole inferred-segment row outside a full ordinary attachment budget" do
+    attachment_rows =
+      Enum.map(1..2_000, fn idx ->
+        %{
+          local_device_id: "sr:attachment-#{idx}",
+          neighbor_device_id: "sr:endpoint-#{idx}",
+          evidence_class: "endpoint-attachment",
+          metadata: %{"relation_type" => "ATTACHED_TO"}
+        }
+      end)
+
+    inferred_segment_row = %{
+      local_device_id: "sr:inferred-segment",
+      neighbor_device_id: "sr:inferred-segment-peer",
+      evidence_class: "inferred-segment",
+      metadata: %{"relation_type" => "ATTACHED_TO"}
+    }
+
+    prioritized =
+      RuntimeGraph.prioritize_runtime_rows(attachment_rows ++ [inferred_segment_row])
+
+    assert hd(prioritized) == inferred_segment_row
+    assert MapSet.new(tl(prioritized)) == MapSet.new(attachment_rows)
+  end
+
+  test "prioritize_runtime_rows/1 chooses the same bounded rows across input permutations" do
+    backbone_rows =
+      quota_rows(5_001, "backbone", "direct", "CONNECTS_TO")
+
+    inferred_segment_rows =
+      quota_rows(2_001, "inferred", "inferred-segment", "ATTACHED_TO")
+
+    attachment_rows =
+      quota_rows(2_001, "attachment", "endpoint-attachment", "ATTACHED_TO")
+
+    rows = backbone_rows ++ inferred_segment_rows ++ attachment_rows
+    rotated_rows = Enum.drop(rows, 3_137) ++ Enum.take(rows, 3_137)
+
+    forward = RuntimeGraph.prioritize_runtime_rows(rows)
+    reversed = RuntimeGraph.prioritize_runtime_rows(Enum.reverse(rows))
+    rotated = RuntimeGraph.prioritize_runtime_rows(rotated_rows)
+
+    assert runtime_row_identities(forward) == runtime_row_identities(reversed)
+    assert runtime_row_identities(forward) == runtime_row_identities(rotated)
+    assert length(forward) == 9_000
+
+    refute Enum.any?(forward, &(&1.local_device_id == "sr:inferred-02001"))
   end
 
   test "refresh_due?/2 throttles repeated refresh attempts" do
@@ -318,5 +405,45 @@ defmodule ServiceRadarWebNG.Topology.RuntimeGraphTest do
              %{last_refresh_started_at_ms: 1_000, min_refresh_ms: 30_000},
              31_000
            )
+  end
+
+  defp quota_rows(count, prefix, evidence_class, relation_type) do
+    Enum.map(1..count, fn idx ->
+      suffix = idx |> Integer.to_string() |> String.pad_leading(5, "0")
+
+      %{
+        local_device_id: "sr:#{prefix}-#{suffix}",
+        neighbor_device_id: "sr:#{prefix}-peer-#{suffix}",
+        local_if_name: "if-#{suffix}",
+        local_if_index: idx,
+        neighbor_if_name: "peer-if-#{suffix}",
+        neighbor_if_index: idx + 10_000,
+        protocol: "test",
+        evidence_class: evidence_class,
+        metadata: %{"relation_type" => relation_type}
+      }
+    end)
+  end
+
+  defp runtime_row_identities(rows) do
+    Enum.map(rows, fn row ->
+      {
+        row.local_device_id,
+        row.neighbor_device_id,
+        row.evidence_class,
+        row.metadata["relation_type"],
+        row.local_if_index,
+        row.neighbor_if_index
+      }
+    end)
+  end
+
+  defp bounded_order_keys(query) do
+    [_prefix, bounded_query] = String.split(query, "ORDER BY ", parts: 2)
+    [order_keys, _rest] = String.split(bounded_query, ~r/\n\s*LIMIT /, parts: 2)
+
+    order_keys
+    |> String.split(~r/,\s*\n/)
+    |> Enum.map(&String.trim/1)
   end
 end

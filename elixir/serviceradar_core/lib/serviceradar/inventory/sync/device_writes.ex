@@ -155,11 +155,86 @@ defmodule ServiceRadar.Inventory.Sync.DeviceWrites do
   defp insert_devices(records, update_query, false) do
     Repo.insert_all(
       Device,
-      records,
+      jsonb_safe(records),
       on_conflict: update_query,
       conflict_target: [:uid]
     )
   end
+
+  # Last line of defence before anything reaches a jsonb column.
+  #
+  # A single unencodable byte anywhere in one device's metadata fails the ENTIRE
+  # batch, not just that row -- insert_all is one statement, and the encode
+  # happens while building it. That amplification is the actual damage: farm01
+  # lost every sync batch (87 devices at a time) to one bad value, for hours.
+  #
+  # The known source was a raw 16-byte uuid: Postgrex returns `uuid` columns as
+  # raw binaries, which satisfy is_binary/1 and therefore sail through code that
+  # reasonably assumes a binary is text. That specific producer is fixed in
+  # mac_vendor.ex, but it is one of many places a uuid can be read and stashed in
+  # metadata, and this has now taken farm01 down twice. Fixing producers one at a
+  # time treats instances; refusing to hand unencodable bytes to the writer
+  # closes the class.
+  #
+  # Repair beats reject: a 16-byte binary is almost certainly a uuid, so it is
+  # cast to its printable form and the value is preserved. Anything else
+  # unencodable is dropped, because a device that lands with one missing metadata
+  # key is strictly better than a batch that does not land at all. Both paths log
+  # with the uid and key so the producer is still findable -- silently discarding
+  # data here would trade an outage for a mystery.
+  def jsonb_safe(records) when is_list(records) do
+    Enum.map(records, &jsonb_safe_record/1)
+  end
+
+  defp jsonb_safe_record(%{metadata: metadata} = record) when is_map(metadata) do
+    case sanitize_jsonb_map(metadata, record) do
+      ^metadata -> record
+      sanitized -> %{record | metadata: sanitized}
+    end
+  end
+
+  defp jsonb_safe_record(record), do: record
+
+  defp sanitize_jsonb_map(metadata, record) do
+    Enum.reduce(metadata, metadata, fn {key, value}, acc ->
+      case sanitize_jsonb_value(value) do
+        :ok ->
+          acc
+
+        {:repaired, repaired} ->
+          Logger.warning(
+            "Repaired unencodable metadata value: uid=#{inspect(record[:uid])} key=#{inspect(key)} -> #{inspect(repaired)}"
+          )
+
+          Map.put(acc, key, repaired)
+
+        :drop ->
+          Logger.warning(
+            "Dropped unencodable metadata value: uid=#{inspect(record[:uid])} key=#{inspect(key)} bytes=#{inspect(value, limit: 8)}"
+          )
+
+          Map.delete(acc, key)
+      end
+    end)
+  end
+
+  # Only binaries can carry bytes that are valid Erlang terms but invalid JSON
+  # text; numbers, booleans, atoms and nil are always encodable. Nested maps and
+  # lists are left alone deliberately -- metadata is flat in every writer here,
+  # and walking arbitrary depth on every row of every batch is a cost paid on the
+  # hot path to guard a shape that does not occur.
+  defp sanitize_jsonb_value(value) when is_binary(value) do
+    if String.valid?(value) do
+      :ok
+    else
+      case Ecto.UUID.cast(value) do
+        {:ok, uuid} -> {:repaired, uuid}
+        :error -> :drop
+      end
+    end
+  end
+
+  defp sanitize_jsonb_value(_value), do: :ok
 
   # Lock the sorted union of release-owner UIDs *and* prepared-record UIDs that
   # already exist, then clear released (uid, ip) pairs set-wise. Locking only
@@ -686,15 +761,46 @@ defmodule ServiceRadar.Inventory.Sync.DeviceWrites do
           # clear to NULL (vacates ocsf_devices_unique_active_ip_idx). A bare
           # COALESCE would treat '' as present and store empty strings, which
           # diverged from the release classifier and broke blank-IP handoffs.
+          #
+          # The rank guard is NEVER-DOWNGRADE, deliberately not "only promote".
+          # An equal-ranked address must still win, because that is a host
+          # genuinely changing address (192.168.2.243 -> 192.168.1.171) and
+          # refusing it would freeze every device at its first address. What it
+          # blocks is a WORSE address overwriting a good one: an NDP census
+          # sighting carries a `fe80::` link-local, and before this guard that
+          # silently replaced a routable primary -- 25 of 126 live devices on one
+          # deployment (GitHub #3905).
+          #
+          # A device whose only known address is link-local keeps it: its current
+          # rank is then equal, not higher, so the incoming value still applies.
+          #
+          # LEAST(rank, 40) collapses global and private into ONE routable tier
+          # for this comparison. Both are legitimate primary addresses, and a
+          # host re-addressed from a public to an RFC1918 address is a real move,
+          # not noise -- comparing the fine-grained ranks would refuse it and
+          # freeze the device on a stale public address. The finer ranking still
+          # applies where it belongs, in Identity.Address.best/1, which chooses
+          # among addresses known at the SAME time.
+          #
+          # What stays blocked is what this guard is for: ULA (30) and link-local
+          # (20) cannot overwrite anything routable, and nothing can overwrite
+          # with an address that is never a primary (0).
           ip:
             fragment(
               """
               CASE
                 WHEN EXCLUDED.ip IS NULL THEN ?
                 WHEN btrim(EXCLUDED.ip) = '' THEN NULL
-                ELSE EXCLUDED.ip
+                WHEN ? IS NULL THEN EXCLUDED.ip
+                WHEN LEAST(platform.sr_address_rank(EXCLUDED.ip), 40)
+                     >= LEAST(platform.sr_address_rank(?), 40)
+                  THEN EXCLUDED.ip
+                ELSE ?
               END
               """,
+              d.ip,
+              d.ip,
+              d.ip,
               d.ip
             ),
           mac: fragment("COALESCE(EXCLUDED.mac, ?)", d.mac),
@@ -731,7 +837,7 @@ defmodule ServiceRadar.Inventory.Sync.DeviceWrites do
           owner: fragment("COALESCE(EXCLUDED.owner, ?)", d.owner),
           metadata:
             fragment(
-              "(COALESCE(?, '{}'::jsonb) - 'classification_source' - 'classification_rule_id' - 'classification_confidence' - 'classification_reason') || COALESCE(EXCLUDED.metadata, '{}'::jsonb)",
+              "(COALESCE(?, '{}'::jsonb) - 'classification_source' - 'classification_rule_id' - 'classification_confidence' - 'classification_reason' - 'mac_vendor' - 'mac_vendor_source' - 'mac_vendor_oui_prefix' - 'mac_vendor_oui_snapshot_id') || COALESCE(EXCLUDED.metadata, '{}'::jsonb)",
               d.metadata
             ),
           deleted_at: nil,

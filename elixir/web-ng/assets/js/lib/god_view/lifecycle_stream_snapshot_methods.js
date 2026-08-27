@@ -1,10 +1,85 @@
 import {formatEdgeClassStatus} from "./topology_class_stats"
 
+function captureTopologyRenderState(state) {
+  return {
+    values: {
+      hasAutoFit: state.hasAutoFit,
+      hoveredEdgeKey: state.hoveredEdgeKey,
+      isProgrammaticViewUpdate: state.isProgrammaticViewUpdate,
+      lastDetailsHtml: state.lastDetailsHtml,
+      lastGraph: state.lastGraph,
+      lastGraphLayerFrame: state.lastGraphLayerFrame,
+      lastLayoutKey: state.lastLayoutKey,
+      lastVisibleEdgeCount: state.lastVisibleEdgeCount,
+      lastVisibleNodeCount: state.lastVisibleNodeCount,
+      layoutMode: state.layoutMode,
+      layoutRevision: state.layoutRevision,
+      managedTopologyDensityConstraintsCache: state.managedTopologyDensityConstraintsCache,
+      managedTopologyDensityConstraintsLayoutCache: state.managedTopologyDensityConstraintsLayoutCache,
+      managedTopologySceneForMinZoom: state.managedTopologySceneForMinZoom,
+      managedTopologySceneMinZoom: state.managedTopologySceneMinZoom,
+      managedTopologySceneMinZoomKey: state.managedTopologySceneMinZoomKey,
+      managedTopologyVisualDensity: state.managedTopologyVisualDensity,
+      packetFlowCache: state.packetFlowCache,
+      packetFlowCacheStamp: state.packetFlowCacheStamp,
+      pendingClusterFocus: state.pendingClusterFocus,
+      pendingViewportProfileKey: state.pendingViewportProfileKey,
+      selectedEdgeKey: state.selectedEdgeKey,
+      topologyLabelDetailsFallbackIds: state.topologyLabelDetailsFallbackIds,
+      topologyRouteDiagnostics: state.topologyRouteDiagnostics,
+      viewState: state.viewState,
+      viewportProfileKey: state.viewportProfileKey,
+      wasmReady: state.wasmReady,
+      zoomTier: state.zoomTier,
+    },
+    layersAtmosphere: state.layers?.atmosphere,
+    traversalMaskBuffer: state.traversalMaskBuffer,
+    traversalMaskContents: state.traversalMaskBuffer?.slice?.(),
+    visibilityMaskBuffer: state.visibilityMaskBuffer,
+    visibilityMaskContents: state.visibilityMaskBuffer?.slice?.(),
+  }
+}
+
+function restoreTopologyRenderState(state, captured) {
+  Object.assign(state, captured.values)
+  if (state.layers && captured.layersAtmosphere !== undefined) {
+    state.layers.atmosphere = captured.layersAtmosphere
+  }
+  if (captured.traversalMaskBuffer && captured.traversalMaskContents) {
+    captured.traversalMaskBuffer.set(captured.traversalMaskContents)
+  }
+  if (captured.visibilityMaskBuffer && captured.visibilityMaskContents) {
+    captured.visibilityMaskBuffer.set(captured.visibilityMaskContents)
+  }
+  state.traversalMaskBuffer = captured.traversalMaskBuffer
+  state.visibilityMaskBuffer = captured.visibilityMaskBuffer
+}
+
+function restoreLastGoodRender(context, captured) {
+  restoreTopologyRenderState(context.state, captured)
+  try {
+    if (captured.values.lastGraph) context.deps.renderGraph?.(captured.values.lastGraph)
+  } catch (_restoreError) {
+    // Preserve the original render failure; the accepted state is restored below.
+  }
+  restoreTopologyRenderState(context.state, captured)
+  try {
+    if (captured.values.viewState) {
+      context.state.deck?.setProps?.({viewState: captured.values.viewState})
+    }
+  } catch (_restoreError) {
+    // A failed best-effort camera restore must not replace the original error.
+  }
+  restoreTopologyRenderState(context.state, captured)
+}
+
 export const godViewLifecycleStreamSnapshotMethods = {
   async handleSnapshot(msg) {
     const startedAt = performance.now()
     const requestToken = Number(this.state.layoutRequestToken || 0) + 1
     this.state.layoutRequestToken = requestToken
+    this.state.latestSnapshotLayoutToken = requestToken
+    this.state.pendingSnapshotLayoutToken = requestToken
 
     try {
       const snapshot = this.parseSnapshotMessage(msg)
@@ -16,27 +91,57 @@ export const godViewLifecycleStreamSnapshotMethods = {
       const decodeStart = performance.now()
       const rawGraph = this.deps.decodeArrowGraph(bytes)
       const topologyStamp = this.deps.graphTopologyStamp(rawGraph)
-      const graph = await this.deps.prepareGraphLayout(rawGraph, revision, topologyStamp)
-      if (requestToken !== this.state.layoutRequestToken) return
+      const graph = await this.deps.prepareGraphLayout(
+        rawGraph,
+        revision,
+        topologyStamp,
+        {commit: false},
+      )
+      if (requestToken !== this.state.latestSnapshotLayoutToken) return
+      const unrecoverableLayoutError =
+        graph?._layoutMode === "elk-scene-error" ||
+        (graph?._layoutError && !graph?._topologyScene)
+      if (unrecoverableLayoutError) {
+        const message = `${graph?._layoutError || "ELK layout unavailable"}`
+        this.state.summary.textContent = "topology layout unavailable"
+        this.state.pushEvent("god_view_stream_error", {reason: "layout_error", message})
+        return
+      }
       const decodeMs = Math.round((performance.now() - decodeStart) * 100) / 100
       const bitmapMetadata = this.deps.ensureBitmapMetadata(snapshot.bitmapMetadata, graph.nodes)
 
       const renderStart = performance.now()
       const previousGraph = this.state.lastGraph
       const topologyUnchanged = this.deps.sameTopology(previousGraph, graph, topologyStamp, revision)
-      if (!topologyUnchanged && !this.state.userCameraLocked) {
-        this.state.hasAutoFit = false
-      }
-      this.state.lastGraph = graph
-      if (topologyUnchanged) {
-        this.deps.renderGraph(graph)
-      } else {
-        this.deps.animateTransition(previousGraph, graph)
-      }
-      const pendingClusterFocus = this.state.pendingClusterFocus
-      if (pendingClusterFocus?.expanded === true) {
-        const focused = this.deps.focusClusterNeighborhood(graph, pendingClusterFocus.clusterId)
-        if (focused) this.state.pendingClusterFocus = null
+      const graphProfileKey = graph._topologyScene?.profileKey
+      const previousAcceptanceState = captureTopologyRenderState(this.state)
+      try {
+        if (!topologyUnchanged && !this.state.userCameraLocked) {
+          this.state.hasAutoFit = false
+        }
+        this.state.layoutMode = graph._layoutMode
+        this.state.layoutRevision = revision
+        this.state.lastLayoutKey = graph._layoutCacheKey ?? null
+        this.state.viewportProfileKey = graphProfileKey || this.state.viewportProfileKey
+        if (!this.state.pendingViewportProfileKey || this.state.pendingViewportProfileKey === graphProfileKey) {
+          this.state.pendingViewportProfileKey = null
+        }
+        this.state.lastGraph = graph
+        if (topologyUnchanged) {
+          this.deps.renderGraph(graph)
+        } else {
+          this.deps.animateTransition(previousGraph, graph)
+        }
+        const pendingClusterFocus = this.state.pendingClusterFocus
+        if (pendingClusterFocus?.expanded === true) {
+          const focused = this.deps.focusClusterNeighborhood(graph, pendingClusterFocus.clusterId)
+          if (focused) this.state.pendingClusterFocus = null
+        }
+      } catch (error) {
+        restoreLastGoodRender(this, previousAcceptanceState)
+        this.state.summary.textContent = "topology render unavailable"
+        this.state.pushEvent("god_view_stream_error", {reason: "render_error", message: `${error}`})
+        return
       }
       this.state.lastRevision = revision
       this.state.lastTopologyStamp = topologyStamp
@@ -50,6 +155,13 @@ export const godViewLifecycleStreamSnapshotMethods = {
         `${this.state.selectedNodeIndex === null ? "none" : this.state.selectedNodeIndex} visible=` +
         `${visibleNodeCount}/${graph.nodes.length} rendered_edges=${visibleEdgeCount} layout=${graph._layoutMode || "unknown"}` +
         (edgeClassStatus ? ` ${edgeClassStatus}` : "")
+      if (graph?._layoutError && graph?._topologyScene) {
+        this.state.pushEvent("god_view_stream_error", {
+          reason: "layout_error",
+          message: `${graph._layoutError}`,
+          reused_last_good: true,
+        })
+      }
       const renderMs = Math.round((performance.now() - renderStart) * 100) / 100
       const networkMs = Math.round((performance.now() - startedAt) * 100) / 100
 
@@ -71,9 +183,25 @@ export const godViewLifecycleStreamSnapshotMethods = {
         render_ms: renderMs,
         pipeline_stats: this.deps.normalizePipelineStats(this.state.lastPipelineStats),
       })
+      const pendingProfileKey = this.state.pendingViewportProfileKey
+      if (
+        pendingProfileKey &&
+        pendingProfileKey !== graphProfileKey &&
+        typeof this.requestTopologyProfileLayout === "function"
+      ) {
+        globalThis.queueMicrotask(() => {
+          if (this.state.lastGraph !== graph || this.state.pendingViewportProfileKey !== pendingProfileKey) return
+          void this.requestTopologyProfileLayout(graph, pendingProfileKey)
+        })
+      }
     } catch (error) {
+      if (requestToken !== this.state.latestSnapshotLayoutToken) return
       this.state.summary.textContent = "snapshot decode failed"
       this.state.pushEvent("god_view_stream_error", {reason: "decode_error", message: `${error}`})
+    } finally {
+      if (this.state.pendingSnapshotLayoutToken === requestToken) {
+        this.state.pendingSnapshotLayoutToken = null
+      }
     }
   },
   parseSnapshotMessage(msg) {

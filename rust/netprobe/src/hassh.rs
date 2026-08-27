@@ -252,8 +252,8 @@ fn read_name_list(payload: &[u8], cursor: &mut usize) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::{
-        canonical_client_string, canonical_server_string, fingerprint_client, fingerprint_server,
-        fingerprint_ssh_kexinit, parse_ssh_kexinit, SshKexInit,
+        SshKexInit, canonical_client_string, canonical_server_string, fingerprint_client,
+        fingerprint_server, fingerprint_ssh_kexinit, parse_ssh_kexinit,
     };
 
     const CYBERDUCK_KEX: &str = "curve25519-sha256@libssh.org,diffie-hellman-group-exchange-sha256,ecdh-sha2-nistp521,ecdh-sha2-nistp384,ecdh-sha2-nistp256,diffie-hellman-group-exchange-sha1,diffie-hellman-group1-sha1,diffie-hellman-group14-sha1,diffie-hellman-group14-sha256,diffie-hellman-group15-sha512,diffie-hellman-group16-sha512,diffie-hellman-group17-sha512,diffie-hellman-group18-sha512,diffie-hellman-group14-sha256@ssh.com,diffie-hellman-group15-sha256,diffie-hellman-group15-sha256@ssh.com,diffie-hellman-group15-sha384@ssh.com,diffie-hellman-group16-sha256,diffie-hellman-group16-sha384@ssh.com,diffie-hellman-group16-sha512@ssh.com,diffie-hellman-group18-sha512@ssh.com";

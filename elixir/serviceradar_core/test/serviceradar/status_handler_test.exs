@@ -1,11 +1,11 @@
 defmodule ServiceRadar.StatusHandlerTest do
   use ExUnit.Case, async: false
 
-  alias Netprobepb.FlowAttributionEvent
-  alias Netprobepb.FlowAttributionEventBatch
   alias Serviceradar.Agent.Addon.V1.TelemetryBatch
   alias Serviceradar.Agent.Addon.V1.TelemetryRecord
   alias Serviceradar.Agent.Addon.V1.TelemetrySource
+  alias Serviceradar.Agent.Netprobe.V1.FlowAttributionEvent
+  alias Serviceradar.Agent.Netprobe.V1.FlowAttributionEventBatch
   alias ServiceRadar.Observability.CausalPredictionSubject
   alias ServiceRadar.StatusHandler
 
@@ -402,6 +402,109 @@ defmodule ServiceRadar.StatusHandlerTest do
       end)
 
       :ok
+    end
+
+    defp addon_status_with(records) do
+      %{
+        source: "addon:powerdns",
+        service_type: "native-addon",
+        service_name: "addon-telemetry",
+        agent_id: "ns03",
+        gateway_id: "gateway-a",
+        partition: "prod-east",
+        source_ip: "192.0.2.55",
+        message:
+          TelemetryBatch.encode(%TelemetryBatch{
+            source: %TelemetrySource{source_type: "powerdns", source_instance: "ns03"},
+            records: records
+          })
+      }
+    end
+
+    defp attach_unpublished_counter(name) do
+      parent = self()
+
+      :telemetry.attach(
+        name,
+        [:serviceradar, :status_handler, :addon_telemetry, :unpublished],
+        fn _event, measurements, metadata, _config ->
+          send(parent, {:unpublished, measurements, metadata})
+        end,
+        nil
+      )
+
+      on_exit(fn -> :telemetry.detach(name) end)
+    end
+
+    test "an unrecognized payload kind is dropped loudly, not silently" do
+      # This was a bare `true -> :ok`. An add-on could ship a new payload kind,
+      # have every record discarded, and the service would still report HEALTHY
+      # -- indistinguishable from an add-on that produced nothing.
+      attach_unpublished_counter("unpublished-unknown")
+
+      status =
+        addon_status_with([
+          %TelemetryRecord{
+            event_id: "unknown-1",
+            payload_kind: 4242,
+            payload: "{}"
+          }
+        ])
+
+      log =
+        ExUnit.CaptureLog.capture_log(fn ->
+          assert {:noreply, %{}} = StatusHandler.handle_cast({:status_update, status}, %{})
+        end)
+
+      assert_receive {:unpublished, %{count: 1}, %{reason: :unknown_payload_kind}}
+      assert log =~ "unrecognized payload kind"
+    end
+
+    test "SERVICERADAR_METRICS records are counted, not warned about" do
+      # The load-bearing negative control. The Rust add-on SDK sends metrics
+      # through StreamTelemetry; the gateway's PluginMetricsPublisher consumes
+      # them and the status is STILL forwarded here with those records intact.
+      # Treating them as unrecognized would log a warning per metric record from
+      # every Rust add-on in the fleet.
+      attach_unpublished_counter("unpublished-metrics")
+
+      status =
+        addon_status_with([
+          %TelemetryRecord{
+            event_id: "metric-1",
+            payload_kind: :TELEMETRY_PAYLOAD_KIND_SERVICERADAR_METRICS,
+            payload: "encoded-metric-batch"
+          }
+        ])
+
+      log =
+        ExUnit.CaptureLog.capture_log(fn ->
+          assert {:noreply, %{}} = StatusHandler.handle_cast({:status_update, status}, %{})
+        end)
+
+      assert_receive {:unpublished, %{count: 1}, %{reason: :handled_elsewhere}}
+      refute log =~ "unrecognized payload kind"
+    end
+
+    test "OTLP kinds are known-but-elsewhere, not unrecognized" do
+      # They ride AddonService.RelayOtlp rather than StreamTelemetry, so they
+      # should not appear in a batch -- but "known kind on the wrong path" and
+      # "kind core has never heard of" are different faults and the telemetry
+      # should be able to tell them apart.
+      attach_unpublished_counter("unpublished-otlp")
+
+      status =
+        addon_status_with([
+          %TelemetryRecord{
+            event_id: "otlp-1",
+            payload_kind: :TELEMETRY_PAYLOAD_KIND_OTLP_TRACES,
+            payload: "encoded-otlp"
+          }
+        ])
+
+      assert {:noreply, %{}} = StatusHandler.handle_cast({:status_update, status}, %{})
+
+      assert_receive {:unpublished, %{count: 1}, %{reason: :handled_elsewhere}}
     end
 
     test "publishes OCSF add-on telemetry records to pdns.ocsf with trusted metadata" do

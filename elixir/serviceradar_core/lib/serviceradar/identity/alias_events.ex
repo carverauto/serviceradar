@@ -27,6 +27,7 @@ defmodule ServiceRadar.Identity.AliasEvents do
       changed? = AliasEvents.alias_change_detected?(previous, current)
   """
 
+  alias ServiceRadar.Identity.AliasPolicy
   alias ServiceRadar.Identity.DeviceAliasState
   alias ServiceRadar.Inventory.Device
 
@@ -44,7 +45,8 @@ defmodule ServiceRadar.Identity.AliasEvents do
             current_service_id: String.t() | nil,
             current_ip: String.t() | nil,
             services: %{String.t() => String.t()},
-            ips: %{String.t() => String.t()}
+            ips: %{String.t() => String.t()},
+            interface_ips: %{String.t() => String.t()}
           }
 
     defstruct [
@@ -53,7 +55,8 @@ defmodule ServiceRadar.Identity.AliasEvents do
       :current_service_id,
       :current_ip,
       services: %{},
-      ips: %{}
+      ips: %{},
+      interface_ips: %{}
     ]
 
     @doc """
@@ -67,8 +70,8 @@ defmodule ServiceRadar.Identity.AliasEvents do
 
     def from_metadata(metadata) when is_map(metadata) do
       record = build_alias_record(metadata)
-      {services, ips} = build_alias_maps(metadata, record)
-      record = %{record | services: services, ips: ips}
+      {services, ips, interface_ips} = build_alias_maps(metadata, record)
+      record = %{record | services: services, ips: ips, interface_ips: interface_ips}
 
       if empty?(record), do: nil, else: record
     end
@@ -87,7 +90,8 @@ defmodule ServiceRadar.Identity.AliasEvents do
         trim_or_nil(a.current_service_id) == trim_or_nil(b.current_service_id) and
         trim_or_nil(a.current_ip) == trim_or_nil(b.current_ip) and
         maps_equal?(a.services, b.services) and
-        maps_equal?(a.ips, b.ips)
+        maps_equal?(a.ips, b.ips) and
+        maps_equal?(a.interface_ips, b.interface_ips)
     end
 
     @doc """
@@ -121,7 +125,8 @@ defmodule ServiceRadar.Identity.AliasEvents do
         current_service_id: get_trimmed(metadata, "_alias_last_seen_service_id"),
         current_ip: get_trimmed(metadata, "_alias_last_seen_ip"),
         services: %{},
-        ips: %{}
+        ips: %{},
+        interface_ips: %{}
       }
     end
 
@@ -129,7 +134,7 @@ defmodule ServiceRadar.Identity.AliasEvents do
       services = seed_service_aliases(record, metadata)
       ips = seed_ip_aliases(record, metadata)
 
-      Enum.reduce(metadata, {services, ips}, fn {key, value}, acc ->
+      Enum.reduce(metadata, {services, ips, %{}}, fn {key, value}, acc ->
         update_alias_maps(key, value, acc, record)
       end)
     end
@@ -158,16 +163,40 @@ defmodule ServiceRadar.Identity.AliasEvents do
       end
     end
 
-    defp update_alias_maps(key, value, {svc_acc, ip_acc}, record) do
+    defp update_alias_maps(key, value, {svc_acc, ip_acc, iface_acc}, record) do
       cond do
         String.starts_with?(key, "service_alias:") ->
-          update_service_alias(key, value, svc_acc, ip_acc, record)
+          {s, i} = update_service_alias(key, value, svc_acc, ip_acc, record)
+          {s, i, iface_acc}
+
+        # Checked BEFORE "ip_alias:" would be, and note it is not a prefix of it
+        # ("interface_ip_alias:" vs "ip_alias:"), so ordering is defensive rather
+        # than load-bearing -- but keep it first so a future rename cannot make
+        # interface addresses silently become identity aliases.
+        String.starts_with?(key, "interface_ip_alias:") ->
+          {svc_acc, ip_acc, update_interface_ip_alias(key, value, iface_acc, record)}
 
         String.starts_with?(key, "ip_alias:") ->
-          update_ip_alias(key, value, svc_acc, ip_acc, record)
+          {s, i} = update_ip_alias(key, value, svc_acc, ip_acc, record)
+          {s, i, iface_acc}
 
         true ->
-          {svc_acc, ip_acc}
+          {svc_acc, ip_acc, iface_acc}
+      end
+    end
+
+    defp update_interface_ip_alias(key, value, iface_acc, record) do
+      ip = key |> String.replace_prefix("interface_ip_alias:", "") |> String.trim()
+
+      if ip == "" do
+        iface_acc
+      else
+        timestamp =
+          if String.trim(to_string(value)) == "",
+            do: record.last_seen_at,
+            else: String.trim(to_string(value))
+
+        Map.put(iface_acc, ip, timestamp)
       end
     end
 
@@ -311,9 +340,17 @@ defmodule ServiceRadar.Identity.AliasEvents do
         "_alias_collector_ip"
       ] or
         String.starts_with?(key, "service_alias:") or
-        String.starts_with?(key, "ip_alias:")
+        String.starts_with?(key, "ip_alias:") or
+        interface_ip_alias_key?(key)
     end)
   end
+
+  # Included so a record carrying ONLY interface addresses is still processed.
+  # build_alias_metadata/5 currently always emits an `ip_alias:` alongside them,
+  # so this is defensive rather than reachable today -- but a gate that silently
+  # skips a whole alias class is the kind of thing discovered months later as
+  # "those addresses were never recorded".
+  defp interface_ip_alias_key?(key), do: String.starts_with?(key, "interface_ip_alias:")
 
   @doc """
   Detect if an alias change occurred between previous and current records.
@@ -400,7 +437,52 @@ defmodule ServiceRadar.Identity.AliasEvents do
       |> Map.keys()
       |> Enum.map(&{:ip, &1})
 
-    Enum.uniq(base ++ ip_aliases)
+    # Recorded so the address is attributable to the device, but under a type no
+    # identity reader consults -- see DeviceAliasState.alias_type. These come
+    # from a device's OWN interface table, which includes address classes that
+    # several devices legitimately share (VRRP/HSRP, EVPN anycast, cluster VIPs,
+    # Junos internals). Emitting them as :ip would feed them to the merge path.
+    interface_ip_aliases =
+      record.interface_ips
+      |> Map.keys()
+      |> Enum.map(&{:interface_ip, &1})
+
+    # Every address-typed alias goes through the shared policy, including
+    # current_ip and collector_ip from `base`. This path is fed by the netprobe
+    # NDP census and produces every IPv6 alias in the fleet; before this gate
+    # existed it also produced 33 fe80:: link-local aliases on farm01.
+    # Link-local is per-interface and shared by convention on some platforms,
+    # so aliasing on it invites exactly the device collapse aliases are
+    # supposed to prevent.
+    #
+    # Non-address alias types (service_id, mac) are unaffected -- they have
+    # their own value spaces and this predicate does not apply to them.
+    (base ++ ip_aliases ++ interface_ip_aliases)
+    |> Enum.filter(fn
+      {:ip, value} -> AliasPolicy.valid_alias_ip?(value)
+      # Same address policy: loopback and link-local are worthless as a record of
+      # "this device has this address" regardless of the type they carry.
+      {:interface_ip, value} -> AliasPolicy.valid_alias_ip?(value)
+      {:collector_ip, value} -> AliasPolicy.valid_alias_ip?(value)
+      {_type, _value} -> true
+    end)
+    |> Enum.uniq()
+    # An address already recorded as an identity alias must not ALSO appear as an
+    # interface alias: it is the same fact, and two rows would double-count in
+    # anything that lists a device's addresses.
+    |> reject_duplicate_interface_aliases()
+  end
+
+  defp reject_duplicate_interface_aliases(pairs) do
+    identity_ips =
+      for {:ip, value} <- pairs, into: MapSet.new() do
+        value
+      end
+
+    Enum.reject(pairs, fn
+      {:interface_ip, value} -> MapSet.member?(identity_ips, value)
+      _ -> false
+    end)
   end
 
   defp process_alias(update, alias_type, alias_value, actor, confirm_threshold) do

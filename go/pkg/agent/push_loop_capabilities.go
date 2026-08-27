@@ -43,6 +43,8 @@ const (
 	capabilityHostNetworkVisibilityDPIUnavailable         = "host-network-visibility.dpi.unavailable"
 	capabilityHostNetworkVisibilityFlowUnavailable        = "host-network-visibility.flow_attribution.unavailable"
 	capabilityHostNetworkVisibilitySnapshotUnavailable    = "host-network-visibility.process_snapshot.unavailable"
+	capabilityAddonNativeHost                             = "addon.native.host"
+	capabilityAddonNativeHostUnavailable                  = "addon.native.host.unavailable"
 	capabilitySweepBannerGrab                             = "sweep.banner_grab"
 	capabilitySweepBannerGrabAvailable                    = "sweep.banner_grab.available"
 	capabilitySweepBannerGrabUnavailable                  = "sweep.banner_grab.unavailable"
@@ -195,6 +197,7 @@ type agentCapabilityOptions struct {
 	desktopRDP                              bool
 	hostNetworkVisibilitySupported          bool
 	hostNetworkVisibilityFingerprintEnabled bool
+	nativeAddonHost                         bool
 	sweepBannerGrabAvailable                bool
 	bumblebee                               bool
 	endpointInventory                       bool
@@ -298,6 +301,7 @@ func getAgentCapabilitiesForSidecarsWithRDPPath(
 		enhancedBPF:                             remoteaccess.PlatformEnhancedRecordingAvailable(),
 		desktopRDP:                              remoteAccessRDPCapabilityEnabledAtPath(cfg, rdpAdapterPath),
 		hostNetworkVisibilitySupported:          supportsHostNetworkVisibility(runtime.GOOS, detectDeploymentType()),
+		nativeAddonHost:                         runtimeSupportsNativeAddonHosting(),
 		hostNetworkVisibilityFingerprintEnabled: hasHealthyNetprobeSidecar(sidecars),
 		sweepBannerGrabAvailable:                sweepBannerGrabAvailable,
 		bumblebee:                               cfg != nil && cfg.Bumblebee != nil && cfg.Bumblebee.Enabled,
@@ -353,6 +357,16 @@ func agentCapabilities(options agentCapabilityOptions) []string {
 		capabilities = append(capabilities, capabilitySweepBannerGrabAvailable)
 	} else {
 		capabilities = append(capabilities, capabilitySweepBannerGrabUnavailable)
+	}
+
+	// Reported as an explicit pair. A containerized agent installs no native add-on
+	// at all (applyAddonAssignments returns early), so the control plane must be told
+	// outright rather than left to infer it from deployment type -- otherwise it keeps
+	// such an agent in rollout target sets where it can never report health.
+	if options.nativeAddonHost {
+		capabilities = append(capabilities, capabilityAddonNativeHost)
+	} else {
+		capabilities = append(capabilities, capabilityAddonNativeHostUnavailable)
 	}
 
 	if options.bumblebee {

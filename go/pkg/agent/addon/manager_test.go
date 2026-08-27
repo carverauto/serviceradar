@@ -215,7 +215,7 @@ func TestManagerLaunchesConfiguresAndSupervises(t *testing.T) {
 
 	s := waitForState(t, mgr, "sample", 15*time.Second)
 	if s.Version != "0.1.0" {
-		t.Fatalf("expected version 0.1.0 reported via Info, got %q", s.Version)
+		t.Fatalf("expected the delivered version 0.1.0, got %q", s.Version)
 	}
 	if s.ConfigHash == "" {
 		t.Fatalf("expected a config hash after Configure, got empty")
@@ -713,4 +713,51 @@ func TestManagerRestartsOnVersionChangeWithStableBinaryPath(t *testing.T) {
 		time.Sleep(20 * time.Millisecond)
 	}
 	t.Fatalf("expected relaunch with a new PID after version change; old pid=%d, status=%+v", s1.PID, mgr.Status())
+}
+
+// The version an add-on reports must be the one the control plane DELIVERED, not the
+// string the add-on author compiled in.
+//
+// The rollout health gate asks version_at_least?(observed, candidate). An add-on whose
+// self-reported version has gone stale can therefore never satisfy a rollout to a newer
+// one: it ages out at candidate_health_timeout, fails the rollout for the whole fleet,
+// and the source's package is never advanced -- track_latest_approved looks dead while
+// the add-on is running perfectly well. The anomaly add-on shipped 0.3.4 while reporting
+// 0.3.0 and blocked every one of its own upgrades this way.
+func TestManagerReportsDeliveredVersionNotSelfReported(t *testing.T) {
+	requireSampleAddon(t)
+
+	mgr := NewManager(testConfig(t))
+	t.Cleanup(func() { stopManager(t, mgr) })
+
+	// The reference add-on compiles in "0.1.0"; deliver a different version.
+	const delivered = "0.9.9"
+
+	err := mgr.Apply(context.Background(), []Spec{{
+		ID:           "sample",
+		Version:      delivered,
+		BinaryPath:   sampleAddonBin,
+		ConfigJSON:   []byte(`{"message":"hi"}`),
+		Capabilities: []string{"sample"},
+	}})
+	if err != nil {
+		t.Fatalf("apply: %v", err)
+	}
+
+	s := waitForState(t, mgr, "sample", 15*time.Second)
+	if s.Version != delivered {
+		t.Fatalf("status version = %q, want the delivered %q; the add-on's own %q must not win",
+			s.Version, delivered, "0.1.0")
+	}
+
+	// Health reports must not walk it back either.
+	time.Sleep(600 * time.Millisecond)
+
+	after, ok := statusByID(mgr, "sample")
+	if !ok {
+		t.Fatal("sample add-on status disappeared")
+	}
+	if after.Version != delivered {
+		t.Fatalf("status version after health cycles = %q, want %q", after.Version, delivered)
+	}
 }

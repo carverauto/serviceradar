@@ -198,6 +198,7 @@ impl Addon for PowerDnsAddon {
             status,
             version: ADDON_VERSION.to_owned(),
             degradation_reason,
+            details: Default::default(),
         })
     }
 

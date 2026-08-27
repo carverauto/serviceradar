@@ -50,6 +50,7 @@ defmodule ServiceRadar.Identity.DeviceLookup do
 
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Ash.Page
+  alias ServiceRadar.Identity.AliasPolicy
   alias ServiceRadar.Identity.DeviceAliasState
   alias ServiceRadar.Identity.IdentityCache
   alias ServiceRadar.Inventory.Device
@@ -550,21 +551,33 @@ defmodule ServiceRadar.Identity.DeviceLookup do
   end
 
   defp read_alias_states(ips, partition, actor) do
-    DeviceAliasState
-    |> Ash.Query.filter(
-      alias_type == :ip and alias_value in ^ips and state in [:confirmed, :updated]
-    )
-    |> maybe_filter_alias_partition(partition)
-    |> read_with_actor(actor)
+    case Enum.filter(ips, &AliasPolicy.valid_alias_ip?/1) do
+      [] ->
+        {:ok, []}
+
+      ips ->
+        DeviceAliasState
+        |> Ash.Query.filter(
+          alias_type == :ip and alias_value in ^ips and state in [:confirmed, :updated]
+        )
+        |> maybe_filter_alias_partition(partition)
+        |> read_with_actor(actor)
+    end
   end
 
   defp read_detected_alias_states(ips, partition, actor) do
-    DeviceAliasState
-    |> Ash.Query.filter(alias_type == :ip and alias_value in ^ips and state == :detected)
-    |> maybe_filter_alias_partition(partition)
-    # Prefer aliases with more sightings (closer to confirmation)
-    |> Ash.Query.sort(sighting_count: :desc, first_seen_at: :asc)
-    |> read_with_actor(actor)
+    case Enum.filter(ips, &AliasPolicy.valid_alias_ip?/1) do
+      [] ->
+        {:ok, []}
+
+      ips ->
+        DeviceAliasState
+        |> Ash.Query.filter(alias_type == :ip and alias_value in ^ips and state == :detected)
+        |> maybe_filter_alias_partition(partition)
+        # Prefer aliases with more sightings (closer to confirmation)
+        |> Ash.Query.sort(sighting_count: :desc, first_seen_at: :asc)
+        |> read_with_actor(actor)
+    end
   end
 
   defp build_detected_alias_map(devices, aliases) do

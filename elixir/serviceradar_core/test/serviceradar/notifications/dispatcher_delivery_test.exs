@@ -17,7 +17,7 @@ defmodule ServiceRadar.Notifications.DispatcherDeliveryTest do
     * failover takes exactly one hop and back-references its origin.
   """
 
-  use ServiceRadar.DataCase, async: false
+  use ServiceRadar.DataCase, async: true
 
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Monitoring.Alert
@@ -404,10 +404,12 @@ defmodule ServiceRadar.Notifications.DispatcherDeliveryTest do
       # write error, making the notification permanently unreachable. Rolling
       # both writes back leaves this transport attempt recoverable by the
       # dispatching-stall scan.
-      assert reload!(id, actor).state == :dispatching
+      dispatching = reload!(id, actor)
+      assert dispatching.state == :dispatching
+      assert %DateTime{} = dispatching.started_at
 
       assert %{settled: settled_ids} =
-               Dispatcher.reconcile(DateTime.add(now, 301, :second),
+               Dispatcher.reconcile(DateTime.add(dispatching.started_at, 301, :second),
                  actor: actor,
                  limit: 50,
                  stall_seconds: 300

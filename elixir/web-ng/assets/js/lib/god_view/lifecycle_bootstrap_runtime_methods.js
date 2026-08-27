@@ -3,6 +3,8 @@ import {GodViewWasmEngine} from "../../wasm/god_view_exec_runtime"
 const BOUND_METHOD_NAMES = [
   "ensureDOM",
   "resizeCanvas",
+  "requestTopologyProfileLayout",
+  "observeTopologyContainer",
   "renderGraph",
   "ensureDeck",
   "visibilityMask",
@@ -50,7 +52,7 @@ export const godViewLifecycleBootstrapRuntimeMethods = {
   attachLifecycleDom() {
     this.ensureDOM()
     this.resizeCanvas()
-    window.addEventListener("resize", this.resizeCanvas)
+    this.observeTopologyContainer()
     this.syncReducedMotionPreference()
     this.setupThemeWatcher()
     this.startAnimationLoop()

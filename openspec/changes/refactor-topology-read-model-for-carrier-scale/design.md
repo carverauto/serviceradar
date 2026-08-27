@@ -46,6 +46,8 @@ Consequences:
 ### Decision: Make frontend layout the single geometry authority
 The backend will author topology semantics only: the bounded backbone, attachment summaries, expansion membership, and the metadata needed for deterministic client layout. The frontend will remain the only geometry authority and will run exactly one layout path for the visible graph. The system must remove backend-authored geometry ownership, legacy backend layout fallback, and any second client-side projection pass layered on top of the primary client layout.
 
+Implementation ownership for the compound layout adapter, routed deck.gl scene, screen-space collision admission, and camera geometry belongs to `refactor-god-view-elk-scene`. This change consumes that scene contract and owns the bounded semantic input, visible-member/paging budgets, zoom-tier label-count ceilings, bootstrap, and causal-overlay semantics. Neither change may add a second geometry path.
+
 Consequences:
 - We keep the proven direction of using ELK or a successor client layout engine rather than revisiting failed backend-authored geometry.
 - Topology stability becomes testable at the frontend layout-contract boundary.

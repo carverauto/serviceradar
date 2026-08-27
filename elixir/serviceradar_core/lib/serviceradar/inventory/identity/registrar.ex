@@ -287,7 +287,7 @@ defmodule ServiceRadar.Inventory.Identity.Registrar do
         })
 
       repeated? or corroborated? ->
-        promote_device_identity_state(device, metadata, actor, %{
+        promote_device_identity_state(device, actor, %{
           "identity_promotion_policy" => "corroborated_strong_identifier",
           "identity_promotion_non_mac_sighting_count" => total_sightings,
           "identity_promotion_types_seen" => distinct_type_names
@@ -354,7 +354,7 @@ defmodule ServiceRadar.Inventory.Identity.Registrar do
 
   defp record_blocked_promotion(device, metadata, reason, actor, details) do
     blocked_metadata =
-      metadata
+      %{}
       |> Map.put("identity_promotion_blocked_reason", reason)
       |> Map.put("identity_promotion_last_eval_at", now_iso8601())
       |> Map.put(
@@ -366,7 +366,7 @@ defmodule ServiceRadar.Inventory.Identity.Registrar do
 
     _ =
       device
-      |> Ash.Changeset.for_update(:update, %{metadata: blocked_metadata})
+      |> Ash.Changeset.for_update(:merge_metadata, %{metadata_patch: blocked_metadata})
       |> Ash.update(actor: actor)
 
     Logger.info("Blocked provisional identity promotion",
@@ -395,9 +395,9 @@ defmodule ServiceRadar.Inventory.Identity.Registrar do
       :ok
   end
 
-  defp promote_device_identity_state(%Device{} = device, metadata, actor, extra_metadata) do
+  defp promote_device_identity_state(%Device{} = device, actor, extra_metadata) do
     promoted_metadata =
-      metadata
+      %{}
       |> Map.put("identity_state", "canonical")
       |> Map.put("identity_promoted_by", "dire")
       |> Map.put("identity_promoted_at", now_iso8601())
@@ -405,7 +405,7 @@ defmodule ServiceRadar.Inventory.Identity.Registrar do
       |> Map.merge(extra_metadata)
 
     device
-    |> Ash.Changeset.for_update(:update, %{metadata: promoted_metadata})
+    |> Ash.Changeset.for_update(:merge_metadata, %{metadata_patch: promoted_metadata})
     |> Ash.update(actor: actor)
 
     Logger.info("Promoted provisional identity",

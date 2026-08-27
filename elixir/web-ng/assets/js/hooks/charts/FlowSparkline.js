@@ -63,7 +63,14 @@ export default {
     const range = max - min || 1
     const padY = h * 0.1
 
-    const color = this.el.dataset.color || "oklch(0.65 0.24 264)"
+    // Canvas does NOT resolve CSS custom properties: assigning
+    // "var(--sr-color-brand)" to fillStyle/strokeStyle is invalid, the
+    // assignment is silently ignored, and the canvas keeps its default black --
+    // which on a dark card renders the line invisible. Resolve the variable to
+    // a concrete colour first. Doing it here (rather than hardcoding a literal)
+    // keeps the sparkline theme-aware, since getComputedStyle reflects whichever
+    // theme is active.
+    const color = resolveColor(this.el.dataset.color, this.el)
 
     // Draw filled area
     ctx.beginPath()
@@ -97,4 +104,21 @@ export default {
     ctx.lineWidth = 1.5
     ctx.stroke()
   },
+}
+
+/**
+ * Resolve a colour that may be a `var(--token)` reference into a concrete value
+ * canvas can use. Returns the fallback when the token is undefined, so a
+ * removed design token degrades to a visible line instead of an invisible one.
+ */
+function resolveColor(raw, el, fallback = "#3ecf87") {
+  const value = (raw || "").trim()
+  if (!value) return fallback
+
+  const match = value.match(/^var\(\s*(--[\w-]+)\s*(?:,\s*(.+?)\s*)?\)$/)
+  if (!match) return value
+
+  const [, token, inlineFallback] = match
+  const resolved = getComputedStyle(el).getPropertyValue(token).trim()
+  return resolved || (inlineFallback || "").trim() || fallback
 }

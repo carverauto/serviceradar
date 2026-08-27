@@ -6,7 +6,7 @@ defmodule ServiceRadar.Integrations.SyncConfigGeneratorTest do
   by PostgreSQL search_path. Tests run against the single schema.
   """
 
-  use ServiceRadar.DataCase, async: false
+  use ServiceRadar.DataCase, async: true
 
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Credentials.CredentialSecretProvider

@@ -5,7 +5,7 @@ defmodule ServiceRadar.Observability.DatasetSnapshotPruneIntegrationTest do
   Run against a migrated scratch database with `--include integration`.
   """
 
-  use ServiceRadar.DataCase, async: false
+  use ServiceRadar.DataCase, async: true
 
   alias ServiceRadar.Observability.DatasetSnapshotPrune
   alias ServiceRadar.Repo

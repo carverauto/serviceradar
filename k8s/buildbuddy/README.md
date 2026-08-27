@@ -63,7 +63,10 @@ config:
 
 ### Node Affinity
 
-The deployment is configured to avoid `k8s-cp3-worker3` due to disk pressure issues.
+None. `k8s-cp3-worker3` was excluded after the 2026-08-09 DiskPressure incident
+(BuildBuddy hostPath on `/var/lib/buildbuddy` filling the OS disk). That cache
+was purged and moved to `/mnt/buildbuddy`; kubelet DiskPressure on that node is
+False. Re-adding a `NotIn` here strands a 1.2T cache disk. Keep caches off root.
 
 ## Setup
 

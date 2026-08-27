@@ -259,11 +259,13 @@ Ecto.Adapters.SQL.query!(ServiceRadar.Repo, "SELECT 1", [])
 # Run unit tests (no database required)
 mix test --no-start
 
-# Run integration tests (requires database)
-# Provide a DSN (prefers SERVICERADAR_TEST_DATABASE_URL, falls back to SRQL_TEST_DATABASE_URL)
-export SERVICERADAR_TEST_DATABASE_URL="postgres://user:pass@host:5432/serviceradar_test?sslmode=disable"
-mix ecto.migrate
-mix test --include integration --no-start
+# Run the complete integration suite through the guarded Bazel lifecycle documented in
+# ../../.agents/skills/srql-fixtures-db-tests/SKILL.md. It provisions one disposable
+# sr_core_test_<run-id>_<lane> clone per lane on srql-fixtures and tears them down.
+
+# A focused Mix test may use a separately created disposable srql-fixtures scratch database as
+# documented by that same workflow. Never point a test command at demo, production, or the shared
+# srql_fixture database itself.
 ```
 
 ## License

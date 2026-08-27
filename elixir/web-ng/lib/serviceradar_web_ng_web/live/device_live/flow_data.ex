@@ -2,8 +2,44 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.FlowData do
   @moduledoc false
 
   alias ServiceRadar.Repo
+  alias ServiceRadarWebNGWeb.DeviceLive.DeviceTaskData
 
   require Logger
+
+  @flow_stats_timeout_ms 10_000
+  @slow_flow_task_ms 1_500
+
+  # Two queries, not four and deliberately not one.
+  #
+  # Four was the original: four separate SRQL queries from four Task.async
+  # processes nested inside the stats fan-out -- four extra pooled connections
+  # for numbers one scan produces, and a nested fan-out whose crash could not be
+  # contained by the caller. See DeviceTaskData for why that killed the LiveView.
+  #
+  # One was worse. `COUNT(DISTINCT ...)` has no partial-aggregate form, so
+  # folding it in with the SUMs costs the WHOLE statement its parallel plan.
+  # Measured on demo against this exact predicate:
+  #
+  #   sum + sum + count            -> Finalize Aggregate (parallel)  cost  89_314
+  #   count_distinct alone         -> Aggregate                      cost     718
+  #   all four in one statement    -> Aggregate (single-threaded)    cost 153_077
+  #
+  # The combined form never once finished inside the batch budget
+  # (pg_stat_statements: calls=0), so the :summary key was always dropped and
+  # every stat card rendered 0. Split, the SUM/COUNT group keeps its parallel
+  # plan and the DISTINCT is trivial on its own.
+  #
+  # They are also queried separately so the groups fail independently: losing
+  # the distinct must not blank Total Bandwidth, Total Packets and Active Flows.
+  @summary_parallel_aggregates [
+    {:total_bytes, "sum(bytes_total) as total_bytes"},
+    {:total_packets, "sum(packets_total) as total_packets"},
+    {:flow_count, "count(*) as flow_count"}
+  ]
+
+  @summary_distinct_aggregates [
+    {:unique_talkers, "count_distinct(src_endpoint_ip) as unique_talkers"}
+  ]
 
   def load_flows(srql_module, device_uid, scope, cursor, limit) do
     query = default_flows_query(device_uid)
@@ -62,37 +98,94 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.FlowData do
       srql_mod,
       device_uid,
       scope,
-      "in:flows device_id:\"#{escape_value(device_uid)}\" time:last_24h"
+      "in:flows #{device_scope_token(device_uid)} time:last_24h"
     )
   end
 
+  # `device_id:` compiles to
+  #   src = ANY(ARRAY(SELECT ...)) OR dst = ANY(ARRAY(...)) OR sampler = ANY(ARRAY(...))
+  # and PostgreSQL cannot estimate selectivity through those InitPlans, so it
+  # abandons the endpoint indexes and applies the predicate as a Filter over the
+  # entire time window. Measured on demo for one device over 24h:
+  #
+  #   device_id:                  Filter over the whole window     cost 89_347
+  #   device_addr:[<resolved>]    BitmapOr on src/dst indexes      cost 19_546
+  #
+  # The indexes always existed; the values were hidden behind InitPlans.
+  # Resolving them costs two indexed lookups and hands SRQL a value list, which
+  # it binds as real parameter arrays -- and SRQL forces custom plans, so the
+  # planner sees the actual values.
+  #
+  # `device_addr:` matches either endpoint OR the sampler against one list, so
+  # unlike the earlier `ip:` form this stays correct for a device that exports
+  # flows. That matters: once an exporter resolves to its device, `ip:` alone
+  # would miss the sampler-attributed flows, and falling back to `device_id:`
+  # put the slow plan back AND broke the timeseries query, which rejects
+  # `device_id:` outright -- taking the Traffic Profile chart and the sparkline
+  # with it.
+  #
+  # Falls back to `device_id:` only when the device resolves to no addresses at
+  # all, so an empty list can never be emitted.
+  def device_scope_token(device_uid) when is_binary(device_uid) and device_uid != "" do
+    with {:ok, ips} <- device_flow_ips(device_uid),
+         {:ok, samplers} <- device_flow_samplers(device_uid),
+         [_ | _] = addresses <- Enum.uniq(ips ++ samplers) do
+      values = Enum.map_join(addresses, ",", fn address -> ~s|"#{escape_value(address)}"| end)
+      "device_addr:[#{values}]"
+    else
+      _ -> device_id_token(device_uid)
+    end
+  rescue
+    _ -> device_id_token(device_uid)
+  end
+
+  def device_scope_token(device_uid), do: device_id_token(device_uid)
+
+  defp device_id_token(device_uid), do: ~s|device_id:"#{escape_value(device_uid)}"|
+
   def load_device_flow_stats(srql_mod, _device_uid, scope, base) do
-    tasks = [
-      Task.async(fn -> {:summary, load_device_flow_summary(srql_mod, scope, base)} end),
-      Task.async(fn ->
-        {:protocols, load_device_flow_protocols(srql_mod, scope, base)}
+    specs = [
+      # Two specs, not one call doing both queries in sequence. Sequential cost
+      # is additive (~4s + ~4s measured on demo) and under pool contention that
+      # exceeded the batch budget, so :summary was dropped and every stat card
+      # rendered 0 -- observed in production as
+      # "Device details task summary did not complete: :timeout".
+      DeviceTaskData.spec(@slow_flow_task_ms, :summary, fn ->
+        summary_group(srql_mod, scope, base, @summary_parallel_aggregates)
       end),
-      Task.async(fn ->
-        {:talkers, load_device_flow_top_n(srql_mod, scope, base, "src_endpoint_ip")}
+      DeviceTaskData.spec(@slow_flow_task_ms, :summary_distinct, fn ->
+        summary_group(srql_mod, scope, base, @summary_distinct_aggregates)
       end),
-      Task.async(fn ->
-        {:destinations, load_device_flow_top_n(srql_mod, scope, base, "dst_endpoint_ip")}
+      DeviceTaskData.spec(@slow_flow_task_ms, :protocols, fn ->
+        load_device_flow_protocols(srql_mod, scope, base)
       end),
-      Task.async(fn ->
-        {:ports, load_device_flow_top_n(srql_mod, scope, base, "dst_endpoint_port")}
+      DeviceTaskData.spec(@slow_flow_task_ms, :talkers, fn ->
+        load_device_flow_top_n(srql_mod, scope, base, "src_endpoint_ip")
       end),
-      Task.async(fn ->
-        {:directions, load_device_flow_top_n(srql_mod, scope, base, "direction")}
+      DeviceTaskData.spec(@slow_flow_task_ms, :destinations, fn ->
+        load_device_flow_top_n(srql_mod, scope, base, "dst_endpoint_ip")
       end),
-      Task.async(fn ->
-        {:services, load_device_flow_top_n(srql_mod, scope, base, "dst_service_label")}
+      DeviceTaskData.spec(@slow_flow_task_ms, :ports, fn ->
+        load_device_flow_top_n(srql_mod, scope, base, "dst_endpoint_port")
       end),
-      Task.async(fn -> {:timeseries, load_device_flow_timeseries(srql_mod, scope, base)} end)
+      DeviceTaskData.spec(@slow_flow_task_ms, :directions, fn ->
+        load_device_flow_top_n(srql_mod, scope, base, "direction")
+      end),
+      DeviceTaskData.spec(@slow_flow_task_ms, :services, fn ->
+        load_device_flow_top_n(srql_mod, scope, base, "dst_service_label")
+      end),
+      DeviceTaskData.spec(@slow_flow_task_ms, :timeseries, fn ->
+        load_device_flow_timeseries(srql_mod, scope, base)
+      end)
     ]
 
-    results = safe_yield_many(tasks, 10_000)
+    results = DeviceTaskData.run(specs, @flow_stats_timeout_ms)
 
-    summary = Map.get(results, :summary, %{})
+    # Merged here rather than in one task so the groups stay independently
+    # recoverable: losing the distinct must not blank the other three cards.
+    summary =
+      Map.merge(Map.get(results, :summary, %{}), Map.get(results, :summary_distinct, %{}))
+
     protocols = Map.get(results, :protocols, [])
     talkers = Map.get(results, :talkers, [])
     destinations = Map.get(results, :destinations, [])
@@ -158,27 +251,25 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.FlowData do
      top_peers_json, top_ports_json, top_protocols_json, facets}
   end
 
-  defp load_device_flow_summary(srql_mod, scope, base) do
-    queries = [
-      {"#{base} stats:sum(bytes_total) as total_bytes", :total_bytes, "total_bytes"},
-      {"#{base} stats:sum(packets_total) as total_packets", :total_packets, "total_packets"},
-      {"#{base} stats:count(*) as flow_count", :flow_count, "flow_count"},
-      {"#{base} stats:count_distinct(src_endpoint_ip) as unique_talkers", :unique_talkers, "unique_talkers"}
-    ]
+  defp summary_group(srql_mod, scope, base, aggregates) do
+    expressions = Enum.map_join(aggregates, ", ", fn {_key, expr} -> expr end)
+    query = ~s|#{base} stats:"#{expressions}"|
 
-    queries
-    |> Enum.map(fn {q, key, alias_field} ->
-      Task.async(fn -> {key, query_single_stat(srql_mod, scope, q, alias_field)} end)
-    end)
-    |> safe_yield_many(10_000)
-  end
+    case srql_mod |> srql_results(query, scope) |> List.first() do
+      nil ->
+        # A non-grouped aggregate always yields one row even over zero flows, so
+        # no row means the query itself failed or timed out. Keep the "unknown"
+        # shape rather than rendering fabricated zeroes -- and keep it scoped to
+        # this group, so the other group still renders.
+        %{}
 
-  defp query_single_stat(srql_mod, scope, query, alias_field) do
-    srql_mod
-    |> srql_results(query, scope)
-    |> List.first()
-    |> row_payload()
-    |> flow_stat_number(alias_field)
+      row ->
+        payload = row_payload(row)
+
+        Map.new(aggregates, fn {key, _expr} ->
+          {key, flow_stat_number(payload, Atom.to_string(key))}
+        end)
+    end
   end
 
   defp load_device_flow_top_n(srql_mod, scope, base, group_field) do
@@ -384,32 +475,6 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.FlowData do
   end
 
   defp to_safe_number(_), do: 0
-
-  defp safe_yield_many(tasks, timeout) do
-    tasks
-    |> Task.yield_many(timeout)
-    |> Enum.reduce(%{}, fn {task, result}, acc ->
-      key = task_key(task)
-
-      case result do
-        {:ok, {returned_key, value}} when is_atom(returned_key) ->
-          Map.put(acc, returned_key, value)
-
-        {:ok, value} when is_atom(key) ->
-          Map.put(acc, key, value)
-
-        _ ->
-          Task.shutdown(task, :brutal_kill)
-          acc
-      end
-    end)
-  end
-
-  defp task_key(%Task{ref: ref}) do
-    Process.get({:flow_data_task_key, ref})
-  end
-
-  defp task_key(_), do: nil
 
   defp escape_value(value) when is_binary(value) do
     value

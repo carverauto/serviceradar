@@ -144,6 +144,49 @@ Keep this managed block so 'openspec update' can refresh the instructions.
   `//config/manager_config/rust:update_embedded_instances`, which copies from runfiles. If a
   write-back target is missing, add one rather than doing the copy by hand.
 
+- **Close the path that creates bad data before you delete it, and never trust a
+  deletion you have not re-checked.** Deleting first looks like it worked and is
+  not: on 2026-08-23 a phantom device (`169.254.0.1`, an APIPA address a switch
+  reported on its own interface) was soft-deleted twice and came back both times.
+  A sweep re-adopted the record as a target and revived it, and the revival
+  cleared `deleted_reason`/`deleted_by` — so the cleanup left **no trace it had
+  ever happened**, and the record was indistinguishable from one never deleted.
+
+  Practical consequences, all of them earned:
+  - **Find every writer, not the obvious one.** Three code paths clear a device
+    tombstone: `Device` actions `:gateway_sync` and `:restore`, and a raw Ecto
+    `on_conflict` in `inventory/sync/device_writes.ex` that never builds an Ash
+    changeset. A guard placed in an Ash change module is blind to the third by
+    construction. `grep` for the attribute, not for the action.
+  - **Re-query after deleting**, and again after the job that creates the data
+    has run. "The delete returned `{:ok, ...}`" is not evidence the row is gone.
+  - Prefer an audit record that is **append-only**. An audit that can reject a
+    write grows a bypass flag, and the bypass becomes the default.
+  - Device revivals are now recorded: a trigger writes
+    `platform.device_revival_audit` whenever `deleted_at` goes from set to NULL,
+    capturing the `deleted_by`/`deleted_reason` the revival is about to destroy.
+    If a deletion you made appears to have been undone, query that table by
+    `device_uid` rather than re-deleting and hoping.
+
+- **A verification must be able to FAIL, and you must read what it actually
+  printed.** Three times in one session a check — not the system — was the broken
+  thing, and each was one step from reporting a working fix as broken:
+  a mapper job logged `success` with `last_run_interface_count=307` while writing
+  **zero** rows (the count was stale from an earlier run); a monitor grepped
+  `SyncIngestor result: {:ok` when the log emits a bare `:ok`, so its success
+  counter could never fire; and a run at 21:53 was judged against pods that
+  started at 21:57, so it could only ever reproduce the old behaviour.
+
+  Before believing a green result:
+  - **Gate on the artefact, not the job.** Query for rows written after the
+    deploy, for the specific device — a partial run writes some and not others.
+  - **Copy the real log line** out of the output before writing a pattern for it.
+  - **Confirm the run started after the rollout finished.** Mid-rollout, old and
+    new pods serve simultaneously and the old ones keep producing old behaviour.
+  - **Give every check an explicit failure branch.** A check that can only
+    confirm success is indistinguishable from one that is still waiting, which is
+    how "no news" gets reported as "verified".
+
 - **No shell scripts. Everything is a Bazel target.** Do not add a script under
   `scripts/`, and do not extend an existing one. Build, test, provisioning, teardown,
   packaging and publishing are Bazel targets invoked with `bazel build` / `bazel test` /
@@ -214,7 +257,7 @@ This file applies repo-wide, but subdirectories may include their own `AGENTS.md
   `.bazelrc.remote` is not on RBE — copy the gitignored rc files first (Hard Rules).
 - First-party Wasm plugins: `make build_wasm_plugins`, `make push_wasm_plugins`, `make verify_wasm_plugins`. Bazel fetches the pinned TinyGo toolchain automatically; local `oras` is still required for publish/inspect workflows. `make push_all` is the container-image path; `make push_all_release` adds the Wasm publish/sign/verify path for release-style runs.
 - Rust dep bump (cargo + Bazel in one go): `make update-rust-deps REPIN=workspace`, or `scripts/update-rust-bazel-deps.sh [update-mode] [verify-target]` — runs `cargo update` → `cargo check` → `bazel run //third_party/crate_mirror:sync` → `bazel build`. To only refresh the vendored archives after hand-editing the root `Cargo.toml`: `bazel run //third_party/crate_mirror:sync`. See [Rust Dependency Management](#rust-dependency-management).
-- Elixir workspace quality contract: `./scripts/elixir_quality.sh --project elixir/<project>` and add `--phoenix` for Phoenix apps such as `elixir/web-ng`.
+- Elixir workspace quality contract: `./scripts/elixir_quality.sh --project elixir/<project>` and add `--phoenix` for Phoenix apps such as `elixir/web-ng`. PRs gate `--lint-only` (format + Credo); the rest of the Mix contract runs daily from `//buildbuddy.yaml`.
 
 Prefer Bazel targets when modifying code that already has BUILD files. Always run gofmt/cargo fmt where applicable (Go formatting handled by `gofmt`, Rust by `cargo fmt`).
 

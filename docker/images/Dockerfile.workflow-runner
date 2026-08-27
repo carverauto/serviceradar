@@ -8,8 +8,9 @@
 # pushed at every bump even when only one of them changed -- v1.0.24.3 added lld to the executor
 # and nothing here, and this image still went to .3.
 #
-# //buildbuddy.yaml lists the seven references a bump has to update, and the grep that
-# re-derives that list. Push both images BEFORE moving any reference.
+# //buildbuddy.yaml lists every workflow action's container_image (BazelCI and
+# Elixir Quality (daily) today) a bump has to update, and the grep that re-derives
+# that list. Push both images BEFORE moving any reference.
 #
 #   docker build --platform linux/amd64 -f docker/images/Dockerfile.workflow-runner \
 #     -t registry.carverauto.dev/serviceradar/buildbuddy-workflow-runner:<tag> docker/images/

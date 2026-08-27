@@ -1290,6 +1290,103 @@ defmodule ServiceRadarWebNG.Plugins.NativeAddonImporterTest do
     end
   end
 
+  test "sync_first_party_addons replaces an unverified seeder placeholder with the real artifact", %{
+    private_key: private_key
+  } do
+    # Reproduces GitHub #4039. The in-cluster seeder pre-creates a first-party row
+    # for a version it cannot verify, carrying NO source identity. That row used to
+    # take the source-conflict path, so the importer refused to deliver its own
+    # signed artifact for the very version the seeder had announced -- freezing
+    # every seeded add-on at its last pre-seeder version.
+    install_fixtures(private_key)
+    actor = SystemActor.system(:native_addon_sync_test)
+
+    {:ok, placeholder} =
+      AddonPackage
+      |> Ash.Changeset.for_create(
+        :create,
+        %{
+          addon_id: "sample-addon",
+          version: "1.0.0",
+          name: "Seeded placeholder",
+          source_type: :first_party,
+          source_oci_ref: nil,
+          source_oci_digest: nil,
+          artifacts: %{},
+          verification_status: "seeded"
+        },
+        actor: actor
+      )
+      |> Ash.create()
+
+    assert {:ok, summary} =
+             AddonPackages.sync_first_party_addons(
+               repo_url: @repo_url,
+               release_tag: "v1.0.0",
+               limit: 10
+             )
+
+    assert summary.imported == 1
+    assert summary.failed == []
+
+    # Gate on the artefact, not the summary: the row must now carry the real,
+    # verified source. A summary that says "imported" while the row still has nil
+    # OCI fields is exactly the failure this test exists to catch.
+    {:ok, persisted} = Ash.get(AddonPackage, placeholder.id, actor: actor)
+    assert persisted.source_type == :first_party
+    assert persisted.verification_status == "verified"
+    assert persisted.source_oci_ref == @oci_ref
+    assert persisted.source_oci_digest == @oci_digest
+  end
+
+  test "sync_first_party_addons still refuses a VERIFIED first-party version whose source differs", %{
+    private_key: private_key
+  } do
+    # The narrowing in #4039 must not disarm the guard it sits next to. A row that
+    # was genuinely verified against a different source is a real claim, and the
+    # importer must keep refusing it rather than overwriting silently.
+    install_fixtures(private_key)
+    actor = SystemActor.system(:native_addon_sync_test)
+
+    {:ok, claimed} =
+      AddonPackage
+      |> Ash.Changeset.for_create(
+        :create,
+        %{
+          addon_id: "sample-addon",
+          version: "1.0.0",
+          name: "Verified elsewhere",
+          source_type: :first_party,
+          source_oci_ref: "registry.example.test/other/sample-addon:v9.9.9",
+          source_oci_digest: "sha256:" <> String.duplicate("a", 64),
+          artifacts: %{},
+          verification_status: "verified"
+        },
+        actor: actor
+      )
+      |> Ash.create()
+
+    assert {:ok, summary} =
+             AddonPackages.sync_first_party_addons(
+               repo_url: @repo_url,
+               release_tag: "v1.0.0",
+               limit: 10
+             )
+
+    assert summary.imported == 0
+
+    assert [
+             %{
+               error:
+                 {:native_addon_version_source_conflict,
+                  %{reason: :oci_source_mismatch, existing_source_type: :first_party}}
+             }
+           ] = summary.failed
+
+    {:ok, persisted} = Ash.get(AddonPackage, claimed.id, actor: actor)
+    assert persisted.source_oci_ref == "registry.example.test/other/sample-addon:v9.9.9"
+  end
+
   test "rejects a tarball signed with a key other than the release key" do
     {_pub, wrong_private_key} = :crypto.generate_key(:eddsa, :ed25519)
     install_fixtures(wrong_private_key)

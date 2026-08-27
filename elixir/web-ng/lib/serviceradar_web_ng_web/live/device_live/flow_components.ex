@@ -132,11 +132,11 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.FlowComponents do
         </div>
       </div>
 
-      <%!-- Top-N widgets --%>
+      <%!-- Top-N widgets + protocol breakdown share one 4-column row --%>
       <div
         :if={
           @top_peers_json != "[]" or @top_ports_json != "[]" or
-            @top_protocols_json != "[]"
+            @top_protocols_json != "[]" or @proto_json != "[]"
         }
         class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3"
       >
@@ -161,19 +161,22 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.FlowComponents do
           items_json={@top_protocols_json}
           filter_field="proto"
         />
-      </div>
-
-      <%!-- Protocol breakdown --%>
-      <div
-        :if={@proto_json != "[]"}
-        class="rounded-xl border border-sr-line bg-sr-surface p-4"
-      >
-        <div class="flex items-center gap-2 mb-3">
-          <.icon name="hero-chart-pie" class="size-4 text-sr-brand" />
-          <span class="text-sm font-semibold">Protocol Breakdown</span>
-          <span class="text-xs text-sr-muted">(last 24h)</span>
+        <div
+          :if={@proto_json != "[]"}
+          class="rounded-xl border border-sr-line bg-sr-surface p-4"
+        >
+          <div class="flex items-center gap-2 mb-3">
+            <.icon name="hero-chart-pie" class="size-4 text-sr-brand" />
+            <span class="text-sm font-semibold">Protocol Breakdown</span>
+            <span class="text-xs text-sr-muted">(last 24h)</span>
+          </div>
+          <.protocol_breakdown
+            id="device-proto-donut"
+            data_json={@proto_json}
+            height={140}
+            chrome={false}
+          />
         </div>
-        <.protocol_breakdown id="device-proto-donut" data_json={@proto_json} height={180} />
       </div>
 
       <%!-- Quick filters / faceting --%>

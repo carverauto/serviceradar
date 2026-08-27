@@ -1,5 +1,5 @@
 defmodule ServiceRadar.SweepJobs.ObanSupportDbTest do
-  use ServiceRadar.DataCase, async: false
+  use ServiceRadar.DataCase, async: true
 
   alias ServiceRadar.Repo
   alias ServiceRadar.SweepJobs.ObanSupport

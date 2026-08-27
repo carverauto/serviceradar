@@ -57,6 +57,14 @@ defmodule ServiceRadarWebNG.Plugins.NativeAddonSync do
               |> Keyword.put(:replace_existing, true)
             )
 
+          unclaimed_placeholder?(package) ->
+            sync_import(
+              addon,
+              opts
+              |> Keyword.put(:existing_review_status, package.status)
+              |> Keyword.put(:replace_existing, true)
+            )
+
           true ->
             {:error, source_conflict(package, addon)}
         end
@@ -235,6 +243,30 @@ defmodule ServiceRadarWebNG.Plugins.NativeAddonSync do
   defp source_bundle_digest_matches?(_package, _addon), do: false
 
   defp source_type_owned?(%AddonPackage{source_type: source_type}), do: source_type != :first_party
+
+  # A row an in-cluster seeder created for a version it cannot verify: first-party,
+  # never verified, and carrying NO source identity at all.
+  #
+  # The source-conflict guard exists so a package's source cannot be swapped
+  # underneath it. That reasoning does not reach this row, because there is no
+  # recorded source to conflict with -- `source_oci_ref` and `source_oci_digest`
+  # are both empty. Treating it as a conflicting first-party claim is what froze
+  # every seeded add-on at its last pre-seeder version: the seeder pre-created the
+  # very version the importer was trying to deliver, and the importer then refused
+  # its own artifact. See GitHub #4039.
+  #
+  # Deliberately narrow. A row that HAS a source, or that was verified, still takes
+  # the conflict path -- those are real claims and must not be overwritten silently.
+  defp unclaimed_placeholder?(%AddonPackage{} = package) do
+    package.source_type == :first_party and
+      package.verification_status != "verified" and
+      blank?(package.source_oci_ref) and
+      blank?(package.source_oci_digest)
+  end
+
+  defp blank?(nil), do: true
+  defp blank?(value) when is_binary(value), do: String.trim(value) == ""
+  defp blank?(_value), do: false
 
   defp source_conflict(%AddonPackage{} = package, addon) do
     reason =

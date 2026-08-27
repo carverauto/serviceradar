@@ -44,7 +44,7 @@ jobs:
     steps:
       # Full history: the gate diffs a base against HEAD, and a shallow clone cannot name one.
       - name: Checkout
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # actions/checkout@v5.0.1
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # actions/checkout@v5.0.1
         with:
           fetch-depth: 0
 

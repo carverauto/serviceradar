@@ -9,6 +9,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnsiblePanelComponents do
 
   use ServiceRadarWebNGWeb, :html
 
+  import ServiceRadarWebNGWeb.DeviceLive.IntegrationLogos, only: [wordmark: 1]
+
   alias ServiceRadar.Automation.Ansible.VariableSchema.Var
 
   attr(:device_uid, :string, required: true)
@@ -43,15 +45,10 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnsiblePanelComponents do
     >
       <div class="flex flex-wrap items-center justify-between gap-2 border-b border-sr-line px-4 py-3">
         <div class="flex items-center gap-2">
-          <span class="rounded-lg bg-sr-brand/10 p-1.5">
-            <.icon name="hero-command-line" class="size-4 text-sr-brand" />
-          </span>
-          <div>
-            <h2 class="text-sm font-semibold text-sr-ink">Ansible</h2>
-            <p class="text-xs text-sr-muted">
-              AWX inventory member · Ansible operations
-            </p>
-          </div>
+          <.wordmark name={:ansible} class="h-8 w-auto" />
+          <p class="text-xs text-sr-muted">
+            AWX inventory member · Ansible operations
+          </p>
         </div>
 
         <div class="flex items-center gap-2">

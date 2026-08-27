@@ -69,7 +69,10 @@ pub(crate) fn runfile(relative: &str) -> Result<std::path::PathBuf> {
         .with_context(|| format!("{relative} is not in runfiles; add it to the target's data"))?;
 
     if !path.exists() {
-        anyhow::bail!("{relative} resolved to {}, which does not exist", path.display());
+        anyhow::bail!(
+            "{relative} resolved to {}, which does not exist",
+            path.display()
+        );
     }
 
     Ok(path)
@@ -81,7 +84,6 @@ pub struct Fixture {
     password: String,
     admin_password: String,
 }
-
 
 impl Fixture {
     /// Resolves everything from `SERVICERADAR_ENV`, loading the rule set from runfiles.
@@ -194,7 +196,9 @@ impl Fixture {
 
     /// The name TLS verification is performed against, when the mode demands one.
     pub fn tls_server_name(&self) -> Option<&str> {
-        self.manager.database().and_then(|d| d.tls_server_name.as_deref())
+        self.manager
+            .database()
+            .and_then(|d| d.tls_server_name.as_deref())
     }
 
     pub fn identity(&self) -> &Identity {

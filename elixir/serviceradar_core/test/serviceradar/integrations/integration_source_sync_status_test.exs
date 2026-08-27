@@ -1,7 +1,7 @@
 defmodule ServiceRadar.Integrations.IntegrationSourceSyncStatusTest do
   @moduledoc false
 
-  use ServiceRadar.DataCase, async: false
+  use ServiceRadar.DataCase, async: true
 
   alias ServiceRadar.Infrastructure.Agent
   alias ServiceRadar.Integrations.IntegrationSource

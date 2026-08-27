@@ -312,7 +312,29 @@ elixir_release(
 ex_unit_tests(
     config_loader = "//build:elixir_test_config_loader.exs",
     name = "unit_tests",
-    srcs = glob(["test/**/*_test.exs"]),
+    # test/integration and test/property are excluded because this target is the
+    # DATABASE-FREE tier, and not one file in either directory carries
+    # @moduletag :db_free -- they need a database, the SRQL NIF, or AGE/Cypher.
+    #
+    # Globbing them in did not run them; it generated
+    # //elixir/web-ng:unit_tests_integration and :unit_tests_property, which
+    # loaded their files, excluded every test, and reported PASSED on
+    # "0 tests, 0 failures (11 excluded)". Two green CI targets covering nothing,
+    # for as long as they have existed. test_helper.exs now fails a target that
+    # executes zero tests, which is what surfaced them.
+    #
+    # Excluding them states the truth -- these are not database-free tests --
+    # instead of tagging them :db_free, which would make them run without the
+    # database they need. They belong in a DB-backed target; until one exists
+    # they are not covered by Bazel, and that is now visible rather than
+    # disguised as green.
+    srcs = glob(
+        ["test/**/*_test.exs"],
+        exclude = [
+            "test/integration/**",
+            "test/property/**",
+        ],
+    ),
     data = glob(
         [
             "config/**",

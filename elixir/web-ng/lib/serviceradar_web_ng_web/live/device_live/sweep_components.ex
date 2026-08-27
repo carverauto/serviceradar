@@ -184,6 +184,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.SweepComponents do
             <thead>
               <tr class="text-xs text-sr-muted">
                 <th>IP Address</th>
+                <th>Type</th>
                 <th>State</th>
                 <th>Sightings</th>
                 <th>Last Seen</th>
@@ -193,6 +194,11 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.SweepComponents do
               <%= for alias_state <- @aliases do %>
                 <tr class="hover:bg-sr-subtle/40">
                   <td class="font-mono text-xs">{alias_state.alias_value}</td>
+                  <td>
+                    <.ui_badge size="sm" variant={alias_type_variant(alias_state.alias_type)}>
+                      {alias_type_label(alias_state.alias_type)}
+                    </.ui_badge>
+                  </td>
                   <td>
                     <.ui_badge size="sm" variant={alias_state_variant(alias_state.state)}>
                       {alias_state_label(alias_state.state)}
@@ -209,6 +215,21 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.SweepComponents do
     </div>
     """
   end
+
+  # "Identity" is the alias DIRE merges devices on. "Interface" is an address
+  # seen on the device's own interface and deliberately excluded from merging --
+  # see ServiceRadar.Identity.DeviceAliasState. The visual distinction matters:
+  # an interface address may legitimately be reported by several devices (VRRP,
+  # anycast, vendor internals), so it is evidence of "this device has it", not
+  # evidence of "this device IS it".
+  defp alias_type_label(:interface_ip), do: "Interface"
+  defp alias_type_label(_), do: "Identity"
+
+  # Variants drawn from the same palette as @alias_state_variants above:
+  # "outline" for identity (the load-bearing one), "ghost" to visually recede an
+  # interface observation.
+  defp alias_type_variant(:interface_ip), do: "ghost"
+  defp alias_type_variant(_), do: "outline"
 
   defp status_label(:available), do: "Available"
   defp status_label(:unavailable), do: "Unavailable"

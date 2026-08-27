@@ -22,7 +22,7 @@ defmodule ServiceRadar.Inventory.Identity.MergeTransactionRollbackTest do
   from, so a change in Ash's default surfaces here rather than in production.
   """
 
-  use ServiceRadar.DataCase, async: false
+  use ServiceRadar.DataCase, async: true
 
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Inventory.Device
@@ -60,8 +60,6 @@ defmodule ServiceRadar.Inventory.Identity.MergeTransactionRollbackTest do
 
   test "the deprecated Ash.transaction commits the same work", %{actor: actor} do
     uid = "sr:" <> Ecto.UUID.generate()
-
-    on_exit(fn -> destroy_device(uid) end)
 
     result =
       Ash.transaction([Device], fn ->
@@ -109,15 +107,5 @@ defmodule ServiceRadar.Inventory.Identity.MergeTransactionRollbackTest do
       %Ash.Page.Offset{results: results} -> results
       results when is_list(results) -> results
     end
-  end
-
-  defp destroy_device(uid) do
-    actor = SystemActor.system(:merge_transaction_rollback_test)
-
-    actor
-    |> rows(uid)
-    |> Enum.each(&Ash.destroy!(&1, actor: actor, authorize?: false))
-  rescue
-    _ -> :ok
   end
 end

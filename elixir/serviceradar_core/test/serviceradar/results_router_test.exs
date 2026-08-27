@@ -194,6 +194,46 @@ defmodule ServiceRadar.ResultsRouterTest do
     assert Keyword.keyword?(opts)
   end
 
+  test "routes the netprobe device census into sync ingestion" do
+    # A MISSING clause here fails silently: process/2 falls through to the
+    # catch-all, returns :ok, and publish_status_update/1 still runs -- so the
+    # service reports healthy while its whole payload is discarded with no log
+    # line anywhere. Routing has to be asserted, not reviewed.
+    status = %{
+      source: "results",
+      service_type: "netprobe-census",
+      message:
+        Jason.encode!([
+          %{
+            "ip" => "192.168.1.10",
+            "mac" => "BC:24:11:F5:1C:82",
+            "source" => "netprobe-census",
+            "metadata" => %{"mac" => "BC:24:11:F5:1C:82"}
+          }
+        ])
+    }
+
+    assert {:noreply, %{}} = ResultsRouter.handle_cast({:results_update, status}, %{})
+
+    assert_receive {:ingest, updates, _opts}
+    assert [%{"ip" => "192.168.1.10", "source" => "netprobe-census"}] = updates
+  end
+
+  test "routes the legacy passive-census service type the same way" do
+    # SourcePolicy accepts both spellings, so routing must too -- otherwise the
+    # policy recognises a source that can never reach it.
+    status = %{
+      source: "results",
+      service_type: "passive-census",
+      message: Jason.encode!([%{"ip" => "192.168.1.11", "source" => "passive-census"}])
+    }
+
+    assert {:noreply, %{}} = ResultsRouter.handle_cast({:results_update, status}, %{})
+
+    assert_receive {:ingest, updates, _opts}
+    assert [%{"ip" => "192.168.1.11"}] = updates
+  end
+
   test "ingests repeated sync result pages independently" do
     first_status = %{
       source: "results",

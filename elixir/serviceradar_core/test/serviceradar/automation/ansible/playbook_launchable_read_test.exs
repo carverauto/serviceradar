@@ -27,7 +27,7 @@ defmodule ServiceRadar.Automation.Ansible.PlaybookLaunchableReadTest do
       mix test --include integration \\
         test/serviceradar/automation/ansible/playbook_launchable_read_test.exs
   """
-  use ServiceRadar.DataCase, async: false
+  use ServiceRadar.DataCase, async: true
 
   alias Ash.Seed
   alias ServiceRadar.Actors.SystemActor

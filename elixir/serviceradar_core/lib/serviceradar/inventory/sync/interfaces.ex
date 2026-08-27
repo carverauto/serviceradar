@@ -154,6 +154,37 @@ defmodule ServiceRadar.Inventory.Sync.Interfaces do
     records
   end
 
+  @doc false
+  # The fields this writer may overwrite on conflict: exactly the ones
+  # build_interface_record/5 sets, minus the identity columns and :created_at.
+  #
+  # Named rather than inline so the invariant is testable. A field listed here
+  # that the builder does not set writes NULL over whatever the mapper wrote --
+  # this writer never populates if_index, if_speed, speed_bps, if_admin_status,
+  # if_oper_status, if_type, mtu, duplex or available_metrics, and copying the
+  # mapper's list here would silently blank all nine on every sync run.
+  @spec upsert_fields() :: [atom()]
+  def upsert_fields do
+    [
+      :timestamp,
+      :agent_id,
+      :gateway_id,
+      :partition,
+      :device_ip,
+      :if_name,
+      :if_descr,
+      :if_alias,
+      :if_phys_address,
+      :ip_addresses,
+      :if_type_name,
+      :interface_kind,
+      :classifications,
+      :classification_meta,
+      :classification_source,
+      :metadata
+    ]
+  end
+
   def bulk_upsert_interfaces(records) do
     case Ash.bulk_create(records, Interface, :create,
            actor: SystemActor.system(:sync_ingestor_interfaces),
@@ -161,7 +192,14 @@ defmodule ServiceRadar.Inventory.Sync.Interfaces do
            stop_on_error?: false,
            upsert?: true,
            upsert_identity: :unique_interface,
-           upsert_fields: []
+           # ONLY the fields build_interface_record/5 actually sets. See the
+           # longer note at the mapper's writer: an empty list becomes
+           # `DO UPDATE SET <key> = EXCLUDED.<key>` once :timestamp leaves the
+           # identity, and a list copied from the mapper would blank the
+           # operational columns this writer never populates -- if_index,
+           # if_speed, speed_bps, if_admin_status, if_oper_status, if_type, mtu,
+           # duplex, available_metrics.
+           upsert_fields: upsert_fields()
          ) do
       %Ash.BulkResult{status: :success} ->
         :ok

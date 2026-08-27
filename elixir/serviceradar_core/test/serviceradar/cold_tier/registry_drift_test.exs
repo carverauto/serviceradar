@@ -17,7 +17,7 @@ defmodule ServiceRadar.ColdTier.RegistryDriftTest do
   # It never surfaced locally because the whole module is `:integration` and therefore
   # excluded from every run without a database. DataCase also carries `:requires_app`,
   # which the integration target already includes.
-  use ServiceRadar.DataCase, async: false
+  use ServiceRadar.DataCase, async: true
 
   alias ServiceRadar.ColdTier.Registry
 

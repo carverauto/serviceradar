@@ -14,7 +14,9 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexView.ImportModal do
     <.ui_modal id="import_csv_modal" size="lg" on_cancel="close_import_modal">
       <:title>Import Devices from CSV</:title>
       <p class="text-sm text-sr-muted">
-        Upload a CSV file to bulk import devices into your inventory.
+        Upload a CSV file to bulk import devices. Rows that match an existing
+        inventory device (IP or hostname) merge tags and extra columns onto that
+        device instead of being skipped.
       </p>
 
       <%!--

@@ -51,6 +51,9 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnsiblePanelComponentsTest do
     html = render_component(&AnsiblePanelComponents.ansible_operations_section/1, base_assigns([]))
 
     assert html =~ "device-ansible-panel"
+    assert html =~ "/images/integrations/ansible.svg"
+    assert html =~ "/images/integrations/ansible-dark.svg"
+    refute html =~ "hero-command-line"
     assert html =~ "/ansible/operations"
     assert html =~ "All operations"
     assert html =~ "Launch Playbook"

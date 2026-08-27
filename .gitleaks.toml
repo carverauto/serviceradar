@@ -4,25 +4,23 @@ useDefault = true
 [allowlist]
 description = "Allow deterministic test UUIDs and Cargo's checksum-indexed upstream vendor snapshots"
 regexes = ['''018f3f56-[0-9a-f]{4}-7[0-9a-f]{3}-8[0-9a-f]{3}-123456789abc''']
-
-# BOTH vendored trees, not just the mirror. `third_party/crates/` is the cargo-vendor snapshot
-# regenerated wholesale by `scripts/vendor.sh` from crates.io -- no first-party code lands there,
-# so a finding in it is upstream material rather than one of our secrets. It ships two TEST
-# private keys of its own (`elliptic-curve`'s pkcs8 example and `sec1`'s p256 example) plus
-# `.cargo-checksum.json` digests that read as generic API keys.
+# Both Cargo vendor trees.
 #
-# WITHOUT THIS, EVERY BRANCH THAT MERGES STAGING IS BLOCKED. The pre-push hook scans the whole
-# range being pushed, and a merge commit drags in every staging commit that ever touched the
-# tree -- so the hook re-flags blobs that are ALREADY on the remote and reachable from
-# origin/staging. Staging has since deleted the tree, which removes it from HEAD but not from
-# the history a merge carries.
+# crate_mirror holds .crate archives; crates/ held the extracted cargo-vendor tree and was
+# DELETED in b23f0436a9. It is still listed because gitleaks scans a push RANGE, so any branch
+# whose remote_oid..local_oid spans that deletion re-scans the removed blobs and blocks the
+# push -- which is every new branch cut from staging, and every branch that MERGES staging,
+# until the remote ref catches up.
 #
-# SCOPED TO THE TWO FILE KINDS THAT ACTUALLY TRIP IT, not the whole directory. A blanket
-# directory exemption would also cover any first-party file that ever landed there by mistake;
-# these two patterns cover exactly the eight historical findings -- upstream crates' own test
-# keys under `tests/examples/`, and the checksum manifests -- and nothing else.
+# What it flags in there is upstream crate content, not ours: `.cargo-checksum.json` SHA digests
+# that pattern-match generic-api-key, plus the crates' own PKCS8 test vectors
+# (`elliptic-curve`'s and `sec1`'s p256 example), all published on crates.io.
+#
+# The whole directory rather than the individual file kinds: the narrower form this replaces
+# objected that a blanket exemption would also cover a first-party file that landed there by
+# mistake. That cannot happen now -- the tree is deleted, so nothing new can land in it, and the
+# only blobs the pattern can ever match are the historical upstream ones above.
 paths = [
   '''^third_party/crate_mirror/''',
-  '''^third_party/crates/[^/]+/tests/examples/.*\.pem$''',
-  '''^third_party/crates/[^/]+/\.cargo-checksum\.json$''',
+  '''^third_party/crates/''',
 ]

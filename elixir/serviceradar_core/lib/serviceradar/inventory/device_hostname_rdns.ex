@@ -417,12 +417,12 @@ defmodule ServiceRadar.Inventory.DeviceHostnameRdns do
   @spec result_attrs(map(), String.t() | nil, String.t(), String.t() | nil, DateTime.t()) ::
           {:update, map()} | {:skip, map()}
   def result_attrs(device, hostname, status, error, now) do
-    metadata = put_rdns_metadata(device, hostname, status, error, now)
+    patch = rdns_metadata_patch(hostname, status, error, now)
 
     if status == "ok" and ReverseDns.usable_hostname?(hostname, device_ip(device)) do
-      {:update, %{hostname: hostname, metadata: metadata}}
+      {:update, %{hostname: hostname, metadata_patch: patch}}
     else
-      {:skip, %{metadata: metadata}}
+      {:skip, %{metadata_patch: patch}}
     end
   end
 
@@ -459,10 +459,27 @@ defmodule ServiceRadar.Inventory.DeviceHostnameRdns do
     end
   end
 
-  defp update_device(device, attrs, actor) do
+  # Two writes on purpose. The metadata patch merges in the database so it cannot
+  # clobber another writer's keys; hostname is a scalar column this module owns,
+  # so writing it directly touches nothing else.
+  defp maybe_update_hostname(device, attrs, _actor) when map_size(attrs) == 0, do: {:ok, device}
+
+  defp maybe_update_hostname(device, attrs, actor) do
     device
     |> Ash.Changeset.for_update(:update, attrs)
     |> Ash.update(actor: actor)
+  end
+
+  defp update_device(device, attrs, actor) do
+    {patch, attrs} = Map.pop(attrs, :metadata_patch)
+
+    device
+    |> Ash.Changeset.for_update(:merge_metadata, %{metadata_patch: patch || %{}})
+    |> Ash.update(actor: actor)
+    |> case do
+      {:ok, updated} -> maybe_update_hostname(updated, attrs, actor)
+      error -> error
+    end
     |> case do
       {:ok, _} ->
         :ok
@@ -505,15 +522,19 @@ defmodule ServiceRadar.Inventory.DeviceHostnameRdns do
     end
   end
 
-  defp put_rdns_metadata(device, hostname, status, error, now) do
-    metadata = device_metadata(device)
-
-    Map.put(metadata, "rdns", %{
-      "looked_up_at" => DateTime.to_iso8601(now),
-      "status" => status,
-      "hostname" => hostname,
-      "error" => error
-    })
+  # Only the one key this module owns. It used to return the device's whole
+  # metadata map with "rdns" put into it, which meant every rDNS write carried a
+  # snapshot of every OTHER writer's keys back to the database and clobbered
+  # anything committed since the read.
+  defp rdns_metadata_patch(hostname, status, error, now) do
+    %{
+      "rdns" => %{
+        "looked_up_at" => DateTime.to_iso8601(now),
+        "status" => status,
+        "hostname" => hostname,
+        "error" => error
+      }
+    }
   end
 
   defp recently_looked_up?(device, now, retry_after_minutes) do

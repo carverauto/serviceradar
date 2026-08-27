@@ -702,3 +702,27 @@ And **never** do this:
 <!-- phoenix:liveview-end -->
 
 <!-- usage-rules-end -->
+
+## Tests here are excluded by default
+
+`test/test_helper.exs` configures `exclude: [:test], include: [:db_free]` for the
+database-free tier. That is an **allow-list**: a test file without
+`@moduletag :db_free` is loaded by the Bazel shard — it appears in the runner's
+`-r` list — and then contributes nothing. The shard still passes.
+
+So a new test file here runs **only** if you tag it:
+
+```elixir
+defmodule ServiceRadarWebNGWeb.MyTest do
+  use ExUnit.Case, async: true
+
+  @moduletag :db_free
+```
+
+This is the opposite of `serviceradar_core`, whose unit tier is a deny-list and
+therefore defaults to running. Do not carry an assumption across.
+
+`test_helper.exs` now fails any target that executes zero tests, which catches a
+whole shard going silent. It does **not** catch a single untagged file inside an
+otherwise-populated shard. Verify a new test actually runs before trusting it:
+break an assertion on purpose, watch the shard go red, then put it back.

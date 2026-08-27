@@ -141,6 +141,7 @@ type PushLoop struct {
 
 	hostNetworkVisibilitySupported func() bool
 	uninstallSystemdAddonUnits     func(context.Context, []string) error
+	relabelStagedAddonExecutables  func(runtimeRoot, addonID string)
 
 	// configApplyMu serializes complete config-response transactions across the independent
 	// poll/control-stream/enroll goroutines. The lock order is configApplyMu then
@@ -256,6 +257,7 @@ func NewPushLoop(server *Server, gateway *agentgateway.GatewayClient, interval t
 		readSystemdUnitStatus:          readSystemdUnitStatusDefault,
 		hostNetworkVisibilitySupported: runtimeSupportsHostNetworkVisibility,
 		uninstallSystemdAddonUnits:     uninstallAddonSystemdUnitsViaUpdater,
+		relabelStagedAddonExecutables:  relabelStagedAddonExecutables,
 	}
 	remoteConsoleManager.desktopAdapter = desktopRDPHelperAdapter{HelperPathResolver: pushLoop.remoteAccessRDPAdapterPath}
 
@@ -549,7 +551,6 @@ func (p *PushLoop) pushStatus(ctx context.Context) {
 	sentMapperTopology := p.pushMapperTopology(ctx)
 	sentSNMPMetrics := p.pushSNMPMetrics(ctx)
 	sentNetprobeResults := p.pushNetprobeResults(ctx)
-	sentNetprobeCensus := p.pushNetprobeCensusResults(ctx)
 	sentFlowAttribution := p.pushFlowAttribution(ctx)
 	sentWorkloadIdentity := p.pushWorkloadIdentity(ctx)
 	sentPluginResults := p.pushPluginResults(ctx)
@@ -567,7 +568,6 @@ func (p *PushLoop) pushStatus(ctx context.Context) {
 		!sentMapperTopology &&
 		!sentSNMPMetrics &&
 		!sentNetprobeResults &&
-		!sentNetprobeCensus &&
 		!sentFlowAttribution &&
 		!sentWorkloadIdentity &&
 		!sentPluginResults &&

@@ -13,6 +13,7 @@ defmodule ServiceRadar.Plugins.AddonProfileReconcileWorker do
 
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Jobs.SelfScheduling
+  alias ServiceRadar.Plugins.AddonAssignment
   alias ServiceRadar.Plugins.AddonProfile
   alias ServiceRadar.Plugins.AddonProfileOps
   alias ServiceRadar.SweepJobs.ObanSupport
@@ -60,6 +61,7 @@ defmodule ServiceRadar.Plugins.AddonProfileReconcileWorker do
     case profiles do
       {:ok, rows} ->
         Enum.each(rows, &reconcile_one_profile(&1, actor))
+        retire_orphaned_profile_assignments(rows, actor)
 
         schedule_next()
         :ok
@@ -72,6 +74,63 @@ defmodule ServiceRadar.Plugins.AddonProfileReconcileWorker do
 
         schedule_next()
         {:error, reason}
+    end
+  end
+
+  # Retire profile-sourced assignments whose owning profile is gone or disabled.
+  #
+  # `AddonProfileReconciler.reconcile/2` loads only ONE profile's assignments
+  # (`list_profile_assignments/2`), so its `disable_stale` can never see a row that
+  # belongs to a profile it is not reconciling -- and this worker only reconciles
+  # ENABLED profiles. Between them, disabling a profile stranded its assignments, and
+  # deleting one stranded them with a null `addon_profile_id` (the FK is ON DELETE SET
+  # NULL). Either way the rows stayed `enabled: true` and kept being delivered to
+  # agents forever, with no profile left to ever turn them off.
+  #
+  # This is the fleet-wide sweep that owns that question: anything sourced from a
+  # profile that is no longer an enabled profile gets disabled.
+  defp retire_orphaned_profile_assignments(enabled_profiles, actor) do
+    live_profile_ids = MapSet.new(enabled_profiles, &to_string(&1.id))
+
+    AddonAssignment
+    |> Ash.Query.for_read(:read)
+    |> Ash.Query.filter(source == :profile and enabled == true)
+    |> Ash.read(actor: actor)
+    |> case do
+      {:ok, assignments} ->
+        assignments
+        |> Enum.reject(&MapSet.member?(live_profile_ids, to_string(&1.addon_profile_id)))
+        |> Enum.each(&disable_orphaned_assignment(&1, actor))
+
+      {:error, reason} ->
+        Logger.warning("Failed to load profile assignments for orphan sweep: #{inspect(reason)}",
+          reason: inspect(reason)
+        )
+    end
+  end
+
+  defp disable_orphaned_assignment(assignment, actor) do
+    assignment
+    |> Ash.Changeset.for_update(:update, %{
+      enabled: false,
+      profile_reconcile_status: "orphaned",
+      profile_last_reconciled_at: DateTime.utc_now()
+    })
+    |> Ash.update(actor: actor, authorize?: true)
+    |> case do
+      {:ok, _} ->
+        Logger.info("Disabled orphaned add-on assignment",
+          assignment_id: assignment.id,
+          addon_id: assignment.addon_id,
+          agent_uid: assignment.agent_uid
+        )
+
+      {:error, reason} ->
+        Logger.warning(
+          "Failed to disable orphaned add-on assignment #{assignment.id}: #{inspect(reason)}",
+          assignment_id: assignment.id,
+          reason: inspect(reason)
+        )
     end
   end
 

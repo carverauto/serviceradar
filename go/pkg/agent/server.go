@@ -37,6 +37,7 @@ import (
 	"github.com/carverauto/serviceradar/go/pkg/sweeper"
 	"github.com/carverauto/serviceradar/go/pkg/sysmon"
 	"github.com/carverauto/serviceradar/proto"
+	addonpb "github.com/carverauto/serviceradar/proto/agent/addon/v1"
 )
 
 var (
@@ -267,6 +268,12 @@ func (s *Server) initNetprobeSidecarStatus() {
 		netprobe.AttachManagerConfig{
 			ClientFactory: netprobe.ClientFactory(),
 			Logger:        s.logger.WithComponent("agent.netprobe.attach"),
+			// netprobe is systemd-supervised rather than agent-launched, so it
+			// reaches this buffer through a pump instead of the go-plugin client.
+			// Everything downstream of here is identical to a launched add-on's.
+			AddonTelemetrySink: func(batch *addonpb.TelemetryBatch) {
+				s.handleAddonTelemetry(netprobe.DefaultSidecarName, batch)
+			},
 		},
 		netprobeSidecar,
 	)

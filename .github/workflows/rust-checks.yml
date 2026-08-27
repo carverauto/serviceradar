@@ -76,7 +76,7 @@ jobs:
     # why tests are Bazel-only.
     steps:
       - name: Checkout
-        uses: actions/checkout@v7
+        uses: actions/checkout@v7.0.1
 
       - name: Install Socket Firewall
         run: bash scripts/ci/install-sfw.sh
@@ -141,7 +141,7 @@ jobs:
       # a shared key would have them race to save the same entry -- one wins, the other logs
       # a "cache already exists" warning every run.
       - name: Cache Cargo registry
-        uses: actions/cache@v6
+        uses: actions/cache@v6.1.0
         with:
           path: |
             ~/.cargo/registry
@@ -151,7 +151,7 @@ jobs:
             ${{ runner.os }}-cargo-registry-clippy-
 
       - name: Cache Cargo build
-        uses: actions/cache@v6
+        uses: actions/cache@v6.1.0
         with:
           path: target
           key: ${{ runner.os }}-cargo-clippy-${{ hashFiles('**/Cargo.lock') }}
@@ -206,7 +206,7 @@ jobs:
     # RustSec advisories for rust/rdp-connector-probe, the review-only IronRDP probe.
     steps:
       - name: Checkout
-        uses: actions/checkout@v7
+        uses: actions/checkout@v7.0.1
 
       - name: Install Socket Firewall
         run: bash scripts/ci/install-sfw.sh
@@ -228,7 +228,7 @@ jobs:
           cargo --version
 
       - name: Cache Cargo registry
-        uses: actions/cache@v6
+        uses: actions/cache@v6.1.0
         with:
           path: |
             ~/.cargo/registry
