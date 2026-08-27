@@ -358,7 +358,9 @@ describe("lifecycle_bootstrap_event_methods", () => {
 
     expect(state.layers).toEqual({mantle: false, crust: true, atmosphere: false, security: true})
     expect(state.topologyLayers).toEqual({backbone: true, inferred: true, endpoints: false, mtr_paths: true})
-    expect(ctx.collapseAllClusters).toHaveBeenCalledTimes(1)
+    // Hiding attachment geometry must not throw away the operator's expansions: the server
+    // defaults `endpoints` to false, so collapsing here closed open clusters on any layer push.
+    expect(ctx.collapseAllClusters).not.toHaveBeenCalled()
     expect(deps.renderGraph).toHaveBeenCalledTimes(2)
   })
 

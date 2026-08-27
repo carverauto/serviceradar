@@ -12,6 +12,37 @@ import {
 } from "./lifecycle_managed_camera_recovery"
 import {hasManagedTopologyScene} from "./topology_layout_mode"
 
+/**
+ * Adopts a resized canvas into Deck's own viewport before anything reads it back.
+ *
+ * Deck caches the canvas size that every viewport it hands out is built from, and refreshes
+ * that cache only from its own animation frame. `setProps({width, height})` rewrites the
+ * canvas CSS and then re-sends the PREVIOUS cached size to the view manager, so between a
+ * resize and the next frame `deck.getViewports()` -- and the frame `redraw(true)` draws --
+ * still describe the old viewport. Everything downstream of a resize projects through that
+ * viewport: the label admission that decides which labels fit, the layer refresh, and the
+ * acceptance geometry observer. Comparing projections taken in the old frame against the safe
+ * rect measured in the new one is how a scene that fits exactly reports glyphs 560px outside
+ * it -- half the width difference between the two frames.
+ *
+ * Deck's refresh is idempotent and reads the size straight off the canvas we just sized, so
+ * pulling it forward costs nothing and leaves no frame drawn at the wrong size. It is internal
+ * API, so a Deck that no longer exposes it degrades to the old behaviour (one stale frame)
+ * rather than failing: the fallback still corrects the view manager, even though Deck's next
+ * `setProps` re-asserts its own cached size over it.
+ */
+function adoptDeckViewportSize(deck, width, height) {
+  if (typeof deck?._updateCanvasSize === "function") {
+    deck._updateCanvasSize()
+    if (Number(deck.width) === width && Number(deck.height) === height) return true
+  }
+  if (typeof deck?.viewManager?.setProps === "function") {
+    deck.viewManager.setProps({width, height})
+    return true
+  }
+  return false
+}
+
 function safeInsetsChanged(previous, current) {
   if (!previous) return true
   return ["left", "top", "right", "bottom"].some((edge) => {
@@ -407,6 +438,7 @@ export const godViewLifecycleDomSetupMethods = {
     this.state.canvas.style.height = `${height}px`
     if (this.state.deck) {
       this.state.deck.setProps({width, height})
+      adoptDeckViewportSize(this.state.deck, width, height)
       this.state.deck.redraw(true)
     }
 
@@ -434,7 +466,7 @@ export const godViewLifecycleDomSetupMethods = {
         const selection = this.deps.managedViewStateForCamera?.(
           this.state.lastGraph,
           this.state.viewState,
-          {safeRect},
+          {safeRect, fittedManagedVisualDensity: this.state.managedTopologyVisualDensity},
         )
         if (selection?.managedVisualDensity) {
           this.state.managedTopologyVisualDensity = selection.managedVisualDensity
@@ -585,7 +617,12 @@ export const godViewLifecycleDomSetupMethods = {
         const applyViewState = () => {
           let nextViewState = {...this.state.viewState, ...viewState}
           if (managedScene && !programmaticUpdate) {
-            const selection = this.deps.managedViewStateForCamera(this.state.lastGraph, nextViewState)
+            // A user pan or zoom must not re-widen the glyphs the fit stepped down.
+            const selection = this.deps.managedViewStateForCamera(
+              this.state.lastGraph,
+              nextViewState,
+              {fittedManagedVisualDensity: this.state.managedTopologyVisualDensity},
+            )
             nextViewState = selection.viewState
             this.state.managedTopologyVisualDensity = selection.managedVisualDensity
           }

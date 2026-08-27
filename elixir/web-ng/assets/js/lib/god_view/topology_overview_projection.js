@@ -104,6 +104,26 @@ function canonicalNodeType(value) {
   return stringValue(value).toLowerCase().replace(/[\s-]+/g, "_")
 }
 
+// An expanded cluster elaborates the atlas rather than replacing it: its members join the
+// projection and hang off their summary, so the radial algorithm places them on the ring
+// beyond it, inside that summary's own wedge. Collapsed clusters stay a single glyph.
+function isExpandedEndpointMember(node) {
+  return node.type === "endpoint-member" && truthy(detailsFor(node.raw).cluster_expanded)
+}
+
+// An expanded summary has been replaced by its own members -- standing in for them was the
+// bubble's only job -- so it is dropped from the projection entirely. Leaving it admitted is
+// what made an opened cluster an island: the renderer hides an expanded summary's glyph, but
+// the members were still parented on it, so the ring orbited a hub that was never drawn while
+// the hub's own link to the backbone failed the same visibility test and was filtered out.
+// memberRelations re-parents the members onto the anchor, so the bubble is only removed when
+// that anchor actually resolves to infrastructure; otherwise it stays and remains their parent.
+function isElaboratedSummary(node, infrastructureIds) {
+  if (node.type !== "endpoint-summary") return false
+  if (!truthy(detailsFor(node.raw).cluster_expanded)) return false
+  return infrastructureIds.has(stringValue(detailsFor(node.raw).cluster_anchor_id))
+}
+
 function isTransportInfrastructureNode(node) {
   if (node.type === "endpoint-anchor") return true
   const identitySource = stringValue(detailsFor(node.raw).identity_source).toLowerCase()
@@ -240,19 +260,30 @@ function overviewNodes(normalized) {
   const infrastructure = normalized.nodes.filter(isTransportInfrastructureNode)
   const infrastructureIds = new Set(infrastructure.map((node) => node.id))
   const summaries = normalized.nodes.filter(
-    (node) => node.type === "endpoint-summary" && !infrastructureIds.has(node.id),
+    (node) =>
+      node.type === "endpoint-summary" &&
+      !infrastructureIds.has(node.id) &&
+      !isElaboratedSummary(node, infrastructureIds),
   )
-  const visibleIds = new Set([...infrastructure, ...summaries].map((node) => node.id))
-  const semanticNodes = [...infrastructure, ...summaries]
+  const summaryIds = new Set(summaries.map((node) => node.id))
+  const members = normalized.nodes.filter(
+    (node) => isExpandedEndpointMember(node) && !infrastructureIds.has(node.id) && !summaryIds.has(node.id),
+  )
+  const visibleIds = new Set([...infrastructure, ...summaries, ...members].map((node) => node.id))
+  const roleFor = (node) => {
+    if (infrastructureIds.has(node.id)) return "infrastructure"
+    return summaryIds.has(node.id) ? "summary" : "member"
+  }
+  const semanticNodes = [...infrastructure, ...summaries, ...members]
     .map((node) => ({
       id: node.id,
       label: stringValue(node.raw?.label),
-      role: infrastructureIds.has(node.id) ? "infrastructure" : "summary",
+      role: roleFor(node),
       type: node.type,
     }))
     .sort((left, right) => left.id.localeCompare(right.id))
 
-  return {infrastructureIds, semanticNodes, summaries, visibleIds}
+  return {infrastructureIds, members, semanticNodes, summaries, visibleIds}
 }
 
 function comparePair(left, right) {
@@ -385,6 +416,63 @@ function summaryRelations(summaries, infrastructureIds, pairs) {
   return {relations, crossLinks}
 }
 
+// A member is parented on whatever its real attachment edge points at, and the relation is
+// built from that pair so it carries the edge's identity and evidence.
+//
+// Both halves matter. The renderer resolves a route back to graph edges through
+// `relationIds`; a fabricated relation has none, so the route is dropped as
+// "missing-relation-bindings" and the member draws as an unconnected dot. And the other end
+// is the cluster summary, not the anchor -- the server attaches an expanded member to its
+// cluster node -- so looking for an anchor pair finds nothing and falls back to exactly that
+// broken fabricated relation.
+function memberRelations(members, visibleIds, pairs, infrastructureIds) {
+  const pairsByNodeId = new Map()
+  for (const pair of pairs) {
+    for (const nodeId of pair.nodeIds) {
+      const bucket = pairsByNodeId.get(nodeId) || []
+      bucket.push(pair)
+      pairsByNodeId.set(nodeId, bucket)
+    }
+  }
+
+  return [...members]
+    .sort((left, right) => left.id.localeCompare(right.id))
+    .flatMap((member) => {
+      const memberPairs = (pairsByNodeId.get(member.id) || []).sort(comparePair)
+      const visiblePair = memberPairs.find((pair) =>
+        pair.nodeIds.some((id) => id !== member.id && visibleIds.has(id)),
+      )
+      if (visiblePair) {
+        const parentId = visiblePair.nodeIds.find((id) => id !== member.id && visibleIds.has(id))
+        return [relationFromPair(visiblePair, parentId, member.id)]
+      }
+
+      // The server attaches a member to its cluster node, not to the anchor, so once the
+      // elaborated summary is no longer admitted the member has no visible counterpart left to
+      // pair with. Re-target its real attachment onto the anchor the summary itself hung from,
+      // which is where the endpoint physically attaches -- that is what ties the opened ring
+      // back to the backbone. Retargeting rather than synthesizing a fresh relation is what
+      // keeps semanticRelationIds populated: a relation carrying no bindings produces a route
+      // the renderer discards as missing-relation-bindings, which is the same invisible edge
+      // by another name.
+      const anchorId = stringValue(detailsFor(member.raw).cluster_anchor_id)
+      if (!infrastructureIds.has(anchorId)) return []
+      const attachment = memberPairs[0]
+      if (attachment) return [relationFromPair(attachment, anchorId, member.id)]
+
+      const id = `overview:member:${anchorId}|${member.id}`
+      return [{
+        id,
+        pairId: id,
+        sourceId: anchorId,
+        targetId: member.id,
+        trustRank: 6,
+        semanticRelationIds: [],
+        evidence: [],
+      }]
+    })
+}
+
 function graphKeyFor({semanticNodes, roots, semanticTreeRelations, crossLinks, synthetic}) {
   return stableJson({
     nodes: semanticNodes,
@@ -398,7 +486,7 @@ function graphKeyFor({semanticNodes, roots, semanticTreeRelations, crossLinks, s
 export function prepareTopologyOverviewInput(graph) {
   const normalized = normalizeNodes(graph)
   const {pairs, transportDegree, omittedMalformedEdges} = aggregatePairs(graph, normalized)
-  const {infrastructureIds, semanticNodes, summaries, visibleIds} = overviewNodes(normalized)
+  const {infrastructureIds, members, semanticNodes, summaries, visibleIds} = overviewNodes(normalized)
   const infrastructure = normalized.nodes.filter((node) => infrastructureIds.has(node.id))
   const candidatePairs = pairs
     .filter((pair) => pair.hasTransport && pair.nodeIds.every((id) => infrastructureIds.has(id)))
@@ -419,7 +507,11 @@ export function prepareTopologyOverviewInput(graph) {
   )
   const synthetic = {nodeIds: [], relationIds: []}
   const nodes = [...semanticNodes]
-  const treeRelations = [...oriented.relations, ...summaryLeaves]
+  const treeRelations = [
+    ...oriented.relations,
+    ...summaryLeaves,
+    ...memberRelations(members, visibleIds, pairs, infrastructureIds),
+  ]
 
   if (oriented.roots.length > 1) {
     nodes.push({id: SUPER_ROOT_ID, label: "", role: "synthetic", type: "super-root", synthetic: true, width: 0, height: 0})
@@ -454,6 +546,7 @@ export function prepareTopologyOverviewInput(graph) {
     glyphs: semanticNodes.length,
     infrastructureNodes: infrastructure.length,
     collapsedSummaries: summaries.length,
+    expandedMembers: members.length,
     treeRelations: semanticTreeRelations.length,
     crossLinks: allCrossLinks.length,
     omittedAttachmentNodes,

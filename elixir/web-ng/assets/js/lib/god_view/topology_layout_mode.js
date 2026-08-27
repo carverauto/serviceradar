@@ -5,10 +5,15 @@ export function clusterExpandedFlag(value) {
   return value === true || value === "true" || value === 1
 }
 
-// A cluster the operator has expanded is the only signal that promotes a graph out of
-// the radial overview. The server never sends a semantic level, so deriving it here is
-// what makes the bounded-detail adapter reachable at all; `_topologySemanticLevel`
-// remains an explicit override for harnesses that need detail without an expansion.
+// Whether any cluster is expanded. This does NOT choose the layout: an expanded cluster
+// elaborates the radial atlas in place -- the projection admits its members and parents them
+// on their summary, so the backbone keeps its positions and only the opened cluster gains a
+// ring. Promoting the whole graph to the bounded-detail scene instead re-laid every node with
+// the layered algorithm, which is why expanding stopped looking like the same product.
+//
+// What this still answers is whether the scene is unbounded, which is what the label
+// admission paths need: expansion can add arbitrarily many members to a scene sized for a
+// handful, so those degrade rather than failing closed.
 export function hasExpandedCluster(graph) {
   return (
     Array.isArray(graph?.nodes) &&
@@ -19,7 +24,7 @@ export function hasExpandedCluster(graph) {
 export function topologySemanticLevel(graph) {
   const declared = graph?._topologySemanticLevel
   if (declared === "detail" || declared === "overview") return declared
-  return hasExpandedCluster(graph) ? "detail" : "overview"
+  return "overview"
 }
 
 function isPlainObject(value) {

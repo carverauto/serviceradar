@@ -73,9 +73,12 @@ defmodule ServiceRadarWebNGWeb.TopologyLive.GodViewStreamState do
     message = params |> Map.get("message") |> client_error_text()
 
     if message != "" do
+      stack = params |> Map.get("stack") |> client_error_text()
+      stack_suffix = if stack == "", do: "", else: " stack=#{stack}"
+
       Logger.warning(
         "god_view_client_stream_error reason=#{params |> Map.get("reason") |> client_error_text()} " <>
-          "message=#{message}"
+          "message=#{message}" <> stack_suffix
       )
     end
 

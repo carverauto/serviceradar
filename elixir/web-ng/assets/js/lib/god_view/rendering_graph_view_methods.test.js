@@ -795,7 +795,9 @@ describe("rendering_graph_view_methods", () => {
       limitingKind: "route-route",
       limitingRolePair: ["route", "route"],
     })
-    expect(() => ctx.managedVisualDensityForViewScale(graph, 9)).toThrow(/no feasible managed visual density/i)
+    // The ladder degrades rather than failing closed: a scale too tight for overview now
+    // selects the compact tier instead of leaving the scene with no feasible density at all.
+    expect(ctx.managedVisualDensityForViewScale(graph, 9).managedVisualDensity).toBe("compact")
   })
 
   it.each([
@@ -839,7 +841,9 @@ describe("rendering_graph_view_methods", () => {
       limitingRolePair: ["route", "route"],
     })
     expect(selection.constraints.overview.scale).toBeGreaterThan(9)
-    expect(() => ctx.managedVisualDensityForViewScale(graph, 9)).toThrow(/no feasible managed visual density/i)
+    // The ladder degrades rather than failing closed: a scale too tight for overview now
+    // selects the compact tier instead of leaving the scene with no feasible density at all.
+    expect(ctx.managedVisualDensityForViewScale(graph, 9).managedVisualDensity).toBe("compact")
   })
 
   it("bounds a shared endpoint funnel to endpoint chrome when long terminal legs nearly overlap", () => {
@@ -882,6 +886,9 @@ describe("rendering_graph_view_methods", () => {
       limitingRolePair: ["route", "route"],
     })
     expect(selection.constraints.overview.scale).toBeGreaterThan(10)
+    // Still genuinely infeasible: overview alone needs scale ~93.75 here, so the compact tier
+    // cannot reach scale 10 either and the ladder is exhausted. This is the case that must
+    // still throw -- degrading is not the same as always succeeding.
     expect(() => ctx.managedVisualDensityForViewScale(graph, 10)).toThrow(/no feasible managed visual density/i)
   })
 
@@ -917,9 +924,9 @@ describe("rendering_graph_view_methods", () => {
       scale: feasibleScale,
       limitingKind: "route-route",
     })
-    expect(() => ctx.managedVisualDensityForViewScale(graph, feasibleScale * 0.9)).toThrow(
-      /no feasible managed visual density/i,
-    )
+    expect(
+      ctx.managedVisualDensityForViewScale(graph, feasibleScale * 0.9).managedVisualDensity,
+    ).toBe("compact")
   })
 
   it("leaves an accepted proper route crossing under the route validator contract", () => {

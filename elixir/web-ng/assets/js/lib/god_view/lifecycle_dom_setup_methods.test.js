@@ -279,6 +279,83 @@ describe("lifecycle_dom_setup_methods", () => {
     expect(state.lastLayoutKey).toBe("accepted-landscape-layout")
   })
 
+  it("adopts the resized canvas into the Deck viewport before the frame is drawn", () => {
+    // Mirrors @deck.gl/core 9.2: `width`/`height` are cached fields, and setProps re-sends the
+    // CACHED pair to the view manager rather than the one it was handed. Only _updateCanvasSize
+    // reads the new size back off the canvas, and Deck calls it from its own animation frame --
+    // so every viewport handed out between a resize and the next frame, including the one
+    // redraw() draws, still describes the previous size. Projecting a scene in that frame and
+    // measuring it against the safe rect measured here compares two different viewports.
+    const canvas = {style: {}}
+    const deck = {
+      width: 1920,
+      height: 1080,
+      viewportWidth: 1920,
+      viewportHeight: 1080,
+      setProps: vi.fn((props) => {
+        if (props.width != null) canvas.style.width = `${props.width}px`
+        if (props.height != null) canvas.style.height = `${props.height}px`
+        deck.viewportWidth = deck.width
+        deck.viewportHeight = deck.height
+      }),
+      _updateCanvasSize: vi.fn(() => {
+        deck.width = Number(String(canvas.style.width).replace("px", ""))
+        deck.height = Number(String(canvas.style.height).replace("px", ""))
+        deck.viewportWidth = deck.width
+        deck.viewportHeight = deck.height
+      }),
+      redraw: vi.fn(),
+    }
+    const state = {
+      el: {
+        clientWidth: 800,
+        clientHeight: 1000,
+        getBoundingClientRect: () => ({left: 0, top: 0, width: 800, height: 1000, right: 800, bottom: 1000}),
+      },
+      canvas,
+      deck,
+      viewportWidth: 1920,
+      viewportHeight: 1080,
+    }
+    const ctx = createStateBackedContext(state, {})
+    Object.assign(ctx, bindApi(ctx, godViewLifecycleDomSetupMethods))
+
+    ctx.resizeCanvas()
+
+    expect(deck.setProps).toHaveBeenCalledWith({width: 800, height: 1000})
+    expect(deck._updateCanvasSize).toHaveBeenCalledTimes(1)
+    expect([deck.viewportWidth, deck.viewportHeight]).toEqual([800, 1000])
+    expect(deck._updateCanvasSize.mock.invocationCallOrder[0])
+      .toBeLessThan(deck.redraw.mock.invocationCallOrder[0])
+  })
+
+  it("falls back to the Deck view manager when the canvas-size refresh is unavailable", () => {
+    const canvas = {style: {}}
+    const viewManagerSetProps = vi.fn()
+    const deck = {
+      setProps: vi.fn(),
+      redraw: vi.fn(),
+      viewManager: {setProps: viewManagerSetProps},
+    }
+    const state = {
+      el: {
+        clientWidth: 800,
+        clientHeight: 1000,
+        getBoundingClientRect: () => ({left: 0, top: 0, width: 800, height: 1000, right: 800, bottom: 1000}),
+      },
+      canvas,
+      deck,
+      viewportWidth: 1920,
+      viewportHeight: 1080,
+    }
+    const ctx = createStateBackedContext(state, {})
+    Object.assign(ctx, bindApi(ctx, godViewLifecycleDomSetupMethods))
+
+    ctx.resizeCanvas()
+
+    expect(viewManagerSetProps).toHaveBeenCalledWith({width: 800, height: 1000})
+  })
+
   it("safe-chrome-only changes refit and refresh when the usable profile is unchanged", () => {
     const controls = {
       getAttribute: () => "right",
@@ -1072,10 +1149,15 @@ describe("lifecycle_dom_setup_methods", () => {
     expect(state.deck.setProps).toHaveBeenCalledWith({width: 980, height: 600})
     expect(deps.autoFitViewState).not.toHaveBeenCalled()
     expect(deps.managedVisualDensityForViewScale).not.toHaveBeenCalled()
+    // The resize forwards the live density: without it managedViewStateForCamera falls back to
+    // the semantic default and re-widens glyphs the fit had stepped down.
     expect(deps.managedViewStateForCamera).toHaveBeenCalledWith(
       graph,
       acceptedViewState,
-      {safeRect: {left: 0, top: 0, right: 980, bottom: 600}},
+      {
+        safeRect: {left: 0, top: 0, right: 980, bottom: 600},
+        fittedManagedVisualDensity: "detail",
+      },
     )
     expect(state.managedTopologyVisualDensity).toBe("detail")
     expect(state.viewState).toBe(acceptedViewState)

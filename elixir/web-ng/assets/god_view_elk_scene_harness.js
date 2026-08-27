@@ -23,7 +23,8 @@ function expandClusters(ordinals) {
     const suffix = String(ordinal).padStart(2, "0")
     const anchorId = `farm01:gateway-${suffix}`
     const clusterId = `cluster:endpoints:${anchorId}`
-    const anchorIndex = nodes.findIndex((node) => node.id === anchorId)
+    // Attach to the summary, mirroring the server -- see the fixture module for why.
+    const summaryIndex = nodes.findIndex((node) => node.id === `farm01:endpoint-summary-${suffix}`)
     const offset = nodes.length
     for (let memberOrdinal = 1; memberOrdinal <= 24; memberOrdinal += 1) {
       const memberSuffix = String(memberOrdinal).padStart(2, "0")
@@ -41,7 +42,7 @@ function expandClusters(ordinals) {
       })
       edges.push({
         id: `farm01:attachment:member-${suffix}-${memberSuffix}`,
-        source: anchorIndex,
+        source: summaryIndex,
         target: offset + memberOrdinal - 1,
         topologyClass: "endpoints",
         evidenceClass: "endpoint-attachment",

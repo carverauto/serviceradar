@@ -4,6 +4,7 @@ import {
   hasManagedTopologyScene,
   isDetailScene,
   isOverviewScene,
+  hasExpandedCluster,
   topologySemanticLevel,
 } from "./topology_layout_mode"
 
@@ -61,13 +62,20 @@ describe("topology_layout_mode", () => {
 })
 
 describe("topology_layout_mode expansion-derived semantic level", () => {
-  it("treats a graph carrying an expanded cluster as bounded detail", () => {
-    expect(topologySemanticLevel({
+  // An expanded cluster elaborates the radial atlas in place, so it must NOT promote the
+  // graph to the bounded-detail scene -- that re-laid the whole backbone with the layered
+  // algorithm. `hasExpandedCluster` still reports the expansion for the label-admission
+  // paths, which degrade rather than failing closed on an unbounded scene.
+  it("keeps an expanded cluster in the radial atlas", () => {
+    const expanded = {
       nodes: [
         {id: "gw", details: {cluster_kind: "endpoint-anchor"}},
         {id: "cluster", details: {cluster_kind: "endpoint-summary", cluster_expanded: true}},
       ],
-    })).toBe("detail")
+    }
+
+    expect(topologySemanticLevel(expanded)).toBe("overview")
+    expect(hasExpandedCluster(expanded)).toBe(true)
   })
 
   it("keeps a fully collapsed graph in radial overview", () => {

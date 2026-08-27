@@ -84,9 +84,12 @@ export const godViewLifecycleDomInteractionMethods = {
     const applyViewState = () => {
       let nextViewState = viewState
       if (managedScene) {
+        // Same graph, camera-only move: carry the density the fit selected, or a stepped-down
+        // selection is discarded here and the glyphs snap back to overview extents.
         const selection = this.deps.managedViewStateForCamera(
           this.state.lastGraph,
           {...this.state.viewState, ...viewState},
+          {fittedManagedVisualDensity: this.state.managedTopologyVisualDensity},
         )
         nextViewState = selection.viewState
         this.state.managedTopologyVisualDensity = selection.managedVisualDensity

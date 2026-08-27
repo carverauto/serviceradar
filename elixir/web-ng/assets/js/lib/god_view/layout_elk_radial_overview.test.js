@@ -205,7 +205,7 @@ describe("layout_elk_radial_overview", () => {
       "org.eclipse.elk.radial.sorter": "ID",
       "org.eclipse.elk.radial.radius": "224",
       "org.eclipse.elk.radial.compactor": "NONE",
-      "org.eclipse.elk.radial.wedgeCriteria": "NODE_SIZE",
+      "org.eclipse.elk.radial.wedgeCriteria": "LEAF_NUMBER",
     })
     expect(graph.children.map((node) => node.id)).toEqual(["alpha", "beta", "gamma", "overview:super-root"])
     expect(graph.edges.map((edge) => edge.id)).toEqual([

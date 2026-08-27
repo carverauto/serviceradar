@@ -279,7 +279,11 @@ export function buildElkRadialOverviewGraph(input, {radius = RADIAL_BASE_RADIUS}
       "org.eclipse.elk.radial.sorter": "ID",
       "org.eclipse.elk.radial.radius": String(radius),
       "org.eclipse.elk.radial.compactor": "NONE",
-      "org.eclipse.elk.radial.wedgeCriteria": "NODE_SIZE",
+      // Allocate each subtree's wedge by how many leaves it carries, not by the size of the
+      // node at its root. Under NODE_SIZE an anchor got the same narrow wedge whether it had
+      // one child or an expanded cluster's twenty-four, so the members were crammed into a few
+      // degrees and their routes ran together into a single bright fan.
+      "org.eclipse.elk.radial.wedgeCriteria": "LEAF_NUMBER",
       "elk.spacing.nodeNode": String(NODE_SPACING),
       "elk.padding": `[top=${SCENE_PADDING},left=${SCENE_PADDING},bottom=${SCENE_PADDING},right=${SCENE_PADDING}]`,
     },
@@ -471,10 +475,22 @@ export function validateTopologyOverview(scene, input) {
   return deepFreeze({ok: errors.length === 0, errors})
 }
 
+// The fixed ladder was sized for a backbone-only atlas. An expanded cluster puts its members
+// on the rings too, and a ring only holds so much: with N nodes competing for one circle the
+// circumference has to clear N * (envelope + spacing), or ELK packs them tight enough that
+// routes start clipping the nodes they pass and the scene fails validation. Grow the base
+// radius with the graph and keep the ladder as escalation from there.
+function radialRadiusAttempts(input) {
+  const nodeCount = Math.max(1, expectedNodes(input).length)
+  const circumferenceRadius = Math.ceil((nodeCount * (SEMANTIC_ENVELOPE + NODE_SPACING)) / (2 * Math.PI))
+  const base = Math.max(RADIAL_BASE_RADIUS, circumferenceRadius)
+  return [base, base * 2, base * 4]
+}
+
 export async function layoutTopologyOverview(input, elk) {
   if (!elk || typeof elk.layout !== "function") throw new Error("ELK layout engine is unavailable")
   let lastFailure = "unknown geometry failure"
-  for (const radius of RADIAL_RADIUS_ATTEMPTS) {
+  for (const radius of radialRadiusAttempts(input)) {
     const layout = await elk.layout(buildElkRadialOverviewGraph(input, {radius}))
     try {
       const scene = decodeElkRadialOverview(layout, input)

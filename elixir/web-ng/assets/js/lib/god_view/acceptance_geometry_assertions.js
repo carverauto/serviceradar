@@ -256,12 +256,58 @@ function projectedRouteSegmentsOutsideSharedJunctions(route, junctions, radius) 
   return segments
 }
 
+// Two routes leaving a shared node in different directions necessarily overlap in the
+// convergence zone around it: the radial atlas fans two dozen members off a single anchor, so
+// every adjacent pair runs together where they leave it. They do not share a projected point --
+// each route departs its own place on the anchor's perimeter -- so the exact-junction exclusion
+// never saw them. Centre the zone on the meeting place instead and size it by how sharply the
+// two diverge: past that distance strokes of this combined width can be clear, so any overlap
+// there is a real one. A near-collinear pair is skipped entirely, which is what keeps two routes
+// genuinely running along each other detectable.
+const MIN_DIVERGENCE_RADIANS = (2 * Math.PI) / 180
+
+function projectedDepartureDirection(route, point) {
+  const points = Array.isArray(route?.projectedPoints) ? route.projectedPoints : []
+  for (const [from, to] of [[points[0], points[1]], [points.at(-1), points.at(-2)]]) {
+    if (!from || !to || !samePoint(point, from)) continue
+    const deltaX = to.x - from.x
+    const deltaY = to.y - from.y
+    const length = Math.hypot(deltaX, deltaY)
+    if (length <= GEOMETRY_EPSILON) continue
+    return {x: deltaX / length, y: deltaY / length}
+  }
+  return null
+}
+
+function sharedContactConvergences(routeA, routeB, combinedRadius, epsilon) {
+  const first = projectedRouteContactPoints(routeA)
+  const second = projectedRouteContactPoints(routeB)
+  const convergences = []
+  for (const [id, point] of first) {
+    const other = second.get(id)
+    if (!other) continue
+    const directionA = projectedDepartureDirection(routeA, point)
+    const directionB = projectedDepartureDirection(routeB, other)
+    if (!directionA || !directionB) continue
+    const dot = Math.min(1, Math.max(-1, (directionA.x * directionB.x) + (directionA.y * directionB.y)))
+    const divergence = Math.acos(dot)
+    if (divergence < MIN_DIVERGENCE_RADIANS) continue
+    const separation = Math.hypot(point.x - other.x, point.y - other.y)
+    convergences.push({
+      point: {x: (point.x + other.x) / 2, y: (point.y + other.y) / 2},
+      radius: (combinedRadius / (2 * Math.sin(divergence / 2))) + separation + epsilon,
+    })
+  }
+  return convergences
+}
+
 export function routeStrokesOverlap(routeA, routeB, epsilon = GEOMETRY_EPSILON) {
   const combinedRadius = routeStrokeRadius(routeA) + routeStrokeRadius(routeB)
-  const junctions = sharedProjectedJunctions(routeA, routeB)
-  const exclusionRadius = combinedRadius + epsilon
-  const firstSegments = projectedRouteSegmentsOutsideSharedJunctions(routeA, junctions, exclusionRadius)
-  const secondSegments = projectedRouteSegmentsOutsideSharedJunctions(routeB, junctions, exclusionRadius)
+  const convergences = sharedContactConvergences(routeA, routeB, combinedRadius, epsilon)
+  const exclusionPoints = [...sharedProjectedJunctions(routeA, routeB), ...convergences.map((entry) => entry.point)]
+  const exclusionRadius = Math.max(combinedRadius + epsilon, ...convergences.map((entry) => entry.radius))
+  const firstSegments = projectedRouteSegmentsOutsideSharedJunctions(routeA, exclusionPoints, exclusionRadius)
+  const secondSegments = projectedRouteSegmentsOutsideSharedJunctions(routeB, exclusionPoints, exclusionRadius)
   for (const [firstStart, firstEnd] of firstSegments) {
     for (const [secondStart, secondEnd] of secondSegments) {
       if (segmentDistance(firstStart, firstEnd, secondStart, secondEnd) < combinedRadius - epsilon) {

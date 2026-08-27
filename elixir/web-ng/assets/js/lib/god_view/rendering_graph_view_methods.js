@@ -848,7 +848,12 @@ function selectFeasibleManagedDensity(
     )
     if (managedDensityHolds(constraints[candidate], safeDimensions, probe)) return candidate
   }
-  return preferred
+  // Nothing held. Take the TIGHTEST candidate rather than the preferred one: returning the
+  // widest is what made the ladder inert for exactly the scenes that needed it, since a graph
+  // dense enough to fail every tier would snap back to the roomiest and overlap hardest.
+  // Keeping the whole graph visible and degrading the glyphs is the deliberate trade here --
+  // the alternative is framing a subset and making the operator pan to find the rest.
+  return candidates[candidates.length - 1]
 }
 
 function fitManagedTopologyScene(context, graph, scene, viewport, safeRect, graphNodes) {
@@ -887,8 +892,29 @@ function fitManagedTopologyScene(context, graph, scene, viewport, safeRect, grap
   return {...fit, managedVisualDensity}
 }
 
+// The overview carries clusters as node membership rather than as compound groups, so build the
+// group the focus scene needs from the graph itself. Without it focusClusterNeighborhood returns
+// false in the radial atlas and the camera never frames a cluster the operator just expanded.
+function managedClusterGroup(graph, clusterId) {
+  const normalizedId = String(clusterId || "").trim()
+  if (normalizedId === "") return null
+  const sceneNodeIds = new Set((graph?._topologyScene?.nodes || []).map((node) => String(node?.id || "")))
+  const memberIds = []
+  let anchorId = ""
+  for (const node of graph?.nodes || []) {
+    const details = node?.details || {}
+    if (String(details.cluster_id || "").trim() !== normalizedId) continue
+    if (anchorId === "") anchorId = String(details.cluster_anchor_id || "").trim()
+    const id = String(node?.id || "")
+    if (sceneNodeIds.has(id)) memberIds.push(id)
+  }
+  if (memberIds.length === 0) return null
+  return {id: normalizedId, anchorId, gatewayId: anchorId, memberIds}
+}
+
 function focusManagedTopologyGroup(context, graph, groupId, viewport, safeRect, graphNodes) {
-  const focusScene = topologyGroupFocusScene(graph?._topologyScene, groupId)
+  const clusterGroup = managedClusterGroup(graph, groupId)
+  const focusScene = topologyGroupFocusScene(graph?._topologyScene, groupId, clusterGroup)
   if (!focusScene) return null
   const focusNodeIds = new Set((focusScene.nodes || []).map((node) => String(node?.id || "")))
   const layoutCacheKey = String(graph?._layoutCacheKey || "").trim()
@@ -899,10 +925,17 @@ function focusManagedTopologyGroup(context, graph, groupId, viewport, safeRect, 
     nodes: (graph?.nodes || []).filter((node) => focusNodeIds.has(String(node?.id || ""))),
   }
   const constraints = managedDensityConstraints(context, focusGraph)
-  const managedVisualDensity = topologySemanticLevel(graph) === "detail" ? "detail" : "overview"
+  // Focus frames the densest thing in the scene -- an opened cluster's entire ring -- so it has
+  // to honour the density the fit stepped down to instead of assuming the semantic default.
+  const focusSemanticDefault = topologySemanticLevel(graph) === "detail" ? "detail" : "overview"
+  const focusStoredDensity = context?.state?.managedTopologyVisualDensity
+  const managedVisualDensity = MANAGED_VISUAL_DENSITY_PREFERENCE.includes(focusStoredDensity)
+    ? focusStoredDensity
+    : focusSemanticDefault
   const fit = focusTopologyGroup({
     scene: graph._topologyScene,
     groupId,
+    fallbackGroup: clusterGroup,
     viewport,
     safeRect,
     glyphBoxForNode: (sceneNode) => managedGlyphBox(

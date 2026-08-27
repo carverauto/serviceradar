@@ -115,13 +115,12 @@ describe("managed topology visual density", () => {
     expect(() => ctx.autoFitViewState(graph)).not.toThrow()
     expect(Number.isFinite(state.viewState.zoom)).toBe(true)
 
-    // Production reaches this same scene with no pinned marker at all: the expanded
-    // clusters derive detail on their own. Expansion is the unbounded case -- it can add
-    // arbitrarily many members to a scene sized for a handful -- so it must degrade there
-    // too, or expanding a cluster cannot render. Pinning detail does not change that:
-    // boundedness is a property of the scene, not of the marker.
+    // Expansion no longer promotes the graph out of the radial atlas, so this scene reads as
+    // overview. What still matters is that the degrade gate keys on the EXPANSION rather than
+    // on the semantic level: expansion can add arbitrarily many members to a scene sized for a
+    // handful, so it must degrade whether the level is derived or pinned to detail.
     const derivedDetail = {shape: "local", ...applyTopologySceneToGraph(source, scene)}
-    expect(topologySemanticLevel(derivedDetail)).toBe("detail")
+    expect(topologySemanticLevel(derivedDetail)).toBe("overview")
     for (const expanded of [derivedDetail, {...derivedDetail, _topologySemanticLevel: "detail"}]) {
       state.hasAutoFit = false
       state.userCameraLocked = false

@@ -207,7 +207,7 @@ describe("topology_overview_projection", () => {
     expect(shuffled).toEqual(forward)
   })
 
-  it("never admits endpoint members to the overview even when they carry non-attachment evidence", () => {
+  it("admits an expanded endpoint member without promoting it into transport", () => {
     const graph = expandedFarm01Graph()
     const memberIndex = graph.nodes.findIndex((node) => node.id === "farm01:endpoint-member-01")
     const anchorIndex = graph.nodes.findIndex((node) => node.id === "farm01:gateway-01")
@@ -221,8 +221,16 @@ describe("topology_overview_projection", () => {
 
     const overview = prepareTopologyOverviewInput(graph)
 
-    expect(overview.nodes.find((node) => node.id === "farm01:endpoint-member-01")).toBeUndefined()
-    expect(overview.nodes.some((node) => node.type === "endpoint-member")).toEqual(false)
+    // The invariant here is that incidental transport-looking evidence never promotes a
+    // member into the backbone -- not that members are absent. An expanded cluster now
+    // elaborates the atlas, so its members are present, as members.
+    const member = overview.nodes.find((node) => node.id === "farm01:endpoint-member-01")
+
+    expect(member, "an expanded member belongs in the atlas").toBeTruthy()
+    expect(member.role, "observed evidence must not promote a member into transport").toEqual("member")
+    expect(
+      overview.nodes.some((node) => node.type === "endpoint-member" && node.role === "infrastructure"),
+    ).toEqual(false)
   })
 
   it("keeps low-trust inferred endpoint fanout bounded while preserving a direct transport handoff", () => {
@@ -245,5 +253,85 @@ describe("topology_overview_projection", () => {
       omittedAttachmentNodes: 162,
       components: 1,
     })
+  })
+})
+
+describe("expanded clusters inside the radial atlas", () => {
+  // Expanding used to promote the whole graph to the bounded-detail scene, which threw away
+  // the radial backbone and re-laid every node with the layered algorithm. The atlas should
+  // elaborate instead: the backbone keeps its radial positions and the opened cluster gains a
+  // ring of members in its own wedge.
+  function expandedGraph({summaryIdMatchesClusterId}) {
+    const anchorId = "farm01:gateway-01"
+    const clusterId = `cluster:endpoints:${anchorId}`
+    const summaryId = summaryIdMatchesClusterId ? clusterId : "farm01:endpoint-summary-01"
+    const nodes = [
+      {id: anchorId, label: "gateway", details: {cluster_kind: "endpoint-anchor", cluster_anchor_id: anchorId}},
+      {id: summaryId, label: "6 endpoints", clusterCount: 6,
+        details: {cluster_id: clusterId, cluster_kind: "endpoint-summary",
+          cluster_anchor_id: anchorId, cluster_expanded: true}},
+    ]
+    const edges = [{id: "att:summary", source: 0, target: 1,
+      topologyClass: "endpoints", evidenceClass: "endpoint-attachment"}]
+    for (let index = 0; index < 6; index += 1) {
+      edges.push({id: `att:member-${index}`, source: 0, target: nodes.length,
+        topologyClass: "endpoints", evidenceClass: "endpoint-attachment"})
+      nodes.push({id: `member-${index}`, label: `endpoint ${index}`,
+        details: {cluster_id: clusterId, cluster_kind: "endpoint-member",
+          cluster_anchor_id: anchorId, cluster_expanded: true}})
+    }
+    return {nodes, edges, summaryId, clusterId}
+  }
+
+  // Production names the summary node with the cluster id; the regression fixtures give it a
+  // separate id. Both must resolve a member to its summary, so neither shape can regress.
+  for (const summaryIdMatchesClusterId of [true, false]) {
+    it(`admits expanded members and hangs them off the anchor (summaryId===clusterId: ${summaryIdMatchesClusterId})`, () => {
+      const {summaryId, ...graph} = expandedGraph({summaryIdMatchesClusterId})
+      const input = prepareTopologyOverviewInput(graph)
+      const ids = new Set(input.nodes.map((node) => node.id))
+
+      for (let index = 0; index < 6; index += 1) {
+        expect(ids.has(`member-${index}`), `member-${index} must reach the atlas`).toBe(true)
+      }
+
+      const relationByTarget = new Map(input.treeRelations.map((relation) => [relation.targetId, relation]))
+      for (let index = 0; index < 6; index += 1) {
+        const relation = relationByTarget.get(`member-${index}`)
+        expect(relation, `member-${index} must be connected`).toBeTruthy()
+        expect(relation.sourceId).toBe("farm01:gateway-01")
+        // A relation with no backing graph edge lays out but never renders -- the member
+        // draws as an unconnected dot. Carrying the attachment edge's identity is what makes
+        // it a drawn route.
+        expect(relation.semanticRelationIds.length, "member route must carry its edge identity").toBeGreaterThan(0)
+        expect(relation.evidence.length, "member route must carry its edge evidence").toBeGreaterThan(0)
+      }
+      // The bubble an expanded cluster replaced is no longer admitted at all: its members
+      // stand in for it. Leaving it in the projection is what made an opened cluster an
+      // island -- the renderer hides an expanded summary's glyph, so the members were
+      // parented on something never drawn, while its own link to the backbone failed the
+      // same visibility test and was filtered out.
+      expect(ids.has(summaryId), "an expanded summary must not stay in the atlas").toBe(false)
+      expect(
+        relationByTarget.has(summaryId),
+        "an expanded summary must not keep a relation",
+      ).toBe(false)
+    })
+  }
+
+  it("leaves a collapsed cluster as a single summary glyph", () => {
+    const graph = expandedGraph({summaryIdMatchesClusterId: true})
+    const collapsed = {
+      ...graph,
+      nodes: graph.nodes.map((node) => (
+        node.details?.cluster_kind === "endpoint-member"
+          ? node
+          : {...node, details: {...node.details, cluster_expanded: false}}
+      )).filter((node) => node.details?.cluster_kind !== "endpoint-member"),
+      edges: graph.edges.slice(0, 1),
+    }
+    const input = prepareTopologyOverviewInput(collapsed)
+
+    expect(input.nodes.some((node) => String(node.id).startsWith("member-"))).toBe(false)
   })
 })

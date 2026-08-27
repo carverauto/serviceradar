@@ -316,7 +316,9 @@ describe("layout_topology_state_methods", () => {
 
   it.each([
     {state: "collapsed", build: collapsedFarm01Graph, mode: "elk-radial-overview", routes: 11},
-    {state: "expanded", build: expandedFarm01Graph, mode: "elk-scene-detail", routes: 32},
+    // 35 nodes (12 backbone + 24 members, less the expanded summary the members replaced),
+    // and the overview lays out a tree, so exactly n-1 routes.
+    {state: "expanded", build: expandedFarm01Graph, mode: "elk-radial-overview", routes: 34},
   ])("uses one accepted scene as the geometry authority for the $state farm01 fixture", async ({build, mode, routes}) => {
     const context = makeContext()
 
@@ -715,8 +717,10 @@ describe("layout_topology_state_methods", () => {
   })
 })
 
-describe("layout_topology_state_methods expanded cluster promotion", () => {
-  it("renders every expanded cluster member without an injected semantic-level marker", async () => {
+describe("layout_topology_state_methods expanded cluster elaboration", () => {
+  // Expanding elaborates the radial atlas rather than replacing it: the backbone keeps its
+  // radial layout and the opened cluster gains its members on the ring beyond its summary.
+  it("renders every expanded cluster member without leaving the radial atlas", async () => {
     const graph = expandedFarm01Graph()
     const memberIds = graph.nodes
       .filter((node) => node.details?.cluster_kind === "endpoint-member")
@@ -726,7 +730,7 @@ describe("layout_topology_state_methods expanded cluster promotion", () => {
     const laidOut = await makeContext().prepareGraphLayout(graph, 1, "expanded")
     const sceneIds = new Set((laidOut._topologyScene?.nodes || []).map((node) => String(node.id)))
 
-    expect(laidOut._layoutMode).toBe("elk-scene-detail")
+    expect(laidOut._layoutMode).toBe("elk-radial-overview")
     expect(memberIds.filter((id) => sceneIds.has(id))).toHaveLength(memberIds.length)
   })
 

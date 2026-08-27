@@ -432,10 +432,18 @@ function focusScene(scene, group) {
   return {...neighborhood, bounds: completeSceneBounds(neighborhood)}
 }
 
-export function topologyGroupFocusScene(scene, groupId) {
+export function topologyGroupFocusScene(scene, groupId, fallbackGroup = null) {
   const normalizedId = String(groupId || "").trim()
   const group = (scene?.groups || []).find((candidate) => String(candidate?.id || "") === normalizedId)
-  return group ? focusScene(scene, group) : null
+  if (group) return focusScene(scene, group)
+
+  // The radial atlas has no compound groups -- expanding elaborates it in place -- so the only
+  // lookup here found nothing and focus failed closed for every cluster in the overview. A
+  // caller that knows the membership supplies it instead; focusScene is purely id-driven, so a
+  // synthesized group frames the same neighborhood a compound group would have.
+  const memberIds = (fallbackGroup?.memberIds || []).map(String).filter((id) => id !== "")
+  if (memberIds.length === 0) return null
+  return focusScene(scene, {...fallbackGroup, id: normalizedId, memberIds})
 }
 
 export function focusTopologyGroup({
@@ -451,9 +459,10 @@ export function focusTopologyGroup({
   // the exception -- its size is whatever the operator expanded, and no viewport labels 24
   // members -- so the caller marks it and takes the fit with its unplaced ids instead.
   degradeUnplaceableLabels = false,
+  fallbackGroup = null,
 } = {}) {
   const normalizedId = String(groupId || "").trim()
-  const neighborhood = topologyGroupFocusScene(scene, normalizedId)
+  const neighborhood = topologyGroupFocusScene(scene, normalizedId, fallbackGroup)
   if (!neighborhood) return null
   if (typeof glyphBoxForNode !== "function") {
     throw new TypeError("topology focus requires a renderer-derived glyph box resolver")

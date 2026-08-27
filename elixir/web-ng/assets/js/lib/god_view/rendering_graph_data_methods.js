@@ -281,9 +281,14 @@ export const godViewRenderingGraphDataMethods = {
       if (node?.visible) return true
       if (!node || !isEndpointCensusSummary(node) || !isClusterExpanded(node)) return false
 
+      // Deliberately no exception for the summary's own members: the overview projection
+      // re-parents them onto the anchor, so a member route that still terminates here is a
+      // route to a glyph that will not be drawn. Let it fail the test and be recorded in the
+      // route diagnostics rather than rendering a ring around an invisible hub.
+      const otherId = String(otherEndpointId || "")
       const anchorId = clusterAnchorId(node)
       const anchor = visibleByNormalizedId.get(anchorId)
-      if (!anchor?.visible || String(otherEndpointId || "") !== anchorId) return false
+      if (!anchor?.visible || otherId !== anchorId) return false
       const sceneNode = (effective?._topologyScene?.nodes || [])
         .find((candidate) => String(candidate?.id || "") === normalizedEndpointId)
       const group = (effective?._topologyScene?.groups || []).find((candidate) => (
