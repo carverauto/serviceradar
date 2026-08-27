@@ -24,6 +24,17 @@ defmodule ServiceRadar.Integrations.Validations.CompositeExport do
 
   @value_forms ~w(verdict status)
 
+  # Delegate rather than returning a bare `:ok`: a validation whose `atomic/3`
+  # returns `:ok` is skipped when the action runs atomically, which would let a
+  # half-configured composite export through on update.
+  @impl true
+  def atomic(changeset, opts, context) do
+    case validate(changeset, opts, context) do
+      :ok -> :ok
+      {:error, error} -> {:error, error}
+    end
+  end
+
   @impl true
   def validate(changeset, _opts, _context) do
     if Ash.Changeset.changing_attribute?(changeset, :settings) do

@@ -121,4 +121,10 @@ defmodule ServiceRadar.Integrations.Validations.CompositeExportTest do
       assert :ok = validate("not a map")
     end
   end
+
+  describe "atomic/3" do
+    test "is implemented so Ash cannot skip the rule on an atomic update" do
+      assert function_exported?(CompositeExport, :atomic, 3)
+    end
+  end
 end
