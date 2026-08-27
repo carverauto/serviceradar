@@ -1597,14 +1597,14 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
                   <.ui_badge
                     variant={
                       if credential_present?(source_credentials(@source), ["api_key"]),
-                         do: "success",
-                         else: "ghost"
+                        do: "success",
+                        else: "ghost"
                     }
                     size="xs"
                   >
                     {if credential_present?(source_credentials(@source), ["api_key"]),
-                        do: "Saved",
-                        else: "Not saved"}
+                      do: "Saved",
+                      else: "Not saved"}
                   </.ui_badge>
                 </div>
               </div>
