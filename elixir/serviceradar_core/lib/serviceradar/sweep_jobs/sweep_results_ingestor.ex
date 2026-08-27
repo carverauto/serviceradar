@@ -953,7 +953,7 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
     # owned by availability_source_agent_id: with no pin, every scanner would
     # fight over the one device bit. Assigned groups keep the legacy
     # unpinned-or-matching writer.
-    require_source_match? = all_agents_group?(sweep_group_id)
+    require_source_match? = all_agents_group?(sweep_group_id, execution_id)
 
     recovered_rows =
       update_device_statuses_available(
@@ -1904,13 +1904,73 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
     :ok
   end
 
-  defp all_agents_group?(sweep_group_id) when sweep_group_id in [nil, ""], do: false
+  # Whether this batch belongs to an "any agent in partition" group, which is
+  # what decides if canonical is_available requires a pin.
+  #
+  # This FAILED OPEN in both non-match branches -- a nil/"" group id and a group
+  # row that could not be read both returned false, which disables the guard and
+  # lets any scanner write the one device bit. That is backwards for a guard
+  # whose whole purpose is stopping a blocked agent marking a fleet down: the
+  # cost of failing closed is one skipped canonical write, which the next sweep
+  # repairs, while the cost of failing open is the corruption the guard exists
+  # to prevent.
+  #
+  # The nil case is reachable in practice. ensure_execution_exists/6
+  # short-circuits on an execution_id it already knows WITHOUT consulting
+  # sweep_group_id, so a redelivery or a later chunk whose payload lost the
+  # group id runs the full availability update. Rather than guess for that
+  # batch, resolve the group from the execution -- the execution row carries the
+  # FK, so the answer is knowable instead of assumed.
+  defp all_agents_group?(sweep_group_id, execution_id \\ nil)
 
-  defp all_agents_group?(sweep_group_id) do
-    case Repo.get(SweepGroup, sweep_group_id) do
-      %SweepGroup{agent_id: agent_id} -> agent_id in [nil, ""]
-      _missing -> false
+  defp all_agents_group?(sweep_group_id, execution_id) when sweep_group_id in [nil, ""] do
+    case group_id_for_execution(execution_id) do
+      nil ->
+        # Nothing left to resolve from. Fail CLOSED: require a pin.
+        Logger.warning(
+          "SweepResultsIngestor: no sweep group for execution #{inspect(execution_id)}; " <>
+            "requiring an availability source pin for canonical writes"
+        )
+
+        true
+
+      resolved ->
+        all_agents_group?(resolved, nil)
     end
+  end
+
+  defp all_agents_group?(sweep_group_id, _execution_id) do
+    case Repo.get(SweepGroup, sweep_group_id) do
+      %SweepGroup{agent_id: agent_id} ->
+        agent_id in [nil, ""]
+
+      _missing ->
+        # A group id that does not resolve is anomalous, not routine. Fail
+        # closed for the same reason as above.
+        #
+        # Deliberately untested: sweep_group_executions.sweep_group_id carries
+        # an FK to sweep_groups, so a batch naming a group that does not exist
+        # fails at create_execution/6 long before it reaches here. Reaching this
+        # branch needs a row deleted out from under a live execution. It is
+        # defensive, and a test that cannot reach it would be theatre.
+        Logger.warning(
+          "SweepResultsIngestor: sweep group #{inspect(sweep_group_id)} not found; " <>
+            "requiring an availability source pin for canonical writes"
+        )
+
+        true
+    end
+  end
+
+  defp group_id_for_execution(execution_id) when execution_id in [nil, ""], do: nil
+
+  defp group_id_for_execution(execution_id) do
+    SweepGroupExecution
+    |> where([e], e.id == ^execution_id)
+    |> select([e], e.sweep_group_id)
+    |> Repo.one()
+  rescue
+    _error -> nil
   end
 
   defp create_execution(
