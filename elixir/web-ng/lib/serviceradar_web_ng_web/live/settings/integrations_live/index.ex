@@ -13,6 +13,7 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
   alias ServiceRadar.Infrastructure.Partition
   alias ServiceRadar.Integrations
   alias ServiceRadar.Integrations.ArmisNorthboundRunWorker
+  alias ServiceRadar.CompositeChecks.CompositeCheck
   alias ServiceRadar.Integrations.IntegrationSource
   alias ServiceRadar.Integrations.IntegrationUpdateRun
   alias ServiceRadar.Integrations.MapboxSettings
@@ -42,6 +43,7 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
         |> assign(:agents, agents)
         |> assign(:agent_index, agent_index)
         |> assign(:agent_options, agent_options)
+        |> assign(:composite_check_options, composite_check_options(socket))
         |> assign(:sync_agent_available, sync_agent_available)
         |> assign(:show_create_modal, false)
         |> assign(:show_edit_modal, false)
@@ -205,6 +207,7 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
        |> assign(:agents, agents)
        |> assign(:agent_index, agent_index)
        |> assign(:agent_options, agent_options)
+       |> assign(:composite_check_options, composite_check_options(socket))
        |> assign(:form_queries, [default_query()])
        |> assign(:form_network_blacklist, "")
        |> assign(:form_custom_fields, "")}
@@ -408,6 +411,7 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
         parse_network_blacklist(Map.get(params, "network_blacklist_text", socket.assigns.form_network_blacklist))
 
       params = Map.put(params, "network_blacklist", blacklist)
+      params = put_composite_setting(params, %{})
 
       params =
         Map.put(
@@ -458,6 +462,7 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
       parse_network_blacklist(Map.get(params, "network_blacklist_text", socket.assigns.form_network_blacklist))
 
     params = Map.put(params, "network_blacklist", blacklist)
+    params = put_composite_setting(params, Map.get(socket.assigns.selected_source || %{}, :settings))
 
     params =
       Map.put(
@@ -1092,6 +1097,8 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
         form_queries={@form_queries}
         form_network_blacklist={@form_network_blacklist}
         form_custom_fields={@form_custom_fields}
+        composite_settings={%{}}
+        composite_check_options={@composite_check_options}
       />
       <.edit_modal
         :if={@show_edit_modal}
@@ -1103,6 +1110,8 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
         form_queries={@form_queries}
         form_network_blacklist={@form_network_blacklist}
         form_custom_fields={@form_custom_fields}
+        composite_settings={composite_settings(@selected_source)}
+        composite_check_options={@composite_check_options}
       />
       <.details_modal
         :if={@show_details_modal}
@@ -1220,6 +1229,11 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
                 prompt="Use canonical device availability"
               />
             </div>
+
+            <.composite_export_fields
+              composite={@composite_settings}
+              composite_check_options={@composite_check_options}
+            />
           <% end %>
 
           <div class="sr-ui-divider text-xs text-sr-muted">Credentials</div>
@@ -1426,6 +1440,11 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
                 prompt="Use canonical device availability"
               />
             </div>
+
+            <.composite_export_fields
+              composite={@composite_settings}
+              composite_check_options={@composite_check_options}
+            />
           <% end %>
 
           <div class="sr-ui-divider text-xs text-sr-muted">Credentials</div>
@@ -1984,8 +2003,159 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
   defp armis_source?(:armis), do: true
   defp armis_source?(_), do: false
 
+  # {label, slug} for the composite export picker.
+  #
+  # Non-enabled checks are LISTED but labelled with their state rather than
+  # hidden. CompositeNorthboundValues.for_devices/3 exports nothing for a check
+  # that is not enabled, so hiding drafts would leave an operator unable to find
+  # the check they just built, while offering them unlabelled would let them
+  # save an export that silently publishes nothing.
+  defp composite_check_options(socket) do
+    require Ash.Query
+
+    scope = socket.assigns[:current_scope]
+
+    CompositeCheck
+    |> Ash.Query.for_read(:read, %{}, scope: scope)
+    |> Ash.Query.sort(name: :asc)
+    |> Ash.read()
+    |> case do
+      {:ok, checks} ->
+        Enum.map(checks, fn check ->
+          label =
+            if check.state == :enabled do
+              check.name
+            else
+              "#{check.name} (#{check.state} - exports nothing until enabled)"
+            end
+
+          {label, check.slug}
+        end)
+
+      {:error, _reason} ->
+        []
+    end
+  end
+
   defp armis_source_type?(type) when type in [:armis, "armis"], do: true
   defp armis_source_type?(_), do: false
+
+  attr(:composite, :map, default: %{})
+  attr(:composite_check_options, :list, default: [])
+
+  @doc false
+  # The three values are one selection, not three settings: composite_export/1
+  # requires all of them and reads a half-configured export as "not configured".
+  # Rendering them as one block is what makes that legible -- three fields
+  # scattered through the form would let an operator fill two and see nothing
+  # happen with no indication why.
+  defp composite_export_fields(assigns) do
+    ~H"""
+    <div class="space-y-3">
+      <div class="sr-ui-divider text-xs text-sr-muted">Composite check export</div>
+
+      <p class="text-xs text-sr-muted">
+        Publishes an enabled composite check's result to its own Armis custom field,
+        alongside availability. All three values are required — leaving the check
+        blank disables the export.
+      </p>
+
+      <div class="grid grid-cols-3 gap-4">
+        <div class="flex flex-col gap-1.5">
+          <label class="text-sm font-medium text-sr-ink">Composite check</label>
+          <select
+            name="composite_check_slug"
+            class={ui_field_class(class: "w-full text-sm")}
+          >
+            <option value="">No composite export</option>
+            <option
+              :for={{label, slug} <- @composite_check_options}
+              value={slug}
+              selected={@composite["check_slug"] == slug}
+            >
+              {label}
+            </option>
+          </select>
+        </div>
+
+        <div class="flex flex-col gap-1.5">
+          <label class="text-sm font-medium text-sr-ink">Value</label>
+          <select name="composite_value_form" class={ui_field_class(class: "w-full text-sm")}>
+            <option value="verdict" selected={@composite["value_form"] != "status"}>
+              verdict
+            </option>
+            <option value="status" selected={@composite["value_form"] == "status"}>
+              status
+            </option>
+          </select>
+        </div>
+
+        <div class="flex flex-col gap-1.5">
+          <label class="text-sm font-medium text-sr-ink">Armis custom field</label>
+          <input
+            type="text"
+            name="composite_custom_field"
+            value={@composite["custom_field"]}
+            class={ui_field_class(mono: true, class: "w-full text-sm")}
+            placeholder="sr_isolation"
+            autocomplete="off"
+          />
+        </div>
+      </div>
+    </div>
+    """
+  end
+
+  # settings["composite"] as the form reads it. String keys throughout: the
+  # attribute is a plain :map and the runner reads string keys, so normalising
+  # here keeps the form and the reader speaking the same shape.
+  defp composite_settings(nil), do: %{}
+
+  defp composite_settings(source) do
+    source
+    |> Map.get(:settings)
+    |> case do
+      settings when is_map(settings) -> Map.get(settings, "composite")
+      _other -> nil
+    end
+    |> case do
+      composite when is_map(composite) ->
+        Map.new(composite, fn {k, v} -> {to_string(k), v} end)
+
+      _other ->
+        %{}
+    end
+  end
+
+  # Merged into the source's existing settings rather than replacing them: this
+  # form owns one key, and a wholesale write would silently drop any other
+  # source-specific setting stored alongside it.
+  defp put_composite_setting(params, existing_settings) do
+    slug = params |> Map.get("composite_check_slug", "") |> to_string() |> String.trim()
+    form = params |> Map.get("composite_value_form", "") |> to_string() |> String.trim()
+    field = params |> Map.get("composite_custom_field", "") |> to_string() |> String.trim()
+
+    base =
+      case existing_settings do
+        settings when is_map(settings) -> Map.new(settings, fn {k, v} -> {to_string(k), v} end)
+        _other -> %{}
+      end
+
+    settings =
+      if slug == "" do
+        Map.delete(base, "composite")
+      else
+        Map.put(base, "composite", %{
+          "check_slug" => slug,
+          "value_form" => if(form == "status", do: "status", else: "verdict"),
+          "custom_field" => field
+        })
+      end
+
+    params
+    |> Map.put("settings", settings)
+    |> Map.drop(["composite_check_slug", "composite_value_form", "composite_custom_field"])
+  end
 
   defp refresh_selected_source(nil, _actor), do: nil
 
@@ -2313,7 +2483,10 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
       "cred_netbox_token",
       "cred_netbox_verify_ssl",
       "cred_credential_secret_id",
-      "credentials_json"
+      "credentials_json",
+      "composite_check_slug",
+      "composite_value_form",
+      "composite_custom_field"
     ])
     |> Map.merge(form_params)
   end

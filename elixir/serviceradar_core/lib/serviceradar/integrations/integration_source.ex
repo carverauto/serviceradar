@@ -128,6 +128,8 @@ defmodule ServiceRadar.Integrations.IntegrationSource do
       end
 
       change &validate_agent_availability/2
+
+      validate ServiceRadar.Integrations.Validations.CompositeExport
     end
 
     update :update do
@@ -153,6 +155,8 @@ defmodule ServiceRadar.Integrations.IntegrationSource do
       end
 
       change &validate_agent_availability/2
+
+      validate ServiceRadar.Integrations.Validations.CompositeExport
     end
 
     update :enable do
