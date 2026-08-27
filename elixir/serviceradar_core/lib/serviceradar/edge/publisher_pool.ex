@@ -36,21 +36,29 @@ defmodule ServiceRadar.Edge.PublisherPool do
 
   ## NOT YET WIRED, and not claimed
 
-  This owns the window and the admission decision. It does NOT hold a NATS connection: the runtime
-  has ONE connection today (`:serviceradar_nats`, a single `Gnat.ConnectionSupervisor`), and
-  `Connection.request/3` takes no connection name, so separately bounded publisher CONNECTIONS are
-  a further increment that changes shared supervision. Nor does it publish, settle from real
-  PubAcks, or bind bytes to encoded frame size -- those remain owed by tasks 3.4 and 3.5 with the
-  publisher integration.
+  This owns the window and the admission decision. Each lane now also HAS its own NATS connection
+  -- `ServiceRadar.NATS.Supervisor` starts one `Gnat.ConnectionSupervisor` per
+  `PublisherLane.lanes/0`, and `Connection.request/4` takes the name -- so the accounting boundary
+  and the transport boundary finally coincide. `capacity/1` reports which connection a pool
+  publishes on.
+
+  What is still NOT here: this module does not publish, does not settle from real PubAcks, and
+  does not bind byte credits to encoded frame size. Those remain owed by tasks 3.4 and 3.5 with
+  the publisher integration, and nothing in this file should be read as claiming them.
 
   What is real here is the ownership boundary and the isolation between classes.
   """
 
   use GenServer
 
+  alias ServiceRadar.Edge.PublisherLane
   alias ServiceRadar.Edge.PublishWindow
 
-  @classes [:bulk, :interactive, :recovery]
+  # Read at COMPILE time so the values can still appear in guards. ONE list, owned by
+  # PublisherLane, because a second copy here would let the pools and the connections drift:
+  # a lane with a pool and no connection publishes nowhere, and a connection with no pool is
+  # unbounded capacity nothing accounts for.
+  @classes PublisherLane.lanes()
 
   @doc "The traffic classes that get their own pool. Not extensible at runtime, by design."
   def classes, do: @classes
@@ -140,6 +148,10 @@ defmodule ServiceRadar.Edge.PublisherPool do
     {:reply,
      %{
        class: state.class,
+       # The connection this lane publishes on. Reported so a test can prove two pools never
+       # name the same one -- shared plumbing under separate accounting is the failure this
+       # increment exists to prevent, and it is invisible from the window numbers alone.
+       connection: PublisherLane.connection_name(state.class),
        available_frames: PublishWindow.available_frames(state.window),
        available_bytes: PublishWindow.available_bytes(state.window),
        outstanding_frames: PublishWindow.outstanding_frames(state.window),
