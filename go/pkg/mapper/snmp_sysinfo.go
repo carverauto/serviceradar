@@ -25,7 +25,8 @@ import (
 )
 
 func (e *DiscoveryEngine) generateDeviceID(job *DiscoveryJob, device *DiscoveredDevice, target string) {
-	if existingID, existingMAC := e.resolveExistingDeviceIdentityByIP(job, target); existingID != "" {
+	if existingID, existingMAC := e.resolveExistingDeviceIdentityByIP(job, target); existingID != "" &&
+		!distinctHardwareMACs(device.MAC, existingMAC) {
 		device.DeviceID = existingID
 		if device.MAC == "" && existingMAC != "" {
 			device.MAC = existingMAC

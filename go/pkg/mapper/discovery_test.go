@@ -603,6 +603,46 @@ func TestAddOrUpdateDeviceToResultsCanonicalizesSameIPIdentity(t *testing.T) {
 	assert.Equal(t, "1", job.Results.Devices[0].Metadata["alt_mac:f692bf75c721"])
 }
 
+func TestAddOrUpdateDeviceToResultsDoesNotMixDistinctHardwareAtSameIP(t *testing.T) {
+	engine := &DiscoveryEngine{logger: logger.NewTestLogger()}
+
+	existing := &DiscoveredDevice{
+		DeviceID: "mac-00602f3cd90b",
+		IP:       "192.168.6.167",
+		MAC:      "00:60:2f:3c:d9:0b",
+		Hostname: "chr",
+		Metadata: map[string]string{"source": "snmp"},
+	}
+
+	job := &DiscoveryJob{
+		ID:      "job-distinct-hw",
+		Results: &DiscoveryResults{Devices: []*DiscoveredDevice{existing}},
+		deviceMap: map[string]*DeviceInterfaceMap{
+			existing.DeviceID: {
+				DeviceID: existing.DeviceID,
+				IPs:      map[string]struct{}{existing.IP: {}},
+				MACs:     map[string]struct{}{existing.MAC: {}},
+			},
+		},
+	}
+
+	incoming := &DiscoveredDevice{
+		DeviceID: "mac-bc24112640e7",
+		IP:       "192.168.6.167",
+		MAC:      "bc:24:11:26:40:e7",
+		Hostname: "vJunos",
+		Metadata: map[string]string{"source": "snmp"},
+	}
+
+	engine.addOrUpdateDeviceToResults(job, incoming)
+
+	require.Len(t, job.Results.Devices, 2)
+	assert.Equal(t, "00:60:2f:3c:d9:0b", job.Results.Devices[0].MAC)
+	assert.Empty(t, job.Results.Devices[0].Metadata["alt_mac:bc24112640e7"])
+	assert.Equal(t, "mac-bc24112640e7", job.Results.Devices[1].DeviceID)
+	assert.Equal(t, "bc:24:11:26:40:e7", job.Results.Devices[1].MAC)
+}
+
 func TestHandleEmptyTargetList(t *testing.T) {
 	mockPublisher := new(MockPublisher)
 	mockLogger := logger.NewTestLogger()
@@ -712,6 +752,43 @@ func TestDeduplicateDevicesDoesNotMergeTopologyAdjacency(t *testing.T) {
 				DeviceID: "mac-bb",
 				MACs:     map[string]struct{}{"bb:bb:bb:bb:bb:bb": {}},
 				IPs:      map[string]struct{}{"10.0.0.2": {}},
+			},
+		},
+	}
+
+	engine.deduplicateDevices(job)
+	assert.Len(t, job.Results.Devices, 2)
+}
+
+func TestDeduplicateDevicesDoesNotMergeDistinctHardwareSharingAnIP(t *testing.T) {
+	engine := &DiscoveryEngine{}
+	job := &DiscoveryJob{
+		Results: &DiscoveryResults{
+			Devices: []*DiscoveredDevice{
+				{
+					DeviceID: "mac-00602f3cd90b",
+					IP:       "192.168.6.167",
+					MAC:      "00:60:2f:3c:d9:0b",
+					Metadata: map[string]string{"alt_ip:192.168.2.254": "1"},
+				},
+				{
+					DeviceID: "mac-bc24112640e7",
+					IP:       "192.168.2.254",
+					MAC:      "bc:24:11:26:40:e7",
+					Metadata: map[string]string{},
+				},
+			},
+		},
+		deviceMap: map[string]*DeviceInterfaceMap{
+			"mac-00602f3cd90b": {
+				DeviceID: "mac-00602f3cd90b",
+				MACs:     map[string]struct{}{"00:60:2f:3c:d9:0b": {}},
+				IPs:      map[string]struct{}{"192.168.6.167": {}, "192.168.2.254": {}},
+			},
+			"mac-bc24112640e7": {
+				DeviceID: "mac-bc24112640e7",
+				MACs:     map[string]struct{}{"bc:24:11:26:40:e7": {}},
+				IPs:      map[string]struct{}{"192.168.2.254": {}},
 			},
 		},
 	}
