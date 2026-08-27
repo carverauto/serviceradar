@@ -1,3 +1,234 @@
+# ServiceRadar v1.4.46
+
+Makes endpoint devices appear under the switches they attach to,
+after three stages of the God-View pipeline each threw that
+evidence away in turn. Stops the Armis API key rendering into the
+edit form, and stops the Helm chart minting a new CNPG password on
+every Argo sync.
+
+## Whats New
+
+**1.4.46**
+- Topology: an access switch draws the endpoints attached to it.
+  Three successive stages destroyed the evidence. The spanning
+  forest that thins device-to-device inferred segments matched on
+  evidence class alone and never looked at device shape, so
+  ARP/FDB endpoint attachments were claimed by it -- 289 of 334
+  discarded as redundant, the 45 survivors rewritten as backbone
+  bridges and flagged against rescue -- leaving nothing for
+  clustering to group. Clustering then keyed groups on (anchor,
+  bridge port), and an access switch learns one host per FDB port:
+  `aruba-24g-02` on demo, a 24-port Aruba, had 10 attachment links
+  where it was the polled device and 8 endpoint-like neighbours,
+  which became 8 groups of one member and none reached the
+  three-member minimum. An anchor below that minimum produced no
+  summary, and a bare endpoint was not admitted to the overview,
+  so the anchor lost its own edges along with them. One fleet
+  rendered 16 of 114 connected nodes and 7 of 137 edges; on
+  another, 25 of 33 anchors hold one or two clients.
+  (PRs #4067, #4068, #4075)
+- Topology: the cluster quorum is asked of the anchor rather than
+  of each switch port. The per-port key is kept -- a dumb switch
+  hanging off a single port genuinely is its own cluster, and
+  existing tests assert two clusters on one switch -- so a port
+  group that reaches `@endpoint_cluster_min_members` (3) on its
+  own keeps its `:ifindex:N` identity untouched, and only an
+  anchor's sub-quorum port groups are folded into one anchor-level
+  group. An anchor with a single sub-quorum port is left exactly
+  as it was. This is the server-side half, in `god_view_stream.ex`.
+  (PR #4075)
+- Topology: the client overview admits an unclustered endpoint
+  that attaches to admitted infrastructure and parents it on that
+  anchor, so a switch with two clients draws two clients. Those
+  nodes are now reported as `attachedEndpoints` in the manifest;
+  they were previously counted only as `omittedAttachmentNodes`,
+  which is to say silently discarded. Admission is bounded by a
+  separate client-side cap,
+  `MAX_UNCLUSTERED_ENDPOINTS_PER_ANCHOR` (2) -- not the server's
+  three-member quorum -- and an anchor over that cap keeps none of
+  its endpoints, because a partial low-trust ARP/FDB fan would
+  misrepresent itself as the complete set. (PR #4068)
+- Web UI: a hard refresh no longer takes down the whole scene.
+  `deck.getViewports()` asserts on the 0-sized view state an
+  unmeasured container produces, and a production build strips
+  that assertion of all detail; the label viewport now routes a
+  throw to the no-viewport path the caller already degrades to.
+  (PR #4067)
+- Integrations: the stored Armis API key is no longer rendered.
+  It was written back as the value of a `type="text"` input and
+  printed verbatim a second time in a `<code>` block, beside an
+  API secret that correctly showed only a "Saved" badge. Nothing
+  in the schema makes the key less sensitive -- the credentials
+  map is one encrypted `sensitive?` blob -- so the divergence was
+  purely markup. The prefill was a workaround for credentials
+  being lost on save, and the same commit added the real fix, so
+  it has done nothing but leak since it landed. The input is now
+  `type="password"` and omits `value` entirely, the socket carries
+  a boolean instead of the key so it cannot ride a LiveView diff
+  either, and `credential_display_value/2` is deleted, because a
+  helper whose only purpose is rendering a stored credential as
+  text invites the bug back. An audit of 69 secret-named inputs
+  across the settings LiveViews found this was the only one
+  rendering a stored secret. (PR #4070)
+- Composite checks: a vantage point's freshness window is an
+  editable field instead of a hard-coded 900 seconds, and the row
+  warns when the configured window is shorter than the slowest
+  sweep group covering that agent, naming the real interval. On
+  hourly staggered sweeps the check could see only one agent at a
+  time, reporting "0 of 28490 devices have results" for the other
+  until its own run landed, then the mirror image fifteen minutes
+  later -- both readings look like a broken agent and neither is.
+  The default moves to 3600, biased long on purpose: an over-long
+  window accepts stale evidence and the readiness panel shows
+  that, while an over-short one produces no verdicts at all.
+  (PR #4069)
+- Sweep: the canonical availability guard fails closed. It decides
+  whether a batch belongs to an all-agents group, and returned
+  false -- "not all-agents", which disables the pin requirement --
+  for both a missing group id and a group row it could not read,
+  so any scanner could write the one `is_available` bit. That id
+  goes missing in practice: `ensure_execution_exists/6` short
+  circuits on an execution it already knows without consulting the
+  group. On the deployment that surfaced it, an agent whose subnet
+  permits ICMP and blocks TCP reported 13 hosts available on the
+  TCP group against another agent's 4408, and whichever landed
+  last owned the bit. The group is now resolved from the execution
+  row, which carries the FK, so the answer is knowable rather than
+  assumed; only a genuinely unresolvable group falls back, and it
+  falls back to requiring a pin, with a warning naming it.
+  (PR #4073)
+- Networks: an ICMP-only scanner profile reports `n/a` for ports
+  rather than a list it never probes. Two OT profiles rendered
+  identical six-port rows with nothing to say only the `tcp` one
+  was real -- which matters when the difference between an
+  isolation sweep and a liveness sweep is what decides whether a
+  device is correctly isolated. The list is still stored, so
+  switching the profile back to `tcp` makes it live again, and an
+  empty or unreadable mode list falls through to showing ports:
+  hiding a real port list would be the worse lie. (PR #4072)
+- Mapper: LLDP crawling works on a non-Cisco network. Linux/FRR
+  reports `ifPhysAddress.1` for `lo` as empty or all-zero, which
+  the mapper took as the chassis MAC and turned into an empty
+  `DeviceID`; core dropped all 20 interface rows and failed the
+  job as "no interfaces discovered" while still showing the raw
+  count. `GenerateDeviceID` now refuses any MAC that does not
+  normalize to exactly 12 characters -- `NormalizeMAC` strips only
+  `:` and `-`, so a dotted Cisco-style `aabb.ccdd.eeff` is
+  rejected as well -- and the SNMP path keeps walking for a real
+  chassis MAC, minting an `ip-<addr>` id when there is none.
+  `lldpd` puts a neighbour's management IPv4 in the table INDEX
+  instead of the Cisco-style OctetString value the mapper read, so
+  recursion never left the seed; the INDEX form is parsed, a
+  missing management-address walk no longer fails the whole LLDP
+  query, and targets expand until a round adds no new addresses
+  (cap 8) -- one round does not reach a second core switch.
+  (PR #4077)
+- Helm: the chart no longer mints CNPG passwords. Argo CD's
+  repo-server cannot GET Secrets in the target namespace, so a
+  `lookup` of `serviceradar-db-credentials` always comes back
+  empty and two `randAlphaNum 32` fallbacks fired on every sync:
+  a new database password (CNPG `ALTER USER`, then boot-time
+  `password authentication failed`), and a new
+  `checksum/db-credentials` that rolled core and web-ng on an
+  unchanged image -- each `include` minting its own value, so the
+  two got different checksums at the same timestamp. Demo showed
+  three ReplicaSets in one morning, all on v1.4.45, which read as
+  crash loops though the pods were Ready with zero restarts. The
+  templates now use a lookup or a values-supplied password only,
+  omit the Secret entirely when both are empty so an apply cannot
+  overwrite live credentials, and fall back to the stable token
+  `lookup-unavailable` for the checksum. The `secret-generator`
+  PreSync job creates the Secrets when missing, treats HTTP 409 as
+  success, and patches `Prune=false` onto existing objects.
+  (PR #4078)
+- Docs: an OpenSpec proposal for dashboard package access control.
+  Publishing a dashboard makes it readable by every authenticated
+  user, and `DashboardPackageLive.Show.mount/3` authorizes
+  nothing. Grants do not attach to the package at all, so a republish is not an access-control event. Scoping
+  the work turned up two further access defects, each specified
+  with failure-mode scenarios and each shipping unfixed in this
+  release -- see Upgrade Notes. The proposal also corrects its own
+  premise: the Dashboards permission column does not render empty,
+  it renders 44 action rows with the three dashboard grants at
+  rows 40-42 under a header reading the literal string
+  `cli.dashboard` -- misordering and mislabelling, not absence.
+  Proposal only, no implementation. (PR #4074)
+
+## Upgrade Notes
+
+- No schema migrations in this release.
+  `migrations.expectedVersion` stays `20260826180000`.
+- **Expect core and web-ng to roll once on the first Argo sync
+  after upgrade.** `checksum/db-credentials` changes from a random
+  hash to the stable `lookup-unavailable`, then stays put. Live
+  database passwords are left alone. If both the `lookup` and
+  `cnpg.password`/`cnpg.superuserPassword` are empty, the chart no
+  longer emits the credentials Secret at all; the same
+  omit-when-empty rule lands in `templates/spire-postgres.yaml`,
+  so `spire-db-credentials` is withheld too when both its lookup
+  and `spire.postgres.password` are empty. The `secret-generator`
+  PreSync job covers all three, so that hook must be allowed to
+  run on a fresh install. (PR #4078)
+- **A sweep batch whose `sweep_group_id` is nil or empty is now
+  resolved from its execution row rather than assumed not to be
+  all-agents.** That case previously answered "not all-agents",
+  which disabled the pin requirement and let the canonical write
+  land unconditionally. The group is now resolved from
+  the execution row, and where it resolves to an all-agents group
+  with no pinned `availability_source_agent_id`, the UPDATE
+  predicate cannot match, so writes that used to land are skipped.
+  Redelivered batches and chunks that lost their group id are the
+  class that changes. That is the intended trade -- failing closed
+  skips one canonical write, which the next sweep repairs -- and
+  the skipped direction leaves `Device.is_available` at whatever
+  it last held, while per-agent `DeviceAgentAvailability` rows are
+  written either way. Pin an Availability Source under
+  Settings > Networks for any scope where the canonical bit must
+  track reality. (PR #4073)
+- **Widening an existing composite check needs an edit, not a
+  re-save.** `vantage_points_from_inputs/1` reads
+  `max_age_seconds` out of the stored input config, so an existing
+  vantage point loads 900 and re-saving writes 900 straight back.
+  The new 3600 default applies only where the key is absent from
+  config, which means new vantage points. Edit the freshness field
+  on each vantage point you want widened, and act on the new
+  warning if it names a sweep interval longer than the window.
+  (PR #4069)
+- **Mapper can change the identity of devices it has already
+  ingested.** `GenerateDeviceID` now returns an empty string for
+  any MAC that does not normalize to 12 characters, so a device
+  previously ingested as `mac-<non-canonical>` re-identifies as
+  `ip-<addr>` on the two paths that have that fallback
+  (`discovery_devices.go`, `snmp_sysinfo.go`) -- a second device
+  row for the same hardware. Mapper may also simply discover
+  more: recursive SNMP now expands until a round adds no new
+  management addresses, so one seed can reach devices it never
+  walked before. Check for duplicate device rows after the first
+  crawl. (PR #4077)
+- Known, not fixed: `DashboardFrameChannel.stream_token/3` signs
+  `route_slug`, `data_frames` and `active_frame_ids` but no user
+  id, and `join/3` checks only that some `current_user` exists, so
+  a token minted for one user is replayable by any other
+  authenticated user for its full 3600s life -- and with `?q=` and
+  `?frame_<id>=` overriding manifest frame queries, that route is
+  a general SRQL execution surface. (PR #4074)
+- Known, not fixed: `GET /dashboard-packages/:id/renderer[.wasm]`
+  serves any enabled and verified renderer to any authenticated
+  user by package UUID, and a published dashboard package is
+  readable by every authenticated user. #4074 is a proposal under
+  the OpenSpec approval gate, with no implementation in this
+  release. (PR #4074)
+- Known, not fixed: `settings[oidc_client_secret]` echoes the
+  operator's typed value back on `phx-change`. The stored secret
+  is never sent, so this is not the leak #4070 closes, but it is
+  the one field the 69-input audit deliberately left for a
+  follow-up. (PR #4070)
+- Known, not fixed: `EventWriter.Processors.Sweep` carries an
+  unguarded `Repo.update_all` on `is_available` that fails open by
+  the same logic as the guard above. It is dead today -- no
+  `batcher_rules/0` entry routes to it -- so removing a module
+  with its own tests was left as a separate call. (PR #4073)
+
 # ServiceRadar v1.4.45
 
 Makes God-View's radial topology atlas load and expand clusters
