@@ -34,7 +34,9 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine.AlertLifecycle do
   import ServiceRadar.Observability.StatefulAlertEngine.Severity
 
   alias ServiceRadar.Actors.SystemActor
+  alias ServiceRadar.EventWriter.DeviceCorrelation
   alias ServiceRadar.EventWriter.OCSF
+  alias ServiceRadar.Inventory.Device
   alias ServiceRadar.Monitoring.Alert
   alias ServiceRadar.Monitoring.AlertGenerator
   alias ServiceRadar.Monitoring.OcsfEvent
@@ -54,7 +56,8 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine.AlertLifecycle do
     with {:ok, ocsf_event} <- record_event(event, actor) do
       case AlertGenerator.from_event(ocsf_event,
              actor: actor,
-             alert: alert_config(rule, record)
+             alert: alert_config(rule, record),
+             device_uid: resolved_device_uid(record)
            ) do
         {:ok, %Alert{} = alert} ->
           if !synthetic_liveness_check? do
@@ -76,6 +79,59 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine.AlertLifecycle do
           {:error, reason}
       end
     end
+  end
+
+  # Resolve the record's device to a uid that actually exists in ocsf_devices.
+  #
+  # `alerts.device_uid` has a foreign key to `ocsf_devices(uid)`, so a value that
+  # is not a real device does not mislabel the alert -- it fails the insert. In
+  # this path that is the worst of the three callers: `create_event_and_alert`
+  # returns `{:error, reason}`, the state machine only logs it, and the snapshot
+  # never gets an `alert_id`, so the rule re-fires forever and nobody is paged.
+  #
+  # Correlation alone is NOT sufficient to prevent that, which is the whole
+  # reason for the second step below. `DeviceCorrelation.resolve/1` answers
+  # "which device does this signal belong to", and for a uid already shaped like
+  # `sr:<...>` it follows the merge chain and falls back to returning the input
+  # VERBATIM when the follow finds nothing (device_correlation.ex, the
+  # `"sr:" <> _` clause). That is right for its own callers -- a pre-merge uid
+  # should survive -- but it means the result is not guaranteed to be a row that
+  # exists. A producer that invents an `sr:`-prefixed id gets it handed straight
+  # back, and the FK then rejects the alert.
+  #
+  # So the resolved uid is confirmed against the inventory before it is used,
+  # including soft-deleted rows: the FK only requires the row to exist, and
+  # dropping the identity of a decommissioned device would lose exactly the
+  # attribution someone needs when an alert fires about it. nil is a perfectly
+  # good answer -- an alert with no device still fires.
+  defp resolved_device_uid(record) do
+    candidate =
+      %{
+        device_uid: record_field_value(record, "device_uid"),
+        agent_id: record_field_value(record, "agent_id"),
+        partition: record_field_value(record, "partition")
+      }
+      |> Enum.reject(fn {_key, value} -> is_nil(value) end)
+      |> Map.new()
+
+    with false <- map_size(candidate) == 0,
+         uid when is_binary(uid) <- DeviceCorrelation.resolve(candidate) do
+      existing_device_uid(uid)
+    else
+      _ -> nil
+    end
+  end
+
+  defp existing_device_uid(uid) do
+    actor = SystemActor.system(:alert_engine)
+
+    case Device.get_by_uid(uid, true, actor: actor) do
+      {:ok, %Device{uid: existing}} -> existing
+      _ -> nil
+    end
+  rescue
+    # Never let identity enrichment be the reason an alert is lost.
+    _ -> nil
   end
 
   defp record_event(attrs, actor) do
