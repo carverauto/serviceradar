@@ -70,6 +70,7 @@ defmodule ServiceRadarWebNGWeb.Settings.CompositeChecksLive.Index do
        |> assign(:readiness, nil)
        |> assign(:enable_error, nil)
        |> assign(:sweep_context, [])
+       |> assign(:coverage_intervals, %{})
        |> assign(:checks, list_checks(socket))}
     else
       {:ok,
@@ -99,6 +100,7 @@ defmodule ServiceRadarWebNGWeb.Settings.CompositeChecksLive.Index do
       |> assign(:rules, [])
       |> assign(:rule_columns, [])
       |> assign(:sweep_context, [])
+      |> assign(:coverage_intervals, %{})
       |> clear_preview()
       |> clear_readiness()
     else
@@ -177,7 +179,9 @@ defmodule ServiceRadarWebNGWeb.Settings.CompositeChecksLive.Index do
     entries =
       SweepContext.for_inputs(inputs, socket.assigns.agents, scope: socket.assigns.current_scope)
 
-    assign(socket, :sweep_context, entries)
+    socket
+    |> assign(:sweep_context, entries)
+    |> assign(:coverage_intervals, SweepContext.coverage_intervals(entries))
   end
 
   defp load_inputs(check, scope) do
@@ -996,6 +1000,7 @@ defmodule ServiceRadarWebNGWeb.Settings.CompositeChecksLive.Index do
           builder_in_sync={@builder_in_sync}
           save_error={@save_error}
           vantage_points={@vantage_points}
+          coverage_intervals={@coverage_intervals}
           device_facts={@device_facts}
           fact_key_suggestions={@fact_key_suggestions}
           agents={@agents}
