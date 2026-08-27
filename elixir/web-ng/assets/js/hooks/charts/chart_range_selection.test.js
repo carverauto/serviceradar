@@ -38,6 +38,22 @@ describe("chart range selection helpers", () => {
     expect(overlayForBucketIndexes(buckets, 0, 0, 36, 616)).toEqual({x: 36, width: 145})
   })
 
+  it("covers a true one-bucket chart across the plot", () => {
+    const oneBucket = [buckets[0]]
+
+    expect(overlayForBucketIndexes(oneBucket, 0, 0, 36, 616)).toEqual({x: 36, width: 580})
+  })
+
+  it("uses asymmetric neighbor midpoints and clamps an edge outside the plot", () => {
+    const unevenBuckets = [
+      {x: 50, start: "2026-08-27T10:00:00Z", end: "2026-08-27T10:59:59.999999Z"},
+      {x: 180, start: "2026-08-27T11:00:00Z", end: "2026-08-27T11:59:59.999999Z"},
+      {x: 700, start: "2026-08-27T12:00:00Z", end: "2026-08-27T12:59:59.999999Z"},
+    ]
+
+    expect(overlayForBucketIndexes(unevenBuckets, 1, 1, 100, 400)).toEqual({x: 115, width: 285})
+  })
+
   it("uses neighbor midpoints and clamps the selected overlay to the plot", () => {
     expect(overlayForBucketIndexes(buckets, 2, 1, 36, 616)).toEqual({x: 181, width: 435})
     expect(overlayForBucketIndexes(buckets, 0, 2, 36, 616)).toEqual({x: 36, width: 580})
