@@ -43,6 +43,15 @@ defmodule ServiceRadarWebNGWeb.ObservabilityPaths do
 
   def path(_tab, _query_params), do: "/observability/logs"
 
+  @spec events_range_path(DateTime.t(), DateTime.t()) :: String.t()
+  def events_range_path(%DateTime{} = start_time, %DateTime{} = end_time) do
+    query =
+      "in:events time:[#{DateTime.to_iso8601(start_time)},#{DateTime.to_iso8601(end_time)}] " <>
+        "sort:time:desc limit:20"
+
+    path("events", %{q: query})
+  end
+
   @doc "Map a request path to a tab, or nil when the path is not a tab route."
   def tab_from_path(path) when is_binary(path) do
     case path |> String.split("?", parts: 2) |> hd() |> String.split("/", trim: true) do
