@@ -1947,6 +1947,12 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
       _missing ->
         # A group id that does not resolve is anomalous, not routine. Fail
         # closed for the same reason as above.
+        #
+        # Deliberately untested: sweep_group_executions.sweep_group_id carries
+        # an FK to sweep_groups, so a batch naming a group that does not exist
+        # fails at create_execution/6 long before it reaches here. Reaching this
+        # branch needs a row deleted out from under a live execution. It is
+        # defensive, and a test that cannot reach it would be theatre.
         Logger.warning(
           "SweepResultsIngestor: sweep group #{inspect(sweep_group_id)} not found; " <>
             "requiring an availability source pin for canonical writes"

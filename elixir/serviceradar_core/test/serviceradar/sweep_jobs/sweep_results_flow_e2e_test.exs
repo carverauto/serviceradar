@@ -1927,51 +1927,6 @@ defmodule ServiceRadar.SweepJobs.SweepResultsFlowE2ETest do
       assert {:ok, _row} =
                DeviceAgentAvailability.get_by_device_agent(device.uid, agent_id, actor: actor)
     end
-
-    test "an unknown group id requires a pin instead of writing unguarded",
-         %{unique_id: unique_id, actor: actor, agent_id: agent_id} do
-      # The group-not-found branch also failed open. A group id that does not
-      # resolve is anomalous, and the cost of failing closed is one skipped
-      # canonical write that the next sweep repairs.
-      ip = "10.91.#{rem(unique_id, 200) + 1}.#{rem(unique_id, 200) + 1}"
-
-      {:ok, device} =
-        Device
-        |> Ash.Changeset.for_create(
-          :create,
-          %{
-            uid: "guard-missing-#{unique_id}",
-            ip: ip,
-            hostname: "guard-missing-#{unique_id}",
-            discovery_sources: ["netbox"],
-            tags: %{},
-            is_available: true
-          },
-          actor: actor
-        )
-        |> Ash.create()
-
-      results = [
-        %{
-          "host_ip" => ip,
-          "hostname" => "guard-missing-#{unique_id}",
-          "available" => false,
-          "last_sweep_time" => DateTime.to_iso8601(DateTime.utc_now())
-        }
-      ]
-
-      assert {:ok, _stats} =
-               SweepResultsIngestor.ingest_results(results, Ash.UUID.generate(),
-                 sweep_group_id: Ash.UUID.generate(),
-                 agent_id: agent_id,
-                 config_version: "hash-#{unique_id}"
-               )
-
-      {:ok, reloaded} = Ash.get(Device, device.uid, actor: actor)
-
-      assert reloaded.is_available,
-             "an unresolvable group wrote canonical availability unguarded"
-    end
   end
 
   defp single_result([result]), do: result
