@@ -235,7 +235,20 @@ export const godViewRenderingGraphLayerNodeMethods = {
   },
   activeTopologyLabelViewport() {
     if (typeof this.state?.deck?.getViewports !== "function") return null
-    const [viewport] = this.state.deck.getViewports()
+    // getViewports() itself throws: deck asserts on its own view state, and an unmeasured
+    // container gives it a 0-sized one, so a hard refresh reaches here before layout has
+    // settled and the assertion escapes as "deck.gl: assertion failed" -- with the message
+    // stripped in a production build, naming nothing. It surfaced as "topology render
+    // unavailable" for the whole surface. Having no usable viewport is already an expected
+    // state for the caller, which degrades label admission rather than failing, so route the
+    // throw into that path instead of letting it take down the render.
+    let viewports = null
+    try {
+      viewports = this.state.deck.getViewports()
+    } catch {
+      return null
+    }
+    const [viewport] = viewports || []
     return viewport && typeof viewport.project === "function" ? viewport : null
   },
   topologyLabelSafeRect(viewport, measured = this.state?.topologyLabelSafeRect) {

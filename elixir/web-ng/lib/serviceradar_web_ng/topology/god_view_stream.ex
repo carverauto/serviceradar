@@ -739,7 +739,7 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
   @doc false
   def connectivity_preserving_inferred_segment_edges(edges, device_by_id) when is_list(edges) and is_map(device_by_id) do
     {inferred_segment_edges, other_edges} =
-      Enum.split_with(edges, &inferred_segment_edge?/1)
+      Enum.split_with(edges, &connectivity_forest_segment_edge?(&1, device_by_id))
 
     case inferred_segment_edges do
       [] ->
@@ -778,7 +778,7 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
   def collapse_endpoint_attachments_preserving_inferred_segments(edges, device_by_id)
       when is_list(edges) and is_map(device_by_id) do
     {retained_inferred_edges, collapsible_edges} =
-      Enum.split_with(edges, &inferred_segment_edge?/1)
+      Enum.split_with(edges, &connectivity_forest_segment_edge?(&1, device_by_id))
 
     collapsed_edges = collapse_endpoint_attachments(collapsible_edges, device_by_id)
 
@@ -907,6 +907,32 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
   end
 
   defp inferred_segment_edge?(_edge), do: false
+
+  # The spanning forest above is meant to span only NON-attachment edges -- an endpoint hanging
+  # off an access port cannot prove transport connectivity, and it is collapsed later anyway.
+  # The routing never implemented that intent: inferred_segment_edge?/1 matches on evidence-class
+  # strings alone, so an ARP/FDB endpoint attachment -- which the read model also marks
+  # ATTACHED_TO -- was claimed by the forest lane, most of it then discarded as redundant and the
+  # survivors rewritten to INFERRED_TO and fenced off from the attachment promoter. A fleet whose
+  # only endpoint evidence is inferred-segment therefore produced no endpoint clusters at all,
+  # and its access switches lost every edge they had, because their only links were to endpoints.
+  #
+  # relation_type cannot separate the two cases: genuine device-to-device segments carry
+  # ATTACHED_TO as well. The device shape can -- exactly one side resolves to an endpoint, the
+  # other is a real anchor, and the endpoint carries an identity hint.
+  defp connectivity_forest_segment_edge?(edge, device_by_id) when is_map(edge) and is_map(device_by_id) do
+    inferred_segment_edge?(edge) and not structural_endpoint_attachment_edge?(edge, device_by_id)
+  end
+
+  defp connectivity_forest_segment_edge?(_edge, _device_by_id), do: false
+
+  defp structural_endpoint_attachment_edge?(edge, device_by_id) when is_map(edge) and is_map(device_by_id) do
+    attachment_endpoint_side_count(edge, device_by_id) == 1 and
+      attachment_anchor?(edge, device_by_id) and
+      attachment_identity_hint?(edge, device_by_id)
+  end
+
+  defp structural_endpoint_attachment_edge?(_edge, _device_by_id), do: false
 
   defp connectivity_forest_bridge?(edge) when is_map(edge) do
     metadata = Map.get(edge, :metadata) || %{}
