@@ -1,3 +1,183 @@
+# ServiceRadar v1.4.45
+
+Makes God-View's radial topology atlas load and expand clusters
+without leaving them stranded, stores devices per partition so one
+address can be monitored from both sides of an isolation boundary,
+and stops an integration relabelling a device type a human set by
+hand.
+
+## Whats New
+
+**1.4.45**
+- Topology: the radial atlas lands -- a deterministic overview
+  projection, an ELK radial overview adapter, and the bounded-detail
+  scene it hands off to. Expanding a cluster used to shrink the
+  bubble to a dot and reveal nothing, because the layout adapter
+  branched on a private semantic-level marker that nothing ever
+  wrote. The detail path was unreachable in production from the day
+  it landed, and every "detail" test passed only by hand-injecting
+  that marker; through the real entry point 0 of 24 members
+  rendered. The level is now derived from the graph, and 24 of 24
+  render. (PR #4047)
+- Topology: visual density is measured instead of asserted. Whether
+  a density holds compares the fitted scale against that density's
+  own glyph-separation constraint, and the scale depends on the
+  extents the density chooses, so it cannot be answered before
+  fitting. Each candidate is probed label-free and the scene fitted
+  once at the winner, which stops glyphs overlapping in portrait
+  profiles. A third `compact` tier gives a scene too dense for
+  `overview` somewhere to go rather than zooming out until glyphs
+  collide. (PRs #4047, #4065)
+- Topology: the surface no longer fails to load on a hard refresh.
+  An unlaid-out container reports a width of 0, which the fit
+  clamped to 1, and no scene fits a 1x1 safe area at any zoom -- so
+  a race on container layout surfaced as "topology render
+  unavailable" on roughly two refreshes in three. An unmeasured
+  surface now defers to the resize observer; a measured-but-tiny one
+  still fails closed. (PR #4063)
+- Topology: an expanded cluster renders its members and stays
+  attached to the backbone. The endpoint-cluster summary node was
+  named with the cluster id, which is also the id of its own ELK
+  compound group, so container and child reached ELK sharing an
+  identifier and the group's bounds decoded as a 112x112 leaf --
+  all 13 members read as outside it. The ELK container id is
+  namespaced, and members are re-parented onto the cluster anchor
+  instead of a summary glyph the renderer hides, taking dropped
+  routes from 13 to 0. Expanded scenes are now exactly n-1 routes:
+  one connected tree. (PRs #4064, #4065)
+- Topology: cluster focus works in the radial atlas -- it looked
+  clusters up in a collection only the retired bounded-detail scene
+  produced, so the camera never framed what had just been expanded.
+  A resize now adopts the new canvas size into deck.gl's viewport
+  rather than projecting labels through the previous frame's cached
+  size, and an ELK `wedgeCriteria` value elkjs does not define was
+  being silently ignored. (PR #4065)
+- Topology: `RuntimeGraph.get_links/0` reads a `:persistent_term`
+  reference instead of a `GenServer.call` on the default 5s timeout,
+  so a reader no longer head-of-line blocks behind a projection
+  refresh performed inline in the same process. (PR #4047)
+- Web UI: the server logged only a client render error's `reason`
+  and discarded its `message`, while the UI told operators to check
+  server logs and AGE data -- both healthy. Logging the exception is
+  what identified the ELK id collision, within minutes of deploying.
+  (PR #4063)
+- Inventory: devices are stored per partition, so one IP can exist
+  as two live devices with independent availability. An isolation
+  scan from a blocked subnet no longer flips the monitoring copy a
+  reachable scanner still owns. Uniqueness moves to
+  `(partition, ip)`, CSV import and the import modal accept a
+  partition, and `in:devices partition:rids` filters on it. Scanners
+  are no longer bound to the device partition: a group's `partition`
+  is the ingest lookup, `agent_id` is who runs the scan. (PR #4049)
+- Inventory: active-IP conflict resolution is keyed on
+  `{partition, ip}` rather than IP alone, so the monitoring and
+  isolation copies of one address stop colliding with each other.
+  The identity cache is keyed on IP, so a hit from another partition
+  is now treated as a miss instead of bypassing the
+  partition-scoped query. (PR #4058)
+- Inventory: an integration can no longer overwrite a device type a
+  human set. `type` was the one identity field with no source
+  precedence -- the raw upsert took any non-empty incoming string --
+  and one Armis sync relabelled 280 of 412 hand-imported RIDS
+  displays as "Interactive Kiosks", leaving every `type:rids` query
+  reporting the surviving 132 as the whole fleet. The guard is
+  deliberately narrow: an integration still overwrites another
+  integration's guess, fills a blank type, and upgrades the
+  `Unknown` placeholder. (PR #4046)
+- Inventory: the agent self-report source is classified as
+  first-party, the foundation for a device record that can say "I am
+  agent X". No behaviour change yet -- nothing emits the source. The
+  comment claiming an agent's own self-report creates its host's
+  device is corrected: on demo only 15 devices out of 50,212 carry
+  an `agent_id` identifier at all. (PR #4052)
+- Sweep: All-agents groups run from every scanner. The UI submits
+  `agent_id=""`, which is not nil, so the group compiled onto
+  nobody; Run now picked the first online session rather than every
+  scanner holding the group; and canonical `is_available` was
+  written by whichever reporter arrived, so two scanners fought over
+  one bit. Blank agent ids normalize to nil, Run now fans out across
+  the partition, and the canonical bit is owned by Availability
+  Sources. The MULTI-AGENT CONFLICT warning no longer fires on a
+  group that is supposed to have two reporters. (PR #4062)
+- SRQL: a bucketed aggregate can be scoped by a tag as well as split
+  by one. `tags.site_code:ORD ... bucket:10m agg:sum` was rejected,
+  which is the shape every per-site or per-controller drill-down
+  needs; the workaround was splitting client-side and discarding,
+  which silently truncates once the discards push past the row cap.
+  `timeseries_metrics` only, and purely additive. (PR #4055)
+- CLI: a failed request says why. Node reports every fetch fault as
+  `TypeError: fetch failed` and puts the reason on `error.cause`, so
+  an instance behind a corporate CA failed with two words -- and
+  device-code login wrapped any throw as "not available on this
+  instance yet", sending people to look at an endpoint that was
+  returning 200. TLS trust failures are now named with a CA hint,
+  `doctor` reports a PEM sitting in the config directory under a
+  name the CLI will not load, and `--ca-file=<path>` is accepted
+  alongside the spaced form. (PR #4048)
+- Build: `serviceradar_core_elx`'s `mix.lock` is committed resolved,
+  so `mix deps.get` stops silently upgrading phoenix,
+  phoenix_pubsub and telemetry_metrics and leaving the tree dirty --
+  which failed the pre-commit hook for anyone touching Elixir and
+  blocked `scripts/cut-release.sh`. The Bazel hex closure was
+  regenerated to match: because a Bazel repository name is global,
+  that one unclean lock had been choosing phoenix for every Elixir
+  target. (PR #4043)
+- Tests: the integration shard gate asserts balance as a property
+  instead of pinning three seven-lane distributions and three
+  absolute totals. Those numbers were bin-packer output nobody
+  chose, and because BazelCI tests the merge of a branch with its
+  base, two PRs each adding a test file invalidated each other --
+  15 commits in 90 days went to re-pinning them. (PR #4054)
+- Tests: the God-View acceptance suite is re-baselined against what
+  the renderer now produces, having been red on trunk since the
+  default view changed without its staging-owned contract being
+  updated. Its Playwright bound moves 420s to 600s for margin over
+  RBE variance, which measured 426s and 360s on consecutive runs of
+  the same commit. (PR #4047)
+
+## Upgrade Notes
+
+- Two migrations ship in this release; `migrations.expectedVersion`
+  is `20260826180000`:
+  - `20260825120000` adds `ocsf_devices.partition` (NOT NULL,
+    default `default`) and moves the live unique index from `(ip)`
+    to `(partition, ip)`. Existing rows land in `default`, so
+    identity lookups and isolation scans keep updating the copy they
+    already update. The down migration recreates the IP-only index
+    and will fail if two live rows share an address across
+    partitions -- collapse those copies first.
+  - `20260826180000` adds
+    `composite_checks.write_canonical_availability` (boolean,
+    default false).
+- **An All-agents sweep group now needs a pinned Availability Source
+  to move the canonical availability bit.** It still writes
+  per-agent `DeviceAgentAvailability`, but `Device.is_available`
+  updates only when the reporting agent matches
+  `availability_source_agent_id`. A device covered ONLY by an
+  all-agents group stops having its canonical bit updated until a
+  scanner is pinned under Settings > Networks > Availability
+  Sources. Assigned groups are unchanged -- unpinned or matching
+  still writes. (PR #4062)
+- **Expect new sweep executions on the first reconcile.** A group
+  saved from the UI's All agents option stored `agent_id=""`, which
+  compiled onto nobody. Those rows now match as unassigned, compile
+  onto every scanner in the partition, and Run now dispatches to
+  each online agent with the `sweep` capability. (PR #4062)
+- Composite checks still do not write `Device.is_available`. The new
+  per-check "Write canonical device availability" flag is opt-in and
+  defaults to false; Armis northbound continues to export the
+  verdict as its own custom field. (PR #4062)
+- The device-type guard closes the path but does not repair rows an
+  integration already relabelled. A backfill restoring `type` where
+  `'manual' = ANY(discovery_sources)` is the natural follow-up.
+  Related and not fixed: `agent_gateway_sync.ex` still stamps
+  `Server`/1 on any device that gets an agent, with no such guard.
+  (PR #4046)
+- Elixir builds move to phoenix 1.8.13, phoenix_pubsub 2.3.0 and
+  telemetry_metrics 1.2.0. The mix consumers had been resolving
+  those already; the Bazel hex closure now matches instead of
+  building an older one. (PR #4043)
+
 # ServiceRadar v1.4.44
 
 CSV device import upserts instead of skipping, copies tag pairs into
