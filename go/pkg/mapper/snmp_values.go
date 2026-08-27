@@ -187,12 +187,16 @@ func (*DiscoveryEngine) setBridgeMACValue(target *string, v gosnmp.SnmpPDU) bool
 
 // getMACAddress tries to get the MAC address of a device using SNMP
 func (e *DiscoveryEngine) getMACAddress(client *gosnmp.GoSNMP, target, jobID string) string {
-	// Try ifPhysAddress.1 (first interface)
+	// Try ifPhysAddress.1 (first interface). On Linux this is usually `lo`
+	// with an empty or all-zero MAC — do not treat that as the chassis ID
+	// or we skip the walk that would find eth0.
 	macOID := ".1.3.6.1.2.1.2.2.1.6.1"
 
 	result, err := client.Get([]string{macOID})
 	if err == nil && len(result.Variables) > 0 && result.Variables[0].Type == gosnmp.OctetString {
-		return formatMACAddress(result.Variables[0].Value.([]byte))
+		if mac := usableMACFromPDUValue(result.Variables[0].Value); mac != "" {
+			return mac
+		}
 	}
 
 	// If still empty, try walking ifPhysAddress table to find any MAC
@@ -200,7 +204,7 @@ func (e *DiscoveryEngine) getMACAddress(client *gosnmp.GoSNMP, target, jobID str
 
 	err = client.BulkWalk(oidIfPhysAddress, func(pdu gosnmp.SnmpPDU) error {
 		if pdu.Type == gosnmp.OctetString {
-			formattedMAC := formatMACAddress(pdu.Value.([]byte))
+			formattedMAC := usableMACFromPDUValue(pdu.Value)
 			if formattedMAC != "" {
 				mac = formattedMAC
 				return ErrFoundMACStoppingWalk
