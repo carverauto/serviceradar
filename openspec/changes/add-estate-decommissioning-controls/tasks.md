@@ -104,8 +104,29 @@ agent-sr-test-pve04   05:05:37  is_available: TRUE    <- 77 min stale, never exp
       canonical edges in one pass (max fraction F); set canonical_prune_guard_override to
       force")` -- counts, total, fraction and the override, exactly what this task proposed
       adding. The reason no such line appeared in demo's logs is that nothing was
-      prune-eligible yet: the stale edges were still inside the 30-day retention window, so
-      `guarded_prune/2` was never reached. "The guard blocks silently" was wrong.
+      prune-eligible yet. Corrected 2026-08-27 with the actual mechanism: the canonical AGE
+      prune keys off `Utils.stale_cutoff_iso8601()`, driven by
+      `SERVICERADAR_MAPPER_TOPOLOGY_EDGE_STALE_MINUTES` (values-demo.yaml:662 = 10080, i.e.
+      7 days) -- NOT `SERVICERADAR_TOPOLOGY_LINK_RETENTION_DAYS`, which feeds
+      `data_retention_worker.ex` for the relational links table. Demo's oldest canonical edge
+      is 2026-08-21 against a 2026-08-20 cutoff, so `prune_result: :ok` with
+      `before_edges == after_prune_edges == 228` is correct behaviour, not a blocked prune.
+      "The guard blocks silently" was wrong.
+- [ ] 3.4 Wire the `TopologyGraph` guard config into the DEPLOYED release. The guard reads
+      `Application.get_env(:serviceradar_core, ServiceRadar.NetworkDiscovery.TopologyGraph)`
+      for `canonical_prune_max_fraction` and `canonical_prune_guard_override`, but that
+      `config` block exists only in `elixir/serviceradar_core/config/runtime.exs:1256`. The
+      deployed app is `serviceradar_core_elx`, and a release evaluates only its OWN
+      runtime.exs -- which has no `TopologyGraph` block at all. Both settings therefore fall
+      to compiled defaults (0.5 / false) in production and CANNOT be overridden.
+      Setting `SERVICERADAR_TOPOLOGY_CANONICAL_PRUNE_GUARD_OVERRIDE=true` on the demo
+      deployment on 2026-08-27 was verified to be a no-op for this reason.
+      This is imminent, not theoretical: 174 of demo's 228 canonical edges (76.3%) are
+      ghosts from the decommissioned 192.168.1.x estate. They cross the 7-day cutoff around
+      2026-08-28, at which point the guard refuses (76.3% > 50%) and the documented escape
+      hatch does not exist. Either add the block to core_elx's runtime.exs or move it to a
+      shared config the release actually loads; then re-check with the refusal log line.
+
 - [ ] 3.2 Fix `raw_evidence_class/1` precedence, or rename its counters. It resolves
       explicit evidence before `relation_type`, the inverse of `evidence_class/1`, so
       `raw_attachment: 0` was reported against 334 real `ATTACHED_TO` links. That single
