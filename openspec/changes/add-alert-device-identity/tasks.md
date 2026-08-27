@@ -10,11 +10,13 @@
 - [x] 2.2 Resolve it through `DeviceCorrelation.resolve/1` and pass the canonical result
 - [x] 2.3 Skip the resolver entirely when the record carries no identity at all
 - [x] 2.4 Never pass a raw record field through
+- [x] 2.5 Confirm the resolved uid exists in inventory before writing it — `resolve/1` returns an `sr:`-prefixed input verbatim when the merge-chain follow finds nothing, so it alone does not guarantee an FK-valid value
 
 ## 3. Tests
 - [x] 3.1 `normalize_device_uid/1` accepts a real uid, trims, and rejects "" / whitespace / non-binaries
 - [x] 3.2 Structural: `:trigger` still accepts `device_uid`, so the change cannot become inert
 - [x] 3.3 Structural: the attribute stays public so the suppression gate can read it off the changeset
+- [x] 3.5 Pin the resolver's actual contract, so the existence check cannot be dropped as redundant
 - [ ] 3.4 Integration: an alert for an out-of-service device is suppressed — needs a seeded device and is better placed with the existing DB-backed alert tests
 
 ## 4. Verification

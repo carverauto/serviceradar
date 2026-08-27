@@ -36,6 +36,7 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine.AlertLifecycle do
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.EventWriter.DeviceCorrelation
   alias ServiceRadar.EventWriter.OCSF
+  alias ServiceRadar.Inventory.Device
   alias ServiceRadar.Monitoring.Alert
   alias ServiceRadar.Monitoring.AlertGenerator
   alias ServiceRadar.Monitoring.OcsfEvent
@@ -80,19 +81,29 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine.AlertLifecycle do
     end
   end
 
-  # Resolve the record's device to a CANONICAL ocsf_devices.uid.
+  # Resolve the record's device to a uid that actually exists in ocsf_devices.
   #
-  # The record's own device_uid/device_id is whatever the producer put there --
-  # frequently a hostname, an IP, or a plugin-local id. `alerts.device_uid` has
-  # a foreign key to `ocsf_devices(uid)`, so passing that raw value through does
-  # not mislabel the alert, it fails the insert. In this path that is the worst
-  # of the three callers: `create_event_and_alert` returns `{:error, reason}`,
-  # the state machine only logs it, and the snapshot never gets an `alert_id` --
-  # so the rule re-fires forever and nobody is paged for any of it.
+  # `alerts.device_uid` has a foreign key to `ocsf_devices(uid)`, so a value that
+  # is not a real device does not mislabel the alert -- it fails the insert. In
+  # this path that is the worst of the three callers: `create_event_and_alert`
+  # returns `{:error, reason}`, the state machine only logs it, and the snapshot
+  # never gets an `alert_id`, so the rule re-fires forever and nobody is paged.
   #
-  # DeviceCorrelation.resolve/1 returns a canonical uid or nil, and is cached per
-  # correlation input, so a burst of records for one device costs one lookup.
-  # nil is a perfectly good answer: an alert with no device still fires.
+  # Correlation alone is NOT sufficient to prevent that, which is the whole
+  # reason for the second step below. `DeviceCorrelation.resolve/1` answers
+  # "which device does this signal belong to", and for a uid already shaped like
+  # `sr:<...>` it follows the merge chain and falls back to returning the input
+  # VERBATIM when the follow finds nothing (device_correlation.ex, the
+  # `"sr:" <> _` clause). That is right for its own callers -- a pre-merge uid
+  # should survive -- but it means the result is not guaranteed to be a row that
+  # exists. A producer that invents an `sr:`-prefixed id gets it handed straight
+  # back, and the FK then rejects the alert.
+  #
+  # So the resolved uid is confirmed against the inventory before it is used,
+  # including soft-deleted rows: the FK only requires the row to exist, and
+  # dropping the identity of a decommissioned device would lose exactly the
+  # attribution someone needs when an alert fires about it. nil is a perfectly
+  # good answer -- an alert with no device still fires.
   defp resolved_device_uid(record) do
     candidate =
       %{
@@ -103,11 +114,24 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine.AlertLifecycle do
       |> Enum.reject(fn {_key, value} -> is_nil(value) end)
       |> Map.new()
 
-    if map_size(candidate) == 0 do
-      nil
+    with false <- map_size(candidate) == 0,
+         uid when is_binary(uid) <- DeviceCorrelation.resolve(candidate) do
+      existing_device_uid(uid)
     else
-      DeviceCorrelation.resolve(candidate)
+      _ -> nil
     end
+  end
+
+  defp existing_device_uid(uid) do
+    actor = SystemActor.system(:alert_engine)
+
+    case Device.get_by_uid(uid, true, actor: actor) do
+      {:ok, %Device{uid: existing}} -> existing
+      _ -> nil
+    end
+  rescue
+    # Never let identity enrichment be the reason an alert is lost.
+    _ -> nil
   end
 
   defp record_event(attrs, actor) do

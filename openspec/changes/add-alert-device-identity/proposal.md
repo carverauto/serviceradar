@@ -47,8 +47,24 @@ re-fires forever and nobody is paged for any of it.
 Trading "an alert with no device" for "no alert" is a bad trade. So the uid is
 **never** read off the record directly — a record's `device_uid`/`device_id` is
 whatever the producer put there, frequently a hostname, an IP, or a plugin-local
-id. It goes through `DeviceCorrelation.resolve/1`, which returns a canonical uid
-or nil, and nil is a perfectly acceptable answer.
+id. It goes through `DeviceCorrelation.resolve/1` first.
+
+**Correlation alone is not sufficient, and an earlier draft of this proposal was
+wrong to say it was.** `resolve/1` answers "which device does this signal belong
+to". For a uid already shaped like `sr:<...>` it follows the merge chain and
+falls back to returning the input **verbatim** when the follow finds nothing —
+correct for its own callers, since a pre-merge uid should survive, but it means
+the result is not guaranteed to name a row that exists. A producer that invents
+an `sr:`-prefixed id gets it handed straight back.
+
+That is not theoretical: it failed `integration_tests_serial_3` and `serial_4`,
+where a rule fires on a record carrying a synthetic
+`sr:endpoint-vuln-device-<unique>` device uid.
+
+So the resolved uid is confirmed against the inventory before use, including
+soft-deleted rows — the FK only requires the row to exist, and dropping the
+identity of a decommissioned device would lose exactly the attribution someone
+needs when an alert fires about it. nil remains a perfectly acceptable answer.
 
 ## Impact
 
@@ -76,8 +92,10 @@ decision, not a technical one.
 
 ### Performance
 
-One additional cached lookup per alert creation. `DeviceCorrelation.resolve/1`
-is cached per correlation input and fail-open. The `:trigger` gate also gains a
+One cached correlation lookup plus one inventory confirmation per alert
+creation. `DeviceCorrelation.resolve/1` is cached per correlation input and
+fail-open; the confirmation is a primary-key read and is skipped entirely when
+correlation returns nil. The `:trigger` gate also gains a
 real `Device.get_by_uid` read where it previously short-circuited on nil. Alert
 volume is orders of magnitude below event volume, so this is acceptable — but it
 is a new query on a path that had none.
