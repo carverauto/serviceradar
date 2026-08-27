@@ -1593,9 +1593,20 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
             <div class="grid grid-cols-2 gap-4">
               <div>
                 <div class="text-xs uppercase tracking-wide text-sr-muted">API Key</div>
-                <code class="mt-1 block rounded bg-sr-subtle p-2 font-mono text-sm">
-                  {credential_display_value(source_credentials(@source), "api_key")}
-                </code>
+                <div class="mt-2">
+                  <.ui_badge
+                    variant={
+                      if credential_present?(source_credentials(@source), ["api_key"]),
+                        do: "success",
+                        else: "ghost"
+                    }
+                    size="xs"
+                  >
+                    {if credential_present?(source_credentials(@source), ["api_key"]),
+                      do: "Saved",
+                      else: "Not saved"}
+                  </.ui_badge>
+                </div>
               </div>
               <div>
                 <div class="text-xs uppercase tracking-wide text-sr-muted">API Secret</div>
@@ -2544,7 +2555,7 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
   defp dynamic_credentials_fields(assigns) do
     assigns =
       assigns
-      |> assign(:api_key_value, credential_value(assigns.credentials, "api_key"))
+      |> assign(:api_key_present?, credential_present?(assigns.credentials, ["api_key"]))
       |> assign(
         :v3_client_id_value,
         credential_value(assigns.credentials, ["client_id", "v3_client_id"])
@@ -2598,13 +2609,28 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
               <span class="text-sm font-medium text-sr-ink">API Key</span>
             </label>
             <input
-              type="text"
+              type="password"
               name="cred_api_key"
-              value={@api_key_value}
               class={ui_field_class(mono: true, class: "w-full text-sm")}
-              placeholder="Enter your Armis API key"
+              placeholder={
+                if @mode == :edit and @api_key_present? do
+                  "Saved key; leave empty to keep existing"
+                else
+                  "Enter your Armis API key"
+                end
+              }
               autocomplete="off"
             />
+            <%= if @mode == :edit do %>
+              <label class="flex items-center justify-between gap-2">
+                <span class="text-xs text-sr-muted">
+                  API key:
+                  <.ui_badge size="xs" variant={if(@api_key_present?, do: "success", else: "ghost")}>
+                    {if @api_key_present?, do: "saved", else: "not saved"}
+                  </.ui_badge>
+                </span>
+              </label>
+            <% end %>
           </div>
           <div class="flex flex-col gap-1.5">
             <label class="flex items-center justify-between gap-2">
@@ -2920,14 +2946,6 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
   defp credential_atom_key("vendor_id"), do: :vendor_id
   defp credential_atom_key("v3_vendor_id"), do: :v3_vendor_id
   defp credential_atom_key(_), do: nil
-
-  defp credential_display_value(credentials, key) do
-    case credential_value(credentials, key) do
-      nil -> "-"
-      "" -> "-"
-      value -> value
-    end
-  end
 
   defp credential_present?(credentials, keys) when is_map(credentials) and is_list(keys) do
     Enum.any?(keys, fn key ->
