@@ -81,6 +81,8 @@ export default {
   },
 
   rangePointerDown(event) {
+    if (this.rangePointer) return
+
     const index = this.rangeBucketIndexForEvent(event)
     if (index === null) return
 
@@ -115,8 +117,8 @@ export default {
 
     const activeIndex = this.rangeBucketIndexForEvent(event)
     const moved = pointer.moved && activeIndex !== null
+    this.releaseRangePointerCapture()
     this.rangePointer = null
-    this.rangeSvg.releasePointerCapture(event.pointerId)
 
     if (!moved || activeIndex === pointer.anchorIndex) {
       this.resetRangeSelection()
@@ -132,7 +134,6 @@ export default {
   rangePointerCancel(event) {
     if (this.rangePointer?.pointerId !== event.pointerId) return
 
-    this.rangeSvg.releasePointerCapture(event.pointerId)
     this.resetRangeSelection()
   },
 
@@ -185,7 +186,7 @@ export default {
   },
 
   renderRangeSelection() {
-    const selectedRange = rangeForBucketIndexes(this.rangeBuckets, this.rangeAnchorIndex, this.rangeActiveIndex)
+    const selectedRange = this.currentRangeSelection()
     const rect = this.rangeSvg?.getBoundingClientRect()
     if (!selectedRange || !rect) return
 
@@ -206,13 +207,14 @@ export default {
   },
 
   emitRangeSelection() {
-    const selectedRange = rangeForBucketIndexes(this.rangeBuckets, this.rangeAnchorIndex, this.rangeActiveIndex)
+    const selectedRange = this.currentRangeSelection()
     if (!selectedRange || !this.rangeEventName) return
 
     this.pushEvent(this.rangeEventName, {start: selectedRange.start, end: selectedRange.end})
   },
 
   resetRangeSelection() {
+    this.releaseRangePointerCapture()
     this.rangePointer = null
     this.rangeAnchorIndex = null
     this.rangeActiveIndex = null
@@ -220,5 +222,22 @@ export default {
     this.rangeOverlay?.removeAttribute("x")
     this.rangeOverlay?.removeAttribute("width")
     if (this.rangeStatus) this.rangeStatus.textContent = ""
+  },
+
+  currentRangeSelection() {
+    const activeIndex = this.rangeActiveIndex
+    const anchorIndex = this.rangeAnchorIndex ?? activeIndex
+    return rangeForBucketIndexes(this.rangeBuckets, anchorIndex, activeIndex)
+  },
+
+  releaseRangePointerCapture() {
+    const pointer = this.rangePointer
+    if (!pointer || !this.rangeSvg) return
+
+    if (typeof this.rangeSvg.hasPointerCapture === "function" && !this.rangeSvg.hasPointerCapture(pointer.pointerId)) {
+      return
+    }
+
+    this.rangeSvg.releasePointerCapture(pointer.pointerId)
   },
 }

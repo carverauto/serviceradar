@@ -29,10 +29,12 @@ function eventTarget(attributes = {}) {
     listeners,
     capturedPointers: new Set(),
     addEventListener(name, listener) {
-      listeners.set(name, listener)
+      const callbacks = listeners.get(name) || new Set()
+      callbacks.add(listener)
+      listeners.set(name, callbacks)
     },
     dispatch(event) {
-      listeners.get(event.type)?.(event)
+      for (const listener of listeners.get(event.type) || []) listener(event)
     },
     focus() {
       this.focused = true
@@ -50,13 +52,23 @@ function eventTarget(attributes = {}) {
       values.delete(name)
     },
     removeEventListener(name, listener) {
-      if (listeners.get(name) === listener) listeners.delete(name)
+      const callbacks = listeners.get(name)
+      if (!callbacks) return
+
+      callbacks.delete(listener)
+      if (callbacks.size === 0) listeners.delete(name)
     },
     setAttribute(name, value) {
       values.set(name, String(value))
     },
     setPointerCapture(pointerId) {
       this.capturedPointers.add(pointerId)
+    },
+    listenerCount(name) {
+      return listeners.get(name)?.size || 0
+    },
+    totalListenerCount() {
+      return [...listeners.values()].reduce((total, callbacks) => total + callbacks.size, 0)
     },
   }
 }
@@ -120,6 +132,19 @@ function drag(svg, from, to, pointerType = "mouse") {
 }
 
 describe("ChartRangeSelection hook", () => {
+  it("commits the latest focused bucket when Enter is pressed initially", () => {
+    const {pushEvent, root} = mount()
+    const enter = key("Enter")
+
+    root.dispatch(enter)
+
+    expect(enter.preventDefault).toHaveBeenCalledOnce()
+    expect(pushEvent).toHaveBeenCalledWith("select_events_range", {
+      start: "2026-08-27T13:00:00Z",
+      end: "2026-08-27T13:59:59.999999Z",
+    })
+  })
+
   it.each(["mouse", "pen", "touch"])("normalizes %s drags into one emitted range", (pointerType) => {
     const {overlay, pushEvent, root, status, svg} = mount()
 
@@ -224,7 +249,12 @@ describe("ChartRangeSelection hook", () => {
 
     expect(overlay.classList.contains("hidden")).toBe(true)
     expect(status.textContent).toBe("")
-    expect(svg.listeners.size).toBe(5)
+    expect(svg.listenerCount("pointerdown")).toBe(1)
+    expect(svg.listenerCount("pointermove")).toBe(1)
+    expect(svg.listenerCount("pointerup")).toBe(1)
+    expect(svg.listenerCount("pointercancel")).toBe(1)
+    expect(svg.listenerCount("lostpointercapture")).toBe(1)
+    expect(root.listenerCount("keydown")).toBe(1)
     drag(svg, 36, 616)
     expect(pushEvent).toHaveBeenLastCalledWith("select_events_range", {
       start: "2026-08-28T10:00:00Z",
@@ -232,8 +262,47 @@ describe("ChartRangeSelection hook", () => {
     })
 
     ctx.destroyed()
-    expect(svg.listeners.size).toBe(0)
-    expect(root.listeners.size).toBe(0)
+    expect(svg.totalListenerCount()).toBe(0)
+    expect(root.totalListenerCount()).toBe(0)
+  })
+
+  it("releases capture on LiveView update and destroy", () => {
+    const {ctx, svg} = mount()
+
+    svg.dispatch(pointer("pointerdown", 36, "mouse", 8))
+    expect(svg.capturedPointers.has(8)).toBe(true)
+
+    ctx.updated()
+    expect(svg.capturedPointers.has(8)).toBe(false)
+    expect(svg.listenerCount("pointerdown")).toBe(1)
+
+    svg.dispatch(pointer("pointerdown", 36, "mouse", 9))
+    expect(svg.capturedPointers.has(9)).toBe(true)
+    ctx.destroyed()
+
+    expect(svg.capturedPointers.has(9)).toBe(false)
+  })
+
+  it("keeps the active pointer gesture when another pointer starts", () => {
+    const {pushEvent, svg} = mount()
+
+    svg.dispatch(pointer("pointerdown", 36, "mouse", 1))
+    svg.dispatch(pointer("pointerdown", 616, "mouse", 2))
+    svg.dispatch(pointer("pointermove", 36, "mouse", 2))
+    svg.dispatch(pointer("pointerup", 36, "mouse", 2))
+
+    expect(svg.capturedPointers.has(1)).toBe(true)
+    expect(svg.capturedPointers.has(2)).toBe(false)
+    expect(pushEvent).not.toHaveBeenCalled()
+
+    svg.dispatch(pointer("pointermove", 616, "mouse", 1))
+    svg.dispatch(pointer("pointerup", 616, "mouse", 1))
+
+    expect(pushEvent).toHaveBeenCalledOnce()
+    expect(pushEvent).toHaveBeenCalledWith("select_events_range", {
+      start: "2026-08-27T10:00:00Z",
+      end: "2026-08-27T13:59:59.999999Z",
+    })
   })
 
   it("disables itself for malformed metadata", () => {
