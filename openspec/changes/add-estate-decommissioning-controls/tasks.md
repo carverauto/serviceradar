@@ -29,6 +29,30 @@ Pipeline stats for the same run: `final_attachment: 17`, `pair_attachment: 24`,
       resolvable endpoint-like attachments MUST produce exactly one summary. Every existing
       conversion test passes an EMPTY device map, which is why this class of bug survives.
 
+## 0b. Sweep liveness cannot detect that an address changed occupant
+
+`MikroTik` (192.168.6.167) renders healthy and connected while the operator reports the VM
+has been powered off for days. Availability is measured correctly -- two independent agents
+report success seconds apart:
+
+```
+agent-dusk01         icmp: success                 response_time_ms: 1
+agent-sr-test-pve04  icmp: success, tcp: success   open_ports: {22}
+```
+
+So something answers at that address. But only one device record has ever held the IP
+(MAC 00:60:2F:3C:D9:0B -- a Cisco OUI, not a MikroTik one), and nothing re-identifies the
+occupant: an ICMP/TCP sweep proves reachability, never identity. A reissued address keeps
+the previous tenant's name, MAC, type and topology edges indefinitely.
+
+- [ ] 0b.1 Confirm the ground truth (VM power state / what answers on :22) before treating
+      this as a defect rather than an operator misconception.
+- [ ] 0b.2 Decide whether a sweep-only observation may refresh `last_seen_time` for a device
+      whose identity was established by a stronger source. Presence is not identity.
+- [ ] 0b.3 Relates to `availability_source_agent_id` being empty on this device: per the
+      v1.4.45 upgrade note, a device covered only by an all-agents group stops having its
+      canonical availability bit updated until a scanner is pinned.
+
 ## 1. Agent decommissioning
 
 - [ ] 1.1 Add a decommission action to `ServiceRadar.Infrastructure.Agent`. The resource has
