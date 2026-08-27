@@ -20,6 +20,7 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.EventsPanelTest do
     status = LazyHTML.query(selector, "[data-range-status]")
 
     assert Enum.count(LazyHTML.query(document, "#dashboard-events-range-selector")) == 1
+    assert Enum.empty?(LazyHTML.query(document, "[data-testid='security-events-empty']"))
     assert Enum.count(LazyHTML.query(document, "#dashboard-events-range-instructions")) == 1
     assert Enum.count(LazyHTML.query(document, "#dashboard-events-view-all")) == 1
     assert LazyHTML.attribute(selector, "phx-hook") == ["ChartRangeSelection"]

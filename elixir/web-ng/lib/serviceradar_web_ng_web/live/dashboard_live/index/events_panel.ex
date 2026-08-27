@@ -50,113 +50,112 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Index.EventsPanel do
   defp events_body(assigns) do
     ~H"""
     <div class="sr-ops-events-range-shell">
-      <div
-        :if={is_nil(@range_buckets_json)}
-        class="sr-ops-empty-chart"
-        data-testid="security-events-empty"
-      >
-        <.icon name="hero-chart-bar" class="size-8 text-slate-500" />
-        <p>No event trend data</p>
-        <span>OCSF events will populate this chart when recent records exist.</span>
-      </div>
-
-      <div
-        :if={is_binary(@range_buckets_json)}
-        id="dashboard-events-range-selector"
-        phx-hook="ChartRangeSelection"
-        class="sr-ops-security-chart sr-ops-events-range-selector"
-        tabindex="0"
-        role="group"
-        aria-label="Select an Events Over Time range"
-        aria-describedby="dashboard-events-range-instructions"
-        data-range-buckets={@range_buckets_json}
-        data-range-event="select_events_range"
-        data-chart-width="640"
-        data-chart-left-pad="36"
-        data-chart-right-pad="24"
-        data-testid="security-events-chart"
-      >
-        <svg
-          data-range-svg
-          class="sr-ops-events-area-chart"
-          viewBox="0 0 640 220"
-          preserveAspectRatio="none"
-          role="img"
-          aria-label="Events over time severity trend"
+      <%!-- Keep this as one conditional branch so connected async hydration replaces the
+      disconnected empty state instead of leaving stale sibling DOM behind. --%>
+      <%= if is_nil(@range_buckets_json) do %>
+        <div class="sr-ops-empty-chart" data-testid="security-events-empty">
+          <.icon name="hero-chart-bar" class="size-8 text-slate-500" />
+          <p>No event trend data</p>
+          <span>OCSF events will populate this chart when recent records exist.</span>
+        </div>
+      <% else %>
+        <div
+          id="dashboard-events-range-selector"
+          phx-hook="ChartRangeSelection"
+          class="sr-ops-security-chart sr-ops-events-range-selector"
+          tabindex="0"
+          role="group"
+          aria-label="Select an Events Over Time range"
+          aria-describedby="dashboard-events-range-instructions"
+          data-range-buckets={@range_buckets_json}
+          data-range-event="select_events_range"
+          data-chart-width="640"
+          data-chart-left-pad="36"
+          data-chart-right-pad="24"
+          data-testid="security-events-chart"
         >
-          <g class="sr-ops-events-grid">
-            <line
-              :for={label <- event_axis_labels(@security_trend)}
-              class="sr-ops-events-x-grid"
-              x1={label.x}
-              x2={label.x}
-              y1="26"
-              y2="180"
+          <svg
+            data-range-svg
+            class="sr-ops-events-area-chart"
+            viewBox="0 0 640 220"
+            preserveAspectRatio="none"
+            role="img"
+            aria-label="Events over time severity trend"
+          >
+            <g class="sr-ops-events-grid">
+              <line
+                :for={label <- event_axis_labels(@security_trend)}
+                class="sr-ops-events-x-grid"
+                x1={label.x}
+                x2={label.x}
+                y1="26"
+                y2="180"
+              />
+              <line
+                :for={tick <- event_y_axis_ticks(@security_trend_max)}
+                x1="36"
+                x2="616"
+                y1={tick.y}
+                y2={tick.y}
+              />
+              <line class="sr-ops-events-baseline" x1="36" x2="616" y1="180" y2="180" />
+            </g>
+            <path
+              class="sr-ops-events-area-low"
+              d={event_area_path(@security_trend, @security_trend_max, :low)}
             />
-            <line
-              :for={tick <- event_y_axis_ticks(@security_trend_max)}
-              x1="36"
-              x2="616"
-              y1={tick.y}
-              y2={tick.y}
+            <path
+              class="sr-ops-events-area-medium"
+              d={event_area_path(@security_trend, @security_trend_max, :medium)}
             />
-            <line class="sr-ops-events-baseline" x1="36" x2="616" y1="180" y2="180" />
-          </g>
-          <path
-            class="sr-ops-events-area-low"
-            d={event_area_path(@security_trend, @security_trend_max, :low)}
-          />
-          <path
-            class="sr-ops-events-area-medium"
-            d={event_area_path(@security_trend, @security_trend_max, :medium)}
-          />
-          <path
-            class="sr-ops-events-area-high"
-            d={event_area_path(@security_trend, @security_trend_max, :high)}
-          />
-          <path
-            class="sr-ops-events-area-critical"
-            d={event_area_path(@security_trend, @security_trend_max, :critical)}
-          />
-          <polyline
-            class="sr-ops-events-line"
-            points={event_line_points(@security_trend, @security_trend_max)}
-          />
-          <g class="sr-ops-events-axis">
-            <text
-              :for={tick <- event_y_axis_ticks(@security_trend_max)}
-              class="sr-ops-events-y-label"
-              x="30"
-              y={tick.y + 4}
-            >
-              {tick.text}
-            </text>
-            <text :for={label <- event_axis_labels(@security_trend)} x={label.x} y="204">
-              {label.text}
-            </text>
-          </g>
-          <rect
-            data-range-overlay
-            class="sr-ops-events-range-overlay hidden"
-            x="36"
-            y="26"
-            width="0"
-            height="154"
-          />
-        </svg>
-        <div class="sr-ops-events-legend">
-          <span><i class="sr-ops-events-dot critical"></i>Critical</span>
-          <span><i class="sr-ops-events-dot high"></i>High</span>
-          <span><i class="sr-ops-events-dot medium"></i>Medium</span>
-          <span><i class="sr-ops-events-dot low"></i>Low</span>
+            <path
+              class="sr-ops-events-area-high"
+              d={event_area_path(@security_trend, @security_trend_max, :high)}
+            />
+            <path
+              class="sr-ops-events-area-critical"
+              d={event_area_path(@security_trend, @security_trend_max, :critical)}
+            />
+            <polyline
+              class="sr-ops-events-line"
+              points={event_line_points(@security_trend, @security_trend_max)}
+            />
+            <g class="sr-ops-events-axis">
+              <text
+                :for={tick <- event_y_axis_ticks(@security_trend_max)}
+                class="sr-ops-events-y-label"
+                x="30"
+                y={tick.y + 4}
+              >
+                {tick.text}
+              </text>
+              <text :for={label <- event_axis_labels(@security_trend)} x={label.x} y="204">
+                {label.text}
+              </text>
+            </g>
+            <rect
+              data-range-overlay
+              class="sr-ops-events-range-overlay hidden"
+              x="36"
+              y="26"
+              width="0"
+              height="154"
+            />
+          </svg>
+          <div class="sr-ops-events-legend">
+            <span><i class="sr-ops-events-dot critical"></i>Critical</span>
+            <span><i class="sr-ops-events-dot high"></i>High</span>
+            <span><i class="sr-ops-events-dot medium"></i>Medium</span>
+            <span><i class="sr-ops-events-dot low"></i>Low</span>
+          </div>
+          <div class="sr-ops-events-range-footer">
+            <p id="dashboard-events-range-instructions" class="sr-ops-events-range-instructions">
+              Drag across the plot, or use Shift + arrow keys and press Enter, to inspect a time range.
+            </p>
+            <span data-range-status class="sr-ops-events-range-status" aria-live="polite"></span>
+          </div>
         </div>
-        <div class="sr-ops-events-range-footer">
-          <p id="dashboard-events-range-instructions" class="sr-ops-events-range-instructions">
-            Drag across the plot, or use Shift + arrow keys and press Enter, to inspect a time range.
-          </p>
-          <span data-range-status class="sr-ops-events-range-status" aria-live="polite"></span>
-        </div>
-      </div>
+      <% end %>
 
       <div class="sr-ops-events-range-actions">
         <.link
