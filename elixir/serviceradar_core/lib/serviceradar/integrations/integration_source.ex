@@ -31,6 +31,7 @@ defmodule ServiceRadar.Integrations.IntegrationSource do
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Infrastructure.Agent
   alias ServiceRadar.Integrations.Changes.PublishSyncLog
+  alias ServiceRadar.Integrations.Validations.CompositeExport
 
   @source_fields [
     :name,
@@ -129,7 +130,7 @@ defmodule ServiceRadar.Integrations.IntegrationSource do
 
       change &validate_agent_availability/2
 
-      validate ServiceRadar.Integrations.Validations.CompositeExport
+      validate CompositeExport
     end
 
     update :update do
@@ -156,7 +157,7 @@ defmodule ServiceRadar.Integrations.IntegrationSource do
 
       change &validate_agent_availability/2
 
-      validate ServiceRadar.Integrations.Validations.CompositeExport
+      validate CompositeExport
     end
 
     update :enable do

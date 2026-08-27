@@ -9,11 +9,11 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
 
   alias Ash.Page.Keyset
   alias ServiceRadar.AgentConfig.DependencyDiagnostics
+  alias ServiceRadar.CompositeChecks.CompositeCheck
   alias ServiceRadar.Infrastructure.Agent
   alias ServiceRadar.Infrastructure.Partition
   alias ServiceRadar.Integrations
   alias ServiceRadar.Integrations.ArmisNorthboundRunWorker
-  alias ServiceRadar.CompositeChecks.CompositeCheck
   alias ServiceRadar.Integrations.IntegrationSource
   alias ServiceRadar.Integrations.IntegrationUpdateRun
   alias ServiceRadar.Integrations.MapboxSettings

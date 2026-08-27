@@ -33,11 +33,13 @@ defmodule ServiceRadar.Integrations.Validations.CompositeExportTest do
 
     test "trims before judging completeness" do
       assert :ok =
-               validate(complete(%{
-                 "check_slug" => "  ot-isolation  ",
-                 "value_form" => " verdict ",
-                 "custom_field" => " sr_isolation "
-               }))
+               validate(
+                 complete(%{
+                   "check_slug" => "  ot-isolation  ",
+                   "value_form" => " verdict ",
+                   "custom_field" => " sr_isolation "
+                 })
+               )
     end
   end
 
@@ -81,7 +83,10 @@ defmodule ServiceRadar.Integrations.Validations.CompositeExportTest do
     test "a slug and field with no value form" do
       assert {:error, field: :settings, message: message} =
                validate(%{
-                 "composite" => %{"check_slug" => "ot-isolation", "custom_field" => "sr_isolation"}
+                 "composite" => %{
+                   "check_slug" => "ot-isolation",
+                   "custom_field" => "sr_isolation"
+                 }
                })
 
       assert message =~ "value_form"
