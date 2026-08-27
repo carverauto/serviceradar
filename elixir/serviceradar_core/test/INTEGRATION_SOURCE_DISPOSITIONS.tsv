@@ -217,6 +217,7 @@ test/serviceradar/edge/proxmox_console_broker_test.exs	-	not_selected	load_only	
 test/serviceradar/edge/proxmox_console_sessions_test.exs	ServiceRadar.Edge.ProxmoxConsoleSessionsTest	data_case	serial	application_env	test:80-100 replaces proxmox_console_edge_principal_resolver
 test/serviceradar/edge/publication_identity_test.exs	-	not_selected	load_only	not_selected	Static selection audit: this ALL_TEST_SRCS source has zero :integration/:requires_app identities; formatter not run.
 test/serviceradar/edge/publish_window_test.exs	-	not_selected	load_only	not_selected	Static selection audit: this ALL_TEST_SRCS source has zero :integration/:requires_app identities; formatter not run.
+test/serviceradar/edge/publisher_pool_test.exs	-	not_selected	load_only	not_selected	Static selection audit: this ALL_TEST_SRCS source has zero :integration/:requires_app identities; formatter not run.
 test/serviceradar/edge/range_string_corpus_test.exs	-	not_selected	load_only	not_selected	Static selection audit: this ALL_TEST_SRCS source has zero :integration/:requires_app identities; formatter not run.
 test/serviceradar/edge/range_string_stage_test.exs	-	not_selected	load_only	not_selected	Static selection audit: this ALL_TEST_SRCS source has zero :integration/:requires_app identities; formatter not run.
 test/serviceradar/edge/record_admit_corpus_test.exs	-	not_selected	load_only	not_selected	Static selection audit: this ALL_TEST_SRCS source has zero :integration/:requires_app identities; formatter not run.
