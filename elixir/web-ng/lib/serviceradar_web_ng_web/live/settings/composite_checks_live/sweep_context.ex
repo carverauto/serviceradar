@@ -125,8 +125,7 @@ defmodule ServiceRadarWebNGWeb.Settings.CompositeChecksLive.SweepContext do
   """
   @spec coverage_intervals([entry()]) :: %{optional(String.t()) => pos_integer()}
   def coverage_intervals(entries) do
-    entries
-    |> Enum.reduce(%{}, fn entry, acc ->
+    Enum.reduce(entries, %{}, fn entry, acc ->
       seconds =
         entry.groups
         |> Enum.map(& &1.interval_seconds)

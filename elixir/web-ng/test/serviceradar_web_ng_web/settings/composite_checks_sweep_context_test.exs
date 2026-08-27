@@ -5,9 +5,9 @@ defmodule ServiceRadarWebNGWeb.Settings.CompositeChecksLive.SweepContextTest do
   # the file still LOADS in the db-free lane and then contributes zero tests,
   # which the shard-level guard in test_helper.exs cannot catch in an otherwise
   # populated shard.
-  @moduletag :db_free
-
   alias ServiceRadarWebNGWeb.Settings.CompositeChecksLive.SweepContext
+
+  @moduletag :db_free
 
   defp entry(agent_id, intervals) do
     %{
