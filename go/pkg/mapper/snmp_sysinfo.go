@@ -34,9 +34,16 @@ func (e *DiscoveryEngine) generateDeviceID(job *DiscoveryJob, device *Discovered
 		return
 	}
 
-	if device.MAC != "" && device.DeviceID == "" {
-		device.DeviceID = GenerateDeviceID(device.MAC)
+	if device.DeviceID != "" {
+		return
 	}
+
+	if id := GenerateDeviceID(device.MAC); id != "" {
+		device.DeviceID = id
+		return
+	}
+
+	device.DeviceID = GenerateDeviceIDFromIP(target)
 }
 
 // querySysInfo queries basic system information via SNMP

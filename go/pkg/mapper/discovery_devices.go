@@ -98,11 +98,20 @@ func (e *DiscoveryEngine) addOrUpdateDeviceToResults(job *DiscoveryJob, newDevic
 	e.addNewDevice(job, newDevice)
 }
 
-// ensureDeviceID ensures the DeviceID is populated if possible
+// ensureDeviceID ensures the DeviceID is populated if possible.
+// SNMP devices with no chassis MAC (Linux/FRR loopback as ifIndex 1) must
+// still get an ip-* ID so core ingest does not drop every interface row.
 func (*DiscoveryEngine) ensureDeviceID(device *DiscoveredDevice) {
-	if device.DeviceID == "" && device.MAC != "" {
-		device.DeviceID = GenerateDeviceID(device.MAC)
+	if device == nil || device.DeviceID != "" {
+		return
 	}
+
+	if id := GenerateDeviceID(device.MAC); id != "" {
+		device.DeviceID = id
+		return
+	}
+
+	device.DeviceID = GenerateDeviceIDFromIP(device.IP)
 }
 
 func (e *DiscoveryEngine) applyCanonicalIdentityFromIP(job *DiscoveryJob, device *DiscoveredDevice) {

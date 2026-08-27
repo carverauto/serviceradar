@@ -346,7 +346,7 @@ func (e *DiscoveryEngine) expandCIDR(cidr string, seen map[string]bool) []string
 
 // GenerateDeviceID creates a device identifier from a MAC address.
 func GenerateDeviceID(mac string) string {
-	if mac == "" {
+	if !usableHardwareMAC(mac) {
 		return ""
 	}
 
@@ -365,6 +365,19 @@ func GenerateDeviceIDFromIP(ip string) string {
 // NormalizeMAC normalizes a MAC address for consistent formatting
 func NormalizeMAC(mac string) string {
 	return strings.ToLower(strings.ReplaceAll(strings.ReplaceAll(mac, ":", ""), "-", ""))
+}
+
+// usableHardwareMAC reports whether mac is a real 48-bit burned-in or locally
+// administered address we can mint an identity from. Empty and all-zero values
+// (Linux `lo` ifPhysAddress) are not usable; locally-administered docker MACs
+// still are, because FRR/Alpine chassis IDs are otherwise missing.
+func usableHardwareMAC(mac string) bool {
+	normalized := NormalizeMAC(mac)
+	if len(normalized) != 12 {
+		return false
+	}
+
+	return normalized != "000000000000"
 }
 
 // addAlternateIP stores an alternate IP in the given metadata map under both

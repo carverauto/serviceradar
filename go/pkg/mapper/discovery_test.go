@@ -540,12 +540,13 @@ func TestEnsureDeviceID(t *testing.T) {
 
 	discoveryEngine := engine.(*DiscoveryEngine)
 
-	// Test with empty DeviceID
+	// Test with empty DeviceID: Linux/FRR SNMP devices often have no chassis
+	// MAC, so mint an ip-* ID instead of leaving the row uningestible.
 	device := &DiscoveredDevice{
 		IP: "192.168.1.1",
 	}
 	discoveryEngine.ensureDeviceID(device)
-	assert.Empty(t, device.DeviceID)
+	assert.Equal(t, "ip-192.168.1.1", device.DeviceID)
 
 	// Test MAC-based fallback
 	device = &DiscoveredDevice{

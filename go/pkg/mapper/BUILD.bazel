@@ -97,6 +97,7 @@ go_test(
         "snmp_interface_ipaddr_v6_test.go",
         "snmp_l2_bridge_test.go",
         "snmp_l2_topology_test.go",
+        "snmp_lldp_test.go",
         "snmp_polling_test.go",
         "topology_identity_test.go",
         "ubnt_poller_test.go",

@@ -3,9 +3,9 @@ package mapper
 import "testing"
 
 const (
-	testConfidenceHigh        = "high"
+	testConfidenceHigh         = "high"
 	testEvidenceEndpointAttach = "endpoint-attachment"
-	testRelationAttachedTo    = "ATTACHED_TO"
+	testRelationAttachedTo     = "ATTACHED_TO"
 )
 
 func TestGenerateDeviceIDNormalizesMAC(t *testing.T) {
@@ -25,6 +25,53 @@ func TestGenerateDeviceIDFromIPPrefix(t *testing.T) {
 	id := GenerateDeviceIDFromIP("192.168.1.10")
 	if id != "ip-192.168.1.10" {
 		t.Fatalf("unexpected IP fallback ID: %q", id)
+	}
+}
+
+func TestGenerateDeviceIDRejectsEmptyAndZeroMAC(t *testing.T) {
+	if got := GenerateDeviceID(""); got != "" {
+		t.Fatalf("expected empty MAC to mint no ID, got %q", got)
+	}
+
+	if got := GenerateDeviceID("00:00:00:00:00:00"); got != "" {
+		t.Fatalf("expected all-zero MAC to mint no ID, got %q", got)
+	}
+}
+
+func TestEnsureDeviceIDFallsBackToIP(t *testing.T) {
+	engine := &DiscoveryEngine{}
+	device := &DiscoveredDevice{IP: "10.99.0.11"}
+
+	engine.ensureDeviceID(device)
+
+	if device.DeviceID != "ip-10.99.0.11" {
+		t.Fatalf("expected IP fallback DeviceID, got %q", device.DeviceID)
+	}
+}
+
+func TestEnsureDeviceIDPrefersMACOverIP(t *testing.T) {
+	engine := &DiscoveryEngine{}
+	device := &DiscoveredDevice{IP: "10.99.0.11", MAC: "02:42:9d:88:70:00"}
+
+	engine.ensureDeviceID(device)
+
+	if device.DeviceID != "mac-02429d887000" {
+		t.Fatalf("expected MAC DeviceID, got %q", device.DeviceID)
+	}
+}
+
+func TestGenerateDeviceIDFallsBackToIPWhenMACMissing(t *testing.T) {
+	engine := &DiscoveryEngine{}
+	job := &DiscoveryJob{
+		Results:   &DiscoveryResults{},
+		deviceMap: map[string]*DeviceInterfaceMap{},
+	}
+	device := &DiscoveredDevice{IP: "10.99.0.11"}
+
+	engine.generateDeviceID(job, device, device.IP)
+
+	if device.DeviceID != "ip-10.99.0.11" {
+		t.Fatalf("expected IP fallback DeviceID, got %q", device.DeviceID)
 	}
 }
 
