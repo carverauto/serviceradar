@@ -34,6 +34,7 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine.AlertLifecycle do
   import ServiceRadar.Observability.StatefulAlertEngine.Severity
 
   alias ServiceRadar.Actors.SystemActor
+  alias ServiceRadar.EventWriter.DeviceCorrelation
   alias ServiceRadar.EventWriter.OCSF
   alias ServiceRadar.Monitoring.Alert
   alias ServiceRadar.Monitoring.AlertGenerator
@@ -54,7 +55,8 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine.AlertLifecycle do
     with {:ok, ocsf_event} <- record_event(event, actor) do
       case AlertGenerator.from_event(ocsf_event,
              actor: actor,
-             alert: alert_config(rule, record)
+             alert: alert_config(rule, record),
+             device_uid: resolved_device_uid(record)
            ) do
         {:ok, %Alert{} = alert} ->
           if !synthetic_liveness_check? do
@@ -75,6 +77,36 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine.AlertLifecycle do
         {:error, reason} ->
           {:error, reason}
       end
+    end
+  end
+
+  # Resolve the record's device to a CANONICAL ocsf_devices.uid.
+  #
+  # The record's own device_uid/device_id is whatever the producer put there --
+  # frequently a hostname, an IP, or a plugin-local id. `alerts.device_uid` has
+  # a foreign key to `ocsf_devices(uid)`, so passing that raw value through does
+  # not mislabel the alert, it fails the insert. In this path that is the worst
+  # of the three callers: `create_event_and_alert` returns `{:error, reason}`,
+  # the state machine only logs it, and the snapshot never gets an `alert_id` --
+  # so the rule re-fires forever and nobody is paged for any of it.
+  #
+  # DeviceCorrelation.resolve/1 returns a canonical uid or nil, and is cached per
+  # correlation input, so a burst of records for one device costs one lookup.
+  # nil is a perfectly good answer: an alert with no device still fires.
+  defp resolved_device_uid(record) do
+    candidate =
+      %{
+        device_uid: record_field_value(record, "device_uid"),
+        agent_id: record_field_value(record, "agent_id"),
+        partition: record_field_value(record, "partition")
+      }
+      |> Enum.reject(fn {_key, value} -> is_nil(value) end)
+      |> Map.new()
+
+    if map_size(candidate) == 0 do
+      nil
+    else
+      DeviceCorrelation.resolve(candidate)
     end
   end
 
