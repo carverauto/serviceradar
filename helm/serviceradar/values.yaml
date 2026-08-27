@@ -948,7 +948,11 @@ cnpg:
     # search_path is set automatically based on cnpg.schema
     search_path: ""
   credentialsSecret: serviceradar-db-credentials
-  # Helm reuses existing secrets and does not rotate CNPG credentials on upgrade.
+  # Helm reuses existing secrets (lookup) or cnpg.password / cnpg.superuserPassword
+  # and does not mint a random password when lookup is empty. Argo CD's repo-server
+  # cannot read Secrets, so a random fallback rotated credentials and rolled core
+  # and web-ng on every sync. First-install create-if-missing lives in the
+  # secret-generator PreSync job (HTTP 409 leaves the password unchanged).
   # Delete/recreate cnpg-superuser or serviceradar-db-credentials to rotate.
   sslmode: verify-full
   backup:

@@ -72,24 +72,10 @@
 {{- $minWal := default $walBudget.minWalSize $cnpg.minWalSize -}}
 {{- $appSecretName := default "serviceradar-db-credentials" $cnpg.credentialsSecret -}}
 {{- $superSecretName := default "cnpg-superuser" $cnpg.superuserSecret -}}
-{{- $existingAppCreds := (lookup "v1" "Secret" $ns $appSecretName) -}}
-{{- $existingSuper := (lookup "v1" "Secret" $ns $superSecretName) -}}
 {{- $appUser := default "serviceradar" $cnpg.username -}}
-{{- $appPass := default "" $cnpg.password -}}
-{{- if and $existingAppCreds $existingAppCreds.data.password }}
-  {{- $appPass = (b64dec $existingAppCreds.data.password) }}
-{{- end }}
-{{- if eq $appPass "" }}
-  {{- $appPass = randAlphaNum 32 }}
-{{- end }}
+{{- $appPass := include "serviceradar.reuseSecretPassword" (dict "namespace" $ns "name" $appSecretName "fromValues" (default "" $cnpg.password)) -}}
 {{- $superUser := default "postgres" $cnpg.superuserUsername -}}
-{{- $superPass := default "" $cnpg.superuserPassword -}}
-{{- if and $existingSuper $existingSuper.data.password }}
-  {{- $superPass = (b64dec $existingSuper.data.password) }}
-{{- end }}
-{{- if eq $superPass "" }}
-  {{- $superPass = randAlphaNum 32 }}
-{{- end }}
+{{- $superPass := include "serviceradar.reuseSecretPassword" (dict "namespace" $ns "name" $superSecretName "fromValues" (default "" $cnpg.superuserPassword)) -}}
 {{- $defaultExtensionsSQL := list
       "CREATE EXTENSION IF NOT EXISTS timescaledb;"
       "CREATE EXTENSION IF NOT EXISTS age;"
@@ -106,6 +92,7 @@
   {{- $clientCASecret = "serviceradar-cnpg-client-ca" }}
 {{- end }}
 {{- $cnpgAffinity := default (dict) $cnpg.affinity -}}
+{{- if $superPass }}
 ---
 apiVersion: v1
 kind: Secret
@@ -114,10 +101,13 @@ metadata:
   namespace: {{ $ns }}
   annotations:
     "helm.sh/resource-policy": "keep"
+    "argocd.argoproj.io/sync-options": "Prune=false"
 type: Opaque
 stringData:
   username: {{ $superUser | quote }}
   password: {{ $superPass | quote }}
+{{- end }}
+{{- if $appPass }}
 ---
 apiVersion: v1
 kind: Secret
@@ -126,10 +116,12 @@ metadata:
   namespace: {{ $ns }}
   annotations:
     "helm.sh/resource-policy": "keep"
+    "argocd.argoproj.io/sync-options": "Prune=false"
 type: Opaque
 stringData:
   username: {{ $appUser | quote }}
   password: {{ $appPass | quote }}
+{{- end }}
 ---
 apiVersion: postgresql.cnpg.io/v1
 kind: Cluster

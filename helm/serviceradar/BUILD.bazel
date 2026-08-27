@@ -75,6 +75,21 @@ py_test(
     ],
 )
 
+# Argo repo-server cannot lookup Secrets. randAlphaNum in that path rotated
+# CNPG passwords and rolled core/web-ng on every sync. These assertions pin
+# the reuse-or-omit behaviour and the create-if-missing (HTTP 409) job.
+py_test(
+    name = "cnpg_credentials_lookup_test",
+    srcs = ["cnpg_credentials_lookup_test.py"],
+    data = [
+        "templates/_helpers.tpl",
+        "templates/cnpg-cluster.yaml",
+        "templates/secret-generator-job.yaml",
+        "templates/spire-postgres.yaml",
+        "values.yaml",
+    ],
+)
+
 py_test(
     name = "component_gates_test",
     srcs = ["component_gates_test.py"],

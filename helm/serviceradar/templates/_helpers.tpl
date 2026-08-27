@@ -420,8 +420,27 @@ securityContext:
 {{- end -}}
 
 {{/*
+Password from an existing Secret (lookup) or from values. Never random.
+
+Argo CD templates on repo-server, which cannot read namespace Secrets, so
+lookup is empty on every sync. randAlphaNum in that path rotated CNPG
+credentials and rolled core/web-ng on each apply.
+*/}}
+{{- define "serviceradar.reuseSecretPassword" -}}
+{{- $existing := lookup "v1" "Secret" .namespace .name -}}
+{{- if and $existing $existing.data $existing.data.password -}}
+{{- b64dec $existing.data.password -}}
+{{- else -}}
+{{- default "" .fromValues -}}
+{{- end -}}
+{{- end -}}
+
+{{/*
 Generate checksum for db credentials to trigger pod restart when secret changes.
-Uses lookup to get current secret value, falls back to random if not found.
+Uses lookup when the renderer can read Secrets. When lookup is empty (Argo
+repo-server), stay stable: a random fallback rolls core and web-ng on every
+sync. Values passwords still participate so an operator-supplied rotation
+rolls the workloads.
 */}}
 {{- define "serviceradar.dbCredentialsChecksum" -}}
 {{- $ns := default .Release.Namespace .Values.spire.namespace -}}
@@ -440,7 +459,13 @@ Uses lookup to get current secret value, falls back to random if not found.
 {{- if ne $secretPayload "" -}}
 {{- $secretPayload | sha256sum -}}
 {{- else -}}
-{{- randAlphaNum 32 | sha256sum -}}
+{{- $valuesPass := default "" $cnpg.password -}}
+{{- $valuesSuper := default "" $cnpg.superuserPassword -}}
+{{- if or $valuesPass $valuesSuper -}}
+{{- printf "%s|%s" $valuesPass $valuesSuper | sha256sum -}}
+{{- else -}}
+lookup-unavailable
+{{- end -}}
 {{- end -}}
 {{- end -}}
 
