@@ -24,12 +24,14 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.EventsRangeNavigationTest do
             }} = Index.handle_event("select_events_range", params, socket())
   end
 
-  test "does not navigate for malformed, equal, reversed, or non-rendered range params" do
+  test "does not navigate for malformed, equal, reversed, non-rendered, stale, or out-of-window range params" do
     for params <- [
           %{"start" => "bad", "end" => "2026-08-27T12:59:59.999999Z"},
           %{"start" => "2026-08-27T10:00:00Z", "end" => "2026-08-27T10:00:00Z"},
           %{"start" => "2026-08-27T12:00:00Z", "end" => "2026-08-27T10:59:59.999999Z"},
-          %{"start" => "2026-08-27T10:30:00Z", "end" => "2026-08-27T12:59:59.999999Z"}
+          %{"start" => "2026-08-27T10:30:00Z", "end" => "2026-08-27T12:59:59.999999Z"},
+          %{"start" => "2026-08-27T09:00:00Z", "end" => "2026-08-27T09:59:59.999999Z"},
+          %{"start" => "2026-08-27T14:00:00Z", "end" => "2026-08-27T14:59:59.999999Z"}
         ] do
       assert {:noreply, %Socket{redirected: nil}} =
                Index.handle_event("select_events_range", params, socket())
