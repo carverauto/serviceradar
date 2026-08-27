@@ -372,7 +372,7 @@ SERIAL_INTEGRATION_SELECTED_TEST_COUNTS = {
     "test/serviceradar/jobs/schedule_health_worker_test.exs": 2,
     "test/serviceradar/monitoring/alert_send_notification_db_test.exs": 3,
     "test/serviceradar/monitoring/poll_job_integration_test.exs": 12,
-    "test/serviceradar/network_discovery/endpoint_attachment_binding_e2e_test.exs": 3,
+    "test/serviceradar/network_discovery/endpoint_attachment_binding_e2e_test.exs": 4,
     "test/serviceradar/network_discovery/endpoint_attachment_e2e_test.exs": 1,
     "test/serviceradar/network_discovery/mapper_compiler_test.exs": 9,
     "test/serviceradar/network_discovery/mapper_graph_ingestion_test.exs": 22,
