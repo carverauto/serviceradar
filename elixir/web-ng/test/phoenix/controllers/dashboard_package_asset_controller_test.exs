@@ -82,10 +82,11 @@ defmodule ServiceRadarWebNGWeb.DashboardPackageAssetControllerTest do
       )
 
     other = ServiceRadarWebNG.AshTestHelpers.user_fixture()
+    actor = ServiceRadarWebNG.AshTestHelpers.system_actor()
 
     other =
       other
-      |> Ash.Changeset.for_update(:update_role, %{role: :viewer}, actor: ServiceRadarWebNG.AshTestHelpers.system_actor())
+      |> Ash.Changeset.for_update(:update_role, %{role: :viewer}, actor: actor)
       |> Ash.update!()
 
     conn = conn |> recycle() |> log_in_user(other)
