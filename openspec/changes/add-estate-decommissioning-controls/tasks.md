@@ -29,29 +29,35 @@ Pipeline stats for the same run: `final_attachment: 17`, `pair_attachment: 24`,
       resolvable endpoint-like attachments MUST produce exactly one summary. Every existing
       conversion test passes an EMPTY device map, which is why this class of bug survives.
 
-## 0b. Sweep liveness cannot detect that an address changed occupant
+## 0b. A down host reads as healthy and freshly seen
 
-`MikroTik` (192.168.6.167) renders healthy and connected while the operator reports the VM
-has been powered off for days. Availability is measured correctly -- two independent agents
-report success seconds apart:
+RESOLVED on 2026-08-27: this is NOT an identity or IP-reuse problem, and the sweep is not
+fabricating results. `MikroTik` (192.168.6.167) is genuinely powered off -- unreachable from
+the operator's workstation AND from dusk01, the host running the reporting agent. The agent
+reports it correctly. Two defects then discard that answer:
 
 ```
-agent-dusk01         icmp: success                 response_time_ms: 1
-agent-sr-test-pve04  icmp: success, tcp: success   open_ports: {22}
+device 192.168.6.167  is_available: TRUE   last_seen_time: 06:19:46  modified: 06:19:47
+                      availability_source_agent_id: (empty)
+agent-dusk01          06:19:30  is_available: FALSE   <- correct, and ignored
+agent-sr-test-pve04   05:05:37  is_available: TRUE    <- 77 min stale, never expired
 ```
 
-So something answers at that address. But only one device record has ever held the IP
-(MAC 00:60:2F:3C:D9:0B -- a Cisco OUI, not a MikroTik one), and nothing re-identifies the
-occupant: an ICMP/TCP sweep proves reachability, never identity. A reissued address keeps
-the previous tenant's name, MAC, type and topology edges indefinitely.
-
-- [ ] 0b.1 Confirm the ground truth (VM power state / what answers on :22) before treating
-      this as a defect rather than an operator misconception.
-- [ ] 0b.2 Decide whether a sweep-only observation may refresh `last_seen_time` for a device
-      whose identity was established by a stronger source. Presence is not identity.
-- [ ] 0b.3 Relates to `availability_source_agent_id` being empty on this device: per the
-      v1.4.45 upgrade note, a device covered only by an all-agents group stops having its
-      canonical availability bit updated until a scanner is pinned.
+- [ ] 0b.1 **A negative sweep refreshes `last_seen_time`.** dusk01 reported the host down at
+      06:19:30 and the device's `last_seen_time` was bumped to 06:19:46 -- sixteen seconds
+      later. Being *checked and found dead* is recorded as *being seen*. Decide whether an
+      availability probe may refresh last-seen at all; presence of a probe is not presence of
+      a host.
+- [ ] 0b.2 **The canonical bit is frozen true.** `availability_source_agent_id` is empty, so
+      per the v1.4.45 upgrade note the canonical `is_available` is never updated for a device
+      covered only by an all-agents group. The agent's correct `false` never lands.
+- [ ] 0b.3 **Per-agent observations never expire.** `agent-sr-test-pve04` last checked at
+      05:05:37 and still asserts `is_available: true` 77 minutes later. A stale positive
+      outlives a fresh negative.
+- [ ] 0b.4 **BLOCKS TASK 2.** Device expiry keys on `last_seen_time`. While 0b.1 stands, a
+      dead-but-still-swept device has its last-seen refreshed forever, so expiry can never
+      fire. Building expiry without fixing 0b.1 produces a feature that silently does
+      nothing. Fix 0b.1 first, or expiry must key on something other than last-seen.
 
 ## 1. Agent decommissioning
 
