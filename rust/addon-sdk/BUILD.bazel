@@ -15,6 +15,7 @@ cargo_build_script(
     crate_root = "build.rs",
     data = [
         "proto/agent/addon/v1/addon.proto",
+        "proto/agent/discovery/v1/discovery.proto",
     ],
     tools = ["@bazel_tools//tools/proto:protoc"],
     deps = ["@crates//:tonic-prost-build"],

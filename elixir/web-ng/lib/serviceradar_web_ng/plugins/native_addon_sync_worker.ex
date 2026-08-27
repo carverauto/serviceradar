@@ -98,11 +98,23 @@ defmodule ServiceRadarWebNG.Plugins.NativeAddonSyncWorker do
 
         summary = NativeAddonSync.summary(addons, results)
 
-        Logger.info(
+        failed_count = length(summary.failed)
+
+        message =
           "First-party native add-on sync completed: discovered=#{summary.discovered} " <>
             "import_ready=#{summary.import_ready} imported=#{summary.imported} " <>
-            "skipped=#{summary.skipped} failed=#{length(summary.failed)}"
-        )
+            "skipped=#{summary.skipped} failed=#{failed_count}"
+
+        # A partial failure is logged at :error so a run that imported nothing is
+        # distinguishable from a healthy one at a glance. It deliberately does NOT
+        # fail the job: `perform/1` only calls `schedule_next/0` when the result is
+        # :ok, so returning an error on a persistent partial failure would stop the
+        # hourly loop entirely -- trading a visible problem for an invisible one.
+        if failed_count > 0 do
+          Logger.error(message)
+        else
+          Logger.info(message)
+        end
 
         Enum.each(summary.failed, &log_package_failure/1)
 

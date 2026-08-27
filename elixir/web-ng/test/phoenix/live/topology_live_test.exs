@@ -132,6 +132,7 @@ defmodule ServiceRadarWebNGWeb.TopologyLiveTest do
       })
 
     assert html =~ "Backbone unavailable"
+    assert html =~ ~s(data-god-view-safe-area="top")
     assert html =~ "no backbone topology edges"
     assert html =~ "bb:0"
     assert html =~ "att:57"

@@ -76,7 +76,7 @@ cluster was bumped while the other stayed on an older pin, so an environment sil
 kept running a different PostgreSQL. Both now call this.
 */}}
 {{- define "serviceradar.cnpgDefaultImageTag" -}}
-18.4.0-sr4@sha256:e54ee02582dbb2584388c03837911c1b1cb185cea92d60d2be7a08102b5a7910
+18.4.0-sr4@sha256:59e442dec59fac3149e3a3c49ba0cc2987bfb052bca1a0ea8c01b4bb31427d1d
 {{- end -}}
 
 {{/*

@@ -89,4 +89,94 @@ defmodule ServiceRadar.Inventory.Sync.SourcePolicyCensusTest do
              )
     end
   end
+
+  describe "the collector's agent_id must not identify the devices it overhears" do
+    test "census agent_id is treated as an observer, like mapper and sweep" do
+      # The collector never touches the devices it reports -- it overhears their
+      # ARP/NDP. If its agent_id registered as a device identifier, EVERY device
+      # on the segment would carry the same identifier and collapse onto one
+      # another. This is the over-merge failure mapper/sweep are excluded to
+      # avoid, and the census is the strongest case of it.
+      ids = %{agent_id: "collector-agent-1"}
+
+      for source <- ["netprobe-census", "passive-census"] do
+        assert SourcePolicy.observer_agent_source?(update(source, %{})),
+               "#{source} must be treated as an observer source"
+
+        refute SourcePolicy.include_agent_identifier?(update(source, %{}), ids),
+               "#{source} must not register the collector agent_id as a device identifier"
+      end
+    end
+
+    test "identifier_types drops agent_id for a census update but keeps it for a plain agent" do
+      ids = %{agent_id: "collector-agent-1"}
+
+      refute :agent_id in SourcePolicy.identifier_types(update("netprobe-census", %{}), ids)
+
+      # Negative control: an ordinary agent-reported update still identifies by
+      # agent_id, so the exclusion above is specific rather than a blanket rule.
+      assert :agent_id in SourcePolicy.identifier_types(update("self-reported", %{}), ids)
+    end
+
+    test "the identity_source form is recognised too" do
+      ids = %{agent_id: "collector-agent-1"}
+      census = update("agent", %{"identity_source" => "netprobe_census"})
+
+      assert SourcePolicy.observer_agent_source?(census)
+      refute SourcePolicy.include_agent_identifier?(census, ids)
+    end
+  end
+
+  describe "the metadata contract the Go translator has to satisfy" do
+    test "anchoring reads metadata[\"mac\"], not a top-level mac field" do
+      # Normalize.merge_top_level_inventory_metadata/2 does NOT copy the
+      # top-level `mac` into metadata, so the census producer must place it
+      # there itself (census_translator.go sets censusMetadataMAC = "mac").
+      # Pinning it here means a producer change that drops it fails a test
+      # instead of silently disabling MAC anchoring for every census device.
+      universal = "BC:24:11:F5:1C:82"
+
+      assert SourcePolicy.include_mac_identifier?(
+               update("netprobe-census", %{"mac" => universal})
+             )
+
+      refute SourcePolicy.include_mac_identifier?(
+               Map.put(update("netprobe-census", %{}), :mac, universal)
+             ),
+             "a top-level mac with no metadata[\"mac\"] must fail closed"
+    end
+  end
+
+  describe "router and policy must agree on what the census is called" do
+    test "every census service type the router accepts is one SourcePolicy recognises" do
+      # THE guardrail pairing. The router decides whether a census payload
+      # reaches the SyncIngestor at all; SourcePolicy decides whether its MAC
+      # may anchor a device. If these two lists drift, the stream ingests
+      # normally with the guardrail silently inert -- no error anywhere, just
+      # randomized MACs minting a device per rotation.
+      #
+      # This lives in the unit tier on purpose: results_router_test.exs uses
+      # ServiceRadar.DataCase (@moduletag :requires_app), which the unit tier
+      # excludes, so the routing assertions there run only in the integration
+      # shards. This invariant needs no app.
+      for service_type <- ServiceRadar.ResultsRouter.census_service_types() do
+        source = service_type |> to_string() |> String.replace("_", "-")
+
+        assert SourcePolicy.passive_census_source?(update(source, %{})),
+               "router accepts service_type #{inspect(service_type)} but SourcePolicy " <>
+                 "does not recognise #{inspect(source)} as a census source"
+      end
+    end
+
+    test "the Go agent's source string is one of them" do
+      # models.DiscoverySourceNetprobeCensus in go/pkg/models/discovery.go. A
+      # drift there is a cross-language break with no compiler on either side.
+      assert "netprobe-census" in Enum.map(
+               ServiceRadar.ResultsRouter.census_service_types(),
+               &to_string/1
+             )
+
+      assert SourcePolicy.passive_census_source?(update("netprobe-census", %{}))
+    end
+  end
 end

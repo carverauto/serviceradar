@@ -1,7 +1,7 @@
 defmodule ServiceRadar.FlowAttribution.PersistenceTest do
   use ExUnit.Case, async: true
 
-  alias Netprobepb.FlowAttributionEvent
+  alias Serviceradar.Agent.Netprobe.V1.FlowAttributionEvent
   alias ServiceRadar.FlowAttribution
   alias ServiceRadar.FlowAttribution.Persistence
 

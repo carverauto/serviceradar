@@ -32,11 +32,6 @@ import (
 const (
 	defaultEventBuffer                = 1024
 	defaultFlowAttributionEventBuffer = 65_536
-
-	// Census snapshots arrive every couple of minutes and each one completely
-	// replaces the last, so a deep buffer would only preserve stale views. A
-	// slow consumer should see the newest snapshot, not a backlog.
-	censusSnapshotBuffer = 4
 )
 
 const (
@@ -45,7 +40,6 @@ const (
 	EventStreamDPI           = "dpi"
 	EventStreamFlowAttr      = "flow_attribution"
 	EventStreamProcessSnap   = "process_snapshot"
-	EventStreamDeviceCensus  = "device_census"
 	EventDropBackpressure    = "backpressure"
 )
 
@@ -97,12 +91,7 @@ type Client struct {
 	dpiEvents        chan *netprobepb.DpiEvent
 	flowEvents       chan *netprobepb.FlowAttributionEvent
 	processSnapshots chan *netprobepb.ProcessSnapshot
-	censusSnapshots  chan *netprobepb.DeviceCensusSnapshot
 	done             chan struct{}
-
-	// Chunked census snapshots are reassembled before they reach the channel,
-	// so consumers only ever see whole snapshots.
-	censusAssembler *censusAssembler
 
 	closeOnce sync.Once
 	closeErr  atomic.Value
@@ -122,7 +111,6 @@ type Client struct {
 	droppedDPIEvents         atomic.Uint64
 	droppedFlowEvents        atomic.Uint64
 	droppedProcessSnapshots  atomic.Uint64
-	droppedCensusSnapshots   atomic.Uint64
 	eventDropRecorder        EventDropRecorder
 }
 
@@ -150,8 +138,6 @@ func NewClient(conn net.Conn, eventBuffer int, opts ...ClientOption) *Client {
 		dpiEvents:        make(chan *netprobepb.DpiEvent, eventBuffer),
 		flowEvents:       make(chan *netprobepb.FlowAttributionEvent, flowAttributionEventBuffer(eventBuffer)),
 		processSnapshots: make(chan *netprobepb.ProcessSnapshot, eventBuffer),
-		censusSnapshots:  make(chan *netprobepb.DeviceCensusSnapshot, censusSnapshotBuffer),
-		censusAssembler:  newCensusAssembler(),
 		done:             make(chan struct{}),
 	}
 	for _, opt := range opts {
@@ -163,7 +149,6 @@ func NewClient(conn net.Conn, eventBuffer int, opts ...ClientOption) *Client {
 		close(c.dpiEvents)
 		close(c.flowEvents)
 		close(c.processSnapshots)
-		close(c.censusSnapshots)
 
 		return c
 	}
@@ -302,13 +287,6 @@ func (c *Client) FlowAttributionEvents() <-chan *netprobepb.FlowAttributionEvent
 // ProcessSnapshots returns the bounded stream of process snapshots from netprobe.
 func (c *Client) ProcessSnapshots() <-chan *netprobepb.ProcessSnapshot {
 	return c.processSnapshots
-}
-
-// CensusSnapshots returns the bounded stream of COMPLETE passive device census
-// snapshots. Chunked snapshots are reassembled before they appear here, so a
-// consumer never observes a fragment.
-func (c *Client) CensusSnapshots() <-chan *netprobepb.DeviceCensusSnapshot {
-	return c.censusSnapshots
 }
 
 // DrainFingerprintEvents invokes handler for each streamed fingerprint event.
@@ -474,20 +452,6 @@ func (c *Client) DroppedProcessSnapshots() uint64 {
 	return c.droppedProcessSnapshots.Load()
 }
 
-// DroppedCensusSnapshots returns census snapshots dropped because the downstream consumer was slow.
-func (c *Client) DroppedCensusSnapshots() uint64 {
-	return c.droppedCensusSnapshots.Load()
-}
-
-// DroppedCensusChunks reports chunk sets abandoned during reassembly, by reason.
-func (c *Client) DroppedCensusChunks() map[string]uint64 {
-	if c == nil || c.censusAssembler == nil {
-		return nil
-	}
-
-	return c.censusAssembler.DroppedCensusChunks()
-}
-
 // Close closes the IPC connection and unblocks pending requests.
 func (c *Client) Close() error {
 	if c == nil {
@@ -561,7 +525,6 @@ func (c *Client) readLoop() {
 	defer close(c.dpiEvents)
 	defer close(c.flowEvents)
 	defer close(c.processSnapshots)
-	defer close(c.censusSnapshots)
 
 	for {
 		frame, err := readFrame(c.conn)
@@ -603,9 +566,6 @@ func (c *Client) readLoop() {
 					c.recordEventDrop(EventStreamProcessSnap, EventDropBackpressure)
 				}
 			}
-			if chunk := frame.GetDeviceCensusSnapshot(); chunk != nil {
-				c.enqueueCensusSnapshot(chunk)
-			}
 			continue
 		}
 
@@ -617,27 +577,6 @@ func (c *Client) readLoop() {
 		if ch != nil {
 			ch <- response{frame: frame}
 		}
-	}
-}
-
-// enqueueCensusSnapshot reassembles a chunk and forwards only whole snapshots.
-//
-// Chunks are never published to consumers: core writes nothing for a payload
-// that does not declare itself complete, so a fragment reaching the push loop
-// would cost a gRPC round trip to land no rows.
-func (c *Client) enqueueCensusSnapshot(chunk *netprobepb.DeviceCensusSnapshot) {
-	snapshot, reason := c.censusAssembler.Offer(chunk)
-	if reason != "" && c.eventDropRecorder != nil {
-		c.eventDropRecorder.IncEventDrop(EventStreamDeviceCensus, reason)
-	}
-	if snapshot == nil {
-		return
-	}
-
-	select {
-	case c.censusSnapshots <- snapshot:
-	default:
-		c.recordEventDrop(EventStreamDeviceCensus, EventDropBackpressure)
 	}
 }
 
@@ -666,9 +605,6 @@ func (c *Client) recordEventDrop(stream, reason string) {
 	}
 	if stream == EventStreamProcessSnap && reason == EventDropBackpressure {
 		c.droppedProcessSnapshots.Add(1)
-	}
-	if stream == EventStreamDeviceCensus && reason == EventDropBackpressure {
-		c.droppedCensusSnapshots.Add(1)
 	}
 	if c.eventDropRecorder != nil {
 		c.eventDropRecorder.IncEventDrop(stream, reason)

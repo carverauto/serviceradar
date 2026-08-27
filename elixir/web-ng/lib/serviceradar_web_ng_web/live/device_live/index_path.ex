@@ -4,11 +4,16 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexPath do
   @list_path "/devices"
 
   def list_path(opts \\ []) do
+    page = page_param(Keyword.get(opts, :page))
+    # Page 1 is the list head (offset 0). Keeping a leftover keyset cursor
+    # makes handle_params treat this as "still on a later page".
+    cursor = if is_nil(page), do: nil, else: Keyword.get(opts, :cursor)
+
     params =
       %{}
       |> maybe_put("q", Keyword.get(opts, :query))
-      |> maybe_put("page", page_param(Keyword.get(opts, :page)))
-      |> maybe_put("cursor", Keyword.get(opts, :cursor))
+      |> maybe_put("page", page)
+      |> maybe_put("cursor", cursor)
 
     encode_path(@list_path, params)
   end

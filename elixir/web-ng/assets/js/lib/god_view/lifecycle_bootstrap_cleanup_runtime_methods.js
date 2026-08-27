@@ -2,6 +2,18 @@ export const godViewLifecycleBootstrapCleanupRuntimeMethods = {
   cleanupLifecycleRuntime() {
     this.stopAnimationLoop()
     this.clearChannelReconnectTimer?.()
+    const layoutTokens = [
+      this.state.layoutRequestToken,
+      this.state.latestSnapshotLayoutToken,
+      this.state.pendingSnapshotLayoutToken,
+    ]
+      .map((token) => Number(token))
+      .filter(Number.isFinite)
+    const invalidationToken = Math.max(0, ...layoutTokens) + 1
+    this.state.layoutRequestToken = invalidationToken
+    this.state.latestSnapshotLayoutToken = invalidationToken
+    this.state.pendingSnapshotLayoutToken = null
+    this.state.pendingViewportProfileKey = null
     if (this.state.reducedMotionMediaQuery && this.state.reducedMotionListener) {
       try {
         if (typeof this.state.reducedMotionMediaQuery.removeEventListener === "function") {

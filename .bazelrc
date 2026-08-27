@@ -48,6 +48,9 @@ build --repo_env=RULES_ELIXIR_SKIP_SYSTEM=1
 
 # Use hermetic Python toolchain from rules_python extension (MODULE.bazel)
 # instead of system Python for cross-platform compatibility with remote cache
+# Disable legacy package generation globally so transitive Python tools follow
+# the same explicit-package policy declared for ServiceRadar in MODULE.bazel.
+build --@rules_python//python/config_settings:incompatible_default_to_explicit_init_py=true
 # Avoid GitHub fallback for Go module fetches in repo rules.
 build --repo_env=GOPROXY=https://proxy.golang.org
 build --repo_env=NEXT_SKIP_TURBO=1

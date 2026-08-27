@@ -33,15 +33,34 @@ defmodule ServiceRadar.DB.FixtureConfig do
   URL is exposed as a plain string because its only consumer is `System.put_env/2`, which cannot
   take a `Dsn` -- every other path keeps it wrapped.
   """
-  def resolve!(database) when is_binary(database) do
+  def resolve!(database, opts \\ []) when is_binary(database) do
     identity = identity!()
     manager = load!(identity)
+    ca_fetcher = Keyword.get(opts, :ca_fetcher, &fetch_ca!/1)
 
     %{
       url: url!(manager, database, password!(identity)),
-      ca_pem: ca_pem!(manager, identity),
+      ca_pem: ca_pem!(manager, identity, ca_fetcher),
       tls_server_name: tls_server_name(manager)
     }
+  end
+
+  @doc "The typed administrator DSN for a named database on the same fixture server."
+  def admin_url!(database) when is_binary(database) do
+    identity = identity!()
+    manager = load!(identity)
+
+    role =
+      Manager.admin_role(manager) ||
+        raise "the loaded configuration has no database.admin_role"
+
+    case Manager.database_url_as(manager, role, database, admin_password!(identity)) do
+      {:ok, dsn} ->
+        Dsn.expose(dsn)
+
+      :error ->
+        raise "the loaded configuration has no usable admin database section for #{database}"
+    end
   end
 
   defp identity! do
@@ -74,10 +93,11 @@ defmodule ServiceRadar.DB.FixtureConfig do
     end
   end
 
-  # A test action has no platform mounting anything into /etc, which is exactly why `ci` and
-  # `localhost` are built-in kinds. Reaching this means the identity was a deployed one.
+  # A test action has no platform mounting anything into /etc. Guarded database targets stage the
+  # built-in `ci` instance only; reaching this with a deployed identity must fail rather than read
+  # an ambient mount.
   defp no_mount(path) do
-    {:error, "a test action has no #{path}; only localhost and ci carry a built-in instance"}
+    {:error, "a guarded test action has no #{path}; it carries only the built-in ci instance"}
   end
 
   # The instance is a DECLARED BUILD INPUT, so the artifact under test is the one the build just
@@ -104,8 +124,8 @@ defmodule ServiceRadar.DB.FixtureConfig do
       raise """
       no compiled instance for #{Identity.env_var()}=#{kind}.
 
-      Add //config/environments:#{kind}_binpb to this target's `data`; it is a declared input,
-      not something resolved from the ambient filesystem.
+      Guarded database targets declare only //config/environments:ci_binpb; use
+      SERVICERADAR_ENV=ci through the BuildBuddy lifecycle rather than adding another endpoint.
 
       Tried, from #{File.cwd!()}:
       #{Enum.map_join(candidates, "\n", &"  #{&1}")}
@@ -119,8 +139,10 @@ defmodule ServiceRadar.DB.FixtureConfig do
     end
   end
 
-  defp password!(identity) do
-    name = Names.database_password()
+  defp password!(identity), do: secret!(identity, Names.database_password())
+  defp admin_password!(identity), do: secret!(identity, Names.database_admin_password())
+
+  defp secret!(identity, name) do
     secrets = EnvironmentProvider.manager(identity.kind, Manifest.new([name]))
 
     case ServiceradarSecret.resolve(secrets, name) do
@@ -158,9 +180,9 @@ defmodule ServiceRadar.DB.FixtureConfig do
   # A named bundle wins, and nothing carries the PEM. A cert-manager issuer rotates, so any copy
   # -- a CI secret, an instance file -- is correct until it is not, and the failure lands on
   # whoever runs the suite that day rather than on whoever stored it.
-  defp ca_pem!(manager, identity) do
+  defp ca_pem!(manager, identity, ca_fetcher) do
     case Manager.ca_bundle_url(manager) do
-      url when is_binary(url) and url != "" -> fetch_ca!(url)
+      url when is_binary(url) and url != "" -> ca_fetcher.(url)
       _ -> ca_secret(manager, identity)
     end
   end

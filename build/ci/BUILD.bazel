@@ -1,0 +1,34 @@
+load("@rules_python//python:py_binary.bzl", "py_binary")
+load("@rules_python//python:py_library.bzl", "py_library")
+load("@rules_python//python:py_test.bzl", "py_test")
+
+exports_files([
+    "BUILD.bazel",
+    "large_ingestion_gate_contract.v1",
+])
+
+py_library(
+    name = "large_ingestion_gate",
+    srcs = ["large_ingestion_gate.py"],
+    visibility = ["//visibility:public"],
+)
+
+py_binary(
+    name = "wait_for_large_ingestion_gate",
+    srcs = ["wait_for_large_ingestion_gate.py"],
+    data = ["large_ingestion_gate_contract.v1"],
+    visibility = ["//visibility:public"],
+    deps = [":large_ingestion_gate"],
+)
+
+py_test(
+    name = "wait_for_large_ingestion_gate_test",
+    size = "small",
+    srcs = ["wait_for_large_ingestion_gate_test.py"],
+    data = ["large_ingestion_gate_contract.v1"],
+    visibility = ["//visibility:public"],
+    deps = [
+        ":large_ingestion_gate",
+        ":wait_for_large_ingestion_gate",
+    ],
+)

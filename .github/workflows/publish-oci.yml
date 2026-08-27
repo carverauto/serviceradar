@@ -64,12 +64,12 @@ jobs:
       BAZELISK_HOME: ${{ github.workspace }}/.cache/bazelisk
     steps:
       - name: Checkout
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           fetch-depth: 0
 
       - name: Cache Bazel artifacts
-        uses: actions/cache@668228422ae6a00e4ad889ee87cd7109ec5666a7
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9
         with:
           path: |
             ${{ env.BAZELISK_HOME }}
@@ -77,14 +77,27 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-bazel-
 
-      - name: Install build dependencies
-        run: ./scripts/ci/ensure-forgejo-tools.sh bazel-build
+      # No ensure-forgejo-tools.sh step. It is a Forgejo-era bootstrap that
+      # apt-installs a local toolchain (libpcap-dev, protobuf-compiler, cmake,
+      # flex, bison...) and fails on the GitHub ARC runners, which run non-root:
+      #
+      #   missing required CI tools for profile bazel-build: file pkg-config:libpcap
+      #   This job is running non-root; rebuild the Forgejo CI image ...
+      #
+      # It is also unnecessary. This job builds through RBE, so compilation runs
+      # on BuildBuddy executors and the runner needs Bazel plus credentials, not
+      # a C toolchain. native-addons.yml and wasm-plugins.yml build and publish
+      # on this same runner with no such step and pass; publish-oci.yml was the
+      # only workflow still calling it, which is why it alone broke -- its
+      # auto-trigger was removed in 2026-06 and nothing exercised it since.
+      #
+      # The script itself stays: .forgejo/workflows/* still reference it.
 
       - name: Install Bazelisk
         run: ./scripts/install-bazelisk.sh
 
       - name: Setup Go
-        uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # actions/setup-go@v6.4.0
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # actions/setup-go@v7.0.0
         with:
           go-version-file: go.mod
 
@@ -167,11 +180,17 @@ jobs:
         run: |
           bazel build \
             -c opt \
-            --config=ci \
+            # --config=remote, not --config=ci: :ci points the disk/repo caches at
+            # /bazel-cache, a node volume only the BuildBuddy executors mount, so on an
+            # ARC runner it dies with "/bazel-cache (Permission denied): could not
+            # acquire lock on repo contents cache". Both configs inherit remote_base, so
+            # RBE execution and the remote cache are identical; only the LOCAL cache path
+            # differs, and this job caches BAZELISK_HOME only anyway.
+            --config=remote \
             //:images
 
       - name: Verify managed agent release key stamp
-        run: ./scripts/verify-agent-release-key-stamp.sh -c opt --config=ci
+        run: ./scripts/verify-agent-release-key-stamp.sh -c opt --config=remote
 
       - name: Publish images
         env:
@@ -183,9 +202,9 @@ jobs:
         run: |
           set -euo pipefail
           # --remote_download_outputs=all overrides the --remote_download_minimal that
-          # --config=ci inherits: sign-oci-publish.sh below reads the image metadata back out
+          # --config=remote inherits: sign-oci-publish.sh below reads the image metadata back out
           # of `bazel info bazel-bin`, which is empty when outputs stay in the CAS.
-          cmd=(bazel run -c opt --config=ci --remote_download_outputs=all --stamp //:push)
+          cmd=(bazel run -c opt --config=remote --remote_download_outputs=all --stamp //:push)
           if [[ -n "${EXTRA_TAG}" ]]; then
             cmd+=(-- --tag "${EXTRA_TAG}")
           fi

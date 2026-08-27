@@ -332,13 +332,13 @@ defmodule ServiceRadar.SweepJobs.MapperPromotion do
 
     case Map.get(devices, decision.device_uid) do
       %Device{} = device ->
-        metadata =
-          device.metadata
-          |> Kernel.||(%{})
-          |> Map.put(@promotion_key, payload)
-
+        # Merged in the database rather than read-modify-written here. `devices`
+        # was loaded before this loop, so writing the whole map back would restore
+        # every key any other writer changed since that read -- silently.
         device
-        |> Ash.Changeset.for_update(:update, %{metadata: metadata})
+        |> Ash.Changeset.for_update(:merge_metadata, %{
+          metadata_patch: %{@promotion_key => payload}
+        })
         |> Ash.update(actor: actor)
 
         :ok

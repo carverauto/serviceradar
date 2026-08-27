@@ -79,6 +79,80 @@ defmodule ServiceRadar.Plugins.AddonRolloutEligibilityTest do
              Eligibility.classify_target(candidate, agent(now, arch: "arm64"), now)
   end
 
+  test "a containerized agent that predates the capability loses only systemd add-ons" do
+    now = ~U[2026-07-18 17:00:00Z]
+
+    # The airtight claim, and only it: no host system unit dir, no root-owned updater.
+    for supervision <- [:systemd_service, :systemd_timer],
+        deployment_type <- ["kubernetes", "docker", "lxc", "container"] do
+      assert {:incompatible, "agent_cannot_host_native_addons"} =
+               Eligibility.classify_target(
+                 package(supervision: supervision),
+                 agent(now, deployment_type: deployment_type),
+                 now
+               )
+    end
+
+    # Nothing is inferred about the rest: a sidecar is just a subprocess.
+    for supervision <- [:agent_sidecar, :ephemeral_helper, :config_toggle] do
+      assert {:eligible, nil} =
+               Eligibility.classify_target(
+                 package(supervision: supervision),
+                 agent(now, deployment_type: "kubernetes"),
+                 now
+               )
+    end
+  end
+
+  test "a bare-metal agent still hosts systemd add-ons" do
+    now = ~U[2026-07-18 17:00:00Z]
+
+    assert {:eligible, nil} =
+             Eligibility.classify_target(
+               package(supervision: :systemd_timer),
+               agent(now, deployment_type: "bare-metal"),
+               now
+             )
+  end
+
+  test "a reported native-addon-host capability is believed for every supervision model" do
+    now = ~U[2026-07-18 17:00:00Z]
+
+    # An agent that says it hosts none of them is excluded from ALL of them -- the
+    # in-cluster agent refuses the whole assignment set, so a sidecar is no more
+    # hostable there than a systemd unit, and leaving it "eligible" for sidecars is
+    # exactly what left a silent target to time out the rollout.
+    for supervision <- [:systemd_service, :agent_sidecar, :ephemeral_helper, :config_toggle] do
+      assert {:incompatible, "agent_cannot_host_native_addons"} =
+               Eligibility.classify_target(
+                 package(supervision: supervision),
+                 agent(now,
+                   deployment_type: "kubernetes",
+                   capabilities: ["addon.native.host.unavailable"]
+                 ),
+                 now
+               )
+    end
+
+    # ...and a privileged container that says it CAN is trusted over the guess.
+    assert {:eligible, nil} =
+             Eligibility.classify_target(
+               package(supervision: :systemd_service),
+               agent(now, deployment_type: "docker", capabilities: ["addon.native.host"]),
+               now
+             )
+  end
+
+  test "an agent that reports no deployment type is left eligible" do
+    now = ~U[2026-07-18 17:00:00Z]
+
+    # Older agents predate deployment_type reporting. Failing closed here would
+    # strand every real bare-metal host in an existing fleet, so stay permissive
+    # and let the health gate speak.
+    assert {:eligible, nil} =
+             Eligibility.classify_target(package(supervision: :systemd_service), agent(now), now)
+  end
+
   test "uses supervision-specific readiness instead of requiring every add-on to be active" do
     timer = package(supervision: :systemd_timer)
     helper = package(supervision: :ephemeral_helper)
@@ -87,6 +161,51 @@ defmodule ServiceRadar.Plugins.AddonRolloutEligibilityTest do
     refute Eligibility.supervision_ready?(service, %{state: "ready", active: false})
     assert Eligibility.supervision_ready?(timer, %{state: "waiting", active: false})
     assert Eligibility.supervision_ready?(helper, %{state: "staged", active: false})
+  end
+
+  # netprobe now also serves the generic AddonService on a second socket
+  # (refactor-netprobe-onto-generic-addon-contract task 3.1). Its lifecycle state
+  # still comes from the systemd unit, unchanged -- but that chain crosses
+  # Go -> proto -> Elixir on a bare string, and `tolerated_failures: 0` means one
+  # target that cannot report add-on health fails the rollout for the ENTIRE
+  # fleet. A version bump on netprobe mints a new AddonPackage and a rollout, so
+  # this is exercised on every netprobe release.
+  describe "a systemd-supervised netprobe stays rollout-eligible" do
+    test "the exact state the agent reports for a running systemd unit is accepted" do
+      # "running" is agentaddon.StateRunning (go/pkg/agent/addon/types.go), which
+      # push_loop_capabilities reports for a netprobe unit that is up, and which
+      # addon_status_ingestor turns into active: state == "running".
+      #
+      # If either side of that renames the string, netprobe silently stops being
+      # rollout-eligible and every rollout containing it fails fleet-wide.
+      service = package(supervision: :systemd_service)
+
+      assert Eligibility.supervision_state_ready?(service, %{state: "running", active: true}),
+             "a running netprobe unit must satisfy the systemd supervision model"
+    end
+
+    test "active is derived from the state, so the two cannot disagree" do
+      # addon_status_ingestor sets active: state == "running". A status claiming
+      # to be running while inactive cannot come from that path -- and if it ever
+      # did, the gate must not accept it.
+      service = package(supervision: :systemd_service)
+
+      refute Eligibility.supervision_state_ready?(service, %{state: "running", active: false})
+      refute Eligibility.supervision_state_ready?(service, %{state: "stopped", active: true})
+    end
+
+    test "serving AddonService does not change the state netprobe reports" do
+      # The AddonService socket is additive: netprobe stays a systemd unit and
+      # its lifecycle state still comes from that unit, not from whether the new
+      # socket is being served. Pinned so a later cutover step cannot quietly
+      # start gating rollouts on the new transport.
+      service = package(supervision: :systemd_service)
+
+      for state <- ["running", "active", "healthy", "degraded"] do
+        assert Eligibility.supervision_state_ready?(service, %{state: state, active: true}),
+               "#{state} must remain acceptable for a systemd add-on"
+      end
+    end
   end
 
   # Every reason string below is one the demo fleet actually reported on
@@ -200,17 +319,25 @@ defmodule ServiceRadar.Plugins.AddonRolloutEligibilityTest do
   end
 
   defp agent(now, overrides \\ []) do
+    metadata = %{
+      "os" => Keyword.get(overrides, :os, "linux"),
+      "arch" => Keyword.get(overrides, :arch, "amd64")
+    }
+
+    metadata =
+      case Keyword.fetch(overrides, :deployment_type) do
+        {:ok, deployment_type} -> Map.put(metadata, "deployment_type", deployment_type)
+        :error -> metadata
+      end
+
     %{
       uid: "agent-1",
       version: "1.4.23",
-      capabilities: [],
+      capabilities: Keyword.get(overrides, :capabilities, []),
       status: Keyword.get(overrides, :status, :connected),
       is_healthy: true,
       last_seen_time: now,
-      metadata: %{
-        "os" => Keyword.get(overrides, :os, "linux"),
-        "arch" => Keyword.get(overrides, :arch, "amd64")
-      }
+      metadata: metadata
     }
   end
 end

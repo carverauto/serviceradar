@@ -23,7 +23,7 @@ defmodule ServiceRadar.Automation.Ansible.PlaybookRunTargetForDeviceTest do
       mix test --include integration \\
         test/serviceradar/automation/ansible/playbook_run_target_for_device_test.exs
   """
-  use ServiceRadar.DataCase, async: false
+  use ServiceRadar.DataCase, async: true
 
   alias Ash.Seed
   alias ServiceRadar.Actors.SystemActor

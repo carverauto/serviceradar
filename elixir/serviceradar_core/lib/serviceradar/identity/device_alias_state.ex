@@ -111,6 +111,8 @@ defmodule ServiceRadar.Identity.DeviceAliasState do
       description "Create a new alias detection"
       accept @alias_fields
 
+      validate {ServiceRadar.Identity.Validations.AliasValue, []}
+
       change fn changeset, _context ->
         now = DateTime.utc_now()
 
@@ -255,8 +257,26 @@ defmodule ServiceRadar.Identity.DeviceAliasState do
     attribute :alias_type, :atom do
       allow_nil? false
       public? true
-      constraints one_of: [:ip, :service_id, :mac, :collector_ip]
-      description "Type of alias (ip, service_id, mac, collector_ip)"
+      constraints one_of: [:ip, :service_id, :mac, :collector_ip, :interface_ip]
+
+      description """
+      Type of alias (ip, service_id, mac, collector_ip, interface_ip).
+
+      `:ip` is the IDENTITY type -- it is what DIRE merges devices on, and every
+      identity reader filters on it. `:interface_ip` is deliberately NOT that: it
+      records an address observed on a device's own interface so the address is
+      attributable and queryable, without making it a merge key.
+
+      The distinction is load-bearing. Addresses on interface tables include
+      classes that several devices legitimately share -- VRRP/HSRP virtual IPs,
+      EVPN anycast gateways, cluster VIPs, and vendor internals such as Junos
+      10.0.0.4 / 128.0.0.x. Recording those as `:ip` would collapse the devices
+      reporting them. `platform.merge_audit` already holds 212 alias-driven
+      merges, including a chain on 192.168.1.62 (A->B, then B->C a day later),
+      which is what that failure looks like in practice.
+
+      If you add a reader that resolves identity, filter on `:ip` only.
+      """
     end
 
     attribute :alias_value, :string do

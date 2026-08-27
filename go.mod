@@ -4,9 +4,9 @@ go 1.26.3
 
 require (
 	github.com/atotto/clipboard v0.1.4
-	github.com/bazelbuild/rules_go v0.60.0
-	github.com/bluenviron/gortsplib/v5 v5.6.3
-	github.com/bluenviron/mediacommon/v2 v2.9.2
+	github.com/bazelbuild/rules_go v0.63.0
+	github.com/bluenviron/gortsplib/v5 v5.6.4
+	github.com/bluenviron/mediacommon/v2 v2.9.3
 	github.com/charmbracelet/bubbles v1.0.0
 	github.com/charmbracelet/bubbletea v1.3.10
 	github.com/charmbracelet/lipgloss v1.1.0
@@ -25,8 +25,8 @@ require (
 	github.com/rs/zerolog v1.35.1
 	github.com/shirou/gopsutil/v3 v3.24.5
 	github.com/spiffe/go-spiffe/v2 v2.8.1
-	github.com/spiffe/spire-api-sdk v1.15.2
-	github.com/stretchr/testify v1.11.1
+	github.com/spiffe/spire-api-sdk v1.15.3
+	github.com/stretchr/testify v1.12.1
 	github.com/swaggo/swag v1.16.6
 	go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc v0.70.0
 	go.opentelemetry.io/otel v1.45.0
@@ -42,11 +42,11 @@ require (
 	golang.org/x/crypto v0.55.0
 	golang.org/x/net v0.58.0
 	golang.org/x/sys v0.47.0
-	google.golang.org/grpc v1.83.0
+	google.golang.org/grpc v1.83.1
 	google.golang.org/protobuf v1.36.12
-	k8s.io/api v0.36.3
-	k8s.io/apimachinery v0.36.3
-	k8s.io/client-go v0.36.3
+	k8s.io/api v0.36.4
+	k8s.io/apimachinery v0.36.4
+	k8s.io/client-go v0.36.4
 	pgregory.net/rapid v1.3.0
 )
 

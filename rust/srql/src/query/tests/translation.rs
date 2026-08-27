@@ -1437,3 +1437,31 @@ fn translate_timeseries_unknown_filter_errors_with_and_without_stats() {
     );
     assert!(without_stats.is_err());
 }
+
+/// The fleet-aggregate shape that `stats:` cannot express, because `stats:` has
+/// no bucketing: a 20-minute window over a 10-minute poll sums two polls and
+/// reports roughly double. Bucketing at the poll cadence and splitting by tag
+/// gives one poll per series per bucket.
+#[test]
+fn translate_timeseries_series_split_by_tag() {
+    let sql = translate_query(
+        "in:timeseries_metrics metric_name:aruba.ssid.client_count time:last_1h bucket:10m agg:sum series:tags.ssid",
+    )
+    .expect("tag series split should translate");
+
+    assert!(
+        sql.contains("tags->>'ssid'"),
+        "the tag must reach the series expression: {sql}"
+    );
+}
+
+#[test]
+fn translate_timeseries_series_rejects_unsafe_tag_key() {
+    assert!(
+        translate_query(
+            "in:timeseries_metrics time:last_1h bucket:10m agg:avg series:tags.a'b"
+        )
+        .is_err(),
+        "an unsafe series tag key must be rejected"
+    );
+}

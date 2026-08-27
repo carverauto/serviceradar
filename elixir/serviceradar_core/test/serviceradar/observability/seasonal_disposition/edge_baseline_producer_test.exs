@@ -1,5 +1,5 @@
 defmodule ServiceRadar.Observability.SeasonalDisposition.EdgeBaselineProducerTest do
-  use ExUnit.Case, async: true
+  use ExUnit.Case, async: false
 
   alias ServiceRadar.Observability.SeasonalDisposition.EdgeBaselineProducer
   alias ServiceRadar.Observability.SeasonalDisposition.Source

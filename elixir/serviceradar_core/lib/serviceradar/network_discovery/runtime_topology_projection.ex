@@ -34,7 +34,17 @@ defmodule ServiceRadar.NetworkDiscovery.RuntimeTopologyProjection do
         OR (coalesce(r.relation_type, '') = '' AND toLower(coalesce(r.evidence_class, '')) IN ['direct', 'direct-physical', 'direct-logical', 'hosted-virtual'])
       )
     WITH a, b, r
-    ORDER BY coalesce(r.last_observed_at, r.observed_at) DESC
+    ORDER BY coalesce(r.last_observed_at, r.observed_at) DESC,
+      a.id ASC,
+      b.id ASC,
+      toUpper(coalesce(r.relation_type, type(r), '')) ASC,
+      toLower(coalesce(r.evidence_class, '')) ASC,
+      coalesce(r.local_if_index, -1) ASC,
+      coalesce(r.local_if_name, '') ASC,
+      coalesce(r.neighbor_if_index, -1) ASC,
+      coalesce(r.neighbor_if_name, '') ASC,
+      coalesce(r.protocol, r.source, 'unknown') ASC,
+      coalesce(r.link_key, '') ASC
     LIMIT #{@max_backbone_link_rows}
     RETURN {
       local_device_id: a.id,
@@ -99,7 +109,18 @@ defmodule ServiceRadar.NetworkDiscovery.RuntimeTopologyProjection do
       AND bi.device_id STARTS WITH 'sr:'
       AND ai.device_id <> bi.device_id
     WITH a, b, ai, bi, r
-    ORDER BY coalesce(r.last_observed_at, r.observed_at) DESC
+    ORDER BY coalesce(r.last_observed_at, r.observed_at) DESC,
+      ai.device_id ASC,
+      bi.device_id ASC,
+      type(r) ASC,
+      toLower(coalesce(r.evidence_class, '')) ASC,
+      coalesce(ai.ifindex, -1) ASC,
+      coalesce(ai.name, '') ASC,
+      coalesce(bi.ifindex, -1) ASC,
+      coalesce(bi.name, '') ASC,
+      coalesce(r.protocol, r.source, 'unknown') ASC,
+      coalesce(ai.id, '') ASC,
+      coalesce(bi.id, '') ASC
     LIMIT #{@max_attachment_link_rows}
     RETURN {
       local_device_id: ai.device_id,
@@ -135,6 +156,67 @@ defmodule ServiceRadar.NetworkDiscovery.RuntimeTopologyProjection do
         source: coalesce(r.source, r.ingestor, 'mapper_topology_v1'),
         inference: coalesce(r.confidence_reason, ''),
         evidence_class: coalesce(r.evidence_class, 'endpoint-attachment'),
+        topology_plane: 'attachment',
+        confidence_tier: coalesce(r.confidence_tier, 'unknown'),
+        confidence_score: coalesce(r.confidence_score, 0)
+      }
+    } AS row
+    UNION ALL
+    MATCH (a:Device)-[r:CANONICAL_TOPOLOGY]->(b:Device)
+    WHERE a.id IS NOT NULL
+      AND b.id IS NOT NULL
+      AND a.id STARTS WITH 'sr:'
+      AND b.id STARTS WITH 'sr:'
+      AND a.id <> b.id
+      AND toUpper(coalesce(r.relation_type, '')) = 'ATTACHED_TO'
+      AND toLower(coalesce(r.evidence_class, '')) = 'inferred-segment'
+    WITH a, b, r
+    ORDER BY coalesce(r.last_observed_at, r.observed_at) DESC,
+      a.id ASC,
+      b.id ASC,
+      toUpper(coalesce(r.relation_type, type(r), '')) ASC,
+      toLower(coalesce(r.evidence_class, '')) ASC,
+      coalesce(r.local_if_index, -1) ASC,
+      coalesce(r.local_if_name, '') ASC,
+      coalesce(r.neighbor_if_index, -1) ASC,
+      coalesce(r.neighbor_if_name, '') ASC,
+      coalesce(r.protocol, r.source, 'unknown') ASC,
+      coalesce(r.link_key, '') ASC
+    LIMIT #{@max_attachment_link_rows}
+    RETURN {
+      local_device_id: a.id,
+      local_device_ip: a.ip,
+      local_if_name: coalesce(r.local_if_name, ''),
+      local_if_index: r.local_if_index,
+      local_if_name_ab: coalesce(r.local_if_name_ab, r.local_if_name, ''),
+      local_if_index_ab: r.local_if_index_ab,
+      local_if_name_ba: coalesce(r.local_if_name_ba, r.neighbor_if_name, ''),
+      local_if_index_ba: r.local_if_index_ba,
+      neighbor_if_name: coalesce(r.neighbor_if_name, ''),
+      neighbor_if_index: r.neighbor_if_index,
+      neighbor_device_id: b.id,
+      neighbor_mgmt_addr: b.ip,
+      neighbor_system_name: b.name,
+      observed_at: coalesce(r.last_observed_at, r.observed_at, ''),
+      flow_pps: 0,
+      flow_bps: 0,
+      capacity_bps: 0,
+      flow_pps_ab: 0,
+      flow_pps_ba: 0,
+      flow_bps_ab: 0,
+      flow_bps_ba: 0,
+      telemetry_eligible: false,
+      telemetry_source: 'none',
+      telemetry_observed_at: coalesce(r.last_observed_at, r.observed_at, ''),
+      protocol: coalesce(r.protocol, r.source, 'unknown'),
+      confidence_tier: coalesce(r.confidence_tier, 'unknown'),
+      confidence_reason: coalesce(r.confidence_reason, ''),
+      evidence_class: coalesce(r.evidence_class, 'inferred-segment'),
+      metadata: {
+        relation_type: coalesce(r.relation_type, type(r)),
+        source: coalesce(r.source, 'inferred-segment'),
+        inference: coalesce(r.confidence_reason, ''),
+        evidence_class: coalesce(r.evidence_class, 'inferred-segment'),
         topology_plane: 'attachment',
         confidence_tier: coalesce(r.confidence_tier, 'unknown'),
         confidence_score: coalesce(r.confidence_score, 0)
@@ -197,7 +279,13 @@ defmodule ServiceRadar.NetworkDiscovery.RuntimeTopologyProjection do
               l.topology_plane
             ),
           desc_nulls_last: l.observed_at,
-          desc: l.inserted_at
+          desc: l.inserted_at,
+          asc: l.local_device_id,
+          asc: l.neighbor_device_id,
+          asc: l.relation_type,
+          asc: l.evidence_class,
+          asc: fragment("?::text", l.row),
+          asc: l.id
         ],
         limit: ^limit,
         select: l.row

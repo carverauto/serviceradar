@@ -187,3 +187,49 @@ func TestUnsupportedDeploymentRetainsFingerprintUnavailableStatus(t *testing.T) 
 		t.Fatalf("fingerprint status = %q, want %q", got, capabilityStatusUnavailable)
 	}
 }
+
+// A containerized agent installs no native add-on at all, so only a bare-metal Linux
+// agent may advertise that it hosts them. The capability is reported as an explicit
+// available/unavailable pair so the control plane never has to infer it, and never
+// silently treats a container as a viable rollout target.
+func TestNativeAddonHostCapabilityEligibility(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name           string
+		goos           string
+		deploymentType string
+		supported      bool
+	}{
+		{name: "linux host", goos: "linux", deploymentType: deploymentTypeBareMetal, supported: true},
+		{name: "lxc", goos: "linux", deploymentType: deploymentTypeLXC},
+		{name: "generic container", goos: "linux", deploymentType: deploymentTypeContainer},
+		{name: "docker", goos: "linux", deploymentType: deploymentTypeDocker},
+		{name: "kubernetes", goos: "linux", deploymentType: deploymentTypeKubernetes},
+		{name: "macOS", goos: "darwin", deploymentType: deploymentTypeBareMetal},
+		{name: "windows", goos: "windows", deploymentType: deploymentTypeBareMetal},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			if got := supportsNativeAddonHosting(tt.goos, tt.deploymentType); got != tt.supported {
+				t.Fatalf("supportsNativeAddonHosting(%q, %q) = %t, want %t",
+					tt.goos, tt.deploymentType, got, tt.supported)
+			}
+
+			capabilities := agentCapabilities(agentCapabilityOptions{nativeAddonHost: tt.supported})
+
+			if got := slices.Contains(capabilities, capabilityAddonNativeHost); got != tt.supported {
+				t.Fatalf("%q capability present = %t, want %t: %#v",
+					capabilityAddonNativeHost, got, tt.supported, capabilities)
+			}
+
+			if got := slices.Contains(capabilities, capabilityAddonNativeHostUnavailable); got == tt.supported {
+				t.Fatalf("%q capability present = %t, want %t: %#v",
+					capabilityAddonNativeHostUnavailable, got, !tt.supported, capabilities)
+			}
+		})
+	}
+}

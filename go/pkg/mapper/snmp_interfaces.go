@@ -21,6 +21,7 @@ import (
 
 	"sort"
 
+	"strings"
 	"time"
 
 	"github.com/gosnmp/gosnmp"
@@ -59,10 +60,43 @@ func (e *DiscoveryEngine) queryInterfaces(
 	// Specifically try to get ifHighSpeed for interfaces that need it
 	e.walkIfHighSpeed(client, ifMap)
 
-	// Get IP addresses from ipAddrTable
+	// Get IP addresses from ipAddrTable (legacy, IPv4-only)
 	ipToIfIndex, err := e.walkIPAddrTable(client)
 	if err != nil {
 		e.logger.Debug().Str("target", target).Err(err).Msg("Failed to walk ipAddrTable")
+	}
+
+	if ipToIfIndex == nil {
+		ipToIfIndex = make(map[string]int)
+	}
+
+	// Then ipAddressTable (IP-MIB), which is address-family aware and is the only
+	// standard source of IPv6 addresses. Not every agent implements it, so a
+	// failure here is expected and must not discard the IPv4 results above.
+	v6Count := 0
+
+	if extra, addrErr := e.walkIPAddressTable(client); addrErr != nil {
+		e.logger.Debug().Str("target", target).Err(addrErr).
+			Msg("Failed to walk ipAddressTable (normal for some devices)")
+	} else {
+		for ip, ifIndex := range extra {
+			// ipAddrTable already carries a real ifIndex for the addresses it
+			// reports; do not let a duplicate row overwrite it with a placeholder.
+			if existing, ok := ipToIfIndex[ip]; ok && existing != 0 && ifIndex == 0 {
+				continue
+			}
+
+			ipToIfIndex[ip] = ifIndex
+
+			if strings.Contains(ip, ":") {
+				v6Count++
+			}
+		}
+	}
+
+	if v6Count > 0 {
+		e.logger.Debug().Str("target", target).Int("ipv6_addresses", v6Count).
+			Msg("Discovered IPv6 addresses from ipAddressTable")
 	}
 
 	// Associate IPs with interfaces

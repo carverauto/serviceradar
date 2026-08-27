@@ -53,8 +53,11 @@ serviceradar-cli dashboard publish --instance https://serviceradar.example.com -
 
 `serviceradar-cli auth login --instance <url>` runs the OAuth 2.0 Device
 Authorization Grant flow (RFC 8628) against `/api/v1/cli/auth/device` and
-`/api/v1/cli/auth/token`. Until those endpoints land on the ServiceRadar
-side, the CLI falls back to manual token paste. Tokens persist to
+`/api/v1/cli/auth/token`. A 404 on those endpoints falls back to manual
+token paste. TLS failures (private/corporate CAs) are not treated as a
+missing endpoint: Node does not use the OS trust store, so put the
+issuer PEM at `~/.config/serviceradar/ca-bundle.pem` or pass `--ca-file`
+/ `SERVICERADAR_CA_FILE` / `NODE_EXTRA_CA_CERTS`. Tokens persist to
 `~/.config/serviceradar/credentials.json` (mode 0600), keyed by instance URL.
 
 `auth status` prints the resolved identity without leaking the token.

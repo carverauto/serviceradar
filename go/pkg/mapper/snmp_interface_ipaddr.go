@@ -18,9 +18,9 @@ package mapper
 
 import (
 	"fmt"
-
+	"math"
+	"net"
 	"strconv"
-
 	"strings"
 
 	"github.com/gosnmp/gosnmp"
@@ -142,4 +142,124 @@ func (*DiscoveryEngine) associateIPsWithInterfaces(ipToIfIndex map[string]int, i
 			}
 		}
 	}
+}
+
+// InetAddressType values from the INET-ADDRESS-MIB, used as the first index
+// component of ipAddressTable.
+const (
+	inetAddressTypeIPv4  = 1
+	inetAddressTypeIPv6  = 2
+	inetAddressTypeIPv4z = 3
+	inetAddressTypeIPv6z = 4
+
+	ipv6Length = 16
+)
+
+// parseInetAddressIndex decodes the {ipAddressAddrType, ipAddressAddr} index
+// that ipAddressTable rows are keyed by, given the OID sub-identifiers that
+// follow the column OID.
+//
+// ipAddressAddr is an InetAddress (a variable-length OCTET STRING) and the IP-MIB
+// does not declare it IMPLIED, so per RFC 2578 its length is encoded as a
+// sub-identifier ahead of the bytes. The suffix is therefore
+// `<addrType>.<length>.<byte>...` -- for example `1.4.192.168.1.1` for IPv4 and
+// `2.16.32.1.13.184...` for IPv6. Reading a fixed number of trailing octets, the
+// way extractIPFromOID does for the legacy table, cannot decode this.
+//
+// The zoned variants (ipv4z/ipv6z) append a 4-byte zone index after the address;
+// the address itself is the leading 4 or 16 bytes, and the zone is dropped
+// because an interface-scoped address is not a useful device alias.
+func parseInetAddressIndex(suffix []string) (string, bool) {
+	// addrType + length + at least one address octet.
+	const minIndexParts = 3
+	if len(suffix) < minIndexParts {
+		return "", false
+	}
+
+	addrType, err := strconv.Atoi(suffix[0])
+	if err != nil {
+		return "", false
+	}
+
+	declaredLen, err := strconv.Atoi(suffix[1])
+	if err != nil {
+		return "", false
+	}
+
+	octets := suffix[2:]
+	if declaredLen <= 0 || declaredLen > len(octets) {
+		return "", false
+	}
+
+	var wantLen int
+
+	switch addrType {
+	case inetAddressTypeIPv4, inetAddressTypeIPv4z:
+		wantLen = ipv4Length
+	case inetAddressTypeIPv6, inetAddressTypeIPv6z:
+		wantLen = ipv6Length
+	default:
+		// dns(16) and any future type are not addresses we can alias on.
+		return "", false
+	}
+
+	if declaredLen < wantLen {
+		return "", false
+	}
+
+	raw := make(net.IP, 0, wantLen)
+
+	for _, octet := range octets[:wantLen] {
+		value, convErr := strconv.Atoi(octet)
+		if convErr != nil || value < 0 || value > math.MaxUint8 {
+			return "", false
+		}
+
+		raw = append(raw, byte(value))
+	}
+
+	ip := raw.String()
+	if ip == "" || ip == "<nil>" {
+		return "", false
+	}
+
+	return ip, true
+}
+
+// walkIPAddressTable walks ipAddressIfIndex to learn every address the device
+// reports, IPv6 included.
+//
+// This is additive to walkIPAddrTable rather than a replacement: ipAddrTable is
+// universally implemented while ipAddressTable is not, so dropping the legacy
+// walk would lose IPv4 on older agents. Where both report the same address the
+// values agree, and merging is idempotent.
+func (*DiscoveryEngine) walkIPAddressTable(client *gosnmp.GoSNMP) (map[string]int, error) {
+	ipToIfIndex := make(map[string]int)
+
+	err := client.BulkWalk(oidIPAddressTable, func(pdu gosnmp.SnmpPDU) error {
+		if !strings.HasPrefix(pdu.Name, oidIPAddressIfIndex) {
+			return nil
+		}
+
+		ifIndex, ok := pdu.Value.(int)
+		if !ok {
+			return nil
+		}
+
+		suffix := strings.TrimPrefix(strings.TrimPrefix(pdu.Name, oidIPAddressIfIndex), ".")
+		if suffix == "" {
+			return nil
+		}
+
+		if ip, parsed := parseInetAddressIndex(strings.Split(suffix, ".")); parsed {
+			ipToIfIndex[ip] = ifIndex
+		}
+
+		return nil
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to walk ipAddressTable: %w", err)
+	}
+
+	return ipToIfIndex, nil
 }

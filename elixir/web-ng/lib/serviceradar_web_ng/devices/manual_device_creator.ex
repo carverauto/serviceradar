@@ -1,6 +1,7 @@
 defmodule ServiceRadarWebNG.Devices.ManualDeviceCreator do
   @moduledoc """
-  Creates manually entered inventory devices.
+  Creates manually entered inventory devices and upserts spreadsheet fields onto
+  a matching existing row (tags, metadata, hostname, and known type).
   """
 
   alias Ash.Error.Changes.InvalidAttribute
@@ -8,6 +9,7 @@ defmodule ServiceRadarWebNG.Devices.ManualDeviceCreator do
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Ash.Page
   alias ServiceRadar.Inventory.Device
+  alias ServiceRadar.Inventory.DeviceIdentifier
   alias ServiceRadar.Inventory.IdentityReconciler
   alias ServiceRadarWebNG.Devices.HostnameResolver
 
@@ -17,13 +19,30 @@ defmodule ServiceRadarWebNG.Devices.ManualDeviceCreator do
   def create(nil, _device_data), do: {:error, :missing_scope}
 
   def create(scope, device_data) when is_map(device_data) do
+    case upsert(scope, device_data) do
+      {:ok, _kind, device} -> {:ok, device}
+      {:error, _} = error -> error
+    end
+  end
+
+  @doc """
+  Creates a device, or merges spreadsheet fields onto a matching inventory row.
+
+  A match is the deterministic manual UID, the primary IP, an IP identifier, or
+  hostname. Tags and metadata are merged; a known type is applied; an unknown
+  CSV type such as `rids` does not clobber a richer existing type.
+  """
+  @spec upsert(map() | nil, map()) :: {:ok, :created | :updated, struct()} | {:error, term()}
+  def upsert(nil, _device_data), do: {:error, :missing_scope}
+
+  def upsert(scope, device_data) when is_map(device_data) do
     with {:ok, device_data} <- prepare_device_data(device_data) do
       uid = generate_device_uid(device_data.ip)
       attrs = build_device_attrs(uid, device_data)
 
       scope
       |> find_existing_matches(uid, device_data)
-      |> create_or_reconcile_device(attrs, scope)
+      |> persist_upsert(attrs, device_data, scope)
     end
   end
 
@@ -48,7 +67,8 @@ defmodule ServiceRadarWebNG.Devices.ManualDeviceCreator do
       hostname: blank_to_nil(Map.get(device_data, :hostname) || Map.get(device_data, "hostname")),
       ip: blank_to_nil(Map.get(device_data, :ip) || Map.get(device_data, "ip")),
       type: blank_to_nil(Map.get(device_data, :type) || Map.get(device_data, "type")),
-      tags: Map.get(device_data, :tags) || Map.get(device_data, "tags") || []
+      tags: Map.get(device_data, :tags) || Map.get(device_data, "tags") || [],
+      metadata: stringify_metadata(Map.get(device_data, :metadata) || Map.get(device_data, "metadata") || %{})
     }
   end
 
@@ -78,33 +98,70 @@ defmodule ServiceRadarWebNG.Devices.ManualDeviceCreator do
       is_managed: true,
       is_active: true,
       tags: normalize_tags(device_data.tags),
+      metadata: device_data.metadata,
       discovery_sources: ["manual"],
       first_seen_time: now,
       last_seen_time: now,
       created_time: now
     }
-    |> Enum.reject(fn {_key, value} -> is_nil(value) or value == "" end)
+    |> Enum.reject(fn
+      {_key, nil} -> true
+      {_key, ""} -> true
+      {:metadata, metadata} when metadata == %{} -> true
+      _ -> false
+    end)
     |> Map.new()
   end
 
-  defp create_or_reconcile_device({:ok, []}, attrs, scope) do
-    attrs
-    |> create_new_device(scope)
-    |> normalize_create_result()
-  end
+  defp persist_upsert({:ok, []}, attrs, device_data, scope) do
+    case create_new_device(attrs, scope) do
+      {:ok, device} ->
+        {:ok, :created, device}
 
-  defp create_or_reconcile_device({:ok, matches}, attrs, scope) do
-    canonical = select_canonical_match(matches)
-    duplicates = duplicate_matches(matches, canonical)
+      {:error, %Invalid{} = error} ->
+        if unique_uid_error?(error) do
+          retry_unique_uid_as_update(attrs, device_data, scope, error)
+        else
+          {:error, error}
+        end
 
-    with {:ok, restored} <- restore_if_deleted(canonical.device, scope),
-         {:ok, updated} <- update_existing_device(restored, attrs, scope),
-         :ok <- merge_active_duplicates(duplicates, updated) do
-      get_reconciled_device(updated.uid, scope)
+      {:error, _} = error ->
+        error
     end
   end
 
-  defp create_or_reconcile_device({:error, _} = error, _attrs, _scope), do: error
+  defp persist_upsert({:ok, matches}, attrs, device_data, scope) do
+    canonical = select_canonical_match(matches)
+    duplicates = duplicate_matches(matches, canonical)
+    update_matched_device(canonical.device, duplicates, attrs, device_data, scope)
+  end
+
+  defp persist_upsert({:error, _} = error, _attrs, _device_data, _scope), do: error
+
+  defp retry_unique_uid_as_update(attrs, device_data, scope, error) do
+    case lookup_by_uid(scope, Map.get(attrs, :uid)) do
+      {:ok, [device | _]} ->
+        update_matched_device(device, [], attrs, device_data, scope)
+
+      {:ok, []} ->
+        {:error, error}
+
+      {:error, _} = lookup_error ->
+        lookup_error
+    end
+  end
+
+  defp update_matched_device(device, duplicates, attrs, device_data, scope) do
+    with {:ok, restored} <- restore_if_deleted(device, scope),
+         {:ok, updated} <- update_existing_device(restored, attrs, scope),
+         {:ok, updated} <- maybe_merge_metadata(updated, device_data, scope),
+         :ok <- merge_active_duplicates(duplicates, updated) do
+      case get_reconciled_device(updated.uid, scope) do
+        {:ok, reconciled} -> {:ok, :updated, reconciled}
+        {:error, _} = error -> error
+      end
+    end
+  end
 
   defp create_new_device(attrs, scope) do
     Device
@@ -115,11 +172,13 @@ defmodule ServiceRadarWebNG.Devices.ManualDeviceCreator do
   defp find_existing_matches(scope, uid, device_data) do
     with {:ok, uid_matches} <- lookup_by_uid(scope, uid),
          {:ok, ip_matches} <- lookup_by_ip(scope, device_data.ip),
+         {:ok, identifier_matches} <- lookup_by_ip_identifier(scope, device_data.ip),
          {:ok, hostname_matches} <- lookup_by_hostname(scope, device_data.hostname) do
       matches =
         []
         |> append_matches(:uid, uid_matches)
         |> append_matches(:ip, ip_matches)
+        |> append_matches(:ip_identifier, identifier_matches)
         |> append_matches(:hostname, hostname_matches)
         |> Enum.uniq_by(fn %{device: device} -> device.uid end)
 
@@ -157,6 +216,36 @@ defmodule ServiceRadarWebNG.Devices.ManualDeviceCreator do
 
   defp lookup_by_hostname(_scope, _hostname), do: {:ok, []}
 
+  defp lookup_by_ip_identifier(scope, ip) when is_binary(ip) do
+    DeviceIdentifier
+    |> Ash.Query.for_read(:read)
+    |> Ash.Query.filter(identifier_type == :ip and identifier_value == ^ip)
+    |> Ash.read(scope: scope)
+    |> Page.unwrap()
+    |> case do
+      {:ok, identifiers} ->
+        identifiers
+        |> Enum.map(& &1.device_id)
+        |> Enum.uniq()
+        |> load_identifier_devices(scope)
+
+      {:error, _} = error ->
+        error
+    end
+  end
+
+  defp lookup_by_ip_identifier(_scope, _ip), do: {:ok, []}
+
+  defp load_identifier_devices([], _scope), do: {:ok, []}
+
+  defp load_identifier_devices(uids, scope) do
+    Device
+    |> Ash.Query.for_read(:read, %{include_deleted: true})
+    |> Ash.Query.filter(uid in ^uids)
+    |> Ash.read(scope: scope)
+    |> Page.unwrap()
+  end
+
   defp append_matches(matches, reason, devices) do
     matches ++ Enum.map(devices, &%{reason: reason, device: &1})
   end
@@ -167,10 +256,12 @@ defmodule ServiceRadarWebNG.Devices.ManualDeviceCreator do
 
   defp canonical_rank(%{reason: :uid}), do: 0
   defp canonical_rank(%{reason: :ip, device: %{deleted_at: nil}}), do: 1
-  defp canonical_rank(%{reason: :hostname, device: %{deleted_at: nil}}), do: 2
-  defp canonical_rank(%{reason: :ip}), do: 3
-  defp canonical_rank(%{reason: :hostname}), do: 4
-  defp canonical_rank(_match), do: 5
+  defp canonical_rank(%{reason: :ip_identifier, device: %{deleted_at: nil}}), do: 2
+  defp canonical_rank(%{reason: :hostname, device: %{deleted_at: nil}}), do: 3
+  defp canonical_rank(%{reason: :ip}), do: 4
+  defp canonical_rank(%{reason: :ip_identifier}), do: 5
+  defp canonical_rank(%{reason: :hostname}), do: 6
+  defp canonical_rank(_match), do: 7
 
   defp duplicate_matches(matches, canonical) do
     matches
@@ -187,30 +278,89 @@ defmodule ServiceRadarWebNG.Devices.ManualDeviceCreator do
   end
 
   defp update_existing_device(%Device{} = device, attrs, scope) do
-    update_attrs = existing_device_update_attrs(device, attrs)
+    update_attrs = additional_update_attrs(device, attrs)
 
     device
     |> Ash.Changeset.for_update(:update, update_attrs)
     |> Ash.update(scope: scope)
   end
 
-  defp existing_device_update_attrs(device, attrs) do
-    attrs
-    |> Map.take([
-      :hostname,
-      :ip,
-      :name,
-      :type,
-      :type_id,
-      :is_managed,
-      :is_active,
-      :last_seen_time,
-      :tags,
-      :discovery_sources
-    ])
-    |> Map.update(:tags, %{}, &merge_tags(device.tags, &1))
-    |> Map.update(:discovery_sources, ["manual"], &merge_discovery_sources(device.discovery_sources, &1))
+  @doc false
+  # Merge policy for an existing inventory row: incoming tags/sources are added,
+  # hostname is applied, IP fills only when blank, and an unknown CSV type does
+  # not replace a richer existing type.
+  def additional_update_attrs(device, attrs) when is_map(attrs) do
+    incoming_tags = Map.get(attrs, :tags, %{})
+    incoming_sources = Map.get(attrs, :discovery_sources, ["manual"])
+
+    %{}
+    |> put_if_present(:last_seen_time, Map.get(attrs, :last_seen_time))
+    |> Map.put(:is_active, true)
+    |> maybe_put_hostname(device, attrs)
+    |> maybe_put_ip(device, attrs)
+    |> maybe_put_type(device, attrs)
+    |> Map.put(:tags, merge_tags(Map.get(device, :tags), incoming_tags))
+    |> Map.put(
+      :discovery_sources,
+      merge_discovery_sources(Map.get(device, :discovery_sources), incoming_sources)
+    )
   end
+
+  defp maybe_put_hostname(update, _device, attrs) do
+    case Map.get(attrs, :hostname) do
+      hostname when is_binary(hostname) and hostname != "" ->
+        Map.merge(update, %{hostname: hostname, name: hostname})
+
+      _ ->
+        update
+    end
+  end
+
+  defp maybe_put_ip(update, device, attrs) do
+    incoming = Map.get(attrs, :ip)
+
+    if present?(incoming) and blank?(Map.get(device, :ip)) do
+      Map.put(update, :ip, incoming)
+    else
+      update
+    end
+  end
+
+  defp maybe_put_type(update, device, attrs) do
+    incoming_type = Map.get(attrs, :type)
+    incoming_type_id = Map.get(attrs, :type_id, parse_type_id(incoming_type))
+
+    cond do
+      not present?(incoming_type) ->
+        update
+
+      known_type_id?(incoming_type_id) ->
+        Map.merge(update, %{type: incoming_type, type_id: incoming_type_id})
+
+      blank?(Map.get(device, :type)) ->
+        Map.merge(update, %{type: incoming_type, type_id: incoming_type_id || 0})
+
+      true ->
+        update
+    end
+  end
+
+  defp maybe_merge_metadata(device, %{metadata: metadata}, scope) when is_map(metadata) and map_size(metadata) > 0 do
+    device
+    |> Ash.Changeset.for_update(:merge_metadata, %{metadata_patch: metadata})
+    |> Ash.update(scope: scope)
+  end
+
+  defp maybe_merge_metadata(device, _device_data, _scope), do: {:ok, device}
+
+  defp put_if_present(map, _key, nil), do: map
+  defp put_if_present(map, key, value), do: Map.put(map, key, value)
+
+  defp present?(value) when is_binary(value), do: String.trim(value) != ""
+  defp present?(_value), do: false
+
+  defp known_type_id?(type_id) when is_integer(type_id) and type_id > 0, do: true
+  defp known_type_id?(_type_id), do: false
 
   defp merge_active_duplicates(duplicates, canonical) do
     duplicates
@@ -236,14 +386,6 @@ defmodule ServiceRadarWebNG.Devices.ManualDeviceCreator do
     Device.get_by_uid(uid, false, scope: scope)
   end
 
-  defp normalize_create_result({:ok, device}), do: {:ok, device}
-
-  defp normalize_create_result({:error, %Invalid{} = error}) do
-    if unique_uid_error?(error), do: {:error, :already_exists}, else: {:error, error}
-  end
-
-  defp normalize_create_result({:error, error}), do: {:error, error}
-
   defp generate_device_uid(ip) when is_binary(ip) do
     :sha256
     |> :crypto.hash("manual:#{ip}")
@@ -265,6 +407,31 @@ defmodule ServiceRadarWebNG.Devices.ManualDeviceCreator do
   end
 
   defp blank_to_nil(value), do: value
+
+  defp blank?(nil), do: true
+  defp blank?(value) when is_binary(value), do: String.trim(value) == ""
+  defp blank?(_value), do: false
+
+  defp stringify_metadata(metadata) when is_map(metadata) do
+    Enum.reduce(metadata, %{}, fn {key, value}, acc ->
+      case stringify_metadata_value(value) do
+        nil -> acc
+        string_value -> Map.put(acc, to_string(key), string_value)
+      end
+    end)
+  end
+
+  defp stringify_metadata(_metadata), do: %{}
+
+  defp stringify_metadata_value(value) when is_binary(value) do
+    case String.trim(value) do
+      "" -> nil
+      trimmed -> trimmed
+    end
+  end
+
+  defp stringify_metadata_value(nil), do: nil
+  defp stringify_metadata_value(value), do: value
 
   defp parse_type_id(nil), do: 0
   defp parse_type_id(""), do: 0

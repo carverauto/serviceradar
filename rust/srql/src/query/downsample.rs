@@ -55,6 +55,106 @@ mod tests {
     };
     use chrono::{Duration as ChronoDuration, TimeZone, Utc};
 
+
+    /// Plan a bucketed, aggregated timeseries query split by `series`.
+    fn series_plan(entity: Entity, series: &str) -> QueryPlan {
+        let start = Utc.with_ymd_and_hms(2025, 1, 1, 0, 0, 0).unwrap();
+        let end = start + ChronoDuration::hours(1);
+
+        QueryPlan {
+            entity,
+            filters: Vec::new(),
+            order: Vec::new(),
+            limit: 100,
+            offset: 0,
+            time_range: Some(TimeRange { start, end }),
+            stats: None,
+            downsample: Some(DownsampleSpec {
+                bucket_seconds: 600,
+                agg: DownsampleAgg::Sum,
+                series: Some(series.to_string()),
+                value_field: None,
+            }),
+            rollup_stats: None,
+            other: false,
+            include_deleted: false,
+        }
+    }
+
+    /// The shape a fleet dashboard needs: bucket at the collector's poll
+    /// cadence, sum within the bucket, split by tag. `stats:` cannot express
+    /// this because it has no bucketing, so a 20-minute window over a 10-minute
+    /// poll summed two polls and doubled the reported total.
+    #[test]
+    fn timeseries_series_splits_by_a_tag_key() {
+        let plan = series_plan(Entity::TimeseriesMetrics, "tags.ssid");
+        let (sql, _params) = to_sql_and_params(&plan).unwrap();
+
+        assert!(
+            // The series expression is wrapped in coalesce(..., '') so a row
+            // with no such tag becomes an empty series rather than vanishing.
+            sql.contains("coalesce(tags->>'ssid', '') AS series"),
+            "expected the tag to become the display series: {sql}"
+        );
+    }
+
+    /// `core_id` predates the `tags.<key>` spelling and callers depend on it.
+    #[test]
+    fn timeseries_series_core_id_alias_is_unchanged() {
+        let plan = series_plan(Entity::TimeseriesMetrics, "core_id");
+        let (sql, _params) = to_sql_and_params(&plan).unwrap();
+
+        assert!(
+            sql.contains("coalesce(tags->>'core_id', '') AS series"),
+            "the pre-existing alias must keep working: {sql}"
+        );
+    }
+
+    #[test]
+    fn timeseries_series_tag_and_alias_agree() {
+        let via_alias = to_sql_and_params(&series_plan(Entity::TimeseriesMetrics, "core_id"))
+            .unwrap()
+            .0;
+        let via_tag = to_sql_and_params(&series_plan(Entity::TimeseriesMetrics, "tags.core_id"))
+            .unwrap()
+            .0;
+
+        assert_eq!(via_alias, via_tag, "the alias and the explicit tag must agree");
+    }
+
+    /// The series expression lands in the SELECT and GROUP BY lists, so an
+    /// unvalidated key would be a plain injection.
+    #[test]
+    fn timeseries_series_rejects_unsafe_tag_keys() {
+        for bad in [
+            "tags.a'b",
+            "tags.a\"b",
+            "tags.a b",
+            "tags.",
+            "tags.a;DROP TABLE x--",
+            "tags.a.b",
+        ] {
+            let plan = series_plan(Entity::TimeseriesMetrics, bad);
+            assert!(
+                to_sql_and_params(&plan).is_err(),
+                "{bad} should be rejected as a series field"
+            );
+        }
+    }
+
+    /// cpu_metrics has no tags column; its `core_id` is a real column.
+    #[test]
+    fn non_timeseries_entities_still_reject_tag_series() {
+        let plan = series_plan(Entity::CpuMetrics, "tags.ssid");
+        assert!(to_sql_and_params(&plan).is_err());
+    }
+
+    #[test]
+    fn unknown_series_field_still_errors() {
+        let plan = series_plan(Entity::TimeseriesMetrics, "not_a_field");
+        assert!(to_sql_and_params(&plan).is_err());
+    }
+
     #[test]
     fn flow_downsample_coalesces_nullable_directional_volume_fields() {
         let start = Utc.with_ymd_and_hms(2025, 1, 1, 0, 0, 0).unwrap();

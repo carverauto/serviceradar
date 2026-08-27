@@ -27,8 +27,36 @@ defmodule ServiceRadar.Inventory.DeviceEnrichmentRules do
     metadata.passive_fingerprint.http.server
     metadata.passive_fingerprint.http.user_agent
   )
+  # Selectors exposed by netprobe's mDNS identification stream.
+  #
+  # `mdns.model` is present ONLY when the MAC advertised exactly one product.
+  # The agent-side translator withholds it otherwise (see
+  # MdnsSnapshotToDiscoveredDevices), which is what makes "refuse to type an
+  # ambiguous device" a property of the data rather than a rule someone has to
+  # remember to write. Service-type rules can still fire on an ambiguous
+  # device, and should: `_ipp._tcp` says printer no matter which printer.
+  @mdns_match_keys ~w(
+    mdns.service_types
+    mdns.model
+    mdns.txt.md
+    mdns.txt.am
+    mdns.txt.ty
+    mdns.txt.usb_mdl
+    mdns.txt.usb_mfg
+    mdns.txt.manufacturer
+    mdns.txt.vendor
+    metadata.mdns.service_types
+    metadata.mdns.model
+    metadata.mdns.txt.md
+    metadata.mdns.txt.am
+    metadata.mdns.txt.ty
+    metadata.mdns.txt.usb_mdl
+    metadata.mdns.txt.usb_mfg
+    metadata.mdns.txt.manufacturer
+    metadata.mdns.txt.vendor
+  )
   @allowed_match_keys ~w(sys_descr sys_name hostname model source sys_object_id_prefixes ip_forwarding) ++
-                        @passive_match_keys
+                        @passive_match_keys ++ @mdns_match_keys
   @allowed_set_keys ~w(vendor_name model type type_id model_from_sys_descr_prefix os_family os.family)
 
   @type classification :: %{
@@ -538,6 +566,7 @@ defmodule ServiceRadar.Inventory.DeviceEnrichmentRules do
       get_string(metadata, ["sys_object_id", "sysObjectID", "sys_objectid", "sysObjectId"]) || ""
 
     passive_context = passive_fingerprint_context(metadata)
+    mdns = mdns_context(metadata)
 
     Map.merge(
       %{
@@ -554,8 +583,42 @@ defmodule ServiceRadar.Inventory.DeviceEnrichmentRules do
           metadata |> get_string(["ip_forwarding", "ipForwarding"]) |> parse_int(),
         "source" => String.downcase(to_string(Map.get(update, :source) || ""))
       },
-      passive_context
+      Map.merge(passive_context, mdns)
     )
+  end
+
+  # The agent writes mDNS evidence as FLAT metadata keys ("mdns.service_types"),
+  # so each selector is read from the flat key first and from a nested `mdns`
+  # map second. The nested form is not what netprobe produces; it is here so a
+  # hand-written or imported payload behaves the same way, exactly as the
+  # passive-fingerprint context does.
+  #
+  # TXT keys keep the case the device sent (usb_MFG), while rule selectors are
+  # matched case-insensitively -- so the mapping from one to the other is done
+  # here rather than left to whoever writes a rule.
+  defp mdns_context(metadata) when is_map(metadata) do
+    nested = get_map(metadata, ["mdns", :mdns])
+    txt = get_map(nested, ["txt", :txt])
+
+    duplicate_metadata_selector_keys(%{
+      "mdns.service_types" =>
+        mdns_value(metadata, nested, "mdns.service_types", ["service_types"]),
+      "mdns.model" => mdns_value(metadata, nested, "mdns.model", ["model"]),
+      "mdns.txt.md" => mdns_value(metadata, txt, "mdns.txt.md", ["md"]),
+      "mdns.txt.am" => mdns_value(metadata, txt, "mdns.txt.am", ["am"]),
+      "mdns.txt.ty" => mdns_value(metadata, txt, "mdns.txt.ty", ["ty"]),
+      "mdns.txt.usb_mdl" => mdns_value(metadata, txt, "mdns.txt.usb_MDL", ["usb_MDL", "usb_mdl"]),
+      "mdns.txt.usb_mfg" => mdns_value(metadata, txt, "mdns.txt.usb_MFG", ["usb_MFG", "usb_mfg"]),
+      "mdns.txt.manufacturer" =>
+        mdns_value(metadata, txt, "mdns.txt.manufacturer", ["manufacturer"]),
+      "mdns.txt.vendor" => mdns_value(metadata, txt, "mdns.txt.vendor", ["vendor"])
+    })
+  end
+
+  defp mdns_context(_metadata), do: %{}
+
+  defp mdns_value(metadata, nested_map, flat_key, nested_keys) do
+    get_string(metadata, [flat_key]) || get_string(nested_map, nested_keys)
   end
 
   defp passive_fingerprint_context(metadata) when is_map(metadata) do

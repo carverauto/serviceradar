@@ -1,6 +1,8 @@
 import {COORDINATE_SYSTEM} from "@deck.gl/core"
-import {ArcLayer, LineLayer, ScatterplotLayer} from "@deck.gl/layers"
+import {ArcLayer, LineLayer, PathLayer, ScatterplotLayer} from "@deck.gl/layers"
 import PacketFlowLayer from "../deckgl/PacketFlowLayer"
+import {hasManagedTopologySceneRoutes} from "./rendering_graph_data_methods"
+import {managedVisualDensityContract, normalizeManagedVisualDensity} from "./rendering_managed_visual_density"
 import {edgeTopologyVisualStyleValue} from "./rendering_style_edge_topology_methods"
 
 export const godViewRenderingGraphLayerTransportMethods = {
@@ -28,15 +30,39 @@ export const godViewRenderingGraphLayerTransportMethods = {
     const packetFlowData = (this.state.layers.atmosphere && this.state.packetFlowEnabled)
       ? this.buildPacketFlowInstances(edgeData)
       : []
+    const routedTopologyScene = hasManagedTopologySceneRoutes(effective)
+    const managedVisualDensity = routedTopologyScene
+      ? normalizeManagedVisualDensity(this.state.managedTopologyVisualDensity)
+      : null
+    const managedRouteMaxWidth = routedTopologyScene
+      ? managedVisualDensityContract(managedVisualDensity).routeMaxWidth
+      : null
+    const hasAuxiliaryEdges = routedTopologyScene && edgeData.some((edge) => edge?.auxiliary === true)
+    const auxiliaryEdgeData = hasAuxiliaryEdges
+      ? edgeData.filter((edge) => edge?.auxiliary === true)
+      : []
+    const semanticEdgeData = hasAuxiliaryEdges
+      ? edgeData.filter((edge) => edge?.auxiliary !== true)
+      : edgeData
+    const transportDataSets = auxiliaryEdgeData.length > 0
+      ? [
+          {suffix: "-auxiliary", data: auxiliaryEdgeData, pickable: false},
+          {suffix: "", data: semanticEdgeData, pickable: true},
+        ]
+      : [{suffix: "", data: semanticEdgeData, pickable: true}]
 
     const mantleLayers = this.state.layers.mantle
-      ? [
-          new LineLayer({
-            id: "god-view-edges-mantle",
-            data: edgeData,
+      ? transportDataSets.map((dataSet) => (
+          new (routedTopologyScene ? PathLayer : LineLayer)({
+            id: `god-view-edges-mantle${dataSet.suffix}`,
+            data: dataSet.data,
             coordinateSystem: COORDINATE_SYSTEM.CARTESIAN,
-            getSourcePosition: (d) => d.sourcePosition,
-            getTargetPosition: (d) => d.targetPosition,
+            ...(routedTopologyScene
+              ? {getPath: (d) => d.path, jointRounded: true}
+              : {
+                  getSourcePosition: (d) => d.sourcePosition,
+                  getTargetPosition: (d) => d.targetPosition,
+                }),
             getColor: (d) => {
               const base = this.state.visual.mantleEdgeBase
               const alphaBase = this.state.visual.mantleEdgeAlphaBase ?? 128
@@ -49,12 +75,12 @@ export const godViewRenderingGraphLayerTransportMethods = {
             getWidth: (d) => {
               const style = edgeTopologyVisualStyleValue(d)
               const tube = (this.edgeWidthPixels(d.capacityBps, d.flowPps, d.flowBps) * zoomScale * 1.35 * style.mantleWidthScale) + 2.0
-              return Math.min(38, tube + (this.edgeIsFocused(d) ? 2.0 : 0))
+              return Math.min(managedRouteMaxWidth ?? 38, tube + (this.edgeIsFocused(d) ? 2.0 : 0))
             },
             getPolygonOffset: (d) => (this.edgeIsFocused(d) ? [0, -1000] : [0, 0]),
             widthUnits: "pixels",
             widthMinPixels: 6,
-            pickable: true,
+            pickable: dataSet.pickable,
             parameters: {
               blend: true,
               blendFunc: [770, 771],
@@ -62,46 +88,62 @@ export const godViewRenderingGraphLayerTransportMethods = {
             },
             updateTriggers: {
               getColor: [hasFocus, this.state.hoveredEdgeKey, this.state.selectedEdgeKey, this.state.visual.mantleEdgeBase, this.state.visual.mantleEdgeAlphaBase],
-              getWidth: [zoomScale, hasFocus, this.state.hoveredEdgeKey, this.state.selectedEdgeKey],
+              getWidth: [zoomScale, hasFocus, this.state.hoveredEdgeKey, this.state.selectedEdgeKey, managedVisualDensity],
               getPolygonOffset: [hasFocus, this.state.hoveredEdgeKey, this.state.selectedEdgeKey],
             },
-          }),
-        ]
+          })
+        ))
       : []
 
     const crustLayers =
       this.state.layers.crust
-        ? [
-            new ArcLayer({
-              id: "god-view-edges-crust",
-              data: edgeData,
+        ? transportDataSets.map((dataSet) => (
+            new (routedTopologyScene ? PathLayer : ArcLayer)({
+              id: `god-view-edges-crust${dataSet.suffix}`,
+              data: dataSet.data,
               coordinateSystem: COORDINATE_SYSTEM.CARTESIAN,
-              getSourcePosition: (d) => d.sourcePosition,
-              getTargetPosition: (d) => d.targetPosition,
-              getSourceColor: (d) => {
-                const source = this.edgeTelemetryArcColors(d.flowBps, d.capacityBps, d.flowPps).source
-                const style = edgeTopologyVisualStyleValue(d)
-                const edgeAlpha = Math.min(255, source[3] * alphaMult(d) * style.crustAlphaScale)
-                return [source[0], source[1], source[2], Math.max(style.crustAlphaFloor, edgeAlpha)]
-              },
-              getTargetColor: (d) => {
-                const target = this.edgeTelemetryArcColors(d.flowBps, d.capacityBps, d.flowPps).target
-                const style = edgeTopologyVisualStyleValue(d)
-                const edgeAlpha = Math.min(255, target[3] * alphaMult(d) * style.crustAlphaScale)
-                return [target[0], target[1], target[2], Math.max(style.crustAlphaFloor, edgeAlpha)]
-              },
+              ...(routedTopologyScene
+                ? {
+                    getPath: (d) => d.path,
+                    jointRounded: true,
+                    getColor: (d) => {
+                      const color = typeof this.edgeTelemetryColor === "function"
+                        ? this.edgeTelemetryColor(d.flowBps, d.capacityBps, d.flowPps, true)
+                        : this.edgeTelemetryArcColors(d.flowBps, d.capacityBps, d.flowPps).source
+                      const style = edgeTopologyVisualStyleValue(d)
+                      const edgeAlpha = Math.min(255, color[3] * alphaMult(d) * style.crustAlphaScale)
+                      return [color[0], color[1], color[2], Math.max(style.crustAlphaFloor, edgeAlpha)]
+                    },
+                  }
+                : {
+                    getSourcePosition: (d) => d.sourcePosition,
+                    getTargetPosition: (d) => d.targetPosition,
+                    getSourceColor: (d) => {
+                      const source = this.edgeTelemetryArcColors(d.flowBps, d.capacityBps, d.flowPps).source
+                      const style = edgeTopologyVisualStyleValue(d)
+                      const edgeAlpha = Math.min(255, source[3] * alphaMult(d) * style.crustAlphaScale)
+                      return [source[0], source[1], source[2], Math.max(style.crustAlphaFloor, edgeAlpha)]
+                    },
+                    getTargetColor: (d) => {
+                      const target = this.edgeTelemetryArcColors(d.flowBps, d.capacityBps, d.flowPps).target
+                      const style = edgeTopologyVisualStyleValue(d)
+                      const edgeAlpha = Math.min(255, target[3] * alphaMult(d) * style.crustAlphaScale)
+                      return [target[0], target[1], target[2], Math.max(style.crustAlphaFloor, edgeAlpha)]
+                    },
+                  }),
               getWidth: (d) => {
                 const style = edgeTopologyVisualStyleValue(d)
                 const base = Math.max(
                   3.0,
                   Math.min((this.edgeWidthPixels(d.capacityBps, d.flowPps, d.flowBps) * 0.98 * zoomScale * style.crustWidthScale) + 0.6, 11.5),
                 )
-                return this.edgeIsFocused(d) ? Math.min(12.0, base + 2.0) : base
+                const maximum = managedRouteMaxWidth ?? 12.0
+                return this.edgeIsFocused(d) ? Math.min(maximum, base + 2.0) : Math.min(maximum, base)
               },
               getPolygonOffset: (d) => (this.edgeIsFocused(d) ? [0, -1000] : [0, 0]),
               widthUnits: "pixels",
-              greatCircle: false,
-              pickable: true,
+              ...(routedTopologyScene ? {} : {greatCircle: false}),
+              pickable: dataSet.pickable,
               parameters: {
                 blend: true,
                 blendFunc: [770, 771],
@@ -109,13 +151,17 @@ export const godViewRenderingGraphLayerTransportMethods = {
                 depthWrite: false,
               },
               updateTriggers: {
-                getSourceColor: [hasFocus, this.state.hoveredEdgeKey, this.state.selectedEdgeKey],
-                getTargetColor: [hasFocus, this.state.hoveredEdgeKey, this.state.selectedEdgeKey],
-                getWidth: [zoomScale, hasFocus, this.state.hoveredEdgeKey, this.state.selectedEdgeKey],
+                ...(routedTopologyScene
+                  ? {getColor: [hasFocus, this.state.hoveredEdgeKey, this.state.selectedEdgeKey]}
+                  : {
+                      getSourceColor: [hasFocus, this.state.hoveredEdgeKey, this.state.selectedEdgeKey],
+                      getTargetColor: [hasFocus, this.state.hoveredEdgeKey, this.state.selectedEdgeKey],
+                    }),
+                getWidth: [zoomScale, hasFocus, this.state.hoveredEdgeKey, this.state.selectedEdgeKey, managedVisualDensity],
                 getPolygonOffset: [hasFocus, this.state.hoveredEdgeKey, this.state.selectedEdgeKey],
               },
-            }),
-          ]
+            })
+          ))
         : []
 
     const atmosphereLayers = this.state.layers.atmosphere && packetFlowData.length > 0

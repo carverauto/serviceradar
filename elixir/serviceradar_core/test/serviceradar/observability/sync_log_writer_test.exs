@@ -4,7 +4,7 @@ defmodule ServiceRadar.Observability.SyncLogWriterTest do
   determined by PostgreSQL search_path.
   """
 
-  use ServiceRadar.DataCase, async: false
+  use ServiceRadar.DataCase, async: true
 
   alias ServiceRadar.Ash.Page
   alias ServiceRadar.Integrations.IntegrationSource

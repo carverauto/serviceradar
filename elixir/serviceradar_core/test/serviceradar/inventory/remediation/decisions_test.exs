@@ -544,4 +544,88 @@ defmodule ServiceRadar.Inventory.Remediation.DecisionsTest do
       assert {:split, _plan} = Decisions.plan_armis_unmerge(mega_device(), rows)
     end
   end
+
+  describe "plan_netprobe_alias_purge/1" do
+    # A collector that absorbed two neighbours it merely fingerprinted.
+    defp collector(overrides \\ %{}) do
+      Map.merge(
+        %{
+          uid: "sr:collector",
+          ip: "10.0.2.11",
+          metadata: %{},
+          discovery_sources: ["passive-netprobe", "sysmon", "agent", "sweep"],
+          foreign_aliases: ["10.0.2.8", "10.0.2.12"],
+          addresses_with_own_device: ["10.0.2.8", "10.0.2.12"]
+        },
+        overrides
+      )
+    end
+
+    test "purges addresses the collector absorbed from hosts that exist in their own right" do
+      assert {:purge, ["10.0.2.8", "10.0.2.12"]} =
+               Decisions.plan_netprobe_alias_purge(collector())
+    end
+
+    test "never purges the device's own address" do
+      device =
+        collector(%{
+          foreign_aliases: ["10.0.2.11", "10.0.2.8"],
+          addresses_with_own_device: ["10.0.2.11", "10.0.2.8"]
+        })
+
+      assert {:purge, ["10.0.2.8"]} = Decisions.plan_netprobe_alias_purge(device)
+    end
+
+    test "leaves an address that has no device of its own" do
+      # The alias may be the only surviving record that the address was ever
+      # seen. Debris is cheaper than losing that.
+      device = collector(%{addresses_with_own_device: ["10.0.2.8"]})
+
+      assert {:purge, ["10.0.2.8"]} = Decisions.plan_netprobe_alias_purge(device)
+    end
+
+    test "skips a device netprobe never wrote to" do
+      device = collector(%{discovery_sources: ["sysmon", "agent", "sweep"]})
+
+      assert {:skip, :not_netprobe} = Decisions.plan_netprobe_alias_purge(device)
+    end
+
+    test "skips a device the mapper also wrote to" do
+      # The mapper is the other writer of foreign-looking ip_alias keys and it
+      # writes a device's OWN alternate addresses, so attribution is lost.
+      device = collector(%{discovery_sources: ["passive-netprobe", "mapper", "sweep"]})
+
+      assert {:skip, :mapper_wrote_here} = Decisions.plan_netprobe_alias_purge(device)
+    end
+
+    test "skips a router-role device even when every other guard passes" do
+      # For router-role devices the mapper records the device's own interface
+      # addresses as ip_alias and nowhere else -- and a multi-homed gateway is
+      # exactly where netprobe is deployed, so this is the dangerous case.
+      assert {:skip, :router_role} =
+               Decisions.plan_netprobe_alias_purge(
+                 collector(%{metadata: %{"device_role" => "router"}})
+               )
+
+      assert {:skip, :router_role} =
+               Decisions.plan_netprobe_alias_purge(
+                 collector(%{metadata: %{"_device_role" => "Router"}})
+               )
+    end
+
+    test "does not mistake a non-router role for a router" do
+      assert {:purge, _} =
+               Decisions.plan_netprobe_alias_purge(
+                 collector(%{metadata: %{"device_role" => "switch"}})
+               )
+    end
+
+    test "skips when nothing is left to purge" do
+      assert {:skip, :no_addresses} =
+               Decisions.plan_netprobe_alias_purge(collector(%{foreign_aliases: []}))
+
+      assert {:skip, :no_addresses} =
+               Decisions.plan_netprobe_alias_purge(collector(%{addresses_with_own_device: []}))
+    end
+  end
 end

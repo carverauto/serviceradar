@@ -99,6 +99,11 @@ defmodule Serviceradar.Agent.Netprobe.V1.NetprobeFrame do
     type: Serviceradar.Agent.Netprobe.V1.DeviceCensusSnapshot,
     json_name: "deviceCensusSnapshot",
     oneof: 0
+
+  field :mdns_snapshot, 31,
+    type: Serviceradar.Agent.Netprobe.V1.MdnsSnapshot,
+    json_name: "mdnsSnapshot",
+    oneof: 0
 end
 
 defmodule Serviceradar.Agent.Netprobe.V1.ApplyConfig do
@@ -202,6 +207,8 @@ defmodule Serviceradar.Agent.Netprobe.V1.VisibilityAgentConfig do
   field :emit_raw_flow_attribution_events, 44,
     type: :bool,
     json_name: "emitRawFlowAttributionEvents"
+
+  field :collector_ip, 48, type: :string, json_name: "collectorIp"
 end
 
 defmodule Serviceradar.Agent.Netprobe.V1.DeviceBinding do
@@ -792,6 +799,57 @@ defmodule Serviceradar.Agent.Netprobe.V1.BannerMatchBatch do
   field :matches, 1, repeated: true, type: Serviceradar.Agent.Netprobe.V1.BannerMatch
 end
 
+defmodule Serviceradar.Agent.Netprobe.V1.MdnsTxtPair do
+  @moduledoc false
+
+  use Protobuf,
+    full_name: "serviceradar.agent.netprobe.v1.MdnsTxtPair",
+    protoc_gen_elixir_version: "0.16.0",
+    syntax: :proto3
+
+  field :key, 1, type: :string
+  field :value, 2, type: :string
+  field :has_value, 3, type: :bool, json_name: "hasValue"
+end
+
+defmodule Serviceradar.Agent.Netprobe.V1.MdnsDevice do
+  @moduledoc false
+
+  use Protobuf,
+    full_name: "serviceradar.agent.netprobe.v1.MdnsDevice",
+    protoc_gen_elixir_version: "0.16.0",
+    syntax: :proto3
+
+  field :mac, 1, type: :string
+  field :ip, 2, type: :string
+  field :interface_index, 3, type: :uint32, json_name: "interfaceIndex"
+  field :service_types, 4, repeated: true, type: :string, json_name: "serviceTypes"
+  field :txt, 5, repeated: true, type: Serviceradar.Agent.Netprobe.V1.MdnsTxtPair
+  field :models, 6, repeated: true, type: :string
+  field :ambiguous_model, 7, type: :bool, json_name: "ambiguousModel"
+  field :first_seen_unix_nano, 8, type: :int64, json_name: "firstSeenUnixNano"
+  field :last_seen_unix_nano, 9, type: :int64, json_name: "lastSeenUnixNano"
+  field :truncated, 10, type: :bool
+end
+
+defmodule Serviceradar.Agent.Netprobe.V1.MdnsSnapshot do
+  @moduledoc false
+
+  use Protobuf,
+    full_name: "serviceradar.agent.netprobe.v1.MdnsSnapshot",
+    protoc_gen_elixir_version: "0.16.0",
+    syntax: :proto3
+
+  field :devices, 1, repeated: true, type: Serviceradar.Agent.Netprobe.V1.MdnsDevice
+  field :snapshot_id, 2, type: :string, json_name: "snapshotId"
+  field :interface_name, 3, type: :string, json_name: "interfaceName"
+  field :generated_at_unix_nano, 4, type: :int64, json_name: "generatedAtUnixNano"
+  field :complete, 5, type: :bool
+  field :chunk_index, 6, type: :uint32, json_name: "chunkIndex"
+  field :chunk_count, 7, type: :uint32, json_name: "chunkCount"
+  field :dropped_since_last, 8, type: :uint32, json_name: "droppedSinceLast"
+end
+
 defmodule Serviceradar.Agent.Netprobe.V1.DeviceCensusObservation do
   @moduledoc false
 
@@ -829,4 +887,45 @@ defmodule Serviceradar.Agent.Netprobe.V1.DeviceCensusSnapshot do
   field :chunk_index, 6, type: :uint32, json_name: "chunkIndex"
   field :chunk_count, 7, type: :uint32, json_name: "chunkCount"
   field :dropped_since_last, 8, type: :uint32, json_name: "droppedSinceLast"
+end
+
+defmodule Serviceradar.Agent.Netprobe.V1.FingerprintEventBatch do
+  @moduledoc false
+
+  use Protobuf,
+    full_name: "serviceradar.agent.netprobe.v1.FingerprintEventBatch",
+    protoc_gen_elixir_version: "0.16.0",
+    syntax: :proto3
+
+  field :events, 1, repeated: true, type: Serviceradar.Agent.Netprobe.V1.FingerprintEvent
+  field :batch_start_unix_nano, 2, type: :int64, json_name: "batchStartUnixNano"
+  field :batch_end_unix_nano, 3, type: :int64, json_name: "batchEndUnixNano"
+  field :dropped_since_last, 4, type: :uint32, json_name: "droppedSinceLast"
+end
+
+defmodule Serviceradar.Agent.Netprobe.V1.DpiEventBatch do
+  @moduledoc false
+
+  use Protobuf,
+    full_name: "serviceradar.agent.netprobe.v1.DpiEventBatch",
+    protoc_gen_elixir_version: "0.16.0",
+    syntax: :proto3
+
+  field :events, 1, repeated: true, type: Serviceradar.Agent.Netprobe.V1.DpiEvent
+  field :batch_start_unix_nano, 2, type: :int64, json_name: "batchStartUnixNano"
+  field :batch_end_unix_nano, 3, type: :int64, json_name: "batchEndUnixNano"
+  field :dropped_since_last, 4, type: :uint32, json_name: "droppedSinceLast"
+  field :subject_ips, 5, repeated: true, type: :string, json_name: "subjectIps"
+end
+
+defmodule Serviceradar.Agent.Netprobe.V1.ProcessSnapshotBatch do
+  @moduledoc false
+
+  use Protobuf,
+    full_name: "serviceradar.agent.netprobe.v1.ProcessSnapshotBatch",
+    protoc_gen_elixir_version: "0.16.0",
+    syntax: :proto3
+
+  field :snapshot, 1, type: Serviceradar.Agent.Netprobe.V1.ProcessSnapshot
+  field :subject_ip, 2, type: :string, json_name: "subjectIp"
 end

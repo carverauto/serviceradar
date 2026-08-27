@@ -57,6 +57,7 @@ impl Addon for RustSampleAddon {
             status: HealthStatus::Healthy,
             version: ADDON_VERSION.to_string(),
             degradation_reason: String::new(),
+            details: Default::default(),
         })
     }
 }

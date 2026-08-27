@@ -1296,4 +1296,95 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestorTest do
              }
     end
   end
+
+  describe "valid_alias_ip?/1" do
+    test "accepts routable addresses of both families" do
+      # Captured from a production router's ipAddressTable walk.
+      for ip <- [
+            "152.117.116.178",
+            "192.168.1.1",
+            "2001:470:c0b5:1::1",
+            "fd2f:420a:24b1:1:f692:bfff:fe75:c72a"
+          ] do
+        assert MapperResultsIngestor.valid_alias_ip?(ip), "expected #{ip} to be aliasable"
+      end
+    end
+
+    test "rejects loopback and unspecified addresses in both families" do
+      for ip <- ["127.0.0.1", "127.1.2.3", "::1", "::", "0.0.0.0", "", nil] do
+        refute MapperResultsIngestor.valid_alias_ip?(ip), "expected #{inspect(ip)} to be rejected"
+      end
+    end
+
+    test "rejects link-local, which is an interface property and not an identity" do
+      # Every device has these, and a vendor that puts a fixed fe80::1 on each
+      # router would otherwise let DIRE merge all of them into one device.
+      # Reading a router's ipAddressTable returns roughly fifteen of them, so
+      # this is the difference between a handful of aliases and a fleet-wide
+      # over-merge.
+      for ip <- [
+            "fe80::1",
+            "fe80::f692:bfff:fe75:c72a",
+            "febf::1",
+            "169.254.1.1"
+          ] do
+        refute MapperResultsIngestor.valid_alias_ip?(ip), "expected #{ip} to be rejected"
+      end
+    end
+
+    test "rejects values that are not addresses at all" do
+      for value <- ["not-an-ip", "hostname.local", "1.2.3.4.5"] do
+        refute MapperResultsIngestor.valid_alias_ip?(value)
+      end
+    end
+
+    # Documents existing behaviour rather than endorsing it. :inet.parse_address
+    # accepts BSD inet_aton shorthand, so "192.168.1" parses as 192.168.0.1 --
+    # a DIFFERENT address than the string that gets stored as the alias. Such an
+    # alias can never match a flow endpoint, because the stored text is not the
+    # address. Reachable only from an agent reporting a malformed address, and
+    # tightening it risks rejecting non-canonical forms that legitimately work
+    # today, so it is recorded here rather than changed as a side effect of the
+    # IPv6 work. Loopback shorthand IS still caught: "0x7f000001" parses to
+    # 127.0.0.1 and hits the loopback clause.
+    test "inet_aton shorthand is accepted, which is a known wart" do
+      assert MapperResultsIngestor.valid_alias_ip?("192.168.1")
+      refute MapperResultsIngestor.valid_alias_ip?("0x7f000001")
+    end
+  end
+
+  describe "alias_ips_for_role/3" do
+    # This is the mapper producer, not AliasPolicy itself. A test of
+    # valid_alias_ip?/1 does not prove the mapper still consults it when it
+    # decides which addresses become identity aliases. GitHub #4022.
+    test "a router does not emit link-local interface addresses as identity aliases" do
+      assert MapperResultsIngestor.alias_ips_for_role(
+               "router",
+               "192.168.1.1",
+               ["fe80::1", "fe80::f692:bfff:fe75:c72a", "febf::1", "10.0.0.1"]
+             ) == ["192.168.1.1", "10.0.0.1"]
+    end
+
+    test "a non-router whose only address is link-local gets no identity alias" do
+      assert MapperResultsIngestor.alias_ips_for_role("host", "fe80::1", ["192.168.1.1"]) == []
+    end
+
+    test "IPv4 link-local (APIPA) is also excluded" do
+      assert MapperResultsIngestor.alias_ips_for_role(
+               "router",
+               "169.254.1.1",
+               ["192.168.1.1"]
+             ) == ["192.168.1.1"]
+    end
+  end
+
+  describe "find_device_uid_by_alias/3" do
+    test "does not treat leftover link-local :ip rows as merge evidence" do
+      assert {:ok, nil} =
+               MapperResultsIngestor.find_device_uid_by_alias("fe80::1", "default", nil)
+
+      assert {:ok, nil} =
+               MapperResultsIngestor.find_device_uid_by_alias("169.254.1.1", "default", nil)
+    end
+  end
 end

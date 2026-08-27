@@ -183,24 +183,47 @@ defmodule ServiceRadarWebNG.SRQL do
     with :ok <- ensure_read_only_sql(sql) do
       timeout_ms = srql_query_timeout_ms()
 
-      fn ->
-        statement_timeout = "#{timeout_ms}ms"
-        db_timeout_ms = timeout_ms + @db_timeout_margin_ms
+      run_transaction(
+        fn ->
+          statement_timeout = "#{timeout_ms}ms"
+          db_timeout_ms = timeout_ms + @db_timeout_margin_ms
 
-        with {:ok, _} <-
-               SQL.query(Repo, session_setup_sql(), [statement_timeout], timeout: db_timeout_ms),
-             {:ok, result} <- SQL.query(Repo, sql, params, timeout: db_timeout_ms) do
-          result
-        else
-          {:error, reason} -> Repo.rollback(reason)
-        end
-      end
-      |> Repo.transaction(timeout: timeout_ms + @db_timeout_margin_ms)
-      |> case do
-        {:ok, result} -> {:ok, result}
-        {:error, reason} -> {:error, reason}
-      end
+          with {:ok, _} <- SQL.query(Repo, session_setup_sql(), [statement_timeout], timeout: db_timeout_ms),
+               {:ok, result} <- SQL.query(Repo, sql, params, timeout: db_timeout_ms) do
+            result
+          else
+            {:error, reason} -> Repo.rollback(reason)
+          end
+        end,
+        timeout_ms + @db_timeout_margin_ms
+      )
     end
+  end
+
+  # A dropped pool checkout does not arrive as `{:error, _}`. `DBConnection`
+  # raises it — `rollback_or_raise(other) -> raise(other)` — from inside
+  # `Repo.transaction/2`, before the transaction fun ever runs. That is why the
+  # error branch below never saw a pool timeout, and why the raise escaped all
+  # the way out through the LiveView task fan-outs. Convert it into the error
+  # tuple every caller in this module already handles.
+  #
+  # Still logged: with the raise contained, pool exhaustion would otherwise be
+  # completely silent, and it is the symptom worth alerting on.
+  defp run_transaction(fun, timeout) do
+    case Repo.transaction(fun, timeout: timeout) do
+      {:ok, result} -> {:ok, result}
+      {:error, reason} -> {:error, reason}
+    end
+  rescue
+    error in DBConnection.ConnectionError ->
+      Logger.warning("SRQL query could not obtain a database connection: #{Exception.message(error)}")
+
+      {:error, error}
+  catch
+    :exit, {:timeout, _} = reason ->
+      Logger.warning("SRQL query timed out waiting on the database: #{inspect(reason)}")
+
+      {:error, reason}
   end
 
   # Transaction-local session settings applied immediately before every SRQL

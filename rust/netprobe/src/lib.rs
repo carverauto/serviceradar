@@ -1,9 +1,12 @@
+pub mod addon_config_json;
+pub mod addon_service;
 #[allow(dead_code, unused_imports)]
 pub mod af_xdp;
 #[allow(dead_code)]
 pub mod af_xdp_classifier;
 #[allow(dead_code)]
 pub mod attribution;
+pub mod banner_command;
 pub mod capabilities;
 pub mod capture;
 pub mod census;
@@ -25,6 +28,7 @@ pub mod ipc;
 pub mod ja4;
 pub mod kernel;
 pub mod lifecycle;
+pub mod mdns;
 pub mod metrics;
 #[allow(dead_code)]
 pub mod muonfp;

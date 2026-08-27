@@ -3,18 +3,47 @@ defmodule ServiceRadar.Inventory.Sync.DeviceRecords do
 
   alias ServiceRadar.Inventory.DeviceEnrichmentRules
   alias ServiceRadar.Inventory.Sync.Enrichment
+  alias ServiceRadar.Inventory.Sync.MacVendor
 
   require Logger
 
   def build_device_upsert_records(resolved_updates, timestamp) do
+    # One query for the whole batch rather than one per device: SyncIngestor
+    # works in chunks of 500, so a per-device lookup would be 500 round trips
+    # per chunk. Mirrors Lookups.bulk_lookup_by_ip/1.
+    {oui_lookup, oui_snapshot_id} =
+      resolved_updates
+      |> Enum.map(fn {update, _device_id} -> update.mac end)
+      |> MacVendor.bulk_lookup()
+
     resolved_updates
     |> Enum.reduce(%{}, fn {update, device_id}, acc ->
       source = if update.source in [nil, ""], do: "unknown", else: update.source
       classification = DeviceEnrichmentRules.classify(update)
-      vendor_name = Enrichment.infer_vendor_name(update, classification)
+
+      # OUI is consulted ONLY when nothing else produced a vendor, and the
+      # ordering is structural rather than a convention someone must remember.
+      # device_writes upserts vendor_name as COALESCE(EXCLUDED.vendor_name, ?),
+      # so any non-nil value here overwrites what is stored -- an OUI guess
+      # emitted alongside a real vendor would outrank the real one on every
+      # subsequent sync.
+      inferred_vendor = Enrichment.infer_vendor_name(update, classification)
+      oui_resolved = if is_nil(inferred_vendor), do: MacVendor.resolve(update.mac, oui_lookup)
+
+      vendor_name =
+        case {inferred_vendor, oui_resolved} do
+          {nil, {org, _prefix}} -> org
+          {vendor, _} -> vendor
+        end
+
       model = Enrichment.infer_model(update, classification)
       {device_type, device_type_id} = Enrichment.infer_device_type(update, classification)
-      metadata = Enrichment.merge_classification_metadata(update.metadata || %{}, classification)
+
+      metadata =
+        (update.metadata || %{})
+        |> Enrichment.merge_classification_metadata(classification)
+        |> MacVendor.put_provenance(oui_resolved, oui_snapshot_id)
+
       owner = Enrichment.infer_owner(update, metadata)
       persisted_metadata = persisted_metadata(metadata, source)
 
@@ -67,6 +96,10 @@ defmodule ServiceRadar.Inventory.Sync.DeviceRecords do
     merged_metadata =
       existing.metadata
       |> Enrichment.strip_classification_metadata()
+      # Same reason the classification keys are stripped: two updates for one
+      # uid in a batch must not leave the first update's derived attribution
+      # sitting under the second update's vendor.
+      |> MacVendor.strip_provenance()
       |> Map.merge(incoming.metadata || %{})
 
     merged_tags = Map.merge(existing.tags || %{}, incoming.tags || %{})

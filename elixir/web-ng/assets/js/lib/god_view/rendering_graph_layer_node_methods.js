@@ -1,5 +1,11 @@
 import {COORDINATE_SYSTEM} from "@deck.gl/core"
 import {LineLayer, ScatterplotLayer, TextLayer} from "@deck.gl/layers"
+import {admitTopologyLabels} from "./rendering_label_collision"
+import {
+  managedNodeOuterRadiusCap,
+  managedVisualDensityContract,
+  normalizeManagedVisualDensity,
+} from "./rendering_managed_visual_density"
 
 export const godViewRenderingGraphLayerNodeMethods = {
   visualClusterCount(node) {
@@ -11,8 +17,33 @@ export const godViewRenderingGraphLayerNodeMethods = {
     }
     return 1
   },
-  nodeHaloRadiusPixels(node) {
-    return Math.min(8 + (this.visualClusterCount(node) - 1) * 0.45, 26) * 2.5
+  nodeHaloRadiusPixels(node, options = {}) {
+    const radius = Math.min(8 + (this.visualClusterCount(node) - 1) * 0.45, 26) * 2.5
+    if (!options.managedVisualDensity) return radius
+    return Math.min(radius, managedNodeOuterRadiusCap(node, options.managedVisualDensity))
+  },
+  nodeRingRadiusPixels(node, options = {}) {
+    const baseRadius = Math.min(12 + (this.visualClusterCount(node) - 1) * 0.45, 32)
+    const phase = Number(this.state?.animationPhase)
+    const index = Number(node?.index)
+    const breathe = Math.sin(
+      ((Number.isFinite(phase) ? phase : 0) * 2.0) + (Number.isFinite(index) ? index : 0),
+    ) * 2.0
+    const radius = baseRadius + breathe
+    if (!options.managedVisualDensity) return radius
+    const outerCap = managedNodeOuterRadiusCap(node, options.managedVisualDensity)
+    const halfLineWidth = node?.selected ? 1 : 0.5
+    return Math.min(radius, Math.max(0, outerCap - halfLineWidth))
+  },
+  nodeCoreRadiusPixels(node, options = {}) {
+    const radius = Math.min(4 + (this.visualClusterCount(node) - 1) * 0.2, 14)
+    if (!options.managedVisualDensity) return radius
+    return Math.min(radius, managedNodeOuterRadiusCap(node, options.managedVisualDensity))
+  },
+  nodeVisibleOuterRadiusPixels(node, options = {}) {
+    const halo = this.nodeHaloRadiusPixels(node, options)
+    const ring = this.nodeRingRadiusPixels(node, options) + (node?.selected ? 1 : 0.5)
+    return Math.max(halo, ring, this.nodeCoreRadiusPixels(node, options))
   },
   labelBudgetForShape(shape, candidateCount = 0) {
     switch (shape) {
@@ -85,6 +116,28 @@ export const godViewRenderingGraphLayerNodeMethods = {
   backboneLabelCandidate(node) {
     return !this.endpointSummaryLabel(node) && !this.expandedEndpointMemberLabel(node)
   },
+  focusedNodeLabel(node) {
+    if (node?.focused === true) return true
+    const hoveredNodeIndex = this.state?.hoveredNodeIndex
+    return hoveredNodeIndex !== null && hoveredNodeIndex !== undefined && hoveredNodeIndex === node?.index
+  },
+  nodeLabelCandidate(node) {
+    if (node?.selected === true || this.focusedNodeLabel(node)) return true
+    const details = node?.details || {}
+    const clusterKind = String(details?.cluster_kind || "")
+    const expandedEndpointMember = this.expandedEndpointMemberLabel(node)
+    if (clusterKind === "endpoint-member" && !expandedEndpointMember) return false
+    // Topology sightings with a human hostname (switchcff8f2) should stay
+    // labeled. Only suppress opaque sr: identities from that source.
+    if (
+      String(details?.identity_source || "") === "mapper_topology_sighting" &&
+      !expandedEndpointMember &&
+      this.opaqueIdentityLabel(node)
+    ) {
+      return false
+    }
+    return !this.opaqueIdentityLabel(node)
+  },
   nodeLabelPriority(node) {
     const details = node?.details || {}
     const clusterKind = String(details?.cluster_kind || "")
@@ -94,7 +147,7 @@ export const godViewRenderingGraphLayerNodeMethods = {
     const state = Number(node?.state ?? 3)
 
     return [
-      node?.selected === true ? 1 : 0,
+      node?.selected === true || this.focusedNodeLabel(node) ? 1 : 0,
       this.unplacedNodeLabel(node) ? 1 : 0,
       this.backboneLabelCandidate(node) ? 1 : 0,
       clusterKind === "endpoint-anchor" ? 1 : 0,
@@ -123,37 +176,23 @@ export const godViewRenderingGraphLayerNodeMethods = {
 
     return 0
   },
-  selectNodeLabels(nodeData, shape) {
+  selectNodeLabels(nodeData, shape, options = {}) {
     if (!Array.isArray(nodeData) || nodeData.length === 0) return []
-    const selected = nodeData.filter((node) => node?.selected === true)
-    const candidates = nodeData.filter((node) => {
-      if (node?.selected === true) return true
-      const details = node?.details || {}
-      const clusterKind = String(details?.cluster_kind || "")
-      const expandedEndpointMember = this.expandedEndpointMemberLabel(node)
-      if (clusterKind === "endpoint-member" && !expandedEndpointMember) return false
-      // Topology sightings with a human hostname (switchcff8f2) should stay
-      // labeled. Only suppress opaque sr: identities from that source.
-      if (
-        String(details?.identity_source || "") === "mapper_topology_sighting" &&
-        !expandedEndpointMember &&
-        this.opaqueIdentityLabel(node)
-      ) {
-        return false
-      }
-      if (this.opaqueIdentityLabel(node)) return false
-      return true
-    })
+    const attended = nodeData.filter((node) => node?.selected === true || this.focusedNodeLabel(node))
+    const candidates = nodeData.filter((node) => this.nodeLabelCandidate(node))
     const ordered = [...candidates].sort((left, right) => this.compareNodeLabelPriority(left, right))
-    const memberBudget = this.expandedEndpointMemberLabelBudgetForShape(shape)
+    const labelShape = options.managedVisualDensity
+      ? managedVisualDensityContract(options.managedVisualDensity).labelShape
+      : shape
+    const memberBudget = this.expandedEndpointMemberLabelBudgetForShape(labelShape)
     const expandedEndpointMembers = ordered
       .filter((node) => this.expandedEndpointMemberLabel(node))
       .slice(0, memberBudget)
     const unplacedNodes = ordered.filter((node) => this.unplacedNodeLabel(node))
     const nonExpandedCandidates = ordered.filter((node) => !this.expandedEndpointMemberLabel(node))
-    const budget = this.labelBudgetForShape(shape, nonExpandedCandidates.length)
-    const endpointSummaryBudget = this.endpointSummaryLabelBudgetForShape(shape)
-    if (budget <= 0 && selected.length === 0 && expandedEndpointMembers.length === 0 && unplacedNodes.length === 0) return []
+    const budget = this.labelBudgetForShape(labelShape, nonExpandedCandidates.length)
+    const endpointSummaryBudget = this.endpointSummaryLabelBudgetForShape(labelShape)
+    if (budget <= 0 && attended.length === 0 && expandedEndpointMembers.length === 0 && unplacedNodes.length === 0) return []
     const orderedBackbone = ordered.filter((node) => this.backboneLabelCandidate(node))
     const orderedEndpointSummaries = ordered.filter((node) => {
       if (!this.endpointSummaryLabel(node)) return false
@@ -164,7 +203,7 @@ export const godViewRenderingGraphLayerNodeMethods = {
     const seen = new Set()
     let endpointSummaryCount = 0
 
-    for (const node of [...selected, ...expandedEndpointMembers, ...unplacedNodes]) {
+    for (const node of [...attended, ...expandedEndpointMembers, ...unplacedNodes]) {
       const id = String(node?.id || "")
       if (id === "" || seen.has(id)) continue
       seen.add(id)
@@ -180,13 +219,176 @@ export const godViewRenderingGraphLayerNodeMethods = {
       }
       seen.add(id)
       picked.push(node)
-      if (picked.length >= budget + expandedEndpointMembers.length + selected.length + unplacedNodes.length) break
+      if (picked.length >= budget + expandedEndpointMembers.length + attended.length + unplacedNodes.length) break
     }
 
     return picked
   },
+  nodeLabelAdmissionPool(nodeData, selectedCandidates, options = {}) {
+    if (options.managedVisualDensity !== "overview") return selectedCandidates
+
+    const selectedSummaryIds = new Set(
+      selectedCandidates
+        .filter((node) => this.endpointSummaryLabel(node))
+        .map((node) => String(node?.id || "")),
+    )
+    const orderedFallbacks = nodeData
+      .filter((node) => this.nodeLabelCandidate(node))
+      .sort((left, right) => this.compareNodeLabelPriority(left, right))
+      .filter((node) => (
+        this.backboneLabelCandidate(node) || selectedSummaryIds.has(String(node?.id || ""))
+      ))
+    const pool = []
+    const seen = new Set()
+
+    for (const node of [...selectedCandidates, ...orderedFallbacks]) {
+      const id = String(node?.id || "")
+      if (id === "" || seen.has(id)) continue
+      seen.add(id)
+      pool.push(node)
+    }
+
+    return pool
+  },
+  activeTopologyLabelViewport() {
+    if (typeof this.state?.deck?.getViewports !== "function") return null
+    const [viewport] = this.state.deck.getViewports()
+    return viewport && typeof viewport.project === "function" ? viewport : null
+  },
+  topologyLabelSafeRect(viewport, measured = this.state?.topologyLabelSafeRect) {
+    if (measured && [measured.left, measured.top, measured.right, measured.bottom].every(Number.isFinite)) {
+      return measured
+    }
+
+    const canvasRect = this.state?.canvas?.getBoundingClientRect?.()
+    const width = Number(canvasRect?.width ?? viewport?.width)
+    const height = Number(canvasRect?.height ?? viewport?.height)
+    return {
+      left: 0,
+      top: 0,
+      right: Number.isFinite(width) ? Math.max(0, width) : 0,
+      bottom: Number.isFinite(height) ? Math.max(0, height) : 0,
+    }
+  },
+  topologyRouteStrokeWidth(route, options = {}) {
+    if (options.managedVisualDensity) {
+      if (this.state?.layers?.mantle === false && this.state?.layers?.crust === false) return 0
+      return managedVisualDensityContract(options.managedVisualDensity).routeMaxWidth
+    }
+    const metadata = route?.metadata && typeof route.metadata === "object" ? route.metadata : {}
+    for (const value of [route?.strokeWidth, route?.width, metadata.strokeWidth, metadata.stroke_width]) {
+      const width = Number(value)
+      if (Number.isFinite(width) && width > 0) return width
+    }
+    // Scene routes do not otherwise carry live telemetry widths. Protect the
+    // maximum width of the visible routed layer so fallback admission cannot
+    // overlap a stroke that expands after telemetry or focus changes.
+    if (this.state?.layers?.mantle !== false) return 38
+    if (this.state?.layers?.crust !== false) return 12
+    return 0
+  },
+  admitNodeLabelsForViewport(effective, labelCandidates, protectedNodes = labelCandidates, options = {}) {
+    const viewport = options.viewport || this.activeTopologyLabelViewport()
+    if (!viewport) {
+      return {
+        admitted: [],
+        detailsFallbackIds: (labelCandidates || [])
+          .filter((node) => node?.selected === true || this.focusedNodeLabel(node))
+          .map((node) => String(node?.id || ""))
+          .filter(Boolean)
+          .sort(),
+      }
+    }
+
+    const projectedById = new Map()
+    const glyphBoxes = []
+    for (const node of protectedNodes || []) {
+      const nodeId = String(node?.id || "")
+      if (nodeId === "") continue
+      const projected = viewport.project(node?.position || [0, 0, 0])
+      const x = Number(projected?.[0])
+      const y = Number(projected?.[1])
+      if (!Number.isFinite(x) || !Number.isFinite(y)) continue
+      projectedById.set(nodeId, [x, y])
+      const radius = Math.max(0, Number(this.nodeVisibleOuterRadiusPixels(node, options)) || 0)
+      glyphBoxes.push({nodeId, left: x - radius, top: y - radius, right: x + radius, bottom: y + radius})
+    }
+
+    const labelShape = options.managedVisualDensity
+      ? managedVisualDensityContract(options.managedVisualDensity).labelShape
+      : effective?.shape
+    const fontSize = labelShape === "local" ? 12 : 10
+    const candidateCount = Array.isArray(labelCandidates) ? labelCandidates.length : 0
+    const candidates = (labelCandidates || []).flatMap((node, candidateIndex) => {
+      const nodeId = String(node?.id || "")
+      const point = projectedById.get(nodeId)
+      if (!point) return []
+      const summary = this.endpointSummaryLabel(node)
+      return [{
+        nodeId,
+        text: String(node?.label || nodeId),
+        point,
+        selected: node?.selected === true,
+        focused: this.focusedNodeLabel(node),
+        role: summary ? "summary" : this.backboneLabelCandidate(node) ? "infrastructure" : "member",
+        state: node?.state,
+        operUp: node?.operUp,
+        pps: node?.pps,
+        operationalRelevance: options.preserveCandidateOrder
+          ? candidateCount - candidateIndex
+          : undefined,
+        fontSize,
+      }]
+    })
+    const routeCorridors = (
+      effective?._topologyScene?.physicalRoutes || effective?._topologyScene?.routes || []
+    ).flatMap((route) => {
+      const points = (route?.points || []).flatMap((point) => {
+        const projected = viewport.project([Number(point?.x), Number(point?.y), 0])
+        const x = Number(projected?.[0])
+        const y = Number(projected?.[1])
+        return Number.isFinite(x) && Number.isFinite(y) ? [[x, y]] : []
+      })
+      if (points.length < 2) return []
+      return [{points, strokeWidth: this.topologyRouteStrokeWidth(route, options)}]
+    })
+    const suppliedMeasureText = options.measureText || this.state?.topologyLabelMeasureText
+    const measureText = typeof suppliedMeasureText === "function"
+      ? (text, candidate) => suppliedMeasureText(text, candidate)
+      : undefined
+
+    return admitTopologyLabels({
+      candidates,
+      glyphBoxes,
+      routeCorridors,
+      safeRect: this.topologyLabelSafeRect(viewport, options.safeRect),
+      maximumCount: options.maximumLabelCount,
+      measureText,
+    })
+  },
   buildNodeAndLabelLayers(effective, nodeData, edgeLabelData) {
-    const labelData = this.selectNodeLabels(nodeData, effective.shape)
+    const managedTopologyOverview = effective?._layoutMode === "elk-scene"
+    const managedVisualDensity = managedTopologyOverview
+      ? normalizeManagedVisualDensity(this.state.managedTopologyVisualDensity)
+      : null
+    const densityOptions = managedVisualDensity ? {managedVisualDensity} : {}
+    const labelShape = managedVisualDensity
+      ? managedVisualDensityContract(managedVisualDensity).labelShape
+      : effective.shape
+    const selectedLabelCandidates = this.selectNodeLabels(nodeData, effective.shape, densityOptions)
+    const backfillOverviewLabels = managedVisualDensity === "overview"
+    const labelCandidates = this.nodeLabelAdmissionPool(nodeData, selectedLabelCandidates, densityOptions)
+    const labelAdmission = this.admitNodeLabelsForViewport(effective, labelCandidates, nodeData, {
+      ...densityOptions,
+      maximumLabelCount: backfillOverviewLabels ? selectedLabelCandidates.length : undefined,
+      preserveCandidateOrder: backfillOverviewLabels,
+    })
+    const nodeById = new Map(nodeData.map((node) => [String(node?.id || ""), node]))
+    const labelData = labelAdmission.admitted.flatMap((admitted) => {
+      const node = nodeById.get(admitted.nodeId)
+      return node ? [{...node, labelAdmission: admitted}] : []
+    })
+    this.state.topologyLabelDetailsFallbackIds = [...labelAdmission.detailsFallbackIds]
 
     return [
       new LineLayer({
@@ -212,7 +414,7 @@ export const godViewRenderingGraphLayerNodeMethods = {
         data: nodeData,
         coordinateSystem: COORDINATE_SYSTEM.CARTESIAN,
         getPosition: (d) => d.position,
-        getRadius: (d) => this.nodeHaloRadiusPixels(d),
+        getRadius: (d) => this.nodeHaloRadiusPixels(d, densityOptions),
         radiusUnits: "pixels",
         filled: true,
         stroked: false,
@@ -227,17 +429,16 @@ export const godViewRenderingGraphLayerNodeMethods = {
           depthTest: false,
           depthWrite: false,
         },
+        updateTriggers: {
+          getRadius: managedVisualDensity,
+        },
       }),
       new ScatterplotLayer({
         id: "god-view-nodes-ring",
         data: nodeData,
         coordinateSystem: COORDINATE_SYSTEM.CARTESIAN,
         getPosition: (d) => d.position,
-        getRadius: (d) => {
-          const baseRadius = Math.min(12 + (this.visualClusterCount(d) - 1) * 0.45, 32)
-          const breathe = Math.sin((this.state.animationPhase * 2.0) + d.index) * 2.0
-          return baseRadius + breathe
-        },
+        getRadius: (d) => this.nodeRingRadiusPixels(d, densityOptions),
         radiusUnits: "pixels",
         radiusMinPixels: 5,
         stroked: true,
@@ -251,7 +452,7 @@ export const godViewRenderingGraphLayerNodeMethods = {
           depthWrite: false,
         },
         updateTriggers: {
-          getRadius: this.state.animationPhase,
+          getRadius: [this.state.animationPhase, managedVisualDensity],
         },
       }),
       new ScatterplotLayer({
@@ -259,7 +460,7 @@ export const godViewRenderingGraphLayerNodeMethods = {
         data: nodeData,
         coordinateSystem: COORDINATE_SYSTEM.CARTESIAN,
         getPosition: (d) => d.position,
-        getRadius: (d) => this.nodeHaloRadiusPixels(d),
+        getRadius: (d) => this.nodeHaloRadiusPixels(d, densityOptions),
         radiusUnits: "pixels",
         stroked: false,
         filled: true,
@@ -270,13 +471,16 @@ export const godViewRenderingGraphLayerNodeMethods = {
           depthTest: false,
           depthWrite: false,
         },
+        updateTriggers: {
+          getRadius: managedVisualDensity,
+        },
       }),
       new ScatterplotLayer({
         id: "god-view-nodes",
         data: nodeData,
         coordinateSystem: COORDINATE_SYSTEM.CARTESIAN,
         getPosition: (d) => d.position,
-        getRadius: (d) => Math.min(4 + (this.visualClusterCount(d) - 1) * 0.2, 14),
+        getRadius: (d) => this.nodeCoreRadiusPixels(d, densityOptions),
         radiusUnits: "pixels",
         radiusMinPixels: 3,
         stroked: false,
@@ -287,6 +491,9 @@ export const godViewRenderingGraphLayerNodeMethods = {
           depthTest: false,
           depthWrite: false,
         },
+        updateTriggers: {
+          getRadius: managedVisualDensity,
+        },
       }),
       ...(this.state.layers.mantle && (effective.shape === "local" || effective.shape === "regional" || effective.shape === "global")
         ? [
@@ -296,26 +503,26 @@ export const godViewRenderingGraphLayerNodeMethods = {
               coordinateSystem: COORDINATE_SYSTEM.CARTESIAN,
               getPosition: (d) => d.position,
               getText: (d) => d.label,
-              getSize: effective.shape === "local" ? 12 : 10,
+              getSize: labelShape === "local" ? 12 : 10,
               sizeUnits: "pixels",
-              sizeMinPixels: effective.shape === "local" ? 10 : 8,
+              sizeMinPixels: labelShape === "local" ? 10 : 8,
               getColor: this.state.visual.label,
               fontFamily: "Inter, system-ui, sans-serif",
               fontWeight: 600,
-              getPixelOffset: (d) => this.nodeLabelPixelOffset(d),
-              getTextAnchor: (d) => this.nodeLabelTextAnchor(d),
-              getAlignmentBaseline: (d) => this.nodeLabelAlignmentBaseline(d),
+              getPixelOffset: (d) => d.labelAdmission.pixelOffset,
+              getTextAnchor: (d) => d.labelAdmission.textAnchor,
+              getAlignmentBaseline: (d) => d.labelAdmission.alignmentBaseline,
               billboard: true,
               pickable: true,
               updateTriggers: {
-                getPixelOffset: labelData.map((node) => node?.details?.cluster_panel_side || "").join("|"),
-                getTextAnchor: labelData.map((node) => node?.details?.cluster_panel_side || "").join("|"),
-                getAlignmentBaseline: labelData.map((node) => node?.details?.cluster_panel_side || "").join("|"),
+                getPixelOffset: labelData.map((node) => `${node.id}:${node.labelAdmission.pixelOffset.join(",")}`).join("|"),
+                getTextAnchor: labelData.map((node) => `${node.id}:${node.labelAdmission.textAnchor}`).join("|"),
+                getAlignmentBaseline: labelData.map((node) => `${node.id}:${node.labelAdmission.alignmentBaseline}`).join("|"),
               },
             }),
           ]
         : []),
-      ...(this.state.layers.mantle && (effective.shape === "local" || effective.shape === "regional")
+      ...(this.state.layers.mantle && !managedTopologyOverview && (effective.shape === "local" || effective.shape === "regional")
         ? [
             new TextLayer({
               id: "god-view-edge-labels",

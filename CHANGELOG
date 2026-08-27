@@ -1,3 +1,320 @@
+# ServiceRadar v1.4.44
+
+CSV device import upserts instead of skipping, copies tag pairs into
+All Metadata, and SRQL actually returns those tags on `in:devices`
+rows. A native-add-on seeder placeholder no longer blocks the signed
+bundle. Downsampled series can split by a tag key.
+
+## Whats New
+
+**1.4.44**
+- Inventory: CSV import preview no longer CaseClauseError's on a
+  finished upload. A re-import upserts matching devices instead of
+  skipping them as already-exist, merges spreadsheet tags, and copies
+  `key=value` pieces from the tags column into metadata so All Metadata
+  on device details is populated. Extra CSV columns still overlay the
+  same keys. (PRs #4040, #4042)
+- Inventory: a verified native-add-on import can replace an unverified
+  seeder placeholder for the same version, so first-party add-ons are
+  no longer frozen at the last pre-seeder bundle. (PR #4041)
+- SRQL: `in:devices` rows include the `tags` JSONB map, matching the
+  filters and grouping that already used `tags.<key>`. Dashboard
+  packages that declare a tags field no longer receive empty maps.
+  (PR #4044)
+- SRQL: downsampled timeseries can split with `series:tags.<key>`, the
+  query shape fleet dashboards need that `stats: by` cannot express
+  because it has no time buckets. (PR #4037)
+- CI: the release large-ingestion waiter installs `gh` on the signing
+  runner so the wait is a real gate instead of FileNotFoundError.
+  (PR #4036)
+
+## Upgrade Notes
+
+- No schema migrations in this release. `migrations.expectedVersion`
+  stays `20260825031000`.
+- Re-import a device CSV to fill All Metadata on rows that landed
+  before 1.4.44. Tags were already stored; metadata was not.
+- Native add-on seeder/import: after upgrade, a signed bundle for a
+  version that only had a seeder placeholder can replace that row.
+  Netprobe and other first-party add-ons stuck on a pre-seeder version
+  become importable.
+- Dashboard packages that group on `tags.<key>` start working against
+  `in:devices` without a metadata fallback. Republish is not required
+  if the package already requested the `tags` field.
+
+# ServiceRadar v1.4.43
+
+Makes device identity stop inventing devices it only overheard, identifies
+hosts from mDNS without probing, moves netprobe's discovery onto the
+generic add-on contract, and stops the topology graph asserting links
+nothing has confirmed for months.
+
+## Whats New
+
+**1.4.43**
+- Identity: a passive netprobe fingerprint no longer resolves onto the
+  collector that observed it. The same class of bug had already been
+  fixed for the census; this closes the fingerprint path, plus the
+  address debris it left behind on hosts a collector had absorbed.
+  (PRs #3971, #3979)
+- Identity: device metadata is merged in the database instead of being
+  read, modified and written back whole, which was silently discarding
+  concurrent writers' fields. (PR #3976)
+- Identity: every device revival is recorded in an append-only audit
+  table. A revival used to clear `deleted_reason`/`deleted_by`, leaving
+  a resurrected device indistinguishable from one never deleted.
+  (PR #3974)
+- Identity: a link-local (`fe80::`) sighting can no longer overwrite a
+  routable primary IP, and link-local addresses are no longer accepted
+  as cross-device alias evidence. Addresses are now ranked by
+  routability in both Elixir and SQL, with a parity test. Existing
+  link-local alias rows are archived rather than marked stale, because
+  stale alias debris in this system self-revives.
+  (PRs #4007, #4009, #4027)
+- Identity: interface MACs anchor a device through a per-device table
+  rather than a global identifier, so two chassis sharing an interface
+  MAC no longer collapse into one. (PRs #4007, #4027)
+- Identity: the duplicate-device sweep now also merges a host split
+  between a MAC column and a MAC identifier row. (PR #3883)
+- Inventory: `discovered_interfaces` is keyed to current state instead
+  of appending a row per poll. A four-device sample held 36,816 rows
+  for 374 distinct states -- 98x amplification, growing 767 rows per
+  device per day with no retention and no compression. (PR #4027)
+- Inventory: vendor is derived from the IEEE OUI registry instead of
+  waiting on an integration to fill it in. (PR #3880)
+- Inventory: mDNS/DNS-SD announcements identify a host without a probe.
+  Capture is in-kernel (no avahi), snapshots ride the same discovery
+  path as census, and core classifies from the evidence.
+  (PRs #3885, #3887, #3888, #3891, #3896, #3899, #3901)
+- Inventory: a mapper's own interface address no longer mints a
+  phantom device, an unroutable address mints nothing, IPv6 addresses
+  come from `ipAddressTable`, and a switch no longer loses its role to
+  one management address. (PRs #3907, #3929, #3933, #3947)
+- Netprobe: census, mDNS, fingerprint, DPI and process observations now
+  ride the generic add-on contract as `DISCOVERY_V1` payloads named by a
+  schema STRING, decoded in core against goldens captured from the Go
+  translators before they were removed. Adding an observation type costs
+  a registry entry, not an agent release.
+  (PRs #3906, #3934, #3943, #3981, #3982, #3990, #3995, #3996)
+- Netprobe: banner matching moved to `AddonService.RunCommand`, the last
+  FUNCTIONAL request/response arm on the bespoke IPC socket. Misses are
+  no longer padded with a zero-confidence sentinel the caller had to
+  strip. The agent falls back to the legacy arm against an older
+  netprobe, so a mixed fleet keeps working. (PR #4023)
+- Netprobe: the collector's address is stamped from the live interface
+  rather than the onboarding pin, so a re-IP'd host stops attributing
+  traffic to its old address. (PRs #3991, #4004)
+- Netprobe: a restart no longer leaks a TC classifier on the
+  full-capture path, and ApplyConfig now reports the settings it used
+  to drop silently. (PRs #3918, #3940)
+- Topology: projected links age out on the discovery cadence and stale
+  links are pruned by default. A deleted discovery job used to leave its
+  seeds and UniFi controllers orphaned, freezing hundreds of edges as
+  permanently "current". Deleting a job now cascades to its dependants.
+  (PRs #4019, #4020)
+- Topology: one authoritative compound ELK scene replaces the remaining
+  hand-authored geometry -- node placement, endpoint grouping and edge
+  routing. Overlapping, penetrating or crossing routes are rejected and
+  the last valid scene is retained transactionally, so a bad layout can
+  no longer render. Redundant device-level inferred-segment evidence is
+  collapsed without disconnecting otherwise isolated devices.
+  (PRs #3928, #3999)
+- Web UI: Armis, NetBox, Proxmox and Ansible logos on device details;
+  mDNS discovery sources render with correct acronym casing; interface
+  addresses show in the IP Aliases panel, labelled.
+  (PRs #3942, #3983, #4014, #4016)
+- Web UI: the device Flows tab keeps its summary and sparkline, puts
+  protocol breakdown in the four-card row, and inventory pagination
+  survives a refresh. (PRs #3895, #3916, #3923)
+- SRQL: device flow queries scope by the device's resolved addresses,
+  not `device_id`, so a host whose IP is only on an alias still shows
+  traffic. NetFlow exporters resolve the same way.
+  (PRs #3897, #3902)
+- Sync: a raw UUID binary no longer poisons the bulk device upsert, and
+  an unencodable metadata value is dropped instead of failing the
+  whole write. (PRs #3915, #3920)
+- CNPG: the image pin is `18.4.0-sr4` at a digest that exists. The
+  previous tag pointed at a digest Harbor never published, so a fresh
+  cluster could not pull it. (PR #3889)
+- CI: the OCI publish workflow runs on ARC runners again -- it was
+  bootstrapping Forgejo tools that cannot install as non-root, and
+  pointing its cache at a volume only BuildBuddy executors mount.
+  (PRs #4015, #4017)
+- CI: a test target that executes zero tests now fails instead of
+  reporting success. (PR #3972)
+
+## Upgrade Notes
+
+- **`discovered_interfaces` is re-keyed to current state (migration
+  `20260825030000`).** Historical per-poll rows are discarded. They were
+  never a deliberate history -- per-poll provenance made every row
+  byte-distinct, so there is no "true row" to keep -- but this IS data
+  loss and is called out in the migration itself. `timestamp` keeps
+  meaning "last observed" and is still bumped every poll, so liveness
+  queries and the device Interfaces tab are unaffected.
+- **Link-local identity aliases are archived (migration
+  `20260825031000`).** Archived rather than deleted or marked stale:
+  stale alias rows in this system self-revive.
+- Six migrations ship in this release; `migrations.expectedVersion` is
+  `20260825031000`:
+  - `20260824020000` device revival audit
+  - `20260825000000` `sr_address_rank` function
+  - `20260825010000` per-device interface MAC table
+  - `20260825020000` cascade mapper job dependants
+  - `20260825030000` rekey `discovered_interfaces` to current state
+  - `20260825031000` archive link-local identity aliases
+- Netprobe: publish the add-on at **0.2.52**. mDNS identification, the
+  generic add-on contract, live collector-IP stamping and banner
+  `RunCommand` are not on the fleet until that bundle rolls out. An
+  agent older than 1.4.43 still talks the legacy IPC socket, so a
+  mixed fleet keeps working during the rollout.
+- Topology: stale projected links are pruned by default
+  (`mapper_topology_prune_stale_projected_links_enabled`, default
+  true). The first mapper run after upgrade will drop edges whose
+  `last_observed_at` is older than the discovery cadence. Unseen-link
+  pruning stays off unless you set
+  `mapper_topology_prune_unseen_projected_links_enabled`.
+- Mapper: deleting a discovery job now deletes its seeds and UniFi
+  controllers with it (migration `20260825020000`). Intended -- those
+  rows were what froze topology edges as permanently current.
+- CNPG: if you pin `cnpg.imageTag` / `cnpg.imageName` yourself, move
+  to `18.4.0-sr4` (or the chart's digest). The previous pin did not
+  exist in Harbor.
+- Known, not fixed: about thirty Helm sub-feature flags remain inert,
+  including `cnpg.enabled=false` and `core.migrations.enabled=false`,
+  which still render their resources (issue #3859). On the device
+  flows tab the Services facet stays empty and the traffic chart
+  renders no data. A change-only interface history table is not in
+  this release (issue #4021).
+
+# ServiceRadar v1.4.42
+
+Lands passive L2 device discovery in netprobe end to end, unblocks
+add-on auto-update across a mixed fleet, and makes a Helm component's
+`enabled: false` actually disable it.
+
+## Whats New
+
+**1.4.42**
+- Netprobe: passive device census. The TC ingress classifier reads
+  sender MACs and parses ARP and IPv6 NDP, so a device present for
+  seconds is seen with no probe traffic at all. Bindings ship as
+  whole-segment snapshots (15m TTL, 4096 per interface, every 120s),
+  reassembled by the agent, streamed to the gateway, and routed into
+  core's inventory sync. (PRs #3854, #3858, #3865, #3866, #3868,
+  #3869, #3870, #3871)
+- Netprobe: in-kernel suppression never recorded a seen device, so
+  every frame re-emitted and the watchdog shut the census down ten
+  seconds after each start. A 55-device segment now runs steadily at
+  about 0.05% CPU. (PR #3876)
+- Netprobe: census drops are counted rather than lost silently, and
+  an observation is logged only when the binding is new. The former
+  per-observation line flooded journald on a busy segment.
+  (PRs #3868, #3876)
+- Netprobe: stopping no longer runs to systemd's kill timeout, and a
+  restart detaches the previous TC classifier instead of stacking
+  copies from older builds. (PR #3858)
+- Identity: a census sighting cannot collapse devices onto the agent
+  that overheard them. Off-segment (router-MAC) sightings are
+  dropped, a randomized MAC is flagged rather than allowed to anchor
+  a device, and the collector's agent_id is no longer attached to
+  every device it observes. (PRs #3863, #3869, #3871)
+- Add-ons: a containerized agent is no longer a rollout target for
+  host-installed add-ons. An in-cluster agent can never report
+  add-on health, so it aged out at the candidate health timeout and
+  failed the rollout for every bare-metal host with it, which is
+  what stalled auto-update fleet-wide. (PR #3875)
+- Add-ons: rollout health uses the version actually delivered and
+  signature-verified at staging, not the add-on's compiled-in
+  self-report. A self-report left stale had been silently blocking
+  that add-on's own upgrades. (PR #3875)
+- Add-ons: disabling or deleting a profile now retires its
+  assignments, instead of leaving them enabled and still being
+  delivered with no profile left to turn them off. (PR #3875)
+- Agent: agents report `addon.native.host` /
+  `addon.native.host.unavailable`, so the control plane is told
+  outright whether a host installs native add-ons rather than
+  inferring it. (PR #3875)
+- Agent: the SELinux relabel of staged add-on binaries also runs
+  from the agent. A host on a pre-1.4.39 setuid updater, which a
+  release activation never replaces, left staged binaries var_lib_t
+  and every add-on start failed 203/EXEC. (PR #3875)
+- Identity: the duplicate-device sweep groups on the agent_id device
+  column as well as identifier rows, so a host whose IP changed is
+  no longer left as two permanent device records. (PR #3875)
+- Identity: fence pins are observed across agent-gateway sync,
+  composite-check refresh, sweep event-writer and sync ingest, with
+  fresh/drift/missing telemetry. Observe-only: no write is blocked.
+  (PR #3862)
+- Web UI: a device's Flows tab no longer crashes its own LiveView
+  into a six-second reload loop. Query fan-out is bounded and pool
+  exhaustion now degrades one widget rather than the page. The flow
+  stat cards were reworked in the same range to be index-driven, so
+  they use the src/dst indexes instead of scanning. (PRs #3872,
+  #3878)
+- Feeds: a brief upstream timeout no longer discards an advisory
+  feed run for a whole six-hour cycle. Retries are spaced about 2,
+  10 and 30 minutes apart with jitter. (PR #3853)
+- Feeds: a job stuck `executing` because its node vanished (pod
+  replaced, or OOMKilled and restarted under the same pod IP) is
+  cancelled and re-enqueued at once, rather than waiting up to 240
+  minutes for Oban's Lifeline. (PR #3861)
+- Helm: `<component>.enabled: false` now actually removes the
+  workload. Eighteen templates deployed regardless, so a values file
+  read as disabled while the pod ran. Omitting the key still means
+  enabled. (PR #3860)
+- Build: `make push_all` on macOS defaults to `--config=remote`.
+  `--config=ci` points at a cache path that exists only on
+  BuildBuddy executors, so the push aborted before it started.
+  (PR #3857)
+- Build: Go, Rust and Elixir benchmarks run in CI instead of only
+  being compiled, and the metric fixture profile no longer depends on
+  an uncommitted local corpus. (PRs #3855, #3867)
+- Docs: clone commands in README, INSTALL and README-Docker point at
+  GitHub instead of the retired Forgejo host, so the first documented
+  step works. The OpenText plugin's in-product documentation link --
+  which an operator clicks from the integration config UI -- pointed
+  at that dead host too, as did the SRQL cookbook and language
+  reference. (PR #3852)
+
+## Upgrade Notes
+
+- Helm: `<component>.enabled: false` is now HONORED where it was a
+  silent no-op, for core, nats, datasvc, trapd, logCollector, webNg
+  and agent. Grep any bespoke values file for those keys before
+  upgrading: a flag that was aspirational at v1.4.41 will now delete
+  that workload. Stock `values.yaml` and `values-demo.yaml` render
+  byte-identically and are unaffected. (PR #3860)
+- Netprobe: the passive device census is ON by default and has no
+  toggle. It creates inventory devices from what it overhears on the
+  segment. It needs no migration -- observations route through the
+  existing sync-ingest path. Publish the netprobe add-on at 0.2.37;
+  the census does not exist on the fleet until that bundle rolls out.
+- Netprobe: watch `events_emitted_total{event="device_census_snapshot"}`
+  and `events_dropped_total{...}` after the rollout. If in-kernel
+  suppression breaks, the watchdog stops the census and it stays
+  stopped until netprobe restarts.
+- Add-ons: expect one-time movement on the first reconcile. Rollouts
+  that had been ageing out at the health timeout all unblock at once;
+  assignments whose profile was disabled or deleted are retired off
+  their hosts; and containerized agents lose native add-on
+  assignments for every supervision model. Upgrade core and agents
+  together -- an agent older than 1.4.42 reports neither host
+  capability, so core stays permissive for it by design.
+- Identity: the first sweep after upgrade merges devices that share an
+  `agent_id` column value, which had been invisible to it. Throttle
+  with `config :serviceradar, ServiceRadar.Inventory.Identity.DuplicateSweep,
+  max_merges_per_run: N` (default 200) to make that convergence
+  slower and easier to watch.
+- Feeds: a failing advisory feed now spreads its retries over about
+  42 minutes instead of 65 seconds. Intended -- all three old attempts
+  landed inside the same upstream blip. (PR #3853)
+- Known, not fixed: about thirty Helm sub-feature flags remain inert,
+  including `cnpg.enabled=false` and `core.migrations.enabled=false`,
+  which still render their resources (issue #3859). On the device
+  flows tab the Services facet stays empty and the traffic chart
+  renders no data.
+
 # ServiceRadar v1.4.41
 
 Pins device identity at write time, unsticks IP-only inventory

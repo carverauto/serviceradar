@@ -120,14 +120,19 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexEvents.DeviceManagement do
   end
 
   defp preview_csv_upload(socket) do
-    case uploaded_entries(socket, :csv_file) do
-      [] ->
+    # uploaded_entries/2 returns {completed, in_progress}, never a bare list.
+    # Matching [] / [entry | _] CaseClauseError'd the LiveView on Preview.
+    case IndexCsvImport.completed_csv_upload_entry(uploaded_entries(socket, :csv_file)) do
+      {:error, :no_file} ->
         {:noreply, assign(socket, :csv_errors, ["No file selected"])}
 
-      [entry | _] ->
+      {:error, :in_progress} ->
+        {:noreply, assign(socket, :csv_errors, ["Wait for the CSV upload to finish before previewing"])}
+
+      {:ok, entry} ->
         result =
           consume_uploaded_entry(socket, entry, fn %{path: path} ->
-            IndexCsvImport.parse_csv_file(path)
+            {:ok, IndexCsvImport.parse_csv_file(path)}
           end)
 
         case result do
@@ -162,7 +167,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexEvents.DeviceManagement do
         scope = socket.assigns.current_scope
 
         case IndexCsvImport.import_devices(scope, devices) do
-          {:ok, {created, skipped}} ->
+          {:ok, {created, updated}} ->
             {:noreply,
              socket
              |> assign(:show_import_modal, false)
@@ -170,17 +175,17 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexEvents.DeviceManagement do
              |> assign(:csv_warnings, [])
              |> assign(:csv_errors, [])
              |> assign(:import_status, nil)
-             |> put_flash(:info, IndexCsvImport.import_success_message(created, skipped))
+             |> put_flash(:info, IndexCsvImport.import_success_message(created, updated))
              |> push_patch(to: ~p"/devices")}
 
-          {:error, %{created: created, skipped: skipped, errors: errors}} ->
+          {:error, %{created: created, updated: updated, errors: errors}} ->
             {:noreply,
              socket
              |> assign(:csv_preview, nil)
              |> assign(:csv_errors, errors)
              |> assign(
                :import_status,
-               IndexCsvImport.import_partial_message(created, skipped, length(errors))
+               IndexCsvImport.import_partial_message(created, updated, length(errors))
              )}
         end
 

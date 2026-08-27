@@ -13,7 +13,7 @@ defmodule ServiceRadar.Inventory.Identity.MergeIdentityRevisionTest do
   moves by exactly one regardless of how many identifiers moved.
   """
 
-  use ServiceRadar.DataCase, async: false
+  use ServiceRadar.DataCase, async: true
 
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Inventory.Device
