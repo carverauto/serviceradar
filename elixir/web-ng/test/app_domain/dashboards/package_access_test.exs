@@ -14,6 +14,8 @@ defmodule ServiceRadarWebNG.Dashboards.PackageAccessTest do
   alias ServiceRadarWebNG.Dashboards
   alias ServiceRadarWebNG.RBAC
 
+  require Ash.Query
+
   setup do
     admin = admin_user_fixture()
     owner = user_fixture()
