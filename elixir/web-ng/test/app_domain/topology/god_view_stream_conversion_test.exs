@@ -280,6 +280,67 @@ defmodule ServiceRadarWebNG.Topology.GodViewStreamConversionTest do
     assert length(inferred_selection_markers(forward)) == 1
   end
 
+  # Every other test in this file passes an EMPTY device map, which is why this shipped: with no
+  # devices, both sides of an attachment look like endpoints, the structural check cannot fire,
+  # and the connectivity forest quietly swallowed real endpoint attachments. A fleet whose only
+  # endpoint evidence is inferred-segment (ARP/FDB) therefore produced no clusters at all, and
+  # its access switches lost every edge, because their only links were to endpoints.
+  test "ARP/FDB endpoint attachments are not consumed by the connectivity forest" do
+    edges = [
+      converted_edge("sw-a", "sw-b", "direct"),
+      converted_edge("sw-a", "ep-1", "inferred-segment"),
+      converted_edge("sw-a", "ep-2", "inferred-segment"),
+      converted_edge("sw-a", "ep-3", "inferred-segment")
+    ]
+
+    devices = %{
+      "sw-a" => %{type: "switch", ip: "192.168.1.2"},
+      "sw-b" => %{type: "switch", ip: "192.168.1.3"},
+      "ep-1" => %{type: "workstation", ip: "192.168.1.51"},
+      "ep-2" => %{type: "workstation", ip: "192.168.1.52"},
+      "ep-3" => %{type: "workstation", ip: "192.168.1.53"}
+    }
+
+    pipeline = GodViewStream.prepare_runtime_edge_pipeline(edges, devices)
+
+    attachments =
+      Enum.filter(pipeline.final_edges, &(&1.evidence_class == "endpoint-attachment"))
+
+    assert length(attachments) == 3,
+           "expected three endpoint attachments, got #{inspect(Enum.map(pipeline.final_edges, & &1.evidence_class))}"
+
+    for edge <- attachments do
+      assert edge.metadata["relation_type"] == "ATTACHED_TO"
+      refute edge.metadata["connectivity_forest_bridge"]
+    end
+
+    # The genuine device-to-device backbone link is untouched.
+    assert Enum.any?(pipeline.final_edges, &(&1.source == "sw-a" and &1.target == "sw-b"))
+  end
+
+  # The other half of the contract: a device-to-device inferred segment still IS forest glue.
+  test "a device-to-device inferred segment is still normalized into a forest bridge" do
+    edges = [
+      converted_edge("sw-a", "sw-b", "direct"),
+      converted_edge("sw-c", "sw-d", "direct"),
+      converted_edge("sw-b", "sw-c", "inferred-segment")
+    ]
+
+    devices = %{
+      "sw-a" => %{type: "switch", ip: "192.168.1.2"},
+      "sw-b" => %{type: "switch", ip: "192.168.1.3"},
+      "sw-c" => %{type: "switch", ip: "192.168.1.4"},
+      "sw-d" => %{type: "switch", ip: "192.168.1.5"}
+    }
+
+    pipeline = GodViewStream.prepare_runtime_edge_pipeline(edges, devices)
+    bridge = Enum.find(pipeline.final_edges, &(&1.source == "sw-b" and &1.target == "sw-c"))
+
+    assert bridge.evidence_class == "inferred"
+    assert bridge.metadata["relation_type"] == "INFERRED_TO"
+    assert bridge.metadata["connectivity_forest_bridge"] == true
+  end
+
   defp converted_edge(source, target, raw_evidence_class, attrs \\ %{}) do
     relation_type = if raw_evidence_class == "direct", do: "CONNECTS_TO", else: "ATTACHED_TO"
     evidence_class = if raw_evidence_class == "inferred-segment", do: "endpoint-attachment", else: raw_evidence_class
