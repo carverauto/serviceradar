@@ -8,6 +8,8 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Index.EventsPanel do
   alias ServiceRadarWebNGWeb.DashboardLive.Index.Common
   alias ServiceRadarWebNGWeb.ObservabilityPaths
 
+  @event_layers [:low, :medium, :high, :critical]
+
   attr(:dashboard, :map, required: true)
   attr(:embedded, :boolean, default: false)
 
@@ -171,13 +173,31 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Index.EventsPanel do
 
   defp put_range_buckets(assigns) do
     range_buckets_json =
-      case EventRange.buckets(assigns.security_trend) do
-        {:ok, buckets} -> Jason.encode!(buckets)
-        :error -> nil
+      with true <- event_trend_renderable?(assigns.security_trend, assigns.security_trend_max),
+           {:ok, buckets} <- EventRange.buckets(assigns.security_trend) do
+        Jason.encode!(buckets)
+      else
+        _ -> nil
       end
 
     Map.put(assigns, :range_buckets_json, range_buckets_json)
   end
+
+  defp event_trend_renderable?(points, max_total)
+       when is_list(points) and points != [] and is_integer(max_total) and max_total >= 0 do
+    Enum.all?(points, &event_point_renderable?/1)
+  end
+
+  defp event_trend_renderable?(_points, _max_total), do: false
+
+  defp event_point_renderable?(%{label: label, total: total} = point)
+       when is_binary(label) and is_number(total) and total >= 0 do
+    Enum.all?(@event_layers, fn layer -> non_negative_number?(Map.get(point, layer, 0)) end)
+  end
+
+  defp event_point_renderable?(_point), do: false
+
+  defp non_negative_number?(value), do: is_number(value) and value >= 0
 
   defp event_area_path(points, max_total, layer), do: event_layer_path(points, max_total, event_layer_index(layer))
 
@@ -267,7 +287,7 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Index.EventsPanel do
   defp event_layer_path(_points, _max_total, _layer_index), do: ""
 
   defp event_cumulative(point, layer_index) do
-    [:low, :medium, :high, :critical]
+    @event_layers
     |> Enum.take(layer_index + 1)
     |> Enum.map(&Map.get(point, &1, 0))
     |> Enum.sum()

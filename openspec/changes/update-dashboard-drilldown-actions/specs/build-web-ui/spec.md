@@ -24,5 +24,6 @@ The `/dashboard` LiveView SHALL make summary cards and panels that represent dri
 #### Scenario: Empty states still offer useful navigation
 - **GIVEN** a dashboard card or panel has no current data
 - **WHEN** that card still has a useful detail or setup destination
-- **THEN** the UI SHALL keep the card clickable and navigate to that destination
+- **THEN** the UI SHALL keep a non-range-enabled card clickable and navigate to that destination
+- **AND** a range-enabled chart's empty state SHALL instead provide useful navigation through its separate accessible View all action without requiring the empty chart surface to be clickable
 - **AND** the empty state copy SHALL remain readable without overlapping the clickable affordance
