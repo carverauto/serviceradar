@@ -1,6 +1,6 @@
 id: netbox-inventory
 name: NetBox Inventory Sync
-version: 0.1.0
+version: 0.2.0
 description: >
   Scheduled assignment that walks one or more NetBox instances' device
   inventories (/api/dcim/devices/ with DRF pagination) and emits
@@ -37,3 +37,101 @@ resources:
   requested_memory_mb: 128
   requested_cpu_ms: 60000
   max_open_connections: 2
+integrations:
+  credential_profiles:
+    - provider: netbox
+      label: NetBox
+      description: Device inventory collected from a NetBox instance's DCIM API.
+      supports_rules: true
+      auth_methods:
+        - id: api_token
+          label: API token
+          credential_kind: api_token
+          # Declared explicitly so the rule form renders the TLS policy control;
+          # the rendered control is what drives insecure_skip_verify below.
+          tls_policies:
+            - verify
+            - skip_verify
+          fields:
+            - id: api_token
+              label: API token
+              control: password
+              required: true
+              secret: true
+              public: false
+          payload:
+            format: scalar
+            field: api_token
+      purposes:
+        - inventory_sync
+      scope_types:
+        - agent
+        - gateway
+        - partition
+      rule_defaults:
+        auth_method: api_token
+        purposes:
+          - inventory_sync
+        target_query: in:devices metadata.netbox_candidate:true
+        scope_type: agent
+        allowed_ports: "443, 8443"
+        tls_policy: verify
+      rule_controls:
+        allowed_ports: true
+        controller_host: true
+        target_query: true
+        transport: true
+      provisioning:
+        mode: target_policy
+        consumers:
+          - purpose: inventory_sync
+            plugin_id: netbox-inventory
+            auth_methods:
+              - api_token
+            constraints: {}
+            grant:
+              grant_type: netbox_api_token
+              resolution_location: control_plane
+              ttl_seconds: 300
+            params:
+              credential_broker:
+                $source: grant
+              api_token_secret_ref:
+                $source: secret_ref
+              credential_rule_id:
+                $source: rule
+                field: id
+              # The controller host field on the rule is stored as metadata
+              # "host"; an operator-set "base_url" wins so a BASE_PATH
+              # deployment (https://tools.example.com/netbox) can be expressed.
+              base_url:
+                $source: metadata_first
+                keys:
+                  - base_url
+                  - host
+                  - controller_host
+                omit_if_blank: true
+              source_id:
+                $source: metadata
+                key: source_id
+                type: string
+                omit_if_blank: true
+              source_name:
+                $source: metadata
+                key: source_name
+                type: string
+                omit_if_blank: true
+              page_size:
+                $source: metadata
+                key: page_size
+                type: integer
+                default: 100
+              timeout_ms:
+                $source: metadata
+                key: timeout_ms
+                type: integer
+                default: 30000
+              insecure_skip_verify:
+                $source: rule
+                field: tls_policy
+                equals: skip_verify
