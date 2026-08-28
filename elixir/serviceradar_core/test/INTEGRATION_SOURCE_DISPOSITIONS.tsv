@@ -207,6 +207,7 @@ test/serviceradar/edge/direct_leaf_identity_issuer_test.exs	-	not_selected	load_
 test/serviceradar/edge/direct_leaf_scope_test.exs	-	not_selected	load_only	not_selected	Static selection audit: this ALL_TEST_SRCS source has zero :integration/:requires_app identities; formatter not run.
 test/serviceradar/edge/execution_grant_validate_test.exs	-	not_selected	load_only	not_selected	Static selection audit: this ALL_TEST_SRCS source has zero :integration/:requires_app identities; formatter not run.
 test/serviceradar/edge/family_corpus_test.exs	-	not_selected	load_only	not_selected	Static selection audit: this ALL_TEST_SRCS source has zero :integration/:requires_app identities; formatter not run.
+test/serviceradar/edge/lane_supervisor_test.exs	-	not_selected	load_only	not_selected	Static selection audit: this ALL_TEST_SRCS source has zero :integration/:requires_app identities; formatter not run.
 test/serviceradar/edge/lower_bound_corpus_test.exs	-	not_selected	load_only	not_selected	Static selection audit: this ALL_TEST_SRCS source has zero :integration/:requires_app identities; formatter not run.
 test/serviceradar/edge/nats_leaf_config_generator_test.exs	-	not_selected	load_only	not_selected	Static selection audit: this ALL_TEST_SRCS source has zero :integration/:requires_app identities; formatter not run.
 test/serviceradar/edge/onboarding_package_atomicity_test.exs	ServiceRadar.Edge.OnboardingPackageAtomicityTest	data_case	serial	unboxed	test:10 module unboxed; test:66-112 opens independent transactional Tasks

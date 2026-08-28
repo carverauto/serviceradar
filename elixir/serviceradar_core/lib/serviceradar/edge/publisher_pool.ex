@@ -18,7 +18,9 @@ defmodule ServiceRadar.Edge.PublisherPool do
 
   ## Capacity is per class and UNBORROWABLE
 
-  Each class holds its own `PublishWindow`, sized by its own grant. A bulk pool at its frame or
+  Each lane holds its own `PublishWindow`, sized by its own CONFIGURED credits -- provisional
+  operational values, not a negotiated grant, since the lane-handshake grant is not frozen. A
+  bulk pool at its frame or
   byte ceiling refuses; it does not consult, drain, or fall back to another class. The spec
   requires the recovery stream to have "separate unborrowable storage, PubAck, and consumer
   capacity", and borrowing in EITHER direction defeats that -- a bulk backlog must not be able to
@@ -43,16 +45,18 @@ defmodule ServiceRadar.Edge.PublisherPool do
 
   ## What is wired, and what is NOT
 
-  Each lane has its own NATS connection (`ServiceRadar.NATS.Supervisor` starts one
-  `Gnat.ConnectionSupervisor` per `PublisherLane.lanes/0`), and
-  `ServiceRadarAgentGateway.JetStreamPublisher` publishes on the lane's connection via
-  `Connection.request/4`. `capacity/1` reports which connection a pool publishes on.
+  Each lane has its own NATS connection and its own window, both started by
+  `ServiceRadar.Edge.PublisherSupervisor` -- NOT by `ServiceRadar.NATS.Supervisor`, which owns only
+  the shared platform connection. `ServiceRadarAgentGateway.JetStreamPublisher` publishes on the
+  lane's connection AND admits/settles through this window: a saturated lane refuses before any
+  I/O, a durable PubAck releases the credit, and a refusal that is not proven poison leaves the
+  frame outstanding for a republish.
 
-  NOT wired: the publisher does not yet ADMIT through this window. It still issues one synchronous
-  request per record, so nothing consults the frame/byte credits on the production path -- the
-  window bounds asynchronous pipelining, which arrives with the PubAck correlation in tasks 3.4
-  and 3.5. This module also does not publish, does not settle from real PubAcks, and does not bind
-  byte credits to encoded frame size. Nothing here should be read as claiming those.
+  NOT wired: publication is still one synchronous request per record. The window bounds how many
+  may be outstanding at once, which is a real bound across concurrent callers, but the asynchronous
+  pipelining and the PubAck correlation that make out-of-order settlement possible are tasks 3.4
+  and 3.5. This module also does not bind byte credits to encoded frame size.
+
   """
 
   use GenServer
@@ -90,20 +94,25 @@ defmodule ServiceRadar.Edge.PublisherPool do
   def via(class) when class in @classes, do: :"edge_publisher_pool_#{class}"
 
   @doc """
-  Admits a frame into this class's window, or refuses.
+  Admits a frame into this lane's window, or refuses.
+
+  `key` is the COMPLETE authenticated delivery slot (`PublishWindow.key/4`), never the lane
+  sequence: one pool serves every agent and spool in its class, so a bare sequence aliases across
+  them. `fingerprint` identifies the publication, so a republish of the SAME record re-arms
+  without new credits while a DIFFERENT record on that slot is refused `:slot_conflict`.
 
   A refusal is final for THIS call: it never borrows from another class, and the pool's state is
   untouched.
   """
-  def admit(pool, seq, bytes, deadline_at) do
-    GenServer.call(pool, {:admit, seq, bytes, deadline_at})
+  def admit(pool, key, bytes, deadline_at, fingerprint) do
+    GenServer.call(pool, {:admit, key, bytes, deadline_at, fingerprint})
   end
 
   @doc "Releases a frame's credits. See `PublishWindow.settle/3` -- accounting only."
-  def settle(pool, seq, outcome), do: GenServer.call(pool, {:settle, seq, outcome})
+  def settle(pool, key, outcome), do: GenServer.call(pool, {:settle, key, outcome})
 
   @doc "Moves a frame's PubAck deadline without releasing its credits."
-  def rearm(pool, seq, deadline_at), do: GenServer.call(pool, {:rearm, seq, deadline_at})
+  def rearm(pool, key, deadline_at), do: GenServer.call(pool, {:rearm, key, deadline_at})
 
   @doc "The frames whose PubAck deadline has passed. Reports only."
   def expired(pool, now), do: GenServer.call(pool, {:expired, now})
@@ -123,8 +132,8 @@ defmodule ServiceRadar.Edge.PublisherPool do
   end
 
   @impl true
-  def handle_call({:admit, seq, bytes, deadline_at}, _from, state) do
-    case PublishWindow.admit(state.window, seq, bytes, deadline_at) do
+  def handle_call({:admit, key, bytes, deadline_at, fingerprint}, _from, state) do
+    case PublishWindow.admit(state.window, key, bytes, deadline_at, fingerprint) do
       {:ok, window} -> {:reply, :ok, %{state | window: window}}
       # The rejected call returns the ORIGINAL state. This is the case immutability made
       # untestable in parts 1 and 2, and it is asserted at the process boundary now.
@@ -132,15 +141,15 @@ defmodule ServiceRadar.Edge.PublisherPool do
     end
   end
 
-  def handle_call({:settle, seq, outcome}, _from, state) do
-    case PublishWindow.settle(state.window, seq, outcome) do
+  def handle_call({:settle, key, outcome}, _from, state) do
+    case PublishWindow.settle(state.window, key, outcome) do
       {:ok, window} -> {:reply, :ok, %{state | window: window}}
       {:error, reason} -> {:reply, {:error, reason}, state}
     end
   end
 
-  def handle_call({:rearm, seq, deadline_at}, _from, state) do
-    case PublishWindow.rearm(state.window, seq, deadline_at) do
+  def handle_call({:rearm, key, deadline_at}, _from, state) do
+    case PublishWindow.rearm(state.window, key, deadline_at) do
       {:ok, window} -> {:reply, :ok, %{state | window: window}}
       {:error, reason} -> {:reply, {:error, reason}, state}
     end
