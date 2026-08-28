@@ -16,6 +16,7 @@ defmodule ServiceRadar.Credentials.NetworkCredentialRule do
   alias ServiceRadar.Credentials.NetworkCredentialRuleTestDispatcher
   alias ServiceRadar.Credentials.NetworkCredentialRuleTestPlan
   alias ServiceRadar.Credentials.Validations.TargetQuery
+  alias ServiceRadar.Credentials.Validations.TrustMaterial
   alias ServiceRadar.Policies.Checks.ActorHasPermission
 
   @credential_manage_check {ActorHasPermission, permission: "settings.credentials.manage"}
@@ -35,6 +36,8 @@ defmodule ServiceRadar.Credentials.NetworkCredentialRule do
     :allowed_ports,
     :tls_policy,
     :ssh_host_key_policy,
+    :ca_bundle_pem,
+    :server_cert_fingerprint,
     :metadata
   ]
 
@@ -99,11 +102,13 @@ defmodule ServiceRadar.Credentials.NetworkCredentialRule do
     create :create do
       accept @fields
       validate TargetQuery
+      validate TrustMaterial
     end
 
     update :update do
       accept @fields
       validate TargetQuery
+      validate TrustMaterial
     end
 
     update :enable do
@@ -267,6 +272,19 @@ defmodule ServiceRadar.Credentials.NetworkCredentialRule do
       public? true
       default :known_hosts
       constraints one_of: [:known_hosts, :trust_on_first_use, :skip_verify]
+    end
+
+    # Trust anchors, not secrets: publishing a CA certificate reveals nothing,
+    # and keeping them on the rule lets an operator read back what a rule
+    # trusts. See Validations.TrustMaterial.
+    attribute :ca_bundle_pem, :string do
+      allow_nil? true
+      public? true
+    end
+
+    attribute :server_cert_fingerprint, :string do
+      allow_nil? true
+      public? true
     end
 
     attribute :last_test_status, :atom do
