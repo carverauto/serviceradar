@@ -62,6 +62,26 @@ else
   # supervisor died with it -- every fan-out then failed with "no process".
   {:ok, task_supervisor} = Task.Supervisor.start_link(name: ServiceRadarWebNG.TaskSupervisor)
   Process.unlink(task_supervisor)
+
+  # Component tests render `~p` verified routes and vendored static asset paths.
+  # Both read the endpoint's :persistent_term entry, so both need a *warmed*
+  # endpoint -- and nothing in a db-free run starts the application.
+  #
+  # Leaving that to the modules themselves is an ordering bug in two directions.
+  # Modules that never start it (SettingsComponentsTest, the device-detail
+  # provenance tests) only pass when some other module started one first. And a
+  # module that starts one from an `async: true` test opens a window for
+  # everybody else: Phoenix.Endpoint.Supervisor.start_link/3 passes `name: mod`,
+  # so the endpoint's NAME is registered by the supervisor process before its
+  # `:warmup` CHILD writes the term. Anything rendering inside that window sees a
+  # live endpoint with no term and raises "could not find persistent term for
+  # endpoint" -- the flake that hit the wordmark tests at random.
+  #
+  # Starting (and warming) it once here, before any test module is loaded, closes
+  # the window for the whole tier and makes every module's start a no-op.
+  # Unlinked for the same reason as the Task.Supervisor above.
+  {:ok, endpoint} = ServiceRadarWebNGWeb.Endpoint.start_link([])
+  Process.unlink(endpoint)
 end
 
 # Use ServiceRadar.Repo from serviceradar_core directly for SQL adapter operations
