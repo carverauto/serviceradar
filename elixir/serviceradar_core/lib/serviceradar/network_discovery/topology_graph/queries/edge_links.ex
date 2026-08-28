@@ -141,8 +141,10 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph.Queries.EdgeLinks do
     MATCH ()-[r]->()
     WHERE r.ingestor = 'mapper_topology_v1'
       AND type(r) IN ['CONNECTS_TO', 'LOGICAL_PEER', 'HOSTED_ON', 'INFERRED_TO', 'ATTACHED_TO', 'OBSERVED_TO']
-      AND r.last_observed_at IS NOT NULL
-      AND r.last_observed_at < '#{Graph.escape(stale_cutoff)}'
+      AND (
+        coalesce(r.last_observed_at, r.observed_at) IS NULL
+        OR coalesce(r.last_observed_at, r.observed_at) < '#{Graph.escape(stale_cutoff)}'
+      )
     DELETE r
     """
   end

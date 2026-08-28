@@ -148,6 +148,34 @@ agent-sr-test-pve04   05:05:37  is_available: TRUE    <- 77 min stale, never exp
       means "edges whose endpoint device is soft-deleted" is NOT a safe purge predicate; it
       must exclude `deleted_reason = 'merged'`.
 
+- [ ] 3.6 **CORRECTED 2026-08-28 -- the original claim here was wrong.** This task first
+      said "topology evidence has no expiry or deletion path at all". That is FALSE.
+      `prune_stale_mapper_evidence_links_query/1` (queries/edge_links.ex) deletes every
+      evidence type -- `CONNECTS_TO`, `LOGICAL_PEER`, `HOSTED_ON`, `INFERRED_TO`,
+      `ATTACHED_TO`, `OBSERVED_TO` -- older than the stale cutoff. It is enabled by default
+      (`mapper_topology_prune_stale_projected_links_enabled` defaults true, pruning.ex:117)
+      and is invoked from `do_upsert_links/1` (links.ex:67) on every mapper link upsert.
+      There are two more pruners beside it: a device-scoped `prune_stale_projected_links/1`
+      and an `unseen` pruner.
+      The claim came from a line-scoped grep: the query's `DELETE r` sits four lines below
+      the `type(r) IN [...]` list, so searching for delete keywords on the same line as a
+      label name found nothing. The demo behaviour that prompted it -- ghosts persisting,
+      and a manual canonical delete being undone by the next rebuild -- is fully explained
+      by the 7-day stale window, exactly like the canonical prune in 3.1. Neither mechanism
+      was broken; neither had anything eligible yet.
+      **What was actually real, and is fixed in `fix/topology-evidence-timestamp-symmetry`:**
+      the upsert and the evidence prune disagreed about a missing timestamp. The upsert
+      admitted `r.last_observed_at IS NULL` unconditionally
+      (queries/canonical_rebuild.ex:180) while both evidence pruners required
+      `IS NOT NULL`. An evidence edge with no `last_observed_at` was therefore projected on
+      every rebuild and could never be pruned -- and because the upsert emits
+      `coalesce(r.last_observed_at, r.observed_at)`, the canonical edge it produced WAS
+      prunable, giving an hourly delete/recreate loop that also inflates the candidate count
+      feeding the mass-deletion guard. Both sides now use that same coalesce, and the
+      evidence prune deletes edges carrying no usable timestamp at all. No current writer
+      emits a null (every `SET r.last_observed_at` is unconditional), so this was latent
+      rather than active -- it is hardening, not an outage fix.
+
 ## 4. Causal horizon labelling
 
 - [ ] 4.1 Report "not reached within N hops" instead of "not causally linked" when a node
