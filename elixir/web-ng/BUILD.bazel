@@ -143,11 +143,24 @@ copy_to_bin(
 
 # Static files that are committed rather than generated. mix_release preserved these by
 # copying them aside before wiping priv/static; as a target they are just inputs.
+#
+# The excludes are the gitignored outputs of the local asset loop AGENTS.md documents:
+# `npm run build:js` / `build:css` write priv/static/assets, `mix phx.digest` writes
+# cache_manifest.json. Neither exists in a clean CI checkout, so the glob only picks them
+# up on a developer's machine -- where they collide with the Bazel-built bundles that
+# //elixir/web-ng/assets:static_undigested already gets from :css_bundle and :js_bundle,
+# taking down `make test`. Do NOT reach for allow_overwrites instead: it resolves the
+# collision by source order, which would let a stale local bundle shadow the one Bazel
+# just built.
 filegroup(
     name = "static_files",
     srcs = glob(
         ["priv/static/**"],
         allow_empty = True,
+        exclude = [
+            "priv/static/assets/**",
+            "priv/static/cache_manifest.json",
+        ],
     ),
 )
 
