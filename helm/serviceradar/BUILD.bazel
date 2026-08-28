@@ -111,3 +111,63 @@ py_test(
         "values.yaml",
     ],
 )
+
+# --- helm-unittest suite ----------------------------------------------------
+# The chart's helm-unittest suite (tests/*_test.yaml) had NO CI gate: the Helm Lint
+# workflow runs `helm lint`, which never executes an assertion. 26 assertions across
+# 10 suites were committed having never once run, every one written against
+# `helm template` output rather than the plugin's. This target closes that hole by
+# making the suite part of `bazel test //...` (and therefore of `make test`).
+#
+# The runner is the plugin's own `untt` binary, pinned in //MODULE.bazel and selected
+# per platform here. `helm unittest` does nothing but exec it, so this is the same code
+# path without needing a helm binary -- which also keeps the gate off get.helm.sh, a
+# host the BuildBuddy runners cannot reach.
+[
+    config_setting(
+        name = os_name + "_" + cpu_suffix,
+        constraint_values = [
+            "@platforms//os:" + os_name,
+            "@platforms//cpu:" + cpu,
+        ],
+    )
+    for os_name, cpu, cpu_suffix in [
+        ("linux", "x86_64", "amd64"),
+        ("linux", "aarch64", "arm64"),
+        ("macos", "x86_64", "amd64"),
+        ("macos", "aarch64", "arm64"),
+    ]
+]
+
+alias(
+    name = "helm_unittest_binary",
+    actual = select({
+        ":linux_amd64": "@helm_unittest_linux_amd64//:untt",
+        ":linux_arm64": "@helm_unittest_linux_arm64//:untt",
+        ":macos_amd64": "@helm_unittest_macos_amd64//:untt",
+        ":macos_arm64": "@helm_unittest_macos_arm64//:untt",
+    }),
+)
+
+py_test(
+    name = "helm_unittest_suite_test",
+    srcs = ["helm_unittest_suite_test.py"],
+    # EVERY chart file the renderer can reach, not a named subset. The suite renders
+    # whole templates, and a file missing from runfiles surfaces as a template error
+    # rather than as the missing input it is.
+    data = [
+        "Chart.yaml",
+        "values.yaml",
+        ":helm_unittest_binary",
+    ] + glob([
+        "crds/**",
+        "dashboards/**",
+        "files/**",
+        "templates/**",
+        "tests/**",
+    ]),
+    env = {
+        "SERVICERADAR_CHART_YAML": "$(rootpath Chart.yaml)",
+        "SERVICERADAR_HELM_UNITTEST_BINARY": "$(rootpath :helm_unittest_binary)",
+    },
+)

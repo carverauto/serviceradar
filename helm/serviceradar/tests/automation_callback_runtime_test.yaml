@@ -3,6 +3,9 @@ templates:
   - templates/agent-gateway.yaml
   - templates/core.yaml
   - templates/web.yaml
+# Assertions are scoped with `template:` and select documents by a path that is unique
+# within that template. Selecting on metadata.name matches several documents here and
+# fails with `multiple indexes found`. See README.md in this directory.
 tests:
   - it: keeps callback custody absent when the feature is disabled with a legacy Secret
     set:
@@ -14,37 +17,42 @@ tests:
           path: spec.template.spec.containers[0].env
           content:
             name: SERVICERADAR_AUTOMATION_CALLBACK_HMAC_KEYRING_FILE
+        template: templates/web.yaml
         documentSelector:
-          path: metadata.name
-          value: serviceradar-web-ng
+          path: kind
+          value: Deployment
       - notContains:
           path: spec.template.spec.containers[0].env
           content:
             name: SERVICERADAR_AUTOMATION_CALLBACK_ENVELOPE_KEY_FILE
+        template: templates/web.yaml
         documentSelector:
-          path: metadata.name
-          value: serviceradar-web-ng
+          path: kind
+          value: Deployment
       - notContains:
           path: spec.template.spec.containers[0].env
           content:
             name: SERVICERADAR_AUTOMATION_CALLBACK_ENVELOPE_KEY_FILE
+        template: templates/core.yaml
         documentSelector:
-          path: metadata.name
-          value: serviceradar-core
+          path: kind
+          value: Deployment
       - notContains:
           path: spec.template.spec.volumes
           content:
             name: automation-callback-secrets
+        template: templates/web.yaml
         documentSelector:
-          path: metadata.name
-          value: serviceradar-web-ng
+          path: kind
+          value: Deployment
       - notContains:
           path: spec.template.spec.volumes
           content:
             name: automation-callback-envelope
+        template: templates/core.yaml
         documentSelector:
-          path: metadata.name
-          value: serviceradar-core
+          path: kind
+          value: Deployment
 
   - it: gives issuance custody only to web and envelope custody only to core
     set:
@@ -61,61 +69,69 @@ tests:
           content:
             name: SERVICERADAR_AUTOMATION_CALLBACK_ORIGIN
             value: https://demo.example.com
+        template: templates/web.yaml
         documentSelector:
-          path: metadata.name
-          value: serviceradar-web-ng
+          path: kind
+          value: Deployment
       - contains:
           path: spec.template.spec.containers[0].env
           content:
             name: SERVICERADAR_AUTOMATION_CALLBACK_HMAC_KEYRING_FILE
             value: /etc/serviceradar/automation-callback/hmac-keyring.json
+        template: templates/web.yaml
         documentSelector:
-          path: metadata.name
-          value: serviceradar-web-ng
+          path: kind
+          value: Deployment
       - contains:
           path: spec.template.spec.containers[0].env
           content:
             name: SERVICERADAR_AUTOMATION_CALLBACK_ENVELOPE_KEY_FILE
             value: /etc/serviceradar/automation-callback/envelope-key
+        template: templates/web.yaml
         documentSelector:
-          path: metadata.name
-          value: serviceradar-web-ng
+          path: kind
+          value: Deployment
       - notContains:
           path: spec.template.spec.containers[0].env
           content:
             name: SERVICERADAR_AUTOMATION_CALLBACK_HMAC_KEYRING_FILE
+        template: templates/core.yaml
         documentSelector:
-          path: metadata.name
-          value: serviceradar-core
+          path: kind
+          value: Deployment
       - notContains:
           path: spec.template.spec.containers[0].env
           content:
             name: SERVICERADAR_AUTOMATION_CALLBACK_ORIGIN
+        template: templates/core.yaml
         documentSelector:
-          path: metadata.name
-          value: serviceradar-core
+          path: kind
+          value: Deployment
       - contains:
           path: spec.template.spec.containers[0].env
           content:
             name: SERVICERADAR_AUTOMATION_CALLBACK_ENVELOPE_KEY_FILE
             value: /etc/serviceradar/automation-callback/envelope-key
+        template: templates/core.yaml
         documentSelector:
-          path: metadata.name
-          value: serviceradar-core
+          path: kind
+          value: Deployment
       - notContains:
           path: spec.template.spec.containers[0].env
           content:
             name: SERVICERADAR_AUTOMATION_CALLBACK_HMAC_KEYRING_FILE
+        template: templates/agent-gateway.yaml
         documentSelector:
-          path: metadata.name
-          value: serviceradar-agent-gateway
+          path: kind
+          value: Deployment
       - notContains:
           path: spec.template.spec.containers[0].env
           content:
             name: SERVICERADAR_AUTOMATION_CALLBACK_ENVELOPE_KEY_FILE
+        template: templates/agent-gateway.yaml
         documentSelector:
-          path: metadata.name
-          value: serviceradar-agent-gateway
+          path: kind
+          value: Deployment
       - contains:
           path: spec.template.spec.volumes
           content:
@@ -126,9 +142,10 @@ tests:
               items:
                 - key: automation-callback-envelope-key
                   path: envelope-key
+        template: templates/core.yaml
         documentSelector:
-          path: metadata.name
-          value: serviceradar-core
+          path: kind
+          value: Deployment
       - contains:
           path: spec.template.spec.volumes
           content:
@@ -141,9 +158,10 @@ tests:
                   path: hmac-keyring.json
                 - key: automation-callback-envelope-key
                   path: envelope-key
+        template: templates/web.yaml
         documentSelector:
-          path: metadata.name
-          value: serviceradar-web-ng
+          path: kind
+          value: Deployment
 
   - it: permits a deployment-owned web origin and envelope key identifier
     set:
@@ -161,14 +179,16 @@ tests:
           content:
             name: SERVICERADAR_AUTOMATION_CALLBACK_ORIGIN
             value: https://callbacks.example.com:8443
+        template: templates/web.yaml
         documentSelector:
-          path: metadata.name
-          value: serviceradar-web-ng
+          path: kind
+          value: Deployment
       - contains:
           path: spec.template.spec.containers[0].env
           content:
             name: SERVICERADAR_AUTOMATION_CALLBACK_ENVELOPE_KEY_ID
             value: envelope-v2
+        template: templates/core.yaml
         documentSelector:
-          path: metadata.name
-          value: serviceradar-core
+          path: kind
+          value: Deployment

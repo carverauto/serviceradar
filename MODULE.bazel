@@ -1081,6 +1081,43 @@ http_file(
     ],
 )
 
+# --- helm-unittest ----------------------------------------------------------
+# The chart unit suite for //helm/serviceradar:helm_unittest_suite_test.
+#
+# Pinned and fetched here rather than installed by a workflow step, so the suite runs
+# under a plain `bazel test //...`. That distinction is the whole point of the target:
+# `helm unittest` was invoked by NO CI job, and 26 assertions across 10 suites were
+# committed having never once been executed -- they asserted `helm template`'s
+# kind-sorted document order and its `default` release namespace, neither of which is
+# what the plugin produces.
+#
+# Only the plugin is fetched, not helm itself. `untt` is a self-contained binary that
+# links the Helm libraries and renders the chart on its own -- `helm unittest` does no
+# more than exec it (plugin.yaml: `command: "$HELM_PLUGIN_DIR/untt"`, ignoreFlags
+# false), so running it directly is the same code path with no HELM_PLUGINS layout to
+# stage. It also keeps the result independent of whichever helm a developer happens to
+# have installed. The deciding constraint is that get.helm.sh is not reachable from the
+# BuildBuddy runners (read timeout) while github.com is, so depending on a helm tarball
+# would break the gate in exactly the CI it exists to run in.
+[
+    http_archive(
+        name = "helm_unittest_" + suffix,
+        build_file_content = """
+exports_files(["untt"])
+""",
+        sha256 = sha256,
+        urls = [
+            "https://github.com/helm-unittest/helm-unittest/releases/download/v0.7.2/helm-unittest-" + platform + "-0.7.2.tgz",
+        ],
+    )
+    for suffix, platform, sha256 in [
+        ("linux_amd64", "linux-amd64", "25a9a7867eff63e567511cc488b370f22ea06ae8d2bdb0a418de7ab83a143b9e"),
+        ("linux_arm64", "linux-arm64", "f846181c854d6330b255acb22c8864cd5f1feb79190e3dca5e425428112926e8"),
+        ("macos_amd64", "macos-amd64", "ca51e4bc4377ecbf1589930049af34dbe9ead4e31d0bff0b4c676913d07a0d27"),
+        ("macos_arm64", "macos-arm64", "9a1d903e7fb1d2cd151c23fdae65ff14079686eab390bfe37c225c6bc50a5681"),
+    ]
+]
+
 # --- Membrane precompiled OS-deps ------------------------------------------
 # core-elx pulls ~13 Membrane plugins (via vendored boombox) whose Bundlex downloads one
 # precompiled OS-dep tarball each from github.com at `mix deps.compile`. The Forgejo runner
