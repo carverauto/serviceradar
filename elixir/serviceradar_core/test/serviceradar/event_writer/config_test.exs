@@ -68,6 +68,22 @@ defmodule ServiceRadar.EventWriter.ConfigTest do
       refute "SFLOW_RAW" in stream_names
     end
 
+    test "jetstream_stream_name never treats SFLOW_RAW as a stream name" do
+      assert Config.jetstream_stream_name(%{name: "SFLOW_RAW", subject: "flows.raw.sflow"}) ==
+               "flows"
+
+      assert Config.jetstream_stream_name(%{name: "NETFLOW_RAW", subject: "flows.raw.netflow"}) ==
+               "flows"
+
+      assert Config.jetstream_stream_name(%{
+               name: "SFLOW_RAW",
+               stream_name: "flows",
+               subject: "flows.raw.sflow"
+             }) == "flows"
+
+      assert Config.jetstream_stream_name(%{name: "EVENTS", subject: "events.>"}) == "EVENTS"
+    end
+
     test "default_flow_streams targets the dedicated flows stream" do
       streams = Config.default_flow_streams()
       names = Enum.map(streams, & &1.name)

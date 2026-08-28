@@ -835,7 +835,7 @@ defmodule ServiceRadar.EventWriter.Producer do
   end
 
   defp expected_stream_name(stream) do
-    Map.get(stream, :stream_name) || stream.name
+    Config.jetstream_stream_name(stream)
   end
 
   defp ensure_durable_opts(stream, durable_name, ack_wait_ns, max_ack_pending, max_deliver) do
