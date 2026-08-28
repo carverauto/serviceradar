@@ -1,6 +1,20 @@
 alias Ecto.Adapters.SQL
 
-ExUnit.start()
+# ExUnit's default `assert_receive` deadline is 100ms. That is not a valid
+# budget here: with ~1120 tests running across `max_cases` concurrent async
+# modules, the VM routinely deschedules a process for far longer. Measured in
+# this suite, a bare `start_supervised!/1` took 105ms to return and a
+# process-to-process round trip took 515ms, while the same code in isolation
+# completes in microseconds.
+#
+# Tests that wait on another process were therefore asserting a latency the
+# environment does not provide -- FirehoseReplayTest failed this way in roughly
+# half of all runs. Raising the deadline costs nothing on a green run, because
+# `assert_receive` returns the moment the message lands; the timeout is only
+# the bound for reporting a genuine failure. `refute_receive` is unaffected: it
+# reads `refute_receive_timeout`, which stays at 100ms so negative assertions
+# stay fast.
+ExUnit.start(assert_receive_timeout: 2_000)
 
 # Test suite should exercise app behavior, not startup migration gating.
 if System.get_env("SERVICERADAR_MIGRATIONS_GATE") in [nil, ""] do
