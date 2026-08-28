@@ -49,8 +49,9 @@ defmodule ServiceRadar.Edge.PublishWindow do
 
   ## Transition policy, stated once
 
-      admit a new sequence, within both bounds   -> {:ok, window}
-      admit a sequence already outstanding       -> {:error, :already_outstanding}
+      admit a new SLOT, within both bounds       -> {:ok, window}
+      admit the same slot with the same record   -> {:ok, window}  (retry: re-arms, no new credits)
+      admit the same slot with a DIFFERENT record-> {:error, :slot_conflict}
       admit beyond the frame grant               -> {:error, :frame_credits_exhausted}
       admit beyond the byte grant                -> {:error, :byte_credits_exhausted}
       settle with a settling outcome             -> {:ok, window}
@@ -90,10 +91,16 @@ defmodule ServiceRadar.Edge.PublishWindow do
   @enforce_keys [:frame_credits, :byte_credits, :outstanding, :bytes_outstanding]
   defstruct [:frame_credits, :byte_credits, :outstanding, :bytes_outstanding]
 
+  @typedoc """
+  A reservation key: the complete authenticated delivery slot, never the lane sequence alone.
+  See `key/4` for why.
+  """
+  @type key :: {binary(), binary(), binary(), pos_integer()}
+
   @opaque t :: %__MODULE__{
             frame_credits: non_neg_integer(),
             byte_credits: non_neg_integer(),
-            # sequence => {bytes, deadline}
+            # slot key => {bytes, deadline, fingerprint}
             outstanding: %{optional(pos_integer()) => {non_neg_integer(), integer()}},
             bytes_outstanding: non_neg_integer()
           }
@@ -150,11 +157,11 @@ defmodule ServiceRadar.Edge.PublishWindow do
   Refuses rather than overcommitting: a frame that would exceed either grant is not admitted, and
   the caller waits for a settlement instead of publishing anyway.
   """
-  @spec admit(t(), pos_integer(), non_neg_integer(), integer()) :: {:ok, t()} | {:error, atom()}
-  def admit(%__MODULE__{} = w, seq, bytes, deadline_at) do
+  @spec admit(t(), key(), non_neg_integer(), integer(), term()) :: {:ok, t()} | {:error, atom()}
+  def admit(%__MODULE__{} = w, key, bytes, deadline_at, fingerprint) do
     cond do
-      not is_integer(seq) or seq < 1 or seq > @u64_max ->
-        {:error, :sequence}
+      not valid_key?(key) ->
+        {:error, :slot}
 
       not is_integer(bytes) or bytes < 0 ->
         {:error, :bytes}
@@ -162,11 +169,37 @@ defmodule ServiceRadar.Edge.PublishWindow do
       not is_integer(deadline_at) ->
         {:error, :deadline}
 
-      Map.has_key?(w.outstanding, seq) ->
-        # A slot is allocated once. A second admit is a caller bug, not a retry: a retry
-        # republishes the SAME slot, which is already outstanding and still charged.
-        {:error, :already_outstanding}
+      true ->
+        reserve(w, key, bytes, deadline_at, fingerprint)
+    end
+  end
 
+  # The retry/conflict decision, which is the whole reason a fingerprint is stored.
+  defp reserve(w, key, bytes, deadline_at, fingerprint) do
+    case Map.fetch(w.outstanding, key) do
+      {:ok, {reserved_bytes, _deadline, ^fingerprint}} ->
+        # SAME publication on the SAME slot: this is the republish path. It consumes no new
+        # credits -- the bytes are already committed -- and it MOVES THE DEADLINE, because a
+        # retry that kept the expired one would be reported expired forever.
+        {:ok,
+         %{
+           w
+           | outstanding: Map.put(w.outstanding, key, {reserved_bytes, deadline_at, fingerprint})
+         }}
+
+      {:ok, {_bytes, _deadline, _other}} ->
+        # A DIFFERENT publication claiming a slot that is already reserved. Refused rather than
+        # treated as a retry: admitting it would publish on the holder's credits, and settling it
+        # would release the holder's reservation.
+        {:error, :slot_conflict}
+
+      :error ->
+        admit_new(w, key, bytes, deadline_at, fingerprint)
+    end
+  end
+
+  defp admit_new(w, key, bytes, deadline_at, fingerprint) do
+    cond do
       map_size(w.outstanding) + 1 > w.frame_credits ->
         {:error, :frame_credits_exhausted}
 
@@ -177,11 +210,32 @@ defmodule ServiceRadar.Edge.PublishWindow do
         {:ok,
          %{
            w
-           | outstanding: Map.put(w.outstanding, seq, {bytes, deadline_at}),
+           | outstanding: Map.put(w.outstanding, key, {bytes, deadline_at, fingerprint}),
              bytes_outstanding: w.bytes_outstanding + bytes
          }}
     end
   end
+
+  @doc """
+  A reservation key: the COMPLETE authenticated delivery slot.
+
+  Not the lane sequence. One lane pool is shared by every agent and spool in its traffic class, so
+  a bare sequence number aliases across them -- two different agents at sequence 1 looked like one
+  frame retrying, which let the second publish on the first's credits and let its ack release the
+  first's reservation. The normative identity is
+  `(network_scope_id, authenticated_agent_id, spool_id, sequence)` and that is what is keyed.
+  """
+  @spec key(binary(), binary(), binary(), pos_integer()) :: key()
+  def key(network_scope_id, authenticated_agent_id, spool_id, sequence),
+    do: {network_scope_id, authenticated_agent_id, spool_id, sequence}
+
+  defp valid_key?({scope, agent, spool, seq})
+       when is_binary(scope) and is_binary(agent) and is_binary(spool) and is_integer(seq) and
+              seq >= 1 and
+              seq <= @u64_max,
+       do: scope != "" and agent != "" and spool != ""
+
+  defp valid_key?(_), do: false
 
   @doc """
   Releases one frame's credits, given the internal outcome that ended the attempt.
@@ -217,8 +271,8 @@ defmodule ServiceRadar.Edge.PublishWindow do
     * an outcome outside the allowlist is refused, so one added later cannot release credits
       before anyone has classified it
   """
-  @spec settle(t(), pos_integer(), atom()) :: {:ok, t()} | {:error, atom()}
-  def settle(%__MODULE__{} = w, seq, outcome) do
+  @spec settle(t(), key(), atom()) :: {:ok, t()} | {:error, atom()}
+  def settle(%__MODULE__{} = w, key, outcome) do
     cond do
       outcome == @retryable_outcome ->
         {:error, :not_settled}
@@ -227,7 +281,7 @@ defmodule ServiceRadar.Edge.PublishWindow do
         {:error, :unknown_outcome}
 
       true ->
-        release(w, seq)
+        release(w, key)
     end
   end
 
@@ -248,13 +302,13 @@ defmodule ServiceRadar.Edge.PublishWindow do
   @spec internal_outcomes() :: [atom()]
   def internal_outcomes, do: [@retryable_outcome | Map.keys(@settling_outcomes)]
 
-  defp release(w, seq) do
-    case Map.fetch(w.outstanding, seq) do
-      {:ok, {bytes, _deadline}} ->
+  defp release(w, key) do
+    case Map.fetch(w.outstanding, key) do
+      {:ok, {bytes, _deadline, _fingerprint}} ->
         {:ok,
          %{
            w
-           | outstanding: Map.delete(w.outstanding, seq),
+           | outstanding: Map.delete(w.outstanding, key),
              bytes_outstanding: w.bytes_outstanding - bytes
          }}
 
@@ -266,22 +320,23 @@ defmodule ServiceRadar.Edge.PublishWindow do
   @doc """
   Replaces an outstanding frame's PubAck deadline, leaving its credits charged.
 
-  This is the republish path, and without it the retry was UNREPRESENTABLE: `admit/4` refuses an
-  outstanding slot (`:already_outstanding`) and `settle/3` would release credits for a frame that
-  is still in flight, so an expired frame could be reported forever but never re-armed.
-
   Charges nothing and releases nothing -- the bytes were already committed and the publication is
   the same publication on the same slot. Only the deadline moves.
 
-  Refuses a sequence that is not outstanding: there is no frame to re-arm, and silently admitting
+  `admit/5` also re-arms when it recognises a retry by fingerprint, which is the path the publisher
+  takes. This remains for a caller that has verified sameness by other means and wants to move a
+  deadline without re-presenting the record.
+
+  Refuses a slot that is not outstanding: there is no frame to re-arm, and silently admitting
   one here would bypass both bounds.
   """
-  @spec rearm(t(), pos_integer(), integer()) :: {:ok, t()} | {:error, atom()}
-  def rearm(%__MODULE__{} = w, seq, deadline_at) do
+  @spec rearm(t(), key(), integer()) :: {:ok, t()} | {:error, atom()}
+  def rearm(%__MODULE__{} = w, key, deadline_at) do
     if is_integer(deadline_at) do
-      case Map.fetch(w.outstanding, seq) do
-        {:ok, {bytes, _old}} ->
-          {:ok, %{w | outstanding: Map.put(w.outstanding, seq, {bytes, deadline_at})}}
+      case Map.fetch(w.outstanding, key) do
+        {:ok, {bytes, _old, fingerprint}} ->
+          {:ok,
+           %{w | outstanding: Map.put(w.outstanding, key, {bytes, deadline_at, fingerprint})}}
 
         :error ->
           {:error, :not_outstanding}
@@ -297,11 +352,11 @@ defmodule ServiceRadar.Edge.PublishWindow do
   REPORTS ONLY. The frames stay outstanding and stay charged, because the publisher republishes
   the same bytes on the same slot and the publication is still in flight.
   """
-  @spec expired(t(), integer()) :: [pos_integer()]
+  @spec expired(t(), integer()) :: [key()]
   def expired(%__MODULE__{} = w, now) when is_integer(now) do
     w.outstanding
-    |> Enum.filter(fn {_seq, {_bytes, deadline}} -> deadline <= now end)
-    |> Enum.sort_by(fn {seq, {_bytes, deadline}} -> {deadline, seq} end)
+    |> Enum.filter(fn {_key, {_bytes, deadline, _fp}} -> deadline <= now end)
+    |> Enum.sort_by(fn {key, {_bytes, deadline, _fp}} -> {deadline, key} end)
     |> Enum.map(&elem(&1, 0))
   end
 

@@ -335,6 +335,93 @@ defmodule ServiceRadarAgentGateway.JetStreamPublisherTest do
       %{base | slot: Map.put(base.slot, :sequence, seq)}
     end
 
+    # A publication on a DIFFERENT authenticated slot at the same lane sequence. The normative
+    # identity is (network_scope_id, authenticated_agent_id, spool_id, sequence), and one lane
+    # pool is shared by every agent and spool in that class, so the sequence alone does not
+    # identify a reservation.
+    defp pub_other_slot(seq, bytes) do
+      base = publication(%{record_bytes: bytes})
+
+      slot = %{
+        network_scope_id: uuidv7(0x41),
+        authenticated_agent_id: "agent-OTHER",
+        spool_id: uuidv7(0x02),
+        sequence: seq
+      }
+
+      %{base | slot: slot}
+    end
+
+    test "COUNTEREXAMPLE: a different slot at the same sequence must not ride A's reservation" do
+      pools = one_frame_pools()
+
+      # A takes the lane's only frame and times out, so its reservation stays outstanding.
+      with_reply({:error, :timeout})
+      assert {:error, :timeout} = JetStreamPublisher.publish_record(pub_seq(1), connection: FakeConn, pools: pools)
+      assert_received {:requested, _, _, _, _}
+
+      # B is a DIFFERENT agent and spool with DIFFERENT bytes, at the same sequence number. It is
+      # not a retry of A. With one frame already held, it must be refused -- not published on A's
+      # credits, and certainly not able to settle A's reservation.
+      {:ok, planned} = JetStreamPublisher.plan(pub_seq(1))
+      with_reply({:ok, %{body: ~s({"stream":"#{planned.route.expected_stream}","seq":9})}})
+
+      assert {:error, :capacity} =
+               JetStreamPublisher.publish_record(pub_other_slot(1, "different-bytes"),
+                 connection: FakeConn,
+                 pools: pools
+               )
+
+      refute_received {:requested, _, _, _, _}
+
+      # And A's reservation is still held: B must not have released it.
+      assert %{outstanding_frames: 1, available_frames: 0} = PublisherPool.capacity(pools[:bulk])
+    end
+
+    test "COUNTEREXAMPLE: a derivation failure after admission must not consume a credit" do
+      pools = one_frame_pools()
+
+      # Routable contract, binary body, positive sequence -- but the identity derivation fails on
+      # a short digest, so no I/O happens. A reservation taken before that check leaks.
+      assert {:error, {:derivation, _}} =
+               JetStreamPublisher.publish_record(publication(%{record_sha256: <<1, 2, 3>>}),
+                 connection: FakeConn,
+                 pools: pools
+               )
+
+      refute_received {:requested, _, _, _, _}
+
+      assert %{outstanding_frames: 0, available_frames: 1} = PublisherPool.capacity(pools[:bulk]),
+             "a failed derivation consumed a credit despite performing no I/O"
+    end
+
+    test "COUNTEREXAMPLE: a verified retry re-arms its deadline" do
+      pools = one_frame_pools()
+
+      with_reply({:error, :timeout})
+
+      assert {:error, :timeout} =
+               JetStreamPublisher.publish_record(pub_seq(1),
+                 connection: FakeConn,
+                 pools: pools,
+                 receive_timeout: 0
+               )
+
+      # The retry carries a long timeout. PublishWindow documents re-arm as the retry path, so
+      # after it the frame must NOT already be expired.
+      assert {:error, :timeout} =
+               JetStreamPublisher.publish_record(pub_seq(1),
+                 connection: FakeConn,
+                 pools: pools,
+                 receive_timeout: 60_000
+               )
+
+      now = System.monotonic_time(:millisecond)
+
+      assert PublisherPool.expired(pools[:bulk], now) === [],
+             "the retry kept the expired deadline instead of re-arming it"
+    end
+
     test "a saturated lane REFUSES and publishes nothing" do
       pools = one_frame_pools()
 
