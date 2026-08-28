@@ -2,7 +2,11 @@ defmodule ServiceRadarWebNGWeb.McpTest do
   use ServiceRadarWebNGWeb.ConnCase, async: false
   use ServiceRadarWebNG.AshTestHelpers
 
+  alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Identity.OAuthClient.Credentials
+  alias ServiceRadar.Identity.RBAC
+  alias ServiceRadar.Identity.RoleProfile
+  alias ServiceRadar.Identity.User
   alias ServiceRadar.Security.Events
   alias ServiceRadar.Security.RateLimiter
   alias ServiceRadar.Security.SecurityEvent
@@ -95,6 +99,28 @@ defmodule ServiceRadarWebNGWeb.McpTest do
     assert names == Enum.sort(Mcp.v1_tools())
   end
 
+  test "execute_srql is forbidden without devices.view", %{owner: owner} do
+    user = restrict_user(viewer_user_fixture(), ["observability.logs.view"])
+
+    {:ok, client, secret} =
+      Credentials.create_client(user.id,
+        name: "MCP Restricted #{System.unique_integer([:positive])}",
+        scopes: ["read", "mcp"],
+        actor: owner
+      )
+
+    conn =
+      post(
+        authed(client, secret),
+        "/mcp",
+        tool_call("execute_srql", %{"query" => "in:devices"})
+      )
+
+    body = json_response(conn, 200)
+    assert body["result"]["isError"]
+    assert Enum.any?(body["result"]["content"], &String.contains?(&1["text"] || "", "forbidden"))
+  end
+
   test "execute_srql goes through Access/query_request", %{client: client, secret: secret} do
     previous = Application.get_env(:serviceradar_web_ng, :srql_module)
     Application.put_env(:serviceradar_web_ng, :srql_module, __MODULE__.QueryProbe)
@@ -167,7 +193,7 @@ defmodule ServiceRadarWebNGWeb.McpTest do
 
     kinds =
       SecurityEvent
-      |> Ash.read!(actor: ServiceRadar.Actors.SystemActor.system(:mcp_test), authorize?: false)
+      |> Ash.read!(actor: SystemActor.system(:mcp_test), authorize?: false)
       |> Enum.map(& &1.kind)
 
     assert :mcp_session_initialized in kinds
@@ -217,6 +243,25 @@ defmodule ServiceRadarWebNGWeb.McpTest do
 
   defp restore_srql(nil), do: Application.delete_env(:serviceradar_web_ng, :srql_module)
   defp restore_srql(mod), do: Application.put_env(:serviceradar_web_ng, :srql_module, mod)
+
+  defp restrict_user(user, permissions) do
+    actor = SystemActor.system(:srql_rbac_test)
+
+    {:ok, profile} =
+      RoleProfile.create_profile(
+        %{
+          name: "mcp-rbac-#{System.unique_integer([:positive])}",
+          description: "catalog-gate fixture",
+          permissions: permissions
+        },
+        actor: actor
+      )
+
+    {:ok, assigned} = User.update_role_profile(user, %{role_profile_id: profile.id}, actor: actor)
+    RBAC.invalidate_user_cache(assigned.id)
+    RBAC.clear_process_cache()
+    assigned
+  end
 
   defp mint_token(client, secret) do
     conn =

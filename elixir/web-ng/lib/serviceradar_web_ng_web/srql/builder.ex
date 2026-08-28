@@ -46,9 +46,9 @@ defmodule ServiceRadarWebNGWeb.SRQL.Builder do
     filters = normalize_filters(entity, Map.get(state, "filters", []))
 
     mode =
-      if bucket |> safe_to_string() |> String.trim() != "",
-        do: :downsample,
-        else: :row
+      if bucket |> safe_to_string() |> String.trim() == "",
+        do: :row,
+        else: :downsample
 
     {filters, _stripped} = apply_mode_filter_allowlist(entity, mode, filters)
 
@@ -89,7 +89,7 @@ defmodule ServiceRadarWebNGWeb.SRQL.Builder do
       |> safe_to_string()
       |> String.trim()
 
-    if bucket != "", do: :downsample, else: :row
+    if bucket == "", do: :row, else: :downsample
   end
 
   def mode(_), do: :row
@@ -210,7 +210,7 @@ defmodule ServiceRadarWebNGWeb.SRQL.Builder do
       |> normalize_time()
       |> ensure_downsample_time(config, bucket)
 
-    mode = if bucket != "", do: :downsample, else: :row
+    mode = if bucket == "", do: :row, else: :downsample
     raw_filters = normalize_filters(entity, Map.get(state, "filters", []))
     {filters, stripped} = apply_mode_filter_allowlist(entity, mode, raw_filters)
 
@@ -242,13 +242,13 @@ defmodule ServiceRadarWebNGWeb.SRQL.Builder do
 
         {kept, removed} =
           Enum.split_with(filters, fn filter ->
-            field = Map.get(filter, "field") |> safe_to_string() |> String.trim()
+            field = filter |> Map.get("field") |> safe_to_string() |> String.trim()
             field == "" or MapSet.member?(allowed_set, field)
           end)
 
         stripped =
           removed
-          |> Enum.map(fn filter -> Map.get(filter, "field") |> safe_to_string() end)
+          |> Enum.map(fn filter -> filter |> Map.get("field") |> safe_to_string() end)
           |> Enum.reject(&(&1 == ""))
           |> Enum.uniq()
 
@@ -279,9 +279,10 @@ defmodule ServiceRadarWebNGWeb.SRQL.Builder do
     config = Catalog.entity(entity)
     preferred = safe_to_string(config.default_filter_field || "")
 
-    cond do
-      preferred != "" and preferred in allowed -> preferred
-      true -> List.first(allowed) || preferred || "field"
+    if preferred != "" and preferred in allowed do
+      preferred
+    else
+      List.first(allowed) || preferred || "field"
     end
   end
 

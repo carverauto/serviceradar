@@ -6,6 +6,11 @@ defmodule ServiceRadarWebNGWeb.Api.QueryController do
       {:ok, response} ->
         json(conn, response)
 
+      {:error, :forbidden} ->
+        conn
+        |> put_status(:forbidden)
+        |> json(%{"error" => "forbidden", "message" => "You do not have permission to query this entity"})
+
       {:error, reason} ->
         conn
         |> put_status(:bad_request)

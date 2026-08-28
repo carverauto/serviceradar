@@ -7,6 +7,7 @@ defmodule ServiceRadarWebNG.Api.Access do
   """
 
   alias ServiceRadar.Inventory.Device
+  alias ServiceRadarWebNG.SRQL.EntityAccess
 
   require Ash.Query
 
@@ -24,10 +25,11 @@ defmodule ServiceRadarWebNG.Api.Access do
 
   @spec execute_query(term(), map()) :: {:ok, map()} | {:error, term()}
   def execute_query(scope, params) when is_map(params) do
-    params
-    |> stringify_keys()
-    |> Map.put("scope", scope)
-    |> srql_module().query_request()
+    params = params |> stringify_keys() |> Map.put("scope", scope)
+
+    with :ok <- EntityAccess.authorize(Map.get(params, "query"), scope) do
+      srql_module().query_request(params)
+    end
   end
 
   @spec srql_catalog(term()) :: map()

@@ -17,7 +17,11 @@ defmodule ServiceRadarWebNGWeb.Api.ApiEndpointIntegrationTest do
   use ServiceRadarWebNGWeb.ConnCase, async: false
   use ServiceRadarWebNG.AshTestHelpers
 
+  alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Identity.OAuthClient.Credentials
+  alias ServiceRadar.Identity.RBAC
+  alias ServiceRadar.Identity.RoleProfile
+  alias ServiceRadar.Identity.User
   alias ServiceRadar.Security.RateLimiter
   alias ServiceRadarWebNG.Auth.Guardian
 
@@ -79,6 +83,41 @@ defmodule ServiceRadarWebNGWeb.Api.ApiEndpointIntegrationTest do
   end
 
   defp authed(%{client: client, secret: secret}), do: api_conn(mint_token(client, secret))
+
+  defp client_for_user(owner, user, scopes) do
+    {:ok, client, secret} =
+      Credentials.create_client(user.id,
+        name: "API Restricted #{System.unique_integer([:positive])}",
+        scopes: scopes,
+        actor: owner
+      )
+
+    {client, secret}
+  end
+
+  defp restricted_client(owner, permissions) do
+    user = restrict_user(viewer_user_fixture(), permissions)
+    client_for_user(owner, user, ["read"])
+  end
+
+  defp restrict_user(user, permissions) do
+    actor = SystemActor.system(:srql_rbac_test)
+
+    {:ok, profile} =
+      RoleProfile.create_profile(
+        %{
+          name: "srql-rbac-#{System.unique_integer([:positive])}",
+          description: "catalog-gate fixture",
+          permissions: permissions
+        },
+        actor: actor
+      )
+
+    {:ok, assigned} = User.update_role_profile(user, %{role_profile_id: profile.id}, actor: actor)
+    RBAC.invalidate_user_cache(assigned.id)
+    RBAC.clear_process_cache()
+    assigned
+  end
 
   # Seed devices with strictly-decreasing last_seen_time so `sort:desc` +
   # offset paging is deterministic (no tie ambiguity across pages).
@@ -394,6 +433,36 @@ defmodule ServiceRadarWebNGWeb.Api.ApiEndpointIntegrationTest do
     test "without a token returns 401" do
       conn = post(build_conn(), ~p"/api/query", %{"query" => "in:devices"})
       assert json_response(conn, 401)["error"] == "authentication_required"
+    end
+
+    test "a custom profile without devices.view cannot query in:devices", %{owner: owner} do
+      {client, secret} = restricted_client(owner, ["observability.logs.view"])
+      conn = post(authed(%{client: client, secret: secret}), ~p"/api/query", %{"query" => "in:devices limit:1"})
+      body = json_response(conn, 403)
+      assert body["error"] == "forbidden"
+    end
+
+    test "a custom profile without observability.logs.view cannot query in:logs", %{owner: owner} do
+      {client, secret} = restricted_client(owner, ["devices.view"])
+      conn = post(authed(%{client: client, secret: secret}), ~p"/api/query", %{"query" => "in:logs limit:1"})
+      body = json_response(conn, 403)
+      assert body["error"] == "forbidden"
+    end
+
+    test "a built-in viewer can query in:devices", %{owner: owner} do
+      seed_devices(1)
+      viewer = viewer_user_fixture()
+      {client, secret} = client_for_user(owner, viewer, ["read"])
+      conn = post(authed(%{client: client, secret: secret}), ~p"/api/query", %{"query" => "in:devices limit:10"})
+      body = json_response(conn, 200)
+      assert is_list(body["results"])
+    end
+
+    test "in:dashboards is not catalog-forbidden for a custom profile", %{owner: owner} do
+      {client, secret} = restricted_client(owner, ["observability.logs.view"])
+      conn = post(authed(%{client: client, secret: secret}), ~p"/api/query", %{"query" => "in:dashboards"})
+      refute conn.status == 403
+      assert conn.status in 200..499
     end
   end
 
