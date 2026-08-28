@@ -1,18 +1,28 @@
 import {ensureTooltip as nfEnsureTooltip, parseJSON as nfParseJSON} from "../../netflow_charts/util"
 import {nfFormatRateValue} from "../../utils/formatters"
+import ChartRangeSelectionController from "./ChartRangeSelectionController"
+import {parseRangeBuckets} from "./chart_range_selection"
 
 export default {
   mounted() {
-    this._bind()
+    this._bindTooltip()
+    this._rangeEmitter = ({start, end}) => this.pushEvent(this._rangeEvent, {start, end})
+    this.rangeController = new ChartRangeSelectionController(this._rangeOptions())
+    this._bindClickArbiter()
   },
   updated() {
-    this._unbind()
-    this._bind()
+    this._unbindTooltip()
+    this._bindTooltip()
+    this.rangeController.update(this._rangeOptions())
   },
   destroyed() {
-    this._unbind()
+    this._unbindTooltip()
+    this._unbindClickArbiter()
+    this.rangeController?.destroy()
+    this.rangeController = null
+    this._rangeEmitter = null
   },
-  _bind() {
+  _bindTooltip() {
     const el = this.el
     const tooltip = nfEnsureTooltip(el)
     const points = nfParseJSON(el.dataset.points || "[]", [])
@@ -61,17 +71,68 @@ export default {
     el.addEventListener("mousemove", onMove)
     el.addEventListener("mouseleave", onLeave)
 
-    this._cleanup = () => {
+    this._tooltipCleanup = () => {
       el.removeEventListener("mousemove", onMove)
       el.removeEventListener("mouseleave", onLeave)
       tooltip.classList.add("hidden")
     }
   },
-  _unbind() {
+  _unbindTooltip() {
     try {
-      this._cleanup?.()
+      this._tooltipCleanup?.()
     } catch (_e) {}
-    this._cleanup = null
+    this._tooltipCleanup = null
+  },
+  _bindClickArbiter() {
+    this._clickArbiter = (event) => {
+      if (!this.rangeController?.consumeChartClick()) return
+      event.preventDefault()
+      event.stopImmediatePropagation()
+    }
+    this.el.addEventListener("click", this._clickArbiter, true)
+  },
+  _unbindClickArbiter() {
+    if (this._clickArbiter) this.el.removeEventListener("click", this._clickArbiter, true)
+    this._clickArbiter = null
+  },
+  _rangeOptions() {
+    const root = this.el
+    const svg = root.querySelector("[data-range-svg]")
+    const overlay = root.querySelector("[data-range-overlay]")
+    const status = root.querySelector("[data-range-status]")
+    const serializedBuckets = root.dataset.rangeBuckets
+    const eventName = root.dataset.rangeEvent
+    const buckets = parseRangeBuckets(serializedBuckets)
+    this._rangeEvent = eventName
+
+    const viewBox = svg?.getAttribute("viewBox")?.trim().split(/\s+/).map(Number)
+    const viewWidth = viewBox?.length === 4 && Number.isFinite(viewBox[2]) ? viewBox[2] : Number(root.dataset.chartWidth)
+    const viewHeight = viewBox?.length === 4 && Number.isFinite(viewBox[3]) ? viewBox[3] : Number(root.dataset.chartHeight)
+
+    const viewPoint = (event) => {
+      const rect = svg?.getBoundingClientRect()
+      if (!rect || rect.width <= 0 || rect.height <= 0 || !Number.isFinite(viewWidth) || !Number.isFinite(viewHeight)) {
+        return null
+      }
+
+      const x = ((event.clientX - rect.left) / rect.width) * viewWidth
+      const y = ((event.clientY - rect.top) / rect.height) * viewHeight
+      if (x < 0 || x > viewWidth || y < 10 || y > 150) return null
+      return x
+    }
+
+    return {
+      bindingKey: `${serializedBuckets ?? ""}\u0000${eventName ?? ""}`,
+      buckets,
+      emit: typeof eventName === "string" && eventName.length > 0 ? this._rangeEmitter : null,
+      eventKey: eventName,
+      overlay,
+      plotBounds: () => ({left: 0, right: viewWidth}),
+      root,
+      status,
+      svg,
+      viewXForEvent: viewPoint,
+    }
   },
 }
 

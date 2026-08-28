@@ -18,8 +18,9 @@ defmodule ServiceRadarWebNGWeb.ObservabilityPaths do
   @doc """
   Build an intent URL for a tab.
 
-  Drops position noise (`cursor`, `page`, `limit`) and legacy `tab` from
-  query params. Example:
+  Drops position noise (`cursor`, `page`, and normally `limit`) and legacy
+  `tab` from query params. NetFlow retains a legacy URL `limit` only when its
+  SRQL query has no authoritative `limit:` token. Example:
 
       path("events", q: "in:events time:last_7d")
       # => "/observability/events?q=in%3Aevents+time%3Alast_7d"
@@ -28,7 +29,7 @@ defmodule ServiceRadarWebNGWeb.ObservabilityPaths do
 
   def path(tab, query_params) when is_binary(tab) and tab in @tabs do
     base = "/observability/#{tab}"
-    qs = encode_query(query_params)
+    qs = encode_query(query_params, tab)
 
     if qs == "" do
       base
@@ -116,17 +117,22 @@ defmodule ServiceRadarWebNGWeb.ObservabilityPaths do
   defp normalize_tab_param(tab) when tab in @tabs, do: tab
   defp normalize_tab_param(_), do: nil
 
-  defp encode_query(params) when is_map(params) do
+  defp encode_query(params, tab) when is_map(params) do
+    position_keys =
+      if tab == "netflows",
+        do: ["tab", "cursor", "page", "_format", "_mounts"],
+        else: ["tab", "limit", "cursor", "page", "_format", "_mounts"]
+
     params
     |> Enum.reduce(%{}, fn
       {k, v}, acc when is_atom(k) -> Map.put(acc, Atom.to_string(k), v)
       {k, v}, acc when is_binary(k) -> Map.put(acc, k, v)
       _, acc -> acc
     end)
-    |> Map.drop(["tab", "limit", "cursor", "page", "_format", "_mounts"])
+    |> Map.drop(position_keys)
     |> Map.reject(fn {_k, v} -> is_nil(v) or v == "" end)
     |> URI.encode_query()
   end
 
-  defp encode_query(_), do: ""
+  defp encode_query(_params, _tab), do: ""
 end

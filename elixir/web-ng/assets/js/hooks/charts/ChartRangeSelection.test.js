@@ -200,8 +200,33 @@ describe("ChartRangeSelection hook", () => {
     })
   })
 
+  it("commits a fast drag when qualifying displacement first arrives on pointerup", () => {
+    const {pushEvent, svg} = mount()
+
+    svg.dispatch(pointer("pointerdown", 36))
+    svg.dispatch(pointer("pointerup", 616))
+
+    expect(pushEvent).toHaveBeenCalledWith("select_events_range", {
+      start: "2026-08-27T10:00:00Z",
+      end: "2026-08-27T13:59:59.999999Z",
+    })
+  })
+
+  it("preserves a captured gesture across an unrelated LiveView update", () => {
+    const {ctx, pushEvent, svg} = mount()
+
+    svg.dispatch(pointer("pointerdown", 36, "mouse", 8))
+    ctx.updated()
+    svg.dispatch(pointer("pointerup", 616, "mouse", 8))
+
+    expect(pushEvent).toHaveBeenCalledWith("select_events_range", {
+      start: "2026-08-27T10:00:00Z",
+      end: "2026-08-27T13:59:59.999999Z",
+    })
+  })
+
   it("does not emit sub-threshold, cancelled, or lost-capture drags", () => {
-    const {overlay, pushEvent, svg} = mount()
+    const {overlay, pushEvent, root, svg} = mount()
 
     svg.dispatch(pointer("pointerdown", 36))
     svg.dispatch(pointer("pointermove", 42))
@@ -211,7 +236,7 @@ describe("ChartRangeSelection hook", () => {
     svg.dispatch(pointer("pointercancel", 616, "mouse", 2))
     svg.dispatch(pointer("pointerdown", 36, "mouse", 3))
     svg.dispatch(pointer("pointermove", 616, "mouse", 3))
-    svg.dispatch(pointer("lostpointercapture", 616, "mouse", 3))
+    root.dispatch(pointer("lostpointercapture", 616, "mouse", 3))
 
     expect(pushEvent).not.toHaveBeenCalled()
     expect(overlay.classList.contains("hidden")).toBe(true)
@@ -220,7 +245,7 @@ describe("ChartRangeSelection hook", () => {
   })
 
   it("implements the approved keyboard selection state machine", () => {
-    const {ctx, overlay, pushEvent, root, status} = mount()
+    const {overlay, pushEvent, root, status} = mount()
     const left = key("ArrowLeft")
     root.dispatch(left)
 
@@ -255,8 +280,8 @@ describe("ChartRangeSelection hook", () => {
     const {ctx, overlay, pushEvent, root, status, svg} = mount()
     svg.dispatch(pointer("pointerdown", 36, "mouse", 8))
     svg.dispatch(pointer("pointermove", 326, "mouse", 8))
-    expect(ctx.rangeActiveIndex).toBe(1)
-    expect(svg.capturedPointers.has(8)).toBe(true)
+    expect(ctx.rangeController.activeIndex).toBe(1)
+    expect(root.capturedPointers.has(8)).toBe(true)
 
     const escape = key("Escape")
     root.focused = true
@@ -264,10 +289,10 @@ describe("ChartRangeSelection hook", () => {
 
     expect(escape.preventDefault).toHaveBeenCalledOnce()
     expect(root.focused).toBe(true)
-    expect(svg.capturedPointers.has(8)).toBe(false)
-    expect(ctx.rangePointer).toBeNull()
-    expect(ctx.rangeAnchorIndex).toBeNull()
-    expect(ctx.rangeActiveIndex).toBe(1)
+    expect(root.capturedPointers.has(8)).toBe(false)
+    expect(ctx.rangeController.pointer).toBeNull()
+    expect(ctx.rangeController.anchorIndex).toBeNull()
+    expect(ctx.rangeController.activeIndex).toBe(1)
     expect(overlay.classList.contains("hidden")).toBe(true)
     expect(overlay.hasAttribute("x")).toBe(false)
     expect(overlay.hasAttribute("width")).toBe(false)
@@ -281,7 +306,7 @@ describe("ChartRangeSelection hook", () => {
     })
 
     root.dispatch(key("ArrowLeft"))
-    expect(ctx.rangeActiveIndex).toBe(0)
+    expect(ctx.rangeController.activeIndex).toBe(0)
   })
 
   it("clears stale state and rebinds fresh metadata after a LiveView update", () => {
@@ -302,7 +327,7 @@ describe("ChartRangeSelection hook", () => {
     expect(svg.listenerCount("pointermove")).toBe(1)
     expect(svg.listenerCount("pointerup")).toBe(1)
     expect(svg.listenerCount("pointercancel")).toBe(1)
-    expect(svg.listenerCount("lostpointercapture")).toBe(1)
+    expect(root.listenerCount("lostpointercapture")).toBe(1)
     expect(root.listenerCount("keydown")).toBe(1)
     drag(svg, 36, 616)
     expect(pushEvent).toHaveBeenLastCalledWith("select_events_range", {
@@ -316,32 +341,36 @@ describe("ChartRangeSelection hook", () => {
   })
 
   it("releases capture on LiveView update and destroy", () => {
-    const {ctx, svg} = mount()
+    const {ctx, root, svg} = mount()
 
     svg.dispatch(pointer("pointerdown", 36, "mouse", 8))
-    expect(svg.capturedPointers.has(8)).toBe(true)
+    svg.dispatch(pointer("pointermove", 50, "mouse", 8))
+    expect(root.capturedPointers.has(8)).toBe(true)
 
+    root.dataset = {...root.dataset, rangeEvent: "select_refreshed_events_range"}
     ctx.updated()
-    expect(svg.capturedPointers.has(8)).toBe(false)
+    expect(root.capturedPointers.has(8)).toBe(false)
     expect(svg.listenerCount("pointerdown")).toBe(1)
 
     svg.dispatch(pointer("pointerdown", 36, "mouse", 9))
-    expect(svg.capturedPointers.has(9)).toBe(true)
+    svg.dispatch(pointer("pointermove", 50, "mouse", 9))
+    expect(root.capturedPointers.has(9)).toBe(true)
     ctx.destroyed()
 
-    expect(svg.capturedPointers.has(9)).toBe(false)
+    expect(root.capturedPointers.has(9)).toBe(false)
   })
 
   it("keeps the active pointer gesture when another pointer starts", () => {
-    const {pushEvent, svg} = mount()
+    const {pushEvent, root, svg} = mount()
 
     svg.dispatch(pointer("pointerdown", 36, "mouse", 1))
+    svg.dispatch(pointer("pointermove", 50, "mouse", 1))
     svg.dispatch(pointer("pointerdown", 616, "mouse", 2))
     svg.dispatch(pointer("pointermove", 36, "mouse", 2))
     svg.dispatch(pointer("pointerup", 36, "mouse", 2))
 
-    expect(svg.capturedPointers.has(1)).toBe(true)
-    expect(svg.capturedPointers.has(2)).toBe(false)
+    expect(root.capturedPointers.has(1)).toBe(true)
+    expect(root.capturedPointers.has(2)).toBe(false)
     expect(pushEvent).not.toHaveBeenCalled()
 
     svg.dispatch(pointer("pointermove", 616, "mouse", 1))
@@ -361,6 +390,17 @@ describe("ChartRangeSelection hook", () => {
     expect(root.getAttribute("aria-disabled")).toBe("true")
     drag(svg, 36, 616)
     root.dispatch(key("Enter"))
+
+    expect(pushEvent).not.toHaveBeenCalled()
+    ctx.destroyed()
+  })
+
+  it("disables itself when its event name is empty", () => {
+    const {ctx, pushEvent, root, svg} = mount({eventName: ""})
+
+    expect(root.hasAttribute("tabindex")).toBe(false)
+    expect(root.getAttribute("aria-disabled")).toBe("true")
+    drag(svg, 36, 616)
 
     expect(pushEvent).not.toHaveBeenCalled()
     ctx.destroyed()

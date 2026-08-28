@@ -56,7 +56,7 @@ function timestampValue(value) {
   return BigInt(date.getTime() - offsetMinutes * 60 * 1000) * 1_000_000n + fractionNanos
 }
 
-function hasOrderedXPositions(buckets) {
+export function validRangeBuckets(buckets) {
   if (!Array.isArray(buckets) || buckets.length === 0) return false
 
   return buckets.every((bucket, index) => {
@@ -88,12 +88,12 @@ export function parseRangeBuckets(serialized) {
     return {x: bucket.x, start: bucket.start, end: bucket.end}
   })
 
-  if (buckets.some((bucket) => bucket === null) || !hasOrderedXPositions(buckets)) return null
+  if (buckets.some((bucket) => bucket === null) || !validRangeBuckets(buckets)) return null
   return buckets
 }
 
 export function nearestRangeBucketIndex(buckets, viewX) {
-  if (!hasOrderedXPositions(buckets) || !Number.isFinite(viewX)) return null
+  if (!validRangeBuckets(buckets) || !Number.isFinite(viewX)) return null
 
   let nearestIndex = 0
   let nearestDistance = Math.abs(buckets[0].x - viewX)
@@ -110,7 +110,7 @@ export function nearestRangeBucketIndex(buckets, viewX) {
 }
 
 export function rangeForBucketIndexes(buckets, anchorIndex, activeIndex) {
-  if (!hasOrderedXPositions(buckets)) return null
+  if (!validRangeBuckets(buckets)) return null
   if (!Number.isInteger(anchorIndex) || !Number.isInteger(activeIndex)) return null
 
   const startIndex = Math.max(0, Math.min(anchorIndex, activeIndex))
