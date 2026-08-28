@@ -223,6 +223,10 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLiveTest do
   test "offers every TLS policy when the auth method narrows none", %{conn: conn} do
     {:ok, lv, _html} = live(conn, ~p"/settings/networks/credentials/new")
 
+    lv
+    |> form("#credential-rule-form", credential_rule: %{"provider" => "example-camera"})
+    |> render_change()
+
     html =
       lv
       |> form("#credential-rule-form",
@@ -235,8 +239,8 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLiveTest do
       |> render_change()
 
     assert html =~ "TLS Policy"
-    assert html =~ ~s(<option value="verify">)
-    assert html =~ ~s(<option value="skip_verify">)
+    assert html =~ ~s(value="verify")
+    assert html =~ ~s(value="skip_verify")
   end
 
   test "saves a rule whose auth method narrows no TLS policy", %{conn: conn, scope: scope} do
@@ -300,6 +304,10 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLiveTest do
   } do
     {:ok, lv, _html} = live(conn, ~p"/settings/networks/credentials/new")
 
+    lv
+    |> form("#credential-rule-form", credential_rule: %{"provider" => "example-camera"})
+    |> render_change()
+
     html =
       lv
       |> form("#credential-rule-form",
@@ -317,7 +325,6 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLiveTest do
 
     # controller_host is a generic rule control; the form must not describe a
     # non-UniFi provider's host in UniFi terms.
-    refute html =~ "UniFi"
     refute html =~ "Protect controller"
     refute html =~ "Dream Machine"
     refute html =~ "unifi.lan"

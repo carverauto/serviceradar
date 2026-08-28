@@ -926,7 +926,10 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
       |> assign(:controller_host_label, controller_host_label(integration_profile))
       |> assign(:show_allowed_ports?, Map.get(rule_controls, "allowed_ports", false))
       |> assign(:show_target_query?, Map.get(rule_controls, "target_query", false))
-      |> assign(:show_tls_policy?, Map.get(rule_controls, "transport", false))
+      |> assign(
+        :show_tls_policy?,
+        Map.get(rule_controls, "transport", false) and ssh_host_key_policies == []
+      )
       |> assign(:provider_tls_policies, tls_policies)
       |> assign(:provider_ssh_host_key_policies, ssh_host_key_policies)
       |> assign(
@@ -2355,6 +2358,10 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
   # absent manifest key to []. Core reads that as "any policy permitted"
   # (CredentialIntegration.allowed?/2), so the form must too: an empty list
   # narrows nothing and every policy stays on offer.
+  #
+  # An empty list therefore no longer distinguishes an SSH transport, which has
+  # no TLS policy to choose. show_tls_policy? tests ssh_host_key_policies for
+  # that instead.
   defp effective_tls_policies(descriptor) do
     case descriptor_values(descriptor, "tls_policies") do
       [] -> Enum.map(@tls_policies, &to_string/1)
