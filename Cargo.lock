@@ -6521,6 +6521,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "async-nats",
+ "bytes",
  "clap 4.6.6",
  "env_logger",
  "flowparser-sflow",

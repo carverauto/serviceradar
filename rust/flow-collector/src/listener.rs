@@ -211,8 +211,13 @@ impl Listener {
 }
 
 /// Construct the appropriate FlowHandler from a ListenerConfig variant.
+///
+/// `template_store` is supplied by `main` when a NATS KV bucket is
+/// configured and is shared across all NetFlow listeners. sFlow ignores it
+/// because sFlow is template-less.
 pub fn build_handler(
     config: &ListenerConfig,
+    template_store: Option<Arc<dyn netflow_parser::TemplateStore>>,
     metrics: Arc<ListenerMetrics>,
 ) -> Box<dyn FlowHandler> {
     match config {
@@ -231,6 +236,7 @@ pub fn build_handler(
             pending_flows.as_ref(),
             *default_sampling_rate,
             sampling_rate_overrides.clone(),
+            template_store,
             metrics,
         )),
     }
@@ -400,6 +406,7 @@ mod tests {
             stream_max_age_secs: 3600,
             stream_replicas: 1,
             rehome_state_path: None,
+            template_store: None,
             ready_state_path: None,
             partition: "default".to_string(),
             channel_size: 100,

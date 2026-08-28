@@ -1675,6 +1675,20 @@ flowCollector:
     stream_replicas: 3
     rehome_state_path: "/var/lib/serviceradar/flow-collector-rehome.json"
     ready_state_path: "/var/lib/serviceradar/flow-collector.ready"
+    # Serves the Prometheus exposition on /metrics. Must agree with
+    # service.ports.metrics.targetPort below. Unset it to disable the
+    # in-process HTTP server entirely.
+    metrics_addr: "0.0.0.0:50046"
+    # Shared NetFlow/IPFIX template store, persisted in a NATS JetStream KV
+    # bucket. Lets a restarted pod restore learned templates instead of
+    # dropping flows until each exporter re-announces (~60s, RFC 3954).
+    # Omit this block to fall back to in-process-only template caching.
+    # The platform creds must allow create-or-update on KV buckets, or
+    # pre-create the bucket with: nats kv add flow_templates --history=1
+    template_store:
+      kv_bucket: "flow_templates"
+      kv_history: 1
+      kv_ttl_secs: 0
     channel_size: 10000
     batch_size: 100
     publish_timeout_ms: 5000
