@@ -61,6 +61,10 @@ export default {
       if (!token) return
 
       const current = (this._input.value || "").toString()
+      // Remembered windows may replace an existing time filter, but they must
+      // not make a time-neutral entity query temporal (for example, devices).
+      if (!extractTimeToken(current)) return
+
       const next = upsertTimeToken(current, token)
       if (next !== current) {
         // Restore the remembered time token into the input WITHOUT submitting.
