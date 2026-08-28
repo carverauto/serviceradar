@@ -3,10 +3,10 @@
 //! `netflow_parser` exposes a synchronous trait so it can be plugged in from
 //! anywhere in the parser hot path. `async_nats`, the NATS client we use
 //! everywhere else in the flow collector, is async-only. This module bridges
-//! the two via `tokio::task::block_in_place` + `Handle::block_on`, which is
-//! safe under the multi-threaded tokio runtime the collector already runs
-//! under (other workers keep serving while this one blocks on a NATS
-//! round-trip).
+//! the two with a bounded message-passing bridge to a dedicated worker
+//! thread. The worker owns a small Tokio runtime for NATS I/O; parser calls
+//! wait synchronously for its reply without ever driving async NATS work on
+//! the collector's ingest runtime.
 //!
 //! # Why this exists
 //!
@@ -21,13 +21,18 @@
 //! See `netflow_parser::template_store` for the read-through / write-through
 //! protocol the parser implements on top of this trait.
 
-use async_nats::jetstream::kv::Store;
+use crate::config::{Config, TemplateStoreConfig};
+use crate::nats_client;
+use anyhow::{Context, Result};
+use async_nats::jetstream::{self, kv::Store};
 use log::warn;
 use netflow_parser::{TemplateKind, TemplateStore, TemplateStoreError, TemplateStoreKey};
 use std::io;
 use std::sync::Once;
+use std::sync::mpsc::{self, SyncSender};
+use std::thread;
 use std::time::Duration;
-use tokio::runtime::Handle;
+use tokio::sync::mpsc as tokio_mpsc;
 
 /// Hard bound on any single KV round-trip.
 ///
@@ -39,35 +44,108 @@ use tokio::runtime::Handle;
 /// `Backend` error as a miss and carries on, and the failure is visible as
 /// `flow_collector_template_store_backend_errors_total`.
 const KV_OP_TIMEOUT: Duration = Duration::from_millis(500);
+const KV_REPLY_TIMEOUT: Duration = Duration::from_millis(600);
+const KV_WORK_QUEUE_CAPACITY: usize = 64;
 
-/// `TemplateStore` impl backed by a NATS JetStream KV bucket.
+type WorkerResult<T> = Result<T, String>;
+
+#[derive(Debug)]
+enum KvOperation {
+    Get {
+        key: String,
+        reply: SyncSender<WorkerResult<Option<Vec<u8>>>>,
+    },
+    Put {
+        key: String,
+        value: bytes::Bytes,
+        reply: SyncSender<WorkerResult<()>>,
+    },
+    Remove {
+        key: String,
+        reply: SyncSender<WorkerResult<()>>,
+    },
+}
+
+#[derive(Debug)]
+struct SyncWorker<T> {
+    sender: tokio_mpsc::Sender<T>,
+}
+
+impl<T: Send + 'static> SyncWorker<T> {
+    fn try_send(&self, message: T) -> io::Result<()> {
+        self.sender.try_send(message).map_err(|error| match error {
+            tokio_mpsc::error::TrySendError::Full(_) => {
+                io::Error::new(io::ErrorKind::WouldBlock, "NATS KV worker queue is full")
+            }
+            tokio_mpsc::error::TrySendError::Closed(_) => {
+                io::Error::new(io::ErrorKind::BrokenPipe, "NATS KV worker has stopped")
+            }
+        })
+    }
+
+    fn from_sender(sender: tokio_mpsc::Sender<T>) -> Self {
+        Self { sender }
+    }
+}
+
+/// Run `body` on a dedicated thread whose current-thread Tokio runtime stays
+/// driven for the worker's entire lifetime.
 ///
-/// One instance can be shared (via `Arc`) across all parser instances in the
-/// process; the underlying NATS client is internally reference-counted and
-/// thread-safe.
+/// The "stays driven" part is the whole point. `async_nats` spawns its
+/// connection handler as a background task, and on a current-thread runtime a
+/// spawned task only makes progress while the runtime is actually being
+/// polled. Waiting for the next request on a *blocking* channel between
+/// operations would freeze that handler, so the client would stop answering
+/// server PINGs and NATS would drop the connection after roughly two ping
+/// intervals -- which, on a collector seeing sparse exporter traffic, is the
+/// steady state rather than an edge case. Keeping one `block_on` around the
+/// receive loop means the handler is polled whenever the worker is idle.
+fn spawn_driven_worker<T, F, Fut>(
+    name: &str,
+    capacity: usize,
+    body: F,
+) -> io::Result<tokio_mpsc::Sender<T>>
+where
+    T: Send + 'static,
+    F: FnOnce(tokio_mpsc::Receiver<T>) -> Fut + Send + 'static,
+    Fut: std::future::Future<Output = ()>,
+{
+    let (sender, receiver) = tokio_mpsc::channel(capacity);
+    thread::Builder::new()
+        .name(name.to_string())
+        .spawn(move || {
+            let runtime = match tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+            {
+                Ok(runtime) => runtime,
+                Err(error) => {
+                    log::error!("NATS KV worker runtime build failed: {error}");
+                    return;
+                }
+            };
+            runtime.block_on(body(receiver));
+        })?;
+    Ok(sender)
+}
+
 #[derive(Debug)]
 pub struct NatsKvTemplateStore {
-    kv: Store,
-    /// Tokio runtime handle captured at construction so the synchronous
-    /// `TemplateStore` methods can drive the async NATS client without
-    /// requiring callers to be inside `Handle::current()`.
-    handle: Handle,
+    worker: SyncWorker<KvOperation>,
 }
 
 impl NatsKvTemplateStore {
-    /// Build a new store. Must be called from inside a tokio runtime —
-    /// the `Handle` is captured at construction time.
+    /// Connect to NATS, open the KV bucket, and start its dedicated I/O worker.
     ///
     /// # Panics
     ///
-    /// Panics if there is no current tokio runtime. In practice this is
-    /// fine because the flow-collector creates the store from `main()`
-    /// after `#[tokio::main]` has set up the runtime.
-    pub fn new(kv: Store) -> Self {
-        Self {
-            kv,
-            handle: Handle::current(),
-        }
+    /// The NATS connection is created on the worker runtime as well. The
+    /// async-nats connection driver must not live on the collector's single
+    /// Tokio worker, which is synchronously waiting for the KV reply.
+    pub fn connect(config: Config, store_config: TemplateStoreConfig) -> Result<Self> {
+        Ok(Self {
+            worker: spawn_kv_worker(config, store_config)?,
+        })
     }
 
     /// Render a [`TemplateStoreKey`] as a NATS KV key.
@@ -98,6 +176,63 @@ impl NatsKvTemplateStore {
         }
         format!("{}.{}.{}", safe_scope, kind_tag, key.template_id)
     }
+}
+
+fn spawn_kv_worker(
+    config: Config,
+    store_config: TemplateStoreConfig,
+) -> Result<SyncWorker<KvOperation>> {
+    let (ready_tx, ready_rx) = mpsc::sync_channel(1);
+
+    // The NATS connection is opened *inside* the worker's runtime so that its
+    // connection-handler task lives there too, and is therefore driven by the
+    // same `block_on` that serves the request loop.
+    let sender = spawn_driven_worker(
+        "flow-template-kv",
+        KV_WORK_QUEUE_CAPACITY,
+        move |mut receiver| async move {
+            let kv = match open_kv_store(&config, &store_config).await {
+                Ok(kv) => kv,
+                Err(error) => {
+                    let _ = ready_tx.try_send(Err(format!("{error:#}")));
+                    return;
+                }
+            };
+            if ready_tx.try_send(Ok(())).is_err() {
+                return;
+            }
+            while let Some(operation) = receiver.recv().await {
+                handle_operation(&kv, operation).await;
+            }
+        },
+    )
+    .context("spawn NATS KV worker thread")?;
+
+    match ready_rx.recv() {
+        Ok(Ok(())) => Ok(SyncWorker::from_sender(sender)),
+        Ok(Err(error)) => Err(anyhow::anyhow!(error)),
+        Err(error) => Err(anyhow::anyhow!(
+            "NATS KV worker exited during startup: {error}"
+        )),
+    }
+}
+
+async fn open_kv_store(config: &Config, cfg: &TemplateStoreConfig) -> Result<Store> {
+    let url = cfg.nats_url.as_deref().unwrap_or(&config.nats_url);
+    let (_, js) = nats_client::connect_with_retry(url, config, "template-store").await?;
+    let kv_config = jetstream::kv::Config {
+        bucket: cfg.kv_bucket.clone(),
+        history: i64::from(cfg.kv_history),
+        max_age: if cfg.kv_ttl_secs > 0 {
+            Duration::from_secs(cfg.kv_ttl_secs)
+        } else {
+            Duration::ZERO
+        },
+        ..Default::default()
+    };
+    js.create_or_update_key_value(kv_config)
+        .await
+        .with_context(|| format!("opening NATS KV bucket {}", cfg.kv_bucket))
 }
 
 fn kind_tag(kind: TemplateKind) -> &'static str {
@@ -136,58 +271,89 @@ fn timed_out(op: &str, key: &str) -> io::Error {
     )
 }
 
+fn worker_error(error: impl std::fmt::Display) -> TemplateStoreError {
+    TemplateStoreError::Backend(Box::new(io::Error::other(error.to_string())))
+}
+
+fn wait_for_reply<T>(reply: mpsc::Receiver<WorkerResult<T>>) -> Result<T, TemplateStoreError> {
+    match reply.recv_timeout(KV_REPLY_TIMEOUT) {
+        Ok(Ok(value)) => Ok(value),
+        Ok(Err(error)) => Err(worker_error(error)),
+        Err(mpsc::RecvTimeoutError::Timeout) => Err(worker_error(format!(
+            "NATS KV worker reply exceeded {KV_REPLY_TIMEOUT:?}"
+        ))),
+        Err(mpsc::RecvTimeoutError::Disconnected) => {
+            Err(worker_error("NATS KV worker reply channel closed"))
+        }
+    }
+}
+
+async fn handle_operation(kv: &Store, operation: KvOperation) {
+    match operation {
+        KvOperation::Get { key, reply } => {
+            let result = match tokio::time::timeout(KV_OP_TIMEOUT, kv.get(&key)).await {
+                Ok(Ok(Some(bytes))) => Ok(Some(bytes.to_vec())),
+                Ok(Ok(None)) => Ok(None),
+                Ok(Err(error)) => Err(error.to_string()),
+                Err(_) => Err(timed_out("get", &key).to_string()),
+            };
+            let _ = reply.try_send(result);
+        }
+        KvOperation::Put { key, value, reply } => {
+            let result = match tokio::time::timeout(KV_OP_TIMEOUT, kv.put(&key, value)).await {
+                Ok(Ok(_revision)) => Ok(()),
+                Ok(Err(error)) => Err(error.to_string()),
+                Err(_) => Err(timed_out("put", &key).to_string()),
+            };
+            let _ = reply.try_send(result);
+        }
+        KvOperation::Remove { key, reply } => {
+            let result = match tokio::time::timeout(KV_OP_TIMEOUT, kv.delete(&key)).await {
+                Ok(Ok(())) => Ok(()),
+                Ok(Err(error)) => Err(error.to_string()),
+                Err(_) => Err(timed_out("remove", &key).to_string()),
+            };
+            let _ = reply.try_send(result);
+        }
+    }
+}
+
 impl TemplateStore for NatsKvTemplateStore {
     fn get(&self, key: &TemplateStoreKey) -> Result<Option<Vec<u8>>, TemplateStoreError> {
         let nats_key = Self::render_key(key);
-        let kv = self.kv.clone();
-        tokio::task::block_in_place(|| {
-            self.handle.block_on(async move {
-                match tokio::time::timeout(KV_OP_TIMEOUT, kv.get(&nats_key)).await {
-                    Ok(Ok(Some(bytes))) => Ok(Some(bytes.to_vec())),
-                    Ok(Ok(None)) => Ok(None),
-                    Ok(Err(e)) => Err(TemplateStoreError::Backend(Box::new(e))),
-                    Err(_elapsed) => Err(TemplateStoreError::Backend(Box::new(timed_out(
-                        "get", &nats_key,
-                    )))),
-                }
+        let (reply_tx, reply_rx) = mpsc::sync_channel(1);
+        self.worker
+            .try_send(KvOperation::Get {
+                key: nats_key,
+                reply: reply_tx,
             })
-        })
+            .map_err(worker_error)?;
+        wait_for_reply(reply_rx)
     }
 
     fn put(&self, key: &TemplateStoreKey, value: &[u8]) -> Result<(), TemplateStoreError> {
         let nats_key = Self::render_key(key);
-        let bytes = bytes::Bytes::copy_from_slice(value);
-        let kv = self.kv.clone();
-        tokio::task::block_in_place(|| {
-            self.handle.block_on(async move {
-                match tokio::time::timeout(KV_OP_TIMEOUT, kv.put(&nats_key, bytes)).await {
-                    Ok(Ok(_revision)) => Ok(()),
-                    Ok(Err(e)) => Err(TemplateStoreError::Backend(Box::new(e))),
-                    Err(_elapsed) => Err(TemplateStoreError::Backend(Box::new(timed_out(
-                        "put", &nats_key,
-                    )))),
-                }
+        let (reply_tx, reply_rx) = mpsc::sync_channel(1);
+        self.worker
+            .try_send(KvOperation::Put {
+                key: nats_key,
+                value: bytes::Bytes::copy_from_slice(value),
+                reply: reply_tx,
             })
-        })
+            .map_err(worker_error)?;
+        wait_for_reply(reply_rx)
     }
 
     fn remove(&self, key: &TemplateStoreKey) -> Result<(), TemplateStoreError> {
         let nats_key = Self::render_key(key);
-        let kv = self.kv.clone();
-        tokio::task::block_in_place(|| {
-            self.handle.block_on(async move {
-                // `delete` is idempotent: removing an absent key is not an
-                // error. Subsequent `get()` returns Ok(None), which the
-                // parser treats as a normal cache miss.
-                match tokio::time::timeout(KV_OP_TIMEOUT, kv.delete(&nats_key)).await {
-                    Ok(Ok(())) => Ok(()),
-                    Ok(Err(e)) => Err(TemplateStoreError::Backend(Box::new(e))),
-                    Err(_elapsed) => Err(TemplateStoreError::Backend(Box::new(timed_out(
-                        "remove", &nats_key,
-                    )))),
-                }
+        let (reply_tx, reply_rx) = mpsc::sync_channel(1);
+        self.worker
+            .try_send(KvOperation::Remove {
+                key: nats_key,
+                reply: reply_tx,
             })
-        })
+            .map_err(worker_error)?;
+        wait_for_reply(reply_rx)
     }
 }
 
@@ -195,6 +361,7 @@ impl TemplateStore for NatsKvTemplateStore {
 mod tests {
     use super::*;
     use std::sync::Arc;
+    use std::sync::atomic::{AtomicUsize, Ordering};
 
     fn key(scope: &str, kind: TemplateKind, id: u16) -> TemplateStoreKey {
         TemplateStoreKey::new(Arc::<str>::from(scope), kind, id)
@@ -220,6 +387,70 @@ mod tests {
         let rendered = NatsKvTemplateStore::render_key(&k);
         assert_eq!(rendered, "ipfix__fe80__1__4739_42.ipd.300");
         assert!(!rendered.contains([':', '[', ']']));
+    }
+
+    /// The worker's runtime must keep polling spawned tasks while it is
+    /// waiting for the next request, not only while an operation is in
+    /// flight.
+    ///
+    /// This is the property `async_nats` depends on: it spawns its connection
+    /// handler as a background task, and a current-thread runtime only drives
+    /// spawned tasks while it is being polled. An earlier version of this
+    /// worker awaited requests on a *blocking* std channel, so between
+    /// operations the runtime was parked and the handler never ran -- the
+    /// client stopped answering server PINGs and NATS dropped it after about
+    /// two ping intervals. On a collector with sparse exporter traffic that
+    /// idle window is the normal case, so the connection died in steady state
+    /// and every later KV call timed out.
+    #[test]
+    fn worker_runtime_keeps_driving_background_tasks_while_idle() {
+        let ticks = Arc::new(AtomicUsize::new(0));
+        let ticks_in_task = Arc::clone(&ticks);
+
+        // Never send a request: the worker sits idle for the whole test, which
+        // is exactly the condition that used to freeze the runtime.
+        let _sender = spawn_driven_worker("test-idle-worker", 4, move |mut rx| async move {
+            tokio::spawn(async move {
+                loop {
+                    tokio::time::sleep(Duration::from_millis(5)).await;
+                    ticks_in_task.fetch_add(1, Ordering::SeqCst);
+                }
+            });
+            while let Some(()) = rx.recv().await {}
+        })
+        .expect("spawn worker");
+
+        thread::sleep(Duration::from_millis(150));
+
+        assert!(
+            ticks.load(Ordering::SeqCst) > 0,
+            "background task on the worker runtime made no progress while idle; \
+             the runtime is not being driven between requests"
+        );
+    }
+
+    /// A full-queue send must fail fast rather than block the parser, which
+    /// calls this while holding the parser mutex.
+    #[test]
+    fn worker_try_send_fails_fast_when_queue_is_full() {
+        // Body never drains, so the queue fills and stays full.
+        let sender = spawn_driven_worker("test-full-worker", 1, |mut rx| async move {
+            tokio::time::sleep(Duration::from_secs(30)).await;
+            while let Some(()) = rx.recv().await {}
+        })
+        .expect("spawn worker");
+        let worker = SyncWorker::from_sender(sender);
+
+        // Capacity 1 plus tokio's buffering: push until it reports Full.
+        let mut saw_would_block = false;
+        for _ in 0..64 {
+            if let Err(error) = worker.try_send(()) {
+                assert_eq!(error.kind(), io::ErrorKind::WouldBlock);
+                saw_would_block = true;
+                break;
+            }
+        }
+        assert!(saw_would_block, "expected a full queue to reject a send");
     }
 
     #[test]

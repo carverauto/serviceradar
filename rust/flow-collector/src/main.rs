@@ -10,8 +10,7 @@ mod publisher;
 mod sflow;
 mod template_store;
 
-use anyhow::{Context, Result};
-use async_nats::jetstream;
+use anyhow::Result;
 use clap::Parser;
 use config::{Config, TemplateStoreConfig};
 use host_slice::HostSliceRouter;
@@ -328,30 +327,8 @@ async fn bootstrap_template_store(
     config: &Config,
     cfg: &TemplateStoreConfig,
 ) -> Result<Arc<dyn TemplateStore>> {
-    let url = cfg.nats_url.as_deref().unwrap_or(&config.nats_url);
-    let (_, js) = nats_client::connect_with_retry(url, config, "template-store").await?;
-
-    // `create_or_update_key_value` returns the existing bucket if one with
-    // this name exists, even if its settings differ — preferable to the
-    // strict `create_key_value` which would error on config drift between
-    // chart upgrades.
-    let kv_config = jetstream::kv::Config {
-        bucket: cfg.kv_bucket.clone(),
-        // async-nats stores history as i64 internally but the server
-        // caps at 64; the u8 in our config matches that ceiling and the
-        // range is enforced in `Config::validate`.
-        history: i64::from(cfg.kv_history),
-        max_age: if cfg.kv_ttl_secs > 0 {
-            Duration::from_secs(cfg.kv_ttl_secs)
-        } else {
-            Duration::from_secs(0)
-        },
-        ..Default::default()
-    };
-    let kv = js
-        .create_or_update_key_value(kv_config)
-        .await
-        .with_context(|| format!("opening NATS KV bucket {}", cfg.kv_bucket))?;
-
-    Ok(Arc::new(NatsKvTemplateStore::new(kv)))
+    Ok(Arc::new(NatsKvTemplateStore::connect(
+        config.clone(),
+        cfg.clone(),
+    )?))
 }
