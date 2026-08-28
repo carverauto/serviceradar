@@ -30,14 +30,13 @@ pub(in crate::query::devices) fn collect_filter_params(
         | "primary_availability_source_agent_id"
         | "available_from_agent"
         | "unavailable_from_agent"
-        | "type"
-        | "device_type"
         | "vendor_name"
         | "model"
         | "risk_level" => {
             params.push(BindParam::Text(filter.value.as_scalar()?.to_string()));
             Ok(())
         }
+        "type" | "device_type" => collect_device_type_params(params, filter),
         "availability_source_fresh_within" | "availability_source_stale_after" => {
             params.push(BindParam::timestamptz(freshness_threshold(filter)?));
             Ok(())
@@ -161,6 +160,26 @@ pub(in crate::query::devices) fn collect_filter_params(
         other => Err(ServiceError::InvalidRequest(format!(
             "unsupported filter field '{other}'"
         ))),
+    }
+}
+
+fn collect_device_type_params(params: &mut Vec<BindParam>, filter: &Filter) -> Result<()> {
+    match filter.op {
+        FilterOp::Eq | FilterOp::NotEq | FilterOp::Like | FilterOp::NotLike => {
+            params.push(BindParam::Text(filter.value.as_scalar()?.to_string()));
+            Ok(())
+        }
+        FilterOp::In | FilterOp::NotIn => {
+            let values = filter.value.as_list()?.to_vec();
+            if values.is_empty() {
+                return Ok(());
+            }
+            params.push(BindParam::TextArray(values));
+            Ok(())
+        }
+        _ => Err(ServiceError::InvalidRequest(
+            "device_type filter only supports equality, LIKE, and list filters".into(),
+        )),
     }
 }
 

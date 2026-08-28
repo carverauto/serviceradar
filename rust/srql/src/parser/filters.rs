@@ -144,6 +144,7 @@ fn supports_implicit_like(field: &str) -> bool {
             | "title"
             | "trace_id"
             | "type"
+            | "device_type"
             | "uid"
             | "vendor"
             | "version"

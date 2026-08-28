@@ -44,6 +44,21 @@ fn implicitly_promotes_wildcard_text_filters_to_like() {
 }
 
 #[test]
+fn implicitly_promotes_device_type_wildcards_to_like() {
+    for query in ["in:devices type:%rids%", "in:devices device_type:%rids%"] {
+        let ast = parse(query).unwrap();
+
+        assert_eq!(ast.filters.len(), 1, "{query}");
+        assert!(matches!(ast.filters[0].op, FilterOp::Like), "{query}");
+        assert_eq!(
+            ast.filters[0].value.as_scalar().unwrap(),
+            "%rids%",
+            "{query}"
+        );
+    }
+}
+
+#[test]
 fn implicitly_promotes_supported_device_jsonb_wildcards_to_like() {
     for query in [
         "in:devices os.name:%OS%",

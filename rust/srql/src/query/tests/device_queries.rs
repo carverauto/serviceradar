@@ -454,6 +454,43 @@ fn devices_inventory_summary_rollup_returns_all_type_and_vendor_buckets() {
 }
 
 #[test]
+fn devices_type_like_filter_uses_normalized_ilike() {
+    let query = "in:devices include_inactive:true type:%rids% sort:last_seen:desc limit:100";
+    let plan = plan_for(query);
+
+    let (sql, params) = devices::to_sql_and_params(&plan).expect("should build devices SQL");
+    let lower = sql.to_lowercase();
+
+    assert!(
+        lower.contains("coalesce(nullif(trim(\"ocsf_devices\".\"type\"), ''), 'unknown') ilike $1"),
+        "expected normalized type ILIKE in SQL, got: {sql}"
+    );
+    assert!(
+        matches!(params.first(), Some(BindParam::Text(value)) if value == "%rids%"),
+        "expected %rids% bind, got: {params:?}"
+    );
+}
+
+#[test]
+fn devices_stats_type_like_filter_uses_normalized_ilike() {
+    let query = r#"in:devices type:%rids% stats:"count() as count by type""#;
+    let plan = plan_for(query);
+
+    let (sql, params) = devices::to_sql_and_params(&plan).expect("should build grouped stats SQL");
+    let lower = sql.to_lowercase();
+
+    assert!(
+        lower.contains("coalesce(nullif(trim(type), ''), 'unknown') ilike $1"),
+        "expected normalized type ILIKE in grouped SQL, got: {sql}"
+    );
+    assert_eq!(params.len(), 1, "expected one type filter param");
+    assert!(
+        matches!(params.first(), Some(BindParam::Text(value)) if value == "%rids%"),
+        "expected %rids% bind, got: {params:?}"
+    );
+}
+
+#[test]
 fn devices_partition_filter_uses_partition_column() {
     let query = "in:devices partition:rids sort:hostname:asc limit:500";
     let plan = plan_for(query);
