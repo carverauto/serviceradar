@@ -101,9 +101,10 @@ defmodule ServiceRadarWebNGWeb.SRQL.BuilderTest do
   # Engine fixture: keep in sync with rust/srql/.../downsample/filters.rs flows_filter_clause.
   @flows_downsample_engine_fields ~w(
     src_endpoint_ip src_ip dst_endpoint_ip dst_ip ip endpoint_ip
+    device_addr device_address
     src_cidr dst_cidr cidr
     src_endpoint_port src_port dst_endpoint_port dst_port
-    protocol_name protocol_num protocol_group app direction
+    protocol_name protocol_num proto protocol_group proto_group app direction
     sampler_address exporter_name
     input_snmp in_if_index output_snmp out_if_index
     in_if_name out_if_name in_if_speed_bps out_if_speed_bps
@@ -119,6 +120,26 @@ defmodule ServiceRadarWebNGWeb.SRQL.BuilderTest do
     for field <- downsample do
       assert field in engine,
              "#{field} is in catalog filter_fields_downsample but not the engine fixture"
+    end
+  end
+
+  test "stats mode remains outside the visual builder catalog" do
+    assert Catalog.filter_fields("flows", :stats) == nil
+  end
+
+  test "every advertised flows chart field survives builder normalization" do
+    for field <- Catalog.filter_fields("flows", :downsample) do
+      chart =
+        "flows"
+        |> Builder.default_state(100)
+        |> Map.put("filters", [
+          %{"field" => field, "op" => Catalog.default_filter_op("flows", field), "value" => ""}
+        ])
+
+      {normalized, stripped} = Builder.update_meta(chart, %{})
+
+      assert stripped == [], field
+      assert Enum.any?(normalized["filters"], &(&1["field"] == field)), field
     end
   end
 
@@ -138,19 +159,52 @@ defmodule ServiceRadarWebNGWeb.SRQL.BuilderTest do
     assert "cidr" in downsample
   end
 
+  test "flows row filter list does not advertise engine-unsupported BGP fields" do
+    row = Catalog.filter_fields("flows", :row)
+
+    for field <- ~w(as_path bgp_communities) do
+      refute field in row, field
+    end
+  end
+
   test "builder mode is downsample when bucket is set" do
     with_bucket = Builder.default_state("flows", 100)
     assert with_bucket["bucket"] != ""
     assert Builder.mode(with_bucket) == :downsample
 
-    row =
-      Builder.update(with_bucket, %{
-        "bucket" => "",
-        # bypass normalize default for entities that re-fill default_bucket
-        "entity" => "devices"
-      })
+    row = Builder.update(with_bucket, %{"bucket" => ""})
 
     assert Builder.mode(row) == :row
+  end
+
+  test "clearing the bucket switches flows to row mode and preserves row-only filters" do
+    chart =
+      "flows"
+      |> Builder.default_state(100)
+      |> Map.put("filters", [
+        %{"field" => "tag", "op" => "equals", "value" => "edge"},
+        %{"field" => "app", "op" => "equals", "value" => "https"}
+      ])
+
+    {row, stripped} = Builder.update_meta(chart, %{"bucket" => ""})
+
+    assert Builder.mode(row) == :row
+    assert row["bucket"] == ""
+    assert stripped == []
+    assert Enum.any?(row["filters"], &(&1["field"] == "tag"))
+    assert Enum.any?(row["filters"], &(&1["field"] == "app"))
+  end
+
+  test "parsing a flows query without a bucket preserves row mode and row-only filters" do
+    query = "in:flows time:last_1h tag:edge sort:time:desc limit:100"
+
+    assert {:ok, row} = Builder.parse(query)
+    assert Builder.mode(row) == :row
+    assert Enum.any?(row["filters"], &(&1["field"] == "tag" and &1["value"] == "edge"))
+
+    rebuilt = Builder.build(row)
+    assert rebuilt =~ "tag:edge"
+    refute rebuilt =~ "bucket:"
   end
 
   test "enabling chart mode strips illegal flows filters and reports them" do

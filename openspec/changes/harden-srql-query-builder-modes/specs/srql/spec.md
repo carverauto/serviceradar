@@ -3,11 +3,12 @@
 ### Requirement: SRQL query modes for builder composition
 The system SHALL treat SRQL queries as belonging to a query mode that determines which filter fields are valid when the web-ng query builder composes a query.
 
-Modes SHALL include at least:
+The visual builder SHALL represent these modes:
 
-- **row** — no `bucket:` and no `stats:` control tokens that select alternate execution paths
-- **downsample** — `bucket:` present (chart / time-bucket path)
-- **stats** — `stats:` present (aggregate path)
+- **row** - no `bucket:` control token
+- **downsample** - `bucket:` present (chart / time-bucket path)
+
+This requirement applies only to visual-builder composition. A query containing `stats:` SHALL remain on the freeform/desynchronized path unless a later change adds explicit stats state and a verified stats filter allowlist; it SHALL NOT be normalized as a row query.
 
 #### Scenario: Downsample mode detected from builder state
 - **WHEN** the query builder state has a non-empty `bucket` value for an entity with downsample enabled
@@ -17,8 +18,14 @@ Modes SHALL include at least:
 - **WHEN** the query builder state has an empty `bucket` and no stats expression
 - **THEN** the active mode is **row**
 
+#### Scenario: Stats query remains outside builder composition
+- **GIVEN** a raw SRQL query containing `stats:`
+- **WHEN** the page attempts to synchronize it with visual-builder state
+- **THEN** the raw query remains unchanged
+- **AND** the builder may be marked unsupported and desynchronized instead of applying row or downsample normalization
+
 ### Requirement: Mode-aware filter allowlists in the catalog
-The SRQL entity catalog SHALL expose filter field lists suitable for builder composition per query mode for entities that participate in multiple engine paths.
+The SRQL entity catalog SHALL expose filter field lists suitable for row and downsample builder composition for `flows`, which participates in multiple engine paths.
 
 For an entity with `downsample: true`, the catalog SHALL provide a downsample filter allowlist that is a projection of fields the downsample engine path accepts (not a superset of unimplementable fields).
 
@@ -54,8 +61,8 @@ When the builder transitions into a stricter mode (for example enabling `bucket`
 - **WHEN** the user clears the bucket
 - **THEN** the `app` filter remains
 
-### Requirement: Builder-composed queries remain executable
-When the builder is supported and in sync, applying or rebuilding the draft query SHALL NOT introduce filter fields that are invalid for the active mode.
+### Requirement: Builder-composed filter fields remain valid for the selected engine path
+When the builder is supported and in sync, applying or rebuilding the draft query SHALL NOT introduce filter fields that are invalid for the active mode. This requirement covers field availability; a mode-specific filter-operator capability matrix is deferred.
 
 #### Scenario: Builder rebuild with chart + cidr is well-formed
 - **GIVEN** flows downsample mode and a `cidr` filter (supported by the downsample engine)
@@ -69,13 +76,25 @@ When the builder is supported and in sync, applying or rebuilding the draft quer
   (either the tag is stripped or the mode is adjusted according to product rules; default is strip tag and keep bucket)
 
 ### Requirement: Freeform SRQL remains a superset path
-The system SHALL continue to allow users to type SRQL that the builder cannot fully parse. Such queries MAY disable builder sync rather than silently rewriting freeform text.
+The system SHALL continue to allow users to type SRQL that the builder cannot represent losslessly. This includes both unparseable syntax and otherwise parseable queries whose clauses conflict with the active builder mode. Such queries SHALL disable builder sync rather than silently rewriting freeform text.
 
 #### Scenario: Unparseable freeform does not force strip rewrite
 - **GIVEN** a freeform SRQL string the builder cannot parse
 - **WHEN** the user edits the text bar without using the builder
 - **THEN** the system does not rewrite the bar solely to enforce mode filter allowlists
 - **AND** builder sync may be marked false until the query is parseable again
+
+#### Scenario: Parseable mode conflict does not silently lose a raw filter
+- **GIVEN** a freeform flows query containing both a non-empty `bucket:` and a row-only `tag:` filter
+- **WHEN** the page attempts to synchronize visual-builder state
+- **THEN** the raw query and draft remain unchanged
+- **AND** builder support and sync are marked false instead of accepting normalized state without the `tag:` clause
+
+#### Scenario: Freeform stats query is preserved
+- **GIVEN** a freeform SRQL string containing `stats:` that the visual builder does not model
+- **WHEN** the page attempts to synchronize builder state
+- **THEN** the raw query remains unchanged
+- **AND** builder sync is marked false rather than applying row-mode normalization
 
 ### Requirement: Query Builder Integration
 The SRQL query builder UI SHALL allow users to add multiple filter rows. Each row becomes one clause in the final query. All rows SHALL be joined with whitespace (implicit AND).

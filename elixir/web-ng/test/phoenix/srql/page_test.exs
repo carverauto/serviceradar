@@ -16,6 +16,7 @@ defmodule ServiceRadarWebNGWeb.SRQL.PageTest do
   use ExUnit.Case, async: false
 
   alias Phoenix.LiveView.Socket
+  alias ServiceRadarWebNGWeb.SRQL.Builder
   alias ServiceRadarWebNGWeb.SRQL.Catalog
   alias ServiceRadarWebNGWeb.SRQL.Page
 
@@ -32,6 +33,133 @@ defmodule ServiceRadarWebNGWeb.SRQL.PageTest do
   test "shortcut_query preserves explicit SRQL" do
     assert Page.shortcut_query("in:devices metadata.proxmox_candidate:true") ==
              "in:devices metadata.proxmox_candidate:true"
+  end
+
+  test "builder events leave chart mode, accept row filters, and strip them when chart mode resumes" do
+    socket = Page.init(%Socket{}, "flows", default_limit: 100)
+
+    socket =
+      Page.handle_event(
+        socket,
+        "srql_builder_change",
+        %{"builder" => %{"bucket" => ""}},
+        []
+      )
+
+    assert Builder.mode(socket.assigns.srql.builder) == :row
+
+    socket =
+      Page.handle_event(
+        socket,
+        "srql_builder_change",
+        %{
+          "builder" => %{
+            "filters" => %{
+              "0" => %{"field" => "tag", "op" => "equals", "value" => "edge"}
+            }
+          }
+        },
+        []
+      )
+
+    assert socket.assigns.srql.draft =~ "tag:edge"
+    assert socket.assigns.srql.builder_mode_notice == nil
+
+    socket =
+      Page.handle_event(
+        socket,
+        "srql_builder_change",
+        %{"builder" => %{"bucket" => "5m"}},
+        []
+      )
+
+    assert Builder.mode(socket.assigns.srql.builder) == :downsample
+    refute socket.assigns.srql.draft =~ "tag:"
+
+    assert socket.assigns.srql.builder_mode_notice ==
+             "Removed 1 filter not available in chart mode: tag"
+
+    socket =
+      Page.sync_from_params(
+        socket,
+        %{"q" => "in:flows time:last_1h cidr:10.0.0.0/8 sort:time:desc limit:100"},
+        "https://example.test/observability?tab=netflows",
+        default_limit: 100,
+        max_limit: 200
+      )
+
+    assert socket.assigns.srql.builder_mode_notice == nil
+  end
+
+  test "mode transition notice counts duplicate filter rows but lists each field once" do
+    socket = Page.init(%Socket{}, "flows", default_limit: 100)
+
+    socket =
+      Page.handle_event(
+        socket,
+        "srql_builder_change",
+        %{
+          "builder" => %{
+            "bucket" => "",
+            "filters" => %{
+              "0" => %{"field" => "tag", "op" => "equals", "value" => "edge"},
+              "1" => %{"field" => "tag", "op" => "equals", "value" => "core"}
+            }
+          }
+        },
+        []
+      )
+
+    socket =
+      Page.handle_event(
+        socket,
+        "srql_builder_change",
+        %{"builder" => %{"bucket" => "5m"}},
+        []
+      )
+
+    assert socket.assigns.srql.builder_mode_notice ==
+             "Removed 2 filters not available in chart mode: tag"
+  end
+
+  test "stats queries remain unchanged on the unsupported freeform builder path" do
+    query = ~s|in:flows time:last_24h stats:"count() as total" limit:100|
+
+    socket =
+      %Socket{}
+      |> Page.init("flows", default_limit: 100)
+      |> Page.sync_from_params(
+        %{"q" => query},
+        "https://example.test/observability?tab=netflows",
+        default_limit: 100,
+        max_limit: 200
+      )
+
+    assert socket.assigns.srql.query == query
+    assert socket.assigns.srql.draft == query
+    refute socket.assigns.srql.builder_supported
+    refute socket.assigns.srql.builder_sync
+  end
+
+  test "mode-invalid chart queries remain unchanged on the desynchronized freeform path" do
+    query =
+      "in:flows time:last_1h bucket:5m agg:sum value_field:bytes_total series:app " <>
+        "tag:edge limit:100"
+
+    socket =
+      %Socket{}
+      |> Page.init("flows", default_limit: 100)
+      |> Page.sync_from_params(
+        %{"q" => query},
+        "https://example.test/observability?tab=netflows",
+        default_limit: 100,
+        max_limit: 200
+      )
+
+    assert socket.assigns.srql.query == query
+    assert socket.assigns.srql.draft == query
+    refute socket.assigns.srql.builder_supported
+    refute socket.assigns.srql.builder_sync
   end
 
   test "sync_from_params applies URL query to draft before data load" do

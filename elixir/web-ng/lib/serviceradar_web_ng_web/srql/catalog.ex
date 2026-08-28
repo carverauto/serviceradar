@@ -1014,6 +1014,15 @@ defmodule ServiceRadarWebNGWeb.SRQL.Catalog do
         "direction",
         "app",
         "sampler_address",
+        "exporter_name",
+        "input_snmp",
+        "in_if_index",
+        "output_snmp",
+        "out_if_index",
+        "in_if_name",
+        "out_if_name",
+        "in_if_speed_bps",
+        "out_if_speed_bps",
         "src_country_iso2",
         "dst_country_iso2",
         "src_cidr",
@@ -1024,13 +1033,11 @@ defmodule ServiceRadarWebNGWeb.SRQL.Catalog do
         "dst_tag",
         "near",
         "src_near",
-        "dst_near",
-        "as_path",
-        "bgp_communities"
+        "dst_near"
       ],
       # Chart / `bucket:` path only — must stay a projection of
       # rust/srql/.../downsample/filters.rs `flows_filter_clause` arms.
-      # Excludes: port, tag*, near*, geo countries, as_path, bgp_communities.
+      # Excludes: port, tag*, near*, geo countries, and device_id.
       filter_fields_downsample: [
         "src_endpoint_ip",
         "src_ip",
@@ -1061,8 +1068,6 @@ defmodule ServiceRadarWebNGWeb.SRQL.Catalog do
         "in_if_speed_bps",
         "out_if_speed_bps"
       ],
-      # Fields backed by array columns - builder will always use list syntax for these
-      array_fields: ["as_path", "bgp_communities"],
       # Address-shaped fields default to `equals`, not `contains` (see address_fields/1).
       address_fields: [
         "src_endpoint_ip",
@@ -1781,7 +1786,9 @@ defmodule ServiceRadarWebNGWeb.SRQL.Catalog do
   Modes:
   - `:row` — default table / explorer path (`filter_fields`)
   - `:downsample` — chart / `bucket:` path (`filter_fields_downsample` when set)
-  - `:stats` — `stats:` aggregate path (`filter_fields_stats` when set; falls back to row)
+
+  Stats is not a visual-builder mode. `:stats` returns `nil` until stats has
+  explicit builder state and a verified mode-specific allowlist.
 
   Returns:
   - a list of field names when the catalog constrains the mode
@@ -1813,14 +1820,9 @@ defmodule ServiceRadarWebNGWeb.SRQL.Catalog do
     end
   end
 
-  def filter_fields(%{} = entity, :stats) do
-    case Map.get(entity, :filter_fields_stats) do
-      fields when is_list(fields) and fields != [] -> fields
-      _ -> filter_fields(entity, :row)
-    end
-  end
+  def filter_fields(%{} = _entity, :stats), do: nil
 
-  def filter_fields(%{} = entity, _mode), do: filter_fields(entity, :row)
+  def filter_fields(%{} = _entity, _mode), do: nil
 
   @doc """
   Address-shaped filter fields for an entity (IP addresses and the like).

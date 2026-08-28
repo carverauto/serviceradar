@@ -69,8 +69,8 @@ defmodule ServiceRadarWebNGWeb.SRQL.Builder do
   end
 
   @doc """
-  Like `update/2`, but also returns field names stripped by mode allowlists
-  (e.g. enabling chart mode drops `tag` on flows).
+  Like `update/2`, but also returns one field-name entry per filter row stripped
+  by mode allowlists (e.g. enabling chart mode drops `tag` on flows).
   """
   def update_meta(%{} = state, %{} = params) do
     state
@@ -122,21 +122,21 @@ defmodule ServiceRadarWebNGWeb.SRQL.Builder do
              parts.value_field,
              parts.series
            ) do
-      {state, _stripped} =
-        normalize_state_meta(%{
-          "entity" => parts.entity,
-          "time" => parts.time,
-          "bucket" => parts.bucket,
-          "agg" => parts.agg,
-          "value_field" => parts.value_field,
-          "series" => parts.series,
-          "sort_field" => parts.sort_field,
-          "sort_dir" => parts.sort_dir,
-          "limit" => parts.limit,
-          "filters" => parts.filters
-        })
-
-      {:ok, state}
+      case normalize_state_meta(%{
+             "entity" => parts.entity,
+             "time" => parts.time,
+             "bucket" => parts.bucket,
+             "agg" => parts.agg,
+             "value_field" => parts.value_field,
+             "series" => parts.series,
+             "sort_field" => parts.sort_field,
+             "sort_dir" => parts.sort_dir,
+             "limit" => parts.limit,
+             "filters" => parts.filters
+           }) do
+        {state, []} -> {:ok, state}
+        {_state, stripped} -> {:error, {:unsupported_mode_filter_fields, stripped}}
+      end
     end
   end
 
@@ -250,7 +250,6 @@ defmodule ServiceRadarWebNGWeb.SRQL.Builder do
           removed
           |> Enum.map(fn filter -> filter |> Map.get("field") |> safe_to_string() end)
           |> Enum.reject(&(&1 == ""))
-          |> Enum.uniq()
 
         # If every filter was illegal, seed one empty legal row so the UI still
         # has a place to type — matching default_state's single empty filter.
@@ -321,7 +320,10 @@ defmodule ServiceRadarWebNGWeb.SRQL.Builder do
     default = safe_to_string(Map.get(config, :default_bucket) || "")
 
     cond do
-      candidate == "" -> default
+      # `default_state/2` seeds the initial chart bucket. Once a bucket is
+      # explicitly cleared, preserve that row-mode choice instead of silently
+      # re-enabling the default chart mode.
+      candidate == "" -> ""
       Regex.match?(~r/^\d+(?:s|m|h|d)$/, candidate) -> candidate
       true -> default
     end

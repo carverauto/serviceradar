@@ -3,6 +3,7 @@ defmodule ServiceRadarWebNGWeb.Components.SRQLComponentsTest do
 
   import Phoenix.LiveViewTest
 
+  alias ServiceRadarWebNGWeb.SRQL.Builder
   alias ServiceRadarWebNGWeb.SRQLComponents
 
   @moduletag :db_free
@@ -49,6 +50,32 @@ defmodule ServiceRadarWebNGWeb.Components.SRQLComponentsTest do
     assert html =~ ~s(data-input-id="rich-query-input")
     assert html =~ ~s(data-completions=)
     refute html =~ ~s(phx-hook="SRQLInput")
+  end
+
+  test "query builder renders row-only flow fields only when the bucket is cleared" do
+    row_builder =
+      "flows"
+      |> Builder.default_state(100)
+      |> Map.put("bucket", "")
+
+    row_html =
+      render_component(&SRQLComponents.srql_query_builder/1,
+        builder: row_builder,
+        supported: true,
+        sync: true
+      )
+
+    chart_html =
+      render_component(&SRQLComponents.srql_query_builder/1,
+        builder: Map.put(row_builder, "bucket", "5m"),
+        supported: true,
+        sync: true
+      )
+
+    assert row_html =~ ~s(<option value="tag")
+    assert row_html =~ ~s(<option value="cidr")
+    refute chart_html =~ ~s(<option value="tag")
+    assert chart_html =~ ~s(<option value="cidr")
   end
 
   test "results table preserves explicit column order and formats numeric cells" do

@@ -90,6 +90,7 @@ defmodule ServiceRadarWebNGWeb.SRQL.Page do
         builder_supported: builder_supported,
         builder_sync: builder_sync,
         builder: builder_state,
+        builder_mode_notice: nil,
         pagination: pagination,
         # Session-position pagination context for srql_paginate events.
         list_assign_key: list_assign_key,
@@ -182,7 +183,8 @@ defmodule ServiceRadarWebNGWeb.SRQL.Page do
         builder_available: builder_available,
         builder_supported: builder_supported,
         builder_sync: builder_sync,
-        builder: builder_state
+        builder: builder_state,
+        builder_mode_notice: nil
       })
 
     socket
@@ -265,7 +267,7 @@ defmodule ServiceRadarWebNGWeb.SRQL.Page do
       updated =
         srql
         |> Map.put(:builder, builder)
-        |> Map.put(:builder_mode_notice, mode_strip_notice(stripped))
+        |> Map.put(:builder_mode_notice, mode_strip_notice(stripped, Builder.mode(builder)))
 
       updated =
         if updated[:builder_supported] and updated[:builder_sync] do
@@ -686,17 +688,18 @@ defmodule ServiceRadarWebNGWeb.SRQL.Page do
     |> Enum.reject(&is_nil/1)
   end
 
-  defp mode_strip_notice([]), do: nil
-  defp mode_strip_notice(nil), do: nil
+  defp mode_strip_notice([], _mode), do: nil
+  defp mode_strip_notice(nil, _mode), do: nil
 
-  defp mode_strip_notice(fields) when is_list(fields) do
-    names = Enum.join(fields, ", ")
+  defp mode_strip_notice(fields, mode) when is_list(fields) do
+    names = fields |> Enum.uniq() |> Enum.join(", ")
 
     count = length(fields)
 
     noun = if count == 1, do: "filter", else: "filters"
+    context = if mode == :downsample, do: "chart mode", else: "the current query mode"
 
-    "Removed #{count} #{noun} not available in chart mode: #{names}"
+    "Removed #{count} #{noun} not available in #{context}: #{names}"
   end
 
   defp get_scope(socket) do

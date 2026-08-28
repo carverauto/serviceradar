@@ -44,7 +44,8 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize.FlowList do
         builder_available: true,
         builder_supported: builder_supported,
         builder_sync: builder_sync,
-        builder: builder_state
+        builder: builder_state,
+        builder_mode_notice: nil
       })
 
     socket

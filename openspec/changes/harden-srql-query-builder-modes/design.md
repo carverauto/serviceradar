@@ -4,29 +4,22 @@
 
 Three layers disagree today:
 
-1. **Catalog** — flat `filter_fields` used by the builder dropdown
-2. **Builder** — composes tokens; weak mode awareness (only knows entity has `downsample: true`)
-3. **Engine** — separate match arms for row (`flows/filters.rs`), stats (`flows/stats/filters.rs`), downsample (`downsample/filters.rs`)
+1. **Catalog** - flat `filter_fields` used by the builder dropdown
+2. **Builder** - composes tokens; weak mode awareness (only knows entity has `downsample: true`)
+3. **Engine** - separate match arms for row (`flows/filters.rs`), stats (`flows/stats/filters.rs`), downsample (`downsample/filters.rs`)
 
-Contract we want: **any query the builder emits while in sync SHOULD execute successfully** on the engine for that mode.
+Contract for this change: every filter field the builder advertises in a mode is accepted by the corresponding engine path. Operator capabilities are deferred until they have their own verified matrix.
 
-## Mode detection
+## Builder mode detection
 
-```
-if query has stats:     → mode = stats
-else if query has bucket: → mode = downsample
-else                      → mode = row
-```
-
-Builder state equivalent:
-
-```
-if bucket is non-empty → downsample
-else if stats present  → stats (future builder support; may stay parse-only initially)
-else                   → row
+```text
+if bucket is non-empty -> downsample
+else                    -> row
 ```
 
-v1 focuses on **row vs downsample** because that is what the builder UI knobs expose (`bucket` / `agg` / `value_field` / `series`).
+These are the only modes represented by builder state in this change.
+
+`stats:` remains an engine/freeform capability. `Builder.parse/1` does not model a stats expression, so a stats query may set `builder_supported: false` and `builder_sync: false`; the page preserves the raw query instead of applying the row allowlist or rebuilding it. A later stats-builder change must add explicit stats state and a verified stats allowlist before composing stats queries.
 
 ## Catalog shape (proposed)
 
@@ -38,13 +31,15 @@ filter_fields: [...],      # continues to mean "row" (and builder default when n
 downsample: true | false,
 
 # New (optional; absent = same as filter_fields for row-only entities)
-filter_fields_downsample: [...],  # if nil and downsample: true → must be filled for scoped entities
+filter_fields_downsample: [...],  # if nil and downsample: true, must be filled for scoped entities
 ```
 
 Helpers:
 
-- `Catalog.filter_fields(entity, mode)` → list for UI + normalize
-- Default: `mode: :row` → `filter_fields`; `mode: :downsample` → `filter_fields_downsample` or empty/error if missing when `downsample: true`
+- `Catalog.filter_fields(entity, mode)` returns the list used by the UI and normalizer.
+- `:row` returns `filter_fields`.
+- `:downsample` returns `filter_fields_downsample` when explicitly configured.
+- Unscoped entities preserve the existing row-list fallback for compatibility; that fallback is not a claim of engine parity. This change hardens only `flows`.
 
 **Do not** invent fields the engine rejects. Catalog is a projection of engine allowlists.
 
@@ -52,45 +47,51 @@ Helpers:
 
 ### Field dropdown
 - Source = `Catalog.filter_fields(entity, current_mode)`
-- When user has invalid field already selected (mode switch), strip on normalize
+- When a builder-driven mode switch makes a selected field invalid, strip it during the update and report it to the page
 
-### Mode switch: empty → non-empty bucket
-1. Compute illegal = filters whose field ∉ downsample allowlist  
-2. Remove them from builder state  
-3. Flash / inline note: `"Removed N filter(s) not available in chart mode: tag, near, …"`  
+### Mode switch: empty to non-empty bucket
+1. Compute illegal filters whose fields are not in the downsample allowlist.
+2. Remove them from builder state.
+3. Show an inline note: `"Removed N filter(s) not available in chart mode: tag, near, ..."`.
 4. Rebuild draft
 
-### Mode switch: non-empty bucket → empty
+### Mode switch: non-empty bucket to empty
 - Keep filters; expand dropdown to full row list
 
 ### Free text vs builder sync
-- Unchanged: unparseable free text → `builder_supported: false`, no silent rewrite of the bar
-- This change only affects **builder-driven** compose when sync is true
+- Unparseable free text sets `builder_supported: false` with no silent rewrite of the bar.
+- `Builder.parse/1` also returns an error when normalization would have to drop a mode-illegal raw filter. Callers preserve the exact query and mark builder sync false instead of accepting a lossy builder state.
+- Filter stripping only affects **builder-driven** mode transitions while sync is true.
 
-## Drift tests (flows first)
+## Drift tests
 
-Table-driven test:
+The Elixir fixture mirrors the current `flows_filter_clause` engine arms, including engine-only `device_addr` and `device_address`. The test asserts that the builder-advertised downsample list is a subset of that fixture. Equality is intentionally not required because engine-supported fields may be withheld from manual builder composition.
 
-- Parse Rust downsample arms (or maintain a mirrored allowlist constant in Elixir tests generated from a shared fixture)
-- Pragmatic v1: **Elixir unit test** asserts every `filter_fields_downsample` entry for flows is in a hard-coded list kept next to a comment pointing at `downsample/filters.rs`
-- Better v2: small Rust test or fixture file `flows_downsample_filters.txt` checked by both
+A second contract test feeds every advertised downsample field through builder normalization. This prevents a chart option from being silently rewritten because it was missing from the row-superset catalog.
 
 ## Error UX priority
 
-1. Prevent illegal selection (dropdown)  
-2. Strip + notice on mode transition  
-3. Pre-run validation message  
+1. Prevent illegal selection (dropdown)
+2. Strip + notice on mode transition
+3. Future pre-run validation message
 4. Engine error (last resort)
 
 ## Non-goals
 
-- Auto-removing free-typed illegal tokens without user opening the builder  
-- Full stats-mode builder UI in phase 1  
+- Auto-removing free-typed illegal tokens without user opening the builder
+- Any stats-mode visual-builder support
+- A mode-specific filter-operator capability matrix
 - Enum/CIDR/near specialized widgets (later polish)
+
+## Coordination with active SRQL changes
+
+- `add-srql-timeseries-tag-dimensions` and `add-srql-downsample-tag-filters` apply to `timeseries_metrics tags.<key>` only. They do not make flows prefix-tag filters (`tag`, `src_tag`, `dst_tag`) valid in downsample.
+- `enhance-srql-search-input` consumes public catalog JSON. Row `filter` and `filter_downsample` inventories remain distinct and must not be flattened.
+- `fix-srql-dashboard-authoring-ux` owns editor/dashboard authoring UX. This change only constrains visual-builder filter composition and removal notices.
 
 ## Rollout
 
-1. Spec + matrix (this change docs)  
-2. Implement flows only behind normal staging merge  
-3. Expand entity matrices incrementally  
+1. Spec + matrix (this change docs)
+2. Implement flows only behind normal staging merge
+3. Expand entity matrices incrementally
 4. Engine PRs only for high-value advertised fields

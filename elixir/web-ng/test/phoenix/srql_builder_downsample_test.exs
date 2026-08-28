@@ -53,13 +53,11 @@ defmodule ServiceRadarWebNGWeb.SRQLBuilderDownsampleTest do
     assert rebuilt =~ "cidr:10.0.0.0/8"
   end
 
-  test "flows chart + tag is stripped on parse normalize" do
+  test "flows chart + tag is rejected instead of silently desynchronizing the builder" do
     query =
       "in:flows time:last_1h bucket:5m agg:sum value_field:bytes_total series:app " <>
         "tag:edge limit:100"
 
-    assert {:ok, state} = Builder.parse(query)
-    refute Enum.any?(state["filters"], &(&1["field"] == "tag"))
-    refute Builder.build(state) =~ "tag:"
+    assert {:error, {:unsupported_mode_filter_fields, ["tag"]}} = Builder.parse(query)
   end
 end
