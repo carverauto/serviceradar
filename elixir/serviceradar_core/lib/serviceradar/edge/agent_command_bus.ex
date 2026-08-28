@@ -1283,8 +1283,14 @@ defmodule ServiceRadar.Edge.AgentCommandBus do
   defp successful_cohort_command_ids(dispatches) do
     dispatches
     |> Enum.flat_map(fn
-      %{command_id: command_id, status: :dispatched} when is_binary(command_id) -> [command_id]
-      _ -> []
+      %{command_id: command_id, status: :dispatched} ->
+        case normalize_cohort_command_id(command_id) do
+          nil -> []
+          normalized -> [normalized]
+        end
+
+      _ ->
+        []
     end)
     |> MapSet.new()
   end
@@ -1306,19 +1312,29 @@ defmodule ServiceRadar.Edge.AgentCommandBus do
 
       true ->
         receive do
-          {:command_result, %{command_id: command_id} = result} ->
-            if MapSet.member?(expected_command_ids, command_id) do
-              do_collect_endpoint_inventory_cohort_results(
-                expected_command_ids,
-                deadline,
-                Map.put(results, command_id, result)
-              )
-            else
-              do_collect_endpoint_inventory_cohort_results(
-                expected_command_ids,
-                deadline,
-                results
-              )
+          {:command_result, result} when is_map(result) ->
+            case normalize_cohort_command_id(cohort_result_command_id(result)) do
+              command_id when is_binary(command_id) ->
+                if MapSet.member?(expected_command_ids, command_id) do
+                  do_collect_endpoint_inventory_cohort_results(
+                    expected_command_ids,
+                    deadline,
+                    Map.put(results, command_id, result)
+                  )
+                else
+                  do_collect_endpoint_inventory_cohort_results(
+                    expected_command_ids,
+                    deadline,
+                    results
+                  )
+                end
+
+              _ ->
+                do_collect_endpoint_inventory_cohort_results(
+                  expected_command_ids,
+                  deadline,
+                  results
+                )
             end
 
           _other ->
@@ -1328,6 +1344,27 @@ defmodule ServiceRadar.Edge.AgentCommandBus do
         end
     end
   end
+
+  defp cohort_result_command_id(result) when is_map(result) do
+    Map.get(result, :command_id) || Map.get(result, "command_id")
+  end
+
+  defp normalize_cohort_command_id(nil), do: nil
+
+  defp normalize_cohort_command_id(command_id) when is_binary(command_id) do
+    case Ecto.UUID.cast(command_id) do
+      {:ok, uuid} ->
+        uuid
+
+      :error ->
+        case Ecto.UUID.load(command_id) do
+          {:ok, uuid} -> uuid
+          :error -> command_id
+        end
+    end
+  end
+
+  defp normalize_cohort_command_id(_command_id), do: nil
 
   defp endpoint_inventory_cohort_coverage(coverage_seed, dispatches, answered) do
     dispatch_failures = Enum.count(dispatches, &(&1.status == :failed))

@@ -420,6 +420,86 @@ spiffe_mode =
     _ -> :filesystem
   end
 
+# Raw threat-intel payload object store. TTL 0 and max bucket size nil are both
+# "unbounded", so these are the only knobs bounding bucket growth.
+otx_raw_storage =
+  case System.get_env("SERVICERADAR_OTX_RAW_STORAGE", "file") do
+    "memory" -> :memory
+    _ -> :file
+  end
+
+# Terminal agent_command pruning (platform.agent_commands has a documented
+# bloat history, so these are incident-response levers).
+config :serviceradar_core, ServiceRadar.Edge.AgentCommandCleanupWorker,
+  retention_days: "AGENT_COMMAND_RETENTION_DAYS" |> parse_int_env.(2) |> max(1),
+  reschedule_seconds: "AGENT_COMMAND_CLEANUP_INTERVAL_SECONDS" |> parse_int_env.(3_600) |> max(60)
+
+# ---------------------------------------------------------------------------
+# Config blocks owned by the serviceradar_core APPLICATION.
+#
+# serviceradar_core is a path dependency of this release (mix.exs) and its
+# modules run here. But a release evaluates ONLY its own config/runtime.exs, so
+# a `config :serviceradar_core, SomeModule, ...` block written in
+# elixir/serviceradar_core/config/runtime.exs is NEVER applied in this release.
+# Every such block has to be mirrored below, or its env vars are silently inert
+# in production: Application.get_env/3 falls through to the compiled default and
+# nothing logs.
+#
+# Verified 2026-08-27 by RPC against the deployed demo node:
+#
+#   Application.get_env(:serviceradar_core, ServiceRadar.NetworkDiscovery.TopologyGraph)
+#   #=> nil
+#   Application.get_env(:serviceradar_core, :mapper_topology_edge_stale_minutes)
+#   #=> 10080
+#
+# i.e. the key defined immediately above applied correctly while the
+# module-scoped block did not exist at all.
+#
+# Only blocks whose modules actually execute in this release are mirrored.
+# Deliberately NOT mirrored, because nothing in this release reaches them:
+# RemoteAccessSSHCACommandSigner, ServiceRadar.Edge.RemoteAccessSSHCertificates
+# and RootSpanRatioWorker.
+#
+# Keep in sync with elixir/serviceradar_core/config/runtime.exs.
+# ---------------------------------------------------------------------------
+
+# Canonical-topology rebuild + its mass-deletion guardrail. The guard refuses a
+# stale-prune pass deleting more than canonical_prune_max_fraction of the
+# canonical edges; canonical_prune_guard_override forces a legitimate large
+# prune after a deliberate estate cutover, then should be unset.
+config :serviceradar_core, ServiceRadar.NetworkDiscovery.TopologyGraph,
+  canonical_rebuild_heartbeat_ms: parse_int_env.("SERVICERADAR_TOPOLOGY_CANONICAL_REBUILD_HEARTBEAT_MS", 3_600_000),
+  canonical_rebuild_min_upsert_floor:
+    "SERVICERADAR_TOPOLOGY_CANONICAL_REBUILD_MIN_UPSERT_FLOOR"
+    |> parse_int_env.(0)
+    |> max(0),
+  canonical_prune_max_fraction:
+    "SERVICERADAR_TOPOLOGY_CANONICAL_PRUNE_MAX_PERCENT"
+    |> parse_int_env.(50)
+    |> max(1)
+    |> min(100)
+    |> Kernel./(100),
+  canonical_prune_guard_override:
+    String.downcase(System.get_env("SERVICERADAR_TOPOLOGY_CANONICAL_PRUNE_GUARD_OVERRIDE", "false")) in [
+      "1",
+      "true",
+      "yes",
+      "on"
+    ]
+
+config :serviceradar_core, ServiceRadar.Observability.ThreatIntelRawPayloadStore,
+  jetstream_bucket: System.get_env("SERVICERADAR_OTX_RAW_BUCKET", "serviceradar_threat_intel"),
+  jetstream_ttl_seconds: parse_int_env.("SERVICERADAR_OTX_RAW_TTL_SECONDS", 0),
+  jetstream_max_bucket_size: parse_int_env.("SERVICERADAR_OTX_RAW_MAX_BUCKET_BYTES", nil),
+  jetstream_max_chunk_size: parse_int_env.("SERVICERADAR_OTX_RAW_MAX_CHUNK_BYTES", nil),
+  jetstream_replicas: parse_int_env.("SERVICERADAR_OTX_RAW_REPLICAS", 1),
+  jetstream_storage: otx_raw_storage
+
+# Workload-identity snapshot skip guard.
+config :serviceradar_core, ServiceRadar.WorkloadIdentity,
+  skip_guard_enabled: System.get_env("SERVICERADAR_WORKLOAD_IDENTITY_SKIP_GUARD", "1") != "0",
+  skip_guard_heartbeat_ms: parse_int_env.("SERVICERADAR_WORKLOAD_IDENTITY_SKIP_GUARD_HEARTBEAT_MS", 1_800_000)
+
 config :serviceradar_core, :spiffe,
   mode: spiffe_mode,
   trust_domain: System.get_env("SPIFFE_TRUST_DOMAIN", "serviceradar.local"),
