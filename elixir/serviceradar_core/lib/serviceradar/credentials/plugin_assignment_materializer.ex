@@ -465,10 +465,17 @@ defmodule ServiceRadar.Credentials.PluginAssignmentMaterializer do
          {:ok, policy} <-
            policy_for_rule(consumer, rule, package, purpose, agent_id, actor, opts),
          {:ok, input_defs} <- input_defs_for_rule(rule, purpose) do
+      # A `target_cardinality: single` consumer syncs the rule's own endpoint,
+      # not the resolved targets, so chunking it would run one complete sync
+      # per chunk against the same base URL. The manifest declares that; the
+      # rule's chunk_size metadata must not be able to override it.
+      single_assignment? = CredentialIntegration.single_target_cardinality?(consumer)
+
       reconcile_opts =
         opts
         |> Keyword.put(:actor, actor)
         |> Keyword.put(:chunk_size, metadata_int(rule, "chunk_size", 100))
+        |> Keyword.put(:single_assignment, single_assignment?)
         |> Keyword.put(:target_agent_uid, agent_id)
         # A policy id is shared by every agent covered by a credential rule.
         # This invocation is for one agent only, so stale-row retraction must

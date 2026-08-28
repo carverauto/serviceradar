@@ -1,6 +1,6 @@
 id: netbox-inventory
 name: NetBox Inventory Sync
-version: 0.2.0
+version: 0.3.0
 description: >
   Scheduled assignment that walks one or more NetBox instances' device
   inventories (/api/dcim/devices/ with DRF pagination) and emits
@@ -72,7 +72,26 @@ integrations:
         auth_method: api_token
         purposes:
           - inventory_sync
-        target_query: in:devices metadata.netbox_candidate:true
+        # A NetBox instance is the rule's controller host, not a resolved
+        # device: the sync reads base_url from the rule and ignores
+        # inputs[].items[]. The target set is therefore only a delivery gate,
+        # which makes two properties of this default load-bearing.
+        #
+        # It must RESOLVE. Nothing in ServiceRadar writes a
+        # metadata.netbox_candidate marker (unlike proxmox_candidate, which the
+        # mapper's Proxmox probe writes), so the previous default matched zero
+        # devices on every deployment and the rule materialized nothing --
+        # silently, which is the failure this integration exists to remove.
+        #
+        # It must stay SMALL. The consumer below is target_cardinality: single,
+        # so the whole target set is delivered in one assignment and a broad
+        # query is rejected rather than truncated.
+        #
+        # Narrow it to the NetBox host's own device record (for example
+        # `in:devices ip:10.0.0.5`) when you want the rule's targets to name
+        # the instance, and give each NetBox rule a distinct query: rules that
+        # share a target query are collapsed to the highest-priority one.
+        target_query: in:devices sort:uid:asc limit:1
         scope_type: agent
         allowed_ports: "443, 8443"
         tls_policy: verify
@@ -89,6 +108,16 @@ integrations:
             auth_methods:
               - api_token
             constraints: {}
+            # One run of this consumer syncs a whole NetBox instance: the
+            # endpoint is the rule's controller host and the plugin emits one
+            # complete DeviceDiscovery snapshot for it. Chunking the resolved
+            # targets would not divide that work, it would repeat it -- each
+            # chunk becomes its own assignment and re-walks the same
+            # /api/dcim/devices/ listing, emitting another complete snapshot
+            # under the same source_instance. Declaring single cardinality
+            # makes the planner emit exactly one un-chunked assignment per
+            # (rule, agent).
+            target_cardinality: single
             grant:
               grant_type: netbox_api_token
               resolution_location: control_plane

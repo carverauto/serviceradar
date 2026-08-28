@@ -130,13 +130,20 @@ func inventory_sync() {
 			return sdk.Unknown("NetBox configuration could not be loaded"), nil
 		}
 
-		cfg, err := decodeConfig(raw)
-		if err != nil {
-			return sdk.Unknown("NetBox configuration could not be parsed"), nil
-		}
-
-		return runInventorySync(cfg), nil
+		return inventorySyncFromRawConfig(raw), nil
 	})
+}
+
+// inventorySyncFromRawConfig is the entrypoint body minus the host config
+// read, so the parse-failure branch is reachable from a test without a wasm
+// host.
+func inventorySyncFromRawConfig(raw []byte) *sdk.Result {
+	cfg, err := decodeConfig(raw)
+	if err != nil {
+		return sdk.Unknown("NetBox configuration could not be parsed")
+	}
+
+	return runInventorySync(cfg)
 }
 
 func runInventorySync(cfg Config) *sdk.Result {

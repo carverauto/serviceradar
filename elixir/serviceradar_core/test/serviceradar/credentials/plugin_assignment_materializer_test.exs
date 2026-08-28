@@ -184,6 +184,26 @@ defmodule ServiceRadar.Credentials.PluginAssignmentMaterializerTest do
     assert :ok = PluginInputs.validate(payload)
   end
 
+  test "a per_target consumer keeps the chunked delivery the planner defaults to" do
+    assert {:ok, _summary} = materialize([credential_rule(%{})])
+
+    assert_receive {:reconcile, _policy, _input_defs, opts}
+    assert opts[:single_assignment] == false
+  end
+
+  test "a single-cardinality consumer is delivered as one assignment regardless of chunk_size" do
+    # The manifest, not the rule, decides this: a consumer whose run covers a
+    # whole instance would otherwise run once per chunk against the same
+    # endpoint, and rule metadata must not be able to reintroduce that.
+    rule = credential_rule(%{metadata: %{"chunk_size" => 25}})
+
+    assert {:ok, _summary} = materialize([rule], profile: single_cardinality_profile())
+
+    assert_receive {:reconcile, _policy, _input_defs, opts}
+    assert opts[:single_assignment] == true
+    assert opts[:chunk_size] == 25
+  end
+
   defp materialize(rules, opts \\ []) do
     purpose = Keyword.get(opts, :purpose, "device_inventory")
     package = Keyword.get(opts, :package, %{id: "pkg-example"})
@@ -227,4 +247,16 @@ defmodule ServiceRadar.Credentials.PluginAssignmentMaterializerTest do
   end
 
   defp profile, do: CredentialIntegrationFixtures.target_policy_profile()
+
+  defp single_cardinality_profile do
+    profile = profile()
+
+    consumers =
+      Enum.map(
+        profile["provisioning"]["consumers"],
+        &Map.put(&1, "target_cardinality", "single")
+      )
+
+    put_in(profile, ["provisioning", "consumers"], consumers)
+  end
 end

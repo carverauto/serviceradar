@@ -80,6 +80,27 @@ device metadata card.
 3. Create a plugin assignment for a sync-capable agent with the source
    parameters below. The agent runs the sync on the assignment interval.
 
+### Credential rules
+
+A NetBox credential rule is the supported way to deliver the API token: the
+token stays on a credential secret and the assignment is materialized with the
+base URL taken from the rule's controller host. Two rule fields behave
+differently here than they do for a per-device integration:
+
+- **Controller host** is the NetBox instance. It becomes `base_url`, so set the
+  full origin (`https://netbox.example.com`), or a `base_url` metadata value
+  when the deployment uses a BASE_PATH prefix.
+- **Target query** is only a delivery gate. The sync walks the instance named
+  by the rule and ignores the resolved targets, so a rule produces exactly one
+  assignment and one complete snapshot per run regardless of how many devices
+  the query matches. The default resolves a single device for that reason;
+  narrow it to the NetBox host's own device record (for example
+  `in:devices ip:10.0.0.5`) when you want the targets to name the instance.
+
+Give each NetBox rule a distinct target query. Rules that share one are
+collapsed to the highest-priority rule, so two instances behind the same query
+means only one of them syncs.
+
 ### Configuration
 
 Assignment parameters (see the plugin's config schema):

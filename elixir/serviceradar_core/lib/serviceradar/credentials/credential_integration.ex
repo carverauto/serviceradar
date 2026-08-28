@@ -108,6 +108,23 @@ defmodule ServiceRadar.Credentials.CredentialIntegration do
   def failure_mode(consumer) when is_map(consumer), do: consumer["failure_mode"] || "error"
   def failure_mode(_consumer), do: "error"
 
+  @doc """
+  How the consumer's work maps onto the rule's resolved targets.
+
+  `"per_target"` (the default) chunks the resolved targets and delivers one
+  assignment per chunk. `"single"` declares that the work belongs to the rule
+  rather than to any target, so the whole target set must arrive as one
+  un-chunked assignment.
+  """
+  @spec target_cardinality(map()) :: String.t()
+  def target_cardinality(consumer) when is_map(consumer),
+    do: consumer["target_cardinality"] || "per_target"
+
+  def target_cardinality(_consumer), do: "per_target"
+
+  @spec single_target_cardinality?(map()) :: boolean()
+  def single_target_cardinality?(consumer), do: target_cardinality(consumer) == "single"
+
   @spec requires_public_username?(map()) :: boolean()
   def requires_public_username?(consumer) when is_map(consumer) do
     CredentialParameterTemplate.references_source?(consumer["params"] || %{}, "public_username") or

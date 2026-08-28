@@ -25,6 +25,7 @@ defmodule ServiceRadar.Plugins.IntegrationDescriptor do
   @allowed_provisioning_keys ~w(mode schedule_id credential_requirement consumers)
   @allowed_consumer_keys ~w(
     purpose plugin_id auth_methods constraints failure_mode grant params
+    target_cardinality
   )
   @allowed_constraint_keys ~w(tls_policies ssh_host_key_policies)
   @allowed_grant_keys ~w(grant_type resolution_location inject allow ttl_seconds payload)
@@ -49,6 +50,19 @@ defmodule ServiceRadar.Plugins.IntegrationDescriptor do
   @allowed_payload_formats ~w(scalar json template)
   @allowed_provisioning_modes ~w(credential_only producer_schedule target_policy)
   @allowed_failure_modes ~w(error skip)
+  # How a consumer's work maps onto the rule's resolved targets.
+  #
+  # `per_target` (the default) means every resolved target is work: the
+  # planner chunks them and each chunk becomes its own assignment, so a
+  # controller-per-device integration (unifi-protect, proxmox) polls only its
+  # own chunk.
+  #
+  # `single` means the work is the *rule*, not the targets: the endpoint comes
+  # from the rule's controller host and one run covers the whole instance.
+  # Chunking such a consumer runs the same whole-instance job once per chunk.
+  # The planner therefore emits exactly one un-chunked assignment per
+  # (rule, agent) for these.
+  @allowed_target_cardinalities ~w(per_target single)
   @allowed_resolution_locations ~w(control_plane agent hybrid)
   @allowed_tls_policies ~w(verify skip_verify)
   @allowed_ssh_host_key_policies ~w(known_hosts trust_on_first_use skip_verify)
@@ -801,6 +815,16 @@ defmodule ServiceRadar.Plugins.IntegrationDescriptor do
         errors
       )
 
+    {target_cardinality, errors} =
+      optional_enum_value(
+        value,
+        "target_cardinality",
+        @allowed_target_cardinalities,
+        "per_target",
+        "#{path}.target_cardinality",
+        errors
+      )
+
     {grant, errors} = validate_grant(Map.get(value, "grant"), path, errors)
 
     {params, errors} =
@@ -819,6 +843,7 @@ defmodule ServiceRadar.Plugins.IntegrationDescriptor do
            "auth_methods" => auth_methods,
            "constraints" => constraints,
            "failure_mode" => failure_mode,
+           "target_cardinality" => target_cardinality,
            "grant" => grant,
            "params" => params
          }}

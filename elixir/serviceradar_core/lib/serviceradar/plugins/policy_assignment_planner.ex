@@ -5,6 +5,14 @@ defmodule ServiceRadar.Plugins.PolicyAssignmentPlanner do
   This module does not persist assignments. It deterministically produces
   assignment specs keyed by policy/agent/chunk so a reconciler can upsert and
   disable stale rows.
+
+  Pass `single_assignment: true` for a policy whose plugin does the same work
+  regardless of which targets resolved -- an inventory sync against one API
+  endpoint named by the policy itself, rather than a poll of each target.
+  Chunking such a policy does not divide its work: `assignment_key/3` includes
+  `chunk_index`, so every chunk becomes a separate assignment and the plugin
+  runs the same whole-instance job once per chunk. The option collapses the
+  plan to exactly one un-chunked assignment per agent.
   """
 
   alias ServiceRadar.Plugins.MapUtils
@@ -51,6 +59,7 @@ defmodule ServiceRadar.Plugins.PolicyAssignmentPlanner do
     generated_at = Keyword.get(opts, :generated_at, DateTime.to_iso8601(DateTime.utc_now()))
     chunk_size = Keyword.get(opts, :chunk_size, 100)
     hard_limit_bytes = Keyword.get(opts, :hard_limit_bytes)
+    single_assignment? = Keyword.get(opts, :single_assignment, false)
 
     grouped.by_agent
     |> Enum.sort_by(fn {agent_id, _} -> agent_id end)
@@ -63,7 +72,12 @@ defmodule ServiceRadar.Plugins.PolicyAssignmentPlanner do
         "template" => policy.params_template
       }
 
-      builder_opts = maybe_put([chunk_size: chunk_size], :hard_limit_bytes, hard_limit_bytes)
+      builder_opts =
+        maybe_put(
+          [chunk_size: chunk_size, single_chunk: single_assignment?],
+          :hard_limit_bytes,
+          hard_limit_bytes
+        )
 
       case PluginInputPayloadBuilder.build_payloads(base_payload, inputs_for_agent, builder_opts) do
         {:ok, payloads} ->

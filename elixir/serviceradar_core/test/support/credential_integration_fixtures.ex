@@ -56,6 +56,24 @@ defmodule ServiceRadar.TestSupport.CredentialIntegrationFixtures do
   @spec secret_id!(keyword()) :: String.t()
   def secret_id!(opts \\ []), do: secret!(opts).id
 
+  @doc """
+  The shipped manifest's `integrations` block as authored, before validation.
+
+  `profile!/2` returns the validated output shape, which is not valid input to
+  `IntegrationDescriptor.validate/2` (validation fills in empty lists that the
+  input rejects). Tests that exercise validation itself need the authored map.
+  """
+  @spec raw_integrations!(String.t()) :: map()
+  def raw_integrations!(plugin_directory) do
+    path = Path.join([@plugins_root, plugin_directory, "plugin.yaml"])
+
+    case path |> File.read!() |> Manifest.parse_yaml_map() do
+      {:ok, %{"integrations" => integrations}} -> integrations
+      {:ok, _map} -> raise "no integrations block in #{path}"
+      {:error, errors} -> raise "invalid manifest yaml #{path}: #{inspect(errors)}"
+    end
+  end
+
   @spec catalog([map()]) :: map()
   def catalog(profiles), do: %{credential_profiles: profiles, inventory_sources: []}
 
