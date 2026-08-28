@@ -43,6 +43,7 @@ import FlowSparkline from "./charts/FlowSparkline"
 import FlowRateChart from "./charts/FlowRateChart"
 import FlowDonut from "./charts/FlowDonut"
 import BandwidthGauge from "./charts/BandwidthGauge"
+import ChartRangeSelection from "./charts/ChartRangeSelection"
 
 export default {
   AllMetadataCard,
@@ -90,4 +91,5 @@ export default {
   FlowRateChart,
   FlowDonut,
   BandwidthGauge,
+  ChartRangeSelection,
 }

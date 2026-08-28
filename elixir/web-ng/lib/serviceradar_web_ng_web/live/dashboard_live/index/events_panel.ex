@@ -4,7 +4,11 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Index.EventsPanel do
 
   import ServiceRadarWebNGWeb.DashboardLive.Index.Common
 
+  alias ServiceRadarWebNGWeb.DashboardLive.EventRange
   alias ServiceRadarWebNGWeb.DashboardLive.Index.Common
+  alias ServiceRadarWebNGWeb.ObservabilityPaths
+
+  @event_layers [:low, :medium, :high, :critical]
 
   attr(:dashboard, :map, required: true)
   attr(:embedded, :boolean, default: false)
@@ -16,112 +20,183 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Index.EventsPanel do
       |> Map.put_new(:security_trend, [])
       |> Map.put_new(:security_trend_max, 0)
       |> Map.put_new(:time_window_label, "")
+      |> put_range_buckets()
 
     ~H"""
     <Common.panel :if={!@embedded} title="Events Over Time">
       <:actions>
         <span class="sr-ops-select">{@time_window_label}</span>
       </:actions>
-      <.events_body security_trend={@security_trend} security_trend_max={@security_trend_max} />
+      <.events_body
+        security_trend={@security_trend}
+        security_trend_max={@security_trend_max}
+        range_buckets_json={@range_buckets_json}
+      />
     </Common.panel>
 
     <.events_body
       :if={@embedded}
       security_trend={@security_trend}
       security_trend_max={@security_trend_max}
+      range_buckets_json={@range_buckets_json}
     />
     """
   end
 
   attr(:security_trend, :list, required: true)
   attr(:security_trend_max, :any, required: true)
+  attr(:range_buckets_json, :string, default: nil)
 
   defp events_body(assigns) do
     ~H"""
-    <div
-      :if={@security_trend == []}
-      class="sr-ops-empty-chart"
-      data-testid="security-events-empty"
-    >
-      <.icon name="hero-chart-bar" class="size-8 text-slate-500" />
-      <p>No event trend data</p>
-      <span>OCSF events will populate this chart when recent records exist.</span>
-    </div>
-    <.link
-      :if={@security_trend != []}
-      href={~p"/observability/events"}
-      class="sr-ops-security-chart sr-ops-clickable-panel"
-      data-testid="security-events-chart"
-      aria-label="Open event details"
-    >
-      <svg
-        class="sr-ops-events-area-chart"
-        viewBox="0 0 640 220"
-        preserveAspectRatio="none"
-        role="img"
-        aria-label="Events over time"
-      >
-        <g class="sr-ops-events-grid">
-          <line
-            :for={label <- event_axis_labels(@security_trend)}
-            class="sr-ops-events-x-grid"
-            x1={label.x}
-            x2={label.x}
-            y1="26"
-            y2="180"
-          />
-          <line
-            :for={tick <- event_y_axis_ticks(@security_trend_max)}
-            x1="36"
-            x2="616"
-            y1={tick.y}
-            y2={tick.y}
-          />
-          <line class="sr-ops-events-baseline" x1="36" x2="616" y1="180" y2="180" />
-        </g>
-        <path
-          class="sr-ops-events-area-low"
-          d={event_area_path(@security_trend, @security_trend_max, :low)}
-        />
-        <path
-          class="sr-ops-events-area-medium"
-          d={event_area_path(@security_trend, @security_trend_max, :medium)}
-        />
-        <path
-          class="sr-ops-events-area-high"
-          d={event_area_path(@security_trend, @security_trend_max, :high)}
-        />
-        <path
-          class="sr-ops-events-area-critical"
-          d={event_area_path(@security_trend, @security_trend_max, :critical)}
-        />
-        <polyline
-          class="sr-ops-events-line"
-          points={event_line_points(@security_trend, @security_trend_max)}
-        />
-        <g class="sr-ops-events-axis">
-          <text
-            :for={tick <- event_y_axis_ticks(@security_trend_max)}
-            class="sr-ops-events-y-label"
-            x="30"
-            y={tick.y + 4}
+    <div class="sr-ops-events-range-shell">
+      <%!-- Keep this as one conditional branch so connected async hydration replaces the
+      disconnected empty state instead of leaving stale sibling DOM behind. --%>
+      <%= if is_nil(@range_buckets_json) do %>
+        <div class="sr-ops-empty-chart" data-testid="security-events-empty">
+          <.icon name="hero-chart-bar" class="size-8 text-slate-500" />
+          <p>No event trend data</p>
+          <span>OCSF events will populate this chart when recent records exist.</span>
+        </div>
+      <% else %>
+        <div
+          id="dashboard-events-range-selector"
+          phx-hook="ChartRangeSelection"
+          class="sr-ops-security-chart sr-ops-events-range-selector"
+          tabindex="0"
+          role="group"
+          aria-label="Select an Events Over Time range"
+          aria-describedby="dashboard-events-range-instructions"
+          data-range-buckets={@range_buckets_json}
+          data-range-event="select_events_range"
+          data-chart-width="640"
+          data-chart-left-pad="36"
+          data-chart-right-pad="24"
+          data-testid="security-events-chart"
+        >
+          <svg
+            data-range-svg
+            class="sr-ops-events-area-chart"
+            viewBox="0 0 640 220"
+            preserveAspectRatio="none"
+            role="img"
+            aria-label="Events over time severity trend"
           >
-            {tick.text}
-          </text>
-          <text :for={label <- event_axis_labels(@security_trend)} x={label.x} y="204">
-            {label.text}
-          </text>
-        </g>
-      </svg>
-      <div class="sr-ops-events-legend">
-        <span><i class="sr-ops-events-dot critical"></i>Critical</span>
-        <span><i class="sr-ops-events-dot high"></i>High</span>
-        <span><i class="sr-ops-events-dot medium"></i>Medium</span>
-        <span><i class="sr-ops-events-dot low"></i>Low</span>
+            <g class="sr-ops-events-grid">
+              <line
+                :for={label <- event_axis_labels(@security_trend)}
+                class="sr-ops-events-x-grid"
+                x1={label.x}
+                x2={label.x}
+                y1="26"
+                y2="180"
+              />
+              <line
+                :for={tick <- event_y_axis_ticks(@security_trend_max)}
+                x1="36"
+                x2="616"
+                y1={tick.y}
+                y2={tick.y}
+              />
+              <line class="sr-ops-events-baseline" x1="36" x2="616" y1="180" y2="180" />
+            </g>
+            <path
+              class="sr-ops-events-area-low"
+              d={event_area_path(@security_trend, @security_trend_max, :low)}
+            />
+            <path
+              class="sr-ops-events-area-medium"
+              d={event_area_path(@security_trend, @security_trend_max, :medium)}
+            />
+            <path
+              class="sr-ops-events-area-high"
+              d={event_area_path(@security_trend, @security_trend_max, :high)}
+            />
+            <path
+              class="sr-ops-events-area-critical"
+              d={event_area_path(@security_trend, @security_trend_max, :critical)}
+            />
+            <polyline
+              class="sr-ops-events-line"
+              points={event_line_points(@security_trend, @security_trend_max)}
+            />
+            <g class="sr-ops-events-axis">
+              <text
+                :for={tick <- event_y_axis_ticks(@security_trend_max)}
+                class="sr-ops-events-y-label"
+                x="30"
+                y={tick.y + 4}
+              >
+                {tick.text}
+              </text>
+              <text :for={label <- event_axis_labels(@security_trend)} x={label.x} y="204">
+                {label.text}
+              </text>
+            </g>
+            <rect
+              data-range-overlay
+              class="sr-ops-events-range-overlay hidden"
+              x="36"
+              y="26"
+              width="0"
+              height="154"
+            />
+          </svg>
+          <div class="sr-ops-events-legend">
+            <span><i class="sr-ops-events-dot critical"></i>Critical</span>
+            <span><i class="sr-ops-events-dot high"></i>High</span>
+            <span><i class="sr-ops-events-dot medium"></i>Medium</span>
+            <span><i class="sr-ops-events-dot low"></i>Low</span>
+          </div>
+          <div class="sr-ops-events-range-footer">
+            <p id="dashboard-events-range-instructions" class="sr-ops-events-range-instructions">
+              Drag across the plot, or use Shift + arrow keys and press Enter, to inspect a time range.
+            </p>
+            <span data-range-status class="sr-ops-events-range-status" aria-live="polite"></span>
+          </div>
+        </div>
+      <% end %>
+
+      <div class="sr-ops-events-range-actions">
+        <.link
+          id="dashboard-events-view-all"
+          navigate={ObservabilityPaths.path("events")}
+          class="sr-ops-events-view-all"
+        >
+          View all events
+        </.link>
       </div>
-    </.link>
+    </div>
     """
   end
+
+  defp put_range_buckets(assigns) do
+    range_buckets_json =
+      with true <- event_trend_renderable?(assigns.security_trend, assigns.security_trend_max),
+           {:ok, buckets} <- EventRange.buckets(assigns.security_trend) do
+        Jason.encode!(buckets)
+      else
+        _ -> nil
+      end
+
+    Map.put(assigns, :range_buckets_json, range_buckets_json)
+  end
+
+  defp event_trend_renderable?(points, max_total)
+       when is_list(points) and points != [] and is_integer(max_total) and max_total >= 0 do
+    Enum.all?(points, &event_point_renderable?/1)
+  end
+
+  defp event_trend_renderable?(_points, _max_total), do: false
+
+  defp event_point_renderable?(%{label: label, total: total} = point)
+       when is_binary(label) and is_number(total) and total >= 0 do
+    Enum.all?(@event_layers, fn layer -> non_negative_number?(Map.get(point, layer, 0)) end)
+  end
+
+  defp event_point_renderable?(_point), do: false
+
+  defp non_negative_number?(value), do: is_number(value) and value >= 0
 
   defp event_area_path(points, max_total, layer), do: event_layer_path(points, max_total, event_layer_index(layer))
 
@@ -211,18 +286,16 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Index.EventsPanel do
   defp event_layer_path(_points, _max_total, _layer_index), do: ""
 
   defp event_cumulative(point, layer_index) do
-    [:low, :medium, :high, :critical]
+    @event_layers
     |> Enum.take(layer_index + 1)
     |> Enum.map(&Map.get(point, &1, 0))
     |> Enum.sum()
   end
 
   defp event_xy(idx, count, value, max_total) do
-    width = 580
-    left = 36
     top = 26
     height = 154
-    x = left + round(width * idx / max(count - 1, 1))
+    x = EventRange.x(idx, count)
     y = top + height - round(height * value / max(max_total, 1))
     {x, y}
   end
