@@ -4,6 +4,8 @@ defmodule ServiceRadarAgentGateway.JetStreamPublisherTest do
   import Bitwise
 
   alias ServiceRadar.Edge.PublicationIdentity
+  alias ServiceRadar.Edge.PublisherLane
+  alias ServiceRadar.Edge.PublisherPool
   alias ServiceRadar.Edge.StreamRoute
   alias Serviceradar.Edge.V1.EdgeDeliveryFrameV1
   alias Serviceradar.Edge.V1.EdgeRecordV1
@@ -14,14 +16,34 @@ defmodule ServiceRadarAgentGateway.JetStreamPublisherTest do
   # request and returns a canned reply.
   defmodule FakeConn do
     @moduledoc false
-    def request(subject, payload, opts) do
-      send(self(), {:requested, subject, payload, opts})
+    def request(conn_name, subject, payload, opts) do
+      send(self(), {:requested, conn_name, subject, payload, opts})
       reply = Process.get(:fake_reply)
       reply
     end
   end
 
   defp with_reply(reply), do: Process.put(:fake_reply, reply)
+
+  # Publishing now requires the lane's window: a publish with no pool is an unbounded publish, so
+  # the publisher fails closed. These are UNREGISTERED pools, so the file stays async instead of
+  # colliding with any other test on PublisherPool.via/1.
+  defp with_pools(opts) do
+    pools =
+      Map.new(PublisherLane.lanes(), fn lane ->
+        {:ok, pid} =
+          PublisherPool.start_link(
+            class: lane,
+            frame_credits: 64,
+            byte_credits: 64 * 1024 * 1024,
+            name: nil
+          )
+
+        {lane, pid}
+      end)
+
+    Keyword.put(opts, :pools, pools)
+  end
 
   describe "parse_ack/1" do
     test "parses a success PubAck" do
@@ -263,12 +285,118 @@ defmodule ServiceRadarAgentGateway.JetStreamPublisherTest do
       with_reply({:ok, %{body: ~s({"stream":"#{planned.route.expected_stream}","seq":3})}})
 
       assert {:ok, %{seq: 3}} =
-               JetStreamPublisher.publish_record(publication(), connection: FakeConn)
+               JetStreamPublisher.publish_record(publication(), with_pools(connection: FakeConn))
 
-      assert_received {:requested, subject, payload, _opts}
+      assert_received {:requested, _conn, subject, payload, _opts}
       assert payload == publication().record_bytes
       assert subject == planned.route.subject
       assert subject =~ ~r"^telemetry\.edge-record\.v1\.bulk\.p\d{2}$"
+    end
+
+    test "each active lane publishes on ITS OWN connection, never the shared one" do
+      # The point of the separate connections is only real if the PUBLISHER uses them. Asserting
+      # the connection inventory elsewhere cannot see this: the names can be perfectly correct
+      # while every publish still goes out on :serviceradar_nats.
+      conns =
+        for {profile, class} <- StreamRoute.active_lanes() do
+          {:ok, lane} = PublisherLane.for_lane(profile, class)
+          pub = publication(%{route_profile: profile, traffic_class: class})
+          {:ok, planned} = JetStreamPublisher.plan(pub)
+          with_reply({:ok, %{body: ~s({"stream":"#{planned.route.expected_stream}","seq":1})}})
+
+          assert {:ok, _} = JetStreamPublisher.publish_record(pub, with_pools(connection: FakeConn))
+          assert_received {:requested, conn, _subject, _payload, _opts}
+          assert conn === PublisherLane.connection_name(lane)
+          conn
+        end
+
+      # NOT VACUOUS: the four active pairs resolve to THREE distinct connections -- both recovery
+      # pairs share one -- so a single hard-coded connection cannot satisfy this, and neither can
+      # a per-call unique value.
+      assert length(conns) === 4
+      assert length(Enum.uniq(conns)) === 3
+
+      # And none of them is the shared platform connection.
+      refute ServiceRadar.NATS.Supervisor.connection_name() in conns
+    end
+
+    # A pool per lane with room for exactly ONE frame, so saturation is reachable.
+    defp one_frame_pools do
+      Map.new(PublisherLane.lanes(), fn lane ->
+        {:ok, pid} =
+          PublisherPool.start_link(class: lane, frame_credits: 1, byte_credits: 10_000, name: nil)
+
+        {lane, pid}
+      end)
+    end
+
+    defp pub_seq(seq) do
+      base = publication()
+      %{base | slot: Map.put(base.slot, :sequence, seq)}
+    end
+
+    test "a saturated lane REFUSES and publishes nothing" do
+      pools = one_frame_pools()
+
+      # A timeout leaves the frame OUTSTANDING -- it is still owed a republish on the same slot --
+      # so its credit stays held. That is what makes the lane saturated with one frame.
+      with_reply({:error, :timeout})
+      assert {:error, :timeout} = JetStreamPublisher.publish_record(pub_seq(1), connection: FakeConn, pools: pools)
+      assert_received {:requested, _, _, _, _}
+
+      # The second frame has no credit. It must be refused BEFORE any I/O.
+      assert {:error, :capacity} =
+               JetStreamPublisher.publish_record(pub_seq(2), connection: FakeConn, pools: pools)
+
+      refute_received {:requested, _, _, _, _}
+    end
+
+    test "a durable PubAck settles, releasing the credit for the next frame" do
+      pools = one_frame_pools()
+
+      {:ok, planned} = JetStreamPublisher.plan(pub_seq(1))
+      with_reply({:ok, %{body: ~s({"stream":"#{planned.route.expected_stream}","seq":1})}})
+      assert {:ok, _} = JetStreamPublisher.publish_record(pub_seq(1), connection: FakeConn, pools: pools)
+      assert_received {:requested, _, _, _, _}
+
+      # NOT VACUOUS: the previous test proves a one-frame lane refuses a second frame when the
+      # first is unsettled. Here the first SETTLED, so the second must get through.
+      with_reply({:ok, %{body: ~s({"stream":"#{planned.route.expected_stream}","seq":2})}})
+      assert {:ok, _} = JetStreamPublisher.publish_record(pub_seq(2), connection: FakeConn, pools: pools)
+      assert_received {:requested, _, _, _, _}
+    end
+
+    test "republishing an OUTSTANDING sequence is admitted without a second credit" do
+      pools = one_frame_pools()
+
+      with_reply({:error, :timeout})
+      assert {:error, :timeout} = JetStreamPublisher.publish_record(pub_seq(1), connection: FakeConn, pools: pools)
+      assert_received {:requested, _, _, _, _}
+
+      # The retry is the SAME sequence: its credits are already held, so re-admitting would hand
+      # the same budget out twice. It must publish, not be refused as saturated.
+      {:ok, planned} = JetStreamPublisher.plan(pub_seq(1))
+      with_reply({:ok, %{body: ~s({"stream":"#{planned.route.expected_stream}","seq":9})}})
+      assert {:ok, _} = JetStreamPublisher.publish_record(pub_seq(1), connection: FakeConn, pools: pools)
+      assert_received {:requested, _, _, _, _}
+    end
+
+    test "with NO pool running, the publish fails closed and sends nothing" do
+      # A publish with no window is an unbounded publish. Refusing is the whole point; falling
+      # back to the shared connection would restore exactly the state this replaced.
+      #
+      # The absent pool is INJECTED by name rather than relied on being absent globally: the
+      # gateway application starts the real PublisherSupervisor, so :edge_publisher_pool_bulk is
+      # registered in this VM and a test that assumed otherwise passed for the wrong reason.
+      with_reply({:ok, %{body: ~s({"stream":"S","seq":1})}})
+
+      assert {:error, {:derivation, {:no_publisher_pool, :bulk}}} =
+               JetStreamPublisher.publish_record(publication(),
+                 connection: FakeConn,
+                 pools: %{bulk: :no_such_publisher_pool_is_registered}
+               )
+
+      refute_received {:requested, _, _, _, _}
     end
 
     test "an unknown partition rule refuses before any publish" do
@@ -277,10 +405,10 @@ defmodule ServiceRadarAgentGateway.JetStreamPublisherTest do
       assert {:error, {:derivation, :unknown_partition_rule}} =
                JetStreamPublisher.publish_record(
                  publication(%{partition_rule: :execution_v1}),
-                 connection: FakeConn
+                 with_pools(connection: FakeConn)
                )
 
-      refute_received {:requested, _, _, _}
+      refute_received {:requested, _, _, _, _}
     end
 
     # NAMED for what it actually varies. `publication/1` derives record_sha256 from the bytes, but
@@ -593,14 +721,14 @@ defmodule ServiceRadarAgentGateway.JetStreamPublisherTest do
       {pub, planned} = planned_pub()
       with_reply({:ok, %{body: ~s({"stream":"#{planned.route.expected_stream}","seq":5})}})
 
-      assert {:ok, %{seq: 5}} = JetStreamPublisher.publish_record(pub, connection: FakeConn)
+      assert {:ok, %{seq: 5}} = JetStreamPublisher.publish_record(pub, with_pools(connection: FakeConn))
     end
 
     test "an ack from ANOTHER stream is :misrouted, and :misrouted WITHHOLDS progress" do
       {pub, _planned} = planned_pub()
       with_reply({:ok, %{body: ~s({"stream":"TELEMETRY_EDGE_RECORD_V1_INTERACTIVE","seq":5})}})
 
-      assert {:error, :misrouted} = JetStreamPublisher.publish_record(pub, connection: FakeConn)
+      assert {:error, :misrouted} = JetStreamPublisher.publish_record(pub, with_pools(connection: FakeConn))
 
       # THE POINT: a wrong-stream ack is not authoritative acceptance. Classifying it terminal
       # would DLQ a record that may already be durable elsewhere and resolve a sequence that was
@@ -642,17 +770,17 @@ defmodule ServiceRadarAgentGateway.JetStreamPublisherTest do
       assert {:error, {:derivation, :record_bytes}} =
                JetStreamPublisher.publish_record(
                  Map.delete(base_pub(), :record_bytes),
-                 connection: FakeConn
+                 with_pools(connection: FakeConn)
                )
 
-      refute_received {:requested, _, _, _}
+      refute_received {:requested, _, _, _, _}
     end
 
     test "non-binary record_bytes is refused the same way" do
       assert {:error, {:derivation, :record_bytes}} =
                JetStreamPublisher.publish_record(
                  Map.put(base_pub(), :record_bytes, :not_binary),
-                 connection: FakeConn
+                 with_pools(connection: FakeConn)
                )
     end
 
@@ -669,12 +797,12 @@ defmodule ServiceRadarAgentGateway.JetStreamPublisherTest do
         assert {:error, {:derivation, _}} =
                  JetStreamPublisher.publish_record(
                    Map.merge(base_pub(), bad),
-                   connection: FakeConn
+                   with_pools(connection: FakeConn)
                  ),
                "expected #{inspect(Map.keys(bad))} to fail derivation"
       end
 
-      refute_received {:requested, _, _, _}
+      refute_received {:requested, _, _, _, _}
     end
 
     test "there is no public raw-publish bypass" do
@@ -692,12 +820,12 @@ defmodule ServiceRadarAgentGateway.JetStreamPublisherTest do
       with_reply({:error, :timeout})
 
       assert {:error, :timeout} =
-               JetStreamPublisher.publish_record(base_pub(), connection: FakeConn)
+               JetStreamPublisher.publish_record(base_pub(), with_pools(connection: FakeConn))
 
       with_reply({:error, {:nats_not_connected, :down}})
 
       assert {:error, :capacity} =
-               JetStreamPublisher.publish_record(base_pub(), connection: FakeConn)
+               JetStreamPublisher.publish_record(base_pub(), with_pools(connection: FakeConn))
     end
   end
 end

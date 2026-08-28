@@ -11,6 +11,7 @@ defmodule ServiceRadar.Edge.PublisherLaneTest do
 
   alias ServiceRadar.Edge.PublisherLane
   alias ServiceRadar.Edge.StreamRoute
+  alias Serviceradar.Edge.V1.EdgeRecordTrafficClass
 
   @durable :EDGE_RECORD_ROUTE_PROFILE_DURABLE_RECORDS_V1
   @recovery :EDGE_RECORD_ROUTE_PROFILE_RECOVERY_CONTROL_V1
@@ -62,9 +63,15 @@ defmodule ServiceRadar.Edge.PublisherLaneTest do
       assert length(assignments) === length(active)
       assert Enum.map(assignments, &elem(&1, 0)) === active
 
-      for {_pair, lane} <- assignments do
-        assert lane in PublisherLane.lanes()
-      end
+      # BOUND EXACTLY, not `lane in lanes()`. The weaker form proved only that the function was
+      # internally self-consistent: mapping every active pair to :bulk satisfied it, because
+      # :bulk is a lane. The expected list is written out here so a wrong assignment is a diff.
+      assert assignments === [
+               {{@durable, @bulk}, :bulk},
+               {{@durable, @interactive}, :interactive},
+               {{@recovery, @bulk}, :recovery},
+               {{@recovery, @interactive}, :recovery}
+             ]
     end
 
     test "an unroutable pair is REFUSED, never defaulted onto a lane" do
@@ -97,10 +104,38 @@ defmodule ServiceRadar.Edge.PublisherLaneTest do
       assert PublisherLane.for_lane(@recovery, @interactive) === {:ok, :recovery}
     end
 
+    test "recovery accepts EXACTLY bulk and interactive among the DECLARED classes" do
+      # The recovery clause is guarded, but nothing proved the guard mattered: replacing it with a
+      # wildcard `_class` left every test green, because none of them offered recovery a class it
+      # should refuse. Derived from the ABI inventory so a class added to the enum is covered the
+      # day it lands rather than whenever someone remembers.
+      declared = Map.keys(EdgeRecordTrafficClass.mapping())
+
+      accepted =
+        for class <- declared,
+            PublisherLane.for_lane(@recovery, class) === {:ok, :recovery},
+            do: class
+
+      assert Enum.sort(accepted) === Enum.sort([@bulk, @interactive])
+
+      # Every other DECLARED class is refused -- UNSPECIFIED above all, which a wildcard accepts.
+      for class <- declared -- accepted do
+        assert PublisherLane.for_lane(@recovery, class) === {:error, :unroutable_lane},
+               "recovery accepted #{inspect(class)}"
+      end
+
+      # Unknown-value controls: a class not in the ABI, and the negative Go retains for an
+      # unmapped enum. Neither may fall into recovery.
+      assert PublisherLane.for_lane(@recovery, :EDGE_RECORD_TRAFFIC_CLASS_NOT_IN_THE_ABI) ===
+               {:error, :unroutable_lane}
+
+      assert PublisherLane.for_lane(@recovery, -1) === {:error, :unroutable_lane}
+    end
+
     test "the generated enum still has no recovery member" do
       # If a recovery traffic class is ever added to the ABI, the reasoning above stops holding
       # and this test is where that shows up.
-      members = Map.keys(Serviceradar.Edge.V1.EdgeRecordTrafficClass.mapping())
+      members = Map.keys(EdgeRecordTrafficClass.mapping())
 
       assert :EDGE_RECORD_TRAFFIC_CLASS_UNSPECIFIED in members
       refute Enum.any?(members, &(&1 |> Atom.to_string() |> String.contains?("RECOVERY")))
