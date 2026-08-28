@@ -23,13 +23,30 @@ registry`, acking config 22 seconds after its onboarding package was deleted.
 
 Two mechanisms exist and are correct; both are unreachable or silent:
 
-- **Topology link retention works.** Zero canonical edges are older than 30 days. It
-  aged out the removed UniFi topology exactly as designed.
-- **The mass-deletion guard works, and blocks silently.** It refuses a pass deleting
-  more than 50% of canonical edges. After the cutover that figure is **82.6%**, so the
-  guard will refuse forever -- the stale fraction never shrinks on its own. Nothing is
-  logged, because nothing logs until an edge is prune-eligible. An operator sees a
-  network they no longer poll and no indication why.
+- **Canonical edge ageing works.** Verified on `demo` 2026-08-27: the rebuild runs hourly,
+  the guard allows the prune, and it correctly deletes nothing --
+  `starved: false, prune_result: :ok, before_edges: 228, after_prune_edges: 228`. The
+  cutoff is `2026-08-20` and the oldest canonical edge is `2026-08-21`, because
+  `SERVICERADAR_MAPPER_TOPOLOGY_EDGE_STALE_MINUTES` is `10080` (7 days) at
+  `values-demo.yaml:662`. Note this is NOT `SERVICERADAR_TOPOLOGY_LINK_RETENTION_DAYS`,
+  which feeds `data_retention_worker.ex` for the relational links table and has no effect
+  on the canonical AGE prune.
+- **The mass-deletion guard reports refusals properly.** `report_prune_refusal/5`
+  (canonical_rebuild.ex:397) emits `prune_refused` telemetry and a `Logger.error` naming
+  the candidate count, the total, the fraction and the override. It has not appeared on
+  `demo` only because nothing has been prune-eligible yet.
+- **But the guard cannot be overridden in the deployed release.** The reader is
+  `Application.get_env(:serviceradar_core, ServiceRadar.NetworkDiscovery.TopologyGraph)`,
+  and that block is defined ONLY in `elixir/serviceradar_core/config/runtime.exs:1256`.
+  The deployed app is `serviceradar_core_elx`, and a release evaluates only its own
+  `runtime.exs` -- which has no `TopologyGraph` block. Confirmed by live RPC against the
+  running node: the block returns `nil`, while a key core_elx does define
+  (`mapper_topology_edge_stale_minutes`) correctly returns `10080`. So
+  `canonical_prune_max_fraction` and `canonical_prune_guard_override` sit at their
+  compiled defaults (0.5 / false) and no env var can change them. This is imminent, not
+  theoretical: 174 of 228 canonical edges (76.3%) are ghosts of the departed estate and
+  cross the 7-day cutoff around 2026-08-28, at which point the guard refuses correctly
+  and the documented escape hatch does not exist.
 
 There is also a class of stale data with no expiry at all: **49,932 of ~50,220 devices
 have not been seen in over 30 days and are still live records.** `DeviceCleanupWorker`
@@ -43,9 +60,11 @@ simply stopped reporting.
   page rather than only by hand-crafted admin API call.
 - **Device expiry.** A device unseen for a retention window is soft-deleted by the same
   mechanism topology links already use, instead of living forever.
-- ~~**Guard observability.**~~ WITHDRAWN: already implemented -- see tasks.md 3.1.
-  that unblocks it. A guardrail that fails closed and silently is indistinguishable from
-  a mechanism that was never built.
+- ~~**Guard observability.**~~ WITHDRAWN: already implemented, and correctly. See
+  tasks.md 3.1.
+- **The guard's config is wired into the release that actually runs.** A guardrail whose
+  documented override is unreachable in production is indistinguishable from one with no
+  override at all. See tasks.md 3.4.
 - **Honest pipeline stats.** `raw_attachment` reports what the pipeline *decided*, not
   what the producer *claimed*; `pair_*` and `final_*` stop being computed from the same
   list, so a loss between stages can actually be localised.
