@@ -324,12 +324,14 @@ defmodule ServiceRadarWebNGWeb.DashboardLiveTest do
   end
 
   defp create_dashboard_instance!(route_slug) do
+    actor = ServiceRadarWebNG.AshTestHelpers.system_actor()
+
     package =
       DashboardPackage
       |> Ash.Changeset.for_create(:create, package_attrs())
-      |> Ash.create!()
+      |> Ash.create!(actor: actor)
       |> Ash.Changeset.for_update(:enable, %{})
-      |> Ash.update!()
+      |> Ash.update!(actor: actor)
 
     DashboardInstance
     |> Ash.Changeset.for_create(:create, %{
@@ -342,7 +344,7 @@ defmodule ServiceRadarWebNGWeb.DashboardLiveTest do
       settings: %{},
       metadata: %{}
     })
-    |> Ash.create!()
+    |> Ash.create!(actor: actor)
   end
 
   defp package_attrs do

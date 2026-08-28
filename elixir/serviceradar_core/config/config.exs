@@ -163,6 +163,10 @@ config :serviceradar_core, Worker,
   min_points: 24,
   seasonal_period: 24
 
+# Visibility applied to newly created dashboard instances. Existing rows are
+# backfilled to public and are not affected when this setting later changes.
+config :serviceradar_core, :dashboard_packages, default_visibility: :public
+
 config :serviceradar_core, :object_store_retention,
   enabled?: true,
   dry_run?: false,
@@ -324,13 +328,13 @@ config :spark,
 #   resources: [
 #     ServiceRadar.Credentials.NetworkCredentialSecret,
 #     ServiceRadar.Credentials.NetworkCredentialRule,
+# Lint-only CI sets SERVICERADAR_SKIP_NIF_COMPILATION so mix deps.compile does
 #     ServiceRadar.Security.AuthLockout
+# not shell out to cargo. mix_app already skips these NIFs under Bazel via
 #   ]
+# extra_config. See elixir/web-ng/config/config.exs for the full rationale.
 config :swoosh, :api_client, false
 
-# Lint-only CI sets SERVICERADAR_SKIP_NIF_COMPILATION so mix deps.compile does
-# not shell out to cargo. mix_app already skips these NIFs under Bazel via
-# extra_config. See elixir/web-ng/config/config.exs for the full rationale.
 if System.get_env("SERVICERADAR_SKIP_NIF_COMPILATION") == "1" do
   config :serviceradar_core, ServiceRadar.Observability.DispositionKernels,
     skip_compilation?: true

@@ -82,7 +82,7 @@ defmodule ServiceRadarWebNGWeb.DashboardFrameChannelTest do
     route_slug = "test-dashboard-#{System.unique_integer([:positive])}"
     data_frames = [%{"id" => "rows", "query" => "in:test_rows", "encoding" => "json_rows", "limit" => 1}]
     create_dashboard_instance!(route_slug, data_frames, scope)
-    token = DashboardFrameChannel.stream_token(route_slug, data_frames)
+    token = DashboardFrameChannel.stream_token(route_slug, data_frames, user.id)
 
     assert {:ok, %{"refresh_interval_ms" => 15_000}, _socket} =
              UserSocket
@@ -108,7 +108,7 @@ defmodule ServiceRadarWebNGWeb.DashboardFrameChannelTest do
     route_slug = "test-dashboard-#{System.unique_integer([:positive])}"
     data_frames = [%{"id" => "arrow", "query" => "in:test_arrow", "encoding" => "arrow_ipc", "limit" => 1}]
     create_dashboard_instance!(route_slug, data_frames, scope)
-    token = DashboardFrameChannel.stream_token(route_slug, data_frames)
+    token = DashboardFrameChannel.stream_token(route_slug, data_frames, user.id)
 
     assert {:ok, _reply, _socket} =
              UserSocket
@@ -145,7 +145,7 @@ defmodule ServiceRadarWebNGWeb.DashboardFrameChannelTest do
 
     create_dashboard_instance!(route_slug, data_frames, scope)
 
-    inactive_token = DashboardFrameChannel.stream_token(route_slug, data_frames)
+    inactive_token = DashboardFrameChannel.stream_token(route_slug, data_frames, user.id)
 
     assert {:ok, _reply, _socket} =
              UserSocket
@@ -158,7 +158,7 @@ defmodule ServiceRadarWebNGWeb.DashboardFrameChannelTest do
       ]
     }
 
-    active_token = DashboardFrameChannel.stream_token(route_slug, data_frames, ["optional"])
+    active_token = DashboardFrameChannel.stream_token(route_slug, data_frames, user.id, ["optional"])
 
     assert {:ok, _reply, _socket} =
              UserSocket
@@ -200,7 +200,7 @@ defmodule ServiceRadarWebNGWeb.DashboardFrameChannelTest do
     ]
 
     create_dashboard_instance!(route_slug, data_frames, scope)
-    token = DashboardFrameChannel.stream_token(route_slug, data_frames, ["optional"])
+    token = DashboardFrameChannel.stream_token(route_slug, data_frames, user.id, ["optional"])
 
     assert {:ok, _reply, socket} =
              UserSocket
@@ -251,7 +251,7 @@ defmodule ServiceRadarWebNGWeb.DashboardFrameChannelTest do
     ]
 
     create_dashboard_instance!(route_slug, data_frames, scope)
-    token = DashboardFrameChannel.stream_token(route_slug, data_frames, ["optional"])
+    token = DashboardFrameChannel.stream_token(route_slug, data_frames, user.id, ["optional"])
 
     assert {:ok, _reply, _socket} =
              UserSocket
@@ -285,7 +285,7 @@ defmodule ServiceRadarWebNGWeb.DashboardFrameChannelTest do
     data_frames = [%{"id" => "flaky", "query" => "in:test_flaky_rows", "encoding" => "json_rows", "limit" => 1}]
 
     create_dashboard_instance!(route_slug, data_frames, scope)
-    token = DashboardFrameChannel.stream_token(route_slug, data_frames)
+    token = DashboardFrameChannel.stream_token(route_slug, data_frames, user.id)
 
     assert {:ok, _reply, socket} =
              UserSocket
@@ -328,7 +328,7 @@ defmodule ServiceRadarWebNGWeb.DashboardFrameChannelTest do
     data_frames = [%{"id" => "slow", "query" => "in:test_slow_rows", "encoding" => "json_rows", "limit" => 1}]
 
     create_dashboard_instance!(route_slug, data_frames, scope)
-    token = DashboardFrameChannel.stream_token(route_slug, data_frames)
+    token = DashboardFrameChannel.stream_token(route_slug, data_frames, user.id)
 
     assert {:ok, _reply, socket} =
              UserSocket
@@ -353,7 +353,7 @@ defmodule ServiceRadarWebNGWeb.DashboardFrameChannelTest do
     route_slug = "test-dashboard-#{System.unique_integer([:positive])}"
     data_frames = [%{"id" => "rows", "query" => "in:test_rows", "encoding" => "json_rows"}]
     create_dashboard_instance!(route_slug, data_frames, scope)
-    token = DashboardFrameChannel.stream_token("other-route", data_frames)
+    token = DashboardFrameChannel.stream_token("other-route", data_frames, user.id)
 
     assert {:error, %{reason: "invalid_stream"}} =
              UserSocket
@@ -366,22 +366,82 @@ defmodule ServiceRadarWebNGWeb.DashboardFrameChannelTest do
              |> subscribe_and_join(DashboardFrameChannel, "dashboards:#{route_slug}", %{})
   end
 
-  defp create_dashboard_instance!(route_slug, data_frames, scope) do
+  test "rejects a stream token minted for another user", %{user: user, scope: scope} do
+    other = AccountsFixtures.user_fixture()
+    other_scope = Scope.for_user(other, permissions: RBAC.permissions_for_user(other))
+    route_slug = "test-dashboard-#{System.unique_integer([:positive])}"
+    data_frames = [%{"id" => "rows", "query" => "in:test_rows", "encoding" => "json_rows"}]
+    create_dashboard_instance!(route_slug, data_frames, scope)
+    token = DashboardFrameChannel.stream_token(route_slug, data_frames, user.id)
+
+    assert {:error, %{reason: "unauthorized"}} =
+             UserSocket
+             |> socket("other-user", %{current_user: other, current_scope: other_scope})
+             |> subscribe_and_join(DashboardFrameChannel, "dashboards:#{route_slug}", %{"token" => token})
+  end
+
+  test "rejects a still-valid token after the view grant is revoked", %{scope: owner_scope} do
+    alias ServiceRadar.Actors.SystemActor
+    alias ServiceRadar.Dashboards.DashboardInstanceAccessGrant
+
+    viewer = AccountsFixtures.user_fixture(%{role: :viewer})
+    viewer_scope = Scope.for_user(viewer, permissions: RBAC.permissions_for_user(viewer))
+    route_slug = "test-dashboard-#{System.unique_integer([:positive])}"
+    data_frames = [%{"id" => "rows", "query" => "in:test_rows", "encoding" => "json_rows"}]
+
+    instance =
+      create_dashboard_instance!(route_slug, data_frames, owner_scope, %{
+        visibility: :shared,
+        owner_id: owner_scope.user.id
+      })
+
+    {:ok, grant} =
+      DashboardInstanceAccessGrant
+      |> Ash.Changeset.for_create(:create, %{
+        dashboard_instance_id: instance.id,
+        subject_user_id: viewer.id,
+        access: :view,
+        granted_by_id: owner_scope.user.id
+      })
+      |> Ash.create(actor: SystemActor.system(:test))
+
+    token = DashboardFrameChannel.stream_token(route_slug, data_frames, viewer.id)
+
+    assert {:ok, _reply, _socket} =
+             UserSocket
+             |> socket("viewer-id", %{current_user: viewer, current_scope: viewer_scope})
+             |> subscribe_and_join(DashboardFrameChannel, "dashboards:#{route_slug}", %{"token" => token})
+
+    :ok = Ash.destroy(grant, actor: SystemActor.system(:test))
+
+    assert {:error, %{reason: "dashboard_unavailable"}} =
+             UserSocket
+             |> socket("viewer-id", %{current_user: viewer, current_scope: viewer_scope})
+             |> subscribe_and_join(DashboardFrameChannel, "dashboards:#{route_slug}", %{"token" => token})
+  end
+
+  defp create_dashboard_instance!(route_slug, data_frames, scope, extra \\ %{}) do
     package =
       DashboardPackage
       |> Ash.Changeset.for_create(:create, package_attrs(data_frames))
       |> Ash.create!(scope: scope)
 
     DashboardInstance
-    |> Ash.Changeset.for_create(:create, %{
-      dashboard_package_id: package.id,
-      name: "Test Dashboard",
-      route_slug: route_slug,
-      placement: :custom,
-      enabled: true,
-      settings: %{},
-      metadata: %{}
-    })
+    |> Ash.Changeset.for_create(
+      :create,
+      Map.merge(
+        %{
+          dashboard_package_id: package.id,
+          name: "Test Dashboard",
+          route_slug: route_slug,
+          placement: :custom,
+          enabled: true,
+          settings: %{},
+          metadata: %{}
+        },
+        extra
+      )
+    )
     |> Ash.create!(scope: scope)
   end
 

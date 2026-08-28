@@ -30,6 +30,7 @@ defmodule ServiceRadarWebNGWeb.DashboardPackageAssetControllerTest do
   test "serves enabled verified browser module renderer artifacts", %{conn: conn} do
     {:ok, package} = import_package("com.test.asset-controller.verified")
     {:ok, package} = Dashboards.enable_package(package.id, scope: nil)
+    {:ok, _instance} = enable_public_instance(package)
 
     conn = get(conn, ~p"/dashboard-packages/#{package.id}/renderer")
 
@@ -62,6 +63,49 @@ defmodule ServiceRadarWebNGWeb.DashboardPackageAssetControllerTest do
     conn = get(conn, ~p"/dashboard-packages/#{package.id}/renderer")
 
     assert response(conn, 404) == "dashboard renderer not found"
+  end
+
+  test "withholds the renderer when no instance is viewable", %{conn: conn} do
+    {:ok, package} = import_package("com.test.asset-controller.private")
+    {:ok, package} = Dashboards.enable_package(package.id, scope: nil)
+
+    {:ok, _instance} =
+      Dashboards.create_instance(
+        package,
+        %{
+          name: "Private Asset Dashboard",
+          route_slug: "private-asset-#{System.unique_integer([:positive])}",
+          enabled: true,
+          visibility: :private
+        },
+        actor: ServiceRadarWebNG.AshTestHelpers.system_actor()
+      )
+
+    other = ServiceRadarWebNG.AshTestHelpers.user_fixture()
+    actor = ServiceRadarWebNG.AshTestHelpers.system_actor()
+
+    other =
+      other
+      |> Ash.Changeset.for_update(:update_role, %{role: :viewer}, actor: actor)
+      |> Ash.update!()
+
+    conn = conn |> recycle() |> log_in_user(other)
+    conn = get(conn, ~p"/dashboard-packages/#{package.id}/renderer")
+
+    assert response(conn, 404) == "dashboard renderer not found"
+  end
+
+  defp enable_public_instance(package) do
+    Dashboards.create_instance(
+      package,
+      %{
+        name: package.name,
+        route_slug: "asset-#{System.unique_integer([:positive])}",
+        enabled: true,
+        visibility: :public
+      },
+      actor: ServiceRadarWebNG.AshTestHelpers.system_actor()
+    )
   end
 
   defp import_package(dashboard_id, opts \\ []) do

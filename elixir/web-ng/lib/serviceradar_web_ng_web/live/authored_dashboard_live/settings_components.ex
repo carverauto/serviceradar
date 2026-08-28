@@ -11,6 +11,7 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.SettingsComponents do
   attr :users, :list, default: []
   attr :user_groups, :list, default: []
   attr :can_view_groups?, :boolean, default: false
+  attr :show_pickers?, :boolean, default: true
 
   def sharing_settings(assigns) do
     ~H"""
@@ -57,7 +58,7 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.SettingsComponents do
           </div>
         </div>
 
-        <div class="space-y-4">
+        <div :if={@show_pickers?} class="space-y-4">
           <.form
             for={@user_grant_form}
             as={:grant}

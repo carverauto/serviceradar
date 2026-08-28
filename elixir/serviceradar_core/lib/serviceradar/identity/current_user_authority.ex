@@ -11,6 +11,7 @@ defmodule ServiceRadar.Identity.CurrentUserAuthority do
 
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Identity.RBAC
+  alias ServiceRadar.Identity.RBAC.Catalog
   alias ServiceRadar.Identity.RoleProfile
   alias ServiceRadar.Identity.User
 
@@ -37,8 +38,7 @@ defmodule ServiceRadar.Identity.CurrentUserAuthority do
          {:ok, current_user} <- load_current_user(dependencies, actor_id),
          :ok <- validate_current_user(current_user, actor_id),
          {:ok, current_permissions} <- load_current_permissions(dependencies, current_user),
-         true <-
-           Enum.all?(permissions_required, &MapSet.member?(current_permissions, &1)) do
+         true <- Enum.all?(permissions_required, &Catalog.holds?(current_permissions, &1)) do
       {:ok, %{user: current_user, permissions: current_permissions}}
     else
       _ -> @denied
@@ -66,8 +66,10 @@ defmodule ServiceRadar.Identity.CurrentUserAuthority do
   defp normalize_permissions(permission) when is_binary(permission) and permission != "",
     do: {:ok, [permission]}
 
+  defp normalize_permissions([]), do: {:ok, []}
+
   defp normalize_permissions(permissions) when is_list(permissions) do
-    if permissions != [] and Enum.all?(permissions, &(is_binary(&1) and &1 != "")) do
+    if Enum.all?(permissions, &(is_binary(&1) and &1 != "")) do
       {:ok, Enum.uniq(permissions)}
     else
       @denied

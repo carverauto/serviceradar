@@ -82,6 +82,31 @@ defmodule ServiceRadar.IntegrationRunnerConfigurationTest do
       end
     end
   end
+
+  test "sandbox owner queue timeout recognizes Agent.start MatchError" do
+    wrapped = %MatchError{
+      term:
+        {:error, {%DBConnection.ConnectionError{message: "dropped", reason: :queue_timeout}, []}}
+    }
+
+    assert TestSupport.sandbox_owner_queue_timeout?(wrapped)
+
+    assert TestSupport.sandbox_owner_queue_timeout?(%DBConnection.ConnectionError{
+             message: "dropped",
+             reason: :queue_timeout
+           })
+  end
+
+  test "sandbox owner queue timeout ignores unrelated failures" do
+    refute TestSupport.sandbox_owner_queue_timeout?(%MatchError{term: :other})
+
+    refute TestSupport.sandbox_owner_queue_timeout?(%DBConnection.ConnectionError{
+             message: "dropped",
+             reason: :closed
+           })
+
+    refute TestSupport.sandbox_owner_queue_timeout?(%RuntimeError{message: "nope"})
+  end
 end
 
 defmodule ServiceRadar.TestSupportSandboxTest do

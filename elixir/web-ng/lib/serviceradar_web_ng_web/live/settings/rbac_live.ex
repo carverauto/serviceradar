@@ -13,13 +13,12 @@ defmodule ServiceRadarWebNGWeb.Settings.RbacLive do
     resource_module: ServiceRadar.Identity.RoleProfile
 
   alias ServiceRadar.Identity.RBAC
+  alias ServiceRadar.Identity.RBAC.Catalog
   alias ServiceRadar.Identity.RoleProfile
   alias ServiceRadarWebNG.RBAC, as: WebRBAC
   alias ServiceRadarWebNGWeb.Settings.Shell
 
   require Ash.Query
-
-  @action_order ~w(view create update delete manage manage_queries bulk_edit bulk_delete import export run)
 
   # ── Mount ─────────────────────────────────────────────────────
 
@@ -164,7 +163,11 @@ defmodule ServiceRadarWebNGWeb.Settings.RbacLive do
     if profile == nil or profile_locked?(profile) do
       {:noreply, socket}
     else
-      keys = resource_permission_keys(socket.assigns.grid, resource)
+      keys =
+        socket.assigns.grid
+        |> section_grid(socket.assigns.active_section)
+        |> resource_permission_keys(resource)
+
       updated = toggle_permissions_bulk(profile, keys)
 
       {:noreply,
@@ -180,7 +183,11 @@ defmodule ServiceRadarWebNGWeb.Settings.RbacLive do
     if profile == nil or profile_locked?(profile) do
       {:noreply, socket}
     else
-      keys = action_permission_keys(socket.assigns.grid, action)
+      keys =
+        socket.assigns.grid
+        |> section_grid(socket.assigns.active_section)
+        |> action_permission_keys(action)
+
       updated = toggle_permissions_bulk(profile, keys)
 
       {:noreply,
@@ -718,11 +725,11 @@ defmodule ServiceRadarWebNGWeb.Settings.RbacLive do
                       <input
                         type="checkbox"
                         class={ui_checkbox_class()}
-                        checked={permission_checked?(@profile, resource.key, action)}
+                        checked={permission_checked?(@profile, @grid, resource.key, action)}
                         disabled={@locked}
                         phx-click="toggle_permission"
                         phx-value-profile-id={@profile.id}
-                        phx-value-permission={"#{resource.key}.#{action}"}
+                        phx-value-permission={permission_key(@grid, resource.key, action)}
                       />
                     <% end %>
                   </td>
@@ -828,14 +835,17 @@ defmodule ServiceRadarWebNGWeb.Settings.RbacLive do
   defp build_permission_grid(catalog) do
     resource_groups =
       Enum.map(catalog, fn section ->
-        section_key = sect_id(section)
-        perms = sect_permissions(section)
-        resources = build_section_resources(perms, section_key)
+        visible = Enum.reject(section.permissions, &Map.get(&1, :alias_of))
+        resources = build_section_resources(visible)
+        actions = section_actions(visible)
+        cells = Map.new(visible, &{{&1.resource, &1.action}, &1.key})
 
         %{
-          section: section_key,
+          section: sect_id(section),
           label: sect_label(section),
-          resources: resources
+          resources: resources,
+          actions: actions,
+          cells: cells
         }
       end)
 
@@ -844,98 +854,58 @@ defmodule ServiceRadarWebNGWeb.Settings.RbacLive do
         %{key: group.section, label: group.label}
       end)
 
-    flat_resources = Enum.flat_map(resource_groups, & &1.resources)
+    first = List.first(resource_groups) || %{resources: [], actions: [], cells: %{}}
 
-    all_permissions = Enum.flat_map(catalog, &sect_permissions/1)
-
-    actions =
-      all_permissions
-      |> Enum.map(&perm_key/1)
-      |> Enum.map(fn key -> elem(split_permission_key(key), 1) end)
-      |> Enum.uniq()
-      |> Enum.sort_by(&action_sort_index/1)
-
-    valid_permissions = MapSet.new(Enum.map(all_permissions, &perm_key/1))
-
-    # Pre-compute group boundary indices for left-border styling
-    group_starts =
-      resource_groups
-      |> Enum.reduce({0, MapSet.new()}, fn group, {offset, acc} ->
-        {offset + length(group.resources), MapSet.put(acc, offset)}
-      end)
-      |> elem(1)
+    valid_permissions =
+      catalog
+      |> Enum.flat_map(&sect_permissions/1)
+      |> MapSet.new(&perm_key/1)
 
     %{
       sections: sections,
       resource_groups: resource_groups,
-      flat_resources: flat_resources,
-      actions: actions,
+      flat_resources: first.resources,
+      actions: first.actions,
+      cells: first.cells,
       valid_permissions: valid_permissions,
-      group_starts: group_starts
+      group_starts: MapSet.new([0])
     }
   end
 
-  defp build_section_resources(perms, section_key) do
-    resources =
-      perms
-      |> Enum.map(&perm_key/1)
-      |> Enum.map(fn key -> elem(split_permission_key(key), 0) end)
-      |> Enum.uniq()
-
-    has_sub_resources? = Enum.any?(resources, &(&1 != section_key))
-
-    Enum.map(resources, fn resource_key ->
-      %{
-        key: resource_key,
-        label: resource_label(resource_key, section_key, has_sub_resources?)
-      }
+  defp build_section_resources(perms) do
+    perms
+    |> Enum.map(& &1.resource)
+    |> Enum.uniq()
+    |> Enum.map(fn resource_key ->
+      %{key: resource_key, label: Catalog.resource_label(resource_key)}
     end)
   end
 
-  defp resource_label(section_key, section_key, true), do: "All"
+  defp section_actions(perms) do
+    declared = perms |> Enum.map(& &1.action) |> Enum.uniq()
+    declared_set = MapSet.new(declared)
+    vocab = Catalog.action_order()
+    vocab_set = MapSet.new(vocab)
 
-  defp resource_label(resource_key, section_key, _), do: resource_short_label(resource_key, section_key)
-
-  defp split_permission_key(key) do
-    parts = String.split(key, ".")
-
-    case parts do
-      [single] ->
-        {single, ""}
-
-      _ ->
-        action = List.last(parts)
-        resource = parts |> Enum.drop(-1) |> Enum.join(".")
-        {resource, action}
-    end
-  end
-
-  defp action_sort_index(action) do
-    case Enum.find_index(@action_order, &(&1 == action)) do
-      nil -> 999
-      i -> i
-    end
-  end
-
-  defp resource_short_label(resource_key, section_key) do
-    if resource_key == section_key do
-      section_key
-    else
-      resource_key
-      |> String.replace_prefix(section_key <> ".", "")
-      |> String.replace("_profiles", "")
-      |> String.replace("_", " ")
-    end
+    Enum.filter(vocab, &MapSet.member?(declared_set, &1)) ++
+      Enum.filter(declared, &(&1 not in vocab_set))
   end
 
   # ── Grid helpers ──────────────────────────────────────────────
 
   defp permission_exists?(grid, resource_key, action) do
-    MapSet.member?(grid.valid_permissions, "#{resource_key}.#{action}")
+    Map.has_key?(grid.cells, {resource_key, action})
   end
 
-  defp permission_checked?(profile, resource_key, action) do
-    "#{resource_key}.#{action}" in (profile.permissions || [])
+  defp permission_key(grid, resource_key, action) do
+    Map.get(grid.cells, {resource_key, action})
+  end
+
+  defp permission_checked?(profile, grid, resource_key, action) do
+    case permission_key(grid, resource_key, action) do
+      nil -> false
+      key -> Catalog.holds?(profile.permissions || [], key)
+    end
   end
 
   defp has_sub_columns?(grid) do
@@ -948,21 +918,11 @@ defmodule ServiceRadarWebNGWeb.Settings.RbacLive do
   end
 
   defp resource_permission_keys(grid, resource) do
-    grid.valid_permissions
-    |> MapSet.to_list()
-    |> Enum.filter(fn key ->
-      {res, _action} = split_permission_key(key)
-      res == resource
-    end)
+    for {{res, _action}, key} <- grid.cells, res == resource, do: key
   end
 
   defp action_permission_keys(grid, action) do
-    grid.valid_permissions
-    |> MapSet.to_list()
-    |> Enum.filter(fn key ->
-      {_res, act} = split_permission_key(key)
-      act == action
-    end)
+    for {{_res, act}, key} <- grid.cells, act == action, do: key
   end
 
   defp humanize_action(action), do: String.replace(action, "_", " ")
@@ -981,10 +941,12 @@ defmodule ServiceRadarWebNGWeb.Settings.RbacLive do
 
   defp toggle_permission(profile, permission) do
     permissions = MapSet.new(profile.permissions || [])
+    equivalents = Catalog.equivalent_keys(permission)
+    held? = Enum.any?(equivalents, &MapSet.member?(permissions, &1))
 
     permissions =
-      if MapSet.member?(permissions, permission) do
-        MapSet.delete(permissions, permission)
+      if held? do
+        Enum.reduce(equivalents, permissions, fn key, acc -> MapSet.delete(acc, key) end)
       else
         MapSet.put(permissions, permission)
       end
@@ -994,11 +956,12 @@ defmodule ServiceRadarWebNGWeb.Settings.RbacLive do
 
   defp toggle_permissions_bulk(profile, keys) do
     permissions = MapSet.new(profile.permissions || [])
-    all_selected = Enum.all?(keys, &MapSet.member?(permissions, &1))
+    expanded = keys |> Enum.flat_map(&Catalog.equivalent_keys/1) |> Enum.uniq()
+    all_selected = Enum.all?(keys, &Catalog.holds?(permissions, &1))
 
     updated =
       if all_selected do
-        Enum.reduce(keys, permissions, fn key, acc -> MapSet.delete(acc, key) end)
+        Enum.reduce(expanded, permissions, fn key, acc -> MapSet.delete(acc, key) end)
       else
         Enum.reduce(keys, permissions, fn key, acc -> MapSet.put(acc, key) end)
       end
@@ -1152,12 +1115,19 @@ defmodule ServiceRadarWebNGWeb.Settings.RbacLive do
         to_string(group.section) == section_key
       end) || List.first(grid.resource_groups)
 
-    group = group || %{section: "", label: "", resources: []}
-
-    group_starts = MapSet.new([0])
+    group =
+      group ||
+        %{section: "", label: "", resources: [], actions: [], cells: %{}}
 
     Map.put(
-      %{grid | resource_groups: [group], flat_resources: group.resources, group_starts: group_starts},
+      %{
+        grid
+        | resource_groups: [group],
+          flat_resources: group.resources,
+          actions: group.actions,
+          cells: group.cells,
+          group_starts: MapSet.new([0])
+      },
       :active_section,
       group.section
     )
