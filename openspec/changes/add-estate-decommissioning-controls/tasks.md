@@ -135,6 +135,19 @@ agent-sr-test-pve04   05:05:37  is_available: TRUE    <- 77 min stale, never exp
       `prepare_runtime_edge_pipeline/2` sets `pair_edges: final_edges`, so the two families
       can never disagree and cannot localise a loss.
 
+- [ ] 3.5 Re-point canonical topology after an identity merge. When
+      `identity_reconciler` merges two devices it soft-deletes the loser with
+      `deleted_reason: "merged"`, but nothing re-points or removes the canonical edges that
+      reference the retired uid. Measured on demo 2026-08-27: `pve02` had BOTH a live uid
+      (`sr:5bf1b6f6...`, 9 edges) and a merged tombstone (`sr:9792202c...`, 7 edges) in
+      `CANONICAL_TOPOLOGY`, and their peer sets were IDENTICAL (tonka01, aruba-24g-02,
+      EDGE-1 under two IPs). So the graph draws the same host twice, and the tombstone half
+      is indistinguishable from a departed-estate ghost by the deleted_at test. These edges
+      are still being refreshed (last observed within the hour), so deleting them is
+      pointless until the merge path re-points them -- they simply come back. Note this also
+      means "edges whose endpoint device is soft-deleted" is NOT a safe purge predicate; it
+      must exclude `deleted_reason = 'merged'`.
+
 ## 4. Causal horizon labelling
 
 - [ ] 4.1 Report "not reached within N hops" instead of "not causally linked" when a node
