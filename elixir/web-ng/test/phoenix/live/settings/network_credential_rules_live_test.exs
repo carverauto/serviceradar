@@ -295,6 +295,35 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLiveTest do
     assert rule.tls_policy == :verify
   end
 
+  test "names the controller host from the descriptor without provider-specific copy", %{
+    conn: conn
+  } do
+    {:ok, lv, _html} = live(conn, ~p"/settings/networks/credentials/new")
+
+    html =
+      lv
+      |> form("#credential-rule-form",
+        credential_rule: %{
+          "provider" => "example-camera",
+          "auth_method" => "api_key",
+          "purposes" => ["camera_inventory"]
+        }
+      )
+      |> render_change()
+
+    assert html =~ ~s(name="credential_rule[controller_host]")
+    assert html =~ "Example Cameras controller host"
+    assert html =~ "ServiceRadar strips the URL down to the host"
+
+    # controller_host is a generic rule control; the form must not describe a
+    # non-UniFi provider's host in UniFi terms.
+    refute html =~ "UniFi"
+    refute html =~ "Protect controller"
+    refute html =~ "Dream Machine"
+    refute html =~ "unifi.lan"
+    refute html =~ "camera IP"
+  end
+
   test "uses credential kind rather than method id for SSH policy controls", %{conn: conn} do
     {:ok, lv, _html} = live(conn, ~p"/settings/networks/credentials/new")
 
@@ -762,7 +791,13 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLiveTest do
         "scope_type" => "agent",
         "tls_policy" => "verify"
       },
-      "rule_controls" => %{"target_query" => true, "transport" => true},
+      # Mirrors the shipped unifi-protect manifest: a second, non-UniFi provider
+      # that enables the generic controller_host rule control.
+      "rule_controls" => %{
+        "controller_host" => true,
+        "target_query" => true,
+        "transport" => true
+      },
       "provisioning" => %{
         "mode" => "target_policy",
         "consumers" => [

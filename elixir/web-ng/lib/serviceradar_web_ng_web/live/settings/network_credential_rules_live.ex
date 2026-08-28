@@ -923,6 +923,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
       |> assign(:show_ssh_policy?, ssh_host_key_policies != [])
       |> assign(:show_auto_discovery?, Map.get(rule_controls, "auto_discovery_enabled", false))
       |> assign(:show_controller_host?, Map.get(rule_controls, "controller_host", false))
+      |> assign(:controller_host_label, controller_host_label(integration_profile))
       |> assign(:show_allowed_ports?, Map.get(rule_controls, "allowed_ports", false))
       |> assign(:show_target_query?, Map.get(rule_controls, "target_query", false))
       |> assign(:show_tls_policy?, Map.get(rule_controls, "transport", false))
@@ -1119,14 +1120,14 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
             <div :if={@show_controller_host?} class="space-y-2 md:col-span-2">
               <.input
                 field={@form[:controller_host]}
-                label="UniFi OS / Protect controller"
-                placeholder="192.168.1.1 or unifi.lan"
+                label={@controller_host_label}
+                placeholder="controller.example.com or 10.0.0.1"
               />
               <p class="text-xs text-sr-muted">
-                This is the UniFi OS / Dream Machine address that serves Protect, not a camera
-                IP. Hostname, IP, or <span class="font-mono">https://192.168.1.1</span> all work;
-                ServiceRadar strips the URL down to the host. Leave blank only when the target
-                query already resolves that controller device.
+                The management host this integration authenticates against, not one of the
+                devices behind it. Hostname, IP, or <span class="font-mono">https://10.0.0.1</span>
+                all work; ServiceRadar strips the URL down to the host. Leave blank only when
+                the target query already resolves that host.
               </p>
             </div>
             <.input
@@ -2363,6 +2364,16 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
 
   defp profile_rule_controls(%{} = profile), do: profile["rule_controls"] || %{}
   defp profile_rule_controls(_profile), do: %{}
+
+  # "controller_host" is a generic rule control any profile may enable, and
+  # IntegrationDescriptor has no slot for per-control copy (@allowed_rule_control_keys
+  # is a closed allowlist whose values must be booleans). The descriptor label is the
+  # only provider-specific text available, so it names the host and everything else
+  # stays provider-neutral; per-provider guidance belongs in the profile banner and
+  # the integration's docs page.
+  defp controller_host_label(%{"label" => label}) when is_binary(label) and label != "", do: "#{label} controller host"
+
+  defp controller_host_label(_profile), do: "Controller host"
 
   defp scheduled_integration_profile?(profile) when is_map(profile),
     do: get_in(profile, ["provisioning", "mode"]) == "producer_schedule"
