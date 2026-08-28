@@ -25,7 +25,11 @@ defmodule ServiceRadar.Inventory.Identity.DuplicateSweep do
   @spec reconcile_duplicates(keyword()) :: {:ok, map()} | {:error, term()}
   def reconcile_duplicates(opts \\ []) do
     actor = Keyword.get(opts, :actor, SystemActor.system(:identity_reconciliation))
-    max_merges = Keyword.get(opts, :max_merges, default_max_merges())
+    # Keyword.get/3 does not apply the default when the key is present as nil.
+    # The AshOban job always passes `:max_merges` from schedule.args, which is
+    # nil unless an operator set it — and `halted? or ...` then raises
+    # BadBooleanError after the first merge component (prod 2026-08-26).
+    max_merges = normalize_max_merges(Keyword.get(opts, :max_merges))
     started_at = System.monotonic_time(:millisecond)
 
     Logger.info("Device identity reconciliation started")
@@ -78,6 +82,18 @@ defmodule ServiceRadar.Inventory.Identity.DuplicateSweep do
     |> Application.get_env(__MODULE__, [])
     |> Keyword.get(:max_merges_per_run, 200)
   end
+
+  @doc false
+  def normalize_max_merges(n) when is_integer(n) and n > 0, do: n
+  def normalize_max_merges(_), do: default_max_merges()
+
+  @doc false
+  def merge_cap_reached?(max_merges, count)
+      when is_integer(max_merges) and max_merges > 0 and is_integer(count) do
+    count >= max_merges
+  end
+
+  def merge_cap_reached?(_max_merges, _count), do: false
 
   # Duplicate identifier groups straight from the database: one row per
   # (type, value, partition) mapped to more than one device. Excludes
@@ -381,7 +397,7 @@ defmodule ServiceRadar.Inventory.Identity.DuplicateSweep do
       total_merged = merged + merged_count
       total_errors = errors + error_count
 
-      if halted? or (max_merges && total_merged >= max_merges) do
+      if halted? or merge_cap_reached?(max_merges, total_merged) do
         {:halt, {total_merged, total_errors}}
       else
         {:cont, {total_merged, total_errors}}
@@ -399,14 +415,14 @@ defmodule ServiceRadar.Inventory.Identity.DuplicateSweep do
         merge_component_step(from_id, canonical_id, actor, max_merges, merged_so_far, acc)
       end)
 
-    halted? = max_merges && merged_so_far + local_merged >= max_merges
+    halted? = merge_cap_reached?(max_merges, merged_so_far + local_merged)
     {local_merged, local_errors, halted?}
   end
 
   defp merge_component_step(from_id, canonical_id, actor, max_merges, merged_so_far, acc) do
     {local_merged, local_errors} = acc
 
-    if max_merges && merged_so_far + local_merged >= max_merges do
+    if merge_cap_reached?(max_merges, merged_so_far + local_merged) do
       {:halt, {local_merged, local_errors}}
     else
       case merge_component_device(from_id, canonical_id, actor) do

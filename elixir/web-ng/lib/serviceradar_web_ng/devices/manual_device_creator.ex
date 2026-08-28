@@ -10,10 +10,12 @@ defmodule ServiceRadarWebNG.Devices.ManualDeviceCreator do
   alias ServiceRadar.Ash.Page
   alias ServiceRadar.Inventory.Device
   alias ServiceRadar.Inventory.DeviceIdentifier
+  alias ServiceRadar.Inventory.Identity.Fence
   alias ServiceRadar.Inventory.IdentityReconciler
   alias ServiceRadarWebNG.Devices.HostnameResolver
 
   require Ash.Query
+  require Logger
 
   @partition_slug ~r/^[a-z0-9][a-z0-9_-]{0,62}$/
 
@@ -194,7 +196,7 @@ defmodule ServiceRadarWebNG.Devices.ManualDeviceCreator do
   end
 
   defp update_matched_device(device, duplicates, attrs, device_data, scope) do
-    with {:ok, restored} <- restore_if_deleted(device, scope),
+    with {:ok, restored} <- resolve_live_target(device, scope),
          {:ok, updated} <- update_existing_device(restored, attrs, scope),
          {:ok, updated} <- maybe_merge_metadata(updated, device_data, scope),
          :ok <- merge_active_duplicates(duplicates, updated) do
@@ -298,14 +300,18 @@ defmodule ServiceRadarWebNG.Devices.ManualDeviceCreator do
     Enum.min_by(matches, &canonical_rank/1)
   end
 
-  defp canonical_rank(%{reason: :uid}), do: 0
+  # Live rows always beat tombstones. A uid match on a merged-away device used
+  # to rank 0 and then :restore, which races identity recon (StaleRecord) and
+  # can undo a merge. Prefer the live IP/hostname survivor.
+  defp canonical_rank(%{reason: :uid, device: %{deleted_at: nil}}), do: 0
   defp canonical_rank(%{reason: :ip, device: %{deleted_at: nil}}), do: 1
   defp canonical_rank(%{reason: :ip_identifier, device: %{deleted_at: nil}}), do: 2
   defp canonical_rank(%{reason: :hostname, device: %{deleted_at: nil}}), do: 3
-  defp canonical_rank(%{reason: :ip}), do: 4
-  defp canonical_rank(%{reason: :ip_identifier}), do: 5
-  defp canonical_rank(%{reason: :hostname}), do: 6
-  defp canonical_rank(_match), do: 7
+  defp canonical_rank(%{reason: :uid}), do: 4
+  defp canonical_rank(%{reason: :ip}), do: 5
+  defp canonical_rank(%{reason: :ip_identifier}), do: 6
+  defp canonical_rank(%{reason: :hostname}), do: 7
+  defp canonical_rank(_match), do: 8
 
   defp duplicate_matches(matches, canonical) do
     matches
@@ -313,12 +319,70 @@ defmodule ServiceRadarWebNG.Devices.ManualDeviceCreator do
     |> Enum.uniq_by(fn %{device: device} -> device.uid end)
   end
 
-  defp restore_if_deleted(%Device{deleted_at: nil} = device, _scope), do: {:ok, device}
+  defp resolve_live_target(%Device{deleted_at: nil} = device, _scope), do: {:ok, device}
 
-  defp restore_if_deleted(%Device{} = device, scope) do
-    device
-    |> Ash.Changeset.for_update(:restore, %{})
-    |> Ash.update(scope: scope)
+  defp resolve_live_target(%Device{uid: uid} = device, scope) do
+    case reload_follow_canonical(uid, scope) do
+      {:ok, %Device{deleted_at: nil} = live} ->
+        {:ok, live}
+
+      {:ok, %Device{} = tombstoned} ->
+        restore_deleted(tombstoned, scope)
+
+      {:error, :not_found} ->
+        restore_deleted(device, scope)
+
+      {:error, _} = error ->
+        error
+    end
+  end
+
+  # Atomic Ash.update on a tombstoned row raises StaleRecord because the
+  # primary read filters deleted_at. Restore through include_deleted bulk
+  # update, same as MergeEngine.recreate_device/3.
+  defp restore_deleted(%Device{uid: uid} = device, scope) do
+    query =
+      Device
+      |> Ash.Query.for_read(:read, %{include_deleted: true})
+      |> Ash.Query.filter(uid == ^uid)
+
+    case Ash.bulk_update(query, :restore, %{},
+           scope: scope,
+           return_errors?: true,
+           return_records?: true
+         ) do
+      %Ash.BulkResult{status: :success, records: [restored | _]} ->
+        {:ok, restored}
+
+      %Ash.BulkResult{status: :success} ->
+        Device.get_by_uid(uid, false, scope: scope)
+
+      %Ash.BulkResult{errors: [error | _]} ->
+        {:error, error}
+
+      %Ash.BulkResult{errors: []} ->
+        Device.get_by_uid(uid, false, scope: scope)
+
+      other ->
+        Logger.warning("Failed to restore #{uid} for CSV/manual upsert: #{inspect(other)}")
+        {:error, {:restore_failed, device.uid}}
+    end
+  end
+
+  defp reload_follow_canonical(uid, scope) when is_binary(uid) do
+    actor = SystemActor.system(:manual_device_readd)
+    canonical_uid = IdentityReconciler.follow_canonical_device_id(uid, actor)
+
+    Device
+    |> Ash.Query.for_read(:read, %{include_deleted: true})
+    |> Ash.Query.filter(uid == ^canonical_uid)
+    |> Ash.read(scope: scope)
+    |> Page.unwrap()
+    |> case do
+      {:ok, [found | _]} -> {:ok, found}
+      {:ok, []} -> {:error, :not_found}
+      {:error, _} = error -> error
+    end
   end
 
   defp update_existing_device(%Device{} = device, attrs, scope) do
@@ -419,9 +483,28 @@ defmodule ServiceRadarWebNG.Devices.ManualDeviceCreator do
                "source" => "manual_device_creator"
              }
            ) do
-        :ok -> {:cont, :ok}
-        {:error, _} = error -> {:halt, error}
-        other -> {:halt, {:error, other}}
+        :ok ->
+          {:cont, :ok}
+
+        {:error, {:merge_blocked, guard}} ->
+          Logger.warning(
+            "CSV/manual upsert left duplicate #{device.uid} beside #{canonical.uid} " <>
+              "(merge blocked: #{guard})"
+          )
+
+          {:cont, :ok}
+
+        {:error, reason} = error ->
+          if Fence.stale?(reason) do
+            Logger.warning("CSV/manual upsert skipped duplicate #{device.uid}: stale after identity change")
+
+            {:cont, :ok}
+          else
+            {:halt, error}
+          end
+
+        other ->
+          {:halt, {:error, other}}
       end
     end)
   end

@@ -110,6 +110,23 @@ defmodule ServiceRadar.Inventory.Identity.DuplicateSweepTest do
     end
   end
 
+  describe "normalize_max_merges/1 and merge_cap_reached?/2" do
+    test "nil from the job schedule is the default cap, not an Elixir or-crash" do
+      cap = DuplicateSweep.normalize_max_merges(nil)
+      assert is_integer(cap) and cap > 0
+      assert DuplicateSweep.normalize_max_merges(0) == cap
+      assert DuplicateSweep.normalize_max_merges(-1) == cap
+      assert DuplicateSweep.normalize_max_merges("50") == cap
+      assert DuplicateSweep.normalize_max_merges(50) == 50
+
+      refute DuplicateSweep.merge_cap_reached?(nil, 0)
+      refute DuplicateSweep.merge_cap_reached?(nil, 10_000)
+      refute DuplicateSweep.merge_cap_reached?(cap, cap - 1)
+      assert DuplicateSweep.merge_cap_reached?(cap, cap)
+      assert DuplicateSweep.merge_cap_reached?(50, 50)
+    end
+  end
+
   test "does not use hardware serial ambiguity for unattended merges" do
     types = DuplicateSweep.automatic_merge_identifier_types()
 

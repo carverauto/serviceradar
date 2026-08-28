@@ -205,6 +205,55 @@ defmodule ServiceRadarWebNG.Devices.ManualDeviceCreatorTest do
     assert "manual" in device.discovery_sources
   end
 
+  test "prefers a live IP match over a tombstoned uid when both match the row", %{scope: scope} do
+    ip = "203.0.113.#{rem(System.unique_integer([:positive]), 200) + 20}"
+    hostname = "rids-tombstone-#{System.unique_integer([:positive])}.example"
+
+    assert {:ok, live} =
+             create_device(scope, %{
+               uid: "sr:" <> Ecto.UUID.generate(),
+               hostname: "live-inventory",
+               ip: ip,
+               type: "server",
+               type_id: 1,
+               is_managed: true,
+               is_active: true
+             })
+
+    assert {:ok, tombstoned} =
+             create_device(scope, %{
+               uid: "sr:" <> Ecto.UUID.generate(),
+               hostname: hostname,
+               ip: nil,
+               type: "rids",
+               type_id: 0,
+               is_managed: true,
+               is_active: true
+             })
+
+    assert {:ok, _} =
+             tombstoned
+             |> Ash.Changeset.for_update(:soft_delete, %{
+               deleted_by: "test",
+               deleted_reason: "merged away"
+             })
+             |> Ash.update(scope: scope)
+
+    assert {:ok, :updated, device} =
+             ManualDeviceCreator.upsert(scope, %{
+               hostname: hostname,
+               ip: ip,
+               type: "rids",
+               tags: ["site=BOS"]
+             })
+
+    assert device.uid == live.uid
+    assert device.hostname == hostname
+    assert is_nil(device.deleted_at)
+    assert {:ok, still_deleted} = Device.get_by_uid(tombstoned.uid, true, scope: scope)
+    assert still_deleted.deleted_at
+  end
+
   test "merges active hostname-only duplicate into resolved-IP canonical device", %{scope: scope} do
     hostname = "manual-merge-#{System.unique_integer([:positive])}.example"
     assert {:ok, resolved_ip} = HostnameResolverStub.resolve(hostname)

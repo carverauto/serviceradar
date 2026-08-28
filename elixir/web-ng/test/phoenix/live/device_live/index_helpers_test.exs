@@ -273,6 +273,27 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexHelpersTest do
     assert_receive {:attempted, 4}
   end
 
+  test "import_devices formats a StaleRecord without dumping the Ash struct" do
+    stale =
+      Ash.Error.Changes.StaleRecord.exception(
+        resource: ServiceRadar.Inventory.Device,
+        filter: %{uid: "sr:bfb15b4f-c734-4aa4-94d5-33cd282f4afe"}
+      )
+
+    wrapped = Ash.Error.Invalid.exception(errors: [stale])
+
+    create_device = fn _scope, _device -> {:error, wrapped} end
+
+    assert {:error, %{created: 0, updated: 0, errors: [message]}} =
+             IndexCsvImport.import_devices(:scope, [%{source_line: 391}], create_device)
+
+    assert message ==
+             "Row 391: device was updated by another writer during import; retry this row"
+
+    refute message =~ "StaleRecord"
+    refute message =~ "Splode"
+  end
+
   test "import_devices rejects an oversized hostname-only batch before resolving or writing" do
     test_process = self()
 
