@@ -989,6 +989,7 @@ defmodule ServiceRadarWebNGWeb.SRQL.Catalog do
       default_sort_field: "time",
       default_sort_dir: "desc",
       default_filter_field: "src_endpoint_ip",
+      # Row / table explorer allowlist (broader than chart path).
       filter_fields: [
         "src_endpoint_ip",
         "src_ip",
@@ -1004,6 +1005,7 @@ defmodule ServiceRadarWebNGWeb.SRQL.Catalog do
         "dst_port",
         # Bidirectional port (either side of the 5-tuple). Prefer `port:22` over
         # unsupported boolean OR: `(dst_port:22 OR src_port:22)`.
+        # NOTE: bare `port` is row-only — downsample rejects it (see filter_fields_downsample).
         "port",
         "endpoint_port",
         "protocol_group",
@@ -1025,6 +1027,39 @@ defmodule ServiceRadarWebNGWeb.SRQL.Catalog do
         "dst_near",
         "as_path",
         "bgp_communities"
+      ],
+      # Chart / `bucket:` path only — must stay a projection of
+      # rust/srql/.../downsample/filters.rs `flows_filter_clause` arms.
+      # Excludes: port, tag*, near*, geo countries, as_path, bgp_communities.
+      filter_fields_downsample: [
+        "src_endpoint_ip",
+        "src_ip",
+        "dst_endpoint_ip",
+        "dst_ip",
+        "ip",
+        "endpoint_ip",
+        "src_cidr",
+        "dst_cidr",
+        "cidr",
+        "src_endpoint_port",
+        "src_port",
+        "dst_endpoint_port",
+        "dst_port",
+        "protocol_name",
+        "protocol_num",
+        "protocol_group",
+        "app",
+        "direction",
+        "sampler_address",
+        "exporter_name",
+        "input_snmp",
+        "in_if_index",
+        "output_snmp",
+        "out_if_index",
+        "in_if_name",
+        "out_if_name",
+        "in_if_speed_bps",
+        "out_if_speed_bps"
       ],
       # Fields backed by array columns - builder will always use list syntax for these
       array_fields: ["as_path", "bgp_communities"],
@@ -1599,6 +1634,7 @@ defmodule ServiceRadarWebNGWeb.SRQL.Catalog do
 
   @completion_field_groups [
     :filter_fields,
+    :filter_fields_downsample,
     :value_fields,
     :series_fields,
     :stats_fields,
@@ -1740,6 +1776,53 @@ defmodule ServiceRadarWebNGWeb.SRQL.Catalog do
   def entity(_), do: entity("devices")
 
   @doc """
+  Filter field allowlist for an entity in a given query mode.
+
+  Modes:
+  - `:row` — default table / explorer path (`filter_fields`)
+  - `:downsample` — chart / `bucket:` path (`filter_fields_downsample` when set)
+  - `:stats` — `stats:` aggregate path (`filter_fields_stats` when set; falls back to row)
+
+  Returns:
+  - a list of field names when the catalog constrains the mode
+  - `nil` when the entity does not constrain fields (free-text filter field input)
+  """
+  def filter_fields(entity_id, mode \\ :row)
+
+  def filter_fields(entity_id, mode) when is_binary(entity_id) do
+    entity_id |> entity() |> filter_fields(mode)
+  end
+
+  def filter_fields(%{} = entity, :row) do
+    case Map.get(entity, :filter_fields, []) do
+      [] -> nil
+      fields when is_list(fields) -> fields
+      _ -> nil
+    end
+  end
+
+  def filter_fields(%{} = entity, :downsample) do
+    case Map.get(entity, :filter_fields_downsample) do
+      fields when is_list(fields) and fields != [] ->
+        fields
+
+      _ ->
+        # Metrics and other downsample entities without an explicit list keep
+        # their row allowlist (or unrestricted) rather than hiding every field.
+        filter_fields(entity, :row)
+    end
+  end
+
+  def filter_fields(%{} = entity, :stats) do
+    case Map.get(entity, :filter_fields_stats) do
+      fields when is_list(fields) and fields != [] -> fields
+      _ -> filter_fields(entity, :row)
+    end
+  end
+
+  def filter_fields(%{} = entity, _mode), do: filter_fields(entity, :row)
+
+  @doc """
   Address-shaped filter fields for an entity (IP addresses and the like).
 
   These are matched exactly by default. `contains` on an address is a substring
@@ -1782,6 +1865,7 @@ defmodule ServiceRadarWebNGWeb.SRQL.Catalog do
       "array" => entity |> Map.get(:array_fields, []) |> Enum.sort(),
       "boolean" => entity |> Map.get(:boolean_fields, []) |> Enum.sort(),
       "filter" => entity |> Map.get(:filter_fields, []) |> Enum.sort(),
+      "filter_downsample" => entity |> Map.get(:filter_fields_downsample, []) |> Enum.sort(),
       "numeric" => entity |> Map.get(:numeric_fields, []) |> Enum.sort(),
       "series" => entity |> Map.get(:series_fields, []) |> Enum.sort(),
       "stats" => entity |> Map.get(:stats_fields, []) |> Enum.sort(),

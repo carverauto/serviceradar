@@ -9,6 +9,7 @@ defmodule ServiceRadarWebNGWeb.SRQLComponents do
 
   alias Phoenix.HTML.FormField
   alias ServiceRadarWebNGWeb.FlowStatComponents
+  alias ServiceRadarWebNGWeb.SRQL.Builder
   alias ServiceRadarWebNGWeb.SRQL.Catalog
 
   attr(:id, :string, default: nil)
@@ -936,9 +937,11 @@ defmodule ServiceRadarWebNGWeb.SRQLComponents do
   attr(:supported, :boolean, default: true)
   attr(:sync, :boolean, default: true)
   attr(:builder, :map, default: %{})
+  attr(:mode_notice, :string, default: nil)
 
   def srql_query_builder(assigns) do
     assigns = assign_new(assigns, :builder, fn -> %{} end)
+    assigns = assign_new(assigns, :mode_notice, fn -> nil end)
 
     entity = Map.get(assigns.builder, "entity", "devices")
     config = Catalog.entity(entity)
@@ -948,6 +951,8 @@ defmodule ServiceRadarWebNGWeb.SRQLComponents do
     boolean_fields = Map.get(config, :boolean_fields, [])
     numeric_fields = Map.get(config, :numeric_fields, [])
     address_fields = Catalog.address_fields(config)
+    # Mode-aware allowlist so chart mode cannot offer tag/near/geo/etc.
+    filter_fields = Builder.filter_fields_for(assigns.builder) || config.filter_fields || []
 
     assigns =
       assigns
@@ -959,6 +964,7 @@ defmodule ServiceRadarWebNGWeb.SRQLComponents do
       |> assign(:boolean_fields, boolean_fields)
       |> assign(:numeric_fields, numeric_fields)
       |> assign(:address_fields, address_fields)
+      |> assign(:filter_fields, filter_fields)
 
     ~H"""
     <.ui_panel>
@@ -989,6 +995,14 @@ defmodule ServiceRadarWebNGWeb.SRQLComponents do
       <div :if={not @supported} class="mb-3 text-xs text-warning">
         This SRQL query can’t be fully represented by the builder yet. The builder won’t overwrite your query unless you
         click “Replace query”.
+      </div>
+
+      <div
+        :if={is_binary(@mode_notice) and @mode_notice != ""}
+        class="mb-3 text-xs text-warning"
+        role="status"
+      >
+        {@mode_notice}
       </div>
 
       <form phx-change="srql_builder_change" autocomplete="off" class="overflow-x-auto">
@@ -1110,7 +1124,7 @@ defmodule ServiceRadarWebNGWeb.SRQLComponents do
                       <% is_address_field = (filter["field"] || "") in @address_fields %>
                       <div class="flex items-center gap-3">
                         <.query_builder_pill label="Filter">
-                          <%= if @config.filter_fields == [] do %>
+                          <%= if @filter_fields == [] do %>
                             <.ui_inline_input
                               type="text"
                               name={"builder[filters][#{idx}][field]"}
@@ -1124,7 +1138,7 @@ defmodule ServiceRadarWebNGWeb.SRQLComponents do
                               name={"builder[filters][#{idx}][field]"}
                               disabled={not @supported}
                             >
-                              <%= for field <- @config.filter_fields do %>
+                              <%= for field <- @filter_fields do %>
                                 <option value={field} selected={filter["field"] == field}>
                                   {field}
                                 </option>

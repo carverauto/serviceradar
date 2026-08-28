@@ -28,7 +28,8 @@ defmodule ServiceRadarWebNGWeb.SRQL.Page do
       builder_open: false,
       builder_supported: builder_supported,
       builder_sync: builder_sync,
-      builder: builder
+      builder: builder,
+      builder_mode_notice: nil
     }
 
     Phoenix.Component.assign(socket, :srql, srql)
@@ -258,9 +259,13 @@ defmodule ServiceRadarWebNGWeb.SRQL.Page do
           _ -> %{}
         end
 
-      builder = Builder.update(Map.get(srql, :builder, %{}), builder_params)
+      {builder, stripped} =
+        Builder.update_meta(Map.get(srql, :builder, %{}), builder_params)
 
-      updated = Map.put(srql, :builder, builder)
+      updated =
+        srql
+        |> Map.put(:builder, builder)
+        |> Map.put(:builder_mode_notice, mode_strip_notice(stripped))
 
       updated =
         if updated[:builder_supported] and updated[:builder_sync] do
@@ -287,7 +292,7 @@ defmodule ServiceRadarWebNGWeb.SRQL.Page do
         |> Map.get("filters", [])
         |> List.wrap()
 
-      field = default_filter_field(entity, filters)
+      field = default_filter_field(entity, builder)
       config = Catalog.entity(entity)
       boolean_fields = Map.get(config, :boolean_fields, [])
 
@@ -669,6 +674,7 @@ defmodule ServiceRadarWebNGWeb.SRQL.Page do
   defp catalog_filter_fields(config) when is_map(config) do
     [
       Map.get(config, :filter_fields, []),
+      Map.get(config, :filter_fields_downsample, []),
       Map.get(config, :boolean_fields, []),
       Map.get(config, :array_fields, []),
       Map.get(config, :numeric_fields, []),
@@ -678,6 +684,19 @@ defmodule ServiceRadarWebNGWeb.SRQL.Page do
     ]
     |> List.flatten()
     |> Enum.reject(&is_nil/1)
+  end
+
+  defp mode_strip_notice([]), do: nil
+  defp mode_strip_notice(nil), do: nil
+
+  defp mode_strip_notice(fields) when is_list(fields) do
+    names = Enum.join(fields, ", ")
+
+    count = length(fields)
+
+    noun = if count == 1, do: "filter", else: "filters"
+
+    "Removed #{count} #{noun} not available in chart mode: #{names}"
   end
 
   defp get_scope(socket) do
@@ -894,9 +913,21 @@ defmodule ServiceRadarWebNGWeb.SRQL.Page do
   defp format_error(reason) when is_binary(reason), do: reason
   defp format_error(reason), do: inspect(reason)
 
-  defp default_filter_field(entity, _filters) do
-    Catalog.entity(entity).default_filter_field
+  defp default_filter_field(entity, builder) when is_map(builder) do
+    config = Catalog.entity(entity)
+    preferred = config.default_filter_field
+    mode = Builder.mode(builder)
+
+    case Catalog.filter_fields(entity, mode) do
+      list when is_list(list) ->
+        if preferred in list, do: preferred, else: List.first(list) || preferred
+
+      _ ->
+        preferred
+    end
   end
+
+  defp default_filter_field(entity, _), do: Catalog.entity(entity).default_filter_field
 
   defp current_builder_entity(srql, opts) do
     candidate =

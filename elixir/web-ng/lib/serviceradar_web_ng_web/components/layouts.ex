@@ -153,6 +153,7 @@ defmodule ServiceRadarWebNGWeb.Layouts do
               supported={Map.get(@srql, :builder_supported, true)}
               sync={Map.get(@srql, :builder_sync, true)}
               builder={Map.get(@srql, :builder, %{})}
+              mode_notice={Map.get(@srql, :builder_mode_notice)}
             />
           </div>
         </div>
@@ -477,6 +478,7 @@ defmodule ServiceRadarWebNGWeb.Layouts do
             supported={Map.get(@srql, :builder_supported, true)}
             sync={Map.get(@srql, :builder_sync, true)}
             builder={Map.get(@srql, :builder, %{})}
+            mode_notice={Map.get(@srql, :builder_mode_notice)}
           />
         </div>
 
