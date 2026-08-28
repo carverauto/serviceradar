@@ -220,6 +220,81 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLiveTest do
     refute get_rule_by_name!(scope, "Insecure rule")
   end
 
+  test "offers every TLS policy when the auth method narrows none", %{conn: conn} do
+    {:ok, lv, _html} = live(conn, ~p"/settings/networks/credentials/new")
+
+    html =
+      lv
+      |> form("#credential-rule-form",
+        credential_rule: %{
+          "provider" => "example-camera",
+          "auth_method" => "api_key",
+          "purposes" => ["camera_inventory"]
+        }
+      )
+      |> render_change()
+
+    assert html =~ "TLS Policy"
+    assert html =~ ~s(<option value="verify">)
+    assert html =~ ~s(<option value="skip_verify">)
+  end
+
+  test "saves a rule whose auth method narrows no TLS policy", %{conn: conn, scope: scope} do
+    secret =
+      credential_secret_fixture(scope, %{
+        name: "Camera key #{System.unique_integer([:positive])}",
+        provider: "example-camera",
+        credential_kind: :api_token,
+        public_fingerprint: "sha256:test",
+        secret_payload: "sensitive-api-key",
+        metadata: %{"auth_method" => "api_key"}
+      })
+
+    {:ok, lv, _html} = live(conn, ~p"/settings/networks/credentials/new")
+
+    params = %{
+      "name" => "Camera api_key rule",
+      "description" => "",
+      "provider" => "example-camera",
+      "auth_method" => "api_key",
+      "purposes" => ["camera_inventory"],
+      "target_query" => ~s(in:devices type:"Camera"),
+      "scope_type" => "agent",
+      "scope_value" => "agent-a",
+      "secret_id" => secret.id,
+      "priority" => "100",
+      "tls_policy" => "skip_verify"
+    }
+
+    render_hook(lv, "save_rule", %{"credential_rule" => params})
+
+    rule = get_rule_by_name!(scope, "Camera api_key rule")
+    assert rule
+    assert rule.tls_policy == :skip_verify
+  end
+
+  test "an omitted TLS policy param falls back to verify rather than failing the save", %{
+    conn: conn,
+    scope: scope
+  } do
+    secret = api_token_secret_fixture(scope)
+    {:ok, lv, _html} = live(conn, ~p"/settings/networks/credentials/new")
+
+    params =
+      secret.id
+      |> default_rule_form_params()
+      |> Map.put("name", "Defaulted transport")
+      |> Map.delete("tls_policy")
+
+    html = render_hook(lv, "save_rule", %{"credential_rule" => params})
+
+    refute html =~ "Invalid TLS policy"
+
+    rule = get_rule_by_name!(scope, "Defaulted transport")
+    assert rule
+    assert rule.tls_policy == :verify
+  end
+
   test "uses credential kind rather than method id for SSH policy controls", %{conn: conn} do
     {:ok, lv, _html} = live(conn, ~p"/settings/networks/credentials/new")
 
@@ -677,7 +752,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLiveTest do
     %{
       "provider" => "example-camera",
       "label" => "Example Cameras",
-      "auth_methods" => [username_password_method()],
+      "auth_methods" => [username_password_method(), api_key_method()],
       "purposes" => ["camera_inventory"],
       "scope_types" => ["agent"],
       "rule_defaults" => %{
@@ -690,7 +765,9 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLiveTest do
       "rule_controls" => %{"target_query" => true, "transport" => true},
       "provisioning" => %{
         "mode" => "target_policy",
-        "consumers" => [consumer(plugin_id, "camera_inventory", ["username_password"])]
+        "consumers" => [
+          consumer(plugin_id, "camera_inventory", ["username_password", "api_key"])
+        ]
       }
     }
   end
@@ -712,6 +789,27 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLiveTest do
         }
       ],
       "payload" => %{"format" => "scalar", "field" => "token"}
+    }
+  end
+
+  # Mirrors the shipped unifi-protect and axis manifests: transport rule
+  # controls are declared, but the auth method narrows no tls_policies.
+  defp api_key_method do
+    %{
+      "id" => "api_key",
+      "label" => "API key",
+      "credential_kind" => "api_token",
+      "fields" => [
+        %{
+          "id" => "api_key",
+          "label" => "API key",
+          "control" => "password",
+          "required" => true,
+          "secret" => true,
+          "public" => false
+        }
+      ],
+      "payload" => %{"format" => "scalar", "field" => "api_key"}
     }
   end
 
