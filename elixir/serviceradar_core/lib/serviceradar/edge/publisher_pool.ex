@@ -31,22 +31,28 @@ defmodule ServiceRadar.Edge.PublisherPool do
 
   The spec forbids creating a durable, connection, process, account, or physical stream per network
   scope, agent, producer assignment, run/execution, output contract, package, or logical partition.
-  The pool key is the traffic class alone, and `start_link/1` takes no scope, agent, or partition --
-  a per-scope pool is unrepresentable rather than merely discouraged.
+  The pool KEY is the class alone: `start_link/1` accepts no scope, agent, or partition, so a pool
+  keyed to one of those cannot be constructed.
 
-  ## NOT YET WIRED, and not claimed
+  That is a statement about the KEY, not about the COUNT, and the two were previously conflated
+  here. `start_link/1` still accepts a `:name`, so a caller can start any number of pools -- tests
+  do exactly that, unregistered, to run concurrently. What bounds the count is ownership rather
+  than construction: `ServiceRadar.Edge.PublisherSupervisor` starts one pool per lane under
+  `via/1`, and it is the only thing in the application that starts any. A second pool for a lane
+  would have to be started deliberately, by something that is not the supervision tree.
 
-  This owns the window and the admission decision. Each lane now also HAS its own NATS connection
-  -- `ServiceRadar.NATS.Supervisor` starts one `Gnat.ConnectionSupervisor` per
-  `PublisherLane.lanes/0`, and `Connection.request/4` takes the name -- so the accounting boundary
-  and the transport boundary finally coincide. `capacity/1` reports which connection a pool
-  publishes on.
+  ## What is wired, and what is NOT
 
-  What is still NOT here: this module does not publish, does not settle from real PubAcks, and
-  does not bind byte credits to encoded frame size. Those remain owed by tasks 3.4 and 3.5 with
-  the publisher integration, and nothing in this file should be read as claiming them.
+  Each lane has its own NATS connection (`ServiceRadar.NATS.Supervisor` starts one
+  `Gnat.ConnectionSupervisor` per `PublisherLane.lanes/0`), and
+  `ServiceRadarAgentGateway.JetStreamPublisher` publishes on the lane's connection via
+  `Connection.request/4`. `capacity/1` reports which connection a pool publishes on.
 
-  What is real here is the ownership boundary and the isolation between classes.
+  NOT wired: the publisher does not yet ADMIT through this window. It still issues one synchronous
+  request per record, so nothing consults the frame/byte credits on the production path -- the
+  window bounds asynchronous pipelining, which arrives with the PubAck correlation in tasks 3.4
+  and 3.5. This module also does not publish, does not settle from real PubAcks, and does not bind
+  byte credits to encoded frame size. Nothing here should be read as claiming those.
   """
 
   use GenServer

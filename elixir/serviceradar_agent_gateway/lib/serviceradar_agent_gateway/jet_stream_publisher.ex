@@ -45,6 +45,8 @@ defmodule ServiceRadarAgentGateway.JetStreamPublisher do
   """
 
   alias ServiceRadar.Edge.PublicationIdentity
+  alias ServiceRadar.Edge.PublisherLane
+  alias ServiceRadar.Edge.PublisherPool
   alias ServiceRadar.Edge.StreamRoute
   alias ServiceRadar.NATS.Connection
 
@@ -82,9 +84,100 @@ defmodule ServiceRadarAgentGateway.JetStreamPublisher do
   @spec publish_record(map(), keyword()) ::
           {:ok, pub_ack()} | {:error, error_class()} | {:error, {:derivation, term()}}
   def publish_record(publication, opts \\ []) when is_map(publication) do
-    with {:ok, route} <- resolve_route(publication) do
-      send_to(route, publication, opts)
+    contract = contract_of(publication)
+
+    with {:ok, route} <- wrap(StreamRoute.resolve(contract)),
+         {:ok, lane} <- resolve_lane(contract),
+         {:ok, bytes} <- record_bytes(publication),
+         {:ok, seq} <- sequence_of(publication),
+         {:ok, pool} <- pool_for(lane, opts),
+         :ok <- admit(pool, seq, byte_size(bytes), opts),
+         {:ok, headers} <- headers_for(route, publication) do
+      route
+      |> request(lane, bytes, headers, opts)
+      |> settle(pool, seq)
     end
+  end
+
+  # The lane's window, resolved BEFORE anything is published. Failing closed when no pool is
+  # running is deliberate: a publish with no window is an unbounded publish, which is the state
+  # this whole increment exists to end. `:pools` injects unregistered pools for tests so they can
+  # stay async without colliding on the registered names.
+  defp pool_for(lane, opts) do
+    case opts |> Keyword.get(:pools, %{}) |> Map.get(lane, PublisherPool.via(lane)) do
+      pid when is_pid(pid) ->
+        {:ok, pid}
+
+      name when is_atom(name) ->
+        case Process.whereis(name) do
+          nil -> {:error, {:derivation, {:no_publisher_pool, lane}}}
+          pid -> {:ok, pid}
+        end
+    end
+  end
+
+  # `:already_outstanding` is NOT an error here: it means this sequence's credits are already
+  # held, which is exactly the state a RETRY is in. PublishWindow keeps a retryable frame
+  # outstanding on purpose -- the publisher republishes the same bytes on the same slot, so
+  # re-admitting would hand the same budget out twice and let the in-flight total exceed the
+  # grant. Republishing under the credits already held is the designed path.
+  defp admit(pool, seq, bytes, opts) do
+    deadline = System.monotonic_time(:millisecond) + timeout_of(opts)
+
+    case PublisherPool.admit(pool, seq, bytes, deadline) do
+      :ok ->
+        :ok
+
+      {:error, :already_outstanding} ->
+        :ok
+
+      {:error, exhausted} when exhausted in [:frame_credits_exhausted, :byte_credits_exhausted] ->
+        # Withhold progress on publisher saturation rather than publishing past the grant.
+        {:error, :capacity}
+
+      {:error, reason} ->
+        {:error, {:derivation, reason}}
+    end
+  end
+
+  # Credits are released only for an outcome the window treats as SETTLING. A durable PubAck
+  # settles; proven poison settles as a permanent rejection; everything else -- timeout, capacity,
+  # systemic, misrouted -- leaves the frame outstanding, because it is still owed a republish on
+  # the same slot. Releasing there would relax the bound exactly when the broker is struggling.
+  #
+  # The outcome here is an ACCOUNTING outcome, not a disposition. This publisher writes one record
+  # to its resolved route and does not yet compute audit/quarantine/security-quarantine routing;
+  # that mapping is task 3.5 and supplies the outcome when it lands.
+  defp settle({:ok, _ack} = result, pool, seq) do
+    _ = PublisherPool.settle(pool, seq, :primary_publication)
+    result
+  end
+
+  defp settle({:error, :poison} = result, pool, seq) do
+    _ = PublisherPool.settle(pool, seq, :permanent_rejection)
+    result
+  end
+
+  defp settle(result, _pool, _seq), do: result
+
+  # REQUIRED, and validated here rather than let through: PublishWindow keys credits on it, so a
+  # missing or non-positive sequence would either raise inside the window or silently share one
+  # slot across records.
+  defp sequence_of(publication) do
+    case publication |> Map.get(:slot, %{}) |> Map.get(:sequence) do
+      seq when is_integer(seq) and seq > 0 -> {:ok, seq}
+      _ -> {:error, {:derivation, :sequence}}
+    end
+  end
+
+  defp timeout_of(opts), do: Keyword.get(opts, :receive_timeout, @default_timeout)
+
+  # The lane comes from the SAME verified contract as the route, not from a second lookup and not
+  # from anything on the frame. That is what makes "an agent cannot select the recovery publisher"
+  # true at this call site rather than only in PublisherLane's docs: the route profile here is the
+  # one the effective grant produced.
+  defp resolve_lane(contract) do
+    wrap(PublisherLane.for_lane(contract.route_profile, contract.traffic_class))
   end
 
   @doc """
@@ -133,13 +226,6 @@ defmodule ServiceRadarAgentGateway.JetStreamPublisher do
   defp wrap({:ok, value}), do: {:ok, value}
   defp wrap({:error, reason}), do: {:error, {:derivation, reason}}
 
-  defp send_to(route, publication, opts) do
-    with {:ok, bytes} <- record_bytes(publication),
-         {:ok, headers} <- headers_for(route, publication) do
-      request(route, bytes, headers, opts)
-    end
-  end
-
   # PRIVATE: it takes a route, so exposing it would reopen exactly the route/publication split
   # that `publish_record/2` exists to close.
   defp headers_for(route, publication) do
@@ -183,11 +269,19 @@ defmodule ServiceRadarAgentGateway.JetStreamPublisher do
     end
   end
 
-  defp request(route, payload, headers, opts) do
+  defp request(route, lane, payload, headers, opts) do
     conn = Keyword.get(opts, :connection, Connection)
-    timeout = Keyword.get(opts, :receive_timeout, @default_timeout)
+    timeout = timeout_of(opts)
+    # The LANE's connection, not the shared one. Sharing `:serviceradar_nats` put every lane's
+    # outstanding requests behind the same socket and the same Gnat mailbox, so a bulk backlog
+    # could stall an interactive or recovery frame whose own credits were free -- separate
+    # accounting over one transport is not separate capacity.
+    connection_name = PublisherLane.connection_name(lane)
 
-    case conn.request(route.subject, payload, headers: headers, receive_timeout: timeout) do
+    case conn.request(connection_name, route.subject, payload,
+           headers: headers,
+           receive_timeout: timeout
+         ) do
       {:ok, %{body: body}} ->
         fence(route.expected_stream, parse_ack(body))
 
