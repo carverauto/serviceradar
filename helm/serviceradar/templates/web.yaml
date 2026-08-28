@@ -370,6 +370,7 @@ spec:
           value: {{ default "true" $webNg.checkOrigin | quote }}
         - name: SERVICERADAR_GOD_VIEW_ENABLED
           value: {{ default "true" $webNg.godViewEnabled | quote }}
+        {{/* First-class flag. extraEnv cannot shadow SERVICERADAR_MCP_ENABLED. */}}
         - name: SERVICERADAR_MCP_ENABLED
           value: {{ default "false" $webNg.mcpEnabled | quote }}
         - name: SERVICERADAR_DEV_ROUTES
@@ -702,15 +703,19 @@ spec:
         {{- end }}
         {{- with .Values.webNg.extraEnv }}
         {{- range $name, $value := . }}
+        {{- if ne $name "SERVICERADAR_MCP_ENABLED" }}
         - name: {{ $name | quote }}
           value: {{ $value | quote }}
         {{- end }}
         {{- end }}
+        {{- end }}
         {{- with .Values.webNg.extraEnvValueFrom }}
         {{- range $name, $valueFrom := . }}
+        {{- if ne $name "SERVICERADAR_MCP_ENABLED" }}
         - name: {{ $name | quote }}
           valueFrom:
 {{- toYaml $valueFrom | nindent 12 }}
+        {{- end }}
         {{- end }}
         {{- end }}
         - name: DEVICE_ENRICHMENT_RULES_DIR

@@ -28,6 +28,8 @@ webNg:
   mcpEnabled: "true"
 ```
 
+`webNg.mcpEnabled` is the Helm lever. `extraEnv.SERVICERADAR_MCP_ENABLED` is ignored so a stored extraEnv workaround cannot shadow the flag. The chart must template `SERVICERADAR_MCP_ENABLED` from `mcpEnabled`; a published chart that predates that key will store `mcpEnabled` as an unused value and leave `/mcp` 404.
+
 Until that flag is true, `https://<host>/mcp` returns HTTP 404.
 
 ## Authenticate
