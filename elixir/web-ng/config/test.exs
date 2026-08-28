@@ -151,6 +151,7 @@ config :serviceradar_web_ng, :base_url, "http://localhost:4002"
 # Mark this as test environment for single-deployment defaults
 config :serviceradar_web_ng, :env, :test
 config :serviceradar_web_ng, :god_view_runtime_graph_auto_refresh, false
+config :serviceradar_web_ng, :mcp_enabled, true
 config :serviceradar_web_ng, :telemetry_poller_enabled, false
 config :serviceradar_web_ng, :token_signing_secret, token_signing_secret
 

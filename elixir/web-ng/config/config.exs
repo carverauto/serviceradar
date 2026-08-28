@@ -258,6 +258,7 @@ config :serviceradar_web_ng, :first_party_plugin_import,
   cosign_public_key_file: nil
 
 config :serviceradar_web_ng, :god_view_enabled, false
+config :serviceradar_web_ng, :mcp_enabled, false
 
 config :serviceradar_web_ng, :native_addon_import,
   repo_url: "https://github.com/carverauto/serviceradar",
@@ -334,6 +335,7 @@ config :serviceradar_web_ng, :session,
   encryption_salt: "dev-encryption-salt-replace-in-prod",
   secure: false
 
+config :serviceradar_web_ng, :srql_catalog, {ServiceRadarWebNGWeb.SRQL.Catalog, :for_scope}
 config :serviceradar_web_ng, :srql_module, ServiceRadarWebNG.SRQL
 config :serviceradar_web_ng, :srql_query_timeout_ms, 15_000
 
@@ -367,7 +369,8 @@ config :serviceradar_web_ng,
     Northbound,
     Ansible,
     Callbacks,
-    ServiceRadar.Security
+    ServiceRadar.Security,
+    ServiceRadarWebNG.Mcp
   ]
 
 config :serviceradar_web_ng,

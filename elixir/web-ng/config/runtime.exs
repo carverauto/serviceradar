@@ -740,6 +740,12 @@ remote_access_ssh_ca_signer_args =
       end
   end
 
+mcp_enabled =
+  "SERVICERADAR_MCP_ENABLED"
+  |> System.get_env("false")
+  |> String.downcase()
+  |> Kernel.in(["1", "true", "yes", "on"])
+
 config :serviceradar_core, ServiceRadar.NATS.Connection,
   host: nats_uri.host || "localhost",
   port: nats_uri.port || 4222,
@@ -764,6 +770,8 @@ config :serviceradar_web_ng, :god_view_enabled, god_view_enabled
 config :serviceradar_web_ng,
        :managed_device_limit,
        to_int.(System.get_env("SERVICERADAR_MANAGED_DEVICE_LIMIT") || System.get_env("SERVICERADAR_MAX_DEVICES"))
+
+config :serviceradar_web_ng, :mcp_enabled, mcp_enabled
 
 # "Send your telemetry" onboarding surface (/settings/agents/telemetry-onboarding):
 # the deployment's externally reachable OTLP endpoints. gRPC is host:port

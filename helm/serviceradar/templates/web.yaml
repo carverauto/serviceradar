@@ -370,6 +370,8 @@ spec:
           value: {{ default "true" $webNg.checkOrigin | quote }}
         - name: SERVICERADAR_GOD_VIEW_ENABLED
           value: {{ default "true" $webNg.godViewEnabled | quote }}
+        - name: SERVICERADAR_MCP_ENABLED
+          value: {{ default "false" $webNg.mcpEnabled | quote }}
         - name: SERVICERADAR_DEV_ROUTES
           value: {{ default "false" $webNg.devRoutes | quote }}
         {{- if not (hasKey (default (dict) $webNg.extraEnv) "SERVICERADAR_LOCAL_MAILER") }}

@@ -1629,6 +1629,22 @@ defmodule ServiceRadarWebNGWeb.SRQL.Catalog do
 
   def completion_tokens, do: @completion_tokens
 
+  @doc """
+  Catalog for a request scope, including composite-check entities when enabled.
+  Shared by GET /api/srql/catalog and the MCP get_srql_catalog tool.
+  """
+  def for_scope(scope) do
+    case ServiceRadarWebNGWeb.CompositeChecks.Catalog.enabled_with_verdicts(scope: scope) do
+      [] ->
+        structured()
+
+      checks ->
+        @entities
+        |> with_composite_checks(checks)
+        |> structured_from_entities()
+    end
+  end
+
   def structured do
     # Content-hash keyed cache so hot reloads that change filter fields (e.g.
     # events.id) bust the previous catalog instead of serving a sticky

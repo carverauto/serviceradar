@@ -116,6 +116,7 @@ const sidebars: SidebarsConfig = {
         {type: 'doc', id: 'srql-tutorial', label: 'SRQL Tutorial'},
         {type: 'doc', id: 'srql-language-reference', label: 'SRQL Reference'},
         {type: 'doc', id: 'srql-cookbook', label: 'SRQL Cookbook'},
+        {type: 'doc', id: 'mcp-integration', label: 'MCP Integration'},
         {type: 'doc', id: 'self-authored-dashboards', label: 'Self-Authored Dashboards'},
         {type: 'doc', id: 'api-reference', label: 'API Reference'},
         {type: 'doc', id: 'nco-device-facts', label: 'Device Facts API'},

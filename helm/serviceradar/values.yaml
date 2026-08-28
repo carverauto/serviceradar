@@ -1196,6 +1196,8 @@ webNg:
   # do not use an in-cluster Service name.
   publicUrl: ""
   godViewEnabled: "true"
+  # MCP server at /mcp. Off by default; requires an API credential with the mcp scope.
+  mcpEnabled: "false"
   # Keep Phoenix/LiveView WebSocket origin checks enabled by default.
   # Set to "false" only for local/lab reverse-proxy debugging.
   checkOrigin: "true"

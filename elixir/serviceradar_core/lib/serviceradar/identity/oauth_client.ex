@@ -28,6 +28,7 @@ defmodule ServiceRadar.Identity.OAuthClient do
   - `read` - Read-only access to resources
   - `write` - Create and modify resources
   - `admin` - Full administrative access (requires admin user)
+  - `mcp` - Call the MCP server at `/mcp` (still subject to the caller's RBAC)
 
   ## Security
 
@@ -256,7 +257,7 @@ defmodule ServiceRadar.Identity.OAuthClient do
       allow_nil? false
       default ["read"]
       public? true
-      description "Granted scopes (read, write, admin)"
+      description "Granted scopes (read, write, admin, mcp)"
     end
 
     # Status

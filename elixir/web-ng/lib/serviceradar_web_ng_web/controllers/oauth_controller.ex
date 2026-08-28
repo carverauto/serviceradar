@@ -266,9 +266,7 @@ defmodule ServiceRadarWebNGWeb.OAuthController do
     Enum.filter(requested, &(&1 in client_scopes))
   end
 
-  defp scope_to_atom(scope) when is_atom(scope), do: scope
-  defp scope_to_atom(scope) when is_binary(scope), do: String.to_existing_atom(scope)
-  defp scope_to_atom(_), do: :read
+  defp scope_to_atom(scope), do: ServiceRadarWebNG.Api.OauthScopes.to_atom(scope)
 
   defp issue_token(conn, client, scopes) do
     # Load the user for the token

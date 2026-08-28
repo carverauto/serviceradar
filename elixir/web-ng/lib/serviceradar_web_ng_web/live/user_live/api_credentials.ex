@@ -341,6 +341,16 @@ defmodule ServiceRadarWebNGWeb.UserLive.ApiCredentials do
               <span class="text-sm font-medium text-sr-ink">Write</span>
               <span class="text-xs text-sr-muted">- Create and modify resources</span>
             </label>
+            <label class="flex items-center gap-2 cursor-pointer">
+              <input
+                type="checkbox"
+                name="client[scopes][]"
+                value="mcp"
+                class={ui_checkbox_class()}
+              />
+              <span class="text-sm font-medium text-sr-ink">MCP</span>
+              <span class="text-xs text-sr-muted">- Call the MCP server at /mcp</span>
+            </label>
           </div>
         </div>
 

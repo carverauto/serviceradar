@@ -25,6 +25,10 @@ defmodule ServiceRadar.Security.SecurityEvent do
     :csp_violation,
     :edge_onboarding_succeeded,
     :edge_onboarding_failed,
+    :mcp_auth_failed,
+    :mcp_session_initialized,
+    :mcp_tool_called,
+    :mcp_tool_denied,
     :other
   ]
 

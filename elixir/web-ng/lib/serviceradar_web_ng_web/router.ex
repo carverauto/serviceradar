@@ -7,10 +7,17 @@ defmodule ServiceRadarWebNGWeb.Router do
   import ServiceRadarWebNGWeb.UserAuth
 
   alias ServiceRadarWebNG.Accounts.Scope
+  alias ServiceRadarWebNG.Mcp
+  alias ServiceRadarWebNGWeb.Plugs.ApiAuth
   alias ServiceRadarWebNGWeb.Plugs.GatewayAuth
   alias ServiceRadarWebNGWeb.Plugs.LockoutCheck
+  alias ServiceRadarWebNGWeb.Plugs.McpAshContext
+  alias ServiceRadarWebNGWeb.Plugs.McpEnabled
+  alias ServiceRadarWebNGWeb.Plugs.McpRequireUser
+  alias ServiceRadarWebNGWeb.Plugs.McpSessionAudit
   alias ServiceRadarWebNGWeb.Plugs.RateLimit
   alias ServiceRadarWebNGWeb.Plugs.RateLimit.Bodies
+  alias ServiceRadarWebNGWeb.Plugs.RequireOauthScope
   alias ServiceRadarWebNGWeb.Plugs.SecurityHeaders
   alias ServiceRadarWebNGWeb.Settings.ShellHook
 
@@ -135,7 +142,22 @@ defmodule ServiceRadarWebNGWeb.Router do
   pipeline :api_key_auth do
     plug(:accepts, ["json"])
     plug(SecurityHeaders)
-    plug(ServiceRadarWebNGWeb.Plugs.ApiAuth)
+    plug(ApiAuth)
+  end
+
+  # MCP streamable HTTP. Default-off (`McpEnabled`), user-bound API
+  # credentials with the `mcp` OAuth scope, never legacy static keys.
+  pipeline :mcp do
+    plug(:accepts, ["json"])
+    plug(SecurityHeaders)
+    plug(McpEnabled)
+    # Register before_send before auth plugs so 401/403 still emit mcp_auth_failed.
+    plug(McpSessionAudit)
+    plug(ApiAuth)
+    plug(McpRequireUser)
+    plug(RequireOauthScope, scope: "mcp")
+    plug(RateLimit, bucket: :mcp, subject: :ip_and_actor, response_mode: :json)
+    plug(McpAshContext)
   end
 
   pipeline :dev_routes do
@@ -186,7 +208,7 @@ defmodule ServiceRadarWebNGWeb.Router do
   # the existing Settings → Dashboard Packages LiveView upload modal continue
   # to work (session-auth, no JWT, no `oauth_token_scope` assign).
   pipeline :require_dashboard_publish_scope do
-    plug(ServiceRadarWebNGWeb.Plugs.RequireOauthScope,
+    plug(RequireOauthScope,
       scope: "dashboard.publish",
       fallback_permission: "cli.dashboard.publish"
     )
@@ -451,6 +473,20 @@ defmodule ServiceRadarWebNGWeb.Router do
     get("/camera-relay-sessions/:id/stream", CameraRelayStreamController, :connect)
     get("/proxmox/console-sessions/:id/stream", ProxmoxConsoleStreamController, :connect)
     get("/remote-access/sessions/:id/stream", RemoteAccessStreamController, :connect)
+  end
+
+  scope "/mcp" do
+    pipe_through(:mcp)
+
+    forward("/", AshAi.Mcp.Router,
+      otp_app: :serviceradar_web_ng,
+      tools: Mcp.v1_tools(),
+      protocol_version_statement: "2025-03-26",
+      mcp_name: "serviceradar",
+      tool_argument_transformer: &Mcp.wrap_tool_arguments/3,
+      instructions:
+        "ServiceRadar MCP is read-only. execute_srql runs raw SRQL through POST /api/query. Structured device tools bind identifiers and do not parse SRQL fragments."
+    )
   end
 
   # Other scopes may use custom stacks.

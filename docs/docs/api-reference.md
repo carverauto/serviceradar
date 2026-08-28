@@ -28,6 +28,9 @@ Every API request must be authenticated. There are two supported methods:
 Treat API tokens like passwords: store them in a secret manager or
 environment variable, never in source control.
 
+To let an IDE or agent use those credentials over the Model Context
+Protocol, add the `mcp` scope and see [MCP Integration](./mcp-integration.md).
+
 ## Run an SRQL query — `POST /api/query`
 
 The `/api/query` endpoint executes a [ServiceRadar Query Language

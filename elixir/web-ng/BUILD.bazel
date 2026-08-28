@@ -181,6 +181,7 @@ WEB_NG_DEPS = [
     "//third_party/hex_vendored/connection:erlang_app",
     "//elixir/datasvc:erlang_app",
     "//elixir/serviceradar_srql:erlang_app",
+    "@hexpm//:ash_ai",
     "@hexpm//:ash_phoenix",
     "@hexpm//:bandit",
     "@hexpm//:bcrypt_elixir",

@@ -8,6 +8,11 @@ defmodule ServiceRadarWebNGWeb.FeatureFlags do
     Application.get_env(:serviceradar_web_ng, :god_view_enabled, false) == true
   end
 
+  @spec mcp_enabled?() :: boolean()
+  def mcp_enabled? do
+    Application.get_env(:serviceradar_web_ng, :mcp_enabled, false) == true
+  end
+
   @spec remote_access_ssh_enabled?() :: boolean()
   def remote_access_ssh_enabled? do
     Application.get_env(:serviceradar_web_ng, :remote_access_ssh_enabled, false) == true
