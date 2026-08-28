@@ -176,16 +176,19 @@ jobs:
           printf '%s\n' "${public_key}" > .bazel-agent-release-public-key
           echo "SERVICERADAR_AGENT_RELEASE_PUBLIC_KEY=${public_key}" >> "$GITHUB_ENV"
 
+      # --config=remote, not --config=ci: :ci points the disk/repo caches at
+      # /bazel-cache, a node volume only the BuildBuddy executors mount, so on an
+      # ARC runner it dies with "/bazel-cache (Permission denied): could not
+      # acquire lock on repo contents cache". Both configs inherit remote_base, so
+      # RBE execution and the remote cache are identical; only the LOCAL cache path
+      # differs, and this job caches BAZELISK_HOME only anyway.
+      # Keep these comments in the YAML step, not inside the `run:` script:
+      # a bash `\` continuation into a `#` comment drops the rest of the command
+      # and leaves `--config=remote` as a new executable.
       - name: Build (no publish)
         run: |
           bazel build \
             -c opt \
-            # --config=remote, not --config=ci: :ci points the disk/repo caches at
-            # /bazel-cache, a node volume only the BuildBuddy executors mount, so on an
-            # ARC runner it dies with "/bazel-cache (Permission denied): could not
-            # acquire lock on repo contents cache". Both configs inherit remote_base, so
-            # RBE execution and the remote cache are identical; only the LOCAL cache path
-            # differs, and this job caches BAZELISK_HOME only anyway.
             --config=remote \
             //:images
 
