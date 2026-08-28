@@ -250,6 +250,29 @@ describe("NetflowTrafficTooltip shared range integration", () => {
     }
   })
 
+  it("commits a coalesced drag whose first sampled endpoint is below the plot", () => {
+    const oldDocument = globalThis.document
+    const oldWindow = globalThis.window
+    globalThis.document = {createElement: () => new FakeNode()}
+    globalThis.window = {getComputedStyle: () => ({position: "relative"})}
+
+    try {
+      const {pushEvent, svg} = mount()
+
+      svg.dispatch(pointer("pointerdown", 0, 10, 80))
+      svg.dispatch(pointer("pointerup", 1000, 10, 170))
+
+      expect(pushEvent).toHaveBeenCalledOnce()
+      expect(pushEvent).toHaveBeenCalledWith("netflow_range_selected", {
+        start: "2026-08-27T10:00:00Z",
+        end: "2026-08-27T10:14:59.999999Z",
+      })
+    } finally {
+      globalThis.document = oldDocument
+      globalThis.window = oldWindow
+    }
+  })
+
   it("rebinds changed metadata and rejects pointer starts outside the plot", () => {
     const oldDocument = globalThis.document
     const oldWindow = globalThis.window

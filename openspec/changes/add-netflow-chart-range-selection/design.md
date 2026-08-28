@@ -63,6 +63,8 @@ The existing `netflow_bucket` path will use the same interval validation helper,
 
 Pointer capture and the existing six-CSS-pixel threshold distinguish a selection from a tap. Only a committed range gesture suppresses the browser click generated immediately afterward. A movement below threshold remains an ordinary click/tap and emits no range event.
 
+Range starts remain strict to the renderer's plot bounds. After a valid pointer-down, move and pointer-up samples project their horizontal coordinate onto the plot even when their vertical coordinate has left it. This matches ordinary brush behavior and ensures a fast/coalesced drag still has a usable endpoint when the browser's first qualifying sample lands in an axis margin or just outside the SVG.
+
 Consequently:
 
 - Lines and Grid retain the existing one-bucket time drill-down in the current view.
@@ -78,7 +80,7 @@ Each populated requested chart will expose a focusable range-selection surface, 
 
 ### Decision 6: Test the interaction at controller, renderer, and LiveView boundaries
 
-Pure JavaScript tests will cover interval parsing, renderer-supplied geometry, pointer threshold behavior including coalesced pointer-up movement, click suppression, keyboard selection, redraw updates, and cleanup. The first-drag regression will prove that a redraw with unchanged range-root, event, and canonical-interval identities retains gesture ownership through pointer-up, while a real root, event, or interval identity change cancels it. Hook tests will cover both NetFlow renderers while protecting tooltips, legends, series clicks, and the existing device-detail brush mode.
+Pure JavaScript tests will cover interval parsing, renderer-supplied geometry, pointer threshold behavior including coalesced pointer-up movement inside and outside the plot, click suppression, keyboard selection, redraw updates, and cleanup. The first-drag regression will prove that a redraw with unchanged range-root, event, and canonical-interval identities retains gesture ownership through pointer-up, while a real root, event, or interval identity change cancels it. Hook tests will cover both NetFlow renderers while protecting tooltips, legends, series clicks, and the existing device-detail brush mode.
 
 Elixir tests will cover exact inclusive interval metadata, all four Traffic modes, both activity cards, valid and invalid payloads, current-bucket validation, non-time SRQL/URL state preservation while setting `view=explorer`, and the corrected single-bucket boundary. A browser pass will verify each requested card reaches Flow Explorer and that a first-attempt drag survives a qualifying renderer redraw before the Bazel and rollout gates run.
 

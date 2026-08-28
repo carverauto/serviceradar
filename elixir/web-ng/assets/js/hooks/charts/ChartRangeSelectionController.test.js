@@ -196,6 +196,9 @@ describe("ChartRangeSelectionController", () => {
       end: "2026-08-27T12:59:59.999999Z",
     })
     expect(root.capturedPointers.has(7)).toBe(false)
+    expect(documentTarget.listenerCount("pointerup")).toBe(0)
+    expect(documentTarget.listenerCount("click")).toBe(1)
+    documentTarget.dispatch({type: "click"})
     expect(documentTarget.totalListenerCount()).toBe(0)
   })
 
@@ -224,8 +227,31 @@ describe("ChartRangeSelectionController", () => {
       end: "2026-08-27T12:59:59.999999Z",
     })
     expect(root.capturedPointers.has(9)).toBe(false)
-    expect(documentTarget.totalListenerCount()).toBe(0)
+    expect(documentTarget.listenerCount("pointerup")).toBe(0)
+    expect(documentTarget.listenerCount("click")).toBe(1)
     expect(controller.consumeChartClick()).toBe(true)
+    expect(documentTarget.totalListenerCount()).toBe(0)
+    expect(controller.consumeChartClick()).toBe(false)
+  })
+
+  it("clears click suppression when a coalesced drag clicks outside the chart root", () => {
+    const documentTarget = element()
+    const root = element()
+    root.ownerDocument = documentTarget
+    const config = {
+      ...options({root}),
+      continuationXForEvent: (event) => event.clientX,
+      viewXForEvent: (event) => (event.outside ? null : event.clientX),
+    }
+    const controller = new ChartRangeSelectionController(config)
+
+    config.svg.dispatch(pointer("pointerdown", 0, 15))
+    documentTarget.dispatch({...pointer("pointerup", 100, 15), outside: true})
+
+    expect(config.emit).toHaveBeenCalledOnce()
+    expect(documentTarget.listenerCount("click")).toBe(1)
+    documentTarget.dispatch({type: "click"})
+    expect(documentTarget.listenerCount("click")).toBe(0)
     expect(controller.consumeChartClick()).toBe(false)
   })
 

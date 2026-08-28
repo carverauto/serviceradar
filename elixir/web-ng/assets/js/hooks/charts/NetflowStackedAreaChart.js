@@ -265,7 +265,7 @@ export default {
     const buckets = rangeBucketsForScale(intervals, x, renderedTimes)
     this._rangeEmitter ||= ({start, end}) => this.pushEvent(this.el.dataset.rangeEvent, {start, end})
 
-    const viewXForEvent = (event) => {
+    const viewPointForEvent = (event, continuing = false) => {
       const rect = svg?.getBoundingClientRect()
       if (!rect || rect.width <= 0 || rect.height <= 0) return null
 
@@ -275,13 +275,14 @@ export default {
       const plotX = svgX - marginLeft
       const plotY = svgY - marginTop
 
-      if (plotX < 0 || plotX > plotWidth || plotY < 0 || plotY > height) return null
-      return plotX
+      if (!continuing && (plotX < 0 || plotX > plotWidth || plotY < 0 || plotY > height)) return null
+      return Math.max(0, Math.min(plotWidth, plotX))
     }
 
     const options = {
       bindingKey: JSON.stringify([eventName, buckets, marginLeft, marginTop, plotWidth, height]),
       buckets,
+      continuationXForEvent: (event) => viewPointForEvent(event, true),
       emit: this._rangeEmitter,
       eventKey: eventName,
       overlay,
@@ -289,7 +290,7 @@ export default {
       root: this.el,
       status,
       svg,
-      viewXForEvent,
+      viewXForEvent: viewPointForEvent,
     }
 
     if (this.rangeController) {

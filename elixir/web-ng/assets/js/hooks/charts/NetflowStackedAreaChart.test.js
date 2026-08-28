@@ -751,6 +751,29 @@ describe("NetflowStackedAreaChart lifecycle", () => {
     expect(ctx.rangeController.consumeChartClick()).toBe(false)
   })
 
+  it("commits a coalesced drag whose first sampled endpoint is below the plot", () => {
+    const el = root()
+    const pushEvent = vi.fn()
+    const ctx = {el, pushEvent, ...NetflowStackedAreaChart}
+    const nodes = rangeNodes()
+    const x = d3
+      .scaleTime()
+      .domain([new Date(intervals[0].start), new Date(intervals[2].start)])
+      .range([0, 446])
+
+    ctx._updateRangeSelection({...nodes, height: 198, intervals, marginLeft: 44, plotWidth: 446, x})
+
+    nodes.svg.dispatch(pointer("pointerdown", 44, 14, 100))
+    nodes.svg.dispatch(pointer("pointerup", 490, 14, 215))
+
+    expect(pushEvent).toHaveBeenCalledOnce()
+    expect(pushEvent).toHaveBeenCalledWith("netflow_range_selected", {
+      start: intervals[0].start,
+      end: intervals[2].end,
+    })
+    expect(ctx.rangeController.consumeChartClick()).toBe(true)
+  })
+
   it("preserves capture on unchanged update, rebinds changed geometry, and destroys listeners", () => {
     const el = root()
     const ctx = {el, pushEvent: vi.fn(), ...NetflowStackedAreaChart}

@@ -16,6 +16,7 @@ export default class ChartRangeSelectionController {
     this.suppressChartClick = false
     this.cleanup = null
     this.gestureCleanup = null
+    this.clickCleanup = null
     this.update(options)
   }
 
@@ -102,7 +103,7 @@ export default class ChartRangeSelectionController {
 
   consumeChartClick() {
     const suppress = this.suppressChartClick
-    this.suppressChartClick = false
+    this.clearChartClickSuppression()
     return suppress
   }
 
@@ -171,7 +172,7 @@ export default class ChartRangeSelectionController {
     if (!pointer || pointer.pointerId !== event.pointerId || !this.displacementQualifies(event, pointer)) return
 
     this.capturePointer()
-    const activeIndex = this.bucketIndexForEvent(event)
+    const activeIndex = this.bucketIndexForEvent(event, true)
     if (activeIndex === null) return
 
     this.anchorIndex = pointer.anchorIndex
@@ -183,7 +184,7 @@ export default class ChartRangeSelectionController {
     const pointer = this.pointer
     if (!pointer || pointer.pointerId !== event.pointerId) return
 
-    const releaseIndex = this.bucketIndexForEvent(event)
+    const releaseIndex = this.bucketIndexForEvent(event, true)
     const activeIndex = releaseIndex ?? pointer.lastRenderedActiveIndex
     const moved = this.displacementQualifies(event, pointer) && activeIndex !== null
     this.releasePointerCapture()
@@ -199,7 +200,7 @@ export default class ChartRangeSelectionController {
     this.activeIndex = activeIndex
     this.renderSelection()
     this.emitSelection()
-    this.suppressChartClick = true
+    this.armChartClickSuppression()
   }
 
   pointerCancel(event) {
@@ -243,8 +244,12 @@ export default class ChartRangeSelectionController {
     return Math.abs(event.clientX - pointer.clientX) > DRAG_THRESHOLD_PX
   }
 
-  bucketIndexForEvent(event) {
-    return nearestRangeBucketIndex(this.options.buckets, this.options.viewXForEvent(event))
+  bucketIndexForEvent(event, continuing = false) {
+    let viewX = this.options.viewXForEvent(event)
+    if (viewX === null && continuing && typeof this.options.continuationXForEvent === "function") {
+      viewX = this.options.continuationXForEvent(event)
+    }
+    return nearestRangeBucketIndex(this.options.buckets, viewX)
   }
 
   renderSelection() {
@@ -276,7 +281,7 @@ export default class ChartRangeSelectionController {
   resetSelection() {
     this.cancelSelection()
     this.activeIndex = null
-    this.suppressChartClick = false
+    this.clearChartClickSuppression()
   }
 
   cancelSelection() {
@@ -331,6 +336,25 @@ export default class ChartRangeSelectionController {
   stopTrackingGesture() {
     this.gestureCleanup?.()
     this.gestureCleanup = null
+  }
+
+  armChartClickSuppression() {
+    this.clearChartClickSuppression()
+    this.suppressChartClick = true
+
+    const root = this.options?.root
+    const target = root?.ownerDocument
+    if (!target || target === root || typeof target.addEventListener !== "function") return
+
+    const onClick = () => this.clearChartClickSuppression()
+    target.addEventListener("click", onClick)
+    this.clickCleanup = () => target.removeEventListener("click", onClick)
+  }
+
+  clearChartClickSuppression() {
+    this.clickCleanup?.()
+    this.clickCleanup = null
+    this.suppressChartClick = false
   }
 
   releasePointerCapture() {

@@ -109,7 +109,7 @@ export default {
     const viewWidth = viewBox?.length === 4 && Number.isFinite(viewBox[2]) ? viewBox[2] : Number(root.dataset.chartWidth)
     const viewHeight = viewBox?.length === 4 && Number.isFinite(viewBox[3]) ? viewBox[3] : Number(root.dataset.chartHeight)
 
-    const viewPoint = (event) => {
+    const viewPoint = (event, continuing = false) => {
       const rect = svg?.getBoundingClientRect()
       if (!rect || rect.width <= 0 || rect.height <= 0 || !Number.isFinite(viewWidth) || !Number.isFinite(viewHeight)) {
         return null
@@ -117,13 +117,14 @@ export default {
 
       const x = ((event.clientX - rect.left) / rect.width) * viewWidth
       const y = ((event.clientY - rect.top) / rect.height) * viewHeight
-      if (x < 0 || x > viewWidth || y < 10 || y > 150) return null
-      return x
+      if (!continuing && (x < 0 || x > viewWidth || y < 10 || y > 150)) return null
+      return Math.max(0, Math.min(viewWidth, x))
     }
 
     return {
       bindingKey: `${serializedBuckets ?? ""}\u0000${eventName ?? ""}`,
       buckets,
+      continuationXForEvent: (event) => viewPoint(event, true),
       emit: typeof eventName === "string" && eventName.length > 0 ? this._rangeEmitter : null,
       eventKey: eventName,
       overlay,
