@@ -47,6 +47,7 @@ defmodule ServiceRadarAgentGateway.JetStreamPublisher do
   alias ServiceRadar.Edge.PublicationIdentity
   alias ServiceRadar.Edge.PublisherLane
   alias ServiceRadar.Edge.PublisherPool
+  alias ServiceRadar.Edge.PublishWindow
   alias ServiceRadar.Edge.StreamRoute
   alias ServiceRadar.NATS.Connection
 
@@ -89,15 +90,41 @@ defmodule ServiceRadarAgentGateway.JetStreamPublisher do
     with {:ok, route} <- wrap(StreamRoute.resolve(contract)),
          {:ok, lane} <- resolve_lane(contract),
          {:ok, bytes} <- record_bytes(publication),
-         {:ok, seq} <- sequence_of(publication),
+         {:ok, key} <- reservation_key(publication),
+         # EVERY fallible local derivation completes BEFORE a credit is taken. Headers were
+         # derived after admission, so a publication with a routable contract, a binary body and a
+         # positive sequence could still fail the UUID/digest/proof checks -- performing no I/O
+         # and leaving a reservation charged against the lane forever.
+         {:ok, headers} <- headers_for(route, publication),
          {:ok, pool} <- pool_for(lane, opts),
-         :ok <- admit(pool, seq, byte_size(bytes), opts),
-         {:ok, headers} <- headers_for(route, publication) do
+         :ok <- admit(pool, key, bytes, publication, opts) do
       route
       |> request(lane, bytes, headers, opts)
-      |> settle(pool, seq)
+      |> settle(pool, key)
     end
   end
+
+  # The COMPLETE authenticated slot, which is what a reservation is keyed on. The lane sequence
+  # alone aliases: one pool serves every agent and spool in its class, so two agents at sequence 1
+  # looked like one frame retrying -- the second published on the first's credits and its ack
+  # released the first's reservation.
+  defp reservation_key(publication) do
+    slot = Map.get(publication, :slot, %{})
+
+    key =
+      PublishWindow.key(
+        Map.get(slot, :network_scope_id),
+        Map.get(slot, :authenticated_agent_id),
+        Map.get(slot, :spool_id),
+        Map.get(slot, :sequence)
+      )
+
+    {:ok, key}
+  end
+
+  # What makes a republish provably the SAME publication. Both halves matter: the digest identifies
+  # the record, and the size is what the byte credits were charged on.
+  defp fingerprint_of(publication, bytes), do: {Map.get(publication, :record_sha256), byte_size(bytes)}
 
   # The lane's window, resolved BEFORE anything is published. Failing closed when no pool is
   # running is deliberate: a publish with no window is an unbounded publish, which is the state
@@ -121,19 +148,25 @@ defmodule ServiceRadarAgentGateway.JetStreamPublisher do
   # outstanding on purpose -- the publisher republishes the same bytes on the same slot, so
   # re-admitting would hand the same budget out twice and let the in-flight total exceed the
   # grant. Republishing under the credits already held is the designed path.
-  defp admit(pool, seq, bytes, opts) do
+  defp admit(pool, key, bytes, publication, opts) do
     deadline = System.monotonic_time(:millisecond) + timeout_of(opts)
+    fingerprint = fingerprint_of(publication, bytes)
 
-    case PublisherPool.admit(pool, seq, bytes, deadline) do
+    case PublisherPool.admit(pool, key, byte_size(bytes), deadline, fingerprint) do
+      # Covers BOTH a new reservation and a republish of the same record on the same slot. The
+      # window recognises the retry by fingerprint, charges nothing further, AND RE-ARMS THE
+      # DEADLINE -- a retry that kept the expired one would be reported expired forever.
       :ok ->
-        :ok
-
-      {:error, :already_outstanding} ->
         :ok
 
       {:error, exhausted} when exhausted in [:frame_credits_exhausted, :byte_credits_exhausted] ->
         # Withhold progress on publisher saturation rather than publishing past the grant.
         {:error, :capacity}
+
+      # A DIFFERENT record claiming a slot that is already reserved. Not retryable against the
+      # broker -- nothing it can do makes two records one slot -- so it is a derivation refusal.
+      {:error, :slot_conflict} ->
+        {:error, {:derivation, :slot_conflict}}
 
       {:error, reason} ->
         {:error, {:derivation, reason}}
@@ -148,27 +181,17 @@ defmodule ServiceRadarAgentGateway.JetStreamPublisher do
   # The outcome here is an ACCOUNTING outcome, not a disposition. This publisher writes one record
   # to its resolved route and does not yet compute audit/quarantine/security-quarantine routing;
   # that mapping is task 3.5 and supplies the outcome when it lands.
-  defp settle({:ok, _ack} = result, pool, seq) do
-    _ = PublisherPool.settle(pool, seq, :primary_publication)
+  defp settle({:ok, _ack} = result, pool, key) do
+    _ = PublisherPool.settle(pool, key, :primary_publication)
     result
   end
 
-  defp settle({:error, :poison} = result, pool, seq) do
-    _ = PublisherPool.settle(pool, seq, :permanent_rejection)
+  defp settle({:error, :poison} = result, pool, key) do
+    _ = PublisherPool.settle(pool, key, :permanent_rejection)
     result
   end
 
-  defp settle(result, _pool, _seq), do: result
-
-  # REQUIRED, and validated here rather than let through: PublishWindow keys credits on it, so a
-  # missing or non-positive sequence would either raise inside the window or silently share one
-  # slot across records.
-  defp sequence_of(publication) do
-    case publication |> Map.get(:slot, %{}) |> Map.get(:sequence) do
-      seq when is_integer(seq) and seq > 0 -> {:ok, seq}
-      _ -> {:error, {:derivation, :sequence}}
-    end
-  end
+  defp settle(result, _pool, _key), do: result
 
   defp timeout_of(opts), do: Keyword.get(opts, :receive_timeout, @default_timeout)
 

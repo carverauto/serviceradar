@@ -44,8 +44,8 @@ defmodule ServiceRadar.Edge.PublisherSupervisor do
 
   use Supervisor
 
+  alias ServiceRadar.Edge.LaneSupervisor
   alias ServiceRadar.Edge.PublisherLane
-  alias ServiceRadar.Edge.PublisherPool
   alias ServiceRadar.NATS.Supervisor, as: NATSSupervisor
 
   require Logger
@@ -70,38 +70,40 @@ defmodule ServiceRadar.Edge.PublisherSupervisor do
   end
 
   @doc """
-  Connection children, one per lane.
+  One lane restart-unit per `PublisherLane.lanes/0`, or NOTHING.
 
-  Built from `NATSSupervisor.child_specs/3` with the SAME settings the shared connection uses --
-  host, auth, creds and TLS belong to the deployment, not to a lane.
+  Returns `[]` when the NATS settings cannot be built. That is deliberate and it is the corrected
+  behaviour: an earlier version turned a settings error into an empty CONNECTION list but still
+  appended all three pools, so `init/1` succeeded with windows whose named connections could not
+  exist -- admitting frames against transport that was never going to be there, while claiming the
+  connection/window pairing was structural. Publishing then fails closed for want of a pool, which
+  is the safe direction.
   """
-  def connection_child_specs do
+  def child_specs(opts \\ []) do
     case NATSSupervisor.connection_settings() do
       {:ok, settings, backoff} ->
-        NATSSupervisor.child_specs(lane_connection_names(), settings, backoff)
+        Enum.map(PublisherLane.lanes(), fn lane ->
+          Supervisor.child_spec(
+            {LaneSupervisor,
+             lane: lane,
+             connection_settings: settings,
+             backoff_period: backoff,
+             credits: credits_for(lane, opts)},
+            id: LaneSupervisor.via(lane)
+          )
+        end)
 
       {:error, reason} ->
-        Logger.error("edge publisher connections unavailable: #{inspect(reason)}")
+        Logger.error(
+          "edge publisher lanes not started: NATS settings unavailable (#{inspect(reason)}). " <>
+            "Publishes will fail closed rather than run unbounded."
+        )
+
         []
     end
   end
 
-  @doc "Pool children, one per lane, registered under `PublisherPool.via/1`."
-  def pool_child_specs(opts \\ []) do
-    Enum.map(PublisherLane.lanes(), fn lane ->
-      Supervisor.child_spec(
-        {PublisherPool, [class: lane, name: PublisherPool.via(lane)] ++ credits_for(lane, opts)},
-        # PublisherPool's default child id is the MODULE, so three of them collide and only the
-        # first starts. The registered name is unique per lane already.
-        id: PublisherPool.via(lane)
-      )
-    end)
-  end
-
-  @doc "Every child: each lane's connection first, then each lane's pool."
-  def child_specs(opts \\ []), do: connection_child_specs() ++ pool_child_specs(opts)
-
-  @doc "The lane connection names this supervisor owns."
+  @doc "The lane connection names this supervisor owns, through its lane units."
   def lane_connection_names, do: Enum.map(PublisherLane.lanes(), &PublisherLane.connection_name/1)
 
   @impl true
